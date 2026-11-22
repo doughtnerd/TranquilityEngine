@@ -132,6 +132,19 @@ describe("control paths", () => {
     expect(control("<Pointer>/delta")!.additive).toBe(true);
     expect(control("<Gamepad>/nope")).toBeNull();
   });
+
+  it("names touch and pen controls", () => {
+    expect(control("<Touch>/primary")!.source).toEqual({ device: "touch", read: "press", slot: -1 });
+    expect(control("<Touchscreen>/touch3")!.path).toBe("<Touch>/touch3");
+    expect(control("<Touch>/touch9Position")!).toMatchObject({ source: { device: "touch", read: "position", slot: 9 }, dimensions: 2 });
+    expect(control("<Touch>/primaryDelta")!.additive).toBe(true);
+    expect(control("<Touch>/pinch")!).toMatchObject({ dimensions: 1, additive: true });
+    expect(control("<Touch>/touch10")).toBeNull();
+    expect(control("<Pen>/eraser")!.source).toEqual({ device: "pen", read: "button", bit: 2 });
+    expect(control("<Pen>/tilt")!.dimensions).toBe(2);
+    expect(control("<Pen>/pressure")!.dimensions).toBe(1);
+    expect(control("<Pen>/nope")).toBeNull();
+  });
 });
 
 /** A sink that records what an adapter reports. */
@@ -151,6 +164,13 @@ function recorder() {
     gamepadButton: (id, i, v) => log.push(["button", id, i, v]),
     gamepadAxis: (id, i, v) => log.push(["axis", id, i, v]),
     gamepadSensor: (id, kind) => log.push(["sensor", id, kind]),
+    touchStart: () => {},
+    touchMove: () => {},
+    touchEnd: () => {},
+    penAt: () => {},
+    penButtonDown: () => {},
+    penButtonUp: () => {},
+    penLeave: () => {},
   };
   return { sink, log };
 }

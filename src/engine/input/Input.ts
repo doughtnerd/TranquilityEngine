@@ -61,6 +61,13 @@ const injector: DeviceEventSink = {
   gamepadButton: (id, index, value) => devices.gamepadButton(id, index, value),
   gamepadAxis: (id, index, value) => devices.gamepadAxis(id, index, value),
   gamepadSensor: (id, kind, x, y, z) => devices.gamepadSensor(id, kind, x, y, z),
+  touchStart: (id, x, y) => devices.touchStart(id, x, y),
+  touchMove: (id, x, y) => devices.touchMove(id, x, y),
+  touchEnd: (id, x, y) => devices.touchEnd(id, x, y),
+  penAt: (x, y, pressure, tiltX, tiltY, twist) => devices.penAt(x, y, pressure, tiltX, tiltY, twist),
+  penButtonDown: (button) => devices.penButtonDown(button),
+  penButtonUp: (button) => devices.penButtonUp(button),
+  penLeave: () => devices.penLeave(),
 };
 
 function keyboardAndPointer(): void {
@@ -108,7 +115,7 @@ export class Input {
     return live() && devices.keyboardOverUI;
   }
 
-  /** Mouse button / touch (button 0) held. */
+  /** Mouse button held; the primary touch and the pen's tip are button 0 (the DOM adapter reports them as the pointer). */
   static getMouseButton(button = 0): boolean {
     return Input.getKey(mouseKey(button));
   }
@@ -143,7 +150,9 @@ export class Input {
    * Report device events yourself, as an adapter does (ADR 0337): virtual devices (on-screen
    * controls), automation, replaying raw input, tests. Events reach the game at the next frame's
    * snapshot, through UI routing, the device entities and actions, like real devices'. Gamepads
-   * are identified by any id ≥ 0 you choose; announce one with `gamepadConnected` first.
+   * are identified by any id ≥ 0 you choose; announce one with `gamepadConnected` first. Touches
+   * and the pen are devices of their own here: unlike the DOM adapter, injecting them doesn't also
+   * move or press the pointer.
    *
    * ```ts
    * Input.inject.gamepadConnected({ id: 7, name: "Virtual pad", family: "xbox" });

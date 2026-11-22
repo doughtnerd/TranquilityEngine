@@ -1,22 +1,24 @@
 /**
- * The device snapshot (ADR 0310, 0335): the Engine's one keyboard and pointer and its gamepads,
- * shared by its Worlds.
+ * The device snapshot (ADR 0310, 0335): the Engine's one keyboard and pointer, its touchscreen and
+ * pen, and its gamepads, shared by its Worlds.
  *
  * - **Input end** (`DeviceEventSink`): adapters (the DOM listener, `domDevices.ts`; the gamepad
  *   adapters, `webGamepads.ts` and `tauriGamepads.ts`) report device events as they happen; keys,
- *   buttons, movement, scroll and gamepad changes queue, timestamped, until the next snapshot.
+ *   buttons, movement, scroll, touches, pen samples and gamepad changes queue, timestamped, until
+ *   the next snapshot.
  * - **Snapshot** (`beginFrame`, ADR 0011 step 2): once per Engine frame, applies the queue, then the
  *   routing step.
  * - **Routing step** (ADR 0069): each router (the UI core) is handed what the pointer did this frame
  *   and answers what it claims; this frame's mouse presses over claimed UI then go to the UI until
- *   they're released.
+ *   they're released, and so do the primary touch and the pen's buttons pressed in that frame (the
+ *   DOM adapter reports them as the pointer too).
  * - **Reading end**: what the game sees after routing, which the `Input` getters and each World's
  *   input systems (`deviceEntities.ts`, ADR 0335) read, plus the frame's raw device events.
  *
  * Nothing here is public API: scripts read `Input` and actions; `Input.inject` is the input end.
  */
 import { Vector2 } from "../core/math";
-import { GAMEPAD_AXES, GAMEPAD_BUTTONS, PRESS_POINT, normalizeKey, type DeviceFamily } from "./controls";
+import { GAMEPAD_AXES, GAMEPAD_BUTTONS, PEN_BUTTONS, PRESS_POINT, TOUCH_SLOTS, normalizeKey, type DeviceFamily } from "./controls";
 
 export { normalizeKey };
 
@@ -42,15 +44,20 @@ export interface GamepadOutput {
   setSensors?(id: number, enabled: boolean): void;
 }
 
-/** The device id the keyboard and the pointer have in raw events (gamepads have their adapter's ids, ≥ 0). */
+/** The device id the keyboard, pointer, touchscreen and pen have in raw events (gamepads have their adapter's ids, ≥ 0). */
 export const KEYBOARD_DEVICE = -1;
 export const POINTER_DEVICE = -2;
+export const TOUCH_DEVICE = -3;
+export const PEN_DEVICE = -4;
+
+/** Bit `PRIMARY_TOUCH` of the touch bitmasks is the primary touch; bits 0–9 are fingers by slot. */
+export const PRIMARY_TOUCH = TOUCH_SLOTS;
 
 /** One raw device event of this frame, after routing (`DeviceEvents`, rebinding, recording). */
 export interface RawDeviceEvent {
-  /** `KEYBOARD_DEVICE`, `POINTER_DEVICE`, or a gamepad's id. */
+  /** `KEYBOARD_DEVICE`, `POINTER_DEVICE`, `TOUCH_DEVICE`, `PEN_DEVICE`, or a gamepad's id. */
   readonly device: number;
-  /** A control path: `<Keyboard>/space`, `<Pointer>/button0`, `<Gamepad>/buttonSouth`, `<Gamepad>/leftStickX`. */
+  /** A control path: `<Keyboard>/space`, `<Pointer>/button0`, `<Gamepad>/buttonSouth`, `<Gamepad>/leftStickX`, `<Touch>/touch0`, `<Pen>/tip`. */
   readonly control: string;
   readonly value: number;
   /** `performance.now()` milliseconds when the adapter reported it. */
@@ -69,6 +76,53 @@ export interface GamepadSnapshot {
   up: number;
   readonly gyro: Float32Array;
   readonly accel: Float32Array;
+}
+
+/**
+ * The touchscreen as the game sees it this frame (after routing). Fingers keep the slot they took
+ * when they touched down (the lowest free one) until they lift. The **primary** touch is the one
+ * that touched down when no other finger was down; it stays primary until it lifts, and the next
+ * primary is the next finger down after every finger has lifted (the browser's `isPrimary`).
+ */
+export interface TouchscreenSnapshot {
+  /** Bits 0–9: the finger in that slot is down (held), touched down this frame, lifted this frame; bit 10 (`PRIMARY_TOUCH`): the primary touch. */
+  readonly held: number;
+  readonly down: number;
+  readonly up: number;
+  /** Fingers down. */
+  readonly count: number;
+  /** Each slot's position in canvas pixels (its last one after it lifts). */
+  readonly x: Float32Array;
+  readonly y: Float32Array;
+  readonly primaryX: number;
+  readonly primaryY: number;
+  /** The primary touch's movement this frame, CSS pixels, +Y down. */
+  readonly primaryDeltaX: number;
+  readonly primaryDeltaY: number;
+  /** How much the distance between the two lowest-slot fingers grew this frame, CSS pixels (negative: pinching in). */
+  readonly pinch: number;
+}
+
+/** The pen as the game sees it this frame (after routing). */
+export interface PenSnapshot {
+  /** Bit i: `PEN_BUTTONS[i]` (tip, barrel, eraser) held, went down this frame, went up this frame. */
+  readonly held: number;
+  readonly down: number;
+  readonly up: number;
+  /** Canvas pixels, and the movement this frame (+Y down). */
+  readonly x: number;
+  readonly y: number;
+  readonly deltaX: number;
+  readonly deltaY: number;
+  /** 0..1 (0 while hovering). */
+  readonly pressure: number;
+  /** -1..1 (±90°): +X tilted right, +Y tilted toward the user (the W3C convention). */
+  readonly tiltX: number;
+  readonly tiltY: number;
+  /** Rotation about its own axis, 0..1 of a turn. */
+  readonly twist: number;
+  /** Hovering or touching within range. */
+  readonly inRange: boolean;
 }
 
 const now = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
@@ -94,6 +148,25 @@ export interface DeviceEventSink {
   gamepadAxis(id: number, index: number, value: number): void;
   /** Motion sensors (the SDL adapter): gyro in rad/s, accelerometer in m/s². */
   gamepadSensor(id: number, kind: "gyro" | "accel", x: number, y: number, z: number): void;
+  /**
+   * A finger touched the touchscreen at canvas pixels. `id` is the adapter's (the DOM's `pointerId`),
+   * the same until it lifts. The DOM adapter also reports the primary touch as the pointer.
+   */
+  touchStart(id: number, x: number, y: number): void;
+  touchMove(id: number, x: number, y: number): void;
+  /** The finger lifted (or the browser cancelled it) at canvas pixels. */
+  touchEnd(id: number, x: number, y: number): void;
+  /**
+   * Where the pen is, hovering or touching: canvas pixels, pressure 0..1, tilt in degrees (-90..90,
+   * +X right, +Y toward the user) and twist in degrees (0..359), as a `PointerEvent` reports them.
+   * The DOM adapter also reports the pen as the pointer.
+   */
+  penAt(x: number, y: number, pressure: number, tiltX: number, tiltY: number, twist: number): void;
+  /** A pen button: 0 the tip touching, 1 the barrel button, 2 the eraser touching (`PEN_BUTTONS`). */
+  penButtonDown(button: number): void;
+  penButtonUp(button: number): void;
+  /** The pen left the range where it's sensed: its buttons are released. */
+  penLeave(): void;
 }
 
 /** What the pointer did this frame, before routing: handed to each router. */
@@ -130,6 +203,225 @@ type PadEvent =
   | { kind: "axis"; id: number; index: number; value: number; time: number }
   | { kind: "sensor"; id: number; sensor: "gyro" | "accel"; x: number; y: number; z: number; time: number };
 
+type TouchEvent = { kind: "start" | "move" | "end"; id: number; x: number; y: number; time: number };
+
+type PenEvent =
+  | { kind: "at"; x: number; y: number; pressure: number; tiltX: number; tiltY: number; twist: number; time: number }
+  | { kind: "down" | "up"; bit: number; time: number }
+  | { kind: "leave"; time: number };
+
+const PRIMARY = 1 << PRIMARY_TOUCH;
+
+/** The touchscreen's state before routing. */
+class Touchscreen {
+  readonly queue: TouchEvent[] = [];
+  /** Each slot's adapter id (-1: free). A slot freed this frame is reused from the next. */
+  readonly ids = new Int32Array(TOUCH_SLOTS).fill(-1);
+  held = 0;
+  down = 0;
+  up = 0;
+  /** Bits lifted this frame: their slots are freed, and the UI's claim on them dropped, next frame. */
+  ended = 0;
+  /** Bits the UI took (the primary touch and its finger, pressed over UI) until they lift. */
+  ui = 0;
+  primaryId = -1;
+  primarySlot = -1;
+  dx = 0;
+  dy = 0;
+  pinchA = -1;
+  pinchB = -1;
+  pinchDistance = 0;
+  /** This frame's touch-downs and lifts, by slot, for the raw events. */
+  readonly changes: { slot: number; value: number; time: number }[] = [];
+  /** What the game sees. */
+  readonly view = { held: 0, down: 0, up: 0, count: 0, x: new Float32Array(TOUCH_SLOTS), y: new Float32Array(TOUCH_SLOTS), primaryX: 0, primaryY: 0, primaryDeltaX: 0, primaryDeltaY: 0, pinch: 0 };
+
+  slotOf(id: number): number {
+    for (let i = 0; i < TOUCH_SLOTS; i++) if (this.ids[i] === id && this.held & (1 << i)) return i;
+    return -1;
+  }
+
+  apply(): void {
+    const v = this.view;
+    for (let i = 0; i < TOUCH_SLOTS; i++) if (this.ended & (1 << i)) this.ids[i] = -1;
+    this.ui &= ~this.ended;
+    this.ended = this.down = this.up = 0;
+    this.dx = this.dy = 0;
+    this.changes.length = 0;
+    for (const ev of this.queue) {
+      if (ev.kind === "start") {
+        if (this.slotOf(ev.id) >= 0) continue;
+        let slot = -1;
+        for (let i = 0; i < TOUCH_SLOTS && slot < 0; i++) if (this.ids[i] === -1) slot = i;
+        if (slot < 0) continue; // more fingers than slots
+        const bit = 1 << slot;
+        this.ids[slot] = ev.id;
+        this.held |= bit;
+        this.down |= bit;
+        v.x[slot] = ev.x;
+        v.y[slot] = ev.y;
+        this.changes.push({ slot, value: 1, time: ev.time });
+        if (this.primaryId === -1 && (this.held & ~bit & ~PRIMARY) === 0) {
+          this.primaryId = ev.id;
+          this.primarySlot = slot;
+          this.held |= PRIMARY;
+          this.down |= PRIMARY;
+          v.primaryX = ev.x;
+          v.primaryY = ev.y;
+        }
+        continue;
+      }
+      const slot = this.slotOf(ev.id);
+      if (slot < 0) continue;
+      if (ev.id === this.primaryId) {
+        this.dx += ev.x - v.primaryX;
+        this.dy += ev.y - v.primaryY;
+        v.primaryX = ev.x;
+        v.primaryY = ev.y;
+      }
+      v.x[slot] = ev.x;
+      v.y[slot] = ev.y;
+      if (ev.kind === "end") {
+        const bit = 1 << slot;
+        this.held &= ~bit;
+        this.up |= bit;
+        this.ended |= bit;
+        this.changes.push({ slot, value: 0, time: ev.time });
+        if (ev.id === this.primaryId) {
+          this.primaryId = -1;
+          this.held &= ~PRIMARY;
+          this.up |= PRIMARY;
+          this.ended |= PRIMARY;
+        }
+      }
+    }
+    this.queue.length = 0;
+  }
+
+  /** After routing: the primary touch pressed this frame over claimed UI is the UI's until it lifts. */
+  route(pointerToUI: boolean): void {
+    if (pointerToUI && this.down & PRIMARY) this.ui |= PRIMARY | (1 << this.primarySlot);
+    const v = this.view;
+    const game = ~this.ui;
+    v.held = this.held & game;
+    v.down = this.down & game;
+    v.up = this.up & game;
+    v.count = 0;
+    let a = -1;
+    let b = -1;
+    for (let i = 0; i < TOUCH_SLOTS; i++) {
+      if (!(v.held & (1 << i))) continue;
+      v.count++;
+      if (a < 0) a = i;
+      else if (b < 0) b = i;
+    }
+    v.primaryDeltaX = this.dx;
+    v.primaryDeltaY = this.dy;
+    // Pinch: the change in distance between the same two fingers since last frame.
+    v.pinch = 0;
+    if (b >= 0) {
+      const d = Math.hypot(v.x[b] - v.x[a], v.y[b] - v.y[a]);
+      if (this.pinchA === this.ids[a] && this.pinchB === this.ids[b]) v.pinch = d - this.pinchDistance;
+      this.pinchA = this.ids[a];
+      this.pinchB = this.ids[b];
+      this.pinchDistance = d;
+    } else this.pinchA = this.pinchB = -1;
+  }
+
+  /** Lift every finger (the devices lost focus). */
+  releaseAll(time: number): void {
+    for (let i = 0; i < TOUCH_SLOTS; i++) if (this.held & (1 << i)) this.queue.push({ kind: "end", id: this.ids[i], x: this.view.x[i], y: this.view.y[i], time });
+  }
+
+  reset(): void {
+    this.queue.length = 0;
+    this.ids.fill(-1);
+    this.held = this.down = this.up = this.ended = this.ui = 0;
+    this.primaryId = this.primarySlot = this.pinchA = this.pinchB = -1;
+    this.dx = this.dy = 0;
+    this.changes.length = 0;
+    const v = this.view;
+    v.held = v.down = v.up = v.count = 0;
+    v.primaryDeltaX = v.primaryDeltaY = v.pinch = 0;
+  }
+}
+
+/** The pen's state before routing. */
+class Pen {
+  readonly queue: PenEvent[] = [];
+  held = 0;
+  down = 0;
+  up = 0;
+  /** Buttons the UI took (pressed in a frame the pointer was over UI) until they're released. */
+  ui = 0;
+  readonly changes: { bit: number; value: number; time: number }[] = [];
+  readonly view = { held: 0, down: 0, up: 0, x: 0, y: 0, deltaX: 0, deltaY: 0, pressure: 0, tiltX: 0, tiltY: 0, twist: 0, inRange: false };
+
+  apply(): void {
+    const v = this.view;
+    this.ui &= this.held;
+    this.down = this.up = 0;
+    v.deltaX = v.deltaY = 0;
+    this.changes.length = 0;
+    const release = (bit: number, time: number) => {
+      if (!(this.held & (1 << bit))) return;
+      this.held &= ~(1 << bit);
+      this.up |= 1 << bit;
+      this.changes.push({ bit, value: 0, time });
+    };
+    for (const ev of this.queue) {
+      if (ev.kind === "at") {
+        if (v.inRange) {
+          v.deltaX += ev.x - v.x;
+          v.deltaY += ev.y - v.y;
+        }
+        v.x = ev.x;
+        v.y = ev.y;
+        v.pressure = clamp(ev.pressure, 0, 1);
+        v.tiltX = clamp(ev.tiltX / 90, -1, 1);
+        v.tiltY = clamp(ev.tiltY / 90, -1, 1);
+        v.twist = Number.isFinite(ev.twist) ? (((ev.twist % 360) + 360) % 360) / 360 : 0;
+        v.inRange = true;
+      } else if (ev.kind === "down") {
+        const bit = 1 << ev.bit;
+        if (this.held & bit) continue;
+        this.held |= bit;
+        this.down |= bit;
+        this.changes.push({ bit: ev.bit, value: 1, time: ev.time });
+      } else if (ev.kind === "up") release(ev.bit, ev.time);
+      else {
+        for (let i = 0; i < PEN_BUTTONS.length; i++) release(i, ev.time);
+        v.inRange = false;
+        v.pressure = 0;
+      }
+    }
+    this.queue.length = 0;
+  }
+
+  /** After routing: buttons pressed this frame while the pointer is over claimed UI are the UI's until released. */
+  route(pointerToUI: boolean): void {
+    if (pointerToUI) this.ui |= this.down;
+    const v = this.view;
+    v.held = this.held & ~this.ui;
+    v.down = this.down & ~this.ui;
+    v.up = this.up & ~this.ui;
+  }
+
+  releaseAll(time: number): void {
+    for (let i = 0; i < PEN_BUTTONS.length; i++) if (this.held & (1 << i)) this.queue.push({ kind: "up", bit: i, time });
+  }
+
+  reset(): void {
+    this.queue.length = 0;
+    this.held = this.down = this.up = this.ui = 0;
+    this.changes.length = 0;
+    const v = this.view;
+    v.held = v.down = v.up = 0;
+    v.deltaX = v.deltaY = v.pressure = 0;
+    v.inRange = false;
+  }
+}
+
 class DeviceSnapshot implements DeviceEventSink {
   private readonly queue: QueuedEvent[] = [];
   private readonly heldKeys = new Set<string>();
@@ -160,6 +452,11 @@ class DeviceSnapshot implements DeviceEventSink {
   frame = 0;
   /** True while an adapter reports a keyboard and pointer (the DOM adapter, or `Input.inject`). */
   hasKeyboardAndPointer = false;
+  /** True once an adapter has reported a touch, or a pen, until the devices are reset. */
+  hasTouch = false;
+  hasPen = false;
+  private readonly touchscreen = new Touchscreen();
+  private readonly penDevice = new Pen();
   /** Adapters that read their devices by polling (the Gamepad API), called first in each snapshot. */
   private readonly pollers = new Set<() => void>();
 
@@ -196,6 +493,8 @@ class DeviceSnapshot implements DeviceEventSink {
   releaseAll(): void {
     const time = now();
     for (const k of this.heldKeys) this.queue.push({ down: false, key: k, time });
+    this.touchscreen.releaseAll(time);
+    this.penDevice.releaseAll(time);
   }
 
   gamepadConnected(info: GamepadInfo): void {
@@ -216,6 +515,41 @@ class DeviceSnapshot implements DeviceEventSink {
 
   gamepadSensor(id: number, sensor: "gyro" | "accel", x: number, y: number, z: number): void {
     this.padQueue.push({ kind: "sensor", id, sensor, x, y, z, time: now() });
+  }
+
+  touchStart(id: number, x: number, y: number): void {
+    this.hasTouch = true;
+    this.touchscreen.queue.push({ kind: "start", id, x, y, time: now() });
+  }
+
+  touchMove(id: number, x: number, y: number): void {
+    this.hasTouch = true;
+    this.touchscreen.queue.push({ kind: "move", id, x, y, time: now() });
+  }
+
+  touchEnd(id: number, x: number, y: number): void {
+    this.hasTouch = true;
+    this.touchscreen.queue.push({ kind: "end", id, x, y, time: now() });
+  }
+
+  penAt(x: number, y: number, pressure: number, tiltX: number, tiltY: number, twist: number): void {
+    this.hasPen = true;
+    this.penDevice.queue.push({ kind: "at", x, y, pressure, tiltX, tiltY, twist, time: now() });
+  }
+
+  penButtonDown(button: number): void {
+    this.hasPen = true;
+    if (button >= 0 && button < PEN_BUTTONS.length) this.penDevice.queue.push({ kind: "down", bit: button, time: now() });
+  }
+
+  penButtonUp(button: number): void {
+    this.hasPen = true;
+    if (button >= 0 && button < PEN_BUTTONS.length) this.penDevice.queue.push({ kind: "up", bit: button, time: now() });
+  }
+
+  penLeave(): void {
+    this.hasPen = true;
+    this.penDevice.queue.push({ kind: "leave", time: now() });
   }
 
   // --- Snapshot and routing ---------------------------------------------------------------------
@@ -248,6 +582,8 @@ class DeviceSnapshot implements DeviceEventSink {
     }
     this.queue.length = 0;
     this.applyPads();
+    this.touchscreen.apply();
+    this.penDevice.apply();
     this.moved.copy(this.pendingMove);
     this.pendingMove.set(0, 0);
     this.scrolled.copy(this.pendingScroll);
@@ -264,6 +600,10 @@ class DeviceSnapshot implements DeviceEventSink {
         time: ev.time,
       });
     }
+    const touch = this.touchscreen;
+    for (const c of touch.changes) if (!(touch.ui & (1 << c.slot))) this.rawEvents.push({ device: TOUCH_DEVICE, control: `<Touch>/touch${c.slot}`, value: c.value, time: c.time });
+    const pen = this.penDevice;
+    for (const c of pen.changes) if (!(pen.ui & (1 << c.bit))) this.rawEvents.push({ device: PEN_DEVICE, control: `<Pen>/${PEN_BUTTONS[c.bit]}`, value: c.value, time: c.time });
     this.rawEvents.sort((a, b) => a.time - b.time);
   }
 
@@ -369,6 +709,8 @@ class DeviceSnapshot implements DeviceEventSink {
     }
     for (const k of this.upNow) if (this.uiHeld.delete(k)) this.uiUp.add(k);
     for (const k of this.uiHeld) if (!this.heldKeys.has(k)) this.uiHeld.delete(k);
+    this.touchscreen.route(this.pointerToUI);
+    this.penDevice.route(this.pointerToUI);
   }
 
   /** Forget everything held and queued (the devices were detached). */
@@ -393,6 +735,9 @@ class DeviceSnapshot implements DeviceEventSink {
     this.uiHeld.clear();
     this.uiDown.clear();
     this.uiUp.clear();
+    this.touchscreen.reset();
+    this.penDevice.reset();
+    this.hasTouch = this.hasPen = false;
   }
 
   // --- Reading end: what the game sees after routing -------------------------------------------
@@ -459,6 +804,16 @@ class DeviceSnapshot implements DeviceEventSink {
   }
   get pointerY(): number {
     return this.pointer.y;
+  }
+
+  /** The touchscreen this frame, after routing. */
+  get touch(): TouchscreenSnapshot {
+    return this.touchscreen.view;
+  }
+
+  /** The pen this frame, after routing. */
+  get pen(): PenSnapshot {
+    return this.penDevice.view;
   }
 
   /** The connected gamepads. */

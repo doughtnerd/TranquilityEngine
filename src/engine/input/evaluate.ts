@@ -29,7 +29,7 @@ import { ActionEvents, ActionPhase, EDGE_FLAGS, actionSets, type ActionEventPhas
 import type { InputContextSpec, MappingSpec, ModifierSpec } from "./contextTypes";
 import { DEFAULT_CONTEXT, InputContext, activeContexts, bindingsVersion, registeredContexts, resolveContext } from "./contexts";
 import { PRESS_POINT, requireControl, type Control } from "./controls";
-import { DeviceKind, GamepadState, InputDevice, deviceNodes, takesLocalInput } from "./deviceEntities";
+import { DeviceKind, GamepadState, InputDevice, PenState, TouchState, deviceNodes, takesLocalInput } from "./deviceEntities";
 import { devices, mouseKey } from "./devices";
 import { compileModifier, deadzone, type Modifier } from "./modifiers";
 import { ControlledBy, InputPlayer, playerNodes } from "./players";
@@ -355,11 +355,17 @@ interface Paired {
   keyboardFamily: number;
   pointer: boolean;
   pointerFamily: number;
+  /** The paired touchscreen's and pen's state (`TouchState`, `PenState`), or null. */
+  touch: Record<string, number> | null;
+  touchFamily: number;
+  pen: Record<string, number> | null;
+  penFamily: number;
   readonly pads: { view: Record<string, number>; family: number }[];
 }
 
 function pairedDevices(world: World, index: number, out: Paired): Paired {
   out.keyboard = out.pointer = false;
+  out.touch = out.pen = null;
   out.pads.length = 0;
   for (const d of deviceNodes(world)) {
     if (!d.isValid) continue;
@@ -371,6 +377,12 @@ function pairedDevices(world: World, index: number, out: Paired): Paired {
     } else if (data.kind === DeviceKind.pointer) {
       out.pointer = true;
       out.pointerFamily = data.family;
+    } else if (data.kind === DeviceKind.touch) {
+      out.touch = d.getData(TouchState) as Record<string, number> | null;
+      out.touchFamily = data.family;
+    } else if (data.kind === DeviceKind.pen) {
+      out.pen = d.getData(PenState) as Record<string, number> | null;
+      out.penFamily = data.family;
     } else {
       const view = d.getData(GamepadState) as Record<string, number> | null;
       if (view) out.pads.push({ view, family: data.family });
@@ -382,7 +394,7 @@ function pairedDevices(world: World, index: number, out: Paired): Paired {
 /** The family of the device the last `read` took its value from. */
 let readFamily = 0;
 
-/** Read `c` for a player into `out` (components; +Y up for sticks, the d-pad and pointer delta/scroll). */
+/** Read `c` for a player into `out` (components; +Y up for sticks, the d-pad, deltas, scroll and pen tilt). */
 function read(c: Control, paired: Paired, out: Float32Array): void {
   out[0] = out[1] = out[2] = 0;
   const s = c.source;
@@ -407,6 +419,65 @@ function read(c: Control, paired: Paired, out: Float32Array): void {
       out[0] = devices.pointerX;
       out[1] = devices.pointerY;
     }
+    return;
+  }
+  if (s.device === "touch") {
+    const t = paired.touch;
+    if (!t) return;
+    switch (s.read) {
+      case "press": {
+        const bit = 1 << (s.slot < 0 ? 10 : s.slot);
+        out[0] = (t.held | t.down) & bit ? 1 : 0;
+        break;
+      }
+      case "position":
+        out[0] = s.slot < 0 ? t.primaryX : t[`x${s.slot}`];
+        out[1] = s.slot < 0 ? t.primaryY : t[`y${s.slot}`];
+        break;
+      case "delta":
+        out[0] = t.primaryDeltaX;
+        out[1] = 0 - t.primaryDeltaY; // never -0
+        break;
+      case "pinch":
+        out[0] = t.pinch;
+        break;
+      case "count":
+        out[0] = t.count;
+        break;
+    }
+    readFamily = paired.touchFamily;
+    return;
+  }
+  if (s.device === "pen") {
+    const p = paired.pen;
+    if (!p) return;
+    switch (s.read) {
+      case "button":
+        out[0] = (p.held | p.down) & (1 << s.bit) ? 1 : 0;
+        break;
+      case "position":
+        out[0] = p.x;
+        out[1] = p.y;
+        break;
+      case "delta":
+        out[0] = p.deltaX;
+        out[1] = 0 - p.deltaY;
+        break;
+      case "tilt":
+        out[0] = p.tiltX;
+        out[1] = 0 - p.tiltY;
+        break;
+      case "pressure":
+        out[0] = p.pressure;
+        break;
+      case "twist":
+        out[0] = p.twist;
+        break;
+      case "inRange":
+        out[0] = p.inRange;
+        break;
+    }
+    readFamily = paired.penFamily;
     return;
   }
   // Gamepads: the paired pad with the largest reading.
@@ -512,7 +583,7 @@ interface Accum {
   family: number;
 }
 
-const paired: Paired = { keyboard: false, keyboardFamily: 0, pointer: false, pointerFamily: 1, pads: [] };
+const paired: Paired = { keyboard: false, keyboardFamily: 0, pointer: false, pointerFamily: 1, touch: null, touchFamily: 6, pen: null, penFamily: 7, pads: [] };
 const value = new Float32Array(3);
 
 function matches(list: readonly string[] | undefined, set: ActionSetDef, a: ActionInfo): boolean {

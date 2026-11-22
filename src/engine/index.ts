@@ -54,8 +54,8 @@ export { DEFAULT_CONTEXT, InputContext, defineInputContext, type InputContextSpe
 export type { CustomTriggerSpec } from "./input/contextTypes";
 export { TriggerState, defineTrigger, type CustomTrigger, type TriggerFactory, type TriggerStateValue, type TriggerWorld } from "./input/triggers";
 export { ConnectionPlayer } from "./input/inputNet";
-export { GAMEPAD_AXES, GAMEPAD_BUTTONS, type DeviceFamily } from "./input/controls";
-export { DeviceEvents, DeviceKind, GamepadState, InputDevice, type DeviceEvent } from "./input/deviceEntities";
+export { GAMEPAD_AXES, GAMEPAD_BUTTONS, PEN_BUTTONS, TOUCH_SLOTS, type DeviceFamily } from "./input/controls";
+export { DeviceEvents, DeviceKind, GamepadState, InputDevice, PenState, TouchState, type DeviceEvent } from "./input/deviceEntities";
 export type { DeviceEventSink, GamepadInfo } from "./input/devices";
 export { InputPlayers, PlayerInput } from "./input/facade";
 export { ControlledBy, InputPlayer, PlayerJoined, PlayerLeft, type PlayerChange } from "./input/players";
