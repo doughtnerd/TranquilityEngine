@@ -4,6 +4,7 @@
 // reference whose file changed (`Assets.onChanged`), so a runtime caching it reloads it.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, Locale, MemoryStorage } from "../../myco";
+import { parseLanguages } from "./languages";
 
 const LANGUAGES = {
   list: [{ code: "en" }, { code: "fr" }, { code: "fr-CA", fallback: ["fr"] }, { code: "de" }],
@@ -24,7 +25,7 @@ const FILES = {
 
 const engines: Engine[] = [];
 async function boot(): Promise<Engine> {
-  const engine = await Engine.create({ headless: true, project: { languages: LANGUAGES }, assets: Assets.fromObject({ ...FILES }), storage: new MemoryStorage() });
+  const engine = await Engine.create({ headless: true, project: { languages: parseLanguages(LANGUAGES).languages }, assets: Assets.fromObject({ ...FILES }), storage: new MemoryStorage() });
   engines.push(engine);
   return engine;
 }
