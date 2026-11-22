@@ -151,6 +151,7 @@ dependencies = [
  "anim-graph",
  "anim-match",
  "anim-math",
+ "anim-meter",
  "anim-offline",
  "anim-physics",
  "anim-plugin-sdk",
