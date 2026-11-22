@@ -37,11 +37,27 @@ describe("containers (ADR 0158 nodes)", () => {
     expect(notes).toEqual([]);
   });
 
-  it("a looping clip loops its sample (on) and plays until stopped", () => {
-    const { playlist, notes } = mig({ root: clip("a.wav", { loop: true }) });
-    expect(sampleOf(playlist).loop).toBe("on");
+  it("a looping clip plays its sample's loop (inherit), asks for an endless loop over the whole clip, and plays until stopped", () => {
+    const { playlist, loops, notes } = mig({ root: clip("a.wav", { loop: true }) }, lengths({ "a.wav": 2 }));
+    expect(sampleOf(playlist)).toMatchObject({ sample: "a.wav", loop: "inherit", trim: null });
     expect(playlist.playback.plays).toBe("untilStopped");
-    hasNote(notes, `"inherit"`);
+    expect(loops).toEqual([{ sample: "a.wav", request: { sample: "a.wav", region: null, whole: [0, 2], active: "always", exit: "finish", exitFadeMs: 0 } }]);
+    expect(notes).toEqual([]);
+  });
+
+  it("a looping clip whose loop can't be placed (no length, no region) loops the whole clip in the voice (on), noted", () => {
+    const { playlist, loops, notes } = mig({ root: clip("a.wav", { loop: true }) });
+    expect(sampleOf(playlist).loop).toBe("on");
+    expect(loops).toEqual([]);
+    hasNote(notes, `it loops the whole clip ("on")`);
+  });
+
+  it("the caller places the loop: the clip names the sample (or derived sample) it returns", () => {
+    const asked: unknown[] = [];
+    const { playlist, loops } = mig({ root: clip("a.wav", { loop: true, loopRegion: [0.5, 1.5] }) }, { placeLoop: (r) => (asked.push(r), "a.loop1.sample.json") });
+    expect(asked).toEqual([{ sample: "a.wav", region: [0.5, 1.5], whole: null, active: "always", exit: "finish", exitFadeMs: 0 }]);
+    expect(sampleOf(playlist)).toMatchObject({ sample: "a.loop1.sample.json", loop: "inherit" });
+    expect(loops.map((l) => l.sample)).toEqual(["a.loop1.sample.json"]);
   });
 
   it("startOffset becomes a trim when the sample's length is known, else a note", () => {
@@ -51,25 +67,35 @@ describe("containers (ADR 0158 nodes)", () => {
     hasNote(without.notes, "startOffset 0.25 s needs the sample's length");
   });
 
-  it("loop + loopRegion → a one-clip Sequence whose loop is the region (always), shifted by the start offset", () => {
-    const { playlist } = mig({ root: clip("a.wav", { loop: true, loopRegion: [0.5, 1.5], startOffset: 0.25 }) }, lengths({ "a.wav": 3 }));
-    expect(playlist.type).toBe("sequence");
-    const seq = playlist.sequence!;
-    expect(seq.length).toBe(2.75);
-    expect(seq.tracks).toHaveLength(1);
-    expect(seq.tracks[0]).toMatchObject({ kind: "audio", clips: [{ sample: "a.wav", at: 0, length: 2.75, offset: 0.25 }] });
-    expect(seq.loops).toEqual([{ id: "l1", start: 0.25, end: 1.25, active: "always", exit: "finish", exitFadeMs: 0, reentry: "ignore" }]);
+  it("loop + loopRegion → a Clip whose sample plays the region as its own endless loop (sample time), trimmed by the start offset", () => {
+    const { playlist, loops } = mig({ root: clip("a.wav", { loop: true, loopRegion: [0.5, 1.5], startOffset: 0.25 }) }, lengths({ "a.wav": 3 }));
+    expect(playlist.type).toBe("clip");
+    expect(playlist.sequence).toBeNull();
+    expect(sampleOf(playlist)).toMatchObject({ sample: "a.wav", loop: "inherit", trim: [0.25, 3] });
+    expect(loops.map((l) => l.request)).toEqual([{ sample: "a.wav", region: [0.5, 1.5], whole: [0.25, 3], active: "always", exit: "finish", exitFadeMs: 0 }]);
     expect(playlist.playback.plays).toBe("untilStopped");
   });
 
-  it("a sustain clip → a held sequence loop over its region (or the whole clip)", () => {
-    const region = mig({ root: clip("a.wav", { sustain: true, loopRegion: [0.5, 1.5] }) }, lengths({ "a.wav": 2 })).playlist;
-    expect(region.sequence!.loops[0]).toMatchObject({ start: 0.5, end: 1.5, active: "held", exit: "finish" });
-    expect(region.playback.plays).toBe("oneShot");
-    const whole = mig({ root: clip("a.wav", { sustain: true }) }, lengths({ "a.wav": 2 })).playlist;
-    expect(whole.sequence!.loops[0]).toMatchObject({ start: 0, end: 2, active: "held" });
+  it("a loop region the start offset skips is dropped, noted", () => {
+    const { playlist, loops, notes } = mig({ root: clip("a.wav", { loop: true, loopRegion: [0.5, 1], startOffset: 1.25 }) }, lengths({ "a.wav": 3 }));
+    expect(sampleOf(playlist).loop).toBe("off");
+    expect(loops).toEqual([]);
+    hasNote(notes, "the loop region ends before the start offset");
+  });
+
+  it("a sustain clip → a one-clip Sequence with no sequence loop; its sample's loop is held and finishes its pass on release", () => {
+    const region = mig({ root: clip("a.wav", { sustain: true, loopRegion: [0.5, 1.5] }) }, lengths({ "a.wav": 2.5 }));
+    const seq = region.playlist.sequence!;
+    expect(seq).toMatchObject({ length: 2.5, loops: [] });
+    expect(seq.tracks).toHaveLength(1);
+    expect(seq.tracks[0]).toMatchObject({ kind: "audio", clips: [{ sample: "a.wav", at: 0, length: 2.5, offset: 0, sync: false }] });
+    expect(region.playlist.playback.plays).toBe("oneShot");
+    expect(region.loops.map((l) => l.request)).toEqual([{ sample: "a.wav", region: [0.5, 1.5], whole: [0, 2.5], active: "held", exit: "finish", exitFadeMs: 0 }]);
+    const whole = mig({ root: clip("a.wav", { sustain: true }) }, lengths({ "a.wav": 2 }));
+    expect(whole.loops.map((l) => [l.request.region, l.request.whole])).toEqual([[null, [0, 2]]]);
     const unknown = mig({ root: clip("a.wav", { sustain: true }) });
     expect(unknown.playlist.sequence!.loops).toEqual([]);
+    expect(unknown.loops).toEqual([]);
     hasNote(unknown.notes, "length unknown");
   });
 
@@ -165,6 +191,36 @@ describe("containers (ADR 0158 nodes)", () => {
     expect(sustain.clips.map((c) => [c.at, c.length])).toEqual([[0, 1], [3, 0.5]]);
     expect(seq.tracks.find((t) => t.name === "Loop")!.clips).toMatchObject([{ sample: "l.wav", at: 1, length: 2 }]);
     expect(seq.loops).toEqual([{ id: "l1", start: 1.5, end: 2.5, active: "held", exit: "crossfade", exitFadeMs: 100, reentry: "ignore" }]);
+  });
+
+  it("a sustain's loop clip also holds its sample's loop, released as the sustain releases it", () => {
+    const { loops } = mig({
+      root: { type: "sustain", start: clip("s.wav"), loop: clip("l.wav", { loop: true, loopRegion: [0.5, 1.5] }), end: clip("e.wav"), release: "now", releaseFade: 0.1 },
+    }, lengths({ "s.wav": 1, "l.wav": 2, "e.wav": 0.5 }));
+    expect(loops.map((l) => l.request)).toEqual([{ sample: "l.wav", region: [0.5, 1.5], whole: [0, 2], active: "held", exit: "crossfade", exitFadeMs: 100 }]);
+    const jump = mig({ root: { type: "sustain", loop: clip("l.wav"), release: "now" } }, lengths({ "l.wav": 2 }));
+    expect(jump.loops.map((l) => l.request)).toEqual([{ sample: "l.wav", region: null, whole: [0, 2], active: "held", exit: "jump", exitFadeMs: 0 }]);
+  });
+
+  it("clips under a non-clip loop section (the Sound Lab engine's blend) are Clips holding their samples' loops until the sustain's release", () => {
+    const { playlist, loops } = mig({
+      parameters: [{ name: "RPM", min: 0, max: 1 }],
+      root: {
+        type: "sustain", start: clip("s.wav"), end: clip("e.wav"), release: "now", fade: 0.12,
+        loop: { type: "blend", parameter: "RPM", children: [clip("a.wav", { loop: true, loopRegion: [0.15, 1.15], range: [0, 0.1], fade: 0.4 }), clip("b.wav", { range: [0.9, 1], fade: 0.4 })] },
+      },
+    }, lengths({ "s.wav": 0.9, "a.wav": 1.3, "b.wav": 1.3, "e.wav": 1.2 }));
+    const blend = playlist.sequence!.tracks[0].clips[1].playlist as PlaylistBody;
+    expect(blend.type).toBe("blend");
+    expect(blend.entries.map((e) => sampleOf((e as EmbeddedEntry).embedded))).toMatchObject([{ sample: "a.wav", loop: "inherit" }, { sample: "b.wav", loop: "inherit" }]);
+    expect(loops.map((l) => l.request)).toEqual([
+      { sample: "a.wav", region: [0.15, 1.15], whole: [0, 1.3], active: "held", exit: "crossfade", exitFadeMs: 120 },
+      // The old runtime looped every clip under a sustain's loop section, `loop` or not.
+      { sample: "b.wav", region: null, whole: [0, 1.3], active: "held", exit: "crossfade", exitFadeMs: 120 },
+    ]);
+    expect(playlist.sequence!.loops).toEqual([{ id: "l1", start: 0.9, end: 2.2, active: "held", exit: "crossfade", exitFadeMs: 120, reentry: "ignore" }]);
+    // The start and end sections don't loop.
+    expect(playlist.sequence!.tracks[0].clips.map((c) => (c.playlist as PlaylistBody).entries[0])).toMatchObject([{ loop: "off" }, {}, { loop: "off" }]);
   });
 
   it("sustain release loopEnd finishes the pass; a non-clip loop section is a playlist clip (noted)", () => {

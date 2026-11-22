@@ -197,7 +197,7 @@ export class SampleLoopPlanner {
         out.writes.set(sidecar, JSON.stringify(raw, null, 2) + "\n");
         (st.raw ? out.changedSidecars : out.newSidecars).push(sidecar);
         const loops = st.edits.loops.filter((l) => st.claimed.has(l.id));
-        out.notes.push(`${sidecar}: ${st.raw ? "now holds" : "written with"} the sample loop${loops.length > 1 ? "s" : ""} ${loops.map((l) => `${l.id} (${describe(l)})`).join(", ")} for ${by(sidecar)}.`);
+        out.notes.push(`${sidecar}: ${st.raw ? "now holds" : "written with"} the sample loop${loops.length > 1 ? "s" : ""} ${loops.map((l) => `${l.id} at ${describe(l)}`).join("; ")} for ${by(sidecar)}.`);
       }
       for (const d of st.derived) {
         const base = st.broken ? defaultSampleEdits() : st.edits;
