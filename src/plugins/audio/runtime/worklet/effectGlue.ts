@@ -351,6 +351,8 @@ export class EffectGlue {
       for (const s of fx.slots) s.healthy = false;
     }
     this.recover();
+    // Main hears the effect is on again at once (stats it posted before the reset still say "disabled").
+    this.postStats();
   }
 
   // --- per quantum ------------------------------------------------------------------------------------------------

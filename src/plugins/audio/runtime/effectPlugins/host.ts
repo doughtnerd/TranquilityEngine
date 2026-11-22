@@ -25,6 +25,11 @@ export interface EffectPluginHostDeps {
   warnOnce(key: string, line: string): void;
   /** The capture's sink (`NULL_PROFILE_SINK` while none runs). */
   profile(): ProfileSink;
+  /**
+   * The kinds plugin types encode to changed (a registration, a removal): the backend sends its bus tree again, so a
+   * bus that names a plugin effect runs it (instances opened before keep what they were given).
+   */
+  kindsChanged(): void;
 }
 
 /** The core's glide modes for an effect's parameters: bit i log2 (`scale: "log"`), bit 16 + i stepped (`smooth: false`). */
@@ -54,6 +59,8 @@ interface Registered {
 interface Row {
   e: number;
   state: "live" | "disabled";
+  /** Reset sent: stats the glue posted before it handled the reset (still "disabled") don't turn the row off again. */
+  resetting: boolean;
   instances: number;
   inUse: number;
   instructions: number;
@@ -105,18 +112,28 @@ export class EffectPluginHost implements AudioEffectPlugins {
       reg.settle = resolve;
     });
     this.send(reg);
+    this.deps.kindsChanged();
     return done;
   }
 
   unregister(plugin: string): void {
-    for (const [id, r] of this.modules) if (r.module.plugin === plugin) this.drop(id);
+    let dropped = false;
+    for (const [id, r] of this.modules) {
+      if (r.module.plugin !== plugin) continue;
+      this.drop(id);
+      dropped = true;
+    }
+    if (dropped) this.deps.kindsChanged();
   }
 
   reset(type: string): void {
     const e = this.indices.get(type);
     if (e === undefined || !this.byIndex.has(e)) return;
     const row = this.rows.get(e);
-    if (row) row.state = "live";
+    if (row) {
+      row.state = "live";
+      row.resetting = true;
+    }
     this.deps.post({ type: "fxReset", e: [e] }, []);
   }
 
@@ -224,6 +241,7 @@ export class EffectPluginHost implements AudioEffectPlugins {
     } else {
       reg.state = "failed";
       reg.error = event.error;
+      this.deps.kindsChanged();
       this.deps.warnOnce(`plugin-load:${reg.module.plugin}:${reg.module.module}`, `audio: the plugin ${reg.module.plugin}'s module ${reg.module.module} didn't load (${event.error}); its effects pass audio through.`);
       reg.settle?.({ ok: false, error: event.error });
     }
@@ -251,6 +269,8 @@ export class EffectPluginHost implements AudioEffectPlugins {
       const at = this.byIndex.get(r.e);
       if (!at) continue;
       const row = this.rows.get(r.e) ?? this.blankRow(r.e, at.reg);
+      if (row.resetting && r.state === "disabled") continue;
+      row.resetting = false;
       row.state = r.state;
       row.instances = r.instances;
       row.inUse = r.inUse;
@@ -264,7 +284,7 @@ export class EffectPluginHost implements AudioEffectPlugins {
   }
 
   private blankRow(e: number, reg: Registered): Row {
-    return { e, state: "live", instances: reg.entries.find((x) => x.e === e)?.maxInstances ?? 0, inUse: 0, instructions: 0, faults: zeroFaults(), starved: 0, noInstance: 0, memoryBytes: reg.memoryBytes };
+    return { e, state: "live", resetting: false, instances: reg.entries.find((x) => x.e === e)?.maxInstances ?? 0, inUse: 0, instructions: 0, faults: zeroFaults(), starved: 0, noInstance: 0, memoryBytes: reg.memoryBytes };
   }
 }
 

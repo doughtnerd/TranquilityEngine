@@ -195,6 +195,9 @@ pub fn process(e: &mut Effect, l: &mut [f32], r: &mut [f32], fuel: &mut Fuel) ->
         if e.handle == 0 {
             return i32::MIN;
         }
+        // A module that loaded after the slot was configured: its modes and budget are known now.
+        e.modes = imp::describe(p, DESCRIBE_MODES);
+        e.budget = imp::describe(p, DESCRIBE_BUDGET);
     }
     let mut p0 = [0.0f32; PARAMS];
     let mut flags = e.plugin_block(n as u32, &mut p0);

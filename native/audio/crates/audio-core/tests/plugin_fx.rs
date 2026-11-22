@@ -41,11 +41,15 @@ struct GainHost {
     budget: u32,
     modes: u32,
     fault: Rc<RefCell<bool>>,
+    /// The module isn't loaded: no instance, and `describe` knows nothing yet.
+    loading: Rc<RefCell<bool>>,
+    /// The next `process` answers `STALE` (the module was reloaded).
+    stale: Rc<RefCell<bool>>,
 }
 
 impl Host for GainHost {
     fn acquire(&mut self, e: u32) -> u32 {
-        if e != E {
+        if e != E || *self.loading.borrow() {
             return 0;
         }
         let mut s = self.seen.borrow_mut();
@@ -58,7 +62,9 @@ impl Host for GainHost {
         self.seen.borrow_mut().released.push(handle);
     }
     fn describe(&mut self, _e: u32, what: u32) -> u32 {
-        if what == ext::DESCRIBE_BUDGET {
+        if *self.loading.borrow() {
+            0
+        } else if what == ext::DESCRIBE_BUDGET {
             self.budget
         } else {
             self.modes
@@ -66,6 +72,9 @@ impl Host for GainHost {
     }
     fn process(&mut self, handle: u32, l: &mut [f32], r: &mut [f32], p0: &[f32; 16], p1: &[f32; 16], flags: u32, fuel: u32) -> i32 {
         self.seen.borrow_mut().calls.push((handle, *p0, *p1, flags, fuel));
+        if self.stale.replace(false) {
+            return ext::STALE;
+        }
         if *self.fault.borrow() || fuel == 0 {
             return -1;
         }
@@ -87,6 +96,8 @@ struct Rig {
     m: Mixer,
     seen: Rc<RefCell<Seen>>,
     fault: Rc<RefCell<bool>>,
+    loading: Rc<RefCell<bool>>,
+    stale: Rc<RefCell<bool>>,
 }
 
 impl Drop for Rig {
@@ -98,10 +109,12 @@ impl Drop for Rig {
 fn rig(budget: u32, modes: u32) -> Rig {
     let seen = Rc::new(RefCell::new(Seen::default()));
     let fault = Rc::new(RefCell::new(false));
-    ext::install(Some(Box::new(GainHost { seen: seen.clone(), budget, modes, fault: fault.clone() })));
+    let loading = Rc::new(RefCell::new(false));
+    let stale = Rc::new(RefCell::new(false));
+    ext::install(Some(Box::new(GainHost { seen: seen.clone(), budget, modes, fault: fault.clone(), loading: loading.clone(), stale: stale.clone() })));
     let mut m = Mixer::new(4);
     m.set_lookahead(0.0);
-    Rig { m, seen, fault }
+    Rig { m, seen, fault, loading, stale }
 }
 
 fn p16(v: &[f32]) -> [f32; 16] {
@@ -228,6 +241,46 @@ fn a_kind_change_releases_the_instance_and_an_edit_glides_between_block_edges() 
     r.m.submit(&[tree(vec![wire::BusConfigBusesEffects { type_: wire::BUS_FX_CATALOGUE + wire::SUBMIX_FX_GAIN, p: p16(&[-6.0]) }])]);
     assert_eq!(r.seen.borrow().released, [101]);
     assert!(r.seen.borrow().swept.is_empty());
+}
+
+#[test]
+fn a_slot_configured_before_its_module_loaded_gets_an_instance_and_budget_once_it_has() {
+    let mut r = rig(300, 0);
+    *r.loading.borrow_mut() = true;
+    r.m.submit(&[tree(vec![bus_plugin(&[0.5])]), dc(V1, 0, 0.0)]);
+    assert!((last_left(&mut r.m) - DRY).abs() < 1e-6, "no instance yet: dry");
+    assert!(r.seen.borrow().calls.is_empty(), "and no call");
+    *r.loading.borrow_mut() = false;
+    let out = last_left(&mut r.m);
+    assert!((out - 0.5 * DRY).abs() < 1e-4, "{out}");
+    let s = r.seen.borrow();
+    assert_eq!((s.calls[0].0, s.calls[0].4), (101, 300 * 128), "the instance and the budget it reads on acquiring");
+}
+
+#[test]
+fn a_stale_handle_is_forgotten_and_the_slot_asks_for_a_new_instance() {
+    let mut r = rig(100, 0);
+    r.m.submit(&[tree(vec![bus_plugin(&[0.5])]), dc(V1, 0, 0.0)]);
+    last_left(&mut r.m);
+    *r.stale.borrow_mut() = true;
+    assert!((last_left(&mut r.m) - DRY).abs() < 1e-6, "the stale block passes dry");
+    assert!((last_left(&mut r.m) - 0.5 * DRY).abs() < 1e-4);
+    assert_eq!(r.seen.borrow().acquired, [101, 102], "a new instance");
+}
+
+#[test]
+fn a_stepped_parameter_set_alone_flags_its_block_as_changed() {
+    let mut r = rig(100, 1 << 16);
+    r.m.submit(&[tree(vec![bus_plugin(&[0.0])]), dc(V1, 0, 0.0)]);
+    last_left(&mut r.m);
+    last_left(&mut r.m);
+    r.m.submit(&[tree(vec![bus_plugin(&[1.0])])]);
+    last_left(&mut r.m);
+    last_left(&mut r.m);
+    let s = r.seen.borrow();
+    let flags: Vec<u32> = s.calls.iter().map(|c| c.3 & wire::FX_PLUGIN_FLAG_PARAMS).collect();
+    assert_eq!(flags, [1, 0, 1, 0], "changed on the block the stepped value arrives in, and only then");
+    assert_eq!((s.calls[2].1[0], s.calls[2].2[0]), (1.0, 1.0), "stepped: both edges at the new value");
 }
 
 #[test]

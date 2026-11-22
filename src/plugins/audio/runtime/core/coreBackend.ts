@@ -519,6 +519,9 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
       post: (message, transfer) => host.link.postControl?.(message, transfer),
       warnOnce: (key, message) => this.warnOnce(key, message),
       profile: () => this.profile,
+      kindsChanged: () => {
+        if (!this.session.disposed) this.configureBuses(this.mixer);
+      },
     });
     this.replayer = new Replayer(this.view, host.link);
     // ADR 0176: the core voice, over the parts above (closures read the backend lazily: the buses come next).

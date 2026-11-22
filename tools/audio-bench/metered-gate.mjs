@@ -74,6 +74,10 @@ const SCENES = [
   "fx-submix-pitch",
   "fx-submix-formant",
   "fx-sidechain",
+  // ADR 0338 (ABI 5.0): 32 bus and 64 submix plugin slots through the `myco_ext` import (a stub host, `pluginHost`), beside
+  // the same slots on the catalogue's gain. The plugins' own work runs in their own modules and isn't counted here.
+  "fx-plugins",
+  "fx-plugins-twin",
   // ADR 0330 (ABI 4.7): 12 buses each sending into two returns.
   "bus-sends",
   "automation-virtual",
@@ -250,12 +254,29 @@ function readJson(path, what) {
   }
 }
 
+/**
+ * ADR 0338 (ABI 5.0): the `myco_ext` import the core calls for plugin effects, as a stub host: every effect has
+ * instances (handles from 1), a budget of 50 instructions a frame and no log or stepped parameters, and each call uses
+ * its whole grant and leaves the block as it is. What it costs in JS isn't counted (the meter counts the bench's wasm).
+ */
+function pluginHost() {
+  let next = 1;
+  return {
+    acquire: () => next++,
+    release: () => {},
+    describe: (_e, what) => (what === 1 ? 50 : 0),
+    process: (_h, _l, _r, _frames, _p0, _p1, _flags, fuel) => (fuel === 0 ? -2 : fuel << 1),
+    sweep: () => {},
+  };
+}
+
 /** Runs one scene on a fresh instance of `module`; returns the bench's result line. */
 function runScene(module, scene) {
   let memory = null;
   let counter = null;
   const lines = [];
   const instance = new WebAssembly.Instance(module, {
+    myco_ext: pluginHost(),
     env: {
       // ms, as `performance.now()` would give: the bench multiplies by 1,000 for µs.
       bench_now: () => Number(counter.value) / 1000,

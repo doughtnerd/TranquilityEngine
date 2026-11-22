@@ -6,9 +6,10 @@
 //! - 1 `biquad8`: an 8-stage stereo TDF-II low-pass cascade, p[0] cutoff (Hz), p[1] Q (a heavy, realistic kernel for
 //!   the fuel overhead measurement).
 //! - 2 `hog`: allocates 256 KiB in `new` and passes audio through (the allocator must give it back on destroy).
-//! - 3 `trap` (ADR 0338 B4, the glue's fault tests): `p1[0]` picks what `process` does: 0 passes the block through
-//!   untouched, 1 executes `unreachable`, 2 writes a NaN, 3 grows its memory by a page (a module fault: `process` must
-//!   never grow), 4 loops for ever (its fuel runs out), 5 writes a sample of 1000 (beyond ±64). A stepped parameter.
+//! - 3 `trap` (ADR 0338 B4, the glue's fault tests): `p1[0]` picks what `process` does: 0 halves the block (so a test
+//!   tells it from the dry block a fault leaves), 1 executes `unreachable`, 2 writes a NaN, 3 grows its memory by a page (a
+//!   module fault: `process` must never grow), 4 loops for ever (its fuel runs out), 5 writes a sample of 1000 (beyond ±64).
+//!   Each fault happens once, on the block whose parameters changed to it (`Flags::params_changed`); later blocks halve.
 #![cfg_attr(target_arch = "wasm32", no_std)]
 
 extern crate alloc;
@@ -92,14 +93,21 @@ impl Effect for Trap {
         Trap
     }
     fn reset(&mut self) {}
-    fn process(&mut self, l: &mut [f32], r: &mut [f32], _p0: &[f32; PARAMS], p1: &[f32; PARAMS], _flags: Flags) -> Status {
-        match p1[0] as u32 {
+    fn process(&mut self, l: &mut [f32], r: &mut [f32], _p0: &[f32; PARAMS], p1: &[f32; PARAMS], flags: Flags) -> Status {
+        // A fault happens once, on the block its mode arrives in (`params_changed`); later blocks are halved.
+        let mode = if flags.params_changed() { p1[0] as u32 } else { 0 };
+        match mode {
             1 => trap(),
             2 => l[0] = f32::NAN,
             3 => grow(),
             4 => spin(l),
             5 => r[0] = 1000.0,
-            _ => {}
+            _ => {
+                // A healthy block is halved, so a test tells the plugin's output from the dry block a fault leaves.
+                for x in l.iter_mut().chain(r.iter_mut()) {
+                    *x *= 0.5;
+                }
+            }
         }
         Status::Ok
     }
@@ -212,10 +220,10 @@ mod tests {
     }
 
     #[test]
-    fn trap_mode_0_passes_the_block_through_and_5_writes_out_of_range() {
+    fn trap_mode_0_halves_the_block_and_5_writes_out_of_range() {
         let (l, r, status) = run(3, 0.25, params(&[0.0]), params(&[0.0]), 128);
         assert_eq!(status, 0);
-        assert!(l.iter().chain(r.iter()).all(|&x| x == 0.25));
+        assert!(l.iter().chain(r.iter()).all(|&x| x == 0.125));
         let (l, r, _) = run(3, 0.25, params(&[5.0]), params(&[5.0]), 128);
         assert_eq!((l[0], r[0]), (0.25, 1000.0));
         let (l, _, _) = run(3, 0.25, params(&[2.0]), params(&[2.0]), 128);

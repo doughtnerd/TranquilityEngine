@@ -157,6 +157,9 @@ pub struct Effect {
     pub modes: u32,
     /// ABI 5.0, a plugin kind only: its instruction budget per frame (the manifest's), set by the owner.
     pub budget: u32,
+    /// ABI 5.0, a plugin kind only: non-zero when a parameter was set (configured or automated) since its last block, so
+    /// the block's `FLAG_PARAMS` is set even for a stepped parameter, which moves without a glide.
+    pub dirty: u32,
     /// Filters: the filter (`bq[0]`), the EQ's three bands.
     pub bq: [Biquad; 3],
     pub crush: shape::CrushState,
@@ -251,8 +254,12 @@ impl Effect {
         self.kind = kind;
         self.on = on as u32;
         self.sample_rate = sample_rate;
+        let before = self.target;
         for (t, v) in self.target.iter_mut().zip(p.iter()) {
             *t = if v.is_finite() { *v } else { 0.0 };
+        }
+        if self.target != before {
+            self.dirty = 1;
         }
         if self.running == 0 {
             self.cur = self.target;
@@ -280,6 +287,7 @@ impl Effect {
             return;
         }
         self.target[i] = v;
+        self.dirty = 1;
         if self.running == 0 || is_discrete(self.kind, self.modes, i) {
             self.cur[i] = v;
             return;
@@ -310,7 +318,7 @@ impl Effect {
 
     /// ABI 5.0 (ADR 0338), a plugin kind's block: the glide steps over `n` frames as a built-in's
     /// would, `p0` gets the parameters at the block's start (`cur` holds those at its end), and the
-    /// result is the call's flags: `FLAG_PARAMS` when they moved or the block is the slot's first,
+    /// result is the call's flags: `FLAG_PARAMS` when they moved (a stepped one set included) or the block is the slot's first,
     /// `FLAG_RESET` on its first block since it was made or reset. A stepped parameter has the same
     /// value at both ends.
     pub fn plugin_block(&mut self, n: u32, p0: &mut [f32; PARAMS]) -> u32 {
@@ -318,7 +326,9 @@ impl Effect {
         let moved = self.step(n);
         let first = self.running == 0;
         self.running = 1;
-        (if moved || first { plugin_flags::PARAMS } else { 0 }) | (if first { plugin_flags::RESET } else { 0 })
+        let changed = moved || first || self.dirty != 0;
+        self.dirty = 0;
+        (if changed { plugin_flags::PARAMS } else { 0 }) | (if first { plugin_flags::RESET } else { 0 })
     }
 
     /// One glide step over `n` frames; `true` when the parameters moved.

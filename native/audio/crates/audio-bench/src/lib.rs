@@ -571,6 +571,12 @@ pub enum Catalogue {
     Sidechain,
     /// Buses 4..: two post-fader sends each, into buses 1 and 2 (returns; ADR 0330, ABI 4.7).
     Sends,
+    /// ADR 0338 (ABI 5.0): every bus runs four plugin effects (e 0..3) and every submix two (e 4, 5), each with three
+    /// parameters, through the `myco_ext` import (the metered gate's stub host answers; natively no host: pass-through).
+    Plugins,
+    /// `Plugins`' twin: the same slots running the catalogue's gain at 0 dB (the core's cost of a plugin slot is the
+    /// difference, less the plugin's own work, which runs in its own module).
+    PluginsTwin,
 }
 
 /// The frozen scenes by name.
@@ -644,6 +650,9 @@ pub fn scene(name: &str) -> Option<Scene> {
         "fx-submix-pitch" => Scene { submixes: 32, catalogue: Some(Catalogue::Submix(wire::SUBMIX_FX_PITCH, [7.0, 0.0, 0.0])), ..Scene::looping(name, 128) },
         "fx-submix-formant" => Scene { submixes: 32, catalogue: Some(Catalogue::Submix(wire::SUBMIX_FX_FORMANT, [4.0, 0.0, 0.0])), ..Scene::looping(name, 128) },
         "fx-sidechain" => Scene { buses: 16, catalogue: Some(Catalogue::Sidechain), ..Scene::looping(name, 32) },
+        // ADR 0338 (ABI 5.0): 32 bus plugin slots and 64 submix plugin slots, and their twin on the catalogue's gain.
+        "fx-plugins" => Scene { buses: 8, submixes: 32, catalogue: Some(Catalogue::Plugins), ..Scene::looping(name, 128) },
+        "fx-plugins-twin" => Scene { buses: 8, submixes: 32, catalogue: Some(Catalogue::PluginsTwin), ..Scene::looping(name, 128) },
         // ADR 0330 (ABI 4.7): 16 buses, 12 sending into two returns (buses 1 and 2).
         "bus-sends" => Scene { buses: 16, catalogue: Some(Catalogue::Sends), ..Scene::looping(name, 32) },
         // Not gated: the timed control-rate pass of `automation`, and the virtual scene's twin without bindings.
@@ -1504,6 +1513,16 @@ impl Bench {
                     effects.push(cat(wire::SUBMIX_FX_LIMITER, [-1.0, 50.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
                 }
                 Some(Catalogue::Sidechain) if i >= 4 => effects.push(cat(wire::SUBMIX_FX_SIDECHAIN, [-30.0, 4.0, 200.0, 1.0, 0.0, 0.0, 0.0])),
+                Some(Catalogue::Plugins) => {
+                    for e in 0..4 {
+                        effects.push(cat(wire::FX_PLUGIN_BASE + e, [5.0 + e as f32, 50.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
+                    }
+                }
+                Some(Catalogue::PluginsTwin) => {
+                    for _ in 0..4 {
+                        effects.push(cat(wire::SUBMIX_FX_GAIN, [0.0; 7]));
+                    }
+                }
                 _ => {}
             }
             buses.push(wire::BusConfigBuses { parent, effects });
@@ -1559,6 +1578,8 @@ impl Bench {
             // ADR 0331: a 1.2 kHz low-pass, then a compressor (catalogue parameters); an `fx-submix-*` scene's one kind.
             let effects = match s.catalogue {
                 Some(Catalogue::Submix(kind, p)) => vec![wire::SubmixEffects { type_: kind, flags: wire::SUBMIX_FX_ON, p: pad16(&p[..3]) }],
+                Some(Catalogue::Plugins) => (4..6).map(|e| wire::SubmixEffects { type_: wire::FX_PLUGIN_BASE + e, flags: wire::SUBMIX_FX_ON, p: pad16(&[5.0, 50.0, 0.0]) }).collect(),
+                Some(Catalogue::PluginsTwin) => (0..2).map(|_| wire::SubmixEffects { type_: wire::SUBMIX_FX_GAIN, flags: wire::SUBMIX_FX_ON, p: pad16(&[0.0]) }).collect(),
                 _ => vec![
                     wire::SubmixEffects { type_: wire::SUBMIX_FX_LOWPASS as u32, flags: wire::SUBMIX_FX_ON, p: pad16(&[1_200.0, 0.3]) },
                     wire::SubmixEffects { type_: wire::SUBMIX_FX_COMPRESSOR as u32, flags: wire::SUBMIX_FX_ON, p: pad16(&[-24.0, 4.0, 10.0, 120.0, 3.0, 6.0]) },
