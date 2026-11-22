@@ -48,6 +48,7 @@ pub mod scheduler;
 pub mod sends;
 pub mod status;
 pub mod stream;
+pub mod submix;
 pub mod voice_loops;
 pub mod voice_split;
 pub mod voices;

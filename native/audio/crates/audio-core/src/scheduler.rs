@@ -217,6 +217,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::SET_LOOP => wire::SetLoop::FIXED_END,
             wire::op::AUTOMATE => wire::Automate::FIXED_END,
             wire::op::LOOPS => wire::Loops::FIXED_END,
+            wire::op::SUBMIX => wire::Submix::FIXED_END,
             wire::op::CURVES => wire::Curves::FIXED_END,
             wire::op::PARAM => wire::Param::FIXED_END,
             wire::op::BUS_AUTOMATE => wire::BusAutomate::FIXED_END,
@@ -239,6 +240,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::BUS_CONFIG => bus::config_is_well_formed(msg, off, len),
             wire::op::AUTOMATE | wire::op::BUS_AUTOMATE => automation::bindings_is_well_formed(msg, off, len),
             wire::op::LOOPS => automation::loops_is_well_formed(msg, off, len),
+            wire::op::SUBMIX => crate::submix::config_is_well_formed(msg, off, len),
             wire::op::CURVES => automation::curves_is_well_formed(msg, off, len),
             wire::op::BED_CONFIG => bed::config_is_well_formed(msg, off, len),
             wire::op::ZONE_CONFIG => zones::config_is_well_formed(msg, off, len),
@@ -366,6 +368,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             }
             wire::op::AUTOMATE => automation::automate(core, msg, off),
             wire::op::LOOPS => voices::loops(core, msg, off),
+            wire::op::SUBMIX => crate::submix::configure(core, msg, off),
             wire::op::BUS_AUTOMATE => automation::bus_automate(core, msg, off),
             wire::op::CURVES => automation::curves(core, msg, off),
             wire::op::PARAM => {
@@ -467,6 +470,8 @@ pub fn reset(core: &mut Core, keep_clips: bool) {
     bus::reset(core);
     // ADR 0158 E2: curves, parameters, bindings and loop regions.
     automation::reset(core);
+    // ADR 0331: every submix slot and route (main replays the ones in use).
+    crate::submix::reset(core);
     if !keep_clips {
         crate::clips::reset(core);
     }

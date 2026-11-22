@@ -491,3 +491,72 @@ fn time_records_never_split_the_quantum() {
     assert_eq!(audio_core::status::counters(&m.core).music.split_quanta, 0);
     assert_eq!(automation::clock(&mut m.core, 0).unwrap().anchor, frame + 37);
 }
+
+/// ABI 4.4: a mono voice's equal-power pan gains, normalised so pan 0 is the identity.
+fn mono_pan(p: f32) -> (f32, f32) {
+    let theta = (p + 1.0) * core::f32::consts::FRAC_PI_4;
+    (core::f32::consts::SQRT_2 * theta.cos(), core::f32::consts::SQRT_2 * theta.sin())
+}
+
+/// A looping mixed PLAY of the (mono) DC clip at gain 0.5, so a +3 dB pan stays under the limiter.
+fn dc_half(voice: u32) -> Rec {
+    let Rec::Play(mut p) = dc(voice, 0, 0.0) else { unreachable!() };
+    p.gain = 0.5;
+    Rec::Play(p)
+}
+
+#[test]
+fn a_pan_binding_pans_a_mono_voice_by_equal_power_and_sums_its_curves() {
+    let mut m = mixer();
+    // Curves 0: the identity over -1..1; 1: a constant 0.25.
+    m.submit(&[curves(0, &[&[(-1.0, -1.0, 0), (1.0, 1.0, 0)], &[(0.0, 0.25, 0)]]), param(0, 0, -0.5, 0.0), dc_half(V1)]);
+    let (l, r) = m.render();
+    check(&l, TOL, "unbound", |_| 0.5);
+    check(&r, TOL, "unbound", |_| 0.5);
+    // Two pan curves sum: -0.5 + 0.25 = -0.25, at once on the first quantum.
+    m.submit(&[automate(V1, &[(G, 0, 4), (G, 1, 4)])]);
+    let (gl, gr) = mono_pan(-0.25);
+    let (l, r) = m.render();
+    check(&l, 1e-5, "left", |_| 0.5 * gl);
+    check(&r, 1e-5, "right", |_| 0.5 * gr);
+    // A jump to 1 + 0.25 clamps to 1 (hard right), the gains interpolated across the quantum.
+    m.submit(&[param(0, 0, 1.0, 0.0)]);
+    let (l, r) = m.render();
+    let (el, er) = mono_pan(1.0);
+    assert!((l[127] - 0.5 * el).abs() < 1e-5 && (r[127] - 0.5 * er).abs() < 1e-5, "{} {}", l[127], r[127]);
+    assert!((l[0] - 0.5 * gl).abs() < 0.03 && l[64] < 0.5 * gl && l[64] > 0.5 * el, "ramped: {} {}", l[0], l[64]);
+    let (l, r) = m.render();
+    check(&l, 1e-5, "hard right: left silent", |_| 0.5 * el);
+    check(&r, 1e-5, "hard right: +3 dB right", |_| 0.5 * er);
+}
+
+#[test]
+fn a_spatial_voice_ignores_its_pan_binding() {
+    let mut m = mixer();
+    m.submit(&[curves(0, &[&[(0.0, 1.0, 0)]]), dc(V1, 0, 1.0)]);
+    m.render_n(2);
+    let before = m.render();
+    m.submit(&[automate(V1, &[(G, 0, 4)])]);
+    let after = m.render();
+    check(&after.0, 1e-6, "left", |j| before.0[j]);
+    check(&after.1, 1e-6, "right", |j| before.1[j]);
+}
+
+#[test]
+fn a_highpass_binding_floors_the_voice_highpass_and_zero_passes_it() {
+    let mut m = mixer();
+    m.submit(&[curves(0, &[&[(0.0, 0.0, 0)], &[(0.0, 2_000.0, 0)]]), dc(V1, 0, 0.0)]);
+    // A floor at 0 is no high-pass: DC passes exactly.
+    m.submit(&[automate(V1, &[(G, 0, 3)])]);
+    let (l, _) = m.render();
+    check(&l, 0.0, "a 0 Hz floor passes the voice", |_| 1.0);
+    // 2 kHz (highest wins over 0) removes DC.
+    m.submit(&[automate(V1, &[(G, 0, 3), (G, 1, 3)])]);
+    m.render_n(8);
+    let (l, _) = m.render();
+    let peak = l.iter().fold(0.0f32, |a, x| a.max(x.abs()));
+    assert!(peak < 1e-3, "2 kHz removes DC: peak {peak}");
+    // Buses ignore highpass and pan bindings.
+    m.submit(&[bus_automate(0, &[(G, 1, 3), (G, 1, 4)])]);
+    assert_eq!(automation::bus_entry(&mut m.core, 0).unwrap().count, 0);
+}

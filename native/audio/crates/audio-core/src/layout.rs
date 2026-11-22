@@ -100,12 +100,15 @@ pub enum RegionKind {
     /// 0171/0172 M5 (K1): the shared bus send scratch and the reverb run-out
     /// (`sends::REGION_BYTES`: 1,024 + 64 = 1,088 B on every preset).
     Sends,
+    /// ADR 0331 (ABI 4.5): the instance submix slots (`submix::REGION_BYTES`, ≈ 320 KB on every
+    /// preset).
+    Submixes,
     /// The clip arena's initial reserve. Always last.
     Arena,
 }
 
 /// The layout order. Append-only before `Arena` (see the module comment).
-pub const REGION_ORDER: [RegionKind; 24] = [
+pub const REGION_ORDER: [RegionKind; 25] = [
     RegionKind::Output,
     RegionKind::CoreState,
     RegionKind::Pending,
@@ -129,6 +132,7 @@ pub const REGION_ORDER: [RegionKind; 24] = [
     RegionKind::Duck,
     RegionKind::Loudness,
     RegionKind::Sends,
+    RegionKind::Submixes,
     RegionKind::Arena,
 ];
 
@@ -206,6 +210,7 @@ fn region_len(kind: RegionKind, p: &InitParams) -> usize {
         RegionKind::Duck => crate::duck::REGION_BYTES,
         RegionKind::Loudness => crate::loudness::REGION_BYTES,
         RegionKind::Sends => crate::sends::REGION_BYTES,
+        RegionKind::Submixes => crate::submix::REGION_BYTES,
         RegionKind::Arena => align_up(p.arena_initial_bytes as usize, PAGE_BYTES),
     }
 }

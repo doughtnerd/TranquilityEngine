@@ -67,7 +67,7 @@ describe("PlaylistBody.automation", () => {
     expect(cutoffs.at(-1)).toBeCloseTo(2750, 0);
   });
 
-  it("pan and effect parameters the adapter doesn't map are skipped with one warning each", async () => {
+  it("effect parameters the adapter doesn't map are skipped with one warning each; pan is a voice control (ABI 4.4)", async () => {
     await kit.boot({
       "w.playlist.json": pla("clip", [sample("a.wav")], {
         effects: [{ id: "r", type: "reverb" }],
@@ -77,7 +77,7 @@ describe("PlaylistBody.automation", () => {
     Audio.play("w.playlist.json");
     Audio.play("w.playlist.json");
     const warnings = (console.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0]));
-    expect(warnings.filter((w) => w.includes("pan automation"))).toHaveLength(1);
+    expect(warnings.filter((w) => w.includes("pan automation"))).toHaveLength(0);
     expect(warnings.filter((w) => w.includes('automation of "fx:r:mix"'))).toHaveLength(1);
     expect(fake.plays).toHaveLength(2);
   });

@@ -27,11 +27,14 @@ import { isLabelled, parameterDefault, type ParameterDef } from "../../../../eng
 import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
 import { clipRequest, samplePlan } from "../clipResolver";
 import { warnOnce } from "../core/handle";
-import { events, type EventOptions } from "../events/eventRuntime";
-import { MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type ParamRef, type VoiceLoop } from "../events/automation";
+import { events, startOffsetOf, type EventOptions } from "../events/eventRuntime";
+import { MAX_BINDINGS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type Binding, type ParamRef, type VoiceLoop } from "../events/automation";
 import { Assets } from "../../../../engine/scene/Assets";
-import { anchorTimeCurves, evalTimeCurves } from "./curves";
+import { anchorTimeCurves, coreTimeBindings, evalTimeCurves, staticPanBinding } from "./curves";
 import { PlaylistBeats, type PlaylistBeatKind } from "./beatCallbacks";
+import { instanceChain } from "./effects";
+import type { Effect } from "../../../../engine/audio/effects/types";
+import { mixer } from "../../../../engine/audio/mixer";
 import { linkedPlaylist, loadAttenuation } from "./loader";
 import { clockOver, MUSICAL_FALLBACK_NOTE, type MusicalClock, type MusicalSource } from "./musical";
 import { sampleFacts, type SampleFacts } from "./sampleFacts";
@@ -376,7 +379,31 @@ export class PlaylistInstance implements NodeHost {
       where: this.path,
     };
     this.rootCtx = ctx;
-    this.root = resolveBody(this, a, ctx, this.path, this.path);
+    // ADR 0331: the instance's own effects run on a submix of its voices on its bus, when the backend has one free.
+    this.submixedEffects = this.openSubmix(a);
+    // `EventOptions.offset`: what this resolve starts begins as if that much had played (`playSample`, `SequenceNode`).
+    this.startOffset = startOffsetOf(this.options.offset, `Audio.play("${this.path}")`);
+    try { this.root = resolveBody(this, a, ctx, this.path, this.path); } finally { this.startOffset = 0; }
+  }
+
+  /** `NodeHost.startOffset`: the play's offset while `start` resolves the tree, else 0. */
+  startOffset = 0;
+
+  /** `NodeHost.submixedEffects`: the root's effects when they run on the instance's submix. */
+  submixedEffects: readonly Effect[] | null = null;
+
+  /**
+   * ADR 0331: a submix for the root playlist's (or sequence's) enabled effects, feeding the bus its voices play on (the
+   * root's output, else the play's bus: what `clipRequest` resolves for them). The root's effects when it got one; null
+   * when it has none to run, the backend has no submixes, or the pool is full (the voices then map them, `effects.ts`).
+   * The event runtime frees it with the group.
+   */
+  private openSubmix(a: PlaylistAsset): readonly Effect[] | null {
+    const chain = instanceChain(a.effects);
+    const submixes = this.group > 0 && chain.length > 0 ? audioBackend().submixes : undefined;
+    if (!submixes) return null;
+    const bus = mixer.resolveOutput(a.output !== null ? a.output : this.options.bus);
+    return submixes.open(this.group, bus, chain, this.path) ? a.effects : null;
   }
 
   stop(fadeSeconds = STOP_FADE_SECONDS): void {
@@ -649,7 +676,9 @@ export class PlaylistInstance implements NodeHost {
     const staticPitch = clampPitch(stToRatio(c.pitchSt) * this.pitchOption);
     // When it starts: its stamp, else the earliest exact start, else now (heard; voice time and end estimates count from it).
     const start = ctx.at ?? events().horizon() ?? this.clock();
-    const timeCurves = anchorTimeCurves(ctx.timeCurves, start);
+    // Time-keyed lanes read from the voice's start; pan and high-pass ones go to the core as voice-time bindings (ABI 4.4).
+    const timed = coreTimeBindings(anchorTimeCurves(ctx.timeCurves, start), ctx.bindings, (curve) => this.curveId(curve), ctx.where);
+    const timeCurves = timed.timeCurves;
     const t = evalTimeCurves(timeCurves, 0);
     // ADR 0333: a positioned voice's plan adds its distance gain to the voice's dynamic gains.
     const curved = ctx.spatial && this.pos && req.ambisonic !== true ? this.curvePlans.get(ctx.spatial) ?? null : null;
@@ -683,11 +712,18 @@ export class PlaylistInstance implements NodeHost {
       }
     }
     if (ctx.fadeIn > 0) req.fadeZero = true;
+    // `EventOptions.offset` (only while the instance starts): begin that far into the (trimmed) sound, wrapped into the
+    // loop when it loops; a one-pass sample it would already have finished doesn't play.
+    const from = trim ? trim[0] : 0;
+    const skip = this.startOffset > 0 ? this.offsetInto(this.startOffset, from, trim, loop, path) : 0;
+    if (skip === null) return null;
+    if (from + skip > 0) req.offset = from + skip; // a trimmed start, sample-exact (a start offset, not a seek)
     let voice: AudioVoice | null;
     try { voice = audioBackend().play(req); } catch { voice = null; }
     if (!voice) return null;
     const sink = events().automation;
-    if (ctx.bindings.length > 0) sink.bindVoice(voice, this.group, ctx.bindings, base, ctx.at ?? undefined);
+    const bindings = this.withStaticPan(timed.bindings, c.pan, ctx.where);
+    if (bindings.length > 0) sink.bindVoice(voice, this.group, bindings, base, ctx.at ?? undefined);
     if (ctx.fadeIn > 0) {
       voice.fade(0, 0);
       voice.fadeShaped({ to: 1, seconds: ctx.fadeIn, law: "equalPowerIn", ...(ctx.at !== null ? { at: ctx.at } : {}) });
@@ -695,13 +731,11 @@ export class PlaylistInstance implements NodeHost {
     const program = loop ? programs.get(loop) : undefined;
     if (program) sink.setLoops(voice, this.group, program);
     else if (loop && (loop.start > 0 || loop.end > 0 || !looping)) sink.setLoop(voice, loop.start, loop.end, looping);
-    if (trim && trim[0] > 0) voice.seek(trim[0]);
     const fileLength = events().clipLength(path);
-    const from = trim ? trim[0] : 0;
     const to = trim ? Math.min(trim[1], fileLength ?? Infinity) : fileLength;
-    const length = to !== null && Number.isFinite(to) ? Math.max(0, to - from) / base.pitch : null;
+    const length = to !== null && Number.isFinite(to) ? Math.max(0, to - from - skip) / base.pitch : null;
     const v: PVoice = {
-      voice, path, base, staticVolume, staticPitch, bindings: ctx.bindings, dyn: dynList, timeCurves,
+      voice, path, base, staticVolume, staticPitch, bindings, dyn: dynList, timeCurves,
       start, length, loop, leaving: false, appliedGain: dyn, appliedPitch: t.pitch, appliedLowpass: curved ? lowpass : t.lowpass, positioned: req.position !== undefined,
     };
     this.voices.push(v);
@@ -715,6 +749,33 @@ export class PlaylistInstance implements NodeHost {
       this.schedule(end, () => { if (!v.leaving && !v.loop?.looping) { v.leaving = true; voice!.stop(TRIM_FADE); } });
     }
     return v;
+  }
+
+  /**
+   * How far into a sample entry (seconds after `from`, its trimmed start) a voice starts when the instance starts
+   * `offset` seconds in: wrapped into its loop region when it loops; null when a one-pass sample would have ended.
+   */
+  private offsetInto(offset: number, from: number, trim: [number, number] | null, loop: LoopRun | null, path: string): number | null {
+    const fileLength = events().clipLength(path);
+    const end = trim ? Math.min(trim[1], fileLength ?? Infinity) : (fileLength ?? Infinity);
+    let at = from + offset;
+    if (loop && loop.looping) {
+      const ls = loop.start, le = loop.end > 0 ? loop.end : end;
+      if (Number.isFinite(le) && le - ls > 1e-6 && at >= le) at = ls + ((at - ls) % (le - ls));
+      return Math.max(0, at - from);
+    }
+    return Number.isFinite(end) && at >= end ? null : offset;
+  }
+
+  /** A voice's bindings with its static pan (the tree's accumulated `pan`) added as a constant pan binding (ABI 4.4). */
+  private withStaticPan(bindings: readonly Binding[], pan: number, where: string): readonly Binding[] {
+    if (pan === 0) return bindings;
+    if (bindings.length >= MAX_BINDINGS) {
+      warnOnce(`playlist:bindings:${where}`, `[myco] ${where}: more than ${MAX_BINDINGS} parameter and time curves reach one voice; the rest are ignored.`);
+      return bindings;
+    }
+    const b = staticPanBinding(pan, (curve) => this.curveId(curve));
+    return b ? [...bindings, b] : bindings;
   }
 
   /**

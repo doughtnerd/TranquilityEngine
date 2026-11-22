@@ -176,12 +176,13 @@ describe("voice curves", () => {
     expect(fake.voices[0]!.volume).toBeCloseTo(0.1, 6);
   });
 
-  it("pan and high-pass curves are skipped with one warning", async () => {
+  it("pan and high-pass curves become bindings, which a backend without the core ignores with one warning", async () => {
     await kit.boot({
-      "v.playlist.json": pla("layer", [embed(pl("clip", [sample("a.wav")]), { curves: { pan: { input: "voiceTime", curve: [[0, -1], [1, 1]] } } })]),
+      "v.playlist.json": pla("layer", [embed(pl("clip", [sample("a.wav")]), { curves: { pan: { input: "voiceTime", curve: [[0, -1], [1, 1]] }, highpass: { input: "voiceTime", curve: [[0, 200]] } } })]),
     });
     Audio.play("v.playlist.json");
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("pan voice curves"));
+    expect(console.warn).toHaveBeenCalledTimes(1);
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("pan and high-pass automation need the audio core"));
   });
 });
 

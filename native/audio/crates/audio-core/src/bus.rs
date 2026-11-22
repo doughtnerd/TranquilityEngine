@@ -440,19 +440,37 @@ pub fn reset(core: &mut Core) {
 pub(crate) struct Inputs {
     base: *mut BusSlot,
     count: usize,
+    /// ADR 0331: the instance submixes' buffers, when one is in use.
+    submixes: Option<crate::submix::Buffers>,
 }
 
 impl Inputs {
-    /// The buffers of the configured buses in `regions`.
+    /// The buffers of the configured buses (and the submixes in use) in `regions`.
     pub(crate) fn of(regions: &mut Regions) -> Inputs {
+        let submixes = crate::submix::Buffers::of(regions);
         let v = view(regions);
         let count = (v.area.count as usize).clamp(1, v.slots.len().max(1)).min(v.slots.len());
-        Inputs { base: v.slots.as_mut_ptr(), count }
+        Inputs { base: v.slots.as_mut_ptr(), count, submixes }
     }
 
-    /// Bus `bus`'s left and right input (a bus not configured routes to bus 0, the root), or
-    /// `None` when the core has no bus slot at all.
+    /// Route `bus`'s left and right input: a bus (a bus not configured routes to bus 0, the root),
+    /// or with [`crate::submix::ROUTE_SUBMIX`] set an instance submix (a free one routes to its
+    /// last bus, or bus 0). `None` when the core has no bus slot at all.
     pub(crate) fn get(&mut self, bus: u16) -> Option<(&mut [f32], &mut [f32])> {
+        if bus & crate::submix::ROUTE_SUBMIX != 0 {
+            let s = (bus & !crate::submix::ROUTE_SUBMIX) as usize;
+            let live = self.submixes.as_ref().is_some_and(|b| b.live(s));
+            if live {
+                return self.submixes.as_mut().and_then(|b| b.get(s));
+            }
+            let to = self.submixes.as_ref().map_or(0, |b| b.bus_of(s));
+            return self.bus(to);
+        }
+        self.bus(bus)
+    }
+
+    /// Bus `bus`'s left and right input (see [`Inputs::get`]).
+    fn bus(&mut self, bus: u16) -> Option<(&mut [f32], &mut [f32])> {
         if self.count == 0 {
             return None;
         }

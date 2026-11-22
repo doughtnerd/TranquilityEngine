@@ -56,8 +56,43 @@ describe("down the tree", () => {
     Audio.play("g.playlist.json");
     Audio.play("g.playlist.json");
     expect(fake.plays[0]!.volume).toBeCloseTo(db(-6), 6);
-    const warns = (console.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter((c) => String(c[0]).includes('"reverb" needs instance submixes'));
+    const warns = (console.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter((c) => String(c[0]).includes('"reverb" runs on an instance submix'));
     expect(warns).toHaveLength(1);
+  });
+
+  it("with instance submixes, the root's effects run on the instance's submix, not on its voices (ADR 0331)", async () => {
+    const opened: [number, string, string[], string][] = [];
+    const closed: number[] = [];
+    let free = true;
+    Object.assign(fake, {
+      submixes: {
+        open: (group: number, bus: string, effects: readonly { type: string }[], where: string) => (opened.push([group, bus, effects.map((e) => e.type), where]), free),
+        close: (group: number) => void closed.push(group),
+      },
+    });
+    try {
+      const lp = (cutoff: number) => ({ id: `lp${cutoff}`, type: "lowpass", params: { cutoff } });
+      await kit.boot({
+        "f.playlist.json": pla("layer", [embed(pl("clip", [sample("a.wav")], { effects: [lp(4000)] }))], { effects: [lp(2000), { id: "c", type: "compressor" }, { id: "x", type: "reverb", on: false }], output: "SFX" }),
+      });
+      const h = Audio.play("f.playlist.json");
+      expect(opened).toEqual([[fake.plays[0]!.group!, "SFX", ["lowpass", "compressor"], "f.playlist.json"]]);
+      // The nested playlist's low-pass still maps onto the voice; the root's runs on the submix.
+      expect(fake.plays[0]!.filter).toEqual({ lowpass: 4000 });
+      expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining('"compressor" runs on an instance submix'));
+      // The submix goes with the group, once the voices have ended.
+      h.stop(0);
+      for (const v of fake.voices) v.end();
+      kit.frame();
+      expect(closed).toEqual([fake.plays[0]!.group!]);
+      // A full pool: the instance plays its root effects on its voices (filters), the rest skipped with a warning.
+      free = false;
+      Audio.play("f.playlist.json");
+      expect(fake.plays.at(-1)!.filter).toEqual({ lowpass: 2000 });
+      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('"compressor" runs on an instance submix'));
+    } finally {
+      delete (fake as { submixes?: unknown }).submixes;
+    }
   });
 
   it("an output override sends the entry to its bus and cuts its parent's playlist effects", async () => {
@@ -97,14 +132,14 @@ describe("down the tree", () => {
     expect(fake.plays[0]!.at).toBeCloseTo(2.5, 6);
   });
 
-  it("sample sidecar edits: trim seeks to its start, normalise adds its gain", async () => {
+  it("sample sidecar edits: trim starts the voice at its start (a start offset), normalise adds its gain", async () => {
     await kit.boot({
       "a.wav.meta.json": { format: "myco.import@1", sample: { trim: [0.25, 0.75], normalize: { mode: "peak", target: -1, gainDb: 6 } } },
       "n.playlist.json": pla("clip", [sample("a.wav")]),
     });
     Audio.play("n.playlist.json");
     expect(fake.plays[0]!.volume).toBeCloseTo(db(6), 6);
-    expect(fake.voices[0]!.events).toContainEqual({ kind: "seek", seconds: 0.25 });
+    expect(fake.plays[0]!.offset).toBe(0.25);
   });
 
   it("a trimmed sample stops at its trim end", async () => {

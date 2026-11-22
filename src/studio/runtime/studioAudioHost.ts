@@ -45,9 +45,9 @@ export interface StudioAudioHost {
   playClip(path: string, options?: OneShotOptions): AudioHandle | null;
   /**
    * Play part of a clip: audible from source second `from` to `to`, optionally cycling `loop` (`count` passes, 0 =
-   * endless) with a crossfade at each seam. Uses only the public `Audio` API: one-shots have no start offset yet (a
-   * core task adds one), so each pass starts its clip early, silent, and is faded in at its source time; starting
-   * late in a long file therefore waits that long, and seams are timed by polling (~10 ms). Null when it can't play.
+   * endless) with a crossfade at each seam. Uses only the public `Audio` API: each pass is a one-shot started at its
+   * source time (`offset`), a crossfaded one a crossfade early, silent, and faded in; seams are timed by polling
+   * (~10 ms). Null when it can't play.
    */
   playClipSpan(path: string, span: ClipSpan, options?: OneShotOptions): SpanPlayback | null;
   /** Stop everything this host started (fading over `fadeSeconds`). */
@@ -164,7 +164,7 @@ export function createStudioAudioHost(seams: HostSeams): StudioAudioRuntime {
 
   const spans = new Set<SpanPlayback>();
 
-  /** One pass: a one-shot started `srcStart` early so `srcStart` is heard at `audibleAt`, silent until then. */
+  /** One pass: a one-shot started at source second `srcStart` (less a crossfade's lead, silent) so `srcStart` is heard at `audibleAt`. */
   interface Pass {
     readonly handle: AudioHandle;
     readonly audibleAt: number;
@@ -174,7 +174,7 @@ export function createStudioAudioHost(seams: HostSeams): StudioAudioRuntime {
   }
   const playSpan = (path: string, span: ClipSpan, options: OneShotOptions): SpanPlayback | null => {
     const now = audio.time;
-    const startedAt = now + SPAN_LEAD + (span.preRoll ?? 0) + span.from;
+    const startedAt = now + SPAN_LEAD + (span.preRoll ?? 0);
     // `count` is how many times the loop body plays (0: endless), so a count of 1 crosses no seam.
     const loop = span.loop && span.loop.count !== 1 && span.loop.end - span.loop.start > 0.001 && span.from < span.loop.end ? span.loop : null;
     const len = loop ? loop.end - loop.start : 0;
@@ -186,12 +186,15 @@ export function createStudioAudioHost(seams: HostSeams): StudioAudioRuntime {
     const seamAt = (k: number) => startedAt + (loop!.end - span.from) + k * len;
     const lastSeam = () => (loop!.count === 0 ? Infinity : loop!.count - 2);
     const start = (srcStart: number, audibleAt: number, endAt: number): Pass | null => {
-      const at = Math.max(audio.time, audibleAt - srcStart);
-      const handle = audio.playOneShot(path, { ...options, at });
+      // A crossfaded pass starts its crossfade early (silent, then faded in); any other starts at its source second.
+      const lead = Math.min(srcStart, xf);
+      const at = Math.max(audio.time, audibleAt - lead);
+      const offset = Math.max(0, srcStart - (audibleAt - at));
+      const handle = audio.playOneShot(path, { ...options, at, ...(offset > 0 ? { offset } : {}) });
       if (!handle.playing) return null;
       handles.add(handle);
-      if (srcStart > 0) handle.fade(0, 0);
-      const pass = { handle, audibleAt, endAt, open: srcStart <= 0 };
+      if (lead > 0) handle.fade(0, 0);
+      const pass = { handle, audibleAt, endAt, open: lead <= 0 };
       passes.push(pass);
       return pass;
     };
@@ -219,7 +222,7 @@ export function createStudioAudioHost(seams: HostSeams): StudioAudioRuntime {
         const k = seamIndex;
         if (k <= lastSeam()) {
           // Start the next pass ahead, so it can be heard at the seam.
-          if (passes.length === k + 1 && t >= seamAt(k) - loop.start - 0.25) {
+          if (passes.length === k + 1 && t >= seamAt(k) - xf - 0.25) {
             const isLast = k === lastSeam();
             if (start(loop.start, seamAt(k), isLast ? tailEnd(seamAt(k + 1)) : Infinity)) passes[k].endAt = seamAt(k);
           }

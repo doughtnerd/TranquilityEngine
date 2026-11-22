@@ -89,7 +89,8 @@ export function playSequence(): void {
   const range = playRange(ctx.seq, seqSelection.peek(), seqPlayhead.peek(), seqTransport.peek(), ctx.sourceOf);
   let h: AudioEventHandle | null = null;
   try {
-    h = audioHost().audition(ctx.file);
+    // The play's start offset starts the sequence's playhead at the range's start.
+    h = audioHost().audition(ctx.file, range.start > 0 ? { offset: range.start } : undefined);
   } catch {
     h = null;
   }
@@ -97,8 +98,7 @@ export function playSequence(): void {
     transportMessage.value = h ? NO_RUNTIME_TEXT : "The audio core isn't running, so nothing plays.";
     return;
   }
-  // TODO(W3-E sequence runtime): start at `range.start` (the public API has no start offset yet) and read the
-  // runtime's playhead instead of the estimate.
+  // TODO(W3-E sequence runtime): read the runtime's playhead instead of the estimate.
   transportMessage.value = null;
   handle = h;
   playback.value = { range, startedAt: now(), released: false };

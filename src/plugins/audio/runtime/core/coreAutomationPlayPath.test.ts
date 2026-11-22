@@ -69,7 +69,7 @@ describe("evaluateInto: evaluate's numbers without a callback (E5.3c)", () => {
       for (let k = 0; k < n; k++) keys.push([(x += r()), r() * 3 - 0.5, ["linear", "step", "smooth"][Math.floor(r() * 3)]!]);
       curves.set(id, keys as unknown as Curve);
     }
-    const out = { gain: 0, pitch: 0, lowpass: 0 };
+    const out = { gain: 0, pitch: 0, lowpass: 0, highpass: 0, pan: 0 };
     for (let trial = 0; trial < 2_000; trial++) {
       const n = Math.floor(r() * 9);
       const bindings: Binding[] = [];

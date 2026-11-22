@@ -6,21 +6,34 @@
  *   or `TsAutomation` on a backend without them), so the core follows the parameter, or advances the time, itself. A
  *   curve on `voiceTime`, `clipTime` or `sequenceTime` reads the core's time parameter of that name (ADR 0332:
  *   `TimeParam`; sequence time is the instance group's clock, which the sequence runtime re-anchors). The core's targets
- *   are a linear volume multiplier, a pitch ratio and a low-pass cutoff, so a dB or semitone curve is resampled into a
- *   curve of those (`toCoreCurve`).
+ *   are a linear volume multiplier, a pitch ratio, a low-pass cutoff, a high-pass floor and a pan (ABI 4.4), so a dB or
+ *   semitone curve is resampled into a curve of those (`toCoreCurve`); cutoffs (Hz) and pan (−1..1) go as they are.
+ * - The accumulated static pan of a voice is a binding too (`staticPanBinding`): a constant curve on voice time, which the
+ *   core sums with the voice's pan curves.
  * - `TimeCurve` and `evalTimeCurves` remain for main-thread time curves (none are made here since ADR 0332's core time
- *   parameters).
- * - Pan and high-pass have no automation target on any backend yet (no voice pan or high-pass control): they are
- *   skipped with one warning each.
+ *   parameters; sequence and instance-level automation lanes keyed on time make them). Gain, pitch and low-pass ones run
+ *   on main; pan and high-pass ones become core bindings on the voice's time when the voice starts
+ *   (`coreTimeBindings`, ABI 4.4).
+ * - On the Babylon fallback pan and high-pass curves are ignored (`TsAutomation` warns once).
  */
 import { evalCurve, type Curve, type CurveKey } from "../../../../engine/core/curve";
 import type { CurveInput, VoiceCurve, VoiceCurveTarget } from "../../../../engine/audio/playlist/types";
 import { warnOnce } from "../core/handle";
 import { AutoTarget, MAX_BINDINGS, TimeParam, timeParam, type Binding, type ParamRef } from "../events/automation";
 
+/** The core target of each voice curve target. */
+const TARGETS: Record<VoiceCurveTarget, AutoTarget> = {
+  gain: AutoTarget.Volume,
+  pitch: AutoTarget.Pitch,
+  lowpass: AutoTarget.Lowpass,
+  highpass: AutoTarget.Highpass,
+  pan: AutoTarget.Pan,
+};
+
 /** A voice-time curve, evaluated per frame on main. */
 export interface TimeCurve {
-  target: "gain" | "pitch" | "lowpass";
+  /** Gain (dB), pitch (semitones) and low-pass (Hz) run on main; pan and high-pass go to the core (`coreTimeBindings`). */
+  target: "gain" | "pitch" | "lowpass" | "pan" | "highpass";
   curve: Curve;
   /**
    * Heard time the curve's zero is at, when that isn't the voice's own start: a playlist's instance-level lane keyed on
@@ -109,23 +122,55 @@ export function curveParts(
   for (const target of Object.keys(curves) as VoiceCurveTarget[]) {
     const vc = curves[target];
     if (!vc || vc.bypass || vc.curve.length === 0) continue;
-    if (target === "pan" || target === "highpass") {
-      warnOnce(`playlist:curve:${target}`, `[myco] ${where}: ${target === "pan" ? "pan" : "high-pass"} voice curves need a voice ${target === "pan" ? "pan" : "high-pass"} control the audio core doesn't have yet; skipped.`);
-      continue;
-    }
     const input: CurveInput = vc.input;
     const p = typeof input === "string" ? timeParam(TIME_INPUTS[input] ?? TimeParam.Voice) : paramRef(input.parameter);
     if (!p) continue;
-    const id = curveId(target === "lowpass" ? vc.curve : toCoreCurve(vc.curve, target));
+    const id = curveId(target === "gain" || target === "pitch" ? toCoreCurve(vc.curve, target) : vc.curve);
     if (id === null) continue;
     if (bindings.length >= MAX_BINDINGS) {
       warnOnce(`playlist:bindings:${where}`, `[myco] ${where}: more than ${MAX_BINDINGS} parameter and time curves reach one voice; the rest are ignored.`);
       continue;
     }
     if (bindings === parent.bindings) bindings = bindings.slice();
-    bindings.push({ param: p, curve: id, target: target === "gain" ? AutoTarget.Volume : target === "pitch" ? AutoTarget.Pitch : AutoTarget.Lowpass });
+    bindings.push({ param: p, curve: id, target: TARGETS[target] });
   }
   return { bindings, timeCurves };
+}
+
+/**
+ * ABI 4.4: `curves` (already anchored at the voice's start) split for a voice: the pan and high-pass ones become core
+ * bindings on voice time, added after `bindings`; the rest stay main-thread time curves.
+ */
+export function coreTimeBindings(
+  curves: readonly TimeCurve[],
+  bindings: readonly Binding[],
+  curveId: (curve: Curve) => number | null,
+  where: string,
+): { timeCurves: readonly TimeCurve[]; bindings: readonly Binding[] } {
+  if (!curves.some((c) => c.target === "pan" || c.target === "highpass")) return { timeCurves: curves, bindings };
+  let out = bindings;
+  for (const c of curves) {
+    if (c.target !== "pan" && c.target !== "highpass") continue;
+    const vc: VoiceCurve = { input: "voiceTime", curve: c.curve, bypass: false };
+    out = curveParts({ [c.target]: vc }, { bindings: out, timeCurves: [] }, () => null, curveId, where).bindings;
+  }
+  return { timeCurves: curves.filter((c) => c.target !== "pan" && c.target !== "highpass"), bindings: out };
+}
+
+/** One constant curve per static pan value (curve ids are never freed, so equal pans share one). */
+const panCurves = new Map<number, Curve>();
+
+/**
+ * A voice's static pan (−1..1, the tree's accumulated `pan`) as a binding: a constant curve on voice time, summed in the
+ * core with the voice's pan curves. Null for pan 0 (nothing to do) or a full curve table.
+ */
+export function staticPanBinding(pan: number, curveId: (curve: Curve) => number | null): Binding | null {
+  if (!(pan !== 0 && Number.isFinite(pan))) return null;
+  const p = Math.min(1, Math.max(-1, pan));
+  let curve = panCurves.get(p);
+  if (!curve) panCurves.set(p, (curve = [[0, p]]));
+  const id = curveId(curve);
+  return id === null ? null : { param: timeParam(TimeParam.Voice), curve: id, target: AutoTarget.Pan };
 }
 
 /** The gain (linear), pitch (ratio) and low-pass (Hz, null: none) of `curves` at voice time `t` seconds. */
@@ -136,7 +181,7 @@ export function evalTimeCurves(curves: readonly TimeCurve[], t: number): { gain:
     const y = evalCurve(c.curve, t);
     if (c.target === "gain") gain *= dbToGain(y);
     else if (c.target === "pitch") pitch *= stToRatio(y);
-    else lowpass = lowpass === null ? y : Math.min(lowpass, y);
+    else if (c.target === "lowpass") lowpass = lowpass === null ? y : Math.min(lowpass, y);
   }
   return { gain, pitch, lowpass };
 }

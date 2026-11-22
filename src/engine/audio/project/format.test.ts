@@ -232,6 +232,16 @@ describe("legacySectionOf (the editor's legacy view, decision D2)", () => {
     expect(warnings.length).toBeGreaterThan(0);
   });
 
+  it("carries the instance submix pool to the runtime's voices (ADR 0331), and the runtime's parse keeps it", () => {
+    expect(coreSectionOf({ ...project, settings: { ...project.settings, submixes: 32 } }).voices.submixes).toBeUndefined(); // the default
+    expect(toRuntimeSettings({ ...project, settings: { ...project.settings, submixes: 8 } }).voices.submixes).toBe(8); // the legacy view too
+    const eight = coreSectionOf({ ...project, settings: { ...project.settings, submixes: 8 } });
+    expect(eight.voices.submixes).toBe(8);
+    const parsed = parseAudioSettings(eight);
+    expect(parsed.problems).toEqual([]);
+    expect(parsed.settings.voices.submixes).toBe(8);
+  });
+
   it("folds VCA offsets into member levels, once per VCA down the tree", () => {
     const settings = toRuntimeSettings(project);
     const vol = (name: string) => settings.buses.find((b) => b.name === name)!.volume;

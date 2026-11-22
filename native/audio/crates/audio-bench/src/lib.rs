@@ -155,7 +155,8 @@ pub struct Scene {
     /// unlimited) and main obeys `mixedCap`.
     pub cap: bool,
     /// ADR 0158 E2: automation bindings per voice (0 to 3: volume on a global parameter, pitch on the voice's
-    /// group's local one, lowpass on a second global), with every batch seeking the globals and 32 groups' locals.
+    /// group's local one, lowpass on a second global; ABI 4.4: 4 adds pan on the first global, 5 a high-pass floor
+    /// on the second), with every batch seeking the globals and 32 groups' locals.
     pub bindings: u32,
     /// ADR 0332: the bound curves are made of Bézier keys (the same values, each segment a cubic).
     pub bezier: bool,
@@ -170,6 +171,9 @@ pub struct Scene {
     /// ADR 0328: with `sustain`, each mixed voice plays a LOOPS program instead of a SET_LOOP region: a held forward
     /// loop with a 256-frame seam crossfade, then a held ping-pong loop; the key-offs let them go by crossfade.
     pub loop_programs: bool,
+    /// ADR 0331: instance submixes (0 none): the voices spread over this many groups, each with a submix running a
+    /// low-pass and a compressor on bus 0.
+    pub submixes: u32,
     /// ADR 0158 E2: also time one extra `automation::begin_quantum` before each quantum (outside the timed work;
     /// the parameters then seek twice as fast) and report its percentiles: the control-rate pass on its own.
     pub probe_automation: bool,
@@ -391,6 +395,7 @@ impl Scene {
             bus_automation: false,
             sustain: false,
             loop_programs: false,
+            submixes: 0,
             probe_automation: false,
             beds: 0,
             bed_voices: 0,
@@ -591,11 +596,15 @@ pub fn scene(name: &str) -> Option<Scene> {
         "automation-bezier" => Scene { bindings: 3, bezier: true, ..Scene::looping(name, 256) },
         // ADR 0332: `automation` with every binding on a time parameter (voice, clip and sequence time).
         "automation-time" => Scene { bindings: 3, time: true, ..Scene::looping(name, 256) },
+        // ABI 4.4: `automation` plus a pan and a high-pass binding on every voice.
+        "automation-pan-highpass" => Scene { bindings: 5, ..Scene::looping(name, 256) },
         "automation-virtual" => Scene { bindings: 3, virtual_voices: 256, ..Scene::looping(name, 16) },
         "bus-automation" => Scene { buses: 32, snapshot_lp: true, bus_automation: true, ..Scene::looping(name, 32) },
         "sustain" => Scene { sustain: true, ..Scene::looping(name, 128) },
         // ADR 0328: `sustain` with loop programs (crossfaded forward and ping-pong held loops, released by crossfade).
         "loop-programs" => Scene { sustain: true, loop_programs: true, ..Scene::looping(name, 128) },
+        // ADR 0331: 128 voices in 32 instances, each instance's submix running a low-pass and a compressor.
+        "submixes" => Scene { submixes: 32, ..Scene::looping(name, 128) },
         // Not gated: the timed control-rate pass of `automation`, and the virtual scene's twin without bindings.
         "automation-probe" => Scene { bindings: 3, probe_automation: true, ..Scene::looping(name, 256) },
         "automation-virtual-base" => Scene { virtual_voices: 256, ..Scene::looping(name, 16) },
@@ -1477,6 +1486,14 @@ impl Bench {
         if s.zones_active > 0 {
             self.zones_init();
         }
+        for slot in 0..s.submixes.min(wire::SUBMIXES_MAX as u32) {
+            // ADR 0331: a 1.2 kHz low-pass, then a compressor (catalogue parameters).
+            let effects = vec![
+                wire::SubmixEffects { type_: wire::SUBMIX_FX_LOWPASS as u32, flags: wire::SUBMIX_FX_ON, p: [1_200.0, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+                wire::SubmixEffects { type_: wire::SUBMIX_FX_COMPRESSOR as u32, flags: wire::SUBMIX_FX_ON, p: [-24.0, 4.0, 10.0, 120.0, 3.0, 6.0, 0.0, 0.0] },
+            ];
+            self.push(&wire::Submix { voice_id: slot, frame_offset: wire::ASAP, group: slot as u16 + 1, bus: 0, effects });
+        }
         if s.bindings > 0 || s.bus_automation || s.lanes7 {
             self.push(&bench_curves(s.bezier));
             for slot in 0..2u16 {
@@ -1805,7 +1822,7 @@ impl Bench {
             lp_hz: if lp { LP_START_HZ } else { wire::BUS_LP_OFF_HZ as f32 },
             score,
             start_offset_frames: offset,
-            group: if s.bindings > 0 { 1 + (index % 1_024) as u16 } else { 0 },
+            group: if s.submixes > 0 { 1 + (index % s.submixes) as u16 } else if s.bindings > 0 { 1 + (index % 1_024) as u16 } else { 0 },
             gate: self.gate,
             ..Default::default()
         });
@@ -1835,11 +1852,11 @@ impl Bench {
         if s.bindings > 0 && stream.is_none() {
             let all = if s.time {
                 let t = wire::PARAM_TIME as u16;
-                [(t | wire::TIME_VOICE as u16, 0u16, 0u32), (t | wire::TIME_CLIP as u16, 1, 1), (t | wire::TIME_SEQUENCE as u16, 2, 2)]
+                [(t | wire::TIME_VOICE as u16, 0u16, 0u32), (t | wire::TIME_CLIP as u16, 1, 1), (t | wire::TIME_SEQUENCE as u16, 2, 2), (t | wire::TIME_VOICE as u16, 0, 4), (t | wire::TIME_CLIP as u16, 2, 3)]
             } else {
-                [(0x8000u16, 0u16, 0u32), (0, 1, 1), (0x8001, 2, 2)]
+                [(0x8000u16, 0u16, 0u32), (0, 1, 1), (0x8001, 2, 2), (0x8000, 0, 4), (0x8001, 2, 3)]
             };
-            let bindings = all[..s.bindings.min(3) as usize].iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target }).collect();
+            let bindings = all[..s.bindings.min(5) as usize].iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target }).collect();
             self.push(&wire::Automate { voice_id: id, frame_offset: wire::ASAP, bindings });
         }
         if s.sustain && s.loop_programs && mixed && stream.is_none() {
@@ -2358,7 +2375,7 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck, wire::Time, wire::Loops);
+wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck, wire::Time, wire::Loops, wire::Submix);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
 /// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps). With `bezier` (ADR 0332)

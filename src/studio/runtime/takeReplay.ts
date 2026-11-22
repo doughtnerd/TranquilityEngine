@@ -5,8 +5,8 @@
 //   that hands each request to a `ReplayTarget` when the playhead passes it (PLAY, STOP, RELEASE, PARAM, MIX, TRIGGER;
 //   MARK is only drawn), moves the listener and every emitter each frame along the recorded poses (interpolated), and on
 //   a seek stops everything and starts the instances alive at the seek time from the nearest keyframe and the requests
-//   after it (parameters from the keyframe). The public API can't start an instance part-way, so a seek starts them at
-//   their beginning, at the seek time, and says so (`note`). Edits made while replaying reach instances started
+//   after it (parameters from the keyframe), each part-way, as far in as it had played (the play's `offset`). Edits
+//   made while replaying reach instances started
 //   afterwards (the engine's hot-reload rule); `restartInstances` restarts the ones playing so they pick up the edit.
 // - `studioReplayTarget`, the thin runtime adapter: the Studio host's public `Audio` API (`Audio.play` handles whose
 //   `position` follows their emitter, `Audio.setParameter`, `Audio.bus(name).volume`/`fadeTo`, `Audio.snapshot`,
@@ -45,6 +45,8 @@ export interface ReplayHandle {
 export interface ReplayPlayOptions extends TakePlayOptions {
   /** The emitter's position at the start (absent: a flat play). */
   readonly position?: Vec3;
+  /** Seconds the instance had played when a seek, pause or restart starts it again (absent: from its start). */
+  readonly offset?: number;
 }
 
 /** What replay plays through: the Studio's runtime (`studioReplayTarget`), or a test's recorder. */
@@ -100,7 +102,6 @@ export const REPLAY_STOP_FADE = 0.05;
 /** The pose rate the recorder writes (30 Hz, changes only). */
 const POSE_FRAME = 1 / 30;
 
-export const SEEK_NOTE = "Seeking starts the instances alive at that time from their beginning: the public Audio API can't start a sound part-way yet.";
 export const UNSEEDED_NOTE = "This take was recorded with a seed, but the Studio's runtime can't be reseeded yet: random picks may differ from the game's.";
 
 type Play = Extract<TakeRequest, { kind: "play" }>;
@@ -134,7 +135,7 @@ export class TakeReplay {
   readonly time = signal(0);
   readonly playing = signal(false);
   readonly loop = signal<LoopRange | null>(null);
-  /** What the replay can't do faithfully right now (a seek's late starts, an unseeded runtime), or null. */
+  /** What the replay can't do faithfully right now (an unseeded runtime), or null. */
   readonly note = signal<string | null>(null);
   private readonly version = signal(0);
   /** The instances started and not stopped, by start time. */
@@ -410,7 +411,9 @@ export class TakeReplay {
 
   private start(l: Live, t: number): ReplayHandle | null {
     const pose = l.emitter === null ? null : this.poseAt(l.emitter, t);
-    const h = this.target.play(l.path, { ...l.options, parameters: { ...l.parameters }, ...(pose ? { position: pose.position } : {}) });
+    // Alive since before `t` (a seek, a resume): it starts as far in as it had played.
+    const offset = t - l.started;
+    const h = this.target.play(l.path, { ...l.options, parameters: { ...l.parameters }, ...(pose ? { position: pose.position } : {}), ...(offset > 0.01 ? { offset } : {}) });
     if (h && l.released) h.release();
     return h;
   }
@@ -470,15 +473,11 @@ export class TakeReplay {
     this.globals = globals;
     for (const [name, value] of Object.entries(globals)) this.target.setGlobal(name, value);
     this.mixAt(t);
-    let late = 0;
     for (const l of alive.values()) {
       l.handle = this.start(l, t);
       this.live.set(l.instance, l);
-      if (t - l.started > 0.01) late++;
     }
     this.cursor = t;
-    if (late > 0) this.note.value = SEEK_NOTE;
-    else if (this.note.peek() === SEEK_NOTE) this.note.value = null;
     this.version.value++;
   }
 
@@ -543,6 +542,7 @@ export function studioReplayTarget(host: StudioAudioHost, world: ReplayWorld): R
         ...(o.priority !== undefined ? { priority: o.priority } : {}),
         ...(o.parameters ? { parameters: o.parameters } : {}),
         ...(o.position ? { position: o.position } : {}),
+        ...(o.offset !== undefined ? { offset: o.offset } : {}),
       });
       return handle;
     },

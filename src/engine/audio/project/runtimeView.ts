@@ -23,6 +23,7 @@ import {
   DEFAULT_BED_PRIORITY, DEFAULT_LOUDNESS_TARGETS, ROOT_BED_PRIORITY,
   type AudioSettings, type BusAutomation, type BusSettings, type DuckingRule as RuntimeDuckingRule, type LoudnessTarget, type SnapshotSettings,
 } from "../settings";
+import { DEFAULT_SUBMIXES } from "./format";
 import { dbToGain } from "./gain";
 import { isCarrier, isShown, secondsOf, toBusEffect } from "./legacyEffects";
 import type { AudioProject, Bus, Return, Send } from "./types";
@@ -171,11 +172,12 @@ function sectionOf(project: AudioProject, o: ViewOptions, warnings: string[]): M
 
 /** The engine settings of `project` in the runtime's shape (`AudioSettings` minus the mix): `settings` with ADR 0331/0333's keys applied. */
 export function engineSectionOf(project: AudioProject, warnings: string[] = []): Omit<AudioSettings, keyof MixSection | "mix"> {
-  const { submixes: _submixes, bedBeyond, dopplerAmount, ...engine } = project.settings;
+  const { submixes, bedBeyond, dopplerAmount, ...engine } = project.settings;
   // TODO(ADR 0333): `bedBeyond` needs the audio core's panner pick to send a voice past it to its bus's bed (it picks beds
   // by HRTF rank only today); the runtime leaves it out until then.
   if (bedBeyond !== null) warnings.push("settings.bedBeyond needs the audio core's distance-based beds; beds go by HRTF rank until then.");
   const out = structuredClone(engine);
+  if (submixes !== DEFAULT_SUBMIXES) out.voices = { ...out.voices, submixes }; // ADR 0331: the instance submix pool (absent: the default)
   // ADR 0333: the global Doppler amount scales every voice's Doppler level (the Doppler pass reads it).
   if (dopplerAmount !== 1) out.doppler = { ...out.doppler, amount: dopplerAmount };
   return out;

@@ -31,11 +31,12 @@ function fakeAudio(over: { backend?: string; status?: string; throws?: boolean; 
 function spanAudio() {
   const base = fakeAudio();
   const clock = { t: 0 };
-  const calls: { at?: number }[] = [];
+  const calls: { at?: number; offset?: number }[] = [];
   const handles: { gain: number; playing: boolean; stop(f?: number): void; fade(to: number, s: number): void }[] = [];
   const audio = Object.assign({}, base.audio, {
-    playOneShot: vi.fn((_path: string, o: { at?: number }) => {
-      calls.push({ at: o.at === undefined ? undefined : Math.round(o.at * 1e6) / 1e6 });
+    playOneShot: vi.fn((_path: string, o: { at?: number; offset?: number }) => {
+      const r = (x: number) => Math.round(x * 1e6) / 1e6;
+      calls.push({ at: o.at === undefined ? undefined : r(o.at), ...(o.offset !== undefined ? { offset: r(o.offset) } : {}) });
       const h = { gain: 1, playing: true, stop() { h.playing = false; }, fade(to: number) { h.gain = to; } };
       handles.push(h);
       return h;
@@ -153,20 +154,20 @@ describe("Studio audio runtime host", () => {
     expect(slow.state.value.kind).toBe("idle");
   });
 
-  it("plays a span of a clip: started early and silent, heard from `from`, stopped at `to`", async () => {
+  it("plays a span of a clip: started at `from` (a start offset), stopped at `to`", async () => {
     const f = spanAudio();
     const { s, tick } = seams(f.audio);
     const host = createStudioAudioHost(s);
     await host.open({});
     f.clock.t = 10;
     const p = host.playClipSpan("a.wav", { from: 1, to: 1.5 })!;
-    expect(p.startedAt).toBeCloseTo(11.05, 9);
-    expect(f.calls).toEqual([{ at: 10.05 }]);
-    expect(f.handles[0].gain).toBe(0); // silent until 1 s into the clip
-    f.clock.t = 11.06;
+    expect(p.startedAt).toBeCloseTo(10.05, 9);
+    expect(f.calls).toEqual([{ at: 10.05, offset: 1 }]);
+    expect(f.handles[0].gain).toBe(1); // heard at once: no silent lead-in
+    f.clock.t = 10.3;
     tick();
-    expect(f.handles[0].gain).toBe(1);
-    f.clock.t = 11.56;
+    expect(f.handles[0].playing).toBe(true);
+    f.clock.t = 10.56;
     tick();
     expect(f.handles[0].playing).toBe(false);
     expect(p.playing).toBe(false);
@@ -180,11 +181,11 @@ describe("Studio audio runtime host", () => {
     await host.open({});
     f.clock.t = 0;
     const p = host.playClipSpan("a.wav", { from: 0, to: 3, loop: { start: 1, end: 2, count: 0, crossfadeMs: 0 } })!;
-    // Seam 0 at 0.05 + 2 = 2.05; the next pass must start at 1.05 (1 s early) to be at 1 s then.
-    f.clock.t = 0.85;
+    // Seam 0 at 0.05 + 2 = 2.05; the next pass is stamped there, 1 s into the clip (asked for 0.25 s ahead).
+    f.clock.t = 1.85;
     tick();
-    expect(f.calls.map((c) => c.at)).toEqual([0.05, 1.05]);
-    expect(f.handles[1].gain).toBe(0);
+    expect(f.calls).toEqual([{ at: 0.05 }, { at: 2.05, offset: 1 }]);
+    expect(f.handles[1].gain).toBe(1);
     f.clock.t = 2.06;
     tick();
     expect(f.handles[0].playing).toBe(false);
@@ -197,6 +198,25 @@ describe("Studio audio runtime host", () => {
     tick();
     expect(p.playing).toBe(false);
     expect(f.calls).toHaveLength(2);
+  });
+
+  it("crossfades a seam: the next pass starts a crossfade early, silent, and fades in", async () => {
+    const f = spanAudio();
+    const { s, tick } = seams(f.audio);
+    const host = createStudioAudioHost(s);
+    await host.open({});
+    f.clock.t = 0;
+    host.playClipSpan("a.wav", { from: 0.5, to: 3, loop: { start: 1, end: 2, count: 0, crossfadeMs: 100 } })!;
+    // The first pass from 0.5 s: a crossfade's lead (0.1 s, clamped to now) before it is heard, silent; seam 0 at 0.05 + 1.5 = 1.55.
+    expect(f.calls).toEqual([{ at: 0, offset: 0.45 }]);
+    expect(f.handles[0].gain).toBe(0);
+    f.clock.t = 1.3;
+    tick();
+    expect(f.calls[1]).toEqual({ at: 1.45, offset: 0.9 });
+    expect(f.handles[1].gain).toBe(0);
+    f.clock.t = 1.46;
+    tick();
+    expect(f.handles[1].gain).toBe(1);
   });
 
   it("reads stats leniently", () => {

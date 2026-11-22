@@ -15,7 +15,7 @@ import { onMusicOf, _setMusicHandleFactory } from "./music/musicSystem";
 import { triggerOn } from "./music/stingers";
 import { audioLatency, getCalibration, isCalibrationStale, rhythmModeSetting, setCalibration } from "./music/calibration";
 import { audioBackend, coreUnavailable, type AudioDebugInfo, type AudioHandle, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioPlaylistHandle, type AudioReason, type AudioStatus, type AudioVoice, type SendCurve } from "./backend";
-import { events, type EventInstance, type EventOptions } from "./events/eventRuntime";
+import { events, startOffsetOf, type EventInstance, type EventOptions } from "./events/eventRuntime";
 import { playlists } from "./playlists/playlistSystem";
 import { playlistHandleOf } from "./playlists/handle";
 import type { PlaylistInstance } from "./playlists/instance";
@@ -51,6 +51,8 @@ export interface OneShotOptions {
   priority?: number;
   /** Start at this audio-clock time (seconds, the base of `Audio.time`). Past or omitted: as soon as possible. Ignored while `Audio.status` is "locked". Non-finite: warns, plays now. */
   at?: number;
+  /** Start this many seconds into the clip (ADR 0329, 0334: audition from a point). 0 or omitted: the start; past the end it ends at once. Negative or non-finite: warns, plays from the start. */
+  offset?: number;
   // ADR 0162 §1.3. A flat one-shot (no `position`) has no occlusion, reverb send or Doppler; `lowpass` and `highpass` still apply.
   /** With a position: walls between the sound and the listener muffle it. Default true. */
   occlusion?: boolean;
@@ -278,6 +280,8 @@ export const Audio = {
         if (typeof o.at === "number" && Number.isFinite(o.at)) { if (audioBackend().status !== "locked") req.at = o.at; }
         else warnOnce("at:nonfinite", "Audio.playOneShot: at must be a finite number of seconds; playing now.");
       }
+      const offset = startOffsetOf(o.offset, "Audio.playOneShot");
+      if (offset > 0) req.offset = offset;
       const ambisonic = req.ambisonic === true;
       if (o.position && ambisonic) warnOnce(`position:ambisonic:${path}`, `Audio.playOneShot: "${path}" is an ambisonic clip; position, distances, occlusion and dopplerLevel are ignored (ADR 0162).`);
       else if (o.position) {

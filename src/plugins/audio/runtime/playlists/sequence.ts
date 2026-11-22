@@ -21,8 +21,9 @@
  *   when it jumps back before them.
  * - **Automation** on clips and tracks: parameter-keyed curves become automation bindings (`curves.ts`); time-keyed ones
  *   (clip time, sequence time, voice time) are the voice-time adapter's curves shifted to where the voice starts, so the
- *   one per-frame evaluation runs them. Targets: volume, pitch, enabled (a step on the gain), and the `cutoff` of a
- *   low-pass or the `gain` of a gain effect; pan and other effect parameters wait for their controls (one warning).
+ *   one per-frame evaluation runs them (pan and high-pass ones become core bindings on the voice's time when it starts,
+ *   ABI 4.4). Targets (`levelAutomation.ts`): volume, pitch, enabled (a step on the gain), pan, and the `cutoff` of a
+ *   low-pass or high-pass or the `gain` of a gain effect; other effect parameters wait for their controls (one warning).
  * - **Effects** on tracks and clips go through the playlist effects adapter (`effects.ts`).
  * - **Markers:** sequence `cue` and `exit` markers and the Cue, Exit and Hit markers of sync clips' samples are reported
  *   from the planned playhead, delivered on the first frame whose heard clock has passed them (one frame of accuracy);
@@ -127,7 +128,10 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     super(host, ctx, key);
     this.body = body;
     this.source = this.fileAsset();
-    this.build(body, 0, host.startOf(ctx.at), 0);
+    // `EventOptions.offset` while the instance starts: the playhead starts there, and nothing below is offset again.
+    const offset = host.startOffset ?? 0;
+    if (offset > 0) host.startOffset = 0;
+    try { this.build(body, offset, host.startOf(ctx.at), 0); } finally { if (offset > 0) host.startOffset = offset; }
     this.plan();
   }
 

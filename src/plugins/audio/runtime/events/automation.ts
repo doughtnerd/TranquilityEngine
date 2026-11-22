@@ -14,8 +14,11 @@ import { mixer } from "../../../../engine/audio/mixer";
 import type { AudioVoice } from "../backend";
 import { warnOnce } from "../core/handle";
 
-/** What a curve drives. The numbers are the core's `target` values. */
-export const enum AutoTarget { Volume = 0, Pitch = 1, Lowpass = 2 }
+/**
+ * What a curve drives. The numbers are the core's `target` values. `Highpass` (a cut-off floor in Hz, the highest curve
+ * wins) and `Pan` (−1..1, curves summed and clamped) are voice-only (ABI 4.4); buses ignore them.
+ */
+export const enum AutoTarget { Volume = 0, Pitch = 1, Lowpass = 2, Highpass = 3, Pan = 4 }
 
 /**
  * ADR 0332: the time parameters a voice binding can read instead of a parameter slot, in seconds. The numbers are the
@@ -100,6 +103,8 @@ export const MAX_CURVES = 1024;
 export const MAX_BINDINGS = 8;
 /** The cutoff that means "no low-pass". */
 export const LOWPASS_OFF = 24000;
+/** The high-pass floor with no highpass binding (at or below 20 Hz the core runs none). */
+export const HIGHPASS_OFF = 0;
 
 export interface AutomationSink {
   /** Define or replace curve `id` (0..MAX_CURVES-1). */
@@ -156,17 +161,32 @@ export class ParamState {
   }
 }
 
-/** The product of volume curves, product of pitch curves and the lowest low-pass among `bindings`. */
-export function evaluate(bindings: readonly Binding[], curves: ReadonlyMap<number, Curve>, read: (p: ParamRef) => number): { gain: number; pitch: number; lowpass: number } {
-  let gain = 1, pitch = 1, lowpass = LOWPASS_OFF;
+/**
+ * The product of volume curves, product of pitch curves, the lowest low-pass, the highest high-pass floor and the summed
+ * pan (clamped to −1..1) among `bindings`, as the core's `automation.rs` `evaluate`.
+ */
+export function evaluate(bindings: readonly Binding[], curves: ReadonlyMap<number, Curve>, read: (p: ParamRef) => number): AutoResult {
+  let gain = 1, pitch = 1, lowpass = LOWPASS_OFF, highpass = HIGHPASS_OFF, pan = 0;
   for (const b of bindings) {
     // A curve id that was never defined is the empty curve (0), as in the core's table.
     const y = evalCurve(curves.get(b.curve) ?? [], read(b.param));
     if (b.target === AutoTarget.Volume) gain *= Math.max(0, y);
     else if (b.target === AutoTarget.Pitch) pitch *= y > 0 ? y : 1;
-    else lowpass = Math.min(lowpass, Math.max(10, y));
+    else if (b.target === AutoTarget.Lowpass) lowpass = Math.min(lowpass, Math.max(10, y));
+    else if (b.target === AutoTarget.Highpass) highpass = Math.max(highpass, y);
+    else if (b.target === AutoTarget.Pan) pan += y;
   }
-  return { gain, pitch, lowpass };
+  return { gain, pitch, lowpass, highpass: finiteHighpass(highpass), pan: clampPan(pan) };
+}
+
+/** The core's clamp of a summed pan: −1..1, NaN 0. */
+function clampPan(pan: number): number {
+  return pan !== pan ? 0 : Math.min(1, Math.max(-1, pan));
+}
+
+/** The core's clamp of a high-pass floor: 0..24,000 (NaN or negative 0). */
+function finiteHighpass(hp: number): number {
+  return hp >= 0 ? Math.min(hp, LOWPASS_OFF) : 0;
 }
 
 /**
@@ -182,11 +202,15 @@ export function evaluateQuantized(bindings: readonly Binding[], curves: Readonly
   return { gain: r.gain, lowpass: r.lowpass, grid: q.some((b) => b.quantize === "bar") ? "bar" : "beat" };
 }
 
-/** What `evaluateInto` writes: the same three numbers `evaluate` returns. */
+/** What `evaluate` returns and `evaluateInto` writes. */
 export interface AutoResult {
   gain: number;
   pitch: number;
   lowpass: number;
+  /** ABI 4.4: the high-pass floor in Hz (0: none). */
+  highpass: number;
+  /** ABI 4.4: pan −1..1. */
+  pan: number;
 }
 
 const NO_CURVE: Curve = [];
@@ -197,17 +221,21 @@ const NO_CURVE: Curve = [];
  * same order of multiplication as `evaluate`, so the numbers are identical.
  */
 export function evaluateInto(n: number, curveIds: ArrayLike<number>, targets: ArrayLike<number>, x: ArrayLike<number>, curves: ReadonlyMap<number, Curve>, out: AutoResult): AutoResult {
-  let gain = 1, pitch = 1, lowpass = LOWPASS_OFF;
+  let gain = 1, pitch = 1, lowpass = LOWPASS_OFF, highpass = HIGHPASS_OFF, pan = 0;
   for (let j = 0; j < n; j++) {
     const y = evalCurve(curves.get(curveIds[j]!) ?? NO_CURVE, x[j]!);
     const target = targets[j];
     if (target === AutoTarget.Volume) gain *= Math.max(0, y);
     else if (target === AutoTarget.Pitch) pitch *= y > 0 ? y : 1;
-    else lowpass = Math.min(lowpass, Math.max(10, y));
+    else if (target === AutoTarget.Lowpass) lowpass = Math.min(lowpass, Math.max(10, y));
+    else if (target === AutoTarget.Highpass) highpass = Math.max(highpass, y);
+    else if (target === AutoTarget.Pan) pan += y;
   }
   out.gain = gain;
   out.pitch = pitch;
   out.lowpass = lowpass;
+  out.highpass = finiteHighpass(highpass);
+  out.pan = clampPan(pan);
   return out;
 }
 
@@ -283,6 +311,7 @@ export class TsAutomation implements AutomationSink {
     bindings = continuousBindings(bindings); // R6: a quantised binding is the music player's, never followed per frame
     if (bindings.length === 0) return;
     if (bindings.some((b) => b.target === AutoTarget.Lowpass)) warnOnce("events:lowpass-fallback", "Audio events: low-pass automation needs the audio core; it is ignored on the Babylon fallback.");
+    if (bindings.some((b) => b.target === AutoTarget.Highpass || b.target === AutoTarget.Pan)) warnOnce("events:pan-highpass-fallback", "Audio: pan and high-pass automation need the audio core; they are ignored on the Babylon fallback.");
     const kept = bindings.slice(0, MAX_BINDINGS);
     const v: BoundVoice = { voice, group, bindings: kept, base: { ...base }, gain: NaN, pitch: NaN, start, timed: kept.some((b) => b.param.time !== undefined) };
     this.voices.push(v);
@@ -302,7 +331,7 @@ export class TsAutomation implements AutomationSink {
   }
 
   bindBus(bus: string, bindings: readonly Binding[]): void {
-    const global = bindings.filter((b) => b.param.global && b.target !== AutoTarget.Pitch).slice(0, MAX_BINDINGS);
+    const global = bindings.filter((b) => b.param.global && (b.target === AutoTarget.Volume || b.target === AutoTarget.Lowpass)).slice(0, MAX_BINDINGS);
     if (global.length === 0) { this.buses.delete(bus); mixer._setAutomation(bus, 1, LOWPASS_OFF); }
     else this.buses.set(bus, global);
     this.dirty = true;

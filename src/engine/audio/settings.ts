@@ -253,6 +253,11 @@ export interface VoiceSettings {
   logical: number;
   /** Integer 0..32, default 8 (low preset 4; ADR 0162: the voices past it go to the bed, where the bus has one). 0 behaves as `spatial: "equalPower"`. */
   hrtf: number;
+  /**
+   * ADR 0331: the instance submix pool (`audio.json` `settings.submixes`, 0..256, default 32; the core lays out 64 and
+   * clamps to them). Absent: the default.
+   */
+  submixes?: number;
 }
 
 export type AudioBackground = "mute" | "pause" | "play";
@@ -628,7 +633,9 @@ function parseCoreKeys(input: Record<string, unknown>, settings: AudioSettings, 
       const mixed = wholeNumber(v.mixed, "audio.voices.mixed", ...range("voices.mixed"), problems) ?? DEFAULT_VOICES.mixed;
       const logical = wholeNumber(v.logical, "audio.voices.logical", Math.max(mixed, range("voices.logical")[0]), range("voices.logical")[1], problems) ?? DEFAULT_VOICES.logical;
       const hrtf = wholeNumber(v.hrtf, "audio.voices.hrtf", ...range("voices.hrtf"), problems) ?? DEFAULT_VOICES.hrtf;
-      settings.voices = { mixed, logical, hrtf };
+      // ADR 0331: the instance submix pool (`audio.json` `settings.submixes`, which `engineSectionOf` in `project/runtimeView.ts` carries here).
+      const submixes = v.submixes === undefined ? null : wholeNumber(v.submixes, "audio.voices.submixes", 0, 256, problems);
+      settings.voices = submixes == null ? { mixed, logical, hrtf } : { mixed, logical, hrtf, submixes };
     }
   }
   settings.background = pick(input.background, "audio.background", ["mute", "pause", "play"] as const, "mute", problems);

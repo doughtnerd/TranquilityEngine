@@ -49,6 +49,8 @@ pub struct Regions {
     pub loudness: &'static mut [u8],
     /// 0171/0172 M5 (K1): the shared bus send scratch and the reverb run-out (`sends.rs`; 1,088 B).
     pub sends: &'static mut [u8],
+    /// ADR 0331: the instance submix slots (`submix.rs`).
+    pub submixes: &'static mut [u8],
     /// Empty: the clip store owns the arena region (A1.3b).
     pub arena: &'static mut [u8],
 }
@@ -115,6 +117,7 @@ impl Core {
             duck: bytes(RegionKind::Duck),
             loudness: bytes(RegionKind::Loudness),
             sends: bytes(RegionKind::Sends),
+            submixes: bytes(RegionKind::Submixes),
             arena: bytes(RegionKind::Arena),
         };
         // A1.3b: the clip store owns the directory and arena regions (they stay empty here).
@@ -215,6 +218,8 @@ impl Core {
     pub fn process(&mut self, frame: u64) -> &[f32] {
         self.frame = frame;
         crate::voices::render(self, frame);
+        // ADR 0331: the instance submixes run their chains into their buses' inputs.
+        crate::submix::render(self);
         crate::bus::mixdown(self);
         crate::cap::after_render(self, frame);
         &self.regions.output[..OUTPUT_CHANNELS * QUANTUM]
