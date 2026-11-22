@@ -264,7 +264,7 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
     expect(readAutomate(b.view, b.records[0]!.off).bindings).toEqual([]);
     const a = readAutomate(b.view, b.records[2]!.off);
     expect(a.voiceId).toBe(9);
-    expect(a.bindings).toEqual([binding, { param: 1, curve: 8, target: 0 }]);
+    expect(a.bindings).toEqual([binding, { param: 1, curve: 8, target: 0, offset: 0 }]);
     expect(readAutomate(b.view, b.records[3]!.off).bindings).toHaveLength(8) /* the core's bindings per voice */;
   });
 

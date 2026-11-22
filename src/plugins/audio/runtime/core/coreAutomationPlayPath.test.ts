@@ -164,7 +164,7 @@ describe("CoreAutomation's reader lists (E5.3c)", () => {
     expect(b.id & 0xffff).toBe(i); // the same slot, the same entry object
     auto.setParam(2, 0, 1, 0);
     auto.bindVoice(b, 2, [bind(0, 0, AutoTarget.Volume)], { volume: 1, pitch: 1 });
-    expect(automates.at(-1)).toEqual([b.id, [{ param: 0, curve: 0, target: AutoTarget.Volume }]]);
+    expect(automates.at(-1)).toEqual([b.id, [{ param: 0, curve: 0, target: AutoTarget.Volume, offset: 0 }]]);
     expect(table.autoGain[i]).toBe(1);
     expect(table.autoPitch[i]).toBe(1);
     // And it reads group 2's locals, not group 1's.

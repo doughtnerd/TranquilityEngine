@@ -75,7 +75,14 @@ describe("curveParts: time curves are bindings (ADR 0332)", () => {
       [AutoTarget.Pan, { global: false, slot: 0, time: TimeParam.Voice }],
       [AutoTarget.Highpass, { global: false, slot: 0, time: TimeParam.Voice }],
     ]);
-    expect([...ids.keys()][0]).toEqual([[-1, -1], [1, 1]]);
+    // ABI 4.9: the pan curve goes as it is; the binding's time origin (offset 1 s) reads it from 1 s in.
+    expect([...ids.keys()][0]).toBe(lanes[1]!.curve);
+    expect(out.bindings.map((b) => b.offset)).toEqual([1, undefined]);
+    // A voice starting 5 s later binds the same curve id (no shifted copy per voice): the table doesn't grow.
+    const later = coreTimeBindings(anchorTimeCurves(lanes, 16), [], curveId, "test");
+    expect(later.bindings[0]!.curve).toBe(out.bindings[0]!.curve);
+    expect(later.bindings[0]!.offset).toBe(6);
+    expect(ids.size).toBe(2);
     // Without pan or high-pass lanes nothing changes.
     const plain = [gain];
     const parent: never[] = [];

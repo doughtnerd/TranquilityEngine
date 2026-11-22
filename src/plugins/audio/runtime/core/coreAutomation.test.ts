@@ -68,7 +68,7 @@ describe("CoreAutomation: time parameters (ADR 0332)", () => {
     ], { volume: 1, pitch: 1 });
     auto.setSequenceTime(4, 2, 0.5);
     expect(calls.slice(1)).toEqual([
-      ["automate", v.id, undefined, [{ param: AUTOMATION_TIME | TimeParam.Voice, curve: 1, target: AutoTarget.Volume }, { param: AUTOMATION_TIME | TimeParam.Sequence, curve: 1, target: AutoTarget.Pitch }]],
+      ["automate", v.id, undefined, [{ param: AUTOMATION_TIME | TimeParam.Voice, curve: 1, target: AutoTarget.Volume, offset: 0 }, { param: AUTOMATION_TIME | TimeParam.Sequence, curve: 1, target: AutoTarget.Pitch, offset: 0 }]],
       ["time", 4, 2, 0.5, undefined],
     ]);
     // Selection sees the time-bound volume at its loudest key (1) and the pitch at its first key (0: left alone).
@@ -108,8 +108,8 @@ describe("CoreAutomation: time parameters (ADR 0332)", () => {
     auto.setLoop(v, 0, 0, false);
     expect(calls).toEqual([
       ["loops", v.id, 20_000, [
-        { startFrame: 24_000, endFrame: 48_000, crossfadeFrames: 480, exitFadeFrames: 2400, count: 3, flags: 1 | (2 << 2) | (2 << 4) | 0x40 | 0x80, param: AUTOMATION_GLOBAL | 4, reserved: 0, threshold: 0.25 },
-        { startFrame: 96_000, endFrame: 96_000, crossfadeFrames: 0, exitFadeFrames: 0, count: 0, flags: 1 << 2, param: 0, reserved: 0, threshold: 0 },
+        { startFrame: 24_000, endFrame: 48_000, crossfadeFrames: 480, exitFadeFrames: 2400, count: 3, flags: 1 | (2 << 2) | (2 << 4) | 0x40 | 0x80, param: AUTOMATION_GLOBAL | 4, shapes: 0, threshold: 0.25 },
+        { startFrame: 96_000, endFrame: 96_000, crossfadeFrames: 0, exitFadeFrames: 0, count: 0, flags: 1 << 2, param: 0, shapes: 0, threshold: 0 },
       ]],
       ["setLoop", v.id, 20_000, 0, 0, false],
     ]);
@@ -150,9 +150,9 @@ describe("CoreAutomation: the sink over the writer (E3.1)", () => {
     expect(calls).toEqual([
       ["curves", 3, 1],
       ["param", 5, 2, 0.5, 4],
-      ["automate", v.id, 12_345, [{ param: 2, curve: 3, target: AutoTarget.Volume }]],
+      ["automate", v.id, 12_345, [{ param: 2, curve: 3, target: AutoTarget.Volume, offset: 0 }]],
       // Local and pitch bindings are not for buses.
-      ["busAutomate", 2, [{ param: AUTOMATION_GLOBAL | 1, curve: 3, target: AutoTarget.Volume }]],
+      ["busAutomate", 2, [{ param: AUTOMATION_GLOBAL | 1, curve: 3, target: AutoTarget.Volume, offset: 0 }]],
     ]);
   });
 
@@ -166,7 +166,7 @@ describe("CoreAutomation: the sink over the writer (E3.1)", () => {
     t.state[v.id & 0xffff] = VoiceState.PLAYING;
     auto.onPlaySent(v.id, v.id & 0xffff, 20_000);
     expect(calls).toEqual([
-      ["automate", v.id, 20_000, [{ param: 0, curve: 0, target: AutoTarget.Volume }]],
+      ["automate", v.id, 20_000, [{ param: 0, curve: 0, target: AutoTarget.Volume, offset: 0 }]],
       ["setLoop", v.id, 20_000, 24_000, 72_000, true],
     ]);
   });
@@ -176,7 +176,7 @@ describe("CoreAutomation: the sink over the writer (E3.1)", () => {
     const inner = voice(2);
     const wrapper = { get id() { return inner.id; }, playing: true } as unknown as AudioVoice;
     auto.bindVoice(wrapper, 2, [vol(1, 4)], { volume: 1, pitch: 1 });
-    expect(calls).toEqual([["automate", inner.id, undefined, [{ param: 1, curve: 4, target: AutoTarget.Volume }]]]);
+    expect(calls).toEqual([["automate", inner.id, undefined, [{ param: 1, curve: 4, target: AutoTarget.Volume, offset: 0 }]]]);
     table.free(inner.id, 0);
     auto.forget(inner.id & 0xffff);
     calls.length = 0;
@@ -221,7 +221,7 @@ describe("CoreAutomation: the sink over the writer (E3.1)", () => {
     expect(calls).toEqual([
       ["curves", 7, 1],
       ["param", 0, 3, 0.25, 0],
-      ["automate", v.id, undefined, [{ param: AUTOMATION_GLOBAL | 3, curve: 7, target: AutoTarget.Volume }]],
+      ["automate", v.id, undefined, [{ param: AUTOMATION_GLOBAL | 3, curve: 7, target: AutoTarget.Volume, offset: 0 }]],
     ]);
     auto.beginFrame();
     expect(calls).toHaveLength(3); // nothing else was pending
@@ -237,7 +237,7 @@ describe("CoreAutomation: the sink over the writer (E3.1)", () => {
     auto.onBusesConfigured();
     expect(calls).toEqual([
       ["busAutomate", 2, []],
-      ["busAutomate", 1, [{ param: AUTOMATION_GLOBAL, curve: 0, target: AutoTarget.Volume }]],
+      ["busAutomate", 1, [{ param: AUTOMATION_GLOBAL, curve: 0, target: AutoTarget.Volume, offset: 0 }]],
     ]);
   });
 

@@ -56,17 +56,25 @@ describe("down the tree", () => {
     Audio.play("g.playlist.json");
     Audio.play("g.playlist.json");
     expect(fake.plays[0]!.volume).toBeCloseTo(db(-6), 6);
-    const warns = (console.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter((c) => String(c[0]).includes('"reverb" runs on an instance submix'));
+    const warns = (console.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter((c) => String(c[0]).includes('"reverb" runs on a submix'));
     expect(warns).toHaveLength(1);
   });
 
-  it("with instance submixes, the root's effects run on the instance's submix, not on its voices (ADR 0331)", async () => {
+  it("with instance submixes, the root's effects run on the instance's submix and a nested level's on its own (ADR 0331)", async () => {
     const opened: [number, string, string[], string][] = [];
+    const levels: [number, string, string[], number | null][] = [];
     const closed: number[] = [];
     let free = true;
+    const root = { slot: 0 };
+    const nested = { slot: 1 };
     Object.assign(fake, {
       submixes: {
         open: (group: number, bus: string, effects: readonly { type: string }[], where: string) => (opened.push([group, bus, effects.map((e) => e.type), where]), free),
+        levelOf: () => (free ? root : null),
+        openLevel: (group: number, _key: string, bus: string, effects: readonly { type: string }[], parent: { slot: number } | null) => {
+          levels.push([group, bus, effects.map((e) => e.type), parent ? parent.slot : null]);
+          return free ? nested : null;
+        },
         close: (group: number) => void closed.push(group),
       },
     });
@@ -77,9 +85,12 @@ describe("down the tree", () => {
       });
       const h = Audio.play("f.playlist.json");
       expect(opened).toEqual([[fake.plays[0]!.group!, "SFX", ["lowpass", "compressor"], "f.playlist.json"]]);
-      // The nested playlist's low-pass still maps onto the voice; the root's runs on the submix.
-      expect(fake.plays[0]!.filter).toEqual({ lowpass: 4000 });
-      expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining('"compressor" runs on an instance submix'));
+      // ABI 4.9: the nested playlist's low-pass runs on a level submix of its own feeding the root's; its voice mixes
+      // into it (no filter on the voice).
+      expect(levels).toEqual([[fake.plays[0]!.group!, "SFX", ["lowpass"], 0]]);
+      expect(fake.plays[0]!.submix).toBe(nested);
+      expect(fake.plays[0]!.filter).toBeUndefined();
+      expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining('"compressor" runs on a submix'));
       // The submix goes with the group, once the voices have ended.
       h.stop(0);
       for (const v of fake.voices) v.end();
@@ -89,7 +100,7 @@ describe("down the tree", () => {
       free = false;
       Audio.play("f.playlist.json");
       expect(fake.plays.at(-1)!.filter).toEqual({ lowpass: 2000 });
-      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('"compressor" runs on an instance submix'));
+      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('"compressor" runs on a submix'));
     } finally {
       delete (fake as { submixes?: unknown }).submixes;
     }
