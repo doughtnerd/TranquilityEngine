@@ -62,3 +62,7 @@ Decisions made during the build that the records didn't settle. Each entry: the 
 - **D58 (T42).** *Per-dimension normalisation by default* (std floor 0.01; Holden's per-feature mode available); weights are folded into the runtime copy as √weight, not stored in the file.
 - **D59 (T42).** *A forced search fires on the trajectory cost against the continuation frame;* a filtered-out or finished continuation switches at once, ignoring the minimum switch time.
 - **D60 (T42).** *Character space:* yaw 0 faces +Z; +X is "right" in Babylon's left-handed frame. Defaults: search every 6 updates, bias 0.1, minimum switch 0.2 s, skip ±6 frames.
+- **D61 (T45).** *Plugin poses are array-of-structs,* 10 floats per bone in local space; the core converts from SoA. One call evaluates a batch of one node kind on one skeleton.
+- **D62 (T45).** *The core owns plugin node state* and copies it in and out each call, so state survives a module reload after a trap and takes part in snapshots.
+- **D63 (T45).** *Plugin modules:* Wasm 2.0 with simd128 plus extended-const; relaxed SIMD (non-deterministic), threads, multi-memory, memory64, exceptions, tail calls and start functions are refused. A missing memory maximum gets the limit.
+- **D64 (T45).** *Fuel* is charged per block at its start; a trap fires when fuel goes below 0; a fresh instance starts at 0.
