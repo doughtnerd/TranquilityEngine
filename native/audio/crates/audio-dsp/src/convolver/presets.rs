@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 //! The generated zone impulse responses (ADR 0162 R10, api-and-models §2.3): `room`, `corridor`,
-//! `hall`, `cave` and `open`, each `{ rt60 s, hfDamping, predelayMs }`. The decoder worker generates
+//! `hall`, `cave` and `open`, and ADR 0333's `smallStone`, `canyonHall`, `metalTunnel` and `forest`,
+//! each `{ rt60 s, hfDamping, predelayMs }`. The decoder worker generates
 //! them (`myco_ir_generate`, task C2a) at the context rate and prepares them like any zone IR (trim,
 //! cut, the shared reverb's normalisation, partition), so main never holds a time-domain IR.
 //!
@@ -38,13 +39,28 @@ pub struct Preset {
     pub predelay_ms: f64,
 }
 
-/// The presets in code order (`myco_ir_generate`'s `preset` is the index): api-and-models §2.3.
-pub const PRESETS: [Preset; 5] = [
+/// The presets in code order (`myco_ir_generate`'s `preset` is the index): api-and-models §2.3,
+/// then ADR 0333's four named spaces (indices 5..=8), each with its own times, set from the I3DL2 /
+/// EAX environment families their names belong to (decay, HF ratio as `1 - hf_damping`, reverb
+/// delay as predelay), scaled to the space the name describes:
+/// - `smallStone`: a small stone chamber. EAX "Stone room" decays 2.31 s with HF ratio 0.64; a
+///   small one is shorter, hard walls keep the highs: 1.1 s, damping 0.3, 7 ms.
+/// - `canyonHall`: rock walls far apart, between EAX "Arena" (7.24 s, HF 0.33) and "Mountains"
+///   (1.49 s, reverb delay 100 ms): a long tail with a late onset, 4.8 s, damping 0.4, 70 ms.
+/// - `metalTunnel`: EAX "Sewer pipe" decays 2.81 s; metal keeps its highs, so a ringing, bright
+///   tail: 2.8 s, damping 0.15, 12 ms.
+/// - `forest`: EAX "Forest" (1.49 s, HF ratio 0.54, reverb delay 88 ms): sparse, distant trunks,
+///   foliage soaking the highs: 1.5 s, damping 0.46, 60 ms.
+pub const PRESETS: [Preset; 9] = [
     Preset { name: "room", rt60: 0.45, hf_damping: 0.5, predelay_ms: 4.0 },
     Preset { name: "corridor", rt60: 1.1, hf_damping: 0.6, predelay_ms: 6.0 },
     Preset { name: "hall", rt60: 2.2, hf_damping: 0.4, predelay_ms: 18.0 },
     Preset { name: "cave", rt60: 3.6, hf_damping: 0.3, predelay_ms: 30.0 },
     Preset { name: "open", rt60: 0.9, hf_damping: 0.8, predelay_ms: 40.0 },
+    Preset { name: "smallStone", rt60: 1.1, hf_damping: 0.3, predelay_ms: 7.0 },
+    Preset { name: "canyonHall", rt60: 4.8, hf_damping: 0.4, predelay_ms: 70.0 },
+    Preset { name: "metalTunnel", rt60: 2.8, hf_damping: 0.15, predelay_ms: 12.0 },
+    Preset { name: "forest", rt60: 1.5, hf_damping: 0.46, predelay_ms: 60.0 },
 ];
 
 /// The band split's corner frequency.
@@ -156,7 +172,7 @@ mod tests {
 
     #[test]
     fn frames_follow_the_table() {
-        let at_48k = [21_792, 53_088, 106_464, 174_240, 45_120];
+        let at_48k = [21_792, 53_088, 106_464, 174_240, 45_120, 53_136, 233_760, 134_976, 74_880];
         for (k, want) in at_48k.iter().enumerate() {
             assert_eq!(frames(k as u32, 48_000.0), *want, "preset {k}");
         }
@@ -168,7 +184,7 @@ mod tests {
         for (i, p) in PRESETS.iter().enumerate() {
             assert_eq!(index_of(p.name), Some(i as u32));
         }
-        for bad in ["Room", "", "plate"] {
+        for bad in ["Room", "", "plate", "smallstone"] {
             assert_eq!(index_of(bad), None, "{bad:?}");
         }
     }
@@ -227,7 +243,7 @@ mod tests {
 
     #[test]
     fn refuses_bad_presets_rates_and_short_slices() {
-        assert_eq!(frames(5, 48_000.0), 0);
+        assert_eq!(frames(PRESETS.len() as u32, 48_000.0), 0);
         assert_eq!(frames(0, 0.0), 0);
         assert_eq!(frames(0, f32::NAN), 0);
         assert_eq!(frames(0, 1e9), 0);
@@ -235,7 +251,7 @@ mod tests {
         let n = frames(0, 48_000.0);
         let mut l = vec![7.0f32; n];
         let mut r = vec![7.0f32; n];
-        assert_eq!(generate(5, 48_000.0, &mut l, &mut r), 0);
+        assert_eq!(generate(PRESETS.len() as u32, 48_000.0, &mut l, &mut r), 0);
         assert_eq!(generate(0, 1e9, &mut l, &mut r), 0);
 
         let mut short = vec![7.0f32; n - 1];
@@ -243,5 +259,50 @@ mod tests {
         assert_eq!(generate(0, 48_000.0, &mut l, &mut short), 0);
         assert!(short.iter().all(|&x| x == 7.0));
         assert!(l.iter().chain(&r).all(|&x| x == 7.0));
+    }
+
+    /// The decay of the response's energy below the crossover (two RBJ low-pass biquads at 700 Hz:
+    /// a mid-band reverberation time, as rooms are rated), by Schroeder backward integration (the
+    /// ISO 3382 method) between -5 and -25 dB, extrapolated to 60 dB (T20), in seconds.
+    fn t20(x: &[f32], rate: f64) -> f64 {
+        let w = core::f64::consts::TAU * 700.0 / rate;
+        let alpha = libm::sin(w) / (2.0 * core::f64::consts::FRAC_1_SQRT_2);
+        let a0 = 1.0 + alpha;
+        let (b0, b1, a1, a2) = ((1.0 - libm::cos(w)) / 2.0 / a0, (1.0 - libm::cos(w)) / a0, -2.0 * libm::cos(w) / a0, (1.0 - alpha) / a0);
+        let mut y: Vec<f64> = x.iter().map(|v| *v as f64).collect();
+        for _ in 0..2 {
+            let (mut x1, mut x2, mut y1, mut y2) = (0.0, 0.0, 0.0, 0.0);
+            for v in y.iter_mut() {
+                let out = b0 * *v + b1 * x1 + b0 * x2 - a1 * y1 - a2 * y2;
+                (x2, x1, y2, y1) = (x1, *v, y1, out);
+                *v = out;
+            }
+        }
+        let mut tail = vec![0.0f64; y.len() + 1];
+        for i in (0..y.len()).rev() {
+            tail[i] = tail[i + 1] + y[i].powi(2);
+        }
+        let db = |i: usize| 10.0 * libm::log10(tail[i] / tail[0]);
+        let a = (0..x.len()).find(|&i| db(i) <= -5.0).unwrap();
+        let b = (0..x.len()).find(|&i| db(i) <= -25.0).unwrap();
+        3.0 * (b - a) as f64 / rate
+    }
+
+    #[test]
+    fn every_preset_decays_at_its_own_declared_time() {
+        // ADR 0333's four have their own times, none borrowed from the generated five.
+        for name in ["smallStone", "canyonHall", "metalTunnel", "forest"] {
+            let p = PRESETS[index_of(name).unwrap() as usize];
+            let borrowed = PRESETS[..5].iter().any(|q| q.rt60 == p.rt60 && q.hf_damping == p.hf_damping && q.predelay_ms == p.predelay_ms);
+            assert!(!borrowed, "{name} borrows another preset's times");
+        }
+        for (k, p) in PRESETS.iter().enumerate() {
+            let pre = (48_000.0f64 * p.predelay_ms / 1000.0) as usize;
+            let (l, _) = render(k as u32, 48_000.0);
+            // The declared rt60 is the low band's (the high band dies sooner by its damping).
+            let t = t20(&l[pre..], 48_000.0);
+            eprintln!("{}: T20 {t:.3} s, rt60 {} s", p.name, p.rt60);
+            assert!((t / p.rt60 - 1.0).abs() < 0.15, "{}: T20 {t:.3} s vs rt60 {} s", p.name, p.rt60);
+        }
     }
 }

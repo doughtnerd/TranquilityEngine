@@ -142,7 +142,7 @@ fn loop_at(voice: u32, start: u32, end: u32, looping: bool, k: usize) -> Rec {
 fn sends_at(voice: u32, k: usize) -> Rec {
     let mut b = vec![0u8; wire::SetVoiceFx::FIXED_END];
     let mask = wire::SET_VOICE_FX_MASK_SENDS | wire::SET_VOICE_FX_MASK_HP_HZ;
-    wire::SetVoiceFx { voice_id: voice, frame_offset: k as u32, mask, ramp_frames: 0, hp_hz: 200.0, send: [0.5, 0.25, 0.0, 0.0], yaw: 0.0, aux_level: 0.0, aux_bus: wire::AUX_BUS_NONE as u16, reserved: 0 }
+    wire::SetVoiceFx { voice_id: voice, frame_offset: k as u32, mask, ramp_frames: 0, hp_hz: 200.0, send: [0.5, 0.25, 0.0, 0.0], yaw: 0.0, aux_level: 0.0, aux_bus: wire::AUX_BUS_NONE as u16, spread: 0 }
         .write(&mut b, 0)
         .unwrap();
     Rec::Raw(b)

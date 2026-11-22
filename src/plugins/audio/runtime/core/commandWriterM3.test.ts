@@ -114,7 +114,7 @@ describe("CommandWriter, ADR 0162 records", () => {
       yaw: 1.5,
       auxLevel: 0.25,
       auxBus: 3,
-      reserved: 0,
+      spread: 0,
     });
   });
 

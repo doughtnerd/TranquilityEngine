@@ -63,7 +63,7 @@ const FADE_TAIL_FRAMES = 1_536;
 /** `stream::WIDE_RING_BYTES`: 16 × (32,768 + 2,048 + 1,536) × 4 B (R16 after B4's stall test). */
 const WIDE_RING_BYTES = STREAM_MAX_CHANNELS * (STREAM_RING_FRAMES_WIDE + STREAM_WIDE_CHUNK_FRAMES + FADE_TAIL_FRAMES) * 4;
 /** `fxpool::FX_ENTRY_BYTES`. */
-const FX_ENTRY_BYTES = 448;
+const FX_ENTRY_BYTES = 560; // 448 before ADR 0333 (ABI 4.11) added spread
 /** `layout::PLANAR_SCRATCH_BYTES`. */
 const PLANAR_SCRATCH_BYTES = 16 * QUANTUM * 4;
 

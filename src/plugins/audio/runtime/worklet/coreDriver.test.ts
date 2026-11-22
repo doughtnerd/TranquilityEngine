@@ -120,7 +120,7 @@ describe("coreDriver with the real wasm", () => {
     expect(r.blocks).toHaveLength(1);
     const first = r.blocks[0]!;
     expect(first.flags & STATUS_FLAGS_READY).toBeTruthy();
-    expect(first.abiVersion).toBe(0x40a); // 4.10 effect and send automation, submix automation, dB ramps; 4.9 submix levels and ROUTE; 4.7 bus sends; 4.6 (ADR 0331 effect catalogue DSP; 4.5 instance submixes; 4.4 voice pan and high-pass, 4.3 loop programs)
+    expect(first.abiVersion).toBe(0x40b); // 4.11 per-voice spread; 4.10 effect and send automation, submix automation, dB ramps; 4.9 submix levels and ROUTE; 4.7 bus sends; 4.6 (ADR 0331 effect catalogue DSP; 4.5 instance submixes; 4.4 voice pan and high-pass, 4.3 loop programs)
     expect(first.currentFrame).toBe(6 * 128);
     await expect(r.link.ready).resolves.toBeUndefined();
     r.run(6);
@@ -390,7 +390,7 @@ describe("ABI 2.0 init and the layout mirror (ADR 0162 C8)", () => {
       }
     }
     // An M2 preset: the pool, the scratch, and in Zones the aux accumulator (C3) and the sends area's chain gains (C4).
-    expect(spatialRegionsBytes(PRESET, RATE)).toBe(32 * 448 + 8192 + PRESET.maxBuses * 1024 + (64 + PRESET.maxBuses * 512) + 64);
+    expect(spatialRegionsBytes(PRESET, RATE)).toBe(32 * 560 + 8192 + PRESET.maxBuses * 1024 + (64 + PRESET.maxBuses * 512) + 64);
   });
 
   it("ABI 4.0 (3.0 added max_music_rings): max_music_rings 0..16 is accepted, 17 refused, and the preset's count reaches init (ADR 0166 W1)", () => {

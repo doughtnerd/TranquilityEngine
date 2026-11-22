@@ -84,11 +84,41 @@ export interface StreamOpenMessage {
   /** ADR 0158 §4 (contract C2, filled by E4.4): with `loop`, wrap from `loopEndFrame` (exclusive; 0 = the end) back to `loopStartFrame`. */
   readonly loopStartFrame?: number;
   readonly loopEndFrame?: number;
+  /** ADR 0328: with `loop`, the region's seam crossfade, repeat count and the program's later loops (absent: endless, no crossfade). */
+  readonly program?: StreamLoopProgram;
   /**
    * ADR 0162 §2.4 (K0; filled by B4): the sidecar's convention, so FuMa is converted per chunk. With it, a stream may have
    * 4, 9 or 16 channels (the wire's STREAM_OPEN `channels` 1–16 and `convention`).
    */
   readonly convention?: AmbisonicConvention;
+}
+
+/** ADR 0328: one loop of a stream's program after its first, in file frames. */
+export interface StreamLoopStep {
+  readonly startFrame: number;
+  /** Exclusive. */
+  readonly endFrame: number;
+  /** The seam's crossfade, frames (0 none): the audio past the end fades out while the start fades in. */
+  readonly crossfadeFrames: number;
+  /** The crossfade's shape, a `FADE_SHAPE_*` code (equal power 0). */
+  readonly shape: number;
+  /** Passes in all, the first included; 0 endless. */
+  readonly count: number;
+  /** A release (`looping: false`) ends it. */
+  readonly held: boolean;
+}
+
+/**
+ * ADR 0328 (loops on stream voices): the rest of a looping stream's loop program beyond its region: the region's own
+ * seam crossfade, shape, count and held flag, and the loops that follow it in the file (each looped once the stream
+ * reaches it, after the one before has played its count). The worker crossfades a seam with `myco_decode_seam`.
+ */
+export interface StreamLoopProgram {
+  readonly crossfadeFrames: number;
+  readonly shape: number;
+  readonly count: number;
+  readonly held: boolean;
+  readonly then: readonly StreamLoopStep[];
 }
 
 /**
@@ -101,6 +131,8 @@ export interface StreamLoopMessage {
   readonly looping: boolean;
   readonly loopStartFrame?: number;
   readonly loopEndFrame?: number;
+  /** ADR 0328: with `looping`, the region's crossfade, count and the program's later loops (absent: endless, no crossfade). */
+  readonly program?: StreamLoopProgram;
   /**
    * E4.4: the stream frame the change lands on (the end of the voice's current pass, predicted on main from its playhead).
    * The worker stops wrapping (or changes region) there, or splices a new epoch from it if it already sent past it.

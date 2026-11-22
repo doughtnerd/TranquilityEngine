@@ -15,7 +15,7 @@
 // a stream like `openStream`'s: its `streamOpened`, `streamClosed` and errors reach `onStream`, and `closeStream` closes
 // it), `cancelGroup` closes a group's members, `protectMusic` and `releaseMusic` steer the worker's encoded cache, and
 // `onMusic` hears `groupOpened` (diagnostics only) and `needBytes` (Q0's miss rule: resend those members with `bytes`).
-import type { AmbisonicConvention, ClipInfo, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, IrFailedMessage, IrPreparedMessage, IrRequest, MusicReply, PrimeGroupMessage, StreamClosedMessage, StreamOpenedMessage, StreamPortLike } from "./protocol";
+import type { AmbisonicConvention, ClipInfo, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, IrFailedMessage, IrPreparedMessage, IrRequest, MusicReply, PrimeGroupMessage, StreamClosedMessage, StreamLoopProgram, StreamOpenedMessage, StreamPortLike } from "./protocol";
 import type { StreamLoopAt } from "./streams";
 
 /** What the client needs of a worker (a `Worker`, or an in-process stand-in in tests). */
@@ -125,6 +125,8 @@ export interface StreamOpenOptions {
   /** ADR 0158 §4 (contract C2, sent by E4.4): the loop region in frames (end exclusive, 0 = the end). */
   readonly loopStartFrame?: number;
   readonly loopEndFrame?: number;
+  /** ADR 0328: the region's crossfade, count and the program's later loops. */
+  readonly program?: StreamLoopProgram;
   /** ADR 0162 B4: the sidecar's ambisonic convention, so the worker streams a 4, 9 or 16-channel file (FuMa converted). */
   readonly convention?: AmbisonicConvention;
 }
@@ -150,9 +152,10 @@ export interface DecoderClient {
    * ADR 0158 §4 (E4.4): changes a stream's loop region (`looping`; frames, end exclusive, 0/0 the whole file, both
    * omitted the file's own points) or releases it (`looping: false`), at stream frame `atStreamFrame` (the end of the
    * voice's current pass; omitted: where the worker is decoding). The caller reserves the stream's next epoch for it
-   * (the worker splices with it when that frame was sent already, `decoder/streams.ts`).
+   * (the worker splices with it when that frame was sent already, `decoder/streams.ts`). ADR 0328: `program` adds the
+   * region's crossfade, count and the program's later loops.
    */
-  loopStream(streamId: number, looping: boolean, loopStartFrame?: number, loopEndFrame?: number, atStreamFrame?: number): void;
+  loopStream(streamId: number, looping: boolean, loopStartFrame?: number, loopEndFrame?: number, atStreamFrame?: number, program?: StreamLoopProgram): void;
   /** B3: closes a stream (the worker sends STREAM_CLOSE to the worklet). Unknown ids are answered too. */
   closeStream(streamId: number): void;
   /**
@@ -345,10 +348,10 @@ class Client implements DecoderClient {
     }
     this.streams.set(o.streamId, o.asset);
     const region = o.loopStartFrame !== undefined || o.loopEndFrame !== undefined ? { loopStartFrame: o.loopStartFrame ?? 0, loopEndFrame: o.loopEndFrame ?? 0 } : {};
-    worker.postMessage({ type: "streamOpen", streamId: o.streamId, asset: o.asset, bytes: o.bytes, hint: o.hint, startFrame: o.startFrame, epoch: o.epoch, loop: o.loop, ...region, ...(o.convention ? { convention: o.convention } : {}) }, [o.bytes]);
+    worker.postMessage({ type: "streamOpen", streamId: o.streamId, asset: o.asset, bytes: o.bytes, hint: o.hint, startFrame: o.startFrame, epoch: o.epoch, loop: o.loop, ...region, ...(o.program ? { program: o.program } : {}), ...(o.convention ? { convention: o.convention } : {}) }, [o.bytes]);
   }
 
-  loopStream(streamId: number, looping: boolean, loopStartFrame?: number, loopEndFrame?: number, atStreamFrame?: number): void {
+  loopStream(streamId: number, looping: boolean, loopStartFrame?: number, loopEndFrame?: number, atStreamFrame?: number, program?: StreamLoopProgram): void {
     if (!this.worker || !this.streams.has(streamId)) return;
     const message: StreamLoopAt = {
       type: "streamLoop",
@@ -356,6 +359,7 @@ class Client implements DecoderClient {
       looping,
       ...(loopStartFrame !== undefined || loopEndFrame !== undefined ? { loopStartFrame: loopStartFrame ?? 0, loopEndFrame: loopEndFrame ?? 0 } : {}),
       ...(atStreamFrame !== undefined ? { atStreamFrame } : {}),
+      ...(program ? { program } : {}),
     };
     this.worker.postMessage(message);
   }
