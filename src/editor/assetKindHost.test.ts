@@ -1,7 +1,7 @@
 // The asset kind host (ADR 0233): a kind declares its format, default folder and panel through a plugin's
 // `registerAssetKind`; the host creates its files, gives the current value (the open document's, else the file's)
 // and opens files in the kind's panel. Driven through the editor surface (`editor.assets`) and the New… menu entries.
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kindCreators } from "./assetKindHost";
 import { kindOpens } from "./assetKindLookup";
 import { editor, openAssetDocument, type AssetKindContribution } from "./sdk";
@@ -130,5 +130,38 @@ describe("opening in the kind's panel", () => {
     await openTestProject({ "a.pair.json": "{}" });
     expect(kindOpens("a.pair.json")).toBe(false);
     expect(editor.assets.open("a.pair.json")).toBe(false);
+  });
+});
+
+describe("opening in the Audio Studio (ADR 0327)", () => {
+  const studioKinds: EditorPlugin = {
+    manifest: { name: "t.studio", version: "1" },
+    activate(context) {
+      context.registerAssetKind({ id: "t.playlist", extensions: [".playlist.json"], label: "Playlist", icon: "", format: spinKind.format });
+    },
+  };
+  beforeEach(() => activatePlugin(studioKinds));
+  afterEach(() => {
+    deactivatePlugin("t.studio");
+    vi.unstubAllGlobals();
+  });
+
+  it("opens a file the Studio opens, whose kind has no panel of its own, on its Studio screen", async () => {
+    // In the browser the Studio opens in a tab of its own (studioLaunch.ts).
+    const opened = vi.fn(() => ({ focus() {} }));
+    vi.stubGlobal("window", { open: opened });
+    vi.stubGlobal("location", { href: "http://localhost/editor.html" });
+    await openTestProject({ "music/a.playlist.json": "{}", "takes/t.mycotake": new Uint8Array(4), "a.pair.json": "{}" });
+    expect(kindOpens("music/a.playlist.json")).toBe(true);
+    expect(kindOpens("takes/t.mycotake")).toBe(true);
+    expect(editor.assets.open("music/a.playlist.json")).toBe(true);
+    await vi.waitFor(() => expect(opened).toHaveBeenCalledTimes(1));
+    expect(String((opened.mock.calls[0] as unknown[])[0])).toMatch(/studio\.html\?project=.*#\/playlists\/music\/a\.playlist\.json$/);
+  });
+
+  it("leaves audio clips and files the Studio doesn't open alone", async () => {
+    await openTestProject({ "a.wav": new Uint8Array(4), "a.pair.json": "{}" });
+    expect(kindOpens("a.wav")).toBe(false);
+    expect(kindOpens("a.pair.json")).toBe(false);
   });
 });
