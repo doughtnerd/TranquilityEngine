@@ -14,7 +14,7 @@ import { installDiskWatch } from "./sampleDisk";
 import { installSampleTransport } from "./SamplePlayerBar";
 import { SamplesPanel } from "./SamplesPanel";
 import { registerSampleKinds } from "./sampleSession";
-import { dialog, razorOn } from "./samplesState";
+import { dialog, openSession, razorOn } from "./samplesState";
 import { SeamPanel } from "./SeamPanel";
 import { TimelinePanel } from "./TimelinePanel";
 import "./samples.css";
@@ -66,23 +66,37 @@ const view = (body: () => ComponentChildren) => () => {
   return body();
 };
 
+/**
+ * The open sample's document scope: focus or a press inside makes its asset document the active history (Undo, Redo,
+ * the History panel, ADR 0145). `display: contents`, so the panel's layout is untouched.
+ */
+function DocScope(props: { children: ComponentChildren }) {
+  const path = openSession.value?.documentPath;
+  return (
+    <div class="smp-doc" data-asset-document={path}>
+      {props.children}
+    </div>
+  );
+}
+const docView = (body: () => ComponentChildren) => view(() => <DocScope>{body()}</DocScope>);
+
 export const SAMPLES_PANELS: readonly StudioPanel[] = [
   { id: "samples-library", title: "Samples", dock: "left", view: view(() => <SamplesPanel />) },
-  { id: "samples-outline", title: "Outline", dock: "left", view: view(() => <OutlinePanel />) },
+  { id: "samples-outline", title: "Outline", dock: "left", view: docView(() => <OutlinePanel />) },
   {
     id: "samples-editor",
     title: "Sample",
     dock: "fill",
     fixed: true,
-    view: view(() => (
+    view: docView(() => (
       <>
         <TimelinePanel />
         <SampleDialogs />
       </>
     )),
   },
-  { id: "samples-inspector", title: "Inspector", dock: "right", view: view(() => <InspectorPanel />) },
-  { id: "samples-edits", title: "Sample effects", dock: "bottom", view: view(() => <EditsPanel />) },
-  { id: "samples-seam", title: "Loop seam", dock: "bottom", view: view(() => <SeamPanel />) },
+  { id: "samples-inspector", title: "Inspector", dock: "right", view: docView(() => <InspectorPanel />) },
+  { id: "samples-edits", title: "Sample effects", dock: "bottom", view: docView(() => <EditsPanel />) },
+  { id: "samples-seam", title: "Loop seam", dock: "bottom", view: docView(() => <SeamPanel />) },
   historyPanel("samples"),
 ];

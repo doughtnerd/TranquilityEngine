@@ -1,5 +1,6 @@
 /* The Samples screen (ADR 0328). Theme tokens only: markers use --marker-*, reserved ranges --range-*, note colours --series-*. */
 
+.smp-doc { display: contents; }
 .smp-muted { color: var(--muted); }
 .smp-pad { padding: 8px 10px; }
 .smp-ok { color: var(--success); }

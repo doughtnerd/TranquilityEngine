@@ -19,6 +19,8 @@ import {
 } from "./sampleView";
 import { nearestZeroCrossing, seamJump, seamStrip, seamWindow } from "./seam";
 import { addTap, tapResult } from "./tapTempo";
+import { effectEdits } from "./sampleEffects";
+import { planPlay } from "./sampleTransport";
 
 const LEN = 2.6;
 const next = (r: SampleEdit): SampleEdits => {
@@ -388,5 +390,34 @@ describe("library", () => {
       "f.sample.json": { format: "myco.sample@1", source: "audio/sfx/door.wav", lineage: { kind: "fork", parent: "audio/sfx/door.wav", mode: "pin" } },
     };
     expect(usesOf("audio/sfx/door.wav", Object.keys(data), (p) => data[p])).toEqual([{ path: "a.playlist.json", count: 1 }, { path: "f.sample.json", count: 1 }]);
+  });
+});
+
+describe("baked effects chain", () => {
+  it("adds, bypasses, reorders, sets parameters and removes, one labelled step each", () => {
+    let e = effectEdits.add(defaultSampleEdits(), "eq").next;
+    const fades = effectEdits.add(e, "fades");
+    expect(fades.label).toBe("Add Fades");
+    e = fades.next;
+    expect(e.effects.map((f) => f.id)).toEqual(["fx1", "fx2"]);
+    expect(effectEdits.bypass(e, "fx1").label).toBe("Bypass EQ");
+    const moved = effectEdits.move(e, "fx2", -1);
+    expect("next" in moved ? moved.next?.effects.map((f) => f.type) : moved).toEqual(["fades", "eq"]);
+    expect("refused" in effectEdits.move(e, "fx1", -1)).toBe(true);
+    expect(effectEdits.param(e, "fx1", "low", 3).label).toBe("EQ · Low 3 dB");
+    expect(effectEdits.remove(e, "fx1").next.effects).toHaveLength(1);
+  });
+});
+
+describe("play plans", () => {
+  it("plays the selection by its kind and the whole-sample modes", () => {
+    const e = skid();
+    expect(planPlay(e, LEN, { kind: "loop", id: "l1" }, "selection", 0)).toMatchObject({ from: 0.45, to: 1.55, loop: { count: 0, crossfadeMs: 35 }, scope: "Loop" });
+    expect(planPlay(e, LEN, { kind: "marker", id: "m1" }, "selection", 0)).toMatchObject({ from: 0.3, to: LEN, loop: null });
+    expect(planPlay(e, LEN, { kind: "sample" }, "whole", 1)).toMatchObject({ from: 0, to: LEN, scope: "Whole sample" });
+    expect(planPlay(e, LEN, { kind: "sample" }, "through", 0)).toMatchObject({ from: 0, to: LEN, held: true, loop: { start: 0.45 } });
+    expect(planPlay(e, LEN, { kind: "sample" }, "toNextMarker", 0.31)).toMatchObject({ from: 0.31, to: 0.32, scope: "To Lock-up" });
+    expect(planPlay(e, LEN, { kind: "sample" }, "selection", 1)).toMatchObject({ from: 1, scope: "From the playhead" });
+    expect(planPlay(e, LEN, { kind: "tail" }, "selection", 0)).toMatchObject({ from: 1.55, to: LEN });
   });
 });
