@@ -153,6 +153,7 @@ function useScreen(): void {
     const store = takeScreen();
     const replay = replayStore();
     const scope = { screen: "take" as const };
+    let slotsKey = "";
     const keys: [string, string[], string, () => boolean | void][] = [
       ["play", ["Space"], "Replay or pause the take", () => (replay.open.peek() ? replay.toggle() : false)],
       ["start", ["Home"], "Go to the start (of the loop)", () => (replay.open.peek() ? goToStart() : false)],
@@ -173,6 +174,10 @@ function useScreen(): void {
         const note = open?.replay.note.value;
         const playing = open?.replay.playing.value;
         const t = open?.replay.time.value ?? 0;
+        // The transport and scrub follow the replay themselves; the slots change only when their words do.
+        const key = `${open?.path}|${open?.title}|${note}|${playing}|${formatClock(t)}`;
+        if (key === slotsKey) return;
+        slotsKey = key;
         setPlayerSlots("take", {
           nowPlaying: open ? { art: "TAKE", title: open.title, subtitle: `Take · ${formatClock(open.take.duration)} · ${open.path}` } : null,
           transport: <TakeTransport />,
