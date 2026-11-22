@@ -76,8 +76,9 @@ export function busRuleFindings(buses: readonly Pick<BusSettings, "effects">[]):
   const out: BusRuleFinding[] = [];
   if (buses.length > BUS_RULES.busCount.limit) out.push({ rule: "busCount", bus: -1 });
   buses.forEach((b, i) => {
+    // Past the insert cap the chain is cut to it (a problem); the core's own limit is reported once the chain fits.
     if (b.effects.length > BUS_RULES.insertsPerBus.limit) out.push({ rule: "insertsPerBus", bus: i });
-    if (b.effects.length > BUS_RULES.effectsPerBus.limit) out.push({ rule: "effectsPerBus", bus: i });
+    else if (b.effects.length > BUS_RULES.effectsPerBus.limit) out.push({ rule: "effectsPerBus", bus: i });
     if (compressors(b.effects) > BUS_RULES.compressorsPerBus.limit) out.push({ rule: "compressorsPerBus", bus: i });
   });
   return out;

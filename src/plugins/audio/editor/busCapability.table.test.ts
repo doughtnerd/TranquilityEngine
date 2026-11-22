@@ -57,6 +57,13 @@ const ROWS: Row[] = [
     ops: [[{ op: "addBus", name: "Late", parent: "Master" }, "none"]],
   },
   {
+    rule: "insertsPerBus",
+    over: bus([lp, lp, lp, lp, lp, lp, lp, lp, lp]),
+    finding: "audio.buses[1]: a bus holds at most 8 effects; the rest are ignored.",
+    at: bus([lp, lp, lp, lp, lp, lp, lp, lp]),
+    ops: [[{ op: "addEffect", bus: "Fx", index: 8, effect: lp }, "none"]],
+  },
+  {
     rule: "effectsPerBus",
     over: bus([lp, lp, lp, lp, lp]),
     finding: `audio.buses[1]: a bus runs at most ${MAX_CORE_BUS_EFFECTS} effects; the edit is saved and applies at the next Play, where only the first ${MAX_CORE_BUS_EFFECTS} of the list run.`,
@@ -93,8 +100,11 @@ describe("bus capability rules (ADR 0175)", () => {
     const draft = { audio: over as Record<string, unknown> };
     expect(settingsProblems(draft).map((p) => p.message).includes(finding)).toBe(spec.parse === "problem");
     expect(settingsWarnings(draft).includes(finding)).toBe(spec.parse === "warning");
-    // At the limit nothing is reported.
-    expect(parseAudioSettings(at)).toMatchObject({ problems: [], warnings: [] });
+    // At the limit the rule reports nothing (and nothing at all, but the core's own limit under the insert cap's).
+    const atLimit = parseAudioSettings(at);
+    expect([...atLimit.problems, ...atLimit.warnings].some((m) => m.includes(spec.message))).toBe(false);
+    expect(atLimit.problems).toEqual([]);
+    if (rule !== "insertsPerBus") expect(atLimit.warnings).toEqual([]);
 
     for (const [op, cls] of ops) {
       const core = await coreRig(at);

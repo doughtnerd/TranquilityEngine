@@ -207,7 +207,7 @@ const PAYLOAD_REFUSALS: readonly [name: string, type: number, nth: number, write
   ["NAMES table 6", RecordType.NAMES, 0, (v, p) => v.setUint8(p, 6), "badValue"],
   ["NAMES n past 256", RecordType.NAMES, 0, (v, p) => v.setUint16(p + 8, CAPTURE_NAME_MAX_BYTES + 1, true), "textTooLong"],
   ["NAMES n one short of its len", RecordType.NAMES, 0, (v, p) => v.setUint16(p + 8, 1, true), "badLength"],
-  ["MIXOP op 17", RecordType.MIXOP, 0, (v, p) => v.setUint8(p, 17), "badValue"],
+  ["MIXOP op 24", RecordType.MIXOP, 0, (v, p) => v.setUint8(p, 24), "badValue"],
   ["MIXOP class 5", RecordType.MIXOP, 0, (v, p) => v.setUint8(p + 1, 5), "badValue"],
   ["MIXOP argc one short of its len", RecordType.MIXOP, 0, (v, p) => v.setUint16(p + 2, 4, true), "badLength"],
   ["MIXOP origin 5", RecordType.MIXOP, 0, (v, p) => v.setUint8(p + 32, 5), "badValue"],
