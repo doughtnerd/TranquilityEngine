@@ -5,16 +5,12 @@ import type { StudioPanel } from "../shell/studioPanels";
 import { SCREENS, type ScreenId } from "../shell/screens";
 import { historyPanel, placeholderPanel } from "./placeholder";
 import { PROFILER_PANELS } from "./profiler";
+import { SAMPLES_PANELS } from "./samples";
 
 const purpose = (id: ScreenId) => SCREENS.find((s) => s.id === id)!.purpose;
 
 export const SCREEN_PANELS: Readonly<Record<ScreenId, readonly StudioPanel[]>> = {
-  samples: [
-    placeholderPanel({ id: "samples-library", title: "Library", dock: "left", empty: "No samples yet", body: "The project's audio files by folder. Import files, or drop them here, to make them samples." }),
-    placeholderPanel({ id: "samples-editor", title: "Sample", dock: "fill", fixed: true, icon: "∿", empty: "Samples", body: <p>{purpose("samples")} Pick a sample in the Library to edit it.</p> }),
-    placeholderPanel({ id: "samples-inspector", title: "Inspector", dock: "right", empty: "Nothing selected", body: "The selected sample's settings, markers and source file." }),
-    historyPanel("samples"),
-  ],
+  samples: SAMPLES_PANELS,
   playlists: [
     placeholderPanel({ id: "playlists-library", title: "Playlists", dock: "left", empty: "No playlists yet", body: "The project's playlists by folder. Create one to start." }),
     placeholderPanel({ id: "playlists-editor", title: "Playlist", dock: "fill", fixed: true, icon: "≡", empty: "Playlists", body: <p>{purpose("playlists")} Pick a playlist to edit and audition it.</p> }),
