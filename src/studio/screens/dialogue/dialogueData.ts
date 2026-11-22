@@ -22,6 +22,8 @@ export interface FileFacts {
   readonly vo: SampleVo | null;
   readonly normalize: SampleNormalize | null;
   readonly markers: readonly SampleMarker[];
+  /** Lip-sync keys imported (0340 §7), or null with none. */
+  readonly lipsync: number | null;
 }
 
 export interface DialogueData {

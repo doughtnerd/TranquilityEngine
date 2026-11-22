@@ -96,6 +96,7 @@ export interface FixtureOptions {
   readonly vo?: Readonly<Record<string, SampleVo>>;
   readonly normalize?: Readonly<Record<string, SampleNormalize>>;
   readonly markers?: Readonly<Record<string, readonly SampleMarker[]>>;
+  readonly lipsync?: Readonly<Record<string, number>>;
   readonly languages?: LanguageSettings;
   readonly localisation?: AudioLocalisation;
 }
@@ -115,6 +116,6 @@ export function fixtureData(o: FixtureOptions = {}): DialogueData {
     translation: (p, code) => (p === STRINGS_PATH && code === "fr" ? french : null),
     exists: (p) => p in durations,
     duration: (p) => durations[p] ?? null,
-    facts: (p): FileFacts | null => (p in durations ? { vo: vo[p] ?? null, normalize: o.normalize?.[p] ?? null, markers: o.markers?.[p] ?? [] } : null),
+    facts: (p): FileFacts | null => (p in durations ? { vo: vo[p] ?? null, normalize: o.normalize?.[p] ?? null, markers: o.markers?.[p] ?? [], lipsync: o.lipsync?.[p] ?? null } : null),
   };
 }
