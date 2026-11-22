@@ -35,6 +35,8 @@ export interface TakeRecorderOptions {
   onStop?: (message: string) => void;
   /** The take cap, bytes (tests); default `TAKE_MAX_UNCOMPRESSED_BYTES`. */
   capBytes?: number;
+  /** The pick generator state of the World plays go to (`takeSeed.ts`), for each keyframe; null while unseeded. */
+  randomState?: () => number | null;
 }
 
 /** Poses are read at most this often (30 Hz). */
@@ -88,12 +90,14 @@ export class TakeRecorder implements TakeRequestSink, CaptureTee {
   private lastKeyframe = -Infinity;
   private listener = { x: NaN, y: NaN, z: NaN, fx: NaN, fy: NaN, fz: NaN, t: 0 };
   private readonly onStop: ((message: string) => void) | undefined;
+  private readonly randomState: (() => number | null) | undefined;
 
   constructor(private readonly ring: TakeRecorderRing, opts: TakeRecorderOptions = {}) {
     this.now = opts.now ?? (() => performance.now());
     this.startMs = this.now();
     this.cap = opts.capBytes ?? TAKE_MAX_UNCOMPRESSED_BYTES;
     this.onStop = opts.onStop;
+    this.randomState = opts.randomState;
     this.globals = { ...(opts.globals?.() ?? {}) };
     this.keyframe(0);
   }
@@ -260,7 +264,10 @@ export class TakeRecorder implements TakeRequestSink, CaptureTee {
     this.prune();
     const instances: TakeKeyframe["instances"] = [];
     for (const [id, l] of this.live) instances.push({ instance: id, path: l.path, started: l.started, emitter: l.emitter, parameters: { ...l.parameters } });
-    this.write({ type: TakeRecordType.KEYFRAME, payload: { t, instances: instances.slice(-TAKE_MAX_KEYFRAME_INSTANCES), globals: { ...this.globals } } });
+    const payload: TakeKeyframe = { t, instances: instances.slice(-TAKE_MAX_KEYFRAME_INSTANCES), globals: { ...this.globals } };
+    const random = this.randomState?.() ?? null;
+    if (random !== null && Number.isInteger(random)) payload.random = random >>> 0;
+    this.write({ type: TakeRecordType.KEYFRAME, payload });
   }
 
   /** Appends one record to the log, or stops the take (with its message) when the cap or the ring says so. */

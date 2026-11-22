@@ -14,6 +14,7 @@ import { onAudioSessionReleased } from "../audioSession";
 import { playlistHost } from "../playlists/host";
 import { captureTakeRing, onCapturePlayStopped, type CaptureTakeRing } from "./capture";
 import type { SaveTake } from "./save";
+import { activeWorldRandomState } from "./takeSeed";
 import { takeTap } from "./takeTap";
 
 /** `Audio.take` (ADR 0334). */
@@ -99,8 +100,11 @@ class Take implements AudioTake {
     } catch {
       // Data only: an unserialisable section leaves the hash of what remains.
     }
-    this.seedFacts = { seed: settings.seed ?? 0, seeded: settings.seed !== undefined, audioHash: fnv1a(json) };
+    // ADR 0334: the World's pick generator state now, so replay restarts from where the game's picks were (`takeSeed.ts`).
+    const random = activeWorldRandomState();
+    this.seedFacts = { seed: random ?? 0, seeded: random !== null, audioHash: fnv1a(json) };
     rec = mod.createTakeRecorder(ring, {
+      randomState: activeWorldRandomState,
       globals: () => {
         const out: Record<string, number> = {};
         for (const p of settings.parameters ?? []) {

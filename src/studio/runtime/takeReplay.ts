@@ -16,7 +16,7 @@
 import { computed, signal, type ReadonlySignal } from "@preact/signals";
 import { lastAtOrBefore } from "../../engine/core/sortedSearch";
 import type { Take } from "../../engine/audio/take/reader";
-import type { TakePlayOptions, TakeRequest } from "../../engine/audio/take/types";
+import type { TakeKeyframe, TakePlayOptions, TakeRequest } from "../../engine/audio/take/types";
 import type { StudioAudioHost } from "./studioAudioHost";
 
 export interface Vec3 {
@@ -102,7 +102,7 @@ export const REPLAY_STOP_FADE = 0.05;
 /** The pose rate the recorder writes (30 Hz, changes only). */
 const POSE_FRAME = 1 / 30;
 
-export const UNSEEDED_NOTE = "This take was recorded with a seed, but the Studio's runtime can't be reseeded yet: random picks may differ from the game's.";
+export const UNSEEDED_NOTE = "The Studio's audio runtime couldn't be reseeded from this take (it isn't running): random picks may differ from the game's.";
 
 type Play = Extract<TakeRequest, { kind: "play" }>;
 type Pose = Extract<TakeRequest, { kind: "pose" }>;
@@ -226,9 +226,6 @@ export class TakeReplay {
     const loop = this.loop.peek();
     let t = this.time.peek();
     if (t >= this.duration - 1e-6 || (loop && (t < loop.from || t >= loop.to))) t = loop ? loop.from : 0;
-    if (t === 0 && this.take.meta.seeded !== false) {
-      if (!this.target.seed(this.take.meta.seed)) this.note.value = UNSEEDED_NOTE;
-    }
     this.reconstruct(t);
     this.anchor = { clock: this.clock.now(), time: t };
     this.time.value = t;
@@ -448,17 +445,23 @@ export class TakeReplay {
     const seek = this.take.seek(t);
     const kf = seek.keyframe;
     const alive = new Map<number, Live>();
+    /** The instances alive at the keyframe: their picks were made before it. */
+    const before = new Set<number>();
     const globals: Record<string, number> = { ...(kf?.globals ?? {}) };
     if (kf) {
       for (const k of kf.instances) {
         const play = this.playOf(k.instance, k.started, kf.t);
         const released = (this.releases.get(k.instance) ?? []).some((r) => r >= (play?.t ?? k.started) && r < kf.t);
         alive.set(k.instance, { instance: k.instance, path: k.path, emitter: k.emitter, started: k.started, options: play?.options ?? {}, parameters: { ...k.parameters }, released, handle: null });
+        before.add(k.instance);
       }
     }
     for (const q of seek.requests) {
-      if (q.kind === "play") alive.set(q.instance, { instance: q.instance, path: q.path, emitter: q.emitter, started: q.t, options: q.options, parameters: { ...q.options.parameters }, released: false, handle: null });
-      else if (q.kind === "stop") alive.delete(q.instance);
+      if (q.kind === "play") {
+        alive.delete(q.instance);
+        before.delete(q.instance);
+        alive.set(q.instance, { instance: q.instance, path: q.path, emitter: q.emitter, started: q.t, options: q.options, parameters: { ...q.options.parameters }, released: false, handle: null });
+      } else if (q.kind === "stop") alive.delete(q.instance);
       else if (q.kind === "release") {
         const l = alive.get(q.instance);
         if (l) l.released = true;
@@ -473,12 +476,33 @@ export class TakeReplay {
     this.globals = globals;
     for (const [name, value] of Object.entries(globals)) this.target.setGlobal(name, value);
     this.mixAt(t);
+    // The keyframe's instances first (the game made their picks before the keyframe), then the World's pick generator
+    // restarts from the state the keyframe recorded, then the plays after it pick as the game's did.
     for (const l of alive.values()) {
+      if (!before.has(l.instance)) continue;
+      l.handle = this.start(l, t);
+      this.live.set(l.instance, l);
+    }
+    const seed = this.seedAt(kf);
+    if (seed !== null && !this.target.seed(seed)) this.note.value = UNSEEDED_NOTE;
+    for (const l of alive.values()) {
+      if (before.has(l.instance)) continue;
       l.handle = this.start(l, t);
       this.live.set(l.instance, l);
     }
     this.cursor = t;
     this.version.value++;
+  }
+
+  /**
+   * The generator state to restart from at keyframe `kf`: the state it recorded; at the take's start (no keyframe, or the
+   * first at 0) META's `seed`, the state when the take began. Null for a take whose picks were unseeded, and for a later
+   * keyframe that recorded none (a take from before keyframes carried it): the generator then runs on.
+   */
+  private seedAt(kf: TakeKeyframe | null): number | null {
+    if (this.take.meta.seeded === false) return null;
+    if (kf?.random !== undefined) return kf.random;
+    return !kf || kf.t <= 0 ? this.take.meta.seed : null;
   }
 
   /** The PLAY that started keyframe instance `instance` (started at `started`, alive at `kfT`). */

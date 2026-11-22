@@ -3,11 +3,12 @@
 // `AudioListener`, its `Transform`), placed at the recorded listener pose each frame. Emitters need no entities: replay
 // plays them as positioned instances (`Audio.play(path, { position })`) and moves their handles' `position`.
 //
-// The seed: the public API has no way to restart a running World's pick generator from a seed (the playlist runtime reads
-// `audio.seed` from the project's settings when it changes), so `seed` answers false and replay says picks may differ.
+// The seed: the take's recorded pick generator state restarts the Studio World's generator (the audio runtime's internal
+// `reseedActiveWorld`, `capture/takeSeed.ts`); it answers false only while the Studio has no World.
 // The public classes, from the modules `myco` re-exports them from (the `myco` barrel would also start every game plugin).
 import { GameObject, Quaternion } from "../../engine";
 import { AudioListener } from "../../plugins/audio/runtime";
+import { reseedActiveWorld } from "../../plugins/audio/runtime/capture/takeSeed";
 import type { ReplayPose, ReplayWorld } from "./takeReplay";
 
 export function studioReplayWorld(): ReplayWorld {
@@ -33,7 +34,7 @@ export function studioReplayWorld(): ReplayWorld {
       t.position = [pose.position.x, pose.position.y, pose.position.z];
       if (pose.forward) t.rotation = Quaternion.lookRotationSafe([pose.forward.x, pose.forward.y, pose.forward.z]);
     },
-    seed: () => false,
+    seed: (state) => reseedActiveWorld(state),
     dispose() {
       if (node?.isValid) GameObject.destroy(node);
       node = null;

@@ -154,6 +154,10 @@ class In {
     this.at += n;
     return b;
   }
+  /** Bytes left in the payload. */
+  get left(): number {
+    return this.end - this.at;
+  }
   done(): void {
     if (this.at !== this.end) throw new TakeRecordError("badLength", this.base + this.off, `${this.what} payload is ${this.end - this.off} B, its fields say ${this.at - this.off} B`);
   }
@@ -256,6 +260,8 @@ export function encodeTakeRecord(view: DataView, off: number, r: TakeRecordInit)
         o.u32(i.instance); o.u32(id(i.emitter)); o.f64(i.started); o.text(cutTakeText(i.path, TAKE_PATH_MAX_BYTES));
         writeParams(o, params(i.parameters));
       }
+      // The World's pick generator state, when it has one: a trailing u32 (a keyframe without it ends at its instances).
+      if (k.random !== undefined) o.u32(k.random);
       break;
     }
   }
@@ -286,7 +292,7 @@ export function takeRecordBytes(r: TakeRecordInit): number {
       const k = r.payload;
       let n = 8 + paramsBytes(params(k.globals)) + 2;
       for (const i of k.instances.slice(-TAKE_MAX_KEYFRAME_INSTANCES)) n += 4 + 4 + 8 + 2 + cutTakeText(i.path, TAKE_PATH_MAX_BYTES).byteLength + paramsBytes(params(i.parameters));
-      return n;
+      return k.random !== undefined ? n + 4 : n;
     }
   }
 }
@@ -423,7 +429,9 @@ export function decodeTakeRecord(type: number, view: DataView, off: number, len:
         const path = i.text(TAKE_PATH_MAX_BYTES, "path");
         instances.push({ instance, path, started, emitter, parameters: readParams(i, "parameter") });
       }
-      out = { type: "keyframe", keyframe: { t, instances, globals } };
+      const keyframe: TakeKeyframe = { t, instances, globals };
+      if (i.left === 4) keyframe.random = i.u32();
+      out = { type: "keyframe", keyframe };
     }
   }
   i.done();

@@ -80,7 +80,7 @@ describe("TakeReplay (ADR 0334)", () => {
       req({ kind: "mark", t: 4.5, text: "here" }),
     ]);
     replay.play();
-    expect(log).toEqual(["seed 9", "bus Music=1/0"]); // a bus the take sets starts from its plain level
+    expect(log).toEqual(["bus Music=1/0", "seed 9"]); // a bus the take sets starts from its plain level
     log.length = 0;
     at(0.6);
     expect(log).toEqual(["global Speed=10", "play engine"]);
@@ -228,6 +228,24 @@ describe("TakeReplay (ADR 0334)", () => {
     expect(fresh.options.parameters).toEqual({ X: 2 });
     expect(fresh.released).toBe(true);
     expect(replay.instance(1)!.handle).toBe(fresh);
+  });
+
+  it("reseeds the picks' generator from the keyframe in force at a seek, after the keyframe's own instances start", () => {
+    const { replay, log } = setup([
+      { type: "keyframe", keyframe: { t: 0, instances: [], globals: {}, random: 111 } },
+      req({ kind: "play", t: 0.5, instance: 1, path: "a", emitter: null, options: {} }),
+      { type: "keyframe", keyframe: { t: 1, instances: [{ instance: 1, path: "a", started: 0.5, emitter: null, parameters: {} }], globals: {}, random: 222 } },
+      req({ kind: "play", t: 1.5, instance: 2, path: "b", emitter: null, options: {} }),
+    ]);
+    replay.play();
+    expect(log).toEqual(["seed 111"]);
+    log.length = 0;
+    replay.seek(1.7);
+    // The keyframe's instance had made its picks before the keyframe; the play after it picks from the recorded state.
+    expect(log.filter((l) => !l.startsWith("stop"))).toEqual(["play a", "seed 222", "play b"]);
+    log.length = 0;
+    replay.seek(0.2);
+    expect(log.filter((l) => !l.startsWith("stop"))).toEqual(["seed 111"]);
   });
 
   it("says so when the runtime can't be seeded, and doesn't seed an unseeded take", () => {
