@@ -77,8 +77,9 @@
  * A ghost's baseline is the state sent in the newest snapshot the connection acked that included
  * it: both ends keep what was sent per tick (the server for `BASELINE_WINDOW` ticks), so an
  * unchanged ghost costs its id gap and two bits, about a byte. A snapshot over the budget
- * (`maxSnapshotBytes`, 64 KiB) carries the unacked spawns first, then the ghosts longest unsent
- * (times their `importance`); the rest go next tick.
+ * (`maxSnapshotBytes`, 64 KiB, or one datagram while the connection's transport sends unreliable
+ * messages as lossy datagrams, ADR 0333) carries the unacked spawns first, then the ghosts longest
+ * unsent (times their `importance`); the rest go next tick.
  *
  * ## Acks (unreliable, `net.snapshotAck`)
  *
@@ -551,7 +552,9 @@ export class ServerReplication {
       if (g) all.push(g);
     }
     all.sort((a, b) => a.id - b.id); // ghosts back in relevance were added out of order
-    const budget = this.maxSnapshotBytes * 8;
+    // ADR 0333: over a lossy datagram path a snapshot fits one datagram (losing a piece of a bigger
+    // one loses all of it); the ghosts that don't fit go next tick, as with the budget.
+    const budget = Math.min(this.maxSnapshotBytes, peer.datagramBodyBytes ?? Infinity) * 8;
     // Too big: unacked spawns first (oldest first), then the ghosts longest unsent, by importance.
     const choose = (costs: Map<number, number>, headerBits: number, fallbackCost: number) => {
       const ranked = [...all].sort((a, b) => {

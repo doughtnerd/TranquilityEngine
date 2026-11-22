@@ -34,6 +34,11 @@ export interface ServerOptions {
   maxConnections?: number;
   /** Engine steps per second (default: the fastest server World's tick rate). */
   tickRate?: number;
+  /**
+   * WebRTC data channels for unreliable messages (ADR 0333), for every server World: `false` turns
+   * them off; `udpPort` and `publicIp` go to the transport's `webrtc` option, over its link's.
+   */
+  webrtc?: false | { udpPort?: number; publicIp?: string };
   /** Where log lines go (default `console.log`). */
   log?: (line: string) => void;
   /** How often to log stats, in ms; 0 turns them off. Default `DEFAULT_STATS_INTERVAL_MS`. */
@@ -110,7 +115,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   }
   // ADR 0067: Worlds created at runtime (a lobby's matches) that listen without a port share the
   // first server World's port (`--port`, its real one if that was 0), by path.
-  if (listeners.length > 0) engine._setListenDefaults("websocket", { port: listeners[0].port, ...(options.host ? { host: options.host } : {}) });
+  if (listeners.length > 0) {
+    const webrtc = webRtcOverride(options);
+    engine._setListenDefaults("websocket", { port: listeners[0].port, ...(options.host ? { host: options.host } : {}), ...(webrtc === undefined ? {} : { options: { webrtc } }) });
+  }
 
   const rates = engine.worlds().map((w) => 1 / engine._world(w.name)!.time.fixedDeltaTime);
   const tickRate = options.tickRate ?? Math.max(...rates);
@@ -312,7 +320,21 @@ function listenOptions(name: string, link: LinkConfig | undefined, first: boolea
   const { url: _url, ...rest } = link?.options ?? {}; // a client's address, not the server's to report
   const options: Record<string, unknown> = { ...rest, address: target.address };
   if (cli.maxConnections !== undefined) options.maxConnections = cli.maxConnections;
+  const webrtc = webRtcOverride(cli, rest.webrtc);
+  if (webrtc !== undefined) options.webrtc = webrtc;
   return { options, port, host: target.host };
+}
+
+/**
+ * The `webrtc` transport option the command line makes of `linked` (a link's own, if any): `false`
+ * for `--no-webrtc`, the link's object with `--udp-port` and `--public-ip` over it, or undefined
+ * when the command line says nothing.
+ */
+function webRtcOverride(cli: ServerOptions, linked?: unknown): unknown {
+  if (cli.webrtc === undefined) return undefined;
+  if (cli.webrtc === false) return false;
+  const base = typeof linked === "object" && linked !== null ? linked : {};
+  return { ...base, ...cli.webrtc };
 }
 
 // --- the loop -----------------------------------------------------------------------------------
@@ -361,8 +383,11 @@ function runLoop(engine: Engine, rate: number, log: (line: string) => void, stat
       const seconds = (now - statsAt) / 1000;
       const ticks = ticksByWorld(engine);
       const worlds = [...ticks].map(([name, t]) => {
-        const connections = netSession(engine._world(name)!)?.openPeers().length ?? 0;
-        return `World "${name}" ${round((t - (statsTicks.get(name) ?? t)) / seconds)} ticks/s, ${connections} connection${connections === 1 ? "" : "s"}`;
+        const peers = netSession(engine._world(name)!)?.openPeers() ?? [];
+        const connections = peers.length;
+        // ADR 0333: how many send their unreliable messages over a WebRTC data channel.
+        const datagram = peers.filter((p) => p.link.maxDatagramBytes !== undefined).length;
+        return `World "${name}" ${round((t - (statsTicks.get(name) ?? t)) / seconds)} ticks/s, ${connections} connection${connections === 1 ? "" : "s"}${connections > 0 ? ` (${datagram} on WebRTC)` : ""}`;
       });
       log(`[server] ${round(steps / seconds)} steps/s; ${worlds.join("; ")}.`);
       statsAt = now;

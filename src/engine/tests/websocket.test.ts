@@ -104,7 +104,7 @@ describe("WebSocket framing (T9)", () => {
     f.c.handleMessage(new Uint8Array([1, 9]));
     expect(f.events.at(-1)).toMatchObject({ kind: "data", channel: "unreliable", data: new Uint8Array([9]) });
     const flags = fakeConnection();
-    flags.c.handleMessage(new Uint8Array([0x02, 9]));
+    flags.c.handleMessage(new Uint8Array([0x08, 9])); // bits 3-7 are reserved (bits 1 and 2 are ADR 0333's)
     expect(flags.events.at(-1)).toMatchObject({ kind: "close", reason: expect.stringMatching(/unknown frame flags/) });
     const empty = fakeConnection();
     empty.c.handleMessage(new Uint8Array([]));

@@ -2,7 +2,7 @@
  * `myco-server`: a headless dedicated server (T14, ADR 0033 §8, 0035).
  *
  * ```sh
- * npm run server -- <projectDir> [--port N] [--host H] [--max-connections N] [--tick-rate N]
+ * npm run server -- <projectDir> [--port N] [--host H] [--max-connections N] [--tick-rate N] [--udp-port N] …
  * npx myco-server <projectDir> …     # the same, through package.json's `bin`
  * ```
  *
@@ -20,6 +20,10 @@
  *   link that connects to it, else, for the first server World, on `--port` or 7777. `--port`
  *   overrides the first server World's port, `--host` the interface every World binds (default
  *   all), and `--max-connections` how many clients each accepts (default 64).
+ * - Offers each browser client a WebRTC data channel beside its WebSocket for unreliable messages
+ *   (ADR 0333; node-datachannel). `--udp-port` puts every channel on one UDP port (open it in the
+ *   firewall), `--public-ip` names the address clients reach behind one-to-one NAT, and
+ *   `--no-webrtc` keeps everyone on WebSocket. A client whose channel can't open stays on WebSocket.
  * - Steps the Engine on a drift-free timer at the fastest server World's tick rate (`--tick-rate`
  *   sets the steps per second instead; each World still simulates at its own fixed rate, which its
  *   clients must match). Logs a line per connection opened or closed, and stats every minute.
@@ -49,6 +53,9 @@ Options:
   --max-connections N  Clients each server World accepts at once (default ${DEFAULT_MAX_CONNECTIONS})
   --tick-rate N        Engine steps per second (default: the fastest server World's tick rate)
   --stats-interval S   Seconds between stats lines (default 60; 0 turns them off)
+  --udp-port N         One UDP port for every client's WebRTC data channel (default: an ephemeral port each)
+  --public-ip A        The address clients reach this machine at, for WebRTC behind one-to-one NAT
+  --no-webrtc          Keep every client on WebSocket alone (no WebRTC data channels)
   -h, --help           Show this help`;
 
 /** A number option's value, checked; `what` says what it must be. */
@@ -62,6 +69,13 @@ const PORT = "a port from 0 to 65535";
 const CONNECTIONS = "a whole number of at least 1";
 const TICK_RATE = "a number of steps per second, above 0 and at most 1000";
 const SECONDS = "a number of seconds (0 for none)";
+const UDP_PORT = "a port from 1 to 65535";
+
+/** The WebRTC settings so far; refused after `--no-webrtc`. */
+const webrtcOf = (o: ServerOptions, flag: string): { udpPort?: number; publicIp?: string } => {
+  if (o.webrtc === false) throw new UsageError(`${flag} can't be used with --no-webrtc.`);
+  return o.webrtc ?? {};
+};
 
 const SERVER_COMMAND: Command<ServerOptions> = {
   argument: "project folder",
@@ -72,6 +86,9 @@ const SERVER_COMMAND: Command<ServerOptions> = {
     "--max-connections": { takes: CONNECTIONS, set: (o, v, f) => void (o.maxConnections = number(v, f, (n) => Number.isInteger(n) && n >= 1, CONNECTIONS)) },
     "--tick-rate": { takes: TICK_RATE, set: (o, v, f) => void (o.tickRate = number(v, f, (n) => Number.isFinite(n) && n > 0 && n <= 1000, TICK_RATE)) },
     "--stats-interval": { takes: SECONDS, set: (o, v, f) => void (o.statsIntervalMs = number(v, f, (n) => Number.isFinite(n) && n >= 0, SECONDS) * 1000) },
+    "--udp-port": { takes: UDP_PORT, set: (o, v, f) => void (o.webrtc = { ...webrtcOf(o, f), udpPort: number(v, f, (n) => Number.isInteger(n) && n >= 1 && n <= 65535, UDP_PORT) }) },
+    "--public-ip": { takes: "an IP address", set: (o, v, f) => void (o.webrtc = { ...webrtcOf(o, f), publicIp: v }) },
+    "--no-webrtc": { set: (o) => void (o.webrtc = false) },
   },
 };
 

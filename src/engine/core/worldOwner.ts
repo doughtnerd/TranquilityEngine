@@ -12,6 +12,8 @@ import type { BootstrapConfig, WorldConfig, WorldHandle } from "./worlds";
 export interface ListenDefaults {
   readonly port?: number;
   readonly host?: string;
+  /** Transport options under a listen's own (the dedicated server's `webrtc` settings, ADR 0333). */
+  readonly options?: Readonly<Record<string, unknown>>;
 }
 
 /** @internal Editor: one World's place in the Engine's views and input, from `WorldOwner._viewStates`. */
