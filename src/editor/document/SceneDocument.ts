@@ -18,7 +18,8 @@ export { sameTarget };
 /**
  * The scene file being edited (ADR 0026): the source of truth for the editor. Holds the parsed
  * `myco.scene@1` JSON exactly as authored (no defaults are added), indexes nodes by id and
- * answers read queries. Change it only through commands (`commands.ts`) so edits can be undone.
+ * answers read queries. Change it only through commands (`commands.ts`) run on a `CommandStack`,
+ * which records each step as a patch so it can be undone (ADR 0027, 0321).
  *
  * Sibling order is the order of entries in the file's `nodes` array.
  */
@@ -64,7 +65,10 @@ export class SceneDocument {
     return this.byId.has(id);
   }
 
-  /** The node entry for `id`. Throws if there isn't one. Treat as read-only. */
+  /**
+   * The node entry for `id` (the document's own, not a copy). Throws if there isn't one. Commands
+   * edit it in place from their `apply` (ADR 0321); everything else treats it as read-only.
+   */
   node(id: string): NodeEntry {
     const n = this.byId.get(id);
     if (!n) throw new Error(`${this.path}: no node "${id}".`);
