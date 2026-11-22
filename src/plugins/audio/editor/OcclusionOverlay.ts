@@ -4,7 +4,7 @@
 // for about half, danger for silent. The voices and their occlusion gain come from `Audio.debug()`; the voice's node
 // comes from the playing AudioSource whose voice id it is (a one-shot or event voice has no node and isn't drawn); the
 // hit point is a fresh ray from the same query the pass uses, since the debug row carries only the collider's name.
-// Toggled from the Audio Debug panel (`occlusionOverlayOn`, remembered per user). Off, it draws and costs nothing.
+// Toggled from the Scene toolbar's Audio popover (`occlusionOverlayOn`, remembered per user). Off, it draws and costs nothing.
 // What is drawn from the voices is `occlusionRays.ts`; this module gives it the play Worlds (`editor.scene.playWorlds`, ADR 0232).
 import { effect } from "@preact/signals";
 import type { ReadonlySignal } from "@preact/signals";
@@ -26,7 +26,7 @@ export const OCCLUSION_TOOL_ID = "myco.audio.occlusion";
 /** The overlay's id on each play World. */
 const PLAY_ID = "audio-occlusion";
 
-/** Whether the overlay is drawn: the Audio Debug panel's checkbox. */
+/** Whether the overlay is drawn: the Scene toolbar Audio popover's checkbox (`AudioOverlayForm`). */
 export const occlusionOverlayOn = persisted<boolean>("myco.editor.audioOcclusionOverlay", false);
 
 // --- The play World's scene -------------------------------------------------------------------------------------
@@ -109,7 +109,7 @@ function installOcclusionOverlay(enabled: ReadonlySignal<boolean>): () => void {
   };
 }
 
-/** The scene view's occlusion tool: rays to occluded sources while playing, toggled from the Audio Debug panel. */
+/** The scene view's occlusion tool: rays to occluded sources while playing, toggled from the Scene toolbar's Audio popover. */
 export const occlusionTool: ViewportToolContribution = {
   id: OCCLUSION_TOOL_ID,
   install: () => installOcclusionOverlay(occlusionOverlayOn),

@@ -1,31 +1,19 @@
-// The Audio plugin's editor half (ADR 0097, 0157): the Audio category of Project settings (buses and their
-// effects and voice limits, snapshots, ducking, voices, playback options and the backend, with bus meters while
-// playing), the Play Stats panel's audio underruns count, and the Audio Debug panel.
+// The Audio plugin's editor half (ADR 0097, 0157): the scene editor's audio parts that stay beside the Audio Studio
+// (ADR 0327): the audio components' Inspector sections and gizmos, the occlusion overlay, the Play toolbar's Record take
+// and Record capture, the Play Stats panel's audio underruns count, the audio asset kinds (the Studio edits them; the
+// editor lists and moves them, and opens them in the Studio) and Project Settings > Audio, which points at the Studio.
 import { editor, type EditorPlugin } from "../../../editor/sdk";
 import { audioManifest } from "../manifest";
 import { Audio } from "../runtime";
 import { AUDIO_EVENT_SUFFIX } from "../../../engine/audio/eventFormat";
-import { createEventFromClips } from "./createEventFromClips";
 import { audioEventFormat, audioEventReferences } from "./eventAsset";
 import { registerStudioAssetKinds } from "./studioAssets";
-import { audioNamedLists, occlusionLayerReferences } from "./audioNames";
-import { EVENT_EDITOR_PANEL } from "./event/openEventEditor";
+import { occlusionLayerReferences } from "./audioNames";
 import { zoneTool } from "./AudioReverbZoneGizmo";
 import { occluderTool } from "./AudioOccluderGizmo";
 import { audioZoneTool } from "./AudioZoneGizmo";
 import { occlusionTool } from "./OcclusionOverlay";
-import { registerMusicPanels } from "./music";
-import { registerMixPanels } from "./mix";
-import { mixer } from "../../../engine/audio/mixer";
-import { startOpLog, type OpLog, type OpLogEntry } from "./mix/opLog";
 import { setCaptureProject } from "../runtime/capture/capture";
-
-/** ADR 0171 (Hk1, Ma1): the audio op log, started once per page (the plugin context has no dispose hook); it hands live
- * edits of the project's audio section to the running mixer while Play runs. */
-let opLog: OpLog | null = null;
-
-/** The op log's entries so far (every batch handed to the mixer, with its answers), empty before the plugin activates. The Mixer panel's restart banner reads it. */
-export const opLogEntries = (): readonly OpLogEntry[] => opLog?.entries ?? [];
 
 /** A speaker with waves over a page corner: an event is a sound that plays one of several. */
 const EVENT_ICON = "M5 9v6h4l5 4V5L9 9zM17.5 8.5a5 5 0 0 1 0 7M20 6a8.5 8.5 0 0 1 0 12";
@@ -33,7 +21,6 @@ const EVENT_ICON = "M5 9v6h4l5 4V5L9 9zM17.5 8.5a5 5 0 0 1 0 7M20 6a8.5 8.5 0 0 
 export const audioEditorPlugin: EditorPlugin = {
   manifest: audioManifest,
   activate(context) {
-    opLog ??= startOpLog(() => mixer);
     // G7b: a capture's META names the open project (the page title stands in otherwise). `project.json` has no version key
     // of its own yet, so the version is whatever string a project keeps there, else empty.
     setCaptureProject(() => {
@@ -41,29 +28,23 @@ export const audioEditorPlugin: EditorPlugin = {
       const version = (project?.settings as { version?: unknown } | undefined)?.version;
       return { name: project?.name ?? "", version: typeof version === "string" ? version : "" };
     });
-    // Project settings > Audio, after Graphics as it has always been. `audio` is a core key (the panel's own parse reports
-    // its problems), so the section owns no extra keys. Renaming a bus, material or parameter renames the scenes' and event
-    // files' references (ADR 0262), and renaming a physics layer renames it in the occlusion layers.
+    // Project settings > Audio, after Graphics as it has always been: the project's audio is `audio.json` (ADR 0330), which
+    // the Audio Studio edits, so the category only opens the Studio. It owns no keys.
     context.registerProjectSettingsSection({
       id: "audio",
       title: "Audio",
       after: "Graphics",
       keys: [],
-      names: audioNamedLists,
-      view: () => import("./AudioSettingsSection").then((m) => m.AudioSettingsSection),
+      view: () => import("./AudioStudioPointer").then((m) => m.AudioStudioPointer),
     });
+    // Renaming a physics layer renames it in `audio.json`'s occlusion layers.
     context.registerNameReferences(occlusionLayerReferences);
     // Play Stats: the audio thread's underruns since the page loaded, on every World's Nodes row (the audio core is shared).
     context.registerPlayStatsCounter({ id: "myco.audio.underruns", label: "audio underruns", count: () => Audio.debug().counters.underruns });
     // ADR 0334: Record take and Record capture on the Play toolbar, saving into the project's takes/ and captures/ folders.
     context.registerPlayToolbarItem({ id: "myco.audio.record", view: () => import("./mix/RecordToggles").then((m) => m.RecordToggles) });
-    // The Audio Debug panel (A2.5): a 4 Hz copy of `Audio.debug()` while playing (status, counters, buses, voices).
-    context.registerPanel({
-      id: "audiodebug",
-      title: "Audio Debug",
-      view: () => import("./AudioDebugPanel").then((m) => m.AudioDebugPanel),
-    });
-    // The audio event asset (ADR 0158 §1): `AudioSource.clip` accepts it beside clips; its clips are references (ADR 0148).
+    // The legacy audio event asset (ADR 0158 §1, replaced by playlists, ADR 0329): `AudioSource.clip` still accepts it and
+    // its clips are references (ADR 0148). No panel and no New entry: opening one opens the Audio Studio.
     context.registerAssetKind({
       id: "audioEvent",
       extensions: [AUDIO_EVENT_SUFFIX],
@@ -71,42 +52,26 @@ export const audioEditorPlugin: EditorPlugin = {
       icon: EVENT_ICON,
       format: audioEventFormat,
       folder: "audio",
-      panel: EVENT_EDITOR_PANEL,
-      // New Event: a valid, empty event to fill in the Event editor.
-      create: { label: "New Event", what: "audio events" },
       referencedAs: ["audioEvent"],
       references: { ...audioEventReferences, extensions: [AUDIO_EVENT_SUFFIX] },
     });
     // The Audio Studio's assets (ADR 0329, 0328, 0333): playlists, derived samples, attenuation presets. Listed, moved and
     // their references followed here; the Studio edits them.
     registerStudioAssetKinds(context);
-    // A clip's (or several clips') context menu: one event playing one of them per play.
-    context.registerAssetAction({
-      id: "myco.audio.event-from-clips",
-      label: "Create event from clips",
-      writes: true,
-      appliesTo: (_project, targets) => targets.length > 0 && targets.every((t) => t.slice === undefined && editor.assets.kindOf(t.path) === "audio"),
-      run: async (_project, targets) => {
-        const { name, event } = createEventFromClips(targets.map((t) => t.path));
-        const made = await editor.assets.create("audioEvent", { folder: editor.assets.folderOf(targets[0]!.path), value: event, name });
-        return made ? [made] : [];
-      },
-    });
-    // The Event editor (ADR 0158 §7, contract C4): opened by double-clicking an audio event; a placeholder until E6.3.
-    context.registerPanel({
-      id: EVENT_EDITOR_PANEL,
-      title: "Audio Event",
-      onDemand: true,
-      view: () => import("./event/EventEditorPanel").then((m) => m.EventEditorPanel),
-    });
-    registerMusicPanels(context); // the segment view, its properties and the rules table (M4, H6)
-    registerMixPanels(context); // the Profiler now, the Mixer later (M5, one registration point)
     // The reverb zone gizmo (E1): volume and blend shell in the scene view, face, radius and blend handles under Edit Zone (the toggle comes with the tool, ADR 0266).
     context.registerViewportTool(zoneTool);
     // The occluder gizmo and the Inspector sections under the zone, occluder and audio source cards (E2).
     context.registerViewportTool(occluderTool);
-    // The occlusion overlay (E4): rays to occluded sources while playing, switched on in the Audio Debug panel.
+    // The occlusion overlay (E4): rays to occluded sources while playing, switched on from the Scene toolbar's Audio popover.
     context.registerViewportTool(occlusionTool);
+    context.registerSceneToolbarItem({
+      id: "myco.audio.overlay",
+      label: "Audio overlay",
+      buttonText: "Audio",
+      buttonClass: "audio-overlay",
+      title: "Draw the occlusion rays of playing sources in the scene view",
+      view: () => import("./AudioOverlayForm").then((m) => m.AudioOverlayForm),
+    });
     context.registerInspectorSection("engine.AudioReverbZone", () => import("./ZoneInspector").then((m) => m.ZoneSection), { single: true });
     // ADR 0333: the audio zone's outline in the scene view and its Inspector section.
     context.registerViewportTool(audioZoneTool);

@@ -1,12 +1,11 @@
-// ADR 0162 E4: the occlusion overlay the Audio Debug panel's toggle draws in the scene view.
+// ADR 0162 E4: the occlusion overlay the Scene toolbar's Audio popover turns on in the scene view.
 import { describe, expect, it } from "vitest";
 import type { AudioDebugInfo } from "../runtime/backend";
 import { gainColor, occludedVoices, occlusionColors, occlusionOverlay } from "./occlusionRays";
-import { voice as baseVoice } from "./testing/debugSnapshot";
 
 describe("occlusion overlay", () => {
   const voice = (id: number, gain: number, hits: number, world: string | null = "1"): AudioDebugInfo["voices"][number] =>
-    baseVoice(id, { world, occlusion: { gain, cutoffHz: 1000, ageFrames: 0, hits, material: "", collider: null } });
+    ({ id, clip: `c${id}`, bus: "SFX", world, state: "playing", priority: 128, gain: 1, pitch: 1, audibility: 1, playheadSeconds: null, owner: null, occlusion: { gain, cutoffHz: 1000, ageFrames: 0, hits, material: "", collider: null } });
   const colors = { open: 0x00ff00, half: 0xffff00, closed: 0xff0000 };
 
   it("colours go from open to half to closed by gain", () => {
