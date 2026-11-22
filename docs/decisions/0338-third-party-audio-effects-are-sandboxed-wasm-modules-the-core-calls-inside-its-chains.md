@@ -1,6 +1,6 @@
 # 0338. Third-party audio effects are sandboxed WebAssembly modules that the core calls inside its chains
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by [0344](0344-plugin-glue-fuel-and-worklet-compile-rules-follow-the-b0-spike.md) (glue, fuel, budgets and worklet compile rules from the B0 spike)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
