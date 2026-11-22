@@ -1,16 +1,19 @@
 // Flatten (ADR 0328): render the sample's baked chain with its automation and the normalize gain (`renderSample`; the
 // render keeps the source's timeline, so trim, loops and markers still apply to it) into a new file beside its source,
-// `<name>.flat<n>.wav`, and point the sample
-// at it (`sample.source`) as one undoable step. Unflatten points it back at the source, also one step. The render file
-// stays on disk either way (the original is never touched), so undo and redo only move the pointer.
+// `<name>.flat<n>.wav`, and point the sample at it (`sample.source`) as one undoable step. Unflatten points it back at
+// the source, also one step. The render file stays on disk either way (the original is never touched), so undo and
+// redo only move the pointer.
 //
-// TODO(ADR 0328): render on a worker and cache by content hash in `.myco/cache/samples/` (the editor's Play and the
-// export use that cache); today the Studio renders on its page when asked.
-import { renderSample, type RenderedSample, type SamplePcm } from "../../../engine/audio/sample/sampleRender";
+// Renders run on the render worker and are cached by content hash in `.myco/cache/samples/` (`renderCache.ts`): a
+// render of the same source bytes and the same baked edits is read back, not made again, so Re-flatten of unchanged
+// edits is instant, and when the sample already plays that render nothing is written at all.
+import { cachedRender, type RenderStore, type SampleRenderer } from "../../../engine/audio/sample/renderCache";
+import { hasRenderableEdits, type SamplePcm } from "../../../engine/audio/sample/sampleRender";
 import type { SampleEdits } from "../../../engine/audio/sample/types";
-import { encodeWavFloat32 } from "../../../engine/audio/sample/wavEncode";
+import { joinPath } from "../../../editor/projectPaths";
 import { docVersion } from "../../../editor/state";
 import { nameOf } from "./sampleLibrary";
+import { projectRenderStore, renderInBackground } from "./sampleRenderClient";
 import type { SampleSession } from "./sampleSession";
 
 /** A render's file name: `<stem>.flat<n>.wav`. */
@@ -31,11 +34,6 @@ export function flatPathFor(files: readonly string[], source: string): string {
   }
 }
 
-/** True when the edits hold something a render bakes: an enabled effect (reverse aside) or a normalize gain. */
-export function hasRenderableEdits(e: SampleEdits): boolean {
-  return e.effects.some((f) => f.on && f.type !== "reverse") || (e.normalize.mode !== "off" && e.normalize.gainDb !== 0);
-}
-
 /**
  * The audio file a flattened sample plays: `source` as a project path when the project has it, else a bare name in the
  * source file's folder (the runtime's rule); null when the sample isn't flattened.
@@ -54,24 +52,52 @@ function withoutSource(e: SampleEdits): SampleEdits {
   return next;
 }
 
-export type FlattenResult = { readonly path: string; readonly render: RenderedSample } | { readonly refused: string };
+export type FlattenResult =
+  | {
+      readonly path: string;
+      /** True when the render came from the cache (nothing was rendered). */
+      readonly hit: boolean;
+      /** True when the sample already played this exact render: nothing was written and no step was made. */
+      readonly unchanged: boolean;
+      readonly warnings: readonly string[];
+    }
+  | { readonly refused: string };
+
+/** Where Flatten reads the source and how it renders (the screen's defaults: the project's cache, the render worker). */
+export interface FlattenSource {
+  /** The source audio file's bytes (the cache key is made of them). */
+  readonly bytes: Uint8Array;
+  /** The source decoded; only called when the cache has no render. */
+  pcm(): Promise<SamplePcm>;
+  readonly store?: RenderStore;
+  readonly render?: SampleRenderer;
+}
+
+const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 /**
- * Flatten `session`'s sample: render its edits from `pcm` (its source audio, decoded), write the render beside the
- * source and set `sample.source` to it as the step "Flatten" (Re-flatten writes the next `flat<n>`).
+ * Flatten `session`'s sample: render its edits (or read the cached render), write it beside the source and set
+ * `sample.source` to it as the step "Flatten" (Re-flatten writes the next `flat<n>`; when the sample already plays an
+ * identical render, nothing changes).
  */
-export async function flattenSample(session: SampleSession, pcm: SamplePcm): Promise<FlattenResult> {
+export async function flattenSample(session: SampleSession, source: FlattenSource): Promise<FlattenResult> {
   if (session.readOnly) return { refused: "the sample is read-only" };
   const edits = withoutSource(session.edits.peek());
   if (!hasRenderableEdits(edits)) return { refused: "nothing to flatten: the sample plays its source as it is" };
-  const render = await renderSample(pcm, edits);
   const project = session.project;
+  const out = await cachedRender(source.store ?? projectRenderStore(project), source.bytes, edits, source.pcm, source.render ?? renderInBackground);
+  const current = renderPathOf(project.files, session.source.peek(), session.edits.peek());
+  if (current && project.files.includes(current)) {
+    const fs = project.fileSystem, root = project.root;
+    const now = fs && root ? await fs.readBinary(joinPath(root, current)).catch(() => null) : null;
+    if (now && sameBytes(now, out.bytes)) return { path: current, hit: out.hit, unchanged: true, warnings: out.warnings };
+  }
   const path = flatPathFor(project.files, session.source.peek());
-  await project.writeBinary(path, encodeWavFloat32(render.pcm, render.channels, render.rate));
+  await project.writeBinary(path, out.bytes);
   docVersion.value++;
   const flattened = session.edits.peek().source !== undefined;
   session.commit({ next: { ...session.edits.peek(), source: path }, label: flattened ? `Re-flatten · ${nameOf(path)}` : `Flatten · ${nameOf(path)}` });
-  return { path, render };
+  return { path, hit: out.hit, unchanged: false, warnings: out.warnings };
 }
 
 /** Point the sample back at its source (the step "Unflatten"); false when it isn't flattened. */

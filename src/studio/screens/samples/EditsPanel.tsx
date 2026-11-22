@@ -13,9 +13,10 @@ import { Chip } from "../../../editor/ui/Chip";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import { effectEdits } from "./sampleEffects";
-import { flattenSample, hasRenderableEdits, renderPathOf, unflattenSample } from "./sampleFlatten";
+import { hasRenderableEdits } from "../../../engine/audio/sample/sampleRender";
+import { flattenSample, renderPathOf, unflattenSample } from "./sampleFlatten";
 import { nameOf } from "./sampleLibrary";
-import { pcmOf, type SampleSession } from "./sampleSession";
+import { bytesOf, pcmOf, type SampleSession } from "./sampleSession";
 import { toasts } from "../../shell/studioServices";
 import { openSession } from "./samplesState";
 import { removedSeconds } from "./sampleTime";
@@ -59,9 +60,11 @@ function FlattenBar(props: { session: SampleSession; e: SampleEdits; ro: boolean
   const flatten = async () => {
     setBusy(true);
     try {
-      const r = await flattenSample(session, await pcmOf(session.project, session.source.peek()));
+      const project = session.project, src = session.source.peek();
+      const r = await flattenSample(session, { bytes: await bytesOf(project, src), pcm: () => pcmOf(project, src) });
       if ("refused" in r) toasts.show({ text: `Can't flatten: ${r.refused}.` });
-      else toasts.show({ text: [`Flattened to ${nameOf(r.path)}`, ...r.render.warnings].join(" · "), undo: () => session.undo() });
+      else if (r.unchanged) toasts.show({ text: `${nameOf(r.path)} is up to date: the edits haven't changed since it was rendered` });
+      else toasts.show({ text: [`Flattened to ${nameOf(r.path)}${r.hit ? " (from the render cache)" : ""}`, ...r.warnings].join(" · "), undo: () => session.undo() });
     } catch (err) {
       toasts.show({ text: `Can't flatten: ${err instanceof Error ? err.message : String(err)}`, kind: "error" });
     } finally {

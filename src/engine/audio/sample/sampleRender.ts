@@ -42,6 +42,19 @@ export interface RenderedSample {
   readonly warnings: readonly string[];
 }
 
+/**
+ * True when `e` holds something a render bakes: an enabled effect (reverse aside, which a render leaves out) or a
+ * normalize gain. Edits without any play their source as it is; nothing needs rendering.
+ */
+export function hasRenderableEdits(e: Pick<SampleEdits, "effects" | "normalize">): boolean {
+  return e.effects.some((f) => f.on && f.type !== "reverse") || (e.normalize.mode !== "off" && e.normalize.gainDb !== 0);
+}
+
+/** True when `e` has effects only a render plays: an enabled effect other than reverse (normalize the runtime applies live). */
+export function needsRender(e: Pick<SampleEdits, "effects">): boolean {
+  return e.effects.some((f) => f.on && f.type !== "reverse");
+}
+
 /** The longest tail a render keeps past the sample's end, seconds. */
 export const TAIL_CAP_SECONDS = 10;
 
