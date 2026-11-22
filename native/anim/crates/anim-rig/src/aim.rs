@@ -1,7 +1,7 @@
 //! Look-at and aim over a chain of bones (spine, neck, head; or spine, arm, weapon).
 
 use crate::geom::{
-    angle_between, clamp_angle, clamp_cone, fraction, from_to, normalize_or, DEGENERATE_SQ,
+    angle_between, clamp_angle, clamp_cone, fmin, fraction, from_to, normalize_or, DEGENERATE_SQ,
 };
 use crate::pose::{gather, rotate_from, write_chain, ChainJoint, RigPose};
 use anim_math::trig::atan2;
@@ -98,7 +98,7 @@ fn up_twist(fwd: AosVec3, up_now: AosVec3, up_goal: AosVec3, w: f32) -> AosQuat 
         return AosQuat::identity();
     }
     let angle = atan2(a.cross(b).dot(fwd), a.dot(b));
-    AosQuat::from_axis_angle(fwd, angle * w.min(1.0))
+    AosQuat::from_axis_angle(fwd, angle * fmin(w, 1.0))
 }
 
 /// Look-at: every joint turns its own forward axis toward the target, taking its share of what

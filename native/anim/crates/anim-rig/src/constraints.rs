@@ -1,6 +1,6 @@
 //! Copy, limit and damp constraints on single bones.
 
-use crate::geom::{exp_neg, normalize_or, unit_clamp};
+use crate::geom::{exp_neg, fmax, fmin, normalize_or, unit_clamp};
 use crate::limit::JointLimit;
 use crate::pose::{blend_vec, RigPose};
 use anim_math::{AosQuat, AosVec3};
@@ -130,13 +130,13 @@ impl PositionLimit {
     pub fn clamp(&self, p: AosVec3) -> AosVec3 {
         match *self {
             PositionLimit::Box { min, max } => AosVec3::new(
-                p.x.max(min.x).min(max.x),
-                p.y.max(min.y).min(max.y),
-                p.z.max(min.z).min(max.z),
+                fmin(fmax(p.x, min.x), max.x),
+                fmin(fmax(p.y, min.y), max.y),
+                fmin(fmax(p.z, min.z), max.z),
             ),
             PositionLimit::Sphere { center, radius } => {
                 let d = p - center;
-                let r = radius.max(0.0);
+                let r = fmax(radius, 0.0);
                 if d.length_squared() <= r * r {
                     p
                 } else {

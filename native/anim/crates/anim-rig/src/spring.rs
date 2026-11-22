@@ -1,7 +1,9 @@
 //! Spring bones: Verlet chains (hair, tails, cloth strips, antennae) with sphere and capsule
 //! colliders bound to bones.
 
-use crate::geom::{clamp_cone, exp_neg, from_to, normalize_or, unit_clamp, DEGENERATE_SQ};
+use crate::geom::{
+    clamp_cone, exp_neg, fmax, fmin, from_to, normalize_or, unit_clamp, DEGENERATE_SQ,
+};
 use crate::pose::RigPose;
 use anim_math::{AosQuat, AosTransform, AosVec3};
 
@@ -242,12 +244,8 @@ pub fn spring(
     let mut shapes = [WorldShape::Sphere(AosVec3::zero(), 0.0); MAX_SPRING_COLLIDERS];
     for (k, c) in colliders.iter().enumerate() {
         let to_world = character.compose(pose.model(c.bone as usize));
-        let s = to_world
-            .scale
-            .x
-            .abs()
-            .max(to_world.scale.y.abs())
-            .max(to_world.scale.z.abs());
+        let sc = to_world.scale;
+        let s = fmax(fmax(sc.x.abs(), sc.y.abs()), sc.z.abs());
         shapes[k] = match c.shape {
             ColliderShape::Sphere { center, radius } => {
                 WorldShape::Sphere(to_world.transform_point(center), radius * s)
@@ -275,13 +273,13 @@ pub fn spring(
         state.prev_h = 0.0;
         state.initialized = true;
     } else if dt > 0.0 {
-        let max_step = settings.max_step.max(1e-4);
+        let max_step = fmax(settings.max_step, 1e-4);
         let steps = ((dt / max_step).ceil() as u32).clamp(1, settings.max_substeps.max(1));
         let h = dt / steps as f32;
-        let k = settings.stiffness.max(0.0);
-        let kh2 = (k * h * h).min(1.0);
-        let damp = exp_neg(settings.damping.max(0.0) * h);
-        let drag = exp_neg(settings.drag.max(0.0) * h);
+        let k = fmax(settings.stiffness, 0.0);
+        let kh2 = fmin(k * h * h, 1.0);
+        let damp = exp_neg(fmax(settings.damping, 0.0) * h);
+        let drag = exp_neg(fmax(settings.drag, 0.0) * h);
         let g = settings.gravity;
         let mut sub_anim = [AosVec3::zero(); MAX_SPRING_BONES];
         for s in 1..=steps {

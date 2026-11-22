@@ -4,6 +4,9 @@
 //! Smoothing is compared with the closed form `1 − 2^(−dt/half_life)`; `exp_neg` is within
 //! 1e-6 relative of it, so the offsets agree within 1e-5.
 
+// Settings tweak one field from the defaults per case.
+#![allow(clippy::field_reassign_with_default)]
+
 mod common;
 
 use anim_math::AosQuat;

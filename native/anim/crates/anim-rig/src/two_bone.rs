@@ -1,6 +1,8 @@
 //! Analytic two-bone IK (arms and legs).
 
-use crate::geom::{any_orthogonal, exp_neg, from_to, normalize_or, unit_clamp, DEGENERATE_SQ};
+use crate::geom::{
+    any_orthogonal, exp_neg, fmax, fmin, from_to, normalize_or, unit_clamp, DEGENERATE_SQ,
+};
 use crate::pose::RigPose;
 use anim_math::{AosQuat, AosVec3};
 
@@ -137,24 +139,24 @@ pub fn two_bone(pose: &mut RigPose, limb: TwoBone, goal: &TwoBoneGoal) -> TwoBon
     let u = normalize_or(to_t, fallback_dir);
 
     // 1. Soft IK.
-    let soft = unit_clamp(goal.soft).min(0.999);
+    let soft = fmin(unit_clamp(goal.soft), 0.999);
     let band = soft * full;
     let start = full - band;
     let d_soft = if band > 1e-6 && d > start {
         start + band * (1.0 - exp_neg((d - start) / band))
     } else {
-        d.min(full)
+        fmin(d, full)
     };
     // 2. Stretch.
-    let max_stretch = goal.max_stretch.max(1.0);
+    let max_stretch = fmax(goal.max_stretch, 1.0);
     let k = if max_stretch > 1.0 && d_soft > 1e-6 {
-        (d / d_soft).max(1.0).min(max_stretch)
+        fmin(fmax(d / d_soft, 1.0), max_stretch)
     } else {
         1.0
     };
     let (a2, b2) = (a * k, b * k);
     // 3. Reach clamp.
-    let r = (d_soft * k).max((a2 - b2).abs()).min(a2 + b2);
+    let r = fmin(fmax(d_soft * k, (a2 - b2).abs()), a2 + b2);
 
     // 4. Bend direction.
     let pole_vec = match goal.pole {
@@ -175,7 +177,7 @@ pub fn two_bone(pose: &mut RigPose, limb: TwoBone, goal: &TwoBoneGoal) -> TwoBon
     } else {
         0.0
     };
-    let h = (a2 * a2 - x * x).max(0.0).sqrt();
+    let h = fmax(a2 * a2 - x * x, 0.0).sqrt();
     let pb_new = pa + u.scale(x) + n.scale(h);
     let pt_new = pa + u.scale(r);
 

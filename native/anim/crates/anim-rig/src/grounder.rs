@@ -17,7 +17,7 @@
 //! so a moving character still reads the ground where it is now. The animation's ground plane is
 //! the model-space plane through the origin perpendicular to `up`.
 
-use crate::geom::{clamp_angle, from_to, half_life_alpha, normalize_or, DEGENERATE_SQ};
+use crate::geom::{clamp_angle, fmax, fmin, from_to, half_life_alpha, normalize_or, DEGENERATE_SQ};
 use crate::pose::{blend_rotation, RigPose};
 use crate::two_bone::{two_bone, Pole, TipRotation, TwoBone, TwoBoneGoal};
 use anim_math::{AosQuat, AosVec3};
@@ -243,7 +243,7 @@ pub fn solve(
     } else {
         half_life_alpha(settings.pelvis_half_life, dt)
     };
-    let max_step = settings.max_step.max(0.0);
+    let max_step = fmax(settings.max_step, 0.0);
     let mut out = GroundTargets {
         feet: [FootTarget {
             position: AosVec3::zero(),
@@ -258,7 +258,7 @@ pub fn solve(
         let m = pose.model(leg.tip as usize);
         let hit = &hits[i];
         let (raw, tilt) = if hit.valid {
-            let h = hit.point.dot(up).max(-max_step).min(max_step);
+            let h = fmin(fmax(hit.point.dot(up), -max_step), max_step);
             let n = normalize_or(hit.normal, up);
             let tilt = if n.length_squared() > DEGENERATE_SQ {
                 clamp_angle(from_to(up, n), settings.max_foot_angle)
@@ -270,7 +270,7 @@ pub fn solve(
         } else {
             (0.0, AosQuat::identity())
         };
-        lowest = lowest.min(raw);
+        lowest = fmin(lowest, raw);
         let fs = &mut state.feet[i];
         fs.offset += (raw - fs.offset) * fa;
         fs.tilt = blend_rotation(fs.tilt, tilt, fa);
@@ -280,9 +280,10 @@ pub fn solve(
             offset: fs.offset,
         };
     }
-    let pelvis_raw = lowest
-        .max(-settings.max_pelvis_down.max(0.0))
-        .min(settings.max_pelvis_up.max(0.0));
+    let pelvis_raw = fmin(
+        fmax(lowest, -fmax(settings.max_pelvis_down, 0.0)),
+        fmax(settings.max_pelvis_up, 0.0),
+    );
     state.pelvis += (pelvis_raw - state.pelvis) * pa;
     state.initialized = true;
     out.pelvis_offset = state.pelvis;

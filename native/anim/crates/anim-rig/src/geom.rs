@@ -105,7 +105,7 @@ pub fn clamp_cone(dir: AosVec3, axis: AosVec3, max_angle: f32) -> AosVec3 {
     if max_angle >= core::f32::consts::PI {
         return dir;
     }
-    let max_angle = max_angle.max(0.0);
+    let max_angle = fmax(max_angle, 0.0);
     if angle_between(dir, axis) <= max_angle {
         return dir;
     }
@@ -122,7 +122,7 @@ pub fn clamp_angle(q: AosQuat, max_angle: f32) -> AosQuat {
         return q;
     }
     let (axis, angle) = q.to_axis_angle();
-    let max_angle = max_angle.max(0.0);
+    let max_angle = fmax(max_angle, 0.0);
     if angle <= max_angle {
         q
     } else {
@@ -197,4 +197,18 @@ pub fn unit_clamp(x: f32) -> f32 {
     } else {
         0.0
     }
+}
+
+/// Pseudo-maximum `if a < b { b } else { a }` (wasm `pmax`, `anim-math`'s rule 6): one
+/// comparison, so NaN and signed zeros behave the same on every target (unlike `f32::max`,
+/// whose result for `±0` is unspecified).
+#[inline(always)]
+pub fn fmax(a: f32, b: f32) -> f32 {
+    anim_math::Lane::max(a, b)
+}
+
+/// Pseudo-minimum `if b < a { b } else { a }` (wasm `pmin`); see [`fmax`].
+#[inline(always)]
+pub fn fmin(a: f32, b: f32) -> f32 {
+    anim_math::Lane::min(a, b)
 }

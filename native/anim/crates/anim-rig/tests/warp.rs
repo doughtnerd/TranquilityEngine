@@ -42,7 +42,16 @@ fn warp() -> MotionWarp {
 
 fn reference(samples: &[AosTransform], w: &MotionWarp, t: f32) -> anim_offline::math::Transform {
     let s: Vec<_> = samples.iter().map(|&x| t64(x)).collect();
-    r::motion_warp(&s, DT as f64, w.t0 as f64, w.t1 as f64, t64(w.start), t64(w.target), v64(w.up), t as f64)
+    r::motion_warp(
+        &s,
+        DT as f64,
+        w.t0 as f64,
+        w.t1 as f64,
+        t64(w.start),
+        t64(w.target),
+        v64(w.up),
+        t as f64,
+    )
 }
 
 #[test]
@@ -54,14 +63,28 @@ fn motion_warp_lands_on_the_target_at_t1() {
     };
     let w = warp();
     let end = motion_warp(&curve, &w, w.t1);
-    assert_close(end.translation, w.target.translation, 2e-6 * 10.0, "position at t1");
-    assert!(quat_angle(end.rotation, w.target.rotation) < 2e-5, "yaw at t1");
+    assert_close(
+        end.translation,
+        w.target.translation,
+        2e-6 * 10.0,
+        "position at t1",
+    );
+    assert!(
+        quat_angle(end.rotation, w.target.rotation) < 2e-5,
+        "yaw at t1"
+    );
     // After t1 the clip continues from the target.
     let after = motion_warp(&curve, &w, 0.9);
-    let rel = end.rotation.conjugate().rotate(after.translation - end.translation);
+    let rel = end
+        .rotation
+        .conjugate()
+        .rotate(after.translation - end.translation);
     let c1 = curve.sample(0.8);
     let c2 = curve.sample(0.9);
-    let want = c1.rotation.conjugate().rotate(c2.translation - c1.translation);
+    let want = c1
+        .rotation
+        .conjugate()
+        .rotate(c2.translation - c1.translation);
     assert_close(rel, want, 2e-5, "clip motion after t1");
 }
 
@@ -77,13 +100,22 @@ fn motion_warp_is_the_clip_before_t0_and_matches_reference() {
         let t = i as f32 * DT;
         let got = motion_warp(&curve, &w, t);
         let want = reference(&samples, &w, t);
-        assert!(dist64(got.translation, want.translation) < 2e-5, "t {t}: position");
-        assert!(quat_angle64(got.rotation, want.rotation) < 2e-5, "t {t}: rotation");
+        assert!(
+            dist64(got.translation, want.translation) < 2e-5,
+            "t {t}: position"
+        );
+        assert!(
+            quat_angle64(got.rotation, want.rotation) < 2e-5,
+            "t {t}: rotation"
+        );
         if t <= w.t0 {
             // Exactly the clip's motion since t0, carried onto start.
             let r0 = curve.sample(w.t0);
             let rt = curve.sample(t);
-            let rel = r0.rotation.conjugate().rotate(rt.translation - r0.translation);
+            let rel = r0
+                .rotation
+                .conjugate()
+                .rotate(rt.translation - r0.translation);
             let p = w.start.translation + w.start.rotation.rotate(rel);
             assert_close(got.translation, p, 1e-6, "unwarped before t0");
         }
@@ -93,7 +125,10 @@ fn motion_warp_is_the_clip_before_t0_and_matches_reference() {
         let t = w.t0 + e;
         let r0 = curve.sample(w.t0);
         let rt = curve.sample(t);
-        let rel = r0.rotation.conjugate().rotate(rt.translation - r0.translation);
+        let rel = r0
+            .rotation
+            .conjugate()
+            .rotate(rt.translation - r0.translation);
         let unwarped = w.start.translation + w.start.rotation.rotate(rel);
         dist(motion_warp(&curve, &w, t).translation, unwarped)
     };
@@ -122,7 +157,12 @@ fn motion_warp_deltas_accumulate_onto_the_target() {
         t += step;
     }
     assert!((t - 0.8).abs() < 1e-5);
-    assert_close(at.translation, w.target.translation, 1e-4, "accumulated position");
+    assert_close(
+        at.translation,
+        w.target.translation,
+        1e-4,
+        "accumulated position",
+    );
     assert!(quat_angle(at.rotation, w.target.rotation) < 1e-4);
 }
 
@@ -131,7 +171,7 @@ fn travel() -> Vec<f32> {
     let mut pos = Vec::new();
     for i in 0..=40 {
         let t = i as f32 * DT;
-        let z = if t < 1.0 { 1.2 * t * t } else { 1.2 } + if t < 1.0 { 0.0 } else { 0.0 };
+        let z = if t < 1.0 { 1.2 * t * t } else { 1.2 };
         pos.push(v3(0.0, 0.01 * (t * 9.0).sin(), z.min(1.2)));
     }
     let mut d = vec![0.0f32; pos.len()];
@@ -146,13 +186,19 @@ fn distance_curve_inverts_and_matches_reference() {
         distance: &d,
         sample_dt: DT,
     };
-    assert!((d[d.len() - 1] - 1.2).abs() < 1e-5, "ground travel ignores the bob");
+    assert!(
+        (d[d.len() - 1] - 1.2).abs() < 1e-5,
+        "ground travel ignores the bob"
+    );
     let d64: Vec<f64> = d.iter().map(|&x| x as f64).collect();
     for k in 0..=24 {
         let want = k as f32 * 0.05;
         let t = c.time_at(want);
         let back = c.distance_at(t);
-        assert!((back - want).abs() < 1e-5, "distance_at(time_at({want})) = {back}");
+        assert!(
+            (back - want).abs() < 1e-5,
+            "distance_at(time_at({want})) = {back}"
+        );
         let rt = r::time_at_distance(&d64, DT as f64, want as f64);
         assert!((t as f64 - rt).abs() < 1e-5, "{want}: {t} vs {rt}");
     }
@@ -174,7 +220,10 @@ fn distance_warp_rate_and_matching() {
     for want in [0.005f32, 0.02, 0.04] {
         let rate = c.playback_rate(t, dt, want, 0.1, 4.0);
         let moved = c.distance_at(t + rate * dt) - c.distance_at(t);
-        assert!((moved - want).abs() < 1e-5, "travel {want}: rate {rate} moved {moved}");
+        assert!(
+            (moved - want).abs() < 1e-5,
+            "travel {want}: rate {rate} moved {moved}"
+        );
     }
     assert_eq!(c.playback_rate(t, dt, 10.0, 0.25, 2.0), 2.0, "clamped");
     // Distance matching to a stop at t = 1: the remaining clip travel equals the distance left.
@@ -240,9 +289,17 @@ fn stride_warp_scales_the_feet_along_the_movement() {
             assert_close(rig.pos(foot), want, 1e-4, "foot");
         }
         if scale <= 1.0 {
-            assert_close(rig.pos(0), orig.pos(0), 1e-6, "no pelvis drop when shortening");
+            assert_close(
+                rig.pos(0),
+                orig.pos(0),
+                1e-6,
+                "no pelvis drop when shortening",
+            );
         } else {
-            assert!(rig.pos(0).y < orig.pos(0).y, "the pelvis drops so the legs reach");
+            assert!(
+                rig.pos(0).y < orig.pos(0).y,
+                "the pelvis drops so the legs reach"
+            );
             for leg in LEGS {
                 let reach = dist(rig.pos(leg.root as usize), rig.pos(leg.tip as usize));
                 assert!(reach <= 0.9 * 0.999 + 1e-4, "within reach: {reach}");
@@ -251,14 +308,25 @@ fn stride_warp_scales_the_feet_along_the_movement() {
     }
     // Weight 0 leaves the pose.
     let mut rig = stride_pose();
-    stride_warp(&mut rig.pose(), &LEGS, &StrideWarp { weight: 0.0, ..sw(1.3) });
+    stride_warp(
+        &mut rig.pose(),
+        &LEGS,
+        &StrideWarp {
+            weight: 0.0,
+            ..sw(1.3)
+        },
+    );
     assert!(same_pose(&rig, &stride_pose()));
 }
 
 #[test]
 fn orientation_warp_turns_the_hips_and_keeps_the_chest() {
     let spine = [1u16, 2];
-    for (angle, max, want) in [(30.0f32, 90.0f32, 30.0f32), (-40.0, 90.0, -40.0), (50.0, 20.0, 20.0)] {
+    for (angle, max, want) in [
+        (30.0f32, 90.0f32, 30.0f32),
+        (-40.0, 90.0, -40.0),
+        (50.0, 20.0, 20.0),
+    ] {
         let mut rig = humanoid();
         let orig = humanoid();
         let w = OrientationWarp {
@@ -273,10 +341,25 @@ fn orientation_warp_turns_the_hips_and_keeps_the_chest() {
         let mut scratch = vec![ChainJoint::default(); 3];
         orientation_warp(&mut rig.pose(), &w, &mut scratch);
         let q = axis_angle(0.0, 1.0, 0.0, want);
-        assert!(quat_angle(rig.rot(0), q * orig.rot(0)) < 1e-5, "hips turned {want}°");
-        assert!(quat_angle(rig.rot(1), axis_angle(0.0, 1.0, 0.0, want * 0.5) * orig.rot(1)) < 1e-5, "spine shares half");
-        assert!(quat_angle(rig.rot(2), orig.rot(2)) < 1e-5, "chest keeps facing");
-        assert!(quat_angle(rig.rot(4), orig.rot(4)) < 1e-5, "head keeps facing");
+        assert!(
+            quat_angle(rig.rot(0), q * orig.rot(0)) < 1e-5,
+            "hips turned {want}°"
+        );
+        assert!(
+            quat_angle(
+                rig.rot(1),
+                axis_angle(0.0, 1.0, 0.0, want * 0.5) * orig.rot(1)
+            ) < 1e-5,
+            "spine shares half"
+        );
+        assert!(
+            quat_angle(rig.rot(2), orig.rot(2)) < 1e-5,
+            "chest keeps facing"
+        );
+        assert!(
+            quat_angle(rig.rot(4), orig.rot(4)) < 1e-5,
+            "head keeps facing"
+        );
         // The feet swing round with the hips.
         let foot = q.rotate(orig.pos(13) - orig.pos(0)) + orig.pos(0);
         assert_close(rig.pos(13), foot, 1e-5, "left foot");

@@ -338,4 +338,3 @@ fn one_particle_matches_the_reference() {
     }
     let _ = AosQuat::identity();
 }
-

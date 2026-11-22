@@ -22,7 +22,11 @@ fn pair() -> Rig {
         vec![u16::MAX, 0, 0],
         &[
             trq(0.0, 1.0, 0.0, axis_angle(0.0, 1.0, 0.0, 30.0)),
-            AosTransform::new(v3(0.3, 0.2, 0.1), axis_angle(1.0, 1.0, 0.0, 40.0), v3(1.5, 1.5, 1.5)),
+            AosTransform::new(
+                v3(0.3, 0.2, 0.1),
+                axis_angle(1.0, 1.0, 0.0, 40.0),
+                v3(1.5, 1.5, 1.5),
+            ),
             tr(-0.3, 0.0, 0.0),
         ],
     )
@@ -38,7 +42,12 @@ fn copy_local_with_offsets_and_weights() {
     c.scale_offset = v3(2.0, 1.0, 1.0);
     copy(&mut rig.pose(), &c);
     let t = rig.local(2);
-    assert_close(t.translation, src.translation + v3(0.0, 0.1, 0.0), 1e-6, "position");
+    assert_close(
+        t.translation,
+        src.translation + v3(0.0, 0.1, 0.0),
+        1e-6,
+        "position",
+    );
     assert!(quat_angle(t.rotation, src.rotation * c.rotation_offset) < 1e-6);
     assert_close(t.scale, v3(3.0, 1.5, 1.5), 1e-6, "scale");
     // Per-channel weights.
@@ -51,8 +60,16 @@ fn copy_local_with_offsets_and_weights() {
     c.weight = 0.5;
     copy(&mut rig.pose(), &c);
     let t = rig.local(2);
-    assert_close(t.translation, before.translation.lerp(src.translation, 0.25), 1e-6, "position");
-    assert!(quat_angle(t.rotation, before.rotation) < 1e-7, "rotation untouched");
+    assert_close(
+        t.translation,
+        before.translation.lerp(src.translation, 0.25),
+        1e-6,
+        "position",
+    );
+    assert!(
+        quat_angle(t.rotation, before.rotation) < 1e-7,
+        "rotation untouched"
+    );
     assert_close(t.scale, AosVec3::one().lerp(src.scale, 0.5), 1e-6, "scale");
 }
 
@@ -65,7 +82,12 @@ fn copy_model_space() {
     c.position_offset = v3(0.0, 0.0, 0.2);
     copy(&mut rig.pose(), &c);
     let t = rig.model[2];
-    assert_close(t.translation, src.translation + src.rotation.rotate(v3(0.0, 0.0, 0.2)), 1e-5, "position");
+    assert_close(
+        t.translation,
+        src.translation + src.rotation.rotate(v3(0.0, 0.0, 0.2)),
+        1e-5,
+        "position",
+    );
     assert!(quat_angle(t.rotation, src.rotation) < 1e-5);
     assert_close(t.scale, src.scale, 1e-5, "scale");
 }
@@ -113,11 +135,19 @@ fn limit_rotation_clamps_twist_and_swing() {
     let l = hinge.apply(axis_angle(0.0, 1.0, 0.0, 20.0));
     assert!(rotation_angle(l) < 1e-6);
     // Through the constraint, with weight.
-    let mut rig = Rig::new(vec![u16::MAX, 0], &[tr(0.0, 0.0, 0.0), trq(0.0, 0.0, 0.0, axis_angle(1.0, 0.0, 0.0, 90.0))]);
+    let mut rig = Rig::new(
+        vec![u16::MAX, 0],
+        &[
+            tr(0.0, 0.0, 0.0),
+            trq(0.0, 0.0, 0.0, axis_angle(1.0, 0.0, 0.0, 90.0)),
+        ],
+    );
     limit_rotation(&mut rig.pose(), 1, &limit, 1.0);
     assert!((rotation_angle(rig.local(1).rotation).to_degrees() - 45.0).abs() < 1e-3);
     // Free limits never change anything.
-    assert!(JointLimit::FREE.limit(axis_angle(1.0, 2.0, 3.0, 170.0)).is_none());
+    assert!(JointLimit::FREE
+        .limit(axis_angle(1.0, 2.0, 3.0, 170.0))
+        .is_none());
 }
 
 #[test]
@@ -128,7 +158,12 @@ fn limit_position_box_and_sphere() {
     };
     let mut rig = pair();
     limit_position(&mut rig.pose(), 1, &bx, Space::Local, 1.0);
-    assert_close(rig.local(1).translation, v3(0.1, 0.2, 0.1), 1e-7, "local box");
+    assert_close(
+        rig.local(1).translation,
+        v3(0.1, 0.2, 0.1),
+        1e-7,
+        "local box",
+    );
     let sp = PositionLimit::Sphere {
         center: v3(0.0, 1.0, 0.0),
         radius: 0.2,
@@ -141,7 +176,10 @@ fn limit_position_box_and_sphere() {
     let before = rig.pos(1);
     limit_position(&mut rig.pose(), 1, &sp, Space::Model, 0.5);
     let d = dist(rig.pos(1), v3(0.0, 1.0, 0.0));
-    assert!(d > 0.2 && d < dist(before, v3(0.0, 1.0, 0.0)), "half weight is half way");
+    assert!(
+        d > 0.2 && d < dist(before, v3(0.0, 1.0, 0.0)),
+        "half weight is half way"
+    );
 }
 
 #[test]
@@ -154,7 +192,13 @@ fn damp_follows_critically_with_the_half_life() {
         weight: 1.0,
     };
     let make = |x: f32, deg: f32| {
-        Rig::new(vec![u16::MAX, 0], &[tr(0.0, 0.0, 0.0), trq(x, 0.0, 0.0, axis_angle(0.0, 1.0, 0.0, deg))])
+        Rig::new(
+            vec![u16::MAX, 0],
+            &[
+                tr(0.0, 0.0, 0.0),
+                trq(x, 0.0, 0.0, axis_angle(0.0, 1.0, 0.0, deg)),
+            ],
+        )
     };
     for dt in [1.0 / 30.0f32, 1.0 / 120.0] {
         let mut st = DampState::new();
@@ -172,9 +216,16 @@ fn damp_follows_critically_with_the_half_life() {
             last = gap;
         }
         let want = (1.0 + 2.0 * core::f64::consts::LN_2) / 4.0;
-        assert!(((1.0 - rig.pos(1).x) as f64 - want).abs() < 1e-5, "dt {dt}: gap {}", 1.0 - rig.pos(1).x);
+        assert!(
+            ((1.0 - rig.pos(1).x) as f64 - want).abs() < 1e-5,
+            "dt {dt}: gap {}",
+            1.0 - rig.pos(1).x
+        );
         let ang = quat_angle(rig.rot(1), axis_angle(0.0, 1.0, 0.0, 60.0)) as f64;
-        assert!((ang - want * 60f64.to_radians()).abs() < 1e-4, "rotation gap {ang}");
+        assert!(
+            (ang - want * 60f64.to_radians()).abs() < 1e-4,
+            "rotation gap {ang}"
+        );
     }
     // Reset snaps.
     let mut st = DampState::new();
@@ -190,7 +241,10 @@ fn geometry_helpers() {
     for x in [0.0f32, 1e-6, 0.1, 0.5, 0.693, 1.0, 2.5, 7.0, 20.0, 60.0] {
         let e = exp_neg(x) as f64;
         let want = (-(x as f64)).exp();
-        assert!(((e - want) / want).abs() <= (1.0 + x as f64) * 1.2e-7, "exp_neg({x}) = {e}, {want}");
+        assert!(
+            ((e - want) / want).abs() <= (1.0 + x as f64) * 1.2e-7,
+            "exp_neg({x}) = {e}, {want}"
+        );
     }
     assert_eq!(exp_neg(-1.0), 1.0);
     assert_eq!(exp_neg(100.0), 0.0);

@@ -1,6 +1,6 @@
 //! Chain IK: CCD and FABRIK, with per-joint limits.
 
-use crate::geom::{from_to, normalize_or, DEGENERATE_SQ};
+use crate::geom::{fmax, from_to, normalize_or, DEGENERATE_SQ};
 use crate::limit::JointLimit;
 use crate::pose::{chain_parent_rotation, gather, rotate_from, write_chain, ChainJoint, RigPose};
 use anim_math::AosVec3;
@@ -95,7 +95,7 @@ pub fn ccd(
     gather(pose, n, at, scratch);
     let c = &mut scratch[..n];
     let t = goal.target;
-    let tol = goal.tolerance.max(0.0);
+    let tol = fmax(goal.tolerance, 0.0);
     let mut error = (c[n - 1].position - t).length();
     let mut iterations = 0;
     while iterations < goal.iterations && error > tol {
@@ -153,7 +153,7 @@ pub fn fabrik(
     gather(pose, n, at, scratch);
     let c = &mut scratch[..n];
     let t = goal.target;
-    let tol = goal.tolerance.max(0.0);
+    let tol = fmax(goal.tolerance, 0.0);
     let base = c[0].position;
     let mut error = (c[n - 1].position - t).length();
     let mut iterations = 0;

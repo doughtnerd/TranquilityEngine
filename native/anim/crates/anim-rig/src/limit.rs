@@ -1,7 +1,7 @@
 //! Joint rotation limits: a swing-twist decomposition relative to the rest rotation, with an
 //! elliptical swing cone and a twist range — the model of `myco.skel@1`'s `JOINT_RANGES`.
 
-use crate::geom::swing_twist;
+use crate::geom::{fmax, fmin, swing_twist};
 use anim_format::skeleton::JointRange;
 use anim_math::trig::atan2;
 use anim_math::{AosQuat, AosVec3};
@@ -88,7 +88,7 @@ impl JointLimit {
         // Twist.
         let tw = if twist.w < 0.0 { -twist } else { twist };
         let twist_angle = 2.0 * atan2(tw.x, tw.w);
-        let clamped_twist = twist_angle.max(self.twist_min).min(self.twist_max);
+        let clamped_twist = fmin(fmax(twist_angle, self.twist_min), self.twist_max);
         let twist = if clamped_twist != twist_angle {
             changed = true;
             AosQuat::from_axis_angle(AosVec3::new(1.0, 0.0, 0.0), clamped_twist)

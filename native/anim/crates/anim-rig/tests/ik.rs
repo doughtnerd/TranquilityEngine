@@ -56,13 +56,8 @@ fn two_bone_reaches_targets_inside_reach() {
         assert!(dist64(rig.pos(3), tip) < 2e-5);
         // The lazy cache agrees with a full recompute.
         let fresh = rig.fresh_model();
-        for i in 0..4 {
-            assert_close(
-                rig.model[i].translation,
-                fresh[i].translation,
-                1e-6,
-                "cache",
-            );
+        for (i, f) in fresh.iter().enumerate() {
+            assert_close(rig.model[i].translation, f.translation, 1e-6, "cache");
         }
     }
 }

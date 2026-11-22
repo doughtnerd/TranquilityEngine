@@ -1,7 +1,7 @@
 //! Warping: distance matching (playback time from root travel), stride warping, orientation
 //! warping and motion warping (landing the root on a target over a window).
 
-use crate::geom::{normalize_or, swing_twist, unit_clamp, DEGENERATE_SQ};
+use crate::geom::{fmax, fmin, normalize_or, swing_twist, unit_clamp, DEGENERATE_SQ};
 use crate::grounder::MAX_FEET;
 use crate::pose::{gather, write_chain, ChainJoint, RigPose};
 use crate::two_bone::{two_bone, Pole, TipRotation, TwoBone, TwoBoneGoal};
@@ -101,15 +101,15 @@ impl DistanceCurve<'_> {
         if !(dt > 0.0) {
             return 1.0;
         }
-        let goal = self.time_at(self.distance_at(t) + travel.max(0.0));
-        ((goal - t) / dt).max(min_rate).min(max_rate)
+        let goal = self.time_at(self.distance_at(t) + fmax(travel, 0.0));
+        fmin(fmax((goal - t) / dt, min_rate), max_rate)
     }
 
     /// Distance matching toward a marker (a stop): the time at which the clip's remaining travel
     /// to `marker_time` equals `remaining`, i.e. `time_at(distance_at(marker_time) − remaining)`.
     pub fn time_before(&self, marker_time: f32, remaining: f32) -> f32 {
         let end = self.distance_at(marker_time);
-        self.time_at(end - remaining.max(0.0)).min(marker_time)
+        fmin(self.time_at(end - fmax(remaining, 0.0)), marker_time)
     }
 }
 
@@ -169,16 +169,19 @@ pub fn stride_warp(pose: &mut RigPose, legs: &[TwoBone], s: &StrideWarp) {
         let f = pose.model(leg.tip as usize).translation;
         let fp = f + m.scale((s.scale - 1.0) * (f - g).dot(m));
         feet[i] = fp;
-        let r = s.max_reach.max(0.0) * ((k - h).length() + (f - k).length());
+        let r = fmax(s.max_reach, 0.0) * ((k - h).length() + (f - k).length());
         let v = fp - h;
         if v.length_squared() > r * r {
             let vu = v.dot(up);
             let disc = vu * vu - v.length_squared() + r * r;
             let d = if disc >= 0.0 { -vu - disc.sqrt() } else { -vu };
-            drop = drop.max(d.max(0.0));
+            drop = fmax(drop, fmax(d, 0.0));
         }
     }
-    let drop = (drop * unit_clamp(s.pelvis_weight)).min(s.max_pelvis_drop.max(0.0));
+    let drop = fmin(
+        drop * unit_clamp(s.pelvis_weight),
+        fmax(s.max_pelvis_drop, 0.0),
+    );
     if drop > 0.0 {
         pose.blend_model_translation(s.pelvis as usize, p - up.scale(drop), s.weight);
     }
@@ -247,8 +250,8 @@ pub fn orientation_warp(pose: &mut RigPose, w: &OrientationWarp, scratch: &mut [
         "spine weights: none or one per spine bone"
     );
     let up = normalize_or(w.up, AosVec3::new(0.0, 1.0, 0.0));
-    let max = w.max_angle.max(0.0);
-    let a = w.angle.max(-max).min(max);
+    let max = fmax(w.max_angle, 0.0);
+    let a = fmin(fmax(w.angle, -max), max);
     let at = |j: usize| {
         if j == 0 {
             w.pelvis as usize
@@ -263,14 +266,14 @@ pub fn orientation_warp(pose: &mut RigPose, w: &OrientationWarp, scratch: &mut [
     let total: f32 = if w.spine_weights.is_empty() {
         w.spine.len() as f32
     } else {
-        w.spine_weights.iter().map(|x| x.max(0.0)).sum()
+        w.spine_weights.iter().map(|&x| fmax(x, 0.0)).sum()
     };
     let mut cum = 0.0f32;
     for k in 1..n {
         let wk = if w.spine_weights.is_empty() {
             1.0
         } else {
-            w.spine_weights[k - 1].max(0.0)
+            fmax(w.spine_weights[k - 1], 0.0)
         };
         cum += if total > 0.0 { wk / total } else { 0.0 };
         let rest = if k == n - 1 { 0.0 } else { 1.0 - cum };

@@ -1,7 +1,7 @@
 //! Full-body IK: FABRIK over a tree of chains, with effectors for chain ends and the root, a body
 //! pull and a centre-of-mass target.
 
-use crate::geom::{fraction, from_to, normalize_or, unit_clamp, DEGENERATE_SQ};
+use crate::geom::{fmax, fraction, from_to, normalize_or, unit_clamp, DEGENERATE_SQ};
 use crate::pose::{
     blend_rotation, chain_parent_rotation, gather, parent_space_point, ChainJoint, RigPose,
 };
@@ -149,6 +149,7 @@ fn branch_rotation(old: &[AosVec3], new: &[AosVec3], weights: &[f32]) -> AosQuat
 /// Fits the branch bone whose rotation the children of `parent` (`None`: the root chains) share
 /// to those children's current first-joint positions ([`branch_rotation`] about `base`), blends
 /// in `effector`'s rotation, and places each child's first segment rigidly from `base`.
+#[allow(clippy::too_many_arguments)]
 fn fit_branch(
     s: &mut [ChainJoint],
     chains: &[BodyChain],
@@ -306,7 +307,7 @@ pub fn full_body(
         let last = off[ci] + chains[ci].bones.len() - 1;
         end_start[ci] = s[last].position;
         if !has_children[ci] {
-            weight[ci] = goal.effectors[ci].position_weight.max(0.0) + MIN_WEIGHT;
+            weight[ci] = fmax(goal.effectors[ci].position_weight, 0.0) + MIN_WEIGHT;
         }
         if let Some(p) = chains[ci].parent {
             let w = weight[ci];
@@ -316,7 +317,7 @@ pub fn full_body(
 
     // Centre of mass.
     let com_of = |s: &[ChainJoint], masses: &[f32]| -> AosVec3 {
-        let mass = |b: u16| masses.get(b as usize).copied().unwrap_or(1.0).max(0.0);
+        let mass = |b: u16| fmax(masses.get(b as usize).copied().unwrap_or(1.0), 0.0);
         let mut sum = s[0].position.scale(mass(root));
         let mut m = mass(root);
         for (ci, ch) in chains.iter().enumerate() {
@@ -347,7 +348,7 @@ pub fn full_body(
             let eff = &goal.effectors[ci];
             if eff.position_weight > 0.0 {
                 let last = off[ci] + ch.bones.len() - 1;
-                e = e.max((s[last].position - eff.position).length());
+                e = fmax(e, (s[last].position - eff.position).length());
             }
         }
         e
@@ -358,7 +359,7 @@ pub fn full_body(
     let mut root_pos = root_start;
     let mut base_est = [AosVec3::zero(); MAX_CHAINS];
     let mut iterations = 0;
-    let tol = goal.tolerance.max(0.0);
+    let tol = fmax(goal.tolerance, 0.0);
     let com_miss = |s: &[ChainJoint]| -> AosVec3 {
         match (com_goal, goal.centre_of_mass) {
             (Some(cg), Some(c)) => {
