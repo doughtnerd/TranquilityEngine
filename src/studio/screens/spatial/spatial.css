@@ -71,6 +71,9 @@
 .sp-emitter.bed circle, .sp-emitter.bed rect { fill: var(--series-5); }
 .sp-emitter.silenced circle, .sp-emitter.silenced rect { fill: var(--surface); stroke: var(--faint); }
 .sp-emitter.locked circle, .sp-emitter.locked rect { stroke-dasharray: 2 2; }
+/* A moving emitter while playing: its start on the path stays marked, and a short line shows where it's heading. */
+.sp-emitter circle.sp-start { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 2 2; }
+.sp-emitter .sp-heading { stroke: var(--accent); stroke-width: 2; stroke-linecap: round; }
 .sp-listener circle { fill: var(--accent); stroke: var(--accent-text); stroke-width: 1.5; }
 .sp-listener:not(.active) circle { fill: var(--surface); stroke: var(--accent); }
 .sp-listener .sp-listener-ring { fill: none; stroke: var(--accent); stroke-width: 1.5; opacity: 0.6; }
