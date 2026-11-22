@@ -314,3 +314,12 @@ Choices to review: reverse left out of renders with a warning (would move every 
 bakes, even those not allowed at sample level; fades and the envelope span the whole file. Note for later native
 work: the shared source hash changed, so any branch touching `native/audio/**` must re-run `npm run build:audio`
 after merging. Float WAV playback relies on symphonia's `wav`+`pcm` (IEEE float supported).
+
+**D42. ADRs 0337 (per-platform encoding, packages) and 0338 (DSP plugins) accepted (W10-C).** Choices to review in
+0337: strict packages by default (Wwise/FMOD; `strict: false` = Unity-style on demand); unload fades voices 50 ms;
+`auto` codec re-encodes WAV/FLAC to Vorbis (changes existing exports; `codec: "source"` restores); converted files keep
+path and extension; streamed media ships loose; Opus in the default decoder build; contributors rebuilding the
+encoder need wasi-sdk. In 0338: plugins are sandboxed wasm with no imports, called inside every chain; fuel metering
+always on (est. 20–50% on tight loops, to measure); ABI 5.0 widens effect records to 16 params; no latency
+compensation or custom UIs in v1; fault policy dry-pass, recreate, disable after 3 faults/s. Both start with spikes
+whose numbers may change the records.
