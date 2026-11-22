@@ -113,6 +113,16 @@
 .studio-chain-add { padding: 1px 8px; font-size: calc(12px * var(--ui-scale)); }
 .studio-chain-note { margin: 0; color: var(--faint); font-size: calc(11px * var(--ui-scale)); }
 .studio-fx-key select { grid-column: 2 / 4; }
+.studio-fx-choice select { grid-column: 2 / 4; }
+/* ADR 0338 §9: plugin effects */
+.studio-fx-chip { flex: none; padding: 0 4px; border: 1px solid var(--border-strong); border-radius: 3px; color: var(--muted); font-size: calc(9px * var(--ui-scale)); line-height: 14px; white-space: nowrap; }
+.studio-fx.greyed { background: var(--panel); border-style: dashed; }
+.studio-fx.greyed .studio-row-name, .studio-fx.greyed .studio-row-summary { color: var(--faint); }
+.studio-fx-status { display: flex; align-items: center; gap: 6px; padding-left: 24px; color: var(--warning); font-size: calc(11px * var(--ui-scale)); }
+.studio-fx.greyed .studio-fx-status { color: var(--muted); }
+.studio-fx-reset { flex: none; margin-left: auto; padding: 0 6px; font-size: calc(11px * var(--ui-scale)); }
+.studio-fx-health { margin: 0; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+.studio-fx-health.over { color: var(--danger); }
 
 /* Game parameters panel */
 .studio-params { display: flex; flex-direction: column; gap: 4px; }

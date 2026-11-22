@@ -109,7 +109,9 @@ describe("the committed offline wasm", () => {
     const hash = JSON.parse(readFileSync(new URL("../../../plugins/audio/runtime/wasm/hash.json", import.meta.url), "utf8")) as { sourceHash: string; bytes: Record<string, number> };
     const wasm = readFileSync(new URL("./wasm/myco_audio_offline.wasm", import.meta.url));
     expect(wasm.length).toBe(hash.bytes["myco_audio_offline.wasm"]);
-    const { instance } = await WebAssembly.instantiate(wasm, {});
+    // ABI 1.1: plugin effects go through the `myco_ext` import (stubs: no plugins).
+    const myco_ext = { acquire: () => 0, release: () => {}, describe: () => 0, process: () => -1, sweep: () => {} };
+    const { instance } = await WebAssembly.instantiate(wasm, { myco_ext });
     const x = instance.exports as { memory: WebAssembly.Memory; myco_offline_source_hash(): number };
     expect(Buffer.from(x.memory.buffer, x.myco_offline_source_hash(), 16).toString("hex")).toBe(hash.sourceHash);
   });
