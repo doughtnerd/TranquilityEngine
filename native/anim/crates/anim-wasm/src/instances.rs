@@ -58,8 +58,6 @@ pub(crate) fn player_slots(program: &Program) -> usize {
     program.clip_players()
 }
 
-
-
 /// Snapshot magic (`"ANSN"` little-endian).
 pub const SNAPSHOT_MAGIC: u32 = 0x4E53_4E41;
 /// Snapshot layout version.

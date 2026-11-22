@@ -1210,7 +1210,7 @@ impl Program {
         );
         let slots = players.0.len() / anim_sample::FrameCache::header_len(inputs.skeleton.bones());
         cx.player_header_len = anim_sample::FrameCache::header_len(inputs.skeleton.bones());
-        cx.player_frame_len = if slots == 0 { 0 } else { players.1.len() / slots };
+        cx.player_frame_len = players.1.len().checked_div(slots).unwrap_or(0);
         cx.player_headers = players.0;
         cx.player_frames = players.1;
         let alpha = cx.eval_alpha(self.output);

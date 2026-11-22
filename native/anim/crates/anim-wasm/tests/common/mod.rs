@@ -213,7 +213,8 @@ pub fn root(core: &Core, h: u32) -> [f32; 7] {
 }
 
 /// The state changes after the last evaluate.
-#[allow(clippy::chunks_exact_to_as_chunks)] // a runtime stride
+// A runtime stride; `unknown_lints`: the lint is newer than some stable clippy versions.
+#[allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 pub fn changes(core: &Core) -> Vec<StateChange> {
     core.changes()
         .chunks_exact(StateChange::STRIDE as usize)

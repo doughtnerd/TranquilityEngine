@@ -461,7 +461,8 @@ pub fn command_frame(core: &mut Core, commands: &[Vec<u8>], dt: f32) -> u32 {
 }
 
 /// The graph state changes waiting.
-#[allow(clippy::chunks_exact_to_as_chunks)]
+// `unknown_lints`: the lint is newer than some stable clippy versions.
+#[allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 pub fn graph_changes(core: &Core) -> Vec<wg::GraphChange> {
     core.graph_changes()
         .chunks_exact(wg::GraphChange::STRIDE as usize)

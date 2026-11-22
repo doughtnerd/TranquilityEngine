@@ -128,8 +128,7 @@ fn add_rig(b: &mut Builder, input: u32) -> u32 {
         l[UP + 1] = fb(1.0);
         l.extend([2, 5, fb(0.4), fb(0.8), 6, fb(1.0), fb(1.0)]);
     }
-    let look = rig_node(b, kind::LOOK_AT, grounder, &l);
-    look
+    rig_node(b, kind::LOOK_AT, grounder, &l)
 }
 
 /// What every crowd instance runs.
@@ -321,7 +320,8 @@ impl Characters {
             }
             let w = self.core.rig_inputs_mut();
             for (k, r) in rays.iter().enumerate() {
-                let at = i * input_words + ((wr::RIG_HITS + k as u32 * wr::HIT_STRIDE) / 4) as usize;
+                let at =
+                    i * input_words + ((wr::RIG_HITS + k as u32 * wr::HIT_STRIDE) / 4) as usize;
                 w[at] = r[0];
                 w[at + 1] = 0;
                 w[at + 2] = r[2];
@@ -429,12 +429,8 @@ pub fn match_set() -> MatchSet {
             ranges: r,
         })
         .collect();
-    let schema = anim_match::default_schema(
-        mcommon::LEFT_FOOT,
-        mcommon::RIGHT_FOOT,
-        mcommon::HIPS,
-        true,
-    );
+    let schema =
+        anim_match::default_schema(mcommon::LEFT_FOOT, mcommon::RIGHT_FOOT, mcommon::HIPS, true);
     // Holden's per-feature deviations (as `anim-wasm/tests/matching.rs`): with only forward
     // clips, per-dimension deviations (floored at 0.01) weigh the sideways trajectory dims, which
     // vary only by the hips' sway and the turns, far above everything else, and a controller's
@@ -525,7 +521,7 @@ pub fn match_graph(brute_force: bool) -> (Vec<u8>, MatchIds) {
 pub fn desired_velocity(i: usize, f: usize) -> [f32; 2] {
     let phase = (f / 120 + i) % 8;
     let speed = [0.0f32, 1.2, 3.5, 1.5, 0.0, 2.5, 4.0, 1.0][phase];
-    let turn = if i % 2 == 0 { 0.4 } else { -0.4 };
+    let turn = if i.is_multiple_of(2) { 0.4 } else { -0.4 };
     let angle = i as f32 * 0.7 + f as f32 * DT * turn;
     [speed * angle.sin(), speed * angle.cos()]
 }

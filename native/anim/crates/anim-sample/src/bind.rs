@@ -37,9 +37,8 @@ use anim_pose::sync::SyncMarker;
 
 use crate::Form;
 use crate::{
-    FrameCache,
-    apply, blend_track, decode, seg_range, ClipSampler, FramePos, SampleError, Seg, SegmentCache,
-    TrackSample,
+    apply, blend_track, decode, seg_range, ClipSampler, FrameCache, FramePos, SampleError, Seg,
+    SegmentCache, TrackSample,
 };
 
 /// A compressed channel, decoded.

@@ -35,9 +35,12 @@ const OUT_NAME = "myco_anim";
  * the two-bone pinning pass, the physics family (ragdoll descriptions and builder, drive targets, the physical pose,
  * get-up, 6 records) take the module from 491,064 to 695,567 bytes; + 20% = 834,680 B -> 815 KB.
  * Merged T40g + T41g/T44r (coordinator, 2026-11-22): together 831,834 bytes; + 20% = 998,201 B -> 975 KB.
+ * Reset by T82r (2026-11-22): the function-name and producers sections are no longer shipped (-79 KB; they cost
+ * nothing at run time, and MYCO_ANIM_KEEP_NAMES=1 keeps them for profiling), against +14 KB of T82r's caches and
+ * benchmark-driven changes and T42g/T45 already in: 893,247 -> 827,697 bytes. + 20% = 993,236 B -> 970 KB.
  * Raise it with a line in docs/design/animation/build-log.md saying why; never cut a feature to stay under it.
  */
-const SIZE_LIMIT = 975 * 1024;
+const SIZE_LIMIT = 970 * 1024;
 
 /** Runs `cmd args` in native/anim with inherited stdio. RUSTFLAGS are dropped so .cargo/config.toml's +simd128 applies. */
 function run(cmd, args) {
@@ -85,11 +88,17 @@ function checkToolchain() {
   console.log("[build:anim] toolchain ok");
 }
 
-/** Builds anim-wasm for wasm32 in release (+simd128 from .cargo/config.toml) and runs wasm-bindgen into `out`. */
+/**
+ * Builds anim-wasm for wasm32 in release (+simd128 from .cargo/config.toml) and runs wasm-bindgen into `out`. The
+ * function-name and producers sections are dropped (T82r: 79 KB, 9% of the module, nothing at run time); set
+ * MYCO_ANIM_KEEP_NAMES=1 to keep the names for a profile (`node --cpu-prof` then names the wasm functions). That build
+ * isn't for committing.
+ */
 function buildWasm() {
   run("cargo", ["build", "-p", "anim-wasm", "--target", TARGET, "--release"]);
   mkdirSync(out, { recursive: true });
-  run("wasm-bindgen", [`target/${TARGET}/release/anim_wasm.wasm`, "--target", "web", "--out-dir", out, "--out-name", OUT_NAME, "--omit-default-module-path"]);
+  const strip = process.env.MYCO_ANIM_KEEP_NAMES === "1" ? [] : ["--remove-name-section", "--remove-producers-section"];
+  run("wasm-bindgen", [`target/${TARGET}/release/anim_wasm.wasm`, "--target", "web", "--out-dir", out, "--out-name", OUT_NAME, "--omit-default-module-path", ...strip]);
   return `${out}${OUT_NAME}_bg.wasm`;
 }
 

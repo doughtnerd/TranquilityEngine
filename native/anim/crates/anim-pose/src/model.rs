@@ -31,8 +31,12 @@ pub fn inverse_bind_matrices(bind_model: &[AosTransform], out: &mut [AosMat3x4])
 pub fn skinning_from_model(model: &[AosTransform], inverse_bind: &[AosMat3x4], out: &mut [f32]) {
     assert_eq!(model.len(), inverse_bind.len(), "bone count");
     assert_eq!(out.len(), 12 * model.len(), "12 floats per bone");
-    for ((m, ib), o) in model.iter().zip(inverse_bind).zip(out.chunks_exact_mut(12)) {
-        o.copy_from_slice(&(AosMat3x4::from_transform(*m) * *ib).m);
+    for ((m, ib), o) in model
+        .iter()
+        .zip(inverse_bind)
+        .zip(out.as_chunks_mut::<12>().0)
+    {
+        *o = (AosMat3x4::from_transform(*m) * *ib).m;
     }
 }
 
