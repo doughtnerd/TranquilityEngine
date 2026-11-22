@@ -15,6 +15,9 @@
 //!   order), each component, `bits` bits, least significant bit first.
 //! - **Drop-w rotations:** `w = sqrt(max(0, 1 − (x² + y² + z²)))`.
 //!
+//! Track windows (crossed keys, activation levels, discrete payloads) are at the end of the file,
+//! with their rules.
+//!
 //! Interpolation: linear for translation, scale and value channels; normalised lerp for rotations
 //! (slerp when the clip sets `CLIP_SLERP`, or a `quat` track's subtype is slerp).
 
@@ -361,4 +364,137 @@ pub fn vertex_error(a: Transform, b: Transform, shell: f64) -> f64 {
     .iter()
     .map(|&p| (a.transform_point(p) - b.transform_point(p)).length())
     .fold(0.0, f64::max)
+}
+
+// -------------------------------------------------------------------------------------------------
+// Track windows (the reference for `anim-sample`'s window sampling)
+// -------------------------------------------------------------------------------------------------
+//
+// The rules, spelled out and applied by brute force in f64:
+//
+// - A looping window starts at `from` wrapped into `[0, d)` and ends at `a + delta`, unwrapped,
+//   with `|delta| ≤ 4·d`; a non-looping one clamps both ends to `[0, d]`. No duration: no loop.
+// - Forward, an instant at `u` (a key time plus any multiple of `d` when looping) is crossed
+//   when `a < u ≤ b`; in reverse when `b ≤ u < a`. `start` makes `a` inclusive.
+// - Crossed keys come in travel order: by `u`, ties by loop cycle (the end of one cycle before the
+//   start of the next), then (track, key); all reversed in reverse.
+// - Notifies fire when `always` or `weight > threshold`; audio and control keys when
+//   `weight > 0`; markers always. A seek crosses nothing.
+// - Ranges cover `[time, end)`; activation ranges ending at `d` also cover `d` in a
+//   non-looping play.
+
+/// A playhead move, as `anim-sample`'s `Window`.
+#[derive(Clone, Copy, Debug)]
+pub struct WindowRef {
+    pub from: f64,
+    pub delta: f64,
+    pub looping: bool,
+    /// The first window of a play: the start point is included.
+    pub start: bool,
+    /// A jump: nothing is crossed.
+    pub seek: bool,
+}
+
+/// One crossed instant key.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Crossed {
+    pub track: usize,
+    /// The key's index in the `KEYS` section.
+    pub key: usize,
+    /// The key's time.
+    pub time: f64,
+}
+
+/// The window's resolved start and end (unwrapped when looping) and whether it loops.
+pub fn window_span(w: &WindowRef, duration: f64) -> (f64, f64, bool) {
+    let d = duration.max(0.0);
+    let looping = w.looping && d > 0.0;
+    if looping {
+        let a = w.from.rem_euclid(d);
+        let a = if a >= d { 0.0 } else { a };
+        (a, a + w.delta.clamp(-4.0 * d, 4.0 * d), true)
+    } else {
+        (w.from.clamp(0.0, d), (w.from + w.delta).clamp(0.0, d), false)
+    }
+}
+
+/// Every instant key (notify, marker, audio, control) the window crosses and that passes the
+/// weight gate, in travel order.
+pub fn crossed_keys(view: &ClipView<'_>, w: &WindowRef, weight: f64) -> Vec<Crossed> {
+    use anim_format::clip::KeyData;
+    if w.seek {
+        return Vec::new();
+    }
+    let d = view.duration() as f64;
+    let (a, b, looping) = window_span(w, d);
+    let forward = b >= a;
+    let cycles: Vec<i64> = if looping {
+        (-12..=12).collect()
+    } else {
+        vec![0]
+    };
+    let mut hits: Vec<(f64, i64, usize, usize, f64)> = Vec::new();
+    for track in 0..view.track_count() {
+        let info = view.track(track).expect("track");
+        for (j, key) in view.track_keys(track).enumerate() {
+            let fires = match key.data {
+                KeyData::Event {
+                    threshold, always, ..
+                } => key.end == key.time && (always || weight > threshold as f64),
+                KeyData::Marker { .. } => true,
+                KeyData::Audio { .. } | KeyData::Control { .. } => weight > 0.0,
+                _ => false,
+            };
+            if !fires {
+                continue;
+            }
+            for &k in &cycles {
+                let u = key.time as f64 + k as f64 * d;
+                let crossed = if forward {
+                    (a < u || (w.start && a == u)) && u <= b
+                } else {
+                    b <= u && (u < a || (w.start && u == a))
+                };
+                if crossed {
+                    hits.push((u, k, track, info.first_key as usize + j, key.time as f64));
+                }
+            }
+        }
+    }
+    hits.sort_by(|x, y| {
+        x.0.total_cmp(&y.0)
+            .then(x.1.cmp(&y.1))
+            .then(x.2.cmp(&y.2))
+            .then(x.3.cmp(&y.3))
+    });
+    if !forward {
+        hits.reverse();
+    }
+    hits.into_iter()
+        .map(|(_, _, track, key, time)| Crossed { track, key, time })
+        .collect()
+}
+
+/// Whether `activation` track `track` is active at `t`: some range has `time ≤ t < end`, or
+/// (`hold`, a non-looping play) `t = end = duration`.
+pub fn active_at(view: &ClipView<'_>, track: usize, t: f64, hold: bool) -> bool {
+    let d = view.duration() as f64;
+    view.track_keys(track).any(|k| {
+        let (s, e) = (k.time as f64, k.end as f64);
+        (s <= t && t < e) || (hold && t == e && e == d)
+    })
+}
+
+/// `discrete` track `track`'s payload at `t`: the last key with `time ≤ t`, else the first key.
+pub fn discrete_at(view: &ClipView<'_>, track: usize, t: f64) -> Option<u32> {
+    use anim_format::clip::KeyData;
+    let mut value = None;
+    for (i, k) in view.track_keys(track).enumerate() {
+        if let KeyData::Discrete { value: v } = k.data {
+            if i == 0 || k.time as f64 <= t {
+                value = Some(v);
+            }
+        }
+    }
+    value
 }
