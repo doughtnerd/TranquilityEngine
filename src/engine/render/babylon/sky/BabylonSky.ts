@@ -37,6 +37,7 @@ import { SkyBakeScheduler, skyLight } from "../../../sky/skyMath";
 import { Environment, Fog } from "../../components";
 import { SKY_BAKE_SHADER, SKY_SAMPLERS, SKY_SHADER, SKY_UNIFORMS } from "./skyShader";
 import { Graphics } from "../../Graphics";
+import type { BabylonFeature } from "../feature";
 import type { LightingContributions } from "../lighting";
 import { packSkyUniforms, SKY_QUALITY, type SkyFrame } from "./skyUniforms";
 
@@ -263,8 +264,22 @@ class SkyBaker {
   }
 }
 
-/** @internal The World's procedural sky on the Babylon backend (ADR 0112). */
-export class BabylonSky {
+/** The sky's diagnostics (ADR 0112, 0154): drawn, bakes made, whether a bake lights the scene, its time of day, the last bake's CPU time. */
+export interface SkyState {
+  active: boolean;
+  drawn: boolean;
+  bakes: number;
+  baked: boolean;
+  time: number;
+  lastBakeMs: number;
+}
+
+/**
+ * @internal The World's procedural sky on the Babylon backend (ADR 0112), and the Sky plugin's render feature itself
+ * (ADR 0135, 0140, as `BabylonSprites` is): it syncs in the `lighting` phase and contributes its sun and bake to the
+ * lighting rig, which resolves after the phase (ADR 0252).
+ */
+export class BabylonSky implements BabylonFeature {
   private drawable: SkyDrawable | null = null;
   private baker: SkyBaker | null = null;
   private readonly scheduler = new SkyBakeScheduler();
@@ -323,8 +338,8 @@ export class BabylonSky {
     this.drawable ??= new SkyDrawable(this.scene);
     this.drawable.mesh.setEnabled(env.skybox);
     const level = Graphics.tier.shaderLevel;
-    this.drawn = { settings, time, seconds: world.time.realtimeSinceStartup, rotation: env.rotation, intensity: Math.max(0, env.skyboxIntensity), fog: fogFrame, baking: false, level };
-    this.drawable.update(this.drawn);
+    this.drawnFrame = { settings, time, seconds: world.time.realtimeSinceStartup, rotation: env.rotation, intensity: Math.max(0, env.skyboxIntensity), fog: fogFrame, baking: false, level };
+    this.drawable.update(this.drawnFrame);
 
     if (settings.lighting.driveSunLight) {
       const rotated = env.rotation ? { ...settings, sun: { ...settings.sun, northOffset: settings.sun.northOffset + env.rotation } } : settings;
@@ -354,17 +369,17 @@ export class BabylonSky {
   private bakeSize = 128;
   private fogFrame: SkyFrame["fog"] = null;
   /** This frame's drawn sky, put back after a bake packs its own uniforms. */
-  private drawn: Omit<SkyFrame, "moonTexture" | "milkyWayTexture"> | null = null;
+  private drawnFrame: Omit<SkyFrame, "moonTexture" | "milkyWayTexture"> | null = null;
 
-  /** Render a requested bake. Call before the frame graph runs. */
-  bake(): void {
+  /** Render a requested bake; runs before the frame graph. */
+  beforeFrame(): void {
     if (!this.wantBake || this.pending || !this.settings || !this.drawable) return;
     this.baker ??= new SkyBaker(this.scene);
     const start = performance.now();
     this.drawable.update({ settings: this.settings, time: this.time, seconds: 0, rotation: this.envRotation, intensity: 1, fog: this.fogFrame, baking: true });
     const uniforms = this.drawable.uniforms.slice();
     // Put the drawn sky's uniforms back (the bake's differ: no discs, mirrored Z).
-    if (this.drawn) this.drawable.update(this.drawn);
+    if (this.drawnFrame) this.drawable.update(this.drawnFrame);
     const pending = this.baker.bake(this.bakeSize, uniforms, (set) => this.drawable!.bindTextures(set));
     if (!pending) return; // the bake shader is still compiling
     this.lastBakeMs = performance.now() - start;
@@ -420,8 +435,8 @@ export class BabylonSky {
     return !this.settings?.lighting.bake || !!this.current;
   }
 
-  /** The sky's state (its feature's diagnostics). */
-  state(): { active: boolean; drawn: boolean; bakes: number; baked: boolean; time: number; lastBakeMs: number } {
+  /** `RenderDiagnostics.features.sky` (ADR 0154). */
+  diagnostics(): SkyState {
     return { active: this.active, drawn: !!this.drawable?.mesh.isEnabled(), bakes: this.bakes, baked: !!this.current, time: this.time, lastBakeMs: this.lastBakeMs };
   }
 
