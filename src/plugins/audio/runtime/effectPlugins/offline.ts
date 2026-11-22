@@ -88,6 +88,7 @@ class OfflineModules implements OfflineEffectHost {
         glue.beginQuantum(0);
       },
       indexOf: (type) => indices.get(type) ?? -1,
+      paramsOf: (type) => (indices.has(type) ? (this.holder(type)?.decl.spec.params ?? null) : null),
       problems,
     };
   }

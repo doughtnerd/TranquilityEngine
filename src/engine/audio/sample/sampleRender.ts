@@ -24,7 +24,7 @@
  * no DOM.
  */
 import { effectSpec, isPluginEffectType } from "../effects/catalogue";
-import { EFFECT_TYPES } from "../effects/types";
+import { EFFECT_TYPES, type EffectParamSpec } from "../effects/types";
 import { curveKeyHandles, curveKeyInterpCode } from "../../core/curve";
 import { renderOffline } from "./offlineWasm";
 import { OFFLINE_PLUGIN_BASE, offlineEffectHost, type OfflineEffectHost, type OfflinePluginSession } from "./offlinePlugins";
@@ -86,9 +86,11 @@ function toFloat(input: SamplePcm): Float32Array {
 function specOf(edits: SampleEdits, warnings: string[], plugins: OfflinePluginSession | null): Float64Array {
   const effects: number[] = [];
   const told = new Set<string>();
+  // A plugin effect's parameter slots are its plugin's declared order, from the session (the catalogue may not know it).
+  const paramsOf = (type: SampleEdits["effects"][number]["type"]): readonly EffectParamSpec[] => plugins?.paramsOf(type) ?? effectSpec(type).params;
   edits.effects.forEach((f) => {
     const p = new Array<number>(PARAMS).fill(0);
-    effectSpec(f.type).params.slice(0, PARAMS).forEach((q, i) => {
+    paramsOf(f.type).slice(0, PARAMS).forEach((q, i) => {
       const v = f.params[q.name];
       p[i] = typeof v === "number" && Number.isFinite(v) ? v : q.default;
     });
@@ -113,12 +115,12 @@ function specOf(edits: SampleEdits, warnings: string[], plugins: OfflinePluginSe
     const [, id, name] = lane.target.split(":");
     const index = edits.effects.findIndex((f) => f.id === id);
     const effect = edits.effects[index];
-    const param = effect ? effectSpec(effect.type).params.findIndex((q) => q.name === name) : -1;
+    const param = effect ? paramsOf(effect.type).findIndex((q) => q.name === name) : -1;
     if (!effect || param < 0 || param >= PARAMS) {
       warnings.push(`Automation ${lane.target}: no such effect parameter in the chain; not rendered.`);
       continue;
     }
-    const q = effectSpec(effect.type).params[param];
+    const q = paramsOf(effect.type)[param]!;
     lanes.push(index, param, q.min, q.max, lane.curve.length);
     for (const k of lane.curve) {
       const h = curveKeyHandles(k);

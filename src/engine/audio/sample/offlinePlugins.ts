@@ -9,6 +9,7 @@
  * Without a host (a page or worker where no plugin was loaded) a plugin effect passes through, with a warning that keeps
  * such a render out of the render cache (`renderCache.ts`), since its key names the plugin.
  */
+import type { EffectParamSpec } from "../effects/types";
 
 /** The `myco_ext` import's calls (`audio-core`'s `ext.rs`): pointers into the render's memory. */
 export interface MycoExtCalls {
@@ -35,6 +36,11 @@ export interface OfflinePluginSession {
   attach(memory: WebAssembly.Memory): void;
   /** The effect index `e` a type runs as in this session (the spec writes `PLUGIN_BASE + e`), or -1 when it didn't load. */
   indexOf(type: string): number;
+  /**
+   * The parameters of a type the session runs, in its plugin's declared order (the spec's slots), or null. The render
+   * reads them from here, not the catalogue, which may not know the plugin where it runs (a build's renders).
+   */
+  paramsOf(type: string): readonly EffectParamSpec[] | null;
   /** Lines for the render's warnings: modules that didn't load, faults while it ran. */
   readonly problems: readonly string[];
 }
