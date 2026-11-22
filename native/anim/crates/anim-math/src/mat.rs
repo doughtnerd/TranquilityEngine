@@ -13,6 +13,7 @@ use crate::f32x4::F32x4;
 use crate::lane::Lane;
 use crate::transform::TransformT;
 use crate::vec3::Vec3T;
+use core::ops::Mul;
 
 /// |det| at or below this makes [`Mat3x4T::inverse_or`] return its fallback (three axis scales of
 /// [`SCALE_EPSILON`](crate::SCALE_EPSILON) multiplied).
@@ -64,31 +65,6 @@ impl<L: Lane> Mat3x4T<L> {
                 (yz + wx) * s.y,
                 (one - (xx + yy)) * s.z,
                 p.z,
-            ],
-        }
-    }
-
-    /// `self · o` as affine maps: applies `o`, then `self`.
-    #[inline]
-    pub fn mul(self, o: Self) -> Self {
-        let a = &self.m;
-        let b = &o.m;
-        let e = |r: usize, c: usize| a[4 * r] * b[c] + a[4 * r + 1] * b[4 + c] + a[4 * r + 2] * b[8 + c];
-        let t = |r: usize| e(r, 3) + a[4 * r + 3];
-        Self {
-            m: [
-                e(0, 0),
-                e(0, 1),
-                e(0, 2),
-                t(0),
-                e(1, 0),
-                e(1, 1),
-                e(1, 2),
-                t(1),
-                e(2, 0),
-                e(2, 1),
-                e(2, 2),
-                t(2),
             ],
         }
     }
@@ -151,11 +127,52 @@ impl<L: Lane> Mat3x4T<L> {
         let t = |k: usize| -(r[3 * k] * tx + r[3 * k + 1] * ty + r[3 * k + 2] * tz);
         let inv = Self {
             m: [
-                r[0], r[1], r[2], t(0), r[3], r[4], r[5], t(1), r[6], r[7], r[8], t(2),
+                r[0],
+                r[1],
+                r[2],
+                t(0),
+                r[3],
+                r[4],
+                r[5],
+                t(1),
+                r[6],
+                r[7],
+                r[8],
+                t(2),
             ],
         };
         Self {
             m: core::array::from_fn(|k| L::select(ok, inv.m[k], fallback.m[k])),
+        }
+    }
+}
+
+/// `a * b` as affine maps: applies `b`, then `a`.
+impl<L: Lane> Mul for Mat3x4T<L> {
+    type Output = Self;
+    #[inline]
+    fn mul(self, o: Self) -> Self {
+        let a = &self.m;
+        let b = &o.m;
+        let e = |r: usize, c: usize| {
+            a[4 * r] * b[c] + a[4 * r + 1] * b[4 + c] + a[4 * r + 2] * b[8 + c]
+        };
+        let t = |r: usize| e(r, 3) + a[4 * r + 3];
+        Self {
+            m: [
+                e(0, 0),
+                e(0, 1),
+                e(0, 2),
+                t(0),
+                e(1, 0),
+                e(1, 1),
+                e(1, 2),
+                t(1),
+                e(2, 0),
+                e(2, 1),
+                e(2, 2),
+                t(2),
+            ],
         }
     }
 }

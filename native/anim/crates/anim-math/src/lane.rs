@@ -9,7 +9,10 @@
 use core::ops::{Add, BitAnd, BitOr, Div, Mul, Neg, Not, Sub};
 
 /// A comparison result for one or more lanes (`bool` for `f32`, a lane mask for `F32x4`).
-pub trait LaneMask: Copy + BitAnd<Output = Self> + BitOr<Output = Self> + Not<Output = Self> {}
+pub trait LaneMask:
+    Copy + BitAnd<Output = Self> + BitOr<Output = Self> + Not<Output = Self>
+{
+}
 
 impl LaneMask for bool {}
 

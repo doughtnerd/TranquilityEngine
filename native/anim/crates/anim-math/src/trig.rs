@@ -10,6 +10,10 @@
 //!   beyond |x| ≈ 8192, where range reduction loses bits.
 //! - [`atan2`]: absolute error ≤ 3e-7 (radians) for all finite inputs.
 
+// The constants are Cephes' published decimal values, kept verbatim so they can be checked
+// against the source; the compiler rounds them to the nearest f32.
+#![allow(clippy::excessive_precision)]
+
 use crate::lane::Lane;
 
 /// π/2 split in three parts for Cody-Waite range reduction (Cephes `DP1..DP3` doubled). The first
@@ -32,7 +36,8 @@ pub fn sin_cos<L: Lane>(x: L) -> (L, L) {
     let c = (L::splat(1.0) - L::splat(0.5) * z)
         + z * z
             * (L::splat(4.166_664_568_298_827e-2)
-                + z * (L::splat(-1.388_731_625_493_765e-3) + z * L::splat(2.443_315_711_809_948e-5)));
+                + z * (L::splat(-1.388_731_625_493_765e-3)
+                    + z * L::splat(2.443_315_711_809_948e-5)));
     // Quadrant q = k mod 4 in 0..=3, computed in floats (k is an exact integer).
     let q = k - L::splat(4.0) * (k * L::splat(0.25)).floor();
     let one = L::splat(1.0);

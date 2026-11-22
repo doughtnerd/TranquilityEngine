@@ -268,7 +268,9 @@ mod imp {
         #[inline(always)]
         pub(super) fn v_select(m: M32x4, a: Self, b: Self) -> Self {
             // Bitwise, as v128.bitselect.
-            let s = |i: usize| f32::from_bits((a.0[i].to_bits() & m.0[i]) | (b.0[i].to_bits() & !m.0[i]));
+            let s = |i: usize| {
+                f32::from_bits((a.0[i].to_bits() & m.0[i]) | (b.0[i].to_bits() & !m.0[i]))
+            };
             Self([s(0), s(1), s(2), s(3)])
         }
     }
@@ -284,7 +286,12 @@ mod imp {
         }
         #[inline(always)]
         pub fn to_array(self) -> [bool; 4] {
-            [self.0[0] != 0, self.0[1] != 0, self.0[2] != 0, self.0[3] != 0]
+            [
+                self.0[0] != 0,
+                self.0[1] != 0,
+                self.0[2] != 0,
+                self.0[3] != 0,
+            ]
         }
         #[inline(always)]
         pub(super) fn v_and(self, o: Self) -> Self {
@@ -324,7 +331,12 @@ impl F32x4 {
     #[inline(always)]
     pub fn to_bits_array(self) -> [u32; 4] {
         let a = self.to_array();
-        [a[0].to_bits(), a[1].to_bits(), a[2].to_bits(), a[3].to_bits()]
+        [
+            a[0].to_bits(),
+            a[1].to_bits(),
+            a[2].to_bits(),
+            a[3].to_bits(),
+        ]
     }
 }
 

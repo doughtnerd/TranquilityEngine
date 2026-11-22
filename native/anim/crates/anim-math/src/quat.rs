@@ -8,7 +8,7 @@ use crate::f32x4::F32x4;
 use crate::lane::Lane;
 use crate::trig::{atan2, sin_cos};
 use crate::vec3::{Vec3T, NORMALIZE_EPSILON_SQ};
-use core::ops::{Mul, Neg};
+use core::ops::{Add, Mul, Neg};
 
 /// A quaternion whose components are lanes.
 #[derive(Clone, Copy, Debug)]
@@ -81,12 +81,6 @@ impl<L: Lane> QuatT<L> {
         Self::new(self.x * s, self.y * s, self.z * s, self.w * s)
     }
 
-    /// Component-wise sum (not a rotation on its own; used by blends).
-    #[inline(always)]
-    pub fn add(self, o: Self) -> Self {
-        Self::new(self.x + o.x, self.y + o.y, self.z + o.z, self.w + o.w)
-    }
-
     /// Per lane, `a` where `mask` is set, otherwise `b`.
     #[inline(always)]
     pub fn select(mask: L::Mask, a: Self, b: Self) -> Self {
@@ -138,7 +132,7 @@ impl<L: Lane> QuatT<L> {
     pub fn slerp(self, b: Self, t: L) -> Self {
         let b = self.align_to(b);
         let diff = Self::new(self.x - b.x, self.y - b.y, self.z - b.z, self.w - b.w).length();
-        let sum = self.add(b).length();
+        let sum = (self + b).length();
         // Half the 4D angle between a and b' is atan2(diff, sum); θ in [0, π/2] after the sign fix.
         let theta = L::splat(2.0) * atan2(diff, sum);
         let one = L::splat(1.0);
@@ -149,7 +143,7 @@ impl<L: Lane> QuatT<L> {
         let safe_s = s.max(L::splat(SLERP_LINEAR_SIN));
         let wa = L::select(linear, one - t, sa / safe_s);
         let wb = L::select(linear, t, sb / safe_s);
-        self.scale(wa).add(b.scale(wb))
+        self.scale(wa) + b.scale(wb)
     }
 
     /// Rotates `v` by this unit quaternion: `v + w·t + u × t` with `u = xyz`, `t = 2·(u × v)`.
@@ -194,6 +188,15 @@ impl<L: Lane> Mul for QuatT<L> {
             a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
             a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
         )
+    }
+}
+
+/// Component-wise sum (not a rotation on its own; used by blends).
+impl<L: Lane> Add for QuatT<L> {
+    type Output = Self;
+    #[inline(always)]
+    fn add(self, o: Self) -> Self {
+        Self::new(self.x + o.x, self.y + o.y, self.z + o.z, self.w + o.w)
     }
 }
 

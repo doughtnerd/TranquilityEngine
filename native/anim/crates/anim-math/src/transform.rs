@@ -73,11 +73,7 @@ impl<L: Lane> TransformT<L> {
             safe_recip(self.scale.z),
         );
         let inv_r = self.rotation.conjugate();
-        Self::new(
-            -inv_r.rotate(inv_s * self.translation),
-            inv_r,
-            inv_s,
-        )
+        Self::new(-inv_r.rotate(inv_s * self.translation), inv_r, inv_s)
     }
 
     /// `r · (s ⊙ p) + t`.
