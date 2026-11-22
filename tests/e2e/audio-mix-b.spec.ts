@@ -1,6 +1,5 @@
 import { expect, test, type Page } from "./fixtures";
 import { bootMix } from "./audioMix";
-import { openMixer } from "./audioMixLive";
 
 // M5b loudness in the real editor app (ADR 0171 amended by 0172, task E2): the Sound Lab's loudness page (keys L, W, C, F, V, D;
 // `scripts/behaviors/Loudness.ts`) plays the project's reference (`audio/loudness-reference.wav`, the EBU Tech 3341 case 1
@@ -8,8 +7,9 @@ import { openMixer } from "./audioMixLive";
 // (`Audio.bus(n).loudness`, `Audio.loudnessTarget`) and `Audio.debug().mix`.
 //
 // Cases: a tone reads -22.99 LUFS in Play; the target verdict for every target and a hot signal (high, low, ok, waiting,
-// peak over); every reset option; pause and resume (by the F key and the API); the taint rules of the Mixer panel's monitor
-// mute, solo and Compare, clicked in the panel during Play.
+// peak over); every reset option; pause and resume (by the F key and the API); a script mute suspending the check. (The
+// monitor mute, solo and Compare taint rules were clicked in the editor's Mixer panel, which moved to the Audio Studio,
+// ADR 0327; the loudness hub's unit tests keep them.)
 //
 // **Timing is on the audio clock**: a reading waits on the meter's own `elapsed` (seconds of metered audio since its last reset,
 // counted in the core's rendered sub-blocks) or on `Audio.time`, never on a wall-clock span; the polls only pace the reads.
@@ -367,114 +367,6 @@ test("M5b: a paused meter holds its readings and counts no audio; resuming resta
   expect(errors).toEqual([]);
 });
 
-test("M5b: a monitor mute taints its bus, its ancestors and master; a monitor solo or Compare taints every meter; reset clears it; the target check is suspended while a control is on", async ({ page }) => {
-  await page.setViewportSize({ width: 1600, height: 1000 }); // room for the Mixer panel's strips
-  const errors = await boot(page);
-  await referenceOn(page);
-  await metered(page, "UI", 3);
-  const base = await readBoth(page, "Master", "UI");
-  expect(base.map((m) => m.tainted)).toEqual([false, false]);
-  expect(base.map((m) => m.state)).toEqual(["ok", "ok"]);
-
-  // The Mixer panel's monitor controls (MM and S on each strip) and Compare, clicked as the user does during Play.
-  await openMixer(page);
-  const monitor = async (bus: string, c: { mute?: boolean; solo?: boolean }) => {
-    const on = c.mute ?? c.solo!;
-    const button = page.getByRole("button", { name: c.mute !== undefined ? `Monitor mute ${bus}` : `Solo ${bus}`, exact: true });
-    await expect(button).toHaveAttribute("aria-pressed", String(!on));
-    await button.click();
-    await expect(button).toHaveAttribute("aria-pressed", String(on));
-  };
-  const compare = async (on: boolean) => {
-    const button = page.getByRole("button", { name: "Compare", exact: true });
-    await button.click();
-    await expect(button).toHaveAttribute("aria-pressed", String(on));
-  };
-  const debugMix = async () => (await page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.debug())).mix;
-  const clear = async () => {
-    await run(page, `Audio.bus("Master").loudness.reset("all")`);
-    await run(page, `Audio.bus("UI").loudness.reset("all")`);
-  };
-
-  await test.step("a script mute of an unmetered bus taints nothing", async () => {
-    await run(page, `(Audio.bus("Ambience").mute = true)`);
-    await audioFor(page, 0.5);
-    expect((await readBoth(page, "Master", "UI")).map((m) => m.tainted)).toEqual([false, false]);
-    await run(page, `(Audio.bus("Ambience").mute = false)`);
-    // The backend hands mutes to the hub once a frame (a mute suspends the target check); let a frame of audio pass.
-    await audioFor(page, 0.2);
-  });
-
-  await test.step("a monitor mute of an unmetered bus (Ambience) taints master only, and suspends the target check", async () => {
-    await monitor("Ambience", { mute: true });
-    const [m, u] = await readBoth(page, "Master", "UI");
-    expect([m.tainted, u.tainted], "Master is the output, an ancestor of Ambience; UI is neither").toEqual([true, false]);
-    expect([m.state, u.state], "the check is suspended on every meter while a control is on").toEqual(["suspended", "suspended"]);
-    expect((await debugMix()).monitorActive).toBe(true);
-    // Unmuting ends the suspension; the mark stays until a reset.
-    await monitor("Ambience", { mute: false });
-    const after = await readBoth(page, "Master", "UI");
-    expect(after.map((x) => x.state)).toEqual(["ok", "ok"]);
-    expect(after.map((x) => x.tainted), "unmuting clears nothing").toEqual([true, false]);
-    expect((await debugMix()).monitorActive).toBe(false);
-  });
-
-  await test.step("a monitor mute of a metered bus (UI) taints it and master; its level really goes silent", async () => {
-    await monitor("UI", { mute: true });
-    expect((await readBoth(page, "Master", "UI")).map((x) => x.tainted)).toEqual([true, true]);
-    const held = (await read(page, "UI")).integrated;
-    // The meter reads post-fader, monitor lane included: 0.6 s of the audio clock on, its window holds silence.
-    await audioFor(page, 0.6);
-    await expect.poll(async () => (await read(page, "UI")).momentary, { timeout: 15_000 }).toBe(-Infinity);
-    // Silent blocks are under the absolute gate and leave integrated alone; the blocks that straddled the mute passed it at part
-    // energy and pulled it down a little (measured -0.15 LU after 3 s of tone): near the held value, not at silence.
-    const after = (await read(page, "UI")).integrated;
-    expect(after, "digital silence does not drag the integrated level to silence").toBeGreaterThan(held - 0.5);
-    expect(after).toBeLessThanOrEqual(held + 1e-9);
-    await monitor("UI", { mute: false });
-  });
-
-  await test.step('reset("integrated") clears the mark on that meter only; reset("all") clears it too; reset("maxPeak") leaves it', async () => {
-    await run(page, `Audio.bus("Master").loudness.reset("maxPeak")`);
-    expect((await readBoth(page, "Master", "UI")).map((x) => x.tainted), "maxPeak leaves the marks").toEqual([true, true]);
-    await run(page, `Audio.bus("Master").loudness.reset("integrated")`);
-    expect((await readBoth(page, "Master", "UI")).map((x) => x.tainted)).toEqual([false, true]);
-    await run(page, `Audio.bus("UI").loudness.reset("all")`);
-    expect((await readBoth(page, "Master", "UI")).map((x) => x.tainted)).toEqual([false, false]);
-  });
-
-  await test.step("a monitor solo taints every meter, and the check is suspended while it is on", async () => {
-    await clear();
-    await monitor("UI", { solo: true });
-    const both = await readBoth(page, "Master", "UI");
-    expect(both.map((x) => x.tainted)).toEqual([true, true]);
-    expect(both.map((x) => x.state)).toEqual(["suspended", "suspended"]);
-    await monitor("UI", { solo: false });
-    expect((await readBoth(page, "Master", "UI")).map((x) => x.tainted), "solo off clears nothing").toEqual([true, true]);
-    await clear();
-  });
-
-  await test.step("Compare taints every meter and suspends the check, until it is switched off", async () => {
-    // The last reset left no integrated value (verdict waiting): meter a second of the tone first, so "off" can read ok.
-    await metered(page, "Master", 1);
-    await metered(page, "UI", 1);
-    await compare(true);
-    const on = await readBoth(page, "Master", "UI");
-    expect(on.map((x) => x.tainted)).toEqual([true, true]);
-    expect(on.map((x) => x.state)).toEqual(["suspended", "suspended"]);
-    await compare(false);
-    const off = await readBoth(page, "Master", "UI");
-    expect(off.map((x) => x.state)).toEqual(["ok", "ok"]);
-    expect(off.map((x) => x.tainted)).toEqual([true, true]);
-    await clear();
-    expect((await readBoth(page, "Master", "UI")).map((x) => x.tainted)).toEqual([false, false]);
-  });
-  expect(errors).toEqual([]);
-});
-
-// The mutes and MASTER-not-1 rows of §1.1 ("authored or script mutes and the hidden-tab mute do not taint; they make
-// `target.state` suspended") need the backend to call the hub's `setMuted` and `setMasterNotUnity`. Neither is called anywhere
-// at c0d328c (the stubs file lists them as backend inputs); the taint half is in the case above. Un-fixme when they are wired.
 test("M5b: a script mute, or MASTER not 1, suspends the target check without tainting", async ({ page }) => {
   await boot(page);
   await referenceOn(page);

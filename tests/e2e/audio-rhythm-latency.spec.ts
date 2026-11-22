@@ -2,7 +2,7 @@ import { expect, type Page, test } from "./fixtures";
 import { bootSample, LAB } from "./audioMusic";
 
 // ADR 0166 Rh1 (architecture §4.6): rhythm mode's `latencyHint: 0` takes effect in a real browser. The Sound Lab boots
-// twice in one page, with `audio.rhythmMode` off and then on (the project file rewritten on the way in), and
+// twice in one page, with `audio.rhythmMode` off and then on (the project's audio.json rewritten on the way in), and
 // `Audio.latency` is read back from the running core's context each time: rhythm mode's base and output latency are
 // below the `"interactive"` ones (S5 measured 2.9 / 8 ms against 10 / 32 ms on Chromium's fake sink). Headless Chromium
 // has no real device, so only the order is asserted; the figures are printed for the build log.
@@ -28,10 +28,10 @@ test("rhythm mode: the context is made with latencyHint 0 and Audio.latency read
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
   let rhythmMode = false;
-  await page.route("**/samples/sound-lab/project.json", async (route) => {
+  await page.route("**/samples/sound-lab/audio.json", async (route) => {
     const res = await route.fetch();
     const json = await res.json();
-    json.audio = { ...(json.audio ?? {}), rhythmMode };
+    json.settings = { ...(json.settings ?? {}), rhythmMode };
     await route.fulfill({ response: res, json });
   });
   const read: { latency: Latency; rhythmMode: boolean }[] = [];

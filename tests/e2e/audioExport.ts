@@ -13,10 +13,7 @@ import {
   decodeNames,
   NAME_TABLES,
 } from "../../src/plugins/audio/runtime/capture/format";
-import { formatDb, gainToDb } from "../../src/plugins/audio/editor/dbScale";
-import { barButton, panelOf, table } from "./audioProfiler";
 import { expect, type Page } from "./fixtures";
-import { showTab } from "./tabs";
 
 // Helpers of the export round-trip spec (ADR 0171 amended by 0172, task X3; `audio-mix-d.spec.ts`): export a sample with
 // the game build (`src/export/cli.mjs`), serve it with its own `serve.mjs`, drive the exported page's recorder, and read the
@@ -294,63 +291,6 @@ export function planCursor(p: ParsedCapture): CursorPlan {
   };
 }
 
-// --- the editor's Audio Profiler ------------------------------------------------------------------------------------------
-
-export const LAB_EDITOR = "/editor.html?sample=sound-lab";
-
-/** Opens the Sound Lab in the editor with the Audio Profiler tab showing. */
-export async function openProfilerTab(page: Page): Promise<void> {
-  await page.goto(LAB_EDITOR);
-  await page.waitForFunction(() => ((window as unknown as { engine?: { world: { time: { frameCount: number } } } }).engine?.world.time.frameCount ?? 0) > 10);
-  await showTab(page, /^Audio Profiler/);
-  await expect(panelOf(page)).toBeVisible();
-}
-
-/** Opens `path` through the bar's Open button; the cursor starts at the file's start. */
-export async function openCaptureFile(page: Page, path: string, name: string): Promise<void> {
-  const [chooser] = await Promise.all([page.waitForEvent("filechooser"), barButton(page, "open").click()]);
-  // Playwright keeps a download under a bare id, so the panel (which takes only `.mycap` names) gets the bytes under the saved name.
-  await chooser.setFiles({ name, mimeType: "application/octet-stream", buffer: readFileSync(path) });
-  await expect(panelOf(page).locator(".profiler-status")).toHaveText(name);
-  await expect(panelOf(page).locator("canvas.profiler-timeline")).toBeVisible();
-}
-
-export interface TableRows {
-  voices: string[];
-  buses: Record<string, { runtime: string; tree: string }>;
-}
-
-const cellsOf = (page: Page, name: "voices" | "buses") =>
-  table(page, name).locator(".pgrid-row").evaluateAll((rows) => rows.map((r) => Array.from(r.children).map((c) => (c.textContent ?? "").trim())));
-
-/** The voice rows as `clip@bus:state` (sorted) and each bus's Runtime and To-output cells, read off the tables at the cursor. */
-export async function readTables(page: Page): Promise<TableRows> {
-  const voices = (await cellsOf(page, "voices")).map((c) => `${c[1]}@${c[2]}:${c[3]}`).sort();
-  const buses: TableRows["buses"] = {};
-  for (const c of await cellsOf(page, "buses")) buses[c[0]!] = { runtime: c[2]!, tree: c[c.length - 1]! };
-  return { voices, buses };
-}
-
-/** What the tables must read for the game's `Audio.debug()` at `truth`: the voices, and per bus the runtime lane and the product up the tree, in the panel's own dB format. */
-export function expectedTables(truth: Truth): TableRows {
-  const buses: TableRows["buses"] = {};
-  for (const b of truth.buses) buses[b.name] = { runtime: formatDb(gainToDb(b.mute ? 0 : b.volume)), tree: formatDb(gainToDb(b.effectiveGain)) };
-  return { voices: voicesOf(truth).sort(), buses };
-}
-
-/** Polls the tables until they read what the game was playing (the poll only waits for the seek's answer). */
-export async function expectTablesAt(page: Page, position: Position, truth: Truth): Promise<void> {
-  await expect.poll(() => readTables(page), { message: `the tables at "${position}" match the game's Audio.debug()`, timeout: 20_000 }).toEqual(expectedTables(truth));
-}
-
 export async function press(page: Page, key: string, times: number): Promise<void> {
   for (let i = 0; i < times; i++) await page.keyboard.press(key);
-}
-
-/** The ruler's point at `fraction` of the timeline's width (the top 18 px are the ruler), for a click. */
-export async function rulerAt(page: Page, fraction: number): Promise<{ x: number; y: number }> {
-  const canvas = panelOf(page).locator("canvas.profiler-timeline");
-  await canvas.scrollIntoViewIfNeeded();
-  const box = (await canvas.boundingBox())!;
-  return { x: box.x + Math.max(1, Math.min(box.width - 2, box.width * fraction)), y: box.y + 8 };
 }
