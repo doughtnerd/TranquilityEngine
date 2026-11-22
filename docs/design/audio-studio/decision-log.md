@@ -47,3 +47,9 @@ max), exponential (straight dB line to −60 at max), inverse square (silent at 
 Overlapping sample loops: the later is dropped; a trim not containing a loop is widened. Root note: MIDI 60 = C4. Write
 to WAV writes notes, loops, root and tempo; Exit/Hit/Cue markers stay in the sidecar. A missing playlist type reads as
 Queue; a new Blend defaults to a voice-time axis. Revert: the named functions in `src/engine/audio/{effects,attenuation,sample,playlist}/`.
+
+**D8. `audio.json` (W1-T5, merged).** Hosts (player, server, export) refuse a legacy `project.json` audio section with
+one message; the editor migrates it silently on open (backup in `.myco/migrated/`, one log line, no dialog). dB floor
+−60 = silence, ceiling +6.02 dB so legacy gain 2 survives. Snapshot/automation low-pass migrates through a neutral
+20 kHz "carrier" low-pass per bus. Migrated snapshots start from code, 300 ms fades, priority 0, override. A bus named
+"Master" is the master bus, else the first bus. When both exist, `audio.json` wins. Revert: per item in `src/engine/audio/project/{gain,legacy,format}.ts`, `src/editor/audioProjectFile.ts`.
