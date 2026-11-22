@@ -124,6 +124,31 @@ Nothing. `defineInput` stays for input that isn't an action set.
 - Server pawns get `ActionEvents`: when `engine.InputNetApply` writes a client's tick into a pawn's set, the tick's edge flags become events with `node` = the pawn, `player` = the owning connection's node and `index` = the client's local player. They're dispatched to `on` by `engine.InputTickEventScripts` (fixedUpdate, before scripts). A tick the server repeats because its input is missing keeps the values and level flags but clears the edges, so a press isn't performed twice.
 - Several local players per connection: a client sends every local player's actions. `defineInput` streams gain an optional local player index (`write(values, player)`, `localOf(player)`, `of(node, player)`, `stats(node, player)`); each player's inputs travel in their own packets, with their own buffer and counters on the server. The wire is unchanged for player 0; another player's packet body starts with a varuint 0 (never a valid count) and the player's index. On the server a pawn names the client's local player with the data component `ConnectionPlayer { index }` (absent: player 0). It's separate from `ControlledBy`, which names a player of the World's own, so a host doesn't copy its local players' actions onto remote pawns. While a client re-simulates, a pawn without `ConnectionPlayer` takes its `ControlledBy` player's input.
 
+## Build notes (2026-11-22, glyphs and the rebinding screen)
+
+- **Glyph images** (`src/engine/input/glyphs.ts`, `InputGlyphs`): every icon key prompts give is drawn as an SVG from plain
+  shapes, letters and symbols, no vendor artwork: keycaps with the key's label (so every key has one), the mouse with the
+  button lit (and delta, scroll, position), and per family (xbox, playstation, switch, generic) face buttons
+  (PlayStation's shapes, Xbox's coloured letters, Switch's letter layout, a position diamond for generic pads),
+  shoulders, triggers, sticks and their axes and presses, the d-pad, menu buttons, home, touchpad, gyro, accelerometer
+  and paddles. Keys outside those get a labelled badge.
+- They're generated on first use rather than shipped as files: the generator is about 9.8 KB minified (3.4 KB gzipped)
+  in the engine bundle, where the ~140 fixed glyphs as files would be about 70 KB and still couldn't cover every key.
+  Nothing has to be copied into the player, exported games or the engine library.
+- `InputGlyphs.get(icon)` gives `{ svg, width, height, url, asset }`. `asset` is `asset:@myco/glyphs/<icon key>.svg`,
+  served by a built-in asset source (`Assets.addBuiltinSource`, internal: looked up after the game's sources and kept
+  by `clearSources`), so `UIImage.image`, UI documents and sprites take glyphs like any texture.
+- `InputPrompt` gains `parts` (each control's rebind part) and `context`, which a rebinding UI passes back to `rebind`.
+- **The rebinding UI** is `UIControlMapper` (`src/engine/ui/controlMapper.ts`, exported from the engine index rather than claimed by the UI plugin, so loading it doesn't change the order input systems register in; it warns and does nothing with the UI plugin off): it builds UI
+  elements as its node's children (not saved in the scene), a row per action or composite part
+  with keyboard and gamepad cells (glyphs and labels, the gamepad column following `lastFamily`), rebinding on click or
+  on Enter / the south button with arrow-key and d-pad selection, Escape and a timeout to cancel, conflicts in a status
+  line and on the cells, Reset (`resetBindings`) and Save (`saveBindings`). Its system, `engine.UIControlMapper`, runs
+  in `update` after `engine.UIDocumentEvents` and `engine.InputFrame`, and reads rebind results from `RebindResults`.
+- Not done: rebinding a chord's modifier keys from the screen (a chord cell rebinds its main key), adding a binding
+  where an action has none for a device (`rebind` only replaces existing controls), and accessibility settings on the
+  screen.
+
 ## Open questions
 
 - Maximum local players, and whether one World may host several local players' views (split screen).

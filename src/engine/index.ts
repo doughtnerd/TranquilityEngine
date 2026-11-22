@@ -61,5 +61,7 @@ export { InputPlayers, PlayerInput } from "./input/facade";
 export { ControlledBy, InputPlayer, PlayerJoined, PlayerLeft, type PlayerChange } from "./input/players";
 export type { InputAccessibility } from "./input/profiles";
 export type { InputPrompt } from "./input/prompts";
+export { InputGlyphs, type InputGlyph } from "./input/glyphs";
+export { UIControlMapper, type UIControlMapperCell, type UIControlMapperDevice, type UIControlMapperRow, type UIControlMapperText } from "./ui/controlMapper";
 export { RebindRequest, RebindResults, type RebindOptions, type RebindResult } from "./input/rebind";
 export { Storage, MemoryStorage, type StorageBackend } from "./platform/Storage";

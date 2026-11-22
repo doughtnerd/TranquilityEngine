@@ -20,6 +20,23 @@ export interface InputPrompt {
   readonly label: string;
   /** An icon key for each control: `<family>/<control>`, e.g. `xbox/buttonSouth`, `keyboard/space`. */
   readonly icons: readonly string[];
+  /**
+   * The rebind part of each control (`RebindOptions.part`): `control` for a single control, `up`,
+   * `down`, `left`, `right` for a d-pad composite, `negative`, `positive` for an axis composite,
+   * `modifier0`… then `control` for a chord.
+   */
+  readonly parts: readonly string[];
+  /** The context whose mapping it shows (`RebindOptions.context`). */
+  readonly context: string;
+}
+
+/** The rebind part names of a compiled mapping's controls, in `controls` order. */
+function partsOf(m: CompiledMapping): string[] {
+  const s = m.source;
+  if (s.kind === "dpad") return ["up", "down", "left", "right"];
+  if (s.kind === "axis") return ["negative", "positive"];
+  if (s.kind === "modifier") return [...s.modifiers.map((_, i) => `modifier${i}`), "control"];
+  return ["control"];
 }
 
 const PAD_LABELS: Record<"xbox" | "playstation" | "switch" | "generic", Record<string, string>> = {
@@ -84,6 +101,8 @@ export function promptFor(world: World, player: GameObject, action: string, fami
         labels,
         label: labels.join(m.source.kind === "modifier" ? "+" : "/"),
         icons: controls.map((c) => controlIcon(c, fam)),
+        parts: partsOf(m),
+        context: m.context,
       };
     }
   }

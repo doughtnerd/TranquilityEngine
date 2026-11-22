@@ -152,6 +152,38 @@ player.accessibility = { holdToToggle: ["aim"], invertY: ["look"], sensitivity: 
 player.rumble(0.3, 0.8, 200);
 ```
 
+`prompt.parts` names each control's rebind part (`control`, `up`…, `modifier0`…) and `prompt.context` its context, the `part` and `context` options of `rebind`.
+
+### Glyphs
+
+The engine draws a glyph for every icon key a prompt gives: keycaps with the key's label, the mouse with the button lit, and each gamepad family's buttons, shoulders, triggers, sticks, d-pad, menu buttons, touchpad and gyro (PlayStation's shapes, Xbox's coloured letters, Switch's letters, positions for other pads). They're plain shapes and letters, built on first use, so nothing needs shipping with a game.
+
+```ts
+const prompt = this.input.prompt("jump")!;         // follows the device the player last used
+const glyph = InputGlyphs.get(prompt.icons[0])!;   // or InputGlyphs.of(prompt) for every control
+hint.getComponent(UIImage)!.image = glyph.asset;   // "asset:@myco/glyphs/xbox/buttonSouth.svg"
+img.src = glyph.url;                               // an HTML <img>; glyph.svg is the markup
+```
+
+`glyph.asset` works wherever a texture asset does: `UIImage.image`, a UI document's `<Image image="asset:@myco/glyphs/keyboard/space.svg">`, sprites. Glyphs are 64 pixels high; keycaps with long labels are wider (`glyph.width`).
+
+### A rebinding screen
+
+**UIControlMapper** (Add Component › UI) is a ready-made controls screen. Put it on a node under a `UICanvas` (without one it makes its own):
+
+- One row per action (`actions`: a comma-separated list, empty for every action), one per part for a d-pad or axis composite ("Move Up"…), with a **Keyboard** and a **Gamepad** cell. Each shows the binding's glyphs and label; the gamepad column follows the pad the player last used.
+- Click a cell, or select it with the arrow keys or d-pad and press Enter or the south button, then press the new key or button. **Escape** cancels; after `timeout` seconds (default 10) it gives up.
+- A conflict is shown in the status line ("B is also bound to Bomb.") and conflicting cells turn `warningColor`.
+- **Reset to defaults** calls `resetBindings`; **Save** calls `saveBindings(profile)`.
+
+```ts
+const mapper = menu.addComponent(UIControlMapper, { player: 0, actions: "move, jump, fire" });
+mapper.actionLabels = { fire: "Shoot" };
+mapper.text.save = "Speichern";                     // every word it shows is in `text`
+```
+
+Colours, `fontSize`, `glyphSize` and `width` are fields. Scripts read `rows` (each cell's label, icons and button), `rebinding`, `status` and `conflicts`. Load saved bindings with `player.loadBindings()` when the game starts.
+
 ## Multiplayer
 
 `defineActions(id, spec, { networked: true })` also makes the set an input stream (ADR 0033).
