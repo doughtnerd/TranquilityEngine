@@ -12,6 +12,7 @@ import { onAudioConfigured } from "../../../engine/core/audioConfigure";
 import type { AutomationSink } from "./events/automation";
 import type { Curve } from "../../../engine/core/curve";
 import type { AudioLatency, MusicEventHandle } from "../../../engine/audio/musicTypes";
+import type { AudioMarkerEvent, AudioMarkerType } from "../../../engine/audio/markerTypes";
 import type { ProfileSink } from "./mix/profileSink";
 import type { KeyframePayload } from "./capture/format";
 import type { AudioDebugInfo, AudioMixCaps, MusicBackendDebug } from "./debugTypes";
@@ -211,19 +212,12 @@ export interface MusicBackend {
   debugView(): MusicBackendDebug;
 }
 
-/** ADR 0329: the sample markers a playlist handle reports as they pass (ADR 0328 marker types). */
-export type AudioMarkerType = "cue" | "exit" | "hit";
-
-/** ADR 0329: what `AudioPlaylistHandle.onMarker` passes: the marker, the sample it is in and its heard time. */
-export interface AudioMarkerEvent {
-  type: AudioMarkerType;
-  /** The marker's name. */
-  name: string;
-  /** The sample path it is in. */
-  sample: string;
-  /** Heard time (seconds, `Audio.time`'s base) it passed at. */
-  time: number;
-}
+/**
+ * ADR 0329: the sample markers a playlist handle reports as they pass (ADR 0328 marker types), and what `onMarker` and the
+ * component hook `onAudioMarker` pass. Declared in the engine (`engine/audio/markerTypes.ts`) so `LifecycleHooks` can
+ * name it; these are the same types.
+ */
+export type { AudioMarkerEvent, AudioMarkerType } from "../../../engine/audio/markerTypes";
 
 /**
  * ADR 0329: a playing playlist (or sample), what `Audio.play` returns. ADR 0158 §5's members keep their meaning across all

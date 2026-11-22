@@ -20,6 +20,7 @@ import { events, loadAudioEvent, type EventInstance, type EventOptions } from ".
 import { isPlaylistPath } from "../../../engine/audio/playlist/format";
 import { playlists } from "./playlists/playlistSystem";
 import type { PlaylistInstance } from "./playlists/instance";
+import { playlistHandleOf } from "./playlists/handle";
 import { noteAssetChanged, setReloadHost } from "./music/reload";
 import { takePlayOptions, takeTap, type TakeEmitter } from "./capture/takeTap";
 
@@ -155,6 +156,8 @@ export class AudioSource extends Component {
       this.appliedPitch = this.pitch;
       if (this.playlist) {
         takeTap.sink?.play(this.playlist, path, this.takeEmitter(), takePlayOptions({ pitch: this.pitch, priority: clamp255(this.priority), bus: this.output || undefined }));
+        // D20 (ADR 0329): this node's `onAudioMarker`, `onMusicBeat` and `onMusicBar` hear the playlist.
+        this.playlist.attachSource(this, playlistHandleOf(this.playlist));
         this.applyPlaylist();
       }
       return;

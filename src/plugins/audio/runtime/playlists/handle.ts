@@ -70,7 +70,10 @@ class PlaylistHandle implements AudioPlaylistHandle {
     if (!this.instance.musicalSource()?.hasGrid) return undefined;
     return (this.musicView ??= new PlaylistMusic(this.instance));
   }
-  onMusic(_kind: MusicKind, _fn: (e: MusicEvent) => void): () => void { return () => {}; }
+  onMusic(kind: MusicKind, fn: (e: MusicEvent) => void): () => void {
+    if (typeof fn !== "function" || this.instance.stopped) return () => {};
+    return this.instance.musicCallbacks(this).on(kind, fn);
+  }
   trigger(name: string): boolean { return this.instance.trigger(String(name)); }
 }
 

@@ -18,6 +18,8 @@ import type { Entry, LoopBehaviour, PlaylistAsset, PlaylistBody, SampleEntry, St
 import { defaultAttenuation, stretchAttenuation } from "../../../../engine/audio/attenuation/format";
 import type { Attenuation as CurveAttenuation } from "../../../../engine/audio/attenuation/types";
 import { World } from "../../../../engine/core/World";
+import { GameBehavior, type Component } from "../../../../engine/core/Component";
+import type { MusicEventHandle } from "../../../../engine/audio/musicTypes";
 import { Camera } from "../../../../engine/render/components";
 import { AudioListener, listenerPose } from "../AudioListener";
 import { CURVE_DRIVEN_ATTENUATION, curveDbToGain, evalAttenuation, FLAT_SEND_CURVE, LOWPASS_OFF_HZ, type AttenuationAt, type AttenuationCurveSet } from "../core/spatial";
@@ -28,6 +30,7 @@ import { warnOnce } from "../core/handle";
 import { events, type EventOptions } from "../events/eventRuntime";
 import { MAX_LOCAL_SLOTS, type ParamRef } from "../events/automation";
 import { anchorTimeCurves, evalTimeCurves } from "./curves";
+import { PlaylistBeats, type PlaylistBeatKind } from "./beatCallbacks";
 import { linkedPlaylist, loadAttenuation } from "./loader";
 import { clockOver, MUSICAL_FALLBACK_NOTE, type MusicalClock, type MusicalSource } from "./musical";
 import { sampleFacts, type SampleFacts } from "./sampleFacts";
@@ -232,13 +235,51 @@ export class PlaylistInstance implements NodeHost {
     return () => { set!.delete(fn); };
   }
 
-  /** A marker passed: every listener for its type hears it (a throwing listener is reported, the rest still run). */
+  /**
+   * A marker passed: the playing `AudioSource`'s node hears it first (`onAudioMarker`, through the World, ADR 0303), then
+   * every listener for its type (a throwing listener is reported, the rest still run).
+   */
   noteMarker(e: AudioMarkerEvent): void {
+    const src = this.liveSource();
+    if (src) src._world._sendMessage([src.node, src.owner], "onAudioMarker", e);
     const set = this.markerListeners.get(e.type);
     if (!set) return;
     for (const fn of [...set]) {
       try { fn(e); } catch (err) { console.error(`[myco] ${this.path}: an onMarker listener threw:`, err); }
     }
+  }
+
+  // --- component hooks and beat callbacks (D20) -------------------------------------------------------------------
+
+  /** The component whose node hears `onAudioMarker`, `onMusicBeat` and `onMusicBar` (the `AudioSource` playing it). */
+  private source: Component | null = null;
+  private beats: PlaylistBeats | null = null;
+
+  /** The beat and bar callbacks (`handle.onMusic`), made on first use with the instance's public handle. */
+  musicCallbacks(handle: MusicEventHandle): PlaylistBeats {
+    return (this.beats ??= new PlaylistBeats(handle, () => this.clock()));
+  }
+
+  /** An `AudioSource` plays it: its node's behaviours hear the markers, beats and bars (`handle`: what `e.handle` carries). */
+  attachSource(source: Component, handle: MusicEventHandle): void {
+    this.source = source;
+    this.musicCallbacks(handle);
+  }
+
+  private liveSource(): Component | null {
+    const s = this.source;
+    return s && !s._destroyed && s.node.isValid ? s : null;
+  }
+
+  /** One frame of beat and bar callbacks: boundaries heard before `now + dt`, to the source's hooks, then the listeners. */
+  private dispatchBeats(now: number, dt: number): void {
+    const beats = this.beats;
+    if (!beats) return;
+    const src = this.liveSource();
+    const hooks = src ? musicHooksOf(src) : NO_MUSIC_HOOKS;
+    beats.dispatch(this.musicalSource(), now, dt, hooks, (kind, e) => {
+      src?._world._sendMessage([src.node, src.owner], kind === "beat" ? "onMusicBeat" : "onMusicBar", e);
+    });
   }
 
   emitMarker(e: AudioMarkerEvent): void {
@@ -435,6 +476,7 @@ export class PlaylistInstance implements NodeHost {
     this.root?.update(now, dt);
     for (const s of this.stingers) s.node.update(now, dt);
     this.deliverMarkers(now);
+    this.dispatchBeats(now, dt);
     this.updateAttenuation();
     this.applyDynamics(now);
     // A long run (a continuous Queue) drops the voices that have gone for good.
@@ -775,6 +817,23 @@ function listenerPosition(): Vec3Like | null {
   let best: Camera | null = null;
   for (const c of world._componentsOfType(Camera)) if (c.isActiveAndEnabled && (!best || c.depth < best.depth)) best = c;
   return best ? listenerPose(best.node)?.position ?? null : null;
+}
+
+const NO_MUSIC_HOOKS = Object.freeze({ beat: false, bar: false });
+
+/** Which of `onMusicBeat` / `onMusicBar` an active behaviour on the source's node (or its owner) defines. */
+function musicHooksOf(src: Component): Record<PlaylistBeatKind, boolean> {
+  const out = { beat: false, bar: false };
+  const world = src._world;
+  const ents = src.node.entity === src.owner.entity ? [src.node.entity] : [src.node.entity, src.owner.entity];
+  for (const e of ents) {
+    for (const c of world._componentsOf(e) ?? []) {
+      if (!(c instanceof GameBehavior) || !c.isActiveAndEnabled) continue;
+      if (typeof c.onMusicBeat === "function") out.beat = true;
+      if (typeof c.onMusicBar === "function") out.bar = true;
+    }
+  }
+  return out;
 }
 
 function product(dyn: readonly DynGain[]): number {

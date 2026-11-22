@@ -1,5 +1,6 @@
 import type { GameObject, InstantiateOptions } from "../scene/GameObject";
 import type { Transform } from "../scene/Transform";
+import type { AudioMarkerEvent } from "../audio/markerTypes";
 import type { MusicEvent } from "../audio/musicTypes";
 import type { TimeState, World } from "./World";
 import type { WorldHandle } from "./worlds";
@@ -174,6 +175,13 @@ export interface LifecycleHooks {
   onMusicBar?(e: MusicEvent): void;
   /** A cue of that music (`e.cue` is its name); coalesced cues are named in `e.skippedCues`. */
   onMusicCue?(e: MusicEvent): void;
+  /**
+   * A marker passing in the playlist an `AudioSource` on this node plays (ADR 0329): the Cue, Exit and Hit markers of its
+   * samples and its sequences' `cue` and `exit` markers, every type (`e.type` says which), delivered in the update phase
+   * on the first frame whose heard clock has passed it (`e.time` is exact). Defining the hook is the subscription; the
+   * handle's `onMarker(type, fn)` is the same for scripts that hold the handle.
+   */
+  onAudioMarker?(e: AudioMarkerEvent): void;
 }
 
 export type FrameHook = "fixedUpdate" | "update" | "lateUpdate";
