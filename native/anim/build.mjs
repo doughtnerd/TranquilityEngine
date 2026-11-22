@@ -16,9 +16,12 @@ const OUT_NAME = "myco_anim";
 /**
  * The wasm's size tripwire (ADR 0340): a guard against accidental growth, not a design limit (CLAUDE.md). Set from the
  * first full build plus 20%, rounded: T02 (2026-11-22) built 25,206 bytes (stubs, init and source_hash), + 20% = 30,247 B -> 30 KB.
+ * Raised by T13r (2026-11-22): the first build with a real core (the four format readers, compressed sampling with T20r's
+ * binding tables and track windows, the graph interpreter, pose maths, inertialization) measured 292,316 bytes
+ * (111 KB gzipped); the stub-based 30 KB gate never described a full build. + 20% = 350,779 B -> 345 KB.
  * Raise it with a line in docs/design/animation/build-log.md saying why; never cut a feature to stay under it.
  */
-const SIZE_LIMIT = 30 * 1024;
+const SIZE_LIMIT = 345 * 1024;
 
 /** Runs `cmd args` in native/anim with inherited stdio. RUSTFLAGS are dropped so .cargo/config.toml's +simd128 applies. */
 function run(cmd, args) {

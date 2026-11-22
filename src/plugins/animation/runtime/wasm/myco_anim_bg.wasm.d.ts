@@ -1,8 +1,32 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const asset_bytes_ptr: (a: number) => number;
+export const changes_dropped: () => number;
+export const changes_ptr: () => number;
+export const clip_column_bytes: (a: number) => number;
+export const clip_columns: (a: number, b: number, c: number, d: any) => number;
+export const commands_ptr: () => number;
+export const create_instance: (a: number, b: number, c: number) => number;
+export const destroy_instance: (a: number) => number;
+export const evaluate: (a: number, b: number, c: number, d: number) => number;
+export const graph_bind: (a: number, b: number, c: number) => number;
 export const init: (a: number, b: number) => [number, number];
+export const inputs_ptr: () => number;
+export const last_status: () => number;
+export const load_clip: (a: number, b: number) => number;
+export const load_graph: (a: number, b: number) => number;
+export const load_mask: (a: number, b: number) => number;
+export const load_skeleton: (a: number, b: number) => number;
+export const matrices_ptr: () => number;
+export const release: (a: number) => number;
+export const restore: (a: number, b: number, c: number) => number;
+export const roots_ptr: () => number;
+export const snapshot: (a: number, b: number, c: number, d: any) => number;
+export const snapshot_bytes: (a: number) => number;
 export const source_hash: () => [number, number];
+export const tracks_ptr: () => number;
+export const write_inputs: (a: number) => number;
 export const __wbindgen_externrefs: WebAssembly.Table;
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_free: (a: number, b: number, c: number) => void;
