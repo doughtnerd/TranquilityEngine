@@ -101,21 +101,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const servers = engine.worlds().filter((w) => w.hasTag("server"));
     if (servers.length === 0) throw new ServerError("The bootstrap created no Worlds tagged \"server\"; there's nothing to run.");
     for (const [i, handle] of servers.entries()) {
-      const link = plan.links.find((l) => l.to === handle.name);
-      const listen = listenOptions(handle.name, link, i === 0, options);
-      if (!listen) {
-        log(`[server] World "${handle.name}" isn't listening: no link connects to it and --port only applies to the first server World.`);
-        continue;
-      }
-      if (link && link.transport !== "websocket") log(`[server] World "${handle.name}": its link uses "${link.transport}"; a dedicated server listens over "websocket".`);
-      const url = await listenWorld(engine._world(handle.name)!, "websocket", listen.options).catch((err: Error) => {
-        if (/EADDRINUSE|is already listened on/.test(err.message)) throw new ServerError(`Port ${listen.port} is already in use, so World "${handle.name}" can't listen there. Stop whatever is using it, or pick another port with --port.`);
-        if (/EACCES/.test(err.message)) throw new ServerError(`World "${handle.name}" isn't allowed to listen on port ${listen.port} (ports below 1024 usually need privileges). Pick another with --port.`);
-        throw new ServerError(err.message);
-      });
-      const port = Number(new URL(url).port || 80);
-      listeners.push({ world: handle.name, url, port });
-      log(`[server] World "${handle.name}" listening on ${url}${listen.host ? "" : " (all interfaces)"}.`);
+      const listener = await serverListen(engine._world(handle.name)!, plan.links.find((l) => l.to === handle.name), i === 0 ? "first" : "start-up", options, log);
+      if (listener) listeners.push(listener);
     }
   } catch (err) {
     shutDown();
@@ -131,8 +118,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     shutDown();
     throw new ServerError(`The tick rate must be a positive number (got ${tickRate}).`);
   }
-  const spawned = spawnedListener(engine, plan.spawnLinks, options, log);
-  const loop = runLoop(engine, tickRate, log, options.statsIntervalMs ?? DEFAULT_STATS_INTERVAL_MS, new Set(engine.worlds().map((w) => w.name)), spawned);
+  // ADR 0062, 0323: a server template created at runtime listens where a link to it from a skipped
+  // (client) World says, by the same operation as the start-up Worlds; the Engine's link applier
+  // says when one appears (at the start of the frame after its creation, so its code has had its say).
+  engine._watchLinks(plan.spawnLinks, (world, link) => {
+    if (!world.worldTags.includes("server")) return;
+    serverListen(world, link, "runtime", options, log).catch((err: Error) => log(`[server] ${err.message}`));
+  });
+  const loop = runLoop(engine, tickRate, log, options.statsIntervalMs ?? DEFAULT_STATS_INTERVAL_MS, new Set(engine.worlds().map((w) => w.name)));
   log(`[server] Running at ${round(tickRate)} steps/s. Press Ctrl+C to stop.`);
 
   let closing: Promise<void> | null = null;
@@ -261,12 +254,47 @@ function skippedWorld(config: WorldConfig, links: LinkConfig[]): WorldHandle {
 }
 
 /**
+ * The one server listen (ADR 0323), for the start-up server Worlds and for server templates created
+ * at runtime (`kind`): have `world` listen over WebSocket where `link` says (ADR 0255), under `--host`
+ * and `--port`. Resolves with the listener, or null when it doesn't listen: its code listens already
+ * or is starting to (a lobby's match World), or there's no port for it (logged). Rejects with a
+ * `ServerError` worded for the log: a bad address, a port in use, no permission.
+ */
+async function serverListen(world: World, link: LinkConfig | undefined, kind: ServerWorldKind, cli: ServerOptions, log: (line: string) => void): Promise<ServerListener | null> {
+  if (netSession(world)?.listens()) return null; // its code listens where it wants
+  const first = kind === "first";
+  const name = kind === "runtime" ? `World "${world.name}" (created at runtime)` : `World "${world.name}"`;
+  if (link && link.transport !== "websocket") log(`[server] ${name}: its link from "${link.from}" uses "${link.transport}"; a dedicated server listens over "websocket".`);
+  const listen = listenOptions(name, link, first, cli);
+  if (!listen) {
+    const why = link ? `its link from "${link.from}" gives no WebSocket port` : "no link connects to it";
+    log(`[server] ${name} isn't listening: ${why}${kind === "runtime" ? "; its code can still listen on the server's port, by path" : ", and --port only applies to the first server World"}.`);
+    return null;
+  }
+  const url = await listenWorld(world, "websocket", listen.options).catch((err: Error) => {
+    // The first World's port can come from --port; another's comes from its link.
+    const pick = first || !link ? "pick another port with --port" : `change the port in its link from "${link.from}"`;
+    if (/EADDRINUSE|is already listened on/.test(err.message)) throw new ServerError(`Port ${listen.port} is already in use, so ${name} can't listen there. Stop whatever is using it, or ${pick}.`);
+    if (/EACCES/.test(err.message)) throw new ServerError(`${name} isn't allowed to listen on port ${listen.port} (ports below 1024 usually need privileges). ${pick[0].toUpperCase()}${pick.slice(1)}.`);
+    throw new ServerError(err.message);
+  });
+  if (kind !== "runtime") log(`[server] ${name} listening on ${url}${listen.host ? "" : " (all interfaces)"}.`); // a runtime World's is logged with the connections
+  return { world: world.name, url, port: Number(new URL(url).port || 80) };
+}
+
+/**
+ * Which server World a listen is for: the first start-up one (`--port` applies to it, else
+ * `DEFAULT_PORT`), another start-up one, or one created at runtime from a template.
+ */
+type ServerWorldKind = "first" | "start-up" | "runtime";
+
+/**
  * The options to listen with for a server World: its link's, with the address from its listen
  * target (ADR 0255: the link's `address`, else its `port`, `host` and `path`, else its `url`'s port
  * and path), under `--host` (every World) and `--port` (the first, which also falls back to
- * `DEFAULT_PORT`). Null if there's no port for it.
+ * `DEFAULT_PORT`). Null if there's no port for it. `name` names the World in errors.
  */
-function listenOptions(world: string, link: LinkConfig | undefined, first: boolean, cli: ServerOptions): { options: Record<string, unknown>; port: number; host?: string } | null {
+function listenOptions(name: string, link: LinkConfig | undefined, first: boolean, cli: ServerOptions): { options: Record<string, unknown>; port: number; host?: string } | null {
   // Another transport's options (a loopback name) mean nothing to a WebSocket server.
   const linked = link?.transport === "websocket" ? (link.options ?? {}) : {};
   let target: ListenTarget | null;
@@ -276,11 +304,11 @@ function listenOptions(world: string, link: LinkConfig | undefined, first: boole
       defaults: first ? { port: DEFAULT_PORT } : undefined,
     });
   } catch (err) {
-    throw new ServerError(`World "${world}": the link from "${link!.from}" has a bad address. ${(err as Error).message}`);
+    throw new ServerError(`${name}: the link from "${link!.from}" has a bad address. ${(err as Error).message}`);
   }
   if (!target) return null;
   const port = target.port as number;
-  if (!(Number.isInteger(port) && port >= 0 && port <= 65535)) throw new ServerError(`World "${world}": ${port} isn't a port (0 to 65535).`);
+  if (!(Number.isInteger(port) && port >= 0 && port <= 65535)) throw new ServerError(`${name}: ${port} isn't a port (0 to 65535).`);
   const { url: _url, ...rest } = link?.options ?? {}; // a client's address, not the server's to report
   const options: Record<string, unknown> = { ...rest, address: target.address };
   if (cli.maxConnections !== undefined) options.maxConnections = cli.maxConnections;
@@ -300,7 +328,7 @@ function listenOptions(world: string, link: LinkConfig | undefined, first: boole
  * Also logs connections opening and closing on the server Worlds, and stats every `statsMs`.
  * `started`: the Worlds the bootstrap made (the rest were created at runtime).
  */
-function runLoop(engine: Engine, rate: number, log: (line: string) => void, statsMs: number, started: ReadonlySet<string>, afterStep: () => void = () => {}): { stop(): void } {
+function runLoop(engine: Engine, rate: number, log: (line: string) => void, statsMs: number, started: ReadonlySet<string>): { stop(): void } {
   const intervalMs = 1000 / rate;
   let last = performance.now();
   let next = last + intervalMs;
@@ -327,7 +355,6 @@ function runLoop(engine: Engine, rate: number, log: (line: string) => void, stat
     }
     last = now;
     steps++;
-    afterStep();
     watch();
 
     if (statsMs > 0 && now - statsAt >= statsMs) {
@@ -354,46 +381,6 @@ function runLoop(engine: Engine, rate: number, log: (line: string) => void, stat
       stopped = true;
       if (timer) clearTimeout(timer);
     },
-  };
-}
-
-/**
- * A function to call each frame that has server Worlds created at runtime from a template listen
- * where a link to them from a skipped (client) World says (ADR 0062), unless they already listen
- * (game code called `listen` itself). Over `--host` like the start-up Worlds; a link with no
- * WebSocket address leaves the World to listen on the shared port by path if its code asks.
- */
-function spawnedListener(engine: Engine, links: readonly LinkConfig[], cli: ServerOptions, log: (line: string) => void): () => void {
-  if (links.length === 0) return () => {};
-  const handled = new WeakSet<World>();
-  return () => {
-    for (const handle of engine.worlds()) {
-      const world = engine._world(handle.name)!;
-      if (handled.has(world) || !handle.hasTag("server")) continue;
-      const link = links.find((l) => l.to === handle.name);
-      if (!link) continue;
-      handled.add(world);
-      if (handle.addresses().length > 0) continue;
-      if (link.transport !== "websocket") {
-        log(`[server] World "${handle.name}" (created at runtime): its link from "${link.from}" uses "${link.transport}"; a dedicated server listens over "websocket", so it isn't listening.`);
-        continue;
-      }
-      let listen: ReturnType<typeof listenOptions>;
-      try {
-        listen = listenOptions(handle.name, link, false, cli);
-      } catch (err) {
-        log(`[server] World "${handle.name}" (created at runtime) can't listen: ${(err as Error).message}`);
-        continue;
-      }
-      if (!listen) {
-        log(`[server] World "${handle.name}" (created at runtime): its link from "${link.from}" gives no port, so it isn't listening.`);
-        continue;
-      }
-      listenWorld(world, "websocket", listen.options).catch((err: Error) => {
-        const reason = /EADDRINUSE|is already listened on/.test(err.message) ? `port ${listen!.port} is already in use` : err.message;
-        log(`[server] World "${handle.name}" (created at runtime) can't listen where its link from "${link.from}" says: ${reason}.`);
-      });
-    }
   };
 }
 
