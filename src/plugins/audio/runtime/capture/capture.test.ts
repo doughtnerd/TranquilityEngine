@@ -14,7 +14,7 @@ import { notifyEngineLifecycle } from "../../../../engine/core/engineLifecycle";
 import { setAudioBackend } from "../backend";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { makeFakeBackend, type FakeBackend } from "../testing";
-import { captureDebug, captureFileBytes, captureLiveHost, releaseCapture, setCaptureProject, type CaptureLiveHost } from "./capture";
+import { captureDebug, captureFileBytes, captureLiveHost, releaseCapture, setCaptureProject, setCaptureReplayOf, type CaptureLiveHost } from "./capture";
 import {
   CAPTURE_FLAG_COMPRESSED, CAPTURE_FLAG_MAIN_SIDE_ONLY, CAPTURE_MARKER_MAX_BYTES, EpochReason, GapReason, MixOpOrigin, RecordType, assembleCapture, readCaptureHeader,
 } from "./format";
@@ -444,6 +444,24 @@ describe("save: the web Blob and the Tauri Storage paths, deflate-raw or stored"
     expect(c.meta.audio).toBeTypeOf("object");
     expect([...c.meta.names.clips.values()]).toContain("audio/jump.wav");
     expect(r.types(c)).toContain(RecordType.NAMES);
+  });
+
+  it("a capture started while the Studio replays a take names the take in META; one started after doesn't", async () => {
+    const r = rig();
+    setCaptureReplayOf({ path: "takes/canyon_run_01.mycotake", audioHash: "5f3a90c1" });
+    try {
+      await Audio.capture.start();
+      r.feed(5);
+      Audio.capture.stop();
+      await Audio.capture.save();
+    } finally {
+      setCaptureReplayOf(null);
+    }
+    expect((await r.open(r.downloads[0]!.bytes)).meta.replayOf).toEqual({ path: "takes/canyon_run_01.mycotake", audioHash: "5f3a90c1" });
+    await Audio.capture.start();
+    r.feed(5);
+    await Audio.capture.save();
+    expect((await r.open(r.downloads[1]!.bytes)).meta.replayOf).toBeNull();
   });
 });
 

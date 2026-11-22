@@ -7,6 +7,7 @@ import { computed, signal, type ReadonlySignal } from "@preact/signals";
 import { CursorModel, seekAtCursor } from "../../../plugins/audio/editor/mix/cursorModel";
 import { captureErrorMessage } from "../../../plugins/audio/editor/mix/openSaveFlow";
 import type { ProfileSource } from "../../../plugins/audio/editor/mix/profilerSource";
+import type { CaptureReplayOf } from "../../../plugins/audio/runtime/capture/format";
 import { CaptureError, captureNames, type CaptureSeekState } from "../../../plugins/audio/runtime/capture/reader";
 import { captureTitle } from "./captureTree";
 import { runCursorKey, type CursorKeyAction } from "./cursorKeys";
@@ -24,7 +25,14 @@ export interface ProfilerStoreSeams {
 export type OpenState =
   | { readonly kind: "none" }
   | { readonly kind: "opening"; readonly path: string }
-  | { readonly kind: "open"; readonly origin: "file" | "live"; readonly path: string | null; readonly title: string }
+  | {
+      readonly kind: "open";
+      readonly origin: "file" | "live";
+      readonly path: string | null;
+      readonly title: string;
+      /** ADR 0334: the take this capture recorded the Studio replaying (META `replayOf`), or null. */
+      readonly replayOf: CaptureReplayOf | null;
+    }
   | { readonly kind: "failed"; readonly path: string; readonly message: string };
 
 const messageOf = (e: unknown): string =>
@@ -80,7 +88,7 @@ export class ProfilerStore {
         source.close();
         return false;
       }
-      await this.attach(source, { kind: "open", origin: "file", path, title: captureTitle(path) });
+      await this.attach(source, { kind: "open", origin: "file", path, title: captureTitle(path), replayOf: source.summary.meta.replayOf ?? null });
       return run === this.run;
     } catch (e) {
       if (run === this.run) this.state.value = { kind: "failed", path, message: messageOf(e) };
@@ -92,7 +100,7 @@ export class ProfilerStore {
   async openLive(source: ProfileSource, title: string): Promise<void> {
     ++this.run;
     this.drop();
-    await this.attach(source, { kind: "open", origin: "live", path: null, title }, true);
+    await this.attach(source, { kind: "open", origin: "live", path: null, title, replayOf: source.summary.meta.replayOf ?? null }, true);
   }
 
   /** The live source grew: read what it gained; a live cursor follows its newest block. */

@@ -148,6 +148,24 @@ describe("entry edits", () => {
     expect(ok(setPlayback(c, { maxInstances: 99, chance: 2 })).playback).toMatchObject({ maxInstances: 32, chance: 1 });
     expect(no(setParameters(c, [params[0]!, params[0]!]))).toMatch(/share a name/);
   });
+
+  it("renaming a local parameter renames what reads it, in the same edit", () => {
+    const local: ParameterDef = { name: "depth", min: 0, max: 1, default: 0, seekSpeed: 0 };
+    const b: PlaylistBody = {
+      ...emptyPlaylistBody("blend"),
+      parameters: [local],
+      automation: [{ id: "a", target: "volume", input: { parameter: "depth" }, curve: [[0, 0]], bypass: false }],
+      entries: [{ ...clipOf("a.wav"), curves: { gain: { input: { parameter: "depth" }, curve: [[0, 0]], bypass: false } } } as Entry],
+      blend: { ...emptyPlaylistBody("blend").blend!, axes: [{ parameter: "depth" }] },
+    };
+    const next = ok(setParameters(b, [{ ...local, name: "waterDepth" }]));
+    expect(next.parameters.map((p) => p.name)).toEqual(["waterDepth"]);
+    expect(next.automation[0]!.input).toEqual({ parameter: "waterDepth" });
+    expect(next.entries[0]!.curves.gain!.input).toEqual({ parameter: "waterDepth" });
+    expect(next.blend!.axes).toEqual([{ parameter: "waterDepth" }]);
+    // Any other change of the list leaves the references alone.
+    expect(ok(setParameters(b, [{ ...local, max: 2 }])).automation).toBe(b.automation);
+  });
 });
 
 describe("type conversion", () => {

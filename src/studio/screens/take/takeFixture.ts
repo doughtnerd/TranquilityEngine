@@ -85,12 +85,30 @@ const roundTrip = (r: Init): TakeRecord => {
   return decodeTakeRecord(r.type, new DataView(bytes.buffer), 0, bytes.byteLength);
 };
 
-/** The fixture take. */
-export function fixtureTake(): Take {
+/** A tiny picture of the game view (48 x 27: sky, ground and the bike), as a take's FRAME holds a 320 px one. */
+const PICTURE = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABsSFBcUERsXFhceHBsgKEIrKCUlKFE6PTBCYFVlZF9VXVtqeJmBanGQc1tdhbWGkJ6jq62rZ4C8ybqmx5moq6T/2wBDARweHigjKE4rK06kbl1upKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKT/wAARCAAbADADASIAAhEBAxEB/8QAGAABAAMBAAAAAAAAAAAAAAAAAAIDBAH/xAAcEAACAgMBAQAAAAAAAAAAAAAAAQIDBBESMSH/xAAWAQEBAQAAAAAAAAAAAAAAAAABBAX/xAAXEQEBAQEAAAAAAAAAAAAAAAAAEQES/9oADAMBAAIRAxEAPwC8AFScBdjUK6T29RXuvSWTjKmKlFtpvX0OssM2VnAAhlABmr0qrZ1T6rlyzt11lzTsl1rwgBoAABf/2Q==";
+
+/** The picture's bytes. */
+function pictureBytes(): Uint8Array {
+  const s = atob(PICTURE);
+  return Uint8Array.from(s, (c) => c.charCodeAt(0));
+}
+
+/** One picture a second, as the recorder takes them (`FRAME`). */
+function frames(): Init[] {
+  const jpeg = pictureBytes();
+  const out: Init[] = [];
+  for (let t = 0; t < FIXTURE_DURATION; t++) out.push({ type: TakeRecordType.FRAME, payload: { t: t + 0.02, width: 48, height: 27, jpeg } });
+  return out;
+}
+
+/** The fixture take; `pictures: false` leaves out its FRAME pictures. */
+export function fixtureTake(opts: { pictures?: boolean } = {}): Take {
+  const pictures = opts.pictures !== false;
   const reqs = requests();
   const decoded = reqs.map(roundTrip);
   const flat = decoded.flatMap((r) => (r.type === "request" ? r.requests : []));
-  return new Take(META, [...decoded, ...keyframes(flat).map(roundTrip)]);
+  return new Take({ ...META, frames: pictures }, [...decoded, ...keyframes(flat).map(roundTrip), ...(pictures ? frames().map(roundTrip) : [])]);
 }
 
 /** Notes a designer left on the fixture take. */

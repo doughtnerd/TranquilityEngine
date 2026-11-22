@@ -1,6 +1,7 @@
 // The Profiler's timeline (ADR 0334 "The Profiler screen"; the prototype's tracks): a ruler with the capture's markers
 // and every warning and error, then the tracks `planTracks` chose, in its order: Picture (a take's frames; a slot until
-// takes exist), Load (voices and CPU against the voice cap), a Bus track per bus (its effective gain, with the lane
+// takes exist), Load (voices and CPU against the voice cap), Effects cost (the estimated DSP share per section, one line
+// each), a Bus track per bus (its effective gain, with the lane
 // breakdown floating at the cursor), Loudness (short-term against the target), the voice lanes (by bus or by clip, with
 // status colours; a click selects a voice and seeks to its start) and the game parameters. Clicking a track seeks. The
 // whole capture fits the width; lines are drawn in a fixed SVG box stretched to the track (`timelineGeometry.ts`).
@@ -8,6 +9,7 @@
 import type { ComponentChildren, JSX } from "preact";
 import { formatDb } from "../../../plugins/audio/editor/dbScale";
 import { breakdownText, type BusReadout } from "./cursorReadout";
+import { EFFECT_SECTIONS, effectsCostText } from "./effectsCostModel";
 import type { RulerMark } from "./messagesModel";
 import type { ProfilerData } from "./profilerData";
 import { BOX_H, BOX_W, clockText, extent, linePath, maxOf, pct, rulerTicks, stepPath, valueAt, yOf } from "./timelineGeometry";
@@ -98,6 +100,22 @@ function LoadTrack({ data, track, cursor, onSeek }: { data: ProfilerData; track:
         ]}
       />
       <span class="pf-ref-label">voice cap {capNow}</span>
+    </TrackRow>
+  );
+}
+
+function EffectsTrack({ data, track, cursor, onSeek }: { data: ProfilerData; track: PlannedTrack; cursor: number; onSeek(t: number): void }) {
+  const cost = data.effects!;
+  return (
+    <TrackRow track={track} value={effectsCostText(cost, cursor)} duration={data.duration} onSeek={onSeek} height={48}>
+      <Lines height={48} paths={cost.lanes.map((l) => ({ d: linePath(l, data.duration, 0, cost.peak), cls: `pf-line pf-fx pf-fx-${l.key}` }))} />
+      <span class="pf-fx-legend" title="Estimated from the CPU meter's work per section, in permille of an audio quantum; the core doesn't report each effect's cost yet">
+        {cost.lanes.map((l) => (
+          <span key={l.key} class={`pf-fx-key pf-fx-${l.key}`} title={EFFECT_SECTIONS[l.key].holds}>
+            {l.label}
+          </span>
+        ))}
+      </span>
     </TrackRow>
   );
 }
@@ -243,6 +261,8 @@ export function ProfilerTimeline(props: ProfilerTimelineProps) {
               );
             case "load":
               return <LoadTrack key={track.id} data={data} track={track} cursor={cursor} onSeek={props.onSeek} />;
+            case "effects":
+              return <EffectsTrack key={track.id} data={data} track={track} cursor={cursor} onSeek={props.onSeek} />;
             case "bus":
               return <BusTrack key={track.id} data={data} track={track} slot={track.slot} readout={readout(track.slot)} cursor={cursor} onSeek={props.onSeek} />;
             case "loudness":

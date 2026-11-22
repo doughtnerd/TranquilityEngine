@@ -25,7 +25,7 @@ describe("the Profiler store", () => {
   it("opens a project capture, reads its data and the state at the cursor", async () => {
     const s = store();
     expect(await s.openPath("captures/run.mycap")).toBe(true);
-    expect(s.state.value).toEqual({ kind: "open", origin: "file", path: "captures/run.mycap", title: "run" });
+    expect(s.state.value).toEqual({ kind: "open", origin: "file", path: "captures/run.mycap", title: "run", replayOf: null });
     expect(s.data.value!.tracks.length).toBeGreaterThan(0);
     s.seekTo(5);
     await vi.waitFor(() => expect(s.readouts.value.map((r) => r.name)).toEqual(["Music", "Vehicles", "Dialogue"]));
@@ -60,6 +60,13 @@ describe("the Profiler store", () => {
     expect(s.state.value.kind === "failed" && s.state.value.message).toMatch(/Not a Myco capture file/);
     expect(s.data.value).toBeNull();
     expect(s.selectedVoice.value).toBeNull();
+  });
+
+  it("says which take a replay capture came from (META replayOf)", async () => {
+    const take = { path: "takes/canyon_run_01.mycotake", audioHash: "5f3a90c1" };
+    const s = store({ "captures/replay.mycap": fixtureCapture(undefined, take) });
+    await s.openPath("captures/replay.mycap");
+    expect(s.state.value).toMatchObject({ kind: "open", replayOf: take });
   });
 });
 
@@ -109,6 +116,34 @@ describe("the recorder", () => {
     const r = new CaptureRecorder(seams);
     await r.start();
     expect(r.state.value).toEqual({ kind: "failed", message: "Couldn't start a capture: the core is unavailable" });
+  });
+
+  it("names the take that replays while it records in the capture's META, and stops naming it on Stop", async () => {
+    const named: unknown[] = [];
+    const take = { path: "takes/HoverBike/canyon_run_01.mycotake", audioHash: "5f3a90c1" };
+    const { seams, capture } = recorderSeams({ replaying: () => take, nameReplay: (t) => named.push(t) });
+    capture.start.mockImplementation(async () => {
+      expect(named).toEqual([take]); // named before the capture's META is made
+    });
+    const r = new CaptureRecorder(seams);
+    await r.start();
+    expect(r.replayOf).toEqual(take);
+    expect(recorderStatus(r.state.value, r.seconds, r.replayOf)).toBe("Recording the replay of canyon_run_01.mycotake · 3.0 s");
+    await r.stop();
+    expect(named).toEqual([take, null]);
+    expect(r.replayOf).toBeNull();
+  });
+
+  it("names nothing when no take replays, or when the start fails", async () => {
+    const named: unknown[] = [];
+    const { seams } = recorderSeams({ replaying: () => null, nameReplay: (t) => named.push(t) });
+    const r = new CaptureRecorder(seams);
+    await r.start();
+    expect(named).toEqual([null]);
+    const failing = recorderSeams({ replaying: () => ({ path: "takes/a.mycotake", audioHash: "" }), nameReplay: (t) => named.push(t) });
+    failing.capture.start.mockRejectedValue(new Error("no core"));
+    await new CaptureRecorder(failing.seams).start();
+    expect(named.slice(1)).toEqual([{ path: "takes/a.mycotake", audioHash: "" }, null]);
   });
 
   it("is offered only while the Studio's runtime plays something", () => {

@@ -17,6 +17,7 @@ import { LISTENER_EMITTER, type TakeKeyframe, type TakePlayOptions } from "../..
 import type { Vec3 } from "../../../../engine/audio/spatial/testSceneTypes";
 import { CAPTURE_META_MAX_BYTES, CAPTURE_RECORD_HEAD_BYTES, CAPTURE_RECORD_MAX_BYTES, TAKE_MAX_UNCOMPRESSED_BYTES, writeRecordHead } from "./format";
 import type { CaptureTee } from "./capture";
+import { TakeFrameGrabber, type TakeFrameGrabberOptions, type TakePictureSource } from "./takeFrames";
 import type { TakeEmitter, TakeListenerPose, TakeRequestSink } from "./takeTap";
 
 /** What the recorder uses of the ring's hold (`CaptureTakeRing`). */
@@ -35,6 +36,10 @@ export interface TakeRecorderOptions {
   onStop?: (message: string) => void;
   /** The take cap, bytes (tests); default `TAKE_MAX_UNCOMPRESSED_BYTES`. */
   capBytes?: number;
+  /** The pick generator state of the World plays go to (`takeSeed.ts`), for each keyframe; null while unseeded. */
+  randomState?: () => number | null;
+  /** Take pictures of the game view (`FRAME`, about once a second; `takeFrames.ts`); absent or null: none. */
+  frames?: TakeFrameGrabberOptions | null;
 }
 
 /** Poses are read at most this often (30 Hz). */
@@ -88,12 +93,16 @@ export class TakeRecorder implements TakeRequestSink, CaptureTee {
   private lastKeyframe = -Infinity;
   private listener = { x: NaN, y: NaN, z: NaN, fx: NaN, fy: NaN, fz: NaN, t: 0 };
   private readonly onStop: ((message: string) => void) | undefined;
+  private readonly randomState: (() => number | null) | undefined;
+  private readonly pictures: TakeFrameGrabber | null;
 
   constructor(private readonly ring: TakeRecorderRing, opts: TakeRecorderOptions = {}) {
     this.now = opts.now ?? (() => performance.now());
     this.startMs = this.now();
     this.cap = opts.capBytes ?? TAKE_MAX_UNCOMPRESSED_BYTES;
     this.onStop = opts.onStop;
+    this.randomState = opts.randomState;
+    this.pictures = opts.frames ? new TakeFrameGrabber((frame) => this.write({ type: TakeRecordType.FRAME, payload: frame }), opts.frames) : null;
     this.globals = { ...(opts.globals?.() ?? {}) };
     this.keyframe(0);
   }
@@ -146,7 +155,7 @@ export class TakeRecorder implements TakeRequestSink, CaptureTee {
     this.write({ type: TakeRecordType.MIX, payload: { kind: "mix", t: this.seconds, op, target, value, seconds: Number.isFinite(seconds) ? Math.max(0, seconds) : 0 } });
   }
 
-  frame(listener: TakeListenerPose | null): void {
+  frame(listener: TakeListenerPose | null, picture: TakePictureSource | null = null): void {
     if (this.stopped) return;
     const t = this.seconds;
     if (t - this.lastPose >= POSE_INTERVAL) {
@@ -154,6 +163,7 @@ export class TakeRecorder implements TakeRequestSink, CaptureTee {
       this.poses(t, listener);
     }
     if (t - this.lastKeyframe >= KEYFRAME_INTERVAL) this.keyframe(t);
+    this.pictures?.offer(picture, t);
   }
 
   // --- CaptureTee -----------------------------------------------------------------------------------------------------
@@ -190,7 +200,7 @@ export class TakeRecorder implements TakeRequestSink, CaptureTee {
     }
     return {
       requests: { bytes, recordCount: this.records },
-      section: { audioHash: seed.audioHash, seed: seed.seed >>> 0, seeded: seed.seeded, duration, frames: false, emitters: { ...this.emitterNames } },
+      section: { audioHash: seed.audioHash, seed: seed.seed >>> 0, seeded: seed.seeded, duration, frames: (this.pictures?.count ?? 0) > 0, emitters: { ...this.emitterNames } },
     };
   }
 
@@ -260,7 +270,10 @@ export class TakeRecorder implements TakeRequestSink, CaptureTee {
     this.prune();
     const instances: TakeKeyframe["instances"] = [];
     for (const [id, l] of this.live) instances.push({ instance: id, path: l.path, started: l.started, emitter: l.emitter, parameters: { ...l.parameters } });
-    this.write({ type: TakeRecordType.KEYFRAME, payload: { t, instances: instances.slice(-TAKE_MAX_KEYFRAME_INSTANCES), globals: { ...this.globals } } });
+    const payload: TakeKeyframe = { t, instances: instances.slice(-TAKE_MAX_KEYFRAME_INSTANCES), globals: { ...this.globals } };
+    const random = this.randomState?.() ?? null;
+    if (random !== null && Number.isInteger(random)) payload.random = random >>> 0;
+    this.write({ type: TakeRecordType.KEYFRAME, payload });
   }
 
   /** Appends one record to the log, or stops the take (with its message) when the cap or the ring says so. */

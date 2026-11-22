@@ -1,9 +1,9 @@
 // Which tracks the Profiler's timeline shows for a capture, in the prototype's order (ADR 0334 "The Profiler screen"):
-// Picture (a take's frames), Load (voices and CPU against the voice cap), one Bus track per bus the keyframes carry,
-// Loudness (short-term against the target), the voice lanes, then one track per game parameter. A track shows only
-// where the capture has its data: a Babylon-fallback capture has no STATUS (no Load), a capture with no keyframes has no
-// bus rows, an unmetered one no loudness. Effects cost per level (0331) has no data in a capture yet, so it has no slot
-// here until it does. Pure.
+// Picture (a take's frames), Load (voices and CPU against the voice cap), Effects cost (the DSP's estimated share per
+// section, where the levels' effects run: `effectsCostModel.ts`; per-effect cost needs the core to report it), one Bus
+// track per bus the keyframes carry, Loudness (short-term against the target), the voice lanes, then one track per game
+// parameter. A track shows only where the capture has its data: a Babylon-fallback capture has no STATUS (no Load, no
+// Effects cost), a capture with no keyframes has no bus rows, an unmetered one no loudness. Pure.
 
 /** What a capture holds, as far as choosing tracks goes. */
 export interface CaptureContents {
@@ -13,6 +13,8 @@ export interface CaptureContents {
   readonly status: boolean;
   /** CPU was measured in at least one sample. */
   readonly cpu: boolean;
+  /** The CPU meter's per-section shares were fitted in at least one sample (the effects-cost track). */
+  readonly effects: boolean;
   /** Bus slots any keyframe carries a row for, with their names, in slot order. */
   readonly buses: readonly { readonly slot: number; readonly name: string }[];
   /** A metered bus has loudness samples. */
@@ -26,6 +28,7 @@ export interface CaptureContents {
 export type PlannedTrack =
   | { readonly id: "picture"; readonly kind: "picture"; readonly label: string }
   | { readonly id: "load"; readonly kind: "load"; readonly label: string; readonly cpu: boolean }
+  | { readonly id: "effects"; readonly kind: "effects"; readonly label: string }
   | { readonly id: `bus:${number}`; readonly kind: "bus"; readonly label: string; readonly slot: number }
   | { readonly id: "loudness"; readonly kind: "loudness"; readonly label: string }
   | { readonly id: "voices"; readonly kind: "voices"; readonly label: string }
@@ -35,6 +38,7 @@ export function planTracks(c: CaptureContents): PlannedTrack[] {
   const out: PlannedTrack[] = [];
   if (c.frames) out.push({ id: "picture", kind: "picture", label: "Picture" });
   if (c.status) out.push({ id: "load", kind: "load", label: "Load", cpu: c.cpu });
+  if (c.status && c.effects) out.push({ id: "effects", kind: "effects", label: "Effects cost · estimated" });
   for (const b of c.buses) out.push({ id: `bus:${b.slot}`, kind: "bus", label: `Bus · ${b.name}`, slot: b.slot });
   if (c.loudness) out.push({ id: "loudness", kind: "loudness", label: "Loudness" });
   if (c.voices) out.push({ id: "voices", kind: "voices", label: "Voices" });

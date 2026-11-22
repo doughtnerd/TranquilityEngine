@@ -86,7 +86,11 @@ async function boot(): Promise<void> {
   // imported or installed, so the build holds no listener and loads no part of the recorder.
   if (manifest.audioCapture) (await import("../plugins/audio/runtime/capture/trigger")).installCaptureTrigger();
   // The Export option "audio takes" (ADR 0334): F10 records a take. Without it nothing is imported or installed.
-  if (manifest.audioTake) (await import("../plugins/audio/runtime/capture/trigger")).installTakeTrigger();
+  if (manifest.audioTake) {
+    // `audioTakeFrames: false` keeps pictures of the game view out of takes (on by default).
+    if (manifest.audioTakeFrames === false) (await import("../plugins/audio/runtime/capture/take")).setTakeFrames(false);
+    (await import("../plugins/audio/runtime/capture/trigger")).installTakeTrigger();
+  }
 }
 
 boot().catch((err: unknown) => {

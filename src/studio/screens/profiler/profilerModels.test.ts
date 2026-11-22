@@ -96,16 +96,16 @@ describe("messages", () => {
 });
 
 describe("the track plan", () => {
-  const full: CaptureContents = { frames: true, status: true, cpu: true, buses: [{ slot: 1, name: "Music" }, { slot: 2, name: "Vehicles" }], loudness: true, voices: true, parameters: ["Speed"] };
+  const full: CaptureContents = { frames: true, status: true, cpu: true, effects: true, buses: [{ slot: 1, name: "Music" }, { slot: 2, name: "Vehicles" }], loudness: true, voices: true, parameters: ["Speed"] };
 
   it("orders the tracks as the prototype does", () => {
-    expect(planTracks(full).map((t) => t.label)).toEqual(["Picture", "Load", "Bus · Music", "Bus · Vehicles", "Loudness", "Voices", "Game · Speed"]);
+    expect(planTracks(full).map((t) => t.label)).toEqual(["Picture", "Load", "Effects cost · estimated", "Bus · Music", "Bus · Vehicles", "Loudness", "Voices", "Game · Speed"]);
   });
 
   it("shows only the tracks the capture has data for", () => {
-    const babylon: CaptureContents = { frames: false, status: false, cpu: false, buses: [], loudness: false, voices: true, parameters: [] };
+    const babylon: CaptureContents = { frames: false, status: false, cpu: false, effects: true, buses: [], loudness: false, voices: true, parameters: [] };
     expect(planTracks(babylon).map((t) => t.id)).toEqual(["voices"]);
-    expect(planTracks({ ...full, frames: false, loudness: false, parameters: [] }).map((t) => t.id)).toEqual(["load", "bus:1", "bus:2", "voices"]);
+    expect(planTracks({ ...full, frames: false, effects: false, loudness: false, parameters: [] }).map((t) => t.id)).toEqual(["load", "bus:1", "bus:2", "voices"]);
     const empty = { ...babylon, voices: false };
     expect(planTracks(empty)).toEqual([]);
     expect(noTracksText(empty)).toMatch(/no voices/);

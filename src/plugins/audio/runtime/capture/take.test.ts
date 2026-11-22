@@ -62,7 +62,8 @@ function recordTake(): { file: Uint8Array; take: SaveTake; ring: FakeRing } {
   clock = 1000;
   const ring = new FakeRing();
   const early = profile(ring, [768]);
-  const rec = new TakeRecorder(ring, { now, globals: () => ({ Intensity: 0.25 }) }); // keyframe at 0
+  let random = 0xabc;
+  const rec = new TakeRecorder(ring, { now, globals: () => ({ Intensity: 0.25 }), randomState: () => random }); // keyframe at 0
   const inst = { group: 5, playing: true, position: { x: 1, y: 0, z: 2 } };
   const node = {};
   clock = 1500;
@@ -76,6 +77,7 @@ function recordTake(): { file: Uint8Array; take: SaveTake; ring: FakeRing } {
   rec.frame({ posX: 0, posY: 0, posZ: 0, fwdX: 0, fwdY: 0, fwdZ: 1 });
   rec.mark("boss");
   clock = 2700;
+  random = 0xdef; // picks were made since
   rec.frame({ posX: 0, posY: 0, posZ: 0, fwdX: 0, fwdY: 0, fwdZ: 1 }); // listener still: no pose; a keyframe (1.7 s)
   rec.stop(inst, 0.25);
   rec.stop({}, 1); // never played in the take: nothing
@@ -104,6 +106,8 @@ describe("a take file (ADR 0334)", () => {
     expect(t.keyframes[0]!.globals).toEqual({ Intensity: 0.25 });
     expect(t.keyframes[1]!.instances).toEqual([{ instance: 5, path: "sfx/steps.playlist.json", started: 0.5, emitter: 1, parameters: { Speed: 2 } }]);
     expect(t.keyframes[1]!.globals).toEqual({ Intensity: 0.75 });
+    // Each keyframe carries the pick generator state then, for replay to restart from.
+    expect(t.keyframes.map((k) => k.random)).toEqual([0xabc, 0xdef]);
     // The profile: every ring record, in seq order, with the INDEX pointing at the moved keyframes.
     expect(p.take).toBe(true);
     expect(p.index).not.toBeNull();

@@ -29,12 +29,25 @@ import { AutoTarget, MAX_BINDINGS, MAX_CURVES, MAX_GROUPS, TsAutomation, type Au
 export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    a = mulberryStep(a);
+    return mulberryValue(a);
   };
+}
+
+/** mulberry32's state after one draw. */
+const mulberryStep = (a: number): number => (a + 0x6d2b79f5) >>> 0;
+/** mulberry32's number in [0, 1) for a state just stepped. */
+function mulberryValue(a: number): number {
+  let t = a;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
+/** One World's generator: mulberry32's state (null: unseeded, `Math.random`); `ready` false until it starts from the seed. */
+interface WorldRandom {
+  state: number | null;
+  ready: boolean;
 }
 
 /** The seed for one World's generator: `audio.seed` combined with the World key (key 0 keeps `mulberry32(seed)`). */
@@ -83,7 +96,7 @@ export class PlaylistHost {
   private freeHead = 0;
   private nextGroup = 1;
   /** Per-World generators, by World key. */
-  private readonly worlds = new Map<number, { rng: (() => number) | null }>();
+  private readonly worlds = new Map<number, WorldRandom>();
   /** The World object last seen for a key, so a reused key (or a collected World) drops its state. */
   private readonly worldRefs = new Map<number, WeakRef<object>>();
   private globals = new Map<string, GlobalParam>();
@@ -204,10 +217,41 @@ export class PlaylistHost {
 
   /** @internal A random number from `world`'s generator. */
   random(world: number): number {
+    const s = this.worldRandom(world);
+    if (s.state === null) return Math.random();
+    s.state = mulberryStep(s.state);
+    return mulberryValue(s.state);
+  }
+
+  /**
+   * @internal ADR 0334: `world`'s generator state now (a u32), or null when its picks are unseeded (no `audio.seed`). A
+   * take records it when it begins and at each keyframe, so replay can restart from it (`reseedWorld`).
+   */
+  randomState(world: number): number | null {
+    this.refresh();
+    return this.worldRandom(world).state;
+  }
+
+  /**
+   * @internal ADR 0334: restart `world`'s generator from `state` (a `randomState`, seeded even where the project has no
+   * `audio.seed`) and forget its pick state (shuffle bags, last picks), so a replay picks as the recording did.
+   */
+  reseedWorld(world: number, state: number): void {
+    this.refresh();
+    const s = this.worldRandom(world);
+    s.state = state >>> 0;
+    for (const h of this.hosted) h.forgetWorld(world);
+  }
+
+  /** `world`'s generator, started from the seed on first use (and after the seed changes). */
+  private worldRandom(world: number): WorldRandom {
     let s = this.worlds.get(world);
-    if (!s) this.worlds.set(world, (s = { rng: null }));
-    if (!s.rng) s.rng = this.seed === undefined || this.seed === null ? Math.random : mulberry32(worldSeed(this.seed, world));
-    return s.rng();
+    if (!s) this.worlds.set(world, (s = { state: null, ready: false }));
+    if (!s.ready) {
+      s.state = this.seed === undefined || this.seed === null ? null : worldSeed(this.seed, world);
+      s.ready = true;
+    }
+    return s;
   }
 
   // --- the backend ------------------------------------------------------------------------------------------------
@@ -260,7 +304,7 @@ export class PlaylistHost {
     if (settings.seed !== this.seed) {
       // A new seed (or none): every World's generator starts over from it, lazily at its next pick.
       this.seed = settings.seed;
-      for (const s of this.worlds.values()) s.rng = null;
+      for (const s of this.worlds.values()) s.ready = false;
     }
     let backend: AudioBackend | null = null;
     try { backend = audioBackend(); } catch { backend = null; }

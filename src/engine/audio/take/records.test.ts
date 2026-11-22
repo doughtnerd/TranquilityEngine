@@ -62,6 +62,18 @@ describe("take request records (ADR 0334)", () => {
     expect(decode(kf)).toEqual({ type: "keyframe", keyframe: kf.payload });
   });
 
+  it("a take KEYFRAME carries the World's pick generator state when it has one (an older keyframe without it still reads)", () => {
+    const kf: TakeRecordInit = { type: TakeRecordType.KEYFRAME, payload: { t: 3, globals: {}, instances: [], random: 0xdead_beef } };
+    expect(decode(kf)).toEqual({ type: "keyframe", keyframe: kf.payload });
+    const without: TakeRecordInit = { type: TakeRecordType.KEYFRAME, payload: { t: 3, globals: {}, instances: [] } };
+    const b = encodeTakeRecordBytes(without);
+    expect(decode(without)).toEqual({ type: "keyframe", keyframe: { t: 3, globals: {}, instances: [] } });
+    // A trailing field that isn't the generator state is refused.
+    const bad = new Uint8Array(b.byteLength + 2);
+    bad.set(b);
+    expect(codeOf(() => decodeTakeRecord(TakeRecordType.KEYFRAME, new DataView(bad.buffer), 0, bad.byteLength))).toBe("badLength");
+  });
+
   it("names the request record types and only those", () => {
     for (const t of Object.values(TakeRecordType)) expect(isTakeRecordType(t)).toBe(true);
     for (const t of [0x01, 0x08, 0x0f, 0x1a, 0x7f, 0x80]) expect(isTakeRecordType(t)).toBe(false);

@@ -17,6 +17,8 @@
 .pf-toggle { background: var(--button); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 2px 8px; }
 .pf-toggle:hover { background: var(--button-hover); }
 .pf-toggle.on { background: var(--warning-soft); border-color: var(--warning); color: var(--text-strong); }
+.pf-replay-of { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.pf-replay-of strong { color: var(--text); font-weight: 600; }
 .pf-counts { margin-left: auto; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 
 /* Timeline */
@@ -32,6 +34,15 @@
 .pf-voices { stroke: var(--accent); }
 .pf-cpu { stroke: var(--muted); stroke-width: 1; }
 .pf-cap { stroke: var(--danger); stroke-dasharray: 4 3; stroke-width: 1; }
+/* Effects cost: one line per section, the CPU track's section colours */
+.pf-fx { stroke-width: 1.25; }
+.pf-fx-voices { stroke: var(--accent); color: var(--accent); }
+.pf-fx-buses { stroke: var(--accent2); color: var(--accent2); }
+.pf-fx-spatial { stroke: var(--warning); color: var(--warning); }
+.pf-fx-music { stroke: var(--text); color: var(--text); }
+.pf-fx-loudness { stroke: var(--muted); color: var(--muted); }
+.pf-fx-legend { position: absolute; top: 2px; right: 4px; display: flex; gap: 6px; pointer-events: auto; font-size: calc(10px * var(--ui-scale)); }
+.pf-fx-key::before { content: ""; display: inline-block; width: 8px; height: 2px; margin-right: 3px; vertical-align: middle; background: currentColor; }
 .pf-bus { stroke: var(--series-2); }
 .pf-loud { stroke: var(--series-4); }
 .pf-param { stroke: var(--series-3); }

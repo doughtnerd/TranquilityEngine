@@ -4,6 +4,7 @@
 // `whyModel.ts`) and Messages (warnings, errors and notes in time order; a click seeks and selects).
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { formatDb, gainToDb } from "../../../plugins/audio/editor/dbScale";
+import type { CaptureReplayOf } from "../../../plugins/audio/runtime/capture/format";
 import type { ScreenId } from "../../shell/screens";
 import { CURSOR_KEYS_HINT } from "./cursorKeys";
 import { reasonsText, type BusReadout } from "./cursorReadout";
@@ -11,6 +12,19 @@ import { KIND_TEXT, type ProfilerMessage } from "./messagesModel";
 import { clockText } from "./timelineGeometry";
 import { reasonWords, STATUS_SEVERITY, STATUS_TEXT, type VoiceBlock } from "./voiceModel";
 import { whyChain } from "./whyModel";
+
+// ---- Replay of a take -------------------------------------------------------------------------------------------------
+
+/** ADR 0334: a replay capture names the take it recorded the Studio playing; "Open in Take" opens that take. */
+export function ReplayOrigin(props: { readonly take: CaptureReplayOf; onOpenTake(path: string): void }) {
+  const name = props.take.path.slice(props.take.path.lastIndexOf("/") + 1);
+  return (
+    <span class="pf-replay-of" title={`${props.take.path}${props.take.audioHash ? ` · recorded against audio.json ${props.take.audioHash}` : ""}`}>
+      Replay of <strong>{name}</strong>
+      <button type="button" class="pf-toggle" onClick={() => props.onOpenTake(props.take.path)}>Open in Take</button>
+    </span>
+  );
+}
 
 // ---- At cursor ----------------------------------------------------------------------------------------------------------
 

@@ -9,7 +9,7 @@ import { addMarker, addRegion, deleteNote, editNote, moveNote, noteColourCss, se
 import { FIXTURE_DURATION, FIXTURE_NOTES, SURFACE_LABELS, fixtureTake } from "./takeFixture";
 import { NO_TAKES, TAKES_FOLDER, takeDeletion, takeFiles, takeMoves, takeTree, whyNotTakeFile } from "./takeFiles";
 import { busStrip, instanceParametersAt, parameterRows, valueText } from "./takeInspectorModel";
-import { findInstance, labelSegments, parameterText, pathLabel, playlistsInTake, takeInstances, takeTimeline, visibleFrames } from "./takeTimeline";
+import { findInstance, frameIndexAt, labelSegments, parameterText, pathLabel, pictureStrip, playlistsInTake, takeInstances, takeTimeline, visibleFrames } from "./takeTimeline";
 
 const take = fixtureTake();
 const labelsOf = (name: string, path: string | null) => (name === "Surface" && path === null ? SURFACE_LABELS : null);
@@ -63,6 +63,23 @@ describe("the take timeline", () => {
     expect(visibleFrames([{ t: 0 }, { t: 0.5 }, { t: 2 }, { t: 3 }], (t) => t * 40, 64)).toEqual([0, 2]);
     expect(pathLabel("a/b/engine.playlist.json")).toBe("engine");
     expect(pathLabel("click")).toBe("click");
+  });
+
+  it("carries the take's pictures, and finds the one on screen at a time", () => {
+    expect(tl.frames).toHaveLength(FIXTURE_DURATION);
+    expect(tl.frames[0]).toMatchObject({ t: 0.02, width: 48, height: 27 });
+    expect(takeTimeline(fixtureTake({ pictures: false })).frames).toEqual([]);
+    const frames = [{ t: 0 }, { t: 1 }, { t: 2 }];
+    expect([-1, 0, 0.5, 1, 1.99, 2, 9].map((t) => frameIndexAt(frames, t))).toEqual([0, 0, 0, 1, 1, 2, 2]);
+    expect(frameIndexAt([], 3)).toBe(-1);
+  });
+
+  it("keeps the picture at the playhead on the strip, dropping a thumbnail it would overlap", () => {
+    const frames = [{ t: 0 }, { t: 0.5 }, { t: 2 }, { t: 3 }];
+    const x = (t: number) => t * 40;
+    expect(pictureStrip(frames, x, 64, 2.2)).toEqual({ shown: [0, 2], current: 2 });
+    expect(pictureStrip(frames, x, 64, 0.7)).toEqual({ shown: [1], current: 1 }); // 0.5 replaces 0 (20 px apart); 2 is 60 px from 0.5
+    expect(pictureStrip([], x, 64, 1)).toEqual({ shown: [], current: -1 });
   });
 });
 

@@ -5,6 +5,9 @@
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { CaptureSource } from "../../../plugins/audio/editor/mix/profilerSource";
+import { QUANTA_PER_STATUS, QUANTUM_MS, records, type Fields } from "../../../plugins/audio/editor/mix/tracks/cpuCountersTestSupport";
+import { assembleCapture } from "../../../plugins/audio/runtime/capture/format";
+import { SAMPLE_HEADER, SAMPLE_META } from "../../../plugins/audio/runtime/capture/testSupport";
 import { fixtureCapture } from "./profilerFixture";
 import { ProfilerStore } from "./profilerStore";
 import { ProfilerTimeline } from "./ProfilerTimeline";
@@ -81,6 +84,32 @@ export const ProblemsOnly: Story = {
     const played = [...canvasElement.querySelectorAll<HTMLElement>('.pf-voice[data-status="played"]')];
     await expect(played.every((b) => b.classList.contains("dim"))).toBe(true);
     await expect(canvasElement.querySelector('.pf-voice[data-status="missing"]')).not.toHaveClass("dim");
+  },
+};
+
+/** A capture of a steady load (40 % of each quantum, voices doing three times the buses' work), long enough to fit the meter. */
+function cpuCapture(): ArrayBuffer {
+  const fields = (k: number): Fields => ({
+    quantaTotal: (k + 1) * QUANTA_PER_STATUS, busyMsTotal: (k + 1) * QUANTA_PER_STATUS * QUANTUM_MS * 0.4, clockStepMs: 1, wuVoices: (k + 1) * 30, wuBuses: (k + 1) * 10,
+  });
+  return assembleCapture(SAMPLE_HEADER, SAMPLE_META, records(320, fields), { index: true }).slice().buffer;
+}
+
+export const EffectsCost: Story = {
+  loaders: [
+    async () => {
+      const store = new ProfilerStore({ open: (bytes) => CaptureSource.openFile(bytes), readFile: async () => cpuCapture() });
+      await store.openPath("captures/cpu.mycap");
+      return { store };
+    },
+  ],
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const row = await waitFor(() => c.getByRole("group", { name: "Effects cost · estimated" }));
+    await expect(within(row).getByText("Voices")).toBeVisible();
+    // A click moves the cursor there: the costliest sections then.
+    await userEvent.click(row.querySelector<HTMLElement>(".pf-plot")!);
+    await waitFor(() => expect(row.querySelector(".pf-track-value")?.textContent).toMatch(/^Voices \d+‰ · Buses \d+‰$/));
   },
 };
 

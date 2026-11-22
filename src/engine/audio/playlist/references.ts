@@ -7,6 +7,9 @@
  * entries, sequence clips; an audio file or a `*.sample.json`) and attenuation presets (`spatial.attenuation`), in
  * embedded playlists too. Paths are project paths, as written.
  *
+ * The parameters a playlist reads have the same pair (the ADR 0299 pattern): `playlistParameterReferences` lists every
+ * place one is named, `renamePlaylistParameter` rewrites what it lists, for a global (`audio.json`) or a local rename.
+ *
  * Pure: a rewrite copies only the path to what it changes.
  */
 import type { Entry, PlaylistBody } from "./types";
@@ -97,6 +100,134 @@ export function rewritePlaylistReferences<T extends PlaylistBody>(asset: T, move
   for (const ref of playlistReferences(asset)) {
     const next = to(ref.path);
     if (next !== ref.path && next !== "") out = updateAt(out, ref.where, 0, (v) => (v === ref.path ? next : v));
+  }
+  return out as T;
+}
+
+// --- parameter references ------------------------------------------------------------------------------------------------
+
+/**
+ * How a playlist reads a parameter (ADR 0329; the ADR 0299 pattern: one walker lists, the rename rewrites what it lists):
+ * a local parameter's `definition`, a Switch's `switch` parameter, a Blend `axis`, an entry's voice `curve` input, an
+ * `automation` input (the instance's own, a Sequence track's or clip's), a loop's `binding` (a sequence loop or a clip's
+ * loop override).
+ */
+export type PlaylistParameterUse = "definition" | "switch" | "axis" | "curve" | "automation" | "binding";
+
+/** One place a playlist names a parameter. */
+export interface PlaylistParameterReference {
+  readonly use: PlaylistParameterUse;
+  readonly name: string;
+  /** The keys from the playlist to the field holding the name (a curve input or Blend axis may be the bare name). */
+  readonly where: readonly PlaylistReferenceStep[];
+}
+
+/** Curve inputs that are times, not parameters (ADR 0332). */
+const TIME_INPUTS: readonly string[] = ["voiceTime", "clipTime", "sequenceTime"];
+/** How deep embedded playlists are walked (the runtime's local parameter walk stops there too). */
+const MAX_DEPTH = 16;
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const list = (v: unknown): readonly unknown[] => (Array.isArray(v) ? v : []);
+const own = (o: Record<string, unknown>, k: string): unknown => (Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined);
+
+/**
+ * Every parameter `body` names, in file order, embedded playlists included. Works on a parsed playlist and on its file
+ * JSON alike (the same keys; a field the file leaves out has nothing to list, and the shorthand forms, a bare name for a
+ * curve input or a Blend axis, are listed with `where` ending at that string).
+ */
+export function playlistParameterReferences(body: PlaylistBody | unknown): PlaylistParameterReference[] {
+  const out: PlaylistParameterReference[] = [];
+  const add = (use: PlaylistParameterUse, name: unknown, where: PlaylistReferenceStep[]) => {
+    if (typeof name === "string" && name !== "") out.push({ use, name, where });
+  };
+  /** A curve input or Blend axis: a bare name or `{ parameter }` (times are not parameters). */
+  const input = (use: PlaylistParameterUse, v: unknown, where: PlaylistReferenceStep[]) => {
+    if (typeof v === "string") {
+      if (!TIME_INPUTS.includes(v)) add(use, v, where);
+    } else if (isRecord(v)) add(use, own(v, "parameter"), [...where, "parameter"]);
+  };
+  const automation = (v: unknown, where: PlaylistReferenceStep[]) => list(v).forEach((a, i) => isRecord(a) && input("automation", own(a, "input"), [...where, i, "input"]));
+  const binding = (v: unknown, where: PlaylistReferenceStep[]) => {
+    if (isRecord(v) && isRecord(own(v, "binding"))) add("binding", own(own(v, "binding") as Record<string, unknown>, "parameter"), [...where, "binding", "parameter"]);
+  };
+  const entry = (e: unknown, where: PlaylistReferenceStep[], depth: number) => {
+    if (!isRecord(e)) return;
+    const curves = own(e, "curves");
+    if (isRecord(curves)) for (const k of Object.keys(curves)) if (isRecord(curves[k])) input("curve", own(curves[k] as Record<string, unknown>, "input"), [...where, "curves", k, "input"]);
+    // A parsed entry says `kind`; a file entry is embedded when it has `embedded`.
+    if (isRecord(own(e, "embedded"))) visit(own(e, "embedded"), [...where, "embedded"], depth + 1);
+  };
+  const visit = (b: unknown, where: PlaylistReferenceStep[], depth: number) => {
+    if (!isRecord(b) || depth > MAX_DEPTH) return;
+    list(own(b, "parameters")).forEach((p, i) => isRecord(p) && add("definition", own(p, "name"), [...where, "parameters", i, "name"]));
+    automation(own(b, "automation"), [...where, "automation"]);
+    list(own(b, "entries")).forEach((e, i) => entry(e, [...where, "entries", i], depth));
+    list(own(b, "stingers")).forEach((s, i) => isRecord(s) && entry(own(s, "playlist"), [...where, "stingers", i, "playlist"], depth));
+    const sw = own(b, "switch");
+    if (isRecord(sw)) {
+      add("switch", own(sw, "parameter"), [...where, "switch", "parameter"]);
+      const onChange = own(sw, "onChange");
+      if (isRecord(onChange)) entry(own(onChange, "transition"), [...where, "switch", "onChange", "transition"], depth);
+      list(own(sw, "rules")).forEach((r, i) => isRecord(r) && entry(own(r, "transition"), [...where, "switch", "rules", i, "transition"], depth));
+    }
+    const blend = own(b, "blend");
+    if (isRecord(blend)) list(own(blend, "axes")).forEach((a, i) => input("axis", a, [...where, "blend", "axes", i]));
+    const seq = own(b, "sequence");
+    if (isRecord(seq)) {
+      list(own(seq, "tracks")).forEach((t, ti) => {
+        if (!isRecord(t)) return;
+        const at = [...where, "sequence", "tracks", ti];
+        automation(own(t, "automation"), [...at, "automation"]);
+        list(own(t, "clips")).forEach((c, ci) => {
+          if (!isRecord(c)) return;
+          const cw = [...at, "clips", ci];
+          automation(own(c, "automation"), [...cw, "automation"]);
+          const loops = own(c, "loops");
+          if (isRecord(loops)) for (const id of Object.keys(loops)) binding(loops[id], [...cw, "loops", id]);
+          if (isRecord(own(c, "playlist"))) visit(own(c, "playlist"), [...cw, "playlist"], depth + 1);
+        });
+      });
+      list(own(seq, "loops")).forEach((l, i) => binding(l, [...where, "sequence", "loops", i]));
+    }
+  };
+  visit(body, [], 0);
+  return out;
+}
+
+/**
+ * The local parameters one playing instance of `body` has, by name: the root's, then those of embedded entries (at any
+ * depth) the root doesn't name, as the runtime collects them (`runtime/playlists/instance.ts` `localDefsOf`). Every
+ * reference in the playlist to one of these names reads the local parameter; any other reads the global one.
+ */
+export function playlistLocalParameterNames(body: PlaylistBody | unknown): Set<string> {
+  const out = new Set<string>();
+  const walk = (b: unknown, depth: number) => {
+    if (!isRecord(b)) return;
+    for (const p of list(own(b, "parameters"))) if (isRecord(p) && typeof own(p, "name") === "string") out.add(own(p, "name") as string);
+    if (depth > MAX_DEPTH) return;
+    for (const e of list(own(b, "entries"))) if (isRecord(e) && isRecord(own(e, "embedded"))) walk(own(e, "embedded"), depth + 1);
+  };
+  walk(body, 0);
+  return out;
+}
+
+/**
+ * `json` (a parsed playlist or its file JSON) with parameter `from` renamed `to` wherever the playlist reads it, copying
+ * only what changes (`json` itself when nothing does).
+ *
+ * - `"global"`: a rename of a global parameter (`audio.json`). The playlist is left alone when its instance has a local
+ *   parameter of either name: its references read the local one, before and after (the runtime's rule).
+ * - `"local"`: a rename of one of the playlist's own local parameters: its definition and every reference.
+ */
+export function renamePlaylistParameter<T>(json: T, from: string, to: string, scope: "global" | "local"): T {
+  if (from === to || from === "") return json;
+  const locals = playlistLocalParameterNames(json);
+  if (scope === "global" ? locals.has(from) || locals.has(to) : !locals.has(from)) return json;
+  let out: unknown = json;
+  for (const ref of playlistParameterReferences(json)) {
+    if (ref.name !== from) continue;
+    out = updateAt(out, ref.where, 0, (v) => (v === from ? to : v));
   }
   return out as T;
 }

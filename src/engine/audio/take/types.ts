@@ -38,6 +38,12 @@ export interface TakeKeyframe {
   t: number;
   instances: { instance: number; path: string; started: number; emitter: number | null; parameters: Record<string, number> }[];
   globals: Record<string, number>;
+  /**
+   * The pick generator's state of the World the game played in (`World.active`), a u32, at the keyframe: replay restarts
+   * the Studio World's generator from it at a seek, so random picks after it match the recording. Absent when the World's
+   * picks were unseeded (no `audio.seed`) or in a take recorded before it was written.
+   */
+  random?: number;
 }
 
 export interface TakeMeta {
@@ -45,6 +51,11 @@ export interface TakeMeta {
   engine: string;
   /** Hash of `audio.json` at start. */
   audioHash: string;
+  /**
+   * The pick generator's state of the World the game played in, a u32, when the take began (the first keyframe's
+   * `random`): replay restarts the Studio World's generator from it, so random picks match the recording. (Takes
+   * recorded before ADR 0334's reseed carry `audio.seed` here.)
+   */
   seed: number;
   /** False when the project had no `audio.seed` (picks were unseeded; `seed` is then 0). Absent: true. */
   seeded?: boolean;

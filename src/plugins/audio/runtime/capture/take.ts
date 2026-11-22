@@ -14,6 +14,7 @@ import { onAudioSessionReleased } from "../audioSession";
 import { playlistHost } from "../playlists/host";
 import { captureTakeRing, onCapturePlayStopped, type CaptureTakeRing } from "./capture";
 import type { SaveTake } from "./save";
+import { activeWorldRandomState } from "./takeSeed";
 import { takeTap } from "./takeTap";
 
 /** `Audio.take` (ADR 0334). */
@@ -36,6 +37,18 @@ export interface AudioTake {
 export type AudioTakeState = "idle" | "loading" | "recording" | "stopped";
 
 const NOTHING_RECORDED = "nothing recorded: call Audio.take.start() first";
+
+/**
+ * ADR 0334: whether a take records pictures of the game view (`FRAME`, a 320 px JPEG about once a second; nothing headless).
+ * On by default; a game build turns it off with game.json `audioTakeFrames: false` beside `audioTake` (the player calls
+ * `setTakeFrames`). Read when a take starts.
+ */
+let takePictures = true;
+
+/** @internal ADR 0334: whether takes started from now on record pictures (game.json `audioTakeFrames`; default on). */
+export function setTakeFrames(on: boolean): void {
+  takePictures = on;
+}
 
 type TakeRecorderModule = typeof import("./takeRecorder");
 type TakeRecorder = ReturnType<TakeRecorderModule["createTakeRecorder"]>;
@@ -99,8 +112,12 @@ class Take implements AudioTake {
     } catch {
       // Data only: an unserialisable section leaves the hash of what remains.
     }
-    this.seedFacts = { seed: settings.seed ?? 0, seeded: settings.seed !== undefined, audioHash: fnv1a(json) };
+    // ADR 0334: the World's pick generator state now, so replay restarts from where the game's picks were (`takeSeed.ts`).
+    const random = activeWorldRandomState();
+    this.seedFacts = { seed: random ?? 0, seeded: random !== null, audioHash: fnv1a(json) };
     rec = mod.createTakeRecorder(ring, {
+      randomState: activeWorldRandomState,
+      frames: takePictures ? {} : null,
       globals: () => {
         const out: Record<string, number> = {};
         for (const p of settings.parameters ?? []) {

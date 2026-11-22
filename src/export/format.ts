@@ -59,6 +59,8 @@ export interface GameManifest {
    * (what it asked of audio and the engine's profile, `*.mycotake`). Omitted when off.
    */
   readonly audioTake?: true;
+  /** ADR 0334: `false` keeps takes from recording pictures of the game view (a small JPEG about once a second). Omitted: they do. */
+  readonly audioTakeFrames?: false;
 }
 
 /** Where a compiled script, or a JSON file's module, goes in the build. */

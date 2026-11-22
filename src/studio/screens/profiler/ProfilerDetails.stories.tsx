@@ -5,7 +5,7 @@ import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fn, userEvent, within } from "storybook/test";
 import { namesFromStart } from "../../../plugins/audio/runtime/capture/testSupport";
 import { buildMessages } from "./messagesModel";
-import { AtCursor, MessageList, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
+import { AtCursor, MessageList, ReplayOrigin, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
 import { RecordButton } from "./RecordButton";
 import { buildVoices } from "./voiceModel";
 import type { CaptureEventAt } from "../../../plugins/audio/runtime/capture/reader";
@@ -115,3 +115,14 @@ export const RecordBlocked: Story = {
   },
 };
 export const Recording: Story = { render: () => <RecordButton recording busy={false} blocked={null} onToggle={() => {}} /> };
+
+const openTake = fn();
+export const ReplayCapture: Story = {
+  render: () => <ReplayOrigin take={{ path: "takes/HoverBike/canyon_run_01.mycotake", audioHash: "5f3a90c1" }} onOpenTake={openTake} />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByText("canyon_run_01.mycotake")).toBeVisible();
+    await userEvent.click(c.getByRole("button", { name: "Open in Take" }));
+    await expect(openTake).toHaveBeenCalledWith("takes/HoverBike/canyon_run_01.mycotake");
+  },
+};

@@ -17,6 +17,12 @@ export interface TakeEmitter {
   position(): Vec3Like | null;
 }
 
+/** What a take's picture is taken of: the canvas the World renders into (`TakeFrameGrabber`, in the recorder's chunk). */
+export interface TakePictureSource {
+  readonly width: number;
+  readonly height: number;
+}
+
 /** The listener's pose at one audio frame (the audio system's `ListenerFrame` fields the take reads). */
 export interface TakeListenerPose {
   readonly posX: number;
@@ -34,8 +40,11 @@ export interface TakeRequestSink {
   release(instance: object): void;
   trigger(instance: object, name: string): void;
   mix(op: TakeMixOp, target: string, value: number, seconds: number): void;
-  /** Once per audio frame, before the backend's frame (`audioFrame.ts`): poses at 30 Hz, changes only, and the take keyframe each second. */
-  frame(listener: TakeListenerPose | null): void;
+  /**
+   * Once per audio frame, before the backend's frame (`audioFrame.ts`): poses at 30 Hz, changes only, the take keyframe
+   * each second, and a picture of `picture` (the World's canvas; null headless) about once a second when the take has them.
+   */
+  frame(listener: TakeListenerPose | null, picture?: TakePictureSource | null): void;
 }
 
 /** The sink while a take records; null otherwise. */
