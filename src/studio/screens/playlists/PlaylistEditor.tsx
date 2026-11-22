@@ -17,6 +17,7 @@ import { setClipSampleFields, setLevels, setQueue, type EditContext } from "./pl
 import { sampleTitle, typeName, type Crumb, type PlaylistPath } from "./playlistPaths";
 import type { PlaylistFacts } from "./playlistTree";
 import { SwitchView } from "./SwitchView";
+import { SequencePanel } from "./sequence/SequencePanel";
 import { convertType, typeOptions } from "./typeConversion";
 import { liveWeights } from "./blendViewModel";
 
@@ -115,7 +116,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
       );
       break;
     case "sequence":
-      view = <EmptyState title="The Sequence view arrives with M5" icon="▤" body="A Sequence is a timeline of audio and playlist tracks. Its timeline editor comes with the musical clock; until then you can change its type, playback rules, output and effects here." />;
+      view = <SequencePanel body={body} writable={writable} lints={props.lints} where={props.where} crumbs={props.crumbs} onEdit={(label, edit) => onEdit(label, edit)} onCrumb={props.onCrumb} />;
       break;
   }
 
