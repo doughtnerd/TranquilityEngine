@@ -613,6 +613,7 @@ pub fn spatial_cases() -> Vec<VectorCase> {
                 ("loudShed", vu(0)),
                 ("busRecordsEarly", vu(0)),
                 ("sidechainLate", vu(0)),
+                ("genStarved", vu(0)),
                 ("reserved2", vu(0)),
                 ("currentFrame", vf(1000.0)),
                 ("dateMs", vf(1.5)),

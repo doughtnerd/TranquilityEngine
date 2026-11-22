@@ -88,7 +88,8 @@ pub const HEADER_FIELDS: &[Field] = &[
     Field::new("loudShed", Ty::U16).at(246).doc("the load-shedding ladder's loudness step in force, 0 or 1"),
     Field::new("busRecordsEarly", Ty::U16).at(248).doc("BUS_RAMP records applied at the quantum's start because the due list was full (cumulative, saturating)"),
     Field::new("sidechainLate", Ty::U16).at(250).doc("late sidechain detections (cumulative, saturating)"),
-    Field::new("reserved2", Ty::U32).at(252).doc("reserved, 0"),
+    Field::new("genStarved", Ty::U16).at(252).doc("generator voices that found the generator pool full and play silent (cumulative, saturating; ADR 0346, ABI 5.1)"),
+    Field::new("reserved2", Ty::U16).at(254).doc("reserved, 0"),
 ];
 
 /// Sections in order: ended, demoted, starved, playheads, clipEvents, streamEvents, peaks. A0.2-L3: fill.
@@ -286,7 +287,8 @@ mod tests {
             ("loudShed", 246, Ty::U16),
             ("busRecordsEarly", 248, Ty::U16),
             ("sidechainLate", 250, Ty::U16),
-            ("reserved2", 252, Ty::U32),
+            ("genStarved", 252, Ty::U16),
+            ("reserved2", 254, Ty::U16),
         ];
         assert_eq!(HEADER_FIELDS.len(), expected.len());
         let mut end = 16;

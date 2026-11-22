@@ -586,6 +586,25 @@ pub fn cases() -> Vec<VectorCase> {
                 "0200", "6500", "0180", "2100", "0000003f", // count, flags, param, shapes (seam linear, exit s-curve; ABI 4.9), threshold
             ),
         ),
+        // GEN (ADR 0346, ABI 5.1), 28 + 2 x 4 = 36 B = 9 words, asap. Voice 0x00020003; mask bits 2 and 4 (an
+        // oscillator's frequency and level): 880 Hz and -6 dB, gliding over 960 frames; seed 1734.
+        case(
+            "GEN_oscillator_frequency_and_level",
+            Subject::Opcode("GEN"),
+            vec![
+                ("voiceId", vu(0x0002_0003)),
+                ("frameOffset", vu(0xFFFF_FFFF)),
+                ("mask", vu(0x14)),
+                ("seed", vu(1734)),
+                ("rampFrames", vu(960)),
+                ("values", va(vec![vf(880.0), vf(-6.0)])),
+            ],
+            concat!(
+                "2100", "0900", "03000200", "ffffffff", // head: GEN, 9 words, voice 0x00020003, asap
+                "14000000", "c6060000", "c0030000", "02000000", // mask 0x14, seed 1734, ramp 960, valueCount 2
+                "00005c44", "0000c0c0", // values: 880.0, -6.0
+            ),
+        ),
         // SUBMIX (ADR 0331; parent ABI 4.9), variable length: 24 + 40 = 64 B = 16 words, asap. Slot 2
         // for group 4 on bus 1, feeding slot 5 (parent 6); one effect: a low-pass (kind 1), on,
         // cutoff 800 Hz, resonance 0.5.
@@ -898,6 +917,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ("loudShed", vu(0)),
                 ("busRecordsEarly", vu(0)),
                 ("sidechainLate", vu(0)),
+                ("genStarved", vu(0)),
                 ("reserved2", vu(0)),
                 ("currentFrame", vf(1000.0)),
                 ("dateMs", vf(1.5)),
@@ -1163,6 +1183,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ("loudShed", vu(0)),
                 ("busRecordsEarly", vu(0)),
                 ("sidechainLate", vu(0)),
+                ("genStarved", vu(0)),
                 ("reserved2", vu(0)),
                 ("currentFrame", vf(0.0)),
                 ("dateMs", vf(0.0)),
@@ -1345,6 +1366,7 @@ pub fn cases() -> Vec<VectorCase> {
                 ("loudShed", vu(0)),
                 ("busRecordsEarly", vu(0)),
                 ("sidechainLate", vu(0)),
+                ("genStarved", vu(0)),
                 ("reserved2", vu(0)),
                 ("currentFrame", vf(0.0)),
                 ("dateMs", vf(0.0)),

@@ -87,7 +87,7 @@ pub(super) const BINDING_ITEM: &[Field] = &[
 const VOICE_BINDING_ITEM: &[Field] = &[
     Field::new("param", Ty::U16).doc("bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group"),
     Field::new("curve", Ty::U16).doc("curve id (CURVES)"),
-    Field::new("target", Ty::U32).doc("0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4)"),
+    Field::new("target", Ty::U32).doc("0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4), AUTO_TARGET_GEN a generator voice's parameter (its index in bits 8-15, AUTO_TARGET_LOG for a log2 curve; ABI 5.1)"),
     Field::new("offset", Ty::F32).doc("ABI 4.9: seconds added to a time parameter before the curve reads it (the binding's time origin: a lane keyed on its playlist's start, read by a voice that started later, is `start - origin`); ignored for other params"),
 ];
 
@@ -339,6 +339,7 @@ pub const OPCODES: &[Opcode] = &[
     super::mix::BUS_SENDS,
     super::studio::SUBMIX_AUTOMATE,
     super::spatial::LISTENER,
+    super::generator::GEN,
     Opcode {
         id: 0x30,
         name: "RESET",
@@ -393,7 +394,7 @@ mod tests {
     fn opcode_ids_are_unique_and_sorted() {
         let ids: Vec<u16> = OPCODES.iter().map(|o| o.id).collect();
         assert!(ids.windows(2).all(|w| w[0] < w[1]), "ids not strictly increasing: {ids:?}");
-        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x10, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x30]);
+        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x10, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0x30]);
         assert!(OPCODES.iter().all(|o| o.sent));
         assert!(OPCODES.iter().all(|o| o.id != 0x11), "0x11 stays reserved (BUS_MIX, retired)");
     }
@@ -429,6 +430,9 @@ mod tests {
             assert_eq!(o.total_bytes, None, "{}", o.name);
             assert!(matches!(o.payload.tail, Tail::Repeat(_)), "{}", o.name);
         }
+        // ABI 5.1: GEN, 28 B and its padded f32 values.
+        assert_eq!(size(RECORD_HEAD) + size(op(0x21).payload.fields), 28);
+        assert!(matches!(op(0x21).payload.tail, Tail::Arrays(_)));
         assert_eq!(op(0x16).total_bytes, None);
         assert!(matches!(op(0x16).payload.tail, Tail::Arrays(_)));
     }
