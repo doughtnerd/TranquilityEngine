@@ -90,6 +90,24 @@ export interface ClipAt {
   readonly ci: number;
 }
 
+/**
+ * ADR 0336: the tails the timeline shades. `postExit`: from the last Exit marker to the end of the audio (`end`, the
+ * sequence's length or its longest clip's end), what rings on when a Switch hands over there. `loopTail`: for a loop
+ * with `tail`, from its end to the first Exit marker after it, what rings over the next pass at each wrap.
+ */
+export function sequenceTails(s: SequenceSettings, end: number): { kind: "postExit" | "loopTail"; from: number; to: number; loop?: string }[] {
+  const out: { kind: "postExit" | "loopTail"; from: number; to: number; loop?: string }[] = [];
+  const exits = s.markers.filter((m) => m.type === "exit").map((m) => m.at).sort((a, b) => a - b);
+  const last = exits.at(-1);
+  if (last !== undefined && end > last + 1e-6) out.push({ kind: "postExit", from: last, to: end });
+  for (const l of s.loops) {
+    if (!l.tail || l.end <= l.start) continue;
+    const next = exits.find((x) => x > l.end + 1e-9);
+    if (next !== undefined) out.push({ kind: "loopTail", from: l.end, to: next, loop: l.id });
+  }
+  return out;
+}
+
 export function findClip(s: SequenceSettings, id: string): ClipAt | null {
   for (let ti = 0; ti < s.tracks.length; ti++) {
     const track = s.tracks[ti]!;

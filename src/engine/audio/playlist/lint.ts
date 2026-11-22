@@ -12,7 +12,12 @@
  * - `unknownLabel`: a Switch map label that isn't one of its local parameter's labels;
  * - `trackKindMismatch`: a sample clip on a playlist track or a playlist clip on an audio track;
  * - `danglingEffectTarget`: automation of an effect (or a parameter) its owner's chain doesn't have (a clip's, a
- *   track's, or a playlist's own instance-level automation against the playlist's `effects`).
+ *   track's, or a playlist's own instance-level automation against the playlist's `effects`);
+ * - `quantizeIgnored` (ADR 0336): a quantised lane keyed on time, or of a target other than volume, enabled or a gain
+ *   effect's gain (it follows its parameter);
+ * - `quantizeNoTempo` (ADR 0336): a quantised lane in a playlist with no tempo (it moves at once);
+ * - `regionIgnored` (ADR 0336): a region on an entry of a 2D Blend (regions are 1D; 2D shapes by weight curves);
+ * - `tailWithoutExit` (ADR 0336): a sequence loop with `tail` but no Exit marker after its end (it has nothing to ring).
  *
  * Embedded playlists are linted too, with their place in `where`. What the Studio knows about samples and linked
  * playlists comes in through `LintContext`; without it the rules that need it stay quiet rather than guess.
@@ -26,7 +31,7 @@ import type { Automation, ChangeHow, Entry, PlaylistBody, Track } from "./types"
 
 export type PlaylistLintCode =
   | "noTempoSource" | "tempoClash" | "overlappingSyncLoops" | "allWeightsZero" | "unboundLoop" | "unboundParameter" | "unknownLabel"
-  | "trackKindMismatch" | "danglingEffectTarget";
+  | "trackKindMismatch" | "danglingEffectTarget" | "quantizeIgnored" | "quantizeNoTempo" | "regionIgnored" | "tailWithoutExit";
 
 export interface PlaylistLint {
   code: PlaylistLintCode;
@@ -78,8 +83,15 @@ export function lintPlaylist(body: PlaylistBody, ctx: LintContext = {}): Playlis
   const entryName = (e: Entry, i: number): string => (e.kind === "linked" ? e.playlist : e.kind === "sample" ? e.sample : `entry ${i + 1}`);
 
   // --- effect targets ---
-  const automation = (list: readonly Automation[], chain: readonly Effect[], where: string) => {
+  const automation = (list: readonly Automation[], chain: readonly Effect[], where: string, owner?: PlaylistBody) => {
     list.forEach((a, i) => {
+      if (a.quantize !== undefined) {
+        const fx = a.target.startsWith("fx:") ? chain.find((e) => e.id === a.target.split(":")[1]) : undefined;
+        const gainLike = a.target === "volume" || a.target === "enabled" || (fx?.type === "gain" && a.target.endsWith(":gain"));
+        if (typeof a.input === "string") add("quantizeIgnored", `${where}[${i}].quantize`, `Lane "${a.id}" is keyed on ${a.input}; quantize applies to lanes keyed on a parameter.`);
+        else if (!gainLike) add("quantizeIgnored", `${where}[${i}].quantize`, `Lane "${a.id}" of ${a.target} can't be quantised (only volume, enabled and gain lanes are); it follows its parameter.`);
+        else if (owner && tempoOfBody(owner, new Set()) === "no") add("quantizeNoTempo", `${where}[${i}].quantize`, `Lane "${a.id}" waits for the next beat, but this playlist has no tempo, so it moves at once.`);
+      }
       if (!a.target.startsWith("fx:")) return;
       const [, id, param] = a.target.split(":");
       const fx = chain.find((e) => e.id === id);
@@ -90,7 +102,7 @@ export function lintPlaylist(body: PlaylistBody, ctx: LintContext = {}): Playlis
 
   const visit = (b: PlaylistBody, where: string) => {
     const w = (k: string) => join(where, k);
-    automation(b.automation, b.effects, w("automation"));
+    automation(b.automation, b.effects, w("automation"), b);
 
     if (b.type === "queue" && b.queue?.pick === "random" && b.entries.length > 0 && b.entries.every((e) => e.weight === 0)) {
       add("allWeightsZero", w("entries"), "Every entry has weight 0, so this Queue never plays anything.");
@@ -132,17 +144,23 @@ export function lintPlaylist(body: PlaylistBody, ctx: LintContext = {}): Playlis
       b.blend.axes.forEach((a, i) => {
         if ("parameter" in a && a.parameter === "") add("unboundParameter", w(`blend.axes[${i}]`), "This Blend axis names no parameter, so it stays at its lowest value.");
       });
+      if (b.blend.axes.length === 2) {
+        b.entries.forEach((e, i) => {
+          if (e.region) add("regionIgnored", w(`entries[${i}].region`), `Entry ${i + 1} has a region, but regions shape 1D blends only; in 2D use its weight curve.`);
+        });
+      }
     }
 
     if (b.sequence) {
       const seq = b.sequence;
       seq.loops.forEach((l, i) => {
         if (l.active === "parameter" && !l.binding) add("unboundLoop", w(`sequence.loops[${i}]`), `Loop "${l.id}" is active while a parameter holds, but names none, so it never turns active.`);
+        if (l.tail && !seq.markers.some((m) => m.type === "exit" && m.at > l.end + 1e-9)) add("tailWithoutExit", w(`sequence.loops[${i}].tail`), `Loop "${l.id}" rings a tail, but no Exit marker follows its end to say where the tail ends; it has none.`);
       });
       const syncs: { track: Track; ti: number; at: number; end: number; id: string }[] = [];
       seq.tracks.forEach((t, ti) => {
         const tw = w(`sequence.tracks[${ti}]`);
-        automation(t.automation, t.effects, `${tw}.automation`);
+        automation(t.automation, t.effects, `${tw}.automation`, b);
         t.clips.forEach((c, ci) => {
           const cw = `${tw}.clips[${ci}]`;
           if (t.kind === "audio" && c.sample === undefined) add("trackKindMismatch", cw, `Clip "${c.id}" plays a playlist on audio track "${t.name}".`);
@@ -150,7 +168,7 @@ export function lintPlaylist(body: PlaylistBody, ctx: LintContext = {}): Playlis
           for (const [id, o] of Object.entries(c.loops)) {
             if (o.active === "parameter" && !o.binding) add("unboundLoop", `${cw}.loops.${id}`, `Clip "${c.id}" makes loop "${id}" active while a parameter holds, but names none, so it never turns active.`);
           }
-          automation(c.automation, c.effects, `${cw}.automation`);
+          automation(c.automation, c.effects, `${cw}.automation`, b);
           if (c.sync && c.sample !== undefined) {
             if (seq.tempo) {
               const tempo = ctx.sampleTempo?.(c.sample);

@@ -43,6 +43,10 @@
 .sq-marker.cue { border-color: var(--marker-cue); }
 .sq-marker.exit { border-color: var(--marker-exit); border-left-style: double; border-left-width: 3px; }
 .sq-marker.selected { background: var(--accent-soft); }
+.sq-marker.entry { border-color: var(--marker-exit); border-left-style: dotted; }
+/* ADR 0336: a post-exit tail and a loop tail, shaded behind the markers */
+.sq-tail { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, var(--accent-soft) 0 4px, transparent 4px 8px); border-left: 1px solid var(--marker-exit); pointer-events: none; }
+.sq-tail.loopTail { opacity: 0.6; }
 .sq-marker-name { font-size: calc(10px * var(--ui-scale)); color: var(--muted); }
 .sq-marker-rename { width: 90px; font-size: calc(10px * var(--ui-scale)); background: var(--input-bg); color: var(--text); border: 1px solid var(--focus-ring); }
 .sq-end-handle { position: absolute; top: 0; bottom: 0; width: 6px; margin-left: -3px; cursor: ew-resize; background: color-mix(in srgb, var(--text) 30%, transparent); z-index: 4; }

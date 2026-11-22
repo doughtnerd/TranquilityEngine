@@ -20,6 +20,7 @@ import { SwitchView } from "./SwitchView";
 import { SequencePanel } from "./sequence/SequencePanel";
 import { convertType, typeOptions } from "./typeConversion";
 import { liveWeights } from "./blendViewModel";
+import { FadeShapeSelect } from "./FadeShapeSelect";
 
 export interface PlaylistEditorProps extends EntryActions {
   readonly body: PlaylistBody;
@@ -43,6 +44,8 @@ export interface PlaylistEditorProps extends EntryActions {
   onDropSample(path: string): void;
   onTestValue(name: string, value: number): void;
   onOpenSamples(sample: string): void;
+  /** ADR 0336: open a Blend entry's weight curve in the curve editor. */
+  onEditWeightCurve?(index: number): void;
 }
 
 const PICKS = [
@@ -80,8 +83,12 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
               {q.continuous && (
                 <>
                   <span class="pl-faint">gap</span>
-                  <NumberBox label="Gap between entries" value={q.continuous.gapMs} min={-10000} max={60000} step={10} digits={0} disabled={!writable} title="A negative gap overlaps entries with an equal-power crossfade" onValue={(v) => onEdit("Change setting", (b) => setQueue(b, { continuous: { gapMs: v } }))} />
+                  <NumberBox label="Gap between entries" value={q.continuous.gapMs} min={-10000} max={60000} step={10} digits={0} disabled={!writable} title="A negative gap overlaps entries with a crossfade of the shape beside it" onValue={(v) => onEdit("Change setting", (b) => setQueue(b, { continuous: { ...b.queue!.continuous!, gapMs: v } }))} />
                   <span class="pl-unit">ms</span>
+                  {q.continuous.gapMs < 0 && (
+                    <FadeShapeSelect label="Overlap crossfade shape" value={q.continuous.shape ?? "equalPower"} disabled={!writable}
+                      onValue={(v) => onEdit("Change setting", (b) => setQueue(b, { continuous: v === "equalPower" ? { gapMs: b.queue!.continuous!.gapMs } : { gapMs: b.queue!.continuous!.gapMs, shape: v } }))} />
+                  )}
                 </>
               )}
             </FieldRow>
@@ -102,7 +109,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
     case "blend":
       view = (
         <>
-          <BlendView body={body} ctx={props.ctx} writable={writable} values={props.values} selected={props.selected} onEdit={onEdit} onSelect={props.onSelect} onTestValue={props.onTestValue} />
+          <BlendView body={body} ctx={props.ctx} writable={writable} values={props.values} selected={props.selected} onEdit={onEdit} onSelect={props.onSelect} onTestValue={props.onTestValue} onEditWeightCurve={props.onEditWeightCurve} />
           {entries}
         </>
       );

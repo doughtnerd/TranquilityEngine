@@ -64,7 +64,8 @@
                 0.6,
                 0
               ]
-            ]
+            ],
+            "quantize": "beat"
           }
         ],
         "clips": [
@@ -110,7 +111,8 @@
                 1,
                 0
               ]
-            ]
+            ],
+            "quantize": "beat"
           }
         ],
         "clips": [

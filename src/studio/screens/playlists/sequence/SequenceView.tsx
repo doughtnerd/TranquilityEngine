@@ -35,7 +35,7 @@ import {
   newTrack, nudgeClipEdge, removeTracks, setClipLength, setMeter, setSequenceLength, setTempo, setTrack, splitClip, toggleClipsEnabled, trimClipStart, trimToPlayhead,
 } from "./sequenceEdits";
 import { beatSeconds, beatsPerBar, keepTaps, METERS, nudgeStep, SNAP_MENU, snapSpan, snapTime, tapTempo, type SnapMode } from "./sequenceGrid";
-import { allClips, clipLength, findClip, onSequence, plural, sequenceLength, type BodyEdit, type SeqEdit, type SourceOf } from "./sequenceModel";
+import { allClips, clipLength, findClip, onSequence, plural, sequenceLength, sequenceTails, type BodyEdit, type SeqEdit, type SourceOf } from "./sequenceModel";
 import { clickClip, clickPoint, EMPTY_SELECTION, marqueeSelect, pressClip, selectAll, selectLoop, selectMarker, selectTrack, type SeqSelection } from "./sequenceSelection";
 import {
   bindSequence, playback, seqClipboard, seqOpenLanes, seqPlayhead, seqRazor, seqSelection, seqShownCurve, seqShowWave, seqSnap, seqTimeFormat, seqTransport, seqView, seqWrite, transportMessage,
@@ -487,12 +487,12 @@ export function SequenceView(props: SequenceViewProps) {
     const m = docSeq.markers.find((x) => x.id === id);
     if (!m) return;
     select(selectMarker(sel, id));
-    const type = (t: "note" | "cue" | "exit", label: string) => ({ id: t, label: `${(m.type ?? "note") === t ? "✓ " : ""}${label}`, disabled: !writable, run: () => runSeq("Marker type", (q) => setMarkerType(q, id, t)) });
+    const type = (t: "note" | "cue" | "exit" | "entry", label: string) => ({ id: t, label: `${(m.type ?? "note") === t ? "✓ " : ""}${label}`, disabled: !writable, run: () => runSeq("Marker type", (q) => setMarkerType(q, id, t)) });
     setMenu({
       at: { x: e.clientX, y: e.clientY }, label: "Marker",
       entries: [
         { id: "rename", label: "Rename", hint: "F2", disabled: !writable, run: () => setRenamingMarker(id) },
-        type("note", "Note"), type("cue", "Cue (reported to the game)"), type("exit", "Exit (music may leave here)"),
+        type("note", "Note"), type("cue", "Cue (reported to the game)"), type("exit", "Exit (music may leave here)"), type("entry", "Entry (lands on the Switch's beat or bar)"),
         { id: "copy", label: "Copy", hint: "Ctrl+C", run: () => (seqClipboard.value = copySelection(docSeq, selectMarker(EMPTY_SELECTION, id))) },
         SEPARATOR,
         { id: "del", label: "Delete marker", danger: true, disabled: !writable, run: () => runSeq("Delete marker", (q) => deleteMarkers(q, [id])) },
@@ -800,6 +800,10 @@ export function SequenceView(props: SequenceViewProps) {
             })}
           </div>
           <div class="sq-markers-row" title="Double-click to add a marker" onDblClick={(e) => writable && runWith("Add marker", (q) => addMarker(q, snapAt(timeAt(e), e)), (r) => select(selectMarker(sel, r.id)))}>
+            {sequenceTails(s, length).map((t) => visible(t.from, t.to) && (
+              <div key={`${t.kind}${t.loop ?? ""}`} class={`sq-tail ${t.kind}`} style={{ left: `${toPx(t.from)}px`, width: `${Math.max(2, toPx(t.to) - toPx(t.from))}px` }} aria-hidden="true"
+                title={t.kind === "postExit" ? "Tail: after the last Exit marker, this rings on under the next section when a Switch hands over there" : "Loop tail: rings over the next pass at each wrap"} />
+            ))}
             {s.markers.map((m) => {
               if (!visible(m.at, m.at)) return null;
               return (

@@ -97,7 +97,9 @@ describe("the Sound Lab's events page on playlists (ADR 0329)", () => {
     expect(rows).toHaveLength(1);
     // At Intensity 0 the pulse and the lead are silent (their tracks' automation), the pad is not.
     advance(0.5);
-    const level = (re: RegExp) => voicesOf(re).at(-1)!.volume;
+    // ADR 0336: the upper stems' lanes are beat-quantised: their level is the voice's stamped gain ramp (its last one).
+    const ramps = (v: (typeof fake.voices)[number]) => v.events.filter((e): e is Extract<typeof e, { kind: "paramsShaped" }> => e.kind === "paramsShaped");
+    const level = (re: RegExp) => { const v = voicesOf(re).at(-1)!; return v.volume * (ramps(v).at(-1)?.gain ?? 1); };
     expect(level(/music-pad/)).toBeGreaterThan(0.5);
     expect(level(/music-pulse/)).toBeCloseTo(0, 2);
     expect(level(/music-lead/)).toBeCloseTo(0, 2);
@@ -105,6 +107,12 @@ describe("the Sound Lab's events page on playlists (ADR 0329)", () => {
     advance(2.5);
     expect(level(/music-pulse/)).toBeGreaterThan(0.5);
     expect(level(/music-lead/)).toBeGreaterThan(0.5);
+    // Each moved on a beat of the 120 bpm sequence (a multiple of 0.5 s after the stems' start).
+    const t0 = stems[0]!.at!;
+    for (const re of [/music-pulse/, /music-lead/]) {
+      const at = ramps(voicesOf(re).at(-1)!).at(-1)!.at!;
+      expect(((at - t0) / 0.5) % 1).toBeCloseTo(0, 6);
+    }
     expect(warnings).toEqual([]);
   });
 

@@ -2,7 +2,7 @@
 // from the Sequencer's history list). A sequence loop is `{ start, end }` plus its behaviour; start == end is a hold
 // point (the playhead parks there while it is active). A clip's override changes some of a sample loop's behaviour
 // for that clip only ("Override" vs "Inherited"); "Use sample loop settings" drops it. Pure.
-import type { Clip, LoopBehaviour, SequenceLoop, SequenceMarker, SequenceSettings } from "../../../../engine/audio/playlist/types";
+import type { Clip, FadeShape, LoopBehaviour, SequenceLoop, SequenceMarker, SequenceSettings } from "../../../../engine/audio/playlist/types";
 import { DEFAULT_EXIT_FADE_MS, MAX_EXIT_FADE_MS } from "../../../../engine/audio/playlist/loopBehaviour";
 import { accept, refuse, type EditResult } from "../../../../plugins/audio/editor/editResult";
 import { findClip, mapClips, nextId, tidy } from "./sequenceModel";
@@ -55,6 +55,16 @@ export const makeHoldPoint = (s: SequenceSettings, id: string): R => mapLoop(s, 
 /** The behaviour fields of a loop ("Loop active: k", "Loop exit", "Loop re-entry", "Exit fade", "Bind parameter", …). */
 export function setLoopBehaviour(s: SequenceSettings, id: string, patch: Partial<LoopBehaviour>): R {
   return mapLoop(s, id, (l) => cleanBehaviour({ ...l, ...patch }));
+}
+
+/** ADR 0336: a sequence loop's tail ("Ring the tail") and its crossfade exit's shape; false and equal power are written as absent. */
+export function setLoopMusic(s: SequenceSettings, id: string, patch: { tail?: boolean; exitShape?: FadeShape }): R {
+  return mapLoop(s, id, (l) => {
+    const next = { ...l };
+    if ("tail" in patch) { if (patch.tail) next.tail = true; else delete next.tail; }
+    if ("exitShape" in patch) { if (patch.exitShape && patch.exitShape !== "equalPower") next.exitShape = patch.exitShape; else delete next.exitShape; }
+    return next;
+  });
 }
 
 function cleanBehaviour<T extends LoopBehaviour>(l: T): T {

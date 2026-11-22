@@ -82,6 +82,50 @@ export const Blend1D: Story = { args: { path: "audio/vehicles/engine.playlist.js
 
 export const Blend2D: Story = { args: { path: "audio/ambience/wind.playlist.json" } };
 
+/** ADR 0336: a 1D entry's region: select it, nudge its start handle (making the region custom), shape a fade, reset. */
+export const Blend1DRegion: Story = {
+  args: { path: "audio/vehicles/engine.playlist.json", values: { rpm: 4000 } },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await userEvent.click(c.getByText("engine_mid"));
+    await expect(c.getByText("Automatic (from its neighbours)")).toBeVisible();
+    const start = c.getByRole("slider", { name: "engine_mid region start" });
+    start.focus();
+    await userEvent.keyboard("{Shift>}{ArrowRight}{/Shift}");
+    await expect(c.getByText("Custom")).toBeVisible();
+    await userEvent.selectOptions(c.getByRole("combobox", { name: "engine_mid fade-in shape" }), "sCurve");
+    await expect(c.getByRole("combobox", { name: "engine_mid fade-in shape" })).toHaveValue("sCurve");
+    await userEvent.click(c.getByRole("button", { name: "Reset to automatic" }));
+    await expect(c.getByText("Automatic (from its neighbours)")).toBeVisible();
+  },
+};
+
+/** ADR 0336: a 2D entry's weight curve preset (the plane tints each entry's influence). */
+export const Blend2DWeightCurve: Story = {
+  args: { path: "audio/ambience/wind.playlist.json" },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await userEvent.click(c.getByText("wind_gust"));
+    await userEvent.selectOptions(c.getByRole("combobox", { name: "wind_gust weight curve" }), "narrow40");
+    await expect(c.getByRole("combobox", { name: "wind_gust weight curve" })).toHaveValue("narrow40");
+    await expect(c.getByRole("button", { name: "Reset" })).toBeEnabled();
+  },
+};
+
+/** ADR 0336: a Switch rule's fade shapes and its tail toggle. */
+export const SwitchFades: Story = {
+  args: { path: "audio/footsteps/footsteps.playlist.json" },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await userEvent.selectOptions(c.getByRole("combobox", { name: "Rule 1: fade-out shape" }), "log2");
+    await expect(c.getByRole("combobox", { name: "Rule 1: fade-out shape" })).toHaveValue("log2");
+    const tail = c.getByRole("checkbox", { name: "Rule 1: let the tail ring" });
+    await expect(tail).toBeChecked();
+    await userEvent.click(tail);
+    await expect(c.getByRole("checkbox", { name: "Rule 1: let the tail ring" })).not.toBeChecked();
+  },
+};
+
 export const ClipPlaylist: Story = {
   args: { path: "audio/ui/boom.playlist.json" },
   play: async ({ canvasElement }) => {

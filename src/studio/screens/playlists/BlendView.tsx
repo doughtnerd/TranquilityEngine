@@ -11,7 +11,14 @@ import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { NumberBox, SelectBox, Section } from "./fields";
 import type { BodyEdit } from "./EntryList";
 import { axisRange, denormalise, normalise } from "./blendPlacement";
-import { activeTriangle, axisInput, laneCurves, liveWeights, normalisedPoints, nudge, triangleEdges } from "./blendViewModel";
+import {
+  activeTriangle, axisInput, dragRegion, handleAt, influenceGrid, laneCurves, liveWeights, normalisedPoints, nudge, nudgeRegion, regionsOf,
+  shownRegion, triangleEdges, weightCurvesOf, type RegionHandle,
+} from "./blendViewModel";
+import type { Curve } from "../../../engine/core/curve";
+import type { BlendRegion } from "../../../engine/audio/playlist/types";
+import { FadeShapeSelect } from "./FadeShapeSelect";
+import { FADE_SHAPE_OPTIONS, narrowWeightCurve, weightCurvePreset } from "./fadeShapeModel";
 import { ADSR_LIMITS, setAdsr, setAxis, setBlend, setDimensions, setEntryUse, setEnvelopeMode, voiceTimeAxis, type EditContext } from "./playlistEdits";
 import { entryName } from "./playlistPaths";
 
@@ -25,7 +32,24 @@ export interface BlendViewProps {
   onSelect(i: number): void;
   /** Scrub a parameter's test value (dragging on the lane's background). */
   onTestValue(name: string, value: number): void;
+  /** ADR 0336: open an entry's weight curve in the shared curve editor. */
+  onEditWeightCurve?(i: number): void;
 }
+
+const HANDLES: { id: RegionHandle; label: string }[] = [
+  { id: "start", label: "region start" },
+  { id: "fadeIn", label: "fade-in end" },
+  { id: "fadeOut", label: "fade-out start" },
+  { id: "end", label: "region end" },
+];
+
+/** The weight-curve presets: the default, the fade shapes (as a fade in of the weight) and two narrower overlaps. */
+const WEIGHT_PRESETS: { value: string; label: string; curve: () => Curve | undefined }[] = [
+  { value: "default", label: "Default (the weight)", curve: () => undefined },
+  ...FADE_SHAPE_OPTIONS.filter((o) => o.value !== "linear").map((o) => ({ value: o.value, label: o.label, curve: () => weightCurvePreset(o.value) })),
+  { value: "narrow25", label: "Narrow overlap (from 25 %)", curve: () => narrowWeightCurve(0.25) },
+  { value: "narrow40", label: "Narrow overlap (from 40 %)", curve: () => narrowWeightCurve(0.4) },
+];
 
 const VOICE_TIME = "__voiceTime";
 const W = 1000;
@@ -111,15 +135,52 @@ export function BlendView(props: BlendViewProps) {
     onEdit(`Move ${entryName(e0, i)}`, (b) => setEntryUse(b, i, patch!));
   };
 
+  // --- ADR 0336: 1D regions (trapezoids with four handles) ---
+  const regionOf = (i: number) => shownRegion(body.entries, i, ranges[0]!, blend.fade);
+  const setRegion = (i: number, r: BlendRegion | undefined, label: string, drag = false) => onEdit(label, (b) => setEntryUse(b, i, { region: r }), drag);
+  const startHandle = (i: number, h: RegionHandle, e: PointerEvent) => {
+    if (!writable || !svg.current) return;
+    e.stopPropagation();
+    props.onSelect(i);
+    const from = regionOf(i).region;
+    let last = from;
+    const label = `Region · ${entryName(body.entries[i]!, i)}`;
+    dragOn(e, svg.current, (f) => { last = dragRegion(from, h, denormalise(f.x, ranges[0]!)); setRegion(i, last, label, true); }, () => setRegion(i, last, label));
+  };
+  const handleKeys = (i: number, h: RegionHandle, e: KeyboardEvent) => {
+    if (!writable || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+    e.preventDefault();
+    setRegion(i, nudgeRegion(regionOf(i).region, h, ranges[0]!, e.key === "ArrowLeft" ? -1 : 1, e.shiftKey), `Region · ${entryName(body.entries[i]!, i)}`);
+  };
+  const lx = (v: number) => normalise(v, ranges[0]!) * W;
+  const trapezoid = (r: BlendRegion) => `${lx(r.start)},${H1} ${lx(r.start + r.fadeIn)},8 ${lx(r.end - r.fadeOut)},8 ${lx(r.end)},${H1}`;
+
   const lane = () => {
-    const curves = laneCurves(pts.map((p) => p.x), blend.fade, blend.curve);
+    const curves = laneCurves(pts.map((p) => p.x), blend.fade, blend.curve, 101, regionsOf(body.entries, ranges[0]!), weightCurvesOf(body.entries));
+    const sel = props.selected !== null && body.entries[props.selected] ? props.selected : null;
+    const selRegion = sel !== null ? regionOf(sel) : null;
     return (
       <svg ref={svg} class="pl-lane" viewBox={`0 0 ${W} ${H1 + 24}`} preserveAspectRatio="none" role="group" aria-label="Blend lane"
         onPointerDown={(e) => svg.current && e.target === e.currentTarget && dragOn(e, svg.current, (f) => scrub(0, f.x), () => {})}>
         <rect class="pl-lane-bg" x="0" y="0" width={W} height={H1} onPointerDown={(e) => svg.current && dragOn(e, svg.current, (f) => scrub(0, f.x), () => {})} />
+        {body.entries.map((e, i) => e.region && <polygon key={`r${i}`} class={`pl-region ${series(i)}`} points={trapezoid(e.region)} />)}
         {curves.map((c, i) => (
           <polygon key={i} class={`pl-poly ${series(i)}${props.selected === i ? " selected" : ""}`} points={`0,${H1} ${c.map(([x, w]) => `${x * W},${H1 - w * (H1 - 8)}`).join(" ")} ${W},${H1}`} />
         ))}
+        {sel !== null && selRegion && (
+          <g class={`pl-region-edit ${series(sel)}${selRegion.explicit ? "" : " derived"}`}>
+            <polygon class="pl-region-outline" points={trapezoid(selRegion.region)} />
+            {HANDLES.map((h) => {
+              const at = handleAt(selRegion.region, h.id);
+              const top = h.id === "fadeIn" || h.id === "fadeOut";
+              return (
+                <rect key={h.id} class="pl-region-handle" x={lx(at) - 5} y={top ? 2 : H1 - 12} width="10" height="12" tabIndex={writable ? 0 : -1} role="slider"
+                  aria-label={`${entryName(body.entries[sel]!, sel)} ${h.label}`} aria-valuenow={at}
+                  onPointerDown={(e) => startHandle(sel, h.id, e)} onKeyDown={(e) => handleKeys(sel, h.id, e)} />
+              );
+            })}
+          </g>
+        )}
         <line class="pl-input" x1={input[0]! * W} x2={input[0]! * W} y1="0" y2={H1} />
         {pts.map((p, i) => (
           <g key={i} class={`pl-node ${series(i)}${props.selected === i ? " selected" : ""}`} tabIndex={writable ? 0 : -1} role="slider" aria-label={`${entryName(body.entries[i]!, i)} position`}
@@ -141,6 +202,9 @@ export function BlendView(props: BlendViewProps) {
       <svg ref={svg} class="pl-plane" viewBox={`0 0 ${W} ${W}`} role="group" aria-label="Blend plane"
         onPointerDown={(e) => svg.current && dragOn(e, svg.current, (f) => { scrub(0, f.x); scrub(1, f.y); }, () => {})}>
         <rect class="pl-lane-bg" x="0" y="0" width={W} height={W} />
+        {influenceGrid(pts, blend.fade === "layer" ? "linear" : blend.curve, weightCurvesOf(body.entries), 16).map((c, k) => (
+          <rect key={`h${k}`} class={`pl-influence ${series(c.entry)}`} x={(c.x - 1 / 32) * W} y={(1 - c.y - 1 / 32) * W} width={W / 16} height={W / 16} style={{ opacity: String(0.06 + 0.3 * c.weight) }} />
+        ))}
         {[0.25, 0.5, 0.75].map((g) => (
           <g key={g} class="pl-grid">
             <line x1={g * W} x2={g * W} y1="0" y2={W} />
@@ -200,8 +264,60 @@ export function BlendView(props: BlendViewProps) {
           ))}
         </div>
       )}
+      {props.selected !== null && body.entries[props.selected] && <EntryShaping {...props} twoD={twoD} regionOf={regionOf} setRegion={setRegion} />}
       {!twoD && <EnvelopeEditor body={body} writable={writable} onEdit={onEdit} />}
     </div>
+  );
+}
+
+/**
+ * ADR 0336: the selected entry's shaping: its 1D region (Automatic or Custom, the four widths, each fade's shape, Reset
+ * to automatic) and, secondary to the region, its weight curve (a preset, the full curve editor, Reset).
+ */
+function EntryShaping(props: BlendViewProps & { twoD: boolean; regionOf(i: number): { region: BlendRegion; explicit: boolean }; setRegion(i: number, r: BlendRegion | undefined, label: string): void }) {
+  const { body, writable } = props;
+  const i = props.selected!;
+  const e = body.entries[i]!;
+  const name = entryName(e, i);
+  const blend = body.blend!;
+  const { region, explicit } = props.regionOf(i);
+  const def = blend.curve === "equalPower" ? "equalPower" : "linear";
+  const field = (key: "start" | "end" | "fadeIn" | "fadeOut", label: string) => (
+    <span class="pl-inline">
+      <span class="pl-faint">{label}</span>
+      <NumberBox label={`${name} ${label}`} value={region[key]} step={0.01} digits={3} disabled={!writable}
+        onValue={(v) => props.setRegion(i, key === "start" || key === "end" ? dragRegion(region, key, v) : dragRegion(region, key, key === "fadeIn" ? region.start + v : region.end - v), `Region · ${name}`)} />
+    </span>
+  );
+  const preset = WEIGHT_PRESETS.find((p) => JSON.stringify(p.curve()) === JSON.stringify(e.weightCurve))?.value ?? "custom";
+  return (
+    <Section title={`Shaping · ${name}`} note={props.twoD ? "In 2D an entry's reach comes from where its point sits; its weight curve narrows or shapes its fade." : "Where this entry plays on the axis: its region and fades (drag the handles on the lane, ← → to nudge), and its weight curve."}>
+      {!props.twoD && (
+        <div class="pl-kv pl-region-fields">
+          <span class="pl-field-label">Region</span>
+          <span class="pl-inline pl-wrap">
+            <span class="pl-faint">{explicit ? "Custom" : "Automatic (from its neighbours)"}</span>
+            {field("start", "Start")}
+            {field("fadeIn", "Fade in")}
+            {field("fadeOut", "Fade out")}
+            {field("end", "End")}
+            <FadeShapeSelect label={`${name} fade-in shape`} value={region.shapeIn ?? def} disabled={!writable} onValue={(v) => props.setRegion(i, { ...region, shapeIn: v }, `Region · ${name}`)} />
+            <FadeShapeSelect label={`${name} fade-out shape`} out value={region.shapeOut ?? def} disabled={!writable} onValue={(v) => props.setRegion(i, { ...region, shapeOut: v }, `Region · ${name}`)} />
+            <button type="button" class="pl-small" disabled={!writable || !explicit} onClick={() => props.setRegion(i, undefined, `Reset region · ${name}`)}>Reset to automatic</button>
+          </span>
+        </div>
+      )}
+      <div class="pl-kv">
+        <span class="pl-field-label">Weight curve</span>
+        <span class="pl-inline">
+          <SelectBox label={`${name} weight curve`} value={preset} disabled={!writable}
+            options={[...WEIGHT_PRESETS.map((p) => ({ value: p.value, label: p.label })), ...(preset === "custom" ? [{ value: "custom", label: "Custom" }] : [])]}
+            onValue={(v) => { const p = WEIGHT_PRESETS.find((x) => x.value === v); if (p) props.onEdit(`Weight curve · ${name}`, (b) => setEntryUse(b, i, { weightCurve: p.curve() })); }} />
+          {props.onEditWeightCurve && <button type="button" class="pl-small" disabled={!writable} onClick={() => props.onEditWeightCurve!(i)}>Edit curve…</button>}
+          <button type="button" class="pl-small" disabled={!writable || !e.weightCurve} onClick={() => props.onEdit(`Reset weight curve · ${name}`, (b) => setEntryUse(b, i, { weightCurve: undefined }))}>Reset</button>
+        </span>
+      </div>
+    </Section>
   );
 }
 

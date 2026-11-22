@@ -54,7 +54,8 @@
         },
         "exit": "finish",
         "exitFadeMs": 0,
-        "reentry": "ignore"
+        "reentry": "ignore",
+        "tail": true
       }
     ],
     "markers": [

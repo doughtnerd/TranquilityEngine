@@ -1,6 +1,6 @@
 # 0329. Playlists replace audio events and interactive music
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0336 (blend regions and weight curves, fade shapes, Exit-marker tails, bridge fades, beat-quantised automation)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0158 (the `*.audioevent.json` container format and node types), 0166 and 0167 (the music node format); their runtime machinery is kept and re-homed as described here

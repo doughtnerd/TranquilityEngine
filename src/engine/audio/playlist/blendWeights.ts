@@ -15,14 +15,89 @@
  *   the input is projected onto the nearest hull edge (two weights). One point gets 1; with fewer than three points (or
  *   all points on a line) the nearest segment between two points is used.
  *
+ * - **Explicit regions** (ADR 0336, 1D only): an entry with a region plays by it (`regionWeight`); the layer/crossfade
+ *   mode and equal power only shape the regions derived for entries without one, so old files keep their weights.
+ *
  * Pure; no plugin, no DOM.
  */
+import { fadeInLevel, fadeOutLevel } from "./fadeShapes";
+import type { FadeShape } from "./types";
+import { evalCurve, type Curve } from "../../core/curve";
 
 /** A 2D point, normalised. */
 export interface BlendPoint { x: number; y: number }
 
-/** Weights for a 1D blend: `xs` are the entries' normalised positions in entry order; the result is in entry order. */
-export function blendWeights1D(xs: readonly number[], x: number, fade: "crossfade" | "layer", curve: "linear" | "equalPower"): number[] {
+/**
+ * ADR 0336: an entry's explicit region on a 1D axis, in the same normalised units as `xs` (the caller normalises
+ * `BlendRegion`'s axis units). Shapes absent: the blend's `curve` (`linear` → linear, `equalPower` → equalPower).
+ */
+export interface Region1D {
+  start: number;
+  end: number;
+  fadeIn: number;
+  fadeOut: number;
+  shapeIn?: FadeShape;
+  shapeOut?: FadeShape;
+}
+
+/** ADR 0336: the weight an explicit region gives at `x`: 0 outside [start, end], the fades' levels at their edges, else 1. */
+export function regionWeight(r: Region1D, x: number, curve: "linear" | "equalPower"): number {
+  if (x < r.start || x > r.end) return 0;
+  const def: FadeShape = curve === "equalPower" ? "equalPower" : "linear";
+  let w = 1;
+  if (r.fadeIn > 0 && x < r.start + r.fadeIn) w *= fadeInLevel(r.shapeIn ?? def, (x - r.start) / r.fadeIn);
+  if (r.fadeOut > 0 && x > r.end - r.fadeOut) w *= fadeOutLevel(r.shapeOut ?? def, (x - (r.end - r.fadeOut)) / r.fadeOut);
+  return w;
+}
+
+/**
+ * The region ADR 0329's rules give an entry with none (ADR 0336 "derived"), in normalised units: crossfade from the
+ * previous entry's x to its own and out to the next one's (the outermost ones reach past the axis); layer from the
+ * previous one's x to its own and never out (the lowest always plays). Its fades are linear; the weights the derived
+ * regions give are `blendWeights1D`'s for entries without a region (with √ for equal power in crossfade mode).
+ */
+export function derivedRegion(xs: readonly number[], index: number, fade: "crossfade" | "layer"): Region1D {
+  const order = xs.map((_, i) => i).sort((a, b) => xs[a]! - xs[b]! || a - b);
+  const k = order.indexOf(index);
+  const x = xs[index]!;
+  const prev = k > 0 ? xs[order[k - 1]!]! : null;
+  const next = k < order.length - 1 ? xs[order[k + 1]!]! : null;
+  const far = 1e6;
+  if (fade === "layer") {
+    if (prev === null) return { start: -far, end: far, fadeIn: 0, fadeOut: 0 };
+    return { start: prev, end: far, fadeIn: x - prev, fadeOut: 0 };
+  }
+  return { start: prev ?? -far, end: next ?? far, fadeIn: prev === null ? 0 : x - prev, fadeOut: next === null ? 0 : next - x };
+}
+
+/**
+ * Weights for a 1D blend: `xs` are the entries' normalised positions in entry order; the result is in entry order.
+ * ADR 0336: an entry with an explicit region (`regions[i]`) takes `regionWeight`; the others keep ADR 0329's weights.
+ */
+export function blendWeights1D(
+  xs: readonly number[], x: number, fade: "crossfade" | "layer", curve: "linear" | "equalPower",
+  regions?: readonly (Region1D | undefined)[], weightCurves?: readonly (Curve | undefined)[],
+): number[] {
+  const anyCurve = weightCurves?.some((c) => c !== undefined) ?? false;
+  // With weight curves the derived weights are read linear (the curve replaces the √ of equal power for its entry).
+  const w = derivedWeights1D(xs, x, fade, anyCurve ? "linear" : curve);
+  const root = anyCurve && curve === "equalPower" && fade === "crossfade";
+  for (let i = 0; i < w.length; i++) {
+    const r = regions?.[i];
+    const c = weightCurves?.[i];
+    if (r) w[i] = regionWeight(r, x, curve);
+    if (c) w[i] = shapeWeight(c, w[i]!);
+    else if (root && !r) w[i] = Math.sqrt(w[i]!);
+  }
+  return w;
+}
+
+/** ADR 0336: a weight through an entry's weight curve, clamped to 0..1. */
+export function shapeWeight(c: Curve, w: number): number {
+  return clamp01(evalCurve(c, clamp01(w)));
+}
+
+function derivedWeights1D(xs: readonly number[], x: number, fade: "crossfade" | "layer", curve: "linear" | "equalPower"): number[] {
   const n = xs.length;
   const w = new Array<number>(n).fill(0);
   if (n === 0) return w;
@@ -55,7 +130,25 @@ export function blendWeights1D(xs: readonly number[], x: number, fade: "crossfad
 }
 
 /** Weights for a 2D blend at `p` over `points` (entry order). Equal power, when asked, is applied by the caller's `curve` here too. */
-export function blendWeights2D(points: readonly BlendPoint[], p: BlendPoint, curve: "linear" | "equalPower" = "linear"): number[] {
+export function blendWeights2D(points: readonly BlendPoint[], p: BlendPoint, curve: "linear" | "equalPower" = "linear", weightCurves?: readonly (Curve | undefined)[]): number[] {
+  const w = rawWeights2D(points, p, weightCurves?.some((c) => c !== undefined) ? "linear" : curve);
+  if (!weightCurves || !weightCurves.some((c) => c !== undefined)) return w;
+  // ADR 0336: each entry's raw weight through its curve (√ for one without, under equal power); under equal power the
+  // shaped weights are normalised to constant power (a no-op when no entry has a curve: Σ(√w)² = Σw = 1).
+  let power = 0;
+  for (let i = 0; i < w.length; i++) {
+    const c = weightCurves[i];
+    w[i] = c ? shapeWeight(c, w[i]!) : curve === "equalPower" ? Math.sqrt(w[i]!) : w[i]!;
+    power += w[i]! * w[i]!;
+  }
+  if (curve === "equalPower" && power > 1e-12) {
+    const k = 1 / Math.sqrt(power);
+    for (let i = 0; i < w.length; i++) w[i] = w[i]! * k;
+  }
+  return w;
+}
+
+function rawWeights2D(points: readonly BlendPoint[], p: BlendPoint, curve: "linear" | "equalPower"): number[] {
   const n = points.length;
   const w = new Array<number>(n).fill(0);
   if (n === 0) return w;

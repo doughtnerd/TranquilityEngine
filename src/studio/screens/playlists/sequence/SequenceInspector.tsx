@@ -14,9 +14,10 @@ import { SegmentedControl } from "../../../../editor/ui/SegmentedControl";
 import { accept, type EditResult } from "../../../../plugins/audio/editor/editResult";
 import { EffectChain } from "../../../components/EffectChain";
 import { FieldRow, NumberBox, SelectBox, Section } from "../fields";
-import { addAutomation, deletePoints as deletePointsOf, isTimeInput, ownerOf, removeAutomation, setAutomation, setPointShape, SHAPES, targetSpec, targetSpecs, type AutomationOwner } from "./automationEdits";
+import { addAutomation, deletePoints as deletePointsOf, isTimeInput, ownerOf, QUANTIZE_CHOICES, quantizeChoice, removeAutomation, setAutomation, setPointShape, SHAPES, targetSpec, targetSpecs, type AutomationOwner } from "./automationEdits";
 import { clipFollows, clipLoops } from "./clipGeometry";
-import { clearLoopOverride, deleteLoops, deleteMarkers, makeHoldPoint, moveLoop, moveMarker, renameMarker, setLoopBehaviour, setLoopEdge, setLoopOverride, setMarkerHidden, setMarkerType } from "./loopMarkerEdits";
+import { clearLoopOverride, deleteLoops, deleteMarkers, makeHoldPoint, moveLoop, moveMarker, renameMarker, setLoopBehaviour, setLoopEdge, setLoopMusic, setLoopOverride, setMarkerHidden, setMarkerType } from "./loopMarkerEdits";
+import { FadeShapeSelect } from "../FadeShapeSelect";
 import { openSequenceCurves } from "./openSequenceCurves";
 import { makeAsync, setClip, setClipEffects, setMeter, setSequenceLength, setTempo, setTrack, setTrackEffects } from "./sequenceEdits";
 import { METERS } from "./sequenceGrid";
@@ -93,6 +94,17 @@ export function SequenceInspector(props: SequenceInspectorProps) {
                 {clipId && isTimeInput(a.input) && <button type="button" class="sq-icon" title="Show this curve on the clip" aria-label={`Show ${nm} on the clip`} onClick={() => (seqShownCurve.value = { ...seqShownCurve.peek(), [clipId]: a.id })}>👁</button>}
                 <button type="button" class={`sq-icon${a.bypass ? "" : " on"}`} aria-pressed={!a.bypass} aria-label={`${nm} automation on`} disabled={!writable} title={a.bypass ? "Bypassed (click to turn on)" : "On (click to bypass)"}
                   onClick={() => runSeq(`${nm} automation ${a.bypass ? "on" : "off"}`, (q) => setAutomation(q, owner, a.id, { bypass: !a.bypass }))}>●</button>
+                {!isTimeInput(a.input) && (
+                  <select class="pl-select sq-quantize" aria-label={`${nm} quantize`} disabled={!writable} value={quantizeChoice(a.quantize)}
+                    title="When a change of the parameter takes effect: continuously, or on the next beat or bar of the music (rhythm games)"
+                    onChange={(e) => {
+                      const v = (e.currentTarget as HTMLSelectElement).value;
+                      const c = QUANTIZE_CHOICES.find((x) => x.value === v);
+                      if (c) runSeq(`${nm} quantize: ${c.label}`, (q) => setAutomation(q, owner, a.id, { quantize: c.quantize }));
+                    }}>
+                    {[...QUANTIZE_CHOICES, ...(QUANTIZE_CHOICES.some((c) => c.value === quantizeChoice(a.quantize)) ? [] : [{ value: quantizeChoice(a.quantize), label: `Every ${quantizeChoice(a.quantize)} beats` }])].map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  </select>
+                )}
                 <button type="button" class="sq-icon" aria-label={`Edit ${nm} curve`} title="Open in the curve editor" onClick={() => curves(owner, length, name, a.target)}>✎</button>
                 <button type="button" class="sq-icon" aria-label={`Remove ${nm} automation`} title="Remove automation" disabled={!writable} onClick={() => runSeq("Remove automation", (q) => removeAutomation(q, owner, a.id))}>×</button>
               </li>
@@ -276,6 +288,17 @@ export function SequenceInspector(props: SequenceInspectorProps) {
             <FieldRow label={hold ? "At" : "Start"} unit="s"><NumberBox label="Loop start" value={l.start} min={0} step={0.01} digits={3} disabled={!writable} onValue={(v) => runSeq(hold ? "Move loop" : "Loop start", (q) => (hold ? moveLoop(q, l.id, v - l.start) : setLoopEdge(q, l.id, "start", v)))} /></FieldRow>
             {!hold && <FieldRow label="End" unit="s"><NumberBox label="Loop end" value={l.end} min={0} step={0.01} digits={3} disabled={!writable} onValue={(v) => runSeq("Loop end", (q) => setLoopEdge(q, l.id, "end", v))} /></FieldRow>}
             {behaviourFields(l, (label, patch) => runSeq(label, (q) => setLoopBehaviour(q, l.id, patch)))}
+            {!hold && l.exit === "crossfade" && (
+              <FieldRow label="Exit shape" title="The shape of the exit crossfade (both sides)">
+                <FadeShapeSelect label="Loop exit shape" out value={l.exitShape ?? "equalPower"} disabled={!writable} onValue={(v) => runSeq("Loop exit shape", (q) => setLoopMusic(q, l.id, { exitShape: v }))} />
+              </FieldRow>
+            )}
+            {!hold && (
+              <FieldRow label="Ring the tail" title="At each wrap, the audio from the loop's end to the next Exit marker after it rings on over the next pass">
+                <input type="checkbox" aria-label="Ring the tail" checked={!!l.tail} disabled={!writable} onChange={() => runSeq(l.tail ? "Loop tail off" : "Loop tail on", (q) => setLoopMusic(q, l.id, { tail: !l.tail }))} />
+                {l.tail && !s.markers.some((m) => m.type === "exit" && m.at > l.end + 1e-9) && <span class="pl-lint" role="note">⚠ No Exit marker after the loop's end: add one where the tail ends.</span>}
+              </FieldRow>
+            )}
             {!hold && <button type="button" class="pl-small" disabled={!writable} onClick={() => runSeq("Make hold point", (q) => makeHoldPoint(q, l.id))}>Make hold point</button>}
             <button type="button" class="pl-small pl-danger" disabled={!writable} onClick={() => runSeq("Delete loop", (q) => deleteLoops(q, [l.id]))}>Delete</button>
           </Section>
@@ -295,8 +318,12 @@ export function SequenceInspector(props: SequenceInspectorProps) {
             <FieldRow label="At" unit="s"><NumberBox label="Marker time" value={m.at} min={0} step={0.01} digits={3} disabled={!writable} onValue={(v) => runSeq("Move marker", (q) => moveMarker(q, m.id, v))} /></FieldRow>
             <div class="pl-kv">
               <span class="pl-field-label">Type</span>
-              <SegmentedControl<"note" | "cue" | "exit"> size="small" label="Marker type" value={m.type ?? "note"} onChange={(v) => writable && runSeq("Marker type", (q) => setMarkerType(q, m.id, v))}
-                options={[{ value: "note", label: "Note" }, { value: "cue", label: "Cue", title: "Reported to the game when the playhead passes it" }, { value: "exit", label: "Exit", title: "Music may leave here" }]} />
+              <SegmentedControl<"note" | "cue" | "exit" | "entry"> size="small" label="Marker type" value={m.type ?? "note"} onChange={(v) => writable && runSeq("Marker type", (q) => setMarkerType(q, m.id, v))}
+                options={[
+                  { value: "note", label: "Note" }, { value: "cue", label: "Cue", title: "Reported to the game when the playhead passes it" },
+                  { value: "exit", label: "Exit", title: "Music may leave here; what follows the first Exit marker is the tail that rings on" },
+                  { value: "entry", label: "Entry", title: "A Switch lands this point on its beat or bar; the audio before it starts early" },
+                ]} />
             </div>
             <button type="button" class="pl-small pl-danger" disabled={!writable} onClick={() => runSeq("Delete marker", (q) => deleteMarkers(q, [m.id]))}>Delete</button>
           </Section>

@@ -196,10 +196,27 @@ export function setPointShape(s: SequenceSettings, o: AutomationOwner, id: strin
 }
 
 /** The curve editor's result for one lane (or "Drive by X": a new input). */
-export function setAutomation(s: SequenceSettings, o: AutomationOwner, id: string, patch: Partial<Pick<Automation, "curve" | "input" | "bypass">>): R {
+export function setAutomation(s: SequenceSettings, o: AutomationOwner, id: string, patch: Partial<Pick<Automation, "curve" | "input" | "bypass" | "quantize">>): R {
   if (patch.curve && patch.curve.length === 0) return removeAutomation(s, o, id);
-  return mapAutomation(s, o, id, (a) => ({ ...a, ...patch }));
+  return mapAutomation(s, o, id, (a) => {
+    const next = { ...a, ...patch };
+    // ADR 0336: quantize patched to undefined goes back to continuous (absent).
+    if ("quantize" in patch && patch.quantize === undefined) delete next.quantize;
+    return next;
+  });
 }
+
+/** ADR 0336: the quantize choices a lane offers (its menu), and the value of each. */
+export const QUANTIZE_CHOICES: readonly { readonly value: string; readonly label: string; readonly quantize: Automation["quantize"] }[] = [
+  { value: "off", label: "Continuous", quantize: undefined },
+  { value: "beat", label: "Next beat", quantize: "beat" },
+  { value: "bar", label: "Next bar", quantize: "bar" },
+  { value: "2", label: "Every 2 beats", quantize: { beats: 2 } },
+  { value: "8", label: "Every 8 beats", quantize: { beats: 8 } },
+];
+
+/** The menu value of a lane's quantize (a beats count not in the menu reads as "n beats"). */
+export const quantizeChoice = (q: Automation["quantize"]): string => (q === undefined ? "off" : typeof q === "string" ? q : String(q.beats));
 
 /** "Remove automation". */
 export const removeAutomation = (s: SequenceSettings, o: AutomationOwner, id: string): R => mapAutomation(s, o, id, () => null);

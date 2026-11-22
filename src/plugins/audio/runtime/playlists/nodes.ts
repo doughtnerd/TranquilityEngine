@@ -14,8 +14,9 @@ import { defaultBlend, defaultQueue, defaultSwitch } from "../../../../engine/au
 import { pickEntry } from "../../../../engine/audio/playlist/picks";
 import { changeFor } from "../../../../engine/audio/playlist/switchRules";
 import type {
-  Adsr, BlendAxis, ChangeHow, Entry, EntryUse, PlaylistBody, PlaylistType, SampleEntry,
+  Adsr, BlendAxis, ChangeHow, Entry, EntryUse, FadeShape, PlaylistBody, PlaylistType, SampleEntry, TimeLength,
 } from "../../../../engine/audio/playlist/types";
+import type { Region1D } from "../../../../engine/audio/playlist/blendWeights";
 import { isLabelled, parameterRange } from "../../../../engine/audio/parameters";
 import { warnOnce } from "../core/handle";
 import { curveParts } from "./curves";
@@ -155,6 +156,10 @@ class ClipNode extends LiveNode {
     return this.musical;
   }
 
+  override hasExitMarker(): boolean {
+    return this.clockArgs !== null && this.clockArgs.facts.markers.some((m) => m.type === "exit");
+  }
+
   override onParameter(name: string): void {
     for (const v of this.voices) {
       const b = v.loop?.behaviour.binding;
@@ -224,8 +229,10 @@ class RunnerNode extends LiveNode {
     if (i < 0) { this.running = false; return; }
     const prev = this.current;
     const overlap = this.gap < 0 && prev ? -this.gap : 0;
-    const child = resolveEntry(this.host, this.body.entries[i]!, { ...this.ctx, at, fadeIn: overlap }, this.key, i);
-    if (prev && overlap > 0) prev.leave(overlap, at);
+    // ADR 0336: the overlap's crossfade in its shape (absent: equal power).
+    const shape = this.body.queue?.continuous?.shape ?? "equalPower";
+    const child = resolveEntry(this.host, this.body.entries[i]!, { ...this.ctx, at, fadeIn: overlap, fadeInShape: shape }, this.key, i);
+    if (prev && overlap > 0) prev.leave(overlap, at, shape);
     // Finished entries go (the list stays short over a long run).
     for (let k = this.children.length - 1; k >= 0; k--) if (this.children[k] !== prev && !this.children[k]!.sounding) this.children.splice(k, 1);
     // Nothing to play (a missing link, a refused voice): the run ends rather than spin.
@@ -294,14 +301,14 @@ class SwitchNode extends LiveNode {
     return isLabelled(p.def) ? (p.def.labels[p.value] ?? null) : String(p.value);
   }
 
-  private startFor(label: string | null, fadeIn: number, at: number | null): void {
+  private startFor(label: string | null, fadeIn: number, at: number | null, fadeInShape: FadeShape = "equalPower"): void {
     this.current = null;
     if (label === null || this.stopped) return;
     const index = this.s.map[label];
     notePick(this.host, this.ctx, "switch", index ?? -1, label);
     if (index === null || index === undefined || !this.body.entries[index]) return;
     const gainDb = this.s.labelGain[label] ?? 0;
-    const ctx: Ctx = { ...this.ctx, at, fadeIn, props: gainDb !== 0 ? accumulate(this.ctx.props, { gainDb }) : this.ctx.props };
+    const ctx: Ctx = { ...this.ctx, at, fadeIn, fadeInShape, props: gainDb !== 0 ? accumulate(this.ctx.props, { gainDb }) : this.ctx.props };
     const c = resolveEntry(this.host, this.body.entries[index]!, ctx, this.key, index);
     if (!c) return;
     for (let k = this.children.length - 1; k >= 0; k--) if (!this.children[k]!.sounding) this.children.splice(k, 1);
@@ -338,54 +345,110 @@ class SwitchNode extends LiveNode {
       const at = this.clock()?.nextBoundary(how.when, this.host.startOf(null)) ?? null;
       if (at === null) warnOnce(`playlist:switch-when:${this.ctx.where}:${how.when}`, `[myco] ${this.ctx.where}: a Switch change at the next ${how.when} ${MUSICAL_FALLBACK_NOTE}.`);
       else {
-        this.host.schedule(at - LOOKAHEAD, () => { if (serial === this.serial) this.apply(how, at); });
+        // ADR 0336 (pre-entry): an incoming sequence with an Entry marker starts that much early, so its timer is too.
+        const lead = how.how === "transition" ? 0 : this.preEntry(this.label);
+        this.host.schedule(at - lead - LOOKAHEAD, () => { if (serial === this.serial) this.apply(how, at); });
         return;
       }
     }
     this.apply(how, null);
   }
 
+  /** ADR 0336: seconds of pre-entry of the entry `label` plays (a sequence's first `entry` marker), 0 without one. */
+  private preEntry(label: string | null): number {
+    const index = label === null ? undefined : this.s.map[label];
+    const e = index === null || index === undefined ? undefined : this.body.entries[index];
+    return e ? preEntryOf(e, this.ctx.chain) : 0;
+  }
+
+  /** Seconds of a `TimeLength` on the playing entry's clock (a beat is the fallback 500 ms without one). */
+  private seconds(length: TimeLength, spb: number): number {
+    const s = "ms" in length ? length.ms / 1000 : length.beats * spb;
+    return s > 0 ? s : 0;
+  }
+
+  /**
+   * The outgoing entry leaves at heard `at` (ADR 0336): a crossfade fades it out over `fade` in `shape`; a cut (or no
+   * fade) at its Exit marker lets its post-exit tail ring (`ringOut`) unless the rule's `tail` is false, else stops it
+   * with a click-free cut there.
+   */
+  private leaveOld(old: LiveNode | null, how: ChangeHow, fade: number, at: number | null): void {
+    if (!old) return;
+    if (how.how !== "cut" && fade > 0) { old.leave(fade, at, how.shapeOut ?? "equalPower"); return; }
+    if (how.tail !== false && at !== null && old.hasExitMarker() && this.atExit(old, how, at)) old.ringOut(at);
+    else cutAt(old, at);
+  }
+
+  /** Whether the hand-over at `at` is the outgoing entry's Exit point (a change timed `exit`, or a beat or bar on it). */
+  private atExit(old: LiveNode, how: ChangeHow, at: number): boolean {
+    if (how.when === "exit") return true;
+    const exit = old.musicalSource()?.nextBoundary("exit", at - 1e-6) ?? null;
+    return exit !== null && Math.abs(exit - at) <= 1e-6;
+  }
+
   /**
    * The change at heard `at` (null: now). `crossfade` and `cut` swap the entries there; `transition` plays as the
    * engine's bridge (ADR 0329): the old entry leaves at the boundary, the transition plays from it, and the new entry
    * enters at the transition's Exit marker (its musical clock's next `exit`: a marker, else its loop's end, else its
-   * end), each hand-over crossfaded over `length`. A transition that can't play crossfades straight to the new entry.
+   * end). ADR 0336: each side fades in its rule's shape (`shapeOut`, `shapeIn`), the transition by its own `transitionIn`
+   * and `transitionOut` when set (else the rule's length and shapes), and an incoming sequence with an Entry marker
+   * starts its pre-entry early so the marker lands on the boundary. A transition that can't play crossfades straight
+   * to the new entry.
    */
   private apply(how: ChangeHow, at: number | null): void {
     if (this.stopped || this.host.stopped) return;
     const spb = this.clock()?.secondsPerBeat() ?? FALLBACK_SECONDS_PER_BEAT;
-    const seconds = "ms" in how.length ? how.length.ms / 1000 : how.length.beats * spb;
-    const old = this.current;
-    const fade = seconds > 0 ? seconds : 0;
-    if (how.how === "cut" || !(fade > 0)) old?.stop(CUT_FADE);
-    else old?.leave(fade, at);
+    const fade = this.seconds(how.length, spb);
+    this.leaveOld(this.current, how, fade, at);
+    const shapeIn = how.shapeIn ?? "equalPower";
     if (how.how === "transition") {
       if (!how.transition) warnOnce(`playlist:switch-transition:${this.ctx.where}`, `[myco] ${this.ctx.where}: a Switch rule plays a transition but names none; it crossfades.`);
-      else if (this.bridge(how.transition, how.how === "transition" ? fade : 0, at)) return;
+      else if (this.bridge(how, how.transition, fade, spb, at)) return;
     }
-    this.startFor(this.label, how.how === "cut" ? 0 : fade, at);
+    const lead = at !== null ? this.preEntry(this.label) : 0;
+    this.startFor(this.label, how.how === "cut" ? 0 : fade, at !== null ? at - lead : at, shapeIn);
   }
 
   /** Plays `entry` as a bridge from `at`; true when it plays (the new entry is then scheduled at its Exit marker). */
-  private bridge(entry: Entry, fade: number, at: number | null): boolean {
+  private bridge(how: ChangeHow, entry: Entry, fade: number, spb: number, at: number | null): boolean {
     const from = this.host.startOf(at);
-    const t = resolveEntry(this.host, entry, { ...this.ctx, at, fadeIn: fade }, `${this.key}/transition`, 0);
+    const tIn = how.transitionIn ? { seconds: this.seconds(how.transitionIn.length, spb), shape: how.transitionIn.shape } : { seconds: fade, shape: how.shapeIn ?? "equalPower" };
+    const tOut = how.transitionOut ? { seconds: this.seconds(how.transitionOut.length, spb), shape: how.transitionOut.shape } : { seconds: fade, shape: how.shapeOut ?? "equalPower" };
+    const t = resolveEntry(this.host, entry, { ...this.ctx, at, fadeIn: tIn.seconds, fadeInShape: tIn.shape }, `${this.key}/transition`, 0);
     if (!t || !t.sounding) return false;
     this.children.push(t);
     this.current = t;
     const exit = t.musicalSource()?.nextBoundary("exit", from + 1e-6) ?? t.end();
     const enter = exit !== null && exit > from ? exit : from;
+    const lead = this.preEntry(this.label);
     const serial = this.serial;
-    this.host.schedule(enter - LOOKAHEAD, () => {
+    this.host.schedule(enter - lead - LOOKAHEAD, () => {
       if (serial !== this.serial || this.stopped) return;
-      if (fade > 0) t.leave(fade, enter); else t.stop(CUT_FADE);
-      this.startFor(this.label, fade, enter);
+      if (tOut.seconds > 0) t.leave(tOut.seconds, enter, tOut.shape); else cutAt(t, enter);
+      this.startFor(this.label, fade, enter - lead, how.shapeIn ?? "equalPower");
     });
     return true;
   }
 }
 
-const resolveSwitch: Resolver = (host, body, ctx, key) => new SwitchNode(host, ctx, key, body);
+/**
+ * A click-free cut of `node` at heard `at` (null: now). A timed change runs a lookahead ahead of its boundary, so the
+ * cut is a stamped 5 ms fade that stops the voices there, not a stop now (ADR 0336 fixed a cut landing early).
+ */
+function cutAt(node: LiveNode, at: number | null): void {
+  if (at === null) node.stop(CUT_FADE);
+  else node.leave(CUT_FADE, at, "linear");
+}
+
+/** ADR 0336: seconds before a sequence entry's first `entry` marker (its pre-entry), 0 for anything else. */
+export function preEntryOf(entry: Entry, chain: readonly string[]): number {
+  const body = entry.kind === "embedded" ? entry.embedded : entry.kind === "linked" ? linkedPlaylist(entry.playlist, chain) : null;
+  if (!body || body.type !== "sequence" || !body.sequence) return 0;
+  const m = body.sequence.markers.find((k) => k.type === "entry");
+  return m && m.at > 0 ? m.at : 0;
+}
+
+const resolveSwitch: Resolver =(host, body, ctx, key) => new SwitchNode(host, ctx, key, body);
 
 // --- Blend -----------------------------------------------------------------------------------------------------------
 
@@ -434,6 +497,7 @@ class BlendNode extends LiveNode {
         s.env = { gain: adsrLevel(s.envAdsr, 0, null) };
       });
     }
+    if (axes.length === 1) this.normaliseRegions();
     this.input = this.readInput();
     if (this.morph) this.morph.gain = adsrLevel(this.morphAdsr(), 0, null);
     const w = this.weights();
@@ -473,8 +537,27 @@ class BlendNode extends LiveNode {
 
   private weights(): number[] {
     const [x, y] = this.input;
-    if (this.b.axes.length === 2) return blendWeights2D(this.slots.map((s) => ({ x: s.x, y: s.y })), { x, y }, this.b.fade === "layer" ? "linear" : this.b.curve);
-    return blendWeights1D(this.slots.map((s) => s.x), x, this.b.fade, this.b.curve);
+    const curves = this.slots.some((s) => s.entry.weightCurve) ? this.slots.map((s) => s.entry.weightCurve) : undefined;
+    if (this.b.axes.length === 2) return blendWeights2D(this.slots.map((s) => ({ x: s.x, y: s.y })), { x, y }, this.b.fade === "layer" ? "linear" : this.b.curve, curves);
+    return blendWeights1D(this.slots.map((s) => s.x), x, this.b.fade, this.b.curve, this.regions, curves);
+  }
+
+  /** ADR 0336: the entries' explicit 1D regions, normalised like their x (undefined when none has one). */
+  private regions: (Region1D | undefined)[] | undefined;
+
+  private normaliseRegions(): void {
+    if (!this.slots.some((s) => s.entry.region)) return;
+    const axis = this.b.axes[0];
+    let lo = 0, span = 1;
+    if ("voiceTime" in axis) span = axis.voiceTime > 0 ? axis.voiceTime : 1;
+    else {
+      const p = this.host.param(axis.parameter);
+      if (p) { const [a, b] = parameterRange(p.def); lo = a; span = b > a ? b - a : 1; }
+    }
+    this.regions = this.slots.map(({ entry: { region: r } }) => r && {
+      start: (r.start - lo) / span, end: (r.end - lo) / span, fadeIn: r.fadeIn / span, fadeOut: r.fadeOut / span,
+      ...(r.shapeIn ? { shapeIn: r.shapeIn } : {}), ...(r.shapeOut ? { shapeOut: r.shapeOut } : {}),
+    });
   }
 
   private startSlot(s: BlendSlot, at: number | null): void {

@@ -1,6 +1,6 @@
 # 0332. One curve model with Bézier keys everywhere, time as a parameter the core advances, and one curve editor
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0336 (beat-quantised lanes run as stamped gain ramps, not core bindings)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

@@ -19,7 +19,7 @@ import { renameTestValue } from "../mixer/globalParametersHost";
 import { globalParametersPanel } from "../mixer/globalParametersPanels";
 import { AddDialog } from "./AddDialog";
 import { addItems, addLabel, entriesFor } from "./addDialogModel";
-import { openCurveEditor } from "./curveEditorAdapter";
+import { openCurveEditor, openWeightCurveEditor } from "./curveEditorAdapter";
 import { LibraryList } from "./LibraryList";
 import { isSamplePath } from "./libraryModel";
 import { DeleteDialog } from "./PlaylistDialogs";
@@ -189,6 +189,18 @@ function editCurves(i: number): void {
   });
 }
 
+/** ADR 0336: a Blend entry's weight curve in the shared curve editor (one undo step). */
+function editWeightCurve(i: number): void {
+  const e = openBody.peek()?.entries[i];
+  if (!e) return;
+  openWeightCurveEditor({
+    entry: entryName(e, i),
+    context: lastCrumbName(),
+    curve: e.weightCurve,
+    apply: (curve) => editOpen(curve ? `Weight curve · ${entryName(e, i)}` : `Reset weight curve · ${entryName(e, i)}`, (b) => setEntryUse(b, i, { weightCurve: curve })),
+  });
+}
+
 const factsOfEntry = (e: Entry) => {
   if (e.kind !== "linked") return null;
   const b = loadPlaylist(e.playlist);
@@ -294,6 +306,7 @@ function EditorPanel() {
           onMakeShared={(i) => void makeShared(t.file, t.indices, i)}
           onUnlink={(i) => unlink(t.file, t.indices, i)}
           onEditCurves={editCurves}
+          onEditWeightCurve={editWeightCurve}
           onCrumb={openPlaylist}
           onRename={(name) => void renamePlaylistFile(t.file, name)}
           onAdd={() => (adding.value = true)}

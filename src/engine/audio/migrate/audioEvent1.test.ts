@@ -148,20 +148,26 @@ describe("containers (ADR 0158 nodes)", () => {
     hasNote(notes, `"Surface" is not a local parameter`);
   });
 
-  it("blend → Blend 1D with entries at range midpoints; a note where fades overlapped", () => {
+  it("blend → Blend 1D: entries at range midpoints with explicit regions (ADR 0336): the old plateaus and fades exactly, overlaps included", () => {
     const { playlist, notes } = mig({
       parameters: [{ name: "RPM", min: 0, max: 1 }],
       root: { type: "blend", parameter: "RPM", children: [clip("a.wav", { range: [0, 0.1], fade: 0.4 }), clip("b.wav", { range: [0.45, 0.55], fade: 0.4 }), clip("c.wav", { range: [0.9, 1], fade: 0.4 })] },
     });
-    expect(playlist.blend).toMatchObject({ axes: [{ parameter: "RPM" }], fade: "crossfade", curve: "linear", follow: { glideMs: 0 }, envelope: { mode: "off" } });
+    expect(playlist.blend).toMatchObject({ axes: [{ parameter: "RPM" }], fade: "crossfade", curve: "equalPower", follow: { glideMs: 0 }, envelope: { mode: "off" } });
     expect(playlist.entries.map((e) => e.x)).toEqual([0.05, 0.5, 0.95]);
+    expect(playlist.entries.map((e) => e.region)).toEqual([
+      { start: -0.4, end: 0.5, fadeIn: 0.4, fadeOut: 0.4 },
+      { start: 0.05, end: 0.95, fadeIn: 0.4, fadeOut: 0.4 },
+      { start: 0.5, end: 1.4, fadeIn: 0.4, fadeOut: 0.4 },
+    ]);
     expect(playlist.entries.every((e) => e.atZeroWeight === "continue")).toBe(true);
-    hasNote(notes, "fades overlapped");
+    expect(notes).toEqual([]);
   });
 
-  it("blend children with plateaus or gaps between fades are noted", () => {
-    const { notes } = mig({ root: { type: "blend", parameter: "X", children: [clip("a.wav", { range: [0, 0.1], fade: 0.2 }), clip("b.wav", { range: [0.9, 1], fade: 0.2 })] } });
-    hasNote(notes, "plateaus and fade widths became points");
+  it("blend children with plateaus or gaps between fades keep them as regions", () => {
+    const { playlist, notes } = mig({ root: { type: "blend", parameter: "X", children: [clip("a.wav", { range: [0, 0.1], fade: 0.2 }), clip("b.wav", { range: [0.9, 1], fade: 0.2 })] } });
+    expect(playlist.entries.map((e) => e.region)).toEqual([{ start: -0.2, end: 0.3, fadeIn: 0.2, fadeOut: 0.2 }, { start: 0.7, end: 1.2, fadeIn: 0.2, fadeOut: 0.2 }]);
+    expect(notes).toEqual([]);
   });
 
   it("blend children at points whose fades reach their neighbours migrate without a note", () => {
@@ -420,7 +426,7 @@ describe("interactive music", () => {
     }, lengths({ "m/a.wav": 8 }));
     expect(playlist.sequence!.loops).toEqual([
       { id: "all", start: 0, end: 8, active: "always", exit: "finish", exitFadeMs: 0, reentry: "ignore" },
-      { id: "hold", start: 0, end: 2, active: "parameter", binding: { parameter: "Loop", op: "<", value: 0.5 }, exit: "finish", exitFadeMs: 0, reentry: "ignore" },
+      { id: "hold", start: 0, end: 2, active: "parameter", binding: { parameter: "Loop", op: "<", value: 0.5 }, exit: "finish", exitFadeMs: 0, reentry: "ignore", tail: true },
       { id: "rel", start: 2, end: 4, active: "parameter", binding: { parameter: "Loop", op: ">", value: 0.5 }, exit: "finish", exitFadeMs: 0, reentry: "ignore" },
       { id: "n", start: 4, end: 6, active: "parameter", binding: { parameter: "N", op: ">", value: 0.5 }, exit: "finish", exitFadeMs: 0, reentry: "ignore" },
     ]);
@@ -463,7 +469,7 @@ describe("interactive music", () => {
     expect(notes.some((n) => n.includes(".end:"))).toBe(false);
   });
 
-  it("stem automation → track automation (volume in dB; low-pass via an effect); quantize is noted", () => {
+  it("stem automation → track automation (volume in dB; low-pass via an effect); a quantised volume binding is a quantised lane (ADR 0336)", () => {
     const { playlist, notes } = mig({
       root: segment({ tracks: [{ name: "a", clip: "m/a.wav", automation: [{ parameter: "I", target: "volume", curve: [[0, 0], [1, 1]], quantize: "beat" }, { parameter: "I", target: "lowpass", curve: [[0, 300]] }] }] }),
     }, lengths({ "m/a.wav": 2 }));
@@ -471,7 +477,9 @@ describe("interactive music", () => {
     expect(t.automation[0]).toMatchObject({ target: "volume", input: { parameter: "I" } });
     expect(t.automation[0].curve[0]).toEqual([0, -96]);
     expect(t.automation[1].target).toBe(`fx:${t.effects[0].id}:cutoff`);
-    hasNote(notes, `quantize "beat"`);
+    expect(t.automation[0].quantize).toBe("beat");
+    expect(t.automation[1].quantize).toBeUndefined();
+    expect(notes.some((n) => n.includes("quantize"))).toBe(false);
   });
 
   it("music playlist → continuous Queue; sequence mode repeats children by plays; rounds noted", () => {
@@ -515,13 +523,27 @@ describe("interactive music", () => {
     expect(sw.rules[0]).toEqual({ from: "explore", to: "combat", when: "beat", how: "cut", length: { beats: 0 } });
     expect(sw.rules[1]).toMatchObject({ from: "combat", to: "explore", when: "exit", how: "transition", length: { ms: 500 } });
     expect((sw.rules[1].transition as EmbeddedEntry).embedded.sequence!.tracks[0].clips[0].sample).toBe("m/r.wav");
-    expect(sw.rules[2]).toEqual({ from: "combat", to: "*", when: "now", how: "crossfade", length: { beats: 2 } });
+    expect(sw.rules[2]).toEqual({ from: "combat", to: "*", when: "now", how: "crossfade", length: { beats: 2 }, shapeIn: "linear" });
     expect(sw.rules[3].when).toBe("exit");
     expect(sw.rules[4].when).toBe("bar");
     hasNote(notes, "fade out and fade in differ");
     hasNote(notes, `enter "sameTime"`);
     hasNote(notes, `exit "nextCue" became "exit"`);
     hasNote(notes, `"every 2 bars" became "bar"`);
+  });
+
+  it("ADR 0336: transition curves are shapes; a bridge's own fades are its transition fades; a region's tail rings to the segment's exit", () => {
+    const { playlist, notes } = mig(world([
+      { from: "explore", to: "combat", exit: "bar", fadeOut: { beats: 4, curve: "sCurve" }, fadeIn: { beats: 4, curve: "sCurve" }, bridge: { segment: "riser", fadeOut: { beats: 0 }, fadeIn: { seconds: 0.25, curve: "linear" } } },
+    ]), lengths({ "m/a.wav": 4, "m/r.wav": 2 }));
+    expect(playlist.switch!.rules[0]).toMatchObject({
+      how: "transition", length: { beats: 4 }, shapeOut: "sCurve", shapeIn: "sCurve",
+      transitionOut: { length: { beats: 0 }, shape: "equalPower" }, transitionIn: { length: { ms: 250 }, shape: "linear" },
+    });
+    expect(notes.some((n) => n.includes("curves") || n.includes("bridge's own fades"))).toBe(false);
+    const loop = mig({ root: segment({ cues: [{ name: "exit", at: "end" }], regions: [{ id: "body", from: "1:1:0", to: "2:1:0", count: 0, tailBeats: 4 }] }) }, lengths({ "m/a.wav": 4 }));
+    expect(loop.playlist.sequence!.loops[0]).toMatchObject({ start: 0, end: 2, tail: true });
+    expect(loop.notes.some((n) => n.includes("tailBeats"))).toBe(false);
   });
 
   it("stingers → stingers with the library segment embedded; at, ifLate, dontRepeat, volume and bus kept", () => {

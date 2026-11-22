@@ -42,7 +42,36 @@ A Switch on a labelled parameter plays the entry its `map` names for the current
 
 - **Matching:** each side scores 2 for its exact label and 0 for `"*"`; the highest total wins and the first listed breaks a tie. No match uses `onChange`.
 - **When:** `now`, `beat`, `bar` (the playing entry's clock), `exit` (its next Exit marker, else its loop's end, else its end) or `nextTrigger` (the new label waits for the next play).
-- **How:** `crossfade` over `length` (equal power), `cut`, or `transition`: the old entry leaves at the boundary, the transition playlist plays, and the new entry enters at the transition's Exit marker (or its end), each hand-over crossfaded over `length`.
+- **How:** `crossfade` over `length`, `cut`, or `transition`: the old entry leaves at the boundary, the transition playlist plays, and the new entry enters at the transition's Exit marker (or its end), each hand-over crossfaded over `length`.
+
+### Fade shapes, tails and bridge fades (ADR 0336)
+
+```jsonc
+{ "from": "explore", "to": "calm", "when": "bar", "how": "crossfade", "length": { "beats": 4 },
+  "shapeOut": "linear", "shapeIn": "sCurve" },
+{ "from": "calm", "to": "combat", "when": "bar", "how": "transition", "length": { "beats": 1 },
+  "transition": { "playlist": "audio/music/riser.playlist.json" },
+  "transitionIn": { "length": { "beats": 0 }, "shape": "linear" },          // the riser enters at full level
+  "transitionOut": { "length": { "ms": 300 }, "shape": "exp2" } },          // and fades out slowly at first
+{ "from": "*", "to": "explore", "when": "exit", "how": "cut", "length": { "ms": 0 }, "tail": true }
+```
+
+- **Shapes** (`shapeOut` for the leaving entry, `shapeIn` for the arriving one; default `equalPower`): `linear`, `equalPower`
+  (sin in, cos out: constant power), `sCurve`, `invSCurve`, `log1`/`log2`/`log3` (most of the change early) and
+  `exp1`/`exp2`/`exp3` (most of it late), the Wwise set. A shape the audio core has a law for (`linear`, `sCurve`,
+  `equalPower`) is one stamped fade; the others are twelve stamped linear pieces on the exact curve. The same shapes
+  pick a continuous Queue's overlap (`"continuous": { "gapMs": -500, "shape": "sCurve" }`), a sequence loop's crossfade
+  exit (`"exitShape"`), a 1D Blend region's fades, and a bridge's own fades.
+- **Post-exit tail** (Wwise's post-exit): a section's **Exit marker** (a sequence `exit` marker, or a sample's Exit
+  marker) is its musical exit; the audio after it is its tail. When a change *cuts* at that Exit point (`when: "exit"`,
+  or a beat or bar that lands on it), the old section isn't cut: its loops are let go by their exit settings (a held
+  sample loop exits into the audio after it) and its audio plays on to its natural end under the next section. A
+  crossfade still fades it (`length` with `shapeOut`). `"tail": false` cuts as before. A section with no Exit marker has
+  no tail. An always-active sample loop can't be let go, so it is still cut.
+- **Pre-entry:** a sequence `entry` marker (`"type": "entry"`) is the point a Switch lands on its boundary: the audio
+  before it (a pickup) starts that much early.
+- **Bridge fades:** a transition's own `transitionIn` and `transitionOut` (length and shape, as a Wwise transition
+  segment's); absent, the rule's `length` and shapes.
 
 ## Sequences
 
@@ -51,7 +80,21 @@ A Sequence has a `length`, an optional `tempo`, **tracks** (audio tracks hold sa
 - **Sync clips** (`sync: true`, the default for music samples in the Studio) are locked to the playhead: when a sequence loop wraps, their audio starts again from the loop's start, sample-exact. Stems are sync clips on parallel tracks; where sync loops overlap, the higher track drives the playhead and the others follow.
 - **Async clips** run their own voice clock and loop only by their sample's own loops; they aren't cut when the playhead leaves them.
 - **Loops** wrap while active (`always`, `held` until `release()`, or bound to a parameter: `"binding": { "parameter": "Loop", "op": "<", "value": 0.5 }`). An inactive loop is left by its `exit` (`finish` plays the pass out, `jump`, `crossfade`); `reentry: "reenter"` jumps back in when it turns active again. A loop under 1 ms long is a **hold point**: the playhead parks there while it is active.
-- **Markers:** `cue` markers report to the game, `exit` markers are where Switch rules timed `exit` and sync clips may leave.
+- **Loop tails** (ADR 0336): `"tail": true` on a sequence loop rings the audio from the loop's end to the next `exit`
+  marker after it over the next pass at each wrap (a reverb or cymbal decay that would otherwise be spliced off). The
+  Studio shades a loop's tail and the post-exit tail on the timeline.
+- **Markers:** `cue` markers report to the game, `exit` markers are where Switch rules timed `exit` and sync clips may
+  leave (what follows the last one is the post-exit tail), `entry` markers are where a Switch lands the sequence.
+- **Beat-quantised automation** (ADR 0336, for rhythm games): a volume, enabled or gain lane keyed on a parameter may
+  set `"quantize": "beat" | "bar" | { "beats": n }`. A parameter change then takes effect exactly on the next boundary of
+  the instance's musical clock (counted from the bar for `beats`), as a 20 ms ramp stamped at that sample on the audio
+  clock, not at the frame the game set it. The last change before the boundary's ramp is stamped (a quarter second
+  ahead) wins; one later moves at the following boundary. Without a tempo it moves at once (the Studio lints it).
+
+  ```jsonc
+  "automation": [{ "id": "a1", "target": "volume", "input": { "parameter": "Intensity" },
+                   "curve": [[0.2, -96], [0.6, 0]], "quantize": "beat" }]
+  ```
 - **Hot reload:** saving a playing sequence swaps it at the next bar (at once without a tempo), continuing at the same time when the tempo is unchanged.
 
 `untilStopped` in `playback` keeps a music instance alive after the playhead ends until the game stops it.
@@ -78,7 +121,10 @@ The migration (`npm run audio:migrate`, or on opening the project) maps each mus
 | cues; `entry`/`exit` | sequence markers; Exit markers |
 | regions with `while` | loops bound to the parameter; a whole-segment loop an `always` loop |
 | music `playlist` | continuous round-robin Queue (`rounds` are not kept: it plays until stopped) |
-| `musicSwitch` and its transition rules | Switch; exit `beat`/`bar`/`exitCue` → `when`, fades → `length`, bridge → `transition` |
+| `musicSwitch` and its transition rules | Switch; exit `beat`/`bar`/`exitCue` → `when`, fades → `length`, fade curves → `shapeOut`/`shapeIn`, bridge → `transition` with its own fades as `transitionIn`/`transitionOut` |
+| a region's `tailBeats` | the loop's `tail`, ringing to the next Exit marker (one is added at the tail's end when none follows the loop) |
+| a stem's quantised volume automation | a `quantize`d volume lane |
 | stingers | stingers |
 
-Not kept (each noted per file): fade curves (crossfades are the runtime's equal power), a region's `tailBeats`, quantised automation (curves follow the parameter continuously), finite region counts, and the bridge's own fades.
+Not kept (each noted per file): fade offsets, different fade-out and fade-in lengths (the longer is the crossfade),
+quantised low-pass automation, and finite region counts.

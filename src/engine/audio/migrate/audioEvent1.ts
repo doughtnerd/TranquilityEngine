@@ -37,7 +37,7 @@ import { RULE_WILDCARD, type StingerAt, type StingerDef, type TransitionExit, ty
 import { comparePositions, isBarBeatTick, MUSIC_TICKS_PER_BEAT, parsePosition, type BarBeatTick } from "../musicPosition";
 import type { GridSpec } from "../musicTypes";
 import {
-  PLAYLIST_FORMAT, type Automation, type ChangeHow, type ChangeRule, type ChangeWhen, type Clip, type EmbeddedEntry, type Entry,
+  PLAYLIST_FORMAT, type Automation, type ChangeHow, type Fade, type ChangeRule, type ChangeWhen, type Clip, type EmbeddedEntry, type Entry,
   type EntryUse, type LoopBehaviour, type PlaybackRules, type PlaylistAsset, type PlaylistBody, type PlaylistType, type SampleEntry,
   type SequenceLoop, type SequenceMarker, type SequenceSettings, type Stinger, type Track, type VoiceCurve,
   type VoiceCurveTarget,
@@ -141,7 +141,7 @@ const COMBINE: Record<VoiceCurveTarget, (a: number, b: number) => number> = {
 };
 
 /** An old curve binding, unit-converted, before it lands on an entry, a track or a clip. */
-interface Binding { parameter: string; target: VoiceCurveTarget; curve: CurveKey[] }
+interface Binding { parameter: string; target: VoiceCurveTarget; curve: CurveKey[]; where: string; quantize?: "beat" | "bar" }
 
 class Migrator {
   readonly notes = new Set<string>();
@@ -172,13 +172,15 @@ class Migrator {
   bindings(automation: readonly (EventAutomation | MusicAutomation)[], where: string): Binding[] {
     return automation.map((a, i) => {
       const t = CURVE_TARGETS[a.target];
-      if ("quantize" in a && a.quantize) this.note(`${where}.automation[${i}]`, `quantize "${a.quantize}" is not kept; the curve follows the parameter continuously.`);
-      return { parameter: a.parameter, target: t.target, curve: mapCurve(a.curve, t.map, t.resample, MAX_KEYS) };
+      const b: Binding = { parameter: a.parameter, target: t.target, curve: mapCurve(a.curve, t.map, t.resample, MAX_KEYS), where: `${where}.automation[${i}]` };
+      if ("quantize" in a && a.quantize) b.quantize = a.quantize;
+      return b;
     });
   }
 
   /** Put a curve on an entry's voice curves, combining with one already there on the same parameter. */
   addCurve(curves: EntryUse["curves"], b: Binding, where: string): void {
+    if (b.quantize) this.note(b.where, `quantize "${b.quantize}" is not kept on an entry's voice curve (only sequence automation lanes quantise); the curve follows the parameter continuously.`);
     const have = curves[b.target];
     const vc: VoiceCurve = { input: { parameter: b.parameter }, curve: b.curve, bypass: false };
     if (!have) { curves[b.target] = vc; return; }
@@ -195,7 +197,9 @@ class Migrator {
   automation(bindings: readonly Binding[], effects: Effect[], idPrefix: string): Automation[] {
     return bindings.map((b, i): Automation => {
       const base = { id: `${idPrefix}a${i + 1}`, input: { parameter: b.parameter }, curve: b.curve, bypass: false };
-      if (b.target === "gain") return { ...base, target: "volume" };
+      // ADR 0336: a stem's quantised volume binding is a quantised lane (low-pass lanes can't be quantised).
+      if (b.target === "gain") return { ...base, target: "volume", ...(b.quantize ? { quantize: b.quantize } : {}) };
+      if (b.quantize) this.note(b.where, `quantize "${b.quantize}" on ${b.target} is not kept (only volume lanes quantise); the curve follows the parameter continuously.`);
       if (b.target === "pitch") return { ...base, target: "pitch" };
       const fx: Effect = { id: `${idPrefix}fx${effects.length + 1}`, type: b.target === "lowpass" ? "lowpass" : "highpass", on: true, params: {} };
       effects.push(fx);
@@ -412,8 +416,10 @@ class Migrator {
   }
 
   /**
-   * A blend: Blend 1D on the parameter, each child at its range's midpoint, neighbours crossfading linearly. The old
-   * per-child plateau (`range`) and fade width can't be kept; a note says where they differ from the new crossfade.
+   * A blend: Blend 1D on the parameter, each child anchored at its range's midpoint with an explicit region (ADR 0336):
+   * full level across the old `range`, fading in over `fade` below it and out over `fade` above it, equal power (the old
+   * runtime's sin/cos edges), so the weights are the old ones exactly, overlaps included. A child with no range (it
+   * played at every value) has no region and is placed at x = its index.
    */
   blend(n: BlendNode, where: string): PlaylistBody {
     const body = newBody("blend");
@@ -423,26 +429,16 @@ class Migrator {
       return e;
     });
     const xs = n.children.map((c, i) => (c.range ? tidy((c.range[0] + c.range[1]) / 2) : i));
-    body.entries.forEach((e, i) => { e.x = xs[i]; });
+    body.entries.forEach((e, i) => {
+      e.x = xs[i];
+      const c = n.children[i];
+      if (c.range) e.region = { start: tidy(c.range[0] - c.fade), end: tidy(c.range[1] + c.fade), fadeIn: tidy(c.fade), fadeOut: tidy(c.fade) };
+    });
     n.children.forEach((c, i) => {
-      if (!c.range) this.note(`${where}.children[${i}]`, `no range; placed at x = ${i}.`);
+      if (!c.range) this.note(`${where}.children[${i}]`, `no range; placed at x = ${i} (it plays by the neighbours' crossfade, where the old blend played it at every value).`);
     });
-    // Old: full level across `range`, fading over `fade` beyond each end. New: full only at x, linear to the neighbours.
-    const order = n.children.map((c, i) => ({ c, x: xs[i] })).filter((o) => o.c.range).sort((a, b) => a.x - b.x);
-    const eps = 1e-9;
-    const differs = order.some(({ c, x }, k) => {
-      const prev = order[k - 1], next = order[k + 1];
-      return c.range![1] > c.range![0] || (prev && Math.abs(x - prev.x - c.fade) > eps) || (next && Math.abs(next.x - x - c.fade) > eps);
-    });
-    const overlap = order.some(({ c }, k) => {
-      const next = order[k + 1];
-      // A fade that reaches into the neighbour's plateau (old: both play at full there; new: they crossfade).
-      return next !== undefined && (c.range![1] + c.fade > next.c.range![0] + eps || next.c.range![0] - next.c.fade < c.range![1] - eps);
-    });
-    if (overlap) this.note(where, "children's fades overlapped; the blend now crossfades between neighbours at their range midpoints.");
-    else if (differs) this.note(where, "children's plateaus and fade widths became points at their range midpoints with linear crossfades between neighbours.");
     body.blend = {
-      axes: [{ parameter: n.parameter }], fade: "crossfade", curve: "linear", follow: { glideMs: 0 },
+      axes: [{ parameter: n.parameter }], fade: "crossfade", curve: "equalPower", follow: { glideMs: 0 },
       envelope: { mode: "off", low: { attackMs: 0, decayMs: 0, sustain: 1, releaseMs: 0 }, high: { attackMs: 0, decayMs: 0, sustain: 1, releaseMs: 0 } },
     };
     return body;
@@ -691,7 +687,7 @@ class Migrator {
       if (r.while) loop.binding = this.binding(r.while, w);
       else if (r.count === 0) this.loopsForever = true;
       if (r.count > 0) this.note(w, `region "${r.id}" played ${r.count} passes; the loop now repeats ${r.while ? "while its binding holds" : "until the instance is stopped"}.`);
-      if (r.tailBeats) this.note(w, `region "${r.id}": tailBeats ${r.tailBeats} (the ringing past the loop end) is not kept.`);
+      if (r.tailBeats) this.tail(seq, loop, r.tailBeats, r.id, w);
       seq.loops.push(loop);
     });
     if (!wholeLoop) return this.sequenceBody(seq);
@@ -699,6 +695,25 @@ class Migrator {
     queue.entries = [{ kind: "embedded", embedded: this.sequenceBody(seq), ...newUse() }];
     queue.queue = { pick: "roundRobin", avoidRepeat: 0, continuous: this.continuous(0, where) };
     return queue;
+  }
+
+  /**
+   * ADR 0336: a region's `tailBeats` as the loop's tail, which rings the audio from the loop's end to the next Exit
+   * marker after it. Exact when that marker is `tailBeats` after the loop's end (music-loop's shape: the tail runs to the
+   * segment's exit at its end); a marker elsewhere rings that far instead (noted); with none after the loop, one is
+   * added at the tail's end when nothing else uses Exit markers there (noted), else the tail is dropped (noted).
+   */
+  tail(seq: SequenceSettings, loop: SequenceLoop, beats: number, id: string, where: string): void {
+    const bpm = seq.tempo?.bpm ?? 120;
+    const seconds = tidy((beats * 60) / bpm);
+    const end = tidy(loop.end + seconds);
+    const next = seq.markers.filter((m) => m.type === "exit" && m.at > loop.end + 1e-9).sort((a, b) => a.at - b.at)[0];
+    loop.tail = true;
+    if (next && Math.abs(next.at - end) <= 1e-6) return;
+    if (next) { this.note(where, `region "${id}": tailBeats ${beats} rings to the next Exit marker ("${next.name}", ${tidy(next.at - loop.end)} s after the loop) instead of ${seconds} s.`); return; }
+    if (seq.length > 0 && end > seq.length + 1e-9) { delete loop.tail; this.note(where, `region "${id}": tailBeats ${beats} runs past the segment's end; the tail is not kept.`); return; }
+    seq.markers.push({ id: `m${seq.markers.length + 1}`, name: `${id} tail`, at: end, type: "exit" });
+    this.note(where, `region "${id}": an Exit marker "${id} tail" was added at the tail's end (${end} s) so the loop's tail rings ${seconds} s; a Switch timed to Exit can now leave there too.`);
   }
 
   /** Music children as queue or switch entries. */
@@ -767,19 +782,29 @@ class Migrator {
     const longer = out.unit === inn.unit ? (out.amount >= inn.amount ? out : inn) : out;
     if (out.unit !== inn.unit || out.amount !== inn.amount) this.note(where, `fade out and fade in differ; the crossfade length is the ${longer === out ? "fade out" : "fade in"}'s.`);
     if (out.offset !== 0 || inn.offset !== 0) this.note(where, "fade offsets are not kept.");
-    if (out.curve !== "equalPower" || inn.curve !== "equalPower") this.note(where, `fade curves (${out.curve}/${inn.curve}) are not kept; the crossfade is the runtime's.`);
     if (rule.enter !== "entryCue") this.note(where, `enter ${typeof rule.enter === "string" ? `"${rule.enter}"` : `at cue "${rule.enter.cue}"`} is not kept; the new entry starts from its start.`);
     const how: ChangeHow = { when, how: longer.amount > 0 ? "crossfade" : "cut", length: this.fadeLength(longer) };
+    // ADR 0336: the fade curves are the shapes (linear, sCurve and equalPower are all in the new set).
+    if (out.curve !== "equalPower") how.shapeOut = out.curve;
+    if (inn.curve !== "equalPower") how.shapeIn = inn.curve;
     if (rule.bridge) {
       const seg = library.get(rule.bridge.segment);
       if (!seg) this.note(where, `bridge "${rule.bridge.segment}" names no library segment; dropped.`);
       else {
         how.how = "transition";
         how.transition = this.entry(seg, `${where}.bridge`);
-        if (rule.bridge.fadeIn || rule.bridge.fadeOut) this.note(where, "the bridge's own fades are not kept; the rule's length is the crossfade.");
+        // ADR 0336: the bridge's own fades (absent: the rule's, as the old runtime read them).
+        if (rule.bridge.fadeIn) how.transitionIn = this.fade(rule.bridge.fadeIn, `${where}.bridge.fadeIn`);
+        if (rule.bridge.fadeOut) how.transitionOut = this.fade(rule.bridge.fadeOut, `${where}.bridge.fadeOut`);
       }
     }
     return how;
+  }
+
+  /** ADR 0336: an old transition fade as a fade (its offset is not kept). */
+  fade(f: TransitionFade, where: string): Fade {
+    if (f.offset !== 0) this.note(where, "the fade offset is not kept.");
+    return { length: this.fadeLength(f), shape: f.curve };
   }
 
   exitWhen(exit: TransitionExit, where: string): ChangeWhen {

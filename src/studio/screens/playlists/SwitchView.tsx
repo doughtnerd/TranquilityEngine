@@ -10,6 +10,8 @@ import { NumberBox, SelectBox, Section } from "./fields";
 import type { BodyEdit } from "./EntryList";
 import { addRule, changeLength, removeRule, setLabelEntry, setLabelGain, setOnChange, setRule, setSwitchParameter, type EditContext } from "./playlistEdits";
 import { entryName, playlistTitle } from "./playlistPaths";
+import { FadeShapeSelect } from "./FadeShapeSelect";
+import { Fragment } from "preact";
 
 export interface SwitchViewProps {
   readonly body: PlaylistBody;
@@ -71,6 +73,45 @@ export function SwitchView(props: SwitchViewProps) {
     </>
   );
 
+  /** ADR 0336: a bridge fade's controls: its length (the rule's unit) and shape; "rule's" when unset. */
+  const bridgeFade = (c: ChangeHow, which: "transitionIn" | "transitionOut", set: (patch: Partial<ChangeHow>, label: string) => void, name: string) => {
+    const f = c[which];
+    const what = which === "transitionIn" ? "fade in" : "fade out";
+    const unit = unitOf(c);
+    return (
+      <span class="pl-inline">
+        <span class="pl-faint">Bridge {what}</span>
+        <input type="checkbox" aria-label={`${name}: bridge ${what} of its own`} checked={!!f} disabled={!writable}
+          title={`Off: the bridge uses the rule's length and ${which === "transitionIn" ? "fade-in" : "fade-out"} shape`}
+          onChange={(e) => set({ [which]: (e.currentTarget as HTMLInputElement).checked ? { length: unit === "ms" ? { ms: lengthOf(c) } : { beats: lengthOf(c) }, shape: (which === "transitionIn" ? c.shapeIn : c.shapeOut) ?? "equalPower" } : undefined }, "Change setting")} />
+        {f && (
+          <>
+            <NumberBox label={`${name}: bridge ${what} length`} value={"ms" in f.length ? f.length.ms : f.length.beats} min={0} max={9999} step={"ms" in f.length ? 10 : 0.25} digits={"ms" in f.length ? 0 : 2} disabled={!writable}
+              onValue={(v) => set({ [which]: { ...f, length: "ms" in f.length ? { ms: Math.round(v) } : { beats: v } } }, "Change setting")} />
+            <span class="pl-unit">{"ms" in f.length ? "ms" : "beats"}</span>
+            <FadeShapeSelect label={`${name}: bridge ${what} shape`} out={which === "transitionOut"} value={f.shape} disabled={!writable} onValue={(v) => set({ [which]: { ...f, shape: v } }, "Change setting")} />
+          </>
+        )}
+      </span>
+    );
+  };
+
+  /** ADR 0336: a change's fade shapes, its post-exit tail and (a transition) the bridge's own fades. */
+  const fadesRow = (c: ChangeHow, set: (patch: Partial<ChangeHow>, label: string) => void, name: string) => (
+    <div class="pl-tr pl-fades" role="row">
+      <span class="pl-fades-cell" role="cell">
+        <span class="pl-inline"><span class="pl-faint">Fade out</span><FadeShapeSelect label={`${name}: fade-out shape`} out value={c.shapeOut ?? "equalPower"} disabled={!writable || c.how === "cut"} onValue={(v) => set({ shapeOut: v === "equalPower" ? undefined : v }, "Change setting")} /></span>
+        <span class="pl-inline"><span class="pl-faint">Fade in</span><FadeShapeSelect label={`${name}: fade-in shape`} value={c.shapeIn ?? "equalPower"} disabled={!writable || c.how === "cut"} onValue={(v) => set({ shapeIn: v === "equalPower" ? undefined : v }, "Change setting")} /></span>
+        <label class="pl-inline" title="When the playing entry has an Exit marker and the change lands on it, the audio after the marker rings on under the next entry instead of being cut (a crossfade still fades it)">
+          <input type="checkbox" aria-label={`${name}: let the tail ring`} checked={c.tail !== false} disabled={!writable || c.when === "now" || c.when === "nextTrigger"} onChange={(e) => set({ tail: (e.currentTarget as HTMLInputElement).checked ? undefined : false }, "Change setting")} />
+          <span class="pl-faint">Let the tail ring</span>
+        </label>
+        {c.how === "transition" && bridgeFade(c, "transitionIn", set, name)}
+        {c.how === "transition" && bridgeFade(c, "transitionOut", set, name)}
+      </span>
+    </div>
+  );
+
   return (
     <div class="pl-switch">
       <Section title="Labels" note="A labelled game parameter picks what plays. Several labels may share an entry.">
@@ -125,6 +166,7 @@ export function SwitchView(props: SwitchViewProps) {
             <span role="columnheader">Transition</span>
           </div>
           <div class="pl-tr" role="row">{changeRow(s.onChange, (patch, label) => onEdit(label, (b) => setOnChange(b, patch)), "Default")}</div>
+          {fadesRow(s.onChange, (patch, label) => onEdit(label, (b) => setOnChange(b, patch)), "Default")}
         </div>
       </Section>
       <Section
@@ -152,7 +194,8 @@ export function SwitchView(props: SwitchViewProps) {
             {s.rules.map((r, i) => {
               const lint = props.lints.filter((x) => x.where === `${props.rulePrefix}[${i}]` || x.where.startsWith(`${props.rulePrefix}[${i}].`));
               return (
-                <div key={i} class={`pl-tr${lint.length ? " pl-has-lint" : ""}`} role="row">
+                <Fragment key={i}>
+                <div class={`pl-tr${lint.length ? " pl-has-lint" : ""}`} role="row">
                   <SelectBox label={`Rule ${i + 1}: from`} value={r.from} disabled={!writable} options={sideOptions} onValue={(v) => onEdit("Change setting", (b) => setRule(b, i, { from: v }))} />
                   <SelectBox label={`Rule ${i + 1}: to`} value={r.to} disabled={!writable} options={sideOptions} onValue={(v) => onEdit("Change setting", (b) => setRule(b, i, { to: v }))} />
                   {changeRow(r, (patch, label) => onEdit(label, (b) => setRule(b, i, patch)), `Rule ${i + 1}`)}
@@ -165,6 +208,8 @@ export function SwitchView(props: SwitchViewProps) {
                     </p>
                   ))}
                 </div>
+                {fadesRow(r, (patch, label) => onEdit(label, (b) => setRule(b, i, patch)), `Rule ${i + 1}`)}
+                </Fragment>
               );
             })}
           </div>

@@ -368,7 +368,9 @@
         "how": "crossfade",
         "length": {
           "beats": 4
-        }
+        },
+        "shapeOut": "linear",
+        "shapeIn": "linear"
       },
       {
         "from": "calm",
@@ -377,7 +379,9 @@
         "how": "crossfade",
         "length": {
           "beats": 4
-        }
+        },
+        "shapeOut": "sCurve",
+        "shapeIn": "sCurve"
       },
       {
         "from": "calm",
@@ -424,6 +428,18 @@
               ]
             }
           }
+        },
+        "transitionIn": {
+          "length": {
+            "beats": 0
+          },
+          "shape": "equalPower"
+        },
+        "transitionOut": {
+          "length": {
+            "beats": 0
+          },
+          "shape": "equalPower"
         }
       }
     ]

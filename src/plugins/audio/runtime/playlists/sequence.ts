@@ -49,7 +49,8 @@ import { clipGeometry, clipTimesOf, pieceAt, type ClipGeometry } from "./clipMap
 import { shiftedCurve, type TimeCurve } from "./curves";
 import { playlistEffectProps } from "./effects";
 import { automationParts, type TimeAuto } from "./levelAutomation";
-import { LiveNode, type Ctx, type LoopRun, type NodeHost, type PVoice } from "./liveNode";
+import { LiveNode, shapedFade, type Ctx, type LoopRun, type NodeHost, type PVoice } from "./liveNode";
+import type { FadeShape } from "../../../../engine/audio/playlist/types";
 import { linkedPlaylist, loadPlaylist } from "./loader";
 import type { MusicalBoundary, MusicalPosition, MusicalSource } from "./musical";
 import { notePick, resolveBody } from "./nodes";
@@ -281,7 +282,8 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     }
   }
 
-  private readonly isActive = (i: number): boolean => this.active(this.loops[i]!.behaviour);
+  /** ADR 0336: a sequence ringing out its post-exit tail (`ringOut`) has every loop inactive, so each is left by its exit. */
+  private readonly isActive = (i: number): boolean => !this.ringing && this.active(this.loops[i]!.behaviour);
 
   // --- planning ----------------------------------------------------------------------------------------------------
 
@@ -324,12 +326,12 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     this.history.push(m);
     switch (m.kind) {
       case "run": this.onRun(m.from, m.to, m.at); break;
-      case "jump": this.onJump(m.from, m.to, m.at, m.fadeMs / 1000); break;
+      case "jump": this.onJump(m.from, m.to, m.at, m.fadeMs / 1000, m.loop, m.why); break;
       case "park":
         this.markersAt(m.position, m.at);
         this.firedAt = m.position;
         break;
-      case "end": this.onEnd(m.at); break;
+      case "end": this.onEnd(m.at, m.position); break;
     }
   }
 
@@ -379,29 +381,77 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     }
   }
 
-  private onJump(from: number, to: number, at: number, fade: number): void {
-    void from;
+  private onJump(from: number, to: number, at: number, fade: number, loop = -1, why = "seek"): void {
     const f = fade > 0 ? fade : SPLICE_FADE;
+    // ADR 0336: a sequence loop's crossfade exit in its shape, and a wrap's tail: the audio from the loop's end to the
+    // next Exit marker after it rings on over the next pass.
+    const own = loop >= 0 && loop < this.settings.loops.length ? this.settings.loops[loop]! : null;
+    const shape = own?.exitShape ?? "equalPower";
+    const tail = why === "wrap" && own?.tail ? this.tailAfter(from) : 0;
     for (const c of this.clips) {
       const lands = to >= c.start - EPS && to < c.end - EPS;
       if (c.inside) {
-        if (c.sync) this.endClip(c, at, f, fade > 0);
-        else if (to < c.start - EPS) this.endClip(c, at, Math.max(f, CUT_FADE), fade > 0);
+        const cut = c.sync || to < c.start - EPS;
+        if (cut && tail > 0 && c.end > from + EPS) this.ringClip(c, from, at, tail);
+        else if (c.sync) this.endClip(c, at, f, fade > 0, shape);
+        else if (to < c.start - EPS) this.endClip(c, at, Math.max(f, CUT_FADE), fade > 0, shape);
         c.inside = false;
-      } else if (!c.sync && to < c.start - EPS && this.clipSounding(c)) this.endClip(c, at, Math.max(f, CUT_FADE), fade > 0);
+      } else if (!c.sync && to < c.start - EPS && this.clipSounding(c)) this.endClip(c, at, Math.max(f, CUT_FADE), fade > 0, shape);
       if (!lands) continue;
       c.inside = true;
       if (!c.sync && this.clipSounding(c)) continue; // an async clip still sounding isn't restarted
-      this.startClip(c, to - c.start, at, fade);
+      this.startClip(c, to - c.start, at, fade, shape);
     }
   }
 
-  private onEnd(at: number): void {
+  /** ADR 0336: seconds from sequence time `s` to the first `exit` marker after it, 0 with none (no tail). */
+  private tailAfter(s: number): number {
+    let best = Number.POSITIVE_INFINITY;
+    for (const m of this.settings.markers) if (m.type === "exit" && m.at > s + EPS && m.at < best) best = m.at;
+    return Number.isFinite(best) ? best - s : 0;
+  }
+
+  /**
+   * ADR 0336: clip `c`, playing at sequence time `s` (a loop's end) at heard `at`, rings on `seconds` past it instead of
+   * being cut: its voice plays on when its piece runs past `s`, else a tail voice plays the audio after `s`; a playlist
+   * clip's node keeps playing. Each ends with a short fade at `at + seconds` (or at its own end, if sooner).
+   */
+  private ringClip(c: ClipRt, s: number, at: number, seconds: number): void {
+    const n = c.node;
+    c.node = null;
+    if (n && !n.stopped) n.leave(CUT_FADE, at + seconds, "linear");
+    const v = c.voice;
+    if (v && !v.leaving && c.pieceTo > s + EPS) {
+      c.voice = null;
+      v.leaving = true;
+      v.voice.fadeShaped({ to: 0, seconds: CUT_FADE, law: "linear", at: at + Math.min(seconds, c.pieceTo - s), stopAtEnd: true });
+      return;
+    }
+    this.endVoice(c, at, SPLICE_FADE, false);
+    if (c.clip.sample === undefined || !c.geo || !c.audible) return;
+    const u = s - c.start;
+    const piece = pieceAt(c.geo, u);
+    if (!piece || piece.sample === null) return;
+    const from = piece.sample + (u - piece.from);
+    const to = Math.min(piece.sample + (piece.to - piece.from), from + seconds);
+    if (to <= from + EPS) return;
+    const entry: SampleEntry = { kind: "sample", sample: c.facts!.path, trim: [from, to], loop: "off", volume: 0, pitch: 0, weight: 1, atZeroWeight: "stop", curves: {} };
+    const tv = this.host.playSample(entry, { ...c.ctx, at, fadeIn: 0, timeCurves: this.timeCurves(c, u) }, null);
+    if (tv) this.voices.push(tv);
+  }
+
+  private onEnd(at: number, position: number): void {
     this.endAt = at;
     for (const c of this.clips) {
-      if (c.inside && c.sync) this.endClip(c, at, CUT_FADE);
+      // ADR 0336: a sequence ringing out its post-exit tail lets clips that run past its end play to their own end.
+      if (c.inside && c.sync && this.ringing && c.end > position + EPS) this.ringClip(c, position, at, c.end - position);
+      else if (c.inside && c.sync) this.endClip(c, at, CUT_FADE);
       c.inside = false;
     }
+  }
+
+  override hasExitMarker(): boolean {
+    return !this.stopped && this.hasExits();
   }
 
   /** Clips holding `position` start there (a first start, a reload). */
@@ -440,11 +490,11 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   }
 
   /** Starts clip `c` at clip time `u`, heard `at`, fading in over `fadeIn` seconds (0: none). */
-  private startClip(c: ClipRt, u: number, at: number, fadeIn: number): void {
+  private startClip(c: ClipRt, u: number, at: number, fadeIn: number, fadeInShape: FadeShape = "equalPower"): void {
     c.voice = null;
     if (c.clip.sample === undefined) {
       if (!c.audible) return;
-      c.node = this.resolveClipPlaylist(c, u, at, fadeIn);
+      c.node = this.resolveClipPlaylist(c, u, at, fadeIn, fadeInShape);
       if (c.node) this.children.push(c.node);
       return;
     }
@@ -464,7 +514,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
       kind: "sample", sample: facts.path, trim: [s, end], loop: "off",
       volume: 0, pitch: 0, weight: 1, atZeroWeight: "stop", curves: {},
     };
-    const ctx: Ctx = { ...c.ctx, at, fadeIn, timeCurves: this.timeCurves(c, u) };
+    const ctx: Ctx = { ...c.ctx, at, fadeIn, fadeInShape, timeCurves: this.timeCurves(c, u) };
     const v = this.host.playSample(entry, ctx, loop);
     if (!v) return;
     c.voice = v;
@@ -472,9 +522,9 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     if (!c.sync && c.markers.length > 0) this.host.trackMarkers(v, { ...facts, markers: c.markers }, s);
   }
 
-  private resolveClipPlaylist(c: ClipRt, u: number, at: number, fadeIn: number): LiveNode | null {
+  private resolveClipPlaylist(c: ClipRt, u: number, at: number, fadeIn: number, fadeInShape: FadeShape): LiveNode | null {
     const src = c.clip.playlist!;
-    const ctx: Ctx = { ...c.ctx, at, fadeIn, timeCurves: this.timeCurves(c, u), depth: this.ctx.depth + 1 };
+    const ctx: Ctx = { ...c.ctx, at, fadeIn, fadeInShape, timeCurves: this.timeCurves(c, u), depth: this.ctx.depth + 1 };
     // ADR 0334 (D22): the clip is this sequence's pick, recorded before the picks of the playlist it resolves.
     if (typeof src === "string") {
       const body = linkedPlaylist(src, ctx.chain);
@@ -486,20 +536,20 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     return resolveBody(this.host, src, ctx, `${this.key}/clip:${c.clip.id}`, this.ctx.where);
   }
 
-  /** Ends clip `c`'s current voice at heard `at` over `fade` seconds (`crossfade`: equal power, else linear). */
-  private endVoice(c: ClipRt, at: number, fade: number, crossfade: boolean): void {
+  /** Ends clip `c`'s current voice at heard `at` over `fade` seconds (`crossfade`: in `shape`, ADR 0336; else linear). */
+  private endVoice(c: ClipRt, at: number, fade: number, crossfade: boolean, shape: FadeShape = "equalPower"): void {
     const v = c.voice;
     c.voice = null;
     if (!v || v.leaving) return;
     v.leaving = true;
-    v.voice.fadeShaped({ to: 0, seconds: fade, law: crossfade ? "equalPowerOut" : "linear", at, stopAtEnd: true });
+    shapedFade(v.voice, crossfade ? shape : "linear", fade, 1, 0, at, () => at, true);
   }
 
-  private endClip(c: ClipRt, at: number, fade: number, crossfade = false): void {
-    this.endVoice(c, at, fade, crossfade);
+  private endClip(c: ClipRt, at: number, fade: number, crossfade = false, shape: FadeShape = "equalPower"): void {
+    this.endVoice(c, at, fade, crossfade, shape);
     const n = c.node;
     c.node = null;
-    if (n && !n.stopped) n.leave(fade, at);
+    if (n && !n.stopped) n.leave(fade, at, crossfade ? shape : "equalPower");
   }
 
   // --- the node ----------------------------------------------------------------------------------------------------
