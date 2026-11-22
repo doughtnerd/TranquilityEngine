@@ -137,7 +137,8 @@ const basename = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? 
 async function ensurePlayer(log: (line: string) => void): Promise<string> {
   if (existsSync(join(DEFAULT_PLAYER, PLAYER_FILE_LIST))) return DEFAULT_PLAYER;
   log("The player isn't built yet: building it (npm run build:player)…");
-  const vite = createRequire(join(REPO, "package.json")).resolve("vite/bin/vite.js");
+  // `vite/bin/vite.js` isn't in vite's package exports; its package.json is, and the bin sits beside it.
+  const vite = join(dirname(createRequire(join(REPO, "package.json")).resolve("vite/package.json")), "bin", "vite.js");
   const code = await run(process.execPath, [vite, "build", "--config", "vite.player.config.ts", "--logLevel", "warn"], REPO);
   if (code !== 0 || !existsSync(join(DEFAULT_PLAYER, PLAYER_FILE_LIST))) throw new ExportError("Couldn't build the player (npm run build:player).");
   return DEFAULT_PLAYER;
