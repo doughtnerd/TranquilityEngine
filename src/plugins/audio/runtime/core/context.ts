@@ -108,8 +108,9 @@ export interface LinkPort {
   onmessage: ((event: { data: unknown }) => void) | null;
 }
 
-const isShellEvent = (data: unknown): data is CoreShellEvent =>
-  typeof data === "object" && data !== null && ((data as { type?: unknown }).type === "error" || (data as { type?: unknown }).type === "trap");
+/** The shell's event types: its own, and ADR 0338's plugin glue's (`effectGlue.ts`). */
+const SHELL_EVENTS: ReadonlySet<unknown> = new Set(["error", "trap", "fxLoaded", "pluginFault", "fxStats"]);
+const isShellEvent = (data: unknown): data is CoreShellEvent => typeof data === "object" && data !== null && SHELL_EVENTS.has((data as { type?: unknown }).type);
 
 /** @internal The main side of the port protocol (api-and-models §4.1, §4.3). */
 export class CoreLink {
@@ -227,6 +228,11 @@ export class CoreLink {
   connectStreamPort(port: MessagePort): void {
     const message: CoreControlMessage = { type: "streamPort", port };
     this.port.postMessage(message, [port as unknown as Transferable]);
+  }
+
+  /** ADR 0338 (B4): a plugin effect control message for the current node's glue (`fxLoad` transfers its bytes). */
+  postControl(message: CoreControlMessage, transfer: Transferable[] = []): void {
+    this.port.postMessage(message, transfer);
   }
 
   /** Dev only: a sine of `hz` at `gain` mixed onto the core's output in the shell; `hz <= 0` stops it. */

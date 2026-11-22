@@ -35,7 +35,7 @@ import type { CoreEffectType } from "../../../../engine/audio/busCapability";
 import { ASAP, BUS_FX_HELD_SHIFT, BUS_ROOT, BUS_SEND_MUTED, FadeLaw, MAX_BUS_SENDS, SET_PARAMS_MASK_BUS, writeBusSends, type BusConfigBuses, type BusConfigBusesEffects, type BusSendsSends } from "../wire.generated";
 import type { ReplayBuilder } from "./replay";
 import { VoiceState } from "./voiceTable";
-import { busFxType, fxParams, SIDECHAIN_KEY_PARAM } from "./effectKinds";
+import { busFxType, EFFECT_RECORD_PARAMS, fxParams, SIDECHAIN_KEY_PARAM } from "./effectKinds";
 import type { CommandWriter } from "./commandWriter";
 import type { BedPlanner } from "./beds";
 import type { CoreAutomation } from "./coreAutomation";
@@ -47,21 +47,22 @@ import type { Presence } from "./presence";
  * Maps a `BusEffect` to its wire record (§4.2 BUS_CONFIG: q in dB, p unused = 0). A catalogue effect (ADR 0331, ABI 4.6)
  * is `BUS_FX_CATALOGUE` plus its kind (`effectKinds.ts`), its parameters in the catalogue's order; a sidechain
  * compressor's key bus goes in `p[3]` as its slot (`slotOf`; -1, no key, when it names no bus). ABI 4.8: the parameters
- * a snapshot override holds (`held`) set the type's bits 16-23, so the core's automation leaves them.
+ * a snapshot override holds (`held`) set the type's bits 16-31, so the core's automation leaves them. ABI 5.0: 16 parameters; a
+ * registered plugin effect is `BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e` (`effectKinds.ts`).
  */
-/** ABI 4.8: the held byte of a catalogue effect (bit i: the type's parameter i, named in `held`, waits out its automation). */
-function heldMask(type: CoreEffectType, held: readonly string[] | undefined): number {
+/** ABI 4.8: the held bits of a catalogue effect (bit i: the type's parameter i, named in `held`, waits out its automation; 16 bits from ABI 5.0). */
+function heldMask(type: CoreEffectType | string, held: readonly string[] | undefined): number {
   if (!held || held.length === 0) return 0;
   let mask = 0;
-  effectSpec(type).params.forEach((q, i) => { if (i < 8 && held.includes(q.name)) mask |= 1 << i; });
+  effectSpec(type as CoreEffectType).params.forEach((q, i) => { if (i < EFFECT_RECORD_PARAMS && held.includes(q.name)) mask |= 1 << i; });
   return mask;
 }
 
 export function wireEffect(e: BusEffect, slotOf: (name: string) => number = () => -1): BusConfigBusesEffects {
-  const p = [0, 0, 0, 0, 0, 0, 0];
+  const p = new Array<number>(EFFECT_RECORD_PARAMS).fill(0);
   switch (e.type) {
     case "fx": {
-      const q = fxParams(e.fx, e.params, 7);
+      const q = fxParams(e.fx, e.params, EFFECT_RECORD_PARAMS);
       if (e.fx === "sidechainCompressor") q[SIDECHAIN_KEY_PARAM] = e.key ? slotOf(e.key) : -1;
       return { type: (busFxType(e.fx) | (heldMask(e.fx, e.held) << BUS_FX_HELD_SHIFT)) >>> 0, p: q };
     }

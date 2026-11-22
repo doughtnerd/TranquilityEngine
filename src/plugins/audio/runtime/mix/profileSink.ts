@@ -61,7 +61,12 @@ export interface ProfileSink {
   pick?(pick: ProfilePick): void;
   /** ADR 0334: metered bus `bus` (null: the output) moved against its loudness target to `state`; optional, the recorder's. */
   loudnessWarning?(bus: string | null, state: ProfileLoudnessState): void;
+  /** ADR 0338 §6: plugin effect `type`'s instance `instance` faulted for `reason` (its block passed dry); optional, the recorder's. */
+  pluginFault?(type: string, reason: ProfilePluginFault, instance: number): void;
 }
+
+/** ADR 0338 §6: why a plugin effect faulted (the glue's reasons). */
+export type ProfilePluginFault = "trap" | "budget" | "grow" | "nonFinite" | "range";
 
 /** ADR 0334: a loudness target state a warning names (`high` and `low` warn, `ok` clears). */
 export type ProfileLoudnessState = "high" | "low" | "ok";

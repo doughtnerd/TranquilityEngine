@@ -35,7 +35,7 @@ import {
 } from "../wire.generated";
 import type { SubmixLane } from "../backend";
 import { AUTOMATION_GLOBAL, AUTOMATION_TIME } from "./commandWriter";
-import { FX_KINDS, fxKind, fxParams } from "./effectKinds";
+import { EFFECT_RECORD_PARAMS, FX_KINDS, fxKind, fxParams } from "./effectKinds";
 import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
 import type { CommandWriter } from "./commandWriter";
 import type { ReplayBuilder } from "./replay";
@@ -91,9 +91,9 @@ interface Slot {
   bindings: AutomateBindings[];
 }
 
-/** The catalogue effect `e` as a SUBMIX effect: its kind, bypass flag and parameters in the catalogue's order. */
+/** The catalogue effect `e` as a SUBMIX effect: its kind (a registered plugin effect's, ABI 5.0), bypass flag and parameters in the catalogue's order. */
 export function submixEffect(e: Effect): SubmixEffects {
-  return { type: fxKind(e.type), flags: e.on ? SUBMIX_FX_ON : 0, p: fxParams(e.type, e.params, 8) };
+  return { type: fxKind(e.type), flags: e.on ? SUBMIX_FX_ON : 0, p: fxParams(e.type, e.params, EFFECT_RECORD_PARAMS) };
 }
 
 /**

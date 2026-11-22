@@ -204,12 +204,47 @@ export interface AudioDebugInfo {
   mix?: AudioMixDebug;
   /** ADR 0171 §1.3 (K0; Rc2): the shared capture ring, null while none runs. */
   recorder?: AudioRecorderDebug | null;
+  /** ADR 0338 §6: one row per registered plugin effect (the core's; absent on a backend without plugin effects). */
+  plugins?: AudioPluginDebug[];
   /**
    * ADR 0327: why the audio core couldn't run here (a missing AudioWorklet or WebAssembly simd128, a failed load or
    * start), in the engine's words, once the engine has said so; absent while the core runs or is still loading.
    * `Audio.debug()` adds it; a backend leaves it out.
    */
   coreUnavailable?: string;
+}
+
+// --- ADR 0338: plugin effects ---------------------------------------------------------------------------------------
+
+/** Why a plugin effect's call faulted (ADR 0338 §6): a trap, its instruction budget run out, memory grown in `process`, a non-finite or an out-of-range (beyond ±64) sample. */
+export type AudioPluginFaultReason = "trap" | "budget" | "grow" | "nonFinite" | "range";
+
+/** One registered plugin effect in `Audio.debug().plugins` (ADR 0338 §6). */
+export interface AudioPluginDebug {
+  /** The plugin's name and the effect type. */
+  plugin: string;
+  type: string;
+  /** The module id and the core's index for the effect (`0x100 + e` is its kind). */
+  module: string;
+  e: number;
+  /** `loading` until the worklet compiled and warmed it up; `disabled` after three faults within a second (until reset); `failed` when it didn't load. */
+  state: "loading" | "live" | "disabled" | "failed";
+  /** Warm-up calls made before the effect went live (one per effect, ADR 0344 §4). */
+  warmUps: number;
+  /** Instances pre-created, and in use by chain slots. */
+  instances: number;
+  inUse: number;
+  /** Instructions per quantum across its instances (exact, from the fuel), the mean over the last window. */
+  instructionsPerQuantum: number;
+  /** Faults by reason, cumulative. */
+  faults: Record<AudioPluginFaultReason, number>;
+  /** Calls the chain level's shared fuel couldn't cover (passed dry), and acquires refused for want of an instance, cumulative. */
+  starved: number;
+  noInstance: number;
+  /** The module's memory, bytes. */
+  memoryBytes: number;
+  /** Why it failed to load, when it did. */
+  error?: string;
 }
 
 // --- ADR 0166 interactive music (M4): the debug shape (§1.6, C11; contract Q0, filled by P10) ---------------------

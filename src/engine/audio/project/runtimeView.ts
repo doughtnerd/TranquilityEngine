@@ -22,7 +22,7 @@
  */
 import type { Curve, CurveKey } from "../../core/curve";
 import { BUS_RULES, MAX_BUSES, coreRuns, findingText, type CoreEffectType } from "../busCapability";
-import { pluginEffectNote } from "../effects/catalogue";
+import { allowedAt, effectSpec, isPluginEffectType, pluginEffectNote } from "../effects/catalogue";
 import type { Effect } from "../effects/types";
 import {
   DEFAULT_BED_PRIORITY, DEFAULT_LOUDNESS_TARGETS, MAX_SEND_LEVEL, ROOT_BED_PRIORITY,
@@ -65,7 +65,10 @@ export function reverbSendOf(project: Pick<AudioProject, "returns">, bus: Bus): 
  * snapshot and automation low-pass stand for it).
  */
 export const coreShown = (project: Pick<AudioProject, "snapshots" | "automation">, owner: string, e: Effect): boolean =>
-  e.on && coreRuns(e.type) && !isCarrier(project, owner, e);
+  e.on && (coreRuns(e.type) || pluginRunsOnBus(e.type)) && !isCarrier(project, owner, e);
+
+/** ADR 0338 §4: a registered plugin effect whose plugin is on and that declares the bus level (returns are buses) runs in the core's bus chain. */
+const pluginRunsOnBus = (type: string): boolean => isPluginEffectType(type) && effectSpec(type).plugin?.state === "on" && allowedAt(type, "bus");
 
 /**
  * The bus effect the core runs for `e` (`coreShown`): a low-pass, high-pass or compressor the legacy shape holds exactly

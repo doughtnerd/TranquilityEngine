@@ -37,7 +37,7 @@ export const CAPTURE_HEADER_BYTES = 96;
  */
 export const CAPTURE_FORMAT = 2;
 /** The core ABI the header names (4.0, `worklet/coreDriver.ts` `CORE_ABI_MAJOR` << 8; a test keeps them equal). */
-export const CAPTURE_ABI_VERSION = 0x40b;
+export const CAPTURE_ABI_VERSION = 0x500;
 /** R16: the uncompressed payload's cap, from the header before inflate and while inflating (64 MiB). */
 export const CAPTURE_MAX_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
 /**
@@ -131,8 +131,10 @@ export const EventKind = {
   pick: 20,
   /** ADR 0334: a metered bus's loudness against its target changed state (reason 1 high, 2 low, 3 ok). */
   loudnessWarning: 21,
+  /** ADR 0338 §6: a plugin effect faulted and passed its block dry (reason 1 trap, 2 budget, 3 grow, 4 nonFinite, 5 range). */
+  pluginFault: 22,
 } as const;
-export const EVENT_KIND_MAX = 21;
+export const EVENT_KIND_MAX = 22;
 /** Kinds whose payload ends in one `f32` (§5.6: voiceStart gain, snapshot seconds, busRamp target, masterChange volume). */
 export const EVENT_KINDS_WITH_F32: ReadonlySet<number> = new Set([1, 11, 14, 18]);
 /**
@@ -141,7 +143,7 @@ export const EVENT_KINDS_WITH_F32: ReadonlySet<number> = new Set([1, 11, 14, 18]
  * 3 restored) are Rc1's reading of §5.6's parentheses.
  */
 export const EVENT_REASON_MAX: ReadonlyMap<number, number> = new Map([
-  [2, 5], [3, 3], [4, 4], [5, 2], [6, 5], [7, 2], [16, 4], [17, 3], [21, 3],
+  [2, 5], [3, 3], [4, 4], [5, 2], [6, 5], [7, 2], [16, 4], [17, 3], [21, 3], [22, 5],
 ]);
 
 // The KEYFRAME section caps and `KEYFRAME_BUS_LANES` are `keyframeLayout.ts`'s (ADR 0230), re-exported at the top.

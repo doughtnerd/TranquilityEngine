@@ -27,6 +27,7 @@ import { detectPlatform, type PlatformEnv } from "../core/graphics";
 import { parseParameters, type ParameterDef } from "./parameters";
 import { audioCurve } from "./audioCurveLimit";
 import { BUS_RULES, MAX_BUSES, MAX_CORE_BUS_EFFECTS, busRuleFindings, coreRuns, findingText, type CoreEffectType } from "./busCapability";
+import type { PluginEffectType } from "./effects/types";
 import { parseEffect as parseCatalogueEffect } from "./effects/catalogue";
 import { DEFAULT_MATERIAL_NAME, builtinMaterials, parseOccluderMaterials, resolveDefaultMaterial, type OccluderMaterial } from "./occlusionMaterials";
 
@@ -39,10 +40,11 @@ export type BusEffect =
   /**
    * ADR 0331 (ABI 4.6): any other catalogue effect the audio core's bus chain runs (`fx`), its parameters by the
    * catalogue's names and units (`effects/catalogue.ts`; missing ones take the default); `key` names a sidechain
-   * compressor's key bus. The Web Audio fallback runs none of them.
+   * compressor's key bus. The Web Audio fallback runs none of them. ADR 0338: `fx` may also name a registered plugin
+   * effect type whose plugin is on (the core runs it through its plugin host; elsewhere it passes through).
    */
   | {
-      type: "fx"; fx: CoreEffectType; params: Record<string, number>; key?: string;
+      type: "fx"; fx: CoreEffectType | PluginEffectType; params: Record<string, number>; key?: string;
       /**
        * ADR 0330 (ABI 4.8): parameters the running mixer holds at their value against automation while a snapshot
        * override is in force (the mixer's live effects only; never in a project's view).

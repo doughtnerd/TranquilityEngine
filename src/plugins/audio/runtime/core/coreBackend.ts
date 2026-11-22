@@ -101,6 +101,7 @@ import { StructuralDip } from "./structuralDip";
 import { DeferredAdds } from "./deferredAdds";
 import { setRecoveryProfileSink } from "./recovery";
 import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
+import { EffectPluginHost } from "../effectPlugins/host";
 import { wireProfileTaps } from "../mix/profileTaps";
 import { CoreAutomation } from "./coreAutomation";
 import { CoreSubmixes } from "./submixes";
@@ -131,7 +132,7 @@ export interface CoreVoice extends AudioVoice {
  * value: a backend is made only by `createCoreBackend`, which only `assembleCore` calls (ADR 0221, 0234).
  */
 interface CoreBackendHost {
-  readonly link: Pick<CoreLink, "batchPool" | "nextSeq" | "post" | "onStatus"> & { statusDecoder: CoreLink["statusDecoder"] } & Partial<Pick<CoreLink, "connectStreamPort">>;
+  readonly link: Pick<CoreLink, "batchPool" | "nextSeq" | "post" | "onStatus"> & { statusDecoder: CoreLink["statusDecoder"] } & Partial<Pick<CoreLink, "connectStreamPort" | "postControl" | "onShellEvent">>;
   readonly status: "locked" | "running" | "failed";
   /**
    * `maxMixed` is `voices.mixed` (selection's configured cap; absent: every logical voice may be mixed).
@@ -221,6 +222,10 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   get device(): AudioOutputDevice {
     return this;
   }
+  /** ADR 0338 §7: plugin effects (the core runs them inside its chains; `effectPlugins/host.ts`). */
+  get effectPlugins(): EffectPluginHost {
+    return this.plugins;
+  }
   /** ADR 0248: the output device's sink (`AudioOutputDevice`), from the host. */
   get outputSink(): string | null {
     return this.host.outputSink?.() ?? null;
@@ -273,6 +278,8 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   readonly automation: CoreAutomation;
   /** ADR 0331: the instance submix pool (`submixes.ts`). */
   readonly submixes: CoreSubmixes;
+  /** ADR 0338: the plugin effect registry and its worklet messages. */
+  private readonly plugins: EffectPluginHost;
   /** ADR 0166 (Q2): the music group operations (`music`); P1 and P9 fill them in `musicOps.ts`. */
   readonly musicOps: CoreMusicOps;
 
@@ -508,6 +515,11 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
       profile: () => this.profile,
       warnOnce: (key, message) => this.warnOnce(key, message),
     });
+    this.plugins = new EffectPluginHost({
+      post: (message, transfer) => host.link.postControl?.(message, transfer),
+      warnOnce: (key, message) => this.warnOnce(key, message),
+      profile: () => this.profile,
+    });
     this.replayer = new Replayer(this.view, host.link);
     // ADR 0176: the core voice, over the parts above (closures read the backend lazily: the buses come next).
     this.voices = new CoreVoices({
@@ -571,6 +583,8 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     // STATUS: decode into one block, apply in onmessage.
     host.link.statusDecoder = (_buffer, view) => this.reader.readView(view);
     this.cleanups.push(this.mirror.attach(host.link));
+    const unlisten = host.link.onShellEvent?.((event) => this.plugins.onShellEvent(event));
+    if (unlisten) this.cleanups.push(unlisten);
     // B3, after the mirror: a stream voice that moves again is no longer waiting for data.
     this.cleanups.push(this.streams.attach(host.link));
     this.streamSink = { event: (id, code) => this.streams.streamEvent(id, code) };
@@ -951,6 +965,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     s.join("master", { replayHeader: (b) => replayMaster(b, this.master, this.isMuted || this.hiddenMuteOn) });
     s.join("listener", { replayHeader: (b) => this.listener.replay(b) });
     s.join("automation", { replayHeader: (b) => this.automation.replayHeader(b), replayVoice: (b, v) => this.automation.replayVoice(b, v.id, v.i) });
+    s.join("effectPlugins", { endRecovery: () => this.plugins.replay(), dispose: () => this.plugins.dispose() });
     s.join("submixes", { replayHeader: (b) => this.submixes.replayHeader(b), busesReset: () => this.submixes.busesReset(), dispose: () => this.submixes.clear() });
     s.join("voiceFx", { replayVoice: (b, v) => (v.mixed ? this.voiceFx.replayVoice(b, v.id, v.i) : undefined) });
     s.join("musicOps", {
@@ -1042,6 +1057,9 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     info.cpu = this.cpu();
     info.mix = this.mixDebug();
     info.recorder = null;
+    // ADR 0338 §6: the registered plugin effects (none: no section).
+    const plugins = this.plugins.health();
+    if (plugins.length > 0) info.plugins = plugins.map((p) => ({ ...p, faults: { ...p.faults } }));
     return info;
   }
 
