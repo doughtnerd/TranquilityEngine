@@ -1,21 +1,20 @@
 // Live mixing in the Studio (ADR 0330 "Live mixing", ADR 0171/0172): while the Studio's runtime runs, every edit of
 // `audio.json` (and every undo and redo) reaches the running mixer as `MixOp`s through `Mixer.apply`, and is kept (the
-// file is already saved). The ops are the editor's op log's: `diffOps` over the runtime's view of the mix before and
-// after (`toRuntimeSettings`), so whatever the runtime can play follows at once and the rest waits for the next start.
+// file is already saved). The ops are `diffProjectMix` of the mix before and after (ADR 0330): the old ops for the bus
+// tree, levels, effects, ducking, automation and loudness (`diffOps` over the backends' view), and the mix model's own
+// ops for returns, VCAs, sends and snapshots, so the running mixer follows the whole model; engine settings wait for the
+// next start.
 // Compare A/B (0172) swaps the mix the session started from in for the edited one without touching the file (the
 // editor's `compareModel`), and solo is a monitor control (the editor's `monitorModel`): never saved, it taints meters.
 // Pure apart from the injected host.
-import { diffOps, type ApplyResult, type MixOp } from "../../../engine/audio/mixOps";
-import { toRuntimeSettings } from "../../../engine/audio/project/format";
+import { diffProjectMix, type ApplyResult, type MixOp } from "../../../engine/audio/mixOps";
 import type { AudioProject } from "../../../engine/audio/project/types";
-import type { AudioSettings } from "../../../engine/audio/settings";
 import { createCompareModel, type CompareModel } from "../../../plugins/audio/editor/mix/compareModel";
 import { createMonitorModel, type MonitorModel } from "../../../plugins/audio/editor/mix/monitorModel";
 
 /** The ops that move the running mixer from `before` to `after`, and the keys that wait for the next start. */
 export function liveOps(before: AudioProject, after: AudioProject): { ops: MixOp[]; restartRequired: string[] } {
-  if (before === after) return { ops: [], restartRequired: [] };
-  return diffOps(toRuntimeSettings(before), toRuntimeSettings(after));
+  return diffProjectMix(before, after);
 }
 
 /** What live mixing calls: the running runtime's mixer and loudness hub. */
@@ -47,16 +46,17 @@ export interface LiveMix {
   started(project: AudioProject): void;
   /** The runtime stopped: Compare ends, monitor controls drop. */
   stopped(): void;
-  readonly compare: CompareModel;
+  readonly compare: CompareModel<AudioProject>;
   readonly monitor: MonitorModel;
   /** Edits are refused while Compare plays A (they'd be lost on the way back). */
   readonly locked: boolean;
 }
 
 export function createLiveMix(host: LiveMixHost, current: () => AudioProject): LiveMix {
-  const compare = createCompareModel({
+  const compare = createCompareModel<AudioProject>({
     host: { apply: (op) => host.apply(op), flushNow: () => host.flushNow?.(), setCompare: (on) => host.setCompare?.(on) },
-    current: (): AudioSettings => toRuntimeSettings(current()),
+    current,
+    diff: diffProjectMix,
   });
   const monitor = createMonitorModel({
     host: {
@@ -81,7 +81,7 @@ export function createLiveMix(host: LiveMixHost, current: () => AudioProject): L
     started(project) {
       monitor.clearAll();
       syncTree(project);
-      compare.begin(toRuntimeSettings(project));
+      compare.begin(project);
     },
     stopped() {
       compare.end();

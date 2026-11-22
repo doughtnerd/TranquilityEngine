@@ -95,21 +95,23 @@ export interface ResolvedMix {
   readonly sources: Readonly<Record<string, readonly { readonly name: string; readonly how: "override" | "add" }[]>>;
 }
 
-/** The winner among override entries: highest priority, then the latest started (highest index). */
-function winner<T extends { priority: number; order: number }>(list: readonly T[]): T | undefined {
-  let best: T | undefined;
-  for (const x of list) if (!best || x.priority > best.priority || (x.priority === best.priority && x.order > best.order)) best = x;
-  return best;
-}
+/** Override entries in the order they stack: lowest priority first, then the earliest started; the last is the winner. */
+const stackOrder = <T extends { priority: number; order: number }>(a: T, b: T): number => a.priority - b.priority || a.order - b.order;
 
 /**
  * The mix the active snapshots make (ADR 0330's rules). `base` maps a bus's effect parameter to its base value, so a
  * fading override blends from it (absent: the override's value is used as is).
+ *
+ * At full weight the winning Override snapshot's value is the value. While snapshots fade, each Override crossfades from
+ * what lies under it: the overrides of a bus stack from the lowest priority (and earliest start) up, each mixing
+ * `under × (1 − w) + its value × w`, starting from the base (0 dB, or the effect's base value). So a higher-priority
+ * snapshot fading in moves the bus smoothly from the lower one's level to its own instead of jumping (FMOD's snapshot
+ * intensity), and a single snapshot's fade is a linear ramp in dB.
  */
 export function resolveSnapshots(active: readonly ActiveSnapshot[], base?: (bus: string, effectId: string, param: string) => number | undefined): ResolvedMix {
   const levels: Record<string, number> = {};
   const sources: Record<string, { name: string; how: "override" | "add" }[]> = {};
-  const overrides = new Map<string, { priority: number; order: number; db: number; name: string }[]>();
+  const overrides = new Map<string, { priority: number; order: number; db: number; weight: number; name: string }[]>();
   const params = new Map<string, { priority: number; order: number; value: number; weight: number; name: string; bus: string; id: string; param: string }[]>();
   active.forEach(({ snapshot: s, weight = 1 }, order) => {
     const w = Math.min(1, Math.max(0, weight));
@@ -119,7 +121,7 @@ export function resolveSnapshots(active: readonly ActiveSnapshot[], base?: (bus:
         (sources[bus] ??= []).push({ name: s.name, how: "add" });
       } else {
         const list = overrides.get(bus) ?? [];
-        list.push({ priority: s.priority, order, db: db * w, name: s.name });
+        list.push({ priority: s.priority, order, db, weight: w, name: s.name });
         overrides.set(bus, list);
       }
     }
@@ -136,16 +138,20 @@ export function resolveSnapshots(active: readonly ActiveSnapshot[], base?: (bus:
     }
   });
   for (const [bus, list] of overrides) {
-    const win = winner(list)!;
-    levels[bus] = (levels[bus] ?? 0) + win.db;
-    (sources[bus] ??= []).unshift({ name: win.name, how: "override" });
+    list.sort(stackOrder);
+    let db = 0;
+    for (const o of list) db = db * (1 - o.weight) + o.db * o.weight;
+    levels[bus] = (levels[bus] ?? 0) + db;
+    (sources[bus] ??= []).unshift({ name: list[list.length - 1]!.name, how: "override" });
   }
   const effects: Record<string, Record<string, Record<string, { value: number; from: string }>>> = {};
   for (const list of params.values()) {
-    const win = winner(list)!;
-    const from = base?.(win.bus, win.id, win.param);
-    const value = from === undefined ? win.value : from + (win.value - from) * win.weight;
-    ((effects[win.bus] ??= {})[win.id] ??= {})[win.param] = { value, from: win.name };
+    list.sort(stackOrder);
+    const top = list[list.length - 1]!;
+    const from = base?.(top.bus, top.id, top.param);
+    let value = from ?? list[0]!.value;
+    for (const o of list) value = from === undefined && o === list[0] ? o.value : value * (1 - o.weight) + o.value * o.weight;
+    ((effects[top.bus] ??= {})[top.id] ??= {})[top.param] = { value, from: top.name };
   }
   return { levels, effects, sources };
 }
