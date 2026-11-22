@@ -520,7 +520,7 @@ function DefaultBar({ view, controller }: BarSlotProps) {
       <input
         ref={fileInput}
         type="file"
-        accept=".mycap"
+        accept=".mycap,.mycotake"
         hidden
         aria-label="Open a capture file"
         onChange={(e) => {
