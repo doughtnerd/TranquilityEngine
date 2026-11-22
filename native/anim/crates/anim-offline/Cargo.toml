@@ -1,0 +1,11 @@
+[package]
+name = "anim-offline"
+description = "Myco animation core (ADR 0340): the f64 scalar reference for sampling, blending, IK, retargeting and matching."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Only anim-format: the reference shares no code with the SIMD path it holds to account.
+[dependencies]
+anim-format.workspace = true

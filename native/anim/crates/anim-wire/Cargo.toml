@@ -1,0 +1,14 @@
+[package]
+name = "anim-wire"
+description = "Myco animation core (ADR 0340): the boundary's record layouts, defined once, with the TypeScript constants generated from them."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "gen_wire"
+path = "src/bin/gen_wire.rs"
+
+# No dependencies (std only): anim-wasm links it, and the generator writes its own JSON and TypeScript.
+[dependencies]

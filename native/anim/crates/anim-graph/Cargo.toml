@@ -1,0 +1,19 @@
+[package]
+name = "anim-graph"
+description = "Myco animation core (ADR 0340, 0342): runs compiled graph programs (state machines, blend spaces, slots, linked graphs, sync groups, chooser tables)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# The rig, retarget, matching, physics and plugin node families call their crates' solvers.
+[dependencies]
+anim-math.workspace = true
+anim-format.workspace = true
+anim-sample.workspace = true
+anim-pose.workspace = true
+anim-rig.workspace = true
+anim-retarget.workspace = true
+anim-match.workspace = true
+anim-physics.workspace = true
+anim-plugin-sdk.workspace = true

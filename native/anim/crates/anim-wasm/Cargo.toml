@@ -1,0 +1,31 @@
+[package]
+name = "anim-wasm"
+description = "Myco animation core (ADR 0340): the WebAssembly boundary (init, assets, instances, evaluate, outputs) through wasm-bindgen."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anim-wire.workspace = true
+anim-math.workspace = true
+anim-format.workspace = true
+anim-sample.workspace = true
+anim-pose.workspace = true
+anim-graph.workspace = true
+anim-rig.workspace = true
+anim-retarget.workspace = true
+anim-match.workspace = true
+anim-physics.workspace = true
+anim-plugin-sdk.workspace = true
+wasm-bindgen.workspace = true
+
+[build-dependencies]
+sha2.workspace = true
+
+[dev-dependencies]
+# tests/source_hash.rs includes source_hash.rs, as build.rs does.
+sha2.workspace = true

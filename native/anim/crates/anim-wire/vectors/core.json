@@ -1,0 +1,11 @@
+{
+  "family": "core",
+  "id": 1,
+  "version": 1,
+  "vectors": [
+    { "name": "init_typical", "record": "INIT", "values": { "maxInstances": 256, "maxBones": 128, "arenaInitialBytes": 4194304 }, "hex": "01010100000100008000000000004000" },
+    { "name": "init_limits", "record": "INIT", "values": { "maxInstances": 4294967295, "maxBones": 0, "arenaInitialBytes": 16909060 }, "hex": "01010100ffffffff0000000004030201" },
+    { "name": "memory_needed_ok", "record": "MEMORY_NEEDED", "values": { "status": 0, "bytes": 9000000, "pages": 138 }, "hex": "0201010000000000405489008a000000" },
+    { "name": "memory_needed_too_large", "record": "MEMORY_NEEDED", "values": { "status": 2, "bytes": 0, "pages": 0 }, "hex": "02010100020000000000000000000000" }
+  ]
+}

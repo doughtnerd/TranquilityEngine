@@ -1,0 +1,15 @@
+[package]
+name = "anim-rig"
+description = "Myco animation core (ADR 0340): the post-process rig stack (IK, look-at and aim, grounder, spring bones, constraints, warping)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anim-math.workspace = true
+anim-format.workspace = true
+anim-pose.workspace = true
+
+[dev-dependencies]
+anim-offline.workspace = true

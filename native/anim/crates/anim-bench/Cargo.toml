@@ -1,0 +1,20 @@
+[package]
+name = "anim-bench"
+description = "Myco animation core (ADR 0340): criterion benchmarks for the core's budgets (tripwires)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# T82r adds `criterion.workspace = true` (dev-dependency) and the [[bench]] targets.
+[dependencies]
+anim-math.workspace = true
+anim-format.workspace = true
+anim-compress.workspace = true
+anim-sample.workspace = true
+anim-pose.workspace = true
+anim-graph.workspace = true
+anim-rig.workspace = true
+anim-retarget.workspace = true
+anim-match.workspace = true
+anim-physics.workspace = true
