@@ -142,6 +142,8 @@ describe("key combos", () => {
     expect(parseCombo("Shift")).toBeNull();
     expect(isSingleKey(parseCombo("?")!)).toBe(true);
     expect(isSingleKey(parseCombo("Mod+1")!)).toBe(false);
+    expect(isSingleKey(parseCombo("F6")!)).toBe(false);
+    expect(isSingleKey(parseCombo("Space")!)).toBe(true);
   });
 
   it("match events: Mod is Cmd on macOS, Ctrl elsewhere; digits and letters by physical key", () => {

@@ -1,0 +1,40 @@
+/* The Audio Studio's shell (ADR 0327, 0335): header, screen dock, banner, start screen. Theme tokens only
+ * (src/editor/ui/editor.css lists them); the dock, dialogs and menus use the editor's own rules. */
+
+.studio { display: grid; height: 100%; grid-template-rows: auto auto 1fr auto auto; grid-template-areas: "header" "banner" "main" "player" "status"; }
+.studio.studio-starting { display: block; }
+.studio-start-title { margin: 0 0 4px; color: var(--accent); font-size: calc(11px * var(--ui-scale)); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* Header */
+.studio-header { grid-area: header; display: flex; align-items: center; gap: 16px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--border); min-width: 0; }
+.studio-brand { display: flex; align-items: center; gap: 8px; min-width: 0; flex: none; }
+.studio-logo { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; background: var(--accent); color: var(--accent-text); font-weight: 700; }
+.studio-app-name { font-weight: 600; color: var(--text-strong); white-space: nowrap; }
+.studio-project { background: none; border: 1px solid transparent; color: var(--muted); padding: 2px 6px; border-radius: 4px; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.studio-project:hover { border-color: var(--border); color: var(--text); }
+.studio-readonly { color: var(--warning); }
+.studio-nav { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; overflow-x: auto; }
+.studio-nav-group { display: flex; align-items: center; gap: 2px; }
+.studio-nav-group-title { margin-right: 4px; color: var(--faint); font-size: calc(10px * var(--ui-scale)); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+.studio-tab { padding: 4px 10px; border-radius: 5px; color: var(--muted); text-decoration: none; white-space: nowrap; }
+.studio-tab:hover { background: var(--hover); color: var(--text); }
+.studio-tab.on { background: var(--selection); color: var(--selection-text); }
+.studio-tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.studio-header-tools { display: flex; align-items: center; gap: 6px; flex: none; }
+
+/* The core couldn't run */
+.studio-banner { grid-area: banner; padding: 6px 12px; background: var(--danger-soft); color: var(--text); border-bottom: 1px solid var(--danger); }
+.studio-banner strong { color: var(--danger); }
+
+/* The screen's dock */
+.studio-dock { grid-area: main; position: relative; min-height: 0; min-width: 0; display: flex; }
+.studio-dock > .dock-layout { flex: 1; }
+.studio-panel-body { display: flex; }
+.studio .studio-player { grid-area: player; }
+.studio .studio-status { grid-area: status; }
+
+.studio-boot-error { color: var(--danger); padding: 16px; white-space: pre-wrap; }
+
+@media (max-width: 900px) {
+  .studio-nav-group-title, .studio-app-name { display: none; }
+}

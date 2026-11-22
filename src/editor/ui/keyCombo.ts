@@ -77,8 +77,11 @@ export const formatKeys = (text: string, mac: boolean): string => {
   return combo ? formatCombo(combo, mac) : text;
 };
 
-/** A combo with no modifier (a "single-key shortcut", which a user can turn off). Shift alone counts as none. */
-export const isSingleKey = (combo: KeyCombo): boolean => !combo.mod && !combo.ctrl && !combo.alt;
+/**
+ * A character key shortcut (WCAG 2.1.4): a letter, digit, symbol or Space with no modifier but Shift, which a user can
+ * turn off. Function keys, arrows, Delete and the like aren't (they type nothing).
+ */
+export const isSingleKey = (combo: KeyCombo): boolean => !combo.mod && !combo.ctrl && !combo.alt && combo.key.length === 1;
 
 /** Whether this is macOS (where Mod is ⌘), from the browser. */
 export const isMacPlatform = (): boolean => typeof navigator !== "undefined" && /mac|iphone|ipad/i.test((navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform ?? "");
