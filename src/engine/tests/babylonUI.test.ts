@@ -10,7 +10,7 @@ import type { Container } from "@babylonjs/gui/2D/controls/container.js";
 import { Control } from "@babylonjs/gui/2D/controls/control.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { World } from "../core/World";
-import { Color, Engine, GameObject, Locale, Vector2 } from "../index";
+import { Color, Engine, GameObject, Locale, Vector2, type ProjectSettingsInput } from "../index";
 import { Text } from "../render/components";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../ui/components";
 import type { UIComponentType } from "../ui/components";
@@ -551,7 +551,7 @@ describe("measureText", () => {
 
   it("draws text aligned start from the language's start edge, in its direction (ADR 0342 §5)", async () => {
     engine.dispose();
-    engine = await Engine.create({ headless: true, project: { languages: { list: ["en", "ar"], useSystemLanguage: false } } });
+    engine = await Engine.create({ headless: true, project: { languages: { list: [{ code: "en", name: "English" }, { code: "ar", name: "العربية" }], useSystemLanguage: false } } as ProjectSettingsInput });
     const canvas = node("C", null, UICanvas);
     const text = node("T", canvas.node, UIText, { text: "مرحبا" });
     const field = node("F", canvas.node, UIInputField, { value: "نص" });

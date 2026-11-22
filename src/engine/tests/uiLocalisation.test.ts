@@ -2,7 +2,7 @@
 // item, then `ui.data`), leave `translate="no"` text alone and match `:lang()` rules; `LocalizedText` localises
 // hand-built scene UI; all of it follows `Locale.epoch`. Text runs align `start` by the language's direction.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, GameObject, Locale, LocalizedText, MemoryStorage, Text, UICanvas, UIDocument, UIInputField, UIPanel, UIText } from "../../myco";
+import { Assets, Engine, GameObject, Locale, LocalizedText, MemoryStorage, Text, UICanvas, UIDocument, UIInputField, UIPanel, UIText, type ProjectSettingsInput } from "../../myco";
 import { World } from "../core/World";
 import { UIPointer } from "./uiPointer";
 
@@ -68,7 +68,7 @@ let engine: Engine | null = null;
 const pointers: UIPointer[] = [];
 
 async function boot(): Promise<Engine> {
-  engine = await Engine.create({ headless: true, project: { languages: LANGUAGES }, assets: Assets.fromObject(FILES), storage: new MemoryStorage() });
+  engine = await Engine.create({ headless: true, project: { languages: LANGUAGES } as ProjectSettingsInput, assets: Assets.fromObject(FILES), storage: new MemoryStorage() });
   return engine;
 }
 

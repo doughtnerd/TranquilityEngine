@@ -1,7 +1,7 @@
 // ADR 0342 §11: a build's string files (`strings/<code>.json`, `myco.strings.build@1`): the writer the export uses,
 // the reader, and the player loading one file per language switch.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Engine, Locale, MemoryStorage } from "../../index";
+import { Engine, Locale, MemoryStorage, type ProjectSettingsInput } from "../../index";
 import { parseLanguages } from "../languages";
 import { BUILD_STRINGS_FORMAT, buildStringsFile, formatBuildStrings, parseBuildStrings, readBuildLocalisation } from "./buildFile";
 import { installBuildStrings } from "./boot";
@@ -45,7 +45,7 @@ describe("build string files", () => {
       return { ok: !!body, status: body ? 200 : 404, json: async () => body };
     });
     installBuildStrings({ strings: { en: { url: "strings/en.json" }, fr: { url: "strings/fr.json" } } }, (p) => `game/${p}`);
-    const engine = await Engine.create({ headless: true, project: { languages: { list: ["en", "fr"], useSystemLanguage: false } }, storage: new MemoryStorage() });
+    const engine = await Engine.create({ headless: true, project: { languages: { list: [{ code: "en", name: "English" }, { code: "fr", name: "Français" }], useSystemLanguage: false } } as ProjectSettingsInput, storage: new MemoryStorage() });
     try {
       expect(fetched).toEqual(["game/strings/en.json"]); // the start language, before the first scene
       expect(Locale.t("a")).toBe("A");
