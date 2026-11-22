@@ -1,6 +1,6 @@
 # 0338. Input streams carry a local player index, and server pawns name theirs with `ConnectionPlayer`
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
