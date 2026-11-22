@@ -82,6 +82,17 @@ export function startHolds(start: SnapshotStart, params: readonly ParameterDef[]
   }
 }
 
+/** A new condition row on `def`: "is above its default" for a number, "is its first label" for labels. */
+export function defaultCondition(def: ParameterDef): SnapshotCondition {
+  return isLabelled(def) ? { parameter: def.name, op: "is", value: def.labels[0] ?? "" } : { parameter: def.name, op: "gt", value: def.default };
+}
+
+/** A condition moved to parameter `def`: the op and value kept when they still fit its type, else its defaults. */
+export function retarget(c: SnapshotCondition, def: ParameterDef): SnapshotCondition {
+  const fits = opsFor(def).some((o) => o.op === c.op) && (isLabelled(def) ? typeof c.value === "string" && def.labels.includes(c.value) : typeof c.value === "number");
+  return fits ? { ...c, parameter: def.name } : defaultCondition(def);
+}
+
 const fmt = (n: number) => String(Math.round(n * 1000) / 1000);
 
 /** One condition as text ("depth > 0", "state is Paused", "health between 0 and 20"). */

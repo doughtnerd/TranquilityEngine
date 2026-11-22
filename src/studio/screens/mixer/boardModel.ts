@@ -6,7 +6,8 @@ import { evalCurve } from "../../../engine/core/curve";
 import { isLabelled, type ParameterDef } from "../../../engine/audio/eventFormat";
 import type { AudioProject, MixAutomation } from "../../../engine/audio/project/types";
 import type { GainInputs, LiveLanes } from "../../components/gainLanesModel";
-import { effectParamSpec } from "../../../engine/audio/effects/catalogue";
+import { effectParamSpec, effectSpec } from "../../../engine/audio/effects/catalogue";
+import type { EffectType } from "../../../engine/audio/effects/types";
 import { testValueOf, type TestValues } from "./snapshotBlend";
 import { editedSnapshot } from "./mixEdits";
 
@@ -28,7 +29,7 @@ export function levelAutomationDb(p: Pick<AudioProject, "automation" | "paramete
 
 const round = (v: number, places = 1) => Math.round(v * 10 ** places) / 10 ** places;
 
-/** `EffectChain`'s `automated`: effect id → parameter → "auto · 800 Hz", for the effects of `name` with live lanes. */
+/** `EffectChain`'s `automated`: effect id → parameter → "800 Hz", for the effects of `name` with live lanes. */
 export function automatedParams(p: AudioProject, name: string, values: TestValues): Record<string, Record<string, string>> {
   const owner = p.buses.find((b) => b.name === name) ?? p.returns.find((r) => r.name === name);
   const out: Record<string, Record<string, string>> = {};
@@ -38,17 +39,17 @@ export function automatedParams(p: AudioProject, name: string, values: TestValue
     const effect = owner?.effects.find((e) => e.id === id);
     const v = automationValue(a, p.parameters, values);
     const unit = effect ? (effectParamSpec(effect.type, param)?.unit ?? "") : "";
-    (out[id] ??= {})[param] = `auto · ${v === null ? "—" : `${round(v, 2)}${unit ? ` ${unit}` : ""}`}`;
+    (out[id] ??= {})[param] = v === null ? "—" : `${round(v, 2)}${unit ? ` ${unit}` : ""}`;
   }
   return out;
 }
 
-/** The send level text when its lane is live ("auto · −14.0 dB"), else undefined. */
+/** The send level text when its lane is live ("-14 dB"), else undefined. */
 export function automatedSend(p: AudioProject, name: string, to: string, values: TestValues): string | undefined {
   const a = p.automation.find((x) => !x.bypass && x.on === name && x.target === `send:${to}`);
   if (!a) return undefined;
   const v = automationValue(a, p.parameters, values);
-  return `auto · ${v === null ? "—" : `${round(v)} dB`}`;
+  return v === null ? "—" : `${round(v)} dB`;
 }
 
 // --- gain lanes ----------------------------------------------------------------------------------------------------------
@@ -147,6 +148,46 @@ export function togglePin(pins: readonly string[], name: string): string[] | nul
 
 /** The default pins (the prototype's), kept to those the mix has. */
 export const DEFAULT_PINS: readonly string[] = ["Music", "Dialogue", "SFX", "Ambience"];
+
+// --- the curve editor's lanes --------------------------------------------------------------------------------------------
+
+const effectParams = (type: EffectType) => effectSpec(type).params.filter((q) => !q.bool);
+
+/** One automatable property of a bus or return, for the curve editor (`curveEditor.tsx`'s `CurveLane`, structurally). */
+export interface AutomatableLane {
+  readonly target: MixAutomation["target"];
+  readonly label: string;
+  readonly min: number;
+  readonly max: number;
+  readonly unit: string;
+  readonly scale: "linear" | "log";
+  readonly plain: number;
+  readonly current: { readonly parameter: string; readonly curve: MixAutomation["curve"]; readonly bypass: boolean } | null;
+}
+
+/**
+ * The automatable properties of `name` (ADR 0330 targets): its level, each send, each effect parameter. `only` keeps
+ * the ones the button asked for: "volume", "send:<return>", or "fx:<id>" (every parameter of that effect).
+ */
+export function automatableLanes(p: AudioProject, name: string, only?: string): AutomatableLane[] {
+  const bus = p.buses.find((b) => b.name === name);
+  const owner = bus ?? p.returns.find((r) => r.name === name);
+  if (!owner) return [];
+  const current = (target: string) => {
+    const a = p.automation.find((x) => x.on === name && x.target === target);
+    return a ? { parameter: a.parameter, curve: a.curve, bypass: a.bypass } : null;
+  };
+  const out: AutomatableLane[] = [{ target: "volume", label: "Level", min: -60, max: 6, unit: "dB", scale: "linear", plain: 0, current: current("volume") }];
+  for (const s of bus?.sends ?? []) out.push({ target: `send:${s.to}`, label: `Send to ${s.to}`, min: -60, max: 6, unit: "dB", scale: "linear", plain: 0, current: current(`send:${s.to}`) });
+  for (const e of owner.effects) {
+    for (const q of effectParams(e.type)) {
+      const target = `fx:${e.id}:${q.name}` as const;
+      out.push({ target, label: `${effectSpec(e.type).label} ${e.id} · ${q.label}`, min: q.min, max: q.max, unit: q.unit, scale: q.scale, plain: e.params[q.name] ?? q.default, current: current(target) });
+    }
+  }
+  if (only === undefined) return out;
+  return out.filter((l) => l.target === only || (only.startsWith("fx:") && l.target.startsWith(`${only}:`)));
+}
 
 /** A parameter's display unit-free range text ("0..1", "Off, On"), for the condition rows. */
 export const parameterNote = (def: ParameterDef): string => (isLabelled(def) ? def.labels.join(", ") : `${def.min}..${def.max}`);

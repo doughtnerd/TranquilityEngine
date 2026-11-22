@@ -41,6 +41,8 @@ export interface MixerDeps {
   readLoudness?(name: string): LoudnessReading | null;
   setParameter?(name: string, value: number | string): void;
   auditionSnapshot?(name: string | null, fadeSeconds: number): void;
+  /** The loudness target the meters check against (`Audio.loudnessTarget`). */
+  setLoudnessTarget?(name: string): void;
   /** Per-user preferences (pins, the board's fold, the view); a story passes plain signals. */
   readonly prefs?: { pins: Signal<string[]>; boardOpen: Signal<boolean>; view: Signal<"list" | "strips"> };
 }

@@ -112,7 +112,7 @@ describe("sends, ducking, automation, triggers", () => {
     expect(ok(setAutomation(p, { on: "Music", target: "volume" }, { parameter: "threat", curve: [[0, -2], [1, -2]], bypass: false })).automation.some((a) => a.on === "Music")).toBe(false);
     expect(refused(setAutomation(p, { on: "Music", target: "volume" }, { parameter: "nope", curve: [[0, 0], [1, -2]], bypass: false }))).toMatch(/nope/);
     expect(levelAutomationDb(p, "Music", { threat: 1 })).toBe(-3);
-    expect(automatedParams(p, "Ambience", { depth: 30 })).toEqual({ fx1: { cutoff: "auto · 800 Hz" } });
+    expect(automatedParams(p, "Ambience", { depth: 30 })).toEqual({ fx1: { cutoff: "800 Hz" } });
   });
   it("triggers: clamped, unknown parameters refused", () => {
     const p = mixerFixture();
