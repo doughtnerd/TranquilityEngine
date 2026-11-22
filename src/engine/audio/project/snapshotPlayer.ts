@@ -180,7 +180,7 @@ export class SnapshotPlayer {
 
   private weightOf(e: Entry, t: number): number {
     const w = this.inWeight(e, Math.min(t, e.stopAt ?? t));
-    if (e.stopAt === null || t <= e.stopAt) return w;
+    if (e.stopAt === null || t < e.stopAt) return w;
     if (!(e.outSeconds > 0)) return 0;
     return Math.max(0, w * (1 - (t - e.stopAt) / e.outSeconds));
   }
