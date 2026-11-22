@@ -52,6 +52,17 @@ describe("AudioZone", () => {
     expect(p.z).toBeCloseTo(0, 6);
   });
 
+  it("the node's turn turns the box and its centre offset: a right turn takes local +x to world -z (ADR 0164)", async () => {
+    await kit.boot({ ...withListener, "rain.playlist.json": rain });
+    const z = zone([0, 0, 0], { sound: "rain.playlist.json", width: 2, depth: 2 });
+    z.center.set(10, 0, 0);
+    z.node.transform!.eulerAngles = [0, Math.PI / 2, 0];
+    kit.frame();
+    const p = fake.voices[0]!.position!;
+    expect(p.x).toBeCloseTo(0, 4);
+    expect(p.z).toBeCloseTo(-9, 4);
+  });
+
   it("edge zone, inside: plays at the listener, and zoneDepth is 1 at the centre and 0 at the edge", async () => {
     await kit.boot({ ...withListener, "rain.playlist.json": rain });
     const z = zone([0, 0, 0], { sound: "rain.playlist.json", width: 10, depth: 10, bottom: 0, top: 10 });
