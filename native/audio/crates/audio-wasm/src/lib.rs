@@ -52,7 +52,9 @@ pub const ABI_MAJOR: u32 = 4;
 /// linear in dB), STATUS `fxStarved` and `fxStarvedOwner`.
 /// 4.11 (ADR 0333): SET_VOICE_FX `spread` (mask bit 4, the reserved u16 at offset 50: hundredths of a degree),
 /// a spatial voice spread over an arc by a decorrelated diffuse part (`audio-core` `spread.rs`).
-pub const ABI_MINOR: u32 = 11;
+/// 4.12 (ADR 0337 A4, 0345 §5): CLIP_BEGIN format 6, IMA ADPCM blocks held compressed in the arena and decoded per
+/// voice a little each quantum (`audio-core` `adpcm_voice.rs`); the `AdpcmCursors` region before the arena.
+pub const ABI_MINOR: u32 = 12;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
 pub const INBOX_BYTES: usize = 1 << 20;
@@ -368,7 +370,7 @@ mod tests {
 
     #[test]
     fn identity_exports() {
-        assert_eq!(myco_audio_abi_version(), 0x40B);
+        assert_eq!(myco_audio_abi_version(), 0x40C);
         assert_eq!(myco_audio_inbox_cap(), 1 << 20);
         assert_eq!(myco_audio_inbox_ptr() as usize % 64, 0);
         assert_eq!(myco_audio_status_ptr() as usize % 64, 0);

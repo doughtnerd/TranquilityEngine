@@ -56,7 +56,7 @@ pub const KINDS: &[Kind] = &[
             CHANNELS,
             SAMPLE_RATE,
             Field::new("format", Ty::U32).doc(
-                "ClipFormat: 0 f32, 1 i16 (1, 2, 4, 9 or 16 channels), 2 HRIR, 3 prepared zone kernel, 4 MagLS filters, 5 zone IR PCM (formats 3-5: ADR 0162 C6).",
+                "ClipFormat: 0 f32, 1 i16 (1, 2, 4, 9 or 16 channels), 2 HRIR, 3 prepared zone kernel, 4 MagLS filters, 5 zone IR PCM (formats 3-5: ADR 0162 C6), 6 IMA ADPCM blocks (1 or 2 channels; ADR 0337).",
             ),
         ]),
         doc: "Starts a clip load (main in M1a, worker in M1b).",
@@ -69,7 +69,7 @@ pub const KINDS: &[Kind] = &[
             &[
                 CLIP_ID,
                 Field::new("frameOffset", Ty::U32).doc("First frame of this chunk within the clip."),
-                Field::new("frames", Ty::U32).doc("Sample frames in this chunk."),
+                Field::new("frames", Ty::U32).doc("Sample frames in this chunk (format 6: whole blocks of ADPCM_BLOCK_FRAMES from a block start, the last chunk ending at the clip's frames)."),
                 Field::new("reserved", Ty::U32).doc("Reserved; 0."),
             ],
             Tail::Bytes,

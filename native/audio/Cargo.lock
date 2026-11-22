@@ -29,7 +29,9 @@ checksum = "1254ebf6529f3763c491acfb5ab6e960809e3c75a38584cc664f8c5667fb7107"
 name = "audio-core"
 version = "0.1.0"
 dependencies = [
+ "audio-adpcm",
  "audio-dsp",
+ "audio-encode",
  "audio-wire",
  "libm",
 ]

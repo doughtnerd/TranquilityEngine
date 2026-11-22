@@ -106,12 +106,15 @@ pub enum RegionKind {
     /// ADR 0331 (ABI 4.6): the effect memory of bus chains and submixes (`fxmem::region_bytes`:
     /// `FX_MEMORY_SECONDS` of stereo audio at the rate, 7.7 MB at 48 kHz).
     FxMem,
+    /// ADR 0337 A4 (ABI 4.12): the ADPCM voice cursors, one per mixed-voice pool entry
+    /// (`adpcm_voice::region_bytes`: `max_mixed` × `CURSOR_BYTES`).
+    AdpcmCursors,
     /// The clip arena's initial reserve. Always last.
     Arena,
 }
 
 /// The layout order. Append-only before `Arena` (see the module comment).
-pub const REGION_ORDER: [RegionKind; 26] = [
+pub const REGION_ORDER: [RegionKind; 27] = [
     RegionKind::Output,
     RegionKind::CoreState,
     RegionKind::Pending,
@@ -137,6 +140,7 @@ pub const REGION_ORDER: [RegionKind; 26] = [
     RegionKind::Sends,
     RegionKind::Submixes,
     RegionKind::FxMem,
+    RegionKind::AdpcmCursors,
     RegionKind::Arena,
 ];
 
@@ -216,6 +220,7 @@ fn region_len(kind: RegionKind, p: &InitParams) -> usize {
         RegionKind::Sends => crate::sends::REGION_BYTES,
         RegionKind::Submixes => crate::submix::REGION_BYTES,
         RegionKind::FxMem => crate::fxmem::region_bytes(p),
+        RegionKind::AdpcmCursors => crate::adpcm_voice::region_bytes(p),
         RegionKind::Arena => align_up(p.arena_initial_bytes as usize, PAGE_BYTES),
     }
 }
@@ -306,8 +311,12 @@ mod tests {
         let fxmem = layout.region(RegionKind::FxMem).len;
         assert_eq!(fxmem, crate::fxmem::region_bytes(&preset(4_096, 128, 16)));
         let submixes = layout.region(RegionKind::Submixes).len;
-        let fixed = fixed - streams - automation - fxmem - submixes;
-        assert!(fixed < 2 << 20, "fixed regions stay under 2 MB before reverb, HRTF, streams, automation, effect memory and submixes: {fixed}");
+        // ADR 0337 A4: the ADPCM voice cursors (a 512-frame stereo window each), ≈ 264 KB at 128 mixed voices.
+        let adpcm = layout.region(RegionKind::AdpcmCursors).len;
+        assert_eq!(adpcm, 128 * crate::adpcm_voice::CURSOR_BYTES);
+        assert!(adpcm < 300 * 1024, "ADPCM cursors: {adpcm}");
+        let fixed = fixed - streams - automation - fxmem - submixes - adpcm;
+        assert!(fixed < 2 << 20, "fixed regions stay under 2 MB before reverb, HRTF, streams, automation, effect memory, submixes and ADPCM cursors: {fixed}");
         eprintln!("default preset: automation {automation} B, total {} B", layout.total());
     }
 

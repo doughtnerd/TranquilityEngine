@@ -478,6 +478,8 @@ fn render_voices<const LIST: bool>(core: &mut Core, frame: u64, from: usize, to:
     let progs: Option<*mut [automation::ProgramEntry]> = if autos.is_some() { automation::program_entries(&mut regions.automation[..]).map(|p| p as *mut _) } else { None };
     // ADR 0162 K3: the zone slot inputs the send tap writes (`sends::tap`), another region again.
     let zones: *mut [u8] = &mut regions.zones[..];
+    // ADR 0337 A4: the ADPCM voice cursors, another region again.
+    let adpcm_region: *mut [u8] = &mut regions.adpcm[..];
     // ADR 0162 A4: the beds kind-2 voices encode into, another region again (`None` without beds).
     // SAFETY: the `Beds` region is distinct from every region borrowed here.
     let mut beds = crate::bed::view(unsafe { &mut *(&mut regions.beds[..] as *mut [u8]) });
@@ -592,7 +594,10 @@ fn render_voices<const LIST: bool>(core: &mut Core, frame: u64, from: usize, to:
         let prog = auto.as_deref().filter(|a| a.loop_on == automation::LOOP_PROGRAM && a.prog != 0).and_then(|a| progs.and_then(|p| unsafe { (&mut *p).get_mut(a.prog as usize - 1) })).map(|e| &mut e.prog);
         // SAFETY: `zones` views the `Zones` region, distinct from every region borrowed here; one
         // voice holds it at a time.
-        let fx = VoiceFx { entry: crate::fxpool::owned(v.pool, slot.fx, index), zones: unsafe { &mut *zones }, beds: beds.as_mut(), due, route };
+        // ADR 0337 A4: the ADPCM cursor at the same pool index (another region again; one voice at a time).
+        // SAFETY: `adpcm` views the `AdpcmCursors` region, distinct from every region borrowed here.
+        let adpcm = if slot.fx != 0 { crate::adpcm_voice::cursor(crate::adpcm_voice::cursors(unsafe { &mut *adpcm_region }), slot.fx) } else { None };
+        let fx = VoiceFx { entry: crate::fxpool::owned(v.pool, slot.fx, index), zones: unsafe { &mut *zones }, beds: beds.as_mut(), due, route, adpcm };
         // `AUTO = false` compiles the automation away: a voice without bindings or a loop region takes
         // exactly the M1 code (0158 E2: it costs nothing and renders bit for bit as before).
         match (slot.flags & flag::STREAM != 0, auto.is_some()) {
@@ -943,9 +948,16 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
         }
         return;
     }
-    let Some(clip) = clips.frames(slot.clip) else {
-        slot.state = state::ENDED;
-        return;
+    // ADR 0337 A4: a PCM clip, or an ADPCM one (format 6), which a mixed voice decodes as it reads.
+    let pcm = clips.frames(slot.clip);
+    let adpcm = if pcm.is_none() { clips.adpcm(slot.clip) } else { None };
+    let clip_frames = match (&pcm, &adpcm) {
+        (Some(c), _) => c.source.frames,
+        (None, Some(a)) => a.frames,
+        (None, None) => {
+            slot.state = state::ENDED;
+            return;
+        }
     };
     let stopping = slot.flags & flag::STOP_ON_FADE_END != 0;
     if stopping && slot.fade.is_settled() {
@@ -973,7 +985,7 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
         // only up to the end of the fade-out.
         if slot.flags & flag::MIXED == 0 || slot.mix.is_settled() {
             let fade_in = slot.flags & flag::MIXED != 0 && slot.mix.value == 0.0 && slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) == 0;
-            clip_seek_jump(slot, clip.source.frames, looping);
+            clip_seek_jump(slot, clip_frames, looping);
             if let Some(p) = prog.as_deref_mut() {
                 crate::voice_loops::place(p, slot.position);
             }
@@ -985,10 +997,11 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
         }
     }
     // ADR 0158 §4: a SET_LOOP region (the slot's whole-clip loop flag is clear while it loops).
-    let region = auto.as_deref().and_then(|a| loop_region(a, clip.source.frames));
+    let region = auto.as_deref().and_then(|a| loop_region(a, clip_frames));
     // ADR 0328: a loop program (not for an ambisonic voice, which plays it straight); this
     // quantum's activations apply at its start.
-    let program = AUTO && slot.flags2 & flag2::AMBISONIC == 0 && prog.as_deref().is_some_and(|p| p.n != 0);
+    // ADR 0337 A4: an ADPCM clip plays a program straight too (its reader moves forward only).
+    let program = AUTO && slot.flags2 & flag2::AMBISONIC == 0 && pcm.is_some() && prog.as_deref().is_some_and(|p| p.n != 0);
     if program {
         if let Some(p) = prog.as_deref_mut() {
             crate::voice_loops::settle(p, &mut slot.position);
@@ -1011,7 +1024,8 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
             }
         }
     }
-    if slot.flags & flag::MIXED != 0 && slot.flags2 & flag2::AMBISONIC != 0 {
+    let ambisonic = slot.flags2 & flag2::AMBISONIC != 0;
+    if let (true, true, Some(clip)) = (slot.flags & flag::MIXED != 0, ambisonic, &pcm) {
         // ADR 0162 B3: an ambisonic voice reads its 4, 9 or 16 channels and is rotated into its
         // bus's bed or a private decoder; it never reaches the panner.
         ambisonic_mix(slot, auto.as_deref(), &mut fx, &clip.source, &steps[..n], region, looping, from);
@@ -1021,14 +1035,36 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
     } else if slot.flags & flag::MIXED != 0 {
         let mut l = [0.0f32; QUANTUM];
         let mut r = [0.0f32; QUANTUM];
-        if program {
-            if let Some(p) = prog.as_deref_mut() {
-                crate::voice_loops::render(p, &clip.source, &mut slot.position, &steps[..n], &mut l[..n], &mut r[..n]);
+        if let Some(a) = &adpcm {
+            // ADR 0337 A4: decoded as it is read (`adpcm_voice.rs`), bit for bit as the int16 reads below would
+            // give for the clip decoded whole. Without a pool entry (the pool was full) it keeps time silently.
+            let mode = match region {
+                Some((start, end)) => crate::adpcm_voice::Mode::Region { start, end },
+                None if looping => crate::adpcm_voice::Mode::Loop,
+                None => crate::adpcm_voice::Mode::Once,
+            };
+            match fx.adpcm.as_deref_mut() {
+                Some(cur) => {
+                    crate::adpcm_voice::render(cur, slot.id, slot.clip, a, &mut slot.position, &steps[..n], mode, &mut l[..n], &mut r[..n]);
+                }
+                None if region.is_some() => {
+                    let (start, end) = region.unwrap_or((0, 0));
+                    resample::advance_region(&mut slot.position, &steps[..n], start, end, clip_frames);
+                }
+                None => {
+                    resample::advance(&mut slot.position, &steps[..n], clip_frames, looping);
+                }
             }
-        } else if let Some((start, end)) = region {
-            resample::lagrange_region(&clip.source, &mut slot.position, &steps[..n], start, end, &mut l[..n], &mut r[..n]);
-        } else {
-            resample::lagrange(&clip.source, &mut slot.position, &steps[..n], looping, &mut l[..n], &mut r[..n]);
+        } else if let Some(clip) = &pcm {
+            if program {
+                if let Some(p) = prog.as_deref_mut() {
+                    crate::voice_loops::render(p, &clip.source, &mut slot.position, &steps[..n], &mut l[..n], &mut r[..n]);
+                }
+            } else if let Some((start, end)) = region {
+                resample::lagrange_region(&clip.source, &mut slot.position, &steps[..n], start, end, &mut l[..n], &mut r[..n]);
+            } else {
+                resample::lagrange(&clip.source, &mut slot.position, &steps[..n], looping, &mut l[..n], &mut r[..n]);
+            }
         }
         voice_chain(slot, auto.as_deref_mut(), &mut fx, sample_rate, from, &mut l[..n], &mut r[..n]);
         spread(&mut fx, &slot.panner, &mut l[..n], &mut r[..n], &mut out_l[from..from + n], &mut out_r[from..from + n]);
@@ -1048,15 +1084,15 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
                     step *= 0.5 * (a.pitch_at(from) + a.pitch_at(from + n - 1));
                 }
             }
-            resample::advance_constant(&mut slot.position, step, n, clip.source.frames, looping);
+            resample::advance_constant(&mut slot.position, step, n, clip_frames, looping);
         } else if program {
             if let Some(p) = prog.as_deref_mut() {
                 crate::voice_loops::advance(p, &mut slot.position, &steps[..n]);
             }
         } else if let Some((start, end)) = region {
-            resample::advance_region(&mut slot.position, &steps[..n], start, end, clip.source.frames);
+            resample::advance_region(&mut slot.position, &steps[..n], start, end, clip_frames);
         } else {
-            resample::advance(&mut slot.position, &steps[..n], clip.source.frames, looping);
+            resample::advance(&mut slot.position, &steps[..n], clip_frames, looping);
         }
         if DUE {
             advance_due(&mut slot.gain, ramp_of::GAIN, fx.due, n as u32);
@@ -1068,7 +1104,7 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
         slot.mix.advance(n as u32);
         slot.panner.advance(n as u32);
     }
-    let ran_out = (region.is_some() || program || !looping) && slot.position >= clip.source.frames as f64;
+    let ran_out = (region.is_some() || program || !looping) && slot.position >= clip_frames as f64;
     if ran_out || (stopping && slot.fade.is_settled()) {
         slot.state = state::ENDED;
     }
@@ -1456,11 +1492,13 @@ struct VoiceFx<'a> {
     /// ADR 0331: where the voice's panner mixes: its bus, or its instance's submix
     /// (`submix::route_code`; then it pans without the bed).
     route: u16,
+    /// ADR 0337 A4: the ADPCM cursor at the voice's pool entry (`adpcm_voice.rs`), `None` without an entry.
+    adpcm: Option<&'a mut crate::adpcm_voice::Cursor>,
 }
 
 impl VoiceFx<'_> {
     fn reborrow(&mut self) -> VoiceFx<'_> {
-        VoiceFx { entry: self.entry.as_deref_mut(), zones: &mut *self.zones, beds: self.beds.as_deref_mut(), due: self.due, route: self.route }
+        VoiceFx { entry: self.entry.as_deref_mut(), zones: &mut *self.zones, beds: self.beds.as_deref_mut(), due: self.due, route: self.route, adpcm: self.adpcm.as_deref_mut() }
     }
 
     /// ADR 0162 A4: the panner's kind-2 context, when the core has beds and the voice an entry (and
@@ -1989,7 +2027,9 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         // branch sets the rate and the panner's channels when the voice binds to its ring.
         core.streams().get(play.clip).map_or((2, sample_rate), |r| (r.channels, r.rate))
     } else {
-        core.clips().frames(play.clip).map_or((1, sample_rate), |c| (c.source.channels, c.sample_rate))
+        // ADR 0337 A4: a PCM or an ADPCM clip.
+        core.clips().shape(play.clip).unwrap_or((1, sample_rate))
+
     };
     let replaced = {
         let mut v = view(core.regions_mut());
