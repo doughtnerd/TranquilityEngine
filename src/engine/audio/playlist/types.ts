@@ -77,6 +77,8 @@ export interface VoiceCurve {
   input: CurveInput;
   curve: Curve;
   bypass: boolean;
+  /** A curve keyed on a parameter moves only on this musical boundary (as `Automation.quantize`); absent: continuously. */
+  quantize?: Quantize;
 }
 export type VoiceCurveTarget = "gain" | "pitch" | "pan" | "lowpass" | "highpass";
 
@@ -90,7 +92,10 @@ export interface Automation {
   input: CurveInput;
   curve: Curve;
   bypass: boolean;
-  /** ADR 0336: a parameter-keyed `volume` or low-pass `cutoff` lane moves only on this musical boundary; absent: continuously. */
+  /**
+   * ADR 0336: a parameter-keyed lane moves only on this musical boundary; absent: continuously. Volume, enabled, pitch,
+   * pan and the effect parameters the voice carries (low-pass and high-pass cutoff, a gain effect's gain) take it.
+   */
   quantize?: Quantize;
 }
 

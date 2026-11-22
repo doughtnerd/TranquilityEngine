@@ -340,6 +340,69 @@ describe("Beat-quantised automation", () => {
     expect(ramps(voiceOf("a.wav"))).toEqual([]);
   });
 
+  /** The pitch the voice was last set to at or before each heard time (TsAutomation applies bindings per frame). */
+  const pitchTrace = (v: FakeVoice): number[] => v.events.filter((e) => e.kind === "pitch").map((e) => (e as { value: number }).value);
+
+  it.each([
+    ["a sequence track's pitch lane", (q: unknown) => pla("sequence", [], {
+      parameters: INTENSITY,
+      sequence: {
+        length: 16, tempo: { bpm: 120, meter: "4/4" },
+        tracks: [{
+          id: "t", kind: "audio",
+          automation: [{ id: "a", target: "pitch", input: { parameter: "Intensity" }, curve: [[0, 0], [1, 12]], quantize: q }],
+          clips: [{ id: "c", sample: "a.wav", at: 0, length: 16, sync: true }],
+        }],
+      },
+    })],
+    ["an entry's pitch curve", (q: unknown) => pla("clip", [sample("a.wav", { curves: { pitch: { input: "Intensity", curve: [[0, 0], [1, 12]], quantize: q } } })], { parameters: INTENSITY })],
+  ] as const)("%s moves on the next beat: held at its old pitch up to the boundary, then a 20 ms step", async (_name, make) => {
+    await kit.boot({ "a.wav.meta.json": meta({ tempo: { bpm: 120, meter: "4/4" } }), "m.playlist.json": make("beat") });
+    fake.durations.set("a.wav", 16);
+    const h = Audio.play("m.playlist.json");
+    at(0.05);
+    const v = voiceOf("a.wav");
+    h.setParameter("Intensity", 1);
+    for (let t = 0.1; t < 0.49; t += 0.02) at(t);
+    expect(pitchTrace(v).every((p) => Math.abs(p - 1) < 1e-9)).toBe(true); // nothing before the beat at 0.5
+    at(0.51);
+    const mid = pitchTrace(v).at(-1)!;
+    expect(mid).toBeGreaterThan(1); // under way 10 ms into the ramp
+    expect(mid).toBeLessThan(2);
+    at(0.6);
+    expect(pitchTrace(v).at(-1)).toBeCloseTo(2, 9); // an octave up once the ramp is done
+    expect(ramps(v)).toEqual([]); // not the gain ramp
+  });
+
+  it("a voice starting after a bound lane moved starts at its new level; a change later moves it on the next boundary", async () => {
+    await kit.boot({
+      "m.playlist.json": pla("sequence", [], {
+        parameters: INTENSITY,
+        sequence: {
+          length: 16, tempo: { bpm: 120, meter: "4/4" },
+          tracks: [{
+            id: "t", kind: "audio",
+            automation: [{ id: "a", target: "pitch", input: { parameter: "Intensity" }, curve: [[0, 0], [1, 12]], quantize: "beat" }],
+            clips: [{ id: "c1", sample: "a.wav", at: 0, length: 0.8 }, { id: "c2", sample: "b.wav", at: 1, length: 2 }],
+          }],
+        },
+      }),
+    });
+    fake.durations.set("a.wav", 4);
+    fake.durations.set("b.wav", 4);
+    const h = Audio.play("m.playlist.json");
+    at(0.1);
+    h.setParameter("Intensity", 1);
+    for (let t = 0.15; t < 1.15; t += 0.05) at(t);
+    const b = voiceOf("b.wav");
+    expect(pitchTrace(b)).toEqual([1, 2]); // its request, then the lane's new level from its first frame
+    h.setParameter("Intensity", 0);
+    for (let t = 1.2; t < 1.49; t += 0.05) at(t);
+    expect(pitchTrace(b).at(-1)).toBeCloseTo(2, 9); // still up until the beat at 1.5
+    for (let t = 1.5; t < 1.7; t += 0.05) at(t);
+    expect(pitchTrace(b).at(-1)).toBeCloseTo(1, 9);
+  });
+
   it("the latest change before the boundary's ramp is stamped wins", async () => {
     await kit.boot({ "m.playlist.json": song("bar") });
     fake.durations.set("a.wav", 16);

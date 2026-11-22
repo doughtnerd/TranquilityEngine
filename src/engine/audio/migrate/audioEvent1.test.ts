@@ -482,6 +482,15 @@ describe("interactive music", () => {
     expect(notes.some((n) => n.includes("quantize"))).toBe(false);
   });
 
+  it("a quantised low-pass stem binding is a quantised cutoff lane, no longer noted as lost", () => {
+    const { playlist, notes } = mig({
+      root: segment({ tracks: [{ name: "a", clip: "m/a.wav", automation: [{ parameter: "I", target: "lowpass", curve: [[0, 300], [1, 8000]], quantize: "bar" }] }] }),
+    }, lengths({ "m/a.wav": 2 }));
+    const t = playlist.sequence!.tracks[0];
+    expect(t.automation[0]).toMatchObject({ target: `fx:${t.effects[0].id}:cutoff`, quantize: "bar" });
+    expect(notes.some((n) => n.includes("quantize"))).toBe(false);
+  });
+
   it("music playlist → continuous Queue; sequence mode repeats children by plays; rounds noted", () => {
     const { playlist, notes } = mig({ root: { type: "playlist", id: "p", rounds: 1, children: [segment({ id: "a", plays: 2 }), segment({ id: "b" })] } }, lengths({ "m/a.wav": 2 }));
     expect(playlist.queue).toEqual({ pick: "roundRobin", avoidRepeat: 0, continuous: { gapMs: 0 } });

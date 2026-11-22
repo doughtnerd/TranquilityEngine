@@ -109,7 +109,8 @@ export function applyVoiceCurveResult(dialog: VoiceCurveDialog, result: CurveEdi
       was.bypass === r.bypass &&
       (JSON.stringify(was.curve) === JSON.stringify(r.curve) || JSON.stringify(withEnds(was.curve, a, b, lane)) === JSON.stringify(r.curve));
     if (same) continue;
-    next[t] = { input, curve: r.curve, bypass: r.bypass };
+    // A quantised curve stays quantised while it is still keyed on a parameter (quantize means nothing on time).
+    next[t] = { input, curve: r.curve, bypass: r.bypass, ...(was.quantize !== undefined && parameter !== null ? { quantize: was.quantize } : {}) };
     changed.push(lane.name);
   }
   const label = curvesLabel(dialog.owner, changed);

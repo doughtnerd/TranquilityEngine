@@ -69,6 +69,15 @@ describe("voice curves in the curve editor", () => {
     expect(r.curves.gain).toBe(curves.gain);
   });
 
+  it("a quantised curve stays quantised when edited, and loses it when moved onto time", () => {
+    const q: VoiceCurves = { pitch: { input: { parameter: "speed" }, curve: [[0, 0], [50, 5]], bypass: false, quantize: "beat" } };
+    const d = voiceCurveDialog("e", q, params);
+    const edited = applyVoiceCurveResult(d, draftResult(d.spec, withLane(createDraft(d.spec), "pitch", { curve: [[0, 0], [50, 7]] })))!;
+    expect(edited.curves.pitch).toEqual({ input: { parameter: "speed" }, curve: [[0, 0], [50, 7]], bypass: false, quantize: "beat" });
+    const timed = applyVoiceCurveResult(d, draftResult(d.spec, ok(setLaneInput(d.spec, createDraft(d.spec), "pitch", "time"))))!;
+    expect(timed.curves.pitch!.quantize).toBeUndefined();
+  });
+
   it("keeps a flat lane that's bypassed or off its plain value, and keeps clip time on a time curve that had it", () => {
     const d = voiceCurveDialog("e", { gain: { input: "clipTime", curve: [[0, 0], [2, -6]], bypass: false } }, params);
     let draft = withLane(createDraft(d.spec), "gain", { curve: [[0, -6], [2, -6]] });

@@ -142,25 +142,54 @@ describe("blend regions and weight curves (one weight model)", () => {
 });
 
 describe("ADR 0336 lints", () => {
-  it("quantise on time or a non-gain target, quantise without a tempo, a 2D region, a tail with no Exit after", () => {
+  it("quantise on time or an effect parameter the voice doesn't carry, quantise without a tempo, a 2D region, a tail with no Exit after", () => {
     const { playlist } = parsePlaylist({
       format: F, type: "sequence", entries: [],
       sequence: {
         length: 4, tempo: null,
-        tracks: [{ id: "t", kind: "audio", automation: [
+        tracks: [{ id: "t", kind: "audio", effects: [{ id: "d", type: "delay" }, { id: "h", type: "highpass" }], automation: [
           { id: "a", target: "volume", input: "sequenceTime", curve: [[0, 0]], quantize: "beat" },
-          { id: "b", target: "pitch", input: { parameter: "I" }, curve: [[0, 0]], quantize: "beat" },
+          { id: "b", target: "fx:d:time", input: { parameter: "I" }, curve: [[0, 0]], quantize: "beat" },
           { id: "c", target: "volume", input: { parameter: "I" }, curve: [[0, 0]], quantize: "bar" },
+          { id: "p", target: "pitch", input: { parameter: "I" }, curve: [[0, 0]], quantize: "beat" },
+          { id: "f", target: "fx:h:cutoff", input: { parameter: "I" }, curve: [[0, 20]], quantize: "beat" },
         ], clips: [{ id: "k", playlist: { type: "blend", entries: [{ sample: "a.wav", x: 0, y: 0, region: { start: 0, end: 1 } }], blend: { axes: [{ parameter: "I" }, { parameter: "J" }] } }, at: 0, length: 1 }] }],
         loops: [{ id: "l", start: 0, end: 2, tail: true }],
       },
     });
-    expect(lintPlaylist(playlist).map((l) => [l.code, l.where])).toEqual(expect.arrayContaining([
+    const lints = lintPlaylist(playlist).map((l) => [l.code, l.where]);
+    expect(lints).toEqual(expect.arrayContaining([
       ["quantizeIgnored", "sequence.tracks[0].automation[0].quantize"],
       ["quantizeIgnored", "sequence.tracks[0].automation[1].quantize"],
       ["quantizeNoTempo", "sequence.tracks[0].automation[2].quantize"],
+      ["quantizeNoTempo", "sequence.tracks[0].automation[3].quantize"], // pitch and high-pass quantise now
+      ["quantizeNoTempo", "sequence.tracks[0].automation[4].quantize"],
       ["regionIgnored", "sequence.tracks[0].clips[0].playlist.entries[0].region"],
       ["tailWithoutExit", "sequence.loops[0].tail"],
+    ]));
+  });
+
+  it("entry voice curves take quantize: parsed, written back, and linted on time or without a tempo", () => {
+    const raw = {
+      format: F, type: "layer",
+      entries: [
+        { sample: "a.wav", curves: { pitch: { input: "I", curve: [[0, 0], [1, 12]], quantize: "beat" }, gain: { input: "voiceTime", curve: [[0, 0]], quantize: "bar" } } },
+        { sample: "b.wav", curves: { pan: { input: "I", curve: [[0, -1], [1, 1]], quantize: { beats: 2 } }, lowpass: { input: "I", curve: [[0, 500]], quantize: "sometimes" } } },
+      ],
+    };
+    const { playlist, problems } = parsePlaylist(raw);
+    expect(playlist.entries[0]!.curves.pitch!.quantize).toBe("beat");
+    expect(playlist.entries[1]!.curves.pan!.quantize).toEqual({ beats: 2 });
+    expect(playlist.entries[1]!.curves.lowpass!.quantize).toBeUndefined();
+    expect(problems.some((p) => p.includes("entries[1].curves.lowpass.quantize"))).toBe(true);
+    const json = playlistToJson(playlist) as { entries: { curves: Record<string, { quantize?: unknown }> }[] };
+    expect(json.entries[0]!.curves.pitch!.quantize).toBe("beat");
+    expect(json.entries[1]!.curves.pan!.quantize).toEqual({ beats: 2 });
+    expect(json.entries[1]!.curves.lowpass!.quantize).toBeUndefined();
+    expect(lintPlaylist(playlist, { sampleTempo: () => null }).map((l) => [l.code, l.where])).toEqual(expect.arrayContaining([
+      ["quantizeNoTempo", "entries[0].curves.pitch.quantize"],
+      ["quantizeIgnored", "entries[0].curves.gain.quantize"],
+      ["quantizeNoTempo", "entries[1].curves.pan.quantize"],
     ]));
   });
 });

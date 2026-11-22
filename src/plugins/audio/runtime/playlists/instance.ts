@@ -755,7 +755,7 @@ export class PlaylistInstance implements NodeHost {
     try { voice = audioBackend().play(req); } catch { voice = null; }
     if (!voice) return null;
     const sink = playlistHost().automation;
-    const bindings = this.withStaticPan(timed.bindings, c.pan, ctx.where);
+    const bindings = this.quant.bindings(this.withStaticPan(timed.bindings, c.pan, ctx.where), ctx.quantized, start);
     if (bindings.length > 0) sink.bindVoice(voice, this.group, bindings, base, ctx.at ?? undefined);
     if (ctx.fadeIn > 0) {
       voice.fade(0, 0);

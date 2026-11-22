@@ -180,15 +180,15 @@ class Migrator {
 
   /** Put a curve on an entry's voice curves, combining with one already there on the same parameter. */
   addCurve(curves: EntryUse["curves"], b: Binding, where: string): void {
-    if (b.quantize) this.note(b.where, `quantize "${b.quantize}" is not kept on an entry's voice curve (only sequence automation lanes quantise); the curve follows the parameter continuously.`);
     const have = curves[b.target];
-    const vc: VoiceCurve = { input: { parameter: b.parameter }, curve: b.curve, bypass: false };
+    const vc: VoiceCurve = { input: { parameter: b.parameter }, curve: b.curve, bypass: false, ...(b.quantize ? { quantize: b.quantize } : {}) };
     if (!have) { curves[b.target] = vc; return; }
     const hp = typeof have.input === "object" ? have.input.parameter : null;
     if (hp !== b.parameter) {
       this.note(where, `two ${b.target} curves on different inputs ("${hp ?? String(have.input)}", "${b.parameter}"); kept the first.`);
       return;
     }
+    if ((have.quantize ?? null) !== (b.quantize ?? null)) this.note(b.where, `two ${b.target} curves on "${b.parameter}", one quantised and one not (or to different grids); the combined curve keeps the first's.`);
     curves[b.target] = { ...have, curve: combineCurves(have.curve, b.curve, COMBINE[b.target], MAX_KEYS) };
     this.note(where, `two ${b.target} curves on "${b.parameter}" were combined into one (sampled at their keys).`);
   }
@@ -197,13 +197,13 @@ class Migrator {
   automation(bindings: readonly Binding[], effects: Effect[], idPrefix: string): Automation[] {
     return bindings.map((b, i): Automation => {
       const base = { id: `${idPrefix}a${i + 1}`, input: { parameter: b.parameter }, curve: b.curve, bypass: false };
-      // ADR 0336: a stem's quantised volume binding is a quantised lane (low-pass lanes can't be quantised).
-      if (b.target === "gain") return { ...base, target: "volume", ...(b.quantize ? { quantize: b.quantize } : {}) };
-      if (b.quantize) this.note(b.where, `quantize "${b.quantize}" on ${b.target} is not kept (only volume lanes quantise); the curve follows the parameter continuously.`);
-      if (b.target === "pitch") return { ...base, target: "pitch" };
+      // ADR 0336: a stem's quantised binding is a quantised lane (volume, pitch and the filters' cutoffs all quantise).
+      const q = b.quantize ? { quantize: b.quantize } : {};
+      if (b.target === "gain") return { ...base, target: "volume", ...q };
+      if (b.target === "pitch") return { ...base, target: "pitch", ...q };
       const fx: Effect = { id: `${idPrefix}fx${effects.length + 1}`, type: b.target === "lowpass" ? "lowpass" : "highpass", on: true, params: {} };
       effects.push(fx);
-      return { ...base, target: `fx:${fx.id}:cutoff` };
+      return { ...base, target: `fx:${fx.id}:cutoff`, ...q };
     });
   }
 
