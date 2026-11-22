@@ -505,3 +505,13 @@ generator state so replay is exact anywhere in a take; arguments matching only `
 `{event}` form updates dialogue memory but skips event cooldown, chance and channels (0341 §3); under `followText` the
 voice ignores its own remembered language. Follow-ups: `settings.dialogue` must join the `audio.json` format
 (coordinator item), take keyframes don't hold lines.
+
+**D65. W13 localisation export and editor, W14 G1 merged.** Choices to review: exports keep variant files that any
+shipped language's chain reaches (fr-CA → fr resolves in builds as in the project); the build's `project.json` marks
+left-out languages `ship: false`; line tables ship stripped instead of a richer index; an imported translation over
+`maxLength` is skipped (not imported as needs review); the editor preview language shares the Studio's key; Extract
+from the Inspector never writes Studio-owned tables; changing a language code doesn't rename files; exports of
+translation files download through the browser. Live texture swap on a language switch waits on the renderer
+listening to `Assets.onChanged`. Coordinator fix: `Audio.setLanguage` in separate mode now loads package parts before
+committing (it had a placeholder); a switch with nothing to load stays synchronous. G1: locks are arguments not file
+data; Mutate advances the seed; blip `level` in dB; synth waves default to saw.

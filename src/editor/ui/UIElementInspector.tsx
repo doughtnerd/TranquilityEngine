@@ -9,6 +9,7 @@ import { editorTextFiles } from "../textFiles";
 import { attributeText, movableAttributes, moveUIElementToClass, renameUIElement, setUIElementClasses, setUIElementField, suggestedClassName } from "../uiDocumentEdits";
 import { whyNotEdit } from "../editGate";
 import { describeOrigin, fieldSources, markupLocation, originBadge, resolveUIElement, selectedUIRef, uiBuildVersion, type FieldOrigin, type FieldSourceRow, type UIElementRef } from "../uiDocuments";
+import { isLocalisableField, UIFieldLocalise } from "./localisation/UIFieldLocalise";
 import "./ui-element-inspector.css";
 
 /** The file an origin points into, to open in the Code panel. */
@@ -77,6 +78,12 @@ export function UIElementInspector() {
         <div class="fields ui-element-fields">
           {rows.map((r) => (
             <FieldSourceView key={r.field} row={r} el={el} uiRef={ref} editable={!readOnly && (!where.synthetic || r.field === "text")} />
+          ))}
+          {rows.filter((r) => isLocalisableField(el, r.field, where.synthetic)).map((r) => (
+            <div key={`localise-${r.field}`} class="ui-field-localise">
+              <span class="ui-field-localise-label">{r.property} key</span>
+              <UIFieldLocalise el={el} uiRef={ref} field={r.field} documentFile={where.file} disabled={readOnly ? `Can't edit it here: ${readOnly}` : null} />
+            </div>
           ))}
         </div>
       </section>
