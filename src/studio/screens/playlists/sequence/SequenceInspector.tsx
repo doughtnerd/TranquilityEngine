@@ -295,8 +295,12 @@ export function SequenceInspector(props: SequenceInspectorProps) {
             <FieldRow label="At" unit="s"><NumberBox label="Marker time" value={m.at} min={0} step={0.01} digits={3} disabled={!writable} onValue={(v) => runSeq("Move marker", (q) => moveMarker(q, m.id, v))} /></FieldRow>
             <div class="pl-kv">
               <span class="pl-field-label">Type</span>
-              <SegmentedControl<"note" | "cue" | "exit"> size="small" label="Marker type" value={m.type ?? "note"} onChange={(v) => writable && runSeq("Marker type", (q) => setMarkerType(q, m.id, v))}
-                options={[{ value: "note", label: "Note" }, { value: "cue", label: "Cue", title: "Reported to the game when the playhead passes it" }, { value: "exit", label: "Exit", title: "Music may leave here" }]} />
+              <SegmentedControl<"note" | "cue" | "exit" | "entry"> size="small" label="Marker type" value={m.type ?? "note"} onChange={(v) => writable && runSeq("Marker type", (q) => setMarkerType(q, m.id, v))}
+                options={[
+                  { value: "note", label: "Note" }, { value: "cue", label: "Cue", title: "Reported to the game when the playhead passes it" },
+                  { value: "exit", label: "Exit", title: "Music may leave here; what follows the first Exit marker is the tail that rings on" },
+                  { value: "entry", label: "Entry", title: "A Switch lands this point on its beat or bar; the audio before it starts early" },
+                ]} />
             </div>
             <button type="button" class="pl-small pl-danger" disabled={!writable} onClick={() => runSeq("Delete marker", (q) => deleteMarkers(q, [m.id]))}>Delete</button>
           </Section>

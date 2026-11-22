@@ -46,6 +46,29 @@ export interface PlaylistSpatial {
   spread: number | null;
 }
 
+/**
+ * ADR 0336: a length in milliseconds or in beats of the playing entry's musical clock (a beat is the fallback 500 ms
+ * without one).
+ */
+export type TimeLength = { ms: number } | { beats: number };
+
+/**
+ * ADR 0336: the shape of a fade (the Wwise set, less its duplicate sine): `equalPower` is sin in / cos out (power
+ * complementary), `sCurve` and `invSCurve` smoothstep and its inverse, `logN` change fast at first (1 − (1 − u)^p, p
+ * 1.41, 2, 3), `expN` change slowly at first (u^p). The levels are `fadeShapes.ts`'s.
+ */
+export const FADE_SHAPES = ["linear", "equalPower", "sCurve", "invSCurve", "log1", "log2", "log3", "exp1", "exp2", "exp3"] as const;
+export type FadeShape = (typeof FADE_SHAPES)[number];
+
+/** ADR 0336: one fade: its length and shape. */
+export interface Fade { length: TimeLength; shape: FadeShape }
+
+/**
+ * ADR 0336: when automation keyed on a parameter takes effect: the next beat, bar or `beats`-beat boundary (counted from
+ * the bar) of the instance's musical clock, as a stamped 20 ms ramp starting exactly there. Absent: continuously.
+ */
+export type Quantize = "beat" | "bar" | { beats: number };
+
 /** What a curve is keyed on (ADR 0332: time is a parameter). */
 export type CurveInput = "voiceTime" | "clipTime" | "sequenceTime" | { parameter: string };
 
@@ -67,6 +90,8 @@ export interface Automation {
   input: CurveInput;
   curve: Curve;
   bypass: boolean;
+  /** ADR 0336: a parameter-keyed `volume` or low-pass `cutoff` lane moves only on this musical boundary; absent: continuously. */
+  quantize?: Quantize;
 }
 
 /** A loop's behaviour, shared by sample loops (ADR 0328), clip loop overrides and sequence loops. */
@@ -92,6 +117,28 @@ export interface EntryUse {
   y?: number;
   atZeroWeight: "stop" | "continue";
   curves: Partial<Record<VoiceCurveTarget, VoiceCurve>>;
+  /** ADR 0336: a 1D Blend entry's explicit region on the axis; absent: derived from `x` and its neighbours (ADR 0329's weights). */
+  region?: BlendRegion;
+  /**
+   * ADR 0336: a Blend entry's weight curve: its raw weight (0..1; 2D the barycentric or edge weight, 1D after its region)
+   * in, its gain (0..1) out. Absent: today's (the weight, √ for equal power). With `curve: "equalPower"` a 2D blend whose
+   * entries have curves is normalised to constant power.
+   */
+  weightCurve?: Curve;
+}
+
+/**
+ * ADR 0336 (FMOD instrument regions, Wwise blend-track ranges): where a 1D Blend entry plays, in the axis's units. Its
+ * weight is 0 outside [start, end], ramps up over `fadeIn` from `start` and down over `fadeOut` to `end`, 1 between.
+ * The shapes default to the blend's `curve` (`linear` or `equalPower`).
+ */
+export interface BlendRegion {
+  start: number;
+  end: number;
+  fadeIn: number;
+  fadeOut: number;
+  shapeIn?: FadeShape;
+  shapeOut?: FadeShape;
 }
 
 /** A linked playlist (by project path). */
@@ -115,17 +162,28 @@ export interface QueueSettings {
   /** 0..5. */
   avoidRepeat: number;
   /** Back to back until stopped (the engine's continuous containers); null = one pick per trigger. A negative
-   *  `gapMs` overlaps consecutive entries with an equal-power crossfade of that length. */
-  continuous: { gapMs: number } | null;
+   *  `gapMs` overlaps consecutive entries with a crossfade of that length and `shape` (ADR 0336; absent: equalPower). */
+  continuous: { gapMs: number; shape?: FadeShape } | null;
 }
 
 export type ChangeWhen = "now" | "beat" | "bar" | "exit" | "nextTrigger";
 export interface ChangeHow {
   when: ChangeWhen;
   how: "crossfade" | "cut" | "transition";
-  length: { ms: number } | { beats: number };
+  length: TimeLength;
   /** The transition playlist for `how: "transition"`. */
   transition?: Entry;
+  /** ADR 0336: the outgoing and incoming fade shapes over `length`; absent: equalPower. */
+  shapeOut?: FadeShape;
+  shapeIn?: FadeShape;
+  /**
+   * ADR 0336 (Wwise post-exit): when the outgoing entry has an Exit marker, its audio plays on past the hand-over to its
+   * natural end instead of being cut (a crossfade still fades it out). Absent: true; false cuts as before.
+   */
+  tail?: boolean;
+  /** ADR 0336: the transition playlist's own fade in and fade out (a Wwise transition segment's); absent: the rule's. */
+  transitionIn?: Fade;
+  transitionOut?: Fade;
 }
 export interface ChangeRule extends ChangeHow {
   /** A label, or `"*"` for any. */
@@ -151,9 +209,24 @@ export interface BlendSettings {
   envelope: { mode: "off" | "morph" | "zone"; low: Adsr; high: Adsr };
 }
 
-export interface SequenceLoop extends LoopBehaviour { id: string; start: number; end: number }
-/** `exit` markers are where Switch rules timed `exit` and sync clips may leave (ADR 0329); `cue` reports to the game. */
-export interface SequenceMarker { id: string; name: string; at: number; type?: "note" | "cue" | "exit" }
+export interface SequenceLoop extends LoopBehaviour {
+  id: string;
+  start: number;
+  end: number;
+  /**
+   * ADR 0336: on each wrap, the audio between the loop's end and the first `exit` marker after it rings on over the next
+   * pass (the music tail). Absent: true; with no Exit marker after the loop's end there is no tail.
+   */
+  tail?: boolean;
+  /** ADR 0336: the shape of an `exit: "crossfade"` (both sides); absent: equalPower. */
+  exitShape?: FadeShape;
+}
+/**
+ * `exit` markers are where Switch rules timed `exit` and sync clips may leave (ADR 0329) and what follows the first one
+ * is the post-exit tail (ADR 0336); `cue` reports to the game; `entry` (ADR 0336, pre-entry) is the point a Switch change
+ * lands on its boundary, the audio before it starting early.
+ */
+export interface SequenceMarker { id: string; name: string; at: number; type?: "note" | "cue" | "exit" | "entry" }
 export interface Clip {
   id: string;
   /** Exactly one of `sample` / `playlist`. */

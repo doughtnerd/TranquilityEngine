@@ -487,12 +487,12 @@ export function SequenceView(props: SequenceViewProps) {
     const m = docSeq.markers.find((x) => x.id === id);
     if (!m) return;
     select(selectMarker(sel, id));
-    const type = (t: "note" | "cue" | "exit", label: string) => ({ id: t, label: `${(m.type ?? "note") === t ? "✓ " : ""}${label}`, disabled: !writable, run: () => runSeq("Marker type", (q) => setMarkerType(q, id, t)) });
+    const type = (t: "note" | "cue" | "exit" | "entry", label: string) => ({ id: t, label: `${(m.type ?? "note") === t ? "✓ " : ""}${label}`, disabled: !writable, run: () => runSeq("Marker type", (q) => setMarkerType(q, id, t)) });
     setMenu({
       at: { x: e.clientX, y: e.clientY }, label: "Marker",
       entries: [
         { id: "rename", label: "Rename", hint: "F2", disabled: !writable, run: () => setRenamingMarker(id) },
-        type("note", "Note"), type("cue", "Cue (reported to the game)"), type("exit", "Exit (music may leave here)"),
+        type("note", "Note"), type("cue", "Cue (reported to the game)"), type("exit", "Exit (music may leave here)"), type("entry", "Entry (lands on the Switch's beat or bar)"),
         { id: "copy", label: "Copy", hint: "Ctrl+C", run: () => (seqClipboard.value = copySelection(docSeq, selectMarker(EMPTY_SELECTION, id))) },
         SEPARATOR,
         { id: "del", label: "Delete marker", danger: true, disabled: !writable, run: () => runSeq("Delete marker", (q) => deleteMarkers(q, [id])) },

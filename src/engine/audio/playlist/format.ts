@@ -30,7 +30,9 @@ import {
   type ChangeWhen, type Clip, type CurveInput, type Entry, type EntryUse, type PlaybackRules, type PlaylistAsset, type PlaylistBody, type PlaylistParse,
   type PlaylistSpatial, type PlaylistType, type QueueSettings, type SampleEntry, type SequenceLoop, type SequenceMarker, type SequenceSettings,
   type Stinger, type SwitchSettings, type Track, type VoiceCurve, type VoiceCurveTarget,
+  FADE_SHAPES, type BlendRegion, type Fade, type FadeShape, type Quantize, type TimeLength,
 } from "./types";
+import { isFadeShape } from "./fadeShapes";
 
 /** Limits of a playlist, declared once (ADR 0306; the first five are ADR 0329's). */
 export const PLAYLIST_LIMITS = Object.freeze({
@@ -211,6 +213,15 @@ class PlaylistReader {
     if (o.x !== undefined) out.x = r.num(o.x, `${where}.x`, 0);
     if (o.y !== undefined) out.y = r.num(o.y, `${where}.y`, 0);
     out.atZeroWeight = r.pick(o.atZeroWeight, `${where}.atZeroWeight`, ["stop", "continue"] as const, "stop");
+    if (o.region !== undefined && o.region !== null) {
+      const region = this.region(o.region, `${where}.region`);
+      if (region) out.region = region;
+    }
+    if (o.weightCurve !== undefined && o.weightCurve !== null) {
+      const c = r.curve(o.weightCurve, `${where}.weightCurve`);
+      if (c && c.length > 0) out.weightCurve = c;
+      else if (c) r.problem(`${where}.weightCurve`, "has no keys; dropped.");
+    }
     const curves = r.record(o.curves, `${where}.curves`);
     if (curves) {
       for (const [k, v] of Object.entries(curves)) {
@@ -221,6 +232,60 @@ class PlaylistReader {
       }
     }
     return out;
+  }
+
+  /** ADR 0336: a fade shape, or `fallback` with a problem. */
+  shape(raw: unknown, where: string, fallback: FadeShape = "equalPower"): FadeShape {
+    if (isFadeShape(raw)) return raw;
+    this.r.problem(where, `must be one of ${FADE_SHAPES.join(", ")}; using ${fallback}.`);
+    return fallback;
+  }
+
+  /** ADR 0336: `{ "ms": n }` or `{ "beats": n }`, or `fallback` with a problem. */
+  timeLength(raw: unknown, where: string, fallback: TimeLength): TimeLength {
+    const r = this.r;
+    if (isRecord(raw) && raw.ms !== undefined && raw.beats === undefined) return { ms: r.num(raw.ms, `${where}.ms`, "ms" in fallback ? fallback.ms : 0, 0, 60000) };
+    if (isRecord(raw) && raw.beats !== undefined && raw.ms === undefined) return { beats: r.num(raw.beats, `${where}.beats`, "beats" in fallback ? fallback.beats : 1, 0, 9999) };
+    r.problem(where, `must be { "ms": n } or { "beats": n }; using ${JSON.stringify(fallback)}.`);
+    return fallback;
+  }
+
+  /** ADR 0336: a fade `{ length, shape }`, or null (dropped with a problem). */
+  fade(raw: unknown, where: string): Fade | null {
+    if (!isRecord(raw)) { this.r.problem(where, 'a fade must be { "length", "shape" }; using the rule\'s.'); return null; }
+    return {
+      length: raw.length === undefined ? { ms: 0 } : this.timeLength(raw.length, `${where}.length`, { ms: 0 }),
+      shape: raw.shape === undefined ? "equalPower" : this.shape(raw.shape, `${where}.shape`),
+    };
+  }
+
+  /** ADR 0336: a 1D Blend entry's region; null (dropped with a problem) when it isn't one. */
+  region(raw: unknown, where: string): BlendRegion | null {
+    const r = this.r;
+    if (!isRecord(raw) || !isFiniteNumber(raw.start) || !isFiniteNumber(raw.end)) {
+      r.problem(where, 'a region needs numbers "start" and "end"; dropped (the entry plays by its x).');
+      return null;
+    }
+    let start = raw.start, end = raw.end;
+    if (end < start) { r.problem(where, "end was before start; swapped."); [start, end] = [end, start]; }
+    const span = end - start;
+    const out: BlendRegion = {
+      start, end,
+      fadeIn: r.num(raw.fadeIn, `${where}.fadeIn`, 0, 0, Math.max(0, span)),
+      fadeOut: r.num(raw.fadeOut, `${where}.fadeOut`, 0, 0, Math.max(0, span)),
+    };
+    if (raw.shapeIn !== undefined) out.shapeIn = this.shape(raw.shapeIn, `${where}.shapeIn`);
+    if (raw.shapeOut !== undefined) out.shapeOut = this.shape(raw.shapeOut, `${where}.shapeOut`);
+    return out;
+  }
+
+  /** ADR 0336: an automation lane's `quantize`, or undefined (absent, null or bad). */
+  quantize(raw: unknown, where: string): Quantize | undefined {
+    if (raw === undefined || raw === null) return undefined;
+    if (raw === "beat" || raw === "bar") return raw;
+    if (isRecord(raw) && Number.isInteger(raw.beats) && (raw.beats as number) >= 1 && (raw.beats as number) <= 64) return { beats: raw.beats as number };
+    this.r.problem(where, 'must be "beat", "bar", { "beats": 1..64 } or null; the lane follows its parameter.');
+    return undefined;
   }
 
   input(raw: unknown, where: string, fallback: CurveInput): CurveInput {
@@ -260,7 +325,10 @@ class PlaylistReader {
         r.problem(`${w}.input`, `${input} belongs to sequence clips and tracks; a playlist's own automation reads voiceTime.`);
         input = "voiceTime";
       }
-      out.push({ id: ids.take(a.id, w, "a"), target: target as Automation["target"], input, curve, bypass: r.bool(a.bypass, `${w}.bypass`, false) });
+      const lane: Automation = { id: ids.take(a.id, w, "a"), target: target as Automation["target"], input, curve, bypass: r.bool(a.bypass, `${w}.bypass`, false) };
+      const quantize = this.quantize(a.quantize, `${w}.quantize`);
+      if (quantize !== undefined) lane.quantize = quantize;
+      out.push(lane);
     });
     return out;
   }
@@ -328,7 +396,11 @@ class PlaylistReader {
     let continuous: QueueSettings["continuous"] = null;
     if (o.continuous !== undefined && o.continuous !== null) {
       const c = r.record(o.continuous, `${where}.continuous`);
-      if (c) continuous = { gapMs: r.num(c.gapMs, `${where}.continuous.gapMs`, 0, -10000, 60000) };
+      if (c) {
+        continuous = { gapMs: r.num(c.gapMs, `${where}.continuous.gapMs`, 0, -10000, 60000) };
+        if (c.shape !== undefined && c.shape !== "equalPower") continuous.shape = this.shape(c.shape, `${where}.continuous.shape`);
+        if (continuous.shape === "equalPower") delete continuous.shape;
+      }
     }
     return {
       pick: r.pick(o.pick, `${where}.pick`, ["random", "shuffle", "roundRobin"] as const, "random"),
@@ -342,16 +414,17 @@ class PlaylistReader {
     const when = r.pick(o.when, `${where}.when`, CHANGE_WHEN, "now");
     const out = defaultChange(when);
     out.how = r.pick(o.how, `${where}.how`, ["crossfade", "cut", "transition"] as const, "crossfade");
-    if (o.length !== undefined) {
-      const l = o.length;
-      if (isRecord(l) && l.ms !== undefined && l.beats === undefined) out.length = { ms: r.num(l.ms, `${where}.length.ms`, 200, 0, 60000) };
-      else if (isRecord(l) && l.beats !== undefined && l.ms === undefined) out.length = { beats: r.num(l.beats, `${where}.length.beats`, 1, 0, 9999) };
-      else r.problem(`${where}.length`, `must be { "ms": n } or { "beats": n }; using ${JSON.stringify(out.length)}.`);
-    }
+    if (o.length !== undefined) out.length = this.timeLength(o.length, `${where}.length`, out.length);
     if (o.transition !== undefined && o.transition !== null) {
       const t = this.looseEntry(o.transition, `${where}.transition`, depth);
       if (t) out.transition = t;
     }
+    // ADR 0336: shapes, the post-exit tail and the transition's own fades (absent = default, kept absent).
+    if (o.shapeOut !== undefined) { const s = this.shape(o.shapeOut, `${where}.shapeOut`); if (s !== "equalPower") out.shapeOut = s; }
+    if (o.shapeIn !== undefined) { const s = this.shape(o.shapeIn, `${where}.shapeIn`); if (s !== "equalPower") out.shapeIn = s; }
+    if (o.tail !== undefined && !r.bool(o.tail, `${where}.tail`, true)) out.tail = false;
+    if (o.transitionIn !== undefined && o.transitionIn !== null) { const f = this.fade(o.transitionIn, `${where}.transitionIn`); if (f) out.transitionIn = f; }
+    if (o.transitionOut !== undefined && o.transitionOut !== null) { const f = this.fade(o.transitionOut, `${where}.transitionOut`); if (f) out.transitionOut = f; }
     if (out.how === "transition" && !out.transition) {
       r.problem(`${where}.how`, 'a transition needs a "transition" playlist; using a crossfade.');
       out.how = "crossfade";
@@ -496,6 +569,8 @@ class PlaylistReader {
       let end = r.num(raw.end, `${w}.end`, start, 0);
       if (end < start) { r.problem(w, "end was before start; swapped."); [start, end] = [end, start]; }
       const loop: SequenceLoop = { id: loopIds.take(raw.id, w, "l"), start, end, ...parseLoopBehaviour(raw, w, this.problems, "always") };
+      if (raw.tail !== undefined && !r.bool(raw.tail, `${w}.tail`, true)) loop.tail = false;
+      if (raw.exitShape !== undefined) { const sh = this.shape(raw.exitShape, `${w}.exitShape`); if (sh !== "equalPower") loop.exitShape = sh; }
       out.loops.push(loop);
     });
     const markerIds = new IdScope(r);
@@ -504,8 +579,8 @@ class PlaylistReader {
       if (out.markers.length >= PLAYLIST_LIMITS.sequenceMarkers) return void r.problem(w, `at most ${PLAYLIST_LIMITS.sequenceMarkers} markers; dropped.`);
       if (!isRecord(raw)) return void r.problem(w, "a marker must be an object; dropped.");
       const marker: SequenceMarker = { id: markerIds.take(raw.id, w, "m"), name: r.str(raw.name, `${w}.name`, "Marker"), at: r.num(raw.at, `${w}.at`, 0, 0) };
-      if (raw.type === "cue" || raw.type === "exit") marker.type = raw.type;
-      else if (raw.type !== undefined && raw.type !== "note") r.problem(`${w}.type`, `"${String(raw.type)}" isn't note, cue or exit; using note.`);
+      if (raw.type === "cue" || raw.type === "exit" || raw.type === "entry") marker.type = raw.type;
+      else if (raw.type !== undefined && raw.type !== "note") r.problem(`${w}.type`, `"${String(raw.type)}" isn't note, cue, exit or entry; using note.`);
       out.markers.push(marker);
     });
     return out;
@@ -618,7 +693,18 @@ function useToJson(e: EntryUse, out: JsonRecord): void {
     curves[t] = json;
   }
   if (Object.keys(curves).length) out.curves = curves;
+  if (e.region) {
+    const g = e.region;
+    const region: JsonRecord = { start: g.start, end: g.end, fadeIn: g.fadeIn, fadeOut: g.fadeOut };
+    if (g.shapeIn !== undefined) region.shapeIn = g.shapeIn;
+    if (g.shapeOut !== undefined) region.shapeOut = g.shapeOut;
+    out.region = region;
+  }
+  if (e.weightCurve) out.weightCurve = curveToJson(e.weightCurve);
 }
+
+/** ADR 0336: a fade as JSON. */
+const fadeToJson = (f: Fade): JsonRecord => ({ length: { ...f.length }, shape: f.shape });
 
 /** An entry as JSON: its reference first, then the per-use fields that differ from their defaults. */
 export function entryToJson(e: Entry): JsonRecord {
@@ -637,13 +723,19 @@ function automationToJson(list: readonly Automation[]): JsonRecord[] {
   return list.map((a) => {
     const out: JsonRecord = { id: a.id, target: a.target, input: inputToJson(a.input), curve: curveToJson(a.curve) };
     if (a.bypass) out.bypass = true;
+    if (a.quantize !== undefined) out.quantize = typeof a.quantize === "string" ? a.quantize : { beats: a.quantize.beats };
     return out;
   });
 }
 
 function changeToJson(c: ChangeHow): JsonRecord {
   const out: JsonRecord = { when: c.when, how: c.how, length: { ...c.length } };
+  if (c.shapeOut !== undefined && c.shapeOut !== "equalPower") out.shapeOut = c.shapeOut;
+  if (c.shapeIn !== undefined && c.shapeIn !== "equalPower") out.shapeIn = c.shapeIn;
+  if (c.tail === false) out.tail = false;
   if (c.transition) out.transition = entryToJson(c.transition);
+  if (c.transitionIn) out.transitionIn = fadeToJson(c.transitionIn);
+  if (c.transitionOut) out.transitionOut = fadeToJson(c.transitionOut);
   return out;
 }
 
@@ -687,7 +779,7 @@ function sequenceToJson(s: SequenceSettings): JsonRecord {
   const out: JsonRecord = { length: s.length };
   if (s.tempo) out.tempo = { bpm: s.tempo.bpm, meter: s.tempo.meter };
   out.tracks = s.tracks.map(trackToJson);
-  if (s.loops.length) out.loops = s.loops.map((l) => ({ id: l.id, start: l.start, end: l.end, ...loopBehaviourToJson(l) }));
+  if (s.loops.length) out.loops = s.loops.map((l) => ({ id: l.id, start: l.start, end: l.end, ...loopBehaviourToJson(l), ...(l.tail === false ? { tail: false } : {}), ...(l.exitShape && l.exitShape !== "equalPower" ? { exitShape: l.exitShape } : {}) }));
   if (s.markers.length) out.markers = s.markers.map((m) => ({ id: m.id, name: m.name, at: m.at, ...(m.type && m.type !== "note" ? { type: m.type } : {}) }));
   return out;
 }
@@ -746,7 +838,10 @@ export function playlistBodyToJson(b: PlaylistBody): JsonRecord {
     if (key in own && sameJson(json, write(own[key] as NonNullable<PlaylistBody[K]>))) return;
     out[key] = json;
   };
-  block("queue", (q) => ({ pick: q.pick, avoidRepeat: q.avoidRepeat, continuous: q.continuous ? { gapMs: q.continuous.gapMs } : null }));
+  block("queue", (q) => ({
+    pick: q.pick, avoidRepeat: q.avoidRepeat,
+    continuous: q.continuous ? { gapMs: q.continuous.gapMs, ...(q.continuous.shape && q.continuous.shape !== "equalPower" ? { shape: q.continuous.shape } : {}) } : null,
+  }));
   block("switch", switchToJson);
   block("blend", blendToJson);
   block("sequence", sequenceToJson);
