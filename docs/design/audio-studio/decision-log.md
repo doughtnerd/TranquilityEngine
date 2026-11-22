@@ -53,3 +53,11 @@ one message; the editor migrates it silently on open (backup in `.myco/migrated/
 −60 = silence, ceiling +6.02 dB so legacy gain 2 survives. Snapshot/automation low-pass migrates through a neutral
 20 kHz "carrier" low-pass per bus. Migrated snapshots start from code, 300 ms fades, priority 0, override. A bus named
 "Master" is the master bus, else the first bus. When both exist, `audio.json` wins. Revert: per item in `src/engine/audio/project/{gain,legacy,format}.ts`, `src/editor/audioProjectFile.ts`.
+
+**D9. Studio shell (W1-T1, merged).** Calibration offsets are a per-user preference shared across projects (audio offset
+also pushed to `Audio.calibration` while playing); calibration clicks use a separate Web Audio context (no engine click
+yet); single-key-shortcut preference covers character keys only (WCAG 2.1.4); the Studio's Engine is `kind: "runtime"`
+with an empty World; the Studio activates only the audio plugin; at most 3 toasts, timers pause on hover/focus
+(WCAG 2.2.1); switching screens drops the asset selection; Studio panels can't detach in v1; clicking the project name
+closes the project. Known gap: the Studio's World needs a hidden 1×1 view because the audio runtime plays only Worlds
+with a view — an audio-only World option is scheduled. Revert: per item (`src/studio/`).
