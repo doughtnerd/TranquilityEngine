@@ -184,6 +184,8 @@ interface NavState {
   active: Set<UICanvas>;
   /** autoFocus canvases waiting for a focusable element. */
   pending: Set<UICanvas>;
+  /** Players with a rebind pending at the last run: the press that finishes one is the rebind's, not the UI's. */
+  rebinding: Set<GameObject>;
 }
 
 const states = new WeakMap<World, NavState>();
@@ -199,15 +201,26 @@ interface Actions {
   previous: boolean;
 }
 
-/** What the players driving `canvas` performed this frame (any of them; a pending rebind takes a player's presses). */
-function readActions(world: World, canvas: UICanvas | null): Actions {
+/**
+ * What the players driving `canvas` performed this frame (any of them). A pending rebind takes a
+ * player's presses, including the one that finishes it: the rebind runs earlier in the frame and has
+ * already removed its request, so a player who had one at the last run is skipped too (else the
+ * captured arrow would move focus, Enter click, Escape cancel the menu).
+ */
+function readActions(world: World, canvas: UICanvas | null, state: NavState): Actions {
   const out: Actions = { navigate: null, submit: false, cancel: false, next: false, previous: false };
   const only = canvas?.player ?? -1;
   // `engine.RebindRequest` (input/rebind.ts), looked up by id: importing it here would load the evaluator early and reorder built-in systems.
   const rebinding = getDataComponentDef("engine.RebindRequest");
+  const wasRebinding = state.rebinding;
+  state.rebinding = new Set();
   for (const node of playerNodes(world)) {
+    if (rebinding && node.hasData(rebinding)) {
+      state.rebinding.add(node);
+      continue;
+    }
+    if (wasRebinding.has(node)) continue;
     if (only >= 0 && node.getData(InputPlayer)!.index !== only) continue;
-    if (rebinding && node.hasData(rebinding)) continue;
     const a = actionView(node, UIActions);
     if (!a) continue;
     if (!out.navigate && a.performed("navigate")) {
@@ -226,7 +239,7 @@ function run(world: World): void {
   if (!takesLocalInput(world)) return;
   const log = uiInteractions(world);
   let state = states.get(world);
-  if (!state) states.set(world, (state = { active: new Set(), pending: new Set() }));
+  if (!state) states.set(world, (state = { active: new Set(), pending: new Set(), rebinding: new Set() }));
   const layout = new Layout(log.layout);
 
   // Focus on something that can't have it any more is lost (a script's doing: no events).
@@ -261,7 +274,7 @@ function run(world: World): void {
   if (!canvas) for (const c of active) if (c.mode === "screen" && layout.list(c).length) canvas = c;
 
   const requests = log.takeRequests();
-  const act = readActions(world, canvas);
+  const act = readActions(world, canvas, state);
   if (requests.length || act.navigate || act.submit || act.cancel || act.next || act.previous) log.navigating = true;
 
   for (const r of requests) {

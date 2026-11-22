@@ -592,6 +592,7 @@ describe("rebinding (ADR 0340)", () => {
     step();
     Input.inject.keyDown("k");
     step();
+    expect(play.clicked).toBe(false); // the press the rebind captured isn't also a submit
     Input.inject.keyUp("k");
     step();
     await expect(result).resolves.toMatchObject({ control: "<Keyboard>/k", canceled: false });
@@ -603,5 +604,33 @@ describe("rebinding (ADR 0340)", () => {
     Input.inject.keyDown("enter"); // Enter's mapping was the one rebound
     step();
     expect(play.clicked).toBe(false);
+  });
+
+  it("doesn't navigate, submit or cancel with the press a rebind captures or cancels with", async () => {
+    const c = canvas();
+    const g = grid(c);
+    await pointer();
+    g[1][1].focused = true;
+    step();
+    const p0 = InputPlayers.get(0)!;
+    const bound = p0.rebind("test.uiNavigation.Game:jump", { device: "keyboard" });
+    step();
+    Input.inject.keyDown("arrowright"); // captured: jump is bound to it, focus stays
+    step();
+    Input.inject.keyUp("arrowright");
+    step();
+    await expect(bound).resolves.toMatchObject({ control: "<Keyboard>/arrowright" });
+    expect(g[1][1].focused).toBe(true);
+
+    const canceled = p0.rebind("test.uiNavigation.Game:jump", { device: "keyboard", cancel: "<Keyboard>/escape" });
+    step();
+    Input.inject.keyDown("escape");
+    step();
+    expect(c.canceled).toBe(false); // Escape canceled the rebind, not the menu
+    Input.inject.keyUp("escape");
+    step();
+    await expect(canceled).resolves.toMatchObject({ canceled: true });
+    press("arrowleft"); // and navigation goes on
+    expect(g[1][0].focused).toBe(true);
   });
 });

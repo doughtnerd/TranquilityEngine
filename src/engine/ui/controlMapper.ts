@@ -2,13 +2,25 @@
  * A ready-made rebinding screen (ADR 0337, Rewired's Control Mapper): `UIControlMapper` builds a
  * panel of UI elements as its node's children listing a player's actions with their keyboard and
  * gamepad bindings (glyph and label, following the device family the player last used), and
- * rebinds the one the player clicks or confirms through `PlayerInput.rebind` (an empty cell gets a
- * binding added), unbinds the selected one (Delete, Backspace or the Unbind button), reports
- * conflicts, resets to the defaults and saves with `saveBindings`. A chord ("Shift + B") is one
- * cell whose rebind takes the keys or buttons pressed together. With `showAccessibility` it also edits the
- * player's accessibility settings (invert Y, sensitivity, hold-to-toggle, repeat, stick dead zone),
- * which Save writes with the bindings. Mouse, keyboard (arrows, Enter) and gamepad (d-pad, south
- * button) all drive it.
+ * rebinds the one the player clicks through `PlayerInput.rebind` (an empty cell gets a binding
+ * added), unbinds the focused one (Delete, Backspace, or the Unbind button for the cell last
+ * focused), reports conflicts, resets to the defaults and saves with `saveBindings`. A chord
+ * ("Shift + B") is one cell whose rebind takes the keys or buttons pressed together. With
+ * `showAccessibility` it also edits the player's accessibility settings (invert Y, sensitivity,
+ * hold-to-toggle, repeat, stick dead zone), which Save writes with the bindings.
+ *
+ * Every cell, toggle, stepper button and Unbind, Reset and Save is a focusable `UIButton`, driven by
+ * the game UI's focus navigation (ADR 0340): the mouse clicks, and the arrow keys, d-pad and left
+ * stick (`navigate`) move focus while Enter, Space and the south button (`submit`) click the focused
+ * button. The mapper keeps no selection of its own and acts on clicks only. Its screen takes focus
+ * when it appears (its own canvas has `autoFocus`; under a game's canvas it focuses its first cell
+ * unless something on that canvas has focus), and a player's presses don't move focus while their
+ * rebind waits (navigation skips a player with a pending rebind). The focused element always shows
+ * `accentColor` as its border, even after the mouse moved focus, because Delete, Backspace and
+ * Unbind act on it; its `focusColor` fill (`hoverColor`) shows only while navigating, as on any
+ * button. Delete and Backspace are read as the player's device events while one of its cells has
+ * focus: they're the screen's editing keys, like a text field's, not game actions (an action set
+ * for them would show up in every list of actions, this screen's included).
  *
  * Like a UI document's elements, the nodes it builds belong to it: they aren't in the scene file
  * and go when it does. Without a `UICanvas` above it, it makes its own screen canvas.
@@ -31,13 +43,14 @@ import type { InputAccessibility } from "../input/profiles";
 import { controlLabel, type InputPrompt } from "../input/prompts";
 import { RebindResults, type RebindResult } from "../input/rebind";
 import { UIButton, UICanvas, UIImage, UIPanel, UIText, type UIComponentType, type UILength } from "./components";
+import { uiInteractions } from "./interactions";
 
 /** The words a control mapper shows, for translating. */
 export interface UIControlMapperText {
   keyboard: string;
   gamepad: string;
   action: string;
-  /** The button that unbinds the selected cell. */
+  /** The button that unbinds the focused cell, or the one last focused. */
   unbind: string;
   reset: string;
   save: string;
@@ -138,6 +151,8 @@ export type UIControlMapperDevice = "keyboard" | "gamepad";
 
 /** One binding cell: what it shows and the button that rebinds it. */
 export interface UIControlMapperCell {
+  /** The action of the cell's row. */
+  readonly action: string;
   readonly device: UIControlMapperDevice;
   /** The control's label ("Space", "A", "Shift+B"), or the `none` text when the device has no binding. */
   readonly label: string;
@@ -151,7 +166,7 @@ export interface UIControlMapperCell {
   readonly chord: boolean;
   /** True when another listed action's binding for this device uses the same control. */
   readonly conflict: boolean;
-  /** The button: click it (or select it and press Enter) to rebind; select it and press Delete or Backspace to unbind. */
+  /** The button: click it (or focus it and press Enter, Space or the south button) to rebind; focus it and press Delete or Backspace to unbind. */
   readonly button: UIButton;
 }
 
@@ -178,7 +193,7 @@ export interface UIControlMapperSetting {
   readonly value: string;
   /** False for the repeat steppers while repeat is off. */
   readonly enabled: boolean;
-  /** A toggle's button, or null for a stepper. */
+  /** A toggle's button, or null for a stepper. These buttons are focusable, like the cells. */
   readonly toggle: UIButton | null;
   /** A stepper's buttons, or null for a toggle. */
   readonly decrease: UIButton | null;
@@ -194,6 +209,7 @@ interface Entry {
 }
 
 interface CellState {
+  action: string;
   device: UIControlMapperDevice;
   label: string;
   icons: readonly string[];
@@ -224,11 +240,14 @@ interface SettingState {
   increaseText: UIText | null;
 }
 
-/** A selectable column of an accessibility row. */
+/** A button of an accessibility row. */
 interface SettingColumn {
   readonly row: SettingState;
   readonly op: "toggle" | "decrease" | "increase";
 }
+
+/** What a button of the screen does when clicked. */
+type Target = { readonly kind: "cell"; readonly row: number; readonly cell: CellState } | { readonly kind: "setting"; readonly column: SettingColumn } | { readonly kind: "unbind" | "reset" | "save" };
 
 /** Stepper ranges: step, least and most. */
 const STEPPERS: Record<"sensitivity" | "repeatDelay" | "repeatInterval" | "deadzone", { step: number; min: number; max: number }> = {
@@ -250,6 +269,10 @@ interface RowState {
 
 interface Built {
   root: GameObject;
+  /** The canvas it draws on: its own, or the one above it. */
+  canvas: UICanvas;
+  /** True when it made `canvas`. */
+  ownCanvas: boolean;
   panel: UIPanel;
   title: UIText;
   headerKeyboard: UIText;
@@ -272,17 +295,9 @@ interface Built {
 }
 
 const IMAGES_PER_CELL = 3;
-const NAV_DIRS: Record<string, "up" | "down" | "left" | "right"> = {
-  "<Keyboard>/arrowup": "up",
-  "<Keyboard>/arrowdown": "down",
-  "<Keyboard>/arrowleft": "left",
-  "<Keyboard>/arrowright": "right",
-  "<Gamepad>/dpadUp": "up",
-  "<Gamepad>/dpadDown": "down",
-  "<Gamepad>/dpadLeft": "left",
-  "<Gamepad>/dpadRight": "right",
-};
-const CONFIRM = new Set(["<Keyboard>/enter", "<Gamepad>/buttonSouth"]);
+/** The UI actions' set (ADR 0340): listed only when `actions` names it. */
+const UI_ACTIONS_SET = "engine.UIActions";
+/** The screen's editing keys, read as the player's device events while one of its cells has focus. */
 const UNBIND = new Set(["<Keyboard>/delete", "<Keyboard>/backspace"]);
 
 const live = new Set<UIControlMapper>();
@@ -296,18 +311,20 @@ const titleCase = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").
  * A rebinding screen for one player: put it on a node under a `UICanvas` (or anywhere: it makes a
  * screen canvas of its own). Rows list the actions (`actions`, or every defined action), one per
  * part for a composite binding (Move Up, Move Down…), with a keyboard and a gamepad cell. Clicking
- * a cell, or selecting it with the arrows or d-pad and pressing Enter or the south button, waits
- * for the player's next press (`PlayerInput.rebind`, adding a binding when the cell is empty;
- * Escape cancels) and shows any conflict. Delete or Backspace on a selected cell, or **Unbind**,
- * removes its binding (`PlayerInput.unbind`). **Reset to defaults** drops the player's changes;
- * **Save** writes them with `saveBindings`.
+ * a cell (with the mouse, or `submit` on it after focus navigation brought focus there) waits for
+ * the player's next press (`PlayerInput.rebind`, adding a binding when the cell is empty; Escape
+ * cancels) and shows any conflict. Delete or Backspace on the focused cell, or **Unbind** (for the
+ * cell last focused), removes its binding (`PlayerInput.unbind`). **Reset to defaults** drops the
+ * player's changes; **Save** writes them with `saveBindings`.
  */
 @component("engine.UIControlMapper")
 export class UIControlMapper extends Component {
   /** The player's index. */
   @field(Number) player = 0;
-  /** The actions to list, comma-separated (`"jump, move, game.Vehicle:honk"`); empty lists every action of every action set. */
+  /** The actions to list, comma-separated (`"jump, move, game.Vehicle:honk"`); empty lists every action of every action set but the engine's UI actions (`engine.UIActions`, listed only when named here). */
   @field(String) actions = "";
+  /** Keep focus in the screen (its canvas's `modal`) while it's shown. Only for the canvas it makes; under a game's canvas, set that canvas's `modal`. */
+  @field(Boolean) modal = false;
   /** Show the keyboard (and mouse) column. */
   @field(Boolean) keyboard = true;
   /** Show the gamepad column. */
@@ -336,7 +353,7 @@ export class UIControlMapper extends Component {
   @field(Color) cellColor = new Color(0.24, 0.27, 0.32, 1);
   @field(Color) hoverColor = new Color(0.33, 0.36, 0.43, 1);
   @field(Color) pressedColor = new Color(0.17, 0.19, 0.23, 1);
-  /** The selected cell's border, and the cell waiting for a press. */
+  /** The focused button's border (shown after mouse use too), and the cell waiting for a press. */
   @field(Color) accentColor = new Color(0.36, 0.62, 1, 1);
   @field(Color) textColor = Color.white;
   @field(Color) mutedColor = new Color(1, 1, 1, 0.6);
@@ -349,10 +366,11 @@ export class UIControlMapper extends Component {
   actionLabels: Record<string, string> = {};
 
   private built: Built | null = null;
-  private selection = { row: 0, column: 0 };
-  /** The binding cell last selected: what Unbind acts on once the selection has moved to it. */
-  private lastCell = { row: 0, column: 0 };
-  private waiting: { action: string; device: UIControlMapperDevice; rowIndex: number; column: number; chord: boolean } | null = null;
+  /** The binding cell last focused: what Unbind acts on once focus has moved to it. */
+  private lastCell: CellState | null = null;
+  /** Under a game's canvas: the first cell has been given focus since the screen became active. */
+  private focusGiven = false;
+  private waiting: { action: string; device: UIControlMapperDevice; cell: CellState; chord: boolean } | null = null;
   /** Repeat's delay and interval while it's off, for when it's turned back on. */
   private repeatMemory = { ...DEFAULT_REPEAT };
   private statusMessage = "";
@@ -388,15 +406,16 @@ export class UIControlMapper extends Component {
   }
 
   /**
-   * The selected cell: a row index and a column (0: the first shown). Rows count the binding rows,
-   * then the accessibility rows (`settings`; a stepper's columns are − and +), then the button row
-   * (`rows.length + settings.length`: Unbind, Reset, Save).
+   * The binding cell that has focus (ADR 0340), or null when focus is elsewhere (an accessibility
+   * row, a button, another screen). Delete and Backspace unbind it. To move focus, set a cell's
+   * `button.focused`.
    */
-  get selected(): { readonly row: number; readonly column: number } {
-    return { ...this.selection };
+  get focusedCell(): UIControlMapperCell | null {
+    const c = this.built && this.focusedCellState(this.built);
+    return c ? cellView(c) : null;
   }
 
-  /** The Unbind, Reset and Save buttons (null before the first frame). Unbind acts on the selected binding cell, or the one last selected. */
+  /** The Unbind, Reset and Save buttons (null before the first frame). Unbind acts on the focused binding cell, or the one last focused. */
   get unbindButton(): UIButton | null {
     return this.built?.unbind ?? null;
   }
@@ -414,6 +433,7 @@ export class UIControlMapper extends Component {
   /** @internal */
   override _onActivate(): void {
     live.add(this);
+    this.focusGiven = false;
     if (this.built?.root.isValid) this.built.root.setActive(true);
   }
 
@@ -447,9 +467,39 @@ export class UIControlMapper extends Component {
     const finished = input ? this.collectResults(input) : false;
     this.syncRows(world, built, input);
     this.syncSettings(world, built, input);
+    this.giveFocus(world, built);
+    this.noteFocusedCell(built);
     if (input && !this.waiting && !finished) this.handleInput(built, input);
-    if (this.selection.row < built.rows.length) this.lastCell = { ...this.selection };
+    this.noteFocusedCell(built);
     this.paint(built);
+  }
+
+  /** Under a game's canvas, focus the first cell once the rows are there, unless something on that canvas has focus (its own canvas does this with `autoFocus`). */
+  private giveFocus(world: World, built: Built): void {
+    if (built.ownCanvas || this.focusGiven || !built.rows.length) return;
+    this.focusGiven = true;
+    const focused = uiInteractions(world).focused;
+    if (focused?.node.isValid && focused.isActiveAndEnabled && canvasOf(focused.owner) === built.canvas) return;
+    const first = this.firstCell(built);
+    if (first) first.button.focused = true;
+  }
+
+  /** Remember the focused binding cell: what Unbind acts on once focus has moved to the button. */
+  private noteFocusedCell(built: Built): void {
+    const c = this.focusedCellState(built);
+    if (c) this.lastCell = c;
+  }
+
+  /** The binding cell that has focus, or null. */
+  private focusedCellState(built: Built): CellState | null {
+    for (const r of built.rows) for (const c of [r.keyboard, r.gamepad]) if (c?.button.focused) return c;
+    return null;
+  }
+
+  /** The first cell that does something (rebinds or adds), or null. */
+  private firstCell(built: Built, device?: UIControlMapperDevice): CellState | null {
+    for (const r of built.rows) for (const c of [r.keyboard, r.gamepad]) if (c && (!device || c.device === device) && (c.part !== null || c.adds)) return c;
+    return null;
   }
 
   private collectResults(input: PlayerInput): boolean {
@@ -506,7 +556,8 @@ export class UIControlMapper extends Component {
       .map((s) => s.trim())
       .filter(Boolean);
     if (listed.length) return listed;
-    const sets = actionSets();
+    // The engine's UI actions aren't the game's: listed only when named.
+    const sets = actionSets().filter((s) => s.id !== UI_ACTIONS_SET);
     const count = new Map<string, number>();
     for (const s of sets) for (const a of s.actions) count.set(a.name, (count.get(a.name) ?? 0) + 1);
     return sets.flatMap((s) => s.actions.map((a) => (count.get(a.name)! > 1 ? `${s.id}:${a.name}` : a.name)));
@@ -554,10 +605,11 @@ export class UIControlMapper extends Component {
   }
 
   private build(world: World): Built {
-    let underCanvas = false;
-    for (let n: GameObject | null = this.node; n; n = n.parent) if (n.getComponent(UICanvas)) underCanvas = true;
-    // A full-size box that centres the panel: in the canvas above, else in a screen canvas of its own.
-    const root = underCanvas ? world._createNode("ControlMapper", this.node.entity) : this.el(world, UICanvas, "ControlMapper", this.node, { sortOrder: 100 }).node;
+    const above = canvasOf(this.node);
+    // A full-size box that centres the panel: in the canvas above, else in a screen canvas of its own,
+    // which takes focus when it appears (ADR 0340) and is driven by this player's UI actions.
+    const canvas = above ?? this.el(world, UICanvas, "ControlMapper", this.node, { sortOrder: 100, autoFocus: true, player: this.player, modal: this.modal });
+    const root = above ? world._createNode("ControlMapper", this.node.entity) : canvas.node;
     const host = this.el(world, UIPanel, "Screen", root, { width: "100%", height: "100%", justifyContent: "center", alignItems: "center" }).node;
     const panel = this.el(world, UIPanel, "Panel", host, { flexDirection: "column", padding: 24, gap: 10, borderRadius: 12 });
     const title = this.el(world, UIText, "Title", panel.node, { fontWeight: "bold" });
@@ -576,15 +628,15 @@ export class UIControlMapper extends Component {
     const resetText = this.el(world, UIText, "Label", reset.node, {});
     const save = this.el(world, UIButton, "Save", footer.node, { borderWidth: 2 });
     const saveText = this.el(world, UIText, "Label", save.node, {});
-    return { root, panel, title, headerAction, headerKeyboard, headerGamepad, list, settingsHeading, settingsList, settingsSignature: "", settings: [], status, unbind, unbindText, reset, resetText, save, saveText, signature: "", rows: [] };
+    return { root, canvas, ownCanvas: !above, panel, title, headerAction, headerKeyboard, headerGamepad, list, settingsHeading, settingsList, settingsSignature: "", settings: [], status, unbind, unbindText, reset, resetText, save, saveText, signature: "", rows: [] };
   }
 
-  private buildCell(world: World, row: GameObject, device: UIControlMapperDevice): CellState {
+  private buildCell(world: World, row: GameObject, action: string, device: UIControlMapperDevice): CellState {
     const button = this.el(world, UIButton, device === "keyboard" ? "Keyboard" : "Gamepad", row, { flexGrow: 1, width: 0 as UILength, height: (this.glyphSize + 14) as UILength, padding: 6, gap: 8, justifyContent: "flex-start", borderWidth: 2 });
     const images: UIImage[] = [];
     for (let i = 0; i < IMAGES_PER_CELL; i++) images.push(this.el(world, UIImage, `Glyph${i}`, button.node, { display: "none" }));
     const text = this.el(world, UIText, "Label", button.node, { wordBreak: "keep-all" });
-    return { device, label: "", icons: [], part: null, adds: false, context: null, controls: [], chord: false, conflict: false, button, text, images };
+    return { action, device, label: "", icons: [], part: null, adds: false, context: null, controls: [], chord: false, conflict: false, button, text, images };
   }
 
   /** Work out the rows from the player's bindings; rebuild the row elements when their shape changed. */
@@ -609,15 +661,20 @@ export class UIControlMapper extends Component {
       }
     }
     const signature = `${this.keyboard}|${this.gamepad}|${want.map((w) => `${w.action}/${w.part}`).join(",")}`;
+    // Where the focused (else the last focused) cell was, to put focus back near it when the rows are rebuilt.
+    let anchor: { row: number; device: UIControlMapperDevice; focused: boolean } | null = null;
     if (signature !== built.signature) {
       built.signature = signature;
+      const was = this.focusedCellState(built) ?? this.lastCell;
+      const at = was ? built.rows.findIndex((r) => r.keyboard === was || r.gamepad === was) : -1;
+      if (was && at >= 0) anchor = { row: at, device: was.device, focused: was.button.focused };
+      this.lastCell = null;
       for (const r of built.rows) if (r.name.node.parent?.isValid) world._destroyNode(r.name.node.parent.entity);
       built.rows = want.map((w, i) => {
         const row = this.el(world, UIPanel, `Row${i}`, built.list.node, { gap: 8, alignItems: "center" });
         const name = this.el(world, UIText, "Name", row.node, { width: "34%" });
-        return { action: w.action, part: w.part, label: w.label, name, keyboard: this.keyboard ? this.buildCell(world, row.node, "keyboard") : null, gamepad: this.gamepad ? this.buildCell(world, row.node, "gamepad") : null };
+        return { action: w.action, part: w.part, label: w.label, name, keyboard: this.keyboard ? this.buildCell(world, row.node, w.action, "keyboard") : null, gamepad: this.gamepad ? this.buildCell(world, row.node, w.action, "gamepad") : null };
       });
-      this.clampSelection(built);
     }
     // Contents.
     const uses = new Map<string, number>();
@@ -643,6 +700,14 @@ export class UIControlMapper extends Component {
       }
     });
     for (const r of built.rows) for (const cell of [r.keyboard, r.gamepad]) if (cell) cell.conflict = cell.controls.length === 1 && (uses.get(`${cell.device}|${cell.controls[0]}`) ?? 0) > 1;
+    if (anchor && built.rows.length) {
+      // The same row (or the last) in the same column, else the column's first cell that does something.
+      const r = built.rows[Math.min(anchor.row, built.rows.length - 1)];
+      const same = anchor.device === "keyboard" ? r.keyboard : r.gamepad;
+      const cell = same && (same.part !== null || same.adds) ? same : (this.firstCell(built, anchor.device) ?? this.firstCell(built));
+      this.lastCell = cell;
+      if (cell && anchor.focused) cell.button.focused = true;
+    }
     const noPlayer = fill(this.text.noPlayer, { player: this.player });
     if (!input) this.setStatus(noPlayer, true);
     else if (this.statusMessage === noPlayer) this.setStatus("");
@@ -650,99 +715,72 @@ export class UIControlMapper extends Component {
 
   // --- Input ------------------------------------------------------------------------------------
 
-  /** The button row's index: after the binding and accessibility rows. */
-  private footerRow(built: Built): number {
-    return built.rows.length + built.settings.length;
-  }
-
-  /** Columns of a row: its cells, an accessibility row's toggle or − and +, or Unbind, Reset and Save on the button row. */
-  private columns(built: Built, row: number): (CellState | SettingColumn | "unbind" | "reset" | "save")[] {
-    if (row >= this.footerRow(built)) return ["unbind", "reset", "save"];
-    if (row >= built.rows.length) {
-      const setting = built.settings[row - built.rows.length];
-      return setting.toggle ? [{ row: setting, op: "toggle" }] : [{ row: setting, op: "decrease" }, { row: setting, op: "increase" }];
+  /** Every button of the screen with what clicking it does, in tree order: the cells, the accessibility rows', then Unbind, Reset and Save. */
+  private targets(built: Built): { button: UIButton; target: Target }[] {
+    const out: { button: UIButton; target: Target }[] = [];
+    built.rows.forEach((r, row) => {
+      for (const cell of [r.keyboard, r.gamepad]) if (cell) out.push({ button: cell.button, target: { kind: "cell", row, cell } });
+    });
+    for (const s of built.settings) {
+      if (s.toggle) out.push({ button: s.toggle, target: { kind: "setting", column: { row: s, op: "toggle" } } });
+      if (s.decrease) out.push({ button: s.decrease, target: { kind: "setting", column: { row: s, op: "decrease" } } });
+      if (s.increase) out.push({ button: s.increase, target: { kind: "setting", column: { row: s, op: "increase" } } });
     }
-    const r = built.rows[row];
-    return [r.keyboard, r.gamepad].filter((c): c is CellState => c !== null);
-  }
-
-  private buttonOf(built: Built, c: CellState | SettingColumn | "unbind" | "reset" | "save"): UIButton {
-    if (c === "unbind") return built.unbind;
-    if (c === "reset") return built.reset;
-    if (c === "save") return built.save;
-    if ("op" in c) return (c.op === "toggle" ? c.row.toggle : c.op === "decrease" ? c.row.decrease : c.row.increase)!;
-    return c.button;
-  }
-
-  private clampSelection(built: Built): void {
-    this.selection.row = Math.max(0, Math.min(this.selection.row, this.footerRow(built)));
-    this.selection.column = Math.max(0, Math.min(this.selection.column, this.columns(built, this.selection.row).length - 1));
+    out.push({ button: built.unbind, target: { kind: "unbind" } }, { button: built.reset, target: { kind: "reset" } }, { button: built.save, target: { kind: "save" } });
+    return out;
   }
 
   private handleInput(built: Built, input: PlayerInput): void {
-    // The pointer: hovering selects, clicking activates.
-    for (let row = 0; row <= this.footerRow(built); row++) {
-      this.columns(built, row).forEach((c, column) => {
-        const button = this.buttonOf(built, c);
-        if (button.hovered) this.selection = { row, column };
-        if (button.clicked) {
-          this.selection = { row, column };
-          this.activate(built, input);
-        }
-      });
+    // A click, from the pointer or from `submit` on the focused button (navigation records it as a click).
+    for (const { button, target } of this.targets(built)) {
+      if (!button.clicked) continue;
+      this.activate(built, input, target);
+      if (this.waiting) return;
     }
-    if (this.waiting) return;
-    // Keys and the d-pad of the player's devices.
+    // Delete and Backspace on the focused cell, from the player's own devices.
+    const focused = this.focusedCellState(built);
+    if (!focused) return;
     for (const e of DeviceEvents.read()) {
-      if (Math.abs(e.value) < 0.5 || e.device.getData(InputDevice)?.player !== input.index) continue;
-      const dir = NAV_DIRS[e.control];
-      if (dir) this.move(built, dir);
-      else if (UNBIND.has(e.control)) {
-        if (this.selection.row < built.rows.length) this.unbindCell(built, input, this.selection);
-      } else if (CONFIRM.has(e.control)) {
-        this.activate(built, input);
-        if (this.waiting) return;
+      if (Math.abs(e.value) < 0.5 || !UNBIND.has(e.control) || e.device.getData(InputDevice)?.player !== input.index) continue;
+      this.unbindCell(input, focused);
+      return;
+    }
+  }
+
+  private activate(built: Built, input: PlayerInput, target: Target): void {
+    switch (target.kind) {
+      case "unbind": {
+        const cell = this.unbindTarget(built);
+        if (cell) this.unbindCell(input, cell);
+        return;
       }
+      case "reset":
+        input.resetBindings();
+        this.lastConflicts = [];
+        this.setStatus(this.text.resetDone);
+        return;
+      case "save": {
+        const n = ++this.saving;
+        input.saveBindings(this.profile || undefined).then(
+          () => n === this.saving && this.setStatus(this.text.saved),
+          (err: unknown) => {
+            console.error("[myco] UIControlMapper: saving the bindings failed:", err);
+            if (n === this.saving) this.setStatus(this.text.saveFailed, true);
+          },
+        );
+        return;
+      }
+      case "setting":
+        if (input.player) this.changeSetting(input, target.column);
+        return;
+      case "cell":
+        this.rebindCell(built, input, target.row, target.cell);
+        return;
     }
   }
 
-  private move(built: Built, dir: "up" | "down" | "left" | "right"): void {
-    const s = this.selection;
-    if (dir === "up" || dir === "down") {
-      s.row = Math.max(0, Math.min(this.footerRow(built), s.row + (dir === "up" ? -1 : 1)));
-    } else s.column += dir === "left" ? -1 : 1;
-    this.clampSelection(built);
-  }
-
-  private activate(built: Built, input: PlayerInput): void {
-    const { row, column } = this.selection;
-    const c = this.columns(built, row)[column];
-    if (!c) return;
-    if (c === "unbind") {
-      this.unbindCell(built, input, this.unbindTarget(built));
-      return;
-    }
-    if (c === "reset") {
-      input.resetBindings();
-      this.lastConflicts = [];
-      this.setStatus(this.text.resetDone);
-      return;
-    }
-    if (c === "save") {
-      const n = ++this.saving;
-      input.saveBindings(this.profile || undefined).then(
-        () => n === this.saving && this.setStatus(this.text.saved),
-        (err: unknown) => {
-          console.error("[myco] UIControlMapper: saving the bindings failed:", err);
-          if (n === this.saving) this.setStatus(this.text.saveFailed, true);
-        },
-      );
-      return;
-    }
-    if ("op" in c) {
-      if (input.player) this.changeSetting(input, c);
-      return;
-    }
+  /** Wait for the player's next press for a cell (`PlayerInput.rebind`; an empty cell adds a binding). */
+  private rebindCell(built: Built, input: PlayerInput, row: number, c: CellState): void {
     if (!c.part && !c.adds) return;
     const action = built.rows[row].action;
     const timeout = this.timeout > 0 ? this.timeout : undefined;
@@ -753,28 +791,21 @@ export class UIControlMapper extends Component {
       this.setStatus(err instanceof Error ? err.message : String(err), true);
       return;
     }
-    this.waiting = { action, device: c.device, rowIndex: row, column, chord: c.chord };
+    this.waiting = { action, device: c.device, cell: c, chord: c.chord };
     const waitingText = c.chord ? (c.device === "keyboard" ? this.text.waitingChordKey : this.text.waitingChordButton) : c.device === "keyboard" ? this.text.waitingKey : this.text.waitingButton;
     this.setStatus(fill(waitingText, { cancel: "Esc" }));
   }
 
-  /** The binding cell Unbind acts on: the selected one, else the one last selected. */
-  private unbindTarget(built: Built): { row: number; column: number } {
-    return this.selection.row < built.rows.length ? this.selection : this.lastCell;
-  }
-
-  /** The cell at a row and column of the binding rows, or null. */
-  private cellAt(built: Built, at: { row: number; column: number }): CellState | null {
-    if (at.row >= built.rows.length) return null;
-    const c = this.columns(built, at.row)[at.column];
-    return c && typeof c === "object" && !("op" in c) ? c : null;
+  /** The binding cell Unbind acts on: the focused one, else the one last focused (null when that's gone). */
+  private unbindTarget(built: Built): CellState | null {
+    const c = this.focusedCellState(built) ?? this.lastCell;
+    return c && built.rows.some((r) => r.keyboard === c || r.gamepad === c) ? c : null;
   }
 
   /** Remove a cell's binding (`PlayerInput.unbind`). */
-  private unbindCell(built: Built, input: PlayerInput, at: { row: number; column: number }): void {
-    const cell = this.cellAt(built, at);
-    if (!cell?.part) return;
-    const action = built.rows[at.row].action;
+  private unbindCell(input: PlayerInput, cell: CellState): void {
+    if (!cell.part) return;
+    const action = cell.action;
     try {
       input.unbind(action, { device: cell.device, context: cell.context ?? undefined });
     } catch (err) {
@@ -831,9 +862,11 @@ export class UIControlMapper extends Component {
     const signature = want.map((w) => `${w.setting}/${w.action ?? ""}`).join(",");
     if (signature !== built.settingsSignature) {
       built.settingsSignature = signature;
+      // Focus on a row being removed goes back to the cells.
+      const hadFocus = built.settings.some((r) => [r.toggle, r.decrease, r.increase].some((b) => b?.focused));
       for (const r of built.settings) if (r.name.node.parent?.isValid) world._destroyNode(r.name.node.parent.entity);
       built.settings = want.map((w, i) => this.buildSetting(world, built.settingsList.node, i, w.setting, w.action));
-      this.clampSelection(built);
+      if (hadFocus) this.refocus(built);
     }
     if (!input?.player) return;
     const a = input.accessibility;
@@ -927,9 +960,55 @@ export class UIControlMapper extends Component {
     this.syncSettings(this._world, this.built!, input);
   }
 
+  // --- Focus -------------------------------------------------------------------------------------
+
+  /** Put focus back on the cells (the one last focused, else the first) when the button that had it stops taking it. */
+  private refocus(built: Built, leaving?: UIButton): void {
+    const last = this.lastCell && built.rows.some((r) => r.keyboard === this.lastCell || r.gamepad === this.lastCell) ? this.lastCell : null;
+    const cell = last && last.button !== leaving && (last.part !== null || last.adds) ? last : this.firstCell(built);
+    const to = cell && cell.button !== leaving ? cell.button : built.reset;
+    to.focused = true;
+  }
+
+  /** Set a button's `interactable`; one losing it while focused hands focus back to the cells, so a d-pad player isn't left without it. */
+  private setInteractable(built: Built, b: UIButton, value: boolean): void {
+    if (b.interactable === value) return;
+    b.interactable = value;
+    if (!value && b.focused) this.refocus(built, b);
+  }
+
+  /**
+   * Up and down between the accessibility rows go row by row (explicit neighbours, ADR 0340): a
+   * stepper's small − and + don't line up with a toggle's wide button, so the spatial search would skip
+   * rows to reach the next small button straight below. A toggle goes to a stepper's −, a + to the
+   * stepper's + or a toggle; disabled rows are passed over; the last row goes down to Reset. A
+   * stepper's − and + go right and left to each other; leaving the section upwards is the search's.
+   */
+  private wireSettings(built: Built): void {
+    const rows = built.settings.map((r) => (r.toggle ? [r.toggle] : r.enabled ? [r.decrease!, r.increase!] : [])).filter((b) => b.length > 0);
+    rows.forEach((buttons, i) =>
+      buttons.forEach((b, column) => {
+        const above = rows[i - 1];
+        const below = rows[i + 1];
+        b.navUp = above ? above[Math.min(column, above.length - 1)].node : null;
+        b.navDown = below ? below[Math.min(column, below.length - 1)].node : built.reset.node;
+      }),
+    );
+    // A stepper's − and + are each other's neighbours across its value (else a wide toggle nearby can be nearer).
+    for (const r of built.settings) {
+      if (!r.decrease || !r.increase) continue;
+      r.decrease.navRight = r.increase.node;
+      r.increase.navLeft = r.decrease.node;
+    }
+  }
+
   // --- Drawing ----------------------------------------------------------------------------------
 
   private paint(built: Built): void {
+    if (built.ownCanvas) {
+      built.canvas.player = this.player;
+      built.canvas.modal = this.modal;
+    }
     const size = this.fontSize;
     const text = (t: UIText, value: string, colour = this.textColor, fontSize = size) => {
       if (t.text !== value) t.text = value;
@@ -946,71 +1025,80 @@ export class UIControlMapper extends Component {
     built.headerGamepad.display = this.gamepad ? "flex" : "none";
     text(built.status, this.statusMessage, this.statusWarning ? this.warningColor : this.mutedColor);
     built.status.display = this.statusMessage ? "flex" : "none";
-    built.rows.forEach((r, rowIndex) => {
+    for (const r of built.rows) {
       text(r.name, r.label);
-      [r.keyboard, r.gamepad]
-        .filter((c): c is CellState => c !== null)
-        .forEach((cell, column) => {
-          const waiting = this.waiting?.rowIndex === rowIndex && this.waiting.column === column;
-          const selected = this.selection.row === rowIndex && this.selection.column === column;
-          this.styleButton(cell.button, selected, waiting);
-          const pressText = cell.chord ? (cell.device === "keyboard" ? this.text.pressChordKey : this.text.pressChordButton) : cell.device === "keyboard" ? this.text.pressKey : this.text.pressButton;
-          const label = waiting ? pressText : cell.label;
-          text(cell.text, label, waiting ? this.textColor : cell.conflict ? this.warningColor : cell.part ? this.textColor : this.mutedColor);
-          cell.button.interactable = cell.part !== null || cell.adds;
-          const glyphs = waiting ? [] : cell.icons.map((k) => InputGlyphs.get(k)).filter((g) => g !== null);
-          cell.images.forEach((img, i) => {
-            const g = glyphs[i];
-            img.display = g ? "flex" : "none";
-            if (!g) return;
-            if (img.image !== g.asset) img.image = g.asset;
-            img.height = this.glyphSize;
-            img.width = Math.round((this.glyphSize * g.width) / g.height);
-          });
+      for (const cell of [r.keyboard, r.gamepad]) {
+        if (!cell) continue;
+        const waiting = this.waiting?.cell === cell;
+        this.styleButton(cell.button, waiting);
+        const pressText = cell.chord ? (cell.device === "keyboard" ? this.text.pressChordKey : this.text.pressChordButton) : cell.device === "keyboard" ? this.text.pressKey : this.text.pressButton;
+        const label = waiting ? pressText : cell.label;
+        text(cell.text, label, waiting ? this.textColor : cell.conflict ? this.warningColor : cell.part ? this.textColor : this.mutedColor);
+        // A cell with nothing to rebind or add isn't interactable, so navigation skips it.
+        this.setInteractable(built, cell.button, cell.part !== null || cell.adds);
+        const glyphs = waiting ? [] : cell.icons.map((k) => InputGlyphs.get(k)).filter((g) => g !== null);
+        cell.images.forEach((img, i) => {
+          const g = glyphs[i];
+          img.display = g ? "flex" : "none";
+          if (!g) return;
+          if (img.image !== g.asset) img.image = g.asset;
+          img.height = this.glyphSize;
+          img.width = Math.round((this.glyphSize * g.width) / g.height);
         });
-    });
+      }
+    }
     const showSettings = built.settings.length > 0;
     built.settingsHeading.display = showSettings ? "flex" : "none";
     built.settingsList.display = showSettings ? "flex" : "none";
     text(built.settingsHeading, showSettings ? this.text.accessibility : "", this.textColor, Math.round(size * 1.2));
-    built.settings.forEach((r, i) => {
-      const rowIndex = built.rows.length + i;
-      const selected = (column: number) => this.selection.row === rowIndex && this.selection.column === column;
+    for (const r of built.settings) {
       text(r.name, r.label);
       const colour = r.enabled ? this.textColor : this.mutedColor;
       if (r.toggle) {
-        this.styleButton(r.toggle, selected(0), false);
+        this.styleButton(r.toggle, false);
         text(r.toggleText!, r.value, colour);
       } else {
-        this.styleButton(r.decrease!, selected(0), false);
-        this.styleButton(r.increase!, selected(1), false);
-        r.decrease!.interactable = r.increase!.interactable = r.enabled;
+        this.styleButton(r.decrease!, false);
+        this.styleButton(r.increase!, false);
+        this.setInteractable(built, r.decrease!, r.enabled);
+        this.setInteractable(built, r.increase!, r.enabled);
         text(r.decreaseText!, this.text.decrease, colour);
         text(r.increaseText!, this.text.increase, colour);
         text(r.valueText!, r.value, colour);
       }
-    });
-    const footerRow = this.footerRow(built);
-    this.styleButton(built.unbind, this.selection.row === footerRow && this.selection.column === 0, false);
-    this.styleButton(built.reset, this.selection.row === footerRow && this.selection.column === 1, false);
-    this.styleButton(built.save, this.selection.row === footerRow && this.selection.column === 2, false);
-    const unbindable = this.cellAt(built, this.unbindTarget(built))?.part != null;
-    built.unbind.interactable = unbindable;
+    }
+    this.wireSettings(built);
+    this.styleButton(built.unbind, false);
+    this.styleButton(built.reset, false);
+    this.styleButton(built.save, false);
+    const unbindable = this.unbindTarget(built)?.part != null;
+    this.setInteractable(built, built.unbind, unbindable);
     text(built.unbindText, this.text.unbind, unbindable ? this.textColor : this.mutedColor);
     text(built.resetText, this.text.reset);
     text(built.saveText, this.text.save);
   }
 
-  private styleButton(b: UIButton, selected: boolean, waiting: boolean): void {
+  /** A button's colours: the accent border while it has focus (after mouse use too: Delete, Backspace and Unbind act on what has focus), the accent fill while it waits for a press. */
+  private styleButton(b: UIButton, waiting: boolean): void {
     b.backgroundColor = waiting ? this.accentColor : this.cellColor;
     b.hoverColor = waiting ? this.accentColor : this.hoverColor;
     b.pressedColor = this.pressedColor;
-    b.borderColor = selected || waiting ? this.accentColor : this.cellColor;
+    b.focusColor = waiting ? this.accentColor : this.hoverColor;
+    b.borderColor = b.focused || waiting ? this.accentColor : this.cellColor;
   }
 }
 
+/** The UICanvas at or above a node, or null. */
+function canvasOf(node: GameObject): UICanvas | null {
+  for (let n: GameObject | null = node; n?.isValid; n = n.parent) {
+    const c = n.getComponent(UICanvas);
+    if (c) return c;
+  }
+  return null;
+}
+
 function cellView(c: CellState): UIControlMapperCell {
-  return { device: c.device, label: c.label, icons: [...c.icons], part: c.part, adds: c.adds, chord: c.chord, conflict: c.conflict, button: c.button };
+  return { action: c.action, device: c.device, label: c.label, icons: [...c.icons], part: c.part, adds: c.adds, chord: c.chord, conflict: c.conflict, button: c.button };
 }
 
 function mappersOf(world: World): UIControlMapper[] {
