@@ -113,6 +113,15 @@ describe("parameter row", () => {
     expect(sliderToParam(gain, 250)).toBe(-12);
   });
 
+  it("slides a log range that starts at 0 by ratio, shifted to start at 1", () => {
+    const ms: ParamSpec = { label: "Attack", min: 0, max: 10000, step: 1, unit: "ms", scale: "log" };
+    expect(paramToFraction(ms, 0)).toBe(0);
+    expect(paramToFraction(ms, 10000)).toBeCloseTo(1);
+    expect(paramToFraction(ms, 100)).toBeCloseTo(Math.log(101) / Math.log(10001));
+    expect(sliderToParam(ms, 500)).toBe(99);
+    expect(sliderToParam(ms, 0)).toBe(0);
+  });
+
   it("snaps to the step without float noise", () => {
     expect(stepDecimals(0.1)).toBe(1);
     expect(stepDecimals(0.01)).toBe(2);

@@ -60,8 +60,6 @@ export function SoundPicker(props: SoundPickerProps) {
         class="studio-picker-search"
         placeholder="Search sounds"
         aria-label="Search sounds"
-        role="combobox"
-        aria-expanded="true"
         aria-controls={listId}
         aria-activedescendant={current ? `studio-sound-${current}` : undefined}
         value={query}
