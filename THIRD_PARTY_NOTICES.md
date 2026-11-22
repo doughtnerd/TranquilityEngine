@@ -23,6 +23,16 @@ Code from these projects is compiled into Myco Engine's own modules. Libraries u
 
   This port is an altered version: plainly marked as such here and in the crate's documentation.
 
+## Gamepad mapping (`native/input`, compiled to `src/engine/input/wasm/`; ADR 0333)
+
+- **SDL_GameControllerDB** (`native/input/crates/input-map/db/gamecontrollerdb.txt`, the controller database, compiled into the module) — zlib licence, copyright (C) 1997-2025 Sam Lantinga. https://github.com/mdqinc/SDL_GameControllerDB. The licence text is `native/input/crates/input-map/db/LICENSE.txt`.
+- **wasm-bindgen** — MIT or Apache-2.0. https://github.com/rustwasm/wasm-bindgen
+
+## Desktop gamepads (`src-tauri/src/gamepad.rs`, and exported desktop games; ADR 0333)
+
+- **SDL3** (built from source and linked statically into the desktop app) — zlib licence, copyright (C) 1997-2025 Sam Lantinga. https://github.com/libsdl-org/SDL
+- **sdl3-rs** and **sdl3-sys** (the Rust bindings) — MIT; sdl3-sys is zlib. https://github.com/vhspace/sdl3-rs, https://codeberg.org/maia/sdl3-sys-rs
+
 ## Fonts (`src/engine/ui/fonts/`; ADR 0076)
 
 - **Inter** (variable, weights 100–900, the Latin subset as Google Fonts publishes it through `@fontsource-variable/inter` 5.3.0) — SIL Open Font License 1.1, copyright 2016 The Inter Project Authors. https://github.com/rsms/inter. The licence text is `src/engine/ui/fonts/Inter-OFL.txt`; in builds the font file carries its copyright and licence notice in its own name table, as the OFL allows. 230 characters, 48 KB as WOFF2.

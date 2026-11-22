@@ -2,8 +2,9 @@
 // to `<out>/web/` and a generated Tauri project to `<out>/src-tauri/` whose window loads it; `tauri
 // build` (Rust toolchain needed) then makes installers. The project is generated, not copied from
 // the editor's src-tauri/: a game needs only the fs plugin, for saves in its app data folder
-// (ADR 0024), and its own name, identifier, window size and icon. No file access here (node.ts
-// writes the files), so the generated text is easy to test.
+// (ADR 0024), native gamepads (ADR 0333: src-tauri/src/gamepad.rs, copied verbatim; node.ts reads
+// it and passes its text in), and its own name, identifier, window size and icon. No file access
+// here (node.ts writes the files), so the generated text is easy to test.
 import type { ProjectSettingsInput } from "../engine";
 
 /** Optional build settings in project.json under `build` (read by the exporter only). */
@@ -20,7 +21,19 @@ export interface DesktopOptions {
   /** The product name (project.json's `name`). */
   name: string;
   settings: ProjectSettingsInput & { build?: BuildSettings };
+  /** The text of the editor's src-tauri/src/gamepad.rs (ADR 0333), written to the project as src/gamepad.rs. */
+  gamepadModule: string;
 }
+
+/**
+ * gamepad.rs's Cargo dependencies, the same lines as src-tauri/Cargo.toml's: SDL3 built from source
+ * (cmake and a C compiler needed) and linked statically, with only what gamepads use.
+ */
+export const GAMEPAD_DEPENDENCIES = `sdl3 = { version = "0.22.1", features = ["build-from-source-static", "hidapi"] }
+sdl3-sys = { version = "0.7.3", default-features = false, features = ["no-sdl-audio", "no-sdl-video", "no-sdl-gpu", "no-sdl-render", "no-sdl-camera", "no-sdl-dialog", "no-sdl-tray", "no-sdl-power", "sdl-unix-console-build"] }`;
+
+/** The commands gamepad.rs defines, for the generated `generate_handler!`. */
+export const GAMEPAD_COMMANDS = ["myco_gamepad_listen", "myco_gamepad_rumble", "myco_gamepad_trigger_rumble", "myco_gamepad_set_led", "myco_gamepad_sensors"];
 
 /** Lowercase letters, digits and dashes, from a name: for crate names and identifiers. */
 export function slug(name: string): string {
@@ -92,6 +105,11 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-fs = "2"
+serde = { version = "1", features = ["derive"] }
+${GAMEPAD_DEPENDENCIES}
+
+[dev-dependencies]
+serde_json = "1"
 
 [profile.release]
 codegen-units = 1
@@ -114,16 +132,22 @@ fn main() {
   files.set(
     "src/lib.rs",
     `// The game's window loads the web build (../web). The fs plugin keeps saves and settings in the
-// app data folder (Myco Engine's Storage, ADR 0024).
+// app data folder (Myco Engine's Storage, ADR 0024); gamepad.rs streams gamepads to it (ADR 0333).
+mod gamepad;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
+        .invoke_handler(tauri::generate_handler![
+${GAMEPAD_COMMANDS.map((command) => `            gamepad::${command},`).join("\n")}
+        ])
         .run(tauri::generate_context!())
         .expect("error while running the game");
 }
 `,
   );
+  files.set("src/gamepad.rs", options.gamepadModule);
   files.set(
     "capabilities/default.json",
     `${JSON.stringify(
@@ -158,7 +182,8 @@ export function desktopReadme(name: string, built: string | null): string {
   src-tauri/   the Tauri project around it (generated; edit tauri.conf.json to change the window)
 
 ${built ? `Installers: ${built}\n` : ""}Building the app needs Rust (https://rustup.rs) and your platform's Tauri prerequisites
-(https://tauri.app/start/prerequisites/). Then, in this folder:
+(https://tauri.app/start/prerequisites/), plus CMake (https://cmake.org): gamepad support builds
+SDL3 from source. Then, in this folder:
 
   npx @tauri-apps/cli build      installers in src-tauri/target/release/bundle/
   npx @tauri-apps/cli dev        (or run it without installing)
