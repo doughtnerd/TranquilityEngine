@@ -1,9 +1,15 @@
 /**
- * Saves and settings (ADR 0024). Game code uses the static `Storage` API; the platform adapter
- * supplies the backend (IndexedDB in browsers, files under Tauri, memory in tests).
+ * Saves and settings (ADR 0024). Game code uses the static `Storage` API; `storageScope.ts` picks the backend for
+ * the game (IndexedDB in browsers, files under Tauri, memory in tests) and owns the value contract (ADR 0317).
  */
+import { EncodedStorage, MemoryRecords } from "./storageScope";
+
 export type StorageNamespace = "saves" | "settings" | "cache";
-export type StorageValue = unknown; // JSON-serializable data or ArrayBuffer
+/**
+ * JSON data (null, booleans, finite numbers, strings, arrays, plain objects) or bytes (an ArrayBuffer or typed
+ * array; loaded back as an ArrayBuffer). The built-in backends reject anything else when saving (ADR 0317).
+ */
+export type StorageValue = unknown;
 
 export interface StorageBackend {
   save(namespace: StorageNamespace, key: string, value: StorageValue): Promise<void>;
@@ -12,20 +18,10 @@ export interface StorageBackend {
   list(namespace: StorageNamespace): Promise<string[]>;
 }
 
-export class MemoryStorage implements StorageBackend {
-  private data = new Map<string, StorageValue>();
-  async save(ns: StorageNamespace, key: string, value: StorageValue): Promise<void> {
-    this.data.set(`${ns}/${key}`, structuredClone(value));
-  }
-  async load(ns: StorageNamespace, key: string): Promise<StorageValue | undefined> {
-    const v = this.data.get(`${ns}/${key}`);
-    return v === undefined ? undefined : structuredClone(v);
-  }
-  async delete(ns: StorageNamespace, key: string): Promise<void> {
-    this.data.delete(`${ns}/${key}`);
-  }
-  async list(ns: StorageNamespace): Promise<string[]> {
-    return [...this.data.keys()].filter((k) => k.startsWith(`${ns}/`)).map((k) => k.slice(ns.length + 1));
+/** Storage in memory (tests, headless Engines): the same value contract as every built-in backend (ADR 0317). */
+export class MemoryStorage extends EncodedStorage {
+  constructor() {
+    super(new MemoryRecords());
   }
 }
 

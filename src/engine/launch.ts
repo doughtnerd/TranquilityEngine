@@ -32,6 +32,8 @@ export interface GameLaunchOptions {
   readonly headless?: boolean;
   /** `"keep"` leaves the active graphics tier alone (play mode); default `"player"`. */
   readonly quality?: EngineOptions["quality"];
+  /** Saves and settings (ADR 0317): play mode passes the played project's own; default the game's (`storageScope.ts`). */
+  readonly storage?: EngineOptions["storage"];
   /** Log shader variants compiled mid-game (ADR 0080; play mode). */
   readonly reportShaderVariants?: boolean;
 }
@@ -70,6 +72,7 @@ export async function launchGame(options: GameLaunchOptions): Promise<LaunchedGa
       ...(options.container ? { container: options.container } : {}),
       headless: options.headless ?? !options.container,
       ...(options.quality ? { quality: options.quality } : {}),
+      ...(options.storage ? { storage: options.storage } : {}),
     });
     if (options.reportShaderVariants) engine._setVariantReport(true);
     if (options.entryScene !== null) await fillEmptyWorlds(engine, options.entryScene);

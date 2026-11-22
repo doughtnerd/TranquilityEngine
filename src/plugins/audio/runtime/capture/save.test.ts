@@ -291,7 +291,8 @@ describe("the Tauri path: Storage.save(key, bytes, \"cache\"), resolving with th
       const { env } = fakeEnv({ tauri: true });
       const real: SaveEnv = { ...env, storage: { save: (k, v, n) => Storage.save(k, v, n), list: (n) => Storage.list(n), delete: (k, n) => Storage.delete(k, n) } };
       await saveCapture(takeOf(recorded(2)), "via-facade", real);
-      const back = (await Storage.load<Uint8Array>("via-facade.mycap", "cache"))!;
+      // Bytes load back as an ArrayBuffer on every backend (ADR 0317), as they always did under Tauri.
+      const back = new Uint8Array((await Storage.load<ArrayBuffer>("via-facade.mycap", "cache"))!);
       expect(readCaptureHeader(back).flags & CAPTURE_FLAG_COMPRESSED).toBeTruthy();
     } finally {
       Storage.use(new MemoryStorage());

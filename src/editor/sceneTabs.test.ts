@@ -1,9 +1,11 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import { signal } from "@preact/signals";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { MemoryStorage, type StorageNamespace, type StorageValue } from "../engine/platform/Storage";
 import { SetField } from "./document";
+import type { HistoryLocation } from "./historyPersistence";
 import { OrbitCamera } from "./OrbitCamera";
 import { sceneOpenMigrations } from "./sdk/contributions";
 import { createSceneTabs, tabsToClose, type SceneTabs } from "./sceneTabs";
@@ -77,7 +79,7 @@ describe("scene tabs (ADR 0026, 0027)", () => {
     status.value = null;
     sceneTabs = createSceneTabs({
       world: () => engine.world,
-      history: { project: () => project, location: () => "user", platform: async () => ({ fs: null, userStorage: storage }) },
+      history: { project: () => project, location: signal<HistoryLocation>("user"), platform: async () => ({ fs: null, userStorage: storage }) },
       confirm: (options) => {
         asked.push(options.title);
         return answer(options);
@@ -140,36 +142,67 @@ describe("scene tabs (ADR 0026, 0027)", () => {
     expect(engine.world.root.children.map((c) => c.name)).toEqual(["SceneCamera"]); // only the editor's own tools are left
   });
 
-  it("closing a tab while its history is attaching leaves no history saving and runs no migrations", async () => {
+  it("a scene still loading its history isn't a tab yet; closing every tab meanwhile opens nothing and saves nothing", async () => {
     const migrated: string[] = [];
     const off = sceneOpenMigrations.register({ id: "test.migration", failure: "migrate", migrate: async (s) => void migrated.push(s.path) });
     try {
       await sceneTabs.open(DEMO_SCENE);
       await sceneTabs.settled();
       expect(migrated).toEqual([DEMO_SCENE]);
+      const main = openScene.value!;
 
       const gate = deferred<void>();
       storage.gate = gate.promise;
-      await sceneTabs.open(PREFAB);
-      const prefab = openScene.value!;
+      const opening = sceneTabs.open(PREFAB);
+      const again = sceneTabs.open(PREFAB); // opening it twice makes one tab
       await tick(); // the history is loading now
-      expect(await sceneTabs.close([prefab])).toBe(1);
+      expect(openScene.value).toBe(main);
+      expect(openScenes.value).toEqual([main]);
+      await sceneTabs.closeAll();
       storage.gate = null;
       gate.resolve();
+      await Promise.all([opening, again]);
       await sceneTabs.settled();
+      expect(openScenes.value).toEqual([]);
       expect(migrated).toEqual([DEMO_SCENE]);
 
       const saves = storage.saves;
-      prefab.stack.execute(new SetField("top", "engine.Transform", "position", [0, 1, 0]));
+      setBirdY(main, 3); // closed: its edits aren't written
       await tick();
       await tick();
-      expect(storage.saves).toBe(saves); // detached: the closed tab's edits aren't written
+      expect(storage.saves).toBe(saves);
 
-      setBirdY(openScene.value!, 3); // the open tab's still are
+      await sceneTabs.open(PREFAB);
+      await sceneTabs.open(PREFAB);
+      expect(openScenes.value.map((s) => s.path)).toEqual([PREFAB]);
+      openScene.value!.stack.execute(new SetField("top", "engine.Transform", "position", [0, 1, 0])); // an open tab's are
       await vi.waitFor(() => expect(storage.saves).toBeGreaterThan(saves));
     } finally {
       off();
     }
+  });
+
+  it("an edit can't race the saved history's load: the unsaved changes are still offered back (ADR 0316)", async () => {
+    await sceneTabs.open(DEMO_SCENE);
+    await sceneTabs.settled();
+    setBirdY(openScene.value!, 5);
+    expect(await sceneTabs.close([openScene.value!])).toBe(1); // the change stays in the history
+    await sceneTabs.settled();
+
+    const gate = deferred<void>();
+    storage.gate = gate.promise;
+    const opening = sceneTabs.open(DEMO_SCENE);
+    await tick(); // the history is loading now
+    // Whatever tab is showing can be edited; it mustn't be the one whose history is still loading.
+    const showing = openScene.value;
+    if (showing) setBirdY(showing, 9);
+    storage.gate = null;
+    gate.resolve();
+    await opening;
+    await sceneTabs.settled();
+    expect(status.value?.text ?? "").not.toContain("changed outside the editor");
+    expect(asked).toEqual(["Close main.scene.json?", "Restore unsaved changes?"]);
+    expect(birdY(openScene.value!)).toBe(5);
   });
 
   it("a scene that fails to open brings the previous tab back", async () => {

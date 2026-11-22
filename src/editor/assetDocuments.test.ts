@@ -3,7 +3,7 @@ import { deleteAssets } from "./assetDelete";
 import { focusedAssetDocument, openAssetDocument, type AssetDocument } from "./assetDocuments";
 import { moveAssets } from "./assetOps";
 import type { StorageBackend } from "../engine/platform/Storage";
-import { defaultHistoryPlatform } from "./historyPersistence";
+import { editorPlatform } from "./projectPlace";
 import { askBeforeDeletingAssets, historyLocation } from "./preferences";
 import { joinPath, openFolderProject, readOnlyProject, type EditorProject } from "./projects";
 import { assetKinds, type AssetKindContribution } from "./sdk/contributions";
@@ -56,7 +56,7 @@ beforeEach(async () => {
   project = await openFolderProject(fs, ROOT);
   currentProject.value = project;
   askBeforeDeletingAssets.value = false;
-  userStorage = (await defaultHistoryPlatform()).userStorage;
+  userStorage = (await editorPlatform()).userStorage;
 });
 
 afterEach(async () => {

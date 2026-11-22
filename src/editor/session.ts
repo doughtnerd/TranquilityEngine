@@ -6,7 +6,6 @@ import { errorStatus } from "./messages";
 import { Engine, GameObject } from "../engine";
 import { viewport } from "../engine/editor";
 import { pathKey } from "./document";
-import { effect } from "@preact/signals";
 import { FsaFileSystem } from "./fsaFileSystem";
 import type { OpenRequest } from "./launcher/handoff";
 import { NO_FOLDERS_NOTE, projectFileSystem } from "./projectFs";
@@ -14,7 +13,7 @@ import { projectOpening, type LocationOutcome, type OpenIntent, type OpenOutcome
 import { recentProjects } from "./recentProjects";
 import { confirmDiscard } from "./dialogs";
 import { copySample, findSample, openSampleProject } from "./samples";
-import { defaultHistoryPlatform } from "./historyPersistence";
+import { editorPlatform } from "./projectPlace";
 import { historyLocation } from "./preferences";
 import { confirmInEditor } from "./ui/ConfirmDialog";
 import { installSceneView } from "./cameraPreview";
@@ -181,7 +180,7 @@ export async function sceneViewStarted(timeout = 4000): Promise<void> {
 // the preferences say, and stop play mode before the active tab changes.
 const tabs = createSceneTabs({
   world: () => session?.engine.world ?? null,
-  history: { project: () => currentProject.peek(), location: () => historyLocation.peek(), platform: defaultHistoryPlatform },
+  history: { project: () => currentProject.peek(), location: historyLocation, platform: editorPlatform },
   confirm: confirmInEditor,
   beforeSwitch: () => void play.stop(),
 });
@@ -216,11 +215,6 @@ export function closeScenes(scenes: readonly OpenScene[]): Promise<number> {
   return tabs.close(scenes);
 }
 
-// Switching where history is kept moves writing there right away (the tree is written in full).
-effect(() => {
-  const location = historyLocation.value;
-  void tabs.relocateHistories(location);
-});
 
 /** Add an opened folder project to the recent projects list (a browser folder by its handle). */
 async function rememberProject(project: EditorProject): Promise<void> {
