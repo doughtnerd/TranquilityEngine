@@ -1,6 +1,6 @@
 # 0097. Audio mixer buses, snapshots and ducking over one shared AudioContext
 
-- **Status:** Proposed; amended by 0157 (the model is kept, the Web Audio bus graph is replaced by the core) and 0166 and 0167 (presets gain the music ring pool and the rhythm-mode setting); amended by 0171, 0172 and 0173 (live mixing, ducking modes, the Mixer panel)
+- **Status:** Proposed; amended by 0157 (the model is kept, the Web Audio bus graph is replaced by the core) and 0166 and 0167 (presets gain the music ring pool and the rhythm-mode setting); amended by 0171, 0172 and 0173 (live mixing, ducking modes, the Mixer panel); amended by 0330 (the mix moves to `audio.json` with returns, VCAs and blending snapshots)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

@@ -1,6 +1,6 @@
 # 0173. The editor SDK lets a panel edit project settings through the shared Project Settings section
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0330 (the audio section moved to `audio.json`, edited by the Audio Studio)
 - **Date:** 2026-11-13
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
