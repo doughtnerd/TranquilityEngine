@@ -355,7 +355,8 @@ class Migrator {
     });
     const overlap = order.some(({ c }, k) => {
       const next = order[k + 1];
-      return next !== undefined && c.range![1] + c.fade > next.c.range![0] - next.c.fade + eps;
+      // A fade that reaches into the neighbour's plateau (old: both play at full there; new: they crossfade).
+      return next !== undefined && (c.range![1] + c.fade > next.c.range![0] + eps || next.c.range![0] - next.c.fade < c.range![1] - eps);
     });
     if (overlap) this.note(where, "children's fades overlapped; the blend now crossfades between neighbours at their range midpoints.");
     else if (differs) this.note(where, "children's plateaus and fade widths became points at their range midpoints with linear crossfades between neighbours.");
