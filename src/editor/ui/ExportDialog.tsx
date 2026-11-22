@@ -19,6 +19,7 @@ export function ExportDialog() {
   const project = currentProject.value;
   const [target, setTarget] = useState<Target>("web");
   const [audioCapture, setAudioCapture] = useState(false);
+  const [audioTake, setAudioTake] = useState(false);
   const [fs, setFs] = useState<FileSystem | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "info" | "error"; text: string; folder?: string } | null>(null);
@@ -43,7 +44,7 @@ export function ExportDialog() {
     setBusy(true);
     setMessage({ kind: "info", text: "Compiling scripts…" });
     try {
-      const plan = await exportProjectBuild(project, fs, out, (done, total) => setMessage({ kind: "info", text: `Writing files… ${done} of ${total}` }), { audioCapture });
+      const plan = await exportProjectBuild(project, fs, out, (done, total) => setMessage({ kind: "info", text: `Writing files… ${done} of ${total}` }), { audioCapture, audioTake });
       const text = `Exported ${plan.manifest.name} to ${out}. Put the folder on any web host, or run node serve.mjs in it to play locally.`;
       setMessage({ kind: "info", text, folder: out });
       status.value = { kind: "info", text };
@@ -55,7 +56,7 @@ export function ExportDialog() {
       setBusy(false);
     }
   };
-  const command = desktopExportCommand(project, audioCapture);
+  const command = desktopExportCommand(project, audioCapture, audioTake);
 
   return (
     <div class="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && close()}>
@@ -91,6 +92,10 @@ export function ExportDialog() {
         <p class="export-audio-capture-note" style={{ color: "var(--muted)", fontSize: "12px", margin: "4px 0 10px" }}>
           Players press F9, or hold three fingers for a second, to start recording and again to save a .mycap file for the Profiler. A capture is labelled: it holds the project's audio settings, name and version, the names of its clips, buses, events and parameters, and part of the browser's user-agent.
         </p>
+        <label class="export-audio-take" title="Press F10 in the exported game to record a take (what the game asked of audio, with its profile), then again to save a .mycotake file the Studio replays">
+          <input type="checkbox" name="export-audio-take" checked={audioTake} disabled={busy} onChange={(e) => setAudioTake(e.currentTarget.checked)} />
+          Let the game record audio takes (F10)
+        </label>
         {target === "web" ? (
           <>
             <p>A folder you can put on any web host. Browsers don't run it from disk: run node serve.mjs in it to play locally.</p>

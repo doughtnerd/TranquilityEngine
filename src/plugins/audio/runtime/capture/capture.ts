@@ -249,6 +249,18 @@ class Capture implements AudioCapture {
     return import("./save").then((s) => s.saveCapture(take, name));
   }
 
+  /** ADR 0334: the take's file bytes (compressed where the runtime can), for a caller that writes the file itself. */
+  fileBytes(): Promise<Uint8Array> {
+    if (!this.hasTake || !(this.frozen || this.rec)) return Promise.reject(new Error(NOTHING_RECORDED));
+    let take: SaveTake;
+    try {
+      take = this.snapshot();
+    } catch (e) {
+      return Promise.reject(new Error(messageOf(e)));
+    }
+    return import("./save").then((s) => s.captureFileBytes(take));
+  }
+
   // --- the seam and the debug view ------------------------------------------------------------------------------------
 
   /** The owners now: a take, and the panel holds (a take is distinguishable from a panel's hold). */
@@ -764,6 +776,11 @@ export function releaseCapture(): void {
  * from the audio World service), which keeps the take Held for a save after Stop.
  */
 onAudioSessionReleased(releaseCapture);
+
+/** @internal ADR 0334: the editor's Record capture toggle: the capture's file bytes, to write into the project's `captures/` folder itself. */
+export function captureFileBytesNow(): Promise<Uint8Array> {
+  return capture.fileBytes();
+}
 
 /** @internal ADR 0334: a take's hold on the shared ring (`capture/take.ts`), with its reader of the parameter taps. */
 export function captureTakeRing(tee: CaptureTee): Promise<CaptureTakeRing> {

@@ -505,6 +505,15 @@ export interface SceneToolbarItemContribution {
   readonly view: LoadComponent<object>;
 }
 
+/**
+ * Controls on the Play toolbar, after Pause and Step, in registration order (ADR 0334): the Audio plugin's Record take
+ * and Record capture toggles. The view loads with the toolbar and decides itself when it is enabled (while playing).
+ */
+export interface PlayToolbarItemContribution {
+  readonly id: string;
+  readonly view: LoadComponent<object>;
+}
+
 /** What a component header action is given: the card's component on one or more selected nodes. */
 export interface ComponentHeaderActionProps {
   readonly scene: OpenScene;
@@ -645,6 +654,7 @@ export const projectSettingsSections = createRegistry<ProjectSettingsSectionCont
 export const panelExtensions = createRegistry<PanelExtensionContribution>("Panel extension");
 export const viewportTools = createRegistry<ViewportToolContribution>("Viewport tool");
 export const sceneToolbarItems = createRegistry<SceneToolbarItemContribution>("Scene toolbar item");
+export const playToolbarItems = createRegistry<PlayToolbarItemContribution>("Play toolbar item");
 export const componentHeaderActions = createRegistry<ComponentHeaderActionContribution>("Component header action");
 export const hierarchyCreateEntries = createRegistry<HierarchyCreateContribution>("Hierarchy create entry");
 export const assetActions = createRegistry<AssetActionContribution>("Asset action");

@@ -54,6 +54,11 @@ export interface GameManifest {
    * (F9, a one-second three-finger hold). Omitted when off, so a build without the option carries no trace of it.
    */
   readonly audioCapture?: true;
+  /**
+   * The Export option "audio takes" (ADR 0334): the player installs the take trigger (F10), so the game can record a take
+   * (what it asked of audio and the engine's profile, `*.mycotake`). Omitted when off.
+   */
+  readonly audioTake?: true;
 }
 
 /** Where a compiled script, or a JSON file's module, goes in the build. */

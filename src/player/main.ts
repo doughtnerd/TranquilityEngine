@@ -85,6 +85,8 @@ async function boot(): Promise<void> {
   // The Export option "audio capture" (ADR 0172): F9 and the three-finger hold record the audio mix. Without it nothing is
   // imported or installed, so the build holds no listener and loads no part of the recorder.
   if (manifest.audioCapture) (await import("../plugins/audio/runtime/capture/trigger")).installCaptureTrigger();
+  // The Export option "audio takes" (ADR 0334): F10 records a take. Without it nothing is imported or installed.
+  if (manifest.audioTake) (await import("../plugins/audio/runtime/capture/trigger")).installTakeTrigger();
 }
 
 boot().catch((err: unknown) => {
