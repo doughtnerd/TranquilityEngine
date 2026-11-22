@@ -20,10 +20,11 @@
 import { diffOps, type ApplyResult, type MixOp } from "../../../../engine/audio/mixOps";
 import type { AudioSettings } from "../../../../engine/audio/settings";
 import type { LoudnessResetWhat } from "../../../../engine/audio/loudnessTypes";
+import { withMixOpOrigin } from "../../runtime/capture/mixOpOrigin";
 
 /** What the model calls: injected, so tests need neither a Mixer nor a hub. */
 export interface CompareHost {
-  /** `mixer.apply(op)`; `origin` is "compare" so a recorder can label the MIXOP record. Never an undo entry, never saved. */
+  /** `mixer.apply(op)`, called inside `withMixOpOrigin("compare")` so a recorder labels the MIXOP record. Never an undo entry, never saved. */
   apply(op: MixOp, origin: "compare"): ApplyResult;
   /** The mixer's asap post: called once after the ops of a swap. */
   flushNow?(): void;
@@ -90,7 +91,8 @@ export function createCompareModel(options: CompareOptions): CompareModel {
     const { ops, restartRequired } = diffOps(from, to);
     if (on) host.setCompare?.(true);
     const results: ApplyResult[] = [];
-    for (const op of ops) results.push(host.apply(op, "compare"));
+    // ADR 0334: the capture labels these MIXOP records `compare` (the mixer itself takes no origin).
+    for (const op of ops) results.push(withMixOpOrigin("compare", () => host.apply(op, "compare")));
     host.flushNow?.();
     host.marker?.(text);
     if (!on) host.setCompare?.(false);

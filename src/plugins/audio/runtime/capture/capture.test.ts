@@ -16,8 +16,9 @@ import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { makeFakeBackend, type FakeBackend } from "../testing";
 import { captureDebug, captureFileBytes, captureLiveHost, releaseCapture, setCaptureProject, type CaptureLiveHost } from "./capture";
 import {
-  CAPTURE_FLAG_COMPRESSED, CAPTURE_FLAG_MAIN_SIDE_ONLY, CAPTURE_MARKER_MAX_BYTES, EpochReason, GapReason, RecordType, assembleCapture, readCaptureHeader,
+  CAPTURE_FLAG_COMPRESSED, CAPTURE_FLAG_MAIN_SIDE_ONLY, CAPTURE_MARKER_MAX_BYTES, EpochReason, GapReason, MixOpOrigin, RecordType, assembleCapture, readCaptureHeader,
 } from "./format";
+import { withMixOpOrigin } from "./mixOpOrigin";
 import { CaptureNames } from "./names";
 import { CaptureTimeIndex, decodeRecordAt, openCapture, openLiveCapture, summarizeCapture, type CaptureContents } from "./reader";
 import { defaultSaveEnv, type SaveEnv } from "./save";
@@ -769,6 +770,25 @@ describe("ADR 0260: a bus added or renamed during the take is named from then on
     if (op.kind !== "mixop") throw new Error("unreachable");
     expect(op.payload.origin).toBe(0); // editor
     expect(op.payload.words[0]).toBe(1); // the bus word: Music's slot
+    mixer.configure(parseAudioSettings({}).settings);
+  });
+
+  it("D22: a MIXOP record carries the origin its caller named around mixer.apply (undo, redo, compare)", async () => {
+    const r = rig();
+    mixer.configure(parseAudioSettings({ buses: [{ name: "Master" }, { name: "Music", parent: "Master" }] }).settings);
+    withSlots(r, [{ slot: 0, name: "Master", state: "live" }, { slot: 1, name: "Music", state: "live" }]);
+    await Audio.capture.start();
+    r.feed(SECOND / 2);
+    const set = (value: number) => mixer.apply({ op: "setBus", bus: "Music", key: "volume", value });
+    withMixOpOrigin("undo", () => set(0.4));
+    withMixOpOrigin("redo", () => set(0.5));
+    withMixOpOrigin("compare", () => { withMixOpOrigin("undo", () => set(0.6)); set(0.7); }); // nesting restores the outer one
+    set(0.8);
+    r.feed(2);
+    await Audio.capture.save();
+    const c = await r.open(r.downloads[0]!.bytes);
+    const origins = Array.from({ length: c.records.count }, (_, i) => decodeRecordAt(c, i)).flatMap((d) => (d.kind === "mixop" ? [d.payload.origin] : []));
+    expect(origins).toEqual([MixOpOrigin.undo, MixOpOrigin.redo, MixOpOrigin.undo, MixOpOrigin.compare, MixOpOrigin.editor]);
     mixer.configure(parseAudioSettings({}).settings);
   });
 });
