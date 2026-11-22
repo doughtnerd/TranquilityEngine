@@ -191,3 +191,13 @@ scene "Move" changes the scene's folder field, not the file; deleting a scene is
 game scenes aren't loaded under the audition (no loader into the Studio World), A/B replacement UI, 3D physics in the
 Studio for test-scene occlusion, live positions/zoneDepth in the readout, shared field rows still in the Playlists
 folder (to lift into components).
+
+**D28. Engine follow-ups (W5-C, merged).** Playlist instance automation counts voiceTime from when that playlist level
+starts (FMOD-style instance timeline); playlist markers/beats/bars arrive in late update; `onMusic("cue")` on a playlist
+is a no-op (cues are markers); the MIXOP origin is a synchronous dynamic scope (`withMixOpOrigin`) rather than an
+argument on `Mixer.apply`; sequence pick `choice` = clip index over all tracks; music-kind samples default to Sync via
+`defaultClipSync`; the editor's Profiler opens takes (by extension, decode still checks the take flag). New public
+API: `onAudioMarker` lifecycle hook, `EventOptions.minDistance/maxDistance`, `handle.onMusic` for playlists, format
+fields `PlaylistBody.automation`, `SampleEdits.automation`. Gaps closed: D20 (onAudioMarker, beat callbacks), D22
+(sequence picks, MIXOP origins), D23 (format fields). Still open: Studio parameter renames don't rewrite playlist
+instance automation inputs; Studio undo/redo MIXOP origin.
