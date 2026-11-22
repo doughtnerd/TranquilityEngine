@@ -27,7 +27,7 @@ import { AttenuationChoiceDialog, GameSceneDialog, TakeDialog } from "./SpatialD
 import {
   applyFolderChanges, applyRolloff, attenuationChoice, audition, auditionStatus, chooseAttenuation, copySelection, deleteScenes, deleteSelected, duplicateScene, duplicateSelection, editAttenuation, editMix, editScene, endDrag,
   ensureSceneKind, escapeKey, extraFolders, fit, followRoute, hover, listenHere, mix, mixDoc, materials, mute, newDialog, newFromGameScene, newFromTake, newScene, openDoc, openPath, openPlaylist, openScene, openTake, ownerOf, pasteClipboard,
-  placeAt, playAllFrom, playing, playScene, readOnly, renameScene, renaming, scene, sceneEntries, selected, sideView, silenced, slab, solo, soundItems, stopAudition, togglePlay, tools, busNames, view, viewportSize, voices,
+  baseImport, placeAt, playAllFrom, playing, playScene, readOnly, renameScene, renaming, scene, sceneEntries, selected, sideView, silenced, slab, solo, soundItems, stopAudition, togglePlay, tools, busNames, view, viewportSize, voices,
 } from "./spatialScreen";
 import { sceneName } from "./sceneTree";
 import { viewKey } from "./viewTransform";
@@ -89,6 +89,7 @@ function sceneHost(): SceneHost | null {
   if (!s || !path) return null;
   return {
     scene: s,
+    base: baseImport.value,
     path,
     readOnly: readOnly.value,
     selected: selected.value,

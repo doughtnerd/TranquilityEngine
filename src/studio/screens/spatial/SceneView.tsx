@@ -15,6 +15,7 @@ import { boxCorners, boxSpanX, growBox, nearestOnBox, rotateKnob, routeMidpoints
 import { shownInPlan } from "./outline";
 import { beginDrag, dragTo, editLabel, hitTest, KNOB_PX, type Drag } from "./pointerModel";
 import type { SceneHost } from "./sceneHost";
+import { BASE_CLASS, baseBanner, basePlanItems } from "./baseLayer";
 import { activeListener, allObjects, boxOf, findObject, insertRoutePoint, moveObjectTo, positionOf, removeRoutePoint, renameObject, setBoxHeights, setHeight, type SceneObject } from "./sceneEdits";
 import { pickTool, placesByClick, TOOLS, type Tool } from "./tools";
 import { LEGEND, raysOf } from "./voicesTable";
@@ -63,6 +64,7 @@ export function SceneView(props: SceneViewProps) {
   const listener = activeListener(s);
   const range = heightRange(s);
   const slabNow = slabRange(host.slab, listener.position.y, range);
+  const banner = baseBanner(host.base ?? null);
   return (
     <div class="sp-scene" data-keyscope="spatial-scene" data-asset-document={host.path} tabIndex={-1}>
       <div class="sp-toolbar" role="toolbar" aria-label="Scene">
@@ -75,6 +77,11 @@ export function SceneView(props: SceneViewProps) {
             </li>
           ))}
         </ul>
+        {banner && (
+          <span class={`sp-base-banner${banner.warning ? " warning" : ""}`} role={banner.warning ? "alert" : undefined} title={host.base?.problems.join("\n") || undefined}>
+            {banner.text}
+          </span>
+        )}
         <span class="sp-toolbar-status">{host.playing ? (host.solo ? `Auditioning ${findObject(s, host.solo)?.obj.name ?? ""} on its own` : `Hearing it from ${listener.name}`) : host.readOnly ? "Read-only" : ""}</span>
       </div>
       <div class="sp-body">
@@ -278,6 +285,7 @@ function Viewport(props: { host: SceneHost; slab: [number, number] }) {
       {size.width > 0 && (
         <svg class="sp-plan" width={size.width} height={size.height} role="img" aria-label={`Plan of the scene, ${allObjects(s).length} objects`}>
           <Grid view={v} size={size} />
+          {host.base && <BaseLayer host={host} S={S} slab={slab} />}
           <PlanObjects host={host} S={S} visible={visible} />
           {sel && <Selection host={host} o={sel} S={S} />}
         </svg>
@@ -323,7 +331,43 @@ function Grid(props: { view: View; size: Size }) {
   );
 }
 
-function PlanObjects(props: { host: SceneHost; S: (p: P2) => Px; visible: (o: SceneObject) => boolean }) {
+/** The base game scene underneath, read-only: not hit by the pointer, labelled, dimmed outside the elevation slab. */
+function BaseLayer(props: { host: SceneHost; S: (p: P2) => Px; slab: [number, number] }) {
+  const { host, S, slab } = props;
+  const items = basePlanItems(host.base ?? null);
+  const ppm = host.view.ppm;
+  return (
+    <g class="sp-base" aria-label={`Base scene ${host.base?.path ?? ""}, read-only`}>
+      {items.map((item) => {
+        const cls = `${BASE_CLASS[item.kind]}${inSlab(slab, item.low, item.high) ? "" : " dim"}${item.active ? "" : " off"}`;
+        const sh = item.shape;
+        let mark: JSX.Element;
+        let at: Px;
+        if (sh.kind === "box") {
+          const c = sh.corners.map(S);
+          mark = <polygon points={pts(c)} />;
+          at = { x: (c[3]!.x + c[2]!.x) / 2, y: Math.min(...c.map((p) => p.y)) + 12 };
+        } else if (sh.kind === "circle") {
+          const c = S(sh.center);
+          mark = <circle cx={c.x} cy={c.y} r={Math.max(3, sh.radius * ppm)} />;
+          at = { x: c.x, y: c.y - Math.max(3, sh.radius * ppm) - 4 };
+        } else {
+          const c = S(sh.at);
+          mark = item.kind === "emitter" ? <circle cx={c.x} cy={c.y} r={5} /> : <rect x={c.x - 4} y={c.y - 4} width={8} height={8} />;
+          at = { x: c.x, y: c.y - 9 };
+        }
+        return (
+          <g key={item.key} class={cls} data-base={item.key}>
+            {mark}
+            <text class="sp-base-label" x={at.x} y={at.y} text-anchor="middle">{item.label}</text>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
+function PlanObjects(props:{ host: SceneHost; S: (p: P2) => Px; visible: (o: SceneObject) => boolean }) {
   const { host, S, visible } = props;
   const s = host.scene;
   const listener = activeListener(s);
