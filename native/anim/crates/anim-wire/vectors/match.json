@@ -2,5 +2,8 @@
   "family": "match",
   "id": 5,
   "version": 1,
-  "vectors": []
+  "vectors": [
+    { "name": "header", "record": "MATCH_HEADER", "values": { "instance": 65538, "nodes": 1, "dropped": 0 }, "hex": "01050100020001000100000000000000" },
+    { "name": "node", "record": "MATCH_NODE", "values": { "node": 3, "database": 65541, "clip": 65543, "time": 0.5, "frame": 42, "cost": 1.25, "updates": 120, "lastSearch": 114, "flags": 3 }, "hex": "020501000300000005000100070001000000003f2a0000000000a03f780000007200000003000000" }
+  ]
 }

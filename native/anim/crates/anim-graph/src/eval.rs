@@ -199,6 +199,14 @@ pub trait Assets {
     fn retarget(&self, _handle: u32) -> Option<crate::retarget::RetargetRef<'_>> {
         None
     }
+    /// The pose database of `handle` (T42: the `matching` family's database node).
+    fn match_db(&self, _handle: u32) -> Option<crate::matching::MatchRef<'_>> {
+        None
+    }
+    /// The host that runs third-party node modules (T45: the `plugin` family), if any.
+    fn plugins(&self) -> Option<&dyn crate::plugin::PluginHost> {
+        None
+    }
 }
 
 /// A playback event for the host (play promises, `AnimatorStateChanges`, the graph family's

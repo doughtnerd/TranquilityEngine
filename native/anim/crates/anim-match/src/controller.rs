@@ -106,6 +106,39 @@ impl MatchController {
         *self = Self::new(self.settings);
     }
 
+    /// `u32` words of [`write_words`](Self::write_words): the state without the settings, as plain
+    /// words, so a graph instance can keep it in its state blob (snapshot and restore are a copy).
+    pub const WORDS: usize = 6;
+
+    /// Writes the state (not the settings) into `out` ([`WORDS`](Self::WORDS) long), bit for bit.
+    pub fn write_words(&self, out: &mut [u32]) {
+        out[..Self::WORDS].copy_from_slice(&[
+            self.clip,
+            self.time.to_bits(),
+            self.frame,
+            self.cost.to_bits(),
+            self.since_search,
+            self.since_switch.to_bits(),
+        ]);
+    }
+
+    /// A controller with `settings` and the state [`write_words`](Self::write_words) wrote (`words`
+    /// at least [`WORDS`](Self::WORDS) long, else one playing nothing).
+    pub fn read_words(settings: ControllerSettings, words: &[u32]) -> Self {
+        if words.len() < Self::WORDS {
+            return Self::new(settings);
+        }
+        Self {
+            settings,
+            clip: words[0],
+            time: f32::from_bits(words[1]),
+            frame: words[2],
+            cost: f32::from_bits(words[3]),
+            since_search: words[4],
+            since_switch: f32::from_bits(words[5]),
+        }
+    }
+
     /// The playing clip and time, if any.
     pub fn playing(&self) -> Option<(u32, f32)> {
         (self.clip != NONE).then_some((self.clip, self.time))

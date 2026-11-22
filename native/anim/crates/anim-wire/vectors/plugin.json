@@ -2,5 +2,8 @@
   "family": "plugin",
   "id": 9,
   "version": 1,
-  "vectors": []
+  "vectors": [
+    { "name": "call", "record": "PLUGIN_CALL", "values": { "module": 65545, "kind": 2, "count": 1, "bones": 3, "inputs": 1, "paramWords": 1, "stateBytes": 4, "parents": 0, "input": 1024, "output": 1144, "params": 2048, "state": 2052, "dt": 0.033333335 }, "hex": "010901000900010002000000010000000300000001000000010000000400000000000000000400007804000000080000040800008988083d" },
+    { "name": "fault", "record": "PLUGIN_FAULT", "values": { "instance": 65537, "node": 2, "module": 65545, "kind": 1, "status": 2304 }, "hex": "020901000100010002000000090001000100000000090000" }
+  ]
 }

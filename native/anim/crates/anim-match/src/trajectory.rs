@@ -140,6 +140,66 @@ impl TrajectoryPredictor {
         *self = Self::new();
     }
 
+    /// `u32` words of [`write_words`](Self::write_words): the state as plain words, so a graph
+    /// instance can keep it in its state blob (snapshot and restore are a copy, ADR 0340).
+    pub const WORDS: usize = 11 + 4 * HISTORY;
+
+    /// Writes the state into `out` ([`WORDS`](Self::WORDS) long; f32 bits, flags and indices as
+    /// `u32`), bit for bit.
+    pub fn write_words(&self, out: &mut [u32]) {
+        let head = [
+            self.acceleration[0].to_bits(),
+            self.acceleration[1].to_bits(),
+            self.yaw_rate.to_bits(),
+            self.last_velocity[0].to_bits(),
+            self.last_velocity[1].to_bits(),
+            self.last_yaw.to_bits(),
+            self.started as u32,
+            self.clock.to_bits(),
+            self.head as u32,
+            self.len as u32,
+            0,
+        ];
+        out[..11].copy_from_slice(&head);
+        for (p, w) in self.history.iter().zip(out[11..].as_chunks_mut::<4>().0) {
+            w.copy_from_slice(&[
+                p.time.to_bits(),
+                p.position[0].to_bits(),
+                p.position[1].to_bits(),
+                p.yaw.to_bits(),
+            ]);
+        }
+    }
+
+    /// The state [`write_words`](Self::write_words) wrote (`words` at least
+    /// [`WORDS`](Self::WORDS) long, else a fresh predictor). Indices out of range are clamped, so
+    /// any words give a usable predictor.
+    pub fn read_words(words: &[u32]) -> Self {
+        if words.len() < Self::WORDS {
+            return Self::new();
+        }
+        let f = |i: usize| f32::from_bits(words[i]);
+        let mut history = [Past::default(); HISTORY];
+        for (p, w) in history.iter_mut().zip(words[11..].as_chunks::<4>().0) {
+            *p = Past {
+                time: f32::from_bits(w[0]),
+                position: [f32::from_bits(w[1]), f32::from_bits(w[2])],
+                yaw: f32::from_bits(w[3]),
+            };
+        }
+        Self {
+            acceleration: [f(0), f(1)],
+            yaw_rate: f(2),
+            last_velocity: [f(3), f(4)],
+            last_yaw: f(5),
+            started: words[6] != 0,
+            clock: f(7),
+            history,
+            head: words[8] as usize % HISTORY,
+            len: (words[9] as usize).min(HISTORY),
+        }
+    }
+
     /// Advances by `dt` seconds to this frame's `input` (call once per frame, before
     /// [`predict`](Self::predict)): carries the springs' acceleration and yaw rate from the last
     /// frame's velocity and yaw toward this frame's goals, and records the frame in the history.

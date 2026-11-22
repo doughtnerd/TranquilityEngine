@@ -88,7 +88,7 @@ fn total_bytes(init: &Init) -> u64 {
 
 /// The animation core.
 pub struct Core {
-    // `pub(crate)` so feature modules can add their calls in their own files (T41, T44r).
+    // `pub(crate)` so feature modules can add their calls or `impl Core` blocks in their own files (T41, T42, T44r, T45).
     pub(crate) started: bool,
     pub(crate) max_bones: usize,
     pub(crate) arena: Arena,
@@ -100,6 +100,8 @@ pub struct Core {
     timelines: Timelines,
     /// T44r: the physics rows and views ([`crate::physics`]).
     pub(crate) physics: crate::physics::Physics,
+    /// T42: the match debug buffer (`crate::matching`).
+    pub(crate) matching: crate::matching::MatchBuffers,
 }
 
 impl Default for Core {
@@ -122,6 +124,7 @@ impl Core {
             tweens: Tweens::default(),
             timelines: Timelines::default(),
             physics: crate::physics::Physics::default(),
+            matching: crate::matching::MatchBuffers::default(),
         }
     }
 
@@ -332,6 +335,8 @@ impl Core {
         // T22r: tween and timeline outputs are per frame, cleared here.
         self.tweens.begin_frame();
         self.timelines.begin_frame();
+        // T45: plugin fault reports are per frame, cleared here.
+        self.arena.plugin_rt.begin_frame();
         frame_calls::write_inputs(
             &self.arena,
             &mut self.table,

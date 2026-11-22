@@ -39,3 +39,5 @@ sha2.workspace = true
 # core with the f64 reference (anim-offline). Never linked into the module.
 anim-compress.workspace = true
 anim-offline.workspace = true
+# T45: tests/plugin_fixtures.rs meters the sample node module for the Node test's fixture.
+anim-meter.workspace = true

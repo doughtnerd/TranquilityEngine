@@ -18,6 +18,8 @@
 //! | mask | per-bone weights packed like a pose |
 //! | retarget (T41) | a skeleton profile, or a retarget map with copies of its source skeleton and its scratch ([`crate::retarget`]) |
 //! | ragdoll (T44r) | a validated ragdoll description ([`crate::physics`]) |
+//! | pose database (`myco.posedb@1`, T42) | the search-ready `MatchDb`, a clip handle per database clip (`crate::matching`) |
+//! | plugin module (T45) | its descriptor's node kinds and default parameter blocks (`crate::plugin`) |
 //!
 //! The parsed views borrow the asset's own block for as long as the asset lives (the block never
 //! moves and is freed after the views, when the slot is cleared).
@@ -176,6 +178,10 @@ pub enum Asset {
     Retarget(Box<crate::retarget::RetargetAsset>),
     /// T44r: a ragdoll description ([`crate::physics`]).
     Ragdoll(Box<crate::physics::RagdollAsset>),
+    /// T42: a pose database (`crate::matching`).
+    PoseDb(crate::matching::PoseDbAsset),
+    /// T45: a registered third-party node module (`crate::plugin`).
+    Plugin(crate::plugin::PluginModule),
 }
 
 struct Slot {
@@ -190,6 +196,8 @@ pub struct Arena {
     free: Vec<u16>,
     /// Bytes of asset files held.
     held: usize,
+    /// T45: the plugin host's call buffers and fault reports (`crate::plugin`).
+    pub(crate) plugin_rt: crate::plugin::Runtime,
 }
 
 /// `generation << 16 | index`.
@@ -212,6 +220,7 @@ impl Arena {
             slots: Vec::with_capacity(slots),
             free: Vec::new(),
             held: 0,
+            plugin_rt: crate::plugin::Runtime::new(),
         }
     }
 
@@ -248,7 +257,7 @@ impl Arena {
         }
     }
 
-    fn get_mut(&mut self, handle: u32) -> Result<&mut Asset, u32> {
+    pub(crate) fn get_mut(&mut self, handle: u32) -> Result<&mut Asset, u32> {
         let (index, generation) = split(handle);
         match self.slots.get_mut(index) {
             Some(Slot {
@@ -429,6 +438,8 @@ impl Arena {
                 Ok(Asset::Clip(_)) | Ok(Asset::Mask(_)) | Ok(Asset::Graph(_)) => {}
                 // T41: a retarget map, for the `retarget` node.
                 Ok(Asset::Retarget(r)) if r.is_map() => {}
+                // T42 pose databases, T45 plugin modules.
+                Ok(Asset::PoseDb(_)) | Ok(Asset::Plugin(_)) => {}
                 Ok(_) => return STATUS_WRONG_KIND,
                 Err(e) => return e,
             }
@@ -494,6 +505,16 @@ impl Assets for Arena {
             Asset::Retarget(r) => r.node_ref(),
             _ => None,
         }
+    }
+
+    // T42: pose databases (`crate::matching`).
+    fn match_db(&self, handle: u32) -> Option<anim_graph::matching::MatchRef<'_>> {
+        crate::matching::match_ref(self, handle)
+    }
+
+    // T45: the plugin host (`crate::plugin`).
+    fn plugins(&self) -> Option<&dyn anim_graph::plugin::PluginHost> {
+        Some(self)
     }
 }
 

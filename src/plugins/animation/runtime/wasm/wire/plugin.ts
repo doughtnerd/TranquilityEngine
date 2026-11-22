@@ -2,5 +2,86 @@
 // native/anim/crates/anim-wire/src/plugin.rs. Do not edit: change the Rust and rebuild.
 // Internal to the animation plugin (ADR 0340): never part of the public API.
 
-/** Wire family `plugin`: third-party nodes: node module registration and fault reports (ADR 0340). */
+/**
+ * Wire family `plugin`: third-party nodes (ADR 0340): the host call `mycoAnimPluginHost.call(record)` and fault
+ * reports (native/anim/crates/anim-wire/src/plugin.rs).
+ */
 export const PLUGIN_FAMILY = { name: "plugin", id: 9, version: 1 } as const;
+
+/** Fault reports the buffer holds. */
+export const PLUGIN_FAULT_CAPACITY = 256;
+
+/** Fault status (host): the module trapped or ran out of fuel. */
+export const FAULT_TRAP = 2304;
+
+/** Fault status: no such module or node kind. */
+export const FAULT_NO_MODULE = 2305;
+
+/** Fault status: the node's state size or inputs differ from the descriptor. */
+export const FAULT_MISMATCH = 2306;
+
+/** Fault status: the call buffers are too small. */
+export const FAULT_NO_ROOM = 2307;
+
+/** Fault status: no host function. */
+export const FAULT_NO_HOST = 2308;
+
+/** Fault status: the host function threw. */
+export const FAULT_HOST_THREW = 2309;
+
+/** Fault status: a non-finite value in the output pose. */
+export const FAULT_NOT_FINITE = 2310;
+
+/** One host call: `count` instances of node `kind` of module `module` (the core sends one). */
+export const PLUGIN_CALL = {
+  opcode: 0x0901,
+  version: 1,
+  stride: 56,
+  fields: {
+    /** The module handle. */
+    module: { offset: 4, type: "u32" },
+    /** The node kind. */
+    kind: { offset: 8, type: "u32" },
+    /** Instances in the call. */
+    count: { offset: 12, type: "u32" },
+    /** Bones per pose. */
+    bones: { offset: 16, type: "u32" },
+    /** Pose inputs per instance. */
+    inputs: { offset: 20, type: "u32" },
+    /** `u32` words per parameter block. */
+    paramWords: { offset: 24, type: "u32" },
+    /** Per-instance state bytes (the descriptor's; states lie `state_stride` apart). */
+    stateBytes: { offset: 28, type: "u32" },
+    /** Byte offset of `bones` `u16` parent indices, or 0 when the node doesn't need them. */
+    parents: { offset: 32, type: "u32" },
+    /** Byte offset of `count × inputs` AoS poses. */
+    input: { offset: 36, type: "u32" },
+    /** Byte offset of `count` AoS poses the module writes. */
+    output: { offset: 40, type: "u32" },
+    /** Byte offset of `count` parameter blocks. */
+    params: { offset: 44, type: "u32" },
+    /** Byte offset of `count` states. */
+    state: { offset: 48, type: "u32" },
+    /** The graph's step, seconds. */
+    dt: { offset: 52, type: "f32" },
+  },
+} as const;
+
+/** A node instance's first fault. */
+export const PLUGIN_FAULT = {
+  opcode: 0x0902,
+  version: 1,
+  stride: 24,
+  fields: {
+    /** The graph instance's handle. */
+    instance: { offset: 4, type: "u32" },
+    /** The node's index in its graph. */
+    node: { offset: 8, type: "u32" },
+    /** The module handle. */
+    module: { offset: 12, type: "u32" },
+    /** The node kind. */
+    kind: { offset: 16, type: "u32" },
+    /** The module's status (`anim-plugin-sdk::abi::Status`) or a `FAULT_*`. */
+    status: { offset: 20, type: "u32" },
+  },
+} as const;
