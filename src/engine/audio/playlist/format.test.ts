@@ -317,9 +317,23 @@ describe("ADR 0343 §4: captions; ADR 0340 §5: line entries", () => {
     expect(far.playlist.caption).toEqual({ key: "cc.x", minGap: PLAYLIST_LIMITS.captionGap });
   });
 
-  it("reports a line entry and leaves it out until the line runtime lands", () => {
-    const { playlist, problems } = parsePlaylist({ format: "myco.playlist@1", type: "clip", entries: [{ sample: "audio/static.wav" }, { line: null }] }, "p");
-    expect(playlist.entries.map((e) => e.kind)).toEqual(["sample"]);
-    expect(problems).toEqual(["p: entries[1]: a line entry plays once voice-over lines are built (ADR 0340); dropped."]);
+  it("reads, writes and round-trips line entries in a Clip: fixed, programmer and event forms", () => {
+    const raw = { format: "myco.playlist@1", type: "clip", entries: [{ line: "intro_01" }, { line: null, volume: -3 }, { line: { event: "enemy_spotted" } }] };
+    const { playlist, problems } = parsePlaylist(raw, "p");
+    expect(problems.filter((p) => !p.includes("plays one sample"))).toEqual([]);
+    expect(playlist.entries.map((e) => (e.kind === "line" ? e.line : e.kind))).toEqual(["intro_01", null, { event: "enemy_spotted" }]);
+    expect(playlistToJson(playlist).entries).toEqual(raw.entries);
+    expect(parsePlaylist(playlistToJson(playlist)).playlist).toEqual(playlist);
+  });
+
+  it("wraps a line outside a Clip and drops a bad one", () => {
+    const { playlist, problems } = parsePlaylist({ format: "myco.playlist@1", type: "queue", entries: [{ line: "intro_01" }, { line: "bad key" }, { line: { event: 3 } }] }, "p");
+    expect(playlist.entries).toHaveLength(1);
+    expect((playlist.entries[0] as EmbeddedEntry).embedded.entries[0]).toMatchObject({ kind: "line", line: "intro_01" });
+    expect(problems).toEqual([
+      "p: entries[0]: a line plays only in a Clip; wrapped in an embedded Clip.",
+      "p: entries[1].line: must be a line key, null or { event }; dropped.",
+      "p: entries[2].line: must be a line key, null or { event }; dropped.",
+    ]);
   });
 });

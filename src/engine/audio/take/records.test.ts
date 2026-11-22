@@ -76,7 +76,43 @@ describe("take request records (ADR 0334)", () => {
 
   it("names the request record types and only those", () => {
     for (const t of Object.values(TakeRecordType)) expect(isTakeRecordType(t)).toBe(true);
-    for (const t of [0x01, 0x08, 0x0f, 0x1a, 0x7f, 0x80]) expect(isTakeRecordType(t)).toBe(false);
+    for (const t of [0x01, 0x08, 0x0f, 0x1e, 0x7f, 0x80]) expect(isTakeRecordType(t)).toBe(false);
+  });
+
+  it("ADR 0340 §10, 0341 §6: LINE, LANGUAGE, SAY and SAYSTATE round-trip", () => {
+    const records: TakeRecordInit[] = [
+      { type: TakeRecordType.LINE, payload: { kind: "line", t: 1.5, instance: 3, key: "intro_01", language: "fr-CA", options: { volume: 0.5, bus: "Voice", parameters: { Radio: 1 } } } },
+      { type: TakeRecordType.LINE, payload: { kind: "line", t: 2, instance: 4, key: "only_de", language: null, options: {} } },
+      { type: TakeRecordType.LANGUAGE, payload: { kind: "language", t: 3, audio: "fr", subtitles: null } },
+      { type: TakeRecordType.LANGUAGE, payload: { kind: "language", t: 3.5, audio: "fr", subtitles: "en" } },
+      {
+        type: TakeRecordType.SAY,
+        payload: {
+          kind: "say", t: 4, instance: 5, event: "enemy_spotted", args: { speaker: "Guard", weather: "Rain", distance: "*" },
+          options: { channel: "Guard", whenBusy: "interrupt", priority: 70, pitch: 1.25 }, state: "playing", picked: { key: "guard_spot_rain_01", pathIndex: 1 }, random: 0xdead_beef,
+        },
+      },
+      { type: TakeRecordType.SAY, payload: { kind: "say", t: 5, instance: 6, event: "chat", args: {}, options: {}, state: "queued", picked: null } },
+      { type: TakeRecordType.SAY, payload: { kind: "say", t: 6, instance: 7, event: "cool", args: {}, options: { whenBusy: "drop" }, state: "refused", picked: { none: "cooldown" }, random: 0 } },
+      { type: TakeRecordType.SAYSTATE, payload: { kind: "sayState", t: 7, instance: 6, state: "playing", picked: { key: "chat_01", pathIndex: 0 }, random: 12345 } },
+      { type: TakeRecordType.SAYSTATE, payload: { kind: "sayState", t: 8, instance: 8, state: "dropped", picked: { none: "busy" } } },
+    ];
+    for (const r of records) expect(decode(r)).toEqual({ type: "request", requests: [r.payload] });
+  });
+
+  it("ADR 0341 §6: a SAY with an unknown state or pick kind is refused, not misread", () => {
+    const say: TakeRecordInit = { type: TakeRecordType.SAY, payload: { kind: "say", t: 1, instance: 1, event: "e", args: { a: "b" }, options: {}, state: "playing", picked: { key: "k", pathIndex: 0 } } };
+    const b = encodeTakeRecordBytes(say);
+    // t(8) instance(4) flags(1) volume(4) pitch(4) priority(2) bus(2+0): the state byte follows.
+    const stateAt = 8 + 4 + 1 + 4 + 4 + 2 + 2;
+    const badState = b.slice();
+    badState[stateAt] = 9;
+    expect(codeOf(() => decodeTakeRecord(TakeRecordType.SAY, new DataView(badState.buffer), 0, badState.byteLength))).toBe("badValue");
+    const badPick = b.slice();
+    // The pick kind is the byte before the key's length: the last 2 + 1 (key "k") + 4 (path index) bytes are the pick's tail.
+    badPick[b.byteLength - (2 + 1 + 4) - 1] = 7;
+    expect(codeOf(() => decodeTakeRecord(TakeRecordType.SAY, new DataView(badPick.buffer), 0, badPick.byteLength))).toBe("badValue");
+    expect(codeOf(() => decodeTakeRecord(TakeRecordType.SAY, new DataView(b.buffer), 0, b.byteLength - 1))).toBe("badLength");
   });
 
   it("cuts long names on a code-point boundary when writing", () => {

@@ -32,7 +32,27 @@ export type TakeRequest =
   /** ADR 0340 §10: a line played by key (`Audio.line`), in the language it was heard in (null: nothing played). */
   | { kind: "line"; t: number; instance: number; key: string; language: string | null; options: TakePlayOptions }
   /** ADR 0340 §10, 0343 §2: the audio and subtitle languages changed (subtitles null: following the text language). */
-  | { kind: "language"; t: number; audio: string; subtitles: string | null };
+  | { kind: "language"; t: number; audio: string; subtitles: string | null }
+  /**
+   * ADR 0341 §6: `Audio.say` as asked: the resolved value of every argument (globals and defaults included, so replay
+   * doesn't depend on the order globals changed in), its options, what it did (`state`), the pick (null while queued:
+   * a queued say decides when it starts) and the World generator's state just before it decided (absent: unseeded).
+   */
+  | { kind: "say"; t: number; instance: number; event: string; args: Record<string, string>; options: TakeSayOptions; state: TakeSayState; picked: TakeSayPick | null; random?: number }
+  /** ADR 0341 §6: a queued say started (with its pick, decided then) or was dropped. */
+  | { kind: "sayState"; t: number; instance: number; state: "playing" | "dropped"; picked: TakeSayPick | null; random?: number };
+
+/** What a say did when asked: started, waits in its channel's queue, or was refused (`picked.none` says why). */
+export type TakeSayState = "playing" | "queued" | "refused";
+
+/** A say's pick: the line and the path index that gave it, or why there was none (an `AudioReason`). */
+export type TakeSayPick = { key: string; pathIndex: number } | { none: string };
+
+/** `SayOptions` a take keeps (the play options, the channel, priority and `whenBusy`). */
+export interface TakeSayOptions extends TakePlayOptions {
+  channel?: string;
+  whenBusy?: "queue" | "interrupt" | "drop";
+}
 
 /** Emitter id 0 is the listener. */
 export const LISTENER_EMITTER = 0;

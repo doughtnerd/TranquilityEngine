@@ -29,11 +29,13 @@ import {
   PLAYLIST_FORMAT, PLAYLIST_SUFFIX, PLAYLIST_TYPES, type Adsr, type Automation, type BlendAxis, type BlendSettings, type ChangeHow, type ChangeRule,
   type ChangeWhen, type Clip, type CurveInput, type Entry, type EntryUse, type PlaybackRules, type PlaylistAsset, type PlaylistBody, type PlaylistParse,
   type PlaylistSpatial, type PlaylistType, type QueueSettings, type SampleEntry, type SequenceLoop, type SequenceMarker, type SequenceSettings,
-  type Stinger, type SwitchSettings, type Track, type VoiceCurve, type VoiceCurveTarget, type PlaylistCaption,
+  type Stinger, type SwitchSettings, type Track, type VoiceCurve, type VoiceCurveTarget, type PlaylistCaption, type LineEntry,
   FADE_SHAPES, type BlendRegion, type Fade, type FadeShape, type Quantize, type TimeLength,
 } from "./types";
 import { isFadeShape } from "./fadeShapes";
 import { isStringKey } from "../../localisation/strings/format";
+import { isLineKey } from "../localisation/lines/format";
+import { isEventName } from "../dialogue/format";
 
 /** Limits of a playlist, declared once (ADR 0306; the first five are ADR 0329's). */
 export const PLAYLIST_LIMITS = Object.freeze({
@@ -148,7 +150,8 @@ class PlaylistReader {
       if (entry) out.entries.push(entry);
     });
     if (type === "clip") {
-      const kept = out.entries.filter((e) => e.kind === "sample");
+      // ADR 0340 §5: a line entry sits beside sample entries in a Clip.
+      const kept = out.entries.filter((e) => e.kind === "sample" || e.kind === "line");
       if (kept.length < out.entries.length) r.problem(at("entries"), "a Clip plays a sample; its other entries are dropped.");
       out.entries = kept;
       if (kept.length === 0) r.problem(at("entries"), "a Clip needs one sample; it plays nothing.");
@@ -357,16 +360,23 @@ class PlaylistReader {
   entry(raw: unknown, where: string, depth: number, inClip: boolean): Entry | null {
     const r = this.r;
     if (!isRecord(raw)) { r.problem(where, "an entry must be an object; dropped."); return null; }
-    const kinds = (["sample", "playlist", "embedded"] as const).filter((k) => raw[k] !== undefined);
-    if (kinds.length === 0 && raw.line !== undefined) {
-      // ADR 0340 §5: `LineEntry` joins `Entry` with the line runtime (L2); until then a line entry plays nothing.
-      r.problem(where, "a line entry plays once voice-over lines are built (ADR 0340); dropped.");
-      return null;
-    }
-    if (kinds.length === 0) { r.problem(where, 'an entry needs "sample", "playlist" or "embedded"; dropped.'); return null; }
+    const kinds = (["sample", "playlist", "embedded", "line"] as const).filter((k) => raw[k] !== undefined);
+    if (kinds.length === 0) { r.problem(where, 'an entry needs "sample", "playlist", "embedded" or "line"; dropped.'); return null; }
     if (kinds.length > 1) r.problem(where, `has ${kinds.join(" and ")}; using "${kinds[0]}".`);
     const use = this.use(raw, where);
     const kind = kinds[0];
+    if (kind === "line") {
+      const v = raw.line;
+      let line: LineEntry["line"];
+      if (v === null) line = null;
+      else if (isLineKey(v)) line = v;
+      else if (isRecord(v) && isEventName(v.event)) line = { event: v.event };
+      else { r.problem(`${where}.line`, "must be a line key, null or { event }; dropped."); return null; }
+      if (inClip) return { kind: "line", line, ...use };
+      r.problem(where, "a line plays only in a Clip; wrapped in an embedded Clip.");
+      const inner: LineEntry = { kind: "line", line, ...defaultEntryUse() };
+      return { kind: "embedded", embedded: { ...emptyPlaylistBody("clip"), entries: [inner] }, ...use };
+    }
     if (kind === "sample") {
       if (typeof raw.sample !== "string" || raw.sample === "") { r.problem(`${where}.sample`, "must be a sample path; dropped."); return null; }
       let trim: [number, number] | null = null;
@@ -748,6 +758,7 @@ export function entryToJson(e: Entry): JsonRecord {
     if (e.trim) out.trim = [e.trim[0], e.trim[1]];
     if (e.loop !== "inherit") out.loop = e.loop;
   } else if (e.kind === "linked") out.playlist = e.playlist;
+  else if (e.kind === "line") out.line = e.line !== null && typeof e.line === "object" ? { event: e.line.event } : e.line;
   else out.embedded = playlistBodyToJson(e.embedded);
   useToJson(e, out);
   return out;

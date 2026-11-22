@@ -35,7 +35,8 @@ export function playlistReferences(body: PlaylistBody): PlaylistReference[] {
   const entry = (e: Entry, where: PlaylistReferenceStep[]) => {
     if (e.kind === "linked") add("playlist", e.playlist, [...where, "playlist"]);
     else if (e.kind === "sample") add("sample", e.sample, [...where, "sample"]);
-    else visit(e.embedded, [...where, "embedded"]);
+    else if (e.kind === "embedded") visit(e.embedded, [...where, "embedded"]);
+    // A line entry (ADR 0340 §5) names a line key or a dialogue event, not an asset path.
   };
   const visit = (b: PlaylistBody, where: PlaylistReferenceStep[]) => {
     if (typeof b.spatial?.attenuation === "string") add("attenuation", b.spatial.attenuation, [...where, "spatial", "attenuation"]);
