@@ -198,7 +198,7 @@ fn the_shared_reverb_return_follows_shared_return_gain() {
     use audio_core::fx::kind;
     let run = |shared: Option<f32>| {
         let mut z = Zones::new(1);
-        let mut cfg = vec![0u8; 64];
+        let mut cfg = vec![0u8; 128];
         let rec = wire::BusConfig {
             voice_id: 0,
             frame_offset: wire::ASAP,

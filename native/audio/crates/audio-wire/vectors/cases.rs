@@ -604,15 +604,16 @@ pub fn cases() -> Vec<VectorCase> {
                     va(vec![vr(vec![
                         ("type", vu(1)),
                         ("flags", vu(1)),
-                        ("p", va(vec![vf(800.0), vf(0.5), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0)])),
+                        ("p", va(vec![vf(800.0), vf(0.5), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0)])),
                     ])]),
                 ),
             ],
             concat!(
-                "0c00", "1000", "02000000", "ffffffff", "0400", "0100", "01000000", // head, group, bus, effectCount 1
+                "0c00", "1800", "02000000", "ffffffff", "0400", "0100", "01000000", // head (24 words, ABI 5.0), group, bus, effectCount 1
                 "0600", "0000", // parent 6 (slot 5), reserved
                 "01000000", "01000000", "00004844", "0000003f", // type, flags, p0 800, p1 0.5
                 "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", // p2..p7
+                "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", // p8..p15 (ABI 5.0)
             ),
         ),
         // ROUTE (ADR 0331 levels, ABI 4.9), 16 B = 4 words, asap: voice 0x00010007 into submix slot 3.
@@ -677,7 +678,7 @@ pub fn cases() -> Vec<VectorCase> {
             ],
             concat!("1500", "0600", "02000000", "ffffffff", "01000000", "0080", "0400", "02000000"),
         ),
-        // BUS_CONFIG, variable length: 120 B = 30 words. Two buses. Bus 0 (root, parent 0xFFFF) has a
+        // BUS_CONFIG, variable length: 228 B = 57 words (ABI 5.0: p[16]; 120 B with p[7]). Two buses. Bus 0 (root, parent 0xFFFF) has a
         // lowpass (2000 Hz, q 1.0) and a reverb send (0.5); bus 1 (parent 0) has a compressor
         // (threshold -12, knee 6, ratio 4, attack 1, release 2 with the unused p = 0).
         case(
@@ -696,11 +697,11 @@ pub fn cases() -> Vec<VectorCase> {
                                 va(vec![
                                     vr(vec![
                                         ("type", vu(0)),
-                                        ("p", va(vec![vf(2000.0), vf(1.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0)])),
+                                        ("p", va(vec![vf(2000.0), vf(1.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0)])),
                                     ]),
                                     vr(vec![
                                         ("type", vu(3)),
-                                        ("p", va(vec![vf(0.5), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0)])),
+                                        ("p", va(vec![vf(0.5), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0)])),
                                     ]),
                                 ]),
                             ),
@@ -711,7 +712,7 @@ pub fn cases() -> Vec<VectorCase> {
                                 "effects",
                                 va(vec![vr(vec![
                                     ("type", vu(2)),
-                                    ("p", va(vec![vf(-12.0), vf(6.0), vf(4.0), vf(1.0), vf(2.0), vf(0.0), vf(0.0)])),
+                                    ("p", va(vec![vf(-12.0), vf(6.0), vf(4.0), vf(1.0), vf(2.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0)])),
                                 ])]),
                             ),
                         ]),
@@ -719,18 +720,21 @@ pub fn cases() -> Vec<VectorCase> {
                 ),
             ],
             concat!(
-                "1000", "1e00", "00000000", "ffffffff", // head: BUS_CONFIG, 30 words, bus 0, frame asap
+                "1000", "3900", "00000000", "ffffffff", // head: BUS_CONFIG, 57 words, bus 0, frame asap
                 "02000000", // busCount 2
                 // bus 0: parent 0xFFFF, effectCount 2
                 "ffff", "0200",
                 // effect 0: lowpass; p = 2000.0, 1.0, 0 x5
                 "00000000", "0000fa44", "0000803f", "00000000", "00000000", "00000000", "00000000", "00000000",
+                "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", 
                 // effect 1: reverb send; p = 0.5, 0 x6
                 "03000000", "0000003f", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000",
+                "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", 
                 // bus 1: parent 0, effectCount 1
                 "0000", "0100",
                 // effect 0: compressor; p = -12.0, 6.0, 4.0, 1.0, 2.0, 0, 0
                 "02000000", "000040c1", "0000c040", "00008040", "0000803f", "00000040", "00000000", "00000000",
+                "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", 
             ),
         ),
         // MASTER, 24 B = 6 words: volume 0.8, muted 0, ramp 960. Asap.
@@ -1645,7 +1649,7 @@ fn mix_cases() -> Vec<VectorCase> {
             vec![("voiceId", vu(0)), ("frameOffset", vu(0xFFFF_FFFF)), ("tpGateDbfs", vf(-7.0)), ("meters", va(vec![]))],
             concat!("1b00", "0500", "00000000", "ffffffff", "0000e0c0", "00000000"),
         ),
-        // BUS_SLOT, 60 B = 15 words (0x1C), stamped at 8192: slot 6, flags structural | fresh (3), sequenceId 77,
+        // BUS_SLOT, 96 B = 24 words (0x1C; ABI 5.0, 60 B with p[7]), stamped at 8192: slot 6, flags structural | fresh (3), sequenceId 77,
         // parent 1, one compressor effect (type 2; threshold -18, knee 6, ratio 4, attack 0.125, release 0.5).
         case(
             "BUS_SLOT_structural_sequence_compressor",
@@ -1663,12 +1667,12 @@ fn mix_cases() -> Vec<VectorCase> {
                     "effects",
                     va(vec![vr(vec![
                         ("type", vu(2)),
-                        ("p", va(vec![vf(-18.0), vf(6.0), vf(4.0), vf(0.125), vf(0.5), vf(0.0), vf(0.0)])),
+                        ("p", va(vec![vf(-18.0), vf(6.0), vf(4.0), vf(0.125), vf(0.5), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0), vf(0.0)])),
                     ])]),
                 ),
             ],
             concat!(
-                "1c00", "0f00", "00000000", "00200000", // head: BUS_SLOT, 15 words, frame 8192
+                "1c00", "1800", "00000000", "00200000", // head: BUS_SLOT, 24 words, frame 8192
                 "0600", // 12 slot 6
                 "0300", // 14 flags: structural | fresh
                 "4d00", // 16 sequenceId 77
@@ -1678,6 +1682,7 @@ fn mix_cases() -> Vec<VectorCase> {
                 "0100", // 26 effectCount 1
                 "02000000", // 28 effect type 2 (compressor)
                 "000090c1", "0000c040", "00008040", "0000003e", "0000003f", "00000000", "00000000", // p[0..7]
+                "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", // p[7..16]
             ),
         ),
         // BUS_SLOT tombstone, 28 B = 7 words, asap: slot 5, flags 0, no sequence, parent BUS_ROOT, no effects.

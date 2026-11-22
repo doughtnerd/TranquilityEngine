@@ -40,7 +40,12 @@ use crate::memory::{PlatformMemory, PLATFORM_MEMORY};
 /// 4.6 (ADR 0331 DSP): the catalogue's effect kinds (`SUBMIX_FX_EQ`..`SUBMIX_FX_GAIN`) on submixes and, as
 /// `BUS_FX_CATALOGUE + kind`, on bus chains; eight effects a bus, no one-compressor limit; the `FxMem`
 /// region (effect memory); smoothed catalogue parameters; sidechain keys order the buses.
-pub const ABI_MAJOR: u32 = 4;
+/// 5.0 (ADR 0338, 0344): effect records carry 16 parameters (BUS_CONFIG, BUS_SLOT, SUBMIX; a bus effect's held mask
+/// is 16 bits); effect kinds `FX_PLUGIN_BASE + e` run registered plugin effects through the `myco_ext` import
+/// (`acquire`, `release`, `describe`, `process`, `sweep`; `audio-core` `ext.rs`), which the shell must supply at
+/// instantiation; each chain level shares `FX_PLUGIN_FUEL_PER_FRAME` of plugin fuel a quantum. The core-state region is
+/// 128 KB.
+pub const ABI_MAJOR: u32 = 5;
 /// 4.7 (ADR 0330): BUS_SENDS (0x1E), post-fader bus-to-return sends with level ramps and core-side muting.
 /// 4.9 (ADR 0331 levels, 0332, 0336): SUBMIX `parent` (nested playlists', tracks' and clips' submixes feed
 /// their parent level's, up to 8 levels; a slot whose group goes to 0 rings its tail until freed), ROUTE
@@ -52,7 +57,8 @@ pub const ABI_MAJOR: u32 = 4;
 /// linear in dB), STATUS `fxStarved` and `fxStarvedOwner`.
 /// 4.11 (ADR 0333): SET_VOICE_FX `spread` (mask bit 4, the reserved u16 at offset 50: hundredths of a degree),
 /// a spatial voice spread over an arc by a decorrelated diffuse part (`audio-core` `spread.rs`).
-pub const ABI_MINOR: u32 = 11;
+/// 5.0: the minor starts again (above).
+pub const ABI_MINOR: u32 = 0;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
 pub const INBOX_BYTES: usize = 1 << 20;
@@ -368,7 +374,7 @@ mod tests {
 
     #[test]
     fn identity_exports() {
-        assert_eq!(myco_audio_abi_version(), 0x40B);
+        assert_eq!(myco_audio_abi_version(), 0x500);
         assert_eq!(myco_audio_inbox_cap(), 1 << 20);
         assert_eq!(myco_audio_inbox_ptr() as usize % 64, 0);
         assert_eq!(myco_audio_status_ptr() as usize % 64, 0);

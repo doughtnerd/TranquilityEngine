@@ -19,7 +19,8 @@
 //!   `FX_PLUGIN_FLAG_*`; `fuel` is the grant (the instance's budget × frames, or 0 when the level's
 //!   shared fuel can't cover it: the glue then passes dry without calling the plugin). A negative
 //!   result is a fault or a pass (the glue left `l`, `r` untouched: the block passes **dry**); else
-//!   bit 0 says the output is silent and the rest is the instructions the plugin used.
+//!   bit 0 says the output is silent and the rest is the instructions the plugin used. [`STALE`] (−4)
+//!   also makes the slot forget its handle and ask for a new instance (a module reloaded).
 //! - `sweep(handles, n, last)`: after every configuration (`fxmem::rebuild`), the handles still held,
 //!   in chunks; on the last chunk the glue releases every handle it gave that wasn't listed. So a
 //!   slot freed by any path (a bus removed, a submix freed, RESET) gives its instance back.
@@ -44,6 +45,10 @@ pub const FUEL_PER_FRAME: u32 = wire::FX_PLUGIN_FUEL_PER_FRAME;
 
 const _: () = assert!(PARAMS == wire::FX_PARAMS as usize && audio_dsp::fx::kind::PLUGIN_BASE == wire::FX_PLUGIN_BASE);
 const _: () = assert!(plugin_flags::PARAMS == wire::FX_PLUGIN_FLAG_PARAMS && plugin_flags::SILENT == wire::FX_PLUGIN_FLAG_SILENT && plugin_flags::RESET == wire::FX_PLUGIN_FLAG_RESET);
+
+/// A `process` result: the handle no longer names an instance (its module was unloaded or swapped); the slot
+/// forgets it and asks for a new one at its next block. Every negative result passes the block dry.
+pub const STALE: i32 = -4;
 
 /// `describe`'s `what`: the glide modes.
 pub const DESCRIBE_MODES: u32 = 0;
@@ -201,6 +206,8 @@ pub fn process(e: &mut Effect, l: &mut [f32], r: &mut [f32], fuel: &mut Fuel) ->
     let status = imp::process(e.handle, l, r, &p0, &e.cur, flags, grant);
     if status >= 0 {
         fuel.0 -= ((status as u32) >> 1).min(grant);
+    } else if status == STALE {
+        e.handle = 0;
     }
     status
 }

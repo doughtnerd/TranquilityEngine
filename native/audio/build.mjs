@@ -402,7 +402,9 @@ function checkMagls() {
 function readIdentity(path) {
   const memory = new WebAssembly.Memory({ initial: READ_MEMORY_PAGES });
   const module = new WebAssembly.Module(readFileSync(path));
-  const { exports } = new WebAssembly.Instance(module, { env: { memory } });
+  // ABI 5.0 (ADR 0338): the core imports `myco_ext` (plugin effects); no plugin runs here.
+  const myco_ext = { acquire: () => 0, release: () => {}, describe: () => 0, process: () => -1, sweep: () => {} };
+  const { exports } = new WebAssembly.Instance(module, { env: { memory }, myco_ext });
   const sourceHash = Buffer.from(memory.buffer, exports.myco_audio_source_hash(), 16).toString("hex");
   const v = exports.myco_audio_abi_version();
   return { sourceHash, abiVersion: `${v >> 8}.${v & 0xff}` };
