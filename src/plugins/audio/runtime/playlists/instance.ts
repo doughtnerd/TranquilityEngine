@@ -420,7 +420,8 @@ export class PlaylistInstance implements NodeHost {
     }
     if (loop && (loop.start > 0 || loop.end > 0 || !looping)) sink.setLoop(voice, loop.start, loop.end, looping);
     if (trim && trim[0] > 0) voice.seek(trim[0]);
-    const start = ctx.at ?? events().horizon();
+    // When it starts: its stamp, else the earliest exact start, else now (heard; voice time and end estimates count from it).
+    const start = ctx.at ?? events().horizon() ?? this.clock();
     const fileLength = events().clipLength(path);
     const from = trim ? trim[0] : 0;
     const to = trim ? Math.min(trim[1], fileLength ?? Infinity) : fileLength;

@@ -152,7 +152,8 @@ function hullEdges(tris: readonly [number, number, number][]): [number, number][
 
 /** Projects `p` onto the nearest of `edges` and writes the two endpoint weights into `w`. */
 function projectOntoNearest(points: readonly BlendPoint[], edges: readonly [number, number][], p: BlendPoint, w: number[]): void {
-  let best = Infinity, bi = -1, bj = -1, bt = 0;
+  // Ties go to the shorter segment (neighbouring points before a span across others).
+  let best = Infinity, bestLen = Infinity, bi = -1, bj = -1, bt = 0;
   for (const [i, j] of edges) {
     const a = points[i]!, b = points[j]!;
     const dx = b.x - a.x, dy = b.y - a.y;
@@ -160,7 +161,7 @@ function projectOntoNearest(points: readonly BlendPoint[], edges: readonly [numb
     const t = len2 > 0 ? clamp01(((p.x - a.x) * dx + (p.y - a.y) * dy) / len2) : 0;
     const qx = a.x + t * dx - p.x, qy = a.y + t * dy - p.y;
     const dist = qx * qx + qy * qy;
-    if (dist < best - 1e-12) { best = dist; bi = i; bj = j; bt = t; }
+    if (dist < best - 1e-12 || (Math.abs(dist - best) <= 1e-12 && len2 < bestLen)) { best = dist; bestLen = len2; bi = i; bj = j; bt = t; }
   }
   if (bi < 0) return;
   w[bi] = 1 - bt;
