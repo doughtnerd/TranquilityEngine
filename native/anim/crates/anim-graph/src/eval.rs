@@ -1180,11 +1180,12 @@ impl Program {
         scratch: Scratch<'_>,
         out: &mut [SoaTransform],
     ) {
-        self.pose_cached(inputs, state, scratch, &mut [], 0, out);
+        self.pose_cached(inputs, state, scratch, (&mut [], &mut []), out);
     }
 
     /// [`pose`](Self::pose), with memory for the clip players' frame caches (T82r,
-    /// `anim_sample::FrameCache`): `players` holds slots of `player_words` words, one per clip
+    /// `anim_sample::FrameCache`): `players` holds the slots' headers
+    /// (`FrameCache::HEADER_WORDS` words each) and frames (an equal share each), one per clip
     /// player ([`clip_players`](Self::clip_players) slots give each of the program's players its
     /// own; linked graphs' players may share one, which is then refilled). The pose doesn't depend on the slots' contents, so the caller
     /// keeps them out of snapshots. Never allocates.
@@ -1193,8 +1194,7 @@ impl Program {
         inputs: &Inputs<'_>,
         state: &mut [u32],
         scratch: Scratch<'_>,
-        players: &mut [u32],
-        player_words: usize,
+        players: (&mut [u32], &mut [SoaTransform]),
         out: &mut [SoaTransform],
     ) {
         let groups = inputs.skeleton.groups();
@@ -1208,8 +1208,10 @@ impl Program {
             Some(scratch),
             0.0,
         );
-        cx.players = players;
-        cx.player_words = player_words;
+        let slots = players.0.len() / anim_sample::FrameCache::HEADER_WORDS;
+        cx.player_frame_len = if slots == 0 { 0 } else { players.1.len() / slots };
+        cx.player_headers = players.0;
+        cx.player_frames = players.1;
         let alpha = cx.eval_alpha(self.output);
         let slot = cx.push_slot();
         match slot {
@@ -1409,9 +1411,11 @@ pub struct EvalContext<'a> {
     collected_len: usize,
     /// Inside a linked graph: the outer window and the linked node's inertialization target.
     outer: Option<(ProgramWindow<'a>, u32)>,
-    /// T82r: the clip players' frame caches (`player_words` words each; empty: none).
-    players: &'a mut [u32],
-    player_words: usize,
+    /// T82r: the clip players' frame caches (`anim_sample::FrameCache`): a header per slot and
+    /// `player_frames` transforms per slot (empty: none).
+    player_headers: &'a mut [u32],
+    player_frames: &'a mut [SoaTransform],
+    player_frame_len: usize,
     /// The first transform of slot 0 in the pose stack (0 at top level; inside a skeleton scope,
     /// where the scope's region starts: T41).
     slot_base: usize,
@@ -1460,8 +1464,9 @@ impl<'a> EvalContext<'a> {
             collected_len: 0,
             outer: None,
             slot_base: 0,
-            players: &mut [],
-            player_words: 0,
+            player_headers: &mut [],
+            player_frames: &mut [],
+            player_frame_len: 0,
         }
     }
 
@@ -2092,13 +2097,18 @@ impl<'a> EvalContext<'a> {
     ) -> (
         &mut [SoaTransform],
         &mut [AosTransform],
-        Option<&mut [u32]>,
+        Option<(&mut [u32], &mut [SoaTransform])>,
         u32,
     ) {
         let tag = self.inputs.assets.cache_epoch();
         let r = self.slot_range(slot);
-        let w = self.player_words;
-        let count = if w == 0 { 0 } else { self.players.len() / w };
+        let hw = anim_sample::FrameCache::HEADER_WORDS;
+        let fw = self.player_frame_len;
+        let count = if fw == 0 {
+            0
+        } else {
+            (self.player_headers.len() / hw).min(self.player_frames.len() / fw)
+        };
         let cache = if count == 0 {
             None
         } else {
@@ -2108,7 +2118,10 @@ impl<'a> EvalContext<'a> {
             match ordinal {
                 Some(o) if o != NONE => {
                     let k = (o as usize + sub + self.base) % count;
-                    Some(&mut self.players[k * w..(k + 1) * w])
+                    Some((
+                        &mut self.player_headers[k * hw..(k + 1) * hw],
+                        &mut self.player_frames[k * fw..(k + 1) * fw],
+                    ))
                 }
                 _ => None,
             }

@@ -523,8 +523,8 @@ fn pose(cx: &mut EvalContext<'_>, at: usize, sub: usize) {
     let (out, scratch, cache, tag) = cx.pose_sample_and_cache(slot, sub);
     let sampled = match cache {
         // T82r: the player's frame cache (the same bits as without it).
-        Some(words) => {
-            let mut cache = anim_sample::FrameCache::new(words, tag);
+        Some((header, frames)) => {
+            let mut cache = anim_sample::FrameCache::new(header, frames, tag);
             clip.bound
                 .sample_pose_cached(time, rest, scratch, out, &mut cache)
         }

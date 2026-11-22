@@ -124,6 +124,15 @@ pub struct FramePos {
     pub alpha: f32,
 }
 
+/// Group `g` of an AoS pose packed four bones at a time (lanes past the pose: the default
+/// transform).
+#[inline(always)]
+pub(crate) fn group(pose: &[AosTransform], g: usize) -> SoaTransform {
+    SoaTransform::from_aos(&core::array::from_fn(|l| {
+        pose.get(g * LANES + l).copied().unwrap_or_default()
+    }))
+}
+
 /// Fills `out` with `skel`'s rest pose. Returns `false` (writing nothing) unless
 /// `out.len() == skel.bone_count()`.
 pub fn rest_pose(skel: &SkeletonView<'_>, out: &mut [AosTransform]) -> bool {
@@ -328,25 +337,32 @@ impl<'a> ClipSampler<'a> {
     ) {
         let alpha = F32x4::splat(p.alpha);
         for (g, o) in out.iter_mut().enumerate() {
-            let lanes = |pose: &[AosTransform]| -> [AosTransform; 4] {
-                core::array::from_fn(|l| pose.get(g * LANES + l).copied().unwrap_or_default())
-            };
-            let ta = SoaTransform::from_aos(&lanes(a));
-            let tb = SoaTransform::from_aos(&lanes(b));
-            let rotation = if self.slerp {
-                ta.rotation
-                    .normalize_or_identity()
-                    .slerp(tb.rotation.normalize_or_identity(), alpha)
-                    .normalize_or_identity()
-            } else {
-                ta.rotation.nlerp(tb.rotation, alpha)
-            };
-            *o = SoaTransform::new(
-                ta.translation.lerp(tb.translation, alpha),
-                rotation,
-                ta.scale.lerp(tb.scale, alpha),
-            );
+            *o = self.interpolate_group(group(a, g), group(b, g), alpha);
         }
+    }
+
+    /// One group of [`interpolate`](Self::interpolate), from the frames' groups (as [`group`]
+    /// packs them).
+    #[inline(always)]
+    pub(crate) fn interpolate_group(
+        &self,
+        ta: SoaTransform,
+        tb: SoaTransform,
+        alpha: F32x4,
+    ) -> SoaTransform {
+        let rotation = if self.slerp {
+            ta.rotation
+                .normalize_or_identity()
+                .slerp(tb.rotation.normalize_or_identity(), alpha)
+                .normalize_or_identity()
+        } else {
+            ta.rotation.nlerp(tb.rotation, alpha)
+        };
+        SoaTransform::new(
+            ta.translation.lerp(tb.translation, alpha),
+            rotation,
+            ta.scale.lerp(tb.scale, alpha),
+        )
     }
 
     fn raw_pose(&self, p: FramePos, a: &mut [AosTransform], b: &mut [AosTransform]) {

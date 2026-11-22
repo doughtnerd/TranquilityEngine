@@ -685,13 +685,11 @@ pub fn evaluate(
             };
             let display = &mut frame.display[..groups];
             crate::rig::clear_rays(rig_rays, index);
-            let words = crate::instances::player_words(groups * anim_math::layout::LANES);
             program.pose_cached(
                 &inputs,
                 &mut inst.state,
                 scratch,
-                &mut inst.players,
-                words,
+                (&mut inst.player_headers, &mut inst.player_frames),
                 display,
             );
             same = inst.history > 0 && same_bits(display, &inst.last);

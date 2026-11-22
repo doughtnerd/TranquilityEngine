@@ -102,10 +102,11 @@ fn cached_samples_match_uncached_bit_for_bit() {
             .collect();
         let bound: Vec<BoundClip<'_, '_>> =
             tables.iter().map(|(s, b)| b.bind(*s).unwrap()).collect();
-        let mut mem = vec![0u32; FrameCache::words_for(n)];
+        let mut head = vec![0u32; FrameCache::HEADER_WORDS];
+        let mut mem = vec![SoaTransform::default(); FrameCache::frames_len(n)];
         // Playback at 60 Hz: half, normal, 1.5x, 2x, 3x speed, and reverse; through the loop.
         for speed in [0.5f32, 1.0, 1.5, 2.0, 3.0, -1.0] {
-            let mut cache = FrameCache::new(&mut mem, 1);
+            let mut cache = FrameCache::new(&mut head, &mut mem, 1);
             let mut t = 0.0f32;
             for _ in 0..200 {
                 t = (t + speed / 60.0).rem_euclid(fx.duration);
@@ -113,7 +114,7 @@ fn cached_samples_match_uncached_bit_for_bit() {
             }
         }
         // Seeks, and the clip's last frame (f0 == f1).
-        let mut cache = FrameCache::new(&mut mem, 1);
+        let mut cache = FrameCache::new(&mut head, &mut mem, 1);
         for t in [0.0, 1.9, 0.53, 0.54, 1.0, fx.duration, fx.duration + 1.0, 0.02, -0.5] {
             check(&bound[0], t, &fx.rest, &mut cache, &format!("{shape:?} seek"));
         }
@@ -121,16 +122,18 @@ fn cached_samples_match_uncached_bit_for_bit() {
         let mut t = 0.0f32;
         for i in 0..120 {
             t += 1.0 / 60.0;
-            let mut cache = FrameCache::new(&mut mem, (i / 7) as u32);
+            let mut cache = FrameCache::new(&mut head, &mut mem, (i / 7) as u32);
             let rest = if i % 5 == 0 { &fx.identity } else { &fx.rest };
             check(&bound[i % 2], t, rest, &mut cache, &format!("{shape:?} shared"));
         }
         // Too short: samples without it.
-        let mut short = vec![0u32; FrameCache::words_for(n) - 1];
-        let mut cache = FrameCache::new(&mut short, 1);
+        let mut short = vec![SoaTransform::default(); FrameCache::frames_len(n) - 1];
+        let mut cache = FrameCache::new(&mut head, &mut short, 1);
+        check(&bound[0], 0.3, &fx.rest, &mut cache, "short");
+        let mut cache = FrameCache::new(&mut head[..1], &mut mem, 1);
         check(&bound[0], 0.3, &fx.rest, &mut cache, "short");
         // Cleared: refilled.
-        let mut cache = FrameCache::new(&mut mem, 1);
+        let mut cache = FrameCache::new(&mut head, &mut mem, 1);
         check(&bound[1], 0.3, &fx.rest, &mut cache, "before clear");
         cache.clear();
         check(&bound[1], 0.31, &fx.rest, &mut cache, "after clear");
@@ -143,8 +146,9 @@ fn the_raw_form_samples_as_without_a_cache() {
     let s = ClipSampler::new(ClipView::parse(&fx.clips[0].1).unwrap(), Form::Raw).unwrap();
     let table = ClipBindings::new(&s);
     let bound = table.bind(s).unwrap();
-    let mut mem = vec![0u32; FrameCache::words_for(fx.rest.len())];
-    let mut cache = FrameCache::new(&mut mem, 0);
+    let mut head = vec![0u32; FrameCache::HEADER_WORDS];
+    let mut mem = vec![SoaTransform::default(); FrameCache::frames_len(fx.rest.len())];
+    let mut cache = FrameCache::new(&mut head, &mut mem, 0);
     let mut t = 0.0;
     for _ in 0..30 {
         t += 1.0 / 60.0;
