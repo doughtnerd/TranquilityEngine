@@ -9,14 +9,8 @@ import { SAMPLE_RATE } from "../../runtime/capture/testSupport";
 import type { TablesSlotProps } from "./ProfilerPanel";
 import type { ProfileSource } from "./profilerSource";
 import { ProfilerTables } from "./profilerTables";
+import { tableEmptyText } from "./profilerTablesModel";
 import { openScene } from "./voiceSceneSupport";
-
-// The tables' own empty-state words.
-const TABLE_EMPTY = {
-  noCursor: "Place the cursor on the timeline to read the tables",
-  noMatch: "No rows match the filter",
-  noVoices: "No voices at the cursor",
-} as const;
 
 const EMPTY_MIX = { slotTableVersion: 1, monitorActive: false, targetIndex: 0, snapshot: null, masterVolume: 1, hiddenMute: false };
 const keyframe = (over: Partial<CaptureKeyframe> = {}): CaptureKeyframe => ({ voices: [], buses: [], metered: [], events: [], music: [], mix: EMPTY_MIX, ...over });
@@ -59,10 +53,7 @@ export const Empty: Story = {
     // The filter, then the voice, bus, event and music tables, in that order; each says it has nothing at the cursor.
     expect(canvasElement.querySelector("label")!.compareDocumentPosition(section(canvasElement, "voices")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect([...canvasElement.querySelectorAll<HTMLElement>("section")].map((s) => s.dataset.table)).toEqual(["voices", "buses", "events", "music"]);
-    expect(emptyOf(canvasElement, "voices")).toBe("No voices at the cursor");
-    expect(emptyOf(canvasElement, "buses")).toBe("No bus data at the cursor");
-    expect(emptyOf(canvasElement, "events")).toBe("No event instances at the cursor");
-    expect(emptyOf(canvasElement, "music")).toBe("No music playing at the cursor");
+    for (const t of ["voices", "buses", "events", "music"] as const) expect(emptyOf(canvasElement, t)).toBe(tableEmptyText(t, "none"));
     // A search input that shows what is typed.
     expect(filter(canvasElement).value).toBe("");
     await userEvent.type(filter(canvasElement), "jump");
@@ -74,7 +65,7 @@ export const NoCursorYet: Story = {
   args: { seek: null },
   play: async ({ canvasElement }) => {
     // Before any seek answered, every table asks for a cursor position.
-    expect(["voices", "buses", "events", "music"].map((t) => emptyOf(canvasElement, t))).toEqual([TABLE_EMPTY.noCursor, TABLE_EMPTY.noCursor, TABLE_EMPTY.noCursor, TABLE_EMPTY.noCursor]);
+    for (const t of ["voices", "buses", "events", "music"] as const) expect(emptyOf(canvasElement, t)).toBe(tableEmptyText(t, "noCursor"));
   },
 };
 
@@ -89,14 +80,14 @@ export const FilterTyping: Story = {
     await userEvent.type(filter(canvasElement), "mus");
     expect(rowsOf(canvasElement, "buses").map((c) => c[0])).toEqual(["Music"]);
     expect(rowsOf(canvasElement, "events")).toHaveLength(0);
-    expect(emptyOf(canvasElement, "events")).toBe(TABLE_EMPTY.noMatch);
+    expect(emptyOf(canvasElement, "events")).toBe(tableEmptyText("events", "noMatch"));
     expect(summaryOf(canvasElement, "buses")).toBe("1 of 2 buses");
     await userEvent.clear(filter(canvasElement));
     await userEvent.type(filter(canvasElement), "jump");
     expect(rowsOf(canvasElement, "events").map((c) => c[1])).toEqual(["PlayerJump"]);
     await userEvent.clear(filter(canvasElement));
     await userEvent.type(filter(canvasElement), "zzz");
-    expect(emptyOf(canvasElement, "voices")).toBe(TABLE_EMPTY.noVoices); // no voices at all: not "no match"
+    expect(emptyOf(canvasElement, "voices")).toBe(tableEmptyText("voices", "none")); // no voices at all: not "no match"
   },
 };
 

@@ -1,6 +1,7 @@
 // Internal (ADR 0094): the JavaScript kernel executor. Runs a `KernelSystem` over a Float32Array of
 // particle state with closures (no `eval`, so it works under a strict CSP). It is the reference the
-// WebGPU and WebGL2 executors are tested against, and the fallback when neither is available.
+// WebGPU and WebGL2 executors are tested against, and the fallback when neither is available. Its steps are
+// `kernelSteps.ts`'s (ADR 0251) and its operators and set statement `kernelOps.ts`'s (ADR 0325), each beside its KSL.
 import {
   ATTR,
   KERNEL_FLOATS,
@@ -13,10 +14,11 @@ import {
   type KStmt,
   type KernelSystem,
 } from "../../../scene/particleKernel";
-import { hsv, krand, particleSeed, srgbToLinear, valueNoise } from "./kernelMath";
+import { krand, particleSeed } from "./kernelMath";
+import { KERNEL_OPS, setJs, type ValueFn } from "./kernelOps";
 import { KERNEL_STEPS, type ParticleRaycast, type StepFrame } from "./kernelSteps";
 
-type Fn = () => Float64Array;
+type Fn = ValueFn;
 
 /** What compiled closures read: the particle being run and the system's buffers (the steps' frame). */
 type Frame = StepFrame;
@@ -347,143 +349,13 @@ export class JsKernel {
         };
       }
       case "op":
-        return this.op(e, out);
-    }
-  }
-
-  private op(e: Extract<KExpr, { k: "op" }>, out: Float64Array): Fn {
-    const args = e.args.map((a) => this.expr(a));
-    const w = out.length;
-    const at = (v: Float64Array, i: number) => (v.length === 1 ? v[0] : v[i]);
-    const lift = (fn: (...x: number[]) => number): Fn => {
-      if (args.length === 1) {
-        const [a] = args;
-        return () => {
-          const x = a();
-          for (let i = 0; i < w; i++) out[i] = fn(at(x, i));
-          return out;
-        };
-      }
-      if (args.length === 2) {
-        const [a, b] = args;
-        return () => {
-          const x = a();
-          const y = b();
-          for (let i = 0; i < w; i++) out[i] = fn(at(x, i), at(y, i));
-          return out;
-        };
-      }
-      return () => {
-        const vs = args.map((g) => g());
-        for (let i = 0; i < w; i++) out[i] = fn(...vs.map((v) => at(v, i)));
-        return out;
-      };
-    };
-    switch (e.op) {
-      case "add":
-        return lift((a, b) => a + b);
-      case "sub":
-        return lift((a, b) => a - b);
-      case "mul":
-        return lift((a, b) => a * b);
-      case "div":
-        return lift((a, b) => (b === 0 ? 0 : a / b));
-      case "neg":
-        return lift((a) => -a);
-      case "abs":
-        return lift(Math.abs);
-      case "min":
-        return lift(Math.min);
-      case "max":
-        return lift(Math.max);
-      case "clamp":
-        return lift((x, lo, hi) => Math.min(Math.max(x, lo), hi));
-      case "lerp":
-        return lift((a, b, t) => a + (b - a) * t);
-      case "remap":
-        return lift((x, a, b, c, d) => (b === a ? c : c + ((x - a) / (b - a)) * (d - c)));
-      case "step":
-        return lift((edge, x) => (x >= edge ? 1 : 0));
-      case "smoothstep":
-        return lift((e0, e1, x) => {
-          if (e0 === e1) return x >= e0 ? 1 : 0;
-          const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
-          return t * t * (3 - 2 * t);
-        });
-      case "sin":
-        return lift(Math.sin);
-      case "cos":
-        return lift(Math.cos);
-      case "noise1": {
-        const seed = e.seed ?? 0;
-        return lift((x) => valueNoise(x, seed));
-      }
-      case "toLinear":
-        return () => {
-          const v = args[0]();
-          for (let i = 0; i < w; i++) out[i] = i < 3 ? srgbToLinear(v[i]) : v[i];
-          return out;
-        };
-      case "vec":
-        return () => {
-          let k = 0;
-          for (const g of args) for (const x of g()) out[k++] = x;
-          return out;
-        };
-      case "length":
-        return () => {
-          const v = args[0]();
-          let s = 0;
-          for (const x of v) s += x * x;
-          out[0] = Math.sqrt(s);
-          return out;
-        };
-      case "normalize":
-        return () => {
-          const v = args[0]();
-          let s = 0;
-          for (const x of v) s += x * x;
-          const len = Math.sqrt(s);
-          for (let i = 0; i < w; i++) out[i] = len === 0 ? 0 : v[i] / len;
-          return out;
-        };
-      case "hsv":
-        return () => {
-          const [h, s, v, a] = args.map((g) => g()[0]);
-          out.set(hsv(h, s, v, a));
-          return out;
-        };
+        return KERNEL_OPS[e.op].js(e, e.args.map((a) => this.expr(a)), out);
     }
   }
 
   private stmt(st: KStmt): () => void {
     const f = this.f;
-    if (st.s === "set") {
-      const e = this.expr(st.e);
-      const mode = st.mode;
-      if ("attr" in st.target) {
-        const [slot, comp, w] = ATTR[st.target.attr];
-        const off = slot * 4 + comp;
-        return () => {
-          const v = e();
-          const s = f.s;
-          for (let i = 0; i < w; i++) {
-            const x = v.length === 1 ? v[0] : (v[i] ?? 0);
-            const j = f.o + off + i;
-            s[j] = mode === "set" ? x : mode === "add" ? s[j] + x : s[j] * x;
-          }
-        };
-      }
-      const name = st.target.local;
-      return () => {
-        const v = e();
-        const t = f.loc[name];
-        for (let i = 0; i < t.length; i++) {
-          const x = v.length === 1 ? v[0] : (v[i] ?? 0);
-          t[i] = mode === "set" ? x : mode === "add" ? t[i] + x : t[i] * x;
-        }
-      };
-    }
+    if (st.s === "set") return setJs(f, st, this.expr(st.e));
     const args = st.args.map((a) => this.expr(a));
     if (st.b === "depth") return () => {}; // needs the scene's depth texture: GPU executors only
     const step = KERNEL_STEPS[st.b];
