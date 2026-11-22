@@ -366,3 +366,11 @@ demand; re-import defaults to Keep seconds (Wwise/FMOD keep absolute marker time
 undo restores the old audio via `sample.sourceVersion`; exports render baked samples as `<stem>.render-<hash12>.wav`
 (normalize-only isn't rendered; non-WAV sources ship without effects, with a warning); Entry markers reuse the exit
 marker token, dotted. Measured: 60–179 BPM click tracks within ±0.26 BPM; 204 test tones, 0 wrong notes.
+
+**D48. W11-E merged (smaller items).** Quantise on pitch/pan/filters and entry curves is recorded as ADR 0339
+(amends 0336; quantum-accurate, not sample-accurate). An unstamped sequence whose clips are still loading now starts
+as late as its data (was up to 588 frames ahead of its sound); picks are redrawn on each restart. "Create playlist
+from clips" lives in the Playlists Library (one sample → Clip, several → Queue of Clips; undo is a toast that deletes
+the file, since creating a file isn't a document step). An emptied number box now restores its value instead of
+committing 0. `--no-take-pictures` requires `--audio-take`. `zoneIr.test.ts` fixed (waited a fixed 20 ms; now waits
+for the service's answers: 5/5 under heavy load).

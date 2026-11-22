@@ -1,6 +1,6 @@
 # 0336. Playlists shape their blends, fades and tails, and quantise automation to the beat
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by [0339](0339-quantise-reaches-pitch-pan-filters-and-entry-voice-curves.md) (quantise on pitch, pan, filters and entry voice curves)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0329 and 0332)
