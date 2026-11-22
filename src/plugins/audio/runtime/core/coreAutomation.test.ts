@@ -102,13 +102,13 @@ describe("CoreAutomation: time parameters (ADR 0332)", () => {
     const v = voice(2);
     auto.onPlaySent(v.id, v.id & 0xffff, 20_000);
     auto.setLoops(v, 2, [
-      { start: 0.5, end: 1, direction: "pingPong", crossfade: 0.01, count: 3, active: "parameter", param: { global: true, slot: 4 }, op: "<", threshold: 0.25, exit: "crossfade", exitFade: 0.05, reentry: "reenter" },
+      { start: 0.5, end: 1, direction: "pingPong", crossfade: 0.01, count: 3, active: "parameter", param: { global: true, slot: 4 }, op: "<", threshold: 0.25, exit: "crossfade", exitFade: 0.05, reentry: "reenter", crossfadeShape: "linear", exitShape: "sCurve" },
       { start: 2, end: 2, direction: "forward", crossfade: 0, count: 0, active: "held", exit: "finish", exitFade: 0, reentry: "ignore" },
     ]);
     auto.setLoop(v, 0, 0, false);
     expect(calls).toEqual([
       ["loops", v.id, 20_000, [
-        { startFrame: 24_000, endFrame: 48_000, crossfadeFrames: 480, exitFadeFrames: 2400, count: 3, flags: 1 | (2 << 2) | (2 << 4) | 0x40 | 0x80, param: AUTOMATION_GLOBAL | 4, shapes: 0, threshold: 0.25 },
+        { startFrame: 24_000, endFrame: 48_000, crossfadeFrames: 480, exitFadeFrames: 2400, count: 3, flags: 1 | (2 << 2) | (2 << 4) | 0x40 | 0x80, param: AUTOMATION_GLOBAL | 4, shapes: 0x21 /* ABI 4.9: seam linear (1), exit s-curve (2) */, threshold: 0.25 },
         { startFrame: 96_000, endFrame: 96_000, crossfadeFrames: 0, exitFadeFrames: 0, count: 0, flags: 1 << 2, param: 0, shapes: 0, threshold: 0 },
       ]],
       ["setLoop", v.id, 20_000, 0, 0, false],
