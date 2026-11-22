@@ -148,7 +148,7 @@ export class AudioSource extends Component {
     if (isPlaylistPath(path)) {
       this.playlist = playlists().play(path, {
         pitch: this.pitch, priority: clamp255(this.priority), bus: this.output || undefined, position: this.node.transform?.worldPosition,
-        ...this.eventSpatialOptions(),
+        ...this.eventSpatialOptions(), ...this.distanceOverrides(), owner: this.node.name,
       }, worldKeyOf(this._world));
       this.applied = "";
       this.appliedPitch = this.pitch;
@@ -268,6 +268,17 @@ export class AudioSource extends Component {
   private eventSpatialOptions(): Pick<EventOptions, "occlusion" | "reverbSend" | "reverbSendCurve"> {
     const { occlusion, reverbSend, reverbSendCurve } = this.spatialOptions();
     return { occlusion, reverbSend, reverbSendCurve };
+  }
+
+  /**
+   * ADR 0333: for a playlist, `minDistance` and `maxDistance` are overrides that stretch its attenuation curves. A field
+   * left at its default (1 and 100) is no override, so the playlist's own distances apply.
+   */
+  private distanceOverrides(): { minDistance?: number; maxDistance?: number } {
+    const out: { minDistance?: number; maxDistance?: number } = {};
+    if (this.minDistance !== 1 && Number.isFinite(this.minDistance)) out.minDistance = Math.max(0, this.minDistance);
+    if (this.maxDistance !== 100 && Number.isFinite(this.maxDistance)) out.maxDistance = this.maxDistance;
+    return out;
   }
 
   /**

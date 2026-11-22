@@ -41,6 +41,7 @@ import type { GameObject } from "../../../../engine/scene/GameObject";
 import type { World } from "../../../../engine/core/World";
 import type { Vec3Like } from "../../../../engine/core/math";
 import { DEFAULT_SEND_CURVE, type SendCurve } from "../backend";
+import { evalCurve, type Curve } from "../../../../engine/core/curve";
 import type { AudioSettings } from "../../../../engine/audio/settings";
 import type { DopplerPass } from "./doppler";
 import type { OcclusionPass } from "./occlusion";
@@ -464,3 +465,126 @@ export const isSpatialPassHost = (b: unknown): b is SpatialPassHost =>
 /** @internal Whether `b` splits its frame at the passes (`StagedFrameHost`: the core backend). */
 export const isStagedFrameHost = (b: unknown): b is StagedFrameHost =>
   isSpatialPassHost(b) && typeof (b as Partial<StagedFrameHost>).frameAttenuate === "function";
+
+// --- ADR 0333: attenuation curves and upright boxes (Myco Engine's own code) ----------------------------------------
+//
+// A playlist's attenuation (`engine/audio/attenuation`) is four curves over distance in metres: volume (dB), low-pass
+// (Hz), reverb send (dB) and spread (degrees). The playlist runtime evaluates them here per frame for each spatial plan
+// and hands the results to its voices through their own parameters: volume as a gain factor of the voice's volume,
+// low-pass through the voice's filter, reverb send through the voice's send level. The voice itself plays with
+// `CURVE_DRIVEN_ATTENUATION`, so the distance law above adds nothing on top of the curves.
+
+/**
+ * @internal The distance law a curve-driven voice plays with: the inverse law with its reference distance at the
+ * format's farthest distance, so the law's gain is exactly 1 at any distance a scene has (both backends clamp the
+ * distance up to the reference). The curves' volume reaches the voice as its volume.
+ */
+export const CURVE_DRIVEN_ATTENUATION = Object.freeze({ minDistance: 100000, maxDistance: 100000, rolloff: "inverse" as const });
+
+/** @internal The send curve a curve-driven voice plays with: flat 1, so the `reverbSend` curve alone shapes its send. */
+export const FLAT_SEND_CURVE: SendCurve = [[0, 1], [1, 1]];
+
+/** The attenuation curves as the runtime reads them (the parsed `Attenuation`'s `curves`). */
+export interface AttenuationCurveSet {
+  readonly volume?: Curve;
+  readonly lowpass?: Curve;
+  readonly reverbSend?: Curve;
+  readonly spread?: Curve;
+}
+
+/** What an attenuation gives at one distance. A missing curve gives its neutral value. */
+export interface AttenuationAt {
+  /** dB, 0 without a volume curve. */
+  volumeDb: number;
+  /** Hz, `LOWPASS_OFF_HZ` without a low-pass curve. */
+  lowpassHz: number;
+  /** dB added to the voice's reverb send, 0 without a curve. */
+  reverbSendDb: number;
+  /** Degrees 0..360, or -1 without a spread curve (the voice's own spread stays). */
+  spreadDeg: number;
+}
+
+/** A cutoff at or above this is "no low-pass". */
+export const LOWPASS_OFF_HZ = 24000;
+
+/** The curves of `curves` at `distance` metres into `out` (no allocation). Beyond the last key a curve holds. */
+export function evalAttenuation(curves: AttenuationCurveSet, distance: number, out: AttenuationAt): AttenuationAt {
+  const d = Number.isFinite(distance) && distance > 0 ? distance : 0;
+  out.volumeDb = curves.volume && curves.volume.length > 0 ? evalCurve(curves.volume, d) : 0;
+  out.lowpassHz = curves.lowpass && curves.lowpass.length > 0 ? evalCurve(curves.lowpass, d) : LOWPASS_OFF_HZ;
+  out.reverbSendDb = curves.reverbSend && curves.reverbSend.length > 0 ? evalCurve(curves.reverbSend, d) : 0;
+  out.spreadDeg = curves.spread && curves.spread.length > 0 ? Math.min(360, Math.max(0, evalCurve(curves.spread, d))) : -1;
+  return out;
+}
+
+/** dB to linear gain; -60 dB and below is silence (the engine's dB floor, decision log D8). */
+export const curveDbToGain = (db: number): number => (db <= -60 ? 0 : Math.pow(10, db / 20));
+
+/**
+ * ADR 0333: an edge audio zone heard from outside spreads its sound by distance: `min(180°, 40° + 600°/max(3 m, d))`
+ * (wide up close, narrowing to 40° far away).
+ */
+export function audioZoneEdgeSpread(distance: number): number {
+  const d = Number.isFinite(distance) ? Math.max(3, distance) : 3;
+  return Math.min(180, 40 + 600 / d);
+}
+
+/**
+ * An upright box (ADR 0333 audio zones, test-scene obstacles): a rectangle turned by `yaw` about the vertical, with a
+ * vertical extent. World space (x right, y up, z forward); `yaw` turns the box's +z toward +x (clockwise seen from
+ * above, as every turn, ADR 0164).
+ */
+export class UprightBox {
+  cx = 0;
+  cz = 0;
+  halfWidth = 5;
+  halfDepth = 5;
+  bottom = 0;
+  top = 10;
+  private cos = 1;
+  private sin = 0;
+
+  /** Sets the box: centre (x, z), size, yaw in degrees and the vertical extent. */
+  set(cx: number, cz: number, width: number, depth: number, yawDeg: number, bottom: number, top: number): this {
+    this.cx = cx;
+    this.cz = cz;
+    this.halfWidth = Math.max(0, width) / 2;
+    this.halfDepth = Math.max(0, depth) / 2;
+    const r = (yawDeg * Math.PI) / 180;
+    this.cos = Math.cos(r);
+    this.sin = Math.sin(r);
+    this.bottom = Math.min(bottom, top);
+    this.top = Math.max(bottom, top);
+    return this;
+  }
+
+  /** `(x, z)` in the box's frame: local x along its width, local z along its depth. */
+  private localX(x: number, z: number): number { return (x - this.cx) * this.cos - (z - this.cz) * this.sin; }
+  private localZ(x: number, z: number): number { return (x - this.cx) * this.sin + (z - this.cz) * this.cos; }
+
+  /** Whether the point is inside (edges included). */
+  contains(x: number, y: number, z: number): boolean {
+    return y >= this.bottom && y <= this.top && Math.abs(this.localX(x, z)) <= this.halfWidth && Math.abs(this.localZ(x, z)) <= this.halfDepth;
+  }
+
+  /** The box's nearest point to `(x, y, z)` into `out` (the point itself when inside); returns the distance to it. */
+  nearest(x: number, y: number, z: number, out: { x: number; y: number; z: number }): number {
+    const lx = Math.min(this.halfWidth, Math.max(-this.halfWidth, this.localX(x, z)));
+    const lz = Math.min(this.halfDepth, Math.max(-this.halfDepth, this.localZ(x, z)));
+    out.x = this.cx + lx * this.cos + lz * this.sin;
+    out.z = this.cz - lx * this.sin + lz * this.cos;
+    out.y = Math.min(this.top, Math.max(this.bottom, y));
+    return Math.hypot(x - out.x, y - out.y, z - out.z);
+  }
+
+  /**
+   * How deep inside the point is, seen from above: 0 at (or outside) the edge, 1 at the centre line, as
+   * `min(halfWidth − |lx|, halfDepth − |lz|) / min(halfWidth, halfDepth)`. The vertical extent is not part of it.
+   */
+  depth(x: number, z: number): number {
+    const m = Math.min(this.halfWidth, this.halfDepth);
+    if (!(m > 0)) return 0;
+    const inner = Math.min(this.halfWidth - Math.abs(this.localX(x, z)), this.halfDepth - Math.abs(this.localZ(x, z)));
+    return Math.min(1, Math.max(0, inner / m));
+  }
+}

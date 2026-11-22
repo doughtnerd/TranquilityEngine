@@ -15,7 +15,12 @@ import type { Vec3Like } from "../../../../engine/core/math";
 import { rootProps, voiceControls, HIGHPASS_NONE, LOWPASS_NONE } from "../../../../engine/audio/playlist/accumulate";
 import type { PickState } from "../../../../engine/audio/playlist/picks";
 import type { LoopBehaviour, PlaylistAsset, PlaylistBody, SampleEntry } from "../../../../engine/audio/playlist/types";
-import { DEFAULT_MAX_DISTANCE, DEFAULT_MIN_DISTANCE } from "../../../../engine/audio/attenuation/format";
+import { defaultAttenuation, stretchAttenuation } from "../../../../engine/audio/attenuation/format";
+import type { Attenuation as CurveAttenuation } from "../../../../engine/audio/attenuation/types";
+import { World } from "../../../../engine/core/World";
+import { Camera } from "../../../../engine/render/components";
+import { AudioListener, listenerPose } from "../AudioListener";
+import { CURVE_DRIVEN_ATTENUATION, curveDbToGain, evalAttenuation, FLAT_SEND_CURVE, LOWPASS_OFF_HZ, type AttenuationAt, type AttenuationCurveSet } from "../core/spatial";
 import { isLabelled, parameterDefault, type ParameterDef } from "../../../../engine/audio/eventFormat";
 import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
 import { clipRequest, samplePlan } from "../clipResolver";
@@ -27,8 +32,22 @@ import { loadAttenuation } from "./loader";
 import { NO_MUSICAL_CLOCK, type MusicalClock } from "./musical";
 import { resolveBody, type Ctx, type DynGain, type LiveNode, type LoopRun, type NodeHost, type PVoice, type SpatialPlan } from "./nodes";
 
-/** Options for `Audio.play` of a playlist: the event options (ADR 0158 §5), unchanged. */
-export type PlaylistOptions = EventOptions;
+/** Options for `Audio.play` of a playlist: the event options (ADR 0158 §5), plus what the engine's components add. */
+export interface PlaylistOptions extends EventOptions {
+  /**
+   * @internal ADR 0333: `AudioSource.minDistance`/`maxDistance` as overrides: the playlist's attenuation curves stretch
+   * to them (`stretchAttenuation`). Absent: the attenuation's own distances.
+   */
+  minDistance?: number;
+  maxDistance?: number;
+  /** @internal The node that plays it (debug rows' Source column, the test-scene readout). */
+  owner?: string;
+  /** @internal ADR 0333: an `AudioZone` plays it, so it has the built-in local parameter `zoneDepth` (0..1). */
+  zone?: boolean;
+}
+
+/** ADR 0333: the built-in local parameter an `AudioZone` sets on the instance it plays (0 at the edge, 1 at the centre). */
+export const ZONE_DEPTH_PARAMETER = "zoneDepth";
 
 /** What an instance needs of its system. */
 export interface InstanceSystem {
@@ -89,6 +108,11 @@ export class PlaylistInstance implements NodeHost {
   private fadeRamp: { from: number; to: number; t0: number; seconds: number } | null = null;
   private pitchOption: number;
   private readonly spatialRoot: boolean;
+  /** ADR 0333: each spatial block's plan (one per body), its evaluated curves, and the voices playing by one. */
+  private readonly planByBody = new Map<PlaylistBody, SpatialPlan>();
+  private readonly curvePlans = new Map<SpatialPlan, CurvePlan>();
+  private readonly curveVoices = new WeakMap<PVoice, CurveVoice>();
+  private hasCurveVoices = false;
 
   constructor(
     private readonly sys: InstanceSystem,
@@ -102,6 +126,10 @@ export class PlaylistInstance implements NodeHost {
     this.startedAt = startedAt;
     this.pitchOption = Math.max(0.0625, options.pitch ?? 1);
     this.localDefs = localDefsOf(asset, path);
+    // ADR 0333: a zone's instance has `zoneDepth` even when the playlist doesn't declare it (a declared one keeps its range).
+    if (options.zone && !this.localDefs.has(ZONE_DEPTH_PARAMETER) && this.localDefs.size < MAX_LOCAL_SLOTS) {
+      this.localDefs.set(ZONE_DEPTH_PARAMETER, { slot: this.localDefs.size, def: { name: ZONE_DEPTH_PARAMETER, min: 0, max: 1, default: 0, seekSpeed: 0 } });
+    }
     this.locals = [];
     for (const { slot, def } of this.localDefs.values()) this.locals[slot] = parameterDefault(def);
     if (options.parameters) {
@@ -314,6 +342,7 @@ export class PlaylistInstance implements NodeHost {
       if (u >= 1) this.fadeRamp = null;
     }
     this.root?.update(now, dt);
+    this.updateAttenuation();
     this.applyDynamics(now);
     // A long run (a continuous Queue) drops the voices that have gone for good.
     if (this.voices.length > 64) {
@@ -371,16 +400,99 @@ export class PlaylistInstance implements NodeHost {
 
   noteLateStart(): void { this.sys.noteLateStart(this); }
 
+  /**
+   * ADR 0333: a playlist's `spatial` block as a plan its voices play by. The attenuation (preset or inline) is stretched
+   * to the playing source's `minDistance`/`maxDistance` when it gives them, and its curves are evaluated per frame
+   * (`updateAttenuation`). A volume curve drives the voices' level, so they play with `CURVE_DRIVEN_ATTENUATION`; an
+   * attenuation without one keeps the inverse law between its distances (ADR 0162's default), so a spatial playlist with
+   * no curves still fades with distance. Low-pass, reverb send and spread curves apply either way.
+   */
   spatialOf(body: PlaylistBody, parent: SpatialPlan | null): SpatialPlan | null {
     const s = body.spatial;
     if (!s) return parent;
-    const att = typeof s.attenuation === "string" ? loadAttenuation(s.attenuation) : s.attenuation;
-    // TODO(ADR 0333, M7): the attenuation's curves; until then its distances with the inverse law.
-    return {
-      attenuation: { minDistance: att?.minDistance ?? DEFAULT_MIN_DISTANCE, maxDistance: att?.maxDistance ?? DEFAULT_MAX_DISTANCE, rolloff: "inverse" },
+    const known = this.planByBody.get(body);
+    if (known) return known;
+    const loaded = typeof s.attenuation === "string" ? loadAttenuation(s.attenuation) : s.attenuation;
+    const att = this.withDistanceOverrides(loaded ?? defaultAttenuation());
+    const volumeCurve = (att.curves.volume?.length ?? 0) > 0;
+    const plan: SpatialPlan = {
+      attenuation: volumeCurve ? CURVE_DRIVEN_ATTENUATION : { minDistance: att.minDistance, maxDistance: att.maxDistance, rolloff: "inverse" },
       occlusion: s.occlusion,
       doppler: s.doppler,
     };
+    const curved: CurvePlan = { curves: att.curves, volumeCurve, gain: { gain: 1 }, at: { volumeDb: 0, lowpassHz: LOWPASS_OFF_HZ, reverbSendDb: 0, spreadDeg: -1 } };
+    if ((att.curves.spread?.length ?? 0) > 0 || s.spread !== null) {
+      // TODO(ADR 0333): the voices have no spread parameter yet (the core pans a point source); the spread curve is
+      // evaluated (`CurvePlan.at.spreadDeg`) and applies once the core takes a per-voice spread.
+      warnOnce(`playlist:spread:${this.path}`, `[myco] ${this.path}: spread needs per-voice spread in the audio core; the voices play as point sources until then.`);
+    }
+    this.evaluate(curved, this.listenerDistance());
+    this.curvePlans.set(plan, curved);
+    this.planByBody.set(body, plan);
+    return plan;
+  }
+
+  /** The attenuation with the source's distance overrides applied (`stretchAttenuation`); unchanged without any. */
+  private withDistanceOverrides(att: CurveAttenuation): CurveAttenuation {
+    const o = this.options;
+    const min = o.minDistance !== undefined && Number.isFinite(o.minDistance) ? Math.max(0, o.minDistance) : att.minDistance;
+    const max = o.maxDistance !== undefined && Number.isFinite(o.maxDistance) ? o.maxDistance : att.maxDistance;
+    if (min === att.minDistance && max === att.maxDistance) return att;
+    return stretchAttenuation(att, min, Math.max(min + 1e-3, max));
+  }
+
+  /** The plans' curves at `distance`, into each plan's `at` and its gain factor. */
+  private evaluate(p: CurvePlan, distance: number): void {
+    evalAttenuation(p.curves, distance, p.at);
+    p.gain.gain = p.volumeCurve ? curveDbToGain(p.at.volumeDb) : 1;
+  }
+
+  /** Metres from the listener to where the instance plays (0 without a position or a listener). */
+  private listenerDistance(): number {
+    const p = this.pos;
+    if (!p) return 0;
+    const l = listenerPosition();
+    return l ? Math.hypot(p.x - l.x, p.y - l.y, p.z - l.z) : 0;
+  }
+
+  /**
+   * The send level a curve voice asks for: the source's send times the `reverbSend` curve. The zone send is taken from
+   * the voice's volume, which a volume curve now scales, so the curve's gain is divided back out (the send stays
+   * independent of the dry curve, as ADR 0162's send was of the dry law), within the send's range 0..2.
+   */
+  private sendLevel(p: CurvePlan): number {
+    const base = this.options.reverbSend !== undefined && Number.isFinite(this.options.reverbSend) ? this.options.reverbSend : 1;
+    const dry = p.volumeCurve ? p.gain.gain : 1;
+    const level = base * curveDbToGain(p.at.reverbSendDb) / (dry > 1e-6 ? dry : 1e-6);
+    return Math.min(2, Math.max(0, level));
+  }
+
+  /**
+   * ADR 0333, once per frame: every plan's curves at the listener's distance; voices whose low-pass or send moved get
+   * them (the volume reaches them through the plan's gain factor, in `applyDynamics`).
+   */
+  private updateAttenuation(): void {
+    if (!this.hasCurveVoices) return;
+    const d = this.listenerDistance();
+    for (const p of this.curvePlans.values()) this.evaluate(p, d);
+    for (const v of this.voices) {
+      const cv = this.curveVoices.get(v);
+      if (!cv || v.leaving || !v.voice.playing) continue;
+      const send = this.sendLevel(cv.plan);
+      if (Math.abs(send - cv.appliedSend) > Math.max(1e-4, cv.appliedSend * 0.01)) {
+        cv.appliedSend = send;
+        v.voice.setSpatialOptions({ reverbSend: send });
+      }
+    }
+  }
+
+  /**
+   * ADR 0333: the `zoneDepth` parameter an `AudioZone` sets each frame (0 at the edge, 1 at the centre), when the instance
+   * has it (a zone's instance always does).
+   */
+  setZoneDepth(depth: number): void {
+    if (!this.localDefs.has(ZONE_DEPTH_PARAMETER)) return;
+    this.setParameter(ZONE_DEPTH_PARAMETER, Math.min(1, Math.max(0, Number.isFinite(depth) ? depth : 0)));
   }
 
   /** Plays one sample entry below `ctx`: the clip resolver's request, the sample's sidecar edits, the tree's levels. */
@@ -400,7 +512,10 @@ export class PlaylistInstance implements NodeHost {
     const staticVolume = req.volume! * plan.gain * dbToGain(c.gainDb) * Math.max(0, this.options.volume ?? 1);
     const staticPitch = clampPitch(stToRatio(c.pitchSt) * this.pitchOption);
     const t = evalTimeCurves(ctx.timeCurves, 0);
-    const dyn = product(ctx.dyn) * t.gain;
+    // ADR 0333: a positioned voice's plan adds its distance gain to the voice's dynamic gains.
+    const curved = ctx.spatial && this.pos && req.ambisonic !== true ? this.curvePlans.get(ctx.spatial) ?? null : null;
+    const dynList: readonly DynGain[] = curved ? [...ctx.dyn, curved.gain] : ctx.dyn;
+    const dyn = product(dynList) * t.gain;
     const base = { volume: staticVolume * dyn, pitch: clampPitch(staticPitch * t.pitch) };
     req.volume = base.volume;
     req.pitch = base.pitch;
@@ -408,7 +523,8 @@ export class PlaylistInstance implements NodeHost {
     req.world = this.world;
     req.group = this.group;
     if (ctx.at !== null) req.at = ctx.at;
-    const lowpass = Math.min(c.lowpass, t.lowpass ?? LOWPASS_NONE);
+    if (this.options.owner) req.owner = this.options.owner;
+    const lowpass = Math.min(c.lowpass, t.lowpass ?? LOWPASS_NONE, curved ? curved.at.lowpassHz : LOWPASS_NONE);
     if (lowpass < 20000 || c.highpass > 20) {
       req.filter = {};
       if (lowpass < 20000) req.filter.lowpass = Math.max(10, lowpass);
@@ -421,6 +537,11 @@ export class PlaylistInstance implements NodeHost {
       req.dopplerLevel = ctx.spatial.doppler;
       if (this.options.reverbSend !== undefined) req.reverbSend = this.options.reverbSend;
       if (this.options.reverbSendCurve !== undefined) req.reverbSendCurve = this.options.reverbSendCurve;
+      if (curved) {
+        // ADR 0333: the send follows the attenuation's `reverbSend` curve (and the volume curve's flat send curve).
+        req.reverbSend = this.sendLevel(curved);
+        if (curved.volumeCurve) req.reverbSendCurve = FLAT_SEND_CURVE;
+      }
     }
     if (ctx.fadeIn > 0) req.fadeZero = true;
     let voice: AudioVoice | null;
@@ -441,10 +562,14 @@ export class PlaylistInstance implements NodeHost {
     const to = trim ? Math.min(trim[1], fileLength ?? Infinity) : fileLength;
     const length = to !== null && Number.isFinite(to) ? Math.max(0, to - from) / base.pitch : null;
     const v: PVoice = {
-      voice, path, base, staticVolume, staticPitch, bindings: ctx.bindings, dyn: ctx.dyn, timeCurves: ctx.timeCurves,
-      start, length, loop, leaving: false, appliedGain: dyn, appliedPitch: t.pitch, appliedLowpass: t.lowpass, positioned: req.position !== undefined,
+      voice, path, base, staticVolume, staticPitch, bindings: ctx.bindings, dyn: dynList, timeCurves: ctx.timeCurves,
+      start, length, loop, leaving: false, appliedGain: dyn, appliedPitch: t.pitch, appliedLowpass: curved ? lowpass : t.lowpass, positioned: req.position !== undefined,
     };
     this.voices.push(v);
+    if (curved) {
+      this.curveVoices.set(v, { plan: curved, staticLowpass: c.lowpass, appliedSend: req.reverbSend ?? 1 });
+      this.hasCurveVoices = true;
+    }
     // A trim that ends before the file does: stop there (after a release, a held loop plays out to it too).
     if (trim && length !== null && (fileLength === null || trim[1] < fileLength - 1e-6) && !looping) {
       const end = (start ?? this.clock()) + length;
@@ -518,12 +643,44 @@ export class PlaylistInstance implements NodeHost {
           if (pitchMoved) v.voice.setPitch(v.base.pitch);
         }
       }
-      if (t && t.lowpass !== null && (v.appliedLowpass === null || Math.abs(t.lowpass - v.appliedLowpass) > v.appliedLowpass * 0.01)) {
-        v.appliedLowpass = t.lowpass;
-        v.voice.paramsShaped({ lowpassHz: Math.max(10, t.lowpass), seconds: 0.02 });
+      // ADR 0333: a curve voice's cutoff is the lowest of its own, its voice-time curve's and its distance curve's.
+      const cv = this.curveVoices.get(v);
+      const lowpass = cv ? Math.min(cv.staticLowpass, t?.lowpass ?? LOWPASS_NONE, cv.plan.at.lowpassHz) : t ? t.lowpass : null;
+      if (lowpass !== null && (v.appliedLowpass === null || Math.abs(lowpass - v.appliedLowpass) > v.appliedLowpass * 0.01)) {
+        v.appliedLowpass = lowpass;
+        v.voice.paramsShaped({ lowpassHz: Math.max(10, lowpass), seconds: 0.02 });
       }
     }
   }
+}
+
+/** ADR 0333: a spatial plan's attenuation curves, evaluated per frame. */
+interface CurvePlan {
+  readonly curves: AttenuationCurveSet;
+  /** The plan has a volume curve (its voices play with `CURVE_DRIVEN_ATTENUATION`). */
+  readonly volumeCurve: boolean;
+  /** The volume curve's gain at the listener's distance (1 without one): one of its voices' dynamic gains. */
+  readonly gain: DynGain;
+  /** The curves at the listener's distance. */
+  readonly at: AttenuationAt;
+}
+
+/** ADR 0333: what a curve voice was last given beyond its volume. */
+interface CurveVoice {
+  readonly plan: CurvePlan;
+  /** The voice's own cutoff (its playlists' effects), Hz. */
+  readonly staticLowpass: number;
+  appliedSend: number;
+}
+
+/** The listener's position in the active World (an enabled `AudioListener`, else the main camera), or null. */
+function listenerPosition(): Vec3Like | null {
+  const world = World.active;
+  if (!world) return null;
+  for (const l of world._componentsOfType(AudioListener)) if (l.isActiveAndEnabled) return listenerPose(l.node)?.position ?? null;
+  let best: Camera | null = null;
+  for (const c of world._componentsOfType(Camera)) if (c.isActiveAndEnabled && (!best || c.depth < best.depth)) best = c;
+  return best ? listenerPose(best.node)?.position ?? null : null;
 }
 
 function product(dyn: readonly DynGain[]): number {
