@@ -1,0 +1,129 @@
+{
+ "machine": {
+  "date": "2026-11-22T18:04:47.482Z",
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+  "cores": 4,
+  "loadavg": [
+   2.71,
+   2.71,
+   2.88
+  ],
+  "node": "v22.23.5",
+  "v8": "12.4.254.21-node.57"
+ },
+ "static": {
+  "segment32": {
+   "bytes": 9797,
+   "functions": 12,
+   "segments": 273,
+   "checks": 273,
+   "instructions": 2615
+  },
+  "loop32": {
+   "bytes": 7565,
+   "functions": 12,
+   "segments": 273,
+   "checks": 25,
+   "instructions": 2615
+  },
+  "plain": {
+   "bytes": 5412
+  },
+  "large": {
+   "bytes": 99707,
+   "segBytes": 103689
+  },
+  "coreFuelSegment": {
+   "bytes": 472160,
+   "instrumentedBytes": 850883,
+   "functions": 515,
+   "segments": 23650,
+   "checks": 23650,
+   "instructions": 202987
+  }
+ },
+ "node": {
+  "fuel": [
+   {
+    "kind": "gain",
+    "instructionsPerCall": 3857,
+    "instructionsPerFrame": 30.1328125,
+    "ns_plain": 149.66600730021239,
+    "ns_count32": 154.44350406358328,
+    "ns_loop32": 176.45834219127363,
+    "ns_segment32": 190.65025571697248,
+    "ns_loop64": 186.87357967870904,
+    "ns_segment64": 214.20031021609776,
+    "ns_loopload32": 170.11457397643204,
+    "ns_segload32": 184.22648384664467,
+    "slowdown_count32": 0.03192105441677073,
+    "slowdown_loop32": 0.17901416209573218,
+    "slowdown_segment32": 0.2738380555215221,
+    "slowdown_loop64": 0.24860402872819765,
+    "slowdown_segment64": 0.4311887788015696,
+    "slowdown_loopload32": 0.1366279961969068,
+    "slowdown_segload32": 0.23091734168539713
+   },
+   {
+    "kind": "tremolo",
+    "instructionsPerCall": 14223,
+    "instructionsPerFrame": 111.1171875,
+    "ns_plain": 1269.243795454218,
+    "ns_count32": 1251.149269494409,
+    "ns_loop32": 3291.8365288922528,
+    "ns_segment32": 3234.3946993357704,
+    "ns_loop64": 3281.1234807867963,
+    "ns_segment64": 3261.7183225164194,
+    "ns_loopload32": 1285.398245435291,
+    "ns_segload32": 1261.1101219034674,
+    "slowdown_count32": -0.014256146868406372,
+    "slowdown_loop32": 1.593541556540932,
+    "slowdown_segment32": 1.5482848219701508,
+    "slowdown_loop64": 1.5851010598106545,
+    "slowdown_segment64": 1.5698123041437952,
+    "slowdown_loopload32": 0.012727617845310846,
+    "slowdown_segload32": -0.0064082830894121035
+   },
+   {
+    "kind": "biquad8",
+    "instructionsPerCall": 64192,
+    "instructionsPerFrame": 501.5,
+    "ns_plain": 7264.88351494909,
+    "ns_count32": 7406.417067408335,
+    "ns_loop32": 7316.444156192308,
+    "ns_segment32": 7344.588285281614,
+    "ns_loop64": 7292.775877568895,
+    "ns_segment64": 7341.648742927304,
+    "ns_loopload32": 7276.741967805845,
+    "ns_segload32": 7403.439684796761,
+    "slowdown_count32": 0.019481874990563863,
+    "slowdown_loop32": 0.007097242665642378,
+    "slowdown_segment32": 0.010971238584694953,
+    "slowdown_loop64": 0.003839340653213563,
+    "slowdown_segment64": 0.010566615117813427,
+    "slowdown_loopload32": 0.0016322977281539863,
+    "slowdown_segload32": 0.019072042870688977
+   },
+   {
+    "kind": "delay",
+    "instructionsPerCall": 23861,
+    "instructionsPerFrame": 186.4140625,
+    "ns_plain": 1495.5346028032404,
+    "ns_count32": 1542.9049493772584,
+    "ns_loop32": 1651.8596222462247,
+    "ns_segment32": 1617.2784776861856,
+    "ns_loop64": 1744.606323625063,
+    "ns_segment64": 1741.1763757993874,
+    "ns_loopload32": 1522.7880547981695,
+    "ns_segload32": 1548.5694221695167,
+    "slowdown_count32": 0.03167452393627457,
+    "slowdown_loop32": 0.10452785187983449,
+    "slowdown_segment32": 0.08140492012337774,
+    "slowdown_loop64": 0.16654360277252067,
+    "slowdown_segment64": 0.1642501434174204,
+    "slowdown_loopload32": 0.018223217265481484,
+    "slowdown_segload32": 0.03546211452872261
+   }
+  ]
+ }
+}
