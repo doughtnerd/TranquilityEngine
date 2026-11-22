@@ -46,6 +46,8 @@ export interface TakeMeta {
   /** Hash of `audio.json` at start. */
   audioHash: string;
   seed: number;
+  /** False when the project had no `audio.seed` (picks were unseeded; `seed` is then 0). Absent: true. */
+  seeded?: boolean;
   device: string;
   started: string;
   duration: number;
@@ -59,4 +61,12 @@ export interface TakeNotes {
   format: typeof TAKE_NOTES_FORMAT;
   markers: { id: string; at: number; text: string; color: number }[];
   regions: { id: string; from: number; to: number; text: string; color: number }[];
+}
+
+/** A picture of the game view (`FRAME`, optional, about once a second): a small JPEG. */
+export interface TakeFrame {
+  t: number;
+  width: number;
+  height: number;
+  jpeg: Uint8Array;
 }

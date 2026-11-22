@@ -35,6 +35,29 @@ import { NO_NAME } from "./keyframeLayout";
 import { KeyframeRows } from "../audioRows";
 import type { RingSpan } from "./ring";
 import type { SaveTake } from "./save";
+import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
+
+/**
+ * ADR 0334: what a take reads of the profile taps beside the capture's records: every effective parameter change (global
+ * or instance, events and playlists, a label as its index), the one place they all pass.
+ */
+export interface CaptureTee {
+  parameter(name: string, value: number, instance: number | null): void;
+}
+
+/** ADR 0334: a take's hold on the ring (`captureTakeRing`). */
+export interface CaptureTakeRing {
+  /** The next record's seq (taken from the ring's counter, so a take's requests merge with the ring's records by seq), its epoch and the frame "now". Null while the ring doesn't record. */
+  stamp(): { seq: number; epoch: number; frame: number } | null;
+  /** The ring's capacity (the profile's share of the take cap). */
+  readonly ringBytes: number;
+  /** A MARKER in the profile too (`Audio.take.mark`). */
+  marker(text: string): void;
+  /** The ring's records from the take's start (a copy), the header facts and META as the take began: what the take's file is built on. */
+  freeze(): SaveTake;
+  /** End the take's hold (the last owner's release holds or frees the ring, as a panel's does). */
+  release(): void;
+}
 
 /** `Audio.capture` (§1.2). */
 export interface AudioCapture {
@@ -158,6 +181,8 @@ class Capture implements AudioCapture {
   private keptAcrossStop = false;
   /** The frame the next EPOCH names (a start, or a core made while Held); null: 0, a rebuilt core's first frame. */
   private epochFrame: number | null = null;
+  /** ADR 0334: the take's reader of the taps (a tee around the event sink while set). */
+  private tee: CaptureTee | null = null;
 
   // --- the public surface ---------------------------------------------------------------------------------------------
 
@@ -276,6 +301,7 @@ class Capture implements AudioCapture {
    * unless a take exists that hasn't yet outlived a Play stop: that one is Held, so a `save()` after Stop still works.
    */
   playStopped(): void {
+    for (const fn of playStopHooks) fn(); // ADR 0334: a running take stops and copies its span before the ring goes
     const rec = this.rec;
     if (!rec) {
       this.startToken++; // a start still loading is abandoned
@@ -348,7 +374,7 @@ class Capture implements AudioCapture {
     this.takeMeta = meta;
     this.takeDate = init.startDateMs;
     if (!this.mainSideOnly) rec.attach(backend.capture!);
-    backend.capture!.setProfileSink(sink);
+    backend.capture!.setProfileSink(this.profileSinkOf(sink));
     this.rec = rec;
     this.sink = sink;
     this.backend = backend;
@@ -421,7 +447,7 @@ class Capture implements AudioCapture {
     if (backend !== this.backend) this.wireKeyframes(rec, sink, backend);
     this.backend = backend;
     if (!this.mainSideOnly) rec.attach(backend.capture!);
-    backend.capture!.setProfileSink(sink);
+    backend.capture!.setProfileSink(this.profileSinkOf(sink));
     this.ringState = "recording";
     this.startFramePump();
   }
@@ -466,6 +492,72 @@ class Capture implements AudioCapture {
         this.settle();
       },
     };
+  }
+
+  // --- ADR 0334: a take's hold --------------------------------------------------------------------------------------
+
+  /** A take joins the ring as an owner (a panel's kind of hold), with `tee` reading the taps while it holds. */
+  async takeRing(tee: CaptureTee): Promise<CaptureTakeRing> {
+    while (!this.rec) await this.ensureRing();
+    if (this.ringState === "held") this.resume(true);
+    else if (this.takeActive || this.panels > 0) this.markJoin("Take started");
+    this.panels++;
+    const rec = this.rec!;
+    const gen = this.ringGen;
+    const startSegment = rec.ring.openSegment;
+    const meta = this.backend ? this.buildMeta(this.backend, rec.ring.capacity) : this.takeMeta!;
+    const startDateMs = Date.now();
+    const headInit = this.headInit!;
+    const mainSideOnly = this.mainSideOnly;
+    this.setTee(tee);
+    let done = false;
+    const live = (): boolean => !done && gen === this.ringGen;
+    return {
+      ringBytes: rec.ring.capacity,
+      stamp: () => (live() && this.ringState === "recording" && rec.epochNumber >= 0 ? { seq: rec.ring.seq++, epoch: rec.epochNumber, frame: rec.newestStatusFrame } : null),
+      marker: (text) => {
+        if (live() && this.sink && this.ringState === "recording") this.sink.marker(String(text));
+      },
+      freeze: () => {
+        const ring = rec.ring;
+        const from = Math.max(startSegment, ring.firstSegment);
+        const truncated = ring.firstSegment > startSegment;
+        return {
+          header: { ...headInit, startDateMs, truncated, mainSideOnly },
+          meta: this.withInterned(meta),
+          span: ring.copyRecords(from),
+          truncatedFromSeq: truncated ? ring.segFirstSeq[ring.rowOf(ring.firstSegment)]! : 0,
+        };
+      },
+      release: () => {
+        if (done) return;
+        done = true;
+        if (this.tee === tee) this.setTee(null);
+        if (gen !== this.ringGen) return;
+        this.panels--;
+        this.settle();
+      },
+    };
+  }
+
+  private setTee(tee: CaptureTee | null): void {
+    this.tee = tee;
+    if (this.sink && this.backend?.capture && this.ringState === "recording") this.backend.capture.setProfileSink(this.profileSinkOf(this.sink));
+  }
+
+  /** The sink the backend's taps reach: the event sink, or a tee that also hands parameter changes to the take. */
+  private profileSinkOf(sink: EventSink): ProfileSink {
+    const tee = this.tee;
+    if (!tee) return sink;
+    const out = {} as Record<string, unknown>;
+    const src = sink as unknown as Record<string, unknown>;
+    for (const k of Object.keys(NULL_PROFILE_SINK)) out[k] = (src[k] as (...a: unknown[]) => void).bind(sink);
+    for (const k of ["pick", "loudnessWarning"]) if (typeof src[k] === "function") out[k] = (src[k] as (...a: unknown[]) => void).bind(sink);
+    out.parameter = (name: string, value: number, instance: number | null): void => {
+      sink.parameter(name, value, instance);
+      tee.parameter(name, value, instance);
+    };
+    return out as unknown as ProfileSink;
   }
 
   // --- internals ------------------------------------------------------------------------------------------------------
@@ -599,6 +691,13 @@ class Capture implements AudioCapture {
   }
 }
 
+const playStopHooks: (() => void)[] = [];
+
+/** @internal ADR 0334: `fn` runs when Play stops, before the ring is freed (`take.ts` stops a running take there). */
+export function onCapturePlayStopped(fn: () => void): void {
+  playStopHooks.push(fn);
+}
+
 const capture = new Capture();
 
 /** ADR 0260: a bus added, removed or renamed while recording is named in the capture from that instant. */
@@ -644,6 +743,11 @@ export function releaseCapture(): void {
  * from the audio World service), which keeps the take Held for a save after Stop.
  */
 onAudioSessionReleased(releaseCapture);
+
+/** @internal ADR 0334: a take's hold on the shared ring (`capture/take.ts`), with its reader of the parameter taps. */
+export function captureTakeRing(tee: CaptureTee): Promise<CaptureTakeRing> {
+  return capture.takeRing(tee);
+}
 
 /** @internal Play stops (architecture §2.1; G7b): the owners end and the ring is freed, a take being Held once for a save after Stop. Called by `core/service.ts` when the last Runtime World releases the audio host. */
 export function capturePlayStopped(): void {
