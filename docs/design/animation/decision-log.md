@@ -22,3 +22,9 @@ Decisions made during the build that the records didn't settle. Each entry: the 
 - **D18 (T12).** *Mirror is a local sign flip assuming mirrored local frames.* Rigs with flipped-axis conventions need a per-bone flip table in the skeleton profile: added to T41's scope.
 - **D19 (T12).** *Inertialization:* a scalar offset per channel (translation vector, rotation axis-angle), a0 = 0, blend time clamped to `min(T, 2.5·|x0|/|v0|)` (the exact no-overshoot bound for a0 = 0 is 2.50087; Bollo's 5 overshoots); scale isn't inertialized; under 1e-4 s is a cut.
 - **D20 (T12).** *Sync phase* = (marker index, id, fraction, normalised time), falling back to normalised time when a clip lacks the marker.
+- **D21 (T11).** *Shell distance per bone* = max(3 cm, longest child offset in the rest pose).
+- **D22 (T11).** *Bit-rate search* raises the channel with the best drop in excess error per added bit (excess = Σ max(0, e − bound) over the segment's frames). A plain lowest-maximum rule pushed root channels to raw and cost about 12%.
+- **D23 (T11).** *Default and constant detection* at 0.1 × bound locally, screened in model space at 0.2 × bound, with a fallback that animates the worst channel and reruns.
+- **D24 (T11).** *Rotations drop w by default;* both formats are tried when any |w| < 0.1.
+- **D25 (T11).** *Root yaw* is the swing-twist yaw about +Y, relative to frame 0 and unwrapped, through anim-math's deterministic `atan2`.
+- **D26 (T11).** *Additive clips* get constant detection only; their error is measured on the delta pose (an approximation).
