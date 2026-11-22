@@ -201,3 +201,16 @@ API: `onAudioMarker` lifecycle hook, `EventOptions.minDistance/maxDistance`, `ha
 fields `PlaylistBody.automation`, `SampleEdits.automation`. Gaps closed: D20 (onAudioMarker, beat callbacks), D22
 (sequence picks, MIXOP origins), D23 (format fields). Still open: Studio parameter renames don't rewrite playlist
 instance automation inputs; Studio undo/redo MIXOP origin.
+
+**D29. Native mix model (W6-C, merged).** The runtime mixer runs `audio.json`'s model; `toRuntimeSettings` is replaced
+by views (`runtimeView.ts`: the backends' bus tree, the editor's legacy view). One snapshot model shared by the runtime
+and the Studio (`project/snapshots.ts`, `snapshotPlayer.ts`): overrides crossfade from what lies under them while
+fading (FMOD intensity style), interrupted fades turn round proportionally, linear-dB fades sent as ≤50 ms linear-gain
+segments; the VCA lane rides the wire's authored lane (fader × VCA); returns live on the main thread (the core has no
+bus-to-bus sends) and reach the core through each bus's reverb send level; mute silences sends on main; insert cap 8
+(the core's 4-effect limit stays a warning rule); seven project live ops (upsert by name, `from` for renames).
+**Behaviour change:** `Audio.snapshot(name)` with one argument now returns an `AudioSnapshot` handle without starting
+it (ADR 0330); `Audio.snapshot(name, fade)` still starts it. Revert: make the one-argument form start with 0.5 s.
+Core features still needed (listed for a core task): bus-to-return sends with slots, a dB-linear ramp law, a VCA wire
+lane, 8 effects per bus and the catalogue's bus effects, smoothed effect parameters, automation of any effect parameter
+and send, core-side send muting, ducking with returns.
