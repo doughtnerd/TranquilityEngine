@@ -28,7 +28,7 @@ import { parseParameters, type ParameterDef } from "./parameters";
 import { audioCurve } from "./audioCurveLimit";
 import { BUS_RULES, MAX_BUSES, MAX_CORE_BUS_EFFECTS, busRuleFindings, coreRuns, findingText, type CoreEffectType } from "./busCapability";
 import type { PluginEffectType } from "./effects/types";
-import { parseEffect as parseCatalogueEffect } from "./effects/catalogue";
+import { effectSpec, isPluginEffectType, parseEffect as parseCatalogueEffect } from "./effects/catalogue";
 import { DEFAULT_MATERIAL_NAME, builtinMaterials, parseOccluderMaterials, resolveDefaultMaterial, type OccluderMaterial } from "./occlusionMaterials";
 
 export type BusEffect =
@@ -459,13 +459,15 @@ function parseEffect(raw: unknown, where: string, problems: string[]): BusEffect
       };
     case "reverb": return { type: "reverb", send: num(raw.send, 0.2, 0, 1) };
     case "fx": {
-      if (typeof raw.fx !== "string" || !coreRuns(raw.fx)) {
+      // ADR 0338: a registered plugin effect whose plugin is on runs in the core's bus chain too.
+      const plugin = isPluginEffectType(raw.fx) && effectSpec(raw.fx).plugin?.state === "on";
+      if (typeof raw.fx !== "string" || (!coreRuns(raw.fx) && !plugin)) {
         problems.push(`${where}: fx must be a catalogue effect the audio core runs.`);
         return null;
       }
       const e = parseCatalogueEffect({ id: "fx", type: raw.fx, on: true, params: raw.params ?? {}, ...(raw.key !== undefined ? { key: raw.key } : {}) }, "bus", where, problems);
       if (!e) return null;
-      return { type: "fx", fx: raw.fx, params: e.params, ...(e.key ? { key: e.key } : {}) };
+      return { type: "fx", fx: raw.fx as CoreEffectType | PluginEffectType, params: e.params, ...(e.key ? { key: e.key } : {}) };
     }
   }
 }
