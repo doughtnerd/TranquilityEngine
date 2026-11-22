@@ -80,3 +80,22 @@ specs (`tests/e2e/studio-*.spec.ts`), and `implementation-status.md` rows.
 | Later | Live link | connect the Studio to a running game or editor (telemetry plus control) through the host seams | new record |
 
 M2 runs beside M1 and M3; M3 needs only part of M2 (offline render, loop modes) to finish.
+
+## Follow-on scope (owner, 2026-11-22)
+
+The owner approved finishing every unfinished item (the "add now" list) and added new features in this order:
+"I want 2 & 4, then 1 & 3, then 5" — (2) per-platform encoding and packaging, (4) third-party DSP plugins, then
+(1) localisation and voice-over, (3) dynamic dialogue, then (5) built-in sound generators. Each new feature gets an ADR
+(accepted under the standing instruction to implement new records), following Wwise/FMOD norms.
+
+Waves (by file ownership, so parallel tasks don't collide):
+- **W10 (now):** takes gaps (picture frames, World reseed, effects-cost track) + parameter renames rewriting playlist
+  automation inputs; Spatial in the Studio (base game scene loading, 3D physics occlusion); ADRs for (2) and (4).
+- **W11 (after W9-A returns, W9-B render, W9-D playlist features merge):** core effect/send automation + dB ramp law
+  + submix parameter automation + Studio undo/redo of live mixer moves (mixer owner); clip/entry effect chains in the
+  core and playlist runtime + per-level submixes; Samples re-import and source versions + tempo/root detection; native
+  spatial (per-voice spread, zone-interior beds, `bedBeyond`, preset reverb times); smaller items (starved-memory
+  status flag, music debug rows from playlists, "Create playlist from clips" in the Studio, stream-voice loops, curve
+  table per-binding time origin, lift `fields.tsx` into the kit, migrate CLI wording).
+- **W12:** implement (2) and (4). **W13:** ADRs and implementation for (1) and (3). **W14:** (5).
+- **Final:** minimal e2e specs for core workflows, one Playwright run, `test:stories`, handoff.
