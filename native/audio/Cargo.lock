@@ -41,6 +41,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "audio-offline"
+version = "0.1.0"
+dependencies = [
+ "audio-core",
+ "audio-dsp",
+ "libm",
+ "sha2",
+]
+
+[[package]]
 name = "audio-wasm"
 version = "0.1.0"
 dependencies = [

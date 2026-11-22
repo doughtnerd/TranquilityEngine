@@ -643,6 +643,26 @@ fn bezier_controls(c: &mut Curve, n: usize, handles: impl Fn(usize) -> (f32, f32
     }
 }
 
+impl Curve {
+    /// A curve from keys `(x, y, interp, [inDx, inDy, outDx, outDy])` sorted by x, as CURVES
+    /// builds one (its Bézier control points worked out the same way); keys past
+    /// [`CURVE_KEYS`] are ignored. For callers outside the mixer, such as the offline sample
+    /// render (ADR 0328), so they evaluate curves exactly as the core does.
+    pub fn from_keys(keys: &[(f32, f32, u8, [f32; 4])]) -> Curve {
+        // SAFETY: integers and floats only; all-zero is an empty curve.
+        let mut c: Curve = unsafe { core::mem::zeroed() };
+        let n = keys.len().min(CURVE_KEYS);
+        c.count = n as u32;
+        for (i, k) in keys[..n].iter().enumerate() {
+            c.x[i] = k.0;
+            c.y[i] = k.1;
+            c.interp[i] = k.2;
+        }
+        bezier_controls(&mut c, n, |k| (keys[k].3[0], keys[k].3[1], keys[k].3[2], keys[k].3[3]));
+        c
+    }
+}
+
 #[inline]
 fn curve_value(curves: &[Curve], curve: u16, x: f32) -> f32 {
     curves.get(curve as usize).map_or(0.0, |c| eval(c, x))
@@ -1158,15 +1178,7 @@ mod tests {
 
     /// A curve from `(x, y, interp, [inDx, inDy, outDx, outDy])` keys.
     fn bez(keys: &[(f32, f32, u8, [f32; 4])]) -> Curve {
-        let mut c: Curve = unsafe { core::mem::zeroed() };
-        c.count = keys.len() as u32;
-        for (i, k) in keys.iter().enumerate() {
-            c.x[i] = k.0;
-            c.y[i] = k.1;
-            c.interp[i] = k.2;
-        }
-        bezier_controls(&mut c, keys.len(), |k| (keys[k].3[0], keys[k].3[1], keys[k].3[2], keys[k].3[3]));
-        c
+        Curve::from_keys(keys)
     }
 
     fn close(a: f32, b: f32) -> bool {
