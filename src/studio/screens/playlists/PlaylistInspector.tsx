@@ -12,6 +12,8 @@ import type { BodyEdit } from "./EntryList";
 import { FieldRow, NumberBox, SelectBox, Section } from "../../../editor/ui/PanelFields";
 import { setEffects, setEntryUse, setOutput, setParameters, setPlayback, setSpatial, USE_LIMITS, type EditContext } from "./playlistEdits";
 import { axisRange } from "./blendPlacement";
+import { setCaption } from "./captionEdit";
+import { useEffect, useState } from "preact/hooks";
 import { entryName, playlistTitle } from "./playlistPaths";
 
 export interface PlaylistInspectorProps {
@@ -30,6 +32,39 @@ export interface PlaylistInspectorProps {
   onEditCurves(index: number): void;
   onOpenBus(bus: string): void;
   onOpenPlaylist(path: string): void;
+  /** ADR 0343 §6: the captions table's keys (absent: no Caption field), and creating a key there. */
+  readonly captionKeys?: readonly string[];
+  readonly captionTable?: string;
+  onCreateCaptionKey?(key: string): void;
+}
+
+/** ADR 0343 §4, §6: the Caption field: a key picked from the captions table (or created there) and the repeat gap. */
+function CaptionSection(props: { body: PlaylistBody; keys: readonly string[]; table: string; writable: boolean; onEdit: PlaylistInspectorProps["onEdit"]; onCreate?(key: string): void }) {
+  const c = props.body.caption;
+  const [key, setKey] = useState(c?.key ?? "");
+  useEffect(() => setKey(c?.key ?? ""), [c?.key]);
+  const commit = () => key.trim() !== (c?.key ?? "") && props.onEdit(key.trim() ? "Caption" : "No caption", (b) => setCaption(b, key));
+  const missing = c && !props.keys.includes(c.key);
+  return (
+    <Section title="Caption" open={!!c} note="Shown by subtitle displays when the player turns captions on (important sounds only).">
+      <FieldRow label="Key">
+        <input type="text" class="kit-num" aria-label="Caption key" list="pl-caption-keys" placeholder="cc.door_slams" value={key} disabled={!props.writable}
+          onInput={(e) => setKey((e.currentTarget as HTMLInputElement).value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && commit()} />
+        <datalist id="pl-caption-keys">{props.keys.map((k) => <option key={k} value={k} />)}</datalist>
+      </FieldRow>
+      {c && (
+        <FieldRow label="Not again within" unit="s">
+          <NumberBox label="Caption gap" value={c.minGap} min={0} max={60} step={0.5} digits={1} disabled={!props.writable} onValue={(v) => props.onEdit("Caption gap", (b) => setCaption(b, c.key, v))} />
+        </FieldRow>
+      )}
+      {missing && (
+        <p class="pl-note">
+          {c.key} isn't in {props.table}.{" "}
+          {props.onCreate && <button type="button" class="pl-link" disabled={!props.writable} onClick={() => props.onCreate!(c.key)}>Create it</button>}
+        </p>
+      )}
+    </Section>
+  );
 }
 
 const WHEN_FULL: { value: PlaybackRules["whenFull"]; label: string }[] = [
@@ -126,6 +161,9 @@ export function PlaylistInspector(props: PlaylistInspectorProps) {
           </>
         )}
       </Section>
+      {props.captionKeys && (
+        <CaptionSection body={body} keys={props.captionKeys} table={props.captionTable ?? "the captions table"} writable={writable} onEdit={onEdit} onCreate={props.onCreateCaptionKey} />
+      )}
       <Section title="Local parameters" note="Parameters of this playlist's instances (the game sets them per sound); global ones live in audio.json.">
         <LocalParameters list={body.parameters} writable={writable} onChange={(next, label) => onEdit(label, (b) => setParameters(b, next))} />
       </Section>

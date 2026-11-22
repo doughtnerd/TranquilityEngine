@@ -1,15 +1,15 @@
-// The Audio Studio's screens in four groups (ADR 0327 "The shell"): Author (Samples, Playlists), Mix (Mixer,
+// The Audio Studio's screens in four groups (ADR 0327 "The shell"): Author (Samples, Playlists, Dialogue, ADR 0340 §9), Mix (Mixer,
 // Spatial), Run (Take, Profiler) and Ship (Packages, ADR 0337 §6). Each has its place in the header, its Ctrl/⌘+digit
 // and what it is for, which its empty state says until there is something to show.
 
-export type ScreenId = "samples" | "playlists" | "mixer" | "spatial" | "take" | "profiler" | "packages";
+export type ScreenId = "samples" | "playlists" | "dialogue" | "mixer" | "spatial" | "take" | "profiler" | "packages";
 export type ScreenGroup = "author" | "mix" | "run" | "ship";
 
 export interface ScreenInfo {
   readonly id: ScreenId;
   readonly title: string;
   readonly group: ScreenGroup;
-  /** Its digit in Ctrl/⌘+1…7. */
+  /** Its digit in Ctrl/⌘+1…8. */
   readonly digit: number;
   /** What the screen is for, in a sentence (its empty state and the header's tooltip). */
   readonly purpose: string;
@@ -22,6 +22,7 @@ export const GROUP_TITLES: Readonly<Record<ScreenGroup, string>> = { author: "Au
 export const SCREENS: readonly ScreenInfo[] = [
   { id: "samples", title: "Samples", group: "author", digit: 1, art: "WAV", purpose: "Audio files and their non-destructive edits: markers, loops, trim, tempo and root, normalise and baked effects." },
   { id: "playlists", title: "Playlists", group: "author", digit: 2, art: "PL", purpose: "What the game plays: clips, queues, switches, blends, layers and sequences, auditioned with test parameters." },
+  { id: "dialogue", title: "Dialogue", group: "author", digit: 8, art: "VO", purpose: "Voice-over lines and their recordings per language, subtitles, languages, batch import and dialogue events." },
   { id: "mixer", title: "Mixer", group: "mix", digit: 3, art: "MIX", purpose: "Buses, returns and VCAs with their effects, sends, ducking and snapshots." },
   { id: "spatial", title: "Spatial", group: "mix", digit: 4, art: "3D", purpose: "Attenuation curves, audio zones and test scenes for how sound behaves in space." },
   { id: "take", title: "Take", group: "run", digit: 5, art: "TAKE", purpose: "Recordings of what a game asked of audio, replayed against the current audio and annotated." },

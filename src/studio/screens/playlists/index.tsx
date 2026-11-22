@@ -17,7 +17,9 @@ import { audioHost, keymap, openRoute, setPlayerSlots, studioRouter, toasts } fr
 import { historyPanel } from "../placeholder";
 import { renameTestValue } from "../mixer/globalParametersHost";
 import { globalParametersPanel } from "../mixer/globalParametersPanels";
+import { captionTable, createCaptionKey } from "../dialogue/dialogueProject";
 import { AddDialog } from "./AddDialog";
+import { captionPlaceholder } from "./captionEdit";
 import { addItems, addLabel, entriesFor } from "./addDialogModel";
 import { openCurveEditor, openWeightCurveEditor } from "./curveEditorAdapter";
 import { LibraryList } from "./LibraryList";
@@ -349,6 +351,7 @@ function InspectorPanel() {
     );
   }
   const usedBy = t.indices.length ? [t.file] : (linkedBy.value.get(t.file) ?? []);
+  const captions = project ? captionTable(project) : null; // ADR 0343 §6: the Caption field's keys
   const inspector = (
         <PlaylistInspector
           body={body}
@@ -363,6 +366,9 @@ function InspectorPanel() {
           onEditCurves={editCurves}
           onOpenBus={(bus) => openRoute({ screen: "mixer", select: bus })}
           onOpenPlaylist={(p) => openPlaylist(filePath(p))}
+          captionKeys={captions?.keys}
+          captionTable={captions?.path}
+          onCreateCaptionKey={(key) => project && createCaptionKey(project, key, captionPlaceholder(key))}
         />
   );
   return (
