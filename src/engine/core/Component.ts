@@ -177,9 +177,10 @@ export interface LifecycleHooks {
   onMusicCue?(e: MusicEvent): void;
   /**
    * A marker passing in the playlist an `AudioSource` on this node plays (ADR 0329): the Cue, Exit and Hit markers of its
-   * samples and its sequences' `cue` and `exit` markers, every type (`e.type` says which), delivered in the update phase
-   * on the first frame whose heard clock has passed it (`e.time` is exact). Defining the hook is the subscription; the
-   * handle's `onMarker(type, fn)` is the same for scripts that hold the handle.
+   * samples and its sequences' `cue` and `exit` markers, every type (`e.type` says which), delivered by the audio system
+   * (late update) on the first frame whose heard clock has passed it (`e.time` is exact). A playlist's beats and bars
+   * reach `onMusicBeat`/`onMusicBar` from there too, rather than before `update` as a music event's do. Defining the
+   * hook is the subscription; the handle's `onMarker(type, fn)` is the same for scripts that hold the handle.
    */
   onAudioMarker?(e: AudioMarkerEvent): void;
 }
