@@ -103,3 +103,29 @@ measured as one loudness block; Write-to-WAV backups in `.myco/sample-versions/`
 (public one-shots have no start offset — a core/API start offset is scheduled), offline render/cache, re-import and
 source versions, tempo/root detection (no detector in the engine; Detect is disabled), changed-on-disk needs the Studio
 project watch (W3-F).
+
+**D16. Studio wiring (W3-F, merged).** The audio-only World is an internal Engine option (`audioOnly`, stripped from
+published types) so it never becomes a `project.json` bootstrap key; while the editor holds the project, the Studio
+records pending moves and rewrites only its own JSON (the editor rewrites scenes/prefabs when it applies them); a
+handoff naming the open project never reopens it; browser `?project=` resolves by the newest recent folder with that
+mount name (two same-named folders could collide); `Audio.debug().coreUnavailable` (new optional debug field) feeds the
+Studio banner; captures are written into `captures/` on every platform via an internal bytes path.
+
+**D17. Shared curve editor (W3-D, merged).** Existing inline curve fields stay inline (e2e specs drag keys in place)
+with an "Edit…" button opening the dialog; Apply returns curves and the caller commits one undo step; a new key takes
+the previous key's shape; Ease presets use the engine's easeIn/easeOut; a linear range holding 0 snaps through 0 so
+0 dB can be hit; keys beyond Max compress toward the axis end on stretch; the distance axis ends at max(60 m, 1.5 × Max);
+user presets are a per-user preference. Not built: And by (ADR), the clock selector, built-in property sets.
+
+**D18. Playlists screen (W3-B, merged).** Dropping a shared file into a playlist links it (prototype embedded it);
+linked entries aren't expanded in the tree (no loops); changing to Clip refuses non-sample entries; a Blend axis
+change keeps entries at the same fraction; removing an entry makes its Switch labels play nothing; clip effects run at
+instance level (the format stores playlist effects once); embedded playlists have no names (Make shared gives one);
+deleting a file may show the screen's choices dialog and then the engine's delete prompt.
+
+**D19. Mixer screen (W3-C, merged).** The live mix is reached through the engine's `mixer` singleton, confined to
+`mixerRuntime.ts` (the live link replaces that file); edits apply live whenever the runtime is up; Compare's A is the
+mix at runtime start; snapshots affect only what they list (Wwise/FMOD), fades scale dB linearly; picking a snapshot
+auditions it; structural effect edits in a snapshot edit the base chain, parameter values go to overrides; deleting a
+bus moves children up; Master's name is locked; bed priority 0..255 with Share/Own/Off. Gap: game parameters have no
+authoring home now that Project Settings > Audio is retiring — scheduled (a Parameters panel in the Studio).
