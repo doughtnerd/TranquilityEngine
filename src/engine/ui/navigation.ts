@@ -186,6 +186,8 @@ interface NavState {
   pending: Set<UICanvas>;
   /** Each player's `navigate` direction at the last run while it was held, by player index. */
   held: Map<number, Direction>;
+  /** Players with a rebind pending at the last run: the press that finishes one is the rebind's, not the UI's. */
+  rebinding: Set<GameObject>;
 }
 
 const states = new WeakMap<World, NavState>();
@@ -202,26 +204,35 @@ interface Actions {
 }
 
 /**
- * What the players driving `canvas` performed this frame (any of them; a pending rebind takes a player's presses).
+ * What the players driving `canvas` performed this frame (any of them). A pending rebind takes a
+ * player's presses, including the one that finishes it: the rebind runs earlier in the frame and has
+ * already removed its request, so a player who had one at the last run is skipped too (else the
+ * captured arrow would move focus, Enter click, Escape cancel the menu).
  * `navigate` also counts as performed when its direction changed while it stayed held (rolling from one arrow key to
  * the next, or a stick swept round): the action's triggers see one long press there, and would only repeat it.
  */
-function readActions(world: World, canvas: UICanvas | null, held: Map<number, Direction>): Actions {
+function readActions(world: World, canvas: UICanvas | null, state: NavState): Actions {
   const out: Actions = { navigate: null, submit: false, cancel: false, next: false, previous: false };
   const only = canvas?.player ?? -1;
   // `engine.RebindRequest` (input/rebind.ts), looked up by id: importing it here would load the evaluator early and reorder built-in systems.
   const rebinding = getDataComponentDef("engine.RebindRequest");
+  const wasRebinding = state.rebinding;
+  state.rebinding = new Set();
   for (const node of playerNodes(world)) {
+    if (rebinding && node.hasData(rebinding)) {
+      state.rebinding.add(node);
+      continue;
+    }
+    if (wasRebinding.has(node)) continue;
     if (only >= 0 && node.getData(InputPlayer)!.index !== only) continue;
-    if (rebinding && node.hasData(rebinding)) continue;
     const a = actionView(node, UIActions);
     if (!a) continue;
     const index = node.getData(InputPlayer)!.index;
     const v = a.vector2("navigate");
     const dir = v.x !== 0 || v.y !== 0 ? direction(v) : null;
-    const before = held.get(index) ?? null;
-    if (dir) held.set(index, dir);
-    else held.delete(index);
+    const before = state.held.get(index) ?? null;
+    if (dir) state.held.set(index, dir);
+    else state.held.delete(index);
     if (!out.navigate && dir && (a.performed("navigate") || (before !== null && before !== dir))) out.navigate = { x: v.x, y: v.y };
     out.submit ||= a.performed("submit");
     out.cancel ||= a.performed("cancel");
@@ -235,7 +246,7 @@ function run(world: World): void {
   if (!takesLocalInput(world)) return;
   const log = uiInteractions(world);
   let state = states.get(world);
-  if (!state) states.set(world, (state = { active: new Set(), pending: new Set(), held: new Map() }));
+  if (!state) states.set(world, (state = { active: new Set(), pending: new Set(), held: new Map(), rebinding: new Set() }));
   const layout = new Layout(log.layout);
 
   // Focus on something that can't have it any more is lost (a script's doing: no events).
@@ -270,7 +281,7 @@ function run(world: World): void {
   if (!canvas) for (const c of active) if (c.mode === "screen" && layout.list(c).length) canvas = c;
 
   const requests = log.takeRequests();
-  const act = readActions(world, canvas, state.held);
+  const act = readActions(world, canvas, state);
   if (requests.length || act.navigate || act.submit || act.cancel || act.next || act.previous) log.navigating = true;
 
   for (const r of requests) {

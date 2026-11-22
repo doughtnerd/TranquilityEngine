@@ -225,10 +225,12 @@ img.src = glyph.url;                               // an HTML <img>; glyph.svg i
 
 **UIControlMapper** (Add Component › UI) is a ready-made controls screen. Put it on a node under a `UICanvas` (without one it makes its own):
 
-- One row per action (`actions`: a comma-separated list, empty for every action), one per part for a d-pad or axis composite ("Move Up"…), with a **Keyboard** and a **Gamepad** cell. Each shows the binding's glyphs and label; the gamepad column follows the pad the player last used.
-- Click a cell, or select it with the arrow keys or d-pad and press Enter or the south button, then press the new key or button. **Escape** cancels; after `timeout` seconds (default 10) it gives up.
+- One row per action (`actions`: a comma-separated list, empty for every action but the engine's UI actions), one per part for a d-pad or axis composite ("Move Up"…), with a **Keyboard** and a **Gamepad** cell. Each shows the binding's glyphs and label; the gamepad column follows the pad the player last used.
+- Every cell and button is a focusable `UIButton`, so the game UI's [keyboard and gamepad navigation](ui.md#keyboard-and-gamepad-navigation) drives the screen: the arrow keys, d-pad or left stick move focus, and Enter, Space or the south button press the focused button. The screen takes focus when it appears, so a d-pad player can start without clicking. The focused button has an `accentColor` border, after mouse use too.
+- Click a cell (or press Enter or the south button on it), then press the new key or button. While it waits, presses don't move focus. **Escape** cancels; after `timeout` seconds (default 10) it gives up.
 - An empty cell ("—") on an action's row adds a binding for that device the same way (`rebind` with `add: true`).
-- **Delete** or **Backspace** on a selected cell unbinds it, as does the **Unbind** button (which acts on the binding cell last selected). Unbinding one part of a d-pad or axis removes the device's whole binding.
+- **Delete** or **Backspace** on the focused cell unbinds it, as does the **Unbind** button (which acts on the binding cell last focused). Unbinding one part of a d-pad or axis removes the device's whole binding.
+- Without a `UICanvas` above it, the mapper makes a screen canvas that takes focus when it appears, is driven only by the mapper's `player`, and keeps focus in the screen when `modal` is on. Under your own canvas, it focuses its first cell when it appears, unless something on that canvas already has focus; set that canvas's `modal` to keep focus in it.
 - A chord is one cell ("Shift + B", with both glyphs). Its rebind takes the keys or buttons held together: hold them, then let go. A chord with a different number of modifiers replaces the binding.
 - A conflict is shown in the status line ("B is also bound to Bomb.") and conflicting cells turn `warningColor`.
 - **Reset to defaults** calls `resetBindings`; **Save** calls `saveBindings(profile)`. The button row's words are `text.unbind`, `text.reset` and `text.save`.
@@ -257,12 +259,12 @@ const mapper = menu.addComponent(UIControlMapper, {
 });
 ```
 
-The mouse, the arrow keys and the d-pad select these rows as they do the cells: a stepper's − and + are two columns. Enter or the south button toggles or steps. Changes apply at once, **Save** writes them with the bindings, and **Reset to defaults** leaves them alone. Their words are in `text` too (`accessibility`, `invertY`, `on`, `off`, `seconds`…).
+The toggles and a stepper's − and + are focusable buttons like the cells: up and down go row by row, left and right between − and +, and Enter or the south button toggles or steps. Changes apply at once, **Save** writes them with the bindings, and **Reset to defaults** leaves them alone. Their words are in `text` too (`accessibility`, `invertY`, `on`, `off`, `seconds`…).
 
 Colours, `fontSize`, `glyphSize` and `width` are fields. Scripts read:
-- `rows`: each cell's label, icons, button and whether it's a `chord`;
+- `rows`: each cell's action, label, icons, button and whether it's a `chord`;
 - `settings`: each accessibility row's label, value and buttons;
-- `rebinding`, `status`, `conflicts` and `selected`.
+- `rebinding`, `status`, `conflicts` and `focusedCell` (the focused binding cell, or null; focus a cell by setting its `button.focused`).
 
 Load saved bindings with `player.loadBindings()` when the game starts.
 

@@ -158,6 +158,10 @@ Nothing. `defineInput` stays for input that isn't an action set.
 - **UIControlMapper:** a chord is one cell, labelled with `text.chord` between the controls ("Shift + B") and showing every glyph, and its rebind captures the whole chord. `showAccessibility` adds a section with invert Y, sensitivity and hold-to-toggle rows for the actions listed in `invertYActions`, `sensitivityActions` and `holdToToggleActions`, plus repeat (on/off, delay and interval steppers, `repeatActions`) and the stick dead zone. The rows read and write `PlayerInput.accessibility` and are saved by Save. They sit in the screen's row and column selection, between the bindings and the buttons (a stepper's − and + are two columns), and are read through `settings`.
 - Still not done: adding a binding where an action has none for a device.
 
+## Build notes (2026-11-22, the screen on focus navigation)
+
+- **UIControlMapper** no longer has a row and column selection: ADR 0340's focus navigation drives it. Its cells, the accessibility rows' toggles and − and + buttons, and Unbind, Reset and Save are focusable `UIButton`s; the arrows, d-pad and left stick move focus and `submit` clicks, and the mapper acts on clicks only. The `selected` getter is replaced by `focusedCell` (the focused binding cell, or null), and `UIControlMapperCell` gains `action`. Delete and Backspace unbind the focused cell; Unbind acts on the cell last focused. Details in ADR 0340's build notes.
+
 ## Open questions
 
 - Maximum local players, and whether one World may host several local players' views (split screen).
