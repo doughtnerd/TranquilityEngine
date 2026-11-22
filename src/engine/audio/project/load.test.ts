@@ -14,7 +14,9 @@ describe("projectWithAudio", () => {
     const settings = resolveSettings(read.project);
     expect(settings.audio.doppler.amount).toBe(0.5); // ADR 0333: the Doppler pass scales every voice's level by it
     expect(settings.name).toBe("Game");
-    expect(settings.audio.buses.map((b) => [b.name, b.volume])).toEqual([["Master", 1], ["Music", expect.closeTo(Math.pow(10, -6 / 20), 9)]]);
+    // ADR 0330 (ABI 4.7): the return is a bus of the view, after the buses, its output as the parent.
+    expect(settings.audio.buses.map((b) => [b.name, b.volume])).toEqual([["Master", 1], ["Music", expect.closeTo(Math.pow(10, -6 / 20), 9)], ["Echo", 1]]);
+    expect(settings.audio.buses[2]!.parent).toBe("Master");
   });
 
   it("without audio.json, the default mix", () => {
@@ -32,7 +34,7 @@ describe("projectWithAudio", () => {
     expect(alone.project).toEqual({ name: "Game" });
     const both = projectWithAudio(old, AUDIO);
     expect(both.legacyAudio).toBe(true);
-    expect(resolveSettings(both.project).audio.buses.map((b) => b.name)).toEqual(["Master", "Music"]);
+    expect(resolveSettings(both.project).audio.buses.map((b) => b.name)).toEqual(["Master", "Music", "Echo"]);
   });
 
   it("reports audio.json's parse problems", () => {

@@ -340,9 +340,10 @@ export class Mixer {
       this.settings = { ...settings, ...coreSectionOf(project), mix: settings.mix };
     } else {
       project = fromLegacySection(settings);
-      // The migrated model's view, as for `audio.json`'s (ADR 0330: a reverb send became a send into a "Reverb" return,
-      // a bus of the view), so a live op's view is always an edit of `coreSectionOf(project)` (`mergeLegacyIntoProject`).
-      this.settings = { ...settings, ...coreSectionOf(project) };
+      // The old keys as given. With a reverb send, the bus tree is the migrated model's view, as for `audio.json`'s (ADR
+      // 0330: the send became a send into a "Reverb" return, a bus of the view), so a live op's bus edit is an edit of
+      // `coreSectionOf(project)` (`mergeLegacyIntoProject`); without one the two trees are the same.
+      this.settings = project.returns.length > 0 ? { ...settings, buses: coreSectionOf(project).buses } : settings;
     }
     this.project = project;
     this.buses.clear();

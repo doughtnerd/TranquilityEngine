@@ -79,28 +79,42 @@ export function fromLegacySection(section: unknown, problems: string[] = []): Au
   project.parameters = structuredClone(a.parameters);
   const reverbName = uniqueName(REVERB_RETURN, a.buses.map((b) => b.name));
   let usesReverb = false;
-  project.buses = a.buses.map((b, i) => {
+  // ADR 0330: a section with `sends` (a backends' view handed back, `coreSectionOf`): each bus a send names, with no bus
+  // under it, is a return again (its parent the output).
+  const targets = new Set(a.buses.flatMap((b) => (b.sends ?? []).map((s) => s.to)));
+  const asReturn = new Set(a.buses.filter((b, i) => i > 0 && targets.has(b.name) && !a.buses.some((o) => o.parent === b.name)).map((b) => b.name));
+  /** The catalogue effects of a section bus's chain (the reverb send effect aside). */
+  const effectsOf = (b: BusSettings): Effect[] => {
+    const out: Effect[] = [];
+    for (const e of b.effects) {
+      if (e.type === "fx") out.push({ id: freeEffectId(out.map((x) => x.id)), type: e.fx, on: true, params: { ...e.params }, ...(e.key ? { key: e.key } : {}) });
+      else if (e.type !== "reverb") out.push({ id: freeEffectId(out.map((x) => x.id)), type: e.type, on: true, params: paramsOf(e) });
+    }
+    return out;
+  };
+  project.buses = a.buses.filter((b) => !asReturn.has(b.name)).map((b, i) => {
     const root = i === 0;
     const bus: Bus = { ...newBus(b.name, root ? null : b.parent!), volumeDb: levelDbOf(b.volume), mute: b.mute, voiceLimit: b.maxVoices ?? null, bed: bedOf(a, b.name, root), meter: root || b.meter === "loudness" };
+    bus.effects = effectsOf(b);
     for (const e of b.effects) {
-      if (e.type === "fx") {
-        bus.effects.push({ id: freeEffectId(bus.effects.map((x) => x.id)), type: e.fx, on: true, params: { ...e.params }, ...(e.key ? { key: e.key } : {}) });
-      } else if (e.type !== "reverb") {
-        bus.effects.push({ id: freeEffectId(bus.effects.map((x) => x.id)), type: e.type, on: true, params: paramsOf(e) });
-      } else if (root) problems.push(`buses "${b.name}": the master bus can't send, so its reverb send is dropped.`);
+      if (e.type !== "reverb") continue;
+      if (root) problems.push(`buses "${b.name}": the master bus can't send, so its reverb send is dropped.`);
       else if (bus.sends.length > 0) problems.push(`buses "${b.name}": a second reverb send is dropped.`);
       else {
         bus.sends.push({ to: reverbName, levelDb: levelDbOf(e.send) });
         usesReverb = true;
       }
     }
+    if (!root) for (const s of b.sends ?? []) if (asReturn.has(s.to) && !bus.sends.some((x) => x.to === s.to)) bus.sends.push({ to: s.to, levelDb: levelDbOf(s.level) });
     return bus;
   });
-  if (usesReverb) project.returns = [{ name: reverbName, output: project.buses[0].name, volumeDb: 0, mute: false, effects: [reverbEffect()] }];
+  const busName = (name: string | undefined) => (name !== undefined && project.buses.some((b) => b.name === name) ? name : project.buses[0].name);
+  project.returns = a.buses.filter((b) => asReturn.has(b.name)).map((b) => ({ name: b.name, output: busName(b.parent), volumeDb: levelDbOf(b.volume), mute: b.mute, effects: effectsOf(b) }));
+  if (usesReverb) project.returns.push({ name: reverbName, output: project.buses[0].name, volumeDb: 0, mute: false, effects: [reverbEffect()] });
   const carriers = new Map<string, string>();
   const carrier = (name: string): string => {
     let id = carriers.get(name);
-    if (id === undefined) carriers.set(name, (id = addCarrier(project.buses.find((b) => b.name === name)!)));
+    if (id === undefined) carriers.set(name, (id = addCarrier((project.buses.find((b) => b.name === name) ?? project.returns.find((r) => r.name === name))!)));
     return id;
   };
   project.snapshots = a.snapshots.map((s) => {
