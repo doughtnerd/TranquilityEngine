@@ -29,3 +29,7 @@ sha2.workspace = true
 [dev-dependencies]
 # tests/source_hash.rs includes source_hash.rs, as build.rs does.
 sha2.workspace = true
+# Tests build skeletons and clips with anim-format's writers and anim-compress, and compare the
+# core with the f64 reference (anim-offline). Never linked into the module.
+anim-compress.workspace = true
+anim-offline.workspace = true

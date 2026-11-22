@@ -133,10 +133,12 @@ dependencies = [
 name = "anim-wasm"
 version = "0.1.0"
 dependencies = [
+ "anim-compress",
  "anim-format",
  "anim-graph",
  "anim-match",
  "anim-math",
+ "anim-offline",
  "anim-physics",
  "anim-plugin-sdk",
  "anim-pose",
