@@ -1,6 +1,7 @@
 // Mo1 (api-and-models §6.2, architecture §4.7): one case per op kind, each with its class; the byte form round trip;
 // refusals; applyOpToDraft's write. The invert and diffOps property tests are L-Mo1a's (mixOps.test.ts); the per-op
 // table here also checks both on each case.
+import { isProjectOp } from "./projectOps";
 import { describe, expect, it } from "vitest";
 import {
   applyOpToSettings, diffOps, invert, MAX_LOUDNESS_BUSES, MIX_OP_NAMES, opClass, opRefusal,
@@ -93,7 +94,8 @@ function table(): MixOpNameTable & { name(id: number): string; bus(ref: number):
 
 describe("every op kind (Mo1, §6.2)", () => {
   it("covers every op name", () => {
-    expect(new Set(CASES.map(([, op]) => op.op))).toEqual(new Set(MIX_OP_NAMES));
+    // The mix model's own ops (ADR 0330) are `projectOps.test.ts`'s: the old section can't hold them.
+    expect(new Set(CASES.map(([, op]) => op.op))).toEqual(new Set(MIX_OP_NAMES.filter((n) => !isProjectOp({ op: n }))));
   });
   it.each(CASES)("%s: applies, has its class, inverts, diffs back, and round-trips its byte form", (_label, op, cls) => {
     const a = base();

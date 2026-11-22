@@ -909,20 +909,30 @@ export class Mixer {
    * Carrier low-pass overrides ride the lane's low-pass (the migration's carriers, ADR 0330); other effect overrides go
    * to the live effects.
    */
-  private planSnapshots(now: number, minSeconds: number, force: boolean): void {
+  private planSnapshots(now: number, minSeconds: number, force: boolean, fromBlend = false): void {
     if (!force && now < this.segmentEnd) return;
     this.player.prune(now);
     const brk = this.player.nextBreak(now);
     const end = brk === Number.POSITIVE_INFINITY ? now : Math.min(brk, now + SNAPSHOT_SEGMENT_MS / 1000);
     this.segmentEnd = brk === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : end;
     const seconds = Math.max(end - now, minSeconds);
-    const mix = this.player.resolveAt(end, (owner, id, p) => this.baseParam(owner, id, p));
+    const base = (owner: string, id: string, p: string) => this.baseParam(owner, id, p);
+    const mix = this.player.resolveAt(end, base);
+    // A segment that ended between two frames: main's estimate of the next one starts from the blend now, not from
+    // where the last segment stopped (the core ramps from wherever its lane is; only main's getters read `from`).
+    const at = fromBlend && seconds > 0 ? this.player.resolveAt(now, base) : null;
+    const gainOf = (db: number) => (db <= MIN_DB ? 0 : Math.min(MAX_LANE_GAIN, dbToGain(db)));
     const write = (name: string, s: BusState) => {
-      const db = mix.levels[name] ?? 0;
-      const g = db <= MIN_DB ? 0 : Math.min(MAX_LANE_GAIN, dbToGain(db));
-      if (s.kind === "bus") this.lane(name, Lane.snapshot, s.snapshot, g, seconds);
-      else this.retarget(s.snapshot, g, seconds);
-      this.retarget(s.lp, this.carrierCutoff(name, mix.effects[name]), seconds);
+      // A lane already heading for its value keeps its ramp (an edit of a snapshot not in force moves nothing).
+      const g = gainOf(mix.levels[name] ?? 0);
+      if (s.snapshot.to !== g) {
+        if (s.kind === "bus") this.lane(name, Lane.snapshot, s.snapshot, g, seconds);
+        else this.retarget(s.snapshot, g, seconds);
+      }
+      const hz = this.carrierCutoff(name, mix.effects[name]);
+      if (s.lp.to !== hz) this.retarget(s.lp, hz, seconds);
+      if (at && s.snapshot.start === now) s.snapshot.from = gainOf(at.levels[name] ?? 0);
+      if (at && s.lp.start === now) s.lp.from = this.carrierCutoff(name, at.effects[name]);
     };
     for (const [name, s] of this.buses) write(name, s);
     for (const [name, s] of this.returns) write(name, s);
@@ -1108,7 +1118,7 @@ export class Mixer {
     const prev = this.lastUpdate;
     const hdt = now - prev;
     this.lastUpdate = now;
-    if (now >= this.segmentEnd) this.planSnapshots(now, 0, true);
+    if (now >= this.segmentEnd) this.planSnapshots(now, 0, true, true);
     if (hdt > 0) {
       for (const s of this.buses.values()) {
         if (rampMoves(s.authored, prev, now) || rampMoves(s.vca, prev, now) || rampMoves(s.fader, prev, now) || rampMoves(s.runtime, prev, now) || rampMoves(s.snapshot, prev, now) || rampMoves(s.lp, prev, now) || rampMoves(s.dip, prev, now)) {

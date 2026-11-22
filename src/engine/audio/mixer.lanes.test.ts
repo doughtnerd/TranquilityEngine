@@ -254,38 +254,49 @@ describe("Mixer lanes on the heard clock (Mx1)", () => {
   });
 
   describe("snapshots: ramps on the snapshot lane", () => {
-    it("snapshot(name, s) gain and low-pass curves equal today's frame by frame, to 1e-9", () => {
+    // ADR 0330: a snapshot's fade is linear in dB (its offset times a weight ramped linearly), written to the lane as
+    // linear-gain segments of at most SNAPSHOT_SEGMENT_MS; a migrated low-pass rides the lane's low-pass, blending from
+    // the open carrier (20 kHz) to the snapshot's cutoff with the same weight.
+    const PAUSED_DB = 20 * Math.log10(0.3);
+    const dbOf = (g: number) => (g <= 0 ? -Infinity : 20 * Math.log10(g));
+    /** Within a segment the lane is a chord of the dB curve: a tenth of a dB of it. */
+    const expectLanes = (m: Mixer, w: number) => {
+      expect(Math.abs(dbOf(m.laneGain("Music", Lane.snapshot)) - PAUSED_DB * w)).toBeLessThan(0.1);
+      for (const n of [MASTER, "SFX", "Voice"]) expect(m.laneGain(n, Lane.snapshot)).toBe(1);
+      const lp = m.resolve("Music")!.snapshotLowpass;
+      if (w === 0) expect(lp).toBeNull();
+      // From "none" (24 kHz) the first segment glides to the open carrier's blend; after it, the blend itself.
+      else expect(lp!).toBeGreaterThanOrEqual(20000 + (800 - 20000) * w - 1);
+    };
+
+    it("snapshot(name, s) fades the lane linearly in dB and the carrier low-pass with the same weight, frame by frame", () => {
       const { m, run } = rig(settings(TREE(), { snapshots: [PAUSED] }));
-      const today = new TodayMixer(NAMES, []);
       run(6);
       m.snapshot("Paused", 0.5);
-      today.snapshot(PAUSED, 0.5);
-      for (let f = 0; f < 60; f++) {
+      let lp = Infinity;
+      for (let f = 1; f <= 40; f++) {
         run();
-        today.update(DT);
-        for (const n of NAMES) {
-          expect(m.laneGain(n, Lane.snapshot)).toBeCloseTo(today.snap(n), 9);
-          expect(m.resolve(n)!.snapshotLowpass ?? OFF_HZ).toBeCloseTo(today.lp(n), 9);
-        }
+        expectLanes(m, Math.min(1, (f * DT) / 0.5));
+        const now = m.resolve("Music")!.snapshotLowpass!;
+        expect(now).toBeLessThanOrEqual(lp);
+        lp = now;
+        if (f === 15) expect(now).toBeCloseTo(20000 + (800 - 20000) * 0.5, -2);
       }
+      expect(m.laneGain("Music", Lane.snapshot)).toBe(0.3);
+      expect(m.resolve("Music")!.snapshotLowpass).toBe(800);
       expect(m.currentSnapshot).toBe("Paused");
     });
 
-    it("a snapshot interrupted mid-transition by clearSnapshot equals today's curve", () => {
+    it("a snapshot interrupted mid-fade by clearSnapshot turns round from where it is, over its share of the fade out", () => {
       const { m, run } = rig(settings(TREE(), { snapshots: [PAUSED] }));
-      const today = new TodayMixer(NAMES, []);
       m.snapshot("Paused", 1);
-      today.snapshot(PAUSED, 1);
-      for (let f = 0; f < 30; f++) { run(); today.update(DT); }
+      for (let f = 0; f < 30; f++) run();
+      expectLanes(m, 0.5);
       m.clearSnapshot(0.25);
-      today.clearSnapshot(0.25);
-      for (let f = 0; f < 60; f++) {
+      // Half-way in, so half of the 0.25 s fade out.
+      for (let f = 1; f <= 12; f++) {
         run();
-        today.update(DT);
-        for (const n of NAMES) {
-          expect(m.laneGain(n, Lane.snapshot)).toBeCloseTo(today.snap(n), 9);
-          expect(m.resolve(n)!.snapshotLowpass ?? OFF_HZ).toBeCloseTo(today.lp(n), 9);
-        }
+        expectLanes(m, Math.max(0, 0.5 * (1 - (f * DT) / 0.125)));
       }
       expect(m.currentSnapshot).toBeNull();
       expect(m.laneGain("Music", Lane.snapshot)).toBe(1);
