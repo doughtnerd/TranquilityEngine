@@ -55,7 +55,7 @@ export function pluralProblems(ast: readonly MessageNode[], tag: string, languag
         if (missing.length) {
           out.push({
             severity: "error",
-            message: `${languageName} needs ${missing.join(" and ")} in the ${n.ordinal ? "selectordinal" : "plural"} of "${n.name}"`,
+            message: `${languageName} needs ${missing.length > 1 ? `${missing.slice(0, -1).join(", ")} and ${missing[missing.length - 1]}` : missing[0]} in the ${n.ordinal ? "selectordinal" : "plural"} of "${n.name}"`,
             start: n.start, end: n.end,
           });
         }

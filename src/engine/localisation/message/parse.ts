@@ -76,7 +76,7 @@ class Parser {
       } else if (c === "}") {
         if (inBranch) break;
         this.i++;
-        this.problem("error", "this } closes nothing", start);
+        this.problem("warning", "this } closes nothing; kept as text", start);
         text("}", start);
       } else if (c === "#" && inPlural) {
         this.i++;
