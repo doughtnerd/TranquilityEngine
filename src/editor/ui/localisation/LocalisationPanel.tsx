@@ -8,7 +8,8 @@ import { useEffect } from "preact/hooks";
 import { gatherKeys } from "../../../engine/localisation/exchange/gather";
 import type { ImportPreview } from "../../../engine/localisation/exchange/importPreview";
 import type { ExchangeProject } from "../../../engine/localisation/exchange/model";
-import { languageOf, parseLanguages } from "../../../engine/localisation/languages";
+import { languageOf } from "../../../engine/localisation/languages";
+import { languagesOf, stringsFiles } from "./projectStrings";
 import { stringsPathKind, translationPath, type StringTable } from "../../../engine/localisation/strings/format";
 import type { TranslationFile } from "../../../engine/localisation/strings/translation";
 import { estimateText } from "../../../engine/ui/layout";
@@ -82,11 +83,6 @@ async function dismiss(project: EditorProject, id: string): Promise<void> {
   }
 }
 
-/** The project's strings files with their current values (open documents' unwritten edits included). */
-function stringsFiles(project: EditorProject): [string, StringsFile][] {
-  return project.files.filter((f) => stringsPathKind(f) !== null).map((f) => [f, readAsset<StringsFile>(project, f, STRINGS_KIND).value]);
-}
-
 /** The files gathering reads: every project file's value (strings files as their documents hold them), and the scripts' text. */
 function gatherFiles(project: EditorProject): [string, unknown][] {
   const out: [string, unknown][] = project.files.map((f) => [f, stringsPathKind(f) ? JSON.parse(stringsFormat.format(readAsset<StringsFile>(project, f, STRINGS_KIND).value)) : project.assets.get(f)]);
@@ -140,7 +136,7 @@ export function LocalisationPanel() {
   }, [opened]);
   if (!project) return <Panel><p class="empty">No project open</p></Panel>;
 
-  const languages = parseLanguages(project.settings.languages).languages;
+  const languages = languagesOf(project);
   const data: ExchangeProject = exchangeProjectOf(languages, stringsFiles(project));
   const owned = studioOwnedTables(project.files.filter((f) => f.endsWith(".lines.json") || f === "audio.json").map((f) => [f, project.assets.get(f)] as const));
   const accessOf = (table: string) => tableAccess({ canSave: project.canSave, studioOwned: owned.has(table), studioLock: studioLock.value });

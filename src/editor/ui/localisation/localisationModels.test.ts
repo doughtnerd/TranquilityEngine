@@ -11,6 +11,7 @@ import type { EditResult } from "./editResult";
 import { exportFiles, formatOfFile, importPreviewOf, importWrites, previewSummary } from "./exchangeModel";
 import { fitCheck } from "./fitCheck";
 import { exchangeProjectOf, studioOwnedTables, tableAccess } from "./localisationData";
+import { keyMatches, keyPreview, suggestKey, suggestTable } from "./localiseModel";
 import { localisationReport } from "./reportModel";
 import { stringsFormat } from "./stringsKind";
 import {
@@ -148,6 +149,20 @@ describe("the Report", () => {
     expect(section("fit").rows[0].detail).toMatch(/^fr: \d+ px tall, box 20 px · ui\/menu.ui.xml #start$/);
     expect(report.issues).toBe(5);
     expect(localisationReport(gather, null).sections.some((s) => s.id === "fit")).toBe(false);
+  });
+});
+
+describe("the Inspector's Localise control", () => {
+  it("finds keys by name or text with previews in the preview language, and suggests keys and tables", () => {
+    const p = project();
+    expect(keyMatches(p, "quitter", "fr").map((m) => [m.key, m.preview])).toEqual([["menu.quit", "Quitter"]]);
+    expect(keyMatches(p, "menu.start", "de")[0]).toEqual({ key: "menu.start", table: "strings/menu.strings.json", preview: "Los" });
+    expect(keyPreview(p, "menu.quit", "qps-ploc")).toBe("Quit game");
+    expect(keyPreview(p, "nope", "fr")).toBeNull();
+    expect(suggestKey(p, "ui/menu.ui.xml", "start", "Text", "text")).toBe("menu.start_2");
+    expect(suggestKey(p, "ui/hud.ui.xml", null, "InputField", "placeholder")).toBe("hud.placeholder_inputfield");
+    expect(suggestTable(p, "ui/menu.ui.xml")).toBe("strings/menu.strings.json");
+    expect(suggestTable(p, "ui/hud.ui.xml")).toBe("audio/vo/ch1.strings.json");
   });
 });
 
