@@ -103,6 +103,12 @@ export interface SampleEdits {
    * applies trim and loops, skips the normalize gain, and loops and markers keep their source seconds.
    */
   source?: string;
+  /**
+   * The source version the edits were mapped to by the last re-import (ADR 0328 "Source versions",
+   * `sourceVersions.ts`): the Studio keeps the file's audio on that version, so undoing a re-import puts the old audio
+   * back. Absent: the original audio. Versions are per machine; on a machine without them it means nothing.
+   */
+  sourceVersion?: number;
 }
 
 export interface SampleLineage {

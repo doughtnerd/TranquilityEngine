@@ -179,6 +179,7 @@ function Timeline(props: { session: SampleSession }) {
             <HistoryPopover none="No edits yet" />
           </span>
           <button class="smp-tool" title="Write markers, loops, tempo and root into the WAV (a backup is kept)" disabled={session.readOnly || !/\.wave?$/i.test(source)} onClick={() => (dialog.value = { kind: "write" })}>Write to file…</button>
+          <button class="smp-tool" title="Replace the audio with a new file, keeping the edits (the current audio is kept as a version)" disabled={session.readOnly || session.derived.value !== null} onClick={() => (dialog.value = { kind: "reimport" })}>Re-import…</button>
           <button class="smp-tool" title="Fork as new sample (Ctrl+Shift+S)" disabled={session.readOnly} onClick={() => (dialog.value = { kind: "fork", mode: "fork" })}>Fork…</button>
           <span class="smp-sep" />
           <TempoPopover edits={e} commit={(r) => commit(r)} detect={detect} disabled={session.readOnly} />

@@ -341,6 +341,10 @@ export function parseSampleEdits(raw: unknown, where: string, problems: string[]
   out.snapToZero = r.bool(raw.snapToZero, `${where}.snapToZero`, defaultSnapToZero(kind));
   const source = r.optStr(raw.source, `${where}.source`);
   if (source) out.source = source;
+  if (raw.sourceVersion !== undefined) {
+    if (Number.isInteger(raw.sourceVersion) && (raw.sourceVersion as number) >= 1) out.sourceVersion = raw.sourceVersion as number;
+    else r.problem(`${where}.sourceVersion`, "must be a version number ≥ 1; dropped.");
+  }
   return out;
 }
 
@@ -406,6 +410,7 @@ export function sampleEditsToJson(e: SampleEdits): JsonRecord {
   if (e.stinger) out.stinger = true;
   if (e.snapToZero !== defaultSnapToZero(e.kind)) out.snapToZero = e.snapToZero;
   if (e.source !== undefined) out.source = e.source;
+  if (e.sourceVersion !== undefined) out.sourceVersion = e.sourceVersion;
   return out;
 }
 
@@ -462,7 +467,7 @@ export function derivedSampleToJson(a: DerivedSampleAsset): JsonRecord {
 // --- forks -----------------------------------------------------------------------------------------------------------
 
 
-const EDIT_FIELDS = ["kind", "trim", "loops", "markers", "tempo", "root", "normalize", "effects", "automation", "frozen", "cuts", "deleted", "closedGaps", "stinger", "snapToZero", "source"] as const satisfies readonly (keyof SampleEdits)[];
+const EDIT_FIELDS = ["kind", "trim", "loops", "markers", "tempo", "root", "normalize", "effects", "automation", "frozen", "cuts", "deleted", "closedGaps", "stinger", "snapToZero", "source", "sourceVersion"] as const satisfies readonly (keyof SampleEdits)[];
 
 /**
  * The edits a derived sample plays with. A following fork reads each top-level field that still equals its `baseline`
