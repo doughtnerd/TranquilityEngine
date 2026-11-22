@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseAudioSettings } from "../settings";
-import { audioProjectToJson, defaultAudioProject, parseAudioProject, toRuntimeSettings } from "./format";
+import { audioProjectToJson, defaultAudioProject, parseAudioProject } from "./format";
+import { legacySectionOf as toRuntimeSettings } from "./runtimeView";
 import { MAX_DB } from "./gain";
 import { AUDIO_PROJECT_FORMAT } from "./types";
 

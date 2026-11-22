@@ -1,8 +1,10 @@
 /**
  * Internal (ADR 0097): the runtime's mix model, a tree of mixer buses with per-bus volume, mute and effects, plus
  * snapshots and ducking rules. It was the `audio` section of `project.json`; since ADR 0330 the project's mix lives in
- * `audio.json` (`project/format.ts`) and the runtime runs `toRuntimeSettings` of it, in this shape. The old section is
- * read only by the migration (`project/legacy.ts`).
+ * `audio.json` (`project/format.ts`). The runtime's settings carry it whole under `mix` (`projectWithAudio`), and the
+ * mixer runs that model (`mixer.ts`); the old mix keys beside it are the editor's legacy panels' view (decision D2) and
+ * the shape the mixer hands its backends (`project/runtimeView.ts`). The old section is read only by the migration
+ * (`project/legacy.ts`).
  *
  * ```jsonc
  * "audio": {
@@ -179,7 +181,17 @@ export interface AudioSettings {
   loudnessTargets?: LoudnessTarget[];
   /** ADR 0171 §2.1 (types from K0; parse Ld5): reset the loudness meters at the editor's Play. Absent: true. */
   loudnessResetOnPlay?: boolean;
+  /**
+   * ADR 0330: `audio.json`'s mix (its top-level keys but `format` and `settings`), as written. When present the mixer runs
+   * it (parsed by `project/format.ts`) and the old mix keys above are only a view of it (`project/runtimeView.ts`); a
+   * view the editor's legacy panels edited is written back into it first (decision D2). Absent: the old keys are the mix
+   * (migrated on the fly, `fromLegacySection`).
+   */
+  mix?: AudioMixJson;
 }
+
+/** `audio.json`'s mix as JSON (`parameters`, `buses`, `returns`, `vcas`, `automation`, `ducking`, `snapshots`, `loudness`). */
+export type AudioMixJson = Readonly<Record<string, unknown>>;
 
 /** `audio.music` (ADR 0166 §2.1). */
 export interface MusicSettings { rings: number }
@@ -473,6 +485,11 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
   parseEventKeys(input, settings, problems);
   parseMusicKeys(input, settings, problems);
   parseMeteringKeys(input, settings, problems);
+  // ADR 0330: the mix as `audio.json` holds it; the mixer parses it (`project/format.ts`), so it is kept as written here.
+  if (input.mix !== undefined) {
+    if (isRecord(input.mix)) settings.mix = structuredClone(input.mix);
+    else problems.push("audio.mix: must be an object (audio.json's mix); ignored.");
+  }
   return { settings, problems, warnings };
 }
 

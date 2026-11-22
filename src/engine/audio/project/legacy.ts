@@ -5,10 +5,11 @@
  *   "Reverb" return, snapshot multipliers to dB offsets, a snapshot low-pass to an override of a low-pass created on that
  *   bus (open at 20 kHz outside the snapshot), bus automation to `volume` or `fx:<low-pass>:cutoff` targets.
  * - `mergeLegacyIntoProject(project, section)` is the adapter the editor's legacy audio panels write through: they edit
- *   the old section shape (`toRuntimeSettings(project)`); this writes what they changed into `project` and keeps what
- *   the old shape can't express (more returns, VCAs, effects the runtime doesn't run, snapshot triggers and effect
- *   overrides, disabled rules, bypassed automation). Whatever is unchanged in the old shape keeps its exact value, so
- *   `mergeLegacyIntoProject(p, toRuntimeSettings(p))` is `p`.
+ *   the old section shape (`legacySectionOf(project)`, `runtimeView.ts`); this writes what they changed into `project`
+ *   and keeps what the old shape can't express (more returns, VCAs, effects the runtime doesn't run, snapshot triggers
+ *   and effect overrides, disabled rules, bypassed automation). Whatever is unchanged in the old shape keeps its exact
+ *   value, so `mergeLegacyIntoProject(p, legacySectionOf(p))` is `p`. With `{ view: "core" }` it writes back an edit of
+ *   the backends' view instead (`coreSectionOf`, levels without VCAs): the runtime's mixer lifts a legacy live op with it.
  *
  * Pure; no plugin, no DOM.
  */
@@ -22,8 +23,9 @@ import {
 } from "../settings";
 import {
   DEFAULT_SNAPSHOT_FADE_MS, DEFAULT_SNAPSHOT_PRIORITY, audioProjectToJson, defaultAudioProject, engineSettingsOf, freeEffectId, newBus,
-  parseAudioProject, reverbSendOf, toRuntimeSettings, vcaOffsetDb,
+  parseAudioProject,
 } from "./format";
+import { coreSectionOf, legacySectionOf, reverbSendOf, vcaOffsetDb } from "./runtimeView";
 import { levelDbOf } from "./gain";
 import { OPEN_CUTOFF, isCarrier, isShown, msOf, paramsOf, toBusEffect, updatedParams } from "./legacyEffects";
 import type { AudioEngineSettings, AudioProject, Bus, DuckingRule, MixAutomation, Return, Snapshot } from "./types";
@@ -143,10 +145,10 @@ function renamesOf(project: AudioProject, next: AudioSettings): Map<string, stri
   return out;
 }
 
-/** Whether the runtime view shows `d` (`toRuntimeSettings`' rule). */
+/** Whether the section view shows `d` (`runtimeView.ts`' rule). */
 const showsRule = (p: AudioProject, d: DuckingRule) => d.enabled && p.buses.some((b) => b.name === d.target) && p.buses.some((b) => b.name === d.trigger);
 
-/** Whether the runtime view shows `a` (`toRuntimeSettings`' rule). */
+/** Whether the section view shows `a` (`runtimeView.ts`' rule). */
 function showsAutomation(p: AudioProject, a: MixAutomation): boolean {
   if (a.bypass) return false;
   const bus = p.buses.find((b) => b.name === a.on);
@@ -191,15 +193,20 @@ function mergeEffects(project: AudioProject, owner: string, old: readonly Effect
 const nonReverb = (b: BusSettings | undefined): Exclude<BusEffect, { type: "reverb" }>[] =>
   (b?.effects ?? []).filter((e): e is Exclude<BusEffect, { type: "reverb" }> => e.type !== "reverb");
 
+/** Which section view a merge writes back: the legacy panels' (VCAs folded into levels) or the backends' (`coreSectionOf`). */
+export interface MergeOptions { view?: "legacy" | "core" }
+
 /**
  * `project` with the old-shape `section` written in (decision D2). `section` is what a legacy panel edited, starting
- * from `toRuntimeSettings(project)`: each value it changed is converted and written; what it left alone, and what the
- * old shape can't express, stays as `project` has it. A bus renamed in place keeps what only `audio.json` knows about it.
+ * from `legacySectionOf(project)` (or `coreSectionOf` with `view: "core"`): each value it changed is converted and
+ * written; what it left alone, and what the old shape can't express, stays as `project` has it. A bus renamed in place
+ * keeps what only `audio.json` knows about it.
  */
-export function mergeLegacyIntoProject(original: AudioProject, section: unknown): AudioProject {
+export function mergeLegacyIntoProject(original: AudioProject, section: unknown, options: MergeOptions = {}): AudioProject {
+  const core = options.view === "core";
   const next = parseAudioSettings(section).settings;
   const project = renamed(original, renamesOf(original, next));
-  const raw = toRuntimeSettings(project);
+  const raw = core ? coreSectionOf(project) : legacySectionOf(project);
   const expected = parseAudioSettings(raw).settings;
   const out: AudioProject = structuredClone(project);
 
@@ -257,8 +264,8 @@ export function mergeLegacyIntoProject(original: AudioProject, section: unknown)
   const busNames = new Set(out.buses.map((b) => b.name));
   for (const v of out.vcas) v.members = v.members.filter((m) => busNames.has(m));
   for (const r of out.returns) if (!busNames.has(r.output)) r.output = out.buses[0].name;
-  // Levels last: a VCA's offset is folded into the old section's volume, so it comes off again here.
-  for (const { bus, nb, changed } of volumes) if (changed) bus.volumeDb = levelDbOf(nb.volume, vcaOffsetDb(out, bus.name));
+  // Levels last: a VCA's offset is folded into the legacy view's volume, so it comes off again here (the core view has none).
+  for (const { bus, nb, changed } of volumes) if (changed) bus.volumeDb = levelDbOf(nb.volume, core ? 0 : vcaOffsetDb(out, bus.name));
 
   // Carriers for an old snapshot or automation low-pass: one per bus, shared.
   const created = new Set<Effect>();
