@@ -1,7 +1,7 @@
 /* The shared curve editor dialog (ADR 0332, CurveEditorDialog.tsx). Theme tokens only; lane colours are the series
    palette (--series-1 … --series-8), set inline from the model. */
 .ce-backdrop { position: fixed; inset: 0; z-index: 35; background: var(--backdrop); display: flex; align-items: center; justify-content: center; }
-.dialog.ce-window { container-type: inline-size; position: relative; display: flex; flex-direction: column; box-sizing: border-box; width: min(920px, calc(100vw - 16px)); height: min(700px, calc(100vh - 32px)); padding: 0; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; font-size: calc(12px * var(--ui-scale)); }
+.dialog.ce-window { position: relative; display: flex; flex-direction: column; box-sizing: border-box; width: min(920px, calc(100vw - 16px)); height: min(700px, calc(100vh - 32px)); padding: 0; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; font-size: calc(12px * var(--ui-scale)); }
 .dialog.ce-window[data-kind="parameter"], .dialog.ce-window[data-kind="distance"] { height: min(580px, calc(100vh - 32px)); }
 .ce-window:focus { outline: none; }
 .ce-window *, .ce-window *::before { box-sizing: border-box; }
@@ -140,8 +140,9 @@
 .ce-status.dirty { color: var(--warning); }
 .ce-status.notice { color: var(--danger); }
 
-/* Narrow windows stack the properties above the plot. */
-@container (max-width: 640px) {
+/* Narrow windows (under 640 px: the window is the viewport less 16 px there) stack the properties above the plot.
+   A media query, not a container query: containment on the window would trap its fixed-position menus. */
+@media (max-width: 656px) {
   .ce-main { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .ce-side { border-right: 0; border-bottom: 1px solid var(--border); max-height: 40%; }
   .ce-presets { padding-left: 12px; }

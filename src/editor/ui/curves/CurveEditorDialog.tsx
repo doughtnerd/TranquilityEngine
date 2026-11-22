@@ -249,7 +249,7 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
         aria-modal="true"
         aria-labelledby="ce-title"
         tabIndex={-1}
-        style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
+        style={{ left: `${offset.x}px`, top: `${offset.y}px` }}
         data-kind={props.kind}
         onKeyDown={onKeyDown}
       >
