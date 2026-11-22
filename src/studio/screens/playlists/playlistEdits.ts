@@ -122,6 +122,8 @@ export function setEntryUse(b: PlaylistBody, i: number, patch: Partial<EntryUse>
   if (patch.volume !== undefined) next.volume = round(clamp(patch.volume, ...USE_LIMITS.volume), 0.1);
   if (patch.pitch !== undefined) next.pitch = round(clamp(patch.pitch, ...USE_LIMITS.pitch), 0.01);
   if (patch.weight !== undefined) next.weight = Math.round(clamp(patch.weight, ...USE_LIMITS.weight));
+  // ADR 0336: `region` or `weightCurve` patched to undefined is cleared ("reset to automatic").
+  for (const k of ["region", "weightCurve"] as const) if (k in patch && patch[k] === undefined) delete next[k];
   const entries = [...b.entries];
   entries[i] = next;
   return accept({ ...b, entries });
@@ -216,7 +218,9 @@ function patchChange<T extends ChangeHow>(c: T, patch: Partial<ChangeHow>): T {
     const old = "ms" in c.length ? c.length.ms : c.length.beats * 500;
     next.length = timed(patch.when) ? { ms: Math.round(old) } : { beats: Math.max(0.25, round(old / 500, 0.25)) };
   }
-  if (next.how !== "transition") delete next.transition;
+  if (next.how !== "transition") { delete next.transition; delete next.transitionIn; delete next.transitionOut; }
+  // ADR 0336: a field patched to undefined goes back to its default (absent), as the parse reads it.
+  for (const k of Object.keys(patch) as (keyof ChangeHow)[]) if (patch[k] === undefined) delete next[k];
   return next;
 }
 

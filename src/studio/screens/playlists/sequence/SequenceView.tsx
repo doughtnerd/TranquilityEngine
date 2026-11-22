@@ -35,7 +35,7 @@ import {
   newTrack, nudgeClipEdge, removeTracks, setClipLength, setMeter, setSequenceLength, setTempo, setTrack, splitClip, toggleClipsEnabled, trimClipStart, trimToPlayhead,
 } from "./sequenceEdits";
 import { beatSeconds, beatsPerBar, keepTaps, METERS, nudgeStep, SNAP_MENU, snapSpan, snapTime, tapTempo, type SnapMode } from "./sequenceGrid";
-import { allClips, clipLength, findClip, onSequence, plural, sequenceLength, type BodyEdit, type SeqEdit, type SourceOf } from "./sequenceModel";
+import { allClips, clipLength, findClip, onSequence, plural, sequenceLength, sequenceTails, type BodyEdit, type SeqEdit, type SourceOf } from "./sequenceModel";
 import { clickClip, clickPoint, EMPTY_SELECTION, marqueeSelect, pressClip, selectAll, selectLoop, selectMarker, selectTrack, type SeqSelection } from "./sequenceSelection";
 import {
   bindSequence, playback, seqClipboard, seqOpenLanes, seqPlayhead, seqRazor, seqSelection, seqShownCurve, seqShowWave, seqSnap, seqTimeFormat, seqTransport, seqView, seqWrite, transportMessage,
@@ -800,6 +800,10 @@ export function SequenceView(props: SequenceViewProps) {
             })}
           </div>
           <div class="sq-markers-row" title="Double-click to add a marker" onDblClick={(e) => writable && runWith("Add marker", (q) => addMarker(q, snapAt(timeAt(e), e)), (r) => select(selectMarker(sel, r.id)))}>
+            {sequenceTails(s, length).map((t) => visible(t.from, t.to) && (
+              <div key={`${t.kind}${t.loop ?? ""}`} class={`sq-tail ${t.kind}`} style={{ left: `${toPx(t.from)}px`, width: `${Math.max(2, toPx(t.to) - toPx(t.from))}px` }} aria-hidden="true"
+                title={t.kind === "postExit" ? "Tail: after the last Exit marker, this rings on under the next section when a Switch hands over there" : "Loop tail: rings over the next pass at each wrap"} />
+            ))}
             {s.markers.map((m) => {
               if (!visible(m.at, m.at)) return null;
               return (

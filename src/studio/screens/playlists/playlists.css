@@ -123,6 +123,17 @@
 .pl-tri { fill: var(--accent-soft); }
 .pl-spoke { stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .pl-input-dot { fill: var(--text); stroke: var(--bg); stroke-width: 2; }
+/* ADR 0336: 1D regions (trapezoids and their handles), the 2D influence tint, fade shape glyphs, a change's fades row */
+.pl-region { fill: none; stroke: var(--series); stroke-opacity: 0.5; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.pl-region-outline { fill: var(--series); fill-opacity: 0.08; stroke: var(--series); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.pl-region-edit.derived .pl-region-outline { stroke-dasharray: 6 4; }
+.pl-region-handle { fill: var(--panel); stroke: var(--series); stroke-width: 2; vector-effect: non-scaling-stroke; cursor: ew-resize; outline: none; }
+.pl-region-handle:focus-visible { stroke: var(--focus-ring); stroke-width: 3; }
+.pl-influence { fill: var(--series); pointer-events: none; }
+.pl-shape { gap: 4px; }
+.pl-shape-glyph path { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+.pl-fades .pl-fades-cell { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding-left: 12px; }
+.pl-wrap { flex-wrap: wrap; }
 .pl-adsr { display: grid; grid-template-columns: 80px repeat(4, max-content) 1fr; gap: 6px; align-items: center; padding: 2px 8px; }
 .pl-adsr-shape { width: 100%; height: 30px; }
 .pl-adsr-shape path { fill: var(--accent-soft); stroke: var(--accent); vector-effect: non-scaling-stroke; }

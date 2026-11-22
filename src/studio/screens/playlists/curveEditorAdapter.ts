@@ -4,6 +4,8 @@
 import { openCurveEditorDialog } from "../../../editor/ui/curves/openCurveEditorDialog";
 import type { ParameterDef } from "../../../engine/audio/parameters";
 import { applyVoiceCurveResult, voiceCurveDialog, type VoiceCurves } from "./voiceCurves";
+import { applyWeightCurveResult, weightCurveDialog } from "./weightCurves";
+import type { Curve } from "../../../engine/core/curve";
 
 /** What the Playlists screen asks the curve editor to edit: one entry's voice curves. */
 export interface CurveEditorRequest {
@@ -19,6 +21,21 @@ export interface CurveEditorRequest {
   readonly values?: Readonly<Record<string, number>>;
   /** Write the edited curves back (one undo step on the playlist). */
   apply(curves: VoiceCurves, label: string): void;
+}
+
+/** ADR 0336: open the curve editor on a Blend entry's weight curve; `apply` gets the new curve (undefined: cleared). */
+export function openWeightCurveEditor(request: { readonly entry: string; readonly context?: string; readonly curve: Curve | undefined; apply(curve: Curve | undefined): void }, doc: Document = document): void {
+  openCurveEditorDialog(doc, {
+    ...weightCurveDialog(request.curve),
+    title: "Blend weight curve",
+    target: request.entry,
+    context: request.context,
+    onCancel: () => {},
+    onApply(result) {
+      const r = applyWeightCurveResult(request.curve, result);
+      if (r) request.apply(r.curve);
+    },
+  });
 }
 
 /** Open the curve editor on `request`. */
