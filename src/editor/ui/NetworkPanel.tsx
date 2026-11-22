@@ -206,7 +206,7 @@ function Stats() {
                   <th title="Smoothed round-trip time">RTT</th>
                   <th title="Bytes per second received">In</th>
                   <th title="Bytes per second sent">Out</th>
-                  {w.role === "server" && <th title="Size of the last snapshot sent">Snapshot</th>}
+                  {w.role === "server" && <th title="Size of the last snapshot sent, and how many packets it took when it didn't fit one">Snapshot</th>}
                   {w.role === "server" && <th title="Ghosts this client has been told about">Ghosts</th>}
                   {w.role === "server" && <th title="Inputs received / repeated (missing) / late">Input</th>}
                 </tr>
@@ -283,7 +283,7 @@ function PeerRows(props: { world: WorldStats; peer: PeerStats; expanded: boolean
         <td class="network-rtt">{Math.round(p.rtt)} ms</td>
         <td class="network-in">{formatBytes(p.in.bytesPerSecond)}/s</td>
         <td class="network-out">{formatBytes(p.out.bytesPerSecond)}/s</td>
-        {w.role === "server" && <td>{formatBytes(p.snapshotBytes ?? 0)}</td>}
+        {w.role === "server" && <td>{formatBytes(p.snapshotBytes ?? 0)}{(p.snapshotParts ?? 0) > 1 ? ` in ${p.snapshotParts} packets` : ""}</td>}
         {w.role === "server" && <td>{p.ghosts ?? 0}</td>}
         {w.role === "server" && <td title={p.inputs.map((i) => `${i.id}: ${i.received} / ${i.repeated} / ${i.late}`).join("\n") || "No input received"}>{p.inputs.length ? `${inputs.received} / ${inputs.repeated} / ${inputs.late}` : "—"}</td>}
       </tr>

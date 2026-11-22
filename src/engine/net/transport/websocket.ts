@@ -5,18 +5,36 @@
  * re-registers "websocket" as a transport that can both listen and connect.
  *
  * Framing: every WebSocket message is binary, a 1-byte header then the payload. Header bit 0 is
- * the channel (0 reliable, 1 unreliable); bits 1-7 are reserved for flags and must be 0 (a peer
- * that sees one set closes the connection, so a future flag is never silently misread).
+ * the channel (0 reliable, 1 unreliable); bit 1 marks a signal frame and bit 2 a sequenced
+ * unreliable frame (both ADR 0333, below); bits 3-7 are reserved and must be 0 (a peer that sees
+ * one set closes the connection, so a future flag is never silently misread).
  *
- * WebSocket runs over TCP, so everything is reliable and ordered: unreliable messages simply ride
- * along on the same stream. That keeps the contract (nothing arrives stale) but gives none of the
- * benefit: a lost packet still holds up everything behind it (head-of-line blocking). Truly
- * unreliable delivery comes with the WebRTC transport (ADR 0033).
+ * WebSocket runs over TCP, so everything sent on it is reliable and ordered: a lost packet holds
+ * up everything behind it (head-of-line blocking). So when both ends can, each connection opens a
+ * WebRTC data channel beside its socket (ADR 0333, `datagramLane.ts`) and sends unreliable
+ * messages that fit one packet over it, where a lost one is just lost:
+ *
+ * - A client that has `RTCPeerConnection` asks with `myco-rtc=1` in its URL's query; a server
+ *   that can answers with an offer in a signal frame (bit 1; JSON, `SignalMessage`). Neither sends
+ *   a signal frame to a peer that didn't show it understands them, so plain peers never see one.
+ * - From then on ("negotiated") every unreliable message carries a 32-bit sequence number: on the
+ *   socket after the header of a frame with bit 2 set, on the data channel before the payload. The
+ *   receiver drops one that isn't newer than the newest it delivered, whichever way it came.
+ * - Reliable messages always go over the socket. An unreliable one goes over the data channel
+ *   while it's open and the message fits `maxDatagramBytes`; otherwise over the socket.
+ * - A data channel that doesn't open, or closes, just leaves the traffic on the socket.
  */
 import { registerTransport, type Channel, type ConnectionState, type Transport, type TransportConnection, type TransportEvent } from "../Transport";
+import { DatagramLane, parseSignal, type LaneSetup, type PeerConnectionConstructor, type SignalMessage } from "./datagramLane";
 
 const UNRELIABLE_BIT = 0x01;
-const RESERVED_BITS = 0xfe;
+/** A signal frame: the payload is a JSON `SignalMessage` for the datagram lane (ADR 0333). */
+const SIGNAL_BIT = 0x02;
+/** An unreliable frame whose payload starts with a 4-byte big-endian sequence number (ADR 0333). */
+const SEQUENCE_BIT = 0x04;
+const RESERVED_BITS = 0xf8;
+/** The query parameter a client that can open a datagram lane adds to its URL. */
+export const RTC_QUERY = "myco-rtc";
 
 /** WebSocket close codes (RFC 6455). */
 const CLOSE_NORMAL = 1000;
@@ -47,20 +65,117 @@ export function websocketLimits(options: Record<string, unknown> = {}): WebSocke
   return { ...DEFAULT_WEBSOCKET_LIMITS, ...((options.limits as Partial<WebSocketLimits> | undefined) ?? {}) };
 }
 
-/** Prefix `data` with the 1-byte header for `channel`. */
-function encodeFrame(channel: Channel, data: Uint8Array): Uint8Array {
-  const frame = new Uint8Array(data.byteLength + 1);
-  frame[0] = channel === "unreliable" ? UNRELIABLE_BIT : 0;
-  frame.set(data, 1);
+/**
+ * The `webrtc` transport option (ADR 0333): `false` keeps every connection on the socket alone.
+ * The Node server reads more keys (`udpPort`, `publicIp`, `bindAddress`); these are both ends'.
+ */
+export interface WebRtcOptions {
+  /** STUN/TURN servers, as `RTCIceServer`s. None are needed between a client and a public server. */
+  iceServers?: RTCIceServer[];
+  /** The largest data channel message, sequence number included. Default 1,100 (one packet). */
+  maxDatagramBytes?: number;
+  /** A data channel that hasn't opened by then is given up. Default 5,000 ms. */
+  connectTimeoutMs?: number;
+}
+
+export const DEFAULT_MAX_DATAGRAM_BYTES = 1100;
+const DEFAULT_RTC_CONNECT_TIMEOUT_MS = 5000;
+/** Bytes of a sequence number. */
+const SEQUENCE_BYTES = 4;
+
+/** The `webrtc` option, or null when it's `false`. Throws for a malformed one. */
+export function webRtcOptions(options: Record<string, unknown> = {}): (WebRtcOptions & Record<string, unknown>) | null {
+  const value = options.webrtc;
+  if (value === false) return null;
+  if (value === undefined || value === true) return {};
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`The "webrtc" transport option must be false or an object (got ${JSON.stringify(value)}).`);
+  const rtc = value as WebRtcOptions & Record<string, unknown>;
+  if (rtc.maxDatagramBytes !== undefined && !(Number.isInteger(rtc.maxDatagramBytes) && rtc.maxDatagramBytes >= 64 && rtc.maxDatagramBytes <= 65536)) {
+    throw new Error(`webrtc.maxDatagramBytes must be a whole number from 64 to 65536 (got ${JSON.stringify(rtc.maxDatagramBytes)}).`);
+  }
+  return rtc;
+}
+
+/** @internal How a connection opens its datagram lane: a `LaneSetup` once the peer connection constructor has loaded. */
+export interface RtcSetup {
+  readonly role: LaneSetup["role"];
+  /** Resolves with the constructor, or null when WebRTC isn't available here after all. */
+  readonly load: () => Promise<PeerConnectionConstructor | null>;
+  readonly config: RTCConfiguration;
+  readonly maxDatagramBytes: number;
+  readonly connectTimeoutMs: number;
+  readonly rewriteCandidate?: (candidate: string) => string;
+}
+
+/** The largest signal frame payload (a connection offer is a few KB of SDP), whatever `maxMessageBytes` says. */
+const MAX_SIGNAL_BYTES = 16 * 1024;
+
+/**
+ * @internal The largest WebSocket frame a connection with `limits` accepts: a message (or a signal),
+ * its header and a sequence number. Messages are checked against `maxMessageBytes` once decoded.
+ */
+export function frameBytesLimit(limits: WebSocketLimits): number {
+  return Math.max(limits.maxMessageBytes, MAX_SIGNAL_BYTES) + 1 + SEQUENCE_BYTES;
+}
+
+/** The parts of an `RtcSetup` that come from the `webrtc` option. */
+export function rtcSetupParts(rtc: WebRtcOptions): Pick<RtcSetup, "maxDatagramBytes" | "connectTimeoutMs"> {
+  return { maxDatagramBytes: rtc.maxDatagramBytes ?? DEFAULT_MAX_DATAGRAM_BYTES, connectTimeoutMs: rtc.connectTimeoutMs ?? DEFAULT_RTC_CONNECT_TIMEOUT_MS };
+}
+
+/** `address` with `myco-rtc=1` added to its query (or as written if it isn't a URL). */
+function withRtcQuery(address: string): string {
+  try {
+    const url = new URL(address);
+    url.searchParams.set(RTC_QUERY, "1");
+    return url.toString();
+  } catch {
+    return address;
+  }
+}
+
+/** Prefix `data` with the 1-byte header for `channel` and, for a sequenced unreliable frame, its sequence number. */
+function encodeFrame(channel: Channel, data: Uint8Array, seq?: number): Uint8Array {
+  const extra = seq === undefined ? 0 : SEQUENCE_BYTES;
+  const frame = new Uint8Array(data.byteLength + 1 + extra);
+  frame[0] = channel === "unreliable" ? UNRELIABLE_BIT | (seq === undefined ? 0 : SEQUENCE_BIT) : 0;
+  if (seq !== undefined) new DataView(frame.buffer).setUint32(1, seq);
+  frame.set(data, 1 + extra);
   return frame;
 }
 
-/** Split a frame into channel and payload, or return an error message if it's malformed. */
-function decodeFrame(frame: Uint8Array): { channel: Channel; data: Uint8Array } | string {
+/** `data` after a 4-byte sequence number: a data channel message. */
+function encodeDatagram(data: Uint8Array, seq: number): Uint8Array {
+  const out = new Uint8Array(data.byteLength + SEQUENCE_BYTES);
+  new DataView(out.buffer).setUint32(0, seq);
+  out.set(data, SEQUENCE_BYTES);
+  return out;
+}
+
+type DecodedFrame = { kind: "data"; channel: Channel; seq?: number; data: Uint8Array } | { kind: "signal"; message: SignalMessage };
+
+/** Split a frame into what it carries, or return an error message if it's malformed. */
+function decodeFrame(frame: Uint8Array): DecodedFrame | string {
   if (frame.byteLength === 0) return "empty frame";
   const header = frame[0];
   if (header & RESERVED_BITS) return `unknown frame flags 0x${header.toString(16)}`;
-  return { channel: header & UNRELIABLE_BIT ? "unreliable" : "reliable", data: frame.subarray(1) };
+  if (header & SIGNAL_BIT) {
+    if (header !== SIGNAL_BIT) return `bad signal frame flags 0x${header.toString(16)}`;
+    const message = parseSignal(new TextDecoder().decode(frame.subarray(1)));
+    return message ? { kind: "signal", message } : "malformed signal frame";
+  }
+  if (header & SEQUENCE_BIT) {
+    if (!(header & UNRELIABLE_BIT)) return "sequenced reliable frame";
+    if (frame.byteLength < 1 + SEQUENCE_BYTES) return "short sequenced frame";
+    const seq = new DataView(frame.buffer, frame.byteOffset, frame.byteLength).getUint32(1);
+    return { kind: "data", channel: "unreliable", seq, data: frame.subarray(1 + SEQUENCE_BYTES) };
+  }
+  return { kind: "data", channel: header & UNRELIABLE_BIT ? "unreliable" : "reliable", data: frame.subarray(1) };
+}
+
+/** Whether sequence number `a` is newer than `b`, across the 32-bit wrap (serial number arithmetic). */
+function newer(a: number, b: number): boolean {
+  return ((a - b) | 0) > 0;
 }
 
 /** A WebSocket close reason is at most 123 bytes of UTF-8; longer ones make `close()` throw. */
@@ -81,8 +196,9 @@ export interface SocketLike {
 }
 
 /**
- * @internal One end of a WebSocket. The owning transport wires the socket's callbacks to the
- * `handle*` methods, which queue events for its next `poll()`.
+ * @internal One end of a WebSocket, and its datagram lane when it has one (ADR 0333). The owning
+ * transport wires the socket's callbacks to the `handle*` methods, which queue events for its next
+ * `poll()`.
  */
 class WebSocketConnection implements TransportConnection {
   state: ConnectionState = "connecting";
@@ -94,6 +210,15 @@ class WebSocketConnection implements TransportConnection {
   queuedBytes = 0;
   /** Unreliable messages dropped because the send buffer was backed up (for the network panel). */
   droppedUnreliable = 0;
+  /** Both ends know the datagram protocol: unreliable messages carry sequence numbers (ADR 0333). */
+  private negotiated = false;
+  private lane: DatagramLane | null = null;
+  /** The next unreliable sequence number to send. */
+  private sendSeq = 0;
+  /** The newest unreliable sequence number delivered; null before the first. */
+  private newestSeq: number | null = null;
+  /** Signalling that arrived while the lane's peer connection was loading; null otherwise. */
+  private laneSignals: SignalMessage[] | null = null;
 
   constructor(
     readonly id: number,
@@ -102,14 +227,31 @@ class WebSocketConnection implements TransportConnection {
     private readonly events: TransportEvent[],
     private readonly onClosed: (connection: WebSocketConnection) => void,
     private readonly limits: WebSocketLimits = DEFAULT_WEBSOCKET_LIMITS,
+    /** How to open a datagram lane, when this end may: null keeps the connection on the socket. */
+    private readonly rtc: RtcSetup | null = null,
   ) {}
+
+  /** While the datagram lane is open: the largest unreliable message that goes as one datagram. */
+  get maxDatagramBytes(): number | undefined {
+    return this.lane?.state === "open" && this.rtc ? this.rtc.maxDatagramBytes - SEQUENCE_BYTES : undefined;
+  }
 
   send(channel: Channel, data: Uint8Array): void {
     if (this.state === "closed") throw new Error(`Can't send on closed connection ${this.id} (${this.remote}).`);
-    const frame = encodeFrame(channel, data);
+    const seq = channel === "unreliable" && this.negotiated ? this.nextSeq() : undefined;
     if (this.state === "connecting") {
-      this.pending.push(frame);
+      this.pending.push(encodeFrame(channel, data, seq));
       return;
+    }
+    // A datagram that fits one packet goes over the data channel, unless its send buffer is backed
+    // up (a datagram that waits is as stale as one dropped, so it's dropped, latest-wins).
+    const lane = this.lane;
+    if (seq !== undefined && lane?.state === "open" && this.rtc && data.byteLength + SEQUENCE_BYTES <= this.rtc.maxDatagramBytes) {
+      if (lane.bufferedAmount > this.limits.unreliableBacklogBytes) {
+        this.droppedUnreliable++;
+        return;
+      }
+      if (lane.send(encodeDatagram(data, seq))) return;
     }
     // TCP can't drop anything, so a slow link backs up the socket's buffer. Stale unreliable data
     // (snapshots) is dropped there instead of piling up; reliable data that can't drain closes the
@@ -120,7 +262,7 @@ class WebSocketConnection implements TransportConnection {
       return;
     }
     if (backlog > this.limits.maxBacklogBytes) return this.close(`too slow: ${backlog} bytes waiting to send`);
-    this.socket.send(frame);
+    this.socket.send(encodeFrame(channel, data, seq));
   }
 
   close(reason = "closed", code = CLOSE_NORMAL): void {
@@ -139,6 +281,7 @@ class WebSocketConnection implements TransportConnection {
     this.events.push({ kind: "open", connection: this });
     for (const frame of this.pending) this.socket.send(frame);
     this.pending = [];
+    if (this.rtc?.role === "offer") this.openLane(); // the server offers; a client waits for the offer
   }
 
   handleMessage(message: unknown): void {
@@ -147,11 +290,17 @@ class WebSocketConnection implements TransportConnection {
     if (message instanceof ArrayBuffer) frame = new Uint8Array(message);
     else if (ArrayBuffer.isView(message)) frame = new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
     else return this.close("protocol error: text message");
-    if (frame.byteLength > this.limits.maxMessageBytes + 1) return this.close(`message too big (${frame.byteLength} bytes)`, CLOSE_TOO_BIG);
-    this.queuedBytes += frame.byteLength;
-    if (this.queuedBytes > this.limits.maxQueuedBytes) return this.close(`flooding: ${this.queuedBytes} bytes received since the last poll`, CLOSE_TOO_BIG);
+    if (frame.byteLength > frameBytesLimit(this.limits)) return this.close(`message too big (${frame.byteLength} bytes)`, CLOSE_TOO_BIG);
+    if (!this.account(frame.byteLength)) return;
     const decoded = decodeFrame(frame);
     if (typeof decoded === "string") return this.close(`protocol error: ${decoded}`);
+    if (decoded.kind === "signal") return this.handleSignal(decoded.message);
+    if (decoded.data.byteLength > this.limits.maxMessageBytes) return this.close(`message too big (${decoded.data.byteLength} bytes)`, CLOSE_TOO_BIG);
+    if (decoded.seq !== undefined) {
+      // Sequenced frames come only from a peer this end negotiated with.
+      if (!this.negotiated) return this.close("protocol error: a sequenced frame before negotiation");
+      return this.deliverSequenced(decoded.seq, decoded.data);
+    }
     this.events.push({ kind: "data", connection: this, channel: decoded.channel, data: decoded.data });
   }
 
@@ -170,9 +319,90 @@ class WebSocketConnection implements TransportConnection {
     this.closed(reason || this.error || (failed ? `connection failed (code ${code})` : `connection lost (code ${code})`));
   }
 
+  /** A signalling message: the offer opens a client's lane; the rest go to the lane. */
+  private handleSignal(message: SignalMessage): void {
+    if (!this.rtc) return this.close("protocol error: a signal frame this end didn't ask for");
+    if (this.rtc.role === "answer" && message.t === "offer" && !this.negotiated) {
+      this.negotiated = true; // the server sequences from its offer on, and so does this end now
+      this.openLane([message]);
+      return;
+    }
+    if (!this.negotiated) return this.close("protocol error: a signal frame before the offer");
+    this.laneSignals?.push(message); // the lane is still loading its peer connection
+    this.lane?.handleSignal(message);
+  }
+
+  /** Load the peer connection and start the lane, with `early` signalling to hand it once made. */
+  private openLane(early: SignalMessage[] = []): void {
+    const rtc = this.rtc!;
+    this.laneSignals = early;
+    rtc.load().then(
+      (PeerConnection) => {
+        const signals = this.laneSignals ?? [];
+        this.laneSignals = null;
+        if (!PeerConnection || this.state !== "open") return; // no WebRTC here: the socket carries everything
+        const lane = new DatagramLane(
+          { role: rtc.role, PeerConnection, config: rtc.config, connectTimeoutMs: rtc.connectTimeoutMs, rewriteCandidate: rtc.rewriteCandidate },
+          {
+            signal: (message) => this.sendSignal(message),
+            receive: (data) => this.handleDatagram(data),
+          },
+        );
+        this.lane = lane;
+        for (const message of signals) lane.handleSignal(message);
+      },
+      () => {
+        this.laneSignals = null;
+      },
+    );
+  }
+
+  private sendSignal(message: SignalMessage): void {
+    if (this.state !== "open") return;
+    const json = new TextEncoder().encode(JSON.stringify(message));
+    const frame = new Uint8Array(json.byteLength + 1);
+    frame[0] = SIGNAL_BIT;
+    frame.set(json, 1);
+    this.socket.send(frame);
+    // The server's unreliable frames are sequenced from its offer on: the client reads the offer first.
+    if (message.t === "offer") this.negotiated = true;
+  }
+
+  private nextSeq(): number {
+    const seq = this.sendSeq;
+    this.sendSeq = (seq + 1) >>> 0;
+    return seq;
+  }
+
+  /** A data channel message: a sequence number, then an unreliable payload. */
+  private handleDatagram(datagram: Uint8Array): void {
+    if (this.state !== "open") return;
+    if (datagram.byteLength < SEQUENCE_BYTES || datagram.byteLength - SEQUENCE_BYTES > this.limits.maxMessageBytes) return; // malformed: dropped like a lost one
+    if (!this.account(datagram.byteLength)) return;
+    const seq = new DataView(datagram.buffer, datagram.byteOffset, datagram.byteLength).getUint32(0);
+    this.deliverSequenced(seq, datagram.subarray(SEQUENCE_BYTES));
+  }
+
+  /** Deliver an unreliable payload unless something newer was delivered already. */
+  private deliverSequenced(seq: number, data: Uint8Array): void {
+    if (this.newestSeq !== null && !newer(seq, this.newestSeq)) return; // stale
+    this.newestSeq = seq;
+    this.events.push({ kind: "data", connection: this, channel: "unreliable", data });
+  }
+
+  /** Count received bytes towards the flood limit; false (and closed) when over it. */
+  private account(bytes: number): boolean {
+    this.queuedBytes += bytes;
+    if (this.queuedBytes <= this.limits.maxQueuedBytes) return true;
+    this.close(`flooding: ${this.queuedBytes} bytes received since the last poll`, CLOSE_TOO_BIG);
+    return false;
+  }
+
   private closed(reason: string): void {
     this.state = "closed";
     this.pending = [];
+    this.lane?.close("connection closed");
+    this.lane = null;
     this.events.push({ kind: "close", connection: this, reason });
     this.onClosed(this);
   }
@@ -187,10 +417,13 @@ export class WebSocketTransport implements Transport {
   protected readonly events: TransportEvent[] = [];
   protected readonly connections = new Set<WebSocketConnection>();
   protected readonly limits: WebSocketLimits;
+  /** The `webrtc` option (ADR 0333); null when it's `false`. */
+  protected readonly rtc: (WebRtcOptions & Record<string, unknown>) | null;
   private nextId = 1;
 
   constructor(options: Record<string, unknown> = {}) {
     this.limits = websocketLimits(options);
+    this.rtc = webRtcOptions(options);
   }
 
   async listen(_address: string): Promise<void> {
@@ -199,11 +432,15 @@ export class WebSocketTransport implements Transport {
     );
   }
 
-  /** `address` is a WebSocket URL, e.g. "ws://localhost:7777/game". */
+  /**
+   * `address` is a WebSocket URL, e.g. "ws://localhost:7777/game". When this end can open a
+   * datagram lane, the socket's URL asks the server for one (ADR 0333).
+   */
   connect(address: string): TransportConnection {
-    const socket = new WebSocket(address);
+    const rtc = this.rtcSetup("answer");
+    const socket = new WebSocket(rtc ? withRtcQuery(address) : address);
     socket.binaryType = "arraybuffer";
-    const connection = this.addConnection(address, socket);
+    const connection = this.addConnection(address, socket, rtc);
     socket.onopen = () => connection.handleOpen();
     socket.onmessage = (event) => connection.handleMessage(event.data);
     socket.onerror = () => connection.handleError("");
@@ -220,9 +457,20 @@ export class WebSocketTransport implements Transport {
     for (const connection of [...this.connections]) connection.close("transport closed");
   }
 
+  /**
+   * @internal How this end's connections open a datagram lane in `role`, or null when they can't:
+   * the `webrtc` option is false, or there's no `RTCPeerConnection` here. The Node server adds its
+   * own peer connections and server settings.
+   */
+  protected rtcSetup(role: RtcSetup["role"]): RtcSetup | null {
+    const PeerConnection = (globalThis as { RTCPeerConnection?: PeerConnectionConstructor }).RTCPeerConnection;
+    if (!this.rtc || !PeerConnection) return null;
+    return { role, load: () => Promise.resolve(PeerConnection), config: { iceServers: this.rtc.iceServers ?? [] }, ...rtcSetupParts(this.rtc) };
+  }
+
   /** @internal Track a connection on `socket`; the caller wires the socket's callbacks to it. */
-  protected addConnection(remote: string, socket: SocketLike): WebSocketConnection {
-    const connection = new WebSocketConnection(this.nextId++, remote, socket, this.events, (c) => this.connections.delete(c), this.limits);
+  protected addConnection(remote: string, socket: SocketLike, rtc: RtcSetup | null = null): WebSocketConnection {
+    const connection = new WebSocketConnection(this.nextId++, remote, socket, this.events, (c) => this.connections.delete(c), this.limits, rtc);
     this.connections.add(connection);
     return connection;
   }

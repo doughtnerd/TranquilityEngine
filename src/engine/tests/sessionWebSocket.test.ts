@@ -1,8 +1,16 @@
 import { afterEach, describe, expect, it } from "vitest";
 import "../../server/websocketServer"; // registers the Node "websocket" transport, which can listen
-import { Connection, ConnectionState, Engine, defineRpc, defineSystem, i32, type BootstrapConfig } from "../index";
+import { Assets, Connection, ConnectionState, Engine, GameObject, defineRpc, defineSystem, i32, type BootstrapConfig } from "../index";
 import { World } from "../core/World";
 import { connectWorld, listenWorld, netSession } from "../net/session";
+import { Replicated } from "../net/Replicated";
+import { serverReplication } from "../net/replication/server";
+
+Assets.addSource(
+  Assets.fromObject({
+    "prefabs/wsCrate.json": { format: "myco.scene@1", nodes: [{ id: "crate", name: "Crate", components: [{ type: "net.Replicated" }] }] },
+  }),
+);
 
 // ADR 0033, 0035, T10: server Worlds listening over a real WebSocket in Node, on port 0.
 
@@ -72,5 +80,47 @@ describe("network sessions over WebSocket in Node (T10)", () => {
     } finally {
       console.warn = warn;
     }
+  });
+
+  it("splits snapshots into datagram-sized parts once the WebRTC lane is open, and every ghost arrives (ADR 0333, 0334)", async () => {
+    const host = await create({ worlds: [{ name: "Server", tags: ["server"] }] });
+    const url = await listenWorld(host.world, "websocket", { address: "ws://127.0.0.1:0" });
+    const game = await create({ worlds: [{ name: "Client", tags: ["client"] }] });
+    connectWorld(game.world, "websocket", { url }); // Node's transport: it opens a lane, as a browser does
+    const peer = () => netSession(host.world)!.openPeers()[0];
+    await stepUntil([host, game], () => peer()?.link.maxDatagramBytes !== undefined, 5000);
+    World._runIn(host.world, () => {
+      for (let i = 0; i < 300; i++) GameObject.instantiate("prefabs/wsCrate.json", { position: [i, 0, 0] });
+    });
+    const ticks: { bytes: number; parts: number }[] = [];
+    const ghosts = () => game.world._componentsOfType(Replicated).filter((r) => r.isGhost).length;
+    await stepUntil(
+      [host, game],
+      () => {
+        const ps = serverReplication(host.world)!.peerState(peer())!;
+        ticks.push({ bytes: ps.lastBytes, parts: ps.lastParts });
+        return ghosts() === 300;
+      },
+      10000,
+    );
+    // 300 spawns are several KB: a tick sends them in several parts of about a datagram each (ADR 0334).
+    const limit = peer().datagramBodyBytes!;
+    expect(limit).toBeLessThan(1100);
+    const split = ticks.filter((t) => t.parts > 1);
+    expect(split.length).toBeGreaterThan(0);
+    for (const t of ticks) expect(t.bytes).toBeLessThanOrEqual(t.parts * limit);
+    expect(Math.max(...split.map((t) => t.bytes))).toBeGreaterThan(5 * limit);
+  });
+
+  it("a listen takes its owner's default transport options, under its own (the dedicated server's webrtc settings, ADR 0333)", async () => {
+    const host = await create({ worlds: [{ name: "Server", tags: ["server"] }] });
+    host._setListenDefaults("websocket", { options: { webrtc: false } });
+    const url = await listenWorld(host.world, "websocket", { address: "ws://127.0.0.1:0" });
+    const game = await create({ worlds: [{ name: "Client", tags: ["client"] }] });
+    connectWorld(game.world, "websocket", { url });
+    await stepUntil([host, game], () => states(game.world)[0] === ConnectionState.open && states(host.world).length === 1);
+    const settled = Date.now() + 400;
+    await stepUntil([host, game], () => Date.now() > settled);
+    expect(netSession(host.world)!.openPeers()[0].link.maxDatagramBytes).toBeUndefined();
   });
 });

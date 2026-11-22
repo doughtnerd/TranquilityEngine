@@ -3,7 +3,8 @@
  * connections and RPCs, never sockets. Transports are polled once per World frame instead of
  * calling back, which fits the frame loop and the engine's no-event-system rule (ADR 0017).
  *
- * Implementations: loopback (T7), WebSocket (T9). WebRTC comes later, with a signalling server.
+ * Implementations: loopback (T7), WebSocket (T9), which carries unreliable messages over a WebRTC
+ * data channel beside its socket when both ends can (ADR 0333).
  */
 
 /**
@@ -22,6 +23,12 @@ export interface TransportConnection {
   /** Human-readable peer address, for logs and the network panel. */
   readonly remote: string;
   readonly state: ConnectionState;
+  /**
+   * While set, an unreliable message of up to this many bytes travels as one lossy datagram (ADR
+   * 0333); a bigger one still arrives, by a slower reliable path. Netcode sizes snapshots to fit.
+   * Unset when unreliable messages share a stream with reliable ones (loopback, a plain WebSocket).
+   */
+  readonly maxDatagramBytes?: number;
   /** Queue a message. Throws if the connection is closed. Large reliable messages are split by the transport. */
   send(channel: Channel, data: Uint8Array): void;
   close(reason?: string): void;
