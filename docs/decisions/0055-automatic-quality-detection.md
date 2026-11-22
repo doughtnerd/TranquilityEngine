@@ -1,6 +1,6 @@
 # 0055. Automatic graphics quality: a first guess from the GPU, then adjusting to the frame rate
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0322 (one automatic-quality module; "the default" guess is the platform default; a saved tier that names no tier doesn't stop detection)
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

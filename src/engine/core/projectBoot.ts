@@ -1,7 +1,7 @@
 import { MemoryStorage, type StorageBackend } from "../platform/Storage";
 import { openStorage } from "../platform/storageScope";
-import { AUTO_QUALITY_KEY, Graphics, QUALITY_KEY } from "../render/Graphics";
-import { FrameMonitor } from "../render/qualityDetect";
+import { AUTO_QUALITY_KEY, startAutoQuality, type AutoQuality } from "../render/autoQuality";
+import { QUALITY_KEY } from "../render/Graphics";
 import type { AssetSource } from "../scene/Assets";
 import { acquireProjectContext, type ProjectContext } from "./projectContext";
 import { settingsIssues, type ProjectSettings, type ProjectSettingsInput } from "./settings";
@@ -21,15 +21,15 @@ export interface ProjectBootOptions {
 export interface BootedProject {
   /** What the Engine registered (ADR 0319); its dispose releases it. */
   context: ProjectContext;
-  /** The automatic-quality monitor when the tier is being detected, else null. */
-  monitor: FrameMonitor | null;
+  /** Automatic quality (ADR 0322) when the tier is being detected, else null; the Engine hands it each frame's time step. */
+  autoQuality: AutoQuality | null;
 }
 
 /**
  * What an Engine sets up from project settings before its bootstrap runs (ADR 0238): warnings for every runtime
  * section's problems and warnings (ADR 0272), then one project context (ADR 0319) holding its asset sources, storage
  * (ADR 0024), the mixer (ADR 0097) and the graphics tier (ADR 0050, 0055), acquired once everything it needs is read,
- * so a failure leaves nothing registered. Returns the context and the automatic-quality monitor.
+ * so a failure leaves nothing registered. Returns the context and automatic quality (ADR 0322).
  */
 export async function bootProject(settings: ProjectSettings, options: ProjectBootOptions): Promise<BootedProject> {
   // Storage for this game (ADR 0317): a host that knows better (the editor's Play: the project's own) passes it.
@@ -47,11 +47,7 @@ export async function bootProject(settings: ProjectSettings, options: ProjectBoo
   const auto = player && graphics.autoDetect ? await read(AUTO_QUALITY_KEY) : undefined;
   // Audio (ADR 0097): the project's mixer buses; one shared mixer, like the one audio context.
   const context = acquireProjectContext({ assets: options.assets, storage, audio: settings.audio, ...(player ? { graphics: { settings: graphics, saved, auto } } : {}) });
-  if (!player) return { context, monitor: null };
-  const detect = graphics.autoDetect && options.draws && options.kind === "runtime" && (saved === undefined || Graphics.autoDetected);
-  if (!detect) return { context, monitor: null };
-  if (!Graphics.autoDetected) Graphics._applyDetected(Graphics.detectQuality());
-  const monitor = new FrameMonitor({ targetFps: graphics.targetFrameRate });
-  monitor.setAtLowest(Graphics.tiers.indexOf(Graphics.quality) <= 0);
-  return { context, monitor };
+  // Automatic quality (ADR 0055, 0322) for a runtime that draws: it decides whether to detect and makes the first pick.
+  const autoQuality = player && options.draws && options.kind === "runtime" ? startAutoQuality(graphics, saved) : null;
+  return { context, autoQuality };
 }
