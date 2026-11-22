@@ -26,7 +26,8 @@ export const yOf = (v: number, min: number, max: number): number => BOX_H - clam
 /** The line's path over the whole capture (`duration` seconds) on the scale [min, max]; "" with no samples. */
 export function linePath(line: LineInput, duration: number, min: number, max: number, buckets = LINE_BUCKETS): string {
   if (!(duration > 0) || line.times.length === 0) return "";
-  const b = downsampleMinMax(line.times, line.values, { start: 0, end: duration, followLive: false }, buckets);
+  // The window is half-open, so it ends a hair past the capture: the sample at its very end is drawn too.
+  const b = downsampleMinMax(line.times, line.values, { start: 0, end: duration * (1 + 1e-9) + 1e-9, followLive: false }, buckets);
   const parts: string[] = [];
   let pen = false;
   for (let i = 0; i < buckets; i++) {
