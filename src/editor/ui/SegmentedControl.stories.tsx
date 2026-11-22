@@ -8,7 +8,7 @@ function Demo(props: { small?: boolean }) {
   const [mode, setMode] = useState<"ear" | "eye" | "both">("ear");
   return (
     <div>
-      <SegmentedControl label="Calibrate" size={props.small ? "small" : "normal"} value={mode} onChange={(v) => setMode(v as typeof mode)} options={[{ value: "ear", label: "By ear" }, { value: "eye", label: "By eye" }, { value: "both", label: "Both", disabled: true }]} />
+      <SegmentedControl label="Calibrate" size={props.small ? "small" : "normal"} value={mode} onChange={setMode} options={[{ value: "ear", label: "By ear" }, { value: "eye", label: "By eye" }, { value: "both", label: "Both", disabled: true }]} />
       <output aria-label="Mode">{mode}</output>
     </div>
   );

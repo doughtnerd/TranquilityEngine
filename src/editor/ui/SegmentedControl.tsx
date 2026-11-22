@@ -7,12 +7,12 @@ import "./kit.css";
 export type { SegmentOption } from "./segmentedModel";
 
 export interface SegmentedControlProps<T extends string> {
-  readonly options: readonly SegmentOption<T>[];
+  readonly options: readonly SegmentOption<NoInfer<T>>[];
   readonly value: T;
   /** The group's accessible name. */
   readonly label: string;
   readonly size?: "small" | "normal";
-  onChange(value: T): void;
+  onChange(value: NoInfer<T>): void;
 }
 
 export function SegmentedControl<T extends string>(props: SegmentedControlProps<T>) {
