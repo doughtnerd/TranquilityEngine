@@ -1,7 +1,8 @@
 /**
  * The one-way migration `myco.audioevent@1` → `myco.playlist@1` (ADR 0329 §"Migration"; attenuation per ADR 0333).
  * Pure: it takes the existing parse output (`parseAudioEvent(...).value`) and returns the playlist, any extra assets it
- * chose to write beside it, and lint notes naming every approximation. It never throws.
+ * chose to write beside it, the sample loops its looping clips need (as data: `loops`; the project migration writes them
+ * into the samples' sidecars, `sampleLoops.ts`), and lint notes naming every approximation. It never throws.
  *
  * The migration has no audio files. Clip, loop and marker times that depend on a sample's length (a segment's `"end"`,
  * a sustain's sections, a start offset's trim) need `options.sampleSeconds`. Without it, clip and sequence lengths are
@@ -10,7 +11,8 @@
  * that can read the audio (`migrateProjectAudio` in `project.ts`, so `npm run audio:migrate`) pass it.
  *
  * The mapping, in short (each choice is explained where it is made):
- * - `clip` → Clip (a looping region or sustain → a one-clip Sequence with a sequence loop); `random` → Queue random;
+ * - `clip` → Clip (a looping clip plays its sample's loop, which the migration asks the caller to place in the sample's
+ *   sidecar, `SampleLoopRequest`; a sustain clip → a one-clip Sequence whose sample loop is held); `random` → Queue random;
  *   step `sequence` → Queue round robin; continuous ones → Queue `continuous`; `switch` → Switch; `blend` → Blend 1D at
  *   range midpoints; `layer` → Layer; `sustain` → Sequence with a held loop.
  * - `segment` → Sequence (tempo from the first marker, stems as sync audio tracks, alternatives as a Queue on a
@@ -36,16 +38,53 @@ import { comparePositions, isBarBeatTick, MUSIC_TICKS_PER_BEAT, parsePosition, t
 import type { GridSpec } from "../musicTypes";
 import {
   PLAYLIST_FORMAT, type Automation, type ChangeHow, type ChangeRule, type ChangeWhen, type Clip, type EmbeddedEntry, type Entry,
-  type EntryUse, type PlaybackRules, type PlaylistAsset, type PlaylistBody, type PlaylistType, type SampleEntry,
+  type EntryUse, type LoopBehaviour, type PlaybackRules, type PlaylistAsset, type PlaylistBody, type PlaylistType, type SampleEntry,
   type SequenceLoop, type SequenceMarker, type SequenceSettings, type Stinger, type Track, type VoiceCurve,
   type VoiceCurveTarget,
 } from "../playlist/types";
 import { combineCurves, gainToDb, mapCurve, ratioToSemitones, SILENT_DB, tidy } from "./units";
 
-/** What the migration may know beyond the event: the length of a sample, in seconds, by project path. */
-export interface MigrateOptions {
-  sampleSeconds?: (path: string) => number | undefined;
+/**
+ * A loop a looping clip needs in its sample (ADR 0328: a loop in the audio file's sidecar `sample.loops`). The old event
+ * looped in the voice; a playlist clip plays its sample's loops, so the migration asks for one and the caller places it
+ * (`placeLoop`): in the sample's sidecar, or in a derived sample when the sidecar already has a different loop.
+ */
+export interface SampleLoopRequest {
+  /** The sample, as the event named it. */
+  sample: string;
+  /** The old `loopRegion`, seconds in the source file; null = the sample's own loop when it has one, else `whole`. */
+  region: [number, number] | null;
+  /** The whole clip `[start offset, length]` in the source file; null when the sample's length is unknown. */
+  whole: [number, number] | null;
+  /**
+   * `held` where the old event released the loop (a sustain clip: finish the pass; under a sustain's loop section: the
+   * sustain's release), `always` where only a stop ended it (a plain looping clip).
+   */
+  active: "always" | "held";
+  exit: LoopBehaviour["exit"];
+  exitFadeMs: number;
 }
+
+/** A placed request: the sample (or derived sample) the migrated clip names. */
+export interface PlacedSampleLoop {
+  request: SampleLoopRequest;
+  sample: string;
+}
+
+/** What the migration may know beyond the event. */
+export interface MigrateOptions {
+  /** The length of a sample, in seconds, by project path. */
+  sampleSeconds?: (path: string) => number | undefined;
+  /**
+   * Where a looping clip's loop lives: the sample or derived sample the clip should name, or null when it can't be
+   * placed (the clip then loops its whole region in the voice, `loop: "on"`, or a sustain clip drops its loop, noted).
+   * Default `placeLoopInSample`: the sample itself whenever the request has a region or a whole clip.
+   */
+  placeLoop?: (request: SampleLoopRequest) => string | null;
+}
+
+/** The default placement: the sample itself, when there is a region to loop. */
+export const placeLoopInSample = (r: SampleLoopRequest): string | null => (r.region ?? r.whole ? r.sample : null);
 
 /** An extra asset the migration writes beside the playlist (none today: attenuation is written inline). */
 export interface MigratedExtra {
@@ -56,6 +95,8 @@ export interface MigratedExtra {
 export interface MigratedAudioEvent {
   playlist: PlaylistAsset;
   extra: MigratedExtra[];
+  /** The sample loops the playlist relies on, in tree order: the edits its samples' sidecars need (the caller writes them). */
+  loops: PlacedSampleLoop[];
   /** Lint lines, each starting with the event's path and the place in its tree. */
   notes: string[];
 }
@@ -108,6 +149,10 @@ class Migrator {
   readonly params: Map<string, ParameterDef>;
   /** True once anything in the tree loops until stopped. */
   loopsForever = false;
+  /** The sample loops placed so far. */
+  readonly loops: PlacedSampleLoop[] = [];
+  /** Inside a sustain's loop section: how its release ends every clip's loop there (the old runtime looped them all). */
+  heldBy: { exit: LoopBehaviour["exit"]; exitFadeMs: number } | null = null;
 
   constructor(readonly path: string, readonly event: AudioEventAsset, readonly options: MigrateOptions) {
     this.params = new Map(event.parameters.map((p) => [p.name, p]));
@@ -214,44 +259,78 @@ class Migrator {
   }
 
   /**
-   * A clip. A plain or whole-file looping clip is a Clip playlist (loop → sample loop `on`, else `off`); a clip with a
-   * loop region, or a sustain clip, is a one-clip Sequence whose sequence loop is the region: `always` for `loop`,
-   * `held` for `sustain` (release finishes the pass, then the rest of the clip plays).
+   * How the old event ended a clip's loop, or null when the clip didn't loop. Under a sustain's loop section every clip
+   * looped until the sustain's release (by its release and fade); a sustain clip finished its pass on release; a plain
+   * looping clip looped until stopped.
+   */
+  clipLoop(n: ClipNode): Pick<SampleLoopRequest, "active" | "exit" | "exitFadeMs"> | null {
+    if (this.heldBy) return { active: "held", ...this.heldBy };
+    if (n.sustain) return { active: "held", exit: "finish", exitFadeMs: 0 };
+    if (n.loop) return { active: "always", exit: "finish", exitFadeMs: 0 };
+    return null;
+  }
+
+  /**
+   * Asks for a sample loop (`MigrateOptions.placeLoop`): the sample the clip should name, or null when the loop can't
+   * be placed. `region` is the old loop region; without one, the sample's own loop or else the whole clip from `from`.
+   */
+  sampleLoop(sample: string, region: [number, number] | null, from: number, how: Pick<SampleLoopRequest, "active" | "exit" | "exitFadeMs">): string | null {
+    const length = this.seconds(sample);
+    const whole: [number, number] | null = length !== undefined && length > from ? [tidy(from), tidy(length)] : null;
+    const request: SampleLoopRequest = { sample, region: region ? [region[0], region[1]] : null, whole, ...how };
+    const placed = (this.options.placeLoop ?? placeLoopInSample)(request);
+    if (placed !== null) this.loops.push({ request, sample: placed });
+    return placed;
+  }
+
+  /**
+   * A clip. A clip that doesn't loop is a Clip playlist with its sample's loop `off`. A looping clip (`loop`, with or
+   * without a loop region, or any clip under a sustain's loop section) is a Clip playlist whose sample entry plays the
+   * sample's own loop (`inherit`), which the migration asks for (`sampleLoop`: the region, held or endless as the old
+   * event released it). A sustain clip is a one-clip Sequence (the shape the samples were fixed to by hand) whose clip
+   * plays the sample's held loop; release finishes the pass and the rest of the sample plays.
+   *
+   * An async clip in a looping Sequence (the first mapping) played its sample once on the audio core, so the loop is the
+   * sample's, never the sequence's.
    */
   clip(n: ClipNode, where: string): PlaylistBody {
     const length = this.seconds(n.clip);
-    if (!n.sustain && !(n.loop && n.loopRegion)) {
-      const body = newBody("clip");
-      const e = this.sampleEntry(n.clip);
-      e.loop = n.loop ? "on" : "off";
-      if (n.loop) {
-        this.loopsForever = true;
-        this.note(where, `"${n.clip}" loops the whole clip ("on"); if the sample has its own loop points, set its loop to "inherit".`);
-      }
-      if (n.startOffset > 0) {
-        if (length !== undefined && length > n.startOffset) e.trim = [tidy(n.startOffset), tidy(length)];
-        else this.note(where, `startOffset ${n.startOffset} s needs the sample's length to become a trim; dropped.`);
-      }
-      body.entries.push(e);
-      return body;
+    const how = this.clipLoop(n);
+    const region = n.loopRegion ?? null;
+    // A loop region the start offset skips can't loop.
+    const regionLost = how !== null && region !== null && region[1] <= n.startOffset;
+    if (regionLost) this.note(where, `the loop region ends before the start offset; the loop was dropped.`);
+    if (how && n.sustain && !this.heldBy) {
+      const offset = n.startOffset;
+      // An unknown length is 0: the clip and the sequence play to the sample's end (D5).
+      const clipLength = length !== undefined ? Math.max(0, length - offset) : 0;
+      const seq = this.newSequence(clipLength);
+      const track = this.newTrack(seq, "audio", "Audio 1");
+      const placed = regionLost ? null : this.sampleLoop(n.clip, region, offset, how);
+      track.clips.push(this.newClip(track, { sample: placed ?? n.clip }, 0, clipLength, offset));
+      if (placed === null && !regionLost) this.note(where, `"${n.clip}": length unknown and no loop of its own; a sustain with no loop region needs one to place the held loop, so the loop was dropped.`);
+      return this.sequenceBody(seq);
     }
-    const offset = n.startOffset;
-    // An unknown length is 0: the clip and the sequence play to the sample's end (D5).
-    const clipLength = length !== undefined ? Math.max(0, length - offset) : 0;
-    const region = n.loopRegion ?? (length !== undefined ? [0, length] as [number, number] : undefined);
-    const seq = this.newSequence(clipLength);
-    const track = this.newTrack(seq, "audio", "Audio 1");
-    track.clips.push(this.newClip(track, { sample: n.clip }, 0, clipLength, offset));
-    if (!region) this.note(where, `"${n.clip}": length unknown; a sustain with no loop region needs it to place the held loop, so the loop was dropped.`);
-    else {
-      const start = tidy(Math.max(0, region[0] - offset)), end = tidy(region[1] - offset);
-      if (end <= start) this.note(where, `the loop region ends before the start offset; the loop was dropped.`);
-      else {
-        seq.loops.push(this.loop(seq, start, end, n.sustain ? "held" : "always", "finish", 0));
-        if (!n.sustain) this.loopsForever = true;
+    const body = newBody("clip");
+    const e = this.sampleEntry(n.clip);
+    e.loop = "off";
+    if (n.startOffset > 0) {
+      if (length !== undefined && length > n.startOffset) e.trim = [tidy(n.startOffset), tidy(length)];
+      else this.note(where, `startOffset ${n.startOffset} s needs the sample's length to become a trim; dropped.`);
+    }
+    if (n.loop && !n.sustain) this.loopsForever = true;
+    if (how && !regionLost) {
+      const placed = this.sampleLoop(n.clip, region, e.trim ? e.trim[0] : 0, how);
+      if (placed !== null) {
+        e.sample = placed;
+        e.loop = "inherit";
+      } else {
+        e.loop = "on";
+        this.note(where, `"${n.clip}": its loop couldn't be placed in the sample (length unknown); it loops the whole clip ("on").`);
       }
     }
-    return this.sequenceBody(seq);
+    body.entries.push(e);
+    return body;
   }
 
   /** Weights in the playlist range 0..100: kept when they fit as integers, else scaled so the largest is 100. */
@@ -400,6 +479,8 @@ class Migrator {
    * A sustain: a Sequence with one playlist track holding start, loop and end in a row, and a held sequence loop over
    * the loop section. Release `now` leaves the loop by crossfading over the release fade (jump when 0); `loopEnd`
    * finishes the pass. A clip as the loop section goes on an audio track so the held loop is exactly its loop region.
+   * Every clip in the loop section also holds its sample's loop (`heldBy`, placed by `sampleLoop`) and lets it go by the
+   * sustain's release: the old runtime looped them in the voice, and an async sequence clip plays its sample once.
    */
   sustain(n: SustainNode, where: string): PlaylistBody {
     // The end section is last: an unknown length there is 0, "to the end" (D5), and so is the sequence's. Start and loop
@@ -422,9 +503,14 @@ class Migrator {
     const exit = n.release === "loopEnd" ? "finish" : fade > 0 ? "crossfade" : "jump";
     const loopClip = n.loop.type === "clip" && n.loop.delay === 0 && n.loop.automation.length === 0 ? n.loop : null;
     let start = ls, end = ls + ll;
+    const outer = this.heldBy;
+    this.heldBy = { exit, exitFadeMs: tidy(exit === "crossfade" ? fade * 1000 : 0) };
     if (loopClip) {
       const audio = this.newTrack(seq, "audio", "Loop");
-      const c = this.newClip(audio, { sample: loopClip.clip }, ls, ll, loopClip.startOffset);
+      const region = loopClip.loopRegion && loopClip.loopRegion[1] > loopClip.startOffset ? loopClip.loopRegion : null;
+      const placed = loopClip.loopRegion && !region ? null : this.sampleLoop(loopClip.clip, region, loopClip.startOffset, { active: "held", ...this.heldBy });
+      if (placed === null) this.note(`${where}.loop`, `"${loopClip.clip}": its held loop couldn't be placed in the sample; the loop clip plays once.`);
+      const c = this.newClip(audio, { sample: placed ?? loopClip.clip }, ls, ll, loopClip.startOffset);
       c.gain = gainToDb(loopClip.volume);
       c.pitch = ratioToSemitones(loopClip.pitch);
       audio.clips.push(c);
@@ -432,8 +518,9 @@ class Migrator {
       if (loopClip.loopRegion) { start = ls + loopClip.loopRegion[0] - loopClip.startOffset; end = ls + loopClip.loopRegion[1] - loopClip.startOffset; }
     } else {
       addNode(n.loop, ls, ll, "loop");
-      this.note(`${where}.loop`, `the loop section is a ${n.loop.type}: the held loop re-enters its playlist clip on every pass.`);
+      this.note(`${where}.loop`, `the loop section is a ${n.loop.type}: a playlist clip under the held loop; its clips hold their samples' loops until release.`);
     }
+    this.heldBy = outer;
     addNode(n.end, ls + ll, le, "end");
     if (end > start) seq.loops.push(this.loop(seq, tidy(start), tidy(end), "held", exit, tidy(exit === "crossfade" ? fade * 1000 : 0)));
     else this.note(where, "the loop section's length is unknown; the held loop was dropped.");
@@ -810,5 +897,5 @@ class Migrator {
 export function migrateAudioEvent(parsed: AudioEventAsset, path: string, options: MigrateOptions = {}): MigratedAudioEvent {
   const m = new Migrator(path, parsed, options);
   const playlist = m.run();
-  return { playlist, extra: [], notes: [...m.notes] };
+  return { playlist, extra: [], loops: m.loops, notes: [...m.notes] };
 }
