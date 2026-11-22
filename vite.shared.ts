@@ -4,6 +4,7 @@ import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import type { Plugin, Rollup, UserConfig } from "vite";
+import { compilerOptions as scriptCompilerOptions, SCRIPT_EMIT } from "./src/scriptCompiler.mjs";
 
 /**
  * Compile TypeScript (and TSX) with tsc instead of Vite's default transformer (oxc), which does
@@ -13,9 +14,7 @@ import type { Plugin, Rollup, UserConfig } from "vite";
  */
 export function typescriptTranspile(): Plugin {
   const compilerOptions: ts.CompilerOptions = {
-    target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.ESNext,
-    useDefineForClassFields: true,
+    ...scriptCompilerOptions(SCRIPT_EMIT), // the emit settings every host shares (ADR 0332)
     jsx: ts.JsxEmit.ReactJSX,
     jsxImportSource: "preact",
     sourceMap: true,
