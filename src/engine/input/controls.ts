@@ -11,7 +11,9 @@
  * Value conventions in action space: sticks, the d-pad, pointer, touch and pen deltas, scroll and
  * pen tilt have +Y **up** (the wire's gamepad axes are +Y down, as the W3C API reports them; reading
  * a control flips them). Positions (`<Pointer>/position`, `<Touch>/primaryPosition`,
- * `<Pen>/position`) are canvas pixels, origin top-left, +Y down.
+ * `<Pen>/position`) are canvas pixels, origin top-left, +Y down. A gamepad touchpad's finger
+ * positions (`<Gamepad>/touchpad0Position`, `touchpad1Position`) are positions too, but in 0..1 of
+ * the touchpad's width and height: origin top-left, +Y down.
  */
 
 /** Gamepad buttons in wire order. Triggers (6, 7) are analog, 0..1. */
@@ -31,6 +33,9 @@ export type GamepadAxisName = (typeof GAMEPAD_AXES)[number];
 
 /** A device family: what kind of device, for prompts (ADR 0337) and per-family bindings. */
 export type DeviceFamily = "keyboard" | "pointer" | "xbox" | "playstation" | "switch" | "generic" | "touch" | "pen";
+
+/** How many fingers a gamepad's touchpad tracks (DualSense, DualShock 4): `<Gamepad>/touchpad0`, `touchpad1`. */
+export const TOUCHPAD_FINGERS = 2;
 
 /** How many fingers a touchscreen tracks: `<Touch>/touch0` … `<Touch>/touch9`. */
 export const TOUCH_SLOTS = 10;
@@ -54,6 +59,8 @@ export type ControlSource =
   | { readonly device: "gamepad"; readonly read: "stick"; readonly x: number; readonly y: number }
   | { readonly device: "gamepad"; readonly read: "dpad" }
   | { readonly device: "gamepad"; readonly read: "gyro" | "accel" }
+  /** A touchpad finger (0 or 1) touching, or its position (0..1, +Y down). */
+  | { readonly device: "gamepad"; readonly read: "touchpad" | "touchpadPosition"; readonly finger: number }
   /** A finger's press (`slot` 0–9), or the primary touch's (`slot` -1); its position; the primary's delta; the pinch. */
   | { readonly device: "touch"; readonly read: "press" | "position"; readonly slot: number }
   | { readonly device: "touch"; readonly read: "delta" | "pinch" | "count" | "swipe" }
@@ -107,6 +114,11 @@ function parse(path: string): Omit<Control, "id"> | null {
     if (name === "rightStick") return { path: "<Gamepad>/rightStick", source: { device: "gamepad", read: "stick", x: 2, y: 3 }, dimensions: 2, additive: false };
     if (name === "dpad") return { path: "<Gamepad>/dpad", source: { device: "gamepad", read: "dpad" }, dimensions: 2, additive: false };
     if (name === "gyro" || name === "accel") return { path: `<Gamepad>/${name}`, source: { device: "gamepad", read: name }, dimensions: 3, additive: false };
+    const finger = /^touchpad(\d)(Position)?$/.exec(name);
+    if (finger && Number(finger[1]) < TOUCHPAD_FINGERS) {
+      const read = finger[2] ? "touchpadPosition" : "touchpad";
+      return { path: `<Gamepad>/${name}`, source: { device: "gamepad", read, finger: Number(finger[1]) }, dimensions: finger[2] ? 2 : 1, additive: false };
+    }
     return null;
   }
   if (device === "touch" || device === "touchscreen") {

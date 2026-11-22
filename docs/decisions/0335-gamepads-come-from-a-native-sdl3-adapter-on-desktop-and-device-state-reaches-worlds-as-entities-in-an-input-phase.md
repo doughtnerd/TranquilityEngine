@@ -163,6 +163,40 @@ The "later, not v1" WebHID adapter is built, at the owner's request (`src/engine
 - **Not yet:** touchpad touch points (the snapshot has no touch-surface controls; the touchpad click is reported),
   battery level, HD rumble frequencies on the Switch Pro (both bands at SDL's fixed frequencies), Joy-Cons.
 
+## Build notes: touchpads, batteries and adaptive triggers on desktop (2026-11-22)
+
+These supersede "touchpad touch points" and "battery level" in the WebHID note's "Not yet", and its "SDL could send
+the same blocks on desktop later".
+
+- **Sink.** `DeviceEventSink` (and so `Input.inject`) gains `gamepadTouch(id, finger, down, x, y)` and
+  `gamepadBattery(id, level, charging)`. Fingers are 0 and 1 of the first touchpad; `down` is true while the finger
+  touches and is sent again with each move; `x`, `y` are 0..1 of the touchpad, origin top-left. `level` is 0..1, or
+  -1 when unknown or wired without a battery. Adding required members is a breaking change for code that implements
+  the sink rather than calling it; only adapters and tests do.
+- **Touchpad state.** The snapshot keeps each pad's fingers; `GamepadState` gains `tpHeld`/`tpDown`/`tpUp` bitmasks
+  and `tp0X`, `tp0Y`, `tp1X`, `tp1Y`. A finger touching down or lifting is a raw event, `<Gamepad>/touchpad0` or
+  `touchpad1` with value 1 or 0, so rebinding and "press any button" see it. `GAMEPAD_BUTTONS` and `GAMEPAD_AXES`
+  (the mapping crate's wire order) don't change.
+- **Touchpad controls.** `<Gamepad>/touchpad0` and `touchpad1` are presses. `touchpad0Position` and `touchpad1Position`
+  are 2D positions in 0..1, origin top-left, **+Y down**: positions keep the screen convention in action space, as
+  `<Pointer>/position` does; only deltas and sticks flip to +Y up. A position reads 0, 0 when its finger isn't
+  touching (it does read in the frame it lifts), so a lifted finger doesn't keep an action actuated or outweigh
+  another paired pad. `GamepadState` keeps the last position.
+- **Battery.** `GamepadState.battery` (-1 unknown) and `charging`. `PlayerInput.battery` is `{ level, charging }` of
+  the paired gamepad with the lowest known level, or null when none reports one. The browser Gamepad API has no
+  battery, so web builds report it only for WebHID pads.
+- **Desktop.** `gamepad.rs` streams SDL's touchpad events (`{"t":"touch",id,finger,down,x,y,time}`, the first
+  touchpad's fingers 0 and 1) and batteries (`{"t":"battery",id,level,charging}`). It reads `SDL_GetGamepadPowerInfo`
+  on connect and when the page starts listening, on `SDL_EVENT_JOYSTICK_BATTERY_UPDATED`, and every 5 s, because not
+  every driver sends the event. It sends a battery only when it changed. `charging` is true for SDL's charging and
+  charged states.
+- **Adaptive triggers on desktop.** New command `myco_gamepad_trigger_effect(id, bytes)` passes a packet to
+  `SDL_SendGamepadEffect` as it is. The page builds a DualSense `DS5EffectsState_t` block with the WebHID driver's
+  encoder. That encoder moved to `src/engine/input/dualSenseEffects.ts`, which both adapters import. The block sets only
+  the chosen trigger's enable bit, so the motors, lights and the other trigger keep their state. The Tauri adapter
+  sends it only to DualSense and DualSense Edge pads (054c:0ce6, 054c:0df2); `triggerEffect` does nothing for other
+  pads. Exported desktop games register the command too (`GAMEPAD_COMMANDS`).
+
 ## Open questions
 
 - Which SDL3 Rust binding (`sdl3` crate versus our own thin bindings) and whether SDL is linked statically.

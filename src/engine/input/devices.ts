@@ -18,7 +18,7 @@
  * Nothing here is public API: scripts read `Input` and actions; `Input.inject` is the input end.
  */
 import { Vector2 } from "../core/math";
-import { GAMEPAD_AXES, GAMEPAD_BUTTONS, PEN_BUTTONS, PRESS_POINT, TOUCH_SLOTS, normalizeKey, type DeviceFamily } from "./controls";
+import { GAMEPAD_AXES, GAMEPAD_BUTTONS, PEN_BUTTONS, PRESS_POINT, TOUCHPAD_FINGERS, TOUCH_SLOTS, normalizeKey, type DeviceFamily } from "./controls";
 import type { TriggerEffect } from "./triggerEffects";
 
 export { normalizeKey };
@@ -65,7 +65,7 @@ export const PRIMARY_TOUCH = TOUCH_SLOTS;
 export interface RawDeviceEvent {
   /** `KEYBOARD_DEVICE`, `POINTER_DEVICE`, `TOUCH_DEVICE`, `PEN_DEVICE`, or a gamepad's id. */
   readonly device: number;
-  /** A control path: `<Keyboard>/space`, `<Pointer>/button0`, `<Gamepad>/buttonSouth`, `<Gamepad>/leftStickX`, `<Touch>/touch0`, `<Pen>/tip`. */
+  /** A control path: `<Keyboard>/space`, `<Pointer>/button0`, `<Gamepad>/buttonSouth`, `<Gamepad>/leftStickX`, `<Gamepad>/touchpad0`, `<Touch>/touch0`, `<Pen>/tip`. */
   readonly control: string;
   readonly value: number;
   /** `performance.now()` milliseconds when the adapter reported it. */
@@ -84,6 +84,17 @@ export interface GamepadSnapshot {
   up: number;
   readonly gyro: Float32Array;
   readonly accel: Float32Array;
+  /** Touchpad fingers (bit i: finger i): touching, touched down this frame, lifted this frame. */
+  touchHeld: number;
+  touchDown: number;
+  touchUp: number;
+  /** Each finger's position, 0..1 of the touchpad (origin top-left, +Y down); its last one after it lifts. */
+  readonly touchX: Float32Array;
+  readonly touchY: Float32Array;
+  /** Battery charge 0..1, or -1 when unknown (or wired without a battery). */
+  battery: number;
+  /** Plugged in and charging (or full). */
+  charging: boolean;
 }
 
 /**
@@ -163,6 +174,13 @@ export interface DeviceEventSink {
   /** Motion sensors (the SDL adapter): gyro in rad/s, accelerometer in m/s². */
   gamepadSensor(id: number, kind: "gyro" | "accel", x: number, y: number, z: number): void;
   /**
+   * A touchpad finger (0 or 1; DualSense, DualShock 4): `down` while it touches (each move reports
+   * it again), false when it lifts. `x`, `y` are 0..1 of the touchpad, origin top-left, +Y down.
+   */
+  gamepadTouch(id: number, finger: number, down: boolean, x: number, y: number): void;
+  /** The battery: `level` 0..1, or -1 when unknown or wired without a battery; `charging` while plugged in. */
+  gamepadBattery(id: number, level: number, charging: boolean): void;
+  /**
    * A finger touched the touchscreen at canvas pixels. `id` is the adapter's (the DOM's `pointerId`),
    * the same until it lifts. The DOM adapter also reports the primary touch as the pointer.
    */
@@ -215,7 +233,9 @@ type PadEvent =
   | { kind: "disconnect"; id: number; time: number }
   | { kind: "button"; id: number; index: number; value: number; time: number }
   | { kind: "axis"; id: number; index: number; value: number; time: number }
-  | { kind: "sensor"; id: number; sensor: "gyro" | "accel"; x: number; y: number; z: number; time: number };
+  | { kind: "sensor"; id: number; sensor: "gyro" | "accel"; x: number; y: number; z: number; time: number }
+  | { kind: "touch"; id: number; finger: number; down: boolean; x: number; y: number; time: number }
+  | { kind: "battery"; id: number; level: number; charging: boolean; time: number };
 
 type TouchEvent = { kind: "start" | "move" | "end"; id: number; x: number; y: number; time: number };
 
@@ -551,6 +571,15 @@ class DeviceSnapshot implements DeviceEventSink {
     this.padQueue.push({ kind: "sensor", id, sensor, x, y, z, time: now() });
   }
 
+  gamepadTouch(id: number, finger: number, down: boolean, x: number, y: number): void {
+    if (Number.isInteger(finger) && finger >= 0 && finger < TOUCHPAD_FINGERS) this.padQueue.push({ kind: "touch", id, finger, down: !!down, x: clamp(x, 0, 1), y: clamp(y, 0, 1), time: now() });
+  }
+
+  gamepadBattery(id: number, level: number, charging: boolean): void {
+    const known = Number.isFinite(level) && level >= 0;
+    this.padQueue.push({ kind: "battery", id, level: known ? Math.min(1, level) : -1, charging: !!charging, time: now() });
+  }
+
   touchStart(id: number, x: number, y: number): void {
     this.hasTouch = true;
     this.touchscreen.queue.push({ kind: "start", id, x, y, time: now() });
@@ -644,7 +673,7 @@ class DeviceSnapshot implements DeviceEventSink {
   private applyPads(): void {
     this.padsConnected.length = 0;
     this.padsDisconnected.length = 0;
-    for (const pad of this.pads.values()) pad.down = pad.up = 0;
+    for (const pad of this.pads.values()) pad.down = pad.up = pad.touchDown = pad.touchUp = 0;
     for (const ev of this.padQueue) {
       if (ev.kind === "connect") {
         if (this.pads.has(ev.info.id)) continue;
@@ -658,6 +687,13 @@ class DeviceSnapshot implements DeviceEventSink {
           up: 0,
           gyro: new Float32Array(3),
           accel: new Float32Array(3),
+          touchHeld: 0,
+          touchDown: 0,
+          touchUp: 0,
+          touchX: new Float32Array(TOUCHPAD_FINGERS),
+          touchY: new Float32Array(TOUCHPAD_FINGERS),
+          battery: -1,
+          charging: false,
         };
         this.pads.set(ev.info.id, pad);
         this.padsConnected.push(pad);
@@ -688,6 +724,23 @@ class DeviceSnapshot implements DeviceEventSink {
         if (Math.abs(ev.value) >= PRESS_POINT && (Math.abs(before) < PRESS_POINT || Math.sign(ev.value) !== Math.sign(before))) {
           this.rawEvents.push({ device: ev.id, control: `<Gamepad>/${GAMEPAD_AXES[ev.index]}`, value: ev.value, time: ev.time });
         }
+      } else if (ev.kind === "touch") {
+        pad.touchX[ev.finger] = ev.x;
+        pad.touchY[ev.finger] = ev.y;
+        const bit = 1 << ev.finger;
+        const control = `<Gamepad>/touchpad${ev.finger}`;
+        if (ev.down && !(pad.touchHeld & bit)) {
+          pad.touchHeld |= bit;
+          pad.touchDown |= bit;
+          this.rawEvents.push({ device: ev.id, control, value: 1, time: ev.time });
+        } else if (!ev.down && pad.touchHeld & bit) {
+          pad.touchHeld &= ~bit;
+          pad.touchUp |= bit;
+          this.rawEvents.push({ device: ev.id, control, value: 0, time: ev.time });
+        }
+      } else if (ev.kind === "battery") {
+        pad.battery = ev.level;
+        pad.charging = ev.charging;
       } else {
         const v = ev.sensor === "gyro" ? pad.gyro : pad.accel;
         v[0] = ev.x;
@@ -755,6 +808,7 @@ class DeviceSnapshot implements DeviceEventSink {
       pad.buttons.fill(0);
       pad.axes.fill(0);
       pad.held = pad.down = pad.up = 0;
+      pad.touchHeld = pad.touchDown = pad.touchUp = 0;
     }
     this.heldKeys.clear();
     this.downNow.clear();

@@ -12,7 +12,7 @@ import { Storage } from "../platform/Storage";
 import type { GameObject } from "../scene/GameObject";
 import { ActionEvents, actionSets, type ActionEvent, type ActionEventPhase, type ActionInfo, type ActionSetDef } from "./actions";
 import type { DeviceFamily } from "./controls";
-import { DeviceKind, InputDevice, deviceNodes } from "./deviceEntities";
+import { DeviceKind, GamepadState, InputDevice, deviceNodes } from "./deviceEntities";
 import { devices } from "./devices";
 import { resolveAction } from "./evaluate";
 import { ControlledBy, InputPlayer, createPlayer, familyName, playerNode, playerNodes, removePlayer } from "./players";
@@ -251,8 +251,8 @@ export class PlayerInput {
   }
 
   /**
-   * Set an adaptive trigger effect: resistance, a weapon's click, vibration (DualSense, in
-   * Chromium browsers through WebHID). `{ mode: "off" }` frees the trigger.
+   * Set an adaptive trigger effect: resistance, a weapon's click, vibration (DualSense, on
+   * desktop and in Chromium browsers through WebHID). `{ mode: "off" }` frees the trigger.
    */
   setTriggerEffect(trigger: "left" | "right", effect: TriggerEffect): void {
     for (const d of this.devices) {
@@ -275,6 +275,23 @@ export class PlayerInput {
       const data = d.getData(InputDevice)!;
       if (data.kind === DeviceKind.gamepad) devices.output?.setSensors?.(data.device, enabled);
     }
+  }
+
+  /**
+   * The battery of the player's gamepads: `level` 0..1 and whether it's `charging` (plugged in),
+   * for the paired gamepad with the lowest level when there are several. Null when none of them
+   * reports a level: no gamepad, a wired pad without a battery, or an adapter that can't tell (the
+   * browser's Gamepad API; desktop builds and WebHID pads in Chromium can).
+   */
+  get battery(): { readonly level: number; readonly charging: boolean } | null {
+    let out: { level: number; charging: boolean } | null = null;
+    for (const d of this.devices) {
+      if (d.getData(InputDevice)!.kind !== DeviceKind.gamepad) continue;
+      const pad = d.getData(GamepadState) as { battery: number; charging: number } | null;
+      if (!pad || !(pad.battery >= 0)) continue;
+      if (!out || pad.battery < out.level) out = { level: pad.battery, charging: pad.charging !== 0 };
+    }
+    return out;
   }
 
   private requirePlayer(what: string): GameObject {

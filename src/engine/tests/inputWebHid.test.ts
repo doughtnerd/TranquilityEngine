@@ -101,6 +101,8 @@ function recorder() {
     gamepadButton: (id, i, v) => (buttons.set(`${id}:${i}`, v), log.push(["button", id, i, v])),
     gamepadAxis: (id, i, v) => (axes.set(`${id}:${i}`, v), log.push(["axis", id, i, v])),
     gamepadSensor: (id, kind, x, y, z) => (sensors.set(`${id}:${kind}`, [x, y, z]), log.push(["sensor", id, kind])),
+    gamepadTouch: () => {},
+    gamepadBattery: () => {},
   };
   return { sink, log, buttons, axes, sensors, infos };
 }

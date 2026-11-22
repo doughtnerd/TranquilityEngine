@@ -552,6 +552,17 @@ function read(c: Control, paired: Paired, out: Float32Array): void {
         tmp[1] = v.accelY;
         tmp[2] = v.accelZ;
         break;
+      case "touchpad":
+        tmp[0] = (v.tpHeld | v.tpDown) & (1 << s.finger) ? 1 : 0;
+        break;
+      case "touchpadPosition":
+        // Where the finger is while it touches (and in the frame it lifts); 0, 0 otherwise, so a
+        // finger that lifted doesn't keep an action actuated or outweigh another pad's.
+        if ((v.tpHeld | v.tpDown | v.tpUp) & (1 << s.finger)) {
+          tmp[0] = v[`tp${s.finger}X`];
+          tmp[1] = v[`tp${s.finger}Y`];
+        }
+        break;
     }
     const m = tmp[0] * tmp[0] + tmp[1] * tmp[1] + tmp[2] * tmp[2];
     if (m > best) {

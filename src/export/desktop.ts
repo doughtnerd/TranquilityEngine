@@ -33,7 +33,7 @@ export const GAMEPAD_DEPENDENCIES = `sdl3 = { version = "0.22.1", features = ["b
 sdl3-sys = { version = "0.7.3", default-features = false, features = ["no-sdl-audio", "no-sdl-video", "no-sdl-gpu", "no-sdl-render", "no-sdl-camera", "no-sdl-dialog", "no-sdl-tray", "no-sdl-power", "sdl-unix-console-build"] }`;
 
 /** The commands gamepad.rs defines, for the generated `generate_handler!`. */
-export const GAMEPAD_COMMANDS = ["myco_gamepad_listen", "myco_gamepad_rumble", "myco_gamepad_trigger_rumble", "myco_gamepad_set_led", "myco_gamepad_sensors"];
+export const GAMEPAD_COMMANDS = ["myco_gamepad_listen", "myco_gamepad_rumble", "myco_gamepad_trigger_rumble", "myco_gamepad_set_led", "myco_gamepad_sensors", "myco_gamepad_trigger_effect"];
 
 /** Lowercase letters, digits and dashes, from a name: for crate names and identifiers. */
 export function slug(name: string): string {
