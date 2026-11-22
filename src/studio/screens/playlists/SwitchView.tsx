@@ -6,11 +6,11 @@ import type { ChangeHow, PlaylistBody } from "../../../engine/audio/playlist/typ
 import type { PlaylistLint } from "../../../engine/audio/playlist/lint";
 import { isLabelled, type ParameterDef } from "../../../engine/audio/parameters";
 import { defaultEntryUse } from "../../../engine/audio/playlist/format";
-import { NumberBox, SelectBox, Section } from "./fields";
+import { NumberBox, SelectBox, Section } from "../../../editor/ui/PanelFields";
 import type { BodyEdit } from "./EntryList";
 import { addRule, changeLength, removeRule, setLabelEntry, setLabelGain, setOnChange, setRule, setSwitchParameter, type EditContext } from "./playlistEdits";
 import { entryName, playlistTitle } from "./playlistPaths";
-import { FadeShapeSelect } from "./FadeShapeSelect";
+import { FadeShapeSelect } from "../../components/FadeShapeSelect";
 import { Fragment } from "preact";
 
 export interface SwitchViewProps {

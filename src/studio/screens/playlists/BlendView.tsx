@@ -8,7 +8,7 @@ import { useRef, useState } from "preact/hooks";
 import type { Adsr, BlendAxis, PlaylistBody } from "../../../engine/audio/playlist/types";
 import { isLabelled } from "../../../engine/audio/parameters";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
-import { NumberBox, SelectBox, Section } from "./fields";
+import { NumberBox, SelectBox, Section } from "../../../editor/ui/PanelFields";
 import type { BodyEdit } from "./EntryList";
 import { axisRange, denormalise, normalise } from "./blendPlacement";
 import {
@@ -17,8 +17,8 @@ import {
 } from "./blendViewModel";
 import type { Curve } from "../../../engine/core/curve";
 import type { BlendRegion } from "../../../engine/audio/playlist/types";
-import { FadeShapeSelect } from "./FadeShapeSelect";
-import { FADE_SHAPE_OPTIONS, narrowWeightCurve, weightCurvePreset } from "./fadeShapeModel";
+import { FadeShapeSelect } from "../../components/FadeShapeSelect";
+import { FADE_SHAPE_OPTIONS, narrowWeightCurve, weightCurvePreset } from "../../components/fadeShapeModel";
 import { ADSR_LIMITS, setAdsr, setAxis, setBlend, setDimensions, setEntryUse, setEnvelopeMode, voiceTimeAxis, type EditContext } from "./playlistEdits";
 import { entryName } from "./playlistPaths";
 

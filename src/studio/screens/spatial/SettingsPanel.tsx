@@ -3,7 +3,7 @@
 // occlusion materials, each change one undo step of the mix document (the Mixer's, so the Mixer's history shows it too).
 import type { AudioProject } from "../../../engine/audio/project/types";
 import { MATERIAL_LIMITS } from "../../../engine/audio/occlusionMaterials";
-import { FieldRow, NumberBox, Section } from "../playlists/fields";
+import { FieldRow, NumberBox, Section } from "../../../editor/ui/PanelFields";
 import { FIELDS } from "./inspectorFields";
 import { addMaterial, dopplerPercent, editMaterial, isBuiltinMaterial, removeMaterial, setBedBeyond, setDefaultMaterial, setDopplerPercent, setHrtfVoices } from "./settingsEdits";
 import type { EditResult } from "./sceneEdits";

@@ -179,7 +179,7 @@
 .sp-materials { width: calc(100% - 16px); margin: 4px 8px; border-collapse: collapse; font-size: calc(12px * var(--ui-scale)); }
 .sp-materials th { color: var(--muted); font-weight: 400; text-align: left; padding: 2px 3px; }
 .sp-materials td { padding: 1px 3px; }
-.sp-materials .pl-num { width: 56px; }
+.sp-materials .kit-num { width: 56px; }
 .sp-mat-name { width: 90px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; }
 
 /* Voices */

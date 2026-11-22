@@ -8,7 +8,7 @@ import type { PlaylistBody, PlaybackRules } from "../../../engine/audio/playlist
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { EffectChain } from "../../components/EffectChain";
 import type { BodyEdit } from "./EntryList";
-import { FieldRow, NumberBox, SelectBox, Section } from "./fields";
+import { FieldRow, NumberBox, SelectBox, Section } from "../../../editor/ui/PanelFields";
 import { setEffects, setEntryUse, setOutput, setParameters, setPlayback, setSpatial, USE_LIMITS, type EditContext } from "./playlistEdits";
 import { axisRange } from "./blendPlacement";
 import { entryName, playlistTitle } from "./playlistPaths";

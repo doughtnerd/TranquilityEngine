@@ -206,3 +206,7 @@
   .studio-icon, .studio-row-caret { min-width: 30px; min-height: 30px; }
   .studio-onoff { line-height: 26px; padding: 0 10px; }
 }
+
+/* Fade shape picker (FadeShapeSelect.tsx, ADR 0336): the curve's glyph beside its select */
+.studio-shape { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.studio-shape-glyph path { fill: none; stroke: var(--accent); stroke-width: 1.5; }
