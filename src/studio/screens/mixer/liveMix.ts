@@ -4,6 +4,9 @@
 // tree, levels, effects, ducking, automation and loudness (`diffOps` over the backends' view), and the mix model's own
 // ops for returns, VCAs, sends and snapshots, so the running mixer follows the whole model; engine settings wait for the
 // next start.
+// Each change names who made it, so a running capture labels its MIXOP records (ADR 0334, D22): an edit is the editor's,
+// an undo or redo of the document's history (the engine's undo tree, the authority on the mix's history) is `undo` or
+// `redo` (`withMixOpOrigin` around `Mixer.apply`).
 // Compare A/B (0172) swaps the mix the session started from in for the edited one without touching the file (the
 // editor's `compareModel`), and solo is a monitor control (the editor's `monitorModel`): never saved, it taints meters.
 // Pure apart from the injected host.
@@ -11,6 +14,10 @@ import { diffProjectMix, type ApplyResult, type MixOp } from "../../../engine/au
 import type { AudioProject } from "../../../engine/audio/project/types";
 import { createCompareModel, type CompareModel } from "../../../plugins/audio/editor/mix/compareModel";
 import { createMonitorModel, type MonitorModel } from "../../../plugins/audio/editor/mix/monitorModel";
+import { withMixOpOrigin } from "../../../plugins/audio/runtime/capture/mixOpOrigin";
+
+/** Who moved the document: an edit (or an outside change), or a step through its history. */
+export type LiveOrigin = "editor" | "undo" | "redo";
 
 /** The ops that move the running mixer from `before` to `after`, and the keys that wait for the next start. */
 export function liveOps(before: AudioProject, after: AudioProject): { ops: MixOp[]; restartRequired: string[] } {
@@ -40,8 +47,11 @@ export interface LiveEntry {
 }
 
 export interface LiveMix {
-  /** The file moved from `before` to `after` (an edit, undo, redo or an outside change): apply it live. Null when nothing reached the mixer. */
-  changed(before: AudioProject, after: AudioProject): LiveEntry | null;
+  /**
+   * The file moved from `before` to `after` (an edit, undo, redo or an outside change): apply it live, its ops named
+   * `origin` (default `editor`) for a running capture. Null when nothing reached the mixer.
+   */
+  changed(before: AudioProject, after: AudioProject, origin?: LiveOrigin): LiveEntry | null;
   /** The runtime started (or restarted) on `project`: Compare's A becomes this mix; monitor controls reset. */
   started(project: AudioProject): void;
   /** The runtime stopped: Compare ends, monitor controls drop. */
@@ -69,12 +79,12 @@ export function createLiveMix(host: LiveMixHost, current: () => AudioProject): L
   const syncTree = (p: AudioProject) => monitor.setBuses(p.buses.map((b) => ({ name: b.name, parent: b.parent })), p.buses.filter((b) => b.meter || b.parent === null).map((b) => b.name));
   syncTree(current());
   return {
-    changed(before, after) {
+    changed(before, after, origin = "editor") {
       syncTree(after);
       if (!host.running() || compare.active) return null;
       const { ops, restartRequired } = liveOps(before, after);
       if (ops.length === 0 && restartRequired.length === 0) return null;
-      const results = ops.map((op) => host.apply(op));
+      const results = withMixOpOrigin(origin, () => ops.map((op) => host.apply(op)));
       if (ops.length > 0) host.flushNow?.();
       return { ops, results, restartRequired, failed: results.filter((r) => !r.ok).length };
     },

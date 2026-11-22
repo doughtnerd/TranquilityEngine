@@ -9,7 +9,7 @@
 import { batch, computed, effect, signal, type ReadonlySignal, type Signal } from "@preact/signals";
 import type { AudioProject } from "../../../engine/audio/project/types";
 import { addBus, addReturn, addVca, deleteItem, kindOf, masterOf, planDelete, renameItem, type EditResult } from "./busTree";
-import { createLiveMix, type LiveMix, type LiveMixHost } from "./liveMix";
+import { createLiveMix, type LiveMix, type LiveMixHost, type LiveOrigin } from "./liveMix";
 import { labelOn } from "./mixEdits";
 import { DEFAULT_PINS, livePins, togglePin, type BusReading, type LoudnessReading } from "./boardModel";
 import { deleteSnapshot, newSnapshot } from "./snapshotTree";
@@ -20,6 +20,11 @@ export interface MixDocument {
   readonly value: ReadonlySignal<AudioProject>;
   readonly readOnly: boolean;
   edit(next: AudioProject, options?: { label?: string; coalesce?: boolean }): void;
+  /**
+   * The document's history tree (the engine's undo history, ADR 0327: the authority): where it stands and its states,
+   * so a change the session didn't make is told apart as an undo or a redo. Absent (a story): such changes are edits.
+   */
+  readonly history?: { readonly current: number; readonly states: readonly unknown[] };
 }
 
 /** Where the session reaches the world: confirm dialogs, toasts, the status bar, other files, the runtime. */
@@ -103,7 +108,22 @@ export function createMixerSession(deps: MixerDeps): MixerSession {
   const live = deps.live ? createLiveMix(deps.live, () => doc.value.peek()) : null;
   const stops: (() => void)[] = [];
 
-  // Every change of the document (an edit, undo, redo, an outside write) reaches the running mixer.
+  // Every change of the document (an edit, undo, redo, an outside write) reaches the running mixer, named by who made
+  // it: the session's own edits (a drag's coalesced moves too, one step of the history) are the editor's; a change the
+  // session didn't make is read against the document's history tree: back to an older state is an undo, on to a newer
+  // one a redo (a drag's burst that undo first closes as its step counts too), anything else an outside change.
+  let ownEdit = false;
+  const history = doc.history;
+  let at = history ? { current: history.current, states: history.states.length } : null;
+  const originOf = (): LiveOrigin => {
+    if (!history || !at) return "editor";
+    const was = at;
+    at = { current: history.current, states: history.states.length };
+    if (ownEdit) return "editor";
+    if (at.current < was.current || (at.current === was.current && at.states > was.states)) return "undo";
+    if (at.current > was.current) return "redo";
+    return "editor";
+  };
   if (live) {
     let before = doc.value.peek();
     let wasRunning = deps.live!.running();
@@ -114,7 +134,7 @@ export function createMixerSession(deps: MixerDeps): MixerSession {
         const prev = before;
         before = after;
         if (prev === after) return;
-        const entry = live.changed(prev, after);
+        const entry = live.changed(prev, after, originOf());
         if (entry && entry.failed > 0) deps.report("info", `${entry.failed} change${entry.failed === 1 ? "" : "s"} will be heard the next time the Studio's audio starts.`);
       }),
     );
@@ -140,7 +160,12 @@ export function createMixerSession(deps: MixerDeps): MixerSession {
     if ("refused" in result) return refuse(label, result.refused), false;
     if (live?.locked) return refuse(label, "Compare is playing A; switch back to B to edit"), false;
     if (result.next === doc.value.peek()) return true;
-    doc.edit(result.next, { label, coalesce });
+    ownEdit = true;
+    try {
+      doc.edit(result.next, { label, coalesce });
+    } finally {
+      ownEdit = false;
+    }
     return true;
   };
 
