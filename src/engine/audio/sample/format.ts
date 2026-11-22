@@ -12,6 +12,7 @@ import { deepEqual } from "../deepEqual";
 import { effectsToJson, parseEffects } from "../effects/catalogue";
 import { curveToJson, IdScope, isFiniteNumber, isRecord, LenientReader, type JsonRecord } from "../lenientRead";
 import { loopBehaviourToJson, parseLoopBehaviour } from "../playlist/loopBehaviour";
+import { isLineKey } from "../localisation/lines/format";
 import { NOTE_NAME_PATTERN } from "./noteNames";
 import {
   SAMPLE_FORMAT, SAMPLE_SUFFIX, type DerivedSampleAsset, type LoopDirection, type LoopFileSnapshot, type MarkerFileSnapshot, type MarkerType,
@@ -42,7 +43,14 @@ export const SAMPLE_LIMITS = Object.freeze({
   cents: 50,
   /** Automation lanes of the baked chain. */
   automation: 32,
+  /** ADR 0340 §7: lip-sync keys of one file. */
+  lipsyncKeys: 20_000,
+  /** Characters of a custom viseme name. */
+  visemeName: 16,
 });
+
+/** ADR 0340 §7: the visemes of the `rhubarb` set (Rhubarb Lip Sync's Preston Blair shapes, X = rest). */
+export const RHUBARB_VISEMES: readonly string[] = ["A", "B", "C", "D", "E", "F", "G", "H", "X"];
 
 const FX_TARGET = /^fx:[^:]+:[^:]+$/;
 
@@ -345,7 +353,52 @@ export function parseSampleEdits(raw: unknown, where: string, problems: string[]
     if (Number.isInteger(raw.sourceVersion) && (raw.sourceVersion as number) >= 1) out.sourceVersion = raw.sourceVersion as number;
     else r.problem(`${where}.sourceVersion`, "must be a version number ≥ 1; dropped.");
   }
+  const lipsync = parseLipsync(raw.lipsync, `${where}.lipsync`, r);
+  if (lipsync) out.lipsync = lipsync;
+  if (raw.vo !== undefined && raw.vo !== null) {
+    const vo = raw.vo;
+    if (isRecord(vo) && isLineKey(vo.key) && typeof vo.textHash === "string" && /^[0-9a-f]{16}$/.test(vo.textHash)) {
+      out.vo = { key: vo.key, textHash: vo.textHash };
+    } else r.problem(`${where}.vo`, "must be { key, textHash } with a line key and 16 hex digits; dropped.");
+  }
   return out;
+}
+
+/**
+ * ADR 0340 §7: a `lipsync` block, `{ set, keys: [[seconds, viseme], …] }`. Keys with a bad time or viseme are dropped,
+ * keys out of time order sorted, a key at the same time as the one before it dropped, each with a problem; null when
+ * absent or nothing is left.
+ */
+function parseLipsync(raw: unknown, where: string, r: LenientReader): SampleEdits["lipsync"] | null {
+  const o = r.record(raw, where);
+  if (!o) return null;
+  const set = r.pick(o.set, `${where}.set`, ["rhubarb", "custom"] as const, "rhubarb");
+  const keys: [number, string][] = [];
+  let over = false;
+  r.list(o.keys, `${where}.keys`).forEach((k, i) => {
+    const w = `${where}.keys[${i}]`;
+    if (keys.length >= SAMPLE_LIMITS.lipsyncKeys) {
+      if (!over) r.problem(w, `at most ${SAMPLE_LIMITS.lipsyncKeys} keys; the rest are dropped.`);
+      over = true;
+      return;
+    }
+    if (!Array.isArray(k) || k.length !== 2 || !isFiniteNumber(k[0]) || k[0] < 0 || typeof k[1] !== "string") return void r.problem(w, "must be [seconds ≥ 0, viseme]; dropped.");
+    const v = k[1];
+    const ok = set === "rhubarb" ? RHUBARB_VISEMES.includes(v) : v !== "" && v.length <= SAMPLE_LIMITS.visemeName;
+    if (!ok) return void r.problem(w, set === "rhubarb" ? `"${v}" isn't a Rhubarb viseme (A–H, X); dropped.` : `"${v}" must be 1..${SAMPLE_LIMITS.visemeName} characters; dropped.`);
+    keys.push([k[0], v]);
+  });
+  if (keys.some((k, i) => i > 0 && keys[i - 1][0] > k[0])) {
+    r.problem(`${where}.keys`, "keys were not in time order; sorted.");
+    keys.sort((a, b) => a[0] - b[0]);
+  }
+  const unique = keys.filter((k, i) => i === 0 || keys[i - 1][0] !== k[0]);
+  if (unique.length < keys.length) r.problem(`${where}.keys`, "keys at the same time as the one before them were dropped.");
+  if (unique.length === 0) {
+    r.problem(where, "has no keys; dropped.");
+    return null;
+  }
+  return { set, keys: unique };
 }
 
 /**
@@ -411,6 +464,8 @@ export function sampleEditsToJson(e: SampleEdits): JsonRecord {
   if (e.snapToZero !== defaultSnapToZero(e.kind)) out.snapToZero = e.snapToZero;
   if (e.source !== undefined) out.source = e.source;
   if (e.sourceVersion !== undefined) out.sourceVersion = e.sourceVersion;
+  if (e.lipsync) out.lipsync = { set: e.lipsync.set, keys: e.lipsync.keys.map((k) => [k[0], k[1]]) };
+  if (e.vo) out.vo = { key: e.vo.key, textHash: e.vo.textHash };
   return out;
 }
 
@@ -467,7 +522,7 @@ export function derivedSampleToJson(a: DerivedSampleAsset): JsonRecord {
 // --- forks -----------------------------------------------------------------------------------------------------------
 
 
-const EDIT_FIELDS = ["kind", "trim", "loops", "markers", "tempo", "root", "normalize", "effects", "automation", "frozen", "cuts", "deleted", "closedGaps", "stinger", "snapToZero", "source", "sourceVersion"] as const satisfies readonly (keyof SampleEdits)[];
+const EDIT_FIELDS = ["kind", "trim", "loops", "markers", "tempo", "root", "normalize", "effects", "automation", "frozen", "cuts", "deleted", "closedGaps", "stinger", "snapToZero", "source", "sourceVersion", "lipsync", "vo"] as const satisfies readonly (keyof SampleEdits)[];
 
 /**
  * The edits a derived sample plays with. A following fork reads each top-level field that still equals its `baseline`

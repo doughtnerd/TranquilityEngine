@@ -24,6 +24,7 @@ import {
 import { MAX_BUS_INSERTS } from "../busCapability";
 import { encodingConfigToJson, isEmptyEncodingConfig, parseEncodingConfig } from "../encoding/format";
 import { packagesToJson, packagingOptionsToJson, parsePackages, parsePackagingOptions } from "../packaging/definitions";
+import { audioLocalisationToJson, parseAudioLocalisation } from "../localisation/format";
 import { MAX_DB, MIN_DB, dbToGain } from "./gain";
 import { isCarrier, isShown, secondsOf, toBusEffect } from "./legacyEffects";
 import {
@@ -270,6 +271,9 @@ export function parseAudioProject(raw: unknown, options: AudioParseOptions = {})
   if (packages.length > 0) project.packages = packages;
   const packaging = parsePackagingOptions(raw.packaging, problems);
   if (packagingOptionsToJson(packaging) !== null) project.packaging = packaging;
+  // ADR 0340 §2: localisation, set only when it differs from the defaults.
+  const localisation = parseAudioLocalisation(raw.localisation, problems);
+  if (audioLocalisationToJson(localisation) !== null) project.localisation = localisation;
   return { project, problems, warnings };
 }
 
@@ -520,6 +524,7 @@ export function audioProjectToJson(project: AudioProject): Record<string, unknow
     ...optional("encoding", project.encoding && encodingConfigToJson(project.encoding)),
     ...optional("packages", project.packages && packagesToJson(project.packages)),
     ...optional("packaging", project.packaging && packagingOptionsToJson(project.packaging)),
+    ...optional("localisation", project.localisation && audioLocalisationToJson(project.localisation)),
   };
 }
 

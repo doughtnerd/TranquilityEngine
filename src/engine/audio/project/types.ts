@@ -16,6 +16,7 @@ import type { ParameterDef } from "../parameters";
 import type { AudioSettings, DuckingDetector, DuckingMode, LoudnessTarget } from "../settings";
 import type { EncodingConfig } from "../encoding/types";
 import type { PackageDef, PackagingOptions } from "../packaging/definitions";
+import type { AudioLocalisation } from "../localisation/types";
 
 export const AUDIO_PROJECT_FORMAT = "myco.audio@1";
 export const AUDIO_PROJECT_FILE = "audio.json";
@@ -137,6 +138,11 @@ export interface AudioProject {
   packages?: PackageDef[];
   /** ADR 0337 §7: package rules. Absent at the default (`strict: true`). */
   packaging?: PackagingOptions;
+  /**
+   * ADR 0340 §2: localised roots, loudness for batch import, the duration check, missing lines, the captions table
+   * (`localisation/format.ts`). Absent at the defaults (no localised roots: nothing is localised).
+   */
+  localisation?: AudioLocalisation;
 }
 
 export interface AudioProjectParse {

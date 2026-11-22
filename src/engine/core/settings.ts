@@ -4,6 +4,8 @@ import { parseAudioSettings, type AudioSettings } from "../audio/settings";
 import type { BootstrapSetting } from "./worlds";
 import { lobbyOptionProblems } from "../net/lobby/protocol";
 import { bootstrapTopology } from "./bootstrapTopology";
+import { parseLanguages, type LanguageSettings } from "../localisation/languages";
+import { parseSubtitleSettings, type SubtitleProjectSettings } from "../localisation/subtitleSettings";
 
 /** How the game canvas scales to its container (see `ProjectSettings.display.scaleMode`). */
 export type ScaleMode = "fit" | "stretch" | "pixel-perfect";
@@ -68,6 +70,13 @@ export interface ProjectSettings {
    * A plugin is also off when one it depends on is. Names are read by the hosts (`resolveEnabledPlugins`).
    */
   plugins?: PluginSettings;
+  /**
+   * The game's languages for text and audio (ADR 0340 §1, 0342 §3, 0343 §2): codes, reference, default, fallbacks,
+   * shipping, fonts, direction, voice. Omitted: English only (`localisation/languages.ts`).
+   */
+  languages: LanguageSettings;
+  /** Subtitles (ADR 0343 §5): player defaults, reading speed, speakers. Omitted: the defaults (`localisation/subtitleSettings.ts`). */
+  subtitles: SubtitleProjectSettings;
 }
 
 /** `project.json`'s `plugins` section. */
@@ -318,6 +327,14 @@ export const RUNTIME_SETTINGS: { readonly [K in RuntimeSettingsKey]: RuntimeSett
   }),
   autoload: declare("autoload", parseAutoload),
   plugins: declare("plugins", parsePlugins),
+  languages: declare("languages", (w) => {
+    const { languages, problems } = parseLanguages(w);
+    return { value: languages, problems: asIssues("languages", problems), warnings: [] };
+  }),
+  subtitles: declare("subtitles", (w) => {
+    const { subtitles, problems } = parseSubtitleSettings(w);
+    return { value: subtitles, problems: asIssues("subtitles", problems), warnings: [] };
+  }),
 };
 
 const SECTIONS = Object.values(RUNTIME_SETTINGS) as RuntimeSettingsSection[];
