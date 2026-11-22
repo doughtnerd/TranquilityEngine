@@ -33,7 +33,13 @@ import { AUDIO_PROJECT_FILE } from "../engine/audio/project/types";
 import { isDerivedSamplePath } from "../engine/audio/sample/format";
 import { parseImportSettings, sidecarPath, type ImportPlatform } from "../engine/scene/importSettings";
 import { ENCODER_VERSION, type AudioEncoder, type EncodeRequest, type EncodedAudio } from "./audioEncoder";
+import { parseLineTable, isLineTablePath } from "../engine/audio/localisation/lines/format";
+import { formatLineIndex, LINE_INDEX_FILE } from "../engine/audio/packaging/lineIndex";
+import { fallbackChain } from "../engine/localisation/languages";
+import { localisedParts, variantPath } from "../engine/localisation/variants";
 import { MANIFEST_FILE, type AudioManifest, type AudioMediaEntry, type GameManifest } from "./format";
+import { buildLineIndex, lineTableFiles } from "./lines";
+import { buildLanguages, localisedRoots, type BuildLanguages } from "./strings";
 import { copiedPath, type WebBuildPlan } from "./webBuild";
 
 /** Audio files a build converts, by extension (the decoder's formats). */
@@ -79,6 +85,22 @@ export interface AudioPlanInput {
   dependencies(path: string): readonly string[];
   /** False: `--no-audio-convert`, every sound ships as its source. */
   convert: boolean;
+  /** ADR 0340 §6: how packages split per language. Absent: no package has language parts. */
+  localisation?: PackageLocalisation;
+}
+
+/** How a package's contents split into a base part and language parts (ADR 0340 §6). */
+export interface PackageLocalisation {
+  /** The build's shipped languages: a split package has one part per language. */
+  codes: readonly string[];
+  /** Whether a file sits under a localised root: it never goes into a base part. */
+  isLocalised(path: string): boolean;
+  /**
+   * The files a package's content `path` brings into language `code`'s part: a localised file's variant through the
+   * language's chain (none when the chain has none), a line table's files in that language; null for content that
+   * isn't localised.
+   */
+  partFiles(path: string, code: string): readonly string[] | null;
 }
 
 /** One sound the build ships, as planned. */
@@ -92,16 +114,20 @@ export interface PlannedSound {
   codec: ShippedCodec | "source";
   load: LoadMode;
   ambisonic: boolean;
-  /** Packages holding it, in `audio.json`'s order. */
+  /** Packages holding it (in a base or a language part), in `audio.json`'s order. */
   packages: string[];
+  /** The language parts holding it (ADR 0340 §6), in `audio.json`'s and the languages' order; empty or absent for a base sound. */
+  parts?: { package: string; language: string }[];
   /** Notes for the report: fallbacks and refused settings. */
   notes: string[];
 }
 
 export interface PlannedPackage {
   def: PackageDef;
-  /** The audio files it holds (sorted). */
+  /** The audio files its base part holds (sorted). */
   sounds: string[];
+  /** ADR 0340 §6: language code → the audio files its part holds (sorted), when its contents reach localised files; else null. */
+  parts: Record<string, string[]> | null;
   /** Include entries that matched nothing, and dependencies missing from the project, as report lines. */
   problems: string[];
 }
@@ -142,7 +168,29 @@ export function planAudio(input: AudioPlanInput): AudioPlan {
       ...c.missing.map((m) => `package "${def.name}": ${m.from} names ${m.path}, which isn't in the project.`),
     ];
     problems.push(...lines);
-    packages.push({ def, sounds: c.paths.filter((p) => AUDIO_FILE.test(p)), problems: lines });
+    const loc = input.localisation;
+    const sounds = c.paths.filter((p) => AUDIO_FILE.test(p) && !(loc?.isLocalised(p) ?? false));
+    let parts: Record<string, string[]> | null = null;
+    if (loc) {
+      // ADR 0340 §6: what the contents bring into each language (a variant through the chain, a line table's files),
+      // with those files' own dependencies, never into the base part.
+      const known = new Set(input.files);
+      for (const code of loc.codes) {
+        const found = new Set<string>();
+        let touched = false;
+        for (const p of c.paths) {
+          const files = loc.partFiles(p, code);
+          if (files === null) continue;
+          touched = true;
+          for (const f of files) if (known.has(f)) found.add(f);
+        }
+        if (!touched) break;
+        const queue = [...found];
+        while (queue.length) for (const d of input.dependencies(queue.pop()!)) if (known.has(d) && !found.has(d)) (found.add(d), queue.push(d));
+        (parts ??= {})[code] = [...found].filter((p) => AUDIO_FILE.test(p)).sort();
+      }
+    }
+    packages.push({ def, sounds, parts, problems: lines });
   }
   const sounds: PlannedSound[] = [];
   for (const path of audioFiles) {
@@ -153,7 +201,8 @@ export function planAudio(input: AudioPlanInput): AudioPlan {
     problems.push(...resolution.problems);
     const ambisonic = owner ? owner.ambisonic : facts?.ambisonic === true;
     const notes: string[] = [];
-    const inPackages = packages.filter((p) => p.sounds.includes(path)).map((p) => p.def.name);
+    const parts = packages.flatMap((p) => Object.entries(p.parts ?? {}).filter(([, list]) => list.includes(path)).map(([language]) => ({ package: p.def.name, language })));
+    const inPackages = packages.filter((p) => p.sounds.includes(path) || parts.some((x) => x.package === p.def.name)).map((p) => p.def.name);
     let codec: ShippedCodec | "source" = input.convert ? shippedCodec(resolution.settings.codec, path) : "source";
     if (codec === "opus" && ambisonic) {
       notes.push("Opus takes mono and stereo only; this ambisonic file ships as Vorbis.");
@@ -165,7 +214,7 @@ export function planAudio(input: AudioPlanInput): AudioPlan {
       notes.push(line);
       problems.push(line);
     }
-    sounds.push({ path, renderOf: owner ? owner.path : null, resolution, codec, load: resolution.settings.load, ambisonic, packages: inPackages, notes });
+    sounds.push({ path, renderOf: owner ? owner.path : null, resolution, codec, load: resolution.settings.load, ambisonic, packages: inPackages, parts, notes });
   }
   return { platform: input.platform, convert: input.convert, sounds, packages, config: input.config, problems };
 }
@@ -241,6 +290,11 @@ export interface ProcessAudioOptions {
   cache?: AudioCacheStore;
   /** Sounds converted at once (decode and encode; the encoder's own pool decides how many encode in parallel). Default 4. */
   concurrency?: number;
+  /**
+   * ADR 0340 §6: the build's languages (`planWebBuild`'s), which packages split by and the line index covers. Absent:
+   * every shipped language of the build's `project.json`.
+   */
+  languages?: BuildLanguages;
   log?: (line: string) => void;
 }
 
@@ -269,9 +323,12 @@ export interface AudioReportSound {
 export interface AudioReportPackage {
   name: string;
   preload: boolean;
+  /** Its base part's (the whole package's, without language parts). */
   bytes: number;
   memoryBytes: number;
   sounds: string[];
+  /** ADR 0340 §6: per language, its part's size, memory and sounds; absent for a package without language parts. */
+  languages?: Record<string, { bytes: number; memoryBytes: number; sounds: string[] }>;
   problems: string[];
 }
 
@@ -413,6 +470,30 @@ export async function processAudio(build: WebBuildPlan, options: ProcessAudioOpt
     }
   }
 
+  // ADR 0340 §6: the build's languages, the localised roots and the line tables: packages split per language, and the
+  // line index (with each line file's duration, so line files are always decoded).
+  const languages = options.languages ?? buildLanguages(json.get("project.json")).languages;
+  const roots = localisedRoots(languages.settings, audioJson);
+  // Line tables resolve under the audio roots only (a table without its own `root` uses the first, 0340 §5).
+  const voRoots = parsed?.project.localisation?.roots ?? [];
+  const exists = (p: string) => fileSet.has(p);
+  const lineTables = files.filter(isLineTablePath).map((path) => ({ path, table: parseLineTable(json.get(path), path).table }));
+  const chains = new Map(languages.codes.map((c) => [c, fallbackChain(languages.settings, c)] as const));
+  const localisation: PackageLocalisation | undefined = roots.length > 0 || lineTables.length > 0 ? {
+    codes: languages.codes,
+    isLocalised: (p) => localisedParts(p, roots) !== null,
+    partFiles: (p, code) => {
+      if (isLineTablePath(p)) {
+        const t = lineTables.find((x) => x.path === p);
+        return t ? lineTableFiles(t.table, voRoots, languages, code, exists) : [];
+      }
+      if (localisedParts(p, roots) === null) return null;
+      const v = variantPath(p, chains.get(code) ?? [code], roots, exists);
+      return v ? [v.path] : [];
+    },
+  } : undefined;
+  const lineFiles = new Set(lineTables.flatMap((t) => languages.codes.flatMap((c) => lineTableFiles(t.table, voRoots, languages, c, exists))));
+
   const plan = planAudio({
     platform: options.platform,
     files,
@@ -422,6 +503,7 @@ export async function processAudio(build: WebBuildPlan, options: ProcessAudioOpt
     renderOwner: (p) => owners.get(p) ?? null,
     dependencies: audioDependencies((p) => json.get(p)),
     convert: options.encoder !== null,
+    localisation,
   });
   for (const line of plan.problems) log(`audio: ${line}`);
 
@@ -437,7 +519,7 @@ export async function processAudio(build: WebBuildPlan, options: ProcessAudioOpt
       return null;
     }
     const packaged = sound.packages.length > 0;
-    const needsFacts = sound.codec !== "source" || packaged || sound.load !== "decode";
+    const needsFacts = sound.codec !== "source" || packaged || sound.load !== "decode" || lineFiles.has(sound.path);
     // Shipped as it is, loose, decoded on load: nothing to convert or to know (the report gives no rate, channels or frames).
     if (!needsFacts) return { sound, codec: "source", bytes: input, sourceBytes: input.length, rate: 0, channels: 0, frames: 0, key: "", head: null, cached: false };
     const wantsHead = packaged && sound.load === "stream";
@@ -508,7 +590,9 @@ export async function processAudio(build: WebBuildPlan, options: ProcessAudioOpt
   // --- placement ---
   const omit = new Set(build.omit ?? []);
   const media: Record<string, AudioMediaEntry> = {};
-  const packInputs = new Map<string, PackInput[]>(plan.packages.map((p) => [p.def.name, []]));
+  // A unit is a package's base part (its name) or one of its language parts (`<name>|<code>`: `|` can't be in a name).
+  const partKey = (name: string, code: string) => `${name}|${code}`;
+  const packInputs = new Map<string, PackInput[]>(plan.packages.flatMap((p) => [[p.def.name, []], ...Object.keys(p.parts ?? {}).map((c) => [partKey(p.def.name, c), []])] as [string, PackInput[]][]));
   const reportSounds: AudioReportSound[] = [];
   for (const r of results) {
     const { sound } = r;
@@ -521,19 +605,28 @@ export async function processAudio(build: WebBuildPlan, options: ProcessAudioOpt
       if (shippedAs !== "source" || sound.load !== "decode") media[sound.path] = { codec: shippedAs, load: sound.load, rate: r.rate, channels: r.channels, frames: r.frames };
     } else {
       const entry = { codec: shippedAs, load: sound.load, rate: r.rate, channels: r.channels, frames: r.frames };
+      const units = [
+        ...plan.packages.filter((p) => p.sounds.includes(sound.path)).map((p) => p.def.name),
+        ...(sound.parts ?? []).map((x) => partKey(x.package, x.language)),
+      ];
       let url: string | undefined;
       if (sound.load === "stream") {
         url = `${STREAM_DIR}/${r.key.slice(0, 16)}.${shippedAs === "source" ? extOf(sound.path) : EXT[shippedAs]}`;
         binaries.set(url, r.bytes);
-        for (const name of sound.packages) {
-          packInputs.get(name)!.push({ entry: { path: sound.path, codec: "pcm", rate: r.rate, channels: r.channels, frames: r.frames, load: "stream", hash: r.key, prefetch: { frames: r.head?.frames ?? 0 } }, data: r.head?.bytes ?? new Uint8Array(0) });
+        for (const unit of units) {
+          packInputs.get(unit)!.push({ entry: { path: sound.path, codec: "pcm", rate: r.rate, channels: r.channels, frames: r.frames, load: "stream", hash: r.key, prefetch: { frames: r.head?.frames ?? 0 } }, data: r.head?.bytes ?? new Uint8Array(0) });
         }
-        shippedBytes = r.bytes.length + (r.head?.bytes.length ?? 0) * sound.packages.length;
+        shippedBytes = r.bytes.length + (r.head?.bytes.length ?? 0) * units.length;
       } else {
-        for (const name of sound.packages) packInputs.get(name)!.push({ entry: { path: sound.path, codec: shippedAs, rate: r.rate, channels: r.channels, frames: r.frames, load: sound.load, hash: r.key, prefetch: null }, data: r.bytes });
-        shippedBytes = r.bytes.length * sound.packages.length;
+        for (const unit of units) packInputs.get(unit)!.push({ entry: { path: sound.path, codec: shippedAs, rate: r.rate, channels: r.channels, frames: r.frames, load: sound.load, hash: r.key, prefetch: null }, data: r.bytes });
+        shippedBytes = r.bytes.length * units.length;
       }
-      media[sound.path] = { package: sound.packages[0], ...(sound.packages.length > 1 ? { packages: [...sound.packages] } : {}), ...(url ? { url } : {}), ...entry };
+      const partLanguages = [...new Set((sound.parts ?? []).map((x) => x.language))];
+      media[sound.path] = {
+        package: sound.packages[0], ...(sound.packages.length > 1 ? { packages: [...sound.packages] } : {}),
+        ...(partLanguages.length > 0 ? { language: partLanguages[0] } : {}), ...(partLanguages.length > 1 ? { languages: partLanguages } : {}),
+        ...(url ? { url } : {}), ...entry,
+      };
       // Its bytes are in the packages (or under audio/stream/): the project file isn't written.
       omit.add(sound.path);
       binaries.delete(copiedPath(sound.path));
@@ -550,23 +643,41 @@ export async function processAudio(build: WebBuildPlan, options: ProcessAudioOpt
   // --- packages ---
   const manifestPackages: AudioManifest["packages"][number][] = [];
   const reportPackages: AudioReportPackage[] = [];
+  const inputsMemory = (inputs: readonly PackInput[]) => inputs.reduce((sum, i) => sum + memoryOf(i.entry.load, i.entry.codec, i.entry.frames, i.entry.channels, i.data.length, i.entry.prefetch?.frames ?? 0), 0);
+  /** A package's memory while loaded in its largest language (the base plus that part; ADR 0340 §6 counts the current language). */
+  const loadedMemory = new Map<string, number>();
   for (const p of plan.packages) {
     const inputs = packInputs.get(p.def.name)!;
     const bytes = writeAudioPack(p.def.name, options.platform, inputs);
     const url = `${PACKAGES_DIR}/${p.def.name}${PACK_EXTENSION}`;
     binaries.set(url, bytes);
-    manifestPackages.push({ name: p.def.name, url, bytes: bytes.length, preload: p.def.preload });
-    const memoryBytes = inputs.reduce((sum, i) => sum + memoryOf(i.entry.load, i.entry.codec, i.entry.frames, i.entry.channels, i.data.length, i.entry.prefetch?.frames ?? 0), 0);
-    reportPackages.push({ name: p.def.name, preload: p.def.preload, bytes: bytes.length, memoryBytes, sounds: inputs.map((i) => i.entry.path), problems: p.problems });
+    const memoryBytes = inputsMemory(inputs);
+    // ADR 0340 §6: one part per shipped language, `<name>.<code>.mycopak`, beside the base part.
+    let partsManifest: Record<string, { url: string; bytes: number }> | undefined;
+    let partsReport: AudioReportPackage["languages"];
+    let largestPart = 0;
+    for (const code of Object.keys(p.parts ?? {})) {
+      const partInputs = packInputs.get(partKey(p.def.name, code))!;
+      const partBytes = writeAudioPack(`${p.def.name}.${code}`, options.platform, partInputs);
+      const partUrl = `${PACKAGES_DIR}/${p.def.name}.${code}${PACK_EXTENSION}`;
+      binaries.set(partUrl, partBytes);
+      const partMemory = inputsMemory(partInputs);
+      largestPart = Math.max(largestPart, partMemory);
+      (partsManifest ??= {})[code] = { url: partUrl, bytes: partBytes.length };
+      (partsReport ??= {})[code] = { bytes: partBytes.length, memoryBytes: partMemory, sounds: partInputs.map((i) => i.entry.path) };
+    }
+    loadedMemory.set(p.def.name, memoryBytes + largestPart);
+    manifestPackages.push({ name: p.def.name, url, bytes: bytes.length, preload: p.def.preload, ...(partsManifest ? { languages: partsManifest } : {}) });
+    reportPackages.push({ name: p.def.name, preload: p.def.preload, bytes: bytes.length, memoryBytes, sounds: inputs.map((i) => i.entry.path), ...(partsReport ? { languages: partsReport } : {}), problems: p.problems });
   }
 
   // --- the report, budgets, the manifest ---
   const shippedLoose = reportSounds.filter((s) => s.packages.length === 0).reduce((n, s) => n + s.shippedBytes, 0);
   const streamed = results.filter((r) => r.sound.packages.length > 0 && r.sound.load === "stream").reduce((n, r) => n + r.bytes.length, 0);
-  const shippedBytes = shippedLoose + streamed + manifestPackages.reduce((n, p) => n + p.bytes, 0);
+  const shippedBytes = shippedLoose + streamed + manifestPackages.reduce((n, p) => n + p.bytes + Object.values(p.languages ?? {}).reduce((m, l) => m + l.bytes, 0), 0);
   const sourceBytes = reportSounds.reduce((n, s) => n + s.sourceBytes, 0);
-  const preloadMemory = reportPackages.filter((p) => p.preload).reduce((n, p) => n + p.memoryBytes, 0);
-  const largestOther = reportPackages.filter((p) => !p.preload).reduce((m, p) => Math.max(m, p.memoryBytes), 0);
+  const preloadMemory = reportPackages.filter((p) => p.preload).reduce((n, p) => n + (loadedMemory.get(p.name) ?? p.memoryBytes), 0);
+  const largestOther = reportPackages.filter((p) => !p.preload).reduce((m, p) => Math.max(m, loadedMemory.get(p.name) ?? p.memoryBytes), 0);
   const memoryBytes = preloadMemory + largestOther;
   const budget = config.budgets[options.platform] ?? {};
   const warnings: string[] = [];
@@ -585,8 +696,23 @@ export async function processAudio(build: WebBuildPlan, options: ProcessAudioOpt
   log(`audio: ${reportSounds.length} file${reportSounds.length === 1 ? "" : "s"}, ${(sourceBytes / MB).toFixed(1)} MB → ${(shippedBytes / MB).toFixed(1)} MB for ${options.platform}; ${manifestPackages.length} package${manifestPackages.length === 1 ? "" : "s"}${options.encoder ? "" : " (--no-audio-convert: sources shipped unchanged)"}`);
   for (const w of warnings) log(`warning: ${w}`);
 
-  const hasAudio = manifestPackages.length > 0 || Object.keys(media).length > 0;
-  const manifest: GameManifest = hasAudio ? { ...build.manifest, audio: { platform: options.platform, packages: manifestPackages, media } } : build.manifest;
+  // ADR 0340 §6 (amended by 0343 §1): the line index replaces the line tables, whose notes never ship.
+  let lines: string | undefined;
+  let shipped = build.manifest.files;
+  let copies = build.copies;
+  if (lineTables.length > 0) {
+    const durations = new Map(results.filter((r) => r.rate > 0 && r.frames > 0).map((r) => [r.sound.path, Math.round((r.frames / r.rate) * 1000) / 1000] as const));
+    const index = buildLineIndex(lineTables, voRoots, languages, exists, (p) => durations.get(p) ?? null);
+    generated.set(LINE_INDEX_FILE, formatLineIndex(index));
+    lines = LINE_INDEX_FILE;
+    const tables = new Set(lineTables.map((t) => t.path));
+    shipped = shipped.filter((p) => !tables.has(p));
+    copies = copies.filter((p) => !tables.has(p));
+  }
+
+  const hasAudio = manifestPackages.length > 0 || Object.keys(media).length > 0 || lines !== undefined;
+  const baseManifest = shipped === build.manifest.files ? build.manifest : { ...build.manifest, files: shipped };
+  const manifest: GameManifest = hasAudio ? { ...baseManifest, audio: { platform: options.platform, packages: manifestPackages, media, ...(lines ? { lines } : {}) } } : baseManifest;
   generated.set(MANIFEST_FILE, `${JSON.stringify(manifest, null, 2)}\n`);
-  return { plan: { ...build, manifest, generated, binaries, omit }, report };
+  return { plan: { ...build, manifest, copies, generated, binaries, omit }, report };
 }
