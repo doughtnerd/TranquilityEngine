@@ -243,9 +243,9 @@ export interface AudioPlaylistHandle extends AudioHandle, MusicEventHandle {
    */
   release(): void;
   /**
-   * Call `fn` each time a Cue, Exit or Hit marker of a playing sample passes. Returns an unsubscribe function. Markers are
-   * reported once the audio core reports sample cues (ADR 0328) and, for sequence markers, from M5; until then `fn` is
-   * kept and never called.
+   * Call `fn` each time a Cue, Exit or Hit marker of a playing sample, or a sequence's `cue` or `exit` marker, passes.
+   * Returns an unsubscribe function. Markers are found on main from the planned playhead or voice position and reported on
+   * the first frame whose heard clock has passed them (`e.time` is the exact heard time).
    */
   onMarker(type: AudioMarkerType, fn: (e: AudioMarkerEvent) => void): () => void;
 }

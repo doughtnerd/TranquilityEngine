@@ -14,7 +14,7 @@ import type { Curve } from "../../../../engine/core/curve";
 import type { Vec3Like } from "../../../../engine/core/math";
 import { rootProps, voiceControls, HIGHPASS_NONE, LOWPASS_NONE } from "../../../../engine/audio/playlist/accumulate";
 import type { PickState } from "../../../../engine/audio/playlist/picks";
-import type { LoopBehaviour, PlaylistAsset, PlaylistBody, SampleEntry } from "../../../../engine/audio/playlist/types";
+import type { Entry, LoopBehaviour, PlaylistAsset, PlaylistBody, SampleEntry, Stinger } from "../../../../engine/audio/playlist/types";
 import { DEFAULT_MAX_DISTANCE, DEFAULT_MIN_DISTANCE } from "../../../../engine/audio/attenuation/format";
 import { isLabelled, parameterDefault, type ParameterDef } from "../../../../engine/audio/eventFormat";
 import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
@@ -23,9 +23,12 @@ import { warnOnce } from "../core/handle";
 import { events, type EventOptions } from "../events/eventRuntime";
 import { MAX_LOCAL_SLOTS, type ParamRef } from "../events/automation";
 import { evalTimeCurves } from "./curves";
-import { loadAttenuation } from "./loader";
-import { NO_MUSICAL_CLOCK, type MusicalClock } from "./musical";
-import { resolveBody, type Ctx, type DynGain, type LiveNode, type LoopRun, type NodeHost, type PVoice, type SpatialPlan } from "./nodes";
+import { linkedPlaylist, loadAttenuation } from "./loader";
+import { clockOver, MUSICAL_FALLBACK_NOTE, type MusicalClock, type MusicalSource } from "./musical";
+import { sampleFacts, type SampleFacts } from "./sampleFacts";
+import { VoiceClock, VoiceMarkers } from "./voiceMusical";
+import { decideStinger } from "../music/stingerPolicy";
+import { resolveBody, resolveEntry, type Ctx, type DynGain, type LiveNode, type LoopRun, type NodeHost, type PVoice, type SpatialPlan } from "./nodes";
 
 /** Options for `Audio.play` of a playlist: the event options (ADR 0158 §5), unchanged. */
 export type PlaylistOptions = EventOptions;
@@ -83,7 +86,7 @@ export class PlaylistInstance implements NodeHost {
   lateStarts = 0;
   /** Timers waiting (a pending start keeps the instance alive). */
   pending = 0;
-  readonly musical: MusicalClock = NO_MUSICAL_CLOCK;
+  readonly musical: MusicalClock = clockOver(() => this.musicalSource());
   /** The handle's `fade` and `AudioSource.volume`, as one more dynamic gain. */
   private readonly fadeGain: DynGain = { gain: 1 };
   private fadeRamp: { from: number; to: number; t0: number; seconds: number } | null = null;
@@ -125,6 +128,7 @@ export class PlaylistInstance implements NodeHost {
     if (this.stopped) return false;
     if (this.untilStopped && !this.released) return true;
     if (this.pending > 0) return true;
+    for (const s of this.stingers) if (s.node.sounding) return true;
     return this.root !== null && this.root.sounding;
   }
 
@@ -184,9 +188,14 @@ export class PlaylistInstance implements NodeHost {
   /** Marker listeners by type (`AudioPlaylistHandle.onMarker`). */
   private readonly markerListeners = new Map<AudioMarkerType, Set<(e: AudioMarkerEvent) => void>>();
 
+  /** Markers planned to pass (heard time order), delivered once the heard clock reaches them. */
+  private readonly pendingMarkers: AudioMarkerEvent[] = [];
+  /** Voices whose sample markers are reported as they pass. */
+  private markerVoices: VoiceMarkers[] = [];
+
   /**
-   * Listen for `type` markers passing. TODO(ADR 0328 cue reports, M5 sequence markers): `noteMarker` is called once the
-   * core reports a sample's cues as they pass, and by the sequence runtime for its markers.
+   * Listen for `type` markers passing: sequence `cue` and `exit` markers, and the Cue, Exit and Hit markers of the samples
+   * it plays, reported from the planned playhead or voice position on the first frame whose heard clock has passed them.
    */
   onMarker(type: AudioMarkerType, fn: (e: AudioMarkerEvent) => void): () => void {
     let set = this.markerListeners.get(type);
@@ -202,6 +211,83 @@ export class PlaylistInstance implements NodeHost {
     for (const fn of [...set]) {
       try { fn(e); } catch (err) { console.error(`[myco] ${this.path}: an onMarker listener threw:`, err); }
     }
+  }
+
+  emitMarker(e: AudioMarkerEvent): void {
+    const list = this.pendingMarkers;
+    let i = list.length;
+    while (i > 0 && list[i - 1]!.time > e.time) i--;
+    list.splice(i, 0, e);
+  }
+
+  trackMarkers(v: PVoice, facts: SampleFacts, from: number): void {
+    this.markerVoices.push(new VoiceMarkers(new VoiceClock(v, facts, from), facts.markers, (e) => this.emitMarker(e)));
+  }
+
+  /** Delivers the markers heard by `now`. */
+  private deliverMarkers(now: number): void {
+    if (this.markerVoices.length > 0) this.markerVoices = this.markerVoices.filter((m) => m.update(now));
+    let n = 0;
+    while (n < this.pendingMarkers.length && this.pendingMarkers[n]!.time <= now + 1e-9) n++;
+    if (n === 0) return;
+    for (const e of this.pendingMarkers.splice(0, n)) this.noteMarker(e);
+  }
+
+  /** The musical clock of what the instance plays now (`handle.music`, stingers), null without one. */
+  musicalSource(): MusicalSource | null {
+    return this.stopped ? null : this.root?.musicalSource() ?? null;
+  }
+
+  // --- stingers (ADR 0329 "Stingers") ----------------------------------------------------------------------------
+
+  private rootCtx: Ctx | null = null;
+  private readonly stingers: { name: string; node: LiveNode; at: number }[] = [];
+  private readonly stingerPlayed = new Map<string, number>();
+
+  /**
+   * Fires the stinger named `name` (the playlist's, else an embedded playlist's): at `now`, or the playing entry's next
+   * `beat`, `bar` or `exit`, or with `hit` its sample's Hit marker landing on the next bar; a point too close to play
+   * goes by `ifLate`, a repeat within `dontRepeat` is dropped (the music runtime's decision table, `stingerPolicy.ts`).
+   * With no musical clock a timed stinger plays at once (as a timed Switch change does). True when it was accepted.
+   */
+  trigger(name: string): boolean {
+    if (this.stopped) return false;
+    const s = findStinger(this.asset, name, 0);
+    if (!s) {
+      warnOnce(`playlist:stinger:${this.path}:${name}`, `AudioPlaylistHandle.trigger: the playlist "${this.path}" has no stinger "${name}".`);
+      return false;
+    }
+    const now = this.clock();
+    const earliest = this.startOf(null);
+    let point = earliest, nextPoint = Number.NaN;
+    if (s.at !== "now") {
+      const kind = s.at === "hit" ? "bar" : s.at;
+      const lead = s.at === "hit" ? hitOffset(s.playlist, [this.path]) : 0;
+      const clock = this.musical;
+      const p1 = clock.nextBoundary(kind, earliest + lead);
+      if (p1 === null) warnOnce(`playlist:stinger-when:${this.path}:${name}`, `[myco] ${this.path}: the stinger "${name}" at the next ${s.at} ${MUSICAL_FALLBACK_NOTE}.`);
+      else {
+        point = p1 - lead;
+        const p2 = clock.nextBoundary(kind, p1 + 1e-4);
+        nextPoint = p2 === null ? Number.NaN : p2 - lead;
+        // The boundary the trigger meant is the first at or after now; when it can't be reached any more `ifLate` decides.
+        const prev = clock.nextBoundary(kind, now);
+        if (prev !== null && prev - lead < earliest - 1e-9) { nextPoint = point; point = prev - lead; }
+      }
+    }
+    for (let k = this.stingers.length - 1; k >= 0; k--) if (!this.stingers[k]!.node.sounding) this.stingers.splice(k, 1);
+    const d = decideStinger({
+      now, earliest, point, nextPoint, ifTooLate: s.ifLate, dontRepeat: s.dontRepeat,
+      lastPlayed: this.stingerPlayed.get(name) ?? Number.NaN, sounding: this.stingers.length,
+    });
+    if (!d.play) return false;
+    if (d.steal) this.stingers.shift()?.node.stop(0.04);
+    const ctx: Ctx = { ...this.rootCtx!, at: d.at, depth: 1 };
+    const node = resolveEntry(this, s.playlist, ctx, `${this.path}/stinger:${name}`, 0);
+    if (!node) return false;
+    this.stingerPlayed.set(name, d.at);
+    this.stingers.push({ name, node, at: d.at });
+    return true;
   }
 
   start(): void {
@@ -223,6 +309,7 @@ export class PlaylistInstance implements NodeHost {
       spatial: null,
       where: this.path,
     };
+    this.rootCtx = ctx;
     this.root = resolveBody(this, a, ctx, this.path, this.path);
   }
 
@@ -230,7 +317,10 @@ export class PlaylistInstance implements NodeHost {
     if (this.stopped) return;
     this.stopped = true;
     this.root?.stop(Math.max(0, fadeSeconds));
+    for (const s of this.stingers) s.node.stop(Math.max(0, fadeSeconds));
     for (const v of this.voices) if (!v.leaving) { v.leaving = true; v.voice.stop(fadeSeconds); }
+    this.pendingMarkers.length = 0;
+    this.markerVoices.length = 0;
     this.sys.retire(this);
   }
 
@@ -238,6 +328,7 @@ export class PlaylistInstance implements NodeHost {
     if (this.released || this.stopped) return;
     this.released = true;
     this.root?.release();
+    for (const s of this.stingers) s.node.release();
   }
 
   fade(to: number, seconds: number): void {
@@ -314,6 +405,8 @@ export class PlaylistInstance implements NodeHost {
       if (u >= 1) this.fadeRamp = null;
     }
     this.root?.update(now, dt);
+    for (const s of this.stingers) s.node.update(now, dt);
+    this.deliverMarkers(now);
     this.applyDynamics(now);
     // A long run (a continuous Queue) drops the voices that have gone for good.
     if (this.voices.length > 64) {
@@ -384,12 +477,12 @@ export class PlaylistInstance implements NodeHost {
   }
 
   /** Plays one sample entry below `ctx`: the clip resolver's request, the sample's sidecar edits, the tree's levels. */
-  playSample(entry: SampleEntry, ctx: Ctx): PVoice | null {
+  playSample(entry: SampleEntry, ctx: Ctx, loopOverride?: LoopRun | null): PVoice | null {
     if (this.stopped) return null;
     const path = entry.sample;
     const plan = samplePlan(path);
     const trim = entry.trim ?? plan.trim;
-    const loop = this.loopFor(entry, plan, trim);
+    const loop = loopOverride !== undefined ? loopOverride : this.loopFor(entry, plan, trim);
     const looping = loop !== null && loop.looping;
     const c = voiceControls(ctx.props);
     let req: PlayRequest;
@@ -530,6 +623,44 @@ function product(dyn: readonly DynGain[]): number {
   let g = 1;
   for (const d of dyn) g *= d.gain;
   return g;
+}
+
+/** The stinger whose trigger is `name`: the playlist's own, else the first embedded playlist's (depth first). */
+function findStinger(b: PlaylistBody, name: string, depth: number): Stinger | null {
+  const own = b.stingers.find((s) => s.trigger === name);
+  if (own || depth > 16) return own ?? null;
+  for (const e of b.entries) {
+    if (e.kind !== "embedded") continue;
+    const s = findStinger(e.embedded, name, depth + 1);
+    if (s) return s;
+  }
+  return null;
+}
+
+/** Seconds from the start of the first sample `entry` plays to its Hit marker (ADR 0328), 0 (one warning) without one. */
+function hitOffset(entry: Entry, chain: readonly string[]): number {
+  const sample = firstSample(entry, chain, 0);
+  if (sample) {
+    const facts = sampleFacts(sample.sample);
+    const hit = facts.markers.find((m) => m.type === "hit");
+    const from = sample.trim ? sample.trim[0] : facts.from;
+    if (hit && hit.at >= from) return hit.at - from;
+  }
+  warnOnce(`playlist:stinger-hit:${chain[0]}`, `[myco] ${chain[0]}: a stinger at "hit" plays a sample without a Hit marker; it starts on the bar.`);
+  return 0;
+}
+
+function firstSample(entry: Entry, chain: readonly string[], depth: number): SampleEntry | null {
+  if (depth > 16) return null;
+  if (entry.kind === "sample") return entry;
+  const body = entry.kind === "embedded" ? entry.embedded : linkedPlaylist(entry.playlist, chain);
+  if (!body) return null;
+  const next = entry.kind === "linked" ? [...chain, entry.playlist] : chain;
+  for (const e of body.entries) {
+    const s = firstSample(e, next, depth + 1);
+    if (s) return s;
+  }
+  return null;
 }
 
 /** Whether a playlist or any embedded playlist in it has a spatial block (its voices are then positioned). */

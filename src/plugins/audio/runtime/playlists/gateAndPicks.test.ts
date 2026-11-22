@@ -94,14 +94,13 @@ describe("trigger gate", () => {
     expect(far.playing).toBe(false);
   });
 
-  it("refuses a missing playlist and a sequence (M5) with their reasons", async () => {
+  it("refuses a missing playlist with its reason; a sequence plays (M5)", async () => {
     await kit.boot({ "s.playlist.json": pla("sequence", []) });
     expect(Audio.play("nope.playlist.json").playing).toBe(false);
-    expect(Audio.play("s.playlist.json").playing).toBe(false);
+    expect(Audio.play("s.playlist.json").playing).toBe(true); // an empty sequence of the default 4 s
     const t = Audio.debug().playlistTotals!;
     expect(t.refused.missing).toBe(1);
-    expect(t.refused.unsupported).toBe(1);
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("M5"));
+    expect(t.refused.unsupported).toBe(0);
   });
 });
 
