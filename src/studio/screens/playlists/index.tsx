@@ -17,10 +17,10 @@ import { audioHost, keymap, openRoute, setPlayerSlots, studioRouter, toasts } fr
 import { historyPanel } from "../placeholder";
 import { AddDialog } from "./AddDialog";
 import { addItems, addLabel, entriesFor } from "./addDialogModel";
-import { closeCurveEditor, curveRequest, openCurveEditor } from "./curveEditorAdapter";
+import { openCurveEditor } from "./curveEditorAdapter";
 import { LibraryList } from "./LibraryList";
 import { isSamplePath } from "./libraryModel";
-import { CurvePlaceholder, DeleteDialog } from "./PlaylistDialogs";
+import { DeleteDialog } from "./PlaylistDialogs";
 import { PlaylistEditor } from "./PlaylistEditor";
 import { PlaylistInspector } from "./PlaylistInspector";
 import { addEntries, duplicateEntry, removeEntry, setEntryUse, sampleEntry } from "./playlistEdits";
@@ -175,9 +175,11 @@ function editCurves(i: number): void {
   const e = openBody.peek()?.entries[i];
   if (!e) return;
   openCurveEditor({
-    title: `Voice curves · ${entryName(e, i)}`,
+    entry: entryName(e, i),
+    context: lastCrumbName(),
     curves: e.curves,
-    drivers: allParameters.peek().filter((p) => !("labels" in p)).map((p) => p.name),
+    parameters: allParameters.peek(),
+    values: testValues.peek(),
     apply: (curves, label) => editOpen(label, (b) => setEntryUse(b, i, { curves })),
   });
 }
@@ -308,7 +310,6 @@ function EditorPanel() {
         />
       )}
       {deleting.value && <DeleteDialog plan={deleting.value} onCancel={() => (deleting.value = null)} onConfirm={(c, l) => void confirmDelete(deleting.value!, c, l)} />}
-      {curveRequest.value && <CurvePlaceholder request={curveRequest.value} onClose={closeCurveEditor} />}
     </Panel>
   );
 }

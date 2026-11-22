@@ -171,5 +171,3 @@
 .pl-add-row.selected { background: var(--selection); color: var(--selection-text); }
 .pl-add-row.disabled { opacity: 0.55; cursor: not-allowed; }
 .pl-add-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pl-curves { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.pl-curves li { display: grid; grid-template-columns: 1fr 2fr max-content; gap: 8px; align-items: center; }

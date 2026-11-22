@@ -1,9 +1,6 @@
 // The Playlists screen's dialogs: the delete confirmation with the prototype's choices (PL:1430–1459: children "move
-// them up" or "delete all N inside"; links "unlink copies" or "remove from all"), and the voice-curves placeholder that
-// `openCurveEditor` opens until the shared curve editor merges (it lists the entry's curves and can clear one).
+// them up" or "delete all N inside"; links "unlink copies" or "remove from all").
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { VoiceCurveTarget } from "../../../engine/audio/playlist/types";
-import { CURVE_TARGET_TEXT, type CurveEditorRequest } from "./curveEditorAdapter";
 import { playlistTitle } from "./playlistPaths";
 import type { ChildrenChoice, DeletePlan, LinksChoice } from "./structureEdits";
 
@@ -51,42 +48,6 @@ export function DeleteDialog(props: DeleteDialogProps) {
         <div class="pl-dialog-foot">
           <button type="button" onClick={props.onCancel}>Cancel</button>
           <button type="button" ref={confirm} class="pl-danger-btn" onClick={() => props.onConfirm(children, links)}>Delete</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** Until the shared curve editor (ADR 0332) merges: what curves an entry has, and clearing one. */
-export function CurvePlaceholder(props: { readonly request: CurveEditorRequest; onClose(): void }) {
-  const { request } = props;
-  const targets = Object.keys(CURVE_TARGET_TEXT) as VoiceCurveTarget[];
-  return (
-    <div class="pl-dialog-scrim" onPointerDown={(e) => e.target === e.currentTarget && props.onClose()}>
-      <div class="pl-dialog" role="dialog" aria-modal="true" aria-label={request.title} onKeyDown={(e) => e.key === "Escape" && props.onClose()}>
-        <h2 class="pl-dialog-title">{request.title}</h2>
-        <p class="pl-note">The shared curve editor opens here once it lands. Voice curves shape gain, pitch, pan and filters over voice time or a parameter{request.drivers.length ? ` (${request.drivers.join(", ")})` : ""}.</p>
-        <ul class="pl-curves">
-          {targets.map((t) => {
-            const c = request.curves[t];
-            return (
-              <li key={t}>
-                <span>{CURVE_TARGET_TEXT[t]}</span>
-                <span class="pl-row-meta">{c ? `${c.curve.length} keys over ${typeof c.input === "string" ? "voice time" : c.input.parameter}${c.bypass ? " · bypassed" : ""}` : "none"}</span>
-                {c && (
-                  <button type="button" class="pl-small" onClick={() => {
-                    const next = { ...request.curves };
-                    delete next[t];
-                    request.apply(next, `Clear ${CURVE_TARGET_TEXT[t].replace(/ \(.*\)$/, "").toLowerCase()} automation`);
-                    props.onClose();
-                  }}>Clear</button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-        <div class="pl-dialog-foot">
-          <button type="button" autoFocus onClick={props.onClose}>Close</button>
         </div>
       </div>
     </div>
