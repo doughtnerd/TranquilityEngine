@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Measures the committed animation core on wasm in Node (ADR 0340's budgets are tripwires): `evaluate` for 100
-// instances of the 60-bone fixture humanoid, (a) all playing one clip, (b) all mid-crossfade between two clips, plus
-// the wasm's size. Prints the numbers; asserts nothing (wall-clock). Run: node native/anim/crates/anim-wasm/bench.mjs
+// instances of the 60-bone fixture humanoid, (a) all playing one clip, (b) all mid-crossfade between two clips,
+// (c) T31: all running the locomotion graph (fixtures/loco.animgraph: a state machine with a 2D blend space of three
+// clips, synced and speed-scaled, under an upper-body slot playing a one-shot, under an inertialization node), plus the
+// wasm's size. Prints the numbers; asserts nothing (wall-clock). Run: node native/anim/crates/anim-wasm/bench.mjs
 import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -66,5 +68,43 @@ play(walk, 0);
 measure("one clip", 300);
 play(run, 1000); // a 1000 s fade: both clips stay sampled and blended for the whole run
 measure("crossfading two clips", 300);
+for (const h of handles) glue.destroy_instance(h);
+
+// (c) The locomotion graph. String ids and parameter indices from fixtures/graph_expected.json; records by hand
+// (graph family, version 1): SET_PARAM 0x0301 (32 bytes), SLOT_PLAY 0x0305 (44 bytes).
+const fixtureJson = JSON.parse(readFileSync(new URL("fixtures/graph_expected.json", wasmDir), "utf8"));
+const idle = glue.load_clip(fixture("humanoid_idle.anim"));
+const mask = glue.load_mask(new Float32Array(Array.from({ length: 60 }, (_, i) => (i >= 3 && i < 33 ? 1 : 0))));
+const graph = glue.load_graph(fixture("loco.animgraph"));
+const b = fixtureJson.binds;
+for (const [id, asset] of [[b.idle, idle], [b.walk, walk], [b.run, run], [b.upper, mask]]) glue.graph_bind(graph, id, asset);
+const gh = Array.from({ length: N }, () => glue.create_instance(0, skel, graph));
+{
+  const view = new DataView(exports.memory.buffer);
+  let at = glue.commands_ptr();
+  const start = at;
+  const setParam = (h, param, type, w0) => {
+    view.setUint16(at, 0x0301, true);
+    view.setUint16(at + 2, 1, true);
+    for (const [o, v] of [[4, h], [8, param], [12, type], [16, w0], [20, 0], [24, 0], [28, 0]]) view.setUint32(at + o, v, true);
+    at += 32;
+  };
+  const f32 = (x) => new Uint32Array(new Float32Array([x]).buffer)[0];
+  gh.forEach((h, i) => {
+    setParam(h, 3, 2, 1); // moving = true
+    setParam(h, 0, 0, f32((i % 10) / 10)); // x
+    setParam(h, 1, 0, f32(0.5 + (i % 5) / 10)); // y
+    setParam(h, 2, 0, f32(1 + (i % 3))); // speed
+    view.setUint16(at, 0x0305, true); // SLOT_PLAY: a looping upper-body section
+    view.setUint16(at + 2, 1, true);
+    for (const [o, v] of [[4, h], [8, 0], [12, run], [16, 0]]) view.setUint32(at + o, v, true);
+    for (const [o, v] of [[20, 0.1], [24, 0.1], [28, 1], [32, 0], [36, 0.5]]) view.setFloat32(at + o, v, true);
+    view.setUint32(at + 40, 1, true);
+    at += 44;
+  });
+  const applied = glue.write_inputs(at - start);
+  if (applied !== N * 5) console.log(`warning: ${applied} of ${N * 5} graph commands applied`);
+}
+measure("locomotion graph (state machine + 2D blend space of 3 clips + upper-body slot)", 300);
 const wasm = fileURLToPath(new URL("myco_anim_bg.wasm", wasmDir));
 console.log(`wasm: ${statSync(wasm).size} bytes`);

@@ -7,6 +7,12 @@
 export function asset_bytes_ptr(handle: number): number;
 
 /**
+ * The blackboard view's byte offset in memory (`graph` family, `BLACKBOARD_STRIDE` bytes per
+ * instance index).
+ */
+export function blackboard_ptr(): number;
+
+/**
  * State changes dropped this frame because the buffer was full.
  */
 export function changes_dropped(): number;
@@ -37,6 +43,17 @@ export function commands_ptr(): number;
 export function create_instance(world: number, skeleton: number, graph: number): number;
 
 /**
+ * The debug buffer's byte offset in memory (`debug` family, `DEBUG_BYTES` long).
+ */
+export function debug_ptr(): number;
+
+/**
+ * Writes an instance's debug report into the debug buffer; returns its byte length (0 unless the
+ * instance is flagged for debugging).
+ */
+export function debug_write(handle: number): number;
+
+/**
  * Destroys an instance; returns a status.
  */
 export function destroy_instance(handle: number): number;
@@ -50,6 +67,16 @@ export function evaluate(world: number, pass: number, dt_scaled: number, dt_unsc
  * Binds a graph's string id to a clip or mask handle (0 unbinds); returns a status.
  */
 export function graph_bind(graph: number, string_id: number, asset: number): number;
+
+/**
+ * The number of graph state-change records waiting (since the last `write_inputs`).
+ */
+export function graph_change_count(): number;
+
+/**
+ * The graph state-change records' byte offset in memory.
+ */
+export function graph_changes_ptr(): number;
 
 /**
  * Reads an `INIT` record and returns a `MEMORY_NEEDED` record (both `anim-wire` family `core`);
@@ -279,15 +306,20 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly asset_bytes_ptr: (a: number) => number;
+    readonly blackboard_ptr: () => number;
     readonly changes_dropped: () => number;
     readonly changes_ptr: () => number;
     readonly clip_column_bytes: (a: number) => number;
     readonly clip_columns: (a: number, b: number, c: number, d: any) => number;
     readonly commands_ptr: () => number;
     readonly create_instance: (a: number, b: number, c: number) => number;
+    readonly debug_ptr: () => number;
+    readonly debug_write: (a: number) => number;
     readonly destroy_instance: (a: number) => number;
     readonly evaluate: (a: number, b: number, c: number, d: number) => number;
     readonly graph_bind: (a: number, b: number, c: number) => number;
+    readonly graph_change_count: () => number;
+    readonly graph_changes_ptr: () => number;
     readonly init: (a: number, b: number) => [number, number];
     readonly inputs_ptr: () => number;
     readonly last_status: () => number;

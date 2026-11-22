@@ -8,7 +8,12 @@
 //! [`Family`] and a `u16` kind within the family; [`dispatch`] (written once) routes it to its
 //! family's `evaluate`, and the family matches on its own kinds.
 //!
-//! [`EvalContext`] and [`NodeData`] are the seam T13r fills with the interpreter's state.
+//! [`EvalContext`] and [`NodeData`] are the seam T13r filled with the interpreter's state. T31
+//! completed the families it owns (`sources`, `logic`, `mixing`, `slots`, `sync`, each module
+//! documents its kinds, parameter words and state layout), added update contexts (gated
+//! sub-graphs), ancestor inertialization routing, linked-graph program windows, the Timing and
+//! Weights phases ([`eval`]), the debugger's report ([`debug`]) and the 2D blend space's
+//! triangulation (`sources::triangulate`, leaf L31a). `dispatch.rs` is unchanged.
 
 pub mod debug;
 pub mod dispatch;

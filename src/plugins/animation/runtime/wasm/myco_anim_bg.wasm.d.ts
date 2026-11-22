@@ -2,15 +2,20 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const asset_bytes_ptr: (a: number) => number;
+export const blackboard_ptr: () => number;
 export const changes_dropped: () => number;
 export const changes_ptr: () => number;
 export const clip_column_bytes: (a: number) => number;
 export const clip_columns: (a: number, b: number, c: number, d: any) => number;
 export const commands_ptr: () => number;
 export const create_instance: (a: number, b: number, c: number) => number;
+export const debug_ptr: () => number;
+export const debug_write: (a: number) => number;
 export const destroy_instance: (a: number) => number;
 export const evaluate: (a: number, b: number, c: number, d: number) => number;
 export const graph_bind: (a: number, b: number, c: number) => number;
+export const graph_change_count: () => number;
+export const graph_changes_ptr: () => number;
 export const init: (a: number, b: number) => [number, number];
 export const inputs_ptr: () => number;
 export const last_status: () => number;

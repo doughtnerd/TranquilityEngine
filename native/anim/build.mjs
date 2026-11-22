@@ -22,9 +22,14 @@ const OUT_NAME = "myco_anim";
  * Raised by T22r (2026-11-22): tweens and timelines (ten new boundary records with their codecs, the Penner easings, the tween table,
  * timeline instances with nested subclip evaluation, crossfade mixing and sequences, 33 new exports) take the module from 292,313 to
  * 361,549 bytes; + 20% = 433,859 B -> 425 KB.
+ * Raised by T31 (2026-11-22): the complete graph runtime (state machines with the blend stack, conditions, requests,
+ * travel tables; blend spaces with the Delaunay build; random selector, chooser; enum/bool/additive/time-scale/mirror;
+ * slots with sections; linked graphs; sync groups; the debug walk; the graph and debug wire families) measured
+ * 421,778 bytes after replacing load-time general sorts with an insertion sort (-52 KB). + 20% = 506,134 B -> 495 KB.
+ * Merged T22r + T31 (coordinator, 2026-11-22): both together measured 491,064 bytes; + 20% = 589,277 B -> 580 KB.
  * Raise it with a line in docs/design/animation/build-log.md saying why; never cut a feature to stay under it.
  */
-const SIZE_LIMIT = 425 * 1024;
+const SIZE_LIMIT = 580 * 1024;
 
 /** Runs `cmd args` in native/anim with inherited stdio. RUSTFLAGS are dropped so .cargo/config.toml's +simd128 applies. */
 function run(cmd, args) {

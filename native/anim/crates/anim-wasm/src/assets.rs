@@ -12,9 +12,9 @@
 //!
 //! | Kind | Kept |
 //! |---|---|
-//! | skeleton (`myco.skel@1`) | parents, rest pose (AoS and packed SoA), identity pose, inverse bind matrices |
-//! | clip (`myco.anim@1`) | a sampler over its compressed form (else its raw form) with its binding table (`anim-sample`'s `ClipBindings`: decoded channel, track and key tables, so sampling and track windows don't re-read records), duration, flags, root curve |
-//! | graph (`myco.animgraph@1`) | its [`Program`] and a binding table (an asset handle per string id) |
+//! | skeleton (`myco.skel@1`) | parents, rest pose (AoS and packed SoA), identity pose, inverse bind matrices, the bind pose (T31: local transforms of the inverse binds' model pose, packed) |
+//! | clip (`myco.anim@1`) | a sampler over its compressed form (else its raw form) with its binding table (`anim-sample`'s `ClipBindings`: decoded channel, track and key tables, so sampling and track windows don't re-read records), duration, flags, root curve; and (T31) its sync markers keyed by name hash, its exit markers' times and its curve tracks by name hash, for the graph's markers, exit times and curve conditions |
+//! | graph (`myco.animgraph@1`) | its [`Program`] and a binding table (an asset handle per string id: clips, masks and, for linked graphs, graphs) |
 //! | mask | per-bone weights packed like a pose |
 //!
 //! The parsed views borrow the asset's own block for as long as the asset lives (the block never
@@ -23,13 +23,15 @@
 use core::ptr::NonNull;
 use std::alloc::{alloc, dealloc, Layout};
 
-use anim_format::clip::{ClipView, CLIP_ADDITIVE, CLIP_LOOP};
+use anim_format::clip::{ClipView, KeyData, MarkerKind, TrackKind, CLIP_ADDITIVE, CLIP_LOOP};
 use anim_format::graph::AnimGraphView;
 use anim_format::skeleton::SkeletonView;
 use anim_format::F32s;
-use anim_graph::eval::{Assets, ClipRef, Program};
+use anim_graph::eval::{name_hash, Assets, ClipRef, GraphRef, Program};
+use anim_graph::sources::triangulate::sort_small;
 use anim_math::layout::{pack_pose, soa_len};
 use anim_math::{AosMat3x4, AosTransform, F32x4, SoaTransform};
+use anim_pose::sync::SyncMarker;
 use anim_sample::{BoundClip, ClipBindings, ClipSampler, Form};
 use anim_wire::core::{
     Init, HANDLE_GENERATION_SHIFT, HANDLE_INDEX_MASK, STATUS_BAD_ASSET, STATUS_FULL,
@@ -100,6 +102,8 @@ pub struct SkeletonAsset {
     pub rest_soa: Vec<SoaTransform>,
     pub identity: Vec<AosTransform>,
     pub inverse_bind: Vec<AosMat3x4>,
+    /// The bind pose, packed (T31's `BIND_POSE`).
+    pub bind_soa: Vec<SoaTransform>,
 }
 
 impl ClipAsset {
@@ -129,6 +133,10 @@ pub struct ClipAsset {
     pub frame_count: u32,
     pub bone_count: u32,
     pub root_bone: u32,
+    /// Sync markers (ids are name hashes), exit-marker times, curve tracks (name hash, track).
+    pub sync: Vec<SyncMarker>,
+    pub exits: Vec<f32>,
+    pub curves: Vec<(u32, u32)>,
     bytes: AlignedBytes,
 }
 
@@ -304,12 +312,16 @@ impl Arena {
             parents.push(b.parent);
             inverse_bind.push(AosMat3x4::from_rows(b.inverse_bind));
         }
+        let bind = bind_pose(&parents, &inverse_bind, &rest);
+        let mut bind_soa = vec![SoaTransform::identity(); soa_len(n)];
+        pack_pose(&bind, &mut bind_soa);
         self.insert(Asset::Skeleton(SkeletonAsset {
             parents,
             rest,
             rest_soa,
             identity: vec![AosTransform::identity(); n],
             inverse_bind,
+            bind_soa,
         }))
     }
 
@@ -327,6 +339,7 @@ impl Arena {
         let bindings = ClipBindings::new(&sampler);
         bindings.bind(sampler).map_err(|_| STATUS_BAD_ASSET)?;
         let held = block.len;
+        let (sync, exits, curves) = marker_tables(&view);
         let asset = ClipAsset {
             sampler,
             bindings,
@@ -337,6 +350,9 @@ impl Arena {
             frame_count: view.frame_count(),
             bone_count: view.bone_count(),
             root_bone: view.root_bone(),
+            sync,
+            exits,
+            curves,
             bytes: block,
         };
         let h = self.insert(Asset::Clip(asset))?;
@@ -388,7 +404,7 @@ impl Arena {
     pub fn bind(&mut self, graph: u32, id: u32, asset: u32) -> u32 {
         if asset != 0 {
             match self.get(asset) {
-                Ok(Asset::Clip(_)) | Ok(Asset::Mask(_)) => {}
+                Ok(Asset::Clip(_)) | Ok(Asset::Mask(_)) | Ok(Asset::Graph(_)) => {}
                 Ok(_) => return STATUS_WRONG_KIND,
                 Err(e) => return e,
             }
@@ -428,10 +444,147 @@ impl Assets for Arena {
             sample_rate: c.sample_rate,
             frame_count: c.frame_count,
             root_bone: c.root_bone,
+            sync: &c.sync,
+            exits: &c.exits,
+            curves: &c.curves,
+        })
+    }
+
+    fn graph(&self, handle: u32) -> Option<GraphRef<'_>> {
+        let g = self.graph(handle).ok()?;
+        Some(GraphRef {
+            program: &g.program,
+            bindings: &g.bindings,
         })
     }
 
     fn mask(&self, handle: u32) -> Option<&[F32x4]> {
         self.mask_asset(handle).ok().map(|m| m.packed.as_slice())
     }
+}
+
+/// A clip's sync markers (ids = name hashes, sorted by time), exit-marker times (sorted) and curve
+/// tracks (name hash, track index), for the graph (T31).
+#[allow(clippy::type_complexity)]
+fn marker_tables(view: &ClipView<'_>) -> (Vec<SyncMarker>, Vec<f32>, Vec<(u32, u32)>) {
+    let strings = view.strings();
+    let hash = |id: u32| strings.get(id).map_or(0, name_hash);
+    let mut sync = Vec::new();
+    let mut exits = Vec::new();
+    let mut curves = Vec::new();
+    for t in 0..view.track_count() {
+        let Some(info) = view.track(t) else {
+            continue;
+        };
+        if info.kind == TrackKind::Curve {
+            curves.push((hash(info.binding.field), t as u32));
+        }
+        for key in view.track_keys(t) {
+            match key.data {
+                KeyData::Marker {
+                    kind: MarkerKind::Sync,
+                    name,
+                } => sync.push(SyncMarker {
+                    id: hash(name),
+                    time: key.time,
+                }),
+                KeyData::Marker {
+                    kind: MarkerKind::Exit,
+                    ..
+                } => exits.push(key.time),
+                _ => {}
+            }
+        }
+    }
+    sort_small(&mut sync, |a, b| a.time < b.time);
+    sort_small(&mut exits, |a, b| a < b);
+    (sync, exits, curves)
+}
+
+/// The local bind pose: each bone's model bind transform (the inverse of its inverse bind matrix,
+/// decomposed into translation, rotation and per-axis scale) relative to its parent's. A bone whose
+/// matrix is singular keeps its rest transform. Load time only.
+fn bind_pose(
+    parents: &[u16],
+    inverse_bind: &[AosMat3x4],
+    rest: &[AosTransform],
+) -> Vec<AosTransform> {
+    let model: Vec<Option<AosTransform>> = inverse_bind
+        .iter()
+        .map(|ib| {
+            let fallback = AosMat3x4 { m: [f32::NAN; 12] };
+            let m = ib.inverse_or(fallback).m;
+            if m.iter().any(|v| !v.is_finite()) {
+                return None;
+            }
+            let col = |c: usize| [m[c] as f64, m[4 + c] as f64, m[8 + c] as f64];
+            let (c0, c1, c2) = (col(0), col(1), col(2));
+            let len = |v: [f64; 3]| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+            let (sx, sy, sz) = (len(c0), len(c1), len(c2));
+            if sx <= 0.0 || sy <= 0.0 || sz <= 0.0 {
+                return None;
+            }
+            let r = [
+                [c0[0] / sx, c1[0] / sy, c2[0] / sz],
+                [c0[1] / sx, c1[1] / sy, c2[1] / sz],
+                [c0[2] / sx, c1[2] / sy, c2[2] / sz],
+            ];
+            // Rotation matrix to quaternion (Shepperd's method).
+            let tr = r[0][0] + r[1][1] + r[2][2];
+            let (x, y, z, w) = if tr > 0.0 {
+                let s = (tr + 1.0).sqrt() * 2.0;
+                (
+                    (r[2][1] - r[1][2]) / s,
+                    (r[0][2] - r[2][0]) / s,
+                    (r[1][0] - r[0][1]) / s,
+                    0.25 * s,
+                )
+            } else if r[0][0] > r[1][1] && r[0][0] > r[2][2] {
+                let s = (1.0 + r[0][0] - r[1][1] - r[2][2]).sqrt() * 2.0;
+                (
+                    0.25 * s,
+                    (r[0][1] + r[1][0]) / s,
+                    (r[0][2] + r[2][0]) / s,
+                    (r[2][1] - r[1][2]) / s,
+                )
+            } else if r[1][1] > r[2][2] {
+                let s = (1.0 + r[1][1] - r[0][0] - r[2][2]).sqrt() * 2.0;
+                (
+                    (r[0][1] + r[1][0]) / s,
+                    0.25 * s,
+                    (r[1][2] + r[2][1]) / s,
+                    (r[0][2] - r[2][0]) / s,
+                )
+            } else {
+                let s = (1.0 + r[2][2] - r[0][0] - r[1][1]).sqrt() * 2.0;
+                (
+                    (r[0][2] + r[2][0]) / s,
+                    (r[1][2] + r[2][1]) / s,
+                    0.25 * s,
+                    (r[1][0] - r[0][1]) / s,
+                )
+            };
+            Some(AosTransform::new(
+                anim_math::AosVec3::new(m[3], m[7], m[11]),
+                anim_math::AosQuat::new(x as f32, y as f32, z as f32, w as f32)
+                    .normalize_or_identity(),
+                anim_math::AosVec3::new(sx as f32, sy as f32, sz as f32),
+            ))
+        })
+        .collect();
+    (0..parents.len())
+        .map(|i| {
+            let Some(mi) = model[i] else {
+                return rest[i];
+            };
+            let p = parents[i];
+            if p == anim_format::skeleton::NO_PARENT || p as usize >= model.len() {
+                return mi;
+            }
+            match model[p as usize] {
+                Some(mp) => mp.inverse().compose(mi),
+                None => rest[i],
+            }
+        })
+        .collect()
 }

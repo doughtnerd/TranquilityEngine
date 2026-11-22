@@ -2,5 +2,11 @@
   "family": "debug",
   "id": 10,
   "version": 1,
-  "vectors": []
+  "vectors": [
+    { "name": "header", "record": "DEBUG_HEADER", "values": { "instance": 65538, "nodes": 5, "machines": 1, "transitions": 3, "requests": 1, "recordBytes": 300, "dropped": 0 }, "hex": "010a010002000100050000000100000003000000010000002c01000000000000" },
+    { "name": "node", "record": "DEBUG_NODE", "values": { "node": 4, "weight": 0.75, "clip": 65539, "time": 0.5, "normalized": 0.25 }, "hex": "020a0100040000000000403f030001000000003f0000803e" },
+    { "name": "machine", "record": "DEBUG_MACHINE", "values": { "machine": 0, "current": 2, "target": 4294967295, "active": 5, "elapsed": 0.1, "duration": 0.2, "stateTime": 0.1, "normalized": 0.05, "travel": 4294967295, "lastFired": 5, "entries": 2 }, "hex": "030a01000000000002000000ffffffff05000000cdcccc3dcdcc4c3ecdcccc3dcdcc4c3dffffffff0500000002000000" },
+    { "name": "transition_condition", "record": "DEBUG_TRANSITION", "values": { "machine": 0, "transition": 6, "target": 1, "blocker": 1, "detail": 3, "value": 1.5 }, "hex": "040a010000000000060000000100000001000000030000000000c03f" },
+    { "name": "request", "record": "DEBUG_REQUEST", "values": { "name": 7, "life": 0.125 }, "hex": "050a0100070000000000003e" }
+  ]
 }

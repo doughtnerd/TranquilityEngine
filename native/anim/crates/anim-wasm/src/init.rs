@@ -265,6 +265,7 @@ impl Core {
                 rest: &skel.rest,
                 rest_soa: &skel.rest_soa,
                 identity: &skel.identity,
+                bind_soa: &skel.bind_soa,
             },
             bindings,
             layer_weights: &[],
@@ -397,6 +398,42 @@ impl Core {
     /// The track regions (`TRACK_STRIDE` bytes per instance index, as words).
     pub fn tracks(&self) -> &[u32] {
         &self.frame.tracks
+    }
+
+    /// The blackboard view (words; `graph` family `BLACKBOARD_STRIDE` bytes per instance index).
+    pub fn blackboard_mut(&mut self) -> &mut [u32] {
+        &mut self.frame.blackboard
+    }
+
+    /// The graph state-change records (`graph` family `GRAPH_CHANGE`) since the last
+    /// `write_inputs`.
+    pub fn graph_changes(&self) -> &[u8] {
+        self.frame.graph_changes.written()
+    }
+
+    /// Graph state changes dropped because the buffer was full.
+    pub fn graph_changes_dropped(&self) -> u32 {
+        self.frame.graph_changes.dropped
+    }
+
+    /// Writes instance `handle`'s debug report (`debug` family) into the debug buffer; returns its
+    /// bytes (0 unless the instance is flagged with `DEBUG`).
+    pub fn debug_write(&mut self, handle: u32) -> u32 {
+        if !self.started {
+            return 0;
+        }
+        crate::debug::write(
+            &self.arena,
+            &mut self.table,
+            &self.frame.inputs,
+            handle,
+            &mut self.frame.debug,
+        )
+    }
+
+    /// The debug buffer.
+    pub fn debug(&self) -> &[u8] {
+        &self.frame.debug
     }
 
     /// The bytes of asset files the arena holds.
@@ -676,6 +713,38 @@ pub fn clip_columns(clip: u32, out: &mut [u8]) -> u32 {
 #[wasm_bindgen]
 pub fn changes_dropped() -> u32 {
     with(|c| c.changes_dropped())
+}
+
+/// The blackboard view's byte offset in memory (`graph` family, `BLACKBOARD_STRIDE` bytes per
+/// instance index).
+#[wasm_bindgen]
+pub fn blackboard_ptr() -> u32 {
+    with(|c| Core::addr(&c.frame.blackboard))
+}
+
+/// The graph state-change records' byte offset in memory.
+#[wasm_bindgen]
+pub fn graph_changes_ptr() -> u32 {
+    with(|c| Core::addr(&c.frame.graph_changes.bytes))
+}
+
+/// The number of graph state-change records waiting (since the last `write_inputs`).
+#[wasm_bindgen]
+pub fn graph_change_count() -> u32 {
+    with(|c| c.frame.graph_changes.count as u32)
+}
+
+/// The debug buffer's byte offset in memory (`debug` family, `DEBUG_BYTES` long).
+#[wasm_bindgen]
+pub fn debug_ptr() -> u32 {
+    with(|c| Core::addr(&c.frame.debug))
+}
+
+/// Writes an instance's debug report into the debug buffer; returns its byte length (0 unless the
+/// instance is flagged for debugging).
+#[wasm_bindgen]
+pub fn debug_write(handle: u32) -> u32 {
+    with(|c| c.debug_write(handle))
 }
 
 /// The byte offset of a clip's or graph's file bytes in memory (0 for none).
