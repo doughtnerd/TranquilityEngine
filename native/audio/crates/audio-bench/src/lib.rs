@@ -576,6 +576,12 @@ pub enum Catalogue {
     Sidechain,
     /// Buses 4..: two post-fader sends each, into buses 1 and 2 (returns; ADR 0330, ABI 4.7).
     Sends,
+    /// ADR 0338 (ABI 5.0): every bus runs four plugin effects (e 0..3) and every submix two (e 4, 5), each with three
+    /// parameters, through the `myco_ext` import (the metered gate's stub host answers; natively no host: pass-through).
+    Plugins,
+    /// `Plugins`' twin: the same slots running the catalogue's gain at 0 dB (the core's cost of a plugin slot is the
+    /// difference, less the plugin's own work, which runs in its own module).
+    PluginsTwin,
 }
 
 /// The frozen scenes by name.
@@ -649,6 +655,9 @@ pub fn scene(name: &str) -> Option<Scene> {
         "fx-submix-pitch" => Scene { submixes: 32, catalogue: Some(Catalogue::Submix(wire::SUBMIX_FX_PITCH, [7.0, 0.0, 0.0])), ..Scene::looping(name, 128) },
         "fx-submix-formant" => Scene { submixes: 32, catalogue: Some(Catalogue::Submix(wire::SUBMIX_FX_FORMANT, [4.0, 0.0, 0.0])), ..Scene::looping(name, 128) },
         "fx-sidechain" => Scene { buses: 16, catalogue: Some(Catalogue::Sidechain), ..Scene::looping(name, 32) },
+        // ADR 0338 (ABI 5.0): 32 bus plugin slots and 64 submix plugin slots, and their twin on the catalogue's gain.
+        "fx-plugins" => Scene { buses: 8, submixes: 32, catalogue: Some(Catalogue::Plugins), ..Scene::looping(name, 128) },
+        "fx-plugins-twin" => Scene { buses: 8, submixes: 32, catalogue: Some(Catalogue::PluginsTwin), ..Scene::looping(name, 128) },
         // ADR 0330 (ABI 4.7): 16 buses, 12 sending into two returns (buses 1 and 2).
         "bus-sends" => Scene { buses: 16, catalogue: Some(Catalogue::Sends), ..Scene::looping(name, 32) },
         // Not gated: the timed control-rate pass of `automation`, and the virtual scene's twin without bindings.
@@ -1505,7 +1514,7 @@ impl Bench {
                 _ => (1 + i % 3) as u16,
             };
             let mut effects = Vec::new();
-            let fx = |t: u32, p0: f32, p1: f32| wire::BusConfigBusesEffects { type_: t, p: [p0, p1, 0.0, 0.0, 0.0, 0.0, 0.0] };
+            let fx = |t: u32, p0: f32, p1: f32| wire::BusConfigBusesEffects { type_: t, p: pad16(&[p0, p1]) };
             if s.biquads >= 1 {
                 effects.push(fx(wire::effect_type::LOWPASS, 9_000.0 + 50.0 * i as f32, 0.7));
             }
@@ -1518,7 +1527,7 @@ impl Bench {
             if s.reverb && i < s.reverb_sends.max(1) && s.reverb_sends > 0 {
                 effects.push(fx(wire::effect_type::REVERB_SEND, 0.2, 0.0));
             }
-            let cat = |k: u32, p: [f32; 7]| wire::BusConfigBusesEffects { type_: wire::BUS_FX_CATALOGUE + k, p };
+            let cat = |k: u32, p: [f32; 7]| wire::BusConfigBusesEffects { type_: wire::BUS_FX_CATALOGUE + k, p: pad16(&p) };
             match s.catalogue {
                 Some(Catalogue::BusChain) => {
                     effects.push(cat(wire::SUBMIX_FX_EQ, [3.0, -2.0, 4.0, 0.0, 0.0, 0.0, 0.0]));
@@ -1535,6 +1544,16 @@ impl Bench {
                     effects.push(cat(wire::SUBMIX_FX_LIMITER, [-1.0, 50.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
                 }
                 Some(Catalogue::Sidechain) if i >= 4 => effects.push(cat(wire::SUBMIX_FX_SIDECHAIN, [-30.0, 4.0, 200.0, 1.0, 0.0, 0.0, 0.0])),
+                Some(Catalogue::Plugins) => {
+                    for e in 0..4 {
+                        effects.push(cat(wire::FX_PLUGIN_BASE + e, [5.0 + e as f32, 50.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
+                    }
+                }
+                Some(Catalogue::PluginsTwin) => {
+                    for _ in 0..4 {
+                        effects.push(cat(wire::SUBMIX_FX_GAIN, [0.0; 7]));
+                    }
+                }
                 _ => {}
             }
             buses.push(wire::BusConfigBuses { parent, effects });
@@ -1589,10 +1608,12 @@ impl Bench {
             let (group, parent) = if slot < s.submixes { (slot as u16 + 1, 0) } else { (0, (slot % s.submixes) as u16 + 1) };
             // ADR 0331: a 1.2 kHz low-pass, then a compressor (catalogue parameters); an `fx-submix-*` scene's one kind.
             let effects = match s.catalogue {
-                Some(Catalogue::Submix(kind, p)) => vec![wire::SubmixEffects { type_: kind, flags: wire::SUBMIX_FX_ON, p: [p[0], p[1], p[2], 0.0, 0.0, 0.0, 0.0, 0.0] }],
+                Some(Catalogue::Submix(kind, p)) => vec![wire::SubmixEffects { type_: kind, flags: wire::SUBMIX_FX_ON, p: pad16(&p[..3]) }],
+                Some(Catalogue::Plugins) => (4..6).map(|e| wire::SubmixEffects { type_: wire::FX_PLUGIN_BASE + e, flags: wire::SUBMIX_FX_ON, p: pad16(&[5.0, 50.0, 0.0]) }).collect(),
+                Some(Catalogue::PluginsTwin) => (0..2).map(|_| wire::SubmixEffects { type_: wire::SUBMIX_FX_GAIN, flags: wire::SUBMIX_FX_ON, p: pad16(&[0.0]) }).collect(),
                 _ => vec![
-                    wire::SubmixEffects { type_: wire::SUBMIX_FX_LOWPASS as u32, flags: wire::SUBMIX_FX_ON, p: [1_200.0, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
-                    wire::SubmixEffects { type_: wire::SUBMIX_FX_COMPRESSOR as u32, flags: wire::SUBMIX_FX_ON, p: [-24.0, 4.0, 10.0, 120.0, 3.0, 6.0, 0.0, 0.0] },
+                    wire::SubmixEffects { type_: wire::SUBMIX_FX_LOWPASS as u32, flags: wire::SUBMIX_FX_ON, p: pad16(&[1_200.0, 0.3]) },
+                    wire::SubmixEffects { type_: wire::SUBMIX_FX_COMPRESSOR as u32, flags: wire::SUBMIX_FX_ON, p: pad16(&[-24.0, 4.0, 10.0, 120.0, 3.0, 6.0]) },
                 ],
             };
             self.push(&wire::Submix { voice_id: slot, frame_offset: wire::ASAP, group, bus: 0, parent, reserved: 0, effects });
@@ -1790,7 +1811,7 @@ impl Bench {
 
     fn push<R: WireRecord>(&mut self, r: &R) {
         let at = self.recs.len();
-        self.recs.resize(at + 4096, 0);
+        self.recs.resize(at + 16_384, 0);
         let n = r.write_to(&mut self.recs, at);
         self.recs.truncate(at + n);
         self.rec_count += 1;
@@ -3374,4 +3395,11 @@ mod tests {
         assert_eq!((twin.music_rings_open, twin.groups_held, twin.groups_abandoned), (0, 0, 0));
         assert!(find("music-worst").mean_mixed - twin.mean_mixed > 15.5, "worst adds its 16 voices to the twin's {}", twin.mean_mixed);
     }
+}
+
+/// An effect record's parameters (ABI 5.0: 16), `v` first and zeros after.
+fn pad16(v: &[f32]) -> [f32; 16] {
+    let mut p = [0.0; 16];
+    p[..v.len()].copy_from_slice(v);
+    p
 }

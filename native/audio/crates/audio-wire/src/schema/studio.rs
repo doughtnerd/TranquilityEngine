@@ -56,8 +56,15 @@ pub const CONSTANTS: &[Const] = &[
     c!("AUTO_TARGET_PARAM_SHIFT", 16, "binding target bits 16-23: the catalogue parameter's index (FX)"),
     c!("AUTO_TARGET_LOG", 0x0100_0000u32, "binding target bit 24: the curve's value is log2 of the parameter (frequencies interpolate in log scale); the core takes 2^value (FX)"),
     c!("BUS_AUTOMATE_MAX_BINDINGS", 16, "bindings a bus or a submix keeps (BUS_AUTOMATE, SUBMIX_AUTOMATE; ABI 4.8, 8 before)"),
-    c!("BUS_FX_HELD_SHIFT", 16, "bus effect type bits 16-23: bit i set holds catalogue parameter i at its sent value (a snapshot override); automation leaves it (ABI 4.8)"),
+    c!("BUS_FX_HELD_SHIFT", 16, "bus effect type bits 16-31: bit i set holds catalogue parameter i at its sent value (a snapshot override); automation leaves it (ABI 4.8; 16 bits from 5.0)"),
     c!("BUS_FX_TYPE_MASK", 0xFFFF, "bus effect type bits 0-15: the type"),
+    c!("FX_PARAMS", 16, "parameters an effect record carries (BUS_CONFIG, BUS_SLOT, SUBMIX; ABI 5.0, ADR 0338; 7 and 8 before)"),
+    c!("FX_PLUGIN_BASE", 0x100, "an effect kind at FX_PLUGIN_BASE + e is registered plugin effect e (0..FX_PLUGINS_MAX-1), run through the myco_ext import (ABI 5.0, ADR 0338); on a bus, BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e"),
+    c!("FX_PLUGINS_MAX", 256, "plugin effects the host may register (e is 0..255)"),
+    c!("FX_PLUGIN_FUEL_PER_FRAME", 5000, "each chain level's (the buses', the instance submixes') shared fuel per frame and quantum, across every plugin instance (0344 section 3): a call whose budget doesn't fit what is left passes dry"),
+    c!("FX_PLUGIN_FLAG_PARAMS", 1, "myco_ext.process flags bit 0: a parameter moved this block (or the block is the first)"),
+    c!("FX_PLUGIN_FLAG_SILENT", 2, "myco_ext.process flags bit 1: the input block is silent"),
+    c!("FX_PLUGIN_FLAG_RESET", 4, "myco_ext.process flags bit 2: the first block since the slot was configured or RESET: the glue resets the instance first"),
     c!("FX_STARVED_SUBMIX", 0x8000, "STATUS fxStarvedOwner bit 15: the owner is a submix slot (low bits), else a bus slot"),
     c!("FX_STARVED_NONE", 0xFFFF, "STATUS fxStarvedOwner: no effect has starved"),
     c!("SUBMIX_PARENT_NONE", 0, "SUBMIX parent: the slot feeds its bus (else parent - 1 is the slot it feeds; ABI 4.9)"),
@@ -76,14 +83,14 @@ pub const CONSTANTS: &[Const] = &[
     c!("LOOP_EXIT_SHAPE_SHIFT", 4, "LOOPS item shapes bits 4-7: the exit crossfade's FADE_SHAPE_* (ABI 4.9)"),
 ];
 
-/// One effect of a SUBMIX chain: 40 B.
+/// One effect of a SUBMIX chain: 72 B (ABI 5.0, ADR 0338: 16 parameters; 40 B before).
 const SUBMIX_EFFECTS: Repeat = Repeat {
     name: "effects",
     count_field: "effectCount",
     item: &[
-        Field::new("type", Ty::U32).doc("SUBMIX_FX_*; a type the core doesn't know passes the signal through"),
+        Field::new("type", Ty::U32).doc("SUBMIX_FX_*, or FX_PLUGIN_BASE + e for registered plugin effect e (ABI 5.0); a type the core doesn't know passes the signal through"),
         Field::new("flags", Ty::U32).doc("SUBMIX_FX_ON"),
-        Field::new("p", Ty::F32).array(8).doc("the catalogue's parameters in its order; unused p = 0"),
+        Field::new("p", Ty::F32).array(16).doc("the catalogue's (or the plugin's declared) parameters in order; unused p = 0 (16 from ABI 5.0)"),
     ],
     then: None,
     max: 0,

@@ -49,13 +49,13 @@ const SET_PARAMS_MASK: &[Bits] = &[
 /// FADE `flags`.
 const FADE_FLAGS: &[Bits] = &[Bits::bit("stopAtEnd", 0, "stop the voice at the end of the fade")];
 
-/// One effect of a BUS_CONFIG bus: `u32 type; f32 p[7]`.
+/// One effect of a BUS_CONFIG bus: `u32 type; f32 p[16]` (ABI 5.0, ADR 0338: 16 parameters, `p[7]` before).
 pub(super) const EFFECTS: Repeat = Repeat {
     name: "effects",
     count_field: "effectCount",
     item: &[
-        Field::new("type", Ty::U32).doc("bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); bits 16-23: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8)"),
-        Field::new("p", Ty::F32).array(7).doc("parameters; q in dB; unused p = 0"),
+        Field::new("type", Ty::U32).doc("bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e registered plugin effect e (ABI 5.0); bits 16-31: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8; 16 bits from 5.0)"),
+        Field::new("p", Ty::F32).array(16).doc("parameters; q in dB; unused p = 0 (16 from ABI 5.0)"),
     ],
     then: None,
     max: 0,

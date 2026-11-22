@@ -63,7 +63,12 @@ export interface ProfileSink {
   loudnessWarning?(bus: string | null, state: ProfileLoudnessState): void;
   /** ADR 0337 §9: package `name` (`bytes` its download size) started loading, loaded, failed or was unloaded; optional, the recorder's. */
   audioPackage?(name: string, event: ProfilePackageEvent, bytes: number): void;
+  /** ADR 0338 §6: plugin effect `type`'s instance `instance` faulted for `reason` (its block passed dry); optional, the recorder's. */
+  pluginFault?(type: string, reason: ProfilePluginFault, instance: number): void;
 }
+
+/** ADR 0338 §6: why a plugin effect faulted (the glue's reasons). */
+export type ProfilePluginFault = "trap" | "budget" | "grow" | "nonFinite" | "range";
 
 /** ADR 0337 §9: what happened to a package (`PKG` capture events). */
 export type ProfilePackageEvent = "loadStart" | "loaded" | "failed" | "unload";

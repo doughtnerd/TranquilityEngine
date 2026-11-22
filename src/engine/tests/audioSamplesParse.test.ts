@@ -7,9 +7,24 @@ import { Mixer } from "../audio/mixer";
 import { parseAudioSettings } from "../audio/settings";
 import { projectWithAudio } from "../audio/project/load";
 import { parseAudioProject } from "../audio/project/format";
+import { registerPluginEffects } from "../audio/effects/catalogue";
+import { parsePluginAudio } from "../audio/effects/pluginEffects";
 
 const root = "samples";
 const readJson = (path: string): unknown => (existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : undefined);
+// ADR 0338: a sample's own plugins with an `audio` section (fx-tremolo's tremolo) are enabled, as the plugin set enables
+// them before the project loads, so their effects are known to the mix.
+for (const dir of readdirSync(root)) {
+  const plugins = `${root}/${dir}/plugins`;
+  if (!existsSync(plugins)) continue;
+  for (const p of readdirSync(plugins)) {
+    const m = readJson(`${plugins}/${p}/plugin.json`) as { name: string; version: string; title?: string; audio?: unknown } | undefined;
+    if (!m?.audio) continue;
+    const problems: string[] = [];
+    const audio = parsePluginAudio(m.audio, { name: m.name, version: m.version, ...(m.title !== undefined && { title: m.title }) }, problems);
+    if (problems.length === 0) registerPluginEffects({ plugin: m.name, version: m.version, enabled: true, effects: audio.effects });
+  }
+}
 const projects = readdirSync(root)
   .filter((dir) => existsSync(`${root}/${dir}/project.json`))
   .map((dir) => ({ dir, project: readJson(`${root}/${dir}/project.json`), audio: readJson(`${root}/${dir}/audio.json`) }))

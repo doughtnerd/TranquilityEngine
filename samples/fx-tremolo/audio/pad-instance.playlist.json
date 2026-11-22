@@ -1,0 +1,11 @@
+{
+  "format": "myco.playlist@1",
+  "type": "clip",
+  "output": "Music",
+  "note": "The pad with the tremolo on the instance's own chain (its submix), a triangle at 6 Hz, feeding the Music bus.",
+  "playback": { "plays": "untilStopped", "maxInstances": 1 },
+  "effects": [
+    { "id": "trem", "type": "example.tremolo", "on": true, "params": { "rate": 6, "depth": 70, "shape": 1 } }
+  ],
+  "entries": [{ "sample": "audio/pad.wav", "loop": "on" }]
+}

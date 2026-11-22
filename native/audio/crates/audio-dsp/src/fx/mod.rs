@@ -30,6 +30,11 @@
 //! | `LIMITER` | ceiling dB, release ms | — |
 //! | `SIDECHAIN` | threshold dB, ratio, release ms, key (the owner's: a bus index) | — |
 //! | `GAIN` | gain dB | — |
+//! | `PLUGIN_BASE + e` (ABI 5.0, ADR 0338) | the plugin's declared parameters (up to 16) | its own module's |
+//!
+//! A plugin kind passes through here: its owner calls the plugin (`audio-core`'s `ext.rs`) with the
+//! block-start and block-end values [`Effect::plugin_block`] gives, glided as a built-in's (log2 or
+//! stepped per parameter, [`Effect::modes`]).
 //!
 //! **Smoothing.** A running effect (one that has processed a block since it was made or reset)
 //! glides to edited parameters over [`SMOOTH_MS`] (the bus compressor's `COMPRESSOR_SMOOTH_MS`),
@@ -55,8 +60,8 @@ use crate::compressor::{db_to_linear, Compressor};
 
 /// The block the effects are written for (the core's quantum); shorter blocks work too.
 pub const BLOCK: usize = 128;
-/// Parameters per effect (the wire's `p` array).
-pub const PARAMS: usize = 8;
+/// Parameters per effect (the wire's `p` array; 16 from ABI 5.0, ADR 0338, so a plugin effect can declare 16).
+pub const PARAMS: usize = 16;
 /// The parameter glide, ms.
 pub const SMOOTH_MS: f32 = 20.0;
 /// A filter's Q in dB at resonance 0 and 1 (the bus chain's `Q_RANGE`, `legacyEffects.ts`).
@@ -83,6 +88,28 @@ pub mod kind {
     pub const GAIN: u32 = 16;
     /// One past the last kind.
     pub const COUNT: u32 = 17;
+    /// ABI 5.0 (ADR 0338): `PLUGIN_BASE + e` is registered plugin effect `e` (0..[`PLUGINS`]). This
+    /// module passes it through: its DSP runs in the plugin's own module, which the core calls
+    /// (`audio-core`'s `ext.rs`); the slot keeps its parameters and glide here as a built-in's.
+    pub const PLUGIN_BASE: u32 = 0x100;
+    /// Plugin effects the host may register.
+    pub const PLUGINS: u32 = 256;
+
+    /// The plugin effect index `e` of kind `k`, if it is a plugin kind.
+    pub fn plugin(k: u32) -> Option<u32> {
+        let e = k.checked_sub(PLUGIN_BASE)?;
+        (e < PLUGINS).then_some(e)
+    }
+}
+
+/// The flags of a plugin call (the wire's `FX_PLUGIN_FLAG_*`, the DSP ABI's `flags` plus the reset bit).
+pub mod plugin_flags {
+    /// A parameter moved this block (or it is the slot's first).
+    pub const PARAMS: u32 = 1;
+    /// The input block is silent.
+    pub const SILENT: u32 = 2;
+    /// The slot's first block since it was configured or reset: the host resets the instance first.
+    pub const RESET: u32 = 4;
 }
 
 /// What an effect reads from outside its chain this block.
@@ -122,6 +149,17 @@ pub struct Effect {
     /// ABI 4.8: bit `i` set holds parameter `i` at its configured value: [`Effect::automate`]
     /// leaves it (a snapshot override in force, ADR 0330). Kept across a `configure`.
     pub held: u32,
+    /// ABI 5.0, a plugin kind only: the instance handle the host gave (`myco_ext.acquire`; 0 none).
+    /// The owner acquires and releases it (`audio-core`'s `fxmem.rs`, `ext.rs`).
+    pub handle: u32,
+    /// ABI 5.0, a plugin kind only: bit `i` glides parameter `i` in log2 (a `scale: "log"`
+    /// parameter); bit `16 + i` steps it at the block's start (`smooth: false`). Set by the owner.
+    pub modes: u32,
+    /// ABI 5.0, a plugin kind only: its instruction budget per frame (the manifest's), set by the owner.
+    pub budget: u32,
+    /// ABI 5.0, a plugin kind only: non-zero when a parameter was set (configured or automated) since its last block, so
+    /// the block's `FLAG_PARAMS` is set even for a stepped parameter, which moves without a glide.
+    pub dirty: u32,
     /// Filters: the filter (`bq[0]`), the EQ's three bands.
     pub bq: [Biquad; 3],
     pub crush: shape::CrushState,
@@ -157,13 +195,19 @@ pub fn q_db(r: f32) -> f32 {
     Q_RANGE_DB.0 + r * (Q_RANGE_DB.1 - Q_RANGE_DB.0)
 }
 
-/// True when parameter `i` of `kind` glides in log2 (frequencies).
-fn is_log(kind: u32, i: usize) -> bool {
+/// True when parameter `i` of `kind` glides in log2 (frequencies; a plugin's from its `modes`).
+fn is_log(kind: u32, modes: u32, i: usize) -> bool {
+    if kind::plugin(kind).is_some() {
+        return modes & (1 << i) != 0;
+    }
     i == 0 && matches!(kind, kind::LOWPASS | kind::HIGHPASS | kind::BANDPASS | kind::CHORUS)
 }
 
-/// True when parameter `i` of `kind` never glides (an index, not a level).
-fn is_discrete(kind: u32, i: usize) -> bool {
+/// True when parameter `i` of `kind` never glides (an index, not a level; a plugin's from its `modes`).
+fn is_discrete(kind: u32, modes: u32, i: usize) -> bool {
+    if kind::plugin(kind).is_some() {
+        return modes & (1 << (16 + i)) != 0;
+    }
     kind == kind::SIDECHAIN && i == 3
 }
 
@@ -210,15 +254,19 @@ impl Effect {
         self.kind = kind;
         self.on = on as u32;
         self.sample_rate = sample_rate;
+        let before = self.target;
         for (t, v) in self.target.iter_mut().zip(p.iter()) {
             *t = if v.is_finite() { *v } else { 0.0 };
+        }
+        if self.target != before {
+            self.dirty = 1;
         }
         if self.running == 0 {
             self.cur = self.target;
             self.glide = 0;
         } else {
             for i in 0..PARAMS {
-                if is_discrete(kind, i) {
+                if is_discrete(kind, self.modes, i) {
                     self.cur[i] = self.target[i];
                 }
             }
@@ -239,7 +287,8 @@ impl Effect {
             return;
         }
         self.target[i] = v;
-        if self.running == 0 || is_discrete(self.kind, i) {
+        self.dirty = 1;
+        if self.running == 0 || is_discrete(self.kind, self.modes, i) {
             self.cur[i] = v;
             return;
         }
@@ -267,6 +316,21 @@ impl Effect {
         self.running = 0;
     }
 
+    /// ABI 5.0 (ADR 0338), a plugin kind's block: the glide steps over `n` frames as a built-in's
+    /// would, `p0` gets the parameters at the block's start (`cur` holds those at its end), and the
+    /// result is the call's flags: `FLAG_PARAMS` when they moved (a stepped one set included) or the block is the slot's first,
+    /// `FLAG_RESET` on its first block since it was made or reset. A stepped parameter has the same
+    /// value at both ends.
+    pub fn plugin_block(&mut self, n: u32, p0: &mut [f32; PARAMS]) -> u32 {
+        *p0 = self.cur;
+        let moved = self.step(n);
+        let first = self.running == 0;
+        self.running = 1;
+        let changed = moved || first || self.dirty != 0;
+        self.dirty = 0;
+        (if changed { plugin_flags::PARAMS } else { 0 }) | (if first { plugin_flags::RESET } else { 0 })
+    }
+
     /// One glide step over `n` frames; `true` when the parameters moved.
     fn step(&mut self, n: u32) -> bool {
         if self.glide == 0 {
@@ -280,7 +344,7 @@ impl Effect {
         let u = n as f32 / self.glide as f32;
         for i in 0..PARAMS {
             let (c, t) = (self.cur[i], self.target[i]);
-            self.cur[i] = if is_log(self.kind, i) && c > 0.0 && t > 0.0 {
+            self.cur[i] = if is_log(self.kind, self.modes, i) && c > 0.0 && t > 0.0 {
                 libm::exp2f(libm::log2f(c) + (libm::log2f(t) - libm::log2f(c)) * u)
             } else {
                 c + (t - c) * u

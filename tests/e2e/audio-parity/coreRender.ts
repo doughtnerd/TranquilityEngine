@@ -3,6 +3,7 @@
 // loopback host is fixed at 48 kHz and the parity scenes also run at 44.1 kHz).
 import { readFile } from "node:fs/promises";
 import {
+  BUS_CONFIG_BUSES_EFFECTS_FIXED_END,
   ASAP,
   BUS_LP_OFF_HZ,
   BUS_RAMP_MASK_GAIN,
@@ -127,7 +128,7 @@ async function renderOnce(scene: Scene): Promise<Render> {
   // The bus tree: "Master" (root), "Bus" under it.
   const resolved = sceneBuses(scene);
   const tree: BusConfigBuses[] = resolved.map((b) => ({ parent: b.parent === null ? BUS_ROOT : resolved.findIndex((x) => x.name === b.parent), effects: b.effects.map(wireEffect) }));
-  const configBytes = 16 + tree.reduce((n, b) => n + 4 + 32 * b.effects.length, 0);
+  const configBytes = 16 + tree.reduce((n, b) => n + 4 + BUS_CONFIG_BUSES_EFFECTS_FIXED_END * b.effects.length, 0);
   batch(configBytes, (view, at) => void writeBusConfig(view, at, { voiceId: 0, frameOffset: ASAP, buses: tree }), 1);
   // ADR 0171 R3 (Wa2): what BUS_MIX was, as two asap BUS_RAMPs per bus (frames 0, a literal step): the runtime lane's gain
   // and the snapshot lane's low-pass. The parity digests are unchanged.

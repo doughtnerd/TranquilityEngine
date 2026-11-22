@@ -120,7 +120,7 @@ describe("coreDriver with the real wasm", () => {
     expect(r.blocks).toHaveLength(1);
     const first = r.blocks[0]!;
     expect(first.flags & STATUS_FLAGS_READY).toBeTruthy();
-    expect(first.abiVersion).toBe(0x40c); // 4.12 clip format 6 (IMA ADPCM decoded per voice); 4.11 per-voice spread; 4.10 effect and send automation, submix automation, dB ramps; 4.9 submix levels and ROUTE; 4.7 bus sends; 4.6 (ADR 0331 effect catalogue DSP; 4.5 instance submixes; 4.4 voice pan and high-pass, 4.3 loop programs)
+    expect(first.abiVersion).toBe(0x500); // 5.0 16-parameter effect records and plugin effects (ADR 0338); 4.12 clip format 6 (IMA ADPCM); 4.11 per-voice spread; 4.10 effect and send automation, submix automation, dB ramps; 4.9 submix levels and ROUTE; 4.7 bus sends; 4.6 (ADR 0331 effect catalogue DSP; 4.5 instance submixes; 4.4 voice pan and high-pass, 4.3 loop programs)
     expect(first.currentFrame).toBe(6 * 128);
     await expect(r.link.ready).resolves.toBeUndefined();
     r.run(6);
@@ -395,7 +395,7 @@ describe("ABI 2.0 init and the layout mirror (ADR 0162 C8)", () => {
   });
 
   it("ABI 4.0 (3.0 added max_music_rings): max_music_rings 0..16 is accepted, 17 refused, and the preset's count reaches init (ADR 0166 W1)", () => {
-    expect(CORE_ABI_MAJOR).toBe(4);
+    expect(CORE_ABI_MAJOR).toBe(5);
     for (const maxMusicRings of [0, 8, 16]) expect(() => instantiateCore(WASM, { ...PRESET, maxMusicRings }, RATE)).not.toThrow();
     expect(() => instantiateCore(WASM, { ...PRESET, maxMusicRings: 17 }, RATE)).toThrow(/refused/);
     const { exports } = instantiateCore(WASM, PRESET, RATE);

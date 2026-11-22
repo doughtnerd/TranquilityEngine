@@ -46,7 +46,7 @@ fn level_rec(slot: u32, group: u16, bus: u16, parent: u16, effects: &[(u32, bool
         effects: effects
             .iter()
             .map(|&(type_, on, p)| {
-                let mut a = [0.0f32; 8];
+                let mut a = [0.0f32; 16];
                 a[..p.len()].copy_from_slice(p);
                 wire::SubmixEffects { type_, flags: if on { wire::SUBMIX_FX_ON } else { 0 }, p: a }
             })

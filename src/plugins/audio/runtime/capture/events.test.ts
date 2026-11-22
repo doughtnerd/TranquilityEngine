@@ -113,6 +113,8 @@ const rows: Row[] = [
   ...(["high", "low", "ok"] as const).map((state, i): Row => ({ name: `loudnessWarning ${state}`, call: (s) => s.loudnessWarning(state === "ok" ? null : "Bgm", state), kind: EventKind.loudnessWarning, reason: i + 1, args: [state === "ok" ? NO_NAME : N("parameters", "Bgm")] })),
   // ADR 0337 §9: PKG, a package's load start, load, failure and unload with its download bytes.
   ...(["loadStart", "loaded", "failed", "unload"] as const).map((event, i): Row => ({ name: `audioPackage ${event}`, call: (s) => s.audioPackage("Forest", event, 18_211), kind: EventKind.audioPackage, reason: i + 1, args: [N("parameters", "Forest"), 18_211] })),
+  // ADR 0338 §6: a plugin fault, the effect type interned in `parameters`, the glue's instance handle.
+  ...(["trap", "budget", "grow", "nonFinite", "range"] as const).map((reason, i): Row => ({ name: `pluginFault ${reason}`, call: (s) => s.pluginFault("example.tremolo", reason, 7), kind: EventKind.pluginFault, reason: i + 1, args: [N("parameters", "example.tremolo"), 7] })),
 ];
 
 describe("EventSink: every §5.6 kind and reason encodes and decodes back (a spec table)", () => {
@@ -135,9 +137,9 @@ describe("EventSink: every §5.6 kind and reason encodes and decodes back (a spe
     expect(ev.payload.perfMs).toBeGreaterThan(1000);
   });
 
-  it("the table covers all 22 kinds and every reason code §5.6, ADR 0334 and ADR 0337 give", () => {
+  it("the table covers all 23 kinds and every reason code §5.6, ADRs 0334, 0337 and 0338 give", () => {
     const kinds = new Set(rows.map((r) => r.kind));
-    expect(Array.from(kinds).sort((a, b) => a - b)).toEqual(Array.from({ length: 22 }, (_, i) => i + 1).filter((k) => k !== EventKind.parameter));
+    expect(Array.from(kinds).sort((a, b) => a - b)).toEqual(Array.from({ length: 23 }, (_, i) => i + 1).filter((k) => k !== EventKind.parameter));
     for (const [kind, max] of format.EVENT_REASON_MAX) {
       const reasons = new Set(rows.filter((r) => r.kind === kind).map((r) => r.reason));
       for (let reason = kind === EventKind.ladder ? 2 : 1; reason <= max; reason++) expect(reasons.has(reason), `kind ${kind} reason ${reason}`).toBe(true);

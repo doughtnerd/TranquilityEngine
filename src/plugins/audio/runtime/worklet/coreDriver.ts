@@ -50,12 +50,13 @@ import {
 import { clipChunkBytes, memoryMaximumPages, MEMORY_INITIAL_PAGES, zoneMaxFrames } from "./coreMemory";
 
 import { UnderrunProbe } from "./underrunProbe";
+import { EffectGlue, type FxControlMessage, type FxShellEvent } from "./effectGlue";
 
 /** @internal The name `processor.ts` registers and the host creates its node with. */
 export const PROCESSOR_NAME = "myco-audio-core";
 
-/** @internal The C ABI's major version this shell speaks (`myco_audio_abi_version() >> 8`, api-and-models §5; 2 since ADR 0162 R6, 3 since ADR 0166 W1: `max_music_rings`; 4 since ADR 0171 M5: the 256-B STATUS header and `BUS_RAMP`). */
-export const CORE_ABI_MAJOR = 4;
+/** @internal The C ABI's major version this shell speaks (`myco_audio_abi_version() >> 8`, api-and-models §5; 2 since ADR 0162 R6, 3 since ADR 0166 W1: `max_music_rings`; 4 since ADR 0171 M5: the 256-B STATUS header and `BUS_RAMP`; 5 since ADR 0338: 16-parameter effect records and the `myco_ext` import). */
+export const CORE_ABI_MAJOR = 5;
 
 /** @internal `myco_audio_init`'s parameters, less the rate (the worklet's `sampleRate`), plus the clip ceiling. */
 export interface CorePreset extends SpatialInitParams, MusicInitParams {
@@ -84,10 +85,12 @@ export type CoreControlMessage =
   | { readonly type: "debugTone"; readonly hz: number; readonly gain: number }
   | { readonly type: "retire" }
   /** B3: the worklet's end of the channel to the decoder worker (transferred); a later one replaces it. */
-  | { readonly type: "streamPort"; readonly port: MessagePort };
+  | { readonly type: "streamPort"; readonly port: MessagePort }
+  /** ADR 0338 (B4): plugin effect modules for the glue (`effectGlue.ts`). */
+  | FxControlMessage;
 
 /** @internal What the shell posts that isn't a wire buffer. */
-export type CoreShellEvent = { readonly type: "error"; readonly message: string } | { readonly type: "trap"; readonly message: string };
+export type CoreShellEvent = { readonly type: "error"; readonly message: string } | { readonly type: "trap"; readonly message: string } | FxShellEvent;
 
 /** @internal The exports the shell calls (api-and-models §5). Pointers and sizes are numbers. */
 export interface CoreExports {
@@ -147,6 +150,8 @@ export interface CoreInstance {
   readonly exports: CoreExports;
   readonly memory: WebAssembly.Memory;
   readonly sampleRate: number;
+  /** ADR 0338 (ABI 5.0): the plugin effect glue bound to the core's `myco_ext` import. */
+  readonly plugins: EffectGlue;
 }
 
 /** @internal Why the core couldn't start (the host falls back, architecture §2.1). */
@@ -176,10 +181,13 @@ function hex(bytes: Uint8Array): string {
  */
 export function instantiateCore(wasm: BufferSource | WebAssembly.Module, preset: CorePreset, sampleRate: number, expected: CoreExpectations = EXPECTED): CoreInstance {
   const memory = new WebAssembly.Memory({ initial: MEMORY_INITIAL_PAGES, maximum: memoryMaximumPages(preset, sampleRate) });
+  // ABI 5.0 (ADR 0338): the core calls plugin effects through `myco_ext`, which the glue answers (pass-through until a
+  // module is loaded).
+  const plugins = new EffectGlue(sampleRate);
   let exports: CoreExports;
   try {
     const module = wasm instanceof WebAssembly.Module ? wasm : new WebAssembly.Module(wasm);
-    exports = new WebAssembly.Instance(module, { env: { memory } }).exports as unknown as CoreExports;
+    exports = new WebAssembly.Instance(module, { env: { memory }, myco_ext: { ...plugins.imports } }).exports as unknown as CoreExports;
   } catch (error) {
     throw new CoreLoadError(`audio core: instantiating myco_audio.wasm failed: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -206,7 +214,8 @@ export function instantiateCore(wasm: BufferSource | WebAssembly.Module, preset:
   if (typeof exports.myco_audio_set_limiter_lookahead !== "function") throw new CoreLoadError(`audio core: ABI ${abi >> 8}.${abi & 0xff} lacks myco_audio_set_limiter_lookahead (1.1)`);
   const lookahead = exports.myco_audio_set_limiter_lookahead(preset.limiterLookaheadMs);
   if (lookahead !== 0) throw new CoreLoadError(`audio core: myco_audio_set_limiter_lookahead refused (code ${lookahead})`);
-  return { exports, memory, sampleRate };
+  plugins.attach(memory);
+  return { exports, memory, sampleRate, plugins };
 }
 
 /** @internal Where the shell's own STATUS fields sit (api-and-models §4.3); `coreDriver.test.ts` checks them with `readStatus`. */
@@ -327,6 +336,7 @@ export class CoreDriver {
     this.lastBatchDate = dateNow;
     this.u8 = new Uint8Array(core.memory.buffer);
     this.f32 = new Float32Array(core.memory.buffer);
+    core.plugins.setPost((event) => this.post(event));
   }
 
   /** Re-creates the memory views when memory grew (growth detaches them; api-and-models §5 "Ownership"). */
@@ -627,8 +637,12 @@ export class CoreDriver {
     post(buffers, buffers);
   }
 
-  /** A dev-only control (`debugTone`). */
-  onControl(message: CoreControlMessage): void {
+  /**
+   * A control message: the dev-only `debugTone`, or ADR 0338's plugin effect modules (`fxLoad`, `fxUnload`, `fxReset`),
+   * which go to the glue; an `fxLoad` compiles asynchronously and the returned promise settles once it has.
+   */
+  onControl(message: CoreControlMessage): Promise<void> | void {
+    if (message.type === "fxLoad" || message.type === "fxUnload" || message.type === "fxReset") return this.dead ? undefined : this.core.plugins.onControl(message);
     if (message.type !== "debugTone") return;
     const on = message.hz > 0 && message.gain > 0;
     this.toneStep = on ? (TWO_PI * message.hz) / this.core.sampleRate : 0;
@@ -683,6 +697,8 @@ export class CoreDriver {
     }
     this.clipBudget = CLIP_BYTES_PER_QUANTUM;
     if (this.clipQueue.length > 0) this.drainClips();
+    // ADR 0338: plugin recoveries run here, never inside the core's call; nothing before a module is loaded.
+    if (this.core.plugins.active) this.core.plugins.beginQuantum(currentFrame);
     let ptr = 0;
     try {
       ptr = this.core.exports.myco_audio_process(currentFrame % 4_294_967_296 >>> 0, Math.floor(currentFrame / 4_294_967_296));

@@ -1,6 +1,6 @@
 //! Contract K5: per-bus effect slots and their dispatch (api-and-models §4.2 BUS_CONFIG; ADR 0331).
 //!
-//! BUS_CONFIG and BUS_SLOT carry each bus's effects in order: `u32 type` and `f32 p[7]`.
+//! BUS_CONFIG and BUS_SLOT carry each bus's effects in order: `u32 type` and `f32 p[16]` (ABI 5.0; `p[7]` before).
 //! - **Legacy types** (0 lowpass, 1 highpass, 2 compressor, 3 reverb send; lp/hp: frequency Hz, q
 //!   in dB; compressor: threshold dB, knee dB, ratio, attack s, release s; reverb: send) behave as
 //!   they always have, bit for bit.
@@ -11,6 +11,11 @@
 //!   (`audio_dsp::fx`'s glide). A sidechain compressor's key is `p[3]`, a bus slot: its pre-fader
 //!   level ([`BusArea::key_db`](crate::bus::BusArea), measured where the key bus is mixed; the key
 //!   is mixed first, `bus_order::rerun`).
+//! - **Plugin types** (ABI 5.0, ADR 0338): `BUS_FX_CATALOGUE + PLUGIN_BASE + e`, registered plugin
+//!   effect `e`, `p` its declared parameters. The slot is a catalogue slot whose DSP runs in the
+//!   plugin's own module through the `myco_ext` import (`ext.rs`): its instance is acquired when the
+//!   slot takes the kind and released by the sweep; a fault passes the block dry; all the buses'
+//!   plugin calls share one quantum's fuel ([`ext::Fuel`](crate::ext::Fuel), 0344 §3).
 //!
 //! [`FxChain::configure_with`] stores them in a bus's fixed slots and [`FxChain::process_with`]
 //! runs them in order on the bus's quantum, before the snapshot low-pass and the bus gain (the
@@ -77,10 +82,15 @@ pub mod kind {
     /// An unknown type: skipped.
     pub const NONE: u32 = u32::MAX;
 
-    /// The catalogue kind of slot kind `k`, if it is one.
+    /// The catalogue kind of slot kind `k`, if it is one (ABI 5.0: a plugin kind is one too).
     pub fn catalogue(k: u32) -> Option<u32> {
         let c = k.checked_sub(CATALOGUE)?;
-        (c > audio_dsp::fx::kind::NONE && c < audio_dsp::fx::kind::COUNT).then_some(c)
+        ((c > audio_dsp::fx::kind::NONE && c < audio_dsp::fx::kind::COUNT) || audio_dsp::fx::kind::plugin(c).is_some()).then_some(c)
+    }
+
+    /// `true` when slot kind `k` is a plugin effect's (ABI 5.0, ADR 0338).
+    pub fn plugin(k: u32) -> bool {
+        k.checked_sub(CATALOGUE).and_then(audio_dsp::fx::kind::plugin).is_some()
     }
 }
 
@@ -95,7 +105,7 @@ pub struct FxSlot {
     /// [`kind`].
     pub kind: u32,
     /// The wire parameters, sanitised (non-finite to 0; a send clamped to 0..1).
-    pub p: [f32; 7],
+    pub p: [f32; PARAMS],
     /// The filter state of a lowpass or highpass slot (zeroed and unused for the other kinds).
     pub biquad: Biquad,
     /// A catalogue effect's state (all-zero for the legacy kinds).
@@ -130,8 +140,10 @@ impl Default for FxChain {
 
 /// A legacy compressor's parameters (threshold dB, knee dB, ratio, attack s, release s) as the
 /// catalogue's (threshold, ratio, attack ms, release ms, makeup 0, knee).
-fn catalogue_compressor(p: &[f32; 7]) -> [f32; PARAMS] {
-    [p[0], p[2], p[3] * 1000.0, p[4] * 1000.0, 0.0, p[1], 0.0, 0.0]
+fn catalogue_compressor(p: &[f32; PARAMS]) -> [f32; PARAMS] {
+    let mut q = [0.0; PARAMS];
+    q[..6].copy_from_slice(&[p[0], p[2], p[3] * 1000.0, p[4] * 1000.0, 0.0, p[1]]);
+    q
 }
 
 impl FxChain {
@@ -155,7 +167,7 @@ impl FxChain {
 
     /// [`FxChain::configure_with`] without effect memory (catalogue effects that need memory pass
     /// their signal through): the legacy chains' tests.
-    pub fn configure<I: IntoIterator<Item = (u32, [f32; 7])>>(&mut self, effects: I, sample_rate: f32) -> u32 {
+    pub fn configure<I: IntoIterator<Item = (u32, [f32; PARAMS])>>(&mut self, effects: I, sample_rate: f32) -> u32 {
         self.configure_with(effects, sample_rate, &mut [])
     }
 
@@ -163,7 +175,7 @@ impl FxChain {
     /// their memory from the `FxMem` region `fxmem`. Returns how many were dropped: past
     /// [`MAX_EFFECTS`], or of an unknown type (which keeps its place as a [`kind::NONE`] slot, so
     /// the order of the others is kept).
-    pub fn configure_with<I: IntoIterator<Item = (u32, [f32; 7])>>(&mut self, effects: I, sample_rate: f32, fxmem: &mut [u8]) -> u32 {
+    pub fn configure_with<I: IntoIterator<Item = (u32, [f32; PARAMS])>>(&mut self, effects: I, sample_rate: f32, fxmem: &mut [u8]) -> u32 {
         let old_compressor = self.compressor_in_use();
         // Where a glide in flight is heading, read before the slots are overwritten.
         let old_target = old_compressor.map(|i| self.compressor_target(i));
@@ -175,10 +187,10 @@ impl FxChain {
                 dropped += 1;
                 continue;
             }
-            // ABI 4.8: bits 16-23 hold catalogue parameters against automation (a snapshot override).
+            // ABI 4.8: bits 16-31 hold catalogue parameters against automation (a snapshot override; 16 bits from 5.0).
             let type_ = word & wire::BUS_FX_TYPE_MASK;
-            let held = (word >> wire::BUS_FX_HELD_SHIFT) & 0xFF;
-            let mut p = [0.0f32; 7];
+            let held = (word >> wire::BUS_FX_HELD_SHIFT) & 0xFFFF;
+            let mut p = [0.0f32; PARAMS];
             for (dst, src) in p.iter_mut().zip(raw) {
                 *dst = if src.is_finite() { src } else { 0.0 };
             }
@@ -187,11 +199,7 @@ impl FxChain {
                 kind::COMPRESSOR if compressor.is_some() => (kind::CATALOGUE + audio_dsp::fx::kind::COMPRESSOR, Some(catalogue_compressor(&p))),
                 kind::LOWPASS | kind::HIGHPASS | kind::COMPRESSOR | kind::REVERB_SEND => (type_, None),
                 t => match kind::catalogue(t) {
-                    Some(_) => {
-                        let mut q = [0.0f32; PARAMS];
-                        q[..7].copy_from_slice(&p);
-                        (t, Some(q))
-                    }
+                    Some(_) => (t, Some(p)),
                     None => {
                         dropped += 1;
                         (kind::NONE, None)
@@ -255,7 +263,8 @@ impl FxChain {
 
     /// [`FxChain::process_with`] without effect memory or sidechain keys.
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32], reverb_l: &mut [f32], reverb_r: &mut [f32]) -> bool {
-        self.process_with(left, right, reverb_l, reverb_r, &mut [], &[])
+        let mut fuel = crate::ext::Fuel::quantum(left.len());
+        self.process_with(left, right, reverb_l, reverb_r, &mut [], &[], &mut fuel)
     }
 
     /// Runs the chain on one block of the bus (`left`, `right`, equal lengths). Each reverb send
@@ -263,8 +272,10 @@ impl FxChain {
     /// the bus's send scratch, which `sends::feed` adds into the shared reverb input. Catalogue
     /// effects run on their memory in `fxdata` (the `FxMem` region's floats); a sidechain
     /// compressor reads its key's level from `keys` (dB by bus slot; NaN or out of range: none).
+    /// Plugin effects run through the import, drawing on the buses' shared `fuel` (ABI 5.0).
     /// Returns `true` when a send wrote into the scratch.
-    pub fn process_with(&mut self, left: &mut [f32], right: &mut [f32], reverb_l: &mut [f32], reverb_r: &mut [f32], fxdata: &mut [f32], keys: &[f32]) -> bool {
+    #[allow(clippy::too_many_arguments)]
+    pub fn process_with(&mut self, left: &mut [f32], right: &mut [f32], reverb_l: &mut [f32], reverb_r: &mut [f32], fxdata: &mut [f32], keys: &[f32], fuel: &mut crate::ext::Fuel) -> bool {
         let mut sent = false;
         let used = self.used();
         for slot in self.slots[..used].iter_mut() {
@@ -292,6 +303,9 @@ impl FxChain {
                         }
                         sent = true;
                     }
+                }
+                k if kind::plugin(k) => {
+                    crate::ext::process(&mut slot.fx, left, right, fuel);
                 }
                 k if kind::catalogue(k).is_some() => {
                     let e = &mut slot.fx;
@@ -418,8 +432,14 @@ pub fn snapshot_lowpass(filter: &mut Biquad, sample_rate: f32, lp_hz: f32, left:
 mod tests {
     use super::*;
 
-    fn fx(type_: u32, p0: f32) -> (u32, [f32; 7]) {
-        (type_, [p0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    fn pad(v: &[f32]) -> [f32; PARAMS] {
+        let mut p = [0.0; PARAMS];
+        p[..v.len()].copy_from_slice(v);
+        p
+    }
+
+    fn fx(type_: u32, p0: f32) -> (u32, [f32; PARAMS]) {
+        (type_, pad(&[p0, 1.0]))
     }
 
     #[test]
@@ -445,7 +465,7 @@ mod tests {
     #[test]
     fn unknown_types_and_bad_values_are_neutralised() {
         let mut c = FxChain::default();
-        assert_eq!(c.configure([(9, [1.0; 7]), (kind::REVERB_SEND, [f32::NAN; 7]), fx(kind::REVERB_SEND, 7.0)], 48_000.0), 1);
+        assert_eq!(c.configure([(9, [1.0; PARAMS]), (kind::REVERB_SEND, [f32::NAN; PARAMS]), fx(kind::REVERB_SEND, 7.0)], 48_000.0), 1);
         assert_eq!(c.kinds().collect::<Vec<_>>(), vec![kind::NONE, kind::REVERB_SEND, kind::REVERB_SEND]);
         assert_eq!((c.slots[1].p[0], c.slots[2].p[0]), (0.0, 1.0), "NaN reads 0; the send clamps to 1");
         let (mut l, mut r) = ([0.5f32; 4], [0.25f32; 4]);
@@ -512,22 +532,22 @@ mod tests {
         let mut buf = Vec::new();
         let mem = region(&mut buf, 8);
         let mut c = FxChain::default();
-        let gain = (kind::CATALOGUE + audio_dsp::fx::kind::GAIN, [-6.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
-        let sc = (kind::CATALOGUE + audio_dsp::fx::kind::SIDECHAIN, [-20.0, 4.0, 100.0, 2.0, 0.0, 0.0, 0.0]);
+        let gain = (kind::CATALOGUE + audio_dsp::fx::kind::GAIN, pad(&[-6.0]));
+        let sc = (kind::CATALOGUE + audio_dsp::fx::kind::SIDECHAIN, pad(&[-20.0, 4.0, 100.0, 2.0]));
         assert_eq!(c.configure_with([gain, sc], 48_000.0, mem), 0);
         assert_eq!(c.sidechain_keys().collect::<Vec<_>>(), vec![2]);
         let (_, data) = crate::fxmem::split(mem).unwrap();
         let (mut l, mut r) = ([1.0f32; 128], [1.0f32; 128]);
         let (mut rl, mut rr) = ([0.0f32; 128], [0.0f32; 128]);
-        c.process_with(&mut l, &mut r, &mut rl, &mut rr, data, &[f32::NAN; 4]);
+        c.process_with(&mut l, &mut r, &mut rl, &mut rr, data, &[f32::NAN; 4], &mut crate::ext::Fuel::quantum(128));
         let g = audio_dsp::compressor::db_to_linear(-6.0);
         assert!((l[127] - g).abs() < 1e-6, "the gain ran, no key: no ducking");
         for _ in 0..40 {
             let (mut l, mut r) = ([1.0f32; 128], [1.0f32; 128]);
-            c.process_with(&mut l, &mut r, &mut rl, &mut rr, data, &[f32::NAN, f32::NAN, 0.0, f32::NAN]);
+            c.process_with(&mut l, &mut r, &mut rl, &mut rr, data, &[f32::NAN, f32::NAN, 0.0, f32::NAN], &mut crate::ext::Fuel::quantum(128));
         }
         assert!((c.slots[1].fx.sidechain.reduction_db - 15.0).abs() < 0.1, "key at 0 dB, threshold -20, ratio 4");
-        let unknown = (kind::CATALOGUE + 99, [0.0; 7]);
+        let unknown = (kind::CATALOGUE + 99, [0.0; PARAMS]);
         assert_eq!(c.configure_with([unknown], 48_000.0, mem), 1, "a kind past the catalogue is dropped");
     }
 
@@ -569,8 +589,8 @@ mod tests {
         }
     }
 
-    fn comp(threshold: f32) -> (u32, [f32; 7]) {
-        (kind::COMPRESSOR, [threshold, 6.0, 4.0, 0.003, 0.25, 0.0, 0.0])
+    fn comp(threshold: f32) -> (u32, [f32; PARAMS]) {
+        (kind::COMPRESSOR, pad(&[threshold, 6.0, 4.0, 0.003, 0.25]))
     }
 
     fn run(c: &mut FxChain, quanta: usize) {

@@ -90,7 +90,7 @@ fn a_single_send_per_bus_through_the_scratch_is_bit_identical_with_todays_route(
     use audio_core::fx::FxChain;
     let fx = |send: f32| {
         let mut c = FxChain::default();
-        c.configure([(kind::HIGHPASS, [90.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (kind::REVERB_SEND, [send, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (kind::LOWPASS, [900.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0])], RATE);
+        c.configure([(kind::HIGHPASS, [90.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (kind::REVERB_SEND, [send, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (kind::LOWPASS, [900.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])], RATE);
         c
     };
     let (mut today, mut k1) = ([fx(0.3), fx(0.7)], [fx(0.3), fx(0.7)]);
@@ -137,9 +137,9 @@ fn the_order_is_todays_by_depth_deepest_first_ties_by_index() {
 fn a_slot_apply_keeps_or_freshens_the_bus_as_bus_config_did() {
     let mut s = zeroed_slot();
     s.gain = Ramp::at(0.3);
-    let (dropped, reverb) = bus_slots::apply(&mut s, false, 4, [(kind::REVERB_SEND, [0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (99, [0.0; 7])], RATE, &mut []);
+    let (dropped, reverb) = bus_slots::apply(&mut s, false, 4, [(kind::REVERB_SEND, [0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (99, [0.0; 16])], RATE, &mut []);
     assert_eq!((dropped, reverb, s.parent, s.gain.value), (1, true, 4, 0.3), "kept: the gain stays");
-    let (dropped, reverb) = bus_slots::apply(&mut s, true, ROOT, [(kind::LOWPASS, [800.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0])], RATE, &mut []);
+    let (dropped, reverb) = bus_slots::apply(&mut s, true, ROOT, [(kind::LOWPASS, [800.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])], RATE, &mut []);
     assert_eq!((dropped, reverb, s.parent, s.gain.value, s.lp.value), (0, false, ROOT, 1.0, OFF), "fresh: a unity bus");
 }
 

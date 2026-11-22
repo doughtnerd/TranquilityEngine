@@ -80,7 +80,7 @@ describe("BusIndex on the slot table (Ma1)", () => {
     mixer._applyLive({ op: "setEffect", bus: "Music", index: 0, key: "frequency", value: 1200 });
     expect(index.writeSlot("Music")).toBe(1);
     expect(index.writeSlot("Nope")).toBe(-1);
-    expect(slots).toEqual([{ slot: 1, parent: 0, effects: [{ type: 0, p: [1200, 1, 0, 0, 0, 0, 0] }], fresh: false }]);
+    expect(slots).toEqual([{ slot: 1, parent: 0, effects: [{ type: 0, p: [1200, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }], fresh: false }]);
   });
 
   it("a live edit that leaves the bed settings alone plans nothing again; a bed edit does", () => {

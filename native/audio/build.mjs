@@ -43,6 +43,8 @@ const WASI_SDK_VERSION = "25.0";
  * mixer is 341,168 B (95% of 360 KB), ≈ 15 KB above the design's projection, with loudness (≈ 21 KB) still to come.
  * 512 KB since Audio Studio W6-A (2026-11-22): the mixer was 396,409 B of 400 KB with ADR 0331's instance submixes and
  * effect catalogue DSP still to come.
+ * W12 (2026-11-22): ADR 0337's ADPCM voices (4.12) and ADR 0338's plugin effects (5.0: 16-parameter records, `ext.rs`,
+ * the plugin slot path, +3.6 KB) take it to 501,602 B; still under, so the gate stays (raise it with a reason when it bites).
  */
 const MIXER_LIMIT = 512 * 1024;
 /** ADR 0162 (api-and-models §5.2): M3's mixer warning, under the gate: a build past it warns but passes. */
@@ -408,7 +410,9 @@ function checkMagls() {
 function readIdentity(path) {
   const memory = new WebAssembly.Memory({ initial: READ_MEMORY_PAGES });
   const module = new WebAssembly.Module(readFileSync(path));
-  const { exports } = new WebAssembly.Instance(module, { env: { memory } });
+  // ABI 5.0 (ADR 0338): the core imports `myco_ext` (plugin effects); no plugin runs here.
+  const myco_ext = { acquire: () => 0, release: () => {}, describe: () => 0, process: () => -1, sweep: () => {} };
+  const { exports } = new WebAssembly.Instance(module, { env: { memory }, myco_ext });
   const sourceHash = Buffer.from(memory.buffer, exports.myco_audio_source_hash(), 16).toString("hex");
   const v = exports.myco_audio_abi_version();
   return { sourceHash, abiVersion: `${v >> 8}.${v & 0xff}` };

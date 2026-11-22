@@ -34,6 +34,7 @@ pub mod counters;
 pub mod curves;
 pub mod duck;
 pub mod due;
+pub mod ext;
 pub mod fx;
 pub mod fxmem;
 pub mod fxpool;

@@ -110,7 +110,7 @@ describe("CoreSubmixes (ADR 0331)", () => {
     s.close(4);
     const records: number[] = [];
     s.replayHeader({ record: (bytes: number) => void records.push(bytes) } as unknown as ReplayBuilder);
-    expect(records).toEqual([24 + 40]);
+    expect(records).toEqual([24 + 72]); // ABI 5.0: 72 B an effect (16 parameters)
     buses.set("Music", 7);
     sent.length = 0;
     s.busesReset();

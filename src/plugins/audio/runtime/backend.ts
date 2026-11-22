@@ -5,7 +5,7 @@
  * Lives in the audio plugin (ADR 0157 §6); the engine imports the mixer from `engine/audio/mixer`.
  */
 import type { Vec3Like } from "../../../engine/core/math";
-import type { Effect } from "../../../engine/audio/effects/types";
+import type { Effect, PluginEffectDecl } from "../../../engine/audio/effects/types";
 import { mixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../engine/audio/mixer";
 import type { MixOp, OpClass } from "../../../engine/audio/mixOps";
 import type { AudioSettings } from "../../../engine/audio/settings";
@@ -16,7 +16,7 @@ import type { AudioLatency, MusicEventHandle } from "../../../engine/audio/music
 import type { AudioMarkerEvent, AudioMarkerType } from "../../../engine/audio/markerTypes";
 import type { ProfileSink } from "./mix/profileSink";
 import type { KeyframePayload } from "./capture/format";
-import type { AudioDebugInfo, AudioMixCaps, MusicBackendDebug } from "./debugTypes";
+import type { AudioDebugInfo, AudioMixCaps, AudioPluginDebug, MusicBackendDebug } from "./debugTypes";
 import { PendingCoreBackend } from "./pendingBackend";
 import { onAudioSessionReleased } from "./audioSession";
 
@@ -674,6 +674,50 @@ export interface AudioBackend {
    * decoded (the runtime warns once) and Opus isn't assumed.
    */
   readonly codecs?: AudioCodecs;
+  /**
+   * ADR 0338 §7 (another capability, 0179): third-party effect modules the core calls inside its chains. The core has
+   * it; the Babylon fallback doesn't (plugin effects pass through there, one warning per type, as built-ins do); the
+   * pending backend doesn't (the core's host registers when the core is ready); the fake records registrations.
+   */
+  readonly effectPlugins?: AudioEffectPlugins;
+}
+
+/**
+ * Internal (ADR 0338 §7, 0344): one plugin module to run: its bytes already validated and fuel-instrumented
+ * (`effectPlugins/validate.ts`) and the effects it holds, as the manifest declared them (`parsePluginAudio`).
+ */
+export interface EffectPluginModule {
+  readonly plugin: string;
+  readonly version: string;
+  /** The module's id in the manifest's `audio.modules`. */
+  readonly module: string;
+  /** Validated and instrumented (`validateEffectModule(...).bytes`). The backend keeps a copy for its rebuilds. */
+  readonly bytes: Uint8Array;
+  readonly effects: readonly PluginEffectDecl[];
+}
+
+/** Internal (ADR 0338 §7): how a registration ended: each effect's core index, or why the module didn't load. */
+export type EffectPluginLoad =
+  | { readonly ok: true; readonly effects: readonly { readonly type: string; readonly e: number }[] }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Internal (ADR 0338 §7, 0344): the plugin effect capability. Registered effects run wherever a chain names their type
+ * (bus, return, instance submix and its levels); an effect whose plugin isn't registered passes through.
+ */
+export interface AudioEffectPlugins {
+  /**
+   * Registers a module's effects (replacing what the plugin's same module registered before: a reload). Resolves once the
+   * worklet compiled it, warmed each effect up and created its instances; the effects are named in configurations from
+   * the call on (they pass through until then). Registrations survive the core's rebuilds.
+   */
+  register(module: EffectPluginModule): Promise<EffectPluginLoad>;
+  /** Removes every module of `plugin`: its effects pass through (data kept). */
+  unregister(plugin: string): void;
+  /** The Studio's Reset plugin: clears effect `type`'s faults and disabled state and re-creates its instances. */
+  reset(type: string): void;
+  /** Per registered effect: state, instances, faults, instructions, memory (`Audio.debug().plugins`). */
+  health(): readonly AudioPluginDebug[];
 }
 
 

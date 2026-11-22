@@ -455,8 +455,8 @@ describe("wire round trip", () => {
             {
               parent: wire.BUS_ROOT,
               effects: [
-                { type: wire.EffectType.Lowpass, p: [1000, 0.5, 0, 0, 0, 0, 0] },
-                { type: wire.EffectType.Compressor, p: [-12, 4, 2, 0.5, 0.25, 0, 0] },
+                { type: wire.EffectType.Lowpass, p: [1000, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+                { type: wire.EffectType.Compressor, p: [-12, 4, 2, 0.5, 0.25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
               ],
             },
             { parent: 0, effects: [] },

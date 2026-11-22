@@ -159,7 +159,9 @@ describe.skipIf(!existsSync(nativeAudio))("audio core source hash", () => {
     const recorded = (JSON.parse(readFileSync(hashFile, "utf8")) as { sourceHash: string }).sourceHash;
     const memory = new WebAssembly.Memory({ initial: 64 });
     const module = new WebAssembly.Module(readFileSync(wasmFile));
-    const instance = new WebAssembly.Instance(module, { env: { memory } });
+    // ABI 5.0 (ADR 0338): the core imports `myco_ext` (plugin effects); none runs here.
+    const myco_ext = { acquire: () => 0, release: () => {}, describe: () => 0, process: () => -1, sweep: () => {} };
+    const instance = new WebAssembly.Instance(module, { env: { memory }, myco_ext });
     const pointer = (instance.exports.myco_audio_source_hash as () => number)();
     const embedded = Buffer.from(new Uint8Array(memory.buffer, pointer, 16)).toString("hex");
     expect(embedded, `myco_audio.wasm embeds a stale hash: ${REBUILD}`).toBe(recorded);

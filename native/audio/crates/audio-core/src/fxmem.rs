@@ -143,10 +143,14 @@ pub fn slice<'a>(data: &'a mut [f32], e: &Effect) -> &'a mut [f32] {
 /// needs: a new kind takes fresh zeroed memory; the same kind keeps its memory unless it needs
 /// more. A slot not `in_use` before starts from an empty effect.
 pub fn configure(region: &mut [u8], e: &mut Effect, in_use: bool, kind: u32, on: bool, p: &[f32; audio_dsp::fx::PARAMS], sample_rate: f32) {
+    // ABI 5.0 (ADR 0338): a plugin kind's instance comes from the host, not from this memory; the
+    // slot's old one goes back when the slot takes another kind (the sweep catches every other path).
+    let (old_kind, old_handle) = (e.kind, e.handle);
     if !in_use {
         *e = Effect::default();
     }
-    let fresh = e.configure(kind, on, p, sample_rate);
+    let fresh = e.configure(kind, on, p, sample_rate) || !in_use;
+    crate::ext::configure(e, fresh, old_kind, old_handle);
     let need = audio_dsp::fx::mem_floats(kind, p, sample_rate);
     let Some((h, data)) = split(region) else {
         e.mem_len = 0;
@@ -196,6 +200,11 @@ pub fn rebuild(regions: &mut Regions) {
     };
     crate::bus::for_each_effect(regions, &mut mark);
     crate::submix::for_each_effect(regions, &mut mark);
+    // ABI 5.0 (ADR 0338): the plugin instances still held go to the host, which releases the rest.
+    crate::ext::sweep(|f| {
+        crate::bus::for_each_effect(regions, &mut |e| f(e));
+        crate::submix::for_each_effect(regions, &mut |e| f(e));
+    });
 }
 
 /// Blocks in use and allocations refused (tests and a debugger).

@@ -27,7 +27,8 @@ import { detectPlatform, type PlatformEnv } from "../core/graphics";
 import { parseParameters, type ParameterDef } from "./parameters";
 import { audioCurve } from "./audioCurveLimit";
 import { BUS_RULES, MAX_BUSES, MAX_CORE_BUS_EFFECTS, busRuleFindings, coreRuns, findingText, type CoreEffectType } from "./busCapability";
-import { parseEffect as parseCatalogueEffect } from "./effects/catalogue";
+import type { PluginEffectType } from "./effects/types";
+import { effectSpec, isPluginEffectType, parseEffect as parseCatalogueEffect } from "./effects/catalogue";
 import { DEFAULT_MATERIAL_NAME, builtinMaterials, parseOccluderMaterials, resolveDefaultMaterial, type OccluderMaterial } from "./occlusionMaterials";
 
 export type BusEffect =
@@ -39,10 +40,11 @@ export type BusEffect =
   /**
    * ADR 0331 (ABI 4.6): any other catalogue effect the audio core's bus chain runs (`fx`), its parameters by the
    * catalogue's names and units (`effects/catalogue.ts`; missing ones take the default); `key` names a sidechain
-   * compressor's key bus. The Web Audio fallback runs none of them.
+   * compressor's key bus. The Web Audio fallback runs none of them. ADR 0338: `fx` may also name a registered plugin
+   * effect type whose plugin is on (the core runs it through its plugin host; elsewhere it passes through).
    */
   | {
-      type: "fx"; fx: CoreEffectType; params: Record<string, number>; key?: string;
+      type: "fx"; fx: CoreEffectType | PluginEffectType; params: Record<string, number>; key?: string;
       /**
        * ADR 0330 (ABI 4.8): parameters the running mixer holds at their value against automation while a snapshot
        * override is in force (the mixer's live effects only; never in a project's view).
@@ -457,13 +459,15 @@ function parseEffect(raw: unknown, where: string, problems: string[]): BusEffect
       };
     case "reverb": return { type: "reverb", send: num(raw.send, 0.2, 0, 1) };
     case "fx": {
-      if (typeof raw.fx !== "string" || !coreRuns(raw.fx)) {
+      // ADR 0338: a registered plugin effect whose plugin is on runs in the core's bus chain too.
+      const plugin = isPluginEffectType(raw.fx) && effectSpec(raw.fx).plugin?.state === "on";
+      if (typeof raw.fx !== "string" || (!coreRuns(raw.fx) && !plugin)) {
         problems.push(`${where}: fx must be a catalogue effect the audio core runs.`);
         return null;
       }
       const e = parseCatalogueEffect({ id: "fx", type: raw.fx, on: true, params: raw.params ?? {}, ...(raw.key !== undefined ? { key: raw.key } : {}) }, "bus", where, problems);
       if (!e) return null;
-      return { type: "fx", fx: raw.fx, params: e.params, ...(e.key ? { key: e.key } : {}) };
+      return { type: "fx", fx: raw.fx as CoreEffectType | PluginEffectType, params: e.params, ...(e.key ? { key: e.key } : {}) };
     }
   }
 }

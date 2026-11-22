@@ -31,7 +31,7 @@
 // reason code as the sink's word, `reasons.ts`), so the arg layouts above are known here and nowhere else. The reader hands
 // the Profiler only typed events.
 import type {
-  ProfileEpochReason, ProfileGapReason, ProfileLoudnessControl, ProfileLoudnessState, ProfilePackageEvent, ProfilePick, ProfileQueuedReason, ProfileRealReason,
+  ProfileEpochReason, ProfileGapReason, ProfileLoudnessControl, ProfileLoudnessState, ProfilePackageEvent, ProfilePick, ProfilePluginFault, ProfileQueuedReason, ProfileRealReason,
   ProfileRefusedReason, ProfileSink, ProfileStealReason, ProfileStopReason, ProfileVirtualReason,
 } from "../mix/profileSink";
 import { encodeMixOp } from "../../../../engine/audio/mixOpCodec";
@@ -74,6 +74,9 @@ const LOUDNESS_STATE_OF: readonly (ProfileLoudnessState | null)[] = [null, "high
 /** ADR 0337 §9: a `PKG` event's `reason`. */
 const PACKAGE_EVENT: Readonly<Record<ProfilePackageEvent, number>> = { loadStart: 1, loaded: 2, failed: 3, unload: 4 };
 const PACKAGE_EVENT_OF: readonly (ProfilePackageEvent | null)[] = [null, "loadStart", "loaded", "failed", "unload"];
+/** ADR 0338 §6: a plugin fault's reason code (1-based). */
+const PLUGIN_FAULT: Readonly<Record<ProfilePluginFault, number>> = { trap: 1, budget: 2, grow: 3, nonFinite: 4, range: 5 };
+const PLUGIN_FAULT_OF: readonly (ProfilePluginFault | null)[] = [null, "trap", "budget", "grow", "nonFinite", "range"];
 
 /** busRamp `lane` arg: the lane's index in the KEYFRAME bus row's lane order; `NO_NAME` for a lane this build doesn't know. */
 export const BUS_RAMP_LANES: Readonly<Record<string, number>> = { authored: 0, runtime: 1, snapshot: 2, monitor: 3, dip: 4, duck: 5, automation: 6 };
@@ -371,6 +374,11 @@ export class EventSink implements ProfileSink {
     this.now1(EventKind.loudnessWarning, LOUDNESS_STATE[state], this.nameOrNone(T_PARAM, bus));
   }
 
+  /** ADR 0338 §6. args: the effect type (`parameters` table), the glue's instance handle; reason 1 trap .. 5 range. */
+  pluginFault(type: string, reason: ProfilePluginFault, instance: number): void {
+    this.now2(EventKind.pluginFault, PLUGIN_FAULT[reason], this.intern(T_PARAM, type), instance >>> 0);
+  }
+
   /**
    * ADR 0337 §9 (`PKG`): args: the package's name (`parameters` table, as a bus name in `loudnessWarning`), its download
    * bytes (u32, saturating); reason 1 load start, 2 loaded, 3 failed, 4 unload.
@@ -478,6 +486,8 @@ export type CaptureEvent = CaptureEventBase & (
   | { readonly type: "loudnessWarning"; readonly bus: number | null; readonly state: ProfileLoudnessState | null }
   /** ADR 0337 §9 (`PKG`): a package's load start, load, failure or unload; `name` an id in the `parameters` table. */
   | { readonly type: "audioPackage"; readonly name: number; readonly event: ProfilePackageEvent | null; readonly bytes: number }
+  /** ADR 0338 §6: `effect` is the type's name id (`parameters` table). */
+  | { readonly type: "pluginFault"; readonly effect: number; readonly instance: number; readonly reason: ProfilePluginFault | null }
 );
 
 /** Every EVENT type name (one per §5.6 kind). */
@@ -488,7 +498,7 @@ const KIND_TYPE = Object.fromEntries(Object.entries(EventKind).map(([type, kind]
 const MIN_ARGS: Readonly<Record<CaptureEventType, number>> = {
   voiceStart: 5, voiceStop: 1, voiceSteal: 2, voiceVirtual: 1, voiceReal: 1, voiceRefused: 2, voiceQueued: 2, eventStart: 2, eventStop: 1,
   parameter: 3, snapshot: 1, stateChange: 2, musicTransition: 3, busRamp: 3, monitor: 1, loudnessControl: 0, ladder: 1, masterChange: 1, hiddenTab: 1,
-  pick: 10, loudnessWarning: 1, audioPackage: 2,
+  pick: 10, loudnessWarning: 1, audioPackage: 2, pluginFault: 2,
 };
 const orNull = (id: number): number | null => (id === NO_NAME ? null : id);
 const readF32 = new Float32Array(1);
@@ -538,5 +548,6 @@ export function readCaptureEvent(p: EventPayload): CaptureEvent | null {
     }
     case "loudnessWarning": return { ...base, type, bus: orNull(a[0]!), state: LOUDNESS_STATE_OF[r] ?? null };
     case "audioPackage": return { ...base, type, name: a[0]!, event: PACKAGE_EVENT_OF[r] ?? null, bytes: a[1]! >>> 0 };
+    case "pluginFault": return { ...base, type, effect: a[0]!, instance: a[1]!, reason: PLUGIN_FAULT_OF[r] ?? null };
   }
 }
