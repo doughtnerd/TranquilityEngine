@@ -60,6 +60,23 @@ export interface LoopRegion {
   readonly loop?: SampleLoop;
 }
 
+/**
+ * The musical spans the Exit and Entry markers make (ADR 0336, decision log D38), in source seconds: the post-exit
+ * tail (the first Exit marker inside the trim to the trim end: what rings on under the next section when a Switch
+ * cuts there) and the pre-entry (the trim start to the first Entry marker: what plays before the boundary). Null
+ * where there is no such marker, or it sits on the trim's edge.
+ */
+export function musicalSpans(e: Pick<SampleEdits, "markers" | "trim">, sourceLength: number): { tail: [number, number] | null; preEntry: [number, number] | null } {
+  const [ta, tb] = trimOf(e, sourceLength);
+  const inside = (m: SampleMarker) => m.at >= ta && m.at <= tb;
+  const exit = e.markers.find((m) => m.type === "exit" && inside(m));
+  const entry = e.markers.find((m) => m.type === "entry" && inside(m));
+  return {
+    tail: exit && exit.at < tb ? [exit.at, tb] : null,
+    preEntry: entry && entry.at > ta ? [ta, entry.at] : null,
+  };
+}
+
 /** Pickup (trim start to the first loop), each loop, the links between loops, and the Tail (last loop to the trim end). */
 export function loopRegions(e: SampleEdits, sourceLength: number): LoopRegion[] {
   if (e.loops.length === 0) return [];
@@ -221,7 +238,7 @@ export interface OutlineItem {
 }
 
 export interface OutlineGroup {
-  readonly id: "cues" | "exits" | "hits" | "loops" | "notes" | "ranges" | "snippets";
+  readonly id: "cues" | "exits" | "entries" | "hits" | "loops" | "notes" | "ranges" | "snippets";
   readonly title: string;
   readonly empty: string;
   readonly items: OutlineItem[];
@@ -237,6 +254,7 @@ export function outlineGroups(e: SampleEdits, sourceLength: number, query = ""):
   const groups: OutlineGroup[] = [
     { id: "cues", title: "Cues", empty: "None · set a marker's Type to Cue", items: m((x) => x.type === "cue") },
     { id: "exits", title: "Exits", empty: "None · set a marker's Type to Exit", items: m((x) => x.type === "exit") },
+    { id: "entries", title: "Entries", empty: "None · set a marker's Type to Entry", items: m((x) => x.type === "entry") },
     { id: "hits", title: "Hit points", empty: "None · set a marker's Type to Hit point", items: m((x) => x.type === "hit") },
     { id: "loops", title: "Loops", empty: "None · Add loop, or L at the playhead", items: e.loops.map((l) => ({ key: `l:${l.id}`, name: loopName(e, l.id), at: l.start, selection: { kind: "loop", id: l.id }, fromFile: l.file !== null })) },
     { id: "notes", title: "Notes", empty: "None · double-click a marker row", items: m((x) => x.type === "note" && x.end === undefined) },

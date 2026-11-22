@@ -295,6 +295,22 @@ describe("Post-exit tails", () => {
     expect(playsOf("b.wav")).toEqual([1.5]); // the bar is at 2: the half-second pickup starts at 1.5
     expect(fadesOf(voiceOf("a.wav"))).toContainEqual({ kind: "fadeShaped", to: 0, seconds: 0.005, law: "linear", at: 2, stopAtEnd: true });
   });
+
+  it("pre-entry from a sample's Entry marker, read the same way as a sequence's (past its trim start)", async () => {
+    const explore = SEQ("a.wav", 8, []);
+    await kit.boot({
+      "b.wav.meta.json": meta({ trim: [0.25, 4], markers: [{ id: "e", type: "entry", name: "Entry", at: 0.75 }] }),
+      "s.playlist.json": SWITCH([{ embedded: explore }, sample("b.wav")], { onChange: { when: "bar", how: "cut", length: { ms: 0 } } }),
+    });
+    fake.durations.set("a.wav", 8);
+    fake.durations.set("b.wav", 4);
+    const h = Audio.play("s.playlist.json");
+    at(0.3);
+    h.setParameter("Surface", "Stone");
+    at(1.6);
+    expect(playsOf("b.wav")).toEqual([1.5]); // the bar is at 2; the Entry marker is 0.5 s into the trimmed sample
+    expect(fadesOf(voiceOf("a.wav"))).toContainEqual({ kind: "fadeShaped", to: 0, seconds: 0.005, law: "linear", at: 2, stopAtEnd: true });
+  });
 });
 
 // --- 5. Beat-quantised automation ----------------------------------------------------------------------------------

@@ -15,7 +15,7 @@ import { formatTime, parseTime, type TimeContext } from "../../components/timeRu
 import { openRoute } from "../../shell/studioServices";
 import * as act from "./sampleActions";
 import {
-  convertMarker, deleteMarker, DIRECTION_NAMES, hasFixedName, isHold, loopName, MARKER_TYPE_NAMES, moveLoop, moveMarker, removeLoop, resetTrim, setStinger, setTrim, snippets,
+  convertMarker, deleteMarker, DIRECTION_NAMES, hasFixedName, isHold, loopName, MARKER_TYPE_NAMES, MARKER_TYPE_ORDER, moveLoop, moveMarker, removeLoop, resetTrim, setStinger, setTrim, snippets,
   tapeSnippet, toggleSnippet, updateLoop, updateMarker, viewTime, type SampleEdit,
 } from "./sampleEditing";
 import { changedCount, detachAll, detachMarker, fileOrigin, loopDiff, markerDiff, revertLoop, revertMarker, type DiffRow } from "./sampleFile";
@@ -178,10 +178,10 @@ function MarkerInspector(props: Part & { m: SampleMarker }) {
         onRevert={(f) => commit(revertMarker(e, m.id, f))} onDetach={() => commit(detachMarker(e, m.id))} />
       <div class="fld">
         <span>Type</span>
-        <SegmentedControl size="small" label="Marker type" value={m.type} options={(["note", "exit", "hit", "cue"] as const).map((t) => ({ value: t, label: MARKER_TYPE_NAMES[t] }))} onChange={(t) => !ro && commit(updateMarker(e, m.id, { type: t }))} />
+        <SegmentedControl size="small" label="Marker type" value={m.type} options={MARKER_TYPE_ORDER.map((t) => ({ value: t, label: MARKER_TYPE_NAMES[t] }))} onChange={(t) => !ro && commit(updateMarker(e, m.id, { type: t }))} />
       </div>
       <p class="smp-muted smp-type-help">
-        {{ note: "Annotation only; can be a range.", exit: "Music may leave here for a transition.", hit: "Stinger: this beat lands on the change.", cue: "Sends this cue name to the game when playback passes it." }[m.type]}
+        {{ note: "Annotation only; can be a range.", exit: "Music may leave here for a transition; the audio after it rings out as the tail.", entry: "Music enters here: a Switch change at a beat or bar starts the sample early, so this point lands on it.", hit: "Stinger: this beat lands on the change.", cue: "Sends this cue name to the game when playback passes it." }[m.type]}
       </p>
       <label class="fld">
         <span>{m.type === "cue" ? "Cue name" : "Name"}</span>

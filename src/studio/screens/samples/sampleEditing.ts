@@ -33,13 +33,15 @@ export const HOLD_EPSILON = 0.0005;
 const r6 = (v: number) => Math.round(v * 1e6) / 1e6;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-/** Display names of the marker types (the UI says Note, Exit, Hit point, Cue). */
-export const MARKER_TYPE_NAMES: Readonly<Record<MarkerType, string>> = { note: "Note", exit: "Exit", hit: "Hit point", cue: "Cue" };
-/** The colour token of each type (a note's own colour wins). */
-export const MARKER_TOKENS: Readonly<Record<MarkerType, string>> = { note: "--marker-note", exit: "--marker-exit", hit: "--marker-hit", cue: "--marker-cue" };
-/** Exit and Hit point have fixed names. */
-export const hasFixedName = (t: MarkerType): boolean => t === "exit" || t === "hit";
-const ARTICLE: Readonly<Record<MarkerType, string>> = { note: "a note", exit: "an exit", hit: "a hit point", cue: "a cue" };
+/** Display names of the marker types (the UI says Note, Exit, Entry, Hit point, Cue). */
+export const MARKER_TYPE_NAMES: Readonly<Record<MarkerType, string>> = { note: "Note", exit: "Exit", entry: "Entry", hit: "Hit point", cue: "Cue" };
+/** The types in the order the menus and the Inspector offer them. */
+export const MARKER_TYPE_ORDER: readonly MarkerType[] = ["note", "exit", "entry", "hit", "cue"];
+/** The colour token of each type (a note's own colour wins). Entry shares Exit's, drawn dotted (as on a sequence). */
+export const MARKER_TOKENS: Readonly<Record<MarkerType, string>> = { note: "--marker-note", exit: "--marker-exit", entry: "--marker-exit", hit: "--marker-hit", cue: "--marker-cue" };
+/** Exit, Entry and Hit point have fixed names. */
+export const hasFixedName = (t: MarkerType): boolean => t === "exit" || t === "hit" || t === "entry";
+const ARTICLE: Readonly<Record<MarkerType, string>> = { note: "a note", exit: "an exit", entry: "an entry", hit: "a hit point", cue: "a cue" };
 
 /** A free id with `prefix` among `taken`. */
 export function freeId(prefix: string, taken: Iterable<string>): string {

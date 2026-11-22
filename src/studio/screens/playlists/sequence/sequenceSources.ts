@@ -39,7 +39,8 @@ function sampleFacts(p: EditorProject, path: string): SourceFacts {
     length: end !== null && end !== undefined ? Math.max(0, end - start) : null,
     start,
     loops: (edits?.loops ?? []).map((l) => ({ id: l.id, start: base + l.start, end: base + l.end, active: l.active, binding: l.binding, exit: l.exit, exitFadeMs: l.exitFadeMs, reentry: l.reentry })),
-    markers: (edits?.markers ?? []).map((m) => ({ id: m.id, name: m.name, at: base + m.at, type: m.type })),
+    // A sample's Entry marker is its pre-entry for a Switch change (ADR 0336); a clip in a sequence doesn't use it.
+    markers: (edits?.markers ?? []).flatMap((m) => (m.type === "entry" ? [] : [{ id: m.id, name: m.name, at: base + m.at, type: m.type }])),
     kind: edits?.kind,
     bpm: edits?.tempo?.bpm ?? null,
   };

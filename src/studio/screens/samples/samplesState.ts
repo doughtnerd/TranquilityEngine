@@ -55,4 +55,4 @@ export const playheadTime = signal(0);
 export const razorOn = signal(false);
 export const hoverTime = signal<number | null>(null);
 /** The Import dialog, Write dialog, merge review, fork dialog. */
-export const dialog = signal<null | { kind: "import" } | { kind: "write" } | { kind: "merge" } | { kind: "fork"; mode: "fork" | "duplicate" } | { kind: "snippet"; index: number }>(null);
+export const dialog = signal<null | { kind: "import" } | { kind: "reimport" } | { kind: "write" } | { kind: "merge" } | { kind: "fork"; mode: "fork" | "duplicate" } | { kind: "snippet"; index: number }>(null);

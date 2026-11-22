@@ -464,10 +464,21 @@ function cutAt(node: LiveNode, at: number | null): void {
   else node.leave(CUT_FADE, at, "linear");
 }
 
-/** ADR 0336: seconds before a sequence entry's first `entry` marker (its pre-entry), 0 for anything else. */
+/**
+ * ADR 0336: seconds before an entry's first `entry` marker (its pre-entry): a sequence's, or a Clip playlist's sample's
+ * (its Entry marker, ADR 0328, past where the clip starts playing: its trim's start), 0 for anything else.
+ */
 export function preEntryOf(entry: Entry, chain: readonly string[]): number {
   const body = entry.kind === "embedded" ? entry.embedded : entry.kind === "linked" ? linkedPlaylist(entry.playlist, chain) : null;
-  if (!body || body.type !== "sequence" || !body.sequence) return 0;
+  if (!body) return 0;
+  if (body.type === "clip") {
+    const sample = body.entries.find((e): e is SampleEntry => e.kind === "sample");
+    if (!sample) return 0;
+    const facts = sampleFacts(sample.sample);
+    const from = sample.trim ? sample.trim[0] : facts.from;
+    return facts.entry !== null && facts.entry > from ? facts.entry - from : 0;
+  }
+  if (body.type !== "sequence" || !body.sequence) return 0;
   const m = body.sequence.markers.find((k) => k.type === "entry");
   return m && m.at > 0 ? m.at : 0;
 }

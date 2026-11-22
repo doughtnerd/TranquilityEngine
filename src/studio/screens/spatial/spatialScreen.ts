@@ -23,7 +23,7 @@ import { World } from "../../../engine/core/World";
 import { applyEdit } from "../../../plugins/audio/editor/editResult";
 import { openTakeFile } from "../../../plugins/audio/runtime/capture/takeFile";
 import { loadBaseScene, type LoadedBaseScene } from "../../../plugins/audio/runtime/testScene/baseScene";
-import { playAudioTestScene, type AudioTestScenePlayer, type TestSceneVoiceRow } from "../../../plugins/audio/runtime/testScene/player";
+import { playAudioTestScene, type AudioTestScenePlayer, type TestSceneMotionRow, type TestSceneVoiceRow } from "../../../plugins/audio/runtime/testScene/player";
 import type { SoundItem } from "../../components/soundPickerModel";
 import { playlistBadge, sampleBadge } from "../../components/typeBadgeModel";
 import { audioHost, openRoute, toasts } from "../../shell/studioServices";
@@ -33,6 +33,7 @@ import { baseFramePoints } from "./baseLayer";
 import { attenuationDialog, attenuationFromResult, attenuationOwner, newAttenuation, presetNameFor, PRESET_FOLDER, type AttenuationOwner } from "./attenuationModel";
 import { NO_AUDITION, auditionScene, isSilenced, liveUpdate, toggleMute, toggleSolo, type AuditionState } from "./audition";
 import { INITIAL_SLAB, type Slab } from "./elevation";
+import { sameMotion, startFrameLoop } from "./liveMotion";
 import { boundsOf, type P2 } from "./geometry";
 import { blankScene, copyScene, gameScene, sceneFromTake, type NewSceneKind } from "./newScene";
 import { activeListener, deleteObject, framePoints, duplicateObject, findObject, KIND_NOUN, pasteObject, positionOf, type EditResult, type SceneObject } from "./sceneEdits";
@@ -98,6 +99,8 @@ export const audition = signal<AuditionState>(NO_AUDITION);
 export const playing = signal(false);
 /** The player's readout, polled while playing. */
 export const voices = signal<readonly TestSceneVoiceRow[]>([]);
+/** Where each emitter is now, read every animation frame while playing (empty when stopped: the plan shows the authored start). */
+export const motion = signal<readonly TestSceneMotionRow[]>([]);
 /** Folders made in this session that hold no scene yet. */
 export const extraFolders = signal<readonly string[]>([]);
 /** A dialog of the New menu that needs a choice (a game scene, a take and a time). */
@@ -350,6 +353,7 @@ let player: AudioTestScenePlayer | null = null;
 let played: AudioTestScene | null = null;
 let poll: ReturnType<typeof setInterval> | null = null;
 let follow: (() => void) | null = null;
+let stopFrames: (() => void) | null = null;
 /** How often the Voices table and the rays are read, ms. */
 export const VOICES_POLL_MS = 250;
 
@@ -453,6 +457,16 @@ export function playScene(): void {
       voices.value = [];
     }
   }, VOICES_POLL_MS);
+  // The Engine steps the World (and so the route movers and Doppler) every animation frame; the plan follows each frame.
+  stopFrames = startFrameLoop(() => {
+    let next: readonly TestSceneMotionRow[];
+    try {
+      next = player?.motion() ?? [];
+    } catch {
+      next = [];
+    }
+    if (!sameMotion(motion.peek(), next)) motion.value = next;
+  });
   // Edits reach the running player: moves as poses, anything else rebuilds it.
   follow = effect(() => {
     const next = scene.value;
@@ -488,6 +502,8 @@ export function stopAudition(): void {
   follow = null;
   if (poll) clearInterval(poll);
   poll = null;
+  stopFrames?.();
+  stopFrames = null;
   auditionGen++;
   player?.dispose(); // before the base: the player's nodes are under the base's scene node
   player = null;
@@ -495,6 +511,7 @@ export function stopAudition(): void {
   unloadBase();
   playing.value = false;
   voices.value = [];
+  motion.value = [];
 }
 
 export const togglePlay = (): void => (playing.peek() ? stopAudition() : playScene());
