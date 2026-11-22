@@ -242,17 +242,68 @@ describe("coreSectionOf: the old section shape's mapping", () => {
     expect(parsed.settings.voices.submixes).toBe(8);
   });
 
-  it("turns a send into a reverb return into the reverb send effect, the return's level folded in", () => {
-    const sfx = coreSectionOf(project).buses.find((b) => b.name === "SFX")!;
-    // The eq runs on the core as a catalogue effect (ADR 0331, ABI 4.6); the reverb send comes after the inserts.
-    expect(sfx.effects.map((e) => e.type)).toEqual(["fx", "reverb"]);
+  it("holds each return as a bus after the buses (ABI 4.7), and a bus's sends into returns at their own level", () => {
+    const settings = coreSectionOf(project);
+    expect(settings.buses.map((b) => b.name)).toEqual(["Master", "Music", "SFX", "Vehicles", "Reverb"]);
+    const sfx = settings.buses.find((b) => b.name === "SFX")!;
+    // The eq runs on the core as a catalogue effect (ADR 0331, ABI 4.6); no reverb send effect: a send.
+    expect(sfx.effects.map((e) => e.type)).toEqual(["fx"]);
     expect(sfx.effects[0]).toMatchObject({ type: "fx", fx: "eq" });
-    expect(sfx.effects[1]).toEqual({ type: "reverb", send: expect.closeTo(Math.pow(10, -15 / 20), 9) });
+    expect(sfx.sends).toEqual([{ to: "Reverb", level: expect.closeTo(Math.pow(10, -12 / 20), 9) }]);
+    // The return: its output as the parent, its fader, mute and inserts; no bed, voices or meter of its own.
+    expect(settings.buses.find((b) => b.name === "Reverb")).toEqual({
+      name: "Reverb", parent: "Master", volume: expect.closeTo(Math.pow(10, -3 / 20), 9), mute: false,
+      effects: [{ type: "fx", fx: "reverb", params: { size: 0.5, decay: 1.8, mix: 100 } }],
+    });
+    expect(settings.buses.find((b) => b.name === "Music")!.sends).toBeUndefined();
+  });
+
+  it("leaves out a return past the core's bus slots, with the sends into it, and warns", () => {
+    const buses = [{ name: "Master" }, ...Array.from({ length: 30 },(_, i) => ({ name: `B${i}`, parent: "Master", sends: i === 0 ? [{ to: "R1", levelDb: 0 }, { to: "R2", levelDb: 0 }] : [] }))];
+    const p = parseAudioProject({ format: AUDIO_PROJECT_FORMAT, buses, returns: [{ name: "R1" }, { name: "R2" }] }).project;
+    const warnings: string[] = [];
+    const s = coreSectionOf(p, warnings);
+    expect(s.buses).toHaveLength(32);
+    expect(s.buses.at(-1)!.name).toBe("R1");
+    expect(s.buses[1]!.sends).toEqual([{ to: "R1", level: 1 }]);
+    expect(warnings).toEqual(['return "R2": the audio core has 32 bus slots, buses and returns together; left out with the sends into it.']);
+    expect(parseAudioSettings(s).problems).toEqual([]);
+  });
+
+  it("runs a reverb return past the core's bus slots as the core's shared reverb send, quietly (as the old model did)", () => {
+    const buses = [{ name: "Master" }, ...Array.from({ length: 31 }, (_, i) => ({ name: `B${i}`, parent: "Master", sends: i === 0 ? [{ to: "Reverb", levelDb: -6 }] : [] }))];
+    const p = parseAudioProject({ format: AUDIO_PROJECT_FORMAT, buses, returns: [{ name: "Reverb", volumeDb: -3, effects: [{ id: "fx1", type: "reverb" }] }] }).project;
+    const warnings: string[] = [];
+    const s = coreSectionOf(p, warnings);
+    expect(s.buses).toHaveLength(32);
+    expect(s.buses[1]!.sends).toBeUndefined();
+    expect(s.buses[1]!.effects).toEqual([{ type: "reverb", send: expect.closeTo(Math.pow(10, -9 / 20), 9) }]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("warns of sends past the core's four a bus (kept as authored), and of a presence rule a return triggers", () => {
+    const returns = ["R1", "R2", "R3", "R4", "R5"].map((name) => ({ name }));
+    const p = parseAudioProject({
+      format: AUDIO_PROJECT_FORMAT,
+      buses: [{ name: "Master" }, { name: "A", parent: "Master", sends: returns.map((r) => ({ to: r.name, levelDb: -6 })) }],
+      returns,
+      ducking: [{ target: "A", trigger: "R1", mode: "presence" }, { target: "A", trigger: "R2", mode: "level" }],
+    }).project;
+    const warnings: string[] = [];
+    const s = coreSectionOf(p, warnings);
+    expect(s.buses[1]!.sends).toHaveLength(5);
+    expect(warnings).toEqual([
+      'bus "A": a bus runs at most 4 sends; the edit is saved and applies at the next Play, where only the first 4 sends of the list run.',
+      'ducking: "R1" is a return, which plays no sounds of its own, so its presence rule on "A" never ducks; use a level rule.',
+    ]);
+    // Both rules reach the core: the core's ducking runs per bus slot, returns included.
+    expect(s.ducking.map((d) => [d.trigger, d.mode])).toEqual([["R1", "presence"], ["R2", "level"]]);
+    expect(parseAudioSettings(s).warnings).toEqual(['audio.buses[1]: a bus runs at most 4 sends; the edit is saved and applies at the next Play, where only the first 4 sends of the list run.']);
   });
 
   it("maps snapshots, ducking, automation and the open low-pass carrier", () => {
     const settings = coreSectionOf(project);
-    expect(settings.snapshots).toEqual([{ name: "Underwater", volumes: { Music: expect.closeTo(Math.pow(10, -6 / 20), 9) }, lowpass: { Music: 800 } }]);
+    expect(settings.snapshots).toEqual([{ name: "Underwater", volumes: { Music: expect.closeTo(Math.pow(10, -6 / 20), 9), Reverb: expect.closeTo(Math.pow(10, -3 / 20), 9) }, lowpass: { Music: 800 } }]);
     expect(settings.buses.find((b) => b.name === "Music")!.effects).toEqual([]); // the carrier is neutral and hidden
     expect(settings.ducking).toEqual([{ target: "Music", trigger: "SFX", mode: "presence", amount: expect.closeTo(Math.pow(10, -6 / 20), 9), attack: 0.08, release: 0.4 }]);
     expect(settings.automation).toEqual([{ bus: "Music", parameter: "threat", target: "volume", curve: [[0, 1], [1, expect.closeTo(Math.pow(10, -6 / 20), 9), "easeOut"]] }]);

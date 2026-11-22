@@ -17,14 +17,21 @@
 //   consumer reads the slot from this map or `BusLanes.slot` (G7c). The mixer holds a tombstone's state by slot
 //   (`Mixer._tombstoneLanes`) until the slot recycles, for the replay's dip lane.
 // - **Live effects (ADR 0330).** A slot's effects on the wire are the mixer's live effects (`Mixer._busEffects`): the
-//   authored chain with the main thread's values in (snapshot overrides, effect and send automation, a send following
-//   its return's lanes and the mutes). Each mixer change (`replanBedsOnSettings`, which the backend runs on every one)
+//   authored chain with the main thread's values in (snapshot overrides, effect automation). Each mixer change (`replanBedsOnSettings`, which the backend runs on every one)
 //   writes one `BUS_SLOT` for each slot whose live parameter values moved (`syncEffects`); a change of the chain itself
 //   (an effect added, removed or moved) is the live ops' (`liveMix.ts`, the structural dip), never this.
-import type { Mixer, ResolvedBus } from "../../../../engine/audio/mixer";
+// - **Sends (ADR 0330, ABI 4.7).** A return is a bus of the mixer's view with a slot like any other; a bus's post-fader
+//   sends into returns are the mixer's live sends (`Mixer._busSends`: each level with its automation, muted while the
+//   bus is muted). Each mixer change writes one `BUS_SENDS` (replace-all for the slot) for each slot whose sends moved
+//   (`syncSends`): a level ramps over `SEND_RAMP_MS`, a mute is `BUS_SEND_MUTED` (the send ramps to 0 and keeps its
+//   level). After `BUS_CONFIG` every configured slot's sends are written again (the core keeps a kept slot's old ones);
+//   a fresh `BUS_SLOT` starts with none; the hard rebuild's replay sends them after `BUS_CONFIG` (`replaySends`).
+import type { LiveBusSend, Mixer, ResolvedBus } from "../../../../engine/audio/mixer";
+import { DRAG_RAMP_MS } from "../../../../engine/audio/mixer";
 import { MAX_BUSES, type AudioSettings, type BusEffect } from "../../../../engine/audio/settings";
 import { SlotTable, type SlotDeferred } from "../../../../engine/audio/slotTable";
-import { BUS_ROOT, FadeLaw, SET_PARAMS_MASK_BUS, type BusConfigBuses, type BusConfigBusesEffects } from "../wire.generated";
+import { ASAP, BUS_ROOT, BUS_SEND_MUTED, FadeLaw, MAX_BUS_SENDS, SET_PARAMS_MASK_BUS, writeBusSends, type BusConfigBuses, type BusConfigBusesEffects, type BusSendsSends } from "../wire.generated";
+import type { ReplayBuilder } from "./replay";
 import { VoiceState } from "./voiceTable";
 import { busFxType, fxParams, SIDECHAIN_KEY_PARAM } from "./effectKinds";
 import type { CommandWriter } from "./commandWriter";
@@ -82,7 +89,7 @@ function bedKey(a: AudioSettings): string {
 /** What the bus index needs of the core backend. */
 export interface BusIndexHost {
   readonly mixer: Mixer;
-  readonly writer: Pick<CommandWriter, "busConfig" | "setParams" | "busSlot" | "fadeShaped">;
+  readonly writer: Pick<CommandWriter, "busConfig" | "setParams" | "busSlot" | "fadeShaped" | "busSends" | "sampleRate">;
   readonly beds: Pick<BedPlanner, "plan">;
   readonly automation: Pick<CoreAutomation, "onBusesConfigured">;
   readonly mirror: Pick<StatusMirror, "resetPeaks">;
@@ -110,6 +117,13 @@ export class BusIndex {
   private bedsPlannedFrom: AudioSettings | null = null;
   /** ADR 0330: the live effects each slot's last `BUS_SLOT` (or `BUS_CONFIG`) carried, by slot. */
   private sentEffects: (readonly BusEffect[] | undefined)[] = [];
+  /**
+   * ADR 0330: what each slot's last `BUS_SENDS` carried, by slot, as a key (`to` slot, level, muted per send; "" none,
+   * null unknown: the next `syncSends` writes the slot whatever it holds).
+   */
+  private sentSends: (string | null)[] = new Array<string | null>(MAX_BUSES).fill("");
+  /** ADR 0330: the sends each slot's last `BUS_SENDS` carried, by slot (for a removed send's fade, `withFadingSends`). */
+  private sentWire: (readonly BusSendsSends[] | undefined)[] = [];
 
   constructor(private readonly host: BusIndexHost) {}
 
@@ -138,6 +152,7 @@ export class BusIndex {
    */
   replanBedsOnSettings(): void {
     this.syncEffects();
+    this.syncSends();
     const settings = this.host.mixer.audioSettings;
     if (settings === this.bedsPlannedFrom) return;
     if (settings.buses.length !== this.names.length || settings.buses.some((b, i) => b.name !== this.names[i])) {
@@ -185,7 +200,91 @@ export class BusIndex {
     }
     // ADR 0171 (K0): presence ducking's rules and mask for the new tree (Dp1; a no-op until then).
     this.host.presence.configured(mixer, t.busLive);
+    // ADR 0330: every configured slot's sends, after BUS_CONFIG (a slot it kept keeps the sends it had on the core, so a
+    // slot that had some is written again, empty or not).
+    for (let s = 0; s < this.sentSends.length; s++) if (this.sentSends[s] !== "") this.sentSends[s] = null;
+    this.syncSends();
     this.host.applyMix(mixer.resolveAll());
+  }
+
+  /**
+   * ADR 0330 (ABI 4.7): slot `s`'s sends as the wire takes them, from the mixer's live sends (`_busSends`): each into a
+   * return's slot (a send to a bus with no slot, or to itself, is left out until it has one), at most `MAX_BUS_SENDS`.
+   * A tombstone or a free slot has none.
+   */
+  private wireSends(s: number): BusSendsSends[] {
+    const slot = this.slots.slots[s];
+    const live: readonly LiveBusSend[] = slot && slot.state === "live" && slot.name !== null ? (this.host.mixer._busSends(slot.name) ?? []) : [];
+    if (live.length === 0) return [];
+    const frames = Math.round((DRAG_RAMP_MS / 1000) * this.host.writer.sampleRate);
+    const out: BusSendsSends[] = [];
+    for (const send of live) {
+      const to = this.slotOf(send.to);
+      if (to < 0 || to === s || out.length >= MAX_BUS_SENDS) continue;
+      out.push({ to, flags: send.muted ? BUS_SEND_MUTED : 0, level: send.level, frames });
+    }
+    return out;
+  }
+
+  /** A slot's sends as `sentSends` keys them. */
+  private static sendsKey(sends: readonly BusSendsSends[]): string {
+    let k = "";
+    for (const x of sends) k += `${x.to}:${x.level}:${x.flags};`;
+    return k;
+  }
+
+  /**
+   * `sends` with each send slot `s` last carried and no longer has kept as muted (the core drops a send missing from a
+   * `BUS_SENDS` at once, a click; a muted one ramps to 0 over its frames and costs nothing once silent), while there is
+   * room and its return still holds that slot. Not after a configure (the slots may have moved).
+   */
+  private withFadingSends(s: number, sends: BusSendsSends[]): BusSendsSends[] {
+    const prev = this.sentSends[s] === null ? undefined : this.sentWire[s];
+    if (!prev || prev.length === 0) return sends;
+    const returns = this.host.mixer.returnNames;
+    for (const p of prev) {
+      if (sends.length >= MAX_BUS_SENDS) break;
+      if (sends.some((x) => x.to === p.to) || !returns.includes(this.names[p.to] ?? "")) continue;
+      sends.push({ ...p, flags: p.flags | BUS_SEND_MUTED });
+    }
+    return sends;
+  }
+
+  /**
+   * ADR 0330: one `BUS_SENDS` (asap) for each slot whose sends moved since its last write: a send added, removed (kept
+   * muted while it fades, `withFadingSends`) or retargeted (its return moved slot), a level (a live edit or its
+   * automation; ramped over `DRAG_RAMP_MS`), a mute.
+   */
+  syncSends(): void {
+    const configured = this.slots.slots.length;
+    for (let s = 0; s < MAX_BUSES; s++) {
+      if (s >= configured) {
+        // A slot past the configured ones: BUS_CONFIG silenced it and cleared its state on the core.
+        this.sentSends[s] = "";
+        this.sentWire[s] = undefined;
+        continue;
+      }
+      const sends = this.withFadingSends(s, this.wireSends(s));
+      const key = BusIndex.sendsKey(sends);
+      if (key === this.sentSends[s]) continue;
+      this.host.writer.busSends(s, sends);
+      this.sentSends[s] = key;
+      this.sentWire[s] = sends;
+    }
+  }
+
+  /**
+   * ADR 0330: the rebuild's sends (after RESET and BUS_CONFIG, asap): every slot's sends now, which become what the core
+   * holds (a slot that had some is written empty too, for a core that kept them).
+   */
+  replaySends(b: ReplayBuilder): void {
+    for (let s = 0; s < MAX_BUSES; s++) {
+      const sends = s < this.slots.slots.length ? this.wireSends(s) : [];
+      if (sends.length === 0 && this.sentSends[s] === "") continue;
+      if (s < this.slots.slots.length) b.record(16 + 12 * sends.length, (view, off) => writeBusSends(view, off, { voiceId: s, frameOffset: ASAP, sends }));
+      this.sentSends[s] = BusIndex.sendsKey(sends);
+      this.sentWire[s] = sends;
+    }
   }
 
   /** BUS_CONFIG's buses in slot order (the table's tree, each bus's live effects; also the hard rebuild's replay, A3.4a). */
@@ -240,6 +339,11 @@ export class BusIndex {
     if (s < 0) return -1;
     const c = this.slotConfig(s);
     this.host.writer.busSlot({ ...c, fresh, ...(stamp ? { structural: true, sequenceId: stamp.sequenceId } : {}) }, stamp?.at);
+    // A fresh slot starts with no sends on the core (ADR 0330); the next `syncSends` gives it its own.
+    if (fresh) {
+      this.sentSends[s] = "";
+      this.sentWire[s] = undefined;
+    }
     return s;
   }
 

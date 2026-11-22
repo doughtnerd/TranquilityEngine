@@ -55,6 +55,12 @@ export interface BusSettings {
   volume: number;
   mute: boolean;
   effects: BusEffect[];
+  /**
+   * ADR 0330 (ABI 4.7): post-fader sends into other buses of the list (a return is a bus fed only by sends), each `to` a
+   * bus name and `level` a linear gain 0..`MAX_SEND_LEVEL`. Absent (never written when empty): none. The audio core runs
+   * the first `MAX_BUS_SENDS` (`busCapability.ts`' `sendsPerBus`); the Web Audio fallback runs none.
+   */
+  sends?: BusSend[];
   /** §2: at most this many sounds play on the bus at once (integer 1..`voices.logical`); absent is unlimited. Inert until the core (M1a). */
   maxVoices?: number;
   /** ADR 0162 §2.1: how the bus gets an ambisonic bed. Absent (never written when default): the root `own`, others `parent`; read it with `busBed`. Inert until beds (A4). */
@@ -67,6 +73,15 @@ export interface BusSettings {
    */
   meter?: BusMeter;
 }
+
+/** ADR 0330: one post-fader send of a bus (`BusSettings.sends`): into bus `to`, at linear `level`. */
+export interface BusSend {
+  to: string;
+  level: number;
+}
+
+/** ADR 0330: a send's highest linear level (+12 dB, the audio core's `bus_sends::MAX_LEVEL`). */
+export const MAX_SEND_LEVEL = 4;
 
 /** ADR 0171 §2.1: a bus's `meter` value. */
 export type BusMeter = "loudness";
@@ -428,6 +443,19 @@ function parseEffect(raw: unknown, where: string, problems: string[]): BusEffect
   }
 }
 
+/** ADR 0330: a bus's `sends`, read leniently: each `to` another bus of `buses`, once, at a linear `level` (default 1). */
+function parseSends(raw: unknown, bus: BusSettings, buses: readonly BusSettings[], where: string, problems: string[]): BusSend[] {
+  if (!Array.isArray(raw)) return void problems.push(`${where}: must be a list; ignored.`), [];
+  const out: BusSend[] = [];
+  raw.forEach((s, i) => {
+    if (!isRecord(s) || typeof s.to !== "string" || s.to === bus.name || !buses.some((b) => b.name === s.to)) return void problems.push(`${where}[${i}]: to must name another bus; dropped.`);
+    if (out.some((o) => o.to === s.to)) return void problems.push(`${where}[${i}]: a second send to "${s.to}"; dropped.`);
+    if (s.level !== undefined && !(typeof s.level === "number" && Number.isFinite(s.level))) problems.push(`${where}[${i}].level: must be a number 0..${MAX_SEND_LEVEL}; using 1.`);
+    out.push({ to: s.to, level: num(s.level, 1, 0, MAX_SEND_LEVEL) });
+  });
+  return out;
+}
+
 /**
  * The `audio` section, read leniently: bad entries are dropped or clamped, and each is reported in `problems`.
  * `warnings` are notes on a valid section that the editor saves (G9b): which bus rule breach is a problem and which a
@@ -443,6 +471,7 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
   if (input.buses !== undefined) {
     const buses: BusSettings[] = [];
     const rawIndex: number[] = [];
+    const rawSends = new Map<BusSettings, unknown>();
     if (!Array.isArray(input.buses)) problems.push("audio.buses must be a list.");
     else {
       input.buses.forEach((raw, i) => {
@@ -452,13 +481,15 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
         const effects: BusEffect[] = [];
         if (Array.isArray(raw.effects)) raw.effects.forEach((e, j) => { const fx = parseEffect(e, `${where}.effects[${j}]`, problems); if (fx) effects.push(fx); });
         rawIndex.push(i);
-        buses.push({
+        const bus: BusSettings = {
           name: raw.name,
           ...(typeof raw.parent === "string" ? { parent: raw.parent } : {}),
           volume: num(raw.volume, 1, 0, 2),
           mute: raw.mute === true,
           effects,
-        });
+        };
+        if (raw.sends !== undefined) rawSends.set(bus, raw.sends);
+        buses.push(bus);
       });
     }
     if (buses.length > 0) {
@@ -479,6 +510,12 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
         }
       }
       settings.buses = buses.slice(0, MAX_BUSES);
+      // ADR 0330: sends name buses of the list, so they are read once every bus is known.
+      settings.buses.forEach((b) => {
+        if (!rawSends.has(b)) return;
+        const sends = parseSends(rawSends.get(b), b, settings.buses, `audio.buses[${rawIndex[buses.indexOf(b)]}].sends`, problems);
+        if (sends.length > 0) b.sends = sends;
+      });
     }
     // ADR 0175: the bus capability rules (bus count, the insert cap, effects and compressors per bus) decide severity and message.
     for (const f of busRuleFindings(buses)) {

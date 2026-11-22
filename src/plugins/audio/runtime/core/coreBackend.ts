@@ -884,7 +884,14 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     // Ma3: a reconfigure starts from the settings, and a failed or disposed backend applies nothing: no queued live add survives.
     const clearAdds = () => this.deferredAdds.clear();
     s.join("deferredAdds", { reconfigure: clearAdds, recoveryFailed: clearAdds, dispose: clearAdds });
-    s.join("buses", { reconfigure: (mixer) => this.buses.configureBuses(mixer), replayHeader: (b) => replayBusConfig(b, this.busConfigWire()) });
+    s.join("buses", {
+      reconfigure: (mixer) => this.buses.configureBuses(mixer),
+      // ADR 0330: the sends into returns after the tree (they name bus slots).
+      replayHeader: (b) => {
+        replayBusConfig(b, this.busConfigWire());
+        this.buses.replaySends(b);
+      },
+    });
     s.join("loudness", this.loudness);
     s.join("voices", {
       busesReset: () => voices.busesReset(),

@@ -144,14 +144,16 @@ function fakeContext() {
 }
 
 describe("bus graph", () => {
-  it("wires child buses into their parents and master into the destination, with effects and one shared reverb", () => {
+  it("wires child buses into their parents and master into the destination, with effects; the old reverb sends are a return", () => {
     const { ctx, connections, dest } = fakeContext();
     const m = mk({ buses: [{ name: "Master" }, { name: "Music", parent: "Master", effects: [{ type: "lowpass", frequency: 500 }, { type: "compressor" }] }, { name: "SFX", parent: "Master", effects: [{ type: "reverb", send: 0.3 }] }, { name: "UI", parent: "Master", effects: [{ type: "reverb", send: 0.1 }] }] });
     const g = new BusGraph(ctx, dest, m);
     const inputOf = (bus: string) => (g.input(bus) as unknown as { id: string }).id;
-    expect(connections.filter(([, to]) => to === inputOf("Master")).length).toBe(3); // Music, SFX, UI gains
+    // ADR 0330: the migration made the two reverb sends sends into a "Reverb" return, a bus of the view under Master.
+    expect(m.returnNames).toEqual(["Reverb"]);
+    expect(connections.filter(([, to]) => to === inputOf("Master")).length).toBe(4); // Music, SFX, UI and Reverb gains
     expect(connections.some(([, to]) => to === (dest as unknown as { id: string }).id)).toBe(true);
-    expect(connections.filter(([from]) => from.startsWith("conv")).length).toBe(1); // one convolver, one output connection
+    expect(connections.filter(([from]) => from.startsWith("conv")).length).toBe(0); // no shared convolver: the reverb is the return's insert
     expect(g.input("Nope")).toBe(g.input("Master"));
     g.dispose();
   });

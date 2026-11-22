@@ -64,6 +64,20 @@ const ROWS: Row[] = [
     at: bus([lp, lp, lp, lp, lp, lp, lp, lp]),
     ops: [[{ op: "addEffect", bus: "Fx", index: 8, effect: lp }, "none"]],
   },
+  {
+    // ADR 0330 (ABI 4.7): the core's post-fader sends a bus. The live case is `audio.json`'s (a send names a return).
+    rule: "sendsPerBus",
+    over: { buses: [{ name: "Master" }, { name: "Fx", parent: "Master", sends: ["R1", "R2", "R3", "R4", "R5"].map((to) => ({ to, level: 0.5 })) }, ...["R1", "R2", "R3", "R4", "R5"].map((name) => ({ name, parent: "Master" }))] },
+    finding: "audio.buses[1]: a bus runs at most 4 sends; the edit is saved and applies at the next Play, where only the first 4 sends of the list run.",
+    at: {
+      mix: {
+        format: "myco.audio@1",
+        buses: [{ name: "Master" }, { name: "Fx", parent: "Master", sends: ["R1", "R2", "R3", "R4"].map((to) => ({ to, levelDb: -6 })) }],
+        returns: ["R1", "R2", "R3", "R4", "R5"].map((name) => ({ name, output: "Master" })),
+      },
+    },
+    ops: [[{ op: "setSend", bus: "Fx", to: "R5", levelDb: -6 }, "direct"]],
+  },
 ];
 
 describe("bus capability rules (ADR 0175)", () => {
