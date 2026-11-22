@@ -60,6 +60,7 @@ import { mixer as defaultMixer, type Mixer, type MixOpTarget, type ResolvedBus }
 import { Assets } from "../../../../engine/scene/Assets";
 import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioOutputDevice, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, ShapedParams, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
+import { MAX_BUSES } from "../../../../engine/audio/settings";
 import { BUS_LP_OFF_HZ, readStatus, type BusConfigBuses } from "../wire.generated";
 import { AudioHandle, type AudioReason } from "./handle";
 import { limiterLatencyFrames } from "./limiterLatency";
@@ -185,7 +186,6 @@ export interface CoreBackendDeps {
   zoneIr?: ZoneIrService;
 }
 
-const MAX_BUS = 32;
 
 /** What the backend's parts read of it through its private view (`CoreBackend.view`). */
 type CoreView = DebugSource & KeyframeHost & ReplaySource & PresenceHost;
@@ -492,7 +492,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
       busView: (name, gain) => this.mixer._setAutomationView(name, gain),
       busSelection: (name, gain) => {
         const b = this.busIndexByName.get(name);
-        if (b === undefined || b >= MAX_BUS) return;
+        if (b === undefined || b >= MAX_BUSES) return;
         this.lanes.selAuto[b] = gain;
         this.lanes.refreshBusGain();
       },
