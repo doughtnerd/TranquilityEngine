@@ -14,11 +14,11 @@ import { ActionEvents, actionSets, type ActionEvent, type ActionEventPhase, type
 import type { DeviceFamily } from "./controls";
 import { DeviceKind, GamepadState, InputDevice, deviceNodes } from "./deviceEntities";
 import { devices } from "./devices";
-import { resolveAction } from "./evaluate";
+import { knownContexts, resolveAction } from "./evaluate";
 import { ControlledBy, InputPlayer, createPlayer, familyName, playerNode, playerNodes, removePlayer } from "./players";
-import { profileOf, type InputAccessibility, type InputProfileData } from "./profiles";
+import { clearBindings, profileData, profileOf, readProfile, type InputAccessibility } from "./profiles";
 import { promptFor, type InputPrompt } from "./prompts";
-import { startRebind, type RebindOptions, type RebindResult } from "./rebind";
+import { startRebind, unbindAction, type RebindOptions, type RebindResult, type UnbindOptions } from "./rebind";
 import type { TriggerEffect } from "./triggerEffects";
 
 interface Subscription {
@@ -166,12 +166,24 @@ export class PlayerInput {
     return promptFor(this.world, player, action, family);
   }
 
-  /** Bind `action` to the player's next press (see `RebindOptions`). */
+  /**
+   * Bind `action` to the player's next press (see `RebindOptions`): replace a control of its
+   * mapping for the device group, or with `add: true` add a mapping for it.
+   */
   rebind(action: string, options?: RebindOptions): Promise<RebindResult> {
     return startRebind(this.world, this.requirePlayer("rebind"), action, options);
   }
 
-  /** The player's binding overrides and accessibility settings (changes apply next frame). */
+  /**
+   * Remove the player's mapping of `action` for a device group (the first, by priority, unless
+   * `context` says which): one the player added is deleted, one of the context's own is recorded
+   * in the profile's removals (`resetBindings` brings it back). False when there was none.
+   */
+  unbind(action: string, options: UnbindOptions): boolean {
+    return unbindAction(this.world, this.requirePlayer("unbind"), action, options);
+  }
+
+  /** The player's accessibility settings (changes apply next frame). */
   get accessibility(): Readonly<InputAccessibility> {
     return profileOf(this.world, this.requireIndex("accessibility")).accessibility;
   }
@@ -188,30 +200,28 @@ export class PlayerInput {
     p.version++;
   }
 
-  /** Drop every binding override (back to the contexts' controls). */
+  /** Drop every binding change: replaced controls, added mappings and removed ones (back to the contexts' bindings). */
   resetBindings(): void {
-    const p = profileOf(this.world, this.requireIndex("resetBindings"));
-    p.overrides = {};
-    p.version++;
+    clearBindings(profileOf(this.world, this.requireIndex("resetBindings")));
   }
 
-  /** Save overrides and accessibility with the game's settings, as `input.<profile>.json` (default `player<index>`). */
+  /**
+   * Save the binding changes and accessibility with the game's settings, as
+   * `input.<profile>.json` (default `player<index>`), in profile format 2.
+   */
   saveBindings(profile?: string): Promise<void> {
     const index = this.requireIndex("saveBindings");
-    const p = profileOf(this.world, index);
-    const data: InputProfileData = { format: 1, overrides: { ...p.overrides }, accessibility: { ...p.accessibility } };
-    return Storage.save(`input.${profile ?? `player${index}`}.json`, data, "settings");
+    // Compiling every context the player could have gives a loaded format 1 file's overrides their actions.
+    knownContexts(this.world, index);
+    return Storage.save(`input.${profile ?? `player${index}`}.json`, profileData(profileOf(this.world, index)), "settings");
   }
 
-  /** Load what `saveBindings` saved; false if nothing was saved. */
+  /** Load what `saveBindings` saved (a format 1 file is upgraded); false if nothing was saved. */
   async loadBindings(profile?: string): Promise<boolean> {
     const index = this.requireIndex("loadBindings");
-    const data = await Storage.load<Partial<InputProfileData>>(`input.${profile ?? `player${index}`}.json`, "settings");
-    if (!data || typeof data !== "object") return false;
-    const p = profileOf(this.world, index);
-    p.overrides = typeof data.overrides === "object" && data.overrides ? { ...data.overrides } : {};
-    p.accessibility = typeof data.accessibility === "object" && data.accessibility ? { ...data.accessibility } : {};
-    p.version++;
+    const data = await Storage.load<Record<string, unknown>>(`input.${profile ?? `player${index}`}.json`, "settings");
+    if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+    readProfile(profileOf(this.world, index), data);
     return true;
   }
 

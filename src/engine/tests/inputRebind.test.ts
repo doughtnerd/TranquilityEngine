@@ -58,7 +58,7 @@ describe("chord rebinding (ADR 0337)", () => {
     down("n");
     up("n");
     const r = await pending;
-    expect(r).toMatchObject({ canceled: false, reason: null, control: "<Keyboard>/n", chord: ["<Keyboard>/control", "<Keyboard>/n"], modifierCount: 1, conflicts: [] });
+    expect(r).toMatchObject({ canceled: false, reason: null, control: "<Keyboard>/n", chord: ["<Keyboard>/control", "<Keyboard>/n"], conflicts: [] });
     up("control");
     expect(p0().prompt("dash", "keyboard")).toMatchObject({ label: "Ctrl+N", parts: ["modifier0", "control"], controls: ["<Keyboard>/control", "<Keyboard>/n"] });
 
@@ -92,20 +92,36 @@ describe("chord rebinding (ADR 0337)", () => {
     expect(p0().prompt("dash", "keyboard")!.label).toBe("Shift+J");
   });
 
-  it("reports a chord with a different number of modifiers as canceled for modifierCount, leaving the binding", async () => {
-    const pending = p0().rebind("dash", { device: "keyboard" });
-    down("n");
-    up("n");
-    expect(await pending).toMatchObject({ canceled: true, reason: "modifierCount", control: null, chord: ["<Keyboard>/n"], modifierCount: 1 });
+  it("changes a chord's size: the old mapping is removed and the new chord added (ADR 0339)", async () => {
     const two = p0().rebind("dash", { device: "keyboard" });
     down("control");
     down("alt");
     down("n");
     up("n");
-    expect(await two).toMatchObject({ canceled: true, reason: "modifierCount", chord: ["<Keyboard>/control", "<Keyboard>/alt", "<Keyboard>/n"] });
+    expect(await two).toMatchObject({ canceled: false, reason: null, control: "<Keyboard>/n", chord: ["<Keyboard>/control", "<Keyboard>/alt", "<Keyboard>/n"] });
     up("control", "alt");
-    expect(p0().prompt("dash", "keyboard")!.label).toBe("Shift+B");
+    expect(p0().prompt("dash", "keyboard")).toMatchObject({ label: "Ctrl+Alt+N", parts: ["modifier0", "modifier1", "control"] });
+    down("control", "alt", "n");
+    expect(p0().performed("dash")).toBe(true);
+    up("control", "alt", "n");
+    down("shift", "b"); // the old chord is gone
+    expect(p0().held("dash")).toBe(false);
+    up("shift", "b");
+
+    // Down to a lone key: the added chord is replaced in place.
+    const lone = p0().rebind("dash", { device: "keyboard" });
+    down("n");
+    up("n");
+    expect(await lone).toMatchObject({ canceled: false, control: "<Keyboard>/n", chord: ["<Keyboard>/n"] });
+    expect(p0().prompt("dash", "keyboard")).toMatchObject({ label: "N", parts: ["control"] });
+    down("n");
+    expect(p0().performed("dash")).toBe(true);
+    up("n");
     expect(RebindResults.read()).toEqual([]); // last frame's results are gone
+
+    p0().resetBindings();
+    step();
+    expect(p0().prompt("dash", "keyboard")!.label).toBe("Shift+B");
   });
 
   it("rebinds a chord with several modifiers, in the order they were pressed", async () => {
@@ -141,7 +157,7 @@ describe("chord rebinding (ADR 0337)", () => {
     const pending = p0().rebind("dash", { device: "keyboard", part: "modifier0" });
     down("alt");
     const r = await pending;
-    expect(r).toMatchObject({ canceled: false, control: "<Keyboard>/alt", chord: [], modifierCount: 0 });
+    expect(r).toMatchObject({ canceled: false, control: "<Keyboard>/alt", chord: [] });
     up("alt");
     expect(p0().prompt("dash", "keyboard")!.label).toBe("Alt+B");
     down("alt", "b");
@@ -157,18 +173,20 @@ describe("chord rebinding (ADR 0337)", () => {
     expect(p0().prompt("dash", "keyboard")!.label).toBe("Shift+G");
   });
 
-  it("captures a single control as a chord on request: alone it binds, with a modifier it's canceled", async () => {
+  it("captures a single control as a chord on request: alone it binds, with a modifier it becomes a chord", async () => {
     const alone = p0().rebind("jump", { device: "keyboard", chord: true });
     down("n");
     up("n");
-    expect(await alone).toMatchObject({ canceled: false, control: "<Keyboard>/n", chord: ["<Keyboard>/n"], modifierCount: 0 });
+    expect(await alone).toMatchObject({ canceled: false, control: "<Keyboard>/n", chord: ["<Keyboard>/n"] });
+    expect(p0().prompt("jump", "keyboard")!.label).toBe("N");
     const withShift = p0().rebind("jump", { device: "keyboard", chord: true });
     down("shift");
     down("m");
     up("m");
-    expect(await withShift).toMatchObject({ canceled: true, reason: "modifierCount", chord: ["<Keyboard>/shift", "<Keyboard>/m"], modifierCount: 0 });
+    expect(await withShift).toMatchObject({ canceled: false, chord: ["<Keyboard>/shift", "<Keyboard>/m"] });
     up("shift");
-    expect(p0().prompt("jump", "keyboard")!.label).toBe("N");
+    expect(p0().prompt("jump", "keyboard")!.label).toBe("Shift+M");
+    expect(p0().prompt("jump", "xbox")!.label).toBe("A"); // the gamepad mapping is untouched
     expect(() => p0().rebind("dash", { device: "keyboard", part: "modifier0", chord: true })).toThrow(/chord rebind/);
   });
 

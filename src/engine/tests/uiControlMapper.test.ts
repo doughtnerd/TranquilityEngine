@@ -84,7 +84,7 @@ describe("UIControlMapper (ADR 0337)", () => {
     expect(row(m, "Move Up").gamepad).toMatchObject({ label: "Left Stick", part: "control" });
     expect(row(m, "Move Down").gamepad).toMatchObject({ label: "—", part: null }); // the stick is one binding, on the first row
     expect(row(m, "Bomb").gamepad).toMatchObject({ label: "—", part: null });
-    expect(texts(m.node)).toEqual(expect.arrayContaining(["Controls", "Keyboard", "Gamepad", "Reset to defaults", "Save"]));
+    expect(texts(m.node)).toEqual(expect.arrayContaining(["Controls", "Keyboard", "Gamepad", "Unbind", "Reset to defaults", "Save"]));
   });
 
   it("names the gamepad column for the pad the player last used", () => {
@@ -147,7 +147,7 @@ describe("UIControlMapper (ADR 0337)", () => {
     tap("arrowright");
     expect(m.selected).toEqual({ row: 1, column: 1 });
     for (let i = 0; i < 9; i++) tap("arrowdown");
-    expect(m.selected).toEqual({ row: 6, column: 1 }); // Save
+    expect(m.selected).toEqual({ row: 6, column: 1 }); // Reset (the button row is Unbind, Reset, Save)
   });
 
   it("rebinds a gamepad cell to the next button, selected and confirmed with the pad", () => {
@@ -183,7 +183,8 @@ describe("UIControlMapper (ADR 0337)", () => {
     expect(row(m, "Jump").keyboard!.label).toBe("J");
     for (let i = 0; i < 6; i++) tap("arrowdown");
     tap("arrowright");
-    expect(m.selected).toEqual({ row: 6, column: 1 });
+    tap("arrowright");
+    expect(m.selected).toEqual({ row: 6, column: 2 });
     tap("enter"); // Save
     await vi.waitFor(() => expect(m.status).toBe("Saved."));
 
@@ -250,13 +251,13 @@ describe("UIControlMapper (ADR 0337)", () => {
     expect(m.status).toBe("Dash: Ctrl + N");
     expect(InputPlayers.get(0)!.prompt("dash", "keyboard")!.label).toBe("Ctrl+N");
 
-    // A chord needs as many modifiers as the binding has: a lone key is refused, and the binding stays.
+    // A chord of another size replaces the binding (ADR 0339): a lone key.
     tap("enter");
     expect(m.rebinding).toEqual({ action: "dash", device: "keyboard" });
     tap("m");
     expect(m.rebinding).toBeNull();
-    expect(m.status).toBe("This binding takes 1 held with the key or button; M has 0.");
-    expect(row(m, "Dash").keyboard!.label).toBe("Ctrl + N");
+    expect(m.status).toBe("Dash: M");
+    expect(row(m, "Dash").keyboard).toMatchObject({ label: "M", chord: false });
   });
 
   it("rebinds a gamepad chord from the pad", () => {
@@ -279,6 +280,92 @@ describe("UIControlMapper (ADR 0337)", () => {
     press(3, 0);
     press(5, 0);
     expect(row(m, "Dash").gamepad).toMatchObject({ label: "RB + Y", icons: ["xbox/rightShoulder", "xbox/buttonNorth"] });
+  });
+
+  describe("adding and unbinding (ADR 0339)", () => {
+    it("adds a binding from an empty cell", () => {
+      const m = mapper();
+      expect(row(m, "Bomb").gamepad).toMatchObject({ label: "—", part: null, adds: true });
+      expect(row(m, "Bomb").gamepad!.button.interactable).toBe(true);
+      expect(row(m, "Move Down").gamepad).toMatchObject({ part: null, adds: false }); // the stick's binding is on Move Up's row
+      pads.push(3);
+      Input.inject.gamepadConnected({ id: 3, name: "Pad", family: "xbox" });
+      step();
+      for (let i = 0; i < 5; i++) tap("arrowdown");
+      tap("arrowright");
+      expect(m.selected).toEqual({ row: 5, column: 1 });
+      tap("enter");
+      expect(m.rebinding).toEqual({ action: "bomb", device: "gamepad" });
+      expect(m.status).toBe("Press a button… (Esc to cancel)");
+      Input.inject.gamepadButton(3, 5, 1); // right shoulder
+      step();
+      Input.inject.gamepadButton(3, 5, 0);
+      step();
+      expect(m.rebinding).toBeNull();
+      expect(row(m, "Bomb").gamepad).toMatchObject({ label: "RB", part: "control", adds: false });
+      expect(m.status).toBe("Bomb: RB");
+      Input.inject.gamepadButton(3, 5, 1);
+      step();
+      expect(InputPlayers.get(0)!.performed("bomb")).toBe(true);
+      Input.inject.gamepadButton(3, 5, 0);
+      step();
+    });
+
+    it("unbinds the selected cell with Delete or Backspace, and with the Unbind button, and saves it", async () => {
+      const m = mapper();
+      tap("delete"); // Jump, keyboard
+      expect(row(m, "Jump").keyboard).toMatchObject({ label: "—", part: null, adds: true });
+      expect(m.status).toBe("Jump: unbound.");
+      expect(InputPlayers.get(0)!.prompt("jump", "keyboard")).toBeNull();
+      Input.inject.keyDown("space");
+      step();
+      expect(InputPlayers.get(0)!.held("jump")).toBe(false);
+      Input.inject.keyUp("space");
+      step();
+
+      tap("arrowright");
+      tap("backspace"); // Jump, gamepad
+      expect(row(m, "Jump").gamepad).toMatchObject({ label: "—", adds: true });
+
+      // The Unbind button acts on the binding cell last selected: Bomb's keyboard cell.
+      for (let i = 0; i < 5; i++) tap("arrowdown");
+      tap("arrowleft");
+      expect(m.selected).toEqual({ row: 5, column: 0 });
+      const p = await pointer();
+      p.click(m.unbindButton!);
+      step(2);
+      expect(row(m, "Bomb").keyboard).toMatchObject({ label: "—", adds: true });
+      expect(m.status).toBe("Bomb: unbound.");
+      expect(m.unbindButton!.interactable).toBe(false); // nothing left to unbind there
+      p.leave();
+
+      // Unbinding a d-pad part removes the whole keyboard binding: Move's rows follow the stick.
+      tap("arrowup");
+      tap("arrowup");
+      expect(m.selected).toEqual({ row: 4, column: 0 }); // Move Right
+      tap("delete");
+      expect(m.rows.map((r) => r.label)).toEqual(["Jump", "Move", "Bomb"]);
+
+      // Save, reset, load: the unbinding comes back.
+      const save = m.saveButton!;
+      p.click(save);
+      step(2);
+      await vi.waitFor(() => expect(m.status).toBe("Saved."));
+      InputPlayers.get(0)!.resetBindings();
+      step();
+      expect(row(m, "Jump").keyboard!.label).toBe("Space");
+      expect(await InputPlayers.get(0)!.loadBindings()).toBe(true);
+      step();
+      expect(row(m, "Jump").keyboard!.label).toBe("—");
+      expect(row(m, "Bomb").keyboard!.label).toBe("—");
+    });
+
+    it("words the Unbind button through its text", () => {
+      const m = mapper();
+      m.text.unbind = "Entfernen";
+      step();
+      expect(texts(m.unbindButton!.node)).toEqual(["Entfernen"]);
+    });
   });
 
   describe("accessibility", () => {
@@ -390,7 +477,8 @@ describe("UIControlMapper (ADR 0337)", () => {
 
       press(13); // the button row
       press(15);
-      expect(m.selected).toEqual({ row: 8, column: 1 }); // Save
+      press(15);
+      expect(m.selected).toEqual({ row: 8, column: 2 }); // Save
       press(0);
       await vi.waitFor(() => expect(m.status).toBe("Saved."));
       InputPlayers.get(0)!.accessibility = {};

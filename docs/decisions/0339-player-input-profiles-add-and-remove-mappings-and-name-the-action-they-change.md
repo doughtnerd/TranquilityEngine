@@ -70,6 +70,18 @@ Format 1 also keys overrides by **mapping index** alone. If a designer later ins
 
 Format 1 profile files: still read and upgraded on load, never written.
 
+## Build notes (2026-11-22)
+
+- **Format 1 upgrade is lazy.** A context asset is known by its name only once it's compiled, so a loaded format 1 override gets its action the next time its context is compiled, not inside `loadBindings`. `saveBindings` compiles every context the player could have first; an override for a context the game no longer has is dropped then.
+- **Stale entries are dropped from the profile** when their context is compiled, so the next save doesn't write them again. The warning names the first stale change in the context (removals are checked before overrides).
+- `unbind` returns whether it removed a mapping (false when the action has none for that device group). With `context`, a context that isn't active is searched too.
+- Added mappings name their action as `"set.Id:action"`. Rebinding an added mapping changes it in place rather than writing an override on it; unbinding one moves the overrides of later additions down with their indices.
+- A chord rebind of another size keeps the replaced mapping's `modifiers`, `triggers` and `consume`. An added mapping is replaced in place; one of the context's own is recorded in `removals` and the chord appended to `additions`.
+- `rebind(action, { add: true, chord: true })` adds a chord (the spec only names single controls).
+- The `"modifierCount"` cancel reason, `RebindResult.modifierCount` and `UIControlMapperText.chordCount` are removed: nothing can produce them now.
+- `PendingRebind.add` tells the editor's input debugger that a rebind adds a mapping.
+- **UIControlMapper:** the button row is Unbind, Reset, Save (Unbind is column 0). Unbind acts on the selected binding cell, or the one last selected once the selection has moved to the button. An empty cell adds only on the action's first row and only when the action has no binding at all for that device (`UIControlMapperCell.adds`); the "—" of a composite's later rows stays inert. The status line after unbinding is `text.unbound`.
+
 ## Open questions
 
 - Whether designers should be able to mark mappings as not removable (for example, the pause button).
