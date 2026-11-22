@@ -191,13 +191,13 @@ fn a_bad_parent_is_repaired_like_bus_config() {
 }
 
 #[test]
-fn effects_past_four_are_dropped_from_a_queued_slot() {
+fn effects_past_eight_are_dropped_from_a_queued_slot() {
     let mut m = rig();
     let dropped = bus::area(&m.core).dropped;
-    let fx: Vec<(u32, f32)> = (0..6).map(|_| (wire::effect_type::LOWPASS, 2_000.0)).collect();
+    let fx: Vec<(u32, f32)> = (0..10).map(|_| (wire::effect_type::LOWPASS, 2_000.0)).collect();
     submit_at(&mut m, 512.0, &[slot_rec(1, 1, 0, 0, &fx, 10)]);
     m.render();
-    assert_eq!(bus::slots(&m.core)[1].fx.count, 4);
+    assert_eq!(bus::slots(&m.core)[1].fx.count, 8);
     assert_eq!(bus::area(&m.core).dropped, dropped + 2);
 }
 

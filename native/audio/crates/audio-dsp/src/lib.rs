@@ -26,6 +26,7 @@ pub mod compressor;
 pub mod convolver;
 pub mod curve_laws;
 pub mod equal_power;
+pub mod fx;
 pub mod fxfilter;
 pub mod hrtf;
 pub mod limiter;

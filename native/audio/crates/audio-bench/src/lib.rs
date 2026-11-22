@@ -174,6 +174,8 @@ pub struct Scene {
     /// ADR 0331: instance submixes (0 none): the voices spread over this many groups, each with a submix running a
     /// low-pass and a compressor on bus 0.
     pub submixes: u32,
+    /// ADR 0331 (ABI 4.6): the catalogue effects a scene runs ([`Catalogue`]); `None` none.
+    pub catalogue: Option<Catalogue>,
     /// ADR 0158 E2: also time one extra `automation::begin_quantum` before each quantum (outside the timed work;
     /// the parameters then seek twice as fast) and report its percentiles: the control-rate pass on its own.
     pub probe_automation: bool,
@@ -396,6 +398,7 @@ impl Scene {
             sustain: false,
             loop_programs: false,
             submixes: 0,
+            catalogue: None,
             probe_automation: false,
             beds: 0,
             bed_voices: 0,
@@ -549,6 +552,20 @@ impl Scene {
     }
 }
 
+/// ADR 0331 (ABI 4.6): the catalogue effect chains of the `fx-*` scenes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Catalogue {
+    /// Every bus carries an eight-effect chain: EQ, band-pass with drive, saturation, distortion, bit-crush,
+    /// chorus, delay, limiter (bus 0 a reverb instead of the chorus).
+    BusChain,
+    /// Every submix runs this one kind with the given catalogue parameters.
+    Submix(u32, [f32; 3]),
+    /// Buses 4..: a sidechain compressor keyed on bus 1.
+    Sidechain,
+    /// Buses 4..: two post-fader sends each, into buses 1 and 2 (returns; ADR 0330, ABI 4.7).
+    Sends,
+}
+
 /// The frozen scenes by name.
 pub fn scene(name: &str) -> Option<Scene> {
     let s = match name {
@@ -605,6 +622,19 @@ pub fn scene(name: &str) -> Option<Scene> {
         "loop-programs" => Scene { sustain: true, loop_programs: true, ..Scene::looping(name, 128) },
         // ADR 0331: 128 voices in 32 instances, each instance's submix running a low-pass and a compressor.
         "submixes" => Scene { submixes: 32, ..Scene::looping(name, 128) },
+        // ADR 0331 (ABI 4.6): the catalogue's DSP. `fx-chain-8`: 8 buses, each with an eight-effect chain (EQ, band-pass
+        // with drive, saturation, distortion, bit-crush, chorus or reverb, delay, limiter). `fx-submix-*`: 128 voices in 32
+        // instances, each instance's submix running one heavy kind. `fx-sidechain`: 16 buses, 12 with a sidechain
+        // compressor keyed on bus 1. Their twins are `automation-base`-like plain scenes (`submixes` for the submix ones).
+        "fx-chain-8" => Scene { buses: 8, catalogue: Some(Catalogue::BusChain), ..Scene::looping(name, 32) },
+        "fx-submix-reverb" => Scene { submixes: 32, catalogue: Some(Catalogue::Submix(wire::SUBMIX_FX_REVERB, [0.6, 2.5, 30.0])), ..Scene::looping(name, 128) },
+        "fx-submix-delay" => Scene { submixes: 32, catalogue: Some(Catalogue::Submix(wire::SUBMIX_FX_DELAY, [350.0, 40.0, 30.0])), ..Scene::looping(name, 128) },
+        "fx-submix-chorus" => Scene { submixes: 32, catalogue: Some(Catalogue::Submix(wire::SUBMIX_FX_CHORUS, [0.8, 40.0, 50.0])), ..Scene::looping(name, 128) },
+        "fx-submix-pitch" => Scene { submixes: 32, catalogue: Some(Catalogue::Submix(wire::SUBMIX_FX_PITCH, [7.0, 0.0, 0.0])), ..Scene::looping(name, 128) },
+        "fx-submix-formant" => Scene { submixes: 32, catalogue: Some(Catalogue::Submix(wire::SUBMIX_FX_FORMANT, [4.0, 0.0, 0.0])), ..Scene::looping(name, 128) },
+        "fx-sidechain" => Scene { buses: 16, catalogue: Some(Catalogue::Sidechain), ..Scene::looping(name, 32) },
+        // ADR 0330 (ABI 4.7): 16 buses, 12 sending into two returns (buses 1 and 2).
+        "bus-sends" => Scene { buses: 16, catalogue: Some(Catalogue::Sends), ..Scene::looping(name, 32) },
         // Not gated: the timed control-rate pass of `automation`, and the virtual scene's twin without bindings.
         "automation-probe" => Scene { bindings: 3, probe_automation: true, ..Scene::looping(name, 256) },
         "automation-virtual-base" => Scene { virtual_voices: 256, ..Scene::looping(name, 16) },
@@ -1446,6 +1476,25 @@ impl Bench {
             if s.reverb && i < s.reverb_sends.max(1) && s.reverb_sends > 0 {
                 effects.push(fx(wire::effect_type::REVERB_SEND, 0.2, 0.0));
             }
+            let cat = |k: u32, p: [f32; 7]| wire::BusConfigBusesEffects { type_: wire::BUS_FX_CATALOGUE + k, p };
+            match s.catalogue {
+                Some(Catalogue::BusChain) => {
+                    effects.push(cat(wire::SUBMIX_FX_EQ, [3.0, -2.0, 4.0, 0.0, 0.0, 0.0, 0.0]));
+                    effects.push(cat(wire::SUBMIX_FX_BANDPASS, [1_500.0, 0.2, 30.0, 0.0, 0.0, 0.0, 0.0]));
+                    effects.push(cat(wire::SUBMIX_FX_SATURATION, [40.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
+                    effects.push(cat(wire::SUBMIX_FX_DISTORTION, [0.3, 50.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
+                    effects.push(cat(wire::SUBMIX_FX_BITCRUSH, [10.0, 2.0, 50.0, 0.0, 0.0, 0.0, 0.0]));
+                    if i == 0 {
+                        effects.push(cat(wire::SUBMIX_FX_REVERB, [0.6, 2.5, 30.0, 0.0, 0.0, 0.0, 0.0]));
+                    } else {
+                        effects.push(cat(wire::SUBMIX_FX_CHORUS, [0.8, 40.0, 50.0, 0.0, 0.0, 0.0, 0.0]));
+                    }
+                    effects.push(cat(wire::SUBMIX_FX_DELAY, [250.0, 30.0, 25.0, 0.0, 0.0, 0.0, 0.0]));
+                    effects.push(cat(wire::SUBMIX_FX_LIMITER, [-1.0, 50.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
+                }
+                Some(Catalogue::Sidechain) if i >= 4 => effects.push(cat(wire::SUBMIX_FX_SIDECHAIN, [-30.0, 4.0, 200.0, 1.0, 0.0, 0.0, 0.0])),
+                _ => {}
+            }
             buses.push(wire::BusConfigBuses { parent, effects });
         }
         self.push(&wire::BusConfig { voice_id: 0, frame_offset: wire::ASAP, buses });
@@ -1486,12 +1535,21 @@ impl Bench {
         if s.zones_active > 0 {
             self.zones_init();
         }
+        if s.catalogue == Some(Catalogue::Sends) {
+            for bus in 4..s.buses {
+                let sends = [1u16, 2].iter().map(|&to| wire::BusSendsSends { to, flags: 0, level: 0.3, frames: 0 }).collect();
+                self.push(&wire::BusSends { voice_id: bus, frame_offset: wire::ASAP, sends });
+            }
+        }
         for slot in 0..s.submixes.min(wire::SUBMIXES_MAX as u32) {
-            // ADR 0331: a 1.2 kHz low-pass, then a compressor (catalogue parameters).
-            let effects = vec![
-                wire::SubmixEffects { type_: wire::SUBMIX_FX_LOWPASS as u32, flags: wire::SUBMIX_FX_ON, p: [1_200.0, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
-                wire::SubmixEffects { type_: wire::SUBMIX_FX_COMPRESSOR as u32, flags: wire::SUBMIX_FX_ON, p: [-24.0, 4.0, 10.0, 120.0, 3.0, 6.0, 0.0, 0.0] },
-            ];
+            // ADR 0331: a 1.2 kHz low-pass, then a compressor (catalogue parameters); an `fx-submix-*` scene's one kind.
+            let effects = match s.catalogue {
+                Some(Catalogue::Submix(kind, p)) => vec![wire::SubmixEffects { type_: kind, flags: wire::SUBMIX_FX_ON, p: [p[0], p[1], p[2], 0.0, 0.0, 0.0, 0.0, 0.0] }],
+                _ => vec![
+                    wire::SubmixEffects { type_: wire::SUBMIX_FX_LOWPASS as u32, flags: wire::SUBMIX_FX_ON, p: [1_200.0, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+                    wire::SubmixEffects { type_: wire::SUBMIX_FX_COMPRESSOR as u32, flags: wire::SUBMIX_FX_ON, p: [-24.0, 4.0, 10.0, 120.0, 3.0, 6.0, 0.0, 0.0] },
+                ],
+            };
             self.push(&wire::Submix { voice_id: slot, frame_offset: wire::ASAP, group: slot as u16 + 1, bus: 0, effects });
         }
         if s.bindings > 0 || s.bus_automation || s.lanes7 {
@@ -2375,7 +2433,7 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck, wire::Time, wire::Loops, wire::Submix);
+wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck, wire::Time, wire::Loops, wire::Submix, wire::BusSends);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
 /// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps). With `bezier` (ADR 0332)

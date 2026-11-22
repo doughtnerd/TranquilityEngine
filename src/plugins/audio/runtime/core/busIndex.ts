@@ -26,6 +26,7 @@ import { MAX_BUSES, type AudioSettings, type BusEffect } from "../../../../engin
 import { SlotTable, type SlotDeferred } from "../../../../engine/audio/slotTable";
 import { BUS_ROOT, FadeLaw, SET_PARAMS_MASK_BUS, type BusConfigBuses, type BusConfigBusesEffects } from "../wire.generated";
 import { VoiceState } from "./voiceTable";
+import { busFxType, fxParams, SIDECHAIN_KEY_PARAM } from "./effectKinds";
 import type { CommandWriter } from "./commandWriter";
 import type { BedPlanner } from "./beds";
 import type { CoreAutomation } from "./coreAutomation";
@@ -33,10 +34,19 @@ import type { StatusMirror } from "./mirror";
 import type { VoiceTable } from "./voiceTable";
 import type { Presence } from "./presence";
 
-/** Maps a `BusEffect` to its wire record (§4.2 BUS_CONFIG: q in dB, p unused = 0). */
-export function wireEffect(e: BusEffect): BusConfigBusesEffects {
+/**
+ * Maps a `BusEffect` to its wire record (§4.2 BUS_CONFIG: q in dB, p unused = 0). A catalogue effect (ADR 0331, ABI 4.6)
+ * is `BUS_FX_CATALOGUE` plus its kind (`effectKinds.ts`), its parameters in the catalogue's order; a sidechain
+ * compressor's key bus goes in `p[3]` as its slot (`slotOf`; -1, no key, when it names no bus).
+ */
+export function wireEffect(e: BusEffect, slotOf: (name: string) => number = () => -1): BusConfigBusesEffects {
   const p = [0, 0, 0, 0, 0, 0, 0];
   switch (e.type) {
+    case "fx": {
+      const q = fxParams(e.fx, e.params, 7);
+      if (e.fx === "sidechainCompressor") q[SIDECHAIN_KEY_PARAM] = e.key ? slotOf(e.key) : -1;
+      return { type: busFxType(e.fx), p: q };
+    }
     case "lowpass":
       p[0] = e.frequency;
       p[1] = e.q;
@@ -90,7 +100,7 @@ export interface BusIndexHost {
 
 export class BusIndex {
   /** The session slot table (Sm1): name → core slot for this Play session (§6.3). */
-  readonly slots = new SlotTable((effects) => effects.map(wireEffect));
+  readonly slots = new SlotTable((effects) => effects.map((e) => wireEffect(e, (n) => this.slotOf(n))));
   /** The bus names by slot (root first), as configured and live-edited. */
   names: string[] = [];
   /** Name → slot (a live rename's old name too): the one map every consumer reads (architecture §4.7). Kept as one object. */
@@ -241,7 +251,7 @@ export class BusIndex {
     // ADR 0330: the live effects (the authored chain with the main thread's values in).
     const effects = (bus ? this.host.mixer._busEffects(bus.name) : undefined) ?? bus?.effects ?? [];
     this.sentEffects[s] = effects;
-    return { slot: s, parent: slot.parent < 0 ? BUS_ROOT : slot.parent, effects: effects.map(wireEffect) };
+    return { slot: s, parent: slot.parent < 0 ? BUS_ROOT : slot.parent, effects: effects.map((e) => wireEffect(e, (n) => this.slotOf(n))) };
   }
 
   // --- Ma2: the structural edits' side of the table (`structuralDip.ts`) ---

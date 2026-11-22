@@ -610,6 +610,21 @@ pub fn cases() -> Vec<VectorCase> {
                 "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", // p2..p7
             ),
         ),
+        // BUS_SENDS (ADR 0330, ABI 4.7), variable length: 16 + 12 = 28 B = 7 words, asap. Bus 3 sends into
+        // bus 1, muted, level 0.5, over 480 frames.
+        case(
+            "BUS_SENDS_one_muted",
+            Subject::Opcode("BUS_SENDS"),
+            vec![
+                ("voiceId", vu(3)),
+                ("frameOffset", vu(0xFFFF_FFFF)),
+                ("sends", va(vec![vr(vec![("to", vu(1)), ("flags", vu(1)), ("level", vf(0.5)), ("frames", vu(480))])])),
+            ],
+            concat!(
+                "1e00", "0700", "03000000", "ffffffff", "01000000", // head, sendCount 1
+                "0100", "0100", "0000003f", "e0010000", // to 1, muted, level 0.5, 480 frames
+            ),
+        ),
         // TIME (ADR 0332), 24 B = 6 words, stamped at 256: group 7's sequence clock (which 2) at 1.5 s,
         // rate 1.0.
         case(

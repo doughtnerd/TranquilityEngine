@@ -47,6 +47,8 @@ interface Row {
   ops: [MixOp, ApplyResult["class"]][];
 }
 
+const CAPPED_BY_INSERTS: BusRule[] = ["effectsPerBus", "compressorsPerBus"];
+
 const ROWS: Row[] = [
   {
     rule: "busCount",
@@ -62,20 +64,6 @@ const ROWS: Row[] = [
     at: bus([lp, lp, lp, lp, lp, lp, lp, lp]),
     ops: [[{ op: "addEffect", bus: "Fx", index: 8, effect: lp }, "none"]],
   },
-  {
-    rule: "effectsPerBus",
-    over: bus([lp, lp, lp, lp, lp]),
-    finding: `audio.buses[1]: a bus runs at most ${MAX_CORE_BUS_EFFECTS} effects; the edit is saved and applies at the next Play, where only the first ${MAX_CORE_BUS_EFFECTS} of the list run.`,
-    at: bus([lp, lp, comp, lp]),
-    ops: [[{ op: "addEffect", bus: "Fx", index: 4, effect: lp }, "direct"], [{ op: "addEffect", bus: "Fx", index: 0, effect: lp }, "dip"]],
-  },
-  {
-    rule: "compressorsPerBus",
-    over: bus([comp, comp]),
-    finding: "audio.buses[1]: a bus runs one compressor; the edit is saved and applies at the next Play, where only the first compressor of the list runs and the others are skipped.",
-    at: bus([comp]),
-    ops: [[{ op: "addEffect", bus: "Fx", index: 1, effect: comp }, "direct"], [{ op: "addEffect", bus: "Fx", index: 0, effect: comp }, "dip"]],
-  },
 ];
 
 describe("bus capability rules (ADR 0175)", () => {
@@ -85,7 +73,18 @@ describe("bus capability rules (ADR 0175)", () => {
   });
 
   it("covers every rule", () => {
-    expect(ROWS.map((r) => r.rule).sort()).toEqual(Object.keys(BUS_RULES).sort());
+    expect([...ROWS.map((r) => r.rule), ...CAPPED_BY_INSERTS].sort()).toEqual(Object.keys(BUS_RULES).sort());
+  });
+
+  // ABI 4.6 (ADR 0331): the core runs 8 effects a bus and any number of compressors, so these two limits equal the insert
+  // cap and its refusal always comes first; they stay as rules (a warning a smaller backend could raise) but never fire here.
+  it.for(CAPPED_BY_INSERTS)("%s: its limit is the insert cap, so a full chain reports only the insert cap", (rule) => {
+    expect(BUS_RULES[rule].limit).toBe(BUS_RULES.insertsPerBus.limit);
+    const full = parseAudioSettings(bus([comp, comp, comp, comp, comp, comp, comp, comp]));
+    expect([...full.problems, ...full.warnings]).toEqual([]);
+    const over = parseAudioSettings(bus([comp, comp, comp, comp, comp, comp, comp, comp, comp]));
+    expect(over.problems).toEqual(["audio.buses[1]: a bus holds at most 8 effects; the rest are ignored."]);
+    expect(over.warnings).toEqual([]);
   });
 
   it.for(ROWS)("$rule: parse severity, the live answer on the core and the fallback, and the message", { timeout: 30_000 }, async ({ rule, over, finding, at, ops }, ctx) => {

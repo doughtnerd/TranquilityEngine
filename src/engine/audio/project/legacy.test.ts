@@ -136,7 +136,9 @@ describe("mergeLegacyIntoProject (a live op of the old shape, lifted into the mi
 
   it("updates a shown effect in place, keeping its id, its unmapped params and the hidden effects", () => {
     const v = view(RICH);
-    const lp = v.buses.find((b) => b.name === "Music")!.effects[0];
+    // The view shows what the core runs (ADR 0331): the eq as a catalogue effect, then the low-pass in its legacy shape.
+    const [eq, lp] = v.buses.find((b) => b.name === "Music")!.effects;
+    expect(eq.type).toBe("fx");
     expect(lp.type).toBe("lowpass");
     if (lp.type === "lowpass") lp.frequency = 3000;
     const music = busOf(mergeLegacyIntoProject(RICH, v), "Music");
@@ -147,11 +149,22 @@ describe("mergeLegacyIntoProject (a live op of the old shape, lifted into the mi
     ]);
   });
 
+  it("updates a catalogue effect's changed param by name, keeping the others", () => {
+    const v = view(RICH);
+    const eq = v.buses.find((b) => b.name === "Music")!.effects[0];
+    if (eq.type !== "fx") throw new Error("expected the eq as a catalogue effect");
+    eq.params.mid = -4;
+    const music = busOf(mergeLegacyIntoProject(RICH, v), "Music");
+    expect(music.effects[0]).toEqual({ id: "eq", type: "eq", on: true, params: { low: 2, mid: -4, high: 0 } });
+    expect(music.effects[1]).toEqual(busOf(RICH, "Music").effects[1]);
+  });
+
   it("adds and removes shown effects where they stood, never reusing a removed id", () => {
     const v = view(RICH);
     v.buses.find((b) => b.name === "Music")!.effects = [{ type: "compressor", threshold: -10, knee: 5, ratio: 2, attack: 0.01, release: 0.2 }];
     const music = busOf(mergeLegacyIntoProject(RICH, v), "Music");
-    expect(music.effects.map((e) => [e.id, e.type])).toEqual([["eq", "eq"], ["fx1", "compressor"], ["off", "highpass"]]);
+    // The eq is shown too now (the core runs it, ADR 0331), so replacing the list removes it; the bypassed high-pass stays.
+    expect(music.effects.map((e) => [e.id, e.type])).toEqual([["fx1", "compressor"], ["off", "highpass"]]);
   });
 
   it("writes a changed reverb send as a send to the reverb return, its level less the return's", () => {

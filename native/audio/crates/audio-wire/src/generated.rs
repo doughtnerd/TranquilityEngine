@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: be0897c5c766511fb84c1fa79910f175).
+/// First 16 bytes of the schema's SHA-256 (hex: b2283bb4820ce50e47272aa5f7361a2b).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0xbe,
-    0x08,
-    0x97,
-    0xc5,
-    0xc7,
-    0x66,
-    0x51,
-    0x1f,
-    0xb8,
-    0x4c,
-    0x1f,
-    0xa7,
-    0x99,
-    0x10,
-    0xf1,
-    0x75,
+    0xb2,
+    0x28,
+    0x3b,
+    0xb4,
+    0x82,
+    0x0c,
+    0xe5,
+    0x0e,
+    0x47,
+    0x27,
+    0x2a,
+    0xa5,
+    0xf7,
+    0x36,
+    0x1a,
+    0x2b,
 ];
-pub const SCHEMA_HASH_HEX: &str = "be0897c5c766511fb84c1fa79910f175";
+pub const SCHEMA_HASH_HEX: &str = "b2283bb4820ce50e47272aa5f7361a2b";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -247,8 +247,12 @@ pub const BUS_RAMP_LP_MIN_HZ: u32 = 0xa;
 pub const SHAPE_SEQUENCE_SHIFT: u32 = 0x3;
 /// BUS_RAMP shape sequenceId after the shift: 13 bits
 pub const SHAPE_SEQUENCE_MASK: u32 = 0x1fff;
-/// effects a slot keeps; a BUS_SLOT naming more keeps the first four
-pub const BUS_SLOT_MAX_EFFECTS: u32 = 0x4;
+/// effects a slot keeps; a BUS_SLOT naming more keeps the first eight (ADR 0331, ABI 4.6)
+pub const BUS_SLOT_MAX_EFFECTS: u32 = 0x8;
+/// sends a bus keeps (BUS_SENDS, ADR 0330, ABI 4.7); more are dropped
+pub const MAX_BUS_SENDS: u32 = 0x4;
+/// BUS_SENDS item flags bit 0: muted (the send ramps to 0 and keeps its level; ADR 0330 D29 #7)
+pub const BUS_SEND_MUTED: u32 = 0x1;
 /// BUS_DUCK rule flags bit 0: level mode (reads the trigger bus's buffer; adds a bus-order edge)
 pub const DUCK_FLAG_LEVEL: u32 = 0x1;
 /// BUS_DUCK rule flags bit 1: the detector is RMS rather than peak
@@ -299,6 +303,36 @@ pub const SUBMIX_FX_LOWPASS: u32 = 0x1;
 pub const SUBMIX_FX_HIGHPASS: u32 = 0x2;
 /// SUBMIX effect type: the catalogue's compressor; p threshold dB, ratio, attack ms, release ms, makeup dB, knee dB
 pub const SUBMIX_FX_COMPRESSOR: u32 = 0x3;
+/// effect type: the catalogue's eq; p low, mid, high dB (shelf 250 Hz, peak 1 kHz Q 0.7, shelf 4 kHz; ABI 4.6)
+pub const SUBMIX_FX_EQ: u32 = 0x4;
+/// effect type: the catalogue's bandpass; p centre Hz, resonance 0..1 (Q 0.5..10), drive %
+pub const SUBMIX_FX_BANDPASS: u32 = 0x5;
+/// effect type: the catalogue's saturation; p amount %
+pub const SUBMIX_FX_SATURATION: u32 = 0x6;
+/// effect type: the catalogue's distortion; p drive 0..1, mix %
+pub const SUBMIX_FX_DISTORTION: u32 = 0x7;
+/// effect type: the catalogue's bitcrush; p bits, downsample, mix %
+pub const SUBMIX_FX_BITCRUSH: u32 = 0x8;
+/// effect type: the catalogue's chorus; p rate Hz, depth %, mix %
+pub const SUBMIX_FX_CHORUS: u32 = 0x9;
+/// effect type: the catalogue's delay; p time ms, feedback %, mix %
+pub const SUBMIX_FX_DELAY: u32 = 0xa;
+/// effect type: the catalogue's reverb (an FDN); p size 0..1, decay s, mix %
+pub const SUBMIX_FX_REVERB: u32 = 0xb;
+/// effect type: the catalogue's formantShift; p shift st
+pub const SUBMIX_FX_FORMANT: u32 = 0xc;
+/// effect type: the catalogue's pitchShift (granular); p semitones, cents
+pub const SUBMIX_FX_PITCH: u32 = 0xd;
+/// effect type: the catalogue's limiter (no look-ahead); p ceiling dB, release ms
+pub const SUBMIX_FX_LIMITER: u32 = 0xe;
+/// effect type: the catalogue's sidechainCompressor (buses only); p threshold dB, ratio, release ms, key bus slot
+pub const SUBMIX_FX_SIDECHAIN: u32 = 0xf;
+/// effect type: the catalogue's gain; p gain dB
+pub const SUBMIX_FX_GAIN: u32 = 0x10;
+/// a bus effect type at or above this is a catalogue effect: SUBMIX_FX_* plus 16, p the catalogue's parameters in its order (ABI 4.6)
+pub const BUS_FX_CATALOGUE: u32 = 0x10;
+/// the effect memory region holds this many seconds of stereo audio at the context rate (delay lines, reverbs; ABI 4.6)
+pub const FX_MEMORY_SECONDS: u32 = 0x14;
 /// SUBMIX effect flags bit 0: the effect runs (clear: bypassed, its state kept)
 pub const SUBMIX_FX_ON: u32 = 0x1;
 
@@ -376,6 +410,7 @@ pub mod op {
     pub const LOUD_CONFIG: u16 = 0x1b;
     pub const BUS_SLOT: u16 = 0x1c;
     pub const TIME: u16 = 0x1d;
+    pub const BUS_SENDS: u16 = 0x1e;
     pub const LISTENER: u16 = 0x20;
     pub const RESET: u16 = 0x30;
 }
@@ -2468,7 +2503,7 @@ impl Submix {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BusConfigBusesEffects {
-    /// 0 lowpass, 1 highpass, 2 compressor, 3 reverb send
+    /// 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6)
     pub type_: u32,
     /// parameters; q in dB; unused p = 0
     pub p: [f32; 7],
@@ -3708,7 +3743,7 @@ pub const BUS_SLOT_FLAGS_STRUCTURAL: u16 = 0x1;
 pub const BUS_SLOT_FLAGS_FRESH: u16 = 0x2;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BusSlotEffects {
-    /// 0 lowpass, 1 highpass, 2 compressor, 3 reverb send
+    /// 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6)
     pub type_: u32,
     /// parameters; q in dB; unused p = 0
     pub p: [f32; 7],
@@ -3910,6 +3945,129 @@ impl Time {
             which,
             value,
             rate,
+        }, cur - base))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BusSendsSends {
+    /// the receiving bus slot (a return)
+    pub to: u16,
+    /// BUS_SEND_MUTED
+    pub flags: u16,
+    /// linear gain, 0..4; a non-finite value is 0
+    pub level: f32,
+    /// ramp to the level (or to 0 when muted) over this many frames; 0 a step
+    pub frames: u32,
+}
+
+impl BusSendsSends {
+    pub const FIXED_END: usize = 12;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 0, self.to);
+        put_u16(out, base + 2, self.flags);
+        put_f32(out, base + 4, self.level);
+        put_u32(out, base + 8, self.frames);
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let to = get_u16(buf, base + 0);
+        let flags = get_u16(buf, base + 2);
+        let level = get_f32(buf, base + 4);
+        let frames = get_u32(buf, base + 8);
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            to,
+            flags,
+            level,
+            frames,
+        }, cur - base))
+    }
+}
+
+/// replace one bus's post-fader sends into returns (voiceId = bus slot); asap (ADR 0330)
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BusSends {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    pub sends: Vec<BusSendsSends>,
+}
+
+impl BusSends {
+    pub const FIXED_END: usize = 16;
+    pub const OPCODE: u16 = 30; // BUS_SENDS
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        if self.sends.len() > 4 {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 12, u32::try_from(self.sends.len()).map_err(|_| ERR_OVERSIZE)?);
+        let mut cur = base + Self::FIXED_END;
+        for item in &self.sends {
+            cur += item.write(out, cur)?;
+        }
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let send_count = get_u32(buf, base + 12);
+        let mut cur = base + Self::FIXED_END;
+        if send_count as usize > 4 {
+            return Err(ERR_MALFORMED);
+        }
+        let count = send_count as usize;
+        if count.checked_mul(12).map_or(true, |n| n > limit - cur) {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut sends = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (item, n) = BusSendsSends::read_to(buf, cur, limit)?;
+            cur += n;
+            sends.push(item);
+        }
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            sends,
         }, cur - base))
     }
 }

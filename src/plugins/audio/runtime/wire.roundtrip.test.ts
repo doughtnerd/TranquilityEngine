@@ -58,6 +58,7 @@ const OPCODES: Record<string, Codec> = {
   TIME: { write: wire.writeTime, read: wire.readTime },
   LOOPS: { write: wire.writeLoops, read: wire.readLoops },
   SUBMIX: { write: wire.writeSubmix, read: wire.readSubmix },
+  BUS_SENDS: { write: wire.writeBusSends, read: wire.readBusSends },
   ZONE_CONFIG: { write: wire.writeZoneConfig, read: wire.readZoneConfig },
   LISTENER: { write: wire.writeListener, read: wire.readListener },
 };

@@ -41,7 +41,7 @@ import { engineSettingsOf, projectOfMix } from "./project/format";
 import { dbToGain, levelDbOf, MIN_DB } from "./project/gain";
 import { fromLegacySection, mergeLegacyIntoProject } from "./project/legacy";
 import { isCarrier, param as effectParam, toBusEffect } from "./project/legacyEffects";
-import { coreSectionOf, reverbSendOf, vcaOffsetDb } from "./project/runtimeView";
+import { coreSectionOf, coreShown, reverbSendOf, vcaOffsetDb } from "./project/runtimeView";
 import { SnapshotPlayer } from "./project/snapshotPlayer";
 import { valueOf, type ResolvedMix } from "./project/snapshots";
 import type { AudioProject, Bus as ProjectBus, Return } from "./project/types";
@@ -1023,7 +1023,7 @@ export class Mixer {
       const pb = this.project.buses.find((b) => b.name === name);
       const base = s.settings.effects;
       if (!pb) { s.effects = base; continue; }
-      const shown = pb.effects.filter((e) => e.on && (e.type === "lowpass" || e.type === "highpass" || e.type === "compressor") && !isCarrier(this.project, name, e));
+      const shown = pb.effects.filter((e) => coreShown(this.project, name, e));
       const reverb = reverbSendOf(this.project, pb);
       let k = 0;
       let moved = false;
@@ -1043,7 +1043,8 @@ export class Mixer {
         const params = { ...ne.params };
         if (auto) for (const [p, v] of auto) params[p] = v;
         if (over) for (const [p, v] of Object.entries(over)) params[p] = v.value;
-        const live = toBusEffect({ ...ne, params }, []);
+        // The authored shape stays (a legacy filter or compressor stays legacy while an override moves it).
+        const live: BusEffect = e.type === "fx" ? { ...e, params } : toBusEffect({ ...ne, params }, []);
         if (JSON.stringify(live) === JSON.stringify(e)) return e;
         moved = true;
         return live;

@@ -3,7 +3,7 @@
  *
  * **`coreSectionOf(project)`** is what the runtime's mixer hands its backends (`Mixer.audioSettings`): the bus tree
  *   the audio core's slots and the Web Audio fallback's nodes are built from. Levels are each bus's fader alone (the
- *   mixer runs VCAs as their own gain lane), the effects the backends' bus chains run (low-pass, high-pass, compressor),
+ *   mixer runs VCAs as their own gain lane), the effects the backends' bus chains run (every type the audio core runs, `CORE_EFFECT_TYPES`, ADR 0331 ABI 4.6: legacy low-pass, high-pass and compressor when exact, else catalogue effects, `coreBusEffect`),
  *   a send to a return that holds a reverb as the core's reverb send (its level plus the return's, 0 while the return is
  *   muted), ducking and the `volume` and low-pass automation the core runs. The
  *   mixer itself runs everything else on the main thread from the `AudioProject` (snapshots, VCAs, returns' lanes,
@@ -16,14 +16,15 @@
  * Pure; no plugin, no DOM.
  */
 import type { Curve, CurveKey } from "../../core/curve";
+import { coreRuns, type CoreEffectType } from "../busCapability";
 import type { Effect } from "../effects/types";
 import {
   DEFAULT_BED_PRIORITY, DEFAULT_LOUDNESS_TARGETS, ROOT_BED_PRIORITY,
-  type AudioSettings, type BusAutomation, type BusSettings, type DuckingRule as RuntimeDuckingRule, type LoudnessTarget, type SnapshotSettings,
+  type AudioSettings, type BusAutomation, type BusEffect, type BusSettings, type DuckingRule as RuntimeDuckingRule, type LoudnessTarget, type SnapshotSettings,
 } from "../settings";
 import { DEFAULT_SUBMIXES } from "./format";
 import { dbToGain } from "./gain";
-import { isCarrier, isShown, secondsOf, toBusEffect } from "./legacyEffects";
+import { isCarrier, isMappable, secondsOf, toBusEffect } from "./legacyEffects";
 import type { AudioProject, Bus, Return, Send } from "./types";
 
 /** The sum of the VCA levels on `name`: each VCA that lists it, unless it also lists one of its ancestors (counted there). */
@@ -49,6 +50,27 @@ export function reverbSendOf(project: Pick<AudioProject, "returns">, bus: Bus): 
 }
 
 /**
+ * ADR 0331 (ABI 4.6): true when the audio core's bus chain runs `e` on `owner` in the backends' view: switched on, a
+ * type the core runs (`CORE_EFFECT_TYPES`), and not a low-pass carrier (`isCarrier`: the old snapshot and automation
+ * low-pass stand for it).
+ */
+export const coreShown = (project: Pick<AudioProject, "snapshots" | "automation">, owner: string, e: Effect): boolean =>
+  e.on && coreRuns(e.type) && !isCarrier(project, owner, e);
+
+/**
+ * The bus effect the core runs for `e` (`coreShown`): a low-pass, high-pass or compressor the legacy shape holds exactly
+ * stays legacy (the Web Audio fallback and the parity reference run those), anything else is a catalogue effect (`fx`).
+ */
+export function coreBusEffect(e: Effect): BusEffect {
+  if (isMappable(e)) {
+    const lost: string[] = [];
+    const b = toBusEffect(e, lost);
+    if (lost.length === 0) return b;
+  }
+  return { type: "fx", fx: e.type as CoreEffectType, params: structuredClone(e.params), ...(e.key ? { key: e.key } : {}) };
+}
+
+/**
  * What each entry of a bus's effect list in the section stands for, in order: an effect of the bus (its id), or its
  * send to a return (the core's reverb send).
  */
@@ -56,7 +78,7 @@ export type SectionEffectSource = { readonly kind: "fx"; readonly id: string } |
 
 /** The section's bus effects of `bus`, with what each stands for (the shown effects in order, then the reverb send). */
 export function sectionEffectsOf(project: Pick<AudioProject, "snapshots" | "automation" | "returns">, bus: Bus): SectionEffectSource[] {
-  const out: SectionEffectSource[] = bus.effects.filter((e) => isShown(project, bus.name, e)).map((e) => ({ kind: "fx", id: e.id }));
+  const out: SectionEffectSource[] = bus.effects.filter((e) => coreShown(project, bus.name, e)).map((e) => ({ kind: "fx", id: e.id }));
   const reverb = reverbSendOf(project, bus);
   if (reverb) out.push({ kind: "send", to: reverb.send.to });
   return out;
@@ -70,11 +92,11 @@ function sectionBus(project: AudioProject, bus: Bus, warn: (line: string) => voi
   const root = bus.parent === null;
   const out: BusSettings = { name: bus.name, ...(root ? {} : { parent: bus.parent! }), volume: clampGain(dbToGain(bus.volumeDb), 2), mute: bus.mute, effects: [] };
   for (const e of bus.effects) {
-    if (isShown(project, bus.name, e)) {
-      const lost: string[] = [];
-      out.effects.push(toBusEffect(e, lost));
-      if (lost.length > 0) warn(`bus "${bus.name}": the ${e.type} "${e.id}" ${lost.join(" and ")} needs the audio core's effect catalogue (ADR 0331); left out until then.`);
-    } else if (e.on && !isCarrier(project, bus.name, e)) warn(`bus "${bus.name}": the ${e.type} effect "${e.id}" needs the audio core's effect catalogue (ADR 0331); left out until then.`);
+    // Every type the core's bus chain runs (ADR 0331).
+    if (coreShown(project, bus.name, e)) {
+      out.effects.push(coreBusEffect(e));
+      if (e.type === "sidechainCompressor" && !project.buses.some((b) => b.name === e.key)) warn(`bus "${bus.name}": the sidechain compressor "${e.id}" has no key bus; it doesn't compress until it has one.`);
+    } else if (e.on && !isCarrier(project, bus.name, e)) warn(`bus "${bus.name}": the ${e.type} effect "${e.id}" doesn't run on a bus (ADR 0331); left out.`);
   }
   const reverb = reverbSendOf(project, bus);
   for (const s of bus.sends) {
@@ -121,7 +143,7 @@ function sectionOf(project: AudioProject, warnings: string[]): MixSection {
         const e = bus?.effects.find((x) => x.id === id);
         for (const [p, v] of Object.entries(params)) {
           if (bus && e?.type === "lowpass" && p === "cutoff") snap.lowpass[name] = Math.min(snap.lowpass[name] ?? Infinity, v);
-          else if (!e || !isShown(project, name, e as Effect)) warn(`snapshot "${s.name}": the override of ${name} ${id}.${p} needs the audio core's effect catalogue (ADR 0331); left out until then.`);
+          else if (!e || !coreShown(project, name, e as Effect)) warn(`snapshot "${s.name}": the override of ${name} ${id}.${p} names an effect the bus doesn't run; left out.`);
         }
       }
     }

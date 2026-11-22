@@ -41,6 +41,8 @@ import {
   packRampShape,
   WireError,
   writeBusDuck,
+  writeBusSends,
+  MAX_BUS_SENDS,
   writeBusPresence,
   writeBusRamp,
   writeBusSlot,
@@ -90,6 +92,7 @@ import {
   type BusAutomate,
   type BusDuck,
   type BusDuckRules,
+  type BusSendsSends,
   type BusPresence,
   type BusRamp,
   type BusSlot,
@@ -597,6 +600,16 @@ export class CommandWriter implements VoiceCommandSink {
     const at = this.begin(16 + 24 * rules.length);
     if (at >= 0) this.end(at, writeBusDuck(this.view, at, r));
     r.rules = NO_DUCK_RULES; // drops the caller's list without a new array per record
+  }
+
+  /**
+   * ADR 0330 (ABI 4.7) BUS_SENDS: bus `slot`'s post-fader sends into returns (replace-all, asap; at most
+   * `MAX_BUS_SENDS` are written): each `to` a bus slot, `level` linear, `flags` `BUS_SEND_MUTED`, ramped over `frames`.
+   */
+  busSends(slot: number, sends: readonly BusSendsSends[]): void {
+    const n = Math.min(sends.length, MAX_BUS_SENDS);
+    const at = this.begin(16 + 12 * n);
+    if (at >= 0) this.end(at, writeBusSends(this.view, at, { voiceId: slot >>> 0, frameOffset: ASAP, sends: sends.slice(0, n) as BusSendsSends[] }));
   }
 
   /**

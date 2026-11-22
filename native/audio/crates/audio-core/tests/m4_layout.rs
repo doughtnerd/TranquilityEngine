@@ -36,8 +36,8 @@ fn presets() -> Vec<InitParams> {
 fn the_m4_regions_are_laid_out_before_the_arena_on_every_preset() {
     // 0171/0172 M5 (K1) appends Lanes, Duck, Loudness and Sends after Groups, and ADR 0331 Submixes, before the arena.
     assert_eq!(
-        &REGION_ORDER[REGION_ORDER.len() - 9..],
-        &[RegionKind::Due, RegionKind::Curves, RegionKind::Groups, RegionKind::Lanes, RegionKind::Duck, RegionKind::Loudness, RegionKind::Sends, RegionKind::Submixes, RegionKind::Arena]
+        &REGION_ORDER[REGION_ORDER.len() - 10..],
+        &[RegionKind::Due, RegionKind::Curves, RegionKind::Groups, RegionKind::Lanes, RegionKind::Duck, RegionKind::Loudness, RegionKind::Sends, RegionKind::Submixes, RegionKind::FxMem, RegionKind::Arena]
     );
     assert_eq!(wire::DUE_RECORDS as usize + wire::PARKED_RECORDS as usize, 384);
     for p in presets() {
@@ -64,7 +64,8 @@ fn the_m4_regions_are_laid_out_before_the_arena_on_every_preset() {
         let last = layout.regions().last().unwrap();
         assert_eq!(last.0, RegionKind::Arena);
         assert_eq!(layout.region(RegionKind::Submixes).offset, layout.region(RegionKind::Sends).end().next_multiple_of(REGION_ALIGN), "ADR 0331's submixes after M5's regions (K1)");
-        assert_eq!(arena.offset, layout.region(RegionKind::Submixes).end().next_multiple_of(PAGE_BYTES), "the arena after the submixes");
+        assert_eq!(layout.region(RegionKind::FxMem).offset, layout.region(RegionKind::Submixes).end().next_multiple_of(REGION_ALIGN), "ADR 0331's effect memory after the submixes");
+        assert_eq!(arena.offset, layout.region(RegionKind::FxMem).end().next_multiple_of(PAGE_BYTES), "the arena after the effect memory");
         assert!(layout.region(RegionKind::Lanes).offset >= groups.end());
         assert!(layout.regions().all(|(k, r)| k == RegionKind::Arena || r.end() <= arena.offset));
         if p == preset(48_000.0, 4_096, 128, 16) {
@@ -98,7 +99,8 @@ fn the_m3_headroom_covers_the_m4_regions_on_every_preset() {
     for p in presets() {
         let layout = Layout::new(&p);
         let arena = layout.region(RegionKind::Arena).offset;
-        let spatial: usize = [RegionKind::Beds, RegionKind::Zones, RegionKind::Wide, RegionKind::Fx, RegionKind::Scratch]
+        // ADR 0331's effect memory has its own headroom term (`coreMemory.ts` `fxMemRegionBytes`), like the spatial regions.
+        let spatial: usize = [RegionKind::Beds, RegionKind::Zones, RegionKind::Wide, RegionKind::Fx, RegionKind::Scratch, RegionKind::FxMem]
             .iter()
             .map(|k| layout.region(*k).len.next_multiple_of(REGION_ALIGN))
             .sum();

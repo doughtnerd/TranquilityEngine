@@ -4,6 +4,8 @@
  * ids, buses as `busRef`, §6.3). `encodeMixOp` and `decodeMixOp` are exact inverses for every `MixOp`.
  */
 import { CURVE_KEY_INTERPS, curveKeyHandles, curveKeyInterpCode, type Curve, type CurveKey } from "../core/curve";
+import { CORE_EFFECT_TYPES } from "./busCapability";
+import { effectSpec } from "./effects/catalogue";
 import { EFFECT_KEYS, MIX_OP_NAMES, OP_CLASSES, OP_CLASS_CODES, isProjectOp, type MixOp, type OpClass } from "./mixOps";
 import { isProjectOp as isProjectOpName } from "./projectOps";
 import { EFFECT_TYPES, type BusAutomation, type BusEffect, type DuckingRule, type LoudnessTarget } from "./settings";
@@ -49,6 +51,13 @@ class Writer {
   }
   effect(e: BusEffect): void {
     this.code(EFFECT_TYPES, e.type);
+    if (e.type === "fx") {
+      // ADR 0331: the catalogue type, its parameters in the catalogue's order, then the key bus (a nullable name).
+      this.code(CORE_EFFECT_TYPES, e.fx);
+      for (const q of effectSpec(e.fx).params) this.f(e.params[q.name] ?? q.default);
+      this.value(e.key ?? null);
+      return;
+    }
     for (const k of EFFECT_KEYS[e.type]) this.f((e as unknown as Record<string, number>)[k]);
   }
 }
@@ -77,6 +86,13 @@ class Reader {
   }
   effect(): BusEffect {
     const type = this.code(EFFECT_TYPES);
+    if (type === "fx") {
+      const fx = this.code(CORE_EFFECT_TYPES);
+      const params: Record<string, number> = {};
+      for (const q of effectSpec(fx).params) params[q.name] = this.f();
+      const key = this.value();
+      return { type, fx, params, ...(typeof key === "string" ? { key } : {}) };
+    }
     const e: Record<string, unknown> = { type };
     for (const k of EFFECT_KEYS[type]) e[k] = this.f();
     return e as unknown as BusEffect;

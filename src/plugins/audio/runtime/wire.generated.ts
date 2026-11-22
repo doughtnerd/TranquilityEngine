@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "be0897c5c766511fb84c1fa79910f175";
+export const SCHEMA_HASH = "b2283bb4820ce50e47272aa5f7361a2b";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
@@ -230,8 +230,12 @@ export const BUS_RAMP_LP_MIN_HZ = 0xa;
 export const SHAPE_SEQUENCE_SHIFT = 0x3;
 /** BUS_RAMP shape sequenceId after the shift: 13 bits */
 export const SHAPE_SEQUENCE_MASK = 0x1fff;
-/** effects a slot keeps; a BUS_SLOT naming more keeps the first four */
-export const BUS_SLOT_MAX_EFFECTS = 0x4;
+/** effects a slot keeps; a BUS_SLOT naming more keeps the first eight (ADR 0331, ABI 4.6) */
+export const BUS_SLOT_MAX_EFFECTS = 0x8;
+/** sends a bus keeps (BUS_SENDS, ADR 0330, ABI 4.7); more are dropped */
+export const MAX_BUS_SENDS = 0x4;
+/** BUS_SENDS item flags bit 0: muted (the send ramps to 0 and keeps its level; ADR 0330 D29 #7) */
+export const BUS_SEND_MUTED = 0x1;
 /** BUS_DUCK rule flags bit 0: level mode (reads the trigger bus's buffer; adds a bus-order edge) */
 export const DUCK_FLAG_LEVEL = 0x1;
 /** BUS_DUCK rule flags bit 1: the detector is RMS rather than peak */
@@ -282,6 +286,36 @@ export const SUBMIX_FX_LOWPASS = 0x1;
 export const SUBMIX_FX_HIGHPASS = 0x2;
 /** SUBMIX effect type: the catalogue's compressor; p threshold dB, ratio, attack ms, release ms, makeup dB, knee dB */
 export const SUBMIX_FX_COMPRESSOR = 0x3;
+/** effect type: the catalogue's eq; p low, mid, high dB (shelf 250 Hz, peak 1 kHz Q 0.7, shelf 4 kHz; ABI 4.6) */
+export const SUBMIX_FX_EQ = 0x4;
+/** effect type: the catalogue's bandpass; p centre Hz, resonance 0..1 (Q 0.5..10), drive % */
+export const SUBMIX_FX_BANDPASS = 0x5;
+/** effect type: the catalogue's saturation; p amount % */
+export const SUBMIX_FX_SATURATION = 0x6;
+/** effect type: the catalogue's distortion; p drive 0..1, mix % */
+export const SUBMIX_FX_DISTORTION = 0x7;
+/** effect type: the catalogue's bitcrush; p bits, downsample, mix % */
+export const SUBMIX_FX_BITCRUSH = 0x8;
+/** effect type: the catalogue's chorus; p rate Hz, depth %, mix % */
+export const SUBMIX_FX_CHORUS = 0x9;
+/** effect type: the catalogue's delay; p time ms, feedback %, mix % */
+export const SUBMIX_FX_DELAY = 0xa;
+/** effect type: the catalogue's reverb (an FDN); p size 0..1, decay s, mix % */
+export const SUBMIX_FX_REVERB = 0xb;
+/** effect type: the catalogue's formantShift; p shift st */
+export const SUBMIX_FX_FORMANT = 0xc;
+/** effect type: the catalogue's pitchShift (granular); p semitones, cents */
+export const SUBMIX_FX_PITCH = 0xd;
+/** effect type: the catalogue's limiter (no look-ahead); p ceiling dB, release ms */
+export const SUBMIX_FX_LIMITER = 0xe;
+/** effect type: the catalogue's sidechainCompressor (buses only); p threshold dB, ratio, release ms, key bus slot */
+export const SUBMIX_FX_SIDECHAIN = 0xf;
+/** effect type: the catalogue's gain; p gain dB */
+export const SUBMIX_FX_GAIN = 0x10;
+/** a bus effect type at or above this is a catalogue effect: SUBMIX_FX_* plus 16, p the catalogue's parameters in its order (ABI 4.6) */
+export const BUS_FX_CATALOGUE = 0x10;
+/** the effect memory region holds this many seconds of stereo audio at the context rate (delay lines, reverbs; ABI 4.6) */
+export const FX_MEMORY_SECONDS = 0x14;
 /** SUBMIX effect flags bit 0: the effect runs (clear: bypassed, its state kept) */
 export const SUBMIX_FX_ON = 0x1;
 
@@ -356,6 +390,7 @@ export const Op = {
   LOUD_CONFIG: 0x1b,
   BUS_SLOT: 0x1c,
   TIME: 0x1d,
+  BUS_SENDS: 0x1e,
   LISTENER: 0x20,
   RESET: 0x30,
 } as const;
@@ -1916,7 +1951,7 @@ export function readSubmix(view: DataView, off: number): Submix {
 }
 
 export interface BusConfigBusesEffects {
-  /** 0 lowpass, 1 highpass, 2 compressor, 3 reverb send */
+  /** 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6) */
   type: number;
   /** parameters; q in dB; unused p = 0 */
   p: number[];
@@ -2805,7 +2840,7 @@ export const BUS_SLOT_FLAGS_STRUCTURAL = 0x1;
 /** the slot starts zeroed with unity lanes: a re-add after recycling */
 export const BUS_SLOT_FLAGS_FRESH = 0x2;
 export interface BusSlotEffects {
-  /** 0 lowpass, 1 highpass, 2 compressor, 3 reverb send */
+  /** 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6) */
   type: number;
   /** parameters; q in dB; unused p = 0 */
   p: number[];
@@ -2954,6 +2989,93 @@ export function readTime(view: DataView, off: number): Time {
   const limit = off + view.getUint16(off + 2, true) * 4;
   if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Time: truncated");
   return _readTime(view, off, limit)[0];
+}
+
+export interface BusSendsSends {
+  /** the receiving bus slot (a return) */
+  to: number;
+  /** BUS_SEND_MUTED */
+  flags: number;
+  /** linear gain, 0..4; a non-finite value is 0 */
+  level: number;
+  /** ramp to the level (or to 0 when muted) over this many frames; 0 a step */
+  frames: number;
+}
+
+export const BUS_SENDS_SENDS_FIXED_END = 12;
+
+export function writeBusSendsSends(view: DataView, off: number, rec: BusSendsSends): number {
+  view.setUint16(off + 0, rec.to, true);
+  view.setUint16(off + 2, rec.flags, true);
+  view.setFloat32(off + 4, rec.level, true);
+  view.setUint32(off + 8, rec.frames, true);
+  let cur = off + 12;
+  return cur - off;
+}
+
+function _readBusSendsSends(view: DataView, off: number, limit: number): [BusSendsSends, number] {
+  if (off + 12 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusSendsSends: truncated");
+  const to = view.getUint16(off + 0, true);
+  const flags = view.getUint16(off + 2, true);
+  const level = view.getFloat32(off + 4, true);
+  const frames = view.getUint32(off + 8, true);
+  let cur = off + 12;
+  return [{ to, flags, level, frames }, cur - off];
+}
+
+export function readBusSendsSends(view: DataView, off: number): BusSendsSends {
+  const limit = view.byteLength;
+  return _readBusSendsSends(view, off, limit)[0];
+}
+
+/** replace one bus's post-fader sends into returns (voiceId = bus slot); asap (ADR 0330) */
+export interface BusSends {
+  voiceId: number;
+  frameOffset: number;
+  sends: BusSendsSends[];
+}
+
+export const BUS_SENDS_FIXED_END = 16;
+
+export function writeBusSends(view: DataView, off: number, rec: BusSends): number {
+  if (rec.sends.length > 4) throw new WireError(ErrorCode.OVERSIZE, "BusSends: sends over its cap 4");
+  view.setUint32(off + 12, rec.sends.length, true);
+  let cur = off + 16;
+  for (const item of rec.sends) cur += writeBusSendsSends(view, cur, item);
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "BusSends: record too long");
+  view.setUint16(off + 0, 30, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readBusSends(view: DataView, off: number, limit: number): [BusSends, number] {
+  if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusSends: truncated");
+  const sendCount = view.getUint32(off + 12, true);
+  let cur = off + 16;
+  if (sendCount > 4) throw new WireError(ErrorCode.MALFORMED, "BusSends: sends over its cap");
+  if (sendCount * 12 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "BusSends: sends overrun");
+  const sends: BusSendsSends[] = [];
+  for (let i = 0; i < sendCount; i++) {
+    const [item, used] = _readBusSendsSends(view, cur, limit);
+    cur += used;
+    sends.push(item);
+  }
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "BusSends: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, sends }, cur - off];
+}
+
+export function readBusSends(view: DataView, off: number): BusSends {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusSends: truncated");
+  if (view.getUint16(off + 0, true) !== 30) throw new WireError(ErrorCode.MALFORMED, "BusSends: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusSends: truncated");
+  return _readBusSends(view, off, limit)[0];
 }
 
 /** a camera cut: jump to the rotation, no ramp */

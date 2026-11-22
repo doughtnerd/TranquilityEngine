@@ -231,6 +231,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::BUS_PRESENCE => wire::BusPresence::FIXED_END,
             wire::op::LOUD_CONFIG => wire::LoudConfig::FIXED_END,
             wire::op::BUS_SLOT => wire::BusSlot::FIXED_END,
+            wire::op::BUS_SENDS => wire::BusSends::FIXED_END,
             _ => RecordHead::FIXED_END,
         };
         if len < min || off + len > msg.len() {
@@ -249,6 +250,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::BUS_DUCK => duck::rules_is_well_formed(msg, off, len),
             wire::op::LOUD_CONFIG => loudness::config_is_well_formed(msg, off, len),
             wire::op::BUS_SLOT => bus_slots::slot_is_well_formed(msg, off, len),
+            wire::op::BUS_SENDS => crate::bus_sends::is_well_formed(msg, off, len),
             _ => true,
         };
         if !entries_fit {
@@ -407,6 +409,8 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
                 }
             },
             wire::op::BUS_DUCK => duck::on_rules(core, msg, off),
+            // ADR 0330 (ABI 4.7): asap only, like BUS_DUCK.
+            wire::op::BUS_SENDS => crate::bus_sends::on_sends(core, msg, off),
             wire::op::BUS_PRESENCE => match at {
                 None => duck::on_presence(core, msg, off, None),
                 Some(frame) => schedule_config(core, msg, off, len, frame),
@@ -700,9 +704,9 @@ pub fn pending_len(core: &mut Core) -> usize {
 /// presence changes inside the lookahead. A record that finds it full applies at once (as a full
 /// pending queue does).
 pub const CONFIG_PENDING: usize = 64;
-/// Bytes of one queued record's copy: a `BUS_SLOT` with the 4 effects it keeps is 28 + 4 × 32 =
-/// 156 B; `BUS_PRESENCE` is 16 B.
-pub const CONFIG_RECORD_BYTES: usize = 160;
+/// Bytes of one queued record's copy: a `BUS_SLOT` with the 8 effects it keeps is 28 + 8 × 32 =
+/// 284 B (ADR 0331; 156 B with four before ABI 4.6); `BUS_PRESENCE` is 16 B.
+pub const CONFIG_RECORD_BYTES: usize = 288;
 
 /// One stamped configuration record waiting for its quantum: its absolute frame (shifted with its
 /// sequence), its sequence and a copy of the record, head included (a `BUS_SLOT` cut to the

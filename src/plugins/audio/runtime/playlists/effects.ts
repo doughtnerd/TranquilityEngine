@@ -29,7 +29,7 @@ export function playlistEffectProps(effects: readonly Effect[], where: string): 
       case "highpass": out.highpass = Math.max(out.highpass ?? 0, effectParamValue(e, "cutoff") ?? 20); break;
       case "gain": out.gainDb = (out.gainDb ?? 0) + (effectParamValue(e, "gain") ?? 0); break;
       default:
-        warnOnce(`playlist:effect:${e.type}`, `[myco] ${where}: playlist effect "${e.type}" runs on an instance submix (ADR 0331), and this one plays without one (no submix on this backend, the pool full, or a nested playlist's, track's or clip's effect); skipped. Low-pass, high-pass and gain apply.`);
+        warnOnce(`playlist:effect:${e.type}`, `[myco] ${where}: playlist effect "${e.type}" runs on an instance submix (ADR 0331), and this one plays without one (no submix on this backend, the pool full, or a nested playlist's, track's or clip's effect: per-level submixes are a follow-up); skipped. Low-pass, high-pass and gain apply per voice.`);
     }
   }
   cache.set(effects, out);

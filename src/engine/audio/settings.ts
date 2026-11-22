@@ -26,7 +26,8 @@ import type { Curve } from "../core/curve";
 import { detectPlatform, type PlatformEnv } from "../core/graphics";
 import { parseParameters, type ParameterDef } from "./parameters";
 import { audioCurve } from "./audioCurveLimit";
-import { BUS_RULES, MAX_BUSES, MAX_CORE_BUS_EFFECTS, busRuleFindings, findingText } from "./busCapability";
+import { BUS_RULES, MAX_BUSES, MAX_CORE_BUS_EFFECTS, busRuleFindings, coreRuns, findingText, type CoreEffectType } from "./busCapability";
+import { parseEffect as parseCatalogueEffect } from "./effects/catalogue";
 import { DEFAULT_MATERIAL_NAME, builtinMaterials, parseOccluderMaterials, resolveDefaultMaterial, type OccluderMaterial } from "./occlusionMaterials";
 
 export type BusEffect =
@@ -34,9 +35,15 @@ export type BusEffect =
   | { type: "highpass"; frequency: number; q: number }
   | { type: "compressor"; threshold: number; knee: number; ratio: number; attack: number; release: number }
   /** Sends the bus's output to the shared reverb return, `send` (0..1) of its level. */
-  | { type: "reverb"; send: number };
+  | { type: "reverb"; send: number }
+  /**
+   * ADR 0331 (ABI 4.6): any other catalogue effect the audio core's bus chain runs (`fx`), its parameters by the
+   * catalogue's names and units (`effects/catalogue.ts`; missing ones take the default); `key` names a sidechain
+   * compressor's key bus. The Web Audio fallback runs none of them.
+   */
+  | { type: "fx"; fx: CoreEffectType; params: Record<string, number>; key?: string };
 
-export const EFFECT_TYPES = ["lowpass", "highpass", "compressor", "reverb"] as const;
+export const EFFECT_TYPES = ["lowpass", "highpass", "compressor", "reverb", "fx"] as const;
 export type EffectType = (typeof EFFECT_TYPES)[number];
 
 export interface BusSettings {
@@ -409,6 +416,15 @@ function parseEffect(raw: unknown, where: string, problems: string[]): BusEffect
         ratio: num(raw.ratio, 12, 1, 20), attack: num(raw.attack, 0.003, 0, 1), release: num(raw.release, 0.25, 0, 1),
       };
     case "reverb": return { type: "reverb", send: num(raw.send, 0.2, 0, 1) };
+    case "fx": {
+      if (typeof raw.fx !== "string" || !coreRuns(raw.fx)) {
+        problems.push(`${where}: fx must be a catalogue effect the audio core runs.`);
+        return null;
+      }
+      const e = parseCatalogueEffect({ id: "fx", type: raw.fx, on: true, params: raw.params ?? {}, ...(raw.key !== undefined ? { key: raw.key } : {}) }, "bus", where, problems);
+      if (!e) return null;
+      return { type: "fx", fx: raw.fx, params: e.params, ...(e.key ? { key: e.key } : {}) };
+    }
   }
 }
 

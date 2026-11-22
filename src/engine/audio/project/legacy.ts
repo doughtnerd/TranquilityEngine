@@ -27,7 +27,8 @@ import {
 } from "./format";
 import { coreSectionOf, reverbSendOf } from "./runtimeView";
 import { levelDbOf } from "./gain";
-import { OPEN_CUTOFF, isCarrier, isShown, msOf, paramsOf, toBusEffect, updatedParams } from "./legacyEffects";
+import { OPEN_CUTOFF, isCarrier, msOf, paramsOf, updatedParams } from "./legacyEffects";
+import { coreBusEffect, coreShown } from "./runtimeView";
 import type { AudioEngineSettings, AudioProject, Bus, DuckingRule, MixAutomation, Return, Snapshot } from "./types";
 
 /** The name the migration gives the return that replaces the old shared reverb. */
@@ -82,7 +83,9 @@ export function fromLegacySection(section: unknown, problems: string[] = []): Au
     const root = i === 0;
     const bus: Bus = { ...newBus(b.name, root ? null : b.parent!), volumeDb: levelDbOf(b.volume), mute: b.mute, voiceLimit: b.maxVoices ?? null, bed: bedOf(a, b.name, root), meter: root || b.meter === "loudness" };
     for (const e of b.effects) {
-      if (e.type !== "reverb") {
+      if (e.type === "fx") {
+        bus.effects.push({ id: freeEffectId(bus.effects.map((x) => x.id)), type: e.fx, on: true, params: { ...e.params }, ...(e.key ? { key: e.key } : {}) });
+      } else if (e.type !== "reverb") {
         bus.effects.push({ id: freeEffectId(bus.effects.map((x) => x.id)), type: e.type, on: true, params: paramsOf(e) });
       } else if (root) problems.push(`buses "${b.name}": the master bus can't send, so its reverb send is dropped.`);
       else if (bus.sends.length > 0) problems.push(`buses "${b.name}": a second reverb send is dropped.`);
@@ -164,10 +167,14 @@ function showsAutomation(p: AudioProject, a: MixAutomation): boolean {
  * order update in place; otherwise the shown effects are rebuilt where the first one stood, keeping the ids of those of
  * the same type, and every effect the view doesn't show stays.
  */
+/** The effect type a section bus effect stands for (a catalogue `fx` names its own). */
+const kindOf = (b: BusEffect): string => (b.type === "fx" ? b.fx : b.type);
+
 function mergeEffects(project: AudioProject, owner: string, old: readonly Effect[], before: readonly BusEffect[], after: readonly BusEffect[]): Effect[] {
-  const shown = old.filter((e) => isShown(project, owner, e));
-  const beforeOf = (e: Effect) => before[shown.indexOf(e)] ?? toBusEffect(e, []);
-  if (shown.length === after.length && shown.every((e, i) => e.type === after[i].type)) {
+  // The view (`coreSectionOf`) shows what the core runs, each as `coreBusEffect` (ADR 0331): legacy shapes or catalogue `fx`.
+  const shown = old.filter((e) => coreShown(project, owner, e));
+  const beforeOf = (e: Effect) => before[shown.indexOf(e)] ?? coreBusEffect(e);
+  if (shown.length === after.length && shown.every((e, i) => e.type === kindOf(after[i]))) {
     return old.map((e) => {
       const i = shown.indexOf(e);
       return i < 0 ? structuredClone(e) : { ...structuredClone(e), params: updatedParams(e, beforeOf(e), after[i]) };
@@ -177,14 +184,16 @@ function mergeEffects(project: AudioProject, owner: string, old: readonly Effect
   const taken = old.map((e) => e.id); // never reuse a removed effect's id: an override or automation may still name it
   const used = new Set<Effect>();
   const made = after.map((b): Effect => {
-    const reuse = shown.find((e) => !used.has(e) && e.type === b.type);
+    const reuse = shown.find((e) => !used.has(e) && e.type === kindOf(b));
     if (reuse) {
       used.add(reuse);
       return { ...structuredClone(reuse), params: updatedParams(reuse, beforeOf(reuse), b) };
     }
     const id = freeEffectId(taken);
     taken.push(id);
-    return { id, type: b.type, on: true, params: paramsOf(b as Exclude<BusEffect, { type: "reverb" }>) };
+    if (b.type === "fx") return { id, type: b.fx, on: true, params: { ...b.params }, ...(b.key !== undefined ? { key: b.key } : {}) };
+    const mapped = b as Exclude<BusEffect, { type: "reverb" | "fx" }>;
+    return { id, type: mapped.type, on: true, params: paramsOf(mapped) };
   });
   const at = shown.length > 0 ? old.slice(0, old.indexOf(shown[0])).filter((e) => !shown.includes(e)).length : kept.length;
   return [...kept.slice(0, at), ...made, ...kept.slice(at)];

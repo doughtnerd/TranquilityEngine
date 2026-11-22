@@ -17,7 +17,8 @@
  * **Refusals.** An op the parse would drop (an unknown bus, a duplicate name, a ninth metered bus, a rule whose target is
  * its trigger…) is refused: `opRefusal` says why and `applyOpToSettings` returns its input unchanged (the same object).
  */
-import { ruleRefusal, type ApplyReason } from "./busCapability";
+import { CORE_EFFECT_TYPES, coreRuns, ruleRefusal, type ApplyReason } from "./busCapability";
+import { effectParamSpec, effectSpec } from "./effects/catalogue";
 import { PROJECT_OP_NAMES, diffProjectOps, isProjectOp, type ProjectMixOp } from "./projectOps";
 import { audioProjectToJson, parseAudioProject } from "./project/format";
 import { coreSectionOf } from "./project/runtimeView";
@@ -140,14 +141,41 @@ export function loudnessTargetsOf(a: Pick<AudioSettings, "loudnessTargets">): Lo
 
 const resetOnPlay = (a: AudioSettings): boolean => a.loudnessResetOnPlay ?? true;
 
-/** The number fields of each effect type, in the byte form's order. */
+/** The number fields of each effect type, in the byte form's order (`fx`: its catalogue type's, `effectKeys`). */
 export const EFFECT_KEYS: Record<BusEffect["type"], readonly string[]> = {
   lowpass: ["frequency", "q"], highpass: ["frequency", "q"],
-  compressor: ["threshold", "knee", "ratio", "attack", "release"], reverb: ["send"],
+  compressor: ["threshold", "knee", "ratio", "attack", "release"], reverb: ["send"], fx: [],
 };
+
+/** The number fields of `e`, in the byte form's order: its type's, or for a catalogue effect (`fx`) its parameters in the catalogue's order (ADR 0331). */
+export function effectKeys(e: BusEffect): readonly string[] {
+  return e.type === "fx" ? effectSpec(e.fx).params.map((q) => q.name) : EFFECT_KEYS[e.type];
+}
+
+/** Number field `key` of `e` (a catalogue effect's parameter, its default when unset). */
+export function effectValue(e: BusEffect, key: string): number {
+  if (e.type === "fx") return e.params[key] ?? effectParamSpec(e.fx, key)?.default ?? Number.NaN;
+  return (e as unknown as Record<string, number>)[key];
+}
+
+/** `e` with number field `key` set to `value`. */
+export function withEffectValue(e: BusEffect, key: string, value: number): BusEffect {
+  return e.type === "fx" ? { ...e, params: { ...e.params, [key]: value } } : ({ ...e, [key]: value } as BusEffect);
+}
+
+/** True when `b` edits `a` in place (`setEffect`): the same type, and for catalogue effects the same catalogue type and key bus. */
+export function sameEffectKind(a: BusEffect, b: BusEffect): boolean {
+  if (a.type !== b.type) return false;
+  return a.type !== "fx" || b.type !== "fx" || (a.fx === b.fx && (a.key ?? "") === (b.key ?? ""));
+}
 
 function effectRefusal(effect: unknown): string | null {
   if (!isObj(effect) || !(EFFECT_TYPES as readonly unknown[]).includes(effect.type)) return `An effect's type must be one of ${EFFECT_TYPES.join(", ")}.`;
+  if (effect.type === "fx") {
+    if (typeof effect.fx !== "string" || !coreRuns(effect.fx)) return `A catalogue effect's fx must be one of ${CORE_EFFECT_TYPES.join(", ")}.`;
+    if (!isObj(effect.params) || Object.values(effect.params).some((v) => !finite(v))) return `A ${effect.fx} effect needs numbers for its parameters.`;
+    return null;
+  }
   for (const k of EFFECT_KEYS[effect.type as BusEffect["type"]]) if (!finite(effect[k])) return `A ${effect.type as string} effect needs a number for ${k}.`;
   return null;
 }
@@ -244,7 +272,7 @@ export function opRefusal(a: AudioSettings, op: MixOp): string | null {
       if (!b) return noBus(op.bus);
       const fx = b.effects[op.index];
       if (!isIndex(op.index, b.effects.length) || !fx) return `${op.bus} has no effect ${op.index}.`;
-      if (!EFFECT_KEYS[fx.type].includes(op.key)) return `A ${fx.type} effect has no ${op.key}.`;
+      if (!effectKeys(fx).includes(op.key)) return `A ${fx.type === "fx" ? fx.fx : fx.type} effect has no ${op.key}.`;
       return finite(op.value) ? null : "An effect value must be a number.";
     }
     case "addSnapshot": {
@@ -366,9 +394,9 @@ export function applyOpToSettings(a: AudioSettings, op: MixOp): AudioSettings {
       });
     }
     case "setEffect": {
-      const fx = busOf(a, op.bus)!.effects[op.index] as unknown as Record<string, number>;
-      if (fx[op.key] === op.value) return a;
-      return mapBus(op.bus, (b) => ({ ...b, effects: b.effects.map((e, i) => (i === op.index ? ({ ...e, [op.key]: op.value } as BusEffect) : e)) }));
+      const fx = busOf(a, op.bus)!.effects[op.index]!;
+      if (effectValue(fx, op.key) === op.value) return a;
+      return mapBus(op.bus, (b) => ({ ...b, effects: b.effects.map((e, i) => (i === op.index ? withEffectValue(e, op.key, op.value) : e)) }));
     }
     case "addSnapshot": {
       const name = op.name?.trim() ?? uniqueName("Snapshot", a.snapshots.map((s) => s.name));
@@ -437,7 +465,8 @@ export function opClass(op: MixOp, settings: AudioSettings): OpClass {
     case "removeBus": case "moveBus": case "removeEffect": case "moveEffect": return "dip";
     case "renameBus": return "config";
     case "addEffect": return op.index >= busOf(settings, op.bus)!.effects.length ? "direct" : "dip";
-    case "setEffect": return busOf(settings, op.bus)!.effects[op.index].type === "compressor" ? "smoothed" : "direct";
+    // The core glides a compressor's and every catalogue effect's parameters (ADR 0331).
+    case "setEffect": { const t = busOf(settings, op.bus)!.effects[op.index].type; return t === "compressor" || t === "fx" ? "smoothed" : "direct"; }
     case "addSnapshot": case "removeSnapshot": case "renameSnapshot": case "setSnapshot":
     case "setDucking": case "setAutomation": case "setTarget":
       return "direct";
@@ -497,8 +526,8 @@ export function invert(op: MixOp, before: AudioSettings): MixOp[] {
     case "removeEffect": return [{ op: "addEffect", bus: op.bus, index: op.index, effect: clone(busOf(before, op.bus)!.effects[op.index]) }];
     case "moveEffect": return [{ op: "moveEffect", bus: op.bus, from: op.to, to: op.from }];
     case "setEffect": {
-      const fx = busOf(before, op.bus)!.effects[op.index] as unknown as Record<string, number>;
-      return [{ op: "setEffect", bus: op.bus, index: op.index, key: op.key, value: fx[op.key] }];
+      const fx = busOf(before, op.bus)!.effects[op.index]!;
+      return [{ op: "setEffect", bus: op.bus, index: op.index, key: op.key, value: effectValue(fx, op.key) }];
     }
     case "addSnapshot": return [{ op: "removeSnapshot", index: Math.min(before.snapshots.length, Math.max(0, op.index)) }];
     case "removeSnapshot": {
@@ -606,12 +635,12 @@ export function diffOps(before: AudioSettings, after: AudioSettings): { ops: Mix
   for (const b of after.buses) {
     const have = busOf(cur, b.name)!.effects;
     let p = 0;
-    while (p < have.length && p < b.effects.length && have[p].type === b.effects[p].type) p++;
+    while (p < have.length && p < b.effects.length && sameEffectKind(have[p]!, b.effects[p]!)) p++;
     for (let i = have.length - 1; i >= p; i--) push({ op: "removeEffect", bus: b.name, index: i });
     for (let i = p; i < b.effects.length; i++) push({ op: "addEffect", bus: b.name, index: i, effect: clone(b.effects[i]) });
     for (let i = 0; i < p; i++) {
-      const fx = busOf(cur, b.name)!.effects[i] as unknown as Record<string, number>, want = b.effects[i] as unknown as Record<string, number>;
-      for (const key of EFFECT_KEYS[b.effects[i].type]) if (fx[key] !== want[key]) push({ op: "setEffect", bus: b.name, index: i, key, value: want[key] });
+      const fx = busOf(cur, b.name)!.effects[i]!, want = b.effects[i]!;
+      for (const key of effectKeys(want)) if (effectValue(fx, key) !== effectValue(want, key)) push({ op: "setEffect", bus: b.name, index: i, key, value: effectValue(want, key) });
     }
   }
 

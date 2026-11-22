@@ -29,7 +29,7 @@ export const msOf = (s: number): number => round6(s * 1000);
 export const secondsOf = (ms: number): number => Math.round(ms * 1e6) / 1e9;
 
 type MappedType = "lowpass" | "highpass" | "compressor";
-type RuntimeBusEffect = Exclude<BusEffect, { type: "reverb" }>;
+type RuntimeBusEffect = Extract<BusEffect, { type: MappedType }>;
 
 /** One runtime field of a mapped bus effect: the catalogue parameter it is, and its unit conversion each way. */
 export interface RuntimeField {
@@ -103,6 +103,12 @@ export function paramsOf(b: RuntimeBusEffect): Record<string, number> {
  */
 export function updatedParams(e: Effect, before: BusEffect, after: BusEffect): Record<string, number> {
   const params = { ...e.params };
+  if (after.type === "fx") {
+    // A catalogue effect carries its params by name: write the ones that changed (a legacy `before` changed them all).
+    const was = before.type === "fx" ? before.params : {};
+    for (const [k, v] of Object.entries(after.params)) if (was[k] !== v) params[k] = v;
+    return params;
+  }
   if (after.type === "reverb" || before.type !== after.type) return params;
   const was = before as unknown as Record<string, number>;
   const now = after as unknown as Record<string, number>;
