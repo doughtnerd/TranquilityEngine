@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { ApplyResult, MixOp } from "../../../../engine/audio/mixOps";
+import { parseAudioProject } from "../../../../engine/audio/project/format";
 import { createProjectSettingsSection } from "../../../../editor/projectSettingsSection";
 import { setValue, type SettingsDraft } from "../../../../editor/projectSettingsModel";
 import { emitSectionChanged, type SectionChange } from "../../../../editor/sectionChanged";
@@ -195,8 +196,11 @@ describe("the audio op log", () => {
     const next = { ...s.draft, audio: { ...audio, buses: audio.buses.map((b) => (b.name === "sfx" ? { ...b, effects: [...b.effects!, add] } : b)) } } as SettingsDraft;
     await s.edit("Add effect", next);
     expect(s.unsaved, "saved").toBe(false);
-    const saved = JSON.parse(await fs.readText(`${ROOT}\\project.json`)) as { audio: { buses: Array<{ effects?: object[] }> } };
-    expect(saved.audio.buses[1]!.effects).toHaveLength(have.length + 1);
+    // Saved to audio.json (ADR 0330), where the project's audio moved when it opened.
+    const saved = parseAudioProject(JSON.parse(await fs.readText(`${ROOT}\\audio.json`)));
+    expect(saved.problems).toEqual([]);
+    expect(saved.project.buses[1]!.effects).toHaveLength(have.length + 1);
+    expect((JSON.parse(await fs.readText(`${ROOT}\\project.json`)) as { audio?: unknown }).audio).toBeUndefined();
     expect(log.entries).toHaveLength(1);
     expect(log.entries[0]!.ops).toEqual([{ op: "addEffect", bus: "sfx", index: have.length, effect: add }]);
     expect(log.entries[0]!.results[0]!.reason).toBe(rule);

@@ -16,7 +16,7 @@ import type { Curve, CurveKey } from "../../core/curve";
 import { uniqueName } from "../../core/uniqueName";
 import type { Effect } from "../effects/types";
 import {
-  DEFAULT_LOUDNESS_TARGETS, MASTER, busBed, busBedPriority, parseAudioSettings,
+  DEFAULT_LOUDNESS_TARGETS, busBed, busBedPriority, parseAudioSettings,
   type AudioSettings, type BusAutomation, type BusEffect, type BusSettings, type DuckingRule as RuntimeDuckingRule,
 } from "../settings";
 import {
@@ -78,7 +78,7 @@ export function fromLegacySection(section: unknown, problems: string[] = []): Au
     for (const e of b.effects) {
       if (e.type !== "reverb") {
         bus.effects.push({ id: freeEffectId(bus.effects.map((x) => x.id)), type: e.type, on: true, params: paramsOf(e) });
-      } else if (root) problems.push(`buses "${b.name}": ${MASTER} can't send, so its reverb send is dropped.`);
+      } else if (root) problems.push(`buses "${b.name}": the master bus can't send, so its reverb send is dropped.`);
       else if (bus.sends.length > 0) problems.push(`buses "${b.name}": a second reverb send is dropped.`);
       else {
         bus.sends.push({ to: reverbName, levelDb: clampDb(gainToDb(e.send)) });
@@ -87,7 +87,7 @@ export function fromLegacySection(section: unknown, problems: string[] = []): Au
     }
     return bus;
   });
-  if (usesReverb) project.returns = [{ name: reverbName, output: MASTER, volumeDb: 0, mute: false, effects: [reverbEffect()] }];
+  if (usesReverb) project.returns = [{ name: reverbName, output: project.buses[0].name, volumeDb: 0, mute: false, effects: [reverbEffect()] }];
   const carriers = new Map<string, string>();
   const carrier = (name: string): string => {
     let id = carriers.get(name);
@@ -215,7 +215,7 @@ export function mergeLegacyIntoProject(original: AudioProject, section: unknown)
     let ret = out.returns.find((r) => r.effects.some((e) => e.type === "reverb" && e.on));
     if (!ret) {
       const names = [...next.buses.map((b) => b.name), ...out.returns.map((r) => r.name), ...out.vcas.map((v) => v.name)];
-      ret = { name: uniqueName(REVERB_RETURN, names), output: MASTER, volumeDb: 0, mute: false, effects: [reverbEffect()] };
+      ret = { name: uniqueName(REVERB_RETURN, names), output: out.buses[0].name, volumeDb: 0, mute: false, effects: [reverbEffect()] };
       out.returns.push(ret);
     }
     return ret;
@@ -252,7 +252,7 @@ export function mergeLegacyIntoProject(original: AudioProject, section: unknown)
   });
   const busNames = new Set(out.buses.map((b) => b.name));
   for (const v of out.vcas) v.members = v.members.filter((m) => busNames.has(m));
-  for (const r of out.returns) if (!busNames.has(r.output)) r.output = MASTER;
+  for (const r of out.returns) if (!busNames.has(r.output)) r.output = out.buses[0].name;
   // Levels last: a VCA's offset is folded into the old section's volume, so it comes off again here.
   for (const { bus, nb, changed } of volumes) if (changed) bus.volumeDb = clampDb(gainToDb(nb.volume) - vcaOffsetDb(out, bus.name));
 

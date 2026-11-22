@@ -254,27 +254,28 @@ export function parseAudioProject(raw: unknown, options: AudioParseOptions = {})
       buses.push(bus);
     });
     if (Array.isArray(raw.buses)) {
-      let root = buses.find((b) => b.name === MASTER);
+      // The master bus is the one named "Master", else the first (the old section let the root have any name).
+      let root = buses.find((b) => b.name === MASTER) ?? buses[0];
       if (!root) {
-        problems.push(`buses: the first bus must be "${MASTER}"; added.`);
+        problems.push(`buses: the list has no bus; using a "${MASTER}" bus.`);
         root = newBus(MASTER, null);
         names.add(MASTER);
-      } else if (buses[0] !== root) problems.push(`buses: "${MASTER}" must come first; moved.`);
+      } else if (buses[0] !== root) problems.push(`buses: "${root.name}" (the master bus) must come first; moved.`);
       const rest = buses.filter((b) => b !== root);
-      if (root.parent !== null) problems.push(`buses: "${MASTER}" can't have a parent; using null.`);
+      if (root.parent !== null) problems.push(`buses: "${root.name}" (the master bus) can't have a parent; using null.`);
       root.parent = null;
       if (root.bed === null) root.bed = { own: true, priority: ROOT_BED_PRIORITY };
       project.buses = [root, ...rest];
       for (const b of rest) {
         if (b.parent === null || b.parent === b.name || !project.buses.some((o) => o.name === b.parent)) {
-          problems.push(`buses: "${b.name}" ${b.parent === null ? "has no parent" : `names the unknown parent "${b.parent}"`}; using "${MASTER}".`);
-          b.parent = MASTER;
+          problems.push(`buses: "${b.name}" ${b.parent === null ? "has no parent" : `names the unknown parent "${b.parent}"`}; using "${root.name}".`);
+          b.parent = root.name;
         }
       }
       for (const b of rest) {
         const seen = new Set([b.name]);
         for (let p = project.buses.find((o) => o.name === b.parent); p; p = project.buses.find((o) => o.name === p!.parent)) {
-          if (seen.has(p.name)) { problems.push(`buses: "${b.name}" is in a parent loop; using "${MASTER}".`); b.parent = MASTER; break; }
+          if (seen.has(p.name)) { problems.push(`buses: "${b.name}" is in a parent loop; using "${root.name}".`); b.parent = root.name; break; }
           seen.add(p.name);
         }
       }
@@ -306,10 +307,10 @@ function parseReturns(raw: unknown, project: AudioProject, nameOk: NameCheck, na
     if (!nameOk(r.name, where)) return;
     if (out.length >= MIX_LIMITS.returns) return void problems.push(`${where}: at most ${MIX_LIMITS.returns} returns; dropped.`);
     names.add(r.name);
-    let output = MASTER;
+    let output = project.buses[0].name;
     if (r.output !== undefined) {
       if (typeof r.output === "string" && project.buses.some((b) => b.name === r.output)) output = r.output;
-      else problems.push(`${where}.output: must name a bus; using "${MASTER}".`);
+      else problems.push(`${where}.output: must name a bus; using "${output}".`);
     }
     out.push({ name: r.name, output, volumeDb: dbOf(r.volumeDb, `${where}.volumeDb`, problems), mute: bool(r.mute, `${where}.mute`, false, problems), effects: parseEffects(r.effects, `${where}.effects`, problems) });
   });
@@ -320,7 +321,7 @@ function parseSends(raw: unknown, bus: Bus, project: AudioProject, problems: str
   const where = `buses "${bus.name}".sends`;
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) return void problems.push(`${where}: must be a list; ignored.`), [];
-  if (bus.parent === null && raw.length > 0) return void problems.push(`${where}: ${MASTER} can't send; dropped.`), [];
+  if (bus.parent === null && raw.length > 0) return void problems.push(`${where}: the master bus can't send; dropped.`), [];
   const out: Send[] = [];
   raw.forEach((s, i) => {
     if (!isRecord(s) || typeof s.to !== "string" || !project.returns.some((r) => r.name === s.to)) return void problems.push(`${where}[${i}]: to must name a return; dropped.`);
@@ -632,7 +633,7 @@ export function toRuntimeSettings(project: AudioProject, warnings: string[] = []
   const out: AudioSettings = { ...structuredClone(engine), buses: [], snapshots: [], ducking: [], parameters: structuredClone(project.parameters), automation: [] };
   out.buses = project.buses.map((b) => runtimeBus(project, b, warn));
   for (const r of project.returns) {
-    if (r.output !== MASTER) warn(`return "${r.name}": its output "${r.output}" needs the new mixer; it plays into ${MASTER} until then.`);
+    if (r.output !== project.buses[0]?.name) warn(`return "${r.name}": its output "${r.output}" needs the new mixer; it plays into the master bus until then.`);
     for (const e of r.effects) if (e.on && e.type !== "reverb") warn(`return "${r.name}": the ${e.type} effect "${e.id}" needs the new mixer; left out until then.`);
   }
 

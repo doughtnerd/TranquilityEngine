@@ -465,6 +465,7 @@ describe("a fader drag", () => {
     const r0 = { commits: [] as string[] };
     r.play();
     expect(section.canUndo).toBe(false);
+    const start = section.draft.audio;
     const m = r.c.stripModel;
     expect(m.beginDrag("sfx")).toBe(true);
     for (const v of [0.9, 0.8, 0.7, 0.6, 0.5]) m.drag(v);
@@ -478,7 +479,8 @@ describe("a fader drag", () => {
     expect((section.draft.audio as { buses: Array<{ name: string; volume?: number }> }).buses.find((b) => b.name === "sfx")!.volume).toBe(0.5);
     await section.undo();
     expect(section.canUndo).toBe(false); // one step
-    expect((section.draft.audio as { buses: Array<{ name: string; volume?: number }> }).buses.find((b) => b.name === "sfx")!.volume).toBeUndefined();
+    expect(section.draft.audio).toBe(start); // back to the start: the draft as audio.json's view gave it (sfx at 1)
+    expect((start as { buses: Array<{ name: string; volume?: number }> }).buses.find((b) => b.name === "sfx")!.volume).toBe(1);
   });
 });
 

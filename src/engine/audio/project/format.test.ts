@@ -79,11 +79,15 @@ describe("parseAudioProject", () => {
     expect(problems.length).toBeGreaterThanOrEqual(4);
   });
 
-  it("adds Master when the list has none", () => {
-    const { project, problems } = parseAudioProject({ format: AUDIO_PROJECT_FORMAT, buses: [{ name: "Music", parent: "Master" }] });
-    expect(project.buses.map((b) => b.name)).toEqual(["Master", "Music"]);
+  it("takes the first bus as the master bus when none is named Master (as the old section did), and adds one to an empty list", () => {
+    const { project, problems } = parseAudioProject({ format: AUDIO_PROJECT_FORMAT, buses: [{ name: "main" }, { name: "sfx", parent: "main" }], returns: [{ name: "R" }] });
+    expect(project.buses.map((b) => [b.name, b.parent])).toEqual([["main", null], ["sfx", "main"]]);
     expect(project.buses[0].bed).toEqual({ own: true, priority: 255 });
-    expect(problems).toHaveLength(1);
+    expect(project.returns[0].output).toBe("main");
+    expect(problems).toEqual([]);
+    const empty = parseAudioProject({ format: AUDIO_PROJECT_FORMAT, buses: [] });
+    expect(empty.project.buses.map((b) => b.name)).toEqual(["Master"]);
+    expect(empty.problems).toHaveLength(1);
   });
 
   it("keeps names unique across buses, returns and VCAs", () => {
