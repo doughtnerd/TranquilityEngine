@@ -18,6 +18,7 @@ import { studioProjects } from "./boot/studioProject";
 import { startRequest } from "./boot/startQuery";
 import { engineRuntime } from "./runtime/engineRuntime";
 import { createStudioAudioHost } from "./runtime/studioAudioHost";
+import { installCalibration } from "./shell/applyCalibration";
 import { installStudioKeys } from "./shell/installKeys";
 import { createRouter, windowHash } from "./shell/route";
 import { StudioApp } from "./shell/StudioApp";
@@ -45,6 +46,7 @@ async function main(): Promise<void> {
   const projects = studioProjects(runtime);
   setStartActions({ open: projects.open, pickProjectLocation: projects.pickLocation });
   installStudioKeys();
+  installCalibration(runtime);
 
   render(<StudioApp onCloseProject={projects.close} />, document.getElementById("app")!);
   await projects.openRequest(startRequest(location.search));

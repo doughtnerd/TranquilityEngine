@@ -5,6 +5,11 @@ import { startRequest } from "../boot/startQuery";
 import { createKeymap, panelScopesOf, type KeyContext } from "./keymap";
 import { createRouter, formatRoute, parseRoute, resolveRoute, type HashLocation } from "./route";
 import { SCREENS, screenGroups } from "./screens";
+import { screenDock } from "./studioPanels";
+import { outputName } from "./outputDevice";
+import { SCREEN_PANELS } from "../screens";
+import { canClosePanel } from "../../editor/layout/catalog";
+import { closePanel, instancesOf, openTypes } from "../../editor/layout/model";
 
 describe("screens", () => {
   it("are six in three groups, Ctrl/⌘+1…6 in header order", () => {
@@ -138,5 +143,37 @@ describe("start-up request", () => {
     expect(startRequest("?project=C%3A%5CGames%5CRacer")).toEqual({ kind: "folder", root: "C:\\Games\\Racer" });
     expect(startRequest("?project=")).toBeNull();
     expect(startRequest("")).toBeNull();
+  });
+});
+
+describe("output device name", () => {
+  it("names the system output from the browser's list where it has labels", () => {
+    expect(outputName([{ kind: "audioinput", deviceId: "default", label: "Mic" }, { kind: "audiooutput", deviceId: "default", label: "Default - Speakers (Realtek)" }])).toBe("System output · Speakers (Realtek)");
+    expect(outputName([{ kind: "audiooutput", deviceId: "default", label: "" }])).toBe("System output");
+    expect(outputName([])).toBe("System output");
+  });
+});
+
+describe("screen docks", () => {
+  it("give every screen one fixed panel filling the middle, its own layout key, and the rest in their docks", () => {
+    for (const s of SCREENS) {
+      const dock = screenDock(s.id, SCREEN_PANELS[s.id]);
+      expect(dock.store.key).toBe(`myco.studio.layout.${s.id}`);
+      const fixed = SCREEN_PANELS[s.id].filter((p) => p.fixed);
+      expect(fixed).toHaveLength(1);
+      expect(canClosePanel(dock.catalog, fixed[0].id)).toBe(false);
+      const layout = dock.store.layout.value;
+      expect(layout.docks.at(-1)!.groups[0].panels.map((id) => layout.instances[id].type)).toEqual([fixed[0].id]); // the filling dock
+      expect(openTypes(layout).sort()).toEqual(SCREEN_PANELS[s.id].filter((p) => !p.onDemand).map((p) => p.id).sort());
+      const side = SCREEN_PANELS[s.id].find((p) => !p.fixed && !p.onDemand)!;
+      dock.store.layout.value = closePanel(layout, instancesOf(layout, side.id)[0]!, dock.catalog);
+      expect(openTypes(dock.store.layout.value)).not.toContain(side.id);
+      dock.host.reset!();
+      expect(openTypes(dock.store.layout.value)).toContain(side.id);
+    }
+  });
+
+  it("refuse a screen without exactly one fixed panel", () => {
+    expect(() => screenDock("mixer", [{ id: "a", title: "A", dock: "left", view: () => null }])).toThrow(/exactly one fixed panel/);
   });
 });
