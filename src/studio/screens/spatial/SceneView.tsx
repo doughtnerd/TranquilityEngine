@@ -284,7 +284,7 @@ function Viewport(props: { host: SceneHost; slab: [number, number] }) {
       )}
       {sel && size.width > 0 && <NodeToolbar host={host} o={sel} S={S} size={size} />}
       {host.renaming && size.width > 0 && <RenameField host={host} S={S} />}
-      <div class="sp-zoombar" role="toolbar" aria-label="Zoom">
+      <div class="sp-zoombar" role="toolbar" aria-label="Zoom" onPointerDown={(e) => e.stopPropagation()}>
         <button type="button" aria-label="Zoom out" title="Zoom out (−)" onClick={() => host.setView(zoomAt(v, size, { x: size.width / 2, y: size.height / 2 }, 1 / ZOOM_STEP))}>−</button>
         <span class="sp-zoom-readout" aria-live="polite">{zoomPercent(v)}%</span>
         <button type="button" aria-label="Zoom in" title="Zoom in (+)" onClick={() => host.setView(zoomAt(v, size, { x: size.width / 2, y: size.height / 2 }, ZOOM_STEP))}>+</button>
@@ -292,7 +292,7 @@ function Viewport(props: { host: SceneHost; slab: [number, number] }) {
         <button type="button" aria-pressed={host.sideView} class={host.sideView ? "on" : ""} title="Show the scene from the south, looking north" onClick={() => host.setSideView(!host.sideView)}>Side view</button>
       </div>
       {host.tools.pathEdit && (
-        <div class="sp-pathbar" role="status">
+        <div class="sp-pathbar" role="status" onPointerDown={(e) => e.stopPropagation()}>
           Editing the path: drag waypoints, + adds one, Shift-click removes one.
           <button type="button" class="primary" onClick={() => host.setTools({ ...host.tools, pathEdit: null })}>Done</button>
         </div>
@@ -479,7 +479,9 @@ function RenameField(props: { host: SceneHost; S: (p: P2) => Px }) {
   const { host, S } = props;
   const o = host.renaming ? findObject(host.scene, host.renaming) : null;
   const input = useRef<HTMLInputElement>(null);
+  const finished = useRef(false);
   useEffect(() => {
+    finished.current = false;
     input.current?.focus();
     input.current?.select();
   }, [host.renaming]);
@@ -488,6 +490,9 @@ function RenameField(props: { host: SceneHost; S: (p: P2) => Px }) {
   const p = b ? b.center : (positionOf(o) ?? { x: 0, y: 0, z: 0 });
   const at = S(p);
   const done = (commit: boolean) => {
+    // Enter or Esc ends it; the blur that follows the field going away must not commit again.
+    if (finished.current) return;
+    finished.current = true;
     const value = input.current?.value ?? "";
     host.setRenaming(null);
     if (commit && value.trim() !== "" && value.trim() !== o.obj.name) host.edit(`Rename ${o.obj.name}`, (x) => renameObject(x, o.obj.id, value));

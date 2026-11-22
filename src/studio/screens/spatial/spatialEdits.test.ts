@@ -3,7 +3,7 @@ import { audioTestSceneToJson, parseAudioTestScene } from "../../../engine/audio
 import type { AudioTestScene, MovingEmitter } from "../../../engine/audio/spatial/testSceneTypes";
 import { NO_AUDITION, auditionScene, isSilenced, liveUpdate, toggleMute, toggleSolo } from "./audition";
 import {
-  activeListener, deleteObject, duplicateObject, findObject, moveObjectTo, insertRoutePoint, patchEmitter, patchReverbZone, pasteObject, positionOf, removeRoutePoint, renameObject, setActiveListener, setBox, setBoxHeights, setHeight,
+  activeListener, deleteObject, duplicateObject, findObject, framePoints, moveObjectTo, insertRoutePoint, patchEmitter, patchReverbZone, pasteObject, positionOf, removeRoutePoint, renameObject, setActiveListener, setBox, setBoxHeights, setHeight,
   setHidden, setLocked, type EditResult,
 } from "./sceneEdits";
 import { fixtureScene } from "./spatialFixture";
@@ -83,6 +83,15 @@ describe("naming, hiding, locking, deleting", () => {
     const s = ok(setActiveListener(fixtureScene(), "listener2"));
     expect(activeListener(s).name).toBe("Player 2");
     expect(refused(setActiveListener(s, "emitter1"))).toBe("there's no such listener");
+  });
+});
+
+describe("framing", () => {
+  it("frames every place, box and route (2D sounds have none)", () => {
+    const pts = framePoints(fixtureScene());
+    expect(pts).toContainEqual({ x: 95, y: 0, z: 30 }); // the drone's last waypoint
+    expect(pts).toContainEqual({ x: 5, z: 1 }); // the storm front's south-west corner
+    expect(Math.min(...pts.map((p) => p.x))).toBe(5);
   });
 });
 
