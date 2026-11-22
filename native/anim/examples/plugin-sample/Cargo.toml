@@ -1,0 +1,19 @@
+[package]
+name = "plugin-sample"
+description = "Myco animation core (ADR 0340, T45): a sample third-party node module (sway and scale) built with anim-plugin-sdk."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# A cdylib for wasm32-unknown-unknown (the module the loader meters and the host instantiates);
+# an rlib so its own tests can call the exports natively.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anim-plugin-sdk.workspace = true
+
+[dev-dependencies]
+anim-meter.workspace = true
+wasmi.workspace = true
