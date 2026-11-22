@@ -10,7 +10,7 @@ export interface ParamSpec {
   readonly max: number;
   readonly step: number;
   readonly unit: string;
-  /** Default linear. Log needs `min > 0`. */
+  /** Default linear. A log range starting at or below 0 is shifted to start at 1 (so 0..10 000 ms still slides by ratio). */
   readonly scale?: "linear" | "log";
   readonly default?: number;
 }
@@ -20,7 +20,9 @@ export const SLIDER_STEPS = 1000;
 /** A label drag moves this much of the range per pixel (×10 with Shift, ×0.1 with Alt). */
 export const SCRUB_FRACTION_PER_PX = 1 / 300;
 
-const isLog = (spec: ParamSpec) => spec.scale === "log" && spec.min > 0;
+const isLog = (spec: ParamSpec) => spec.scale === "log" && spec.max > spec.min;
+/** What a log range is shifted by so it starts at 1 or above. */
+const logShift = (spec: ParamSpec) => (spec.min > 0 ? 0 : 1 - spec.min);
 
 /** `v` within the spec's range. */
 export const clampParam = (spec: ParamSpec, v: number): number => (Number.isFinite(v) ? Math.min(spec.max, Math.max(spec.min, v)) : spec.default ?? spec.min);
@@ -43,14 +45,20 @@ export function snapParam(spec: ParamSpec, v: number): number {
 export function paramToFraction(spec: ParamSpec, v: number): number {
   const c = clampParam(spec, v);
   if (spec.max === spec.min) return 0;
-  if (isLog(spec)) return Math.log(c / spec.min) / Math.log(spec.max / spec.min);
+  if (isLog(spec)) {
+    const k = logShift(spec);
+    return Math.log((c + k) / (spec.min + k)) / Math.log((spec.max + k) / (spec.min + k));
+  }
   return (c - spec.min) / (spec.max - spec.min);
 }
 
 /** The value at fraction `f` (0..1) of the range, unsnapped. */
 export function fractionToParam(spec: ParamSpec, f: number): number {
   const u = Math.min(1, Math.max(0, f));
-  if (isLog(spec)) return spec.min * Math.pow(spec.max / spec.min, u);
+  if (isLog(spec)) {
+    const k = logShift(spec);
+    return (spec.min + k) * Math.pow((spec.max + k) / (spec.min + k), u) - k;
+  }
   return spec.min + (spec.max - spec.min) * u;
 }
 

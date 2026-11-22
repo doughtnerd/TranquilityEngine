@@ -12,7 +12,7 @@ export type TypeBadgeProps =
 export function TypeBadge(props: TypeBadgeProps) {
   const info: BadgeInfo = "code" in props ? badgeFor(props.code) : "playlist" in props ? playlistBadge(props.playlist, props.axes) : sampleBadge();
   return (
-    <span class={`studio-badge series-${info.series}`} title={info.name} aria-label={info.name} role="img">
+    <span class={`studio-badge studio-series-${info.series}`} title={info.name} aria-label={info.name} role="img">
       {info.code}
     </span>
   );

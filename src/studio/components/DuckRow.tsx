@@ -15,8 +15,8 @@ import "./audioParts.css";
 const [thrLo, thrHi] = MIX_LIMITS.thresholdDb, [amtLo, amtHi] = MIX_LIMITS.amountDb, [msLo, msHi] = MIX_LIMITS.duckMs;
 const THRESHOLD: ParamSpec = { label: "Above", min: thrLo, max: thrHi, step: 0.5, unit: "dBFS" };
 const AMOUNT: ParamSpec = { label: "Duck by", min: amtLo, max: amtHi, step: 0.5, unit: "dB" };
-const ATTACK: ParamSpec = { label: "Attack", min: msLo, max: msHi, step: 1, unit: "ms" };
-const RELEASE: ParamSpec = { label: "Release", min: msLo, max: msHi, step: 1, unit: "ms" };
+const ATTACK: ParamSpec = { label: "Attack", min: msLo, max: msHi, step: 1, unit: "ms", scale: "log" };
+const RELEASE: ParamSpec = { label: "Release", min: msLo, max: msHi, step: 1, unit: "ms", scale: "log" };
 
 export interface DuckRowProps {
   readonly rule: DuckingRule;
