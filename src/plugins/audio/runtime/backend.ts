@@ -306,6 +306,16 @@ export interface PlayRequest {
   reverbSend?: number;
   /** §1.2: the send against distance. Omitted: `DEFAULT_SEND_CURVE`. */
   reverbSendCurve?: SendCurve;
+  /**
+   * ADR 0333: spatial voices only, degrees 0..360: the source is heard spread over an arc that wide around its direction
+   * (0 a point, 360 all round). Omitted: 0. The Babylon fallback has no spread (a point source).
+   */
+  spread?: number;
+  /**
+   * ADR 0333 (audio zone interiors): spatial voices only; the voice goes to its bus's ambisonic bed whatever its rank (as
+   * a voice past `audio.bed.beyond` does), or pans as usual without a bed. Omitted: false.
+   */
+  bed?: boolean;
   /** §1.6, §2.4: the clip is ambisonic (its sidecar says so); spatial fields, occlusion and Doppler are ignored. */
   ambisonic?: boolean;
   /** §1.2 `ambisonicYaw` / §1.3 `yaw`: degrees, -180..180, positive to the right (clockwise seen from above, ADR 0164). */
@@ -348,6 +358,10 @@ export interface VoiceSpatialOptions {
   reverbSendCurve?: SendCurve;
   /** Degrees, -180..180, positive to the right (ambisonic clips). */
   yaw?: number;
+  /** ADR 0333: degrees 0..360 (`PlayRequest.spread`). */
+  spread?: number;
+  /** ADR 0333: heard in its bus's bed (`PlayRequest.bed`). */
+  bed?: boolean;
 }
 
 /**

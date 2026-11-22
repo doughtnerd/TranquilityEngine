@@ -29,6 +29,10 @@
 //   the prediction is exact while the voice neither starves nor changes pitch between the last STATUS and the end of the
 //   pass. A music group member's stream isn't registered here (musicOps opened it): its loop changes go to
 //   `music.setLoop` (ADR 0166 R4b), which keeps its own map with the same `applyLoopChange` and reads `playheadOf`.
+// - **Loop programs** (ADR 0328). A playlist voice's loop program (`CoreAutomation.setLoops`, a sample's sidecar loops)
+//   reaches the worker as its first region plus a `StreamLoopProgram` in frames (`programOf`): that region's seam
+//   crossfade, shape, repeat count and held flag, and the later loops. The worker wraps sample-accurately and crossfades
+//   each seam as the core's clip voices do; the map follows each loop's count (`extendProgram`).
 // - **Ambisonic streams** (ADR 0162 B4, §2.4, §4.6). The open carries the sidecar's `ambisonic.convention`, so the
 //   worker converts FuMa per chunk and streams all 4, 9 or 16 channels into a wide ring of the core. `streamOpened`
 //   checks the channel count against the sidecar as the registry checks a clip's (`checkAmbisonic`: a mismatch fails
@@ -46,7 +50,7 @@ import { Assets } from "../../../../engine/scene/Assets";
 import type { AmbisonicImport } from "../../../../engine/scene/importSettings";
 import { setFileLoopPoints } from "../loopPoints";
 import { wrapPosition, type LoopRecord } from "./coreAutomation";
-import type { DecodeHint, StreamPortLike } from "../decoder/protocol";
+import type { DecodeHint, StreamLoopProgram, StreamPortLike } from "../decoder/protocol";
 import { hintFromName } from "../decoder/protocol";
 import type { DecoderClient, StreamReply } from "../decoder/decoderClient";
 import { checkAmbisonic, type ClipInfo } from "./clipRegistry";
@@ -337,9 +341,11 @@ export class StreamManager {
         // until `streamOpened` sends it.
         const region = e.loop && e.record && facts ? regionOf(e.record, facts.rate, facts.frames) : null;
         e.sentRegion = region !== null;
+        // ADR 0328: the region's crossfade, count and later loops ride with it.
+        const program = region && facts ? programOf(e.record, facts.rate, facts.frames) : undefined;
         // B4: the sidecar's convention lets the worker stream an ambisonic file's channels (FuMa converted per chunk).
         const convention = this.ambisonicOf(e.asset)?.convention;
-        decoder.openStream({ streamId, asset: e.asset, bytes, hint, startFrame, epoch: e.epoch, loop: e.loop, ...(e.loop ? { loopStartFrame: region?.start ?? 0, loopEndFrame: region?.end ?? 0 } : {}), ...(convention ? { convention } : {}) });
+        decoder.openStream({ streamId, asset: e.asset, bytes, hint, startFrame, epoch: e.epoch, loop: e.loop, ...(e.loop ? { loopStartFrame: region?.start ?? 0, loopEndFrame: region?.end ?? 0 } : {}), ...(program ? { program } : {}), ...(convention ? { convention } : {}) });
       },
       (err) => {
         if (this.byStream.get(streamId) === e) this.fail(streamId, err);
@@ -444,6 +450,7 @@ export class StreamManager {
       const opened = e.sentRegion ? this.regionNow(e) : { start: 0, end: e.frames };
       const file = e.loop ? wrapPosition(e.openFrame, opened.start, opened.end, e.frames) : e.openFrame;
       e.segments = [{ stream: e.openFrame, file, loop: e.loop, region: opened }];
+      if (e.sentRegion && e.loop) extendProgram(e.segments, programOf(e.record, e.rate, e.frames), e.frames);
       // A region asked for before the rate was known goes now, from the start of the stream.
       if (!e.sentRegion && e.record && e.loop) this.sendLoop(reply.streamId, e, Number.NaN);
       if (e.pendingSeek !== undefined) {
@@ -497,9 +504,11 @@ export class StreamManager {
     const p0 = Number.isNaN(at) ? e.openFrame : this.playheadAt(e.voice, at);
     const region = this.regionNow(e);
     const x = applyLoopChange(e.segments, p0, e.frames, region, rec.looping);
+    const program = rec.looping ? programOf(rec, e.rate, e.frames) : undefined;
+    if (x !== undefined) extendProgram(e.segments, program, e.frames);
     e.loop = rec.looping;
     e.epoch = (e.epoch + 1) >>> 0;
-    this.subscribed?.loopStream?.(streamId, rec.looping, rec.looping ? region.start : undefined, rec.looping ? region.end : undefined, x);
+    this.subscribed?.loopStream?.(streamId, rec.looping, rec.looping ? region.start : undefined, rec.looping ? region.end : undefined, x, program);
   }
 
   /** B4: `asset`'s sidecar `ambisonic` block, or null. */
@@ -582,6 +591,54 @@ export function regionOf(rec: LoopRecord | null, rate: number, frames: number): 
     end = frames;
   }
   return { start, end };
+}
+
+/**
+ * ADR 0328: a loop record's program (`LoopRecord.crossfade`, `count`, `held`, `then`) in frames of a file at `rate` with
+ * `frames` frames (0 unknown), for the worker; undefined for a plain region (endless, no crossfade). A crossfade is at
+ * most its region long; later loops past the file's end or empty are left out.
+ */
+function programOf(rec: LoopRecord | null, rate: number, frames: number): StreamLoopProgram | undefined {
+  if (!rec || !(rate > 0)) return undefined;
+  const then = rec.then ?? [];
+  if (!(rec.crossfade! > 0) && !(rec.count! > 0) && then.length === 0 && rec.held === undefined) return undefined;
+  const region = regionOf(rec, rate, frames);
+  const fade = (sec: number, len: number) => Math.max(0, Math.min(len, Math.round((Number.isFinite(sec) ? sec : 0) * rate)));
+  const steps = [];
+  for (const t of then) {
+    const startFrame = Math.max(0, Math.round(t.start * rate));
+    const endFrame = frames > 0 ? Math.min(frames, Math.round(t.end * rate)) : Math.round(t.end * rate);
+    if (!(endFrame > startFrame)) continue;
+    steps.push({ startFrame, endFrame, crossfadeFrames: fade(t.crossfade, endFrame - startFrame), shape: t.shape, count: t.count, held: t.held });
+  }
+  const len = region ? region.end - region.start : 0;
+  return { crossfadeFrames: fade(rec.crossfade ?? 0, len > 0 ? len : Infinity), shape: rec.shape ?? 0, count: Math.max(0, Math.round(rec.count ?? 0)), held: rec.held ?? false, then: steps };
+}
+
+/**
+ * ADR 0328: the map `segs` after its newest segment (a loop just starting) follows `program`: once the loop has played
+ * its count the stream plays on from the region's end, into each later loop in turn (which loops from its start, after
+ * its own pre-roll, for its count). An endless loop, or none, ends the map there.
+ */
+function extendProgram(segs: Segment[], program: StreamLoopProgram | undefined, frames: number): void {
+  if (!program || segs.length === 0) return;
+  let cur = segs[segs.length - 1]!;
+  if (!cur.loop) return;
+  let count = program.count;
+  for (let k = 0; ; k++) {
+    if (count <= 0) return; // endless: nothing after it
+    const end = cur.region.end > 0 ? cur.region.end : frames;
+    if (!(end > cur.region.start)) return;
+    const firstPass = Math.max(0, end - cur.file);
+    const exit = cur.stream + firstPass + (count - 1) * (end - cur.region.start);
+    const next = program.then[k];
+    cur = next
+      ? { stream: exit, file: end, loop: true, region: { start: next.startFrame, end: next.endFrame } }
+      : { stream: exit, file: end, loop: false, region: cur.region };
+    segs.push(cur);
+    if (!next) return;
+    count = next.count;
+  }
 }
 
 /**

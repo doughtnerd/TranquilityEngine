@@ -830,6 +830,14 @@ export class CoreVoices {
     }
   }
 
+  /** ADR 0333: slot `i`'s distance from the listener, world units (0 for a voice that isn't positioned). */
+  distanceOf(i: number): number {
+    const t = this.t;
+    if ((t.flags[i]! & VoiceFlag.SPATIAL) === 0) return 0;
+    const p = this.listenerPos;
+    return Math.hypot(t.posX[i]! - p[0], t.posY[i]! - p[1], t.posZ[i]! - p[2]);
+  }
+
   /** Spatial voices whose source or the listener moved: new gain and direction when they changed beyond epsilon. */
   moveSpatial(): void {
     if (this.spatialVoices === 0) return;
@@ -1123,7 +1131,7 @@ export class CoreVoices {
 
   /**
    * §1.2 options at play (`initial`: omitted fields take K0's defaults: occlusion on, Doppler 0, send 1, the default
-   * curve, yaw 0) or as a Play edit (omitted fields are kept). Callers clamp; this clamps again.
+   * curve, yaw 0, spread 0, no forced bed) or as a Play edit (omitted fields are kept). Callers clamp; this clamps again.
    */
   private applySpatialOptions(i: number, o: VoiceSpatialOptions, initial: boolean): void {
     const t = this.t;
@@ -1139,6 +1147,8 @@ export class CoreVoices {
       t.yaw[i] = 0 - (clamp(o.yaw, -180, 180) * Math.PI) / 180; // 0 - x: a yaw of 0 stays +0
       if ((f2 & VoiceFlag2.AMBISONIC) !== 0) this.host.voiceFx.setYaw(i, t.yaw[i]!);
     }
+    if (o.spread !== undefined) this.host.voiceFx.setSpread(i, Number.isFinite(o.spread) ? clamp(o.spread, 0, 360) : 0);
+    if (initial || o.bed !== undefined) f2 = o.bed === true ? f2 | VoiceFlag2.BED : f2 & ~VoiceFlag2.BED;
     f2 = t.reverbSend[i]! > 0 ? f2 | VoiceFlag2.SENDS : f2 & ~VoiceFlag2.SENDS;
     t.flags2[i] = f2;
   }

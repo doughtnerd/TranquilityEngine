@@ -11,8 +11,10 @@
 //   core's.
 // - **SET_VOICE_FX (C3):** high-pass, the four zone sends, yaw, and the aux send live in the core's mixed-voice pool;
 //   virtual voices hold none. Sent after PLAY (stamped at its frame) and with SET_MIXED on promotion, when
-//   non-default; afterwards on a change past 0.5 dB (levels), 1 Hz (cutoffs) or 0.001 rad (yaw), one record per voice
-//   per frame carrying the mask of what moved.
+//   non-default; afterwards on a change past 0.5 dB (levels), 1 Hz (cutoffs), 0.001 rad (yaw) or 1 degree (spread),
+//   one record per voice per frame carrying the mask of what moved.
+// - **Spread (ADR 0333, ABI 4.11):** a spatial voice's spread in degrees (0 a point, 360 all round), from its
+//   playlist's `spatial.spread` or attenuation spread curve, or an audio zone's; the core ramps it over `rampFrames`.
 // - **Promotion (C20):** send, high-pass, yaw and aux targets are re-sent with SET_MIXED; a demotion forgets what the
 //   core held (its pool entry is gone), so the next promotion sends again.
 //
@@ -28,11 +30,12 @@ import {
   SET_VOICE_FX_MASK_AUX,
   SET_VOICE_FX_MASK_HP_HZ,
   SET_VOICE_FX_MASK_SENDS,
+  SET_VOICE_FX_MASK_SPREAD,
   SET_VOICE_FX_MASK_YAW,
   writeSetVoiceFx,
   type SetVoiceFx,
 } from "../wire.generated";
-import type { CommandWriter, VoiceFxArgs } from "./commandWriter";
+import { spreadCentidegrees, type CommandWriter, type VoiceFxArgs } from "./commandWriter";
 import { encodeVoiceId } from "./ids";
 import type { ReplayBuilder } from "./replay";
 import { VoiceState } from "./voiceTable";
@@ -57,6 +60,8 @@ export const FX_LEVEL_DB_THRESHOLD = 0.5;
 export const FX_HZ_THRESHOLD = 1;
 /** @internal C3: yaw is re-sent when it moves more than this, radians. */
 export const FX_YAW_THRESHOLD = 0.001;
+/** @internal ADR 0333: a spread is re-sent when it moves more than this, degrees. */
+export const FX_SPREAD_THRESHOLD = 1;
 /** @internal C3: zone send slots per voice (`MAX_ZONE_SLOTS`). */
 export const FX_SENDS = 4;
 
@@ -85,12 +90,15 @@ export class VoiceFx {
   private readonly yawRad: Float32Array;
   private readonly auxBusOf: Uint16Array;
   private readonly auxLevelOf: Float32Array;
+  /** Per slot: the spread asked for, degrees 0..360 (ADR 0333). */
+  private readonly spreadDeg: Float32Array;
   /** Per slot: what the core's pool holds (C3's defaults while virtual or never sent). */
   private readonly sentHp: Float32Array;
   private readonly sentSend4: Float32Array;
   private readonly sentYaw: Float32Array;
   private readonly sentAuxBus: Uint16Array;
   private readonly sentAuxLevel: Float32Array;
+  private readonly sentSpread: Float32Array;
   /** Slots with a target changed since the last `flush` (`dirtyTop` valid; `listed[i]` 1 while listed). */
   private readonly dirtyList: Uint16Array;
   private readonly listed: Uint8Array;
@@ -108,7 +116,7 @@ export class VoiceFx {
     yaw: 0,
     auxLevel: 0,
     auxBus: AUX_BUS_NONE,
-    reserved: 0,
+    spread: 0,
   };
   private readonly replayWrite = (view: DataView, off: number): number => writeSetVoiceFx(view, off, this.replayRec);
 
@@ -125,14 +133,16 @@ export class VoiceFx {
     this.yawRad = new Float32Array(n);
     this.auxBusOf = new Uint16Array(n).fill(AUX_BUS_NONE);
     this.auxLevelOf = new Float32Array(n);
+    this.spreadDeg = new Float32Array(n);
     this.sentHp = new Float32Array(n);
     this.sentSend4 = new Float32Array(n * FX_SENDS);
     this.sentYaw = new Float32Array(n);
     this.sentAuxBus = new Uint16Array(n).fill(AUX_BUS_NONE);
     this.sentAuxLevel = new Float32Array(n);
+    this.sentSpread = new Float32Array(n);
     this.dirtyList = new Uint16Array(n);
     this.listed = new Uint8Array(n);
-    this.args = { voiceId: 0, mask: 0, rampFrames: 0, hpHz: 0, send: new Float32Array(FX_SENDS), yaw: 0, auxLevel: 0, auxBus: AUX_BUS_NONE };
+    this.args = { voiceId: 0, mask: 0, rampFrames: 0, hpHz: 0, send: new Float32Array(FX_SENDS), yaw: 0, auxLevel: 0, auxBus: AUX_BUS_NONE, spread: 0 };
   }
 
   // --- Targets (the features call these; each marks the slot for the next `flush`) ---
@@ -186,6 +196,12 @@ export class VoiceFx {
     this.mark(i);
   }
 
+  /** ADR 0333: slot `i`'s spread, degrees (clamped to 0..360; non-finite is 0, a point source). */
+  setSpread(i: number, deg: number): void {
+    this.spreadDeg[i] = Number.isFinite(deg) ? Math.min(360, Math.max(0, deg)) : 0;
+    this.mark(i);
+  }
+
   // --- Reads (debug, replay, tests) ---
 
   /** Slot `i`'s merged low-pass target, Hz (`BUS_LP_OFF_HZ` with no contribution). */
@@ -215,8 +231,11 @@ export class VoiceFx {
   auxLevel(i: number): number {
     return this.auxLevelOf[i]!;
   }
+  spread(i: number): number {
+    return this.spreadDeg[i]!;
+  }
 
-  /** True while slot `i`'s SET_VOICE_FX targets are C3's defaults (high-pass off, sends 0, yaw 0, no aux): nothing to send. */
+  /** True while slot `i`'s SET_VOICE_FX targets are C3's defaults (high-pass off, sends 0, yaw 0, no aux, no spread): nothing to send. */
   isDefault(i: number): boolean {
     return this.activeMask(i) === 0;
   }
@@ -227,7 +246,7 @@ export class VoiceFx {
    * The frame's fx staging (after selection and the panner pick): for each slot changed since the last flush, a mixed
    * (PLAYING) voice gets SET_PARAMS `lpHz` when it moved more than 1 Hz from what was sent, and one SET_VOICE_FX with the
    * mask of the fields past their thresholds (hpHz 1 Hz, any send 0.5 dB, yaw 0.001 rad, aux bus changed or level
-   * 0.5 dB), over `rampFrames`, asap. A virtual voice is sent nothing (its targets wait for its promotion). Clears the list.
+   * 0.5 dB, spread 1 degree or to/from 0), over `rampFrames`, asap. A virtual voice is sent nothing (its targets wait for its promotion). Clears the list.
    */
   flush(rampFrames: number): void {
     const t = this.table;
@@ -281,6 +300,7 @@ export class VoiceFx {
     this.yawRad[i] = 0;
     this.auxBusOf[i] = AUX_BUS_NONE;
     this.auxLevelOf[i] = 0;
+    this.spreadDeg[i] = 0;
     this.resetSent(i);
     this.unlist(i);
   }
@@ -304,6 +324,7 @@ export class VoiceFx {
     r.yaw = this.yawRad[i]!;
     r.auxLevel = this.auxLevelOf[i]!;
     r.auxBus = this.auxBusOf[i]!;
+    r.spread = spreadCentidegrees(this.spreadDeg[i]!);
     b.record(SET_VOICE_FX_FIXED_END, this.replayWrite);
     this.commit(i, mask);
   }
@@ -340,6 +361,7 @@ export class VoiceFx {
     }
     if (this.yawRad[i] !== 0) m |= SET_VOICE_FX_MASK_YAW;
     if (this.auxBusOf[i] !== AUX_BUS_NONE && this.auxLevelOf[i]! > 0) m |= SET_VOICE_FX_MASK_AUX;
+    if (this.spreadDeg[i]! > 0) m |= SET_VOICE_FX_MASK_SPREAD;
     return m;
   }
 
@@ -355,6 +377,8 @@ export class VoiceFx {
     }
     if (Math.abs(this.yawRad[i]! - this.sentYaw[i]!) > FX_YAW_THRESHOLD) m |= SET_VOICE_FX_MASK_YAW;
     if (this.auxBusOf[i] !== this.sentAuxBus[i] || levelMoved(this.auxLevelOf[i]!, this.sentAuxLevel[i]!)) m |= SET_VOICE_FX_MASK_AUX;
+    const sp = this.spreadDeg[i]!, sentSp = this.sentSpread[i]!;
+    if (sp !== sentSp && (Math.abs(sp - sentSp) > FX_SPREAD_THRESHOLD || sp === 0 || sentSp === 0)) m |= SET_VOICE_FX_MASK_SPREAD;
     return m;
   }
 
@@ -378,6 +402,7 @@ export class VoiceFx {
     a.yaw = this.yawRad[i]!;
     a.auxLevel = this.auxLevelOf[i]!;
     a.auxBus = this.auxBusOf[i]!;
+    a.spread = this.spreadDeg[i]!;
     return a;
   }
 
@@ -392,6 +417,7 @@ export class VoiceFx {
       this.sentAuxBus[i] = this.auxBusOf[i]!;
       this.sentAuxLevel[i] = this.auxLevelOf[i]!;
     }
+    if ((mask & SET_VOICE_FX_MASK_SPREAD) !== 0) this.sentSpread[i] = this.spreadDeg[i]!;
   }
 
   /** The core's pool entry is fresh (or gone): what it holds is C3's defaults, and lpHz is BUS_LP_OFF_HZ until a PLAY carries one. */
@@ -402,6 +428,7 @@ export class VoiceFx {
     this.sentYaw[i] = 0;
     this.sentAuxBus[i] = AUX_BUS_NONE;
     this.sentAuxLevel[i] = 0;
+    this.sentSpread[i] = 0;
   }
 }
 

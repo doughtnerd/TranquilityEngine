@@ -98,6 +98,7 @@ import type { ClockMap } from "./clock";
 import { AUTOMATION_GLOBAL, AUTOMATION_TIME, CORE_CURVE_KEYS, coreCurveBytes, wireCurveKey, type AutomationBinding, type BusAutomationBinding, type CommandWriter } from "./commandWriter";
 import type { PlayheadTracker, ReplayBuilder } from "./replay";
 import type { SendGate } from "./session";
+import { warnOnce } from "./handle";
 import { VoiceFlag, VoiceState, type VoiceTable } from "./voiceTable";
 
 
@@ -116,6 +117,27 @@ export interface LoopRecord {
   readonly start: number;
   readonly end: number;
   readonly looping: boolean;
+  /**
+   * ADR 0328 (loops on stream voices): a stream voice's loop program beyond the region, seconds. `crossfade` the seam's
+   * crossfade (0 none) in `shape` (`FADE_SHAPE_*`, equal power by default), `count` the passes in all (0 endless; then
+   * the stream plays on), `held` whether a key-off (`looping: false`) ends it, `then` the program's later loops in
+   * order, each looped once the stream reaches it. Absent: an endless region with no crossfade (ADR 0158 §4).
+   */
+  readonly crossfade?: number;
+  readonly shape?: number;
+  readonly count?: number;
+  readonly held?: boolean;
+  readonly then?: readonly StreamLoopPart[];
+}
+
+/** @internal ADR 0328: one later loop of a stream voice's program (`LoopRecord.then`), seconds. */
+export interface StreamLoopPart {
+  readonly start: number;
+  readonly end: number;
+  readonly crossfade: number;
+  readonly shape: number;
+  readonly count: number;
+  readonly held: boolean;
 }
 
 /**
@@ -410,10 +432,11 @@ export class CoreAutomation implements AutomationSink {
     e.loop = null;
     e.program = loops.length > 0 ? loops.slice(0, MAX_VOICE_LOOPS) : null;
     if ((this.deps.table.flags[i]! & VoiceFlag.STREAM) !== 0) {
-      // Streams loop through the decoder worker: its first region, forward.
-      const first = loops.find((l) => l.end > l.start);
-      if (first) {
-        e.loop = { start: first.start, end: first.end, looping: true };
+      // ADR 0328: streams loop through the decoder worker (`decoder/streams.ts`): the program's regions forward, in
+      // order, each with its seam crossfade (in its shape) and repeat count; held loops end at the key-off.
+      const record = streamLoopRecord(loops);
+      if (record) {
+        e.loop = record;
         this.routeStreamLoop(i, e.loop);
       }
       return;
@@ -1143,6 +1166,21 @@ const LOOP_SHAPES: Readonly<Record<FadeShape, number>> = {
   equalPower: FADE_SHAPE_EQUAL_POWER, linear: FADE_SHAPE_LINEAR, sCurve: FADE_SHAPE_S_CURVE, invSCurve: FADE_SHAPE_INV_S_CURVE,
   log1: FADE_SHAPE_LOG1, log2: FADE_SHAPE_LOG2, log3: FADE_SHAPE_LOG3, exp1: FADE_SHAPE_EXP1, exp2: FADE_SHAPE_EXP2, exp3: FADE_SHAPE_EXP3,
 };
+/**
+ * @internal ADR 0328: a voice loop program as a stream voice plays it (`LoopRecord` with `then`): its regions (hold points
+ * and empty regions left out) forward, in order of start. A stream is read forward by the decoder worker, so ping-pong
+ * and backward loops play forward (warned once); a parameter activation reads as always (the worker can't follow a
+ * parameter; FMOD and Wwise streams loop forward between points too). Null without a region.
+ */
+export function streamLoopRecord(loops: readonly VoiceLoop[]): LoopRecord | null {
+  const parts = loops.filter((l) => l.end > l.start).slice().sort((a, b) => a.start - b.start);
+  if (parts.length === 0) return null;
+  if (parts.some((l) => l.direction !== "forward")) warnOnce("stream:loopDirection", "[myco] a streamed sample's ping-pong or backward loop plays forward (streams are read forward); decode the sample (import setting stream off) to play it as authored.");
+  const part = (l: VoiceLoop): StreamLoopPart => ({ start: l.start, end: l.end, crossfade: Math.max(0, Number.isFinite(l.crossfade) ? l.crossfade : 0), shape: loopShape(l.crossfadeShape), count: Math.max(0, Math.round(l.count) || 0), held: l.active === "held" });
+  const [first, ...rest] = parts.map(part);
+  return { start: first!.start, end: first!.end, looping: true, crossfade: first!.crossfade, shape: first!.shape, count: first!.count, held: first!.held, then: rest };
+}
+
 function loopShape(shape: FadeShape | undefined): number {
   return shape === undefined ? FADE_SHAPE_EQUAL_POWER : (LOOP_SHAPES[shape] ?? FADE_SHAPE_EQUAL_POWER);
 }
