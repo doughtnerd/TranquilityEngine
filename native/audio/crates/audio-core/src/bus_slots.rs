@@ -38,7 +38,7 @@ use crate::wire_read::{u16_at, u32_at};
 /// compressor, unknown types) and whether a slot in use is a reverb send. The tree is repaired and
 /// ordered by the caller. K1: `bus::configure`'s loop body, verbatim. B2: also the tombstone and
 /// `fresh` of `BUS_SLOT` (unity lanes through `lanes.rs`).
-pub fn apply<I: IntoIterator<Item = (u32, [f32; 7])>>(slot: &mut BusSlot, fresh: bool, parent: u16, effects: I, sample_rate: f32, fxmem: &mut [u8]) -> (u32, bool) {
+pub fn apply<I: IntoIterator<Item = (u32, [f32; audio_dsp::fx::PARAMS])>>(slot: &mut BusSlot, fresh: bool, parent: u16, effects: I, sample_rate: f32, fxmem: &mut [u8]) -> (u32, bool) {
     if fresh {
         *slot = bus::fresh(parent);
     }
@@ -48,7 +48,7 @@ pub fn apply<I: IntoIterator<Item = (u32, [f32; 7])>>(slot: &mut BusSlot, fresh:
 }
 
 /// `true` when a `BUS_SLOT` record (0x1C, API §4.2) at `msg[off..off + len]` holds its
-/// `effectCount` effects of 32 B (pass 1 of `scheduler::submit`: a malformed record refuses the
+/// `effectCount` effects of 68 B (ABI 5.0) (pass 1 of `scheduler::submit`: a malformed record refuses the
 /// batch; past 4 effects the rest are dropped at apply, not refused).
 pub fn slot_is_well_formed(msg: &[u8], off: usize, len: usize) -> bool {
     if len < wire::BusSlot::FIXED_END || off + len > msg.len() {
@@ -101,7 +101,7 @@ pub fn on_slot(core: &mut Core, msg: &[u8], off: usize, _at: Option<u64>) {
     let fresh = added || flags & wire::BUS_SLOT_FLAGS_FRESH != 0;
     let effects = (0..kept).map(|e| {
         let at = off + wire::BusSlot::FIXED_END + e * wire::BusSlotEffects::FIXED_END;
-        let mut p = [0.0f32; 7];
+        let mut p = [0.0f32; audio_dsp::fx::PARAMS];
         for (k, v) in p.iter_mut().enumerate() {
             *v = f32::from_bits(u32_at(msg, at + 4 + 4 * k));
         }

@@ -22,7 +22,7 @@ fn mixer(buses: u32) -> Mixer {
 }
 
 fn cat(kind: u32, p: &[f32]) -> wire::BusConfigBusesEffects {
-    let mut a = [0.0f32; 7];
+    let mut a = [0.0f32; 16];
     a[..p.len()].copy_from_slice(p);
     wire::BusConfigBusesEffects { type_: wire::BUS_FX_CATALOGUE + kind, p: a }
 }
@@ -49,7 +49,7 @@ fn submix_rec(slot: u32, group: u16, bus: u16, effects: &[(u32, &[f32])]) -> Rec
         effects: effects
             .iter()
             .map(|&(type_, p)| {
-                let mut a = [0.0f32; 8];
+                let mut a = [0.0f32; 16];
                 a[..p.len()].copy_from_slice(p);
                 wire::SubmixEffects { type_, flags: wire::SUBMIX_FX_ON, p: a }
             })

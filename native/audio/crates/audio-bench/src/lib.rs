@@ -1474,7 +1474,7 @@ impl Bench {
                 _ => (1 + i % 3) as u16,
             };
             let mut effects = Vec::new();
-            let fx = |t: u32, p0: f32, p1: f32| wire::BusConfigBusesEffects { type_: t, p: [p0, p1, 0.0, 0.0, 0.0, 0.0, 0.0] };
+            let fx = |t: u32, p0: f32, p1: f32| wire::BusConfigBusesEffects { type_: t, p: pad16(&[p0, p1]) };
             if s.biquads >= 1 {
                 effects.push(fx(wire::effect_type::LOWPASS, 9_000.0 + 50.0 * i as f32, 0.7));
             }
@@ -1487,7 +1487,7 @@ impl Bench {
             if s.reverb && i < s.reverb_sends.max(1) && s.reverb_sends > 0 {
                 effects.push(fx(wire::effect_type::REVERB_SEND, 0.2, 0.0));
             }
-            let cat = |k: u32, p: [f32; 7]| wire::BusConfigBusesEffects { type_: wire::BUS_FX_CATALOGUE + k, p };
+            let cat = |k: u32, p: [f32; 7]| wire::BusConfigBusesEffects { type_: wire::BUS_FX_CATALOGUE + k, p: pad16(&p) };
             match s.catalogue {
                 Some(Catalogue::BusChain) => {
                     effects.push(cat(wire::SUBMIX_FX_EQ, [3.0, -2.0, 4.0, 0.0, 0.0, 0.0, 0.0]));
@@ -1558,10 +1558,10 @@ impl Bench {
             let (group, parent) = if slot < s.submixes { (slot as u16 + 1, 0) } else { (0, (slot % s.submixes) as u16 + 1) };
             // ADR 0331: a 1.2 kHz low-pass, then a compressor (catalogue parameters); an `fx-submix-*` scene's one kind.
             let effects = match s.catalogue {
-                Some(Catalogue::Submix(kind, p)) => vec![wire::SubmixEffects { type_: kind, flags: wire::SUBMIX_FX_ON, p: [p[0], p[1], p[2], 0.0, 0.0, 0.0, 0.0, 0.0] }],
+                Some(Catalogue::Submix(kind, p)) => vec![wire::SubmixEffects { type_: kind, flags: wire::SUBMIX_FX_ON, p: pad16(&p[..3]) }],
                 _ => vec![
-                    wire::SubmixEffects { type_: wire::SUBMIX_FX_LOWPASS as u32, flags: wire::SUBMIX_FX_ON, p: [1_200.0, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
-                    wire::SubmixEffects { type_: wire::SUBMIX_FX_COMPRESSOR as u32, flags: wire::SUBMIX_FX_ON, p: [-24.0, 4.0, 10.0, 120.0, 3.0, 6.0, 0.0, 0.0] },
+                    wire::SubmixEffects { type_: wire::SUBMIX_FX_LOWPASS as u32, flags: wire::SUBMIX_FX_ON, p: pad16(&[1_200.0, 0.3]) },
+                    wire::SubmixEffects { type_: wire::SUBMIX_FX_COMPRESSOR as u32, flags: wire::SUBMIX_FX_ON, p: pad16(&[-24.0, 4.0, 10.0, 120.0, 3.0, 6.0]) },
                 ],
             };
             self.push(&wire::Submix { voice_id: slot, frame_offset: wire::ASAP, group, bus: 0, parent, reserved: 0, effects });
@@ -1759,7 +1759,7 @@ impl Bench {
 
     fn push<R: WireRecord>(&mut self, r: &R) {
         let at = self.recs.len();
-        self.recs.resize(at + 4096, 0);
+        self.recs.resize(at + 16_384, 0);
         let n = r.write_to(&mut self.recs, at);
         self.recs.truncate(at + n);
         self.rec_count += 1;
@@ -3343,4 +3343,11 @@ mod tests {
         assert_eq!((twin.music_rings_open, twin.groups_held, twin.groups_abandoned), (0, 0, 0));
         assert!(find("music-worst").mean_mixed - twin.mean_mixed > 15.5, "worst adds its 16 voices to the twin's {}", twin.mean_mixed);
     }
+}
+
+/// An effect record's parameters (ABI 5.0: 16), `v` first and zeros after.
+fn pad16(v: &[f32]) -> [f32; 16] {
+    let mut p = [0.0; 16];
+    p[..v.len()].copy_from_slice(v);
+    p
 }

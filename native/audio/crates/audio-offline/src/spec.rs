@@ -20,8 +20,11 @@ use audio_dsp::fx::{kind, PARAMS};
 pub const VERSION: f64 = 1.0;
 /// Values in the header.
 pub const HEADER: usize = 5;
+/// Parameters per effect in a spec: 8, the catalogue's built-ins' most. The core's records carry 16 from ABI
+/// 5.0 (`PARAMS`, ADR 0338); plugin effects in offline renders are B5's, which widens this with its spec version.
+pub const SPEC_PARAMS: usize = 8;
 /// Values per effect.
-pub const EFFECT_STRIDE: usize = 2 + PARAMS;
+pub const EFFECT_STRIDE: usize = 2 + SPEC_PARAMS;
 /// Values per lane before its keys.
 pub const LANE_HEADER: usize = 5;
 /// Values per key.
@@ -144,7 +147,7 @@ pub fn parse(s: &[f64]) -> Option<Spec> {
     for _ in 0..ne {
         let v = &s[take(&mut at, EFFECT_STRIDE)?];
         let mut p = [0.0f32; PARAMS];
-        for (i, x) in p.iter_mut().enumerate() {
+        for (i, x) in p.iter_mut().take(SPEC_PARAMS).enumerate() {
             *x = v[2 + i] as f32;
         }
         effects.push(FxSpec { op: op_of(v[0]), on: v[1] != 0.0, p });

@@ -98,7 +98,7 @@ const BUS_SLOT_FLAGS: &[Bits] = &[
 ];
 
 /// 0x1C BUS_SLOT, variable (R7): one slot's configuration, so a parameter edit no longer resends the
-/// tree. The effects are BUS_CONFIG's (`u32 type; f32 p[7]`); at most eight are kept (ABI 4.6).
+/// tree. The effects are BUS_CONFIG's (`u32 type; f32 p[16]`, ABI 5.0); at most eight are kept (ABI 4.6).
 pub const BUS_SLOT: Opcode = Opcode {
     id: 0x1C,
     name: "BUS_SLOT",

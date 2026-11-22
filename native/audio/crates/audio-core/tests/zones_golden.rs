@@ -204,7 +204,7 @@ fn the_shared_reverb_return_follows_shared_return_gain() {
             frame_offset: wire::ASAP,
             buses: vec![wire::BusConfigBuses {
                 parent: wire::BUS_ROOT as u16,
-                effects: vec![wire::BusConfigBusesEffects { type_: kind::REVERB_SEND, p: [0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] }],
+                effects: vec![wire::BusConfigBusesEffects { type_: kind::REVERB_SEND, p: [0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] }],
             }],
         };
         let len = rec.write(&mut cfg, 0).unwrap();

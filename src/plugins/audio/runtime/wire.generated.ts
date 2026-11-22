@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "e9ba9db71802b3a502576f9258349709";
+export const SCHEMA_HASH = "194212f0ff19b8c2eaac92775359df98";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
@@ -332,10 +332,24 @@ export const AUTO_TARGET_PARAM_SHIFT = 0x10;
 export const AUTO_TARGET_LOG = 0x1000000;
 /** bindings a bus or a submix keeps (BUS_AUTOMATE, SUBMIX_AUTOMATE; ABI 4.8, 8 before) */
 export const BUS_AUTOMATE_MAX_BINDINGS = 0x10;
-/** bus effect type bits 16-23: bit i set holds catalogue parameter i at its sent value (a snapshot override); automation leaves it (ABI 4.8) */
+/** bus effect type bits 16-31: bit i set holds catalogue parameter i at its sent value (a snapshot override); automation leaves it (ABI 4.8; 16 bits from 5.0) */
 export const BUS_FX_HELD_SHIFT = 0x10;
 /** bus effect type bits 0-15: the type */
 export const BUS_FX_TYPE_MASK = 0xffff;
+/** parameters an effect record carries (BUS_CONFIG, BUS_SLOT, SUBMIX; ABI 5.0, ADR 0338; 7 and 8 before) */
+export const FX_PARAMS = 0x10;
+/** an effect kind at FX_PLUGIN_BASE + e is registered plugin effect e (0..FX_PLUGINS_MAX-1), run through the myco_ext import (ABI 5.0, ADR 0338); on a bus, BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e */
+export const FX_PLUGIN_BASE = 0x100;
+/** plugin effects the host may register (e is 0..255) */
+export const FX_PLUGINS_MAX = 0x100;
+/** each chain level's (the buses', the instance submixes') shared fuel per frame and quantum, across every plugin instance (0344 section 3): a call whose budget doesn't fit what is left passes dry */
+export const FX_PLUGIN_FUEL_PER_FRAME = 0x1388;
+/** myco_ext.process flags bit 0: a parameter moved this block (or the block is the first) */
+export const FX_PLUGIN_FLAG_PARAMS = 0x1;
+/** myco_ext.process flags bit 1: the input block is silent */
+export const FX_PLUGIN_FLAG_SILENT = 0x2;
+/** myco_ext.process flags bit 2: the first block since the slot was configured or RESET: the glue resets the instance first */
+export const FX_PLUGIN_FLAG_RESET = 0x4;
 /** STATUS fxStarvedOwner bit 15: the owner is a submix slot (low bits), else a bus slot */
 export const FX_STARVED_SUBMIX = 0x8000;
 /** STATUS fxStarvedOwner: no effect has starved */
@@ -1923,30 +1937,30 @@ export function readLoops(view: DataView, off: number): Loops {
 }
 
 export interface SubmixEffects {
-  /** SUBMIX_FX_*; a type the core doesn't know passes the signal through */
+  /** SUBMIX_FX_*, or FX_PLUGIN_BASE + e for registered plugin effect e (ABI 5.0); a type the core doesn't know passes the signal through */
   type: number;
   /** SUBMIX_FX_ON */
   flags: number;
-  /** the catalogue's parameters in its order; unused p = 0 */
+  /** the catalogue's (or the plugin's declared) parameters in order; unused p = 0 (16 from ABI 5.0) */
   p: number[];
 }
 
-export const SUBMIX_EFFECTS_FIXED_END = 40;
+export const SUBMIX_EFFECTS_FIXED_END = 72;
 
 export function writeSubmixEffects(view: DataView, off: number, rec: SubmixEffects): number {
   view.setUint32(off + 0, rec.type, true);
   view.setUint32(off + 4, rec.flags, true);
-  for (let i = 0; i < 8; i++) view.setFloat32(off + 8 + i * 4, rec.p[i], true);
-  let cur = off + 40;
+  for (let i = 0; i < 16; i++) view.setFloat32(off + 8 + i * 4, rec.p[i], true);
+  let cur = off + 72;
   return cur - off;
 }
 
 function _readSubmixEffects(view: DataView, off: number, limit: number): [SubmixEffects, number] {
-  if (off + 40 > limit) throw new WireError(ErrorCode.TRUNCATED, "SubmixEffects: truncated");
+  if (off + 72 > limit) throw new WireError(ErrorCode.TRUNCATED, "SubmixEffects: truncated");
   const type = view.getUint32(off + 0, true);
   const flags = view.getUint32(off + 4, true);
-  const p = Array.from({ length: 8 }, (_, i) => view.getFloat32(off + 8 + i * 4, true));
-  let cur = off + 40;
+  const p = Array.from({ length: 16 }, (_, i) => view.getFloat32(off + 8 + i * 4, true));
+  let cur = off + 72;
   return [{ type, flags, p }, cur - off];
 }
 
@@ -1996,7 +2010,7 @@ function _readSubmix(view: DataView, off: number, limit: number): [Submix, numbe
   const parent = view.getUint16(off + 20, true);
   const reserved = view.getUint16(off + 22, true);
   let cur = off + 24;
-  if (effectCount * 40 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "Submix: effects overrun");
+  if (effectCount * 72 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "Submix: effects overrun");
   const effects: SubmixEffects[] = [];
   for (let i = 0; i < effectCount; i++) {
     const [item, used] = _readSubmixEffects(view, cur, limit);
@@ -2063,26 +2077,26 @@ export function readRoute(view: DataView, off: number): Route {
 }
 
 export interface BusConfigBusesEffects {
-  /** bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); bits 16-23: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8) */
+  /** bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e registered plugin effect e (ABI 5.0); bits 16-31: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8; 16 bits from 5.0) */
   type: number;
-  /** parameters; q in dB; unused p = 0 */
+  /** parameters; q in dB; unused p = 0 (16 from ABI 5.0) */
   p: number[];
 }
 
-export const BUS_CONFIG_BUSES_EFFECTS_FIXED_END = 32;
+export const BUS_CONFIG_BUSES_EFFECTS_FIXED_END = 68;
 
 export function writeBusConfigBusesEffects(view: DataView, off: number, rec: BusConfigBusesEffects): number {
   view.setUint32(off + 0, rec.type, true);
-  for (let i = 0; i < 7; i++) view.setFloat32(off + 4 + i * 4, rec.p[i], true);
-  let cur = off + 32;
+  for (let i = 0; i < 16; i++) view.setFloat32(off + 4 + i * 4, rec.p[i], true);
+  let cur = off + 68;
   return cur - off;
 }
 
 function _readBusConfigBusesEffects(view: DataView, off: number, limit: number): [BusConfigBusesEffects, number] {
-  if (off + 32 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusConfigBusesEffects: truncated");
+  if (off + 68 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusConfigBusesEffects: truncated");
   const type = view.getUint32(off + 0, true);
-  const p = Array.from({ length: 7 }, (_, i) => view.getFloat32(off + 4 + i * 4, true));
-  let cur = off + 32;
+  const p = Array.from({ length: 16 }, (_, i) => view.getFloat32(off + 4 + i * 4, true));
+  let cur = off + 68;
   return [{ type, p }, cur - off];
 }
 
@@ -2112,7 +2126,7 @@ function _readBusConfigBuses(view: DataView, off: number, limit: number): [BusCo
   const parent = view.getUint16(off + 0, true);
   const effectCount = view.getUint16(off + 2, true);
   let cur = off + 4;
-  if (effectCount * 32 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "BusConfigBuses: effects overrun");
+  if (effectCount * 68 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "BusConfigBuses: effects overrun");
   const effects: BusConfigBusesEffects[] = [];
   for (let i = 0; i < effectCount; i++) {
     const [item, used] = _readBusConfigBusesEffects(view, cur, limit);
@@ -2952,26 +2966,26 @@ export const BUS_SLOT_FLAGS_STRUCTURAL = 0x1;
 /** the slot starts zeroed with unity lanes: a re-add after recycling */
 export const BUS_SLOT_FLAGS_FRESH = 0x2;
 export interface BusSlotEffects {
-  /** bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); bits 16-23: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8) */
+  /** bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e registered plugin effect e (ABI 5.0); bits 16-31: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8; 16 bits from 5.0) */
   type: number;
-  /** parameters; q in dB; unused p = 0 */
+  /** parameters; q in dB; unused p = 0 (16 from ABI 5.0) */
   p: number[];
 }
 
-export const BUS_SLOT_EFFECTS_FIXED_END = 32;
+export const BUS_SLOT_EFFECTS_FIXED_END = 68;
 
 export function writeBusSlotEffects(view: DataView, off: number, rec: BusSlotEffects): number {
   view.setUint32(off + 0, rec.type, true);
-  for (let i = 0; i < 7; i++) view.setFloat32(off + 4 + i * 4, rec.p[i], true);
-  let cur = off + 32;
+  for (let i = 0; i < 16; i++) view.setFloat32(off + 4 + i * 4, rec.p[i], true);
+  let cur = off + 68;
   return cur - off;
 }
 
 function _readBusSlotEffects(view: DataView, off: number, limit: number): [BusSlotEffects, number] {
-  if (off + 32 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusSlotEffects: truncated");
+  if (off + 68 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusSlotEffects: truncated");
   const type = view.getUint32(off + 0, true);
-  const p = Array.from({ length: 7 }, (_, i) => view.getFloat32(off + 4 + i * 4, true));
-  let cur = off + 32;
+  const p = Array.from({ length: 16 }, (_, i) => view.getFloat32(off + 4 + i * 4, true));
+  let cur = off + 68;
   return [{ type, p }, cur - off];
 }
 
@@ -3028,7 +3042,7 @@ function _readBusSlot(view: DataView, off: number, limit: number): [BusSlot, num
   const parent = view.getUint16(off + 24, true);
   const effectCount = view.getUint16(off + 26, true);
   let cur = off + 28;
-  if (effectCount * 32 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "BusSlot: effects overrun");
+  if (effectCount * 68 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "BusSlot: effects overrun");
   const effects: BusSlotEffects[] = [];
   for (let i = 0; i < effectCount; i++) {
     const [item, used] = _readBusSlotEffects(view, cur, limit);

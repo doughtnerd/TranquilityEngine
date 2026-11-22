@@ -583,6 +583,8 @@ pub fn mixdown(core: &mut Core) {
     let Some(send) = crate::sends::area(sends) else { return };
     let mut gain_curve = [0.0f32; QUANTUM];
     let mut duck_curve = [0.0f32; QUANTUM];
+    // ABI 5.0 (ADR 0338, 0344 §3): the buses' plugin effects share one quantum's fuel.
+    let mut fuel = crate::ext::Fuel::quantum(QUANTUM);
     for k in 0..count {
         let b = v.area.order[k] as usize;
         let slot = &mut v.slots[b];
@@ -598,7 +600,7 @@ pub fn mixdown(core: &mut Core) {
             if let Some(a) = auto {
                 a.for_each_fx(|s, p, value| slot.fx.automate(s, p, value));
             }
-            let fed = slot.fx.process_with(l, r, &mut send.l, &mut send.r, fxdata, &v.area.key_db[..count]);
+            let fed = slot.fx.process_with(l, r, &mut send.l, &mut send.r, fxdata, &v.area.key_db[..count], &mut fuel);
             sent |= fed;
             let lp = match auto {
                 Some(a) if a.targets & crate::automation::has::LOWPASS != 0 => slot.lp.value.min(a.lp),

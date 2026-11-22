@@ -3,7 +3,7 @@
 //! the instance's output bus.
 //!
 //! - **The pool** is [`SUBMIXES`] slots in the `Submixes` region, laid out on every preset (one
-//!   slot ≈ 5.8 KB: its quantum buffer and [`SUBMIX_EFFECTS`] effect slots; their delay lines,
+//!   slot ≈ 6.4 KB (ABI 5.0): its quantum buffer and [`SUBMIX_EFFECTS`] effect slots; their delay lines,
 //!   networks and compressors live in the effect memory, `fxmem.rs`, ABI 4.6). Main owns
 //!   the allocation (`settings.voices.submixes` slots at most, clamped to the core's); the core
 //!   keeps no instance lifecycle.
@@ -44,6 +44,9 @@
 //!   passes the signal through. An effect with its `on` flag clear passes the signal through and
 //!   keeps its state. An effect that keeps its kind in its slot keeps its state across a SUBMIX and
 //!   glides to the new parameters (an edit doesn't click).
+//! - **Plugin effects** (ABI 5.0, ADR 0338): a kind `PLUGIN_BASE + e` runs registered plugin effect
+//!   `e` in its own module through the `myco_ext` import (`ext.rs`), at every level; a fault passes
+//!   the block dry, and every submix's plugin calls share one quantum's fuel (0344 §3).
 //!
 //! - **Automation** (SUBMIX_AUTOMATE, ABI 4.8; ADR 0331 instance automation): up to
 //!   [`automation::BUS_BINDINGS`] fx bindings per slot, each a parameter of its chain driven by a
@@ -67,8 +70,8 @@ use crate::QUANTUM;
 pub const SUBMIXES: usize = wire::SUBMIXES_MAX as usize;
 /// Effects a submix's chain keeps (the wire's `SUBMIX_EFFECTS_MAX`).
 pub const SUBMIX_EFFECTS: usize = wire::SUBMIX_EFFECTS_MAX as usize;
-/// Parameters per effect on the wire.
-pub const PARAMS: usize = 8;
+/// Parameters per effect on the wire (16 from ABI 5.0, ADR 0338).
+pub const PARAMS: usize = audio_dsp::fx::PARAMS;
 /// Instance groups 1..=GROUPS (as PLAY's `group`).
 pub const GROUPS: usize = crate::automation::GROUPS;
 /// Levels a chain of parents keeps (the wire's `SUBMIX_DEPTH_MAX`).
@@ -431,6 +434,8 @@ pub fn render(core: &mut Core) {
     let eval = automation::submix_eval(&mut regions.automation[..], frame);
     let deepest = v.slots.iter().filter(|s| s.used != 0).map(|s| s.depth).max().unwrap_or(0);
     let mut out = [0.0f32; 2 * QUANTUM];
+    // ABI 5.0 (ADR 0338, 0344 §3): the submixes' plugin effects, at every level, share one quantum's fuel.
+    let mut fuel = crate::ext::Fuel::quantum(QUANTUM);
     for depth in (0..=deepest).rev() {
         for i in 0..SUBMIXES {
             let s = &mut v.slots[i];
@@ -459,7 +464,7 @@ pub fn render(core: &mut Core) {
             }
             {
                 let (l, r) = s.buf.split_at_mut(QUANTUM);
-                run_chain(&mut s.effects[..(s.count as usize).min(SUBMIX_EFFECTS)], fxdata, l, r);
+                run_chain(&mut s.effects[..(s.count as usize).min(SUBMIX_EFFECTS)], fxdata, l, r, &mut fuel);
             }
             // A tail still sounding (a delay, a reverb) keeps the slot running.
             if s.buf.iter().any(|x| x.abs() > TAIL_FLOOR) {
@@ -487,11 +492,16 @@ pub fn render(core: &mut Core) {
 }
 
 /// Runs `effects` in order on one block, each on its effect memory (the kind dispatch is
-/// `audio_dsp::fx::Effect::process`: see the module comment).
-fn run_chain(effects: &mut [SubmixEffect], fxdata: &mut [f32], l: &mut [f32], r: &mut [f32]) {
+/// `audio_dsp::fx::Effect::process`: see the module comment); a plugin effect through the import,
+/// drawing on the level's `fuel` (ABI 5.0, `ext.rs`).
+fn run_chain(effects: &mut [SubmixEffect], fxdata: &mut [f32], l: &mut [f32], r: &mut [f32], fuel: &mut crate::ext::Fuel) {
     let ctx = Ctx::default();
     for e in effects.iter_mut() {
         if e.on == 0 || e.kind == kind::NONE {
+            continue;
+        }
+        if kind::plugin(e.kind).is_some() {
+            crate::ext::process(e, l, r, fuel);
             continue;
         }
         let mem = crate::fxmem::slice(fxdata, e);
@@ -516,7 +526,8 @@ mod tests {
 
     #[test]
     fn the_region_holds_the_header_and_every_slot() {
-        assert!(REGION_BYTES < 400 << 10, "{REGION_BYTES}");
+        // ABI 5.0 (ADR 0338): 16 parameters an effect made it ≈ 409 KB (≈ 360 KB before).
+        assert!(REGION_BYTES < 440 << 10, "{REGION_BYTES}");
         assert_eq!(route_code(None, 3, 5), 5);
         // SAFETY: all-zero is a valid Header.
         let mut h: Header = unsafe { core::mem::zeroed() };

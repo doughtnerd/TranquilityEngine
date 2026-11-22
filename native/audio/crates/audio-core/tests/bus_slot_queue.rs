@@ -22,7 +22,7 @@ fn slot_rec(slot: u16, flags: u16, seq: u16, parent: u16, effects: &[(u32, f32)]
         reserved: 0,
         reserved2: 0,
         parent,
-        effects: effects.iter().map(|&(t, p0)| wire::BusSlotEffects { type_: t, p: [p0, 0.7, 0.0, 0.0, 0.0, 0.0, 0.0] }).collect(),
+        effects: effects.iter().map(|&(t, p0)| wire::BusSlotEffects { type_: t, p: [p0, 0.7, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] }).collect(),
     };
     let mut b = vec![0u8; wire::BusSlot::FIXED_END + effects.len() * wire::BusSlotEffects::FIXED_END];
     r.write(&mut b, 0).unwrap();

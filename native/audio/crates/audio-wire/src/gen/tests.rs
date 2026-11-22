@@ -61,7 +61,7 @@ fn generated_rust_round_trips() {
     assert_eq!(Play::read(&buf[..40], 8).unwrap_err(), ERR_TRUNCATED);
     assert_eq!(Stop::read(&buf, 8).unwrap_err(), ERR_MALFORMED);
 
-    let cfg = BusConfig { voice_id: 0, frame_offset: ASAP, buses: vec![BusConfigBuses { parent: 0xFFFF, effects: vec![BusConfigBusesEffects { type_: 2, p: [1.0; 7] }] }, BusConfigBuses { parent: 0, effects: vec![] }] };
+    let cfg = BusConfig { voice_id: 0, frame_offset: ASAP, buses: vec![BusConfigBuses { parent: 0xFFFF, effects: vec![BusConfigBusesEffects { type_: 2, p: [1.0; 16] }] }, BusConfigBuses { parent: 0, effects: vec![] }] };
     let n = cfg.write(&mut buf, 0).unwrap();
     assert_eq!(BusConfig::read(&buf, 0).unwrap(), (cfg, n));
     assert_eq!(BusConfig::read(&buf[..n - 4], 0).unwrap_err(), ERR_TRUNCATED);

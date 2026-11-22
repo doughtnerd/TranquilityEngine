@@ -146,7 +146,10 @@ pub fn configure(region: &mut [u8], e: &mut Effect, in_use: bool, kind: u32, on:
     if !in_use {
         *e = Effect::default();
     }
+    let (old_kind, old_handle) = (e.kind, e.handle);
     let fresh = e.configure(kind, on, p, sample_rate);
+    // ABI 5.0 (ADR 0338): a plugin kind's instance comes from the host, not from this memory.
+    crate::ext::configure(e, fresh, old_kind, old_handle);
     let need = audio_dsp::fx::mem_floats(kind, p, sample_rate);
     let Some((h, data)) = split(region) else {
         e.mem_len = 0;
@@ -196,6 +199,11 @@ pub fn rebuild(regions: &mut Regions) {
     };
     crate::bus::for_each_effect(regions, &mut mark);
     crate::submix::for_each_effect(regions, &mut mark);
+    // ABI 5.0 (ADR 0338): the plugin instances still held go to the host, which releases the rest.
+    crate::ext::sweep(|f| {
+        crate::bus::for_each_effect(regions, &mut |e| f(e));
+        crate::submix::for_each_effect(regions, &mut |e| f(e));
+    });
 }
 
 /// Blocks in use and allocations refused (tests and a debugger).

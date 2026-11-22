@@ -20,8 +20,9 @@ pub const REGION_ALIGN: usize = 64;
 /// WebAssembly's page size; the arena starts on a page and the block is a whole number of pages.
 pub const PAGE_BYTES: usize = 65_536;
 
-/// Core scalars and per-quantum scratch (architecture §5.1: "core state, 64 KB").
-pub const CORE_STATE_BYTES: usize = 64 * 1024;
+/// Core scalars and per-quantum scratch (architecture §5.1: "core state, 64 KB"; 128 KB from ABI 5.0,
+/// whose 16-parameter effect records more than doubled the stamped configuration queue, ADR 0338).
+pub const CORE_STATE_BYTES: usize = 128 * 1024;
 /// Scheduled records waiting for their frame (architecture §5.1: 8,192 pending × 48 B).
 pub const PENDING_CAPACITY: usize = 8_192;
 pub const PENDING_RECORD_BYTES: usize = 48;
@@ -363,10 +364,11 @@ mod tests {
         // compressor (2.4 KB, most of it the 6 ms pre-delay line) were most of a bus at 4 KB. ADR 0331
         // (ABI 4.6): eight slots, each with a catalogue effect's small state (≈ 600 B: three biquads,
         // smoothed parameters, kernel cursors; delay lines live in the effect memory), make it
-        // ≈ 9.5 KB, 32 buses ≈ 305 KB (a compressor per slot inline would have made it 27 KB).
+        // ≈ 9.5 KB, 32 buses ≈ 305 KB (a compressor per slot inline would have made it 27 KB). ABI 5.0
+        // (ADR 0338): 16 parameters a slot (wire and glide) and a plugin slot's handle make it ≈ 10.3 KB.
         let (slot, fx) = (core::mem::size_of::<crate::bus::BusSlot>(), core::mem::size_of::<crate::fx::FxChain>());
         eprintln!("BusSlot {slot} B, BUS_BYTES {BUS_BYTES} B, FxChain {fx} B, FxSlot {} B", core::mem::size_of::<crate::fx::FxSlot>());
-        assert!(BUS_BYTES <= 10 * 1024, "BUS_BYTES: {BUS_BYTES}");
+        assert!(BUS_BYTES <= 11 * 1024, "BUS_BYTES: {BUS_BYTES}");
         assert_eq!(Layout::new(&preset(4_096, 128, 16)).region(RegionKind::Buses).len, 32 * BUS_BYTES);
     }
 }

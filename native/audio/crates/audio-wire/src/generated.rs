@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: e9ba9db71802b3a502576f9258349709).
+/// First 16 bytes of the schema's SHA-256 (hex: 194212f0ff19b8c2eaac92775359df98).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0xe9,
-    0xba,
-    0x9d,
-    0xb7,
-    0x18,
-    0x02,
-    0xb3,
-    0xa5,
-    0x02,
-    0x57,
-    0x6f,
+    0x19,
+    0x42,
+    0x12,
+    0xf0,
+    0xff,
+    0x19,
+    0xb8,
+    0xc2,
+    0xea,
+    0xac,
     0x92,
-    0x58,
-    0x34,
-    0x97,
-    0x09,
+    0x77,
+    0x53,
+    0x59,
+    0xdf,
+    0x98,
 ];
-pub const SCHEMA_HASH_HEX: &str = "e9ba9db71802b3a502576f9258349709";
+pub const SCHEMA_HASH_HEX: &str = "194212f0ff19b8c2eaac92775359df98";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -349,10 +349,24 @@ pub const AUTO_TARGET_PARAM_SHIFT: u32 = 0x10;
 pub const AUTO_TARGET_LOG: u32 = 0x1000000;
 /// bindings a bus or a submix keeps (BUS_AUTOMATE, SUBMIX_AUTOMATE; ABI 4.8, 8 before)
 pub const BUS_AUTOMATE_MAX_BINDINGS: u32 = 0x10;
-/// bus effect type bits 16-23: bit i set holds catalogue parameter i at its sent value (a snapshot override); automation leaves it (ABI 4.8)
+/// bus effect type bits 16-31: bit i set holds catalogue parameter i at its sent value (a snapshot override); automation leaves it (ABI 4.8; 16 bits from 5.0)
 pub const BUS_FX_HELD_SHIFT: u32 = 0x10;
 /// bus effect type bits 0-15: the type
 pub const BUS_FX_TYPE_MASK: u32 = 0xffff;
+/// parameters an effect record carries (BUS_CONFIG, BUS_SLOT, SUBMIX; ABI 5.0, ADR 0338; 7 and 8 before)
+pub const FX_PARAMS: u32 = 0x10;
+/// an effect kind at FX_PLUGIN_BASE + e is registered plugin effect e (0..FX_PLUGINS_MAX-1), run through the myco_ext import (ABI 5.0, ADR 0338); on a bus, BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e
+pub const FX_PLUGIN_BASE: u32 = 0x100;
+/// plugin effects the host may register (e is 0..255)
+pub const FX_PLUGINS_MAX: u32 = 0x100;
+/// each chain level's (the buses', the instance submixes') shared fuel per frame and quantum, across every plugin instance (0344 section 3): a call whose budget doesn't fit what is left passes dry
+pub const FX_PLUGIN_FUEL_PER_FRAME: u32 = 0x1388;
+/// myco_ext.process flags bit 0: a parameter moved this block (or the block is the first)
+pub const FX_PLUGIN_FLAG_PARAMS: u32 = 0x1;
+/// myco_ext.process flags bit 1: the input block is silent
+pub const FX_PLUGIN_FLAG_SILENT: u32 = 0x2;
+/// myco_ext.process flags bit 2: the first block since the slot was configured or RESET: the glue resets the instance first
+pub const FX_PLUGIN_FLAG_RESET: u32 = 0x4;
 /// STATUS fxStarvedOwner bit 15: the owner is a submix slot (low bits), else a bus slot
 pub const FX_STARVED_SUBMIX: u32 = 0x8000;
 /// STATUS fxStarvedOwner: no effect has starved
@@ -2444,23 +2458,23 @@ impl Loops {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SubmixEffects {
-    /// SUBMIX_FX_*; a type the core doesn't know passes the signal through
+    /// SUBMIX_FX_*, or FX_PLUGIN_BASE + e for registered plugin effect e (ABI 5.0); a type the core doesn't know passes the signal through
     pub type_: u32,
     /// SUBMIX_FX_ON
     pub flags: u32,
-    /// the catalogue's parameters in its order; unused p = 0
-    pub p: [f32; 8],
+    /// the catalogue's (or the plugin's declared) parameters in order; unused p = 0 (16 from ABI 5.0)
+    pub p: [f32; 16],
 }
 
 impl SubmixEffects {
-    pub const FIXED_END: usize = 40;
+    pub const FIXED_END: usize = 72;
     pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
         if base + Self::FIXED_END > out.len() {
             return Err(ERR_OVERSIZE);
         }
         put_u32(out, base + 0, self.type_);
         put_u32(out, base + 4, self.flags);
-        for i in 0..8 { put_f32(out, base + 8 + i * 4, self.p[i]); }
+        for i in 0..16 { put_f32(out, base + 8 + i * 4, self.p[i]); }
         let mut cur = base + Self::FIXED_END;
         Ok(cur - base)
     }
@@ -2474,7 +2488,7 @@ impl SubmixEffects {
         }
         let type_ = get_u32(buf, base + 0);
         let flags = get_u32(buf, base + 4);
-        let p = { let mut a = [0 as f32; 8]; for i in 0..8 { a[i] = get_f32(buf, base + 8 + i * 4); } a };
+        let p = { let mut a = [0 as f32; 16]; for i in 0..16 { a[i] = get_f32(buf, base + 8 + i * 4); } a };
         let mut cur = base + Self::FIXED_END;
         Ok((Self {
             type_,
@@ -2548,7 +2562,7 @@ impl Submix {
         let reserved = get_u16(buf, base + 22);
         let mut cur = base + Self::FIXED_END;
         let count = effect_count as usize;
-        if count.checked_mul(40).map_or(true, |n| n > limit - cur) {
+        if count.checked_mul(72).map_or(true, |n| n > limit - cur) {
             return Err(ERR_TRUNCATED);
         }
         let mut effects = Vec::with_capacity(count);
@@ -2637,20 +2651,20 @@ impl Route {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BusConfigBusesEffects {
-    /// bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); bits 16-23: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8)
+    /// bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e registered plugin effect e (ABI 5.0); bits 16-31: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8; 16 bits from 5.0)
     pub type_: u32,
-    /// parameters; q in dB; unused p = 0
-    pub p: [f32; 7],
+    /// parameters; q in dB; unused p = 0 (16 from ABI 5.0)
+    pub p: [f32; 16],
 }
 
 impl BusConfigBusesEffects {
-    pub const FIXED_END: usize = 32;
+    pub const FIXED_END: usize = 68;
     pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
         if base + Self::FIXED_END > out.len() {
             return Err(ERR_OVERSIZE);
         }
         put_u32(out, base + 0, self.type_);
-        for i in 0..7 { put_f32(out, base + 4 + i * 4, self.p[i]); }
+        for i in 0..16 { put_f32(out, base + 4 + i * 4, self.p[i]); }
         let mut cur = base + Self::FIXED_END;
         Ok(cur - base)
     }
@@ -2663,7 +2677,7 @@ impl BusConfigBusesEffects {
             return Err(ERR_TRUNCATED);
         }
         let type_ = get_u32(buf, base + 0);
-        let p = { let mut a = [0 as f32; 7]; for i in 0..7 { a[i] = get_f32(buf, base + 4 + i * 4); } a };
+        let p = { let mut a = [0 as f32; 16]; for i in 0..16 { a[i] = get_f32(buf, base + 4 + i * 4); } a };
         let mut cur = base + Self::FIXED_END;
         Ok((Self {
             type_,
@@ -2705,7 +2719,7 @@ impl BusConfigBuses {
         let effect_count = get_u16(buf, base + 2);
         let mut cur = base + Self::FIXED_END;
         let count = effect_count as usize;
-        if count.checked_mul(32).map_or(true, |n| n > limit - cur) {
+        if count.checked_mul(68).map_or(true, |n| n > limit - cur) {
             return Err(ERR_TRUNCATED);
         }
         let mut effects = Vec::with_capacity(count);
@@ -3877,20 +3891,20 @@ pub const BUS_SLOT_FLAGS_STRUCTURAL: u16 = 0x1;
 pub const BUS_SLOT_FLAGS_FRESH: u16 = 0x2;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BusSlotEffects {
-    /// bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); bits 16-23: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8)
+    /// bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e registered plugin effect e (ABI 5.0); bits 16-31: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8; 16 bits from 5.0)
     pub type_: u32,
-    /// parameters; q in dB; unused p = 0
-    pub p: [f32; 7],
+    /// parameters; q in dB; unused p = 0 (16 from ABI 5.0)
+    pub p: [f32; 16],
 }
 
 impl BusSlotEffects {
-    pub const FIXED_END: usize = 32;
+    pub const FIXED_END: usize = 68;
     pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
         if base + Self::FIXED_END > out.len() {
             return Err(ERR_OVERSIZE);
         }
         put_u32(out, base + 0, self.type_);
-        for i in 0..7 { put_f32(out, base + 4 + i * 4, self.p[i]); }
+        for i in 0..16 { put_f32(out, base + 4 + i * 4, self.p[i]); }
         let mut cur = base + Self::FIXED_END;
         Ok(cur - base)
     }
@@ -3903,7 +3917,7 @@ impl BusSlotEffects {
             return Err(ERR_TRUNCATED);
         }
         let type_ = get_u32(buf, base + 0);
-        let p = { let mut a = [0 as f32; 7]; for i in 0..7 { a[i] = get_f32(buf, base + 4 + i * 4); } a };
+        let p = { let mut a = [0 as f32; 16]; for i in 0..16 { a[i] = get_f32(buf, base + 4 + i * 4); } a };
         let mut cur = base + Self::FIXED_END;
         Ok((Self {
             type_,
@@ -3983,7 +3997,7 @@ impl BusSlot {
         let effect_count = get_u16(buf, base + 26);
         let mut cur = base + Self::FIXED_END;
         let count = effect_count as usize;
-        if count.checked_mul(32).map_or(true, |n| n > limit - cur) {
+        if count.checked_mul(68).map_or(true, |n| n > limit - cur) {
             return Err(ERR_TRUNCATED);
         }
         let mut effects = Vec::with_capacity(count);
