@@ -242,6 +242,10 @@ function padGlyph(style: PadStyle, name: string): string | null {
       body = symbolButton(SYMBOLS.home);
       break;
     case "touchpadPress":
+    case "touchpad0":
+    case "touchpad1":
+    case "touchpad0Position":
+    case "touchpad1Position":
       body = touchpad();
       break;
     case "gyro":

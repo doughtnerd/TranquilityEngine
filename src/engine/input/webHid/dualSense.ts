@@ -9,10 +9,12 @@
  * - **Output:** USB report 0x02 and Bluetooth report 0x31 (a sequence byte, 0x10, the same effects
  *   block, a CRC-32): motors, adaptive triggers, light bar, player lights.
  * - **Motion:** gyro and accelerometer through the factory calibration in feature report 0x05.
+ * - **Touchpad and battery:** two touch points (normalized as SDL does, 1920 × 1070) and the
+ *   battery byte, from the full reports.
  */
-import type { TriggerEffect } from "../triggerEffects";
+import { TRIGGER_OFF, TRIGGER_RUMBLE_HZ, encodeTriggerEffect } from "../dualSenseEffects";
 import { Later, PadState, SLOT_COLOURS, byte01, byte255, bytesOf, featureBody, hasOutputReport, outputLength, send, type HidPadFactory, type HidPadOutput } from "./driver";
-import { BluetoothCrcCheck, NOMINAL_IMU, reportImu, reportSonyControls, sealBluetoothReport, sonyImuCalibration, type ImuCalibration } from "./sony";
+import { BluetoothCrcCheck, NOMINAL_IMU, reportImu, reportSonyControls, reportTouchpad, sealBluetoothReport, sonyImuCalibration, type ImuCalibration } from "./sony";
 
 export const SONY_VENDOR = 0x054c;
 export const DUALSENSE_PRODUCTS: readonly number[] = [0x0ce6, 0x0df2];
@@ -26,61 +28,24 @@ const PLAYER_LIGHTS = [0x04, 0x0a, 0x15, 0x1b, 0x1f, 0x11, 0x0e];
  */
 const BT_LIGHTS_READY = 10200000;
 
-/** The frequency trigger rumble vibrates at, Hz. */
-const TRIGGER_RUMBLE_HZ = 50;
+/** The touchpad's height in its own units, as SDL scales it (the pad reports up to about 1080). */
+const TOUCHPAD_HEIGHT = 1070;
 
-const TRIGGER_OFF = Uint8Array.of(0x05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-
-/** An adaptive trigger effect as the DualSense's 11-byte trigger block. */
-function encodeTriggerEffect(effect: TriggerEffect): Uint8Array {
-  const out = new Uint8Array(11);
-  const frac = (v: number | undefined, d: number) => Math.min(1, Math.max(0, Number.isFinite(v) ? (v as number) : d));
-  const zone = (v: number | undefined, d: number) => Math.round(frac(v, d) * 9);
-  const level = (v: number | undefined) => Math.round(frac(v, 1) * 8); // 0 none, 1..8
-  // Ten zones along the travel: a mask of active zones and a 3-bit value per zone.
-  const zones = (start: number, value: number) => {
-    let active = 0;
-    let values = 0;
-    for (let z = start; z < 10; z++) {
-      active |= 1 << z;
-      values += (value - 1) * 2 ** (3 * z);
-    }
-    out[1] = active & 0xff;
-    out[2] = active >> 8;
-    for (let i = 0; i < 4; i++) out[3 + i] = Math.floor(values / 2 ** (8 * i)) & 0xff;
-  };
-  switch (effect.mode) {
-    case "resistance": {
-      const strength = level(effect.strength);
-      if (!strength) return TRIGGER_OFF;
-      out[0] = 0x21;
-      zones(zone(effect.start, 0), strength);
-      return out;
-    }
-    case "weapon": {
-      const strength = level(effect.strength);
-      if (!strength) return TRIGGER_OFF;
-      const start = Math.min(7, Math.max(2, zone(effect.start, 0.3)));
-      const end = Math.min(8, Math.max(start + 1, zone(effect.end, 0.6)));
-      const mask = (1 << start) | (1 << end);
-      out[0] = 0x25;
-      out[1] = mask & 0xff;
-      out[2] = mask >> 8;
-      out[3] = strength - 1;
-      return out;
-    }
-    case "vibration": {
-      const amplitude = level(effect.amplitude);
-      if (!amplitude) return TRIGGER_OFF;
-      out[0] = 0x26;
-      zones(zone(effect.start, 0), amplitude);
-      out[9] = Math.min(255, Math.max(1, Math.round(effect.frequency ?? TRIGGER_RUMBLE_HZ)));
-      return out;
-    }
+/** The battery byte: level 0..10 in the low nibble; status in the high (0 on battery, 1 charging, 2 full). */
+function battery(v: number): [number, boolean] {
+  const level = Math.min(1, ((v & 0x0f) * 10 + 5) / 100);
+  switch (v >> 4) {
+    case 0:
+      return [level, false];
+    case 1:
+      return [level, true];
+    case 2:
+      return [1, false];
     default:
-      return TRIGGER_OFF;
+      return [-1, false];
   }
 }
+
 
 export const dualSense: HidPadFactory = (device, link) => {
   const pad = new PadState(link);
@@ -151,6 +116,8 @@ export const dualSense: HidPadFactory = (device, link) => {
   const full = (b: Uint8Array, o: number) => {
     reportSonyControls(pad, b, o, o + 7, b[o + 4], b[o + 5], true);
     if (sensors) reportImu(pad, imu, b, o + 15, o + 21);
+    reportTouchpad(pad, b, o + 32, TOUCHPAD_HEIGHT);
+    pad.battery(...battery(b[o + 52]));
     if (!lightsReady) {
       const t = (b[o + 27] | (b[o + 28] << 8) | (b[o + 29] << 16) | (b[o + 30] << 24)) >>> 0;
       if (t >= BT_LIGHTS_READY) {

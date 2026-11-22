@@ -10,7 +10,7 @@ import { World } from "../core/World";
 import { defineBuffer, defineComponent, f32, i32, u8, type DataView } from "../core/data";
 import { defineBuiltinSystem } from "../core/systems";
 import type { GameObject } from "../scene/GameObject";
-import { GAMEPAD_AXES, GAMEPAD_BUTTONS, TOUCH_SLOTS, type DeviceFamily } from "./controls";
+import { GAMEPAD_AXES, GAMEPAD_BUTTONS, TOUCHPAD_FINGERS, TOUCH_SLOTS, type DeviceFamily } from "./controls";
 import { KEYBOARD_DEVICE, PEN_DEVICE, POINTER_DEVICE, TOUCH_DEVICE, devices, type GamepadSnapshot, type PenSnapshot, type TouchscreenSnapshot } from "./devices";
 
 /** `InputDevice.kind`. */
@@ -28,16 +28,24 @@ export const DEVICE_FAMILIES: readonly DeviceFamily[] = ["keyboard", "pointer", 
  */
 export const InputDevice = defineComponent("engine.InputDevice", { device: i32, kind: u8, family: u8, slot: i32, player: i32, connected: u8 });
 
-const gamepadSchema: Record<string, typeof f32 | typeof i32> = {};
+const gamepadSchema: Record<string, typeof f32 | typeof i32 | typeof u8> = {};
 GAMEPAD_BUTTONS.forEach((_, i) => (gamepadSchema[`b${i}`] = f32));
 GAMEPAD_AXES.forEach((_, i) => (gamepadSchema[`a${i}`] = f32));
 for (const f of ["held", "down", "up"]) gamepadSchema[f] = i32;
 for (const f of ["gyroX", "gyroY", "gyroZ", "accelX", "accelY", "accelZ"]) gamepadSchema[f] = f32;
+for (const f of ["tpHeld", "tpDown", "tpUp"]) gamepadSchema[f] = i32;
+for (let i = 0; i < TOUCHPAD_FINGERS; i++) gamepadSchema[`tp${i}X`] = gamepadSchema[`tp${i}Y`] = f32;
+gamepadSchema.battery = f32;
+gamepadSchema.charging = u8;
 
 /**
  * A gamepad's state this frame: buttons `b0`…`b22` (0..1) and axes `a0`…`a3` (-1..1, +Y down) by
  * wire index (`controls.ts`), `held`/`down`/`up` bitmasks (bit i: button i), gyro (rad/s) and
- * accelerometer (m/s²) where the device has them.
+ * accelerometer (m/s²) where the device has them. Touchpad fingers (DualSense, DualShock 4):
+ * `tpHeld`/`tpDown`/`tpUp` bitmasks (bit 0 finger 0, bit 1 finger 1) and each finger's position
+ * `tp0X`/`tp0Y`, `tp1X`/`tp1Y` in 0..1 of the touchpad (origin top-left, +Y down; the last one
+ * after it lifts). `battery` 0..1, or -1 when unknown or wired without one; `charging` 1 while
+ * plugged in.
  */
 export const GamepadState = defineComponent("engine.GamepadState", gamepadSchema);
 
@@ -135,6 +143,15 @@ function writePad(view: DataView<Record<string, typeof f32>>, pad: GamepadSnapsh
   v.accelX = pad.accel[0];
   v.accelY = pad.accel[1];
   v.accelZ = pad.accel[2];
+  v.tpHeld = pad.touchHeld;
+  v.tpDown = pad.touchDown;
+  v.tpUp = pad.touchUp;
+  for (let i = 0; i < pad.touchX.length; i++) {
+    v[`tp${i}X`] = pad.touchX[i];
+    v[`tp${i}Y`] = pad.touchY[i];
+  }
+  v.battery = pad.battery;
+  v.charging = pad.charging ? 1 : 0;
 }
 
 function writeTouch(view: Record<string, number>, touch: TouchscreenSnapshot): void {

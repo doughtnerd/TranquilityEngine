@@ -812,6 +812,7 @@ export {
   inputActionSets,
   inputContextNames,
   inputContextProblems,
+  inputControlPaths,
   inputState,
   parseInputRecording,
   phaseNames,

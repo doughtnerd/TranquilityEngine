@@ -21,7 +21,7 @@ import type { GameObject } from "../scene/GameObject";
 import { ActionEvents, ActionPhase, actionSets, actionView, type ActionEventPhase, type ActionKind, type ActionPhaseName } from "../input/actions";
 import { DEFAULT_CONTEXT, registeredContexts } from "../input/contexts";
 import type { InputContextSpec } from "../input/contextTypes";
-import { PRESS_POINT, control, type DeviceFamily } from "../input/controls";
+import { PRESS_POINT, control, namedControlPaths, type DeviceFamily } from "../input/controls";
 import { DEVICE_FAMILIES, DeviceEvents, DeviceKind, InputDevice, deviceNodes, takesLocalInput } from "../input/deviceEntities";
 import { contextProblems, lastEvaluation, playerTable, type CompiledMapping } from "../input/evaluate";
 import { ControlledBy, InputPlayer, PlayerJoined, PlayerLeft, playerNodes } from "../input/players";
@@ -299,6 +299,15 @@ export function inputActionSets(): InputActionSetInfo[] {
 /** The names of the contexts scripts register with `defineInputContext`, and the default context's. */
 export function inputContextNames(): string[] {
   return [DEFAULT_CONTEXT, ...registeredContexts()];
+}
+
+/**
+ * Every named control path the engine parses, grouped by device in the order a picker lists them: Pointer, Gamepad,
+ * Touch, Pen (keys aren't listed: any `KeyboardEvent.key` names one).
+ */
+export function inputControlPaths(): { readonly device: string; readonly controls: readonly string[] }[] {
+  const names = { pointer: "Pointer", gamepad: "Gamepad", touch: "Touch", pen: "Pen" } as const;
+  return namedControlPaths().map((g) => ({ device: names[g.device], controls: g.paths }));
 }
 
 /** A control path's canonical form (`<keyboard>/Space` → `<Keyboard>/space`), or null if it names no control. */

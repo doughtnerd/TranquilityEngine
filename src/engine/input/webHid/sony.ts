@@ -1,6 +1,6 @@
 /**
- * What the DualSense and DualShock 4 drivers share: their button bytes, motion calibration
- * (feature report 0x05 / 0x02) and Bluetooth report checksums. Ported from SDL's HIDAPI drivers
+ * What the DualSense and DualShock 4 drivers share: their button bytes, touchpad points, motion
+ * calibration (feature report 0x05 / 0x02) and Bluetooth report checksums. Ported from SDL's HIDAPI drivers
  * (`SDL_hidapi_ps4.c`, `SDL_hidapi_ps5.c`, zlib licence, copyright (C) 1997-2025 Sam Lantinga);
  * altered: rewritten in TypeScript for WebHID.
  */
@@ -114,6 +114,22 @@ export function reportSonyControls(pad: PadState, b: Uint8Array, sticksAt: numbe
   pad.button(19, b2 & 0x40 ? 1 : 0); // Edge: left paddle
   pad.button(20, b2 & 0x20 ? 1 : 0); // Edge: right function button
   pad.button(21, b2 & 0x10 ? 1 : 0); // Edge: left function button
+}
+
+const TOUCHPAD_WIDTH = 1920;
+
+/**
+ * The two touchpad points at `at` (four bytes each: bit 7 of the first clear while the finger is
+ * down, then 12-bit x and y), normalized by the pad's width (1920) and `height` and clamped to 0..1.
+ */
+export function reportTouchpad(pad: PadState, b: Uint8Array, at: number, height: number): void {
+  for (const finger of [0, 1] as const) {
+    const o = at + finger * 4;
+    const down = !(b[o] & 0x80);
+    const x = b[o + 1] | ((b[o + 2] & 0x0f) << 8);
+    const y = (b[o + 2] >> 4) | (b[o + 3] << 4);
+    pad.touch(finger, down, Math.min(1, x / TOUCHPAD_WIDTH), Math.min(1, y / height));
+  }
 }
 
 /**

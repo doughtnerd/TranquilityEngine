@@ -78,6 +78,8 @@ export {
   type UIControlMapperCell,
   type UIControlMapperDevice,
   type UIControlMapperRow,
+  type UIControlMapperSetting,
+  type UIControlMapperSettingKind,
   type UIControlMapperText,
   UICanvas,
   UIImage,

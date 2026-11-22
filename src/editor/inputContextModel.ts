@@ -3,8 +3,7 @@
 // modifiers and triggers with their parameters), the controls it offers grouped by device, and its problems, which are
 // the evaluator's own (`inputContextProblems` in the editor SDK), so the editor says what Play would log.
 import type { InputContextSpec, MappingSpec, ModifierSpec, TriggerSpec, TriggerType } from "../engine/input/contextTypes";
-import { GAMEPAD_AXES, GAMEPAD_BUTTONS } from "../engine/input/controls";
-import type { InputActionSetInfo } from "../engine/editor";
+import { inputControlPaths, type InputActionSetInfo } from "../engine/editor";
 import type { AssetFormat, AssetProblem } from "./sdk/contributions";
 
 // --- the format ----------------------------------------------------------------------------------
@@ -285,12 +284,8 @@ const KEYS = [
   "home", "end", "pageup", "pagedown", "insert", "delete",
 ];
 
-/** The controls the form offers, by device. */
-export const CONTROL_GROUPS: readonly { readonly device: string; readonly controls: readonly string[] }[] = [
-  { device: "Keyboard", controls: KEYS.map((k) => `<Keyboard>/${k}`) },
-  { device: "Pointer", controls: ["button0", "button1", "button2", "button3", "button4", "delta", "scroll", "position"].map((c) => `<Pointer>/${c}`) },
-  { device: "Gamepad", controls: [...GAMEPAD_BUTTONS, ...GAMEPAD_AXES, "leftStick", "rightStick", "dpad", "gyro", "accel"].map((c) => `<Gamepad>/${c}`) },
-];
+/** The controls the form offers, by device: common keys, then every named control the engine parses (`inputControlPaths`). */
+export const CONTROL_GROUPS: readonly { readonly device: string; readonly controls: readonly string[] }[] = [{ device: "Keyboard", controls: KEYS.map((k) => `<Keyboard>/${k}`) }, ...inputControlPaths()];
 
 // --- problems ------------------------------------------------------------------------------------
 

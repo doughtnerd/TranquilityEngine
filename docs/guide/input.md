@@ -156,6 +156,26 @@ player.rumble(0.3, 0.8, 200);
 
 `prompt.parts` names each control's rebind part (`control`, `up`…, `modifier0`…) and `prompt.context` its context, the `part` and `context` options of `rebind`.
 
+**Chords.** Rebinding a chord (`chordOf("<Keyboard>/shift", "<Keyboard>/b")`) takes the keys or buttons pressed together:
+
+```ts
+const r = await player.rebind("dash");       // hold Ctrl, press N, let go: dash is now Ctrl+N
+r.chord;                                     // ["<Keyboard>/control", "<Keyboard>/n"]: modifiers first, then the main control
+player.prompt("dash", "keyboard")!.label;    // "Ctrl+N"
+await player.rebind("dash", { part: "modifier0" });  // only the modifier: the next key pressed
+await player.rebind("dash", { chord: false });       // only the main key, keeping the modifier
+await player.rebind("jump", { chord: true });        // a single control, captured the same way
+```
+
+- A chord rebind finishes when the player lets go of a control pressed during it. The chord is everything of that device group held at that moment, plus the Shift, Ctrl, Alt and Meta keys held when it started.
+- The main control is the last one pressed. On the keyboard it's the last key that isn't Shift, Ctrl, Alt or Meta. The rest become `modifier0`, `modifier1`… in the order they were pressed.
+- A control already down when the rebind started (the Enter or south button that opened it) isn't part of the chord, and letting go of it doesn't finish it.
+- `chord` is the default for a chord's main control. It works on a single control and on a chord's `control` part; any other part throws.
+- A chord conflicts with mappings of the same controls only. Shift+B doesn't conflict with a plain B mapping, because the chord claims its key.
+- **The number of modifiers can't change yet.** A profile replaces a mapping's controls but can't add or remove any. A chord with a different number of modifiers from the mapping's (a lone key for Shift+B, or Ctrl+Shift+B) is canceled with `reason: "modifierCount"`. `r.chord` says what was held and `r.modifierCount` how many modifiers the mapping takes. The binding stays as it was.
+
+Every canceled result has a `reason`: `cancel` (the cancel control), `timeout`, `replaced` (another rebind for the player started) or `modifierCount`.
+
 ### Glyphs
 
 The engine draws a glyph for every icon key a prompt gives: keycaps with the key's label, the mouse with the button lit, and each gamepad family's buttons, shoulders, triggers, sticks, d-pad, menu buttons, touchpad and gyro (PlayStation's shapes, Xbox's coloured letters, Switch's letters, positions for other pads). They're plain shapes and letters, built on first use, so nothing needs shipping with a game.
@@ -175,6 +195,7 @@ img.src = glyph.url;                               // an HTML <img>; glyph.svg i
 
 - One row per action (`actions`: a comma-separated list, empty for every action), one per part for a d-pad or axis composite ("Move Up"…), with a **Keyboard** and a **Gamepad** cell. Each shows the binding's glyphs and label; the gamepad column follows the pad the player last used.
 - Click a cell, or select it with the arrow keys or d-pad and press Enter or the south button, then press the new key or button. **Escape** cancels; after `timeout` seconds (default 10) it gives up.
+- A chord is one cell ("Shift + B", with both glyphs). Its rebind takes the keys or buttons held together: hold them, then let go. A chord with a different number of modifiers is refused in the status line, and the binding stays.
 - A conflict is shown in the status line ("B is also bound to Bomb.") and conflicting cells turn `warningColor`.
 - **Reset to defaults** calls `resetBindings`; **Save** calls `saveBindings(profile)`.
 
@@ -184,7 +205,32 @@ mapper.actionLabels = { fire: "Shoot" };
 mapper.text.save = "Speichern";                     // every word it shows is in `text`
 ```
 
-Colours, `fontSize`, `glyphSize` and `width` are fields. Scripts read `rows` (each cell's label, icons and button), `rebinding`, `status` and `conflicts`. Load saved bindings with `player.loadBindings()` when the game starts.
+**Accessibility section.** Turn on `showAccessibility` for a section below the bindings that edits `player.accessibility`:
+
+| Row | Shown for | Control |
+|---|---|---|
+| Invert Y | each action in `invertYActions` | On/Off |
+| Sensitivity | each action in `sensitivityActions` | − value + (0.1 to 5, steps of 0.1) |
+| Press to toggle (hold-to-toggle) | each action in `holdToToggleActions` | On/Off |
+| Repeat held buttons | always | On/Off. When on, it repeats the actions in `repeatActions`, or every button action if that's empty. |
+| Repeat delay, repeat interval | always | − value + (seconds). They work only while repeat is on. |
+| Stick dead zone | always | − value + (0 to 90%) |
+
+```ts
+const mapper = menu.addComponent(UIControlMapper, {
+  actions: "move, look, jump", showAccessibility: true,
+  invertYActions: "look", sensitivityActions: "look", holdToToggleActions: "aim",
+});
+```
+
+The mouse, the arrow keys and the d-pad select these rows as they do the cells: a stepper's − and + are two columns. Enter or the south button toggles or steps. Changes apply at once, **Save** writes them with the bindings, and **Reset to defaults** leaves them alone. Their words are in `text` too (`accessibility`, `invertY`, `on`, `off`, `seconds`…).
+
+Colours, `fontSize`, `glyphSize` and `width` are fields. Scripts read:
+- `rows`: each cell's label, icons, button and whether it's a `chord`;
+- `settings`: each accessibility row's label, value and buttons;
+- `rebinding`, `status`, `conflicts` and `selected`.
+
+Load saved bindings with `player.loadBindings()` when the game starts.
 
 ## Multiplayer
 
@@ -200,7 +246,13 @@ Colours, `fontSize`, `glyphSize` and `width` are fields. Scripts read `rows` (ea
 
 ## Devices
 
-- **Desktop:** gamepads come from SDL3 inside the Tauri app, in the editor and in exported games. That includes rumble, trigger rumble, light bars and gyro (`player.setSensors(true)`).
+- **Desktop:** gamepads come from SDL3 inside the Tauri app, in the editor and in exported games. That includes rumble, trigger rumble, light bars, gyro (`player.setSensors(true)`), touchpads, batteries and DualSense adaptive triggers (`player.setTriggerEffect(...)`).
+- **Touchpads** (DualSense, DualShock 4): `<Gamepad>/touchpad0` and `<Gamepad>/touchpad1` are two fingers touching, and `<Gamepad>/touchpad0Position` and `touchpad1Position` are where they are. Positions run 0..1 across the touchpad from its top-left corner, with +Y **down** like other positions, and read 0, 0 while that finger is up. Pressing the touchpad in is still `touchpadPress`.
+
+  ```ts
+  defineActions("game.Menu", { cursor: vec2("<Gamepad>/touchpad0Position"), touching: button("<Gamepad>/touchpad0") });
+  ```
+- **Battery:** `player.battery` is `{ level, charging }`, with `level` 0..1, for the player's gamepad with the lowest charge. It is `null` when no gamepad reports one: a wired pad without a battery, or the browser's Gamepad API, which can't tell. Desktop builds and WebHID pads in Chrome can.
 - **Web:** builds read the browser's Gamepad API. The engine applies the SDL controller database to pads the browser doesn't map, and detects each pad's family.
 - **Touch and pen:** a touchscreen and a pen are devices of their own, which appear when first used. The first finger down and the pen also act as the mouse, so `Input.getMouseButton(0)` and UI buttons work by touch. A touch or pen press on a UI button goes to the UI, not the game.
 - **Your own devices:** `Input.inject` reports device events as an adapter does, for on-screen controls, automation and tests.
@@ -226,15 +278,19 @@ Colours, `fontSize`, `glyphSize` and `width` are fields. Scripts read `rows` (ea
 
 ## Enhanced gamepads in Chrome (WebHID)
 
-In Chrome, Edge and other Chromium browsers on desktop, PlayStation and Switch Pro controllers can do more on the web than the Gamepad API allows. The engine opens them as HID devices instead.
+In Chrome, Edge and other Chromium browsers on desktop, PlayStation controllers, the Switch Pro Controller and Joy-Cons can do more on the web than the Gamepad API allows. The engine opens them as HID devices instead.
 
 **What it adds:**
 - gyro and accelerometer (`<Gamepad>/gyro`, `<Gamepad>/accel`, after `player.setSensors(true)`);
 - adaptive triggers on DualSense: `player.rumbleTriggers(...)`, and `player.setTriggerEffect("right", { mode: "weapon", start: 0.3, end: 0.6, strength: 0.8 })` (also `resistance`, `vibration` and `off`);
 - light bars (`player.setLight(r, g, b)`) and player lights;
-- the touchpad click (`touchpadPress`) and the mute or capture button (`misc1`).
+- the touchpad click (`touchpadPress`) and the mute or capture button (`misc1`);
+- touchpad finger positions (two fingers) on DualSense and DualShock 4, and the battery level and charging state on those and on Switch controllers, reported to the input end (`gamepadTouch`, `gamepadBattery`);
+- HD rumble on Switch controllers, re-sent while it plays so it doesn't cut out.
 
-**Controllers:** DualSense and DualSense Edge, DualShock 4 (and Sony's USB wireless adapter), and the Switch Pro Controller, over USB or Bluetooth.
+**Controllers:** DualSense and DualSense Edge, DualShock 4 (and Sony's USB wireless adapter), and the Switch Pro Controller, over USB or Bluetooth; Joy-Cons over Bluetooth (not in the USB charging grip).
+
+**Joy-Cons:** one Joy-Con on its own is a small pad held sideways: the face buttons by where they sit when held that way (the bottom one is `buttonSouth`), SL and SR as the shoulders, the stick turned to match, as SDL does. A left and a right open at the same time join into one pad, "Joy-Con (L/R)", laid out like a Pro Controller with SL and SR as paddles; its motion is the right Joy-Con's, and rumble's low band plays on the left and its high band on the right. If one of them goes, the other carries on as a small pad. There's no setting to keep a pair apart.
 
 **The permission click:** the browser shows a controller only after the player picks it in its chooser, and the chooser opens only from a click or key press. Call `Input.requestHidGamepads()` from one, for example behind an "Enable full controller features" button. It resolves with how many controllers were opened. Controllers picked once reopen on their own on later visits, and when they're plugged back in.
 
@@ -243,5 +299,7 @@ enhanceButton.addEventListener("click", async () => {
   const opened = await Input.requestHidGamepads();
 });
 ```
+
+Desktop builds already have all of this through SDL, adaptive triggers included.
 
 **Fallback:** until a controller is picked, or if it fails or is unplugged, the Gamepad API reports it as before, so the game never sees it twice. Firefox and Safari have no WebHID: `requestHidGamepads()` resolves `0` there, and in desktop builds, where SDL already gives all of this.

@@ -89,6 +89,8 @@ function sinkLog() {
     gamepadButton: (id, i, v) => log.push(["button", id, i, v]),
     gamepadAxis: (id, i, v) => log.push(["axis", id, i, v]),
     gamepadSensor: (id, kind, x, y, z) => log.push(["sensor", id, kind, x, y, z]),
+    gamepadTouch: (id, finger, down, x, y) => log.push(["touch", id, finger, down, x, y]),
+    gamepadBattery: (id, level, charging) => log.push(["battery", id, level, charging]),
   };
   return { sink, log };
 }
