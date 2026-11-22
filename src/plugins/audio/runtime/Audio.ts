@@ -27,6 +27,14 @@ import { audioCapture, captureDebug, type AudioCapture } from "./capture/capture
 import { loudnessTarget, setLoudnessTarget } from "./mix/loudnessHub";
 import { audioTake, type AudioTake } from "./capture/take";
 import { takePlayOptions, takeTap, type TakeEmitter } from "./capture/takeTap";
+import { localiseClip } from "./clipResolver";
+import {
+  audioLanguage, audioLanguages, languageDebug, noteLocalisedVoice, noteMissingLanguage, onAudioLanguageChange, pendingAudioLanguage, setAudioLanguage, setSubtitleLanguage,
+  subtitleLanguageSetting, type AudioLanguage, type AudioLanguageDebug, type SetLanguageOptions,
+} from "./localisation/languageState";
+import { LineHandle, onLine, playLine, type AudioLineEvent, type AudioLineHandle, type LineOptions } from "./localisation/lines";
+import { onCaption, type AudioCaptionEvent } from "./localisation/captions";
+import { audioDialogue, dialogueSystem, type AudioDialogue, type AudioDialogueDebug, type SayOptions } from "./dialogue/dialogueSystem";
 
 /**
  * `Audio.debug()`: the backend's state plus the rows composed above the seam (ADR 0249, `audioRows.ts`): the playlist
@@ -37,7 +45,14 @@ import { takePlayOptions, takeTap, type TakeEmitter } from "./capture/takeTap";
 export type AudioDebugState = Omit<AudioDebugInfo, "events" | "music" | "musicTotals"> & AudioDebugRows & {
   /** ADR 0337 §9: every package with its state, references, download bytes and memory. */
   packages: AudioPackageDebug[];
+  /** ADR 0340 §4: the audio and subtitle languages, a pending switch, and the last 32 files missing in a language. */
+  language: AudioLanguageDebug;
+  /** ADR 0341 §5: the speaker channels (speaking line, priority, queue) and the session's refused says by reason. */
+  dialogue: AudioDialogueDebug;
 };
+
+// ADR 0340 §10: language changes go into a recording take.
+onAudioLanguageChange((audio, subtitles) => takeTap.sink?.language(audio, subtitles));
 
 /** Options for `Audio.playOneShot` (ADR 0074, api-and-models §1). */
 export interface OneShotOptions {
@@ -104,6 +119,8 @@ const INERT_EVENT: AudioPlaylistHandle = Object.freeze({
 
 // ADR 0337 §7: refused plays of packaged sounds (`notLoaded`) and of media the backend can't decode yet (`failed`).
 const NOT_LOADED: AudioHandle = Object.freeze({ ...INERT, reason: "notLoaded" as const });
+// ADR 0340 §3: a localised clip no language of the chain has.
+const MISSING_LANGUAGE: AudioHandle = Object.freeze({ ...INERT, reason: "missingLanguage" as const });
 const FAILED: AudioHandle = Object.freeze({ ...INERT, reason: "failed" as const });
 const NOT_LOADED_EVENT: AudioPlaylistHandle = Object.freeze({ ...INERT_EVENT, reason: "notLoaded" as const });
 const FAILED_EVENT: AudioPlaylistHandle = Object.freeze({ ...INERT_EVENT, reason: "failed" as const });
@@ -238,6 +255,9 @@ export const Audio = {
       if (!worldPlays(World.active)) return INERT;
       const o: OneShotOptions = typeof options === "number" ? { volume: options } : options !== null && typeof options === "object" ? options : {};
       const path = String(clip).replace(/^asset:/, "");
+      // ADR 0340 §2–§3: a localised clip plays its file in the current language's chain (the clip resolver swaps it).
+      const local = localiseClip(path);
+      if (local === null) { noteMissingLanguage(path, audioLanguage()); return MISSING_LANGUAGE; }
       // ADR 0337 §7: a packaged sound whose packages are unloaded (strict), or media the backend can't play yet.
       const refused = mediaRefusal(clipSource(path));
       if (refused) return refused === "notLoaded" ? NOT_LOADED : FAILED;
@@ -278,6 +298,7 @@ export const Audio = {
       if (o.yaw !== undefined) req.yaw = clampWarn("yaw", finiteOr("yaw", o.yaw, 0), -180, 180);
       // ADR 0328: the sample's trim (start and end) and its normalisation gain, as every play of it.
       const v = playSampleVoice(path, req, offset);
+      if (v && local.language !== null) noteLocalisedVoice(v, local.language);
       if (v && takeTap.sink) takeTap.sink.play(v, path, req.position ? fixedEmitter(v, path, req.position) : null, takePlayOptions(o));
       return v ? new VoiceHandle(v) : INERT;
     } catch (e) {
@@ -456,7 +477,93 @@ export const Audio = {
     const info = backend.debug();
     // Rc4: the shared capture ring (null while none runs). ADR 0327: why the core couldn't run, once known.
     const why = coreUnavailable();
-    return { ...info, ...debugRows(info, backend), recorder: captureDebug(), packages: packagesDebug(), ...(why !== null ? { coreUnavailable: why } : {}) };
+    return {
+      ...info, ...debugRows(info, backend), recorder: captureDebug(), packages: packagesDebug(), language: languageDebug(), dialogue: dialogueSystem().debug(),
+      ...(why !== null ? { coreUnavailable: why } : {}),
+    };
+  },
+
+  // ADR 0340 §4, 0343 §2: the audio language (`localisation/languageState.ts`).
+
+  /** The current audio language (a shipped voice language's code). Setting it is `void Audio.setLanguage(code)`. */
+  get language(): string {
+    return audioLanguage();
+  },
+  set language(code: string) {
+    void setAudioLanguage(code).catch(() => undefined);
+  },
+
+  /**
+   * Switch the audio language atomically: the new language's package parts load first, then `Audio.language` changes
+   * in one step and is remembered (player storage, when the project remembers it). `playing: "finish"` (default) lets
+   * voice-over playing in the old language finish; `"stop"` stops it with a 50 ms fade. An unknown or unshipped code
+   * rejects with one warning and changes nothing; a later switch supersedes a pending one.
+   */
+  setLanguage(code: string, options?: SetLanguageOptions): Promise<void> {
+    return setAudioLanguage(code, options);
+  },
+
+  /** The language a switch in progress goes to; null when none is. */
+  get pendingLanguage(): string | null {
+    return pendingAudioLanguage();
+  },
+
+  /** The language subtitles resolve in; null (default) follows the text language (`Locale.language`). */
+  get subtitleLanguage(): string | null {
+    return subtitleLanguageSetting();
+  },
+  set subtitleLanguage(code: string | null) {
+    setSubtitleLanguage(code);
+  },
+
+  /** The shipped voice languages: code, name and own fallbacks. */
+  get languages(): readonly AudioLanguage[] {
+    return audioLanguages();
+  },
+
+  /**
+   * ADR 0340 §5: play a voice-over line by key (keys are unique across the project's line tables), through its table's
+   * template or as a one-shot Clip on its table's output, in the current language's file (falling back through its
+   * chain). A line no language has runs subtitle-only for its reading time (`localisation.missing: "subtitleOnly"`). An
+   * unknown key gives an inert handle with reason "unknownLine". Plays now (no queueing: `Audio.say` has channels).
+   * Never throws.
+   */
+  line(key: string, options?: LineOptions): AudioLineHandle {
+    try {
+      return playLine(String(key), options !== null && typeof options === "object" ? options : {});
+    } catch (e) {
+      warnOnce("line:threw", `Audio.line failed (${e instanceof Error ? e.message : String(e)}); nothing plays.`);
+      return new LineHandle(String(key)).refuse("failed");
+    }
+  },
+
+  /** ADR 0340 §5: hear every line's `start`, `end` and Cue `marker` events, with its subtitle. Returns the unsubscribe. */
+  onLine(fn: (e: AudioLineEvent) => void): () => void {
+    return typeof fn === "function" ? onLine(fn) : () => {};
+  },
+
+  /** ADR 0343 §4: hear the captions of playlists that have one, as their instances start sounding and end. Returns the unsubscribe. */
+  onCaption(fn: (e: AudioCaptionEvent) => void): () => void {
+    return typeof fn === "function" ? onCaption(fn) : () => {};
+  },
+
+  /**
+   * ADR 0341 §5: say a dialogue event: it picks a line by best match over its arguments (`options.args`, else the
+   * global parameters, else the defaults) and speaks it on a speaker channel, with priority, interruption, queueing,
+   * cooldowns and memory. An unknown event gives an inert handle with reason "unknownEvent". Never throws.
+   */
+  say(event: string, options?: SayOptions): AudioLineHandle {
+    try {
+      return dialogueSystem().say(String(event), options !== null && typeof options === "object" ? options : {});
+    } catch (e) {
+      warnOnce("say:threw", `Audio.say failed (${e instanceof Error ? e.message : String(e)}); nothing is said.`);
+      return new LineHandle("", String(event)).refuse("failed");
+    }
+  },
+
+  /** ADR 0341 §5: the speaker channels and the dialogue memory. */
+  get dialogue(): AudioDialogue {
+    return audioDialogue;
   },
 
   /**

@@ -13,6 +13,7 @@ import { AUDIO_SERVICE } from "./core/service";
 import { AUDIO_SYSTEMS } from "./audioSystem";
 import { AudioPackageLoader } from "./media/AudioPackageLoader";
 import { AUDIO_PACKAGES_SERVICE } from "./media/service";
+import { AudioSpeaker } from "./dialogue/AudioSpeaker";
 
 export { Audio, type OneShotOptions } from "./Audio";
 // ADR 0330: `Audio.snapshot(name)`'s handle.
@@ -42,10 +43,19 @@ export { hintFromName } from "./decoder/protocol";
 export { AudioPackageLoader } from "./media/AudioPackageLoader";
 export type { AudioPackage } from "./media/packages";
 
+// ADR 0340, 0341, 0343: localised audio, voice-over lines, captions and dynamic dialogue.
+export type { AudioLanguage, SetLanguageOptions, AudioLanguageDebug } from "./localisation/languageState";
+export type { AudioLineHandle, AudioLineEvent, LineOptions, LineEnd } from "./localisation/lines";
+export type { AudioViseme } from "./localisation/viseme";
+export type { AudioCaptionEvent } from "./localisation/captions";
+export type { SayOptions, AudioDialogue, AudioDialogueDebug } from "./dialogue/dialogueSystem";
+export type { DialogueMemory } from "./dialogue/memory";
+export { AudioSpeaker };
+
 export const audioRuntimePlugin: RuntimePlugin = {
   manifest: audioManifest,
   activate(context) {
-    context.registerComponents([AudioSource, AudioListener, AudioOccluder, AudioReverbZone, AudioZone, AudioPackageLoader]);
+    context.registerComponents([AudioSource, AudioListener, AudioOccluder, AudioReverbZone, AudioZone, AudioPackageLoader, AudioSpeaker]);
     context.registerEngineSystems([...AUDIO_SYSTEMS, AUDIO_ZONE_SYSTEM]);
     context.registerWorldService(AUDIO_SERVICE);
     context.registerWorldService(AUDIO_PACKAGES_SERVICE);

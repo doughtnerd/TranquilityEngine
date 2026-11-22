@@ -177,6 +177,9 @@ export {
 export { Audio, AudioSource, AudioListener, AudioOccluder, AudioReverbZone, AudioZone, type AudioZoneHeard, DEFAULT_SEND_CURVE, type AudioHandle, type AudioPlaylistHandle, type AudioMarkerEvent, type AudioMarkerType, type AudioEventHandle, type EventOptions, type AudioStatus, type AudioReason, type AudioPanner, type SendCurve, type AudioDebugInfo, type AudioBedDebug, type AudioZoneDebug, type AudioOcclusionDebug, type AudioMemoryDebug, type AudioVoiceM3Debug, type AudioM3Counters, type OneShotOptions, type Rolloff, type Bus } from "./plugins/audio/runtime";
 // ADR 0337 §9: audio packages (`Audio.package(name)`, `Audio.packages`) and the component that loads them with a scene.
 export { AudioPackageLoader, type AudioPackage } from "./plugins/audio/runtime";
+// ADR 0340, 0343: localised audio (`Audio.language`, `setLanguage`, `languages`), voice-over lines (`Audio.line`,
+// `Audio.onLine`) and captions (`Audio.onCaption`). ADR 0341: dynamic dialogue (`Audio.say`, `Audio.dialogue`, `AudioSpeaker`).
+export { AudioSpeaker, type AudioLanguage, type AudioLineHandle, type AudioLineEvent, type AudioViseme, type LineOptions, type AudioCaptionEvent, type SayOptions, type DialogueMemory } from "./plugins/audio/runtime";
 // Interactive music (ADR 0166 §1, amended by 0167): handle.music, beat callbacks, calibration.
 export { Calibration, type GridSpec, type GridPoint, type MusicEvent, type MusicKind, type MusicHandle, type MusicPositionAt, type MusicSeekResult, type CalibrationResult, type AudioLatency, type MusicDebugRow, type MusicDebugPending, type MusicDebugState, type MusicDebugTotals } from "./plugins/audio/runtime";
 export type { AudioCapture, AudioCaptureState, AudioCpuDebug, AudioMixCaps, AudioMixDebug, AudioMixSlotDebug, AudioRecorderDebug } from "./plugins/audio/runtime";
