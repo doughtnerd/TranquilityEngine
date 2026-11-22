@@ -6,7 +6,7 @@ import { DRAG_RAMP_MS } from "../../../../engine/audio/mixer";
 import { MIX_OP_NAMES, isProjectOp, opClass, type MixOp } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { mixJsonOf, parseAudioProject } from "../../../../engine/audio/project/format";
-import { BUS_SLOT_FLAGS_STRUCTURAL, DRAG_RAMP_MS as WIRE_DRAG_RAMP_MS, FADER_COALESCE_MS, LANE_AUTHORED, Op, readBusRamp, readBusSends, readBusSlot } from "../wire.generated";
+import { BUS_SEND_MUTED, BUS_SLOT_FLAGS_FRESH, BUS_SLOT_FLAGS_STRUCTURAL, DRAG_RAMP_MS as WIRE_DRAG_RAMP_MS, FADER_COALESCE_MS, LANE_AUTHORED, Op, readBusRamp, readBusSends, readBusSlot } from "../wire.generated";
 import { closeRecordingAudio, recordingAudio } from "../testing";
 import { DeferredAdds } from "./deferredAdds";
 import { LiveMix, type LiveMixHost } from "./liveMix";
@@ -121,6 +121,31 @@ describe("liveMix (Ma1)", () => {
     const sends = r.posted.takeOps(Op.BUS_SENDS).map((x) => readBusSends(x.view, x.off));
     expect(sends.map((x) => [x.voiceId, x.sends.map((y) => [y.to, y.flags])])).toEqual([[2, [[3, 0]]]]);
     expect(sends[0]!.sends[0]!.level).toBeCloseTo(Math.pow(10, -12 / 20), 6);
+    r.backend.dispose();
+  });
+
+  // ADR 0330: a return added live takes a fresh slot (an appended BUS_SLOT, as a bus added live); a send into it is a
+  // BUS_SENDS of the sending bus naming that slot; a send removed is kept muted (it ramps out, no cut), its level kept.
+  it("a return added live gets a slot, a send into it a BUS_SENDS; a removed send fades out muted", () => {
+    const project = parseAudioProject({ format: "myco.audio@1", buses: [{ name: "Master", parent: null }, { name: "SFX", parent: "Master" }] }).project;
+    const r = recordingAudio({ mixer: "own", settings: { ...parseAudioSettings({}).settings, mix: mixJsonOf(project) }, preset: { maxLogical: 16 } });
+    const frame = () => (r.mixer.update(0.016), r.tick(0.016));
+    frame();
+    r.posted.take();
+    expect(r.mixer.apply({ op: "setReturn", name: "Echo", ret: { name: "Echo", output: "Master", volumeDb: 0, mute: false, effects: [{ id: "fx1", type: "delay", on: true, params: { time: 100, feedback: 0, mix: 100 } }] } }).ok).toBe(true);
+    frame();
+    const echo = r.backend.buses.slotOf("Echo");
+    expect(echo).toBe(2);
+    expect(r.posted.takeOps(Op.BUS_SLOT).map((x) => readBusSlot(x.view, x.off)).some((x) => x.slot === echo && (x.flags & BUS_SLOT_FLAGS_FRESH) !== 0)).toBe(true);
+    expect(r.mixer.apply({ op: "setSend", bus: "SFX", to: "Echo", levelDb: -6 })).toEqual({ ok: true, class: "direct" });
+    frame();
+    const sends = () => r.posted.takeOps(Op.BUS_SENDS).map((x) => readBusSends(x.view, x.off)).map((x) => [x.voiceId, x.sends.map((y) => [y.to, y.flags, Number(y.level.toFixed(4))])]);
+    expect(sends()).toEqual([[1, [[echo, 0, 0.5012]]]]);
+    frame();
+    expect(sends(), "nothing moved: nothing sent").toEqual([]);
+    r.mixer.apply({ op: "setSend", bus: "SFX", to: "Echo", levelDb: null });
+    frame();
+    expect(sends()).toEqual([[1, [[echo, BUS_SEND_MUTED, 0.5012]]]]);
     r.backend.dispose();
   });
 
