@@ -50,6 +50,23 @@ function rig(capacity = 4) {
 }
 
 describe("DopplerPass", () => {
+  it("ADR 0333: the project's Doppler amount scales every voice's level (0 turns Doppler off)", () => {
+    const run = (amount: number | undefined) => {
+      const { pass, frame, view } = rig();
+      const settings = { doppler: { maxSpeed: 150, ...(amount === undefined ? {} : { amount }) }, speedOfSound: 343 };
+      const world = {} as World, node = {} as GameObject;
+      for (let k = 0; k < 120; k++) {
+        frame.set(world, 1, node, { position: { x: 0, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 1, z: 0 } }, 1 / 60);
+        (view.posX as Float32Array)[0] = 100 - 34.3 * (k / 60);
+        pass.run(frame, view, settings);
+      }
+      return pass.factor[0]!;
+    };
+    expect(run(undefined)).toBeCloseTo(343 / (343 - 34.3), 3);
+    expect(run(2)).toBeCloseTo(343 / (343 - 2 * 34.3), 3);
+    expect(run(0)).toBe(1);
+  });
+
   it("a steady approach settles on the OpenAL factor", () => {
     const { pass, step } = rig();
     for (let k = 0; k < 120; k++) step(1 / 60, [100 - 34.3 * (k / 60), 0, 0]); // toward the listener at the origin

@@ -214,8 +214,12 @@ export interface ZoneSettings {
   /** Seconds, 0.5..8, default 2; longer IRs are cut with a 50 ms fade. */
   maxIrSeconds: number;
 }
-/** `audio.doppler`: `maxSpeed` in world units per second, above 0, default 150. */
-export interface DopplerSettings { maxSpeed: number }
+/**
+ * `audio.doppler`: `maxSpeed` in world units per second, above 0, default 150. `amount` (ADR 0333) is the project's global
+ * Doppler multiplier 0..2 (`audio.json` `settings.dopplerAmount`), which the runtime view (`toRuntimeSettings`) writes
+ * here; absent is 1.
+ */
+export interface DopplerSettings { maxSpeed: number; amount?: number }
 
 /** Defaults of the M3 keys (ADR 0162 §2.1); their ranges are in `AUDIO_NUMBERS`. A bus's `bedPriority` range: */
 export const BED_PRIORITY_LIMITS = [0, 255] as const;
@@ -715,6 +719,11 @@ function parseSpatialKeys(input: Record<string, unknown>, settings: AudioSetting
     const [above] = range("doppler.maxSpeed");
     if (typeof v === "number" && Number.isFinite(v) && v > above) settings.doppler.maxSpeed = v;
     else problems.push(`audio.doppler.maxSpeed: must be a number above ${above}; using ${DEFAULT_DOPPLER_MAX_SPEED}.`);
+  }
+  // ADR 0333: the runtime view's global Doppler amount (`audio.json` `settings.dopplerAmount`), 0..2; absent is 1.
+  if (doppler && doppler.amount !== undefined) {
+    const amount = rangedNumber(doppler.amount, "audio.doppler.amount", 0, 2, 1, problems);
+    if (amount !== 1) settings.doppler.amount = amount;
   }
   settings.speedOfSound = rangedNumber(input.speedOfSound, "audio.speedOfSound", ...range("speedOfSound"), DEFAULT_SPEED_OF_SOUND, problems);
 }
