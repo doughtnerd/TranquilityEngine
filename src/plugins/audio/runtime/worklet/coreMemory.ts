@@ -42,7 +42,7 @@ const BEDS_FILTER_BYTES: Readonly<Record<number, number>> = { 2: 65_600, 4: 131_
 const BEDS_SLOT_BYTES: Readonly<Record<number, number>> = { 2: 49_216, 4: 81_984 };
 const BEDS_ACC_ONLY_SLOT_BYTES = 8_192;
 
-/** `hrtf::partitions_for_sample_rate`: the HRTF's FFT size at the rate (as `core/hrir.ts`'s `hrtfFftSize`) over 256, at least 1. */
+/** `hrtf::partitions_for_sample_rate`: the HRTF's FFT size at the rate (audio-dsp's `fft_size_for_sample_rate`, which the decoder's HRIR preparation uses too) over 256, at least 1. */
 function bedPartitions(sampleRate: number): number {
   const ratio = Math.fround(Math.fround(sampleRate) / 44100);
   const exponent = Math.min(Math.max(0, Math.floor(Math.log2(256 * ratio))), 29);

@@ -27,7 +27,7 @@ import hash from "../wasm/hash.json";
 import { presetFromSettings } from "./context";
 import { createHrirLoader } from "./hrir";
 import { createZoneIrService } from "./zoneIr";
-import { closeLoopbackAudio, endAudioSession, loopbackAudio, type LoopbackAudio, type LoopbackStreamPort } from "../testing";
+import { closeLoopbackAudio, endAudioSession, inProcessSpatialPrepare, loopbackAudio, type LoopbackAudio, type LoopbackStreamPort } from "../testing";
 
 const SAMPLE = fileURLToPath(new URL("../../../../../samples/sound-lab", import.meta.url));
 const DECODER = readFileSync(fileURLToPath(new URL("../wasm/myco_audio_decode.wasm", import.meta.url)));
@@ -96,7 +96,7 @@ async function passBy(station: "room" | "corridor"): Promise<{ left: number[]; r
   audio = await loopbackAudio({
     preset,
     decode: () => ({ channelData: [tone] }),
-    backend: (clips) => ({ zoneIr, hrir: createHrirLoader({ clips, sampleRate: RATE, warn: () => {}, fetchBytes: async () => slice(HRIR) }) }),
+    backend: (clips) => ({ zoneIr, hrir: createHrirLoader({ clips, sampleRate: RATE, warn: () => {}, fetchBytes: async () => slice(HRIR), prepare: inProcessSpatialPrepare() }) }),
   });
   if (!audio) throw new Error("the loopback core did not load");
   audio.link.connectStreamPort(worklet as unknown as MessagePort);

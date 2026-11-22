@@ -2,7 +2,7 @@
 // hrtfCost.bench.ts (the wall-clock cost of an HRTF voice, run apart from `npm test`).
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
 import { createHrirLoader } from "./hrir";
-import { loopbackAudio } from "../testing";
+import { inProcessSpatialPrepare, loopbackAudio } from "../testing";
 
 /** The most frames `until` steps before it gives up (an escape hatch for a hung load, not a time budget). */
 const UNTIL_FRAMES = 20_000;
@@ -35,6 +35,7 @@ export async function rig(opts: { spatial?: "hrtf" | "equalPower"; hrtf?: number
       hrir: createHrirLoader({
         clips,
         sampleRate: 48_000,
+        prepare: inProcessSpatialPrepare(),
         warn: (m) => warnings.push(m),
         fetchBytes: async () => {
           fetches++;

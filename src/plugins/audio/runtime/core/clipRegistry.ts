@@ -118,11 +118,14 @@ export interface ClipRegistry {
    */
   acquireReserved(id: number, data: ReservedClipData): void;
   /**
-   * A3.4c, a rebuild into a context at another rate: replaces the kept blob of a reserved clip already held (`data` is
-   * the same table resampled for the new rate) without sending anything; the rebuild's `resend` then sends the new
-   * blob. Chunks of the old blob still queued are dropped. Ignored for an id not held. Optional so fakes satisfy K9.
+   * A3.4c, a rebuild into a context at another rate: replaces the kept blob of a reserved clip already held with `next`
+   * (the same table prepared for the new rate by the decoder worker, ADR 0331) without sending anything itself. Chunks of
+   * the old blob still queued are dropped at once. Until `next` lands the old blob is stale: a `resend` meanwhile sends
+   * nothing for the clip (it waits, `copying`), and the new blob begins as soon as it lands; one landing before the resend
+   * is kept for it. A later call supersedes an earlier one still pending. A `next` that rejects (or isn't a valid blob)
+   * marks the clip `failed`; the caller warns. Ignored for an id not held. Optional so fakes satisfy K9.
    */
-  updateReserved?(id: number, data: ReservedClipData): void;
+  updateReserved?(id: number, next: Promise<ReservedClipData>): void;
 }
 
 /** What `acquireReserved` takes. */
@@ -293,6 +296,10 @@ interface ReservedSlot {
   samples: number;
   /** True while CLIP_BEGIN has gone out and no CLIP_UNLOAD has. */
   begun: boolean;
+  /** Bumped by each `updateReserved`: only the newest pending blob lands. */
+  updates: number;
+  /** An `updateReserved` blob is pending: `data` is stale and is not sent again. */
+  held: boolean;
   readonly listeners: Set<ClipResidentListener>;
 }
 
@@ -867,24 +874,49 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     acquireReserved(id, data) {
       checkReserved(id, data);
       if (reserved.has(id)) return;
-      const res: ReservedSlot = { id, state: "copying", data, samples: data.bytes.byteLength / reservedWordBytes(data.format), begun: false, listeners: new Set() };
+      const res: ReservedSlot = { id, state: "copying", data, samples: data.bytes.byteLength / reservedWordBytes(data.format), begun: false, updates: 0, held: false, listeners: new Set() };
       reserved.set(id, res);
       beginReserved(res);
     },
-    updateReserved(id, data) {
+    updateReserved(id, next) {
       const res = reserved.get(id);
       if (!res) return;
-      checkReserved(id, data);
+      const token = ++res.updates;
+      res.held = true;
       pacer.cancel(id);
-      res.data = data;
-      res.samples = data.bytes.byteLength / reservedWordBytes(data.format);
+      const current = () => reserved.get(id) === res && res.updates === token;
+      next.then(
+        (data) => {
+          if (!current()) return;
+          res.held = false;
+          try {
+            checkReserved(id, data);
+          } catch {
+            res.state = "failed";
+            return;
+          }
+          res.data = data;
+          res.samples = data.bytes.byteLength / reservedWordBytes(data.format);
+          // The resend came while it was pending (the core has nothing for it): send it now. Otherwise the resend will.
+          if (!res.begun) {
+            res.state = "copying";
+            beginReserved(res);
+          }
+        },
+        () => {
+          if (!current()) return;
+          res.held = false;
+          res.state = "failed";
+        },
+      );
     },
     resend(order) {
       for (const res of reserved.values()) {
         if (!res.begun || res.state === "failed") continue;
         pacer.cancel(res.id);
         res.state = "copying";
-        beginReserved(res);
+        if (res.held) res.begun = false; // stale: the new core gets the pending blob when it lands
+        else beginReserved(res);
       }
       const slots: Slot[] = [];
       const seen = new Set<Slot>();
