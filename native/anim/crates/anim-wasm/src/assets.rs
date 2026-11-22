@@ -12,8 +12,8 @@
 //!
 //! | Kind | Kept |
 //! |---|---|
-//! | skeleton (`myco.skel@1`) | parents, rest pose (AoS and packed SoA), identity pose, inverse bind matrices, the bind pose (T31: local transforms of the inverse binds' model pose, packed) |
-//! | clip (`myco.anim@1`) | a sampler over its compressed form (else its raw form) with its binding table (`anim-sample`'s `ClipBindings`: decoded channel, track and key tables, so sampling and track windows don't re-read records), duration, flags, root curve; and (T31) its sync markers keyed by name hash, its exit markers' times and its curve tracks by name hash, for the graph's markers, exit times and curve conditions |
+//! | skeleton (`myco.skel@1`) | parents, rest pose (AoS and packed SoA), identity pose, inverse bind matrices, the bind pose (T31: local transforms of the inverse binds' model pose, packed); (T40) a joint limit per bone from `JOINT_RANGES` against its rest rotation (free without one) and the bone of each profile role, for the rig nodes |
+//! | clip (`myco.anim@1`) | a sampler over its compressed form (else its raw form) with its binding table (`anim-sample`'s `ClipBindings`: decoded channel, track and key tables, so sampling and track windows don't re-read records), duration, flags, root curve; and (T31) its sync markers keyed by name hash, its exit markers' times and its curve tracks by name hash, for the graph's markers, exit times and curve conditions; (T40) its cue markers by name hash (motion-warp windows) and its root curve's cumulative ground travel per frame (distance matching) |
 //! | graph (`myco.animgraph@1`) | its [`Program`] and a binding table (an asset handle per string id: clips, masks and, for linked graphs, graphs) |
 //! | mask | per-bone weights packed like a pose |
 //!
@@ -30,7 +30,8 @@ use anim_format::F32s;
 use anim_graph::eval::{name_hash, Assets, ClipRef, GraphRef, Program};
 use anim_graph::sources::triangulate::sort_small;
 use anim_math::layout::{pack_pose, soa_len};
-use anim_math::{AosMat3x4, AosTransform, F32x4, SoaTransform};
+use anim_math::{AosMat3x4, AosTransform, AosVec3, F32x4, SoaTransform};
+use anim_rig::JointLimit;
 use anim_pose::sync::SyncMarker;
 use anim_sample::{BoundClip, ClipBindings, ClipSampler, Form};
 use anim_wire::core::{
@@ -104,6 +105,10 @@ pub struct SkeletonAsset {
     pub inverse_bind: Vec<AosMat3x4>,
     /// The bind pose, packed (T31's `BIND_POSE`).
     pub bind_soa: Vec<SoaTransform>,
+    /// T40: a joint limit per bone (`JointLimit::FREE` where `JOINT_RANGES` has none).
+    pub limits: Vec<JointLimit>,
+    /// T40: the bone of each profile role (`anim_graph::rig::NO_BONE` for none).
+    pub roles: Vec<u16>,
 }
 
 impl ClipAsset {
@@ -137,6 +142,10 @@ pub struct ClipAsset {
     pub sync: Vec<SyncMarker>,
     pub exits: Vec<f32>,
     pub curves: Vec<(u32, u32)>,
+    /// T40: cue markers (ids are name hashes), sorted by time.
+    pub cues: Vec<SyncMarker>,
+    /// T40: the root curve's cumulative ground travel per frame (empty without a curve).
+    pub distance: Vec<f32>,
     bytes: AlignedBytes,
 }
 
@@ -315,6 +324,7 @@ impl Arena {
         let bind = bind_pose(&parents, &inverse_bind, &rest);
         let mut bind_soa = vec![SoaTransform::identity(); soa_len(n)];
         pack_pose(&bind, &mut bind_soa);
+        let (limits, roles) = rig_tables(&view, &rest);
         self.insert(Asset::Skeleton(SkeletonAsset {
             parents,
             rest,
@@ -322,6 +332,8 @@ impl Arena {
             identity: vec![AosTransform::identity(); n],
             inverse_bind,
             bind_soa,
+            limits,
+            roles,
         }))
     }
 
@@ -340,6 +352,8 @@ impl Arena {
         bindings.bind(sampler).map_err(|_| STATUS_BAD_ASSET)?;
         let held = block.len;
         let (sync, exits, curves) = marker_tables(&view);
+        let cues = cue_table(&view);
+        let distance = travel(&view);
         let asset = ClipAsset {
             sampler,
             bindings,
@@ -353,6 +367,8 @@ impl Arena {
             sync,
             exits,
             curves,
+            cues,
+            distance,
             bytes: block,
         };
         let h = self.insert(Asset::Clip(asset))?;
@@ -447,6 +463,8 @@ impl Assets for Arena {
             sync: &c.sync,
             exits: &c.exits,
             curves: &c.curves,
+            cues: &c.cues,
+            distance: &c.distance,
         })
     }
 
@@ -499,6 +517,71 @@ fn marker_tables(view: &ClipView<'_>) -> (Vec<SyncMarker>, Vec<f32>, Vec<(u32, u
     sort_small(&mut sync, |a, b| a.time < b.time);
     sort_small(&mut exits, |a, b| a < b);
     (sync, exits, curves)
+}
+
+/// T40: a clip's cue markers (ids = name hashes, sorted by time), for motion-warp windows.
+fn cue_table(view: &ClipView<'_>) -> Vec<SyncMarker> {
+    let strings = view.strings();
+    let mut cues = Vec::new();
+    for t in 0..view.track_count() {
+        for key in view.track_keys(t) {
+            if let KeyData::Marker {
+                kind: MarkerKind::Cue,
+                name,
+            } = key.data
+            {
+                cues.push(SyncMarker {
+                    id: strings.get(name).map_or(0, name_hash),
+                    time: key.time,
+                });
+            }
+        }
+    }
+    sort_small(&mut cues, |a, b| a.time < b.time);
+    cues
+}
+
+/// T40: the root curve's cumulative ground travel (up +Y) per frame, for distance matching.
+fn travel(view: &ClipView<'_>) -> Vec<f32> {
+    let Some(curve) = view.root_curve() else {
+        return Vec::new();
+    };
+    let frames = view.frame_count() as usize;
+    let positions: Vec<AosVec3> = (0..frames)
+        .filter_map(|f| {
+            Some(AosVec3::new(
+                curve.get(4 * f)?,
+                curve.get(4 * f + 1)?,
+                curve.get(4 * f + 2)?,
+            ))
+        })
+        .collect();
+    let mut out = vec![0.0; positions.len()];
+    anim_rig::warp::cumulative_distance(&positions, AosVec3::new(0.0, 1.0, 0.0), &mut out);
+    out
+}
+
+/// T40: a joint limit per bone (from `JOINT_RANGES` against the rest rotation; free without a
+/// range) and the bone of each profile role, for the rig nodes.
+fn rig_tables(view: &SkeletonView<'_>, rest: &[AosTransform]) -> (Vec<JointLimit>, Vec<u16>) {
+    let n = view.bone_count();
+    let limits = (0..n)
+        .map(|i| match view.joint_range(i) {
+            Some(r) => JointLimit::from_range(rest[i].rotation, &r),
+            None => JointLimit::FREE,
+        })
+        .collect();
+    let mut roles = Vec::new();
+    for i in 0..n {
+        if let Some(r) = view.role(i) {
+            let r = r as usize;
+            if roles.len() <= r {
+                roles.resize(r + 1, anim_graph::rig::NO_BONE);
+            }
+            roles[r] = i as u16;
+        }
+    }
+    (limits, roles)
 }
 
 /// The local bind pose: each bone's model bind transform (the inverse of its inverse bind matrix,

@@ -2,5 +2,142 @@
 // native/anim/crates/anim-wire/src/rig.rs. Do not edit: change the Rust and rebuild.
 // Internal to the animation plugin (ADR 0340): never part of the public API.
 
-/** Wire family `rig`: rig stack inputs and outputs: IK target transforms, grounder ray requests and their hits, per-entry weights (ADR 0340). */
+/**
+ * Wire family `rig`: rig stack inputs and outputs (ADR 0340, 0342): the rig input view (character transform, rig LOD,
+ * IK target slots, last frame's ray hits), the ray output view (grounder ray requests) and the motion-warp and reset
+ * commands (native/anim/crates/anim-wire/src/rig.rs documents them).
+ */
 export const RIG_FAMILY = { name: "rig", id: 4, version: 1 } as const;
+
+/** Input view: IK target slots per instance. */
+export const RIG_MAX_TARGETS = 16;
+
+/** Input view: ray hits per instance (and output view: ray requests). */
+export const RIG_MAX_RAYS = 8;
+
+/** Input view: the character's model-to-world position (3 f32). */
+export const RIG_CHARACTER_POSITION = 0;
+
+/** Input view: the character's rotation (4 f32, x y z w). */
+export const RIG_CHARACTER_ROTATION = 12;
+
+/** Input view: the character's scale (3 f32). */
+export const RIG_CHARACTER_SCALE = 28;
+
+/** Input view: the rig LOD level (u32; 0 full detail). */
+export const RIG_LOD = 40;
+
+/** Input view: the target slots' offset. */
+export const RIG_TARGETS = 64;
+
+/** Bytes per target slot. */
+export const TARGET_STRIDE = 48;
+
+/** Target: position (3 f32). */
+export const TARGET_POSITION = 0;
+
+/** Target: rotation (4 f32). */
+export const TARGET_ROTATION = 12;
+
+/** Target: position weight (f32; 0 turns the slot off). */
+export const TARGET_POSITION_WEIGHT = 28;
+
+/** Target: rotation weight (f32). */
+export const TARGET_ROTATION_WEIGHT = 32;
+
+/** Target: flags (u32). */
+export const TARGET_FLAGS = 36;
+
+/** Target flag: world space (else model space). */
+export const TARGET_WORLD = 1;
+
+/** Input view: the ray hits' offset. */
+export const RIG_HITS = 832;
+
+/** Bytes per hit. */
+export const HIT_STRIDE = 32;
+
+/** Hit: point (3 f32, model space). */
+export const HIT_POINT = 0;
+
+/** Hit: unit normal (3 f32, model space). */
+export const HIT_NORMAL = 12;
+
+/** Hit: flags (u32). */
+export const HIT_FLAGS = 24;
+
+/** Hit flag: the ray hit something. */
+export const HIT_VALID = 1;
+
+/** Input view: bytes per instance row. */
+export const RIG_INPUT_STRIDE = 1088;
+
+/** Output view: bytes per ray request. */
+export const RAY_STRIDE = 32;
+
+/** Request: origin (3 f32, model space). */
+export const RAY_ORIGIN = 0;
+
+/** Request: unit direction (3 f32, model space). */
+export const RAY_DIRECTION = 12;
+
+/** Request: length (f32). */
+export const RAY_LENGTH = 24;
+
+/** Request: flags (u32). */
+export const RAY_FLAGS = 28;
+
+/** Request flag: asked for this frame. */
+export const RAY_VALID = 1;
+
+/** Output view: bytes per instance row. */
+export const RAY_ROW_STRIDE = 256;
+
+/** `WARP_TARGET.flags`: clear the target. */
+export const WARP_CLEAR = 1;
+
+/** `RIG_RESET.node`: every rig node of the instance. */
+export const NODE_ALL = 4294967295;
+
+/**
+ * Command: a motion-warp node's target (`anim.warp(name, target)`, ADR 0342), world space
+ * (the character transform's space). The node lands the root there at its window's end; a
+ * target set mid-window re-plans from the current frame.
+ */
+export const WARP_TARGET = {
+  opcode: 0x0401,
+  version: 1,
+  stride: 44,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** The motion-warp node's index. */
+    node: { offset: 8, type: "u32" },
+    px: { offset: 12, type: "f32" },
+    py: { offset: 16, type: "f32" },
+    pz: { offset: 20, type: "f32" },
+    /** Rotation (only the yaw about the node's up axis is matched, decision D42). */
+    rx: { offset: 24, type: "f32" },
+    ry: { offset: 28, type: "f32" },
+    rz: { offset: 32, type: "f32" },
+    rw: { offset: 36, type: "f32" },
+    /** `WARP_CLEAR`, or 0. */
+    flags: { offset: 40, type: "u32" },
+  },
+} as const;
+
+/**
+ * Command: rig nodes forget their history at their next solve (spring chains restart on the
+ * animated pose, damp and grounder smoothing snap): after a teleport or a cut.
+ */
+export const RIG_RESET = {
+  opcode: 0x0402,
+  version: 1,
+  stride: 12,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** A rig node's index, or `NODE_ALL`. */
+    node: { offset: 8, type: "u32" },
+  },
+} as const;

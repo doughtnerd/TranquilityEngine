@@ -141,6 +141,7 @@ pub fn write(arena: &Arena, table: &mut Table, inputs_view: &[u32], h: u32, out:
         layer_weights: &weights,
         history,
         bake_root: row[(INPUT_FLAGS / 4) as usize] & FLAG_BAKE_ROOT != 0,
+        rig: anim_graph::rig::RigInputs::NONE,
     };
     let head = DebugHeader::STRIDE as usize;
     if out.len() < head {
