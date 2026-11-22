@@ -425,6 +425,31 @@ fn a_voice_time_binding_follows_the_voice_from_its_start() {
     assert_eq!(automation::voice_entry(&mut m.core, 2).unwrap().vstart, 1024);
 }
 
+/// ABI 4.9 (ADR 0332 "time origin"): a binding's offset reads its time parameter that many seconds
+/// later, exactly as a copy of the curve shifted by it would (the playlist runtime no longer uploads
+/// shifted copies per voice), and only for time parameters.
+#[test]
+fn a_time_offset_binding_evaluates_like_the_shifted_curve_copy() {
+    let offset = 0.004f32; // 192 frames into TEN_MS
+    let shifted: Vec<(f32, f32, u32)> = TEN_MS.iter().map(|&(x, y, i)| (x - offset, y, i)).collect();
+    let run = |curve: &[(f32, f32, u32)], off: f32| {
+        let mut m = mixer();
+        let a = wire::Automate { voice_id: V1, frame_offset: wire::ASAP, bindings: vec![wire::AutomateBindings { param: T_VOICE, curve: 0, target: 0, offset: off }] };
+        m.submit(&[curves(0, &[curve]), dc(V1, 0, 0.0), raw(move |b| a.write(b, 0))]);
+        (0..4).flat_map(|_| m.render().0).collect::<Vec<f32>>()
+    };
+    let with_offset = run(TEN_MS, offset);
+    let with_copy = run(&shifted, 0.0);
+    assert_eq!(with_offset, with_copy);
+    check(&with_offset[..128], 1e-5, "starts 192 frames into the curve", |_| ten_ms(192.0));
+    // A parameter binding ignores the offset.
+    let mut m = mixer();
+    let a = wire::Automate { voice_id: V1, frame_offset: wire::ASAP, bindings: vec![wire::AutomateBindings { param: 0x8000, curve: 0, target: 0, offset: 0.004 }] };
+    m.submit(&[curves(0, &[TEN_MS]), param(0, 0, 0.002, 0.0), dc(V1, 0, 0.0), raw(move |b| a.write(b, 0))]);
+    let (l, _) = m.render();
+    check(&l, 1e-5, "the parameter's value, unshifted", |_| ten_ms(96.0));
+}
+
 #[test]
 fn a_clip_time_binding_follows_the_playhead() {
     // Pitch 2: the playhead moves 256 clip frames a quantum, so clip time runs twice as fast as voice time.

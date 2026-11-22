@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: 763245ca0a6470f2ea9f42e9d76d3d4a).
+/// First 16 bytes of the schema's SHA-256 (hex: 55e6051e026a370833ba9e7a9d3c23dd).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0x76,
-    0x32,
-    0x45,
-    0xca,
-    0x0a,
-    0x64,
-    0x70,
-    0xf2,
-    0xea,
-    0x9f,
-    0x42,
-    0xe9,
-    0xd7,
-    0x6d,
-    0x3d,
-    0x4a,
+    0x55,
+    0xe6,
+    0x05,
+    0x1e,
+    0x02,
+    0x6a,
+    0x37,
+    0x08,
+    0x33,
+    0xba,
+    0x9e,
+    0x7a,
+    0x9d,
+    0x3c,
+    0x23,
+    0xdd,
 ];
-pub const SCHEMA_HASH_HEX: &str = "763245ca0a6470f2ea9f42e9d76d3d4a";
+pub const SCHEMA_HASH_HEX: &str = "55e6051e026a370833ba9e7a9d3c23dd";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;

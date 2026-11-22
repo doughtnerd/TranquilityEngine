@@ -476,8 +476,9 @@ pub fn cases() -> Vec<VectorCase> {
             ],
             concat!("0800", "0600", "03000200", "40000000", "c0120000", "80250000", "01000000"),
         ),
-        // AUTOMATE (ADR 0158), variable length: 32 B = 8 words. Voice 0x00010005, asap; two bindings:
-        // global slot 3 (0x8003) through curve 7 to volume, local slot 1 through curve 8 to lowpass.
+        // AUTOMATE (ADR 0158; offsets ABI 4.9), variable length: 40 B = 10 words. Voice 0x00010005,
+        // asap; two bindings: global slot 3 (0x8003) through curve 7 to volume, voice time (0x4000)
+        // through curve 8 to pan (4), read 1.5 s on (its time origin).
         case(
             "AUTOMATE_two_bindings",
             Subject::Opcode("AUTOMATE"),
@@ -487,16 +488,16 @@ pub fn cases() -> Vec<VectorCase> {
                 (
                     "bindings",
                     va(vec![
-                        vr(vec![("param", vu(0x8003)), ("curve", vu(7)), ("target", vu(0))]),
-                        vr(vec![("param", vu(1)), ("curve", vu(8)), ("target", vu(2))]),
+                        vr(vec![("param", vu(0x8003)), ("curve", vu(7)), ("target", vu(0)), ("offset", vf(0.0))]),
+                        vr(vec![("param", vu(0x4000)), ("curve", vu(8)), ("target", vu(4)), ("offset", vf(1.5))]),
                     ]),
                 ),
             ],
             concat!(
-                "0900", "0800", "05000100", "ffffffff", // head: AUTOMATE, 8 words, voice, asap
+                "0900", "0a00", "05000100", "ffffffff", // head: AUTOMATE, 10 words, voice, asap
                 "02000000", // bindingCount 2
-                "0380", "0700", "00000000", // param 0x8003, curve 7, target 0 (volume)
-                "0100", "0800", "02000000", // param 1, curve 8, target 2 (lowpass)
+                "0380", "0700", "00000000", "00000000", // param 0x8003, curve 7, target 0 (volume), offset 0
+                "0040", "0800", "04000000", "0000c03f", // voice time, curve 8, target 4 (pan), offset 1.5
             ),
         ),
         // CURVES (ADR 0158, 0332), variable length: 112 B = 28 words. Curves 10 and 11: curve 10 has keys
@@ -574,7 +575,7 @@ pub fn cases() -> Vec<VectorCase> {
                         ("count", vu(2)),
                         ("flags", vu(0x65)),
                         ("param", vu(0x8001)),
-                        ("reserved", vu(0)),
+                        ("shapes", vu(0x21)),
                         ("threshold", vf(0.5)),
                     ])]),
                 ),
@@ -582,11 +583,12 @@ pub fn cases() -> Vec<VectorCase> {
             concat!(
                 "0b00", "0b00", "03000000", "ffffffff", "01000000", // head, loopCount 1
                 "64000000", "c8000000", "20000000", "40000000", // start, end, crossfade, exit fade
-                "0200", "6500", "0180", "0000", "0000003f", // count, flags, param, reserved, threshold
+                "0200", "6500", "0180", "2100", "0000003f", // count, flags, param, shapes (seam linear, exit s-curve; ABI 4.9), threshold
             ),
         ),
-        // SUBMIX (ADR 0331), variable length: 20 + 40 = 60 B = 15 words, asap. Slot 2 for group 4 on
-        // bus 1; one effect: a low-pass (kind 1), on, cutoff 800 Hz, resonance 0.5.
+        // SUBMIX (ADR 0331; parent ABI 4.9), variable length: 24 + 40 = 64 B = 16 words, asap. Slot 2
+        // for group 4 on bus 1, feeding slot 5 (parent 6); one effect: a low-pass (kind 1), on,
+        // cutoff 800 Hz, resonance 0.5.
         case(
             "SUBMIX_one_lowpass",
             Subject::Opcode("SUBMIX"),
@@ -595,6 +597,8 @@ pub fn cases() -> Vec<VectorCase> {
                 ("frameOffset", vu(0xFFFF_FFFF)),
                 ("group", vu(4)),
                 ("bus", vu(1)),
+                ("parent", vu(6)),
+                ("reserved", vu(0)),
                 (
                     "effects",
                     va(vec![vr(vec![
@@ -605,10 +609,18 @@ pub fn cases() -> Vec<VectorCase> {
                 ),
             ],
             concat!(
-                "0c00", "0f00", "02000000", "ffffffff", "0400", "0100", "01000000", // head, group, bus, effectCount 1
+                "0c00", "1000", "02000000", "ffffffff", "0400", "0100", "01000000", // head, group, bus, effectCount 1
+                "0600", "0000", // parent 6 (slot 5), reserved
                 "01000000", "01000000", "00004844", "0000003f", // type, flags, p0 800, p1 0.5
                 "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", // p2..p7
             ),
+        ),
+        // ROUTE (ADR 0331 levels, ABI 4.9), 16 B = 4 words, asap: voice 0x00010007 into submix slot 3.
+        case(
+            "ROUTE_into_slot_3",
+            Subject::Opcode("ROUTE"),
+            vec![("voiceId", vu(0x0001_0007)), ("frameOffset", vu(0xFFFF_FFFF)), ("submix", vu(4)), ("reserved", vu(0))],
+            concat!("0d00", "0400", "07000100", "ffffffff", "0400", "0000"),
         ),
         // BUS_SENDS (ADR 0330, ABI 4.7), variable length: 16 + 12 = 28 B = 7 words, asap. Bus 3 sends into
         // bus 1, muted, level 0.5, over 480 frames.

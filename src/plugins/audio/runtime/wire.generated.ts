@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "763245ca0a6470f2ea9f42e9d76d3d4a";
+export const SCHEMA_HASH = "55e6051e026a370833ba9e7a9d3c23dd";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;

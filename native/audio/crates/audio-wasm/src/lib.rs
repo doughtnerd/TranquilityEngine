@@ -42,7 +42,11 @@ use crate::memory::{PlatformMemory, PLATFORM_MEMORY};
 /// region (effect memory); smoothed catalogue parameters; sidechain keys order the buses.
 pub const ABI_MAJOR: u32 = 4;
 /// 4.7 (ADR 0330): BUS_SENDS (0x1E), post-fader bus-to-return sends with level ramps and core-side muting.
-pub const ABI_MINOR: u32 = 7;
+/// 4.9 (ADR 0331 levels, 0332, 0336): SUBMIX `parent` (nested playlists', tracks' and clips' submixes feed
+/// their parent level's, up to 8 levels; a slot whose group goes to 0 rings its tail until freed), ROUTE
+/// (0x0D) names a voice's level submix, AUTOMATE bindings carry a time `offset` (time origin), LOOPS
+/// `shapes` shape the seam and exit crossfades with the playlist fade-shape set. (4.8 is mixer automation.)
+pub const ABI_MINOR: u32 = 9;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
 pub const INBOX_BYTES: usize = 1 << 20;
