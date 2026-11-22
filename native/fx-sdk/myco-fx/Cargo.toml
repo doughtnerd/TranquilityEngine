@@ -1,0 +1,16 @@
+[package]
+name = "myco-fx"
+description = "Write Myco audio effect plugins (DSP ABI 1.0, ADR 0338): a trait, an export macro and an allocator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# On wasm32: install the SDK's freeing allocator as the global allocator and a panic handler that traps. Turn it off
+# when the plugin crate uses std (which brings its own) or another allocator.
+default = ["runtime"]
+runtime = []
+
+[lib]
+path = "src/lib.rs"

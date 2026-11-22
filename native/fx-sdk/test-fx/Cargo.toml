@@ -1,0 +1,14 @@
+[package]
+name = "test-fx"
+description = "The audio effect SDK's own test plugin: built to native/fx-sdk/wasm/test_fx.wasm for the engine's tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+myco-fx = { path = "../myco-fx" }

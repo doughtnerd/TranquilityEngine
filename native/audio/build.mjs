@@ -14,7 +14,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileS
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { meter, METER_VERSION } from "../../tools/audio-bench/meter.mjs";
+import { meter, METER_VERSION } from "../../src/engine/wasm/meter.js";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const out = fileURLToPath(new URL("../../src/plugins/audio/runtime/wasm/", import.meta.url));
@@ -230,7 +230,7 @@ function writeHashJson(identity, bytes) {
 }
 
 /** C1b: builds audio-bench's wasm as the mixer is built (release, +simd128; the same audio-core and DSP), injects the
- *  instruction counter (tools/audio-bench/meter.mjs) and writes it with metered.json (the source hash it was built
+ *  instruction counter (src/engine/wasm/meter.js) and writes it with metered.json (the source hash it was built
  *  from) to tools/audio-bench/metered/. Test-only: never copied into a build, not size-gated. */
 function buildMetered(sourceHash) {
   run("cargo", ["build", "-p", "audio-bench", "--lib", "--release", "--target", TARGET, "--target-dir", "target/bench"], {
