@@ -114,6 +114,8 @@ function derivedSession(project: EditorProject, path: string): SampleSession {
     // Fields the edit didn't touch keep the fork's own value, so an inherited field stays inherited.
     const sample = { ...d.sample } as Record<string, unknown>;
     for (const [k, v] of Object.entries(result.next)) if (!deepEqual(v, (before as unknown as Record<string, unknown>)[k])) sample[k] = v;
+    // A field the edit removed (Unflatten's `source`) goes from the fork's own fields too.
+    for (const k of Object.keys(before)) if (!(k in result.next)) delete sample[k];
     doc.edit({ ...d, sample: sample as unknown as SampleEdits }, { label: result.label, coalesce: options?.coalesce });
     return true;
   };

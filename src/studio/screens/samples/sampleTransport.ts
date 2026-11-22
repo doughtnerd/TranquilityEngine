@@ -3,8 +3,9 @@
 // playhead following the audio clock (`playheadModel.ts`). `planPlay` is pure; the rest drives the host.
 //
 // Degraded until the core can start a clip at an offset and render edits (TODO, core tasks in flight): only one loop
-// cycles per audition (Through loops cycles the first; later loops play straight through), and deleted snippets,
-// closed gaps, baked effects and normalize aren't heard yet.
+// cycles per audition (Through loops cycles the first; later loops play straight through), and deleted snippets and
+// closed gaps aren't heard yet; baked effects and normalize are heard once the sample is flattened (the audition then
+// plays the render, which keeps the source's timeline: `sampleActions.ts`).
 import { signal } from "@preact/signals";
 import type { SampleEdits } from "../../../engine/audio/sample/types";
 import { playheadAt, type PlayRun } from "../../components/playheadModel";

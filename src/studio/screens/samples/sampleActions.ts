@@ -7,6 +7,7 @@ import { addLoop, addMarker, closeGap, deleteMarker, removeLoop, setTrim, snip, 
 import { editedLength, trimOf } from "./sampleTime";
 import { landmarks, liveSelection, selectionSpan, SAMPLE_SELECTED, type SampleSelection } from "./sampleView";
 import { lengthOf } from "./sampleSession";
+import { renderPathOf } from "./sampleFlatten";
 import { followPlayhead, playMode, playheadTime, preRoll, razorOn, returnToStart, select, selection, openSession, viewSpan, snapSetting, timeFormat } from "./samplesState";
 import { planPlay, playing, releasePlay, startPlay, stopPlay } from "./sampleTransport";
 import { formatTime } from "../../components/timeRulerModel";
@@ -169,7 +170,9 @@ export function togglePlay(sel?: SampleSelection): boolean {
     return true;
   }
   const back = playheadTime.peek();
-  const why = startPlay(host, c.s.path, c.s.source.peek(), plan, preRoll.peek() ? 1 : 0, (t) => movePlayhead(t, followPlayhead.peek()), () => {
+  // A flattened sample plays its render, which keeps the source's timeline: the plan's source seconds hold.
+  const audio = renderPathOf(c.s.project.files, c.s.source.peek(), c.e) ?? c.s.source.peek();
+  const why = startPlay(host, c.s.path, audio, plan, preRoll.peek() ? 1 : 0, (t) => movePlayhead(t, followPlayhead.peek()), () => {
     if (returnToStart.peek()) playheadTime.value = back;
   });
   if (why) toasts.show({ text: `Can't play: ${why}.`, kind: "error" });
