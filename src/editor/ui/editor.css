@@ -3,7 +3,10 @@
  * `installTheme` sets the chosen theme's values on :root, so a preset or a colour override in
  * Settings > Appearance changes every rule that uses them. New CSS should use these variables
  * rather than colours: --bg, --panel, --surface (dialogs, menus), --border, --text, --muted,
- * --accent, --button and --button-hover are the common ones.
+ * --accent, --button and --button-hover are the common ones. The Audio Studio's (ADR 0335) add
+ * marker types (--marker-exit, --marker-hit, --marker-cue, --marker-note), reserved ranges
+ * (--range-trim, --range-loop, --range-pickup, --range-tail) and a series palette for lanes
+ * (--series-1 … --series-8).
  */
 :root {
   /* surfaces */
@@ -57,6 +60,23 @@
   /* depth */
   --shadow: rgb(0 0 0 / 0.55);
   --backdrop: rgb(0 0 0 / 0.55);
+  /* Audio Studio (ADR 0335): marker types, reserved ranges, lane series */
+  --marker-exit: #8bd12a;
+  --marker-hit: #e8907a;
+  --marker-cue: #f07ab4;
+  --marker-note: #6aa8ff;
+  --range-trim: #f2b84b;
+  --range-loop: #2ad4d4;
+  --range-pickup: #e8907a;
+  --range-tail: #b48cf0;
+  --series-1: #2ad4d4;
+  --series-2: #8bd12a;
+  --series-3: #f2b84b;
+  --series-4: #6aa8ff;
+  --series-5: #e879c6;
+  --series-6: #b48cf0;
+  --series-7: #e8907a;
+  --series-8: #afaea8;
   /* fonts (Settings > Appearance); --ui-scale is the UI font size over the default 13px */
   --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-size-ui: 13px;
