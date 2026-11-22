@@ -8,6 +8,7 @@ import { stepFrame, togglePause } from "./playDebug";
 import { openScene, pickTool, snapping, type Tool } from "./state";
 
 import { isEditable } from "./editable";
+import { insideKeyOwner } from "./graph/keyOwner";
 import { dialogOpenAnywhere } from "./windows/editorWindows";
 export { isEditable };
 
@@ -63,11 +64,12 @@ export function installShortcuts(target: Window = window): () => void {
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Control" || e.key === "Meta") snapping.value = true;
     const action = shortcutFor(e);
-    // The Code panel's editor has its own keys (Ctrl/Cmd+S saves the script, Ctrl/Cmd+Z undoes typing), and the
-    // Shader Graph panel its own delete, duplicate and clipboard (ADR 0046); only Play and Save pass through, and
-    // there undo and redo too (the active history is the graph's document).
+    // The Code panel's editor has its own keys (Ctrl/Cmd+S saves the script, Ctrl/Cmd+Z undoes typing), and a
+    // graph editor (any root marked as owning the keys, `graph/keyOwner.ts`) its own delete, duplicate, clipboard
+    // and tool keys (ADR 0046); only Play and Save pass through, and there undo and redo too (the active history is
+    // the graph's document).
     if (action !== "play" && (e.target as Element | null)?.closest?.(".monaco-editor")) return;
-    if (action !== "play" && action !== "save" && !(action && HISTORY_SHORTCUTS.includes(action)) && (e.target as Element | null)?.closest?.(".shader-graph")) return;
+    if (action !== "play" && action !== "save" && !(action && HISTORY_SHORTCUTS.includes(action)) && insideKeyOwner(e.target)) return;
     if (action === "play") {
       e.preventDefault(); // not the browser's print dialog
       togglePlaying();
@@ -133,7 +135,7 @@ export function installShortcuts(target: Window = window): () => void {
   // where the node shortcuts would act (text fields, the Assets panel, dialogs and the graph panels paste their own).
   const onPaste = (e: Event) => {
     const at = e.target as Element | null;
-    if (isEditable(at) || at?.closest?.(".monaco-editor, .shader-graph, .particle-graph, .asset-browser, .dialog") || dialogOpenAnywhere()) return;
+    if (isEditable(at) || insideKeyOwner(at) || at?.closest?.(".monaco-editor, .asset-browser, .dialog") || dialogOpenAnywhere()) return;
     takePaste(e as ClipboardEvent, (text) => void pasteClipboardText(text));
   };
   target.addEventListener("keydown", onKeyDown);

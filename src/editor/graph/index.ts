@@ -14,7 +14,8 @@
 // - wiring: `useGraphWiring`, the wiring gesture, over `wireGesture`, its decisions as pure functions.
 // - graphFind and findBox: `findInGraph` (the matcher), `useGraphFind` and `GraphFindBox`.
 // - document: `graphDocument(kind)`, the generic edits, for a `GraphDocumentKind` a plugin plugs in.
-// - selection: `useGraphSelection`, a panel's selection, box select, keyboard shortcuts and item drags.
+// - selection: `useGraphSelection`, a panel's selection, box select, keyboard shortcuts and item drags;
+//   its `rootProps` go on the panel's root, with keyOwner's marker that the root owns the editor's node keys.
 // Copy and paste go through the editor's clipboard text (`../clipboard.ts`, ADR 0226), shared with the node clipboard.
 // Styles are in graph.css (import it from the panel).
 export * from "./xyflow";

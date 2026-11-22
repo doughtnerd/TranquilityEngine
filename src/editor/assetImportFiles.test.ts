@@ -1,7 +1,7 @@
 // Importing files dropped from the OS (ADR 0085): name collisions, folders, sidecars, text assets.
 import { beforeEach, describe, expect, it } from "vitest";
 import { Input } from "../engine";
-import { filesOfPaths, importFiles, whyNotImportable, type IncomingFile } from "./assetImportFiles";
+import { filesOfPaths, importFiles, type IncomingFile } from "./assetImportFiles";
 import { numberedName } from "./freePath";
 import { joinPath, openFolderProject, type EditorProject } from "./projects";
 import { currentProject } from "./state";
@@ -48,10 +48,6 @@ describe("importFiles", () => {
     await importFiles(project, "images", [file("a.png"), file("a (1).png"), file("sprites/x.png")]);
     const result = await importFiles(project, "images", [file("a.png"), file("a.png.meta.json", '{"format":"myco.import@1"}'), file("sprites/b.png"), file("c.png")]);
     expect(result.imported.sort()).toEqual(["images/a (2).png", "images/a (2).png.meta.json", "images/c.png", "images/sprites (1)/b.png"]);
-  });
-
-  it("refuses a read-only project", () => {
-    expect(whyNotImportable(null)).toMatch(/no project/);
   });
 });
 

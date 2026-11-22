@@ -23,10 +23,10 @@ export interface IncomingFile {
 const join = (folder: string, name: string) => (folder ? `${folder}/${name}` : name);
 const decoder = new TextDecoder();
 
-/** Why files can't be imported into this project right now, or null. */
+/** Why files can't be imported into this project right now, or null: importing writes the project's folder through its file system. */
 export function whyNotImportable(project: EditorProject | null): string | null {
   if (!project) return "no project is open";
-  if (!project.canSave) return `${project.name} is read-only; open a project folder to import files`;
+  if (!project.canSave || !project.fileSystem) return `${project.name} is read-only; open a project folder to import files`;
   return null;
 }
 
@@ -71,14 +71,13 @@ export interface ImportResult {
   failed: { path: string; error: string }[];
 }
 
-/** Copy `incoming` into `folder` of the project and refresh the Assets panel. Never overwrites. */
+/**
+ * Copy `incoming` into `folder` of the project and refresh the Assets panel. Never overwrites. Ask
+ * `whyNotImportable` first (the OS drop controller does, ADR 0324): in a read-only project every
+ * file fails to write and is reported in `failed`.
+ */
 export async function importFiles(project: EditorProject, folder: string, incoming: readonly IncomingFile[]): Promise<ImportResult> {
   const result: ImportResult = { imported: [], failed: [] };
-  const refuse = whyNotImportable(project);
-  if (refuse) {
-    status.value = { kind: "error", text: `Can't import files: ${refuse}.` };
-    return result;
-  }
   const valid: IncomingFile[] = [];
   for (const f of incoming) {
     const bad = f.path.split("/").map(whyNotValidName).find((r) => r);

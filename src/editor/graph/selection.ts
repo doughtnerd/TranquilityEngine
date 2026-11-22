@@ -10,6 +10,7 @@
 // a row see each other's edits.
 import { useState } from "preact/hooks";
 import { clipboardForPaste, expectPaste, takePaste, writeClipboard, type ClipboardPayload } from "../clipboard";
+import { KEY_OWNER } from "./keyOwner";
 import { isFieldTarget, startBoxSelect, startPointerDrag, type GraphDragHooks } from "./canvas";
 import type { GraphDocument, GraphPropertyData, GraphVec } from "./document";
 import { toGraph, type CanvasNode, type Point, type View } from "./xyflow";
@@ -212,5 +213,8 @@ export function useGraphSelection<G, P extends GraphPropertyData, C extends Clip
     }
   };
 
-  return { selection, setSelection, box, dragging, drag, startGroupDrag, addNoteHere, onItemDown, onPaneDown, onKeyDown, onPaste, deleteSelection, groupSelection };
+  /** Spread on the graph editor's root: its key and paste handlers, and the marker that it owns the editor's node keys (`./keyOwner.ts`). */
+  const rootProps = { onKeyDown, onPaste, [KEY_OWNER]: "" };
+
+  return { selection, setSelection, box, dragging, drag, startGroupDrag, addNoteHere, onItemDown, onPaneDown, rootProps, deleteSelection, groupSelection };
 }

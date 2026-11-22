@@ -146,3 +146,4 @@
 
 /* Files dragged in from the OS (ADR 0085): the panel is outlined, the folder under the pointer highlighted like a move target. */
 .asset-browser.os-drop { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.asset-browser.os-drop.refused { outline-color: var(--danger); }
