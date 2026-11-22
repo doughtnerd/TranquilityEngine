@@ -7,16 +7,19 @@
  * |---------------------|-------|----------|-------------------------------------------|-----------------|
  * | `busCount`          | 32    | problem  | refused (`opRefusal`)                     | every backend   |
  * | `insertsPerBus`     | 8     | problem  | refused (`opRefusal`)                     | every backend   |
- * | `compressorsPerBus` | 1     | warning  | kept; applies at the next Play            | the audio core  |
- * | `effectsPerBus`     | 4     | warning  | kept; applies at the next Play            | the audio core  |
+ * | `compressorsPerBus` | 8     | warning  | kept; applies at the next Play            | the audio core  |
+ * | `effectsPerBus`     | 8     | warning  | kept; applies at the next Play            | the audio core  |
  *
  * `insertsPerBus` is the mix model's declared cap (ADR 0331: a bus's or a return's insert chain holds at most 8
  * effects; `audio.json`'s parse reads it from here, `MIX_LIMITS.effectsPerOwner`). The two core rules are the audio
- * core's real limits today, kept with their reason until the core runs the longer chain: a warning is a note on a valid
- * section: the edit is kept as authored and saved (R10). At the next Play the core runs a bus's first
- * `MAX_CORE_BUS_EFFECTS` effects and the first compressor of the list (`audio-core/src/fx.rs`; the wire's
- * `BUS_SLOT_MAX_EFFECTS`, which a plugin-side test holds equal to `MAX_CORE_BUS_EFFECTS`). The Web Audio fallback runs
- * every effect, so the core-only rules don't apply to it live.
+ * core's real limits (`audio-core/src/fx.rs`; the wire's `BUS_SLOT_MAX_EFFECTS`, which a plugin-side test holds equal to
+ * `MAX_CORE_BUS_EFFECTS`). Since ABI 4.6 (ADR 0331) the core runs eight effects a bus, any number of them compressors,
+ * so both equal the insert cap and the insert cap's refusal comes first: they stay as rules (a warning is a note on a
+ * valid section: the edit is kept as authored and saved, R10) for a core that runs fewer. The Web Audio fallback runs
+ * every effect it has, so the core-only rules don't apply to it live.
+ *
+ * **What the core runs** (`CORE_EFFECT_TYPES`): the catalogue types the core's shared effect DSP runs at the bus and
+ * instance levels (`audio_dsp::fx`, ABI 4.6); the plugin's `effectKinds.ts` maps each to its wire kind.
  *
  * **Live answers.** `ApplyResult.reason` is one of `APPLY_REASONS`; `reasonMessage` is its only text. `ok: false` with a
  * reason: kept, applies at the next Play (`appliesAtNextPlay`). `ok: true` with a reason: kept, applies later this session
@@ -31,10 +34,23 @@ import type { ApplyResult, MixOp, OpClass } from "./mixOps";
 export const MAX_BUSES = 32;
 /** ADR 0331: effects per bus or return the mix model holds (the insert chain's cap, on every backend). */
 export const MAX_BUS_INSERTS = 8;
-/** Effects per bus the audio core runs (`MAX_EFFECTS` in `audio-core/src/fx.rs`, `BUS_SLOT_MAX_EFFECTS` on the wire). */
-export const MAX_CORE_BUS_EFFECTS = 4;
-/** Compressors per bus the audio core runs (the first of the list). */
-export const MAX_CORE_BUS_COMPRESSORS = 1;
+/** Effects per bus the audio core runs (`MAX_EFFECTS` in `audio-core/src/fx.rs`, `BUS_SLOT_MAX_EFFECTS` on the wire; ABI 4.6). */
+export const MAX_CORE_BUS_EFFECTS = 8;
+/** Compressors per bus the audio core runs (ADR 0331: no one-compressor limit since ABI 4.6; the insert cap bounds it). */
+export const MAX_CORE_BUS_COMPRESSORS = 8;
+
+/**
+ * ADR 0331 (ABI 4.6): the catalogue types the audio core runs on bus chains and instance submixes (`audio_dsp::fx`).
+ * The others (`envelope`, `fades`, `noiseReduction`, `reverse`) belong to the voice and sample levels.
+ */
+export const CORE_EFFECT_TYPES = [
+  "eq", "lowpass", "highpass", "bandpass", "compressor", "sidechainCompressor", "limiter", "gain", "saturation",
+  "distortion", "bitcrush", "formantShift", "pitchShift", "chorus", "delay", "reverb",
+] as const;
+export type CoreEffectType = (typeof CORE_EFFECT_TYPES)[number];
+const CORE_SET: ReadonlySet<string> = new Set(CORE_EFFECT_TYPES);
+/** True when the audio core runs catalogue type `type` on a bus chain or an instance submix. */
+export const coreRuns = (type: string): type is CoreEffectType => CORE_SET.has(type);
 
 export type BusRule = "busCount" | "insertsPerBus" | "compressorsPerBus" | "effectsPerBus";
 
@@ -58,7 +74,7 @@ export const BUS_RULES: Readonly<Record<BusRule, BusRuleSpec>> = {
   insertsPerBus: { limit: MAX_BUS_INSERTS, parse: "problem", live: "refused", coreOnly: false, message: `a bus holds at most ${MAX_BUS_INSERTS} effects` },
   compressorsPerBus: {
     limit: MAX_CORE_BUS_COMPRESSORS, parse: "warning", live: "nextPlay", coreOnly: true,
-    message: "a bus runs one compressor; the edit is saved and applies at the next Play, where only the first compressor of the list runs and the others are skipped",
+    message: `a bus runs at most ${MAX_CORE_BUS_COMPRESSORS} compressors; the edit is saved and applies at the next Play, where only the first ${MAX_CORE_BUS_COMPRESSORS} compressors of the list run and the others are skipped`,
   },
   effectsPerBus: {
     limit: MAX_CORE_BUS_EFFECTS, parse: "warning", live: "nextPlay", coreOnly: true,

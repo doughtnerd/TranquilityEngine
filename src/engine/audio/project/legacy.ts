@@ -82,7 +82,9 @@ export function fromLegacySection(section: unknown, problems: string[] = []): Au
     const root = i === 0;
     const bus: Bus = { ...newBus(b.name, root ? null : b.parent!), volumeDb: levelDbOf(b.volume), mute: b.mute, voiceLimit: b.maxVoices ?? null, bed: bedOf(a, b.name, root), meter: root || b.meter === "loudness" };
     for (const e of b.effects) {
-      if (e.type !== "reverb") {
+      if (e.type === "fx") {
+        bus.effects.push({ id: freeEffectId(bus.effects.map((x) => x.id)), type: e.fx, on: true, params: { ...e.params }, ...(e.key ? { key: e.key } : {}) });
+      } else if (e.type !== "reverb") {
         bus.effects.push({ id: freeEffectId(bus.effects.map((x) => x.id)), type: e.type, on: true, params: paramsOf(e) });
       } else if (root) problems.push(`buses "${b.name}": the master bus can't send, so its reverb send is dropped.`);
       else if (bus.sends.length > 0) problems.push(`buses "${b.name}": a second reverb send is dropped.`);
@@ -184,14 +186,16 @@ function mergeEffects(project: AudioProject, owner: string, old: readonly Effect
     }
     const id = freeEffectId(taken);
     taken.push(id);
-    return { id, type: b.type, on: true, params: paramsOf(b as Exclude<BusEffect, { type: "reverb" }>) };
+    if (b.type === "fx") return { id, type: b.fx, on: true, params: { ...b.params } };
+    const mapped = b as Exclude<BusEffect, { type: "reverb" | "fx" }>;
+    return { id, type: mapped.type, on: true, params: paramsOf(mapped) };
   });
   const at = shown.length > 0 ? old.slice(0, old.indexOf(shown[0])).filter((e) => !shown.includes(e)).length : kept.length;
   return [...kept.slice(0, at), ...made, ...kept.slice(at)];
 }
 
-const nonReverb = (b: BusSettings | undefined): Exclude<BusEffect, { type: "reverb" }>[] =>
-  (b?.effects ?? []).filter((e): e is Exclude<BusEffect, { type: "reverb" }> => e.type !== "reverb");
+const nonReverb = (b: BusSettings | undefined): Exclude<BusEffect, { type: "reverb" | "fx" }>[] =>
+  (b?.effects ?? []).filter((e): e is Exclude<BusEffect, { type: "reverb" | "fx" }> => e.type !== "reverb" && e.type !== "fx");
 
 /** Which section view a merge writes back: the legacy panels' (VCAs folded into levels) or the backends' (`coreSectionOf`). */
 export interface MergeOptions { view?: "legacy" | "core" }

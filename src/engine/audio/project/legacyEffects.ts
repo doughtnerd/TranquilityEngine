@@ -29,7 +29,7 @@ export const msOf = (s: number): number => round6(s * 1000);
 export const secondsOf = (ms: number): number => Math.round(ms * 1e6) / 1e9;
 
 type MappedType = "lowpass" | "highpass" | "compressor";
-type RuntimeBusEffect = Exclude<BusEffect, { type: "reverb" }>;
+type RuntimeBusEffect = Extract<BusEffect, { type: MappedType }>;
 
 /** One runtime field of a mapped bus effect: the catalogue parameter it is, and its unit conversion each way. */
 export interface RuntimeField {
@@ -103,7 +103,7 @@ export function paramsOf(b: RuntimeBusEffect): Record<string, number> {
  */
 export function updatedParams(e: Effect, before: BusEffect, after: BusEffect): Record<string, number> {
   const params = { ...e.params };
-  if (after.type === "reverb" || before.type !== after.type) return params;
+  if (after.type === "reverb" || after.type === "fx" || before.type !== after.type) return params;
   const was = before as unknown as Record<string, number>;
   const now = after as unknown as Record<string, number>;
   for (const f of RUNTIME_FIELDS[after.type]) if (now[f.field] !== was[f.field]) params[f.param] = clampEffectParam(effectParamSpec(after.type, f.param)!, f.toParam(now[f.field]));

@@ -3,7 +3,8 @@
 //! the instance's output bus.
 //!
 //! - **The pool** is [`SUBMIXES`] slots in the `Submixes` region, laid out on every preset (one
-//!   slot ≈ 5 KB: its quantum buffer, [`SUBMIX_EFFECTS`] effect slots and one compressor). Main owns
+//!   slot ≈ 5.8 KB: its quantum buffer and [`SUBMIX_EFFECTS`] effect slots; their delay lines,
+//!   networks and compressors live in the effect memory, `fxmem.rs`, ABI 4.6). Main owns
 //!   the allocation (`settings.voices.submixes` slots at most, clamped to the core's); the core
 //!   keeps no instance lifecycle.
 //! - **SUBMIX** (0x0C, applies on arrival like AUTOMATE) configures slot `voiceId`: the instance
@@ -21,17 +22,18 @@
 //! - **Render** ([`render`], after every voice and the HRTF flush, before `bus::mixdown`): each
 //!   slot in use runs its chain on its buffer, in order, and adds the result into its bus's input
 //!   (an unconfigured bus is bus 0, as for voices), so the bus's effects, gain and meter apply on
-//!   top. A slot that received nothing for [`QUIET_QUANTA`] quanta (its filters' and compressor's
-//!   tails have died away) is skipped until a voice feeds it again.
-//! - **The chain** dispatches on each effect's kind ([`kind`], the wire's `SUBMIX_FX_*`, the
-//!   catalogue's types): the catalogue's parameters arrive in its order (`effects/catalogue.ts`) and
-//!   are converted here. A kind the core doesn't know (a newer catalogue) passes the signal through,
-//!   so the next effects slot in by kind without a wire change. Today: `lowpass` and `highpass`
-//!   (cutoff Hz, resonance 0..1 as Q 0.5..20 dB like the bus chain, drive not yet), `compressor`
-//!   (threshold dB, ratio, attack ms, release ms, makeup dB, knee dB; one per submix, the first; a
-//!   second is passed through). An effect with its `on` flag clear passes the signal through and
-//!   keeps its state. An effect that keeps its kind in its slot keeps its filter or envelope state
-//!   across a SUBMIX (an edit doesn't click).
+//!   top. A slot that received nothing for [`QUIET_QUANTA`] quanta and whose chain put out silence
+//!   (under −140 dB) that long (its filters', compressor's, delay's and reverb's tails have died
+//!   away) is skipped until a voice feeds it again.
+//! - **The chain** is the catalogue's shared effect DSP (`audio_dsp::fx`, ABI 4.6; the same code
+//!   as the bus chains' catalogue effects): each slot is an `audio_dsp::fx::Effect` of a kind
+//!   ([`kind`], the wire's `SUBMIX_FX_*`), the catalogue's parameters in its order
+//!   (`effects/catalogue.ts`), large state in the effect memory (`fxmem::configure` gives it, the
+//!   sweep takes it back). Every kind but the sidechain compressor runs (an instance has no key bus:
+//!   it passes through); any number of compressors. A kind the core doesn't know (a newer catalogue)
+//!   passes the signal through. An effect with its `on` flag clear passes the signal through and
+//!   keeps its state. An effect that keeps its kind in its slot keeps its state across a SUBMIX and
+//!   glides to the new parameters (an edit doesn't click).
 //!
 //! RESET frees every slot (main replays the ones in use). Nothing here allocates.
 
@@ -53,10 +55,12 @@ pub const PARAMS: usize = 8;
 pub const GROUPS: usize = crate::automation::GROUPS;
 /// Quanta without input after which a slot's chain stops running (≈ 85 ms at 48 kHz).
 pub const QUIET_QUANTA: u32 = 32;
+/// The level under which a chain's output counts as silent (−140 dB): its tail has died away.
+pub const TAIL_FLOOR: f32 = 1e-7;
 /// A voice's route code (`panner` bus argument) for submix slot `s`: this bit plus `s`.
 pub const ROUTE_SUBMIX: u16 = 0x8000;
 /// A filter's Q in dB at resonance 0 and 1 (the bus chain's `Q_RANGE`, `legacyEffects.ts`).
-pub const Q_RANGE_DB: (f32, f32) = (0.5, 20.0);
+pub const Q_RANGE_DB: (f32, f32) = audio_dsp::fx::Q_RANGE_DB;
 
 /// Effect kinds (the wire's `SUBMIX_FX_*`, `audio_dsp::fx::kind`). 0 is an empty slot.
 pub mod kind {
@@ -335,6 +339,10 @@ pub fn render(core: &mut Core) {
         s.fed = 0;
         let (l, r) = s.buf.split_at_mut(QUANTUM);
         run_chain(&mut s.effects[..(s.count as usize).min(SUBMIX_EFFECTS)], fxdata, l, r);
+        // A tail still sounding (a delay, a reverb) keeps the slot running.
+        if l.iter().chain(r.iter()).any(|x| x.abs() > TAIL_FLOOR) {
+            s.quiet = 0;
+        }
         if let Some((dl, dr)) = inputs.get(s.bus) {
             for i in 0..QUANTUM {
                 dl[i] += l[i];

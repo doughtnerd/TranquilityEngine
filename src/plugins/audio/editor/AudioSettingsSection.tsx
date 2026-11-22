@@ -147,6 +147,7 @@ const EFFECT_FIELDS: Record<BusEffect["type"], [key: string, label: string, step
   highpass: [["frequency", "Frequency (Hz)", 10], ["q", "Q", 0.1]],
   compressor: [["threshold", "Threshold (dB)", 1], ["knee", "Knee", 1], ["ratio", "Ratio", 1], ["attack", "Attack (s)", 0.001], ["release", "Release (s)", 0.01]],
   reverb: [["send", "Send (0-1)", 0.05]],
+  fx: [],
 };
 
 function Effects(props: { bus: BusSettings; draft: SettingsDraft; set: Set }) {

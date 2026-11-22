@@ -61,6 +61,15 @@ const SCENES = [
   "loop-programs",
   // ADR 0331: 128 voices in 32 instances, each through its submix (a low-pass and a compressor).
   "submixes",
+  // ADR 0331 (ABI 4.6): the catalogue's DSP: 8 buses with eight-effect chains, 32 submixes each running a reverb, a
+  // delay, a chorus, a pitch shifter or a formant shifter, and 12 sidechain compressors keyed on one bus.
+  "fx-chain-8",
+  "fx-submix-reverb",
+  "fx-submix-delay",
+  "fx-submix-chorus",
+  "fx-submix-pitch",
+  "fx-submix-formant",
+  "fx-sidechain",
   "automation-virtual",
   "bus-automation",
   "sustain",

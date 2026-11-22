@@ -6,14 +6,15 @@
 // refusal is warned once and marked in a running capture (a MARKER: the capture format has no submix kind yet).
 //
 // The chain is the catalogue's effects (`effects/catalogue.ts`) as the core's `SUBMIX_FX_*` kinds, parameters in the
-// catalogue's order with its defaults filled in; the core runs low-pass, high-pass and compressor today and passes any
-// other kind through, so `SUBMIX_KINDS` is the one table the next effects extend. Disabled effects are sent bypassed.
+// catalogue's order with its defaults filled in (`effectKinds.ts`, the one table the bus chains share). Since ABI 4.6
+// the core runs every type `CORE_EFFECT_TYPES` lists but the sidechain compressor (a bus effect: an instance has no key
+// bus); any other kind passes through. Disabled effects are sent bypassed.
 //
 // Replay: after a rebuild's RESET the slots in use are sent again (session phase `replayHeader`, before the voices), and
 // a new bus tree re-sends them with their buses' new indices (`busesReset`).
-import { effectSpec } from "../../../../engine/audio/effects/catalogue";
 import type { Effect } from "../../../../engine/audio/effects/types";
-import { SUBMIX_EFFECTS_MAX, SUBMIX_FIXED_END, SUBMIX_EFFECTS_FIXED_END, SUBMIX_FX_COMPRESSOR, SUBMIX_FX_HIGHPASS, SUBMIX_FX_LOWPASS, SUBMIX_FX_ON, SUBMIXES_MAX, ASAP, writeSubmix, type SubmixEffects } from "../wire.generated";
+import { SUBMIX_EFFECTS_MAX, SUBMIX_FIXED_END, SUBMIX_EFFECTS_FIXED_END, SUBMIX_FX_ON, SUBMIXES_MAX, ASAP, writeSubmix, type SubmixEffects } from "../wire.generated";
+import { FX_KINDS, fxKind, fxParams } from "./effectKinds";
 import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
 import type { CommandWriter } from "./commandWriter";
 import type { ReplayBuilder } from "./replay";
@@ -22,12 +23,8 @@ import type { SendGate } from "./session";
 /** The default pool when the settings name none (ADR 0331). */
 export const DEFAULT_SUBMIXES = 32;
 
-/** The core's kind for each catalogue effect type it runs (any other type is sent as passthrough, 0). */
-export const SUBMIX_KINDS: Readonly<Record<string, number>> = Object.freeze({
-  lowpass: SUBMIX_FX_LOWPASS,
-  highpass: SUBMIX_FX_HIGHPASS,
-  compressor: SUBMIX_FX_COMPRESSOR,
-});
+/** The core's kind for each catalogue effect type it runs (`effectKinds.ts`; any other type is sent as passthrough, 0). */
+export const SUBMIX_KINDS: Readonly<Record<string, number>> = FX_KINDS;
 
 /** What the pool needs of the core backend. */
 export interface CoreSubmixesHost {
@@ -48,13 +45,7 @@ interface Slot {
 
 /** The catalogue effect `e` as a SUBMIX effect: its kind, bypass flag and parameters in the catalogue's order. */
 export function submixEffect(e: Effect): SubmixEffects {
-  const spec = effectSpec(e.type);
-  const p = new Array<number>(8).fill(0);
-  spec?.params.slice(0, 8).forEach((q, i) => {
-    const v = e.params[q.name];
-    p[i] = typeof v === "number" && Number.isFinite(v) ? v : q.default;
-  });
-  return { type: SUBMIX_KINDS[e.type] ?? 0, flags: e.on ? SUBMIX_FX_ON : 0, p };
+  return { type: fxKind(e.type), flags: e.on ? SUBMIX_FX_ON : 0, p: fxParams(e.type, e.params, 8) };
 }
 
 /** ADR 0331: the core backend's instance submix pool. */

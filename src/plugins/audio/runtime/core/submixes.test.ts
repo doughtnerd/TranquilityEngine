@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import type { Effect } from "../../../../engine/audio/effects/types";
 import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
-import { SUBMIX_FX_COMPRESSOR, SUBMIX_FX_LOWPASS, SUBMIX_FX_ON, SUBMIXES_MAX, type SubmixEffects } from "../wire.generated";
+import { SUBMIX_FX_CHORUS, SUBMIX_FX_COMPRESSOR, SUBMIX_FX_LOWPASS, SUBMIX_FX_ON, SUBMIXES_MAX, type SubmixEffects } from "../wire.generated";
 import { CoreSubmixes, DEFAULT_SUBMIXES, submixEffect } from "./submixes";
 import type { ReplayBuilder } from "./replay";
 
@@ -31,11 +31,12 @@ describe("CoreSubmixes (ADR 0331)", () => {
   it("sends a group's chain as the core's kinds, parameters in the catalogue's order with its defaults", () => {
     const { s, sent } = rig();
     expect(s.capacity).toBe(DEFAULT_SUBMIXES);
-    expect(s.open(5, "SFX", [fx("lowpass", { cutoff: 800 }), fx("compressor", { ratio: 6 }, false), fx("chorus")], "a.playlist.json")).toBe(true);
+    expect(s.open(5, "SFX", [fx("lowpass", { cutoff: 800 }), fx("compressor", { ratio: 6 }, false), fx("chorus"), fx("envelope")], "a.playlist.json")).toBe(true);
     expect(sent).toHaveLength(1);
     const [rec] = sent;
     expect([rec!.slot, rec!.group, rec!.bus]).toEqual([0, 5, 1]);
-    expect(rec!.effects.map((e) => [e.type, e.flags])).toEqual([[SUBMIX_FX_LOWPASS, SUBMIX_FX_ON], [SUBMIX_FX_COMPRESSOR, 0], [0, SUBMIX_FX_ON]]);
+    expect(rec!.effects.map((e) => [e.type, e.flags])).toEqual([[SUBMIX_FX_LOWPASS, SUBMIX_FX_ON], [SUBMIX_FX_COMPRESSOR, 0], [SUBMIX_FX_CHORUS, SUBMIX_FX_ON], [0, SUBMIX_FX_ON]]); // ABI 4.6 runs chorus; envelope is a voice effect
+    expect(rec!.effects[2]!.p.slice(0, 3)).toEqual([0.8, 30, 50]); // rate, depth, mix (defaults)
     expect(rec!.effects[0]!.p.slice(0, 3)).toEqual([800, 0.1, 0]); // cutoff, resonance and drive (defaults)
     expect(rec!.effects[1]!.p.slice(0, 6)).toEqual([-18, 6, 10, 120, 0, 30]); // threshold, ratio, attack, release, makeup, knee
     expect(submixEffect(fx("highpass")).p[0]).toBe(20);

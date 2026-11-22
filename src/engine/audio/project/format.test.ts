@@ -215,7 +215,8 @@ describe("coreSectionOf (the backends' view, ADR 0330)", () => {
     expect(parseAudioSettings(settings).problems).toEqual([]);
     expect(settings.buses.find((b) => b.name === "SFX")!.volume).toBeCloseTo(Math.pow(10, -2 / 20), 9);
     const text = warnings.join("\n");
-    expect(text).toMatch(/eq effect "fx1"/); // the core's catalogue
+    expect(text).not.toMatch(/eq effect "fx1"/); // ADR 0331 (ABI 4.6): the core's bus chain runs the eq
+    expect(settings.buses.find((b) => b.name === "SFX")!.effects[0]).toEqual({ type: "fx", fx: "eq", params: { low: 3, mid: 0, high: 0 } });
     expect(text).not.toMatch(/on conditions/); // the mixer runs snapshots
     expect(text).not.toMatch(/send:Reverb/); // and send automation
     expect(text).not.toMatch(/offset on "Reverb"/); // and returns' lanes

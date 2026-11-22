@@ -24,7 +24,6 @@ describe("audioSection: parse once", () => {
     expect(s.problems).toEqual(p.problems);
     expect(s.warnings).toEqual(p.warnings);
     expect(s.problems.length).toBeGreaterThan(0);
-    expect(s.warnings.length).toBeGreaterThan(0);
   });
 
   it("is memoised on the section object's identity: the same object, the same result; a new object, a new parse", () => {

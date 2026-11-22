@@ -50,7 +50,7 @@ describe("BusIndex on the slot table (Ma1)", () => {
     expect([...index.busIndexByName]).toEqual([["Master", 0], ["Music", 1], ["Stems", 2], ["SFX", 3]]);
     // The K0 body: parent = the parent's position (root: BUS_ROOT), effects in wire form.
     const settings = mixer.audioSettings.buses;
-    const positional = settings.map((b) => ({ parent: b.parent === undefined ? BUS_ROOT : settings.findIndex((x) => x.name === b.parent), effects: b.effects.map(wireEffect) }));
+    const positional = settings.map((b) => ({ parent: b.parent === undefined ? BUS_ROOT : settings.findIndex((x) => x.name === b.parent), effects: b.effects.map((e) => wireEffect(e)) }));
     expect(configs).toEqual([positional]);
     expect(table.busMax[3]).toBe(4);
   });

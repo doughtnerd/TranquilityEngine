@@ -5,6 +5,7 @@
 import type { CorePreset } from "./coreDriver";
 import {
   ClipFormat,
+  FX_MEMORY_SECONDS,
   STREAM_MAX_CHANNELS,
   STREAM_RING_FRAMES_WIDE,
   STREAM_WIDE_CHUNK_FRAMES,
@@ -138,6 +139,7 @@ export function fixedRegionsHeadroomBytes(preset: CorePreset, sampleRate: number
     M2_REGIONS_HEADROOM_BYTES +
     spatialRegionsBytes(preset, sampleRate) +
     m4FixedRegionsBytes() +
+    fxMemRegionBytes(sampleRate) +
     musicRingsBytes(preset) +
     zoneKernelBudgetBytes(preset.maxZoneSlots, zoneMaxFrames(preset, sampleRate))
   );
@@ -151,6 +153,22 @@ export function fixedRegionsHeadroomBytes(preset: CorePreset, sampleRate: number
  */
 export function m4FixedRegionsBytes(): number {
   return [18_432, 8_160, 2_560].reduce((sum, n) => sum + alignUp(n, REGION_ALIGN), 0);
+}
+
+/** `fxmem::BLOCK_FLOATS` and `fxmem::MAX_BLOCKS`; the header is 4 counters and a byte per block, 64-byte aligned. */
+const FX_BLOCK_FLOATS = 4_096;
+const FX_MAX_BLOCKS = 2_048;
+const FX_HEADER_BYTES = alignUp(16 + FX_MAX_BLOCKS, REGION_ALIGN);
+
+/**
+ * @internal ADR 0331 (ABI 4.6): the `FxMem` region (`audio-core/src/fxmem.rs` `region_bytes`): the effect memory of bus
+ * chains and instance submixes (delay lines, reverbs), `FX_MEMORY_SECONDS` of stereo audio at the rate in 16 KB blocks
+ * (7.7 MB at 48 kHz), laid out on every preset before the arena.
+ */
+export function fxMemRegionBytes(sampleRate: number): number {
+  const rate = Math.fround(sampleRate) > 0 ? Math.fround(sampleRate) : 48_000;
+  const blocks = Math.min(FX_MAX_BLOCKS, Math.ceil((FX_MEMORY_SECONDS * rate * 2) / FX_BLOCK_FLOATS));
+  return FX_HEADER_BYTES + blocks * FX_BLOCK_FLOATS * 4;
 }
 
 /**
