@@ -42,3 +42,12 @@ export function projectFolder(project: EditorProject, p: EditorPlatform): Projec
 
 /** The key that names `project` in per-user storage. */
 export const projectKey = (project: EditorProject) => project.root ?? `bundled:${project.name}`;
+
+/**
+ * The project's own saves and settings (ADR 0317), shared by the editor's Engine and Play: what a game stores while it
+ * is edited or played (a calibration, a graphics tier, a save) is the same store either way, apart from other
+ * projects' and the editor's own data.
+ */
+export function projectStorage(project: EditorProject): Promise<StorageBackend> {
+  return openStorage({ kind: "project", id: projectKey(project), name: project.name });
+}

@@ -17,7 +17,7 @@ import { signal } from "@preact/signals";
 import type { AssetSource, Bootstrap, Engine } from "../engine";
 import { redrawEngine, resumeEditorWorld, stepEngineWorld } from "../engine/editor";
 import { launchGame, type LaunchedGame } from "../engine/launch";
-import { openStorage } from "../engine/platform/storageScope";
+import { projectStorage } from "./projectPlace";
 import { STEP_SECONDS, createGameView, type GameView } from "./gameView";
 import { applyNetConditions, conditionsOff, createThinInput, playBootstrap, withConditions, type NetConditionValues, type NetPlayBootstrap, type NetPlayOptions, type ThinInput, type ThinInputMode } from "./netPlay";
 import type { EditorProject } from "./projects";
@@ -132,7 +132,7 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
       headless: !container,
       quality: "keep", // keep the scene view's previewed tier
       // The project's own saves and settings, apart from other projects' and the editor's data (ADR 0317); headless: in memory.
-      ...(container ? { storage: await openStorage({ kind: "project", id: project.root ?? `bundled:${project.name}`, name: project.name }) } : {}),
+      ...(container ? { storage: await projectStorage(project) } : {}),
       reportShaderVariants: true, // log shader variants compiled mid-game, naming their prefab (ADR 0080)
     });
     runtime = game.engine;

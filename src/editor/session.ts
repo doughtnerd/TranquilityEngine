@@ -13,7 +13,7 @@ import { projectOpening, type LocationOutcome, type OpenIntent, type OpenOutcome
 import { recentProjects } from "./recentProjects";
 import { confirmDiscard } from "./dialogs";
 import { copySample, findSample, openSampleProject } from "./samples";
-import { editorPlatform } from "./projectPlace";
+import { editorPlatform, projectStorage } from "./projectPlace";
 import { historyLocation } from "./preferences";
 import { confirmInEditor } from "./ui/ConfirmDialog";
 import { installSceneView } from "./cameraPreview";
@@ -125,7 +125,7 @@ async function loadProject(project: EditorProject): Promise<{ problem: boolean }
   void setUpScripting(project);
   // UI documents' parsers load with the editor (ADR 0077), so documents build with the scene, not a moment after.
   const [engine] = await Promise.all([
-    Engine.create({ kind: "editor", container: viewportElements().viewport, project: editorSettings(project) }),
+    Engine.create({ kind: "editor", container: viewportElements().viewport, project: editorSettings(project), storage: await projectStorage(project) }),
     loadUIDocumentSupport().catch((err: unknown) => console.warn("[editor] the UI document parsers didn't load; documents build once they do:", err)),
   ]);
   reloadGraphics(engine.settings.graphics); // the Quality menu lists the project's tiers

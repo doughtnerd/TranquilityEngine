@@ -32,7 +32,9 @@ We will have one module, `src/engine/platform/storageScope.ts`, own both.
   - `{ kind: "project", id, name }`: a project played in the editor. Under Tauri `<appData>/play/<slug>-<hash>/`,
     in a browser IndexedDB `myco-play:<slug>-<hash>`, the hash of the project's folder path (`bundled:<name>` for a
     bundled sample), so same-named projects stay apart. Play mode passes it through `launchGame`'s new `storage`
-    option.
+    option, and the editor's own Engine for the project gets the same backend (`projectStorage` in
+    `editor/projectPlace.ts`): what the game stores while edited or played (an audio calibration read when the
+    editor's audio opens, a graphics tier, a save) is one store, as it was before this record.
   - `{ kind: "editor" }`: data the editor keeps per user. Under Tauri `<appData>/editor/`, in a browser IndexedDB
     `myco-editor` (unchanged). Edit histories and saved layouts get it from `editorPlatform()`
     (`src/editor/projectPlace.ts`, ADR 0316).
