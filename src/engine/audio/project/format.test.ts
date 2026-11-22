@@ -270,6 +270,17 @@ describe("coreSectionOf: the old section shape's mapping", () => {
     expect(parseAudioSettings(s).problems).toEqual([]);
   });
 
+  it("runs a reverb return past the core's bus slots as the core's shared reverb send, quietly (as the old model did)", () => {
+    const buses = [{ name: "Master" }, ...Array.from({ length: 31 }, (_, i) => ({ name: `B${i}`, parent: "Master", sends: i === 0 ? [{ to: "Reverb", levelDb: -6 }] : [] }))];
+    const p = parseAudioProject({ format: AUDIO_PROJECT_FORMAT, buses, returns: [{ name: "Reverb", volumeDb: -3, effects: [{ id: "fx1", type: "reverb" }] }] }).project;
+    const warnings: string[] = [];
+    const s = coreSectionOf(p, warnings);
+    expect(s.buses).toHaveLength(32);
+    expect(s.buses[1]!.sends).toBeUndefined();
+    expect(s.buses[1]!.effects).toEqual([{ type: "reverb", send: expect.closeTo(Math.pow(10, -9 / 20), 9) }]);
+    expect(warnings).toEqual([]);
+  });
+
   it("warns of sends past the core's four a bus (kept as authored), and of a presence rule a return triggers", () => {
     const returns = ["R1", "R2", "R3", "R4", "R5"].map((name) => ({ name }));
     const p = parseAudioProject({

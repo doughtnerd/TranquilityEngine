@@ -42,8 +42,11 @@ describe("migration when a project opens", () => {
     expect(audio.project.returns.map((r) => r.name)).toEqual(["Reverb"]);
     expect(project.files).toContain("audio.json");
     expect(project.files.some((f) => f.startsWith(".myco"))).toBe(false);
-    // The settings serve the runtime view: the old section as it was.
-    expect((project.settings.audio as unknown as AudioSettings).buses[1]).toMatchObject({ name: "SFX", volume: 0.5, effects: [{ type: "reverb", send: 0.25 }] });
+    // The settings serve the runtime view: the old section as it was, its reverb send a send into the Reverb return (a
+    // bus of the view, ADR 0330).
+    const buses = (project.settings.audio as unknown as AudioSettings).buses;
+    expect(buses[1]).toMatchObject({ name: "SFX", volume: 0.5, effects: [], sends: [{ to: "Reverb", level: 0.25 }] });
+    expect(buses.at(-1)).toMatchObject({ name: "Reverb", parent: "Master" });
   });
 
   it("leaves a project without a section alone, and keeps an audio.json that is already there", async () => {
@@ -72,7 +75,7 @@ describe("the settings draft and audio.json", () => {
     await s.edit("Width", setValue(s.draft, "display", "width", 320));
     expect(await fs.readText(`${ROOT}\\audio.json`)).toBe(RICH_AUDIO);
     expect(await read(fs, "project.json")).toEqual({ name: "Game", display: { width: 320 } });
-    // Play and the audio Inspector sections still read audio.json's runtime view.
-    expect((project.settings.audio as unknown as AudioSettings).buses.map((b) => b.name)).toEqual(["Master", "SFX"]);
+    // Play and the audio Inspector sections still read audio.json's runtime view (its returns after the buses, ADR 0330).
+    expect((project.settings.audio as unknown as AudioSettings).buses.map((b) => b.name)).toEqual(["Master", "SFX", "Delay"]);
   });
 });

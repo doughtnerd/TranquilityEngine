@@ -113,6 +113,10 @@ function sectionBus(project: AudioProject, bus: Bus, returns: ReadonlySet<string
   const sends = bus.sends.filter((s) => returns.has(s.to)).map((s) => ({ to: s.to, level: sendLevelOf(s.levelDb) }));
   if (sends.length > 0) out.sends = sends;
   if (sends.length > BUS_RULES.sendsPerBus.limit) warn(findingText("sendsPerBus", `bus "${bus.name}"`));
+  // A return past the core's bus slots that holds a reverb still runs, as the core's one shared reverb send (the old
+  // model's; its level plus the return's, 0 while the return is muted): the first such send of the bus.
+  const shared = reverbSendOf({ returns: project.returns.filter((r) => !returns.has(r.name)) }, bus);
+  if (shared) out.effects.push({ type: "reverb", send: shared.ret.mute ? 0 : clampGain(dbToGain(shared.send.levelDb + shared.ret.volumeDb), 1) });
   if (bus.voiceLimit !== null) out.maxVoices = bus.voiceLimit;
   if (root) {
     if (bus.bed && bus.bed.priority !== ROOT_BED_PRIORITY) out.bedPriority = bus.bed.priority;
@@ -136,7 +140,12 @@ export type MixSection = Pick<AudioSettings, "buses" | "snapshots" | "ducking" |
 function sectionOf(project: AudioProject, warnings: string[]): MixSection {
   const warn = (line: string) => void warnings.push(line);
   const fitting = sectionReturnsOf(project);
-  for (const r of project.returns.slice(fitting.length)) warn(`return "${r.name}": the audio core has ${MAX_BUSES} bus slots, buses and returns together; left out with the sends into it.`);
+  for (const r of project.returns.slice(fitting.length)) {
+    if (r.effects.some((e) => e.type === "reverb" && e.on)) {
+      // As the old model ran its one shared reverb: quietly, unless the return holds more than its reverb.
+      if (r.effects.some((e) => e.on && e.type !== "reverb")) warn(`return "${r.name}": the audio core has ${MAX_BUSES} bus slots, buses and returns together; it runs as the core's shared reverb, without its other inserts.`);
+    } else warn(`return "${r.name}": the audio core has ${MAX_BUSES} bus slots, buses and returns together; left out with the sends into it.`);
+  }
   const returns = new Set(fitting.map((r) => r.name));
   const isBus = (name: string) => project.buses.some((b) => b.name === name);
   const isOwner = (name: string) => isBus(name) || returns.has(name);
