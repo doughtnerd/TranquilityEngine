@@ -161,6 +161,16 @@ fn correct(m: AosTransform, i: usize, f: FlipTable<'_>) -> AosTransform {
     } else {
         f.flips[pi as usize]
     };
+    correct_flip(m, own, parent)
+}
+
+/// One bone's flip correction (see the module docs): `m` is the bone's mirrored local (its
+/// partner's local through [`mirror_transform`]), `own` its flip and `parent` its parent's
+/// (`Flip::None` for a root). [`mirror_flipped`] applies it to every bone; the graph's `MIRROR`
+/// node, which gathers bone by bone from its compiled table, calls it directly. Exact; never
+/// allocates.
+#[inline]
+pub fn correct_flip(m: AosTransform, own: Flip, parent: Flip) -> AosTransform {
     if own == Flip::None && parent == Flip::None {
         return m;
     }
