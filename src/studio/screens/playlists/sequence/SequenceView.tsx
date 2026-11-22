@@ -13,7 +13,6 @@ import type { Clip, PlaylistBody, SequenceSettings } from "../../../../engine/au
 import type { CurveInterp } from "../../../../engine/core/curve";
 import { ContextMenu, SEPARATOR, type MenuEntry } from "../../../../editor/ui/ContextMenu";
 import type { PopoverPoint } from "../../../../editor/ui/popover";
-import { openCurveEditorDialog } from "../../../../editor/ui/curves/openCurveEditorDialog";
 import { accept, type EditResult } from "../../../../plugins/audio/editor/editResult";
 import type { PeakMips } from "../../../../plugins/audio/editor/music/peaksMip";
 import { Playhead } from "../../../components/Playhead";
@@ -29,7 +28,7 @@ import { clipFollows } from "./clipGeometry";
 import { CurveOverlay, yToValue } from "./CurveOverlay";
 import { addLoop, addMarker, deleteLoops, deleteMarkers, makeHoldPoint, moveLoop, moveMarker, nudgeLoopsAndMarkers, renameMarker, setLoopEdge, setMarkerType } from "./loopMarkerEdits";
 import { beginDrag } from "./pointerDrag";
-import { applyCurveResult, curveSpec } from "./sequenceCurves";
+import { openSequenceCurves } from "./openSequenceCurves";
 import { copySelection, paste, pasteLabel } from "./sequenceClipboard";
 import {
   addPlaylistClip, addSampleClip, addSampleOnNewTrack, addTrack, clipAt, deleteClips, duplicateClips, duplicateTrack, makeAsync, moveClips, moveClipsToAdjacentTrack, moveTrack,
@@ -49,8 +48,10 @@ import "./sequence.css";
 export interface SequenceViewProps {
   readonly body: PlaylistBody;
   readonly writable: boolean;
-  /** The sequence's file (playlist clips that contain it are refused), or null when it isn't saved as one. */
+  /** The file the sequence lives in (playlist clips that contain it are refused). */
   readonly file: string | null;
+  /** The sequence is embedded in another playlist of that file (it plays with its parent). */
+  readonly embedded?: boolean;
   /** Distinguishes open sequences (the view's state resets when it changes). */
   readonly stateKey: string;
   readonly title: string;
@@ -123,7 +124,7 @@ export function SequenceView(props: SequenceViewProps) {
   const writing = useRef<{ owner: AutomationOwner; target: "volume" | "pan"; samples: [number, number][]; last: number } | null>(null);
 
   useEffect(() => {
-    bindSequence(props.stateKey, { file: props.file, title: props.title, seq: docSeq, plays: props.body.playback.plays, sourceOf });
+    bindSequence(props.stateKey, { file: props.embedded ? null : props.file, title: props.title, seq: docSeq, plays: props.body.playback.plays, sourceOf });
   });
 
   // Follow the playhead while playing.
@@ -291,20 +292,12 @@ export function SequenceView(props: SequenceViewProps) {
     });
   };
 
-  const openCurves = (owner: AutomationOwner, curveLength: number, title: string) => {
-    const spec = curveSpec(docSeq, owner, curveLength, props.parameters);
-    if (!spec) return;
-    const doc = rootRef.current?.ownerDocument ?? document;
-    openCurveEditorDialog(doc, {
-      ...spec,
-      title: `Automation · ${title}`,
-      target: title,
-      context: props.title,
+  const openCurves = (owner: AutomationOwner, curveLength: number, title: string, lane?: string) =>
+    openSequenceCurves({
+      doc: rootRef.current?.ownerDocument ?? document, seq: docSeq, owner, length: curveLength, name: title, context: props.title, parameters: props.parameters, lane,
       playhead: "clip" in owner ? Math.max(0, playhead - (findClip(docSeq, owner.clip)?.clip.at ?? 0)) : playhead,
-      onApply: (result) => runSeq(`Edit ${title} curves`, (q) => applyCurveResult(q, owner, result)),
-      onCancel: () => {},
+      commit: (label, edit) => runSeq(label, edit),
     });
-  };
 
   const automateMenu = (owner: AutomationOwner, curveLength: number, title: string): MenuEntry[] => {
     const v = ownerOf(docSeq, owner);
@@ -584,6 +577,7 @@ export function SequenceView(props: SequenceViewProps) {
   const onDragOver = (e: DragEvent) => {
     if (!writable || ![...(e.dataTransfer?.types ?? [])].includes("text/plain")) return;
     e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
     const g = hitFor(e, 1);
     const t = g.ti === "new" ? null : s.tracks[g.ti];
     setGhost(t && t.kind === "playlist" ? { ...g, ok: false, text: "Playlist tracks take a playlist, not samples" } : { ...g, text: g.ti === "new" ? "New audio track" : "Add clip" });
@@ -909,7 +903,7 @@ export function SequenceView(props: SequenceViewProps) {
                         <span class="sq-faint">{time ? "time" : `by ${(a.input as { parameter: string }).parameter}`}</span>
                         <button type="button" class={`sq-icon${a.bypass ? "" : " on"}`} aria-pressed={!a.bypass} aria-label={`${spec?.name ?? a.target} automation on`} title={a.bypass ? "Bypassed: the plain value plays (click to turn on)" : "On (click to bypass)"} disabled={!writable}
                           onClick={() => runSeq(`${spec?.name ?? a.target} automation ${a.bypass ? "on" : "off"}`, (q) => ({ next: { ...q, tracks: q.tracks.map((x) => (x.id === t.id ? { ...x, automation: x.automation.map((y) => (y.id === a.id ? { ...y, bypass: !y.bypass } : y)) } : x)) } }))}>●</button>
-                        <button type="button" class="sq-icon" aria-label={`Edit ${spec?.name ?? a.target} curve`} title="Open in the curve editor" onClick={() => openCurves({ track: t.id }, length, t.name)}>✎</button>
+                        <button type="button" class="sq-icon" aria-label={`Edit ${spec?.name ?? a.target} curve`} title="Open in the curve editor" onClick={() => openCurves({ track: t.id }, length, t.name, a.target)}>✎</button>
                       </div>
                       <div class="sq-lane sq-auto-lane" onDblClick={(e) => dblClickLane(e, t.id, a.id)}>
                         {spec && time ? (

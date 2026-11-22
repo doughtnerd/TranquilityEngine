@@ -1,6 +1,6 @@
 // Stories (ADR 0219, 0335) for the Playlist panel: one per type, over the fixture playlists, each applying its edits
 // locally so the controls work: a random Queue with weights, a Switch with labels, rules and the no-tempo lint, a 1D
-// Blend with its lane and envelope, a 2D Blend's plane, a Clip, and a Sequence's M5 empty state.
+// Blend with its lane and envelope, a 2D Blend's plane, a Clip, and a Sequence's timeline.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, fn, userEvent, within } from "storybook/test";
@@ -94,6 +94,6 @@ export const ClipPlaylist: Story = {
 export const Sequence: Story = {
   args: { path: "music/theme.playlist.json" },
   play: async ({ canvasElement }) => {
-    await expect(within(canvasElement).getByText("The Sequence view arrives with M5")).toBeVisible();
+    await expect(within(canvasElement).getByRole("toolbar", { name: "Sequence tools" })).toBeVisible();
   },
 };

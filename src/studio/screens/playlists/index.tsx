@@ -35,6 +35,9 @@ import { entryKey, factsOf, fileKey, playlistTree, type PlaylistNode } from "./p
 import { dropLabel, planDrop } from "./treeDrop";
 import { canRelease, eventTimes, logSpan, stepEvent } from "./voiceLog";
 import { VoicesView } from "./VoicesView";
+import { SequenceInspectorPanel } from "./sequence/SequencePanel";
+import { sequenceSpace, stopSequence } from "./sequence/sequenceState";
+import { sequencePlayerSlots } from "./sequence/SequenceTransport";
 import "./playlists.css";
 
 const writable = () => !!currentProject.value?.canSave;
@@ -197,13 +200,14 @@ function useScreen(): void {
         id: "playlists.trigger", keys: ["Space"], label: "Trigger / stop (release a held loop)", scope: { screen: "playlists" },
         run: () => {
           if (!openBody.peek()) return false;
+          if (openBody.peek()!.type === "sequence") return sequenceSpace();
           if (auditioning.peek()) {
             if (canRelease(openBody.peek()!, loadPlaylist)) releaseAudition();
             else stopAudition();
           } else trigger();
         },
       }),
-      keymap.register({ id: "playlists.stop", keys: ["Shift+Space"], label: "Stop the audition", scope: { screen: "playlists" }, run: () => stopAudition() }),
+      keymap.register({ id: "playlists.stop", keys: ["Shift+Space"], label: "Stop the audition", scope: { screen: "playlists" }, run: () => (openBody.peek()?.type === "sequence" ? stopSequence() : stopAudition()) }),
       effect(() => {
         const body = openBody.value;
         const path = openPath.value;
@@ -213,6 +217,7 @@ function useScreen(): void {
         const now = audioNow.value;
         if (!body || !path) return setPlayerSlots("playlists", null);
         const t = pathTarget(path);
+        if (body.type === "sequence") return setPlayerSlots("playlists", sequencePlayerSlots(lastCrumbName(), `Sequence · ${t.file}`));
         const release = canRelease(body, loadPlaylist);
         const times = eventTimes(log);
         const span = logSpan(log, now);
@@ -328,9 +333,7 @@ function InspectorPanel() {
     );
   }
   const usedBy = t.indices.length ? [t.file] : (linkedBy.value.get(t.file) ?? []);
-  return (
-    <Panel bodyClass="pl-panel-body">
-      <div class="pl-doc" data-asset-document={doc.path} tabIndex={-1}>
+  const inspector = (
         <PlaylistInspector
           body={body}
           selected={selectedEntry.value}
@@ -345,6 +348,17 @@ function InspectorPanel() {
           onOpenBus={(bus) => openRoute({ screen: "mixer", select: bus })}
           onOpenPlaylist={(p) => openPlaylist(filePath(p))}
         />
+  );
+  return (
+    <Panel bodyClass="pl-panel-body">
+      <div class="pl-doc" data-asset-document={doc.path} tabIndex={-1}>
+        {body.type === "sequence" ? (
+          <SequenceInspectorPanel body={body} writable={writable() && !doc.readOnly} lints={openLints.value} where={whereOf(t.indices)} title={lastCrumbName()} onEdit={(label, edit) => editOpen(label, edit)}>
+            {inspector}
+          </SequenceInspectorPanel>
+        ) : (
+          inspector
+        )}
       </div>
     </Panel>
   );
