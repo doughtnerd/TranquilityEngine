@@ -12,7 +12,7 @@ node samples/sound-lab/tools/makeTones.mjs
 
 ## Events page clips
 
-The same script writes `../audio/events/` (23 files, about 1.3 MB), the clips of the events page (`scenes/events.scene.json`, ADR 0158 §8) and of the `*.audioevent.json` files beside them. They are synthesised from seeded noise and sines, so they carry no licence and a rerun is byte-identical:
+The same script writes `../audio/events/` (23 files, about 1.3 MB), the clips of the events page (`scenes/events.scene.json`, ADR 0158 §8) and of the `*.playlist.json` files beside them (migrated from audio events, ADR 0329). They are synthesised from seeded noise and sines, so they carry no licence and a rerun is byte-identical:
 
 - `step-{grass,gravel,wood,metal}-{1,2,3}.wav`: footsteps, 48 kHz, 0.25 to 0.35 s; the three variants of a surface differ in seed, pitch and grain pattern.
 - `engine-{idle,mid,high}.wav`: 24 kHz engine loops at 30, 60 and 110 Hz firing rate. Each is 1.3 s: a 0.15 s lead-in, exactly 1 s of loop and a 0.15 s tail. The loop region is **0.15 to 1.15 s**, written both into the file (a WAV `smpl` loop) and, authoritatively, into the event's `loopRegion`.
@@ -24,11 +24,11 @@ What the page does, and what to listen for, is in the comments of `scripts/behav
 
 ## Music page clips
 
-`../audio/music/` (9 clips, about 1.46 MB, mono 16-bit, 22.05 kHz) holds the stems of the music page (key M on the tour page, `scenes/music.scene.json`, `scripts/behaviors/MusicLab.ts`). They are written by `tools/makeMusic.mjs` at the repository root, not by `makeTones.mjs` (`node tools/makeMusic.mjs`; `--check` tells whether the files are current; `node --test tools/makeMusic.test.mjs` tests it). Every clip is on one grid, 120 bpm in 4/4 (a bar is 2 s), so any segment can follow any other. The three `*.audioevent.json` files beside them are hand-written to the format in `docs/guide/interactive-music.md`: `music-world` (a switch on State with a rule for every pair, a bridge and two stingers), `music-loop` (a loop region with a tail that loops while Loop is hold) and `music-playlist`.
+`../audio/music/` (9 clips, about 1.46 MB, mono 16-bit, 22.05 kHz) holds the stems of the music page (key M on the tour page, `scenes/music.scene.json`, `scripts/behaviors/MusicLab.ts`). They are written by `tools/makeMusic.mjs` at the repository root, not by `makeTones.mjs` (`node tools/makeMusic.mjs`; `--check` tells whether the files are current; `node --test tools/makeMusic.test.mjs` tests it). Every clip is on one grid, 120 bpm in 4/4 (a bar is 2 s), so any segment can follow any other. The `*.playlist.json` files beside them were migrated from hand-written audio events (ADR 0329; see `docs/guide/interactive-music.md`): `music-world` (a Switch on State with a rule for every pair, a transition and two stingers), `music-loop` (a loop that loops while Loop is hold) and `music-playlist`.
 
 ## Rhythm page clips
 
-`samples/sound-lab/tools/makeClick.mjs` writes `../audio/music/click-track.wav` (one bar at 120 bpm, a click on every beat, beat 1 higher; deterministic: `node samples/sound-lab/tools/makeClick.mjs`). The rhythm page (key R on the tour page, `scenes/rhythm.scene.json`, `scripts/behaviors/RhythmLab.ts`) plays it through `rhythm-click.audioevent.json` for the calibration, and `rhythm-game.audioevent.json` (the combat drums and bass) for the tap game.
+`samples/sound-lab/tools/makeClick.mjs` writes `../audio/music/click-track.wav` (one bar at 120 bpm, a click on every beat, beat 1 higher; deterministic: `node samples/sound-lab/tools/makeClick.mjs`). The rhythm page (key R on the tour page, `scenes/rhythm.scene.json`, `scripts/behaviors/RhythmLab.ts`) plays it through `rhythm-click.playlist.json` for the calibration, and `rhythm-game.playlist.json` (the combat drums and bass) for the tap game.
 
 ## Mix page clip (M5-0)
 

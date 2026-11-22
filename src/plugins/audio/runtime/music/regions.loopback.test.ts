@@ -95,27 +95,4 @@ describe("while releases on the real core (R4b)", () => {
     expect(r.maxError(0, end + 8 * r.frameFrames, (n) => ref(n - f0))).toBeLessThan(1e-6);
     r.dispose();
   });
-
-  it("the Sound Lab's loop event (L releases it): the 2-bar body loops with its tail, then plays its last bar and ends", async (ctx) => {
-    const path = "audio/music/music-loop.audioevent.json";
-    const json = JSON.parse(readFileSync(fileURLToPath(new URL(`../../../../../samples/sound-lab/${path}`, import.meta.url)), "utf8"));
-    const seconds = 6; // the sample's loop-body.wav: three bars
-    const r = await musicLoopback({ clips: { "audio/music/loop-body.wav": { signal, seconds } }, events: { [path]: json } });
-    if (!r) return ctx.skip();
-    const h = r.play(path);
-    await r.stepUntil(() => r.player()?.run?.state === "playing");
-    const run = r.player()!.run!;
-    const f0 = r.frameOfTime(run.startAt);
-    // L during pass 2: the wrap ending it (8 s in) is the exit; one tail (4 beats) rang at the first wrap (4 s).
-    await r.stepUntil(() => r.backend.time >= run.startAt + 5);
-    h.setParameter("Loop", "release");
-    const fileFrames = seconds * RATE;
-    const vol = Math.fround(0.9);
-    const ref = released(0, 2 * BAR, 2, 4 * BEAT, fileFrames);
-    const end = f0 + 4 * BAR + BAR;
-    await r.stepToFrame(end + 8 * r.frameFrames);
-    expect(r.maxError(0, end + 8 * r.frameFrames, (n) => Math.fround(ref(n - f0) * vol))).toBeLessThan(2e-6);
-    expect(musicPlayers()).toHaveLength(0);
-    r.dispose();
   });
-});

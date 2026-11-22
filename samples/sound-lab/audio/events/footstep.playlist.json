@@ -1,0 +1,219 @@
+{
+  "format": "myco.playlist@1",
+  "type": "switch",
+  "output": "Foley",
+  "playback": {
+    "maxInstances": 6,
+    "cooldown": 0.05
+  },
+  "entries": [
+    {
+      "embedded": {
+        "type": "queue",
+        "volumeRandom": [
+          -3,
+          0
+        ],
+        "pitchRandom": [
+          -1.5,
+          1.5
+        ],
+        "entries": [
+          {
+            "embedded": {
+              "type": "clip",
+              "entries": [
+                {
+                  "sample": "audio/events/step-grass-1.wav",
+                  "loop": "off"
+                }
+              ]
+            }
+          },
+          {
+            "embedded": {
+              "type": "clip",
+              "entries": [
+                {
+                  "sample": "audio/events/step-grass-2.wav",
+                  "loop": "off"
+                }
+              ]
+            }
+          },
+          {
+            "embedded": {
+              "type": "clip",
+              "entries": [
+                {
+                  "sample": "audio/events/step-grass-3.wav",
+                  "loop": "off"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "embedded": {
+        "type": "queue",
+        "volumeRandom": [
+          -3,
+          0
+        ],
+        "pitchRandom": [
+          -2,
+          2
+        ],
+        "entries": [
+          {
+            "embedded": {
+              "type": "clip",
+              "entries": [
+                {
+                  "sample": "audio/events/step-gravel-1.wav",
+                  "loop": "off"
+                }
+              ]
+            }
+          },
+          {
+            "embedded": {
+              "type": "clip",
+              "entries": [
+                {
+                  "sample": "audio/events/step-gravel-2.wav",
+                  "loop": "off"
+                }
+              ]
+            }
+          },
+          {
+            "embedded": {
+              "type": "clip",
+              "entries": [
+                {
+                  "sample": "audio/events/step-gravel-3.wav",
+                  "loop": "off"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "embedded": {
+        "type": "queue",
+        "volumeRandom": [
+          -3,
+          0
+        ],
+        "pitchRandom": [
+          -1.5,
+          1.5
+        ],
+        "entries": [
+          {
+            "embedded": {
+              "type": "clip",
+              "entries": [
+                {
+                  "sample": "audio/events/step-wood-1.wav",
+                  "loop": "off"
+                }
+              ]
+            }
+          },
+          {
+            "embedded": {
+              "type": "clip",
+              "entries": [
+                {
+                  "sample": "audio/events/step-wood-2.wav",
+                  "loop": "off"
+                }
+              ]
+            }
+          },
+          {
+            "embedded": {
+              "type": "clip",
+              "entries": [
+                {
+                  "sample": "audio/events/step-wood-3.wav",
+                  "loop": "off"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "embedded": {
+        "type": "queue",
+        "volumeRandom": [
+          -2,
+          0
+        ],
+        "pitchRandom": [
+          -1,
+          1
+        ],
+        "entries": [
+          {
+            "embedded": {
+              "type": "clip",
+              "entries": [
+                {
+                  "sample": "audio/events/step-metal-1.wav",
+                  "loop": "off"
+                }
+              ]
+            }
+          },
+          {
+            "embedded": {
+              "type": "clip",
+              "entries": [
+                {
+                  "sample": "audio/events/step-metal-2.wav",
+                  "loop": "off"
+                }
+              ]
+            }
+          },
+          {
+            "embedded": {
+              "type": "clip",
+              "entries": [
+                {
+                  "sample": "audio/events/step-metal-3.wav",
+                  "loop": "off"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "switch": {
+    "parameter": "Surface",
+    "map": {
+      "Grass": 0,
+      "Gravel": 1,
+      "Wood": 2,
+      "Metal": 3
+    },
+    "onChange": {
+      "when": "nextTrigger",
+      "how": "cut",
+      "length": {
+        "ms": 0
+      }
+    }
+  }
+}

@@ -178,7 +178,9 @@ export class Playhead {
         target = Math.min(target, exitPoint);
       }
       const room = until - this.time;
-      if (target - this.position > room) { this.run(this.position + room, out); return; }
+      // A target within float noise past `until` is reached now: stopping short of it by less than EPS would leave the
+      // position inside the loop's end band, where it no longer counts as inside the loop and the wrap is missed.
+      if (target - this.position > room + EPS) { this.run(this.position + room, out); return; }
       this.run(target, out);
       if (l && on && Math.abs(this.position - l.end) <= EPS) this.jump(l.wrapTo, i, "wrap", SPLICE, out);
       else if (l && !on && Math.abs(this.position - exitPoint) <= EPS && exitPoint < l.end - EPS) this.jump(l.end, i, "exit", SPLICE, out);

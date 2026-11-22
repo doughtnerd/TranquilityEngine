@@ -115,6 +115,24 @@ describe("Switch at exit", () => {
   });
 });
 
+describe("A transition Sequence", () => {
+  it("whose Exit marker is at its end hands over there (the migrated bridges' shape)", async () => {
+    const riser = { type: "sequence", entries: [], sequence: { length: 2, tempo: { bpm: 120, meter: "4/4" }, tracks: [{ id: "t", kind: "audio", clips: [{ id: "c", sample: "c.wav", at: 0, length: 2, sync: true }] }], markers: [{ id: "m", name: "exit", at: 2, type: "exit" }] } };
+    await kit.boot({ "s.playlist.json": SWITCH([sample("a.wav"), sample("b.wav")], { rules: [{ from: "*", to: "Stone", when: "now", how: "transition", length: { ms: 0 }, transition: { embedded: riser } }] }) });
+    fake.durations.set("a.wav", 8);
+    fake.durations.set("c.wav", 2);
+    const h = Audio.play("s.playlist.json");
+    at(0.5);
+    h.setParameter("Surface", "Stone");
+    at(0.6);
+    const bridge = playsOf("c.wav")[0]!;
+    expect(bridge).toBeGreaterThan(0.4);
+    expect(playsOf("b.wav")).toEqual([]);
+    at(bridge + 2);
+    expect(playsOf("b.wav")).toEqual([Math.round((bridge + 2) * 1e6) / 1e6]);
+  });
+});
+
 describe("Switch timing on a Sequence's tempo", () => {
   it("bar waits for the sequence's next bar on its playhead", async () => {
     const sequence = { type: "sequence", entries: [], sequence: { length: 8, tempo: { bpm: 120, meter: "4/4" }, tracks: [{ id: "t", kind: "audio", clips: [{ id: "c", sample: "a.wav", at: 0, length: 8, sync: true }] }] } };

@@ -676,7 +676,8 @@ export class SequenceNode extends LiveNode implements MusicalSource {
       const s = m.from + (a - m.at);
       if (s >= m.to - EPS) return false;
       const p = next(s);
-      if (Number.isFinite(p) && p < m.to - EPS) { out = m.at + (p - m.from); return true; }
+      // A point at the run's very end counts (an Exit marker at the sequence's end, or at a loop's end where it wraps).
+      if (Number.isFinite(p) && p <= m.to + EPS) { out = m.at + (p - m.from); return true; }
       return false;
     });
     return out;

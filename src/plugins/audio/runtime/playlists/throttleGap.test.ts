@@ -1,6 +1,7 @@
-// ADR 0158 M2 bug report: on the Sound Lab events page, the blended engine (E, `engine.audioevent.json`) has a gap of
+// ADR 0158 M2 bug report: on the Sound Lab events page, the blended engine (E, `engine.playlist.json`) has a gap of
 // silence when the throttle changes ("E, press & release Right, then Up": RPM 0 -> 0.5 -> 0 -> 1 -> 0). The single-clip
-// engine (T) is smooth. This plays the sample's real event files and clips through the real event runtime and the real
+// engine (T) is smooth. This plays the sample's real playlists (migrated from its events, ADR 0329; the loop regions are the
+// clips' sidecar loops) and clips through the real playlist runtime and the real
 // `CoreBackend` on the loopback host (the committed wasm), with `setParameter` on frames as key presses would, and
 // measures the output per quantum (128 frames) and each voice's state in `Audio.debug()`.
 //
@@ -30,7 +31,7 @@ import { Audio } from "../index";
 import { fakeDecoder, type PlanarClip } from "../core/fakeDecoder";
 import type { CoreBackend } from "../core/coreBackend";
 import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
-import { events } from "./eventRuntime";
+import { events } from "../events/eventRuntime";
 
 const SAMPLE = fileURLToPath(new URL("../../../../../samples/sound-lab/", import.meta.url));
 const RATE = 48_000;
@@ -42,8 +43,8 @@ const QUANTUM_MS = (QUANTUM / RATE) * 1000;
 /** A quantum quieter than this (RMS, about -60 dBFS) counts as silence; the engine loops sit around 0.1..0.3. */
 const SILENT = 1e-3;
 
-const SINGLE = "audio/events/engine-single.audioevent.json";
-const BLEND = "audio/events/engine.audioevent.json";
+const SINGLE = "audio/events/engine-single.playlist.json";
+const BLEND = "audio/events/engine.playlist.json";
 const WAVS = ["start", "idle", "mid", "high", "off", "single"].map((n) => `audio/events/engine-${n}.wav`);
 
 // --- Real clips: the sample's 16-bit PCM WAVs, parsed here (the fake decoder hands them to the registry as the worker would).
@@ -82,6 +83,7 @@ async function boot(): Promise<Engine> {
     ...Object.fromEntries(WAVS.map((w) => [w, "data:,"])),
     [SINGLE]: eventJson(SINGLE),
     [BLEND]: eventJson(BLEND),
+    ...Object.fromEntries(["single", "idle", "mid", "high"].map((n) => [`audio/events/engine-${n}.wav.meta.json`, eventJson(`audio/events/engine-${n}.wav.meta.json`)])),
   }));
   const engine = await Engine.create({ headless: true, project: { audio: { buses: [{ name: "Master" }, { name: "Engine", parent: "Master" }], seed: 7, backend: "core" } } });
   await SceneManager.load("s.json");

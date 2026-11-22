@@ -1,5 +1,5 @@
 // ADR 0166 task Rh3: the Sound Lab's rhythm page (samples/sound-lab/scenes/rhythm.scene.json, scripts/behaviors/RhythmLab.ts).
-// The scene data is valid (the two events parse and lint clean, the click clip is one bar with a click on every beat, the
+// The scene data is valid (the two playlists, migrated from audio events (ADR 0329), parse and lint clean, the click clip is one bar with a click on every beat, the
 // scene and the tour's link load), and the page's script is run headless on the fake backend with synthetic taps: a
 // calibration run feeds `Calibration.fromTaps` and sets `Audio.calibration`, the offset is stored and read back as after a
 // reload, an unsteady run is refused, and the tap game grades taps by `judged`. The browser run is E3's.
@@ -11,15 +11,13 @@ import { readProject } from "../../server/project";
 import { Storage } from "../platform/Storage";
 // The sample's scripts, registered as loading the project's scripts would (ADR 0031).
 import.meta.glob("../../../samples/sound-lab/scripts/behaviors/*.ts", { eager: true });
-import { parseAudioEvent } from "../audio/eventFormat";
+import { parsePlaylist } from "../audio/playlist/format";
+import { lintPlaylist } from "../audio/playlist/lint";
 import { parseAudioProject } from "../audio/project/format";
-import { isMusicContainer, type MusicNode, type SegmentNode } from "../audio/musicFormat";
-import { validateMusic, type MusicClipFacts } from "../audio/musicValidate";
 import { setAudioBackend } from "../../plugins/audio/runtime/backend";
 import { makeFakeBackend, endAudioSession } from "../../plugins/audio/runtime/testing";
 import { Audio } from "../../plugins/audio/runtime";
 import { setCalibration } from "../../plugins/audio/runtime/music/calibration";
-import { events } from "../../plugins/audio/runtime/events/eventRuntime";
 import type { RhythmLab, RhythmState, RhythmTap } from "../../../samples/sound-lab/scripts/behaviors/RhythmLab";
 
 /** Lets the calibration's storage read or write land (a few promise turns). */
@@ -29,29 +27,31 @@ const SAMPLE = fileURLToPath(new URL("../../../samples/sound-lab/", import.meta.
 const read = (path: string): Buffer => readFileSync(`${SAMPLE}${path}`);
 const json = (path: string): unknown => JSON.parse(read(path).toString("utf8"));
 
-function facts(path: string): MusicClipFacts | undefined {
-  let b: Buffer;
-  try {
-    b = read(path);
-  } catch {
-    return undefined;
-  }
-  return { frames: b.readUInt32LE(40) / 2, rate: b.readUInt32LE(24), channels: b.readUInt16LE(22), gapless: true, codec: "pcm", bytes: b.length };
+/** A mono 16-bit WAV's length in seconds, from its header (what `tools/makeMusic.mjs` writes). */
+function seconds(path: string): number {
+  const b = read(path);
+  return b.readUInt32LE(40) / 2 / b.readUInt32LE(24);
 }
 
 describe("the rhythm page's data", () => {
-  for (const name of ["rhythm-click", "rhythm-game"]) {
-    it(`${name}: parses without a problem, one segment looping its whole clip, and the lint finds nothing`, () => {
-      const { value, problems } = parseAudioEvent(json(`audio/music/${name}.audioevent.json`));
+  for (const [name, stems] of [["rhythm-click", ["click-track"]], ["rhythm-game", ["combat-drums", "combat-bass"]]] as const) {
+    it(`${name}: parses without a problem, one sequence looping its whole length on a 120 bpm grid, and the lint finds only the stems' overlap`, () => {
+      const { playlist, problems } = parsePlaylist(json(`audio/music/${name}.playlist.json`), name);
       expect(problems).toEqual([]);
-      const root = value.musicRoot as MusicNode;
-      expect(isMusicContainer(root)).toBe(false);
-      const seg = root as SegmentNode;
-      expect(seg.regions).toEqual([{ id: "loop", from: "1:1:0", to: "end", count: 0 }]);
-      expect(seg.tempo).toEqual([{ at: "1:1:0", bpm: 120, beatsPerBar: 4, beatUnit: 4 }]);
-      const v = validateMusic({ segments: [seg], library: [] }, facts);
-      expect(v.issues).toEqual([]);
-      expect(v.peakRings).toBe(0);
+      expect(playlist.type).toBe("sequence");
+      expect(playlist.playback.plays).toBe("untilStopped");
+      const seq = playlist.sequence!;
+      expect(seq.tempo).toEqual({ bpm: 120, meter: "4/4" });
+      expect(seq.loops.map((l) => [l.start, l.end, l.active])).toEqual([[0, seq.length, "always"]]);
+      // Every stem is a sync clip over the whole sequence, as long as its WAV.
+      const clips = seq.tracks.flatMap((t) => t.clips);
+      expect(clips.map((c) => c.sample)).toEqual(stems.map((s) => `audio/music/${s}.wav`));
+      for (const c of clips) {
+        expect([c.at, c.length, c.sync]).toEqual([0, seq.length, true]);
+        expect(seconds(c.sample!)).toBeCloseTo(seq.length, 6);
+      }
+      // Stems are sync clips on parallel tracks (ADR 0329 migration): the first drives the playhead, the others follow.
+      expect(lintPlaylist(playlist).map((l) => l.code)).toEqual(stems.slice(1).map(() => "overlappingSyncLoops"));
     });
   }
 
@@ -111,21 +111,12 @@ function tapNearBeat(delta: number, beatsAhead = 0): number {
   return here + (beat + delta - Audio.timeAt(here)) * 1000;
 }
 
-// The fake remembers a group only when it is primed; these clips are decoded (admitted, never primed), so remember each on
-// admission and its stamped stems get voices that sound until stopped.
-const admit = fake.music!.admitGroup.bind(fake.music);
-fake.music!.admitGroup = (req) => {
-  fake.music!.primeGroup(req);
-  return admit(req);
-};
-
 beforeEach(() => {
   fake.clear();
   for (const [p, s] of [["click-track", 2], ["combat-drums", 4], ["combat-bass", 4]] as const) fake.durations.set(`audio/music/${p}.wav`, s);
   fake.advanceTo(0); // the rAF time moves with it, back to 0
   fake.ready = true;
   setAudioBackend(fake);
-  events().now = () => fake.time;
   endAudioSession();
   warnings.length = 0;
   errors.length = 0;

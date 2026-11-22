@@ -109,7 +109,7 @@ describe("a page that claims the keyboard", () => {
 describe("the music page", () => {
   const music = () => GameObject.findObjectOfType(MusicLab)!;
   const label = () => music().node.getBehavior(Text)!;
-  const assets = () => events().debugRows(new Map()).map((r) => r.asset);
+  const assets = () => Audio.debug().events.map((r) => r.asset);
 
   it("starts the eight-stem event with 4 and the A, B, C playlist with 5, each stopping the one before", async () => {
     await boot("scenes/music.scene.json");
@@ -119,6 +119,18 @@ describe("the music page", () => {
     expect(label().text).toContain("eight stems");
     press("5");
     expect(label().text).toContain("playlist A, B, C");
+    advance(0.5); // the eight stems' 120 ms stop fade is over
+    expect(assets().filter((a) => a.includes("music-stems8"))).toHaveLength(0);
+    expect(assets().filter((a) => a.includes("music-list3"))).toHaveLength(1);
+    // A, B, C: each section's two stems in turn, 4 s apart, once through (the migrated queue was edited back to a one-shot
+    // sequence of three sections), then the instance ends.
+    fake.plays.length = 0;
+    advance(12.5);
+    expect(playedClips()).toEqual(["audio/events/music-lead.wav", "audio/events/music-pulse.wav", "audio/melody-loop.wav", "audio/events/music-pad.wav"]);
+    for (const v of fake.voices) v.end();
+    advance(0.2);
+    expect(assets().filter((a) => a.includes("music-list3"))).toHaveLength(0);
+    press("5");
     press("o");
     expect(label().text).toContain("Music: off");
   });
