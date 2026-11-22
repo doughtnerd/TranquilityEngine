@@ -16,16 +16,22 @@ export function worldSkyPath(world: World): string {
 
 /** A sky asset's settings as saved, parsed once per JSON object (`Assets.json` caches it); defaults if missing. */
 const parsed = new WeakMap<object, SkySettings>();
-/** @internal */
+/**
+ * The default sky read for a missing, unreadable or non-object asset: one object, so readers that compare what they
+ * read (the `Sky` component copies the asset again only when it changes) see no change until the asset arrives.
+ */
+let fallback: SkySettings | null = null;
+const missing = (): SkySettings => (fallback ??= defaultSky());
+/** @internal The settings are shared: copy them (`cloneSky`) before changing them. */
 export function readSkyAsset(path: string): SkySettings {
-  if (!path || !Assets.has(path)) return defaultSky();
+  if (!path || !Assets.has(path)) return missing();
   let raw: unknown;
   try {
     raw = Assets.json(path);
   } catch {
-    return defaultSky();
+    return missing();
   }
-  if (!raw || typeof raw !== "object") return parseSky(raw, path).settings;
+  if (!raw || typeof raw !== "object") return missing();
   let s = parsed.get(raw);
   if (!s) {
     const result = parseSky(raw, path);
