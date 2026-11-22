@@ -1,11 +1,27 @@
-//! The setup calls: `init` reads the one generated init record (`anim-wire` family `core`) and
-//! answers with the memory the core needs for it (ADR 0340, after audio 0327/0328); `source_hash`
-//! returns the hash of `native/anim/` the module was built from (the staleness check).
+//! The setup calls and the core: `init` reads the one generated init record (`anim-wire` family
+//! `core`), answers with the memory the core needs for it (ADR 0340, after audio 0327/0328) and
+//! (re)starts the [`Core`] with those limits; `source_hash` returns the hash of `native/anim/`
+//! the module was built from (the staleness check).
+//!
+//! [`Core`] is the whole animation core as a Rust value (asset arena, instance table, views and
+//! scratch). The module keeps one per page, and the `#[wasm_bindgen]` functions below are thin
+//! wrappers over it with plain numeric and byte-slice signatures: no JavaScript objects cross,
+//! and per-frame data moves through the views (`anim-wire` core documents the frame).
 
-use anim_wire::core::{Init, MemoryNeeded, STATUS_BAD_RECORD, STATUS_OK, STATUS_TOO_LARGE};
+use std::cell::RefCell;
+
+use anim_graph::eval::{Inputs, Program, SkeletonPose};
+use anim_math::layout::soa_len;
+use anim_wire::core::{
+    Init, MemoryNeeded, HANDLE_INDEX_MASK, STATUS_BAD_RECORD,
+    STATUS_NOT_INITIALIZED, STATUS_OK, STATUS_TOO_LARGE,
+};
 use anim_wire::WireRecord;
 use wasm_bindgen::prelude::wasm_bindgen;
 
+use crate::assets::{split, Arena};
+use crate::evaluate::{self as frame_calls, Frame};
+use crate::instances::{implicit, Table};
 use crate::{
     assets, debug, evaluate, graph, instances, matching, physics, plugin, retarget, rig, timeline,
     tracks, tweens,
@@ -17,40 +33,31 @@ static SOURCE_HASH: [u8; 16] = *include_bytes!(concat!(env!("OUT_DIR"), "/source
 /// The bytes of one wasm memory page.
 const PAGE_BYTES: u64 = 64 * 1024;
 
-/// Reads an `INIT` record and returns a `MEMORY_NEEDED` record (both `anim-wire` family `core`).
-/// Never throws: a malformed record is answered with `STATUS_BAD_RECORD`.
-#[wasm_bindgen]
-pub fn init(record: &[u8]) -> Vec<u8> {
-    memory_needed(record).encode()
-}
-
-/// The source hash the module was built from, as 32 lowercase hex digits.
-#[wasm_bindgen]
-pub fn source_hash() -> String {
-    SOURCE_HASH.iter().map(|b| format!("{b:02x}")).collect()
-}
-
 /// The reply to an init record.
-fn memory_needed(record: &[u8]) -> MemoryNeeded {
-    let Ok(init) = Init::decode(record) else {
+fn memory_needed(init: Option<&Init>) -> MemoryNeeded {
+    let Some(init) = init else {
         return MemoryNeeded {
             status: STATUS_BAD_RECORD,
             bytes: 0,
             pages: 0,
         };
     };
-    let total = total_bytes(&init);
+    let too_large = MemoryNeeded {
+        status: STATUS_TOO_LARGE,
+        bytes: 0,
+        pages: 0,
+    };
+    if init.max_instances > HANDLE_INDEX_MASK || init.max_bones > HANDLE_INDEX_MASK {
+        return too_large;
+    }
+    let total = total_bytes(init);
     match u32::try_from(total) {
         Ok(bytes) => MemoryNeeded {
             status: STATUS_OK,
             bytes,
             pages: total.div_ceil(PAGE_BYTES) as u32,
         },
-        Err(_) => MemoryNeeded {
-            status: STATUS_TOO_LARGE,
-            bytes: 0,
-            pages: 0,
-        },
+        Err(_) => too_large,
     }
 }
 
@@ -75,12 +82,438 @@ fn total_bytes(init: &Init) -> u64 {
     .fold(0u64, |sum, b| sum.saturating_add(*b))
 }
 
+/// The animation core.
+pub struct Core {
+    started: bool,
+    max_bones: usize,
+    arena: Arena,
+    table: Table,
+    frame: Frame,
+    implicit: Program,
+    last_status: u32,
+}
+
+impl Default for Core {
+    fn default() -> Self {
+        Core::new()
+    }
+}
+
+impl Core {
+    /// A core that hasn't been through `init` (every call answers `STATUS_NOT_INITIALIZED`).
+    pub fn new() -> Core {
+        Core {
+            started: false,
+            max_bones: 0,
+            arena: Arena::default(),
+            table: Table::default(),
+            frame: Frame::default(),
+            implicit: implicit::program(),
+            last_status: STATUS_NOT_INITIALIZED,
+        }
+    }
+
+    /// Reads an `INIT` record and answers `MEMORY_NEEDED`; when the status is `STATUS_OK` the core
+    /// restarts with those limits (every earlier handle is gone).
+    pub fn init(&mut self, record: &[u8]) -> MemoryNeeded {
+        let init = Init::decode(record).ok();
+        let reply = memory_needed(init.as_ref());
+        if let (Some(init), STATUS_OK) = (init, reply.status) {
+            let instances = init.max_instances as usize;
+            let bones = init.max_bones as usize;
+            self.max_bones = bones;
+            self.arena = Arena::with_capacity(64);
+            self.table = Table::new(instances);
+            self.frame = Frame::new(instances, bones, self.implicit.pose_slots());
+            self.started = true;
+            self.last_status = STATUS_OK;
+        }
+        reply
+    }
+
+    /// Why the last call that returns a handle returned 0 (or `STATUS_UNKNOWN_NODES` after a graph
+    /// load that succeeded with nodes this build doesn't know).
+    pub fn last_status(&self) -> u32 {
+        self.last_status
+    }
+
+    fn handle(&mut self, r: Result<u32, u32>) -> u32 {
+        match r {
+            Ok(h) => {
+                self.last_status = STATUS_OK;
+                h
+            }
+            Err(e) => {
+                self.last_status = e;
+                0
+            }
+        }
+    }
+
+    /// Loads a `myco.skel@1` file; 0 on failure.
+    pub fn load_skeleton(&mut self, bytes: &[u8]) -> u32 {
+        if !self.started {
+            return self.handle(Err(STATUS_NOT_INITIALIZED));
+        }
+        let r = self.arena.load_skeleton(bytes, self.max_bones);
+        if let Ok(h) = r {
+            if let Ok(s) = self.arena.skeleton(h) {
+                let bones = s.bones();
+                self.frame.reserve_inertializer(bones);
+            }
+        }
+        self.handle(r)
+    }
+
+    /// Loads a `myco.anim@1` file; 0 on failure.
+    pub fn load_clip(&mut self, bytes: &[u8]) -> u32 {
+        if !self.started {
+            return self.handle(Err(STATUS_NOT_INITIALIZED));
+        }
+        let r = self.arena.load_clip(bytes);
+        self.handle(r)
+    }
+
+    /// Loads a `myco.animgraph@1` file; 0 on failure.
+    pub fn load_graph(&mut self, bytes: &[u8]) -> u32 {
+        if !self.started {
+            return self.handle(Err(STATUS_NOT_INITIALIZED));
+        }
+        match self.arena.load_graph(bytes) {
+            Ok((h, status)) => {
+                if let Ok(g) = self.arena.graph(h) {
+                    let slots = g.program.pose_slots();
+                    self.frame.reserve_slots(slots);
+                }
+                self.last_status = status;
+                h
+            }
+            Err(e) => self.handle(Err(e)),
+        }
+    }
+
+    /// Loads a bone mask (one weight per bone); 0 on failure.
+    pub fn load_mask(&mut self, weights: &[f32]) -> u32 {
+        if !self.started {
+            return self.handle(Err(STATUS_NOT_INITIALIZED));
+        }
+        let r = self.arena.load_mask(weights);
+        self.handle(r)
+    }
+
+    /// Releases an asset. Instances using it stop evaluating (a skeleton or graph) or show nothing
+    /// for it (a clip or mask).
+    pub fn release(&mut self, handle: u32) -> u32 {
+        if !self.started {
+            return STATUS_NOT_INITIALIZED;
+        }
+        self.arena.release(handle)
+    }
+
+    /// Binds string id `id` of a graph to a clip or mask (0 unbinds), for instances created later.
+    pub fn graph_bind(&mut self, graph: u32, id: u32, asset: u32) -> u32 {
+        if !self.started {
+            return STATUS_NOT_INITIALIZED;
+        }
+        self.arena.bind(graph, id, asset)
+    }
+
+    /// The address of a clip's or graph's bytes in memory (for host views), 0 for none.
+    pub fn asset_bytes_addr(&self, handle: u32) -> usize {
+        self.arena.bytes_addr(handle)
+    }
+
+    /// Creates an instance in `world` for a skeleton and a graph (0: the implicit graph). Its
+    /// input row is filled with defaults. 0 on failure.
+    pub fn create_instance(&mut self, world: u32, skeleton: u32, graph: u32) -> u32 {
+        if !self.started {
+            return self.handle(Err(STATUS_NOT_INITIALIZED));
+        }
+        let r = self.create(world, skeleton, graph);
+        self.handle(r)
+    }
+
+    fn create(&mut self, world: u32, skeleton: u32, graph: u32) -> Result<u32, u32> {
+        let skel = self.arena.skeleton(skeleton)?;
+        let (program, bindings) = if graph == 0 {
+            (&self.implicit, &[][..])
+        } else {
+            let g = self.arena.graph(graph)?;
+            (&g.program, g.bindings.as_slice())
+        };
+        let groups = soa_len(skel.bones());
+        let h = self.table.create(world, skeleton, graph, program, groups)?;
+        let layers: Vec<f32> = program.layer_defaults().to_vec();
+        let inst = self.table.get_mut(h)?;
+        let inputs = Inputs {
+            assets: &self.arena,
+            skeleton: SkeletonPose {
+                parents: &skel.parents,
+                rest: &skel.rest,
+                rest_soa: &skel.rest_soa,
+                identity: &skel.identity,
+            },
+            bindings,
+            layer_weights: &[],
+            history: None,
+            bake_root: false,
+        };
+        program.init_state(&inputs, &mut inst.state);
+        let (index, _) = split(h);
+        self.frame.default_inputs(index, &layers);
+        Ok(h)
+    }
+
+    /// Destroys an instance.
+    pub fn destroy_instance(&mut self, handle: u32) -> u32 {
+        if !self.started {
+            return STATUS_NOT_INITIALIZED;
+        }
+        self.table.destroy(handle)
+    }
+
+    /// The bytes of an instance's snapshot (0 for a stale handle).
+    pub fn snapshot_bytes(&mut self, handle: u32) -> u32 {
+        self.table.snapshot_bytes(handle).unwrap_or(0)
+    }
+
+    /// Writes an instance's state into `out` ([`Core::snapshot_bytes`] long).
+    pub fn snapshot(&mut self, handle: u32, out: &mut [u8]) -> u32 {
+        if !self.started {
+            return STATUS_NOT_INITIALIZED;
+        }
+        self.table.snapshot(handle, out)
+    }
+
+    /// Restores an instance from a snapshot of an instance of the same graph and skeleton.
+    pub fn restore(&mut self, handle: u32, bytes: &[u8]) -> u32 {
+        if !self.started {
+            return STATUS_NOT_INITIALIZED;
+        }
+        self.table.restore(handle, bytes)
+    }
+
+    /// The input view (words; `INPUT_STRIDE` bytes per instance index).
+    pub fn inputs_mut(&mut self) -> &mut [u32] {
+        &mut self.frame.inputs
+    }
+
+    /// The command buffer.
+    pub fn commands_mut(&mut self) -> &mut [u8] {
+        &mut self.frame.commands
+    }
+
+    /// Applies the first `len` bytes of the command buffer (see `anim-wire` core). Returns the
+    /// commands applied.
+    pub fn write_inputs(&mut self, len: u32) -> u32 {
+        if !self.started {
+            return 0;
+        }
+        frame_calls::write_inputs(&self.arena, &mut self.table, &mut self.frame, &self.implicit, len as usize)
+    }
+
+    /// Evaluates `world`'s instances in `pass`. Returns the state-change records waiting.
+    pub fn evaluate(&mut self, world: u32, pass: u32, dt_scaled: f32, dt_unscaled: f32) -> u32 {
+        if !self.started {
+            return 0;
+        }
+        frame_calls::evaluate(
+            &self.arena,
+            &mut self.table,
+            &mut self.frame,
+            &self.implicit,
+            world,
+            pass,
+            dt_scaled,
+            dt_unscaled,
+        )
+    }
+
+    /// The bone-matrix view (`max_bones · 12` floats per instance index).
+    pub fn matrices(&self) -> &[f32] {
+        &self.frame.matrices
+    }
+
+    /// The root-motion view (`ROOT_STRIDE / 4` floats per instance index).
+    pub fn roots(&self) -> &[f32] {
+        &self.frame.roots
+    }
+
+    /// The state-change records (`StateChange::STRIDE` bytes each; `evaluate` returns the count).
+    pub fn changes(&self) -> &[u8] {
+        &self.frame.changes[..self.frame.change_count * anim_wire::core::StateChange::STRIDE as usize]
+    }
+
+    /// State changes dropped this frame because the buffer was full.
+    pub fn changes_dropped(&self) -> u32 {
+        self.frame.changes_dropped
+    }
+
+    /// The bytes of asset files the arena holds.
+    pub fn arena_bytes(&self) -> usize {
+        self.arena.held_bytes()
+    }
+
+    fn addr<T>(v: &[T]) -> u32 {
+        v.as_ptr() as usize as u32
+    }
+}
+
+thread_local! {
+    /// The page's core (wasm is single-threaded: this is one static).
+    static CORE: RefCell<Core> = RefCell::new(Core::new());
+}
+
+fn with<R>(f: impl FnOnce(&mut Core) -> R) -> R {
+    CORE.with(|c| f(&mut c.borrow_mut()))
+}
+
+/// Reads an `INIT` record and returns a `MEMORY_NEEDED` record (both `anim-wire` family `core`);
+/// on `STATUS_OK` the core restarts with those limits. Never throws: a malformed record is
+/// answered with `STATUS_BAD_RECORD`.
+#[wasm_bindgen]
+pub fn init(record: &[u8]) -> Vec<u8> {
+    with(|c| c.init(record)).encode()
+}
+
+/// The source hash the module was built from, as 32 lowercase hex digits.
+#[wasm_bindgen]
+pub fn source_hash() -> String {
+    SOURCE_HASH.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Why the last call returning a handle returned 0 (`STATUS_*`).
+#[wasm_bindgen]
+pub fn last_status() -> u32 {
+    with(|c| c.last_status())
+}
+
+/// Loads a `myco.skel@1` file (copied in); returns its handle, or 0 (see `last_status`).
+#[wasm_bindgen]
+pub fn load_skeleton(bytes: &[u8]) -> u32 {
+    with(|c| c.load_skeleton(bytes))
+}
+
+/// Loads a `myco.anim@1` file (copied in); returns its handle, or 0.
+#[wasm_bindgen]
+pub fn load_clip(bytes: &[u8]) -> u32 {
+    with(|c| c.load_clip(bytes))
+}
+
+/// Loads a `myco.animgraph@1` file (copied in); returns its handle, or 0.
+#[wasm_bindgen]
+pub fn load_graph(bytes: &[u8]) -> u32 {
+    with(|c| c.load_graph(bytes))
+}
+
+/// Loads a bone mask (one weight per bone); returns its handle, or 0.
+#[wasm_bindgen]
+pub fn load_mask(weights: &[f32]) -> u32 {
+    with(|c| c.load_mask(weights))
+}
+
+/// Releases an asset; returns a status.
+#[wasm_bindgen]
+pub fn release(handle: u32) -> u32 {
+    with(|c| c.release(handle))
+}
+
+/// Binds a graph's string id to a clip or mask handle (0 unbinds); returns a status.
+#[wasm_bindgen]
+pub fn graph_bind(graph: u32, string_id: u32, asset: u32) -> u32 {
+    with(|c| c.graph_bind(graph, string_id, asset))
+}
+
+/// Creates an instance; returns its handle, or 0.
+#[wasm_bindgen]
+pub fn create_instance(world: u32, skeleton: u32, graph: u32) -> u32 {
+    with(|c| c.create_instance(world, skeleton, graph))
+}
+
+/// Destroys an instance; returns a status.
+#[wasm_bindgen]
+pub fn destroy_instance(handle: u32) -> u32 {
+    with(|c| c.destroy_instance(handle))
+}
+
+/// The byte length of an instance's snapshot (0 for a stale handle).
+#[wasm_bindgen]
+pub fn snapshot_bytes(handle: u32) -> u32 {
+    with(|c| c.snapshot_bytes(handle))
+}
+
+/// Writes an instance's snapshot into `out`; returns a status.
+#[wasm_bindgen]
+pub fn snapshot(handle: u32, out: &mut [u8]) -> u32 {
+    with(|c| c.snapshot(handle, out))
+}
+
+/// Restores an instance from a snapshot; returns a status.
+#[wasm_bindgen]
+pub fn restore(handle: u32, bytes: &[u8]) -> u32 {
+    with(|c| c.restore(handle, bytes))
+}
+
+/// Applies the first `len` bytes of the command buffer; returns the commands applied.
+#[wasm_bindgen]
+pub fn write_inputs(len: u32) -> u32 {
+    with(|c| c.write_inputs(len))
+}
+
+/// Evaluates a World's instances in a pass; returns the state-change records waiting.
+#[wasm_bindgen]
+pub fn evaluate(world: u32, pass: u32, dt_scaled: f32, dt_unscaled: f32) -> u32 {
+    with(|c| c.evaluate(world, pass, dt_scaled, dt_unscaled))
+}
+
+/// The input view's byte offset in memory.
+#[wasm_bindgen]
+pub fn inputs_ptr() -> u32 {
+    with(|c| Core::addr(&c.frame.inputs))
+}
+
+/// The command buffer's byte offset in memory (`COMMAND_BYTES` long).
+#[wasm_bindgen]
+pub fn commands_ptr() -> u32 {
+    with(|c| Core::addr(&c.frame.commands))
+}
+
+/// The bone-matrix view's byte offset in memory.
+#[wasm_bindgen]
+pub fn matrices_ptr() -> u32 {
+    with(|c| Core::addr(&c.frame.matrices))
+}
+
+/// The root-motion view's byte offset in memory.
+#[wasm_bindgen]
+pub fn roots_ptr() -> u32 {
+    with(|c| Core::addr(&c.frame.roots))
+}
+
+/// The state-change records' byte offset in memory.
+#[wasm_bindgen]
+pub fn changes_ptr() -> u32 {
+    with(|c| Core::addr(&c.frame.changes))
+}
+
+/// State changes dropped this frame because the buffer was full.
+#[wasm_bindgen]
+pub fn changes_dropped() -> u32 {
+    with(|c| c.changes_dropped())
+}
+
+/// The byte offset of a clip's or graph's file bytes in memory (0 for none).
+#[wasm_bindgen]
+pub fn asset_bytes_ptr(handle: u32) -> u32 {
+    with(|c| c.asset_bytes_addr(handle) as u32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn reply(init: Init) -> MemoryNeeded {
-        MemoryNeeded::decode(&self::init(&init.encode()))
+        MemoryNeeded::decode(&Core::new().init(&init.encode()).encode())
             .expect("init answers with a MEMORY_NEEDED record")
     }
 
@@ -100,6 +533,12 @@ mod tests {
             arena_initial_bytes: 1 << 20,
         });
         assert!(more.bytes > r.bytes, "more bones need more memory");
+        let more = reply(Init {
+            max_instances: 32,
+            max_bones: 64,
+            arena_initial_bytes: 1 << 20,
+        });
+        assert!(more.bytes > r.bytes, "more instances need more memory");
     }
 
     #[test]
@@ -134,6 +573,12 @@ mod tests {
                 pages: 0
             }
         );
+        let r = reply(Init {
+            max_instances: 60_000,
+            max_bones: 1_000,
+            arena_initial_bytes: 0,
+        });
+        assert_eq!(r.status, STATUS_TOO_LARGE, "about 6 GB of views");
     }
 
     #[test]
@@ -143,5 +588,13 @@ mod tests {
         assert!(h
             .chars()
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    }
+
+    #[test]
+    fn calls_before_init_refuse() {
+        let mut core = Core::new();
+        assert_eq!(core.load_clip(&[0; 64]), 0);
+        assert_eq!(core.last_status(), STATUS_NOT_INITIALIZED);
+        assert_eq!(core.evaluate(0, 0, 0.1, 0.1), 0);
     }
 }
