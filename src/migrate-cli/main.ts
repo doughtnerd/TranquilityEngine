@@ -13,6 +13,7 @@
  */
 import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { migrateProjectAudio, type AudioMigrationReport, type MigrationFileSystem } from "../engine/audio/migrate/project";
+import { SIDECAR_SUFFIX } from "../engine/scene/importSettings";
 
 export const USAGE = `Usage: npm run audio:migrate -- <projectDir> [options]
 
@@ -58,18 +59,33 @@ export const nodeFileSystem: MigrationFileSystem = {
   },
 };
 
-/** The report as the lines the command prints. */
+/** A sample file the migration writes: a sample's settings sidecar (its loops) or a derived sample. */
+const isSampleFile = (path: string): boolean => path.endsWith(SIDECAR_SUFFIX) || path.toLowerCase().endsWith(".sample.json");
+
+/**
+ * The report as the lines the command prints. Playlists are written; sample files (settings sidecars that now hold a
+ * loop, new sidecars and derived samples) have their own wording and count; other files have their references to the
+ * migrated events rewritten.
+ */
 export function reportLines(report: AudioMigrationReport, dryRun: boolean): string[] {
   const would = (done: string, todo: string) => (dryRun ? todo : done);
   const lines: string[] = [];
-  for (const p of report.written) lines.push(`${would("wrote", "would write")} ${p}`);
-  for (const p of report.rewritten) lines.push(`${would("rewrote references in", "would rewrite references in")} ${p}`);
+  const sampleLine = (p: string, changed: boolean): string =>
+    p.endsWith(SIDECAR_SUFFIX)
+      ? changed ? `${would("updated the sample settings in", "would update the sample settings in")} ${p}` : `${would("wrote sample settings", "would write sample settings")} ${p}`
+      : `${would("wrote derived sample", "would write derived sample")} ${p}`;
+  const playlists = report.written.filter((p) => !isSampleFile(p));
+  const samples = [...report.written.filter(isSampleFile).map((p) => sampleLine(p, false)), ...report.rewritten.filter(isSampleFile).map((p) => sampleLine(p, true))];
+  const rewritten = report.rewritten.filter((p) => !isSampleFile(p));
+  for (const p of playlists) lines.push(`${would("wrote", "would write")} ${p}`);
+  lines.push(...samples);
+  for (const p of rewritten) lines.push(`${would("rewrote references in", "would rewrite references in")} ${p}`);
   for (const m of report.moved) lines.push(`${would("moved", "would move")} ${m.from} -> ${m.to}`);
   for (const n of report.notes) lines.push(`note ${n}`);
   lines.push(
-    report.moved.length === 0 && report.written.length === 0
+    report.moved.length === 0 && report.written.length === 0 && report.rewritten.length === 0
       ? "No audio events to migrate."
-      : `${report.written.length} playlists ${would("written", "to write")}, ${report.rewritten.length} files ${would("rewritten", "to rewrite")}, ${report.moved.length} events ${would("moved", "to move")}, ${report.notes.length} notes.`,
+      : `${playlists.length} playlists ${would("written", "to write")}, ${samples.length} sample files ${would("written or updated", "to write or update")}, ${rewritten.length} files ${would("rewritten", "to rewrite")}, ${report.moved.length} events ${would("moved", "to move")}, ${report.notes.length} notes.`,
   );
   return lines;
 }
