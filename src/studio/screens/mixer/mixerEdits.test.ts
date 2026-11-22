@@ -7,7 +7,7 @@ import { editSendLevel } from "../../components/mixRowsModel";
 import { automatedParams, gainInputs, levelAutomationDb, livePins, loudnessRows, snapshotLane, togglePin } from "./boardModel";
 import type { EditResult } from "./busTree";
 import { createLiveMix, liveOps } from "./liveMix";
-import { addDucking, addSend, baseGhost, clearOffset, clearOverride, doubleDucks, editEffects, editSend, levelLabel, overridesOn, removeSend, setAutomation, setLevel, setMute, setTrigger, shownEffects, shownLevel } from "./mixEdits";
+import { addDucking, addSend, baseGhost, clearOffset, clearOverride, doubleDucks, editEffects, editSend, levelGhosts, levelLabel, overridesOn, removeSend, setAutomation, setLevel, setMute, setTrigger, shownEffects, shownLevel } from "./mixEdits";
 import { mixerFixture } from "./mixerFixture";
 import { busRenameEdit, busUsers, renameBusInPlaylist, renameBusInScene } from "./renameReferences";
 import { gainBreakdown } from "../../components/gainLanesModel";
@@ -25,6 +25,19 @@ const valid = (p: AudioProject) => {
 const bus = (p: AudioProject, n: string) => p.buses.find((b) => b.name === n)!;
 
 describe("levels and snapshots", () => {
+  it("draws the VCA tick and, while a snapshot is edited, the base-level tick together (D19)", () => {
+    const p = mixerFixture();
+    expect(levelGhosts(p, "Music", null)).toEqual([]);
+    expect(levelGhosts(p, "Music", "Underwater")).toEqual([{ kind: "base", db: -10, title: "Base level: -10.0 dB" }]);
+    const withVca = { ...p, vcas: p.vcas.map((v) => (v.name === "Gameplay SFX" ? { ...v, volumeDb: -4 } : v)) };
+    expect(levelGhosts(withVca, "Footsteps", null)).toEqual([{ kind: "vca", db: -10, title: "With VCAs: -10.0 dB" }]);
+    // Footsteps in Underwater: base −6, offset −12, shown −18; the VCA tick sits 4 dB under what the fader shows.
+    expect(levelGhosts(withVca, "Footsteps", "Underwater")).toEqual([
+      { kind: "vca", db: -22, title: "With VCAs: -22.0 dB" },
+      { kind: "base", db: -6, title: "Base level: -6.0 dB" },
+    ]);
+    expect(levelGhosts(withVca, "Gameplay SFX", "Underwater")).toEqual([]);
+  });
   it("a fader in the base mix (or a base-start snapshot) edits the base level", () => {
     const p = mixerFixture();
     expect(bus(ok(setLevel(p, "Music", -4, null)), "Music").volumeDb).toBe(-4);

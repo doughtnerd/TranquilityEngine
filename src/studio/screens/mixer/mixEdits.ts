@@ -4,7 +4,8 @@
 // (a removed send's automation goes with it), ducking rules, automation lanes and snapshot triggers. Each edit returns
 // `{ next } | { refused }`; the screen applies it as one labelled undo step of `audio.json`.
 // Pure.
-import { DEFAULT_SNAPSHOT_FADE_MS, MIX_LIMITS } from "../../../engine/audio/project/format";
+import { DEFAULT_SNAPSHOT_FADE_MS, MIX_LIMITS, vcaOffsetDb } from "../../../engine/audio/project/format";
+import type { FaderGhost } from "../../components/faderModel";
 import { clampDb } from "../../../engine/audio/project/gain";
 import type { AudioProject, Bus, DuckingRule, MixAutomation, Return, Send, Snapshot, SnapshotStart } from "../../../engine/audio/project/types";
 import type { Effect } from "../../../engine/audio/effects/types";
@@ -37,6 +38,22 @@ export function shownLevel(p: AudioProject, name: string, editing: string | null
 export function baseGhost(p: AudioProject, name: string, editing: string | null): number | null {
   if (!editedSnapshot(p, editing) || kindOf(p, name) === "vca") return null;
   return baseDbOf(p, name);
+}
+
+/**
+ * The ticks `name`'s fader draws while `editing` (D19): the level with its VCAs (a bus under a VCA that isn't at 0 dB)
+ * and, while a non-base snapshot is edited, the base level. Both show at once.
+ */
+export function levelGhosts(p: AudioProject, name: string, editing: string | null): FaderGhost[] {
+  const out: FaderGhost[] = [];
+  const vca = kindOf(p, name) === "bus" ? vcaOffsetDb(p, name) : 0;
+  if (vca !== 0) {
+    const db = clampDb(shownLevel(p, name, editing) + vca);
+    out.push({ kind: "vca", db, title: `With VCAs: ${db.toFixed(1)} dB` });
+  }
+  const base = baseGhost(p, name, editing);
+  if (base !== null) out.push({ kind: "base", db: base, title: `Base level: ${base.toFixed(1)} dB` });
+  return out;
 }
 
 const withSnapshot = (p: AudioProject, name: string, change: (s: Snapshot) => Snapshot): AudioProject => ({ ...p, snapshots: p.snapshots.map((s) => (s.name === name ? change(s) : s)) });

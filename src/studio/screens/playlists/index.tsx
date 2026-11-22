@@ -1,6 +1,6 @@
 // The Playlists screen's panels (ADR 0329, 0327 "The shell", 0335; the prototype's layout): Playlists (the tree) and
 // Library on the left, the Playlist panel in the middle (fixed), the Inspector on the right, Plays now and Parameters at
-// the bottom, History on demand. The panels read the screen's state (`playlistsScreen.ts`) and call its actions; the
+// the bottom, History and Global parameters (the Mixer's panel over `audio.json`) on demand. The panels read the screen's state (`playlistsScreen.ts`) and call its actions; the
 // Playlist panel also owns what the screen does while it shows: following the route, the Space key and the player
 // bar's slots (Trigger / Stop / Release, previous and next voice event, the voice log's scrub).
 import { effect, signal } from "@preact/signals";
@@ -15,12 +15,14 @@ import { ParameterPanel } from "../../components/ParameterPanel";
 import type { StudioPanel } from "../../shell/studioPanels";
 import { audioHost, keymap, openRoute, setPlayerSlots, studioRouter, toasts } from "../../shell/studioServices";
 import { historyPanel } from "../placeholder";
+import { renameTestValue } from "../mixer/globalParametersHost";
+import { globalParametersPanel } from "../mixer/globalParametersPanels";
 import { AddDialog } from "./AddDialog";
 import { addItems, addLabel, entriesFor } from "./addDialogModel";
-import { closeCurveEditor, curveRequest, openCurveEditor } from "./curveEditorAdapter";
+import { openCurveEditor } from "./curveEditorAdapter";
 import { LibraryList } from "./LibraryList";
 import { isSamplePath } from "./libraryModel";
-import { CurvePlaceholder, DeleteDialog } from "./PlaylistDialogs";
+import { DeleteDialog } from "./PlaylistDialogs";
 import { PlaylistEditor } from "./PlaylistEditor";
 import { PlaylistInspector } from "./PlaylistInspector";
 import { addEntries, duplicateEntry, removeEntry, setEntryUse, sampleEntry } from "./playlistEdits";
@@ -175,9 +177,11 @@ function editCurves(i: number): void {
   const e = openBody.peek()?.entries[i];
   if (!e) return;
   openCurveEditor({
-    title: `Voice curves · ${entryName(e, i)}`,
+    entry: entryName(e, i),
+    context: lastCrumbName(),
     curves: e.curves,
-    drivers: allParameters.peek().filter((p) => !("labels" in p)).map((p) => p.name),
+    parameters: allParameters.peek(),
+    values: testValues.peek(),
     apply: (curves, label) => editOpen(label, (b) => setEntryUse(b, i, { curves })),
   });
 }
@@ -308,7 +312,6 @@ function EditorPanel() {
         />
       )}
       {deleting.value && <DeleteDialog plan={deleting.value} onCancel={() => (deleting.value = null)} onConfirm={(c, l) => void confirmDelete(deleting.value!, c, l)} />}
-      {curveRequest.value && <CurvePlaceholder request={curveRequest.value} onClose={closeCurveEditor} />}
     </Panel>
   );
 }
@@ -372,7 +375,7 @@ function ParametersPanel() {
   void openFile.value;
   return (
     <Panel bodyClass="pl-panel-body">
-      <ParameterPanel parameters={allParameters.value} values={testValues.value} empty="No game parameters yet: add global ones in audio.json, or local ones in the Inspector." onValue={(name, v) => setTestValue(name, v)} />
+      <ParameterPanel parameters={allParameters.value} values={testValues.value} empty="No game parameters yet: add global ones in the Global parameters panel, or local ones in the Inspector." onValue={(name, v) => setTestValue(name, v)} />
     </Panel>
   );
 }
@@ -385,5 +388,6 @@ export const PLAYLISTS_PANELS: readonly StudioPanel[] = [
   { id: "playlists-inspector", title: "Inspector", dock: "right", view: () => <InspectorPanel /> },
   { id: "playlists-voices", title: "Plays now", dock: "bottom", view: () => <VoicesPanel /> },
   { id: "playlists-parameters", title: "Parameters", dock: "bottom", view: () => <ParametersPanel /> },
+  globalParametersPanel({ id: "playlists-global-parameters", dock: "right", onDemand: true, renamed: (from, to) => void (testValues.value = renameTestValue(testValues.peek(), from, to)) }),
   historyPanel("playlists"),
 ];

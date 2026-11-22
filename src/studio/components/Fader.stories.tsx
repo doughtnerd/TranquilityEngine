@@ -1,5 +1,6 @@
 // Stories (ADR 0219, 0335) for the fader: horizontal and vertical, with a meter in its track, a VCA ghost tick, the
-// keys (arrows 0.5 dB, 0 for unity) and disabled while automated.
+// keys (arrows 0.5 dB, 0 for unity), both ticks at once in snapshot mode (VCA and base level) and disabled while
+// automated.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, userEvent, within } from "storybook/test";
@@ -7,7 +8,7 @@ import { Fader } from "./Fader";
 import { formatDb } from "./faderModel";
 import { Meter } from "./Meter";
 
-function Demo(props: { orientation?: "horizontal" | "vertical"; start?: number; ghost?: number; disabled?: boolean; meter?: boolean }) {
+function Demo(props: { orientation?: "horizontal" | "vertical"; start?: number; ghost?: number; base?: number; disabled?: boolean; meter?: boolean }) {
   const [db, setDb] = useState(props.start ?? -6);
   const [drags, setDrags] = useState(0);
   return (
@@ -18,6 +19,7 @@ function Demo(props: { orientation?: "horizontal" | "vertical"; start?: number; 
         value={db}
         ghostDb={props.ghost != null ? db + props.ghost : null}
         ghostTitle={props.ghost != null ? `With VCAs: ${formatDb(db + props.ghost)} dB` : undefined}
+        ghosts={props.base != null ? [{ kind: "base", db: props.base, title: `Base level: ${formatDb(props.base)} dB` }] : undefined}
         disabled={props.disabled}
         title={props.disabled ? "Automated by threat" : undefined}
         onValue={(v, drag) => {
@@ -56,6 +58,15 @@ export const Vertical: StoryObj = { render: () => <Demo orientation="vertical" m
 export const WithMeter: StoryObj = { render: () => <Demo meter start={-3} /> };
 
 export const VcaGhost: StoryObj = { render: () => <Demo ghost={-4} /> };
+
+/** Editing a snapshot: the base level's tick and the VCA tick together. */
+export const SnapshotWithVca: StoryObj = {
+  render: () => <Demo start={-12} ghost={-4} base={-3} />,
+  play: async ({ canvasElement }) => {
+    await expect(canvasElement.querySelectorAll(".studio-fader-ghost").length).toBe(2);
+    await expect(canvasElement.querySelector(".studio-fader-ghost.base")).toHaveAttribute("title", "Base level: −3.0 dB");
+  },
+};
 
 export const DoubleClickForUnity: StoryObj = {
   render: () => <Demo start={-18} />,

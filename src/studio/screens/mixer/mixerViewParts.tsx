@@ -3,33 +3,15 @@
 // `data-asset-document`, so the History panel and Ctrl+Z act on `audio.json` while a Mixer panel has the focus).
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import type { AudioProject, MixAutomation } from "../../../engine/audio/project/types";
 import { Meter } from "../../components/Meter";
 import { formatDb, parseDb } from "../../components/faderModel";
-import { automatableLanes, peakDb } from "./boardModel";
-import { openCurveEditor } from "./curveEditor";
-import { labelOn, setAutomation } from "./mixEdits";
+import { peakDb } from "./boardModel";
+import { openAutomationCurves } from "./curveEditor";
 import type { MixerSession } from "./mixerScreen";
 
-/** Open the curve editor on `name`'s lanes (`only`: "volume", "send:<return>", "fx:<id>"); Apply is one undo step. */
+/** Open the curve editor on `name`'s automation (`only`: "volume", "send:<return>", "fx:<id>" is selected first); Apply is one undo step. */
 export function automate(session: MixerSession, name: string, only?: string): void {
-  const p = session.project.peek();
-  const lanes = automatableLanes(p, name, only);
-  if (p.parameters.length === 0) return session.refuse(labelOn("Edit automation", name), "the project has no game parameters to drive automation yet");
-  openCurveEditor({
-    title: `Automate ${name}`,
-    lanes,
-    parameters: p.parameters,
-    onApply(results) {
-      let next: AudioProject = session.project.peek();
-      for (const r of results) {
-        const step = setAutomation(next, { on: name, target: r.target as MixAutomation["target"] }, r.lane);
-        if ("refused" in step) return session.refuse(labelOn("Edit automation", name), step.refused);
-        next = step.next;
-      }
-      session.commit({ next }, labelOn("Edit automation", name));
-    },
-  });
+  openAutomationCurves(session, name, only);
 }
 
 /** A level typed as text ("−6", "-inf"); commits on Enter or blur, Escape puts it back. */
