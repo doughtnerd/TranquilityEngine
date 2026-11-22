@@ -1,7 +1,10 @@
 //! The fuel pass through its interface: `validate`, `meter`, `is_metered`, and running original and
 //! metered modules side by side in wasmi.
 
-use anim_meter::{is_metered, meter, validate, Limits, MeterError, FUEL_GET, FUEL_SET, MARKER_SECTION, METER_VERSION};
+use anim_meter::{
+    is_metered, meter, validate, Limits, MeterError, FUEL_GET, FUEL_SET, MARKER_SECTION,
+    METER_VERSION,
+};
 
 /// The ABI's three small functions; tests add `myco_node_evaluate` and anything else.
 const ABI: &str = r#"
@@ -10,7 +13,8 @@ const ABI: &str = r#"
   (func (export "myco_node_alloc") (param i32) (result i32) i32.const 0)
 "#;
 const MEMORY: &str = r#"(memory (export "memory") 1 16)"#;
-const EVAL_SIG: &str = "(param $kind i32) (param $count i32) (param i32 i32 i32 i32 i32 i32) (param f32) (result i32)";
+const EVAL_SIG: &str =
+    "(param $kind i32) (param $count i32) (param i32 i32 i32 i32 i32 i32) (param f32) (result i32)";
 
 fn evaluate(body: &str) -> String {
     format!(r#"(func (export "myco_node_evaluate") {EVAL_SIG} {body})"#)
@@ -76,7 +80,12 @@ struct Instance {
 /// Runs `f` on a thread with a 64 MiB stack: wasmi's unoptimised (debug) executor needs more
 /// than the test harness's default 2 MiB.
 fn big_stack(f: impl FnOnce() + Send + 'static) {
-    std::thread::Builder::new().stack_size(64 << 20).spawn(f).unwrap().join().unwrap();
+    std::thread::Builder::new()
+        .stack_size(64 << 20)
+        .spawn(f)
+        .unwrap()
+        .join()
+        .unwrap();
 }
 
 impl Instance {
@@ -84,22 +93,33 @@ impl Instance {
         let engine = wasmi::Engine::default();
         let module = wasmi::Module::new(&engine, bytes).unwrap();
         let mut store = wasmi::Store::new(&engine, ());
-        let instance = wasmi::Linker::<()>::new(&engine).instantiate_and_start(&mut store, &module).unwrap();
+        let instance = wasmi::Linker::<()>::new(&engine)
+            .instantiate_and_start(&mut store, &module)
+            .unwrap();
         Self { store, instance }
     }
 
     fn eval(&mut self, kind: i32, count: i32) -> Result<i32, wasmi::Error> {
-        let f = self.instance.get_typed_func::<EvalArgs, i32>(&self.store, "myco_node_evaluate").unwrap();
+        let f = self
+            .instance
+            .get_typed_func::<EvalArgs, i32>(&self.store, "myco_node_evaluate")
+            .unwrap();
         f.call(&mut self.store, (kind, count, 0, 0, 0, 0, 0, 0, 0.0))
     }
 
     fn set_fuel(&mut self, fuel: i64) {
-        let f = self.instance.get_typed_func::<i64, ()>(&self.store, FUEL_SET).unwrap();
+        let f = self
+            .instance
+            .get_typed_func::<i64, ()>(&self.store, FUEL_SET)
+            .unwrap();
         f.call(&mut self.store, fuel).unwrap();
     }
 
     fn fuel(&mut self) -> i64 {
-        let f = self.instance.get_typed_func::<(), i64>(&self.store, FUEL_GET).unwrap();
+        let f = self
+            .instance
+            .get_typed_func::<(), i64>(&self.store, FUEL_GET)
+            .unwrap();
         f.call(&mut self.store, ()).unwrap()
     }
 
@@ -131,7 +151,11 @@ fn accepts_an_abi_module() {
 
 fn refused(bytes: &[u8]) -> MeterError {
     let e = validate(bytes, &limits()).unwrap_err();
-    assert_eq!(meter(bytes, &limits()).unwrap_err(), e, "meter refuses what validate refuses");
+    assert_eq!(
+        meter(bytes, &limits()).unwrap_err(),
+        e,
+        "meter refuses what validate refuses"
+    );
     e
 }
 
@@ -144,9 +168,19 @@ fn invalid(bytes: &[u8], needle: &str) {
 
 #[test]
 fn refuses_imports_and_start_functions() {
-    let import = module(&[r#"(import "env" "log" (func (param i32)))"#, MEMORY, ABI, &evaluate("i32.const 0")]);
+    let import = module(&[
+        r#"(import "env" "log" (func (param i32)))"#,
+        MEMORY,
+        ABI,
+        &evaluate("i32.const 0"),
+    ]);
     assert_eq!(refused(&import), MeterError::Import("env.log".into()));
-    let mem = module(&[r#"(import "env" "mem" (memory 1))"#, r#"(export "memory" (memory 0))"#, ABI, &evaluate("i32.const 0")]);
+    let mem = module(&[
+        r#"(import "env" "mem" (memory 1))"#,
+        r#"(export "memory" (memory 0))"#,
+        ABI,
+        &evaluate("i32.const 0"),
+    ]);
     assert_eq!(refused(&mem), MeterError::Import("env.mem".into()));
     let start = minimal("(func $init) (start $init)");
     assert_eq!(refused(&start), MeterError::StartFunction);
@@ -154,28 +188,80 @@ fn refuses_imports_and_start_functions() {
 
 #[test]
 fn refuses_bad_memories() {
-    assert_eq!(refused(&module(&[ABI, &evaluate("i32.const 0")])), MeterError::MemoryCount(0));
-    assert_eq!(refused(&module(&["(memory 1)", ABI, &evaluate("i32.const 0")])), MeterError::MemoryNotExported);
-    let renamed = module(&[r#"(memory (export "mem") 1)"#, ABI, &evaluate("i32.const 0")]);
+    assert_eq!(
+        refused(&module(&[ABI, &evaluate("i32.const 0")])),
+        MeterError::MemoryCount(0)
+    );
+    assert_eq!(
+        refused(&module(&["(memory 1)", ABI, &evaluate("i32.const 0")])),
+        MeterError::MemoryNotExported
+    );
+    let renamed = module(&[
+        r#"(memory (export "mem") 1)"#,
+        ABI,
+        &evaluate("i32.const 0"),
+    ]);
     assert_eq!(refused(&renamed), MeterError::Export("mem".into()));
-    let big_initial = module(&[r#"(memory (export "memory") 257)"#, ABI, &evaluate("i32.const 0")]);
-    assert_eq!(refused(&big_initial), MeterError::MemoryTooLarge { pages: 257, limit: 256 });
-    let big_max = module(&[r#"(memory (export "memory") 1 1000)"#, ABI, &evaluate("i32.const 0")]);
-    assert_eq!(refused(&big_max), MeterError::MemoryTooLarge { pages: 1000, limit: 256 });
-    let small = Limits { max_memory_pages: 8, ..Limits::default() };
+    let big_initial = module(&[
+        r#"(memory (export "memory") 257)"#,
+        ABI,
+        &evaluate("i32.const 0"),
+    ]);
+    assert_eq!(
+        refused(&big_initial),
+        MeterError::MemoryTooLarge {
+            pages: 257,
+            limit: 256
+        }
+    );
+    let big_max = module(&[
+        r#"(memory (export "memory") 1 1000)"#,
+        ABI,
+        &evaluate("i32.const 0"),
+    ]);
+    assert_eq!(
+        refused(&big_max),
+        MeterError::MemoryTooLarge {
+            pages: 1000,
+            limit: 256
+        }
+    );
+    let small = Limits {
+        max_memory_pages: 8,
+        ..Limits::default()
+    };
     let e = validate(&program(), &small).unwrap_err();
-    assert_eq!(e, MeterError::MemoryTooLarge { pages: 16, limit: 8 });
+    assert_eq!(
+        e,
+        MeterError::MemoryTooLarge {
+            pages: 16,
+            limit: 8
+        }
+    );
 }
 
 #[test]
 fn refuses_exports_outside_the_abi() {
-    assert_eq!(refused(&minimal(r#"(func (export "helper"))"#)), MeterError::Export("helper".into()));
-    assert_eq!(refused(&minimal(r#"(table (export "t") 1 funcref)"#)), MeterError::Export("t".into()));
+    assert_eq!(
+        refused(&minimal(r#"(func (export "helper"))"#)),
+        MeterError::Export("helper".into())
+    );
+    assert_eq!(
+        refused(&minimal(r#"(table (export "t") 1 funcref)"#)),
+        MeterError::Export("t".into())
+    );
     let mutable = minimal(r#"(global (export "g") (mut i32) (i32.const 0))"#);
     assert_eq!(refused(&mutable), MeterError::Export("g".into()));
     let no_eval = module(&[MEMORY, ABI]);
-    assert_eq!(refused(&no_eval), MeterError::MissingExport("myco_node_evaluate"));
-    let wrong = module(&[MEMORY, ABI, r#"(func (export "myco_node_evaluate") (param i32) (result i32) i32.const 0)"#]);
+    assert_eq!(
+        refused(&no_eval),
+        MeterError::MissingExport("myco_node_evaluate")
+    );
+    let wrong = module(&[
+        MEMORY,
+        ABI,
+        r#"(func (export "myco_node_evaluate") (param i32) (result i32) i32.const 0)"#,
+    ]);
     assert_eq!(refused(&wrong), MeterError::Signature("myco_node_evaluate"));
     let wrong_alloc = module(&[
         MEMORY,
@@ -184,21 +270,35 @@ fn refuses_exports_outside_the_abi() {
            (func (export "myco_node_alloc") (param i64) (result i32) i32.const 0)"#,
         &evaluate("i32.const 0"),
     ]);
-    assert_eq!(refused(&wrong_alloc), MeterError::Signature("myco_node_alloc"));
+    assert_eq!(
+        refused(&wrong_alloc),
+        MeterError::Signature("myco_node_alloc")
+    );
 }
 
 #[test]
 fn accepts_simd128_and_immutable_global_exports() {
-    let simd = minimal(r#"(func (result i32) (i32x4.extract_lane 0 (i32x4.add (v128.const i32x4 1 2 3 4) (v128.const i32x4 5 6 7 8))))"#);
+    let simd = minimal(
+        r#"(func (result i32) (i32x4.extract_lane 0 (i32x4.add (v128.const i32x4 1 2 3 4) (v128.const i32x4 5 6 7 8))))"#,
+    );
     meter(&simd, &limits()).unwrap();
-    let globals = minimal(r#"(global (export "__heap_base") i32 (i32.const 1024)) (global (export "__data_end") i32 (i32.const 8))"#);
+    let globals = minimal(
+        r#"(global (export "__heap_base") i32 (i32.const 1024)) (global (export "__data_end") i32 (i32.const 8))"#,
+    );
     meter(&globals, &limits()).unwrap();
 }
 
 #[test]
 fn refuses_proposals_outside_the_allowed_set() {
     // Threads: shared memory and atomics.
-    invalid(&module(&[r#"(memory (export "memory") 1 1 shared)"#, ABI, &evaluate("i32.const 0")]), "threads");
+    invalid(
+        &module(&[
+            r#"(memory (export "memory") 1 1 shared)"#,
+            ABI,
+            &evaluate("i32.const 0"),
+        ]),
+        "threads",
+    );
     // Relaxed SIMD (non-deterministic across machines).
     invalid(
         &minimal("(func (param v128 v128 v128) (result v128) (f32x4.relaxed_madd (local.get 0) (local.get 1) (local.get 2)))"),
@@ -207,7 +307,14 @@ fn refuses_proposals_outside_the_allowed_set() {
     // Multi-memory.
     invalid(&minimal("(memory 1)"), "multiple memories");
     // Memory64.
-    invalid(&module(&[r#"(memory (export "memory") i64 1)"#, ABI, &evaluate("i32.const 0")]), "memory64");
+    invalid(
+        &module(&[
+            r#"(memory (export "memory") i64 1)"#,
+            ABI,
+            &evaluate("i32.const 0"),
+        ]),
+        "memory64",
+    );
     // Exception handling.
     invalid(&minimal("(tag $e) (func (throw $e))"), "exceptions");
     // Tail calls.
@@ -219,8 +326,17 @@ fn refuses_proposals_outside_the_allowed_set() {
 #[test]
 fn refuses_oversized_modules() {
     let bytes = program();
-    let tight = Limits { max_module_bytes: bytes.len() - 1, ..Limits::default() };
-    assert_eq!(validate(&bytes, &tight).unwrap_err(), MeterError::TooLarge { bytes: bytes.len(), limit: bytes.len() - 1 });
+    let tight = Limits {
+        max_module_bytes: bytes.len() - 1,
+        ..Limits::default()
+    };
+    assert_eq!(
+        validate(&bytes, &tight).unwrap_err(),
+        MeterError::TooLarge {
+            bytes: bytes.len(),
+            limit: bytes.len() - 1
+        }
+    );
 }
 
 #[test]
@@ -255,8 +371,16 @@ fn fuel_use_is_deterministic_and_grows_with_work_run() {
     for count in [0, 5, 50] {
         let first = used(0, count);
         assert!(first > 0);
-        assert_eq!(used(0, count), first, "the same call costs the same in a fresh instance");
-        assert_eq!(inst.metered_eval(0, count).1, first, "and again in the same instance");
+        assert_eq!(
+            used(0, count),
+            first,
+            "the same call costs the same in a fresh instance"
+        );
+        assert_eq!(
+            inst.metered_eval(0, count).1,
+            first,
+            "and again in the same instance"
+        );
     }
     // Each loop iteration pays: 3-periodic cases, so compare whole periods.
     let (c0, c3, c6) = (used(0, 0), used(0, 3), used(0, 6));
@@ -276,14 +400,24 @@ fn running_out_of_fuel_traps_exactly_at_the_budget_run() {
     // Fresh instances: evaluate changes a global the result depends on.
     let mut inst = Instance::new(&metered);
     inst.set_fuel(cost);
-    assert_eq!(inst.eval(1, 40).unwrap(), expected, "a budget of exactly the cost suffices");
+    assert_eq!(
+        inst.eval(1, 40).unwrap(),
+        expected,
+        "a budget of exactly the cost suffices"
+    );
     assert_eq!(inst.fuel(), 0);
 
     let mut inst = Instance::new(&metered);
     inst.set_fuel(cost - 1);
     let err = inst.eval(1, 40).unwrap_err();
-    assert_eq!(err.as_trap_code(), Some(wasmi::TrapCode::UnreachableCodeReached));
-    assert!(inst.fuel() < 0, "a negative counter tells an exhausted budget from other traps");
+    assert_eq!(
+        err.as_trap_code(),
+        Some(wasmi::TrapCode::UnreachableCodeReached)
+    );
+    assert!(
+        inst.fuel() < 0,
+        "a negative counter tells an exhausted budget from other traps"
+    );
 
     // A fresh instance starts with no fuel: nothing runs until the host sets a budget.
     let mut fresh = Instance::new(&metered);
@@ -299,8 +433,16 @@ fn bulk_memory_and_growth_pay_for_their_length() {
 fn bulk_memory_and_growth_pay_for_their_length_run() {
     let metered = meter(&program(), &limits()).unwrap();
     let used = |kind, count| Instance::new(&metered).metered_eval(kind, count).1;
-    assert_eq!(used(9, 1600) - used(9, 0), 100, "memory.fill: one unit per 16 bytes");
-    assert_eq!(used(10, 2) - used(10, 0), 2 * 4096, "memory.grow: 4096 per page");
+    assert_eq!(
+        used(9, 1600) - used(9, 0),
+        100,
+        "memory.fill: one unit per 16 bytes"
+    );
+    assert_eq!(
+        used(10, 2) - used(10, 0),
+        2 * 4096,
+        "memory.grow: 4096 per page"
+    );
     let mut inst = Instance::new(&metered);
     assert_eq!(inst.metered_eval(10, 2).0, 1, "grow returns the old size");
     // Growing past the maximum fails (returns -1) but still pays.
@@ -317,9 +459,16 @@ fn memory_maximum_is_capped_at_the_limit_run() {
     let mut kept = Instance::new(&meter(&program(), &limits()).unwrap());
     assert_eq!(kept.memory_pages(), (1, Some(16)));
     // No maximum: the limit becomes the maximum.
-    let open = module(&[r#"(memory (export "memory") 2)"#, ABI, &evaluate("i32.const 0")]);
+    let open = module(&[
+        r#"(memory (export "memory") 2)"#,
+        ABI,
+        &evaluate("i32.const 0"),
+    ]);
     assert_eq!(validate(&open, &limits()).unwrap().memory_maximum, 256);
-    let small = Limits { max_memory_pages: 4, ..Limits::default() };
+    let small = Limits {
+        max_memory_pages: 4,
+        ..Limits::default()
+    };
     let inst = Instance::new(&meter(&open, &small).unwrap());
     assert_eq!(inst.memory_pages(), (2, Some(4)));
     let _ = kept.metered_eval(0, 0);
@@ -329,11 +478,21 @@ fn memory_maximum_is_capped_at_the_limit_run() {
 fn metering_is_deterministic_and_refuses_metered_input() {
     let original = program();
     let once = meter(&original, &limits()).unwrap();
-    assert_eq!(meter(&original, &limits()).unwrap(), once, "same input, same bytes");
+    assert_eq!(
+        meter(&original, &limits()).unwrap(),
+        once,
+        "same input, same bytes"
+    );
     assert!(!is_metered(&original));
     assert!(is_metered(&once));
-    assert_eq!(validate(&once, &limits()).unwrap_err(), MeterError::AlreadyMetered);
-    assert_eq!(meter(&once, &limits()).unwrap_err(), MeterError::AlreadyMetered);
+    assert_eq!(
+        validate(&once, &limits()).unwrap_err(),
+        MeterError::AlreadyMetered
+    );
+    assert_eq!(
+        meter(&once, &limits()).unwrap_err(),
+        MeterError::AlreadyMetered
+    );
     // A module that merely claims a fuel export is refused the same way.
     let claims = minimal(r#"(func (export "myco_fuel_set") (param i64))"#);
     assert_eq!(refused(&claims), MeterError::AlreadyMetered);

@@ -6,8 +6,9 @@ use alloc::borrow::Cow;
 use alloc::vec::Vec;
 use wasm_encoder::reencode::{Reencode, RoundtripReencoder};
 use wasm_encoder::{
-    BlockType, CodeSection, ConstExpr, CustomSection, ExportKind, ExportSection, Function, FunctionSection, GlobalSection,
-    GlobalType, Instruction, MemorySection, Module, RawSection, TypeSection, ValType,
+    BlockType, CodeSection, ConstExpr, CustomSection, ExportKind, ExportSection, Function,
+    FunctionSection, GlobalSection, GlobalType, Instruction, MemorySection, Module, RawSection,
+    TypeSection, ValType,
 };
 use wasmparser::{FuncType, FunctionBody, Payload};
 
@@ -77,7 +78,10 @@ impl Writer {
         }
     }
 
-    fn types_section(&self, input: Option<wasmparser::TypeSectionReader<'_>>) -> Result<TypeSection, Error> {
+    fn types_section(
+        &self,
+        input: Option<wasmparser::TypeSectionReader<'_>>,
+    ) -> Result<TypeSection, Error> {
         let mut s = TypeSection::new();
         if let Some(r) = input {
             RoundtripReencoder.parse_type_section(&mut s, r)?;
@@ -87,7 +91,10 @@ impl Writer {
         Ok(s)
     }
 
-    fn function_section(&self, input: Option<wasmparser::FunctionSectionReader<'_>>) -> Result<FunctionSection, Error> {
+    fn function_section(
+        &self,
+        input: Option<wasmparser::FunctionSectionReader<'_>>,
+    ) -> Result<FunctionSection, Error> {
         let mut s = FunctionSection::new();
         if let Some(r) = input {
             RoundtripReencoder.parse_function_section(&mut s, r)?;
@@ -97,16 +104,29 @@ impl Writer {
         Ok(s)
     }
 
-    fn global_section(&self, input: Option<wasmparser::GlobalSectionReader<'_>>) -> Result<GlobalSection, Error> {
+    fn global_section(
+        &self,
+        input: Option<wasmparser::GlobalSectionReader<'_>>,
+    ) -> Result<GlobalSection, Error> {
         let mut s = GlobalSection::new();
         if let Some(r) = input {
             RoundtripReencoder.parse_global_section(&mut s, r)?;
         }
-        s.global(GlobalType { val_type: ValType::I64, mutable: true, shared: false }, &ConstExpr::i64_const(0));
+        s.global(
+            GlobalType {
+                val_type: ValType::I64,
+                mutable: true,
+                shared: false,
+            },
+            &ConstExpr::i64_const(0),
+        );
         Ok(s)
     }
 
-    fn export_section(&self, input: Option<wasmparser::ExportSectionReader<'_>>) -> Result<ExportSection, Error> {
+    fn export_section(
+        &self,
+        input: Option<wasmparser::ExportSectionReader<'_>>,
+    ) -> Result<ExportSection, Error> {
         let mut s = ExportSection::new();
         if let Some(r) = input {
             RoundtripReencoder.parse_export_section(&mut s, r)?;
@@ -116,7 +136,10 @@ impl Writer {
         Ok(s)
     }
 
-    fn memory_section(&self, r: wasmparser::MemorySectionReader<'_>) -> Result<MemorySection, Error> {
+    fn memory_section(
+        &self,
+        r: wasmparser::MemorySectionReader<'_>,
+    ) -> Result<MemorySection, Error> {
         let mut s = MemorySection::new();
         for m in r {
             let mut ty = RoundtripReencoder.memory_type(m?)?;
@@ -243,7 +266,11 @@ pub(crate) fn rewrite(bytes: &[u8], info: &ModuleInfo) -> Result<Vec<u8>, Error>
     let mut w = Writer {
         module: Module::new(),
         done: [false; 4],
-        add: Additions { fuel: global_count, set_ty: type_count, set_fn: info.functions },
+        add: Additions {
+            fuel: global_count,
+            set_ty: type_count,
+            set_fn: info.functions,
+        },
         types: Vec::new(),
         func_types: Vec::new(),
         memory_maximum: info.memory_maximum,
@@ -313,9 +340,15 @@ pub(crate) fn rewrite(bytes: &[u8], info: &ModuleInfo) -> Result<Vec<u8>, Error>
     }
     w.fill_missing(usize::MAX)?;
     for data in name_sections {
-        w.module.section(&CustomSection { name: Cow::Borrowed("name"), data: Cow::Borrowed(data) });
+        w.module.section(&CustomSection {
+            name: Cow::Borrowed("name"),
+            data: Cow::Borrowed(data),
+        });
     }
     let marker = METER_VERSION.to_le_bytes();
-    w.module.section(&CustomSection { name: Cow::Borrowed(MARKER_SECTION), data: Cow::Borrowed(&marker) });
+    w.module.section(&CustomSection {
+        name: Cow::Borrowed(MARKER_SECTION),
+        data: Cow::Borrowed(&marker),
+    });
     Ok(w.module.finish())
 }

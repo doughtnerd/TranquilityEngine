@@ -29,7 +29,8 @@ fn sin(x: f32) -> f32 {
         r = -PI - r;
     }
     let r2 = r * r;
-    r * (1.0 + r2 * (-1.0 / 6.0 + r2 * (1.0 / 120.0 + r2 * (-1.0 / 5040.0 + r2 * (1.0 / 362_880.0)))))
+    r * (1.0
+        + r2 * (-1.0 / 6.0 + r2 * (1.0 / 120.0 + r2 * (-1.0 / 5040.0 + r2 * (1.0 / 362_880.0)))))
 }
 
 /// `cos(x)` = `sin(x + π/2)`.
@@ -37,15 +38,15 @@ fn cos(x: f32) -> f32 {
     sin(x + HALF_PI)
 }
 
-fn sqrt(x: f32) -> f32 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        core::arch::wasm32::f32_sqrt(x)
+/// `1 / sqrt(x)` for `x > 0`: a bit-level first guess and three Newton steps (relative error
+/// about 1e-7). `core` has no `sqrt` without `std`, and plain arithmetic keeps wasm and native
+/// bit-identical.
+fn inv_sqrt(x: f32) -> f32 {
+    let mut y = f32::from_bits(0x5f37_59df - (x.to_bits() >> 1));
+    for _ in 0..3 {
+        y = y * (1.5 - 0.5 * x * y * y);
     }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        x.sqrt()
-    }
+    y
 }
 
 /// Hamilton product `a · b` (`x y z w`).
@@ -83,7 +84,13 @@ impl Node for Sway {
     /// The phase in cycles, in [0, 1).
     type State = f32;
 
-    fn evaluate(cx: &Context<'_>, _: &Inputs<'_>, p: &Params<'_>, phase: &mut f32, out: &mut [Transform]) {
+    fn evaluate(
+        cx: &Context<'_>,
+        _: &Inputs<'_>,
+        p: &Params<'_>,
+        phase: &mut f32,
+        out: &mut [Transform],
+    ) {
         let mut ph = *phase + p.float(sway::FREQUENCY) * cx.dt;
         ph -= ph as i32 as f32;
         if !(0.0..1.0).contains(&ph) {
@@ -92,11 +99,12 @@ impl Node for Sway {
         *phase = ph;
 
         let a = p.vec3(sway::AXIS);
-        let len = sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
-        if len <= 1e-6 {
+        let len2 = a[0] * a[0] + a[1] * a[1] + a[2] * a[2];
+        if len2 <= 1e-12 {
             return;
         }
-        let axis = [a[0] / len, a[1] / len, a[2] / len];
+        let r = inv_sqrt(len2);
+        let axis = [a[0] * r, a[1] * r, a[2] * r];
         let mut angle = p.float(sway::AMPLITUDE) * (PI / 180.0) * sin(TAU * ph);
         let falloff = p.float(sway::FALLOFF);
         let first = p.int(sway::FIRST_BONE).max(0) as usize;
@@ -116,10 +124,17 @@ pub struct Scale;
 impl Node for Scale {
     const KIND: u32 = 2;
     const NAME: &'static str = "scale";
-    const PARAMS: &'static [ParamDesc] = &[ParamDesc::float("factor", Unit::Multiplier, 0.0, 10.0, 1.0).animatable()];
+    const PARAMS: &'static [ParamDesc] =
+        &[ParamDesc::float("factor", Unit::Multiplier, 0.0, 10.0, 1.0).animatable()];
     type State = ();
 
-    fn evaluate(_: &Context<'_>, _: &Inputs<'_>, p: &Params<'_>, _: &mut (), out: &mut [Transform]) {
+    fn evaluate(
+        _: &Context<'_>,
+        _: &Inputs<'_>,
+        p: &Params<'_>,
+        _: &mut (),
+        out: &mut [Transform],
+    ) {
         let f = p.float(0);
         for t in out {
             for c in &mut t.translation {

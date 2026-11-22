@@ -185,40 +185,98 @@ pub struct ParamDesc {
 }
 
 impl ParamDesc {
-    const fn new(name: &'static str, kind: ParamKind, unit: Unit, min: u32, max: u32, default: [u32; 4]) -> Self {
-        Self { name, kind, unit, flags: 0, min, max, default }
+    const fn new(
+        name: &'static str,
+        kind: ParamKind,
+        unit: Unit,
+        min: u32,
+        max: u32,
+        default: [u32; 4],
+    ) -> Self {
+        Self {
+            name,
+            kind,
+            unit,
+            flags: 0,
+            min,
+            max,
+            default,
+        }
     }
 
     /// A float in `[min, max]`.
     pub const fn float(name: &'static str, unit: Unit, min: f32, max: f32, default: f32) -> Self {
-        Self::new(name, ParamKind::Float, unit, min.to_bits(), max.to_bits(), [default.to_bits(), 0, 0, 0])
+        Self::new(
+            name,
+            ParamKind::Float,
+            unit,
+            min.to_bits(),
+            max.to_bits(),
+            [default.to_bits(), 0, 0, 0],
+        )
     }
 
     /// An integer in `[min, max]`.
     pub const fn int(name: &'static str, min: i32, max: i32, default: i32) -> Self {
-        Self::new(name, ParamKind::Int, Unit::None, min as u32, max as u32, [default as u32, 0, 0, 0])
+        Self::new(
+            name,
+            ParamKind::Int,
+            Unit::None,
+            min as u32,
+            max as u32,
+            [default as u32, 0, 0, 0],
+        )
     }
 
     /// A boolean.
     pub const fn bool(name: &'static str, default: bool) -> Self {
-        Self::new(name, ParamKind::Bool, Unit::None, 0, 0, [default as u32, 0, 0, 0])
+        Self::new(
+            name,
+            ParamKind::Bool,
+            Unit::None,
+            0,
+            0,
+            [default as u32, 0, 0, 0],
+        )
     }
 
     /// A 2-vector whose components lie in `[min, max]`.
-    pub const fn vec2(name: &'static str, unit: Unit, min: f32, max: f32, default: [f32; 2]) -> Self {
+    pub const fn vec2(
+        name: &'static str,
+        unit: Unit,
+        min: f32,
+        max: f32,
+        default: [f32; 2],
+    ) -> Self {
         let d = [default[0].to_bits(), default[1].to_bits(), 0, 0];
         Self::new(name, ParamKind::Vec2, unit, min.to_bits(), max.to_bits(), d)
     }
 
     /// A 3-vector whose components lie in `[min, max]`.
-    pub const fn vec3(name: &'static str, unit: Unit, min: f32, max: f32, default: [f32; 3]) -> Self {
-        let d = [default[0].to_bits(), default[1].to_bits(), default[2].to_bits(), 0];
+    pub const fn vec3(
+        name: &'static str,
+        unit: Unit,
+        min: f32,
+        max: f32,
+        default: [f32; 3],
+    ) -> Self {
+        let d = [
+            default[0].to_bits(),
+            default[1].to_bits(),
+            default[2].to_bits(),
+            0,
+        ];
         Self::new(name, ParamKind::Vec3, unit, min.to_bits(), max.to_bits(), d)
     }
 
     /// A rotation (`x y z w`).
     pub const fn quat(name: &'static str, default: [f32; 4]) -> Self {
-        let d = [default[0].to_bits(), default[1].to_bits(), default[2].to_bits(), default[3].to_bits()];
+        let d = [
+            default[0].to_bits(),
+            default[1].to_bits(),
+            default[2].to_bits(),
+            default[3].to_bits(),
+        ];
         Self::new(name, ParamKind::Quat, Unit::None, 0, 0, d)
     }
 
@@ -304,7 +362,12 @@ const fn finite(bits: u32) -> bool {
 }
 
 /// Checks one parameter's range and default: `None` when valid, else the problem.
-const fn param_problem(kind: ParamKind, min: u32, max: u32, default: [u32; 4]) -> Option<DescriptorError> {
+const fn param_problem(
+    kind: ParamKind,
+    min: u32,
+    max: u32,
+    default: [u32; 4],
+) -> Option<DescriptorError> {
     let words = kind.words();
     let mut w = words;
     while w < 4 {
@@ -321,7 +384,10 @@ const fn param_problem(kind: ParamKind, min: u32, max: u32, default: [u32; 4]) -
             let mut i = 0;
             while i < words {
                 let d = default[i];
-                if !finite(d) || f32::from_bits(d) < f32::from_bits(min) || f32::from_bits(d) > f32::from_bits(max) {
+                if !finite(d)
+                    || f32::from_bits(d) < f32::from_bits(min)
+                    || f32::from_bits(d) > f32::from_bits(max)
+                {
                     return Some(DescriptorError::BadDefault);
                 }
                 i += 1;
@@ -469,7 +535,16 @@ pub const fn encode<const N: usize>(nodes: &[NodeDesc]) -> [u8; N] {
         let mut p = 0;
         while p < node.params.len() {
             let param = &node.params[p];
-            at = put(&mut out, at, &[param.kind as u8, param.flags, param.unit as u8, param.name.len() as u8]);
+            at = put(
+                &mut out,
+                at,
+                &[
+                    param.kind as u8,
+                    param.flags,
+                    param.unit as u8,
+                    param.name.len() as u8,
+                ],
+            );
             at = put(&mut out, at, &param.min.to_le_bytes());
             at = put(&mut out, at, &param.max.to_le_bytes());
             let mut w = 0;
@@ -565,7 +640,10 @@ struct Cursor<'a> {
 impl<'a> Cursor<'a> {
     fn take(&mut self, n: usize) -> Result<&'a [u8], DescriptorError> {
         let end = self.at.checked_add(n).ok_or(DescriptorError::Truncated)?;
-        let s = self.bytes.get(self.at..end).ok_or(DescriptorError::Truncated)?;
+        let s = self
+            .bytes
+            .get(self.at..end)
+            .ok_or(DescriptorError::Truncated)?;
         self.at = end;
         Ok(s)
     }
@@ -611,7 +689,13 @@ impl<'a> NodeView<'a> {
 
     /// The parameters, in declared (block) order.
     pub fn params(&self) -> ParamIter<'a> {
-        ParamIter { cursor: Cursor { bytes: self.bytes, at: self.params_at }, left: self.param_count }
+        ParamIter {
+            cursor: Cursor {
+                bytes: self.bytes,
+                at: self.params_at,
+            },
+            left: self.param_count,
+        }
     }
 
     /// `u32` words of one instance's parameter block.
@@ -659,7 +743,15 @@ fn read_param<'a>(c: &mut Cursor<'a>) -> Result<ParamView<'a>, DescriptorError> 
     if let Some(e) = param_problem(kind, min, max, default) {
         return Err(e);
     }
-    Ok(ParamView { name, kind, unit, flags, min, max, default })
+    Ok(ParamView {
+        name,
+        kind,
+        unit,
+        flags,
+        min,
+        max,
+        default,
+    })
 }
 
 fn read_node<'a>(c: &mut Cursor<'a>) -> Result<NodeView<'a>, DescriptorError> {
@@ -683,10 +775,23 @@ fn read_node<'a>(c: &mut Cursor<'a>) -> Result<NodeView<'a>, DescriptorError> {
         return Err(DescriptorError::StateTooLarge);
     }
     let params_at = c.at;
-    let node = NodeView { kind, name, inputs, flags, state_bytes, param_count, params_at, bytes: c.bytes };
+    let node = NodeView {
+        kind,
+        name,
+        inputs,
+        flags,
+        state_bytes,
+        param_count,
+        params_at,
+        bytes: c.bytes,
+    };
     for (i, p) in node.params().enumerate() {
         let p = p?;
-        if node.params().take(i).any(|q| q.map(|q| q.name == p.name).unwrap_or(false)) {
+        if node
+            .params()
+            .take(i)
+            .any(|q| q.map(|q| q.name == p.name).unwrap_or(false))
+        {
             return Err(DescriptorError::DuplicateName);
         }
     }
@@ -733,7 +838,10 @@ impl<'a> Descriptor<'a> {
     /// The blob's total length from its first [`HEADER_BYTES`] bytes, after checking the magic and
     /// version: how many bytes the host copies out of the module's memory.
     pub fn total_len(header: &[u8]) -> Result<usize, DescriptorError> {
-        let mut c = Cursor { bytes: header, at: 0 };
+        let mut c = Cursor {
+            bytes: header,
+            at: 0,
+        };
         if c.take(4)? != MAGIC {
             return Err(DescriptorError::BadMagic);
         }
@@ -752,7 +860,11 @@ impl<'a> Descriptor<'a> {
     pub fn parse(bytes: &'a [u8]) -> Result<Self, DescriptorError> {
         let len = Self::total_len(bytes)?;
         if len != bytes.len() {
-            return Err(if len > bytes.len() { DescriptorError::Truncated } else { DescriptorError::TrailingBytes });
+            return Err(if len > bytes.len() {
+                DescriptorError::Truncated
+            } else {
+                DescriptorError::TrailingBytes
+            });
         }
         let mut c = Cursor { bytes, at: 6 };
         let node_count = c.u16()?;
@@ -790,7 +902,10 @@ impl<'a> Descriptor<'a> {
 
     /// The nodes, in declared order.
     pub fn nodes(&self) -> impl Iterator<Item = NodeView<'a>> + 'a {
-        let mut c = Cursor { bytes: self.bytes, at: HEADER_BYTES };
+        let mut c = Cursor {
+            bytes: self.bytes,
+            at: HEADER_BYTES,
+        };
         // parse() checked every record, so reading can't fail.
         (0..self.node_count).map_while(move |_| read_node(&mut c).ok())
     }

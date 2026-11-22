@@ -17,7 +17,11 @@ const _: () = assert!(core::mem::align_of::<Transform>() == 4);
 
 impl Transform {
     /// No translation, no rotation, unit scale.
-    pub const IDENTITY: Self = Self { translation: [0.0; 3], rotation: [0.0, 0.0, 0.0, 1.0], scale: [1.0; 3] };
+    pub const IDENTITY: Self = Self {
+        translation: [0.0; 3],
+        rotation: [0.0, 0.0, 0.0, 1.0],
+        scale: [1.0; 3],
+    };
 }
 
 impl Default for Transform {
@@ -88,13 +92,22 @@ impl<'a> Params<'a> {
     /// Vec3 parameter `index`.
     pub fn vec3(&self, index: usize) -> [f32; 3] {
         let w = self.at(index, ParamKind::Vec3);
-        [f32::from_bits(w[0]), f32::from_bits(w[1]), f32::from_bits(w[2])]
+        [
+            f32::from_bits(w[0]),
+            f32::from_bits(w[1]),
+            f32::from_bits(w[2]),
+        ]
     }
 
     /// Quaternion parameter `index` (`x y z w`).
     pub fn quat(&self, index: usize) -> [f32; 4] {
         let w = self.at(index, ParamKind::Quat);
-        [f32::from_bits(w[0]), f32::from_bits(w[1]), f32::from_bits(w[2]), f32::from_bits(w[3])]
+        [
+            f32::from_bits(w[0]),
+            f32::from_bits(w[1]),
+            f32::from_bits(w[2]),
+            f32::from_bits(w[3]),
+        ]
     }
 
     /// The raw words.

@@ -53,7 +53,14 @@ pub fn weight(op: &Operator<'_>) -> u64 {
     match op {
         O::Block { .. } | O::Loop { .. } | O::End | O::Else | O::Nop => 0,
         O::BrTable { .. } => 2,
-        O::I32DivS | O::I32DivU | O::I32RemS | O::I32RemU | O::I64DivS | O::I64DivU | O::I64RemS | O::I64RemU => 4,
+        O::I32DivS
+        | O::I32DivU
+        | O::I32RemS
+        | O::I32RemU
+        | O::I64DivS
+        | O::I64DivU
+        | O::I64RemS
+        | O::I64RemU => 4,
         O::F32Div | O::F64Div | O::F32Sqrt | O::F64Sqrt => 4,
         O::Call { .. } => 4,
         O::CallIndirect { .. } => 8,
@@ -71,7 +78,9 @@ pub fn dynamic(op: &Operator<'_>) -> Option<Dynamic> {
     use Operator as O;
     match op {
         O::MemoryFill { .. } | O::MemoryCopy { .. } | O::MemoryInit { .. } => Some(Dynamic::Shr(4)),
-        O::TableFill { .. } | O::TableCopy { .. } | O::TableInit { .. } | O::TableGrow { .. } => Some(Dynamic::Shr(0)),
+        O::TableFill { .. } | O::TableCopy { .. } | O::TableInit { .. } | O::TableGrow { .. } => {
+            Some(Dynamic::Shr(0))
+        }
         O::MemoryGrow { .. } => Some(Dynamic::Shl(12)),
         _ => None,
     }

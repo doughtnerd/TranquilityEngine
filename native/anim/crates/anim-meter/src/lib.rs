@@ -83,7 +83,10 @@ pub struct Limits {
 
 impl Default for Limits {
     fn default() -> Self {
-        Self { max_memory_pages: 256, max_module_bytes: 8 << 20 }
+        Self {
+            max_memory_pages: 256,
+            max_module_bytes: 8 << 20,
+        }
     }
 }
 
@@ -120,18 +123,28 @@ pub enum MeterError {
 impl core::fmt::Display for MeterError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            MeterError::TooLarge { bytes, limit } => write!(f, "module is {bytes} bytes, over the {limit}-byte limit"),
+            MeterError::TooLarge { bytes, limit } => {
+                write!(f, "module is {bytes} bytes, over the {limit}-byte limit")
+            }
             MeterError::Invalid(m) => write!(f, "invalid or unsupported module: {m}"),
             MeterError::Import(n) => write!(f, "node modules have no imports, found {n}"),
             MeterError::StartFunction => f.write_str("node modules have no start function"),
-            MeterError::MemoryCount(n) => write!(f, "node modules define exactly one memory, found {n}"),
-            MeterError::MemoryNotExported => f.write_str("the memory must be exported as \"memory\""),
-            MeterError::MemoryTooLarge { pages, limit } => write!(f, "memory of {pages} pages is over the {limit}-page limit"),
+            MeterError::MemoryCount(n) => {
+                write!(f, "node modules define exactly one memory, found {n}")
+            }
+            MeterError::MemoryNotExported => {
+                f.write_str("the memory must be exported as \"memory\"")
+            }
+            MeterError::MemoryTooLarge { pages, limit } => {
+                write!(f, "memory of {pages} pages is over the {limit}-page limit")
+            }
             MeterError::Export(n) => write!(f, "export \"{n}\" isn't part of the node ABI"),
             MeterError::MissingExport(n) => write!(f, "missing export \"{n}\""),
             MeterError::Signature(n) => write!(f, "export \"{n}\" has the wrong signature"),
             MeterError::AlreadyMetered => f.write_str("module is metered already"),
-            MeterError::Internal(m) => write!(f, "metering produced an invalid module (a bug): {m}"),
+            MeterError::Internal(m) => {
+                write!(f, "metering produced an invalid module (a bug): {m}")
+            }
         }
     }
 }
@@ -185,12 +198,17 @@ fn expected_signature(name: &str) -> (&'static [ValType], &'static [ValType]) {
 /// Checks `bytes` against the node ABI and the allowed features (see the crate docs).
 pub fn validate(bytes: &[u8], limits: &Limits) -> Result<ModuleInfo, MeterError> {
     if bytes.len() > limits.max_module_bytes {
-        return Err(MeterError::TooLarge { bytes: bytes.len(), limit: limits.max_module_bytes });
+        return Err(MeterError::TooLarge {
+            bytes: bytes.len(),
+            limit: limits.max_module_bytes,
+        });
     }
     if is_metered(bytes) {
         return Err(MeterError::AlreadyMetered);
     }
-    wasmparser::Validator::new_with_features(ALLOWED_FEATURES).validate_all(bytes).map_err(invalid)?;
+    wasmparser::Validator::new_with_features(ALLOWED_FEATURES)
+        .validate_all(bytes)
+        .map_err(invalid)?;
 
     let mut types = alloc::vec::Vec::new();
     let mut func_types = alloc::vec::Vec::new();
@@ -234,17 +252,28 @@ pub fn validate(bytes: &[u8], limits: &Limits) -> Result<ModuleInfo, MeterError>
                     let refuse = || MeterError::Export(String::from(e.name));
                     match e.kind {
                         ExternalKind::Func => {
-                            let slot = abi::REQUIRED_EXPORTS.iter().position(|n| *n == e.name).ok_or_else(refuse)?;
+                            let slot = abi::REQUIRED_EXPORTS
+                                .iter()
+                                .position(|n| *n == e.name)
+                                .ok_or_else(refuse)?;
                             let name = abi::REQUIRED_EXPORTS[slot];
-                            let ty = func_types.get(e.index as usize).and_then(|t| types.get(*t as usize));
+                            let ty = func_types
+                                .get(e.index as usize)
+                                .and_then(|t| types.get(*t as usize));
                             let (params, results) = expected_signature(name);
                             match ty {
-                                Some(ty) if ty.params() == params && ty.results() == results => found[slot] = true,
+                                Some(ty) if ty.params() == params && ty.results() == results => {
+                                    found[slot] = true
+                                }
                                 _ => return Err(MeterError::Signature(name)),
                             }
                         }
                         ExternalKind::Memory if e.name == abi::MEMORY => memory_exported = true,
-                        ExternalKind::Global if !global_mutable.get(e.index as usize).copied().unwrap_or(true) => {}
+                        ExternalKind::Global
+                            if !global_mutable
+                                .get(e.index as usize)
+                                .copied()
+                                .unwrap_or(true) => {}
                         _ => return Err(refuse()),
                     }
                 }
@@ -278,7 +307,8 @@ pub fn validate(bytes: &[u8], limits: &Limits) -> Result<ModuleInfo, MeterError>
 /// Validates `bytes` ([`validate`]) and returns the metered module (see the crate docs).
 pub fn meter(bytes: &[u8], limits: &Limits) -> Result<alloc::vec::Vec<u8>, MeterError> {
     let info = validate(bytes, limits)?;
-    let out = rewrite::rewrite(bytes, &info).map_err(|e| MeterError::Internal(alloc::format!("{e:?}")))?;
+    let out = rewrite::rewrite(bytes, &info)
+        .map_err(|e| MeterError::Internal(alloc::format!("{e:?}")))?;
     wasmparser::Validator::new_with_features(ALLOWED_FEATURES)
         .validate_all(&out)
         .map_err(|e| MeterError::Internal(alloc::string::ToString::to_string(&e)))?;

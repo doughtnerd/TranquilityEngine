@@ -62,8 +62,14 @@ unsafe impl<T: Pod, const N: usize> Pod for [T; N] {}
 
 /// The bytes a state type takes in the descriptor; refuses (at compile time) alignment over 16.
 pub const fn state_bytes_of<T>() -> u32 {
-    assert!(core::mem::align_of::<T>() <= abi::STATE_ALIGN, "Node::State alignment must be at most 16");
-    assert!(core::mem::size_of::<T>() <= abi::MAX_STATE_BYTES as usize, "Node::State must be at most 64 KiB");
+    assert!(
+        core::mem::align_of::<T>() <= abi::STATE_ALIGN,
+        "Node::State alignment must be at most 16"
+    );
+    assert!(
+        core::mem::size_of::<T>() <= abi::MAX_STATE_BYTES as usize,
+        "Node::State must be at most 64 KiB"
+    );
     core::mem::size_of::<T>() as u32
 }
 
@@ -88,7 +94,11 @@ pub trait Node {
         kind: Self::KIND,
         name: Self::NAME,
         inputs: Self::INPUTS,
-        flags: if Self::NEEDS_SKELETON { descriptor::NODE_NEEDS_SKELETON } else { 0 },
+        flags: if Self::NEEDS_SKELETON {
+            descriptor::NODE_NEEDS_SKELETON
+        } else {
+            0
+        },
         params: Self::PARAMS,
         state_bytes: state_bytes_of::<Self::State>(),
     };
@@ -96,7 +106,13 @@ pub trait Node {
     /// Evaluates one instance. `out` holds `cx.bones` transforms and starts as a copy of input 0
     /// (identity for a 0-input node). A panic is a fault: the host passes input 0 through.
     /// Never allocates (there is no allocator).
-    fn evaluate(cx: &Context<'_>, inputs: &Inputs<'_>, params: &Params<'_>, state: &mut Self::State, out: &mut [Transform]);
+    fn evaluate(
+        cx: &Context<'_>,
+        inputs: &Inputs<'_>,
+        params: &Params<'_>,
+        state: &mut Self::State,
+        out: &mut [Transform],
+    );
 }
 
 /// Exports a module's nodes: `myco_node_abi_version`, `myco_node_describe` (a compile-time

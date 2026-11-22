@@ -113,7 +113,7 @@ unsafe fn run<N: Node>(
         &[]
     };
     if state_size > 0 && count > 0 {
-        if state.is_null() || (state as usize) % STATE_ALIGN != 0 {
+        if state.is_null() || !(state as usize).is_multiple_of(STATE_ALIGN) {
             return None;
         }
         count.checked_mul(stride)?;
@@ -121,13 +121,19 @@ unsafe fn run<N: Node>(
 
     for i in 0..count {
         let out = &mut output[i * bones..(i + 1) * bones];
-        let ins = Inputs { data: &input[i * inputs * bones..(i + 1) * inputs * bones], bones };
+        let ins = Inputs {
+            data: &input[i * inputs * bones..(i + 1) * inputs * bones],
+            bones,
+        };
         if inputs > 0 {
             out.copy_from_slice(ins.pose(0));
         } else {
             out.fill(Transform::IDENTITY);
         }
-        let p = Params { words: &params[i * words..(i + 1) * words], schema: N::PARAMS };
+        let p = Params {
+            words: &params[i * words..(i + 1) * words],
+            schema: N::PARAMS,
+        };
         let s: &mut N::State = if state_size == 0 {
             // SAFETY: a dangling, aligned pointer is a valid reference to a zero-sized value.
             unsafe { &mut *core::ptr::NonNull::<N::State>::dangling().as_ptr() }
@@ -137,7 +143,12 @@ unsafe fn run<N: Node>(
             // `count × stride` bytes, and every bit pattern is a valid `State` (`Pod`).
             unsafe { &mut *state.add(i * stride).cast::<N::State>() }
         };
-        let cx = Context { dt, bones, parents, instance: i };
+        let cx = Context {
+            dt,
+            bones,
+            parents,
+            instance: i,
+        };
         N::evaluate(&cx, &ins, &p, s, out);
     }
     Some(())

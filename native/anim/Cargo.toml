@@ -51,7 +51,7 @@ wasmparser = { version = "0.263", default-features = false, features = ["validat
 wasm-encoder = { version = "0.263", default-features = false, features = ["wasmparser"] }
 # Tests only (T45): text-format fixtures and a pure-Rust interpreter that runs plugin modules natively.
 wat = { version = "1.263", default-features = false }
-wasmi = { version = "2.0", default-features = false, features = ["std", "validate"] }
+wasmi = { version = "2.0", default-features = false, features = ["std", "validate", "simd"] }
 
 [profile.release]
 opt-level = 3
