@@ -83,9 +83,14 @@ describe("fromLegacySection (the migration)", () => {
     expect(back.project).toEqual(project);
   });
 
-  it("plays as the old section did: the runtime view is the old section, parsed", () => {
+  it("plays as the old section did, its reverb send now a send into the Reverb return (a bus of the view, ADR 0330)", () => {
     const warnings: string[] = [];
-    expect(toRuntimeSettings(project, warnings)).toEqual(parseAudioSettings(LEGACY).settings);
+    const reverb = { name: "Reverb", parent: "Master", volume: 1, mute: false, effects: [{ type: "fx", fx: "reverb", params: { size: 0.5, decay: 1.8, mix: 100 } }] };
+    const expected = {
+      ...LEGACY,
+      buses: [...LEGACY.buses.map((b) => (b.name === "SFX" ? { ...b, effects: b.effects!.slice(0, 1), sends: [{ to: "Reverb", level: 0.25 }] } : b)), reverb],
+    };
+    expect(toRuntimeSettings(project, warnings)).toEqual(parseAudioSettings(expected).settings);
     expect(warnings).toEqual([]);
   });
 
@@ -167,13 +172,59 @@ describe("mergeLegacyIntoProject (a live op of the old shape, lifted into the mi
     expect(music.effects.map((e) => [e.id, e.type])).toEqual([["fx1", "compressor"], ["off", "highpass"]]);
   });
 
-  it("writes a changed reverb send as a send to the reverb return, its level less the return's", () => {
+  it("writes an old section's reverb send effect as the send to the reverb return, its level less the return's", () => {
     const v = view(RICH);
     const sfx = v.buses.find((b) => b.name === "SFX")!;
     sfx.effects = [{ type: "reverb", send: 0.5 }];
     expect(busOf(mergeLegacyIntoProject(RICH, v), "SFX").sends).toEqual([{ to: "Delay", levelDb: -6 }, { to: "Reverb", levelDb: expect.closeTo(20 * Math.log10(0.5) + 2, 6) }]);
-    sfx.effects = [];
+  });
+
+  it("writes the view's sends (linear) back in dB: a changed level, an unchanged one exact, a removed one gone", () => {
+    const v = view(RICH);
+    const sfx = v.buses.find((b) => b.name === "SFX")!;
+    expect(sfx.sends).toEqual([{ to: "Delay", level: expect.closeTo(Math.pow(10, -6 / 20), 9) }, { to: "Reverb", level: expect.closeTo(Math.pow(10, -10 / 20), 9) }]);
+    sfx.sends![1] = { to: "Reverb", level: 0.5 };
+    expect(busOf(mergeLegacyIntoProject(RICH, v), "SFX").sends).toEqual([{ to: "Delay", levelDb: -6 }, { to: "Reverb", levelDb: expect.closeTo(20 * Math.log10(0.5), 6) }]);
+    sfx.sends = [sfx.sends![0]!];
     expect(busOf(mergeLegacyIntoProject(RICH, v), "SFX").sends).toEqual([{ to: "Delay", levelDb: -6 }]);
+  });
+
+  it("writes a return edited as a bus of the view back to the return: level, mute, output and inserts", () => {
+    const v = view(RICH);
+    expect(v.buses.map((b) => b.name)).toEqual(["Master", "Music", "SFX", "Delay", "Reverb"]);
+    const delay = v.buses.find((b) => b.name === "Delay")!;
+    delay.volume = 0.5;
+    delay.mute = true;
+    delay.parent = "Music";
+    const fx = delay.effects[0]!;
+    if (fx.type !== "fx") throw new Error("expected the delay as a catalogue effect");
+    fx.params.time = 400;
+    const out = mergeLegacyIntoProject(RICH, v);
+    const ret = out.returns.find((r) => r.name === "Delay")!;
+    expect(ret).toMatchObject({ output: "Music", mute: true, volumeDb: expect.closeTo(20 * Math.log10(0.5), 6) });
+    expect(ret.effects[0]).toMatchObject({ id: "fx1", type: "delay", params: expect.objectContaining({ time: 400 }) });
+    expect(out.buses.map((b) => b.name)).toEqual(["Master", "Music", "SFX"]); // still a return, not a bus
+    expect(out.returns.find((r) => r.name === "Reverb")).toEqual(RICH.returns[1]);
+  });
+
+  it("follows a return renamed in place into the sends, automation and snapshots; a return removed from the view goes with its sends", () => {
+    const v = view(RICH);
+    v.buses.find((b) => b.name === "Delay")!.name = "Echo";
+    v.buses.find((b) => b.name === "SFX")!.sends![0]!.to = "Echo";
+    v.snapshots[0].volumes = { ...v.snapshots[0].volumes, Echo: v.snapshots[0].volumes.Delay! };
+    delete v.snapshots[0].volumes.Delay;
+    const out = mergeLegacyIntoProject(RICH, v);
+    expect(out.returns.map((r) => r.name)).toEqual(["Echo", "Reverb"]);
+    expect(busOf(out, "SFX").sends).toEqual([{ to: "Echo", levelDb: -6 }, { to: "Reverb", levelDb: -10 }]);
+    expect(out.automation[0]!.target).toBe("send:Echo");
+    expect(out.snapshots[0]!.buses).toEqual({ Music: -4, Echo: -10 });
+    const gone = view(RICH);
+    gone.buses = gone.buses.filter((b) => b.name !== "Delay");
+    gone.buses.find((b) => b.name === "SFX")!.sends = gone.buses.find((b) => b.name === "SFX")!.sends!.filter((s) => s.to !== "Delay");
+    gone.snapshots[0].volumes = { Music: gone.snapshots[0].volumes.Music! };
+    const removed = mergeLegacyIntoProject(RICH, gone);
+    expect(removed.returns.map((r) => r.name)).toEqual(["Reverb"]);
+    expect(busOf(removed, "SFX").sends).toEqual([{ to: "Reverb", levelDb: -10 }]);
   });
 
   it("creates a Reverb return for a reverb added where there was none", () => {
@@ -199,7 +250,7 @@ describe("mergeLegacyIntoProject (a live op of the old shape, lifted into the mi
     expect(busOf(withLp, "SFX").effects).toEqual([{ id: "fx1", type: "lowpass", on: true, params: expect.objectContaining({ cutoff: 20000 }) }]);
     expect(withLp.snapshots[0].effects.SFX).toEqual({ fx1: { cutoff: 600 } });
     expect(runtime(withLp).snapshots[0].lowpass).toEqual({ SFX: 600 });
-    expect(runtime(withLp).buses.find((b) => b.name === "SFX")!.effects).toEqual([{ type: "reverb", send: expect.any(Number) }]);
+    expect(runtime(withLp).buses.find((b) => b.name === "SFX")!.effects).toEqual([]); // the carrier is hidden; sends aren't effects
     const v2 = view(withLp);
     v2.snapshots[0].lowpass = {};
     expect(mergeLegacyIntoProject(withLp, v2)).toEqual(RICH);
