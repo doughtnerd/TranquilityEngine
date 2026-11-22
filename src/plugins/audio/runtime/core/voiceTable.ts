@@ -81,6 +81,8 @@ export const VoiceFlag2 = {
   AMBISONIC: 1 << 1,
   SENDS: 1 << 2,
   AUX: 1 << 3,
+  /** ADR 0333: the voice asks for its bus's bed whatever its rank (an audio zone's interior, `PlayRequest.bed`). */
+  BED: 1 << 4,
 } as const;
 
 /**

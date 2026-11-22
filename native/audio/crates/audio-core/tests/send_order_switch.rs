@@ -41,7 +41,7 @@ fn raw(write: impl Fn(&mut [u8]) -> Result<usize, i32>) -> Rec {
 
 fn send(level: f32, ramp_frames: u32) -> Rec {
     raw(|b| {
-        wire::SetVoiceFx { voice_id: V1, frame_offset: wire::ASAP, mask: wire::SET_VOICE_FX_MASK_SENDS, ramp_frames, hp_hz: 0.0, send: [level, 0.0, 0.0, 0.0], yaw: 0.0, aux_level: 0.0, aux_bus: wire::AUX_BUS_NONE as u16, reserved: 0 }
+        wire::SetVoiceFx { voice_id: V1, frame_offset: wire::ASAP, mask: wire::SET_VOICE_FX_MASK_SENDS, ramp_frames, hp_hz: 0.0, send: [level, 0.0, 0.0, 0.0], yaw: 0.0, aux_level: 0.0, aux_bus: wire::AUX_BUS_NONE as u16, spread: 0 }
             .write(b, 0)
     })
 }

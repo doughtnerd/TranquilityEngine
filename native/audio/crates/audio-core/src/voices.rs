@@ -1031,6 +1031,7 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
             resample::lagrange(&clip.source, &mut slot.position, &steps[..n], looping, &mut l[..n], &mut r[..n]);
         }
         voice_chain(slot, auto.as_deref_mut(), &mut fx, sample_rate, from, &mut l[..n], &mut r[..n]);
+        spread(&mut fx, &slot.panner, &mut l[..n], &mut r[..n], &mut out_l[from..from + n], &mut out_r[from..from + n]);
         let (id, bus) = (slot.id, slot.bus);
         let route = fx.route;
         slot.panner.mix_range(hrtf, fx.bed(bus), id, route, frame, from, &l[..n], &r[..n], &mut out_l[from..from + n], &mut out_r[from..from + n]);
@@ -1214,6 +1215,7 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
     };
     if mixed {
         voice_chain(slot, auto.as_deref_mut(), &mut fx, sample_rate, from, &mut l[..done], &mut r[..done]);
+        spread(&mut fx, &slot.panner, &mut l[..done], &mut r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
         let (id, bus) = (slot.id, slot.bus);
         let route = fx.route;
         slot.panner.mix_range(hrtf, fx.bed(bus), id, route, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
@@ -1392,6 +1394,7 @@ fn render_seek_tail<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut Vo
         done += 1;
     }
     voice_chain(slot, auto.as_deref_mut(), &mut fx, sample_rate, from, &mut l[..done], &mut r[..done]);
+    spread(&mut fx, &slot.panner, &mut l[..done], &mut r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
     let (id, bus) = (slot.id, slot.bus);
     let route = fx.route;
     slot.panner.mix_range(hrtf, fx.bed(bus), id, route, frame, from, &l[..done], &r[..done], &mut out_l[from..from + done], &mut out_r[from..from + done]);
@@ -1428,6 +1431,16 @@ fn auto_pitch(a: &VoiceAuto, steps: &mut [f32], from: usize) -> f32 {
         }
     }
     max
+}
+
+/// ADR 0333: a spatial voice's spread (`spread.rs`) on a rendered range, just before its panner: the
+/// diffuse part into `out_l`/`out_r`, `l`/`r` left as the point part. A voice without a pool entry
+/// plays as a point source.
+#[inline]
+fn spread(fx: &mut VoiceFx<'_>, panner: &crate::panner::PannerState, l: &mut [f32], r: &mut [f32], out_l: &mut [f32], out_r: &mut [f32]) {
+    if let Some(e) = fx.entry.as_deref_mut() {
+        crate::spread::apply(e, panner, l, r, out_l, out_r);
+    }
 }
 
 /// A mixed voice's pool entry (`fxpool.rs`) and the `Zones` region its send tap writes, handed to

@@ -318,7 +318,7 @@ mod tests {
             assert_eq!(m2.region(kind).len, 0, "{kind:?}");
         }
         assert_eq!(m2.region(RegionKind::Zones).len, 32 * 1024 + (64 + 32 * 512) + 64, "the aux accumulator and the sends area (32 buses) and the tail, without slots");
-        assert_eq!(m2.region(RegionKind::Fx).len, 128 * 448, "56 KB at 128 mixed");
+        assert_eq!(m2.region(RegionKind::Fx).len, 128 * 560, "70 KB at 128 mixed (ADR 0333 spread; 56 KB before)");
         assert_eq!(m2.region(RegionKind::Scratch).len, 8 * 1024);
         let p = InitParams { max_beds: 2, max_zone_slots: 3, zone_max_frames: 96_000, max_wide: 1, ..preset(4_096, 128, 16) };
         let m3 = Layout::new(&p);

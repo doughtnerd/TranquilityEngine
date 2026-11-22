@@ -242,10 +242,13 @@ const NO_ZONE_SLOTS: ZoneSlotArgs[] = [];
 /** Pads a byte count to a multiple of 4 (the record and list padding of the M3 records). */
 const pad4 = (n: number): number => Math.ceil(n / 4) * 4;
 /** A ramp's start phase, 0..1, as the u0.16 the shape word carries (clamped). */
+/** @internal ADR 0333 (ABI 4.11): a spread in degrees as SET_VOICE_FX carries it, hundredths of a degree 0..36000. */
+export const spreadCentidegrees = (deg: number): number => (Number.isFinite(deg) ? Math.round(Math.min(360, Math.max(0, deg)) * 100) : 0);
+
 const phase16 = (p: number): number => Math.min(65535, Math.max(0, Math.round(p * 65536)));
 
 /**
- * ADR 0162 C3: SET_VOICE_FX, minus the head. `mask` is `SET_VOICE_FX_MASK_*` (hpHz, sends, yaw, aux); fields outside
+ * ADR 0162 C3: SET_VOICE_FX, minus the head. `mask` is `SET_VOICE_FX_MASK_*` (hpHz, sends, yaw, aux, spread); fields outside
  * the mask are written as given and ignored by the core.
  */
 export interface VoiceFxArgs {
@@ -262,6 +265,8 @@ export interface VoiceFxArgs {
   auxLevel: number;
   /** The aux send's bus; `AUX_BUS_NONE` (0xFFFF) is none. */
   auxBus: number;
+  /** ADR 0333 (ABI 4.11, `SET_VOICE_FX_MASK_SPREAD`): a spatial voice's spread, degrees 0..360 (sent in hundredths). Omitted: 0. */
+  spread?: number;
 }
 
 /** ADR 0162 C5: one ZONE_CONFIG slot, as on the wire (`kernelId` 0 is off; `state` is `ZoneSlotState`). */
@@ -334,7 +339,7 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly automateRec: Automate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
   private readonly busAutomateRec: BusAutomate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
   private readonly submixAutomateRec: SubmixAutomate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
-  private readonly voiceFxRec: SetVoiceFx = { voiceId: 0, frameOffset: ASAP, mask: 0, rampFrames: 0, hpHz: 0, send: [0, 0, 0, 0], yaw: 0, auxLevel: 0, auxBus: 0xffff, reserved: 0 };
+  private readonly voiceFxRec: SetVoiceFx = { voiceId: 0, frameOffset: ASAP, mask: 0, rampFrames: 0, hpHz: 0, send: [0, 0, 0, 0], yaw: 0, auxLevel: 0, auxBus: 0xffff, spread: 0 };
   private readonly bedConfigRec: BedConfig = { voiceId: 0, frameOffset: ASAP, bedSlot: [], hostBus: [] };
   private readonly zoneConfigRec: ZoneConfig = { voiceId: 0, frameOffset: ASAP, sharedReturnGain: 1, rampFrames: 0, slots: [] };
   private readonly listenerRec: Listener = { voiceId: 0, frameOffset: ASAP, qx: 0, qy: 0, qz: 0, qw: 1, rampFrames: 0, flags: 0 };
@@ -862,6 +867,7 @@ export class CommandWriter implements VoiceCommandSink {
     r.yaw = args.yaw;
     r.auxLevel = args.auxLevel;
     r.auxBus = args.auxBus;
+    r.spread = spreadCentidegrees(args.spread ?? 0);
     const at = this.begin(SET_VOICE_FX_FIXED_END);
     if (at < 0) return;
     this.end(at, writeSetVoiceFx(this.view, at, r), atFrame);

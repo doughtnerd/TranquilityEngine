@@ -230,7 +230,10 @@ describe("coreSectionOf: the old section shape's mapping", () => {
     const warnings: string[] = [];
     const settings = coreSectionOf(project, warnings);
     expect(parseAudioSettings(settings).problems).toEqual([]);
-    expect(warnings.length).toBeGreaterThan(0);
+    // ADR 0333: `bedBeyond` reaches the runtime as `bed.beyond` (the core backend's panner pick runs it), with no warning.
+    expect(settings.bed.beyond).toBe(40);
+    expect(parseAudioSettings(settings).settings.bed.beyond).toBe(40);
+    expect(warnings.join("\n")).not.toMatch(/bedBeyond/);
   });
 
   it("carries the instance submix pool to the runtime's voices (ADR 0331), and the runtime's parse keeps it", () => {

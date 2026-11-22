@@ -48,7 +48,7 @@ fn info(h: i32) -> InfoRec {
 
 #[test]
 fn the_abi() {
-    assert_eq!(myco_decode_abi_version(), 0x103);
+    assert_eq!(myco_decode_abi_version(), 0x104); // 1.4: myco_decode_seam (ADR 0328 stream loop seams)
     assert!(!myco_decode_source_hash().is_null());
     assert!(myco_decode_alloc(0).is_null());
 

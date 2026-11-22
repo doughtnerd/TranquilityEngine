@@ -381,7 +381,7 @@ fn non_finite_values_survive_the_wire() {
         yaw: f32::NEG_INFINITY,
         aux_level: f32::from_bits(0x7FC0_BEEF),
         aux_bus: AUX_BUS_NONE as u16,
-        reserved: 0,
+        spread: 36_000,
     };
     let mut out = vec![0u8; 64];
     let n = fx.write(&mut out, 0).unwrap();

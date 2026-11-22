@@ -244,8 +244,12 @@ const DEFAULT_MUSIC_RINGS = 12;
 /** The voice presets' music rings (api-and-models §2.1; the editor's `VOICE_PRESETS` writes them). */
 export const MUSIC_RINGS_PRESETS = { low: 8, default: 12, high: 16 } as const;
 
-/** `audio.bed`: integer `maxBeds` 0..4, default 2 (0: no beds). */
-export interface BedSettings { maxBeds: number }
+/**
+ * `audio.bed`: integer `maxBeds` 0..4, default 2 (0: no beds). `beyond` (ADR 0333, the runtime view's
+ * `settings.bedBeyond`): metres above 0; a spatial voice farther from the listener than this goes to its bus's bed
+ * instead of an HRTF slot. Absent: beds go by HRTF rank only.
+ */
+export interface BedSettings { maxBeds: number; beyond?: number }
 /** `audio.ambisonic`: integer `maxClips` 0..4, default 1 (0 refuses ambisonic clips with a warning). */
 export interface AmbisonicSettings { maxClips: number }
 /** `audio.occlusion` (§2.1, §2.2). */
@@ -792,6 +796,11 @@ function section(raw: unknown, key: string, problems: string[]): Record<string, 
 function parseSpatialKeys(input: Record<string, unknown>, settings: AudioSettings, problems: string[], options: AudioParseOptions): void {
   const bed = section(input.bed, "audio.bed", problems);
   if (bed) settings.bed.maxBeds = wholeNumber(bed.maxBeds, "audio.bed.maxBeds", ...range("bed.maxBeds"), problems) ?? DEFAULT_BED_MAX_BEDS;
+  // ADR 0333: the distance past which voices go to their bus's bed (`audio.json` `settings.bedBeyond`); absent is none.
+  if (bed && bed.beyond !== undefined && bed.beyond !== null) {
+    if (typeof bed.beyond === "number" && Number.isFinite(bed.beyond) && bed.beyond > 0) settings.bed.beyond = bed.beyond;
+    else problems.push("audio.bed.beyond: must be a distance above 0; beds go by HRTF rank only.");
+  }
   const ambisonic = section(input.ambisonic, "audio.ambisonic", problems);
   if (ambisonic) settings.ambisonic.maxClips = wholeNumber(ambisonic.maxClips, "audio.ambisonic.maxClips", ...range("ambisonic.maxClips"), problems) ?? DEFAULT_AMBISONIC_MAX_CLIPS;
 
