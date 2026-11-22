@@ -80,6 +80,8 @@ A context is a set of mappings. Write it as a `*.input.json` asset, or register 
 
 **Chords:** inside one context, Shift+B takes B, so B alone doesn't also fire.
 
+**The `ui` context:** the engine's own action set `engine.UIActions` (`navigate`, `submit`, `cancel`, `next`, `previous`) is bound in an engine context named `ui`, which is on for a player only while their World's UI has a focused element, at priority 1000 (`UI_CONTEXT_PRIORITY`), above your contexts. So a focused menu takes the arrows, d-pad, Enter, Space and Escape, and the game gets them back when nothing is focused. Players rebind it like any other context (`rebind("engine.UIActions:submit", { context: "ui" })`). See [Game UI](ui.md#keyboard-and-gamepad-navigation).
+
 **Modifiers:**
 - `deadzone`: `min`, `max`, axial or radial
 - `negate`, `swizzle`, `scale`
