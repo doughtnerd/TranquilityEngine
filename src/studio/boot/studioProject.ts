@@ -4,9 +4,14 @@
 // the editor), shared with other apps (the Studio's lock and the folder watch, studioProjectWatch.ts) and the Studio's
 // audio runtime started on its settings. The editor's hand-off (`myco://studio-open`, studioHandoff.ts) and the
 // page's `?project=` come through `openRequest` and `handOff`; a browser folder is found among the recent projects'
-// stored handles (`recentForMount`).
+// stored handles (`recentForMount`). A folder with old audio events (`*.audioevent.json`) is offered their migration
+// first (ADR 0329, `audioEventMigration.ts`); declined, it opens read-only and the Playlists screen's banner offers
+// Migrate now (`pendingAudioMigration`), which migrates and opens it again.
 import { FsaFileSystem } from "../../editor/fsaFileSystem";
 import { errorStatus } from "../../editor/messages";
+import { migrationSummary, offerAudioEventMigration, runAudioEventMigration, type AudioEventMigrationQuestion } from "../../editor/audioEventMigration";
+import type { FileSystem } from "../../engine/platform/FileSystem";
+import { confirmInEditor } from "../../editor/ui/ConfirmDialog";
 import { NO_FOLDERS_NOTE, projectFileSystem } from "../../editor/projectFs";
 import { projectOpening, type LocationOutcome, type OpenIntent, type OpenOutcome, type OpenResult, type ProjectSource } from "../../editor/projectOpening";
 import { editorSettings, openFolderProject, useProjectAssets } from "../../editor/projects";
@@ -16,6 +21,7 @@ import { currentProject, status } from "../../editor/state";
 import { requestScreen, type StudioOpenRequest } from "../../editor/studioAssets";
 import type { StudioAudioRuntime } from "../runtime/studioAudioHost";
 import type { RouteRequest } from "../shell/route";
+import { pendingAudioMigration } from "../shell/audioMigration";
 import { recentForMount, type StartRequest } from "./startQuery";
 import { startStudioProjectWatch, stopStudioProjectWatch } from "./studioProjectWatch";
 
@@ -36,18 +42,45 @@ export interface StudioProjects {
 export interface StudioProjectHost {
   readonly runtime: StudioAudioRuntime;
   openRoute(request: RouteRequest): void;
+  /** Ask the migration question (the editor's confirm dialog when left out). */
+  confirm?(question: AudioEventMigrationQuestion): Promise<boolean>;
 }
 
-export function studioProjects({ runtime, openRoute }: StudioProjectHost): StudioProjects {
+export function studioProjects({ runtime, openRoute, confirm = (q) => confirmInEditor(q).then((r) => r.ok) }: StudioProjectHost): StudioProjects {
   async function openHere(source: ProjectSource): Promise<OpenResult> {
-    const project = source.kind === "folder" ? await openFolderProject(source.fs, source.root) : await openSampleProject(source.sample);
+    const migration = source.kind === "folder" ? await offerAudioEventMigration(source.fs, source.root, confirm) : null;
+    const readOnly = migration?.kind === "declined" || migration?.kind === "failed";
+    const project = source.kind === "folder" ? await openFolderProject(source.fs, source.root, { readOnly }) : await openSampleProject(source.sample);
+    pendingAudioMigration.value = readOnly && source.kind === "folder" ? pending(source.fs, source.root, migration.files, migration.kind === "failed" ? migration.error : null) : null;
+    if (migration?.kind === "migrated") status.value = { kind: "info", text: migrationSummary(migration.report) };
     runtime.close();
     useProjectAssets(project);
     currentProject.value = project;
     void runtime.open(editorSettings(project));
     void rememberProject(project, "studio");
-    void startStudioProjectWatch(project);
-    return { kind: "opened", name: project.name };
+    if (!readOnly) void startStudioProjectWatch(project);
+    // What the migration did stays in the status line (the opened note doesn't replace it).
+    return { kind: "opened", name: project.name, problem: migration?.kind === "migrated" };
+  }
+
+  /** The banner's state for the read-only project at `root`: Migrate now migrates it and opens it again, writable. */
+  function pending(fs: FileSystem, root: string, files: readonly string[], error: string | null) {
+    const state = {
+      files,
+      running: false,
+      error,
+      async migrate(): Promise<void> {
+        pendingAudioMigration.value = { ...state, running: true, error: null };
+        const outcome = await runAudioEventMigration(fs, root);
+        if (outcome.kind === "failed") {
+          pendingAudioMigration.value = { ...state, running: false, error: outcome.error };
+          return;
+        }
+        show(await opening.openResolved({ kind: "folder", fs, root }));
+        if (outcome.kind === "migrated" && currentProject.peek()?.canSave) status.value = { kind: "info", text: migrationSummary(outcome.report) };
+      },
+    };
+    return state;
   }
   const opening = projectOpening({
     folders: projectFileSystem,
@@ -72,6 +105,7 @@ export function studioProjects({ runtime, openRoute }: StudioProjectHost): Studi
   }
 
   function close(): void {
+    pendingAudioMigration.value = null;
     runtime.close();
     void stopStudioProjectWatch();
     currentProject.value = null;

@@ -8,7 +8,7 @@ import { CORE_LIVE_CAPS } from "./busCapability";
 import { Lane, Mixer, type MixOpTarget } from "./mixer";
 import type { ApplyResult, MixOp } from "./mixOps";
 import { mixJsonOf, parseAudioProject } from "./project/format";
-import { legacySectionOf } from "./project/runtimeView";
+import { coreSectionOf } from "./project/runtimeView";
 import type { AudioProject } from "./project/types";
 import { defaultAudioSettings, type AudioSettings, type BusEffect } from "./settings";
 
@@ -190,15 +190,13 @@ describe("the mixer runs the audio.json model (ADR 0330)", () => {
     expect(m.snapshotActive("Deep")).toBe(true);
   });
 
-  it("D2: a legacy view the editor's panels edited is written back into the mix at configure; an unedited one changes nothing", () => {
+  it("runs the mix it is given: the old keys beside it are a view of it, never written back", () => {
     const p = project();
-    const legacy = legacySectionOf(p);
-    const same = new Mixer({ ...defaultAudioSettings(), ...legacy, mix: mixJsonOf(p) });
-    expect(same.audioProject.vcas).toEqual(p.vcas);
-    const edited = { ...legacy, buses: legacy.buses.map((b) => (b.name === "Music" ? { ...b, volume: 0.1 } : b)) };
+    const view = coreSectionOf(p);
+    const edited = { ...view, buses: view.buses.map((b) => (b.name === "Music" ? { ...b, volume: 0.1 } : b)) };
     const m = new Mixer({ ...defaultAudioSettings(), ...edited, mix: mixJsonOf(p) });
-    expect(db(m.bus("Music").authoredVolume)).toBeCloseTo(-20, 6);
-    expect(m.audioProject.vcas).toEqual(p.vcas); // what the legacy view can't express is kept
+    expect(m.audioProject.buses.find((b) => b.name === "Music")!.volumeDb).toBe(p.buses.find((b) => b.name === "Music")!.volumeDb);
+    expect(m.audioProject.vcas).toEqual(p.vcas);
   });
 
   it("settings without a mix (the old section) are migrated: snapshots run as the model's, a reverb send as a return", () => {

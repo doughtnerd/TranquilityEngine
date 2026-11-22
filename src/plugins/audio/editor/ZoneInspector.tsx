@@ -7,14 +7,14 @@
 import { editor, type InspectorSectionProps } from "../../../editor/sdk";
 import type { AudioReverbZone } from "../runtime/AudioReverbZone";
 import { zoneCostLine, zoneNotices, zoneReverbLine } from "./audioInspectorModel";
-import { audioSettings } from "./audioDraft";
+import { projectAudio } from "./projectAudio";
 import "./audioInspectors.css";
 
 export function ZoneSection({ info }: InspectorSectionProps) {
   editor.project.version; // the settings and the file list (tracked)
   const zone = info.component as AudioReverbZone | null;
   if (!zone) return null;
-  const audio = audioSettings.read(editor.project.current?.settings);
+  const audio = projectAudio(editor.project.current?.settings);
   const notices = zoneNotices(zone, audio, editor.project.current?.files ?? null);
   const cost = zoneCostLine(audio);
   return (

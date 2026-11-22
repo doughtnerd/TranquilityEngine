@@ -15,6 +15,7 @@ import { copySample, findSample, openSampleProject } from "./samples";
 import { editorPlatform, projectStorage } from "./projectPlace";
 import { historyLocation } from "./preferences";
 import { confirmInEditor } from "./ui/ConfirmDialog";
+import { migrationSummary, offerAudioEventMigration } from "./audioEventMigration";
 import { installSceneView } from "./cameraPreview";
 import { installThumbnails } from "./thumbnails";
 import { installPlayGizmos } from "./playGizmos";
@@ -218,12 +219,21 @@ export function closeScenes(scenes: readonly OpenScene[]): Promise<number> {
 }
 
 
-/** Open `source` in this window (a folder project is remembered in the recent projects). Throws if it can't be read. */
+/**
+ * Open `source` in this window (a folder project is remembered in the recent projects). Throws if it can't be read. A
+ * folder with old audio events is offered their migration first (ADR 0329, `audioEventMigration.ts`); declined, it
+ * opens as it is (the editor no longer edits audio; the Audio Studio opens it read-only).
+ */
 async function openHere(source: ProjectSource): Promise<OpenResult> {
+  const migration = source.kind === "folder" ? await offerAudioEventMigration(source.fs, source.root, (q) => confirmInEditor(q).then((r) => r.ok)) : null;
   const project = source.kind === "folder" ? await openFolderProject(source.fs, source.root) : await openSampleProject(source.sample);
   const { problem } = await loadProject(project);
   void rememberProject(project);
-  return { kind: "opened", name: project.name, problem };
+  // What the migration did stays in the status line (the opened note doesn't replace it) unless loading reported a problem.
+  if (!problem && migration?.kind === "migrated") status.value = { kind: "info", text: migrationSummary(migration.report) };
+  if (!problem && migration?.kind === "failed") status.value = errorStatus("Couldn't migrate the project's audio events", migration.error);
+  const reported = migration?.kind === "migrated" || migration?.kind === "failed";
+  return { kind: "opened", name: project.name, problem: problem || reported };
 }
 
 // The editor window's project opening (ADR 0318): what the start screen or the File menu asks for is resolved by the

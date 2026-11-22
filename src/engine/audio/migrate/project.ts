@@ -4,7 +4,8 @@
  * headers), every JSON file that names a migrated event is rewritten to name its playlist (scenes' and prefabs'
  * `AudioSource.clip`, playlists, sample sidecars, project.json: any reference string, `rewriteJsonReferences`), and the
  * old files move to `.myco/migrated/` under their project paths. `npm run audio:migrate` runs it over the disk; the
- * editor and the Studio run it over their own file system when they open a project with old files (not yet enabled).
+ * editor and the Studio run it over their own file system when they open a project with old files, after asking
+ * (`src/editor/audioEventMigration.ts`).
  *
  * The order keeps a stopped run recoverable: new playlists first, then references, then the old files move. Scripts
  * that quote a migrated path are reported, not rewritten. Folders whose names start with a dot (`.myco`, `.git`),

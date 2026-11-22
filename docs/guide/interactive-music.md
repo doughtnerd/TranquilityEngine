@@ -1,5 +1,7 @@
 # Interactive music
 
+> **Music is authored in the Audio Studio now.** Music events are replaced by playlists (ADR 0329), authored in the **Audio Studio** (in the editor: Window > Audio Studio, or **Open in Audio Studio** on a file; ADR 0327); the editor's segment view, Segment Properties and transition rules panels are gone, and opening a project with old event files offers their migration once. `Audio.play` still plays a music event file. The format and behaviour below are the old event format's, kept for reference.
+
 A **music event** is a piece of music described in data. It knows its tempo and bars, so it can loop without a seam, switch to another piece on a bar line, crossfade, bring layers in and out on the beat, and play a short sound exactly on the next beat. It lives in an ordinary [sound event](sound-events.md) file (`*.audioevent.json`), plays through the same [mixer buses](audio-mixer.md), and a script drives it with `Audio.play` or an `AudioSource`.
 
 ```ts
@@ -27,10 +29,10 @@ Interactive music is complete for its first release (milestone M4). Everything i
 | `handle.music` position, tempo, `nextGrid`, `seek` and `positionAt` (with `judged`) | **Real-device checks** (phone prime lead, other browsers' output latency, the lab VM) are the owner's [listening pass](../design/0166-audio-music/listening-pass.md); this guide's numbers come from tests and a desktop browser |
 | The component callbacks `onMusicBeat`, `onMusicBar`, `onMusicCue`, and `handle.onMusic` for music started with `Audio.play` | |
 | `Calibration.fromTaps`, `Audio.calibration` (saved per output device, on the Babylon fallback too), `Audio.calibrationStale` | |
-| `audio.rhythmMode` and `music.rings`, both in Project Settings > Audio; `Audio.latency`, `Audio.horizon`, `Audio.timeAt` | |
+| `audio.rhythmMode` and `music.rings`, both in `audio.json`'s `settings`; `Audio.latency`, `Audio.horizon`, `Audio.timeAt` | |
 | Beat, bar and cue callbacks on the Babylon fallback (not corrected for output latency; no rhythm mode there) | |
 | Streaming and decoding; hot reload; the Audio Debug panel's Music sections | |
-| Editor: segment view and properties, transition rules table and rule editor, audition | |
+| Editor: segment view and properties, transition rules table and rule editor, audition (retired with the Event editor, ADR 0327; music is authored in the Audio Studio) | |
 | Samples: the Sound Lab's music and rhythm pages (keyboard or on-screen buttons), Flappy's town music with a game-over dip and a readout | |
 
 Where a section below depends on something in the right-hand column, it says so. The Sound Lab's [music page](#the-sound-lab-music-page) is the worked example for switches, rules, stingers and loops, and its [rhythm page](#the-sound-lab-rhythm-page) for [callbacks](#beat-bar-and-cue-callbacks) and [calibration](#rhythm-mode-and-calibration).
@@ -535,7 +537,7 @@ export class BeatCounter extends GameBehavior {
 
 A rhythm game judges the player's taps against the music, and two delays sit between a tap and what the game reads: the delay from the game's beat to the sound (the output latency), and the player's own habit of tapping early or late. Rhythm mode and calibration deal with each.
 
-**Rhythm mode.** In **Project Settings > Audio > Playback > Music** tick *Rhythm mode*, or set `"audio": { "rhythmMode": true }` in `project.json`. The audio context is then made with `latencyHint: 0`, the smallest output buffer the browser allows, which lowers the delay between a beat and the sound at the price of battery and, on a slow device, crackle. `Audio.rhythmMode` reads the setting.
+**Rhythm mode.** Set `"rhythmMode": true` under `settings` in `audio.json` (the Audio Studio edits it). The audio context is then made with `latencyHint: 0`, the smallest output buffer the browser allows, which lowers the delay between a beat and the sound at the price of battery and, on a slow device, crackle. `Audio.rhythmMode` reads the setting.
 
 - It refuses nothing, and it promises no absolute latency: the browser decides. Read `Audio.latency`; don't assume.
 - Changing the setting at run time rebuilds the audio context (at most once a second). The music re-enters on the next bar, in place, and beat callbacks are **held** while it recovers: afterwards they arrive as one call with `missed` set, as after a hitch.
@@ -600,7 +602,7 @@ Beat, bar and cue callbacks and `handle.onMusic` work there, with limits. They c
 
 ## The debug panel's Music section
 
-The editor's Audio Debug panel (the same one [Why is there no sound?](why-no-sound.md) uses) has two music sections. `Audio.debug().music` and `Audio.debug().musicTotals` hold the same data for tools.
+`Audio.debug().music` and `Audio.debug().musicTotals` hold two music sections (the editor's Audio Debug panel, retired with ADR 0327, showed them as tables).
 
 **Music totals** is the engine-wide health:
 

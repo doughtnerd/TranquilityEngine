@@ -11,7 +11,7 @@ import { componentNotes } from "../../../editor/sdk";
 import { compileHit, type HitCost } from "../../../engine/audio/occlusionMaterials";
 import type { AudioSettings } from "../../../engine/audio/settings";
 import type { GameObject } from "../../../engine";
-import { zoneMemory, zoneSlots, zoneWarnings } from "./audioSettingsModel";
+import { zoneMemory, zoneSlots, zoneWarnings } from "./zoneBudget";
 
 /** The 3D `Collider` base class the Physics plugin registered, or null while it is off. The audio plugin doesn't depend on Physics, so it finds the class through the registry (every 3D collider's parent). */
 export function colliderClass(): ComponentClass<Collider> | null {
@@ -102,10 +102,10 @@ export function analyzeOccluder(occluder: AudioOccluder, context: { physics3d: b
     warnings.push({ code: "overlap", text: `"${o.node}" has an AudioOccluder of its own (material ${o.material}), which overrides this one for ${o.colliders === 1 ? "its collider" : `its ${o.colliders} colliders`}. This occluder does not apply to them.` });
   }
   if (occluder.material !== "" && !audio.occlusion.materials.some((m) => m.name === occluder.material)) {
-    warnings.push({ code: "unknownMaterial", text: `There is no material named "${occluder.material}" in Project Settings > Audio > Occlusion: this wall lets sound through untouched. Pick a material from the list.` });
+    warnings.push({ code: "unknownMaterial", text: `There is no material named "${occluder.material}" in the project's occlusion materials (the Audio Studio's Spatial screen): this wall lets sound through untouched. Pick a material from the list.` });
   }
   if (all.length > 0 && covered.length > 0 && covered.every((c) => colliderIsInert(c, audio))) {
-    warnings.push({ code: "inert", text: "None of the colliders this occluder applies to can be hit: triggers never occlude, disabled colliders are skipped, and layers outside Project Settings > Audio > Occlusion's list are ignored." });
+    warnings.push({ code: "inert", text: "None of the colliders this occluder applies to can be hit: triggers never occlude, disabled colliders are skipped, and layers outside the occlusion layer list (the Audio Studio's Spatial screen) are ignored." });
   }
   return { covered, overrides, warnings };
 }
@@ -175,22 +175,22 @@ export interface ZoneNotice {
 const mb = (n: number): string => `${n < 10 ? n.toFixed(1) : Math.round(n)} MB`;
 
 /**
- * The zone's memory cost line, from the project's zone slots (Project Settings > Audio > Zones): each active zone holds
+ * The zone's memory cost line, from the project's zone slots (`audio.json`, edited on the Audio Studio's Spatial screen): each active zone holds
  * one slot whose size follows `maxIrSeconds`. Null while the slots are off (zones are inert; a notice says so).
  */
 export function zoneCostLine(audio: Pick<AudioSettings, "zones">): string | null {
   const slots = zoneSlots(audio.zones);
   if (slots === 0) return null;
   const cost = zoneMemory(audio);
-  return `Each playing zone takes one reverb slot, about ${mb(cost.totalMB / slots)} (an impulse response is cut at ${audio.zones.maxIrSeconds} s). The project reserves ${mb(cost.totalMB)} for its ${slots} slots (${audio.zones.maxActive} active, ${audio.zones.standby} standby); change them in Project Settings > Audio > Zones.`;
+  return `Each playing zone takes one reverb slot, about ${mb(cost.totalMB / slots)} (an impulse response is cut at ${audio.zones.maxIrSeconds} s). The project reserves ${mb(cost.totalMB)} for its ${slots} slots (${audio.zones.maxActive} active, ${audio.zones.standby} standby); change them on the Audio Studio's Spatial screen (Reverb zones).`;
 }
 
 /** What is worth telling about a zone: the Babylon backend, zones turned off, an unknown output bus, an impulse response outside the project. */
 export function zoneNotices(zone: Pick<AudioReverbZone, "output" | "ir" | "preset">, audio: AudioSettings, projectFiles: readonly string[] | null): ZoneNotice[] {
   const out: ZoneNotice[] = [];
-  if (audio.backend === "babylon") out.push({ kind: "warning", text: "This project's audio backend is Babylon, which has no reverb zones: they are inert and every source sounds dry. Switch the backend to Core in Project Settings > Audio." });
-  else if (zoneWarnings(audio).some((w) => w.code === "zonesOff")) out.push({ kind: "warning", text: "Reverb zones are off in this project (Max active is 0 in Project Settings > Audio > Zones), so this zone does nothing." });
-  if (zone.output !== "" && !audio.buses.some((b) => b.name === zone.output)) out.push({ kind: "warning", text: `There is no bus named "${zone.output}" in Project Settings > Audio: the reverb returns to Master instead.` });
+  if (audio.backend === "babylon") out.push({ kind: "warning", text: "This project's audio backend is Babylon, which has no reverb zones: they are inert and every source sounds dry. Switch the backend to Core in the Audio Studio." });
+  else if (zoneWarnings(audio).some((w) => w.code === "zonesOff")) out.push({ kind: "warning", text: "Reverb zones are off in this project (Max active is 0 under Reverb zones on the Audio Studio's Spatial screen), so this zone does nothing." });
+  if (zone.output !== "" && !audio.buses.some((b) => b.name === zone.output)) out.push({ kind: "warning", text: `There is no bus named "${zone.output}" in the project's mix (the Audio Studio's Mixer): the reverb returns to Master instead.` });
   const ir = zone.ir.replace(/^asset:/, "");
   if (ir !== "" && projectFiles && !projectFiles.includes(ir)) out.push({ kind: "warning", text: `The impulse response "${ir}" is not in the project, so the ${zone.preset} preset plays instead.` });
   return out;

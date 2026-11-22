@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import stress from "../../../samples/stress/audio.json";
 import { parseAudioProject } from "../audio/project/format";
-import { legacySectionOf as toRuntimeSettings } from "../audio/project/runtimeView";
+import { coreSectionOf as toRuntimeSettings } from "../audio/project/runtimeView";
 import { parseAudioSettings } from "../audio/settings";
 
 describe("sample audio settings", () => {

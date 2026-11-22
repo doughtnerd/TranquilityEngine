@@ -4,13 +4,15 @@
 // time so the rest keeps its layout.
 import { defaultSettings, pluginSettingsProblems, RUNTIME_SETTINGS, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
 import { defaultTier, parseGraphics, PLATFORMS, type GraphicsSettings, type Platform, type PlatformDefaults, type QualityTier } from "../engine/core/graphics";
-import { audioSection } from "../engine/audio/audioSection";
 import { projectSettingsSections } from "./sdk/contributions";
 import { withMember } from "./jsonMember";
 import { uniqueName } from "../engine/core/uniqueName";
 
 /** The top-level keys the shell's own Project panel categories edit (the Worlds panel edits `bootstrap`). */
-const CORE_SETTINGS_KEYS = ["name", "display", "time", "render", "autoload", "graphics", "audio", "plugins", "build"] as const;
+const CORE_SETTINGS_KEYS = ["name", "display", "time", "render", "autoload", "graphics", "plugins", "build"] as const;
+
+/** Keys no settings section may own: `bootstrap` (the Worlds panel's) and `audio`, which moved to `audio.json` (ADR 0330; the Audio Studio edits it). */
+const RESERVED_KEYS: readonly string[] = ["bootstrap", "audio"];
 
 /**
  * Every key the Project panel edits: the core keys, then those the registered settings sections declare
@@ -18,14 +20,15 @@ const CORE_SETTINGS_KEYS = ["name", "display", "time", "render", "autoload", "gr
  */
 export function settingsKeys(): string[] {
   const keys: string[] = [...CORE_SETTINGS_KEYS];
-  for (const section of projectSettingsSections.list()) for (const key of section.keys) if (key !== "bootstrap" && !keys.includes(key)) keys.push(key);
+  for (const section of projectSettingsSections.list()) for (const key of section.keys) if (!RESERVED_KEYS.includes(key) && !keys.includes(key)) keys.push(key);
   return keys;
 }
 
-/** `section`, if the keys it declares are free: not core, not `bootstrap`, not another registered section's. Throws otherwise. */
+/** `section`, if the keys it declares are free: not core, not reserved (`bootstrap`, `audio`), not another registered section's. Throws otherwise. */
 export function checkSettingsSectionKeys<T extends { readonly id: string; readonly keys: readonly string[] }>(section: T): T {
   for (const key of section.keys) {
     if ((CORE_SETTINGS_KEYS as readonly string[]).includes(key) || key === "bootstrap") throw new Error(`Project settings section "${section.id}" can't own "${key}": the editor owns that project.json key.`);
+    if (key === "audio") throw new Error(`Project settings section "${section.id}" can't own "audio": the project's audio is audio.json's (ADR 0330).`);
     const owner = projectSettingsSections.list().find((s) => s.id !== section.id && s.keys.includes(key));
     if (owner) throw new Error(`Project settings section "${section.id}" can't own "${key}": section "${owner.id}" owns it.`);
   }
@@ -45,8 +48,6 @@ export interface SettingsDraft {
   graphics?: Record<string, unknown>;
   /** Navigation (ADR 0065): agent types, areas and bake settings, as written; owned by the Navigation plugin's settings section (ADR 0151). */
   navigation?: Record<string, unknown>;
-  /** Audio mixer buses, snapshots, ducking and backend (ADR 0097): `audio.json`'s runtime view (ADR 0330), saved back to `audio.json` (`audioProjectFile.ts`); read leniently by `parseAudioSettings`. */
-  audio?: Record<string, unknown>;
   /** Per-project plugin enabling (ADR 0133): only the plugins that are off. */
   plugins?: { disabled?: string[] } & Record<string, unknown>;
   /** Game export settings (ADR 0041), read by the exporter; other keys in it are kept. */
@@ -210,7 +211,7 @@ export function setDefaultTier(draft: SettingsDraft, name: string): SettingsDraf
 
 // --- validation -----------------------------------------------------------------------------------
 
-/** The core keys the engine reads itself, checked by their runtime sections (ADR 0272). `audio` goes through `audioSection`, the same parse memoised on the draft. */
+/** The core keys the engine reads itself, checked by their runtime sections (ADR 0272). */
 const RUNTIME_CORE_KEYS = ["name", "display", "time", "render", "autoload", "graphics", "plugins"] as const;
 
 /**
@@ -222,7 +223,6 @@ export function settingsProblems(draft: SettingsDraft, files?: readonly string[]
   const p = (field: string, message: string) => problems.push({ field, message });
   // What the engine would warn about at start-up and replace with defaults (ADR 0272), by field.
   for (const key of RUNTIME_CORE_KEYS) problems.push(...RUNTIME_SETTINGS[key].parse(draft[key]).problems);
-  for (const message of audioSection(draft.audio).problems) p("audio", message);
   // Beyond the runtime's checks: autoloads must exist in the project.
   if (files && Array.isArray(draft.autoload)) {
     draft.autoload.forEach((path, i) => {
@@ -250,8 +250,6 @@ export function settingsProblems(draft: SettingsDraft, files?: readonly string[]
 export function settingsWarnings(draft: SettingsDraft, knownPlugins?: readonly string[]): string[] {
   const out: string[] = [];
   out.push(...pluginSettingsProblems(draft.plugins, knownPlugins).warnings);
-  // G9b: a bus rule breach that saves (R10, `busCapability.ts`); the same parse as `settingsProblems` (`audioSection`).
-  out.push(...audioSection(draft.audio).warnings);
   out.push(...RUNTIME_SETTINGS.render.parse(draft.render).warnings.map((w) => w.message));
   return out;
 }

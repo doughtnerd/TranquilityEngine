@@ -1,7 +1,7 @@
 /**
  * Internal (ADR 0330): the Engine's project settings from a project's files. `project.json` holds no audio any more:
  * the `audio` settings the Engine runs with are `audio.json`'s engine settings, its mix whole under `mix` (the mixer runs
- * it, `mixer.ts`), and the old mix keys as the editor's legacy panels' view of it (`legacySectionOf`, decision D2). The player, the
+ * it, `mixer.ts`), and the old mix keys as the backends' view of it (`coreSectionOf`). The player, the
  * dedicated server and the exporter read a project through this; the editor's projects compose the same view
  * (`src/editor/projects.ts`). A `project.json` that still has an `audio` section is refused here (`legacyAudio`): the
  * editor migrates it when the project opens.
@@ -11,7 +11,7 @@
 import type { ProjectSettingsInput } from "../../core/settings";
 import type { AudioParseOptions } from "../settings";
 import { mixJsonOf, parseAudioProject } from "./format";
-import { coreSectionOf, legacySectionOf } from "./runtimeView";
+import { coreSectionOf } from "./runtimeView";
 import { AUDIO_PROJECT_FILE } from "./types";
 
 /** What a runtime or an export says of a `project.json` that still has the old `audio` section. */
@@ -41,7 +41,6 @@ export function projectWithAudio(projectJson: unknown, audioJson: unknown, optio
   if (audioJson === undefined) return { project: rest as ProjectSettingsInput, legacyAudio, problems: [], warnings: [] };
   const { project, problems } = parseAudioProject(audioJson, options);
   const warnings: string[] = [];
-  coreSectionOf(project, warnings);
-  const audio = { ...legacySectionOf(project), mix: mixJsonOf(project) } as unknown as Record<string, unknown>;
+  const audio = { ...coreSectionOf(project, warnings), mix: mixJsonOf(project) } as unknown as Record<string, unknown>;
   return { project: { ...rest, audio } as ProjectSettingsInput, legacyAudio, problems, warnings };
 }

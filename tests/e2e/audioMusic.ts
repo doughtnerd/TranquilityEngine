@@ -124,10 +124,11 @@ export function watchConsole(page: Page): { errors: string[]; warnings: string[]
 export async function bootSample(page: Page, url: string, backend: "core" | "babylon" = "core"): Promise<void> {
   if (backend === "babylon") {
     const project = url.includes("flappy") ? "flappy" : "sound-lab";
-    await page.route(`**/samples/${project}/project.json`, async (route) => {
+    // The backend is an engine setting of the sample's `audio.json` (ADR 0330; `project.json` holds no audio).
+    await page.route(`**/samples/${project}/audio.json`, async (route) => {
       const res = await route.fetch();
       const json = await res.json();
-      json.audio = { ...(json.audio ?? {}), backend: "babylon" };
+      json.settings = { ...(json.settings ?? {}), backend: "babylon" };
       await route.fulfill({ response: res, json });
     });
   }

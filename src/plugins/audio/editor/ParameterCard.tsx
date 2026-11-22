@@ -1,6 +1,6 @@
-// The parameter cards (ADR 0304): one view of a parameter list, an event's own (the Event editor) or the project's
-// global ones (Project Settings > Audio). A card per parameter: name, kind, remove, then range, default and seek speed,
-// or labels and default, and an optional slot under it (the Event editor's audition controls). Every edit is the
+// The parameter cards (ADR 0304): one view of a parameter list, the project's global ones (the Audio Studio's Mixer
+// screen) or a holder's own. A card per parameter: name, kind, remove, then range, default and seek speed, or labels and
+// default, and an optional slot under it (a holder's extra controls). Every edit is the
 // list's refused-or-next result, handed to the holder's adapter (ADR 0307), which applies it as one undo step or reports
 // the refusal.
 import type { ComponentChildren } from "preact";
@@ -22,7 +22,7 @@ export interface ParameterCardsProps<H> {
   empty: string;
   /** The remove button's tooltip: what goes with the parameter, or stays. */
   removeTitle(p: ParameterDef): string;
-  /** Under each card (the Event editor's audition controls). */
+  /** Under each card (a holder's extra controls). */
   extra?(p: ParameterDef): ComponentChildren;
 }
 

@@ -23,8 +23,12 @@
 .studio-header-tools { display: flex; align-items: center; gap: 6px; flex: none; }
 
 /* The core couldn't run */
-.studio-banner { grid-area: banner; padding: 6px 12px; background: var(--danger-soft); color: var(--text); border-bottom: 1px solid var(--danger); }
+.studio-banners { grid-area: banner; }
+.studio-banner { padding: 6px 12px; background: var(--danger-soft); color: var(--text); border-bottom: 1px solid var(--danger); }
 .studio-banner strong { color: var(--danger); }
+.studio-banner-info { background: var(--accent-soft); border-bottom-color: var(--accent); }
+.studio-banner-info button { margin-left: 8px; }
+.studio-banner-error { color: var(--danger); }
 
 /* The screen's dock */
 .studio-dock { grid-area: main; position: relative; min-height: 0; min-width: 0; display: flex; }

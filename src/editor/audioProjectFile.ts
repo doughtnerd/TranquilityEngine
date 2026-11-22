@@ -1,30 +1,24 @@
-// The project's audio in the editor (ADR 0330, decision D2): `audio.json` at the project root holds the mix, and the
-// editor's legacy audio panels (Project Settings > Audio, the Mixer) keep editing it through the old section shape.
+// The project's audio in the editor (ADR 0330): `audio.json` at the project root holds the mix, which the Audio Studio
+// edits (ADR 0327; the editor's legacy audio panels and their adapter, decision D2, are gone).
 //
 // - `settingsWithAudio`: what `EditorProject.settings` serves: `project.json`'s values with `audio` set to `audio.json`'s
-//   runtime view (`toRuntimeSettings`), the old section shape the panels, the settings draft and Play read.
-// - The settings section's `audio` key is saved to `audio.json`, not `project.json` (`fileOfKey`): `audioFileText`
-//   merges the edited old-shape value into what `audio.json` holds (`mergeLegacyIntoProject`, which keeps what the old
-//   shape can't express), and `sectionValueJson` compares `audio` values by what they mean, not how they're written.
+//   runtime view (`projectWithAudio`), which Play and the audio Inspector sections read. Nothing in the editor writes it.
+// - `currentAudioProject`, `audioProjectText`: the mix a project holds and `audio.json`'s text for one (the Studio's).
 // - `migrateLegacyAudio`: a project whose `project.json` still has an `audio` section is migrated when it opens:
 //   `audio.json` is written, the section leaves `project.json`, and the old `project.json` is kept in `.myco/migrated/`.
 import type { ProjectSettingsInput } from "../engine";
-import { audioSection } from "../engine/audio/audioSection";
 import { audioProjectToJson, defaultAudioProject, parseAudioProject } from "../engine/audio/project/format";
-import { fromLegacySection, mergeLegacyIntoProject } from "../engine/audio/project/legacy";
+import { fromLegacySection } from "../engine/audio/project/legacy";
 import { hasLegacyAudio, projectWithAudio } from "../engine/audio/project/load";
 import { AUDIO_PROJECT_FILE, type AudioProject } from "../engine/audio/project/types";
 import type { FileSystem } from "../engine/platform/FileSystem";
 import { withMember } from "./jsonMember";
 import { PROJECT_FILE, joinPath } from "./projectPaths";
 
-/** The settings key the audio panels edit: saved to `audio.json`. */
-export const AUDIO_KEY = "audio";
+/** `project.json`'s old audio section's key (ADR 0330 moved it to `audio.json`). */
+const AUDIO_KEY = "audio";
 /** Where `migrateLegacyAudio` keeps the `project.json` it migrated. */
 export const MIGRATED_FOLDER = ".myco/migrated";
-
-/** The file a project-settings key is saved in. */
-export const fileOfKey = (key: string): string => (key === AUDIO_KEY ? AUDIO_PROJECT_FILE : PROJECT_FILE);
 
 /**
  * `project.json`'s values (parsed) with `audio` from `audio.json` (parsed, or undefined): its runtime view. Without
@@ -33,11 +27,6 @@ export const fileOfKey = (key: string): string => (key === AUDIO_KEY ? AUDIO_PRO
 export function settingsWithAudio(projectJson: unknown, audioJson: unknown): ProjectSettingsInput {
   if (audioJson === undefined) return (projectJson ?? {}) as ProjectSettingsInput;
   return projectWithAudio(projectJson, audioJson).project;
-}
-
-/** A settings value as JSON for comparing: `audio` by its parse (so a value and the view it saves to compare equal), others as written. */
-export function sectionValueJson(key: string, value: unknown): string {
-  return (key === AUDIO_KEY ? JSON.stringify(audioSection(value).settings) : JSON.stringify(value)) ?? "";
 }
 
 /** `audio.json`'s text for `project`: the editor's JSON layout, one top-level key per line. */
@@ -58,17 +47,6 @@ export function currentAudioProject(files: AudioFiles): AudioProject {
   const legacy = (files.settings as { audio?: unknown }).audio;
   return legacy !== undefined ? fromLegacySection(legacy) : defaultAudioProject();
 }
-
-/** `audio.json`'s text once the old-shape `legacy` value (the settings draft's `audio`) is written into the mix (decision D2). */
-export function audioFileText(files: AudioFiles, legacy: unknown): string {
-  return audioProjectText(mergeLegacyIntoProject(currentAudioProject(files), legacy));
-}
-
-/** The texts of the files the settings sections write, together: a change to either is a change to the sections' files. */
-export const sectionFilesText = (textOf: (path: string) => string | undefined): string | undefined => {
-  const project = textOf(PROJECT_FILE), audio = textOf(AUDIO_PROJECT_FILE);
-  return project === undefined && audio === undefined ? undefined : `${project ?? ""}\u0000${audio ?? ""}`;
-};
 
 /**
  * `project.json`'s text migrated (ADR 0330): `audio.json`'s text from its `audio` section, and `project.json`'s text

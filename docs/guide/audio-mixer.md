@@ -1,8 +1,10 @@
 # Audio mixer (ADR 0097)
 
+> **Where the mix is edited now.** The buses, returns, VCAs, snapshots and ducking live in `audio.json` and are edited in the **Audio Studio** (in the editor: Window > Audio Studio, or **Open in Audio Studio** on a file; ADR 0327). The editor's Mixer panel and Project Settings > Audio are gone (Project Settings > Audio only opens the Studio). Where this page still names them, use the Studio's Mixer screen; the audio guides are being rewritten for the Studio.
+
 How to play sounds is in [Playing sound](playing-sound.md); if a bus is silent, see [Why is there no sound?](why-no-sound.md#4-a-sounds-reason). Mixing while the game plays, the Mixer panel and the two ducking modes are in [Live mixing and ducking](audio-mixing.md); loudness meters and targets in [Loudness](audio-loudness.md); recording what the mix did in the [Audio profiler](audio-profiler.md); every M5 script member in the [API reference](audio-mix-api.md).
 
-Sound plays on **buses**: a tree that starts at `Master` (default children `Music`, `SFX`, `UI`, `Voice`). Edit it in Project Settings > Audio, or in `project.json`:
+Sound plays on **buses**: a tree that starts at `Master` (default children `Music`, `SFX`, `UI`, `Voice`). Edit it on the Audio Studio's **Mixer** screen, or in `audio.json` (ADR 0330). The example below is the older `audio` section of `project.json`, which the editor moves to `audio.json` when the project opens:
 
 ```jsonc
 "audio": {
@@ -64,7 +66,7 @@ On the audio core (`audio.backend` `"core"`), clips decode on a worker (WAV, FLA
 
 The audio core ends in a master limiter, after the master volume: the output never goes above 0 dBFS, so many loud sounds at once are turned down for a moment (released over about a quarter of a second) instead of clipping. While the mix stays under full scale it changes nothing. The Babylon fallback has no limiter.
 
-The limiter looks ahead: it delays all of the core's output by a fixed time, set by `audio.limiterLookaheadMs` in `project.json` (Project panel > Audio > Playback > **Limiter look-ahead (ms)**; 0 to 5, default 1.5). With that head start it lowers the volume smoothly over the moment before a loud peak, so the peak comes out as the same sound, only quieter. Longer is gentler on sharp attacks but adds more delay. The delay is always there, limiting or not, and `Audio.time` and `at` already allow for it, so sounds still start exactly when you schedule them. 0 gives zero added latency, but the limiter then has to react on the peak itself, which flattens the start of a sound that goes over. A change takes effect the next time the audio core starts, for example after a page reload, never in the middle of a session.
+The limiter looks ahead: it delays all of the core's output by a fixed time, set by `audio.limiterLookaheadMs` in `project.json` (0 to 5, default 1.5; `settings.limiterLookaheadMs` in `audio.json`). With that head start it lowers the volume smoothly over the moment before a loud peak, so the peak comes out as the same sound, only quieter. Longer is gentler on sharp attacks but adds more delay. The delay is always there, limiting or not, and `Audio.time` and `at` already allow for it, so sounds still start exactly when you schedule them. 0 gives zero added latency, but the limiter then has to react on the peak itself, which flattens the start of a sound that goes over. A change takes effect the next time the audio core starts, for example after a page reload, never in the middle of a session.
 
 Pitch on the audio core uses 4-point interpolation: changing a sound's pitch keeps it clean, with very little added distortion. Raising the pitch a long way can still fold very high frequencies back down as faint false tones (aliasing). Small changes, such as a random semitone or two on footsteps, are not affected, because only content above about 21 kHz folds and it stays inaudible. Raising a bright sound by half again or more (pitch 1.5 or higher) can make it audible. If a sound must go that high, author it with less top end, or record it closer to the pitch it plays at.
 

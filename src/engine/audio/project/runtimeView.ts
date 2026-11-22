@@ -1,19 +1,17 @@
 /**
- * Internal (ADR 0330): the mix as the old `audio` section shape (`AudioSettings`' mix keys), in two flavours.
+ * Internal (ADR 0330): the mix as the old `audio` section shape (`AudioSettings`' mix keys).
  *
- * - **`coreSectionOf(project)`** is what the runtime's mixer hands its backends (`Mixer.audioSettings`): the bus tree
+ * **`coreSectionOf(project)`** is what the runtime's mixer hands its backends (`Mixer.audioSettings`): the bus tree
  *   the audio core's slots and the Web Audio fallback's nodes are built from. Levels are each bus's fader alone (the
  *   mixer runs VCAs as their own gain lane), the effects the backends' bus chains run (low-pass, high-pass, compressor),
  *   a send to a return that holds a reverb as the core's reverb send (its level plus the return's, 0 while the return is
  *   muted), ducking and the `volume` and low-pass automation the core runs. The
  *   mixer itself runs everything else on the main thread from the `AudioProject` (snapshots, VCAs, returns' lanes,
  *   effect-parameter overrides, send and effect automation): `warnings` lists only what nothing runs yet.
- * - **`legacySectionOf(project)`** is the editor's legacy panels' view (decision D2, until those panels go): the same,
- *   with each bus's VCA offsets folded into its level, and a line in `warnings` for everything the old shape can't hold.
- *   `mergeLegacyIntoProject` (`legacy.ts`) writes an edit of it back.
- *
- * Both carry the snapshots in the old shape (multipliers and the carrier low-pass), so the legacy ops that name them by
- * index (the editor's Mixer panel, ADR 0171) still find them; the runtime's mixer doesn't read them.
+ * `mergeLegacyIntoProject` (`legacy.ts`) writes an edit of it back. It carries the snapshots in the old shape
+ * (multipliers and the carrier low-pass), so the old ops that name them by index (ADR 0171) still find them; the
+ * runtime's mixer doesn't read them. (The editor's legacy panels had a second view with VCAs folded into the levels,
+ * decision D2, until the Audio Studio replaced them.)
  *
  * Pure; no plugin, no DOM.
  */
@@ -67,16 +65,10 @@ export function sectionEffectsOf(project: Pick<AudioProject, "snapshots" | "auto
 const clampGain = (g: number, max: number) => Math.min(max, Math.max(0, g));
 const curveToGain = (curve: Curve): CurveKey[] => curve.map((k) => (k.length === 3 ? [k[0], dbToGain(k[1]), k[2]] : [k[0], dbToGain(k[1])]) as CurveKey);
 
-interface ViewOptions {
-  /** Fold each bus's VCA offsets into its level (the legacy view); otherwise the mixer runs them as a lane. */
-  readonly foldVca: boolean;
-}
-
-/** The section bus of `bus` (warnings into `warn`). */
-function sectionBus(project: AudioProject, bus: Bus, o: ViewOptions, warn: (line: string) => void): BusSettings {
+/** The section bus of `bus` (warnings into `warn`): its fader alone (the mixer runs VCAs as a lane). */
+function sectionBus(project: AudioProject, bus: Bus, warn: (line: string) => void): BusSettings {
   const root = bus.parent === null;
-  const level = bus.volumeDb + (o.foldVca ? vcaOffsetDb(project, bus.name) : 0);
-  const out: BusSettings = { name: bus.name, ...(root ? {} : { parent: bus.parent! }), volume: clampGain(dbToGain(level), 2), mute: bus.mute, effects: [] };
+  const out: BusSettings = { name: bus.name, ...(root ? {} : { parent: bus.parent! }), volume: clampGain(dbToGain(bus.volumeDb), 2), mute: bus.mute, effects: [] };
   for (const e of bus.effects) {
     if (isShown(project, bus.name, e)) {
       const lost: string[] = [];
@@ -109,24 +101,19 @@ function sectionBus(project: AudioProject, bus: Bus, o: ViewOptions, warn: (line
 /** The mix keys of the section (engine keys left out: the caller adds its own). */
 export type MixSection = Pick<AudioSettings, "buses" | "snapshots" | "ducking" | "parameters" | "automation" | "loudnessTargets" | "loudnessResetOnPlay">;
 
-function sectionOf(project: AudioProject, o: ViewOptions, warnings: string[]): MixSection {
-  const legacy = o.foldVca;
+function sectionOf(project: AudioProject, warnings: string[]): MixSection {
   const warn = (line: string) => void warnings.push(line);
   const isBus = (name: string) => project.buses.some((b) => b.name === name);
   const out: MixSection = { buses: [], snapshots: [], ducking: [], parameters: structuredClone(project.parameters), automation: [] };
-  out.buses = project.buses.map((b) => sectionBus(project, b, o, warn));
+  out.buses = project.buses.map((b) => sectionBus(project, b, warn));
   for (const r of project.returns) {
-    if (legacy && r.output !== project.buses[0]?.name) warn(`return "${r.name}": its output "${r.output}" needs the new mixer; it plays into the master bus until then.`);
     for (const e of r.effects) if (e.on && e.type !== "reverb") warn(`return "${r.name}": the ${e.type} effect "${e.id}" needs the audio core's return inserts; left out until then.`);
   }
 
   for (const s of project.snapshots) {
-    if (legacy && (s.start.kind === "base" || s.start.kind === "conditions")) warn(`snapshot "${s.name}": starting ${s.start.kind === "base" ? "with the base mix" : "on conditions"} needs the new mixer; it starts from code until then.`);
-    if (legacy && s.combine === "add") warn(`snapshot "${s.name}": Add needs the new mixer; it overrides until then.`);
     const snap: SnapshotSettings = { name: s.name, volumes: {}, lowpass: {} };
     for (const [name, db] of Object.entries(s.buses)) {
       if (isBus(name)) snap.volumes[name] = clampGain(dbToGain(db), 2);
-      else if (legacy) warn(`snapshot "${s.name}": the offset on "${name}" needs the new mixer; left out until then.`);
     }
     for (const [name, byId] of Object.entries(s.effects)) {
       const bus = project.buses.find((b) => b.name === name);
@@ -134,7 +121,6 @@ function sectionOf(project: AudioProject, o: ViewOptions, warnings: string[]): M
         const e = bus?.effects.find((x) => x.id === id);
         for (const [p, v] of Object.entries(params)) {
           if (bus && e?.type === "lowpass" && p === "cutoff") snap.lowpass[name] = Math.min(snap.lowpass[name] ?? Infinity, v);
-          else if (legacy) warn(`snapshot "${s.name}": the override of ${name} ${id}.${p} needs the new mixer; left out until then.`);
           else if (!e || !isShown(project, name, e as Effect)) warn(`snapshot "${s.name}": the override of ${name} ${id}.${p} needs the audio core's effect catalogue (ADR 0331); left out until then.`);
         }
       }
@@ -160,7 +146,6 @@ function sectionOf(project: AudioProject, o: ViewOptions, warnings: string[]): M
       if (p === "cutoff" && bus.effects.find((e) => e.id === id)?.type === "lowpass") entry = { bus: bus.name, parameter: a.parameter, target: "lowpass", curve: structuredClone(a.curve) as CurveKey[] };
     }
     if (entry) out.automation.push(entry);
-    else if (legacy) warn(`automation: ${a.target} on "${a.on}" needs the new mixer; left out until then.`);
   }
 
   const t = project.loudness.targets;
@@ -188,14 +173,5 @@ export function engineSectionOf(project: AudioProject, warnings: string[] = []):
  * without VCAs. What nothing in the runtime runs yet goes to `warnings`, one line each.
  */
 export function coreSectionOf(project: AudioProject, warnings: string[] = []): AudioSettings {
-  return { ...engineSectionOf(project, warnings), ...sectionOf(project, { foldVca: false }, warnings) };
-}
-
-/**
- * The editor's legacy panels' view of `project` (decision D2): the old `audio` section, VCA offsets folded into the
- * levels; what the old shape can't express is left out of this view only (never out of the file), one line each in
- * `warnings`. Disabled ducking rules and bypassed effects and automation are left out silently.
- */
-export function legacySectionOf(project: AudioProject, warnings: string[] = []): AudioSettings {
-  return { ...engineSectionOf(project, warnings), ...sectionOf(project, { foldVca: true }, warnings) };
+  return { ...engineSectionOf(project, warnings), ...sectionOf(project, warnings) };
 }

@@ -500,14 +500,15 @@ async function listFiles(fs: FileSystem, root: string, dir: string, accept: (pat
 /**
  * Open a project folder: it must contain `project.json`. Loads every project file up front as its
  * asset value (ADR 0254: JSON parsed, text files' text, the rest as object URLs), since scene
- * loading looks assets up synchronously.
+ * loading looks assets up synchronously. With `readOnly` nothing is written, not even a migration, and the project
+ * can't be saved (the Audio Studio opens a project whose old audio events weren't migrated this way, ADR 0329).
  */
-export async function openFolderProject(fs: FileSystem, root: string): Promise<EditorProject> {
+export async function openFolderProject(fs: FileSystem, root: string, options: { readOnly?: boolean } = {}): Promise<EditorProject> {
   if (!(await fs.exists(joinPath(root, "project.json")))) {
     throw new Error(`"${root}" isn't a Myco Engine project: it has no project.json.`);
   }
   // ADR 0330: an `audio` section still in project.json moves to audio.json before anything reads the files.
-  await migrateLegacyAudio(fs, root);
+  if (!options.readOnly) await migrateLegacyAudio(fs, root);
   const folders = new Set<string>();
   const sizes = new Map<string, number>();
   const { values, texts, problems } = await loadProjectFiles(await listFiles(fs, root, "", isProjectFile, folders), {
@@ -529,8 +530,8 @@ export async function openFolderProject(fs: FileSystem, root: string): Promise<E
     return scripts;
   };
   const folder = root.split(/[\\/]/).filter(Boolean).pop() ?? root;
-  const write = (path: string, text: string) => fs.writeText(joinPath(root, path), text);
-  return new MapProject(folder, root, values, texts, write, { read: readScripts }, fs, await readScripts(), folders, sizes, true);
+  const write = options.readOnly ? null : (path: string, text: string) => fs.writeText(joinPath(root, path), text);
+  return new MapProject(folder, root, values, texts, write, { read: readScripts }, options.readOnly ? null : fs, await readScripts(), folders, sizes, true);
 }
 
 /** Settings for the Editor World: the project's, minus autoloads, with the editor's background. */

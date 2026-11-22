@@ -1,18 +1,16 @@
-// Stories (ADR 0219) for the parameter cards (ADR 0304): the one view of an event's own parameters and of the project's
-// global ones. Each story renders the cards over a real holder (`eventParameterList`, `globalParameterList`) through a
-// harness that keeps the holder as its panel does: every accepted edit is applied through `applyEdit` (ADR 0307) and
+// Stories (ADR 0219) for the parameter cards (ADR 0304): the one view of a playlist's own parameters and of the project's
+// global ones (the Audio Studio's). Each story renders the cards over a parameter list (`parameterList` over a plain list,
+// at the local and the global limit) through a harness that keeps the holder as its panel does: every accepted edit is applied through `applyEdit` (ADR 0307) and
 // becomes the next value; a refusal goes to the status bar, read here through a spy on `editor.messages.error`. The
 // list's own rules are unit tests (parameterList.test.ts).
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, fireEvent, fn, spyOn, userEvent, within, type MockInstance } from "storybook/test";
-import { emptyAudioEvent, type AudioEventAsset, type ParameterDef } from "../../../engine/audio/eventFormat";
-import { editor, type SettingsDraft } from "../../../editor/sdk";
-import { globalParameterList } from "./audioSettingsModel";
+import { MAX_LOCAL_PARAMETERS, MAX_PARAMETERS, type ParameterDef } from "../../../engine/audio/eventFormat";
+import { editor } from "../../../editor/sdk";
 import { applyEdit } from "./editResult";
-import { eventParameterList } from "./event/eventParameters";
 import { ParameterCards } from "./ParameterCard";
-import type { ParameterList } from "./parameterList";
+import { parameterList, type ParameterList } from "./parameterList";
 
 interface Args {
   /** The parameters the story starts with. */
@@ -78,11 +76,19 @@ const meta = {
 export default meta;
 type Story = StoryObj<Args>;
 
-const eventOf = (parameters: ParameterDef[]): AudioEventAsset => ({ ...emptyAudioEvent(), parameters });
-const draftOf = (parameters: ParameterDef[]): SettingsDraft => ({ audio: { parameters } }) as SettingsDraft;
+/** A list that is the whole holder, renamed and removed in place, at `limit`. */
+const plainList = (limit: number): ParameterList<ParameterDef[]> => parameterList<ParameterDef[]>({
+  read: (h) => h,
+  write: (_h, parameters) => parameters,
+  limit,
+  rename: (h, from, to) => h.map((p) => (p.name === from ? { ...p, name: to } : p)),
+  remove: (h, name) => h.filter((p) => p.name !== name),
+});
+const ownParameterList = plainList(MAX_LOCAL_PARAMETERS);
+const globalParameterList = plainList(MAX_PARAMETERS);
 
-export const EventParameters: Story = {
-  render: (args) => <Harness list={eventParameterList} initial={eventOf(args.parameters)} onEdit={args.onEdit} removeTitle="Remove this parameter" />,
+export const OwnParameters: Story = {
+  render: (args) => <Harness list={ownParameterList} initial={args.parameters} onEdit={args.onEdit} removeTitle="Remove this parameter" />,
   play: async ({ canvasElement, args, step }) => {
     const c = controls(canvasElement);
     expect(c.canvas.getByText("None")).toBeVisible();
@@ -122,7 +128,7 @@ export const EventParameters: Story = {
 
 export const GlobalParameters: Story = {
   args: { parameters: [{ name: "Intensity", min: 0, max: 1, default: 0.25, seekSpeed: 0 }, { name: "Area", labels: ["Outdoor", "Cave"], default: "Cave" }] },
-  render: (args) => <Harness list={globalParameterList} initial={draftOf(args.parameters)} onEdit={args.onEdit} removeTitle="Remove this parameter and the automation that uses it" />,
+  render: (args) => <Harness list={globalParameterList} initial={args.parameters} onEdit={args.onEdit} removeTitle="Remove this parameter and the automation that uses it" />,
   play: async ({ canvasElement, step }) => {
     const c = controls(canvasElement);
     expect(c.canvas.getByRole("group", { name: "Parameter Area" })).toHaveAttribute("data-kind", "labelled");
@@ -141,9 +147,9 @@ export const GlobalParameters: Story = {
 
 const sixteen = Array.from({ length: 16 }, (_, i): ParameterDef => ({ name: `P${i + 1}`, min: 0, max: 1, default: 0, seekSpeed: 0 }));
 
-export const EventAtTheLimit: Story = {
+export const OwnAtTheLimit: Story = {
   args: { parameters: sixteen },
-  render: (args) => <Harness list={eventParameterList} initial={eventOf(args.parameters)} onEdit={args.onEdit} removeTitle="Remove this parameter" />,
+  render: (args) => <Harness list={ownParameterList} initial={args.parameters} onEdit={args.onEdit} removeTitle="Remove this parameter" />,
   play: async ({ canvasElement }) => {
     const c = controls(canvasElement);
     expect(c.button("+ Parameter")).toBeDisabled();

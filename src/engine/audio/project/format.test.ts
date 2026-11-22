@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseAudioSettings } from "../settings";
 import { audioProjectToJson, defaultAudioProject, parseAudioProject } from "./format";
-import { coreSectionOf, legacySectionOf as toRuntimeSettings } from "./runtimeView";
+import { coreSectionOf } from "./runtimeView";
 import { MAX_DB } from "./gain";
 import { AUDIO_PROJECT_FORMAT } from "./types";
 
@@ -222,19 +222,18 @@ describe("coreSectionOf (the backends' view, ADR 0330)", () => {
   });
 });
 
-describe("legacySectionOf (the editor's legacy view, decision D2)", () => {
+describe("coreSectionOf: the old section shape's mapping", () => {
   const { project } = parseAudioProject(FULL);
 
   it("gives a section the runtime's parse reads without problems", () => {
     const warnings: string[] = [];
-    const settings = toRuntimeSettings(project, warnings);
+    const settings = coreSectionOf(project, warnings);
     expect(parseAudioSettings(settings).problems).toEqual([]);
     expect(warnings.length).toBeGreaterThan(0);
   });
 
   it("carries the instance submix pool to the runtime's voices (ADR 0331), and the runtime's parse keeps it", () => {
     expect(coreSectionOf({ ...project, settings: { ...project.settings, submixes: 32 } }).voices.submixes).toBeUndefined(); // the default
-    expect(toRuntimeSettings({ ...project, settings: { ...project.settings, submixes: 8 } }).voices.submixes).toBe(8); // the legacy view too
     const eight = coreSectionOf({ ...project, settings: { ...project.settings, submixes: 8 } });
     expect(eight.voices.submixes).toBe(8);
     const parsed = parseAudioSettings(eight);
@@ -242,22 +241,13 @@ describe("legacySectionOf (the editor's legacy view, decision D2)", () => {
     expect(parsed.settings.voices.submixes).toBe(8);
   });
 
-  it("folds VCA offsets into member levels, once per VCA down the tree", () => {
-    const settings = toRuntimeSettings(project);
-    const vol = (name: string) => settings.buses.find((b) => b.name === name)!.volume;
-    expect(vol("Music")).toBeCloseTo(Math.pow(10, -3 / 20), 9);
-    expect(vol("SFX")).toBeCloseTo(Math.pow(10, -8 / 20), 9); // -2 dB fader, -6 dB VCA
-    expect(vol("Vehicles")).toBe(1); // the VCA lists its ancestor SFX: counted there
-    expect(settings.buses.find((b) => b.name === "Vehicles")!.mute).toBe(true);
-  });
-
   it("turns a send into a reverb return into the reverb send effect, the return's level folded in", () => {
-    const sfx = toRuntimeSettings(project).buses.find((b) => b.name === "SFX")!;
+    const sfx = coreSectionOf(project).buses.find((b) => b.name === "SFX")!;
     expect(sfx.effects).toEqual([{ type: "reverb", send: expect.closeTo(Math.pow(10, -15 / 20), 9) }]); // the eq is left out
   });
 
   it("maps snapshots, ducking, automation and the open low-pass carrier", () => {
-    const settings = toRuntimeSettings(project);
+    const settings = coreSectionOf(project);
     expect(settings.snapshots).toEqual([{ name: "Underwater", volumes: { Music: expect.closeTo(Math.pow(10, -6 / 20), 9) }, lowpass: { Music: 800 } }]);
     expect(settings.buses.find((b) => b.name === "Music")!.effects).toEqual([]); // the carrier is neutral and hidden
     expect(settings.ducking).toEqual([{ target: "Music", trigger: "SFX", mode: "presence", amount: expect.closeTo(Math.pow(10, -6 / 20), 9), attack: 0.08, release: 0.4 }]);
@@ -269,20 +259,9 @@ describe("legacySectionOf (the editor's legacy view, decision D2)", () => {
     expect(settings.buses.find((b) => b.name === "Music")!.meter).toBe("loudness");
   });
 
-  it("warns once per thing the runtime can't express and keeps it in the project", () => {
-    const warnings: string[] = [];
-    toRuntimeSettings(project, warnings);
-    expect(warnings.join("\n")).toMatch(/eq effect "fx1"/);
-    expect(warnings.join("\n")).toMatch(/send:Reverb on "SFX"/);
-    expect(warnings.join("\n")).toMatch(/offset on "Reverb"/);
-    expect(warnings.join("\n")).toMatch(/on conditions/);
-    expect(warnings.join("\n")).toMatch(/bedBeyond/);
-    expect(project.buses[2].effects).toHaveLength(1);
-  });
-
   it("silences a level at the fader floor and caps it at the old model's top", () => {
     const p = parseAudioProject({ format: AUDIO_PROJECT_FORMAT, buses: [{ name: "Master", volumeDb: MAX_DB }, { name: "A", parent: "Master", volumeDb: -60 }] }).project;
-    expect(toRuntimeSettings(p).buses.map((b) => b.volume)).toEqual([2, 0]);
+    expect(coreSectionOf(p).buses.map((b) => b.volume)).toEqual([2, 0]);
   });
 
   it("leaves out disabled rules and bypassed automation without a warning", () => {
@@ -294,7 +273,7 @@ describe("legacySectionOf (the editor's legacy view, decision D2)", () => {
       automation: [{ on: "A", target: "volume", parameter: "p", curve: [[0, 0]], bypass: true }],
     }).project;
     const warnings: string[] = [];
-    const s = toRuntimeSettings(p, warnings);
+    const s = coreSectionOf(p, warnings);
     expect([s.ducking, s.automation, warnings]).toEqual([[], [], []]);
   });
 });

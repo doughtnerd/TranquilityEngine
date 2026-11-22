@@ -1,5 +1,7 @@
 # Sound events
 
+> **Audio events are replaced by playlists (ADR 0329).** New sounds are authored as `*.playlist.json` in the **Audio Studio** (in the editor: Window > Audio Studio, or **Open in Audio Studio** on a file; ADR 0327). When the editor or the Studio opens a project that still has `*.audioevent.json` files, it offers to migrate them once (a copy of each goes to `.myco/migrated/`); declined, the Studio opens the project read-only until you choose **Migrate now**. `Audio.play` and `AudioSource.clip` still accept an event file. The format below is the old one, kept for reference.
+
 An **event** is a sound described in data: "a footstep" instead of `footstep_03.ogg`. It lives in a `*.audioevent.json` file and can pick one of several clips at random, play clips in order, switch on a surface, blend by speed, layer sounds, or loop until you let go of a key. A sound designer can change it without touching code, and a script plays it by name:
 
 ```ts
@@ -184,9 +186,9 @@ For sounds authored as separate files: an optional `start`, a `loop` and an opti
 
 `start` then `loop` play back to back with no gap, and `loop` repeats until the instance is released. On release, `end` plays: with `"release": "loopEnd"` (the default) when the current pass of the loop finishes, to the sample; with `"release": "now"` right away, crossfading over `releaseFade` seconds (or `fade` when `releaseFade` is absent; a sustain that is itself a blend child keeps `fade` for its blend edges and sets `releaseFade` for the release).
 
-## The Event editor
+## The Event editor (retired)
 
-Double-click a `*.audioevent.json` in the Assets panel (or right-click an empty area, **New Event**, then double-click the new file) to open it in the Audio Event panel.
+The editor's Event editor is gone (ADR 0327): events are authored as playlists in the Audio Studio, and double-clicking a `*.audioevent.json` opens it there. The list below describes the panel it replaced.
 
 - **Containers.** The tree on the left shows the event, then its nodes. Pick a container and choose **Add** to put a node at its end (or beside a node that isn't a container). **Wrap in** puts the selection inside a new container; **Change type** swaps a list container's type. Alt+Up and Alt+Down reorder, Ctrl+D duplicates, Delete removes, and rows drag to a new place.
 - **Clips.** Drag clips from the Assets panel onto the tree; the drag label says what releasing does: add to a container or a sustain slot, or replace a clip.
@@ -358,9 +360,9 @@ Caveats:
 - On the Babylon fallback (no audio core) a stamped fade is approximated by main-thread timers and steps of the voice's volume: it is not sample-exact.
 - `Audio.debug().musicTotals.splitQuanta` counts blocks split for every voice and `voiceSplits` counts splits of one voice. Music keeps `splitQuanta` at 0; `voiceSplits` is informational.
 
-## The Audio Debug panel
+## Event rows in `Audio.debug()`
 
-The Audio Debug panel groups the voices of an event instance under one row, with the event's path and its parameters' current values, so a layered or blended sound reads as one thing. It also counts the clips of continuous containers that started a frame late (their length was not known yet when the next one had to be scheduled); a steady non-zero count means a clip is loading or streaming too slowly. `Audio.debug().events` holds the same rows for tools, and each voice row has an `event` field, the instance id or null.
+The editor's Audio Debug panel is gone (ADR 0327); it grouped the voices of an event instance under one row, with the event's path and its parameters' current values, so a layered or blended sound reads as one thing. It also counts the clips of continuous containers that started a frame late (their length was not known yet when the next one had to be scheduled); a steady non-zero count means a clip is loading or streaming too slowly. `Audio.debug().events` holds the same rows for tools, and each voice row has an `event` field, the instance id or null.
 
 ## Caps and what to do
 
