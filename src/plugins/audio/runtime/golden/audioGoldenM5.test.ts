@@ -16,6 +16,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { mixer } from "../../../../engine/audio/mixer";
+import { parseAudioProject, toRuntimeSettings } from "../../../../engine/audio/project/format";
 import { abrupt, closeRigs, liveRig, sendRaw, SMOOTH } from "../mix/clickHarness";
 import { BUS_LP_OFF_HZ, BUS_MASTER_OUT, BUS_RAMP_MASK_GAIN, LANE_RUNTIME } from "../wire.generated";
 import { maxStep } from "./maxStep";
@@ -139,7 +140,8 @@ interface MixerSceneProject {
   readonly ducking: readonly DuckRule[];
 }
 
-const SOUND_LAB_AUDIO = (JSON.parse(readFileSync(fileURLToPath(new URL("../../../../../samples/sound-lab/project.json", import.meta.url)), "utf8")) as { audio: MixerSceneProject }).audio;
+// The sound lab's mix (ADR 0330: `audio.json`), as the runtime plays it.
+const SOUND_LAB_AUDIO = toRuntimeSettings(parseAudioProject(JSON.parse(readFileSync(fileURLToPath(new URL("../../../../../samples/sound-lab/audio.json", import.meta.url)), "utf8"))).project) as unknown as MixerSceneProject;
 const MIXER_SCENE = { ...SOUND_LAB_AUDIO, buses: SOUND_LAB_AUDIO.buses.map((b) => (b.name === "Master" ? { ...b, volume: 0.5 } : b)) };
 
 describe("DSd: the Mixer scene (Sa2) on the real core", () => {

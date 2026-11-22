@@ -1,5 +1,7 @@
 /**
- * Internal (ADR 0175, building on 0097 and 0151): the project's `audio` section, parsed once and written back in one place.
+ * Internal (ADR 0175, building on 0097 and 0151): the settings draft's `audio` section, parsed once and written back in
+ * one place. Since ADR 0330 the section is `audio.json`'s runtime view (`project/format.ts`), which the editor's project
+ * section saves back into `audio.json` (decision D2); its shape here is unchanged.
  *
  * - **Parse once.** `audioSection(raw)` is `parseAudioSettings(raw)` — settings, problems and warnings together —
  *   memoised on the identity of `raw` (the draft's `audio` object: a draft edit that leaves the section alone keeps it, an

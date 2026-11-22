@@ -11,6 +11,8 @@ import { isSidecarPath, sidecarPath } from "../engine/scene/importSettings";
 import { isProjectFile, loadProjectFiles, projectFileKind, skipsFolder, textFileValue } from "../engine/scene/projectFiles";
 import { isScriptPath, isTextAsset, joinPath } from "./projectPaths";
 import { readOnlyMessage } from "./readOnly";
+import { migrateLegacyAudio, settingsWithAudio } from "./audioProjectFile";
+import { AUDIO_PROJECT_FILE } from "../engine/audio/project/types";
 
 export { isTextAsset, joinPath };
 
@@ -22,7 +24,10 @@ export interface EditorProject {
   /** The folder's file system (for watching scripts and opening files externally), or null for a project in memory. */
   readonly fileSystem: FileSystem | null;
   readonly canSave: boolean;
-  /** The parsed `project.json` (empty if there's none). Follows writes to it, so play mode uses the current bootstrap. */
+  /**
+   * The parsed `project.json` (empty if there's none), with `audio` set to `audio.json`'s runtime view (ADR 0330). Follows
+   * writes to both, so play mode uses the current bootstrap and mix.
+   */
   readonly settings: ProjectSettingsInput;
   /** Every project file by path relative to the project root, as its asset value (ADR 0254): parsed JSON, a text file's text, a URL otherwise. */
   readonly assets: AssetSource;
@@ -159,9 +164,19 @@ class MapProject implements EditorProject {
     return (this.sortedFiles ??= [...this.values.keys()].sort());
   }
 
-  /** Read from `project.json` each time, so it reflects edits saved since the project opened. */
+  private settingsView: { project: unknown; audio: unknown; view: ProjectSettingsInput } | null = null;
+
+  /**
+   * Read from `project.json` each time, so it reflects edits saved since the project opened, with `audio` from
+   * `audio.json` (ADR 0330: its runtime view). The same object until either file changes.
+   */
   get settings(): ProjectSettingsInput {
-    return (this.values.get("project.json") ?? {}) as ProjectSettingsInput;
+    const project = this.values.get("project.json"), audio = this.values.get(AUDIO_PROJECT_FILE);
+    const cached = this.settingsView;
+    if (cached && cached.project === project && cached.audio === audio) return cached.view;
+    const view = settingsWithAudio(project, audio);
+    this.settingsView = { project, audio, view };
+    return view;
   }
 
   get canSave(): boolean {
@@ -491,6 +506,8 @@ export async function openFolderProject(fs: FileSystem, root: string): Promise<E
   if (!(await fs.exists(joinPath(root, "project.json")))) {
     throw new Error(`"${root}" isn't a Myco Engine project: it has no project.json.`);
   }
+  // ADR 0330: an `audio` section still in project.json moves to audio.json before anything reads the files.
+  await migrateLegacyAudio(fs, root);
   const folders = new Set<string>();
   const sizes = new Map<string, number>();
   const { values, texts, problems } = await loadProjectFiles(await listFiles(fs, root, "", isProjectFile, folders), {

@@ -348,7 +348,10 @@ export interface CaptureMeta {
   project: { name: string; version: string };
   engine: string;
   device: { preset: number; sampleRate: number; deviceMemory?: number; userAgent: string };
-  /** The project's audio section at the take's start, as parsed JSON (data; the profiler names tombstoned buses from it). */
+  /**
+   * The mix the runtime played at the take's start, as parsed JSON (data; the profiler names tombstoned buses from it):
+   * the runtime's settings shape, which since ADR 0330 is `audio.json`'s runtime view (`toRuntimeSettings`).
+   */
   audio: unknown;
   /** The `loudnessTarget` in force, as parsed JSON. */
   target: unknown;

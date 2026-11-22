@@ -16,6 +16,8 @@ import { pathToFileURL } from "node:url";
 import type { AssetSource, ProjectSettingsInput } from "../engine";
 import { isProjectFile, loadProjectFiles, projectFileKind, skipsFolder } from "../engine/scene/projectFiles";
 import { nodePackageSource } from "./packages";
+import { LEGACY_AUDIO_MESSAGE, projectWithAudio } from "../engine/audio/project/load";
+import { AUDIO_PROJECT_FILE } from "../engine/audio/project/types";
 import { isScriptPath, loadScripts, loadedPluginModule, loadedScriptModule, type ScriptProblem } from "../editor/scriptLoader";
 import type { RuntimePlugin } from "../plugins/runtimeContext";
 import { planPluginCode, toRuntimePlugin } from "../plugins/thirdParty";
@@ -31,7 +33,7 @@ export class ServerError extends Error {
 export interface ServerProject {
   /** The folder, absolute. */
   readonly root: string;
-  /** `project.json`, parsed. */
+  /** `project.json`, parsed, with `audio` set to `audio.json`'s runtime view (ADR 0330). */
   readonly settings: ProjectSettingsInput;
   /**
    * Every project file by project-relative path, as its asset value (ADR 0254): parsed JSON, a
@@ -71,9 +73,12 @@ export async function readProject(dir: string): Promise<ServerProject> {
   const json = new Map([...texts].filter(([path]) => projectFileKind(path) === "json"));
   const settings = values.get("project.json");
   if (typeof settings !== "object" || settings === null || Array.isArray(settings)) throw new ServerError(`${join(root, "project.json")} must hold an object of project settings.`);
+  // The mix lives in audio.json (ADR 0330); an old project.json audio section is refused, not read.
+  const withAudio = projectWithAudio(settings, values.get(AUDIO_PROJECT_FILE));
+  if (withAudio.legacyAudio) throw new ServerError(`${join(root, "project.json")}: ${LEGACY_AUDIO_MESSAGE}`);
   return {
     root,
-    settings: settings as ProjectSettingsInput,
+    settings: withAudio.project, // a headless server plays no sound: audio.json's warnings aren't its to report
     assets: { has: (p) => values.has(p), get: (p) => values.get(p) },
     json,
     scripts,

@@ -45,7 +45,7 @@ export interface SettingsDraft {
   graphics?: Record<string, unknown>;
   /** Navigation (ADR 0065): agent types, areas and bake settings, as written; owned by the Navigation plugin's settings section (ADR 0151). */
   navigation?: Record<string, unknown>;
-  /** Audio mixer buses, snapshots, ducking and backend (ADR 0097): as written; read leniently by `parseAudioSettings`. */
+  /** Audio mixer buses, snapshots, ducking and backend (ADR 0097): `audio.json`'s runtime view (ADR 0330), saved back to `audio.json` (`audioProjectFile.ts`); read leniently by `parseAudioSettings`. */
   audio?: Record<string, unknown>;
   /** Per-project plugin enabling (ADR 0133): only the plugins that are off. */
   plugins?: { disabled?: string[] } & Record<string, unknown>;

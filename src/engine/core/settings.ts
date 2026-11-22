@@ -57,7 +57,7 @@ export interface ProjectSettings {
   graphics: GraphicsSettings;
   /** Built-in navigation (ADR 0065): agent types, areas, voxel sizes, runtime budgets. Omitted: one person-sized walker. */
   navigation: NavigationSettings;
-  /** Audio mixer buses, snapshots, ducking and the backend (ADR 0097, 0098). Omitted: Master with Music, SFX, UI and Voice. */
+  /** Audio mixer buses, snapshots, ducking and the backend (ADR 0097, 0098): `audio.json`'s runtime view (ADR 0330), never a `project.json` section. Omitted: Master with Music, SFX, UI and Voice. */
   audio: AudioSettings;
   /** Scene/prefab files instanced under the World root at startup; they persist across scene loads (ADR 0016). */
   autoload: string[];
@@ -105,7 +105,7 @@ export type ProjectSettingsInput = {
       ? Partial<ProjectSettings[K]>
       : ProjectSettings[K];
 } & {
-  /** Read leniently by `parseAudioSettings`; bad entries are reported, not fatal. */
+  /** The runtime's audio settings: `audio.json`'s runtime view, which hosts set with `projectWithAudio` (ADR 0330; a `project.json` `audio` section is refused there). Read leniently by `parseAudioSettings`; bad entries are reported, not fatal. */
   audio?: Record<string, unknown>;
 };
 
