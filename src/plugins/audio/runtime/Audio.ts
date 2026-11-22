@@ -16,7 +16,6 @@ import { triggerOn } from "./music/stingers";
 import { audioLatency, getCalibration, isCalibrationStale, rhythmModeSetting, setCalibration } from "./music/calibration";
 import { audioBackend, type AudioDebugInfo, type AudioHandle, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioPlaylistHandle, type AudioReason, type AudioStatus, type AudioVoice, type SendCurve } from "./backend";
 import { events, type EventInstance, type EventOptions } from "./events/eventRuntime";
-import { isPlaylistPath } from "../../../engine/audio/playlist/format";
 import { playlists } from "./playlists/playlistSystem";
 import { playlistHandleOf } from "./playlists/handle";
 import type { PlaylistInstance } from "./playlists/instance";
@@ -140,6 +139,9 @@ export function _playPlaylist(path: string, options: EventOptions, world: World 
   return playlists().play(path, options, worldKeyOf(world), sourceKey);
 }
 
+/** ADR 0329: a playlist asset path (`PLAYLIST_SUFFIX`, any case). */
+const PLAYLIST_PATH = /\.playlist\.json$/i;
+
 const MIN_PITCH = 0.0625;
 const MAX_PITCH = 16;
 
@@ -215,9 +217,10 @@ export const Audio = {
   play(pathOrSample: string, options?: EventOptions): AudioPlaylistHandle {
     try {
       const o = options !== null && typeof options === "object" ? options : {};
-      const path = String(pathOrSample).replace(/^asset:/, "");
-      if (isPlaylistPath(path)) {
-        const p = _playPlaylist(path, o, World.active);
+      const path = String(pathOrSample);
+      // A suffix test, not `isPlaylistPath` (which lowercases a copy): a sample's play allocates nothing more for it.
+      if (PLAYLIST_PATH.test(path)) {
+        const p = _playPlaylist(path.replace(/^asset:/, ""), o, World.active);
         return p ? playlistHandleOf(p) : INERT_EVENT;
       }
       const i = _playEvent(path, o, World.active);
