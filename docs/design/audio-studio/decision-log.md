@@ -374,3 +374,12 @@ from clips" lives in the Playlists Library (one sample → Clip, several → Que
 the file, since creating a file isn't a document step). An emptied number box now restores its value instead of
 committing 0. `--no-take-pictures` requires `--audio-take`. `zoneIr.test.ts` fixed (waited a fixed 20 ms; now waits
 for the service's answers: 5/5 under heavy load).
+
+**D49. Per-level submixes (W11-B, merged, ABI 4.9).** One submix per level with effects (nested playlist, sequence
+track, clip), not a chain per voice: a clip's delay or reverb must ring after its voice ends; per-voice delay lines
+would drain `FxMem`; overlapping voices of one level share one chain (FMOD's model). Routing costs nothing measurable
+(metered `submix-levels` 6.97 M vs `submixes` 7.14 M instructions/quantum); shaped loop seams cost +0.9% mean.
+Mixer wasm 471,630 B. Supersedes D30's "track, clip and nested effects keep per-voice mapping" while a submix is free.
+Coordinator choice: gain added to the instance level in the catalogue (the core runs it there). Tails ring after a
+stop with fade (FMOD allow-fadeout). Known red after merging: the clip-delay loopback (interaction with W11-E's
+unstamped restart or quantised bindings); a fix task is running.
