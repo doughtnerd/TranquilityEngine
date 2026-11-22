@@ -38,12 +38,11 @@ use anim_math::{AosTransform, SoaTransform};
 use anim_pose::Axis;
 use anim_retarget::bake::{bake, SkeletonData};
 use anim_retarget::{
-    guess_bone_map as guess, BoneMap, MapSettings, Profile, RetargetMap, RetargetOptions, RetargetScratch,
-    RootAxis, Side, Skeleton,
+    guess_bone_map as guess, BoneMap, MapSettings, Profile, RetargetMap, RetargetOptions,
+    RetargetScratch, RootAxis, Side, Skeleton,
 };
 use anim_wire::core::{
-    Init, STATUS_BAD_ASSET, STATUS_MISMATCH, STATUS_NOT_INITIALIZED, STATUS_OK,
-    STATUS_WRONG_KIND,
+    Init, STATUS_BAD_ASSET, STATUS_MISMATCH, STATUS_NOT_INITIALIZED, STATUS_OK, STATUS_WRONG_KIND,
 };
 use wasm_bindgen::prelude::wasm_bindgen;
 
@@ -78,7 +77,7 @@ pub struct MapAsset {
 /// What a `retarget` arena slot holds.
 pub enum RetargetAsset {
     Profile(Profile),
-    Map(MapAsset),
+    Map(Box<MapAsset>),
 }
 
 impl RetargetAsset {
@@ -225,7 +224,7 @@ impl Core {
         );
         let r = r.and_then(|m| {
             self.arena
-                .insert(Asset::Retarget(Box::new(RetargetAsset::Map(m))))
+                .insert(Asset::Retarget(Box::new(RetargetAsset::Map(Box::new(m)))))
         });
         self.handle(r)
     }
@@ -243,7 +242,10 @@ impl Core {
     ) -> Result<MapAsset, u32> {
         let ss = self.arena.skeleton(src_skeleton)?;
         let ts = self.arena.skeleton(tgt_skeleton)?;
-        let (sp, tp) = (self.retarget_profile(src_profile)?, self.retarget_profile(tgt_profile)?);
+        let (sp, tp) = (
+            self.retarget_profile(src_profile)?,
+            self.retarget_profile(tgt_profile)?,
+        );
         let bone_map = |m: &[u16], p: &Profile| -> Result<BoneMap, u32> {
             if m.len() != p.roles.len() {
                 return Err(STATUS_MISMATCH);
@@ -292,7 +294,8 @@ impl Core {
 
     /// The IK goals of a map (0 for a stale handle).
     pub fn retarget_goal_count(&self, map: u32) -> u32 {
-        self.map_asset(map).map_or(0, |m| m.map.goals().len() as u32)
+        self.map_asset(map)
+            .map_or(0, |m| m.map.goals().len() as u32)
     }
 
     /// The `MIRROR` node's bone words for a skeleton file, its profile and bone map: per bone its
@@ -438,7 +441,12 @@ pub fn profile_decode(bytes: &[u8]) -> u32 {
 
 /// Guesses a profile's bone map for a skeleton file; returns the role count (0: see `last_status`).
 #[wasm_bindgen]
-pub fn guess_bone_map(skeleton: &[u8], profile: u32, bones: &mut [u16], confidence: &mut [f32]) -> u32 {
+pub fn guess_bone_map(
+    skeleton: &[u8],
+    profile: u32,
+    bones: &mut [u16],
+    confidence: &mut [f32],
+) -> u32 {
     with(|c| c.guess_bone_map(skeleton, profile, bones, confidence))
 }
 

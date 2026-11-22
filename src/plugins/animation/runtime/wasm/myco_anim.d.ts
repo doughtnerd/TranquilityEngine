@@ -79,6 +79,11 @@ export function graph_change_count(): number;
 export function graph_changes_ptr(): number;
 
 /**
+ * Guesses a profile's bone map for a skeleton file; returns the role count (0: see `last_status`).
+ */
+export function guess_bone_map(skeleton: Uint8Array | number[], profile: number, bones: Uint16Array, confidence: Float32Array): number;
+
+/**
  * Reads an `INIT` record and returns a `MEMORY_NEEDED` record (both `anim-wire` family `core`);
  * on `STATUS_OK` the core restarts with those limits. Never throws: a malformed record is
  * answered with `STATUS_BAD_RECORD`.
@@ -121,6 +126,71 @@ export function load_skeleton(bytes: Uint8Array | number[]): number;
 export function matrices_ptr(): number;
 
 /**
+ * Gives an instance a physics row; returns its index or `NONE` (see `last_status`).
+ */
+export function physics_attach(instance: number, ragdoll: number): number;
+
+/**
+ * Get-up: the physical pose into a pose-snapshot node; returns a status.
+ */
+export function physics_capture(instance: number, physical_node: number, snapshot_node: number): number;
+
+/**
+ * Sizes the physics rows and views; returns a status.
+ */
+export function physics_configure(max_rows: number): number;
+
+/**
+ * Frees an instance's physics row; returns a status.
+ */
+export function physics_detach(instance: number): number;
+
+/**
+ * After the fixed evaluate: the drive targets into the output view. Returns rows written.
+ */
+export function physics_drive(world: number): number;
+
+/**
+ * The byte offset of the physics input view.
+ */
+export function physics_in_ptr(): number;
+
+/**
+ * The input view's bytes per row.
+ */
+export function physics_in_row_bytes(): number;
+
+/**
+ * The byte offset of the physics output view.
+ */
+export function physics_out_ptr(): number;
+
+/**
+ * The output view's bytes per row.
+ */
+export function physics_out_row_bytes(): number;
+
+/**
+ * After the physics step: the simulated bodies into the physical-pose nodes. Returns rows applied.
+ */
+export function physics_read(world: number): number;
+
+/**
+ * Decodes a custom skeleton profile; returns its handle, or 0 (see `last_status`).
+ */
+export function profile_decode(bytes: Uint8Array | number[]): number;
+
+/**
+ * The default ragdoll description of a skeleton file (empty: see `last_status`).
+ */
+export function ragdoll_build(skeleton: Uint8Array | number[], profile: number): Uint8Array;
+
+/**
+ * Creates a ragdoll description asset for a skeleton; its handle, or 0 (see `last_status`).
+ */
+export function ragdoll_create(skeleton: number, bytes: Uint8Array | number[]): number;
+
+/**
  * Releases an asset; returns a status.
  */
 export function release(handle: number): number;
@@ -129,6 +199,26 @@ export function release(handle: number): number;
  * Restores an instance from a snapshot; returns a status.
  */
 export function restore(handle: number, bytes: Uint8Array | number[]): number;
+
+/**
+ * Bakes a clip through a retarget map into a raw clip (empty: see `last_status`).
+ */
+export function retarget_bake(map: number, clip: Uint8Array | number[], root_axes: number, ik_weights: Float32Array | number[]): Uint8Array;
+
+/**
+ * The IK goals of a retarget map.
+ */
+export function retarget_goal_count(map: number): number;
+
+/**
+ * Creates a retarget map asset; returns its handle, or 0 (see `last_status`).
+ */
+export function retarget_map_create(src_skeleton: number, src_profile: number, src_map: Uint16Array | number[], tgt_skeleton: number, tgt_profile: number, tgt_map: Uint16Array | number[], flags: number): number;
+
+/**
+ * Writes the `MIRROR` node's bone words for a skeleton file; returns the bone count (0: failure).
+ */
+export function retarget_mirror_table(skeleton: Uint8Array | number[], profile: number, map: Uint16Array | number[], out: Uint32Array): number;
 
 /**
  * The root-motion view's byte offset in memory.
@@ -320,6 +410,7 @@ export interface InitOutput {
     readonly graph_bind: (a: number, b: number, c: number) => number;
     readonly graph_change_count: () => number;
     readonly graph_changes_ptr: () => number;
+    readonly guess_bone_map: (a: number, b: number, c: number, d: number, e: number, f: any, g: number, h: number, i: any) => number;
     readonly init: (a: number, b: number) => [number, number];
     readonly inputs_ptr: () => number;
     readonly last_status: () => number;
@@ -328,8 +419,25 @@ export interface InitOutput {
     readonly load_mask: (a: number, b: number) => number;
     readonly load_skeleton: (a: number, b: number) => number;
     readonly matrices_ptr: () => number;
+    readonly physics_attach: (a: number, b: number) => number;
+    readonly physics_capture: (a: number, b: number, c: number) => number;
+    readonly physics_configure: (a: number) => number;
+    readonly physics_detach: (a: number) => number;
+    readonly physics_drive: (a: number) => number;
+    readonly physics_in_ptr: () => number;
+    readonly physics_in_row_bytes: () => number;
+    readonly physics_out_ptr: () => number;
+    readonly physics_out_row_bytes: () => number;
+    readonly physics_read: (a: number) => number;
+    readonly profile_decode: (a: number, b: number) => number;
+    readonly ragdoll_build: (a: number, b: number, c: number) => [number, number];
+    readonly ragdoll_create: (a: number, b: number, c: number) => number;
     readonly release: (a: number) => number;
     readonly restore: (a: number, b: number, c: number) => number;
+    readonly retarget_bake: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly retarget_goal_count: (a: number) => number;
+    readonly retarget_map_create: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => number;
+    readonly retarget_mirror_table: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: any) => number;
     readonly roots_ptr: () => number;
     readonly snapshot: (a: number, b: number, c: number, d: any) => number;
     readonly snapshot_bytes: (a: number) => number;

@@ -44,11 +44,7 @@ fn pose(k: f32) -> Vec<SoaTransform> {
 
 #[test]
 fn steps_do_not_allocate() {
-    let rd = Ragdoll::new(
-        RagdollDesc::from_skeleton(&PARENTS, &[], NO_BONE),
-        &PARENTS,
-    )
-    .unwrap();
+    let rd = Ragdoll::new(RagdollDesc::from_skeleton(&PARENTS, &[], NO_BONE), &PARENTS).unwrap();
     let (now, prev) = (pose(1.0), pose(0.0));
     let mut scratch = rd.scratch();
     let mut out = vec![Drive::default(); PARENTS.len()];

@@ -27,9 +27,13 @@ const OUT_NAME = "myco_anim";
  * slots with sections; linked graphs; sync groups; the debug walk; the graph and debug wire families) measured
  * 421,778 bytes after replacing load-time general sorts with an insertion sort (-52 KB). + 20% = 506,134 B -> 495 KB.
  * Merged T22r + T31 (coordinator, 2026-11-22): both together measured 491,064 bytes; + 20% = 589,277 B -> 580 KB.
+ * Raised by T41 node half + T44r (2026-11-22): the retarget setup calls (bone-map guessing ~62 KB of name heuristics,
+ * the raw bake ~30 KB, map building, profile decoding, the mirror table), the RETARGET node with its skeleton scope and
+ * the two-bone pinning pass, the physics family (ragdoll descriptions and builder, drive targets, the physical pose,
+ * get-up, 6 records) take the module from 491,064 to 695,567 bytes; + 20% = 834,680 B -> 815 KB.
  * Raise it with a line in docs/design/animation/build-log.md saying why; never cut a feature to stay under it.
  */
-const SIZE_LIMIT = 580 * 1024;
+const SIZE_LIMIT = 815 * 1024;
 
 /** Runs `cmd args` in native/anim with inherited stdio. RUSTFLAGS are dropped so .cargo/config.toml's +simd128 applies. */
 function run(cmd, args) {

@@ -122,7 +122,12 @@ fn retarget_graph(p: &RetargetParams) -> (Vec<u8>, u32, u32) {
 
 fn retarget_instance(s: &mut Setup, p: &RetargetParams) -> u32 {
     let (bytes, m, g) = retarget_graph(p);
-    let (_, h) = instance(&mut s.core, &bytes, s.tgt_skel, &[(m, s.map), (g, s.source_graph)]);
+    let (_, h) = instance(
+        &mut s.core,
+        &bytes,
+        s.tgt_skel,
+        &[(m, s.map), (g, s.source_graph)],
+    );
     h
 }
 
@@ -142,7 +147,12 @@ fn baked_instance(s: &mut Setup, axes: [RootAxis; 3], weights: &[f32]) -> u32 {
     let clip = s.core.load_clip(&bytes);
     let mut b = Builder::new();
     let p = b.player("baked");
-    let (_, h) = instance(&mut s.core, &b.build(p), s.tgt_skel, &[(b.s("baked"), clip)]);
+    let (_, h) = instance(
+        &mut s.core,
+        &b.build(p),
+        s.tgt_skel,
+        &[(b.s("baked"), clip)],
+    );
     h
 }
 
@@ -243,7 +253,10 @@ fn root_motion_is_the_sources_scaled_per_axis() {
         assert_eq!(r[2], 0.0, "z locked");
         assert_eq!(&r[3..], &sr[3..], "rotation unchanged");
     }
-    assert!(root(&s.core, source)[2].abs() > 1e-3, "the source moves along z");
+    assert!(
+        root(&s.core, source)[2].abs() > 1e-3,
+        "the source moves along z"
+    );
 }
 
 #[test]
@@ -278,7 +291,10 @@ fn a_missing_map_or_an_oversized_source_graph_outputs_nothing() {
     let rest = matrices_of(&s.tgt_file, &s.tgt.rest);
     for h in [unbound, tight, wrong] {
         let m = matrices(&s.core, h, MAX_BONES as usize, n);
-        assert!(max_diff(&m, &rest) < 1e-5, "instance {h:x} shows the rest pose");
+        assert!(
+            max_diff(&m, &rest) < 1e-5,
+            "instance {h:x} shows the rest pose"
+        );
     }
 }
 
@@ -286,7 +302,10 @@ fn a_missing_map_or_an_oversized_source_graph_outputs_nothing() {
 fn snapshot_and_restore_are_exact() {
     let mut s = setup();
     let goals = s.core.retarget_goal_count(s.map) as usize;
-    let h = retarget_instance(&mut s, &params([RootAxis::Scaled; 3], &vec![(0.7, NONE); goals]));
+    let h = retarget_instance(
+        &mut s,
+        &params([RootAxis::Scaled; 3], &vec![(0.7, NONE); goals]),
+    );
     let n = s.tgt.n();
     for _ in 0..7 {
         frame(&mut s.core, DT);
@@ -394,7 +413,11 @@ fn mirror_uses_the_profiles_flip_table() {
         let mut b = Builder::new();
         let p = b.player("c");
         let mut w = vec![0u32, NONE];
-        w.extend(words.iter().map(|&x| if with_flips { x } else { x & 0xFFFF }));
+        w.extend(
+            words
+                .iter()
+                .map(|&x| if with_flips { x } else { x & 0xFFFF }),
+        );
         let m = b.node(family::MIXING, mixing::kind::MIRROR, &[p], &w);
         let (_, h) = instance(&mut core, &b.build(m), skel, &[(b.s("c"), clip)]);
         let table = FlipTable {
@@ -402,7 +425,13 @@ fn mirror_uses_the_profiles_flip_table() {
             flips: &flips,
         };
         let mut out = src.clone();
-        mirror_flipped(&src, &partner, anim_pose::Axis::X, with_flips.then_some(table), &mut out);
+        mirror_flipped(
+            &src,
+            &partner,
+            anim_pose::Axis::X,
+            with_flips.then_some(table),
+            &mut out,
+        );
         let mut expected = pose.clone();
         unpack_pose(&out, &mut expected);
         cases.push((h, expected));
@@ -411,9 +440,28 @@ fn mirror_uses_the_profiles_flip_table() {
     for (h, expected) in &cases {
         let m = matrices(&core, *h, MAX_BONES as usize, n);
         let e = matrices_of(&file, expected);
-        assert!(max_diff(&m, &e) < 1e-5, "mirror node {h:x}: {}", max_diff(&m, &e));
+        assert!(
+            max_diff(&m, &e) < 1e-5,
+            "mirror node {h:x}: {}",
+            max_diff(&m, &e)
+        );
     }
     let a = matrices(&core, cases[0].0, MAX_BONES as usize, n);
     let b = matrices(&core, cases[1].0, MAX_BONES as usize, n);
     assert!(diff(&a, &b) > 1e-3, "the flips change the result");
+}
+
+/// The editor build's compressed bake (`--features editor`) loads as a clip of the target.
+#[cfg(feature = "editor")]
+#[test]
+fn the_editor_build_compresses_the_bake() {
+    let mut s = setup();
+    let clip = s.clip_bytes.clone();
+    let tgt = s.tgt_file.clone();
+    let bytes = s.core.retarget_bake_compressed(s.map, &clip, &tgt, 0, &[]);
+    assert!(!bytes.is_empty(), "status {}", s.core.last_status());
+    let view = anim_format::clip::ClipView::parse(&bytes).unwrap();
+    assert!(view.compressed().is_some());
+    assert_eq!(view.bone_count() as usize, s.tgt.n());
+    assert_ne!(s.core.load_clip(&bytes), 0);
 }

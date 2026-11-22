@@ -34,7 +34,10 @@ fn dir() -> PathBuf {
 }
 
 fn list<T: std::fmt::Display>(v: &[T]) -> String {
-    v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+    v.iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn generate() -> Vec<(&'static str, Vec<u8>)> {
@@ -71,7 +74,15 @@ fn generate() -> Vec<(&'static str, Vec<u8>)> {
     let src_map = guess(&mut core, &src_file);
     let tgt_map = guess(&mut core, &tgt_file);
     assert_eq!(src_map, src.map.bones);
-    let map = core.retarget_map_create(ss, 0, &src_map, ts, 0, &tgt_map, anim_wasm::retarget::MAP_ALIGN);
+    let map = core.retarget_map_create(
+        ss,
+        0,
+        &src_map,
+        ts,
+        0,
+        &tgt_map,
+        anim_wasm::retarget::MAP_ALIGN,
+    );
     assert_ne!(map, 0);
     let goals_n = core.retarget_goal_count(map) as usize;
     let mut goals = [(0.0, NONE); MAX_GOALS];

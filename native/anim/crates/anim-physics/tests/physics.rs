@@ -154,7 +154,8 @@ fn identity_frames_give_the_animated_local_rotations() {
     let now = soa(&p);
     let mut scratch = rd.scratch();
     let mut out = vec![Drive::default(); PARENTS.len()];
-    rd.drive(&input(&now, None), &mut scratch, &mut out).unwrap();
+    rd.drive(&input(&now, None), &mut scratch, &mut out)
+        .unwrap();
     let m = model(&p);
     for (b, d) in out.iter().enumerate() {
         assert!(close_q(d.target, p[b].rotation, 1e-5), "bone {b}");
@@ -178,7 +179,8 @@ fn joint_frames_and_skipped_bones_give_relative_body_rotations() {
     let p = pose(2);
     let now = soa(&p);
     let mut out = vec![Drive::default(); PARENTS.len()];
-    rd.drive(&input(&now, None), &mut rd.scratch(), &mut out).unwrap();
+    rd.drive(&input(&now, None), &mut rd.scratch(), &mut out)
+        .unwrap();
     let m = model(&p);
     let body = |b: usize| body_from_bone(&m[b], desc.bones[b].joint_frame).rotation;
     assert_eq!(out[2].flags, 0, "no body, no drive");
@@ -189,7 +191,10 @@ fn joint_frames_and_skipped_bones_give_relative_body_rotations() {
             "bone {b}: parent body · target = body"
         );
     }
-    assert!(close_q(out[0].target, body(0), 1e-5), "the root's target is its body rotation");
+    assert!(
+        close_q(out[0].target, body(0), 1e-5),
+        "the root's target is its body rotation"
+    );
 }
 
 #[test]
@@ -211,7 +216,10 @@ fn angular_velocity_is_the_rotation_between_steps_over_dt() {
     let a = AosVec3::new(axis[0], axis[1], axis[2]);
     let want = a.scale(angle / dt / a.length());
     let got = out[2].angular_velocity;
-    assert!(close_v(got, want, 1e-3 * want.length()), "{got:?} vs {want:?}");
+    assert!(
+        close_v(got, want, 1e-3 * want.length()),
+        "{got:?} vs {want:?}"
+    );
     assert_ne!(out[2].flags & DRIVE_VELOCITY, 0);
     // The child's local rotation didn't change, so its relative target didn't either.
     assert!(out[3].angular_velocity.length() < 1e-3);
@@ -244,7 +252,11 @@ fn strengths_and_pins_scale_by_global_bone_and_multiplier() {
     assert_eq!(out[1].stiffness, DEFAULT_STIFFNESS * 0.5);
     assert_eq!(out[2].stiffness, DEFAULT_STIFFNESS * 0.5 * 2.0 * 0.25);
     assert_eq!(out[4].stiffness, 0.0, "a NaN multiplier is 0");
-    assert_eq!(out[5].stiffness, DEFAULT_STIFFNESS * 0.5, "a missing multiplier is 1");
+    assert_eq!(
+        out[5].stiffness,
+        DEFAULT_STIFFNESS * 0.5,
+        "a missing multiplier is 1"
+    );
     assert_eq!(out[0].pin, 0.8);
     assert_eq!(out[3].pin, 0.4);
     assert_eq!(out[1].pin, 0.0);
@@ -272,9 +284,7 @@ fn bodies_back_to_the_local_pose() {
     let mut scratch = vec![AosTransform::identity(); PARENTS.len()];
     bodies_to_local(
         &PARENTS,
-        |b| {
-            simulated[b].then(|| bone_from_body(&body_from_bone(&m[b], frame), frame))
-        },
+        |b| simulated[b].then(|| bone_from_body(&body_from_bone(&m[b], frame), frame)),
         &mut local,
         &mut scratch,
     );
@@ -283,11 +293,20 @@ fn bodies_back_to_the_local_pose() {
     let gm = model(&got);
     for b in 0..PARENTS.len() {
         if simulated[b] {
-            assert!(close_v(gm[b].translation, m[b].translation, 1e-5), "bone {b} position");
-            assert!(close_q(gm[b].rotation, m[b].rotation, 1e-5), "bone {b} rotation");
+            assert!(
+                close_v(gm[b].translation, m[b].translation, 1e-5),
+                "bone {b} position"
+            );
+            assert!(
+                close_q(gm[b].rotation, m[b].rotation, 1e-5),
+                "bone {b} rotation"
+            );
         } else {
             assert!(close_v(got[b].translation, fallback[b].translation, 1e-6));
-            assert!(close_q(got[b].rotation, fallback[b].rotation, 1e-6), "bone {b} keeps its local");
+            assert!(
+                close_q(got[b].rotation, fallback[b].rotation, 1e-6),
+                "bone {b} keeps its local"
+            );
         }
     }
     // Everything simulated: the animated pose back.

@@ -35,5 +35,7 @@ pub mod getup;
 pub mod pose;
 
 pub use desc::{BoneDesc, DescError, FrontAxis, Ragdoll, RagdollDesc, NO_BONE};
-pub use drive::{Drive, DriveError, DriveInput, DriveScratch, DRIVE_BODY, DRIVE_ROOT, DRIVE_VELOCITY};
+pub use drive::{
+    Drive, DriveError, DriveInput, DriveScratch, DRIVE_BODY, DRIVE_ROOT, DRIVE_VELOCITY,
+};
 pub use getup::{facing, getup_state, Facing};

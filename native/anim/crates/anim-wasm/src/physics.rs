@@ -30,8 +30,8 @@ use anim_physics::{
 };
 use anim_retarget::bake::SkeletonData;
 use anim_wire::core::{
-    Init, STATUS_BAD_ASSET, STATUS_BAD_RECORD, STATUS_MISMATCH, STATUS_NOT_INITIALIZED,
-    STATUS_OK, STATUS_WRONG_KIND,
+    Init, STATUS_BAD_ASSET, STATUS_BAD_RECORD, STATUS_MISMATCH, STATUS_NOT_INITIALIZED, STATUS_OK,
+    STATUS_WRONG_KIND,
 };
 use anim_wire::graph::STATUS_NO_SUCH;
 use anim_wire::physics::{
@@ -123,7 +123,8 @@ fn body_pose(b: &BodyIn) -> Option<BodyPose> {
 }
 
 fn first_node(program: &Program, kind: u16) -> Option<u32> {
-    (0..program.node_count() as u32).find(|&n| program.node_kind(n) == Some((Family::Physics, kind)))
+    (0..program.node_count() as u32)
+        .find(|&n| program.node_kind(n) == Some((Family::Physics, kind)))
 }
 
 /// The default description of a skeleton file (see the module docs).
@@ -407,8 +408,7 @@ impl Core {
             let groups = inst.groups;
             let bones = rd.bone_count();
             for node in 0..program.node_count() as u32 {
-                if program.node_kind(node) != Some((Family::Physics, nodes::kind::PHYSICAL_POSE))
-                {
+                if program.node_kind(node) != Some((Family::Physics, nodes::kind::PHYSICAL_POSE)) {
                     continue;
                 }
                 let state = program.node_state(&mut inst.state, groups, node);
@@ -460,9 +460,8 @@ impl Core {
                 .then(|| self.arena.graph(inst.graph).ok())
                 .flatten()
                 .map(|g| &g.program);
-            let blend = program.and_then(|pr| {
-                first_node(pr, nodes::kind::PHYSICS_BLEND).map(|n| (pr, n))
-            });
+            let blend =
+                program.and_then(|pr| first_node(pr, nodes::kind::PHYSICS_BLEND).map(|n| (pr, n)));
             let (count, dt) = match blend {
                 Some((pr, n)) => {
                     let state = pr.node_state(&mut inst.state, groups, n);
@@ -511,7 +510,11 @@ impl Core {
             let (facing_v, getup) = match face {
                 Some(f) => {
                     flags |= ROW_FACING;
-                    let v = if f == Facing::Up { FACING_UP } else { FACING_DOWN };
+                    let v = if f == Facing::Up {
+                        FACING_UP
+                    } else {
+                        FACING_DOWN
+                    };
                     (
                         v,
                         getup_state(f, control.getup_from_back, control.getup_from_front),
@@ -570,7 +573,12 @@ impl Core {
     /// Get-up: captures the physical pose of `physical_node` (a `PHYSICAL_POSE`; bones it doesn't
     /// simulate take the instance's last output) into `snapshot_node` (a `POSE_SNAPSHOT`), which
     /// then outputs it (the get-up state blends from it). Returns a status.
-    pub fn physics_capture(&mut self, instance: u32, physical_node: u32, snapshot_node: u32) -> u32 {
+    pub fn physics_capture(
+        &mut self,
+        instance: u32,
+        physical_node: u32,
+        snapshot_node: u32,
+    ) -> u32 {
         if !self.started {
             return STATUS_NOT_INITIALIZED;
         }

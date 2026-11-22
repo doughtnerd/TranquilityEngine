@@ -1900,13 +1900,22 @@ impl<'a> EvalContext<'a> {
     pub fn push_slot(&mut self) -> Option<usize> {
         let groups = self.groups.max(1);
         let base = self.slot_base;
-        let len = self.scratch.as_ref().map_or(0, |s| s.poses.len().saturating_sub(base) / groups);
+        let len = self
+            .scratch
+            .as_ref()
+            .map_or(0, |s| s.poses.len().saturating_sub(base) / groups);
         if self.next_slot < len {
             self.next_slot += 1;
             Some(self.next_slot - 1)
         } else {
             None
         }
+    }
+
+    /// The first transform of slot 0 ([`EvalContext::with_skeleton`] moves it), within the stack.
+    fn stack_base(&self) -> usize {
+        let len = self.scratch.as_ref().map_or(0, |s| s.poses.len());
+        self.slot_base.min(len)
     }
 
     /// Gives back the last reserved slot.
@@ -1945,7 +1954,7 @@ impl<'a> EvalContext<'a> {
         out: usize,
     ) -> Option<(&[SoaTransform], &[SoaTransform], &mut [SoaTransform])> {
         let g = self.groups;
-        let sb = self.slot_base.min(self.scratch.as_ref().map_or(0, |s| s.poses.len()));
+        let sb = self.stack_base();
         let s = self.scratch.as_mut()?;
         let [pa, pb, po] = split_slots(&mut s.poses[sb..], g, [a, b, out])?;
         Some((pa, pb, po))
@@ -1954,7 +1963,7 @@ impl<'a> EvalContext<'a> {
     /// `out ← lerp(out, from, t)` for two distinct slots (an accumulating blend).
     pub fn lerp_slot_into(&mut self, out: usize, from: usize, t: f32) {
         let g = self.groups;
-        let sb = self.slot_base.min(self.scratch.as_ref().map_or(0, |s| s.poses.len()));
+        let sb = self.stack_base();
         if let Some(s) = self.scratch.as_mut() {
             if let Some([po, pf]) = split_slots(&mut s.poses[sb..], g, [out, from]) {
                 lerp_into(po, pf, t);
@@ -1968,9 +1977,10 @@ impl<'a> EvalContext<'a> {
             return;
         }
         let g = self.groups;
-        let sb = self.slot_base.min(self.scratch.as_ref().map_or(0, |s| s.poses.len()));
+        let sb = self.stack_base();
         if let Some(s) = &mut self.scratch {
-            s.poses.copy_within(sb + from * g..sb + from * g + g, sb + to * g);
+            s.poses
+                .copy_within(sb + from * g..sb + from * g + g, sb + to * g);
         }
     }
 
@@ -2002,7 +2012,7 @@ impl<'a> EvalContext<'a> {
         slots: [usize; N],
     ) -> Option<(&mut [u32], [&mut [SoaTransform]; N])> {
         let g = self.groups;
-        let sb = self.slot_base.min(self.scratch.as_ref().map_or(0, |s| s.poses.len()));
+        let sb = self.stack_base();
         let (at, len) = self.program.node_range(g, self.node);
         let at = self.base + at;
         let s = self.scratch.as_mut()?;
@@ -2020,7 +2030,7 @@ impl<'a> EvalContext<'a> {
         out: usize,
     ) -> Option<(&mut Inertializer, [&[SoaTransform]; 3], &mut [SoaTransform])> {
         let g = self.groups;
-        let sb = self.slot_base.min(self.scratch.as_ref().map_or(0, |s| s.poses.len()));
+        let sb = self.stack_base();
         let s = self.scratch.as_mut()?;
         let [pa, pb, pc, po] = split_slots(&mut s.poses[sb..], g, [a, b, c, out])?;
         Some((&mut *s.inertializer, [pa, pb, pc], po))

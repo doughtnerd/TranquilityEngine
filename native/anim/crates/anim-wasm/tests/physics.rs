@@ -42,7 +42,10 @@ struct Setup {
 
 /// A graph: `blend2(physics_blend(player, physical_pose(player)), snapshot, snap)`, parameters
 /// `w` (0, the blend weight) and `snap` (1, the snapshot's weight); `clip` the player's clip.
-fn setup_with(clip: impl FnOnce(&Rig, &anim_format::skeleton::Skeleton) -> Vec<u8>, mask: bool) -> Setup {
+fn setup_with(
+    clip: impl FnOnce(&Rig, &anim_format::skeleton::Skeleton) -> Vec<u8>,
+    mask: bool,
+) -> Setup {
     let rig = humanoid(Build {
         axes: Axes::XAlong,
         ..Build::default()
@@ -64,7 +67,12 @@ fn setup_with(clip: impl FnOnce(&Rig, &anim_format::skeleton::Skeleton) -> Vec<u
         &[1.0f32.to_bits(), w, mask_id],
     );
     let snapshot = b.node(family::SOURCES, sources::kind::POSE_SNAPSHOT, &[], &[1]);
-    let out = b.node(family::MIXING, mixing::kind::BLEND2, &[blend, snapshot], &[0, snap]);
+    let out = b.node(
+        family::MIXING,
+        mixing::kind::BLEND2,
+        &[blend, snapshot],
+        &[0, snap],
+    );
     let bytes = b.build(out);
     let mut binds = vec![(b.s("clip"), clip_handle)];
     if mask {
@@ -178,10 +186,17 @@ fn drive_targets_are_the_animated_local_rotations_with_identity_frames() {
     assert_eq!(d.len(), rig.n());
     let model = rt::model(&rig.parents, &pose);
     for (b, x) in d.iter().enumerate() {
-        assert_ne!(x.flags & DRIVE_BODY, 0, "every bone has a body without ranges");
+        assert_ne!(
+            x.flags & DRIVE_BODY,
+            0,
+            "every bone has a body without ranges"
+        );
         let root = rig.parents[b] == anim_math::layout::NO_PARENT;
         assert_eq!(x.flags & DRIVE_ROOT != 0, root);
-        assert_eq!(x.parent_body, if root { NONE } else { rig.parents[b] as u32 });
+        assert_eq!(
+            x.parent_body,
+            if root { NONE } else { rig.parents[b] as u32 }
+        );
         assert!(
             rt::quat_close(quat(x), pose[b].rotation, 1e-5),
             "bone {b}: target is the local rotation"
@@ -341,7 +356,11 @@ fn physics_blend_weights_and_masks() {
         step(&mut s);
         let got = matrices(&s.core, s.h, MAX_BONES as usize, n);
         let want = matrices_of(&s.file, &expected(w, None));
-        assert!(max_diff(&got, &want) < 1e-5, "w = {w}: {}", max_diff(&got, &want));
+        assert!(
+            max_diff(&got, &want) < 1e-5,
+            "w = {w}: {}",
+            max_diff(&got, &want)
+        );
     }
     let p = animated.clone();
     let mut s = setup_with(move |_, _| constant_clip(&p), true);
@@ -352,7 +371,11 @@ fn physics_blend_weights_and_masks() {
     let m = move |i: usize| (i > head) as u32 as f32;
     let got = matrices(&s.core, s.h, MAX_BONES as usize, n);
     let want = matrices_of(&s.file, &expected(0.8, Some(&m)));
-    assert!(max_diff(&got, &want) < 1e-5, "masked: {}", max_diff(&got, &want));
+    assert!(
+        max_diff(&got, &want) < 1e-5,
+        "masked: {}",
+        max_diff(&got, &want)
+    );
 }
 
 #[test]
@@ -377,13 +400,23 @@ fn getup_facing_picks_the_state_and_the_capture_feeds_the_snapshot() {
     // The pelvis (hips) lying on its back: its front (+Z) turned to +Y.
     let lying = rt::q(AosVec3::new(1.0, 0.0, 0.0), -std::f32::consts::FRAC_PI_2);
     let rest_hips = rt::model(&rig.parents, &rig.rest)[0];
-    set_body(&mut s, 0, AosVec3::new(0.0, 0.2, 0.0), lying * rest_hips.rotation);
+    set_body(
+        &mut s,
+        0,
+        AosVec3::new(0.0, 0.2, 0.0),
+        lying * rest_hips.rotation,
+    );
     step(&mut s);
     let (head, _) = drives(&s);
     assert_ne!(head.flags & ROW_FACING, 0);
     assert_eq!((head.facing, head.getup), (FACING_UP, 7));
     let face_down = rt::q(AosVec3::new(1.0, 0.0, 0.0), std::f32::consts::FRAC_PI_2);
-    set_body(&mut s, 0, AosVec3::new(0.0, 0.2, 0.0), face_down * rest_hips.rotation);
+    set_body(
+        &mut s,
+        0,
+        AosVec3::new(0.0, 0.2, 0.0),
+        face_down * rest_hips.rotation,
+    );
     step(&mut s);
     assert_eq!((drives(&s).0.facing, drives(&s).0.getup), (FACING_DOWN, 9));
 
@@ -391,14 +424,20 @@ fn getup_facing_picks_the_state_and_the_capture_feeds_the_snapshot() {
     // show the snapshot only: the rest pose.
     write_pose_as_bodies(&mut s, &rig.rest);
     s.core.physics_read(0);
-    assert_eq!(s.core.physics_capture(s.h, s.physical, s.snapshot), STATUS_OK);
+    assert_eq!(
+        s.core.physics_capture(s.h, s.physical, s.snapshot),
+        STATUS_OK
+    );
     send(&mut s.core, &[set_float(s.h, 1, 1.0)]);
     frame(&mut s.core, DT);
     let n = rig.n();
     let got = matrices(&s.core, s.h, MAX_BONES as usize, n);
     assert!(max_diff(&got, &matrices_of(&s.file, &rig.rest)) < 1e-5);
     // Refusals: wrong node kinds, no row.
-    assert_ne!(s.core.physics_capture(s.h, s.snapshot, s.physical), STATUS_OK);
+    assert_ne!(
+        s.core.physics_capture(s.h, s.snapshot, s.physical),
+        STATUS_OK
+    );
     assert_eq!(s.core.physics_detach(s.h), STATUS_OK);
     assert_eq!(s.core.physics_detach(s.h), STATUS_NO_ROW);
 }
@@ -414,19 +453,32 @@ fn the_builder_puts_bodies_on_ranged_roles_and_create_validates() {
     assert_eq!(info.bone_count as usize, rig.n());
     assert_eq!(info.pelvis, rig.index("Hips") as u32, "the profile's hips");
     let bone = |b: usize| {
-        RagdollBone::decode(&bytes[RagdollInfo::STRIDE as usize + b * RagdollBone::STRIDE as usize..])
-            .unwrap()
+        RagdollBone::decode(
+            &bytes[RagdollInfo::STRIDE as usize + b * RagdollBone::STRIDE as usize..],
+        )
+        .unwrap()
     };
     let profile = anim_retarget::Profile::humanoid();
     let roles = rig.map.to_roles(rig.n());
     // The pelvis (the hips bone, holding the profile's root role here) gets a body without a range;
     // every other bone has a body exactly when its role has a range.
-    for b in 0..rig.n() {
-        let range = profile.roles.get(roles[b] as usize).and_then(|r| r.range);
-        assert_eq!(bone(b).flags & BONE_BODY != 0, range.is_some() || b == 0, "bone {b}");
-        assert_eq!(bone(b).pin, (b == 0) as u32 as f32, "only the root body is pinned");
+    for (b, &role) in roles.iter().enumerate() {
+        let range = profile.roles.get(role as usize).and_then(|r| r.range);
+        assert_eq!(
+            bone(b).flags & BONE_BODY != 0,
+            range.is_some() || b == 0,
+            "bone {b}"
+        );
+        assert_eq!(
+            bone(b).pin,
+            (b == 0) as u32 as f32,
+            "only the root body is pinned"
+        );
         if let Some(r) = range {
-            assert_eq!((bone(b).swing_y, bone(b).twist_max), (r.swing_y, r.twist_max));
+            assert_eq!(
+                (bone(b).swing_y, bone(b).twist_max),
+                (r.swing_y, r.twist_max)
+            );
         }
     }
     assert_ne!(core.ragdoll_create(skel, &bytes), 0);

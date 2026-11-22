@@ -35,8 +35,7 @@ use anim_pose::root::RootDelta;
 
 use crate::dispatch::NodeStatus;
 use crate::eval::{
-    pose_from_words, pose_to_words, scale_root, EvalContext, NodeData, Phase,
-    SOA_WORDS,
+    pose_from_words, pose_to_words, scale_root, EvalContext, NodeData, Phase, SOA_WORDS,
 };
 use crate::mixing;
 
@@ -284,7 +283,13 @@ fn physics_blend(cx: &mut EvalContext<'_>, node: NodeData<'_>) {
 
 /// `out ← lerp(out, from, clamp(mask · w))` in place, keeping `out` bit for bit where the weight
 /// is 0 (`anim_pose::blend::blend_masked`'s rule).
-fn masked_into(cx: &mut EvalContext<'_>, out: usize, from: usize, mask: &[anim_math::F32x4], w: f32) {
+fn masked_into(
+    cx: &mut EvalContext<'_>,
+    out: usize,
+    from: usize,
+    mask: &[anim_math::F32x4],
+    w: f32,
+) {
     let Some((_, [po, pf])) = cx.state_and_slots([out, from]) else {
         return;
     };
