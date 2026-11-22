@@ -153,16 +153,18 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
   for (const f of Object.keys(schema)) {
     if ((schema[f] as { kind: string }).kind === "str") throw new Error(`defineInput("${id}"): field "${f}" is str; inputs hold numbers (send strings with an RPC).`);
   }
-  const codec = recordCodec(schema) as RecordCodec;
+  const encoding = options.encoding ?? {};
+  for (const f of Object.keys(encoding)) if (!(f in schema)) throw new Error(`defineInput("${id}"): encoding names "${f}", which isn't a field.`);
+  const codec = recordCodec(schema, encoding as Partial<Record<keyof S, { quantize?: number }>>) as RecordCodec;
   const fields = codec.fields;
   const kinds = fields.map((f) => schema[f].kind);
-  const descriptor = `net.input:${id}(${fields.map((f, i) => `${f}:${kinds[i]}`).join(",")})`;
+  const steps = fields.map((f) => encoding[f]?.quantize ?? 0);
+  const descriptor = `net.input:${id}(${fields.map((f, i) => `${f}:${kinds[i]}${steps[i] ? `~${steps[i]}` : ""}`).join(",")})`;
+  /** A value as it travels: an f32, rounded to its quantize step. */
+  const wire = (i: number, v: number): number => (kinds[i] === "f32" ? Math.fround(steps[i] ? Math.round(v / steps[i]) * steps[i] : v) : kinds[i] === "i32" ? v | 0 : v & 0xff);
   const coerce = (values: Values): Values => {
     const out: Values = {};
-    for (let i = 0; i < fields.length; i++) {
-      const v = values[fields[i]];
-      out[fields[i]] = kinds[i] === "f32" ? Math.fround(v) : kinds[i] === "i32" ? v | 0 : v & 0xff;
-    }
+    for (let i = 0; i < fields.length; i++) out[fields[i]] = wire(i, values[fields[i]]);
     return out;
   };
   const stream: Stream = {
@@ -209,9 +211,10 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
       const current = writable(World.require());
       for (const key of Object.keys(values)) {
         const v = (values as Record<string, unknown>)[key];
-        if (!fields.includes(key)) throw new Error(`Input "${id}".write: there's no field "${key}" (fields: ${fields.join(", ")}).`);
+        const i = fields.indexOf(key);
+        if (i < 0) throw new Error(`Input "${id}".write: there's no field "${key}" (fields: ${fields.join(", ")}).`);
         if (typeof v !== "number") throw new Error(`Input "${id}".write: field "${key}" must be a number (got ${typeof v}).`);
-        current[key] = v;
+        current[key] = steps[i] ? wire(i, v) : v;
       }
     },
     of(node) {

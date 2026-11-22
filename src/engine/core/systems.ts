@@ -9,7 +9,10 @@ import type { TimeState, World } from "./World";
 import { _isReplacingRegistrations, _recordRegistration } from "./registry";
 import { DEFAULT_SYSTEM_WORLDS, worldsMatch, type WorldTag } from "./worlds";
 
-export type Phase = "fixedUpdate" | "update" | "lateUpdate";
+export type Phase = "input" | "fixedUpdate" | "update" | "lateUpdate";
+
+/** The phases in frame order (ADR 0011, 0333): `input` runs before `start()` and the fixed steps. */
+export const PHASES: readonly Phase[] = ["input", "fixedUpdate", "update", "lateUpdate"];
 
 /** A query term: the Transform facade or a data component. */
 export type QueryTerm = typeof Transform | DataComponentDef;
@@ -72,6 +75,11 @@ export interface BuiltinSystem {
   readonly before?: readonly string[];
   /** Default `["*"]`: every World. */
   readonly worlds?: readonly WorldTag[];
+  /**
+   * fixedUpdate only: also run it, in order, when prediction re-simulates a tick (ADR 0335: the input
+   * bridge restores each replayed tick's actions before the predicted systems read them).
+   */
+  readonly predicted?: boolean;
   run(world: World, dt: number): void;
 }
 
@@ -186,7 +194,7 @@ export class Scheduler {
   private membershipVersion = 0;
   private builtMembershipVersion = -1;
   private builtCatalogVersion = -1;
-  private ordered: Record<Phase, Scheduled[]> = { fixedUpdate: [], update: [], lateUpdate: [] };
+  private ordered: Record<Phase, Scheduled[]> = { input: [], fixedUpdate: [], update: [], lateUpdate: [] };
 
   constructor(private readonly world: World) {}
 
@@ -209,7 +217,7 @@ export class Scheduler {
 
   /** Every system this World runs, by name, phase by phase in execution order. */
   names(): string[] {
-    return (["fixedUpdate", "update", "lateUpdate"] as Phase[]).flatMap((p) => this.order(p));
+    return PHASES.flatMap((p) => this.order(p));
   }
 
   run(phase: Phase, dt: number): void {
@@ -229,7 +237,10 @@ export class Scheduler {
   /** @internal Prediction (T13): run this World's predicted systems once, in order, on the rows `includes` accepts. */
   runPredicted(dt: number, includes: (node: GameObject) => boolean): void {
     if (this.stale()) this.rebuild();
-    for (const s of this.ordered.fixedUpdate) if (s.user?.predicted) this.runUser(s.user, dt, includes);
+    for (const s of this.ordered.fixedUpdate) {
+      if (s.builtin?.predicted) s.builtin.run(this.world, dt);
+      else if (s.user?.predicted) this.runUser(s.user, dt, includes);
+    }
   }
 
   /** Names in execution order, for debugging and tests. */
@@ -249,7 +260,7 @@ export class Scheduler {
   private rebuild(): void {
     const builtins = builtinSystems.filter((b) => this.isMember(b.name, b.worlds ?? ALL_WORLDS));
     const users = userSystems.filter((u) => this.isMember(u.name, u.worlds ?? DEFAULT_SYSTEM_WORLDS));
-    for (const phase of ["fixedUpdate", "update", "lateUpdate"] as Phase[]) {
+    for (const phase of PHASES) {
       // Default order: built-ins in registration order, then user systems in definition order.
       const items: (Scheduled & { after: readonly string[]; before: readonly string[] })[] = [
         ...builtins.filter((b) => b.phase === phase).map((b) => ({ name: b.name, builtin: b, after: b.after ?? [], before: b.before ?? [] })),

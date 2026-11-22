@@ -1,6 +1,6 @@
 # 0335. Input players are entities, networked actions are input streams, and rebinding and prompts are data
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -110,6 +110,12 @@ response curve, invert Y, deadzone override. Stored with the overrides, applied 
 ## Deprecates
 
 Nothing. `defineInput` stays for input that isn't an action set.
+
+## Build notes (2026-11-22)
+
+- `InputContext.player` is a player index (-1: the player controlling the node), not a reference.
+- Player 0 is created once an action set is defined, so Worlds of games without actions get no player node.
+- The default glyph set ships as labels and icon keys per family; images are not included yet. Conflict checks cover the contexts active when rebinding.
 
 ## Open questions
 

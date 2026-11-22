@@ -1,6 +1,6 @@
 # 0334. Input actions are data components, contexts are node components, and built-in systems evaluate them
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -131,6 +131,12 @@ can sit on any node. It is active while its node is active in the hierarchy.
 ## Deprecates
 
 Nothing. `Input.getKey` and the pointer getters stay as the raw layer.
+
+## Build notes (2026-11-22)
+
+- `<action>$phase` is an `i32`, not a `u8`: there are nine flags (held, pressed, released, started, ongoing, triggered, performed, completed, canceled).
+- Instead of phase-aware read methods, the data itself is phase-correct: `engine.InputTick` writes the tick's values at the start of each fixed step and `engine.InputFrame` writes the frame's back before update, so every reader (systems, behaviors, the network stream) sees the right one.
+- Chords and combos read the other action's state from the previous frame.
 
 ## Open questions
 

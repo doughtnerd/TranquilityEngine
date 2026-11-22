@@ -1,6 +1,6 @@
 # 0333. Gamepads come from a native SDL3 adapter on desktop, device state reaches Worlds as entities in an `input` phase
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -118,6 +118,13 @@ effects, LEDs), as another adapter with the Gamepad API as fallback.
 
 - The `World._takesInput` checks inside `Input`'s getters (replaced by the device system's World filter).
 - Nothing else: `Input`'s getters and the DOM adapter stay, extended.
+
+## Build notes (2026-11-22)
+
+- `Input`'s getters keep the `World._takesInput` check: the editor's World reads raw input for its tools, but gets no device entities. Device entities follow the stricter filter (not editor or server Worlds).
+- `Input.inject` is the public input end (`DeviceEventSink`): virtual devices, automation, tests.
+- Touch and pen aren't devices of their own yet; touches arrive as the pointer.
+- The mapping table can't express the ~40 SDL database entries that drive a stick from two buttons.
 
 ## Open questions
 

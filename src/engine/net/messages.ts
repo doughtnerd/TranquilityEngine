@@ -63,6 +63,12 @@ export { defineRpc } from "./rpc";
 export interface InputOptions {
   /** Past ticks' inputs sent again with each tick's, so a lost packet doesn't lose input. Default 3. */
   readonly redundancy?: number;
+  /**
+   * Per-field wire encoding, replication's vocabulary (ADR 0335): `{ x: { quantize: 1 / 127 } }` sends `x` as
+   * whole steps of 1/127. Values are rounded to the step when written, so the client's own copy (and its
+   * prediction) is what the server receives.
+   */
+  readonly encoding?: Readonly<Record<string, { readonly quantize?: number }>>;
 }
 
 /** A connection's input counters for one stream (server). */

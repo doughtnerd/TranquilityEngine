@@ -3,6 +3,15 @@ import type { Transform } from "../scene/Transform";
 import type { MusicEvent } from "../audio/musicTypes";
 import type { TimeState, World } from "./World";
 import type { WorldHandle } from "./worlds";
+import type { PlayerInput } from "../input/facade";
+
+/** Builds a behavior's `input` (set by `input/facade.ts`, which core can't import). */
+let inputFacade: ((behavior: GameBehavior) => PlayerInput) | null = null;
+
+/** @internal The input module registers how a behavior's `input` is made. */
+export function _setInputFacade(make: (behavior: GameBehavior) => PlayerInput): void {
+  inputFacade = make;
+}
 
 /**
  * Base class for everything attached to a node: built-in engine components and user
@@ -210,6 +219,16 @@ export abstract class GameBehavior extends Component {
   /** Engine-scheduled waits that respect pause and time scale, cancelled on disable/destroy (ADR 0018). */
   get wait(): Waits {
     return (this._wait ??= new Waits(this));
+  }
+
+  /**
+   * The input of the player controlling this behavior's node (ADR 0334, 0335): the pawn's actions
+   * (the nearest node up with `ControlledBy` or an action set), else player 0's.
+   * `this.input.vector2("move")`, `this.input.performed("jump")`, `this.input.on("heavy", "performed", fn)`.
+   */
+  get input(): PlayerInput {
+    if (!inputFacade) throw new Error("input: the input module isn't loaded.");
+    return inputFacade(this);
   }
 
   /** Aborted when this behavior is disabled or destroyed. Use it for fetch and other non-engine async work. */

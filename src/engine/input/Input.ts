@@ -1,17 +1,70 @@
 import { Vector2 } from "../core/math";
 import { World } from "../core/World";
-import { devices, mouseKey, normalizeKey } from "./devices";
+import { devices, mouseKey, normalizeKey, type DeviceEventSink } from "./devices";
 import { listenToDom } from "./domDevices";
+import { tauriGamepads } from "./tauriGamepads";
+import { webGamepads } from "./webGamepads";
+// The input systems (ADR 0333–0335) come with Input: players, evaluation, rebinding, netcode, the script facade.
+import "./players";
+import "./evaluate";
+import "./rebind";
+import "./inputNet";
+import "./facade";
 
 let detachDom: (() => void) | null = null;
+let detachGamepads: (() => void) | null = null;
 
 /**
  * The devices are the Engine's, attached once and shared; what they report reaches only Worlds
  * that take local input (ADR 0032). A server World, or any World created with `input: false`,
  * sees nothing pressed and zero movement. Outside any World (no active World) input is live.
+ * The editor's World reads these raw getters too (its tools), though it gets no device entities.
  */
 function live(): boolean {
   return World.active?._takesInput ?? true;
+}
+
+/** Start the gamepad adapter: SDL3 under Tauri (ADR 0333), else the browser's Gamepad API. */
+function attachGamepads(): void {
+  if (detachGamepads || typeof window === "undefined") return;
+  if ("__TAURI_INTERNALS__" in window) {
+    const native = tauriGamepads(devices);
+    devices.output = native.output;
+    detachGamepads = native.stop;
+    return;
+  }
+  const web = typeof navigator !== "undefined" ? webGamepads(devices, navigator) : null;
+  if (!web) return;
+  const removePoller = devices.addPoller(web.poll);
+  devices.output = web.output;
+  detachGamepads = () => {
+    removePoller();
+    web.stop();
+  };
+}
+
+/**
+ * The input end (`Input.inject`): report device events as an adapter does. They reach the game
+ * at the next snapshot, through the same routing, device entities and actions as real devices.
+ */
+const injector: DeviceEventSink = {
+  keyDown: (key) => (keyboardAndPointer(), devices.keyDown(key)),
+  keyUp: (key) => (keyboardAndPointer(), devices.keyUp(key)),
+  buttonDown: (button) => (keyboardAndPointer(), devices.buttonDown(button)),
+  buttonUp: (button) => (keyboardAndPointer(), devices.buttonUp(button)),
+  pointerAt: (x, y) => (keyboardAndPointer(), devices.pointerAt(x, y)),
+  move: (dx, dy) => (keyboardAndPointer(), devices.move(dx, dy)),
+  scroll: (dx, dy) => (keyboardAndPointer(), devices.scroll(dx, dy)),
+  releaseAll: () => devices.releaseAll(),
+  gamepadConnected: (info) => devices.gamepadConnected(info),
+  gamepadDisconnected: (id) => devices.gamepadDisconnected(id),
+  gamepadButton: (id, index, value) => devices.gamepadButton(id, index, value),
+  gamepadAxis: (id, index, value) => devices.gamepadAxis(id, index, value),
+  gamepadSensor: (id, kind, x, y, z) => devices.gamepadSensor(id, kind, x, y, z),
+};
+
+function keyboardAndPointer(): void {
+  devices.hasKeyboardAndPointer = true;
 }
 
 /**
@@ -86,10 +139,27 @@ export class Input {
     return live() ? devices.scrolling : new Vector2();
   }
 
-  /** @internal Listen to keyboard on the window and pointer events on the canvas (the DOM adapter). */
+  /**
+   * Report device events yourself, as an adapter does (ADR 0335): virtual devices (on-screen
+   * controls), automation, replaying raw input, tests. Events reach the game at the next frame's
+   * snapshot, through UI routing, the device entities and actions, like real devices'. Gamepads
+   * are identified by any id ≥ 0 you choose; announce one with `gamepadConnected` first.
+   *
+   * ```ts
+   * Input.inject.gamepadConnected({ id: 7, name: "Virtual pad", family: "xbox" });
+   * Input.inject.gamepadButton(7, 0, 1); // buttonSouth down
+   * ```
+   */
+  static get inject(): DeviceEventSink {
+    return injector;
+  }
+
+  /** @internal Listen to keyboard on the window and pointer events on the canvas (the DOM adapter), and start the gamepad adapter. */
   static attach(canvas: HTMLCanvasElement): void {
     Input.detach();
     detachDom = listenToDom(canvas, devices);
+    devices.hasKeyboardAndPointer = true;
+    attachGamepads();
   }
 
   /**
@@ -105,6 +175,10 @@ export class Input {
   static detach(): void {
     detachDom?.();
     detachDom = null;
+    detachGamepads?.();
+    detachGamepads = null;
+    devices.output = null;
+    devices.hasKeyboardAndPointer = false;
     Input.reset();
   }
 
