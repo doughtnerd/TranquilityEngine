@@ -58,7 +58,7 @@
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../../engine/audio/mixer";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioCodecs, AudioOutputDevice, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, ShapedParams, VoiceSpatialOptions, ZoneIrService } from "../backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioCodecs, AudioOutputDevice, AudioPacks, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, ShapedParams, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
 import { BUS_LP_OFF_HZ, FX_MEMORY_SECONDS, readStatus, type BusConfigBuses } from "../wire.generated";
 import { AudioHandle, type AudioReason } from "./handle";
@@ -81,6 +81,8 @@ import { connectVoiceTable, VoiceFlag, VoiceFlag2, VoiceState, VoiceTable } from
 import { reopenStamp, StreamManager, type StreamDecoderLike, type StreamManagerDeps } from "./streams";
 import { WorkletChannel } from "./workletChannel";
 import { sharedDecoderClient } from "../decoder/decoderClient";
+import { createPackHost } from "./packHost";
+import { packedMediaUrl } from "./packMedia";
 import { createWarnOnce, type WarnOnce } from "./codecs";
 import { effectiveMixedCap, Selection } from "./selection";
 import { PannerKind, PannerPick, type PannerKindCode, type PannerSink } from "./pannerPick";
@@ -228,6 +230,11 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   get codecs(): AudioCodecs {
     return this;
   }
+  /** ADR 0337 §7 (W12): packages in the decoder, their sounds committed to the arena at load (`packHost.ts`). */
+  get packs(): AudioPacks {
+    return (this.packHost ??= createPackHost({ decoder: () => this.decoderOf(), clips: this.clips, locked: () => this.status === "locked" }));
+  }
+  private packHost: AudioPacks | null = null;
 
   /** ADR 0248: the output device's sink (`AudioOutputDevice`), from the host. */
   get outputSink(): string | null {
@@ -277,6 +284,8 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   private readonly voices: CoreVoices;
   /** B3: the stream voices' main side (`streams.ts`). */
   readonly streams: StreamManager;
+  /** The decoder client clips and streams use (W12: packages load into it). */
+  private readonly decoderOf: () => StreamDecoderLike;
   /** ADR 0158 (E3.1): the event runtime's automation sink on the core, and its mirror for a rebuild (`coreAutomation.ts`). */
   readonly automation: CoreAutomation;
   /** ADR 0331: the instance submix pool (`submixes.ts`). */
@@ -392,6 +401,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     const streamDeps = deps.streams ?? {};
     // B4: the AAC build's worker when the project decodes AAC, else the default one.
     const decoder = streamDeps.decoder ?? (() => sharedDecoderClient(this.aac ? "aac" : "default"));
+    this.decoderOf = decoder;
     this.worklet = new WorkletChannel<StreamDecoderLike>({
       decoder,
       connectWorklet:
@@ -430,7 +440,8 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     const fetchBytes =
       streamDeps.fetchBytes ??
       (async (path: string) => {
-        const response = await fetch(Assets.url(path));
+        // ADR 0337 §7 (W12): a packaged `stream` sound's loose media (music stems read it through here).
+        const response = await fetch(packedMediaUrl(path) ?? Assets.url(path));
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.arrayBuffer();
       });

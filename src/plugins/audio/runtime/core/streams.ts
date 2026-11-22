@@ -46,8 +46,9 @@
 //   it for clip decodes only): each of its streams fails this way, and the next stream connects a new channel, on
 //   which the worklet closes the dead worker's rings.
 import { MAX_STARVED_PER_BLOCK, StreamEvent, type StatusBlock } from "../wire.generated";
-import { Assets } from "../../../../engine/scene/Assets";
+import { Assets, fetchAssetBytes } from "../../../../engine/scene/Assets";
 import type { AmbisonicImport } from "../../../../engine/scene/importSettings";
+import { packedMediaUrl, streamPackRef } from "./packMedia";
 import { setFileLoopPoints } from "../loopPoints";
 import { wrapPosition, type LoopRecord } from "./coreAutomation";
 import type { DecodeHint, PackRef, StreamLoopProgram, StreamPortLike } from "../decoder/protocol";
@@ -57,6 +58,12 @@ import { checkAmbisonic, type ClipInfo } from "./clipRegistry";
 import type { CoreLink } from "./context";
 import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
 import { WorkletChannel, type StreamChannel } from "./workletChannel";
+
+/** A URL's bytes as an ArrayBuffer of their own (`fetchAssetBytes`: `fetch`, or a `file:` URL's file in Node). */
+const fetchUrlBytes = async (url: string): Promise<ArrayBuffer> => {
+  const bytes = await fetchAssetBytes(url);
+  return bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? (bytes.buffer as ArrayBuffer) : (bytes.slice().buffer as ArrayBuffer);
+};
 
 /** @internal The first stream id: past the HRIR clip ids (`0xFFFF0000..0xFFFF00FF`) in the reserved range. */
 export const STREAM_ID_FIRST = 0xffff0100;
@@ -107,7 +114,7 @@ export interface MusicStreamEventSink {
 }
 
 /** @internal What the manager needs of the decoder client. */
-export type StreamDecoderLike = Pick<DecoderClient, "connectWorklet" | "openStream" | "closeStream" | "onStream" | "generation"> & Partial<Pick<DecoderClient, "seekStream" | "loopStream" | "primeGroup" | "cancelGroup" | "protectMusic" | "releaseMusic" | "invalidateMusic" | "onMusic">>;
+export type StreamDecoderLike = Pick<DecoderClient, "connectWorklet" | "openStream" | "closeStream" | "onStream" | "generation"> & Partial<Pick<DecoderClient, "seekStream" | "loopStream" | "primeGroup" | "cancelGroup" | "protectMusic" | "releaseMusic" | "invalidateMusic" | "onMusic" | "loadPack" | "releasePack">>;
 
 export type { StreamChannel };
 
@@ -128,9 +135,17 @@ export interface StreamManagerDeps {
   readonly fetchBytes: (path: string) => Promise<ArrayBuffer>;
   /**
    * ADR 0337 §7, A4: where an asset is in a package the decoder worker holds (`DecoderClient.loadPack`), or null to fetch
-   * its file. A `compressed` Vorbis or Opus entry then streams from the worker's copy, never fetched. Default: none.
+   * its file. A `compressed` Vorbis or Opus entry then streams from the worker's copy, never fetched. Default: the package
+   * registry's answer (`packMedia.ts` `streamPackRef`).
    */
   readonly packRef?: (path: string) => PackRef | null;
+  /**
+   * ADR 0337 §7 (W12): the URL of an asset's media when it isn't its project file (a packaged `stream` sound's loose
+   * media), fetched with `fetchUrl` instead of `fetchBytes`; null to fetch the path. Default `packMedia.ts` `packedMediaUrl`.
+   */
+  readonly mediaUrl?: (path: string) => string | null;
+  /** Fetches a URL `mediaUrl` gave (default `fetchAssetBytes`: `fetch`, or the file for a `file:` URL in Node). */
+  readonly fetchUrl?: (url: string) => Promise<ArrayBuffer>;
   /** A stream failed: stop voice `id` with a fade and warn (the backend's). `code` is the decoder's `ERR_*` code when it refused the file (B4). */
   readonly onError: (id: number, asset: string, message: string, code?: number) => void;
   /** E4.4: voice `voice`'s stream frame at context frame `frame` by the backend's playhead estimate (used until a STATUS shows it playing), or null. */
@@ -336,8 +351,10 @@ export class StreamManager {
     }
     const hint: DecodeHint = hintFromName(e.asset);
     // ADR 0337 A4: a held package entry streams from the worker's copy (no fetch, an empty buffer).
-    const pack = this.deps.packRef?.(e.asset) ?? null;
-    (pack ? Promise.resolve(new ArrayBuffer(0)) : this.deps.fetchBytes(e.asset)).then(
+    const pack = (this.deps.packRef ?? streamPackRef)(e.asset);
+    // ADR 0337 §7 (W12): a packaged `stream` sound's media ships loose under its own URL.
+    const url = pack ? null : (this.deps.mediaUrl ?? packedMediaUrl)(e.asset);
+    (pack ? Promise.resolve(new ArrayBuffer(0)) : url !== null ? (this.deps.fetchUrl ?? fetchUrlBytes)(url) : this.deps.fetchBytes(e.asset)).then(
       (bytes) => {
         if (this.byStream.get(streamId) !== e) return; // closed meanwhile
         this.stats.opened++;

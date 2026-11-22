@@ -14,6 +14,7 @@ import { setFileLoopFrames, setFileLoopPoints } from "../loopPoints";
 import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
 import { i16ToF32 } from "./pcm";
 import { CLIP_INDEX_LIMIT, makeClipId } from "./clipIds";
+import { clipPackRef } from "./packMedia";
 
 /** A clip's lifecycle (`copying -> ready` on the core's `resident` clip event, wire §4.3). */
 export type ClipState = "idle" | "fetching" | "decoding" | "copying" | "ready" | "failed" | "unloading";
@@ -186,7 +187,8 @@ export interface ClipRegistryDeps {
    * ADR 0337 §7, A4: where a path's audio is in a package the decoder worker holds (`DecoderClient.loadPack`), or null to
    * fetch the path's file as before. A held entry isn't fetched or kept in the encoded cache: the worker decodes it from
    * the package, and an ADPCM entry with load `compressed` arrives as whole blocks that go to the core as clip format 6
-   * (the core decodes them per voice). The runtime that loads the packages provides it; default: none.
+   * (the core decodes them per voice). Default: the package registry's answer (`packMedia.ts` `clipPackRef`), null while
+   * no package holds the path.
    */
   packRef?: (path: string) => PackRef | null;
 }
@@ -326,7 +328,8 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
   const warn = deps.warn ?? ((m: string) => console.warn(m));
   const warnOnce = deps.warnOnce ?? createWarnOnce(warn);
   const aac = deps.aac === true;
-  const packRef = deps.packRef;
+  // ADR 0337 §7 (W12): by default the package registry answers (`packMedia.ts`); nothing loaded, nothing packaged.
+  const packRef = deps.packRef ?? clipPackRef;
   const nextFrame = deps.nextFrame ?? defaultNextFrame;
   const nextQuantum = deps.nextQuantum ?? ((cb: () => void) => void setTimeout(cb, 0));
   const send = deps.send ?? (() => {});

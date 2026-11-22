@@ -167,12 +167,16 @@ export interface DecoderClient {
   /** B3: closes a stream (the worker sends STREAM_CLOSE to the worklet). Unknown ids are answered too. */
   closeStream(streamId: number): void;
   /**
-   * ADR 0337 §7, A4: holds the `.mycopak` `bytes` in the worker as package `pack` (a copy is kept here so a respawned worker
-   * gets it back), whose entries `decodeClip` and `openStream` then name with `pack` (a `compressed` Vorbis or Opus entry
-   * plays from the worker's copy through a stream ring). Resolves with its entry count, rejects when the worker can't read
-   * it or can't run. A second load under the same id replaces the first.
+   * ADR 0337 §7, A4: holds the `.mycopak` `bytes` in the worker as package `pack`, whose entries `decodeClip` and
+   * `openStream` then name with `pack` (a `compressed` Vorbis or Opus entry plays from the worker's copy through a stream
+   * ring). Resolves with its entry count, rejects when the worker can't read it or can't run. A second load under the same
+   * id replaces the first.
+   *
+   * A respawned worker gets every package back before any request reaches it. With `refetch` (W12: the build's package
+   * URL) `bytes` is transferred and no copy stays here: a respawn fetches the package again, and requests wait for it
+   * (a package's memory isn't doubled on main for a rare crash). Without, a copy is kept here for the respawn.
    */
-  loadPack(pack: number, bytes: ArrayBuffer): Promise<{ readonly entries: number; readonly bytes: number }>;
+  loadPack(pack: number, bytes: ArrayBuffer, options?: { readonly refetch?: () => Promise<ArrayBuffer> }): Promise<{ readonly entries: number; readonly bytes: number }>;
   /** ADR 0337: drops package `pack` here and in the worker (streams already open on it keep their copy). */
   releasePack(pack: number): void;
   /**
@@ -253,8 +257,11 @@ class Client implements DecoderClient {
   /** ADR 0166: each music member stream's group, and the music listeners. */
   private readonly memberGroup = new Map<number, number>();
   private readonly musicListeners = new Set<(reply: MusicReply) => void>();
-  /** ADR 0337: the packages loaded (their bytes, re-sent to a respawned worker) and the loads awaiting their answer. */
-  private readonly packs = new Map<number, ArrayBuffer>();
+  /**
+   * ADR 0337: the packages loaded, and how a respawned worker gets each back: its kept bytes, or (W12) a fetch of it again;
+   * and the loads awaiting their answer.
+   */
+  private readonly packs = new Map<number, { readonly kept: ArrayBuffer | null; readonly refetch?: () => Promise<ArrayBuffer> }>();
   private readonly packWaiters = new Map<number, { resolve(value: { entries: number; bytes: number }): void; reject(reason: unknown): void }[]>();
   generation = 0;
 
@@ -268,41 +275,55 @@ class Client implements DecoderClient {
     const now = (this.options.now ?? Date.now)();
     this.crashes = this.crashes.filter((t) => now - t < RESPAWN_WINDOW_MS);
     if (this.crashes.length > MAX_RESPAWNS) throw new DecoderUnavailableError(`audio decoder: the worker crashed ${this.crashes.length} times within ${RESPAWN_WINDOW_MS / 1000} s`);
-    const worker = (this.options.workerFactory ?? spawnWorker)();
+    const raw = (this.options.workerFactory ?? spawnWorker)();
+    if (this.options.wasmBytes) {
+      const bytes = this.options.wasmBytes.slice(0);
+      raw.postMessage({ type: "init", wasmBytes: bytes }, [bytes]);
+    } else {
+      raw.postMessage({ type: "init", wasmUrl: this.options.wasmUrl ?? decoderWasmUrl().href });
+    }
+    // ADR 0337: a respawned worker gets the packages back before any request that names them: kept bytes at once; a
+    // package fetched again (W12) holds every later message back (`gatedWorker`) until it is in, in order.
+    const fetches: Promise<void>[] = [];
+    for (const [pack, held] of this.packs) {
+      if (held.kept) {
+        const bytes = held.kept.slice(0);
+        raw.postMessage({ type: "packLoad", pack, bytes }, [bytes]);
+      } else if (held.refetch) {
+        const refetch = held.refetch;
+        fetches.push(
+          refetch().then(
+            (bytes) => {
+              if (this.packs.get(pack) === held) raw.postMessage({ type: "packLoad", pack, bytes }, [bytes]);
+            },
+            (e: unknown) => console.warn(`[myco] audio decoder: package ${pack} couldn't be fetched again after a decoder restart (${e instanceof Error ? e.message : String(e)}); its sounds fail until it is loaded again`),
+          ),
+        );
+      }
+    }
+    const worker = fetches.length > 0 ? gatedWorker(raw, Promise.all(fetches)) : raw;
     this.generation++;
     worker.onmessage = (e) => this.onReply(worker, e.data);
     worker.onerror = (e) => this.crashed(worker, `audio decoder: the worker failed${e.message ? ` (${e.message})` : ""}`);
     this.worker = worker;
-    if (this.options.wasmBytes) {
-      const bytes = this.options.wasmBytes.slice(0);
-      worker.postMessage({ type: "init", wasmBytes: bytes }, [bytes]);
-    } else {
-      worker.postMessage({ type: "init", wasmUrl: this.options.wasmUrl ?? decoderWasmUrl().href });
-    }
-    // ADR 0337: a respawned worker gets the packages back before any request that names them.
-    for (const [pack, kept] of this.packs) {
-      const bytes = kept.slice(0);
-      worker.postMessage({ type: "packLoad", pack, bytes }, [bytes]);
-    }
     return worker;
   }
 
-  loadPack(pack: number, bytes: ArrayBuffer): Promise<{ readonly entries: number; readonly bytes: number }> {
+  loadPack(pack: number, bytes: ArrayBuffer, options?: { readonly refetch?: () => Promise<ArrayBuffer> }): Promise<{ readonly entries: number; readonly bytes: number }> {
     // The waiter goes in first: an in-process worker may answer within `postMessage`.
     const answer = new Promise<{ entries: number; bytes: number }>((resolve, reject) => {
       const waiters = this.packWaiters.get(pack) ?? [];
       waiters.push({ resolve, reject });
       this.packWaiters.set(pack, waiters);
     });
-    this.packs.set(pack, bytes.slice(0));
+    const refetch = options?.refetch;
     try {
-      const had = this.worker !== null;
+      // Spawned (and given the other packages back) before this one is listed, so it is sent once, below.
+      this.packs.delete(pack);
       const worker = this.ensureWorker();
-      // A worker spawned just now was sent the package (with every other) as it started.
-      if (had) {
-        const copy = bytes.slice(0);
-        worker.postMessage({ type: "packLoad", pack, bytes: copy }, [copy]);
-      }
+      this.packs.set(pack, refetch ? { kept: null, refetch } : { kept: bytes.slice(0) });
+      const sent = refetch ? bytes : bytes.slice(0);
+      worker.postMessage({ type: "packLoad", pack, bytes: sent }, [sent]);
     } catch (e) {
       this.packs.delete(pack);
       this.settlePack(pack, new DecoderUnavailableError(`audio decoder: no worker (${e instanceof Error ? e.message : String(e)})`));
@@ -668,6 +689,43 @@ class Client implements DecoderClient {
     if (this.worker) this.failAll(this.worker, new Error("audio decoder: disposed"));
     this.onDispose?.();
   }
+}
+
+/**
+ * W12: `raw` behind a gate: messages posted before `ready` settles are held, then delivered in order once it has (the
+ * packages a respawned worker fetches again go to `raw` directly, ahead of them). Replies and errors pass straight through.
+ */
+function gatedWorker(raw: WorkerLike, ready: Promise<unknown>): WorkerLike {
+  let held: [DecoderRequest, Transferable[] | undefined][] | null = [];
+  let terminated = false;
+  void ready.then(() => {
+    const queue = held ?? [];
+    held = null;
+    if (!terminated) for (const [message, transfer] of queue) raw.postMessage(message, transfer);
+  });
+  return {
+    get onmessage() {
+      return raw.onmessage;
+    },
+    set onmessage(fn) {
+      raw.onmessage = fn;
+    },
+    get onerror() {
+      return raw.onerror;
+    },
+    set onerror(fn) {
+      raw.onerror = fn;
+    },
+    postMessage(message, transfer) {
+      if (held) held.push([message, transfer]);
+      else raw.postMessage(message, transfer);
+    },
+    terminate() {
+      terminated = true;
+      held = null;
+      raw.terminate();
+    },
+  };
 }
 
 function concat(chunks: readonly Int16Array[], total: number): Int16Array {
