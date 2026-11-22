@@ -35,7 +35,7 @@ export function log2Curve(curve: Curve): CurveKey[] {
   return curve.map((k): CurveKey => {
     const y = log2(k[1]);
     if (k.length < 3) return [k[0], y];
-    if (k[2] !== "bezier") return [k[0], y, k[2]];
+    if (k[2] !== "bezier") return [k[0], y, k[2]] as CurveKey;
     const h = k[3];
     const at = (dy: number) => log2(k[1] + dy) - y;
     return [k[0], y, "bezier", { ...h, in: [h.in[0], at(h.in[1])], out: [h.out[0], at(h.out[1])] }];

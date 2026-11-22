@@ -23,7 +23,7 @@ import { clipDuration } from "../clipResolver";
 import { taps } from "../mix/profileTaps";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { onAudioSessionReleased } from "../audioSession";
-import { AutoTarget, MAX_BINDINGS, MAX_CURVES, MAX_GROUPS, TsAutomation, type AutomationSink, type Binding } from "../automation";
+import { busAutomationBinding, MAX_BUS_BINDINGS, MAX_CURVES, MAX_GROUPS, TsAutomation, type AutomationSink, type Binding } from "../automation";
 
 /** mulberry32: small, fast and seedable, so tests and goldens reproduce picks. */
 export function mulberry32(seed: number): () => number {
@@ -337,10 +337,10 @@ export class PlaylistHost {
         const id = g ? this.curveId(a.curve) : null;
         if (!g || id === null) continue;
         const list = byBus.get(a.bus) ?? [];
-        list.push({ param: { global: true, slot: g.slot }, curve: id, target: a.target === "volume" ? AutoTarget.Volume : AutoTarget.Lowpass });
+        list.push(busAutomationBinding(a, g.slot, id));
         byBus.set(a.bus, list);
       }
-      for (const b of settings.buses) this.sink!.bindBus(b.name, (byBus.get(b.name) ?? []).slice(0, MAX_BINDINGS));
+      for (const b of settings.buses) this.sink!.bindBus(b.name, (byBus.get(b.name) ?? []).slice(0, MAX_BUS_BINDINGS));
     }
   }
 }

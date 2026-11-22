@@ -25,6 +25,8 @@ const SET_BUS_KEYS = ["volume", "mute", "maxVoices", "bed", "bedPriority", "mete
 const DUCK_MODES = [undefined, "presence", "level"] as const;
 const DUCK_DETECTORS = [undefined, "peak", "rms"] as const;
 const AUTOMATION_TARGETS = ["volume", "lowpass"] as const;
+/** A bus automation's targets (ABI 4.8 appends `fx` and `send`, which carry their arguments after the target code). */
+const BUS_AUTOMATION_TARGETS = ["volume", "lowpass", "fx", "send"] as const;
 /** Value tags of a nullable value word. */
 const Tag = { Null: 0, False: 1, True: 2, Number: 3, String: 4 } as const;
 /** Flag bits of a list op (`setDucking`, `setAutomation`, `setTarget`) and of an optional field. */
@@ -145,7 +147,10 @@ export function encodeMixOp(op: MixOp, cls: OpClass, names: MixOpNameTable): Mix
       w.u(op.index); w.listFlags(op.rule, op.insert);
       const r = op.rule;
       if (r) {
-        w.b(r.bus); w.s(r.parameter); w.code(AUTOMATION_TARGETS, r.target); w.u(r.curve.length);
+        w.b(r.bus); w.s(r.parameter); w.code(BUS_AUTOMATION_TARGETS, r.target);
+        if (r.target === "fx") { w.u(r.effect ?? 0); w.u(r.param ?? 0); w.u(r.log ? 1 : 0); }
+        else if (r.target === "send") w.b(r.to ?? "");
+        w.u(r.curve.length);
         for (const k of r.curve) {
           w.f(k[0]); w.f(k[1]); w.u(k.length > 2 ? curveKeyInterpCode(k) + 1 : 0);
           const h = curveKeyHandles(k);
@@ -211,7 +216,9 @@ export function decodeMixOp(bytes: MixOpBytes, names: { name(id: number): string
       const index = r.u(), fl = r.listFlags();
       let rule: BusAutomation | null = null;
       if (fl.item) {
-        const bus = r.b(), parameter = r.s(), target = r.code(AUTOMATION_TARGETS), n = r.u();
+        const bus = r.b(), parameter = r.s(), target = r.code(BUS_AUTOMATION_TARGETS);
+        const extra: Partial<BusAutomation> = target === "fx" ? { effect: r.u(), param: r.u(), ...(r.u() === 1 ? { log: true } : {}) } : target === "send" ? { to: r.b() } : {};
+        const n = r.u();
         const curve: CurveKey[] = [];
         for (let i = 0; i < n; i++) {
           const x = r.f(), y = r.f(), interp = r.u();
@@ -222,7 +229,7 @@ export function decodeMixOp(bytes: MixOpBytes, names: { name(id: number): string
             curve.push([x, y, "bezier", { in: inH, out, ...(free ? { free } : {}) }]);
           } else curve.push(name ? [x, y, name] : [x, y]);
         }
-        rule = { bus, parameter, target, curve: curve as Curve };
+        rule = { bus, parameter, target, ...extra, curve: curve as Curve };
       }
       op = { op: name, index, rule, ...withInsert(fl) };
       break;

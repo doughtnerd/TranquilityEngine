@@ -66,6 +66,9 @@ const MAX_BUS = 32;
 
 const LANE_OF: Record<MixLane, number> = { authored: LANE_AUTHORED, runtime: LANE_RUNTIME, snapshot: LANE_SNAPSHOT, monitor: LANE_MONITOR, dip: LANE_DIP };
 const LINEAR = packRampShape(FadeLaw.Linear, 0, 0);
+const DECIBEL = packRampShape(FadeLaw.Decibel, 0, 0);
+/** The wire law of a mixer ramp (ABI 4.8: a snapshot fade is linear in dB). */
+const lawOf = (r: Readonly<Ramp> | null): number => (r?.law === "db" ? FadeLaw.Decibel : FadeLaw.Linear);
 
 /** What the lane writer needs of the core backend. */
 export interface LaneWriterHost {
@@ -315,8 +318,8 @@ export class LaneWriter {
     const mixer = this.host.mixer;
     const now = mixer.time;
     const rate = this.host.clockMap.sampleRate;
-    const step = (b: number, lane: number, mask: number, gain: number, lpHz: number, frames: number) =>
-      out.record(32, (view, off) => writeBusRamp(view, off, { voiceId: b, frameOffset: ASAP, lane, mask, gain, lpHz, frames, shape: LINEAR }));
+    const step = (b: number, lane: number, mask: number, gain: number, lpHz: number, frames: number, db = false) =>
+      out.record(32, (view, off) => writeBusRamp(view, off, { voiceId: b, frameOffset: ASAP, lane, mask, gain, lpHz, frames, shape: db ? DECIBEL : LINEAR }));
     const remaining = (r: Readonly<Ramp>) => (r.seconds > 0 && r.from !== r.to ? Math.round((r.start + r.seconds - now) * rate) : 0);
     // Ma2: each removed bus still holding its slot (a tombstone), then the live buses by slot. A tombstone sends only its
     // dip lane, at its end state (0), since a silent root carries nothing else. G7c: the mixer holds a tombstone's state
@@ -340,9 +343,10 @@ export class LaneWriter {
       const snapLeft = remaining(l.snapshot);
       const lpLeft = remaining(l.snapshotLowpass);
       step(b, LANE_SNAPSHOT, BUS_RAMP_MASK_GAIN | BUS_RAMP_MASK_LP_HZ, snapLeft > 0 ? rampAt(l.snapshot, now) : l.snapshot.to, lpLeft > 0 ? rampAt(l.snapshotLowpass, now) : l.snapshotLowpass.to, 0);
-      if (snapLeft > 0 && snapLeft === lpLeft) step(b, LANE_SNAPSHOT, BUS_RAMP_MASK_GAIN | BUS_RAMP_MASK_LP_HZ, l.snapshot.to, l.snapshotLowpass.to, snapLeft);
+      const snapDb = l.snapshot.law === "db";
+      if (snapLeft > 0 && snapLeft === lpLeft) step(b, LANE_SNAPSHOT, BUS_RAMP_MASK_GAIN | BUS_RAMP_MASK_LP_HZ, l.snapshot.to, l.snapshotLowpass.to, snapLeft, snapDb);
       else {
-        if (snapLeft > 0) step(b, LANE_SNAPSHOT, BUS_RAMP_MASK_GAIN, l.snapshot.to, BUS_LP_OFF_HZ, snapLeft);
+        if (snapLeft > 0) step(b, LANE_SNAPSHOT, BUS_RAMP_MASK_GAIN, l.snapshot.to, BUS_LP_OFF_HZ, snapLeft, snapDb);
         if (lpLeft > 0) step(b, LANE_SNAPSHOT, BUS_RAMP_MASK_LP_HZ, 1, l.snapshotLowpass.to, lpLeft);
       }
       const monitor = mixer.laneGain(name, Lane.monitor);
@@ -401,7 +405,7 @@ export class LaneWriter {
 
   /** The snapshot lane: gain and low-pass in one record when both moved with one ramp, else each on its own. */
   private writeSnapshot(b: number, g: Readonly<Ramp>, lp: Readonly<Ramp>, gainMoved: boolean, lpMoved: boolean, gainNew: boolean, lpNew: boolean, now: number): void {
-    if (gainMoved && lpMoved && g.start === lp.start && g.seconds === lp.seconds && gainNew === lpNew) {
+    if (gainMoved && lpMoved && g.start === lp.start && g.seconds === lp.seconds && gainNew === lpNew && g.law === lp.law) {
       this.emit(b, LANE_SNAPSHOT, BUS_RAMP_MASK_GAIN | BUS_RAMP_MASK_LP_HZ, g.to, lp.to, g, gainNew, true, now);
       return;
     }
@@ -417,13 +421,13 @@ export class LaneWriter {
       if (isNew) {
         const frames = Math.max(Math.round(r.seconds * cm.sampleRate), this.minFrames());
         const at = stampable ? this.stampOf(r.start) : undefined;
-        writer.busRampFrames(b, lane, mask, gain, lpHz, frames, 0, at);
+        writer.busRampFrames(b, lane, mask, gain, lpHz, frames, 0, at, lawOf(r));
         if (at !== undefined) this.lastStamp[b] = at;
         return;
       }
       const left = r.start + r.seconds - now;
       if (left > 0) {
-        writer.busRampFrames(b, lane, mask, gain, lpHz, Math.max(Math.round(left * cm.sampleRate), cm.rampFrames()));
+        writer.busRampFrames(b, lane, mask, gain, lpHz, Math.max(Math.round(left * cm.sampleRate), cm.rampFrames()), 0, undefined, lawOf(r));
         return;
       }
     }

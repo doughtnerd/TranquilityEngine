@@ -25,6 +25,9 @@
 // (`fadeShaped`, `stopShaped`, `setParams`' `shape`), each stampable; and a gate group's records stay in one BATCH.
 import {
   ASAP,
+  BUS_AUTOMATE_MAX_BINDINGS,
+  writeSubmixAutomate,
+  type SubmixAutomate,
   PARAM_GLOBAL,
   PARAM_TIME,
   TIME_SEQUENCE,
@@ -321,6 +324,7 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly timeRec: Time = { voiceId: 0, frameOffset: ASAP, group: 0, which: TIME_SEQUENCE, value: 0, rate: 0 };
   private readonly automateRec: Automate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
   private readonly busAutomateRec: BusAutomate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
+  private readonly submixAutomateRec: SubmixAutomate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
   private readonly voiceFxRec: SetVoiceFx = { voiceId: 0, frameOffset: ASAP, mask: 0, rampFrames: 0, hpHz: 0, send: [0, 0, 0, 0], yaw: 0, auxLevel: 0, auxBus: 0xffff, reserved: 0 };
   private readonly bedConfigRec: BedConfig = { voiceId: 0, frameOffset: ASAP, bedSlot: [], hostBus: [] };
   private readonly zoneConfigRec: ZoneConfig = { voiceId: 0, frameOffset: ASAP, sharedReturnGain: 1, rampFrames: 0, slots: [] };
@@ -549,8 +553,11 @@ export class CommandWriter implements VoiceCommandSink {
     this.busRampFrames(bus, lane, mask, gain, lpHz, this.frames(seconds), sequenceId, atFrame);
   }
 
-  /** `busRamp` with the length already in frames (the lane writer's `ClockMap.rampFrames()`; replay's 0). */
-  busRampFrames(bus: number, lane: number, mask: number, gain: number, lpHz: number, frames: number, sequenceId = 0, atFrame?: number): void {
+  /**
+   * `busRamp` with the length already in frames (the lane writer's `ClockMap.rampFrames()`; replay's 0). `law`
+   * `FadeLaw.Decibel` (ABI 4.8) ramps the gain linearly in dB (a snapshot's fade, ADR 0330); the low-pass stays linear.
+   */
+  busRampFrames(bus: number, lane: number, mask: number, gain: number, lpHz: number, frames: number, sequenceId = 0, atFrame?: number, law: number = FadeLaw.Linear): void {
     const r = this.rampRec;
     r.voiceId = bus;
     r.lane = lane;
@@ -558,7 +565,7 @@ export class CommandWriter implements VoiceCommandSink {
     r.gain = gain;
     r.lpHz = lpHz;
     r.frames = frames;
-    r.shape = packRampShape(FadeLaw.Linear, sequenceId, 0);
+    r.shape = packRampShape(law, sequenceId, 0);
     const at = this.begin(32);
     if (at < 0) return;
     this.end(at, writeBusRamp(this.view, at, r), atFrame);
@@ -796,9 +803,22 @@ export class CommandWriter implements VoiceCommandSink {
   busAutomate(bus: number, bindings: readonly AutomationBinding[]): void {
     const r = this.busAutomateRec;
     r.voiceId = bus;
-    r.bindings = (bindings.length > CORE_BINDINGS ? bindings.slice(0, CORE_BINDINGS) : bindings) as AutomateBindings[];
+    r.bindings = (bindings.length > BUS_AUTOMATE_MAX_BINDINGS ? bindings.slice(0, BUS_AUTOMATE_MAX_BINDINGS) : bindings) as AutomateBindings[];
     const at = this.begin(16 + AUTOMATE_BINDINGS_FIXED_END * r.bindings.length);
     if (at >= 0) this.end(at, writeBusAutomate(this.view, at, r));
+    r.bindings = [];
+  }
+
+  /**
+   * SUBMIX_AUTOMATE (ADR 0331, ABI 4.8): replaces instance submix slot `slot`'s effect-parameter bindings (an empty list
+   * clears them; past `BUS_AUTOMATE_MAX_BINDINGS` dropped), asap. Send it after the slot's SUBMIX.
+   */
+  submixAutomate(slot: number, bindings: readonly AutomationBinding[]): void {
+    const r = this.submixAutomateRec;
+    r.voiceId = slot;
+    r.bindings = (bindings.length > BUS_AUTOMATE_MAX_BINDINGS ? bindings.slice(0, BUS_AUTOMATE_MAX_BINDINGS) : bindings) as AutomateBindings[];
+    const at = this.begin(16 + AUTOMATE_BINDINGS_FIXED_END * r.bindings.length);
+    if (at >= 0) this.end(at, writeSubmixAutomate(this.view, at, r));
     r.bindings = [];
   }
 
