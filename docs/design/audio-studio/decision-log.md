@@ -280,3 +280,10 @@ parent's *resolved* block (ADR wording) — the Studio's `sampleSession.ts` read
 blend overlap widths, music tails (post-exit), transition fade shapes, bridge fades, and beat-quantised automation
 (on the instance's musical clock, for rhythm games); the migration maps the old fields and the sample projects regain
 what D32 lists as not restored.
+
+**D37. Sample plan on every play; what a render contains (W9-C, merged).** A flattened render keeps the source's
+timeline and bakes only the effect chain, its automation and the normalisation gain; trim, cuts, closed gaps, loops
+and markers stay in source time and still apply (the reading where loops and markers keep working; ADR 0328 was not
+explicit). `sample.source` is a project path, else a bare name beside the source. Clip voices (one-shots,
+AudioSource, zones) loop the first loop region forward and endlessly (held until `release()`); full loop programs stay
+playlist-only. One-shots never loop. The render task was told to match this.
