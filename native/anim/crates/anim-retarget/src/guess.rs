@@ -152,8 +152,24 @@ fn label(t: &[String], side: Side) -> Label {
         return Label::Unknown;
     }
     if any(&[
-        "end", "nub", "tip", "top", "null", "ik", "pole", "ctrl", "ctl", "helper", "dummy",
-        "socket", "attach", "prop", "weapon", "target", "footsteps", "ref",
+        "end",
+        "nub",
+        "tip",
+        "top",
+        "null",
+        "ik",
+        "pole",
+        "ctrl",
+        "ctl",
+        "helper",
+        "dummy",
+        "socket",
+        "attach",
+        "prop",
+        "weapon",
+        "target",
+        "footsteps",
+        "ref",
     ]) {
         return Label::Ignore;
     }
@@ -161,7 +177,8 @@ fn label(t: &[String], side: Side) -> Label {
     let upper_arm = any(&["upperarm", "uparm", "humerus"])
         || (has("arm") && (has("upper") || has("up")))
         || (has("arm") && !lower_arm);
-    let lower_leg = any(&["calf", "shin", "knee", "lowerleg", "crus"]) || (has("lower") && has("leg"));
+    let lower_leg =
+        any(&["calf", "shin", "knee", "lowerleg", "crus"]) || (has("lower") && has("leg"));
     let upper_leg = any(&["thigh", "upleg", "upperleg", "femur"])
         || (has("leg") && (has("upper") || has("up")));
     if any(&["twist", "roll"]) {
@@ -298,9 +315,10 @@ impl Tree<'_> {
     }
 
     fn with_label(&self, l: Label, side: Side) -> Option<u16> {
-        self.best((0..self.parents.len() as u16).filter(|&b| {
-            self.label[b as usize] == l && self.side[b as usize] == side
-        }))
+        self.best(
+            (0..self.parents.len() as u16)
+                .filter(|&b| self.label[b as usize] == l && self.side[b as usize] == side),
+        )
     }
 
     /// Descendants of `root` (not `root`), in index order (parents first means a descendant has
@@ -363,7 +381,13 @@ fn guess_humanoid(t: &Tree<'_>) -> Guess {
         bones: vec![NO_BONE; h::COUNT],
         conf: vec![0.0; h::COUNT],
     };
-    let conf = |b: u16, l: Label| if t.label[b as usize] == l { NAMED } else { TOPOLOGY };
+    let conf = |b: u16, l: Label| {
+        if t.label[b as usize] == l {
+            NAMED
+        } else {
+            TOPOLOGY
+        }
+    };
     struct Limb {
         hand: u16,
         lower: u16,
@@ -398,12 +422,36 @@ fn guess_humanoid(t: &Tree<'_>) -> Guess {
         arms[k] = limb(side, Label::Hand, Label::LowerArm, Label::UpperArm);
     }
     let leg_roles = [
-        [h::LEFT_FOOT, h::LEFT_LOWER_LEG, h::LEFT_UPPER_LEG, h::LEFT_LOWER_LEG_TWIST, h::LEFT_UPPER_LEG_TWIST],
-        [h::RIGHT_FOOT, h::RIGHT_LOWER_LEG, h::RIGHT_UPPER_LEG, h::RIGHT_LOWER_LEG_TWIST, h::RIGHT_UPPER_LEG_TWIST],
+        [
+            h::LEFT_FOOT,
+            h::LEFT_LOWER_LEG,
+            h::LEFT_UPPER_LEG,
+            h::LEFT_LOWER_LEG_TWIST,
+            h::LEFT_UPPER_LEG_TWIST,
+        ],
+        [
+            h::RIGHT_FOOT,
+            h::RIGHT_LOWER_LEG,
+            h::RIGHT_UPPER_LEG,
+            h::RIGHT_LOWER_LEG_TWIST,
+            h::RIGHT_UPPER_LEG_TWIST,
+        ],
     ];
     let arm_roles = [
-        [h::LEFT_HAND, h::LEFT_LOWER_ARM, h::LEFT_UPPER_ARM, h::LEFT_LOWER_ARM_TWIST, h::LEFT_UPPER_ARM_TWIST],
-        [h::RIGHT_HAND, h::RIGHT_LOWER_ARM, h::RIGHT_UPPER_ARM, h::RIGHT_LOWER_ARM_TWIST, h::RIGHT_UPPER_ARM_TWIST],
+        [
+            h::LEFT_HAND,
+            h::LEFT_LOWER_ARM,
+            h::LEFT_UPPER_ARM,
+            h::LEFT_LOWER_ARM_TWIST,
+            h::LEFT_UPPER_ARM_TWIST,
+        ],
+        [
+            h::RIGHT_HAND,
+            h::RIGHT_LOWER_ARM,
+            h::RIGHT_UPPER_ARM,
+            h::RIGHT_LOWER_ARM_TWIST,
+            h::RIGHT_UPPER_ARM_TWIST,
+        ],
     ];
     let labels_leg = [Label::Foot, Label::LowerLeg, Label::UpperLeg];
     let labels_arm = [Label::Hand, Label::LowerArm, Label::UpperArm];
@@ -427,22 +475,51 @@ fn guess_humanoid(t: &Tree<'_>) -> Guess {
             g.set(role, inline, NAMED);
             return;
         }
-        let c = t.best(t.descendants(seg_bone).filter(|&b| match t.label[b as usize] {
-            Label::Twist(s) => s == seg || (s == Seg::Unknown && t.parent(b) == Some(seg_bone)),
-            _ => false,
-        }));
+        let c = t.best(
+            t.descendants(seg_bone)
+                .filter(|&b| match t.label[b as usize] {
+                    Label::Twist(s) => {
+                        s == seg || (s == Seg::Unknown && t.parent(b) == Some(seg_bone))
+                    }
+                    _ => false,
+                }),
+        );
         if let Some(b) = c {
             g.set(role, b, NAMED);
         }
     };
     for k in 0..2 {
         if let Some(l) = &legs[k] {
-            twist(&mut g, leg_roles[k][3], l.lower_twist, l.lower, Seg::LowerLeg);
-            twist(&mut g, leg_roles[k][4], l.upper_twist, l.upper, Seg::UpperLeg);
+            twist(
+                &mut g,
+                leg_roles[k][3],
+                l.lower_twist,
+                l.lower,
+                Seg::LowerLeg,
+            );
+            twist(
+                &mut g,
+                leg_roles[k][4],
+                l.upper_twist,
+                l.upper,
+                Seg::UpperLeg,
+            );
         }
         if let Some(l) = &arms[k] {
-            twist(&mut g, arm_roles[k][3], l.lower_twist, l.lower, Seg::LowerArm);
-            twist(&mut g, arm_roles[k][4], l.upper_twist, l.upper, Seg::UpperArm);
+            twist(
+                &mut g,
+                arm_roles[k][3],
+                l.lower_twist,
+                l.lower,
+                Seg::LowerArm,
+            );
+            twist(
+                &mut g,
+                arm_roles[k][4],
+                l.upper_twist,
+                l.upper,
+                Seg::UpperArm,
+            );
         }
     }
     // Shoulders: the upper arm's parent when labelled, else when it isn't shared by both arms.
@@ -537,7 +614,10 @@ fn guess_humanoid(t: &Tree<'_>) -> Guess {
             }
             let s = &path[..cut];
             let spine_conf = |b: u16| {
-                if matches!(t.label[b as usize], Label::Spine | Label::Chest | Label::UpperChest) {
+                if matches!(
+                    t.label[b as usize],
+                    Label::Spine | Label::Chest | Label::UpperChest
+                ) {
                     NAMED
                 } else {
                     TOPOLOGY
@@ -574,15 +654,27 @@ fn guess_humanoid(t: &Tree<'_>) -> Guess {
                 .iter()
                 .copied()
                 .find(|&c| t.label[c as usize] == Label::Neck)
-                .or_else(|| kids.iter().copied().find(|&c| t.label[c as usize] == Label::Head))
-                .or_else(|| kids.iter().copied().max_by_key(|&c| (t.height(c), u16::MAX - c)));
+                .or_else(|| {
+                    kids.iter()
+                        .copied()
+                        .find(|&c| t.label[c as usize] == Label::Head)
+                })
+                .or_else(|| {
+                    kids.iter()
+                        .copied()
+                        .max_by_key(|&c| (t.height(c), u16::MAX - c))
+                });
         }
     }
     if let Some(n) = neck {
         let head = if t.label[n as usize] == Label::Head {
             Some(n)
         } else {
-            t.best(t.descendants(n).filter(|&b| t.label[b as usize] == Label::Head)).or_else(|| {
+            t.best(
+                t.descendants(n)
+                    .filter(|&b| t.label[b as usize] == Label::Head),
+            )
+            .or_else(|| {
                 let mut c = n;
                 loop {
                     let next = t.children[c as usize]
@@ -604,14 +696,18 @@ fn guess_humanoid(t: &Tree<'_>) -> Guess {
         if let Some(hd) = head {
             g.set(h::HEAD, hd, conf(hd, Label::Head));
             for (side, role) in [(Side::Left, h::LEFT_EYE), (Side::Right, h::RIGHT_EYE)] {
-                let e = t.best(t.descendants(hd).filter(|&b| {
-                    t.label[b as usize] == Label::Eye && t.side[b as usize] == side
-                }));
+                let e =
+                    t.best(t.descendants(hd).filter(|&b| {
+                        t.label[b as usize] == Label::Eye && t.side[b as usize] == side
+                    }));
                 if let Some(e) = e {
                     g.set(role, e, NAMED);
                 }
             }
-            if let Some(j) = t.best(t.descendants(hd).filter(|&b| t.label[b as usize] == Label::Jaw)) {
+            if let Some(j) = t.best(
+                t.descendants(hd)
+                    .filter(|&b| t.label[b as usize] == Label::Jaw),
+            ) {
                 g.set(h::JAW, j, NAMED);
             }
         }
@@ -619,7 +715,10 @@ fn guess_humanoid(t: &Tree<'_>) -> Guess {
     // Toes.
     for (foot, role) in [(h::LEFT_FOOT, h::LEFT_TOES), (h::RIGHT_FOOT, h::RIGHT_TOES)] {
         let Some(f) = g.get(foot) else { continue };
-        let named = t.best(t.descendants(f).filter(|&b| t.label[b as usize] == Label::Toes));
+        let named = t.best(
+            t.descendants(f)
+                .filter(|&b| t.label[b as usize] == Label::Toes),
+        );
         if let Some(b) = named {
             g.set(role, b, NAMED);
         } else {
@@ -635,7 +734,10 @@ fn guess_humanoid(t: &Tree<'_>) -> Guess {
     }
     // Fingers: per kind, the first three bones under the hand by depth (metacarpals skipped,
     // except the thumb's, whose first role is its metacarpal).
-    for (hand, first) in [(h::LEFT_HAND, h::LEFT_FINGERS), (h::RIGHT_HAND, h::RIGHT_FINGERS)] {
+    for (hand, first) in [
+        (h::LEFT_HAND, h::LEFT_FINGERS),
+        (h::RIGHT_HAND, h::RIGHT_FINGERS),
+    ] {
         let Some(hb) = g.get(hand) else { continue };
         for k in 0..5u8 {
             let mut bones: Vec<u16> = t
@@ -733,7 +835,8 @@ pub fn guess_bone_map(names: &[&str], parents: &[u16], profile: &Profile) -> Bon
         if want.1.is_empty() {
             continue;
         }
-        let found = tree.best((0..n as u16).filter(|&b| !used[b as usize] && norms[b as usize] == want));
+        let found =
+            tree.best((0..n as u16).filter(|&b| !used[b as usize] && norms[b as usize] == want));
         if let Some(b) = found {
             map.bones[r] = b;
             map.confidence[r] = 0.8;
@@ -750,9 +853,18 @@ mod tests {
     #[test]
     fn tokens_split_conventions() {
         assert_eq!(tokens("mixamorig:LeftUpLeg"), ["left", "up", "leg"]);
-        assert_eq!(tokens("DEF-upper_arm.L.001"), ["def", "upper", "arm", "l", "001"]);
-        assert_eq!(tokens("J_Bip_L_UpperArm"), ["j", "bip", "l", "upper", "arm"]);
-        assert_eq!(tokens("Bip01 L Finger01"), ["bip", "01", "l", "finger", "01"]);
+        assert_eq!(
+            tokens("DEF-upper_arm.L.001"),
+            ["def", "upper", "arm", "l", "001"]
+        );
+        assert_eq!(
+            tokens("J_Bip_L_UpperArm"),
+            ["j", "bip", "l", "upper", "arm"]
+        );
+        assert_eq!(
+            tokens("Bip01 L Finger01"),
+            ["bip", "01", "l", "finger", "01"]
+        );
         assert_eq!(tokens("thigh_twist_01_l"), ["thigh", "twist", "01", "l"]);
         assert_eq!(tokens("HeadTop_End"), ["head", "top", "end"]);
     }
@@ -771,9 +883,18 @@ mod tests {
         assert_eq!(c("Bip01 Pelvis"), (Side::Centre, Label::Hips));
         assert_eq!(c("Bip01 HeadNub"), (Side::Centre, Label::Ignore));
         assert_eq!(c("DEF-shin.L"), (Side::Left, Label::LowerLeg));
-        assert_eq!(c("DEF-f_pinky.02.R"), (Side::Right, Label::Finger(4, false)));
-        assert_eq!(c("index_metacarpal_l"), (Side::Left, Label::Finger(1, true)));
-        assert_eq!(c("upperarm_twist_01_l"), (Side::Left, Label::Twist(Seg::UpperArm)));
+        assert_eq!(
+            c("DEF-f_pinky.02.R"),
+            (Side::Right, Label::Finger(4, false))
+        );
+        assert_eq!(
+            c("index_metacarpal_l"),
+            (Side::Left, Label::Finger(1, true))
+        );
+        assert_eq!(
+            c("upperarm_twist_01_l"),
+            (Side::Left, Label::Twist(Seg::UpperArm))
+        );
         assert_eq!(c("J_Bip_C_UpperChest"), (Side::Centre, Label::UpperChest));
         assert_eq!(c("left_foot"), (Side::Left, Label::Foot));
         assert_eq!(c("Hand_L_"), (Side::Left, Label::Hand));

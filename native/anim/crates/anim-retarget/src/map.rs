@@ -298,7 +298,11 @@ fn direction(path: &[u16], model: &[AosTransform], k: usize) -> Option<AosVec3> 
     if path.len() < 2 {
         return None;
     }
-    let (i, j) = if k + 1 < path.len() { (k, k + 1) } else { (k - 1, k) };
+    let (i, j) = if k + 1 < path.len() {
+        (k, k + 1)
+    } else {
+        (k - 1, k)
+    };
     let d = model[path[j] as usize].translation - model[path[i] as usize].translation;
     (d.length_squared() > 1e-12).then(|| normalize_or(d, d))
 }
@@ -326,7 +330,11 @@ impl RetargetMap {
     /// both sides (unmapped, or a last bone that isn't below the first) are left out, as are IK
     /// goals whose limb isn't parent-ordered; [`chains`](Self::chains) and
     /// [`goals`](Self::goals) list what was kept.
-    pub fn new(source: Side<'_>, target: Side<'_>, settings: &MapSettings) -> Result<Self, MapError> {
+    pub fn new(
+        source: Side<'_>,
+        target: Side<'_>,
+        settings: &MapSettings,
+    ) -> Result<Self, MapError> {
         check(&source.skeleton)?;
         check(&target.skeleton)?;
         if source.map.bones.len() != source.profile.roles.len()
@@ -346,7 +354,11 @@ impl RetargetMap {
             if !(tc.ik && tc.kind == ChainKind::Leg) {
                 continue;
             }
-            let Some(sc) = source.profile.chain(&tc.name).map(|i| &source.profile.chains[i]) else {
+            let Some(sc) = source
+                .profile
+                .chain(&tc.name)
+                .map(|i| &source.profile.chains[i])
+            else {
                 continue;
             };
             if let (Some(sl), Some(tl)) = (limb(&source, &sc.roles), limb(&target, &tc.roles)) {
@@ -356,7 +368,10 @@ impl RetargetMap {
             }
         }
         let role_bone = |s: &Side<'_>, r: u16, n: usize| {
-            (r != NO_ROLE).then(|| s.map.bone(r)).flatten().filter(|&b| (b as usize) < n)
+            (r != NO_ROLE)
+                .then(|| s.map.bone(r))
+                .flatten()
+                .filter(|&b| (b as usize) < n)
         };
         let src_hips = role_bone(&source, source.profile.hips, ns);
         let tgt_hips = role_bone(&target, target.profile.hips, nt);
@@ -400,11 +415,17 @@ impl RetargetMap {
         let mut chains = Vec::new();
         let mut goals = Vec::new();
         for tc in &target.profile.chains {
-            let Some(sc) = source.profile.chain(&tc.name).map(|i| &source.profile.chains[i]) else {
+            let Some(sc) = source
+                .profile
+                .chain(&tc.name)
+                .map(|i| &source.profile.chains[i])
+            else {
                 continue;
             };
-            let (Some(sp), Some(tp)) = (chain_path(&source, &sc.roles), chain_path(&target, &tc.roles))
-            else {
+            let (Some(sp), Some(tp)) = (
+                chain_path(&source, &sc.roles),
+                chain_path(&target, &tc.roles),
+            ) else {
                 continue;
             };
             let su = params(&sp, &sm);
@@ -425,7 +446,11 @@ impl RetargetMap {
                         j += 1;
                     }
                     let span = su[j + 1] - su[j];
-                    let t = if span > 1e-9 { ((u - su[j]) / span).clamp(0.0, 1.0) } else { 0.0 };
+                    let t = if span > 1e-9 {
+                        ((u - su[j]) / span).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
                     (j, j + 1, t)
                 };
                 let align = if settings.align_chains {
@@ -561,12 +586,17 @@ impl RetargetMap {
                 scratch.tgt_model[p as usize]
             };
             let rest = self.tgt_rest[i];
-            let local_rot = |rot: AosQuat| (parent.rotation.conjugate() * rot).normalize_or_identity();
+            let local_rot =
+                |rot: AosQuat| (parent.rotation.conjugate() * rot).normalize_or_identity();
             let local = match self.drives[i] {
                 Drive::Rest => rest,
                 Drive::Chain { a, b, t, offset } => {
                     let da = scratch.delta[a as usize];
-                    let d = if a == b { da } else { da.nlerp(scratch.delta[b as usize], t) };
+                    let d = if a == b {
+                        da
+                    } else {
+                        da.nlerp(scratch.delta[b as usize], t)
+                    };
                     let rot = (d * offset).normalize_or_identity();
                     AosTransform::new(rest.translation, local_rot(rot), rest.scale)
                 }

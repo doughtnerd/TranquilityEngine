@@ -66,7 +66,10 @@ pub struct Rig {
 
 impl Rig {
     pub fn index(&self, name: &str) -> usize {
-        self.names.iter().position(|n| n == name).unwrap_or_else(|| panic!("no bone {name}"))
+        self.names
+            .iter()
+            .position(|n| n == name)
+            .unwrap_or_else(|| panic!("no bone {name}"))
     }
     pub fn n(&self) -> usize {
         self.names.len()
@@ -145,7 +148,11 @@ pub fn rig_from(rows: &[(String, Option<String>, AosVec3)], axes: Axes) -> Rig {
             None if parents[i] != NO_PARENT => pos[i] - pos[parents[i] as usize],
             None => v(0.0, 1.0, 0.0),
         };
-        let dir = if dir.length() > 1e-6 { dir.scale(1.0 / dir.length()) } else { v(0.0, 1.0, 0.0) };
+        let dir = if dir.length() > 1e-6 {
+            dir.scale(1.0 / dir.length())
+        } else {
+            v(0.0, 1.0, 0.0)
+        };
         rot[i] = frame(axes, dir, 0.3 * i as f32);
     }
     let rest = (0..n)
@@ -183,7 +190,11 @@ pub fn humanoid(b: Build) -> Rig {
     let spine_top = l + 0.45 * k;
     let mut spine_names = Vec::new();
     for i in 0..b.spine {
-        let name = if i == 0 { s("Spine") } else { format!("Spine{i}") };
+        let name = if i == 0 {
+            s("Spine")
+        } else {
+            format!("Spine{i}")
+        };
         let y = l + 0.1 * k + (0.35 * k) * i as f32 / (b.spine.max(2) - 1) as f32;
         let y = if b.spine == 1 { l + 0.25 * k } else { y };
         rows.push((name.clone(), Some(prev.clone()), v(0.0, y, 0.0)));
@@ -191,8 +202,16 @@ pub fn humanoid(b: Build) -> Rig {
         spine_names.push(name);
     }
     let chest = prev.clone();
-    rows.push((s("Neck"), Some(chest.clone()), v(0.0, spine_top + 0.12 * k, 0.0)));
-    rows.push((s("Head"), Some(s("Neck")), v(0.0, spine_top + 0.22 * k, 0.0)));
+    rows.push((
+        s("Neck"),
+        Some(chest.clone()),
+        v(0.0, spine_top + 0.12 * k, 0.0),
+    ));
+    rows.push((
+        s("Head"),
+        Some(s("Neck")),
+        v(0.0, spine_top + 0.22 * k, 0.0),
+    ));
     for (side, sx) in [("Left", 1.0f32), ("Right", -1.0f32)] {
         let n = |x: &str| format!("{side}{x}");
         let sh = v(0.05 * sx * k, spine_top + 0.05 * k, 0.0);
@@ -208,7 +227,11 @@ pub fn humanoid(b: Build) -> Rig {
         let mut p = n("Hand");
         for i in 1..=3 {
             let name = n(&format!("HandIndex{i}"));
-            rows.push((name.clone(), Some(p.clone()), hd + dir.scale(0.06 * k + 0.03 * k * i as f32)));
+            rows.push((
+                name.clone(),
+                Some(p.clone()),
+                hd + dir.scale(0.06 * k + 0.03 * k * i as f32),
+            ));
             p = name;
         }
         let mut p = n("Hand");
@@ -227,7 +250,11 @@ pub fn humanoid(b: Build) -> Rig {
         rows.push((n("UpLeg"), Some(s("Hips")), ul));
         rows.push((n("Leg"), Some(n("UpLeg")), ll));
         rows.push((n("Foot"), Some(n("Leg")), ft));
-        rows.push((n("ToeBase"), Some(n("Foot")), ft + v(0.0, -0.06 * l, 0.12 * l)));
+        rows.push((
+            n("ToeBase"),
+            Some(n("Foot")),
+            ft + v(0.0, -0.06 * l, 0.12 * l),
+        ));
     }
     rig_from(&rows, b.axes)
 }
@@ -237,17 +264,26 @@ pub struct Rng(u64);
 
 impl Rng {
     pub fn new(seed: u64) -> Self {
-        Rng(seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407))
+        Rng(seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407))
     }
     pub fn unit(&mut self) -> f32 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         ((self.0 >> 40) as f32) / (1u64 << 24) as f32
     }
     pub fn range(&mut self, a: f32, b: f32) -> f32 {
         a + (b - a) * self.unit()
     }
     pub fn rot(&mut self, max: f32) -> AosQuat {
-        let axis = v(self.range(-1.0, 1.0), self.range(-1.0, 1.0), self.range(-1.0, 1.0) + 0.01);
+        let axis = v(
+            self.range(-1.0, 1.0),
+            self.range(-1.0, 1.0),
+            self.range(-1.0, 1.0) + 0.01,
+        );
         q(axis, self.range(-max, max))
     }
 }
@@ -258,22 +294,38 @@ pub fn random_pose(rig: &Rig, rng: &mut Rng, max: f32) -> Vec<AosTransform> {
     for t in p.iter_mut() {
         t.rotation = (t.rotation * rng.rot(max)).normalize_or_identity();
     }
-    p[0].translation = p[0].translation + v(rng.range(-0.3, 0.3), rng.range(-0.1, 0.1), rng.range(-0.3, 0.3));
+    p[0].translation = p[0].translation
+        + v(
+            rng.range(-0.3, 0.3),
+            rng.range(-0.1, 0.1),
+            rng.range(-0.3, 0.3),
+        );
     p
 }
 
 /// Whether `a` and `b` are the same rotation within `tol` per component (`q` and `-q` alike).
 pub fn quat_close(a: AosQuat, b: AosQuat, tol: f32) -> bool {
     let b = if a.dot(b) < 0.0 { -b } else { b };
-    [a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w].iter().all(|d| d.abs() <= tol)
+    [a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w]
+        .iter()
+        .all(|d| d.abs() <= tol)
 }
 
 // ---- f64 conversions -----------------------------------------------------------------------
 
 pub fn t64(t: AosTransform) -> r::Transform {
     r::Transform {
-        translation: r::Vec3::new(t.translation.x as f64, t.translation.y as f64, t.translation.z as f64),
-        rotation: r::Quat::new(t.rotation.x as f64, t.rotation.y as f64, t.rotation.z as f64, t.rotation.w as f64),
+        translation: r::Vec3::new(
+            t.translation.x as f64,
+            t.translation.y as f64,
+            t.translation.z as f64,
+        ),
+        rotation: r::Quat::new(
+            t.rotation.x as f64,
+            t.rotation.y as f64,
+            t.rotation.z as f64,
+            t.rotation.w as f64,
+        ),
         scale: r::Vec3::new(t.scale.x as f64, t.scale.y as f64, t.scale.z as f64),
     }
 }

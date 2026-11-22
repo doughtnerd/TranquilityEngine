@@ -17,7 +17,10 @@ fn set(rows: &[(String, Option<String>)]) -> Set {
         .map(|(i, r)| match &r.1 {
             None => 0xFFFF,
             Some(p) => {
-                let k = names.iter().position(|n| n == p).unwrap_or_else(|| panic!("no parent {p}"));
+                let k = names
+                    .iter()
+                    .position(|n| n == p)
+                    .unwrap_or_else(|| panic!("no parent {p}"));
                 assert!(k < i, "{} before its parent {p}", r.0);
                 k as u16
             }
@@ -66,8 +69,17 @@ fn expect(s: &Set, m: &BoneMap, pairs: &[(u16, &str)]) {
 /// Every required role, both shoulders, all 30 fingers and both toes.
 fn assert_full(s: &Set, m: &BoneMap, what: &str) {
     let p = Profile::humanoid();
-    assert!(m.missing_required(&p).is_empty(), "{what}: missing {:?}", m.missing_required(&p));
-    let mut want: Vec<u16> = vec![h::LEFT_SHOULDER, h::RIGHT_SHOULDER, h::LEFT_TOES, h::RIGHT_TOES];
+    assert!(
+        m.missing_required(&p).is_empty(),
+        "{what}: missing {:?}",
+        m.missing_required(&p)
+    );
+    let mut want: Vec<u16> = vec![
+        h::LEFT_SHOULDER,
+        h::RIGHT_SHOULDER,
+        h::LEFT_TOES,
+        h::RIGHT_TOES,
+    ];
     want.extend(h::LEFT_FINGERS..h::LEFT_FINGERS + 15);
     want.extend(h::RIGHT_FINGERS..h::RIGHT_FINGERS + 15);
     for r in want {
@@ -96,12 +108,25 @@ fn mixamo() -> Set {
     let mut r = Rows(Vec::new());
     let m = |x: &str| format!("mixamorig:{x}");
     r.add(&m("Hips"), None);
-    r.chain(&m("Hips"), &[m("Spine"), m("Spine1"), m("Spine2"), m("Neck"), m("Head"), m("HeadTop_End")]);
+    r.chain(
+        &m("Hips"),
+        &[
+            m("Spine"),
+            m("Spine1"),
+            m("Spine2"),
+            m("Neck"),
+            m("Head"),
+            m("HeadTop_End"),
+        ],
+    );
     r.add(&m("LeftEye"), Some(&m("Head")));
     r.add(&m("RightEye"), Some(&m("Head")));
     for side in ["Left", "Right"] {
         let s = |x: &str| m(&format!("{side}{x}"));
-        r.chain(&m("Spine2"), &[s("Shoulder"), s("Arm"), s("ForeArm"), s("Hand")]);
+        r.chain(
+            &m("Spine2"),
+            &[s("Shoulder"), s("Arm"), s("ForeArm"), s("Hand")],
+        );
         for f in ["Thumb", "Index", "Middle", "Ring", "Pinky"] {
             let bones: Vec<String> = (1..=4).map(|i| s(&format!("Hand{f}{i}"))).collect();
             r.chain(&s("Hand"), &bones);
@@ -109,7 +134,10 @@ fn mixamo() -> Set {
     }
     for side in ["Left", "Right"] {
         let s = |x: &str| m(&format!("{side}{x}"));
-        r.chain(&m("Hips"), &[s("UpLeg"), s("Leg"), s("Foot"), s("ToeBase"), s("Toe_End")]);
+        r.chain(
+            &m("Hips"),
+            &[s("UpLeg"), s("Leg"), s("Foot"), s("ToeBase"), s("Toe_End")],
+        );
     }
     set(&r.0)
 }
@@ -147,10 +175,16 @@ fn mixamo_is_fully_mapped() {
 fn unreal() -> Set {
     let mut r = Rows(Vec::new());
     r.add("root", None);
-    r.chain("root", &["pelvis", "spine_01", "spine_02", "spine_03"].map(String::from));
+    r.chain(
+        "root",
+        &["pelvis", "spine_01", "spine_02", "spine_03"].map(String::from),
+    );
     for s in ["l", "r"] {
         let n = |x: &str| format!("{x}_{s}");
-        r.chain("spine_03", &[n("clavicle"), n("upperarm"), n("lowerarm"), n("hand")]);
+        r.chain(
+            "spine_03",
+            &[n("clavicle"), n("upperarm"), n("lowerarm"), n("hand")],
+        );
         for f in ["index", "middle", "pinky", "ring", "thumb"] {
             let bones: Vec<String> = (1..=3).map(|i| n(&format!("{f}_0{i}"))).collect();
             r.chain(&n("hand"), &bones);
@@ -220,10 +254,20 @@ fn rigify() -> Set {
         let n = |x: &str| format!("DEF-{x}.{s}");
         r.chain(
             "DEF-spine.003",
-            &[n("shoulder"), n("upper_arm"), format!("{}.001", n("upper_arm")), n("forearm"), format!("{}.001", n("forearm")), n("hand")],
+            &[
+                n("shoulder"),
+                n("upper_arm"),
+                format!("{}.001", n("upper_arm")),
+                n("forearm"),
+                format!("{}.001", n("forearm")),
+                n("hand"),
+            ],
         );
         // Palms 1-4 under the hand carry index..pinky; the thumb hangs off palm 1.
-        for (k, f) in ["f_index", "f_middle", "f_ring", "f_pinky"].iter().enumerate() {
+        for (k, f) in ["f_index", "f_middle", "f_ring", "f_pinky"]
+            .iter()
+            .enumerate()
+        {
             let palm = format!("DEF-palm.0{}.{s}", k + 1);
             r.add(&palm, Some(&n("hand")));
             let bones: Vec<String> = (1..=3).map(|i| format!("DEF-{f}.0{i}.{s}")).collect();
@@ -239,7 +283,14 @@ fn rigify() -> Set {
         r.add(&n("pelvis"), Some("DEF-spine"));
         r.chain(
             "DEF-spine",
-            &[n("thigh"), format!("{}.001", n("thigh")), n("shin"), format!("{}.001", n("shin")), n("foot"), n("toe")],
+            &[
+                n("thigh"),
+                format!("{}.001", n("thigh")),
+                n("shin"),
+                format!("{}.001", n("shin")),
+                n("foot"),
+                n("toe"),
+            ],
         );
     }
     set(&r.0)
@@ -285,13 +336,25 @@ fn vrm() -> Set {
     let c = |x: &str| format!("J_Bip_C_{x}");
     r.add("Root", None);
     r.add(&c("Hips"), Some("Root"));
-    r.chain(&c("Hips"), &[c("Spine"), c("Chest"), c("UpperChest"), c("Neck"), c("Head")]);
+    r.chain(
+        &c("Hips"),
+        &[
+            c("Spine"),
+            c("Chest"),
+            c("UpperChest"),
+            c("Neck"),
+            c("Head"),
+        ],
+    );
     r.add("J_Adj_L_FaceEye", Some(&c("Head")));
     r.add("J_Adj_R_FaceEye", Some(&c("Head")));
     r.add("J_Sec_Hair1_01", Some(&c("Head")));
     for s in ["L", "R"] {
         let n = |x: &str| format!("J_Bip_{s}_{x}");
-        r.chain(&c("UpperChest"), &[n("Shoulder"), n("UpperArm"), n("LowerArm"), n("Hand")]);
+        r.chain(
+            &c("UpperChest"),
+            &[n("Shoulder"), n("UpperArm"), n("LowerArm"), n("Hand")],
+        );
         for f in ["Thumb", "Index", "Middle", "Ring", "Little"] {
             let bones: Vec<String> = (1..=3).map(|i| n(&format!("{f}{i}"))).collect();
             r.chain(&n("Hand"), &bones);
@@ -299,7 +362,10 @@ fn vrm() -> Set {
     }
     for s in ["L", "R"] {
         let n = |x: &str| format!("J_Bip_{s}_{x}");
-        r.chain(&c("Hips"), &[n("UpperLeg"), n("LowerLeg"), n("Foot"), n("ToeBase")]);
+        r.chain(
+            &c("Hips"),
+            &[n("UpperLeg"), n("LowerLeg"), n("Foot"), n("ToeBase")],
+        );
     }
     set(&r.0)
 }
@@ -338,14 +404,25 @@ fn biped() -> Set {
     r.add(&b("Spine"), Some(&b("Pelvis")));
     for s in ["L", "R"] {
         let n = |x: &str| b(&format!("{s} {x}"));
-        r.chain(&b("Spine"), &[n("Thigh"), n("Calf"), n("Foot"), n("Toe0"), n("Toe0Nub")]);
+        r.chain(
+            &b("Spine"),
+            &[n("Thigh"), n("Calf"), n("Foot"), n("Toe0"), n("Toe0Nub")],
+        );
     }
     r.chain(&b("Spine"), &[b("Spine1"), b("Spine2"), b("Neck")]);
     for s in ["L", "R"] {
         let n = |x: &str| b(&format!("{s} {x}"));
-        r.chain(&b("Neck"), &[n("Clavicle"), n("UpperArm"), n("Forearm"), n("Hand")]);
+        r.chain(
+            &b("Neck"),
+            &[n("Clavicle"), n("UpperArm"), n("Forearm"), n("Hand")],
+        );
         for f in 0..5 {
-            let bones = [n(&format!("Finger{f}")), n(&format!("Finger{f}1")), n(&format!("Finger{f}2")), n(&format!("Finger{f}Nub"))];
+            let bones = [
+                n(&format!("Finger{f}")),
+                n(&format!("Finger{f}1")),
+                n(&format!("Finger{f}2")),
+                n(&format!("Finger{f}Nub")),
+            ];
             r.chain(&n("Hand"), &bones);
         }
     }
@@ -396,7 +473,14 @@ fn custom_profile_roles_match_by_name() {
     };
     let p = Profile {
         name: "Creature".to_string(),
-        roles: vec![role("Hips", 0), role("Head", 1), role("Tail1", 2), role("Tail2", 3), role("LeftWing", 5), role("RightWing", 4)],
+        roles: vec![
+            role("Hips", 0),
+            role("Head", 1),
+            role("Tail1", 2),
+            role("Tail2", 3),
+            role("LeftWing", 5),
+            role("RightWing", 4),
+        ],
         chains: vec![Chain {
             name: "Tail".to_string(),
             kind: ChainKind::Custom,
@@ -410,11 +494,14 @@ fn custom_profile_roles_match_by_name() {
     let mut s = mixamo();
     let n = s.names.len() as u16;
     let hips = s.names.iter().position(|x| x == "mixamorig:Hips").unwrap() as u16;
-    s.names.extend(["DEF-tail_1", "DEF-tail_2", "wing.L", "wing.R"].map(String::from));
+    s.names
+        .extend(["DEF-tail_1", "DEF-tail_2", "wing.L", "wing.R"].map(String::from));
     s.parents.extend([hips, n, hips, hips]);
     let names: Vec<&str> = s.names.iter().map(String::as_str).collect();
     let m = guess_bone_map(&names, &s.parents, &p);
-    let got: Vec<Option<&str>> = (0..6).map(|r| m.bone(r).map(|b| s.names[b as usize].as_str())).collect();
+    let got: Vec<Option<&str>> = (0..6)
+        .map(|r| m.bone(r).map(|b| s.names[b as usize].as_str()))
+        .collect();
     assert_eq!(
         got,
         [
@@ -432,7 +519,10 @@ fn custom_profile_roles_match_by_name() {
 #[test]
 fn degenerate_input_never_panics() {
     let p = Profile::humanoid();
-    assert!(guess_bone_map(&[], &[], &p).bones.iter().all(|&b| b == 0xFFFF));
+    assert!(guess_bone_map(&[], &[], &p)
+        .bones
+        .iter()
+        .all(|&b| b == 0xFFFF));
     // Parents that break the order count as roots; mismatched lengths use the shorter.
     let m = guess_bone_map(&["Hips", "LeftFoot", "x"], &[5, 0], &p);
     assert_eq!(m.bones.len(), p.roles.len());

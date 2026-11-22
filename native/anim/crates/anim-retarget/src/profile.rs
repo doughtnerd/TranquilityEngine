@@ -104,7 +104,9 @@ pub enum ProfileError {
 impl core::fmt::Display for ProfileError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ProfileError::Malformed(what, at) => write!(f, "malformed profile: {what} at byte {at}"),
+            ProfileError::Malformed(what, at) => {
+                write!(f, "malformed profile: {what} at byte {at}")
+            }
             ProfileError::Invalid(what, which) => write!(f, "invalid profile: {what} ({which})"),
         }
     }
@@ -205,7 +207,10 @@ impl Profile {
             }
         }
         if self.root != NO_ROLE && self.root == self.hips {
-            return Err(invalid("root and hips are the same role", self.root.to_string()));
+            return Err(invalid(
+                "root and hips are the same role",
+                self.root.to_string(),
+            ));
         }
         Ok(())
     }
@@ -250,7 +255,12 @@ impl Profile {
                 ik,
             });
         };
-        chain("Spine", ChainKind::Spine, false, &["Spine", "Chest", "UpperChest"]);
+        chain(
+            "Spine",
+            ChainKind::Spine,
+            false,
+            &["Spine", "Chest", "UpperChest"],
+        );
         chain("Head", ChainKind::Head, false, &["Neck", "Head"]);
         chain("LeftEye", ChainKind::Head, false, &["LeftEye"]);
         chain("RightEye", ChainKind::Head, false, &["RightEye"]);
@@ -280,7 +290,12 @@ impl Profile {
             chain(&s("Toes"), ChainKind::Leg, false, &[&s("Toes")]);
         }
         for side in ["Left", "Right"] {
-            for part in ["UpperArmTwist", "LowerArmTwist", "UpperLegTwist", "LowerLegTwist"] {
+            for part in [
+                "UpperArmTwist",
+                "LowerArmTwist",
+                "UpperLegTwist",
+                "LowerLegTwist",
+            ] {
                 let n = format!("{side}{part}");
                 chain(&n, ChainKind::Twist, false, &[&n]);
             }

@@ -253,8 +253,14 @@ mod tests {
         let rm = AosTransform::new(v(-0.2, 1.4, 0.0), mr, AosVec3::one());
         let root = t(v(0.0, 0.0, 0.0), AosQuat::identity());
         // Child bones 0.3 m along each arm's model direction (+X on the left, -X on the right).
-        let l2 = t(lm.rotation.conjugate().rotate(v(0.3, 0.0, 0.0)), AosQuat::identity());
-        let r2 = t(rm.rotation.conjugate().rotate(v(-0.3, 0.0, 0.0)), AosQuat::identity());
+        let l2 = t(
+            lm.rotation.conjugate().rotate(v(0.3, 0.0, 0.0)),
+            AosQuat::identity(),
+        );
+        let r2 = t(
+            rm.rotation.conjugate().rotate(v(-0.3, 0.0, 0.0)),
+            AosQuat::identity(),
+        );
         (parents, vec![root, lm, l2, rm, r2], vec![0, 3, 4, 1, 2])
     }
 
@@ -317,13 +323,19 @@ mod tests {
             let d = mirrored[i].translation - r(posed[p as usize].translation);
             assert!(d.length() < 1e-5, "bone {i}: {}", d.length());
             let want = mirror_transform(posed[p as usize], Axis::X).rotation * flips[i].quat();
-            assert!(mirrored[i].rotation.dot(want).abs() > 1.0 - 1e-6, "bone {i}");
+            assert!(
+                mirrored[i].rotation.dot(want).abs() > 1.0 - 1e-6,
+                "bone {i}"
+            );
         }
         // Mirroring twice returns the input rotations.
         let mut back = vec![SoaTransform::identity(); soa_len(5)];
         mirror_flipped(&out, &partner, Axis::X, Some(table), &mut back);
         for (i, b) in aos(&back, 5).iter().enumerate() {
-            assert!(b.rotation.dot(locals[i].rotation).abs() > 1.0 - 1e-6, "bone {i}");
+            assert!(
+                b.rotation.dot(locals[i].rotation).abs() > 1.0 - 1e-6,
+                "bone {i}"
+            );
         }
         // Without the table the right arm's frame comes out a half turn off (its frames aren't
         // mirror images of the left's).

@@ -18,12 +18,35 @@ fn humanoid_profile_matches_godot_roles_and_is_valid() {
     p.validate().unwrap();
     assert_eq!(p.roles.len(), h::COUNT);
     let godot = [
-        "Root", "Hips", "Spine", "Chest", "UpperChest", "Neck", "Head", "LeftEye", "RightEye", "Jaw",
-        "LeftShoulder", "LeftUpperArm", "LeftLowerArm", "LeftHand", "LeftThumbMetacarpal",
-        "LeftThumbProximal", "LeftThumbDistal", "LeftIndexProximal", "LeftIndexIntermediate",
-        "LeftIndexDistal", "LeftMiddleProximal", "LeftMiddleIntermediate", "LeftMiddleDistal",
-        "LeftRingProximal", "LeftRingIntermediate", "LeftRingDistal", "LeftLittleProximal",
-        "LeftLittleIntermediate", "LeftLittleDistal",
+        "Root",
+        "Hips",
+        "Spine",
+        "Chest",
+        "UpperChest",
+        "Neck",
+        "Head",
+        "LeftEye",
+        "RightEye",
+        "Jaw",
+        "LeftShoulder",
+        "LeftUpperArm",
+        "LeftLowerArm",
+        "LeftHand",
+        "LeftThumbMetacarpal",
+        "LeftThumbProximal",
+        "LeftThumbDistal",
+        "LeftIndexProximal",
+        "LeftIndexIntermediate",
+        "LeftIndexDistal",
+        "LeftMiddleProximal",
+        "LeftMiddleIntermediate",
+        "LeftMiddleDistal",
+        "LeftRingProximal",
+        "LeftRingIntermediate",
+        "LeftRingDistal",
+        "LeftLittleProximal",
+        "LeftLittleIntermediate",
+        "LeftLittleDistal",
     ];
     for (i, n) in godot.iter().enumerate() {
         assert_eq!(p.roles[i].name, *n);
@@ -46,11 +69,31 @@ fn humanoid_profile_matches_godot_roles_and_is_valid() {
     assert_eq!(p.roles[h::HEAD as usize].mirror, h::HEAD);
     // Chains: kinds, IK limbs, fingers.
     let c = |n: &str| &p.chains[p.chain(n).unwrap()];
-    assert_eq!(c("LeftArm").roles, [h::LEFT_SHOULDER, h::LEFT_UPPER_ARM, h::LEFT_LOWER_ARM, h::LEFT_HAND]);
+    assert_eq!(
+        c("LeftArm").roles,
+        [
+            h::LEFT_SHOULDER,
+            h::LEFT_UPPER_ARM,
+            h::LEFT_LOWER_ARM,
+            h::LEFT_HAND
+        ]
+    );
     assert!(c("LeftArm").ik && c("RightLeg").ik && !c("Spine").ik);
     assert_eq!(c("RightLeg").kind, ChainKind::Leg);
-    assert_eq!(p.chains.iter().filter(|x| x.kind == ChainKind::Finger).count(), 10);
-    assert_eq!(p.chains.iter().filter(|x| x.kind == ChainKind::Twist).count(), 8);
+    assert_eq!(
+        p.chains
+            .iter()
+            .filter(|x| x.kind == ChainKind::Finger)
+            .count(),
+        10
+    );
+    assert_eq!(
+        p.chains
+            .iter()
+            .filter(|x| x.kind == ChainKind::Twist)
+            .count(),
+        8
+    );
     // Every role but Root and Hips has a joint range, all valid.
     for (i, r) in p.roles.iter().enumerate() {
         assert_eq!(r.range.is_some(), i >= 2, "{}", r.name);
@@ -164,8 +207,14 @@ fn decode_refuses_malformed_bytes() {
     assert_eq!(malformed(&with(B_FLIP, &[9])), "role flip");
     assert_eq!(malformed(&with(C_KIND, &[7])), "chain kind");
     assert_eq!(malformed(&with(C_FLAGS, &[2])), "unknown chain flags");
-    assert_eq!(malformed(&with(C_COUNT, &0u16.to_le_bytes())), "chain role count");
-    assert_eq!(malformed(&with(C_COUNT, &3u16.to_le_bytes())), "chain role count");
+    assert_eq!(
+        malformed(&with(C_COUNT, &0u16.to_le_bytes())),
+        "chain role count"
+    );
+    assert_eq!(
+        malformed(&with(C_COUNT, &3u16.to_le_bytes())),
+        "chain role count"
+    );
 }
 
 #[test]
@@ -176,18 +225,42 @@ fn decode_refuses_invalid_profiles() {
         x[at..at + v.len()].copy_from_slice(v);
         x
     };
-    assert_eq!(invalid(&with(A_MIRROR, &1u16.to_le_bytes())), "mirror map is not an involution");
-    assert_eq!(invalid(&with(A_MIRROR, &7u16.to_le_bytes())), "mirror map is not an involution");
-    assert_eq!(invalid(&with(A_RANGE, &f32::NAN.to_le_bytes())), "joint range");
-    assert_eq!(invalid(&with(A_RANGE, &200f32.to_le_bytes())), "joint range");
+    assert_eq!(
+        invalid(&with(A_MIRROR, &1u16.to_le_bytes())),
+        "mirror map is not an involution"
+    );
+    assert_eq!(
+        invalid(&with(A_MIRROR, &7u16.to_le_bytes())),
+        "mirror map is not an involution"
+    );
+    assert_eq!(
+        invalid(&with(A_RANGE, &f32::NAN.to_le_bytes())),
+        "joint range"
+    );
+    assert_eq!(
+        invalid(&with(A_RANGE, &200f32.to_le_bytes())),
+        "joint range"
+    );
     // twist min > max
-    assert_eq!(invalid(&with(A_RANGE + 8, &10f32.to_le_bytes())), "joint range");
+    assert_eq!(
+        invalid(&with(A_RANGE + 8, &10f32.to_le_bytes())),
+        "joint range"
+    );
     assert_eq!(invalid(&with(ROLE_B + 1, b"A")), "duplicate role name");
-    assert_eq!(invalid(&with(C_ROLES, &9u16.to_le_bytes())), "chain role out of range");
-    assert_eq!(invalid(&with(C_ROLES + 2, &0u16.to_le_bytes())), "chain repeats a role");
+    assert_eq!(
+        invalid(&with(C_ROLES, &9u16.to_le_bytes())),
+        "chain role out of range"
+    );
+    assert_eq!(
+        invalid(&with(C_ROLES + 2, &0u16.to_le_bytes())),
+        "chain repeats a role"
+    );
     assert_eq!(invalid(&with(C_FLAGS, &[1])), "IK chain needs three roles");
     assert_eq!(invalid(&with(16, &5u16.to_le_bytes())), "root role");
-    assert_eq!(invalid(&with(16, &0u16.to_le_bytes())), "root and hips are the same role");
+    assert_eq!(
+        invalid(&with(16, &0u16.to_le_bytes())),
+        "root and hips are the same role"
+    );
     // encode refuses what decode would.
     let (mut p, _) = tiny();
     p.roles[1].mirror = 0;
@@ -227,7 +300,9 @@ fn flipped_rig() -> Rig {
         } else {
             let pm: AosTransform = m[p as usize];
             AosTransform::new(
-                pm.rotation.conjugate().rotate(m[i].translation - pm.translation),
+                pm.rotation
+                    .conjugate()
+                    .rotate(m[i].translation - pm.translation),
                 (pm.rotation.conjugate() * m[i].rotation).normalize_or_identity(),
                 m[i].scale,
             )
@@ -247,12 +322,22 @@ fn mirror_table_detects_flips_and_mirrors_with_them() {
     assert_eq!(partner[rh] as usize, lh);
     assert_eq!(partner[0], 0);
     for (i, n) in rig.names.iter().enumerate() {
-        let want = if n.starts_with("Left") || n.starts_with("Right") { Flip::Z } else { Flip::None };
+        let want = if n.starts_with("Left") || n.starts_with("Right") {
+            Flip::Z
+        } else {
+            Flip::None
+        };
         assert_eq!(flips[i], want, "{n}");
     }
     // A posed left arm mirrors onto the right at the reflected model positions and rotations.
     let mut pose = rig.rest.clone();
-    for name in ["LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand", "Spine"] {
+    for name in [
+        "LeftShoulder",
+        "LeftArm",
+        "LeftForeArm",
+        "LeftHand",
+        "Spine",
+    ] {
         let i = rig.index(name);
         pose[i].rotation = (pose[i].rotation * q(v(0.3, 1.0, -0.4), 0.7)).normalize_or_identity();
     }
@@ -267,7 +352,11 @@ fn mirror_table_detects_flips_and_mirrors_with_them() {
     for i in 0..rig.n() {
         let s = partner[i] as usize;
         let want = mirror_transform(pm[s], Axis::X);
-        assert!((mm[i].translation - want.translation).length() < 1e-5, "{}", rig.names[i]);
+        assert!(
+            (mm[i].translation - want.translation).length() < 1e-5,
+            "{}",
+            rig.names[i]
+        );
         let wr: AosQuat = want.rotation * flips[i].quat();
         assert!(quat_close(mm[i].rotation, wr, 2e-6), "{}", rig.names[i]);
     }
@@ -278,7 +367,9 @@ fn mirror_table_detects_flips_and_mirrors_with_them() {
     // A bone without a role takes the skeleton's mirror map, when given.
     let mut map = rig.map.clone();
     map.set(h::LEFT_HAND, 0xFFFF);
-    let fallback: Vec<u32> = (0..rig.n() as u32).map(|b| if b as usize == lh { rh as u32 } else { b }).collect();
+    let fallback: Vec<u32> = (0..rig.n() as u32)
+        .map(|b| if b as usize == lh { rh as u32 } else { b })
+        .collect();
     let (partner, _) = p.mirror_table(&map, &rest, Some(&fallback), Axis::X);
     assert_eq!(partner[lh] as usize, rh);
     let (partner, _) = p.mirror_table(&map, &rest, None, Axis::X);

@@ -4,7 +4,7 @@
 
 mod common;
 
-use anim_math::{AosTransform, AosVec3, SoaTransform};
+use anim_math::{AosQuat, AosTransform, AosVec3, SoaTransform};
 use anim_offline::retarget as o;
 use anim_retarget::profile::humanoid as h;
 use anim_retarget::{MapSettings, Profile, RetargetMap, RetargetOptions, RootAxis};
@@ -18,13 +18,25 @@ const POS_TOL: f32 = 2e-5;
 
 fn build(src: &Rig, tgt: &Rig, align: bool) -> RetargetMap {
     let p = Profile::humanoid();
-    RetargetMap::new(src.side(&p), tgt.side(&p), &MapSettings { align_chains: align }).unwrap()
+    RetargetMap::new(
+        src.side(&p),
+        tgt.side(&p),
+        &MapSettings {
+            align_chains: align,
+        },
+    )
+    .unwrap()
 }
 
-fn run(map: &RetargetMap, src_pose: &[AosTransform], opts: &RetargetOptions<'_>) -> Vec<AosTransform> {
+fn run(
+    map: &RetargetMap,
+    src_pose: &[AosTransform],
+    opts: &RetargetOptions<'_>,
+) -> Vec<AosTransform> {
     let mut scratch = map.scratch();
     let mut out = soa(&vec![AosTransform::identity(); map.target_bone_count()]);
-    map.retarget(&soa(src_pose), opts, &mut scratch, &mut out).unwrap();
+    map.retarget(&soa(src_pose), opts, &mut scratch, &mut out)
+        .unwrap();
     aos(&out, map.target_bone_count())
 }
 
@@ -49,7 +61,10 @@ fn guess_maps_the_fixture_fully() {
 #[test]
 fn identity_retarget_reproduces_the_pose() {
     for axes in [Axes::Model, Axes::YAlong, Axes::XAlong] {
-        let rig = humanoid(Build { axes, ..Build::default() });
+        let rig = humanoid(Build {
+            axes,
+            ..Build::default()
+        });
         let map = build(&rig, &rig, true);
         assert_eq!(map.leg_ratio(), 1.0);
         for seed in 0..20 {
@@ -64,7 +79,11 @@ fn identity_retarget_reproduces_the_pose() {
                     p[i].rotation
                 );
                 let d = (got[i].translation - p[i].translation).length();
-                assert!(d < POS_TOL, "{axes:?} seed {seed} bone {}: {d}", rig.names[i]);
+                assert!(
+                    d < POS_TOL,
+                    "{axes:?} seed {seed} bone {}: {d}",
+                    rig.names[i]
+                );
             }
         }
     }
@@ -92,15 +111,24 @@ fn assert_directions(src: &Rig, sm: &[AosTransform], tgt: &Rig, tm: &[AosTransfo
     for (a, b) in segs {
         let ds = dir(sm, src.index(a), src.index(b));
         let dt = dir(tm, tgt.index(a), tgt.index(b));
-        assert!(ds.dot(dt) > 1.0 - 1e-6, "{what}: {a}->{b}: {ds:?} vs {dt:?}");
+        assert!(
+            ds.dot(dt) > 1.0 - 1e-6,
+            "{what}: {a}->{b}: {ds:?} vs {dt:?}"
+        );
     }
 }
 
 #[test]
 fn differing_bone_axes_give_matching_model_space() {
     // Y-down-the-bone source, X-down-the-bone target, same joint positions.
-    let src = humanoid(Build { axes: Axes::YAlong, ..Build::default() });
-    let tgt = humanoid(Build { axes: Axes::XAlong, ..Build::default() });
+    let src = humanoid(Build {
+        axes: Axes::YAlong,
+        ..Build::default()
+    });
+    let tgt = humanoid(Build {
+        axes: Axes::XAlong,
+        ..Build::default()
+    });
     let map = build(&src, &tgt, true);
     for seed in 0..10 {
         let p = pose(&src, 100 + seed, 1.0);
@@ -118,7 +146,10 @@ fn differing_bone_axes_give_matching_model_space() {
 #[test]
 fn differing_rest_poses_align_per_option() {
     // T-pose source, A-pose target (arms 45 degrees down), different bone axes too.
-    let src = humanoid(Build { axes: Axes::YAlong, ..Build::default() });
+    let src = humanoid(Build {
+        axes: Axes::YAlong,
+        ..Build::default()
+    });
     let tgt = humanoid(Build {
         axes: Axes::XAlong,
         arm_drop: 0.785,
@@ -129,7 +160,13 @@ fn differing_rest_poses_align_per_option() {
     for seed in 0..10 {
         let p = pose(&src, 200 + seed, 1.0);
         let got = run(&map, &p, &RetargetOptions::default());
-        assert_directions(&src, &model(&src.parents, &p), &tgt, &model(&tgt.parents, &got), "aligned");
+        assert_directions(
+            &src,
+            &model(&src.parents, &p),
+            &tgt,
+            &model(&tgt.parents, &got),
+            "aligned",
+        );
     }
     // Unaligned: the source's rest pose leaves the target in its own rest pose (the A-pose arm
     // stays 45 degrees off the source's T-pose arm).
@@ -139,7 +176,11 @@ fn differing_rest_poses_align_per_option() {
     let tr = tgt.rest_model();
     let (a, b) = (tgt.index("LeftArm"), tgt.index("LeftForeArm"));
     assert!(dir(&tm, a, b).dot(dir(&tr, a, b)) > 1.0 - 1e-6);
-    let ds = dir(&src.rest_model(), src.index("LeftArm"), src.index("LeftForeArm"));
+    let ds = dir(
+        &src.rest_model(),
+        src.index("LeftArm"),
+        src.index("LeftForeArm"),
+    );
     assert!(dir(&tm, a, b).dot(ds) < 0.6f32.cos());
 }
 
@@ -147,7 +188,8 @@ fn differing_rest_poses_align_per_option() {
 fn planted(src: &Rig, forward: f32) -> Vec<AosTransform> {
     let mut p = src.rest.clone();
     p[0].translation = p[0].translation + v(0.0, -0.05, forward);
-    p[src.index("Spine")].rotation = (p[src.index("Spine")].rotation * q(v(1.0, 0.0, 0.0), 0.1)).normalize_or_identity();
+    p[src.index("Spine")].rotation =
+        (p[src.index("Spine")].rotation * q(v(1.0, 0.0, 0.0), 0.1)).normalize_or_identity();
     p
 }
 
@@ -163,11 +205,19 @@ fn root_scales_by_leg_ratio_per_axis_option() {
     let map = build(&src, &tgt, true);
     // Leg length ratio against the f64 reference's limb lengths.
     let limb = |r: &Rig| {
-        let idx = [r.index("LeftUpLeg") as u16, r.index("LeftLeg") as u16, r.index("LeftFoot") as u16];
+        let idx = [
+            r.index("LeftUpLeg") as u16,
+            r.index("LeftLeg") as u16,
+            r.index("LeftFoot") as u16,
+        ];
         o::limb_length(&r.parents, &p64(&r.rest), idx)
     };
     let want = limb(&tgt) / limb(&src);
-    assert!((map.leg_ratio() as f64 - want).abs() < 1e-6, "{} vs {want}", map.leg_ratio());
+    assert!(
+        (map.leg_ratio() as f64 - want).abs() < 1e-6,
+        "{} vs {want}",
+        map.leg_ratio()
+    );
     let p = planted(&src, 0.4);
     let moved = v(0.0, -0.05, 0.4);
     let rest_hips = tgt.rest_model()[0].translation;
@@ -176,9 +226,19 @@ fn root_scales_by_leg_ratio_per_axis_option() {
         ([RootAxis::Scaled; 3], moved.scale(ratio)),
         ([RootAxis::Unscaled; 3], moved),
         ([RootAxis::Locked; 3], v(0.0, 0.0, 0.0)),
-        ([RootAxis::Scaled, RootAxis::Locked, RootAxis::Unscaled], v(0.0, 0.0, 0.4)),
+        (
+            [RootAxis::Scaled, RootAxis::Locked, RootAxis::Unscaled],
+            v(0.0, 0.0, 0.4),
+        ),
     ] {
-        let got = run(&map, &p, &RetargetOptions { root_axes: axes, ik_weights: &[] });
+        let got = run(
+            &map,
+            &p,
+            &RetargetOptions {
+                root_axes: axes,
+                ik_weights: &[],
+            },
+        );
         let hips = model(&tgt.parents, &got)[0].translation;
         let d = (hips - (rest_hips + expect)).length();
         assert!(d < POS_TOL, "{axes:?}: {d}");
@@ -213,7 +273,8 @@ fn feet_pin_to_scaled_goals() {
         let mut sp = planted(&src, 0.05 * step as f32);
         plant_source_foot(&src, &mut sp);
         let src_model = model(&src.parents, &sp);
-        map.retarget(&soa(&sp), &opts, &mut scratch, &mut out).unwrap();
+        map.retarget(&soa(&sp), &opts, &mut scratch, &mut out)
+            .unwrap();
         let tm = model(&tgt.parents, &aos(&out, tgt.n()));
         // Goal = target hip joint (after FK) + scaled source hip-to-foot (f64 reference).
         let g = &goals[2];
@@ -228,7 +289,10 @@ fn feet_pin_to_scaled_goals() {
         let goal = scratch.goals()[2];
         assert!((v64(goal) - want).length() < 1e-5, "goal formula");
         let foot = tm[lfoot].translation;
-        assert!((foot - goal).length() < 1e-4, "step {step}: foot {foot:?} vs goal {goal:?}");
+        assert!(
+            (foot - goal).length() < 1e-4,
+            "step {step}: foot {foot:?} vs goal {goal:?}"
+        );
         // The planted source foot gives a planted target foot.
         match first {
             None => first = Some(foot),
@@ -240,7 +304,14 @@ fn feet_pin_to_scaled_goals() {
     // Weight 0 leaves the FK pose.
     let sp = planted(&src, 0.2);
     let a = run(&map, &sp, &RetargetOptions::default());
-    let b = run(&map, &sp, &RetargetOptions { root_axes: [RootAxis::Scaled; 3], ik_weights: &[0.0; 4] });
+    let b = run(
+        &map,
+        &sp,
+        &RetargetOptions {
+            root_axes: [RootAxis::Scaled; 3],
+            ik_weights: &[0.0; 4],
+        },
+    );
     for i in 0..tgt.n() {
         assert_eq!(a[i].rotation.x.to_bits(), b[i].rotation.x.to_bits());
     }
@@ -267,7 +338,10 @@ fn plant_source_foot(src: &Rig, pose: &mut [AosTransform]) {
 #[test]
 fn chains_of_different_bone_counts_resample() {
     for (ns, nt) in [(3usize, 5usize), (5, 2), (2, 3), (1, 4)] {
-        let src = humanoid(Build { spine: ns, ..Build::default() });
+        let src = humanoid(Build {
+            spine: ns,
+            ..Build::default()
+        });
         let tgt = humanoid(Build {
             spine: nt,
             axes: Axes::XAlong,
@@ -290,7 +364,10 @@ fn chains_of_different_bone_counts_resample() {
         let (sn, tn) = (src.index("Neck"), tgt.index("Neck"));
         let delta_s = sm[sn].rotation * src.rest_model()[sn].rotation.conjugate();
         let delta_t = tm[tn].rotation * tgt.rest_model()[tn].rotation.conjugate();
-        assert!(quat_close(delta_s, delta_t, ROT_TOL), "{ns}->{nt}: neck turn");
+        assert!(
+            quat_close(delta_s, delta_t, ROT_TOL),
+            "{ns}->{nt}: neck turn"
+        );
         let ds = dir(&sm, sn, src.index("Head"));
         let dt = dir(&tm, tn, tgt.index("Head"));
         assert!(ds.dot(dt) > 1.0 - 1e-6, "{ns}->{nt}: head direction");
@@ -298,16 +375,36 @@ fn chains_of_different_bone_counts_resample() {
 }
 
 fn spine_names(n: usize) -> Vec<String> {
-    (0..n).map(|i| if i == 0 { "Spine".to_string() } else { format!("Spine{i}") }).collect()
+    (0..n)
+        .map(|i| {
+            if i == 0 {
+                "Spine".to_string()
+            } else {
+                format!("Spine{i}")
+            }
+        })
+        .collect()
 }
 
 #[test]
 fn deterministic_bit_for_bit() {
-    let src = humanoid(Build { axes: Axes::YAlong, ..Build::default() });
-    let tgt = humanoid(Build { leg: 1.2, axes: Axes::XAlong, arm_drop: 0.6, spine: 4, ..Build::default() });
+    let src = humanoid(Build {
+        axes: Axes::YAlong,
+        ..Build::default()
+    });
+    let tgt = humanoid(Build {
+        leg: 1.2,
+        axes: Axes::XAlong,
+        arm_drop: 0.6,
+        spine: 4,
+        ..Build::default()
+    });
     let map = build(&src, &tgt, true);
     let w = [1.0, 0.5, 1.0, 0.25];
-    let opts = RetargetOptions { root_axes: [RootAxis::Scaled; 3], ik_weights: &w };
+    let opts = RetargetOptions {
+        root_axes: [RootAxis::Scaled; 3],
+        ik_weights: &w,
+    };
     let p = soa(&pose(&src, 7, 1.0));
     let mut s1 = map.scratch();
     let mut s2 = map.scratch();
@@ -323,8 +420,13 @@ fn deterministic_bit_for_bit() {
             .iter()
             .flat_map(|t| {
                 [
-                    t.translation.x, t.translation.y, t.translation.z, t.rotation.x, t.rotation.y,
-                    t.rotation.z, t.rotation.w,
+                    t.translation.x,
+                    t.translation.y,
+                    t.translation.z,
+                    t.rotation.x,
+                    t.rotation.y,
+                    t.rotation.z,
+                    t.rotation.w,
                 ]
             })
             .map(f32::to_bits)
@@ -336,8 +438,14 @@ fn deterministic_bit_for_bit() {
 
 #[test]
 fn refuses_wrong_lengths() {
-    let src = humanoid(Build { spine: 1, ..Build::default() });
-    let tgt = humanoid(Build { spine: 5, ..Build::default() });
+    let src = humanoid(Build {
+        spine: 1,
+        ..Build::default()
+    });
+    let tgt = humanoid(Build {
+        spine: 5,
+        ..Build::default()
+    });
     let map = build(&src, &tgt, true);
     let mut s = map.scratch();
     let mut out = soa(&tgt.rest);
@@ -363,15 +471,43 @@ fn refuses_wrong_lengths() {
 fn matches_the_f64_reference() {
     let cases = [
         (Build::default(), Build::default(), true),
-        (Build { axes: Axes::YAlong, ..Build::default() }, Build { axes: Axes::XAlong, ..Build::default() }, true),
         (
-            Build { axes: Axes::YAlong, ..Build::default() },
-            Build { axes: Axes::XAlong, arm_drop: 0.7, leg: 1.25, body: 1.1, spine: 5, ..Build::default() },
+            Build {
+                axes: Axes::YAlong,
+                ..Build::default()
+            },
+            Build {
+                axes: Axes::XAlong,
+                ..Build::default()
+            },
             true,
         ),
         (
-            Build { spine: 2, ..Build::default() },
-            Build { axes: Axes::YAlong, arm_drop: 0.5, leg: 0.8, spine: 4, ..Build::default() },
+            Build {
+                axes: Axes::YAlong,
+                ..Build::default()
+            },
+            Build {
+                axes: Axes::XAlong,
+                arm_drop: 0.7,
+                leg: 1.25,
+                body: 1.1,
+                spine: 5,
+            },
+            true,
+        ),
+        (
+            Build {
+                spine: 2,
+                ..Build::default()
+            },
+            Build {
+                axes: Axes::YAlong,
+                arm_drop: 0.5,
+                leg: 0.8,
+                spine: 4,
+                ..Build::default()
+            },
             false,
         ),
     ];
@@ -388,7 +524,10 @@ fn matches_the_f64_reference() {
             chains: map
                 .chains()
                 .iter()
-                .map(|c| o::ChainPair { source: c.source.clone(), target: c.target.clone() })
+                .map(|c| o::ChainPair {
+                    source: c.source.clone(),
+                    target: c.target.clone(),
+                })
                 .collect(),
             align,
             ratio: map.leg_ratio() as f64,
@@ -396,8 +535,18 @@ fn matches_the_f64_reference() {
         assert_eq!(map.root_bones(), &[(0, 0)], "hips only (no Root bone)");
         for seed in 0..25 {
             let p = pose(&src, 1000 + seed, 1.3);
-            for axes in [[RootAxis::Scaled; 3], [RootAxis::Unscaled, RootAxis::Locked, RootAxis::Scaled]] {
-                let got = run(&map, &p, &RetargetOptions { root_axes: axes, ik_weights: &[] });
+            for axes in [
+                [RootAxis::Scaled; 3],
+                [RootAxis::Unscaled, RootAxis::Locked, RootAxis::Scaled],
+            ] {
+                let got = run(
+                    &map,
+                    &p,
+                    &RetargetOptions {
+                        root_axes: axes,
+                        ik_weights: &[],
+                    },
+                );
                 let oaxes = axes.map(|a| match a {
                     RootAxis::Scaled => o::RootAxis::Scaled,
                     RootAxis::Unscaled => o::RootAxis::Unscaled,
@@ -407,13 +556,25 @@ fn matches_the_f64_reference() {
                 for i in 0..tgt.n() {
                     let (g, w) = (t64(got[i]), want[i]);
                     // Angle between the rotations: 2·atan2(|a − b'|, |a + b'|) (b' sign-aligned).
-                    let b = if g.rotation.dot(w.rotation) < 0.0 { -w.rotation } else { w.rotation };
+                    let b = if g.rotation.dot(w.rotation) < 0.0 {
+                        -w.rotation
+                    } else {
+                        w.rotation
+                    };
                     let diff = (g.rotation + (-b)).length();
                     let sum = (g.rotation + b).length();
                     let angle = 2.0 * diff.atan2(sum);
-                    assert!(angle < 1e-5, "case {ci} seed {seed} bone {}: {angle}", tgt.names[i]);
+                    assert!(
+                        angle < 1e-5,
+                        "case {ci} seed {seed} bone {}: {angle}",
+                        tgt.names[i]
+                    );
                     let dp = (g.translation - w.translation).length();
-                    assert!(dp < 2e-5, "case {ci} seed {seed} bone {}: {dp}", tgt.names[i]);
+                    assert!(
+                        dp < 2e-5,
+                        "case {ci} seed {seed} bone {}: {dp}",
+                        tgt.names[i]
+                    );
                 }
             }
         }
@@ -423,8 +584,69 @@ fn matches_the_f64_reference() {
 #[test]
 fn humanoid_chain_order_drives_twists_last() {
     let p = Profile::humanoid();
-    let last_non_twist = p.chains.iter().rposition(|c| c.kind != anim_retarget::ChainKind::Twist).unwrap();
-    let first_twist = p.chains.iter().position(|c| c.kind == anim_retarget::ChainKind::Twist).unwrap();
+    let last_non_twist = p
+        .chains
+        .iter()
+        .rposition(|c| c.kind != anim_retarget::ChainKind::Twist)
+        .unwrap();
+    let first_twist = p
+        .chains
+        .iter()
+        .position(|c| c.kind == anim_retarget::ChainKind::Twist)
+        .unwrap();
     assert!(first_twist > last_non_twist);
     assert_eq!(p.roles.len(), h::COUNT);
+}
+
+/// The same bits on every target (native and wasm32 simd128): a hash of the output of a fixed
+/// retarget with pinning. The inputs avoid libm (rotations are normalised random components, the
+/// fixtures use identity frames and a T-pose), so only the core's deterministic maths is hashed.
+#[test]
+fn golden_bits_across_targets() {
+    let src = humanoid(Build::default());
+    let tgt = humanoid(Build {
+        leg: 1.3,
+        body: 0.9,
+        spine: 4,
+        ..Build::default()
+    });
+    let map = build(&src, &tgt, true);
+    let mut rng = Rng::new(42);
+    let mut p = src.rest.clone();
+    for t in p.iter_mut() {
+        let r = AosQuat::new(
+            rng.range(-0.3, 0.3),
+            rng.range(-0.3, 0.3),
+            rng.range(-0.3, 0.3),
+            1.0,
+        );
+        t.rotation = (t.rotation * r).normalize_or_identity();
+    }
+    p[0].translation = p[0].translation + v(0.1, -0.05, 0.3);
+    let w = [1.0, 1.0, 1.0, 1.0];
+    let got = run(
+        &map,
+        &p,
+        &RetargetOptions {
+            root_axes: [RootAxis::Scaled; 3],
+            ik_weights: &w,
+        },
+    );
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for t in &got {
+        for x in [
+            t.translation.x,
+            t.translation.y,
+            t.translation.z,
+            t.rotation.x,
+            t.rotation.y,
+            t.rotation.z,
+            t.rotation.w,
+        ] {
+            for b in x.to_bits().to_le_bytes() {
+                hash = (hash ^ b as u64).wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+    }
+    assert_eq!(hash, 0xa6ad_19cf_7309_8dac, "golden hash {hash:#x}");
 }

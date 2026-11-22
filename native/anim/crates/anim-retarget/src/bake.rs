@@ -142,7 +142,13 @@ pub fn bake(
     for f in 0..frames {
         let t = f as f32 / rate;
         bound
-            .sample_pose(t, source_rest, &mut sample_scratch, &mut src_pose, Some(&mut cache))
+            .sample_pose(
+                t,
+                source_rest,
+                &mut sample_scratch,
+                &mut src_pose,
+                Some(&mut cache),
+            )
             .map_err(BakeError::Sample)?;
         map.retarget(&src_pose, opts, &mut scratch, &mut tgt_pose)
             .map_err(BakeError::Retarget)?;
@@ -167,7 +173,11 @@ pub fn bake(
         })
         .collect();
     let mut dropped = 0;
-    for t in base.tracks.into_iter().filter(|t| t.kind != TrackKind::Bone) {
+    for t in base
+        .tracks
+        .into_iter()
+        .filter(|t| t.kind != TrackKind::Bone)
+    {
         if t.kind.is_sampled() && !base.has_raw {
             dropped += 1;
             continue;

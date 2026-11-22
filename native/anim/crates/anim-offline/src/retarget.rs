@@ -61,8 +61,15 @@ pub fn shortest_arc(u: Vec3, v: Vec3) -> Quat {
         if d > 0.0 {
             return Quat::IDENTITY;
         }
-        let o = if u.x.abs() < 0.577_35 { Vec3::X } else { Vec3::new(0.0, 1.0, 0.0) };
-        return Quat::from_axis_angle(u.cross(o).normalize_or(Vec3::new(0.0, 0.0, 1.0)), std::f64::consts::PI);
+        let o = if u.x.abs() < 0.577_35 {
+            Vec3::X
+        } else {
+            Vec3::new(0.0, 1.0, 0.0)
+        };
+        return Quat::from_axis_angle(
+            u.cross(o).normalize_or(Vec3::new(0.0, 0.0, 1.0)),
+            std::f64::consts::PI,
+        );
     }
     Quat::from_axis_angle(axis.normalize_or(Vec3::X), d.acos())
 }
@@ -88,7 +95,11 @@ fn direction(path: &[u16], model: &[Transform], k: usize) -> Option<Vec3> {
     if path.len() < 2 {
         return None;
     }
-    let (i, j) = if k + 1 < path.len() { (k, k + 1) } else { (k - 1, k) };
+    let (i, j) = if k + 1 < path.len() {
+        (k, k + 1)
+    } else {
+        (k - 1, k)
+    };
     let d = model[path[j] as usize].translation - model[path[i] as usize].translation;
     (d.length() > 1e-6).then(|| d.normalize_or(d))
 }
@@ -108,7 +119,11 @@ pub fn bracket(source: &[f64], target: &[f64], k: usize) -> (usize, usize, f64) 
         .find(|&j| source[j] <= u)
         .unwrap_or(0);
     let span = source[j + 1] - source[j];
-    let t = if span > 1e-9 { ((u - source[j]) / span).clamp(0.0, 1.0) } else { 0.0 };
+    let t = if span > 1e-9 {
+        ((u - source[j]) / span).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     (j, j + 1, t)
 }
 
@@ -117,7 +132,9 @@ pub fn retarget(s: &Setup, axes: [RootAxis; 3], source_local: &[Transform]) -> V
     let sm_rest = local_to_model(&s.source_parents, &s.source_rest);
     let tm_rest = local_to_model(&s.target_parents, &s.target_rest);
     let sm = local_to_model(&s.source_parents, source_local);
-    let delta = |b: u16| (sm[b as usize].rotation * sm_rest[b as usize].rotation.conjugate()).normalize_or_identity();
+    let delta = |b: u16| {
+        (sm[b as usize].rotation * sm_rest[b as usize].rotation.conjugate()).normalize_or_identity()
+    };
     let nt = s.target_rest.len();
     // Desired model rotation per driven target bone, and translation for roots.
     let mut rot: Vec<Option<Quat>> = vec![None; nt];
@@ -134,7 +151,11 @@ pub fn retarget(s: &Setup, axes: [RootAxis; 3], source_local: &[Transform]) -> V
             RootAxis::Unscaled => r + m,
             RootAxis::Locked => r,
         };
-        pos[tb as usize] = Some(Vec3::new(f(m.x, r.x, axes[0]), f(m.y, r.y, axes[1]), f(m.z, r.z, axes[2])));
+        pos[tb as usize] = Some(Vec3::new(
+            f(m.x, r.x, axes[0]),
+            f(m.y, r.y, axes[1]),
+            f(m.z, r.z, axes[2]),
+        ));
     }
     for c in &s.chains {
         let su = params(&c.source, &sm_rest);
@@ -146,7 +167,10 @@ pub fn retarget(s: &Setup, axes: [RootAxis; 3], source_local: &[Transform]) -> V
             let (a, b, t) = bracket(&su, &tu, k);
             let d = delta(c.source[a]).nlerp(delta(c.source[b]), t);
             let align = if s.align {
-                let sd = match (direction(&c.source, &sm_rest, a), direction(&c.source, &sm_rest, b)) {
+                let sd = match (
+                    direction(&c.source, &sm_rest, a),
+                    direction(&c.source, &sm_rest, b),
+                ) {
                     (Some(da), Some(db)) => Some(da.lerp(db, t).normalize_or(da)),
                     _ => None,
                 };
@@ -165,7 +189,11 @@ pub fn retarget(s: &Setup, axes: [RootAxis; 3], source_local: &[Transform]) -> V
     let mut out = Vec::with_capacity(nt);
     for i in 0..nt {
         let p = s.target_parents[i];
-        let parent = if p == 0xFFFF { Transform::IDENTITY } else { model[p as usize] };
+        let parent = if p == 0xFFFF {
+            Transform::IDENTITY
+        } else {
+            model[p as usize]
+        };
         let rest = s.target_rest[i];
         let mut local = rest;
         if let Some(r) = rot[i] {

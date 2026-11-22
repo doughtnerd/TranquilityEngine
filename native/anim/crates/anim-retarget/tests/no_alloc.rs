@@ -26,12 +26,23 @@ static GLOBAL: Counting = Counting;
 
 #[test]
 fn retarget_does_not_allocate() {
-    let src = humanoid(Build { axes: Axes::YAlong, ..Build::default() });
-    let tgt = humanoid(Build { axes: Axes::XAlong, leg: 1.3, arm_drop: 0.6, spine: 5, ..Build::default() });
+    let src = humanoid(Build {
+        axes: Axes::YAlong,
+        ..Build::default()
+    });
+    let tgt = humanoid(Build {
+        axes: Axes::XAlong,
+        leg: 1.3,
+        arm_drop: 0.6,
+        spine: 5,
+        ..Build::default()
+    });
     let p = Profile::humanoid();
     let map = RetargetMap::new(src.side(&p), tgt.side(&p), &MapSettings::default()).unwrap();
     let mut scratch = map.scratch();
-    let poses: Vec<_> = (0..8).map(|s| soa(&random_pose(&src, &mut Rng::new(s), 1.0))).collect();
+    let poses: Vec<_> = (0..8)
+        .map(|s| soa(&random_pose(&src, &mut Rng::new(s), 1.0)))
+        .collect();
     let mut out = soa(&tgt.rest);
     let weights = [1.0, 0.5, 1.0, 1.0];
     let opts = RetargetOptions {
