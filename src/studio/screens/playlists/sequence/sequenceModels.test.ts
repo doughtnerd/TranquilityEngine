@@ -1,0 +1,199 @@
+import { describe, expect, it } from "vitest";
+import { lintPlaylist } from "../../../../engine/audio/playlist/lint";
+import { clipChips, clipFollows, clipLoops, clipMarkers, clipPlan, clipToSource, loopBand, wavePieces } from "./clipGeometry";
+import { fixtureBody, fixtureSequence, fixtureSource } from "./sequenceFixture";
+import { beatSeconds, beatsPerBar, DEFAULT_SNAP, keepTaps, snapSpan, snapStep, snapTime, tapTempo } from "./sequenceGrid";
+import { clipLength, findClip, nextId, onSequence, sequenceLength } from "./sequenceModel";
+import { clickClip, clickPoint, EMPTY_SELECTION, marqueeSelect, pressClip, pruneSelection, selectAll, selectLoop } from "./sequenceSelection";
+import { clampTimeline, fitTimeline, followView, rowAt, snapEdges, thumbOf, trackIndexAt, trackRows, viewFromThumb, zoomTimeline } from "./timelineLayout";
+import { DEFAULT_TRANSPORT, estimatePlayhead, hasHeldLoop, playRange, restingPlayhead, spaceAction } from "./transportModel";
+
+const seq = fixtureSequence();
+const c = (id: string) => findClip(seq, id)!.clip;
+
+describe("sequence model", () => {
+  it("resolves a 0 length to the end of the source, and the sequence's to its longest clip", () => {
+    expect(clipLength({ ...c("c2"), length: 0 }, fixtureSource(c("c2")))).toBe(4);
+    expect(clipLength({ ...c("c2"), length: 0, offset: 1 }, fixtureSource(c("c2")))).toBe(3);
+    expect(clipLength({ ...c("c4"), length: 0 }, null)).toBe(2);
+    expect(sequenceLength(seq, fixtureSource)).toBe(6);
+    expect(sequenceLength({ ...seq, length: 0 }, fixtureSource)).toBe(4.5);
+    expect(sequenceLength({ ...seq, length: 0, tracks: [] }, fixtureSource)).toBe(4);
+  });
+
+  it("makes fresh ids and lifts sequence edits into body edits", () => {
+    expect(nextId("c", ["c1", "c2", "c4"])).toBe("c3");
+    const body = fixtureBody();
+    const same = onSequence((s) => ({ next: s }))(body);
+    expect("next" in same && same.next).toBe(body);
+    const changed = onSequence((s) => ({ next: { ...s, length: 9 } }))(body);
+    expect("next" in changed && changed.next.sequence!.length).toBe(9);
+    expect("refused" in onSequence((s) => ({ next: s }))({ ...body, sequence: null })).toBe(true);
+  });
+});
+
+describe("grid and snapping", () => {
+  it("has a beat of 0.5 s without a tempo and the meter's beats per bar", () => {
+    expect(beatSeconds(null)).toBe(0.5);
+    expect(beatSeconds({ bpm: 90, meter: "3/4" })).toBeCloseTo(2 / 3);
+    expect(beatsPerBar({ bpm: 90, meter: "3/4" })).toBe(3);
+    expect(snapStep({ ...DEFAULT_SNAP, mode: "bar" }, { bpm: 120, meter: "4/4" })).toBe(2);
+    expect(snapStep({ ...DEFAULT_SNAP, mode: "1000smp" }, null)).toBeCloseTo(1000 / 48000);
+    expect(snapStep({ ...DEFAULT_SNAP, mode: "custom", custom: 0.3 }, null)).toBe(0.3);
+    expect(snapStep({ ...DEFAULT_SNAP, mode: "off" }, null)).toBe(0);
+  });
+
+  it("snaps to an edge within 0.8 % of the visible span, else to the grid", () => {
+    const tempo = { bpm: 120, meter: "4/4" };
+    expect(snapTime(0.26, { snap: DEFAULT_SNAP, tempo, span: 10, edges: [] })).toBe(0.5);
+    expect(snapTime(0.26, { snap: { ...DEFAULT_SNAP, mode: "quarter" }, tempo, span: 10, edges: [] })).toBe(0.25);
+    expect(snapTime(1.0, { snap: DEFAULT_SNAP, tempo, span: 10, edges: [1.07] })).toBe(1.07);
+    expect(snapTime(1.0, { snap: DEFAULT_SNAP, tempo, span: 10, edges: [1.09] })).toBe(1);
+    expect(snapTime(1.13, { snap: DEFAULT_SNAP, tempo, span: 10, edges: [], free: true })).toBe(1.13);
+    expect(snapTime(-1, { snap: DEFAULT_SNAP, tempo, span: 10, edges: [] })).toBe(0);
+    // A moved clip snaps its end to an edge too.
+    expect(snapSpan(0.97, 1, { snap: DEFAULT_SNAP, tempo, span: 10, edges: [2] })).toBe(1);
+  });
+
+  it("taps a tempo from the last intervals, starting again after a pause", () => {
+    expect(tapTempo([0, 500, 1000, 1500])).toBe(120);
+    expect(tapTempo([0, 500, 5000, 5400])).toBe(150);
+    expect(tapTempo([0])).toBeNull();
+    expect(keepTaps([0, 500], 4000)).toEqual([4000]);
+  });
+});
+
+describe("clip geometry", () => {
+  const c1 = c("c1");
+  const src = fixtureSource(c1);
+  const plan = clipPlan(c1, src);
+
+  it("applies the clip's loop override over the sample's loop", () => {
+    const [l] = clipLoops(c1, src);
+    expect(l).toMatchObject({ id: "L1", start: 0.4, end: 0.9, active: "parameter", reentry: "reenter", exit: "finish", overridden: true });
+    expect(clipLoops(c("c2"), fixtureSource(c("c2")))[0]!.overridden).toBe(false);
+  });
+
+  it("maps clip time to sample time as pickup and first pass, extra passes, then the tail", () => {
+    expect(plan).toMatchObject({ pre: 0.9, avail: 1, length: 3 });
+    expect(clipToSource(plan, 0.3)).toBeCloseTo(0.3);
+    expect(clipToSource(plan, 1.0)).toBeCloseTo(0.5);
+    expect(clipToSource(plan, 2.0)).toBeCloseTo(1.0);
+    expect(clipToSource(plan, 2.95)).toBeCloseTo(1.95);
+    // Past the sample: silent.
+    expect(clipToSource(clipPlan({ ...c1, loops: {} }, { ...src!, loops: [] }), 2.5)).toBeNull();
+  });
+
+  it("draws the passes as waveform pieces with dividers, and a zero-length loop as a hold", () => {
+    expect(wavePieces(plan).map((p) => [p.at, +p.length.toFixed(3), p.src])).toEqual([[0, 0.9, 0], [0.9, 0.5, 0.4], [1.4, 0.5, 0.4], [1.9, 1.1, 0.9]]);
+    expect(loopBand(plan)).toMatchObject({ start: 0.4, end: 1.9, dividers: [0.9, 1.4], hold: false, active: "parameter" });
+    const hold = clipPlan(c1, { ...src!, loops: [{ ...src!.loops[0]!, start: 0.5, end: 0.5 }] });
+    expect(loopBand(hold)).toMatchObject({ hold: true });
+    expect(wavePieces(hold).some((p) => p.hold)).toBe(true);
+  });
+
+  it("places sample markers on the first pass or the tail, flagging hidden ones", () => {
+    const ms = clipMarkers({ ...c1, hiddenMarkers: ["k2"] }, src, plan);
+    expect(ms.map((m) => [m.id, +m.at.toFixed(3), m.hidden])).toEqual([["k1", 2.2, false], ["k2", 0.2, true]]);
+  });
+
+  it("shows the activation, binding, effects, playlist pick and follows chips", () => {
+    expect(clipChips(c1, src, { follows: false }).map((x) => x.text)).toEqual(["P", "P brake > 0.10", "FX 1"]);
+    const unbound = { ...c1, loops: { L1: { active: "parameter" as const } } };
+    expect(clipChips(unbound, src, { follows: false }).map((x) => x.kind)).toContain("unbound");
+    expect(clipChips(c("c4"), null, { follows: false, playlistName: "stingers" }).map((x) => x.text)).toEqual(["→ stingers"]);
+    const lints = lintPlaylist(fixtureBody());
+    const t3 = seq.tracks[2]!;
+    expect(clipFollows(lints, "sequence.tracks[2]", t3, c("c3"))).toBe(true);
+    expect(clipFollows(lints, "sequence.tracks[1]", seq.tracks[1]!, c("c2"))).toBe(false);
+  });
+});
+
+describe("selection", () => {
+  it("selects, toggles with Shift/Ctrl, keeps a pressed group, and selects all", () => {
+    let sel = clickClip(EMPTY_SELECTION, "c1", "t1");
+    expect(sel).toMatchObject({ focus: "clips", clips: ["c1"], track: "t1" });
+    sel = clickClip(sel, "c2", "t2", { shift: true });
+    expect(sel.clips).toEqual(["c1", "c2"]);
+    expect(pressClip(sel, "c1", "t1").clips).toEqual(["c1", "c2"]);
+    expect(clickClip(sel, "c1", "t1", { ctrl: true }).clips).toEqual(["c2"]);
+    expect(selectAll(seq, sel).clips).toEqual(["c1", "c2", "c3", "c4"]);
+  });
+
+  it("marquees the clips a box touches", () => {
+    expect(marqueeSelect(seq, fixtureSource, EMPTY_SELECTION, 1.5, 2.2, 1, 3).clips).toEqual(["c2", "c3"]);
+    expect(marqueeSelect(seq, fixtureSource, clickClip(EMPTY_SELECTION, "c1", "t1"), 1.5, 2.2, 1, 1, true).clips).toEqual(["c1", "c2"]);
+  });
+
+  it("selects points per lane and drops what an edit removed", () => {
+    let sel = clickPoint(EMPTY_SELECTION, { clip: "c1" }, "a1", 1);
+    sel = clickPoint(sel, { clip: "c1" }, "a1", 2, { shift: true });
+    expect(sel.points!.keys).toEqual([1, 2]);
+    expect(sel.focus).toBe("points");
+    const fewer = { ...seq, tracks: seq.tracks.map((t) => (t.id === "t1" ? { ...t, clips: t.clips.map((x) => ({ ...x, automation: [{ ...x.automation[0]!, curve: x.automation[0]!.curve.slice(0, 2) }] })) } : t)) };
+    expect(pruneSelection(fewer, sel).points!.keys).toEqual([1]);
+    expect(pruneSelection({ ...seq, loops: [] }, selectLoop(sel, "l1")).focus).toBe("sequence");
+    const keep = clickClip(EMPTY_SELECTION, "c1", "t1");
+    expect(pruneSelection(seq, keep)).toBe(keep);
+  });
+});
+
+describe("timeline layout", () => {
+  it("stacks tracks and their open lanes and says what a y is over", () => {
+    const { rows, height } = trackRows(seq, new Set(["t1"]));
+    expect(rows.map((r) => [r.y, r.lanes.length])).toEqual([[0, 1], [92, 0], [150, 0], [208, 0]]);
+    expect(height).toBe(266);
+    expect(rowAt(rows, 10)).toEqual({ kind: "track", ti: 0 });
+    expect(rowAt(rows, 70)).toEqual({ kind: "lane", ti: 0, automation: "a1" });
+    expect(rowAt(rows, 400)).toEqual({ kind: "below" });
+    expect(trackIndexAt(rows, 400)).toBe(3);
+  });
+
+  it("fits, zooms about a time, follows the playhead and works the scrollbar thumb", () => {
+    expect(fitTimeline(10)).toEqual({ start: 0, end: 10.8 });
+    const z = zoomTimeline({ start: 0, end: 10 }, 2, 5, 20);
+    expect(z.start).toBeCloseTo(2.5);
+    expect(z.end).toBeCloseTo(7.5);
+    expect(clampTimeline({ start: -3, end: 2 }, 20)).toEqual({ start: 0, end: 5 });
+    expect(followView({ start: 0, end: 4 }, 5, 20).start).toBeCloseTo(4.6);
+    expect(thumbOf({ start: 5, end: 10 }, 20)).toEqual({ left: 0.25, width: 0.25 });
+    expect(viewFromThumb(0.25, 0.5, 20)).toEqual({ start: 5, end: 15 });
+  });
+
+  it("collects the edges snapping looks for, without the dragged clips", () => {
+    const edges = snapEdges(seq, fixtureSource, 6, { exclude: ["c1"], playhead: 1.25 });
+    expect(edges).toContain(4.5);
+    expect(edges).toContain(1.6);
+    expect(edges).toContain(1.25);
+    expect(edges).not.toContain(3);
+  });
+});
+
+describe("transport", () => {
+  it("plays the selection, a loop, from a marker, from the playhead or from the start, with pre-roll", () => {
+    const sel = clickClip(EMPTY_SELECTION, "c3", "t3");
+    expect(playRange(seq, sel, 0, DEFAULT_TRANSPORT, fixtureSource)).toEqual({ start: 2, from: 2, to: 4, selection: true });
+    expect(playRange(seq, sel, 0, { ...DEFAULT_TRANSPORT, preRoll: true }, fixtureSource).start).toBe(1);
+    expect(playRange(seq, selectLoop(EMPTY_SELECTION, "l1"), 0, DEFAULT_TRANSPORT, fixtureSource)).toMatchObject({ from: 1.6, to: 6, selection: false });
+    expect(playRange(seq, EMPTY_SELECTION, 2.5, { ...DEFAULT_TRANSPORT, mode: "playhead" }, fixtureSource)).toMatchObject({ from: 2.5, to: 6 });
+    expect(playRange(seq, sel, 2.5, { ...DEFAULT_TRANSPORT, mode: "start" }, fixtureSource)).toMatchObject({ from: 0, to: 6 });
+  });
+
+  it("releases with Space while a held loop waits, else stops", () => {
+    expect(hasHeldLoop(seq, fixtureSource)).toBe(true);
+    expect(hasHeldLoop({ ...seq, loops: [], tracks: [] }, fixtureSource)).toBe(false);
+    expect(spaceAction(false, true, false)).toBe("play");
+    expect(spaceAction(true, true, false)).toBe("release");
+    expect(spaceAction(true, true, true)).toBe("stop");
+    expect(spaceAction(true, false, false)).toBe("stop");
+  });
+
+  it("estimates the playhead and where it rests", () => {
+    const r = { start: 1, from: 2, to: 4, selection: true };
+    expect(estimatePlayhead(r, 1.5, "oneShot")).toBe(2.5);
+    expect(estimatePlayhead(r, 9, "untilStopped")).toBe(4);
+    expect(estimatePlayhead({ ...r, selection: false }, 9, "untilStopped")).toBe(10);
+    expect(restingPlayhead(r, { ...DEFAULT_TRANSPORT, returnToStart: true }, 4)).toBe(2);
+    expect(restingPlayhead(r, DEFAULT_TRANSPORT, 4)).toBe(4);
+  });
+});
