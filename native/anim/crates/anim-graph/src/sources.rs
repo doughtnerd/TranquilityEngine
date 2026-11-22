@@ -323,7 +323,7 @@ pub(crate) fn player_phase(cx: &mut EvalContext<'_>, at: usize, rate: f32) {
             };
             cx.set_alpha(a);
         }
-        Phase::Pose => pose(cx, at),
+        Phase::Pose => pose(cx, at, 0),
         Phase::Root => {
             let delta = root(cx, at);
             cx.set_root(delta);
@@ -373,8 +373,9 @@ pub(crate) fn player_root_at(cx: &mut EvalContext<'_>, at: usize) -> RootDelta {
 }
 
 /// The pose of the player at word `at` of the current node's state, into the current out slot.
-pub(crate) fn player_pose_at(cx: &mut EvalContext<'_>, at: usize) {
-    pose(cx, at);
+/// `sub` numbers the node's players (0 or 1: a slot's two), for their frame-cache slots.
+pub(crate) fn player_pose_at(cx: &mut EvalContext<'_>, at: usize, sub: usize) {
+    pose(cx, at, sub);
 }
 
 fn tracks(cx: &mut EvalContext<'_>, at: usize, weight: f32) {
@@ -496,7 +497,7 @@ fn update(cx: &mut EvalContext<'_>, at: usize, rate: f32) {
     }
 }
 
-fn pose(cx: &mut EvalContext<'_>, at: usize) {
+fn pose(cx: &mut EvalContext<'_>, at: usize, sub: usize) {
     let slot = cx.out();
     let assets = cx.assets();
     let skel = cx.skeleton();
@@ -519,7 +520,7 @@ fn pose(cx: &mut EvalContext<'_>, at: usize) {
     } else {
         skel.rest
     };
-    let (out, scratch, cache, tag) = cx.pose_sample_and_cache(slot);
+    let (out, scratch, cache, tag) = cx.pose_sample_and_cache(slot, sub);
     let sampled = match cache {
         // T82r: the player's frame cache (the same bits as without it).
         Some(words) => {

@@ -482,8 +482,9 @@ pub struct Program {
     ctx_lists: Vec<u32>,
     node_ctx: Vec<u32>,
     inertia_target: Vec<u32>,
-    /// T82r: per node, its ordinal among the clip players (`NONE` for other kinds), and the
-    /// count: a player's frame-cache slot (`Program::pose_cached`).
+    /// T82r: per node, the frame-cache slot of its first clip player (`NONE` for kinds without
+    /// players; a slot node has two, a clip player and a database node one), and the slot count
+    /// (`Program::pose_cached`).
     player_ordinal: Vec<u32>,
     player_count: u32,
 }
@@ -712,9 +713,15 @@ impl Program {
             player_count: 0,
         };
         for (i, node) in program.nodes.iter().enumerate() {
-            if node.family == Family::Sources && node.kind == crate::sources::kind::CLIP_PLAYER {
+            let players = match (node.family, node.kind) {
+                (Family::Sources, crate::sources::kind::CLIP_PLAYER) => 1,
+                (Family::Slots, crate::slots::kind::SLOT) => 2,
+                (Family::Matching, crate::matching::kind::POSE_DATABASE) => 1,
+                _ => 0,
+            };
+            if players > 0 {
                 program.player_ordinal[i] = program.player_count;
-                program.player_count += 1;
+                program.player_count += players;
             }
         }
         let children = program.children();
@@ -1015,8 +1022,8 @@ impl Program {
         self.nodes.len()
     }
 
-    /// The clip player nodes (T82r: the frame-cache slots [`pose_cached`](Self::pose_cached)
-    /// uses, one each).
+    /// The clip players of the program's nodes (clip player and database nodes one each, slots
+    /// two): the frame-cache slots [`pose_cached`](Self::pose_cached) uses (T82r).
     pub fn clip_players(&self) -> usize {
         self.player_count as usize
     }
@@ -2075,11 +2082,13 @@ impl<'a> EvalContext<'a> {
     }
 
     /// [`pose_and_sample_scratch`](Self::pose_and_sample_scratch) plus the current node's frame
-    /// cache slot (T82r; `None` without one) and the cache tag ([`Assets::cache_epoch`]).
+    /// cache slot for its player `sub` (T82r; `None` without one) and the cache tag
+    /// ([`Assets::cache_epoch`]).
     #[allow(clippy::type_complexity)]
     pub fn pose_sample_and_cache(
         &mut self,
         slot: usize,
+        sub: usize,
     ) -> (
         &mut [SoaTransform],
         &mut [AosTransform],
@@ -2098,7 +2107,7 @@ impl<'a> EvalContext<'a> {
             let ordinal = self.program.player_ordinal.get(self.node as usize).copied();
             match ordinal {
                 Some(o) if o != NONE => {
-                    let k = (o as usize + self.base) % count;
+                    let k = (o as usize + sub + self.base) % count;
                     Some(&mut self.players[k * w..(k + 1) * w])
                 }
                 _ => None,

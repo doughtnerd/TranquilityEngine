@@ -267,7 +267,7 @@ fn database(cx: &mut EvalContext<'_>, node: &NodeData<'_>) {
         }
         Phase::Update => update(cx, node),
         Phase::Pose => {
-            sources::player_pose_at(cx, state::PLAYER);
+            sources::player_pose_at(cx, state::PLAYER, 0);
             // The world position this pose was taken at (the query's root delta, next update).
             let s = cx.state();
             s.copy_within(state::POSE_LAST..state::POSE_LAST + 3, state::POSE_PREV);

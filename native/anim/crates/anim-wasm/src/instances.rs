@@ -48,7 +48,7 @@ pub(crate) fn bytes_needed(init: &Init) -> u64 {
     (init.max_instances as u64).saturating_mul(entry + state + poses + players)
 }
 
-/// T82r: frame-cache slots for `program`: one per clip player node.
+/// T82r: frame-cache slots for `program`: one per clip player (`Program::clip_players`).
 pub(crate) fn player_slots(program: &Program) -> usize {
     program.clip_players()
 }

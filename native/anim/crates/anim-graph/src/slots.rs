@@ -459,11 +459,11 @@ fn slot_pose(cx: &mut EvalContext<'_>, source: u32, w: f32, xf: f32, a: usize, b
     };
     cx.eval_pose(source, s_src);
     let prev = cx.set_out(s_a);
-    sources::player_pose_at(cx, a);
+    sources::player_pose_at(cx, a, (a == slot::B) as usize);
     if xf < 1.0 {
         if let Some(s_b) = cx.push_slot() {
             cx.set_out(s_b);
-            sources::player_pose_at(cx, b);
+            sources::player_pose_at(cx, b, (b == slot::B) as usize);
             // s_a ← lerp(b, a, xf)
             cx.lerp_slot_into(s_b, s_a, xf);
             cx.copy_slot(s_b, s_a);
