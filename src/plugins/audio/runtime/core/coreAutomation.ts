@@ -235,8 +235,8 @@ export class CoreAutomation implements AutomationSink {
   private listed = 0;
   /** Scratch for `reevaluate`: the bindings' parameter values, and two results. */
   private readonly xs = new Float64Array(MAX_BINDINGS);
-  private readonly atTarget: AutoResult = { gain: 1, pitch: 1, lowpass: 0 };
-  private readonly atNow: AutoResult = { gain: 1, pitch: 1, lowpass: 0 };
+  private readonly atTarget: AutoResult = { gain: 1, pitch: 1, lowpass: 0, highpass: 0, pan: 0 };
+  private readonly atNow: AutoResult = { gain: 1, pitch: 1, lowpass: 0, highpass: 0, pan: 0 };
   /** Per slot: the unsubscribe of a plain looping voice's wait for its clip's loop points (E4.5). */
   private readonly plainUnsub: ((() => void) | null)[];
   private readonly buses = new Map<string, AutomationBinding[]>();
@@ -251,7 +251,7 @@ export class CoreAutomation implements AutomationSink {
   private readonly selSent = new Map<string, number>();
   private readonly busIds = new Int32Array(MAX_BINDINGS);
   private readonly busTargets = new Uint8Array(MAX_BINDINGS);
-  private readonly busAuto: AutoResult = { gain: 1, pitch: 1, lowpass: 0 };
+  private readonly busAuto: AutoResult = { gain: 1, pitch: 1, lowpass: 0, highpass: 0, pan: 0 };
   /** ADR 0332: each group's sequence clock as last sent: `value` seconds at context frame `frame`, moving at `rate`. */
   private readonly clocks = new Map<number, { value: number; rate: number; frame: number }>();
   private readonly dirtyClocks = new Set<number>();
@@ -353,7 +353,7 @@ export class CoreAutomation implements AutomationSink {
   }
 
   bindBus(bus: string, bindings: readonly Binding[]): void {
-    const wire = bindings.filter((b) => b.param.global && b.target !== AutoTarget.Pitch).slice(0, MAX_BINDINGS).map(toWire);
+    const wire = bindings.filter((b) => b.param.global && (b.target === AutoTarget.Volume || b.target === AutoTarget.Lowpass)).slice(0, MAX_BINDINGS).map(toWire);
     const had = this.buses.has(bus);
     if (wire.length === 0) {
       this.buses.delete(bus);

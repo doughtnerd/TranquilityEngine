@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: 36d7d7b06bdb405ddb536ac67693fa05).
+/// First 16 bytes of the schema's SHA-256 (hex: dab86974ee2f2e7b037ec31f1a21d6ee).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0x36,
-    0xd7,
-    0xd7,
-    0xb0,
-    0x6b,
-    0xdb,
-    0x40,
-    0x5d,
-    0xdb,
-    0x53,
-    0x6a,
-    0xc6,
-    0x76,
-    0x93,
-    0xfa,
-    0x05,
+    0xda,
+    0xb8,
+    0x69,
+    0x74,
+    0xee,
+    0x2f,
+    0x2e,
+    0x7b,
+    0x03,
+    0x7e,
+    0xc3,
+    0x1f,
+    0x1a,
+    0x21,
+    0xd6,
+    0xee,
 ];
-pub const SCHEMA_HASH_HEX: &str = "36d7d7b06bdb405ddb536ac67693fa05";
+pub const SCHEMA_HASH_HEX: &str = "dab86974ee2f2e7b037ec31f1a21d6ee";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -1986,7 +1986,7 @@ pub struct AutomateBindings {
     pub param: u16,
     /// curve id (CURVES)
     pub curve: u16,
-    /// 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz)
+    /// 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4)
     pub target: u32,
 }
 
@@ -2812,7 +2812,7 @@ pub struct BusAutomateBindings {
     pub param: u16,
     /// curve id (CURVES)
     pub curve: u16,
-    /// 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz)
+    /// 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4)
     pub target: u32,
 }
 

@@ -46,6 +46,7 @@ import type {
 import type { Effect } from "../../../../engine/audio/effects/types";
 import { effectParamValue } from "../../../../engine/audio/effects/catalogue";
 import { warnOnce } from "../core/handle";
+import type { Binding } from "../events/automation";
 import { RELOAD_FADE_MS, sameTempoMap } from "../music/reload";
 import { clipGeometry, clipTimesOf, pieceAt, type ClipGeometry } from "./clipMap";
 import { curveParts, type TimeCurve } from "./curves";
@@ -70,9 +71,12 @@ const HISTORY_SECONDS = 2;
 /** How far a boundary question looks ahead of the plan, heard seconds. */
 const PREDICT_SECONDS = 256;
 
-/** A time-keyed automation curve, shifted to a voice's start when it plays. */
+/**
+ * A time-keyed automation curve, shifted to a voice's start when it plays. Gain, pitch and low-pass run on main
+ * (`TimeCurve`); pan and high-pass (ABI 4.4) become core bindings on the voice's time (`timeBindings`).
+ */
 interface TimeAuto {
-  target: TimeCurve["target"];
+  target: TimeCurve["target"] | "pan" | "highpass";
   curve: Curve;
   input: "clipTime" | "sequenceTime" | "voiceTime";
 }
@@ -112,6 +116,11 @@ type HistoryItem = PlayheadMove;
 
 const shiftCache = new WeakMap<Curve, Map<number, Curve>>();
 /** `curve` read `offset` seconds later: what it says at t + offset, at t. */
+/** Where a time-keyed automation's curve starts relative to a voice of clip `c` starting at clip time `u`. */
+function timeOffset(t: TimeAuto, c: ClipRt, u: number): number {
+  return t.input === "clipTime" ? u : t.input === "sequenceTime" ? c.start + u : 0;
+}
+
 function shifted(curve: Curve, offset: number): Curve {
   if (Math.abs(offset) < EPS) return curve;
   let m = shiftCache.get(curve);
@@ -244,21 +253,20 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   private automation(list: readonly Automation[], effects: readonly Effect[], ctx: Ctx, time: TimeAuto[], where: string): Ctx {
     for (const a of list) {
       if (a.bypass || a.curve.length === 0) continue;
-      let target: TimeCurve["target"] | null = null;
+      let target: TimeAuto["target"] | null = null;
       let curve: Curve = a.curve;
       if (a.target === "volume") target = "gain";
       else if (a.target === "pitch") target = "pitch";
       else if (a.target === "enabled") { target = "gain"; curve = a.curve.map((k) => [k[0], k[1] >= 0.5 ? 0 : STEP_OFF_DB, "step"] as CurveKey); }
-      else if (a.target === "pan") {
-        warnOnce(`playlist:auto-pan`, `[myco] ${where}: pan automation needs a voice pan control the audio core doesn't have yet; skipped.`);
-        continue;
-      } else {
+      else if (a.target === "pan") target = "pan";
+      else {
         const [, id, param] = a.target.split(":");
         const fx = effects.find((e) => e.id === id);
         if (fx?.type === "lowpass" && param === "cutoff") target = "lowpass";
+        else if (fx?.type === "highpass" && param === "cutoff") target = "highpass";
         else if (fx?.type === "gain" && param === "gain") target = "gain";
         else {
-          warnOnce(`playlist:auto-fx:${fx?.type ?? id}:${param}`, `[myco] ${where}: automation of "${a.target}" needs instance submixes (ADR 0331)${fx ? "" : " and names no effect of its level"}; skipped. Low-pass cutoff and gain apply.`);
+          warnOnce(`playlist:auto-fx:${fx?.type ?? id}:${param}`, `[myco] ${where}: automation of "${a.target}" needs instance submixes (ADR 0331)${fx ? "" : " and names no effect of its level"}; skipped. Low-pass and high-pass cutoff and gain apply.`);
           continue;
         }
         if (target === "gain" && fx) {
@@ -491,10 +499,22 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     if (c.time.length === 0) return c.ctx.timeCurves;
     const out = c.ctx.timeCurves.slice();
     for (const t of c.time) {
-      const offset = t.input === "clipTime" ? u : t.input === "sequenceTime" ? c.start + u : 0;
-      out.push({ target: t.target, curve: shifted(t.curve, offset) });
+      if (t.target === "pan" || t.target === "highpass") continue;
+      out.push({ target: t.target, curve: shifted(t.curve, timeOffset(t, c, u)) });
     }
     return out;
+  }
+
+  /** ABI 4.4: the clip's time-keyed pan and high-pass automation as core bindings on voice time, shifted to `u`. */
+  private timeBindings(c: ClipRt, u: number): readonly Binding[] {
+    let out: Binding[] | null = null;
+    for (const t of c.time) {
+      if (t.target !== "pan" && t.target !== "highpass") continue;
+      const vc: VoiceCurve = { input: "voiceTime", curve: shifted(t.curve, timeOffset(t, c, u)), bypass: false };
+      const parts = curveParts({ [t.target]: vc }, { bindings: out ?? c.ctx.bindings, timeCurves: [] }, () => null, (curve) => this.host.curveId(curve), this.ctx.where);
+      out = parts.bindings;
+    }
+    return out ?? c.ctx.bindings;
   }
 
   /** Starts clip `c` at clip time `u`, heard `at`, fading in over `fadeIn` seconds (0: none). */
@@ -522,7 +542,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
       kind: "sample", sample: facts.path, trim: [s, end], loop: "off",
       volume: 0, pitch: 0, weight: 1, atZeroWeight: "stop", curves: {},
     };
-    const ctx: Ctx = { ...c.ctx, at, fadeIn, timeCurves: this.timeCurves(c, u) };
+    const ctx: Ctx = { ...c.ctx, at, fadeIn, timeCurves: this.timeCurves(c, u), bindings: this.timeBindings(c, u) };
     const v = this.host.playSample(entry, ctx, loop);
     if (!v) return;
     c.voice = v;
@@ -532,7 +552,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
 
   private resolveClipPlaylist(c: ClipRt, u: number, at: number, fadeIn: number): LiveNode | null {
     const src = c.clip.playlist!;
-    const ctx: Ctx = { ...c.ctx, at, fadeIn, timeCurves: this.timeCurves(c, u), depth: this.ctx.depth + 1 };
+    const ctx: Ctx = { ...c.ctx, at, fadeIn, timeCurves: this.timeCurves(c, u), bindings: this.timeBindings(c, u), depth: this.ctx.depth + 1 };
     if (typeof src === "string") {
       const body = linkedPlaylist(src, ctx.chain);
       if (!body) return null;

@@ -30,6 +30,12 @@
 //!    voice, bit for bit as before. The first quantum after an AUTOMATE starts at the evaluated
 //!    values with no ramp. A local binding of a voice whose PLAY `group` is 0 or out of range reads
 //!    0. Voices with no bindings pay nothing here.
+//!    ABI 4.4 (ADR 0331 voice level, 0329 entry curves) adds two voice targets: **highpass** (3)
+//!    gives `hpAuto`, the highest of its curves (0 when none), passed to the voice's high-pass as a
+//!    floor (`audio_dsp::fxfilter`: it runs at `max(hpHz, hpAuto)`); **pan** (4) gives `panAuto`,
+//!    the sum of its curves clamped to −1..1, ramped across the quantum like `gainMul` and applied
+//!    by the voice chain before the panner (equal-power on a mono voice, normalised so 0 is the
+//!    identity; balance on a stereo one). Buses ignore both.
 //! 4. **Bus bindings** (BUS_AUTOMATE, global parameters only, up to 8 per bus): `gainMul` on top of
 //!    the bus's main-written gain lanes (`lanes.rs`), ramped the same way, and the snapshot
 //!    low-pass at `min(snapshot lane lpHz, lpAuto)`.
@@ -119,6 +125,10 @@ pub mod target {
     pub const VOLUME: u32 = 0;
     pub const PITCH: u32 = 1;
     pub const LOWPASS: u32 = 2;
+    /// ABI 4.4: a high-pass cut-off floor (Hz), highest wins. Voices only.
+    pub const HIGHPASS: u32 = 3;
+    /// ABI 4.4: pan −1..1, summed. Voices only.
+    pub const PAN: u32 = 4;
 }
 
 /// `VoiceAuto::targets` / `BusAuto::targets` bits: which kinds of binding are present.
@@ -126,6 +136,8 @@ pub mod has {
     pub const GAIN: u8 = 1 << 0;
     pub const PITCH: u8 = 1 << 1;
     pub const LOWPASS: u8 = 1 << 2;
+    pub const HIGHPASS: u8 = 1 << 3;
+    pub const PAN: u8 = 1 << 4;
 }
 
 /// One parameter. All-zero is a settled parameter at 0.
@@ -230,6 +242,11 @@ pub struct VoiceAuto {
     pub p1: f32,
     /// `lpAuto` for this quantum.
     pub lp: f32,
+    /// ABI 4.4: `hpAuto` for this quantum (0 with no highpass binding).
+    pub hp: f32,
+    /// ABI 4.4: `panAuto`, as `g0`, `g1`.
+    pub pan0: f32,
+    pub pan1: f32,
     pub bindings: [Binding; BINDINGS],
     /// The context frame the voice started (or starts) at, or [`UNANCHORED`] (`voiceTime`).
     pub vstart: u64,
@@ -252,6 +269,12 @@ impl VoiceAuto {
     #[inline]
     pub fn pitch_at(&self, j: usize) -> f32 {
         ramp_at(self.p0, self.p1, j)
+    }
+
+    /// `panAuto` at frame `j` of the quantum.
+    #[inline]
+    pub fn pan_at(&self, j: usize) -> f32 {
+        ramp_at(self.pan0, self.pan1, j)
     }
 }
 
@@ -704,6 +727,8 @@ fn read_bindings(msg: &[u8], off: usize, out: &mut [Binding; BINDINGS], bus: boo
             target::VOLUME => has::GAIN,
             target::PITCH if !bus => has::PITCH,
             target::LOWPASS => has::LOWPASS,
+            target::HIGHPASS if !bus => has::HIGHPASS,
+            target::PAN if !bus => has::PAN,
             _ => continue,
         };
         if bus && b.param & 0x8000 == 0 {
@@ -938,12 +963,23 @@ fn enlist(header: &mut Header, active: &mut [u32], e: &mut VoiceAuto, index: usi
 
 // --- Per quantum ---
 
-/// Evaluates bindings: `(gainMul, pitchMul, lpAuto)`. Each binding is clamped before it combines, as
+/// What [`evaluate`] gives: `gainMul`, `pitchMul`, `lpAuto`, `hpAuto` and `panAuto`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Evaluated {
+    g: f32,
+    p: f32,
+    lp: f32,
+    hp: f32,
+    pan: f32,
+}
+
+/// Evaluates bindings: `(gainMul, pitchMul, lpAuto, hpAuto, panAuto)`. Each binding is clamped before it combines, as
 /// `events/automation.ts` `evaluate` does (the parity test holds them together): a volume curve
 /// below 0 is silence for its binding (two negative curves don't multiply to a positive gain), and
 /// a pitch curve at or below 0 leaves the rate alone (a factor of 1; no binding stalls a voice).
-fn evaluate(params: &[Param], curves: &[Curve], bindings: &[Binding], group: u16, times: &[f32; 3]) -> (f32, f32, f32) {
-    let (mut g, mut p, mut lp) = (1.0f32, 1.0f32, LP_OFF_HZ);
+/// High-pass curves take the highest (0 none), pan curves sum, clamped to −1..1 (NaN is 0).
+fn evaluate(params: &[Param], curves: &[Curve], bindings: &[Binding], group: u16, times: &[f32; 3]) -> Evaluated {
+    let (mut g, mut p, mut lp, mut hp, mut pan) = (1.0f32, 1.0f32, LP_OFF_HZ, 0.0f32, 0.0f32);
     for b in bindings {
         let y = curve_value(curves, b.curve, binding_value(params, b.param, group, times));
         match b.target {
@@ -954,9 +990,15 @@ fn evaluate(params: &[Param], curves: &[Curve], bindings: &[Binding], group: u16
                 }
             }
             target::LOWPASS => lp = lp.min(y),
+            target::HIGHPASS => hp = hp.max(y),
+            target::PAN => pan += y,
             _ => {}
         }
     }
+    if !(hp >= 0.0) {
+        hp = 0.0;
+    }
+    pan = if pan.is_nan() { 0.0 } else { pan.clamp(-1.0, 1.0) };
     if !(g.is_finite() && g >= 0.0) {
         g = 0.0;
     }
@@ -966,7 +1008,7 @@ fn evaluate(params: &[Param], curves: &[Curve], bindings: &[Binding], group: u16
     if !(lp >= 0.0) {
         lp = 0.0;
     }
-    (g, p, lp.min(LP_OFF_HZ))
+    Evaluated { g, p, lp: lp.min(LP_OFF_HZ), hp: hp.min(LP_OFF_HZ), pan }
 }
 
 /// Step 1 of the quantum at context frame `frame`, before any voice renders (`voices::render`):
@@ -1021,18 +1063,22 @@ pub fn begin_quantum(core: &mut Core, frame: u64) {
                     times = voice_times(e, s, v.clocks, frame, sample_rate);
                 }
             }
-            let (g, p, lp) = evaluate(v.params, v.curves, &e.bindings[..e.count as usize], e.group, &times);
+            let Evaluated { g, p, lp, hp, pan } = evaluate(v.params, v.curves, &e.bindings[..e.count as usize], e.group, &times);
             if e.fresh != 0 {
                 e.fresh = 0;
                 e.g0 = g;
                 e.p0 = p;
+                e.pan0 = pan;
             } else {
                 e.g0 = e.g1;
                 e.p0 = e.p1;
+                e.pan0 = e.pan1;
             }
             e.g1 = g;
             e.p1 = p;
             e.lp = lp;
+            e.hp = hp;
+            e.pan1 = pan;
         }
         i += 1;
     }
@@ -1041,7 +1087,7 @@ pub fn begin_quantum(core: &mut Core, frame: u64) {
             if b.count == 0 {
                 continue;
             }
-            let (g, _, lp) = evaluate(v.params, v.curves, &b.bindings[..b.count as usize], 0, &[0.0; 3]);
+            let Evaluated { g, lp, .. } = evaluate(v.params, v.curves, &b.bindings[..b.count as usize], 0, &[0.0; 3]);
             b.g0 = if b.fresh != 0 { g } else { b.g1 };
             b.fresh = 0;
             b.g1 = g;

@@ -1493,12 +1493,16 @@ fn voice_chain_body<const DUE: bool>(slot: &mut VoiceSlot, mut auto: Option<&mut
             r[i] *= g;
         }
     }
-    // ADR 0158 §3: automation's lowpass binding caps the voice's low-pass ("lowest wins", 0162 §4.1).
-    let mut cap = None;
+    // ADR 0158 §3: automation's lowpass binding caps the voice's low-pass ("lowest wins", 0162 §4.1);
+    // ABI 4.4: its highpass binding floors the high-pass ("highest wins").
+    let (mut cap, mut floor) = (None, None);
     if let Some(a) = auto.as_deref_mut() {
         auto_gain(a, l, r, from);
         if a.count != 0 && a.targets & automation::has::LOWPASS != 0 {
             cap = Some(a.lp);
+        }
+        if a.count != 0 && a.targets & automation::has::HIGHPASS != 0 {
+            floor = Some(a.hp);
         }
     }
     if let Some(e) = entry.as_deref_mut() {
@@ -1506,10 +1510,10 @@ fn voice_chain_body<const DUE: bool>(slot: &mut VoiceSlot, mut auto: Option<&mut
         // the left channel, then copied (both channels hold the same samples before).
         if slot.flags2 & flag2::AMBISONIC == 0 {
             if slot.panner.channels == 2 {
-                e.filter.process(sample_rate, cap, l, Some(r));
+                e.filter.process(sample_rate, cap, floor, l, Some(r));
             } else {
                 let was = e.filter.running();
-                if e.filter.process(sample_rate, cap, l, None) || was {
+                if e.filter.process(sample_rate, cap, floor, l, None) || was {
                     r.copy_from_slice(l);
                 }
             }
@@ -1539,6 +1543,59 @@ fn voice_chain_body<const DUE: bool>(slot: &mut VoiceSlot, mut auto: Option<&mut
         if e.aux_bus != wire::AUX_BUS_NONE as u16 {
             crate::sends::tap_aux(&mut e.aux, e.aux_bus, zones, slot.bus, from, l, r, &slot.panner);
         }
+    }
+    // ABI 4.4: automation's pan, last, just before the panner (the sends above stay unpanned). A 2D
+    // control: a spatial voice is panned by its direction and ignores it (FMOD's 2D panner).
+    if let Some(a) = auto.as_deref() {
+        if a.count != 0 && a.targets & automation::has::PAN != 0 && slot.panner.spatial == 0 && slot.flags2 & flag2::AMBISONIC == 0 {
+            auto_pan(a, slot.panner.channels == 2, l, r, from);
+        }
+    }
+}
+
+/// ABI 4.4: a mono voice's (`stereo` false: both channels hold the same samples) equal-power gains
+/// at pan `p` (−1..1), normalised so pan 0 is the identity: `√2·cos θ`, `√2·sin θ` with
+/// `θ = (p + 1)·π/4` (constant power; a hard pan is +3 dB on its side). A stereo voice's balance:
+/// the far side scaled by `1 − |p|`, the near side untouched.
+#[inline]
+fn pan_gains(p: f32, stereo: bool) -> (f32, f32) {
+    if p == 0.0 {
+        return (1.0, 1.0);
+    }
+    if stereo {
+        return if p < 0.0 { (1.0, 1.0 + p) } else { (1.0 - p, 1.0) };
+    }
+    let theta = (p + 1.0) * core::f32::consts::FRAC_PI_4;
+    (core::f32::consts::SQRT_2 * libm::cosf(theta), core::f32::consts::SQRT_2 * libm::sinf(theta))
+}
+
+/// ABI 4.4: applies the voice's `panAuto` to its block (frames `from..` of the quantum): the gains
+/// at the quantum's start and end ([`pan_gains`]), interpolated linearly per frame (control rate,
+/// as `gainMul`'s ramp), so a settled pan costs one multiply per sample.
+#[inline(never)]
+fn auto_pan(a: &VoiceAuto, stereo: bool, l: &mut [f32], r: &mut [f32], from: usize) {
+    let n = l.len();
+    if n == 0 {
+        return;
+    }
+    let (p0, p1) = (a.pan_at(from), a.pan_at(from + n - 1));
+    if p0 == p1 {
+        let (gl, gr) = pan_gains(p1, stereo);
+        if gl == 1.0 && gr == 1.0 {
+            return;
+        }
+        for i in 0..n {
+            l[i] *= gl;
+            r[i] *= gr;
+        }
+        return;
+    }
+    let ((l0, r0), (l1, r1)) = (pan_gains(p0, stereo), pan_gains(p1, stereo));
+    let inv = if n > 1 { 1.0 / (n - 1) as f32 } else { 0.0 };
+    for i in 0..n {
+        let t = i as f32 * inv;
+        l[i] *= l0 + (l1 - l0) * t;
+        r[i] *= r0 + (r1 - r0) * t;
     }
 }
 
@@ -2465,6 +2522,20 @@ pub(crate) mod tests {
             c = v.slots[c as usize - 1].next;
         }
         out
+    }
+
+    #[test]
+    fn pan_gains_are_identity_at_0_balance_on_stereo_and_constant_power_on_mono() {
+        assert_eq!(pan_gains(0.0, false), (1.0, 1.0));
+        assert_eq!(pan_gains(0.0, true), (1.0, 1.0));
+        assert_eq!(pan_gains(-0.25, true), (1.0, 0.75));
+        assert_eq!(pan_gains(0.5, true), (0.5, 1.0));
+        for p in [-1.0f32, -0.5, 0.3, 1.0] {
+            let (l, r) = pan_gains(p, false);
+            assert!((l * l + r * r - 2.0).abs() < 1e-5, "constant power at {p}");
+        }
+        let (l, r) = pan_gains(1.0, false);
+        assert!(l.abs() < 1e-6 && (r - core::f32::consts::SQRT_2).abs() < 1e-6);
     }
 
     #[test]

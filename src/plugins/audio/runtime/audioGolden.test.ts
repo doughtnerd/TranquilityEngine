@@ -495,6 +495,20 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
     s.send(param(0, 0, 0.3, 0), param(7, 2, 0.2, 0));
     s.run(20);
   },
+  // ABI 4.4: a pan curve swept left to right by a seeking global parameter, summed with a constant offset, and a
+  // high-pass floor curve on a local parameter rising from off to 3 kHz (highest of two floors wins).
+  "automation-pan-highpass"(s) {
+    s.send(
+      curves(0, [[[0, -1, 2], [1, 1, 0]], [[0, 0.2, 0]], [[0, 0, 0], [1, 3000, 3]], [[0, 400, 0]]]),
+      param(0, 3, 0, 0),
+      param(5, 1, 0, 0),
+      play(voice(1), CLIP, { flags: MIXED | LOOP, group: 5 }),
+      automate(voice(1), [[GLOBAL | 3, 0, 4], [GLOBAL | 3, 1, 4], [1, 2, 3], [1, 3, 3]]),
+    );
+    s.run(10);
+    s.send(param(0, 3, 1, 1.2), param(5, 1, 1, 1));
+    s.run(90);
+  },
   // ADR 0332: Bézier keys. A volume curve of two Bézier segments (an overshooting rise into a key whose in handle
   // shapes it, then a fall into a plain key, so its flat third-long handle) and a pitch curve of one Bézier segment,
   // swept by a seeking global parameter.

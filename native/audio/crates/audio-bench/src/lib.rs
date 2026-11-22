@@ -155,7 +155,8 @@ pub struct Scene {
     /// unlimited) and main obeys `mixedCap`.
     pub cap: bool,
     /// ADR 0158 E2: automation bindings per voice (0 to 3: volume on a global parameter, pitch on the voice's
-    /// group's local one, lowpass on a second global), with every batch seeking the globals and 32 groups' locals.
+    /// group's local one, lowpass on a second global; ABI 4.4: 4 adds pan on the first global, 5 a high-pass floor
+    /// on the second), with every batch seeking the globals and 32 groups' locals.
     pub bindings: u32,
     /// ADR 0332: the bound curves are made of Bézier keys (the same values, each segment a cubic).
     pub bezier: bool,
@@ -591,6 +592,8 @@ pub fn scene(name: &str) -> Option<Scene> {
         "automation-bezier" => Scene { bindings: 3, bezier: true, ..Scene::looping(name, 256) },
         // ADR 0332: `automation` with every binding on a time parameter (voice, clip and sequence time).
         "automation-time" => Scene { bindings: 3, time: true, ..Scene::looping(name, 256) },
+        // ABI 4.4: `automation` plus a pan and a high-pass binding on every voice.
+        "automation-pan-highpass" => Scene { bindings: 5, ..Scene::looping(name, 256) },
         "automation-virtual" => Scene { bindings: 3, virtual_voices: 256, ..Scene::looping(name, 16) },
         "bus-automation" => Scene { buses: 32, snapshot_lp: true, bus_automation: true, ..Scene::looping(name, 32) },
         "sustain" => Scene { sustain: true, ..Scene::looping(name, 128) },
@@ -1835,11 +1838,11 @@ impl Bench {
         if s.bindings > 0 && stream.is_none() {
             let all = if s.time {
                 let t = wire::PARAM_TIME as u16;
-                [(t | wire::TIME_VOICE as u16, 0u16, 0u32), (t | wire::TIME_CLIP as u16, 1, 1), (t | wire::TIME_SEQUENCE as u16, 2, 2)]
+                [(t | wire::TIME_VOICE as u16, 0u16, 0u32), (t | wire::TIME_CLIP as u16, 1, 1), (t | wire::TIME_SEQUENCE as u16, 2, 2), (t | wire::TIME_VOICE as u16, 0, 4), (t | wire::TIME_CLIP as u16, 2, 3)]
             } else {
-                [(0x8000u16, 0u16, 0u32), (0, 1, 1), (0x8001, 2, 2)]
+                [(0x8000u16, 0u16, 0u32), (0, 1, 1), (0x8001, 2, 2), (0x8000, 0, 4), (0x8001, 2, 3)]
             };
-            let bindings = all[..s.bindings.min(3) as usize].iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target }).collect();
+            let bindings = all[..s.bindings.min(5) as usize].iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target }).collect();
             self.push(&wire::Automate { voice_id: id, frame_offset: wire::ASAP, bindings });
         }
         if s.sustain && s.loop_programs && mixed && stream.is_none() {

@@ -290,6 +290,30 @@ const lowpassScenes: Scene[] = [
   },
 ];
 
+// ABI 4.4: the high-pass floor (highest wins) and pan (summed, clamped), compared like the low-pass: by the filter's
+// magnitude at 3 kHz, and by a mono DC voice's left gain at each quantum's end (the equal-power law, normalised to 0).
+const highpassScenes: Scene[] = [
+  {
+    name: "high-pass, a floor swept up, the highest of two floors wins",
+    curves: { 0: [[0, 100], [1, 6000, "easeIn"]], 1: [[0, 2500], [1, 2500]] },
+    voices: [{ group: 0, bindings: [bind(0, 0, AutoTarget.Highpass), bind(1, 1, AutoTarget.Highpass)] }],
+    initial: [{ group: 0, slot: 0, value: 0 }, { group: 0, slot: 1, value: 0 }],
+    actions: [act(4, 0, 0.95, 1.5)],
+    quanta: 40,
+  },
+];
+
+const panScenes: Scene[] = [
+  {
+    name: "pan, two curves summed and clamped, a parameter swept across",
+    curves: { 0: [[0, -1], [1, 1, "smooth"]], 1: [[0, 0.3], [1, 0.3]] },
+    voices: [{ group: 0, volume: 0.5, bindings: [bind(0, 0, AutoTarget.Pan), bind(1, 1, AutoTarget.Pan)] }],
+    initial: [{ group: 0, slot: 0, value: 0.05 }, { group: 0, slot: 1, value: 0 }],
+    actions: [act(3, 0, 0.97, 2)],
+    quanta: 40,
+  },
+];
+
 const busScenes: Scene[] = [
   {
     name: "bus volume, a global parameter through a smooth curve",
@@ -382,6 +406,8 @@ function runTs(scene: Scene) {
   const series = voices.map(() => ({ volume: [] as number[], pitch: [] as number[] }));
   const busSeries: { gain: number; lowpass: number }[] = [];
   const cutoff: number[] = [];
+  const highpass: number[] = [];
+  const pan: number[] = [];
   for (let q = 0; q < scene.quanta; q++) {
     for (const x of scene.actions) if (x.q + CORE_LAG === q) ts.setParam(x.group, x.slot, x.value, x.seek);
     ts.update(DT);
@@ -390,13 +416,16 @@ function runTs(scene: Scene) {
       series[i]!.pitch.push(v.pitch.at(-1)!);
     });
     if (scene.bus) busSeries.push(bus.at(-1)!);
-    if (scene.voices?.[0]?.bindings.some((b) => b.target === AutoTarget.Lowpass)) {
+    if (scene.voices?.[0]?.bindings.some((b) => b.target === AutoTarget.Lowpass || b.target === AutoTarget.Highpass || b.target === AutoTarget.Pan)) {
       const spec = scene.voices[0]!;
-      cutoff.push(evaluate(spec.bindings, new Map(Object.entries(scene.curves).map(([k, c]) => [Number(k), c])), (p) => ts.valueOf(p.global ? 0 : spec.group, p.slot)).lowpass);
+      const r = evaluate(spec.bindings, new Map(Object.entries(scene.curves).map(([k, c]) => [Number(k), c])), (p) => ts.valueOf(p.global ? 0 : spec.group, p.slot));
+      cutoff.push(r.lowpass);
+      highpass.push(r.highpass);
+      pan.push(r.pan);
     }
   }
   spy.mockRestore();
-  return { series, busSeries, cutoff, settled };
+  return { series, busSeries, cutoff, highpass, pan, settled };
 }
 
 /** Frame j of a quantum ramping from `a` (the end of the previous quantum) to `b`: the core's contract (`ramp_at`). */
@@ -418,6 +447,12 @@ describe("the evaluator's per-binding clamps (the rules the core's `evaluate` is
   });
   it("treats a curve id that was never defined as the empty curve (0), as the core's table does", () => {
     expect(evaluate(bindings([77, AutoTarget.Volume]), curves, read).gain).toBe(0);
+  });
+  it("takes the highest high-pass floor and sums pan curves, clamped to -1..1", () => {
+    expect(evaluate(bindings([2, AutoTarget.Highpass], [3, AutoTarget.Highpass]), curves, read).highpass).toBe(2);
+    expect(evaluate(bindings([0, AutoTarget.Pan], [1, AutoTarget.Pan]), curves, read).pan).toBe(-1);
+    expect(evaluate(bindings([0, AutoTarget.Pan], [2, AutoTarget.Pan]), curves, read).pan).toBe(1);
+    expect(evaluate(bindings([3, AutoTarget.Pan]), curves, read)).toMatchObject({ pan: 0, highpass: 0, lowpass: 24000 });
   });
 });
 
@@ -507,6 +542,40 @@ describe("automation parity: the core and TsAutomation agree (E3.4)", () => {
       expect(worst).toBeLessThan(LP_TOL);
     });
   }
+
+  for (const scene of highpassScenes) {
+    it(scene.name, { timeout: 30_000 }, async (ctx) => {
+      const rig = await sceneRig();
+      if (!rig) return ctx.skip();
+      const ts = runTs(scene);
+      const { core } = await runCore(rig, scene, "sine");
+      let worst = 0;
+      // From the second quantum: the floor switches the filter on at the first (a transient while it settles).
+      for (let q = 2; q < scene.quanta; q++) {
+        const rms = Math.sqrt(core[q]!.reduce((s, x) => s + x * x, 0) / Q);
+        const expected = (await unitSine()) * highpassMagnitude(ts.highpass[q]!);
+        worst = Math.max(worst, Math.abs(rms / expected - 1));
+      }
+      expect(worst).toBeLessThan(LP_TOL);
+    });
+  }
+
+  for (const scene of panScenes) {
+    it(scene.name, { timeout: 30_000 }, async (ctx) => {
+      const rig = await sceneRig();
+      if (!rig) return ctx.skip();
+      const unit = await unitLevel("dc", 0.5);
+      const ts = runTs(scene);
+      const { core } = await runCore(rig, scene, "dc");
+      let worst = 0;
+      for (let q = 0; q < scene.quanta; q++) {
+        // The core's pan gains reach this quantum's value at its last frame.
+        const theta = ((ts.pan[q]! + 1) * Math.PI) / 4;
+        worst = Math.max(worst, Math.abs(core[q]![Q - 1]! / unit.last - Math.SQRT2 * Math.cos(theta)));
+      }
+      expect(worst).toBeLessThan(1e-4);
+    });
+  }
 });
 
 let sineUnit: number | undefined;
@@ -522,6 +591,23 @@ async function unitSine(): Promise<number> {
   }
   sineUnit = Math.sqrt(out.reduce((s, x) => s + x * x, 0) / Q);
   return sineUnit;
+}
+
+/** |H| at `SINE_HZ` of the core's high-pass biquad at `cutoff` Hz, Q 1 dB (the voice's high-pass); 1 at or below 20 Hz (off). */
+function highpassMagnitude(cutoff: number): number {
+  if (cutoff <= 20) return 1;
+  const c = Math.min(1, cutoff / (RATE / 2));
+  const q = Math.pow(10, 1 / 20);
+  const theta = Math.PI * c;
+  const alpha = Math.sin(theta) / (2 * q);
+  const cosw = Math.cos(theta);
+  const beta = (1 + cosw) / 2;
+  const a0 = 1 + alpha;
+  const b0 = beta / a0, b1 = (-2 * beta) / a0, b2 = beta / a0, a1 = (-2 * cosw) / a0, a2 = (1 - alpha) / a0;
+  const w = (2 * Math.PI * SINE_HZ) / RATE;
+  const num = Math.hypot(b0 + b1 * Math.cos(w) + b2 * Math.cos(2 * w), -(b1 * Math.sin(w) + b2 * Math.sin(2 * w)));
+  const den = Math.hypot(1 + a1 * Math.cos(w) + a2 * Math.cos(2 * w), -(a1 * Math.sin(w) + a2 * Math.sin(2 * w)));
+  return num / den;
 }
 
 /** |H| at `SINE_HZ` of the core's low-pass biquad at `cutoff` Hz, Q 1 dB (the core's snapshot filter). */

@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "36d7d7b06bdb405ddb536ac67693fa05";
+export const SCHEMA_HASH = "dab86974ee2f2e7b037ec31f1a21d6ee";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
@@ -1559,7 +1559,7 @@ export interface AutomateBindings {
   param: number;
   /** curve id (CURVES) */
   curve: number;
-  /** 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz) */
+  /** 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4) */
   target: number;
 }
 
@@ -2162,7 +2162,7 @@ export interface BusAutomateBindings {
   param: number;
   /** curve id (CURVES) */
   curve: number;
-  /** 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz) */
+  /** 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4) */
   target: number;
 }
 

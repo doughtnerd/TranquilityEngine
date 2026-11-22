@@ -184,7 +184,7 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
 
   const voices: AudioDebugInfo["voices"] = [];
   const zoneRows = backend.zones?.debug();
-  const auto = { gain: 1, pitch: 1, lowpass: 0 };
+  const auto = { gain: 1, pitch: 1, lowpass: 0, highpass: 0, pan: 0 };
   for (let i = 0; i < table.capacity; i++) {
     if (table.state[i] === VoiceState.FREE) continue;
     const stream = (table.flags[i]! & VoiceFlag.STREAM) !== 0 && backend.streams;

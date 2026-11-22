@@ -67,6 +67,8 @@ ADR 0332 (ABI 4.2) adds time parameters, in `schema/studio.rs`: a binding whose 
 
 ADR 0328 (ABI 4.3) adds `0x0B LOOPS`: a clip voice's loop program, up to `VOICE_LOOPS_MAX` (4) loops with direction (forward, ping-pong, backward), repeat count, equal-power seam crossfade, hold points (start == end), activation (always, held until the key-off, or a parameter against a threshold), exit (finish, jump, crossfade) and re-entry; applied on arrival like AUTOMATE. A SET_LOOP with `looping` clear is the program's key-off. Programs live in a pool of 256 in the automation region (`automation.rs` `PROGRAMS`; full, a program falls back to its first region as a SET_LOOP loop) and run in `audio-core/src/voice_loops.rs`. Stream and ambisonic voices don't run programs.
 
+ABI 4.4 adds two AUTOMATE targets for voices (ADR 0331's voice level, ADR 0329's entry curves): `3` highpass, a cut-off floor in Hz (the highest curve wins; the voice's high-pass runs at `max(hpHz, floor)`, a floor at or below 20 Hz is none) and `4` pan, −1..1 (curves summed and clamped), applied just before the panner of a non-spatial voice: equal-power on a mono voice, normalised so 0 is the identity (`√2·cos θ`, `√2·sin θ`), balance on a stereo one. Buses ignore both.
+
 `gen_wire --check` fails when any is stale; `npm run build:audio` runs the generator for you. Never edit the generated files. A schema change changes the schema hash: `wire.schemaHash.test.ts` and `wire.roundtrip.test.ts` fail until the TypeScript side is updated, which is the point. The wire is frozen for M1 (contract K1); a change needs a review and a version decision.
 
 ## Goldens and parity

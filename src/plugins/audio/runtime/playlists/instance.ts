@@ -26,9 +26,9 @@ import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPa
 import { clipRequest, samplePlan } from "../clipResolver";
 import { warnOnce } from "../core/handle";
 import { events, type EventOptions } from "../events/eventRuntime";
-import { MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type ParamRef, type VoiceLoop } from "../events/automation";
+import { MAX_BINDINGS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type Binding, type ParamRef, type VoiceLoop } from "../events/automation";
 import { Assets } from "../../../../engine/scene/Assets";
-import { evalTimeCurves } from "./curves";
+import { evalTimeCurves, staticPanBinding } from "./curves";
 import { linkedPlaylist, loadAttenuation } from "./loader";
 import { clockOver, MUSICAL_FALLBACK_NOTE, type MusicalClock, type MusicalSource } from "./musical";
 import { sampleFacts, type SampleFacts } from "./sampleFacts";
@@ -648,7 +648,8 @@ export class PlaylistInstance implements NodeHost {
     try { voice = audioBackend().play(req); } catch { voice = null; }
     if (!voice) return null;
     const sink = events().automation;
-    if (ctx.bindings.length > 0) sink.bindVoice(voice, this.group, ctx.bindings, base, ctx.at ?? undefined);
+    const bindings = this.withStaticPan(ctx.bindings, c.pan, ctx.where);
+    if (bindings.length > 0) sink.bindVoice(voice, this.group, bindings, base, ctx.at ?? undefined);
     if (ctx.fadeIn > 0) {
       voice.fade(0, 0);
       voice.fadeShaped({ to: 1, seconds: ctx.fadeIn, law: "equalPowerIn", ...(ctx.at !== null ? { at: ctx.at } : {}) });
@@ -664,7 +665,7 @@ export class PlaylistInstance implements NodeHost {
     const to = trim ? Math.min(trim[1], fileLength ?? Infinity) : fileLength;
     const length = to !== null && Number.isFinite(to) ? Math.max(0, to - from) / base.pitch : null;
     const v: PVoice = {
-      voice, path, base, staticVolume, staticPitch, bindings: ctx.bindings, dyn: dynList, timeCurves: ctx.timeCurves,
+      voice, path, base, staticVolume, staticPitch, bindings, dyn: dynList, timeCurves: ctx.timeCurves,
       start, length, loop, leaving: false, appliedGain: dyn, appliedPitch: t.pitch, appliedLowpass: curved ? lowpass : t.lowpass, positioned: req.position !== undefined,
     };
     this.voices.push(v);
@@ -678,6 +679,17 @@ export class PlaylistInstance implements NodeHost {
       this.schedule(end, () => { if (!v.leaving && !v.loop?.looping) { v.leaving = true; voice!.stop(TRIM_FADE); } });
     }
     return v;
+  }
+
+  /** A voice's bindings with its static pan (the tree's accumulated `pan`) added as a constant pan binding (ABI 4.4). */
+  private withStaticPan(bindings: readonly Binding[], pan: number, where: string): readonly Binding[] {
+    if (pan === 0) return bindings;
+    if (bindings.length >= MAX_BINDINGS) {
+      warnOnce(`playlist:bindings:${where}`, `[myco] ${where}: more than ${MAX_BINDINGS} parameter and time curves reach one voice; the rest are ignored.`);
+      return bindings;
+    }
+    const b = staticPanBinding(pan, (curve) => this.curveId(curve));
+    return b ? [...bindings, b] : bindings;
   }
 
   /**

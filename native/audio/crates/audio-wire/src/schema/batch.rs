@@ -80,7 +80,7 @@ const SET_LOOP_FLAGS: &[Bits] = &[Bits::bit("looping", 0, "loop the region; clea
 const BINDING_ITEM: &[Field] = &[
     Field::new("param", Ty::U16).doc("bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group"),
     Field::new("curve", Ty::U16).doc("curve id (CURVES)"),
-    Field::new("target", Ty::U32).doc("0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz)"),
+    Field::new("target", Ty::U32).doc("0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4)"),
 ];
 
 /// AUTOMATE bindings: at most 8 per voice are kept.
