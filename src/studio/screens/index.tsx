@@ -8,6 +8,7 @@ import { MIXER_PANELS } from "./mixer";
 import { PLAYLISTS_PANELS } from "./playlists";
 import { PROFILER_PANELS } from "./profiler";
 import { SAMPLES_PANELS } from "./samples";
+import { TAKE_PANELS } from "./take";
 
 const purpose = (id: ScreenId) => SCREENS.find((s) => s.id === id)!.purpose;
 
@@ -21,10 +22,6 @@ export const SCREEN_PANELS: Readonly<Record<ScreenId, readonly StudioPanel[]>> =
     placeholderPanel({ id: "spatial-attenuation", title: "Attenuation", dock: "right", empty: "Nothing selected", body: "The selected attenuation curve or preset." }),
     historyPanel("spatial"),
   ],
-  take: [
-    placeholderPanel({ id: "take-list", title: "Takes", dock: "left", empty: "No takes yet", body: "Record a take while playing the game in the editor or a game build; takes saved in the project show here." }),
-    placeholderPanel({ id: "take-timeline", title: "Timeline", dock: "fill", fixed: true, icon: "◉", empty: "Take", body: <p>{purpose("take")} Open a take to replay it.</p> }),
-    placeholderPanel({ id: "take-inspector", title: "Instance", dock: "right", empty: "Nothing selected", body: "The selected instance: what asked for it, what it played, and notes." }),
-  ],
+  take: TAKE_PANELS,
   profiler: PROFILER_PANELS,
 };

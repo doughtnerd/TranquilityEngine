@@ -11,6 +11,7 @@ import { currentProject, status } from "../../editor/state";
 import { PlayerBar } from "../components/PlayerBar";
 import { StudioStatusBar } from "../components/StudioStatusBar";
 import { outputDevice } from "./outputDevice";
+import { ReplaySlot, replaySlotShown } from "./ReplaySlot";
 import { screenById } from "./screens";
 import { ScreenDock } from "./ScreenDock";
 import { StudioHeader } from "./StudioHeader";
@@ -53,7 +54,7 @@ export function StudioApp(props: StudioAppProps) {
         </div>
       )}
       <ScreenDock screen={route.screen} />
-      <PlayerBar idleArt={screen.art} {...slots} label={`${screen.title} player`} />
+      <PlayerBar idleArt={screen.art} {...slots} replay={"replay" in slots ? slots.replay : replaySlotShown() ? <ReplaySlot /> : undefined} label={`${screen.title} player`} />
       <StudioStatusBar state={state} stats={host.stats.value} message={status.value} device={outputDevice().value.name} />
       <UndoToasts queue={toasts} />
       <ConfirmDialog />
