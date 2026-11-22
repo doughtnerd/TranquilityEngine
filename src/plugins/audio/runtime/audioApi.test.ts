@@ -429,7 +429,8 @@ describe("Audio public surface (api-and-models §1)", () => {
       const spy = vi.spyOn(r.backend, "debug");
       const info = Audio.debug();
       expect(spy).toHaveBeenCalledTimes(1);
-      expect(info).toEqual({ ...spy.mock.results[0]!.value, events: [], eventTotals: { lateStarts: 0 }, music: [], musicTotals: expect.objectContaining({ poolUsed: 0, groupsLate: 0, refusals: {} }) });
+      // ADR 0337 §9: and the packages (none in this project).
+      expect(info).toEqual({ ...spy.mock.results[0]!.value, events: [], eventTotals: { lateStarts: 0 }, music: [], musicTotals: expect.objectContaining({ poolUsed: 0, groupsLate: 0, refusals: {} }), packages: [] });
     });
 
     it("the babylon backend gives status running, handle reason null and a debug with an empty voice list", async () => {
