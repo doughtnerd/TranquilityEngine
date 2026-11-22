@@ -779,7 +779,8 @@ export function mediaSource(path: string, settingsPath: string): { url: string |
   const entry = mediaEntry(path);
   if (entry) {
     const c = clips.get(path);
-    const stream = entry.load === "stream";
+    // W12: a `compressed` Vorbis or Opus sound in the decoder plays through a stream ring from the decoder's copy.
+    const stream = entry.load === "stream" || (c?.entry != null && c.packs.size > 0 && streamsFromPack(c.entry));
     if (stream && entry.url) return { url: buildUrl(entry.url), stream };
     return { url: c?.url ?? null, stream };
   }

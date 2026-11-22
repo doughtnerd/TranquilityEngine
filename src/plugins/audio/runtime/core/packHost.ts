@@ -17,7 +17,7 @@ export interface PackHostDeps {
   readonly locked: () => boolean;
 }
 
-/** How often a hold looks again while the output is locked, ms. */
+/** How often a hold looks again until it settles (for a locked output, whose clips never turn resident), ms. */
 const LOCKED_POLL_MS = 30;
 
 export function createPackHost(deps: PackHostDeps): AudioPacks {
@@ -32,10 +32,11 @@ export function createPackHost(deps: PackHostDeps): AudioPacks {
       deps.decoder().releasePack?.(pack);
     },
     holdClip(path, frames): PackClipHold {
-      const span = frames !== undefined && frames > 0 && clips.acquireSpan;
-      let id = span ? clips.acquireSpan!(path, 0, frames) : clips.acquire(path);
+      // A clip id may be 0 (slot 0, generation 0): `held` says whether the reference is still ours.
+      const id = frames !== undefined && frames > 0 && clips.acquireSpan ? clips.acquireSpan(path, 0, frames) : clips.acquire(path);
+      let held = true;
       const stateOf = (): PackClipHold["state"] => {
-        if (id === 0) return "failed";
+        if (!held) return "failed";
         const st = clips.state(id);
         return st === "ready" ? "ready" : st === "failed" ? "failed" : "loading";
       };
@@ -45,17 +46,14 @@ export function createPackHost(deps: PackHostDeps): AudioPacks {
           return stateOf();
         },
         get bytes() {
-          if (id === 0) return 0;
+          if (!held) return 0;
           const info = clips.info(id);
           return info && info.state !== "failed" ? info.bytes : 0;
         },
         settled() {
-          if (settledOnce) return settledOnce;
-          settledOnce = new Promise<void>((resolve) => {
-            if (id === 0) return resolve();
+          settledOnce ??= new Promise<void>((resolve) => {
             let done = false;
             let timer: ReturnType<typeof setTimeout> | null = null;
-            let off: () => void = () => {};
             const finish = () => {
               if (done) return;
               done = true;
@@ -63,12 +61,12 @@ export function createPackHost(deps: PackHostDeps): AudioPacks {
               if (timer !== null) clearTimeout(timer);
               resolve();
             };
-            off = clips.onResident(id, finish);
+            const off = clips.onResident(id, finish);
             // Locked: the copy is queued (CLIP_BEGIN sent) and the core takes it in at its first quantum.
             const poll = () => {
               timer = null;
               if (done) return;
-              if (id === 0 || (deps.locked() && clips.state(id) === "copying")) return finish();
+              if (!held || (deps.locked() && clips.state(id) === "copying")) return finish();
               timer = setTimeout(poll, LOCKED_POLL_MS);
             };
             if (!done) poll();
@@ -76,8 +74,8 @@ export function createPackHost(deps: PackHostDeps): AudioPacks {
           return settledOnce;
         },
         release() {
-          if (id !== 0) clips.release(id);
-          id = 0;
+          if (held) clips.release(id);
+          held = false;
         },
       };
     },
