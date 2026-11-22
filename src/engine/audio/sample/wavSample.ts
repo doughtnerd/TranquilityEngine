@@ -5,7 +5,7 @@
  * - Cue points import as **note** markers, regions (`ltxt`) as note ranges, `smpl` loops as loops, `acid` as the tempo,
  *   the `smpl` unity note (else `acid`'s root) as the root. Every imported item carries a `file` snapshot.
  * - Writing writes notes (points as cues, ranges as regions), loops, root and tempo. Exit, Hit point and Cue markers
- *   stay in the sidecar only (the WAV can't carry their types).
+ *   (and Entry) stay in the sidecar only (the WAV can't carry their types).
  *
  * Pure; no plugin, no DOM.
  */

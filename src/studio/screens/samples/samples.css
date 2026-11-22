@@ -40,6 +40,7 @@
 .smp-marker.on .smp-marker-label { color: var(--text-strong); background: color-mix(in srgb, var(--mk) 40%, transparent); border-radius: 2px; }
 .smp-marker.ff .smp-marker-label::after { content: " ▪"; color: var(--muted); }
 .smp-marker.outside { opacity: 0.6; }
+.smp-marker.entry { border-left-style: dotted; }
 .smp-marker-end { position: absolute; right: -3px; top: 0; bottom: 0; width: 6px; cursor: ew-resize; }
 .smp-marker-ghost { position: absolute; height: 16px; border-left: 1px dashed var(--faint); padding-left: 4px; color: var(--faint); font-size: calc(10px * var(--ui-scale)); pointer-events: none; white-space: nowrap; }
 .smp-looprow, .smp-trimrow { position: relative; height: 20px; background: var(--panel); border-bottom: 1px solid var(--border); overflow: hidden; }
@@ -145,6 +146,9 @@
 .smp-merge { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .smp-merge li { display: flex; align-items: center; gap: 8px; justify-content: space-between; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; }
 .smp-merge li.conflict { border-color: var(--warning); }
+.smp-versions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow: auto; }
+.smp-versions li { display: flex; align-items: center; gap: 8px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; }
+.smp-versions li > :last-child { margin-left: auto; }
 
 /* Player bar */
 .smp-play { min-width: 64px; }

@@ -159,6 +159,19 @@ describe("sampleEditsToJson", () => {
   });
 });
 
+describe("Entry markers (ADR 0336 pre-entry)", () => {
+  it("read, take the default name, refuse a range, and round-trip", () => {
+    const problems: string[] = [];
+    const e = parseSampleEdits({ markers: [{ id: "e", type: "entry", at: 0.5 }, { id: "x", type: "exit", at: 2 }] }, "s", problems);
+    expect(problems).toEqual([]);
+    expect(e.markers).toEqual([{ id: "e", type: "entry", name: "Entry", at: 0.5, file: null }, { id: "x", type: "exit", name: "Exit", at: 2, file: null }]);
+    expect(parseSampleEdits(sampleEditsToJson(e), "s", [])).toEqual(e);
+    const ranged: string[] = [];
+    expect(parseSampleEdits({ markers: [{ type: "entry", at: 0.5, end: 1 }] }, "s", ranged).markers[0].end).toBeUndefined();
+    expect(ranged).toContain("s.markers[0].end: only a note can be a range; dropped.");
+  });
+});
+
 describe("sampleEditsFromSidecar", () => {
   it("reads legacy loopStart/loopEnd as one loop when there is no block", () => {
     const e = sampleEditsFromSidecar({ sample: null, loopStart: 1.5, loopEnd: 7.25 });

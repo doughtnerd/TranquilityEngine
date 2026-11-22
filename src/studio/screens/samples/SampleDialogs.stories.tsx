@@ -6,7 +6,9 @@ import { expect, fn, userEvent, within } from "storybook/test";
 import type { WavMetadata } from "../../../engine/audio/sample/wavChunks";
 import { ImportReview } from "./ImportDialog";
 import type { KindToggles } from "./importPlan";
+import type { RemapMode } from "../../../engine/audio/sample/remap";
 import { DeriveForm, MergeReview, WriteReview } from "./SampleDialogs";
+import { ReimportReview } from "./ReimportDialog";
 import type { MergeRow } from "./sampleFile";
 
 const meta: Meta = { title: "Studio/Samples/Dialogs" };
@@ -103,5 +105,47 @@ export const ImportReviewStory: Story = {
     await expect(c.getByText("Timecode origin")).toBeVisible();
     await userEvent.click(c.getByRole("checkbox", { name: /Regions/ }));
     await expect(c.getByText(/4 of 5 kinds of metadata will be imported/)).toBeVisible();
+  },
+};
+
+/** The import review's "Detect what's missing" is enabled and on by default (ADR 0328 detection). */
+export const ImportDetect: Story = {
+  name: "Import review · Detect what's missing",
+  render: () => <Review />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const detect = c.getByRole("checkbox", { name: /Detect what's missing/ });
+    await expect(detect).toBeEnabled();
+    await expect(detect).toBeChecked();
+    await userEvent.click(detect);
+    await expect(detect).not.toBeChecked();
+  },
+};
+
+function Reimport() {
+  const [mode, setMode] = useState<RemapMode>("seconds");
+  return (
+    <ReimportReview
+      name="door.wav" length={1.2} mode={mode} onMode={setMode}
+      picked={{ name: "door_take2.wav", length: 0.8 }}
+      versions={{ current: 2, versions: [
+        { n: 1, file: "v1.wav", kind: "original", name: "door.wav", at: "2026-11-20T10:00:00Z", length: 1.4 },
+        { n: 2, file: "v2.wav", kind: "reimport", name: "door_v2.wav", at: "2026-11-21T10:00:00Z", length: 1.2 },
+      ] }}
+      onPick={fn()} onImport={fn()} onRestore={fn()} onCancel={fn()}
+    />
+  );
+}
+
+export const ReimportStory: Story = {
+  name: "Re-import",
+  render: () => <Reimport />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByRole("dialog", { name: "Re-import door.wav" })).toBeVisible();
+    await expect(c.getByRole("alert")).toHaveTextContent("The new file is shorter");
+    await userEvent.click(c.getByRole("radio", { name: "Scale to the new length" }));
+    await expect(c.queryByRole("alert")).toBeNull();
+    await expect(within(c.getByRole("list", { name: "Source versions" })).getByRole("button", { name: "Restore" })).toBeVisible();
   },
 };
