@@ -4,8 +4,10 @@
  * chose to write beside it, and lint notes naming every approximation. It never throws.
  *
  * The migration has no audio files. Clip, loop and marker times that depend on a sample's length (a segment's `"end"`,
- * a sustain's sections, a start offset's trim) need `options.sampleSeconds`; without it they are written as 0 (or the
- * loop is dropped) and a note says so. Callers that can read the audio (the Studio, `npm run audio:migrate`) pass it.
+ * a sustain's sections, a start offset's trim) need `options.sampleSeconds`. Without it, clip and sequence lengths are
+ * 0, which the playlist contract reads as "to the end" (D5), an exit at the end needs no marker, and a loop over a whole
+ * segment replays the sequence through a continuous Queue; what still can't be placed is dropped with a note. Callers
+ * that can read the audio (`migrateProjectAudio` in `project.ts`, so `npm run audio:migrate`) pass it.
  *
  * The mapping, in short (each choice is explained where it is made):
  * - `clip` → Clip (a looping region or sustain → a one-clip Sequence with a sequence loop); `random` → Queue random;
