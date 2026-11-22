@@ -15,7 +15,7 @@ import { DeviceEvents, InputDevice } from "./deviceEntities";
 import { knownContexts, playerTable, resolveAction, type CompiledMapping } from "./evaluate";
 import { InputPlayer, familyName } from "./players";
 import { overrideKey, profileOf } from "./profiles";
-import { mappingFits } from "./prompts";
+import { controlGroup, familyGroup, mappingFits, type DeviceGroup } from "./prompts";
 
 /** A rebind waiting for a press. `token` names it (the request's details are kept beside it). */
 export const RebindRequest = defineComponent("engine.RebindRequest", { token: i32 });
@@ -36,8 +36,8 @@ export const RebindResults = defineBuffer<RebindResult>("engine.RebindResults");
 export interface RebindOptions {
   /** A control that cancels instead of binding (default `<Keyboard>/escape`). */
   readonly cancel?: string;
-  /** Which devices' mapping to rebind: `keyboard` (with the pointer) or `gamepad`. Default: the family the player last used. */
-  readonly device?: "keyboard" | "gamepad";
+  /** Which devices' mapping to rebind: `keyboard` (with the pointer), `gamepad`, `touch` or `pen`. Default: the group of the family the player last used. */
+  readonly device?: DeviceGroup;
   /** For a composite: the part to rebind (`up`, `down`, `left`, `right`, `negative`, `positive`, `control`, `modifier0`…). */
   readonly part?: string;
   /** Only this context's mapping (default: the first, by priority, that has the action for those devices). */
@@ -52,7 +52,7 @@ interface Pending {
   readonly mapping: number;
   readonly part: string;
   readonly cancel: string;
-  readonly gamepad: boolean;
+  readonly group: DeviceGroup;
   remaining: number;
   readonly resolve: (r: RebindResult) => void;
 }
@@ -65,15 +65,15 @@ export function startRebind(world: World, player: GameObject, action: string, op
   const target = resolveAction(action);
   if (!target) throw new Error(`rebind: there's no action "${action}".`);
   const last = familyName(player.getData(InputPlayer)!.lastFamily);
-  const gamepad = options.device ? options.device === "gamepad" : last !== "keyboard" && last !== "pointer";
-  const fam: DeviceFamily = gamepad ? "generic" : "keyboard";
+  const group: DeviceGroup = options.device ?? familyGroup(last);
+  const fam: DeviceFamily = group === "keyboard" ? "keyboard" : group === "gamepad" ? "generic" : group;
   let found: CompiledMapping | null = null;
   for (const ctx of playerTable(world, player).contexts) {
     if (options.context && ctx.name !== options.context) continue;
     found = ctx.mappings.find((m) => m.set === target.set && m.action === target.action && mappingFits(m, fam)) ?? null;
     if (found) break;
   }
-  if (!found) throw new Error(`rebind: action "${action}" has no ${gamepad ? "gamepad" : "keyboard"} mapping${options.context ? ` in context "${options.context}"` : ""} to rebind.`);
+  if (!found) throw new Error(`rebind: action "${action}" has no ${group} mapping${options.context ? ` in context "${options.context}"` : ""} to rebind.`);
   const composite = found.source.kind !== "single";
   const part = options.part ?? (found.source.kind === "modifier" ? "control" : composite ? "" : "control");
   if (!part) throw new Error(`rebind: action "${action}"'s mapping is a ${found.source.kind} composite; say which part to rebind (options.part).`);
@@ -83,7 +83,7 @@ export function startRebind(world: World, player: GameObject, action: string, op
   if (existing) finish(player, existing.token, null);
   player.addData(RebindRequest, { token });
   return new Promise((resolve) => {
-    pending.set(token, { action, context: found!.context, mapping: found!.index, part, cancel: control(options.cancel ?? "<Keyboard>/escape")!.path, gamepad, remaining: options.timeout ?? Infinity, resolve });
+    pending.set(token, { action, context: found!.context, mapping: found!.index, part, cancel: control(options.cancel ?? "<Keyboard>/escape")!.path, group, remaining: options.timeout ?? Infinity, resolve });
   });
 }
 
@@ -121,7 +121,7 @@ function step(world: World, dt: number): void {
         finish(player, token, null);
         break;
       }
-      if ((c.source.device === "gamepad") !== p.gamepad) continue;
+      if (controlGroup(c) !== p.group) continue;
       const profile = profileOf(world, index);
       profile.overrides[overrideKey(p.context, p.mapping, p.part)] = c.path;
       profile.version++;

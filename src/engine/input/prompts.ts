@@ -51,6 +51,7 @@ export function controlLabel(c: Control, family: DeviceFamily): string {
   const name = c.path.slice(c.path.indexOf("/") + 1);
   if (c.source.device === "keyboard") return KEY_LABELS[name] ?? (name.length === 1 ? name.toUpperCase() : name.charAt(0).toUpperCase() + name.slice(1));
   if (c.source.device === "pointer") return POINTER_LABELS[name] ?? name;
+  if (c.source.device === "touch" || c.source.device === "pen") return COMMON_PAD[name] ?? name;
   const pad = family === "xbox" || family === "playstation" || family === "switch" ? family : "generic";
   return PAD_LABELS[pad][name] ?? COMMON_PAD[name] ?? name;
 }
@@ -62,12 +63,24 @@ export function controlIcon(c: Control, family: DeviceFamily): string {
   return `${c.source.device}/${name}`;
 }
 
-const isPadFamily = (f: DeviceFamily) => f !== "keyboard" && f !== "pointer";
+/** Which devices bind together: the keyboard with the pointer, gamepads, the touchscreen, the pen. */
+export type DeviceGroup = "keyboard" | "gamepad" | "touch" | "pen";
 
-/** Whether a mapping is for devices of `family` (keyboard and pointer go together). */
+/** The group of a device family. */
+export function familyGroup(f: DeviceFamily): DeviceGroup {
+  return f === "keyboard" || f === "pointer" ? "keyboard" : f === "touch" || f === "pen" ? f : "gamepad";
+}
+
+/** The group of devices a control is read from. */
+export function controlGroup(c: Control): DeviceGroup {
+  const d = c.source.device;
+  return d === "pointer" ? "keyboard" : d;
+}
+
+/** Whether a mapping is for devices of `family`'s group (keyboard and pointer go together). */
 export function mappingFits(m: CompiledMapping, family: DeviceFamily): boolean {
-  const pad = isPadFamily(family);
-  return m.controls.every((id) => (controlById(id).source.device === "gamepad") === pad);
+  const group = familyGroup(family);
+  return m.controls.every((id) => controlGroup(controlById(id)) === group);
 }
 
 /** @internal The prompt for `action` for a player node, named for `family` (default: the family they last used). */
