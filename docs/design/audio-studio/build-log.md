@@ -15,7 +15,7 @@ Plan: [plan.md](plan.md). Ground rules for tasks: [ground-rules.md](ground-rules
 ## Machine and baseline
 
 - 4 cores, 15 GB RAM, ~60 GB free disk. Rust 1.99.1 with `wasm32-unknown-unknown`. No `wasm-bindgen` (not needed by audio).
-- Baseline at `6ee797a`+: `npm run typecheck` passes; full Vitest: see below.
+- Baseline at `86b69af`: `npm run typecheck` passes (46 s); full Vitest 810 files, 9107 passed, 3 skipped, 1 todo (5 min, idle machine).
 
 ## Waves
 
