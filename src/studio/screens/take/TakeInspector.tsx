@@ -10,7 +10,9 @@ import { Fader } from "../../components/Fader";
 import { Meter } from "../../components/Meter";
 import { formatTime } from "../../components/timeAxis";
 import type { ReplayPose } from "../../runtime/takeReplay";
+import type { TakeFrame } from "../../../engine/audio/take/types";
 import { noteColourCss } from "./notesEdits";
+import { PlayheadPicture } from "./TakePicture";
 import { valueText, type BusStrip, type ParameterRow } from "./takeInspectorModel";
 import { pathLabel, type TakeInstance } from "./takeTimeline";
 
@@ -154,8 +156,8 @@ export function NoteDetails(props: NoteDetailsProps) {
   );
 }
 
-/** Nothing selected: the global parameters at the playhead. */
-export function PlayheadValues(props: { readonly open: boolean; readonly time: number; readonly values: readonly { name: string; text: string }[] }) {
+/** Nothing selected: the picture on screen and the global parameters at the playhead. */
+export function PlayheadValues(props: { readonly open: boolean; readonly time: number; readonly picture?: TakeFrame | null; readonly values: readonly { name: string; text: string }[] }) {
   if (!props.open) return <EmptyState compact title="Nothing selected" body="Open a take, then select an instance or a note on its timeline." />;
   return (
     <div class="tk-inspector">
@@ -163,6 +165,7 @@ export function PlayheadValues(props: { readonly open: boolean; readonly time: n
         <span class="tk-badge">Take</span>
         <strong class="tk-ins-title">Values at {formatTime(props.time)}</strong>
       </div>
+      <PlayheadPicture frame={props.picture ?? null} />
       {props.values.length === 0 ? (
         <p class="tk-note">The game set no global parameters in this take. Select an instance to see its own.</p>
       ) : (

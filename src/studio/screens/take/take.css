@@ -43,7 +43,13 @@
 
 /* Picture */
 .tk-picture { height: 40px; background: var(--bg-sunken); }
-.tk-thumb { position: absolute; top: 2px; height: 36px; object-fit: cover; border-radius: 2px; border: 1px solid var(--border); }
+.tk-thumb { position: absolute; top: 2px; height: 36px; padding: 0; overflow: hidden; border-radius: 2px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; }
+.tk-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.tk-thumb.current { border-color: var(--accent); outline: 1px solid var(--accent); z-index: 1; }
+.tk-thumb:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tk-picture-now { margin: 0 0 8px; }
+.tk-picture-now img { display: block; width: 100%; height: auto; border-radius: 3px; border: 1px solid var(--border); background: var(--bg-sunken); }
+.tk-picture-now figcaption { margin-top: 2px; color: var(--muted); font-size: calc(10px * var(--ui-scale)); }
 
 /* Labelled parameters */
 .tk-segments { position: relative; height: 22px; margin: 4px 0; }

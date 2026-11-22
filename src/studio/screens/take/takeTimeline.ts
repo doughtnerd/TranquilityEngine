@@ -223,6 +223,30 @@ export function visibleFrames(frames: readonly { readonly t: number }[], toX: (t
   return out;
 }
 
+/** The picture on screen at `t`: the index of the last taken at or before it (the first, before any); -1 without pictures. */
+export function frameIndexAt(frames: readonly { readonly t: number }[], t: number): number {
+  if (frames.length === 0) return -1;
+  let lo = 0;
+  let hi = frames.length - 1;
+  if (t < frames[0]!.t) return 0;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (frames[mid]!.t <= t) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
+/** The picture lane's thumbnails: spaced so none overlap, the one on screen at the playhead (`current`) always among them. */
+export function pictureStrip(frames: readonly { readonly t: number }[], toX: (t: number) => number, thumb: number, t: number): { shown: number[]; current: number } {
+  const current = frameIndexAt(frames, t);
+  const shown = visibleFrames(frames, toX, thumb);
+  if (current < 0 || shown.includes(current)) return { shown, current };
+  const x = toX(frames[current]!.t);
+  const kept = shown.filter((i) => Math.abs(toX(frames[i]!.t) - x) >= thumb);
+  return { shown: [...kept, current].sort((a, b) => a - b), current };
+}
+
 /** A parameter lane's value at `t` as text: its label for a labelled one. */
 export function parameterText(lane: ParameterLane, t: number): string {
   if (lane.segments) {

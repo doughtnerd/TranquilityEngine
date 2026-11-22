@@ -303,7 +303,7 @@ function InspectorPanel() {
         />
       );
   }
-  body ??= <PlayheadValues open={!!timeline} time={t} values={(timeline?.parameters ?? []).filter((p) => p.path === null).map((p) => ({ name: p.name, text: parameterText(p, t) }))} />;
+  body ??= <PlayheadValues open={!!timeline} time={t} picture={open?.take.frameAt(t) ?? open?.take.frames[0] ?? null} values={(timeline?.parameters ?? []).filter((p) => p.path === null).map((p) => ({ name: p.name, text: parameterText(p, t) }))} />;
   return <Panel bodyClass="tk-panel-body">{body}</Panel>;
 }
 

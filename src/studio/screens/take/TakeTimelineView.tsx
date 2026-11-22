@@ -4,7 +4,7 @@
 // selects, Enter or a double-click opens the playlist), the parameter lanes (a line per parameter, labelled ones as
 // segments) and the notes lane (the game's marks, and the designer's note markers and regions: drag to move, a
 // double-click adds a marker). The playhead is the replay's time. A view over props.
-import { useEffect, useMemo, useRef } from "preact/hooks";
+import { useMemo, useRef } from "preact/hooks";
 import type { TakeNotes } from "../../../engine/audio/take/types";
 import { Playhead } from "../../components/Playhead";
 import { SpanLane } from "../../components/SpanLane";
@@ -14,7 +14,8 @@ import { linearTimeAxis, type TimeAxis } from "../../components/timeAxis";
 import { useElementWidth } from "../../components/useElementWidth";
 import { noteColourCss } from "./notesEdits";
 import type { TakeSelection } from "./takeScreen";
-import { parameterText, visibleFrames, type ParameterLane, type TakeTimeline } from "./takeTimeline";
+import { PictureLane } from "./TakePicture";
+import { parameterText, type ParameterLane, type TakeTimeline } from "./takeTimeline";
 
 export interface TakeTimelineViewProps {
   readonly timeline: TakeTimeline;
@@ -36,7 +37,6 @@ export interface TakeTimelineViewProps {
 }
 
 const CONTEXT = { rate: 48000 } as const;
-const THUMB_W = 64;
 
 export function TakeTimelineView(props: TakeTimelineViewProps) {
   const lane = useRef<HTMLDivElement>(null);
@@ -57,7 +57,7 @@ export function TakeTimelineView(props: TakeTimelineViewProps) {
         </div>
       </div>
       <div class="tk-rows">
-        {timeline.frames.length > 0 && <PictureLane timeline={timeline} axis={axis} />}
+        {timeline.frames.length > 0 && <PictureLane frames={timeline.frames} axis={axis} time={props.time} onSeek={props.onSeek} />}
         {timeline.lanes.map((l) => (
           <div class={`tk-row${l.instances.some((i) => i.key === selectedKey) ? " active" : ""}`} key={l.path}>
             <div class="tk-head" title={l.path}>
@@ -103,26 +103,6 @@ function ParameterRow(props: { lane: ParameterLane; axis: TimeAxis; time: number
         ) : (
           <ValueLane points={lane.points} toX={axis.toX} width={axis.width} height={34} label={lane.label} interp="step" cursor={props.time} series={props.series} />
         )}
-      </div>
-    </div>
-  );
-}
-
-function PictureLane(props: { timeline: TakeTimeline; axis: TimeAxis }) {
-  const frames = props.timeline.frames;
-  const urls = useMemo(() => frames.map((f) => URL.createObjectURL(new Blob([f.jpeg as BlobPart], { type: "image/jpeg" }))), [frames]);
-  useEffect(() => () => urls.forEach((u) => URL.revokeObjectURL(u)), [urls]);
-  const shown = visibleFrames(frames, props.axis.toX, THUMB_W + 2);
-  return (
-    <div class="tk-row tk-picture-row">
-      <div class="tk-head">
-        <span class="tk-head-name">Picture</span>
-        <span class="tk-head-sub">{frames.length} frames</span>
-      </div>
-      <div class="tk-lane tk-picture">
-        {shown.map((i) => (
-          <img key={i} class="tk-thumb" src={urls[i]} alt="" style={{ left: `${props.axis.toX(frames[i]!.t)}px`, width: `${THUMB_W}px` }} />
-        ))}
       </div>
     </div>
   );

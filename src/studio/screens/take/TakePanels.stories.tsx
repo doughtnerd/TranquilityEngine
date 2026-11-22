@@ -8,7 +8,7 @@ import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import type { TakeNotes } from "../../../engine/audio/take/types";
 import { performanceClock, TakeReplay, type ReplayTarget } from "../../runtime/takeReplay";
 import { addMarker, moveNote, type NotesEdit } from "./notesEdits";
-import { InstanceDetails, MixerStrip, NoteDetails } from "./TakeInspector";
+import { InstanceDetails, MixerStrip, NoteDetails, PlayheadValues } from "./TakeInspector";
 import { busStrip, instanceParametersAt, parameterRows } from "./takeInspectorModel";
 import { FIXTURE_NOTES, SURFACE_LABELS, fixtureTake } from "./takeFixture";
 import { TakeList } from "./TakeList";
@@ -79,6 +79,35 @@ export const Timeline: Story = {
     await expect(canvasElement.querySelector(".tk-segment[title='Rock']")).not.toBeNull(); // Surface as labelled segments
     await userEvent.click(c.getByRole("option", { name: /Velocity 0.71/ }));
     await expect(c.getByLabelText("Selected").textContent).toMatch(/^4@/);
+  },
+};
+
+export const Pictures: Story = {
+  render: () => <TimelineDemo start={12.5} />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const strip = await c.findByRole("group", { name: "Pictures of the game view" });
+    // The picture on screen at the playhead is marked and always among the thumbnails.
+    await waitFor(() => expect(within(strip).getByRole("button", { current: true })).toHaveAccessibleName("Picture at 12.020 s"));
+    // A click on another moves the playhead to it.
+    await userEvent.click(within(strip).getAllByRole("button")[0]!);
+    await waitFor(() => expect(within(strip).getByRole("button", { current: true })).toHaveAccessibleName("Picture at 0.020 s"));
+  },
+};
+
+export const PictureAtThePlayhead: Story = {
+  render: () => {
+    const take = fixtureTake();
+    return (
+      <div style={{ width: "300px" }}>
+        <PlayheadValues open time={8.4} picture={take.frameAt(8.4)} values={[{ name: "Speed", text: "200" }]} />
+      </div>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByRole("img", { name: "The game view at 8.020 s" })).toBeVisible();
+    await expect(c.getByText("Game view at 8.020 s")).toBeVisible();
   },
 };
 
