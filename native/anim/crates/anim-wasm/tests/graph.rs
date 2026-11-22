@@ -103,7 +103,10 @@ fn frames_until(core: &mut Core, m: u32, state: u32, max: usize) -> Option<usize
     })
 }
 
-fn three_state_machine(b: &mut Builder, trans: &[Vec<anim_format::graph::Transition>]) -> MachineIds {
+fn three_state_machine(
+    b: &mut Builder,
+    trans: &[Vec<anim_format::graph::Transition>],
+) -> MachineIds {
     let pa = b.player("a");
     let pb = b.player("b");
     let pc = b.player("c");
@@ -183,7 +186,10 @@ fn when_frame(when: When, spec: ClipSpec, b_extra: impl FnOnce(&mut Builder)) ->
 
 #[test]
 fn when_now_fires_on_the_first_update() {
-    assert_eq!(when_frame(When::Now, ClipSpec::new(1.0, true, 1), |_| {}), Some(1));
+    assert_eq!(
+        when_frame(When::Now, ClipSpec::new(1.0, true, 1), |_| {}),
+        Some(1)
+    );
 }
 
 #[test]
@@ -215,7 +221,12 @@ fn when_marker_waits_for_the_named_sync_marker() {
 
 #[test]
 fn when_normalized_time_waits_for_the_fraction() {
-    let f = when_frame(When::NormalizedTime(0.5), ClipSpec::new(1.0, true, 1), |_| {}).unwrap();
+    let f = when_frame(
+        When::NormalizedTime(0.5),
+        ClipSpec::new(1.0, true, 1),
+        |_| {},
+    )
+    .unwrap();
     assert!((15..=16).contains(&f), "frame {f}");
 }
 
@@ -304,7 +315,10 @@ fn how_smooth_shape_eases() {
 fn how_inertialize_decays_the_pop_through_the_ancestor_node() {
     let (mut r, h, cb, _) = how_rig(How::Inertialize { duration: 0.2 }, true);
     let cut = r.reference(cb, 0.0);
-    assert!(diff(&r.mats(h), &cut) > 1e-3, "the switch frame is still decaying");
+    assert!(
+        diff(&r.mats(h), &cut) > 1e-3,
+        "the switch frame is still decaying"
+    );
     for _ in 0..8 {
         frame(&mut r.core, DT);
     }
@@ -325,7 +339,12 @@ fn inertialization_requests_route_to_the_requesters_ancestor() {
     let m = b.machine(
         &[("A", pa, 0), ("B", pb, 0)],
         0,
-        &[vec![tr(1, c, When::Now, How::Inertialize { duration: 0.3 })]],
+        &[vec![tr(
+            1,
+            c,
+            When::Now,
+            How::Inertialize { duration: 0.3 },
+        )]],
         &[],
     );
     let pc = b.player("c");
@@ -389,12 +408,18 @@ fn how_bridge_enters_the_target_at_the_bridge_exit() {
     frame(&mut r.core, DT);
     send(&mut r.core, &[set_float(h, go, 1.0)]);
     r.core.evaluate(0, 0, DT, DT);
-    assert!(!entered(&graph_changes(&r.core), 0, 1), "not yet: the bridge plays");
+    assert!(
+        !entered(&graph_changes(&r.core), 0, 1),
+        "not yet: the bridge plays"
+    );
     let rep = report(&mut r.core, h);
     assert_eq!(rep.machines[0].target, 1);
     assert_eq!(rep.machines[0].current, 0);
     let f = frames_until(&mut r.core, 0, 1, 30).unwrap();
-    assert!((6..=7).contains(&f), "entered at the bridge's exit marker (0.2 s): frame {f}");
+    assert!(
+        (6..=7).contains(&f),
+        "entered at the bridge's exit marker (0.2 s): frame {f}"
+    );
     let rep = report(&mut r.core, h);
     assert_eq!(rep.machines[0].current, 1);
     assert!(rep.weight(bridge) > 0.0, "fading from the bridge");
@@ -487,7 +512,10 @@ fn any_state_transitions_come_first_and_skip_the_current_state() {
     let binds = clips3(&mut r, &mut b);
     let bytes = b.build(m.node);
     let (_, h) = instance(&mut r.core, &bytes, r.skel, &binds);
-    send(&mut r.core, &[set_float(h, go, 1.0), set_float(h, dead, 1.0)]);
+    send(
+        &mut r.core,
+        &[set_float(h, go, 1.0), set_float(h, dead, 1.0)],
+    );
     r.core.evaluate(0, 0, DT, DT);
     let ch = graph_changes(&r.core);
     assert!(entered(&ch, 0, 2) && !entered(&ch, 0, 1), "{ch:?}");
@@ -535,10 +563,16 @@ fn sub_machines_leave_through_their_exit_state_and_restart_on_entry() {
     };
     assert!(f <= 1);
     // Back into Sub: the inner machine restarts at its entry.
-    send(&mut r.core, &[set_float(h, go, 0.0), jump(h, outer.index, 0)]);
+    send(
+        &mut r.core,
+        &[set_float(h, go, 0.0), jump(h, outer.index, 0)],
+    );
     r.core.evaluate(0, 0, DT, DT);
     let ch = graph_changes(&r.core);
-    assert!(entered(&ch, outer.index, 0) && entered(&ch, inner.index, 0), "{ch:?}");
+    assert!(
+        entered(&ch, outer.index, 0) && entered(&ch, inner.index, 0),
+        "{ch:?}"
+    );
 }
 
 #[test]
@@ -548,7 +582,13 @@ fn requests_are_consumed_by_the_transition_that_reads_them_or_expire() {
     let gate = b.param("gate", ParamValue::Float(1.0));
     let name = b.s("Jump");
     let c = b.cond(&[CondNode::All(2), req(name), cmp_f(gate, CmpOp::Gt, 0.5)]);
-    let m = three_state_machine(&mut b, &[vec![tr(1, c, When::Now, How::Cut)], vec![tr(0, NONE, When::Now, How::Cut)]]);
+    let m = three_state_machine(
+        &mut b,
+        &[
+            vec![tr(1, c, When::Now, How::Cut)],
+            vec![tr(0, NONE, When::Now, How::Cut)],
+        ],
+    );
     let binds = clips3(&mut r, &mut b);
     let bytes = b.build(m.node);
     let (_, h) = instance(&mut r.core, &bytes, r.skel, &binds);
@@ -558,13 +598,16 @@ fn requests_are_consumed_by_the_transition_that_reads_them_or_expire() {
     send(&mut r.core, &[request(h, name, 0.2)]);
     r.core.evaluate(0, 0, DT, DT);
     let ch = graph_changes(&r.core);
-    assert!(ch.iter().any(|c| c.kind == GRAPH_REQUEST_CONSUMED
-        && c.index == name
-        && c.value == m.trans[0][0]));
+    assert!(ch
+        .iter()
+        .any(|c| c.kind == GRAPH_REQUEST_CONSUMED && c.index == name && c.value == m.trans[0][0]));
     assert!(entered(&ch, 0, 1));
     frame(&mut r.core, DT); // B → A
-    // Expires unread while the gate is closed; the stale request never fires later.
-    send(&mut r.core, &[set_float(h, gate, 0.0), request(h, name, 0.1)]);
+                            // Expires unread while the gate is closed; the stale request never fires later.
+    send(
+        &mut r.core,
+        &[set_float(h, gate, 0.0), request(h, name, 0.1)],
+    );
     let rep = report(&mut r.core, h);
     assert_eq!(rep.requests.len(), 1);
     assert!((rep.requests[0].life - 0.1).abs() < 1e-6);
@@ -599,7 +642,11 @@ fn travel_takes_the_shortest_path_with_a_deterministic_tie_break() {
     let t = |to: u32| tr(to, c, When::Now, How::Cut);
     let players: Vec<u32> = (0..7).map(|i| b.player(["a", "b", "c"][i % 3])).collect();
     let names = ["S0", "S1", "S2", "S3", "S4", "S5", "S6"];
-    let states: Vec<(&str, u32, u32)> = names.iter().zip(&players).map(|(n, p)| (*n, *p, 0)).collect();
+    let states: Vec<(&str, u32, u32)> = names
+        .iter()
+        .zip(&players)
+        .map(|(n, p)| (*n, *p, 0))
+        .collect();
     // S0 → S3 | S1 (that order); S1 → S5; S3 → S5; S0 → S2 → S4 → S5 (longer); S6 unreachable.
     let m = b.machine(
         &states,
@@ -632,7 +679,10 @@ fn travel_takes_the_shortest_path_with_a_deterministic_tie_break() {
     let rep = report(&mut r.core, h);
     assert_eq!((rep.machines[0].current, rep.machines[0].travel), (5, NONE));
     frame(&mut r.core, DT);
-    assert!(graph_changes(&r.core).is_empty(), "travel ended at the target");
+    assert!(
+        graph_changes(&r.core).is_empty(),
+        "travel ended at the target"
+    );
     // Unreachable: refused with STATUS_UNREACHABLE; a jump cuts there.
     send(&mut r.core, &[travel(h, 0, 6)]);
     let rf = refused(&r.core);
@@ -679,14 +729,24 @@ fn blend_space_2d_weights_follow_the_triangulation() {
     send(&mut r.core, &[debug_on(h)]);
     let points: Vec<[f32; 2]> = coords.chunks(2).map(|c| [c[0], c[1]]).collect();
     let t = sources::triangulate::triangulate(&points);
-    for q in [[0.3f32, -0.4], [-0.9, 0.9], [2.0, 0.0], [0.2, 0.1], [0.0, -3.0]] {
+    for q in [
+        [0.3f32, -0.4],
+        [-0.9, 0.9],
+        [2.0, 0.0],
+        [0.2, 0.1],
+        [0.0, -3.0],
+    ] {
         send(&mut r.core, &[set_float(h, x, q[0]), set_float(h, y, q[1])]);
         r.core.evaluate(0, 0, DT, DT);
         let (idx, w) = sources::triangulate::weights(&points, &t.triangles, &t.hull, q);
         let rep = report(&mut r.core, h);
         for (i, &p) in ps.iter().enumerate() {
             let want: f32 = (0..3).filter(|&k| idx[k] == i as u32).map(|k| w[k]).sum();
-            assert!((rep.weight(p) - want).abs() < 1e-6, "{q:?} sample {i}: {} vs {want}", rep.weight(p));
+            assert!(
+                (rep.weight(p) - want).abs() < 1e-6,
+                "{q:?} sample {i}: {} vs {want}",
+                rep.weight(p)
+            );
         }
     }
 }
@@ -708,14 +768,22 @@ fn blend_space_1d_is_piecewise_linear_and_glides() {
     let (_, h) = instance(&mut r.core, &bytes, r.skel, &binds);
     send(&mut r.core, &[debug_on(h)]);
     frame(&mut r.core, DT);
-    assert_eq!(report(&mut r.core, h).weight(ps[1]), 1.0, "x = 0 is sample 1");
+    assert_eq!(
+        report(&mut r.core, h).weight(ps[1]),
+        1.0,
+        "x = 0 is sample 1"
+    );
     // To x = 2 (halfway between 1 and 3) over 100 ms.
     send(&mut r.core, &[set_float(h, x, 2.0)]);
     r.core.evaluate(0, 0, DT, DT);
     let rep = report(&mut r.core, h);
     // Glided a third of the way: x = 2/3, between samples 1 (x 0) and 2 (x 1).
     let g = 2.0 * DT / 0.1;
-    assert!((rep.weight(ps[2]) - g).abs() < 1e-5, "{}", rep.weight(ps[2]));
+    assert!(
+        (rep.weight(ps[2]) - g).abs() < 1e-5,
+        "{}",
+        rep.weight(ps[2])
+    );
     for _ in 0..3 {
         frame(&mut r.core, DT);
     }
@@ -756,10 +824,18 @@ fn blend_space_speed_scales_by_the_sampled_root_speed() {
         frame(&mut r.core, DT);
     }
     // Blended root speed 2 = the parameter: rate 1, 2 m/s.
-    assert!((root(&r.core, h)[2] - 2.0 * DT).abs() < 1e-4, "{:?}", root(&r.core, h));
+    assert!(
+        (root(&r.core, h)[2] - 2.0 * DT).abs() < 1e-4,
+        "{:?}",
+        root(&r.core, h)
+    );
     send(&mut r.core, &[set_float(h, speed, 4.0)]);
     r.core.evaluate(0, 0, DT, DT);
-    assert!((root(&r.core, h)[2] - 4.0 * DT).abs() < 1e-4, "{:?}", root(&r.core, h));
+    assert!(
+        (root(&r.core, h)[2] - 4.0 * DT).abs() < 1e-4,
+        "{:?}",
+        root(&r.core, h)
+    );
 }
 
 fn random_picks(mode: u32, avoid: u32, seed_value: u32, n: usize) -> Vec<u32> {
@@ -779,7 +855,9 @@ fn random_picks(mode: u32, avoid: u32, seed_value: u32, n: usize) -> Vec<u32> {
             send(&mut r.core, &[jump(h, 0, 0)]);
             r.core.evaluate(0, 0, DT, DT);
             let rep = report(&mut r.core, h);
-            let picked: Vec<u32> = (0..3).filter(|&i| rep.weight(ps[i as usize]) > 0.0).collect();
+            let picked: Vec<u32> = (0..3)
+                .filter(|&i| rep.weight(ps[i as usize]) > 0.0)
+                .collect();
             assert_eq!(picked.len(), 1);
             picked[0]
         })
@@ -789,16 +867,31 @@ fn random_picks(mode: u32, avoid: u32, seed_value: u32, n: usize) -> Vec<u32> {
 #[test]
 fn random_selector_is_deterministic_by_seed_and_avoids_repeats() {
     let a = random_picks(logic::RANDOM_WEIGHTED, 0, 1234, 40);
-    assert_eq!(a, random_picks(logic::RANDOM_WEIGHTED, 0, 1234, 40), "same seed, same picks");
-    assert_ne!(a, random_picks(logic::RANDOM_WEIGHTED, 0, 4321, 40), "another seed differs");
-    assert!(a.windows(2).any(|w| w[0] == w[1]), "without avoidRepeat a pick may repeat");
+    assert_eq!(
+        a,
+        random_picks(logic::RANDOM_WEIGHTED, 0, 1234, 40),
+        "same seed, same picks"
+    );
+    assert_ne!(
+        a,
+        random_picks(logic::RANDOM_WEIGHTED, 0, 4321, 40),
+        "another seed differs"
+    );
+    assert!(
+        a.windows(2).any(|w| w[0] == w[1]),
+        "without avoidRepeat a pick may repeat"
+    );
     // Weighted: choice 1 (weight 2) about half the time.
     let ones = a.iter().filter(|&&p| p == 1).count();
     assert!((10..=30).contains(&ones), "{ones}");
     let b = random_picks(logic::RANDOM_WEIGHTED, 1, 1234, 40);
     assert!(b.windows(2).all(|w| w[0] != w[1]), "avoidRepeat 1: {b:?}");
     let c = random_picks(logic::RANDOM_WEIGHTED, 2, 99, 40);
-    assert!(c.windows(3).all(|w| w[0] != w[1] && w[1] != w[2] && w[0] != w[2]), "avoidRepeat 2: {c:?}");
+    assert!(
+        c.windows(3)
+            .all(|w| w[0] != w[1] && w[1] != w[2] && w[0] != w[2]),
+        "avoidRepeat 2: {c:?}"
+    );
 }
 
 #[test]
@@ -810,7 +903,10 @@ fn shuffle_and_round_robin() {
         c.sort();
         assert_eq!(c, vec![0, 1, 2], "{s:?}");
     }
-    assert!(s.windows(2).all(|w| w[0] != w[1]), "no repeat across cycles: {s:?}");
+    assert!(
+        s.windows(2).all(|w| w[0] != w[1]),
+        "no repeat across cycles: {s:?}"
+    );
     let rr = random_picks(logic::RANDOM_ROUND_ROBIN, 0, 77, 6);
     // The instance's first entry picked 0; re-entries continue in order.
     assert_eq!(rr, vec![1, 2, 0, 1, 2, 0]);
@@ -859,7 +955,15 @@ fn slot_rig() -> (Rig, u32, u32, u32, u32) {
     (r, h, shot, ca, s0)
 }
 
-fn slot_play(instance: u32, slot: u32, clip: u32, play_id: u32, start: f32, end: f32, flags: u32) -> Vec<u8> {
+fn slot_play(
+    instance: u32,
+    slot: u32,
+    clip: u32,
+    play_id: u32,
+    start: f32,
+    end: f32,
+    flags: u32,
+) -> Vec<u8> {
     SlotPlay {
         instance,
         slot,
@@ -930,12 +1034,20 @@ fn slot_next_sections_chain_and_loops_hold() {
         }
     }
     let f = finished.unwrap();
-    assert!((12..=13).contains(&f), "0.2 s + 0.2 s of sections: frame {f}");
+    assert!(
+        (12..=13).contains(&f),
+        "0.2 s + 0.2 s of sections: frame {f}"
+    );
     // A looping section never finishes.
-    send(&mut r.core, &[slot_play(h, 0, shot, 4, 0.1, 0.3, SECTION_LOOP)]);
+    send(
+        &mut r.core,
+        &[slot_play(h, 0, shot, 4, 0.1, 0.3, SECTION_LOOP)],
+    );
     for _ in 0..40 {
         frame(&mut r.core, DT);
-        assert!(!graph_changes(&r.core).iter().any(|c| c.kind == GRAPH_SLOT_FINISHED));
+        assert!(!graph_changes(&r.core)
+            .iter()
+            .any(|c| c.kind == GRAPH_SLOT_FINISHED));
     }
 }
 
@@ -969,9 +1081,9 @@ fn slot_plays_are_interrupted_by_plays_their_group_and_stops() {
         .encode()],
     );
     let ch = graph_changes(&r.core);
-    assert!(ch.iter().any(|c| c.kind == GRAPH_SLOT_INTERRUPTED
-        && c.value == 10
-        && c.reason == REASON_STOPPED));
+    assert!(ch
+        .iter()
+        .any(|c| c.kind == GRAPH_SLOT_INTERRUPTED && c.value == 10 && c.reason == REASON_STOPPED));
 }
 
 #[test]
@@ -983,7 +1095,9 @@ fn a_masked_upper_body_slot_keeps_the_legs() {
     let (s0, _) = b.slot("Upper", base, mask, None);
     let ca = r.clip(ClipSpec::new(2.0, true, 1));
     let shot = r.clip(ClipSpec::new(1.0, false, 8));
-    let weights: Vec<f32> = (0..r.bones).map(|i| if i >= 3 { 1.0 } else { 0.0 }).collect();
+    let weights: Vec<f32> = (0..r.bones)
+        .map(|i| if i >= 3 { 1.0 } else { 0.0 })
+        .collect();
     let mk = r.core.load_mask(&weights);
     let binds = vec![(b.s("a"), ca), (mask, mk)];
     let bytes = b.build(s0);
@@ -1027,7 +1141,14 @@ fn linked_graphs_swap_at_runtime_and_take_parameters_by_name() {
     let (_, h) = instance(&mut r.core, &bytes, r.skel, &[]);
     frame(&mut r.core, DT);
     let rest = r.mats(h);
-    let link = |g: u32| Link { instance: h, linked: li, graph: g }.encode();
+    let link = |g: u32| {
+        Link {
+            instance: h,
+            linked: li,
+            graph: g,
+        }
+        .encode()
+    };
     send(&mut r.core, &[link(g1)]);
     r.core.evaluate(0, 0, 0.0, 0.0);
     assert!(diff(&r.mats(h), &r.reference(c1, 0.0)) < 1e-6);
@@ -1036,7 +1157,10 @@ fn linked_graphs_swap_at_runtime_and_take_parameters_by_name() {
     assert!(diff(&r.mats(h), &r.reference(c2, 0.0)) < 1e-6);
     send(&mut r.core, &[set_float(h, w, 1.0)]);
     r.core.evaluate(0, 0, 0.0, 0.0);
-    assert!(diff(&r.mats(h), &r.reference(c3, 0.0)) < 1e-6, "the outer w reached G2's w");
+    assert!(
+        diff(&r.mats(h), &r.reference(c3, 0.0)) < 1e-6,
+        "the outer w reached G2's w"
+    );
     send(&mut r.core, &[link(0)]);
     r.core.evaluate(0, 0, 0.0, 0.0);
     assert!(diff(&r.mats(h), &rest) < 1e-6, "unlinked: nothing");
@@ -1045,8 +1169,75 @@ fn linked_graphs_swap_at_runtime_and_take_parameters_by_name() {
     let (ln3, li3) = b3.linked("Small", None, [4, 0, 0, 0]);
     let small = b3.build(ln3);
     let (_, h3) = instance(&mut r.core, &small, r.skel, &[]);
-    send(&mut r.core, &[Link { instance: h3, linked: li3, graph: g2 }.encode()]);
-    assert_eq!(refused(&r.core)[0].status, anim_wire::core::STATUS_TOO_LARGE);
+    send(
+        &mut r.core,
+        &[Link {
+            instance: h3,
+            linked: li3,
+            graph: g2,
+        }
+        .encode()],
+    );
+    assert_eq!(
+        refused(&r.core)[0].status,
+        anim_wire::core::STATUS_TOO_LARGE
+    );
+}
+
+#[test]
+fn a_linked_slot_runs_its_default_graph_from_the_first_frame() {
+    let mut r = rig();
+    let c1 = r.clip(ClipSpec::new(1.0, true, 11));
+    let mut b1 = Builder::new();
+    let p = b1.player("c1");
+    let g1_bytes = b1.build(p);
+    let g1 = r.core.load_graph(&g1_bytes);
+    r.core.graph_bind(g1, b1.s("c1"), c1);
+    let mut b = Builder::new();
+    let (ln, _) = b.linked("Weapon", Some("sword"), [512, 64, 4, 8]);
+    let sword = b.s("sword");
+    let bytes = b.build(ln);
+    let (_, h) = instance(&mut r.core, &bytes, r.skel, &[(sword, g1)]);
+    r.core.evaluate(0, 0, 0.0, 0.0);
+    assert!(diff(&r.mats(h), &r.reference(c1, 0.0)) < 1e-6);
+}
+
+#[test]
+fn layer_weight_commands_drive_layers() {
+    let mut r = rig();
+    let h = one_node(&mut r, |b| {
+        let pa = b.player("a");
+        let pb = b.player("b");
+        let p = mixing::layer_params(1, mixing::LAYER_OVERRIDE, NONE, 0.0);
+        b.node(family::MIXING, mixing::kind::LAYER, &[pa, pb], &p)
+    });
+    let ra = r.clip(ClipSpec::new(1.0, true, 1));
+    let rb = r.clip(ClipSpec::new(1.0, true, 2));
+    let (wa, wb) = (r.reference(ra, 0.0), r.reference(rb, 0.0));
+    let lw = |w: f32| {
+        LayerWeight {
+            instance: h,
+            layer: 1,
+            weight: w,
+        }
+        .encode()
+    };
+    send(&mut r.core, &[lw(0.0)]);
+    r.core.evaluate(0, 0, 0.0, 0.0);
+    assert!(diff(&r.mats(h), &wa) < 1e-6);
+    send(&mut r.core, &[lw(1.0)]);
+    r.core.evaluate(0, 0, 0.0, 0.0);
+    assert!(diff(&r.mats(h), &wb) < 1e-6);
+    send(
+        &mut r.core,
+        &[LayerWeight {
+            instance: h,
+            layer: 9,
+            weight: 1.0,
+        }
+        .encode()],
+    );
+    assert_eq!(refused(&r.core)[0].status, STATUS_NO_SUCH);
 }
 
 fn sync_phases(grouped: bool) -> (f32, f32) {
@@ -1099,7 +1290,10 @@ fn sync_groups_keep_feet_phase_aligned_across_a_blend() {
     let (pw, pr) = sync_phases(true);
     assert!((pw - pr).abs() < 1e-4, "walk {pw} run {pr}");
     let (pw, pr) = sync_phases(false);
-    assert!((pw - pr).abs() > 0.05, "without the group they drift: {pw} {pr}");
+    assert!(
+        (pw - pr).abs() > 0.05,
+        "without the group they drift: {pw} {pr}"
+    );
 }
 
 fn events_fired(weight_of_b: f32, gate: Option<f32>) -> usize {
@@ -1107,7 +1301,12 @@ fn events_fired(weight_of_b: f32, gate: Option<f32>) -> usize {
     let mut b = Builder::new();
     let pa = b.player("a");
     let a = match gate {
-        Some(f) => b.node(family::SYNC, sync::kind::NOTIFY_GATE, &[pa], &[f.to_bits(), NONE]),
+        Some(f) => b.node(
+            family::SYNC,
+            sync::kind::NOTIFY_GATE,
+            &[pa],
+            &[f.to_bits(), NONE],
+        ),
         None => pa,
     };
     let pb = b.player("b");
@@ -1156,27 +1355,33 @@ fn one_node(r: &mut Rig, build: impl FnOnce(&mut Builder) -> u32) -> u32 {
 #[test]
 fn blend_by_enum_and_bool() {
     let mut r = rig();
-    let ca_ref;
-    let cb_ref;
     let mut e = 0;
     let mut bo = 0;
     let h = one_node(&mut r, |b| {
         e = b.param("e", ParamValue::Int(0));
         let pa = b.player("a");
         let pb = b.player("b");
-        b.node(family::MIXING, mixing::kind::BLEND_ENUM, &[pa, pb, pa], &[e, 0])
+        b.node(
+            family::MIXING,
+            mixing::kind::BLEND_ENUM,
+            &[pa, pb, pa],
+            &[e, 0],
+        )
     });
     // References: the same clips as `one_node` binds, loaded again.
     let ra = r.clip(ClipSpec::new(1.0, true, 1));
     let rb = r.clip(ClipSpec::new(1.0, true, 2));
-    ca_ref = r.reference(ra, 0.0);
-    cb_ref = r.reference(rb, 0.0);
+    let ca_ref = r.reference(ra, 0.0);
+    let cb_ref = r.reference(rb, 0.0);
     send(&mut r.core, &[set_int(h, e, 1)]);
     r.core.evaluate(0, 0, 0.0, 0.0);
     assert!(diff(&r.mats(h), &cb_ref) < 1e-6);
     send(&mut r.core, &[set_int(h, e, 7)]);
     r.core.evaluate(0, 0, 0.0, 0.0);
-    assert!(diff(&r.mats(h), &ca_ref) < 1e-6, "out of range: the last input");
+    assert!(
+        diff(&r.mats(h), &ca_ref) < 1e-6,
+        "out of range: the last input"
+    );
     let h2 = one_node(&mut r, |b| {
         bo = b.param("b", ParamValue::Bool(false));
         let pa = b.player("a");
@@ -1236,7 +1441,12 @@ fn time_scale_advances_its_child_faster() {
     let mut r = rig();
     let h = one_node(&mut r, |b| {
         let pa = b.player("a");
-        b.node(family::MIXING, mixing::kind::TIME_SCALE, &[pa], &[2.0f32.to_bits(), NONE])
+        b.node(
+            family::MIXING,
+            mixing::kind::TIME_SCALE,
+            &[pa],
+            &[2.0f32.to_bits(), NONE],
+        )
     });
     for _ in 0..3 {
         frame(&mut r.core, DT);
@@ -1244,7 +1454,10 @@ fn time_scale_advances_its_child_faster() {
     let ra = r.clip(ClipSpec::new(1.0, true, 1));
     let want = r.reference(ra, 6.0 * DT);
     assert!(diff(&r.mats(h), &want) < 1e-5);
-    assert!((root(&r.core, h)[2] - 2.0 * DT).abs() < 1e-5, "root motion at the scaled rate");
+    assert!(
+        (root(&r.core, h)[2] - 2.0 * DT).abs() < 1e-5,
+        "root motion at the scaled rate"
+    );
 }
 
 #[test]
@@ -1273,7 +1486,11 @@ fn mirror_reflects_pose_and_root_motion_and_is_its_own_inverse() {
     let want = r.reference(ra, DT);
     assert!(diff(&r.mats(h), &want) < 1e-6, "mirrored twice");
     assert!(diff(&r.mats(h1), &want) > 1e-3, "mirrored once differs");
-    assert!((root(&r.core, h1)[2] + DT).abs() < 1e-5, "z root motion reflected: {:?}", root(&r.core, h1));
+    assert!(
+        (root(&r.core, h1)[2] + DT).abs() < 1e-5,
+        "z root motion reflected: {:?}",
+        root(&r.core, h1)
+    );
 }
 
 #[test]
@@ -1291,7 +1508,14 @@ fn pose_snapshot_holds_a_captured_pose() {
         frame(&mut r.core, DT);
     }
     let held = r.mats(h);
-    send(&mut r.core, &[CapturePose { instance: h, node: snap }.encode()]);
+    send(
+        &mut r.core,
+        &[CapturePose {
+            instance: h,
+            node: snap,
+        }
+        .encode()],
+    );
     assert!(refused(&r.core).is_empty());
     send(&mut r.core, &[set_float(h, s, 1.0)]);
     for _ in 0..5 {
@@ -1299,7 +1523,14 @@ fn pose_snapshot_holds_a_captured_pose() {
         assert!(diff(&r.mats(h), &held) < 1e-6);
         r.core.write_inputs(0);
     }
-    send(&mut r.core, &[CapturePose { instance: h, node: 0 }.encode()]);
+    send(
+        &mut r.core,
+        &[CapturePose {
+            instance: h,
+            node: 0,
+        }
+        .encode()],
+    );
     assert_eq!(refused(&r.core)[0].status, STATUS_NO_SUCH);
 }
 
@@ -1359,7 +1590,9 @@ fn graph_commands_refuse_implicit_instances() {
     send(&mut r.core, &[set_float(h, 0, 1.0), travel(h, 0, 0)]);
     let rf = refused(&r.core);
     assert_eq!(rf.len(), 2);
-    assert!(rf.iter().all(|c| c.status == anim_wire::core::STATUS_MISMATCH));
+    assert!(rf
+        .iter()
+        .all(|c| c.status == anim_wire::core::STATUS_MISMATCH));
 }
 
 #[test]
@@ -1379,7 +1612,10 @@ fn curve_and_state_time_operands() {
     }]);
     let m = three_state_machine(
         &mut b,
-        &[vec![tr(1, c, When::Now, How::Cut)], vec![tr(2, ct, When::Now, How::Cut)]],
+        &[
+            vec![tr(1, c, When::Now, How::Cut)],
+            vec![tr(2, ct, When::Now, How::Cut)],
+        ],
     );
     let mut spec = ClipSpec::new(1.0, true, 1);
     spec.curve = Some(("lean", 1.0));
@@ -1411,10 +1647,17 @@ fn loco_clips(r: &mut Rig, ids: &Loco) -> (Vec<(u32, u32)>, u32) {
     let cw = r.clip(walk);
     let cr = r.clip(run);
     let shot = r.clip(ClipSpec::new(1.0, false, 34));
-    let weights: Vec<f32> = (0..r.bones).map(|i| if i >= 3 { 1.0 } else { 0.0 }).collect();
+    let weights: Vec<f32> = (0..r.bones)
+        .map(|i| if i >= 3 { 1.0 } else { 0.0 })
+        .collect();
     let mask = r.core.load_mask(&weights);
     (
-        vec![(ids.idle, ci), (ids.walk, cw), (ids.run, cr), (ids.upper, mask)],
+        vec![
+            (ids.idle, ci),
+            (ids.walk, cw),
+            (ids.run, cr),
+            (ids.upper, mask),
+        ],
         shot,
     )
 }
@@ -1440,15 +1683,19 @@ fn snapshot_and_restore_are_exact_through_transitions_and_inertialization() {
     };
     let before = run(&mut r, 0, 21);
     // The jump (frame 20) inertializes: the snapshot is taken mid-decay, mid-slot, mid-fade.
-    assert!(before
+    assert!(before.iter().any(|f| f
+        .2
         .iter()
-        .any(|f| f.2.iter().any(|c| c.kind == GRAPH_STATE_ENTERED && c.value == 2)));
+        .any(|c| c.kind == GRAPH_STATE_ENTERED && c.value == 2)));
     let snap_len = r.core.snapshot_bytes(h) as usize;
     let mut snap = vec![0u8; snap_len];
     assert_eq!(r.core.snapshot(h, &mut snap), 0);
     let first = run(&mut r, 21, 50);
     assert!(
-        first.iter().any(|f| f.2.iter().any(|c| c.kind == GRAPH_STATE_ENTERED && c.value == 0)),
+        first.iter().any(|f| f
+            .2
+            .iter()
+            .any(|c| c.kind == GRAPH_STATE_ENTERED && c.value == 0)),
         "the replay crosses the jump's exit and the stop's inertialization"
     );
     assert_eq!(r.core.restore(h, &snap), 0);

@@ -122,10 +122,7 @@ impl Frame {
             ],
             change_count: 0,
             changes_dropped: 0,
-            blackboard: vec![
-                0;
-                max_instances * (anim_wire::graph::BLACKBOARD_STRIDE / 4) as usize
-            ],
+            blackboard: vec![0; max_instances * (anim_wire::graph::BLACKBOARD_STRIDE / 4) as usize],
             graph_changes: GraphChanges::new(max_instances),
             debug: vec![0; anim_wire::debug::DEBUG_BYTES as usize],
             poses: vec![SoaTransform::identity(); slots * groups],

@@ -28,9 +28,10 @@ use anim_format::graph::AnimGraphView;
 use anim_format::skeleton::SkeletonView;
 use anim_format::F32s;
 use anim_graph::eval::{name_hash, Assets, ClipRef, GraphRef, Program};
-use anim_pose::sync::SyncMarker;
+use anim_graph::sources::triangulate::sort_small;
 use anim_math::layout::{pack_pose, soa_len};
 use anim_math::{AosMat3x4, AosTransform, F32x4, SoaTransform};
+use anim_pose::sync::SyncMarker;
 use anim_sample::{BoundClip, ClipBindings, ClipSampler, Form};
 use anim_wire::core::{
     Init, HANDLE_GENERATION_SHIFT, HANDLE_INDEX_MASK, STATUS_BAD_ASSET, STATUS_FULL,
@@ -495,15 +496,19 @@ fn marker_tables(view: &ClipView<'_>) -> (Vec<SyncMarker>, Vec<f32>, Vec<(u32, u
             }
         }
     }
-    sync.sort_by(|a, b| a.time.total_cmp(&b.time));
-    exits.sort_by(f32::total_cmp);
+    sort_small(&mut sync, |a, b| a.time < b.time);
+    sort_small(&mut exits, |a, b| a < b);
     (sync, exits, curves)
 }
 
 /// The local bind pose: each bone's model bind transform (the inverse of its inverse bind matrix,
 /// decomposed into translation, rotation and per-axis scale) relative to its parent's. A bone whose
 /// matrix is singular keeps its rest transform. Load time only.
-fn bind_pose(parents: &[u16], inverse_bind: &[AosMat3x4], rest: &[AosTransform]) -> Vec<AosTransform> {
+fn bind_pose(
+    parents: &[u16],
+    inverse_bind: &[AosMat3x4],
+    rest: &[AosTransform],
+) -> Vec<AosTransform> {
     let model: Vec<Option<AosTransform>> = inverse_bind
         .iter()
         .map(|ib| {
@@ -528,20 +533,41 @@ fn bind_pose(parents: &[u16], inverse_bind: &[AosMat3x4], rest: &[AosTransform])
             let tr = r[0][0] + r[1][1] + r[2][2];
             let (x, y, z, w) = if tr > 0.0 {
                 let s = (tr + 1.0).sqrt() * 2.0;
-                ((r[2][1] - r[1][2]) / s, (r[0][2] - r[2][0]) / s, (r[1][0] - r[0][1]) / s, 0.25 * s)
+                (
+                    (r[2][1] - r[1][2]) / s,
+                    (r[0][2] - r[2][0]) / s,
+                    (r[1][0] - r[0][1]) / s,
+                    0.25 * s,
+                )
             } else if r[0][0] > r[1][1] && r[0][0] > r[2][2] {
                 let s = (1.0 + r[0][0] - r[1][1] - r[2][2]).sqrt() * 2.0;
-                (0.25 * s, (r[0][1] + r[1][0]) / s, (r[0][2] + r[2][0]) / s, (r[2][1] - r[1][2]) / s)
+                (
+                    0.25 * s,
+                    (r[0][1] + r[1][0]) / s,
+                    (r[0][2] + r[2][0]) / s,
+                    (r[2][1] - r[1][2]) / s,
+                )
             } else if r[1][1] > r[2][2] {
                 let s = (1.0 + r[1][1] - r[0][0] - r[2][2]).sqrt() * 2.0;
-                ((r[0][1] + r[1][0]) / s, 0.25 * s, (r[1][2] + r[2][1]) / s, (r[0][2] - r[2][0]) / s)
+                (
+                    (r[0][1] + r[1][0]) / s,
+                    0.25 * s,
+                    (r[1][2] + r[2][1]) / s,
+                    (r[0][2] - r[2][0]) / s,
+                )
             } else {
                 let s = (1.0 + r[2][2] - r[0][0] - r[1][1]).sqrt() * 2.0;
-                ((r[0][2] + r[2][0]) / s, (r[1][2] + r[2][1]) / s, 0.25 * s, (r[1][0] - r[0][1]) / s)
+                (
+                    (r[0][2] + r[2][0]) / s,
+                    (r[1][2] + r[2][1]) / s,
+                    0.25 * s,
+                    (r[1][0] - r[0][1]) / s,
+                )
             };
             Some(AosTransform::new(
                 anim_math::AosVec3::new(m[3], m[7], m[11]),
-                anim_math::AosQuat::new(x as f32, y as f32, z as f32, w as f32).normalize_or_identity(),
+                anim_math::AosQuat::new(x as f32, y as f32, z as f32, w as f32)
+                    .normalize_or_identity(),
                 anim_math::AosVec3::new(sx as f32, sy as f32, sz as f32),
             ))
         })

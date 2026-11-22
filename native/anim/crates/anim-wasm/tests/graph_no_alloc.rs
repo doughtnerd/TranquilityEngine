@@ -41,7 +41,12 @@ fn graph_frames_do_not_allocate() {
     // A linked-graph slot and a random selector beside it, layered by a blend.
     let (ln, li) = b.linked("Weapon", None, [4096, 1024, 4, 8]);
     let ps: Vec<u32> = (0..3).map(|_| b.player("idle")).collect();
-    let sel = b.node(family::LOGIC, logic::kind::RANDOM, &ps, &[logic::RANDOM_SHUFFLE, 1]);
+    let sel = b.node(
+        family::LOGIC,
+        logic::kind::RANDOM,
+        &ps,
+        &[logic::RANDOM_SHUFFLE, 1],
+    );
     let w = b.param("w", ParamValue::Float(0.3));
     let side = b.node(
         family::MIXING,
@@ -67,14 +72,21 @@ fn graph_frames_do_not_allocate() {
     let cw = core.load_clip(&clip(2, 1.4, true));
     let cr = core.load_clip(&clip(3, 3.5, true));
     let shot = core.load_clip(&clip(4, 0.0, false));
-    let weights: Vec<f32> = (0..model.bones.len()).map(|i| (i >= 10) as u32 as f32).collect();
+    let weights: Vec<f32> = (0..model.bones.len())
+        .map(|i| (i >= 10) as u32 as f32)
+        .collect();
     let mask = core.load_mask(&weights);
     let mut lb = Builder::new();
     let lp = lb.player("run");
     let linked_bytes = lb.build(lp);
     let lg = core.load_graph(&linked_bytes);
     core.graph_bind(lg, lb.s("run"), cr);
-    let binds = [(ids.idle, ci), (ids.walk, cw), (ids.run, cr), (ids.upper, mask)];
+    let binds = [
+        (ids.idle, ci),
+        (ids.walk, cw),
+        (ids.run, cr),
+        (ids.upper, mask),
+    ];
     let (g, h0) = instance(&mut core, &bytes, s, &binds);
     let hs: Vec<u32> = std::iter::once(h0)
         .chain((0..5).map(|_| core.create_instance(0, s, g)))
@@ -90,11 +102,25 @@ fn graph_frames_do_not_allocate() {
         }
         match f {
             5 => buf.extend(debug_on(hs[0])),
-            10 => buf.extend(Link { instance: hs[0], linked: li, graph: lg }.encode()),
+            10 => buf.extend(
+                Link {
+                    instance: hs[0],
+                    linked: li,
+                    graph: lg,
+                }
+                .encode(),
+            ),
             30 => buf.extend(jump(hs[1], 0, 1)),
             40 => buf.extend(travel(hs[2], 0, 0)),
             50 => buf.extend(seed(hs[3], 99)),
-            60 => buf.extend(Link { instance: hs[0], linked: li, graph: 0 }.encode()),
+            60 => buf.extend(
+                Link {
+                    instance: hs[0],
+                    linked: li,
+                    graph: 0,
+                }
+                .encode(),
+            ),
             _ => {}
         }
         scripts.push(buf);

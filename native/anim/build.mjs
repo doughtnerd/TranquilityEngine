@@ -19,9 +19,13 @@ const OUT_NAME = "myco_anim";
  * Raised by T13r (2026-11-22): the first build with a real core (the four format readers, compressed sampling with T20r's
  * binding tables and track windows, the graph interpreter, pose maths, inertialization) measured 292,316 bytes
  * (111 KB gzipped); the stub-based 30 KB gate never described a full build. + 20% = 350,779 B -> 345 KB.
+ * Raised by T31 (2026-11-22): the complete graph runtime (state machines with the blend stack, conditions, requests,
+ * travel tables; blend spaces with the Delaunay build; random selector, chooser; enum/bool/additive/time-scale/mirror;
+ * slots with sections; linked graphs; sync groups; the debug walk; the graph and debug wire families) measured
+ * 421,778 bytes after replacing load-time general sorts with an insertion sort (-52 KB). + 20% = 506,134 B -> 495 KB.
  * Raise it with a line in docs/design/animation/build-log.md saying why; never cut a feature to stay under it.
  */
-const SIZE_LIMIT = 345 * 1024;
+const SIZE_LIMIT = 495 * 1024;
 
 /** Runs `cmd args` in native/anim with inherited stdio. RUSTFLAGS are dropped so .cargo/config.toml's +simd128 applies. */
 function run(cmd, args) {

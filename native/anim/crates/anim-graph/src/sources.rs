@@ -254,15 +254,18 @@ pub(crate) fn build_aux(kind: u16, words: &[u32], inputs: usize, aux: &mut Vec<u
     match kind {
         kind::BLEND_SPACE_1D => {
             let mut order: Vec<u32> = (0..inputs as u32).collect();
-            order.sort_by(|&a, &b| {
+            triangulate::sort_small(&mut order, |&a, &b| {
                 coord(a as usize)
                     .total_cmp(&coord(b as usize))
                     .then(a.cmp(&b))
+                    .is_lt()
             });
             aux.extend_from_slice(&order);
         }
         kind::BLEND_SPACE_2D => {
-            let points: Vec<[f32; 2]> = (0..inputs).map(|i| [coord(2 * i), coord(2 * i + 1)]).collect();
+            let points: Vec<[f32; 2]> = (0..inputs)
+                .map(|i| [coord(2 * i), coord(2 * i + 1)])
+                .collect();
             let t = triangulate::triangulate(&points);
             aux.push(t.triangles.len() as u32);
             aux.push(t.hull.len() as u32);
@@ -563,7 +566,7 @@ fn curve_at(clip: &ClipRef<'_>, t: f32) -> Option<[f32; 4]> {
 /// A clip's root speed: its root curve's ground distance from start to end over its duration
 /// (0 without a curve). The blend spaces' speed scaling reads it.
 pub fn root_speed(clip: &ClipRef<'_>) -> f32 {
-    if !(clip.duration > 0.0) {
+    if clip.duration.is_nan() || clip.duration <= 0.0 {
         return 0.0;
     }
     match (curve_at(clip, 0.0), curve_at(clip, clip.duration)) {
@@ -764,7 +767,7 @@ fn space_weights(node: &NodeData<'_>, two_d: bool, p: [f32; 2], out: &mut [f32])
             out[0] = 1.0;
             return;
         }
-        if !(x > pos(0)) {
+        if x.is_nan() || x <= pos(0) {
             out[idx(0)] = 1.0;
             return;
         }
@@ -805,6 +808,7 @@ fn space_weights(node: &NodeData<'_>, two_d: bool, p: [f32; 2], out: &mut [f32])
     }
 }
 
+#[allow(clippy::needless_range_loop)] // weights and inputs share the index
 fn blend_space(cx: &mut EvalContext<'_>, kind: u16, node: NodeData<'_>) {
     let two_d = kind == kind::BLEND_SPACE_2D;
     let n = node.inputs.len().min(MAX_BLEND_INPUTS);
@@ -817,7 +821,10 @@ fn blend_space(cx: &mut EvalContext<'_>, kind: u16, node: NodeData<'_>) {
             let s = cx.state();
             s.fill(0);
             s[bs::FLAGS] = 1;
-            for (k, v) in [p[0], p[1], p[0], p[1], 0.0, p[0], p[1], 1.0].iter().enumerate() {
+            for (k, v) in [p[0], p[1], p[0], p[1], 0.0, p[0], p[1], 1.0]
+                .iter()
+                .enumerate()
+            {
                 s[bs::FROM + k] = v.to_bits();
             }
             for (i, v) in w.iter().take(n).enumerate() {

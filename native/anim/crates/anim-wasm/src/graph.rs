@@ -296,7 +296,10 @@ pub fn apply(
             let r = |s: u32| (s, c.instance, c.slot, c.play_id);
             let (program, inst) = graph_instance(arena, table, c.instance).map_err(r)?;
             let groups = inst.groups;
-            let slot = *program.slots().get(c.slot as usize).ok_or(r(STATUS_NO_SUCH))?;
+            let slot = *program
+                .slots()
+                .get(c.slot as usize)
+                .ok_or(r(STATUS_NO_SUCH))?;
             let s = program.node_state(&mut inst.state, groups, slot.node);
             if !slots::next_section(s, c.play_id, c.start, c.end, c.flags) {
                 return Err(r(STATUS_NO_SUCH));
@@ -307,7 +310,10 @@ pub fn apply(
             let r = |s: u32| (s, c.instance, c.slot, c.play_id);
             let (program, inst) = graph_instance(arena, table, c.instance).map_err(r)?;
             let groups = inst.groups;
-            let slot = *program.slots().get(c.slot as usize).ok_or(r(STATUS_NO_SUCH))?;
+            let slot = *program
+                .slots()
+                .get(c.slot as usize)
+                .ok_or(r(STATUS_NO_SUCH))?;
             let s = program.node_state(&mut inst.state, groups, slot.node);
             let id = slots::stop(s, c.play_id, c.fade);
             report(changes, c.instance, c.slot, id, REASON_STOPPED);

@@ -5,7 +5,9 @@
 
 use anim_graph::debug::{collect, Blocker, DebugSink, MachineView, NodeView, TransitionView};
 use anim_graph::eval::{History, Inputs, SkeletonPose};
-use anim_wire::core::{Init, FLAG_BAKE_ROOT, INPUT_FLAGS, INPUT_LAYER_WEIGHTS, INPUT_STRIDE, MAX_LAYERS};
+use anim_wire::core::{
+    Init, FLAG_BAKE_ROOT, INPUT_FLAGS, INPUT_LAYER_WEIGHTS, INPUT_STRIDE, MAX_LAYERS,
+};
 use anim_wire::debug::{
     DebugHeader, DebugMachine, DebugNode, DebugRequest, DebugTransition, BLOCK_CONDITION,
     BLOCK_INTERRUPT, BLOCK_READY, BLOCK_SHADOWED, BLOCK_TRAVEL, BLOCK_WHEN, DEBUG_BYTES,

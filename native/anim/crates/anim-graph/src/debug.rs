@@ -72,14 +72,27 @@ impl Visit for Nodes {
 }
 
 /// Reports an instance's debug state to `sink` (module docs). Never allocates.
-pub fn collect(program: &Program, inputs: &Inputs<'_>, state: &mut [u32], sink: &mut dyn DebugSink) {
+pub fn collect(
+    program: &Program,
+    inputs: &Inputs<'_>,
+    state: &mut [u32],
+    sink: &mut dyn DebugSink,
+) {
     let mut nodes = Nodes {
         list: [(0, 0.0); MAX_NODES],
         len: 0,
     };
     program.visit(inputs, state, &mut nodes);
     let mut events = NoEvents;
-    let mut cx = EvalContext::with(program, Phase::Timing, inputs, state, &mut events, None, 0.0);
+    let mut cx = EvalContext::with(
+        program,
+        Phase::Timing,
+        inputs,
+        state,
+        &mut events,
+        None,
+        0.0,
+    );
     for &(node, weight) in &nodes.list[..nodes.len] {
         let t = cx.eval_timing(node);
         let normalized = if t.duration > 0.0 {

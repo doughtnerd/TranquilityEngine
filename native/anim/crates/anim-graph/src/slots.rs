@@ -164,7 +164,11 @@ pub fn play(s: &mut [u32], p: &SlotPlay) -> u32 {
     };
     let w = slot_weight(s);
     let showing = s[slot::MODE] != 0;
-    let side = if showing { 1 - s[slot::ACTIVE].min(1) } else { 0 };
+    let side = if showing {
+        1 - s[slot::ACTIVE].min(1)
+    } else {
+        0
+    };
     let at = player_at(side);
     sources::start_play(
         &mut s[at..at + player::WORDS as usize],
@@ -527,10 +531,9 @@ pub fn link(outer: &Program, state: &mut [u32], groups: usize, index: usize, gra
 
 /// The graph a linked-graph slot's state runs (0 for none).
 pub fn linked_graph(outer: &Program, state: &mut [u32], groups: usize, index: usize) -> u32 {
-    outer
-        .linked()
-        .get(index)
-        .map_or(0, |l| outer.node_state(state, groups, l.node)[linked::HANDLE])
+    outer.linked().get(index).map_or(0, |l| {
+        outer.node_state(state, groups, l.node)[linked::HANDLE]
+    })
 }
 
 fn linked_node(cx: &mut EvalContext<'_>, node: NodeData<'_>) {
@@ -541,10 +544,7 @@ fn linked_node(cx: &mut EvalContext<'_>, node: NodeData<'_>) {
         Phase::Init => {
             let program = cx.program();
             let side = program.side(node.index) as usize;
-            let default = program
-                .linked()
-                .get(side)
-                .map_or(NONE, |l| l.extra);
+            let default = program.linked().get(side).map_or(NONE, |l| l.extra);
             let handle = cx.binding(default);
             let s = cx.state();
             s[..blob].fill(0);

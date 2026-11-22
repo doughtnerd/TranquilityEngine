@@ -626,7 +626,7 @@ impl Program {
                 _ => None,
             })
             .collect();
-        requests.sort_unstable();
+        crate::sources::triangulate::sort_small(&mut requests, |a, b| a < b);
         requests.dedup();
         let trans_n = transitions.len();
         let input_n = inputs.len();
@@ -852,7 +852,7 @@ impl Program {
         }
         for &c in self.order.iter().rev() {
             let mut ps = parents[c as usize].clone();
-            ps.sort_unstable();
+            crate::sources::triangulate::sort_small(&mut ps, |a, b| a < b);
             ps.dedup();
             let target = ps.iter().find_map(|&p| {
                 if is_inertializer(&self.nodes[p as usize]) {
@@ -1030,7 +1030,8 @@ impl Program {
     /// Node `node`'s parameter words.
     pub fn node_params(&self, node: u32) -> Option<&[u32]> {
         let n = self.nodes.get(node as usize)?;
-        self.params.get(n.params.0 as usize..(n.params.0 + n.params.1) as usize)
+        self.params
+            .get(n.params.0 as usize..(n.params.0 + n.params.1) as usize)
     }
 
     /// Node `node`'s index in its kind's side table, or `NONE`.
@@ -1572,7 +1573,8 @@ impl<'a> EvalContext<'a> {
 
     /// Whether request `name` (a string id) is live.
     pub fn request_live(&mut self, name: u32) -> bool {
-        self.request_word(name).is_some_and(|w| f32::from_bits(*w) > 0.0)
+        self.request_word(name)
+            .is_some_and(|w| f32::from_bits(*w) > 0.0)
     }
 
     fn request_word(&mut self, name: u32) -> Option<&mut u32> {
@@ -1647,7 +1649,7 @@ impl<'a> EvalContext<'a> {
     /// Asks the current node's nearest ancestor inertialization node for a transition of
     /// `duration` seconds (the longest request of the frame wins). Update phase.
     pub fn request_inertialization(&mut self, duration: f32) {
-        if !(duration > 0.0) {
+        if duration.is_nan() || duration <= 0.0 {
             return;
         }
         let target = self.program.inertia_target[self.node as usize];
@@ -2136,7 +2138,11 @@ impl NodeData<'_> {
 
 /// The interrupt list of a transition (`Never`: empty, `Any`: `None`).
 pub(crate) fn interrupt_allows(program: &Program, active: u32, candidate: u32) -> bool {
-    match program.transitions.get(active as usize).map(|t| t.interrupt) {
+    match program
+        .transitions
+        .get(active as usize)
+        .map(|t| t.interrupt)
+    {
         Some(Interrupt::Any) => true,
         Some(Interrupt::List { first, count }) => program
             .interrupts

@@ -11,6 +11,16 @@ export function asset_bytes_ptr(handle) {
 }
 
 /**
+ * The blackboard view's byte offset in memory (`graph` family, `BLACKBOARD_STRIDE` bytes per
+ * instance index).
+ * @returns {number}
+ */
+export function blackboard_ptr() {
+    const ret = wasm.blackboard_ptr();
+    return ret >>> 0;
+}
+
+/**
  * State changes dropped this frame because the buffer was full.
  * @returns {number}
  */
@@ -74,6 +84,26 @@ export function create_instance(world, skeleton, graph) {
 }
 
 /**
+ * The debug buffer's byte offset in memory (`debug` family, `DEBUG_BYTES` long).
+ * @returns {number}
+ */
+export function debug_ptr() {
+    const ret = wasm.debug_ptr();
+    return ret >>> 0;
+}
+
+/**
+ * Writes an instance's debug report into the debug buffer; returns its byte length (0 unless the
+ * instance is flagged for debugging).
+ * @param {number} handle
+ * @returns {number}
+ */
+export function debug_write(handle) {
+    const ret = wasm.debug_write(handle);
+    return ret >>> 0;
+}
+
+/**
  * Destroys an instance; returns a status.
  * @param {number} handle
  * @returns {number}
@@ -105,6 +135,24 @@ export function evaluate(world, pass, dt_scaled, dt_unscaled) {
  */
 export function graph_bind(graph, string_id, asset) {
     const ret = wasm.graph_bind(graph, string_id, asset);
+    return ret >>> 0;
+}
+
+/**
+ * The number of graph state-change records waiting (since the last `write_inputs`).
+ * @returns {number}
+ */
+export function graph_change_count() {
+    const ret = wasm.graph_change_count();
+    return ret >>> 0;
+}
+
+/**
+ * The graph state-change records' byte offset in memory.
+ * @returns {number}
+ */
+export function graph_changes_ptr() {
+    const ret = wasm.graph_changes_ptr();
     return ret >>> 0;
 }
 

@@ -68,12 +68,13 @@ pub fn triangulate(points: &[[f32; 2]]) -> Triangulation {
             unique.push(i as u32);
         }
     }
-    unique.sort_by(|&a, &b| {
+    sort_small(&mut unique, |&a, &b| {
         let (pa, pb) = (p[a as usize], p[b as usize]);
         pa[0]
             .total_cmp(&pb[0])
             .then(pa[1].total_cmp(&pb[1]))
             .then(a.cmp(&b))
+            .is_lt()
     });
     let at = |i: u32| p[i as usize];
     let mut extent = 0.0f64;
@@ -87,9 +88,8 @@ pub fn triangulate(points: &[[f32; 2]]) -> Triangulation {
     let collinear_eps = 1e-12 * scale2;
 
     // The first point off the line of the leading points.
-    let k = (2..unique.len()).find(|&k| {
-        orient(at(unique[0]), at(unique[1]), at(unique[k])).abs() > collinear_eps
-    });
+    let k = (2..unique.len())
+        .find(|&k| orient(at(unique[0]), at(unique[1]), at(unique[k])).abs() > collinear_eps);
     let Some(k) = k else {
         // Collinear (or fewer than three points): the chain along the sorted order.
         let hull = unique.windows(2).map(|w| [w[0], w[1]]).collect();
@@ -154,11 +154,25 @@ pub fn triangulate(points: &[[f32; 2]]) -> Triangulation {
         let m = (0..3).min_by_key(|&i| t[i]).unwrap_or(0);
         *t = [t[m], t[(m + 1) % 3], t[(m + 2) % 3]];
     }
-    tris.sort();
+    sort_small(&mut tris, |a, b| a < b);
     let hull = boundary(&tris);
     Triangulation {
         triangles: tris,
         hull,
+    }
+}
+
+/// Sorts a short list (load time) by `less`, stably: an insertion sort, so the module doesn't pull
+/// a general-purpose sort into the wasm for lists of a few dozen entries.
+pub fn sort_small<T: Copy>(v: &mut [T], less: impl Fn(&T, &T) -> bool) {
+    for i in 1..v.len() {
+        let x = v[i];
+        let mut j = i;
+        while j > 0 && less(&x, &v[j - 1]) {
+            v[j] = v[j - 1];
+            j -= 1;
+        }
+        v[j] = x;
     }
 }
 

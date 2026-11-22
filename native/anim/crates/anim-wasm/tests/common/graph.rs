@@ -2,9 +2,7 @@
 //! `myco.animgraph@1` builder; `graph` and `debug` family records through the core.
 #![allow(dead_code)]
 
-use anim_format::clip::{
-    Binding, Clip, Key, KeyData, MarkerKind, Track, TrackKind, CLIP_LOOP,
-};
+use anim_format::clip::{Binding, Clip, Key, KeyData, MarkerKind, Track, TrackKind, CLIP_LOOP};
 use anim_format::graph::{
     AnimGraph, Chooser, ChooserRow, CondNode, CondProgram, How, Interrupt, LinkedGraph, Machine,
     Node, Param, ParamValue, Slot, State, Transition, When,
@@ -189,7 +187,9 @@ pub fn raw_clip(skel: &Skeleton, spec: &ClipSpec) -> Vec<u8> {
                 component: NONE,
                 field,
             },
-            raw: (0..frames).map(|f| slope * f as f32 / rate as f32).collect(),
+            raw: (0..frames)
+                .map(|f| slope * f as f32 / rate as f32)
+                .collect(),
             keys: Vec::new(),
         });
     }
@@ -554,7 +554,10 @@ pub struct Report {
 impl Report {
     /// The effective weight of node `n` (0 when it isn't active).
     pub fn weight(&self, n: u32) -> f32 {
-        self.nodes.iter().find(|x| x.node == n).map_or(0.0, |x| x.weight)
+        self.nodes
+            .iter()
+            .find(|x| x.node == n)
+            .map_or(0.0, |x| x.weight)
     }
     pub fn node(&self, n: u32) -> Option<DebugNode> {
         self.nodes.iter().find(|x| x.node == n).copied()
@@ -681,7 +684,11 @@ pub fn locomotion(b: &mut Builder) -> Loco {
     }]);
     let jumped = b.cond(&[req(jump)]);
     let machine = b.machine(
-        &[("Idle", idle_p, 0), ("Locomotion", bs, 0), ("Jump", jump_p, 0)],
+        &[
+            ("Idle", idle_p, 0),
+            ("Locomotion", bs, 0),
+            ("Jump", jump_p, 0),
+        ],
         0,
         &[
             vec![tr(

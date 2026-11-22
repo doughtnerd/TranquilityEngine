@@ -260,7 +260,11 @@ fn eval_tree(
         };
     };
     match node {
-        CondNode::Compare { operand: o, op, value } => {
+        CondNode::Compare {
+            operand: o,
+            op,
+            value,
+        } => {
             let (v, int) = operand(cx, env, o);
             let pass = match int {
                 Some(iv) => compare_i(op, iv, value as i32),
@@ -451,7 +455,11 @@ impl Entry {
 fn info(cx: &EvalContext<'_>, node: u32) -> Option<(usize, MachineInfo)> {
     let program = cx.program();
     let m = program.side(node) as usize;
-    program.machines.get(m).filter(|x| x.node == node).map(|x| (m, *x))
+    program
+        .machines
+        .get(m)
+        .filter(|x| x.node == node)
+        .map(|x| (m, *x))
 }
 
 fn state_ctx(program: &Program, m: &MachineInfo, s: u32) -> (u32, u32) {
@@ -459,7 +467,9 @@ fn state_ctx(program: &Program, m: &MachineInfo, s: u32) -> (u32, u32) {
         .states
         .get((m.states.0 + s) as usize)
         .filter(|_| s < m.states.1)
-        .map_or((anim_format::NONE, anim_format::NONE), |st| (st.node, st.ctx))
+        .map_or((anim_format::NONE, anim_format::NONE), |st| {
+            (st.node, st.ctx)
+        })
 }
 
 fn entry_ctx(program: &Program, m: &MachineInfo, e: &Entry) -> u32 {
@@ -912,9 +922,7 @@ fn update_machine(cx: &mut EvalContext<'_>, mi: usize, m: &MachineInfo) {
     for i in 0..n {
         list[i].elapsed = (list[i].elapsed + dt.abs()).min(list[i].duration.max(0.0));
         let ctx = entry_ctx(program, m, &list[i]);
-        let seen = list[..i]
-            .iter()
-            .any(|e| entry_ctx(program, m, e) == ctx);
+        let seen = list[..i].iter().any(|e| entry_ctx(program, m, e) == ctx);
         if !seen {
             cx.update_context(ctx, dt);
         }
@@ -1005,7 +1013,9 @@ pub fn travel(
         s[self::machine::TRAVEL] = NONE;
         return Ok(false);
     }
-    if travel_hop(program, &m, current, target) == NONE && travel_hop(program, &m, from, target) == NONE {
+    if travel_hop(program, &m, current, target) == NONE
+        && travel_hop(program, &m, from, target) == NONE
+    {
         return Err(());
     }
     s[self::machine::TRAVEL] = target;
@@ -1032,7 +1042,12 @@ pub fn jump(
 }
 
 /// The current state (local index) of machine `machine` in a blob.
-pub fn current_state(program: &Program, state: &mut [u32], groups: usize, machine: usize) -> Option<u32> {
+pub fn current_state(
+    program: &Program,
+    state: &mut [u32],
+    groups: usize,
+    machine: usize,
+) -> Option<u32> {
     let m = program.machines.get(machine)?;
     Some(program.node_state(state, groups, m.node)[self::machine::CURRENT])
 }
@@ -1095,7 +1110,8 @@ fn random_pick(cx: &mut EvalContext<'_>, node: &NodeData<'_>) -> u32 {
         }
         _ => {
             let weight = |i: usize| node.f32_or(2 + i, 1.0).max(0.0);
-            let recent = |i: usize| history[..hist_n.min(avoid.min(rnd::HISTORY_LEN))].contains(&(i as u32));
+            let recent =
+                |i: usize| history[..hist_n.min(avoid.min(rnd::HISTORY_LEN))].contains(&(i as u32));
             let mut total: f32 = (0..n).filter(|&i| !recent(i)).map(weight).sum();
             let restrict = total > 0.0;
             if !restrict {
@@ -1128,7 +1144,10 @@ fn random_pick(cx: &mut EvalContext<'_>, node: &NodeData<'_>) -> u32 {
         }
     };
     let s = cx.state();
-    s.copy_within(rnd::HISTORY..rnd::HISTORY + rnd::HISTORY_LEN - 1, rnd::HISTORY + 1);
+    s.copy_within(
+        rnd::HISTORY..rnd::HISTORY + rnd::HISTORY_LEN - 1,
+        rnd::HISTORY + 1,
+    );
     s[rnd::HISTORY] = pick;
     s[rnd::HISTORY_COUNT] = (hist_n + 1).min(rnd::HISTORY_LEN) as u32;
     s[rnd::PICK] = pick;
@@ -1216,7 +1235,11 @@ fn chooser(cx: &mut EvalContext<'_>, node: NodeData<'_>) {
     }
     let program = cx.program();
     let ci = program.side(node.index) as usize;
-    if program.choosers.get(ci).is_none_or(|c| c.node != node.index) {
+    if program
+        .choosers
+        .get(ci)
+        .is_none_or(|c| c.node != node.index)
+    {
         mixing::empty(cx);
         return;
     }
@@ -1280,7 +1303,11 @@ fn chooser(cx: &mut EvalContext<'_>, node: NodeData<'_>) {
             };
             let (cur, _) = pick_target(program, ci, pick);
             let (old, _) = pick_target(program, ci, prev);
-            let f = if prev != NONE && d > 0.0 { unit(e / d) } else { 1.0 };
+            let f = if prev != NONE && d > 0.0 {
+                unit(e / d)
+            } else {
+                1.0
+            };
             let mut items = [(0u32, 0.0f32); 2];
             let mut k = 0;
             let weighted_phase = cx.phase().is_weighted() || cx.phase() == Phase::Timing;
