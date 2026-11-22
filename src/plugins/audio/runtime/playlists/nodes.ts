@@ -133,6 +133,9 @@ export function resolveEntry(host: NodeHost, entry: Entry, parent: Ctx, key: str
     case "line":
       // ADR 0340 §5: the line's file in the current language, resolved now (the moment the entry is picked).
       return new ClipNode(host, ctx, `${key}/${index}`, lineSampleOf(host, entry, ctx));
+    case "generator":
+      // TODO(G3, ADR 0346 §5): generator voices (PLAY reserved id + GEN). Not playable yet: plays nothing.
+      return null;
   }
 }
 

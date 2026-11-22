@@ -1,6 +1,7 @@
-// The Audio Studio's asset kinds in the editor (ADR 0329, 0328, 0333): playlists (`*.playlist.json`), derived samples
-// (`*.sample.json`) and attenuation presets (`*.attenuation.json`). Each has its format (so the editor reads and writes
-// it through asset documents, ADR 0233) and, where its files name others, its `references` reader (ADR 0148). No panel:
+// The Audio Studio's asset kinds in the editor (ADR 0329, 0328, 0333, 0346): playlists (`*.playlist.json`), derived samples
+// (`*.sample.json`), attenuation presets (`*.attenuation.json`) and generators (`*.generator.json`). Each has its
+// format (so the editor reads and writes it through asset documents, ADR 0233) and, where its files name others, its
+// `references` reader (ADR 0148). No panel:
 // the Studio edits them; the editor lists, moves and deletes them.
 //
 // Moves: these are JSON files, so a move rewrites the paths in them through their owner, like every JSON file's
@@ -14,6 +15,8 @@ import { referencedPaths } from "../../../engine/audio/playlist/references";
 import { PLAYLIST_SUFFIX, type PlaylistAsset } from "../../../engine/audio/playlist/types";
 import { derivedSampleToJson, parseDerivedSample } from "../../../engine/audio/sample/format";
 import { SAMPLE_SUFFIX, type DerivedSampleAsset } from "../../../engine/audio/sample/types";
+import { emptyGenerator, formatGenerator, parseGenerator } from "../../../engine/audio/generators/format";
+import { GENERATOR_SUFFIX, type GeneratorAsset } from "../../../engine/audio/generators/types";
 
 /** A speaker beside a list: a playlist plays its entries. Drawn like the audio event's speaker. */
 const PLAYLIST_ICON = "M3 9v6h3l4 4V5L6 9zM14 8h7M14 12h7M14 16h7";
@@ -21,6 +24,8 @@ const PLAYLIST_ICON = "M3 9v6h3l4 4V5L6 9zM14 8h7M14 12h7M14 16h7";
 const SAMPLE_ICON = "M2 12h3l2-5 3 10 3-14 3 14 2-7 2 2h2";
 /** A level falling with distance over an axis. */
 const ATTENUATION_ICON = "M4 4v16h16M4 6c4 0 6 3 8 7s4 5 8 5";
+/** A square wave over a sine: a generator synthesises its sound. */
+const GENERATOR_ICON = "M2 8h4v8h4V8h4v8h4V8h4M2 19c3-3 5-3 8 0s5 3 8 0";
 
 const toProblems = (problems: readonly string[]) => problems.map((message) => ({ message }));
 
@@ -83,7 +88,17 @@ export const attenuationFormat: AssetFormat<AttenuationAsset> = {
   empty: () => ({ format: ATTENUATION_FORMAT, ...defaultAttenuation() }),
 };
 
-/** The three kinds, as registered. */
+/** The generator format (ADR 0346): `parseGenerator`, `formatGenerator`; a new generator is a default oscillator. */
+export const generatorFormat: AssetFormat<GeneratorAsset> = {
+  parse: (raw, path) => {
+    const read = parseGenerator(raw, path);
+    return { value: read.generator, problems: toProblems(read.problems) };
+  },
+  format: formatGenerator,
+  empty: () => emptyGenerator("oscillator"),
+};
+
+/** The kinds, as registered. */
 export const STUDIO_ASSET_KINDS: readonly AssetKindContribution[] = [
   {
     id: "playlist",
@@ -98,6 +113,8 @@ export const STUDIO_ASSET_KINDS: readonly AssetKindContribution[] = [
   },
   { id: "derivedSample", extensions: [SAMPLE_SUFFIX], label: "Sample", icon: SAMPLE_ICON, format: derivedSampleFormat, folder: "audio", references: derivedSampleReferenceReader },
   { id: "attenuation", extensions: [ATTENUATION_SUFFIX], label: "Attenuation", icon: ATTENUATION_ICON, format: attenuationFormat, folder: "audio" },
+  // ADR 0346: a generator names no other file (playlists and baked samples' sidecars name it; their readers move it).
+  { id: "generator", extensions: [GENERATOR_SUFFIX], label: "Generator", icon: GENERATOR_ICON, format: generatorFormat, folder: "audio" },
 ];
 
 /** Register the Studio's asset kinds (the audio plugin's `activate` calls it). */

@@ -43,6 +43,11 @@ function wrapSamples(b: PlaylistBody, type: PlaylistType): Entry[] {
       const { kind: _k, line, ...use } = e;
       return { kind: "embedded", embedded: { ...emptyPlaylistBody("clip"), entries: [{ kind: "line", line, ...defaultEntryUse() }] }, ...use } as Entry;
     }
+    // ADR 0346: a generator too (minimal until G4).
+    if (e.kind === "generator") {
+      const { kind: _k, generator, ...use } = e;
+      return { kind: "embedded", embedded: { ...emptyPlaylistBody("clip"), entries: [{ kind: "generator", generator, ...defaultEntryUse() }] }, ...use } as Entry;
+    }
     if (e.kind !== "sample") return e;
     const { kind: _k, sample, trim, loop, ...use } = e;
     const w = sampleEntry(target, sample);
@@ -61,10 +66,12 @@ function tracksFrom(entries: readonly Entry[]): Track[] {
         : e.kind === "embedded" ? { playlist: structuredClone(e.embedded) }
         // ADR 0340 §5: a line becomes a playlist clip holding a Clip with that line.
         : e.kind === "line" ? { playlist: { ...emptyPlaylistBody("clip"), entries: [{ kind: "line" as const, line: structuredClone(e.line), ...defaultEntryUse() }] } }
+        // ADR 0346: a generator becomes a generator clip on an audio track.
+        : e.kind === "generator" ? { generator: structuredClone(e.generator) }
         : { sample: e.sample }),
     };
     return {
-      id: `t${i + 1}`, name: entryName(e, i), kind: e.kind === "sample" ? "audio" : "playlist", color: (i % 8) + 1, volume: 0, pan: 0, output: null,
+      id: `t${i + 1}`, name: entryName(e, i), kind: e.kind === "sample" || e.kind === "generator" ? "audio" : "playlist", color: (i % 8) + 1, volume: 0, pan: 0, output: null,
       mute: false, solo: false, enabled: true, effects: [], automation: [], clips: [clip],
     };
   });

@@ -101,6 +101,13 @@ export function lineTitle(line: string | null | { event: string }): string {
   return typeof line === "string" ? `Line ${line}` : `Event ${line.event}`;
 }
 
+/** ADR 0346 (display only until G4): a generator entry's name: its file's name, or "Generator · <kind>" when embedded. */
+function generatorTitle(g: string | { kind: string }): string {
+  if (typeof g !== "string") return `Generator · ${g.kind}`;
+  const file = g.split("/").pop() ?? g;
+  return file.replace(/\.generator\.json$/i, "");
+}
+
 const TYPE_NAMES: Record<PlaylistBody["type"], string> = { clip: "Clip", queue: "Queue", switch: "Switch", blend: "Blend", layer: "Layer", sequence: "Sequence" };
 
 /** A playlist type's name in the UI. */
@@ -114,10 +121,11 @@ export function entryName(e: Entry, index: number): string {
   if (e.kind === "linked") return playlistTitle(e.playlist);
   if (e.kind === "sample") return sampleTitle(e.sample);
   if (e.kind === "line") return lineTitle(e.line);
+  if (e.kind === "generator") return generatorTitle(e.generator); // display only until G4 (ADR 0346 §9)
   const b = e.embedded;
   if (b.type === "clip") {
     const s = b.entries[0];
-    return s && s.kind === "sample" ? sampleTitle(s.sample) : s && s.kind === "line" ? lineTitle(s.line) : `Clip ${index + 1}`;
+    return s && s.kind === "sample" ? sampleTitle(s.sample) : s && s.kind === "line" ? lineTitle(s.line) : s && s.kind === "generator" ? generatorTitle(s.generator) : `Clip ${index + 1}`;
   }
   return `${typeName(b.type)} ${index + 1}`;
 }
@@ -149,7 +157,7 @@ export function breadcrumb(path: PlaylistPath, load: (file: string) => PlaylistB
 /** The path one level down, into entry `index` of the open playlist: an embedded entry steps in, a linked one opens its file. Null for a sample or a line. */
 export function childPath(path: PlaylistPath, open: PlaylistBody, index: number): PlaylistPath | null {
   const e = open.entries[index];
-  if (!e || e.kind === "sample" || e.kind === "line") return null;
+  if (!e || e.kind === "sample" || e.kind === "line" || e.kind === "generator") return null;
   return e.kind === "embedded" ? [...path, { entry: index }] : [...path, { file: e.playlist }];
 }
 

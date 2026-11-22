@@ -9,7 +9,10 @@
  * - a Clip playlist's entries are samples (others are dropped); a Clip plays its first sample (more are kept, as in the
  *   prototype, with a problem; none is a problem);
  * - a Switch map points at entries that exist, or null;
- * - a sequence clip names exactly one of `sample` / `playlist`;
+ * - a sequence clip names exactly one of `sample` / `playlist` / `generator`;
+ * - a generator entry (ADR 0346) follows the sample rule: only in a Clip, wrapped in an embedded Clip elsewhere; its
+ *   embedded generator is parsed by `generators/format.ts`; `gen:<param>` curve and automation targets are kept (the
+ *   lint says when one does nothing);
  * - the type's own block (`queue` for a Queue…) is always there (defaults when missing); another type's block is kept
  *   when the file has one (switching type back and forth keeps its settings) and is null otherwise;
  * - limits, declared once in `PLAYLIST_LIMITS` (ADR 0306): over a limit, the rest is dropped with a problem.
@@ -36,6 +39,8 @@ import { isFadeShape } from "./fadeShapes";
 import { isStringKey } from "../../localisation/strings/format";
 import { isLineKey } from "../localisation/lines/format";
 import { isEventName } from "../dialogue/format";
+import { generatorBodyToJson, parseGeneratorBody } from "../generators/format";
+import type { GeneratorBody } from "../generators/types";
 
 /** Limits of a playlist, declared once (ADR 0306; the first five are ADR 0329's). */
 export const PLAYLIST_LIMITS = Object.freeze({
@@ -73,6 +78,10 @@ const WHEN_FULL = ["stealOldest", "stealQuietest", "stealFarthest", "refuse"] as
 const METER = /^\d{1,2}\/\d{1,2}$/;
 const HEX_COLOUR = /^#[0-9a-fA-F]{6}$/;
 const FX_TARGET = /^fx:[^:]+:[^:]+$/;
+/** ADR 0346 §4: a generator parameter target, `gen:<param>`. */
+export const GEN_TARGET = /^gen:[A-Za-z][A-Za-z0-9]*$/;
+/** True for a `gen:<param>` curve or automation target. */
+export const isGenTarget = (target: string): target is `gen:${string}` => GEN_TARGET.test(target);
 
 /** True for a playlist asset path. */
 export const isPlaylistPath = (path: string): boolean => path.toLowerCase().endsWith(PLAYLIST_SUFFIX);
@@ -150,8 +159,8 @@ class PlaylistReader {
       if (entry) out.entries.push(entry);
     });
     if (type === "clip") {
-      // ADR 0340 §5: a line entry sits beside sample entries in a Clip.
-      const kept = out.entries.filter((e) => e.kind === "sample" || e.kind === "line");
+      // ADR 0340 §5, 0346 §1: line and generator entries sit beside sample entries in a Clip.
+      const kept = out.entries.filter((e) => e.kind === "sample" || e.kind === "line" || e.kind === "generator");
       if (kept.length < out.entries.length) r.problem(at("entries"), "a Clip plays a sample; its other entries are dropped.");
       out.entries = kept;
       if (kept.length === 0) r.problem(at("entries"), "a Clip needs one sample; it plays nothing.");
@@ -246,9 +255,9 @@ class PlaylistReader {
     if (curves) {
       for (const [k, v] of Object.entries(curves)) {
         const w = `${where}.curves.${k}`;
-        if (!(VOICE_CURVE_TARGETS as readonly string[]).includes(k)) { r.problem(w, `unknown target (expected ${VOICE_CURVE_TARGETS.join(", ")}); dropped.`); continue; }
+        if (!(VOICE_CURVE_TARGETS as readonly string[]).includes(k) && !isGenTarget(k)) { r.problem(w, `unknown target (expected ${VOICE_CURVE_TARGETS.join(", ")} or gen:<parameter>); dropped.`); continue; }
         const c = this.voiceCurve(v, w);
-        if (c) out.curves[k as VoiceCurveTarget] = c;
+        if (c) out.curves[k as VoiceCurveTarget | `gen:${string}`] = c;
       }
     }
     return out;
@@ -338,8 +347,8 @@ class PlaylistReader {
       if (out.length >= PLAYLIST_LIMITS.automation) return void r.problem(w, `at most ${PLAYLIST_LIMITS.automation} automation lanes; dropped.`);
       if (!isRecord(a)) return void r.problem(w, "automation must be an object; dropped.");
       const target = a.target;
-      if (!(target === "volume" || target === "pitch" || target === "pan" || target === "enabled" || (typeof target === "string" && FX_TARGET.test(target)))) {
-        return void r.problem(`${w}.target`, `must be volume, pitch, pan, enabled or fx:<effect id>:<parameter>; dropped.`);
+      if (!(target === "volume" || target === "pitch" || target === "pan" || target === "enabled" || (typeof target === "string" && (FX_TARGET.test(target) || isGenTarget(target))))) {
+        return void r.problem(`${w}.target`, `must be volume, pitch, pan, enabled, fx:<effect id>:<parameter> or gen:<parameter>; dropped.`);
       }
       const curve = r.curve(a.curve, `${w}.curve`);
       if (!curve || curve.length === 0) return void r.problem(`${w}.curve`, "needs keys; dropped.");
@@ -360,11 +369,19 @@ class PlaylistReader {
   entry(raw: unknown, where: string, depth: number, inClip: boolean): Entry | null {
     const r = this.r;
     if (!isRecord(raw)) { r.problem(where, "an entry must be an object; dropped."); return null; }
-    const kinds = (["sample", "playlist", "embedded", "line"] as const).filter((k) => raw[k] !== undefined);
-    if (kinds.length === 0) { r.problem(where, 'an entry needs "sample", "playlist", "embedded" or "line"; dropped.'); return null; }
+    const kinds = (["sample", "playlist", "embedded", "line", "generator"] as const).filter((k) => raw[k] !== undefined);
+    if (kinds.length === 0) { r.problem(where, 'an entry needs "sample", "playlist", "embedded", "line" or "generator"; dropped.'); return null; }
     if (kinds.length > 1) r.problem(where, `has ${kinds.join(" and ")}; using "${kinds[0]}".`);
     const use = this.use(raw, where);
     const kind = kinds[0];
+    if (kind === "generator") {
+      // ADR 0346 §1: a generator plays only in a Clip, wrapped like a sample.
+      const generator = this.generator(raw.generator, `${where}.generator`);
+      if (generator === null) return null;
+      if (inClip) return { kind: "generator", generator, ...use };
+      r.problem(where, "a generator plays only in a Clip; wrapped in an embedded Clip.");
+      return { kind: "embedded", embedded: { ...emptyPlaylistBody("clip"), entries: [{ kind: "generator", generator, ...defaultEntryUse() }] }, ...use };
+    }
     if (kind === "line") {
       const v = raw.line;
       let line: LineEntry["line"];
@@ -397,6 +414,14 @@ class PlaylistReader {
     }
     const body = this.embedded(raw.embedded, `${where}.embedded`, depth);
     return body ? { kind: "embedded", embedded: body, ...use } : null;
+  }
+
+  /** ADR 0346: a generator source: a `*.generator.json` path or an embedded generator; null (with a problem) otherwise. */
+  generator(raw: unknown, where: string): string | GeneratorBody | null {
+    if (typeof raw === "string" && raw !== "") return raw;
+    if (isRecord(raw)) return parseGeneratorBody(raw, where, this.problems);
+    this.r.problem(where, "must be a generator path or an embedded generator; dropped.");
+    return null;
   }
 
   /** An embedded body one level down, or null past the nesting limit or for a non-object. */
@@ -632,15 +657,21 @@ class PlaylistReader {
   clip(raw: unknown, where: string, depth: number, trackKind: Track["kind"], ids: IdScope): Clip | null {
     const r = this.r;
     if (!isRecord(raw)) { r.problem(where, "a clip must be an object; dropped."); return null; }
-    const hasSample = raw.sample !== undefined, hasPlaylist = raw.playlist !== undefined;
-    if (!hasSample && !hasPlaylist) { r.problem(where, 'a clip needs "sample" or "playlist"; dropped.'); return null; }
+    const hasSample = raw.sample !== undefined, hasPlaylist = raw.playlist !== undefined, hasGenerator = raw.generator !== undefined;
+    if (!hasSample && !hasPlaylist && !hasGenerator) { r.problem(where, 'a clip needs "sample", "playlist" or "generator"; dropped.'); return null; }
+    if (hasGenerator && (hasSample || hasPlaylist)) r.problem(`${where}.generator`, `a clip plays one source; using "${hasSample ? "sample" : "playlist"}", the generator is dropped.`);
     let useSample = hasSample;
     if (hasSample && hasPlaylist) {
       useSample = trackKind === "audio";
       r.problem(where, `has both "sample" and "playlist"; using "${useSample ? "sample" : "playlist"}" (the track's kind).`);
     }
-    let source: Pick<Clip, "sample" | "playlist">;
-    if (useSample) {
+    let source: Pick<Clip, "sample" | "playlist" | "generator">;
+    if (hasGenerator && !hasSample && !hasPlaylist) {
+      // ADR 0346 §1: a generator source (it belongs on an audio track; lint says so elsewhere).
+      const generator = this.generator(raw.generator, `${where}.generator`);
+      if (generator === null) return null;
+      source = { generator };
+    } else if (useSample) {
       if (typeof raw.sample !== "string" || raw.sample === "") { r.problem(`${where}.sample`, "must be a sample path; dropped."); return null; }
       source = { sample: raw.sample };
     } else if (typeof raw.playlist === "string" && raw.playlist !== "") source = { playlist: raw.playlist };
@@ -728,7 +759,9 @@ function useToJson(e: EntryUse, out: JsonRecord): void {
   if (e.y !== undefined) out.y = e.y;
   if (e.atZeroWeight !== "stop") out.atZeroWeight = e.atZeroWeight;
   const curves: JsonRecord = {};
-  for (const t of VOICE_CURVE_TARGETS) {
+  // The voice targets in their fixed order, then the `gen:` targets (ADR 0346 §4) in the entry's order.
+  const genTargets = Object.keys(e.curves).filter(isGenTarget);
+  for (const t of [...VOICE_CURVE_TARGETS, ...genTargets]) {
     const c = e.curves[t];
     if (!c) continue;
     const json: JsonRecord = { input: inputToJson(c.input), curve: curveToJson(c.curve) };
@@ -747,6 +780,9 @@ function useToJson(e: EntryUse, out: JsonRecord): void {
   if (e.weightCurve) out.weightCurve = curveToJson(e.weightCurve);
 }
 
+/** ADR 0346: a generator source as JSON: its path, or the embedded generator (no `format`). */
+const generatorSourceToJson = (g: string | GeneratorBody): unknown => (typeof g === "string" ? g : generatorBodyToJson(g));
+
 /** ADR 0336: a fade as JSON. */
 const fadeToJson = (f: Fade): JsonRecord => ({ length: { ...f.length }, shape: f.shape });
 
@@ -759,6 +795,7 @@ export function entryToJson(e: Entry): JsonRecord {
     if (e.loop !== "inherit") out.loop = e.loop;
   } else if (e.kind === "linked") out.playlist = e.playlist;
   else if (e.kind === "line") out.line = e.line !== null && typeof e.line === "object" ? { event: e.line.event } : e.line;
+  else if (e.kind === "generator") out.generator = generatorSourceToJson(e.generator);
   else out.embedded = playlistBodyToJson(e.embedded);
   useToJson(e, out);
   return out;
@@ -789,6 +826,7 @@ function clipToJson(c: Clip): JsonRecord {
   if (c.sample !== undefined) out.sample = c.sample;
   else if (typeof c.playlist === "string") out.playlist = c.playlist;
   else if (c.playlist) out.playlist = playlistBodyToJson(c.playlist);
+  else if (c.generator !== undefined) out.generator = generatorSourceToJson(c.generator);
   out.at = c.at;
   out.length = c.length;
   if (c.offset !== 0) out.offset = c.offset;

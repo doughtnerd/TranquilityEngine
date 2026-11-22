@@ -51,9 +51,17 @@
  * ```jsonc
  * "encoding": { "profile": "UI", "quality": 0.7, "platforms": { "android": { "channels": "mono" } } }
  * ```
+ *
+ * And a `generated` block (ADR 0346 §6) on a sample baked from a generator, read and written by
+ * `audio/generators/provenance.ts`:
+ *
+ * ```jsonc
+ * "generated": { "generator": "audio/ui/coin.generator.json", "hash": "…", "seed": 1734, "variation": 0 }
+ * ```
  */
 import { parseSidecarEncoding, sidecarEncodingToJson } from "../audio/encoding/format";
 import type { SidecarEncoding } from "../audio/encoding/types";
+import { generatedProvenanceToJson, parseGeneratedProvenance, type GeneratedProvenance } from "../audio/generators/provenance";
 import { parseSampleEdits, sampleEditsToJson } from "../audio/sample/format";
 import type { SampleEdits } from "../audio/sample/types";
 
@@ -147,6 +155,8 @@ export interface ImportSettings {
   sample: SampleEdits | null;
   /** Audio (ADR 0337 §2): the file's encoding overrides and profile; null (absent) when it inherits everything. */
   encoding: SidecarEncoding | null;
+  /** Audio (ADR 0346 §6): where a baked sample came from (generator, patch hash, seed, variation); null (absent) otherwise. */
+  generated: GeneratedProvenance | null;
   /** Models (ADR 0044): multiplies the model's size. */
   scale: number;
   upAxis: ModelUpAxis;
@@ -177,6 +187,7 @@ const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<ImportSe
   ambisonic: null,
   sample: null,
   encoding: null,
+  generated: null,
   scale: 1,
   upAxis: "y",
   normals: "import",
@@ -331,6 +342,7 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
   }
   if (raw.sample !== undefined && raw.sample !== null) settings.sample = parseSampleEdits(raw.sample, `${where}: sample`, problems);
   settings.encoding = parseSidecarEncoding(raw.encoding, `${where}: encoding`, problems);
+  settings.generated = parseGeneratedProvenance(raw.generated, `${where}: generated`, problems);
   if (raw.scale !== undefined) {
     if (typeof raw.scale === "number" && raw.scale > 0 && Number.isFinite(raw.scale)) settings.scale = raw.scale;
     else bad("scale", "a number > 0");
@@ -479,6 +491,7 @@ function importSettingsJSON(settings: ImportSettings): Record<string, unknown> {
   if (settings.sample) out.sample = sampleEditsToJson(settings.sample);
   const encoding = sidecarEncodingToJson(settings.encoding ?? null);
   if (encoding) out.encoding = encoding;
+  if (settings.generated) out.generated = generatedProvenanceToJson(settings.generated);
   if (settings.scale !== d.scale) out.scale = settings.scale;
   if (settings.upAxis !== d.upAxis) out.upAxis = settings.upAxis;
   if (settings.normals !== d.normals) out.normals = settings.normals;

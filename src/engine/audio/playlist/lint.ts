@@ -17,7 +17,14 @@
  *   the voice doesn't carry (only low-pass and high-pass cutoff and a gain effect's gain are; it follows its parameter);
  * - `quantizeNoTempo` (ADR 0336): a quantised lane or entry voice curve in a playlist with no tempo (it moves at once);
  * - `regionIgnored` (ADR 0336): a region on an entry of a 2D Blend (regions are 1D; 2D shapes by weight curves);
- * - `tailWithoutExit` (ADR 0336): a sequence loop with `tail` but no Exit marker after its end (it has nothing to ring).
+ * - `tailWithoutExit` (ADR 0336): a sequence loop with `tail` but no Exit marker after its end (it has nothing to ring);
+ * - `generatorNeverEnds` (ADR 0346): a one-shot playlist plays an endless generator (an oscillator or synth with no
+ *   length) outside a sequence;
+ * - `generatorClipNoLength` (ADR 0346): an endless generator in a sequence clip of length 0;
+ * - `genTargetUnknown` (ADR 0346): a `gen:<param>` curve or lane its generator's kind doesn't have;
+ * - `genTargetIgnored` (ADR 0346): a `gen:` lane on a playlist's own or a track's automation (they act on the
+ *   instance, not a voice), or a `gen:` curve on an entry or clip that plays no generator;
+ * - `genCurveNotStep` (ADR 0346): a curve on a choice parameter (`waveform`) with a key that isn't a step.
  *
  * Embedded playlists are linted too, with their place in `where`. What the Studio knows about samples and linked
  * playlists comes in through `LintContext`; without it the rules that need it stay quiet rather than guess.
@@ -27,11 +34,15 @@
 import { effectParamSpec } from "../effects/catalogue";
 import type { Effect } from "../effects/types";
 import { isLabelled } from "../parameters";
+import type { Curve } from "../../core/curve";
+import { generatorIsEndless, generatorParamSpec, generatorSpec } from "../generators/catalogue";
+import type { GeneratorBody } from "../generators/types";
 import type { Automation, ChangeHow, Entry, PlaylistBody, Track } from "./types";
 
 export type PlaylistLintCode =
   | "noTempoSource" | "tempoClash" | "overlappingSyncLoops" | "allWeightsZero" | "unboundLoop" | "unboundParameter" | "unknownLabel"
-  | "trackKindMismatch" | "danglingEffectTarget" | "quantizeIgnored" | "quantizeNoTempo" | "regionIgnored" | "tailWithoutExit";
+  | "trackKindMismatch" | "danglingEffectTarget" | "quantizeIgnored" | "quantizeNoTempo" | "regionIgnored" | "tailWithoutExit"
+  | "generatorNeverEnds" | "generatorClipNoLength" | "genTargetUnknown" | "genTargetIgnored" | "genCurveNotStep";
 
 export interface PlaylistLint {
   code: PlaylistLintCode;
@@ -46,6 +57,8 @@ export interface LintContext {
   sampleTempo?(path: string): { bpm: number } | null | undefined;
   /** A linked playlist, parsed; null or undefined when it can't be read. */
   playlist?(path: string): PlaylistBody | null | undefined;
+  /** ADR 0346: a linked generator (`*.generator.json`), parsed; null or undefined when it can't be read. */
+  generator?(path: string): GeneratorBody | null | undefined;
 }
 
 type Tri = "yes" | "no" | "unknown";
@@ -65,6 +78,7 @@ export function lintPlaylist(body: PlaylistBody, ctx: LintContext = {}): Playlis
     if (e.kind === "sample") return tempoOfSample(e.sample);
     if (e.kind === "embedded") return tempoOfBody(e.embedded, seen);
     if (e.kind === "line") return "unknown"; // its file is chosen when it plays (ADR 0340 §5)
+    if (e.kind === "generator") return "no"; // a generator has no tempo (ADR 0346)
     if (seen.has(e.playlist)) return "unknown";
     const linked = ctx.playlist?.(e.playlist);
     return linked ? tempoOfBody(linked, new Set([...seen, e.playlist])) : "unknown";
@@ -165,8 +179,9 @@ export function lintPlaylist(body: PlaylistBody, ctx: LintContext = {}): Playlis
         automation(t.automation, t.effects, `${tw}.automation`, b);
         t.clips.forEach((c, ci) => {
           const cw = `${tw}.clips[${ci}]`;
-          if (t.kind === "audio" && c.sample === undefined) add("trackKindMismatch", cw, `Clip "${c.id}" plays a playlist on audio track "${t.name}".`);
+          if (t.kind === "audio" && c.sample === undefined && c.generator === undefined) add("trackKindMismatch", cw, `Clip "${c.id}" plays a playlist on audio track "${t.name}".`);
           if (t.kind === "playlist" && c.sample !== undefined) add("trackKindMismatch", cw, `Clip "${c.id}" plays a sample on playlist track "${t.name}".`);
+          if (t.kind === "playlist" && c.generator !== undefined) add("trackKindMismatch", cw, `Clip "${c.id}" plays a generator on playlist track "${t.name}".`);
           for (const [id, o] of Object.entries(c.loops)) {
             if (o.active === "parameter" && !o.binding) add("unboundLoop", `${cw}.loops.${id}`, `Clip "${c.id}" makes loop "${id}" active while a parameter holds, but names none, so it never turns active.`);
           }
@@ -212,5 +227,81 @@ export function lintPlaylist(body: PlaylistBody, ctx: LintContext = {}): Playlis
   };
 
   visit(body, "");
+  lintGenerators(body, ctx, add);
   return out;
+}
+
+/**
+ * ADR 0346 §4: the generator rules, over the same tree (embedded playlists, stingers, transitions, sequence clips).
+ * A linked generator's kind and parameters come from `LintContext.generator`; unknown, its rules stay quiet.
+ */
+function lintGenerators(root: PlaylistBody, ctx: LintContext, add: (code: PlaylistLintCode, where: string, message: string) => void): void {
+  const join = (where: string, key: string) => (where ? `${where}.${key}` : key);
+  /** The generator a source names, or undefined when unknown. */
+  const read = (g: string | GeneratorBody): GeneratorBody | undefined => (typeof g === "string" ? (ctx.generator?.(g) ?? undefined) : g);
+  const nameOf = (g: string | GeneratorBody) => (typeof g === "string" ? g : `the embedded ${g.kind}`);
+  /** The generator an entry plays (directly, or as the first entry of an embedded Clip): a source, "none" (a sample etc.), or undefined (can't tell). */
+  const sourceOf = (e: Entry): string | GeneratorBody | "none" | undefined => {
+    if (e.kind === "generator") return e.generator;
+    if (e.kind === "sample" || e.kind === "line") return "none";
+    if (e.kind === "embedded" && e.embedded.type === "clip") {
+      const first = e.embedded.entries[0];
+      return first ? sourceOf(first) : "none";
+    }
+    return undefined;
+  };
+  /** gen:<param> targets against a generator source (or "none"); `owner` names what holds them. */
+  const targets = (list: readonly { target: string; curve: Curve; where: string }[], src: string | GeneratorBody | "none" | undefined, owner: string) => {
+    for (const t of list) {
+      if (!t.target.startsWith("gen:")) continue;
+      const param = t.target.slice(4);
+      if (src === "none") { add("genTargetIgnored", t.where, `${owner} plays no generator, so its ${t.target} curve does nothing.`); continue; }
+      const g = src === undefined ? undefined : read(src);
+      if (!g) continue;
+      const q = generatorParamSpec(g.kind, param);
+      if (!q) { add("genTargetUnknown", t.where, `${owner} plays a ${generatorSpec(g.kind).label}, which has no parameter "${param}"; the curve does nothing.`); continue; }
+      if (q.choices && t.curve.slice(0, -1).some((k) => k[2] !== "step")) add("genCurveNotStep", t.where, `"${param}" is a choice, so its curve steps between keys; give every key the step shape.`);
+    }
+  };
+  const curvesOf = (e: Entry, where: string) => Object.entries(e.curves).flatMap(([target, c]) => (c ? [{ target, curve: c.curve, where: `${where}.curves.${target}` }] : []));
+  const lanes = (list: readonly Automation[], where: string) => list.map((a, i) => ({ target: a.target, curve: a.curve, where: `${where}[${i}]` }));
+  const ignored = (list: readonly Automation[], where: string, what: string) => list.forEach((a, i) => {
+    if (a.target.startsWith("gen:")) add("genTargetIgnored", `${where}[${i}]`, `Lane "${a.id}" targets ${a.target}, but ${what} acts on the instance, not a voice; it does nothing.`);
+  });
+  const endless = (g: string | GeneratorBody) => {
+    const b = read(g);
+    return b ? generatorIsEndless(b.kind, b.params) : false;
+  };
+
+  const visitEntry = (e: Entry, where: string, oneShot: boolean, label: string) => {
+    targets(curvesOf(e, where), sourceOf(e), label);
+    if (e.kind === "generator" && oneShot && endless(e.generator)) {
+      add("generatorNeverEnds", where, `This one-shot playlist plays ${nameOf(e.generator)}, which sounds until released and has no length; give it a length or make the playlist play until stopped.`);
+    }
+    if (e.kind === "embedded") visit(e.embedded, join(where, "embedded"), oneShot);
+  };
+  const visit = (b: PlaylistBody, where: string, oneShot: boolean) => {
+    const w = (k: string) => join(where, k);
+    ignored(b.automation, w("automation"), "a playlist's own automation");
+    b.entries.forEach((e, i) => visitEntry(e, w(`entries[${i}]`), oneShot, `Entry ${i + 1}`));
+    b.stingers.forEach((s, i) => visitEntry(s.playlist, w(`stingers[${i}].playlist`), true, `Stinger "${s.trigger}"`));
+    if (b.switch) {
+      const t = b.switch.onChange.transition;
+      if (t) visitEntry(t, w("switch.onChange.transition"), true, "The transition");
+      b.switch.rules.forEach((r, i) => r.transition && visitEntry(r.transition, w(`switch.rules[${i}].transition`), true, `Rule ${i + 1}'s transition`));
+    }
+    b.sequence?.tracks.forEach((t, ti) => {
+      const tw = w(`sequence.tracks[${ti}]`);
+      ignored(t.automation, `${tw}.automation`, "a track's automation");
+      t.clips.forEach((c, ci) => {
+        const cw = `${tw}.clips[${ci}]`;
+        targets(lanes(c.automation, `${cw}.automation`), c.generator ?? (c.sample !== undefined ? "none" : undefined), `Clip "${c.id}"`);
+        if (c.generator !== undefined && c.length === 0 && endless(c.generator)) {
+          add("generatorClipNoLength", cw, `Clip "${c.id}" plays ${nameOf(c.generator)}, which sounds until released, with length 0 (to its end); give the clip a length.`);
+        }
+        if (typeof c.playlist === "object" && c.playlist) visit(c.playlist, `${cw}.playlist`, false);
+      });
+    });
+  };
+  visit(root, "", root.playback.plays === "oneShot");
 }
