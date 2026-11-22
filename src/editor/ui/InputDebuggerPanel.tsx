@@ -150,7 +150,7 @@ function Player(props: { player: InputPlayerRow; sets: number }) {
       </h4>
       {p.rebind && (
         <p class="input-debugger-rebind" role="status">
-          Rebinding {p.rebind.action} ({p.rebind.context} #{p.rebind.mapping + 1}, {p.rebind.part}): waiting for a {p.rebind.device} press · {p.rebind.cancel} cancels · {seconds(p.rebind.remaining)} left
+          {p.rebind.add ? "Adding a binding for" : "Rebinding"} {p.rebind.action} ({p.rebind.context} #{p.rebind.mapping + 1}{p.rebind.add ? "" : `, ${p.rebind.part}`}): waiting for a {p.rebind.device} press · {p.rebind.cancel} cancels · {seconds(p.rebind.remaining)} left
         </p>
       )}
       <div class="input-debugger-contexts" role="list" aria-label="Active contexts">

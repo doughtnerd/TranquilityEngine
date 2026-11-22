@@ -172,9 +172,39 @@ await player.rebind("jump", { chord: true });        // a single control, captur
 - A control already down when the rebind started (the Enter or south button that opened it) isn't part of the chord, and letting go of it doesn't finish it.
 - `chord` is the default for a chord's main control. It works on a single control and on a chord's `control` part; any other part throws.
 - A chord conflicts with mappings of the same controls only. Shift+B doesn't conflict with a plain B mapping, because the chord claims its key.
-- **The number of modifiers can't change yet.** A profile replaces a mapping's controls but can't add or remove any. A chord with a different number of modifiers from the mapping's (a lone key for Shift+B, or Ctrl+Shift+B) is canceled with `reason: "modifierCount"`. `r.chord` says what was held and `r.modifierCount` how many modifiers the mapping takes. The binding stays as it was.
+- **A chord can change size.** Holding a different number of modifiers from the mapping's (a lone key for Shift+B, or Ctrl+Shift+B) replaces the mapping: the old one is removed and the new chord added, keeping the old mapping's modifiers, triggers and `consume`. A single control rebound with `chord: true` becomes a chord the same way.
 
-Every canceled result has a `reason`: `cancel` (the cancel control), `timeout`, `replaced` (another rebind for the player started) or `modifierCount`.
+Every canceled result has a `reason`: `cancel` (the cancel control), `timeout` or `replaced` (another rebind for the player started).
+
+**Adding and unbinding.** A player can add a binding where an action has none for a device, or a second one beside it, and remove one:
+
+```ts
+await player.rebind("jump", { add: true, device: "gamepad" }); // the next button becomes a new mapping of jump
+await player.rebind("fire", { add: true, device: "keyboard" }); // a second key for fire
+player.unbind("bomb", { device: "keyboard" });                  // true if a mapping was removed
+player.unbind("bomb", { device: "gamepad", context: "onFoot" }); // only that context's
+player.resetBindings();                                          // every change undone
+```
+
+- An added mapping is a single control (with `chord: true`, the controls pressed together as a chord). It goes into the context that already holds the action's mappings (the first by priority), or the default context if none does; `context` picks another.
+- `unbind` removes the device group's mapping for the action, the first by priority that has one. A mapping the player added is deleted; one from a context is recorded as removed, so `resetBindings` brings it back.
+- Prompts and conflict checks see added mappings and skip removed ones. Rebinding an action with no mapping for that device throws; add one instead.
+
+**What's saved.** `saveBindings` writes `input.<profile>.json` in format 2:
+
+```json
+{
+  "format": 2,
+  "overrides": { "onFoot/1/jump/control": "<Keyboard>/k" },
+  "additions": { "onFoot": [{ "action": "game.Player:fire", "control": "<Gamepad>/rightTrigger" }] },
+  "removals": { "default": [{ "index": 5, "action": "game.Player:bomb" }] },
+  "accessibility": { "invertY": ["look"] }
+}
+```
+
+- `overrides` replace one control: `"<context>/<mapping index>/<action>/<part>"`. `additions` are whole mappings, in a context asset's mapping shape; an added mapping's index is the context's mapping count plus its position among the additions. `removals` name a mapping of the context by index and action.
+- Overrides and removals name their mapping's action. If a game update moves mappings so that the index no longer holds that action, the saved change is dropped, with one warning per profile and context: `Saved binding for "jump" in "onFoot" no longer matches the context; it was reset.`
+- A format 1 file (from before adding and unbinding) still loads: each override gets the action of the mapping now at its index, and the next `saveBindings` writes format 2.
 
 ### Glyphs
 
@@ -195,9 +225,11 @@ img.src = glyph.url;                               // an HTML <img>; glyph.svg i
 
 - One row per action (`actions`: a comma-separated list, empty for every action), one per part for a d-pad or axis composite ("Move Up"…), with a **Keyboard** and a **Gamepad** cell. Each shows the binding's glyphs and label; the gamepad column follows the pad the player last used.
 - Click a cell, or select it with the arrow keys or d-pad and press Enter or the south button, then press the new key or button. **Escape** cancels; after `timeout` seconds (default 10) it gives up.
-- A chord is one cell ("Shift + B", with both glyphs). Its rebind takes the keys or buttons held together: hold them, then let go. A chord with a different number of modifiers is refused in the status line, and the binding stays.
+- An empty cell ("—") on an action's row adds a binding for that device the same way (`rebind` with `add: true`).
+- **Delete** or **Backspace** on a selected cell unbinds it, as does the **Unbind** button (which acts on the binding cell last selected). Unbinding one part of a d-pad or axis removes the device's whole binding.
+- A chord is one cell ("Shift + B", with both glyphs). Its rebind takes the keys or buttons held together: hold them, then let go. A chord with a different number of modifiers replaces the binding.
 - A conflict is shown in the status line ("B is also bound to Bomb.") and conflicting cells turn `warningColor`.
-- **Reset to defaults** calls `resetBindings`; **Save** calls `saveBindings(profile)`.
+- **Reset to defaults** calls `resetBindings`; **Save** calls `saveBindings(profile)`. The button row's words are `text.unbind`, `text.reset` and `text.save`.
 
 ```ts
 const mapper = menu.addComponent(UIControlMapper, { player: 0, actions: "move, jump, fire" });
