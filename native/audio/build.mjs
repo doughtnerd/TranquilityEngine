@@ -43,11 +43,10 @@ const WASI_SDK_VERSION = "25.0";
  * mixer is 341,168 B (95% of 360 KB), ≈ 15 KB above the design's projection, with loudness (≈ 21 KB) still to come.
  * 512 KB since Audio Studio W6-A (2026-11-22): the mixer was 396,409 B of 400 KB with ADR 0331's instance submixes and
  * effect catalogue DSP still to come.
- * 576 KB since W12 (2026-11-22, ADR 0338 plugin effects, ABI 5.0): with ADR 0337's ADPCM voices (4.12) the mixer was
- * 497,970 B of 512 KB, and the plugin effects (16-parameter records, `ext.rs`, the plugin slot path) add ≈ 3.5 KB; the
- * gate is a tripwire, not a design limit (CLAUDE.md), so it moves rather than any feature.
+ * W12 (2026-11-22): ADR 0337's ADPCM voices (4.12) and ADR 0338's plugin effects (5.0: 16-parameter records, `ext.rs`,
+ * the plugin slot path, +3.6 KB) take it to 501,602 B; still under, so the gate stays (raise it with a reason when it bites).
  */
-const MIXER_LIMIT = 576 * 1024;
+const MIXER_LIMIT = 512 * 1024;
 /** ADR 0162 (api-and-models §5.2): M3's mixer warning, under the gate: a build past it warns but passes. */
 const MIXER_WARN = 300 * 1024;
 /** The decoder's size tripwire (M1b: 900 KB). 1,000 KB since ADR 0345 §4 (2026-11-22, A7): libopus (fixed point, no
