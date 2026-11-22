@@ -122,7 +122,7 @@ describe("the system catalog (T2)", () => {
     // `engine.AudioMusic` (ADR 0166/0167, the audio plugin) does nothing without music playing.
     expect(engine.world.scheduler.order("fixedUpdate")).toEqual(["engine.PhysicsRestoreInterpolated", "engine.Physics3DRestoreInterpolated", "engine.NetReceiveTick", "engine.NetInputTick", "engine.PredictionTick", "engine.FixedUpdateScripts", "engine.NavSync", "engine.NavStep", "engine.NavWriteBack", "engine.PhysicsPush", "engine.PhysicsStep", "engine.PhysicsWriteBack", "engine.PhysicsEvents", "engine.Buoyancy", "engine.Physics3DPush", "engine.Physics3DStep", "engine.Physics3DWriteBack", "engine.Physics3DEvents"]);
     expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UIDocumentEvents", "engine.AudioMusic", "engine.UpdateScripts", "test.cat.Default"]);
-    expect(engine.world.scheduler.order("lateUpdate")).toEqual(["engine.LateUpdateScripts", "engine.UIDocumentSync", "engine.NetInputSend", "engine.ReplicationSend", "engine.NetSend", "engine.Audio"]);
+    expect(engine.world.scheduler.order("lateUpdate")).toEqual(["engine.LateUpdateScripts", "engine.UIDocumentSync", "engine.AudioZones", "engine.NetInputSend", "engine.ReplicationSend", "engine.NetSend", "engine.Audio"]);
     engine.dispose();
   });
 });
