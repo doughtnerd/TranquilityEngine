@@ -32,3 +32,11 @@ lengths (`sampleSeconds`) or whole-segment loops are dropped. Revert: n/a (one-w
 
 **D5. Playlist contract additions.** Sequence markers carry `type` (note/cue/exit); clip and sequence `length: 0` mean
 "to the end"; a negative continuous-queue gap overlaps with an equal-power crossfade. Revert: remove the fields.
+
+**D6. Editor ↔ Studio integration (W1-T2, merged).** One handoff link per open with a 20 s timeout; the browser reuses
+one tab (`myco-audio-studio`); the Studio window in the editor's app outlives the editor window; locks carry a pid
+from a `process_id` Rust command and stale locks are never guessed at (pending moves wait for the editor's next open);
+pending moves are written before files move and applied first in every watch batch; the browser re-reads on focus and
+before Play by size/mtime stamps, not polling; scripts keep their own watch. Not verified: real Tauri builds (no
+webkit2gtk in the container; `cargo check` passed with stub pkg-config). Open scene tabs don't yet reload on outside
+changes (follow-up). Revert: per item in the W1-T2 report (build log).
