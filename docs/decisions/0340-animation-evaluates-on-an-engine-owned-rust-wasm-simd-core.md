@@ -53,7 +53,7 @@ Public types are exported from `myco` like physics and navigation. No Rust, wasm
 
 ### Crates (in dependency order)
 
-- **`myco-curve`** (`native/common/curve/`, shared): the engine curve evaluator (linear, step, smooth, easeIn, easeOut, Bézier with bisection), **moved out of** `audio-core/src/automation.rs` so audio and animation link one evaluator. It is `no_std`, and its one parity test is against `core/curve.ts`. Audio's crate depends on it from then on.
+- **`myco-curve`** (`native/common/curve/`, shared): the engine curve evaluator (linear, step, smooth, easeIn, easeOut, Bézier with bisection), **moved out of** `audio-core/src/automation.rs` so audio and animation link one evaluator. It is `no_std`, and its one parity test is against `core/curve.ts`. Audio's crate depends on it from then on. The audio branch merges before this build starts (owner, 2026-11-22), so the move is made on top of it.
 - **`anim-wire`:** the boundary's input and output record layouts and the init parameters, defined once. TypeScript constants are generated from them (as `audio-wire`), with a round-trip test.
 - **`anim-math`:** SoA quaternion, vector and transform maths on `glam` with `core::arch::wasm32` `simd128` (4 lanes). Deterministic rules as in nav: no `mul_add`, no relaxed SIMD, no libm trig in hot paths.
 - **`anim-format`:** binary layouts (`myco.anim@1` clips, `myco.skel@1` skeletons, `myco.animgraph@1` compiled graphs, `myco.posedb@1` pose databases). Flat, little-endian, `repr(C)`, 4-byte aligned, so TypeScript reads them as typed-array views without copying.
@@ -208,7 +208,6 @@ The editor's Profiler (0326) gets an Animation table: instances evaluated, skipp
 
 ## Open questions
 
-- **Shared curve crate timing:** `myco-curve` moves code out of the audio crate, so it lands after the audio branch merges, or together with it.
 - **A threaded runner** when the page is cross-origin isolated and a stable-Rust path to wasm threads exists. It would change only the runner, but it needs its own record.
 - **GPU compute skinning on WebGPU** for very large crowds, versus Babylon's vertex-shader skinning.
 
