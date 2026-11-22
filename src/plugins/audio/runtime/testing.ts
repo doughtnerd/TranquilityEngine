@@ -63,6 +63,8 @@ import { ListenerFrame } from "./core/spatial";
 import { runAudioFrame } from "./audioFrame";
 import { musicEarlyStep, musicPlanStep, type MusicFrame } from "./music/musicSystem";
 import type { World } from "../../../engine/core/World";
+import { DecoderWasm } from "./decoder/wasm";
+import type { SpatialPrepare } from "./core/hrir";
 
 /** The controls a test has over a fake clock. */
 export interface FakeHostClock extends HostClock {
@@ -754,6 +756,26 @@ export const LOOPBACK_PRESET: CorePreset = { maxLogical: 256, maxMixed: 32, maxB
 /** The loopback rate (the shell's `sampleRate`). */
 export const LOOPBACK_RATE = 48_000;
 
+
+let decoderInProcess: Promise<DecoderWasm> | null = null;
+
+/**
+ * ADR 0331: the spatial assets' preparation in process, on the committed `myco_audio_decode.wasm` (Node only): what the
+ * decoder worker runs for `DecoderClient.prepareSpatial`, for loaders (`createHrirLoader`, `createMaglsLoader`) and rigs
+ * that have no worker.
+ */
+export function inProcessSpatialPrepare(): SpatialPrepare {
+  const load = (decoderInProcess ??= (async () => {
+    const nodeFs = "node:fs/promises";
+    const { readFile } = (await import(/* @vite-ignore */ nodeFs)) as { readFile(url: URL): Promise<Uint8Array> };
+    return DecoderWasm.load((await readFile(new URL("./wasm/myco_audio_decode.wasm", import.meta.url))) as Uint8Array<ArrayBuffer>);
+  })());
+  return async (kind, asset, rate) => {
+    const decoder = await load;
+    const bytes = new Uint8Array(asset);
+    return (kind === "hrir" ? decoder.prepareHrir(bytes, rate) : decoder.prepareMagls(bytes, rate)).buffer as ArrayBuffer;
+  };
+}
 
 /** Builds a loopback host on the committed wasm, with the given (or a new) fake clock and preset. */
 export async function createLoopbackHost(options: { clock?: FakeHostClock; preset?: CorePreset; keepStatuses?: boolean } = {}): Promise<LoopbackHost> {

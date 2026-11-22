@@ -3,10 +3,18 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { ASSET_BYTES, convert, directionIndex, parseWav, sourceNames } from "../../../../../tools/hrir/convert.mjs";
-import { readHrirHeader, resampleHrir } from "./hrirResample";
+import { inProcessSpatialPrepare } from "../testing";
 
-// Checks the committed myco_hrir.bin (H5: the header, then the responses as Chromium decodes them, delays in; hrir.ts
-// turns it into the wire's format 2, the layout audio-dsp's database.rs enforces).
+const prepare = inProcessSpatialPrepare();
+
+/** The 16-byte header of the asset and of the format 2 blob. */
+function readHrirHeader(blob: ArrayBuffer) {
+  const v = new DataView(blob);
+  return { elevations: v.getUint32(0, true), azimuths: v.getUint32(4, true), irLength: v.getUint32(8, true), rate: v.getFloat32(12, true) };
+}
+
+// Checks the committed myco_hrir.bin (H5: the header, then the responses as Chromium decodes them, delays in; the decoder's
+// `myco_hrir_prepare` turns it into the wire's format 2, the layout audio-dsp's database.rs enforces, ADR 0331).
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../..");
 const BLOB_PATH = join(ROOT, "src/plugins/audio/runtime/wasm/myco_hrir.bin");
@@ -38,8 +46,8 @@ describe("myco_hrir.bin", () => {
     expect(peak / 32768).toBeCloseTo(0.8887, 3);
   });
 
-  it("keeps the leading delays: at 44.1 kHz main extracts 10..50 frames per ear, and the responses then start within 40 frames", () => {
-    const table = resampleHrir(asset, 44100);
+  it("keeps the leading delays: at 44.1 kHz the preparation extracts 10..50 frames per ear, and the responses then start within 40 frames", async () => {
+    const table = await prepare("hrir", asset, 44100);
     const v = new DataView(table);
     let [lo, hi] = [Infinity, 0];
     for (let i = 0; i < DIRECTIONS * 2; i++) {

@@ -178,6 +178,21 @@ export interface ReleaseIrMessage {
 
 export type IrRequest = PrepareIrMessage | GenerateIrMessage | ReleaseIrMessage;
 
+/** ADR 0331: the spatial assets the decoder prepares for a context rate: the HRIR table (clip format 2), the MagLS filters (format 4). */
+export type SpatialAssetKind = "hrir" | "magls";
+
+/**
+ * ADR 0331: prepare a spatial asset (`bytes`, transferred: the asset as fetched, at its own rate) for a context at `rate`
+ * with the decoder's `myco_hrir_prepare` / `myco_magls_prepare`. Answered by `spatialPrepared` or `spatialFailed`.
+ */
+export interface PrepareSpatialMessage {
+  readonly type: "prepareSpatial";
+  readonly id: number;
+  readonly kind: SpatialAssetKind;
+  readonly bytes: ArrayBuffer;
+  readonly rate: number;
+}
+
 // --- ADR 0166 interactive music (contract Q0; api-and-models §4.6, C8; D1a/D1b/D1c fill the worker side) -----------
 
 /**
@@ -275,7 +290,7 @@ export interface ComputePeaksMessage {
 }
 
 export type StreamRequest = StreamOpenMessage | StreamCreditMessage | StreamSeekMessage | StreamCloseMessage | StreamLoopMessage | ConnectWorkletMessage;
-export type DecoderRequest = InitMessage | DecodeClipMessage | CancelMessage | StreamRequest | IrRequest | MusicRequest | ComputePeaksMessage;
+export type DecoderRequest = InitMessage | DecodeClipMessage | CancelMessage | StreamRequest | IrRequest | MusicRequest | ComputePeaksMessage | PrepareSpatialMessage;
 
 // --- Worker to main ----------------------------------------------------------------------------
 
@@ -424,7 +439,22 @@ export interface MusicWarnMessage {
 
 export type MusicReply = GroupOpenedMessage | NeedBytesMessage | MusicWarnMessage;
 
-export type DecoderReply = ReadyMessage | ClipInfoMessage | ClipChunkMessage | ClipDoneMessage | CancelledMessage | StreamOpenedMessage | StreamChunkMessage | StreamClosedMessage | ErrorMessage | IrPreparedMessage | IrFailedMessage | MusicReply | PeaksMessage;
+/** ADR 0331: request `id`'s blob (transferred): the format 2 table or the format 4 filters at the asked rate. */
+export interface SpatialPreparedMessage {
+  readonly type: "spatialPrepared";
+  readonly id: number;
+  readonly bytes: ArrayBuffer;
+}
+
+/** ADR 0331: request `id` failed. `code` is the decoder's `ERR_*`, or 0. */
+export interface SpatialFailedMessage {
+  readonly type: "spatialFailed";
+  readonly id: number;
+  readonly code: number;
+  readonly message: string;
+}
+
+export type DecoderReply = ReadyMessage | ClipInfoMessage | ClipChunkMessage | ClipDoneMessage | CancelledMessage | StreamOpenedMessage | StreamChunkMessage | StreamClosedMessage | ErrorMessage | IrPreparedMessage | IrFailedMessage | MusicReply | PeaksMessage | SpatialPreparedMessage | SpatialFailedMessage;
 
 /** Frames per `clipChunk`: 65,536 (1.5 s at 44.1 kHz), 128 KiB per channel, so a long clip is never one huge message. */
 export const CLIP_CHUNK_FRAMES = 65536;

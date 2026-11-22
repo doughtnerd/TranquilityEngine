@@ -18,11 +18,17 @@ aac = ["symphonia/aac", "symphonia/isomp4"]
 [dependencies]
 # Zone IR preparation (ADR 0162 C2a): `convolver::kernel::prepare_ir`, the normalisation, presets.
 audio-dsp.workspace = true
+# The MagLS header's generated reader and writer (ADR 0331: the spatial assets' preparation).
+audio-wire.workspace = true
 # The resampler table and the cut fade, bit-identical native and wasm (as audio-dsp).
 libm.workspace = true
 # Exactly 0.6.1, the version the decode spike measured. No metadata readers (ID3, APE): the probe
 # skips tags it doesn't read.
 symphonia = { version = "=0.6.1", default-features = false, features = ["wav", "pcm", "flac", "mp3", "ogg", "vorbis"] }
+
+[dev-dependencies]
+# The spatial blobs' pinned digests (tests/spatial.rs).
+sha2 = { workspace = true, features = ["std"] }
 
 [build-dependencies]
 # build.rs includes audio-wasm's source_hash.rs.
