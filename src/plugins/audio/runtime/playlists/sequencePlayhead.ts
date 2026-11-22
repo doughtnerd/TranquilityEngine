@@ -68,6 +68,8 @@ export class Playhead {
   ended = false;
   private readonly states: LoopState[];
   private parkedOn = -1;
+  /** Heard time the playhead arrived at the hold point it is parked on. */
+  parkedSince = Number.NaN;
 
   constructor(readonly loops: readonly PlayheadLoop[], readonly length: number, position: number, time: number) {
     this.position = position;
@@ -80,6 +82,7 @@ export class Playhead {
     const p = new Playhead(this.loops, this.length, this.position, this.time);
     p.ended = this.ended;
     p.parkedOn = this.parkedOn;
+    p.parkedSince = this.parkedSince;
     this.states.forEach((s, i) => { p.states[i]!.left = s.left; p.states[i]!.wasActive = s.wasActive; });
     return p;
   }
@@ -148,7 +151,7 @@ export class Playhead {
       const on = i >= 0 && active(i);
       if (l && this.isHold(l)) {
         if (on) {
-          if (this.parkedOn !== i) out.push({ kind: "park", position: this.position, at: this.time, loop: i });
+          if (this.parkedOn !== i) { out.push({ kind: "park", position: this.position, at: this.time, loop: i }); this.parkedSince = this.time; }
           this.parkedOn = i;
           this.time = until;
           return;

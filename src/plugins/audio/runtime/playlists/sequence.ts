@@ -346,7 +346,11 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   /** Plans the playhead up to the earliest stampable time plus `PLAN_AHEAD`, acting on every move. */
   private plan(): void {
     if (this.stopped) return;
-    const until = this.host.startOf(null) + PLAN_AHEAD;
+    const earliest = this.host.startOf(null);
+    const until = earliest + PLAN_AHEAD;
+    // Parked, time just passes (nothing was planned while parked): the playhead leaves the hold as soon as a start can
+    // still be stamped, not at the end of the last plan.
+    if (this.playhead.parked) this.playhead.time = Math.max(this.playhead.parkedSince, earliest);
     if (this.pendingSeek !== null) {
       const to = this.pendingSeek;
       this.pendingSeek = null;

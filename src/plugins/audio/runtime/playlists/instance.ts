@@ -274,8 +274,8 @@ export class PlaylistInstance implements NodeHost {
         point = p1 - lead;
         const p2 = clock.nextBoundary(kind, p1 + 1e-4);
         nextPoint = p2 === null ? Number.NaN : p2 - lead;
-        // Asked from the earliest start, so the point is never late; `ifLate` decides on the one before it when that was missed.
-        const prev = clock.nextBoundary(kind, now + lead);
+        // The boundary the trigger meant is the first at or after now; when it can't be reached any more `ifLate` decides.
+        const prev = clock.nextBoundary(kind, now);
         if (prev !== null && prev - lead < earliest - 1e-9) { nextPoint = point; point = prev - lead; }
       }
     }
