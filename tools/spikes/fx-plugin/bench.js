@@ -176,7 +176,36 @@ function directCost(bytes, kind, now, ms) {
   return Math.max(0, withCall - refill);
 }
 
-export const FUEL_VARIANTS = ["plain", "count32", "loop32", "segment32", "loop64", "segment64", "loopload32", "segload32"];
+/** `run(q)`: q refills + calls of one instance (`refillOnly`: the refills alone). */
+function directRunner(bytes, kind, refillOnly) {
+  const mod = new PluginModule(new WebAssembly.Module(bytes));
+  const x = mod.exports;
+  const st = x.myco_fx_create(kind, 48000, FRAMES);
+  const io = x.myco_fx_io(kind, st);
+  const f = new Float32Array(mod.memory.buffer, io, 2 * FRAMES + 32);
+  const lr = f.subarray(0, 2 * FRAMES);
+  const src = new Float32Array(2 * FRAMES);
+  for (let i = 0; i < 2 * FRAMES; i++) src[i] = Math.sin(i * 0.37) * 0.5 + Math.sin(i * 0.051) * 0.3;
+  const p = PARAMS[kind];
+  for (let k = 0; k < 3; k++) f[2 * FRAMES + k] = f[2 * FRAMES + 16 + k] = p[k];
+  const proc = x.myco_fx_process;
+  const fuel = mod.fuel;
+  const big = mod.fuel64 ? 1n << 60n : 0x7fffffff;
+  if (refillOnly) {
+    return (q) => {
+      for (let i = 0; i < q; i++) lr.set(src);
+    };
+  }
+  return (q) => {
+    for (let i = 0; i < q; i++) {
+      if (fuel !== null && (i & 255) === 0) fuel.value = big;
+      lr.set(src);
+      proc(kind, st, FRAMES, 0);
+    }
+  };
+}
+
+export const FUEL_VARIANTS =["plain", "count32", "loop32", "segment32", "loop64", "segment64", "loopload32", "segload32"];
 
 /** 2. Fuel overhead on tight DSP loops: direct calls to process, uninstrumented against each instrumentation. */
 export function fuelOverhead(bins, now, opt = {}) {
@@ -200,9 +229,36 @@ export function fuelOverhead(bins, now, opt = {}) {
       row.instructionsPerCall = mod.fuel.value;
       row.instructionsPerFrame = mod.fuel.value / FRAMES;
     }
-    for (const v of FUEL_VARIANTS) {
-      row[`ns_${v}`] = directCost(bins[v], kind, now, ms) * 1e9;
+    // Interleaved: every round times each variant once (and the refill alone), so drifts in machine load hit every
+    // variant alike; each variant's time is the median over rounds, minus the refill's median.
+    const runners = { refill: directRunner(bins.plain, kind, true) };
+    for (const v of FUEL_VARIANTS) runners[v] = directRunner(bins[v], kind, false);
+    const iters = {};
+    for (const [k, run] of Object.entries(runners)) {
+      let n = 16;
+      for (;;) {
+        const t0 = now();
+        run(n);
+        const dt = now() - t0;
+        if (dt >= ms / 8) {
+          iters[k] = Math.ceil((n * ms) / 2 / Math.max(dt, 0.001));
+          break;
+        }
+        n *= 4;
+      }
+      run(iters[k]);
     }
+    const samples = Object.fromEntries(Object.keys(runners).map((k) => [k, []]));
+    const rounds = opt.rounds ?? 9;
+    for (let round = 0; round < rounds; round++) {
+      for (const [k, run] of Object.entries(runners)) {
+        const t0 = now();
+        run(iters[k]);
+        samples[k].push((now() - t0) / 1000 / iters[k]);
+      }
+    }
+    const refill = median(samples.refill);
+    for (const v of FUEL_VARIANTS) row[`ns_${v}`] = Math.max(0, median(samples[v]) - refill) * 1e9;
     for (const v of FUEL_VARIANTS.slice(1)) row[`slowdown_${v}`] = row[`ns_${v}`] / row.ns_plain - 1;
     out.push(row);
   }
@@ -366,6 +422,26 @@ export function faultIsolation(bins, now, strategy = "wasmscan", reps = 40) {
       thrown = `${e?.constructor?.name}: ${e?.message}`;
     }
     out.uncaught = { thrown, hostQuantaAfter: host.host_quanta(), expectedIfCompleted: FAULT_AT + 1, note: "host_quantum aborted between its process loop and its bookkeeping" };
+  }
+
+  // How long a runaway plugin holds the thread before its fuel runs out: one endless-loop call at the default budget
+  // (1,000 instructions per frame) and at the record's maximum (20,000), each followed by the module's recovery.
+  out.runaway = [];
+  for (const budget of [1000, 20000]) {
+    const glue = new Glue({ strategy, helpers });
+    const a = new PluginModule(new WebAssembly.Module(bins.segload32), { budgetPerFrame: budget });
+    const host = makeHost(bins, glue);
+    host.host_bind(0, glue.acquire(a, 5), 0, 0, 0);
+    host.host_set_p1(0, 4);
+    let t = 0;
+    const n = Math.max(10, Math.round(reps / 4));
+    for (let i = 0; i < n; i++) {
+      const t0 = now();
+      host.host_calls(1);
+      t += now() - t0;
+      glue.recover();
+    }
+    out.runaway.push({ budgetPerFrame: budget, instructions: budget * 128, msPerRunawayCall: t / n, faults: glue.faults.trap });
   }
 
   // Recovery cost, repeated: re-instantiate module A and re-create its 5 instances (after a trap or growth), and

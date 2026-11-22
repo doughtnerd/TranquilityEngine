@@ -32,6 +32,7 @@ function engine(name, e) {
       console.log(`faults [${fr.strategy}] ref ${fr.referenceHash}`);
       for (const m of fr.modes) console.log("  ", JSON.stringify(m));
       console.log("   uncaught", JSON.stringify(fr.uncaught));
+      console.log("   runaway", JSON.stringify(fr.runaway));
       console.log("   recovery", JSON.stringify(fr.recovery));
     }
   }
