@@ -153,3 +153,22 @@
 /* Player bar */
 .smp-play { min-width: 64px; }
 .smp-scrub { flex: 1; }
+
+/* ADR 0337 §6: the Inspector's Encoding section. */
+.enc-section { display: flex; flex-direction: column; gap: 6px; }
+.enc-head { display: flex; gap: 6px; align-items: center; }
+.enc-rows { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 4px 6px; align-items: center; }
+.enc-row { display: contents; }
+.enc-key { color: var(--muted); }
+.enc-row.overridden .enc-key { color: var(--accent); font-weight: 600; }
+.enc-control { width: 100%; min-width: 0; }
+.enc-from { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: calc(11px * var(--ui-scale)); }
+.enc-matches { margin: 0; padding-left: 16px; font-size: calc(11px * var(--ui-scale)); color: var(--muted); }
+.enc-match.uses { color: var(--text); }
+.enc-match.shadowed { font-style: italic; }
+.enc-note { font-size: calc(11px * var(--ui-scale)); }
+.enc-readouts { width: 100%; border-collapse: collapse; font-size: calc(11px * var(--ui-scale)); }
+.enc-readouts th, .enc-readouts td { text-align: left; padding: 2px 4px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.enc-readouts thead th { color: var(--muted); font-weight: normal; }
+.enc-readouts tr.current { background: var(--hover); }
+.enc-foot { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
