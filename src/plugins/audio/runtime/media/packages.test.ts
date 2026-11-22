@@ -310,6 +310,10 @@ describe("packages in a build (the media table)", () => {
     expect(Audio.playOneShot("audio/forest/bird.wav").reason).toBe("notLoaded");
     expect(net.fetched).toEqual(["https://game.test/audio/packages/Forest.mycopak"]);
     expect(Audio.package("Forest").state).toBe("loading");
+    // Plays while it loads start no second load and take no more references.
+    Audio.playOneShot("audio/forest/bird.wav");
+    expect(net.fetched).toHaveLength(1);
+    expect(Audio.debug().packages.find((p) => p.name === "Forest")!.refs).toBe(1);
   });
 
   it("reports a failed fetch: load rejects, the state is failed, and a later load tries again", async () => {

@@ -560,7 +560,9 @@ export function mediaRefusal(path: string): "notLoaded" | "failed" | null {
   }
   warnOnce(`media:lenient:${path}`, `audio: "${path}" is in package ${names}, which isn't loaded${defs.built ? "; loading it now (this play is skipped)" : "; playing it from its file"} (packaging.strict is off).`);
   if (!defs.built) return null;
-  void acquire(holders[0], World.active ?? PAGE, World.active).catch(() => undefined);
+  // One on-demand load, owned by the World playing it; the plays meanwhile add no references.
+  const first = pkgs.get(holders[0]);
+  if (!first || first.state === "unloaded" || first.state === "failed") void acquire(holders[0], World.active ?? PAGE, World.active).catch(() => undefined);
   return "notLoaded";
 }
 
