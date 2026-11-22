@@ -4,18 +4,18 @@ import { audioProjectToJson, defaultAudioProject, parseAudioProject, toRuntimeSe
 import { MAX_DB } from "./gain";
 import { AUDIO_PROJECT_FORMAT } from "./types";
 
-/** A project file exercising every part of the format. */
+/** A project file exercising every part of the format, written as the writer writes it (effects name only parameters off their catalogue default). */
 const FULL = {
   format: AUDIO_PROJECT_FORMAT,
   settings: { voices: { mixed: 64, logical: 1024, hrtf: 4 }, speedOfSound: 340, submixes: 16, bedBeyond: 40, dopplerAmount: 0.5 },
   parameters: [{ name: "threat", min: 0, max: 1, default: 0, seekSpeed: 0 }, { name: "depth", min: 0, max: 100, default: 0, seekSpeed: 0 }, { name: "Area", labels: ["Outdoor", "Cave"], default: "Outdoor" }],
   buses: [
     { name: "Master", parent: null, volumeDb: 0, mute: false, voiceLimit: null, bed: { own: true, priority: 255 }, meter: true, effects: [], sends: [] },
-    { name: "Music", parent: "Master", volumeDb: -3, mute: false, voiceLimit: 8, bed: null, meter: true, effects: [{ id: "fx1", type: "lowpass", on: true, params: { cutoff: 20000, resonance: 0 } }], sends: [] },
+    { name: "Music", parent: "Master", volumeDb: -3, mute: false, voiceLimit: 8, bed: null, meter: true, effects: [{ id: "fx1", type: "lowpass", on: true, params: { resonance: 0 } }], sends: [] },
     { name: "SFX", parent: "Master", volumeDb: -2, mute: false, voiceLimit: 48, bed: { own: true, priority: 80 }, meter: false, effects: [{ id: "fx1", type: "eq", on: true, params: { low: 3 } }], sends: [{ to: "Reverb", levelDb: -12 }] },
     { name: "Vehicles", parent: "SFX", volumeDb: 0, mute: true, voiceLimit: null, bed: null, meter: false, effects: [], sends: [] },
   ],
-  returns: [{ name: "Reverb", output: "Master", volumeDb: -3, mute: false, effects: [{ id: "fx1", type: "reverb", on: true, params: {} }] }],
+  returns: [{ name: "Reverb", output: "Master", volumeDb: -3, mute: false, effects: [{ id: "fx1", type: "reverb", on: true, params: { mix: 100 } }] }],
   vcas: [{ name: "Gameplay SFX", volumeDb: -6, members: ["SFX", "Vehicles"] }],
   automation: [
     { on: "Music", target: "volume", parameter: "threat", curve: [[0, 0], [1, -6, "easeOut"]], bypass: false },
@@ -152,10 +152,31 @@ describe("parseAudioProject", () => {
       buses: [{ name: "Master", effects: [{ type: "wobble" }, { type: "lowpass" }, { id: "fx1", type: "highpass", on: "yes", params: { cutoff: 100, bad: "x" } }] }],
     });
     expect(project.buses[0].effects).toEqual([
-      { id: "fx1", type: "lowpass", on: true, params: {} },
-      { id: "fx2", type: "highpass", on: true, params: { cutoff: 100 } },
+      { id: "fx1", type: "lowpass", on: true, params: { cutoff: 20000, resonance: 0.1, drive: 0 } },
+      { id: "fx2", type: "highpass", on: true, params: { cutoff: 100, resonance: 0.1, drive: 0 } },
     ]);
-    expect(problems).toHaveLength(4);
+    // wobble; the low-pass's missing id; "yes"; the unknown "bad" parameter; the taken id.
+    expect(problems).toHaveLength(5);
+  });
+
+  it("parses effects by the catalogue at the bus level: ranges clamped, at most 16 per owner, other levels' types kept with a problem", () => {
+    const { project, problems } = parseAudioProject({
+      format: AUDIO_PROJECT_FORMAT,
+      buses: [{ name: "Master", effects: [
+        { id: "c", type: "compressor", params: { threshold: -90, knee: 6 } },
+        { id: "g", type: "gain", params: { gain: 3 } },
+        ...Array.from({ length: 15 }, (_, i) => ({ id: `e${i}`, type: "eq" })),
+      ] }],
+    });
+    const fx = project.buses[0].effects;
+    expect(fx).toHaveLength(16);
+    expect(fx[0].params).toMatchObject({ threshold: -60, knee: 6, ratio: 3 });
+    expect(fx[1]).toMatchObject({ type: "gain", params: { gain: 3 } });
+    expect(problems).toEqual([
+      "buses[0].effects[0].params.threshold: -90 is outside -60..0; using -60.",
+      "buses[0].effects[1]: Gain can't run at the bus level (it runs at sample, voice); kept but it won't play there.",
+      "buses[0].effects[16]: at most 16 effects here; dropped.",
+    ]);
   });
 
   it("checks automation targets against the owner's sends and effects", () => {

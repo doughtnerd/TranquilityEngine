@@ -14,6 +14,7 @@
  */
 import type { Curve, CurveKey } from "../../core/curve";
 import { uniqueName } from "../../core/uniqueName";
+import { defaultEffect } from "../effects/catalogue";
 import type { Effect } from "../effects/types";
 import {
   DEFAULT_LOUDNESS_TARGETS, busBed, busBedPriority, parseAudioSettings,
@@ -47,7 +48,10 @@ function bedOf(a: Pick<AudioSettings, "buses">, name: string, root: boolean): Bu
 }
 
 function reverbEffect(): Effect {
-  return { id: "fx1", type: "reverb", on: true, params: {} };
+  // A return is fully wet (the send sets how much of a bus reaches it), as Wwise, FMOD and every DAW set a return reverb.
+  const fx = defaultEffect("reverb", "fx1");
+  fx.params.mix = 100;
+  return fx;
 }
 
 /** A new low-pass carrier on `bus` (open, so neutral until a snapshot or automation moves it). */

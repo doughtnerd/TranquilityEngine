@@ -30,7 +30,7 @@ describe("the effect catalogue", () => {
     expect(eq.params.map((q) => [q.name, q.min, q.max])).toEqual([["low", -18, 18], ["mid", -18, 18], ["high", -18, 18]]);
     expect(eq.levels).toEqual(EFFECT_LEVELS);
     expect(effectSpec("lowpass").params[0]).toMatchObject({ name: "cutoff", min: 20, max: 20000, unit: "Hz", scale: "log", default: 20000 });
-    expect(effectSpec("compressor").params.map((q) => q.name)).toEqual(["threshold", "ratio", "attack", "release", "makeup"]);
+    expect(effectSpec("compressor").params.map((q) => q.name)).toEqual(["threshold", "ratio", "attack", "release", "makeup", "knee"]);
     expect(effectSpec("sidechainCompressor")).toMatchObject({ levels: ["bus"], key: "bus" });
     expect(effectSpec("limiter").params[0]).toMatchObject({ name: "ceiling", min: -12, max: 0, unit: "dBTP" });
     expect(effectSpec("delay").params[1]).toMatchObject({ name: "feedback", max: 95 });
@@ -75,13 +75,14 @@ describe("parseEffect", () => {
 
   it("clamps out-of-range values, defaults bad ones and drops unknown params", () => {
     const problems: string[] = [];
-    const fx = parseEffect({ id: "c", type: "compressor", on: "yes", params: { threshold: -90, ratio: "x", knee: 3 } }, "bus", "fx", problems)!;
+    const fx = parseEffect({ id: "c", type: "compressor", on: "yes", params: { threshold: -90, ratio: "x", knee: 50, width: 3 } }, "bus", "fx", problems)!;
     expect(fx.on).toBe(true);
     expect(fx.params.threshold).toBe(-60);
     expect(fx.params.ratio).toBe(3);
-    expect(fx.params.knee).toBeUndefined();
-    expect(problems).toHaveLength(4);
-    expect(problems.join("\n")).toContain('Compressor has no parameter "knee"');
+    expect(fx.params.knee).toBe(40);
+    expect(fx.params.width).toBeUndefined();
+    expect(problems).toHaveLength(5);
+    expect(problems.join("\n")).toContain('Compressor has no parameter "width"');
   });
 
   it("keeps an effect at a level it can't run at, with a problem", () => {
