@@ -29,10 +29,11 @@ import {
   PLAYLIST_FORMAT, PLAYLIST_SUFFIX, PLAYLIST_TYPES, type Adsr, type Automation, type BlendAxis, type BlendSettings, type ChangeHow, type ChangeRule,
   type ChangeWhen, type Clip, type CurveInput, type Entry, type EntryUse, type PlaybackRules, type PlaylistAsset, type PlaylistBody, type PlaylistParse,
   type PlaylistSpatial, type PlaylistType, type QueueSettings, type SampleEntry, type SequenceLoop, type SequenceMarker, type SequenceSettings,
-  type Stinger, type SwitchSettings, type Track, type VoiceCurve, type VoiceCurveTarget,
+  type Stinger, type SwitchSettings, type Track, type VoiceCurve, type VoiceCurveTarget, type PlaylistCaption,
   FADE_SHAPES, type BlendRegion, type Fade, type FadeShape, type Quantize, type TimeLength,
 } from "./types";
 import { isFadeShape } from "./fadeShapes";
+import { isStringKey } from "../../localisation/strings/format";
 
 /** Limits of a playlist, declared once (ADR 0306; the first five are ADR 0329's). */
 export const PLAYLIST_LIMITS = Object.freeze({
@@ -58,6 +59,8 @@ export const PLAYLIST_LIMITS = Object.freeze({
   automation: 32,
   /** Effects of one chain. */
   effects: 16,
+  /** ADR 0343 §4: a caption's `minGap`, seconds. */
+  captionGap: 60,
 });
 
 export const VOICE_CURVE_TARGETS: readonly VoiceCurveTarget[] = ["gain", "pitch", "pan", "lowpass", "highpass"];
@@ -135,6 +138,8 @@ class PlaylistReader {
     out.parameters = parseParameters(raw.parameters, at("parameters"), this.problems, PLAYLIST_LIMITS.parameters);
     const note = r.optStr(raw.note, at("note"));
     if (note) out.note = note;
+    const caption = this.caption(raw.caption, at("caption"));
+    if (caption) out.caption = caption;
 
     r.list(raw.entries, at("entries")).forEach((e, i) => {
       const w = `${at("entries")}[${i}]`;
@@ -353,6 +358,11 @@ class PlaylistReader {
     const r = this.r;
     if (!isRecord(raw)) { r.problem(where, "an entry must be an object; dropped."); return null; }
     const kinds = (["sample", "playlist", "embedded"] as const).filter((k) => raw[k] !== undefined);
+    if (kinds.length === 0 && raw.line !== undefined) {
+      // ADR 0340 §5: `LineEntry` joins `Entry` with the line runtime (L2); until then a line entry plays nothing.
+      r.problem(where, "a line entry plays once voice-over lines are built (ADR 0340); dropped.");
+      return null;
+    }
     if (kinds.length === 0) { r.problem(where, 'an entry needs "sample", "playlist" or "embedded"; dropped.'); return null; }
     if (kinds.length > 1) r.problem(where, `has ${kinds.join(" and ")}; using "${kinds[0]}".`);
     const use = this.use(raw, where);
@@ -385,6 +395,15 @@ class PlaylistReader {
     if (!isRecord(raw)) { r.problem(where, "an embedded playlist must be an object; dropped."); return null; }
     if (depth + 1 > PLAYLIST_LIMITS.nesting) { r.problem(where, `playlists nest at most ${PLAYLIST_LIMITS.nesting} deep; dropped.`); return null; }
     return this.body(raw, where, depth + 1);
+  }
+
+  /** ADR 0343 §4: a caption `{ key, minGap }`; null when absent, or dropped with a problem when its key isn't a string key. */
+  caption(raw: unknown, where: string): PlaylistCaption | null {
+    const r = this.r;
+    if (raw === undefined || raw === null) return null;
+    const o = typeof raw === "string" ? { key: raw } : raw;
+    if (!isRecord(o) || !isStringKey(o.key)) { r.problem(where, "must be { key, minGap } with a string key; dropped."); return null; }
+    return { key: o.key, minGap: r.num(o.minGap, `${where}.minGap`, 0, 0, PLAYLIST_LIMITS.captionGap) };
   }
 
   /** An entry outside a body's entry list (a transition, a stinger): a sample is wrapped too. */
@@ -824,6 +843,7 @@ function parameterToJson(p: ParameterDef): JsonRecord {
 export function playlistBodyToJson(b: PlaylistBody): JsonRecord {
   const out: JsonRecord = { type: b.type };
   if (b.note !== undefined) out.note = b.note;
+  if (b.caption) out.caption = b.caption.minGap !== 0 ? { key: b.caption.key, minGap: b.caption.minGap } : { key: b.caption.key };
   if (b.output !== null) out.output = b.output;
   const pb: JsonRecord = {};
   const d = defaultPlayback();

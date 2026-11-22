@@ -109,6 +109,33 @@ export interface SampleEdits {
    * back. Absent: the original audio. Versions are per machine; on a machine without them it means nothing.
    */
   sourceVersion?: number;
+  /** ADR 0340 §7: lip-sync keys imported from Rhubarb Lip Sync (or written by hand); absent: none. */
+  lipsync?: SampleLipsync;
+  /**
+   * ADR 0340 §9: the voice-over line this file records and the text hash of the reference subtitle it was recorded
+   * against (0343: the string table's reference text), written by batch import; the Dialogue screen flags "script
+   * changed" when the current hash differs. Absent: not imported as a line.
+   */
+  vo?: SampleVo;
+}
+
+/**
+ * The viseme alphabet of lip-sync keys: `rhubarb` (A–H and X, the Preston Blair set Rhubarb Lip Sync writes) or
+ * `custom` (any short names).
+ */
+export type LipsyncSet = "rhubarb" | "custom";
+
+/** ADR 0340 §7: lip-sync data, `[seconds, viseme]` keys in time order. */
+export interface SampleLipsync {
+  set: LipsyncSet;
+  keys: [number, string][];
+}
+
+/** ADR 0340 §9: what batch import recorded about the line a file voices. */
+export interface SampleVo {
+  key: string;
+  /** 16 lower-case hex digits (`localisation/textHash.ts`). */
+  textHash: string;
 }
 
 export interface SampleLineage {

@@ -28,7 +28,11 @@ export type TakeRequest =
   | { kind: "pose"; t: number; emitter: number; position: Vec3; velocity: Vec3; forward?: Vec3 }
   | { kind: "mix"; t: number; op: "busVolume" | "busFade" | "snapshotStart" | "snapshotStop" | "masterVolume"; target: string; value: number; seconds: number }
   | { kind: "trigger"; t: number; instance: number; name: string }
-  | { kind: "mark"; t: number; text: string };
+  | { kind: "mark"; t: number; text: string }
+  /** ADR 0340 §10: a line played by key (`Audio.line`), in the language it was heard in (null: nothing played). */
+  | { kind: "line"; t: number; instance: number; key: string; language: string | null; options: TakePlayOptions }
+  /** ADR 0340 §10, 0343 §2: the audio and subtitle languages changed (subtitles null: following the text language). */
+  | { kind: "language"; t: number; audio: string; subtitles: string | null };
 
 /** Emitter id 0 is the listener. */
 export const LISTENER_EMITTER = 0;
