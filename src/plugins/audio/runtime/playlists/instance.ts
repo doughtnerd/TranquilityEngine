@@ -332,7 +332,7 @@ export class PlaylistInstance implements NodeHost {
       if (!v.voice.playing || v.leaving) continue;
       v.voice.setVolume(v.base.volume);
       v.voice.setPitch(v.base.pitch);
-      if (v.bindings.length > 0) sink.bindVoice(v.voice, this.group, v.bindings, v.base);
+      if (v.bindings.length > 0) sink.bindVoice(v.voice, this.group, v.bindings, v.base, v.start ?? undefined);
       if (v.loop) sink.setLoop(v.voice, v.loop.start, v.loop.end, v.loop.looping);
     }
   }
@@ -427,7 +427,7 @@ export class PlaylistInstance implements NodeHost {
     try { voice = audioBackend().play(req); } catch { voice = null; }
     if (!voice) return null;
     const sink = events().automation;
-    if (ctx.bindings.length > 0) sink.bindVoice(voice, this.group, ctx.bindings, base);
+    if (ctx.bindings.length > 0) sink.bindVoice(voice, this.group, ctx.bindings, base, ctx.at ?? undefined);
     if (ctx.fadeIn > 0) {
       voice.fade(0, 0);
       voice.fadeShaped({ to: 1, seconds: ctx.fadeIn, law: "equalPowerIn", ...(ctx.at !== null ? { at: ctx.at } : {}) });
@@ -512,7 +512,7 @@ export class PlaylistInstance implements NodeHost {
         v.appliedPitch = pitch;
         v.base.volume = v.staticVolume * gain;
         v.base.pitch = clampPitch(v.staticPitch * pitch);
-        if (v.bindings.length > 0) sink.bindVoice(v.voice, this.group, v.bindings, v.base);
+        if (v.bindings.length > 0) sink.bindVoice(v.voice, this.group, v.bindings, v.base, v.start ?? undefined);
         else {
           if (gainMoved) v.voice.setVolume(v.base.volume);
           if (pitchMoved) v.voice.setPitch(v.base.pitch);

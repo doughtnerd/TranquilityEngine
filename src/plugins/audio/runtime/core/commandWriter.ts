@@ -25,6 +25,9 @@
 // (`fadeShaped`, `stopShaped`, `setParams`' `shape`), each stampable; and a gate group's records stay in one BATCH.
 import {
   ASAP,
+  PARAM_GLOBAL,
+  PARAM_TIME,
+  TIME_SEQUENCE,
   AUTOMATE_BINDINGS_FIXED_END,
   BATCH_HEADER_FLAGS_OVERFLOWED,
   BATCH_MAX_BYTES,
@@ -67,6 +70,7 @@ import {
   writeListener,
   writeMaster,
   writeParam,
+  writeTime,
   writePlay,
   writeReset,
   writeSeek,
@@ -92,6 +96,7 @@ import {
   type Fade,
   type Master,
   type Param,
+  type Time,
   type Play,
   type Reset,
   type Seek,
@@ -174,7 +179,9 @@ export interface PlayArgs {
 export type AutomationBinding = AutomateBindings;
 
 /** `AutomationBinding.param` bit for a global parameter slot (0..63); without it the slot is the instance's local one (0..15). */
-export const AUTOMATION_GLOBAL = 0x8000;
+export const AUTOMATION_GLOBAL = PARAM_GLOBAL;
+/** ADR 0332: `AutomationBinding.param` bit (bit 15 clear) for a time parameter, `TIME_VOICE`, `TIME_CLIP` or `TIME_SEQUENCE` in bits 0-1. */
+export const AUTOMATION_TIME = PARAM_TIME;
 /** The core keeps at most this many bindings per voice and per bus, curves of at most `CORE_CURVE_KEYS` keys. */
 const CORE_BINDINGS = 8;
 /** The core's curve table keeps this many keys (`automation.rs` `CURVE_KEYS`; ADR 0332's limit, `MAX_CURVE_KEYS`). */
@@ -298,6 +305,7 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly resetRec: Reset = { voiceId: 0, frameOffset: ASAP, keepClips: 0 } as Reset;
   private readonly loopRec: SetLoop = { voiceId: 0, frameOffset: ASAP, loopStartFrame: 0, loopEndFrame: 0, flags: 0 };
   private readonly paramRec: Param = { voiceId: 0, frameOffset: ASAP, group: 0, slot: 0, value: 0, seekPerSecond: 0 };
+  private readonly timeRec: Time = { voiceId: 0, frameOffset: ASAP, group: 0, which: TIME_SEQUENCE, value: 0, rate: 0 };
   private readonly automateRec: Automate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
   private readonly busAutomateRec: BusAutomate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
   private readonly voiceFxRec: SetVoiceFx = { voiceId: 0, frameOffset: ASAP, mask: 0, rampFrames: 0, hpHz: 0, send: [0, 0, 0, 0], yaw: 0, auxLevel: 0, auxBus: 0xffff, reserved: 0 };
@@ -664,6 +672,21 @@ export class CommandWriter implements VoiceCommandSink {
     const at = this.begin(24);
     if (at < 0) return;
     this.end(at, writeParam(this.view, at, r));
+  }
+
+  /**
+   * TIME (ADR 0332): re-anchors `group`'s sequence clock (0 the global one, else an instance group 1..1024) at
+   * `atFrame` (absolute, stamped) or asap (omitted, at the next quantum): from there it reads `value` seconds moving at
+   * `rate` seconds per second (0 parks it).
+   */
+  time(group: number, value: number, rate: number, atFrame?: number): void {
+    const r = this.timeRec;
+    r.group = group;
+    r.value = value;
+    r.rate = rate;
+    const at = this.begin(24);
+    if (at < 0) return;
+    this.end(at, writeTime(this.view, at, r), atFrame);
   }
 
   /**

@@ -340,7 +340,7 @@ fn find(v: &View<'_>, voice_id: u32) -> Option<usize> {
 pub fn render(core: &mut Core, frame: u64) {
     let end = frame + QUANTUM as u64;
     // ADR 0158 E2: parameters move and bindings are evaluated before any voice renders.
-    automation::begin_quantum(core);
+    automation::begin_quantum(core, frame);
     // ADR 0162 K3: the sends' per-quantum state (C4: the buses' chain gains) before any voice renders.
     crate::sends::begin_quantum(core);
     // ADR 0162 A4: the beds' per-quantum state (counters, the ladder, moves, the sharing buses' folds).
@@ -1923,7 +1923,7 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         (old.state != state::FREE && old.id != play.voice_id).then_some((old.id, old.flags & flag::STREAM != 0, old.clip, old.flags2))
     };
     // ADR 0158 E2: the slot's automation entry now belongs to this voice and its group.
-    automation::on_play(core, index, play.voice_id, play.group);
+    automation::on_play(core, index, play.voice_id, play.group, start_frame);
     if let Some((old, stream, clip, old_flags2)) = replaced {
         // 0166 M4a (C2b): a replaced member leaves its group.
         crate::groups::leave(crate::groups::entries(core.regions_mut().groups), old_flags2, old);

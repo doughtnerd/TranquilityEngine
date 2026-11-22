@@ -19,6 +19,9 @@
 //! - ADR 0158 E2: CURVES, PARAM, AUTOMATE and BUS_AUTOMATE (`automation.rs`) apply at once, in
 //!   arrival order, whatever their `frameOffset` (AUTOMATE finds its voice because PLAY writes the
 //!   slot at once); SET_LOOP is scheduled like STOP (a release lands on its exact frame).
+//! - ADR 0332: TIME (a group clock's re-anchor) is scheduled like STOP; when its quantum comes it
+//!   applies with its own frame (`due::route`, `Route::Clock`), never splitting. Asap anchors at
+//!   the next quantum's first frame.
 //! - RESET (A1.3b) applies at once, in arrival order, whatever its `frameOffset`: every voice and
 //!   pending record is cleared, and with `keepClips = 0` every clip too and the arena reclaimed
 //!   ([`reset`]). It's the first record of a rebuild's REPLAY, and A1.4 sends `RESET 0` when the
@@ -209,6 +212,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::SET_MIXED => wire::SetMixed::FIXED_END,
             wire::op::SET_PAUSED => wire::SetPaused::FIXED_END,
             wire::op::SEEK => wire::Seek::FIXED_END,
+            wire::op::TIME => wire::Time::FIXED_END,
             wire::op::SET_LOOP => wire::SetLoop::FIXED_END,
             wire::op::AUTOMATE => wire::Automate::FIXED_END,
             wire::op::CURVES => wire::Curves::FIXED_END,
@@ -339,6 +343,19 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
                         flags: (l.flags & wire::SET_LOOP_FLAGS_LOOPING) as u8,
                         frames: l.loop_start_frame,
                         values: [f32::from_bits(l.loop_end_frame), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                        ..Default::default()
+                    };
+                    schedule(core, record, at);
+                }
+            }
+            wire::op::TIME => {
+                if let Ok((t, _)) = wire::Time::read(msg, off) {
+                    let record = PendingRecord {
+                        op: wire::op::TIME as u8,
+                        frames: t.group as u32,
+                        mask: t.which.min(255) as u8,
+                        flags: at.is_some() as u8,
+                        values: [t.value, t.rate, 0.0, 0.0, 0.0, 0.0, 0.0],
                         ..Default::default()
                     };
                     schedule(core, record, at);
@@ -623,6 +640,8 @@ pub fn apply(core: &mut Core, record: &PendingRecord) {
         wire::op::SET_PAUSED => voices::set_paused(core, record.voice_id, record.flags & 1 != 0),
         wire::op::SEEK => voices::seek(core, record.voice_id, record.frames, record.values[0].to_bits()),
         wire::op::SET_LOOP => voices::set_loop(core, record.voice_id, record.frames, record.values[0].to_bits(), record.flags & 1 != 0),
+        // ADR 0332: `frames` the group, `mask` which, `flags` bit0 stamped (then `frame` is its anchor).
+        wire::op::TIME => automation::time(core, record.frames.min(u16::MAX as u32) as u16, record.mask as u16, record.values[0], record.values[1], (record.flags & 1 != 0).then_some(record.frame)),
         // B1b: class B never splits (`due::route`); applied now, at its frame's quantum start.
         wire::op::BUS_RAMP => lanes::on_due(core, record, record.frame),
         wire::op::SET_PARAMS => {

@@ -380,3 +380,114 @@ fn a_virtual_voice_keeps_time_at_its_pitch_binding() {
     m.render_n(3);
     assert_eq!(voices::slots(&m.core)[1].position, (3 * 2 * 128) as f64);
 }
+
+// --- ADR 0332: time parameters ---
+
+const T_VOICE: u16 = (wire::PARAM_TIME | wire::TIME_VOICE) as u16;
+const T_CLIP: u16 = (wire::PARAM_TIME | wire::TIME_CLIP) as u16;
+const T_SEQ: u16 = (wire::PARAM_TIME | wire::TIME_SEQUENCE) as u16;
+/// 0 at 0 s to 1 at 0.01 s (480 frames at 48 kHz).
+const TEN_MS: &[(f32, f32, u32)] = &[(0.0, 0.0, 0), (0.01, 1.0, 0)];
+
+fn time(group: u16, which: u32, value: f32, rate: f32, frame_offset: u32) -> Rec {
+    let t = wire::Time { voice_id: 0, frame_offset, group, which: which as u16, value, rate };
+    raw(move |b| t.write(b, 0))
+}
+
+/// The curve TEN_MS at `frames` frames (48 kHz).
+fn ten_ms(frames: f32) -> f32 {
+    (frames / 480.0).min(1.0)
+}
+
+#[test]
+fn a_voice_time_binding_follows_the_voice_from_its_start() {
+    let mut m = mixer();
+    m.submit(&[curves(0, &[TEN_MS]), dc(V1, 0, 0.0), automate(V1, &[(T_VOICE, 0, 0)])]);
+    let (l, _) = m.render();
+    check(&l, TOL, "0 s at the start (the first quantum starts at its value)", |_| 0.0);
+    let (l, _) = m.render();
+    check(&l, 1e-5, "128 frames later", |j| ramp(0.0, ten_ms(128.0), j));
+    m.render_n(2);
+    let (l, _) = m.render();
+    check(&l, 1e-5, "512 frames: past the last key", |j| ramp(ten_ms(384.0), 1.0, j));
+    // A stamped voice counts from its stamp, not from its PLAY: silent until frame 1,024, at its curve's start then.
+    let frame = m.frame;
+    let Rec::Play(mut p) = dc(V2, 0, 0.0) else { unreachable!() };
+    p.frame_offset = (1024 - frame) as u32;
+    m.submit(&[raw(|b| wire::Stop { voice_id: V1, frame_offset: wire::ASAP, fade_frames: 0, reason: 0, shape: 0 }.write(b, 0)), Rec::Play(p), automate(V2, &[(T_VOICE, 0, 0)])]);
+    while m.frame < 1024 {
+        m.render();
+    }
+    let (l, _) = m.render();
+    check(&l, TOL, "V2 at its start (V1 stopped)", |_| 0.0);
+    let (l, _) = m.render();
+    check(&l, 1e-5, "V2 128 frames after its stamp", |j| ramp(0.0, ten_ms(128.0), j));
+    assert_eq!(automation::voice_entry(&mut m.core, 2).unwrap().vstart, 1024);
+}
+
+#[test]
+fn a_clip_time_binding_follows_the_playhead() {
+    // Pitch 2: the playhead moves 256 clip frames a quantum, so clip time runs twice as fast as voice time.
+    let mut m = mixer();
+    m.load_clip(2, &[1.0f32; 48_000]);
+    let Rec::Play(mut p) = play(V1, 2, 0, MIXED) else { unreachable!() };
+    p.pitch = 2.0;
+    m.submit(&[curves(0, &[TEN_MS]), Rec::Play(p), automate(V1, &[(T_CLIP, 0, 0)])]);
+    m.render();
+    let (l, _) = m.render();
+    check(&l, 1e-5, "256 clip frames", |j| ramp(0.0, ten_ms(256.0), j));
+    // A seek moves clip time with it (not voice time).
+    m.submit(&[raw(|b| wire::Seek { voice_id: V1, frame_offset: wire::ASAP, clip_frame: 0, epoch: 0 }.write(b, 0))]);
+    m.render_n(3);
+    let pos = voices::slots(&m.core)[1].position as f32;
+    let (l, _) = m.render();
+    assert!(l[127] < ten_ms(pos + 256.0) + 1e-5 && l[127] > 0.0, "{}: clip time follows the seek ({pos})", l[127]);
+}
+
+#[test]
+fn a_sequence_time_binding_follows_its_group_clock_and_time_re_anchors_it() {
+    let mut m = mixer();
+    let Rec::Play(mut p) = dc(V1, 0, 0.0) else { unreachable!() };
+    p.group = 3;
+    // A clock that stays at 0 until TIME: y = x / 2 over 0..2 s.
+    m.submit(&[curves(0, &[&[(0.0, 0.0, 0), (2.0, 1.0, 0)]]), Rec::Play(p), automate(V1, &[(T_SEQ, 0, 0)])]);
+    let (l, _) = m.render();
+    check(&l, TOL, "parked at 0", |_| 0.0);
+    // Stamped at frame 256: 1 s there, running at half speed.
+    let frame = m.frame;
+    m.submit(&[time(3, wire::TIME_SEQUENCE, 1.0, 0.5, (256 - frame) as u32)]);
+    let (l, _) = m.render();
+    check(&l, TOL, "not anchored yet", |_| 0.0);
+    assert_eq!(automation::clock(&mut m.core, 3).unwrap(), automation::GroupClock::default());
+    m.render(); // the quantum holding frame 256 applies it (after its bindings were read)
+    assert_eq!(automation::clock(&mut m.core, 3).unwrap(), automation::GroupClock { value: 1.0, rate: 0.5, anchor: 256 });
+    let at = |frame: f32| (1.0 + 0.5 * (frame - 256.0) / 48_000.0) / 2.0;
+    let (l, _) = m.render();
+    check(&l, 1e-5, "running from its anchor", |j| ramp(0.0, at(384.0), j));
+    let (l, _) = m.render();
+    check(&l, 1e-5, "still running", |j| ramp(at(384.0), at(512.0), j));
+    // Asap, rate 0: parked at 0.5 s from the next quantum on.
+    m.submit(&[time(3, wire::TIME_SEQUENCE, 0.5, 0.0, wire::ASAP)]);
+    let (l, _) = m.render();
+    check(&l, 1e-5, "parked", |j| ramp(at(512.0), 0.25, j));
+    assert_eq!(automation::clock(&mut m.core, 3).unwrap().anchor, 640);
+    // Another clock (`which`), a bad value or a group out of range is ignored.
+    m.submit(&[time(3, wire::TIME_VOICE, 9.0, 1.0, wire::ASAP), time(3, wire::TIME_SEQUENCE, f32::NAN, 1.0, wire::ASAP), time(1025, wire::TIME_SEQUENCE, 9.0, 1.0, wire::ASAP)]);
+    let (l, _) = m.render();
+    check(&l, 1e-5, "unchanged", |_| 0.25);
+    // A voice in another group reads that group's clock (0 here); RESET clears every clock.
+    m.submit(&[reset(true)]);
+    assert_eq!(automation::clock(&mut m.core, 3).unwrap(), automation::GroupClock::default());
+}
+
+#[test]
+fn time_records_never_split_the_quantum() {
+    let mut m = mixer();
+    m.submit(&[curves(0, &[TEN_MS]), dc(V1, 0, 0.0)]);
+    m.render();
+    let frame = m.frame;
+    m.submit(&[time(0, wire::TIME_SEQUENCE, 0.0, 1.0, (frame + 37) as u32 - frame as u32)]);
+    m.render();
+    assert_eq!(audio_core::status::counters(&m.core).music.split_quanta, 0);
+    assert_eq!(automation::clock(&mut m.core, 0).unwrap().anchor, frame + 37);
+}

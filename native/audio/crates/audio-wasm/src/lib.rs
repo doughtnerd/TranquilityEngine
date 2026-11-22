@@ -31,8 +31,10 @@ use crate::memory::{PlatformMemory, PLATFORM_MEMORY};
 /// `BUS_SLOT`; stamped configuration changes behaviour. `myco_audio_init` is unchanged.
 /// 4.1 (ADR 0332): CURVES keys carry Bézier handles (interp 5) and curves keep 64 keys; the schema hash
 /// guards the record's new layout.
+/// 4.2 (ADR 0332): time parameters: a binding's `param` bit 14 reads voiceTime, clipTime or
+/// sequenceTime, and TIME (0x1D) re-anchors a group's sequence clock (stamped).
 pub const ABI_MAJOR: u32 = 4;
-pub const ABI_MINOR: u32 = 1;
+pub const ABI_MINOR: u32 = 2;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
 pub const INBOX_BYTES: usize = 1 << 20;
@@ -348,7 +350,7 @@ mod tests {
 
     #[test]
     fn identity_exports() {
-        assert_eq!(myco_audio_abi_version(), 0x401);
+        assert_eq!(myco_audio_abi_version(), 0x402);
         assert_eq!(myco_audio_inbox_cap(), 1 << 20);
         assert_eq!(myco_audio_inbox_ptr() as usize % 64, 0);
         assert_eq!(myco_audio_status_ptr() as usize % 64, 0);

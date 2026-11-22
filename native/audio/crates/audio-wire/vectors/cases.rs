@@ -555,6 +555,21 @@ pub fn cases() -> Vec<VectorCase> {
             ],
             concat!("1400", "0600", "00000000", "ffffffff", "0300", "0100", "0000003f", "00000040"),
         ),
+        // TIME (ADR 0332), 24 B = 6 words, stamped at 256: group 7's sequence clock (which 2) at 1.5 s,
+        // rate 1.0.
+        case(
+            "TIME_sequence_stamped",
+            Subject::Opcode("TIME"),
+            vec![
+                ("voiceId", vu(0)),
+                ("frameOffset", vu(256)),
+                ("group", vu(7)),
+                ("which", vu(2)),
+                ("value", vf(1.5)),
+                ("rate", vf(1.0)),
+            ],
+            concat!("1d00", "0600", "00000000", "00010000", "0700", "0200", "0000c03f", "0000803f"),
+        ),
         // BUS_AUTOMATE (ADR 0158), variable length: 24 B = 6 words. Bus 2; one binding: global slot 0
         // (0x8000) through curve 4 to lowpass.
         case(

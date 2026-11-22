@@ -78,7 +78,7 @@ const SET_LOOP_FLAGS: &[Bits] = &[Bits::bit("looping", 0, "loop the region; clea
 
 /// One automation binding of AUTOMATE and BUS_AUTOMATE (ADR 0158 §3): `u16 param; u16 curve; u32 target`.
 const BINDING_ITEM: &[Field] = &[
-    Field::new("param", Ty::U16).doc("bit15 set: global slot (low 15 bits); clear: local slot of the voice's group"),
+    Field::new("param", Ty::U16).doc("bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group"),
     Field::new("curve", Ty::U16).doc("curve id (CURVES)"),
     Field::new("target", Ty::U32).doc("0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz)"),
 ];
@@ -323,6 +323,7 @@ pub const OPCODES: &[Opcode] = &[
     super::mix::BUS_PRESENCE,
     super::mix::LOUD_CONFIG,
     super::mix::BUS_SLOT,
+    super::studio::TIME,
     super::spatial::LISTENER,
     Opcode {
         id: 0x30,
@@ -378,14 +379,14 @@ mod tests {
     fn opcode_ids_are_unique_and_sorted() {
         let ids: Vec<u16> = OPCODES.iter().map(|o| o.id).collect();
         assert!(ids.windows(2).all(|w| w[0] < w[1]), "ids not strictly increasing: {ids:?}");
-        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x10, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x20, 0x30]);
+        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x10, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x20, 0x30]);
         assert!(OPCODES.iter().all(|o| o.sent));
         assert!(OPCODES.iter().all(|o| o.id != 0x11), "0x11 stays reserved (BUS_MIX, retired)");
     }
 
     #[test]
     fn fixed_totals_match_the_spec_column() {
-        let expected: [(u16, u32); 15] = [
+        let expected: [(u16, u32); 16] = [
             (0x01, 56),
             (0x02, 24),
             (0x03, 60),
@@ -399,6 +400,7 @@ mod tests {
             (0x14, 24),
             (0x18, 32),
             (0x1A, 16),
+            (0x1D, 24),
             (0x20, 36),
             (0x30, 16),
         ];

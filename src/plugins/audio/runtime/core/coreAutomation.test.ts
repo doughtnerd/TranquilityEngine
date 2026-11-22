@@ -3,10 +3,10 @@
 // selection's view of automated gain, and the region-aware wrap.
 import { describe, expect, it } from "vitest";
 import type { Curve } from "../../../../engine/core/curve";
-import { AutoTarget, type Binding } from "../events/automation";
+import { AutoTarget, TimeParam, timeParam, type Binding } from "../events/automation";
 import { Kind, Op, readEnvelope, readRecordHead } from "../wire.generated";
 import type { AudioVoice } from "../backend";
-import { CommandWriter, CORE_CURVE_KEYS, AUTOMATION_GLOBAL } from "./commandWriter";
+import { CommandWriter, CORE_CURVE_KEYS, AUTOMATION_GLOBAL, AUTOMATION_TIME } from "./commandWriter";
 import { BufferPool } from "./bufferPool";
 import { CoreAutomation, wrapPosition, type CoreAutomationDeps } from "./coreAutomation";
 import { ReplayBuilder } from "./replay";
@@ -29,6 +29,7 @@ function rig(options: { mayQueue?: boolean; writer?: CoreAutomationDeps["writer"
     curves: (first, cs) => void calls.push(["curves", first, cs.length]),
     busAutomate: (bus, b) => void calls.push(["busAutomate", bus, b.map((x) => ({ ...x }))]),
     setLoop: (id, at, s, e, l) => void calls.push(["setLoop", id, at, s, e, l]),
+    time: (g, v, r, at) => void calls.push(["time", g, v, r, at]),
   };
   const anchors: [number, number, number][] = [];
   const retimes: number[] = [];
@@ -55,6 +56,55 @@ function rig(options: { mayQueue?: boolean; writer?: CoreAutomationDeps["writer"
 
 const vol = (slot: number, curve: number, global = false): Binding => ({ param: { global, slot }, curve, target: AutoTarget.Volume });
 const fullCurve = (seed: number): Curve => Array.from({ length: CORE_CURVE_KEYS }, (_, k) => [k, seed + k / 100] as const);
+
+describe("CoreAutomation: time parameters (ADR 0332)", () => {
+  it("sends a time binding as AUTOMATION_TIME | which and a sequence re-anchor as TIME, mirrored for a reset", () => {
+    const { auto, calls, voice, state, table } = rig();
+    auto.defineCurve(1, [[0, 0], [0.5, 1], [1, 0.25]]);
+    const v = voice(4);
+    auto.bindVoice(v, 4, [
+      { param: timeParam(TimeParam.Voice), curve: 1, target: AutoTarget.Volume },
+      { param: timeParam(TimeParam.Sequence), curve: 1, target: AutoTarget.Pitch },
+    ], { volume: 1, pitch: 1 });
+    auto.setSequenceTime(4, 2, 0.5);
+    expect(calls.slice(1)).toEqual([
+      ["automate", v.id, undefined, [{ param: AUTOMATION_TIME | TimeParam.Voice, curve: 1, target: AutoTarget.Volume }, { param: AUTOMATION_TIME | TimeParam.Sequence, curve: 1, target: AutoTarget.Pitch }]],
+      ["time", 4, 2, 0.5, undefined],
+    ]);
+    // Selection sees the time-bound volume at its loudest key (1) and the pitch at its first key (0: left alone).
+    expect(table.autoGain[v.id & 0xffff]).toBe(1);
+    expect(table.autoPitch[v.id & 0xffff]).toBe(1);
+    // An idle reset: the clock goes again, from where main estimates it is (1,000 frames of lookahead were its anchor).
+    calls.length = 0;
+    state.now += 1000 + 48_000;
+    auto.afterReset();
+    auto.beginFrame();
+    const time = calls.find((c) => c[0] === "time")!;
+    expect(time[1]).toBe(4);
+    expect(time[2]).toBeCloseTo(2.5, 9);
+    expect(time[3]).toBe(0.5);
+    // A bad group or value is ignored.
+    calls.length = 0;
+    auto.setSequenceTime(1025, 0, 1);
+    auto.setSequenceTime(3, Number.NaN, 1);
+    expect(calls).toEqual([]);
+  });
+
+  it("replays each sequence clock in the header", () => {
+    const { auto, state } = rig();
+    auto.setSequenceTime(0, 1, 1);
+    state.now += 1000 + 24_000;
+    const b = new ReplayBuilder();
+    auto.replayHeader(b);
+    const posted: ArrayBuffer[] = [];
+    b.post({ post: (m) => void posted.push(m), nextSeq: () => 0 }, 0, false);
+    const view = new DataView(posted[0]!);
+    const head = readRecordHead(view, 32);
+    expect(head.opcode).toBe(Op.TIME);
+    expect(view.getFloat32(32 + 16, true)).toBeCloseTo(1.5, 6); // 1 s anchored 1,000 frames ahead, half a second ago
+    expect(view.getFloat32(32 + 20, true)).toBe(1);
+  });
+});
 
 describe("CoreAutomation: the sink over the writer (E3.1)", () => {
   it("sends CURVES, PARAM, AUTOMATE (with the PLAY's stamp) and BUS_AUTOMATE", () => {

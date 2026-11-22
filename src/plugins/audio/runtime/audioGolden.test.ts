@@ -73,6 +73,11 @@ import {
   writeCurves,
   writeMaster,
   writeParam,
+  writeTime,
+  PARAM_TIME,
+  TIME_CLIP,
+  TIME_SEQUENCE,
+  TIME_VOICE,
   writePlay,
   writeSetLoop,
   writeSetParams,
@@ -163,6 +168,9 @@ const busAutomate = (bus: number, bindings: [number, number, number][]): Writer 
 const setLoop = (voiceId: number, frameOffset: number, start: number, end: number, looping: boolean): Writer => (view, off) =>
   writeSetLoop(view, off, { voiceId, frameOffset, loopStartFrame: start, loopEndFrame: end, flags: looping ? 1 : 0 });
 const GLOBAL = 0x8000;
+/** ADR 0332: a sequence clock re-anchor, asap or stamped `frameOffset` frames after the batch's first frame. */
+const time = (group: number, value: number, rate: number, frameOffset = ASAP): Writer => (view, off) =>
+  writeTime(view, off, { voiceId: 0, frameOffset, group, which: TIME_SEQUENCE, value, rate });
 
 /** A scene's stage: a loopback host with clip loading, batch sending and a collected render. */
 class Stage {
@@ -499,6 +507,21 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
     s.run(10);
     s.send(param(0, 1, 1, 1.5));
     s.run(90);
+  },
+  // ADR 0332: time parameters. A volume fade-in on voice time, a pitch curve on clip time and a low-pass on its group's
+  // sequence clock, which runs, wraps back (a stamped TIME) and parks at a hold point.
+  "automation-time"(s) {
+    s.send(
+      curves(0, [[[0, 0, 2], [0.5, 1, 0]], [[0, 0.8, 0], [1, 1.25, 0]], [[0, 600, 4], [1, 16_000, 0]]]),
+      time(9, 0, 1),
+      play(voice(1), CLIP, { flags: MIXED | LOOP, group: 9 }),
+      automate(voice(1), [[PARAM_TIME | TIME_VOICE, 0, 0], [PARAM_TIME | TIME_CLIP, 1, 1], [PARAM_TIME | TIME_SEQUENCE, 2, 2]]),
+    );
+    s.run(60);
+    s.send(time(9, 0.25, 1, 64));
+    s.run(40);
+    s.send(time(9, 0.75, 0));
+    s.run(20);
   },
   // ADR 0158 E2: bus volume automation on a global parameter (a step then a linear segment), seeking, over BUS_RAMP (the runtime lane).
   "automation-bus"(s) {

@@ -53,6 +53,8 @@ const SCENES = [
   "automation-base",
   // ADR 0332: `automation` with Bézier curves.
   "automation-bezier",
+  // ADR 0332: `automation` with every binding on a time parameter, and stamped TIMEs re-anchoring 32 groups a batch.
+  "automation-time",
   "automation-virtual",
   "bus-automation",
   "sustain",

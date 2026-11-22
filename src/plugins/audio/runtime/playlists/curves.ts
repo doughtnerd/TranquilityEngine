@@ -2,21 +2,21 @@
  * An entry's voice curves at runtime (ADR 0329 entry `curves`, ADR 0332): gain (dB), pitch (semitones), pan, low-pass and
  * high-pass (Hz), each keyed on a parameter or on voice time.
  *
- * - **Parameter curves** become automation bindings (the backend's `AutomationSink`: the core's curve tables, or
- *   `TsAutomation` on a backend without them), so the core follows the parameter itself. The core's targets are a
- *   linear volume multiplier, a pitch ratio and a low-pass cutoff, so a dB or semitone curve is resampled into a curve of
- *   those (`toCoreCurve`).
- * - **Voice-time curves** are evaluated on main once per frame (`TimeCurve`), as `TsAutomation` evaluates parameter
- *   curves on a backend without the core.
- *   TODO(ADR 0332 core time parameters): once the core has a per-voice `voiceTime` parameter, a voice-time curve is one
- *   more binding whose input is that parameter, and the per-frame evaluation here goes.
+ * - **Parameter and time curves** become automation bindings (the backend's `AutomationSink`: the core's curve tables,
+ *   or `TsAutomation` on a backend without them), so the core follows the parameter, or advances the time, itself. A
+ *   curve on `voiceTime`, `clipTime` or `sequenceTime` reads the core's time parameter of that name (ADR 0332:
+ *   `TimeParam`; sequence time is the instance group's clock, which the sequence runtime re-anchors). The core's targets
+ *   are a linear volume multiplier, a pitch ratio and a low-pass cutoff, so a dB or semitone curve is resampled into a
+ *   curve of those (`toCoreCurve`).
+ * - `TimeCurve` and `evalTimeCurves` remain for main-thread time curves (none are made here since ADR 0332's core time
+ *   parameters).
  * - Pan and high-pass have no automation target on any backend yet (no voice pan or high-pass control): they are
  *   skipped with one warning each.
  */
 import { evalCurve, type Curve, type CurveKey } from "../../../../engine/core/curve";
 import type { CurveInput, VoiceCurve, VoiceCurveTarget } from "../../../../engine/audio/playlist/types";
 import { warnOnce } from "../core/handle";
-import { AutoTarget, MAX_BINDINGS, type Binding, type ParamRef } from "../events/automation";
+import { AutoTarget, MAX_BINDINGS, TimeParam, timeParam, type Binding, type ParamRef } from "../events/automation";
 
 /** A voice-time curve, evaluated per frame on main. */
 export interface TimeCurve {
@@ -26,6 +26,9 @@ export interface TimeCurve {
 
 /** The most keys a resampled core curve gets (the core's curve key cap). */
 const CORE_KEYS = 32;
+
+/** ADR 0332: a curve input's time parameter. */
+const TIME_INPUTS = { voiceTime: TimeParam.Voice, clipTime: TimeParam.Clip, sequenceTime: TimeParam.Sequence } as const;
 
 const resampled = new WeakMap<Curve, { gain?: Curve; pitch?: Curve }>();
 
@@ -76,7 +79,7 @@ export function curveParts(
   where: string,
 ): CurveParts {
   let bindings = parent.bindings as Binding[];
-  let timeCurves = parent.timeCurves as TimeCurve[];
+  const timeCurves = parent.timeCurves as TimeCurve[];
   for (const target of Object.keys(curves) as VoiceCurveTarget[]) {
     const vc = curves[target];
     if (!vc || vc.bypass || vc.curve.length === 0) continue;
@@ -85,18 +88,12 @@ export function curveParts(
       continue;
     }
     const input: CurveInput = vc.input;
-    if (typeof input === "string") {
-      // voiceTime; clipTime and sequenceTime belong to sequence clips (M5), and on an entry they read as voice time.
-      if (timeCurves === parent.timeCurves) timeCurves = timeCurves.slice();
-      timeCurves.push({ target, curve: vc.curve });
-      continue;
-    }
-    const p = paramRef(input.parameter);
+    const p = typeof input === "string" ? timeParam(TIME_INPUTS[input] ?? TimeParam.Voice) : paramRef(input.parameter);
     if (!p) continue;
     const id = curveId(target === "lowpass" ? vc.curve : toCoreCurve(vc.curve, target));
     if (id === null) continue;
     if (bindings.length >= MAX_BINDINGS) {
-      warnOnce(`playlist:bindings:${where}`, `[myco] ${where}: more than ${MAX_BINDINGS} parameter curves reach one voice; the rest are ignored.`);
+      warnOnce(`playlist:bindings:${where}`, `[myco] ${where}: more than ${MAX_BINDINGS} parameter and time curves reach one voice; the rest are ignored.`);
       continue;
     }
     if (bindings === parent.bindings) bindings = bindings.slice();

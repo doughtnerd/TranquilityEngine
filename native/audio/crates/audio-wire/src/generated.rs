@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: 46b5792c1d3cb35e64177494156f4594).
+/// First 16 bytes of the schema's SHA-256 (hex: ae0cc1ffd1b129b6f96338f4df72e041).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0x46,
-    0xb5,
-    0x79,
-    0x2c,
-    0x1d,
-    0x3c,
-    0xb3,
-    0x5e,
-    0x64,
-    0x17,
-    0x74,
-    0x94,
-    0x15,
-    0x6f,
-    0x45,
-    0x94,
+    0xae,
+    0x0c,
+    0xc1,
+    0xff,
+    0xd1,
+    0xb1,
+    0x29,
+    0xb6,
+    0xf9,
+    0x63,
+    0x38,
+    0xf4,
+    0xdf,
+    0x72,
+    0xe0,
+    0x41,
 ];
-pub const SCHEMA_HASH_HEX: &str = "46b5792c1d3cb35e64177494156f4594";
+pub const SCHEMA_HASH_HEX: &str = "ae0cc1ffd1b129b6f96338f4df72e041";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -265,6 +265,18 @@ pub const LOUD_FLAG_LOST: u32 = 0x100;
 pub const LOUD_FLAG_GATED: u32 = 0x200;
 /// loudBuses flags bit 10: the true-peak gate is in force
 pub const LOUD_FLAG_TP_GATE_ACTIVE: u32 = 0x400;
+/// binding param bit 15: a global slot (low 15 bits)
+pub const PARAM_GLOBAL: u32 = 0x8000;
+/// binding param bit 14 (bit 15 clear): a time parameter, TIME_* in bits 0-1 (ADR 0332; voices only)
+pub const PARAM_TIME: u32 = 0x4000;
+/// binding param bits 0-1 of a time parameter: which
+pub const PARAM_TIME_MASK: u32 = 0x3;
+/// voiceTime: seconds since the voice started (its start frame; paused time counts)
+pub const TIME_VOICE: u32 = 0x0;
+/// clipTime: the voice's playhead in the clip, in seconds of the clip
+pub const TIME_CLIP: u32 = 0x1;
+/// sequenceTime: the voice's group's sequence clock (TIME re-anchors it)
+pub const TIME_SEQUENCE: u32 = 0x2;
 
 /// K2 stub: the export exists but does nothing yet
 pub const ERR_NOT_IMPLEMENTED: i32 = -1;
@@ -337,6 +349,7 @@ pub mod op {
     pub const BUS_PRESENCE: u16 = 0x1a;
     pub const LOUD_CONFIG: u16 = 0x1b;
     pub const BUS_SLOT: u16 = 0x1c;
+    pub const TIME: u16 = 0x1d;
     pub const LISTENER: u16 = 0x20;
     pub const RESET: u16 = 0x30;
 }
@@ -1956,7 +1969,7 @@ impl SetLoop {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AutomateBindings {
-    /// bit15 set: global slot (low 15 bits); clear: local slot of the voice's group
+    /// bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group
     pub param: u16,
     /// curve id (CURVES)
     pub curve: u16,
@@ -2641,7 +2654,7 @@ impl Param {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BusAutomateBindings {
-    /// bit15 set: global slot (low 15 bits); clear: local slot of the voice's group
+    /// bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group
     pub param: u16,
     /// curve id (CURVES)
     pub curve: u16,
@@ -3535,6 +3548,79 @@ impl BusSlot {
             reserved2,
             parent,
             effects,
+        }, cur - base))
+    }
+}
+
+/// re-anchor a group's sequence clock (ADR 0332); stamped
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Time {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    /// 0 the global clock, else the instance group 1..=1024
+    pub group: u16,
+    /// the clock: TIME_SEQUENCE (2); any other value is ignored (reserved)
+    pub which: u16,
+    /// seconds at the anchor
+    pub value: f32,
+    /// seconds per second from the anchor; 0 parks
+    pub rate: f32,
+}
+
+impl Time {
+    pub const FIXED_END: usize = 24;
+    pub const OPCODE: u16 = 29; // TIME
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 12, self.group);
+        put_u16(out, base + 14, self.which);
+        put_f32(out, base + 16, self.value);
+        put_f32(out, base + 20, self.rate);
+        let mut cur = base + Self::FIXED_END;
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let group = get_u16(buf, base + 12);
+        let which = get_u16(buf, base + 14);
+        let value = get_f32(buf, base + 16);
+        let rate = get_f32(buf, base + 20);
+        let mut cur = base + Self::FIXED_END;
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            group,
+            which,
+            value,
+            rate,
         }, cur - base))
     }
 }

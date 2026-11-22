@@ -733,7 +733,7 @@ export class EventSystem {
     if (backend !== this.sinkOf || !this.sink) {
       this.sinkOf = backend;
       if (backend?.automation) { this.sink = backend.automation; this.ts = null; }
-      else { this.ts = new TsAutomation(); this.sink = this.ts; }
+      else { this.ts = new TsAutomation(() => this.clock()); this.sink = this.ts; }
       this.curvesById.forEach((c, id) => this.sink!.defineCurve(id, c));
       for (const g of this.globals.values()) this.sink.setParam(0, g.slot, g.value, 0);
       this.busOf = null;

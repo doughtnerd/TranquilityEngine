@@ -63,6 +63,8 @@ ADR 0158 (ABI 1.4, wire major unchanged) added five opcodes, applied in `audio-c
 - `0x14 PARAM`: a global (group 0) or instance-group parameter's target and seek speed.
 - `0x15 BUS_AUTOMATE`: a bus's bindings to global parameters (volume, lowpass), at most 8.
 
+ADR 0332 (ABI 4.2) adds time parameters, in `schema/studio.rs`: a binding whose `param` has bit 14 set (bit 15 clear) reads `voiceTime`, `clipTime` or `sequenceTime` (`TIME_*` in bits 0-1) instead of a parameter slot, and `0x1D TIME` re-anchors a group's sequence clock (`value` seconds at its frame, moving `rate` seconds per second; stamped, applied at its frame without splitting the quantum).
+
 `gen_wire --check` fails when any is stale; `npm run build:audio` runs the generator for you. Never edit the generated files. A schema change changes the schema hash: `wire.schemaHash.test.ts` and `wire.roundtrip.test.ts` fail until the TypeScript side is updated, which is the point. The wire is frozen for M1 (contract K1); a change needs a review and a version decision.
 
 ## Goldens and parity
