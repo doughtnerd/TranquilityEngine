@@ -1,16 +1,17 @@
 // Stories (ADR 0219) for the profiler's voice table (Pf5): 1,024 voices windowed to at most 64 rendered rows while the
 // region scrolls, keyboard focus through the rows (arrows, pages, Home and End), a click focusing a row, the filtered and
-// empty states, and a stolen voice's reason and thief on a recorded scene. Rendered through its real props, the
-// `voiceTableData` of a reconstructed seek state.
+// empty states, and a stolen voice's reason and thief on a recorded scene. Rendered through its real props: the one table
+// section (ADR 0326) with the voice table's columns and the kit's table of a reconstructed seek state.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fireEvent, userEvent, waitFor } from "storybook/test";
 import type { CaptureKeyframe, CaptureKeyframeVoice, CaptureSeekState } from "../../runtime/capture/reader";
 import { SAMPLE_RATE } from "../../runtime/capture/testSupport";
 import { MAX_RENDERED_ROWS, ROW_HEIGHT, VIEWPORT_ROWS, windowRows } from "./gridWindow";
-import { VoiceTable, voiceTableData, type VoiceTableData } from "./VoiceTable";
-import { captureNames } from "../../runtime/capture/reader";
+import { VOICE_TABLE } from "./VoiceTable";
+import { TableSection } from "./ProfilerTableSection";
 import { namesFromStart } from "../../runtime/capture/testSupport";
-import { reconstructVoices } from "./voiceTableModel";
+import { profilerTable, profilerTables, tableEmptyText, tableSeek, voiceRows, type ProfilerTable } from "./profilerTablesModel";
+import type { VoiceRow } from "./voiceTableModel";
 import { openScene } from "./voiceSceneSupport";
 
 const EMPTY_MIX = { slotTableVersion: 1, monitorActive: false, targetIndex: 0, snapshot: null, masterVolume: 1, hiddenMute: false };
@@ -21,8 +22,7 @@ const voice = (id: number, over: Partial<CaptureKeyframeVoice> = {}): CaptureKey
   id, clip: 1 + (id % 3), slot: id % 3, state: "playing", priority: id % 5, reason: null, gain: 0.5, pitch: 1, audibility: (65535 - id * 8) / 65536, playheadFrames: id * 10, ...over,
 });
 const NAMES = namesFromStart({ clips: [[1, "jump.ogg"], [2, "Land.ogg"], [3, "footstep.ogg"]], buses: [[0, "Master"], [1, "Music"], [2, "SFX"]] });
-const CTX = { playing: false, truncated: false };
-const voiceData = (state: CaptureSeekState, filter = ""): VoiceTableData => voiceTableData(reconstructVoices(state, NAMES), filter, CTX);
+const voiceData = (state: CaptureSeekState, filter = ""): ProfilerTable<VoiceRow> => profilerTable("voices", voiceRows(state, NAMES), filter, tableSeek(state, false, false));
 const thousand = () => voiceData(seekState(keyframe({ voices: Array.from({ length: 1024 }, (_, i) => voice(i + 1)) })));
 const four = seekState(keyframe({ voices: [voice(1, { clip: 1, slot: 1 }), voice(2, { clip: 2, slot: 2 }), voice(3, { clip: 1, slot: 2 }), voice(4, { clip: 3, slot: 1 })] }));
 
@@ -47,20 +47,20 @@ const press = async (root: HTMLElement, key: string): Promise<boolean> => !(awai
 
 const meta = {
   title: "Audio/Profiler/Voice table",
-  component: VoiceTable,
-  args: { data: thousand() },
-} satisfies Meta<typeof VoiceTable>;
+  component: TableSection<VoiceRow>,
+  args: { columns: VOICE_TABLE, table: thousand() },
+} satisfies Meta<typeof TableSection<VoiceRow>>;
 export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const ManyVoices: Story = {
   play: async ({ canvasElement, args, step }) => {
     await step("every voice is in the data, windowed by the grid and not by the model, most audible first", async () => {
-      expect(args.data.rows).toHaveLength(1024);
-      expect(args.data.summary).toBe("1024 voices");
-      expect(args.data.empty).toBeNull();
-      expect(args.data.rows[0]!.id).toBe(1);
-      expect(args.data.rows.map((r) => r.audibility)).toEqual([...args.data.rows.map((r) => r.audibility)].sort((a, b) => b! - a!));
+      expect(args.table.rows).toHaveLength(1024);
+      expect(args.table.summary).toBe("1024 voices");
+      expect(args.table.empty).toBeNull();
+      expect(args.table.rows[0]!.id).toBe(1);
+      expect(args.table.rows.map((r) => r.audibility)).toEqual([...args.table.rows.map((r) => r.audibility)].sort((a, b) => b! - a!));
     });
     await step("at most 64 rows rendered at every scroll position; the window moves with the scroll", async () => {
       const firsts: number[] = [];
@@ -133,10 +133,10 @@ export const Keyboard: Story = {
 };
 
 export const Filtered: Story = {
-  args: { data: voiceData(four, "jump") },
+  args: { table: voiceData(four, "jump") },
   play: async ({ canvasElement, args }) => {
     // Narrowed by clip or bus name, case-insensitively; it says how many matched and renders only those rows.
-    expect(args.data.summary).toBe("2 of 4 voices");
+    expect(args.table.summary).toBe("2 of 4 voices");
     expect(rows(canvasElement)).toHaveLength(2);
     expect(voiceData(four, "JUMP").rows.map((r) => r.id).sort()).toEqual([1, 3]);
     expect(voiceData(four, "sfx").rows.map((r) => r.id).sort()).toEqual([2, 3]);
@@ -145,17 +145,18 @@ export const Filtered: Story = {
 };
 
 export const Empty: Story = {
-  args: { data: voiceData(seekState(keyframe())) },
-  play: async ({ canvasElement }) => {
+  args: { table: voiceData(seekState(keyframe())) },
+  play: async ({ canvasElement, args }) => {
     // The empty text instead of a grid.
-    expect([...canvasElement.querySelectorAll(".ptable-empty")].map((e) => e.textContent)).toEqual(["No voices at the cursor"]);
+    expect(args.table.empty).toBe("none");
+    expect([...canvasElement.querySelectorAll(".ptable-empty")].map((e) => e.textContent)).toEqual([tableEmptyText("voices", "none")]);
     expect(rows(canvasElement)).toHaveLength(0);
     expect(canvasElement.querySelector("[role=grid]")).toBeNull();
   },
 };
 
 export const NoKeyframe: Story = {
-  args: { data: voiceTableData({ rows: reconstructVoices(seekState(keyframe({ voices: [voice(1)] })), NAMES).rows, fromKeyframe: false }, "", CTX) },
+  args: { table: profilerTable("voices", voiceRows(seekState(keyframe({ voices: [voice(1)] })), NAMES), "", { ready: true, playing: false, truncated: false, beforeFirstKeyframe: true }) },
   play: async ({ canvasElement }) => {
     // A seek with no keyframe lists only the last second's starts, and says so.
     expect(canvasElement.textContent).toContain("no keyframe at or before the cursor");
@@ -167,12 +168,12 @@ export const RecordedScene: Story = {
     async () => {
       const s = await openScene();
       const state = await s.seek(45_000 / SAMPLE_RATE); // voice 1 stolen by 3 at frame 40,000 (reason 3, priority)
-      const data = voiceTableData(reconstructVoices(state, captureNames(s.summary)), "", CTX);
+      const table = profilerTables(s, state, "").voices;
       s.close();
-      return { data };
+      return { table };
     },
   ],
-  render: (_args, { loaded }) => <VoiceTable data={loaded.data as VoiceTableData} />,
+  render: (_args, { loaded }) => <TableSection columns={VOICE_TABLE} table={loaded.table as ProfilerTable<VoiceRow>} />,
   play: async ({ canvasElement }) => {
     // A stolen voice's reason and the voice that stole it, by clip name.
     const row = rows(canvasElement).find((r) => cells(r)[0] === "1")!;

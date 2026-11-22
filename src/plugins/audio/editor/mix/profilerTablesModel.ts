@@ -1,17 +1,21 @@
-// ADR 0171 amended by 0172 (M5a, task Pf5; api-and-models §7): the pure side of the profiler's tables, so the views
-// (`VoiceTable.tsx`, `BusTable.tsx`, `profilerTables.tsx`) stay thin; the row window and keyboard focus the grids share
-// are `gridWindow.ts`. Here:
-//   - the cell texts of a voice row (reason, the thief by clip name);
-//   - the bus table (each bus's seven factors, product and tree product; the parents come from the capture's META audio
-//     section, which names the parent of each bus by name) and the music rows (the keyframe's, with `musicTransition`
-//     events after it applied).
+// ADR 0171 amended by 0172 (M5a, task Pf5; api-and-models §7), and 0326: the pure side of the profiler's tables, so the
+// views (`ProfilerTableSection.tsx` draws any table; `VoiceTable.tsx`, `BusTable.tsx` and `profilerTables.tsx` give
+// each table's columns and cells) stay thin; the row window and keyboard focus the grids share are `gridWindow.ts`. Here:
+//   - the table kit (0326): `profilerTables` builds the four tables at a seek state under one name filter, and
+//     `profilerTable` is one table of a kind from its unfiltered rows: the filter (by the kind's names), the summary
+//     line and the empty state, chosen once for every table;
+//   - the row builders: the voices (`voiceRows`), the bus table (each bus's seven factors, product and tree product; the
+//     parents come from the capture's META audio section, which names the parent of each bus by name), the event
+//     instances and the music rows (the keyframe's, with `musicTransition` events after it applied);
+//   - the cell texts of a voice row (reason, the thief by clip name).
 // No DOM: the tests drive it directly.
-import type { CaptureKeyframe, CaptureNames, CaptureSeekState } from "../../runtime/capture/reader";
+import { captureNames, type CaptureKeyframe, type CaptureNames, type CaptureSeekState } from "../../runtime/capture/reader";
 import { audioSection } from "../../../../engine/audio/audioSection";
-import { chooseEmptyState } from "./emptyStates";
+import { chooseEmptyStateKind, EMPTY_STATES, type EmptyStateKind } from "./emptyStates";
 import { busFactors, treeProducts, type BusFactors } from "./busFactorsModel";
 import { formatDb, gainToDb } from "../dbScale";
-import { nameFilter, type VoiceRow } from "./voiceTableModel";
+import type { ProfileSource } from "./profilerSource";
+import { eventRows, nameFilter, reconstructVoices, voiceTable, type EventRow, type VoiceRow } from "./voiceTableModel";
 
 // --- voice row cells ---------------------------------------------------------------------------------------------------
 
@@ -58,10 +62,9 @@ export function voiceCells(row: VoiceRow, byId: ReadonlyMap<number, VoiceRow>): 
   };
 }
 
-/** The line above the voice table: how many rows match, how many exist, and the capture's keyframe caveat. */
-export function voiceSummary(matched: number, total: number, filter: string, fromKeyframe: boolean): string {
-  const count = filter.trim() === "" ? `${total} voices` : `${matched} of ${total} voices`;
-  return fromKeyframe ? count : `${count} (no keyframe at or before the cursor: only voices started in the last second are listed)`;
+/** Every voice at the seek (`reconstructVoices`), ordered as the live debug table orders them (most audible first). */
+export function voiceRows(state: CaptureSeekState, names: CaptureNames): VoiceRow[] {
+  return voiceTable(reconstructVoices(state, names), "", Infinity).rows;
 }
 
 // --- the bus table -----------------------------------------------------------------------------------------------------
@@ -88,26 +91,15 @@ export function busParents(audio: unknown, names: CaptureNames, t: number): Map<
   return parents;
 }
 
-/** The bus rows at a keyframe (in its order), named as at axis time `t`, filtered by bus name. */
-export function busTableRows(
-  keyframe: Pick<CaptureKeyframe, "buses"> | null,
-  names: CaptureNames,
-  t: number,
-  parents: ReadonlyMap<number, number | null>,
-  filter = "",
-): BusRow[] {
+/** The bus rows at a keyframe (in its order), named as at axis time `t`. */
+export function busTableRows(keyframe: Pick<CaptureKeyframe, "buses"> | null, names: CaptureNames, t: number, parents: ReadonlyMap<number, number | null>): BusRow[] {
   if (!keyframe) return [];
   const factors = keyframe.buses.map(busFactors);
   const tree = new Map(treeProducts(factors, parents).map((t) => [t.slot, t]));
-  const match = nameFilter(filter);
-  const rows: BusRow[] = [];
-  for (const f of factors) {
-    const name = names.bus(f.slot, t);
-    if (!match(name)) continue;
+  return factors.map((f) => {
     const g = tree.get(f.slot)!;
-    rows.push({ ...f, name, tree: g.tree, treeDb: g.treeDb, productText: formatDb(f.productDb), treeText: formatDb(g.treeDb) });
-  }
-  return rows;
+    return { ...f, name: names.bus(f.slot, t), tree: g.tree, treeDb: g.treeDb, productText: formatDb(f.productDb), treeText: formatDb(g.treeDb) };
+  });
 }
 
 // --- music rows --------------------------------------------------------------------------------------------------------
@@ -125,8 +117,8 @@ export interface MusicRow {
   pendingTimeSec: number | null;
 }
 
-/** The music instances at `state`'s instant: the keyframe's rows with each `musicTransition` after it moving the instance to its new segment (args `instance, from, to`). Filtered by segment name. */
-export function musicRows(state: CaptureSeekState, names: CaptureNames, filter = ""): MusicRow[] {
+/** The music instances at `state`'s instant: the keyframe's rows with each `musicTransition` after it moving the instance to its new segment (args `instance, from, to`). */
+export function musicRows(state: CaptureSeekState, names: CaptureNames): MusicRow[] {
   const nameOf = (id: number | null): string => (id === null ? "none" : names.event(id, state.seconds));
   const rows = new Map<number, MusicRow>();
   for (const m of state.keyframe?.music ?? []) {
@@ -149,43 +141,107 @@ export function musicRows(state: CaptureSeekState, names: CaptureNames, filter =
       ? { ...prev, segment: nameOf(to), pendingTo: null, pendingTimeSec: null }
       : { id: instance, segment: nameOf(to), state: "playing", pass: 1, position: null, tempo: null, pendingTo: null, pendingTimeSec: null });
   }
-  const match = nameFilter(filter);
-  return [...rows.values()].filter((r) => match(r.segment)).sort((a, b) => a.id - b.id);
+  return [...rows.values()].sort((a, b) => a.id - b.id);
 }
 
-// --- empty states ------------------------------------------------------------------------------------------------------
+// --- the table kit (ADR 0326) -----------------------------------------------------------------------------------------
 
 export type TableKind = "voices" | "buses" | "events" | "music";
 
-/** The words the tables add to `emptyStates.ts`' strings (the design's six cover a missing or truncated capture; these cover a table with no rows). */
-const TABLE_EMPTY = {
-  noCursor: "Place the cursor on the timeline to read the tables",
-  noMatch: "No rows match the filter",
-  none: { voices: "No voices at the cursor", buses: "No bus data at the cursor", events: "No event instances at the cursor", music: "No music playing at the cursor" },
-} as const;
+/** Each table's row. */
+export interface TableRows {
+  voices: VoiceRow;
+  buses: BusRow;
+  events: EventRow;
+  music: MusicRow;
+}
 
-export interface TableEmptyInput {
+/** What every table reads from the seek and the source. */
+export interface TableSeek {
   /** A seek answer exists for the cursor. */
   ready: boolean;
   /** The editor is in Play. */
   playing: boolean;
   truncated: boolean;
-  /** The seek found no keyframe at or before the cursor. */
+  /** The seek found no keyframe at or before the cursor (the voices are then only the last second's starts). */
   beforeFirstKeyframe: boolean;
-  /** Rows after the filter. */
-  rows: number;
-  /** Rows before the filter. */
-  unfiltered: number;
-  filter: string;
 }
 
-/** The empty-state text of one table, or null when it has rows. A truncated capture before its first keyframe says so (the design's string). */
-export function tableEmptyText(kind: TableKind, input: TableEmptyInput): string | null {
-  if (!input.ready) return TABLE_EMPTY.noCursor;
-  if (input.rows > 0) return null;
-  const design = chooseEmptyState(kind, {
-    playing: input.playing, hasCapture: true, truncated: input.truncated, beforeFirstKeyframe: input.beforeFirstKeyframe,
-  });
-  if (design !== null) return design;
-  return input.filter.trim() !== "" && input.unfiltered > 0 ? TABLE_EMPTY.noMatch : TABLE_EMPTY.none[kind];
+/** The seek context of `seek` (null before a seek answered). */
+export function tableSeek(seek: CaptureSeekState | null, truncated: boolean, playing: boolean): TableSeek {
+  return { ready: seek !== null, playing, truncated, beforeFirstKeyframe: seek !== null && seek.keyframe === null };
+}
+
+/**
+ * Why a table has no rows: no seek answer yet (`noCursor`), the filter removed every row (`noMatch`), nothing at the
+ * cursor (`none`), or one of the design's empty states (`emptyStates.ts`; a truncated capture before its first keyframe).
+ */
+export type TableEmpty = "noCursor" | "noMatch" | "none" | EmptyStateKind;
+
+/** One table as drawn. */
+export interface ProfilerTable<T> {
+  kind: TableKind;
+  /** The rows after the filter, in the table's order. */
+  rows: readonly T[];
+  /** Every row at the cursor, before the filter (a voice's thief is named from these). */
+  all: readonly T[];
+  /** The line above the table ("2 of 4 voices"); empty before a seek answered. */
+  summary: string;
+  /** Why there are no rows; null when there are. */
+  empty: TableEmpty | null;
+}
+
+/** Each kind's names the filter matches and its row noun. */
+const KINDS: { [K in TableKind]: { names(row: TableRows[K]): (string | undefined)[]; one: string; many: string } } = {
+  voices: { names: (r) => [r.clipName, r.busName], one: "voice", many: "voices" },
+  buses: { names: (r) => [r.name], one: "bus", many: "buses" },
+  events: { names: (r) => [r.name], one: "event instance", many: "event instances" },
+  music: { names: (r) => [r.segment], one: "music instance", many: "music instances" },
+};
+
+const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+/** One table of `kind` from its unfiltered rows: filtered by name, with its summary and empty state. */
+export function profilerTable<K extends TableKind>(kind: K, all: readonly TableRows[K][], filter: string, seek: TableSeek): ProfilerTable<TableRows[K]> {
+  if (!seek.ready) return { kind, rows: [], all: [], summary: "", empty: "noCursor" };
+  const k = KINDS[kind];
+  const match = nameFilter(filter);
+  const filtered = filter.trim() !== "";
+  const rows = filtered ? all.filter((r) => match(...k.names(r))) : all;
+  const count = filtered ? `${rows.length} of ${plural(all.length, k.one, k.many)}` : plural(all.length, k.one, k.many);
+  const caveat = kind === "voices" && seek.beforeFirstKeyframe ? " (no keyframe at or before the cursor: only voices started in the last second are listed)" : "";
+  return { kind, rows, all, summary: count + caveat, empty: rows.length > 0 ? null : emptyOf(kind, seek, filtered && all.length > 0) };
+}
+
+function emptyOf(kind: TableKind, seek: TableSeek, filteredOut: boolean): TableEmpty {
+  const design = chooseEmptyStateKind(kind, { playing: seek.playing, hasCapture: true, truncated: seek.truncated, beforeFirstKeyframe: seek.beforeFirstKeyframe });
+  return design ?? (filteredOut ? "noMatch" : "none");
+}
+
+/** The four tables. */
+export type ProfilerTables = { [K in TableKind]: ProfilerTable<TableRows[K]> };
+
+/** The four tables at `seek` (null before a seek answered), under one name filter. */
+export function profilerTables(source: Pick<ProfileSource, "summary" | "truncated">, seek: CaptureSeekState | null, filter: string, playing = false): ProfilerTables {
+  const ctx = tableSeek(seek, source.truncated, playing);
+  if (seek === null) return { voices: profilerTable("voices", [], filter, ctx), buses: profilerTable("buses", [], filter, ctx), events: profilerTable("events", [], filter, ctx), music: profilerTable("music", [], filter, ctx) };
+  const names = captureNames(source.summary);
+  const parents = busParents(source.summary.meta.audio, names, seek.seconds);
+  return {
+    voices: profilerTable("voices", voiceRows(seek, names), filter, ctx),
+    buses: profilerTable("buses", busTableRows(seek.keyframe, names, seek.seconds, parents), filter, ctx),
+    events: profilerTable("events", eventRows(seek, names), filter, ctx),
+    music: profilerTable("music", musicRows(seek, names), filter, ctx),
+  };
+}
+
+/** The tables' own empty-state words (the design's six, `emptyStates.ts`, cover a missing or truncated capture). */
+const NONE: Record<TableKind, string> = { voices: "No voices at the cursor", buses: "No bus data at the cursor", events: "No event instances at the cursor", music: "No music playing at the cursor" };
+
+/** The text a table of `kind` shows for `empty`. */
+export function tableEmptyText(kind: TableKind, empty: TableEmpty): string {
+  if (empty === "noCursor") return "Place the cursor on the timeline to read the tables";
+  if (empty === "noMatch") return "No rows match the filter";
+  if (empty === "none") return NONE[kind];
+  return EMPTY_STATES[empty];
 }
