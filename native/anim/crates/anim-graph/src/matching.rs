@@ -42,8 +42,12 @@
 //! output poses (the pose history; the rest pose before there are two) in character space (each
 //! pose's own root-bone frame, so baked and unbaked poses both work), with the character's world
 //! movement between those two poses (recorded by this node's Pose phase) as the root delta; the
-//! controller decides. A **switch** starts the embedded clip player at the picked clip (the
-//! database's clip list, bound with `posedb_bind`) and time, and asks the nearest ancestor
+//! controller decides. The controller's playhead is the time of the pose the query was built from
+//! (the one shown last), so its continuation is compared with that pose, and the clip player runs
+//! one step ahead of it (the pose shown next); without that offset the continuation always looks a
+//! frame off and the search keeps jumping to the same phase a cycle away. A **switch** starts the
+//! embedded clip player at the picked clip (the database's clip list, bound with `posedb_bind`) and
+//! time plus the step, and asks the nearest ancestor
 //! `INERTIALIZE` node for a transition (the graph's routing); a switch to within one database frame
 //! of what already plays keeps playing. Root motion is the matched clip's root curve; on a switch
 //! update it is the old clip's last step. Notifies and timing are the player's.
@@ -588,10 +592,12 @@ fn update(cx: &mut EvalContext<'_>, node: &NodeData<'_>) {
                 *o = v.to_bits();
             }
             s[state::SWITCH_FLAG] = (current != 0) as u32;
+            // The controller's time is the pose shown last (the query's), the player's the one
+            // shown next: one step ahead.
             sources::start_play(
                 &mut s[state::PLAYER..state::PLAYER + player::WORDS as usize],
                 target,
-                o.time,
+                o.time + dt,
                 1.0,
                 0,
                 0,
