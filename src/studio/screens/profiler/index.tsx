@@ -16,7 +16,7 @@ import { recorderStatus } from "./captureRecorder";
 import { isCapturePath, NO_CAPTURES } from "./captureTree";
 import { CURSOR_KEYS } from "./cursorKeys";
 import { messageCounts } from "./messagesModel";
-import { AtCursor, MessageList, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
+import { AtCursor, MessageList, ReplayOrigin, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
 import { deleteCapture, importCaptures, moveCapture, openCapture, profilerRecorder, profilerStore, renameCapture } from "./profilerScreen";
 import { ProfilerTimeline } from "./ProfilerTimeline";
 import { RecordButton, whyNotRecord } from "./RecordButton";
@@ -86,9 +86,9 @@ function useScreen(): void {
         void tick.value;
         const live = s.kind === "open" && s.origin === "live";
         setPlayerSlots("profiler", {
-          nowPlaying: s.kind === "open" ? { art: "CAP", title: s.title, subtitle: `Capture · ${clockText(data?.duration ?? 0)}${live ? " · live" : ""}` } : null,
+          nowPlaying: s.kind === "open" ? { art: "CAP", title: s.title, subtitle: `${s.replayOf ? "Replay capture" : "Capture"} · ${clockText(data?.duration ?? 0)}${live ? " · live" : ""}` } : null,
           transport: <ProfilerTransport />,
-          status: recorderStatus(rec, profilerRecorder().seconds) ?? (s.kind === "open" && data ? `Cursor ${clockText(store.cursor.value)}` : undefined),
+          status: recorderStatus(rec, profilerRecorder().seconds, profilerRecorder().replayOf) ?? (s.kind === "open" && data ? `Cursor ${clockText(store.cursor.value)}` : undefined),
         });
       }),
     ];
@@ -111,6 +111,7 @@ function TimelinePanel() {
         Problems only
       </button>
       <SegmentedControl<GroupBy> size="small" label="Group voices" options={GROUPS} value={store.groupBy.value} onChange={(v) => (store.groupBy.value = v)} />
+      {s.kind === "open" && s.replayOf && <ReplayOrigin take={s.replayOf} onOpenTake={(path) => openRoute({ screen: "take", asset: path })} />}
       {data && <span class="pf-counts">{countsText(data.messages)}</span>}
     </div>
   );

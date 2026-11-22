@@ -53,6 +53,8 @@ export const CAPTURE_RECORD_MAX_BYTES = 262_144;
 export const CAPTURE_RECORD_HEAD_BYTES = 20;
 /** A name (META or NAMES), UTF-8 bytes. META names are cut to it; a NAMES record past it is refused. */
 export const CAPTURE_NAME_MAX_BYTES = 256;
+/** ADR 0334: META `replayOf.path`, UTF-8 bytes (cut to it). */
+export const CAPTURE_PATH_MAX_BYTES = 1024;
 /** Names in all tables together, META and NAMES records. */
 export const CAPTURE_MAX_NAMES = 65_536;
 /** MARKER text, UTF-8 bytes (also `CAPTURE_MARK_BYTES` in `capture.ts`). */
@@ -379,6 +381,16 @@ export interface CaptureMeta {
   names: Record<NameTable, Map<number, string>>;
   /** ADR 0334: a take's section (seed, audio hash, emitter names), as parsed JSON; null in a capture. The take reader checks it. */
   take: unknown;
+  /** ADR 0334: the take a replay capture recorded the Studio playing (its project path and `audio.json` hash); null otherwise. */
+  replayOf: CaptureReplayOf | null;
+}
+
+/** ADR 0334: the take a capture of the Studio's replay names in META (`replayOf`). */
+export interface CaptureReplayOf {
+  /** The take file's project path. */
+  path: string;
+  /** META `take.audioHash` of that take: which `audio.json` it was recorded against. */
+  audioHash: string;
 }
 
 /** What a writer supplies: names as `{ [id]: name }` objects or `Map`s. */
@@ -391,6 +403,8 @@ export interface CaptureMetaInit {
   names: Partial<Record<NameTable, ReadonlyMap<number, string> | Readonly<Record<number, string>>>>;
   /** ADR 0334: a take's META section; absent in a capture. */
   take?: TakeMetaSection;
+  /** ADR 0334: the take a capture of the Studio's replay recorded; absent otherwise. */
+  replayOf?: CaptureReplayOf;
 }
 
 const utf8Encoder = new TextEncoder();
@@ -427,7 +441,18 @@ export function encodeCaptureMeta(meta: CaptureMetaInit): Uint8Array {
     names[t] = out;
   }
   const device = { ...meta.device, userAgent: cutUtf8(meta.device.userAgent, CAPTURE_USER_AGENT_MAX_BYTES) };
-  return utf8Encoder.encode(JSON.stringify({ project: meta.project, engine: meta.engine, device, audio: meta.audio, target: meta.target, names, ...(meta.take ? { take: meta.take } : {}) }));
+  return utf8Encoder.encode(JSON.stringify({ project: meta.project, engine: meta.engine, device, audio: meta.audio, target: meta.target, names, ...(meta.take ? { take: meta.take } : {}), ...(meta.replayOf ? { replayOf: replayOfJson(meta.replayOf) } : {}) }));
+}
+
+/** A replay capture's `replayOf`, its strings cut as the reader would. */
+function replayOfJson(r: CaptureReplayOf): CaptureReplayOf {
+  return { path: cutUtf8(String(r.path), CAPTURE_PATH_MAX_BYTES), audioHash: cutUtf8(String(r.audioHash), CAPTURE_NAME_MAX_BYTES) };
+}
+
+/** META `replayOf` as read: both strings, cut; anything else (absent, malformed) is null, never a refusal. */
+function readReplayOf(v: unknown): CaptureReplayOf | null {
+  if (!isObject(v) || typeof v.path !== "string" || typeof v.audioHash !== "string" || v.path === "") return null;
+  return replayOfJson({ path: v.path, audioHash: v.audioHash });
 }
 
 /**
@@ -479,6 +504,7 @@ export function decodeCaptureMeta(bytes: Uint8Array, offset = 0): CaptureMeta {
     target: m.target ?? null,
     names,
     take: m.take ?? null,
+    replayOf: readReplayOf(m.replayOf),
   };
   if (device.deviceMemory !== undefined) out.device.deviceMemory = num(device.deviceMemory, "META.device.deviceMemory");
   return out;

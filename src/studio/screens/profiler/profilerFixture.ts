@@ -3,7 +3,7 @@
 // real reader and Worker. Twelve seconds of a hover-bike run: an engine loop, boosts (the third blocked by a voice
 // limit), impacts (one stolen), a missing dialogue file, Music ducked from 4 s to 7 s, a Speed parameter, a marker and a
 // music transition. Never imported by the screen's code.
-import { EventKind, RecordType, assembleCapture, encodeKeyframe, keyframeBytes, type CaptureRecordInit, type KeyframeBus, type KeyframePayload } from "../../../plugins/audio/runtime/capture/format";
+import { EventKind, RecordType, assembleCapture, encodeKeyframe, keyframeBytes, type CaptureRecordInit, type CaptureReplayOf, type KeyframeBus, type KeyframePayload } from "../../../plugins/audio/runtime/capture/format";
 import { EMPTY_KEYFRAME_PAYLOAD, SAMPLE_HEADER, SAMPLE_META, SAMPLE_RATE, statusBytesWith } from "../../../plugins/audio/runtime/capture/testSupport";
 
 /** Frames per STATUS block (6 quanta of 128). */
@@ -100,8 +100,8 @@ export function fixtureRecords(seconds = FIXTURE_SECONDS): CaptureRecordInit[] {
   return out;
 }
 
-/** The fixture as a stored capture file with an INDEX. */
-export function fixtureCapture(seconds = FIXTURE_SECONDS): Uint8Array {
-  const meta = { ...SAMPLE_META, names: { ...SAMPLE_META.names, ...FIXTURE_NAMES }, target: null };
+/** The fixture as a stored capture file with an INDEX; `replayOf` makes it a replay capture of that take (ADR 0334). */
+export function fixtureCapture(seconds = FIXTURE_SECONDS, replayOf?: CaptureReplayOf): Uint8Array {
+  const meta = { ...SAMPLE_META, names: { ...SAMPLE_META.names, ...FIXTURE_NAMES }, target: null, ...(replayOf ? { replayOf } : {}) };
   return assembleCapture(SAMPLE_HEADER, meta, fixtureRecords(seconds), { index: true });
 }

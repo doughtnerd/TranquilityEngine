@@ -30,7 +30,7 @@ import { audioBackend, onMixOpSent } from "../backend";
 import { mixer } from "../../../../engine/audio/mixer";
 import { loudnessTarget } from "../mix/loudnessHub";
 import type { EpochContext } from "./events";
-import type { CaptureHeaderInit, CaptureMetaInit, NameTable } from "./format";
+import type { CaptureHeaderInit, CaptureMetaInit, CaptureReplayOf, NameTable } from "./format";
 import { NO_NAME } from "./keyframeLayout";
 import { KeyframeRows } from "../audioRows";
 import type { RingSpan } from "./ring";
@@ -107,6 +107,18 @@ let projectInfo: () => { name: string; version: string } = () => ({ name: typeof
 /** @internal Where a shell (the player, the editor) says which project a capture belongs to. */
 export function setCaptureProject(info: () => { name: string; version: string }): void {
   projectInfo = info;
+}
+
+/** ADR 0334: the take the Studio is replaying while it records itself, named in the META of captures started meanwhile. */
+let replayOf: CaptureReplayOf | null = null;
+
+/**
+ * @internal ADR 0334 "Profiling a take as it plays": the Studio says which take it replays (its path and `audio.json` hash)
+ * before it starts a capture of its own runtime, and null when it stops; a capture started meanwhile names it in META
+ * `replayOf`, so the Profiler shows which take the replay capture came from.
+ */
+export function setCaptureReplayOf(take: CaptureReplayOf | null): void {
+  replayOf = take ? { path: String(take.path), audioHash: String(take.audioHash) } : null;
 }
 
 /** The seam `editor/mix/liveFollow.ts` calls (`LiveHost` and `LiveRecording`, restated: the runtime never imports the editor). */
@@ -714,6 +726,7 @@ class Capture implements AudioCapture {
       audio,
       target: targets.find((t) => t.name === inForce) ?? null,
       names: { buses, targets: targetNames },
+      ...(replayOf ? { replayOf: { ...replayOf } } : {}),
     };
   }
 }

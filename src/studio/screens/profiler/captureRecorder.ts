@@ -9,6 +9,7 @@ import { signal } from "@preact/signals";
 import type { AudioCapture } from "../../../plugins/audio/runtime";
 import { LiveFollow, type LiveFollowOptions, type LiveHost } from "../../../plugins/audio/editor/mix/liveFollow";
 import type { ProfileSource } from "../../../plugins/audio/editor/mix/profilerSource";
+import type { CaptureReplayOf } from "../../../plugins/audio/runtime/capture/format";
 import { nextCapturePath } from "./captureTree";
 import type { ProfilerStore } from "./profilerStore";
 
@@ -33,14 +34,22 @@ export interface RecorderSeams {
   write(path: string, bytes: Uint8Array): Promise<string>;
   /** `LiveFollow` options (tests: the scheduler and the source's Worker). */
   readonly liveOptions?: Partial<Omit<LiveFollowOptions, "host" | "onUpdate">>;
+  /** ADR 0334: the take the Studio is replaying now (its path and `audio.json` hash), or null; read when Record starts. */
+  replaying?(): CaptureReplayOf | null;
+  /** ADR 0334: name `take` in the META of the capture about to start (null: none); the capture module's `setCaptureReplayOf`. */
+  nameReplay?(take: CaptureReplayOf | null): void;
 }
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** A take's file name from its project path. */
+export const takeName = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
 
 export class CaptureRecorder {
   readonly state = signal<RecorderState>({ kind: "idle" });
   private follow: LiveFollow | null = null;
   private shown: ProfileSource | null = null;
+  private replay: CaptureReplayOf | null = null;
 
   constructor(private readonly seams: RecorderSeams) {}
 
@@ -54,13 +63,22 @@ export class CaptureRecorder {
     return this.seams.capture.seconds;
   }
 
-  /** Record: start the capture and follow it live. */
+  /** The take this recording is a replay capture of (named in its META), or null. */
+  get replayOf(): CaptureReplayOf | null {
+    return this.replay;
+  }
+
+  /** Record: start the capture and follow it live. While a take replays, the capture names it (ADR 0334). */
   async start(): Promise<void> {
     if (this.recording || this.state.peek().kind === "saving") return;
     this.state.value = { kind: "starting" };
+    this.replay = this.seams.replaying?.() ?? null;
+    this.seams.nameReplay?.(this.replay);
     try {
       await this.seams.capture.start();
     } catch (e) {
+      this.seams.nameReplay?.(null);
+      this.replay = null;
       this.state.value = { kind: "failed", message: `Couldn't start a capture: ${messageOf(e)}` };
       return;
     }
@@ -75,7 +93,7 @@ export class CaptureRecorder {
         if (!m.source) return;
         if (m.source !== this.shown) {
           this.shown = m.source;
-          void this.seams.store.openLive(m.source, "Recording the Studio");
+          void this.seams.store.openLive(m.source, this.replay ? `Recording the replay of ${takeName(this.replay.path)}` : "Recording the Studio");
         } else void this.seams.store.refreshLive();
       },
     });
@@ -86,6 +104,8 @@ export class CaptureRecorder {
   async stop(): Promise<void> {
     if (!this.recording) return;
     this.seams.capture.stop();
+    this.seams.nameReplay?.(null);
+    this.replay = null;
     this.follow?.stop();
     this.follow = null;
     if (this.shown) this.seams.store.close();
@@ -114,14 +134,14 @@ export class CaptureRecorder {
 }
 
 /** What the player bar's status says of the recorder. */
-export function recorderStatus(state: RecorderState, seconds: number): string | null {
+export function recorderStatus(state: RecorderState, seconds: number, replayOf: CaptureReplayOf | null = null): string | null {
   switch (state.kind) {
     case "idle":
       return null;
     case "starting":
       return "Starting a capture…";
     case "recording":
-      return `Recording the Studio · ${seconds.toFixed(1)} s`;
+      return `${replayOf ? `Recording the replay of ${takeName(replayOf.path)}` : "Recording the Studio"} · ${seconds.toFixed(1)} s`;
     case "saving":
       return "Saving the capture…";
     case "saved":

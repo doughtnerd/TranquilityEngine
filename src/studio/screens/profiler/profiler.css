@@ -17,6 +17,8 @@
 .pf-toggle { background: var(--button); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 2px 8px; }
 .pf-toggle:hover { background: var(--button-hover); }
 .pf-toggle.on { background: var(--warning-soft); border-color: var(--warning); color: var(--text-strong); }
+.pf-replay-of { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.pf-replay-of strong { color: var(--text); font-weight: 600; }
 .pf-counts { margin-left: auto; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 
 /* Timeline */

@@ -7,7 +7,8 @@ import { importFiles, whyNotImportable } from "../../../editor/assetImportFiles"
 import { deleteAssets } from "../../../editor/assetDelete";
 import { currentProject, status } from "../../../editor/state";
 import { CaptureSource } from "../../../plugins/audio/editor/mix/profilerSource";
-import { captureFileBytes, captureLiveHost } from "../../../plugins/audio/runtime/capture/capture";
+import { captureFileBytes, captureLiveHost, setCaptureReplayOf } from "../../../plugins/audio/runtime/capture/capture";
+import { replayStore } from "../../shell/replay";
 import { moveStudioAssets, renameStudioAsset } from "../../boot/studioAssetMoves";
 import { audioHost, openRoute } from "../../shell/studioServices";
 import { CaptureRecorder } from "./captureRecorder";
@@ -62,6 +63,12 @@ export function profilerRecorder(): CaptureRecorder {
     // The take's file, as `Audio.capture.save` would write it, written into the project on every platform (D13).
     fileBytes: captureFileBytes,
     write: writeCapture,
+    // ADR 0334: a recording made while a take replays is that take's replay capture, and names it in META.
+    replaying: () => {
+      const open = replayStore().open.peek();
+      return open && open.replay.playing.peek() ? { path: open.path, audioHash: open.take.meta.audioHash } : null;
+    },
+    nameReplay: setCaptureReplayOf,
   }));
 }
 
