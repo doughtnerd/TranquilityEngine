@@ -87,7 +87,7 @@ function instanceAutomation(host: NodeHost, ctx: Ctx, body: PlaylistBody, where:
  * ADR 0334: one decision, for the capture's "Why it played" chain (a `pick` EVENT after the instance's `eventStart`):
  * nothing while no recorder runs, or for an instance without a group.
  */
-function notePick(host: NodeHost, ctx: Ctx, type: ProfilePick["type"], choice: number, label: string | null = null, weights: ProfilePick["weights"] = null): void {
+export function notePick(host: NodeHost, ctx: Ctx, type: ProfilePick["type"], choice: number, label: string | null = null, weights: ProfilePick["weights"] = null): void {
   const sink = taps.sink;
   if (sink === NULL_PROFILE_SINK || !sink.pick || !host.group) return;
   sink.pick({ instance: host.group, depth: ctx.depth, playlist: ctx.where, type, choice, label, weights });

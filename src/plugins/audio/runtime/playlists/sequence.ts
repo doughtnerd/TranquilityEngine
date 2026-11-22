@@ -51,7 +51,7 @@ import { automationParts, type TimeAuto } from "./levelAutomation";
 import { LiveNode, type Ctx, type LoopRun, type NodeHost, type PVoice } from "./liveNode";
 import { linkedPlaylist, loadPlaylist } from "./loader";
 import type { MusicalBoundary, MusicalPosition, MusicalSource } from "./musical";
-import { resolveBody } from "./nodes";
+import { notePick, resolveBody } from "./nodes";
 import { meterOf, sampleFacts, tempoGrid, type FactMarker, type SampleFacts } from "./sampleFacts";
 import { Playhead, type PlayheadLoop, type PlayheadMove } from "./sequencePlayhead";
 import { positionOn } from "./voiceMusical";
@@ -71,6 +71,8 @@ const PREDICT_SECONDS = 256;
 interface ClipRt {
   readonly clip: Clip;
   readonly track: Track;
+  /** Its place among the sequence's clips, in file order over all tracks. */
+  readonly index: number;
   /** Sequence seconds the clip starts and ends at (end Infinity: a playlist clip of its natural length). */
   readonly start: number;
   readonly end: number;
@@ -148,12 +150,14 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     } else this.grid = null;
     const anySolo = s.tracks.some((t) => t.solo && t.enabled);
     this.clips = [];
+    let index = 0; // every clip in file order, track by track (the capture's pick choice)
     s.tracks.forEach((track) => {
-      if (!track.enabled) return;
+      if (!track.enabled) { index += track.clips.length; return; }
       const trackCtx = this.trackCtx(track);
       for (const clip of track.clips) {
+        const i = index++;
         if (!clip.enabled) continue;
-        const rt = this.clipRt(clip, track, trackCtx, !track.mute && (!anySolo || track.solo));
+        const rt = this.clipRt(clip, i, track, trackCtx, !track.mute && (!anySolo || track.solo));
         if (rt) this.clips.push(rt);
       }
     });
@@ -183,13 +187,13 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     return { ctx, time };
   }
 
-  private clipRt(clip: Clip, track: Track, level: { ctx: Ctx; time: TimeAuto[] }, audible: boolean): ClipRt | null {
+  private clipRt(clip: Clip, index: number, track: Track, level: { ctx: Ctx; time: TimeAuto[] }, audible: boolean): ClipRt | null {
     const where = `${this.ctx.where} clip "${clip.id}"`;
     if (clip.reverse) warnOnce(`playlist:reverse:${this.ctx.where}:${clip.id}`, `[myco] ${where}: reverse playback isn't supported by the audio core yet; it plays forward.`);
     let ctx: Ctx = { ...level.ctx, props: accumulate(level.ctx.props, { gainDb: clip.gain, pitchSt: clip.pitch, pan: clip.pan, fx: playlistEffectProps(clip.effects, where) }) };
     const time = level.time.slice();
     ctx = automationParts(this.host, clip.automation, clip.effects, ctx, time, where);
-    const base = { clip, track, start: clip.at, sync: clip.sync, audible, ctx, time, inside: false, voice: null, pieceTo: Number.POSITIVE_INFINITY, node: null, driving: -1 };
+    const base = { clip, index, track, start: clip.at, sync: clip.sync, audible, ctx, time, inside: false, voice: null, pieceTo: Number.POSITIVE_INFINITY, node: null, driving: -1 };
     if (clip.sample === undefined) {
       return { ...base, end: clip.length > 0 ? clip.at + clip.length : Number.POSITIVE_INFINITY, facts: null, geo: null, loop: null, markers: [] };
     }
@@ -467,11 +471,14 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   private resolveClipPlaylist(c: ClipRt, u: number, at: number, fadeIn: number): LiveNode | null {
     const src = c.clip.playlist!;
     const ctx: Ctx = { ...c.ctx, at, fadeIn, timeCurves: this.timeCurves(c, u), depth: this.ctx.depth + 1 };
+    // ADR 0334 (D22): the clip is this sequence's pick, recorded before the picks of the playlist it resolves.
     if (typeof src === "string") {
       const body = linkedPlaylist(src, ctx.chain);
       if (!body) return null;
+      notePick(this.host, this.ctx, "sequence", c.index, c.clip.id);
       return resolveBody(this.host, body, { ...ctx, chain: [...ctx.chain, src] }, src, src);
     }
+    notePick(this.host, this.ctx, "sequence", c.index, c.clip.id);
     return resolveBody(this.host, src, ctx, `${this.key}/clip:${c.clip.id}`, this.ctx.where);
   }
 
