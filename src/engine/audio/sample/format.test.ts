@@ -268,3 +268,47 @@ describe("note names", () => {
     for (let n = 0; n < 128; n++) expect(noteNameToMidi(midiToNoteName(n)!)).toBe(n);
   });
 });
+
+describe("ADR 0340: lip-sync and voice-over in the sample block", () => {
+  const raw = {
+    lipsync: { set: "rhubarb", keys: [[0, "X"], [0.12, "B"], [0.31, "E"]] },
+    vo: { key: "intro_01", textHash: "3fa1c29e0b7d44a1" },
+  };
+
+  it("parses, writes and round-trips them", () => {
+    const problems: string[] = [];
+    const edits = parseSampleEdits(raw, "sample", problems);
+    expect(problems).toEqual([]);
+    expect(edits.lipsync).toEqual({ set: "rhubarb", keys: [[0, "X"], [0.12, "B"], [0.31, "E"]] });
+    expect(edits.vo).toEqual({ key: "intro_01", textHash: "3fa1c29e0b7d44a1" });
+    expect(sampleEditsToJson(edits)).toEqual(raw);
+    expect(parseSampleEdits(sampleEditsToJson(edits), "sample", [])).toEqual(edits);
+    expect("lipsync" in sampleEditsToJson(defaultSampleEdits())).toBe(false);
+  });
+
+  it("repairs keys, one problem each", () => {
+    const problems: string[] = [];
+    const edits = parseSampleEdits({
+      lipsync: { set: "rhubarb", keys: [[0.5, "A"], [0.2, "B"], [0.2, "C"], [-1, "A"], [0.4, "Q"], "x"] },
+      vo: { key: "bad key", textHash: "zz" },
+    }, "s", problems);
+    expect(edits.lipsync?.keys).toEqual([[0.2, "B"], [0.5, "A"]]);
+    expect(edits.vo).toBeUndefined();
+    expect(problems).toEqual([
+      "s.lipsync.keys[3]: must be [seconds ≥ 0, viseme]; dropped.",
+      's.lipsync.keys[4]: "Q" isn\'t a Rhubarb viseme (A–H, X); dropped.',
+      "s.lipsync.keys[5]: must be [seconds ≥ 0, viseme]; dropped.",
+      "s.lipsync.keys: keys were not in time order; sorted.",
+      "s.lipsync.keys: keys at the same time as the one before them were dropped.",
+      "s.vo: must be { key, textHash } with a line key and 16 hex digits; dropped.",
+    ]);
+    const custom = parseSampleEdits({ lipsync: { set: "custom", keys: [[0, "smile"], [1, "x".repeat(17)]] } }, "c", []);
+    expect(custom.lipsync).toEqual({ set: "custom", keys: [[0, "smile"]] });
+  });
+
+  it("follows the parent in a following fork", () => {
+    const parent = parseSampleEdits(raw, "p", []);
+    const fork = forkSample("audio/vo/en/intro_01.wav", "audio/vo/en/intro_01.wav", defaultSampleEdits(), "follow");
+    expect(resolveSampleEdits(fork, parent).lipsync).toEqual(parent.lipsync);
+  });
+});

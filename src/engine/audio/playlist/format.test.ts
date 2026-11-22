@@ -296,3 +296,30 @@ describe("sequence markers", () => {
     expect(again.playlist.sequence!.markers).toEqual(playlist.sequence!.markers);
   });
 });
+
+describe("ADR 0343 §4: captions; ADR 0340 §5: line entries", () => {
+  it("reads, writes and round-trips a caption", () => {
+    const { playlist, problems } = parsePlaylist({ format: "myco.playlist@1", type: "queue", caption: { key: "cc.door_slams", minGap: 2 }, entries: [] });
+    expect(problems).toEqual([]);
+    expect(playlist.caption).toEqual({ key: "cc.door_slams", minGap: 2 });
+    expect(playlistToJson(playlist).caption).toEqual({ key: "cc.door_slams", minGap: 2 });
+    expect(roundTrip(playlist)).toEqual({ playlist, problems: [] });
+    const short = parsePlaylist({ format: "myco.playlist@1", type: "queue", caption: { key: "cc.step" }, entries: [] }).playlist;
+    expect(playlistToJson(short).caption).toEqual({ key: "cc.step" });
+    expect("caption" in playlistToJson(emptyPlaylist())).toBe(false);
+  });
+
+  it("drops a bad caption and clamps its gap, one problem each", () => {
+    const bad = parsePlaylist({ format: "myco.playlist@1", type: "queue", caption: { key: "not a key" }, entries: [] }, "p");
+    expect(bad.playlist.caption).toBeUndefined();
+    expect(bad.problems).toEqual(["p: caption: must be { key, minGap } with a string key; dropped."]);
+    const far = parsePlaylist({ format: "myco.playlist@1", type: "queue", caption: { key: "cc.x", minGap: 999 }, entries: [] }, "p");
+    expect(far.playlist.caption).toEqual({ key: "cc.x", minGap: PLAYLIST_LIMITS.captionGap });
+  });
+
+  it("reports a line entry and leaves it out until the line runtime lands", () => {
+    const { playlist, problems } = parsePlaylist({ format: "myco.playlist@1", type: "clip", entries: [{ sample: "audio/static.wav" }, { line: null }] }, "p");
+    expect(playlist.entries.map((e) => e.kind)).toEqual(["sample"]);
+    expect(problems).toEqual(["p: entries[1]: a line entry plays once voice-over lines are built (ADR 0340); dropped."]);
+  });
+});
