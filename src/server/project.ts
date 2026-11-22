@@ -121,7 +121,7 @@ export async function loadProjectScripts(project: ServerProject): Promise<readon
  */
 export async function loadProjectCode(project: ServerProject): Promise<{ loaded: readonly string[]; plugins: RuntimePlugin[] }> {
   const packages = nodePackageSource(project.root, "production");
-  const plan = await planPluginCode({ json: project.json, code: project.scripts, packages: packages.files, disabled: project.settings.plugins?.disabled }, { editor: false, server: true });
+  const plan = await planPluginCode({ json: project.json, code: project.scripts, packages: packages.files, disabled: project.settings.plugins?.disabled, assets: project.files }, { editor: false, server: true });
   if (plan.problems.length > 0) throw new ServerError(`Some plugins in "${project.root}" can't load:\n${plan.problems.map((p) => `  - ${p.where}: ${p.message}`).join("\n")}`);
   if (plan.code.size === 0 && plan.npmEntries.length === 0) return { loaded: [], plugins: [] };
   const result = await loadScripts(plan.code, project.json, packages, plan.npmEntries);

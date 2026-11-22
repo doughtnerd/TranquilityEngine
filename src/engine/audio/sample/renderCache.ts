@@ -8,9 +8,10 @@
  * The caller says how to read and write the cache (`RenderStore`) and how to render (`renderSample` itself, or a worker
  * that runs it). Works in the browser and in Node (Web Crypto's SHA-256).
  */
-import { effectsToJson } from "../effects/catalogue";
+import { effectsToJson, isPluginEffectType } from "../effects/catalogue";
 import { curveToJson } from "../lenientRead";
-import type { RenderedSample, SamplePcm } from "./sampleRender";
+import { offlineEffectHost, type OfflineEffectHost } from "./offlinePlugins";
+import { PLUGIN_NOT_RENDERED, type RenderedSample, type SamplePcm } from "./sampleRender";
 import type { SampleEdits } from "./types";
 import { encodeWavFloat32 } from "./wavEncode";
 
@@ -30,21 +31,31 @@ export interface RenderStore {
 /** Renders a sample (`renderSample`, or a worker running it). */
 export type SampleRenderer = (pcm: SamplePcm, edits: SampleEdits) => Promise<RenderedSample>;
 
-/** The edits a render depends on, as canonical JSON (what `renderSample` reads, nothing else). */
-export function renderInputs(edits: SampleEdits): string {
+/**
+ * The edits a render depends on, as canonical JSON (what `renderSample` reads, nothing else). ADR 0338 §7: each enabled
+ * plugin effect type adds its plugin's name, version and module hash as `plugins` knows them (default: the installed
+ * offline host), or `null` when none holds it, so a plugin update or install renders again.
+ */
+export function renderInputs(edits: SampleEdits, plugins: OfflineEffectHost | null = offlineEffectHost()): string {
+  const types = [...new Set(edits.effects.filter((f) => f.on && isPluginEffectType(f.type)).map((f) => f.type))].sort();
+  const identities = types.map((type) => {
+    const id = plugins?.identity(type) ?? null;
+    return { type, plugin: id && { name: id.plugin, version: id.version, hash: id.hash } };
+  });
   return JSON.stringify({
     v: RENDER_VERSION,
     effects: effectsToJson(edits.effects),
     automation: edits.automation.filter((a) => !a.bypass).map((a) => ({ target: a.target, curve: curveToJson(a.curve) })),
     gain: edits.normalize.mode === "off" ? 0 : edits.normalize.gainDb,
+    ...(identities.length > 0 && { plugins: identities }),
   });
 }
 
 const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("");
 
 /** The cache key of rendering `source` (the audio file's bytes) with `edits`: SHA-256, 64 hex digits. */
-export async function renderKey(source: Uint8Array, edits: SampleEdits): Promise<string> {
-  const head = new TextEncoder().encode(`${renderInputs(edits)}\n`);
+export async function renderKey(source: Uint8Array, edits: SampleEdits, plugins: OfflineEffectHost | null = offlineEffectHost()): Promise<string> {
+  const head = new TextEncoder().encode(`${renderInputs(edits, plugins)}\n`);
   const all = new Uint8Array(head.length + source.length);
   all.set(head, 0);
   all.set(source, head.length);
@@ -66,15 +77,24 @@ export interface CachedRender {
 
 /**
  * The render of `source` with `edits`: from the cache when it holds one, else decoded (`pcm`, only called on a miss),
- * rendered and stored. A store that fails to write still returns the render.
+ * rendered and stored. A store that fails to write still returns the render. A render in which a plugin effect passed
+ * through for want of its module (a renderer where it wasn't loaded) isn't stored: it isn't what its key names.
  */
-export async function cachedRender(store: RenderStore, source: Uint8Array, edits: SampleEdits, pcm: () => Promise<SamplePcm>, render: SampleRenderer): Promise<CachedRender> {
-  const key = await renderKey(source, edits);
+export async function cachedRender(
+  store: RenderStore,
+  source: Uint8Array,
+  edits: SampleEdits,
+  pcm: () => Promise<SamplePcm>,
+  render: SampleRenderer,
+  /** Where `render` runs plugin effects, for the key (default: the installed offline host). */
+  plugins: OfflineEffectHost | null = offlineEffectHost(),
+): Promise<CachedRender> {
+  const key = await renderKey(source, edits, plugins);
   const path = renderCachePath(key);
   const cached = await store.read(path).catch(() => null);
   if (cached && cached.length > 0) return { bytes: cached, hit: true, key, warnings: [] };
   const out = await render(await pcm(), edits);
   const bytes = encodeWavFloat32(out.pcm, out.channels, out.rate);
-  await store.write(path, bytes).catch(() => undefined);
+  if (!out.warnings.some((w) => w.includes(PLUGIN_NOT_RENDERED))) await store.write(path, bytes).catch(() => undefined);
   return { bytes, hit: false, key, warnings: out.warnings };
 }

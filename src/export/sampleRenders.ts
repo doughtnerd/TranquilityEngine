@@ -8,6 +8,7 @@
 // the Studio already cached in `.myco/cache/samples/` under the same content hash is shipped as it is. A source that
 // isn't a WAV can't be decoded here: it ships without its effects, said through `log` (Flatten it in the Studio).
 import { isDerivedSamplePath } from "../engine/audio/sample/format";
+import type { OfflineEffectHost } from "../engine/audio/sample/offlinePlugins";
 import { cachedRender, type RenderStore } from "../engine/audio/sample/renderCache";
 import { resolveSample, type SampleReader } from "../engine/audio/sample/resolve";
 import { needsRender, renderSample } from "../engine/audio/sample/sampleRender";
@@ -29,7 +30,13 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 export const exportRenderPath = (source: string, key: string): string => `${source.replace(/\.[^./]+$/, "")}.render-${key.slice(0, 12)}.wav`;
 
 /** The plan with every baked sample that needs it rendered (see the file header). */
-export async function withRenderedSamples(plan: WebBuildPlan, read: ReadProjectFile, log: (line: string) => void = () => {}): Promise<WebBuildPlan> {
+export async function withRenderedSamples(
+  plan: WebBuildPlan,
+  read: ReadProjectFile,
+  log: (line: string) => void = () => {},
+  /** ADR 0338 §7: where plugin effects render, the build's own modules (`withAudioEffects`); null: they pass through. */
+  plugins: OfflineEffectHost | null = null,
+): Promise<WebBuildPlan> {
   const files = new Set(plan.copies);
   const json = new Map<string, unknown>();
   const readJson = async (path: string): Promise<unknown> => {
@@ -90,7 +97,7 @@ export async function withRenderedSamples(plan: WebBuildPlan, read: ReadProjectF
         const pcm = decodeWavPcm(source);
         if (!pcm) throw new Error(`${r.source} isn't a WAV the export can read`);
         return pcm;
-      }, renderSample);
+      }, (p, e) => renderSample(p, e, { plugins }), plugins);
     } catch (err) {
       log(`${path}: its baked effects couldn't be rendered (${(err as Error)?.message ?? err}); it ships without them.`);
       continue;

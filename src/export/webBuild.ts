@@ -19,6 +19,7 @@ import { audioEventRefusal, isAudioEventPath } from "../engine/audio/retiredAudi
 import { projectScriptAssetRefs } from "../engine/scene/scriptAssetRefs";
 import { planPluginCode, type BuiltPlugin } from "../plugins/thirdParty";
 import type { AudioReport } from "./audio";
+import { planAudioEffects, type PlannedAudioEffect } from "./audioEffects";
 import { ENGINE_FILE, MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, modulePath, relativeSpecifier, type GameManifest } from "./format";
 
 /** A project to build, however it was read. */
@@ -64,6 +65,11 @@ export interface WebBuildPlan {
   readonly omit?: ReadonlySet<string>;
   /** ADR 0337 §5 step 6: what the audio step converted and packaged (`audio-report.json`); absent before it ran. */
   readonly audioReport?: AudioReport;
+  /**
+   * ADR 0338 §8: the enabled plugins' audio modules the build ships (`audioEffects.ts`); the build writer hashes them
+   * and writes `game.json`'s `audioEffects`. Absent: none.
+   */
+  readonly audioEffects?: readonly PlannedAudioEffect[];
 }
 
 /** A project that can't be built: scripts that don't compile, a missing bootstrap script or scene. */
@@ -176,7 +182,7 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   if (events.length > 0) {
     throw new ExportError(`${audioEventRefusal("Export", events[0]!)}${events.length > 1 ? ` (${events.length} audio event files in all)` : ""}`, events.map((path) => ({ path, message: audioEventRefusal("Export", path) })));
   }
-  const copies = source.files.filter(isExportedFile).sort();
+  let copies = source.files.filter(isExportedFile).sort();
   const bootstrap = source.settings.bootstrap;
   if (typeof bootstrap === "string" && !source.scripts.has(bootstrap.replace(/^\.?\//, ""))) {
     throw new ExportError(`project.json's bootstrap is the script "${bootstrap}", which the project doesn't have.`);
@@ -186,13 +192,16 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
 
   // Third-party plugins (ADR 0139): the enabled ones' runtime halves build with the scripts; a refused plugin stops the build.
   const pluginPlan = await planPluginCode(
-    { json: source.json, code: source.scripts, packages: source.packages?.files, disabled: source.settings.plugins?.disabled },
+    { json: source.json, code: source.scripts, packages: source.packages?.files, disabled: source.settings.plugins?.disabled, assets: source.files },
     { editor: false },
   );
   if (pluginPlan.problems.length > 0) {
     const list = pluginPlan.problems.map((p) => `  - ${p.where}: ${p.message}`).join("\n");
     throw new ExportError(`Some plugins can't be built:\n${list}`, pluginPlan.problems.map((p) => ({ path: p.where, message: p.message })));
   }
+  // ADR 0338 §8: the enabled plugins' audio modules ship (hashed into game.json by the build writer); a disabled one's don't.
+  const audioEffects = planAudioEffects(pluginPlan.plugins, pluginPlan.enabled);
+  if (audioEffects.leaveOut.size > 0) copies = copies.filter((p) => !audioEffects.leaveOut.has(p));
   const { order, files, packageEntries } = await compileForBuild(pluginPlan.code, source.json, source.packages, pluginPlan.npmEntries);
   const plugins: BuiltPlugin[] = pluginPlan.runtime.map((p) => ({ manifest: p.manifest, module: p.source.kind === "project" ? modulePath(p.runtime!) : packageEntries.get(p.runtime!)! }));
   const name = typeof source.settings.name === "string" && source.settings.name ? source.settings.name : source.name;
@@ -213,7 +222,7 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   generated.set(MANIFEST_FILE, `${JSON.stringify(manifest, null, 2)}\n`);
   generated.set("serve.mjs", SERVE_SCRIPT);
   generated.set("README.txt", webReadme(name));
-  return { manifest, copies, generated };
+  return { manifest, copies, generated, ...(audioEffects.modules.length > 0 && { audioEffects: audioEffects.modules }) };
 }
 
 /** Model files the build bakes (ADR 0090; the same extensions as `scene/models.ts`, which isn't imported here). */

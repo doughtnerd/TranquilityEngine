@@ -11,6 +11,7 @@
 //   serve.mjs      a tiny static server (`node serve.mjs`), since browsers won't load modules from file://
 //   README.txt     how to run it
 
+import type { PluginEffectDecl } from "../engine/audio/effects/types";
 import type { LoadMode } from "../engine/audio/encoding/types";
 import type { PackCodec } from "../engine/audio/packaging/format";
 import type { ImportPlatform } from "../engine/scene/importSettings";
@@ -69,6 +70,27 @@ export interface GameManifest {
    * `Assets`. Omitted when nothing was converted or packaged (every sound ships loose, as before).
    */
   readonly audio?: AudioManifest;
+  /**
+   * ADR 0338 §8: the enabled plugins' audio effect modules, one entry per module, which the player registers before
+   * `Engine.create` (so the first scene's chains find them). Omitted when no enabled plugin has an `audio` section.
+   */
+  readonly audioEffects?: readonly AudioEffectsEntry[];
+}
+
+/** One plugin audio module in a build (`game.json`'s `audioEffects`, ADR 0338 §8). */
+export interface AudioEffectsEntry {
+  readonly plugin: string;
+  readonly title?: string;
+  readonly version: string;
+  /** The module's id in the plugin's `audio.modules`. */
+  readonly module: string;
+  /** The module file, relative to the build's root (`project/plugins/...`, or `code/deps/plugins/<name>/...` for an npm plugin). */
+  readonly url: string;
+  /** The module file's SHA-256, hex: the player refuses bytes that don't match. */
+  readonly hash: string;
+  readonly memoryMB: number;
+  /** The effects the module holds, as the manifest's `audio` section was parsed (`parsePluginAudio`). */
+  readonly effects: readonly PluginEffectDecl[];
 }
 
 /** `game.json`'s `audio` (ADR 0337 §7). */

@@ -181,14 +181,16 @@ function buildOffline() {
 /** Renders a 10 ms stereo impulse through a 100 ms delay (no feedback, 50 % mix) with the built offline wasm, checks the
  *  echo lands 100 ms in, and returns the source hash it embeds (hex). Exits 1 on a mismatch. */
 function smokeOffline(path) {
-  const { exports: x } = new WebAssembly.Instance(new WebAssembly.Module(readFileSync(path)), {});
+  // ABI 1.1 (ADR 0338 B5): plugin effects go through `myco_ext`; stubs with no plugins (`acquire` 0) bind it here.
+  const myco_ext = { acquire: () => 0, release: () => {}, describe: () => 0, process: () => -1, sweep: () => {} };
+  const { exports: x } = new WebAssembly.Instance(new WebAssembly.Module(readFileSync(path)), { myco_ext });
   const rate = 48000, frames = 480, channels = 2;
   const pcm = x.myco_offline_alloc(frames * channels * 4);
   const input = new Float32Array(x.memory.buffer, pcm, frames * channels);
   input.fill(0);
   input[0] = input[1] = 1;
-  // version, 1 effect, 0 lanes, 0 segments, tail cap 10 s; delay (catalogue index 14): 100 ms, 0 %, 50 %.
-  const spec = [1, 1, 0, 0, 10, 14, 1, 100, 0, 50, 0, 0, 0, 0, 0];
+  // version 2, 1 effect, 0 lanes, 0 segments, tail cap 10 s; delay (catalogue index 14): 100 ms, 0 %, 50 % (16 parameters).
+  const spec = [2, 1, 0, 0, 10, 14, 1, 100, 0, 50, ...new Array(13).fill(0)];
   const sp = x.myco_offline_alloc(spec.length * 8);
   new Float64Array(x.memory.buffer, sp, spec.length).set(spec);
   const h = x.myco_offline_render(pcm, frames, channels, rate, sp, spec.length);

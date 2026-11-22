@@ -7,8 +7,11 @@ import { useRef, useState } from "preact/hooks";
 import { effectSpec } from "../../engine/audio/effects/catalogue";
 import type { Effect, EffectLevel } from "../../engine/audio/effects/types";
 import { ContextMenu } from "../../editor/ui/ContextMenu";
-import { addEffect, effectMenu, moveEffect, nextEffectId, removeEffect, setEffectKey, setEffectOn, setEffectParam, type EditResult } from "./effectChainModel";
+import { SEPARATOR, type MenuEntry } from "../../editor/ui/contextMenuModel";
+import type { AudioPluginDebug } from "../../plugins/audio/runtime/debugTypes";
+import { addEffect, effectMenuGroups, moveEffect, nextEffectId, removeEffect, setEffectKey, setEffectOn, setEffectParam, type EditResult, type EffectMenuItem } from "./effectChainModel";
 import { EffectCard } from "./EffectCard";
+import { resetPluginEffect, usePluginHealth } from "./EffectChainHealth";
 import "./audioParts.css";
 
 export interface EffectChainProps {
@@ -29,10 +32,32 @@ export interface EffectChainProps {
   onEdit(result: EditResult<Effect[]>, label: string, drag?: boolean): void;
   /** Automate ◆ on a card. */
   onAutomate?(effectId: string): void;
+  /**
+   * ADR 0338 §9: plugin effect health rows (`Audio.debug().plugins`). Absent: the chain reads the runtime's own while it
+   * holds a plugin effect (`EffectChainHealth.ts`).
+   */
+  readonly pluginHealth?: readonly AudioPluginDebug[];
+  /** Reset plugin on a card (default: the running backend's `effectPlugins.reset`). */
+  onResetPlugin?(type: string): void;
+}
+
+/** The Add effect menu's entries: the built-ins, then each plugin's effects under its title (ADR 0338 §9). */
+function menuEntries(level: EffectLevel, add: (item: EffectMenuItem) => void): MenuEntry[] {
+  const groups = effectMenuGroups(level);
+  const entries: MenuEntry[] = groups.builtins.map((item) => ({ id: item.type, label: item.label, run: () => add(item) }));
+  for (const g of groups.plugins) {
+    entries.push(SEPARATOR, { id: `plugin:${g.plugin}`, label: g.title, disabled: true, title: `Effects of the plugin ${g.title} ${g.version}`.trim(), run: () => {} });
+    for (const item of g.items) entries.push({ id: item.type, label: item.label, hint: g.title, title: `${item.label} (${g.title})`, run: () => add(item) });
+  }
+  return entries;
 }
 
 export function EffectChain(props: EffectChainProps) {
   const { effects, level, onEdit } = props;
+  const hasPlugin = effects.some((e) => effectSpec(e.type).plugin !== undefined);
+  const live = usePluginHealth(hasPlugin && props.pluginHealth === undefined);
+  const health = props.pluginHealth ?? live;
+  const resetPlugin = props.onResetPlugin ?? ((type: string) => void resetPluginEffect(type));
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [menu, setMenu] = useState(false);
   const addButton = useRef<HTMLButtonElement>(null);
@@ -85,6 +110,8 @@ export function EffectChain(props: EffectChainProps) {
             onRemove={() => onEdit(removeEffect(effects, effect.id), `Remove ${label}`)}
             onKey={(bus) => onEdit(setEffectKey(effects, effect.id, bus, props.ownBus), `Set ${label} key`)}
             onAutomate={props.onAutomate ? () => props.onAutomate!(effect.id) : undefined}
+            pluginHealth={health.find((h) => h.type === effect.type) ?? null}
+            onResetPlugin={() => resetPlugin(effect.type)}
           />
         );
       })}
@@ -92,15 +119,11 @@ export function EffectChain(props: EffectChainProps) {
         <ContextMenu
           label="Add effect"
           at={addButton.current ?? { x: 0, y: 0 }}
-          entries={effectMenu(level).map((item) => ({
-            id: item.type,
-            label: item.label,
-            run: () => {
-              const id = nextEffectId(effects);
-              onEdit(addEffect(effects, item.type, level, { limit: props.limit }), `Add ${item.label}`);
-              toggle(id, true);
-            },
-          }))}
+          entries={menuEntries(level, (item) => {
+            const id = nextEffectId(effects);
+            onEdit(addEffect(effects, item.type, level, { limit: props.limit }), `Add ${item.label}`);
+            toggle(id, true);
+          })}
           onClose={() => setMenu(false)}
         />
       )}

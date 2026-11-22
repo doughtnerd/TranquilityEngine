@@ -19,6 +19,8 @@ import { messageCounts } from "./messagesModel";
 import { AtCursor, MessageList, ReplayOrigin, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
 import { deleteCapture, importCaptures, moveCapture, openCapture, profilerRecorder, profilerStore, renameCapture } from "./profilerScreen";
 import { ProfilerTimeline } from "./ProfilerTimeline";
+import { PluginHealth } from "./PluginHealth";
+import { resetPluginEffect, usePluginHealth } from "../../components/EffectChainHealth";
 import { RecordButton, whyNotRecord } from "./RecordButton";
 import { clockText, valueAt } from "./timelineGeometry";
 import type { GroupBy } from "./voiceModel";
@@ -192,6 +194,16 @@ function MessagesPanel() {
   );
 }
 
+/** ADR 0338 §9: the running plugin effects' health, live from the runtime, with Reset plugin. */
+function PluginsPanel() {
+  const rows = usePluginHealth(true);
+  return (
+    <Panel bodyClass="pf-panel-body">
+      <PluginHealth rows={rows} onReset={(type) => void resetPluginEffect(type)} />
+    </Panel>
+  );
+}
+
 /** The screen's panels, in the prototype's places. */
 export const PROFILER_PANELS: readonly StudioPanel[] = [
   { id: "profiler-captures", title: "Captures", dock: "left", view: () => <CapturesPanel /> },
@@ -200,4 +212,5 @@ export const PROFILER_PANELS: readonly StudioPanel[] = [
   { id: "profiler-voice", title: "Voice", dock: "right", view: () => <VoicePanel /> },
   { id: "profiler-why", title: "Why it played", dock: "right", view: () => <WhyPanel /> },
   { id: "profiler-messages", title: "Messages", dock: "bottom", view: () => <MessagesPanel /> },
+  { id: "profiler-plugins", title: "Plugins", dock: "bottom", view: () => <PluginsPanel /> },
 ];

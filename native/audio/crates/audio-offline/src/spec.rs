@@ -2,9 +2,10 @@
 //! as one `f64` array (frames past 2^24 stay exact).
 //!
 //! ```text
-//! header   version (1), effects E, lanes A, time segments T, tail cap (seconds past the end)
-//! E ×      type (the catalogue's `EFFECT_TYPES` index), on (0/1), p[0..8] (the catalogue's
-//!          parameters in its order, defaults filled in, padded with 0)
+//! header   version (2), effects E, lanes A, time segments T, tail cap (seconds past the end)
+//! E ×      type (the catalogue's `EFFECT_TYPES` index, or `PLUGIN_BASE + e` for plugin effect `e`
+//!          of the render's `myco_ext` host; -1 for a type the caller can't run), on (0/1),
+//!          p[0..16] (the catalogue's parameters in its order, defaults filled in, padded with 0)
 //! T ×      output frame, source seconds   (sorted by frame; see `timemap.rs`)
 //! A ×      effect index, parameter index, min, max, key count K, then K × (x, y, interp,
 //!          inDx, inDy, outDx, outDy)   (x in source seconds, `curve.ts`'s keys)
@@ -16,13 +17,12 @@
 
 use audio_dsp::fx::{kind, PARAMS};
 
-/// The spec's version (its first value).
-pub const VERSION: f64 = 1.0;
+/// The spec's version (its first value). 2 since ADR 0338 B5: 16 parameters per effect and plugin effects.
+pub const VERSION: f64 = 2.0;
 /// Values in the header.
 pub const HEADER: usize = 5;
-/// Parameters per effect in a spec: 8, the catalogue's built-ins' most. The core's records carry 16 from ABI
-/// 5.0 (`PARAMS`, ADR 0338); plugin effects in offline renders are B5's, which widens this with its spec version.
-pub const SPEC_PARAMS: usize = 8;
+/// Parameters per effect in a spec: the core's records' 16 (`PARAMS`, ABI 5.0, ADR 0338), a plugin effect's most.
+pub const SPEC_PARAMS: usize = PARAMS;
 /// Values per effect.
 pub const EFFECT_STRIDE: usize = 2 + SPEC_PARAMS;
 /// Values per lane before its keys.
@@ -45,6 +45,9 @@ pub enum Op {
     NoiseReduction,
     /// Offline only: `reverse`.
     Reverse,
+    /// ADR 0338 §7: plugin effect `e` (its kind `PLUGIN_BASE + e`), run block by block through the
+    /// `myco_ext` import (`audio_core::ext`) as the core's chains run it.
+    Plugin(u32),
     /// A type index this build doesn't know: passed through, with a warning.
     Unknown,
 }
@@ -74,12 +77,17 @@ pub const CATALOGUE: [Op; 20] = [
     Op::Reverse,                  // reverse
 ];
 
-/// The op of catalogue type index `ty`.
+/// The op of catalogue type index `ty` (or `PLUGIN_BASE + e`, a plugin effect).
 pub fn op_of(ty: f64) -> Op {
-    if ty >= 0.0 && ty.fract() == 0.0 && (ty as usize) < CATALOGUE.len() {
-        CATALOGUE[ty as usize]
-    } else {
-        Op::Unknown
+    if !(ty >= 0.0 && ty.fract() == 0.0) {
+        return Op::Unknown;
+    }
+    if (ty as usize) < CATALOGUE.len() {
+        return CATALOGUE[ty as usize];
+    }
+    match kind::plugin(ty.min(u32::MAX as f64) as u32) {
+        Some(e) => Op::Plugin(e),
+        None => Op::Unknown,
     }
 }
 
@@ -189,9 +197,17 @@ mod tests {
 
     #[test]
     fn parses_effects_segments_and_lanes_and_refuses_what_does_not_fit() {
-        let mut s = vec![1.0, 2.0, 1.0, 1.0, 10.0];
-        s.extend([7.0, 1.0, -6.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]); // gain
-        s.extend([19.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]); // reverse, off
+        let mut s = vec![2.0, 3.0, 1.0, 1.0, 10.0];
+        let fx = |ty: f64, on: f64, p: &[f64]| {
+            let mut v = vec![ty, on];
+            v.extend((0..SPEC_PARAMS).map(|i| p.get(i).copied().unwrap_or(0.0)));
+            v
+        };
+        s.extend(fx(7.0, 1.0, &[-6.0])); // gain
+        s.extend(fx(19.0, 0.0, &[])); // reverse, off
+        let mut wide = [0.0; 16];
+        wide[15] = 2.0;
+        s.extend(fx(256.0 + 3.0, 1.0, &wide)); // plugin effect 3, its 16th parameter set
         s.extend([0.0, 0.5]);
         s.extend([0.0, 0.0, -24.0, 24.0, 2.0]);
         s.extend([0.0, -24.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 5.0, 0.0, 0.0, 0.0, 0.0]);
@@ -199,6 +215,7 @@ mod tests {
         assert_eq!(spec.effects[0].op, Op::Stream(kind::GAIN));
         assert_eq!(spec.effects[0].p[0], -6.0);
         assert_eq!((spec.effects[1].op, spec.effects[1].on), (Op::Reverse, false));
+        assert_eq!((spec.effects[2].op, spec.effects[2].p[15]), (Op::Plugin(3), 2.0));
         assert_eq!(spec.segments, vec![(0.0, 0.5)]);
         assert_eq!(spec.lanes[0].keys.len(), 2);
         assert_eq!(spec.lanes[0].keys[1].2, 5);
@@ -206,9 +223,11 @@ mod tests {
         let mut long = s.clone();
         long.push(0.0);
         assert!(parse(&long).is_none(), "trailing values");
-        let mut v2 = s.clone();
-        v2[0] = 2.0;
-        assert!(parse(&v2).is_none(), "version");
+        let mut v1 = s.clone();
+        v1[0] = 1.0;
+        assert!(parse(&v1).is_none(), "version");
         assert_eq!(op_of(42.0), Op::Unknown);
+        assert_eq!(op_of(-1.0), Op::Unknown);
+        assert_eq!(op_of(256.0 + 256.0), Op::Unknown, "past the plugin range");
     }
 }

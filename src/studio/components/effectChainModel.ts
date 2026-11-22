@@ -3,9 +3,10 @@
 // (`{ next } | { refused }`, the audio editor's `EditResult`, ADR 0307/0313), so the owner applies it as one undo step
 // through `applyEdit`. An edit that changes nothing returns the same list, which `applyEdit` skips. Removing an effect
 // leaves its automation (`fx:<id>:<param>`) to the owner, which holds it.
-import { allowedAt, clampEffectParam, defaultEffect, effectParamSpec, effectSpec, effectTypesAt } from "../../engine/audio/effects/catalogue";
+import { allowedAt, clampEffectParam, defaultEffect, effectParamSpec, effectSpec, effectTypesAt, pluginEffectNote, registeredPluginEffects } from "../../engine/audio/effects/catalogue";
 import type { Effect, EffectLevel, EffectType } from "../../engine/audio/effects/types";
 import type { EditResult } from "../../plugins/audio/editor/editResult";
+import type { AudioPluginDebug, AudioPluginFaultReason } from "../../plugins/audio/runtime/debugTypes";
 import { formatParam } from "./parameterRowModel";
 
 export type { EditResult };
@@ -111,4 +112,137 @@ export function effectSummary(effect: Effect, count = 2): string {
 /** Why an effect in the chain won't play at `level` (it was moved from a level it can run at), or null. */
 export function levelWarning(effect: Effect, level: EffectLevel): string | null {
   return allowedAt(effect.type, level) ? null : `${effectSpec(effect.type).label} doesn't run on ${LEVEL_NAME[level]}; it won't play here`;
+}
+
+// --- plugin effects (ADR 0338 §9) ------------------------------------------------------------------------------------
+
+/** The "Add effect" menu in groups: the built-ins, then each plugin's effects under its title (plugins by title). */
+export interface EffectMenuGroups {
+  readonly builtins: readonly EffectMenuItem[];
+  readonly plugins: readonly { readonly plugin: string; readonly title: string; readonly version: string; readonly items: readonly EffectMenuItem[] }[];
+}
+
+/** The types that may run at `level`, in groups: the built-ins alphabetical, then each on plugin's alphabetical. */
+export function effectMenuGroups(level: EffectLevel): EffectMenuGroups {
+  const builtins: EffectMenuItem[] = [];
+  const byPlugin = new Map<string, { plugin: string; title: string; version: string; items: EffectMenuItem[] }>();
+  for (const item of effectMenu(level)) {
+    const p = effectSpec(item.type).plugin;
+    if (!p || p.name === null) {
+      builtins.push(item);
+      continue;
+    }
+    const group = byPlugin.get(p.name) ?? { plugin: p.name, title: p.title, version: p.version, items: [] };
+    group.items.push(item);
+    byPlugin.set(p.name, group);
+  }
+  return { builtins, plugins: [...byPlugin.values()].sort((a, b) => a.title.localeCompare(b.title)) };
+}
+
+/** Frames per quantum: a health row's instructions per quantum, per frame. */
+const QUANTUM_FRAMES = 128;
+
+const FAULT_WORDS: Readonly<Record<AudioPluginFaultReason, string>> = {
+  trap: "trapped",
+  budget: "over budget",
+  grow: "grew its memory",
+  nonFinite: "non-finite output",
+  range: "output past ±64",
+};
+
+/** A byte count as the Studio shows memory ("64 KB", "1.0 MB"). */
+export function memoryText(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${Math.round(bytes / 1024)} KB`;
+}
+
+/** A health row's faults, most first ("over budget ×2, trapped ×1"), or "no faults". */
+export function faultsText(faults: Readonly<Record<AudioPluginFaultReason, number>>): string {
+  const reasons = (Object.keys(FAULT_WORDS) as AudioPluginFaultReason[]).filter((r) => faults[r] > 0);
+  const parts = reasons.sort((a, b) => faults[b] - faults[a]).map((r) => `${FAULT_WORDS[r]} ×${faults[r]}`);
+  return parts.length ? parts.join(", ") : "no faults";
+}
+
+/** The instruction budget per frame `type`'s plugin declared (`budget.instructionsPerFrame`), or null. */
+export const pluginBudget = (type: string): number | null => registeredPluginEffects().find((d) => d.spec.type === type)?.instructionsPerFrame ?? null;
+
+/** One plugin effect's health, as the card's health row and the Profiler's Plugins rows show it. */
+export interface PluginHealthView {
+  readonly type: string;
+  readonly plugin: string;
+  /** "Live", "Loading", "Off after faults", "Didn't load". */
+  readonly state: string;
+  /** Instructions per frame per instance in use (the mean over the last window). */
+  readonly perFrame: number;
+  /** The declared budget per frame, when known. */
+  readonly budget: number | null;
+  /** `perFrame` against `budget` (1 is the whole budget); null without a budget. */
+  readonly load: number | null;
+  readonly faults: string;
+  readonly memory: string;
+  /** The row as one line: "Live · 41 of 300 instructions per frame · 64 KB · no faults". */
+  readonly text: string;
+  /** True when Reset plugin does something: faults to clear, or the effect is off after them. */
+  readonly resettable: boolean;
+}
+
+const STATE_WORDS: Readonly<Record<AudioPluginDebug["state"], string>> = { live: "Live", loading: "Loading", disabled: "Off after faults", failed: "Didn't load" };
+
+/** `row` (`Audio.debug().plugins`) as the Studio shows it. */
+export function pluginHealthView(row: AudioPluginDebug, budget: number | null = pluginBudget(row.type)): PluginHealthView {
+  const perFrame = Math.round(row.instructionsPerQuantum / QUANTUM_FRAMES / Math.max(1, row.inUse));
+  const faults = faultsText(row.faults);
+  const memory = memoryText(row.memoryBytes);
+  const state = STATE_WORDS[row.state];
+  const instr = budget !== null ? `${perFrame} of ${budget} instructions per frame` : `${perFrame} instructions per frame`;
+  const anyFault = Object.values(row.faults).some((n) => n > 0);
+  return {
+    type: row.type,
+    plugin: row.plugin,
+    state,
+    perFrame,
+    budget,
+    load: budget ? perFrame / budget : null,
+    faults,
+    memory,
+    text: [state, instr, memory, faults].join(" · "),
+    resettable: row.state === "disabled" || (row.state === "live" && anyFault),
+  };
+}
+
+/** A plugin effect's card: its chip, whether it is greyed, its status line and its health. */
+export interface PluginCardView {
+  /** "Tremolo 1.0.0" (the plugin's title and version); the type when the plugin is missing. */
+  readonly chip: string;
+  /** The plugin is off or missing: the card is greyed and the effect passes audio through. */
+  readonly greyed: boolean;
+  /** Why the effect isn't running as set, or null when it is healthy. */
+  readonly status: string | null;
+  readonly health: PluginHealthView | null;
+  readonly canReset: boolean;
+}
+
+const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const times = (n: number) => (n === 1 ? "once" : `${n} times`);
+
+/** `effect`'s card from the catalogue (`pluginEffectNote`) and its health row, if the runtime has one; null for a built-in. */
+export function pluginCardView(effect: Effect, row?: AudioPluginDebug | null): PluginCardView | null {
+  const p = effectSpec(effect.type).plugin;
+  if (!p) return null;
+  const chip = p.state === "missing" ? effect.type : `${p.title} ${p.version}`.trim();
+  if (p.state !== "on") {
+    const note = pluginEffectNote(effect.type);
+    return { chip, greyed: true, status: note ? capitalise(note.replace(/^\([^)]*\)\s*/, "")) : "Passes audio through", health: null, canReset: false };
+  }
+  const health = row ? pluginHealthView(row) : null;
+  let status: string | null = null;
+  if (row && health) {
+    if (row.state === "failed") status = `Didn't load (${row.error ?? "the module was refused"}): passes audio through`;
+    else if (row.state === "loading") status = "Loading: passes audio through until its module is ready";
+    else if (row.state === "disabled") status = `Off after three faults within a second (${health.faults}): passes audio through until reset`;
+    else if (health.faults !== "no faults") status = `Faulted: ${health.faults}; those blocks passed through dry`;
+    else if (row.noInstance > 0) status = `No free instance ${times(row.noInstance)}: those uses pass audio through`;
+    else if (row.starved > 0) status = `Over the shared instruction budget ${times(row.starved)}: those blocks passed through dry`;
+  }
+  return { chip, greyed: false, status, health, canReset: health?.resettable ?? false };
 }

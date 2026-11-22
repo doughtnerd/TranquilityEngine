@@ -285,6 +285,14 @@ interface DiscoverInput {
 /** A project plugin's folder from a path inside it ("plugins/spinner/runtime/x.ts" → "plugins/spinner"), or null. */
 export const pluginFolderOf = (path: string): string | null => /^(plugins\/[^/]+)\//.exec(path)?.[1] ?? null;
 
+/**
+ * ADR 0338 §8: where a plugin's audio module file (`audio.modules[].wasm`, relative to the plugin) is, project-relative:
+ * `plugins/<folder>/<wasm>` for a project plugin, `node_modules/<package>/<wasm>` for an npm one.
+ */
+export function pluginModulePath(plugin: Pick<FoundPlugin, "source">, wasm: string): string {
+  return plugin.source.kind === "project" ? `${plugin.source.folder}/${wasm}` : `node_modules/${plugin.source.package}/${wasm}`;
+}
+
 /** True for a file of a project plugin's editor half: `plugins/<folder>/editor/…` (ADR 0139). */
 export const isEditorHalfPath = (path: string): boolean => /^plugins\/[^/]+\/editor\//.test(path);
 

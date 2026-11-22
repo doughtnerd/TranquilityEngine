@@ -7,7 +7,7 @@
 //! evaluator (`audio_core::automation`).
 //!
 //! Like the decoder, it **exports** its memory and owns its allocator: it runs alone (a worker,
-//! the Studio's page, Node). The C ABI ([`ABI_VERSION`] 1.0):
+//! the Studio's page, Node). The C ABI ([`ABI_VERSION`] 1.1):
 //!
 //! 1. `p = myco_offline_alloc(bytes)` for the input (interleaved `f32`) and the spec (`f64`,
 //!    `spec.rs`); copy them in.
@@ -18,6 +18,11 @@
 //!
 //! What runs and how is in `render.rs`; the offline-only kinds are fades, the envelope, reverse
 //! and noise reduction (`nr.rs`).
+//!
+//! ABI 1.1 (ADR 0338 §7, B5): the module **imports** `myco_ext` (`audio_core::ext`'s five calls), which
+//! the caller binds to the plugin glue (`effectGlue.ts`) so plugin effects in a spec (version 2,
+//! 16 parameters per effect) run as they do in the core's chains. A caller with no plugins binds
+//! stubs (`acquire` 0): plugin effects then pass through with `render::warn::PLUGIN_DRY`.
 
 pub mod lane;
 pub mod nr;
@@ -28,7 +33,7 @@ pub mod timemap;
 use std::alloc::{alloc, dealloc, Layout};
 
 /// `(major << 8) | minor` of this ABI.
-pub const ABI_VERSION: u32 = 0x100;
+pub const ABI_VERSION: u32 = 0x101;
 /// Alignment of every `myco_offline_alloc` block (f32 and f64 views).
 pub const ALLOC_ALIGN: usize = 16;
 
@@ -132,25 +137,26 @@ mod tests {
     #[test]
     fn the_abi_renders_through_its_own_allocations() {
         let input: [f32; 4] = [0.5, 0.25, 0.5, 0.25];
-        // version, 1 effect, 0 lanes, 0 segments, cap; gain +6 dB.
-        let spec: [f64; 15] = [1.0, 1.0, 0.0, 0.0, 10.0, 7.0, 1.0, 6.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        // version, 1 effect, 0 lanes, 0 segments, cap; gain +6 dB (16 parameters).
+        let mut spec = [0.0f64; 23];
+        spec[..8].copy_from_slice(&[2.0, 1.0, 0.0, 0.0, 10.0, 7.0, 1.0, 6.0]);
         unsafe {
             let p = myco_offline_alloc(16) as *mut f32;
             core::ptr::copy_nonoverlapping(input.as_ptr(), p, 4);
-            let s = myco_offline_alloc(15 * 8) as *mut f64;
-            core::ptr::copy_nonoverlapping(spec.as_ptr(), s, 15);
-            let h = myco_offline_render(p, 2, 2, 48_000.0, s, 15);
+            let s = myco_offline_alloc(23 * 8) as *mut f64;
+            core::ptr::copy_nonoverlapping(spec.as_ptr(), s, 23);
+            let h = myco_offline_render(p, 2, 2, 48_000.0, s, 23);
             assert!(!h.is_null());
             assert_eq!(myco_offline_output_frames(h), 2);
             let out = core::slice::from_raw_parts(myco_offline_output_pcm(h), 4);
             assert!((out[0] - 0.5 * libm::powf(10.0, 0.3)).abs() < 1e-6);
             assert_eq!(myco_offline_output_warnings(h), 0);
             myco_offline_output_free(h);
-            assert!(myco_offline_render(p, 2, 2, 48_000.0, s, 14).is_null(), "a malformed spec");
-            assert!(myco_offline_render(p, 2, 0, 48_000.0, s, 15).is_null(), "no channels");
+            assert!(myco_offline_render(p, 2, 2, 48_000.0, s, 22).is_null(), "a malformed spec");
+            assert!(myco_offline_render(p, 2, 0, 48_000.0, s, 23).is_null(), "no channels");
             myco_offline_free(p as *mut u8, 16);
-            myco_offline_free(s as *mut u8, 15 * 8);
+            myco_offline_free(s as *mut u8, 23 * 8);
         }
-        assert_eq!(myco_offline_abi_version(), 0x100);
+        assert_eq!(myco_offline_abi_version(), 0x101);
     }
 }

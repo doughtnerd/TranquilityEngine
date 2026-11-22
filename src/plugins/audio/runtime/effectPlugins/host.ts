@@ -33,7 +33,7 @@ export interface EffectPluginHostDeps {
 }
 
 /** The core's glide modes for an effect's parameters: bit i log2 (`scale: "log"`), bit 16 + i stepped (`smooth: false`). */
-function glideModes(decl: PluginEffectDecl): number {
+export function glideModes(decl: PluginEffectDecl): number {
   let modes = 0;
   decl.spec.params.forEach((p, i) => {
     if (i >= 16) return;

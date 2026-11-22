@@ -23,7 +23,13 @@
 //!   out ending on its last; the envelope's attack, decay and sustain from the first frame and its
 //!   release ending on the last. Both are silent after the input's end (a tail from an earlier
 //!   effect in the same stage is cut there).
+//! - **Plugin effects** (ADR 0338 §7) stream like the kernels, through the `myco_ext` import the
+//!   caller binds (`audio_core::ext`, the same calls the core's chains make: an instance per channel
+//!   pair, the glide, the flags and the budget). Each control block grants a quantum's shared fuel
+//!   for its frames. A block the plugin can't run (not loaded, no free instance, a fault, the fuel)
+//!   passes through dry and sets [`warn::PLUGIN_DRY`]. Their tails are rendered as a reverb's are.
 
+use audio_core::ext;
 use audio_dsp::fx::{self, delay::DELAY_MAX_MS, kind, Ctx, Effect, PARAMS};
 
 use crate::lane::Lane;
@@ -46,6 +52,8 @@ pub mod warn {
     pub const TAIL_CAPPED: u32 = 2;
     /// Noise reduction passed a signal too short to measure.
     pub const NOISE_TOO_SHORT: u32 = 4;
+    /// A plugin effect passed one or more blocks through dry (not loaded, no instance, a fault).
+    pub const PLUGIN_DRY: u32 = 8;
 }
 
 pub struct Output {
@@ -82,7 +90,7 @@ pub fn render(input: &[f32], channels: usize, rate: f32, spec: &Spec) -> Output 
         }
         let item = Item { fx: *fx, lanes: lanes[index].take().unwrap_or_default() };
         match fx.op {
-            Op::Stream(_) | Op::Fades | Op::Envelope => stage.push(item),
+            Op::Stream(_) | Op::Fades | Op::Envelope | Op::Plugin(_) => stage.push(item),
             Op::Unknown => warnings |= warn::UNKNOWN_TYPE,
             Op::Reverse | Op::NoiseReduction => {
                 if !stage.is_empty() {
@@ -153,7 +161,7 @@ fn denoise(buf: &mut [f32], len: usize, channels: usize, rate: f32, item: &mut I
 
 /// True when an effect of `op` rings on after its input stops.
 fn rings(op: Op) -> bool {
-    matches!(op, Op::Stream(kind::DELAY | kind::REVERB | kind::CHORUS | kind::PITCH | kind::FORMANT))
+    matches!(op, Op::Stream(kind::DELAY | kind::REVERB | kind::CHORUS | kind::PITCH | kind::FORMANT) | Op::Plugin(_))
 }
 
 /// The gain of the fades (`in_ms`, `out_ms`) at frame `f` of an input of `len` frames.
@@ -216,6 +224,11 @@ fn run_stage(buf: &[f32], len: usize, channels: usize, rate: f32, items: &mut [I
                 .map(|item| {
                     let mut e = Effect::default();
                     let mut mem = Vec::new();
+                    if let Op::Plugin(pe) = item.fx.op {
+                        let p = params_at(item, start);
+                        e.configure(kind::PLUGIN_BASE + pe, true, &p, rate);
+                        ext::configure(&mut e, true, 0, 0);
+                    }
                     if let Op::Stream(k) = item.fx.op {
                         let p = params_at(item, start);
                         e.configure(k, true, &p, rate);
@@ -237,6 +250,8 @@ fn run_stage(buf: &[f32], len: usize, channels: usize, rate: f32, items: &mut [I
     let mut pos = 0usize;
     let mut loud_end = len; // one past the last frame above the floor (at least the input's end)
     let mut capped = false;
+    let mut dry = false;
+    let any_plugin = items.iter().any(|i| matches!(i.fx.op, Op::Plugin(_)));
     loop {
         if pos >= len {
             if !any_ring || pos >= loud_end + hold {
@@ -266,8 +281,20 @@ fn run_stage(buf: &[f32], len: usize, channels: usize, rate: f32, items: &mut [I
                     r[i] = 0.0;
                 }
             }
+            let mut fuel = ext::Fuel::quantum(n);
             for (k, (item, (e, mem))) in items.iter().zip(chain.iter_mut()).enumerate() {
                 match item.fx.op {
+                    Op::Plugin(pe) => {
+                        if let Some(p) = &params[k] {
+                            e.configure(kind::PLUGIN_BASE + pe, true, p, rate);
+                            if e.running != 0 && e.glide > 0 {
+                                e.glide = n as u32;
+                            }
+                        }
+                        if ext::process(e, &mut l[..n], &mut r[..n], &mut fuel) < 0 {
+                            dry = true;
+                        }
+                    }
                     Op::Stream(kd) => {
                         if let Some(p) = &params[k] {
                             e.configure(kd, true, p, rate);
@@ -312,10 +339,14 @@ fn run_stage(buf: &[f32], len: usize, channels: usize, rate: f32, items: &mut [I
         }
         pos += n;
     }
+    // The plugin instances go back to the host: a sweep that lists none releases every handle.
+    if any_plugin {
+        ext::sweep(|_| {});
+    }
     // A capped tail keeps every frame to the cap; one that died away ends at its last audible frame.
     let frames = if capped { pos } else if any_ring { loud_end.min(pos) } else { len };
     out.truncate(frames * channels);
-    (out, frames, if capped { warn::TAIL_CAPPED } else { 0 })
+    (out, frames, (if capped { warn::TAIL_CAPPED } else { 0 }) | (if dry { warn::PLUGIN_DRY } else { 0 }))
 }
 
 #[cfg(test)]
@@ -465,6 +496,70 @@ mod tests {
         let out = render(&input, 1, RATE, &spec(vec![off, unknown], vec![]));
         assert_eq!(out.pcm, input);
         assert_eq!(out.warnings, warn::UNKNOWN_TYPE);
+    }
+
+    /// A `myco_ext` host for the tests: plugin effect 0 scales by its parameter 15 (the 16th, past the old 8)
+    /// at the block's end; it counts the instances it gave and has back.
+    struct ScaleHost {
+        given: std::rc::Rc<std::cell::Cell<i32>>,
+        next: u32,
+    }
+
+    impl ext::Host for ScaleHost {
+        fn acquire(&mut self, e: u32) -> u32 {
+            if e != 0 {
+                return 0;
+            }
+            self.given.set(self.given.get() + 1);
+            self.next += 1;
+            self.next
+        }
+        fn release(&mut self, _handle: u32) {
+            self.given.set(self.given.get() - 1);
+        }
+        fn describe(&mut self, _e: u32, what: u32) -> u32 {
+            if what == ext::DESCRIBE_BUDGET {
+                10
+            } else {
+                1 << (16 + 15) // parameter 15 steps
+            }
+        }
+        fn process(&mut self, _h: u32, l: &mut [f32], r: &mut [f32], _p0: &[f32; 16], p1: &[f32; 16], _flags: u32, fuel: u32) -> i32 {
+            if fuel == 0 {
+                return -3;
+            }
+            for x in l.iter_mut().chain(r.iter_mut()) {
+                *x *= p1[15];
+            }
+            (l.len() as i32) << 1
+        }
+        fn sweep(&mut self, handles: &[u32], last: bool) {
+            if last && handles.is_empty() {
+                self.given.set(0);
+            }
+        }
+    }
+
+    #[test]
+    fn a_plugin_effect_runs_through_the_import_with_sixteen_parameters_and_gives_its_instances_back() {
+        let given = std::rc::Rc::new(std::cell::Cell::new(0));
+        let before = ext::install(Some(Box::new(ScaleHost { given: given.clone(), next: 0 })));
+        let input = vec![0.5f32; 3 * 1000];
+        let mut p = [0.0f32; 16];
+        p[15] = 0.5;
+        let out = render(&input, 3, RATE, &spec(vec![FxSpec { op: Op::Plugin(0), on: true, p }], vec![]));
+        assert_eq!(out.frames, 1000, "a silent tail ends at the input's end");
+        assert!(out.pcm.iter().all(|v| (v - 0.25).abs() < 1e-6), "every channel (a pair and an odd one) scaled");
+        assert_eq!(out.warnings, 0);
+        assert_eq!(given.get(), 0, "both pairs' instances went back");
+        // Effect 1 has no instance from the host: its blocks pass dry, with the warning.
+        let out = render(&input, 3, RATE, &spec(vec![FxSpec { op: Op::Plugin(1), on: true, p }], vec![]));
+        assert_eq!(out.pcm, input);
+        assert_eq!(out.warnings, warn::PLUGIN_DRY);
+        ext::install(before);
+        // No host at all (nothing bound): dry too.
+        let out = render(&input, 3, RATE, &spec(vec![FxSpec { op: Op::Plugin(0), on: true, p }], vec![]));
+        assert_eq!((out.pcm == input, out.warnings), (true, warn::PLUGIN_DRY));
     }
 
     #[test]

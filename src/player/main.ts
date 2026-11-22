@@ -53,6 +53,15 @@ async function boot(): Promise<void> {
   // ADR 0337 §7: the build's converted audio (packages and the media table), before any scene: its first scene's load
   // waits for the preload packages (the packages World service), as it waits for its other assets.
   installAudioMedia(manifest.audio ?? null, urlOf);
+  // ADR 0338 §8: the build's plugin audio effects, before the Engine (the core registers their modules once it is up).
+  if (manifest.audioEffects?.length) {
+    const { registerBuildAudioEffects } = await import("./audioEffects");
+    const { effectPluginEnginesOf } = await import("../plugins/audio/runtime/effectPlugins/engineGate");
+    await registerBuildAudioEffects(manifest.audioEffects, async (path) => {
+      const res = await fetch(urlOf(path)).catch(() => null);
+      return res?.ok ? new Uint8Array(await res.arrayBuffer()) : null;
+    }, effectPluginEnginesOf(settings.plugins));
+  }
   const thirdParty: RuntimePlugin[] = [];
   const moduleOf = (path: string) => manifest.scripts.find((s) => s.source === path.replace(/^\.?\//, ""))?.module;
   document.body.style.background = settings.display?.backgroundColor ?? "#000";

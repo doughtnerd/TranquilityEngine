@@ -6,6 +6,15 @@
 .pf-hint { color: var(--faint); font-weight: normal; margin-left: 6px; }
 .pf-missing { color: var(--faint); }
 
+/* Plugins (ADR 0338 §9): live plugin effect health */
+.pf-plugins { width: 100%; border-collapse: collapse; font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+.pf-plugins th, .pf-plugins td { padding: 3px 6px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.pf-plugins thead th { color: var(--muted); font-weight: 600; }
+.pf-plugins tbody th { color: var(--text); font-weight: normal; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.pf-plugins tr.attention th { color: var(--warning); }
+.pf-plugins td.over { color: var(--danger); }
+.pf-plugin-reset { padding: 0 6px; font-size: calc(11px * var(--ui-scale)); }
+
 /* Captures */
 .pf-captures { display: flex; flex-direction: column; min-height: 100%; }
 .pf-captures-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; border-bottom: 1px solid var(--border); }
