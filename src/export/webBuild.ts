@@ -18,6 +18,7 @@ import { LEGACY_AUDIO_MESSAGE, hasLegacyAudio } from "../engine/audio/project/lo
 import { audioEventRefusal, isAudioEventPath } from "../engine/audio/retiredAudioEvent";
 import { projectScriptAssetRefs } from "../engine/scene/scriptAssetRefs";
 import { planPluginCode, type BuiltPlugin } from "../plugins/thirdParty";
+import type { AudioReport } from "./audio";
 import { ENGINE_FILE, MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, modulePath, relativeSpecifier, type GameManifest } from "./format";
 
 /** A project to build, however it was read. */
@@ -56,6 +57,13 @@ export interface WebBuildPlan {
   readonly generated: ReadonlyMap<string, string>;
   /** Binary files written, by build path: models baked for the build (ADR 0090). */
   readonly binaries?: ReadonlyMap<string, Uint8Array>;
+  /**
+   * ADR 0337 §5 step 7: project files in `copies` that aren't written (packaged sounds: their bytes are in a package),
+   * by project path. They stay in the manifest's `files`, so the game still knows them by path.
+   */
+  readonly omit?: ReadonlySet<string>;
+  /** ADR 0337 §5 step 6: what the audio step converted and packaged (`audio-report.json`); absent before it ran. */
+  readonly audioReport?: AudioReport;
 }
 
 /** A project that can't be built: scripts that don't compile, a missing bootstrap script or scene. */
