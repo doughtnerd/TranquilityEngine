@@ -41,7 +41,11 @@ fn fixture() -> Fixture {
     let skel = core.load_skeleton(&skel_bytes);
     let a = core.load_clip(&a_bytes);
     let b = core.load_clip(&b_bytes);
-    assert!(skel != 0 && a != 0 && b != 0, "status {}", core.last_status());
+    assert!(
+        skel != 0 && a != 0 && b != 0,
+        "status {}",
+        core.last_status()
+    );
     Fixture {
         core,
         reference: Reference::new(&skel_bytes),
@@ -72,7 +76,9 @@ fn play_matches_the_reference() {
     let h = f.core.create_instance(0, f.skel, 0);
     assert_eq!(send(&mut f.core, &[play(h, f.a, 0, 0.0, 1, 0)]), 1);
     step(&mut f, 10);
-    let expected = f.reference.matrices(&f.reference.sample(&f.a_bytes, 10.0 / 30.0));
+    let expected = f
+        .reference
+        .matrices(&f.reference.sample(&f.a_bytes, 10.0 / 30.0));
     let d = max_diff(&mats(&f, h), &expected);
     assert!(d < TOL, "max difference {d}");
 }
@@ -95,7 +101,10 @@ fn crossfade_blends_by_the_fade_and_reports_the_interrupted_play() {
     assert_eq!(send(&mut f.core, &[play(h, f.b, 0, 0.5, 2, 0)]), 1);
     let c = changes(&f.core);
     assert_eq!(c.len(), 1);
-    assert_eq!((c[0].kind, c[0].play_id, c[0].instance), (CHANGE_INTERRUPTED, 1, h));
+    assert_eq!(
+        (c[0].kind, c[0].play_id, c[0].instance),
+        (CHANGE_INTERRUPTED, 1, h)
+    );
     f.core.evaluate(0, PASS_NORMAL, DT, DT);
     step(&mut f, 5);
     // 6 frames into the fade: B at 0.2 s, A at 16/30 s, B's weight 0.2 / 0.5.
@@ -126,7 +135,9 @@ fn a_first_fade_fades_in_from_the_rest_pose() {
 fn a_masked_layer_blends_its_bones_by_weight() {
     let mut f = fixture();
     let h = f.core.create_instance(0, f.skel, 0);
-    let weights: Vec<f32> = (0..f.bones).map(|i| if i >= 4 { 1.0 } else { 0.0 }).collect();
+    let weights: Vec<f32> = (0..f.bones)
+        .map(|i| if i >= 4 { 1.0 } else { 0.0 })
+        .collect();
     let mask = f.core.load_mask(&weights);
     assert_ne!(mask, 0);
     let n = send(
@@ -172,7 +183,10 @@ fn update_rate_lod_interpolates_between_the_last_two_poses() {
     let mut f = fixture();
     let full = f.core.create_instance(0, f.skel, 0);
     let lod = f.core.create_instance(0, f.skel, 0);
-    send(&mut f.core, &[play(full, f.a, 0, 0.0, 0, 0), play(lod, f.a, 0, 0.0, 0, 0)]);
+    send(
+        &mut f.core,
+        &[play(full, f.a, 0, 0.0, 0, 0), play(lod, f.a, 0, 0.0, 0, 0)],
+    );
     set_lod(&mut f.core, lod, 2);
     step(&mut f, 1); // both evaluate t1
     assert_eq!(mats(&f, full), mats(&f, lod));
@@ -193,7 +207,10 @@ fn update_rate_lod_interpolates_between_the_last_two_poses() {
 fn snapshot_and_restore_give_identical_later_frames() {
     let mut f = fixture();
     let h = f.core.create_instance(0, f.skel, 0);
-    send(&mut f.core, &[play(h, f.a, 0, 0.0, 1, 0), play(h, f.b, 1, 0.2, 2, 0)]);
+    send(
+        &mut f.core,
+        &[play(h, f.a, 0, 0.0, 1, 0), play(h, f.b, 1, 0.2, 2, 0)],
+    );
     set_lod(&mut f.core, h, 2);
     set_layer_weight(&mut f.core, h, 1, 0.6);
     step(&mut f, 7);
@@ -210,7 +227,8 @@ fn snapshot_and_restore_give_identical_later_frames() {
         (0..12)
             .map(|i| {
                 f.core.write_inputs(0);
-                f.core.evaluate(0, PASS_NORMAL, DT * (1.0 + i as f32 * 0.1), DT);
+                f.core
+                    .evaluate(0, PASS_NORMAL, DT * (1.0 + i as f32 * 0.1), DT);
                 [mats(f, h), root(&f.core, h).to_vec()].concat()
             })
             .collect()
@@ -229,7 +247,8 @@ fn snapshot_and_restore_give_identical_later_frames() {
     let mut both = Vec::new();
     for i in 0..12 {
         f.core.write_inputs(0);
-        f.core.evaluate(0, PASS_NORMAL, DT * (1.0 + i as f32 * 0.1), DT);
+        f.core
+            .evaluate(0, PASS_NORMAL, DT * (1.0 + i as f32 * 0.1), DT);
         both.push((mats(&f, h), mats(&f, other)));
     }
     for (i, (a, b)) in both.iter().enumerate() {
@@ -241,7 +260,12 @@ fn snapshot_and_restore_give_identical_later_frames() {
     let (other_skel, other_bytes) = skeleton(Shape::Chain(5), 3);
     let s2 = f.core.load_skeleton(&other_bytes);
     let h2 = f.core.create_instance(0, s2, 0);
-    assert_eq!(f.core.restore(h2, &snap), STATUS_BAD_RECORD, "{}", other_skel.bones.len());
+    assert_eq!(
+        f.core.restore(h2, &snap),
+        STATUS_BAD_RECORD,
+        "{}",
+        other_skel.bones.len()
+    );
     snap[0] ^= 1;
     assert_eq!(f.core.restore(h, &snap), STATUS_BAD_RECORD);
 }
@@ -257,9 +281,16 @@ fn stale_handles_do_nothing() {
     assert_eq!(f.core.destroy_instance(h), STATUS_STALE_HANDLE);
     assert_eq!(send(&mut f.core, &[play(h, f.a, 0, 0.0, 9, 0)]), 0);
     let c = changes(&f.core);
-    assert_eq!((c[0].kind, c[0].play_id, c[0].status), (CHANGE_REFUSED, 9, STATUS_STALE_HANDLE));
+    assert_eq!(
+        (c[0].kind, c[0].play_id, c[0].status),
+        (CHANGE_REFUSED, 9, STATUS_STALE_HANDLE)
+    );
     step(&mut f, 3);
-    assert_eq!(mats(&f, h), before, "a destroyed instance's row is left alone");
+    assert_eq!(
+        mats(&f, h),
+        before,
+        "a destroyed instance's row is left alone"
+    );
     assert_eq!(f.core.snapshot_bytes(h), 0);
     assert_eq!(f.core.snapshot(h, &mut [0; 16]), STATUS_STALE_HANDLE);
 
@@ -329,10 +360,17 @@ fn a_play_reports_finished_once() {
     for _ in 0..60 {
         f.core.write_inputs(0);
         f.core.evaluate(0, PASS_NORMAL, DT, DT);
-        finished.extend(changes(&f.core).into_iter().filter(|c| c.kind == CHANGE_FINISHED));
+        finished.extend(
+            changes(&f.core)
+                .into_iter()
+                .filter(|c| c.kind == CHANGE_FINISHED),
+        );
     }
     assert_eq!(finished.len(), 1);
-    assert_eq!((finished[0].play_id, finished[0].layer, finished[0].instance), (42, 0, h));
+    assert_eq!(
+        (finished[0].play_id, finished[0].layer, finished[0].instance),
+        (42, 0, h)
+    );
     // It holds its last frame.
     let end = f.reference.sample(&f.b_bytes, 1.0);
     assert!(max_diff(&mats(&f, h), &f.reference.matrices(&end)) < TOL);
@@ -342,11 +380,17 @@ fn a_play_reports_finished_once() {
 fn stop_fades_a_layer_out_and_interrupts_its_play() {
     let mut f = fixture();
     let h = f.core.create_instance(0, f.skel, 0);
-    send(&mut f.core, &[play(h, f.a, 0, 0.0, 1, 0), play(h, f.b, 1, 0.0, 2, 0)]);
+    send(
+        &mut f.core,
+        &[play(h, f.a, 0, 0.0, 1, 0), play(h, f.b, 1, 0.0, 2, 0)],
+    );
     step(&mut f, 2);
     send(&mut f.core, &[stop(h, 1, 0.2)]);
     let c = changes(&f.core);
-    assert_eq!((c[0].kind, c[0].play_id, c[0].layer), (CHANGE_INTERRUPTED, 2, 1));
+    assert_eq!(
+        (c[0].kind, c[0].play_id, c[0].layer),
+        (CHANGE_INTERRUPTED, 2, 1)
+    );
     f.core.evaluate(0, PASS_NORMAL, DT, DT);
     step(&mut f, 6);
     let base = f.reference.sample(&f.a_bytes, 9.0 * DT as f64);
@@ -358,13 +402,19 @@ fn inertialization_keeps_the_switch_continuous() {
     let mut f = fixture();
     let cut = f.core.create_instance(0, f.skel, 0);
     let soft = f.core.create_instance(0, f.skel, 0);
-    send(&mut f.core, &[play(cut, f.a, 0, 0.0, 0, 0), play(soft, f.a, 0, 0.0, 0, 0)]);
+    send(
+        &mut f.core,
+        &[play(cut, f.a, 0, 0.0, 0, 0), play(soft, f.a, 0, 0.0, 0, 0)],
+    );
     step(&mut f, 8);
     let before = mats(&f, cut);
     assert_eq!(before, mats(&f, soft));
     send(
         &mut f.core,
-        &[play(cut, f.b, 0, 0.0, 0, 0), play(soft, f.b, 0, 0.4, 0, PLAY_INERTIALIZE)],
+        &[
+            play(cut, f.b, 0, 0.0, 0, 0),
+            play(soft, f.b, 0, 0.4, 0, PLAY_INERTIALIZE),
+        ],
     );
     f.core.evaluate(0, PASS_NORMAL, DT, DT);
     // anim-offline's inertialization from the last two shown poses (A at 8 and 7 frames) to B,
@@ -389,14 +439,26 @@ fn inertialization_keeps_the_switch_continuous() {
     let later = r.matrices(&later);
     let d = max_diff(&mats(&f, soft), &expected);
     assert!(d < 1e-3, "max difference {d}");
-    let jump = |m: &[f32]| m.iter().zip(&before).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
-    assert!(jump(&mats(&f, soft)) < jump(&mats(&f, cut)), "smaller than the cut's jump");
+    let jump = |m: &[f32]| {
+        m.iter()
+            .zip(&before)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max)
+    };
+    assert!(
+        jump(&mats(&f, soft)) < jump(&mats(&f, cut)),
+        "smaller than the cut's jump"
+    );
     step(&mut f, 2);
     let d = max_diff(&mats(&f, soft), &later);
     assert!(d < 1e-3, "max difference {d}");
     // After the blend time, the new clip exactly as cut.
     step(&mut f, 12);
-    let d = mats(&f, cut).iter().zip(mats(&f, soft)).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+    let d = mats(&f, cut)
+        .iter()
+        .zip(mats(&f, soft))
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0f32, f32::max);
     assert_eq!(d, 0.0);
 }
 
@@ -405,7 +467,13 @@ fn culled_instances_advance_their_playheads_with_a_frozen_pose() {
     let mut f = fixture();
     let vis = f.core.create_instance(0, f.skel, 0);
     let root_only = f.core.create_instance(0, f.skel, 0);
-    send(&mut f.core, &[play(vis, f.a, 0, 0.0, 0, 0), play(root_only, f.a, 0, 0.0, 0, 0)]);
+    send(
+        &mut f.core,
+        &[
+            play(vis, f.a, 0, 0.0, 0, 0),
+            play(root_only, f.a, 0, 0.0, 0, 0),
+        ],
+    );
     step(&mut f, 2);
     let frozen = mats(&f, vis);
     set_flags(&mut f.core, vis, CULL_WHEN_VISIBLE);
@@ -413,7 +481,10 @@ fn culled_instances_advance_their_playheads_with_a_frozen_pose() {
     step(&mut f, 5);
     assert_eq!(mats(&f, vis), frozen);
     assert_eq!(root(&f.core, vis), [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]);
-    assert!(root(&f.core, root_only)[..3].iter().any(|v| *v != 0.0), "root motion reported");
+    assert!(
+        root(&f.core, root_only)[..3].iter().any(|v| *v != 0.0),
+        "root motion reported"
+    );
     set_flags(&mut f.core, vis, FLAG_VISIBLE | CULL_WHEN_VISIBLE);
     step(&mut f, 1);
     let now = f.reference.sample(&f.a_bytes, 8.0 * DT as f64);
@@ -441,7 +512,10 @@ fn root_motion_follows_the_root_curve() {
     let expected = [c * dx - s * dz, q[1] - p[1], s * dx + c * dz];
     let r = root(&f.core, h);
     for k in 0..3 {
-        assert!((r[k] as f64 - expected[k]).abs() < 1e-5, "{r:?} vs {expected:?}");
+        assert!(
+            (r[k] as f64 - expected[k]).abs() < 1e-5,
+            "{r:?} vs {expected:?}"
+        );
     }
     let yaw = 2.0 * (r[4] as f64).atan2(r[6] as f64);
     assert!((yaw - (q[3] - p[3])).abs() < 1e-5);
@@ -449,7 +523,12 @@ fn root_motion_follows_the_root_curve() {
     set_flags(&mut f.core, h, FLAG_VISIBLE | FLAG_BAKE_ROOT);
     step(&mut f, 1);
     let m = mats(&f, h);
-    assert!(m[3].abs() < 1e-5 && m[11].abs() < 1e-5, "root x {} z {}", m[3], m[11]);
+    assert!(
+        m[3].abs() < 1e-5 && m[11].abs() < 1e-5,
+        "root x {} z {}",
+        m[3],
+        m[11]
+    );
 }
 
 #[test]
@@ -587,12 +666,18 @@ fn clip_events_fire_through_the_track_region_by_weight() {
 
     // Fading in over 10 s, its weight stays under the 0.5 threshold: the notify is gated.
     let other = core.load_clip(&clip(&skel_model, 1.0, true, 22));
-    send(&mut core, &[play(h, other, 0, 0.0, 2, 0), play(h, c, 0, 10.0, 3, 0)]);
+    send(
+        &mut core,
+        &[play(h, other, 0, 0.0, 2, 0), play(h, c, 0, 10.0, 3, 0)],
+    );
     let mut gated = 0;
     for _ in 0..30 {
         core.write_inputs(0);
         core.evaluate(0, PASS_NORMAL, DT, DT);
-        gated += track_records(&core, h).iter().filter(|r| r.0 == Event::OPCODE).count();
+        gated += track_records(&core, h)
+            .iter()
+            .filter(|r| r.0 == Event::OPCODE)
+            .count();
     }
     assert_eq!(gated, 0, "a weight of 0.1 or less never passes 0.5");
 }

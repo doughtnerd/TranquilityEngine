@@ -142,7 +142,9 @@ pub fn play(
         player_flags(flags),
         play_id,
     );
-    switch(program, state, groups, layer, side, target, fade, fading, flags);
+    switch(
+        program, state, groups, layer, side, target, fade, fading, flags,
+    );
     [old, replaced]
 }
 
@@ -162,7 +164,9 @@ pub fn stop(
     let target = 1 - side;
     let old = sources::interrupt(program.node_state(state, groups, player(layer, side)));
     let replaced = sources::clear(program.node_state(state, groups, player(layer, target)));
-    switch(program, state, groups, layer, side, target, fade, fading, flags);
+    switch(
+        program, state, groups, layer, side, target, fade, fading, flags,
+    );
     [old, replaced]
 }
 
@@ -193,8 +197,19 @@ fn switch(
 }
 
 /// A layer's mask handle (0: full body) and mode, for layers 1 and up.
-pub fn set_layer(program: &Program, state: &mut [u32], groups: usize, layer: u32, mask: u32, mode: u32) {
+pub fn set_layer(
+    program: &Program,
+    state: &mut [u32],
+    groups: usize,
+    layer: u32,
+    mask: u32,
+    mode: u32,
+) {
     if (1..L).contains(&layer) {
-        mixing::set_layer(program.node_state(state, groups, layer_node(layer)), mask, mode);
+        mixing::set_layer(
+            program.node_state(state, groups, layer_node(layer)),
+            mask,
+            mode,
+        );
     }
 }

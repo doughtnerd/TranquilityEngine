@@ -54,7 +54,13 @@ pub fn clip(skel: &Skeleton, seconds: f64, looping: bool, seed: u64) -> Vec<u8> 
 
 /// [`clip`] plus an `event` track: one notify (method string 0, `"footstep"`) at `at` seconds,
 /// threshold 0.5.
-pub fn clip_with_event(skel: &Skeleton, seconds: f64, looping: bool, seed: u64, at: f32) -> Vec<u8> {
+pub fn clip_with_event(
+    skel: &Skeleton,
+    seconds: f64,
+    looping: bool,
+    seed: u64,
+    at: f32,
+) -> Vec<u8> {
     use anim_format::clip::{Binding, Key, KeyData, Track, TrackKind};
     let mut rng = Rng::new(seed);
     let mut clip = synth::clip(skel, seconds, looping, &mut rng);
@@ -204,6 +210,7 @@ pub fn root(core: &Core, h: u32) -> [f32; 7] {
 }
 
 /// The state changes after the last evaluate.
+#[allow(clippy::chunks_exact_to_as_chunks)] // a runtime stride
 pub fn changes(core: &Core) -> Vec<StateChange> {
     core.changes()
         .chunks_exact(StateChange::STRIDE as usize)

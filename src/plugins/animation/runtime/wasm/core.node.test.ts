@@ -106,9 +106,10 @@ describe("animation core in Node", () => {
     const end = at + header.recordBytes!;
     while (at < end) {
       const opcode = view.getUint16(at, true);
-      const layout = Object.values(tracks).find(
-        (v): v is RecordLayout => typeof v === "object" && v !== null && "opcode" in v && (v as RecordLayout).opcode === opcode,
+      const layouts = (Object.values(tracks) as unknown[]).filter(
+        (v): v is RecordLayout => typeof v === "object" && v !== null && "opcode" in v,
       );
+      const layout = layouts.find((l) => l.opcode === opcode);
       if (!layout) throw new Error(`unknown opcode ${opcode}`);
       if (layout.opcode === tracks.EVENT.opcode) out.push(get(view, at, layout));
       at += layout.stride;

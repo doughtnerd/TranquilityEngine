@@ -13,8 +13,8 @@ use std::cell::RefCell;
 use anim_graph::eval::{Inputs, Program, SkeletonPose};
 use anim_math::layout::soa_len;
 use anim_wire::core::{
-    Init, MemoryNeeded, HANDLE_INDEX_MASK, STATUS_BAD_RECORD,
-    STATUS_NOT_INITIALIZED, STATUS_OK, STATUS_TOO_LARGE,
+    Init, MemoryNeeded, HANDLE_INDEX_MASK, STATUS_BAD_RECORD, STATUS_NOT_INITIALIZED, STATUS_OK,
+    STATUS_TOO_LARGE,
 };
 use anim_wire::WireRecord;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -309,7 +309,13 @@ impl Core {
         if !self.started {
             return 0;
         }
-        frame_calls::write_inputs(&self.arena, &mut self.table, &mut self.frame, &self.implicit, len as usize)
+        frame_calls::write_inputs(
+            &self.arena,
+            &mut self.table,
+            &mut self.frame,
+            &self.implicit,
+            len as usize,
+        )
     }
 
     /// Evaluates `world`'s instances in `pass`. Returns the state-change records waiting.
@@ -341,7 +347,8 @@ impl Core {
 
     /// The state-change records (`StateChange::STRIDE` bytes each; `evaluate` returns the count).
     pub fn changes(&self) -> &[u8] {
-        &self.frame.changes[..self.frame.change_count * anim_wire::core::StateChange::STRIDE as usize]
+        &self.frame.changes
+            [..self.frame.change_count * anim_wire::core::StateChange::STRIDE as usize]
     }
 
     /// State changes dropped this frame because the buffer was full.
@@ -359,7 +366,11 @@ impl Core {
     /// Writes a clip's `COLUMN` records (where each property track's column sits in its block)
     /// into `out`; returns the bytes written (0 for a stale handle or a short `out`).
     pub fn clip_columns(&self, clip: u32, out: &mut [u8]) -> u32 {
-        self.arena.clip_asset(clip).ok().and_then(|c| crate::tracks::write_columns(&c.bindings, out)).unwrap_or(0) as u32
+        self.arena
+            .clip_asset(clip)
+            .ok()
+            .and_then(|c| crate::tracks::write_columns(&c.bindings, out))
+            .unwrap_or(0) as u32
     }
 
     /// The track regions (`TRACK_STRIDE` bytes per instance index, as words).

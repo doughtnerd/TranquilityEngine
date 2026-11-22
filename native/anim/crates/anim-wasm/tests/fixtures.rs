@@ -24,7 +24,8 @@ const MAX_BONES: u32 = 64;
 const TOLERANCE: f64 = 1e-4;
 
 fn dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../src/plugins/animation/runtime/wasm/fixtures")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../../src/plugins/animation/runtime/wasm/fixtures")
 }
 
 struct Files(Vec<(&'static str, Vec<u8>)>);
@@ -121,7 +122,10 @@ fn fixtures_are_up_to_date_and_the_native_core_matches_them() {
         core.evaluate(0, PASS_NORMAL, DT, DT);
     }
     let bones = play_expected.len() / 12;
-    let d = max_diff(&matrices(&core, h, MAX_BONES as usize, bones), &play_expected);
+    let d = max_diff(
+        &matrices(&core, h, MAX_BONES as usize, bones),
+        &play_expected,
+    );
     assert!(d < TOLERANCE, "play: {d}");
     send(&mut core, &[play(h, run, 0, 0.5, 2, 0)]);
     core.evaluate(0, PASS_NORMAL, DT, DT);
@@ -129,6 +133,9 @@ fn fixtures_are_up_to_date_and_the_native_core_matches_them() {
         core.write_inputs(0);
         core.evaluate(0, PASS_NORMAL, DT, DT);
     }
-    let d = max_diff(&matrices(&core, h, MAX_BONES as usize, bones), &crossfade_expected);
+    let d = max_diff(
+        &matrices(&core, h, MAX_BONES as usize, bones),
+        &crossfade_expected,
+    );
     assert!(d < TOLERANCE, "crossfade: {d}");
 }

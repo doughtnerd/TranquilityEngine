@@ -23,10 +23,10 @@ use anim_graph::eval::{
     Events, History, Inputs, Program, Scratch, SkeletonPose, StateEvent, StateEventKind,
     TrackOutput,
 };
-use anim_sample::Window;
 use anim_math::layout::soa_len;
 use anim_math::{AosTransform, SoaTransform};
 use anim_pose::inertialize::Inertializer;
+use anim_sample::Window;
 use anim_wire::core::{
     Init, Play, SetLayer, StateChange, Stop, CHANGE_FINISHED, CHANGE_INTERRUPTED, CHANGE_REFUSED,
     COMMAND_BYTES, CULL_ALWAYS, CULL_MASK, CULL_ROOT_MOTION_ONLY, FLAG_BAKE_ROOT, FLAG_FIXED,
@@ -59,8 +59,11 @@ pub(crate) fn bytes_needed(init: &Init) -> u64 {
     let groups = soa_len(init.max_bones as usize) as u64;
     let soa = core::mem::size_of::<SoaTransform>() as u64;
     let aos = core::mem::size_of::<AosTransform>() as u64;
-    let views = n.saturating_mul(INPUT_STRIDE as u64 + ROOT_STRIDE as u64 + bones * 4 * MATRIX_FLOATS as u64);
-    let changes = (n * CHANGES_PER_INSTANCE as u64 + CHANGES_RESERVE as u64) * StateChange::STRIDE as u64;
+    let views = n.saturating_mul(
+        INPUT_STRIDE as u64 + ROOT_STRIDE as u64 + bones * 4 * MATRIX_FLOATS as u64,
+    );
+    let changes =
+        (n * CHANGES_PER_INSTANCE as u64 + CHANGES_RESERVE as u64) * StateChange::STRIDE as u64;
     let slots = implicit::program().pose_slots() as u64;
     // Pose stack, display pose, sampling scratch (2 per bone), model space, inertializer state.
     let scratch = (slots + 1) * groups * soa + 3 * bones * aos + bones * 64;
@@ -139,7 +142,8 @@ impl Frame {
         row[(INPUT_LOD_STEP / 4) as usize] = 1;
         row[(INPUT_FLAGS / 4) as usize] = FLAG_VISIBLE;
         for l in 0..MAX_LAYERS as usize {
-            row[(INPUT_LAYER_WEIGHTS / 4) as usize + l] = layers.get(l).copied().unwrap_or(1.0).to_bits();
+            row[(INPUT_LAYER_WEIGHTS / 4) as usize + l] =
+                layers.get(l).copied().unwrap_or(1.0).to_bits();
         }
         let roots = &mut self.roots[index * ROOT_FLOATS..(index + 1) * ROOT_FLOATS];
         roots.fill(0.0);
@@ -221,7 +225,15 @@ impl TrackOutput for TrackOut<'_, '_> {
         } else {
             &mut []
         };
-        tracks::evaluate_clip(&bound, clip, window, weight, open, columns, &mut self.writer);
+        tracks::evaluate_clip(
+            &bound,
+            clip,
+            window,
+            weight,
+            open,
+            columns,
+            &mut self.writer,
+        );
     }
 
     fn end(&mut self, clip: u32, time: f32, open: &mut [u32]) {
@@ -242,7 +254,13 @@ fn as_bytes(words: &mut [u32]) -> &mut [u8] {
 /// Applies the first `len` bytes of the command buffer. Returns the commands applied; refused ones
 /// are reported as `CHANGE_REFUSED` records. Clears the change buffer first. An unknown opcode, or
 /// a record cut off by `len`, ends the batch.
-pub fn write_inputs(arena: &Arena, table: &mut Table, frame: &mut Frame, implicit: &Program, len: usize) -> u32 {
+pub fn write_inputs(
+    arena: &Arena,
+    table: &mut Table,
+    frame: &mut Frame,
+    implicit: &Program,
+    len: usize,
+) -> u32 {
     frame.change_count = 0;
     frame.changes_dropped = 0;
     let len = len.min(frame.commands.len());
@@ -273,7 +291,12 @@ pub fn write_inputs(arena: &Arena, table: &mut Table, frame: &mut Frame, implici
                 Err(_) => (Err(STATUS_BAD_RECORD), 0, 0, 0),
             },
             _ => match SetLayer::decode(bytes) {
-                Ok(c) => (set_layer(arena, table, implicit, &c), c.instance, c.layer, 0),
+                Ok(c) => (
+                    set_layer(arena, table, implicit, &c),
+                    c.instance,
+                    c.layer,
+                    0,
+                ),
                 Err(_) => (Err(STATUS_BAD_RECORD), 0, 0, 0),
             },
         };
@@ -303,7 +326,7 @@ pub fn write_inputs(arena: &Arena, table: &mut Table, frame: &mut Frame, implici
     applied
 }
 
-fn implicit_instance<'t>(table: &'t mut Table, h: u32, layer: u32) -> Result<&'t mut Instance, u32> {
+fn implicit_instance(table: &mut Table, h: u32, layer: u32) -> Result<&mut Instance, u32> {
     let inst = table.get_mut(h)?;
     if inst.graph != 0 {
         return Err(STATUS_MISMATCH);
@@ -314,7 +337,12 @@ fn implicit_instance<'t>(table: &'t mut Table, h: u32, layer: u32) -> Result<&'t
     Ok(inst)
 }
 
-fn play(arena: &Arena, table: &mut Table, implicit_program: &Program, c: &Play) -> Result<[u32; 2], u32> {
+fn play(
+    arena: &Arena,
+    table: &mut Table,
+    implicit_program: &Program,
+    c: &Play,
+) -> Result<[u32; 2], u32> {
     let skeleton = table.get_mut(c.instance)?.skeleton;
     let bones = arena.skeleton(skeleton)?.bones();
     let clip = arena.clip_asset(c.clip)?;
@@ -340,10 +368,22 @@ fn play(arena: &Arena, table: &mut Table, implicit_program: &Program, c: &Play) 
 fn stop(table: &mut Table, implicit_program: &Program, c: &Stop) -> Result<[u32; 2], u32> {
     let inst = implicit_instance(table, c.instance, c.layer)?;
     let groups = inst.groups;
-    Ok(implicit::stop(implicit_program, &mut inst.state, groups, c.layer, c.fade, c.flags))
+    Ok(implicit::stop(
+        implicit_program,
+        &mut inst.state,
+        groups,
+        c.layer,
+        c.fade,
+        c.flags,
+    ))
 }
 
-fn set_layer(arena: &Arena, table: &mut Table, implicit_program: &Program, c: &SetLayer) -> Result<[u32; 2], u32> {
+fn set_layer(
+    arena: &Arena,
+    table: &mut Table,
+    implicit_program: &Program,
+    c: &SetLayer,
+) -> Result<[u32; 2], u32> {
     if c.layer == 0 {
         return Err(STATUS_BAD_RECORD);
     }
@@ -356,12 +396,20 @@ fn set_layer(arena: &Arena, table: &mut Table, implicit_program: &Program, c: &S
     }
     let inst = implicit_instance(table, c.instance, c.layer)?;
     let groups = inst.groups;
-    implicit::set_layer(implicit_program, &mut inst.state, groups, c.layer, c.mask, c.mode);
+    implicit::set_layer(
+        implicit_program,
+        &mut inst.state,
+        groups,
+        c.layer,
+        c.mask,
+        c.mode,
+    );
     Ok([0, 0])
 }
 
 /// Evaluates every instance of `world` in `pass`. Returns the state-change records waiting
 /// (including those `write_inputs` left). Never allocates.
+#[allow(clippy::too_many_arguments)]
 pub fn evaluate(
     arena: &Arena,
     table: &mut Table,
@@ -395,7 +443,11 @@ pub fn evaluate(
             }
         };
         let scale = f32::from_bits(row[(INPUT_TIME_SCALE / 4) as usize]);
-        let base = if flags & FLAG_UNSCALED != 0 { dt_unscaled } else { dt_scaled };
+        let base = if flags & FLAG_UNSCALED != 0 {
+            dt_unscaled
+        } else {
+            dt_scaled
+        };
         let mut dt = base * scale;
         if !dt.is_finite() {
             dt = 0.0;

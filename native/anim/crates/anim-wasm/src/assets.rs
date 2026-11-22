@@ -146,7 +146,8 @@ pub struct MaskAsset {
     pub packed: Vec<F32x4>,
 }
 
-/// What a slot holds.
+/// What a slot holds. (A clip's binding table is inline; slots are few and long-lived.)
+#[allow(clippy::large_enum_variant)]
 pub enum Asset {
     Skeleton(SkeletonAsset),
     Clip(ClipAsset),

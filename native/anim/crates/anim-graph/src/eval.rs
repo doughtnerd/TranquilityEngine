@@ -912,7 +912,10 @@ impl<'a> EvalContext<'a> {
     }
 
     /// Slot `slot` and the sampling scratch, for sampling a clip into the slot.
-    pub fn pose_and_sample_scratch(&mut self, slot: usize) -> (&mut [SoaTransform], &mut [AosTransform]) {
+    pub fn pose_and_sample_scratch(
+        &mut self,
+        slot: usize,
+    ) -> (&mut [SoaTransform], &mut [AosTransform]) {
         let r = self.slot_range(slot);
         match &mut self.scratch {
             Some(s) => (&mut s.poses[r], &mut *s.sample),
@@ -984,7 +987,7 @@ fn split_slots<const N: usize>(
 
 /// Writes `pose` into `words` (`SOA_WORDS` per group).
 pub fn pose_to_words(pose: &[SoaTransform], words: &mut [u32]) {
-    for (t, w) in pose.iter().zip(words.chunks_exact_mut(SOA_WORDS)) {
+    for (t, w) in pose.iter().zip(words.as_chunks_mut::<SOA_WORDS>().0) {
         let comps = [
             t.translation.x,
             t.translation.y,
@@ -997,7 +1000,7 @@ pub fn pose_to_words(pose: &[SoaTransform], words: &mut [u32]) {
             t.scale.y,
             t.scale.z,
         ];
-        for (c, o) in comps.iter().zip(w.chunks_exact_mut(4)) {
+        for (c, o) in comps.iter().zip(w.as_chunks_mut::<4>().0) {
             o.copy_from_slice(&c.to_bits_array());
         }
     }
@@ -1005,7 +1008,7 @@ pub fn pose_to_words(pose: &[SoaTransform], words: &mut [u32]) {
 
 /// Reads `pose` back from `words` (the inverse of [`pose_to_words`], bit for bit).
 pub fn pose_from_words(words: &[u32], pose: &mut [SoaTransform]) {
-    for (t, w) in pose.iter_mut().zip(words.chunks_exact(SOA_WORDS)) {
+    for (t, w) in pose.iter_mut().zip(words.as_chunks::<SOA_WORDS>().0) {
         let c = |k: usize| {
             F32x4::new(
                 f32::from_bits(w[4 * k]),

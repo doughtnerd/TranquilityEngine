@@ -101,7 +101,14 @@ pub fn clip_player_params(clip: u32, speed: f32, flags: u32, start: f32, layer: 
 /// Starts a play on a clip player's state: `clip` from `start` seconds at `speed`, with `flags`
 /// ([`PLAYER_LOOP_SET`], [`PLAYER_LOOP`]) and the host's `play_id`. Returns the id of the play it
 /// replaced if that play hadn't finished (the host reports it interrupted), else 0.
-pub fn start_play(state: &mut [u32], clip: u32, start: f32, speed: f32, flags: u32, play_id: u32) -> u32 {
+pub fn start_play(
+    state: &mut [u32],
+    clip: u32,
+    start: f32,
+    speed: f32,
+    flags: u32,
+    play_id: u32,
+) -> u32 {
     let replaced = interrupt(state);
     retire(state);
     state[player::CLIP] = clip;
@@ -214,7 +221,11 @@ fn tracks(cx: &mut EvalContext<'_>) {
         state[player::ENDED_CLIP] = 0;
     }
     let handle = state[player::CLIP];
-    let clip = if handle != 0 { assets.clip(handle) } else { None };
+    let clip = if handle != 0 {
+        assets.clip(handle)
+    } else {
+        None
+    };
     if let Some(clip) = clip {
         let flags = state[player::FLAGS];
         let mut window = Window::new(
@@ -227,7 +238,12 @@ fn tracks(cx: &mut EvalContext<'_>) {
             state[player::FLAGS] = flags & !PLAYER_STARTED;
         }
         let at = player::OPEN;
-        out.window(handle, &window, weight, &mut state[at..at + player::OPEN_WORDS]);
+        out.window(
+            handle,
+            &window,
+            weight,
+            &mut state[at..at + player::OPEN_WORDS],
+        );
     }
     cx.state()[..player::WORDS as usize].copy_from_slice(&state);
 }
@@ -240,12 +256,18 @@ fn loops(clip: &ClipRef<'_>, flags: u32) -> bool {
     }
 }
 
+// `!(a < b)` is deliberate: true for NaN too.
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 fn update(cx: &mut EvalContext<'_>) {
     let dt = cx.dt();
     let assets = cx.assets();
     let s = cx.state();
     let handle = s[player::CLIP];
-    let Some(clip) = (if handle != 0 { assets.clip(handle) } else { None }) else {
+    let Some(clip) = (if handle != 0 {
+        assets.clip(handle)
+    } else {
+        None
+    }) else {
         s[player::WRAPS] = 0;
         return;
     };
@@ -309,12 +331,20 @@ fn pose(cx: &mut EvalContext<'_>) {
         let s = cx.state();
         (s[player::CLIP], f32::from_bits(s[player::TIME]))
     };
-    let clip = if handle != 0 { assets.clip(handle) } else { None };
+    let clip = if handle != 0 {
+        assets.clip(handle)
+    } else {
+        None
+    };
     let Some(clip) = clip else {
         cx.fill_rest(slot);
         return;
     };
-    let rest = if clip.additive { skel.identity } else { skel.rest };
+    let rest = if clip.additive {
+        skel.identity
+    } else {
+        skel.rest
+    };
     let (out, scratch) = cx.pose_and_sample_scratch(slot);
     if clip
         .bound
@@ -342,7 +372,11 @@ fn curve_at(clip: &ClipRef<'_>, t: f32) -> Option<[f32; 4]> {
     let curve = clip.root_curve?;
     let last = clip.frame_count.checked_sub(1)?;
     let x = t * clip.sample_rate;
-    let x = if x >= 0.0 { Lane::min(x, last as f32) } else { 0.0 };
+    let x = if x >= 0.0 {
+        Lane::min(x, last as f32)
+    } else {
+        0.0
+    };
     let f0 = (Lane::floor(x) as u32).min(last);
     let f1 = (f0 + 1).min(last);
     let a = x - f0 as f32;
@@ -375,7 +409,11 @@ fn root(cx: &mut EvalContext<'_>) -> RootDelta {
     let assets = cx.assets();
     let s = cx.state();
     let handle = s[player::CLIP];
-    let Some(clip) = (if handle != 0 { assets.clip(handle) } else { None }) else {
+    let Some(clip) = (if handle != 0 {
+        assets.clip(handle)
+    } else {
+        None
+    }) else {
         return RootDelta::identity();
     };
     if clip.additive || clip.root_curve.is_none() {

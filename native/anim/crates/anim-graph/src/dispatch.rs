@@ -128,9 +128,14 @@ mod tests {
             ..AnimGraph::default()
         };
         let bytes = graph.write().unwrap();
-        let program = crate::eval::Program::from_view(&AnimGraphView::parse(&bytes).unwrap()).unwrap();
+        let program =
+            crate::eval::Program::from_view(&AnimGraphView::parse(&bytes).unwrap()).unwrap();
         assert_eq!(program.unknown_nodes(), Family::ALL.len() as u32);
-        let _ = (dispatch, NodeStatus::Done, core::mem::size_of::<EvalContext<'_>>());
+        let _ = (
+            dispatch,
+            NodeStatus::Done,
+            core::mem::size_of::<EvalContext<'_>>(),
+        );
         let _: Option<NodeData<'_>> = None;
     }
 }

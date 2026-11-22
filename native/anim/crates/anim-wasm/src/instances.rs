@@ -99,7 +99,14 @@ impl Table {
     }
 
     /// Creates an instance with a fresh state blob; the caller initialises it.
-    pub fn create(&mut self, world: u32, skeleton: u32, graph: u32, program: &Program, groups: usize) -> Result<u32, u32> {
+    pub fn create(
+        &mut self,
+        world: u32,
+        skeleton: u32,
+        graph: u32,
+        program: &Program,
+        groups: usize,
+    ) -> Result<u32, u32> {
         let instance = Instance {
             world,
             skeleton,
@@ -198,7 +205,7 @@ impl Table {
         pose_to_words(&inst.last, &mut poses[..g]);
         pose_to_words(&inst.prev, &mut poses[g..]);
         let all = header.iter().chain(&inst.state).chain(&poses);
-        for (w, o) in all.zip(out.chunks_exact_mut(4)) {
+        for (w, o) in all.zip(out.as_chunks_mut::<4>().0) {
             o.copy_from_slice(&w.to_le_bytes());
         }
         STATUS_OK

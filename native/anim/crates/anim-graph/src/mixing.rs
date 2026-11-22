@@ -394,6 +394,8 @@ fn layer_pose(cx: &mut EvalContext<'_>, base: u32, overlay: u32, w: f32) {
     cx.pop_slot();
 }
 
+// `!(a < b)` is deliberate: true for NaN too.
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 fn inertialize(cx: &mut EvalContext<'_>, node: NodeData<'_>) {
     let Some(&source) = node.inputs.first() else {
         match cx.phase() {
