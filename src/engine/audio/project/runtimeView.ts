@@ -22,6 +22,7 @@
  */
 import type { Curve, CurveKey } from "../../core/curve";
 import { BUS_RULES, MAX_BUSES, coreRuns, findingText, type CoreEffectType } from "../busCapability";
+import { pluginEffectNote } from "../effects/catalogue";
 import type { Effect } from "../effects/types";
 import {
   DEFAULT_BED_PRIORITY, DEFAULT_LOUDNESS_TARGETS, MAX_SEND_LEVEL, ROOT_BED_PRIORITY,
@@ -107,7 +108,11 @@ function sectionEffects(project: AudioProject, owner: { name: string; effects: E
     if (coreShown(project, owner.name, e)) {
       out.push(coreBusEffect(e, automatedEffect(project, owner.name, e)));
       if (e.type === "sidechainCompressor" && !project.buses.some((b) => b.name === e.key) && !project.returns.some((r) => r.name === e.key)) warn(`${kind} "${owner.name}": the sidechain compressor "${e.id}" has no key bus; it doesn't compress until it has one.`);
-    } else if (e.on && !isCarrier(project, owner.name, e)) warn(`${kind} "${owner.name}": the ${e.type} effect "${e.id}" doesn't run on a ${kind} (ADR 0331); left out.`);
+    } else if (e.on && !isCarrier(project, owner.name, e)) {
+      // ADR 0338 §4: a plugin effect whose plugin is off or missing passes audio through, with this one warning.
+      const note = pluginEffectNote(e.type);
+      warn(note ? `${kind} "${owner.name}": the effect "${e.id}" ${note}.` : `${kind} "${owner.name}": the ${e.type} effect "${e.id}" doesn't run on a ${kind} (ADR 0331); left out.`);
+    }
   }
   return out;
 }
