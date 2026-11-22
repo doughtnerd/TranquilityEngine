@@ -1,0 +1,25 @@
+# The audio effect plugin SDK (ADR 0338 §2, 0344 §5): the `myco-fx` crate (a trait, an `export_effects!` macro that
+# writes the DSP ABI 1.0 exports, and an allocator that frees) and its C header, plus `test-fx`, the SDK's own test
+# plugin. Not under native/audio/: the audio core's source hash covers every Rust file there (source_hash.rs), and
+# the SDK must not change it. Its own workspace, built by `node native/fx-sdk/build.mjs` (cargo +1.99.1,
+# wasm32-unknown-unknown) into native/fx-sdk/wasm/ and samples/fx-tremolo/.
+[workspace]
+resolver = "2"
+members = ["myco-fx", "test-fx"]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
+strip = true
+
+[profile.dev]
+panic = "abort"

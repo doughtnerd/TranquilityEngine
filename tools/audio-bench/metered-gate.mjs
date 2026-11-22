@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The audio core's CI cost gate (ADR 0157 task C1b, architecture §6.5 "CI": +10% fails). Runs fixed `audio-bench`
 // scenes through the metered wasm (`metered/audio_bench.metered.wasm`, written by `npm run build:audio`: the bench
-// built like the mixer, +simd128 and release, then instrumented by `meter.mjs`) and compares each scene's wasm
+// built like the mixer, +simd128 and release, then instrumented by `src/engine/wasm/meter.js`) and compares each scene's wasm
 // instructions per quantum with `metered/baseline.json`. Wall time on a shared machine moves ±15% between runs; the
 // count is the same on every machine and every run, so a 10% threshold is meaningful. Needs Node only (no Rust).
 //
@@ -15,7 +15,7 @@
 // instruction counts. Each scene runs on a fresh instance (the allocator's state never carries over between scenes).
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { COUNTER_EXPORT, METER_VERSION } from "./meter.mjs";
+import { COUNTER_EXPORT, METER_VERSION } from "../../src/engine/wasm/meter.js";
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const WASM = here("metered/audio_bench.metered.wasm");

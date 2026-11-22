@@ -81,7 +81,7 @@ function specOf(edits: SampleEdits, warnings: string[]): Float64Array {
     });
     const on = f.on && f.type !== "reverse";
     if (f.on && f.type === "reverse") warnings.push("Reverse isn't baked into a render: loops, markers and the trim are in source seconds, which it would move. It was left out.");
-    effects.push(EFFECT_TYPES.indexOf(f.type), on ? 1 : 0, ...p);
+    effects.push((EFFECT_TYPES as readonly string[]).indexOf(f.type), on ? 1 : 0, ...p); // a plugin type: -1, which the renderer passes through with a warning (ADR 0338 §4)
   });
   const lanes: number[] = [];
   let laneCount = 0;
