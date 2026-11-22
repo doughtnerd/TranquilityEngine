@@ -51,16 +51,22 @@ function rig(p = project()) {
   return { m, sent, run };
 }
 const db = (g: number) => 20 * Math.log10(g);
-const reverbSend = (m: Mixer, bus: string) => (m.resolve(bus)!.effects.find((e) => e.type === "reverb") as Extract<BusEffect, { type: "reverb" }> | undefined)?.send;
+/** `bus`'s live send into the Reverb return (`_busSends`, what the core backend writes as `BUS_SENDS`). */
+const reverbSend = (m: Mixer, bus: string) => m._busSends(bus)?.find((s) => s.to === "Reverb");
 const lowpass = (m: Mixer, bus: string) => (m.resolve(bus)!.effects.find((e) => e.type === "lowpass") as Extract<BusEffect, { type: "lowpass" }> | undefined)?.frequency;
 
 describe("the mixer runs the audio.json model (ADR 0330)", () => {
-  it("hands its backends the bus view: faders without VCAs, the reverb send at its level plus the return's", () => {
+  it("hands its backends the bus view: faders without VCAs, returns as buses after the buses, sends at their level", () => {
     const { m } = rig();
-    expect(m.busNames).toEqual(["Master", "Music", "SFX", "Steps"]);
+    expect(m.busNames).toEqual(["Master", "Music", "SFX", "Steps", "Reverb"]);
     expect(m.returnNames).toEqual(["Reverb"]);
     expect(db(m.audioSettings.buses[2]!.volume)).toBeCloseTo(0, 9);
-    expect(db(reverbSend(m, "SFX")!)).toBeCloseTo(-15, 6);
+    const ret = m.audioSettings.buses[4]!;
+    expect(ret).toMatchObject({ name: "Reverb", parent: "Master", mute: false, effects: [{ type: "fx", fx: "reverb" }] });
+    expect(db(ret.volume)).toBeCloseTo(-3, 6);
+    expect(m.audioSettings.buses[2]!.sends).toEqual([{ to: "Reverb", level: expect.closeTo(Math.pow(10, -12 / 20), 9) }]);
+    expect(reverbSend(m, "SFX")).toEqual({ to: "Reverb", level: expect.closeTo(Math.pow(10, -12 / 20), 9), muted: false });
+    expect(m._busSends("Music")).toEqual([]);
     expect(m.has("Reverb")).toBe(false); // a sound can't play on a return
     expect(m.resolveOutput("Reverb")).toBe("Master");
   });
@@ -74,31 +80,46 @@ describe("the mixer runs the audio.json model (ADR 0330)", () => {
     expect(m.bus("SFX").authoredVolume).toBe(1); // the fader alone
   });
 
-  it("mute silences the bus and its sends (project, script and monitor mutes); a muted return silences the sends into it", () => {
+  it("mute silences the bus and its sends, keeping their level (project, script and monitor mutes); a muted return is silent itself", () => {
     const { m } = rig();
-    expect(reverbSend(m, "SFX")!).toBeGreaterThan(0);
+    const level = Math.pow(10, -12 / 20);
+    expect(reverbSend(m, "SFX")).toMatchObject({ muted: false });
     m.bus("SFX").mute = true;
     m.update(0);
-    expect(reverbSend(m, "SFX")).toBe(0);
+    expect(reverbSend(m, "SFX")).toEqual({ to: "Reverb", level: expect.closeTo(level, 9), muted: true });
     expect(m.bus("Steps").effectiveGain).toBe(0);
     m.bus("SFX").mute = false;
+    m.setMonitor("SFX", { mute: true });
+    m.update(0);
+    expect(reverbSend(m, "SFX")).toMatchObject({ muted: true });
+    m.setMonitor("SFX", { mute: false });
+    expect(m.apply({ op: "setMute", name: "SFX", value: true }).ok).toBe(true);
+    expect(reverbSend(m, "SFX")).toMatchObject({ muted: true });
+    m.apply({ op: "setMute", name: "SFX", value: false });
+    expect(reverbSend(m, "SFX")).toEqual({ to: "Reverb", level: expect.closeTo(level, 9), muted: false });
+    // A muted return: its own lanes (it is a bus of the view); the sends into it run on.
     m.setMonitor("Reverb", { mute: true });
     m.update(0);
-    expect(reverbSend(m, "SFX")).toBe(0);
+    expect(m.resolve("Reverb")!.gain).toBe(0);
+    expect(reverbSend(m, "SFX")).toMatchObject({ muted: false });
     m.setMonitor("Reverb", { mute: false });
-    m.update(0);
-    expect(db(reverbSend(m, "SFX")!)).toBeCloseTo(-15, 6);
+    expect(m.apply({ op: "setMute", name: "Reverb", value: true }).ok).toBe(true);
+    expect(m.bus("Reverb").authoredMute).toBe(true);
+    expect(m.resolve("Reverb")!.gain).toBe(0);
   });
 
-  it("returns: their own lanes (script volume, snapshot offsets) move the sends into them; solo keeps them audible", () => {
+  it("returns: their own lanes (script volume, snapshot offsets), the sends into them untouched; solo keeps them audible", () => {
     const { m, run } = rig();
     m.bus("Reverb").volume = 0.5;
     m.update(0);
-    expect(reverbSend(m, "SFX")!).toBeCloseTo(Math.pow(10, -15 / 20) * 0.5, 6);
+    expect(m.laneGain("Reverb", Lane.runtime)).toBe(0.5);
+    expect(m._lanes("Reverb")!.runtime.to).toBe(0.5); // the lane writer's: a core lane like a bus's
+    expect(db(m.resolve("Reverb")!.gain)).toBeCloseTo(-3 + db(0.5), 6);
     m.bus("Reverb").volume = 1;
     m.startSnapshot("Under");
     run(1.05);
-    expect(db(reverbSend(m, "SFX")!)).toBeCloseTo(-21, 4);
+    expect(db(m.laneGain("Reverb", Lane.snapshot))).toBeCloseTo(-6, 4);
+    expect(db(reverbSend(m, "SFX")!.level)).toBeCloseTo(-12, 6);
     m.bus("Steps").solo = true;
     expect(m.resolve("Reverb")!.gain).toBeGreaterThan(0);
     expect(m.resolve("Music")!.gain).toBe(0);
@@ -158,7 +179,10 @@ describe("the mixer runs the audio.json model (ADR 0330)", () => {
     const { m } = rig();
     m.setParameter("threat", 1);
     m.update(0);
-    expect(db(reverbSend(m, "SFX")!)).toBeCloseTo(-9, 6);
+    expect(db(reverbSend(m, "SFX")!.level)).toBeCloseTo(-6, 6); // -12 dB plus the curve's 6
+    m.setParameter("threat", 0);
+    m.update(0);
+    expect(db(reverbSend(m, "SFX")!.level)).toBeCloseTo(-12, 6);
   });
 
   it("live ops: a VCA, a return and a snapshot edit apply to the model; the bus view's changes go out as the old ops", () => {
@@ -168,8 +192,20 @@ describe("the mixer runs the audio.json model (ADR 0330)", () => {
     m.update(0.02); // the VCA lane ramps over DRAG_RAMP_MS
     expect(db(m.laneGain("SFX", Lane.vca))).toBeCloseTo(-12, 6);
     expect(m.apply({ op: "setReturn", name: "Reverb", ret: { name: "Reverb", output: "Master", volumeDb: -9, mute: false, effects: [{ id: "fx1", type: "reverb", on: true, params: { mix: 100 } }] } }).ok).toBe(true);
-    expect(sent.map((o) => o.op)).toEqual(["setEffect"]); // the reverb send's level
-    expect(db(m.audioSettings.buses[2]!.effects[0]!.type === "reverb" ? (m.audioSettings.buses[2]!.effects[0] as { send: number }).send : 0)).toBeCloseTo(-21, 6);
+    expect(sent).toEqual([{ op: "setBus", bus: "Reverb", key: "volume", value: expect.closeTo(Math.pow(10, -9 / 20), 9) }]); // the return's fader
+    m.update(0.02);
+    expect(db(m.laneGain("Reverb", Lane.authored))).toBeCloseTo(-9, 6);
+    expect(m.audioProject.returns[0]!.volumeDb).toBe(-9);
+    // A send: the view's sends and the live ones follow (no old op carries them).
+    expect(m.apply({ op: "setSend", bus: "Music", to: "Reverb", levelDb: -20 })).toEqual({ ok: true, class: "direct" });
+    expect(m.audioSettings.buses[1]!.sends).toEqual([{ to: "Reverb", level: expect.closeTo(0.1, 9) }]);
+    expect(reverbSend(m, "Music")).toEqual({ to: "Reverb", level: expect.closeTo(0.1, 9), muted: false });
+    // A renamed return keeps its bus (renameBus, no structural edit), and the sends into it follow.
+    sent.length = 0;
+    expect(m.apply({ op: "setReturn", name: "Hall", from: "Reverb", ret: { name: "Hall", output: "Master", volumeDb: -9, mute: false, effects: [{ id: "fx1", type: "reverb", on: true, params: { mix: 100 } }] } }).ok).toBe(true);
+    expect(sent).toEqual([{ op: "renameBus", from: "Reverb", to: "Hall" }]);
+    expect(m.returnNames).toEqual(["Hall"]);
+    expect(m._busSends("SFX")!.map((s) => s.to)).toEqual(["Hall"]);
     m.startSnapshot("Tension");
     m.update(0);
     m.apply({ op: "setSnapshotLevel", snapshot: "Tension", target: "Music", db: -5 });
@@ -209,7 +245,8 @@ describe("the mixer runs the audio.json model (ADR 0330)", () => {
     expect(m.returnNames).toEqual(["Reverb"]);
     m.snapshot("Quiet", 0);
     expect(m.laneGain("SFX", Lane.snapshot)).toBe(0.5);
-    expect(reverbSend(m, "SFX")).toBe(0.5);
+    expect(reverbSend(m, "SFX")).toEqual({ to: "Reverb", level: 0.5, muted: false });
+    expect(m.audioSettings.buses.find((b) => b.name === "SFX")!.effects).toEqual([]); // the view holds no reverb send effect
     warn.mockRestore();
   });
 });
