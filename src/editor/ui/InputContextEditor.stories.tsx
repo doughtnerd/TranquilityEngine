@@ -90,15 +90,19 @@ export const PressToBind: Story = {
     const card = within(c.getByRole("listitem", { name: "Mapping 1" }));
     await userEvent.click(card.getByRole("button", { name: "Bind" }));
     await waitFor(() => expect(card.getByRole("button", { name: "Cancel" })).toHaveAttribute("aria-pressed", "true"));
-    await new Promise((r) => setTimeout(r, 20)); // capture starts after the click that asked for it
     await userEvent.keyboard("k");
     await waitFor(async () => expect((await saved()).mappings[0].control).toBe("<Keyboard>/k"));
     // Escape cancels and keeps the control.
     await userEvent.click(card.getByRole("button", { name: "Bind" }));
-    await new Promise((r) => setTimeout(r, 20));
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(card.getByRole("button", { name: "Bind" })).toBeVisible());
     expect((await saved()).mappings[0].control).toBe("<Keyboard>/k");
+    // A key pressed in the same task as the click is taken too: capture starts with the click (the browser runs
+    // input before timers, so a busy page would hand a press made right after the click to the page instead).
+    const bind = card.getByRole("button", { name: "Bind" });
+    bind.click();
+    bind.dispatchEvent(new KeyboardEvent("keydown", { key: "m", bubbles: true, cancelable: true }));
+    await waitFor(async () => expect((await saved()).mappings[0].control).toBe("<Keyboard>/m"));
   },
 };
 

@@ -234,14 +234,13 @@ function ControlRow(props: { part: string; listId: string; single: boolean; valu
       return;
     }
     setCapturing(true);
-    // After this click has finished, so it isn't taken as the binding.
-    setTimeout(() => {
-      stop.current = captureControl((path) => {
-        stop.current = null;
-        setCapturing(false);
-        if (path) commit(path);
-      });
-    }, 0);
+    // Now, not after a timer: the browser runs input before timers, so a key pressed while the page is busy would
+    // reach the page instead. This click's own events have passed the window's capture phase, so they aren't taken.
+    stop.current = captureControl((path) => {
+      stop.current = null;
+      setCapturing(false);
+      if (path) commit(path);
+    });
   };
   return (
     <div class="import-row input-control-row">

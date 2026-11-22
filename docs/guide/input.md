@@ -207,7 +207,7 @@ Colours, `fontSize`, `glyphSize` and `width` are fields. Scripts read `rows` (ea
 
 ## In the editor
 
-- **New contexts:** the Assets panel's New… menu has **New Input Context**, which writes `input/New Input Context.input.json`.
+- **New contexts:** the Assets panel's New… menu has **New Input Context**, which writes `New Input Context.input.json` in the folder the panel shows.
 - **Editing a context:** select the file to edit it in the Inspector, or double-click it to open the **Input Context** panel. For each mapping, pick:
   - the action;
   - its controls: one control, a d-pad, an axis or a chord. Type a path, pick one from the list by device, or click **Bind** and press the key, mouse button or gamepad control. Escape cancels.
