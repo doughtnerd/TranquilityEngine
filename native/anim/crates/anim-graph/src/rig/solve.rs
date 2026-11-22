@@ -14,7 +14,9 @@ use anim_rig::constraints::{
     copy as copy_solve, damp as damp_solve, limit_position as limit_position_solve,
     limit_rotation as limit_rotation_solve, CopyTransform, Damp, DampState, PositionLimit, Space,
 };
-use anim_rig::full_body::{full_body as full_body_solve, BodyChain, CentreOfMass, Effector, FullBodyGoal, MAX_CHAINS};
+use anim_rig::full_body::{
+    full_body as full_body_solve, BodyChain, CentreOfMass, Effector, FullBodyGoal, MAX_CHAINS,
+};
 use anim_rig::grounder::{
     apply as ground_apply, ray_requests, solve as ground_solve, GrounderSettings, GrounderState,
     RayHit, RayRequest, MAX_FEET,
@@ -28,8 +30,8 @@ use anim_rig::warp::{heading_angle, orientation_warp, stride_warp, OrientationWa
 use anim_rig::{blend_rotation, ChainJoint, JointLimit, RigPose};
 
 use super::{
-    aim, chain, copy, damp, full_body, grounder, head, kind, lod_skipped, limit_position,
-    limit_rotation, orientation, spring, state, stride, two_bone, weight, RigInputs, MAX_AIM_JOINTS,
+    aim, chain, copy, damp, full_body, grounder, kind, limit_position, limit_rotation, lod_skipped,
+    orientation, spring, state, stride, two_bone, weight, RigInputs, MAX_AIM_JOINTS,
     MAX_BODY_BONES, MAX_CHAIN, MAX_COLLIDERS, MAX_EXTRA_WORDS, MAX_LIST, ROLE,
 };
 use crate::eval::{EvalContext, NodeData};
@@ -107,7 +109,11 @@ fn vec3_words(node: &NodeData<'_>, i: usize, default: AosVec3) -> AosVec3 {
     if node.params.len() < i + 3 {
         return default;
     }
-    let v = AosVec3::new(node.f32_or(i, 0.0), node.f32_or(i + 1, 0.0), node.f32_or(i + 2, 0.0));
+    let v = AosVec3::new(
+        node.f32_or(i, 0.0),
+        node.f32_or(i + 1, 0.0),
+        node.f32_or(i + 2, 0.0),
+    );
     if v.length_squared() > 0.0 {
         v
     } else {
@@ -248,7 +254,6 @@ pub(super) fn pose(cx: &mut EvalContext<'_>, kind: u16, node: &NodeData<'_>, inp
     }
     let s = cx.state();
     s[state::WORDS..state::WORDS + extra].copy_from_slice(&local[..extra]);
-    let _ = head::WORDS;
 }
 
 fn solve_two_bone(rp: &mut RigPose, s: &Solve) {
@@ -390,19 +395,34 @@ fn solve_full_body(rp: &mut RigPose, s: &Solve) {
         let slot = |k: usize| s.node.word_or_none(CHAINS + k);
         let spine = body.push(
             s,
-            &[r(role::HIPS), r(role::SPINE), r(role::CHEST), r(role::UPPER_CHEST)],
+            &[
+                r(role::HIPS),
+                r(role::SPINE),
+                r(role::CHEST),
+                r(role::UPPER_CHEST),
+            ],
             None,
             slot(0),
         );
         body.push(
             s,
-            &[r(role::HIPS), r(role::LEFT_UPPER_LEG), r(role::LEFT_LOWER_LEG), r(role::LEFT_FOOT)],
+            &[
+                r(role::HIPS),
+                r(role::LEFT_UPPER_LEG),
+                r(role::LEFT_LOWER_LEG),
+                r(role::LEFT_FOOT),
+            ],
             None,
             slot(1),
         );
         body.push(
             s,
-            &[r(role::HIPS), r(role::RIGHT_UPPER_LEG), r(role::RIGHT_LOWER_LEG), r(role::RIGHT_FOOT)],
+            &[
+                r(role::HIPS),
+                r(role::RIGHT_UPPER_LEG),
+                r(role::RIGHT_LOWER_LEG),
+                r(role::RIGHT_FOOT),
+            ],
             None,
             slot(2),
         );
@@ -708,7 +728,11 @@ fn solve_spring(rp: &mut RigPose, s: &Solve, st: &mut [u32]) {
         damping: s.f(DAMPING, d.damping),
         drag: s.f(DRAG, d.drag),
         gravity: if s.node.params.len() >= GRAVITY + 3 {
-            AosVec3::new(s.f(GRAVITY, 0.0), s.f(GRAVITY + 1, 0.0), s.f(GRAVITY + 2, 0.0))
+            AosVec3::new(
+                s.f(GRAVITY, 0.0),
+                s.f(GRAVITY + 1, 0.0),
+                s.f(GRAVITY + 2, 0.0),
+            )
         } else {
             d.gravity
         },
@@ -796,7 +820,10 @@ fn solve_limit_rotation(rp: &mut RigPose, s: &Solve) {
             continue;
         };
         let limit = if explicit {
-            let rest = s.rest.get(b as usize).map_or(AosQuat::identity(), |t| t.rotation);
+            let rest = s
+                .rest
+                .get(b as usize)
+                .map_or(AosQuat::identity(), |t| t.rotation);
             JointLimit::from_range(rest, &range)
         } else {
             s.rig.limit(b)

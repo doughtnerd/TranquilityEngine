@@ -9,7 +9,7 @@
 
 mod common;
 
-use anim_format::graph::{family, ParamValue};
+use anim_format::graph::ParamValue;
 use anim_format::NONE;
 use anim_graph::rig::{self as rg, kind};
 use anim_wasm::init::Core;
@@ -54,7 +54,10 @@ impl Rig {
 }
 
 fn close(a: [f32; 3], b: [f32; 3], tol: f32, what: &str) {
-    assert!(dist(a, b) <= tol, "{what}: {a:?} vs {b:?} (tolerance {tol})");
+    assert!(
+        dist(a, b) <= tol,
+        "{what}: {a:?} vs {b:?} (tolerance {tol})"
+    );
 }
 
 fn leg_ik(b: &mut Builder, input: u32, weight_param: u32, lod_skip: u32, slot: u32) -> u32 {
@@ -87,20 +90,38 @@ fn two_bone_reaches_weights_and_lod() {
     // Analytic IK: exact up to f32 rounding (1e-4 m).
     close(r.pos(h, b::L_FOOT), target, 1e-4, "weight 1 reaches");
     // The maintained foot keeps its animated model rotation (identity: Y axis up).
-    close(r.axis(h, b::L_FOOT, 1), [0.0, 1.0, 0.0], 1e-4, "tip rotation kept");
+    close(
+        r.axis(h, b::L_FOOT, 1),
+        [0.0, 1.0, 0.0],
+        1e-4,
+        "tip rotation kept",
+    );
 
     command_frame(&mut r.core, &[set_float(h, w, 0.0)], DT);
-    close(r.pos(h, b::L_FOOT), REST_L_FOOT, 1e-6, "weight 0 is the input");
+    close(
+        r.pos(h, b::L_FOOT),
+        REST_L_FOOT,
+        1e-6,
+        "weight 0 is the input",
+    );
 
     command_frame(&mut r.core, &[set_float(h, w, 0.5)], DT);
     let p = r.pos(h, b::L_FOOT);
-    assert!(dist(p, REST_L_FOOT) > 0.05 && dist(p, target) > 0.05, "partial lands between: {p:?}");
+    assert!(
+        dist(p, REST_L_FOOT) > 0.05 && dist(p, target) > 0.05,
+        "partial lands between: {p:?}"
+    );
 
     // The slot's own position weight scales it the same way.
     command_frame(&mut r.core, &[set_float(h, w, 1.0)], DT);
     set_target(&mut r.core, h, 0, target, Q0, 0.5, 0.0, false);
     r.frame();
-    close(r.pos(h, b::L_FOOT), p, 1e-5, "slot weight 0.5 = parameter 0.5");
+    close(
+        r.pos(h, b::L_FOOT),
+        p,
+        1e-5,
+        "slot weight 0.5 = parameter 0.5",
+    );
     set_target(&mut r.core, h, 0, target, Q0, 1.0, 0.0, false);
 
     // LOD: skipped at level 2 and above, back below it.
@@ -119,7 +140,12 @@ fn two_bone_reaches_weights_and_lod() {
     let world = [3.0 + target[2], target[1], -1.0 - target[0]];
     set_target(&mut r.core, h, 0, world, Q0, 1.0, 0.0, true);
     r.frame();
-    close(r.pos(h, b::L_FOOT), target, 1e-4, "world target in model space");
+    close(
+        r.pos(h, b::L_FOOT),
+        target,
+        1e-4,
+        "world target in model space",
+    );
 }
 
 fn chain_block(slot: u32, limits: u32, bones: &[u16]) -> Vec<u32> {
@@ -193,10 +219,24 @@ fn full_body_humanoid_and_explicit_chains() {
             v[MODE] = MODE_EXPLICIT;
             v[ROOT_BONE] = b::HIPS as u32;
             v[COUNT] = 2;
-            v.extend([NONE, NONE, 3, b::HIPS as u32, b::SPINE as u32, b::CHEST as u32]);
+            v.extend([
+                NONE,
+                NONE,
+                3,
+                b::HIPS as u32,
+                b::SPINE as u32,
+                b::CHEST as u32,
+            ]);
             v.extend([0, 1, 5]);
             v.extend(
-                [b::CHEST, b::L_SHOULDER, b::L_UPPER_ARM, b::L_LOWER_ARM, b::L_HAND].map(|x| x as u32),
+                [
+                    b::CHEST,
+                    b::L_SHOULDER,
+                    b::L_UPPER_ARM,
+                    b::L_LOWER_ARM,
+                    b::L_HAND,
+                ]
+                .map(|x| x as u32),
             );
         }
         let n = rig_node(&mut bld, kind::FULL_BODY_IK, src, &v);
@@ -210,7 +250,13 @@ fn full_body_humanoid_and_explicit_chains() {
     }
 }
 
-fn aim_block(is_aim: bool, slot: u32, forward: [f32; 3], joints: &[(u16, f32)], aim_bone: u16) -> Vec<u32> {
+fn aim_block(
+    is_aim: bool,
+    slot: u32,
+    forward: [f32; 3],
+    joints: &[(u16, f32)],
+    aim_bone: u16,
+) -> Vec<u32> {
     use rg::aim::*;
     let mut v = block(1.0, NONE, 0, &[0; 12]);
     v[TARGET] = slot;
@@ -240,13 +286,25 @@ fn look_at_and_aim_point_at_the_target() {
         &mut bld,
         kind::LOOK_AT,
         src,
-        &aim_block(false, 0, [0.0, 0.0, 1.0], &[(b::NECK, 0.5), (b::HEAD, 1.0)], 0),
+        &aim_block(
+            false,
+            0,
+            [0.0, 0.0, 1.0],
+            &[(b::NECK, 0.5), (b::HEAD, 1.0)],
+            0,
+        ),
     );
     let aimed = rig_node(
         &mut bld,
         kind::AIM,
         look,
-        &aim_block(true, 1, [1.0, 0.0, 0.0], &[(b::L_UPPER_ARM, 0.5), (b::L_LOWER_ARM, 1.0)], b::L_HAND),
+        &aim_block(
+            true,
+            1,
+            [1.0, 0.0, 0.0],
+            &[(b::L_UPPER_ARM, 0.5), (b::L_LOWER_ARM, 1.0)],
+            b::L_HAND,
+        ),
     );
     let h = r.instance(&mut bld, aimed, &[]);
     let aim_target = [0.7, 1.0, 0.6];
@@ -254,10 +312,16 @@ fn look_at_and_aim_point_at_the_target() {
     set_target(&mut r.core, h, 1, aim_target, Q0, 1.0, 0.0, false);
     r.frame();
     let to = norm(sub(target, r.pos(h, b::HEAD)));
-    assert!(dot(r.axis(h, b::HEAD, 2), to) > 1.0 - 1e-5, "the head faces the target");
+    assert!(
+        dot(r.axis(h, b::HEAD, 2), to) > 1.0 - 1e-5,
+        "the head faces the target"
+    );
     let to = norm(sub(aim_target, r.pos(h, b::L_HAND)));
     // Aim iterates (8 iterations): within 0.5°.
-    assert!(dot(r.axis(h, b::L_HAND, 0), to) > 0.99996, "the hand's +X points at the target");
+    assert!(
+        dot(r.axis(h, b::L_HAND, 0), to) > 0.99996,
+        "the hand's +X points at the target"
+    );
 }
 
 fn grounder_block(lod_skip: u32) -> Vec<u32> {
@@ -277,7 +341,17 @@ fn grounder_block(lod_skip: u32) -> Vec<u32> {
     v[MAX_PELVIS_DOWN] = fb(0.5);
     v[MAX_PELVIS_UP] = fb(0.0);
     v[COUNT] = 2;
-    v.extend([b::L_THIGH, b::L_SHIN, b::L_FOOT, b::R_THIGH, b::R_SHIN, b::R_FOOT].map(|x| x as u32));
+    v.extend(
+        [
+            b::L_THIGH,
+            b::L_SHIN,
+            b::L_FOOT,
+            b::R_THIGH,
+            b::R_SHIN,
+            b::R_FOOT,
+        ]
+        .map(|x| x as u32),
+    );
     v
 }
 
@@ -308,10 +382,20 @@ fn grounder_follows_a_slope_through_the_ray_round_trip() {
     let h = r.instance(&mut bld, g, &[]);
     r.frame();
     // No hits yet (a miss returns the foot to its animated height); two requests out.
-    close(r.pos(h, b::L_FOOT), REST_L_FOOT, 1e-6, "first frame animated");
+    close(
+        r.pos(h, b::L_FOOT),
+        REST_L_FOOT,
+        1e-6,
+        "first frame animated",
+    );
     let q = rays(&r.core, h);
     assert!(q[0].valid && q[1].valid && !q[2].valid);
-    close(q[0].origin, [0.1, 0.6, 0.0], 1e-6, "ray from the animated foot, raised");
+    close(
+        q[0].origin,
+        [0.1, 0.6, 0.0],
+        1e-6,
+        "ray from the animated foot, raised",
+    );
     assert!((q[0].length - 1.0).abs() < 1e-6);
     // Each frame: cast last frame's requests, feed the hits, evaluate.
     for _ in 0..90 {
@@ -319,11 +403,24 @@ fn grounder_follows_a_slope_through_the_ray_round_trip() {
         r.frame();
     }
     // Settled (1.5 s, half-lives 0.05 and 0.1 s): feet on the slope, pelvis down to the lower.
-    close(r.pos(h, b::L_FOOT), [0.1, 0.15, 0.0], 1e-3, "left foot raised");
-    close(r.pos(h, b::R_FOOT), [-0.1, 0.05, 0.0], 1e-3, "right foot lowered");
+    close(
+        r.pos(h, b::L_FOOT),
+        [0.1, 0.15, 0.0],
+        1e-3,
+        "left foot raised",
+    );
+    close(
+        r.pos(h, b::R_FOOT),
+        [-0.1, 0.05, 0.0],
+        1e-3,
+        "right foot lowered",
+    );
     assert!((r.pos(h, b::HIPS)[1] - 0.95).abs() < 1e-3, "pelvis lowered");
     let n = norm([-0.5, 1.0, 0.0]);
-    assert!(dot(r.axis(h, b::L_FOOT, 1), n) > 1.0 - 1e-4, "foot tilted to the normal");
+    assert!(
+        dot(r.axis(h, b::L_FOOT, 1), n) > 1.0 - 1e-4,
+        "foot tilted to the normal"
+    );
     // LOD skip: no requests, animated pose; re-enabled, the smoothing restarts (snaps).
     let g2 = {
         let mut bld = Builder::new();
@@ -333,7 +430,10 @@ fn grounder_follows_a_slope_through_the_ray_round_trip() {
     };
     set_rig_lod(&mut r.core, g2, 1);
     r.frame();
-    assert!(rays(&r.core, g2).iter().all(|q| !q.valid), "skipped grounders ask nothing");
+    assert!(
+        rays(&r.core, g2).iter().all(|q| !q.valid),
+        "skipped grounders ask nothing"
+    );
     close(r.pos(g2, b::L_FOOT), REST_L_FOOT, 1e-6, "skipped");
 }
 
@@ -368,7 +468,10 @@ fn spring_chain_swings_settles_resets_and_skips() {
         r.frame();
     }
     let settled = r.pos(h, b::TAIL[3]);
-    assert!(settled[1] < TAIL_TIP_REST[1] - 0.005, "gravity droops the tail: {settled:?}");
+    assert!(
+        settled[1] < TAIL_TIP_REST[1] - 0.005,
+        "gravity droops the tail: {settled:?}"
+    );
     r.frame();
     close(r.pos(h, b::TAIL[3]), settled, 1e-6, "at rest it stays");
     // The character steps 0.3 m to +X: in model space the tip trails toward −X, then settles.
@@ -387,7 +490,12 @@ fn spring_chain_swings_settles_resets_and_skips() {
     // A teleport within the spring's own threshold, with RIG_RESET: no swing at all.
     set_character(&mut r.core, h, [1.3, 0.0, 0.0], Q0);
     command_frame(&mut r.core, &[reset(h, anim_wire::rig::NODE_ALL)], DT);
-    close(r.pos(h, b::TAIL[3]), TAIL_TIP_REST, 1e-5, "reset restarts on the animated pose");
+    close(
+        r.pos(h, b::TAIL[3]),
+        TAIL_TIP_REST,
+        1e-5,
+        "reset restarts on the animated pose",
+    );
     // LOD skip: the animated pose; back on, the chain restarts there.
     for _ in 0..60 {
         r.frame();
@@ -397,9 +505,17 @@ fn spring_chain_swings_settles_resets_and_skips() {
     close(r.pos(h, b::TAIL[3]), TAIL_TIP_REST, 1e-6, "skipped by LOD");
     set_rig_lod(&mut r.core, h, 0);
     r.frame();
-    close(r.pos(h, b::TAIL[3]), TAIL_TIP_REST, 1e-5, "re-enabled from rest");
+    close(
+        r.pos(h, b::TAIL[3]),
+        TAIL_TIP_REST,
+        1e-5,
+        "re-enabled from rest",
+    );
     r.frame();
-    assert!(dist(r.pos(h, b::TAIL[3]), TAIL_TIP_REST) > 1e-5, "and simulates again");
+    assert!(
+        dist(r.pos(h, b::TAIL[3]), TAIL_TIP_REST) > 1e-5,
+        "and simulates again"
+    );
 }
 
 #[test]
@@ -450,22 +566,43 @@ fn damp_copy_and_limits() {
     }
     // The limit lowered the hips 3 cm after the IK ran, so the foot moved with them.
     let foot_at_a = [a[0], a[1] - 0.03, a[2]];
-    close(r.pos(h, b::L_FOOT), foot_at_a, 1e-4, "damp settled on the IK result");
+    close(
+        r.pos(h, b::L_FOOT),
+        foot_at_a,
+        1e-4,
+        "damp settled on the IK result",
+    );
     let b_ = [0.15, 0.3, -0.1];
     set_target(&mut r.core, h, 0, b_, Q0, 1.0, 0.0, false);
     r.frame();
     let p = r.pos(h, b::L_FOOT);
     let gap = dist(foot_at_a, [b_[0], b_[1] - 0.03, b_[2]]);
     let moved = dist(p, foot_at_a);
-    assert!(moved > 0.0 && moved < 0.25 * gap, "the foot trails ({moved} of {gap})");
+    assert!(
+        moved > 0.0 && moved < 0.25 * gap,
+        "the foot trails ({moved} of {gap})"
+    );
     for _ in 0..120 {
         r.frame();
     }
-    close(r.pos(h, b::L_FOOT), [b_[0], b_[1] - 0.03, b_[2]], 1e-3, "and catches up");
+    close(
+        r.pos(h, b::L_FOOT),
+        [b_[0], b_[1] - 0.03, b_[2]],
+        1e-3,
+        "and catches up",
+    );
     // Copy: the right hand sits 0.1 above the left (offset in the left hand's frame).
     let l = r.pos(h, b::L_HAND);
-    close(r.pos(h, b::R_HAND), [l[0], l[1] + 0.1, l[2]], 1e-5, "copied");
-    assert!((r.pos(h, b::HIPS)[1] - 0.97).abs() < 1e-6, "hips clamped into the box");
+    close(
+        r.pos(h, b::R_HAND),
+        [l[0], l[1] + 0.1, l[2]],
+        1e-5,
+        "copied",
+    );
+    assert!(
+        (r.pos(h, b::HIPS)[1] - 0.97).abs() < 1e-6,
+        "hips clamped into the box"
+    );
 }
 
 #[test]
@@ -490,7 +627,9 @@ fn limit_rotation_from_the_skeleton_and_explicit() {
         let mut v = block(1.0, NONE, 0, &[0; 6]);
         v[SOURCE] = SOURCE_SKELETON;
         v[COUNT] = 1;
-        v.push(common::rig::r(anim_retarget::profile::humanoid::LEFT_LOWER_LEG));
+        v.push(common::rig::r(
+            anim_retarget::profile::humanoid::LEFT_LOWER_LEG,
+        ));
         rig_node(&mut bld, kind::LIMIT_ROTATION, right, &v)
     };
     let explicit = {
@@ -549,7 +688,17 @@ fn stride_and_orientation_warps() {
         v[MAX_PELVIS_DROP] = fb(0.2);
         v[MAX_REACH] = fb(0.999);
         v[COUNT] = 2;
-        v.extend([b::L_THIGH, b::L_SHIN, b::L_FOOT, b::R_THIGH, b::R_SHIN, b::R_FOOT].map(|x| x as u32));
+        v.extend(
+            [
+                b::L_THIGH,
+                b::L_SHIN,
+                b::L_FOOT,
+                b::R_THIGH,
+                b::R_SHIN,
+                b::R_FOOT,
+            ]
+            .map(|x| x as u32),
+        );
         rig_node(&mut bld, kind::STRIDE_WARP, right, &v)
     };
     let angle = bld.param("turn", ParamValue::Float(0.5));
@@ -579,12 +728,22 @@ fn stride_and_orientation_warps() {
     // Stride 2.2 about the point under the pelvis, along +Z: ±0.15 → ±0.33; the pelvis drops so
     // the legs reach (analytic IK per leg: 1e-4 m).
     close(r.pos(h, b::L_FOOT), [0.1, 0.15, 0.33], 1e-4, "left stride");
-    close(r.pos(h, b::R_FOOT), [-0.1, 0.15, -0.33], 1e-4, "right stride");
+    close(
+        r.pos(h, b::R_FOOT),
+        [-0.1, 0.15, -0.33],
+        1e-4,
+        "right stride",
+    );
     assert!(r.pos(h, b::HIPS)[1] < 0.999, "pelvis dropped");
     // Orientation warp: the hips turn 0.5 rad about Y; the chest keeps facing +Z.
     let z = r.axis(h2, b::HIPS, 2);
     close(z, [0.5f32.sin(), 0.0, 0.5f32.cos()], 1e-5, "hips turned");
-    close(r.axis(h2, b::CHEST, 2), [0.0, 0.0, 1.0], 1e-5, "chest keeps facing");
+    close(
+        r.axis(h2, b::CHEST, 2),
+        [0.0, 0.0, 1.0],
+        1e-5,
+        "chest keeps facing",
+    );
 }
 
 /// Integrates root deltas into the character transform (position, yaw), as the host does.
@@ -601,7 +760,13 @@ fn apply_root(core: &Core, h: u32, p: &mut [f32; 3], yaw: &mut f32) {
 #[test]
 fn motion_warp_lands_on_target_at_window_end() {
     let mut r = setup();
-    let clip = still_clip(&r.model, 2.0, false, 1.0, &[("vault", 0.5), ("vault.end", 1.5)]);
+    let clip = still_clip(
+        &r.model,
+        2.0,
+        false,
+        1.0,
+        &[("vault", 0.5), ("vault.end", 1.5)],
+    );
     let c = r.core.load_clip(&clip);
     let mut bld = Builder::new();
     let player = bld.player("vault");
@@ -636,7 +801,12 @@ fn motion_warp_lands_on_target_at_window_end() {
         t += dt;
         if t <= 0.5 - 1e-4 {
             // Before the window: the clip's own motion (1 m/s along +Z).
-            close(sub(p, before), [0.0, 0.0, dt], 1e-5, "unwarped before the window");
+            close(
+                sub(p, before),
+                [0.0, 0.0, dt],
+                1e-5,
+                "unwarped before the window",
+            );
         }
         if !landed && t >= 1.5 - 1e-4 {
             landed = true;
@@ -654,7 +824,12 @@ fn motion_warp_lands_on_target_at_window_end() {
     r.core.evaluate(0, PASS_NORMAL, dt, dt);
     apply_root(&r.core, h, &mut p, &mut yaw);
     let step = sub(p, before);
-    close(step, [yaw.sin() * dt, 0.0, yaw.cos() * dt], 1e-4, "clip motion after the window");
+    close(
+        step,
+        [yaw.sin() * dt, 0.0, yaw.cos() * dt],
+        1e-4,
+        "clip motion after the window",
+    );
 }
 
 #[test]
@@ -683,15 +858,26 @@ fn distance_match_drives_the_playback_rate() {
         r.core.evaluate(0, PASS_NORMAL, dt, dt);
     }
     // The clip covers 1 m/s; at 1.5 m/s it plays at rate 1.5 (the root curve is linear: 1e-4).
-    assert!((root(&r.core, h)[2] - 1.5 * dt).abs() < 1e-4, "rate 1.5: {:?}", root(&r.core, h));
+    assert!(
+        (root(&r.core, h)[2] - 1.5 * dt).abs() < 1e-4,
+        "rate 1.5: {:?}",
+        root(&r.core, h)
+    );
     command_frame(&mut r.core, &[set_float(h, speed, 5.0)], dt);
-    assert!((root(&r.core, h)[2] - 2.0 * dt).abs() < 1e-4, "clamped at 2");
+    assert!(
+        (root(&r.core, h)[2] - 2.0 * dt).abs() < 1e-4,
+        "clamped at 2"
+    );
     // Across the loop seam the travel stays matched.
     command_frame(&mut r.core, &[set_float(h, speed, 1.2)], dt);
     for _ in 0..40 {
         r.core.write_inputs(0);
         r.core.evaluate(0, PASS_NORMAL, dt, dt);
-        assert!((root(&r.core, h)[2] - 1.2 * dt).abs() < 1e-4, "{:?}", root(&r.core, h));
+        assert!(
+            (root(&r.core, h)[2] - 1.2 * dt).abs() < 1e-4,
+            "{:?}",
+            root(&r.core, h)
+        );
     }
 }
 
@@ -714,7 +900,13 @@ fn snapshot_restore_is_exact_with_rig_state() {
         &mut bld,
         kind::LOOK_AT,
         d,
-        &aim_block(false, 0, [0.0, 0.0, 1.0], &[(b::NECK, 0.5), (b::HEAD, 1.0)], 0),
+        &aim_block(
+            false,
+            0,
+            [0.0, 0.0, 1.0],
+            &[(b::NECK, 0.5), (b::HEAD, 1.0)],
+            0,
+        ),
     );
     let bytes = bld.build(look);
     let (gh, a) = instance(&mut r.core, &bytes, r.skel, &[]);
@@ -723,7 +915,16 @@ fn snapshot_restore_is_exact_with_rig_state() {
     let drive = |r: &mut Rig, h: u32, f: usize| {
         let t = f as f32 * DT;
         set_character(&mut r.core, h, [0.4 * (2.0 * t).sin(), 0.0, 0.3 * t], Q0);
-        set_target(&mut r.core, h, 0, [(3.0 * t).sin(), 1.7, 1.0], Q0, 1.0, 0.0, false);
+        set_target(
+            &mut r.core,
+            h,
+            0,
+            [(3.0 * t).sin(), 1.7, 1.0],
+            Q0,
+            1.0,
+            0.0,
+            false,
+        );
         let n = norm([-0.5, 1.0, 0.0]);
         for (i, x) in [0.1f32, -0.1].iter().enumerate() {
             let y = 0.5 * x + 0.05 * (5.0 * t).sin();
@@ -748,7 +949,11 @@ fn snapshot_restore_is_exact_with_rig_state() {
         drive(&mut r, b2, f);
         r.frame();
         let m = matrices(&r.core, b2, MB, b::COUNT);
-        assert_eq!(bits(&m), bits(&expect[k]), "frame {f}: restored instance matches bit for bit");
+        assert_eq!(
+            bits(&m),
+            bits(&expect[k]),
+            "frame {f}: restored instance matches bit for bit"
+        );
     }
     // And the state really moved (the comparison isn't of a static pose).
     assert_ne!(bits(&expect[0]), bits(&expect[39]));
@@ -786,17 +991,28 @@ fn commands_refuse_wrong_nodes_and_bad_blocks_load_as_unknown() {
     assert_eq!(r.core.last_status(), STATUS_UNKNOWN_NODES);
     let h = r.core.create_instance(0, r.skel, g);
     set_target(&mut r.core, h, 0, [0.15, 0.3, 0.2], Q0, 1.0, 0.0, false);
-    send(&mut r.core, &[warp(h, ik, [0.0; 3], 0.0), warp(h, 99, [0.0; 3], 0.0), reset(h, ik)]);
+    send(
+        &mut r.core,
+        &[
+            warp(h, ik, [0.0; 3], 0.0),
+            warp(h, 99, [0.0; 3], 0.0),
+            reset(h, ik),
+        ],
+    );
     let c = changes(&r.core);
     let refused: Vec<_> = c.iter().filter(|x| x.kind == CHANGE_REFUSED).collect();
     assert_eq!(refused.len(), 2);
     assert_eq!((refused[0].layer, refused[0].status), (ik, STATUS_MISMATCH));
     assert_eq!((refused[1].layer, refused[1].status), (99, STATUS_NO_SUCH));
     r.core.evaluate(0, PASS_NORMAL, DT, DT);
-    close(r.pos(h, b::L_FOOT), [0.15, 0.3, 0.2], 1e-4, "the bad node passes its input through");
+    close(
+        r.pos(h, b::L_FOOT),
+        [0.15, 0.3, 0.2],
+        1e-4,
+        "the bad node passes its input through",
+    );
     // An implicit-graph instance refuses rig commands.
     let imp = r.core.create_instance(0, r.skel, 0);
     send(&mut r.core, &[reset(imp, 0)]);
     assert_eq!(changes(&r.core)[0].status, STATUS_MISMATCH);
-    let _ = family::RIG;
 }

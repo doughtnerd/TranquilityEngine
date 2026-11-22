@@ -31,8 +31,8 @@ use anim_graph::eval::{name_hash, Assets, ClipRef, GraphRef, Program};
 use anim_graph::sources::triangulate::sort_small;
 use anim_math::layout::{pack_pose, soa_len};
 use anim_math::{AosMat3x4, AosTransform, AosVec3, F32x4, SoaTransform};
-use anim_rig::JointLimit;
 use anim_pose::sync::SyncMarker;
+use anim_rig::JointLimit;
 use anim_sample::{BoundClip, ClipBindings, ClipSampler, Form};
 use anim_wire::core::{
     Init, HANDLE_GENERATION_SHIFT, HANDLE_INDEX_MASK, STATUS_BAD_ASSET, STATUS_FULL,

@@ -131,6 +131,18 @@ export function release(handle: number): number;
 export function restore(handle: number, bytes: Uint8Array | number[]): number;
 
 /**
+ * The rig input view's byte offset in memory (`rig` family, `RIG_INPUT_STRIDE` bytes per
+ * instance index; T40).
+ */
+export function rig_inputs_ptr(): number;
+
+/**
+ * The ray output view's byte offset in memory (`rig` family, `RAY_ROW_STRIDE` bytes per instance
+ * index; T40).
+ */
+export function rig_rays_ptr(): number;
+
+/**
  * The root-motion view's byte offset in memory.
  */
 export function roots_ptr(): number;
@@ -330,6 +342,8 @@ export interface InitOutput {
     readonly matrices_ptr: () => number;
     readonly release: (a: number) => number;
     readonly restore: (a: number, b: number, c: number) => number;
+    readonly rig_inputs_ptr: () => number;
+    readonly rig_rays_ptr: () => number;
     readonly roots_ptr: () => number;
     readonly snapshot: (a: number, b: number, c: number, d: any) => number;
     readonly snapshot_bytes: (a: number) => number;

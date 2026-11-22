@@ -252,5 +252,5 @@ const _: () = {
     assert!(WarpTarget::STRIDE == 44);
     assert!(RigReset::STRIDE == 12);
     assert!(RIG_INPUT_STRIDE == 1088);
-    assert!(RIG_INPUT_STRIDE % 16 == 0);
+    assert!(RIG_INPUT_STRIDE.is_multiple_of(16));
 };

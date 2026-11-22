@@ -336,12 +336,9 @@ pub fn write_inputs(
         }
         if crate::rig::command_stride(opcode).is_some() {
             // A rig command (T40): writes the instance's state words.
-            if let Err((status, instance, layer, play_id)) = crate::rig::apply(
-                arena,
-                table,
-                opcode,
-                &frame.commands[at..at + stride],
-            ) {
+            if let Err((status, instance, layer, play_id)) =
+                crate::rig::apply(arena, table, opcode, &frame.commands[at..at + stride])
+            {
                 frame.push_change(StateChange {
                     instance,
                     layer,

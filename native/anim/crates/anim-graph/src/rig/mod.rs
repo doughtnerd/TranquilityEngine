@@ -74,6 +74,9 @@
 //! distance left, a float parameter). It is a playback-rate driver above a clip player (or any
 //! sub-graph), not a pose adjustment.
 
+// `!(x > 0.0)` is deliberate: it is true for NaN as well, which `x <= 0.0` is not.
+#![allow(clippy::neg_cmp_op_on_partial_ord)]
+
 use core::cell::Cell;
 
 use anim_format::NONE;
@@ -886,9 +889,7 @@ pub fn set_warp_target(state: &mut [u32], position: AosVec3, rotation: AosQuat) 
         return;
     }
     let r = rotation.normalize_or_identity();
-    let v = [
-        position.x, position.y, position.z, r.x, r.y, r.z, r.w,
-    ];
+    let v = [position.x, position.y, position.z, r.x, r.y, r.z, r.w];
     for (o, x) in s[motion_warp::S_TARGET..].iter_mut().zip(v) {
         *o = x.to_bits();
     }

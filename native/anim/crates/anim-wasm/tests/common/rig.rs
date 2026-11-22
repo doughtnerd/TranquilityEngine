@@ -239,7 +239,17 @@ fn put3(core: &mut Core, at: usize, v: [f32; 3]) {
 }
 
 /// Writes target slot `slot`.
-pub fn set_target(core: &mut Core, h: u32, slot: usize, p: [f32; 3], q: [f32; 4], pw: f32, rw: f32, world: bool) {
+#[allow(clippy::too_many_arguments)]
+pub fn set_target(
+    core: &mut Core,
+    h: u32,
+    slot: usize,
+    p: [f32; 3],
+    q: [f32; 4],
+    pw: f32,
+    rw: f32,
+    world: bool,
+) {
     let at = rig_row(h) + ((wr::RIG_TARGETS + slot as u32 * wr::TARGET_STRIDE) / 4) as usize;
     put3(core, at + (wr::TARGET_POSITION / 4) as usize, p);
     let w = core.rig_inputs_mut();

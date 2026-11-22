@@ -45,9 +45,23 @@ fn tail() -> Rig {
 fn spring_state_round_trips() {
     let s = SpringSettings::default();
     let mut st = SpringChainState::new();
-    let ch = |k: usize| AosTransform::new(v3(0.05 * k as f32, 0.0, 0.0), AosQuat::identity(), AosVec3::one());
+    let ch = |k: usize| {
+        AosTransform::new(
+            v3(0.05 * k as f32, 0.0, 0.0),
+            AosQuat::identity(),
+            AosVec3::one(),
+        )
+    };
     for k in 0..20 {
-        spring(&mut tail().pose(), &[0, 1, 2, 3], &[], ch(k), &s, &mut st, 1.0 / 60.0);
+        spring(
+            &mut tail().pose(),
+            &[0, 1, 2, 3],
+            &[],
+            ch(k),
+            &s,
+            &mut st,
+            1.0 / 60.0,
+        );
     }
     let mut words = vec![0u32; SpringChainState::WORDS];
     st.write_words(&mut words);
@@ -57,8 +71,24 @@ fn spring_state_round_trips() {
     assert_eq!(words, again);
     for k in 20..40 {
         let (mut a, mut b) = (tail(), tail());
-        spring(&mut a.pose(), &[0, 1, 2, 3], &[], ch(k), &s, &mut st, 1.0 / 60.0);
-        spring(&mut b.pose(), &[0, 1, 2, 3], &[], ch(k), &s, &mut copy, 1.0 / 60.0);
+        spring(
+            &mut a.pose(),
+            &[0, 1, 2, 3],
+            &[],
+            ch(k),
+            &s,
+            &mut st,
+            1.0 / 60.0,
+        );
+        spring(
+            &mut b.pose(),
+            &[0, 1, 2, 3],
+            &[],
+            ch(k),
+            &s,
+            &mut copy,
+            1.0 / 60.0,
+        );
         assert_eq!(bits(&a), bits(&b));
     }
 }
@@ -99,7 +129,18 @@ fn damp_state_round_trips() {
 
 #[test]
 fn grounder_state_round_trips() {
-    let limbs = [TwoBone { root: 1, mid: 2, tip: 3 }, TwoBone { root: 4, mid: 5, tip: 6 }];
+    let limbs = [
+        TwoBone {
+            root: 1,
+            mid: 2,
+            tip: 3,
+        },
+        TwoBone {
+            root: 4,
+            mid: 5,
+            tip: 6,
+        },
+    ];
     let s = GrounderSettings::default();
     let hit = |k: usize, x: f32| RayHit {
         point: v3(x, 0.02 * (k as f32 * 0.3).sin() + 0.1 * x, 0.0),

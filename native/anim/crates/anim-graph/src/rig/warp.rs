@@ -252,7 +252,8 @@ fn rate(cx: &mut EvalContext<'_>, node: &NodeData<'_>, input: u32, dt: f32) -> f
     let min = node.f32_or(MIN_RATE, if stop { 0.0 } else { 0.5 });
     let max = node.f32_or(MAX_RATE, 2.0);
     let goal = if stop {
-        let marker = cue_time(cx, &clip, node.word_or_none(MARKER), 0.0).unwrap_or(curve.duration());
+        let marker =
+            cue_time(cx, &clip, node.word_or_none(MARKER), 0.0).unwrap_or(curve.duration());
         curve.time_before(marker, v)
     } else {
         let travel = if v > 0.0 { v * dt } else { 0.0 };
