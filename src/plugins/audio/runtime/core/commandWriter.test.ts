@@ -253,9 +253,9 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
 
   it("automate stays after its stamped PLAY and keeps at most 8 bindings; an empty list clears", () => {
     const { writer, posted } = rig();
-    const binding: AutomationBinding = { param: AUTOMATION_GLOBAL | 3, curve: 7, target: 2 /* lowpass */ };
+    const binding: AutomationBinding = { param: AUTOMATION_GLOBAL | 3, curve: 7, target: 2 /* lowpass */, offset: 0 };
     writer.play(play(9), 500);
-    writer.automate(9, 500, [binding, { param: 1, curve: 8, target: 0 /* volume */ }]);
+    writer.automate(9, 500, [binding, { param: 1, curve: 8, target: 0 /* volume */, offset: 0 }]);
     writer.automate(9, 500, Array.from({ length: 12 }, () => binding));
     writer.automate(9, undefined, []);
     writer.flush(400);
@@ -264,7 +264,7 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
     expect(readAutomate(b.view, b.records[0]!.off).bindings).toEqual([]);
     const a = readAutomate(b.view, b.records[2]!.off);
     expect(a.voiceId).toBe(9);
-    expect(a.bindings).toEqual([binding, { param: 1, curve: 8, target: 0 }]);
+    expect(a.bindings).toEqual([binding, { param: 1, curve: 8, target: 0, offset: 0 }]);
     expect(readAutomate(b.view, b.records[3]!.off).bindings).toHaveLength(8) /* the core's bindings per voice */;
   });
 
@@ -321,7 +321,7 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
 
   it("busAutomate writes BUS_AUTOMATE for the bus index", () => {
     const { writer, posted } = rig();
-    writer.busAutomate(2, [{ param: AUTOMATION_GLOBAL, curve: 4, target: 2 /* lowpass */ }]);
+    writer.busAutomate(2, [{ param: AUTOMATION_GLOBAL, curve: 4, target: 2 /* lowpass */, offset: 0 }]);
     writer.flush(0);
     const b = records(posted[0]!);
     const r = readBusAutomate(b.view, b.records[0]!.off);

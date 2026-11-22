@@ -158,6 +158,8 @@ export class VoiceTable implements VoiceTableHandleApi {
   readonly bus: Uint8Array;
   readonly world: Uint8Array;
   readonly group: Uint16Array;
+  /** ADR 0331 levels (ABI 4.9): the submix slot the voice mixes into (its playlist level's, ROUTE), plus 1; 0 its group's route. */
+  readonly submix: Uint8Array;
   readonly clip: Uint32Array;
   readonly priority: Uint8Array;
   readonly volume: Float32Array;
@@ -332,6 +334,7 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.bus = new Uint8Array(capacity);
     this.world = new Uint8Array(capacity);
     this.group = new Uint16Array(capacity);
+    this.submix = new Uint8Array(capacity);
     this.clip = new Uint32Array(capacity);
     this.priority = new Uint8Array(capacity);
     this.volume = new Float32Array(capacity);
@@ -707,6 +710,7 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.bus[i] = b;
     this.world[i] = world;
     this.group[i] = 0;
+    this.submix[i] = 0;
     this.clip[i] = 0;
     this.priority[i] = p;
     this.volume[i] = 1;

@@ -59,8 +59,12 @@ const SCENES = [
   "automation-pan-highpass",
   // ADR 0328: 128 voices each running a loop program (a crossfaded forward loop and a ping-pong loop), released by crossfade.
   "loop-programs",
+  // ABI 4.9: the same with shaped seam (log, a powf a frame) and exit (exp) crossfades.
+  "loop-programs-shaped",
   // ADR 0331: 128 voices in 32 instances, each through its submix (a low-pass and a compressor).
   "submixes",
+  // ADR 0331 levels (ABI 4.9): 16 instance submixes and 16 nested levels feeding them, half the voices ROUTEd into a level.
+  "submix-levels",
   // ADR 0331 (ABI 4.6): the catalogue's DSP: 8 buses with eight-effect chains, 32 submixes each running a reverb, a
   // delay, a chorus, a pitch shifter or a formant shifter, and 12 sidechain compressors keyed on one bus.
   "fx-chain-8",

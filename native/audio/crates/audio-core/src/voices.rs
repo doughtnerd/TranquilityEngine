@@ -560,10 +560,12 @@ fn render_voices<const LIST: bool>(core: &mut Core, frame: u64, from: usize, to:
         let route = match (routes, groups) {
             // SAFETY: the routes and the entries are read only (the `Submixes` and `Automation`
             // regions, distinct from those borrowed here; `auto` below is taken after this read).
-            (Some(r), Some(g)) => {
-                let group = unsafe { &*g }.get(index).filter(|e| e.id == slot.id).map_or(0, |e| e.group);
-                crate::submix::route_code(Some(r), group, slot.bus)
-            }
+            (Some(r), Some(g)) => match unsafe { &*g }.get(index).filter(|e| e.id == slot.id) {
+                // ABI 4.9: a ROUTE names the voice's level's submix.
+                Some(e) if e.submix != 0 => crate::submix::ROUTE_SUBMIX | (e.submix - 1),
+                Some(e) => crate::submix::route_code(Some(r), e.group, slot.bus),
+                None => slot.bus,
+            },
             _ => slot.bus,
         };
         let Some((out_l, out_r)) = inputs.get(route) else { continue };

@@ -51,7 +51,7 @@ export const EFFECT_CATALOGUE: Readonly<Record<EffectType, EffectSpec>> = Object
   limiter: spec({ type: "limiter", label: "Limiter", version: "1", cost: "medium", levels: ["bus"], params: [
     p("ceiling", "Ceiling", -12, 0, 0.1, "dBTP", -1), p("release", "Release", 1, 1000, 1, "ms", 50),
   ] }),
-  gain: spec({ type: "gain", label: "Gain", version: "1", cost: "light", levels: ["sample", "voice"], params: [p("gain", "Gain", -24, 24, 0.1, "dB", 0)] }),
+  gain: spec({ type: "gain", label: "Gain", version: "1", cost: "light", levels: ["sample", "voice", "instance"], params: [p("gain", "Gain", -24, 24, 0.1, "dB", 0)] }),
   saturation: spec({ type: "saturation", label: "Saturation", version: "1", cost: "light", levels: ALL, params: [p("amount", "Amount", 0, 100, 1, "%", 30)] }),
   distortion: spec({ type: "distortion", label: "Distortion", version: "1", cost: "light", levels: ALL, params: [p("drive", "Drive", 0, 1, 0.01, "", 0.3), mix(100)] }),
   bitcrush: spec({ type: "bitcrush", label: "Bit-crush", version: "1", cost: "light", levels: ALL, params: [

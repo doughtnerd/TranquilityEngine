@@ -7,7 +7,7 @@
  *
  * Sequences are `sequence.ts`; the musical clock a Switch waits on is its playing entry's (`LiveNode.musicalSource`).
  */
-import { accumulate } from "../../../../engine/audio/playlist/accumulate";
+import { accumulate, type EffectProps } from "../../../../engine/audio/playlist/accumulate";
 import { blendWeights1D, blendWeights2D } from "../../../../engine/audio/playlist/blendWeights";
 import { adsrLevel, envelopeHoldMs, lerpAdsr } from "../../../../engine/audio/playlist/envelope";
 import { defaultBlend, defaultQueue, defaultSwitch } from "../../../../engine/audio/playlist/format";
@@ -20,7 +20,7 @@ import type { Region1D } from "../../../../engine/audio/playlist/blendWeights";
 import { isLabelled, parameterRange } from "../../../../engine/audio/parameters";
 import { warnOnce } from "../core/handle";
 import { curveParts } from "./curves";
-import { playlistEffectProps } from "./effects";
+import { levelEffects, playlistEffectProps } from "./effects";
 import { automationParts, type TimeAuto } from "./levelAutomation";
 import { EmptyNode, LiveNode, type Ctx, type DynGain, type NodeHost, type PendingSwitchChange, type PVoice, type SpatialPlan } from "./liveNode";
 import { linkedPlaylist } from "./loader";
@@ -60,17 +60,23 @@ export function useCtx(host: NodeHost, ctx: Ctx, use: EntryUse): Ctx {
 }
 
 /** A playlist's own level below `ctx`: volume and pitch with their random ranges (drawn per trigger), effects, output, spatial, delay. */
-export function bodyCtx(host: NodeHost, ctx: Ctx, body: PlaylistBody, where: string): Ctx {
+export function bodyCtx(host: NodeHost, ctx: Ctx, body: PlaylistBody, where: string, key = where): Ctx {
   // The draws are taken even for a fixed range, so a level's picks don't depend on its neighbours' settings.
   const gainDb = body.volume + lerp(body.volumeRandom, host.random());
   const pitchSt = body.pitch + lerp(body.pitchRandom, host.random());
   const override = body.output !== null;
-  // ADR 0331: the instance's own chain runs on its submix when it has one (`NodeHost.submixedEffects`).
-  const fx = body.effects === host.submixedEffects ? undefined : playlistEffectProps(body.effects, where);
+  const bus = override ? body.output! : ctx.bus;
+  // ADR 0331: the instance's own chain runs on its submix when it has one (`NodeHost.submixedEffects`); a nested level's
+  // on a submix of its own (ABI 4.9, `levelEffects`), else mapped onto its voices.
+  let fx: Partial<EffectProps> | undefined;
+  let submix = ctx.submix ?? null;
+  if (body.effects === host.submixedEffects) fx = undefined;
+  else if (ctx.depth > 0) ({ fx, submix } = levelEffects(host, ctx, body.effects, bus, `${ctx.chain.join(">")}|${key}`, where));
+  else fx = playlistEffectProps(body.effects, where);
   const props = accumulate(ctx.props, { gainDb, pitchSt, ...(fx ? { fx } : {}), outputOverride: override });
   const delay = ctx.depth > 0 ? body.playback.delay : 0; // the root's delay is the instance's (`PlaylistInstance.start`)
   const at = delay > 0 ? host.startOf(ctx.at) + delay : ctx.at;
-  const out: Ctx = { ...ctx, props, bus: override ? body.output! : ctx.bus, at, spatial: host.spatialOf(body, ctx.spatial), where };
+  const out: Ctx = { ...ctx, props, bus, at, spatial: host.spatialOf(body, ctx.spatial), where, submix };
   return body.automation.length > 0 ? instanceAutomation(host, out, body, where) : out;
 }
 
@@ -103,7 +109,7 @@ export type Resolver = (host: NodeHost, body: PlaylistBody, ctx: Ctx, key: strin
 /** Resolve a playlist body below `ctx` (`key`: where its pick state lives; `where`: its path for messages). */
 export function resolveBody(host: NodeHost, body: PlaylistBody, parent: Ctx, key: string, where: string): LiveNode {
   if (parent.depth > 32) return new EmptyNode(host, parent, key); // the parse limits nesting; links are cycle-checked
-  const ctx = bodyCtx(host, parent, body, where);
+  const ctx = bodyCtx(host, parent, body, where, key);
   return RESOLVERS[body.type](host, body, ctx, key);
 }
 

@@ -38,30 +38,23 @@ export interface TimeCurve {
   curve: Curve;
   /**
    * Heard time the curve's zero is at, when that isn't the voice's own start: a playlist's instance-level lane keyed on
-   * the playlist's start (`PlaylistBody.automation`). The voice that plays it reads it shifted to its own start
-   * (`anchorTimeCurves`).
+   * the playlist's start (`PlaylistBody.automation`). The voice that plays it reads it from its own start
+   * (`anchorTimeCurves` turns it into an `offset`).
    */
   origin?: number;
+  /**
+   * Seconds the voice reads the curve ahead of its own time: what the curve says at t + offset, at voice time t (a
+   * sequence lane keyed on clip or sequence time, an anchored instance lane). Absent: 0. The curve itself is never
+   * shifted: a core binding carries the offset as its time origin (ABI 4.9), so one curve id serves every voice whatever
+   * its start (long instances can't fill the core's curve table with shifted copies).
+   */
+  offset?: number;
 }
 
-const shiftCache = new WeakMap<Curve, Map<number, Curve>>();
-/** `curve` read `offset` seconds later: what it says at t + offset, at t (cached per curve and offset). */
-export function shiftedCurve(curve: Curve, offset: number): Curve {
-  if (Math.abs(offset) < 1e-9) return curve;
-  let m = shiftCache.get(curve);
-  if (!m) shiftCache.set(curve, (m = new Map()));
-  const hit = m.get(offset);
-  if (hit) return hit;
-  const out = curve.map((k) => [k[0] - offset, ...k.slice(1)] as unknown as CurveKey);
-  if (m.size > 64) m.clear();
-  m.set(offset, out);
-  return out;
-}
-
-/** `curves` for a voice starting at heard `start`: curves with an `origin` shifted to read from the voice's start. */
+/** `curves` for a voice starting at heard `start`: curves with an `origin` read from the voice's start (an `offset`). */
 export function anchorTimeCurves(curves: readonly TimeCurve[], start: number): readonly TimeCurve[] {
   if (!curves.some((c) => c.origin !== undefined)) return curves;
-  return curves.map((c) => (c.origin === undefined ? c : { target: c.target, curve: shiftedCurve(c.curve, start - c.origin) }));
+  return curves.map((c) => (c.origin === undefined ? c : { target: c.target, curve: c.curve, offset: (c.offset ?? 0) + start - c.origin }));
 }
 
 /** The most keys a resampled core curve gets (the core's curve key cap). */
@@ -164,7 +157,11 @@ export function coreTimeBindings(
   for (const c of curves) {
     if (c.target !== "pan" && c.target !== "highpass") continue;
     const vc: VoiceCurve = { input: "voiceTime", curve: c.curve, bypass: false };
+    const before = out;
     out = curveParts({ [c.target]: vc }, { bindings: out, timeCurves: [] }, () => null, curveId, where).bindings;
+    // ABI 4.9: the lane's offset rides on the binding (its time origin), not on a shifted copy of the curve.
+    const offset = c.offset ?? 0;
+    if (out !== before && offset !== 0 && Number.isFinite(offset)) out = [...out.slice(0, -1), { ...out[out.length - 1]!, offset }];
   }
   return { timeCurves: curves.filter((c) => c.target !== "pan" && c.target !== "highpass"), bindings: out };
 }
@@ -190,7 +187,7 @@ export function evalTimeCurves(curves: readonly TimeCurve[], t: number): { gain:
   let gain = 1, pitch = 1;
   let lowpass: number | null = null;
   for (const c of curves) {
-    const y = evalCurve(c.curve, t);
+    const y = evalCurve(c.curve, t + (c.offset ?? 0));
     if (c.target === "gain") gain *= dbToGain(y);
     else if (c.target === "pitch") pitch *= stToRatio(y);
     else if (c.target === "lowpass") lowpass = lowpass === null ? y : Math.min(lowpass, y);

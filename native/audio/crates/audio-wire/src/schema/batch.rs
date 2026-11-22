@@ -83,8 +83,16 @@ const BINDING_ITEM: &[Field] = &[
     Field::new("target", Ty::U32).doc("0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4)"),
 ];
 
+/// One AUTOMATE binding (ABI 4.9, ADR 0332 "time origin"): BUS_AUTOMATE's item plus `f32 offset`.
+const VOICE_BINDING_ITEM: &[Field] = &[
+    Field::new("param", Ty::U16).doc("bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group"),
+    Field::new("curve", Ty::U16).doc("curve id (CURVES)"),
+    Field::new("target", Ty::U32).doc("0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4)"),
+    Field::new("offset", Ty::F32).doc("ABI 4.9: seconds added to a time parameter before the curve reads it (the binding's time origin: a lane keyed on its playlist's start, read by a voice that started later, is `start - origin`); ignored for other params"),
+];
+
 /// AUTOMATE bindings: at most 8 per voice are kept.
-const AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: BINDING_ITEM, then: None, max: 0 };
+const AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: VOICE_BINDING_ITEM, then: None, max: 0 };
 
 /// BUS_AUTOMATE bindings: global parameters only; target 0 volume or 2 lowpass; at most 8 per bus.
 const BUS_AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: BINDING_ITEM, then: None, max: 0 };
@@ -262,6 +270,7 @@ pub const OPCODES: &[Opcode] = &[
     super::spatial::SET_VOICE_FX,
     super::studio::LOOPS,
     super::studio::SUBMIX,
+    super::studio::ROUTE,
     Opcode {
         id: 0x10,
         name: "BUS_CONFIG",
@@ -382,7 +391,7 @@ mod tests {
     fn opcode_ids_are_unique_and_sorted() {
         let ids: Vec<u16> = OPCODES.iter().map(|o| o.id).collect();
         assert!(ids.windows(2).all(|w| w[0] < w[1]), "ids not strictly increasing: {ids:?}");
-        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x10, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x20, 0x30]);
+        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x10, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x20, 0x30]);
         assert!(OPCODES.iter().all(|o| o.sent));
         assert!(OPCODES.iter().all(|o| o.id != 0x11), "0x11 stays reserved (BUS_MIX, retired)");
     }

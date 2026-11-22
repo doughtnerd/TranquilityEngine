@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "b2283bb4820ce50e47272aa5f7361a2b";
+export const SCHEMA_HASH = "55e6051e026a370833ba9e7a9d3c23dd";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
@@ -318,6 +318,34 @@ export const BUS_FX_CATALOGUE = 0x10;
 export const FX_MEMORY_SECONDS = 0x14;
 /** SUBMIX effect flags bit 0: the effect runs (clear: bypassed, its state kept) */
 export const SUBMIX_FX_ON = 0x1;
+/** SUBMIX parent: the slot feeds its bus (else parent - 1 is the slot it feeds; ABI 4.9) */
+export const SUBMIX_PARENT_NONE = 0x0;
+/** submix levels a chain of parents keeps (ABI 4.9); a slot deeper than this feeds its bus */
+export const SUBMIX_DEPTH_MAX = 0x8;
+/** LOOPS shapes nibble: equal power (sin in, cos out; the default, ABI 4.9) */
+export const FADE_SHAPE_EQUAL_POWER = 0x0;
+/** LOOPS shapes nibble: linear */
+export const FADE_SHAPE_LINEAR = 0x1;
+/** LOOPS shapes nibble: s-curve u^2(3 - 2u) */
+export const FADE_SHAPE_S_CURVE = 0x2;
+/** LOOPS shapes nibble: inverse s-curve 2u - u^2(3 - 2u) */
+export const FADE_SHAPE_INV_S_CURVE = 0x3;
+/** LOOPS shapes nibble: log 1 - (1 - u)^1.41 */
+export const FADE_SHAPE_LOG1 = 0x4;
+/** LOOPS shapes nibble: log 1 - (1 - u)^2 */
+export const FADE_SHAPE_LOG2 = 0x5;
+/** LOOPS shapes nibble: log 1 - (1 - u)^3 */
+export const FADE_SHAPE_LOG3 = 0x6;
+/** LOOPS shapes nibble: exp u^1.41 */
+export const FADE_SHAPE_EXP1 = 0x7;
+/** LOOPS shapes nibble: exp u^2 */
+export const FADE_SHAPE_EXP2 = 0x8;
+/** LOOPS shapes nibble: exp u^3 */
+export const FADE_SHAPE_EXP3 = 0x9;
+/** LOOPS item shapes bits 0-3: the seam crossfade's FADE_SHAPE_* (ABI 4.9) */
+export const LOOP_SEAM_SHAPE_SHIFT = 0x0;
+/** LOOPS item shapes bits 4-7: the exit crossfade's FADE_SHAPE_* (ABI 4.9) */
+export const LOOP_EXIT_SHAPE_SHIFT = 0x4;
 
 /** Negative i32 results of the C ABI (0 is ok). */
 export const ErrorCode = {
@@ -377,6 +405,7 @@ export const Op = {
   SET_VOICE_FX: 0x0a,
   LOOPS: 0x0b,
   SUBMIX: 0x0c,
+  ROUTE: 0x0d,
   BUS_CONFIG: 0x10,
   MASTER: 0x12,
   CURVES: 0x13,
@@ -1609,25 +1638,29 @@ export interface AutomateBindings {
   curve: number;
   /** 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4) */
   target: number;
+  /** ABI 4.9: seconds added to a time parameter before the curve reads it (the binding's time origin: a lane keyed on its playlist's start, read by a voice that started later, is `start - origin`); ignored for other params */
+  offset: number;
 }
 
-export const AUTOMATE_BINDINGS_FIXED_END = 8;
+export const AUTOMATE_BINDINGS_FIXED_END = 12;
 
 export function writeAutomateBindings(view: DataView, off: number, rec: AutomateBindings): number {
   view.setUint16(off + 0, rec.param, true);
   view.setUint16(off + 2, rec.curve, true);
   view.setUint32(off + 4, rec.target, true);
-  let cur = off + 8;
+  view.setFloat32(off + 8, rec.offset, true);
+  let cur = off + 12;
   return cur - off;
 }
 
 function _readAutomateBindings(view: DataView, off: number, limit: number): [AutomateBindings, number] {
-  if (off + 8 > limit) throw new WireError(ErrorCode.TRUNCATED, "AutomateBindings: truncated");
+  if (off + 12 > limit) throw new WireError(ErrorCode.TRUNCATED, "AutomateBindings: truncated");
   const param = view.getUint16(off + 0, true);
   const curve = view.getUint16(off + 2, true);
   const target = view.getUint32(off + 4, true);
-  let cur = off + 8;
-  return [{ param, curve, target }, cur - off];
+  const offset = view.getFloat32(off + 8, true);
+  let cur = off + 12;
+  return [{ param, curve, target, offset }, cur - off];
 }
 
 export function readAutomateBindings(view: DataView, off: number): AutomateBindings {
@@ -1661,7 +1694,7 @@ function _readAutomate(view: DataView, off: number, limit: number): [Automate, n
   if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "Automate: truncated");
   const bindingCount = view.getUint32(off + 12, true);
   let cur = off + 16;
-  if (bindingCount * 8 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "Automate: bindings overrun");
+  if (bindingCount * 12 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "Automate: bindings overrun");
   const bindings: AutomateBindings[] = [];
   for (let i = 0; i < bindingCount; i++) {
     const [item, used] = _readAutomateBindings(view, cur, limit);
@@ -1762,9 +1795,9 @@ export interface LoopsLoops {
   startFrame: number;
   /** clip frames; equal to startFrame: a hold point */
   endFrame: number;
-  /** the seam's equal-power crossfade (and a hold point's fades), clip frames */
+  /** the seam's crossfade (and a hold point's fades), clip frames; shaped by `shapes` bits 0-3 */
   crossfadeFrames: number;
-  /** exit crossfade's length, clip frames */
+  /** exit crossfade's length, clip frames; shaped by `shapes` bits 4-7 */
   exitFadeFrames: number;
   /** 0 endless; else passes in all, the first included */
   count: number;
@@ -1772,7 +1805,8 @@ export interface LoopsLoops {
   flags: number;
   /** activation parameter: a binding param (PARAM_GLOBAL | slot, or a local slot) */
   param: number;
-  reserved: number;
+  /** ABI 4.9: FADE_SHAPE_* of the seam (bits 0-3) and exit (bits 4-7) crossfades; 0 equal power */
+  shapes: number;
   /** activation threshold */
   threshold: number;
 }
@@ -1787,7 +1821,7 @@ export function writeLoopsLoops(view: DataView, off: number, rec: LoopsLoops): n
   view.setUint16(off + 16, rec.count, true);
   view.setUint16(off + 18, rec.flags, true);
   view.setUint16(off + 20, rec.param, true);
-  view.setUint16(off + 22, rec.reserved, true);
+  view.setUint16(off + 22, rec.shapes, true);
   view.setFloat32(off + 24, rec.threshold, true);
   let cur = off + 28;
   return cur - off;
@@ -1802,10 +1836,10 @@ function _readLoopsLoops(view: DataView, off: number, limit: number): [LoopsLoop
   const count = view.getUint16(off + 16, true);
   const flags = view.getUint16(off + 18, true);
   const param = view.getUint16(off + 20, true);
-  const reserved = view.getUint16(off + 22, true);
+  const shapes = view.getUint16(off + 22, true);
   const threshold = view.getFloat32(off + 24, true);
   let cur = off + 28;
-  return [{ startFrame, endFrame, crossfadeFrames, exitFadeFrames, count, flags, param, reserved, threshold }, cur - off];
+  return [{ startFrame, endFrame, crossfadeFrames, exitFadeFrames, count, flags, param, shapes, threshold }, cur - off];
 }
 
 export function readLoopsLoops(view: DataView, off: number): LoopsLoops {
@@ -1894,24 +1928,29 @@ export function readSubmixEffects(view: DataView, off: number): SubmixEffects {
   return _readSubmixEffects(view, off, limit)[0];
 }
 
-/** configure an instance submix's group, bus and insert chain (ADR 0331); no effects frees it */
+/** configure a submix's group, bus, parent and insert chain (ADR 0331); no effects frees it */
 export interface Submix {
   voiceId: number;
   frameOffset: number;
-  /** the instance group 1..=1024 whose voices route here; 0 frees */
+  /** the instance group 1..=1024 whose voices on `bus` route here; 0 none (ROUTE only) */
   group: number;
   /** the output bus index */
   bus: number;
+  /** ABI 4.9: the slot this one feeds, plus 1; SUBMIX_PARENT_NONE (0) the bus */
+  parent: number;
+  reserved: number;
   effects: SubmixEffects[];
 }
 
-export const SUBMIX_FIXED_END = 20;
+export const SUBMIX_FIXED_END = 24;
 
 export function writeSubmix(view: DataView, off: number, rec: Submix): number {
   view.setUint16(off + 12, rec.group, true);
   view.setUint16(off + 14, rec.bus, true);
   view.setUint32(off + 16, rec.effects.length, true);
-  let cur = off + 20;
+  view.setUint16(off + 20, rec.parent, true);
+  view.setUint16(off + 22, rec.reserved, true);
+  let cur = off + 24;
   for (const item of rec.effects) cur += writeSubmixEffects(view, cur, item);
   const total = cur - off;
   if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Submix: record too long");
@@ -1923,11 +1962,13 @@ export function writeSubmix(view: DataView, off: number, rec: Submix): number {
 }
 
 function _readSubmix(view: DataView, off: number, limit: number): [Submix, number] {
-  if (off + 20 > limit) throw new WireError(ErrorCode.TRUNCATED, "Submix: truncated");
+  if (off + 24 > limit) throw new WireError(ErrorCode.TRUNCATED, "Submix: truncated");
   const group = view.getUint16(off + 12, true);
   const bus = view.getUint16(off + 14, true);
   const effectCount = view.getUint32(off + 16, true);
-  let cur = off + 20;
+  const parent = view.getUint16(off + 20, true);
+  const reserved = view.getUint16(off + 22, true);
+  let cur = off + 24;
   if (effectCount * 40 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "Submix: effects overrun");
   const effects: SubmixEffects[] = [];
   for (let i = 0; i < effectCount; i++) {
@@ -1939,7 +1980,7 @@ function _readSubmix(view: DataView, off: number, limit: number): [Submix, numbe
   cur = limit;
   const voiceId = view.getUint32(off + 4, true);
   const frameOffset = view.getUint32(off + 8, true);
-  return [{ voiceId, frameOffset, group, bus, effects }, cur - off];
+  return [{ voiceId, frameOffset, group, bus, parent, reserved, effects }, cur - off];
 }
 
 export function readSubmix(view: DataView, off: number): Submix {
@@ -1948,6 +1989,50 @@ export function readSubmix(view: DataView, off: number): Submix {
   const limit = off + view.getUint16(off + 2, true) * 4;
   if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Submix: truncated");
   return _readSubmix(view, off, limit)[0];
+}
+
+/** route a voice into a submix slot (ADR 0331 levels) */
+export interface Route {
+  voiceId: number;
+  frameOffset: number;
+  /** the submix slot plus 1; 0 the group's route */
+  submix: number;
+  reserved: number;
+}
+
+export const ROUTE_FIXED_END = 16;
+
+export function writeRoute(view: DataView, off: number, rec: Route): number {
+  view.setUint16(off + 12, rec.submix, true);
+  view.setUint16(off + 14, rec.reserved, true);
+  let cur = off + 16;
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Route: record too long");
+  view.setUint16(off + 0, 13, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readRoute(view: DataView, off: number, limit: number): [Route, number] {
+  if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "Route: truncated");
+  const submix = view.getUint16(off + 12, true);
+  const reserved = view.getUint16(off + 14, true);
+  let cur = off + 16;
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "Route: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, submix, reserved }, cur - off];
+}
+
+export function readRoute(view: DataView, off: number): Route {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Route: truncated");
+  if (view.getUint16(off + 0, true) !== 13) throw new WireError(ErrorCode.MALFORMED, "Route: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Route: truncated");
+  return _readRoute(view, off, limit)[0];
 }
 
 export interface BusConfigBusesEffects {

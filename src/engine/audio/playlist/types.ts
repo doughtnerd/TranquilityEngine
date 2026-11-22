@@ -107,6 +107,13 @@ export interface LoopBehaviour {
   exit: "finish" | "jump" | "crossfade";
   exitFadeMs: number;
   reentry: "ignore" | "reenter";
+  /**
+   * ADR 0336 (the audio core's ABI 4.9): a sample loop's seam crossfade shape (also its hold point's fades, a jump exit
+   * and a re-entry); absent: equalPower. Sequence loops splice and ignore it.
+   */
+  crossfadeShape?: FadeShape;
+  /** ADR 0336: the exit crossfade's shape (`exit: "crossfade"`; a sequence loop's both sides); absent: equalPower. */
+  exitShape?: FadeShape;
 }
 
 // --- entries ---------------------------------------------------------------------------------------------------------

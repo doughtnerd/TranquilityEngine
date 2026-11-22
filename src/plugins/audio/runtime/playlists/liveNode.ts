@@ -8,7 +8,7 @@ import type { VoiceProps } from "../../../../engine/audio/playlist/accumulate";
 import type { PickState } from "../../../../engine/audio/playlist/picks";
 import type { ChangeHow, LoopBehaviour, PlaylistBody, SampleEntry } from "../../../../engine/audio/playlist/types";
 import type { ParameterDef } from "../../../../engine/audio/parameters";
-import type { AudioMarkerEvent, AudioVoice, Attenuation } from "../backend";
+import type { AudioMarkerEvent, AudioVoice, Attenuation, SubmixLevel } from "../backend";
 import type { Binding, ParamRef } from "../automation";
 import type { TimeCurve } from "./curves";
 import type { MusicalClock, MusicalSource } from "./musical";
@@ -120,6 +120,21 @@ export interface Ctx {
   spatial: SpatialPlan | null;
   /** The nearest playlist path above, for messages. */
   where: string;
+  /**
+   * ADR 0331 levels: the submix of the nearest level above that runs its effects on one (the instance's own, a nested
+   * playlist's, a track's or a clip's) and the bus it takes voices on; the voices below on that bus mix into it. Absent or
+   * null: none (or the voices below are on another bus).
+   */
+  submix?: CtxSubmix | null;
+}
+
+/** ADR 0331 levels: a level's submix as the context carries it down. */
+export interface CtxSubmix {
+  readonly level: SubmixLevel;
+  /** The bus (resolved name) its voices play on. */
+  readonly bus: string;
+  /** The instance's own submix (its voices are routed by their group; no ROUTE needed). */
+  readonly root: boolean;
 }
 
 /** What the nodes need of their instance. */
@@ -170,6 +185,14 @@ export interface NodeHost {
    * map it onto the voices too; absent or null when the instance has no submix.
    */
   readonly submixedEffects?: readonly Effect[] | null;
+  /** The mixer bus a level's `output` (undefined: inherited, Master) resolves to; absent: the name as given. */
+  resolveBus?(bus: string | undefined): string;
+  /**
+   * ADR 0331 levels: a submix for one level's enabled `effects` (`key` names the level in the instance), feeding `parent`
+   * and taking voices on `bus`; null when there's nothing to run, no submixes on this backend, no instance group, or the
+   * pool is full (then the level's effects map onto its voices). Absent: never.
+   */
+  levelSubmix?(key: string, effects: readonly Effect[], bus: string, parent: SubmixLevel | null, where: string): SubmixLevel | null;
 }
 
 // --- the base node ---------------------------------------------------------------------------------------------------

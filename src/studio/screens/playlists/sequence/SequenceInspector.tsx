@@ -13,6 +13,7 @@ import type { Automation, LoopBehaviour, PlaylistBody, SequenceSettings } from "
 import { SegmentedControl } from "../../../../editor/ui/SegmentedControl";
 import { accept, type EditResult } from "../../../../plugins/audio/editor/editResult";
 import { EffectChain } from "../../../components/EffectChain";
+import { chainNote } from "../chainCost";
 import { FieldRow, NumberBox, SelectBox, Section } from "../../../../editor/ui/PanelFields";
 import { addAutomation, deletePoints as deletePointsOf, isTimeInput, ownerOf, QUANTIZE_CHOICES, quantizeChoice, removeAutomation, setAutomation, setPointShape, SHAPES, targetSpec, targetSpecs, type AutomationOwner } from "./automationEdits";
 import { clipFollows, clipLoops } from "./clipGeometry";
@@ -234,7 +235,7 @@ export function SequenceInspector(props: SequenceInspectorProps) {
             </Section>
           )}
           <Section title="Clip effects">
-            <EffectChain effects={c.effects} level="voice" readOnly={!writable} note="Run on this clip's voice, once per playing clip."
+            <EffectChain effects={c.effects} level="instance" readOnly={!writable} note={chainNote("clip", c.effects)}
               onEdit={(r, label) => run(label, (q) => ("refused" in r ? r : setClipEffects(q, c.id, r.next)), (x) => x)}
               onAutomate={(fxId) => curves({ clip: c.id }, len, name, `fx:${fxId}:on`)} />
           </Section>
@@ -267,7 +268,7 @@ export function SequenceInspector(props: SequenceInspectorProps) {
             <FieldRow label="Enabled" title="A disabled track disables all its clips"><input type="checkbox" aria-label="Track enabled" checked={t.enabled} disabled={!writable} onChange={() => set(t.enabled ? "Disable track" : "Enable track", { enabled: !t.enabled })} /></FieldRow>
           </Section>
           <Section title="Track effects">
-            <EffectChain effects={t.effects} level="instance" readOnly={!writable} note="Run once on the track's mix, one instance per playing sequence."
+            <EffectChain effects={t.effects} level="instance" readOnly={!writable} note={chainNote("track", t.effects)}
               onEdit={(r, label) => run(label, (q) => ("refused" in r ? r : setTrackEffects(q, t.id, r.next)), (x) => x)}
               onAutomate={(fxId) => curves({ track: t.id }, length, t.name, `fx:${fxId}:on`)} />
           </Section>

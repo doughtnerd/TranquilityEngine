@@ -59,17 +59,32 @@ import {
   writeSetLoop,
   writeTime,
   writeLoops,
+  writeRoute,
+  ROUTE_FIXED_END,
   LOOPS_LOOPS_FIXED_END,
   LOOP_ACTIVE_SHIFT,
   LOOP_BELOW,
   LOOP_EXIT_SHIFT,
   LOOP_REENTER,
+  LOOP_SEAM_SHAPE_SHIFT,
+  LOOP_EXIT_SHAPE_SHIFT,
+  FADE_SHAPE_EQUAL_POWER,
+  FADE_SHAPE_LINEAR,
+  FADE_SHAPE_S_CURVE,
+  FADE_SHAPE_INV_S_CURVE,
+  FADE_SHAPE_LOG1,
+  FADE_SHAPE_LOG2,
+  FADE_SHAPE_LOG3,
+  FADE_SHAPE_EXP1,
+  FADE_SHAPE_EXP2,
+  FADE_SHAPE_EXP3,
   TIME_SEQUENCE,
   type LoopsLoops,
   type AutomateBindings,
   type CurvesCurves,
 } from "../wire.generated";
 import type { AudioVoice, PlayRequest } from "../backend";
+import type { FadeShape } from "../../../../engine/audio/playlist/types";
 import { AutoTarget, evaluateInto, MAX_BINDINGS, MAX_CURVES, MAX_GLOBAL_SLOTS, MAX_GROUPS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type AutomationSink, type AutoResult, type Binding, type VoiceLoop } from "../automation";
 import { evalCurve } from "../../../../engine/core/curve";
 import { onLoopPoints } from "../loopPoints";
@@ -174,7 +189,7 @@ const newEntry = (): VoiceEntry => ({
   curveIds: new Int32Array(MAX_BINDINGS),
   targets: new Uint8Array(MAX_BINDINGS),
   wire: [],
-  wirePool: Array.from({ length: MAX_BINDINGS }, () => ({ param: 0, curve: 0, target: 0 })),
+  wirePool: Array.from({ length: MAX_BINDINGS }, () => ({ param: 0, curve: 0, target: 0, offset: 0 })),
   loop: null,
   program: null,
 });
@@ -338,6 +353,7 @@ export class CoreAutomation implements AutomationSink {
       w.param = time >= 0 ? AUTOMATION_TIME | time : p.global ? AUTOMATION_GLOBAL | p.slot : p.slot;
       w.curve = b.curve;
       w.target = b.target;
+      w.offset = time >= 0 && b.offset !== undefined && Number.isFinite(b.offset) ? b.offset : 0;
       wire[j] = w;
       if (time >= 0) continue;
       if (p.global) global = true;
@@ -630,6 +646,9 @@ export class CoreAutomation implements AutomationSink {
 
   /** A hard rebuild replayed slot `i`'s PLAY (voice `id`) into `b`: its bindings and loop follow it (asap, after it). */
   replayVoice(b: ReplayBuilder, id: number, i: number): void {
+    // ADR 0331 levels (ABI 4.9): its playlist level's submix route (the slots themselves replay in the header).
+    const submix = this.deps.table.submix[i]!;
+    if (submix > 0) b.record(ROUTE_FIXED_END, (view, off) => writeRoute(view, off, { voiceId: id, frameOffset: ASAP, submix, reserved: 0 }));
     const e = this.voices[i];
     if (!e || e.id !== id) return;
     this.playIds[i] = id;
@@ -987,7 +1006,7 @@ export class CoreAutomation implements AutomationSink {
         count: Math.min(0xffff, Math.max(0, Math.round(l.count) || 0)),
         flags: dir | (active << LOOP_ACTIVE_SHIFT) | (exit << LOOP_EXIT_SHIFT) | (l.reentry === "reenter" ? LOOP_REENTER : 0) | (l.op === "<" ? LOOP_BELOW : 0),
         param: p && p.time === undefined ? (p.global ? AUTOMATION_GLOBAL | p.slot : p.slot) : 0,
-        reserved: 0,
+        shapes: (loopShape(l.crossfadeShape) << LOOP_SEAM_SHAPE_SHIFT) | (loopShape(l.exitShape) << LOOP_EXIT_SHAPE_SHIFT),
         threshold: Number.isFinite(l.threshold) ? l.threshold! : 0,
       };
     });
@@ -1076,8 +1095,17 @@ function loudestX(curve: Curve | undefined): number {
   return evalCurve(curve, curve[best]![0]) >= 0 ? curve[best]![0] : 0;
 }
 
+/** ADR 0336 (ABI 4.9): a fade shape's LOOPS `shapes` nibble (absent: equal power, the core's default). */
+const LOOP_SHAPES: Readonly<Record<FadeShape, number>> = {
+  equalPower: FADE_SHAPE_EQUAL_POWER, linear: FADE_SHAPE_LINEAR, sCurve: FADE_SHAPE_S_CURVE, invSCurve: FADE_SHAPE_INV_S_CURVE,
+  log1: FADE_SHAPE_LOG1, log2: FADE_SHAPE_LOG2, log3: FADE_SHAPE_LOG3, exp1: FADE_SHAPE_EXP1, exp2: FADE_SHAPE_EXP2, exp3: FADE_SHAPE_EXP3,
+};
+function loopShape(shape: FadeShape | undefined): number {
+  return shape === undefined ? FADE_SHAPE_EQUAL_POWER : (LOOP_SHAPES[shape] ?? FADE_SHAPE_EQUAL_POWER);
+}
+
 function toWire(b: Binding): AutomateBindings {
-  return { param: b.param.global ? AUTOMATION_GLOBAL | b.param.slot : b.param.slot, curve: b.curve, target: b.target };
+  return { param: b.param.global ? AUTOMATION_GLOBAL | b.param.slot : b.param.slot, curve: b.curve, target: b.target, offset: 0 };
 }
 
 function wireCurve(c: Curve): CurvesCurves {
