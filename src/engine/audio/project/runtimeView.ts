@@ -244,7 +244,8 @@ function sectionOf(project: AudioProject, warnings: string[]): MixSection {
 
 /** The engine settings of `project` in the runtime's shape (`AudioSettings` minus the mix): `settings` with ADR 0331/0333's keys applied. */
 export function engineSectionOf(project: AudioProject, warnings: string[] = []): Omit<AudioSettings, keyof MixSection | "mix"> {
-  const { submixes, bedBeyond, dopplerAmount, ...engine } = project.settings;
+  // `dialogue` (ADR 0341) is read by the dialogue system from audio.json, not by the backends.
+  const { submixes, bedBeyond, dopplerAmount, dialogue: _dialogue, ...engine } = project.settings;
   void warnings;
   const out = structuredClone(engine);
   // ADR 0333: voices farther than `bedBeyond` metres go to their bus's bed (the core backend's panner pick reads it).

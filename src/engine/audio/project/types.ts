@@ -32,6 +32,8 @@ export type AudioEngineSettings = Omit<
   bedBeyond: number | null;
   /** ADR 0333: global Doppler multiplier 0..2, default 1. */
   dopplerAmount: number;
+  /** ADR 0341 §4: dialogue lines speaking at once (0: no limit) and the fade of an interrupted line, ms. */
+  dialogue: { maxVoices: number; interruptFadeMs: number };
 };
 
 export interface Send { to: string; levelDb: number }
