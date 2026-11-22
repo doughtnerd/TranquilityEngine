@@ -306,3 +306,11 @@ placement) and can't end without holes, so a 2D entry instead gets an optional w
 edited in the shared curve editor, with presets matching the fade shapes; the same curve is an advanced override on
 1D entries. Fade shapes (one shared type and evaluator) apply to every crossfade: Switch transitions, Queue continuous
 overlaps, loop crossfades, bridges, tails, 1D regions. Unset = today's equal-power behaviour.
+
+**D41. Offline render (W9-B, merged).** Separate wasm (`audio-offline`, 136,571 B, own 256 KB tripwire) reusing
+`audio_dsp::fx` and the core's curve evaluator (`Curve::from_keys` added, ABI unchanged). Render = 32-bit float WAV on
+the source timeline (D37); normalize applied after the chain (ADR 0328 order); tails until −90 dBFS (cap 10 s).
+Choices to review: reverse left out of renders with a warning (would move every source time); every effect type
+bakes, even those not allowed at sample level; fades and the envelope span the whole file. Note for later native
+work: the shared source hash changed, so any branch touching `native/audio/**` must re-run `npm run build:audio`
+after merging. Float WAV playback relies on symphonia's `wav`+`pcm` (IEEE float supported).
