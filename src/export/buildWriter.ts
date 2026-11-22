@@ -1,7 +1,8 @@
 // The build writer (ADR 0296): writes a planned web build (webBuild.ts) into a build folder, for
 // the Node exporter (node.ts) and the editor's Build / Export (src/editor/exportBuild.ts) alike.
 // It owns the order: check the player and the folder before anything is touched, bake models
-// (ADR 0090) and process images (ADR 0119) through the project's files, clear an earlier build,
+// (ADR 0090), render baked samples (ADR 0328, sampleRenders.ts) and process images (ADR 0119)
+// through the project's files, clear an earlier build,
 // then write each file once (a processed image in place of its original) with progress.
 //
 // Files come in through `FileSource`s (the project, the player) and go out through a
@@ -12,6 +13,7 @@ import type { ImportPlatform } from "../engine/scene/importSettings";
 import { joinPath } from "../editor/projectPaths";
 import { ENGINE_FILE, MANIFEST_FILE, PLAYER_FILE_LIST, PLAYER_PAGE } from "./format";
 import { processImages, type ImageTranscoder } from "./images";
+import { withRenderedSamples } from "./sampleRenders";
 import { ExportError, copiedPath, withBakedModels, type BakeModel, type WebBuildPlan } from "./webBuild";
 
 /** Read access to a folder of files (a project, a built player), by "/"-separated relative path. */
@@ -80,6 +82,7 @@ export async function writeWebBuild(plan: WebBuildPlan, options: WriteBuildOptio
   }
 
   plan = await withBakedModels(plan, options.bake, log);
+  plan = await withRenderedSamples(plan, (path) => project.read(path), log);
   plan = await processImages(plan, {
     platform: options.platform,
     readText: (path) => project.read(path).then(textOf, () => undefined),
