@@ -18,6 +18,7 @@ import type { RuntimePlugin } from "../plugins/runtimeContext";
 import { MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, type GameManifest } from "../export/format";
 import { LEGACY_AUDIO_MESSAGE, projectWithAudio } from "../engine/audio/project/load";
 import { AUDIO_PROJECT_FILE } from "../engine/audio/project/types";
+import { installAudioMedia } from "../plugins/audio/runtime/media/mediaTable";
 
 /** A build file's URL, from its "/"-separated path. */
 const urlOf = (path: string) => new URL(path.split("/").map(encodeURIComponent).join("/"), document.baseURI).href;
@@ -49,6 +50,9 @@ async function boot(): Promise<void> {
   if (read.legacyAudio) throw new Error(LEGACY_AUDIO_MESSAGE);
   for (const line of [...read.problems, ...read.warnings]) console.warn(`[myco] ${AUDIO_PROJECT_FILE}: ${line}`);
   const settings: ProjectSettingsInput = read.project;
+  // ADR 0337 §7: the build's converted audio (packages and the media table), before any scene: its first scene's load
+  // waits for the preload packages (the packages World service), as it waits for its other assets.
+  installAudioMedia(manifest.audio ?? null, urlOf);
   const thirdParty: RuntimePlugin[] = [];
   const moduleOf = (path: string) => manifest.scripts.find((s) => s.source === path.replace(/^\.?\//, ""))?.module;
   document.body.style.background = settings.display?.backgroundColor ?? "#000";

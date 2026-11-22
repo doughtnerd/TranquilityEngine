@@ -61,7 +61,12 @@ export interface ProfileSink {
   pick?(pick: ProfilePick): void;
   /** ADR 0334: metered bus `bus` (null: the output) moved against its loudness target to `state`; optional, the recorder's. */
   loudnessWarning?(bus: string | null, state: ProfileLoudnessState): void;
+  /** ADR 0337 §9: package `name` (`bytes` its download size) started loading, loaded, failed or was unloaded; optional, the recorder's. */
+  audioPackage?(name: string, event: ProfilePackageEvent, bytes: number): void;
 }
+
+/** ADR 0337 §9: what happened to a package (`PKG` capture events). */
+export type ProfilePackageEvent = "loadStart" | "loaded" | "failed" | "unload";
 
 /** ADR 0334: a loudness target state a warning names (`high` and `low` warn, `ok` clears). */
 export type ProfileLoudnessState = "high" | "low" | "ok";

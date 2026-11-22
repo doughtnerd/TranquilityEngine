@@ -90,9 +90,16 @@ export interface AudioManifestPackage {
   readonly preload: boolean;
 }
 
-/** One sound in the media table: in a package (`package`), or a loose file (`url`: a `stream` sound's media, or a converted file). */
+/**
+ * One sound in the media table: in a package (`package`), or a loose file. `url` (relative to the build's root) is a
+ * packaged `stream` sound's loose media (`audio/stream/<hash>.<ext>`); a converted loose file has none: it keeps its own
+ * project path, which `Assets` serves.
+ */
 export interface AudioMediaEntry {
+  /** The first package holding it (in `audio.json`'s order). */
   readonly package?: string;
+  /** Every package holding it, when there are several (A3): its bytes are in each, and loading any one makes it playable. */
+  readonly packages?: readonly string[];
   readonly url?: string;
   readonly codec: PackCodec;
   readonly load: LoadMode;

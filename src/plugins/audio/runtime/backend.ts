@@ -26,8 +26,11 @@ export { zeroCounters } from "./debugTypes";
 
 export type Rolloff = "linear" | "inverse" | "exponential";
 
-/** Why a sound isn't audible right now; null while it is (api-and-models §1). */
-export type AudioReason = "virtual" | "stolen" | "busMuted" | "locked" | "failed" | "waitingForData";
+/**
+ * Why a sound isn't audible right now; null while it is (api-and-models §1). ADR 0337 §7: `notLoaded`, a refused play of a
+ * packaged sound whose packages are all unloaded (strict packaging).
+ */
+export type AudioReason = "virtual" | "stolen" | "busMuted" | "locked" | "failed" | "waitingForData" | "notLoaded";
 /** `Audio.status` (§1). */
 export type AudioStatus = "locked" | "running" | "failed";
 /** `audio.background` (§2): what the host does when the page is hidden. */
@@ -654,6 +657,18 @@ export interface AudioBackend {
    * other effect types are skipped with one warning.
    */
   readonly submixes?: AudioSubmixes;
+  /**
+   * ADR 0337 §3–§4 (A5): the build codecs this backend decodes beyond PCM, Vorbis and the sources' own formats. Absent:
+   * none, so a build's ADPCM and Opus media are refused with one warning each until the core's ADPCM reader and the
+   * decoder's Opus (A4, A7) land and the backend reports them here.
+   */
+  readonly media?: AudioMediaSupport;
+}
+
+/** ADR 0337 (A5): what a backend decodes of a build's converted media (`AudioBackend.media`). */
+export interface AudioMediaSupport {
+  /** Whether a sound shipped as `codec` plays. */
+  decodes(codec: "adpcm" | "opus"): boolean;
 }
 
 /**

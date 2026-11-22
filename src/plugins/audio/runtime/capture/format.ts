@@ -131,8 +131,13 @@ export const EventKind = {
   pick: 20,
   /** ADR 0334: a metered bus's loudness against its target changed state (reason 1 high, 2 low, 3 ok). */
   loudnessWarning: 21,
+  /**
+   * ADR 0337 §9 (`PKG`): a package started loading (reason 1), loaded (2), failed (3) or was unloaded (4). Added within
+   * format 2: older captures read as before; an older build refuses a capture holding one (an unknown kind).
+   */
+  audioPackage: 22,
 } as const;
-export const EVENT_KIND_MAX = 21;
+export const EVENT_KIND_MAX = 22;
 /** Kinds whose payload ends in one `f32` (§5.6: voiceStart gain, snapshot seconds, busRamp target, masterChange volume). */
 export const EVENT_KINDS_WITH_F32: ReadonlySet<number> = new Set([1, 11, 14, 18]);
 /**
@@ -141,7 +146,7 @@ export const EVENT_KINDS_WITH_F32: ReadonlySet<number> = new Set([1, 11, 14, 18]
  * 3 restored) are Rc1's reading of §5.6's parentheses.
  */
 export const EVENT_REASON_MAX: ReadonlyMap<number, number> = new Map([
-  [2, 5], [3, 3], [4, 4], [5, 2], [6, 5], [7, 2], [16, 4], [17, 3], [21, 3],
+  [2, 5], [3, 3], [4, 4], [5, 2], [6, 5], [7, 2], [16, 4], [17, 3], [21, 3], [22, 4],
 ]);
 
 // The KEYFRAME section caps and `KEYFRAME_BUS_LANES` are `keyframeLayout.ts`'s (ADR 0230), re-exported at the top.

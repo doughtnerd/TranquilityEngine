@@ -13,6 +13,9 @@
  * every other caller plays through `playSampleVoice` (`sampleVoice.ts`), which stops a pass at the trim's end and loops
  * the sample's loop region.
  *
+ * ADR 0337 §7: a build's media table (`media/packages.ts` `mediaSource`) comes before `Assets`: a packaged sound plays
+ * its package's in-memory bytes (or its loose streamed media), a converted one streams when its load mode says so.
+ *
  * It depends on `Assets` (URLs and import settings), the mixer (bus names), the clip registry (what it learned of an
  * ambisonic clip: its FuMa gain and its length) and the active backend's clip facts (`AudioBackend.clipCache`, G-1). It
  * imports neither `AudioSource.ts` nor the playlist runtime, so every caller imports it directly.
@@ -22,6 +25,7 @@ import { Assets } from "../../../engine/scene/Assets";
 import { ambisonicImportGain, ambisonicStreamsByDefault } from "./core/clipRegistry";
 import { warnOnce } from "./core/handle";
 import { audioBackend, hasAudioBackend, type AudioClipCache, type PlayRequest } from "./backend";
+import { mediaSource } from "./media/packages";
 import type { LoopBehaviour } from "../../../engine/audio/playlist/types";
 import { isDerivedSamplePath } from "../../../engine/audio/sample/format";
 import { resolveSample, type ResolvedSample, type SampleReader } from "../../../engine/audio/sample/resolve";
@@ -118,8 +122,10 @@ export function clipDuration(path: string): number | null {
  * once the registry found it longer than 5 s.
  */
 export function clipStreams(path: string): boolean {
-  const settings = Assets.importSettings(clipSettingsPath(path));
-  return settings.stream || (settings.ambisonic !== null && ambisonicStreamsByDefault(clipSource(path)));
+  const settingsPath = clipSettingsPath(path);
+  const settings = Assets.importSettings(settingsPath);
+  const media = mediaSource(clipSource(path), settingsPath);
+  return (media ? media.stream : settings.stream) || (settings.ambisonic !== null && ambisonicStreamsByDefault(clipSource(path)));
 }
 
 /**
@@ -206,10 +212,14 @@ export function samplePass(path: string, trim: [number, number] | null = sampleP
 export function clipRequest(path: string, loop: boolean, output: string | undefined): PlayRequest {
   const file = clipSource(path);
   if (file === "") throw new Error(`the derived sample "${path}" has no audio file to play`);
-  const settings = Assets.importSettings(clipSettingsPath(path));
+  const settingsPath = clipSettingsPath(path);
+  const settings = Assets.importSettings(settingsPath);
   const ambisonic = settings.ambisonic !== null;
+  // ADR 0337 §7: a build's media table first (a packaged sound's in-memory bytes, its loose streamed media, a converted
+  // sound's load mode), else the project file and its import setting.
+  const media = mediaSource(file, settingsPath);
   const req: PlayRequest = {
-    path: file, url: Assets.url(file), loop, stream: settings.stream || (ambisonic && ambisonicStreamsByDefault(file)),
+    path: file, url: media?.url ?? Assets.url(file), loop, stream: (media ? media.stream : settings.stream) || (ambisonic && ambisonicStreamsByDefault(file)),
     bus: mixer.resolveOutput(output), volume: settings.volume * ambisonicImportGain(file) * samplePlan(path).gain,
   };
   const offset = samplePass(path).offset;

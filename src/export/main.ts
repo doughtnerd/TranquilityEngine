@@ -2,7 +2,8 @@
  * `npm run export`: build a project into a game (ADR 0041).
  *
  * ```sh
- * npm run export -- <projectDir> [--out <dir>] [--target web|desktop] [--scene <path>] [--audio-capture]
+ * npm run export -- <projectDir> [--out <dir>] [--target web|desktop] [--platform web|desktop|android]
+ *                   [--no-audio-convert] [--scene <path>] [--audio-capture]
  * ```
  *
  * - `--target web` (default) writes a static web build: the prebuilt player (dist/player/, built
@@ -26,6 +27,11 @@ Builds a project into a game you can host or install.
 Options:
   --out DIR        Output folder (default: <projectDir>/dist/<target>)
   --target T       web (default): a static web build; desktop: a Tauri app of it
+  --platform P     The platform images and audio are converted for: web, desktop or android (default: the
+                   target's). Audio follows audio.json's encoding profiles and packages; the build's
+                   audio-report.json lists every sound's size, memory and where each setting came from
+  --no-audio-convert
+                   Ship audio as its sources (packages are still built); for debugging
   --scene PATH     The scene to start in (default: scenes/main.scene.json, else the first scene)
   --audio-capture  Ship the audio capture trigger: F9 (or a one-second three-finger hold) records the game's audio mix and
                    saves a .mycap file for the editor's Profiler. The file names the project's clips, buses and events.
@@ -50,6 +56,14 @@ const EXPORT_COMMAND: Command<ExportOptions> = {
         o.target = v as ExportTarget;
       },
     },
+    "--platform": {
+      takes: "web, desktop or android",
+      set: (o, v) => {
+        if (v !== "web" && v !== "desktop" && v !== "android") throw new UsageError(`--platform is web, desktop or android (got ${JSON.stringify(v)}).`);
+        o.platform = v;
+      },
+    },
+    "--no-audio-convert": { set: (o) => void (o.audioConvert = false) },
     "--scene": { takes: "a scene path", set: (o, v) => void (o.mainScene = v.replace(/\\/g, "/").replace(/^\.?\//, "")) },
     "--audio-capture": { set: (o) => void (o.audioCapture = true) },
     "--audio-take": { set: (o) => void (o.audioTake = true) },

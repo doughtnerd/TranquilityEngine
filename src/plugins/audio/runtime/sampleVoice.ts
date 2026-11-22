@@ -13,7 +13,8 @@
  *   clip's own loop points, ADR 0158 §4). Directions, repeat counts, crossfades, hold points and later loops are the
  *   playlist runtime's loop programs; a clip voice loops the first region forward, endlessly.
  */
-import { audioBackend, type AudioVoice, type PlayRequest } from "./backend";
+import type { AudioVoice, PlayRequest } from "./backend";
+import { mediaPlay } from "./media/packages";
 import { SAMPLE_END_FADE, samplePass, samplePlan } from "./clipResolver";
 import { playlistHost, type HostedRuntime } from "./playlists/host";
 import type { LoopBehaviour } from "../../../engine/audio/playlist/types";
@@ -82,7 +83,8 @@ export function playSampleVoice(path: string, req: PlayRequest, skip = 0): Audio
     if (plan.loop && !loop) req.loop = false;
   }
   const start = req.at ?? playlistHost().horizon() ?? playlistHost().clock();
-  const voice = audioBackend().play(req);
+  // ADR 0337 §7: through the package registry (the strict rule; an unload stops the voice).
+  const voice = mediaPlay(req);
   if (!voice) return null;
   if (loop) {
     voice.setLoop(loop.start, loop.end, true);

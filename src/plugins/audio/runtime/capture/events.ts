@@ -31,7 +31,7 @@
 // reason code as the sink's word, `reasons.ts`), so the arg layouts above are known here and nowhere else. The reader hands
 // the Profiler only typed events.
 import type {
-  ProfileEpochReason, ProfileGapReason, ProfileLoudnessControl, ProfileLoudnessState, ProfilePick, ProfileQueuedReason, ProfileRealReason,
+  ProfileEpochReason, ProfileGapReason, ProfileLoudnessControl, ProfileLoudnessState, ProfilePackageEvent, ProfilePick, ProfileQueuedReason, ProfileRealReason,
   ProfileRefusedReason, ProfileSink, ProfileStealReason, ProfileStopReason, ProfileVirtualReason,
 } from "../mix/profileSink";
 import { encodeMixOp } from "../../../../engine/audio/mixOpCodec";
@@ -71,6 +71,9 @@ export const PICK_TYPES = ["clip", "queue", "switch", "blend", "layer", "sequenc
 /** ADR 0334: a loudness warning's `reason`. */
 const LOUDNESS_STATE: Readonly<Record<ProfileLoudnessState, number>> = { high: 1, low: 2, ok: 3 };
 const LOUDNESS_STATE_OF: readonly (ProfileLoudnessState | null)[] = [null, "high", "low", "ok"];
+/** ADR 0337 §9: a `PKG` event's `reason`. */
+const PACKAGE_EVENT: Readonly<Record<ProfilePackageEvent, number>> = { loadStart: 1, loaded: 2, failed: 3, unload: 4 };
+const PACKAGE_EVENT_OF: readonly (ProfilePackageEvent | null)[] = [null, "loadStart", "loaded", "failed", "unload"];
 
 /** busRamp `lane` arg: the lane's index in the KEYFRAME bus row's lane order; `NO_NAME` for a lane this build doesn't know. */
 export const BUS_RAMP_LANES: Readonly<Record<string, number>> = { authored: 0, runtime: 1, snapshot: 2, monitor: 3, dip: 4, duck: 5, automation: 6 };
@@ -369,6 +372,14 @@ export class EventSink implements ProfileSink {
   }
 
   /**
+   * ADR 0337 §9 (`PKG`): args: the package's name (`parameters` table, as a bus name in `loudnessWarning`), its download
+   * bytes (u32, saturating); reason 1 load start, 2 loaded, 3 failed, 4 unload.
+   */
+  audioPackage(name: string, event: ProfilePackageEvent, bytes: number): void {
+    this.now2(EventKind.audioPackage, PACKAGE_EVENT[event], this.intern(T_PARAM, name), Math.min(0xffffffff, Math.max(0, Math.floor(bytes))));
+  }
+
+  /**
    * A live mix op the mixer sent (ADR 0334: MIXOP is written): the op's byte form (`engine/audio/mixOpCodec.ts`), strings
    * interned in the `parameters` table, buses as `busRef` from `busRef(name)` (`NO_NAME` when it has no slot).
    */
@@ -465,6 +476,8 @@ export type CaptureEvent = CaptureEventBase & (
   | { readonly type: "pick"; readonly instance: number; readonly depth: number; readonly playlist: number; readonly playlistType: ProfilePick["type"] | null; readonly choice: number | null; readonly label: number | null; readonly weights: readonly { readonly entry: number; readonly weight: number }[] }
   /** ADR 0334: a metered bus's loudness against its target; `bus` a name id in the `parameters` table, null for the output. */
   | { readonly type: "loudnessWarning"; readonly bus: number | null; readonly state: ProfileLoudnessState | null }
+  /** ADR 0337 §9 (`PKG`): a package's load start, load, failure or unload; `name` an id in the `parameters` table. */
+  | { readonly type: "audioPackage"; readonly name: number; readonly event: ProfilePackageEvent | null; readonly bytes: number }
 );
 
 /** Every EVENT type name (one per §5.6 kind). */
@@ -475,7 +488,7 @@ const KIND_TYPE = Object.fromEntries(Object.entries(EventKind).map(([type, kind]
 const MIN_ARGS: Readonly<Record<CaptureEventType, number>> = {
   voiceStart: 5, voiceStop: 1, voiceSteal: 2, voiceVirtual: 1, voiceReal: 1, voiceRefused: 2, voiceQueued: 2, eventStart: 2, eventStop: 1,
   parameter: 3, snapshot: 1, stateChange: 2, musicTransition: 3, busRamp: 3, monitor: 1, loudnessControl: 0, ladder: 1, masterChange: 1, hiddenTab: 1,
-  pick: 10, loudnessWarning: 1,
+  pick: 10, loudnessWarning: 1, audioPackage: 2,
 };
 const orNull = (id: number): number | null => (id === NO_NAME ? null : id);
 const readF32 = new Float32Array(1);
@@ -524,5 +537,6 @@ export function readCaptureEvent(p: EventPayload): CaptureEvent | null {
       return { ...base, type, instance: a[0]!, depth: a[1]!, playlist: a[2]!, playlistType: PICK_TYPES[a[3]!] ?? null, choice: orNull(a[4]!), label: orNull(a[5]!), weights };
     }
     case "loudnessWarning": return { ...base, type, bus: orNull(a[0]!), state: LOUDNESS_STATE_OF[r] ?? null };
+    case "audioPackage": return { ...base, type, name: a[0]!, event: PACKAGE_EVENT_OF[r] ?? null, bytes: a[1]! >>> 0 };
   }
 }
