@@ -736,14 +736,16 @@ export class CommandWriter implements VoiceCommandSink {
 
   /**
    * ROUTE (ADR 0331 levels, ABI 4.9): voice `voiceId` mixes into submix `slot` (its playlist level's; null: back to its
-   * group's route). Applies on arrival: send it right after the voice's PLAY.
+   * group's route). Applies on arrival: send it right after the voice's PLAY with the same `atFrame` (omitted = asap),
+   * so it stays after the PLAY in the batch (the batch is sent in frame order, and an asap record written after a
+   * stamped PLAY would go ahead of it: the PLAY then takes the voice's automation entry over and clears the route).
    */
-  route(voiceId: number, slot: number | null): void {
+  route(voiceId: number, slot: number | null, atFrame?: number): void {
     const r = this.routeRec;
     r.voiceId = voiceId;
     r.submix = slot === null ? 0 : slot + 1;
     const at = this.begin(ROUTE_FIXED_END);
-    if (at >= 0) this.end(at, writeRoute(this.view, at, r), undefined);
+    if (at >= 0) this.end(at, writeRoute(this.view, at, r), atFrame);
   }
 
   /**

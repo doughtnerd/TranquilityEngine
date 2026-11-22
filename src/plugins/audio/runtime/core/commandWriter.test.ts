@@ -268,6 +268,18 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
     expect(readAutomate(b.view, b.records[3]!.off).bindings).toHaveLength(8) /* the core's bindings per voice */;
   });
 
+  it("route stamped as its PLAY stays after it (an asap route goes ahead of a stamped PLAY, which would clear it)", () => {
+    const { writer, posted } = rig();
+    writer.play(play(9), 500);
+    writer.route(9, 2, 500);
+    writer.play(play(10), 600);
+    writer.route(10, 3);
+    writer.flush(400);
+    const b = records(posted[0]!);
+    expect(b.records.map((r) => [r.op, r.voiceId])).toEqual([[Op.ROUTE, 10], [Op.PLAY, 9], [Op.ROUTE, 9], [Op.PLAY, 10]]);
+    expect(b.records[2]!.frameOffset).toBe(b.records[1]!.frameOffset);
+  });
+
   it("param writes PARAM asap; a bad seek jumps", () => {
     const { writer, posted } = rig();
     writer.param(3, 1, 0.5, 2);
