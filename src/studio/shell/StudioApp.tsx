@@ -2,32 +2,23 @@
 // screen's dock (the engine's `DockLayout` over the screen's own layout store), the player bar with the screen's
 // slots, the status bar, toasts and the shortcut list. A banner says why when the audio core can't run.
 import { ConfirmDialog } from "../../editor/ui/ConfirmDialog";
-import { DockLayout } from "../../editor/layout/DockLayout";
 import { KeyboardShortcutsDialog } from "../../editor/ui/KeyboardShortcutsDialog";
 import { UndoToasts } from "../../editor/ui/UndoToast";
+import { AboutDialog } from "../../editor/ui/AboutDialog";
 import { NewProjectDialog } from "../../editor/ui/NewProjectDialog";
 import { StartScreen } from "../../editor/ui/StartScreen";
 import { currentProject, status } from "../../editor/state";
 import { PlayerBar } from "../components/PlayerBar";
 import { StudioStatusBar } from "../components/StudioStatusBar";
 import { outputDevice } from "./outputDevice";
-import { screenById, type ScreenId } from "./screens";
-import { dockOf } from "./screenDocks";
+import { screenById } from "./screens";
+import { ScreenDock } from "./ScreenDock";
 import { StudioHeader } from "./StudioHeader";
 import { audioRuntime, keymap, playerSlots, shortcutsOpen, singleKeyShortcuts, studioRouter, toasts } from "./studioServices";
 
 export interface StudioAppProps {
   /** Close the open project (back to the start screen). */
   onCloseProject(): void;
-}
-
-function ScreenDock(props: { screen: ScreenId }) {
-  const dock = dockOf(props.screen);
-  return (
-    <main class="studio-dock" aria-label={`${screenById(props.screen)!.title} screen`}>
-      <DockLayout key={props.screen} host={dock.host} view={(type) => dock.panels.get(type)?.view() ?? <p class="empty">This panel isn't available.</p>} />
-    </main>
-  );
 }
 
 export function StudioApp(props: StudioAppProps) {
@@ -43,6 +34,7 @@ export function StudioApp(props: StudioAppProps) {
           }
         />
         <NewProjectDialog />
+        <AboutDialog />
         <UndoToasts queue={toasts} />
       </div>
     );
