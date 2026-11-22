@@ -1,6 +1,6 @@
 /**
  * Internal (ADR 0330, 0331): how the mix's effects map onto the runtime's current bus effects (`BusEffect`: low-pass,
- * high-pass, compressor and the reverb send) and back. `toRuntimeSettings` maps one way, the migration and the legacy
+ * high-pass, compressor and the reverb send) and back. The runtime's views (`runtimeView.ts`) map one way, the migration and the legacy
  * panels' adapter (`legacy.ts`) the other. One place, so the two directions can't drift apart.
  *
  * Parameter names, ranges and defaults are the catalogue's (`effects/catalogue.ts`, ADR 0331); `RUNTIME_FIELDS` is the

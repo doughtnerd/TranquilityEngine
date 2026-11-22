@@ -228,7 +228,7 @@ export interface ZoneSettings {
 }
 /**
  * `audio.doppler`: `maxSpeed` in world units per second, above 0, default 150. `amount` (ADR 0333) is the project's global
- * Doppler multiplier 0..2 (`audio.json` `settings.dopplerAmount`), which the runtime view (`toRuntimeSettings`) writes
+ * Doppler multiplier 0..2 (`audio.json` `settings.dopplerAmount`), which the runtime's views (`project/runtimeView.ts`) write
  * here; absent is 1.
  */
 export interface DopplerSettings { maxSpeed: number; amount?: number }
