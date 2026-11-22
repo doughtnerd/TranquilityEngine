@@ -28,7 +28,7 @@ export function addRegion(notes: TakeNotes, from: number, to: number, duration: 
   let b = clampTime(Math.max(from, to), duration);
   if (b - a < 0.01) {
     b = clampTime(a + NEW_REGION_SECONDS, duration);
-    if (b - a < 0.01) a = clampTime(b - NEW_REGION_SECONDS, duration);
+    a = clampTime(b - NEW_REGION_SECONDS, duration); // near the end: the region ends there instead
   }
   if (b - a < 0.01) return { refused: "the take is too short for a region" };
   const id = freeNoteId(notes, "r");

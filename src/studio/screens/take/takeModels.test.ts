@@ -1,0 +1,173 @@
+// ADR 0334 "The Take screen": the screen's pure models, through their interfaces: the timeline read from a take
+// (instances per path with held parts, parameter lanes and labelled segments, marks), Playlists in this take, the
+// notes edits (one labelled step each, refusals), the takes' files (tree, moves and deletes that carry the notes), the
+// inspector's authored-versus-live rows and bus strips, and the replay slot's clock.
+import { describe, expect, it } from "vitest";
+import { TAKE_NOTES_LIMITS } from "../../../engine/audio/take/notes";
+import { formatClock } from "../../components/replayControlsModel";
+import { addMarker, addRegion, deleteNote, editNote, moveNote, noteColourCss, setRegionSpan } from "./notesEdits";
+import { FIXTURE_DURATION, FIXTURE_NOTES, SURFACE_LABELS, fixtureTake } from "./takeFixture";
+import { NO_TAKES, TAKES_FOLDER, takeDeletion, takeFiles, takeMoves, takeTree, whyNotTakeFile } from "./takeFiles";
+import { busStrip, instanceParametersAt, parameterRows, valueText } from "./takeInspectorModel";
+import { findInstance, labelSegments, parameterText, pathLabel, playlistsInTake, takeInstances, takeTimeline, visibleFrames } from "./takeTimeline";
+
+const take = fixtureTake();
+const labelsOf = (name: string, path: string | null) => (name === "Surface" && path === null ? SURFACE_LABELS : null);
+
+describe("the take timeline", () => {
+  const tl = takeTimeline(take, labelsOf);
+
+  it("spans the take's real duration and has a lane per path, in first-play order", () => {
+    expect(tl.duration).toBe(FIXTURE_DURATION);
+    expect(tl.lanes.map((l) => l.label)).toEqual(["engine", "boost", "jump", "brake", "land", "checkpoint"].sort((a, b) => order(a) - order(b)));
+    expect(playlistsInTake(tl).find((p) => p.label === "engine")).toEqual({ path: "vehicles/engine.playlist.json", label: "engine", count: 1 });
+  });
+
+  it("draws each instance from its PLAY to its STOP, held up to its RELEASE", () => {
+    const boost = tl.lanes.find((l) => l.label === "boost")!.spans[0]!;
+    expect(boost).toMatchObject({ start: 5.6, end: 9.9, held: { start: 5.6, end: 7.4 }, status: "ok" });
+    const checkpoint = tl.lanes.find((l) => l.label === "checkpoint")!.spans[0]!;
+    expect(checkpoint.end).toBeNull(); // never stopped: to the end of the take
+    expect(checkpoint.held).toBeNull();
+    const land = tl.lanes.find((l) => l.label === "land")!;
+    expect(land.spans[0]!.label).toBe("Velocity 0.71 · Surface 1");
+    expect(findInstance(tl, land.instances[0]!.key)?.path).toBe("impacts/land.playlist.json");
+  });
+
+  it("reads parameter lanes: globals first, labelled ones as merged segments", () => {
+    const surface = tl.parameters.find((p) => p.key === "global:Surface")!;
+    expect(surface.segments!.map((s) => s.label)).toEqual(["Dirt", "Rock", "Metal bridge", "Dirt"]);
+    expect(surface.segments![1]).toMatchObject({ from: 12.3, to: 21.3 });
+    expect(parameterText(surface, 15)).toBe("Rock");
+    const speed = tl.parameters.find((p) => p.key === "global:Speed")!;
+    expect(speed.segments).toBeNull();
+    expect(Number(parameterText(speed, 20))).toBeGreaterThan(150);
+    const rpm = tl.parameters.find((p) => p.name === "Rpm")!;
+    expect(rpm).toMatchObject({ path: "vehicles/engine.playlist.json", label: "Rpm · engine" });
+    expect(tl.parameters[0]!.path).toBeNull();
+    expect(tl.marks.map((m) => m.text)).toEqual(["Canyon entry", "Bridge"]);
+  });
+
+  it("merges equal labels and ends the last segment at the take's end", () => {
+    expect(labelSegments([{ t: 0, v: 0 }, { t: 1, v: 0 }, { t: 2, v: 1 }], ["A", "B"], 5)).toEqual([{ from: 0, to: 2, label: "A" }, { from: 2, to: 5, label: "B" }]);
+    expect(labelSegments([{ t: 0, v: 7 }], ["A"], 1)).toEqual([{ from: 0, to: 1, label: "7" }]);
+  });
+
+  it("counts an instance alive at the first keyframe once, and gives reused ids their own keys", () => {
+    const instances = takeInstances(take);
+    expect(instances.filter((i) => i.path === "vehicles/engine.playlist.json")).toHaveLength(1);
+    expect(new Set(instances.map((i) => i.key)).size).toBe(instances.length);
+  });
+
+  it("thins pictures so thumbnails don't overlap, and names paths", () => {
+    expect(visibleFrames([{ t: 0 }, { t: 0.5 }, { t: 2 }, { t: 3 }], (t) => t * 40, 64)).toEqual([0, 2]);
+    expect(pathLabel("a/b/engine.playlist.json")).toBe("engine");
+    expect(pathLabel("click")).toBe("click");
+  });
+});
+
+const order = (label: string) => ["engine", "boost", "jump", "land", "brake", "checkpoint"].indexOf(label);
+
+describe("notes edits (one step each)", () => {
+  it("adds a marker at the playhead, clamped, with a fresh id", () => {
+    const r = addMarker(FIXTURE_NOTES, 99, FIXTURE_DURATION, "late");
+    if ("refused" in r) throw new Error(r.refused);
+    expect(r.label).toBe("Add note marker");
+    expect(r.next.markers.find((m) => m.id === r.id)).toMatchObject({ at: FIXTURE_DURATION, text: "late" });
+  });
+
+  it("adds a region, giving a point a default length that fits in the take", () => {
+    const r = addRegion(FIXTURE_NOTES, 40.5, 40.5, FIXTURE_DURATION);
+    if ("refused" in r) throw new Error(r.refused);
+    const g = r.next.regions.find((x) => x.id === r.id)!;
+    expect(g.to).toBe(FIXTURE_DURATION);
+    expect(g.to - g.from).toBeCloseTo(2);
+    expect("refused" in addRegion(FIXTURE_NOTES, 0, 0, 0)).toBe(true);
+  });
+
+  it("moves markers and regions (keeping a region's length), edits, recolours, resizes and deletes", () => {
+    const moved = moveNote(FIXTURE_NOTES, "r1", 40, FIXTURE_DURATION);
+    if ("refused" in moved) throw new Error(moved.refused);
+    expect(moved.next.regions[0]).toMatchObject({ from: 37, to: 41 });
+    const m = moveNote(FIXTURE_NOTES, "m2", 1, FIXTURE_DURATION);
+    if ("refused" in m) throw new Error(m.refused);
+    expect(m.next.markers.map((x) => x.id)).toEqual(["m2", "m1"]); // kept in time order
+    const e = editNote(FIXTURE_NOTES, "m1", { text: "fixed" });
+    expect("next" in e && e.next.markers[0]!.text).toBe("fixed");
+    const c = editNote(FIXTURE_NOTES, "r1", { color: 0x123456 });
+    expect("next" in c && c.label).toBe("Recolour note");
+    const s = setRegionSpan(FIXTURE_NOTES, "r1", 30, 25, FIXTURE_DURATION);
+    expect("next" in s && s.next.regions[0]).toMatchObject({ from: 25, to: 30 });
+    const d = deleteNote(FIXTURE_NOTES, "m1");
+    expect("next" in d && d.next.markers.map((x) => x.id)).toEqual(["m2"]);
+    for (const r of [deleteNote(FIXTURE_NOTES, "zz"), moveNote(FIXTURE_NOTES, "zz", 1, 5), editNote(FIXTURE_NOTES, "zz", {}), setRegionSpan(FIXTURE_NOTES, "r1", 3, 3, 5)]) expect("refused" in r).toBe(true);
+  });
+
+  it("refuses past the limits and writes colours as CSS", () => {
+    const full = { ...FIXTURE_NOTES, markers: Array.from({ length: TAKE_NOTES_LIMITS.markers }, (_, i) => ({ id: `m${i}`, at: 0, text: "", color: 0 })) };
+    expect("refused" in addMarker(full, 1, 5)).toBe(true);
+    expect(noteColourCss(0x56ccf2)).toBe("#56ccf2");
+    expect(noteColourCss(0x0000ff)).toBe("#0000ff");
+  });
+});
+
+describe("the takes' files", () => {
+  const files = ["takes/a.mycotake", "takes/a.mycotake.notes.json", "takes/old/b.mycotake", "captures/c.mycap", "audio.json"];
+
+  it("lists takes by folder, never captures or notes", () => {
+    expect(takeFiles(files)).toEqual(["takes/a.mycotake", "takes/old/b.mycotake"]);
+    const tree = takeTree(files);
+    expect(tree).toHaveLength(1);
+    expect(tree[0]).toMatchObject({ kind: "folder", path: "takes" });
+    expect(TAKES_FOLDER).toBe("takes");
+    expect(NO_TAKES).toContain("F10");
+  });
+
+  it("moves and deletes a take's notes with it", () => {
+    expect(takeMoves(files, "takes/a.mycotake", "takes/z.mycotake")).toEqual([["takes/a.mycotake", "takes/z.mycotake"], ["takes/a.mycotake.notes.json", "takes/z.mycotake.notes.json"]]);
+    expect(takeMoves(files, "takes/old/b.mycotake", "b.mycotake")).toEqual([["takes/old/b.mycotake", "b.mycotake"]]);
+    expect(takeDeletion(files, "takes/a.mycotake")).toEqual(["takes/a.mycotake", "takes/a.mycotake.notes.json"]);
+    expect(whyNotTakeFile("run.mycap")).toContain("isn't a take file");
+    expect(whyNotTakeFile("run.mycotake")).toBeNull();
+  });
+});
+
+describe("the inspector's values", () => {
+  it("reads an instance's parameters at the playhead from its start and PARAM records", () => {
+    const engine = takeInstances(take).find((i) => i.path.endsWith("engine.playlist.json"))!;
+    const early = instanceParametersAt(take, engine, 0.1);
+    const late = instanceParametersAt(take, engine, 10);
+    expect(early.Rpm).toBe(900 + Math.round((6200 * 40) / 220));
+    expect(late.Rpm).toBeGreaterThan(early.Rpm!);
+  });
+
+  it("puts recorded and live values side by side and flags a difference", () => {
+    const rows = parameterRows({ Speed: 100, Gear: 2 }, (n) => (n === "Speed" ? 80 : undefined));
+    expect(rows).toEqual([
+      { name: "Gear", recorded: 2, live: null, differs: false },
+      { name: "Speed", recorded: 100, live: 80, differs: true },
+    ]);
+    expect(parameterRows({ A: 1 }, null)[0]!.live).toBeNull();
+    expect(valueText(-0.126)).toBe("−0.13");
+    expect(valueText("Rock")).toBe("Rock");
+    expect(valueText(null)).toBe("—");
+  });
+
+  it("shows a bus's authored and live level", () => {
+    const s = busStrip({ name: "Music", authored: 0.5, runtime: 0.5, duck: 1, peak: 0.25 });
+    expect(s.authoredDb).toBeCloseTo(-6.02, 1);
+    expect(s.liveDb).toBeCloseTo(-12.04, 1);
+    expect(s.text).toBe("−6.0 dB · live −12.0 dB");
+    expect(busStrip({ name: "SFX", authored: 1, runtime: 1, duck: 1, peak: 0 })).toMatchObject({ text: "0.0 dB", peakDb: null });
+  });
+});
+
+describe("the replay slot's clock", () => {
+  it("writes take time as m:ss.s", () => {
+    expect(formatClock(0)).toBe("0:00.0");
+    expect(formatClock(12.44)).toBe("0:12.4");
+    expect(formatClock(59.97)).toBe("1:00.0");
+    expect(formatClock(65.25)).toBe("1:05.3");
+    expect(formatClock(-3)).toBe("0:00.0");
+  });
+});
