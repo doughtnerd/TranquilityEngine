@@ -268,6 +268,13 @@ export abstract class LiveNode {
     return null;
   }
 
+  /** A voice below still waits for its clip's data (it hasn't reached the core, so it can't start where it was stamped). */
+  waitingForData(): boolean {
+    for (const v of this.voices) if (!v.leaving && v.voice.reason === "waitingForData") return true;
+    for (const c of this.children) if (!c.stopped && c.waitingForData()) return true;
+    return false;
+  }
+
   /** The Switch change waiting below (the newest playing child's first), null when none. */
   pendingChange(): PendingSwitchChange | null {
     if (this.stopped) return null;

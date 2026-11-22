@@ -33,6 +33,12 @@
  * - **Hot reload:** an edited sequence swaps at the next bar (at once without a tempo): the old voices fade out over
  *   5 ms there and the new version continues at the same sequence time when the tempo is unchanged and that time is
  *   inside it, else from its start (the music runtime's reload rule, `music/reload.ts`).
+ * - **An unstamped start** (no `at`: as soon as possible) starts at the earliest stampable time, so every voice is stamped
+ *   where the playhead starts. A starting clip whose sample isn't on the core yet waits for its data and would then start
+ *   unstamped, late, while the playhead had already begun (decision log D44: ~22 ms on loopback). So while a starting
+ *   voice reports `waitingForData` the sequence isn't planned: each frame it starts again a frame later (new voices on
+ *   the same clips, then the waiting ones stopped, so the load carries on), and once none waits it plans from where its
+ *   voices are stamped. The playhead and the first sound agree; the start is as late as the data.
  * - `untilStopped` keeps the instance after the playhead's end; `release` ends held loops (sequence loops and sync clip
  *   loops by their exit settings, async voices' through the adapter); `stop` fades everything.
  */
@@ -64,6 +70,8 @@ const PLAN_AHEAD = 0.1;
 const SPLICE_FADE = 0.002;
 /** A cut's fade (a sync clip left, an async clip jumped before), seconds. */
 const CUT_FADE = 0.005;
+/** D44: a start moved while its data loads lands at least this far past the earliest stampable time (a frame's slack). */
+const MIN_START_SLACK = 1 / 60;
 const EPS = 1e-9;
 /** Heard seconds of past playhead moves kept for position questions. */
 const HISTORY_SECONDS = 2;
@@ -133,7 +141,46 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     const offset = host.startOffset ?? 0;
     if (offset > 0) host.startOffset = 0;
     try { this.build(body, offset, host.startOf(ctx.at), 0); } finally { if (offset > 0) host.startOffset = offset; }
-    this.plan();
+    this.startPosition = offset;
+    // D44: an unstamped start whose clips are still loading waits for them (`followData`) before it plans.
+    this.awaitingData = ctx.at === null && this.anyWaiting();
+    if (!this.awaitingData) this.plan();
+  }
+
+  /** Where the playhead starts (the play's offset), for a start moved while its data loads. */
+  private startPosition = 0;
+  /** An unstamped start whose starting voices wait for their data: not planned yet, moved on each frame. */
+  private awaitingData = false;
+
+  private anyWaiting(): boolean {
+    for (const v of this.voices) if (!v.leaving && v.voice.reason === "waitingForData") return true;
+    for (const c of this.children) if (!c.stopped && c.waitingForData()) return true;
+    return false;
+  }
+
+  override waitingForData(): boolean {
+    return this.awaitingData || super.waitingForData();
+  }
+
+  /**
+   * D44: while a starting voice still waits for its data, start again `slack` after the earliest stampable time (new
+   * voices first, so the clips stay held and keep loading, then the old ones stopped: they never reached the core);
+   * once none waits, plan from the start the voices are stamped at. True while it still waits.
+   */
+  private followData(slack: number): boolean {
+    if (!this.anyWaiting()) {
+      this.awaitingData = false;
+      return false;
+    }
+    const oldVoices = this.voices.splice(0);
+    const oldChildren = this.children.splice(0);
+    this.history = [];
+    this.endAt = Number.NaN;
+    this.firedAt = Number.NaN;
+    this.build(this.body, this.startPosition, this.host.startOf(null) + slack, 0);
+    for (const v of oldVoices) if (!v.leaving) { v.leaving = true; v.voice.stop(0); }
+    for (const c of oldChildren) c.stop(0);
+    return true;
   }
 
   // --- building ----------------------------------------------------------------------------------------------------
@@ -557,6 +604,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   override update(now: number, dt: number): void {
     super.update(now, dt);
     if (this.stopped) return;
+    if (this.awaitingData && this.followData(Math.max(dt, MIN_START_SLACK))) return;
     this.checkReload();
     this.plan();
     // Voices that have gone for good leave the list.
