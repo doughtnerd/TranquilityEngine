@@ -1,4 +1,4 @@
-import { expect, type Page, play, test } from "./fixtures";
+import { expect, type Page, play, test, openEditor } from "./fixtures";
 
 // The audio stress sample (C1, ADR 0157; samples/stress): the soak's content in a real browser, for a minute. It drives
 // the core with generated clips (about 64 MB, shuffled), 32 buses with effects, streams, moving HRTF sources, bus churn
@@ -6,7 +6,6 @@ import { expect, type Page, play, test } from "./fixtures";
 // `__stress` handle). Headless Chromium has no sound output and shares a few cores with software rendering, so this
 // checks that the core RUNS under the load and degrades the way the design says (the adaptive cap), not that it meets the
 // soak gate (0 underruns on the gate machines, C3). It prints the counters so a run doubles as a data point.
-const STRESS = "/editor.html?sample=stress";
 const STORM_SECONDS = 60;
 
 // The storm runs STORM_SECONDS of the sample's own clock (its frames' delta times), so a busy machine takes longer in wall
@@ -64,8 +63,7 @@ test("the stress sample runs for a minute: thousands of voices, the cap adapts, 
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
-  await page.goto(STRESS);
-  await page.waitForFunction(() => ((window as unknown as { engine?: { world: { time: { frameCount: number } } } }).engine?.world.time.frameCount ?? 0) > 10);
+  await openEditor(page, { sample: "stress" });
   await play(page);
   await page.mouse.click(480, 250); // the gesture that unlocks the context
 

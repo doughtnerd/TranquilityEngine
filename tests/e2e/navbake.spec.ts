@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Page, waitForEditor } from "./fixtures";
 import { installFakeFolders, listFolder, nextFolder, readFile } from "./fakeFolders";
 import { pickCategory } from "./projectCategory";
 import { showTab } from "./tabs";
@@ -8,8 +8,6 @@ import { showTab } from "./tabs";
 // Project panel's Navigation section adds an agent type to project.json.
 
 test.describe.configure({ timeout: 60_000 });
-
-type Hooks = { engine?: { world: { time: { frameCount: number } } } };
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -41,7 +39,7 @@ async function openNavProject(page: Page): Promise<void> {
   await page.goto("/editor.html");
   await nextFolder(page, "Nav");
   await page.getByRole("dialog", { name: "Start" }).getByRole("button", { name: "Open Project…" }).click();
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await waitForEditor(page);
 }
 
 const card = (page: Page, name: string) => page.locator(".inspector-body .component", { has: page.locator("h3", { hasText: name }) });

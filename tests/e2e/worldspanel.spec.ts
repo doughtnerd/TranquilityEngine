@@ -1,18 +1,11 @@
-import { expect, openTestProject, type Page, test } from "./fixtures";
+import { expect, openEditor, type Page, test, type Hooks } from "./fixtures";
 import { showTab } from "./tabs";
 
 // The Worlds panel (ADR 0032) on a writable in-memory copy of the demo project: building a
 // client + server layout writes project.json's bootstrap section, and undo takes it back.
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
-
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  openTestProject(extra: Record<string, string>): Promise<void>;
-  testFolder: { read(path: string): string | undefined };
-};
 
 async function openProject(page: Page): Promise<void> {
-  await openTestProject(page);
+  await openEditor(page, { files: {} });
   await showTab(page, /^Worlds/);
 }
 
@@ -98,8 +91,7 @@ test("an invalid edit stays unsaved, with its problem shown, until it's fixed", 
 });
 
 test("the read-only sample shows its Worlds without editing", async ({ page }) => {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await openEditor(page, { sample: "flappy" });
   await showTab(page, /^Worlds/);
   const p = panel(page);
   await expect(p.locator('.worlds-node[data-world="Default"]')).toBeVisible();
@@ -109,8 +101,7 @@ test("the read-only sample shows its Worlds without editing", async ({ page }) =
 });
 
 test("Arena's Spawnable Worlds show how they're created, and links to them draw dashed (ADR 0062)", async ({ page }) => {
-  await page.goto("/editor.html?sample=arena");
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await openEditor(page, { sample: "arena" });
   await showTab(page, /^Worlds/);
   const p = panel(page);
   // One graph: Spawnable Worlds are dashed nodes with a "spawnable" tag, explained by the legend.

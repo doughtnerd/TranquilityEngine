@@ -1,4 +1,4 @@
-import { expect, openTestProject, type Page, test } from "./fixtures";
+import { expect, type Page, test, openEditor, type Hooks } from "./fixtures";
 import { pickCategory } from "./projectCategory";
 import { showTab } from "./tabs";
 import { parseAudioSettings } from "../../src/engine/audio/settings";
@@ -9,7 +9,6 @@ import { parseAudioSettings } from "../../src/engine/audio/settings";
 // and parse without problems.
 test.describe.configure({ timeout: 90_000 });
 
-type Hooks = { testFolder: { read(path: string): string | undefined } };
 type Audio = {
   parameters: Record<string, unknown>[];
   automation: { bus: string; parameter: string; target: string; curve: number[][] }[];
@@ -32,7 +31,7 @@ async function commit(page: Page, label: string, value: string): Promise<void> {
 
 test("global parameters and bus automation: add, edit, rename, remove, with project.json checked at each step", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });
-  await openTestProject(page);
+  await openEditor(page, { files: {} });
   await showTab(page, /^Project/);
   await pickCategory(page, "Audio");
   await expect(audio(page)).toBeVisible();
@@ -134,7 +133,7 @@ test("global parameters and bus automation: add, edit, rename, remove, with proj
 
 test("parameters and automation saved in project.json reopen as the section shows them", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });
-  await openTestProject(page);
+  await openEditor(page, { files: {} });
   await showTab(page, /^Project/);
   await pickCategory(page, "Audio");
   // Write the section through the panel's own controls rather than the file: the point is reading it back.

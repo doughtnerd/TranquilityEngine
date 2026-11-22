@@ -133,25 +133,123 @@ export async function play(page: Page): Promise<void> {
   await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: PLAY_START });
 }
 
-type FrameHooks = { engine?: { world: { time: { frameCount: number } } } };
+// --- The editor's window hooks, and opening the editor (ADR 0330) ---------------------------------------------------------
+
+/** A node of a World's tree, as specs walk it (`root`, `children`): the public node's shape. */
+export type HookNode = { name: string; children: HookNode[]; transform: { position: { x: number; y: number; z: number } } | null; isValid: boolean };
+/** A World as specs find it through the hooks: its name, tree and clock. */
+export type HookWorld = { name: string; paused: boolean; root: HookNode; time: { frameCount: number }; destroy(): void };
+/** An Engine as specs find it through the hooks (the editor's, or the play session's). */
+export type HookEngine = { world: HookWorld; worlds(): HookWorld[]; findWorld(name: string): HookWorld | null; createWorld(config: object): HookWorld };
+/** A gizmo handle of the scene view, at canvas CSS pixels. */
+export type HookHandle = { id: string; x: number; y: number };
+/** A rectangle at canvas CSS pixels. */
+export type HookRect = { left: number; top: number; right: number; bottom: number };
+/** A test project's files: project path → text, or bytes (a clip, a model). */
+export type ProjectFiles = Record<string, string | Uint8Array>;
+
+/**
+ * The editor's debug and end-to-end hooks on `window` (src/editor/session.ts, main.tsx, playSession.ts): the one declaration
+ * every spec reads them through. Page callbacks are serialized, so each casts `window` itself: `(window as unknown as Hooks)`.
+ * They only find things: read the running game through the public `myco` API (`./liveWorld`), never engine internals.
+ */
+export type Hooks = {
+  /** The editor's Engine, once a project has opened. */
+  engine?: HookEngine;
+  /** The play session's Engine; null while the editor edits. */
+  playEngine?: HookEngine | null;
+  /** The scene view's orbit camera. */
+  orbit: { focus(point?: [number, number, number], distance?: number): void; focusPoint: { toArray(): number[] } };
+  /** The scene view's gizmo handles. */
+  overlayHandles?: () => HookHandle[];
+  /** Where a document node (by path key) is on the scene view's canvas, or null. */
+  nodeRect(key: string): HookRect | null;
+  /** Opens the in-memory test project (what `openEditor(page, { files })` calls); there before the session loads. */
+  openTestProject?(extra?: ProjectFiles): Promise<void>;
+  /** The open test project's folder: what the editor wrote (specs read text files through it). */
+  testFolder: { read(path: string): string | undefined };
+};
+
+/** The Sound Lab sample (`openEditor(page, { sample: LAB })`): the audio specs' project. */
+export const LAB = "sound-lab";
+
+/** When the editor counts as booted, and how long to wait for it. */
+export type BootOptions = {
+  /** Frames the edit World must have stepped past (default 10: past the first frames, where a project still settles). */
+  frames?: number;
+  /** How long to wait (default: Playwright's for `waitForFunction`, the test's timeout). */
+  timeout?: number;
+};
+
+/**
+ * Wait until the editor's edit World has booted: stepped more than `frames` frames. `openEditor` waits for it; call it on its
+ * own after a reload, or after a project opened through the start screen.
+ */
+export async function waitForEditor(page: Page, o: BootOptions = {}): Promise<void> {
+  await page.waitForFunction((n) => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > n, o.frames ?? 10, o.timeout === undefined ? {} : { timeout: o.timeout });
+}
+
+/** What `openEditor` opens: a read-only sample by id, or the writable test project with `files` written over the Flappy sample's. */
+export type OpenEditor = ({ sample: string; files?: never } | { files: ProjectFiles; sample?: never }) &
+  BootOptions & {
+    /** The page's viewport size, set before the editor loads (the Project and Mixer panels want room). */
+    viewport?: { width: number; height: number };
+    /** A sample's audio backend in place of the one its project.json names (the page gets project.json with it). */
+    audioBackend?: "core" | "babylon";
+  };
+
+/**
+ * Open the editor and wait until its edit World has booted (`waitForEditor`). `{ sample }` opens a read-only sample
+ * (`?sample=<id>`, ADR 0031). `{ files }` opens the Flappy sample as a writable project folder in memory with `files` written
+ * over it (project path → text or bytes), through the editor's `openTestProject` hook; the folder is on `window.testFolder`.
+ * The test project opens from the start screen: opening the read-only sample first and then the folder would set up a
+ * project, and its renderer, twice (each costs seconds of CPU with software GL).
+ */
+export async function openEditor(page: Page, o: OpenEditor): Promise<void> {
+  if (o.viewport) await page.setViewportSize(o.viewport);
+  if (o.sample !== undefined) {
+    if (o.audioBackend) {
+      const backend = o.audioBackend;
+      await page.route(`**/samples/${o.sample}/project.json`, async (route) => {
+        const res = await route.fetch();
+        const json = await res.json();
+        json.audio = { ...(json.audio ?? {}), backend };
+        await route.fulfill({ response: res, json });
+      });
+    }
+    await page.goto(`/editor.html?sample=${o.sample}`);
+  } else {
+    await page.goto("/editor.html");
+    await page.waitForFunction(() => typeof (window as unknown as Hooks).openTestProject === "function");
+    await page.evaluate((files) => (window as unknown as Hooks).openTestProject!(files), o.files);
+  }
+  await waitForEditor(page, o);
+}
 
 /** Wait until the editor's World has stepped `n` more frames: a camera move or an edit made from a test shows (and picks) from the next frame on. */
 export async function afterFrames(page: Page, n = 2): Promise<void> {
-  const start = await page.evaluate(() => (window as unknown as FrameHooks).engine?.world.time.frameCount ?? 0);
-  await page.waitForFunction((until) => ((window as unknown as FrameHooks).engine?.world.time.frameCount ?? 0) >= until, start + n);
+  const start = await page.evaluate(() => (window as unknown as Hooks).engine?.world.time.frameCount ?? 0);
+  await page.waitForFunction((until) => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) >= until, start + n);
 }
 
-type TestProjectHooks = FrameHooks & { openTestProject?(extra: Record<string, string>): Promise<void> };
+// --- Play with audio ------------------------------------------------------------------------------------------------------
+
+/** What every audio backend's `Audio.debug()` reports; each helper types the rest it reads. */
+export type AudioDebug = { status: string; core: Record<string, unknown> };
+
+/** The running game's `Audio.debug()` (the public `myco` API) as `T`; null before the game's `myco` is up. */
+export const readAudioDebug = <T extends AudioDebug = AudioDebug>(page: Page): Promise<T | null> =>
+  page.evaluate(() => ((globalThis as unknown as { __myco?: { Audio: { debug(): unknown } } }).__myco?.Audio.debug() as T | undefined) ?? null);
 
 /**
- * Open the Flappy sample as a writable project folder in memory, plus `extra` files (project path →
- * text), through the editor's `openTestProject` hook; the folder is on `window.testFolder`. It
- * opens from the start screen: opening the read-only sample first and then the folder would set up
- * a project, and its renderer, twice (each costs seconds of CPU with software GL).
+ * Press Play, unlock the audio context with a click in the game view (the user gesture it waits for), and wait until audio
+ * runs on `backend` (default the core). `startTimeout`: how long Play may take to start (default `PLAY_START`), longer for a
+ * project with many scripts to type-check in a cold worker.
  */
-export async function openTestProject(page: Page, extra: Record<string, string> = {}): Promise<void> {
-  await page.goto("/editor.html");
-  await page.waitForFunction(() => typeof (window as unknown as TestProjectHooks).openTestProject === "function");
-  await page.evaluate((files) => (window as unknown as TestProjectHooks).openTestProject!(files), extra);
-  await page.waitForFunction(() => ((window as unknown as TestProjectHooks).engine?.world.time.frameCount ?? 0) > 10);
+export async function playWithAudio(page: Page, o: { backend?: "core" | "babylon"; startTimeout?: number } = {}): Promise<void> {
+  await page.getByRole("button", { name: "▶ Play" }).click();
+  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: o.startTimeout ?? PLAY_START });
+  await page.mouse.click(480, 250);
+  await expect.poll(async () => (await readAudioDebug(page))?.status, { timeout: 30_000 }).toBe("running");
+  expect((await readAudioDebug(page))!.core.backend).toBe(o.backend ?? "core");
 }

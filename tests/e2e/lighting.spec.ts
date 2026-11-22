@@ -1,11 +1,13 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { expect, test, type Page } from "./fixtures";
+import { expect, type Hooks, test, type Page, openEditor, waitForEditor } from "./fixtures";
+import { captureView, pixelsChanged, steadyView } from "./viewCapture";
 import { installFakeFolders, nextFolder } from "./fakeFolders";
 
 // HDR environments and cascaded shadows (ADR 0053): an Environment component with an .hdr map
 // lights the scene and draws it as the sky; tiers with cascades draw the sun's shadows through
-// cascaded shadow maps following the camera.
+// cascaded shadow maps following the camera. What the lighting rig does with a tier and an
+// Environment (cascades, shadow maps, the map loaded, the skybox) is babylonLighting.test.ts's.
 
 test.describe.configure({ timeout: 60_000 });
 
@@ -26,8 +28,6 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
  */
 const TINY_HDR = `#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 2 +X 8\n${"dPx\u007f".repeat(16)}`;
 
-type Lighting = { cascades: boolean; environment: string; environmentLoaded: boolean; skybox: boolean };
-type Hooks = { engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { lighting: Lighting } } } } };
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -36,22 +36,23 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-const lighting = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.diagnostics().lighting);
+/** The editor's World has stepped `n` more frames: the scene view keeps drawing. */
+async function keepsDrawing(page: Page, n = 10): Promise<void> {
+  const frames = await page.evaluate(() => (window as unknown as Hooks).engine!.world.time.frameCount);
+  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).engine!.world.time.frameCount), { timeout: 20_000 }).toBeGreaterThan(frames + n);
+}
 const row = (page: Page, name: string) => page.locator(".tree .row", { has: page.locator(".name", { hasText: new RegExp(`^${name}$`) }) });
 
 test("cascaded shadows follow the quality tier", async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto("/editor.html?sample=playground3d");
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-  // High has 3 cascades, and the sample's Sun casts shadows.
-  await expect.poll(async () => (await lighting(page)).cascades, { timeout: 15_000 }).toBe(true);
-  await page.getByRole("combobox", { name: "Quality" }).selectOption("Low"); // 1 cascade: ordinary shadows
-  await expect.poll(async () => (await lighting(page)).cascades, { timeout: 20_000 }).toBe(false);
+  await openEditor(page, { sample: "playground3d" });
+  // High has 3 cascades, and the sample's Sun casts shadows; Low has 1 (ordinary shadows), Ultra 4. Frames keep coming
+  // as the shadow maps are rebuilt for each.
+  await keepsDrawing(page);
+  await page.getByRole("combobox", { name: "Quality" }).selectOption("Low");
+  await keepsDrawing(page);
   await page.getByRole("combobox", { name: "Quality" }).selectOption("Ultra");
-  await expect.poll(async () => (await lighting(page)).cascades, { timeout: 20_000 }).toBe(true);
-  // Frames keep coming.
-  const frames = await page.evaluate(() => (window as unknown as Hooks).engine!.world.time.frameCount);
-  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).engine!.world.time.frameCount), { timeout: 20_000 }).toBeGreaterThan(frames + 10);
+  await keepsDrawing(page);
   expect(errors).toEqual([]);
 });
 
@@ -62,8 +63,7 @@ test("an Environment component with an HDR map lights the scene and draws the sk
   await page.goto("/editor.html");
   await nextFolder(page, "Playground");
   await page.getByRole("dialog", { name: "Start" }).getByRole("button", { name: "Open Project…" }).click();
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-  expect(await lighting(page)).toMatchObject({ environment: "", skybox: false });
+  await waitForEditor(page);
 
   // .hdr files are Environment assets.
   await page.locator(".asset-folder", { hasText: /^environments$/ }).click();
@@ -77,13 +77,16 @@ test("an Environment component with an HDR map lights the scene and draws the sk
   const env = page.locator(".inspector-body .component").filter({ has: page.getByRole("checkbox", { name: "Environment enabled", exact: true }) });
   await expect(env).toBeVisible();
   const map = env.getByRole("combobox", { name: "map" });
+  const view = page.locator(".viewport canvas");
+  const studio = await steadyView(view);
   await map.selectOption("environments/sky.hdr");
-  // The HDR map is prefiltered on the GPU: with software GL that's seconds of CPU, more while other specs render.
-  await expect.poll(async () => await lighting(page), { timeout: 30_000 }).toMatchObject({ environment: "environments/sky.hdr", environmentLoaded: true, skybox: true });
+  // The tiny map lights the scene and draws as the sky: the view changes from the studio room's. The HDR map is
+  // prefiltered on the GPU: with software GL that's seconds of CPU, more while other specs render.
+  await expect.poll(async () => pixelsChanged(studio, await captureView(view)), { timeout: 30_000, message: "pixels the HDR sky and lighting change" }).toBeGreaterThan((studio.width * studio.height) / 10);
 
-  // Turning the skybox off keeps the lighting but drops the sky.
+  // Turning the skybox off keeps the lighting but drops the sky: the view changes again.
+  const sky = await steadyView(view);
   await env.getByRole("checkbox", { name: "skybox" }).uncheck();
-  await expect.poll(async () => (await lighting(page)).skybox).toBe(false);
-  expect((await lighting(page)).environmentLoaded).toBe(true);
+  await expect.poll(async () => pixelsChanged(sky, await captureView(view)), { timeout: 20_000, message: "pixels the skybox covered" }).toBeGreaterThan((sky.width * sky.height) / 20);
   expect(errors).toEqual([]);
 });

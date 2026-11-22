@@ -1,14 +1,6 @@
-import { afterFrames, expect, type Page, play, test } from "./fixtures";
+import { afterFrames, expect, type Locator, type Page, play, test, type Hooks, openEditor } from "./fixtures";
 import { closeMenus, undoItem } from "./menus";
-
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
-
-declare global {
-  interface Window {
-    engine?: { world: { time: { frameCount: number } } };
-    orbit?: { focus(point?: [number, number, number], distance?: number): void; focusPoint: { toArray(): number[] } };
-  }
-}
+import { captureArea, pixelsChanged } from "./viewCapture";
 
 /** Collect uncaught exceptions and console errors for the whole test. */
 function trackErrors(page: Page): string[] {
@@ -20,16 +12,27 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-async function openEditor(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => (window.engine?.world.time.frameCount ?? 0) > 10);
-}
-
 const selectedRow = (page: Page) => page.locator(".tree .row.selected .name");
+
+/**
+ * Wait until the Move gizmo draws on the selection at `centre` (canvas CSS pixels; it loads on first use): the view
+ * around it changes from how it looks with the Select tool, which shows none. (Which canvas points are over its handles
+ * is babylonEditorGizmo.test.ts's; that a press on it never changes the selection, viewportSelection.test.ts's.)
+ */
+async function waitForGizmo(page: Page, canvas: Locator, centre: { x: number; y: number }): Promise<void> {
+  const box = (await canvas.boundingBox())!;
+  const area = { x: box.x + centre.x - 80, y: box.y + centre.y - 80, width: 160, height: 160 };
+  const tools = page.locator(".scene-toolbar");
+  await tools.getByRole("button", { name: "Select", exact: true }).click();
+  await afterFrames(page, 3);
+  const without = await captureArea(page, area);
+  await tools.getByRole("button", { name: "Move", exact: true }).click();
+  await expect.poll(async () => pixelsChanged(without, await captureArea(page, area)), { timeout: 20_000, message: "pixels the gizmo draws" }).toBeGreaterThan(20);
+}
 
 test("opens the demo scene with its node tree; clicking in the viewport selects, cycles through overlaps, and clears on empty space", async ({ page }) => {
   const errors = trackErrors(page);
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await expect(page.locator(".tree .row .name")).toContainText(["Camera", "bg-a", "Bird", "Sprite", "GameManager"]);
   await expect(page.getByRole("button", { name: "2D" })).toHaveAttribute("aria-pressed", "true");
 
@@ -40,7 +43,7 @@ test("opens the demo scene with its node tree; clicking in the viewport selects,
   // The Select tool shows no gizmo, so repeated clicks reach the sprites underneath.
   await page.keyboard.press("q");
   // Centre the view on the bird, then click it: inside its collider, so the Bird node is selected.
-  await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
+  await page.evaluate(() => (window as unknown as Hooks).orbit!.focus([-4, 1, 0]));
   await afterFrames(page);
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveText("Bird");
@@ -55,13 +58,13 @@ test("opens the demo scene with its node tree; clicking in the viewport selects,
   // F frames the selection. The view looks elsewhere first, so the check below sees F's effect
   // (and F, read by the camera on its next frame, has landed before the view moves again).
   await page.getByText("Bird", { exact: true }).click();
-  await page.evaluate(() => window.orbit!.focus([0, 0, 0]));
+  await page.evaluate(() => (window as unknown as Hooks).orbit!.focus([0, 0, 0]));
   await afterFrames(page);
   await page.keyboard.press("f");
-  await expect.poll(() => page.evaluate(() => window.orbit!.focusPoint.toArray())).toEqual([-4, 1, 0]);
+  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).orbit!.focusPoint.toArray())).toEqual([-4, 1, 0]);
 
   // Far from the scene there's nothing under the pointer: the selection clears.
-  await page.evaluate(() => window.orbit!.focus([80, 80, 0]));
+  await page.evaluate(() => (window as unknown as Hooks).orbit!.focus([80, 80, 0]));
   await afterFrames(page);
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveCount(0);
@@ -71,10 +74,10 @@ test("opens the demo scene with its node tree; clicking in the viewport selects,
 
 // (A left drag on empty space draws a selection box: see selection.spec.ts.)
 test("a camera drag doesn't change the selection", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const canvas = page.locator("#viewport canvas");
   const box = (await canvas.boundingBox())!;
-  await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
+  await page.evaluate(() => (window as unknown as Hooks).orbit!.focus([-4, 1, 0]));
   await afterFrames(page);
   await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } });
   await expect(selectedRow(page)).toHaveText("Bird");
@@ -88,7 +91,7 @@ test("a camera drag doesn't change the selection", async ({ page }) => {
 
 test("editing a field in the inspector updates the scene, and Ctrl+Z undoes it", async ({ page }) => {
   const errors = trackErrors(page);
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await page.getByText("Bird", { exact: true }).click();
   const y = page.getByRole("textbox", { name: "position y" });
   await expect(y).toHaveValue("1");
@@ -106,32 +109,32 @@ test("editing a field in the inspector updates the scene, and Ctrl+Z undoes it",
 });
 
 test("with the Move tool, clicking the gizmo on the selection keeps it selected", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const canvas = page.locator("#viewport canvas");
   const box = (await canvas.boundingBox())!;
   const centre = { x: box.width / 2, y: box.height / 2 };
   await expect(page.getByRole("button", { name: "Move", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
+  await page.evaluate(() => (window as unknown as Hooks).orbit!.focus([-4, 1, 0]));
   await afterFrames(page);
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveText("Bird");
   // The gizmo loads on first use; wait until it's showing on the selection.
-  await expect.poll(() => page.evaluate(([x, y]) => (window as unknown as { engine: { world: { render: { editorViewport(): { gizmoActiveAt(x: number, y: number): boolean } } } } }).engine.world.render.editorViewport().gizmoActiveAt(x, y), [centre.x, centre.y]), { timeout: 20_000 }).toBe(true);
+  await waitForGizmo(page, canvas, centre);
   // The gizmo now sits over the bird: pressing its handle drags instead of selecting what's below.
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveText("Bird");
 });
 
 test("a Move gizmo drag is one undo step, and Escape during it puts the node back", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const canvas = page.locator("#viewport canvas");
   const box = (await canvas.boundingBox())!;
   const centre = { x: box.width / 2, y: box.height / 2 };
-  await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
+  await page.evaluate(() => (window as unknown as Hooks).orbit!.focus([-4, 1, 0]));
   await afterFrames(page);
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveText("Bird");
-  await expect.poll(() => page.evaluate(([x, y]) => (window as unknown as { engine: { world: { render: { editorViewport(): { gizmoActiveAt(x: number, y: number): boolean } } } } }).engine.world.render.editorViewport().gizmoActiveAt(x, y), [centre.x, centre.y]), { timeout: 20_000 }).toBe(true);
+  await waitForGizmo(page, canvas, centre);
   const x = page.getByRole("textbox", { name: "position x" }), y = page.getByRole("textbox", { name: "position y" });
   const position = async () => [await x.inputValue(), await y.inputValue()];
   await expect.poll(position).toEqual(["-4", "1"]);
@@ -162,7 +165,7 @@ test("a Move gizmo drag is one undo step, and Escape during it puts the node bac
 });
 
 test("scene cameras show an icon that selects the camera", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await page.keyboard.press("q");
   const canvas = page.locator("#viewport canvas");
   const box = (await canvas.boundingBox())!;
@@ -174,7 +177,7 @@ test("scene cameras show an icon that selects the camera", async ({ page }) => {
 
 test("Play runs the scene in a game view, Stop returns to the unchanged editor", async ({ page }) => {
   const errors = trackErrors(page);
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await page.getByText("Bird", { exact: true }).click();
   await expect(page.getByRole("textbox", { name: "position y" })).toHaveValue("1");
 
@@ -200,7 +203,7 @@ test("Play runs the scene in a game view, Stop returns to the unchanged editor",
 });
 
 test("prefab overrides are marked and can be reverted", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await page.locator(".tree .row", { hasText: "bg-b" }).click();
   await expect(page.locator(".override-count")).toHaveText("1 override");
   const x = page.getByRole("textbox", { name: "position x" });

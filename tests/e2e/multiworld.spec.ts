@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, openTestProject, type Page, play, PLAY_START, test } from "./fixtures";
+import { expect, type Hooks, openEditor, type Page, play, PLAY_START, test } from "./fixtures";
 import { inLiveWorld } from "./liveWorld";
 
 // Play mode with several Worlds (ADR 0032, 0034): the Engine comes from the project's bootstrap,
@@ -8,13 +8,6 @@ import { inLiveWorld } from "./liveWorld";
 // lists every World (the headless server too) with pause and resume.
 
 test.describe.configure({ timeout: 60_000 }); // several Worlds play at once; each new renderer is seconds of CPU with software GL
-
-type WorldHandle = { name: string; paused: boolean; destroy(): void };
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  playEngine?: { createWorld(config: object): WorldHandle; findWorld(name: string): WorldHandle | null } | null;
-  openTestProject(extra: Record<string, string>): Promise<void>;
-};
 
 /** The Flappy sample's project.json with a two-player bootstrap: two client Worlds that render and a headless server. */
 const PROJECT = JSON.stringify({
@@ -57,7 +50,7 @@ const paused = (page: Page, world: string) => page.evaluate((w) => (window as un
 
 test("Play tiles the rendering Worlds; a click gives a World input; Worlds pause and resume", async ({ page }) => {
   const errors = trackErrors(page);
-  await openTestProject(page, { "project.json": PROJECT });
+  await openEditor(page, { files: { "project.json": PROJECT } });
   await expect(page.locator(".tree .row .name", { hasText: /^Bird$/ })).toHaveCount(1);
 
   await play(page);
@@ -142,7 +135,7 @@ const openConnections = (page: Page, world: string) =>
 
 test("Play connects linked Worlds, and Stop and Play again reconnect them", async ({ page }) => {
   const errors = trackErrors(page);
-  await openTestProject(page, { "project.json": LINKED });
+  await openEditor(page, { files: { "project.json": LINKED } });
   await expect(page.locator(".tree .row .name", { hasText: /^Bird$/ })).toHaveCount(1);
 
   for (let round = 0; round < 2; round++) {

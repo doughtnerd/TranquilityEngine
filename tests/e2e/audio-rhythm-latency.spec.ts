@@ -1,5 +1,4 @@
-import { expect, type Page, test } from "./fixtures";
-import { bootSample, LAB } from "./audioMusic";
+import { expect, type Page, test, openEditor, playWithAudio, LAB } from "./fixtures";
 
 // ADR 0166 Rh1 (architecture §4.6): rhythm mode's `latencyHint: 0` takes effect in a real browser. The Sound Lab boots
 // twice in one page, with `audio.rhythmMode` off and then on (the project file rewritten on the way in), and
@@ -37,7 +36,8 @@ test("rhythm mode: the context is made with latencyHint 0 and Audio.latency read
   const read: { latency: Latency; rhythmMode: boolean }[] = [];
   for (const mode of [false, true]) {
     rhythmMode = mode;
-    await bootSample(page, LAB); // a fresh page load: a new host and context
+    await openEditor(page, { sample: LAB }); // a fresh page load: a new host and context
+    await playWithAudio(page);
     read.push(await settledLatency(page));
   }
   expect(errors).toEqual([]);

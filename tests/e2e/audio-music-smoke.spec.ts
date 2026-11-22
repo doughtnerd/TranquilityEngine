@@ -1,7 +1,7 @@
-import { expect, openTestProject, type Page, play, test } from "./fixtures";
+import { expect, type Page, test, openEditor, playWithAudio, LAB, readAudioDebug, type Hooks } from "./fixtures";
 import { pickCategory } from "./projectCategory";
 import { showTab } from "./tabs";
-import { bootSample, musicRows, peakOver as peakOverMusic, readLate } from "./audioMusic";
+import { musicRows, peakOver as peakOverMusic, readLate } from "./audioMusic";
 
 // M4 smoke (ADR 0166/0167, plan task S0): the milestone's path in the real app, through the Sound Lab sample. A playing music
 // event is stopped with a fade, which the music system sends as a stamped, shaped fade of each stem (`handle.stop(fade)`: P1, a
@@ -9,7 +9,6 @@ import { bootSample, musicRows, peakOver as peakOverMusic, readLate } from "./au
 // with sends and non-default effects is played at a future audio-clock time (a stamped PLAY, with its SET_VOICE_FX at the
 // same frame, coreBackend.ts "its SET_VOICE_FX at the same frame"). Since the in-voice flip (Z3) both apply inside their
 // voices, so `splitQuanta` reads 0 (M4-0's exit check). Later waves grow this file by one case each.
-const LAB = "/editor.html?sample=sound-lab";
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -23,7 +22,7 @@ type Debug = {
 };
 type Api = { Audio: { debug(): unknown; time: number; setParameter(n: string, v: number): void; play(e: string, o?: object): { playing: boolean; stop(fade?: number): void }; playOneShot(clip: string, o?: object): unknown } };
 
-const audioDebug = (page: Page) => page.evaluate(() => ((globalThis as unknown as { __myco?: Api }).__myco?.Audio.debug() as Debug | undefined) ?? null);
+const audioDebug = (page: Page) => readAudioDebug<Debug>(page);
 const voice = async (page: Page, clip: string) => (await audioDebug(page))?.voices.find((v) => v.clip.includes(clip));
 
 /** The highest peak of a bus's meter over `ms` in the page (one reading can land in a quiet part of the clip). */
@@ -52,13 +51,8 @@ test("M4 smoke: a stamped fade and a stamped spatial play with sends in the Soun
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
-  await page.goto(LAB);
-  await page.waitForFunction(() => ((window as unknown as { engine?: { world: { time: { frameCount: number } } } }).engine?.world.time.frameCount ?? 0) > 10);
-  await play(page);
-  await page.mouse.click(480, 250); // the user gesture that unlocks the context
-
-  await expect.poll(async () => (await audioDebug(page))?.status, { timeout: 30_000 }).toBe("running");
-  expect((await audioDebug(page))!.core.backend).toBe("core");
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await expect.poll(async () => (await voice(page, "music-loop"))?.state, { timeout: 30_000 }).toBe("playing");
   const base = (await audioDebug(page))!;
   const splitBefore = reportedSplitQuanta(base);
@@ -117,7 +111,8 @@ test("M4a smoke: a segment starts and its group reports start", async ({ page })
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await page.evaluate(() => {
     const { Audio } = (globalThis as unknown as { __myco: Api }).__myco;
     (globalThis as unknown as { __m4a: unknown }).__m4a = Audio.play("audio/events/music-intensity.audioevent.json");
@@ -141,7 +136,8 @@ test("M4b smoke: a state key changes the music on a bar by the named rule, and a
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await page.evaluate(() => {
     const { Audio } = (globalThis as unknown as { __myco: Api }).__myco;
     for (const c of ["bridge-riser", "calm-bells", "calm-pad", "combat-bass", "combat-drums", "explore-arp", "explore-pad", "loop-body", "stinger-hit"]) Audio.playOneShot(`audio/music/${c}.wav`, { volume: 0.0001, bus: "UI" });
@@ -184,7 +180,8 @@ test("M4c smoke: a calibration run on the rhythm page reads the injected offset 
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await page.evaluate(() => {
     const { Audio } = (globalThis as unknown as { __myco: Api }).__myco;
     for (const c of ["click-track", "combat-drums", "combat-bass"]) Audio.playOneShot(`audio/music/${c}.wav`, { volume: 0.0001, bus: "UI" });
@@ -239,7 +236,7 @@ test("M4c smoke: a calibration run on the rhythm page reads the injected offset 
 
 test("M4 editor smoke: Project Settings > Audio shows the Music block, and a ring edit is saved with the preset reading custom", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });
-  await openTestProject(page);
+  await openEditor(page, { files: {} });
   await showTab(page, /^Project/);
   await pickCategory(page, "Audio");
   const audio = page.locator(".panel.project").getByRole("group", { name: "Audio settings" });
@@ -248,7 +245,7 @@ test("M4 editor smoke: Project Settings > Audio shows the Music block, and a rin
   await expect(rings).toHaveValue("12");
   await rings.fill("10");
   await rings.press("Enter");
-  const saved = () => page.evaluate(() => JSON.parse((window as unknown as { testFolder: { read(p: string): string | undefined } }).testFolder.read("project.json")!).audio?.music?.rings as number | undefined);
+  const saved = () => page.evaluate(() => JSON.parse((window as unknown as Hooks).testFolder.read("project.json")!).audio?.music?.rings as number | undefined);
   await expect.poll(saved).toBe(10);
   await expect(audio.getByLabel("Voices preset", { exact: true })).toHaveValue("custom");
 });

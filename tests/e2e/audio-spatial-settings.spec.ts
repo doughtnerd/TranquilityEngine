@@ -1,4 +1,4 @@
-import { expect, openTestProject, type Page, test } from "./fixtures";
+import { expect, type Page, test, openEditor, type Hooks } from "./fixtures";
 import { pickCategory } from "./projectCategory";
 import { showTab } from "./tabs";
 import { parseAudioSettings } from "../../src/engine/audio/settings";
@@ -8,7 +8,6 @@ import { parseAudioSettings } from "../../src/engine/audio/settings";
 // without problems, and a second page opened on the saved file shows the same values.
 test.describe.configure({ timeout: 120_000 });
 
-type Hooks = { testFolder: { read(path: string): string | undefined } };
 type Material = { name: string; transmissionDb: number; cutoffHz: number; wetOcclusion: number; attackMs?: number; releaseMs?: number };
 type Saved = {
   bed?: { maxBeds: number };
@@ -35,7 +34,7 @@ async function commit(page: Page, label: string, value: string): Promise<void> {
 
 async function openAudio(page: Page, extra: Record<string, string> = {}): Promise<void> {
   await page.setViewportSize({ width: 1600, height: 1000 });
-  await openTestProject(page, extra);
+  await openEditor(page, { files: extra });
   await showTab(page, /^Project/);
   await pickCategory(page, "Audio");
   await expect(audio(page)).toBeVisible();

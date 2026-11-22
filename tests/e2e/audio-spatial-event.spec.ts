@@ -1,12 +1,11 @@
 import { readFileSync } from "node:fs";
-import { expect, openTestProject, type Page, test } from "./fixtures";
+import { expect, type Page, test, openEditor, type Hooks } from "./fixtures";
 
 // The Event editor's M3 fields (ADR 0162 E5, E9): filter, sends (reverb and one aux), the spatial occlusion switch,
 // Doppler level and reverb send curve, each written to the event file, kept across reopening the event, and the
 // Audition backend label with its note on the Babylon fallback. Headless Chromium has no sound output.
 test.describe.configure({ timeout: 120_000 });
 
-type Hooks = { testFolder: { read(path: string): string | undefined } };
 type Json = Record<string, unknown>;
 
 const PATH = "music/fx.audioevent.json";
@@ -23,7 +22,7 @@ const file = async (page: Page, key: string) => (await readJson(page))[key];
 
 async function open(page: Page, extra: Record<string, string> = {}): Promise<void> {
   await page.setViewportSize({ width: 1600, height: 1000 });
-  await openTestProject(page, { [PATH]: JSON.stringify(EVENT), [OTHER]: JSON.stringify(EVENT), ...extra });
+  await openEditor(page, { files: { [PATH]: JSON.stringify(EVENT), [OTHER]: JSON.stringify(EVENT), ...extra } });
   await page.locator(".dock-tab", { hasText: "Assets" }).click();
   await assets(page).locator(".asset-folder", { hasText: /^music$/ }).click();
   await tile(page, "fx.audioevent.json").dblclick();

@@ -1,4 +1,4 @@
-import { expect, openTestProject, test, type Page } from "./fixtures";
+import { expect, test, type Page, openEditor } from "./fixtures";
 import { menu } from "./menus";
 import { showTab } from "./tabs";
 
@@ -9,7 +9,7 @@ test.describe.configure({ timeout: 90_000 });
 const tab = (page: Page, name: string) => page.locator(".dock-tab", { has: page.locator(".dock-tab-label", { hasText: new RegExp(`^${name}$`) }) });
 
 test("a panel closes from its tab's ×, comes back from the Window menu, and the × hides in a collapsed dock", async ({ page }) => {
-  await openTestProject(page);
+  await openEditor(page, { files: {} });
   await expect(tab(page, "History")).toHaveCount(1);
   await tab(page, "History").getByRole("button", { name: "Close History" }).click();
   await expect(tab(page, "History")).toHaveCount(0);
@@ -23,7 +23,7 @@ test("a panel closes from its tab's ×, comes back from the Window menu, and the
 });
 
 test("a header's Add Panel… adds a second Hierarchy to that group; each keeps its own expanded rows", async ({ page }) => {
-  await openTestProject(page);
+  await openEditor(page, { files: {} });
   await tab(page, "Hierarchy").click({ button: "right" });
   await page.getByRole("menu", { name: "Panel menu" }).getByRole("menuitem", { name: "Add Panel…" }).click();
   const dialog = page.getByRole("dialog", { name: "Add panels" });
@@ -42,7 +42,7 @@ test("a header's Add Panel… adds a second Hierarchy to that group; each keeps 
 
 test("Save Layout As… keeps a layout in the project's .layouts/; switching layouts and restoring a version", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
-  await openTestProject(page);
+  await openEditor(page, { files: {} });
   await tab(page, "Code").getByRole("button", { name: "Close Code" }).click();
   await menu(page, "Layouts", "Save Layout As…");
   const save = page.getByRole("dialog", { name: "Save layout" });
@@ -74,7 +74,7 @@ test("Save Layout As… keeps a layout in the project's .layouts/; switching lay
 
 test("turning off a plugin whose panel a layout shows asks first; kept, the panel stays and says what brings it back", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
-  await openTestProject(page);
+  await openEditor(page, { files: {} });
   await expect(tab(page, "Tile Palette")).toHaveCount(1);
   await showTab(page, /^Project/);
   await page.locator(".panel.project").getByRole("tab", { name: "Plugins" }).click();
@@ -95,7 +95,7 @@ test("turning off a plugin whose panel a layout shows asks first; kept, the pane
 
 test("turning off a plugin can remove its panels from the layouts instead", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
-  await openTestProject(page);
+  await openEditor(page, { files: {} });
   await showTab(page, /^Project/);
   await page.locator(".panel.project").getByRole("tab", { name: "Plugins" }).click();
   await page.locator('.plugins-item input[data-plugin="myco.tilemaps"]').uncheck();
@@ -106,7 +106,7 @@ test("turning off a plugin can remove its panels from the layouts instead", asyn
 });
 
 test("Detach opens a panel in a window of its own that shares the editor's state; closing it closes its panels", async ({ page, context }) => {
-  await openTestProject(page);
+  await openEditor(page, { files: {} });
   await tab(page, "Inspector").click({ button: "right" });
   const popup = context.waitForEvent("page");
   await page.getByRole("menu", { name: "Panel menu" }).getByRole("menuitem", { name: "Detach" }).click();

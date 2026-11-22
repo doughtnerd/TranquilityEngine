@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test, type Page } from "./fixtures";
+import { expect, type Hooks, test, type Page } from "./fixtures";
 import { menu } from "./menus";
 
 // Game builds (ADR 0041): `npm run export` turns a sample into a static web build, served here by
@@ -80,7 +80,6 @@ const busPeakOver = (page: Page, bus: string, ms: number) =>
     [bus, ms] as const,
   );
 
-type Hooks = { engine?: { world: { time: { frameCount: number } }; worlds(): { name: string }[] } };
 type Engine = { GameObject: { findObjectOfType(type: unknown): Record<string, unknown> | null }; getComponentClass(id: string): unknown };
 
 const frames = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine?.world.time.frameCount ?? 0);

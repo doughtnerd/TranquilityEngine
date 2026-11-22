@@ -1,10 +1,9 @@
-import { expect, type Page, play, test } from "./fixtures";
+import { expect, type Page, play, test, openEditor, LAB } from "./fixtures";
 
 // The audio core (ADR 0157, `audio.backend: "core"`) in a real browser, through the Sound Lab sample (A2.6): one-shots,
 // bus mute and peak, a snapshot, ducking, and a moving spatial source. The sample's scripts answer to keys 1..6; most
 // steps press the key and check `Audio.debug()` and the buses' `peak` (the engine module project scripts import as "myco",
 // `globalThis.__myco`). Headless Chromium has no sound output, so the checks read the core's own meters and status.
-const LAB = "/editor.html?sample=sound-lab";
 
 test.describe.configure({ timeout: 180_000 });
 
@@ -103,8 +102,7 @@ test("the Sound Lab exercises the core: one-shots, buses, snapshots, ducking and
     if (msg.type() === "error") errors.push(msg.text());
   });
   await page.addInitScript(hostMonitor, STARVED_MS);
-  await page.goto(LAB);
-  await page.waitForFunction(() => ((window as unknown as { engine?: { world: { time: { frameCount: number } } } }).engine?.world.time.frameCount ?? 0) > 10);
+  await openEditor(page, { sample: LAB });
   await play(page);
   await page.mouse.click(480, 250); // the user gesture that unlocks the context, and focus for the keys
 

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Page, openEditor } from "./fixtures";
 import { inLiveWorld } from "./liveWorld";
 
 // A lobby match takes the screen (ADR 0068): in King of Pirates, practice against bots starts a
@@ -10,9 +10,7 @@ import { inLiveWorld } from "./liveWorld";
 // Read through the editor's game view: its main tile names the World with the main view and says
 // whether it has input, and the Worlds strip marks paused Worlds. The match starts through the
 // public `Lobby` API, as the menu's Practice button does.
-const EDITOR = "/editor.html?sample=pirates"; // relative to baseURL (E2E_PORT)
 
-type Hooks = { engine?: { world: { time: { frameCount: number } } } };
 type Myco = {
   Lobby: { state: string; me: { host: boolean } | null; createRoom(options: { name: string; public: boolean }): void; start(): void; leaveMatch(): void };
 };
@@ -28,8 +26,7 @@ test("a lobby match takes the whole game view and input, and gives them back to 
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
   await page.setViewportSize({ width: 2000, height: 780 }); // wide, as reported: the overlay's offset showed most there
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10, null, { timeout: 120_000 });
+  await openEditor(page, { sample: "pirates", timeout: 120_000 });
   await page.getByRole("button", { name: "▶ Play" }).click();
   await expect.poll(() => frames(page, "Menu"), { timeout: 120_000 }).toBeGreaterThan(10);
 

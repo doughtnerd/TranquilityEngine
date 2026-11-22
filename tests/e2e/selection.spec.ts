@@ -1,6 +1,4 @@
-import { afterFrames, expect, type Page, test } from "./fixtures";
-
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
+import { afterFrames, expect, type Hooks, openEditor, type Page, test } from "./fixtures";
 
 interface Rect {
   left: number;
@@ -9,16 +7,9 @@ interface Rect {
   bottom: number;
 }
 
-/** The editor's debug hooks on `window` (see session.ts). Page callbacks are serialized, so each casts `window` itself. */
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  orbit: { focus(point?: [number, number, number], distance?: number): void };
-  nodeRect(key: string): Rect | null;
-};
-
-async function openEditor(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+/** Open the Flappy sample with the scene view looking at the origin. */
+async function openFocused(page: Page): Promise<void> {
+  await openEditor(page, { sample: "flappy" });
   await page.evaluate(() => (window as unknown as Hooks).orbit.focus([0, 0, 0], 14));
   await afterFrames(page); // the camera moves on the next frame
 }
@@ -46,7 +37,7 @@ async function dragBox(page: Page, r: Rect, modifier?: "Shift" | "Control", rele
 }
 
 test("dragging a box selects everything inside it; Shift adds, Ctrl toggles", async ({ page }) => {
-  await openEditor(page);
+  await openFocused(page);
   const bird = union(await rectOf(page, "bird"), await rectOf(page, "bird-sprite"));
 
   await dragBox(page, bird, undefined, false);
@@ -65,7 +56,7 @@ test("dragging a box selects everything inside it; Shift adds, Ctrl toggles", as
 });
 
 test("Escape during a box drag puts the selection back", async ({ page }) => {
-  await openEditor(page);
+  await openFocused(page);
   await page.locator('.tree .row[data-key="ceiling"]').click();
   await dragBox(page, union(await rectOf(page, "bird"), await rectOf(page, "bird-sprite")), undefined, false);
   expect(await selected(page)).toContain("bird"); // live while dragging
@@ -75,7 +66,7 @@ test("Escape during a box drag puts the selection back", async ({ page }) => {
 });
 
 test("Alt+click lists the nodes under the pointer, occluded ones and children too, to refine the selection", async ({ page }) => {
-  await openEditor(page);
+  await openFocused(page);
   await page.locator('.tree .row[data-key="ceiling"]').click();
   const sprite = await rectOf(page, "bird-sprite", 0);
   const at = { x: (sprite.left + sprite.right) / 2, y: (sprite.top + sprite.bottom) / 2 };
@@ -109,7 +100,7 @@ test("Alt+click lists the nodes under the pointer, occluded ones and children to
 });
 
 test("the hierarchy selects with Ctrl+click and Shift+click ranges", async ({ page }) => {
-  await openEditor(page);
+  await openFocused(page);
   const row = (k: string) => page.locator(`.tree .row[data-key="${k}"]`);
   await row("camera").click();
   await row("ground-a").click({ modifiers: ["Shift"] });
@@ -121,7 +112,7 @@ test("the hierarchy selects with Ctrl+click and Shift+click ranges", async ({ pa
 });
 
 test("the inspector edits a shared field on every selected node in one undo step", async ({ page }) => {
-  await openEditor(page);
+  await openFocused(page);
   await page.locator('.tree .row[data-key="ground-collider"]').click();
   await page.locator('.tree .row[data-key="ceiling"]').click({ modifiers: ["ControlOrMeta"] });
   await expect(page.locator(".multi-name")).toHaveText("2 nodes selected");
@@ -145,7 +136,7 @@ test("the inspector edits a shared field on every selected node in one undo step
 });
 
 test("clicking anywhere inside a collider selects its node, before the sprites drawn there", async ({ page }) => {
-  await openEditor(page);
+  await openFocused(page);
   await page.keyboard.press("q"); // no gizmo in the way of repeated clicks
   await page.evaluate(() => (window as unknown as Hooks).orbit.focus([0, -10, 0], 14));
   await afterFrames(page); // the camera moves on the next frame
@@ -159,7 +150,7 @@ test("clicking anywhere inside a collider selects its node, before the sprites d
 });
 
 test("clicking a screen-space Text in the scene view selects its node (ADR 0276)", async ({ page }) => {
-  await openEditor(page);
+  await openFocused(page);
   await page.keyboard.press("q"); // no gizmo in the way
   // MessageLabel has no text until the game runs: give it some, so the UI feature draws it.
   await page.locator('.tree .row[data-key="message"]').click();

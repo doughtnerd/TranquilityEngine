@@ -1,22 +1,9 @@
-import { expect, openTestProject, type Page, test } from "./fixtures";
-
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
-
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  openTestProject(extra: Record<string, string>): Promise<void>;
-  testFolder: { read(path: string): string | undefined };
-};
-
-async function openEditor(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-}
+import { expect, openEditor, type Page, test, type Hooks } from "./fixtures";
 
 const log = (page: Page) => page.getByRole("log", { name: "Message log" });
 
 test("clicking the status bar opens a log of full messages with their details", async ({ page }) => {
-  await openTestProject(page, { "scripts/Broken.ts": "export const = 1;\n", "scripts/Throws.ts": 'throw new Error("bad setup");\n' });
+  await openEditor(page, { files: { "scripts/Broken.ts": "export const = 1;\n", "scripts/Throws.ts": 'throw new Error("bad setup");\n' } });
   await expect(page.locator(".status-bar")).toHaveClass(/error/);
   await page.locator(".status-text").click();
   await expect(log(page)).toBeVisible();
@@ -29,7 +16,7 @@ test("clicking the status bar opens a log of full messages with their details", 
 });
 
 test("uncaught errors are logged with their stack, and flagged in the status bar", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await page.evaluate(() => {
     setTimeout(() => {
       throw new Error("kaboom");
@@ -49,7 +36,7 @@ test("uncaught errors are logged with their stack, and flagged in the status bar
 });
 
 test("deleting an asset asks first, listing what uses it; Don't ask again skips the question next time", async ({ page }) => {
-  await openTestProject(page);
+  await openEditor(page, { files: {} });
   await page.locator(".asset-folder", { hasText: /^images$/ }).click();
   const background = page.locator(".asset-tile", { hasText: "background.png" });
   await background.click();
@@ -79,7 +66,7 @@ test("deleting an asset asks first, listing what uses it; Don't ask again skips 
 });
 
 test("the open scene and project.json can't be deleted", async ({ page }) => {
-  await openTestProject(page);
+  await openEditor(page, { files: {} });
   await page.locator(".asset-tile", { hasText: "project.json" }).click();
   await expect(page.getByRole("button", { name: "Delete", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Delete", exact: true })).toHaveAttribute("title", /defines the project/);

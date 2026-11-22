@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, openTestProject, type Page, play, test } from "./fixtures";
+import { expect, type Page, play, test, openEditor } from "./fixtures";
 
 // The audio plugin's "babylon" backend (ADR 0157 BB1/BB2) in a real browser. The default `audio.backend` is the core
 // (B7), so this opens the Flappy sample as a project folder with `audio.backend: "babylon"` set explicitly. Its music
@@ -27,7 +27,7 @@ test("the babylon backend plays the sample's music after a user gesture", { tag:
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
-  await openTestProject(page, { "project.json": FLAPPY_BABYLON });
+  await openEditor(page, { files: { "project.json": FLAPPY_BABYLON } });
   await play(page);
 
   // The gesture: a click inside the game view.

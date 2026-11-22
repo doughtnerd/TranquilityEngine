@@ -201,3 +201,9 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 - **Tick history:** values by tick for the newest ticks, kept by tick number whatever order they were written in (`TickHistory`, `net/tickHistory.ts`): a client's sent inputs, a predicted ghost's states.
 - **Predicted plan:** a ghost layout's predicted values in one order, layout order (`PredictedPlan`, ADR 0312), for picking them from a received state, reading and writing the node and comparing a prediction with the server's (rotations by angle). _Avoid:_ restating the order of predicted values outside the plan.
 - **Command (scene document):** one edit of a scene document (`src/editor/document/commands.ts`, ADR 0026, 0321): a label, an `apply` that edits the document in place and returns its `Change`s for the Editor World, and optional text file writes. It never undoes itself: `CommandStack.execute` runs it and the stack undoes, redoes and jumps by patch (ADR 0027). _Avoid:_ an `undo` method or undo bookkeeping on a command; calling `apply` outside a stack.
+
+## Browser tests (ADR 0023, 0330)
+
+- **Editor boot (e2e):** the edit World of the editor a spec opened has stepped more than 10 frames: the one condition `openEditor` and `waitForEditor` wait for (`tests/e2e/fixtures.ts`). _Avoid:_ a spec writing its own frame-count wait.
+- **Test project:** the Flappy sample opened as a writable folder in memory with a spec's files (text or bytes) written over it (`openEditor(page, { files })`, the editor's `openTestProject` hook); what the editor writes is read back through `window.testFolder`.
+- **Window hooks:** the editor's debug and end-to-end hooks on `window` (`engine`, `playEngine`, `orbit`, `overlayHandles`, `nodeRect`, `testFolder`, `openTestProject`), typed once as `Hooks` in the fixture; specs use them to find things, never to read the renderer. _Avoid:_ a spec declaring its own hooks type.

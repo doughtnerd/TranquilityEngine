@@ -1,17 +1,16 @@
-import { expect, test, type Locator, type Page } from "./fixtures";
+import { expect, test, type Locator, type Page, waitForEditor } from "./fixtures";
 
 // Collapsing docks to their edge, and tabs that don't fit a header going behind "» N" (the
 // editor UX pass, docs/plans/2026-11-editor-ux-pass.md items 2 and 3).
 
 const EDITOR = "/editor.html?sample=flappy";
 
-type Hooks = { engine?: { world: { time: { frameCount: number } } } };
-
-async function openEditor(page: Page): Promise<void> {
+/** Open the Flappy sample in the default layout. */
+async function openDefaultLayout(page: Page): Promise<void> {
   await page.goto(EDITOR);
   await page.evaluate(() => localStorage.removeItem("myco.editor.layout")); // the default layout
   await page.reload();
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await waitForEditor(page);
 }
 
 async function box(locator: Locator) {
@@ -24,7 +23,7 @@ async function box(locator: Locator) {
 const tab = (page: Page, name: string) => page.locator(".dock-tab").and(page.getByRole("tab", { name: new RegExp(`^${name}`) }));
 
 test("the Assets dock collapses to its header row from its chevron, and a tab click opens it again", async ({ page }) => {
-  await openEditor(page);
+  await openDefaultLayout(page);
   const scene = await box(page.locator(".dock-group", { has: tab(page, "Scene") }));
   await page.getByRole("button", { name: "Collapse Assets dock" }).click();
   const strip = page.locator(".dock-strip.side-bottom");
@@ -36,7 +35,7 @@ test("the Assets dock collapses to its header row from its chevron, and a tab cl
 
   // Remembered across a reload.
   await page.reload();
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await waitForEditor(page);
   await expect(strip).toBeVisible();
 
   await tab(page, "Code").click();
@@ -45,7 +44,7 @@ test("the Assets dock collapses to its header row from its chevron, and a tab cl
 });
 
 test("double-clicking a side dock's border collapses it to a strip with vertical titles, and again expands it", async ({ page }) => {
-  await openEditor(page);
+  await openDefaultLayout(page);
   const handle = page.getByRole("separator", { name: "Resize left panels" });
   await handle.dblclick();
   const strip = page.locator(".dock-strip.side-left");
@@ -58,7 +57,7 @@ test("double-clicking a side dock's border collapses it to a strip with vertical
 });
 
 test("tabs that don't fit go behind a » button; picking one shows it in the header", async ({ page }) => {
-  await openEditor(page);
+  await openDefaultLayout(page);
   // Narrow the right dock (Inspector, History, Worlds, Network, Project) until its tabs overflow.
   const handle = await box(page.getByRole("separator", { name: "Resize right panels" }));
   await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);

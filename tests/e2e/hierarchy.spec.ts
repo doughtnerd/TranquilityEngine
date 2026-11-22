@@ -1,17 +1,4 @@
-import { expect, test, type Locator, type Page } from "./fixtures";
-
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
-
-declare global {
-  interface Window {
-    engine?: { world: { time: { frameCount: number } } };
-  }
-}
-
-async function openEditor(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => (window.engine?.world.time.frameCount ?? 0) > 10);
-}
+import { expect, test, type Locator, type Page, openEditor } from "./fixtures";
 
 const box = async (l: Locator) => (await l.boundingBox())!;
 const row = (page: Page, key: string) => page.locator(`.tree .row[data-key="${key}"]`);
@@ -30,7 +17,7 @@ async function dragRow(page: Page, from: string, to: string, fraction: number, r
 }
 
 test("dragging a node between rows reorders it, with a line showing where", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await dragRow(page, "game", "camera", 0.1, false);
   await expect(row(page, "camera")).toHaveClass(/drop-before/);
   await expect(page.locator(".asset-drag-ghost")).toHaveText("Move GameManager above Camera");
@@ -41,7 +28,7 @@ test("dragging a node between rows reorders it, with a line showing where", asyn
 });
 
 test("dragging a node onto another reparents it, keeping its place in the world", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await dragRow(page, "ceiling", "bird", 0.5, false);
   await expect(row(page, "bird")).toHaveClass(/drop-into/);
   await page.mouse.up();
@@ -52,7 +39,7 @@ test("dragging a node onto another reparents it, keeping its place in the world"
 });
 
 test("dragging a child to empty space unparents it", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const sprite = await box(row(page, "bird-sprite"));
   const body = await box(page.locator(".panel.hierarchy .panel-body"));
   await page.mouse.move(sprite.x + 40, sprite.y + sprite.height / 2);
@@ -65,7 +52,7 @@ test("dragging a child to empty space unparents it", async ({ page }) => {
 });
 
 test("nodes inside prefab instances can't be moved, and invalid drops change nothing", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   // Expand a prefab instance with children: add one, then open it.
   await page.locator(".asset-folder", { hasText: /^prefabs$/ }).click();
   await page.locator(".asset-tile", { hasText: "pipe-pair" }).getByRole("button").click();
@@ -88,7 +75,7 @@ test("nodes inside prefab instances can't be moved, and invalid drops change not
 });
 
 test("Delete removes the selected node; undo brings it back", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await row(page, "ceiling").click();
   await page.keyboard.press("Delete");
   await expect(row(page, "ceiling")).toHaveCount(0);
@@ -98,7 +85,7 @@ test("Delete removes the selected node; undo brings it back", async ({ page }) =
 });
 
 test("deleting a referenced node asks first, and 'Don't ask again' is remembered and can be undone", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await row(page, "bird").click();
   await page.getByRole("button", { name: "Delete node" }).click();
   const dialog = page.getByRole("alertdialog");
