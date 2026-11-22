@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Engine, GameObject, Input, InputPlayers, button, defineActions, dpad, vec2 } from "../index";
+import { Engine, GameObject, Input, InputPlayers, button, chordOf, defineActions, dpad, vec2 } from "../index";
 import { UICanvas, UIImage, UIText } from "../ui/components";
 import { UIControlMapper } from "../ui/controlMapper";
 import { World } from "../core/World";
@@ -12,6 +12,8 @@ defineActions("test.uiControlMapper.Actions", {
   jump: button("<Keyboard>/space", "<Gamepad>/buttonSouth"),
   move: vec2(dpad("<Keyboard>/w", "<Keyboard>/s", "<Keyboard>/a", "<Keyboard>/d"), "<Gamepad>/leftStick"),
   bomb: button("<Keyboard>/b"),
+  dash: button(chordOf("<Keyboard>/shift", "<Keyboard>/x"), chordOf("<Gamepad>/leftShoulder", "<Gamepad>/buttonWest")),
+  look: vec2("<Pointer>/delta"),
 });
 
 const DT = 1 / 60;
@@ -218,5 +220,197 @@ describe("UIControlMapper (ADR 0337)", () => {
     node.removeBehavior(m);
     step();
     expect(canvas!.isValid).toBe(false);
+  });
+
+  it("shows a chord as one cell with every glyph, and rebinds it to the keys pressed together", async () => {
+    const m = mapper({ actions: "dash" });
+    const dash = row(m, "Dash");
+    expect(dash.keyboard).toMatchObject({ label: "Shift + X", icons: ["keyboard/shift", "keyboard/x"], part: "control", chord: true });
+    expect(images(dash.keyboard!.button.node)).toEqual(["asset:@myco/glyphs/keyboard/shift.svg", "asset:@myco/glyphs/keyboard/x.svg"]);
+    expect(texts(dash.keyboard!.button.node)).toEqual(["Shift + X"]);
+    expect(dash.gamepad).toMatchObject({ label: "L1 + West", icons: ["generic/leftShoulder", "generic/buttonWest"], chord: true });
+
+    const p = await pointer();
+    p.click(dash.keyboard!.button);
+    step(2);
+    expect(m.rebinding).toEqual({ action: "dash", device: "keyboard" });
+    expect(m.status).toBe("Hold the keys together, then let go… (Esc to cancel)");
+    expect(texts(row(m, "Dash").keyboard!.button.node)).toEqual(["Press the keys…"]);
+    Input.inject.keyDown("control");
+    step();
+    Input.inject.keyDown("n");
+    step();
+    expect(m.rebinding).not.toBeNull(); // still held: it finishes when a key is let go
+    Input.inject.keyUp("n");
+    step();
+    Input.inject.keyUp("control");
+    step();
+    expect(m.rebinding).toBeNull();
+    expect(row(m, "Dash").keyboard).toMatchObject({ label: "Ctrl + N", icons: ["keyboard/control", "keyboard/n"] });
+    expect(m.status).toBe("Dash: Ctrl + N");
+    expect(InputPlayers.get(0)!.prompt("dash", "keyboard")!.label).toBe("Ctrl+N");
+
+    // A chord needs as many modifiers as the binding has: a lone key is refused, and the binding stays.
+    tap("enter");
+    expect(m.rebinding).toEqual({ action: "dash", device: "keyboard" });
+    tap("m");
+    expect(m.rebinding).toBeNull();
+    expect(m.status).toBe("This binding takes 1 held with the key or button; M has 0.");
+    expect(row(m, "Dash").keyboard!.label).toBe("Ctrl + N");
+  });
+
+  it("rebinds a gamepad chord from the pad", () => {
+    const m = mapper({ actions: "dash" });
+    pads.push(6);
+    Input.inject.gamepadConnected({ id: 6, name: "Pad", family: "xbox" });
+    step();
+    expect(row(m, "Dash").gamepad!.label).toBe("LB + X");
+    const press = (button: number, value: number) => {
+      Input.inject.gamepadButton(6, button, value);
+      step();
+    };
+    press(15, 1); // d-pad right: the gamepad column
+    press(15, 0);
+    press(0, 1); // south: rebind (its release doesn't end the wait)
+    press(0, 0);
+    expect(m.status).toBe("Hold the buttons together, then let go… (Esc to cancel)");
+    press(5, 1); // RB
+    press(3, 1); // Y
+    press(3, 0);
+    press(5, 0);
+    expect(row(m, "Dash").gamepad).toMatchObject({ label: "RB + Y", icons: ["xbox/rightShoulder", "xbox/buttonNorth"] });
+  });
+
+  describe("accessibility", () => {
+    const options = { actions: "jump", showAccessibility: true, invertYActions: "look", sensitivityActions: "look", holdToToggleActions: "jump" };
+    const setting = (m: UIControlMapper, label: string) => {
+      const s = m.settings.find((x) => x.label === label);
+      if (!s) throw new Error(`No setting "${label}" (settings: ${m.settings.map((x) => x.label).join(", ")}).`);
+      return s;
+    };
+
+    it("is off unless asked for", () => {
+      const m = mapper({ actions: "jump" });
+      expect(m.settings).toEqual([]);
+      expect(texts(m.node)).not.toContain("Accessibility");
+    });
+
+    it("lists toggles and steppers with the player's settings", () => {
+      step();
+      InputPlayers.get(0)!.accessibility = { sensitivity: { look: 1.5 }, deadzone: 0.25 };
+      const m = mapper(options);
+      expect(m.settings.map((s) => [s.label, s.value, s.enabled])).toEqual([
+        ["Look: Invert Y", "Off", true],
+        ["Look: Sensitivity", "1.5×", true],
+        ["Jump: Press to toggle", "Off", true],
+        ["Repeat held buttons", "Off", true],
+        ["Repeat delay", "0.4 s", false],
+        ["Repeat interval", "0.1 s", false],
+        ["Stick dead zone", "25%", true],
+      ]);
+      expect(setting(m, "Look: Invert Y").toggle).not.toBeNull();
+      expect(setting(m, "Look: Sensitivity")).toMatchObject({ toggle: null });
+      expect(texts(m.node)).toEqual(expect.arrayContaining(["Accessibility", "Look: Sensitivity", "1.5×", "−", "+"]));
+    });
+
+    it("changes settings by mouse, and the evaluator applies them", async () => {
+      const m = mapper(options);
+      const p = await pointer();
+      p.click(setting(m, "Look: Invert Y").toggle!);
+      step(2);
+      expect(setting(m, "Look: Invert Y").value).toBe("On");
+      expect(InputPlayers.get(0)!.accessibility.invertY).toEqual(["look"]);
+      Input.inject.move(0, 5);
+      step();
+      expect(InputPlayers.get(0)!.vector2("look").y).toBe(5); // inverted: the mouse moved down, look's +Y is up
+
+      p.click(setting(m, "Look: Sensitivity").increase!);
+      step(2);
+      p.click(setting(m, "Look: Sensitivity").increase!);
+      step(2);
+      expect(setting(m, "Look: Sensitivity").value).toBe("1.2×");
+      expect(InputPlayers.get(0)!.accessibility.sensitivity).toEqual({ look: 1.2 });
+
+      // The repeat steppers do nothing while repeat is off.
+      expect(setting(m, "Repeat delay").increase!.interactable).toBe(false);
+      p.click(setting(m, "Repeat held buttons").toggle!);
+      step(2);
+      expect(InputPlayers.get(0)!.accessibility.repeat).toEqual({ delay: 0.4, interval: 0.1 });
+      expect(setting(m, "Repeat delay").enabled).toBe(true);
+      p.click(setting(m, "Repeat delay").decrease!);
+      step(2);
+      expect(setting(m, "Repeat delay").value).toBe("0.35 s");
+      // Off and on again keeps the times.
+      p.click(setting(m, "Repeat held buttons").toggle!);
+      step(2);
+      expect(InputPlayers.get(0)!.accessibility.repeat).toBeUndefined();
+      p.click(setting(m, "Repeat held buttons").toggle!);
+      step(2);
+      expect(InputPlayers.get(0)!.accessibility.repeat).toEqual({ delay: 0.35, interval: 0.1 });
+    });
+
+    it("is driven by the keyboard and d-pad like the bindings, and Save writes it", async () => {
+      const m = mapper({ ...options, repeatActions: "jump" });
+      // Rows: Jump, then the seven settings, then the buttons.
+      tap("arrowdown");
+      tap("arrowdown");
+      tap("arrowdown");
+      expect(m.selected).toEqual({ row: 3, column: 0 }); // Jump: Press to toggle
+      tap("enter");
+      expect(InputPlayers.get(0)!.accessibility.holdToToggle).toEqual(["jump"]);
+      expect(m.rebinding).toBeNull();
+      tap("arrowdown");
+      tap("enter"); // repeat on
+      expect(InputPlayers.get(0)!.accessibility.repeat).toEqual({ delay: 0.4, interval: 0.1, actions: ["jump"] });
+      tap("arrowdown");
+      tap("arrowdown");
+      tap("arrowright");
+      expect(m.selected).toEqual({ row: 6, column: 1 }); // Repeat interval, +
+      tap("enter");
+      expect(setting(m, "Repeat interval").value).toBe("0.15 s");
+
+      pads.push(2);
+      Input.inject.gamepadConnected({ id: 2, name: "Pad", family: "xbox" });
+      step();
+      const press = (button: number) => {
+        Input.inject.gamepadButton(2, button, 1);
+        step();
+        Input.inject.gamepadButton(2, button, 0);
+        step();
+      };
+      press(13); // d-pad down: the dead zone, +
+      expect(m.selected).toEqual({ row: 7, column: 1 });
+      press(0);
+      expect(setting(m, "Stick dead zone").value).toBe("20%");
+      press(14); // d-pad left: −
+      press(0);
+      press(0);
+      expect(setting(m, "Stick dead zone").value).toBe("10%");
+      expect(InputPlayers.get(0)!.accessibility.deadzone).toBe(0.1);
+
+      press(13); // the button row
+      press(15);
+      expect(m.selected).toEqual({ row: 8, column: 1 }); // Save
+      press(0);
+      await vi.waitFor(() => expect(m.status).toBe("Saved."));
+      InputPlayers.get(0)!.accessibility = {};
+      step();
+      expect(setting(m, "Stick dead zone").value).toBe("15%");
+      expect(await InputPlayers.get(0)!.loadBindings()).toBe(true);
+      step();
+      expect(setting(m, "Stick dead zone").value).toBe("10%");
+      expect(InputPlayers.get(0)!.accessibility).toMatchObject({ holdToToggle: ["jump"], repeat: { delay: 0.4, interval: 0.15, actions: ["jump"] }, deadzone: 0.1 });
+    });
+
+    it("shows its own words", () => {
+      const m = mapper(options);
+      Object.assign(m.text, { accessibility: "Barrierefreiheit", invertY: "{action}: Y umkehren", on: "An", off: "Aus", seconds: "{value} Sek.", percent: "{value} %" });
+      m.actionLabels = { look: "Umsehen" };
+      step();
+      expect(setting(m, "Umsehen: Y umkehren").value).toBe("Aus");
+      expect(setting(m, "Repeat delay").value).toBe("0.4 Sek.");
+      expect(setting(m, "Stick dead zone").value).toBe("15 %");
+      expect(texts(m.node)).toEqual(expect.arrayContaining(["Barrierefreiheit", "Aus"]));
+    });
   });
 });
