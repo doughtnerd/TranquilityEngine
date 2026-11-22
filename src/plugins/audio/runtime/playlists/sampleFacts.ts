@@ -1,5 +1,6 @@
 /**
- * What the playlist runtime reads of a sample's sidecar edits (ADR 0328) beyond the clip resolver's plan
+ * What the playlist runtime reads of a sample's edits (ADR 0328: its sidecar's, or a derived sample's resolved block,
+ * `sampleEdits`) beyond the clip resolver's plan
  * (`samplePlan`): its loops with their ids (clip overrides name them), its markers (Cue, Exit, Hit), its playable end and
  * its musical grid (`sample.tempo`, tempo map included) compiled with the music grid maths (`engine/audio/musicGrid.ts`),
  * so a sample's beats and bars are the same numbers a music segment's are.
@@ -11,7 +12,7 @@ import type { TempoMarker as GridTempoMarker } from "../../../../engine/audio/mu
 import { MUSIC_TICKS_PER_BEAT } from "../../../../engine/audio/musicPosition";
 import type { SampleEdits, SampleLoop, SampleMarker, SampleTempo } from "../../../../engine/audio/sample/types";
 import type { LoopBehaviour } from "../../../../engine/audio/playlist/types";
-import { Assets } from "../../../../engine/scene/Assets";
+import { sampleEdits } from "../clipResolver";
 import { warnOnce } from "../core/handle";
 import { playlistHost } from "./host";
 
@@ -50,7 +51,7 @@ const none = new Map<string, { length: number | null; facts: SampleFacts }>();
 /** `path`'s facts now. */
 export function sampleFacts(path: string): SampleFacts {
   let edits: SampleEdits | null = null;
-  try { edits = Assets.importSettings(path).sample ?? null; } catch { edits = null; }
+  try { edits = sampleEdits(path); } catch { edits = null; }
   const length = playlistHost().clipLength(path);
   const hit = edits ? cache.get(edits) : none.get(path);
   if (hit && hit.length === length) return hit.facts;
