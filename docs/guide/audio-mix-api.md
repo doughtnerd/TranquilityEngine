@@ -149,6 +149,8 @@ const where = await Audio.capture.save("boss-fight");
 | `mix` | `AudioMixDebug` | The live mix: `slots` (each bus's core slot and whether it is `live`, a `tombstone` or `free`), `monitorActive`, `metersPaused`, `loudnessLadderStep` (1 while the ladder has paused the meters), `busRecordsEarly`, `sidechainLate`, `liveRefused`, `liveDeferred`, `liveDeferredPending` and `ducking` (each rule's `target`, `trigger`, `mode` and current `gain`) |
 | `recorder` | `AudioRecorderDebug \| null` | The shared capture ring: `state`, `owners` (the Profiler panel, `Audio.capture` and the export's trigger each hold it), `bytes`, `segments`, `evicted`, `truncated`; `null` while no ring runs |
 
+The instance rows are the playlist runtime's (ADR 0329): `events` lists the playing playlist instances (`asset` is the playlist path) and `playlistTotals` the refused triggers, steals and late starts. `music` (ADR 0166's music player rows) is empty since playlists replaced music events; `musicTotals` still carries the music backend's own figures.
+
 ```ts
 const d = Audio.debug();
 console.log(d.cpu?.loadPermille, d.cpu?.hidden);

@@ -18,7 +18,7 @@ Timeline tracks:
 - **Ladder and voice cap**, **Ladder steps**: when the core shed work (HRTF, beds, zones, metering) to keep up, and each step.
 - **Bus levels** and **Bus gain**: each bus's level, and the gain factors on it.
 - **Loudness** and **Loudness target**: see below.
-- **Event instances**, **Parameters**, **State changes**, **Music state**, **Music transitions**: what [sound events](sound-events.md) and [interactive music](interactive-music.md) did.
+- **Event instances**, **Parameters**, **State changes**, **Music state**, **Music transitions**: what [playlists](playlists.md) and [interactive music](interactive-music.md) did.
 - **Markers**: text you or the editor dropped on the timeline.
 
 Tables under the timeline show the state **at the cursor**: voices (with the reason a voice is virtual, stolen or refused, and who stole it), buses (each bus's gain factors and their product), event instances and music. A name filter narrows all four. The voice table renders at most 64 rows and counts the rest.

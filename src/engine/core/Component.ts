@@ -165,22 +165,25 @@ export interface LifecycleHooks {
   /** A CharacterController or CharacterController2D on this node ran into a collider during `move` (ADR 0091): a ControllerColliderHit or ControllerColliderHit2D. */
   onControllerColliderHit?(hit: PhysicsControllerHit): void;
   /**
-   * A beat of the music an `AudioSource` on this node plays, called in the update phase just before `update`, on the frame
-   * whose window holds the beat's heard time (`e.heardIn` is in [0, one frame)). After a gap of more than one beat the
-   * beats coalesce into one call with `e.missed` set (ADR 0166). Defining the hook is the subscription. `e` is reused:
-   * read it during the call, don't keep it.
+   * A beat of the playlist an `AudioSource` on this node plays, when its playing entry has a tempo (a Sequence with a
+   * tempo, or a sample with one): delivered by the audio system (late update) on the first frame whose heard clock has
+   * passed it. After a gap of more than one beat the beats coalesce into one call with `e.missed` set (ADR 0166, 0329).
+   * Defining the hook is the subscription. `e` is reused: read it during the call, don't keep it.
    */
   onMusicBeat?(e: MusicEvent): void;
   /** The first beat of each bar of that music (`e.beat` is 1), delivered as `onMusicBeat` is. */
   onMusicBar?(e: MusicEvent): void;
-  /** A cue of that music (`e.cue` is its name); coalesced cues are named in `e.skippedCues`. */
+  /**
+   * A cue of ADR 0166's music events. Playlists report cues as markers (`onAudioMarker`), so it isn't called for them
+   * (ADR 0329); kept so old scripts still compile.
+   */
   onMusicCue?(e: MusicEvent): void;
   /**
    * A marker passing in the playlist an `AudioSource` on this node plays (ADR 0329): the Cue, Exit and Hit markers of its
    * samples and its sequences' `cue` and `exit` markers, every type (`e.type` says which), delivered by the audio system
    * (late update) on the first frame whose heard clock has passed it (`e.time` is exact). A playlist's beats and bars
-   * reach `onMusicBeat`/`onMusicBar` from there too, rather than before `update` as a music event's do. Defining the
-   * hook is the subscription; the handle's `onMarker(type, fn)` is the same for scripts that hold the handle.
+   * reach `onMusicBeat`/`onMusicBar` from there too. Defining the hook is the subscription; the handle's
+   * `onMarker(type, fn)` is the same for scripts that hold the handle.
    */
   onAudioMarker?(e: AudioMarkerEvent): void;
 }
