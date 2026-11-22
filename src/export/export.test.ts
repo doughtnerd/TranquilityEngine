@@ -38,6 +38,23 @@ describe("file selection", () => {
     expect(copies).toContain("levels/sample.json"); // only the root sample.json is the editor's
   });
 
+  it("ships a derived sample a playlist names, with its source audio file and that file's sidecar (ADR 0328)", async () => {
+    const derived = { format: "myco.sample@1", source: "audio/skid.wav", range: [0.8, 1.6], lineage: { kind: "snippet", parent: "audio/skid.wav", mode: "pin" } };
+    const playlist = { format: "myco.playlist@1", type: "clip", entries: [{ sample: "audio/snips/skid.brake.sample.json" }] };
+    const { copies, manifest } = await planWebBuild(source({
+      files: ["audio/skid.wav"],
+      jsonFiles: {
+        "audio/skid.wav.meta.json": JSON.stringify({ format: "myco.import@1", sample: { trim: [0, 2] } }),
+        "audio/snips/skid.brake.sample.json": JSON.stringify(derived),
+        "audio/brake.playlist.json": JSON.stringify(playlist),
+      },
+    }));
+    for (const path of ["audio/brake.playlist.json", "audio/snips/skid.brake.sample.json", "audio/skid.wav", "audio/skid.wav.meta.json"]) {
+      expect(copies, path).toContain(path);
+      expect(manifest.files, path).toContain(path);
+    }
+  });
+
   it("refuses an output folder inside the project, except in its hidden and build folders", () => {
     expect(isOutputInsideProject("C:\\games\\flappy", "C:\\games\\flappy\\build")).toBe(true);
     expect(isOutputInsideProject("C:\\games\\flappy", "c:/games/flappy")).toBe(true);
