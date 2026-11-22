@@ -299,3 +299,10 @@ layers ramp in from the previous point and never end; crossfades span the whole 
 optional region (start, end, fade-in and fade-out widths with shapes), like FMOD parameter-sheet instruments and Wwise
 blend-track ranges; unset regions derive from today's rules so old files keep their weights. The 1D lane draws
 draggable trapezoids. 2D blends unchanged.
+
+**D40. 2D blends get per-entry weight curves; fade shapes everywhere (coordinator, after an owner question).** 2D
+regions aren't the norm (Wwise/FMOD blend 1D per parameter and nest for 2D; Unity's 2D blend trees shape by point
+placement) and can't end without holes, so a 2D entry instead gets an optional weight curve (raw blend weight → gain)
+edited in the shared curve editor, with presets matching the fade shapes; the same curve is an advanced override on
+1D entries. Fade shapes (one shared type and evaluator) apply to every crossfade: Switch transitions, Queue continuous
+overlaps, loop crossfades, bridges, tails, 1D regions. Unset = today's equal-power behaviour.
