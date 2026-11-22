@@ -458,10 +458,12 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
       }
       settings.buses = buses.slice(0, MAX_BUSES);
     }
-    // ADR 0175: the bus capability rules (bus count, effects and compressors per bus) decide severity and message.
+    // ADR 0175: the bus capability rules (bus count, the insert cap, effects and compressors per bus) decide severity and message.
     for (const f of busRuleFindings(buses)) {
       const text = findingText(f.rule, f.bus < 0 ? "audio.buses" : `audio.buses[${rawIndex[f.bus]}]`);
       (BUS_RULES[f.rule].parse === "problem" ? problems : warnings).push(text);
+      // A problem drops the rest (ADR 0331: a bus keeps its first `insertsPerBus` effects).
+      if (f.rule === "insertsPerBus") buses[f.bus]!.effects.length = BUS_RULES.insertsPerBus.limit;
     }
   }
   const known = (name: unknown): name is string => typeof name === "string" && settings.buses.some((b) => b.name === name);

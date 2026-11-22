@@ -13,6 +13,8 @@ import { AUDIO_SERVICE } from "./core/service";
 import { AUDIO_SYSTEMS } from "./audioSystem";
 
 export { Audio, type OneShotOptions } from "./Audio";
+// ADR 0330: `Audio.snapshot(name)`'s handle.
+export type { AudioSnapshot } from "./Audio";
 // ADR 0166 §1 (Q2): the interactive music types (the engine's `musicTypes.ts`) and the `Calibration` namespace.
 export { Calibration } from "./music/calibration";
 export type { AudioLatency, CalibrationResult, GridPoint, GridSpec, MusicEvent, MusicHandle, MusicKind, MusicPositionAt, MusicSeekResult } from "../../../engine/audio/musicTypes";

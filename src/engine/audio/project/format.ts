@@ -20,6 +20,7 @@ import {
   type AudioMixJson, type AudioParseOptions, type AudioSettings, type BusSettings, type DuckingRule as RuntimeDuckingRule,
   type LoudnessTarget, type SnapshotSettings, type BusAutomation,
 } from "../settings";
+import { MAX_BUS_INSERTS } from "../busCapability";
 import { MAX_DB, MIN_DB, dbToGain } from "./gain";
 import { isCarrier, isShown, secondsOf, toBusEffect } from "./legacyEffects";
 import {
@@ -45,7 +46,8 @@ export const MIX_LIMITS = {
   vcas: 32,
   snapshots: 128,
   automation: 256,
-  effectsPerOwner: 16,
+  /** ADR 0331: a bus's or return's insert chain (`busCapability.ts`' declared rule). */
+  effectsPerOwner: MAX_BUS_INSERTS,
   /** A ducking rule's threshold, dBFS. */
   thresholdDb: [-80, 0],
   /** A ducking rule's amount, dB (0: no dip). */

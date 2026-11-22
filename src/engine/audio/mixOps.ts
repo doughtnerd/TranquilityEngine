@@ -230,7 +230,7 @@ export function opRefusal(a: AudioSettings, op: MixOp): string | null {
     case "addEffect":
       if (!busOf(a, op.bus)) return noBus(op.bus);
       if (!Number.isInteger(op.index)) return "An effect index must be a whole number.";
-      return effectRefusal(op.effect);
+      return effectRefusal(op.effect) ?? ruleRefusal(a, op); // ADR 0331: the insert cap
     case "removeEffect": {
       const b = busOf(a, op.bus);
       if (!b) return noBus(op.bus);

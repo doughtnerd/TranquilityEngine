@@ -3,7 +3,7 @@
 // `liveMixLoopback.test.ts`.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DRAG_RAMP_MS } from "../../../../engine/audio/mixer";
-import { MIX_OP_NAMES, opClass, type MixOp } from "../../../../engine/audio/mixOps";
+import { MIX_OP_NAMES, isProjectOp, opClass, type MixOp } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { BUS_SLOT_FLAGS_STRUCTURAL, DRAG_RAMP_MS as WIRE_DRAG_RAMP_MS, FADER_COALESCE_MS, Op, readBusSlot } from "../wire.generated";
 import { closeRecordingAudio, recordingAudio } from "../testing";
@@ -56,7 +56,8 @@ afterEach(closeRecordingAudio);
 
 describe("liveMix (Ma1)", () => {
   it("covers every op name, and the wire's DRAG_RAMP_MS is the mixer's", () => {
-    expect(new Set(OPS.map(([o]) => o.op))).toEqual(new Set(MIX_OP_NAMES));
+    // The mix model's own ops (ADR 0330) reach the core as the old ops they change (`mixer.apply`; `projectOps.test.ts`).
+    expect(new Set(OPS.map(([o]) => o.op))).toEqual(new Set(MIX_OP_NAMES.filter((n) => !isProjectOp({ op: n }))));
     expect(DRAG_RAMP_MS).toBe(WIRE_DRAG_RAMP_MS);
     const settings = parseAudioSettings(PROJECT).settings;
     for (const [op, cls] of OPS) expect(opClass(op, settings), op.op).toBe(cls);
