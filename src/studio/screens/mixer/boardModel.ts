@@ -8,7 +8,7 @@ import type { AudioProject, MixAutomation } from "../../../engine/audio/project/
 import type { GainInputs, LiveLanes } from "../../components/gainLanesModel";
 import { effectParamSpec, effectSpec } from "../../../engine/audio/effects/catalogue";
 import type { EffectType } from "../../../engine/audio/effects/types";
-import { testValueOf, type TestValues } from "./snapshotBlend";
+import { resolveSnapshots, startHolds, testValueOf, type TestValues } from "./snapshotBlend";
 import { editedSnapshot } from "./mixEdits";
 
 // --- automation at the test values ---------------------------------------------------------------------------------------
@@ -86,8 +86,21 @@ export function gainInputs(p: AudioProject, editing: string | null, solo: string
     }
     if (Object.keys(lanes).length > 0) live[owner.name] = lanes;
   }
+  return { buses: p.buses, returns: p.returns, vcas: p.vcas, snapshot: snapshotLane(p, editing, values), solo, live, master: p.buses[0]?.name };
+}
+
+/**
+ * The snapshot lane's offsets: the snapshot being edited (what you hear while you edit it), else the blend of the
+ * snapshots on with the test values (base mixes and matching conditions, in list order as their start order, by
+ * ADR 0330's rules), named after them ("Gameplay + Underwater"); null when none is on.
+ */
+export function snapshotLane(p: AudioProject, editing: string | null, values: TestValues): { name: string; buses: Record<string, number> } | null {
   const snap = editedSnapshot(p, editing);
-  return { buses: p.buses, returns: p.returns, vcas: p.vcas, snapshot: snap ? { name: snap.name, buses: snap.buses } : null, solo, live, master: p.buses[0]?.name };
+  if (snap) return { name: snap.name, buses: snap.buses };
+  const on = p.snapshots.filter((s) => startHolds(s.start, p.parameters, values));
+  if (on.length === 0) return null;
+  const { levels } = resolveSnapshots(on.map((snapshot) => ({ snapshot })));
+  return { name: on.map((s) => s.name).join(" + "), buses: { ...levels } };
 }
 
 /** A meter's peak in dBFS from a reading (null while silent or not running). */

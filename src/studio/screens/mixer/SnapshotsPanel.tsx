@@ -74,7 +74,15 @@ export function SnapshotsPanel(props: { session: MixerSession }) {
       select: () => pick(s.name, s.folder),
       activate: () => openTriggerDialog(session, s.name),
       menu: (x, y) => { pick(s.name, s.folder); setMenu({ x, y, key: snapKey(s.name) }); },
-      rename: ro ? null : { value: s.name, label: "Snapshot name", commit: (v) => { if (v !== s.name) session.commit(renameSnapshot(session.project.peek(), s.name, v), labelOn("Rename snapshot", s.name)) && session.editing.peek() === s.name && (session.editing.value = v); } },
+      rename: ro ? null : {
+        value: s.name,
+        label: "Snapshot name",
+        commit: (v) => {
+          if (v === s.name) return;
+          const wasEditing = session.editing.peek() === s.name;
+          if (session.commit(renameSnapshot(session.project.peek(), s.name, v), labelOn("Rename snapshot", s.name)) && wasEditing) session.editing.value = v;
+        },
+      },
       remove: ro ? undefined : () => remove(s.name),
     };
   };

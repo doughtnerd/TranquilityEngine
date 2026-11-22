@@ -3,7 +3,7 @@
 // `data-asset-document`, so the History panel and Ctrl+Z act on `audio.json` while a Mixer panel has the focus).
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import type { AudioProject } from "../../../engine/audio/project/types";
+import type { AudioProject, MixAutomation } from "../../../engine/audio/project/types";
 import { Meter } from "../../components/Meter";
 import { formatDb, parseDb } from "../../components/faderModel";
 import { automatableLanes, peakDb } from "./boardModel";
@@ -15,7 +15,7 @@ import type { MixerSession } from "./mixerScreen";
 export function automate(session: MixerSession, name: string, only?: string): void {
   const p = session.project.peek();
   const lanes = automatableLanes(p, name, only);
-  if (p.parameters.length === 0) return session.refuse(labelOn("Edit automation", name), "the project has no game parameters to drive it (add one in the Game parameters panel's project)");
+  if (p.parameters.length === 0) return session.refuse(labelOn("Edit automation", name), "the project has no game parameters to drive automation yet");
   openCurveEditor({
     title: `Automate ${name}`,
     lanes,
@@ -23,7 +23,7 @@ export function automate(session: MixerSession, name: string, only?: string): vo
     onApply(results) {
       let next: AudioProject = session.project.peek();
       for (const r of results) {
-        const step = setAutomation(next, { on: name, target: r.target as never }, r.lane);
+        const step = setAutomation(next, { on: name, target: r.target as MixAutomation["target"] }, r.lane);
         if ("refused" in step) return session.refuse(labelOn("Edit automation", name), step.refused);
         next = step.next;
       }

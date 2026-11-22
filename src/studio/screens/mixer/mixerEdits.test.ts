@@ -4,7 +4,7 @@ import type { AudioProject } from "../../../engine/audio/project/types";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import { setEffectOn, setEffectParam, removeEffect } from "../../components/effectChainModel";
 import { editSendLevel } from "../../components/mixRowsModel";
-import { automatedParams, gainInputs, levelAutomationDb, livePins, loudnessRows, togglePin } from "./boardModel";
+import { automatedParams, gainInputs, levelAutomationDb, livePins, loudnessRows, snapshotLane, togglePin } from "./boardModel";
 import type { EditResult } from "./busTree";
 import { createLiveMix, liveOps } from "./liveMix";
 import { addDucking, addSend, baseGhost, clearOffset, clearOverride, doubleDucks, editEffects, editSend, levelLabel, overridesOn, removeSend, setAutomation, setLevel, setMute, setTrigger, shownEffects, shownLevel } from "./mixEdits";
@@ -193,6 +193,12 @@ describe("board", () => {
     expect(b.lanes.find((l) => l.key === "automation")!.db).toBe(-3);
     expect(b.lanes.find((l) => l.key === "duck")!.db).toBeCloseTo(-6.02, 2);
     expect(gainBreakdown(gainInputs(p, null, "Music", {}), "UI")!.totalDb).toBe(-Infinity);
+  });
+  it("the snapshot lane blends the snapshots on with the test values when the base mix is edited", () => {
+    const p = mixerFixture();
+    expect(snapshotLane(p, null, {})).toEqual({ name: "Gameplay", buses: {} });
+    expect(snapshotLane(p, null, { depth: 5, health: 10 })).toEqual({ name: "Gameplay + Underwater + Low health", buses: { Ambience: -20, Music: -6, Footsteps: -12, Vehicles: -10 } });
+    expect(snapshotLane(p, "Pause menu", { depth: 5 })!.name).toBe("Pause menu");
   });
   it("loudness rows say — without readings and warn against the target", () => {
     expect(loudnessRows(null, null).map((r) => r.text)).toEqual(["—", "—", "—", "—", "—"]);
