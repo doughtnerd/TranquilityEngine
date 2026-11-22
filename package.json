@@ -18,6 +18,7 @@
     "export": "node src/export/cli.mjs",
     "nav:bake": "node src/nav-cli/cli.mjs",
     "rewrite": "node src/rewrite-cli/cli.mjs",
+    "audio:migrate": "node src/migrate-cli/cli.mjs",
     "test": "vitest run",
     "test:tools": "node --test tools/*.test.mjs",
     "test:stories": "vitest run --config vitest.stories.config.mts",
