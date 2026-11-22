@@ -1,17 +1,33 @@
-// ADR 0331 (ABI 4.5): instance submixes on the core backend. Main owns the pool: `settings.voices.submixes` slots (default
-// 32), clamped to the core's `SUBMIXES_MAX`. `open` gives an instance group a slot and sends its SUBMIX (group, output
-// bus, insert chain) before the instance's first PLAY, so the core routes the group's voices on that bus into the slot;
-// `close` frees it (SUBMIX with no effects) when the group is given back. A full pool refuses: the caller plays the
-// instance without its chain (the playlist runtime falls back to mapping filters and gain onto each voice), and the
-// refusal is warned once and marked in a running capture (a MARKER: the capture format has no submix kind yet).
+// ADR 0331 (ABI 4.5; levels 4.9): submixes on the core backend. Main owns the pool: `settings.voices.submixes` slots
+// (default 32), clamped to the core's `SUBMIXES_MAX`.
+//
+// - **An instance's own chain** (its root playlist's or sequence's): `open` gives instance group `group` a slot and sends
+//   its SUBMIX (group, output bus, insert chain) before the instance's first PLAY, so the core routes the group's voices
+//   on that bus into the slot.
+// - **A level's chain** (ABI 4.9: a nested playlist's, a sequence track's or a clip's): `openLevel` gives the level a
+//   slot of the instance's own, with no group (its voices name it with a ROUTE, `PlayRequest.submix`), feeding the slot
+//   of the level above it on the same bus (`parent`), else its bus. A level is keyed within its instance, so playing it
+//   again (a Queue's next pick of the same entry, a sequence clip on the next pass of a loop) reuses its slot and its
+//   state (a delay's echoes carry on), as an FMOD event instance's track and instrument effects do.
+// - **Close and tails.** `close(group)` runs when the instance's group is given back (its voices have ended). A slot whose
+//   chain has no tail to speak of (filters, EQ, gain, dynamics, saturation) is freed at once. A slot with a delay, a
+//   reverb, a chorus or a pitch or formant shifter is let go first (SUBMIX with group 0: it takes no new voices, its
+//   chain keeps running) and freed once the instance's tails have rung out (`tailSeconds`, summed over its slots, as a
+//   level's output runs through the levels above it), checked whenever the pool is asked for a slot. The core stops
+//   running a slot whose input and output have been silent for 32 quanta, so a ringing slot costs nothing once quiet.
+// - **A full pool** first frees the ringing slot nearest its end (a tail is the least of what plays), then refuses: the
+//   caller plays the instance or level without its chain (the playlist runtime maps filters and gain onto each voice),
+//   warned once and marked in a running capture (a MARKER: the capture format has no submix kind yet).
 //
 // The chain is the catalogue's effects (`effects/catalogue.ts`) as the core's `SUBMIX_FX_*` kinds, parameters in the
 // catalogue's order with its defaults filled in (`effectKinds.ts`, the one table the bus chains share). Since ABI 4.6
 // the core runs every type `CORE_EFFECT_TYPES` lists but the sidechain compressor (a bus effect: an instance has no key
 // bus); any other kind passes through. Disabled effects are sent bypassed.
 //
-// Replay: after a rebuild's RESET the slots in use are sent again (session phase `replayHeader`, before the voices), and
-// a new bus tree re-sends them with their buses' new indices (`busesReset`).
+// Replay: after a rebuild's RESET the slots in use are sent again (session phase `replayHeader`, before the voices; a
+// voice's ROUTE follows its replayed PLAY, `coreAutomation.replayVoice`), and a new bus tree re-sends them with their
+// buses' new indices (`busesReset`).
+import { effectParamValue } from "../../../../engine/audio/effects/catalogue";
 import type { Effect } from "../../../../engine/audio/effects/types";
 import { SUBMIX_EFFECTS_MAX, SUBMIX_FIXED_END, SUBMIX_EFFECTS_FIXED_END, SUBMIX_FX_ON, SUBMIXES_MAX, ASAP, writeSubmix, type SubmixEffects } from "../wire.generated";
 import { FX_KINDS, fxKind, fxParams } from "./effectKinds";
@@ -19,12 +35,18 @@ import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
 import type { CommandWriter } from "./commandWriter";
 import type { ReplayBuilder } from "./replay";
 import type { SendGate } from "./session";
+import type { SubmixLevel } from "../backend";
 
 /** The default pool when the settings name none (ADR 0331). */
 export const DEFAULT_SUBMIXES = 32;
 
 /** The core's kind for each catalogue effect type it runs (`effectKinds.ts`; any other type is sent as passthrough, 0). */
 export const SUBMIX_KINDS: Readonly<Record<string, number>> = FX_KINDS;
+
+/** A chain whose tail is shorter than this is freed at once on close (seconds). */
+const TAIL_MIN = 0.1;
+/** The longest an instance's slots are kept ringing after its voices end (seconds). */
+const TAIL_MAX = 30;
 
 /** What the pool needs of the core backend. */
 export interface CoreSubmixesHost {
@@ -35,12 +57,27 @@ export interface CoreSubmixesHost {
   busIndex(name: string): number;
   profile(): ProfileSink;
   warnOnce(key: string, message: string): void;
+  /** Seconds, for tails (absent: `performance.now()`). */
+  now?(): number;
 }
 
 interface Slot {
+  /** The instance group that owns it (frees it on `close`). */
+  owner: number;
+  /** The group the core routes into it (an instance's own chain); 0 for a level (ROUTE only) or a ringing tail. */
   group: number;
+  /** The level's key within its instance (`""` for the instance's own chain). */
+  key: string;
   bus: string;
+  /** The slot it feeds, or null for its bus. */
+  parent: number | null;
   effects: SubmixEffects[];
+  /** Seconds its chain rings on after its input stops (`tailSeconds`). */
+  tail: number;
+  /** While ringing out after its instance ended: when it is freed (seconds); else NaN. */
+  freeAt: number;
+  /** The close it rings out from (the slots of one instance are freed together). */
+  ring: number;
 }
 
 /** The catalogue effect `e` as a SUBMIX effect: its kind, bypass flag and parameters in the catalogue's order. */
@@ -48,12 +85,47 @@ export function submixEffect(e: Effect): SubmixEffects {
   return { type: fxKind(e.type), flags: e.on ? SUBMIX_FX_ON : 0, p: fxParams(e.type, e.params, 8) };
 }
 
-/** ADR 0331: the core backend's instance submix pool. */
+/**
+ * How long `effects` ring on after their input stops, seconds: a delay until its feedback has fallen 80 dB, a reverb
+ * 1.5× its decay (its RT60, to about −90 dB), a chorus its longest delay, a pitch or formant shifter its grain; filters,
+ * EQ, gain, saturation and dynamics none to speak of (a few milliseconds).
+ */
+function tailSeconds(effects: readonly Effect[]): number {
+  let t = 0;
+  for (const e of effects) {
+    if (!e.on) continue;
+    const v = (name: string, fallback: number): number => {
+      const x = effectParamValue(e, name);
+      return x !== undefined && Number.isFinite(x) ? x : fallback;
+    };
+    switch (e.type) {
+      case "delay": {
+        const time = Math.max(0, v("time", 250)) / 1000;
+        const fb = Math.min(0.95, Math.max(0, v("feedback", 30) / 100));
+        t += fb > 1e-3 ? time * (1 + Math.log(1e-4) / Math.log(fb)) : time;
+        break;
+      }
+      case "reverb": t += 1.5 * Math.max(0.1, v("decay", 2)); break;
+      case "chorus": t += 0.05; break;
+      case "pitchShift": case "formantShift": t += 0.1; break;
+      default: break;
+    }
+  }
+  return Math.min(TAIL_MAX, t);
+}
+
+/** ADR 0331: the core backend's submix pool (instances' and their levels'). */
 export class CoreSubmixes {
   private readonly slots: (Slot | null)[] = new Array(SUBMIXES_MAX).fill(null);
+  /** Instance group → the slot of its own chain. */
   private readonly byGroup = new Map<number, number>();
+  /** `${group} ${key}` → a level's slot. */
+  private readonly levels = new Map<string, number>();
+  /** The handle of each slot (one object a slot, so voices compare equal). */
+  private readonly handles: SubmixLevel[] = Array.from({ length: SUBMIXES_MAX }, (_, slot) => Object.freeze({ slot }));
   /** Refusals since start (debug). */
   refused = 0;
+  private rings = 0;
 
   constructor(private readonly host: CoreSubmixesHost) {}
 
@@ -64,9 +136,11 @@ export class CoreSubmixes {
     return Math.max(0, Math.min(SUBMIXES_MAX, want));
   }
 
-  /** Slots in use. */
+  /** Slots in use (ringing tails included). */
   get size(): number {
-    return this.byGroup.size;
+    let n = 0;
+    for (const s of this.slots) if (s) n++;
+    return n;
   }
 
   /**
@@ -75,46 +149,88 @@ export class CoreSubmixes {
    * instance in the warning and the capture's marker.
    */
   open(group: number, bus: string, effects: readonly Effect[], where: string): boolean {
-    if (!Number.isInteger(group) || group < 1 || group > 1024) return false;
+    if (!validGroup(group)) return false;
     let index = this.byGroup.get(group);
     if (index === undefined) {
-      const cap = this.capacity;
-      index = this.slots.findIndex((s, i) => s === null && i < cap);
-      if (index < 0) {
-        this.refused++;
-        this.host.warnOnce(`submix-full:${where}`, `audio: "${where}" plays without its effects: every instance submix (settings.voices.submixes: ${cap}) is in use (ADR 0331).`);
-        const profile = this.host.profile();
-        if (profile !== NULL_PROFILE_SINK) profile.marker(`submix refused: ${where} (pool of ${cap} full)`);
-        return false;
-      }
+      index = this.take(where);
+      if (index < 0) return false;
       this.byGroup.set(group, index);
     }
-    const slot: Slot = { group, bus, effects: effects.slice(0, SUBMIX_EFFECTS_MAX).map(submixEffect) };
-    if (effects.length > SUBMIX_EFFECTS_MAX) this.host.warnOnce(`submix-effects:${where}`, `audio: "${where}" has ${effects.length} effects; an instance's chain runs the first ${SUBMIX_EFFECTS_MAX}.`);
-    this.slots[index] = slot;
-    this.send(index, slot);
+    this.configure(index, { owner: group, group, key: "", bus, parent: null, effects: this.chain(effects, where), tail: tailSeconds(effects), freeAt: Number.NaN, ring: 0 });
     return true;
   }
 
-  /** True when instance `group` holds a submix. */
+  /** The level instance `group`'s own submix is, or null. */
+  levelOf(group: number): SubmixLevel | null {
+    const index = this.byGroup.get(group);
+    return index === undefined ? null : this.handles[index]!;
+  }
+
+  /**
+   * ADR 0331 levels: a submix of instance `group`'s own for its level `key` (a nested playlist, a sequence track, a clip),
+   * feeding `parent` (null: `bus`) and running `effects`; the same key gets the same slot back (reconfigured). Null when
+   * the pool is full (warned once).
+   */
+  openLevel(group: number, key: string, bus: string, effects: readonly Effect[], parent: SubmixLevel | null, where: string): SubmixLevel | null {
+    if (!validGroup(group)) return null;
+    const k = `${group} ${key}`;
+    let index = this.levels.get(k);
+    if (index === undefined) {
+      index = this.take(where);
+      if (index < 0) return null;
+      this.levels.set(k, index);
+    }
+    const up = parent && parent.slot !== index && this.slots[parent.slot] ? parent.slot : null;
+    this.configure(index, { owner: group, group: 0, key, bus, parent: up, effects: this.chain(effects, where), tail: tailSeconds(effects), freeAt: Number.NaN, ring: 0 });
+    return this.handles[index]!;
+  }
+
+  /** True when instance `group` holds a submix of its own. */
   has(group: number): boolean {
     return this.byGroup.has(group);
   }
 
-  /** Frees instance `group`'s submix (its voices have ended); nothing when it has none. */
+  /**
+   * Instance `group`'s voices have ended: its slots take no more voices, and each is freed once the instance's tails have
+   * rung out (at once when they have none).
+   */
   close(group: number): void {
-    const index = this.byGroup.get(group);
-    if (index === undefined) return;
     this.byGroup.delete(group);
-    this.slots[index] = null;
-    if (this.host.session.mayQueue) this.host.writer.submix(index, 0, 0, []);
+    let tail = 0;
+    const owned: number[] = [];
+    this.slots.forEach((s, i) => {
+      if (s && s.owner === group && Number.isNaN(s.freeAt)) {
+        owned.push(i);
+        tail += s.tail;
+        this.levels.delete(`${group} ${s.key}`);
+      }
+    });
+    if (owned.length === 0) return;
+    tail = Math.min(TAIL_MAX, tail);
+    const now = this.now();
+    const ring = ++this.rings;
+    for (const i of owned) {
+      const s = this.slots[i]!;
+      if (tail < TAIL_MIN) {
+        this.free(i);
+        continue;
+      }
+      // Rings out: no group (a new instance may take it), the same chain and parent.
+      s.freeAt = now + tail;
+      s.ring = ring;
+      s.owner = 0;
+      if (s.group !== 0) {
+        s.group = 0;
+        this.send(i, s);
+      }
+    }
   }
 
   /** The header REPLAY (after RESET): every slot in use again. */
   replayHeader(b: ReplayBuilder): void {
     this.slots.forEach((s, index) => {
       if (!s) return;
-      const rec = { voiceId: index, frameOffset: ASAP, group: s.group, bus: this.busIndex(s.bus), effects: s.effects };
+      const rec = { voiceId: index, frameOffset: ASAP, group: s.group, bus: this.busIndex(s.bus), parent: s.parent === null ? 0 : s.parent + 1, reserved: 0, effects: s.effects };
       b.record(SUBMIX_FIXED_END + SUBMIX_EFFECTS_FIXED_END * s.effects.length, (view, off) => writeSubmix(view, off, rec));
     });
   }
@@ -128,14 +244,61 @@ export class CoreSubmixes {
   clear(): void {
     this.slots.fill(null);
     this.byGroup.clear();
+    this.levels.clear();
+  }
+
+  /** A free slot within the pool (after freeing tails that have rung out, then the ringing one nearest its end); -1 refuses. */
+  private take(where: string): number {
+    const cap = this.capacity;
+    const now = this.now();
+    this.slots.forEach((s, i) => s && s.freeAt <= now && this.free(i));
+    let ringing = -1;
+    for (let i = 0; i < cap; i++) {
+      const s = this.slots[i];
+      if (!s) return i;
+      if (!Number.isNaN(s.freeAt) && (ringing < 0 || s.freeAt < this.slots[ringing]!.freeAt)) ringing = i;
+    }
+    if (ringing >= 0) {
+      // The whole instance's ringing slots go together (a level must not feed a slot another instance takes).
+      const ring = this.slots[ringing]!.ring;
+      this.slots.forEach((s, i) => s && !Number.isNaN(s.freeAt) && s.ring === ring && this.free(i));
+      return ringing;
+    }
+    this.refused++;
+    this.host.warnOnce("submix-full", `audio: "${where}" plays without its effects: every submix (settings.voices.submixes: ${cap}) is in use (ADR 0331). Raise the pool or use fewer playlist, track and clip effect chains at once; this is warned once.`);
+    const profile = this.host.profile();
+    if (profile !== NULL_PROFILE_SINK) profile.marker(`submix refused: ${where} (pool of ${cap} full)`);
+    return -1;
+  }
+
+  private chain(effects: readonly Effect[], where: string): SubmixEffects[] {
+    if (effects.length > SUBMIX_EFFECTS_MAX) this.host.warnOnce(`submix-effects:${where}`, `audio: "${where}" has ${effects.length} effects; a submix's chain runs the first ${SUBMIX_EFFECTS_MAX}.`);
+    return effects.slice(0, SUBMIX_EFFECTS_MAX).map(submixEffect);
+  }
+
+  private configure(index: number, slot: Slot): void {
+    this.slots[index] = slot;
+    this.send(index, slot);
+  }
+
+  private free(index: number): void {
+    if (!this.slots[index]) return;
+    this.slots[index] = null;
+    if (this.host.session.mayQueue) this.host.writer.submix(index, 0, 0, []);
   }
 
   private send(index: number, s: Slot): void {
-    if (this.host.session.mayQueue) this.host.writer.submix(index, s.group, this.busIndex(s.bus), s.effects);
+    if (this.host.session.mayQueue) this.host.writer.submix(index, s.group, this.busIndex(s.bus), s.effects, s.parent);
   }
 
   private busIndex(name: string): number {
     const b = this.host.busIndex(name);
     return b >= 0 ? b : 0;
   }
+
+  private now(): number {
+    return this.host.now ? this.host.now() : performance.now() / 1000;
+  }
 }
+
+const validGroup = (group: number): boolean => Number.isInteger(group) && group >= 1 && group <= 1024;

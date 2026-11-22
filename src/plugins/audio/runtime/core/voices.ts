@@ -257,6 +257,8 @@ export class CoreVoices {
     const i = id & 0xffff;
     t.clip[i] = clip;
     t.group[i] = group;
+    // ADR 0331 levels (ABI 4.9): the voice's playlist level's submix, named by a ROUTE right after its PLAY.
+    t.submix[i] = req.submix && Number.isInteger(req.submix.slot) && req.submix.slot >= 0 && req.submix.slot < 255 ? req.submix.slot + 1 : 0;
     this.owners[i] = req.owner ?? null;
     t.volume[i] = req.volume !== undefined && Number.isFinite(req.volume) ? Math.max(0, req.volume) : 1;
     this.gainApplied[i] = req.ambisonic === true && !stream ? ambisonicImportGain(req.path) : 1;
@@ -556,6 +558,8 @@ export class CoreVoices {
     host.playheads.start(i, stamp ?? clockMap.framesNow(), a.startOffsetFrames);
     // ADR 0158: the voice's bindings and loop, right behind its PLAY.
     host.automation.onPlaySent(id, i, stamp);
+    // ADR 0331 levels (ABI 4.9): into its playlist level's submix (applies on arrival, like the bindings).
+    if (t.submix[i]! > 0) host.writer.route(id, t.submix[i]! - 1);
     // ADR 0162 (C3): its SET_VOICE_FX at the same frame, when mixed and non-default.
     host.voiceFx.onPlay(i, stamp);
     // A3.7: paused before it reached the core (locked, or its clip loading): it waits there, paused, until resumed.

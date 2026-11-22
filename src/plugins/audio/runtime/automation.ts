@@ -12,6 +12,7 @@ import { evalCurve, type Curve } from "../../../engine/core/curve";
 import { VOICE_LOOPS_MAX } from "./wire.generated";
 import { mixer } from "../../../engine/audio/mixer";
 import type { AudioVoice } from "./backend";
+import type { FadeShape } from "../../../engine/audio/playlist/types";
 import { warnOnce } from "./core/handle";
 
 /**
@@ -48,8 +49,12 @@ export interface VoiceLoop {
   start: number;
   end: number;
   direction: "forward" | "pingPong" | "backward";
-  /** The seam's equal-power crossfade (and a hold point's fades), seconds. */
+  /** The seam's crossfade (and a hold point's fades), seconds. */
   crossfade: number;
+  /** ADR 0336 (ABI 4.9): the seam crossfade's shape (also a jump exit's and a re-entry's). Absent: equalPower. */
+  crossfadeShape?: FadeShape;
+  /** ADR 0336 (ABI 4.9): the exit crossfade's shape. Absent: equalPower. */
+  exitShape?: FadeShape;
   /** 0 endless; else passes in all, the first included. */
   count: number;
   /** `held`: until the voice's key-off (`setLoop(voice, 0, 0, false)`); `parameter`: while `param` is `op` `threshold`. */
@@ -80,6 +85,12 @@ export interface Binding {
    * the grid point (`evaluateQuantized`) and stamps an in-voice ramp (`music/stems.ts` `quantizedRamp`).
    */
   quantize?: "beat" | "bar";
+  /**
+   * ADR 0332 (ABI 4.9): for a time parameter, seconds added to it before the curve reads it: the binding's time origin
+   * (a lane keyed on its playlist's start, read by a voice that started `offset` seconds later). Absent: 0. The core
+   * evaluates it, so one curve serves every voice whatever its start (no shifted copy per voice).
+   */
+  offset?: number;
 }
 
 /** R6: the seconds of the stamped in-voice ramp a quantised binding makes (api-and-models §2.3: 20 ms). */
@@ -169,7 +180,9 @@ export function evaluate(bindings: readonly Binding[], curves: ReadonlyMap<numbe
   let gain = 1, pitch = 1, lowpass = LOWPASS_OFF, highpass = HIGHPASS_OFF, pan = 0;
   for (const b of bindings) {
     // A curve id that was never defined is the empty curve (0), as in the core's table.
-    const y = evalCurve(curves.get(b.curve) ?? [], read(b.param));
+    // ABI 4.9: a time binding reads its time origin's offset on (as the core does).
+    const x = read(b.param) + (b.param.time !== undefined && b.offset !== undefined && Number.isFinite(b.offset) ? b.offset : 0);
+    const y = evalCurve(curves.get(b.curve) ?? [], x);
     if (b.target === AutoTarget.Volume) gain *= Math.max(0, y);
     else if (b.target === AutoTarget.Pitch) pitch *= y > 0 ? y : 1;
     else if (b.target === AutoTarget.Lowpass) lowpass = Math.min(lowpass, Math.max(10, y));
