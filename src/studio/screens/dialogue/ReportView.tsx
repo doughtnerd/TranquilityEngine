@@ -17,6 +17,9 @@ export interface ReportViewProps {
   onImportScript(text: string, name: string): void;
   onApplyScript(remove: boolean): void;
   onCancelScript(): void;
+  /** Lines still holding 0340's retired `text` (0343 §1), and moving them into the string tables. */
+  readonly oldText?: number;
+  onMoveSubtitles?(): void;
 }
 
 function Keys(props: { label: string; keys: readonly string[] }) {
@@ -76,6 +79,12 @@ export function ReportView(props: ReportViewProps) {
             }} />
         </label>
       </div>
+      {!!props.oldText && (
+        <div class="dl-banner" role="note" aria-label="Subtitles in line tables">
+          <span>{props.oldText} line{props.oldText === 1 ? " keeps its" : "s keep their"} subtitles in the line table, where they aren't shown (ADR 0343).</span>
+          {props.onMoveSubtitles && <button disabled={props.readOnly} onClick={props.onMoveSubtitles}>Move subtitles to the string table</button>}
+        </div>
+      )}
       {props.pending && <ScriptDiffView diff={props.pending} readOnly={props.readOnly} onApply={props.onApplyScript} onCancel={props.onCancelScript} />}
       <table class="dl-table" aria-label="Lines per language">
         <thead><tr><th scope="col">Language</th><th scope="col">Recorded</th><th scope="col">Fallback</th><th scope="col">Missing</th><th scope="col">Mismatch</th><th scope="col">Script changed</th><th scope="col">Reading speed</th></tr></thead>

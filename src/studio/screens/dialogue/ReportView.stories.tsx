@@ -30,6 +30,8 @@ function Demo() {
         onImportScript={(text) => setPending(readScriptCsv(data, text))}
         onApplyScript={(remove) => { setSaid(`applied${remove ? " with removal" : ""}`); setPending(null); }}
         onCancelScript={() => setPending(null)}
+        oldText={said === "moved" ? 0 : 2}
+        onMoveSubtitles={() => setSaid("moved")}
       />
       <p role="status">{said}</p>
     </div>
@@ -59,5 +61,10 @@ export const Report: StoryObj = {
     await userEvent.click(c.getByRole("button", { name: "Apply" }));
     await waitFor(() => expect(c.queryByRole("region", { name: "Script import" })).toBeNull());
     await expect(c.getByRole("status")).toHaveTextContent("applied");
+
+    // 0343 §1: subtitles left in a line table are moved into the string table.
+    await expect(c.getByRole("note", { name: "Subtitles in line tables" })).toHaveTextContent("2 lines keep their subtitles");
+    await userEvent.click(c.getByRole("button", { name: "Move subtitles to the string table" }));
+    await waitFor(() => expect(c.queryByRole("note", { name: "Subtitles in line tables" })).toBeNull());
   },
 };

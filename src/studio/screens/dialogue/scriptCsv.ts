@@ -123,6 +123,35 @@ function overlay(data: DialogueData, edits: Map<string, DocEdit>): DialogueData 
   };
 }
 
+/** Lines still holding 0340's retired `text` (0343 §1: "Move subtitles to the string table" moves them). */
+export const linesWithOldText = (data: DialogueData): LineRef[] => allLines(data).filter((r) => r.line.text !== undefined);
+
+/**
+ * 0343 §1's fix: every retired `text` moved into the string tables (the reference language's into the table, others
+ * into translations, a string already there kept) and removed from the line tables. One edit per document.
+ */
+export function moveSubtitles(data: DialogueData): { edits: DocEdit[]; problems: string[] } {
+  const edits = new Map<string, DocEdit>();
+  const problems: string[] = [];
+  const refs = linesWithOldText(data);
+  const order = (codes: string[]) => codes.sort((a, b) => (a === data.languages.reference ? -1 : b === data.languages.reference ? 1 : 0));
+  for (const ref of refs) {
+    for (const code of order(Object.keys(ref.line.text!))) {
+      const view = overlay(data, edits);
+      const now = findLine(view, ref.line.key)!;
+      if (textIn(view, now, code) !== null) continue; // the string table already has it
+      const r = textEdit(view, now, code, ref.line.text![code]);
+      if ("refused" in r) { problems.push(`${ref.line.key} (${code}): ${r.refused}`); continue; }
+      edits.set(r.next.path, r.next);
+    }
+  }
+  for (const doc of data.tables) {
+    if (!doc.table.lines.some((l) => l.text !== undefined)) continue;
+    edits.set(doc.path, { kind: "lines", path: doc.path, next: { ...doc.table, lines: doc.table.lines.map(({ text: _old, ...rest }) => rest) } });
+  }
+  return { edits: [...edits.values()], problems };
+}
+
 /**
  * The document edits that apply `diff`: rows added and changed (speaker, notes, text through the string tables, the
  * reference language first so translations are made from it) and, with `remove`, rows removed. One edit per document.

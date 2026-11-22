@@ -22,7 +22,7 @@ import {
   setSubtitled, setTags, textEdit, usedKeys,
 } from "./linesModel";
 import { dialogueReport, reportCsv } from "./reportModel";
-import { applyScript, readScriptCsv, scriptCsv } from "./scriptCsv";
+import { applyScript, linesWithOldText, moveSubtitles, readScriptCsv, scriptCsv } from "./scriptCsv";
 import { duckMusicUnder, duckOffer, languageFiles, unnormalised, VOICE_DUCK } from "./voiceMix";
 
 const next = <T,>(r: { next: T } | { refused: string }): T => {
@@ -153,6 +153,23 @@ describe("CSV", () => {
     expect(keep.edits).toHaveLength(3); // one per document
     const removing = applyScript(data, diff, { remove: true }).edits.find((e) => e.kind === "lines")!;
     expect(removing.kind === "lines" && removing.next.lines.map((l) => l.key)).not.toContain("breath_03");
+  });
+});
+
+describe("moving retired subtitles (ADR 0343 §1)", () => {
+  it("moves line-table text into the string table and translations, keeping strings already there", () => {
+    const table = fixtureTable();
+    table.lines[1].text = { en: "Old English.", fr: "Vieux français." }; // intro_02: en in the table already
+    table.lines[2].text = { fr: "Halte !" }; // guard_01
+    const data = fixtureData({ table, strings: fixtureStrings(), french: null });
+    expect(linesWithOldText(data).map((r) => r.line.key)).toEqual(["intro_02", "guard_01"]);
+    const { edits, problems } = moveSubtitles(data);
+    expect(problems).toEqual([]);
+    const fr = edits.find((e) => e.kind === "translation")!;
+    expect(fr.kind === "translation" && Object.fromEntries(Object.entries(fr.next.strings).map(([k, v]) => [k, v.text]))).toEqual({ intro_02: "Vieux français.", guard_01: "Halte !" });
+    expect(edits.some((e) => e.kind === "strings")).toBe(false); // the English text was there
+    const lines = edits.find((e) => e.kind === "lines")!;
+    expect(lines.kind === "lines" && lines.next.lines.every((l) => l.text === undefined)).toBe(true);
   });
 });
 

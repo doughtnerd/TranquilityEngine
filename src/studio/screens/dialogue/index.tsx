@@ -58,7 +58,7 @@ import {
 import { LinesView } from "./LinesView";
 import { dialogueReport, reportCsv } from "./reportModel";
 import { ReportView } from "./ReportView";
-import { applyScript, readScriptCsv, scriptCsv } from "./scriptCsv";
+import { applyScript, linesWithOldText, moveSubtitles, readScriptCsv, scriptCsv } from "./scriptCsv";
 import { duckMusicUnder, duckOffer, tableOutput, unnormalised } from "./voiceMix";
 import "../samples/samples.css";
 import "./dialogue.css";
@@ -357,6 +357,12 @@ function ReportTab(s: Screen) {
         status.value = { kind: problems.length ? "error" : "info", text: `Script imported into ${edits.length} file${edits.length === 1 ? "" : "s"}${problems.length ? `; ${problems.length} skipped (${problems[0]})` : ""}.` };
       }}
       onCancelScript={() => (pendingScript.value = null)}
+      oldText={linesWithOldText(s.data).length}
+      onMoveSubtitles={() => {
+        const { edits, problems } = moveSubtitles(s.data);
+        for (const e of edits) applyDocEdit(s.project, e, "Move subtitles to the string table");
+        status.value = { kind: problems.length ? "error" : "info", text: `Moved subtitles in ${edits.length} file${edits.length === 1 ? "" : "s"}${problems.length ? `; ${problems.length} not (${problems[0]})` : ""}.` };
+      }}
     />
   );
 }
