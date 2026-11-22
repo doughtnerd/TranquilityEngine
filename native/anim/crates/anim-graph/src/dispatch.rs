@@ -105,10 +105,32 @@ mod tests {
 
     #[test]
     fn every_family_reports_unknown_kinds() {
-        for family in Family::ALL {
-            let mut cx = EvalContext::new();
-            let status = dispatch(&mut cx, family, u16::MAX, NodeData { params: &[] });
-            assert_eq!(status, NodeStatus::UnknownKind, "{family:?}");
-        }
+        // Through the program builder: a node of each family with a kind none has is counted.
+        use anim_format::graph::{AnimGraph, AnimGraphView, Node};
+        use anim_format::NONE;
+        let graph = AnimGraph {
+            name: NONE,
+            output: 0,
+            skeleton: NONE,
+            strings: Vec::new(),
+            nodes: Family::ALL
+                .iter()
+                .map(|f| Node {
+                    family: f.id(),
+                    kind: u16::MAX,
+                    inputs_first: 0,
+                    inputs_count: 0,
+                    params_first: 0,
+                    params_count: 0,
+                    name: NONE,
+                })
+                .collect(),
+            ..AnimGraph::default()
+        };
+        let bytes = graph.write().unwrap();
+        let program = crate::eval::Program::from_view(&AnimGraphView::parse(&bytes).unwrap()).unwrap();
+        assert_eq!(program.unknown_nodes(), Family::ALL.len() as u32);
+        let _ = (dispatch, NodeStatus::Done, core::mem::size_of::<EvalContext<'_>>());
+        let _: Option<NodeData<'_>> = None;
     }
 }
