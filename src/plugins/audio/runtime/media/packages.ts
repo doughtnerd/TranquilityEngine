@@ -276,9 +276,10 @@ function packHostFor(): AudioPacks | null | Promise<AudioPacks | null> {
   return b.packs ?? null;
 }
 
-function emit(name: string, event: ProfilePackageEvent, bytes: number): void {
+/** A `PKG` capture event; `memoryBytes` (loaded and unload) is what the package holds resident (the Profiler's memory track). */
+function emit(name: string, event: ProfilePackageEvent, bytes: number, memoryBytes?: number): void {
   const sink = taps.sink;
-  if (sink !== NULL_PROFILE_SINK) sink.audioPackage?.(name, event, bytes);
+  if (sink !== NULL_PROFILE_SINK) sink.audioPackage?.(name, event, bytes, memoryBytes);
 }
 
 /** The runtime memory of a package entry (ADR 0337 §3; `load: "compressed"` counts its bytes, as A4 will hold them). */
@@ -420,6 +421,7 @@ function release(p: Pkg, finish: boolean): void {
   p.generation++;
   const was = p.state;
   const bytes = definitions().byName.get(p.name)?.bytes ?? 0;
+  const held = memoryOf(p);
   p.state = "unloaded";
   p.progress = 0;
   p.memoryBytes = 0;
@@ -452,7 +454,7 @@ function release(p: Pkg, finish: boolean): void {
   // W12: the package leaves the decoder once its finishing voices have ended (at once without any).
   if (packHost && packId !== null) packReleases.push({ host: packHost, pack: packId, paths: p.paths.filter((path) => finishing.has(path)) });
   p.paths = [];
-  if (was === "loaded" || was === "loading") emit(p.name, "unload", bytes);
+  if (was === "loaded" || was === "loading") emit(p.name, "unload", bytes, held);
   sweepFinishing();
 }
 
@@ -531,7 +533,7 @@ function startLoad(p: Pkg, def: Definition): Promise<void> {
         p.progress = 1;
         p.state = "loaded";
         p.loading = null;
-        emit(p.name, "loaded", def.bytes);
+        emit(p.name, "loaded", def.bytes, memoryOf(p));
         return;
       }
       for (const e of read.pack.toc.entries) {
@@ -556,7 +558,7 @@ function startLoad(p: Pkg, def: Definition): Promise<void> {
     p.progress = 1;
     p.state = "loaded";
     p.loading = null;
-    emit(p.name, "loaded", def.bytes);
+    emit(p.name, "loaded", def.bytes, memoryOf(p));
   };
   p.loading = run().catch((err: unknown) => {
     if (p.generation !== generation) return;
