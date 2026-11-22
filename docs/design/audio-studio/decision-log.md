@@ -447,3 +447,12 @@ loads are owned by the active World and dropped at Play stop. Public API added (
 `Audio.packages`, `AudioPackageLoader`, `AudioPackage`, reason `notLoaded`, `Audio.debug().packages`. Coordinator
 fixes found by the merge: `npm run build:player` failed the lazy-only rule (the take service from W4/W10 sat in the
 capture folder; now exempt with a reason), and the export CLI couldn't resolve vite's bin.
+
+**D58. Core codecs (W12-A4/A7, merged).** ADPCM on the core measures 49.9 dB SNR; Opus 38.3 dB from a 64 kb/s
+fixture. Choices to review: ADPCM cursor memory always laid out (2,176 B per mixed voice, ≈278 KB at 128); Opus seek
+pre-roll 0.5 s (80 ms measured too coarse; ≈1.5 ms of worker time per seek); libopus symbols renamed via a committed
+`rename.h` (regenerate if the vendored opus changes); building the decoder now needs a clang with the WebAssembly
+backend (no wasi-sdk); the decoder client keeps a main-thread copy of packages for respawn (doubles their memory; the
+integration task decides). Merge fix: the runtime's `media` seam and the core's `codecs` capability were the same
+thing built twice; unified on `codecs`. The two halves of package playback (runtime blob URLs vs decoder packs) were
+never connected — an integration task is wiring them. Mixer 497,970 B of the 512 KB tripwire.
