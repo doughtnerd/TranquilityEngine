@@ -259,6 +259,26 @@ pub struct Scene {
     /// int16. Their blocks are random codes under a mid-table step index: the decoder is branchless, so its cost doesn't
     /// depend on the content.
     pub adpcm: bool,
+    /// ADR 0346 (G2): the voices are generators of this kind instead of clip voices (`GenScene::virtual_only`: only the
+    /// virtual ones), each started with a GEN beside its PLAY.
+    pub gen: Option<GenScene>,
+}
+
+/// ADR 0346 (G2): what a generator scene's voices are ([`Scene::gen`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GenScene {
+    /// The generator kind (`GEN_KIND_*`).
+    pub kind: u32,
+    /// An oscillator plays pink noise (else a PolyBLEP saw).
+    pub noise: bool,
+    /// Only the scene's virtual voices are generators (the mixed ones stay clip voices).
+    pub virtual_only: bool,
+}
+
+impl GenScene {
+    const fn of(kind: u32) -> Option<GenScene> {
+        Some(GenScene { kind, noise: false, virtual_only: false })
+    }
 }
 
 /// ADR 0171/0172 M5 (Bn4): the level rules of a sidechain scene ([`Scene::duck`]), peak or RMS detectors, amount 0.5, attack 20 ms,
@@ -440,6 +460,7 @@ impl Scene {
             duck: None,
             lanes7: false,
             adpcm: false,
+            gen: None,
         }
     }
 
@@ -764,6 +785,24 @@ pub fn scene(name: &str) -> Option<Scene> {
         "adpcm" => Scene { adpcm: true, ..Scene::looping(name, 256) },
         "adpcm-pitch4" => Scene { adpcm: true, pitch: (4.0, 4.0), ..Scene::looping(name, 128) },
         "adpcm-default" => Scene { adpcm: true, ..Scene::preset(name, 4_096, 128, 16, 8) },
+        // ADR 0346 (G2): generator voices, each beside a sample twin with the same voices and `max_mixed` (the generator
+        // pool is max(16, max_mixed / 4) entries, so these scenes raise `max_mixed` to hold every voice; the twins match
+        // it, so the pool sizes and per-quantum bookkeeping are the same). `gen-osc`: 256 looping PolyBLEP saws;
+        // `gen-noise`: 256 pink noises; `gen-synth`: 128 two-oscillator synths with a triangle LFO on the cut-off;
+        // `gen-blip`: 256 sfxr blips (square, punch, slide, vibrato, duty sweep, phaser, low-pass sweep, high-pass)
+        // retriggered at about 200 a second as they end, beside 256 sample one-shots at 200 a second; `gen-silence`:
+        // 4,096 looping silences (virtual) beside 4,096 looping virtual sample voices, over 16 mixed sample voices
+        // (`-base`: those alone). `GEN_PAIRS` in the gate reports each kind's cost against its twin.
+        "gen-osc" => Scene { max_mixed: 1_024, gen: GenScene::of(wire::GEN_KIND_OSCILLATOR), ..Scene::looping(name, 256) },
+        "gen-noise" => Scene { max_mixed: 1_024, gen: Some(GenScene { kind: wire::GEN_KIND_OSCILLATOR, noise: true, virtual_only: false }), ..Scene::looping(name, 256) },
+        "gen-twin-256" => Scene { max_mixed: 1_024, ..Scene::looping(name, 256) },
+        "gen-synth" => Scene { max_mixed: 512, gen: GenScene::of(wire::GEN_KIND_SYNTH), ..Scene::looping(name, 128) },
+        "gen-twin-128" => Scene { max_mixed: 512, ..Scene::looping(name, 128) },
+        "gen-blip" => Scene { max_mixed: 1_024, one_shots: true, gen: GenScene::of(wire::GEN_KIND_BLIP), ..Scene::looping(name, 256) },
+        "gen-blip-twin" => Scene { max_mixed: 1_024, one_shots: true, ..Scene::looping(name, 256) },
+        "gen-silence" => Scene { max_logical: 8_192, virtual_voices: 4_096, gen: Some(GenScene { kind: wire::GEN_KIND_SILENCE, noise: false, virtual_only: true }), ..Scene::looping(name, 16) },
+        "gen-silence-twin" => Scene { max_logical: 8_192, virtual_voices: 4_096, ..Scene::looping(name, 16) },
+        "gen-silence-base" => Scene { max_logical: 8_192, ..Scene::looping(name, 16) },
         // ADR 0166 M4b (Bench1): music on the default preset, decoded and streamed, each beside its music-free twin (the
         // twin is shared: music's voices are on top of the same SFX). `MUSIC_PAIRS` in the gate holds the allowances.
         "music-typ-twin" => Scene::music(name, MusicKind::Typical, false, false),
@@ -1850,6 +1889,50 @@ impl Bench {
         }
     }
 
+    /// ADR 0346 (G2): the GEN parameters of a generator scene's voice, `(index, value)` in index order.
+    fn gen_params(&mut self, g: GenScene) -> Vec<(usize, f32)> {
+        use audio_dsp::gen::{blip::p as bp, osc_p as op, synth_p as sp};
+        match g.kind {
+            wire::GEN_KIND_OSCILLATOR if g.noise => vec![(op::WAVEFORM, 4.0), (op::NOISE_COLOUR, 1.0), (op::LEVEL, -18.0)],
+            wire::GEN_KIND_OSCILLATOR => vec![(op::WAVEFORM, 2.0), (op::FREQUENCY, 110.0 * libm::exp2f(4.0 * self.rng.unit())), (op::LEVEL, -18.0)],
+            wire::GEN_KIND_SYNTH => vec![
+                (sp::OSC1_WAVE, 2.0),
+                (sp::OSC2_WAVE, 1.0),
+                (sp::FREQUENCY, 80.0 * libm::exp2f(3.0 * self.rng.unit())),
+                (sp::CUTOFF, 1_200.0),
+                (sp::RESONANCE, 0.4),
+                (sp::FILTER_ENV_AMOUNT, 12.0),
+                (sp::LFO_WAVE, 1.0),
+                (sp::LFO_RATE, 0.5 + 4.0 * self.rng.unit()),
+                (sp::LFO_DEPTH, 60.0),
+                (sp::LFO_TARGET, 1.0),
+                (sp::LEVEL, -18.0),
+            ],
+            // A 1.25 s blip (sustain 0.5, decay 0.55: 55,253 ticks), so 256 of them restart about 204 times a second.
+            wire::GEN_KIND_BLIP => vec![
+                (bp::WAVEFORM, 0.0),
+                (bp::SUSTAIN, 0.5),
+                (bp::PUNCH, 0.3),
+                (bp::DECAY, 0.55),
+                (bp::BASE_FREQUENCY, 0.3 + 0.3 * self.rng.unit()),
+                (bp::SLIDE, 0.05),
+                (bp::VIBRATO_DEPTH, 0.2),
+                (bp::VIBRATO_SPEED, 0.3),
+                (bp::DUTY, 0.3),
+                (bp::DUTY_SWEEP, 0.1),
+                (bp::PHASER_OFFSET, 0.2),
+                (bp::PHASER_SWEEP, 0.05),
+                (bp::LOWPASS_CUTOFF, 0.6),
+                (bp::LOWPASS_SWEEP, 0.1),
+                (bp::LOWPASS_RESONANCE, 0.3),
+                (bp::HIGHPASS_CUTOFF, 0.05),
+                (bp::LEVEL, -18.0),
+            ],
+            // Silence: endless (its PLAY loops) until released.
+            _ => vec![(0, 0.0)],
+        }
+    }
+
     /// Starts a voice: a stream voice (`stream`), a mixed voice (one-shot or looping by the scene)
     /// or a looping virtual one.
     fn start(&mut self, stream: Option<u32>, mixed: bool) -> Option<u32> {
@@ -1884,6 +1967,10 @@ impl Bench {
             None if mixed => self.next_clip(),
             None => 1 + self.rng.below(self.stereo_clips),
         };
+        // ADR 0346 (G2): a generator voice plays its kind's reserved id instead (the draws above still happen, so the other
+        // scenes' streams of random numbers are unchanged).
+        let gen = s.gen.filter(|g| stream.is_none() && !ambi && (!g.virtual_only || !mixed));
+        let clip = gen.map_or(clip, |g| wire::GEN_CLIP_ID_FIRST + g.kind);
         // Bed scenes: with several beds the voices spread over their host buses (1..=beds).
         let bus = if plain {
             3 % s.buses as u16
@@ -1921,7 +2008,7 @@ impl Bench {
         } else if bed {
             flags |= (wire::panner::BED as u16) << wire::PLAY_FLAGS_PANNER_SHIFT;
         }
-        let frames = if stream.is_some() { 0 } else { self.clip_frames[clip as usize] };
+        let frames = if stream.is_some() || gen.is_some() { 0 } else { self.clip_frames[clip as usize] };
         // Looping and first voices start anywhere in their clip, so ends spread out.
         let offset = if s.sustain && mixed {
             self.rng.below(frames / 3 + 1)
@@ -1950,6 +2037,12 @@ impl Bench {
             gate: self.gate,
             ..Default::default()
         });
+        if let Some(g) = gen {
+            let values = self.gen_params(g);
+            let seed = self.rng.next() | 1;
+            let mask = values.iter().fold(0u32, |m, &(i, _)| m | 1 << i);
+            self.push(&wire::Gen { voice_id: id, frame_offset: wire::ASAP, mask, seed, ramp_frames: 0, values: values.iter().map(|&(_, v)| v).collect() });
+        }
         if s.submixes > 0 && s.submix_levels > 0 && index % 2 == 0 {
             // ABI 4.9: into the level slot that feeds this voice's instance slot.
             let level = s.submixes + (index % s.submixes.min(s.submix_levels).max(1));
@@ -2504,7 +2597,7 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck, wire::Time, wire::Loops, wire::Submix, wire::BusSends, wire::Route);
+wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck, wire::Time, wire::Loops, wire::Submix, wire::BusSends, wire::Route, wire::Gen);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
 /// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps). With `bezier` (ADR 0332)

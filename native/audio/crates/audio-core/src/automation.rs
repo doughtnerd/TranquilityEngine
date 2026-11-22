@@ -143,6 +143,9 @@ pub mod target {
     pub const PAN: u32 = 4;
     /// ABI 4.8: an effect parameter (buses and submixes): slot, parameter and log flag above.
     pub const FX: u32 = audio_wire::generated::AUTO_TARGET_FX;
+    /// ABI 5.1 (ADR 0346): a generator voice's parameter (voices; buses read kind 5 as `FX`): its index in bits 8-15,
+    /// the log flag above.
+    pub const GEN: u32 = audio_wire::generated::AUTO_TARGET_GEN;
     /// ABI 4.8: a send's dB (buses): the receiving slot above.
     pub const SEND: u32 = audio_wire::generated::AUTO_TARGET_SEND;
     /// Bits 0-7 of a target: its kind.
@@ -184,6 +187,8 @@ pub mod has {
     pub const FX: u8 = 1 << 5;
     /// ABI 4.8: send bindings (buses).
     pub const SEND: u8 = 1 << 6;
+    /// ABI 5.1: generator-parameter bindings (voices).
+    pub const GEN: u8 = 1 << 7;
 }
 
 /// One parameter. All-zero is a settled parameter at 0.
@@ -871,6 +876,7 @@ fn read_bindings(msg: &[u8], off: usize, out: &mut [Binding], bus: bool, mut off
             target::PAN if !bus => has::PAN,
             t if bus && target::kind(t) == target::FX => has::FX,
             t if bus && target::kind(t) == target::SEND => has::SEND,
+            t if !bus && target::kind(t) == target::GEN => has::GEN,
             _ => continue,
         };
         if bus && b.param & 0x8000 == 0 {
@@ -1186,6 +1192,8 @@ fn evaluate(params: &[Param], curves: &[Curve], bindings: &[Binding], offsets: &
 pub fn begin_quantum(core: &mut Core, frame: u64) {
     let regions: &mut Regions = core.regions_mut();
     let voices = crate::voices::slots_of(&regions.voices[..]);
+    // ADR 0346: generator-parameter bindings hand their values to the generator region.
+    let gen_region: &mut [u8] = &mut regions.gen[..];
     let Some(mut v) = view(&mut regions.automation[..]) else { return };
     if v.header.seeking_len == 0 && v.header.active_len == 0 && v.header.buses_bound == 0 && v.header.clocks_asap == 0 {
         return;
@@ -1233,6 +1241,22 @@ pub fn begin_quantum(core: &mut Core, frame: u64) {
                 }
             }
             let Evaluated { g, p, lp, hp, pan } = evaluate(v.params, v.curves, &e.bindings[..e.count as usize], &e.offsets, e.group, &times);
+            if e.targets & has::GEN != 0 {
+                // ADR 0346 (ABI 5.1): each generator binding's value replaces its parameter, glided over the
+                // quantum (at once on a binding just made or a voice not sounding yet).
+                let jump = e.fresh != 0 || slot.is_some_and(|s| s.state == crate::voices::state::SCHEDULED || s.mix.value == 0.0);
+                for (i, b) in e.bindings[..e.count as usize].iter().enumerate() {
+                    if target::kind(b.target) != target::GEN {
+                        continue;
+                    }
+                    let mut x = binding_value(v.params, b.param, e.group, &times);
+                    if b.param & 0xC000 == wire::PARAM_TIME as u16 {
+                        x += e.offsets[i];
+                    }
+                    let y = fx_value(b.target, curve_value(v.curves, b.curve, x));
+                    crate::generator::automate(gen_region, index, e.id, target::slot(b.target), y, jump);
+                }
+            }
             if e.fresh != 0 {
                 e.fresh = 0;
                 e.g0 = g;

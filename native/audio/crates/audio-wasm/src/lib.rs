@@ -60,7 +60,10 @@ pub const ABI_MAJOR: u32 = 5;
 /// 4.12 (ADR 0337 A4, 0345 §5): CLIP_BEGIN format 6, IMA ADPCM blocks held compressed in the arena and decoded per
 /// voice a little each quantum (`audio-core` `adpcm_voice.rs`); the `AdpcmCursors` region before the arena.
 /// 5.0: the minor starts again (above).
-pub const ABI_MINOR: u32 = 0;
+/// 5.1 (ADR 0346): sound generators. PLAY of a reserved clip id (`GEN_CLIP_ID_FIRST` + kind) starts a generator voice
+/// (`audio-core` `generator.rs`, `audio_dsp::gen`); GEN (0x21) sets its parameters; AUTOMATE target kind 5 binds one;
+/// STATUS `genStarved` (the u16 at 252); the `GenEntries` region after the ADPCM cursors, sized from `max_mixed`.
+pub const ABI_MINOR: u32 = 1;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
 pub const INBOX_BYTES: usize = 1 << 20;
@@ -376,7 +379,7 @@ mod tests {
 
     #[test]
     fn identity_exports() {
-        assert_eq!(myco_audio_abi_version(), 0x500);
+        assert_eq!(myco_audio_abi_version(), 0x501);
         assert_eq!(myco_audio_inbox_cap(), 1 << 20);
         assert_eq!(myco_audio_inbox_ptr() as usize % 64, 0);
         assert_eq!(myco_audio_status_ptr() as usize % 64, 0);

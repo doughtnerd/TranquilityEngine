@@ -55,6 +55,8 @@ pub struct Regions {
     pub fxmem: &'static mut [u8],
     /// ADR 0337 A4 (ABI 4.12): the ADPCM voice cursors (`adpcm_voice.rs`).
     pub adpcm: &'static mut [u8],
+    /// ADR 0346 (ABI 5.1): the generator voices' state (`generator.rs`).
+    pub gen: &'static mut [u8],
     /// Empty: the clip store owns the arena region (A1.3b).
     pub arena: &'static mut [u8],
 }
@@ -124,6 +126,7 @@ impl Core {
             submixes: bytes(RegionKind::Submixes),
             fxmem: bytes(RegionKind::FxMem),
             adpcm: bytes(RegionKind::AdpcmCursors),
+            gen: bytes(RegionKind::GenEntries),
             arena: bytes(RegionKind::Arena),
         };
         // A1.3b: the clip store owns the directory and arena regions (they stay empty here).
@@ -141,6 +144,8 @@ impl Core {
         crate::bus::init(&mut core);
         // ADR 0158 E2: the automation region's header (its tables are all-zero valid).
         crate::automation::init(&mut core);
+        // ADR 0346 (ABI 5.1): the generator region's header (its slot records and pool are all-zero valid).
+        crate::generator::init(&mut core);
         // 0171/0172 M5 (K1): every lane at unity; the duck and loudness state (no-ops until Dp1, Ld2).
         crate::lanes::init(&mut core);
         crate::duck::init(&mut core);
