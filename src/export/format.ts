@@ -117,11 +117,6 @@ export interface AudioManifest {
   readonly packages: readonly AudioManifestPackage[];
   /** Converted or packaged sounds by project path (references in scenes, playlists and scripts stay project paths). */
   readonly media: Readonly<Record<string, AudioMediaEntry>>;
-  /**
-   * ADR 0340 §6 (amended by 0343 §1): the built line index (`audio/lines/index.json`, `myco.lines.index@1`), relative to
-   * the build's root, which the runtime reads instead of the line tables. Omitted when the project has no line table.
-   */
-  readonly lines?: string;
 }
 
 export interface AudioManifestPackage {

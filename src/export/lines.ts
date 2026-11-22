@@ -1,9 +1,18 @@
-// The built line index (ADR 0340 §6, amended by 0343 §1; L3): what the export writes as `audio/lines/index.json` from
-// the project's line tables, so a build plays lines by key without shipping the tables (their notes never ship). The
-// audio step (audio.ts) calls it once sounds are converted, so every file has its duration. Pure.
-import { lineFile, lineKeyIndex } from "../engine/audio/localisation/lines/resolve";
+// Line tables in game builds (ADR 0340 §5–§6, amended by 0343 §1; L3):
+//
+// - **The line index**: the export writes `audio/lines/index.json` (`myco.lineindex@1`, `lineIndex.ts`): the line tables
+//   and dialogue files the build ships, which the runtime's line registry reads at that fixed project path (asset
+//   sources can't be listed in a build).
+// - **Line tables ship without what never ships**: actors' `notes` and 0340's retired per-language `text` are taken out
+//   (subtitles come from `strings/<code>.json` through each line's `textKey`, 0343 §1); everything the runtime plays by
+//   stays.
+// - **What a line table brings into a package's language part** (`lineTableFiles`), for the audio step (audio.ts).
+//
+// Pure.
+import { LINE_INDEX_PATH, lineIndexOf, lineIndexToJson } from "../engine/audio/localisation/lines/lineIndex";
+import { formatLineTable, isLineTablePath, parseLineTable } from "../engine/audio/localisation/lines/format";
+import { lineFile } from "../engine/audio/localisation/lines/resolve";
 import type { LineTable } from "../engine/audio/localisation/types";
-import { LINE_INDEX_FORMAT, type LineIndex, type LineIndexEntry } from "../engine/audio/packaging/lineIndex";
 import { fallbackChain } from "../engine/localisation/languages";
 import type { BuildLanguages } from "./strings";
 
@@ -19,33 +28,23 @@ export function lineTableFiles(table: LineTable, roots: readonly string[], langu
 }
 
 /**
- * The line index of `tables` for the build's languages: per key (the first table in path order wins, as the runtime's
- * rule), its table's fields and the line's, and per shipped language the file its chain resolves to with
- * `duration(path)` seconds (null when unknown).
+ * The line index and the stripped line tables of a build whose project files are `copies` (JSON text in `json`), as
+ * generated project files by project path; none when the build ships no line table or dialogue file.
  */
-export function buildLineIndex(
-  tables: readonly { path: string; table: LineTable }[],
-  roots: readonly string[],
-  languages: BuildLanguages,
-  exists: (path: string) => boolean,
-  duration: (path: string) => number | null,
-): LineIndex {
-  const lines: Record<string, LineIndexEntry> = {};
-  const chains = languages.codes.map((c) => [c, fallbackChain(languages.settings, c)] as const);
-  for (const [key, { path, table, line }] of lineKeyIndex(tables).keys) {
-    const files: LineIndexEntry["files"] = {};
-    for (const [code, chain] of chains) {
-      const hit = lineFile(table, line, chain, roots, exists);
-      files[code] = hit ? { path: hit.path, duration: duration(hit.path) } : null;
+export function planLineIndex(json: ReadonlyMap<string, string>, copies: readonly string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const index = lineIndexOf(copies.filter((p) => p !== LINE_INDEX_PATH));
+  if (index.tables.length === 0 && index.dialogue.length === 0) return out;
+  out.set(LINE_INDEX_PATH, `${JSON.stringify(lineIndexToJson(index))}\n`);
+  for (const path of copies.filter(isLineTablePath)) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(json.get(path) ?? "");
+    } catch {
+      continue; // shipped as it is: the runtime warns about it as in the editor
     }
-    lines[key] = {
-      table: path, speaker: line.speaker, priority: table.priority, output: table.output, template: table.template,
-      ...(line.textKey !== undefined && line.textKey !== key ? { textKey: line.textKey } : {}),
-      ...(line.tags.length ? { tags: [...line.tags] } : {}),
-      ...(line.cooldown ? { cooldown: line.cooldown } : {}),
-      ...(line.once ? { once: true as const } : {}),
-      files,
-    };
+    const { table } = parseLineTable(raw, path);
+    out.set(path, formatLineTable({ ...table, lines: table.lines.map(({ notes: _notes, text: _text, ...line }) => line) }));
   }
-  return { format: LINE_INDEX_FORMAT, languages: [...languages.codes], lines };
+  return out;
 }

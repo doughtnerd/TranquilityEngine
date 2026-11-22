@@ -22,6 +22,8 @@ import type { AudioReport } from "./audio";
 import { planAudioEffects, type PlannedAudioEffect } from "./audioEffects";
 import { ENGINE_FILE, MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, modulePath, relativeSpecifier, type GameManifest } from "./format";
 import { planLocalisation, type BuildLanguages } from "./strings";
+import { planLineIndex } from "./lines";
+import { LINE_INDEX_PATH } from "../engine/audio/localisation/lines/lineIndex";
 
 /** A project to build, however it was read. */
 export interface BuildSource {
@@ -218,6 +220,9 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   const localisation = planLocalisation(source.json, copies, { languages: options.languages, pseudo: options.pseudo }, copiedPath("project.json"));
   if (localisation.error) throw new ExportError(localisation.error);
   copies = [...localisation.copies];
+  // ADR 0340 §6: the line index the runtime finds line tables and dialogue files by, and the tables without their notes.
+  const lineFiles = planLineIndex(source.json, copies);
+  const shippedFiles = lineFiles.size > 0 && !copies.includes(LINE_INDEX_PATH) ? [...copies, LINE_INDEX_PATH].sort() : copies;
   const { order, files, packageEntries } = await compileForBuild(pluginPlan.code, source.json, source.packages, pluginPlan.npmEntries);
   const plugins: BuiltPlugin[] = pluginPlan.runtime.map((p) => ({ manifest: p.manifest, module: p.source.kind === "project" ? modulePath(p.runtime!) : packageEntries.get(p.runtime!)! }));
   const name = typeof source.settings.name === "string" && source.settings.name ? source.settings.name : source.name;
@@ -225,7 +230,7 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
     format: MANIFEST_FORMAT,
     name,
     mainScene,
-    files: copies,
+    files: shippedFiles,
     scripts: order.map((path) => ({ source: path, module: modulePath(path) })),
     ...(plugins.length > 0 && { plugins }),
     ...(options.audioCapture === true && { audioCapture: true as const }),
@@ -235,7 +240,7 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   };
   const assetRefs = projectScriptAssetRefs(source.scripts.values(), (p) => copies.includes(p));
   if (assetRefs.length) (manifest as { assetRefs?: readonly string[] }).assetRefs = assetRefs;
-  const generated = new Map([...files, ...localisation.generated]);
+  const generated = new Map([...files, ...localisation.generated, ...[...lineFiles].map(([p, t]) => [copiedPath(p), t] as const)]);
   generated.set(MANIFEST_FILE, `${JSON.stringify(manifest, null, 2)}\n`);
   generated.set("serve.mjs", SERVE_SCRIPT);
   generated.set("README.txt", webReadme(name));

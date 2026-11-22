@@ -34,11 +34,10 @@ import { isDerivedSamplePath } from "../engine/audio/sample/format";
 import { parseImportSettings, sidecarPath, type ImportPlatform } from "../engine/scene/importSettings";
 import { ENCODER_VERSION, type AudioEncoder, type EncodeRequest, type EncodedAudio } from "./audioEncoder";
 import { parseLineTable, isLineTablePath } from "../engine/audio/localisation/lines/format";
-import { formatLineIndex, LINE_INDEX_FILE } from "../engine/audio/packaging/lineIndex";
 import { fallbackChain } from "../engine/localisation/languages";
 import { localisedParts, variantPath } from "../engine/localisation/variants";
 import { MANIFEST_FILE, type AudioManifest, type AudioMediaEntry, type GameManifest } from "./format";
-import { buildLineIndex, lineTableFiles } from "./lines";
+import { lineTableFiles } from "./lines";
 import { buildLanguages, localisedRoots, type BuildLanguages } from "./strings";
 import { copiedPath, type WebBuildPlan } from "./webBuild";
 
@@ -470,8 +469,8 @@ export async function processAudio(build: WebBuildPlan, options: ProcessAudioOpt
     }
   }
 
-  // ADR 0340 §6: the build's languages, the localised roots and the line tables: packages split per language, and the
-  // line index (with each line file's duration, so line files are always decoded).
+  // ADR 0340 §6: the build's languages, the localised roots and the line tables: packages split per language, and a
+  // line table a package includes brings each language's files of its lines into that language's part.
   const languages = options.languages ?? buildLanguages(json.get("project.json")).languages;
   const roots = localisedRoots(languages.settings, audioJson);
   // Line tables resolve under the audio roots only (a table without its own `root` uses the first, 0340 §5).
@@ -492,7 +491,6 @@ export async function processAudio(build: WebBuildPlan, options: ProcessAudioOpt
       return v ? [v.path] : [];
     },
   } : undefined;
-  const lineFiles = new Set(lineTables.flatMap((t) => languages.codes.flatMap((c) => lineTableFiles(t.table, voRoots, languages, c, exists))));
 
   const plan = planAudio({
     platform: options.platform,
@@ -519,7 +517,7 @@ export async function processAudio(build: WebBuildPlan, options: ProcessAudioOpt
       return null;
     }
     const packaged = sound.packages.length > 0;
-    const needsFacts = sound.codec !== "source" || packaged || sound.load !== "decode" || lineFiles.has(sound.path);
+    const needsFacts = sound.codec !== "source" || packaged || sound.load !== "decode";
     // Shipped as it is, loose, decoded on load: nothing to convert or to know (the report gives no rate, channels or frames).
     if (!needsFacts) return { sound, codec: "source", bytes: input, sourceBytes: input.length, rate: 0, channels: 0, frames: 0, key: "", head: null, cached: false };
     const wantsHead = packaged && sound.load === "stream";
@@ -696,23 +694,8 @@ export async function processAudio(build: WebBuildPlan, options: ProcessAudioOpt
   log(`audio: ${reportSounds.length} file${reportSounds.length === 1 ? "" : "s"}, ${(sourceBytes / MB).toFixed(1)} MB → ${(shippedBytes / MB).toFixed(1)} MB for ${options.platform}; ${manifestPackages.length} package${manifestPackages.length === 1 ? "" : "s"}${options.encoder ? "" : " (--no-audio-convert: sources shipped unchanged)"}`);
   for (const w of warnings) log(`warning: ${w}`);
 
-  // ADR 0340 §6 (amended by 0343 §1): the line index replaces the line tables, whose notes never ship.
-  let lines: string | undefined;
-  let shipped = build.manifest.files;
-  let copies = build.copies;
-  if (lineTables.length > 0) {
-    const durations = new Map(results.filter((r) => r.rate > 0 && r.frames > 0).map((r) => [r.sound.path, Math.round((r.frames / r.rate) * 1000) / 1000] as const));
-    const index = buildLineIndex(lineTables, voRoots, languages, exists, (p) => durations.get(p) ?? null);
-    generated.set(LINE_INDEX_FILE, formatLineIndex(index));
-    lines = LINE_INDEX_FILE;
-    const tables = new Set(lineTables.map((t) => t.path));
-    shipped = shipped.filter((p) => !tables.has(p));
-    copies = copies.filter((p) => !tables.has(p));
-  }
-
-  const hasAudio = manifestPackages.length > 0 || Object.keys(media).length > 0 || lines !== undefined;
-  const baseManifest = shipped === build.manifest.files ? build.manifest : { ...build.manifest, files: shipped };
-  const manifest: GameManifest = hasAudio ? { ...baseManifest, audio: { platform: options.platform, packages: manifestPackages, media, ...(lines ? { lines } : {}) } } : baseManifest;
+  const hasAudio = manifestPackages.length > 0 || Object.keys(media).length > 0;
+  const manifest: GameManifest = hasAudio ? { ...build.manifest, audio: { platform: options.platform, packages: manifestPackages, media } } : build.manifest;
   generated.set(MANIFEST_FILE, `${JSON.stringify(manifest, null, 2)}\n`);
-  return { plan: { ...build, manifest, copies, generated, binaries, omit }, report };
+  return { plan: { ...build, manifest, generated, binaries, omit }, report };
 }

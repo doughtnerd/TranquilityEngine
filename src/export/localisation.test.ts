@@ -247,25 +247,36 @@ describe("per-language packages and the line index (ADR 0340 §6 L3, 0343 §1)",
     expect(paths.every((p) => p.endsWith(".wav"))).toBe(true);
   });
 
-  it("writes the line index with textKey and no text, per shipped language, and leaves the line table out", async () => {
-    const { manifest, json, file } = await exportBuild(project());
-    expect(manifest.audio!.lines).toBe("audio/lines/index.json");
-    expect(json("audio/lines/index.json")).toEqual({
-      format: "myco.lines.index@1",
-      languages: ["en", "fr"],
-      lines: {
-        intro_01: {
-          table: "audio/vo/ch1.lines.json", speaker: "Ava", priority: 50, output: null, template: null,
-          files: { en: { path: "audio/vo/en/ch1/intro_01.wav", duration: 0.5 }, fr: { path: "audio/vo/fr/ch1/intro_01.wav", duration: 0.75 } },
-        },
-        intro_02: {
-          table: "audio/vo/ch1.lines.json", speaker: "Ava", priority: 50, output: null, template: null, textKey: "ch1.late",
-          files: { en: { path: "audio/vo/en/ch1/intro_02.wav", duration: 1 }, fr: { path: "audio/vo/en/ch1/intro_02.wav", duration: 1 } },
-        },
-      },
+  it("writes the line index the runtime reads, and ships line tables with textKey but without notes or text", async () => {
+    const withText = project({
+      "audio/barks.dialogue.json": text({ format: "myco.dialogue@1", events: [] }),
+      "audio/vo/ch1.lines.json": text({
+        format: "myco.lines@1",
+        folder: "ch1",
+        lines: [
+          { key: "intro_01", speaker: "Ava", notes: "Whispered", text: { en: "Hello there" } },
+          { key: "intro_02", speaker: "Ava", textKey: "ch1.late" },
+        ],
+      }),
     });
-    expect(file("audio/lines/index.json") as string).not.toMatch(/Whispered|Sorry/);
-    expect(file("project/audio/vo/ch1.lines.json")).toBeUndefined();
-    expect(manifest.files).not.toContain("audio/vo/ch1.lines.json");
+    const { manifest, json, file } = await exportBuild(withText);
+    expect(json("project/audio/lines/index.json")).toEqual({ format: "myco.lineindex@1", tables: ["audio/vo/ch1.lines.json"], dialogue: ["audio/barks.dialogue.json"] });
+    expect(manifest.files).toContain("audio/lines/index.json");
+    expect(manifest.files).toContain("audio/vo/ch1.lines.json");
+    const table = file("project/audio/vo/ch1.lines.json") as string;
+    expect(JSON.parse(table)).toEqual({
+      format: "myco.lines@1",
+      folder: "ch1",
+      lines: [{ key: "intro_01", speaker: "Ava" }, { key: "intro_02", speaker: "Ava", textKey: "ch1.late" }],
+    });
+    expect(table).not.toMatch(/Whispered|Hello there/);
+  });
+
+  it("writes no line index for a project without line tables or dialogue files", async () => {
+    const files = project();
+    delete files["audio/vo/ch1.lines.json"];
+    const { manifest, file } = await exportBuild(files);
+    expect(file("project/audio/lines/index.json")).toBeUndefined();
+    expect(manifest.files).not.toContain("audio/lines/index.json");
   });
 });
