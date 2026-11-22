@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "audio-adpcm"
+version = "0.1.0"
+dependencies = [
+ "audio-encode",
+]
+
+[[package]]
 name = "audio-bench"
 version = "0.1.0"
 dependencies = [
