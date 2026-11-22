@@ -622,6 +622,19 @@ pub fn cases() -> Vec<VectorCase> {
             vec![("voiceId", vu(0x0001_0007)), ("frameOffset", vu(0xFFFF_FFFF)), ("submix", vu(4)), ("reserved", vu(0))],
             concat!("0d00", "0400", "07000100", "ffffffff", "0400", "0000"),
         ),
+        // SUBMIX_AUTOMATE (ADR 0331, ABI 4.10), variable length: 16 + 8 = 24 B = 6 words, asap. Slot 2: global
+        // parameter 3 through curve 7 drives effect slot 1's parameter 0 on a log2 curve (AUTO_TARGET_FX | 1 << 8 |
+        // AUTO_TARGET_LOG).
+        case(
+            "SUBMIX_AUTOMATE_one_log_cutoff",
+            Subject::Opcode("SUBMIX_AUTOMATE"),
+            vec![
+                ("voiceId", vu(2)),
+                ("frameOffset", vu(0xFFFF_FFFF)),
+                ("bindings", va(vec![vr(vec![("param", vu(0x8003)), ("curve", vu(7)), ("target", vu(0x0100_0105))])])),
+            ],
+            concat!("1f00", "0600", "02000000", "ffffffff", "01000000", "0380", "0700", "05010001"),
+        ),
         // BUS_SENDS (ADR 0330, ABI 4.7), variable length: 16 + 12 = 28 B = 7 words, asap. Bus 3 sends into
         // bus 1, muted, level 0.5, over 480 frames.
         case(
@@ -928,6 +941,8 @@ pub fn cases() -> Vec<VectorCase> {
                 ("maxSlipFrames", vu(1111)),
                 ("splitQuanta", vu(222)),
                 ("voiceSplits", vu(333)),
+                ("fxStarved", vu(0)),
+                ("fxStarvedOwner", vu(0)),
                 ("ended", va(vec![vu(11), vu(12)])),
                 ("demoted", va(vec![vu(13)])),
                 ("starved", va(vec![vu(14), vu(15), vu(16)])),
@@ -1188,6 +1203,8 @@ pub fn cases() -> Vec<VectorCase> {
                 ("maxSlipFrames", vu(65536)),
                 ("splitQuanta", vu(258)),
                 ("voiceSplits", vu(4096)),
+                ("fxStarved", vu(0)),
+                ("fxStarvedOwner", vu(0)),
                 ("ended", va(vec![])),
                 ("demoted", va(vec![])),
                 ("starved", va(vec![])),
@@ -1386,6 +1403,8 @@ pub fn cases() -> Vec<VectorCase> {
                 ("maxSlipFrames", vu(65536)),
                 ("splitQuanta", vu(258)),
                 ("voiceSplits", vu(4096)),
+                ("fxStarved", vu(0)),
+                ("fxStarvedOwner", vu(0)),
                 ("ended", va(vec![])),
                 ("demoted", va(vec![])),
                 ("starved", va(vec![])),

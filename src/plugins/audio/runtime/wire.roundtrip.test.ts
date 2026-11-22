@@ -60,6 +60,7 @@ const OPCODES: Record<string, Codec> = {
   SUBMIX: { write: wire.writeSubmix, read: wire.readSubmix },
   BUS_SENDS: { write: wire.writeBusSends, read: wire.readBusSends },
   ROUTE: { write: wire.writeRoute, read: wire.readRoute },
+  SUBMIX_AUTOMATE: { write: wire.writeSubmixAutomate, read: wire.readSubmixAutomate },
   ZONE_CONFIG: { write: wire.writeZoneConfig, read: wire.readZoneConfig },
   LISTENER: { write: wire.writeListener, read: wire.readListener },
 };
