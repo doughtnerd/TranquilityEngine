@@ -4,8 +4,8 @@
 // line entries, voice following the text language, captions, the start language and `Audio.debug().language`.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Audio, Engine, MemoryStorage, SceneManager, Storage, type AudioCaptionEvent, type AudioLineEvent } from "../../../../myco";
-import { resetTextLanguage, switchTextLanguage } from "../../../../engine/localisation/localeSeam";
-import type { ProjectSettingsInput } from "../../../../engine";
+import { Locale } from "../../../../engine";
+import { parseLanguages } from "../../../../engine/localisation/languages";
 import { setAudioBackend } from "../backend";
 import { endAudioSession, makeFakeBackend, type FakeVoice } from "../testing";
 
@@ -62,14 +62,14 @@ function files(extra: Record<string, unknown> = {}, table: Record<string, unknow
   };
 }
 
-async function boot(assets: Record<string, unknown> = files(), project: Record<string, unknown> = {}, storage?: MemoryStorage): Promise<void> {
+async function boot(assets: Record<string, unknown> = files(), languages: Record<string, unknown> = {}, storage?: MemoryStorage): Promise<void> {
   Assets.clearSources();
   Assets.addSource(Assets.fromObject(assets));
   engine = await Engine.create({
     headless: true,
     ...(storage ? { storage } : {}),
-    // `project.json` as written (the languages section in its file form; the Engine parses it).
-    project: { audio: { buses: [{ name: "Master" }, { name: "Voice", parent: "Master" }, { name: "SFX", parent: "Master" }], seed: 7 }, languages: LANGUAGES, ...project } as ProjectSettingsInput,
+    // `project.json`'s languages section as written, parsed as the project loader does.
+    project: { audio: { buses: [{ name: "Master" }, { name: "Voice", parent: "Master" }, { name: "SFX", parent: "Master" }], seed: 7 }, languages: parseLanguages({ ...LANGUAGES, ...languages }).languages },
   });
   engine.world.render = {} as never; // a World that plays sound
   await SceneManager.load("s.json");
@@ -93,7 +93,6 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   endAudioSession();
-  resetTextLanguage();
   setAudioBackend(null);
 });
 
@@ -142,14 +141,14 @@ describe("language state", () => {
   it("starts in the remembered language (player storage) before the first scene, else a match for the system language", async () => {
     const storage = new MemoryStorage();
     await storage.save("settings", "myco.audio.language", "de");
-    await boot(files(), { languages: { ...LANGUAGES, remember: true } }, storage);
+    await boot(files(), { remember: true, voice: "separate" }, storage);
     expect(Audio.language).toBe("de");
     await Audio.setLanguage("fr");
     expect(await Storage.load("myco.audio.language", "settings")).toBe("fr");
     engine!.dispose();
     endAudioSession();
     vi.stubGlobal("navigator", { languages: ["fr-CA", "en-US"] });
-    await boot(files(), { languages: { ...LANGUAGES, useSystemLanguage: true } });
+    await boot(files(), { useSystemLanguage: true, voice: "separate" });
     expect(Audio.language).toBe("fr-CA");
   });
 });
@@ -184,7 +183,7 @@ describe("the clip resolver swaps a localised path through the fallback chain", 
     expect(pl.playing).toBe(false);
     expect(pl.reason).toBe("missingLanguage");
     expect(fake.plays).toHaveLength(0);
-    expect(Audio.debug().language).toEqual({ current: "fr", subtitles: "fr", pending: null, missing: [{ path: "audio/vo/en/hey.wav", language: "fr" }] });
+    expect(Audio.debug().language).toEqual({ current: "fr", subtitles: "en", pending: null, missing: [{ path: "audio/vo/en/hey.wav", language: "fr" }] });
     await Audio.setLanguage("de");
     expect(Audio.play("p.playlist.json").playing).toBe(true);
     expect(fake.plays.at(-1)!.path).toBe("audio/vo/de/hey.wav");
@@ -205,6 +204,13 @@ describe("Audio.line", () => {
     expect(h.duration).toBe(1.25);
     expect(h.event).toBeNull();
     expect(fake.plays.at(-1)!.bus).toBe("Voice");
+  });
+
+  it("finds the line tables the asset sources list when the project has no line index file", async () => {
+    const { ["audio/lines/index.json"]: _index, ...rest } = files();
+    await boot(rest);
+    expect(Audio.line("intro_01").playing).toBe(true);
+    expect(fake.plays.at(-1)!.path).toBe("audio/vo/en/ch1/intro_01.wav");
   });
 
   it("an unknown key gives an inert handle with reason unknownLine, and finished resolves refused", async () => {
@@ -326,17 +332,23 @@ describe("playlist line entries (ADR 0340 §5)", () => {
 describe("voice follows the text language (0343 §2)", () => {
   it("followText: a text language switch switches the voice language in the same step; subtitles follow the text language", async () => {
     await boot();
-    await switchTextLanguage("fr");
+    const h = Audio.line("intro_01");
+    let seen: { voice: string; text: string | null } | null = null;
+    const off = Locale.onChange(() => { seen = { voice: Audio.language, text: h.text }; });
+    await Locale.setLanguage("fr");
+    off();
+    expect(seen).toEqual({ voice: "fr", text: "On est en retard." }); // already switched when text listeners hear it
     expect(Audio.language).toBe("fr");
     expect(Audio.debug().language.subtitles).toBe("fr");
-    await switchTextLanguage("ja"); // text-only: voice goes to the first voice language of its chain (ja → en)
+    expect(h.text).toBe(Locale.t("intro_01")); // the subtitle is Locale's text, live
+    await Locale.setLanguage("ja"); // text-only: voice goes to the first voice language of its chain (ja → en)
     expect(Audio.language).toBe("en");
     expect(Audio.debug().language.subtitles).toBe("ja");
   });
 
   it("separate: the text language leaves the voice language alone", async () => {
-    await boot(files(), { languages: { ...LANGUAGES, voice: "separate" } });
-    await switchTextLanguage("fr");
+    await boot(files(), { voice: "separate" });
+    await Locale.setLanguage("fr");
     expect(Audio.language).toBe("en");
   });
 });

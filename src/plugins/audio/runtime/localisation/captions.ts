@@ -7,15 +7,12 @@
 import { World } from "../../../../engine/core/World";
 import type { Vec3Like } from "../../../../engine/core/math";
 import type { PlaylistCaption } from "../../../../engine/audio/playlist/types";
-import { fallbackChain, intlTagOf } from "../../../../engine/localisation/languages";
-import { lookupString } from "../../../../engine/localisation/localeSeam";
 import { Camera } from "../../../../engine/render/components";
 import { AudioListener, listenerPose } from "../AudioListener";
 import { onAudioSessionReleased } from "../audioSession";
 import { playlistHost, type HostedRuntime } from "../playlists/host";
 import type { PlaylistInstance } from "../playlists/instance";
-import { audioLocalisation, effectiveSubtitleLanguage, projectLanguages } from "./languageState";
-import { readJson } from "./lineRegistry";
+import { subtitleText } from "./languageState";
 
 /** `Audio.onCaption`'s event. */
 export interface AudioCaptionEvent {
@@ -45,8 +42,8 @@ const listeners = new Set<(e: AudioCaptionEvent) => void>();
 
 /** The caption's text in the subtitle language (null when the table has none). */
 export function captionText(key: string): string | null {
-  const langs = projectLanguages();
-  return lookupString(key, audioLocalisation().captions, fallbackChain(langs, effectiveSubtitleLanguage()), readJson, (c) => intlTagOf(langs, c))?.text ?? null;
+  // String keys are unique across the project, so `Locale` finds the captions table's (`localisation.captions`) keys.
+  return subtitleText(key);
 }
 
 /** `Audio.onCaption(fn)`: returns the unsubscribe. */

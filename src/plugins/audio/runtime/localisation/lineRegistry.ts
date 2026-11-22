@@ -6,8 +6,9 @@
  * an edit or a hot reload).
  */
 import { Assets } from "../../../../engine/scene/Assets";
-import { LINE_INDEX_PATH, parseLineIndex } from "../../../../engine/audio/localisation/lines/lineIndex";
-import { parseLineTable, stringTablePathOf } from "../../../../engine/audio/localisation/lines/format";
+import { LINE_INDEX_PATH, lineIndexOf, lineIndexToJson, parseLineIndex } from "../../../../engine/audio/localisation/lines/lineIndex";
+import { onAudioSessionReleased } from "../audioSession";
+import { parseLineTable } from "../../../../engine/audio/localisation/lines/format";
 import { lineKeyIndex, type LineLocation } from "../../../../engine/audio/localisation/lines/resolve";
 import { parseDialogue } from "../../../../engine/audio/dialogue/format";
 import type { DialogueEvent } from "../../../../engine/audio/dialogue/types";
@@ -71,8 +72,28 @@ function build(index: unknown): Registry {
   return { reads, lines, events };
 }
 
+/**
+ * Without an index file (the editor's Play, the Studio), the index of what the asset sources list (`Assets.paths`):
+ * listed again after an asset change, a session release, or at most every quarter second.
+ */
+let listed: { at: number; raw: unknown } | null = null;
+const LIST_EVERY_MS = 250;
+Assets.onChanged(() => { listed = null; });
+onAudioSessionReleased(() => { listed = null; built = null; });
+
+function listedIndex(): unknown {
+  const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+  if (listed && now - listed.at < LIST_EVERY_MS) return listed.raw;
+  const index = lineIndexOf(Assets.paths());
+  const raw = index.tables.length === 0 && index.dialogue.length === 0 ? undefined : lineIndexToJson(index);
+  // Keep the same object while the listing is the same, so the registry isn't rebuilt.
+  const same = listed && JSON.stringify(listed.raw) === JSON.stringify(raw);
+  listed = { at: now, raw: same ? listed!.raw : raw };
+  return listed.raw;
+}
+
 function registry(): Registry {
-  const index = readJson(LINE_INDEX_PATH);
+  const index = readJson(LINE_INDEX_PATH) ?? listedIndex();
   const r = built;
   if (r && r.reads[0] === index) {
     // The files it names, in the order they were read (the index names them in that order).
@@ -102,6 +123,3 @@ export function lineLocation(key: string): LineLocation | null {
 export function dialogueEvent(name: string): EventLocation | null {
   return registry().events.get(name) ?? null;
 }
-
-/** The string table holding `loc`'s subtitles (0343 §1). */
-export const subtitleTableOf = (loc: LineLocation): string => stringTablePathOf(loc.path, loc.table);

@@ -24,8 +24,6 @@ import { PLAYLIST_FORMAT, type PlaylistAsset } from "../../../../engine/audio/pl
 import type { MusicEvent, MusicHandle, MusicKind } from "../../../../engine/audio/musicTypes";
 import { subtitleKeyOf } from "../../../../engine/audio/localisation/lines/format";
 import { lineFile, type LineLocation } from "../../../../engine/audio/localisation/lines/resolve";
-import { fallbackChain, intlTagOf } from "../../../../engine/localisation/languages";
-import { lookupString } from "../../../../engine/localisation/localeSeam";
 import { readingTime } from "../../../../engine/localisation/subtitles";
 import { Assets } from "../../../../engine/scene/Assets";
 import type { AudioMarkerEvent, AudioMarkerType, AudioPanner, AudioPlaylistHandle, AudioReason } from "../backend";
@@ -39,8 +37,8 @@ import { playlistHandleOf } from "../playlists/handle";
 import { STOP_FADE_SECONDS, type PlaylistInstance, type PlaylistOptions } from "../playlists/instance";
 import type { EventOptions } from "../playlists/options";
 import { playlists } from "../playlists/playlistSystem";
-import { audioChain, audioLanguage, audioLocalisation, effectiveSubtitleLanguage, noteMissingLanguage, projectLanguages, readingRuleOf } from "./languageState";
-import { lineLocation, readJson, subtitleTableOf } from "./lineRegistry";
+import { audioChain, audioLanguage, audioLocalisation, effectiveSubtitleLanguage, noteMissingLanguage, readingRuleOf, subtitleText } from "./languageState";
+import { lineLocation } from "./lineRegistry";
 import { visemeAt, type AudioViseme } from "./viseme";
 
 /** Options for `Audio.line` (ADR 0340 §5): the play options, plus a node it plays from and follows. */
@@ -128,7 +126,6 @@ export class LineHandle implements AudioLineHandle {
   private h: AudioPlaylistHandle | null = null;
   private heard: { path: string; language: string } | null = null;
   private textKey: string | null = null;
-  private table: string | null = null;
   private subtitleOnly = false;
   private startTime = 0;
   private endTime = Infinity;
@@ -151,9 +148,7 @@ export class LineHandle implements AudioLineHandle {
   get language(): string | null { return this.heard?.language ?? null; }
   get duration(): number { return this.seconds; }
   get text(): string | null {
-    if (this.textKey === null || this.table === null) return null;
-    const langs = projectLanguages();
-    return lookupString(this.textKey, this.table, fallbackChain(langs, effectiveSubtitleLanguage()), readJson, (c) => intlTagOf(langs, c))?.text ?? null;
+    return this.textKey === null ? null : subtitleText(this.textKey);
   }
   get position(): Vec3Like | null { return this.h?.position ?? null; }
   set position(p: Vec3Like | null) { if (this.h) this.h.position = p; }
@@ -191,7 +186,6 @@ export class LineHandle implements AudioLineHandle {
     this.key = loc.line.key;
     this.speaker = loc.line.speaker;
     this.textKey = subtitleKeyOf(loc.line);
-    this.table = subtitleTableOf(loc);
   }
 
   /** @internal Never played: `finished` resolves "refused" with `reason`. */

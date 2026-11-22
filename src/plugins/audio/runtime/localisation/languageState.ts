@@ -14,9 +14,11 @@
  *   completes at once), then `Audio.language` changes in one step, then it is remembered. `playing: "finish"` (default)
  *   lets voices that resolved a localised file finish in the old language; `"stop"` stops them with a 50 ms fade. An
  *   unknown or unshipped code rejects with one warning and changes nothing; a second switch supersedes a pending one.
- * - **Voice follows text** (0343 §2): with `followText` the audio language takes part in the text language's atomic
- *   switch through the engine's internal participant seam (`localeSeam.ts`); with `"separate"` the two are independent.
- * - **Subtitle language**: `subtitleLanguage` when set, else the text language, else the audio language.
+ * - **Voice follows text** (0343 §2): with `followText` the audio language takes part in `Locale.setLanguage`'s atomic
+ *   switch through 0342's participant seam (`runtime/participants.ts`) and changes with it; the start language is then
+ *   the text language's voice language. With `"separate"` the two start and switch independently.
+ * - **Subtitle language**: `subtitleLanguage` when set, else the text language (`Locale.language`); subtitle text is
+ *   `Locale.t(textKey)` (`subtitleText`).
  */
 import { World } from "../../../../engine/core/World";
 import { Assets } from "../../../../engine/scene/Assets";
@@ -24,9 +26,12 @@ import { Storage } from "../../../../engine/platform/Storage";
 import { AUDIO_PROJECT_FILE } from "../../../../engine/audio/project/types";
 import { parseAudioLocalisation, defaultAudioLocalisation } from "../../../../engine/audio/localisation/format";
 import type { AudioLocalisation } from "../../../../engine/audio/localisation/types";
-import { canonicalLanguageCode, defaultLanguages, fallbackChain, languageOf, lookupLanguage, shippedLanguages, voiceLanguageFor, type LanguageSettings } from "../../../../engine/localisation/languages";
+import { canonicalLanguageCode, defaultLanguages, fallbackChain, intlTagOf, languageOf, lookupLanguage, shippedLanguages, voiceLanguageFor, type LanguageSettings } from "../../../../engine/localisation/languages";
 import { readingRule, type ReadingRule } from "../../../../engine/localisation/subtitles";
-import { addLanguageParticipant, currentTextLanguage } from "../../../../engine/localisation/localeSeam";
+import { isWellFormed, parseMessage } from "../../../../engine/localisation/message/parse";
+import { formatMessage } from "../../../../engine/localisation/message/format";
+import { Locale, localeStrings } from "../../../../engine/localisation/Locale";
+import { registerLanguageParticipant } from "../../../../engine/localisation/runtime/participants";
 import { warnOnce } from "../core/handle";
 import { onAudioSessionReleased } from "../audioSession";
 import type { AudioVoice } from "../backend";
@@ -110,9 +115,8 @@ onAudioSessionReleased(() => {
 /** The start language without player storage: the text language's voice language, a system match, else the default. */
 function startLanguage(s: LanguageSettings): string {
   const voice = voiceLanguages(s).map((l) => l.code);
-  const text = currentTextLanguage();
-  if (s.voice === "followText" && text !== null) {
-    const v = voiceLanguageFor(s, text);
+  if (s.voice === "followText") {
+    const v = voiceLanguageFor(s, Locale.language);
     if (v !== null) return v;
   }
   if (s.useSystemLanguage) {
@@ -137,9 +141,35 @@ export const pendingAudioLanguage = (): string | null => pending?.code ?? null;
 /** The fallback chain of the current audio language. */
 export const audioChain = (): string[] => fallbackChain(projectLanguages(), audioLanguage());
 
-/** The language subtitles resolve in now: `subtitleLanguage`, else the text language, else the audio language. */
+/** The language subtitles resolve in now: `subtitleLanguage`, else the text language (`Locale.language`). */
 export function effectiveSubtitleLanguage(): string {
-  return subtitles ?? currentTextLanguage() ?? audioLanguage();
+  return subtitles ?? Locale.language;
+}
+
+const asts = new Map<string, ReturnType<typeof parseMessage>["ast"] | null>();
+
+/**
+ * The text of string key `key` in the subtitle language (0343 §1): `Locale.t(key)` when subtitles follow the text
+ * language (the default), else the key through the explicit subtitle language's chain in `Locale`'s strings. Null when
+ * no language of the chain has it.
+ */
+export function subtitleText(key: string): string | null {
+  if (subtitles === null || subtitles.toLowerCase() === Locale.language.toLowerCase()) return Locale.has(key) ? Locale.t(key) : null;
+  const langs = projectLanguages();
+  const strings = localeStrings();
+  for (const code of fallbackChain(langs, subtitles)) {
+    const message = strings.message(key, code);
+    if (message === undefined) continue;
+    let ast = asts.get(message);
+    if (ast === undefined) {
+      const p = parseMessage(message);
+      ast = isWellFormed(p) ? p.ast : null;
+      if (asts.size > 1024) asts.clear();
+      asts.set(message, ast);
+    }
+    if (ast !== null) return formatMessage(ast, null, intlTagOf(langs, code));
+  }
+  return null;
 }
 
 /** `Audio.subtitleLanguage` (null: follows the text language). */
@@ -227,12 +257,12 @@ export function prepareStartLanguage(): Promise<void> {
   if (remembered) return remembered;
   remembered = (async () => {
     const s = projectLanguages();
-    if (!s.remember) return;
-    const followsText = s.voice === "followText" && currentTextLanguage() !== null;
+    // Under followText the voice language is the text language's (Locale's start selector and storage decide it).
+    if (!s.remember || s.voice === "followText") return;
     let value: unknown;
     try { value = await Storage.load(LANGUAGE_STORAGE_KEY, "settings"); } catch { return; }
     const code = voiceLanguage(value);
-    if (code !== null && !followsText && pending === null) {
+    if (code !== null && pending === null) {
       const before = current;
       current = code;
       if (before !== null && before !== code) notify();
@@ -272,18 +302,25 @@ export function languageDebug(): AudioLanguageDebug {
 
 // --- voice follows text (0343 §2) -------------------------------------------------------------------------------------------
 
-addLanguageParticipant({
-  prepare() {
-    // 0340 L3: the voice language's package parts load here (none yet).
-  },
-  commit(text) {
+// The voice language takes part in `Locale.setLanguage`'s atomic switch (0342's participant seam): `prepare` runs before
+// the text switch commits (0340 L3 loads the voice language's package parts there; none yet), and the voice changes in
+// the same step as the text, from `Locale.onChange`, which the switch calls as it commits.
+registerLanguageParticipant({
+  name: "voice",
+  prepare(text) {
     const s = projectLanguages();
     if (s.voice !== "followText") return;
-    const voice = voiceLanguageFor(s, text);
-    if (voice !== null && voiceLanguage(voice) !== null) {
-      serial++;
-      pending = null;
-      commit(voice, "finish");
-    }
+    // 0340 L3: load `voiceLanguageFor(s, text)`'s package parts here and await them.
+    void voiceLanguageFor(s, text);
   },
+});
+
+Locale.onChange(({ language }) => {
+  const s = projectLanguages();
+  if (s.voice !== "followText") return;
+  const voice = voiceLanguageFor(s, language);
+  pending = null;
+  serial++;
+  if (voice !== null && voiceLanguage(voice) !== null) commit(voice, "finish");
+  else notify(); // subtitles follow the text language
 });
