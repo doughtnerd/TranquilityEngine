@@ -73,7 +73,7 @@ We will use **one track model** for everything that changes over time. A clip, a
 ### Model import (amends 0088, 0044, 0090)
 
 - **glTF:**
-  - skins (joints, inverse bind matrices, 4 or 8 influences from `JOINTS_n`/`WEIGHTS_n`, normalised);
+  - skins: joints and inverse bind matrices. **4 influences per vertex by default** (the default in Unity, Godot and Blender's glTF export), 8 when the model sidecar sets `influences: 8` (`JOINTS_0`/`JOINTS_1`). Weights are normalised, and extra influences are dropped smallest first;
   - animations (TRS channels to bone or node tracks, `weights` to morph tracks, `STEP`/`LINEAR`/`CUBICSPLINE`);
   - morph targets (positions, normals, tangents);
   - `KHR_animation_pointer` channels to property tracks where the pointer maps to an engine field (material factors, light intensity and colour, camera FOV), with one warning listing pointers that don't.
@@ -119,6 +119,7 @@ We will use **one track model** for everything that changes over time. A clip, a
 - **Separate systems for skeletal clips, property animation and tweens (Unity's legacy, DOTween beside Mecanim).** Each would be simpler alone, but there would be three event models, three time bases and two curve editors.
 - **Keyframe-reduction compression (curve fitting, Unity's "Optimal").** Smaller for smooth curves, but its error is hard to bound in object space and decoding is slower. ACL showed uniform sampling with variable bit rate wins on both speed and size for games.
 - **Binary-only authored clips.** Smaller, but they don't merge in git. The text source stays, and binary is compiled from it.
+- **Spine and Rive importers.** Out of scope: the engine handles no format that needs a licence (owner, 2026-11-22).
 - **Bone tracks only (Unreal).** Properties would need a second mechanism, as in Unreal's curves and Sequencer.
 
 ## Consequences
@@ -140,9 +141,8 @@ We will use **one track model** for everything that changes over time. A clip, a
 
 ## Open questions
 
-- **Loadable packages:** audio 0337 adds `.mycopak` packages for audio only. Whether packages become an engine-wide asset feature that clips and pose databases can use needs its own record.
+- **Loadable packages:** the owner decided (2026-11-22) that audio 0337's packages become engine-wide and are renamed **BioPak** (`.biopak`). They get their own record after the audio branch merges; audio itself is renamed Biosonic afterwards. Clips, skeletons and pose databases then ship in them.
 - Which `KHR_animation_pointer` targets map in the first build beyond materials, lights and cameras (UI fields, particle parameters)?
-- Spine and Rive files: their runtimes are separate products (Spine's runtime licence requires a Spine licence; Rive's is MIT). Importing them would be its own record and isn't part of this design.
 
 ## References
 

@@ -69,7 +69,7 @@ All are registered with `registerEngineSystems`, so the System catalogue and Wor
 - **Logic:**
   - **Random selector** (audio's Queue picks): `random` (weighted, avoiding the last N), `shuffle` or `roundRobin` over child sources, picked once per entry from the World's seeded generator. For idle variations and hit reactions, and replayable.
   - **State machine.** States hold sub-graphs. Transitions are listed per state in **explicit priority order**, each with:
-    - a condition (an expression over parameters, `state.time`, `state.normalizedTime`, sync phase and curves);
+    - a condition: a structured `all`/`any` list of `parameter op value` comparisons over parameters, `state.time`, `state.normalizedTime`, sync phase and curves. A shared expression language for animation and audio comes later, in its own record (owner, 2026-11-22);
     - **`when`**, in audio's Switch-rule words (audio 0329): `now`, `exit` (the next `exit` marker of the playing clip, else its end), `marker:<name>` (the next sync marker of that name), or a normalised time;
     - **`how`**: `crossfade` (duration plus a shape from the shared fade-shape set, audio 0336), `cut`, `inertialize`, or `bridge` (play a bridge clip or state between them, entering the target at the bridge's `exit` marker or end, as audio's transition entries do);
     - `canInterrupt` (by which transitions).
@@ -137,6 +137,7 @@ await dir.play();
 ```
 
 - **Promises fit the existing `wait` style.** A `play` promise resolves with `{ reason: "finished" | "interrupted" | "stopped" }`.
+- **Destroyed targets:** a tween whose target node or component is destroyed stops and is removed silently. Its promise resolves with `reason: "destroyed"`, so awaiting code doesn't hang.
 - **Notifies call methods.** An `event` track names a method. After `Evaluate`, `animation.Apply` delivers it through the World's behaviour messages (0303, `World._sendMessage(nodes, method, e)`): each node once, active behaviours only, throws logged. Each behaviour of the Animator's node that defines it gets `method(e: AnimationEvent)`, as Unity's AnimationEvent does. A notify state calls it with `e.phase` = `"begin"`, `"tick"` and `"end"`. The same records go to the `AnimationEvents` buffer for systems. There is no event bus (0017).
 - **Musical timing (optional, when the audio plugin is enabled):** `play`, `travel` and `request` accept `at: "beat" | "bar" | "exit"` with a music handle (`AudioPlaylistHandle`, audio 0329), and `align: "start" | "hit"`. `hit` lands the clip's `hit` marker on the boundary, as audio stingers do, for dance, rhythm and cutscene sync. The animation plugin reads the handle's music position through the public `Audio` API only. Without the audio plugin, `at` is refused with one warning.
 - **No triggers.** `request` replaces them: a request lives for `within` seconds (default 0.25) and is consumed by the first transition that reads it.
@@ -163,7 +164,7 @@ Parameters declare `replicate` and `predicted` in the graph asset's parameter li
 
 **Negative / costs**
 - A large public surface (`Animator`, `tween`, `TimelineDirector`, `BoneAttachment`, `Ragdoll`) to document and keep stable.
-- Expressions in transition conditions need a small compiler to the core's bytecode (parsed in TypeScript in the editor and at load; evaluated in Rust).
+- Structured conditions are wordier than expressions until the shared expression language arrives.
 - Physical animation couples to the physics plugin's joint-motor API, which has to grow motors, limits and pinning in Rapier's backend.
 
 ## Deprecates

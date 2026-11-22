@@ -5,7 +5,7 @@
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
 - **Amends:** the architecture overview's non-goal "animation timeline … in the editor" (removed)
-- **Related:** 0061, 0133, 0219, 0304, 0307, 0313, 0326, 0340, 0341, 0342; audio 0327 (the Audio Studio), audio 0332 (one curve editor), audio 0334 (takes), audio 0335 (one component kit)
+- **Related:** 0061, 0133, 0242, 0219, 0304, 0307, 0313, 0326, 0340, 0341, 0342; audio 0327 (the Audio Studio), audio 0332 (one curve editor), audio 0334 (takes), audio 0335 (one component kit)
 
 ## Context
 
@@ -42,7 +42,7 @@ The editor half lives in `src/plugins/animation/editor/`, contributed through th
   - Preview playback in the viewport without entering play mode, through the core in the Editor World.
 - **Animation graph editor:**
   - Built on `src/editor/graph/` (xyflow). Pose nodes and pins, state machines as nested canvases, transitions drawn with their priority number.
-  - A transition list panel per state: reorder, a condition expression editor with completion over parameters, blend settings and interruption.
+  - A transition list panel per state: reorder, a condition editor (rows of parameter, operator and value, joined by all or any), blend settings and interruption.
   - A blend-space editor: 1D track and 2D plot with samples, triangulation and a draggable preview point.
   - The chooser table as a spreadsheet view; a linked-graph picker; mask panels;
   - **Parameters through the one parameter list module (0304)**, moved from `plugins/audio/editor/` into the editor SDK so audio and animation share it, with the shared parameter card;
@@ -73,7 +73,7 @@ The editor half lives in `src/plugins/animation/editor/`, contributed through th
   - A chain editor for custom profiles.
   - A side-by-side retarget preview (source and target playing the same clip).
   - "Bake retargeted clip" writes an `*.anim.json`.
-  - Bones show in the Hierarchy under the `Skeleton` as read-only virtual entries. Selecting one shows a bone gizmo and offers "Add BoneAttachment".
+  - Bones show in the Hierarchy under the `Skeleton` as read-only virtual entries. Selecting one shows a bone gizmo and offers "Add BoneAttachment". The Inspector-target module (0242) gains a bone target, so bone selection goes through it like every other selection.
 - **Clip import settings** in the model's Asset Inspector:
   - split takes on a timeline strip; loop with a pose-match indicator;
   - root-motion bone, axes and bake options; additive reference;

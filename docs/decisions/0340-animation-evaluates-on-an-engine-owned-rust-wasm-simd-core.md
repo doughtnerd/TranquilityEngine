@@ -4,7 +4,7 @@
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Amends:** 0075 (animation is neither Babylon's system nor a copy of it; Babylon only uploads bone matrices and morph weights)
+- **Amends:** 0075 (animation is neither Babylon's system nor a copy of it; skinning is the engine's own GPU compute pass and Babylon draws its output)
 - **Related:** 0010, 0011, 0017, 0033, 0065, 0133, 0157, 0303, 0327, 0328, 0341, 0342, 0343; audio 0332 (one curve model), audio 0338 (sandboxed third-party wasm effects)
 
 ## Context
@@ -89,7 +89,7 @@ Public types are exported from `myco` like physics and navigation. No Rust, wasm
 - **One module instance per page, shared by every World.** Worlds, the editor viewport and play mode are namespaces in it, so a clip or skeleton is loaded once (0157's model).
 - **The dedicated server loads the same wasm in Node** (0033), because root motion, sockets and hit volumes are gameplay.
 - **Lazy loading:** the module loads the first time a World has an Animator, a Tween or a timeline (0065's lazy loading). Games without animation never download it.
-- **Single-threaded on the calling thread.** wasm threads need nightly `build-std` (stable Rust is pinned) and COOP/COEP headers, which plain web exports can't promise.
+- **Single-threaded on the calling thread.** wasm threads need nightly `build-std` (stable Rust is pinned) and COOP/COEP headers, which plain web exports can't promise. Owner, 2026-11-22: no threads by default; they are reconsidered only if the budgets below fail.
 - **The core is still written as jobs.** It is a flat list of character evaluations with no shared mutable state between them, so a threaded runner would only change the runner (see Open questions).
 - **Pose-database baking and clip compression run in a Web Worker** with their own instance, so the editor stays responsive.
 
@@ -138,12 +138,12 @@ Public types are exported from `myco` like physics and navigation. No Rust, wasm
 ### Rendering
 
 - **Skinned meshes stay engine-side data:** the `SkinnedMeshRenderer` component (0342) holds a mesh, a skeleton reference and bind matrices.
-- **The Babylon backend only:**
-  - uploads the bone matrices to a Babylon skeleton or bone texture (GPU skinning, 4 or 8 weights);
-  - sets morph target weights (`MorphTargetManager`);
-  - renders the result.
+- **Skinning is our own GPU compute pass on WebGPU** (owner, 2026-11-22):
+  - a WGSL compute shader applies morph deltas, then skins positions, normals and tangents (4 or 8 influences, 0341) into an output vertex buffer per skinned mesh;
+  - the shader reads the bone matrices from a storage buffer, written once per frame;
+  - Babylon draws that buffer as an ordinary mesh, so shadows, depth, picking and every other pass reuse the skinned result instead of skinning again.
   
-  Babylon's own `Animation`, `AnimationGroup` and `Skeleton.beginAnimation` are never used.
+  Babylon's own `Animation`, `AnimationGroup` and `Skeleton.beginAnimation` are never used. If compute skinning misses its budget, Babylon's vertex-shader skinning is measured against it before anything changes.
 - Shadow casters, previews (0061) and thumbnails draw skinned meshes through the same path.
 - **2D bones:** sprite skinning deforms a slice mesh (0341). It is drawn by a skinned quad-batch path in `render/babylon/quadBatches.ts`, with the bone palette as a uniform array.
 
@@ -174,8 +174,10 @@ Public types are exported from `myco` like physics and navigation. No Rust, wasm
 | Scenario | Budget on the reference machine (the 0157 machine) |
 |---|---|
 | 100 characters, 80 bones, a state machine with a 2D blend space, an upper-body slot, two-bone IK on both feet and a look-at | ≤ 1.5 ms per frame on the main thread |
-| Motion matching, 20 characters, 30-minute database | ≤ 0.6 ms per frame |
+| Motion matching, 20 characters, a synthetic 30-minute database | ≤ 0.6 ms per frame |
 | 1,000 property tweens | ≤ 0.2 ms per frame |
+
+**No sample project and no large pose database in this build** (owner, 2026-11-22). Tests use small CC0 and synthetic fixtures; a character sample and its assets come later.
 
 The editor's Profiler (0326) gets an Animation table: instances evaluated, skipped by LOD, time per stage.
 
@@ -185,6 +187,7 @@ The editor's Profiler (0326) gets an Animation table: instances evaluated, skipp
 - **Babylon's animation system, or a copy of it (0075's option).** It works on Babylon objects, isn't headless, and has no graph, IK, retargeting or matching. Copying it would give us the weakest part to start from.
 - **`ozz-animation-rs` (MPL-2.0, 0.11.0) for sampling and blending.** Its SoA design is the model we follow, but as far as its documentation shows it loads archives built by ozz's C++ offline tools and has no builder of its own. Its clips are bones only, so not our generic property tracks. It would add MPL files to an MIT engine. We take the design and not the crate.
 - **ACL (C++) compiled to wasm.** That is the best compression available, but it needs a C++ toolchain beside Rust in the build. We implement its approach (uniform sampling, variable bit rate per track, object-space error) in `anim-compress`.
+- **Babylon's vertex-shader skinning as the default.** Less code, but every pass (each shadow cascade, depth, picking) skins again, and morphs go through a second path. The owner chose compute. Babylon's skinning is the comparison if compute underperforms.
 - **wasm threads now.** Faster with many characters, but it needs nightly Rust and cross-origin isolation for every export. The job-shaped core keeps that open.
 - **Bones as scene nodes (Unity).** Bones would be easy to parent and inspect, but every bone would be an entity, transform propagation would run over thousands of nodes, and the pose would cross the boundary each frame. Bones stay in the skeleton (Godot), with `BoneAttachment` for parenting (0342).
 
@@ -208,8 +211,7 @@ The editor's Profiler (0326) gets an Animation table: instances evaluated, skipp
 
 ## Open questions
 
-- **A threaded runner** when the page is cross-origin isolated and a stable-Rust path to wasm threads exists. It would change only the runner, but it needs its own record.
-- **GPU compute skinning on WebGPU** for very large crowds, versus Babylon's vertex-shader skinning.
+- **Skinning on the WebGL2 fallback (0075), which has no compute:** Babylon's skinning fed by a bone texture we write directly, or our own vertex-shader skinning. A spike at the start of the render wave decides.
 
 ## References
 
