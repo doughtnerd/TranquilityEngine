@@ -32,3 +32,9 @@ Decisions made during the build that the records didn't settle. Each entry: the 
 - **D28 (T20r).** *Seeks fire no keys;* notify states don't begin or tick but still end, so `end` always follows `begin`; activation edges are still reported.
 - **D29 (T20r).** *Notify states are level-based on weight > threshold;* audio and control keys fire at any weight above 0 and carry it; markers are never gated.
 - **D30 (T20r).** *Ranges are `[time, end)`;* in non-looping clips activation and subclip ranges ending at the duration hold the end. Discrete before its first key holds the first key's value (Unity). Window deltas are capped at four durations.
+- **D31 (T13r).** *Implicit graph:* two players and a crossfade per layer (Animancer's model); a play arriving mid-fade cuts and inertializes (Unreal's advice).
+- **D32 (T13r).** *Inertialization is a node at the output* that stores its captured poses in the state blob, so transitions survive snapshot and restore.
+- **D33 (T13r).** *Alpha:* a pose carries how much of it is real; fades from nothing come from the rest pose.
+- **D34 (T13r).** *Update every frame, pose when due;* LOD shows a lerp with one step of latency. `whenVisible` freezes pose and root motion; `rootMotionOnly` keeps root motion.
+- **D35 (T13r).** *Root delta* is in the character's frame at the step start (clip frame-0 heading = rest heading). Layers give no root motion.
+- **D36 (T13r).** *Columns:* the highest-weight clip fills the column block (blended columns later); at most 256 notify states per clip. Clip references in graph assets bind through a per-graph table (`graph_bind`).
