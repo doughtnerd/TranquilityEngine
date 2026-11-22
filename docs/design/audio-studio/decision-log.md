@@ -228,3 +228,15 @@ Merge decision: pan/high-pass time lanes become core bindings per voice start (o
 the core curve table (1024, never freed) can fill with per-voice shifted curves on long instances with time-keyed
 pan/high-pass lanes (fix: a time origin per binding); instance low-pass automation can't open above a submix's fixed
 cutoff (needs submix parameter automation).
+
+**D31. Editor audio panels retired (W7-A, merged).** Removed: the Event editor, music panels, editor Mixer and
+Profiler, Audio Debug panel, Project Settings > Audio (now a pointer with "Open in Audio Studio"), the op log, "Create
+event from clips". The editor's D2 legacy adapter is gone (D2 retired): the editor no longer edits audio data; the
+runtime serves `coreSectionOf`. Double-clicking a Studio file whose kind has no panel opens it in the Studio. The
+occlusion-rays toggle moved to a Scene toolbar "Audio" popover. Migration on open in both apps asks once; declining
+in the Studio opens the project read-only with a "Migrate now" banner. New internal SDK member
+`editor.openAudioStudio(target?)` (`@internal`, keeps plugins importing only `editor/sdk`; flagged). The `audioEvent`
+kind keeps format/references so old files still list and play until the runtime half retires them. E2E specs whose
+subject was a removed panel were deleted (7 specs, 2 helpers); others were edited (listed in the W7-A report) — none
+run yet. Lost authoring paths with no Studio equivalent yet: "Create playlist from clips" in the editor. Closes D11's
+"auto-migrate not yet enabled".
