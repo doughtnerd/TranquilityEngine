@@ -25,6 +25,7 @@ dependencies = [
  "anim-format",
  "anim-math",
  "anim-offline",
+ "anim-sample",
 ]
 
 [[package]]
@@ -122,6 +123,7 @@ dependencies = [
 name = "anim-sample"
 version = "0.1.0"
 dependencies = [
+ "anim-compress",
  "anim-format",
  "anim-math",
  "anim-offline",

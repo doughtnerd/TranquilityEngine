@@ -12,3 +12,5 @@ anim-format.workspace = true
 
 [dev-dependencies]
 anim-offline.workspace = true
+# Tests compress synthetic clips to sample them.
+anim-compress.workspace = true
