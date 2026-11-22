@@ -408,3 +408,11 @@ memory in saves? default engine provides memory()/restore(), saving is the game'
 Studio edits only without an editor lock? default yes. Choices to review: per-language folders with references to the
 reference language's file; project-unique line keys and event names; subtitle-only playback for lines missing in
 every language; dialogue as its own asset (not a playlist type); take replay re-decides by default.
+
+**D53. Owner answers on localisation (2026-11-22).** (1) Text/UI localisation: "Yes, add it" — a new record (0342)
+designs string tables for UI text, and subtitles move into them (0343 amends 0340). (2) Subtitles: after comparing
+engines (Unreal ships basic built-in subtitles; Unity, Godot, Wwise, FMOD give data and callbacks only;
+accessibility guidance expects adjustable size, a background box and speaker names), the owner chose "Optional
+built-in": text + `Audio.onLine` events as the base, plus a drop-in subtitle component built only on those public
+events, with a player on/off setting; games can replace it. (3) Language packs: all shipped languages in the build.
+(4) Lip-sync: import only (Rhubarb output). Other 0340/0341 questions proceed on their defaults (D52).
