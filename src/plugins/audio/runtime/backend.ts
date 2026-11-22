@@ -663,6 +663,11 @@ export function noteCoreUnavailable(reason: string): void {
   settlePending();
 }
 
+/** @internal Why the core couldn't run here (the probe's refusal, or the load or start failure), or null when nothing said so yet. `Audio.debug().coreUnavailable` (ADR 0327). */
+export function coreUnavailable(): string | null {
+  return coreUnavailableReason;
+}
+
 /** A released session (ADR 0218) forgets why the core couldn't run: the next project's service load probes again, and warns once. */
 onAudioSessionReleased(() => {
   warnedCore = false;

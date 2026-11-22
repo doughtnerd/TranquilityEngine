@@ -41,8 +41,8 @@ const clamp255 = (p: number): number => (Number.isFinite(p) ? Math.min(255, Math
 /** Clamps `v` to lo..hi; a non-finite value gives `fallback`. */
 const clampOr = (v: number, lo: number, hi: number, fallback: number): number => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback);
 
-/** Whether the active World has the view: only it plays sound (ADR 0074). */
-export const worldPlays = (world: World | null): boolean => !!world?.render;
+/** Whether the active World has the view, or plays sound without one (ADR 0327's audio-only World): only it plays sound (ADR 0074). */
+export const worldPlays = (world: World | null): boolean => !!world && (!!world.render || world._audioOnly === true);
 
 /** @internal The World's key on the core (its `myco.audio` share, architecture §3.9), or 0 while it has none. A play carries it so selection knows whose voice it is. */
 export function worldKeyOf(world: World | null): number {

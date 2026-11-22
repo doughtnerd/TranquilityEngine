@@ -197,6 +197,12 @@ export interface AudioDebugInfo {
   mix?: AudioMixDebug;
   /** ADR 0171 §1.3 (K0; Rc2): the shared capture ring, null while none runs. */
   recorder?: AudioRecorderDebug | null;
+  /**
+   * ADR 0327: why the audio core couldn't run here (a missing AudioWorklet or WebAssembly simd128, a failed load or
+   * start), in the engine's words, once the engine has said so; absent while the core runs or is still loading.
+   * `Audio.debug()` adds it; a backend leaves it out.
+   */
+  coreUnavailable?: string;
 }
 
 // --- ADR 0166 interactive music (M4): the debug shape (§1.6, C11; contract Q0, filled by P10) ---------------------
