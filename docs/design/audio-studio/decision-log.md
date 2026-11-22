@@ -323,3 +323,9 @@ encoder need wasi-sdk. In 0338: plugins are sandboxed wasm with no imports, call
 always on (est. 20–50% on tight loops, to measure); ABI 5.0 widens effect records to 16 params; no latency
 compensation or custom UIs in v1; fault policy dry-pass, recreate, disable after 3 faults/s. Both start with spikes
 whose numbers may change the records.
+
+**D43. Base scenes in the Studio (W10-B, merged).** The base is a filtered copy (audio components + 3D colliders,
+with ancestors) loaded additively through `SceneManager`, never the full scene (game scripts and unrun plugins would
+throw); `AudioListener`, `RigidBody`, character controllers and 2D colliders are left out (static snapshot, the test
+scene's listener hears); per-World filters dropped. The Studio now activates the physics + Rapier runtime halves
+(lazy-loaded). `core/zoneIr.test.ts` failed again under full-suite load (passes alone) — recurring, needs a task.
