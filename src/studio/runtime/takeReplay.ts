@@ -49,6 +49,33 @@ export interface ReplayPlayOptions extends TakePlayOptions {
   readonly offset?: number;
 }
 
+/** A line or say the target started (an `AudioLineHandle` in the Studio): which line it picked. */
+export interface ReplayLineHandle extends ReplayHandle {
+  /** The line key ("" while a queued say hasn't decided). */
+  readonly key: string;
+  readonly state: "queued" | "playing" | "ended";
+}
+
+/** A say's options on replay: the play options, the recorded arguments, channel and `whenBusy`. */
+export interface ReplaySayOptions extends ReplayPlayOptions {
+  readonly args: Readonly<Record<string, string>>;
+  readonly channel?: string;
+  readonly whenBusy?: "queue" | "interrupt" | "drop";
+}
+
+/** ADR 0341 §6: a say whose replay picked differently from the recording ("picked X, recorded Y"). */
+export interface PickDifference {
+  /** The take's instance id. */
+  readonly instance: number;
+  readonly event: string;
+  /** Take seconds. */
+  readonly t: number;
+  /** What the replay picked (null: nothing). */
+  readonly picked: string | null;
+  /** What the game picked (null: nothing). */
+  readonly recorded: string | null;
+}
+
 /** What replay plays through: the Studio's runtime (`studioReplayTarget`), or a test's recorder. */
 export interface ReplayTarget {
   /** Start a playlist, event or sample; null when the runtime can't play now. */
@@ -64,6 +91,12 @@ export interface ReplayTarget {
   listener(pose: ReplayPose): void;
   /** Start the picks' generator from `seed`; false when the runtime can't (replay then says so). */
   seed(seed: number): boolean;
+  /** ADR 0340 §10: play a voice-over line by key against the current tables (`Audio.line`); null when it can't. */
+  line?(key: string, options: ReplayPlayOptions): ReplayLineHandle | null;
+  /** ADR 0341 §6: say a dialogue event with the recorded arguments (`Audio.say`): it decides again against the current data. */
+  say?(event: string, options: ReplaySayOptions): ReplayLineHandle | null;
+  /** ADR 0340 §10: the recorded audio and subtitle languages. */
+  language?(audio: string, subtitles: string | null): void;
   /** The replay closed: let go of what it made (the listener entity). */
   dispose?(): void;
 }
@@ -123,6 +156,9 @@ interface Live {
   handle: ReplayHandle | null;
 }
 
+/** A recorded pick's line key; null for none. */
+const pickedKey = (p: { key: string } | { none: string } | null): string | null => (p !== null && "key" in p ? p.key : null);
+
 const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
 const lerpVec = (a: Vec3, b: Vec3, k: number): Vec3 => ({ x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k), z: lerp(a.z, b.z, k) });
 const normal = (v: Vec3): Vec3 => {
@@ -137,6 +173,15 @@ export class TakeReplay {
   readonly loop = signal<LoopRange | null>(null);
   /** What the replay can't do faithfully right now (an unseeded runtime), or null. */
   readonly note = signal<string | null>(null);
+  /**
+   * ADR 0341 §6, the Take toolbar's **Replay recorded picks**: false (default) re-decides each say against the current
+   * project, with the generator restarted from its recorded state; true plays the recorded lines by key instead.
+   */
+  readonly replayRecordedPicks = signal(false);
+  /** ADR 0341 §6: the says whose replay picked differently from the recording, by take instance. */
+  readonly pickDifferences = signal<ReadonlyMap<number, PickDifference>>(new Map());
+  /** Lines and says replay started, by take instance (their stops and state changes reach them here). */
+  private readonly lines = new Map<number, { handle: ReplayLineHandle | null; event: string | null }>();
   private readonly version = signal(0);
   /** The instances started and not stopped, by start time. */
   readonly instances: ReadonlySignal<readonly ReplayInstance[]> = computed(() => {
@@ -353,7 +398,29 @@ export class TakeReplay {
         this.live.set(q.instance, l);
         return true;
       }
+      case "line":
+        this.lines.set(q.instance, { handle: this.target.line?.(q.key, { ...q.options }) ?? null, event: null });
+        return false;
+      case "language":
+        this.target.language?.(q.audio, q.subtitles);
+        return false;
+      case "say":
+        this.say(q);
+        return false;
+      case "sayState": {
+        const l = this.lines.get(q.instance);
+        if (!l || l.event === null || this.replayRecordedPicks.value) return false;
+        // A queued say decided when it started: compare that pick (the replayed one may still wait: then nothing yet).
+        if (q.state === "playing" && l.handle && l.handle.key !== "") this.notePick(q.instance, l.event, q.t, l.handle.key, pickedKey(q.picked));
+        return false;
+      }
       case "stop": {
+        const line = this.lines.get(q.instance);
+        if (line) {
+          line.handle?.stop(q.fade);
+          this.lines.delete(q.instance);
+          return false;
+        }
         const l = this.live.get(q.instance);
         if (!l) return false;
         l.handle?.stop(q.fade);
@@ -390,6 +457,41 @@ export class TakeReplay {
     }
   }
 
+  /**
+   * ADR 0341 §6: a say as the game asked it. By default it is said again with its recorded arguments (every argument's
+   * resolved value), the generator restarted from the state it had then, so unchanged data picks the same line; a pick
+   * that differs is noted ("picked X, recorded Y"). With **Replay recorded picks** the recorded line plays by key.
+   */
+  private say(q: Extract<TakeRequest, { kind: "say" }>): void {
+    const { channel, whenBusy, ...play } = q.options;
+    if (this.replayRecordedPicks.value) {
+      const key = pickedKey(q.picked);
+      this.lines.set(q.instance, { handle: key !== null && q.state !== "refused" ? this.target.line?.(key, play) ?? null : null, event: q.event });
+      return;
+    }
+    if (q.random !== undefined) this.target.seed(q.random);
+    const args: Record<string, string> = {};
+    // A value recorded as `*` matched only wildcards (a value that wasn't a label): left out, it reads its default instead.
+    for (const [k, v] of Object.entries(q.args)) if (v !== "*") args[k] = v;
+    const handle = this.target.say?.(q.event, { ...play, args, ...(channel !== undefined ? { channel } : {}), ...(whenBusy !== undefined ? { whenBusy } : {}) }) ?? null;
+    this.lines.set(q.instance, { handle, event: q.event });
+    if (q.state === "queued") return; // compared when it starts (`sayState`)
+    const picked = handle && handle.state !== "ended" && handle.key !== "" ? handle.key : null;
+    this.notePick(q.instance, q.event, q.t, picked, pickedKey(q.picked));
+  }
+
+  private notePick(instance: number, event: string, t: number, picked: string | null, recorded: string | null): void {
+    const before = this.pickDifferences.value;
+    if (picked === recorded) {
+      if (!before.has(instance)) return;
+      const next = new Map(before);
+      next.delete(instance);
+      this.pickDifferences.value = next;
+      return;
+    }
+    this.pickDifferences.value = new Map(before).set(instance, { instance, event, t, picked, recorded });
+  }
+
   private mix(op: Extract<TakeRequest, { kind: "mix" }>["op"], target: string, value: number, seconds: number): void {
     switch (op) {
       case "busVolume":
@@ -416,6 +518,8 @@ export class TakeReplay {
   }
 
   private stopAll(): void {
+    for (const l of this.lines.values()) l.handle?.stop(REPLAY_STOP_FADE);
+    this.lines.clear();
     for (const l of this.live.values()) l.handle?.stop(REPLAY_STOP_FADE);
     if (this.live.size > 0) {
       this.live.clear();
@@ -586,6 +690,24 @@ export function studioReplayTarget(host: StudioAudioHost, world: ReplayWorld): R
     listener: (pose) => world.listener(pose),
     seed: (seed) => world.seed(seed),
     dispose: () => world.dispose(),
+    line: (key, o) => audio.line(key, lineOptions(o)),
+    say: (event, o) => audio.say(event, { ...lineOptions(o), args: { ...o.args }, ...(o.channel !== undefined ? { channel: o.channel } : {}), ...(o.whenBusy !== undefined ? { whenBusy: o.whenBusy } : {}) }),
+    language(audioLanguage, subtitles) {
+      void audio.setLanguage(audioLanguage).catch(() => undefined);
+      audio.subtitleLanguage = subtitles;
+    },
+  };
+}
+
+/** A replayed line's play options (`Audio.line`'s), from the recorded ones. */
+function lineOptions(o: ReplayPlayOptions): { volume?: number; pitch?: number; bus?: string; priority?: number; parameters?: Record<string, number>; position?: Vec3 } {
+  return {
+    ...(o.volume !== undefined ? { volume: o.volume } : {}),
+    ...(o.pitch !== undefined ? { pitch: o.pitch } : {}),
+    ...(o.bus !== undefined ? { bus: o.bus } : {}),
+    ...(o.priority !== undefined ? { priority: o.priority } : {}),
+    ...(o.parameters ? { parameters: o.parameters } : {}),
+    ...(o.position ? { position: o.position } : {}),
   };
 }
 

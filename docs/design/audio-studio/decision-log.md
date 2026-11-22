@@ -491,3 +491,17 @@ missing from a CSV only on an opt-in; the preview chip is hidden for single-lang
 `project.json` whole when editing `languages`, only while no editor lock is held; "Duck Music under Voice" is −6 dB,
 80/400 ms; coverage runs synchronously (capped) rather than in a worker. Auditions use the Studio's clip path until the
 audio runtime (L2/D2) merges.
+
+**D63. ADR 0346 (sound generators) accepted.** Owner questions, proceeding on defaults unless answered: (1) edited
+inside the Playlists screen; (2) blips band-limited (no "retro aliased" option); (3) the Babylon fallback renders
+generators through the offline module; (4) mono generator voices; (5) pool size derived from `max_mixed`; (6) no
+snapshot overrides of generator parameters in v1; (7) no automatic bake at export; (8) bakes are float32 mono 48 kHz.
+Per-voice costs are estimates until G2 measures them.
+
+**D64. Audio localisation and dialogue runtime (W13 L2/S2/D2/D3, merged).** Public API added: `Audio.language`,
+`setLanguage`, `pendingLanguage`, `subtitleLanguage`, `languages`, `line`, `onLine`, `onCaption`, `say`, `dialogue`;
+`EventOptions.line`; nine reasons; `AudioSpeaker` and line/dialogue types. Choices to review: SAY records carry the
+generator state so replay is exact anywhere in a take; arguments matching only `*` replay as defaults; the playlist
+`{event}` form updates dialogue memory but skips event cooldown, chance and channels (0341 §3); under `followText` the
+voice ignores its own remembered language. Follow-ups: `settings.dialogue` must join the `audio.json` format
+(coordinator item), take keyframes don't hold lines.

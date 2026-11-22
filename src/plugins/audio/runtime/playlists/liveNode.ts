@@ -6,7 +6,7 @@ import type { Curve } from "../../../../engine/core/curve";
 import type { Effect } from "../../../../engine/audio/effects/types";
 import type { VoiceProps } from "../../../../engine/audio/playlist/accumulate";
 import type { PickState } from "../../../../engine/audio/playlist/picks";
-import type { ChangeHow, LoopBehaviour, PlaylistBody, SampleEntry } from "../../../../engine/audio/playlist/types";
+import type { ChangeHow, LineEntry, LoopBehaviour, PlaylistBody, SampleEntry } from "../../../../engine/audio/playlist/types";
 import type { ParameterDef } from "../../../../engine/audio/parameters";
 import type { AudioMarkerEvent, AudioVoice, Attenuation, SubmixLevel } from "../backend";
 import type { Binding, ParamRef } from "../automation";
@@ -161,6 +161,12 @@ export interface NodeHost {
    * would get from its sample and settings; omitted, the entry's.
    */
   playSample(entry: SampleEntry, ctx: Ctx, loop?: LoopRun | null): PVoice | null;
+  /**
+   * ADR 0340 §5, 0341 §3: the sample a line entry plays now (its key from the entry, the play's `line` option or its
+   * dialogue event; its file through the current language's chain), as a sample entry with the line entry's use
+   * settings. Null when nothing plays (the host keeps why for the handle's reason). Absent: line entries play nothing.
+   */
+  lineSample?(entry: LineEntry, ctx: Ctx): SampleEntry | null;
   /** A marker passes at heard `e.time`: the handle's `onMarker` listeners hear it once the heard clock reaches it. */
   emitMarker(e: AudioMarkerEvent): void;
   /** Report the Cue, Exit and Hit markers of `facts` as voice `v` (playing from file seconds `from`) passes them. */

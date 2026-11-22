@@ -38,6 +38,11 @@ function clipEntries(b: PlaylistBody): EditResult<SampleEntry[]> {
 function wrapSamples(b: PlaylistBody, type: PlaylistType): Entry[] {
   const target = { ...b, type };
   return b.entries.map((e) => {
+    // ADR 0340 §5: a line plays only in a Clip, so it moves into an embedded Clip of its own (use settings on the wrapper).
+    if (e.kind === "line") {
+      const { kind: _k, line, ...use } = e;
+      return { kind: "embedded", embedded: { ...emptyPlaylistBody("clip"), entries: [{ kind: "line", line, ...defaultEntryUse() }] }, ...use } as Entry;
+    }
     if (e.kind !== "sample") return e;
     const { kind: _k, sample, trim, loop, ...use } = e;
     const w = sampleEntry(target, sample);
@@ -52,7 +57,11 @@ function tracksFrom(entries: readonly Entry[]): Track[] {
     const clip: Clip = {
       id: `c${i + 1}`, at: 0, length: 0, offset: 0, gain: e.volume, pitch: e.pitch, pan: 0, reverse: false, sync: false, enabled: true,
       loops: {}, hiddenMarkers: [], effects: [], automation: [],
-      ...(e.kind === "linked" ? { playlist: e.playlist } : e.kind === "embedded" ? { playlist: structuredClone(e.embedded) } : { sample: e.sample }),
+      ...(e.kind === "linked" ? { playlist: e.playlist }
+        : e.kind === "embedded" ? { playlist: structuredClone(e.embedded) }
+        // ADR 0340 §5: a line becomes a playlist clip holding a Clip with that line.
+        : e.kind === "line" ? { playlist: { ...emptyPlaylistBody("clip"), entries: [{ kind: "line" as const, line: structuredClone(e.line), ...defaultEntryUse() }] } }
+        : { sample: e.sample }),
     };
     return {
       id: `t${i + 1}`, name: entryName(e, i), kind: e.kind === "sample" ? "audio" : "playlist", color: (i % 8) + 1, volume: 0, pan: 0, output: null,

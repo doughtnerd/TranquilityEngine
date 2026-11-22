@@ -14,7 +14,7 @@ import { defaultBlend, defaultQueue, defaultSwitch } from "../../../../engine/au
 import { pickEntry } from "../../../../engine/audio/playlist/picks";
 import { changeFor } from "../../../../engine/audio/playlist/switchRules";
 import type {
-  Adsr, BlendAxis, ChangeHow, ChangeRule, Entry, EntryUse, FadeShape, PlaylistBody, PlaylistType, SampleEntry, SwitchSettings, TimeLength,
+  Adsr, BlendAxis, ChangeHow, ChangeRule, Entry, EntryUse, FadeShape, LineEntry, PlaylistBody, PlaylistType, SampleEntry, SwitchSettings, TimeLength,
 } from "../../../../engine/audio/playlist/types";
 import type { Region1D } from "../../../../engine/audio/playlist/blendWeights";
 import { isLabelled, parameterRange } from "../../../../engine/audio/parameters";
@@ -130,7 +130,18 @@ export function resolveEntry(host: NodeHost, entry: Entry, parent: Ctx, key: str
       const node = new ClipNode(host, ctx, `${key}/${index}`, entry);
       return node;
     }
+    case "line":
+      // ADR 0340 §5: the line's file in the current language, resolved now (the moment the entry is picked).
+      return new ClipNode(host, ctx, `${key}/${index}`, lineSampleOf(host, entry, ctx));
   }
+}
+
+/**
+ * ADR 0340 §5, 0341 §3: the sample a line entry plays: its key (fixed, the play's `line` option, or its dialogue event's
+ * decision) in the current language's chain (`NodeHost.lineSample`). Null when nothing plays (the host notes why).
+ */
+function lineSampleOf(host: NodeHost, entry: LineEntry, ctx: Ctx): SampleEntry | null {
+  return host.lineSample?.(entry, ctx) ?? null;
 }
 
 // --- Clip ------------------------------------------------------------------------------------------------------------
@@ -178,8 +189,9 @@ class ClipNode extends LiveNode {
 }
 
 const resolveClip: Resolver = (host, body, ctx, key) => {
-  const sample = body.entries.find((e): e is SampleEntry => e.kind === "sample") ?? null;
-  return new ClipNode(host, ctx, key, sample);
+  // ADR 0340 §5: a Clip plays its first sample or line entry.
+  const first = body.entries.find((e): e is SampleEntry | LineEntry => e.kind === "sample" || e.kind === "line") ?? null;
+  return new ClipNode(host, ctx, key, first?.kind === "line" ? lineSampleOf(host, first, ctx) : first);
 };
 
 // --- Layer -----------------------------------------------------------------------------------------------------------
