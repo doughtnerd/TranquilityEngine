@@ -1,12 +1,14 @@
 # Audio profiler and capture files (ADR 0171, amended by 0172)
 
-The **Audio Profiler** panel shows what the audio core did while your game played: how busy it was, which voices were playing and why others were not, where it glitched, how loud each bus was. You can record in the editor's Play mode, record from an exported game with `Audio.capture`, save the recording as a `.mycap` file, and open that file later in the editor (on your machine or a tester's). For the buses the profiler reports on, see [Audio mixer](audio-mixer.md); to change the mix while you watch it, [Live mixing and ducking](audio-mixing.md); for what the loudness tracks mean, [Loudness](audio-loudness.md); for every `Audio.capture` member, [Audio mix: API reference](audio-mix-api.md#audiocapture); for a silent sound, [Why is there no sound?](why-no-sound.md). To record what the game asked of audio as well, so the Studio can replay it against your current project, record a [take](audio-takes.md) instead.
+> **The Audio Profiler panel moved to the Audio Studio.** Captures (`.mycap`) open on the Studio's Profiler screen (the **Audio Studio** (in the editor: Window > Audio Studio, or **Open in Audio Studio** on a file; ADR 0327)). In the editor, **Record capture** and **Record take** stay on the Play toolbar and save into `captures/` and `takes/`. The panel walk-through below describes the editor panel this replaced.
+
+The Audio Studio's **Profiler** screen shows what the audio core did while your game played: how busy it was, which voices were playing and why others were not, where it glitched, how loud each bus was. You can record in the editor's Play mode, record from an exported game with `Audio.capture`, save the recording as a `.mycap` file, and open that file later in the editor (on your machine or a tester's). For the buses the profiler reports on, see [Audio mixer](audio-mixer.md); to change the mix while you watch it, [Live mixing and ducking](audio-mixing.md); for what the loudness tracks mean, [Loudness](audio-loudness.md); for every `Audio.capture` member, [Audio mix: API reference](audio-mix-api.md#audiocapture); for a silent sound, [Why is there no sound?](why-no-sound.md). To record what the game asked of audio as well, so the Studio can replay it against your current project, record a [take](audio-takes.md) instead.
 
 The recorder is a separate chunk that loads on the first `Audio.capture.start()`. A game that never calls it loads no recorder and pays nothing.
 
 ## What the panel shows
 
-Open **Audio Profiler** from the editor's panels. It has a timeline of tracks above a set of tables, a bar of buttons and a legend of keys. All of it reads one recording, either the live one (Play, with the panel open) or a file.
+Open a capture in the Audio Studio (double-click a `.mycap` in the editor's Assets panel, or the Studio's Profiler screen). It has a timeline of tracks above a set of tables, a bar of buttons and a legend of keys. All of it reads one recording, either the live one (Play, with the panel open) or a file.
 
 Timeline tracks:
 
