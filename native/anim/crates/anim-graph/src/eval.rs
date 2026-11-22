@@ -180,6 +180,10 @@ pub trait Assets {
     fn graph(&self, _handle: u32) -> Option<GraphRef<'_>> {
         None
     }
+    /// The retarget map of `handle` (the `retarget` family's node, T41).
+    fn retarget(&self, _handle: u32) -> Option<crate::retarget::RetargetRef<'_>> {
+        None
+    }
 }
 
 /// A playback event for the host (play promises, `AnimatorStateChanges`, the graph family's
@@ -738,6 +742,10 @@ impl Program {
             let extra = if n.family == Family::Slots && n.kind == crate::slots::kind::LINKED {
                 let words = &self.params[n.params.0 as usize..(n.params.0 + n.params.1) as usize];
                 crate::slots::linked_depth(words)
+            } else if n.family == Family::Retarget {
+                // T41: the source graph's declared depth, run in its own region of the stack.
+                let words = &self.params[n.params.0 as usize..(n.params.0 + n.params.1) as usize];
+                crate::retarget::node_depth(n.kind, words)
             } else {
                 0
             };
@@ -1324,6 +1332,9 @@ pub struct EvalContext<'a> {
     collected_len: usize,
     /// Inside a linked graph: the outer window and the linked node's inertialization target.
     outer: Option<(ProgramWindow<'a>, u32)>,
+    /// The first transform of slot 0 in the pose stack (0 at top level; inside a skeleton scope,
+    /// where the scope's region starts: T41).
+    slot_base: usize,
 }
 
 const EMPTY_SKELETON: SkeletonPose<'static> = SkeletonPose {
@@ -1367,6 +1378,7 @@ impl<'a> EvalContext<'a> {
             collected: [(0, 0.0); MAX_COLLECTED],
             collected_len: 0,
             outer: None,
+            slot_base: 0,
         }
     }
 
@@ -1887,7 +1899,8 @@ impl<'a> EvalContext<'a> {
     /// Reserves a pose slot; `None` when the stack is exhausted (a node then writes the rest pose).
     pub fn push_slot(&mut self) -> Option<usize> {
         let groups = self.groups.max(1);
-        let len = self.scratch.as_ref().map_or(0, |s| s.poses.len() / groups);
+        let base = self.slot_base;
+        let len = self.scratch.as_ref().map_or(0, |s| s.poses.len().saturating_sub(base) / groups);
         if self.next_slot < len {
             self.next_slot += 1;
             Some(self.next_slot - 1)
@@ -1902,7 +1915,7 @@ impl<'a> EvalContext<'a> {
     }
 
     fn slot_range(&self, slot: usize) -> core::ops::Range<usize> {
-        slot * self.groups..(slot + 1) * self.groups
+        self.slot_base + slot * self.groups..self.slot_base + (slot + 1) * self.groups
     }
 
     /// Slot `slot`'s pose.
@@ -1932,16 +1945,18 @@ impl<'a> EvalContext<'a> {
         out: usize,
     ) -> Option<(&[SoaTransform], &[SoaTransform], &mut [SoaTransform])> {
         let g = self.groups;
+        let sb = self.slot_base.min(self.scratch.as_ref().map_or(0, |s| s.poses.len()));
         let s = self.scratch.as_mut()?;
-        let [pa, pb, po] = split_slots(s.poses, g, [a, b, out])?;
+        let [pa, pb, po] = split_slots(&mut s.poses[sb..], g, [a, b, out])?;
         Some((pa, pb, po))
     }
 
     /// `out ← lerp(out, from, t)` for two distinct slots (an accumulating blend).
     pub fn lerp_slot_into(&mut self, out: usize, from: usize, t: f32) {
         let g = self.groups;
+        let sb = self.slot_base.min(self.scratch.as_ref().map_or(0, |s| s.poses.len()));
         if let Some(s) = self.scratch.as_mut() {
-            if let Some([po, pf]) = split_slots(s.poses, g, [out, from]) {
+            if let Some([po, pf]) = split_slots(&mut s.poses[sb..], g, [out, from]) {
                 lerp_into(po, pf, t);
             }
         }
@@ -1953,8 +1968,9 @@ impl<'a> EvalContext<'a> {
             return;
         }
         let g = self.groups;
+        let sb = self.slot_base.min(self.scratch.as_ref().map_or(0, |s| s.poses.len()));
         if let Some(s) = &mut self.scratch {
-            s.poses.copy_within(from * g..from * g + g, to * g);
+            s.poses.copy_within(sb + from * g..sb + from * g + g, sb + to * g);
         }
     }
 
@@ -1986,10 +2002,11 @@ impl<'a> EvalContext<'a> {
         slots: [usize; N],
     ) -> Option<(&mut [u32], [&mut [SoaTransform]; N])> {
         let g = self.groups;
+        let sb = self.slot_base.min(self.scratch.as_ref().map_or(0, |s| s.poses.len()));
         let (at, len) = self.program.node_range(g, self.node);
         let at = self.base + at;
         let s = self.scratch.as_mut()?;
-        let poses = split_slots(s.poses, g, slots)?;
+        let poses = split_slots(&mut s.poses[sb..], g, slots)?;
         Some((&mut self.state[at..at + len], poses))
     }
 
@@ -2003,9 +2020,102 @@ impl<'a> EvalContext<'a> {
         out: usize,
     ) -> Option<(&mut Inertializer, [&[SoaTransform]; 3], &mut [SoaTransform])> {
         let g = self.groups;
+        let sb = self.slot_base.min(self.scratch.as_ref().map_or(0, |s| s.poses.len()));
         let s = self.scratch.as_mut()?;
-        let [pa, pb, pc, po] = split_slots(s.poses, g, [a, b, c, out])?;
+        let [pa, pb, pc, po] = split_slots(&mut s.poses[sb..], g, [a, b, c, out])?;
         Some((&mut *s.inertializer, [pa, pb, pc], po))
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Skeleton scopes (T41: the retarget node's source graph) and the physics family's accessor
+    // (T44r). Additions only; nothing above depends on them except `slot_base` in the slot helpers.
+    // ---------------------------------------------------------------------------------------------
+
+    /// Runs `f` with `graph` as the program, its state window at word `base` of the blob, on
+    /// another skeleton (the retarget node's source graph, T41). Inside, the skeleton, bone groups
+    /// and bindings are the scope's; there is no output history and no layer weights (layers use
+    /// their defaults); slots are a fresh stack of the scope's group size starting right after the
+    /// slots reserved so far ([`EvalContext::scope_region_and_slot`] reads the scope's slot 0
+    /// afterwards); inertialization requests stay inside (an ancestor on the outer skeleton can't
+    /// take them). Phases and outputs carry through, as in [`EvalContext::with_program`].
+    pub fn with_skeleton<R>(
+        &mut self,
+        graph: GraphRef<'a>,
+        base: usize,
+        skeleton: SkeletonPose<'a>,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let saved = (
+            self.program,
+            self.inputs,
+            self.base,
+            self.outer.take(),
+            self.node,
+            self.groups,
+            self.slot_base,
+            self.next_slot,
+            self.out,
+        );
+        self.slot_base += self.next_slot * self.groups;
+        self.next_slot = 0;
+        self.program = graph.program;
+        self.inputs.bindings = graph.bindings;
+        self.inputs.skeleton = skeleton;
+        self.inputs.history = None;
+        self.inputs.layer_weights = &[];
+        self.base = base;
+        self.groups = skeleton.groups();
+        let r = f(self);
+        (
+            self.program,
+            self.inputs,
+            self.base,
+            self.outer,
+            self.node,
+            self.groups,
+            self.slot_base,
+            self.next_slot,
+            self.out,
+        ) = saved;
+        r
+    }
+
+    /// After a [`EvalContext::with_skeleton`] scope: its slot 0's first `len` transforms (the
+    /// scope's region starts right after the slots reserved now) and the reserved slot `out`,
+    /// writable, at once. `None` without scratch, when `out` isn't reserved, or past the stack.
+    pub fn scope_region_and_slot(
+        &mut self,
+        len: usize,
+        out: usize,
+    ) -> Option<(&[SoaTransform], &mut [SoaTransform])> {
+        if out >= self.next_slot {
+            return None;
+        }
+        let g = self.groups;
+        let start = self.slot_base + self.next_slot * g;
+        let o = self.slot_base + out * g;
+        let s = self.scratch.as_mut()?;
+        if s.poses.len() < start + len {
+            return None;
+        }
+        let (head, tail) = s.poses.split_at_mut(start);
+        Some((&tail[..len], &mut head[o..o + g]))
+    }
+
+    /// The current node's state words, slot `slot` and the sampling scratch (at least two
+    /// transforms per bone), all writable at once (the physical-pose node, T44r).
+    #[allow(clippy::type_complexity)]
+    pub fn state_slot_sample(
+        &mut self,
+        slot: usize,
+    ) -> Option<(&mut [u32], &mut [SoaTransform], &mut [AosTransform])> {
+        let g = self.groups;
+        let (at, len) = self.program.node_range(g, self.node);
+        let at = self.base + at;
+        let r = self.slot_range(slot);
+        let s = self.scratch.as_mut()?;
+        let pose = s.poses.get_mut(r)?;
+        Some((&mut self.state[at..at + len], pose, &mut *s.sample))
     }
 }
 
