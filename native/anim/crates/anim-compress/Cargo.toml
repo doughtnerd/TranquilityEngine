@@ -9,6 +9,9 @@ publish.workspace = true
 [dependencies]
 anim-math.workspace = true
 anim-format.workspace = true
+# The f64 reference maths and decode: the compressor measures its error with them (offline only;
+# never linked into the runtime module).
+anim-offline.workspace = true
 
 [dev-dependencies]
-anim-offline.workspace = true
+anim-sample.workspace = true
