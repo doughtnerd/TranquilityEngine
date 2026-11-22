@@ -213,6 +213,7 @@ describe("mergeLegacyIntoProject (a live op of the old shape, lifted into the mi
     v.buses.find((b) => b.name === "SFX")!.sends![0]!.to = "Echo";
     v.snapshots[0].volumes = { ...v.snapshots[0].volumes, Echo: v.snapshots[0].volumes.Delay! };
     delete v.snapshots[0].volumes.Delay;
+    v.automation.find((a) => a.target === "send")!.to = "Echo"; // ABI 4.8: the view shows send automation (a rename op renames its `to`)
     const out = mergeLegacyIntoProject(RICH, v);
     expect(out.returns.map((r) => r.name)).toEqual(["Echo", "Reverb"]);
     expect(busOf(out, "SFX").sends).toEqual([{ to: "Echo", levelDb: -6 }, { to: "Reverb", levelDb: -10 }]);
@@ -265,11 +266,18 @@ describe("mergeLegacyIntoProject (a live op of the old shape, lifted into the mi
     expect(mergeLegacyIntoProject(RICH, v).ducking).toEqual([RICH.ducking[0]]);
   });
 
-  it("pairs automation among the shown ones, keeping the one the view can't show", () => {
+  it("pairs automation among the shown ones (ABI 4.8: send and effect automation are shown too), keeping one the view can't show", () => {
     const v = view(RICH);
-    v.automation[0].curve = [[0, 1], [1, 1]];
+    v.automation.find((a) => a.target === "volume")!.curve = [[0, 1], [1, 1]];
     const out = mergeLegacyIntoProject(RICH, v);
     expect(out.automation).toEqual([RICH.automation[0], { ...RICH.automation[1], curve: [[0, 0], [1, 0]] }]);
+    v.automation.find((a) => a.target === "send")!.curve = [[0, -3]];
+    expect(mergeLegacyIntoProject(RICH, v).automation[0]).toEqual({ ...RICH.automation[0], curve: [[0, -3]] });
+    // An automation of an effect the core doesn't run (switched off) isn't shown, and stays.
+    const hidden = { ...structuredClone(RICH), automation: [...structuredClone(RICH.automation), { on: "Music", target: "fx:off:cutoff" as const, parameter: "p", curve: [[0, 500]] as [number, number][], bypass: false }] };
+    const hv = view(hidden);
+    hv.automation.find((a) => a.target === "volume")!.curve = [[0, 1], [1, 1]];
+    expect(mergeLegacyIntoProject(hidden, hv).automation[2]).toEqual(hidden.automation[2]);
   });
 
   it("follows a bus renamed in place into VCAs, sends, hidden effects and snapshots", () => {

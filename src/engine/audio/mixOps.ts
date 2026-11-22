@@ -369,7 +369,7 @@ export function applyOpToSettings(a: AudioSettings, op: MixOp): AudioSettings {
         buses: a.buses.filter((b) => !gone.has(b.name)).map(unsent),
         snapshots: a.snapshots.map((s) => ({ ...s, volumes: scrub(s.volumes), lowpass: scrub(s.lowpass) })),
         ducking: a.ducking.filter((r) => !gone.has(r.target) && !gone.has(r.trigger)),
-        automation: a.automation.filter((r) => !gone.has(r.bus)),
+        automation: a.automation.filter((r) => !gone.has(r.bus) && !(r.to !== undefined && gone.has(r.to))),
       };
     }
     case "renameBus": {
@@ -382,7 +382,7 @@ export function applyOpToSettings(a: AudioSettings, op: MixOp): AudioSettings {
         buses: a.buses.map((b) => ({ ...b, name: fix(b.name), ...(b.parent !== undefined ? { parent: fix(b.parent) } : {}), ...(b.sends ? { sends: b.sends.map((s) => ({ ...s, to: fix(s.to) })) } : {}) })),
         snapshots: a.snapshots.map((s) => ({ ...s, volumes: re(s.volumes), lowpass: re(s.lowpass) })),
         ducking: a.ducking.map((r) => ({ ...r, target: fix(r.target), trigger: fix(r.trigger) })),
-        automation: a.automation.map((r) => ({ ...r, bus: fix(r.bus) })),
+        automation: a.automation.map((r) => ({ ...r, bus: fix(r.bus), ...(r.to !== undefined ? { to: fix(r.to) } : {}) })),
       };
     }
     case "moveBus":
@@ -502,7 +502,7 @@ function restoreBuses(before: AudioSettings, gone: Set<string>): MixOp[] {
     for (const [bus, value] of Object.entries(s.lowpass)) if (gone.has(bus)) ops.push({ op: "setSnapshot", index, bus, key: "lowpass", value });
   });
   before.ducking.forEach((rule, index) => { if (gone.has(rule.target) || gone.has(rule.trigger)) ops.push({ op: "setDucking", index, rule: clone(rule), insert: true }); });
-  before.automation.forEach((rule, index) => { if (gone.has(rule.bus)) ops.push({ op: "setAutomation", index, rule: clone(rule), insert: true }); });
+  before.automation.forEach((rule, index) => { if (gone.has(rule.bus) || (rule.to !== undefined && gone.has(rule.to))) ops.push({ op: "setAutomation", index, rule: clone(rule), insert: true }); });
   return ops;
 }
 

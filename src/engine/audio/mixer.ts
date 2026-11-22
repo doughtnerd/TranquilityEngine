@@ -80,6 +80,8 @@ export const SNAPSHOT_EDIT_MS = 20;
  * steps of at most this long.
  */
 export const SNAPSHOT_SEGMENT_MS = 50;
+/** Seconds before a fade's break where the gain lane's ramp aims (the blend's value as the break is reached, not after it). */
+const BREAK_EPSILON = 1e-9;
 
 /**
  * Lane ids: the wire's `LANE_*` constants (api-and-models §4.1), and `vca` (ADR 0330), a main-side lane the wire
@@ -954,10 +956,14 @@ export class Mixer {
     // segment: re-planning on the way finds it already heading there.
     const gEnd = brk === Number.POSITIVE_INFINITY ? end : brk;
     const gSeconds = Math.max(gEnd - now, minSeconds);
-    const gMix = gEnd === end ? mix : this.player.resolveAt(gEnd, base);
+    // At the break, or just before it where the blend steps there (a fade out of 0 s at a hold's end): the next plan
+    // writes that step.
+    const gAt = brk === Number.POSITIVE_INFINITY ? mix : this.player.resolveAt(gEnd, base);
+    const gBefore = brk === Number.POSITIVE_INFINITY ? mix : this.player.resolveAt(gEnd - BREAK_EPSILON, base);
     const write = (name: string, s: BusState) => {
       // A lane already heading for its value keeps its ramp (an edit of a snapshot not in force moves nothing).
-      const g = gainOf(gMix.levels[name] ?? 0);
+      const atBreak = gainOf(gAt.levels[name] ?? 0), before = gainOf(gBefore.levels[name] ?? 0);
+      const g = Math.abs(atBreak - before) < 1e-6 ? atBreak : before;
       if (s.snapshot.to !== g) this.lane(name, Lane.snapshot, s.snapshot, g, gSeconds, true, "db");
       const hz = this.carrierCutoff(name, mix.effects[name]);
       if (s.lp.to !== hz) this.retarget(s.lp, hz, seconds);

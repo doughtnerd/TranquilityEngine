@@ -187,9 +187,9 @@ describe("the taps in a loopback scene", () => {
     r.mixer.setMonitor("SFX", { mute: true });
     const sfx = r.names.indexOf("SFX");
     expect(r.stub.of("snapshot")).toEqual([["Paused", 0.5]]);
-    // ADR 0330: the snapshot's lane goes out as segments of SNAPSHOT_SEGMENT_MS (50 ms, 2400 frames), linear in dB.
+    // ADR 0330 (ABI 4.8): the snapshot's lane goes out as one ramp of the core's dB law, to the fade's end.
     expect(r.stub.of("busRamp")).toEqual(expect.arrayContaining([
-      [busRefOf(r.backend, "SFX"), "snapshot", 2400, expect.closeTo(Math.pow(0.5, 0.1), 8)],
+      [busRefOf(r.backend, "SFX"), "snapshot", 24_000, expect.closeTo(0.5, 6)],
       [busRefOf(r.backend, "Music"), "runtime", 48_000, 0.5],
     ]));
     expect(r.stub.of("monitor")).toEqual([[1 << sfx]]);

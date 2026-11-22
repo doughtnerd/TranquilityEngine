@@ -25,7 +25,8 @@ import {
   DEFAULT_SNAPSHOT_FADE_MS, DEFAULT_SNAPSHOT_PRIORITY, audioProjectToJson, defaultAudioProject, engineSettingsOf, freeEffectId, newBus,
   parseAudioProject,
 } from "./format";
-import { coreSectionOf, reverbSendOf, sectionReturnsOf } from "./runtimeView";
+import { coreSectionOf, reverbSendOf, sectionAutomationOf, sectionReturnsOf } from "./runtimeView";
+import { fromLog2Curve, fxParamName } from "./fxAutomation";
 import { levelDbOf } from "./gain";
 import { OPEN_CUTOFF, isCarrier, msOf, paramsOf, updatedParams } from "./legacyEffects";
 import { coreBusEffect, coreShown } from "./runtimeView";
@@ -123,10 +124,18 @@ export function fromLegacySection(section: unknown, problems: string[] = []): Au
     for (const [bus, hz] of Object.entries(s.lowpass)) (snap.effects[bus] ??= {})[carrier(bus)] = { cutoff: hz };
     return snap;
   });
-  project.automation = a.automation.map((x) => ({
-    on: x.bus, parameter: x.parameter, bypass: false,
-    ...(x.target === "volume" ? { target: "volume" as const, curve: curveToDb(x.curve) } : { target: `fx:${carrier(x.bus)}:cutoff` as const, curve: structuredClone(x.curve) as CurveKey[] }),
-  }));
+  project.automation = a.automation.flatMap((x): MixAutomation[] => {
+    // ADR 0330 (ABI 4.8): a backends' view handed back carries effect and send automation (its effects are the owner's, in order).
+    if (x.target === "fx" || x.target === "send") {
+      const owner = project.buses.find((b) => b.name === x.bus) ?? project.returns.find((r) => r.name === x.bus);
+      const m = owner ? mixAutomationOf(x, owner.effects) : null;
+      return m ? [m] : [];
+    }
+    return [{
+      on: x.bus, parameter: x.parameter, bypass: false,
+      ...(x.target === "volume" ? { target: "volume" as const, curve: curveToDb(x.curve) } : { target: `fx:${carrier(x.bus)}:cutoff` as const, curve: structuredClone(x.curve) as CurveKey[] }),
+    }];
+  });
   project.ducking = a.ducking.map(duckingFrom);
   project.loudness = { targets: structuredClone(a.loudnessTargets ?? DEFAULT_LOUDNESS_TARGETS.map((t) => ({ ...t }))), resetOnPlay: a.loudnessResetOnPlay !== false };
   return project;
@@ -177,13 +186,19 @@ const sectionOwner = (p: AudioProject, name: string): Bus | Return | undefined =
 const showsRule = (p: AudioProject, d: DuckingRule) => d.enabled && sectionOwner(p, d.target) !== undefined && sectionOwner(p, d.trigger) !== undefined;
 
 /** Whether the section view shows `a` (`runtimeView.ts`' rule). */
-function showsAutomation(p: AudioProject, a: MixAutomation): boolean {
-  if (a.bypass) return false;
-  const bus = sectionOwner(p, a.on);
-  if (!bus) return false;
-  if (a.target === "volume") return true;
-  const [kind, id, param] = a.target.split(":");
-  return kind === "fx" && param === "cutoff" && bus.effects.find((e) => e.id === id)?.type === "lowpass";
+const showsAutomation = (p: AudioProject, a: MixAutomation): boolean => sectionAutomationOf(p, a) !== null;
+
+/**
+ * ADR 0330 (ABI 4.8): a section's `fx` or `send` automation entry `n` as the mix's, its effect found among `shown` (the
+ * owner's effects the section shows, in order) and its parameter by the catalogue's index (a log2 curve back in the
+ * parameter's units); null when it names nothing.
+ */
+function mixAutomationOf(n: BusAutomation, shown: readonly Effect[]): MixAutomation | null {
+  if (n.target === "send") return n.to ? { on: n.bus, target: `send:${n.to}`, parameter: n.parameter, curve: structuredClone(n.curve) as CurveKey[], bypass: false } : null;
+  const e = shown[n.effect ?? -1];
+  const p = e ? fxParamName(e.type, n.param ?? -1) : null;
+  if (!e || !p) return null;
+  return { on: n.bus, target: `fx:${e.id}:${p}`, parameter: n.parameter, curve: n.log ? fromLog2Curve(n.curve) : (structuredClone(n.curve) as CurveKey[]), bypass: false };
 }
 
 /**
@@ -391,12 +406,16 @@ export function mergeLegacyIntoProject(original: AudioProject, section: unknown)
     const shown = project.automation.filter((a) => showsAutomation(project, a));
     const fresh = (n: BusAutomation): MixAutomation | null => {
       if (n.target === "volume") return { on: n.bus, target: "volume", parameter: n.parameter, curve: curveToDb(n.curve), bypass: false };
+      if (n.target === "fx" || n.target === "send") {
+        const owner = sectionOwner(project, n.bus);
+        return owner ? mixAutomationOf(n, owner.effects.filter((e) => coreShown(project, n.bus, e))) : null;
+      }
       const id = carrierOf(n.bus);
       return id === null ? null : { on: n.bus, target: `fx:${id}:cutoff`, parameter: n.parameter, curve: structuredClone(n.curve) as CurveKey[], bypass: false };
     };
     const update = (a: MixAutomation, n: BusAutomation, e: BusAutomation): MixAutomation | null => {
-      if (n.bus !== e.bus || n.target !== e.target) return fresh(n);
-      const curve = same(n.curve, e.curve) ? structuredClone(a.curve) : n.target === "volume" ? curveToDb(n.curve) : (structuredClone(n.curve) as CurveKey[]);
+      if (n.bus !== e.bus || n.target !== e.target || n.effect !== e.effect || n.param !== e.param || n.to !== e.to) return fresh(n);
+      const curve = same(n.curve, e.curve) ? structuredClone(a.curve) : n.target === "volume" ? curveToDb(n.curve) : n.log ? fromLog2Curve(n.curve) : (structuredClone(n.curve) as CurveKey[]);
       return { ...structuredClone(a), parameter: n.parameter, curve };
     };
     const list = shown.length === expected.automation.length && shown.length === next.automation.length

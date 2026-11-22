@@ -405,7 +405,8 @@ export class LaneWriter {
 
   /** The snapshot lane: gain and low-pass in one record when both moved with one ramp, else each on its own. */
   private writeSnapshot(b: number, g: Readonly<Ramp>, lp: Readonly<Ramp>, gainMoved: boolean, lpMoved: boolean, gainNew: boolean, lpNew: boolean, now: number): void {
-    if (gainMoved && lpMoved && g.start === lp.start && g.seconds === lp.seconds && gainNew === lpNew && g.law === lp.law) {
+    // One record when both moved with one ramp (its law is the gain's: the core ramps the low-pass linearly whatever it is).
+    if (gainMoved && lpMoved && g.start === lp.start && g.seconds === lp.seconds && gainNew === lpNew) {
       this.emit(b, LANE_SNAPSHOT, BUS_RAMP_MASK_GAIN | BUS_RAMP_MASK_LP_HZ, g.to, lp.to, g, gainNew, true, now);
       return;
     }

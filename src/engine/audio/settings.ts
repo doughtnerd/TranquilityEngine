@@ -933,10 +933,16 @@ function parseEventKeys(input: Record<string, unknown>, settings: AudioSettings,
       if (!isRecord(raw)) return void problems.push(`${where}: must be an object; dropped.`);
       if (typeof raw.bus !== "string" || !settings.buses.some((b) => b.name === raw.bus)) return void problems.push(`${where}: bus must name a bus; dropped.`);
       if (typeof raw.parameter !== "string" || !settings.parameters.some((p) => p.name === raw.parameter)) return void problems.push(`${where}: parameter must name a global parameter; dropped.`);
-      if (raw.target !== "volume" && raw.target !== "lowpass") return void problems.push(`${where}: target must be "volume" or "lowpass"; dropped.`);
+      if (raw.target !== "volume" && raw.target !== "lowpass" && raw.target !== "fx" && raw.target !== "send") return void problems.push(`${where}: target must be "volume", "lowpass", "fx" or "send"; dropped.`);
+      // ADR 0330 (ABI 4.8): an effect parameter by its effect's index and the catalogue parameter's index, or a send.
+      const index = (v: unknown) => typeof v === "number" && Number.isInteger(v) && v >= 0 && v < 256;
+      const bus = settings.buses.find((b) => b.name === raw.bus)!;
+      if (raw.target === "fx" && (!index(raw.effect) || !index(raw.param) || (raw.effect as number) >= bus.effects.length)) return void problems.push(`${where}: an fx automation needs effect (one of the bus's effects, by index) and param (an index); dropped.`);
+      if (raw.target === "send" && (typeof raw.to !== "string" || !settings.buses.some((b) => b.name === raw.to))) return void problems.push(`${where}: a send automation's to must name a bus; dropped.`);
       const curve = audioCurve(raw.curve, `${where}.curve`, problems);
       if (!curve) return void problems.push(`${where}: the curve has no keys; dropped.`);
-      settings.automation.push({ bus: raw.bus, parameter: raw.parameter, target: raw.target, curve });
+      const extra = raw.target === "fx" ? { effect: raw.effect as number, param: raw.param as number, ...(raw.log === true ? { log: true } : {}) } : raw.target === "send" ? { to: raw.to as string } : {};
+      settings.automation.push({ bus: raw.bus, parameter: raw.parameter, target: raw.target, ...extra, curve });
     });
   }
   const seed = wholeNumber(input.seed, "audio.seed", 0, 0xffffffff, problems);

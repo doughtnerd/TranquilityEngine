@@ -306,7 +306,11 @@ describe("coreSectionOf: the old section shape's mapping", () => {
     expect(settings.snapshots).toEqual([{ name: "Underwater", volumes: { Music: expect.closeTo(Math.pow(10, -6 / 20), 9), Reverb: expect.closeTo(Math.pow(10, -3 / 20), 9) }, lowpass: { Music: 800 } }]);
     expect(settings.buses.find((b) => b.name === "Music")!.effects).toEqual([]); // the carrier is neutral and hidden
     expect(settings.ducking).toEqual([{ target: "Music", trigger: "SFX", mode: "presence", amount: expect.closeTo(Math.pow(10, -6 / 20), 9), attack: 0.08, release: 0.4 }]);
-    expect(settings.automation).toEqual([{ bus: "Music", parameter: "threat", target: "volume", curve: [[0, 1], [1, expect.closeTo(Math.pow(10, -6 / 20), 9), "easeOut"]] }]);
+    expect(settings.automation).toEqual([
+      { bus: "Music", parameter: "threat", target: "volume", curve: [[0, 1], [1, expect.closeTo(Math.pow(10, -6 / 20), 9), "easeOut"]] },
+      // ABI 4.8: the core runs send automation (dB, added to the send).
+      { bus: "SFX", parameter: "depth", target: "send", to: "Reverb", curve: [[0, -12], [100, 0]] },
+    ]);
     expect(settings.loudnessTargets).toEqual(FULL.loudness.targets);
     expect(settings.loudnessResetOnPlay).toBe(false);
     expect(settings.buses.find((b) => b.name === "Music")!.maxVoices).toBe(8);

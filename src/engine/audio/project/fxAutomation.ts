@@ -41,3 +41,22 @@ export function log2Curve(curve: Curve): CurveKey[] {
     return [k[0], y, "bezier", { ...h, in: [h.in[0], at(h.in[1])], out: [h.out[0], at(h.out[1])] }];
   });
 }
+
+/** `log2Curve`'s inverse: a log2 curve's values back as the parameter's (a Bézier key's handles re-measured likewise). */
+export function fromLog2Curve(curve: Curve): CurveKey[] {
+  const exp = (v: number): number => Math.round(Math.pow(2, v) * 1e6) / 1e6;
+  return curve.map((k): CurveKey => {
+    const y = exp(k[1]);
+    if (k.length < 3) return [k[0], y];
+    if (k[2] !== "bezier") return [k[0], y, k[2]] as CurveKey;
+    const h = k[3];
+    const at = (dy: number) => exp(k[1] + dy) - y;
+    return [k[0], y, "bezier", { ...h, in: [h.in[0], at(h.in[1])], out: [h.out[0], at(h.out[1])] }];
+  });
+}
+
+/** The name of catalogue parameter `index` of effect type `type` (`fxParamSlot`'s inverse); null when there is none. */
+export function fxParamName(type: string, index: number): string | null {
+  if (!isEffectType(type)) return null;
+  return effectSpec(type).params[index]?.name ?? null;
+}
