@@ -34,11 +34,13 @@ export function CausalChain(props: CausalChainProps) {
     setView(v);
   };
 
-  // A new chain: fit it again.
-  useEffect(() => {
-    user.current = false;
-  }, [steps]);
+  const shownSteps = useRef(steps);
   useLayoutEffect(() => {
+    // A new chain: fit it again, whatever the user did to the last one.
+    if (shownSteps.current !== steps) {
+      shownSteps.current = steps;
+      user.current = false;
+    }
     const vp = viewport.current;
     if (!vp) return;
     const check = () => {
@@ -64,7 +66,7 @@ export function CausalChain(props: CausalChainProps) {
     };
     vp.addEventListener("wheel", onWheel, { passive: false });
     return () => vp.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [steps.length === 0]);
 
   if (steps.length === 0) return <p class="studio-row-empty">Select a voice to see why it played.</p>;
   const worst = worstSeverity(steps);
