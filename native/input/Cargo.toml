@@ -1,4 +1,4 @@
-# Myco's gamepad identification and mapping (ADR 0333), compiled to WebAssembly for the web.
+# Myco's gamepad identification and mapping (ADR 0335), compiled to WebAssembly for the web.
 # Crates: input-map (std only: families, browser ids, the SDL controller database) → input-wasm.
 [workspace]
 resolver = "2"

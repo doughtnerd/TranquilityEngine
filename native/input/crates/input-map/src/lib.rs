@@ -1,4 +1,4 @@
-//! Gamepad identification and mapping for Myco's input system (ADR 0333), shared by the web
+//! Gamepad identification and mapping for Myco's input system (ADR 0335), shared by the web
 //! (compiled to wasm by `input-wasm`) and, by the same rules, the desktop SDL3 adapter.
 //!
 //! * [`Family`] and [`family_of`]: which kind of controller a vendor id, product id and name

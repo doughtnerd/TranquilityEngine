@@ -1,4 +1,4 @@
-//! Native gamepads for Myco Engine's desktop shell (ADR 0333), through SDL3.
+//! Native gamepads for Myco Engine's desktop shell (ADR 0335), through SDL3.
 //!
 //! A background thread owns SDL (initialised for gamepads, sensors and haptics only), waits on its
 //! events and streams them to the page in batches over a Tauri channel; the page sends output

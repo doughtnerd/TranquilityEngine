@@ -1,5 +1,5 @@
 /**
- * Input contexts (ADR 0334): bindings as data, switched on by a component on a node.
+ * Input contexts (ADR 0336): bindings as data, switched on by a component on a node.
  *
  * - A context is a `*.input.json` asset (`InputContextSpec`) or one registered in code with
  *   `defineInputContext`. The **default context** is made of the actions' inline defaults
@@ -91,7 +91,7 @@ export function activeContexts(world: World): ReadonlySet<InputContext> {
 const EMPTY: ReadonlySet<InputContext> = new Set();
 
 /**
- * Switches an input context on while its node is active in the hierarchy (ADR 0334), at
+ * Switches an input context on while its node is active in the hierarchy (ADR 0336), at
  * `priority`, for one player. Higher priorities are evaluated first, and a performing mapping
  * there hides its controls from lower ones. Its fields are read every frame, so changing them
  * (from code or the inspector) takes effect at the next evaluation.

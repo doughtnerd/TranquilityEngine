@@ -146,7 +146,7 @@ describe("desktop project", () => {
     expect([...files.keys()].sort()).toEqual([".gitignore", "Cargo.toml", "build.rs", "capabilities/default.json", "src/gamepad.rs", "src/lib.rs", "src/main.rs", "tauri.conf.json"]);
   });
 
-  it("includes the editor's native gamepad module, its dependencies and its commands (ADR 0333)", () => {
+  it("includes the editor's native gamepad module, its dependencies and its commands (ADR 0335)", () => {
     const files = desktopProjectFiles({ name: "x", settings: {}, gamepadModule: "// gamepads\n" });
     expect(files.get("src/gamepad.rs")).toBe("// gamepads\n");
     expect(files.get("src/lib.rs")).toContain("mod gamepad;");

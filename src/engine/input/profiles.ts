@@ -1,5 +1,5 @@
 /**
- * Per-player input profiles (ADR 0335): binding overrides from rebinding, and accessibility
+ * Per-player input profiles (ADR 0337): binding overrides from rebinding, and accessibility
  * settings, applied by the evaluator. Saved with settings (ADR 0024) as `input.<profile>.json`.
  */
 import type { World } from "../core/World";

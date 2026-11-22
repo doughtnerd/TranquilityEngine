@@ -1,6 +1,6 @@
 # 0033. Server-authoritative netcode between client and server Worlds
 
-- **Status:** Accepted, amended by [0062](0062-links-to-spawnable-worlds.md) (links apply whenever both Worlds exist)
+- **Status:** Accepted, amended by [0062](0062-links-to-spawnable-worlds.md) (links apply whenever both Worlds exist), [0333](0333-the-websocket-transport-sends-unreliable-messages-over-a-webrtc-data-channel.md) (client-to-server WebRTC rides the WebSocket transport, signalled over its socket)
 - **Date:** 2026-11-02
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

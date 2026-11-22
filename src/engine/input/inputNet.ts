@@ -1,5 +1,5 @@
 /**
- * Networked action sets (ADR 0335): `defineActions(…, { networked: true })` is also an input
+ * Networked action sets (ADR 0337): `defineActions(…, { networked: true })` is also an input
  * stream (`defineInput`) with the set's id, its value and phase fields, and its encoding. Only
  * resolved actions travel: triggers and modifiers run on the client.
  *

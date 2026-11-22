@@ -82,8 +82,10 @@ describe("traffic counters", () => {
     expect(s.inputs).toEqual([{ id: "test.tools.Steer", received: expect.any(Number), repeated: expect.any(Number), late: 0 }]);
     expect(s.inputs[0].received).toBeGreaterThan(0);
     expect(s.snapshotBytes).toBeTypeOf("number");
+    expect(s.snapshotParts).toBe(1); // loopback: one part per tick (ADR 0334)
     expect(s.ghosts).toBe(0);
     expect(c.snapshotBytes).toBeNull();
+    expect(c.snapshotParts).toBeNull();
     expect(info(engine, "Client").ghosts).toBe(0);
   });
 

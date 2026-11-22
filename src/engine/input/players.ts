@@ -1,5 +1,5 @@
 /**
- * Input players (ADR 0335): a player is a node under the World's `Input` node with `InputPlayer`
+ * Input players (ADR 0337): a player is a node under the World's `Input` node with `InputPlayer`
  * and every action set's component. Devices are paired to players (`InputDevice.player`) by the
  * project's join policy (`project.json` `input.join`):
  *

@@ -24,7 +24,7 @@ import {
   type ActionEvent,
 } from "../index";
 
-// ADR 0333–0335: devices as entities, actions and contexts, players — driven through Input.inject,
+// ADR 0335–0337: devices as entities, actions and contexts, players — driven through Input.inject,
 // the input end real adapters use, and read through actions, players, pawns and behaviors.
 
 const Player = defineActions("test.inputActions.Player", {
@@ -66,7 +66,7 @@ const pad = (id: number, family: "xbox" | "playstation" = "xbox") => {
   Input.inject.gamepadConnected({ id, name: `Pad ${id}`, family });
 };
 
-describe("devices as entities (ADR 0333)", () => {
+describe("devices as entities (ADR 0335)", () => {
   it("mirrors the keyboard, pointer and gamepads as device nodes, and this frame's presses as DeviceEvents", () => {
     const events: [string, string][] = [];
     defineSystem({ name: "test.inputActions.devices", phase: "update", run: () => { for (const e of DeviceEvents.read()) events.push([e.device.name, e.control]); } });
@@ -112,7 +112,7 @@ describe("devices as entities (ADR 0333)", () => {
   });
 });
 
-describe("actions and the default context (ADR 0334)", () => {
+describe("actions and the default context (ADR 0336)", () => {
   it("presses, holds and releases a button, with phases and ActionEvents", () => {
     const phases: string[] = [];
     defineSystem({ name: "test.inputActions.events", phase: "update", run: () => { for (const e of ActionEvents.read()) if (e.action === "jump") phases.push(e.phase); } });
@@ -201,7 +201,7 @@ describe("actions and the default context (ADR 0334)", () => {
   });
 });
 
-describe("contexts on nodes (ADR 0334)", () => {
+describe("contexts on nodes (ADR 0336)", () => {
   it("takes a control for a higher-priority context while its node is active", () => {
     const car = GameObject.create("Car");
     car.addBehavior(InputContext, { context: "test.vehicle", priority: 10 });
@@ -220,7 +220,7 @@ describe("contexts on nodes (ADR 0334)", () => {
   });
 });
 
-describe("players and pawns (ADR 0335)", () => {
+describe("players and pawns (ADR 0337)", () => {
   it("copies a player's actions onto its pawns for systems and behaviors", () => {
     const log: string[] = [];
     class Jumper extends GameBehavior {

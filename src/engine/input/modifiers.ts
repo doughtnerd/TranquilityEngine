@@ -1,5 +1,5 @@
 /**
- * Input modifiers (ADR 0334): functions that change a value of 1–3 components, compiled once from
+ * Input modifiers (ADR 0336): functions that change a value of 1–3 components, compiled once from
  * their specs. Some keep state (smoothing), so each mapping that uses one gets its own instance.
  */
 import type { ModifierSpec } from "./contextTypes";

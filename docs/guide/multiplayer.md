@@ -39,7 +39,7 @@ A link names its client (`from`), its server (`to`), a transport and optional se
 | Transport | Where | Notes |
 | --- | --- | --- |
 | `loopback` | In one page or process | No real network. Options `latencyMs` (one way), `jitterMs` and `loss` (0 to 1) simulate a bad connection. Reliable messages are delayed by a loss, never dropped. |
-| `websocket` | Browser and Tauri clients; Node servers | Options `port` (where a Node server listens) and `url` (where a client connects, e.g. `"ws://localhost:7777"`). Browsers can only connect; only Node can listen. Unreliable messages share the TCP stream: a lost packet holds them up rather than dropping them. They're dropped only when the socket's send buffer backs up. |
+| `websocket` | Browser and Tauri clients; Node servers | Options `port` (where a Node server listens), `url` (where a client connects, e.g. `"ws://localhost:7777"`) and `webrtc` (below). Browsers can only connect; only Node can listen. When both ends can, unreliable messages travel over a WebRTC data channel beside the socket, where a lost packet is just lost; otherwise they share the TCP stream, where a lost packet holds them up. |
 
 Settings any link takes:
 
@@ -48,6 +48,18 @@ Settings any link takes:
 - `handshakeTimeoutMs` (default 5000) and `idleTimeoutMs` (default 15000): a connection that doesn't finish its handshake, or goes quiet, is closed.
 - `maxConnections`: clients a server World accepts at once. Default 64.
 - `address`: where the server listens. Loopback makes one up per Engine and server World.
+
+### WebRTC for unreliable messages
+
+TCP delivers everything, in order, so one lost packet holds up every snapshot and input behind it until it's resent. To avoid that, a `websocket` connection also opens a WebRTC data channel that sends each message once, with no retries and no ordering (like UDP), when both ends can (ADR 0333):
+
+- **Who can.** Browsers, and the desktop editor and games on Windows and macOS, have WebRTC. The dedicated server and other Node processes use node-datachannel. Linux desktop builds often don't have it (WebKitGTK), and stay on the socket.
+- **What goes where.** Reliable messages (RPCs, spawns) always go over the socket. An unreliable one (snapshots, inputs, acks) goes over the data channel when it fits one packet (1,100 bytes by default); a bigger one goes over the socket. A message older than one already delivered is dropped, whichever way it came.
+- **Snapshots are split into packets.** While the data channel is open, a snapshot that doesn't fit one packet is split into parts of up to a packet each, still up to `maxSnapshotBytes` per tick (ADR 0334). Each part carries its own ghosts and is acknowledged on its own, so a lost packet delays only the ghosts in it. The Network panel's **Snapshot** column shows how many packets the last one took.
+- **Fallback.** If the data channel doesn't open within 5 seconds (UDP blocked by a firewall, no WebRTC on that end), the connection keeps sending everything over its socket. Nothing in your game changes.
+- **Options.** `"webrtc": false` keeps a link's connections on the socket. Otherwise `webrtc` is an object of `iceServers` (STUN/TURN servers; none are needed to reach a server with a public address), `maxDatagramBytes` and `connectTimeoutMs`. A Node server also reads `udpPort`, `publicIp` and `bindAddress`; see the [dedicated server's flags](#the-dedicated-server).
+
+The dedicated server's stats line says how many connections use WebRTC: `1 connection (1 on WebRTC)`.
 
 Browsers can't listen, so a `websocket` link between two Worlds of one page connects them over `loopback` instead, and says so in the console (ADR 0102): the same `project.json` plays in the editor and runs on a dedicated server, which listens over WebSocket whatever the link says (see [below](#the-dedicated-server)). The Worlds panel edits a link's options (expand **Options** under the link).
 
@@ -364,6 +376,11 @@ npm run server -- path/to/project --port 9000 --max-connections 16
 | `--max-connections N` | 64 | Clients each server World accepts at once. |
 | `--tick-rate N` | The fastest server World's tick rate | Engine steps per second. Each World still simulates at its own tick rate. |
 | `--stats-interval S` | 60 | Seconds between stats lines; 0 turns them off. |
+| `--udp-port N` | An ephemeral port per client | One UDP port for every client's WebRTC data channel, on every server World. Open it (UDP) in the firewall. |
+| `--public-ip A` | The machine's interface addresses | The address clients reach this machine at, for a host behind one-to-one NAT (AWS, GCP, a container with a published port). |
+| `--no-webrtc` | WebRTC on | Keep every client on WebSocket alone. |
+
+To deploy with WebRTC, open the WebSocket port (TCP) and the UDP port: `--port 7777 --udp-port 7778`, plus `--public-ip` behind NAT. Without `--udp-port` each client's data channel uses its own ephemeral UDP port, which works on a machine with no firewall in front. Where UDP can't get through, clients stay on WebSocket.
 
 What it runs:
 
@@ -374,6 +391,7 @@ What it runs:
 - A code bootstrap runs with Worlds not tagged `server` skipped; `connect` calls from skipped Worlds tell the server where to listen.
 - Each server World listens on the port of a `websocket` link that connects to it (its `port`, `address` or `url`). The first server World falls back to `--port` or 7777. Others with no such link don't listen, and the server logs that.
 - Server Worlds created at runtime (a lobby's matches) run too. One listens when code calls `listen`; without a port it shares the first server World's port, by path. The server logs when such a World starts listening and when it's destroyed.
+- It offers every client that has WebRTC a data channel for unreliable messages ([above](#webrtc-for-unreliable-messages)).
 - It logs each connection opened and closed, and stats every minute. Ctrl+C closes every connection and exits.
 
 Server Worlds must run headless: no code in them that needs a canvas, the DOM or Web Audio. TLS (`wss://`) needs a reverse proxy in front.
@@ -506,7 +524,7 @@ From [implementation status](../architecture/implementation-status.md) and [open
 - **Structure.** A ghost's own active flag and its parent replicate (ADR 0100): clients see `setActive` and `setParent` at the interpolation tick. Enabled state and added or removed components replicate only for replicated components; sibling order only among ghosts (ADR 0121). A parent must be the World root, a ghost or a node with ids inside one, or a scene-placed node; anything else (a node from `GameObject.create`) lands under the client's active scene, with a warning on the server.
 - **Snapshot rate and size.** Set them per server World: `"replication": { "sendRate": 20, "maxSnapshotBytes": 1200 }` on its World config or template (ADR 0101). At a lower send rate, raise clients' `interpolationMs` so they always have two snapshots to blend.
 - **Prediction** covers data components, behavior fields and the transform moved by `predicted` systems. Behaviors aren't re-simulated, and physics isn't predicted.
-- WebSocket carries unreliable messages over TCP, so packet loss delays them instead of dropping them. WebRTC, which would fix that, needs a signalling server and is deferred.
+- **WebRTC** (ADR 0333) is client to server only: browser-to-browser hosting (which needs STUN, often TURN, and the lobby to relay signalling) and WebTransport aren't built. Snapshot parts that arrive out of order are dropped like lost ones (the transport keeps only messages newer than the last it delivered). A connection whose data channel can't open (UDP blocked, Linux desktop builds) carries unreliable messages over TCP, where packet loss delays them. Browser clients were checked by hand in headless Chromium against the Node server; the automated tests connect Node to Node.
 - **Interest management** checks every distance-limited ghost against every connection each snapshot (fine for thousands of ghosts and 64 connections; there's no spatial grid). A scene ghost out of relevance stays on clients deactivated with its last values. A spatial grid, a custom relevancy function and distance-scaled priority are proposed, not built.
 - Not built: lag compensation, host migration, a single-World host, client-authoritative modes.
 - Bandwidth per ghost type counts each ghost's spawn and state bits; snapshot headers and despawns aren't attributed to any type.

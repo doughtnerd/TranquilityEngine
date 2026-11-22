@@ -1,10 +1,10 @@
-# 0333. Gamepads come from a native SDL3 adapter on desktop, device state reaches Worlds as entities in an `input` phase
+# 0335. Gamepads come from a native SDL3 adapter on desktop, device state reaches Worlds as entities in an `input` phase
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0007, 0011, 0017, 0032, 0041, 0065, 0069, 0238, 0310, 0334, 0335
+- **Related:** 0007, 0011, 0017, 0032, 0041, 0065, 0069, 0238, 0310, 0336, 0337
 
 ## Context
 
@@ -15,8 +15,8 @@ is gated by a flag the getters check, not by the ECS.
 
 This record is the device layer of a new input system, designed after comparing Unity's Input System, Unreal's Enhanced
 Input, Godot's InputMap and their best plugins (Rewired, Common UI, G.U.I.D.E, Input Helper). Actions and contexts are
-[0334](0334-input-actions-are-data-components-and-contexts-are-node-components-evaluated-by-input-systems.md); players,
-netcode and rebinding are [0335](0335-input-players-are-entities-networked-actions-are-input-streams-and-rebinding-is-data.md).
+[0336](0336-input-actions-are-data-components-and-contexts-are-node-components-evaluated-by-input-systems.md); players,
+netcode and rebinding are [0337](0337-input-players-are-entities-networked-actions-are-input-streams-and-rebinding-is-data.md).
 The owner's constraint: the system is built on the engine's ECS stack.
 
 Gamepad sources considered:
@@ -65,7 +65,7 @@ simply doesn't exist on that device. Paths are interned to `u16` control ids by 
 
 - gamepads (axes `f32`, buttons as held/down/up bitmasks), touch and pen;
 - device connect and disconnect, each device with a `kind`, `family`, `slot` and stable id;
-- a timestamp on each queued event, so triggers (0334) measure time exactly;
+- a timestamp on each queued event, so triggers (0336) measure time exactly;
 - `DeviceEventSink` methods for the new devices, implemented by the DOM adapter and the Tauri adapter.
 
 The snapshot stays Engine-level (one set of hardware shared by every World) and keeps UI-first routing (ADR 0069).
@@ -94,7 +94,7 @@ effects, LEDs), as another adapter with the Gamepad API as fallback.
   Rewired-level games need (gyro, HD rumble, trigger effects, correct names).
 - **SDL3 or gilrs as wasm.** Wraps the Gamepad API; adds download size and no capability.
 - **gilrs natively.** Lighter and pure Rust, but no gyro, touchpad or trigger effects; we would outgrow it.
-- **Keep devices outside the ECS.** Less work now, but players, contexts and netcode (0334, 0335) would then join ECS
+- **Keep devices outside the ECS.** Less work now, but players, contexts and netcode (0336, 0337) would then join ECS
   state to a global, and World gating stays a special flag.
 - **Evaluate input inside `fixedUpdate` instead of a new phase.** `update` would see stale action state on frames that
   run no fixed step.
@@ -130,7 +130,7 @@ effects, LEDs), as another adapter with the Gamepad API as fallback.
 
 - Which SDL3 Rust binding (`sdl3` crate versus our own thin bindings) and whether SDL is linked statically.
 - Whether Steam Input should be allowed to take over controllers in Steam builds.
-- Touch gestures (pinch, swipe) as controls or as triggers in 0334.
+- Touch gestures (pinch, swipe) as controls or as triggers in 0336.
 
 ## References
 

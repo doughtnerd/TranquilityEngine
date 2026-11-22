@@ -1,6 +1,6 @@
 [package]
 name = "input-wasm"
-description = "The WebAssembly boundary of Myco's gamepad mapping (ADR 0333)."
+description = "The WebAssembly boundary of Myco's gamepad mapping (ADR 0335)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

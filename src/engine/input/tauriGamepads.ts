@@ -1,5 +1,5 @@
 /**
- * The desktop gamepad adapter (ADR 0333): under Tauri, gamepads come only from SDL3 in the native
+ * The desktop gamepad adapter (ADR 0335): under Tauri, gamepads come only from SDL3 in the native
  * process (`src-tauri/src/gamepad.rs`, also in exported desktop games), streamed to the page in
  * batches over a Tauri channel. Output (rumble, trigger effects, lights, sensors) goes back as
  * commands. The browser Gamepad API is never read here.

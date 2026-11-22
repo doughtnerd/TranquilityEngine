@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `npm run build:input` (ADR 0333): compiles native/input to WebAssembly and writes the module and
+// `npm run build:input` (ADR 0335): compiles native/input to WebAssembly and writes the module and
 // its JS glue to src/engine/input/wasm/, which is committed, so the engine builds without Rust.
 // Needs `rustup target add wasm32-unknown-unknown` and wasm-bindgen-cli at the version pinned in
 // Cargo.toml.

@@ -1,5 +1,5 @@
 /**
- * Control paths (ADR 0333): every control has a path naming its position, not a vendor's label:
+ * Control paths (ADR 0335): every control has a path naming its position, not a vendor's label:
  * `<Keyboard>/space`, `<Pointer>/button0`, `<Pointer>/delta`, `<Gamepad>/buttonSouth`,
  * `<Gamepad>/leftStick`, `<Gamepad>/gyro`. Paths are interned to small integer ids.
  *
@@ -26,7 +26,7 @@ export const GAMEPAD_AXES = ["leftStickX", "leftStickY", "rightStickX", "rightSt
 export type GamepadButtonName = (typeof GAMEPAD_BUTTONS)[number];
 export type GamepadAxisName = (typeof GAMEPAD_AXES)[number];
 
-/** A device family: what kind of device, for prompts (ADR 0335) and per-family bindings. */
+/** A device family: what kind of device, for prompts (ADR 0337) and per-family bindings. */
 export type DeviceFamily = "keyboard" | "pointer" | "xbox" | "playstation" | "switch" | "generic";
 
 /** Gamepad families by the mapping crate's number (`native/input`, `Family`). */

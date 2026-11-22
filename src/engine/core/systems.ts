@@ -11,7 +11,7 @@ import { DEFAULT_SYSTEM_WORLDS, worldsMatch, type WorldTag } from "./worlds";
 
 export type Phase = "input" | "fixedUpdate" | "update" | "lateUpdate";
 
-/** The phases in frame order (ADR 0011, 0333): `input` runs before `start()` and the fixed steps. */
+/** The phases in frame order (ADR 0011, 0335): `input` runs before `start()` and the fixed steps. */
 export const PHASES: readonly Phase[] = ["input", "fixedUpdate", "update", "lateUpdate"];
 
 /** A query term: the Transform facade or a data component. */
@@ -76,7 +76,7 @@ export interface BuiltinSystem {
   /** Default `["*"]`: every World. */
   readonly worlds?: readonly WorldTag[];
   /**
-   * fixedUpdate only: also run it, in order, when prediction re-simulates a tick (ADR 0335: the input
+   * fixedUpdate only: also run it, in order, when prediction re-simulates a tick (ADR 0337: the input
    * bridge restores each replayed tick's actions before the predicted systems read them).
    */
   readonly predicted?: boolean;

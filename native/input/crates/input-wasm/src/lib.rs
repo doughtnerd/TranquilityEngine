@@ -1,4 +1,4 @@
-//! The WebAssembly boundary of Myco's gamepad mapping (ADR 0333). The web's gamepad adapter
+//! The WebAssembly boundary of Myco's gamepad mapping (ADR 0335). The web's gamepad adapter
 //! (`src/engine/input/`) loads it to name controllers and to read raw (non-"standard") browser
 //! gamepads through the SDL controller database. Control order everywhere is the wire order of
 //! [`control_names`]: 23 buttons, then 4 axes.

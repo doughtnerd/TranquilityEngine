@@ -1,5 +1,5 @@
 /**
- * Input context assets (ADR 0334): the data form of bindings. A context (`*.input.json`, or
+ * Input context assets (ADR 0336): the data form of bindings. A context (`*.input.json`, or
  * `defineInputContext` in code) maps control paths to actions, with composites, modifiers and
  * triggers. These are its types; `contexts.ts` loads them and `evaluate.ts` runs them.
  */

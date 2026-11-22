@@ -1,6 +1,6 @@
 # Input: actions, contexts and players
 
-Myco's input system (ADR [0333](../decisions/0333-gamepads-come-from-a-native-sdl3-adapter-on-desktop-and-device-state-reaches-worlds-as-entities-in-an-input-phase.md), [0334](../decisions/0334-input-actions-are-data-components-and-contexts-are-node-components-evaluated-by-input-systems.md), [0335](../decisions/0335-input-players-are-entities-networked-actions-are-input-streams-and-rebinding-is-data.md)) turns keyboards, mice and gamepads into **actions**: "move", "jump", "aim". Your game reads the actions and never needs to know which key or button was pressed. `Input.getKey("space")` still works when you want raw keys.
+Myco's input system (ADR [0335](../decisions/0335-gamepads-come-from-a-native-sdl3-adapter-on-desktop-and-device-state-reaches-worlds-as-entities-in-an-input-phase.md), [0336](../decisions/0336-input-actions-are-data-components-and-contexts-are-node-components-evaluated-by-input-systems.md), [0337](../decisions/0337-input-players-are-entities-networked-actions-are-input-streams-and-rebinding-is-data.md)) turns keyboards, mice and gamepads into **actions**: "move", "jump", "aim". Your game reads the actions and never needs to know which key or button was pressed. `Input.getKey("space")` still works when you want raw keys.
 
 ## Declare actions
 

@@ -1,10 +1,10 @@
-# 0334. Input actions are data components, contexts are node components, and built-in systems evaluate them
+# 0336. Input actions are data components, contexts are node components, and built-in systems evaluate them
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0007, 0011, 0017, 0069, 0131, 0333, 0335
+- **Related:** 0007, 0011, 0017, 0069, 0131, 0335, 0337
 
 ## Context
 
@@ -25,7 +25,7 @@ Unity's weaknesses to avoid: five ways to receive input, and no priority between
 key. Godot's: global actions, no contexts, no triggers.
 
 The system is built on the ECS stack (owner's constraint): data components and buffers (ADR 0017), systems in phases,
-with GameBehaviors as a facade (ADR 0007). Devices come from 0333.
+with GameBehaviors as a facade (ADR 0007). Devices come from 0335.
 
 ## Decision
 
@@ -46,7 +46,7 @@ export const PlayerActions = defineActions("game.PlayerActions", {
 - Code-first gives type-safe names with no code generation; the editor lists registered action sets as it lists other
   registered types.
 
-**Bindings are data: context assets.** A context (`*.input.json`) lists mappings from control paths (0333) to actions:
+**Bindings are data: context assets.** A context (`*.input.json`) lists mappings from control paths (0335) to actions:
 
 ```json
 { "name": "onFoot", "mappings": [
@@ -76,9 +76,9 @@ can sit on any node. It is active while its node is active in the hierarchy.
   applied at end of frame (ADR 0011).
 - Contexts show in the hierarchy and inspector, so the live input debugger is the existing editor UI plus an overlay.
 
-**Built-in systems evaluate it, in the `input` phase (0333).**
+**Built-in systems evaluate it, in the `input` phase (0335).**
 
-- **`engine.InputCompile`** flattens a player's active contexts and overrides (0335) into a table in typed arrays:
+- **`engine.InputCompile`** flattens a player's active contexts and overrides (0337) into a table in typed arrays:
   control id to mappings, with modifier and trigger parameters. It recompiles only players marked changed.
 - **`engine.InputEvaluate`**, per player:
   1. UI claims come first (ADR 0069's routing, unchanged); UI navigation becomes actions in a `ui` context (O7).
@@ -101,7 +101,7 @@ can sit on any node. It is active while its node is active in the hierarchy.
   system from `ActionEvents`, as `onCollisionEnter` is dispatched from `CollisionEvents`. There is no event bus (ADR
   0017).
 - **Systems:** query the action-set component directly (`query: [Transform, PlayerActions, Mover]`); which node holds
-  it is 0335's possession rule.
+  it is 0337's possession rule.
 - Exactly two ways to receive input: polling and the `on` facade over a buffer.
 
 ## Alternatives considered
@@ -119,7 +119,7 @@ can sit on any node. It is active while its node is active in the hierarchy.
 
 **Positive**
 - Typed actions, Enhanced-Input-level triggers and contexts, and Godot's zero-setup start.
-- All state is data: systems, prediction (0335) and the editor read it like any component.
+- All state is data: systems, prediction (0337) and the editor read it like any component.
 - One consumption rule covers UI over gameplay, vehicles over walking, and chords over single keys.
 
 **Negative / costs**
@@ -142,7 +142,7 @@ Nothing. `Input.getKey` and the pointer getters stay as the raw layer.
 
 - Whether triggers can be user-defined (a `defineTrigger` API) in v1 or later.
 - Asset format details: one context per file or several.
-- Gesture triggers for touch (0333's open question).
+- Gesture triggers for touch (0335's open question).
 
 ## References
 

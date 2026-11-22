@@ -7,7 +7,7 @@ import { loadInputMapping } from "../input/mapping";
 import { GAMEPAD_AXES, GAMEPAD_BUTTONS, control } from "../input/controls";
 import type { DeviceEventSink, GamepadInfo } from "../input/devices";
 
-// The input system's library modules (ADR 0333, 0334), through their own interfaces.
+// The input system's library modules (ADR 0335, 0336), through their own interfaces.
 
 const none = { triggered: () => false, performed: () => false };
 const DT = 0.1;

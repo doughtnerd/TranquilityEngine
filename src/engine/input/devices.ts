@@ -1,5 +1,5 @@
 /**
- * The device snapshot (ADR 0310, 0333): the Engine's one keyboard and pointer and its gamepads,
+ * The device snapshot (ADR 0310, 0335): the Engine's one keyboard and pointer and its gamepads,
  * shared by its Worlds.
  *
  * - **Input end** (`DeviceEventSink`): adapters (the DOM listener, `domDevices.ts`; the gamepad
@@ -11,7 +11,7 @@
  *   and answers what it claims; this frame's mouse presses over claimed UI then go to the UI until
  *   they're released.
  * - **Reading end**: what the game sees after routing, which the `Input` getters and each World's
- *   input systems (`deviceEntities.ts`, ADR 0333) read, plus the frame's raw device events.
+ *   input systems (`deviceEntities.ts`, ADR 0335) read, plus the frame's raw device events.
  *
  * Nothing here is public API: scripts read `Input` and actions; `Input.inject` is the input end.
  */

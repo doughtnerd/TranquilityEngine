@@ -130,7 +130,7 @@ pub fn run() {
         // a window still open makes WebView2 log "Failed to unregister class Chrome_WidgetWin_0".
         .invoke_handler(tauri::generate_handler![
             create_editor_window,
-            // Native gamepads (ADR 0333).
+            // Native gamepads (ADR 0335).
             gamepad::myco_gamepad_listen,
             gamepad::myco_gamepad_rumble,
             gamepad::myco_gamepad_trigger_rumble,

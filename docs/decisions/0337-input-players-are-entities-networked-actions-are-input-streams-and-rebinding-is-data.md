@@ -1,14 +1,14 @@
-# 0335. Input players are entities, networked actions are input streams, and rebinding and prompts are data
+# 0337. Input players are entities, networked actions are input streams, and rebinding and prompts are data
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0017, 0024, 0032, 0033, 0069, 0311, 0333, 0334
+- **Related:** 0017, 0024, 0032, 0033, 0069, 0311, 0335, 0336
 
 ## Context
 
-0333 brings devices into Worlds and 0334 turns them into actions. Three things remain:
+0335 brings devices into Worlds and 0336 turns them into actions. Three things remain:
 
 - **Who the input belongs to.** Godot's actions are global (local co-op means `p1_jump`, `p2_jump`); Unity's
   `PlayerInputManager` and Unreal's LocalPlayer work but are heavy. Rewired's model is the one games copy: a Player owns
@@ -23,7 +23,7 @@
 
 **Players are entities.**
 
-- A player is an entity with `InputPlayer { index, joinState, lastFamily }`, the game's action-set components (0334),
+- A player is an entity with `InputPlayer { index, joinState, lastFamily }`, the game's action-set components (0336),
   and an internal `InputPlayerState` (trigger timers, consumed controls, latched edges, the compiled table).
 - The bootstrap spawns **player 0** in each World that takes local input, paired with every device. A single-player
   game never sees this layer.

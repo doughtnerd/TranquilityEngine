@@ -62,7 +62,7 @@ export interface ProjectSettings {
   /** Audio mixer buses, snapshots, ducking and the backend (ADR 0097, 0098). Omitted: Master with Music, SFX, UI and Voice. */
   audio: AudioSettings;
   /**
-   * Input players (ADR 0335): how players join, and how many local players there can be. `single` (default):
+   * Input players (ADR 0337): how players join, and how many local players there can be. `single` (default):
    * player 0 owns every device; `onePerDevice`: the keyboard and pointer are one player, each gamepad another;
    * `pressToJoin`: a device's first press makes it a new player; `manual`: the game joins players (`InputPlayers`).
    */

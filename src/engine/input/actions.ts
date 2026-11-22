@@ -1,6 +1,6 @@
 /**
- * Input actions (ADR 0334): an action set is a data component declared in code, one row per player
- * (and per pawn, ADR 0335), stored in typed arrays like any other (ADR 0017).
+ * Input actions (ADR 0336): an action set is a data component declared in code, one row per player
+ * (and per pawn, ADR 0337), stored in typed arrays like any other (ADR 0017).
  *
  * ```ts
  * export const PlayerActions = defineActions("game.PlayerActions", {
@@ -65,7 +65,7 @@ export interface ActionOptions {
 
 export interface ActionType<K extends ActionKind = ActionKind> {
   readonly kind: K;
-  /** Default controls: they form the project's default context (ADR 0334). */
+  /** Default controls: they form the project's default context (ADR 0336). */
   readonly defaults: readonly BindingSpec[];
   readonly options: ActionOptions;
 }
@@ -162,7 +162,7 @@ export interface ActionInfo {
 
 export interface ActionSetOptions {
   /**
-   * Networked (ADR 0335): the set is also an input stream (`defineInput`) with the same id and
+   * Networked (ADR 0337): the set is also an input stream (`defineInput`) with the same id and
    * fields, so a server reads each client's actions in the same component on its pawn.
    */
   readonly networked?: boolean;
@@ -206,8 +206,8 @@ export function onActionSetDefined(listener: (def: ActionSetDef) => void): void 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
- * Declare an action set: a data component with one value, phase and time per action (ADR 0334).
- * Players get every defined set; pawns get their player's (ADR 0335).
+ * Declare an action set: a data component with one value, phase and time per action (ADR 0336).
+ * Players get every defined set; pawns get their player's (ADR 0337).
  */
 export function defineActions<Spec extends ActionSpec>(id: string, spec: Spec, options: ActionSetOptions = {}): ActionSetDef<Spec> {
   const schema: Schema = {};

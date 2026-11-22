@@ -2,7 +2,7 @@
 // to `<out>/web/` and a generated Tauri project to `<out>/src-tauri/` whose window loads it; `tauri
 // build` (Rust toolchain needed) then makes installers. The project is generated, not copied from
 // the editor's src-tauri/: a game needs only the fs plugin, for saves in its app data folder
-// (ADR 0024), native gamepads (ADR 0333: src-tauri/src/gamepad.rs, copied verbatim; node.ts reads
+// (ADR 0024), native gamepads (ADR 0335: src-tauri/src/gamepad.rs, copied verbatim; node.ts reads
 // it and passes its text in), and its own name, identifier, window size and icon. No file access
 // here (node.ts writes the files), so the generated text is easy to test.
 import type { ProjectSettingsInput } from "../engine";
@@ -21,7 +21,7 @@ export interface DesktopOptions {
   /** The product name (project.json's `name`). */
   name: string;
   settings: ProjectSettingsInput & { build?: BuildSettings };
-  /** The text of the editor's src-tauri/src/gamepad.rs (ADR 0333), written to the project as src/gamepad.rs. */
+  /** The text of the editor's src-tauri/src/gamepad.rs (ADR 0335), written to the project as src/gamepad.rs. */
   gamepadModule: string;
 }
 
@@ -132,7 +132,7 @@ fn main() {
   files.set(
     "src/lib.rs",
     `// The game's window loads the web build (../web). The fs plugin keeps saves and settings in the
-// app data folder (Myco Engine's Storage, ADR 0024); gamepad.rs streams gamepads to it (ADR 0333).
+// app data folder (Myco Engine's Storage, ADR 0024); gamepad.rs streams gamepads to it (ADR 0335).
 mod gamepad;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

@@ -1,4 +1,4 @@
-# ADR 0333: CI runs the gamepad mapping crate's native tests (native/input: families, browser gamepad
+# ADR 0335: CI runs the gamepad mapping crate's native tests (native/input: families, browser gamepad
 # ids, the vendored SDL controller database). The committed wasm in src/engine/input/wasm/ is rebuilt
 # by hand (`npm run build:input`), like native/nav's.
 name: Input mapping

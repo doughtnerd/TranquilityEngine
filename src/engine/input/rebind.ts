@@ -1,5 +1,5 @@
 /**
- * Rebinding (ADR 0335) as data: `player.rebind("jump")` adds a `RebindRequest` to the player's node;
+ * Rebinding (ADR 0337) as data: `player.rebind("jump")` adds a `RebindRequest` to the player's node;
  * `engine.InputRebind` (input phase, before evaluation) takes the player's next press from
  * `DeviceEvents`, writes it into the player's profile as an override of that mapping's control,
  * reports conflicts with other mappings that can be active with it, and appends to `RebindResults`.

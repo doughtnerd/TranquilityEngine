@@ -1,5 +1,5 @@
 /**
- * Device entities (ADR 0333): each World that takes local input mirrors the Engine's device
+ * Device entities (ADR 0335): each World that takes local input mirrors the Engine's device
  * snapshot into ECS data in its `input` phase. Every device is a node under the World's `Input`
  * node with `InputDevice`, gamepads also with `GamepadState`; this frame's raw device events are
  * the `DeviceEvents` buffer. A World that doesn't take input (a server, `input: false`, an editor
@@ -21,7 +21,7 @@ export const DEVICE_FAMILIES: readonly DeviceFamily[] = ["keyboard", "pointer", 
 /**
  * A device this World sees. `device` is the adapter's id (`-1` keyboard, `-2` pointer, gamepads ≥ 0),
  * `slot` the gamepad's order of connection (0 first; keyboard and pointer 0), `player` the index of
- * the player it's paired with (ADR 0335), -1 for none. `connected` drops to 0 for the frame a gamepad
+ * the player it's paired with (ADR 0337), -1 for none. `connected` drops to 0 for the frame a gamepad
  * is unplugged, then its node is destroyed.
  */
 export const InputDevice = defineComponent("engine.InputDevice", { device: i32, kind: u8, family: u8, slot: i32, player: i32, connected: u8 });

@@ -23,12 +23,12 @@ Code from these projects is compiled into Myco Engine's own modules. Libraries u
 
   This port is an altered version: plainly marked as such here and in the crate's documentation.
 
-## Gamepad mapping (`native/input`, compiled to `src/engine/input/wasm/`; ADR 0333)
+## Gamepad mapping (`native/input`, compiled to `src/engine/input/wasm/`; ADR 0335)
 
 - **SDL_GameControllerDB** (`native/input/crates/input-map/db/gamecontrollerdb.txt`, the controller database, compiled into the module) — zlib licence, copyright (C) 1997-2025 Sam Lantinga. https://github.com/mdqinc/SDL_GameControllerDB. The licence text is `native/input/crates/input-map/db/LICENSE.txt`.
 - **wasm-bindgen** — MIT or Apache-2.0. https://github.com/rustwasm/wasm-bindgen
 
-## Desktop gamepads (`src-tauri/src/gamepad.rs`, and exported desktop games; ADR 0333)
+## Desktop gamepads (`src-tauri/src/gamepad.rs`, and exported desktop games; ADR 0335)
 
 - **SDL3** (built from source and linked statically into the desktop app) — zlib licence, copyright (C) 1997-2025 Sam Lantinga. https://github.com/libsdl-org/SDL
 - **sdl3-rs** and **sdl3-sys** (the Rust bindings) — MIT; sdl3-sys is zlib. https://github.com/vhspace/sdl3-rs, https://codeberg.org/maia/sdl3-sys-rs

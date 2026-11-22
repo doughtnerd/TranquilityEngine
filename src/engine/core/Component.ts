@@ -222,7 +222,7 @@ export abstract class GameBehavior extends Component {
   }
 
   /**
-   * The input of the player controlling this behavior's node (ADR 0334, 0335): the pawn's actions
+   * The input of the player controlling this behavior's node (ADR 0336, 0337): the pawn's actions
    * (the nearest node up with `ControlledBy` or an action set), else player 0's.
    * `this.input.vector2("move")`, `this.input.performed("jump")`, `this.input.on("heavy", "performed", fn)`.
    */

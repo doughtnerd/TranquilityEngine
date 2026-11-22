@@ -1,5 +1,5 @@
 /**
- * Button prompts (ADR 0335): which control performs an action for a player, named for the family
+ * Button prompts (ADR 0337): which control performs an action for a player, named for the family
  * of the device they last used ("A" on an Xbox pad, "Cross" on a PlayStation one, "Space" on a
  * keyboard), with an icon key (`xbox/buttonSouth`, `keyboard/space`) a glyph set can draw.
  */

@@ -4,7 +4,7 @@ import { devices, mouseKey, normalizeKey, type DeviceEventSink } from "./devices
 import { listenToDom } from "./domDevices";
 import { tauriGamepads } from "./tauriGamepads";
 import { webGamepads } from "./webGamepads";
-// The input systems (ADR 0333–0335) come with Input: players, evaluation, rebinding, netcode, the script facade.
+// The input systems (ADR 0335–0337) come with Input: players, evaluation, rebinding, netcode, the script facade.
 import "./players";
 import "./evaluate";
 import "./rebind";
@@ -24,7 +24,7 @@ function live(): boolean {
   return World.active?._takesInput ?? true;
 }
 
-/** Start the gamepad adapter: SDL3 under Tauri (ADR 0333), else the browser's Gamepad API. */
+/** Start the gamepad adapter: SDL3 under Tauri (ADR 0335), else the browser's Gamepad API. */
 function attachGamepads(): void {
   if (detachGamepads || typeof window === "undefined") return;
   if ("__TAURI_INTERNALS__" in window) {
@@ -140,7 +140,7 @@ export class Input {
   }
 
   /**
-   * Report device events yourself, as an adapter does (ADR 0335): virtual devices (on-screen
+   * Report device events yourself, as an adapter does (ADR 0337): virtual devices (on-screen
    * controls), automation, replaying raw input, tests. Events reach the game at the next frame's
    * snapshot, through UI routing, the device entities and actions, like real devices'. Gamepads
    * are identified by any id ≥ 0 you choose; announce one with `gamepadConnected` first.

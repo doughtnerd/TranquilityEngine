@@ -1,5 +1,5 @@
 /**
- * The scripting face of input (ADR 0334, 0335): `this.input` in a behavior, `InputPlayers` for
+ * The scripting face of input (ADR 0336, 0337): `this.input` in a behavior, `InputPlayers` for
  * players. Both read and write the ECS data the input systems keep: action-set components on
  * player and pawn nodes, `InputDevice` pairings, `RebindRequest`s, `ActionEvents`.
  */
@@ -277,7 +277,7 @@ function inputOf(world: World, node: GameObject, owner: GameBehavior | null): Pl
   return new PlayerInput(world, p0, p0, owner);
 }
 
-/** Local players (ADR 0335): who has joined, joining and leaving by hand (`input.join: "manual"`). */
+/** Local players (ADR 0337): who has joined, joining and leaving by hand (`input.join: "manual"`). */
 export const InputPlayers = {
   /** Player `index` in the current World, or null if they haven't joined. */
   get(index: number): PlayerInput | null {

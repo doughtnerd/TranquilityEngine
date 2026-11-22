@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0333): the gamepad mapping module (`native/input`, built into ./wasm by
+ * Internal (ADR 0335): the gamepad mapping module (`native/input`, built into ./wasm by
  * `npm run build:input`): device families, web gamepad ids, and the SDL controller database for
  * pads the browser doesn't map. Loaded the first time a gamepad connects; Node reads it from disk.
  */

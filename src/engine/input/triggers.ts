@@ -1,5 +1,5 @@
 /**
- * Input triggers (ADR 0334): when an action triggers, as Unreal's Enhanced Input defines them.
+ * Input triggers (ADR 0336): when an action triggers, as Unreal's Enhanced Input defines them.
  * Each compiled trigger keeps its own state; a mapping combines its triggers by type:
  *
  * - **explicit** (default): any satisfied explicit trigger can trigger;

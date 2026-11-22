@@ -1,6 +1,6 @@
 # 0011. Frame loop and system order
 
-- **Status:** Accepted, amended by 0032 (several Worlds, each with its own loop, clock and tick rate) and 0333 (a per-World `input` phase before the fixed steps)
+- **Status:** Accepted, amended by 0032 (several Worlds, each with its own loop, clock and tick rate) and 0335 (a per-World `input` phase before the fixed steps)
 - **Date:** 2026-10-31
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

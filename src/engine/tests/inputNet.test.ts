@@ -3,7 +3,7 @@ import { Engine, GameObject, Input, Replicated, button, defineActions, defineSys
 import { World } from "../core/World";
 import { netSession } from "../net/session";
 
-// ADR 0335: a networked action set is an input stream; the server reads each client's resolved
+// ADR 0337: a networked action set is an input stream; the server reads each client's resolved
 // actions in the same component on the pawn that client owns. Loopback on a fake clock.
 
 let clock = 0;

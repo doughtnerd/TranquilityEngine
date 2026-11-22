@@ -1,5 +1,5 @@
 /**
- * The browser gamepad adapter (ADR 0333): web builds read only raw state from the Gamepad API,
+ * The browser gamepad adapter (ADR 0335): web builds read only raw state from the Gamepad API,
  * once per snapshot. Everything above that is the engine's and shared with desktop: device
  * families, the SDL controller database for pads the browser doesn't map ("standard"), and the
  * wire indices (`controls.ts`). Those come from the mapping module (`native/input`, as wasm),
