@@ -1,0 +1,421 @@
+{
+  "format": "myco.audio@1",
+  "settings": {
+    "occlusion": {
+      "layers": ["Walls"],
+      "budgetMs": 0.25,
+      "defaultMaterial": "concrete",
+      "smoothingMs": 100,
+      "materials": []
+    }
+  },
+  "parameters": [
+    {
+      "name": "Surface",
+      "labels": ["Grass", "Gravel", "Wood", "Metal"],
+      "default": "Grass"
+    },
+    {
+      "name": "Intensity",
+      "min": 0,
+      "max": 1,
+      "default": 1,
+      "seekSpeed": 0.5
+    }
+  ],
+  "buses": [
+    {
+      "name": "Master",
+      "parent": null,
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": {
+        "own": true,
+        "priority": 255
+      },
+      "meter": true,
+      "effects": [],
+      "sends": []
+    },
+    {
+      "name": "Music",
+      "parent": "Master",
+      "volumeDb": -4.436974992327127,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 40,
+            "resonance": 0.02564102564102564,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 18000,
+            "resonance": 0.02564102564102564,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 20000,
+            "resonance": 0.02564102564102564,
+            "drive": 0
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "SFX",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -24,
+            "ratio": 8,
+            "attack": 3,
+            "release": 250,
+            "makeup": 0,
+            "knee": 30
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 20000,
+            "resonance": 0.02564102564102564,
+            "drive": 0
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Ambience",
+      "parent": "Master",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": {
+        "own": true,
+        "priority": 200
+      },
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 20000,
+            "resonance": 0.02564102564102564,
+            "drive": 0
+          }
+        }
+      ],
+      "sends": [
+        {
+          "to": "Reverb",
+          "levelDb": -6.020599913279624
+        }
+      ]
+    },
+    {
+      "name": "UI",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": true,
+      "effects": [],
+      "sends": []
+    },
+    {
+      "name": "Filters",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 500,
+            "resonance": 0.28205128205128205,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 3000,
+            "resonance": 0.28205128205128205,
+            "drive": 0
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Tape",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 20000,
+            "resonance": 0.02564102564102564,
+            "drive": 0
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Load",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": 12,
+      "bed": null,
+      "meter": false,
+      "effects": [],
+      "sends": []
+    },
+    {
+      "name": "Foley",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [],
+      "sends": []
+    },
+    {
+      "name": "Engine",
+      "parent": "Master",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [],
+      "sends": []
+    },
+    {
+      "name": "Voice",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 100,
+            "resonance": 0.010256410256410255,
+            "drive": 0
+          }
+        }
+      ],
+      "sends": []
+    }
+  ],
+  "returns": [
+    {
+      "name": "Reverb",
+      "output": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "reverb",
+          "on": true,
+          "params": {}
+        }
+      ]
+    }
+  ],
+  "vcas": [],
+  "automation": [
+    {
+      "on": "Music",
+      "target": "volume",
+      "parameter": "Intensity",
+      "curve": [
+        [0, -6.935749724493126],
+        [1, 0]
+      ],
+      "bypass": false
+    },
+    {
+      "on": "Music",
+      "target": "fx:fx3:cutoff",
+      "parameter": "Intensity",
+      "curve": [
+        [0, 900],
+        [0.5, 5000, "smooth"],
+        [1, 18000]
+      ],
+      "bypass": false
+    }
+  ],
+  "ducking": [
+    {
+      "target": "Music",
+      "trigger": "SFX",
+      "mode": "presence",
+      "detector": "rms",
+      "thresholdDb": -30,
+      "amountDb": -10.457574905606752,
+      "attackMs": 50,
+      "releaseMs": 400,
+      "enabled": true
+    },
+    {
+      "target": "Music",
+      "trigger": "Voice",
+      "mode": "level",
+      "detector": "rms",
+      "thresholdDb": -30,
+      "amountDb": -9.118639112994488,
+      "attackMs": 50,
+      "releaseMs": 500,
+      "enabled": true
+    },
+    {
+      "target": "Ambience",
+      "trigger": "Voice",
+      "mode": "level",
+      "detector": "peak",
+      "thresholdDb": -20,
+      "amountDb": -6.020599913279624,
+      "attackMs": 100,
+      "releaseMs": 800,
+      "enabled": true
+    }
+  ],
+  "snapshots": [
+    {
+      "name": "Underwater",
+      "folder": "",
+      "start": {
+        "kind": "code"
+      },
+      "fadeInMs": 300,
+      "fadeOutMs": 300,
+      "holdMs": 0,
+      "priority": 0,
+      "combine": "override",
+      "buses": {
+        "Music": -4.436974992327127,
+        "Ambience": -6.020599913279624
+      },
+      "effects": {
+        "Music": {
+          "fx3": {
+            "cutoff": 500
+          }
+        },
+        "SFX": {
+          "fx2": {
+            "cutoff": 1500
+          }
+        },
+        "Ambience": {
+          "fx1": {
+            "cutoff": 900
+          }
+        }
+      }
+    },
+    {
+      "name": "Sweep",
+      "folder": "",
+      "start": {
+        "kind": "code"
+      },
+      "fadeInMs": 300,
+      "fadeOutMs": 300,
+      "holdMs": 0,
+      "priority": 0,
+      "combine": "override",
+      "buses": {},
+      "effects": {
+        "Tape": {
+          "fx1": {
+            "cutoff": 250
+          }
+        },
+        "Music": {
+          "fx3": {
+            "cutoff": 400
+          }
+        }
+      }
+    }
+  ],
+  "loudness": {
+    "targets": [
+      {
+        "name": "console",
+        "integrated": -24,
+        "tolerance": 2,
+        "truePeak": -1
+      },
+      {
+        "name": "mobile",
+        "integrated": -18,
+        "tolerance": 2,
+        "truePeak": -1
+      }
+    ],
+    "resetOnPlay": true
+  }
+}

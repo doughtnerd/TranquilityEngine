@@ -16,6 +16,8 @@ import { loadProjectFiles } from "../engine/scene/projectFiles";
 import { toRuntimePlugin } from "../plugins/thirdParty";
 import type { RuntimePlugin } from "../plugins/runtimeContext";
 import { MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, type GameManifest } from "../export/format";
+import { LEGACY_AUDIO_MESSAGE, projectWithAudio } from "../engine/audio/project/load";
+import { AUDIO_PROJECT_FILE } from "../engine/audio/project/types";
 
 /** A build file's URL, from its "/"-separated path. */
 const urlOf = (path: string) => new URL(path.split("/").map(encodeURIComponent).join("/"), document.baseURI).href;
@@ -41,7 +43,12 @@ async function boot(): Promise<void> {
     url: (path) => urlOf(`${PROJECT_DIR}/${path}`),
   });
   if (problems.length > 0) throw new Error(`Some of the game's JSON files don't parse: ${problems.map((p) => `${p.path} (${p.message})`).join(", ")}`);
-  const settings = (values.get("project.json") ?? {}) as ProjectSettingsInput;
+  // The mix is audio.json's (ADR 0330): project.json's settings with its runtime view as `audio`. A project.json that
+  // still has the old section is refused: the editor migrates it.
+  const read = projectWithAudio(values.get("project.json") ?? {}, values.get(AUDIO_PROJECT_FILE));
+  if (read.legacyAudio) throw new Error(LEGACY_AUDIO_MESSAGE);
+  for (const line of [...read.problems, ...read.warnings]) console.warn(`[myco] ${AUDIO_PROJECT_FILE}: ${line}`);
+  const settings: ProjectSettingsInput = read.project;
   const thirdParty: RuntimePlugin[] = [];
   const moduleOf = (path: string) => manifest.scripts.find((s) => s.source === path.replace(/^\.?\//, ""))?.module;
   document.body.style.background = settings.display?.backgroundColor ?? "#000";

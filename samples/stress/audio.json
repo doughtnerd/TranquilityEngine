@@ -1,0 +1,1599 @@
+{
+  "format": "myco.audio@1",
+  "settings": {
+    "voices": {
+      "mixed": 256,
+      "logical": 4096,
+      "hrtf": 8
+    },
+    "bed": {
+      "maxBeds": 4
+    },
+    "ambisonic": {
+      "maxClips": 2
+    },
+    "clipMemoryMB": 256
+  },
+  "parameters": [],
+  "buses": [
+    {
+      "name": "Master",
+      "parent": null,
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": {
+        "own": true,
+        "priority": 255
+      },
+      "meter": true,
+      "effects": [],
+      "sends": []
+    },
+    {
+      "name": "Mix0",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 30,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 14000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -20,
+            "ratio": 3,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        },
+        {
+          "id": "fx4",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 20000,
+            "resonance": 0.02564102564102564,
+            "drive": 0
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Mix1",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 40,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 15500,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -22,
+            "ratio": 4,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        },
+        {
+          "id": "fx4",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 20000,
+            "resonance": 0.02564102564102564,
+            "drive": 0
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Mix2",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 50,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 17000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -24,
+            "ratio": 5,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        },
+        {
+          "id": "fx4",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 20000,
+            "resonance": 0.02564102564102564,
+            "drive": 0
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Mix3",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 60,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 18500,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -26,
+            "ratio": 3,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus00",
+      "parent": "Mix0",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 70,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 20000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -20,
+            "ratio": 4,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": [
+        {
+          "to": "Reverb",
+          "levelDb": -16.478174818886377
+        }
+      ]
+    },
+    {
+      "name": "Bus01",
+      "parent": "Mix1",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 80,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 14000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -22,
+            "ratio": 5,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus02",
+      "parent": "Mix2",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 90,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 15500,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -24,
+            "ratio": 3,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus03",
+      "parent": "Mix3",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 100,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 17000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -26,
+            "ratio": 4,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": [
+        {
+          "to": "Reverb",
+          "levelDb": -10.457574905606752
+        }
+      ]
+    },
+    {
+      "name": "Bus04",
+      "parent": "Mix0",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 30,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 18500,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -20,
+            "ratio": 5,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus05",
+      "parent": "Mix1",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 40,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 20000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -22,
+            "ratio": 3,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus06",
+      "parent": "Mix2",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 50,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 14000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -24,
+            "ratio": 4,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": [
+        {
+          "to": "Reverb",
+          "levelDb": -12.041199826559248
+        }
+      ]
+    },
+    {
+      "name": "Bus07",
+      "parent": "Mix3",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 60,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 15500,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -26,
+            "ratio": 5,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus08",
+      "parent": "Mix0",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 70,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 17000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -20,
+            "ratio": 3,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus09",
+      "parent": "Mix1",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 80,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 18500,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -22,
+            "ratio": 4,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": [
+        {
+          "to": "Reverb",
+          "levelDb": -13.979400086720375
+        }
+      ]
+    },
+    {
+      "name": "Bus10",
+      "parent": "Mix2",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 90,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 20000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -24,
+            "ratio": 5,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus11",
+      "parent": "Mix3",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 100,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 14000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -26,
+            "ratio": 3,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus12",
+      "parent": "Mix0",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 30,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 15500,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -20,
+            "ratio": 4,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": [
+        {
+          "to": "Reverb",
+          "levelDb": -16.478174818886377
+        }
+      ]
+    },
+    {
+      "name": "Bus13",
+      "parent": "Mix1",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 40,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 17000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -22,
+            "ratio": 5,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus14",
+      "parent": "Mix2",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 50,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 18500,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -24,
+            "ratio": 3,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus15",
+      "parent": "Mix3",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 60,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 20000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -26,
+            "ratio": 4,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": [
+        {
+          "to": "Reverb",
+          "levelDb": -10.457574905606752
+        }
+      ]
+    },
+    {
+      "name": "Bus16",
+      "parent": "Mix0",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 70,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 14000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -20,
+            "ratio": 5,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus17",
+      "parent": "Mix1",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 80,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 15500,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -22,
+            "ratio": 3,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus18",
+      "parent": "Mix2",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 90,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 17000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -24,
+            "ratio": 4,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": [
+        {
+          "to": "Reverb",
+          "levelDb": -12.041199826559248
+        }
+      ]
+    },
+    {
+      "name": "Bus19",
+      "parent": "Mix3",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 100,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 18500,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -26,
+            "ratio": 5,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus20",
+      "parent": "Mix0",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 30,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 20000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -20,
+            "ratio": 3,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus21",
+      "parent": "Mix1",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 40,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 14000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -22,
+            "ratio": 4,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": [
+        {
+          "to": "Reverb",
+          "levelDb": -13.979400086720375
+        }
+      ]
+    },
+    {
+      "name": "Bus22",
+      "parent": "Mix2",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 50,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 15500,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -24,
+            "ratio": 5,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus23",
+      "parent": "Mix3",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 60,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 17000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -26,
+            "ratio": 3,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus24",
+      "parent": "Mix0",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 70,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 18500,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -20,
+            "ratio": 4,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus25",
+      "parent": "Mix1",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 80,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 20000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -22,
+            "ratio": 5,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    },
+    {
+      "name": "Bus26",
+      "parent": "Mix2",
+      "volumeDb": -1.938200260161128,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "highpass",
+          "on": true,
+          "params": {
+            "cutoff": 90,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx2",
+          "type": "lowpass",
+          "on": true,
+          "params": {
+            "cutoff": 14000,
+            "resonance": 0.010615384615384613,
+            "drive": 0
+          }
+        },
+        {
+          "id": "fx3",
+          "type": "compressor",
+          "on": true,
+          "params": {
+            "threshold": -24,
+            "ratio": 3,
+            "attack": 5,
+            "release": 200,
+            "makeup": 0,
+            "knee": 20
+          }
+        }
+      ],
+      "sends": []
+    }
+  ],
+  "returns": [
+    {
+      "name": "Reverb",
+      "output": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "effects": [
+        {
+          "id": "fx1",
+          "type": "reverb",
+          "on": true,
+          "params": {}
+        }
+      ]
+    }
+  ],
+  "vcas": [],
+  "automation": [],
+  "ducking": [
+    {
+      "target": "Mix0",
+      "trigger": "Bus01",
+      "mode": "presence",
+      "detector": "rms",
+      "thresholdDb": -30,
+      "amountDb": -3.0980391997148637,
+      "attackMs": 50,
+      "releaseMs": 500,
+      "enabled": true
+    }
+  ],
+  "snapshots": [
+    {
+      "name": "Muffled",
+      "folder": "",
+      "start": {
+        "kind": "code"
+      },
+      "fadeInMs": 300,
+      "fadeOutMs": 300,
+      "holdMs": 0,
+      "priority": 0,
+      "combine": "override",
+      "buses": {
+        "Mix0": -3.0980391997148637,
+        "Mix1": -3.0980391997148637
+      },
+      "effects": {
+        "Mix0": {
+          "fx4": {
+            "cutoff": 900
+          }
+        },
+        "Mix1": {
+          "fx4": {
+            "cutoff": 1500
+          }
+        },
+        "Mix2": {
+          "fx4": {
+            "cutoff": 3000
+          }
+        }
+      }
+    },
+    {
+      "name": "Quiet",
+      "folder": "",
+      "start": {
+        "kind": "code"
+      },
+      "fadeInMs": 300,
+      "fadeOutMs": 300,
+      "holdMs": 0,
+      "priority": 0,
+      "combine": "override",
+      "buses": {
+        "Mix2": -7.958800173440752,
+        "Mix3": -7.958800173440752
+      },
+      "effects": {}
+    }
+  ],
+  "loudness": {
+    "targets": [
+      {
+        "name": "console",
+        "integrated": -24,
+        "tolerance": 2,
+        "truePeak": -1
+      },
+      {
+        "name": "mobile",
+        "integrated": -18,
+        "tolerance": 2,
+        "truePeak": -1
+      }
+    ],
+    "resetOnPlay": true
+  }
+}

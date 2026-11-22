@@ -14,6 +14,7 @@ import { pickMainScene } from "../editor/projects";
 import { compileScript, ENGINE_MODULE, LEGACY_ENGINE_MODULE, isScriptPath, loadOrder, packageSpecifiers, resolveScript, rewriteImports, type ScriptProblem } from "../editor/scriptLoader";
 import { bundlePackages, isPackageSpecifier, type PackageSource } from "../editor/packages";
 import { isProjectFile, skipsFolder } from "../engine/scene/projectFiles";
+import { LEGACY_AUDIO_MESSAGE, hasLegacyAudio } from "../engine/audio/project/load";
 import { projectScriptAssetRefs } from "../engine/scene/scriptAssetRefs";
 import { planPluginCode, type BuiltPlugin } from "../plugins/thirdParty";
 import { ENGINE_FILE, MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, modulePath, relativeSpecifier, type GameManifest } from "./format";
@@ -142,9 +143,21 @@ async function compileForBuild(
   return { order: plan.order, files, packageEntries: entryFiles };
 }
 
+/** A JSON file's value, or undefined when it has none or doesn't parse. */
+function parsedJson(text: string | undefined): unknown {
+  if (text === undefined) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Plan a web build of `source`. Throws an `ExportError` if it can't be built. */
 export async function planWebBuild(source: BuildSource, options: BuildOptions = {}): Promise<WebBuildPlan> {
   if (!source.files.includes("project.json")) throw new ExportError("The project has no project.json.");
+  // ADR 0330: the mix ships in audio.json, copied with the other files; an unmigrated project.json audio section is refused.
+  if (hasLegacyAudio(parsedJson(source.json.get("project.json")))) throw new ExportError(LEGACY_AUDIO_MESSAGE);
   const copies = source.files.filter(isExportedFile).sort();
   const bootstrap = source.settings.bootstrap;
   if (typeof bootstrap === "string" && !source.scripts.has(bootstrap.replace(/^\.?\//, ""))) {
