@@ -15,3 +15,6 @@ Decisions made during the build that the records didn't settle. Each entry: the 
 - **D11 (T10).** *TRS follows Unreal's `FTransform`:* per-component scale, no shear; the TRS inverse is exact for uniform scale, `Mat3x4T::inverse_or` is exact always. *Revert:* accumulate in matrices.
 - **D12 (T10).** *Skeleton parents are `u16` with `NO_PARENT = 0xFFFF`, parents first.* T03r was told to match.
 - **D13 (T10).** *glam only for conversions,* because its backends order operations differently and would break bit-identity between wasm and native.
+- **D14 (T03r).** *Formats refuse unknown sections and flag bits* and require canonical layouts; writers re-parse their output. *Revert:* skip unknown kinds in `container::parse`.
+- **D15 (T03r).** *Compressed bone tracks split into rotation (drop-w or full), translation and scale channels,* with an 8-bit range per channel per segment and bit rates {0, 3–16, 19, 23, 32 = raw}.
+- **D16 (T03r).** *Every key is 32 bytes* with per-kind meaning, so TypeScript indexes one table.
