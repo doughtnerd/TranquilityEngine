@@ -153,7 +153,7 @@ export function forgetSession(project: EditorProject, path: string): void {
 
 // --- the audio --------------------------------------------------------------------------------------------------------
 
-type Load<T> = { readonly state: "loading" } | { readonly state: "ready"; readonly value: T } | { readonly state: "failed"; readonly reason: string };
+type Load<T> = { readonly state: "ready"; readonly value: T } | { readonly state: "failed"; readonly reason: string };
 
 /** What the screen has read of each audio file, by its asset URL (a new URL is a new version of the file). */
 const peaks = signal<ReadonlyMap<string, Load<PeakMips>>>(new Map());
@@ -175,17 +175,26 @@ const setIn = <T>(s: { value: ReadonlyMap<string, T> }, key: string, value: T) =
 
 const why = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
+/** Reads started, by kind and URL: a read starts once, and nothing is written to a signal while a view draws. */
+const started = new Set<string>();
+const startOnce = (key: string, run: () => void): void => {
+  if (started.has(key)) return;
+  started.add(key);
+  run();
+};
+
 /** The file's peaks (null while they load or when they failed); starts reading them the first time. */
 export function peaksOf(project: EditorProject, path: string): PeakMips | null {
   const url = urlOf(project, path);
   if (!url) return null;
   const known = peaks.value.get(url);
   if (!known) {
-    setIn(peaks, url, { state: "loading" });
-    peaksFor(project as never)
-      .get(path)
-      .then((value) => setIn(peaks, url, { state: "ready", value }))
-      .catch((err) => setIn(peaks, url, { state: "failed", reason: why(err) }));
+    startOnce(`peaks ${url}`, () =>
+      void peaksFor(project)
+        .get(path)
+        .then((value) => setIn(peaks, url, { state: "ready", value }))
+        .catch((err) => setIn(peaks, url, { state: "failed", reason: why(err) })),
+    );
     return null;
   }
   return known.state === "ready" ? known.value : null;
@@ -247,10 +256,11 @@ export function loudnessOf(project: EditorProject, path: string): LoudnessMeasur
   if (!url) return null;
   const known = loudness.value.get(url);
   if (!known) {
-    setIn(loudness, url, { state: "loading" });
-    pcmOf(project, path)
-      .then((pcm) => setIn(loudness, url, { state: "ready", value: measureLoudness(pcm) }))
-      .catch((err) => setIn(loudness, url, { state: "failed", reason: why(err) }));
+    startOnce(`loudness ${url}`, () =>
+      void pcmOf(project, path)
+        .then((pcm) => setIn(loudness, url, { state: "ready", value: measureLoudness(pcm) }))
+        .catch((err) => setIn(loudness, url, { state: "failed", reason: why(err) })),
+    );
     return null;
   }
   return known.state === "ready" ? known.value : null;
@@ -262,10 +272,11 @@ export function wavMetadataOf(project: EditorProject, path: string): WavMetadata
   if (!url || !/\.wave?$/i.test(path)) return null;
   const known = metadata.value.get(url);
   if (!known) {
-    setIn(metadata, url, { state: "loading" });
-    bytesOf(project, path)
-      .then((bytes) => setIn(metadata, url, { state: "ready", value: readWavMetadata(bytes) }))
-      .catch((err) => setIn(metadata, url, { state: "failed", reason: why(err) }));
+    startOnce(`metadata ${url}`, () =>
+      void bytesOf(project, path)
+        .then((bytes) => setIn(metadata, url, { state: "ready", value: readWavMetadata(bytes) }))
+        .catch((err) => setIn(metadata, url, { state: "failed", reason: why(err) })),
+    );
     return null;
   }
   return known.state === "ready" ? known.value : null;
@@ -281,5 +292,6 @@ export function forgetAudio(project: EditorProject, path: string): void {
     s.value = next;
   }
   pcms.delete(url);
-  peaksFor(project as never).invalidate(path);
+  for (const k of [...started]) if (k.endsWith(` ${url}`)) started.delete(k);
+  peaksFor(project).invalidate(path);
 }

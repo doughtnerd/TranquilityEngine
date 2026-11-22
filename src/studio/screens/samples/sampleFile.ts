@@ -261,3 +261,15 @@ export function applyMerge(e: SampleEdits, rows: readonly MergeRow[], name: stri
   if (loops.some((l, i) => i > 0 && l.start < loops[i - 1].end)) return no("the file's loops would overlap the project's; keep the project's loop or remove one first");
   return ok({ ...e, markers: markers.sort((a, b) => a.at - b.at), loops }, `Merge changes from ${name}`);
 }
+
+/** "2 cue changes and the loop end moved." */
+export function summarizeMerge(rows: readonly MergeRow[]): string {
+  const markers = rows.filter((r) => r.kind === "marker").length;
+  const loops = rows.filter((r) => r.kind === "loop");
+  const parts: string[] = [];
+  if (markers) parts.push(`${markers} cue change${markers === 1 ? "" : "s"}`);
+  if (loops.length === 1) parts.push((loops[0].title.charAt(0).toLowerCase() + loops[0].title.slice(1)).replace(/^loop/, "the loop"));
+  else if (loops.length > 1) parts.push(`${loops.length} loop changes`);
+  return parts.length ? `${parts.join(" and ")}.` : "";
+}
+

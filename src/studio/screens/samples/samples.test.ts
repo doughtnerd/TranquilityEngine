@@ -10,7 +10,7 @@ import {
   addLoop, addMarker, clipAfterGain, closeGap, convertMarker, deleteMarker, loopGaps, moveLoop, moveMarker, normalizeGain, refusalOf, removeLoop, setNormalize,
   setRoot, setTempo, setTrim, slideLoop, snip, snippets, tapeSnippet, toggleSnippet, updateLoop, updateMarker, type SampleEdit,
 } from "./sampleEditing";
-import { applyMerge, changedCount, detachAll, loopDiff, markerDiff, mergeRows, revertLoop, revertMarker, writeSummary } from "./sampleFile";
+import { applyMerge, changedCount, detachAll, loopDiff, markerDiff, mergeRows, revertLoop, revertMarker, summarizeMerge, writeSummary } from "./sampleFile";
 import { allSamples, cleanFolderName, fileChip, libraryTree, metaLine, moveUpPlan, searchSamples, shortLength, usesOf } from "./sampleLibrary";
 import { editedLength, inClosedGap, toSource, toView } from "./sampleTime";
 import {
@@ -236,6 +236,7 @@ describe("file diff, revert, detach, write and merge", () => {
       ["New cue", false, "add"],
       ["Loop end moved", false, "file"],
     ]);
+    expect(summarizeMerge(rows)).toBe("2 cue changes and the loop end moved.");
     const merged = next(applyMerge(edited, rows, "brake_skid.wav"));
     expect(merged.markers.find((m) => m.id === "m2")).toMatchObject({ at: 0.4, file: { at: 0.35 } });
     expect(merged.markers.some((m) => m.name === "Stop")).toBe(true);

@@ -9,7 +9,7 @@ import { Assets } from "../../../engine";
 import { readWavMetadata } from "../../../engine/audio/sample/wavChunks";
 import { currentProject } from "../../../editor/state";
 import type { EditorProject } from "../../../editor/projects";
-import { mergeRows, type MergeRow } from "./sampleFile";
+import { mergeRows, summarizeMerge, type MergeRow } from "./sampleFile";
 import { bytesOf, forgetAudio, sampleSession } from "./sampleSession";
 import { isWavPath } from "./importPlan";
 
@@ -22,17 +22,6 @@ export interface DiskChange {
 
 export const diskChange = signal<DiskChange | null>(null);
 
-/** "2 cue changes and the loop end moved." */
-export function summarize(rows: readonly MergeRow[]): string {
-  const markers = rows.filter((r) => r.kind === "marker").length;
-  const loops = rows.filter((r) => r.kind === "loop");
-  const parts: string[] = [];
-  if (markers) parts.push(`${markers} cue change${markers === 1 ? "" : "s"}`);
-  if (loops.length === 1) parts.push(loops[0].title.charAt(0).toLowerCase() + loops[0].title.slice(1).replace(/^loop/, "the loop"));
-  else if (loops.length > 1) parts.push(`${loops.length} loop changes`);
-  return parts.length ? `${parts.join(" and ")}.` : "";
-}
-
 /** Read `path` as it is now and open the review if its chunks changed against the sample's file snapshots. */
 export async function reviewDisk(project: EditorProject, path: string): Promise<boolean> {
   if (!isWavPath(path) || !project.files.includes(path)) return false;
@@ -40,7 +29,7 @@ export async function reviewDisk(project: EditorProject, path: string): Promise<
   const meta = readWavMetadata(await bytesOf(project, path));
   const rows = mergeRows(sampleSession(project, path).edits.peek(), meta);
   if (rows.length === 0) return false;
-  diskChange.value = { path, summary: summarize(rows), rows };
+  diskChange.value = { path, summary: summarizeMerge(rows), rows };
   return true;
 }
 
