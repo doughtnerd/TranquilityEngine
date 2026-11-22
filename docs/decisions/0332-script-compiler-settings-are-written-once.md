@@ -15,7 +15,7 @@ matched the others. Nothing checked it:
   define-semantics fields (plus JSX and source maps).
 - `src/server/tsLoader.mjs` (the dedicated server's and `npm run export`'s Node hooks): the same emit settings, and a
   resolve hook trying a relative import as written, with `.ts`, `.js` → `.ts` and `/index.ts`.
-- `compileScript` and `resolveScript` in `src/editor/scriptLoader.ts` (project scripts in the editor and game builds):
+- `compileScript` and `resolveScript` in `src/projectCode/compile.ts` (moved there by ADR 0329) (project scripts in the editor and game builds):
   the same emit settings and the same four candidates, written again.
 - The Code panel's checker (`src/editor/code/monaco.ts`): `moduleResolution: NodeJs`, `lib`, `strict`, JSON imports,
   and `target: 9` with a comment, as Monaco's enum stops at ES2020.
@@ -69,7 +69,7 @@ We will write the settings once, in `src/scriptCompiler.mjs` (types in `scriptCo
 
 ## Deprecates
 
-The inline option objects in `vite.shared.ts`, `tsLoader.mjs`, `scriptLoader.ts`, `monaco.ts` and `scriptingSetup.ts`,
+The inline option objects in `vite.shared.ts`, `tsLoader.mjs`, `scriptLoader.ts` (now `projectCode/compile.ts`), `monaco.ts` and `scriptingSetup.ts`,
 and the two inline candidate lists: removed, each host now imports the module.
 
 ## Open questions

@@ -1,6 +1,7 @@
 // Third-party plugins in the editor (ADR 0139). Opening a project and every script reload go through
-// `loadProjectCode`: plan the project's code as every host does (`planPluginCode`, ADR 0275), load the
-// scripts plus the enabled plugins' code (both halves) through the script loader, then hand the halves from the fresh
+// `loadProjectCode`: plan the project's code as every host does (`planPluginCode`, ADR 0275), link the
+// scripts plus the enabled plugins' code (both halves) through the script loader (the project code
+// linker's memory target, ADR 0329), then hand the halves from the fresh
 // modules to the editor's plugin set (ADR 0144), which re-activates the ones whose module changed, so
 // saving an editor-half file re-registers its contributions live. Editor code only.
 import { signal } from "@preact/signals";
@@ -55,8 +56,9 @@ function toEditorPlugin(manifest: ThirdPartyManifest, entry: string | undefined,
 
 /**
  * The plan's loaded plugins as the plugin set takes them: each half built from its freshly loaded
- * module. A plugin whose code doesn't load gets a runtime half that throws the error, so the set
- * reports it as failing to activate and skips the plugins that need it.
+ * module. A plugin whose code didn't load (the link already reported why: a script problem, or an npm
+ * entry that can't be bundled) gets a runtime half that throws the error, so the set reports it as
+ * failing to activate and skips the plugins that need it.
  */
 async function toSetPlugins(plugins: readonly FoundPlugin[]): Promise<EditorSetPlugin[]> {
   const out: EditorSetPlugin[] = [];
