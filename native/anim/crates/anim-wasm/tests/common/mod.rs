@@ -52,6 +52,61 @@ pub fn clip(skel: &Skeleton, seconds: f64, looping: bool, seed: u64) -> Vec<u8> 
     compress(&clip, Some(skel), &settings).unwrap().bytes
 }
 
+/// [`clip`] plus an `event` track: one notify (method string 0, `"footstep"`) at `at` seconds,
+/// threshold 0.5.
+pub fn clip_with_event(skel: &Skeleton, seconds: f64, looping: bool, seed: u64, at: f32) -> Vec<u8> {
+    use anim_format::clip::{Binding, Key, KeyData, Track, TrackKind};
+    let mut rng = Rng::new(seed);
+    let mut clip = synth::clip(skel, seconds, looping, &mut rng);
+    clip.strings = vec!["footstep".into()];
+    clip.tracks.push(Track {
+        kind: TrackKind::Event,
+        flags: 0,
+        subtype: 0,
+        binding: Binding::none(),
+        raw: Vec::new(),
+        keys: vec![Key {
+            time: at,
+            end: at,
+            data: KeyData::Event {
+                method: 0,
+                args: anim_format::NONE,
+                threshold: 0.5,
+                always: false,
+            },
+        }],
+    });
+    let settings = Settings {
+        root_motion: Some(RootMotion {
+            bone: 0,
+            axes: ROOT_ALL,
+        }),
+        ..Settings::default()
+    };
+    compress(&clip, Some(skel), &settings).unwrap().bytes
+}
+
+/// The `tracks` records of instance `h` this frame, as (opcode, bytes).
+pub fn track_records(core: &Core, h: u32) -> Vec<(u16, Vec<u8>)> {
+    use anim_wire::core::{TRACK_RECORDS, TRACK_STRIDE};
+    use anim_wire::tracks::{OutputHeader, FAMILY};
+    let words = TRACK_STRIDE as usize / 4;
+    let row = &core.tracks()[(h & 0xFFFF) as usize * words..][..words];
+    let bytes: Vec<u8> = row.iter().flat_map(|w| w.to_le_bytes()).collect();
+    let header = OutputHeader::decode(&bytes).unwrap();
+    let mut at = TRACK_RECORDS as usize;
+    let end = at + header.record_bytes as usize;
+    let mut out = Vec::new();
+    while at < end {
+        let op = u16::from_le_bytes([bytes[at], bytes[at + 1]]);
+        let d = FAMILY.records.iter().find(|d| d.opcode == op).unwrap();
+        out.push((op, bytes[at..at + d.stride as usize].to_vec()));
+        at += d.stride as usize;
+    }
+    assert_eq!(out.len(), header.record_count as usize);
+    out
+}
+
 /// A started core.
 pub fn core(max_instances: u32, max_bones: u32) -> Core {
     let mut core = Core::new();

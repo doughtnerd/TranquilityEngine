@@ -556,3 +556,43 @@ fn a_graph_asset_blends_its_bound_clips() {
     assert_ne!(g2, 0);
     assert_eq!(f.core.last_status(), STATUS_UNKNOWN_NODES);
 }
+
+#[test]
+fn clip_events_fire_through_the_track_region_by_weight() {
+    use anim_wire::tracks::Event;
+    use anim_wire::WireRecord;
+    let (skel_model, skel_bytes) = skeleton(Shape::Tree(12), 7);
+    let ev = clip_with_event(&skel_model, 1.0, true, 21, 0.2);
+    let mut core = core(4, MAX_BONES as u32);
+    let s = core.load_skeleton(&skel_bytes);
+    let c = core.load_clip(&ev);
+    assert_ne!(c, 0, "status {}", core.last_status());
+    let h = core.create_instance(0, s, 0);
+    send(&mut core, &[play(h, c, 0, 0.0, 1, 0)]);
+    let mut fired = Vec::new();
+    for frame in 1..=30 {
+        core.write_inputs(0);
+        core.evaluate(0, PASS_NORMAL, DT, DT);
+        for (op, bytes) in track_records(&core, h) {
+            if op == Event::OPCODE {
+                fired.push((frame, Event::decode(&bytes).unwrap()));
+            }
+        }
+    }
+    // 0.2 s is frame 6 (the window (5/30, 6/30] holds it; f32 time may land it on frame 7).
+    assert_eq!(fired.len(), 1, "{fired:?}");
+    let (frame, e) = fired[0];
+    assert!((6..=7).contains(&frame), "frame {frame}");
+    assert_eq!((e.instance, e.clip, e.method, e.weight), (h, c, 0, 1.0));
+
+    // Fading in over 10 s, its weight stays under the 0.5 threshold: the notify is gated.
+    let other = core.load_clip(&clip(&skel_model, 1.0, true, 22));
+    send(&mut core, &[play(h, other, 0, 0.0, 2, 0), play(h, c, 0, 10.0, 3, 0)]);
+    let mut gated = 0;
+    for _ in 0..30 {
+        core.write_inputs(0);
+        core.evaluate(0, PASS_NORMAL, DT, DT);
+        gated += track_records(&core, h).iter().filter(|r| r.0 == Event::OPCODE).count();
+    }
+    assert_eq!(gated, 0, "a weight of 0.1 or less never passes 0.5");
+}
