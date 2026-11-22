@@ -7,7 +7,6 @@ import type { ResolvedNode } from "../engine/scene/resolvedScene";
 import {
   AddComponent,
   AddNode,
-  RebuildInstances,
   RemoveComponent,
   RemoveNode,
   RevertOverrides,
@@ -358,7 +357,6 @@ export async function applyOverridesTo(open: OpenScene, project: EditorProject, 
   return total;
 }
 
-export { RebuildInstances };
 
 /**
  * True if instancing `file` inside the document at `into` would contain itself: the same file,

@@ -41,7 +41,8 @@ const emptyPatch = (p: DocPatch | undefined) => !p || (!p.nodes && !p.order && !
  *
  * The tree itself (navigation, pruning, the history file) is the `HistoryTree` (ADR 0267); this
  * stack adds groups, listeners and dirtiness, and is the scene's step adapter: each state's
- * document patch, plus the text files it wrote.
+ * document patch, plus the text files it wrote. Those patches are the only undo: commands only
+ * apply (ADR 0321).
  */
 export class CommandStack {
   private readonly tree: HistoryTree;

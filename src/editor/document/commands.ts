@@ -21,11 +21,15 @@ export interface FileWrite {
   readonly text: string | null;
 }
 
-/** An undoable edit of a SceneDocument (ADR 0026). `apply` and `undo` return what changed. */
+/**
+ * An edit of a SceneDocument (ADR 0026, 0321): a label, an `apply` that changes the document in
+ * place and returns what changed, and optional text file writes. A command doesn't undo itself:
+ * `CommandStack.execute` runs it and records the step as a patch of the document, and undo, redo
+ * and jumps apply those patches (ADR 0027).
+ */
 export interface Command {
   readonly label: string;
   apply(doc: SceneDocument): Change[];
-  undo(doc: SceneDocument): Change[];
   /**
    * Text files the command writes besides the scene (a UI document's markup and stylesheets, ADR
    * 0077). The CommandStack writes them through its `files` host and records the change in the
@@ -36,22 +40,12 @@ export interface Command {
 
 const clone = <T>(v: T): T => (v === undefined ? v : structuredClone(v));
 
-/** Shallow copy of an object's own keys, in order, for restoring it exactly on undo. */
-function snapshot<T extends object>(obj: T): T {
-  return { ...obj };
-}
-
-/** Put back every key of `snap` on `target`, in the snapshot's order (keeps file key order on undo). */
-function restore<T extends object>(target: T, snap: T): void {
-  for (const k of Object.keys(target)) delete (target as Record<string, unknown>)[k];
-  Object.assign(target, snap);
-}
-
 /**
- * Set `key` on `obj`. A key that isn't there yet goes right after the last of `after` that is
- * (e.g. `parent` after `id`/`name`), so new keys land where a person would write them.
+ * Set `key` on `obj`, an entry of the document a command is editing. A key that isn't there yet
+ * goes right after the last of `after` that is (e.g. `parent` after `id`/`name`), so new keys land
+ * where a person would write them.
  */
-function setKey<T extends object>(obj: T, key: string, value: unknown, after: readonly string[]): void {
+export function setKey<T extends object>(obj: T, key: string, value: unknown, after: readonly string[]): void {
   const o = obj as Record<string, unknown>;
   if (Object.prototype.hasOwnProperty.call(o, key)) {
     o[key] = value;
@@ -83,7 +77,6 @@ export class SetField implements Command {
   readonly label: string;
   private readonly index: number;
   private readonly target: readonly string[];
-  private undoState: (() => void) | null = null;
 
   constructor(readonly node: string, readonly type: string, readonly field: string, readonly value: unknown, options: SetFieldOptions = {}) {
     this.index = options.index ?? 0;
@@ -98,60 +91,28 @@ export class SetField implements Command {
       if (this.target.length) throw new Error(`"${this.node}" is not a prefab instance; a target path only applies to overrides.`);
       this.applyData(doc, entry);
     }
-    return [this.change()];
-  }
-
-  undo(): Change[] {
-    this.undoState?.();
-    this.undoState = null;
-    return [this.change()];
-  }
-
-  private change(): Change {
-    return { kind: "field", path: [this.node, ...this.target], type: this.type, index: this.index, field: this.field };
+    return [{ kind: "field", path: [this.node, ...this.target], type: this.type, index: this.index, field: this.field }];
   }
 
   private applyData(doc: SceneDocument, entry: NodeEntry): void {
     let pos = doc.componentPosition(this.node, this.type, this.index);
-    const hadComponents = entry.components !== undefined;
-    let addedComponent = false;
     if (pos < 0) {
       if (this.type !== "engine.Transform" || this.index !== 0) throw new Error(`"${this.node}" has no component "${this.type}" (#${this.index}).`);
       entry.components ??= [];
       entry.components.unshift({ type: "engine.Transform" });
       pos = 0;
-      addedComponent = true;
     }
     const c = entry.components![pos];
-    const hadData = c.data !== undefined;
-    const hadKey = hadData && Object.prototype.hasOwnProperty.call(c.data, this.field);
-    const old = hadKey ? clone(c.data![this.field]) : undefined;
     c.data ??= {};
     c.data[this.field] = clone(this.value);
-    this.undoState = () => {
-      if (addedComponent) {
-        entry.components!.splice(0, 1);
-        if (!hadComponents) delete entry.components;
-        return;
-      }
-      if (hadKey) c.data![this.field] = old;
-      else {
-        delete c.data![this.field];
-        if (!hadData) delete c.data;
-      }
-    };
   }
 
   private applyOverride(entry: NodeEntry): void {
-    const hadList = entry.overrides !== undefined;
-    entry.overrides ??= [];
-    const list = entry.overrides;
+    const list = (entry.overrides ??= []);
     const field = { kind: "field", type: this.type, index: this.index, field: this.field } as const;
     const pos = list.findIndex((o) => setsProperty(o, field) && sameTarget(o.target, this.target));
     if (pos >= 0) {
-      const old = clone(list[pos].value);
       list[pos].value = clone(this.value);
-      this.undoState = () => { list[pos].value = old; };
       return;
     }
     const o: OverrideEntry = {};
@@ -161,10 +122,6 @@ export class SetField implements Command {
     o.field = this.field;
     o.value = clone(this.value);
     list.push(o);
-    this.undoState = () => {
-      list.splice(list.indexOf(o), 1);
-      if (!hadList) delete entry.overrides;
-    };
   }
 }
 
@@ -173,18 +130,10 @@ export class SetField implements Command {
 /** Rename a node. On a prefab instance this sets the instance's name. */
 export class RenameNode implements Command {
   readonly label = "Rename";
-  private before: NodeEntry | null = null;
   constructor(readonly node: string, readonly name: string) {}
 
   apply(doc: SceneDocument): Change[] {
-    const entry = doc.node(this.node);
-    this.before = snapshot(entry);
-    setKey(entry, "name", this.name, ["id"]);
-    return [{ kind: "name", node: this.node }];
-  }
-
-  undo(doc: SceneDocument): Change[] {
-    restore(doc.node(this.node), this.before!);
+    setKey(doc.node(this.node), "name", this.name, ["id"]);
     return [{ kind: "name", node: this.node }];
   }
 }
@@ -192,11 +141,10 @@ export class RenameNode implements Command {
 /**
  * Set the scene's `settings.preload` list (ADR 0080). An empty list removes the key, and `settings`
  * goes too when nothing else is in it; a new `settings` goes before `nodes`, where a person would
- * write it. Undo puts the file's root back exactly, key order included.
+ * write it.
  */
 export class SetScenePreload implements Command {
   readonly label: string;
-  private before: SceneFile | null = null;
   readonly paths: readonly string[];
   constructor(paths: readonly string[], label = "Change Preload List") {
     this.paths = [...new Set(paths.map((p) => normalizeAssetPath(p.trim())).filter(Boolean))];
@@ -205,7 +153,6 @@ export class SetScenePreload implements Command {
 
   apply(doc: SceneDocument): Change[] {
     const file = doc._file;
-    this.before = snapshot(file);
     const settings: Record<string, unknown> = { ...(file.settings ?? {}) };
     if (this.paths.length) settings.preload = [...this.paths];
     else delete settings.preload;
@@ -213,31 +160,19 @@ export class SetScenePreload implements Command {
     else delete (file as { settings?: unknown }).settings;
     return []; // nothing in the World changes: the warm-up reads the list when the scene loads
   }
-
-  undo(doc: SceneDocument): Change[] {
-    restore(doc._file, this.before!);
-    return [];
-  }
 }
 
 /** Activate or deactivate a node. Active is the default, so `true` removes the `active` key. */
 export class SetActive implements Command {
   readonly label: string;
-  private before: NodeEntry | null = null;
   constructor(readonly node: string, readonly active: boolean) {
     this.label = active ? "Activate" : "Deactivate";
   }
 
   apply(doc: SceneDocument): Change[] {
     const entry = doc.node(this.node);
-    this.before = snapshot(entry);
     if (this.active) delete entry.active;
     else setKey(entry, "active", false, ["id", "name", "parent"]);
-    return [{ kind: "active", node: this.node }];
-  }
-
-  undo(doc: SceneDocument): Change[] {
-    restore(doc.node(this.node), this.before!);
     return [{ kind: "active", node: this.node }];
   }
 }
@@ -297,37 +232,19 @@ export class AddNode implements Command {
     doc._reindex();
     return [{ kind: "add", node: root.id }];
   }
-
-  undo(doc: SceneDocument): Change[] {
-    const ids = new Set(this.entries.map((e) => e.id));
-    const entries = doc._entries;
-    for (let i = entries.length - 1; i >= 0; i--) if (ids.has(entries[i].id)) entries.splice(i, 1);
-    doc._reindex();
-    return [{ kind: "remove", node: this.id }];
-  }
 }
 
-/** Remove a node and its subtree. Undo puts every entry back at its original file position. */
+/** Remove a node and its subtree. */
 export class RemoveNode implements Command {
   readonly label = "Remove node";
-  private removed: { at: number; entry: NodeEntry }[] = [];
   constructor(readonly node: string) {}
 
   apply(doc: SceneDocument): Change[] {
     const ids = new Set(doc.subtree(this.node));
     const entries = doc._entries;
-    this.removed = [];
-    entries.forEach((entry, at) => { if (ids.has(entry.id)) this.removed.push({ at, entry }); });
-    for (let i = this.removed.length - 1; i >= 0; i--) entries.splice(this.removed[i].at, 1);
+    for (let i = entries.length - 1; i >= 0; i--) if (ids.has(entries[i].id)) entries.splice(i, 1);
     doc._reindex();
     return [{ kind: "remove", node: this.node }];
-  }
-
-  undo(doc: SceneDocument): Change[] {
-    const entries = doc._entries;
-    for (const { at, entry } of this.removed) entries.splice(at, 0, entry);
-    doc._reindex();
-    return [{ kind: "add", node: this.node }];
   }
 }
 
@@ -337,41 +254,34 @@ export class RemoveNode implements Command {
  */
 export class ReparentNode implements Command {
   readonly label = "Reparent";
-  private oldAt = -1;
-  private before: NodeEntry | null = null;
   constructor(readonly node: string, readonly parent: string | null, readonly index?: number) {}
 
   apply(doc: SceneDocument): Change[] {
     if (this.parent !== null && doc.subtree(this.node).includes(this.parent)) throw new Error(`Can't move "${this.node}" under its own descendant "${this.parent}".`);
     const entries = doc._entries;
     const entry = doc.node(this.node);
-    this.oldAt = entries.indexOf(entry);
-    this.before = snapshot(entry);
+    const from = entries.indexOf(entry);
     const at = insertionPoint(doc, this.parent, this.index, this.node);
-    entries.splice(this.oldAt, 1);
-    entries.splice(at > this.oldAt ? at - 1 : at, 0, entry);
+    entries.splice(from, 1);
+    entries.splice(at > from ? at - 1 : at, 0, entry);
     if (this.parent === null) delete entry.parent;
     else setKey(entry, "parent", this.parent, ["id", "name"]);
-    return [{ kind: "move", node: this.node }];
-  }
-
-  undo(doc: SceneDocument): Change[] {
-    const entries = doc._entries;
-    const entry = doc.node(this.node);
-    entries.splice(entries.indexOf(entry), 1);
-    entries.splice(this.oldAt, 0, entry);
-    restore(entry, this.before!);
     return [{ kind: "move", node: this.node }];
   }
 }
 
 // --- components -------------------------------------------------------------------------------
 
+/** The component entry at `position` in a plain node's components list; throws when there's none. */
+function componentAt(doc: SceneDocument, node: string, position: number): ComponentEntry {
+  const entry = doc.node(node).components?.[position];
+  if (!entry) throw new Error(`"${node}" has no component at position ${position}.`);
+  return entry;
+}
+
 /** Add a component to a plain node at `position` in its components list (omitted: last). */
 export class AddComponent implements Command {
   readonly label: string;
-  private at = -1;
-  private hadList = false;
   private readonly entry: ComponentEntry;
   constructor(readonly node: string, entry: ComponentEntry, readonly position?: number) {
     this.entry = structuredClone(entry);
@@ -381,17 +291,8 @@ export class AddComponent implements Command {
   apply(doc: SceneDocument): Change[] {
     const node = doc.node(this.node);
     if (node.prefab) throw new Error(`"${this.node}" is a prefab instance; add components to the prefab or via an override.`);
-    this.hadList = node.components !== undefined;
-    node.components ??= [];
-    this.at = this.position === undefined ? node.components.length : Math.min(this.position, node.components.length);
-    node.components.splice(this.at, 0, structuredClone(this.entry));
-    return [{ kind: "rebuild", node: this.node }];
-  }
-
-  undo(doc: SceneDocument): Change[] {
-    const node = doc.node(this.node);
-    node.components!.splice(this.at, 1);
-    if (!this.hadList) delete node.components;
+    const list = (node.components ??= []);
+    list.splice(this.position === undefined ? list.length : Math.min(this.position, list.length), 0, structuredClone(this.entry));
     return [{ kind: "rebuild", node: this.node }];
   }
 }
@@ -399,19 +300,11 @@ export class AddComponent implements Command {
 /** Remove the component at `position` in a plain node's components list. */
 export class RemoveComponent implements Command {
   readonly label = "Remove component";
-  private removed: ComponentEntry | null = null;
   constructor(readonly node: string, readonly position: number) {}
 
   apply(doc: SceneDocument): Change[] {
-    const node = doc.node(this.node);
-    const list = node.components ?? [];
-    if (this.position < 0 || this.position >= list.length) throw new Error(`"${this.node}" has no component at position ${this.position}.`);
-    [this.removed] = list.splice(this.position, 1);
-    return [{ kind: "rebuild", node: this.node }];
-  }
-
-  undo(doc: SceneDocument): Change[] {
-    doc.node(this.node).components!.splice(this.position, 0, this.removed!);
+    componentAt(doc, this.node, this.position);
+    doc.node(this.node).components!.splice(this.position, 1);
     return [{ kind: "rebuild", node: this.node }];
   }
 }
@@ -419,30 +312,15 @@ export class RemoveComponent implements Command {
 /** Start the component at `position` in a plain node's list enabled or disabled (`enabled: false` in the file; enabled is the default and leaves no key). */
 export class SetComponentEnabled implements Command {
   readonly label: string;
-  private previous: boolean | undefined;
   constructor(readonly node: string, readonly position: number, readonly enabled: boolean) {
     this.label = enabled ? "Enable component" : "Disable component";
   }
 
   apply(doc: SceneDocument): Change[] {
-    const entry = this.entry(doc);
-    this.previous = entry.enabled;
+    const entry = componentAt(doc, this.node, this.position);
     if (this.enabled) delete entry.enabled;
     else setKey(entry, "enabled", false, ["type"]);
     return [{ kind: "rebuild", node: this.node }];
-  }
-
-  undo(doc: SceneDocument): Change[] {
-    const entry = this.entry(doc);
-    if (this.previous === undefined) delete entry.enabled;
-    else setKey(entry, "enabled", this.previous, ["type"]);
-    return [{ kind: "rebuild", node: this.node }];
-  }
-
-  private entry(doc: SceneDocument): ComponentEntry {
-    const entry = doc.node(this.node).components?.[this.position];
-    if (!entry) throw new Error(`"${this.node}" has no component at position ${this.position}.`);
-    return entry;
   }
 }
 
@@ -452,14 +330,7 @@ export class MoveComponent implements Command {
   constructor(readonly node: string, readonly from: number, readonly to: number) {}
 
   apply(doc: SceneDocument): Change[] {
-    return this.move(doc, this.from, this.to);
-  }
-
-  undo(doc: SceneDocument): Change[] {
-    return this.move(doc, this.to, this.from);
-  }
-
-  private move(doc: SceneDocument, from: number, to: number): Change[] {
+    const { from, to } = this;
     const list = doc.node(this.node).components ?? [];
     if (from < 0 || from >= list.length || to < 0 || to >= list.length) throw new Error(`"${this.node}": can't move component ${from} to ${to}.`);
     const [entry] = list.splice(from, 1);
@@ -468,81 +339,37 @@ export class MoveComponent implements Command {
   }
 }
 
-/** Replace a plain node's components list (e.g. reordered as a whole). Undo puts the old list back. */
+/** Replace a plain node's components list (e.g. reordered as a whole). */
 export class SetComponents implements Command {
   readonly label = "Reorder components";
-  private previous: ComponentEntry[] | undefined;
   constructor(readonly node: string, private readonly components: readonly ComponentEntry[]) {}
 
   apply(doc: SceneDocument): Change[] {
-    const node = doc.node(this.node);
-    this.previous = node.components;
-    node.components = structuredClone([...this.components]);
-    return [{ kind: "rebuild", node: this.node }];
-  }
-
-  undo(doc: SceneDocument): Change[] {
-    const node = doc.node(this.node);
-    if (this.previous) node.components = this.previous;
-    else delete node.components;
+    doc.node(this.node).components = structuredClone([...this.components]);
     return [{ kind: "rebuild", node: this.node }];
   }
 }
 
 /**
  * Replace the whole document with `next` (an edit made outside the command set, e.g. taking a
- * deleted asset out of it). Undo puts the previous document back. Every top-level node, before
- * and after, is rebuilt.
+ * deleted asset out of it). Every top-level node, before and after, is rebuilt.
  */
 export class ReplaceDocument implements Command {
-  private previous: SceneFile | null = null;
   constructor(private readonly next: SceneFile, readonly label: string) {}
 
   apply(doc: SceneDocument): Change[] {
-    this.previous = doc.toJSON();
-    return this.swap(doc, structuredClone(this.next));
-  }
-
-  undo(doc: SceneDocument): Change[] {
-    return this.swap(doc, structuredClone(this.previous!));
-  }
-
-  private swap(doc: SceneDocument, file: SceneFile): Change[] {
     const roots = new Set(doc.roots());
-    doc._replace(file);
+    doc._replace(structuredClone(this.next));
     for (const id of doc.roots()) roots.add(id);
     return [...roots].map((node) => ({ kind: "rebuild", node }) as const);
-  }
-}
-
-// --- grouping ---------------------------------------------------------------------------------
-
-/** Several commands as one undo step (used by `CommandStack.beginGroup`). */
-export class CommandGroup implements Command {
-  readonly commands: Command[] = [];
-  constructor(readonly label: string) {}
-
-  apply(doc: SceneDocument): Change[] {
-    return this.commands.flatMap((c) => c.apply(doc));
-  }
-
-  undo(doc: SceneDocument): Change[] {
-    const out: Change[] = [];
-    for (let i = this.commands.length - 1; i >= 0; i--) out.push(...this.commands[i].undo(doc));
-    return out;
-  }
-
-  get files(): readonly FileWrite[] | undefined {
-    const all = this.commands.flatMap((c) => c.files ?? []);
-    return all.length ? all : undefined;
   }
 }
 
 // --- text files -------------------------------------------------------------------------------
 
 /**
- * Write text files (ADR 0077: a UI document's markup and stylesheets) as one undoable step. The
- * scene doesn't change; the stack records each file's change and writes it back on undo and redo.
+ * Write text files (ADR 0077: a UI document's markup and stylesheets) as one step. The scene
+ * doesn't change; the stack records each file's change and writes it back on undo and redo.
  */
 export class WriteFiles implements Command {
   constructor(
@@ -551,10 +378,6 @@ export class WriteFiles implements Command {
   ) {}
 
   apply(): Change[] {
-    return [];
-  }
-
-  undo(): Change[] {
     return [];
   }
 }
