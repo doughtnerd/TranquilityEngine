@@ -12,7 +12,8 @@
  *
  * Positions are sample frames; region and loop ends are exclusive (`smpl` stores an inclusive end, read here plus one).
  * Every function is total: garbage, truncation and huge counts never throw; a field that runs past its chunk drops that
- * field, never the whole result. `src/plugins/audio/editor/music/importHints.ts` reads its hints through this module.
+ * field, never the whole result. The Audio Studio's sample import (`src/studio/screens/samples/`) reads a file's loops,
+ * markers and tempo through this module.
  *
  * Pure; no plugin, no DOM.
  */

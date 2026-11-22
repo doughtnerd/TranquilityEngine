@@ -6,7 +6,7 @@
  * snapshots) is the prototype's model. Gains are dB. Names are identities, unique across buses, returns and VCAs.
  *
  * The runtime's mixer runs this model (`mixer.ts`; the runtime settings carry it under `mix`); its views in the old
- * `AudioSettings` shape (the backends' bus tree, the editor's legacy panels) are `runtimeView.ts`'s.
+ * `AudioSettings` shape (the backends' bus tree, the runtime's settings) are `runtimeView.ts`'s.
  *
  * Pure; no plugin, no DOM.
  */

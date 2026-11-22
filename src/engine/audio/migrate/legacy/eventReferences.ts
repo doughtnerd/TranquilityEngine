@@ -1,7 +1,7 @@
 // Where an audio event names a parameter or a bus (ADR 0299): the one list of those references, on the asset as parsed
-// or on the file's JSON as written (the music tree under `musicRoot` or `root`), and the one rewrite. The Event editor's
-// use count and local rename and the Audio settings' bus and global parameter renames go through here; a new field that
-// names a parameter or a bus is added here only. Pure: rewrites copy only the path to what they change.
+// or on the file's JSON as written (the music tree under `musicRoot` or `root`), and the one rewrite. Read-only legacy
+// (ADR 0329): the Audio Studio's bus and global parameter renames still rewrite an old event file a project hasn't
+// migrated yet through here. Pure: rewrites copy only the path to what they change.
 import { NODE_TYPES, REVERB_SEND_KEY } from "./eventFormat";
 
 /** What a reference names: a parameter (the event's own or a global one) or a bus of the project's mixer. */
