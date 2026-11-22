@@ -4,6 +4,8 @@ A **take** is one recording of a game run for the audio designer. It holds two t
 
 A take records no sound. It is small: a ten-minute take is a few MB. The requests are never dropped; the profile keeps the capture's bounded ring, so a long run's oldest profile data is dropped (and marked) while its requests stay.
 
+**Pictures.** A take also keeps a small picture of the game view about once a second (a 320-pixel-wide JPEG, roughly 10 to 20 KB each), taken after the frame is drawn and encoded in the background, so the Take screen can show what was on screen. Pictures are on by default; a game build turns them off with `game.json` `audioTakeFrames: false` beside `audioTake: true`. A World with no canvas (headless) records no pictures.
+
 ## Recording a take in the editor
 
 1. Press Play.
@@ -41,7 +43,8 @@ const where = await Audio.take.save("boss-fight");   // "boss-fight.mycotake"; a
 
 ## Opening a take
 
-- **In the Studio:** the Take screen opens the takes in your project's `takes/` folder and replays their requests against the current project, seeded as the game was, so random picks come out the same. Edits apply to instances that start after them; you can restart the ones already playing. Notes you add are kept beside the take (`<take>.notes.json`); the take file itself never changes.
+- **In the Studio:** the Take screen opens the takes in your project's `takes/` folder and replays their requests against the current project. The take records the state of the World's pick generator when it began and at each one-second keyframe; replay restarts the Studio's generator from it at the start and at every seek, so random picks (Queue picks, volume and pitch randomness, playback chance) come out as the game's did while the playlists they pick from are unchanged. A take recorded without `audio.seed` has unseeded picks and can't be matched. The picture lane shows the game view (click a picture to move there), and with nothing selected the Inspector shows the picture at the playhead. Edits apply to instances that start after them; you can restart the ones already playing. Notes you add are kept beside the take (`<take>.notes.json`); the take file itself never changes.
+- **Profiling a replay:** **Profile this replay** on the Take screen (or Record on the Profiler while a take replays) records the Studio's own runtime. That capture names the take it replayed (its path and the `audio.json` hash it was recorded against); the Profiler shows "Replay of …" with **Open in Take**.
 - **In the editor's Audio Profiler:** press **Open** or drop the file on the panel. The Profiler reads a take's profile as it reads a capture (the requests are skipped); takes may be larger than captures, up to the take cap.
 
 ## What a take reveals

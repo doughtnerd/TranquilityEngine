@@ -12,7 +12,7 @@ Open a capture in the Audio Studio (double-click a `.mycap` in the editor's Asse
 
 Timeline tracks:
 
-- **CPU** (the window length is in its label) and **CPU estimated share**, how that load splits between sections of the core. The share is an estimate. Until the first window fills the track says "CPU not yet measured".
+- **CPU** (the window length is in its label) and **CPU estimated share**, how that load splits between sections of the core. The share is an estimate. Until the first window fills the track says "CPU not yet measured". On the Studio's Profiler screen the same estimate is the **Effects cost · estimated** track: one line per section, in permille of an audio quantum, with the two costliest at the cursor. Voice and instance effects fall in Voices, bus and return effects in Buses; the core doesn't yet report each effect's own cost.
 - **Voices**: playing, virtual, cap, HRTF and bed counts.
 - **Underruns**, **Late commands**, **Min slack (frames)**: the glitch tracks. An underrun is the output running dry; a late command is one that reached the core after the time it was meant for.
 - **Ladder and voice cap**, **Ladder steps**: when the core shed work (HRTF, beds, zones, metering) to keep up, and each step.
