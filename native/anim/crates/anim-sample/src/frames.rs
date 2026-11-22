@@ -16,9 +16,10 @@ const REST: usize = 4;
 const FRAME: usize = 6;
 const NEXT: usize = 8;
 const SEG: usize = 9;
-/// Range words per bone the header region is sized for (a translation and a full rotation, two
-/// words per component); a clip with more animated components decodes without them.
-const RANGE_WORDS_PER_BONE: usize = 2 * 7;
+/// Range words per bone the header region is sized for: two per animated component, four
+/// components per bone on average (a rotation without w and a few animated translations is the
+/// usual clip); a clip animating more decodes its ranges per frame instead.
+const RANGE_WORDS_PER_BONE: usize = 2 * 4;
 /// A held-frame word meaning "none".
 const NO_FRAME: u32 = u32::MAX;
 
@@ -39,7 +40,8 @@ pub struct FrameCache<'m> {
 
 impl<'m> FrameCache<'m> {
     /// Header words a cache for `bones` bones needs: the header and room for a segment's ranges
-    /// (a clip animating more than translations and rotations decodes without them).
+    /// (four animated components per bone on average; a clip animating more decodes its ranges
+    /// per frame).
     pub const fn header_len(bones: usize) -> usize {
         HEADER + RANGE_WORDS_PER_BONE * bones
     }
