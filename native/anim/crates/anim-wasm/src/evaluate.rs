@@ -27,7 +27,9 @@
 //!    `lerp(prev, last, (frames since + 1) / lodStep)` (one LOD step of latency, as Unreal's
 //!    update-rate optimisation), so with step 1 it is the pose just evaluated.
 //! 6. **Matrices:** local to model space, times the skeleton's inverse bind matrices, into the
-//!    instance's row of the matrix view.
+//!    instance's row of the matrix view. Skipped (T82r) when the row already holds them: the
+//!    frame shows `last` itself, as the last visible frame did, and `last` kept its bits (not
+//!    due, or evaluated to the same pose: paused, a still pose).
 
 use anim_graph::eval::{
     Events, History, Inputs, Program, Scratch, SkeletonPose, StateEvent, StateEventKind,
@@ -293,6 +295,26 @@ impl TrackOutput for TrackOut<'_, '_> {
             tracks::end_clip(&c.bindings, clip, time, 0.0, open, &mut self.writer);
         }
     }
+}
+
+/// Whether two poses hold the same bits (so their model space and matrices are the same).
+fn same_bits(a: &[SoaTransform], b: &[SoaTransform]) -> bool {
+    let bits = |t: &SoaTransform| {
+        [
+            t.translation.x,
+            t.translation.y,
+            t.translation.z,
+            t.rotation.x,
+            t.rotation.y,
+            t.rotation.z,
+            t.rotation.w,
+            t.scale.x,
+            t.scale.y,
+            t.scale.z,
+        ]
+        .map(|v| v.to_bits_array())
+    };
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| bits(x) == bits(y))
 }
 
 /// `words` as bytes (wasm and every target the core builds for are little-endian, the layout's
@@ -639,6 +661,9 @@ pub fn evaluate(
         let groups = inst.groups;
         inst.since = inst.since.saturating_add(1);
         let due = inst.history == 0 || inst.stale || inst.since >= step;
+        // T82r: whether `last` keeps its bits this frame (not evaluated, or evaluated to the same
+        // bits: paused, a still pose, a held clip end).
+        let mut same = true;
         if due {
             let Some(inertializer) = frame
                 .inertializers
@@ -661,6 +686,7 @@ pub fn evaluate(
             let display = &mut frame.display[..groups];
             crate::rig::clear_rays(rig_rays, index);
             program.pose(&inputs, &mut inst.state, scratch, display);
+            same = inst.history > 0 && same_bits(display, &inst.last);
             if inst.history == 0 || inst.stale {
                 inst.prev.copy_from_slice(display);
                 inst.last.copy_from_slice(display);
@@ -676,8 +702,15 @@ pub fn evaluate(
             inst.since = 0;
             inst.stale = false;
         }
+        let shows_last = step <= 1 || inst.history < 2;
+        if shows_last && same && inst.shown_last {
+            // The row already holds these matrices (model space and skinning are pure functions
+            // of the shown pose and the skeleton).
+            continue;
+        }
+        inst.shown_last = shows_last;
         let display = &mut frame.display[..groups];
-        if step <= 1 || inst.history < 2 {
+        if shows_last {
             display.copy_from_slice(&inst.last);
         } else {
             let t = (inst.since + 1) as f32 / step as f32;

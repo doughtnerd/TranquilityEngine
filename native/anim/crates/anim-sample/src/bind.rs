@@ -299,6 +299,16 @@ impl ClipBindings {
         })
     }
 
+    /// Pairs the table with `sampler` without [`bind`](Self::bind)'s checks: for a caller that
+    /// keeps a pair `bind` accepted together and pairs it on every sample (a loaded clip asset).
+    /// A mismatched pair samples wrong values, never out of bounds (every read is checked).
+    pub fn pair_unchecked<'a, 'b>(&'b self, sampler: ClipSampler<'a>) -> BoundClip<'a, 'b> {
+        BoundClip {
+            sampler,
+            bindings: self,
+        }
+    }
+
     /// The form the table was built for.
     pub fn form(&self) -> Form {
         self.form

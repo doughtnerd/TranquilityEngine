@@ -75,6 +75,10 @@ pub struct Instance {
     pub stale: bool,
     /// Flagged for the graph debugger (`graph` family `DEBUG`; not part of snapshots).
     pub debug: bool,
+    /// T82r: the instance's row of the bone-matrix view holds `last`'s matrices (the last frame
+    /// it was visible showed `last` itself, not an LOD blend), so a frame showing a `last` with
+    /// the same bits skips rebuilding them. Not part of snapshots (a restore clears it).
+    pub shown_last: bool,
 }
 
 struct Slot {
@@ -123,6 +127,7 @@ impl Table {
             dt_since: 0.0,
             stale: false,
             debug: false,
+            shown_last: false,
         };
         if let Some(index) = self.free.pop() {
             let slot = &mut self.slots[index as usize];
@@ -264,6 +269,7 @@ impl Table {
         inst.history_dt = history_dt;
         inst.dt_since = dt_since;
         inst.stale = stale;
+        inst.shown_last = false;
         STATUS_OK
     }
 }

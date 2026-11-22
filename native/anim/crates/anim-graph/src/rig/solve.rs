@@ -251,6 +251,8 @@ pub(super) fn pose(cx: &mut EvalContext<'_>, kind: u16, node: &NodeData<'_>, inp
             kind::ORIENTATION_WARP => solve_orientation(&mut rp, &s),
             _ => {}
         }
+        // The model cache lives in the sampling scratch, which nothing reads after this node.
+        rp.discard();
     }
     let s = cx.state();
     s[state::WORDS..state::WORDS + extra].copy_from_slice(&local[..extra]);

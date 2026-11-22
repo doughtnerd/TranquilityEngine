@@ -11,9 +11,12 @@ use anim_pose::{bone, set_bone};
 /// Solvers read model-space transforms through [`model`](Self::model) and write **local**
 /// rotations and translations. The cache is kept valid lazily: a write marks bone `i` and
 /// everything after it (in parents-first order, every descendant of `i` comes after `i`) as
-/// stale, and a read of bone `j` recomputes the stale prefix up to `j`
-/// (`model[k] = model[parent] ∘ local[k]`). So a solver never pays for bones it doesn't read,
-/// and dropping the `RigPose` recomputes the rest, leaving the caller's `model` slice valid.
+/// stale, and a read of bone `j` recomputes the stale entries on `j`'s ancestor chain
+/// (`model[k] = model[parent] ∘ local[k]`, the same arithmetic whichever bones are computed and
+/// in whatever order, so the values never depend on the order of reads). So a solver never pays
+/// for bones it doesn't read, and dropping the `RigPose` recomputes the rest, leaving the
+/// caller's `model` slice valid ([`discard`](Self::discard) skips that when the caller doesn't
+/// need it).
 ///
 /// Never allocates.
 pub struct RigPose<'a> {
@@ -22,7 +25,17 @@ pub struct RigPose<'a> {
     model: &'a mut [AosTransform],
     /// `model[..valid]` is current.
     valid: usize,
+    /// Bones at or past `valid` (below [`FRESH_BONES`]) recomputed since the last write at or
+    /// before them, one bit each.
+    fresh: [u64; FRESH_WORDS],
 }
+
+/// Words of [`RigPose`]'s fresh-bone bits.
+const FRESH_WORDS: usize = 4;
+/// Bones the ancestor-chain path covers; reads past it recompute the stale prefix.
+const FRESH_BONES: usize = 64 * FRESH_WORDS;
+/// The deepest ancestor chain the ancestor-chain path walks; deeper reads recompute the prefix.
+const MAX_CHAIN_DEPTH: usize = 64;
 
 impl<'a> RigPose<'a> {
     /// Wraps a pose whose `model` cache already holds `local` in model space (e.g. straight
@@ -41,6 +54,7 @@ impl<'a> RigPose<'a> {
             local,
             model,
             valid: n,
+            fresh: [0; FRESH_WORDS],
         }
     }
 
@@ -95,6 +109,7 @@ impl<'a> RigPose<'a> {
     pub fn set_local(&mut self, i: usize, t: AosTransform) {
         set_bone(self.local, i, t);
         self.valid = self.valid.min(i);
+        self.clear_fresh_from(i);
     }
 
     /// Sets bone `i`'s local rotation to `nlerp(current, solved, weight)`: unchanged at
@@ -147,23 +162,96 @@ impl<'a> RigPose<'a> {
     pub fn refresh(&mut self) {
         let n = self.bone_count();
         if n > 0 {
-            self.ensure(n - 1);
+            self.ensure_prefix(n - 1);
         }
     }
 
+    /// Ends the run without recomputing the stale cache entries (as dropping does): for a caller
+    /// that reads only the local pose afterwards. The `model` slice is left partly stale.
+    pub fn discard(mut self) {
+        self.valid = self.bone_count();
+    }
+
+    #[inline]
+    fn is_fresh(&self, k: usize) -> bool {
+        k < FRESH_BONES && self.fresh[k / 64] & (1u64 << (k % 64)) != 0
+    }
+
+    #[inline]
+    fn set_fresh(&mut self, k: usize) {
+        if k < FRESH_BONES {
+            self.fresh[k / 64] |= 1u64 << (k % 64);
+        }
+    }
+
+    /// Forgets the fresh bits of bones `i` and after.
+    #[inline]
+    fn clear_fresh_from(&mut self, i: usize) {
+        for (w, word) in self.fresh.iter_mut().enumerate() {
+            let lo = w * 64;
+            if i <= lo {
+                *word = 0;
+            } else if i < lo + 64 {
+                *word &= (1u64 << (i - lo)) - 1;
+            }
+        }
+    }
+
+    #[inline]
+    fn current(&self, k: usize) -> bool {
+        k < self.valid || self.is_fresh(k)
+    }
+
+    /// Makes bone `i`'s model transform current: its stale ancestors, then it.
     fn ensure(&mut self, i: usize) {
+        if self.current(i) {
+            return;
+        }
+        // The stale chain from `i` up (each parent comes before its child).
+        let mut chain = [0u16; MAX_CHAIN_DEPTH];
+        let mut len = 0;
+        let mut k = i;
+        loop {
+            if len == MAX_CHAIN_DEPTH || k >= FRESH_BONES {
+                return self.ensure_prefix(i);
+            }
+            chain[len] = k as u16;
+            len += 1;
+            let p = self.parents[k];
+            if p == NO_PARENT || self.current(p as usize) {
+                break;
+            }
+            debug_assert!((p as usize) < k, "bone {k}: parent {p} must come before it");
+            k = p as usize;
+        }
+        for &k in chain[..len].iter().rev() {
+            self.compute(k as usize);
+            self.set_fresh(k as usize);
+        }
+    }
+
+    /// Makes `model[..=i]` current.
+    fn ensure_prefix(&mut self, i: usize) {
         while self.valid <= i {
             let k = self.valid;
-            let lt = bone(self.local, k);
-            let p = self.parents[k];
-            self.model[k] = if p == NO_PARENT {
-                lt
-            } else {
-                debug_assert!((p as usize) < k, "bone {k}: parent {p} must come before it");
-                self.model[p as usize].compose(lt)
-            };
+            if !self.is_fresh(k) {
+                self.compute(k);
+            }
             self.valid += 1;
         }
+    }
+
+    /// `model[k] = model[parent] ∘ local[k]` (the parent current).
+    #[inline]
+    fn compute(&mut self, k: usize) {
+        let lt = bone(self.local, k);
+        let p = self.parents[k];
+        self.model[k] = if p == NO_PARENT {
+            lt
+        } else {
+            debug_assert!((p as usize) < k, "bone {k}: parent {p} must come before it");
+            self.model[p as usize].compose(lt)
+        };
     }
 }
 

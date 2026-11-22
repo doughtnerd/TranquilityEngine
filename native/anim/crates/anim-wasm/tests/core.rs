@@ -270,6 +270,42 @@ fn snapshot_and_restore_give_identical_later_frames() {
     assert_eq!(f.core.restore(h, &snap), STATUS_BAD_RECORD);
 }
 
+/// T82r: a paused instance shows a pose with the same bits frame after frame, so its matrices
+/// aren't rebuilt; they still follow a restore while paused, an LOD blend and a resume.
+#[test]
+fn matrices_stay_exact_while_a_still_pose_skips_rebuilding_them() {
+    let mut f = fixture();
+    let h = f.core.create_instance(0, f.skel, 0);
+    send(&mut f.core, &[play(h, f.a, 0, 0.0, 1, 0)]);
+    step(&mut f, 5);
+    let at_5 = mats(&f, h);
+    let mut snap = vec![0u8; f.core.snapshot_bytes(h) as usize];
+    assert_eq!(f.core.snapshot(h, &mut snap), STATUS_OK);
+    step(&mut f, 6);
+    set_time_scale(&mut f.core, h, 0.0);
+    step(&mut f, 1);
+    let paused = mats(&f, h);
+    assert_ne!(paused, at_5);
+    step(&mut f, 3);
+    assert_eq!(mats(&f, h), paused, "paused: the same matrices");
+    // Restored while paused: the restored pose evaluates to the snapshot frame's pose.
+    assert_eq!(f.core.restore(h, &snap), STATUS_OK);
+    step(&mut f, 1);
+    assert_eq!(mats(&f, h), at_5, "restored while paused");
+    step(&mut f, 2);
+    assert_eq!(mats(&f, h), at_5);
+    // Resumed with an LOD step of 2: every frame shows a new pose (evaluated or blended).
+    set_time_scale(&mut f.core, h, 1.0);
+    set_lod(&mut f.core, h, 2);
+    let mut last = mats(&f, h);
+    for i in 0..4 {
+        step(&mut f, 1);
+        let m = mats(&f, h);
+        assert_ne!(m, last, "frame {i} after resuming shows a new pose");
+        last = m;
+    }
+}
+
 #[test]
 fn stale_handles_do_nothing() {
     let mut f = fixture();

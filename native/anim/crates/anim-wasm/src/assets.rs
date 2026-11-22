@@ -116,9 +116,10 @@ pub struct SkeletonAsset {
 }
 
 impl ClipAsset {
-    /// The sampler paired with the binding table.
+    /// The sampler paired with the binding table (`load_clip` checked the pair once, and both are
+    /// immutable, so it isn't checked again on every sample).
     pub fn bound(&self) -> Option<BoundClip<'_, '_>> {
-        self.bindings.bind(self.sampler).ok()
+        Some(self.bindings.pair_unchecked(self.sampler))
     }
 }
 
