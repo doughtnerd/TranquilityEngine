@@ -82,7 +82,7 @@ describe("network sessions over WebSocket in Node (T10)", () => {
     }
   });
 
-  it("fits each snapshot in one datagram once the WebRTC lane is open, and every ghost still arrives (ADR 0333)", async () => {
+  it("splits snapshots into datagram-sized parts once the WebRTC lane is open, and every ghost arrives (ADR 0333, 0334)", async () => {
     const host = await create({ worlds: [{ name: "Server", tags: ["server"] }] });
     const url = await listenWorld(host.world, "websocket", { address: "ws://127.0.0.1:0" });
     const game = await create({ worlds: [{ name: "Client", tags: ["client"] }] });
@@ -92,21 +92,24 @@ describe("network sessions over WebSocket in Node (T10)", () => {
     World._runIn(host.world, () => {
       for (let i = 0; i < 300; i++) GameObject.instantiate("prefabs/wsCrate.json", { position: [i, 0, 0] });
     });
-    const sizes: number[] = [];
+    const ticks: { bytes: number; parts: number }[] = [];
     const ghosts = () => game.world._componentsOfType(Replicated).filter((r) => r.isGhost).length;
     await stepUntil(
       [host, game],
       () => {
-        sizes.push(serverReplication(host.world)!.peerState(peer())!.lastBytes);
+        const ps = serverReplication(host.world)!.peerState(peer())!;
+        ticks.push({ bytes: ps.lastBytes, parts: ps.lastParts });
         return ghosts() === 300;
       },
       10000,
     );
-    // 300 spawns are several KB: they went over several ticks, each snapshot within one datagram.
+    // 300 spawns are several KB: a tick sends them in several parts of about a datagram each (ADR 0334).
     const limit = peer().datagramBodyBytes!;
     expect(limit).toBeLessThan(1100);
-    expect(Math.max(...sizes)).toBeLessThanOrEqual(limit);
-    expect(sizes.filter((n) => n > limit / 2).length).toBeGreaterThan(2);
+    const split = ticks.filter((t) => t.parts > 1);
+    expect(split.length).toBeGreaterThan(0);
+    for (const t of ticks) expect(t.bytes).toBeLessThanOrEqual(t.parts * limit);
+    expect(Math.max(...split.map((t) => t.bytes))).toBeGreaterThan(5 * limit);
   });
 
   it("a listen takes its owner's default transport options, under its own (the dedicated server's webrtc settings, ADR 0333)", async () => {

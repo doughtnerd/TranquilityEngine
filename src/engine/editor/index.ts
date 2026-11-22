@@ -660,8 +660,10 @@ export interface NetPeerInfo {
   readonly rtt: number;
   readonly sent: NetTrafficInfo;
   readonly received: NetTrafficInfo;
-  /** Server: the size of the last snapshot sent on this connection, in bytes; null on a client. */
+  /** Server: the size of the last snapshot sent on this connection, in bytes (all its parts); null on a client. */
   readonly snapshotBytes: number | null;
+  /** Server: how many parts (datagrams, ADR 0334) the last snapshot took; null on a client. */
+  readonly snapshotParts: number | null;
   /** Server: the ghosts this connection has been told about; null on a client. */
   readonly ghosts: number | null;
   /** Server: this connection's counters per input stream (only streams it has sent input on). */
@@ -716,6 +718,7 @@ export function netWorldInfo(engine: Engine): NetWorldInfo[] {
         sent: copyTraffic(peer.sent),
         received: copyTraffic(peer.received),
         snapshotBytes: session.isServer ? (ps?.lastBytes ?? 0) : null,
+        snapshotParts: session.isServer ? (ps?.lastParts ?? 0) : null,
         ghosts: session.isServer ? (ps?.known.size ?? 0) : null,
         ghostTypes: ps ? [...ps.typeBits].map(([type, bits]) => ({ type, bytes: bits / 8 })) : [],
         inputs: node?.isValid ? inputs.flatMap((def) => {
