@@ -357,9 +357,16 @@ export function applyOpToSettings(a: AudioSettings, op: MixOp): AudioSettings {
     case "removeBus": {
       const gone = new Set([op.bus, ...descendantsOf(a, op.bus)]);
       const scrub = (r: Record<string, number>) => Object.fromEntries(Object.entries(r).filter(([k]) => !gone.has(k)));
+      // ADR 0330: the sends into a removed bus (a return) go with it.
+      const unsent = (b: BusSettings): BusSettings => {
+        if (!b.sends?.some((s) => gone.has(s.to))) return b;
+        const { sends, ...rest } = b;
+        const kept = sends.filter((s) => !gone.has(s.to));
+        return kept.length > 0 ? { ...rest, sends: kept } : rest;
+      };
       return {
         ...a,
-        buses: a.buses.filter((b) => !gone.has(b.name)),
+        buses: a.buses.filter((b) => !gone.has(b.name)).map(unsent),
         snapshots: a.snapshots.map((s) => ({ ...s, volumes: scrub(s.volumes), lowpass: scrub(s.lowpass) })),
         ducking: a.ducking.filter((r) => !gone.has(r.target) && !gone.has(r.trigger)),
         automation: a.automation.filter((r) => !gone.has(r.bus)),
@@ -372,7 +379,7 @@ export function applyOpToSettings(a: AudioSettings, op: MixOp): AudioSettings {
       const re = (r: Record<string, number>) => Object.fromEntries(Object.entries(r).map(([k, v]) => [fix(k), v]));
       return {
         ...a,
-        buses: a.buses.map((b) => ({ ...b, name: fix(b.name), ...(b.parent !== undefined ? { parent: fix(b.parent) } : {}) })),
+        buses: a.buses.map((b) => ({ ...b, name: fix(b.name), ...(b.parent !== undefined ? { parent: fix(b.parent) } : {}), ...(b.sends ? { sends: b.sends.map((s) => ({ ...s, to: fix(s.to) })) } : {}) })),
         snapshots: a.snapshots.map((s) => ({ ...s, volumes: re(s.volumes), lowpass: re(s.lowpass) })),
         ducking: a.ducking.map((r) => ({ ...r, target: fix(r.target), trigger: fix(r.trigger) })),
         automation: a.automation.map((r) => ({ ...r, bus: fix(r.bus) })),

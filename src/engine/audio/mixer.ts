@@ -7,13 +7,15 @@
  * **The model (ADR 0330).** The mixer runs the `AudioProject` mix (`audio.json`): the runtime settings carry it whole
  * under `mix` (`projectWithAudio`); settings without one (the old section shape) are migrated on the fly
  * (`fromLegacySection`). What the backends build their bus graph from is the project's backends' view
- * (`coreSectionOf`, `audioSettings`): the bus tree, each bus's fader, its effects the backends run and its send to a
- * reverb return as the core's reverb send. Everything else runs here, on the main thread: VCAs (a gain lane), returns
- * (a bus state each, with its own lanes, heard through the sends into it), mute of buses' sends, blending snapshots
- * (`SnapshotPlayer`: start kinds, fades, hold, priority, Override and Add, effect-parameter overrides) and the
- * automation the core doesn't run (send levels, effect parameters, a return's level). Effect-parameter values the main
- * thread moves (snapshot overrides, effect and send automation, send levels following their return and mutes) reach the
- * backends as each bus's live effects (`ResolvedBus.effects`, `_busEffects`); the core writes a `BUS_SLOT` when they change.
+ * (`coreSectionOf`, `audioSettings`): the bus tree, each bus's fader, its effects the backends run and its post-fader
+ * sends. **Returns are buses** there (ADR 0330, ABI 4.7): each holds a core slot after the buses, with the same lanes as
+ * a bus (fader, script volume, snapshot, monitor, dip, duck, automation), fed by the sends into it. Everything else runs
+ * here, on the main thread: VCAs (a gain lane), send muting, blending snapshots (`SnapshotPlayer`: start kinds, fades,
+ * hold, priority, Override and Add, effect-parameter overrides) and the automation the core doesn't run (send levels,
+ * effect parameters). Effect-parameter values the main thread moves (snapshot overrides, effect automation) reach the
+ * backends as each bus's live effects (`ResolvedBus.effects`, `_busEffects`); the core writes a `BUS_SLOT` when they
+ * change. Send levels (with their automation) and send mutes (a muted bus silences its sends, keeping their levels)
+ * reach them as each bus's live sends (`_busSends`); the core writes a `BUS_SENDS` when they change.
  *
  * **Gain lanes (ADR 0172 §1.3, 0330; design `architecture.md` §4.5).** A bus's gain is the product of eight lanes:
  * `authored` (the fader x authored mute), `vca` (the VCAs on the bus, ADR 0330), `runtime` (the script `volume`, its
@@ -41,7 +43,7 @@ import { engineSettingsOf, projectOfMix } from "./project/format";
 import { dbToGain, levelDbOf, MIN_DB } from "./project/gain";
 import { fromLegacySection, mergeLegacyIntoProject } from "./project/legacy";
 import { isCarrier, param as effectParam, toBusEffect } from "./project/legacyEffects";
-import { coreSectionOf, coreShown, reverbSendOf, vcaOffsetDb } from "./project/runtimeView";
+import { coreSectionOf, coreShown, sectionReturnsOf, sendLevelOf, vcaOffsetDb } from "./project/runtimeView";
 import { SnapshotPlayer } from "./project/snapshotPlayer";
 import { valueOf, type ResolvedMix } from "./project/snapshots";
 import type { AudioProject, Bus as ProjectBus, Return } from "./project/types";
@@ -54,7 +56,7 @@ export interface ResolvedBus {
   gain: number;
   /** `gain` times every ancestor's: the level a sound that can't go through the node graph is scaled by. */
   effectiveGain: number;
-  /** The bus's effects as they run now: `audioSettings`' with the main thread's live values (snapshot overrides, effect and send automation, sends following their return and mutes). */
+  /** The bus's effects as they run now: `audioSettings`' with the main thread's live values (snapshot overrides, effect automation). */
   effects: BusEffect[];
   /** Low-pass cutoff a snapshot is applying (Hz), or null. */
   snapshotLowpass: number | null;
@@ -132,11 +134,22 @@ export interface BusLanes {
   readonly duck: number;
 }
 
+/**
+ * @internal ADR 0330 (ABI 4.7): one post-fader send of a bus as it runs now (`Mixer._busSends`): into bus `to` (a return),
+ * at linear `level` (the authored send and its automation, 0..`MAX_SEND_LEVEL`), `muted` while the sending bus is muted
+ * (the project, a script or a monitor control): the send goes silent and keeps its level.
+ */
+export interface LiveBusSend {
+  readonly to: string;
+  readonly level: number;
+  readonly muted: boolean;
+}
+
+const NO_SENDS: readonly LiveBusSend[] = Object.freeze([]);
+
 interface BusState {
-  /** The backends' view of the bus (`audioSettings`); for a return, its level, mute and output as a bus would have them. */
+  /** The backends' view of the bus (`audioSettings`); a return's is a bus of the view too (its output as the parent). */
   settings: BusSettings;
-  /** A bus has a core slot; a return lives on main (its level reaches the core through the sends into it). */
-  kind: "bus" | "return";
   slot: number;
   /** ADR 0330: the fader alone (`authoredVolume`). */
   fader: Ramp;
@@ -162,10 +175,10 @@ interface BusState {
   autoLp: number;
   /** ADR 0158 §3 (M2 F2): bus automation the audio core applies itself, kept only so `effectiveGain` reports it; never sent to a backend. */
   viewGain: number;
-  /** ADR 0330: `volume` automation the main thread runs (a return's: the core runs a bus's), dB. */
-  mainDb: number;
   /** The live effects (`ResolvedBus.effects`): `settings.effects` with the main thread's values in. */
   effects: BusEffect[];
+  /** ADR 0330: the live sends (`_busSends`); an unchanged list keeps its object. */
+  sends: readonly LiveBusSend[];
   /** §1.1: allocated once per bus, a view over the registered loudness source. */
   loudness: BusLoudness;
 }
@@ -264,8 +277,8 @@ function evalLogCurve(curve: Curve, x: number): number {
 export class Mixer {
   private buses = new Map<string, BusState>();
   private order: string[] = [];
-  /** ADR 0330: the returns, by name, in the project's order. */
-  private returns = new Map<string, BusState>();
+  /** ADR 0330: the returns' names (buses of the view, fed by sends only; no sound plays on one). */
+  private returnSet = new Set<string>();
   private settings: AudioSettings = defaultAudioSettings();
   /** ADR 0330: the mix model the mixer runs. */
   private project: AudioProject = fromLegacySection(this.settings);
@@ -278,7 +291,7 @@ export class Mixer {
   private autoFx = new Map<string, Map<string, Map<string, number>>>();
   /** Send automation, dB: bus → return → dB. */
   private autoSend = new Map<string, Map<string, number>>();
-  /** The live effects need recomputing (a snapshot segment, an automation value, a return's lanes, a mute). */
+  /** The live effects and sends need recomputing (a snapshot segment, an automation value, a mute). */
   private effectsDirty = true;
   /** While a project op runs, the old ops it sends don't lift into the project again. */
   private lifting = true;
@@ -331,14 +344,13 @@ export class Mixer {
     }
     this.project = project;
     this.buses.clear();
-    this.returns.clear();
+    this.returnSet = new Set(sectionReturnsOf(project).map((r) => r.name));
     this.order = this.settings.buses.map((b) => b.name);
     const now = this.time;
     this.lastUpdate = now;
     this.aliases.clear();
     this.tombstones.clear();
-    this.settings.buses.forEach((b, i) => this.buses.set(b.name, this.newState(b, i, now, "bus")));
-    for (const r of project.returns) this.returns.set(r.name, this.newState(this.returnSettings(r), -1, now, "return"));
+    this.settings.buses.forEach((b, i) => this.buses.set(b.name, this.newState(b, i, now)));
     this.paramValues = Object.fromEntries(project.parameters.map((p) => [p.name, parameterDefault(p)]));
     this.player.configure(project.snapshots, project.parameters, this.paramValues, now);
     this.segmentEnd = Number.POSITIVE_INFINITY;
@@ -350,21 +362,16 @@ export class Mixer {
     this._dirty();
   }
 
-  /** A return as the bus states hold it: its level, mute and output; no effects in the backends' chains. */
-  private returnSettings(r: Return): BusSettings {
-    return { name: r.name, parent: r.output, volume: Math.min(2, dbToGain(r.volumeDb)), mute: r.mute, effects: [] };
-  }
-
   /** A bus's state at its authored values, every script value and monitor control at rest. */
-  private newState(b: BusSettings, slot: number, now: number, kind: "bus" | "return"): BusState {
+  private newState(b: BusSettings, slot: number, now: number): BusState {
     const st: BusState = {
-      settings: b, kind, slot,
+      settings: b, slot,
       fader: this.ramp(b.volume, b.volume, now, 0), vca: this.ramp(1, 1, now, 0), authored: this.ramp(b.volume, b.volume, now, 0), authoredMute: b.mute,
       runtime: this.ramp(1, 1, now, 0), mute: false, solo: false,
       snapshot: this.ramp(1, 1, now, 0), lp: this.ramp(OFF_HZ, OFF_HZ, now, 0),
       monitorMute: false, monitorSolo: false,
       dip: this.ramp(1, 1, now, 0),
-      duck: 1, voices: 0, peak: 0, autoGain: 1, autoLp: OFF_HZ, viewGain: 1, mainDb: 0, effects: b.effects,
+      duck: 1, voices: 0, peak: 0, autoGain: 1, autoLp: OFF_HZ, viewGain: 1, effects: b.effects, sends: NO_SENDS,
       // Read through the state's name, so a live rename keeps the object a script holds.
       loudness: new LoudnessView(() => this.loudnessSource?.busLoudness(st.settings.name) ?? null),
     };
@@ -376,12 +383,11 @@ export class Mixer {
   /** ADR 0330: the mix model the mixer runs (`audio.json`'s, with the live edits made since the last configure). */
   get audioProject(): AudioProject { return this.project; }
   get busNames(): readonly string[] { return this.order; }
-  /** ADR 0330: the returns' names (they have no core slot; `Audio.bus(name)` reaches them). */
-  get returnNames(): readonly string[] { return [...this.returns.keys()]; }
+  /** ADR 0330: the returns' names (buses of the view after the project's buses, so `busNames` lists them too; `Audio.bus(name)` reaches them). */
+  get returnNames(): readonly string[] { return this.order.filter((n) => this.returnSet.has(n)); }
   /** @internal Any bus or return muted by the project (authored) or a script (runtime); allocation-free (the loudness target is suspended while one is). */
   anyMuted(): boolean {
     for (const s of this.buses.values()) if (s.authoredMute || s.mute) return true;
-    for (const s of this.returns.values()) if (s.authoredMute || s.mute) return true;
     return false;
   }
   /** The snapshot game code started last that is still on (`Audio.snapshot(name, fade)`'s), or null. */
@@ -406,7 +412,7 @@ export class Mixer {
     // Re-anchor every running ramp so it keeps its remaining length on the new clock.
     const next = clock ? clock() : this.ownTime;
     const at = Number.isFinite(next) ? next : now;
-    for (const s of this.allStates()) for (const r of [s.fader, s.vca, s.authored, s.runtime, s.snapshot, s.lp, s.dip]) rebase(r, now, at);
+    for (const s of [...this.buses.values(), ...this.tombstones.values()]) for (const r of [s.fader, s.vca, s.authored, s.runtime, s.snapshot, s.lp, s.dip]) rebase(r, now, at);
     this.clock = clock;
     this.lastUpdate = at;
     if (!clock) this.ownTime = at;
@@ -415,12 +421,6 @@ export class Mixer {
       this.player.shift(at - now);
       if (this.segmentEnd !== Number.POSITIVE_INFINITY) this.segmentEnd += at - now;
     }
-  }
-
-  private *allStates(): Iterable<BusState> {
-    yield* this.buses.values();
-    yield* this.returns.values();
-    yield* this.tombstones.values();
   }
 
   /** Register (or with null, remove) where `Bus.loudness` reads from: the loudness hub (Ld4). */
@@ -439,7 +439,7 @@ export class Mixer {
   }
   /** @internal The duck lane of bus `name` (state `s`): the source's, else main's. */
   _duckOf(name: string, s: BusState): number {
-    if (!this.duckSource || s.kind === "return") return s.duck;
+    if (!this.duckSource) return s.duck;
     const g = this.duckSource(name);
     return Number.isFinite(g) ? Math.min(1, Math.max(0, g)) : 1;
   }
@@ -489,18 +489,28 @@ export class Mixer {
     if (projectOpRefusal(before, op) !== null) return this.notSent(target, { ok: false, class: "none" });
     const next = applyOpToProject(before, op);
     if (next === before) return { ok: true, class: "none" };
-    const view = coreSectionOf(next);
-    const { ops } = diffOps(this.settings, { ...this.settings, ...view, mix: this.settings.mix });
+    // A send past the core's sends a bus (`sendsPerBus`): kept for the next Play, as an effect past its chain's limit.
+    const later = liveRuleAnswer(this.settings, op, target.liveCaps);
+    if (later !== null) return this.notSent(target, { ok: false, class: "direct", reason: later });
     let answer: ApplyResult | null = null;
     let strongest: OpClass = "direct";
     const rank: Readonly<Record<OpClass, number>> = { none: 0, direct: 1, smoothed: 2, config: 3, dip: 4 };
+    const send = (sub: MixOp) => {
+      const r = this.applyOld(target, sub);
+      if (!r.ok && answer === null) answer = r;
+      if (r.class !== "none" && rank[r.class] > rank[strongest]) strongest = r.class;
+    };
     this.lifting = false;
     try {
-      for (const sub of ops) {
-        const r = this.applyOld(target, sub);
-        if (!r.ok && answer === null) answer = r;
-        if (r.class !== "none" && rank[r.class] > rank[strongest]) strongest = r.class;
-      }
+      // A renamed return keeps its slot and state (the old op `renameBus`), as a renamed bus does.
+      if (op.op === "setReturn" && op.ret !== null && op.from !== undefined && op.from !== op.name && this.buses.has(op.from)) send({ op: "renameBus", from: op.from, to: op.name });
+      const view = coreSectionOf(next);
+      // The view lists the returns after the buses; a bus added live went to the end of this mixer's list. Compared in
+      // this mixer's order (the slots don't care), so a bus added after a return isn't taken for a move (removed and
+      // added again).
+      const at = new Map(this.settings.buses.map((b, i) => [b.name, i]));
+      const ordered = view.buses.map((b, i) => ({ b, k: i === 0 ? -1 : (at.get(b.name) ?? this.settings.buses.length + i) })).sort((x, y) => x.k - y.k).map((x) => x.b);
+      for (const sub of diffOps(this.settings, { ...this.settings, ...view, buses: ordered, mix: this.settings.mix }).ops) send(sub);
     } finally {
       this.lifting = true;
     }
@@ -546,7 +556,7 @@ export class Mixer {
         const at = slot >= 0 ? slot : free;
         // A slot the table recycled: the tombstone held for it goes (the new bus is a new state, R9).
         this.tombstones.delete(at);
-        this.buses.set(b.name, this.newState(b, at, now, "bus"));
+        this.buses.set(b.name, this.newState(b, at, now));
         this.order.push(b.name);
         this.aliases.delete(b.name);
         break;
@@ -592,7 +602,10 @@ export class Mixer {
     const p = this.project;
     if (op.op === "setBus" && (op.key === "volume" || op.key === "mute")) {
       const bus = next.buses.find((b) => b.name === op.bus);
-      if (bus) return { ...p, buses: p.buses.map((b) => (b.name === op.bus ? { ...b, ...(op.key === "volume" ? { volumeDb: levelDbOf(bus.volume) } : { mute: bus.mute }) } : b)) };
+      const value = bus && (op.key === "volume" ? { volumeDb: levelDbOf(bus.volume) } : { mute: bus.mute });
+      // A return is a bus of the view (ADR 0330): its fader and mute are the return's.
+      if (value && this.returnSet.has(op.bus)) return { ...p, returns: p.returns.map((r) => (r.name === op.bus ? { ...r, ...value } : r)) };
+      if (value) return { ...p, buses: p.buses.map((b) => (b.name === op.bus ? { ...b, ...value } : b)) };
     }
     // A rename keeps the snapshot's trigger, fades and overrides (the old shape knows only its name and levels).
     if (op.op === "renameSnapshot") {
@@ -604,31 +617,31 @@ export class Mixer {
   }
 
   /**
-   * ADR 0330: the mix model became `next` (a live op): the returns, VCA lanes, authored mutes, snapshots and the main
-   * thread's automation follow, keeping every runtime value. A changed snapshot definition retargets its lanes over
-   * `SNAPSHOT_EDIT_MS`.
+   * ADR 0330: the mix model became `next` (a live op): the VCA lanes, authored mutes, the view's sends, snapshots and
+   * the main thread's automation follow, keeping every runtime value (a return's level, output and inserts are its
+   * bus's in the view, which the old ops moved). A changed snapshot definition retargets its lanes over `SNAPSHOT_EDIT_MS`.
    */
   private setProject(next: AudioProject, renames?: ReadonlyMap<string, string>): void {
     const now = this.time;
     this.project = next;
-    // Returns: new ones get a state, gone ones leave, the rest follow their level, mute and output.
-    const names = new Set(next.returns.map((r) => r.name));
-    for (const name of [...this.returns.keys()]) if (!names.has(name)) this.returns.delete(name);
-    const kept = new Map(this.returns);
-    this.returns.clear();
-    for (const r of next.returns) {
-      const s = kept.get(r.name);
-      const settings = this.returnSettings(r);
-      if (!s) { this.returns.set(r.name, this.newState(settings, -1, now, "return")); continue; }
-      s.settings = settings;
-      if (s.authoredMute !== r.mute) s.authoredMute = r.mute;
-      this.setFader(r.name, s, settings.volume, DRAG_RAMP_MS / 1000, false);
-      this.returns.set(r.name, s);
+    this.returnSet = new Set(sectionReturnsOf(next).map((r) => r.name));
+    for (const o of [...next.buses, ...next.returns]) {
+      const s = this.buses.get(o.name);
+      if (s && s.authoredMute !== o.mute) s.authoredMute = o.mute;
     }
-    for (const b of next.buses) {
+    // The view's sends (`BusSettings.sends`): the old ops don't carry them (the project op `setSend` does).
+    let buses: BusSettings[] | null = null;
+    this.settings.buses.forEach((b, i) => {
+      const pb = next.buses.find((x) => x.name === b.name);
+      const sends = pb ? pb.sends.filter((x) => this.returnSet.has(x.to)).map((x) => ({ to: x.to, level: sendLevelOf(x.levelDb) })) : [];
+      if (JSON.stringify(sends) === JSON.stringify(b.sends ?? [])) return;
+      const { sends: _drop, ...rest } = b;
+      const nb: BusSettings = sends.length > 0 ? { ...rest, sends } : rest;
+      (buses ??= [...this.settings.buses])[i] = nb;
       const s = this.buses.get(b.name);
-      if (s && s.authoredMute !== b.mute) s.authoredMute = b.mute;
-    }
+      if (s) s.settings = nb;
+    });
+    if (buses) this.settings = { ...this.settings, buses };
     this.followVcas(DRAG_RAMP_MS / 1000, false);
     this.player.setSnapshots(next.snapshots, next.parameters, now, renames);
     this.evaluateAutomation();
@@ -653,9 +666,7 @@ export class Mixer {
 
   /** The wire's `authored` lane: fader x VCA, ramped as the lane that moved. */
   private followAuthored(name: string, s: BusState, seconds: number, stamped: boolean): void {
-    const to = Math.min(MAX_LANE_GAIN, s.fader.to * s.vca.to);
-    if (s.kind === "bus") this.lane(name, Lane.authored, s.authored, to, seconds, stamped);
-    else this.retarget(s.authored, to, seconds, stamped);
+    this.lane(name, Lane.authored, s.authored, Math.min(MAX_LANE_GAIN, s.fader.to * s.vca.to), seconds, stamped);
   }
 
   /** Ma1: a live rename moves the state (voices, ramps, script values, the loudness object) to the new name. */
@@ -684,7 +695,7 @@ export class Mixer {
 
   /** §6.6: a mixer view's monitor mute and solo for `bus` (the `monitor` lane), never saved, never through `apply`. */
   setMonitor(bus: string, controls: MonitorControls): void {
-    const s = this.buses.get(bus) ?? this.returns.get(bus);
+    const s = this.buses.get(bus);
     if (!s) return;
     let moved = false;
     if (controls.mute !== undefined && s.monitorMute !== controls.mute) { s.monitorMute = controls.mute; moved = true; }
@@ -711,7 +722,7 @@ export class Mixer {
   get monitorActive(): boolean { for (const s of this.buses.values()) if (s.monitorMute || s.monitorSolo) return true; return false; }
 
   /** @internal A bus's or return's state, through a live rename's alias. */
-  _state(name: string): BusState | undefined { return this.buses.get(name) ?? this.returns.get(name) ?? this.buses.get(this._currentName(name)); }
+  _state(name: string): BusState | undefined { return this.buses.get(name) ?? this.buses.get(this._currentName(name)); }
   /** @internal The main-side lanes of bus `name`, for the lane writer (Mx2). */
   _lanes(name: string): BusLanes | undefined {
     const s = this.buses.get(name);
@@ -723,9 +734,9 @@ export class Mixer {
       snapshot: s.snapshot, snapshotLowpass: s.lp, monitorMute: s.monitorMute, monitorSolo: s.monitorSolo, dip: s.dip, duck: this._duckOf(name, s),
     };
   }
-  /** @internal One lane's gain for a bus or return at the heard clock (`automation`: main's Babylon-fallback estimate times the core's view, and a return's main-run automation). */
+  /** @internal One lane's gain for a bus or return at the heard clock (`automation`: main's Babylon-fallback estimate times the core's view). */
   laneGain(name: string, lane: LaneId): number {
-    const s = this.buses.get(name) ?? this.returns.get(name);
+    const s = this.buses.get(name);
     if (!s) return 0;
     const now = this.time;
     switch (lane) {
@@ -736,7 +747,7 @@ export class Mixer {
       case Lane.monitor: return s.monitorMute || (this.anySolo() && !this.audibleUnderSolo(name)) ? 0 : 1;
       case Lane.dip: return rampAt(s.dip, now);
       case Lane.duck: return this._duckOf(name, s);
-      default: return s.autoGain * s.viewGain * dbToGain(s.mainDb);
+      default: return s.autoGain * s.viewGain;
     }
   }
   /**
@@ -797,19 +808,29 @@ export class Mixer {
     this.refreshEffects();
     return this.buses.get(name)?.effects;
   }
+  /**
+   * @internal ADR 0330 (ABI 4.7): bus `name`'s live sends, for the core's `BUS_SENDS`: each send into a return the view
+   * holds, at its level plus its automation, muted while the bus is muted. An unchanged list keeps its object; empty for a
+   * bus without sends, undefined for an unknown bus.
+   */
+  _busSends(name: string): readonly LiveBusSend[] | undefined {
+    this.refreshEffects();
+    return this.buses.get(name)?.sends;
+  }
 
   bus(name: string = MASTER): Bus {
-    if (!this.buses.has(name) && !this.returns.has(name) && !this.buses.has(this._currentName(name)) && !this.warned.has(name)) {
+    if (!this.buses.has(name) && !this.buses.has(this._currentName(name)) && !this.warned.has(name)) {
       this.warned.add(name);
       console.warn(`[myco] unknown audio bus "${name}". Buses: ${this.order.join(", ")}.`);
     }
     return new Bus(this, name);
   }
   /** Whether the project has a bus with this name (a sound can play on it; a return can't: it is fed by sends only). */
-  has(name: string): boolean { return this.buses.has(name); }
-  /** The bus a sound with this output plays on: itself, else the root (with a warning). */
+  has(name: string): boolean { return this.buses.has(name) && !this.returnSet.has(name); }
+  /** The bus a sound with this output plays on: itself, else the root (with a warning; a return, which plays no sounds, silently). */
   resolveOutput(name: string | undefined): string {
     if (!name) return this.order[0] ?? MASTER;
+    if (this.returnSet.has(name)) return this.order[0] ?? MASTER;
     if (this.buses.has(name)) return name;
     const renamed = this._currentName(name);
     if (renamed !== name) return renamed;
@@ -918,17 +939,13 @@ export class Mixer {
     const write = (name: string, s: BusState) => {
       // A lane already heading for its value keeps its ramp (an edit of a snapshot not in force moves nothing).
       const g = gainOf(mix.levels[name] ?? 0);
-      if (s.snapshot.to !== g) {
-        if (s.kind === "bus") this.lane(name, Lane.snapshot, s.snapshot, g, seconds);
-        else this.retarget(s.snapshot, g, seconds);
-      }
+      if (s.snapshot.to !== g) this.lane(name, Lane.snapshot, s.snapshot, g, seconds);
       const hz = this.carrierCutoff(name, mix.effects[name]);
       if (s.lp.to !== hz) this.retarget(s.lp, hz, seconds);
       if (at && s.snapshot.start === now) s.snapshot.from = gainOf(at.levels[name] ?? 0);
       if (at && s.lp.start === now) s.lp.from = this.carrierCutoff(name, at.effects[name]);
     };
     for (const [name, s] of this.buses) write(name, s);
-    for (const [name, s] of this.returns) write(name, s);
     this.overrides = mix.effects;
     this.effectsDirty = true;
     this._dirty();
@@ -967,27 +984,21 @@ export class Mixer {
   // --- automation the main thread runs (ADR 0330) --------------------------------------------------------------------
 
   /**
-   * The automation the core doesn't run, at the current parameter values: a return's `volume` (dB on its state), any
-   * `send:<return>` (dB on the send), and `fx:<id>:<param>` on a return, or on a bus unless it is a low-pass cutoff (the
-   * core's bus low-pass automation runs that). Frequency parameters interpolate in log scale.
+   * The automation the core doesn't run, at the current parameter values: any `send:<return>` (dB on the send), and
+   * `fx:<id>:<param>` on a bus or return unless it is a low-pass cutoff (the core's bus low-pass automation runs that; a
+   * return is a bus of the view, ADR 0330, and its `volume` automation is the core's too). Frequency parameters
+   * interpolate in log scale.
    */
   private evaluateAutomation(): void {
     this.autoFx.clear();
     this.autoSend.clear();
-    for (const s of this.returns.values()) s.mainDb = 0;
     for (const a of this.project.automation) {
-      if (a.bypass) continue;
+      if (a.bypass || a.target === "volume") continue;
       const def = this.project.parameters.find((p) => p.name === a.parameter);
       if (!def) continue;
       const x = this.paramValues[a.parameter] ?? parameterDefault(def);
-      const isBus = this.project.buses.some((b) => b.name === a.on);
-      if (a.target === "volume") {
-        const r = this.returns.get(a.on);
-        if (r) r.mainDb += evalCurve(a.curve, x);
-        continue;
-      }
       if (a.target.startsWith("send:")) {
-        if (!isBus) continue;
+        if (!this.project.buses.some((b) => b.name === a.on)) continue;
         const to = a.target.slice(5);
         const m = this.autoSend.get(a.on) ?? new Map<string, number>();
         m.set(to, (m.get(to) ?? 0) + evalCurve(a.curve, x));
@@ -998,7 +1009,7 @@ export class Mixer {
       if (!id || !p) continue;
       const e = this.ownerOf(a.on)?.effects.find((x2) => x2.id === id);
       if (!e) continue;
-      if (isBus && e.type === "lowpass" && p === "cutoff") continue; // the core's bus low-pass automation
+      if (this.buses.has(a.on) && e.type === "lowpass" && p === "cutoff") continue; // the core's bus low-pass automation
       const byId = this.autoFx.get(a.on) ?? new Map<string, Map<string, number>>();
       const ps = byId.get(id) ?? new Map<string, number>();
       ps.set(p, FREQUENCY_PARAMS.has(p) ? evalLogCurve(a.curve, x) : evalCurve(a.curve, x));
@@ -1007,34 +1018,28 @@ export class Mixer {
     }
   }
 
-  // --- live effects (ADR 0330) ---------------------------------------------------------------------------------------
+  // --- live effects and sends (ADR 0330) -----------------------------------------------------------------------------
 
   /**
-   * Each bus's live effects: `audioSettings`' effects with, for an effect of the bus, the blend's overrides and the main
-   * thread's automation, and for its reverb send, the send's level plus its automation, times its return's lanes (fader,
-   * VCA-free: returns have none, runtime volume, snapshot, automation), 0 while the bus or the return is muted by the
-   * project, a script or a monitor control. An unchanged effect keeps its object, so a backend can compare by identity.
+   * Each bus's (and return's) live effects: `audioSettings`' effects with, for an effect of the bus, the blend's
+   * overrides and the main thread's automation; and its live sends (`_busSends`): each send of the view at its level plus
+   * its automation, muted while the bus is muted by the project, a script or a monitor control (a muted bus silences its
+   * sends, ADR 0330; the core ramps a muted send to 0 and keeps its level). An unchanged effect keeps its object, and an
+   * unchanged send list its list, so a backend can compare by identity.
    */
   private refreshEffects(): void {
     if (!this.effectsDirty) return;
     this.effectsDirty = false;
-    const now = this.time;
     for (const [name, s] of this.buses) {
-      const pb = this.project.buses.find((b) => b.name === name);
+      s.sends = this.liveSends(name, s);
+      const pb = this.ownerOf(name);
       const base = s.settings.effects;
       if (!pb) { s.effects = base; continue; }
       const shown = pb.effects.filter((e) => coreShown(this.project, name, e));
-      const reverb = reverbSendOf(this.project, pb);
       let k = 0;
       let moved = false;
       const out = base.map((e): BusEffect => {
-        if (e.type === "reverb") {
-          if (!reverb) return e;
-          const g = this.sendGain(name, s, reverb, now);
-          if (g === e.send) return e;
-          moved = true;
-          return { type: "reverb", send: g };
-        }
+        if (e.type === "reverb") return e; // an old section's reverb send (the view never holds one)
         const ne = shown[k++];
         if (!ne) return e;
         const over = this.overrides[name]?.[ne.id];
@@ -1056,26 +1061,28 @@ export class Mixer {
     }
   }
 
-  /** A send's live level as a gain (0..1): its level and automation, its return's level and lanes, 0 while either side is muted. */
-  private sendGain(bus: string, s: BusState, reverb: { send: { to: string; levelDb: number }; ret: Return }, now: number): number {
-    const to = reverb.send.to;
-    const r = this.returns.get(to);
-    if (!r) return 0;
-    if (s.authoredMute || s.mute || s.monitorMute || r.authoredMute || r.mute || r.monitorMute) return 0;
-    const db = reverb.send.levelDb + (this.autoSend.get(bus)?.get(to) ?? 0) + reverb.ret.volumeDb + r.mainDb;
-    const lanes = rampAt(r.runtime, now) * rampAt(r.snapshot, now);
-    // Written as one dB sum when the lanes are at rest, so the authored view's send (`coreSectionOf`) reads back exactly.
-    const g = lanes === 1 ? dbToGain(db) : dbToGain(db) * lanes;
-    return Math.min(1, Math.max(0, g));
+  /** Bus `name`'s live sends (see `refreshEffects`); `s.sends` itself when nothing moved. */
+  private liveSends(name: string, s: BusState): readonly LiveBusSend[] {
+    const view = s.settings.sends;
+    if (!view || view.length === 0) return NO_SENDS;
+    const muted = s.authoredMute || s.mute || s.monitorMute;
+    const auto = this.autoSend.get(name);
+    const pb = auto ? this.project.buses.find((b) => b.name === name) : undefined;
+    const out = view.map((v): LiveBusSend => {
+      const db = auto?.get(v.to);
+      const authored = pb?.sends.find((x) => x.to === v.to);
+      // With automation, the send's dB plus the curve's (ADR 0330: `send:<return>` adds dB); without, the view's level.
+      const level = db === undefined || !authored ? v.level : sendLevelOf(authored.levelDb + db);
+      return { to: v.to, level, muted };
+    });
+    const prev = s.sends;
+    return prev.length === out.length && prev.every((p, i) => p.to === out[i]!.to && p.level === out[i]!.level && p.muted === out[i]!.muted) ? prev : out;
   }
 
   /** @internal `Bus.volume` (`seconds` 0) and `Bus.fadeTo`: one ramp on the runtime lane, clamped to 0..2. */
   _setRuntime(name: string, v: number, seconds: number): void {
-    const s = this.buses.get(name) ?? this.returns.get(name);
-    if (!s) return;
-    const to = Math.min(2, Math.max(0, Number.isFinite(v) ? v : 0));
-    if (s.kind === "bus") this.lane(name, Lane.runtime, s.runtime, to, seconds);
-    else if (this.retarget(s.runtime, to, seconds)) this.effectsDirty = true;
+    const s = this.buses.get(name);
+    if (s) this.lane(name, Lane.runtime, s.runtime, Math.min(2, Math.max(0, Number.isFinite(v) ? v : 0)), seconds);
   }
 
   /**
@@ -1117,13 +1124,6 @@ export class Mixer {
       for (const s of this.buses.values()) {
         if (rampMoves(s.authored, prev, now) || rampMoves(s.vca, prev, now) || rampMoves(s.fader, prev, now) || rampMoves(s.runtime, prev, now) || rampMoves(s.snapshot, prev, now) || rampMoves(s.lp, prev, now) || rampMoves(s.dip, prev, now)) {
           this._dirty();
-          break;
-        }
-      }
-      // A return's lanes move its sends' levels.
-      for (const s of this.returns.values()) {
-        if (rampMoves(s.fader, prev, now) || rampMoves(s.runtime, prev, now) || rampMoves(s.snapshot, prev, now)) {
-          this._dirty(true);
           break;
         }
       }
@@ -1175,31 +1175,28 @@ export class Mixer {
     return () => this.listeners.delete(cb);
   }
 
-  private stateOf(name: string): BusState | undefined { return this.buses.get(name) ?? this.returns.get(name); }
+  private stateOf(name: string): BusState | undefined { return this.buses.get(name); }
   private anySolo(): boolean { for (const s of this.buses.values()) if (s.solo || s.monitorSolo) return true; return false; }
-  /** `name` and the buses above it to the root; a return's chain is the return, then its output's. */
+  /** `name` and the buses above it to the root (a return's parent is its output). */
   private chain(name: string): string[] {
     const out: string[] = [];
-    let n: string | undefined = name;
-    const r = this.returns.get(name);
-    if (r) { out.push(name); n = r.settings.parent; }
-    for (; n !== undefined && out.length < 64; n = this.buses.get(n)?.settings.parent) out.push(n);
+    for (let n: string | undefined = name; n !== undefined && out.length < 64; n = this.buses.get(n)?.settings.parent) out.push(n);
     return out;
   }
   private soloed(n: string): boolean { const s = this.buses.get(n); return !!s && (s.solo || s.monitorSolo); }
   /** Whether solo state (script or monitor) lets `name` through (it's soloed, under a soloed bus, on the way to one, or a return: ADR 0330 keeps returns audible). */
   private audibleUnderSolo(name: string): boolean {
-    if (this.returns.has(name)) return true;
+    if (this.returnSet.has(name)) return true;
     if (this.chain(name).some((n) => this.soloed(n))) return true;
     for (const other of this.buses.keys()) if (this.soloed(other) && this.chain(other).includes(name)) return true;
     // A return keeps its output chain audible.
-    for (const r of this.returns.keys()) if (this.chain(r).includes(name)) return true;
+    for (const r of this.returnSet) if (this.chain(r).includes(name)) return true;
     return false;
   }
 
-  /** A bus's (or return's) resolved state; `effects` are a bus's live effects (a return's are not in the backends' chains). */
+  /** A bus's (or return's) resolved state, with its live effects. */
   resolve(name: string): ResolvedBus | null {
-    const s = this.buses.get(name) ?? this.returns.get(name);
+    const s = this.buses.get(name);
     if (!s) return null;
     this.refreshEffects();
     const now = this.time;
@@ -1207,13 +1204,13 @@ export class Mixer {
     const gainOf = (n: string, st: BusState) =>
       st.authoredMute || st.mute || st.monitorMute || (solo && !this.audibleUnderSolo(n))
         ? 0
-        : rampAt(st.fader, now) * rampAt(st.vca, now) * rampAt(st.runtime, now) * rampAt(st.snapshot, now) * rampAt(st.dip, now) * this._duckOf(n, st) * st.autoGain * (st.mainDb === 0 ? 1 : dbToGain(st.mainDb));
+        : rampAt(st.fader, now) * rampAt(st.vca, now) * rampAt(st.runtime, now) * rampAt(st.snapshot, now) * rampAt(st.dip, now) * this._duckOf(n, st) * st.autoGain;
     let effective = 1;
     for (const n of this.chain(name)) effective *= gainOf(n, this.stateOf(n)!);
     const lp = Math.min(rampAt(s.lp, now), s.autoLp);
     return {
       name, parent: s.settings.parent ?? null, gain: gainOf(name, s), effectiveGain: effective,
-      effects: s.kind === "bus" ? s.effects : [], snapshotLowpass: lp < OFF_HZ ? lp : null,
+      effects: s.effects, snapshotLowpass: lp < OFF_HZ ? lp : null,
     };
   }
   resolveAll(): ResolvedBus[] { return this.order.map((n) => this.resolve(n)!); }
