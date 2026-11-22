@@ -112,9 +112,24 @@ impl Best {
 }
 
 impl MatchDb {
+    /// Frame `i`'s row.
     #[inline(always)]
     fn row(&self, i: usize) -> &[F32x4] {
-        &self.rows[i * self.lanes..(i + 1) * self.lanes]
+        let at = match self.slots.get(i) {
+            Some(&s) => s as usize,
+            None => i,
+        };
+        &self.rows[at * self.lanes..(at + 1) * self.lanes]
+    }
+
+    /// The frame stored at row position `j` (see `rows`).
+    #[inline(always)]
+    fn frame_of(&self, j: usize) -> usize {
+        if self.slots.is_empty() {
+            j
+        } else {
+            self.indices[j] as usize
+        }
     }
 
     #[inline(always)]
@@ -184,7 +199,10 @@ impl MatchDb {
             cost: f32::INFINITY,
             frame: u32::MAX,
         };
-        for (i, row) in self.rows.chunks_exact(self.lanes).enumerate() {
+        // In storage order: the result, the least (cost, frame), doesn't depend on the order
+        // (`offer` breaks ties by frame; a frame stopped early costs more than the best so far).
+        for (j, row) in self.rows.chunks_exact(self.lanes).enumerate() {
+            let i = self.frame_of(j);
             if !self.allowed(i, skip, tags) {
                 continue;
             }
@@ -211,12 +229,19 @@ impl MatchDb {
             }
             match self.nodes[node as usize] {
                 Node::Leaf { first, count } => {
-                    for &f in &self.indices[first as usize..(first + count) as usize] {
+                    let range = first as usize..(first + count) as usize;
+                    for (j, &f) in range.clone().zip(&self.indices[range]) {
                         let i = f as usize;
                         if !self.allowed(i, skip, tags) {
                             continue;
                         }
-                        let d = distance(q, self.row(i), best.cost);
+                        // Rows in leaf order: row position j holds frame f.
+                        let row = if self.slots.is_empty() {
+                            self.row(i)
+                        } else {
+                            &self.rows[j * self.lanes..(j + 1) * self.lanes]
+                        };
+                        let d = distance(q, row, best.cost);
                         best.offer(d, f);
                     }
                 }

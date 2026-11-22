@@ -55,6 +55,9 @@ pub enum Shape {
     Chain(usize),
     /// A 60-bone humanoid (root, hips, spine, neck, head, arms with fingers, legs).
     Humanoid,
+    /// An 80-bone humanoid (T82r, ADR 0340's budget skeleton): [`Shape::Humanoid`]'s 60 bones in the
+    /// same order, then 20 leaf bones (spine, neck and limb twists, face and two prop sockets).
+    Humanoid80,
     /// A random tree of n bones.
     Tree(usize),
 }
@@ -76,6 +79,15 @@ fn parents_of(shape: Shape, rng: &mut Rng) -> Vec<u16> {
                 }
             })
             .collect(),
+        Shape::Humanoid80 => {
+            let mut p = parents_of(Shape::Humanoid, rng);
+            // Leaves on the hips, spine, neck and head, the upper arms, forearms, thighs, shins and hands.
+            for parent in [1u16, 2, 3, 4, 5, 6, 6, 6, 6, 6, 11, 13, 32, 34, 52, 53, 56, 57, 15, 36] {
+                p.push(parent);
+            }
+            assert_eq!(p.len(), 80);
+            p
+        }
         Shape::Humanoid => {
             let mut p: Vec<u16> = Vec::new();
             let mut add = |parent: Option<usize>| {

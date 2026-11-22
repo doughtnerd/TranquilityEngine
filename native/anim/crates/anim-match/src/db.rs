@@ -103,7 +103,11 @@ pub struct MatchDb {
     pub(crate) dims: usize,
     pub(crate) lanes: usize,
     pub(crate) rate: f32,
+    /// The weighted feature rows, `lanes` per frame. With a KD-tree, in leaf order (the frames of
+    /// `indices`, in that order), so a leaf's rows are contiguous; `slots` maps a frame to its row.
     pub(crate) rows: Vec<F32x4>,
+    /// Frame → row position when `rows` is in leaf order; empty when it is in frame order.
+    pub(crate) slots: Vec<u32>,
     pub(crate) mean: Vec<f32>,
     pub(crate) std: Vec<f32>,
     /// `√weight` per dim.
@@ -219,11 +223,12 @@ impl MatchDb {
                 None => Node::Leaf { first: 0, count: 0 },
             });
         }
-        let db = MatchDb {
+        let mut db = MatchDb {
             dims,
             lanes,
             rate,
             rows,
+            slots: Vec::new(),
             mean: view.mean().to_vec(),
             std: view.std().to_vec(),
             scale,
@@ -242,6 +247,19 @@ impl MatchDb {
         };
         if !db.nodes.is_empty() {
             db.check_tree(view)?;
+            if db.indices.len() == n {
+                // Every frame in exactly one leaf (checked): store the rows in leaf order, so a
+                // leaf scan reads memory in sequence instead of one random row per frame.
+                let mut leaf_rows = Vec::with_capacity(db.rows.len());
+                let mut slots = vec![0u32; n];
+                for (j, &f) in db.indices.iter().enumerate() {
+                    let f = f as usize;
+                    leaf_rows.extend_from_slice(&db.rows[f * lanes..(f + 1) * lanes]);
+                    slots[f] = j as u32;
+                }
+                db.rows = leaf_rows;
+                db.slots = slots;
+            }
         }
         Ok(db)
     }
