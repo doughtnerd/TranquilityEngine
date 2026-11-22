@@ -60,6 +60,33 @@ export function boxCorners(box: SceneBox): P2[] {
 /** Where the rotate knob sits: `offset` metres beyond the box's north edge, on its own axis. */
 export const rotateKnob = (box: SceneBox, offset: number): P2 => toWorld(box, { x: 0, z: box.depth / 2 + offset });
 
+/** The point of the box (seen from above) nearest `p`: `p` itself when inside (where an edge audio zone is heard from). */
+export function nearestOnBox(box: SceneBox, p: P2): P2 {
+  const l = toLocal(box, p);
+  return toWorld(box, { x: Math.min(box.width / 2, Math.max(-box.width / 2, l.x)), z: Math.min(box.depth / 2, Math.max(-box.depth / 2, l.z)) });
+}
+
+/**
+ * How deep `p` is inside the box, 0 at its edge (and outside, or outside bottom..top) to 1 at its middle: the zone's
+ * `zoneDepth` (ADR 0333; the prototype's `min(w/2−|x|, d/2−|z|) / (min(w, d)/2)`), for the Inspector's readout.
+ */
+export function depthIn(box: SceneBox, p: P2 & { readonly y?: number }): number {
+  if (p.y !== undefined && (p.y < box.bottom || p.y > box.top)) return 0;
+  const l = toLocal(box, p);
+  const inner = Math.min(box.width / 2 - Math.abs(l.x), box.depth / 2 - Math.abs(l.z));
+  if (inner <= 0) return 0;
+  return Math.min(1, inner / (Math.min(box.width, box.depth) / 2));
+}
+
+/** The box grown by `by` metres on every side (an audio zone's feather edge). */
+export const growBox = (box: SceneBox, by: number): SceneBox => ({ ...box, width: box.width + 2 * by, depth: box.depth + 2 * by });
+
+/** The box's extent along x (the side view's): the min and max x of its corners. */
+export function boxSpanX(box: SceneBox): [number, number] {
+  const xs = boxCorners(box).map((c) => c.x);
+  return [Math.min(...xs), Math.max(...xs)];
+}
+
 /** The box resized by dragging a corner to `p`: symmetric about its centre (the opposite corner moves too), snapped. */
 export function resizeFromCorner(box: SceneBox, p: P2): SceneBox {
   const l = toLocal(box, p);

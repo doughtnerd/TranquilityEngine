@@ -3,7 +3,7 @@ import type { SceneBox, Vec3 } from "../../../engine/audio/spatial/testSceneType
 import { createKeymap } from "../../shell/keymap";
 import { INITIAL_SLAB, dragSlabEdge, heightMarks, heightRange, inRange, inSlab, moveSlab, relativeHeight, shiftSpan, slabRange } from "./elevation";
 import {
-  boundsOf, boxContains, boxCorners, insertWaypoint, moveWaypoint, normalizeDeg, projectOnRoute, removeWaypoint, resizeFromCorner, rotateKnob, rotateToward, routeAt, routeMidpoints, snap, toLocal, toWorld,
+  boundsOf, boxContains, boxCorners, boxSpanX, depthIn, growBox, nearestOnBox, insertWaypoint, moveWaypoint, normalizeDeg, projectOnRoute, removeWaypoint, resizeFromCorner, rotateKnob, rotateToward, routeAt, routeMidpoints, snap, toLocal, toWorld,
 } from "./geometry";
 import { bottomValue, fieldValue, topValue } from "./inspectorFields";
 import { outlineGroups } from "./outline";
@@ -60,6 +60,22 @@ describe("rotated boxes", () => {
     expect(rotateToward(box(), { x: 0, z: 20 }).yaw).toBe(-90);
     expect(normalizeDeg(270)).toBe(-90);
     expect(normalizeDeg(-180)).toBe(180);
+  });
+
+  it("finds the nearest point, grows by a feather, spans along x", () => {
+    close(nearestOnBox(box(), { x: 20, z: 21 }), { x: 14, z: 21 });
+    close(nearestOnBox(box(), { x: 11, z: 21 }), { x: 11, z: 21 });
+    expect(growBox(box(), 2)).toMatchObject({ width: 12, depth: 8 });
+    const [a, b] = boxSpanX(box({ yaw: 90 }));
+    expect(a).toBeCloseTo(8, 6);
+    expect(b).toBeCloseTo(12, 6);
+  });
+
+  it("says how deep a point is inside (the zone depth readout)", () => {
+    expect(depthIn(box(), { x: 10, z: 20 })).toBe(1);
+    expect(depthIn(box(), { x: 10, z: 21 })).toBe(0.5);
+    expect(depthIn(box(), { x: 30, z: 20 })).toBe(0);
+    expect(depthIn(box(), { x: 10, z: 20, y: 7 })).toBe(0);
   });
 
   it("snaps without negative zero", () => {
