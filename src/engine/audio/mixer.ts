@@ -340,7 +340,9 @@ export class Mixer {
       this.settings = { ...settings, ...coreSectionOf(project), mix: settings.mix };
     } else {
       project = fromLegacySection(settings);
-      this.settings = settings;
+      // The migrated model's view, as for `audio.json`'s (ADR 0330: a reverb send became a send into a "Reverb" return,
+      // a bus of the view), so a live op's view is always an edit of `coreSectionOf(project)` (`mergeLegacyIntoProject`).
+      this.settings = { ...settings, ...coreSectionOf(project) };
     }
     this.project = project;
     this.buses.clear();
@@ -475,6 +477,8 @@ export class Mixer {
   private applyOld(target: MixOpTarget, op: MixOp): ApplyResult {
     const before = this.settings;
     if (opRefusal(before, op) !== null) return this.notSent(target, { ok: false, class: "none" });
+    // ADR 0330/0331: the old shared-reverb send effect is retired; a bus sends into a return (`setSend`).
+    if (op.op === "addEffect" && op.effect?.type === "reverb") return this.notSent(target, { ok: false, class: "none" });
     const cls = opClass(op, before);
     if (cls === "none") return { ok: true, class: "none" };
     const later = liveRuleAnswer(before, op, target.liveCaps);

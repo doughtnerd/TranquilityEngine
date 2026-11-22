@@ -123,6 +123,8 @@ export class BusIndex {
    * null unknown: the next `syncSends` writes the slot whatever it holds).
    */
   private sentSends: (string | null)[] = new Array<string | null>(MAX_BUSES).fill("");
+  /** ADR 0330: the sends each slot's last `BUS_SENDS` carried, by slot (for a removed send's fade, `withFadingSends`). */
+  private sentWire: (readonly BusSendsSends[] | undefined)[] = [];
 
   constructor(private readonly host: BusIndexHost) {}
 
@@ -233,8 +235,26 @@ export class BusIndex {
   }
 
   /**
-   * ADR 0330: one `BUS_SENDS` (asap) for each slot whose sends moved since its last write: a send added, removed or
-   * retargeted (its return moved slot), a level (a live edit or its automation; ramped over `DRAG_RAMP_MS`), a mute.
+   * `sends` with each send slot `s` last carried and no longer has kept as muted (the core drops a send missing from a
+   * `BUS_SENDS` at once, a click; a muted one ramps to 0 over its frames and costs nothing once silent), while there is
+   * room and its return still holds that slot. Not after a configure (the slots may have moved).
+   */
+  private withFadingSends(s: number, sends: BusSendsSends[]): BusSendsSends[] {
+    const prev = this.sentSends[s] === null ? undefined : this.sentWire[s];
+    if (!prev || prev.length === 0) return sends;
+    const returns = this.host.mixer.returnNames;
+    for (const p of prev) {
+      if (sends.length >= MAX_BUS_SENDS) break;
+      if (sends.some((x) => x.to === p.to) || !returns.includes(this.names[p.to] ?? "")) continue;
+      sends.push({ ...p, flags: p.flags | BUS_SEND_MUTED });
+    }
+    return sends;
+  }
+
+  /**
+   * ADR 0330: one `BUS_SENDS` (asap) for each slot whose sends moved since its last write: a send added, removed (kept
+   * muted while it fades, `withFadingSends`) or retargeted (its return moved slot), a level (a live edit or its
+   * automation; ramped over `DRAG_RAMP_MS`), a mute.
    */
   syncSends(): void {
     const configured = this.slots.slots.length;
@@ -242,13 +262,15 @@ export class BusIndex {
       if (s >= configured) {
         // A slot past the configured ones: BUS_CONFIG silenced it and cleared its state on the core.
         this.sentSends[s] = "";
+        this.sentWire[s] = undefined;
         continue;
       }
-      const sends = this.wireSends(s);
+      const sends = this.withFadingSends(s, this.wireSends(s));
       const key = BusIndex.sendsKey(sends);
       if (key === this.sentSends[s]) continue;
       this.host.writer.busSends(s, sends);
       this.sentSends[s] = key;
+      this.sentWire[s] = sends;
     }
   }
 
@@ -262,6 +284,7 @@ export class BusIndex {
       if (sends.length === 0 && this.sentSends[s] === "") continue;
       if (s < this.slots.slots.length) b.record(16 + 12 * sends.length, (view, off) => writeBusSends(view, off, { voiceId: s, frameOffset: ASAP, sends }));
       this.sentSends[s] = BusIndex.sendsKey(sends);
+      this.sentWire[s] = sends;
     }
   }
 
@@ -318,7 +341,10 @@ export class BusIndex {
     const c = this.slotConfig(s);
     this.host.writer.busSlot({ ...c, fresh, ...(stamp ? { structural: true, sequenceId: stamp.sequenceId } : {}) }, stamp?.at);
     // A fresh slot starts with no sends on the core (ADR 0330); the next `syncSends` gives it its own.
-    if (fresh) this.sentSends[s] = "";
+    if (fresh) {
+      this.sentSends[s] = "";
+      this.sentWire[s] = undefined;
+    }
     return s;
   }
 
