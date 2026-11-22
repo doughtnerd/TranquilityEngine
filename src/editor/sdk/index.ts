@@ -29,9 +29,16 @@ export { LargePreview } from "../ui/AssetPreview";
 export { AssetDocumentFrame, type AssetDocumentFrameProps } from "../ui/AssetDocumentFrame";
 export { NameList, NumberField, ProblemList, Row, TextField } from "../ui/settingsControls";
 export { useDraftText, type DraftText, type DraftInputProps } from "../ui/draftText";
-// ADR 0158 §7: the shared curve widget (particles, audio events, later animation) and its pure key helpers.
-export { CurveEditor, CurvePreview, type CurveEditorProps } from "../ui/CurveEditor";
-export { addKey as addCurveKey, moveKey as moveCurveKey, removeKey as removeCurveKey, setKeyInterp as setCurveKeyInterp, type Key as CurveEditKey } from "../ui/curveEdit";
+// ADR 0332: the one shared curve editor (a dialog over lanes, curves in units) and the inline curve field that opens
+// it (particles, audio, the Studio); ADR 0158 §7's generic key-list helpers (curves, gradients).
+export { CurveEditorDialog, type CurveEditorDialogProps } from "../ui/curves/CurveEditorDialog";
+export { openCurveEditorDialog, type OpenCurveEditor } from "../ui/curves/openCurveEditorDialog";
+export type { CurveEditorKind, CurveEditorResult, CurveEditorSpec, CurveInput, CurveLane, KeyShape } from "../ui/curves/curveEditorModel";
+export type { WaveformFn as CurveWaveform } from "../ui/curves/CurvePlot";
+export { CurveField, CurvePreview, type CurveFieldProps } from "../ui/curves/CurveField";
+export { addKey as addCurveKey, moveKey as moveCurveKey, removeKey as removeCurveKey, setKeyInterp as setCurveKeyInterp, type Key as CurveEditKey } from "../ui/curves/keyList";
+/** @deprecated ADR 0332: use `CurveField` (the inline field) or `CurveEditorDialog`. Kept for one release. */
+export { CurveField as CurveEditor, type CurveFieldProps as CurveEditorProps } from "../ui/curves/CurveField";
 // Menus and floating panels (ADR 0180): placed, dismissed and focused in the window they're in (ADR 0174).
 export { openPopover, usePopover, type DismissReason, type Popover, type PopoverOptions, type PopoverPoint } from "../ui/popover";
 export { setValue, type SettingsDraft, type SettingsProblem } from "../projectSettingsModel";

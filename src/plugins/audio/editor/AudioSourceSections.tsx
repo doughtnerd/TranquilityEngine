@@ -1,9 +1,9 @@
 // Under an AudioSource's fields in the Inspector (ADR 0162 E2, api-and-models §1.2): the reverb send curve drawn with the
-// SDK's CurveEditor (the field is a plain object, so the card has no editor of its own for it), and, when the clip is
+// SDK's CurveField (the field is a plain object, so the card has no editor of its own for it), and, when the clip is
 // ambisonic, the fields it ignores (spatial, the distance fields, rolloff, occlusion, Doppler level) greyed with a note.
 // The M3 number and checkbox fields (occlusion, Doppler level, reverb send, ambisonic yaw) are the card's rows.
 import { useLayoutEffect, useRef } from "preact/hooks";
-import { CurveEditor, editor, sectionField, useFieldDrag, type InspectorSectionProps } from "../../../editor/sdk";
+import { CurveField, editor, sectionField, useFieldDrag, type InspectorSectionProps } from "../../../editor/sdk";
 import { AMBISONIC_IGNORED_FIELDS, sendCurveOf } from "./audioInspectorModel";
 import "./audioInspectors.css";
 
@@ -59,7 +59,7 @@ export function AudioSourceSection({ scene, paths, info }: InspectorSectionProps
       {!ambisonic && yaw !== 0 && <p class="audio-note">Ambisonic Yaw only turns ambisonic clips; this clip isn't one.</p>}
       <div class="audio-curve-field" {...drag}>
         <h4 title="How much of the source goes to the reverb zones that hold it, against distance: 0 at Min Distance to 1 at Max Distance. Multiplies Reverb Send; the product is clamped to 4.">Reverb send by distance</h4>
-        <CurveEditor curve={curve} xRange={[0, 1]} yRange={CURVE_Y} interpolation={false} label="Reverb send curve" onChange={(c) => editor.scene.writeField(place, "reverbSendCurve", c.map((k) => [k[0], k[1]]))} />
+        <CurveField curve={curve} xRange={[0, 1]} yRange={CURVE_Y} interpolation={false} label="Reverb send curve" onChange={(c) => editor.scene.writeField(place, "reverbSendCurve", c.map((k) => [k[0], k[1]]))} />
         <button title="Back to full send up close and half at Max Distance" onClick={() => editor.scene.writeField(place, "reverbSendCurve", DEFAULT_CURVE.map((k) => [...k]))}>
           Reset curve
         </button>

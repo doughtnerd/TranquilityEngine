@@ -69,7 +69,7 @@ import {
   type VoicePresetName,
 } from "./audioSettingsModel";
 import { audioSettings } from "./audioDraft";
-import { CurveEditor, TextField, editor, type SettingsDraft } from "../../../editor/sdk";
+import { CurveField, TextField, editor, type SettingsDraft } from "../../../editor/sdk";
 import { Audio } from "../runtime";
 import { DEFAULT_DUCK_DETECTOR, DEFAULT_DUCK_THRESHOLD, DUCK_DETECTORS, DUCK_LIMITS, DUCK_MODES, MAX_DUCK_RULES, MAX_LEVEL_RULES, NEEDS_AUDIO_CORE, levelDuckingAvailable } from "./mix/duckModel";
 import { parameterRange } from "../../../engine/audio/eventFormat";
@@ -514,7 +514,7 @@ function Automation(props: { a: AudioSettings; draft: SettingsDraft; set: Set })
               </button>
             </div>
             <div class="audio-curve">
-              <CurveEditor
+              <CurveField
                 curve={r.curve}
                 xRange={hi > lo ? [lo, hi] : [lo, lo + 1]}
                 yRange={AUTOMATION_Y[r.target]}

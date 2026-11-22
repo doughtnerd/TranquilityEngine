@@ -2,7 +2,7 @@
 // descriptors in nodeFields.ts, with the automation lists on the shared curve widget. Each change hands the parent a
 // new node (or event); the panel makes it one undo step (sliders and curve drags coalesce into one).
 import type { ComponentChildren } from "preact";
-import { CurveEditor } from "../../../../editor/sdk";
+import { CurveField } from "../../../../editor/sdk";
 import {
   EVENT_TARGETS,
   isLabelled,
@@ -104,7 +104,7 @@ export function AutomationList(props: { list: readonly Automation[]; context: Fi
                 ×
               </button>
             </div>
-            <CurveEditor
+            <CurveField
               curve={a.curve}
               onChange={(curve) => set(i, { ...a, curve: curve.length > 0 ? curve : a.curve }, true, "Edit curve")}
               xRange={xRange}
@@ -286,7 +286,7 @@ function FieldRow(props: { field: FieldDescriptor; value: unknown; context: Fiel
             {f.label}
             {set && <ResetButton label={label} disabled={disabled} onReset={() => onValue(undefined)} />}
           </span>
-          <CurveEditor curve={set ? (value as Curve) : f.default} onChange={(curve) => commit(curve, true)} xRange={f.xRange} yRange={f.yRange} interpolation label={label} readOnly={disabled} />
+          <CurveField curve={set ? (value as Curve) : f.default} onChange={(curve) => commit(curve, true)} xRange={f.xRange} yRange={f.yRange} interpolation label={label} readOnly={disabled} />
         </div>
       );
     }

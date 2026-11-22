@@ -1,13 +1,20 @@
+// The inline curve field (ADR 0158 §7, ADR 0332): a small graph to edit a curve where it sits (an Inspector field, a
+// node's property), and a button that opens the shared curve editor dialog on it for the full tools (shapes, Bézier
+// handles, presets, numeric fields, undo inside the dialog). Its props are the old `CurveEditor` widget's, so the SDK
+// keeps that name as an alias for one release (ADR 0332 Deprecates).
 import { useEffect, useRef, useState } from "preact/hooks";
-import { evalCurve, type Curve, type CurveInterp } from "../../engine/core/curve";
-import { addKey, axisTicks, fitYRange, moveKey, pixelToX, pixelToY, removeKey, setKeyInterp, xToPixel, yToPixel } from "./curveEdit";
-import "./curveEditor.css";
+import { evalCurve, type Curve, type CurveInterp } from "../../../engine/core/curve";
+import { createDraft } from "./curveEditorModel";
+import { openCurveEditorDialog } from "./openCurveEditorDialog";
+import { fieldDialogSpec } from "./curveFieldModel";
+import { addKey, axisTicks, fitYRange, moveKey, pixelToX, pixelToY, removeKey, setKeyInterp, xToPixel, yToPixel } from "./keyList";
+import "./curveField.css";
 
 /**
  * The props contract (C5, ADR 0158 §7). The first five are the contract; the rest are what the particle inspector
  * needs (its curves are valid `Curve`s with x in 0..1: `xRange` [0, 1], `interpolation` false, `fitY` true).
  */
-export interface CurveEditorProps {
+export interface CurveFieldProps {
   curve: Curve;
   onChange(curve: Curve): void;
   /** The x values the graph spans; keys can't leave it. Any finite range, say [0, 1] or [0, 30]. */
@@ -21,6 +28,12 @@ export interface CurveEditorProps {
   readOnly?: boolean;
   /** The graph's y range fits the keys (with padding, pinned by finite `yRange` ends) instead of showing `yRange` whole. Particles use this. */
   fitY?: boolean;
+  /** What the dialog says Apply writes to (default `label`). */
+  target?: string;
+  /** What x is ("Lifetime", a parameter's name), for the dialog. */
+  xName?: string;
+  /** The unit of the curve's values, for the dialog's fields. */
+  unit?: string;
 }
 
 const W = 200;
@@ -73,11 +86,30 @@ function NumInput(props: { value: number; label: string; disabled?: boolean; onC
 /**
  * A curve as a small SVG graph (ADR 0057 for particles, ADR 0158 §7 for audio). Drag a key to move it, double-click
  * empty space to add one, double-click or right-click a key (or select it and press Delete) to remove it. With
- * `interpolation`, the selected key also picks the shape of the segment that follows it.
+ * `interpolation`, the selected key also picks the shape of the segment that follows it. "Edit…" opens the shared
+ * curve editor dialog (ADR 0332) on the curve; Apply there is one change.
  */
-export function CurveEditor(props: CurveEditorProps) {
+export function CurveField(props: CurveFieldProps) {
   const { curve, onChange, label, readOnly, xRange, interpolation } = props;
   const [selected, setSelected] = useState<number | null>(null);
+  const rootEl = useRef<HTMLDivElement>(null);
+  /** The shared curve editor on this curve; Apply is one change (none when nothing changed). */
+  const openDialog = () => {
+    const doc = rootEl.current?.ownerDocument;
+    if (!doc) return;
+    const spec = fieldDialogSpec({ curve, xRange, yRange: props.yRange, interpolation, label, unit: props.unit, fitY: props.fitY, xName: props.xName });
+    // What the dialog opens with (end keys added): applying it unchanged changes nothing.
+    const opened = JSON.stringify(createDraft(spec).lanes[0]?.curve);
+    openCurveEditorDialog(doc, {
+      ...spec,
+      target: props.target ?? label,
+      onCancel: () => {},
+      onApply: (r) => {
+        const next = r.lanes[0]?.curve;
+        if (next && JSON.stringify(next) !== opened) onChange(next);
+      },
+    });
+  };
   const svg = useRef<SVGSVGElement>(null);
   // The value range is held still while a key is dragged, so the graph doesn't rescale under the pointer.
   const frozen = useRef<[number, number] | null>(null);
@@ -113,7 +145,7 @@ export function CurveEditor(props: CurveEditorProps) {
   const zero = lo < 0 && hi > 0 ? py(0) : null;
 
   return (
-    <div class="curve-editor" aria-label={label}>
+    <div class="curve-editor" aria-label={label} ref={rootEl}>
       <svg
         ref={svg}
         class="curve-svg"
@@ -223,6 +255,11 @@ export function CurveEditor(props: CurveEditorProps) {
           </>
         ) : (
           <span class="curve-hint">Double-click to add a key</span>
+        )}
+        {!readOnly && (
+          <button type="button" class="pe-mini curve-open" aria-label={`${label} open curve editor`} title="Open the curve editor: shapes, Bézier handles, presets and typed values" onClick={openDialog}>
+            Edit…
+          </button>
         )}
       </div>
     </div>
