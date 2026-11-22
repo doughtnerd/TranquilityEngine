@@ -114,10 +114,39 @@ pub fn cursor(cursors: &mut [Cursor], fx: u16) -> Option<&mut Cursor> {
 /// fewer only when a one-shot (or a region voice past its end) ran out, the rest zero-filled.
 #[allow(clippy::too_many_arguments)]
 pub fn render(cur: &mut Cursor, voice: u32, clip_id: u32, clip: &AdpcmClip<'_>, pos: &mut f64, steps: &[f32], mode: Mode, out_l: &mut [f32], out_r: &mut [f32]) -> usize {
-    if clip.channels == 1 {
-        render_ch::<1>(cur, voice, clip_id, clip, pos, steps, mode, out_l, out_r)
+    match (clip.channels == 1, mode) {
+        (true, Mode::Once) => render_ch::<1, ONCE>(cur, voice, clip_id, clip, pos, steps, mode, out_l, out_r),
+        (true, Mode::Loop) => render_ch::<1, LOOP>(cur, voice, clip_id, clip, pos, steps, mode, out_l, out_r),
+        (true, Mode::Region { .. }) => render_ch::<1, REGION>(cur, voice, clip_id, clip, pos, steps, mode, out_l, out_r),
+        (false, Mode::Once) => render_ch::<2, ONCE>(cur, voice, clip_id, clip, pos, steps, mode, out_l, out_r),
+        (false, Mode::Loop) => render_ch::<2, LOOP>(cur, voice, clip_id, clip, pos, steps, mode, out_l, out_r),
+        (false, Mode::Region { .. }) => render_ch::<2, REGION>(cur, voice, clip_id, clip, pos, steps, mode, out_l, out_r),
+    }
+}
+
+/// [`Mode`] as a const parameter, so each reader's loop carries only its own position arithmetic.
+const ONCE: u8 = 0;
+const LOOP: u8 = 1;
+const REGION: u8 = 2;
+
+/// `*pos` after one step of `step`, as `M`'s reader of `resample` moves it.
+#[inline(always)]
+fn advance<const M: u8>(pos: &mut f64, step: f32, frames_f: f64, end_f: f64, span: f64) {
+    if M == REGION {
+        let was = *pos;
+        *pos += step as f64;
+        if was < end_f {
+            while *pos >= end_f {
+                *pos -= span;
+            }
+        }
     } else {
-        render_ch::<2>(cur, voice, clip_id, clip, pos, steps, mode, out_l, out_r)
+        *pos += step as f64;
+        if M == LOOP {
+            while *pos >= frames_f {
+                *pos -= frames_f;
+            }
+        }
     }
 }
 
@@ -286,8 +315,42 @@ fn to_f32(s: i16) -> f32 {
     s as f32 / 32768.0
 }
 
+/// Frames `i..` while each one's four neighbours are consecutive window frames: `ws < idx` and `idx + 2 < hi` (`hi` at
+/// most the window's end and the seam). Returns the first frame it didn't render (a one-shot's end is the caller's).
 #[allow(clippy::too_many_arguments)]
-fn render_ch<const CH: usize>(cur: &mut Cursor, voice: u32, clip_id: u32, adpcm: &AdpcmClip<'_>, pos: &mut f64, steps: &[f32], mode: Mode, out_l: &mut [f32], out_r: &mut [f32]) -> usize {
+#[inline(always)]
+fn fast_run<const CH: usize, const M: u8>(window: &[i16; WINDOW_FRAMES * 2], ws: usize, hi: usize, pos: &mut f64, steps: &[f32], mut i: usize, out_l: &mut [f32], out_r: &mut [f32], last: usize, frames_f: f64, end_f: f64, span: f64) -> usize {
+    debug_assert!(hi.saturating_sub(ws) <= WINDOW_FRAMES);
+    while i < steps.len() {
+        let p = *pos;
+        if M != LOOP && p >= frames_f {
+            break;
+        }
+        let idx = (p as usize).min(last);
+        if idx <= ws || idx + 2 >= hi {
+            break;
+        }
+        let t = (p - idx as f64) as f32;
+        let at = (idx - 1 - ws) * CH;
+        // SAFETY: frames `idx - 1 ..= idx + 2` are window frames `idx - 1 - ws .. hi - ws`, and `hi - ws <= WINDOW_FRAMES`.
+        let s = |k: usize| to_f32(unsafe { *window.get_unchecked(at + k) });
+        if CH == 2 {
+            let w = weights(t);
+            out_l[i] = w[0] * s(0) + w[1] * s(2) + w[2] * s(4) + w[3] * s(6);
+            out_r[i] = w[0] * s(1) + w[1] * s(3) + w[2] * s(5) + w[3] * s(7);
+        } else {
+            let y = horner([s(0), s(1), s(2), s(3)], t);
+            out_l[i] = y;
+            out_r[i] = y;
+        }
+        advance::<M>(pos, steps[i], frames_f, end_f, span);
+        i += 1;
+    }
+    i
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_ch<const CH: usize, const M: u8>(cur: &mut Cursor, voice: u32, clip_id: u32, adpcm: &AdpcmClip<'_>, pos: &mut f64, steps: &[f32], mode: Mode, out_l: &mut [f32], out_r: &mut [f32]) -> usize {
     let len = out_l.len();
     debug_assert!(out_r.len() == len && steps.len() == len);
     let frames = adpcm.frames as usize;
@@ -303,9 +366,9 @@ fn render_ch<const CH: usize>(cur: &mut Cursor, voice: u32, clip_id: u32, adpcm:
     let frames_f = frames as f64;
     let last = frames - 1;
     // The mode as `resample`'s readers resolve it: `lt` is the loop's first frame, `end` where it wraps.
-    let (looping, region, start, end) = match mode {
-        Mode::Once => (false, false, 0, frames),
-        Mode::Loop => (true, false, 0, frames),
+    let (looping, region) = (M == LOOP, M == REGION);
+    let (start, end) = match mode {
+        Mode::Once | Mode::Loop => (0, frames),
         Mode::Region { start, end } => {
             let end = (end as usize).min(frames);
             let start = (start as usize).min(end);
@@ -314,9 +377,10 @@ fn render_ch<const CH: usize>(cur: &mut Cursor, voice: u32, clip_id: u32, adpcm:
                 out_r.fill(0.0);
                 return 0;
             }
-            (false, true, start, end)
+            (start, end)
         }
     };
+
     if looping {
         while *pos >= frames_f {
             *pos -= frames_f;
@@ -332,21 +396,31 @@ fn render_ch<const CH: usize>(cur: &mut Cursor, voice: u32, clip_id: u32, adpcm:
     let limit_of = |idx: usize| -> usize { if region && idx >= end { frames } else { end } };
     let lo_of = |idx: usize| -> usize { if seamed && idx == start { idx } else { idx.saturating_sub(1) } };
 
-    // This quantum's read, decoded in one run: up to its position plus its steps (capped at the seam).
+    // This quantum's read, decoded in one run: up to its position plus its steps (capped at the seam). The estimate takes
+    // the larger of the first and last steps (a pitch ramp is monotonic within a quantum); a frame past it refills.
     if len > 0 && (*pos < frames_f) {
         let idx = (*pos as usize).min(last);
         let limit = limit_of(idx);
-        let mut adv = 0.0f32;
-        for s in steps {
-            adv += *s;
-        }
-        let est = ((*pos + adv as f64) as usize).saturating_add(3).min(limit);
+        let step = steps[0].max(steps[len - 1]) as f64;
+        let est = ((*pos + step * len as f64) as usize).saturating_add(3).min(limit);
         let hi = (idx + 3).min(limit);
         cur.ensure(&clip, lo_of(idx), hi, est);
     }
 
-    for i in 0..len {
-        if (!looping || region) && *pos >= frames_f {
+    let mut i = 0;
+    while i < len {
+        if !looping && *pos >= frames_f {
+            out_l[i..].fill(0.0);
+            out_r[i..].fill(0.0);
+            return i;
+        }
+        // The usual case: a run of frames whose four neighbours are consecutive window frames.
+        let hi = (cur.we as usize).min(limit_of((*pos as usize).min(last)));
+        i = fast_run::<CH, M>(&cur.window, cur.ws as usize, hi, pos, steps, i, out_l, out_r, last, frames_f, end_f, span);
+        if i == len {
+            break;
+        }
+        if !looping && *pos >= frames_f {
             out_l[i..].fill(0.0);
             out_r[i..].fill(0.0);
             return i;
@@ -354,18 +428,9 @@ fn render_ch<const CH: usize>(cur: &mut Cursor, voice: u32, clip_id: u32, adpcm:
         let idx = (*pos as usize).min(last);
         let t = (*pos - idx as f64) as f32;
         let limit = limit_of(idx);
-        let (ws, we) = (cur.ws as usize, cur.we as usize);
         let mut xl = [0.0f32; 4];
         let mut xr = [0.0f32; 4];
-        if idx > ws && idx + 2 < we.min(limit) {
-            // The usual case: four consecutive frames in the window.
-            let at = (idx - 1 - ws) * CH;
-            let w = &cur.window[at..at + 4 * CH];
-            for k in 0..4 {
-                xl[k] = to_f32(w[k * CH]);
-                xr[k] = to_f32(w[k * CH + CH - 1]);
-            }
-        } else {
+        {
             // Near an edge, a seam or the window's end: refill if the window can serve, then each neighbour as the
             // reader picks it.
             let hi = (idx + 3).min(limit);
@@ -400,22 +465,8 @@ fn render_ch<const CH: usize>(cur: &mut Cursor, voice: u32, clip_id: u32, adpcm:
             out_l[i] = y;
             out_r[i] = y;
         }
-        if region {
-            let was = *pos;
-            *pos += steps[i] as f64;
-            if was < end_f {
-                while *pos >= end_f {
-                    *pos -= span;
-                }
-            }
-        } else {
-            *pos += steps[i] as f64;
-            if looping {
-                while *pos >= frames_f {
-                    *pos -= frames_f;
-                }
-            }
-        }
+        advance::<M>(pos, steps[i], frames_f, end_f, span);
+        i += 1;
     }
     len
 }

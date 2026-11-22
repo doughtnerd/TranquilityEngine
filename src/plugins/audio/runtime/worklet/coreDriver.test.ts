@@ -120,7 +120,7 @@ describe("coreDriver with the real wasm", () => {
     expect(r.blocks).toHaveLength(1);
     const first = r.blocks[0]!;
     expect(first.flags & STATUS_FLAGS_READY).toBeTruthy();
-    expect(first.abiVersion).toBe(0x40b); // 4.11 per-voice spread; 4.10 effect and send automation, submix automation, dB ramps; 4.9 submix levels and ROUTE; 4.7 bus sends; 4.6 (ADR 0331 effect catalogue DSP; 4.5 instance submixes; 4.4 voice pan and high-pass, 4.3 loop programs)
+    expect(first.abiVersion).toBe(0x40c); // 4.12 clip format 6 (IMA ADPCM decoded per voice); 4.11 per-voice spread; 4.10 effect and send automation, submix automation, dB ramps; 4.9 submix levels and ROUTE; 4.7 bus sends; 4.6 (ADR 0331 effect catalogue DSP; 4.5 instance submixes; 4.4 voice pan and high-pass, 4.3 loop programs)
     expect(first.currentFrame).toBe(6 * 128);
     await expect(r.link.ready).resolves.toBeUndefined();
     r.run(6);

@@ -26,7 +26,7 @@ export interface ClipInfo {
   readonly frames: number;
   /** The container's estimate (exact when `lengthKnown`), -1 when none. */
   readonly framesEstimate: number;
-  /** 0 other, 1 PCM, 2 FLAC, 3 MP3, 4 Vorbis, 5 AAC. */
+  /** 0 other, 1 PCM, 2 FLAC, 3 MP3, 4 Vorbis, 5 AAC, 6 Opus (decoder ABI 1.5), 7 the engine's IMA ADPCM (a `.mycopak` entry). */
   readonly codec: number;
   /** Whether the container stated the length exactly. */
   readonly lengthKnown: boolean;
@@ -42,6 +42,18 @@ export interface ClipInfo {
    * (meaning 1) for every other clip.
    */
   readonly importGain?: number;
+  /**
+   * ADR 0337 A4: 6 when the clip is held compressed as the core's clip format 6: its `clipChunk`s carry whole IMA ADPCM
+   * blocks (`ADPCM_BLOCK_FRAMES` frames, `ADPCM_CHANNEL_BYTES` per channel each; an even byte count, so `pcm` views them
+   * as int16 words), not samples. Absent: the chunks are interleaved int16 samples.
+   */
+  readonly clipFormat?: 6;
+}
+
+/** ADR 0337 §7, A4: an entry of a package the worker holds (`packLoad`), by package id and the entry's project path. */
+export interface PackRef {
+  readonly pack: number;
+  readonly path: string;
 }
 
 // --- Main to worker ----------------------------------------------------------------------------
@@ -62,7 +74,34 @@ export interface DecodeClipMessage {
   readonly hint: DecodeHint;
   /** ADR 0162 §2.4 (K0; B1 sends it, B2's decoder applies it): the sidecar's convention, so FuMa is converted while decoding. */
   readonly convention?: AmbisonicConvention;
+  /**
+   * ADR 0337 A4: decode this entry of a package the worker holds instead of `bytes` (which may then be empty); its codec
+   * (TOC) picks the path: `adpcm` with load `compressed` comes back as format 6 blocks (`ClipInfo.clipFormat`), `adpcm`
+   * otherwise decoded to int16, every other codec decoded as a file (`source` probed). An entry the worker doesn't hold
+   * is an `error` with this `id`.
+   */
+  readonly pack?: PackRef;
 }
+
+/**
+ * ADR 0337 §7, A4: hold a `.mycopak` (`bytes` transferred) under `pack`, read with the A1 reader
+ * (`engine/audio/packaging/format.ts`). Its entries then decode (`decodeClip` with `pack`) and stream (`streamOpen` with
+ * `pack`: a `compressed` Vorbis or Opus entry plays from these bytes through a stream ring). A second load under the same
+ * id replaces the first. Answered with `packLoaded`, or `error` with `pack` set.
+ */
+export interface PackLoadMessage {
+  readonly type: "packLoad";
+  readonly pack: number;
+  readonly bytes: ArrayBuffer;
+}
+
+/** ADR 0337: drop package `pack` (streams already open on it keep their copy). Unknown ids are ignored. */
+export interface PackReleaseMessage {
+  readonly type: "packRelease";
+  readonly pack: number;
+}
+
+export type PackRequest = PackLoadMessage | PackReleaseMessage;
 
 /** Stops the decode `id` (clip) at its next chunk boundary; it then answers `cancelled`. Unknown ids are ignored. */
 export interface CancelMessage {
@@ -91,6 +130,8 @@ export interface StreamOpenMessage {
    * 4, 9 or 16 channels (the wire's STREAM_OPEN `channels` 1–16 and `convention`).
    */
   readonly convention?: AmbisonicConvention;
+  /** ADR 0337 A4: stream this entry of a package the worker holds instead of `bytes` (which may then be empty). */
+  readonly pack?: PackRef;
 }
 
 /** ADR 0328: one loop of a stream's program after its first, in file frames. */
@@ -307,7 +348,7 @@ export interface ComputePeaksMessage {
 }
 
 export type StreamRequest = StreamOpenMessage | StreamCreditMessage | StreamSeekMessage | StreamCloseMessage | StreamLoopMessage | ConnectWorkletMessage;
-export type DecoderRequest = InitMessage | DecodeClipMessage | CancelMessage | StreamRequest | IrRequest | MusicRequest | ComputePeaksMessage;
+export type DecoderRequest = InitMessage | DecodeClipMessage | CancelMessage | StreamRequest | IrRequest | MusicRequest | ComputePeaksMessage | PackRequest;
 
 // --- Worker to main ----------------------------------------------------------------------------
 
@@ -328,7 +369,10 @@ export interface ClipInfoMessage {
   readonly info: ClipInfo;
 }
 
-/** A piece of a clip, interleaved int16 (`pcm` transferred), `index` counting from 0. All chunks but the last hold `CLIP_CHUNK_FRAMES` frames. */
+/**
+ * A piece of a clip, interleaved int16 (`pcm` transferred), `index` counting from 0. All chunks but the last hold
+ * `CLIP_CHUNK_FRAMES` frames. ADR 0337 A4: for a clip whose info has `clipFormat` 6, the piece's whole ADPCM blocks.
+ */
 export interface ClipChunkMessage {
   readonly type: "clipChunk";
   readonly id: number;
@@ -385,6 +429,16 @@ export interface ErrorMessage {
   /** The decoder's negative `ERR_*` code, when the failure came from it. */
   readonly code?: number;
   readonly fatal?: boolean;
+  /** ADR 0337: the package a `packLoad` failed for. */
+  readonly pack?: number;
+}
+
+/** ADR 0337: package `pack` is held: `entries` entries, `bytes` long. */
+export interface PackLoadedMessage {
+  readonly type: "packLoaded";
+  readonly pack: number;
+  readonly entries: number;
+  readonly bytes: number;
 }
 
 /** ADR 0162 C9 (K0): kernel `kernelId` reached the worklet. `truncated`: the IR was cut to `maxFrames` with a 50 ms fade. */
@@ -456,7 +510,8 @@ export interface MusicWarnMessage {
 
 export type MusicReply = GroupOpenedMessage | NeedBytesMessage | MusicWarnMessage;
 
-export type DecoderReply = ReadyMessage | ClipInfoMessage | ClipChunkMessage | ClipDoneMessage | CancelledMessage | StreamOpenedMessage | StreamChunkMessage | StreamClosedMessage | ErrorMessage | IrPreparedMessage | IrFailedMessage | MusicReply | PeaksMessage;
+export type DecoderReply = ReadyMessage | ClipInfoMessage | ClipChunkMessage | ClipDoneMessage | CancelledMessage | StreamOpenedMessage | StreamChunkMessage | StreamClosedMessage | ErrorMessage | IrPreparedMessage | IrFailedMessage | MusicReply | PeaksMessage | PackLoadedMessage;
+
 
 /** Frames per `clipChunk`: 65,536 (1.5 s at 44.1 kHz), 128 KiB per channel, so a long clip is never one huge message. */
 export const CLIP_CHUNK_FRAMES = 65536;

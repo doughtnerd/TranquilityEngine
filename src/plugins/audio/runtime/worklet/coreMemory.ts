@@ -4,6 +4,8 @@
 // the wasm's own `myco_audio_layout_bytes` and `myco_audio_zone_kernel_budget_bytes`, so a drift fails a test.
 import type { CorePreset } from "./coreDriver";
 import {
+  ADPCM_BLOCK_FRAMES,
+  ADPCM_CHANNEL_BYTES,
   ClipFormat,
   FX_MEMORY_SECONDS,
   STREAM_MAX_CHANNELS,
@@ -66,6 +68,11 @@ const WIDE_RING_BYTES = STREAM_MAX_CHANNELS * (STREAM_RING_FRAMES_WIDE + STREAM_
 const FX_ENTRY_BYTES = 560; // 448 before ADR 0333 (ABI 4.11) added spread
 /** `layout::PLANAR_SCRATCH_BYTES`. */
 const PLANAR_SCRATCH_BYTES = 16 * QUANTUM * 4;
+/**
+ * `adpcm_voice::CURSOR_BYTES` (ADR 0337 A4, ABI 4.12): one ADPCM voice cursor, a 512-frame stereo int16 window and its
+ * decoder and seam state, one per mixed voice in the `AdpcmCursors` region after `FxMem`.
+ */
+const ADPCM_CURSOR_BYTES = 2_176;
 
 const alignUp = (n: number, to: number): number => Math.ceil(n / to) * to;
 const headParts = (frames: number): number => Math.min(Math.ceil(frames / QUANTUM), ZONE_KERNEL_MAX_HEAD_PARTS);
@@ -127,7 +134,9 @@ export function spatialRegionsBytes(preset: CorePreset, sampleRate: number): num
   const zones = zonesRegionBytes(preset.maxZoneSlots, zoneMaxFrames(preset, sampleRate), preset.maxBuses);
   const wide = preset.maxWide * WIDE_RING_BYTES;
   const fx = alignUp(preset.maxMixed * FX_ENTRY_BYTES, REGION_ALIGN);
-  return [beds, zones, wide, fx, PLANAR_SCRATCH_BYTES].reduce((sum, n) => sum + alignUp(n, REGION_ALIGN), 0);
+  // ADR 0337 A4: the ADPCM voice cursors, one per pool entry (laid out after `FxMem`, sized like the pool).
+  const adpcm = preset.maxMixed * ADPCM_CURSOR_BYTES;
+  return [beds, zones, wide, fx, PLANAR_SCRATCH_BYTES, adpcm].reduce((sum, n) => sum + alignUp(n, REGION_ALIGN), 0);
 }
 
 /**
@@ -180,7 +189,18 @@ export function musicRingsBytes(preset: CorePreset): number {
   return preset.maxMusicRings * 307_200;
 }
 
-/** @internal Bytes per sample of a CLIP_BEGIN format (0 for a format the shell doesn't know): ADR 0162 C6 adds 3-5, all f32. */
+/**
+ * @internal The bytes a CLIP_CHUNK of `frames` frames carries for a clip of `channels` in `format`: its samples, or (ADR 0337
+ * A4, format 6) its whole IMA ADPCM blocks (`ADPCM_CHANNEL_BYTES` per channel per `ADPCM_BLOCK_FRAMES`, the last block
+ * padded). 0 for a format the shell doesn't know.
+ */
+export function clipChunkBytes(format: number, channels: number, frames: number): number {
+  if (format === ClipFormat.AdpcmIma) return Math.ceil(frames / ADPCM_BLOCK_FRAMES) * channels * ADPCM_CHANNEL_BYTES;
+  return frames * channels * clipSampleBytes(format);
+}
+
+/** @internal Bytes per sample of a CLIP_BEGIN format (0 for a format the shell doesn't know, and for ADPCM: `clipChunkBytes`): ADR 0162 C6 adds 3-5, all f32. */
+
 export function clipSampleBytes(format: number): number {
   switch (format) {
     case ClipFormat.F32:
