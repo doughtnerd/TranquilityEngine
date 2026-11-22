@@ -61,3 +61,6 @@ Plan: [plan.md](plan.md). Ground rules for tasks: [ground-rules.md](ground-rules
   tests, are deleted).
 - `golden/seams/*` is kept for `audioGoldenSeams` and the native test, but its writer (`music/seam.test.ts`) is gone,
   so those goldens can't be regenerated (follow-up in impl status, ADR 0329 row). No size gates touched.
+- Merged W8 (migration loops), W7-C (core DSP, ABI 4.6/4.7) and W8-B (derived samples). Full Vitest after W7-C:
+  787 files, 8755 passed, 0 failed. Mixer wasm 469,339 B of the 512 KB tripwire (92%: next native work should expect
+  to raise it with a logged reason). Metered baseline adds 8 scenes; existing scenes moved ≤ +0.39%.

@@ -260,3 +260,17 @@ exactly as the old runtime behaved. Equal sidecar loops are reused; a conflictin
 `<name>.loop<n>.sample.json` (lineage duplicate/follow, holding only that loop). Risk accepted (as in the hand fix): a
 sidecar loop applies to every use of the file. Found: the runtime didn't resolve derived samples at all — a task
 (W8-B) is adding it to the clip resolver.
+
+**D34. Core DSP catalogue and bus sends (W7-C, merged).** All kernels live once in `audio-dsp::fx` with caller-owned
+memory (buses, submixes and a future offline render share them); large state in a 20 s stereo `FxMem` region (7.7 MB
+at 48 kHz, first-fit, swept after configure; starving passes through and counts). Choices worth review: delay lines
+1.5× time (250 ms–2 s); saturation `tanh(gx)/g` (level-safe); EQ corners fixed 250 Hz/1 kHz/4 kHz; limiter without
+look-ahead, sample peak (no delay compensation in the mix); sidechain attack fixed 5 ms; formant shift by order-16 LPC
+(costliest: 20.6 M instructions a quantum per submix); a second legacy compressor now runs instead of being dropped.
+Merge fixes: the live-op merge (`legacy.ts`) mapped effects by the old shown-set while the view showed the core's, so
+an edit on a bus with an EQ would hit the wrong effect — now maps by `coreShown` and writes catalogue params by name;
+a bus past the insert cap no longer also warns about compressors. Mixer wasm 469,339 B (512 KB tripwire not raised).
+
+**D35. Derived samples at runtime (W8-B, merged).** The backend sees the source file (`PlayRequest.path`), so the
+decoded buffer is shared; a snippet's range intersects the block's trim; a following fork of a fork reads its
+parent's *resolved* block (ADR wording) — the Studio's `sampleSession.ts` reads one level only (to align).
