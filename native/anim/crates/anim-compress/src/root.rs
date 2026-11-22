@@ -38,7 +38,13 @@ pub(crate) fn extract(model: &[Transform], motion: RootMotion) -> Vec<[f32; 4]> 
             y += tau;
         }
         prev = y;
-        let keep = |flag: u8, v: f64| if motion.axes & flag != 0 { v as f32 } else { 0.0 };
+        let keep = |flag: u8, v: f64| {
+            if motion.axes & flag != 0 {
+                v as f32
+            } else {
+                0.0
+            }
+        };
         out.push([
             keep(ROOT_X, d.x),
             keep(ROOT_Y, d.y),

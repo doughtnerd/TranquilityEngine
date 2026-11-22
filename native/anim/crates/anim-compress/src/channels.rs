@@ -53,8 +53,18 @@ pub(crate) fn resample(clip: &Clip, rate: f32) -> (u32, Vec<Vec<f32>>) {
                 let b = &t.raw[p.f1 as usize * w..][..w];
                 let lerp = |i: usize| a[i] as f64 + (b[i] as f64 - a[i] as f64) * p.alpha;
                 let quat_at = |o: usize| {
-                    let qa = Quat::new(a[o] as f64, a[o + 1] as f64, a[o + 2] as f64, a[o + 3] as f64);
-                    let qb = Quat::new(b[o] as f64, b[o + 1] as f64, b[o + 2] as f64, b[o + 3] as f64);
+                    let qa = Quat::new(
+                        a[o] as f64,
+                        a[o + 1] as f64,
+                        a[o + 2] as f64,
+                        a[o + 3] as f64,
+                    );
+                    let qb = Quat::new(
+                        b[o] as f64,
+                        b[o + 1] as f64,
+                        b[o + 2] as f64,
+                        b[o + 3] as f64,
+                    );
                     qa.normalize_or_identity()
                         .nlerp(qb.normalize_or_identity(), p.alpha)
                 };
@@ -77,7 +87,13 @@ pub(crate) fn resample(clip: &Clip, rate: f32) -> (u32, Vec<Vec<f32>>) {
 }
 
 fn quat_at(v: &[f32], o: usize) -> Quat {
-    Quat::new(v[o] as f64, v[o + 1] as f64, v[o + 2] as f64, v[o + 3] as f64).normalize_or_identity()
+    Quat::new(
+        v[o] as f64,
+        v[o + 1] as f64,
+        v[o + 2] as f64,
+        v[o + 3] as f64,
+    )
+    .normalize_or_identity()
 }
 
 /// Rotation samples as stored: drop-w on `w ≥ 0`, full with sign continuity (first `w ≥ 0`).
@@ -188,7 +204,12 @@ pub(crate) fn build(
                 .flat_map(|f| frame(f)[0..3].iter().map(|&x| x as f64).collect::<Vec<_>>())
                 .collect();
             let sc: Vec<f64> = (0..frames as usize)
-                .flat_map(|f| frame(f)[7..10].iter().map(|&x| x as f64).collect::<Vec<_>>())
+                .flat_map(|f| {
+                    frame(f)[7..10]
+                        .iter()
+                        .map(|&x| x as f64)
+                        .collect::<Vec<_>>()
+                })
                 .collect();
             let r = rest[bone];
             let rest_rot = rotation_values(&[r.rotation], format);
@@ -215,7 +236,11 @@ pub(crate) fn build(
                         .fold(0.0, f64::max)
                 };
                 let mut c = Chan::new(track, kind, cw, Some(bone), values.clone());
-                let default_dev = if additive { f64::INFINITY } else { dev(&rest_v) };
+                let default_dev = if additive {
+                    f64::INFINITY
+                } else {
+                    dev(&rest_v)
+                };
                 let mid: Vec<f32> = mid_range(&values, cw).iter().map(|&x| x as f32).collect();
                 let mid64: Vec<f64> = mid.iter().map(|&x| x as f64).collect();
                 let const_dev = dev(&mid64);
@@ -270,7 +295,13 @@ pub(crate) fn build(
 }
 
 impl Chan {
-    fn new(track: u32, kind: ChannelKind, width: usize, bone: Option<usize>, values: Vec<f64>) -> Self {
+    fn new(
+        track: u32,
+        kind: ChannelKind,
+        width: usize,
+        bone: Option<usize>,
+        values: Vec<f64>,
+    ) -> Self {
         Chan {
             track,
             kind,

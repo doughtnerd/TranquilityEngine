@@ -33,7 +33,11 @@ impl Rng {
     }
     pub fn unit(&mut self) -> Vec3 {
         loop {
-            let v = Vec3::new(self.f64(-1.0, 1.0), self.f64(-1.0, 1.0), self.f64(-1.0, 1.0));
+            let v = Vec3::new(
+                self.f64(-1.0, 1.0),
+                self.f64(-1.0, 1.0),
+                self.f64(-1.0, 1.0),
+            );
             let l = v.length();
             if l > 0.1 && l <= 1.0 {
                 return v.scale(1.0 / l);
@@ -121,12 +125,20 @@ pub fn skeleton(shape: Shape, rng: &mut Rng) -> Skeleton {
         .enumerate()
         .map(|(i, &parent)| {
             let dir = rng.unit();
-            let len = if parent == NO_PARENT { 0.0 } else { rng.f64(0.05, 0.35) };
+            let len = if parent == NO_PARENT {
+                0.0
+            } else {
+                rng.f64(0.05, 0.35)
+            };
             let q = Quat::from_axis_angle(rng.unit(), rng.f64(-0.5, 0.5));
             Bone {
                 name: i as u32,
                 parent,
-                translation: [(dir.x * len) as f32, (dir.y * len) as f32, (dir.z * len) as f32],
+                translation: [
+                    (dir.x * len) as f32,
+                    (dir.y * len) as f32,
+                    (dir.z * len) as f32,
+                ],
                 rotation: [q.x as f32, q.y as f32, q.z as f32, q.w as f32],
                 scale: [1.0, 1.0, 1.0],
                 inverse_bind: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
@@ -180,7 +192,7 @@ impl Wave {
             motion,
             amp,
             freq,
-            phase: rng.f64(0.0, 6.28),
+            phase: rng.f64(0.0, std::f64::consts::TAU),
             axis: rng.unit(),
             offset: rng.unit().scale(amp),
         }
@@ -220,7 +232,11 @@ pub fn clip(skel: &Skeleton, seconds: f64, looping: bool, rng: &mut Rng) -> Clip
             let rot = Wave::new(pick_motion(rng), rng.f64(0.1, 1.0), rng);
             let tr = Wave::new(pick_motion(rng), rng.f64(0.01, 0.1), rng);
             let sc = Wave::new(
-                if rng.below(5) == 0 { pick_motion(rng) } else { Motion::Default },
+                if rng.below(5) == 0 {
+                    pick_motion(rng)
+                } else {
+                    Motion::Default
+                },
                 rng.f64(0.05, 0.2),
                 rng,
             );
@@ -305,7 +321,8 @@ pub fn shells(skel: &Skeleton) -> Vec<f64> {
     for b in &skel.bones {
         if b.parent != NO_PARENT {
             let t = b.translation;
-            let len = ((t[0] as f64).powi(2) + (t[1] as f64).powi(2) + (t[2] as f64).powi(2)).sqrt();
+            let len =
+                ((t[0] as f64).powi(2) + (t[1] as f64).powi(2) + (t[2] as f64).powi(2)).sqrt();
             let p = &mut s[b.parent as usize];
             *p = p.max(len);
         }

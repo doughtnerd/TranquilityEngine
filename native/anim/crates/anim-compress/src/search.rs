@@ -3,7 +3,9 @@
 use crate::bits::BitWriter;
 use crate::channels::{self, apply_bone_value, local_error, quantize, Chan, Quantized};
 use crate::root;
-use crate::settings::{CompressError, Output, Report, Settings, TrackError, DEFAULT_SHELL_DISTANCE};
+use crate::settings::{
+    CompressError, Output, Report, Settings, TrackError, DEFAULT_SHELL_DISTANCE,
+};
 use crate::BIT_RATES;
 use anim_format::clip::{
     self, Channel, ChannelMode, Clip, ClipView, Compressed, RotationFormat, Segment, TrackKind,
@@ -191,10 +193,15 @@ fn check_settings(s: &Settings) -> Result<(), CompressError> {
     if !(s.property_error.is_finite() && s.property_error > 0.0) {
         return Err(CompressError::BadSetting("property error"));
     }
-    if s.track_errors.iter().any(|&(_, e)| !(e.is_finite() && e > 0.0)) {
+    if s.track_errors
+        .iter()
+        .any(|&(_, e)| !(e.is_finite() && e > 0.0))
+    {
         return Err(CompressError::BadSetting("track error"));
     }
-    if s.shell_distance.is_some_and(|d| !(d.is_finite() && d > 0.0)) {
+    if s.shell_distance
+        .is_some_and(|d| !(d.is_finite() && d > 0.0))
+    {
         return Err(CompressError::BadSetting("shell distance"));
     }
     if !clip::is_valid_bit_rate(s.max_bit_rate) {
@@ -340,7 +347,11 @@ fn screen(ctx: &Ctx<'_>, format: RotationFormat, chans: &mut [Chan]) {
                 let r = ctx.rest[cb];
                 match c.kind {
                     clip::ChannelKind::Rotation => {
-                        let q = if r.rotation.w < 0.0 { -r.rotation } else { r.rotation };
+                        let q = if r.rotation.w < 0.0 {
+                            -r.rotation
+                        } else {
+                            r.rotation
+                        };
                         let mut v = vec![q.x, q.y, q.z];
                         if format == RotationFormat::QuatFull {
                             v.push(q.w);
@@ -361,7 +372,11 @@ fn screen(ctx: &Ctx<'_>, format: RotationFormat, chans: &mut [Chan]) {
             let mut l = local[cb];
             apply_bone_value(&mut l, c.kind, &stored, format);
             let p = ctx.parents[cb];
-            model[cb] = if p == NO_PARENT { l } else { raw[p as usize].compose(l) };
+            model[cb] = if p == NO_PARENT {
+                l
+            } else {
+                raw[p as usize].compose(l)
+            };
             worst = worst.max(vertex_error(raw[cb], model[cb], ctx.shells[cb]));
             // Descendants come after `cb`; a bone is one when its parent is `cb` or one.
             let mut changed = vec![false; n];
@@ -488,7 +503,11 @@ fn search(ctx: &Ctx<'_>, format: RotationFormat, chans: Vec<Chan>) -> Solved {
                         let l = &q.decoded[f * w..(f + 1) * w];
                         match c.bone {
                             Some(b) => local_error(c.kind, r, l, format, ctx.shells[b]),
-                            None => r.iter().zip(l).map(|(x, y)| (x - y).abs()).fold(0.0, f64::max),
+                            None => r
+                                .iter()
+                                .zip(l)
+                                .map(|(x, y)| (x - y).abs())
+                                .fold(0.0, f64::max),
                         }
                     })
                     .fold(0.0, f64::max);
@@ -634,8 +653,7 @@ impl<'a> BoneSeg<'a> {
     fn refresh(&mut self, from: usize) {
         let parents = &self.ctx.parents;
         for f in 0..self.count {
-            for i in from..parents.len() {
-                let p = parents[i];
+            for (i, &p) in parents.iter().enumerate().skip(from) {
                 self.model[f][i] = if p == NO_PARENT {
                     self.local[f][i]
                 } else {
@@ -668,7 +686,12 @@ impl<'a> BoneSeg<'a> {
         let mut excess = 0.0f64;
         for f in 0..self.count {
             let mut l = self.local[f][cb];
-            apply_bone_value(&mut l, c.kind, &decoded[f * c.width..(f + 1) * c.width], self.format);
+            apply_bone_value(
+                &mut l,
+                c.kind,
+                &decoded[f * c.width..(f + 1) * c.width],
+                self.format,
+            );
             let mut m = if p == NO_PARENT {
                 l
             } else {
@@ -697,9 +720,18 @@ impl<'a> BoneSeg<'a> {
                 for &a in &self.bone_anim[cb] {
                     let c = &self.chans[self.anim[a]];
                     let q = memos[a].get(ladder, top);
-                    apply_bone_value(&mut l, c.kind, &q.decoded[f * c.width..(f + 1) * c.width], self.format);
+                    apply_bone_value(
+                        &mut l,
+                        c.kind,
+                        &q.decoded[f * c.width..(f + 1) * c.width],
+                        self.format,
+                    );
                 }
-                m = if self.ctx.parents[cb] == NO_PARENT { l } else { m.compose(l) };
+                m = if self.ctx.parents[cb] == NO_PARENT {
+                    l
+                } else {
+                    m.compose(l)
+                };
             }
             let raw = self.ctx.raw_model[self.start + f][b];
             worst = worst.max(vertex_error(raw, m, self.ctx.shells[b]));
@@ -722,7 +754,8 @@ impl<'a> BoneSeg<'a> {
                 let chain = ancestors(&self.ctx.parents, b);
                 if self.err[b].0 > bound {
                     let fixed = self.chans.iter().any(|c| {
-                        c.mode != ChannelMode::Animated && c.bone.is_some_and(|x| chain.contains(&x))
+                        c.mode != ChannelMode::Animated
+                            && c.bone.is_some_and(|x| chain.contains(&x))
                     });
                     if fixed && self.floor(b, &chain, memos) > bound {
                         return Some(b);
@@ -753,7 +786,9 @@ impl<'a> BoneSeg<'a> {
                             }
                         }
                     }
-                    let Some(a) = best.map(|b| b.1).or(lowest.map(|l| l.1)) else { break };
+                    let Some(a) = best.map(|b| b.1).or(lowest.map(|l| l.1)) else {
+                        break;
+                    };
                     steps[a] += 1;
                     let q = memos[a].get(ladder, steps[a]).decoded.clone();
                     self.set_local(a, &q);

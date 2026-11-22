@@ -12,7 +12,7 @@ use anim_format::clip::{
     Binding, ChannelMode, Clip, ClipView, RotationFormat, Track, TrackKind, CLIP_LOOP,
 };
 use anim_format::NONE;
-use anim_offline::math::{local_to_model, Quat, Vec3};
+use anim_offline::math::{local_to_model, Quat};
 use anim_offline::sample::{
     compressed_pose_at_frame, compressed_track_at_frame, raw_frame, raw_pose_at_frame,
     sample_compressed_pose, sample_raw_pose,
@@ -21,7 +21,12 @@ use common::*;
 
 const F64_SLACK: f64 = 1e-12;
 
-fn check_roundtrip(shape: Shape, seed: u64, looping: bool, settings: &Settings) -> anim_compress::Report {
+fn check_roundtrip(
+    shape: Shape,
+    seed: u64,
+    looping: bool,
+    settings: &Settings,
+) -> anim_compress::Report {
     let mut rng = Rng::new(seed);
     let skel = skeleton(shape, &mut rng);
     let clip = clip(&skel, 2.0, looping, &mut rng);
@@ -29,7 +34,11 @@ fn check_roundtrip(shape: Shape, seed: u64, looping: bool, settings: &Settings) 
     let r = &out.report;
     let bound = settings.error as f64;
     assert!(r.within_bounds, "{shape:?} seed {seed}: {r:?}");
-    assert!(r.max_error as f64 <= bound, "{shape:?} seed {seed}: reported {}", r.max_error);
+    assert!(
+        r.max_error as f64 <= bound,
+        "{shape:?} seed {seed}: reported {}",
+        r.max_error
+    );
 
     // Independent: decode the bytes, compare with the raw input frame by frame.
     let raw_bytes = clip.write().unwrap();
@@ -44,7 +53,10 @@ fn check_roundtrip(shape: Shape, seed: u64, looping: bool, settings: &Settings) 
         let b = compressed_pose_at_frame(&view, &rest, f).unwrap();
         worst = worst.max(pose_error(&parents, &shells, &a, &b));
     }
-    assert!(worst <= bound + F64_SLACK, "{shape:?} seed {seed}: measured {worst}");
+    assert!(
+        worst <= bound + F64_SLACK,
+        "{shape:?} seed {seed}: measured {worst}"
+    );
     // The report is that same measurement.
     assert!(
         (worst - r.max_error as f64).abs() <= 1e-9,
@@ -130,8 +142,16 @@ fn constant_clip_compresses_to_near_header_size() {
             // The rest pose.
             let b = &skel.bones[i];
             let rest = [
-                b.translation[0], b.translation[1], b.translation[2], b.rotation[0],
-                b.rotation[1], b.rotation[2], b.rotation[3], 1.0, 1.0, 1.0,
+                b.translation[0],
+                b.translation[1],
+                b.translation[2],
+                b.rotation[0],
+                b.rotation[1],
+                b.rotation[2],
+                b.rotation[3],
+                1.0,
+                1.0,
+                1.0,
             ];
             for f in t.raw.chunks_mut(10) {
                 f.copy_from_slice(&rest);
@@ -152,12 +172,19 @@ fn constant_clip_compresses_to_near_header_size() {
     // Header, channel table (16 B per channel) and the constants: nothing per frame.
     let constants = c.constants().len() * 4;
     let fixed = 32 + 16 * c.channel_count() + constants + 16 * c.segment_count();
-    assert!(r.compressed_size <= fixed + 64, "{} vs {fixed}", r.compressed_size);
+    assert!(
+        r.compressed_size <= fixed + 64,
+        "{} vs {fixed}",
+        r.compressed_size
+    );
     assert!(r.ratio() > 10.0, "ratio {}", r.ratio());
     // Every even track is entirely default.
     for (i, t) in out.clip.tracks.iter().enumerate() {
         if i % 2 == 0 {
-            assert_eq!(t.flags & anim_format::clip::TRACK_DEFAULT, anim_format::clip::TRACK_DEFAULT);
+            assert_eq!(
+                t.flags & anim_format::clip::TRACK_DEFAULT,
+                anim_format::clip::TRACK_DEFAULT
+            );
         }
     }
 }
@@ -329,7 +356,10 @@ fn root_curve_matches_the_raw_root_bone() {
                 if axes & ROOT_Z != 0 { d.z } else { 0.0 },
             ];
             for k in 0..3 {
-                assert!((rc[k] as f64 - expect[k]).abs() < 1e-5, "frame {f} axis {k}");
+                assert!(
+                    (rc[k] as f64 - expect[k]).abs() < 1e-5,
+                    "frame {f} axis {k}"
+                );
             }
             // The root turns 0.4 rad/s about +Y on top of a wobble: within the unwrapped range.
             if axes == ROOT_ALL {
@@ -340,7 +370,11 @@ fn root_curve_matches_the_raw_root_bone() {
                 while y - (rc[3] as f64) < -std::f64::consts::PI {
                     y += std::f64::consts::TAU;
                 }
-                assert!((rc[3] as f64 - y).abs() < 1e-5, "frame {f} yaw {} vs {y}", rc[3]);
+                assert!(
+                    (rc[3] as f64 - y).abs() < 1e-5,
+                    "frame {f} yaw {} vs {y}",
+                    rc[3]
+                );
             } else {
                 assert_eq!(rc[3], 0.0);
             }
@@ -399,5 +433,37 @@ fn refuses_bad_inputs() {
     no_raw.has_raw = false;
     no_raw.tracks.iter_mut().for_each(|t| t.raw.clear());
     assert!(compress(&no_raw, Some(&skel), &Settings::default()).is_err());
-    let _ = Vec3::ZERO;
+}
+
+/// A bit-rate cap the bound can't be met under: the report says so, honestly.
+#[test]
+fn a_low_rate_cap_reports_the_error_it_leaves() {
+    let mut rng = Rng::new(11);
+    let skel = skeleton(Shape::Chain(6), &mut rng);
+    let clip = clip(&skel, 2.0, false, &mut rng);
+    let settings = Settings {
+        max_bit_rate: 4,
+        ..Settings::default()
+    };
+    let out = compress(&clip, Some(&skel), &settings).unwrap();
+    let r = &out.report;
+    assert!(!r.within_bounds);
+    assert!(r.max_error > settings.error);
+    let view = ClipView::parse(&out.bytes).unwrap();
+    let c = view.compressed().unwrap();
+    for s in 0..c.segment_count() {
+        assert!(c.bit_rates(s).unwrap().iter().all(|&b| b <= 4));
+    }
+    let raw_bytes = clip.write().unwrap();
+    let raw_view = ClipView::parse(&raw_bytes).unwrap();
+    let (rest, parents) = rest_and_parents(&skel);
+    let sh = shells(&skel);
+    let worst = (0..clip.frame_count)
+        .map(|f| {
+            let a = raw_pose_at_frame(&raw_view, &rest, f);
+            let b = compressed_pose_at_frame(&view, &rest, f).unwrap();
+            pose_error(&parents, &sh, &a, &b)
+        })
+        .fold(0.0, f64::max);
+    assert!((worst - r.max_error as f64).abs() <= 1e-6 * worst.max(1e-3));
 }

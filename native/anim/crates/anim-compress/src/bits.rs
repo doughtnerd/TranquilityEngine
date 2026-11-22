@@ -12,7 +12,7 @@ impl BitWriter {
     pub(crate) fn push(&mut self, code: u32, bits: u32) {
         debug_assert!(bits == 32 || code >> bits == 0, "code wider than its rate");
         for i in 0..bits {
-            if self.bits % 8 == 0 {
+            if self.bits.is_multiple_of(8) {
                 self.bytes.push(0);
             }
             let bit = ((code >> i) & 1) as u8;

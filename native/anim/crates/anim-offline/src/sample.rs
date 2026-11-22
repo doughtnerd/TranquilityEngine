@@ -24,7 +24,6 @@ use anim_format::clip::{
     CLIP_SLERP,
 };
 use anim_format::skeleton::SkeletonView;
-use anim_format::NONE;
 
 /// Where time `t` falls between two frames.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -210,7 +209,11 @@ pub fn decode_channel(view: &ClipView<'_>, channel: usize, frame: u32) -> Option
     }
 }
 
-fn decode_animated(c: &CompressedView<'_>, ch: &anim_format::clip::Channel, frame: u32) -> Vec<f64> {
+fn decode_animated(
+    c: &CompressedView<'_>,
+    ch: &anim_format::clip::Channel,
+    frame: u32,
+) -> Vec<f64> {
     let sf = c.segment_frames();
     let s = (frame / sf) as usize;
     let seg = c.segment(s).unwrap();
@@ -265,7 +268,9 @@ fn decode_animated(c: &CompressedView<'_>, ch: &anim_format::clip::Channel, fram
 pub fn rotation_from(v: &[f64], format: RotationFormat) -> Quat {
     let q = match format {
         RotationFormat::QuatDropW => {
-            let w = (1.0 - (v[0] * v[0] + v[1] * v[1] + v[2] * v[2])).max(0.0).sqrt();
+            let w = (1.0 - (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]))
+                .max(0.0)
+                .sqrt();
             Quat::new(v[0], v[1], v[2], w)
         }
         RotationFormat::QuatFull => Quat::new(v[0], v[1], v[2], v[3]),
@@ -323,7 +328,11 @@ pub fn sample_compressed_pose(
 
 /// A non-bone track's value at compressed frame `frame`; `None` for a default channel (the
 /// field keeps its default) or a track without a value channel.
-pub fn compressed_track_at_frame(view: &ClipView<'_>, track: usize, frame: u32) -> Option<Vec<f64>> {
+pub fn compressed_track_at_frame(
+    view: &ClipView<'_>,
+    track: usize,
+    frame: u32,
+) -> Option<Vec<f64>> {
     let c = view.compressed()?;
     let i = (0..c.channel_count()).find(|&i| {
         c.channel(i)
@@ -352,12 +361,4 @@ pub fn vertex_error(a: Transform, b: Transform, shell: f64) -> f64 {
     .iter()
     .map(|&p| (a.transform_point(p) - b.transform_point(p)).length())
     .fold(0.0, f64::max)
-}
-
-/// The track index of bone `bone`'s track, if the clip has one.
-pub fn bone_track(view: &ClipView<'_>, bone: u32) -> Option<usize> {
-    (0..view.track_count()).find(|&i| {
-        view.track(i)
-            .is_some_and(|t| t.kind == TrackKind::Bone && t.binding.bone == bone && bone != NONE)
-    })
 }

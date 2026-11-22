@@ -108,6 +108,9 @@ pub fn rest_pose(skel: &SkeletonView<'_>, out: &mut [AosTransform]) -> bool {
 pub struct SegmentCache<'m> {
     key: usize,
     segment: u32,
+    /// The cached segment's bits per frame and Σ animated widths.
+    frame_bits: u64,
+    width_sum: usize,
     ranges: &'m mut [f32],
 }
 
@@ -117,6 +120,8 @@ impl<'m> SegmentCache<'m> {
         SegmentCache {
             key: 0,
             segment: NONE,
+            frame_bits: 0,
+            width_sum: 0,
             ranges,
         }
     }
@@ -208,7 +213,11 @@ impl<'a> ClipSampler<'a> {
     pub fn frame_pos(&self, t: f32) -> FramePos {
         let last = self.frames.saturating_sub(1);
         let x = t * self.rate;
-        let x = if x >= 0.0 { Lane::min(x, last as f32) } else { 0.0 };
+        let x = if x >= 0.0 {
+            Lane::min(x, last as f32)
+        } else {
+            0.0
+        };
         let f0 = (x.floor() as u32).min(last);
         FramePos {
             f0,
@@ -274,11 +283,15 @@ impl<'a> ClipSampler<'a> {
 
     fn raw_pose(&self, p: FramePos, a: &mut [AosTransform], b: &mut [AosTransform]) {
         for i in 0..self.view.track_count() {
-            let Some(t) = self.view.track(i) else { continue };
+            let Some(t) = self.view.track(i) else {
+                continue;
+            };
             if t.kind != TrackKind::Bone {
                 continue;
             }
-            let Some(raw) = self.view.track_raw(i) else { continue };
+            let Some(raw) = self.view.track_raw(i) else {
+                continue;
+            };
             let bone = t.binding.bone as usize;
             let frame = |f: u32| -> Option<AosTransform> {
                 let s = raw.slice(f as usize * 10, 10)?;
@@ -296,24 +309,36 @@ impl<'a> ClipSampler<'a> {
         }
     }
 
-    /// The segment context of `frame`; `frame_bits` is computed from the channel table.
-    fn seg(&self, c: &CompressedView<'a>, frame: u32) -> Option<Seg<'a>> {
-        let sf = c.segment_frames().max(1);
-        let index = (frame / sf) as usize;
-        let s = c.segment(index)?;
+    /// Segment `index`'s bits per frame and the sum of animated widths (one pass over the
+    /// channel table).
+    fn seg_bits(&self, c: &CompressedView<'a>, index: usize) -> Option<(u64, usize)> {
         let rates = c.bit_rates(index)?;
         let mut frame_bits = 0u64;
+        let mut width_sum = 0usize;
         for i in 0..c.channel_count() {
             let ch = c.channel(i)?;
             if ch.mode == ChannelMode::Animated {
                 let r = *rates.get(ch.animated_index as usize)? as u64;
                 frame_bits += r * ch.width as u64;
+                width_sum += ch.width as usize;
             }
         }
+        Some((frame_bits, width_sum))
+    }
+
+    /// The segment context of `frame` (in segment `index`, `frame_bits` per frame).
+    fn seg(
+        &self,
+        c: &CompressedView<'a>,
+        index: usize,
+        frame: u32,
+        frame_bits: u64,
+    ) -> Option<Seg<'a>> {
+        let s = c.segment(index)?;
         Some(Seg {
             index,
             data: c.segment_data(index)?,
-            rates,
+            rates: c.bit_rates(index)?,
             frame_pos: frame.saturating_sub(s.start_frame) as u64 * frame_bits,
         })
     }
@@ -324,13 +349,14 @@ impl<'a> ClipSampler<'a> {
         if cache.key == key && cache.segment == seg as u32 {
             return true;
         }
-        let need = self.cache_len();
-        if cache.ranges.len() < need {
+        let Some((frame_bits, width_sum)) = self.seg_bits(c, seg) else {
+            return false;
+        };
+        if cache.ranges.len() < 2 * width_sum {
             return false;
         }
         let clip_ranges = c.clip_ranges();
         let seg_ranges = c.segment_ranges();
-        let width_sum = need / 2;
         let mut comp = 0usize;
         for i in 0..c.channel_count() {
             let Some(ch) = c.channel(i) else { return false };
@@ -347,6 +373,8 @@ impl<'a> ClipSampler<'a> {
         }
         cache.key = key;
         cache.segment = seg as u32;
+        cache.frame_bits = frame_bits;
+        cache.width_sum = width_sum;
         true
     }
 
@@ -358,37 +386,55 @@ impl<'a> ClipSampler<'a> {
         b: &mut [AosTransform],
         cache: Option<&mut SegmentCache<'_>>,
     ) {
-        let (Some(s0), Some(s1)) = (self.seg(c, p.f0), self.seg(c, p.f1)) else {
-            return;
+        let sf = c.segment_frames().max(1);
+        let (i0, i1) = ((p.f0 / sf) as usize, (p.f1 / sf) as usize);
+        // Bits per frame and widths: from the cache, else one pass over the channel table.
+        let cache = cache.and_then(|cache| self.fill_cache(c, i0, cache).then_some(cache));
+        let (cached, bits0, width_sum): (Option<&[f32]>, _, _) = match cache {
+            Some(cache) => (Some(&*cache.ranges), cache.frame_bits, cache.width_sum),
+            None => match self.seg_bits(c, i0) {
+                Some((b, w)) => (None, b, w),
+                None => return,
+            },
         };
-        let cached: Option<&[f32]> = match cache {
-            Some(cache) => {
-                if self.fill_cache(c, s0.index, cache) {
-                    Some(&*cache.ranges)
-                } else {
-                    None
-                }
+        let bits1 = if i1 == i0 {
+            bits0
+        } else {
+            match self.seg_bits(c, i1) {
+                Some((b, _)) => b,
+                None => return,
             }
-            None => None,
+        };
+        let (Some(s0), Some(s1)) = (self.seg(c, i0, p.f0, bits0), self.seg(c, i1, p.f1, bits1))
+        else {
+            return;
         };
         let format = c.rotation_format();
         let constants = c.constants();
         let clip_ranges = c.clip_ranges();
         let seg_ranges = c.segment_ranges();
-        let width_sum = self.cache_len() / 2;
         let (mut pos0, mut pos1) = (s0.frame_pos, s1.frame_pos);
         let mut comp = 0usize; // animated components before this channel
+                               // The current track's bone (`None`: not a bone track); a bone track's three channels
+                               // are adjacent, so its record is read once.
+        let mut track: (u32, Option<usize>) = (NONE, None);
         for i in 0..c.channel_count() {
             let Some(ch) = c.channel(i) else { return };
-            let Some(t) = self.view.track(ch.track as usize) else { return };
+            if ch.track != track.0 {
+                let Some(t) = self.view.track(ch.track as usize) else {
+                    return;
+                };
+                let bone = (t.kind == TrackKind::Bone).then_some(t.binding.bone as usize);
+                track = (ch.track, bone);
+            }
             let w = ch.width as usize;
             let mut va = [0.0f32; 4];
             let mut vb = [0.0f32; 4];
             match ch.mode {
                 ChannelMode::Default => continue,
                 ChannelMode::Constant => {
-                    for k in 0..w.min(4) {
-                        va[k] = constants.get(ch.data_offset as usize + k).unwrap_or(0.0);
+                    for (k, v) in va.iter_mut().enumerate().take(w) {
+                        *v = constants.get(ch.data_offset as usize + k).unwrap_or(0.0);
                     }
                     vb = va;
                 }
@@ -410,7 +456,13 @@ impl<'a> ClipSampler<'a> {
                         let (m1, e1) = if s1.index == s0.index {
                             (m0, e0)
                         } else {
-                            seg_range(&clip_ranges, seg_ranges, &ch, k, s1.index * width_sum + comp + k)
+                            seg_range(
+                                &clip_ranges,
+                                seg_ranges,
+                                &ch,
+                                k,
+                                s1.index * width_sum + comp + k,
+                            )
                         };
                         va[k] = decode(s0.data, pos0, r0, m0, e0);
                         vb[k] = decode(s1.data, pos1, r1, m1, e1);
@@ -420,13 +472,9 @@ impl<'a> ClipSampler<'a> {
                     comp += w;
                 }
             }
-            if t.kind != TrackKind::Bone {
+            let Some(bone) = track.1.filter(|&b| b < a.len()) else {
                 continue;
-            }
-            let bone = t.binding.bone as usize;
-            if bone >= a.len() {
-                continue;
-            }
+            };
             apply(&mut a[bone], ch.kind, &va, format);
             apply(&mut b[bone], ch.kind, &vb, format);
         }
@@ -518,7 +566,10 @@ impl<'a> ClipSampler<'a> {
         let a_i = ch.animated_index;
         let mut comp = 0usize;
         let mut width_sum = 0usize;
-        let (s0, s1) = (self.seg(c, p.f0)?, self.seg(c, p.f1)?);
+        let sf = c.segment_frames().max(1);
+        let (i0, i1) = ((p.f0 / sf) as usize, (p.f1 / sf) as usize);
+        let s0 = self.seg(c, i0, p.f0, self.seg_bits(c, i0)?.0)?;
+        let s1 = self.seg(c, i1, p.f1, self.seg_bits(c, i1)?.0)?;
         let (mut pos0, mut pos1) = (s0.frame_pos, s1.frame_pos);
         for i in 0..c.channel_count() {
             let o = c.channel(i)?;
@@ -539,8 +590,20 @@ impl<'a> ClipSampler<'a> {
         let seg_ranges = c.segment_ranges();
         let mut vb = [0.0f32; 4];
         for k in 0..w {
-            let (m0, e0) = seg_range(&clip_ranges, seg_ranges, &ch, k, s0.index * width_sum + comp + k);
-            let (m1, e1) = seg_range(&clip_ranges, seg_ranges, &ch, k, s1.index * width_sum + comp + k);
+            let (m0, e0) = seg_range(
+                &clip_ranges,
+                seg_ranges,
+                &ch,
+                k,
+                s0.index * width_sum + comp + k,
+            );
+            let (m1, e1) = seg_range(
+                &clip_ranges,
+                seg_ranges,
+                &ch,
+                k,
+                s1.index * width_sum + comp + k,
+            );
             va[k] = decode(s0.data, pos0, r0, m0, e0);
             vb[k] = decode(s1.data, pos1, r1, m1, e1);
             pos0 += r0 as u64;
@@ -562,10 +625,15 @@ fn seg_range(
 ) -> (f32, f32) {
     let w = ch.width as usize;
     let cmin = clip_ranges.get(ch.data_offset as usize + k).unwrap_or(0.0);
-    let cext = clip_ranges.get(ch.data_offset as usize + w + k).unwrap_or(0.0);
+    let cext = clip_ranges
+        .get(ch.data_offset as usize + w + k)
+        .unwrap_or(0.0);
     let q_min = seg_ranges.get(2 * record).copied().unwrap_or(0) as u32;
     let q_ext = seg_ranges.get(2 * record + 1).copied().unwrap_or(0) as u32;
-    (unpack_range(q_min, 8, cmin, cext), unpack_unorm(q_ext, 8) * cext)
+    (
+        unpack_range(q_min, 8, cmin, cext),
+        unpack_unorm(q_ext, 8) * cext,
+    )
 }
 
 /// Reads `bits` (≤ 32) bits at bit `pos`, least significant first; bytes past the end read 0.

@@ -69,4 +69,6 @@ pub use settings::{
 pub use search::compress;
 
 /// The bit rates the search may choose, lowest first (`anim-format`'s valid rates).
-pub const BIT_RATES: [u8; 18] = [0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 23, 32];
+pub const BIT_RATES: [u8; 18] = [
+    0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 23, 32,
+];
