@@ -47,12 +47,16 @@ const WASI_SDK_VERSION = "25.0";
 const MIXER_LIMIT = 512 * 1024;
 /** ADR 0162 (api-and-models §5.2): M3's mixer warning, under the gate: a build past it warns but passes. */
 const MIXER_WARN = 300 * 1024;
-/** The decoder's size gate (M1b): 900 KB. */
-const DECODER_LIMIT = 900 * 1024;
-/** The AAC decoder build's own gate (B4; raised 1,100 -> 1,280 KB in M2 by the owner, 2026-11-10: gates are a signal to look for
- *  bloat, and M2's loop points are wanted growth). It ships beside the default decoder and is fetched only when a project sets
- *  `audio.codecs.aac`. */
-const DECODER_AAC_LIMIT = 1280 * 1024;
+/** The decoder's size tripwire (M1b: 900 KB). 1,000 KB since ADR 0345 §4 (2026-11-22, A7): libopus (fixed point, no
+ *  imports) joins every game's decoder for Ogg Opus, +173.5 KB measured by the A0 spike (≈ 978–993 KB projected with
+ *  symphonia's `adpcm` for imported WAV IMA sources), and no pure-Rust Opus decoder is mature enough to save it. */
+const DECODER_LIMIT = 1000 * 1024;
+/** The AAC decoder build's own tripwire (B4; raised 1,100 -> 1,280 KB in M2 by the owner, 2026-11-10: gates are a signal to
+ *  look for bloat, and M2's loop points are wanted growth). 1,350 KB since ADR 0345 §4 (A7): the AAC build gets libopus too
+ *  (+173.5 KB; the spike projected ≈ 1,317 KB with `adpcm`, over 1,280). It ships beside the default decoder and is fetched
+ *  only when a project sets `audio.codecs.aac`. */
+const DECODER_AAC_LIMIT = 1350 * 1024;
+
 /** The offline render's size tripwire (Audio Studio W9, 2026-11-22): the kernels, the curve evaluator and the spectral
  *  gate, ≈ 120 KB when it was written. It is fetched only by the Studio and the export's render, never by a game. */
 const OFFLINE_LIMIT = 256 * 1024;
@@ -127,7 +131,7 @@ function buildDecoder({ aac }) {
   return fileURLToPath(new URL(`${aac ? "target/aac" : "target"}/${TARGET}/release/myco_audio_decode.wasm`, import.meta.url));
 }
 
-/** Decodes three of audio-decode's fixtures with the built decoder wasm (FLAC, MP3, Ogg Vorbis; the AAC build also an
+/** Decodes four of audio-decode's fixtures with the built decoder wasm (FLAC, MP3, Ogg Vorbis, Ogg Opus; the AAC build also an
  *  M4A, trimmed to its source's length), checks each one's frame count, and returns the source hash the decoder
  *  embeds (hex). Exits 1 on a mismatch. */
 function smokeDecoder(path, { aac, label }) {
@@ -137,6 +141,8 @@ function smokeDecoder(path, { aac, label }) {
     ["tone-48000-stereo.flac", 2, 48000],
     ["tone-44100-mono.mp3", 3, 88200],
     ["tone-48000-stereo.ogg", 4, 48000],
+    // ADR 0337 A7: Ogg Opus through libopus, the pre-skip and the end trimming honoured.
+    ["tone-48000-stereo.opus", 4, 48000],
   ];
   if (aac) cases.push(["tone-48000-stereo.m4a", 5, 48000]);
   for (const [name, hint, frames] of cases) {
@@ -159,7 +165,7 @@ function smokeDecoder(path, { aac, label }) {
       process.exit(1);
     }
   }
-  console.log(`[build:audio] ${label} decodes the FLAC, MP3, Ogg Vorbis${aac ? " and M4A" : ""} fixtures`);
+  console.log(`[build:audio] ${label} decodes the FLAC, MP3, Ogg Vorbis, Ogg Opus${aac ? " and M4A" : ""} fixtures`);
   return Buffer.from(x.memory.buffer, x.myco_decode_source_hash(), 16).toString("hex");
 }
 

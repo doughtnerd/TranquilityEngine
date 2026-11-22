@@ -13,6 +13,7 @@ dependencies = [
 name = "audio-bench"
 version = "0.1.0"
 dependencies = [
+ "audio-adpcm",
  "audio-core",
  "audio-dsp",
  "audio-wire",

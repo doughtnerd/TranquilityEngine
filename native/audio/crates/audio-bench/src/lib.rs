@@ -255,6 +255,10 @@ pub struct Scene {
     /// Bn4 (`lanes-7`): every bus's gain lanes all moving: a BUS_AUTOMATE volume binding to a seeking global (the `automation`
     /// lane), beside [`Per::Lanes`]'s five main-written lanes and `duck`'s rules (the `duck` lane).
     pub lanes7: bool,
+    /// ADR 0337 A4 (0345 §5): the stereo clips are IMA ADPCM (format 6), decoded per mixed voice each quantum, instead of
+    /// int16. Their blocks are random codes under a mid-table step index: the decoder is branchless, so its cost doesn't
+    /// depend on the content.
+    pub adpcm: bool,
 }
 
 /// ADR 0171/0172 M5 (Bn4): the level rules of a sidechain scene ([`Scene::duck`]), peak or RMS detectors, amount 0.5, attack 20 ms,
@@ -435,6 +439,7 @@ impl Scene {
             spread: false,
             duck: None,
             lanes7: false,
+            adpcm: false,
         }
     }
 
@@ -743,6 +748,13 @@ pub fn scene(name: &str) -> Option<Scene> {
         "duck-gate" => Scene::sidechain(name, Some((1, false, false, DUCK_UNDER_DB))),
         "duck-8-gate" => Scene::sidechain(name, Some((8, true, false, DUCK_UNDER_DB))),
         "lanes-7" => Scene::per(Scene { lanes7: true, ..Scene::sidechain(name, Some((8, false, false, DUCK_ENGAGED_DB))) }, Per::Lanes, true),
+        // ADR 0337 A4 (0345 §5): ADPCM clips decoded per voice each quantum, each beside its int16 twin: 256 looping voices
+        // (twin `automation-base`; they start together, so they cross every block in the same quantum), 128 at pitch 4
+        // (twin `pitch4`), and the default preset's one-shots at pitch 0.5-2 (twin `default`; every start decodes from its
+        // block's header). `ADPCM_PAIRS` in the gate reports the cost per voice and the worst quantum against the mean.
+        "adpcm" => Scene { adpcm: true, ..Scene::looping(name, 256) },
+        "adpcm-pitch4" => Scene { adpcm: true, pitch: (4.0, 4.0), ..Scene::looping(name, 128) },
+        "adpcm-default" => Scene { adpcm: true, ..Scene::preset(name, 4_096, 128, 16, 8) },
         // ADR 0166 M4b (Bench1): music on the default preset, decoded and streamed, each beside its music-free twin (the
         // twin is shared: music's voices are on top of the same SFX). `MUSIC_PAIRS` in the gate holds the allowances.
         "music-typ-twin" => Scene::music(name, MusicKind::Typical, false, false),
@@ -1376,8 +1388,27 @@ impl Bench {
         let mut buf: Vec<u8> = Vec::new();
         for id in 1..=count as u32 {
             let frames = if scene.one_shots { (mean_frames as f32 * (0.5 + rng.unit())) as u32 } else { mean_frames as u32 };
+            if scene.adpcm {
+                // ADR 0337 A4: whole blocks of random codes, each channel's header a mid-table step index.
+                assert_eq!(clips::reserve(&mut core, id, frames, 2, RATE, wire::clip_format::ADPCM_IMA), wire::ERR_OK, "ADPCM clip reserve");
+                let bytes = audio_adpcm::encoded_bytes(frames as usize, 2);
+                buf.clear();
+                buf.resize(bytes, 0);
+                for (k, b) in buf.iter_mut().enumerate() {
+                    let at = k % audio_adpcm::block_bytes(2);
+                    *b = if at < 2 * audio_adpcm::HEADER_BYTES {
+                        [0, 0, 40, 0][at % audio_adpcm::HEADER_BYTES]
+                    } else {
+                        (rng.next() >> 24) as u8
+                    };
+                }
+                assert_eq!(clips::write(&mut core, id, 0, &buf), wire::ERR_OK, "ADPCM clip write");
+                clip_frames.push(frames);
+                continue;
+            }
             core.clips_mut().reserve(id, frames, 2, RATE, ClipFormat::I16).expect("clip reserve");
             buf.clear();
+
             buf.reserve(frames as usize * 4);
             for _ in 0..frames as usize * 2 {
                 let s = (rng.next() >> 16) as i16 / if scene.hot { 2 } else { 16 };
