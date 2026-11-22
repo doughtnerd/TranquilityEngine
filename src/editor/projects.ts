@@ -151,7 +151,7 @@ class MapProject implements EditorProject {
     private readonly namedBySettings = false,
   ) {
     this.mainScene = pickMainScene(this.files);
-    this.assets = { has: (p) => values.has(p), get: (p) => values.get(p) };
+    this.assets = { has: (p) => values.has(p), get: (p) => values.get(p), paths: () => values.keys() }; // listed: Locale finds string tables (ADR 0342)
   }
 
   get name(): string {
