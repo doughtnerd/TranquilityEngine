@@ -8,6 +8,7 @@
 import { diffOps, type ApplyResult, type MixOp, type MixOpEntry } from "../../../../engine/audio/mixOps";
 import { audioSection } from "../../../../engine/audio/audioSection";
 import { editor, type SectionChange } from "../../../../editor/sdk";
+import { withMixOpOrigin, type MixOpOriginName } from "../../runtime/capture/mixOpOrigin";
 
 /** What the log needs of the mixer: the play Engine's `mixer.apply`. */
 export interface MixApplier {
@@ -83,7 +84,9 @@ function createOpLog(host: OpLogHost): OpLog {
     // G9b: an edit with no live op but a key with no live path (the AAC codec, `LIVE_KEYS`) is still an entry: its
     // `restartRequired` is what the Mixer's "Applies at the next Play" banner shows. Nothing for the mixer: no entry.
     if (ops.length === 0 && restartRequired.length === 0) return;
-    const results = ops.map((op) => mixer.apply(op));
+    // ADR 0334: the capture labels the MIXOP records with what moved the draft (undo, redo, else the editor).
+    const origin: MixOpOriginName = change.cause === "undo" || change.cause === "redo" ? change.cause : "editor";
+    const results = ops.map((op) => withMixOpOrigin(origin, () => mixer.apply(op)));
     entries.push({ seq: ++seq, cause: change.cause, source, ops, results, restartRequired });
     if (entries.length > OP_LOG_LIMIT) entries.splice(0, entries.length - OP_LOG_LIMIT);
   });

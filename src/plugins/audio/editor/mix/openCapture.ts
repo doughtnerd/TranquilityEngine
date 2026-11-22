@@ -7,8 +7,11 @@
 // file too big to be a capture, is turned away with a banner before its bytes are read; everything else goes to the
 // controller's `openBlob`, whose decode (the Worker, with the security caps in `capture/format.ts`; the file-size bound
 // is the reader's `CAPTURE_MAX_FILE_BYTES`) produces the banners for a truncated, foreign, bomb or other-wire file.
-// Nothing here raises a decode cap.
-import { CAPTURE_MAX_FILE_BYTES } from "../../runtime/capture/reader";
+// Nothing here raises a decode cap. A take (ADR 0334, `.mycotake`: a capture with the take flag and the game's requests)
+// opens the same way; its size bound is the reader's `TAKE_MAX_FILE_BYTES` (the decode accepts that size only with the
+// take flag set, so a capture renamed to `.mycotake` is still held to the capture cap there).
+import { CAPTURE_MAX_FILE_BYTES, TAKE_MAX_FILE_BYTES } from "../../runtime/capture/reader";
+import { TAKE_EXTENSION } from "../../runtime/capture/save";
 import type { ProfilerController, ProfilerSlots } from "./ProfilerPanel";
 
 /** The file extension a capture is saved with (`capture/save.ts`). */
@@ -27,25 +30,31 @@ export type CaptureOpener = Pick<ProfilerController, "openBlob" | "refuseFile">;
 /** The name desktop and Android saves get: the engine's Tauri `Storage` adds `.bin` to binary values (`<appData>/cache/<key>.bin`). */
 export const CAPTURE_STORAGE_EXTENSION = `${CAPTURE_EXTENSION}.bin`;
 
-const isCaptureFileName = (name: string): boolean => {
+/** What a file name says it is: a capture, a take, or neither (null). */
+const fileKind = (name: string): "capture" | "take" | null => {
   const n = name.toLowerCase();
-  return n.endsWith(CAPTURE_EXTENSION) || n.endsWith(CAPTURE_STORAGE_EXTENSION);
+  if (n.endsWith(CAPTURE_EXTENSION) || n.endsWith(CAPTURE_STORAGE_EXTENSION)) return "capture";
+  if (n.endsWith(TAKE_EXTENSION) || n.endsWith(`${TAKE_EXTENSION}.bin`)) return "take";
+  return null;
 };
 
 /** The refusal texts (the tests assert them). */
 export const OPEN_REFUSALS = {
-  notCapture: (name: string): string => `${name} is not a capture file; the Profiler opens ${CAPTURE_EXTENSION} files recorded by Audio.capture.`,
+  notCapture: (name: string): string => `${name} is not a capture file; the Profiler opens ${CAPTURE_EXTENSION} files recorded by Audio.capture and ${TAKE_EXTENSION} takes.`,
   tooBig: (name: string, size: number): string => `${name} is ${size} B, more than any capture this build can open (${CAPTURE_MAX_FILE_BYTES} B).`,
+  takeTooBig: (name: string, size: number): string => `${name} is ${size} B, more than any take this build can open (${TAKE_MAX_FILE_BYTES} B).`,
 } as const;
 
 /** Opens `file` through the controller, or refuses it with a banner. Resolves true when a capture is now open. */
 async function routeCaptureFile(controller: CaptureOpener, file: CaptureFileLike): Promise<boolean> {
-  if (!isCaptureFileName(file.name)) {
+  const kind = fileKind(file.name);
+  if (kind === null) {
     controller.refuseFile(file.name, "notCapture", OPEN_REFUSALS.notCapture(file.name));
     return false;
   }
-  if (file.size !== undefined && file.size > CAPTURE_MAX_FILE_BYTES) {
-    controller.refuseFile(file.name, "tooLarge", OPEN_REFUSALS.tooBig(file.name, file.size));
+  const max = kind === "take" ? TAKE_MAX_FILE_BYTES : CAPTURE_MAX_FILE_BYTES;
+  if (file.size !== undefined && file.size > max) {
+    controller.refuseFile(file.name, "tooLarge", (kind === "take" ? OPEN_REFUSALS.takeTooBig : OPEN_REFUSALS.tooBig)(file.name, file.size));
     return false;
   }
   return controller.openBlob(file);

@@ -98,7 +98,7 @@ function ownBlock(type: PlaylistType): Partial<Pick<PlaylistBody, "queue" | "swi
 /** An empty playlist body of `type` (its own block at defaults). */
 export function emptyPlaylistBody(type: PlaylistType = "queue"): PlaylistBody {
   return {
-    type, output: null, playback: defaultPlayback(), volume: 0, pitch: 0, volumeRandom: [0, 0], pitchRandom: [0, 0], effects: [], spatial: null,
+    type, output: null, playback: defaultPlayback(), volume: 0, pitch: 0, volumeRandom: [0, 0], pitchRandom: [0, 0], effects: [], automation: [], spatial: null,
     parameters: [], stingers: [], entries: [], queue: null, switch: null, blend: null, sequence: null, ...ownBlock(type),
   };
 }
@@ -128,6 +128,7 @@ class PlaylistReader {
     out.volumeRandom = r.pair(raw.volumeRandom, at("volumeRandom"), [0, 0], -48, 48);
     out.pitchRandom = r.pair(raw.pitchRandom, at("pitchRandom"), [0, 0], -24, 24);
     out.effects = this.effects(raw.effects, at("effects"), "instance");
+    out.automation = this.automation(raw.automation, at("automation"), "voiceTime", true);
     out.spatial = this.spatial(raw.spatial, at("spatial"));
     out.parameters = parseParameters(raw.parameters, at("parameters"), this.problems, PLAYLIST_LIMITS.parameters);
     const note = r.optStr(raw.note, at("note"));
@@ -239,7 +240,8 @@ class PlaylistReader {
     return { input: this.input(raw.input, `${where}.input`, "voiceTime"), curve, bypass: r.bool(raw.bypass, `${where}.bypass`, false) };
   }
 
-  automation(raw: unknown, where: string, defaultInput: CurveInput): Automation[] {
+  /** Automation lanes; `instance` (a playlist's own lanes) takes voice time or a parameter only. */
+  automation(raw: unknown, where: string, defaultInput: CurveInput, instance = false): Automation[] {
     const r = this.r;
     const out: Automation[] = [];
     const ids = new IdScope(r);
@@ -253,7 +255,12 @@ class PlaylistReader {
       }
       const curve = r.curve(a.curve, `${w}.curve`);
       if (!curve || curve.length === 0) return void r.problem(`${w}.curve`, "needs keys; dropped.");
-      out.push({ id: ids.take(a.id, w, "a"), target: target as Automation["target"], input: this.input(a.input, `${w}.input`, defaultInput), curve, bypass: r.bool(a.bypass, `${w}.bypass`, false) });
+      let input = this.input(a.input, `${w}.input`, defaultInput);
+      if (instance && (input === "clipTime" || input === "sequenceTime")) {
+        r.problem(`${w}.input`, `${input} belongs to sequence clips and tracks; a playlist's own automation reads voiceTime.`);
+        input = "voiceTime";
+      }
+      out.push({ id: ids.take(a.id, w, "a"), target: target as Automation["target"], input, curve, bypass: r.bool(a.bypass, `${w}.bypass`, false) });
     });
     return out;
   }
@@ -720,6 +727,7 @@ export function playlistBodyToJson(b: PlaylistBody): JsonRecord {
   if (b.volumeRandom[0] !== 0 || b.volumeRandom[1] !== 0) out.volumeRandom = [...b.volumeRandom];
   if (b.pitchRandom[0] !== 0 || b.pitchRandom[1] !== 0) out.pitchRandom = [...b.pitchRandom];
   if (b.effects.length) out.effects = effectsToJson(b.effects);
+  if (b.automation.length) out.automation = automationToJson(b.automation);
   if (b.spatial) {
     const s = b.spatial;
     out.spatial = { attenuation: typeof s.attenuation === "string" || s.attenuation === null ? s.attenuation : attenuationToJson(s.attenuation), occlusion: s.occlusion, doppler: s.doppler, spread: s.spread };

@@ -8,6 +8,7 @@ import { editor } from "../../../../editor/sdk";
 import { ROOT, closeTestProject, openTestProject } from "../../../../editor/testing";
 import { playState } from "../../../../editor/state";
 import { recordMixOps, startOpLog, type MixApplier, type OpLog } from "./opLog";
+import { currentMixOpOrigin } from "../../runtime/capture/mixOpOrigin";
 
 const PROJECT = `{
   "name": "Game",
@@ -17,8 +18,11 @@ const PROJECT = `{
 
 class FakeMixer implements MixApplier {
   applied: MixOp[] = [];
+  /** The MIXOP origin a recorder would write for each op (what was named around the call). */
+  origins: string[] = [];
   apply(op: MixOp): ApplyResult {
     this.applied.push(op);
+    this.origins.push(currentMixOpOrigin());
     return { ok: false, class: "none", reason: "noLiveBackend" };
   }
 }
@@ -116,6 +120,8 @@ describe("the audio op log", () => {
     await s.redo();
     expect(mixer.applied[2]).toEqual(mixer.applied[0]);
     expect(log.entries.map((e) => e.cause)).toEqual(["edit", "undo", "redo"]);
+    expect(mixer.origins).toEqual(["editor", "undo", "redo"]); // D22: the capture's MIXOP origin
+    expect(currentMixOpOrigin()).toBe("editor");
     expect(log.entries[0].results[0].reason).toBe("noLiveBackend");
     log.dispose();
   });

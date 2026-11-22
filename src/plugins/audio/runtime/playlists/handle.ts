@@ -2,7 +2,8 @@
  * The public handle over a playlist instance (ADR 0329 `AudioPlaylistHandle`): the event handle's members across the
  * instance's voices, plus `onMarker`. `stop()` without a fade fades over 120 ms (ADR 0329); `trigger` fires a stinger;
  * `music` reads the musical clock of the playing entry (a Sequence with a tempo, or a Clip whose sample has one) and is
- * undefined without one.
+ * undefined without one; `onMusic("beat" | "bar")` hears that clock's beats and bars (`beatCallbacks.ts`; `cue` is silent:
+ * a playlist's cues are markers).
  */
 import type { Vec3Like } from "../../../../engine/core/math";
 import type { GridPoint, GridSpec, MusicEvent, MusicHandle, MusicKind, MusicPositionAt, MusicSeekResult } from "../../../../engine/audio/musicTypes";
@@ -70,7 +71,10 @@ class PlaylistHandle implements AudioPlaylistHandle {
     if (!this.instance.musicalSource()?.hasGrid) return undefined;
     return (this.musicView ??= new PlaylistMusic(this.instance));
   }
-  onMusic(_kind: MusicKind, _fn: (e: MusicEvent) => void): () => void { return () => {}; }
+  onMusic(kind: MusicKind, fn: (e: MusicEvent) => void): () => void {
+    if (typeof fn !== "function" || this.instance.stopped) return () => {};
+    return this.instance.musicCallbacks(this).on(kind, fn);
+  }
   trigger(name: string): boolean { return this.instance.trigger(String(name)); }
 }
 

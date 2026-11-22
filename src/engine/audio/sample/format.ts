@@ -10,12 +10,12 @@
  */
 import { deepEqual } from "../deepEqual";
 import { effectsToJson, parseEffects } from "../effects/catalogue";
-import { IdScope, isFiniteNumber, isRecord, LenientReader, type JsonRecord } from "../lenientRead";
+import { curveToJson, IdScope, isFiniteNumber, isRecord, LenientReader, type JsonRecord } from "../lenientRead";
 import { loopBehaviourToJson, parseLoopBehaviour } from "../playlist/loopBehaviour";
 import { NOTE_NAME_PATTERN } from "./noteNames";
 import {
   SAMPLE_FORMAT, SAMPLE_SUFFIX, type DerivedSampleAsset, type LoopDirection, type LoopFileSnapshot, type MarkerFileSnapshot, type MarkerType,
-  type SampleEdits, type SampleKind, type SampleLineage, type SampleLoop, type SampleMarker, type SampleNormalize, type SampleRoot,
+  type SampleAutomation, type SampleEdits, type SampleKind, type SampleLineage, type SampleLoop, type SampleMarker, type SampleNormalize, type SampleRoot,
   type SampleTempo, type TempoMarker, type ValueSource,
 } from "./types";
 
@@ -40,7 +40,11 @@ export const SAMPLE_LIMITS = Object.freeze({
   maxBpm: 400,
   /** Root note fine tune, cents either way. */
   cents: 50,
+  /** Automation lanes of the baked chain. */
+  automation: 32,
 });
+
+const FX_TARGET = /^fx:[^:]+:[^:]+$/;
 
 /** Default loop crossfade, ms (the prototype's). */
 export const DEFAULT_CROSSFADE_MS = 20;
@@ -64,7 +68,7 @@ export function defaultSampleEdits(kind: SampleKind = "oneshot"): SampleEdits {
   return {
     kind, trim: null, loops: [], markers: [], tempo: null, root: null,
     normalize: { mode: "off", target: DEFAULT_LOUDNESS_TARGET, gainDb: 0 },
-    effects: [], frozen: false, cuts: [], deleted: [], closedGaps: [], stinger: false, snapToZero: defaultSnapToZero(kind),
+    effects: [], automation: [], frozen: false, cuts: [], deleted: [], closedGaps: [], stinger: false, snapToZero: defaultSnapToZero(kind),
   };
 }
 
@@ -221,6 +225,23 @@ function parseNormalize(raw: unknown, where: string, r: LenientReader): SampleNo
   return out;
 }
 
+/** The baked chain's automation lanes: `fx:<effect id>:<parameter>` targets over sample time (`clipTime`). */
+function parseSampleAutomation(raw: unknown, where: string, r: LenientReader): SampleAutomation[] {
+  const out: SampleAutomation[] = [];
+  const ids = new IdScope(r);
+  r.list(raw, where).forEach((a, i) => {
+    const w = `${where}[${i}]`;
+    if (out.length >= SAMPLE_LIMITS.automation) return void r.problem(w, `at most ${SAMPLE_LIMITS.automation} automation lanes; dropped.`);
+    if (!isRecord(a)) return void r.problem(w, "automation must be an object; dropped.");
+    if (typeof a.target !== "string" || !FX_TARGET.test(a.target)) return void r.problem(`${w}.target`, "must be fx:<effect id>:<parameter>; dropped.");
+    const curve = r.curve(a.curve, `${w}.curve`);
+    if (!curve || curve.length === 0) return void r.problem(`${w}.curve`, "needs keys; dropped.");
+    if (a.input !== undefined && a.input !== "clipTime") r.problem(`${w}.input`, 'a sample\'s automation reads sample time; using "clipTime".');
+    out.push({ id: ids.take(a.id, w, "a"), target: a.target as SampleAutomation["target"], input: "clipTime", curve, bypass: r.bool(a.bypass, `${w}.bypass`, false) });
+  });
+  return out;
+}
+
 /** Sorted, unique times ≥ 0, at most `limit`. */
 function parseTimes(raw: unknown, where: string, r: LenientReader, limit: number): number[] {
   const out: number[] = [];
@@ -308,7 +329,8 @@ export function parseSampleEdits(raw: unknown, where: string, problems: string[]
   out.root = parseRoot(raw.root, `${where}.root`, r);
   out.normalize = parseNormalize(raw.normalize, `${where}.normalize`, r);
   out.effects = parseEffects(raw.effects, "sample", `${where}.effects`, problems);
-  out.frozen = r.bool(raw.frozen, `${where}.frozen`, false);
+  out.automation = parseSampleAutomation(raw.automation, `${where}.automation`, r);
+  out.frozen =r.bool(raw.frozen, `${where}.frozen`, false);
   out.cuts = parseTimes(raw.cuts, `${where}.cuts`, r, SAMPLE_LIMITS.cuts);
   out.deleted = parseTimes(raw.deleted, `${where}.deleted`, r, SAMPLE_LIMITS.cuts);
   r.list(raw.closedGaps, `${where}.closedGaps`).forEach((g, i) => {
@@ -370,6 +392,13 @@ export function sampleEditsToJson(e: SampleEdits): JsonRecord {
   const n = e.normalize;
   if (n.mode !== "off" || n.target !== DEFAULT_LOUDNESS_TARGET || n.gainDb !== 0) out.normalize = { mode: n.mode, target: n.target, gainDb: n.gainDb };
   if (e.effects.length) out.effects = effectsToJson(e.effects);
+  if (e.automation.length) {
+    out.automation = e.automation.map((a) => {
+      const json: JsonRecord = { id: a.id, target: a.target, input: a.input, curve: curveToJson(a.curve) };
+      if (a.bypass) json.bypass = true;
+      return json;
+    });
+  }
   if (e.frozen) out.frozen = true;
   if (e.cuts.length) out.cuts = [...e.cuts];
   if (e.deleted.length) out.deleted = [...e.deleted];
@@ -433,7 +462,7 @@ export function derivedSampleToJson(a: DerivedSampleAsset): JsonRecord {
 // --- forks -----------------------------------------------------------------------------------------------------------
 
 
-const EDIT_FIELDS = ["kind", "trim", "loops", "markers", "tempo", "root", "normalize", "effects", "frozen", "cuts", "deleted", "closedGaps", "stinger", "snapToZero", "source"] as const satisfies readonly (keyof SampleEdits)[];
+const EDIT_FIELDS = ["kind", "trim", "loops", "markers", "tempo", "root", "normalize", "effects", "automation", "frozen", "cuts", "deleted", "closedGaps", "stinger", "snapToZero", "source"] as const satisfies readonly (keyof SampleEdits)[];
 
 /**
  * The edits a derived sample plays with. A following fork reads each top-level field that still equals its `baseline`

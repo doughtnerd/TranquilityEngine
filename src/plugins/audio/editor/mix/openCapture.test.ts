@@ -13,6 +13,7 @@ import { CaptureSource, type CaptureWorkerLike, type ProfileSource } from "./pro
 import { createCaptureWorkerHandler, type CaptureRequest, type CaptureResponse } from "../../runtime/capture/worker";
 import { ProfilerController, profilerSlots, type ProfilerDeps, type ProfilerSlots } from "./ProfilerPanel";
 import { OPEN_REFUSALS, installOpenCapture, type CaptureFileLike } from "./openCapture";
+import { TAKE_MAX_FILE_BYTES } from "../../runtime/capture/reader";
 
 // The banners' words.
 const BANNER_TEXT = {
@@ -211,6 +212,24 @@ describe("the decode caps refuse a bomb (security bounds, not raised)", () => {
     // The bound is inclusive of a file exactly at it (the decoder's caps still apply to what it holds).
     expect(await routeCaptureFile(c, { name: "edge.mycap", size: OPEN_MAX_FILE_BYTES, arrayBuffer: read })).toBe(false);
     expect(read).toHaveBeenCalledTimes(1);
+    c.dispose();
+  });
+});
+
+describe("takes (ADR 0334, D22)", () => {
+  it("a .mycotake opens by the same route, up to the take's size bound; a capture keeps its own bound", async () => {
+    expect(await isCaptureFileName("take-20261122-101500.mycotake")).toBe(true);
+    expect(await isCaptureFileName("Boss.MYCOTAKE.bin")).toBe(true);
+    const read = vi.fn(async () => new ArrayBuffer(0));
+    const c = new ProfilerController(deps());
+    // Past the capture bound but within the take's: a take is read (its decode applies the take caps), a capture is not.
+    expect(await routeCaptureFile(c, { name: "big.mycap", size: OPEN_MAX_FILE_BYTES + 1, arrayBuffer: read })).toBe(false);
+    expect(read).not.toHaveBeenCalled();
+    await routeCaptureFile(c, { name: "big.mycotake", size: OPEN_MAX_FILE_BYTES + 1, arrayBuffer: read });
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(await routeCaptureFile(c, { name: "huge.mycotake", size: TAKE_MAX_FILE_BYTES + 1, arrayBuffer: read })).toBe(false);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(textOf(c, "error")).toContain(OPEN_REFUSALS.takeTooBig("huge.mycotake", TAKE_MAX_FILE_BYTES + 1));
     c.dispose();
   });
 });

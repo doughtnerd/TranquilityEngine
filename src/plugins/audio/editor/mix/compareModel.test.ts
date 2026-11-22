@@ -4,6 +4,7 @@ import { deepEqual } from "../../../../engine/audio/deepEqual";
 import { parseAudioSettings, type AudioSettings } from "../../../../engine/audio/settings";
 import { LoudnessHub } from "../../runtime/mix/loudnessHub";
 import { createCompareModel, type CompareHost } from "./compareModel";
+import { currentMixOpOrigin } from "../../runtime/capture/mixOpOrigin";
 
 const audio = (over: Record<string, unknown> = {}): AudioSettings =>
   parseAudioSettings({
@@ -23,10 +24,13 @@ function rig(initial: AudioSettings) {
   const live = { audio: structuredClone(initial) };
   const log: string[] = [];
   const origins: string[] = [];
+  /** The MIXOP origin a recorder would write (what Compare named around the call). */
+  const recorded: string[] = [];
   const ops: MixOp[] = [];
   const host: CompareHost = {
     apply(op, origin) {
       origins.push(origin);
+      recorded.push(currentMixOpOrigin());
       ops.push(op);
       const next = applyOpToSettings(live.audio, op);
       const ok = next !== live.audio;
@@ -39,7 +43,7 @@ function rig(initial: AudioSettings) {
     setCompare: (on) => log.push(`setCompare ${on}`),
   };
   const model = createCompareModel({ host, current: () => project.audio });
-  return { project, live, log, origins, ops, model };
+  return { project, live, log, origins, recorded, ops, model };
 }
 
 /** Edit the project the way the panel does while Play runs (the Engine gets it through the op log). */
@@ -89,6 +93,8 @@ describe("Compare with Play start", () => {
     expect(swap.ops.length).toBeGreaterThan(5);
     expect(swap.failed).toBe(0);
     expect(r.origins.every((o) => o === "compare")).toBe(true);
+    expect(r.recorded).toEqual(r.ops.map(() => "compare"));
+    expect(currentMixOpOrigin()).toBe("editor");
     expect(r.log[0]).toBe("setCompare true");
     expect(r.log.filter((l) => l === "flushNow")).toHaveLength(1);
     expect(r.log.filter((l) => l.startsWith("marker"))).toHaveLength(1);

@@ -12,7 +12,8 @@ Conventions:
 
 | Member | Type | Meaning |
 | --- | --- | --- |
-| `Audio.capture` | `AudioCapture` | Records a take of the mix for the Profiler, [below](#audiocapture) |
+| `Audio.capture` | `AudioCapture` | Records the mix for the Profiler, [below](#audiocapture) |
+| `Audio.take` | `AudioTake` | Records a take: what the game asked of audio plus the profile, for the Studio to replay; see [Audio takes](audio-takes.md#audiotake) |
 | `Audio.loudnessTarget` | `string \| null`, read and write | The name of the entry of `audio.loudnessTargets` that every meter checks against. The first entry is the default. Setting `null` selects the first entry. An unknown name warns once and keeps the current one. Changing it is not a meter reset |
 
 ```ts
@@ -119,13 +120,13 @@ if (m.incomplete || m.tainted) console.log("read this number with care");
 
 | Member | Type | Meaning |
 | --- | --- | --- |
-| `state` | `AudioCaptureState` | `"idle"`, `"loading"` (the chunk is loading), `"recording"` or `"stopped"` (a take exists to save) |
+| `state` | `AudioCaptureState` | `"idle"`, `"loading"` (the chunk is loading), `"recording"` or `"stopped"` (a recording exists to save) |
 | `seconds`, `bytes` | `number` | What the ring holds; 0 while idle |
-| `truncated` | `boolean` | The ring wrapped over the start of the take; the file begins at a later keyframe and says so |
-| `start()` | `Promise<void>` | Load the recorder and begin a take. Resolves once recording; rejects with a message if the chunk or the core is unavailable. A second `start()` while recording joins the take, writes a marker and resolves at once |
-| `stop()` | `void` | End the take. The ring keeps recording while the Profiler panel is open |
+| `truncated` | `boolean` | The ring wrapped over the start of the recording; the file begins at a later keyframe and says so |
+| `start()` | `Promise<void>` | Load the recorder and begin a recording. Resolves once recording; rejects with a message if the chunk or the core is unavailable. A second `start()` while recording joins the recording, writes a marker and resolves at once |
+| `stop()` | `void` | End the recording. The ring keeps recording while the Profiler panel is open |
 | `mark(text)` | `void` | A marker on the timeline, cut to 120 UTF-8 bytes. Does nothing while no ring runs |
-| `save(name?)` | `Promise<string>` | Compress and save the latest take. Resolves with the file name (web) or path (app). Rejects with "nothing recorded: call Audio.capture.start() first" when there is none |
+| `save(name?)` | `Promise<string>` | Compress and save the latest recording. Resolves with the file name (web) or path (app). Rejects with "nothing recorded: call Audio.capture.start() first" when there is none |
 
 `save` keeps letters, digits, `.`, `_` and `-` of `name`, turns other runs into `_`, cuts to 64 characters and adds `.mycap`. Without a name the file is `capture-YYYYMMDD-HHMMSS.mycap`. On desktop and Android the app saves `<name>.mycap.bin` in its cache folder; auto-named files keep the newest 16. A browser downloads and stops at 16 saves per page session. See [Captures on Android](audio-profiler.md#captures-on-android) for getting a file off a phone.
 
@@ -169,9 +170,9 @@ What a project writes. The full bus model is in [Audio mixer](audio-mixer.md); t
 
 At most 32 ducking rules, at most 8 of them level rules, and no cycle among level rules. The `amount`, `attack` and `release` of a rule, and the snapshot and automation keys, are unchanged; see [Live mixing and ducking](audio-mixing.md#ducking).
 
-An exported game records and saves captures when exported with the **Audio capture** option (`game.json` `audioCapture: true`; `npm run export -- <dir> --audio-capture`). F9, or a one-second three-finger hold, starts and then stops and saves. See [Audio profiler](audio-profiler.md#capturing-from-a-game-script).
+An exported game records and saves captures when exported with the **Audio capture** option (`game.json` `audioCapture: true`; `npm run export -- <dir> --audio-capture`). F9, or a one-second three-finger hold, starts and then stops and saves. See [Audio profiler](audio-profiler.md#capturing-from-a-game-script). The **Audio take** option (`game.json` `audioTake: true`; `--audio-take`) does the same for takes on F10; see [Audio takes](audio-takes.md).
 
 ## See also
 
-- [Audio mixer](audio-mixer.md), [Live mixing and ducking](audio-mixing.md), [Loudness](audio-loudness.md), [Audio profiler](audio-profiler.md)
+- [Audio mixer](audio-mixer.md), [Live mixing and ducking](audio-mixing.md), [Loudness](audio-loudness.md), [Audio profiler](audio-profiler.md), [Audio takes](audio-takes.md)
 - [ADR 0171](../decisions/0171-audio-profiler-loudness-metering-and-live-mixing.md), [0172](../decisions/0172-audio-mix-design-corrections-and-owner-decisions.md), [0173](../decisions/0173-the-editor-sdk-lets-a-panel-edit-project-settings-through-the-shared-section.md)

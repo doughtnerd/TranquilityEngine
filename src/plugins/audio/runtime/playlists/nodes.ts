@@ -20,6 +20,7 @@ import { isLabelled, parameterRange } from "../../../../engine/audio/eventFormat
 import { warnOnce } from "../core/handle";
 import { curveParts } from "./curves";
 import { playlistEffectProps } from "./effects";
+import { automationParts, type TimeAuto } from "./levelAutomation";
 import { EmptyNode, LiveNode, type Ctx, type DynGain, type NodeHost, type PVoice, type SpatialPlan } from "./liveNode";
 import { linkedPlaylist } from "./loader";
 import { FALLBACK_SECONDS_PER_BEAT, MUSICAL_FALLBACK_NOTE, type MusicalSource } from "./musical";
@@ -64,21 +65,29 @@ export function bodyCtx(host: NodeHost, ctx: Ctx, body: PlaylistBody, where: str
   const override = body.output !== null;
   const props = accumulate(ctx.props, { gainDb, pitchSt, fx: playlistEffectProps(body.effects, where), outputOverride: override });
   const delay = ctx.depth > 0 ? body.playback.delay : 0; // the root's delay is the instance's (`PlaylistInstance.start`)
-  return {
-    ...ctx,
-    props,
-    bus: override ? body.output! : ctx.bus,
-    at: delay > 0 ? host.startOf(ctx.at) + delay : ctx.at,
-    spatial: host.spatialOf(body, ctx.spatial),
-    where,
-  };
+  const at = delay > 0 ? host.startOf(ctx.at) + delay : ctx.at;
+  const out: Ctx = { ...ctx, props, bus: override ? body.output! : ctx.bus, at, spatial: host.spatialOf(body, ctx.spatial), where };
+  return body.automation.length > 0 ? instanceAutomation(host, out, body, where) : out;
+}
+
+/**
+ * A playlist's own automation (`PlaylistBody.automation`, D23) on its level: parameter-keyed lanes become bindings for
+ * every voice below; voice-time lanes count from when this playlist starts (its `at`, else now) and each voice reads them
+ * from its own start (`anchorTimeCurves`). Effect targets go through the playlist effects adapter where it maps them.
+ */
+function instanceAutomation(host: NodeHost, ctx: Ctx, body: PlaylistBody, where: string): Ctx {
+  const time: TimeAuto[] = [];
+  const next = automationParts(host, body.automation, body.effects, ctx, time, where);
+  if (time.length === 0) return next;
+  const origin = host.startOf(ctx.at);
+  return { ...next, timeCurves: [...next.timeCurves, ...time.map((t) => ({ target: t.target, curve: t.curve, origin }))] };
 }
 
 /**
  * ADR 0334: one decision, for the capture's "Why it played" chain (a `pick` EVENT after the instance's `eventStart`):
  * nothing while no recorder runs, or for an instance without a group.
  */
-function notePick(host: NodeHost, ctx: Ctx, type: ProfilePick["type"], choice: number, label: string | null = null, weights: ProfilePick["weights"] = null): void {
+export function notePick(host: NodeHost, ctx: Ctx, type: ProfilePick["type"], choice: number, label: string | null = null, weights: ProfilePick["weights"] = null): void {
   const sink = taps.sink;
   if (sink === NULL_PROFILE_SINK || !sink.pick || !host.group) return;
   sink.pick({ instance: host.group, depth: ctx.depth, playlist: ctx.where, type, choice, label, weights });

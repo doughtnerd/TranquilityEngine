@@ -72,7 +72,7 @@ function BarView({ view, status, onRecord, onStop, onSave, onOpen, onCancel, onF
         <input
           ref={fileInputRef}
           type="file"
-          accept=".mycap,.bin"
+          accept=".mycap,.mycotake,.bin"
           hidden
           aria-label="Choose a capture file"
           onChange={(e) => {

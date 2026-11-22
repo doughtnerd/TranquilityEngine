@@ -8,6 +8,10 @@ export const QUEUE = {
   playback: { plays: "oneShot", maxInstances: 4, whenFull: "stealQuietest", cooldown: 0.05, chance: 0.9, delay: 0, priority: 100 },
   volume: -3, pitch: 0, volumeRandom: [-2, 0], pitchRandom: [-1, 1],
   effects: [{ id: "fx1", type: "lowpass", on: true, params: { cutoff: 8000 } }],
+  automation: [
+    { id: "a1", target: "fx:fx1:cutoff", input: { parameter: "Speed" }, curve: [[0, 8000], [10, 2000]] },
+    { id: "a2", target: "volume", input: "voiceTime", curve: [[0, -6], [1, 0]] },
+  ],
   spatial: { attenuation: "audio/attenuation/feet.attenuation.json", occlusion: true, doppler: 0.5, spread: null },
   parameters: [{ name: "Speed", min: 0, max: 10, default: 0, seekSpeed: 0 }],
   stingers: [],

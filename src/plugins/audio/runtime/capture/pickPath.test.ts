@@ -50,6 +50,26 @@ describe("pick paths (ADR 0334)", () => {
     expect(pick!.choice).toBe(1);
   });
 
+  it("a sequence's playlist clip is the sequence's pick (its place over all tracks and its id), before the picks inside it", async () => {
+    await kit.boot({
+      "q.playlist.json": pla("queue", [sample("a.wav"), sample("b.wav")], { queue: { pick: "roundRobin" } }),
+      "s.playlist.json": pla("sequence", [], { sequence: { length: 2, tracks: [
+        { id: "t1", kind: "audio", clips: [{ id: "c1", sample: "c.wav", at: 0, length: 1 }] },
+        { id: "t2", kind: "playlist", clips: [{ id: "p1", playlist: "q.playlist.json", at: 0, length: 1 }, { id: "p2", playlist: { type: "clip", entries: [sample("d.wav")] }, at: 1, length: 1 }] },
+      ] } }),
+    });
+    const rec = recordingSink();
+    taps.sink = rec.sink;
+    Audio.play("s.playlist.json");
+    for (let t = 0.1; t < 1.5; t += 0.1) { kit.setTime(t); kit.frame(); }
+    const picks = rec.of("pick").map((c) => c[0] as ProfilePick);
+    expect(picks.map((p) => [p.type, p.depth, p.choice, p.label, p.playlist])).toEqual([
+      ["sequence", 0, 1, "p1", "s.playlist.json"],
+      ["queue", 1, 0, null, "q.playlist.json"],
+      ["sequence", 0, 2, "p2", "s.playlist.json"],
+    ]);
+  });
+
   it("nothing is reported while no recorder runs", async () => {
     await kit.boot({ "q.playlist.json": pla("queue", [sample("a.wav")]) });
     const rec = recordingSink();

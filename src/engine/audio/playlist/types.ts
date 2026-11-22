@@ -57,7 +57,10 @@ export interface VoiceCurve {
 }
 export type VoiceCurveTarget = "gain" | "pitch" | "pan" | "lowpass" | "highpass";
 
-/** Automation in sequences and on tracks: `fx:<effectId>:<param>` targets an effect parameter. */
+/**
+ * Automation on sequence clips and tracks and on a playlist instance (`PlaylistBody.automation`): `fx:<effectId>:<param>`
+ * targets an effect parameter of the owner's own chain.
+ */
 export interface Automation {
   id: string;
   target: "volume" | "pitch" | "pan" | "enabled" | `fx:${string}:${string}`;
@@ -164,6 +167,7 @@ export interface Clip {
   pitch: number;
   pan: number;
   reverse: boolean;
+  /** Locked to the playhead. The file default is false; an editor adding a clip uses `defaultClipSync` (`clipDefaults.ts`). */
   sync: boolean;
   enabled: boolean;
   /** Per-clip overrides of the sample's loops, by loop id. */
@@ -220,6 +224,13 @@ export interface PlaylistBody {
   volumeRandom: [number, number];
   pitchRandom: [number, number];
   effects: Effect[];
+  /**
+   * Instance-level automation (ADR 0329, decision log D23): curves on the playing instance of this playlist, over all
+   * its voices. Targets `volume`, `pitch`, `pan`, `enabled` and `fx:<id>:<param>` (an effect of this playlist's own
+   * `effects`); input `voiceTime` (seconds since this playlist started playing) or a parameter. The parse turns a
+   * `clipTime` or `sequenceTime` input (which belong to sequence clips and tracks) into `voiceTime`.
+   */
+  automation: Automation[];
   spatial: PlaylistSpatial | null;
   parameters: ParameterDef[];
   stingers: Stinger[];

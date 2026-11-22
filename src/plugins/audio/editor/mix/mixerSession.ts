@@ -122,7 +122,7 @@ export function createMixerSession(options: MixerSessionOptions): MixerSession {
   });
   const compare = createCompareModel({
     host: {
-      // The mixer has no origin argument: Compare's ops reach it as any live op does.
+      // The mixer has no origin argument: Compare names it around the call (`withMixOpOrigin`).
       apply: (op) => host.apply(op),
       flushNow: () => host.flushNow?.(),
       marker: (text) => host.marker?.(text),

@@ -160,6 +160,29 @@ describe("parsePlaylist: the rules the runtime needs", () => {
     expect(playlist.sequence!.tracks[0].automation).toEqual([{ id: "a1", target: "fx:e1:cutoff", input: { parameter: "speed" }, curve: [[0, 1]], bypass: false }]);
     expect(problems).toHaveLength(3);
   });
+
+  it("reads a playlist's own automation, defaulting to voice time and turning clip or sequence time into it", () => {
+    const { playlist, problems } = parsePlaylist({
+      format: "myco.playlist@1", type: "queue", entries: [],
+      automation: [
+        { id: "a1", target: "pitch", curve: [[0, 0], [2, 3]] },
+        { id: "x", target: "enabled", input: "clipTime", curve: [[0, 1]] },
+        { id: "a2", target: "pan", input: { parameter: "side" }, curve: [[0, -1], [1, 1]], bypass: true },
+        { target: "loud", curve: [[0, 0]] },
+      ],
+    });
+    expect(playlist.automation).toEqual([
+      { id: "a1", target: "pitch", input: "voiceTime", curve: [[0, 0], [2, 3]], bypass: false },
+      { id: "x", target: "enabled", input: "voiceTime", curve: [[0, 1]], bypass: false },
+      { id: "a2", target: "pan", input: { parameter: "side" }, curve: [[0, -1], [1, 1]], bypass: true },
+    ]);
+    expect(problems).toEqual([
+      "automation[1].input: clipTime belongs to sequence clips and tracks; a playlist's own automation reads voiceTime.",
+      "automation[3].target: must be volume, pitch, pan, enabled or fx:<effect id>:<parameter>; dropped.",
+    ]);
+    expect(parsePlaylist(playlistToJson(playlist)).playlist).toEqual(playlist);
+    expect(playlistToJson(emptyPlaylist())).not.toHaveProperty("automation");
+  });
 });
 
 describe("parsePlaylist: limits", () => {

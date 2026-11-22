@@ -22,6 +22,32 @@ import { AutoTarget, MAX_BINDINGS, TimeParam, timeParam, type Binding, type Para
 export interface TimeCurve {
   target: "gain" | "pitch" | "lowpass";
   curve: Curve;
+  /**
+   * Heard time the curve's zero is at, when that isn't the voice's own start: a playlist's instance-level lane keyed on
+   * the playlist's start (`PlaylistBody.automation`). The voice that plays it reads it shifted to its own start
+   * (`anchorTimeCurves`).
+   */
+  origin?: number;
+}
+
+const shiftCache = new WeakMap<Curve, Map<number, Curve>>();
+/** `curve` read `offset` seconds later: what it says at t + offset, at t (cached per curve and offset). */
+export function shiftedCurve(curve: Curve, offset: number): Curve {
+  if (Math.abs(offset) < 1e-9) return curve;
+  let m = shiftCache.get(curve);
+  if (!m) shiftCache.set(curve, (m = new Map()));
+  const hit = m.get(offset);
+  if (hit) return hit;
+  const out = curve.map((k) => [k[0] - offset, ...k.slice(1)] as unknown as CurveKey);
+  if (m.size > 64) m.clear();
+  m.set(offset, out);
+  return out;
+}
+
+/** `curves` for a voice starting at heard `start`: curves with an `origin` shifted to read from the voice's start. */
+export function anchorTimeCurves(curves: readonly TimeCurve[], start: number): readonly TimeCurve[] {
+  if (!curves.some((c) => c.origin !== undefined)) return curves;
+  return curves.map((c) => (c.origin === undefined ? c : { target: c.target, curve: shiftedCurve(c.curve, start - c.origin) }));
 }
 
 /** The most keys a resampled core curve gets (the core's curve key cap). */

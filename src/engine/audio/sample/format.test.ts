@@ -118,6 +118,28 @@ describe("parseSampleEdits", () => {
     expect(edits.effects.map((e) => e.type)).toEqual(["reverb", "gain"]);
     expect(problems).toHaveLength(1);
   });
+
+  it("reads effect automation over sample time: fx targets only, clipTime input", () => {
+    const { edits, problems } = parse({
+      effects: [{ id: "f", type: "fades" }],
+      automation: [
+        { id: "a1", target: "fx:f:out", curve: [[0, 10], [2, 80]] },
+        { id: "a2", target: "volume", curve: [[0, 0]] },
+        { id: "a3", target: "fx:f:in", input: "voiceTime", curve: [[0, 5]], bypass: true },
+        { id: "a4", target: "fx:f:in", curve: [] },
+      ],
+    });
+    expect(edits.automation).toEqual([
+      { id: "a1", target: "fx:f:out", input: "clipTime", curve: [[0, 10], [2, 80]], bypass: false },
+      { id: "a3", target: "fx:f:in", input: "clipTime", curve: [[0, 5]], bypass: true },
+    ]);
+    expect(problems).toEqual([
+      "sample.automation[1].target: must be fx:<effect id>:<parameter>; dropped.",
+      'sample.automation[2].input: a sample\'s automation reads sample time; using "clipTime".',
+      "sample.automation[3].curve: needs keys; dropped.",
+    ]);
+    expect(parse(sampleEditsToJson(edits))).toEqual({ edits, problems: [] });
+  });
 });
 
 describe("sampleEditsToJson", () => {

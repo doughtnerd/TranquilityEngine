@@ -37,6 +37,7 @@ import type { RingSpan } from "./ring";
 import type { SaveTake } from "./save";
 import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
 import type { MixOp, OpClass } from "../../../../engine/audio/mixOps";
+import { currentMixOpOrigin } from "./mixOpOrigin";
 
 /**
  * ADR 0334: what a take reads of the profile taps beside the capture's records: every effective parameter change (global
@@ -636,14 +637,14 @@ class Capture implements AudioCapture {
   }
 
   /**
-   * ADR 0334: the live mix sent an op: a MIXOP record. Every `mixer.apply` caller is the editor's (the op log, the mixer
-   * panel, Compare), so the origin is `editor`; scripts change the mix through the bus setters, not ops.
+   * ADR 0334: the live mix sent an op: a MIXOP record, with the origin its caller named (`withMixOpOrigin`: the op log's
+   * undo and redo, Compare), else `editor`.
    */
   mixOpSent(op: MixOp, cls: OpClass): void {
     const sink = this.sink;
     const backend = this.backend;
     if (!sink || !backend || this.ringState !== "recording") return;
-    sink.mixOp(op, cls, "editor", (bus) => {
+    sink.mixOp(op, cls, currentMixOpOrigin(), (bus) => {
       for (const s of backend.debug().mix?.slots ?? []) if (s.name === bus && s.state !== "free") return s.slot;
       return NO_NAME;
     });

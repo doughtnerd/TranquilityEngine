@@ -6,6 +6,7 @@
  *
  * Pure; no plugin, no DOM.
  */
+import type { Curve } from "../../core/curve";
 import type { Effect } from "../effects/types";
 import type { LoopBehaviour } from "../playlist/types";
 
@@ -53,6 +54,16 @@ export interface SampleTempo { bpm: number; meter: string; map: TempoMarker[]; s
 export interface SampleRoot { note: string; cents: number; source: ValueSource }
 export interface SampleNormalize { mode: "off" | "loudness" | "peak"; target: number; gainDb: number }
 
+/** One automation lane of a sample's baked chain: `fx:<effect id>:<parameter>` over sample time. */
+export interface SampleAutomation {
+  id: string;
+  target: `fx:${string}:${string}`;
+  /** Sample time (seconds in the source file); the only input a sample has. */
+  input: "clipTime";
+  curve: Curve;
+  bypass: boolean;
+}
+
 /** The `sample` block. Every field optional in the file; the parse fills defaults. */
 export interface SampleEdits {
   kind: SampleKind;
@@ -65,6 +76,13 @@ export interface SampleEdits {
   normalize: SampleNormalize;
   /** Baked chain (ADR 0331 level "sample"). */
   effects: Effect[];
+  /**
+   * Automation of the baked chain's effect parameters over the sample (decision log D23), keyed on `clipTime`: seconds in
+   * the source file, like every other time here. Read and written with the block; nothing plays it yet. The offline
+   * render (ADR 0328 "flatten"/render cache, not built) is its runtime: it bakes `effects` with these lanes applied, so
+   * a playing sample never evaluates them live.
+   */
+  automation: SampleAutomation[];
   frozen: boolean;
   /** Razor cut positions. */
   cuts: number[];

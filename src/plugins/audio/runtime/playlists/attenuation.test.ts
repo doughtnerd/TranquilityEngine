@@ -65,6 +65,15 @@ describe("attenuation curves", () => {
     expect(fake.plays[0]!.reverbSend).toBeCloseTo(0.5 * dbGain(-6), 4);
   });
 
+  it("Audio.play's minDistance and maxDistance options stretch the curves the same way", async () => {
+    await kit.boot({ ...withListener, "v.playlist.json": pla("clip", [sample("a.wav")], { spatial: { attenuation: curves } }) });
+    kit.frame();
+    Audio.play("v.playlist.json", { position: { x: 41, y: 0, z: 0 }, maxDistance: 80 }); // halfway between Min 2 and Max 80
+    expect(fake.plays[0]!.volume).toBeCloseTo(dbGain(-20), 6);
+    Audio.play("v.playlist.json", { position: { x: 15, y: 0, z: 0 }, minDistance: 10, maxDistance: 20 });
+    expect(fake.plays[1]!.volume).toBeCloseTo(dbGain(-20), 6);
+  });
+
   it("AudioSource minDistance and maxDistance stretch the curves; defaults leave them", async () => {
     await kit.boot({ ...withListener, "v.playlist.json": pla("clip", [sample("a.wav")], { spatial: { attenuation: curves } }) });
     kit.frame();
