@@ -138,6 +138,12 @@ Nothing. `Input.getKey` and the pointer getters stay as the raw layer.
 - Instead of phase-aware read methods, the data itself is phase-correct: `engine.InputTick` writes the tick's values at the start of each fixed step and `engine.InputFrame` writes the frame's back before update, so every reader (systems, behaviors, the network stream) sees the right one.
 - Chords and combos read the other action's state from the previous frame.
 
+## Build notes (2026-11-22, second pass)
+
+- Supersedes the last note above: chords, combos and custom triggers read the other action's state **this frame**. The compiled table orders actions in levels (an action after every action its triggers read); each level runs the priority pass with consumption, then settles its actions' flags. Controls claimed in a higher context stay hidden from lower contexts in later levels, but a mapping can't hide controls from an action settled in an earlier level. A dependency cycle is reported once (`console.warn`, naming the actions), and the action closing it reads the other as it was last frame.
+- Triggers can be user-defined in v1 (answers the first open question): `defineTrigger(name, factory)` registers a namespaced trigger kind (`"game.doubleHold"`) that contexts and inline mappings name as `{ "game.doubleHold": params }`; the factory makes one instance per mapping (`{ type?, reads?, update(actuated, dt, others), pulsed? }`). Unknown names are reported with the known ones.
+- `ActionEvent` gains `node` (where the action set changed: a local player's node, or a server's pawn) and `index` (the local player's index); `player` stays non-null. `on` matches events for its reader node as well as its player.
+
 ## Open questions
 
 - Whether triggers can be user-defined (a `defineTrigger` API) in v1 or later.

@@ -283,10 +283,18 @@ export function isActionSet(def: DataComponentDef): def is ActionSetDef {
 /** The phases `on` can listen for, and `ActionEvents` records. */
 export type ActionEventPhase = "started" | "performed" | "completed" | "canceled";
 
-/** One action phase change this frame (`ActionEvents`). */
+/**
+ * One action phase change this frame (`ActionEvents`): a local player's, from the evaluator, or a
+ * networked pawn's, derived from the tick's phase flags when a server writes a client's actions
+ * onto it (ADR 0337).
+ */
 export interface ActionEvent {
-  /** The player's node. */
+  /** The local player's node; for a pawn a network server drives, the owning connection's node (`net.Connection`). */
   readonly player: GameObject;
+  /** The node whose action set changed: the local player's node, or the server's pawn. */
+  readonly node: GameObject;
+  /** The local player's index (on a server, the index of the client's local player driving the pawn). */
+  readonly index: number;
   readonly set: ActionSetDef;
   readonly action: string;
   readonly phase: ActionEventPhase;

@@ -14,6 +14,16 @@ export interface InputAccessibility {
   sensitivity?: Record<string, number>;
   /** Replaces the stick dead zone (default 0.15) on every mapping that reads a stick or stick axis. */
   deadzone?: number;
+  /**
+   * Repeat rate: a button action kept triggered (held, past any hold trigger) performs again
+   * `delay` seconds after it first performed, then every `interval` seconds while it stays
+   * triggered: each repeat sets `performed` for that frame (and tick) and appends a `performed`
+   * `ActionEvent`, as a key repeat does, so menus step through items while a direction is held.
+   * `actions` limits it to those button actions (bare or `"set.Id:action"` names); without it,
+   * every button action repeats. `delay` must be at least 0 and `interval` above 0. At most one
+   * repeat per frame.
+   */
+  repeat?: { delay: number; interval: number; actions?: string[] };
 }
 
 /** What `input.<profile>.json` holds. */

@@ -23,6 +23,8 @@ import { startRebind, type RebindOptions, type RebindResult } from "./rebind";
 interface Subscription {
   readonly owner: GameBehavior | null;
   readonly player: GameObject | null;
+  /** The node the subscriber reads actions on (its pawn, or the player's node). */
+  readonly reader: GameObject | null;
   readonly set: ActionSetDef;
   readonly action: string;
   readonly phase: ActionEventPhase;
@@ -135,15 +137,17 @@ export class PlayerInput {
   }
 
   /**
-   * Call `fn` when the action reaches `phase` (local players; dispatched in the input phase from
-   * `ActionEvents`). From a behavior, it's unsubscribed when the behavior is disabled; the returned
-   * function unsubscribes sooner.
+   * Call `fn` when the action reaches `phase`, for this input's player or the node it reads:
+   * dispatched from `ActionEvents`, in the input phase for local players, and in the fixed step
+   * (before fixedUpdate scripts) for a pawn a network server writes a client's actions onto. From
+   * a behavior, it's unsubscribed when the behavior is disabled; the returned function
+   * unsubscribes sooner.
    */
   on(action: string, phase: ActionEventPhase, fn: (e: ActionEvent) => void): () => void {
     const target = find(action, this.reader);
     let set = subscriptions.get(this.world);
     if (!set) subscriptions.set(this.world, (set = new Set()));
-    const sub: Subscription = { owner: this.owner, player: this.playerRef, set: target.set, action: target.action.name, phase, fn };
+    const sub: Subscription = { owner: this.owner, player: this.playerRef, reader: this.reader, set: target.set, action: target.action.name, phase, fn };
     set.add(sub);
     const off = () => void subscriptions.get(this.world)?.delete(sub);
     this.owner?.abortSignal.addEventListener("abort", off, { once: true });
@@ -172,6 +176,12 @@ export class PlayerInput {
   }
 
   set accessibility(value: InputAccessibility) {
+    const rep = value?.repeat;
+    if (rep !== undefined) {
+      if (!(typeof rep.delay === "number" && rep.delay >= 0)) throw new Error(`input.accessibility: repeat.delay (${rep.delay}) must be a number of at least 0 seconds.`);
+      if (!(typeof rep.interval === "number" && rep.interval > 0)) throw new Error(`input.accessibility: repeat.interval (${rep.interval}) must be a number of seconds above 0.`);
+      if (rep.actions !== undefined && !Array.isArray(rep.actions)) throw new Error("input.accessibility: repeat.actions must be a list of action names.");
+    }
     const p = profileOf(this.world, this.requireIndex("accessibility"));
     p.accessibility = { ...value };
     p.version++;
@@ -312,13 +322,32 @@ export const InputPlayers = {
 
 _setInputFacade((b) => inputOf(b._world, b.owner, b));
 
+/** How many of this frame's `ActionEvents` each World has dispatched (dispatch runs in the input phase and in fixed steps). */
+const dispatched = new WeakMap<World, { frame: number; count: number }>();
+
+/** Whether event `e` is for subscriber `s`: the node it reads, or its local player (whose actions its pawn copies). */
+function concerns(s: Subscription, e: ActionEvent): boolean {
+  if (!s.player && !s.reader) return true;
+  if ((s.reader !== null && s.reader === e.node) || (s.player !== null && s.player === e.player)) return true;
+  // A pawn's local player, looked up now: the pawn may have subscribed before its player joined.
+  const by = s.reader?.isValid ? s.reader.getData(ControlledBy) : null;
+  return !!by && by.player === e.index && e.node.isValid && e.node.hasData(InputPlayer);
+}
+
 function dispatch(world: World): void {
+  const events = world._buffer(ActionEvents);
+  const frame = world.time.frameCount;
+  let cursor = dispatched.get(world);
+  if (!cursor || cursor.frame !== frame) dispatched.set(world, (cursor = { frame, count: 0 }));
+  const from = cursor.count;
+  cursor.count = events.length;
   const subs = subscriptions.get(world);
   if (!subs?.size) return;
-  for (const e of ActionEvents.read()) {
+  for (let i = from; i < events.length; i++) {
+    const e = events[i];
     for (const s of [...subs]) {
       if (s.set !== e.set || s.action !== e.action || s.phase !== e.phase) continue;
-      if (s.player && s.player !== e.player) continue;
+      if (!concerns(s, e)) continue;
       if (s.owner && !s.owner.isActiveAndEnabled) continue;
       try {
         s.fn(e);
@@ -330,3 +359,5 @@ function dispatch(world: World): void {
 }
 
 defineBuiltinSystem({ name: "engine.InputEventScripts", phase: "input", after: ["engine.InputEvaluate"], run: (w) => dispatch(w) });
+// Server pawns' events come from the network in the fixed step (inputNet.ts).
+defineBuiltinSystem({ name: "engine.InputTickEventScripts", phase: "fixedUpdate", after: ["engine.InputNetApply"], before: ["engine.FixedUpdateScripts"], run: (w) => dispatch(w) });

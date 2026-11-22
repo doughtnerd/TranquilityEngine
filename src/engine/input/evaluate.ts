@@ -9,6 +9,13 @@
  *   Composites, then modifiers, then triggers give each mapping a value and a state; an action
  *   takes the largest value and the furthest state of its mappings. Phase flags and `ActionEvents`
  *   follow, and the frame's values are written to the player and its pawns (`ControlledBy`).
+ * - **Dependency order.** Triggers that read other actions (`chord`, `combo`, custom triggers'
+ *   `reads`) see them as they are this frame: the table orders actions in levels, an action after
+ *   every action its mappings read, and each level runs the priority pass above, then settles its
+ *   actions' flags. Controls claimed in a higher context stay hidden from lower contexts in later
+ *   levels; a mapping can't hide controls from an action resolved in an earlier level (the action
+ *   it reads, which it needs settled first). Actions that read each other in a cycle are reported
+ *   once, and read the cycle's other actions as they were last frame.
  * - `engine.InputTick` (fixedUpdate, first): writes the tick's values: edges since the last tick
  *   (a press in a frame without a fixed step isn't lost), pointer deltas summed. Later ticks of the
  *   same frame see levels only.
@@ -20,13 +27,13 @@ import type { DataComponentDef } from "../core/data";
 import type { GameObject } from "../scene/GameObject";
 import { ActionEvents, ActionPhase, EDGE_FLAGS, actionSets, type ActionEventPhase, type ActionInfo, type ActionSetDef } from "./actions";
 import type { InputContextSpec, MappingSpec, ModifierSpec } from "./contextTypes";
-import { DEFAULT_CONTEXT, InputContext, activeContexts, bindingsVersion, defaultContext, resolveContext } from "./contexts";
+import { DEFAULT_CONTEXT, InputContext, activeContexts, bindingsVersion, registeredContexts, resolveContext } from "./contexts";
 import { PRESS_POINT, requireControl, type Control } from "./controls";
 import { DeviceKind, GamepadState, InputDevice, deviceNodes, takesLocalInput } from "./deviceEntities";
 import { devices, mouseKey } from "./devices";
 import { compileModifier, deadzone, type Modifier } from "./modifiers";
 import { ControlledBy, InputPlayer, playerNodes } from "./players";
-import { overrideKey, profileOf, type PlayerProfile } from "./profiles";
+import { overrideKey, profileOf, type InputAccessibility, type PlayerProfile } from "./profiles";
 import { combineTriggers, compileTrigger, type CompiledTrigger, type TriggerWorld } from "./triggers";
 
 /** The stick dead zone mappings that read a stick get when they have none of their own. */
@@ -73,6 +80,10 @@ export interface PlayerTable {
   /** Action-level modifiers, by `set.id:action`. */
   readonly actionModifiers: ReadonlyMap<string, readonly Modifier[]>;
   readonly problems: readonly string[];
+  /** Evaluation level by `set.id:action` (absent: 0): an action comes after the actions its triggers read. */
+  readonly levelOf: ReadonlyMap<string, number>;
+  /** How many levels there are (at least 1). */
+  readonly levels: number;
 }
 
 const actionKey = (set: ActionSetDef, a: ActionInfo) => `${set.id}:${a.name}`;
@@ -206,12 +217,76 @@ function tableFor(world: World, index: number, previous: PlayerTable | undefined
       }
     }
   }
+  const { levelOf, levels } = orderActions(contexts, problems);
   for (const p of problems) {
     if (warned.has(p)) continue;
     warned.add(p);
     console.warn(`[myco] ${p}`);
   }
-  return { signature, contexts, actionModifiers, problems };
+  return { signature, contexts, actionModifiers, problems, levelOf, levels };
+}
+
+/**
+ * Order actions so each comes after the actions its mappings' triggers read (chords, combos,
+ * custom triggers). A cycle is reported, and its closing dependency is left out of the order.
+ */
+function orderActions(contexts: readonly CompiledContext[], problems: string[]): { levelOf: Map<string, number>; levels: number } {
+  const deps = new Map<string, Set<string>>();
+  for (const ctx of contexts) {
+    for (const m of ctx.mappings) {
+      const key = actionKey(m.set, m.action);
+      for (const t of m.triggers) {
+        for (const name of t.reads) {
+          const target = resolveIn(m.set, name);
+          if (!target) {
+            problems.push(`Input context "${ctx.name}", mapping ${m.index + 1}: its ${m.action.name} trigger reads "${name}", which isn't an action.`);
+            continue;
+          }
+          let set = deps.get(key);
+          if (!set) deps.set(key, (set = new Set()));
+          set.add(actionKey(target.set, target.action));
+        }
+      }
+    }
+  }
+  const levelOf = new Map<string, number>();
+  const visiting: string[] = [];
+  const short = (key: string) => key.slice(key.lastIndexOf(":") + 1);
+  const visit = (key: string): number => {
+    const known = levelOf.get(key);
+    if (known !== undefined) return known;
+    visiting.push(key);
+    let level = 0;
+    for (const d of deps.get(key) ?? []) {
+      const at = visiting.indexOf(d);
+      if (at >= 0) {
+        const cycle = [...visiting.slice(at), d].map(short).join(" → ");
+        problems.push(`Input actions read each other in a cycle (${cycle}) through chord or combo triggers: "${short(key)}" reads "${short(d)}" as it was last frame.`);
+        continue;
+      }
+      level = Math.max(level, visit(d) + 1);
+    }
+    visiting.pop();
+    levelOf.set(key, level);
+    return level;
+  };
+  let levels = 1;
+  for (const key of deps.keys()) levels = Math.max(levels, visit(key) + 1);
+  return { levelOf, levels };
+}
+
+/** @internal Every context player `index` could have active, compiled with its profile: the default context, those registered with `defineInputContext`, and those `InputContext` components in the World name for the player, active or not (rebinding checks conflicts against them). */
+export function knownContexts(world: World, index: number): CompiledContext[] {
+  const profile = profileOf(world, index);
+  const refs = new Set<string>([DEFAULT_CONTEXT, ...registeredContexts()]);
+  for (const c of world._componentsOfType(InputContext)) if (c.context && playerOfContext(c) === index) refs.add(c.context);
+  const problems: string[] = [];
+  const out: CompiledContext[] = [];
+  for (const ref of refs) {
+    const spec = resolveContext(ref);
+    if (spec) out.push(compileContext(spec, 0, profile, problems));
+  }
+  return out;
 }
 
 // --- per-player state --------------------------------------------------------------------------
@@ -235,6 +310,9 @@ interface ActionState {
   /** holdToToggle: the latch, and whether the button was down last frame. */
   latched: boolean;
   wasDown: boolean;
+  /** Repeat (accessibility): seconds since it became triggered, and when it performs next. */
+  repeatTime: number;
+  nextRepeat: number;
 }
 
 interface PlayerEval {
@@ -263,7 +341,7 @@ function actionState(e: PlayerEval, set: ActionSetDef, action: ActionInfo): Acti
   const key = actionKey(set, action);
   let s = e.actions.get(key);
   if (!s) {
-    s = { set, action, frame: new Float32Array(3), frameFlags: 0, pendingFlags: 0, pendingSum: new Float32Array(3), additive: false, state: 0, held: false, elapsed: 0, fired: false, latched: false, wasDown: false };
+    s = { set, action, frame: new Float32Array(3), frameFlags: 0, pendingFlags: 0, pendingSum: new Float32Array(3), additive: false, state: 0, held: false, elapsed: 0, fired: false, latched: false, wasDown: false, repeatTime: 0, nextRepeat: 0 };
     e.actions.set(key, s);
   }
   return s;
@@ -448,7 +526,7 @@ function evaluatePlayer(world: World, player: GameObject, dt: number): void {
   const profile = profileOf(world, info.index);
   pairedDevices(world, info.index, paired);
 
-  // Last frame's flags, for chords and combos.
+  // Other actions' flags: this frame's once their level has settled (last frame's inside a cycle).
   const others = (set: ActionSetDef): TriggerWorld => ({
     triggered: (name) => {
       const t = resolveIn(set, name);
@@ -467,83 +545,107 @@ function evaluatePlayer(world: World, player: GameObject, dt: number): void {
     return a;
   };
   for (const set of actionSets()) for (const a of set.actions) accumOf(actionState(e, set, a));
+  const levelOf = (s: ActionState) => table.levelOf.get(actionKey(s.set, s.action)) ?? 0;
 
-  const consumed = new Set<number>();
-  for (const ctx of table.contexts) {
-    const claimedHere: number[] = [];
-    const visible = new Set(consumed); // chords add their main control as they run
-    for (const m of ctx.mappings) {
-      const s = actionState(e, m.set, m.action);
-      readFamily = -1;
-      readSource(m, paired, visible, value);
-      const family = readFamily;
-      const dims = sourceDims(m);
-      for (const mod of m.modifiers) mod(value, Math.max(dims, m.action.valueFields.length), dt);
-      coerce(m.action.kind, value, dims);
-      const act = actuated(m.action.kind, value);
-      const { state, pulse } = combineTriggers(m.triggers, act, dt, others(m.set));
-      const acc = accumOf(s);
-      const mag = magnitude(value);
-      if (mag > acc.mag) {
-        acc.mag = mag;
-        acc.value.set(value);
-        if (mag > 0) acc.family = family;
+  // Controls claimed by each context (by its index in priority order), and chords' claims within it.
+  const claimedAt = new Map<number, number>();
+  const chordClaims = table.contexts.map(() => new Set<number>());
+  for (let level = 0; level < table.levels; level++) {
+    table.contexts.forEach((ctx, ci) => {
+      const claimedHere: number[] = [];
+      const visible = new Set(chordClaims[ci]);
+      for (const [c, at] of claimedAt) if (at < ci) visible.add(c);
+      for (const m of ctx.mappings) {
+        const s = actionState(e, m.set, m.action);
+        if (levelOf(s) !== level) continue;
+        readFamily = -1;
+        readSource(m, paired, visible, value);
+        const family = readFamily;
+        const dims = sourceDims(m);
+        for (const mod of m.modifiers) mod(value, Math.max(dims, m.action.valueFields.length), dt);
+        coerce(m.action.kind, value, dims);
+        const act = actuated(m.action.kind, value);
+        const { state, pulse } = combineTriggers(m.triggers, act, dt, others(m.set));
+        const acc = accumOf(s);
+        const mag = magnitude(value);
+        if (mag > acc.mag) {
+          acc.mag = mag;
+          acc.value.set(value);
+          if (mag > 0) acc.family = family;
+        }
+        if (state > acc.state) acc.state = state;
+        if (pulse) acc.pulse = true;
+        if (m.additive) s.additive = true;
+        if (state > 0 && m.consume) {
+          for (const c of m.chordClaims) {
+            visible.add(c);
+            chordClaims[ci].add(c);
+          }
+          claimedHere.push(...m.controls);
+        }
       }
-      if (state > acc.state) acc.state = state;
-      if (pulse) acc.pulse = true;
-      if (m.additive) s.additive = true;
-      if (state > 0 && m.consume) {
-        for (const c of m.chordClaims) visible.add(c);
-        claimedHere.push(...m.controls);
-      }
-    }
-    for (const c of claimedHere) consumed.add(c);
+      for (const c of claimedHere) if (!(claimedAt.get(c)! <= ci)) claimedAt.set(c, ci);
+    });
+    for (const [s, acc] of accums) if (levelOf(s) === level) settle(player, info, table, profile.accessibility, s, acc, dt);
   }
+}
 
-  const a11y = profile.accessibility;
-  for (const [s, acc] of accums) {
-    const { set, action } = s;
-    const v = acc.value;
-    if (acc.mag < 0) v.fill(0);
-    const mods = table.actionModifiers.get(actionKey(set, action));
-    if (mods) for (const mod of mods) mod(v, action.valueFields.length, dt);
-    const sens = a11y.sensitivity?.[action.name] ?? a11y.sensitivity?.[actionKey(set, action)];
-    if (sens !== undefined) for (let i = 0; i < 3; i++) v[i] *= sens;
-    if (matches(a11y.invertY, set, action)) {
-      if (action.valueFields.length > 1) v[1] = -v[1];
-      else v[0] = -v[0];
+/** An action's frame: action modifiers and accessibility on its combined value, then its phase flags and events. */
+function settle(player: GameObject, info: { lastFamily: number; index: number }, table: PlayerTable, a11y: InputAccessibility, s: ActionState, acc: Accum, dt: number): void {
+  const { set, action } = s;
+  const v = acc.value;
+  if (acc.mag < 0) v.fill(0);
+  const mods = table.actionModifiers.get(actionKey(set, action));
+  if (mods) for (const mod of mods) mod(v, action.valueFields.length, dt);
+  const sens = a11y.sensitivity?.[action.name] ?? a11y.sensitivity?.[actionKey(set, action)];
+  if (sens !== undefined) for (let i = 0; i < 3; i++) v[i] *= sens;
+  if (matches(a11y.invertY, set, action)) {
+    if (action.valueFields.length > 1) v[1] = -v[1];
+    else v[0] = -v[0];
+  }
+  let held = actuated(action.kind, v);
+  let state = acc.state;
+  if (action.kind === "button" && matches(a11y.holdToToggle, set, action)) {
+    if (held && !s.wasDown) s.latched = !s.latched;
+    s.wasDown = held;
+    held = s.latched;
+    v[0] = held ? 1 : 0;
+    state = held ? 2 : 0;
+  }
+  // Repeat (accessibility): a button kept triggered performs again after `delay`, then every `interval`.
+  let repeat = false;
+  const rep = a11y.repeat;
+  if (state === 2 && s.state !== 2) {
+    s.repeatTime = 0;
+    s.nextRepeat = Math.max(0, rep?.delay ?? 0);
+  } else if (state === 2 && rep && action.kind === "button" && rep.interval > 0 && (!rep.actions || matches(rep.actions, set, action))) {
+    s.repeatTime += dt;
+    if (s.repeatTime + 1e-9 >= s.nextRepeat) {
+      repeat = true;
+      while (s.nextRepeat <= s.repeatTime + 1e-9) s.nextRepeat += rep.interval;
     }
-    let held = actuated(action.kind, v);
-    let state = acc.state;
-    if (action.kind === "button" && matches(a11y.holdToToggle, set, action)) {
-      if (held && !s.wasDown) s.latched = !s.latched;
-      s.wasDown = held;
-      held = s.latched;
-      v[0] = held ? 1 : 0;
-      state = held ? 2 : 0;
-    }
-    let flags = 0;
-    if (held) flags |= ActionPhase.held;
-    if (held && !s.held) flags |= ActionPhase.pressed;
-    if (!held && s.held) flags |= ActionPhase.released;
-    if (s.state === 0 && state > 0) flags |= ActionPhase.started;
-    if (state === 1) flags |= ActionPhase.ongoing;
-    if (state === 2) flags |= ActionPhase.triggered;
-    if ((state === 2 && s.state !== 2) || (state === 2 && acc.pulse)) flags |= ActionPhase.performed;
-    if (s.state > 0 && state === 0) flags |= s.fired ? ActionPhase.completed : ActionPhase.canceled;
-    if (state === 2) s.fired = true;
-    else if (state === 0) s.fired = false;
-    s.elapsed = held ? s.elapsed + dt : 0;
-    s.held = held;
-    s.state = state;
-    s.frame.set(v);
-    s.frameFlags = flags;
-    s.pendingFlags |= flags & EDGE_FLAGS;
-    if (s.additive) for (let i = 0; i < 3; i++) s.pendingSum[i] += v[i];
-    if ((flags & (ActionPhase.pressed | ActionPhase.performed)) !== 0 && acc.family >= 0) info.lastFamily = acc.family;
-    for (const [bit, phase] of PHASE_EVENTS) {
-      if (flags & bit) ActionEvents.push({ player, set, action: action.name, phase, value: magnitude(v, action.valueFields.length), x: v[0], y: v[1], z: v[2] });
-    }
+  }
+  let flags = 0;
+  if (held) flags |= ActionPhase.held;
+  if (held && !s.held) flags |= ActionPhase.pressed;
+  if (!held && s.held) flags |= ActionPhase.released;
+  if (s.state === 0 && state > 0) flags |= ActionPhase.started;
+  if (state === 1) flags |= ActionPhase.ongoing;
+  if (state === 2) flags |= ActionPhase.triggered;
+  if ((state === 2 && s.state !== 2) || (state === 2 && (acc.pulse || repeat))) flags |= ActionPhase.performed;
+  if (s.state > 0 && state === 0) flags |= s.fired ? ActionPhase.completed : ActionPhase.canceled;
+  if (state === 2) s.fired = true;
+  else if (state === 0) s.fired = false;
+  s.elapsed = held ? s.elapsed + dt : 0;
+  s.held = held;
+  s.state = state;
+  s.frame.set(v);
+  s.frameFlags = flags;
+  s.pendingFlags |= flags & EDGE_FLAGS;
+  if (s.additive) for (let i = 0; i < 3; i++) s.pendingSum[i] += v[i];
+  if ((flags & (ActionPhase.pressed | ActionPhase.performed)) !== 0 && acc.family >= 0) info.lastFamily = acc.family;
+  for (const [bit, phase] of PHASE_EVENTS) {
+    if (flags & bit) ActionEvents.push({ player, node: player, index: info.index, set, action: action.name, phase, value: magnitude(v, action.valueFields.length), x: v[0], y: v[1], z: v[2] });
   }
 }
 

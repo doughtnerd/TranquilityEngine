@@ -13,6 +13,7 @@ import { component, field } from "../core/registry";
 import type { World } from "../core/World";
 import { Assets } from "../scene/Assets";
 import { actionSets, actionSetsVersion } from "./actions";
+import { triggersVersion } from "./triggers";
 import type { InputContextSpec, MappingSpec } from "./contextTypes";
 
 export type { InputContextSpec, MappingSpec, ModifierSpec, TriggerSpec, TriggerType } from "./contextTypes";
@@ -28,9 +29,9 @@ Assets.onChanged((path) => {
   if (path.endsWith(".input.json")) contextsVersion++;
 });
 
-/** @internal Rebuild-when-changed counter for compiled tables: contexts, assets and action sets. */
-export function bindingsVersion(): number {
-  return contextsVersion * 4096 + actionSetsVersion();
+/** @internal Rebuild-when-changed key for compiled tables: contexts, assets, action sets and custom triggers. */
+export function bindingsVersion(): string {
+  return `${contextsVersion}.${actionSetsVersion()}.${triggersVersion()}`;
 }
 
 /**
@@ -78,6 +79,11 @@ export function resolveContext(ref: string): InputContextSpec | null {
     if (raw && typeof raw === "object" && Array.isArray(raw.mappings)) return { name: typeof raw.name === "string" && raw.name ? raw.name : ref, mappings: raw.mappings };
   }
   return null;
+}
+
+/** @internal The names of the contexts registered with `defineInputContext`. */
+export function registeredContexts(): string[] {
+  return [...registered.keys()];
 }
 
 /** Active `InputContext` components, by World, in activation order. */

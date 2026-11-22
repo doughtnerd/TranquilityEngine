@@ -93,17 +93,24 @@ export interface InputDef<S extends Schema = Schema> {
    * tick's values. Throws in a server World.
    */
   readonly local: DataView<S>;
-  /** Client: set some of this tick's input fields (the rest keep last tick's values). Throws in a server World. */
-  write(values: Partial<Readonly<DataView<S>>>): void;
+  /** Client: local player `player`'s input this tick, writable, as `local` is player 0's. Throws in a server World. */
+  localOf(player: number): DataView<S>;
+  /**
+   * Client: set some of this tick's input fields (the rest keep last tick's values). `player` is
+   * which of the client's local players it's for (default 0; local co-op over one connection):
+   * each player's input travels and is applied on its own. Throws in a server World.
+   */
+  write(values: Partial<Readonly<DataView<S>>>, player?: number): void;
   /**
    * Server: the input from `node`'s connection for the current server tick, or null before any
    * arrived. If this tick's is missing, the newest earlier one. Client: its own input, for its
    * connection node. `node` is a connection node; nodes owned by a connection will work too
-   * (replication, T11). Null in Worlds that aren't networked.
+   * (replication, T11). `player` picks the client's local player (default 0). Null in Worlds that
+   * aren't networked.
    */
-  of(node: GameObject): Readonly<DataView<S>> | null;
-  /** Server: `node`'s connection's counters for this stream; null elsewhere or before its first input. */
-  stats(node: GameObject): InputStats | null;
+  of(node: GameObject, player?: number): Readonly<DataView<S>> | null;
+  /** Server: `node`'s connection's counters for this stream (for its local player `player`, default 0); null elsewhere or before its first input. */
+  stats(node: GameObject, player?: number): InputStats | null;
 }
 
 /**
