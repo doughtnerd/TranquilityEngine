@@ -7,11 +7,10 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { HistoryPopover } from "../../../editor/ui/HistoryPopover";
 import { ContextMenu, SEPARATOR, type MenuEntry } from "../../../editor/ui/ContextMenu";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
-import { vcaOffsetDb } from "../../../engine/audio/project/format";
 import { Fader } from "../../components/Fader";
 import { busOf, kindOf, masterOf, reroute, routingRows, whyNotReroute } from "./busTree";
 import { compareText } from "./liveMix";
-import { baseGhost, editedSnapshot, labelOn, levelLabel, setLevel, setMute, shownLevel } from "./mixEdits";
+import { editedSnapshot, labelOn, levelGhosts, levelLabel, setLevel, setMute, shownLevel } from "./mixEdits";
 import type { MixerSession } from "./mixerScreen";
 import { DbField, LiveMeter, MixFrame } from "./mixerViewParts";
 import { startHolds, triggerText } from "./snapshotBlend";
@@ -26,18 +25,14 @@ function LevelFader(props: { session: MixerSession; name: string; orientation?: 
   const p = session.project.value;
   const editing = session.editing.value;
   const value = shownLevel(p, name, editing);
-  const ghost = baseGhost(p, name, editing);
   const kind = kindOf(p, name);
-  const vca = kind === "bus" ? vcaOffsetDb(p, name) : 0;
-  const ghostDb = ghost ?? (vca !== 0 ? value + vca : null);
   const auto = p.automation.some((a) => !a.bypass && a.on === name && a.target === "volume");
   return (
     <Fader
       value={value}
       orientation={props.orientation}
       label={`${name} level`}
-      ghostDb={ghostDb}
-      ghostTitle={ghost !== null ? `Base level: ${ghost.toFixed(1)} dB` : vca !== 0 ? `With VCAs: ${(value + vca).toFixed(1)} dB` : undefined}
+      ghosts={levelGhosts(p, name, editing)}
       disabled={session.readOnly}
       title={auto ? "Level automation adds to this; open Automate ◆ in the Inspector" : undefined}
       onValue={(db, drag) => session.commit(setLevel(session.project.peek(), name, db, session.editing.peek()), levelLabel(session.project.peek(), name, session.editing.peek()), drag || undefined)}

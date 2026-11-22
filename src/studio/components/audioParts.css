@@ -29,6 +29,7 @@
 .studio-fader.horizontal .studio-fader-unity { top: 0; bottom: 0; width: 1px; }
 .studio-fader.vertical .studio-fader-unity { left: 0; right: 0; height: 1px; }
 .studio-fader-ghost { background: var(--accent2); }
+.studio-fader-ghost.base { background: var(--text); }
 .studio-fader.horizontal .studio-fader-ghost { top: 0; bottom: 0; width: 2px; margin-left: -1px; }
 .studio-fader.vertical .studio-fader-ghost { left: 0; right: 0; height: 2px; margin-bottom: -1px; }
 .studio-fader-thumb { position: absolute; background: var(--button); border: 1px solid var(--border-strong); border-radius: 3px; box-shadow: 0 1px 3px var(--shadow); pointer-events: none; }

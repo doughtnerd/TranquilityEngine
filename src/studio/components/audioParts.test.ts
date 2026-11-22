@@ -7,7 +7,7 @@ import type { Effect } from "../../engine/audio/effects/types";
 import type { DuckingRule } from "../../engine/audio/project/types";
 import { START_VIEW, chainKey, chainText, chainWheel, fitView, shouldStack, worstSeverity, zoomAt, type CausalStep } from "./causalChainModel";
 import { addEffect, effectMenu, effectSummary, keyBusOptions, levelWarning, moveEffect, nextEffectId, removeEffect, setEffectKey, setEffectOn, setEffectParam, type EditResult } from "./effectChainModel";
-import { FADER_MAX_DB, FADER_MIN_DB, dbToPosition, faderKey, formatDb, parseDb, pointerToDb, positionToDb, snapFaderDb } from "./faderModel";
+import { FADER_MAX_DB, FADER_MIN_DB, dbToPosition, faderGhosts, faderKey, formatDb, parseDb, pointerToDb, positionToDb, snapFaderDb } from "./faderModel";
 import { audibleUnderSolo, dbText, gainBreakdown, gainText, laneBar, laneText, type GainInputs } from "./gainLanesModel";
 import { EMPTY_HOLD, clearClip, meterFill, meterText, meterZone, nextHold } from "./meterModel";
 import { duckSummary, duckTriggerOptions, editDuck, editSendLevel, sendSummary, sendTargets } from "./mixRowsModel";
@@ -69,6 +69,16 @@ describe("fader", () => {
     expect(parseDb("12")).toBe(6);
     expect(parseDb("loud")).toBeNull();
     expect(parseDb(" ")).toBeNull();
+  });
+
+  it("draws the single ghost tick and both ticks of snapshot mode, one per kind", () => {
+    expect(faderGhosts(null, undefined, undefined)).toEqual([]);
+    expect(faderGhosts(-6, "With VCAs", undefined)).toEqual([{ db: -6, title: "With VCAs", kind: "vca" }]);
+    const both = faderGhosts(undefined, undefined, [{ kind: "vca", db: -10 }, { kind: "base", db: -3, title: "Base" }]);
+    expect(both.map((g) => g.kind)).toEqual(["vca", "base"]);
+    // A second tick of a kind already drawn, and a tick that isn't a number, are left out.
+    expect(faderGhosts(-6, undefined, [{ kind: "vca", db: -9 }, { kind: "base", db: Number.NaN }]).map((g) => g.db)).toEqual([-6]);
+    expect(faderGhosts(-6, undefined, [{ kind: "base", db: -Infinity }]).map((g) => g.kind)).toEqual(["vca", "base"]);
   });
 });
 

@@ -81,3 +81,24 @@ export function parseDb(text: string): number | null {
   const n = Number(t);
   return Number.isFinite(n) ? snapFaderDb(n) : null;
 }
+
+/** A second level a fader draws as a tick (ADR 0330): the level with VCAs, or the base level while a snapshot is edited. */
+export interface FaderGhost {
+  readonly db: number;
+  /** What it is, as the tick's tooltip ("With VCAs: −6.0 dB"). */
+  readonly title?: string;
+  /** Which tick; each kind has its own colour, so both can show at once. */
+  readonly kind: "vca" | "base";
+}
+
+/**
+ * The ticks a fader draws from its props: the single `ghostDb` (drawn as a VCA tick, its original meaning) and then
+ * `ghosts`. A tick that isn't a number is left out, and so is a second tick of a kind already drawn (the first wins).
+ */
+export function faderGhosts(ghostDb: number | null | undefined, ghostTitle: string | undefined, ghosts: readonly FaderGhost[] | null | undefined): FaderGhost[] {
+  const all: FaderGhost[] = ghostDb != null ? [{ db: ghostDb, title: ghostTitle, kind: "vca" }] : [];
+  for (const g of ghosts ?? []) all.push(g);
+  const out: FaderGhost[] = [];
+  for (const g of all) if (typeof g.db === "number" && !Number.isNaN(g.db) && !out.some((x) => x.kind === g.kind)) out.push(g);
+  return out;
+}

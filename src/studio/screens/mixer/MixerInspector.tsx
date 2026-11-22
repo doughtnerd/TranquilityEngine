@@ -17,7 +17,7 @@ import { keyBusOptions } from "../../components/effectChainModel";
 import { duckTriggerOptions, sendTargets } from "../../components/mixRowsModel";
 import { automatedParams, automatedSend } from "./boardModel";
 import { busOf, busPath, kindOf, masterOf, returnOf, setReturnOutput, setVcaMembers } from "./busTree";
-import { addDucking, addSend, baseGhost, clearOffset, clearOverride, doubleDucks, editDucking, editEffects, editedSnapshot, editSend, labelOn, levelLabel, overridesOn, removeDucking, removeSend, setLevel, setMute, shownEffects, shownLevel } from "./mixEdits";
+import { addDucking, addSend, clearOffset, clearOverride, doubleDucks, editDucking, editEffects, editedSnapshot, editSend, labelOn, levelGhosts, levelLabel, overridesOn, removeDucking, removeSend, setLevel, setMute, shownEffects, shownLevel } from "./mixEdits";
 import type { MixerSession } from "./mixerScreen";
 import { automate, DbField, MixFrame } from "./mixerViewParts";
 import { allocateBeds, bedModeOf, bedText, seedVoiceLimit, setBed, setVoiceLimit, voiceLimitOf, voiceLimitRange, type BedMode } from "./voicesAndBeds";
@@ -63,14 +63,13 @@ function LevelField(props: { session: MixerSession; name: string }) {
   const p = session.project.value;
   const editing = session.editing.value;
   const value = shownLevel(p, name, editing);
-  const ghost = baseGhost(p, name, editing);
   const snap = editedSnapshot(p, editing);
   const hasAuto = p.automation.some((a) => a.on === name && a.target === "volume");
   const commit = (db: number, drag?: boolean) => session.commit(setLevel(session.project.peek(), name, db, session.editing.peek()), levelLabel(session.project.peek(), name, session.editing.peek()), drag);
   return (
     <>
       <div class="mx-ilevel">
-        <Fader value={value} label={`${name} level`} ghostDb={ghost} ghostTitle={ghost !== null ? `Base level: ${ghost.toFixed(1)} dB` : undefined} disabled={session.readOnly} onValue={(db, drag) => commit(db, drag || undefined)} />
+        <Fader value={value} label={`${name} level`} ghosts={levelGhosts(p, name, editing)} disabled={session.readOnly} onValue={(db, drag) => commit(db, drag || undefined)} />
         <DbField value={value} label={`${name} level in dB`} disabled={session.readOnly} onCommit={(db) => commit(db)} />
         {kindOf(p, name) !== "vca" && <Diamond set={hasAuto} label={`Automate ${name}'s level`} disabled={session.readOnly} onClick={() => automate(session, name, "volume")} />}
       </div>

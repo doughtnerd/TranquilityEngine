@@ -1,13 +1,14 @@
 // A fader (ADR 0335 `Fader`, ADR 0330): a level in dB from −60 (silence, "−∞") to +6, horizontal (the mixer's list) or
 // vertical (its strips). Drag anywhere on the track (the pointer is captured, so the drag keeps going outside it);
 // double-click returns to 0 dB; the keys a slider has (arrows 0.5 dB, Shift or Page 3 dB, Home, End, 0 for unity). A
-// ghost tick shows a second level: fader plus VCA, or the base level while a snapshot is edited.
+// ghost tick shows a second level: fader plus VCA, or the base level while a snapshot is edited; `ghosts` draws both at
+// once (each kind in its own colour).
 //
 // Values are reported as `onValue(db, drag)` (ADR 0282's rule): `drag` true while the pointer moves, then the last
 // value again with false on release; keys and double-clicks report once with false. The owner makes the drag one undo step.
 import { useRef } from "preact/hooks";
 import type { ValueReport } from "../../editor/ui/valueControls";
-import { FADER_MAX_DB, FADER_MIN_DB, FADER_UNITY_DB, dbToPosition, faderKey, formatDb, pointerToDb } from "./faderModel";
+import { FADER_MAX_DB, FADER_MIN_DB, FADER_UNITY_DB, dbToPosition, faderGhosts, faderKey, formatDb, pointerToDb, type FaderGhost } from "./faderModel";
 import "./audioParts.css";
 
 export interface FaderProps {
@@ -20,6 +21,8 @@ export interface FaderProps {
   readonly ghostDb?: number | null;
   /** What the ghost tick is ("With VCAs: −6.0 dB"). */
   readonly ghostTitle?: string;
+  /** More ticks, by kind (the VCA tick and the base-level tick together in snapshot mode); added after `ghostDb`. */
+  readonly ghosts?: readonly FaderGhost[];
   readonly disabled?: boolean;
   /** Why it can't be moved (automated), as its tooltip. */
   readonly title?: string;
@@ -87,7 +90,9 @@ export function Fader(props: FaderProps) {
         {props.children}
         <span class="studio-fader-fill" style={orientation === "horizontal" ? { width: `${pos * 100}%` } : { height: `${pos * 100}%` }} />
         <span class="studio-fader-unity" style={along(dbToPosition(0))} aria-hidden="true" />
-        {props.ghostDb != null && <span class="studio-fader-ghost" style={along(dbToPosition(props.ghostDb))} title={props.ghostTitle} aria-hidden="true" />}
+        {faderGhosts(props.ghostDb, props.ghostTitle, props.ghosts).map((g) => (
+          <span key={g.kind} class={`studio-fader-ghost ${g.kind}`} style={along(dbToPosition(g.db))} title={g.title} aria-hidden="true" />
+        ))}
       </div>
       <span class="studio-fader-thumb" style={along(pos)} aria-hidden="true" />
     </div>
