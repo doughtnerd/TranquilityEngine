@@ -4,8 +4,9 @@
  * contain itself"). A new field that names a path is added here only.
  *
  * Names a playlist holds: linked playlists (entries, Switch transitions, stingers, sequence clips), samples (Clip
- * entries, sequence clips; an audio file or a `*.sample.json`) and attenuation presets (`spatial.attenuation`), in
- * embedded playlists too. Paths are project paths, as written.
+ * entries, sequence clips; an audio file or a `*.sample.json`), linked generators (ADR 0346: generator entries and
+ * sequence clips' generator sources, `*.generator.json`) and attenuation presets (`spatial.attenuation`), in embedded
+ * playlists too. Paths are project paths, as written.
  *
  * The parameters a playlist reads have the same pair (the ADR 0299 pattern): `playlistParameterReferences` lists every
  * place one is named, `renamePlaylistParameter` rewrites what it lists, for a global (`audio.json`) or a local rename.
@@ -14,7 +15,7 @@
  */
 import type { Entry, PlaylistBody } from "./types";
 
-export type PlaylistReferenceKind = "playlist" | "sample" | "attenuation";
+export type PlaylistReferenceKind = "playlist" | "sample" | "attenuation" | "generator";
 /** One step from the playlist to a field: a member key or a list index. */
 export type PlaylistReferenceStep = string | number;
 
@@ -36,6 +37,7 @@ export function playlistReferences(body: PlaylistBody): PlaylistReference[] {
     if (e.kind === "linked") add("playlist", e.playlist, [...where, "playlist"]);
     else if (e.kind === "sample") add("sample", e.sample, [...where, "sample"]);
     else if (e.kind === "embedded") visit(e.embedded, [...where, "embedded"]);
+    else if (e.kind === "generator" && typeof e.generator === "string") add("generator", e.generator, [...where, "generator"]);
     // A line entry (ADR 0340 §5) names a line key or a dialogue event, not an asset path.
   };
   const visit = (b: PlaylistBody, where: PlaylistReferenceStep[]) => {
@@ -49,6 +51,7 @@ export function playlistReferences(body: PlaylistBody): PlaylistReference[] {
     b.sequence?.tracks.forEach((t, ti) => t.clips.forEach((c, ci) => {
       const at = [...where, "sequence", "tracks", ti, "clips", ci];
       if (c.sample !== undefined) add("sample", c.sample, [...at, "sample"]);
+      else if (typeof c.generator === "string") add("generator", c.generator, [...at, "generator"]);
       else if (typeof c.playlist === "string") add("playlist", c.playlist, [...at, "playlist"]);
       else if (c.playlist) visit(c.playlist, [...at, "playlist"]);
     }));
