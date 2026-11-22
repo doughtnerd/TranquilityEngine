@@ -48,7 +48,8 @@ async function boot(options: { languages?: object; storage?: MemoryStorage; file
   const engine = await Engine.create({
     headless: true,
     project: { languages: options.languages ?? LANGUAGES },
-    assets: Assets.fromObject({ ...TABLES, "fonts/arabic.woff2": "blob:arabic", ...options.files }),
+    // The caller's object is the source (so a test can change a file), with the tables beside its own files.
+    assets: Assets.fromObject(Object.assign(options.files ?? {}, { ...TABLES, "fonts/arabic.woff2": "blob:arabic" }, { ...options.files })),
     storage: options.storage ?? new MemoryStorage(),
   });
   engines.push(engine);
@@ -197,6 +198,19 @@ describe("Locale: switching", () => {
     loads[0].resolve();
     await switched;
     expect(order).toEqual(["font loaded", "changed to ar", "resolved"]);
+  });
+});
+
+describe("Locale: table edits", () => {
+  it("follows a string table the editor saved, raising the epoch", async () => {
+    const files: Record<string, unknown> = { "strings/live.strings.json": { format: "myco.strings@1", language: "en", strings: [{ key: "live.k", text: "Before" }] } };
+    await boot({ files });
+    expect(Locale.t("live.k")).toBe("Before");
+    const epoch = Locale.epoch;
+    files["strings/live.strings.json"] = { format: "myco.strings@1", language: "en", strings: [{ key: "live.k", text: "After" }] };
+    Assets.notifyChanged("strings/live.strings.json"); // what the editor does after a save
+    expect(Locale.epoch).toBeGreaterThan(epoch);
+    expect(Locale.t("live.k")).toBe("After");
   });
 });
 

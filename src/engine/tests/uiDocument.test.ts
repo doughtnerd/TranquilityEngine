@@ -118,6 +118,18 @@ describe("stylesheets", () => {
     expect(matchSelector(hover, target("Button", { state: { hover: true } }))).toBe(true);
   });
 
+  it("matches :lang() against the element's language by BCP 47 prefix, counted like a class (ADR 0342 §4)", () => {
+    const sheet = parseStylesheet(`Text:lang(de) {} :lang(zh-Hant) {} Text:lang(de, fr) {}`, "s");
+    const [de, hant] = sheet.rules.map((r) => r.selectors[0]);
+    expect(de.specificity).toEqual([0, 1, 1]);
+    expect(sheet.rules).toHaveLength(2);
+    expect(sheet.problems.map((p) => p.message).join("\n")).toMatch(/:lang\(\) takes one language code/);
+    const text = (lang?: string) => ({ ...target("Text"), lang });
+    expect([matchSelector(de, text("de")), matchSelector(de, text("de-AT")), matchSelector(de, text("DE-at"))]).toEqual([true, true, true]);
+    expect([matchSelector(de, text("deu")), matchSelector(de, text("en")), matchSelector(de, text())]).toEqual([false, false, false]);
+    expect([matchSelector(hant, text("zh-Hant-TW")), matchSelector(hant, text("zh-Hans"))]).toEqual([true, false]);
+  });
+
   it("cascades by specificity and order, attributes beat rules, text properties inherit, variables resolve", () => {
     const sheet = parseStylesheet(
       `:root { --accent: #ff0000; --gap: 12px; }
