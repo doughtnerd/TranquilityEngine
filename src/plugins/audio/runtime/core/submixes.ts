@@ -72,6 +72,8 @@ interface Slot {
   /** The slot it feeds, or null for its bus. */
   parent: number | null;
   effects: SubmixEffects[];
+  /** The catalogue effects it was opened with (by identity: an unchanged level isn't sent again). */
+  source: readonly Effect[];
   /** Seconds its chain rings on after its input stops (`tailSeconds`). */
   tail: number;
   /** While ringing out after its instance ended: when it is freed (seconds); else NaN. */
@@ -156,7 +158,7 @@ export class CoreSubmixes {
       if (index < 0) return false;
       this.byGroup.set(group, index);
     }
-    this.configure(index, { owner: group, group, key: "", bus, parent: null, effects: this.chain(effects, where), tail: tailSeconds(effects), freeAt: Number.NaN, ring: 0 });
+    this.configure(index, { owner: group, group, key: "", bus, parent: null, effects: this.chain(effects, where), source: effects, tail: tailSeconds(effects), freeAt: Number.NaN, ring: 0 });
     return true;
   }
 
@@ -181,7 +183,10 @@ export class CoreSubmixes {
       this.levels.set(k, index);
     }
     const up = parent && parent.slot !== index && this.slots[parent.slot] ? parent.slot : null;
-    this.configure(index, { owner: group, group: 0, key, bus, parent: up, effects: this.chain(effects, where), tail: tailSeconds(effects), freeAt: Number.NaN, ring: 0 });
+    const was = this.slots[index];
+    // Played again unchanged (a Queue's next pick of the entry, the next pass of a sequence loop): nothing to send.
+    if (was && was.source === effects && was.bus === bus && was.parent === up) return this.handles[index]!;
+    this.configure(index, { owner: group, group: 0, key, bus, parent: up, effects: this.chain(effects, where), source: effects, tail: tailSeconds(effects), freeAt: Number.NaN, ring: 0 });
     return this.handles[index]!;
   }
 

@@ -24,7 +24,7 @@ import { Camera } from "../../../../engine/render/components";
 import { AudioListener, listenerPose } from "../AudioListener";
 import { CURVE_DRIVEN_ATTENUATION, curveDbToGain, evalAttenuation, FLAT_SEND_CURVE, LOWPASS_OFF_HZ, type AttenuationAt, type AttenuationCurveSet } from "../core/spatial";
 import { isLabelled, parameterDefault, type ParameterDef } from "../../../../engine/audio/parameters";
-import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
+import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest, type SubmixLevel } from "../backend";
 import { clipRequest, SAMPLE_END_FADE, sampleEdits, samplePass, samplePlan } from "../clipResolver";
 import { warnOnce } from "../core/handle";
 import { playlistHost } from "./host";
@@ -378,9 +378,12 @@ export class PlaylistInstance implements NodeHost {
       spatial: null,
       where: this.path,
     };
-    this.rootCtx = ctx;
     // ADR 0331: the instance's own effects run on a submix of its voices on its bus, when the backend has one free.
     this.submixedEffects = this.openSubmix(a);
+    // ABI 4.9: nested levels' submixes on the same bus feed it.
+    const root = this.submixedEffects ? audioBackend().submixes?.levelOf(this.group) ?? null : null;
+    if (root) ctx.submix = { level: root, bus: this.resolveBus(a.output !== null ? a.output : this.options.bus), root: true };
+    this.rootCtx = ctx;
     // `EventOptions.offset`: what this resolve starts begins as if that much had played (`playSample`, `SequenceNode`).
     this.startOffset = startOffsetOf(this.options.offset, `Audio.play("${this.path}")`);
     try { this.root = resolveBody(this, a, ctx, this.path, this.path); } finally { this.startOffset = 0; }
@@ -391,6 +394,17 @@ export class PlaylistInstance implements NodeHost {
 
   /** `NodeHost.submixedEffects`: the root's effects when they run on the instance's submix. */
   submixedEffects: readonly Effect[] | null = null;
+
+  /** `NodeHost.resolveBus`: the mixer bus a level's output resolves to (what `clipRequest` plays its voices on). */
+  resolveBus(bus: string | undefined): string {
+    return mixer.resolveOutput(bus);
+  }
+
+  /** `NodeHost.levelSubmix` (ADR 0331 levels, ABI 4.9): a submix of this instance's own for one of its levels. */
+  levelSubmix(key: string, effects: readonly Effect[], bus: string, parent: SubmixLevel | null, where: string): SubmixLevel | null {
+    if (this.group <= 0 || this.stopped || effects.length === 0) return null;
+    return audioBackend().submixes?.openLevel(this.group, key, bus, effects, parent, where) ?? null;
+  }
 
   /**
    * ADR 0331: a submix for the root playlist's (or sequence's) enabled effects, feeding the bus its voices play on (the
@@ -697,6 +711,8 @@ export class PlaylistInstance implements NodeHost {
     req.priority = this.options.priority ?? this.asset.playback.priority;
     req.world = this.world;
     req.group = this.group;
+    // ADR 0331 levels (ABI 4.9): into its level's submix (the instance's own takes its voices by their group).
+    if (ctx.submix && !ctx.submix.root && ctx.submix.bus === req.bus) req.submix = ctx.submix.level;
     if (ctx.at !== null) req.at = ctx.at;
     if (this.options.owner) req.owner = this.options.owner;
     const lowpass = Math.min(c.lowpass, t.lowpass ?? LOWPASS_NONE, curved ? curved.at.lowpassHz : LOWPASS_NONE);
@@ -819,6 +835,8 @@ export class PlaylistInstance implements NodeHost {
           start: l.start, end: l.end, direction: l.direction, crossfade: l.crossfadeMs / 1000, count: l.count, active,
           ...(param && b ? { param, op: b.op, threshold: b.value } : {}),
           exit: l.exit, exitFade: l.exitFadeMs / 1000, reentry: l.reentry,
+          // ADR 0336 (ABI 4.9): the seam and exit crossfades take the loop's shapes (absent: equal power).
+          ...(l.crossfadeShape ? { crossfadeShape: l.crossfadeShape } : {}), ...(l.exitShape ? { exitShape: l.exitShape } : {}),
         });
       }
       const first = loops.find((l) => l.end > l.start) ?? loops[0]!;

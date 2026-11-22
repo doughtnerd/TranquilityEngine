@@ -570,7 +570,6 @@ class PlaylistReader {
       if (end < start) { r.problem(w, "end was before start; swapped."); [start, end] = [end, start]; }
       const loop: SequenceLoop = { id: loopIds.take(raw.id, w, "l"), start, end, ...parseLoopBehaviour(raw, w, this.problems, "always") };
       if (raw.tail !== undefined && r.bool(raw.tail, `${w}.tail`, false)) loop.tail = true;
-      if (raw.exitShape !== undefined) { const sh = this.shape(raw.exitShape, `${w}.exitShape`); if (sh !== "equalPower") loop.exitShape = sh; }
       out.loops.push(loop);
     });
     const markerIds = new IdScope(r);

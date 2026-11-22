@@ -5,7 +5,8 @@
  * Pure; no plugin, no DOM.
  */
 import { isRecord, LenientReader } from "../lenientRead";
-import type { LoopBehaviour } from "./types";
+import { FADE_SHAPES, type FadeShape, type LoopBehaviour } from "./types";
+import { isFadeShape } from "./fadeShapes";
 
 export const LOOP_ACTIVE = ["always", "held", "parameter"] as const satisfies readonly LoopBehaviour["active"][];
 export const LOOP_EXIT = ["finish", "jump", "crossfade"] as const satisfies readonly LoopBehaviour["exit"][];
@@ -46,16 +47,37 @@ export function parseLoopBehaviour(raw: Record<string, unknown>, where: string, 
   };
   const binding = parseLoopBinding(raw.binding, `${where}.binding`, problems);
   if (binding) out.binding = binding;
+  readShapes(raw, where, r, out);
   return out;
 }
 
-/** The behaviour fields as JSON, in a stable order (every field written, `binding` when set). */
+/** ADR 0336: a loop's crossfade shapes, when set and not the default (a bad name: one problem, the default). */
+function readShapes(raw: Record<string, unknown>, where: string, r: LenientReader, out: Partial<LoopBehaviour>): void {
+  for (const k of ["crossfadeShape", "exitShape"] as const) {
+    if (raw[k] === undefined) continue;
+    const v = raw[k];
+    if (!isFadeShape(v)) {
+      r.problem(`${where}.${k}`, `must be one of ${FADE_SHAPES.join(", ")}; using equalPower.`);
+      continue;
+    }
+    if (v !== "equalPower") out[k] = v as FadeShape;
+  }
+}
+
+/** The shapes as JSON (only those set and not the default). */
+function writeShapes(b: Partial<LoopBehaviour>, out: Record<string, unknown>): void {
+  if (b.crossfadeShape && b.crossfadeShape !== "equalPower") out.crossfadeShape = b.crossfadeShape;
+  if (b.exitShape && b.exitShape !== "equalPower") out.exitShape = b.exitShape;
+}
+
+/** The behaviour fields as JSON, in a stable order (every field written, `binding` and shapes when set). */
 export function loopBehaviourToJson(b: LoopBehaviour): Record<string, unknown> {
   const out: Record<string, unknown> = { active: b.active };
   if (b.binding) out.binding = { parameter: b.binding.parameter, op: b.binding.op, value: b.binding.value };
   out.exit = b.exit;
   out.exitFadeMs = b.exitFadeMs;
   out.reentry = b.reentry;
+  writeShapes(b, out);
   return out;
 }
 
@@ -84,8 +106,9 @@ export function parseLoopOverride(raw: unknown, where: string, problems: string[
     r.problem(where, "end was before start; swapped.");
     [out.start, out.end] = [out.end, out.start];
   }
+  readShapes(raw, where, r, out);
   for (const k of Object.keys(raw)) {
-    if (!["active", "binding", "exit", "exitFadeMs", "reentry", "start", "end"].includes(k)) r.problem(`${where}.${k}`, "not a loop field; dropped.");
+    if (!["active", "binding", "exit", "exitFadeMs", "reentry", "start", "end", "crossfadeShape", "exitShape"].includes(k)) r.problem(`${where}.${k}`, "not a loop field; dropped.");
   }
   return out;
 }
@@ -100,5 +123,6 @@ export function loopOverrideToJson(o: LoopOverride): Record<string, unknown> {
   if (o.exit !== undefined) out.exit = o.exit;
   if (o.exitFadeMs !== undefined) out.exitFadeMs = o.exitFadeMs;
   if (o.reentry !== undefined) out.reentry = o.reentry;
+  writeShapes(o, out);
   return out;
 }

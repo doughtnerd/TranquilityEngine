@@ -163,16 +163,16 @@ const param = (group: number, slot: number, value: number, seekPerSecond: number
   writeParam(view, off, { voiceId: 0, frameOffset: ASAP, group, slot, value, seekPerSecond });
 /** AUTOMATE `voiceId` with `[param, curve, target]` bindings (param bit15 = global; target 0 volume, 1 pitch, 2 lowpass). */
 const automate = (voiceId: number, bindings: [number, number, number][]): Writer => (view, off) =>
-  writeAutomate(view, off, { voiceId, frameOffset: ASAP, bindings: bindings.map(([param, curve, target]) => ({ param, curve, target })) });
+  writeAutomate(view, off, { voiceId, frameOffset: ASAP, bindings: bindings.map(([param, curve, target]) => ({ param, curve, target, offset: 0 })) });
 const busAutomate = (bus: number, bindings: [number, number, number][]): Writer => (view, off) =>
   writeBusAutomate(view, off, { voiceId: bus, frameOffset: ASAP, bindings: bindings.map(([param, curve, target]) => ({ param, curve, target })) });
 /** ADR 0331: SUBMIX `slot` for `group` on `bus`: `[type, on, ...params]` effects. */
 const submix = (slot: number, group: number, bus: number, effects: [number, boolean, ...number[]][]): Writer => (view, off) =>
-  writeSubmix(view, off, { voiceId: slot, frameOffset: ASAP, group, bus, effects: effects.map(([type, on, ...p]) => ({ type, flags: on ? 1 : 0, p: [...p, 0, 0, 0, 0, 0, 0, 0, 0].slice(0, 8) })) });
+  writeSubmix(view, off, { voiceId: slot, frameOffset: ASAP, group, bus, parent: 0, reserved: 0, effects: effects.map(([type, on, ...p]) => ({ type, flags: on ? 1 : 0, p: [...p, 0, 0, 0, 0, 0, 0, 0, 0].slice(0, 8) })) });
 /** SET_LOOP `voiceId`, `frameOffset` frames into the batch (ASAP for at once). */
 /** ADR 0328: a loop program: `[start, end, crossfade, exitFade, count, flags]` per loop (no parameter). */
 const loops = (voiceId: number, list: [number, number, number, number, number, number][]): Writer => (view, off) =>
-  writeLoops(view, off, { voiceId, frameOffset: ASAP, loops: list.map(([startFrame, endFrame, crossfadeFrames, exitFadeFrames, count, flags]) => ({ startFrame, endFrame, crossfadeFrames, exitFadeFrames, count, flags, param: 0, reserved: 0, threshold: 0 })) });
+  writeLoops(view, off, { voiceId, frameOffset: ASAP, loops: list.map(([startFrame, endFrame, crossfadeFrames, exitFadeFrames, count, flags]) => ({ startFrame, endFrame, crossfadeFrames, exitFadeFrames, count, flags, param: 0, shapes: 0, threshold: 0 })) });
 const setLoop = (voiceId: number, frameOffset: number, start: number, end: number, looping: boolean): Writer => (view, off) =>
   writeSetLoop(view, off, { voiceId, frameOffset, loopStartFrame: start, loopEndFrame: end, flags: looping ? 1 : 0 });
 const GLOBAL = 0x8000;

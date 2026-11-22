@@ -46,8 +46,8 @@ import type {
 import { warnOnce } from "../core/handle";
 import { RELOAD_FADE_MS, sameTempoMap } from "../music/reload";
 import { clipGeometry, clipTimesOf, pieceAt, type ClipGeometry } from "./clipMap";
-import { shiftedCurve, type TimeCurve } from "./curves";
-import { playlistEffectProps } from "./effects";
+import type { TimeCurve } from "./curves";
+import { levelEffects } from "./effects";
 import { automationParts, type TimeAuto } from "./levelAutomation";
 import { LiveNode, shapedFade, type Ctx, type LoopRun, type NodeHost, type PVoice } from "./liveNode";
 import type { FadeShape } from "../../../../engine/audio/playlist/types";
@@ -125,6 +125,11 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   private endAt = Number.NaN;
   private readonly scratch: number[] = [];
 
+  /** ADR 0331 levels: where this sequence's tracks' and clips' submixes are keyed in the instance. */
+  private get levelKey(): string {
+    return `${this.ctx.chain.join(">")}|${this.key}`;
+  }
+
   constructor(host: NodeHost, ctx: Ctx, key: string, body: PlaylistBody) {
     super(host, ctx, key);
     this.body = body;
@@ -182,10 +187,14 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   /** A track's level below the sequence: volume, pan, effects, output, automation. */
   private trackCtx(track: Track): { ctx: Ctx; time: TimeAuto[] } {
     const override = track.output !== null;
+    const bus = override ? track.output! : this.ctx.bus;
+    // ADR 0331 levels (ABI 4.9): the track's chain on a submix of its own, else mapped onto its voices.
+    const { fx, submix } = levelEffects(this.host, this.ctx, track.effects, bus, `${this.levelKey}/track:${track.id}`, `${this.ctx.where} track "${track.name}"`);
     let ctx: Ctx = {
       ...this.ctx,
-      props: accumulate(this.ctx.props, { gainDb: track.volume, pan: track.pan, fx: playlistEffectProps(track.effects, this.ctx.where), outputOverride: override }),
-      bus: override ? track.output! : this.ctx.bus,
+      props: accumulate(this.ctx.props, { gainDb: track.volume, pan: track.pan, ...(fx ? { fx } : {}), outputOverride: override }),
+      bus,
+      submix,
     };
     const time: TimeAuto[] = [];
     ctx = automationParts(this.host, track.automation, track.effects, ctx, time, `track "${track.name}"`);
@@ -195,7 +204,10 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   private clipRt(clip: Clip, index: number, track: Track, level: { ctx: Ctx; time: TimeAuto[] }, audible: boolean): ClipRt | null {
     const where = `${this.ctx.where} clip "${clip.id}"`;
     if (clip.reverse) warnOnce(`playlist:reverse:${this.ctx.where}:${clip.id}`, `[myco] ${where}: reverse playback isn't supported by the audio core yet; it plays forward.`);
-    let ctx: Ctx = { ...level.ctx, props: accumulate(level.ctx.props, { gainDb: clip.gain, pitchSt: clip.pitch, pan: clip.pan, fx: playlistEffectProps(clip.effects, where) }) };
+    // ADR 0331 levels (ABI 4.9): the clip's chain on a submix of its own (its delay or reverb rings on after the clip's
+    // voice ends), feeding its track's (or the sequence's); else mapped onto its voice.
+    const { fx, submix } = levelEffects(this.host, level.ctx, clip.effects, level.ctx.bus, `${this.levelKey}/clip:${clip.id}`, where);
+    let ctx: Ctx = { ...level.ctx, props: accumulate(level.ctx.props, { gainDb: clip.gain, pitchSt: clip.pitch, pan: clip.pan, ...(fx ? { fx } : {}) }), submix };
     const time = level.time.slice();
     ctx = automationParts(this.host, clip.automation, clip.effects, ctx, time, where);
     const base = { clip, index, track, start: clip.at, sync: clip.sync, audible, ctx, time, inside: false, voice: null, pieceTo: Number.POSITIVE_INFINITY, node: null, driving: -1 };
@@ -484,7 +496,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     const out = c.ctx.timeCurves.slice();
     for (const t of c.time) {
       const offset = t.input === "clipTime" ? u : t.input === "sequenceTime" ? c.start + u : 0;
-      out.push({ target: t.target, curve: shiftedCurve(t.curve, offset) });
+      out.push(offset !== 0 ? { target: t.target, curve: t.curve, offset } : { target: t.target, curve: t.curve });
     }
     return out;
   }
