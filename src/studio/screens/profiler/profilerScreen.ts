@@ -48,7 +48,16 @@ export function profilerRecorder(): CaptureRecorder {
   return (recorder ??= new CaptureRecorder({
     capture: audioHost().audio.capture,
     liveHost: captureLiveHost,
-    store: profilerStore(),
+    store: {
+      openLive: (source, title) => profilerStore().openLive(source, title),
+      refreshLive: () => profilerStore().refreshLive(),
+      close: () => profilerStore().close(),
+      // The saved capture opens through the route, as a click in Captures does.
+      openPath: (path) => {
+        openCapture(path);
+        return profilerStore().openPath(path);
+      },
+    },
     files: () => currentProject.peek()?.files ?? [],
     // The desktop app's `Audio.capture.save` writes `<name>.mycap` into the storage cache; a browser downloads it instead.
     readSaved: async (fileName) => {
