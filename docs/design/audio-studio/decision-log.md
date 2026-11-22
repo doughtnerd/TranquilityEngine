@@ -466,3 +466,13 @@ still unmeasured); the fuel cap is per chain level; "disabled" is per effect typ
 complete once its copies are queued while output is locked (no gesture yet); the stream-head hand-over is two stamped
 voices (no ABI change; pitch or pause during the head can shift the seam). Merge fix: both branches added a capability
 to `AudioBackend` at the same spot; kept both.
+
+**D60. W12 finished except docs/e2e; W13 formats merged.** Plugins: sets load in editor, Studio and player; exports
+ship modules; offline renders run plugin effects; Studio cards, health and Reset. **Engine gate on by default** (0344
+§6, conservative): plugin modules run only on Chromium/V8 until JSC and SpiderMonkey are measured; override
+`project.json` `plugins.audioEffectEngines: "all"` — the owner may prefer them on everywhere. Encoding Studio: Packages
+is screen 7 in a new "Ship" group (Wwise/FMOD treat banks as a build stage); an all-platforms `load` override mirrors the
+legacy `stream` flag; Hear as serves converted audio under each sound's own path; exact sizes on a button (CPU, cap 2).
+Open owner question: should derived samples get their own `encoding` block? W13 L1/T1/S1/D1 formats are pure and
+unexported; the playlist `line` entry waits on a side branch until the runtime/Studio switches handle it; ICU
+parse+format is 3.0 KB gzip; `@formatjs/icu-messageformat-parser` added as a devDependency (test oracle only).

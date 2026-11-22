@@ -8,6 +8,7 @@ import { namesFromStart } from "../../../plugins/audio/runtime/capture/testSuppo
 import { captureTitle, captureTree, nextCapturePath, searchCaptures, treeFolders, whyNotCaptureFile } from "./captureTree";
 import { CURSOR_KEYS, profilerTargets, runCursorKey } from "./cursorKeys";
 import { breakdownText, busReadouts, reasonsText } from "./cursorReadout";
+import { buildMemory, memoryAt, memoryText } from "./memoryModel";
 import { buildMessages, filterMessages, messageCounts, rulerMarks } from "./messagesModel";
 import { noTracksText, planTracks, type CaptureContents } from "./trackPlan";
 import { buildVoices, dimmed, isProblem, voiceLanes, voiceSummary, type VoiceBlock } from "./voiceModel";
@@ -180,5 +181,35 @@ describe("why it played", () => {
     expect(chain.steps.map((s) => [s.label, s.name, s.severity, s.screen])).toEqual([["SAMPLE", "boost.wav", "ok", "samples"], ["BUS", "Vehicles", "warning", "mixer"]]);
     expect(chain.note).toBe(NO_PICK_PATH);
     expect(whyChain(v[4]!).steps[0]!.severity).toBe("error");
+  });
+});
+
+describe("the memory track (ADR 0337 §6)", () => {
+  const pkgNames = namesFromStart({ parameters: [[1, "Core"], [2, "Boss"]] });
+  const pkg = (seconds: number, name: number, event: "loadStart" | "loaded" | "failed" | "unload", memoryBytes: number | null) => at(seconds, { type: "audioPackage", name, event, bytes: 1000, memoryBytes });
+
+  it("adds each loaded package's memory and takes it away at its unload, with a mark for each", () => {
+    const m = buildMemory([0, 1, 2], [100, 200, 150], [pkg(10.5, 1, "loadStart", null), pkg(10.6, 1, "loaded", 4096), pkg(11, 2, "loaded", 8192), pkg(11.5, 2, "failed", null), pkg(12, 1, "unload", 4096)], pkgNames, 10)!;
+    expect(Array.from(m.arena.values)).toEqual([102_400, 204_800, 153_600]);
+    expect(m.peakArena).toBe(204_800);
+    expect(Array.from(m.packages.times, (t) => Math.round(t * 10) / 10)).toEqual([0.6, 1, 2]);
+    expect(Array.from(m.packages.values)).toEqual([4096, 12_288, 8192]);
+    expect(m.marks.map((k) => k.text)).toEqual(["Core loaded · 4 KB", "Boss loaded · 8 KB", "Boss failed to load", "Core unloaded"]);
+    expect(memoryAt(m.packages, 1.5)).toBe(12_288);
+    expect(memoryText(m, 1.5, (b) => `${b}`)).toBe("arena 204800 · packages 12288");
+  });
+
+  it("shows an older capture's package marks without a package line; none at all without arena or packages", () => {
+    const old = buildMemory([0], [0], [pkg(1, 1, "loaded", null), pkg(2, 1, "unload", null)], pkgNames, 0)!;
+    expect(old.packages.times.length).toBe(0);
+    expect(old.unknownPackages).toEqual(["Core"]);
+    expect(old.marks).toHaveLength(2);
+    expect(buildMemory([0, 1], [0, 0], [], pkgNames, 0)).toBeNull();
+    expect(buildMemory([], null, [], pkgNames, 0)).toBeNull();
+  });
+
+  it("plans the Memory track after Load and Effects cost", () => {
+    const c: CaptureContents = { frames: false, status: true, cpu: true, effects: true, memory: true, buses: [], loudness: false, voices: false, parameters: [] };
+    expect(planTracks(c).map((t) => t.id)).toEqual(["load", "effects", "memory"]);
   });
 });

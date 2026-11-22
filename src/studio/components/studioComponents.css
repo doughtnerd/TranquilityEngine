@@ -14,6 +14,10 @@
 .studio-player-scrub { width: 100%; display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .studio-player-right { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
 .studio-player-status { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* ADR 0337 §6: Hear as. */
+.studio-hear-as { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.studio-hear-as-label { color: var(--muted); }
+.studio-hear-as-ab { padding: 0 6px; }
 @container (max-width: 840px) { .studio-player-status { display: none; } }
 @container (max-width: 620px) { .studio-player { grid-template-columns: auto 1fr; } .studio-player-titles, .studio-player-right { display: none; } }
 

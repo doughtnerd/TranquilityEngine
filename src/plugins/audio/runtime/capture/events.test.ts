@@ -113,6 +113,8 @@ const rows: Row[] = [
   ...(["high", "low", "ok"] as const).map((state, i): Row => ({ name: `loudnessWarning ${state}`, call: (s) => s.loudnessWarning(state === "ok" ? null : "Bgm", state), kind: EventKind.loudnessWarning, reason: i + 1, args: [state === "ok" ? NO_NAME : N("parameters", "Bgm")] })),
   // ADR 0337 §9: PKG, a package's load start, load, failure and unload with its download bytes.
   ...(["loadStart", "loaded", "failed", "unload"] as const).map((event, i): Row => ({ name: `audioPackage ${event}`, call: (s) => s.audioPackage("Forest", event, 18_211), kind: EventKind.audioPackage, reason: i + 1, args: [N("parameters", "Forest"), 18_211] })),
+  // ADR 0337 §6: loaded and unload carry the memory held as a third arg.
+  { name: "audioPackage loaded with memory", call: (s) => s.audioPackage("Forest", "loaded", 18_211, 96_000), kind: EventKind.audioPackage, reason: 2, args: [N("parameters", "Forest"), 18_211, 96_000] },
   // ADR 0338 §6: a plugin fault, the effect type interned in `parameters`, the glue's instance handle.
   ...(["trap", "budget", "grow", "nonFinite", "range"] as const).map((reason, i): Row => ({ name: `pluginFault ${reason}`, call: (s) => s.pluginFault("example.tremolo", reason, 7), kind: EventKind.pluginFault, reason: i + 1, args: [N("parameters", "example.tremolo"), 7] })),
 ];

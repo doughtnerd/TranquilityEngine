@@ -3,7 +3,7 @@
 // by bus with status colours, a click on a stolen voice selecting it and moving the cursor to its start, "Problems only"
 // dimming played voices, lanes by sound, and the ruler's markers and warnings.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
 import { CaptureSource } from "../../../plugins/audio/editor/mix/profilerSource";
 import { QUANTA_PER_STATUS, QUANTUM_MS, records, type Fields } from "../../../plugins/audio/editor/mix/tracks/cpuCountersTestSupport";
 import { assembleCapture } from "../../../plugins/audio/runtime/capture/format";
@@ -60,8 +60,24 @@ export const Fixture: Story = {
     const c = within(canvasElement);
     await waitFor(() => expect(c.getByRole("region", { name: "Capture timeline" })).toBeVisible());
     const labels = [...canvasElement.querySelectorAll(".pf-track-label")].map((e) => e.textContent);
-    await expect(labels.slice(1, 6)).toEqual(["Load", "Bus · Music", "Bus · Vehicles", "Bus · Dialogue", "Dialogue"]);
+    await expect(labels.slice(1, 7)).toEqual(["Load", "Memory", "Bus · Music", "Bus · Vehicles", "Bus · Dialogue", "Dialogue"]);
     await expect(c.getAllByRole("button", { name: /Warning at|Error at|Marker at/ }).length).toBeGreaterThan(2);
+  },
+};
+
+/** ADR 0337 §6: the clip arena and the Forest package (loaded 1.2 s to 9 s), with a mark at its load and unload. */
+export const Memory: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const row = await waitFor(() => c.getByRole("group", { name: "Memory" }));
+    await expect(within(row).getByRole("note", { name: /^Forest loaded · 880 KB at/ })).toBeInTheDocument();
+    await expect(within(row).getByRole("note", { name: /^Forest unloaded at/ })).toBeInTheDocument();
+    await expect(row).toHaveTextContent("peak arena");
+    // At 5 s the package is resident: the readout counts it.
+    const plot = row.querySelector<HTMLElement>(".pf-plot")!;
+    const box = plot.getBoundingClientRect();
+    fireEvent.click(plot, { clientX: box.left + box.width * 0.42, clientY: box.top + 2 });
+    await waitFor(() => expect(row.querySelector(".pf-track-value")?.textContent).toMatch(/^arena .* · packages 880 KB$/));
   },
 };
 

@@ -1,15 +1,15 @@
-// The Audio Studio's six screens in three groups (ADR 0327 "The shell"): Author (Samples, Playlists), Mix (Mixer,
-// Spatial), Run (Take, Profiler). Each has its place in the header, its Ctrl/⌘+digit and what it is for, which its
-// empty state says until there is something to show.
+// The Audio Studio's screens in four groups (ADR 0327 "The shell"): Author (Samples, Playlists), Mix (Mixer,
+// Spatial), Run (Take, Profiler) and Ship (Packages, ADR 0337 §6). Each has its place in the header, its Ctrl/⌘+digit
+// and what it is for, which its empty state says until there is something to show.
 
-export type ScreenId = "samples" | "playlists" | "mixer" | "spatial" | "take" | "profiler";
-export type ScreenGroup = "author" | "mix" | "run";
+export type ScreenId = "samples" | "playlists" | "mixer" | "spatial" | "take" | "profiler" | "packages";
+export type ScreenGroup = "author" | "mix" | "run" | "ship";
 
 export interface ScreenInfo {
   readonly id: ScreenId;
   readonly title: string;
   readonly group: ScreenGroup;
-  /** Its digit in Ctrl/⌘+1…6. */
+  /** Its digit in Ctrl/⌘+1…7. */
   readonly digit: number;
   /** What the screen is for, in a sentence (its empty state and the header's tooltip). */
   readonly purpose: string;
@@ -17,7 +17,7 @@ export interface ScreenInfo {
   readonly art: string;
 }
 
-export const GROUP_TITLES: Readonly<Record<ScreenGroup, string>> = { author: "Author", mix: "Mix", run: "Run" };
+export const GROUP_TITLES: Readonly<Record<ScreenGroup, string>> = { author: "Author", mix: "Mix", run: "Run", ship: "Ship" };
 
 export const SCREENS: readonly ScreenInfo[] = [
   { id: "samples", title: "Samples", group: "author", digit: 1, art: "WAV", purpose: "Audio files and their non-destructive edits: markers, loops, trim, tempo and root, normalise and baked effects." },
@@ -26,6 +26,7 @@ export const SCREENS: readonly ScreenInfo[] = [
   { id: "spatial", title: "Spatial", group: "mix", digit: 4, art: "3D", purpose: "Attenuation curves, audio zones and test scenes for how sound behaves in space." },
   { id: "take", title: "Take", group: "run", digit: 5, art: "TAKE", purpose: "Recordings of what a game asked of audio, replayed against the current audio and annotated." },
   { id: "profiler", title: "Profiler", group: "run", digit: 6, art: "CAP", purpose: "Engine performance captures: voices, CPU, buses and loudness over time, and why each sound played." },
+  { id: "packages", title: "Packages", group: "ship", digit: 7, art: "PAK", purpose: "What each platform ships: packages of sounds loaded together, encoding profiles and folder rules, sizes and memory against budgets." },
 ];
 
 export const DEFAULT_SCREEN: ScreenId = "samples";

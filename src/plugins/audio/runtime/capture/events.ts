@@ -381,10 +381,21 @@ export class EventSink implements ProfileSink {
 
   /**
    * ADR 0337 §9 (`PKG`): args: the package's name (`parameters` table, as a bus name in `loudnessWarning`), its download
-   * bytes (u32, saturating); reason 1 load start, 2 loaded, 3 failed, 4 unload.
+   * bytes (u32, saturating), and on `loaded` and `unload` the memory it holds resident (u32, saturating; ADR 0337 §6, an
+   * optional third arg added within format 2); reason 1 load start, 2 loaded, 3 failed, 4 unload.
    */
-  audioPackage(name: string, event: ProfilePackageEvent, bytes: number): void {
-    this.now2(EventKind.audioPackage, PACKAGE_EVENT[event], this.intern(T_PARAM, name), Math.min(0xffffffff, Math.max(0, Math.floor(bytes))));
+  audioPackage(name: string, event: ProfilePackageEvent, bytes: number, memoryBytes?: number): void {
+    const u32 = (n: number) => Math.min(0xffffffff, Math.max(0, Math.floor(n)));
+    if (memoryBytes === undefined) {
+      this.now2(EventKind.audioPackage, PACKAGE_EVENT[event], this.intern(T_PARAM, name), u32(bytes));
+      return;
+    }
+    // ADR 0337 §6 (the Profiler's memory track): a third arg, appended within format 2 (readers take ≥ 2 args).
+    const a = this.args[3]!;
+    a[0] = this.intern(T_PARAM, name);
+    a[1] = u32(bytes);
+    a[2] = u32(memoryBytes);
+    this.write(EventKind.audioPackage, PACKAGE_EVENT[event], a, 0, this.recorder.newestStatusFrame, false, 0);
   }
 
   /**
@@ -485,7 +496,8 @@ export type CaptureEvent = CaptureEventBase & (
   /** ADR 0334: a metered bus's loudness against its target; `bus` a name id in the `parameters` table, null for the output. */
   | { readonly type: "loudnessWarning"; readonly bus: number | null; readonly state: ProfileLoudnessState | null }
   /** ADR 0337 §9 (`PKG`): a package's load start, load, failure or unload; `name` an id in the `parameters` table. */
-  | { readonly type: "audioPackage"; readonly name: number; readonly event: ProfilePackageEvent | null; readonly bytes: number }
+  /** `memoryBytes`: what it holds resident (its third arg, written on loaded and unload by builds since ADR 0337 A6); null when absent. */
+  | { readonly type: "audioPackage"; readonly name: number; readonly event: ProfilePackageEvent | null; readonly bytes: number; readonly memoryBytes: number | null }
   /** ADR 0338 §6: `effect` is the type's name id (`parameters` table). */
   | { readonly type: "pluginFault"; readonly effect: number; readonly instance: number; readonly reason: ProfilePluginFault | null }
 );
@@ -547,7 +559,7 @@ export function readCaptureEvent(p: EventPayload): CaptureEvent | null {
       return { ...base, type, instance: a[0]!, depth: a[1]!, playlist: a[2]!, playlistType: PICK_TYPES[a[3]!] ?? null, choice: orNull(a[4]!), label: orNull(a[5]!), weights };
     }
     case "loudnessWarning": return { ...base, type, bus: orNull(a[0]!), state: LOUDNESS_STATE_OF[r] ?? null };
-    case "audioPackage": return { ...base, type, name: a[0]!, event: PACKAGE_EVENT_OF[r] ?? null, bytes: a[1]! >>> 0 };
+    case "audioPackage": return { ...base, type, name: a[0]!, event: PACKAGE_EVENT_OF[r] ?? null, bytes: a[1]! >>> 0, memoryBytes: a.length > 2 ? a[2]! >>> 0 : null };
     case "pluginFault": return { ...base, type, effect: a[0]!, instance: a[1]!, reason: PLUGIN_FAULT_OF[r] ?? null };
   }
 }

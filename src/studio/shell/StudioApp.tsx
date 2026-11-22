@@ -1,6 +1,6 @@
 // The Studio's page (ADR 0327 "The shell"): the start screen with no project open, else the shell: header, the
 // screen's dock (the engine's `DockLayout` over the screen's own layout store), the player bar with the screen's
-// slots, the status bar, toasts and the shortcut list. A banner says why when the audio core can't run, and one over
+// slots and the Hear as control (ADR 0337 §6), the status bar, toasts and the shortcut list. A banner says why when the audio core can't run, and one over
 // the Playlists screen offers to migrate a read-only project's old audio events (ADR 0329).
 import { ConfirmDialog } from "../../editor/ui/ConfirmDialog";
 import { KeyboardShortcutsDialog } from "../../editor/ui/KeyboardShortcutsDialog";
@@ -12,6 +12,7 @@ import { currentProject, status } from "../../editor/state";
 import { PlayerBar } from "../components/PlayerBar";
 import { StudioStatusBar } from "../components/StudioStatusBar";
 import { outputDevice } from "./outputDevice";
+import { HearAsSlot } from "./HearAsSlot";
 import { ReplaySlot, replaySlotShown } from "./ReplaySlot";
 import { screenById } from "./screens";
 import { ScreenDock } from "./ScreenDock";
@@ -61,7 +62,7 @@ export function StudioApp(props: StudioAppProps) {
         {route.screen === "playlists" && pendingAudioMigration.value && <MigrationBanner pending={pendingAudioMigration.value} />}
       </div>
       <ScreenDock screen={route.screen} />
-      <PlayerBar idleArt={screen.art} {...slots} replay={"replay" in slots ? slots.replay : replaySlotShown() ? <ReplaySlot /> : undefined} label={`${screen.title} player`} />
+      <PlayerBar idleArt={screen.art} {...slots} hearAs={<HearAsSlot />} replay={"replay" in slots ? slots.replay : replaySlotShown() ? <ReplaySlot /> : undefined} label={`${screen.title} player`} />
       <StudioStatusBar state={state} stats={host.stats.value} message={status.value} device={outputDevice().value.name} />
       <UndoToasts queue={toasts} />
       <ConfirmDialog />

@@ -1,7 +1,8 @@
 // The Inspector on the Samples screen (the prototype's): the selected marker, loop, trim, snippet or the sample itself.
 // Markers: type, name, time or range, colour (notes), note, and the Source block (file vs project per field with a
 // revert each, Detach). Loops: Repeats, Active, Exit and its fade, Re-entry, Direction, Crossfade. The sample: Load,
-// kind, Stinger, measured loudness, lineage, the whole sample's Source block and the playlists that use it.
+// kind, Stinger, measured loudness, lineage, the whole sample's Source block, its Encoding per platform (ADR 0337 §6:
+// where each setting comes from, overrides, sizes and memory) and the playlists that use it.
 import { useState } from "preact/hooks";
 import type { SampleEdits, SampleLoop, SampleMarker, SampleKind } from "../../../engine/audio/sample/types";
 import { parentChangedSincePin, sampleEditsHash, sampleEditsFromSidecar } from "../../../engine/audio/sample/format";
@@ -10,6 +11,7 @@ import { Chip } from "../../../editor/ui/Chip";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
+import { SampleEncoding } from "./SampleEncoding";
 import { sidecarPath, type ImportSettings } from "../../../engine/scene/importSettings";
 import { formatTime, parseTime, type TimeContext } from "../../components/timeRulerModel";
 import { openRoute } from "../../shell/studioServices";
@@ -294,7 +296,6 @@ function SampleInspector(props: Part & { session: SampleSession }) {
   const { session, e, ctx, commit, ro } = props;
   const project = session.project;
   const source = session.source.value;
-  const settings = session.settings.value;
   const derived = session.derived.value;
   const loud = loudnessOf(project, source);
   const wav = wavMetadataOf(project, source);
@@ -313,14 +314,6 @@ function SampleInspector(props: Part & { session: SampleSession }) {
     <>
       <h3 class="smp-insp-title">{nameOf(session.path)}</h3>
       <p class="smp-muted">{session.path}</p>
-      {settings && (
-        <div class="fld">
-          <span>Load</span>
-          <SegmentedControl size="small" label="Load" value={settings.stream ? "stream" : "decode"} options={[{ value: "decode", label: "Decode on load" }, { value: "stream", label: "Stream" }]}
-            onChange={(v) => !ro && session.setSettings({ ...settings, stream: v === "stream" }, v === "stream" ? "Stream" : "Decode on load")} />
-        </div>
-      )}
-      {/* TODO(ADR 0119): Format and Sample rate are export settings; the sidecar has no audio export fields yet. */}
       <div class="fld">
         <span>Kind</span>
         <SegmentedControl size="small" label="Kind" value={e.kind} options={KIND_OPTIONS} onChange={(k) => !ro && commit({ next: { ...e, kind: k }, label: `Make it ${KIND_OPTIONS.find((o) => o.value === k)!.label.toLowerCase()}` })} />
@@ -368,6 +361,7 @@ function SampleInspector(props: Part & { session: SampleSession }) {
           </div>
         </div>
       )}
+      <SampleEncoding session={session} />
       <h4 class="smp-insp-section">Used by</h4>
       {uses.length === 0 ? (
         <p class="smp-muted">Not used by any playlist or sequence yet.</p>

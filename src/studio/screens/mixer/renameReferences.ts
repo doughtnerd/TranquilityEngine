@@ -9,26 +9,7 @@ import { renameEventName } from "../../../engine/audio/migrate/legacy/eventRefer
 import { PLAYLIST_SUFFIX } from "../../../engine/audio/playlist/types";
 import { AUDIO_PROJECT_FILE } from "../../../engine/audio/project/types";
 import type { ProjectFileEdit } from "../../../editor/projectFileEdits";
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-
-/** Map every object in `value` (depth first) through `fn`, keeping identity where nothing changed. */
-function mapObjects(value: unknown, fn: (o: Record<string, unknown>) => Record<string, unknown>): unknown {
-  if (Array.isArray(value)) {
-    const next = value.map((v) => mapObjects(v, fn));
-    return next.some((v, i) => v !== value[i]) ? next : value;
-  }
-  if (!isRecord(value)) return value;
-  let out = value;
-  for (const [k, v] of Object.entries(value)) {
-    const nv = mapObjects(v, fn);
-    if (nv !== v) {
-      if (out === value) out = { ...value };
-      out[k] = nv;
-    }
-  }
-  return fn(out);
-}
+import { isRecord, mapObjects } from "../../jsonObjects";
 
 /**
  * A playlist file's JSON with every `output` naming `from` renamed `to`: the playlist's own, embedded entries' and

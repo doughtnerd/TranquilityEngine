@@ -3,6 +3,7 @@
 import type { StudioPanel } from "../shell/studioPanels";
 import type { ScreenId } from "../shell/screens";
 import { MIXER_PANELS } from "./mixer";
+import { PACKAGES_PANELS } from "./packages";
 import { PLAYLISTS_PANELS } from "./playlists";
 import { PROFILER_PANELS } from "./profiler";
 import { SAMPLES_PANELS } from "./samples";
@@ -16,4 +17,5 @@ export const SCREEN_PANELS: Readonly<Record<ScreenId, readonly StudioPanel[]>> =
   spatial: SPATIAL_PANELS,
   take: TAKE_PANELS,
   profiler: PROFILER_PANELS,
+  packages: PACKAGES_PANELS,
 };

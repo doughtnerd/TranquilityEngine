@@ -61,8 +61,12 @@ export interface ProfileSink {
   pick?(pick: ProfilePick): void;
   /** ADR 0334: metered bus `bus` (null: the output) moved against its loudness target to `state`; optional, the recorder's. */
   loudnessWarning?(bus: string | null, state: ProfileLoudnessState): void;
-  /** ADR 0337 §9: package `name` (`bytes` its download size) started loading, loaded, failed or was unloaded; optional, the recorder's. */
-  audioPackage?(name: string, event: ProfilePackageEvent, bytes: number): void;
+  /**
+   * ADR 0337 §9: package `name` (`bytes` its download size) started loading, loaded, failed or was unloaded; optional, the
+   * recorder's. `memoryBytes` (loaded and unload): the memory it holds resident (clip arena and decoder bytes), for the
+   * Studio Profiler's memory track (ADR 0337 §6).
+   */
+  audioPackage?(name: string, event: ProfilePackageEvent, bytes: number, memoryBytes?: number): void;
   /** ADR 0338 §6: plugin effect `type`'s instance `instance` faulted for `reason` (its block passed dry); optional, the recorder's. */
   pluginFault?(type: string, reason: ProfilePluginFault, instance: number): void;
 }

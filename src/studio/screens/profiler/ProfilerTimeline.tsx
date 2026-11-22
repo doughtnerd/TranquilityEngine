@@ -1,7 +1,8 @@
 // The Profiler's timeline (ADR 0334 "The Profiler screen"; the prototype's tracks): a ruler with the capture's markers
 // and every warning and error, then the tracks `planTracks` chose, in its order: Picture (a take's pictures, the kit's filmstrip;
 // none for a capture), Load (voices and CPU against the voice cap), Effects cost (the estimated DSP share per section, one line
-// each), a Bus track per bus (its effective gain, with the lane
+// each), Memory (the clip arena and the loaded packages, with package marks; ADR 0337 §6), a Bus track per bus (its
+// effective gain, with the lane
 // breakdown floating at the cursor), Loudness (short-term against the target), the voice lanes (by bus or by clip, with
 // status colours; a click selects a voice and seeks to its start) and the game parameters. Clicking a track seeks. The
 // whole capture fits the width; lines are drawn in a fixed SVG box stretched to the track (`timelineGeometry.ts`).
@@ -13,6 +14,8 @@ import { useElementWidth } from "../../components/useElementWidth";
 import { formatDb } from "../../../plugins/audio/editor/dbScale";
 import { breakdownText, type BusReadout } from "./cursorReadout";
 import { EFFECT_SECTIONS, effectsCostText } from "./effectsCostModel";
+import { memoryText } from "./memoryModel";
+import { formatBytes } from "../../encoding/estimate";
 import type { RulerMark } from "./messagesModel";
 import type { ProfilerData } from "./profilerData";
 import { BOX_H, BOX_W, clockText, extent, linePath, maxOf, pct, rulerTicks, stepPath, valueAt, yOf } from "./timelineGeometry";
@@ -133,6 +136,30 @@ function EffectsTrack({ data, track, cursor, onSeek }: { data: ProfilerData; tra
             {l.label}
           </span>
         ))}
+      </span>
+    </TrackRow>
+  );
+}
+
+/** ADR 0337 §6: the clip arena and the loaded packages' memory, on one scale, with a mark at each package load and unload. */
+function MemoryTrack({ data, track, cursor, onSeek }: { data: ProfilerData; track: PlannedTrack; cursor: number; onSeek(t: number): void }) {
+  const m = data.memory!;
+  const top = Math.max(1, m.peakArena, m.peakPackages) * 1.15;
+  return (
+    <TrackRow track={track} value={memoryText(m, cursor, formatBytes)} duration={data.duration} onSeek={onSeek} height={48}>
+      <Lines
+        height={48}
+        paths={[
+          { d: stepPath(m.packages, data.duration, 0, top), cls: "pf-line pf-mem-packages" },
+          { d: linePath(m.arena, data.duration, 0, top), cls: "pf-line pf-mem-arena" },
+        ]}
+      />
+      {m.marks.map((k, i) => (
+        <span key={i} class={`pf-mem-mark ${k.kind}`} style={{ left: `${pct(k.time, data.duration)}%` }} role="note" aria-label={`${k.text} at ${clockText(k.time)}`} title={`${k.text} · ${clockText(k.time)}`} />
+      ))}
+      <span class="pf-ref-label" title={m.unknownPackages.length ? `This capture doesn't say what ${m.unknownPackages.join(", ")} held` : undefined}>
+        peak arena {formatBytes(m.peakArena)}
+        {m.packages.times.length ? ` · packages ${formatBytes(m.peakPackages)}` : ""}
       </span>
     </TrackRow>
   );
@@ -277,6 +304,8 @@ export function ProfilerTimeline(props: ProfilerTimelineProps) {
               return <LoadTrack key={track.id} data={data} track={track} cursor={cursor} onSeek={props.onSeek} />;
             case "effects":
               return <EffectsTrack key={track.id} data={data} track={track} cursor={cursor} onSeek={props.onSeek} />;
+            case "memory":
+              return <MemoryTrack key={track.id} data={data} track={track} cursor={cursor} onSeek={props.onSeek} />;
             case "bus":
               return <BusTrack key={track.id} data={data} track={track} slot={track.slot} readout={readout(track.slot)} cursor={cursor} onSeek={props.onSeek} />;
             case "loudness":

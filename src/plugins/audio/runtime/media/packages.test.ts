@@ -362,4 +362,20 @@ describe("packages in a build (the media table)", () => {
     const bytes = files["audio/packages/Cave.mycopak"].length;
     expect(events).toEqual([["Cave", "loadStart", bytes], ["Cave", "loaded", bytes], ["Cave", "unload", bytes]]);
   });
+
+  it("gives PKG loaded and unload events the memory the package holds (the Studio Profiler's memory track)", async () => {
+    const { files, manifest } = buildPacks();
+    installAudioMedia(manifest, (p) => `https://game.test/${p}`);
+    stubFetch(files).release();
+    const events: [string, number | undefined][] = [];
+    taps.sink = { ...NULL_PROFILE_SINK, audioPackage: (_name, event, _bytes, memory) => void events.push([event, memory]) } as ProfileSink;
+    const cave = Audio.package("Cave");
+    const loading = cave.load();
+    await tick();
+    await loading;
+    const held = cave.memoryBytes;
+    cave.unload();
+    expect(held).toBeGreaterThan(0);
+    expect(events).toEqual([["loadStart", undefined], ["loaded", held], ["unload", held]]);
+  });
 });
