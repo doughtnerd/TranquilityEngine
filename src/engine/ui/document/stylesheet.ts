@@ -33,8 +33,10 @@ const PSEUDO: ReadonlySet<string> = new Set<UIPseudo>(["hover", "pressed", "focu
 export const INHERITED_FIELDS: ReadonlySet<string> = new Set(["color", "fontSize", "fontWeight", "textAlign"]);
 /** String fields that hold a `UILength`. */
 const LENGTH_FIELDS: ReadonlySet<string> = new Set(["width", "height", "top", "right", "bottom", "left"]);
-/** Attributes that aren't fields. */
-const NOT_FIELDS: ReadonlySet<string> = new Set(["id", "class"]);
+/** Attributes that aren't fields (`translate="no"` marks text as deliberately unlocalised, ADR 0342 §4). */
+const NOT_FIELDS: ReadonlySet<string> = new Set(["id", "class", "translate"]);
+/** The prefix of key attributes (`t:text="menu.start"`, ADR 0342 §4): the runtime writes the localised message. */
+export const KEY_ATTRIBUTE_PREFIX = "t:";
 
 // --- Parsing ------------------------------------------------------------------------------------
 
@@ -104,7 +106,7 @@ function parseRule(node: CssRule, source: string, report: (start: number, end: n
 
 function parseSelector(sel: CssSelector, report: (start: number, end: number, message: string) => void): Selector | null {
   const parts: { selector: SimpleSelector; combinator: " " | ">" | null }[] = [];
-  let current: { tag: UITag | null; id: string | null; classes: string[]; pseudo: UIPseudo[] } | null = null;
+  let current: { tag: UITag | null; id: string | null; classes: string[]; pseudo: UIPseudo[]; lang: string[] } | null = null;
   let pendingCombinator: " " | ">" | null = null;
   let root = false;
   let ok = true;
@@ -114,7 +116,7 @@ function parseSelector(sel: CssSelector, report: (start: number, end: number, me
     current = null;
     pendingCombinator = null;
   };
-  const compound = () => (current ??= { tag: null, id: null, classes: [], pseudo: [] });
+  const compound = () => (current ??= { tag: null, id: null, classes: [], pseudo: [], lang: [] });
   for (const n of sel.children.toArray()) {
     const s = n.loc?.start.offset ?? 0;
     const e = n.loc?.end.offset ?? 0;
@@ -138,8 +140,15 @@ function parseSelector(sel: CssSelector, report: (start: number, end: number, me
           root = true;
           compound();
         } else if (PSEUDO.has(n.name)) compound().pseudo.push(n.name as UIPseudo);
-        else {
-          report(s, e, `:${n.name} isn't supported; UI pseudo-classes are :hover, :pressed, :focus and :disabled.`);
+        else if (n.name === "lang") {
+          // `:lang(de)` (ADR 0342 §4): one language range, matched by BCP 47 prefix against the current text language.
+          const ranges = (n.children?.toArray() ?? []).map((c) => (c.type === "Identifier" ? c.name : c.type === "String" ? c.value : "")).filter((r) => /^[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*$/.test(r));
+          if (ranges.length !== 1) {
+            report(s, e, ":lang() takes one language code, such as :lang(de) or :lang(zh-Hant).");
+            ok = false;
+          } else compound().lang.push(ranges[0]);
+        } else {
+          report(s, e, `:${n.name} isn't supported; UI pseudo-classes are :hover, :pressed, :focus, :disabled and :lang().`);
           ok = false;
         }
         break;
@@ -159,7 +168,7 @@ function parseSelector(sel: CssSelector, report: (start: number, end: number, me
   }
   flush();
   if (!ok || parts.length === 0) return null;
-  if (root && (parts.length > 1 || parts[0].selector.tag || parts[0].selector.id || parts[0].selector.classes.length || parts[0].selector.pseudo.length)) {
+  if (root && (parts.length > 1 || parts[0].selector.tag || parts[0].selector.id || parts[0].selector.classes.length || parts[0].selector.pseudo.length || parts[0].selector.lang.length)) {
     report(sel.loc?.start.offset ?? 0, sel.loc?.end.offset ?? 0, ":root only goes alone, to declare variables.");
     return null;
   }
@@ -168,7 +177,7 @@ function parseSelector(sel: CssSelector, report: (start: number, end: number, me
   let tags = 0;
   for (const p of parts) {
     if (p.selector.id) ids++;
-    classes += p.selector.classes.length + p.selector.pseudo.length;
+    classes += p.selector.classes.length + p.selector.pseudo.length + p.selector.lang.length;
     if (p.selector.tag) tags++;
   }
   return { parts, specificity: root ? [0, 1, 0] : [ids, classes, tags], root };
@@ -181,7 +190,16 @@ function matchesSimple(s: SimpleSelector, t: StyleTarget): boolean {
   if (s.id && s.id !== t.id) return false;
   for (const c of s.classes) if (!t.classes.includes(c)) return false;
   for (const p of s.pseudo) if (!t.state[p]) return false;
+  for (const range of s.lang) if (!langMatches(t.lang, range)) return false;
   return true;
+}
+
+/** CSS `:lang()` matching (ADR 0342 §4): the language equals the range or starts with it and a hyphen (`de` matches `de-AT`). */
+function langMatches(language: string | undefined, range: string): boolean {
+  if (!language) return false;
+  const l = language.toLowerCase();
+  const r = range.toLowerCase();
+  return l === r || l.startsWith(`${r}-`);
 }
 
 /** True when a selector matches an element (`:root` selectors match nothing: they only declare variables). */
@@ -203,6 +221,11 @@ function matchFrom(selector: Selector, index: number, target: StyleTarget): bool
 /** True when any rule of these sheets uses a pseudo-class (so elements restyle when their state changes). */
 export function usesPseudo(sheets: readonly { rules: readonly StyleRule[] }[]): boolean {
   return sheets.some((s) => s.rules.some((r) => r.selectors.some((sel) => sel.parts.some((p) => p.selector.pseudo.length > 0))));
+}
+
+/** True when any rule of these sheets uses `:lang()` (so elements restyle when the language changes, ADR 0342 §4). */
+export function usesLang(sheets: readonly { rules: readonly StyleRule[] }[]): boolean {
+  return sheets.some((s) => s.rules.some((r) => r.selectors.some((sel) => sel.parts.some((p) => p.selector.lang.length > 0))));
 }
 
 // --- Values -------------------------------------------------------------------------------------
@@ -367,9 +390,24 @@ function isKnownField(name: string): boolean {
   return knownFields.has(name);
 }
 
-/** The field an attribute sets (`flex-direction` and `flexDirection` both name `flexDirection`; `position` names `positionType`), or null for `id`/`class`. */
+/**
+ * The field an attribute sets (`flex-direction` and `flexDirection` both name `flexDirection`; `position` names
+ * `positionType`), or null for `id`, `class`, `translate` and key attributes (`t:text`, see `keyAttributeField`).
+ */
 export function attributeField(attribute: MarkupAttribute): string | null {
-  return NOT_FIELDS.has(attribute.name) ? null : propertyField(attribute.name);
+  return NOT_FIELDS.has(attribute.name) || attribute.name.startsWith(KEY_ATTRIBUTE_PREFIX) ? null : propertyField(attribute.name);
+}
+
+/** The field a key attribute localises (`t:text` → `text`, `t:placeholder` → `placeholder`), or null for other attributes. */
+export function keyAttributeField(attribute: MarkupAttribute): string | null {
+  if (!attribute.name.startsWith(KEY_ATTRIBUTE_PREFIX)) return null;
+  const name = attribute.name.slice(KEY_ATTRIBUTE_PREFIX.length);
+  return name === "" ? null : propertyField(name);
+}
+
+/** True for a field a key attribute may localise: a plain string (not a length, a choice or an asset). */
+export function isTextField(info: FieldInfo): boolean {
+  return info.type === String && !LENGTH_FIELDS.has(info.name) && !Array.isArray(info.options?.choices);
 }
 
 /** A variable's key in a resolved map: `--name` (variables inherit, like the text properties). */
