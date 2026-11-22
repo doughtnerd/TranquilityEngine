@@ -70,7 +70,7 @@ describe("UI element kinds", () => {
 describe("text runs", () => {
   it("resolves a UIText's text, size, CSS weight, family, line height and wrapping", () => {
     const text = make(UIText, { text: "Hello", fontSize: 20, fontWeight: "semi-bold", wordBreak: "break-all" });
-    expect(textRunOf(text)).toEqual({ text: "Hello", fontSize: 20, fontWeight: "600", fontFamily: UI_FONT_FAMILY, lineHeight: 1.2, wrap: "anywhere" });
+    expect(textRunOf(text)).toEqual({ text: "Hello", fontSize: 20, fontWeight: "600", fontFamily: UI_FONT_FAMILY, lineHeight: 1.2, wrap: "anywhere", direction: "ltr", align: "left" });
     text.wordBreak = "keep-all";
     expect(textRunOf(text)!.wrap).toBe("none");
     text.wordBreak = "break-word";
@@ -81,7 +81,7 @@ describe("text runs", () => {
 
   it("resolves an input field's value, or its placeholder while empty, on one line at weight 400", () => {
     const field = make(UIInputField, { placeholder: "Name", fontSize: 14 });
-    expect(textRunOf(field)).toEqual({ text: "Name", fontSize: 14, fontWeight: "400", fontFamily: UI_FONT_FAMILY, lineHeight: 1.2, wrap: "none" });
+    expect(textRunOf(field)).toEqual({ text: "Name", fontSize: 14, fontWeight: "400", fontFamily: UI_FONT_FAMILY, lineHeight: 1.2, wrap: "none", direction: "ltr", align: "left" });
     field.value = "a\nb\r\nc";
     expect(textRunOf(field)!.text).toBe("a b  c"); // one space per line-break character, so caret indices still match
   });
