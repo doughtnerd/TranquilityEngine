@@ -483,3 +483,11 @@ parse+format is 3.0 KB gzip; `@formatjs/icu-messageformat-parser` added as a dev
 wrapping, against 0342 §12); a superseded `setLanguage` resolves without switching (no unhandled rejections); system
 language counts only for drawing runtimes; editor Play doesn't persist the language; `Locale` is a process global like
 `Graphics`; in RTL the input field aligns to its start edge.
+
+**D62. Studio Dialogue screen (W13 L5/L6/D4/S4, merged).** Dialogue is screen 8 (Author). Choices to review: a
+duplicated line is `<key>_2` keeping the original's subtitle via `textKey`; a key rename keeps the subtitle and
+recording names (`textKey`/`file` = old key); script CSV columns `key,table,speaker,notes,<languages…>`, deleting lines
+missing from a CSV only on an opt-in; the preview chip is hidden for single-language projects; the Studio rewrites
+`project.json` whole when editing `languages`, only while no editor lock is held; "Duck Music under Voice" is −6 dB,
+80/400 ms; coverage runs synchronously (capped) rather than in a worker. Auditions use the Studio's clip path until the
+audio runtime (L2/D2) merges.
