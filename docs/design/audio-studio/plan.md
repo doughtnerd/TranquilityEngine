@@ -12,7 +12,8 @@ superseded and not part of the spec.
    prototype doesn't show (stingers, stems, sustain, beds, Doppler, ambisonics, bus automation) get a home.
 3. **Sample edits live in sidecars**; writing into the WAV is an explicit action.
 4. **Take** (designer review: recorded in the editor or a game build, replayed against current audio, annotated) and
-   **Profiler** (engine performance: editor, game build, or a take as it plays) are separate, related recordings.
+   **Profiler** (engine performance: editor, game build, or a take as it plays) are separate screens. A take file
+   also carries the profiler's data for its run (one file); `.mycap` remains for profile-only recordings.
 5. **v1 has no live connection**: everything is recorded to files and viewed from files. The live link is a later record.
 6. The **engine is the authority on undo and history** UX; for minor gaps, current engine behaviour wins; for the new
    audio concepts, the prototype wins.
@@ -29,7 +30,7 @@ superseded and not part of the spec.
 | Effects at sample, clip, track/playlist, bus | four bus effect types | one catalogue, four levels | 0331 |
 | Curves window (time, parameter, distance) | `core/curve.ts` (parameter keys), `CurveEditor.tsx` | Bézier keys, time parameters, one curve editor | 0332 |
 | Spatial: attenuation curves, audio zones, test scenes | min/max + rolloff; no zones; Sound Lab sample | attenuation curves and presets, `AudioZone`, `*.audioscene.json` | 0333 |
-| Take | nothing (captures are telemetry) | `*.mycotake` + notes | 0334 |
+| Take | nothing (captures are telemetry) | `*.mycotake` (requests + profile in one file) + notes | 0334 |
 | Profiler | `.mycap` + Profiler panel | `.mycap` extended + Profiler screen | 0334 |
 | Shell, trees, faders, rows, history | editor dock, TreeView, UndoTree, controls | one kit | 0335 |
 
@@ -73,7 +74,7 @@ specs (`tests/e2e/studio-*.spec.ts`), and `implementation-status.md` rows.
 | M5 | Sequence and music | Sequence view and runtime (loops, hold points, sync and async clips, automation), musical clock from the scheduler, Switch rules at beat/bar/exit with transitions, stingers | 0329, 0332 |
 | M6 | Mixer screen | buses, returns, VCAs, inserts, sends, automation, ducking, snapshots with triggers, gain lanes, loudness, Compare, live board | 0330 |
 | M7 | Spatial | attenuation curves at runtime, `AudioZone` component (runtime, Inspector, gizmo), test scenes and the Spatial screen | 0333 |
-| M8 | Takes | recorder, format and reader, editor Record take, `Audio.take` and the export flag, replay driver, Take screen, annotations | 0334 |
+| M8 | Takes | recorder (requests plus the capture recorder into one file), format and reader, editor Record take, `Audio.take` and the export flag, replay driver, Take screen, annotations | 0334 |
 | M9 | Profiler | capture extensions (pick paths, loudness warnings, MIXOP), Profiler screen, capturing a take replay | 0334 |
 | M10 | Retire and document | remove the editor's audio panels, rewrite the audio guides, Journeys j1–j11 green end to end | 0327 |
 | Later | Live link | connect the Studio to a running game or editor (telemetry plus control) through the host seams | new record |
