@@ -274,3 +274,9 @@ a bus past the insert cap no longer also warns about compressors. Mixer wasm 469
 **D35. Derived samples at runtime (W8-B, merged).** The backend sees the source file (`PlayRequest.path`), so the
 decoded buffer is shared; a snippet's range intersects the block's trim; a following fork of a fork reads its
 parent's *resolved* block (ADR wording) — the Studio's `sampleSession.ts` reads one level only (to align).
+
+**D36. Owner decision (2026-11-22): restore the lost music/blend behaviours as format features.** "Yes, I want all
+4. The 5th sounds useful for rhythm games though." Task W9-D adds to playlists (new ADR 0336 amending 0329/0332):
+blend overlap widths, music tails (post-exit), transition fade shapes, bridge fades, and beat-quantised automation
+(on the instance's musical clock, for rhythm games); the migration maps the old fields and the sample projects regain
+what D32 lists as not restored.
