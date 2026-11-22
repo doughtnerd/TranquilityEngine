@@ -1,9 +1,10 @@
-// The Studio's header (ADR 0327 "The shell"): the app's name and project, the screens in their three groups
-// (Author, Mix, Run; Ctrl/⌘+1…6), Undo, Redo and History over the active history, the shortcut list, and the
-// output-device menu.
+// The Studio's header (ADR 0327 "The shell"): the app's name and project, the screens in their groups (Author, Mix,
+// Run, Ship; Ctrl/⌘+1…8), the preview-language chip (ADR 0340 §1), Undo, Redo and History over the active history, the
+// shortcut list, and the output-device menu.
 import { HistoryPopover } from "../../editor/ui/HistoryPopover";
 import { formatKeys, isMacPlatform } from "../../editor/ui/keyCombo";
 import { AudioDeviceMenu } from "../components/AudioDeviceMenu";
+import { ProjectPreviewChip } from "../screens/dialogue/PreviewLanguageChip";
 import { isCalibrated, offsetsFor, withOffset } from "../components/deviceOffsets";
 import { outputDevice } from "./outputDevice";
 import { screenGroups, type ScreenId } from "./screens";
@@ -67,6 +68,7 @@ export function StudioHeader(props: StudioHeaderProps) {
         ))}
       </nav>
       <div class="studio-header-tools">
+        <ProjectPreviewChip />
         <HistoryPopover none="Click into a document to undo its edits" />
         <button class="kit-icon-button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => (shortcutsOpen.value = true)}>
           ?

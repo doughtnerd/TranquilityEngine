@@ -83,6 +83,12 @@ export function renameEvent(a: DialogueAsset, name: string, to: string, used: Re
   return { next: { ...a, events: a.events.map((e) => ({ ...e, name: e.name === name ? to : e.name, onInterrupted: e.onInterrupted === name ? to : e.onInterrupted })) } };
 }
 
+/** A renamed line key rewritten in every path of a file (0340 §5: a key rename follows its references); null when none names it. */
+export function renameLineInDialogue(a: DialogueAsset, from: string, to: string): DialogueAsset | null {
+  if (!a.events.some((e) => e.paths.some((p) => p.lines.some((l) => l.key === from)))) return null;
+  return { ...a, events: a.events.map((e) => ({ ...e, paths: e.paths.map((p) => ({ ...p, lines: p.lines.map((l) => (l.key === from ? { ...l, key: to } : l)) })) })) };
+}
+
 /** `onInterrupted` references to `from` rewritten in another file (one undo step of that file; null when none). */
 export function renameEventReferences(a: DialogueAsset, from: string, to: string): DialogueAsset | null {
   if (!a.events.some((e) => e.onInterrupted === from)) return null;
@@ -267,6 +273,18 @@ export function changeArgument(e: DialogueEvent, change: ArgumentChange, ctx: Ev
       return rewrite(args.map((x, i) => (i === change.arg ? { ...a, default: change.label } : x)), (p) => ({ to: [...p] }));
     }
   }
+}
+
+/** Typed labels as a labels change: comma or space separated, a rename written `Old=New` ("Clear, Rain=Storm, Fog"). */
+export function labelsChange(arg: number, text: string): ArgumentChange {
+  const renamed: Record<string, string> = {};
+  const labels = text.replace(/\s*=\s*/g, "=").split(/[\s,]+/).filter(Boolean).map((x) => {
+    const [from, to] = x.split("=");
+    if (to === undefined || to === "") return from;
+    renamed[from] = to;
+    return to;
+  });
+  return { kind: "labels", arg, labels, renamed };
 }
 
 function cleanLabels(raw: readonly string[]): EditResult<string[]> {

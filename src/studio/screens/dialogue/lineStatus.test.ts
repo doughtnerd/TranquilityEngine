@@ -75,7 +75,7 @@ describe("subtitle strip", () => {
     expect(strip.pages.every((p) => p.fast)).toBe(true);
     expect(strip.shown).toBeGreaterThan(3); // lingers after the audio
     expect(strip.warnings[0]).toMatch(/^\d+ cps, max 15/);
-    const marked = subtitleStrip(text, "en", 3, data.languages, data.subtitles, [{ id: "m", type: "cue", name: "sub", at: 2, file: null }]);
+    const marked = subtitleStrip(text, "en", 3, data.languages, data.subtitles, [{ type: "cue", name: "sub", at: 2 }]);
     expect(marked.pages[0].cps).toBeLessThan(strip.pages[0].cps); // the first page gets two seconds of audio
     // Japanese reads at 4 characters per second by default.
     expect(subtitleStrip("こんにちは、元気ですか", "ja", 2, data.languages, data.subtitles).rule.speed).toBe(4);

@@ -2,6 +2,7 @@
 // `src/studio/screens/<screen>/`.
 import type { StudioPanel } from "../shell/studioPanels";
 import type { ScreenId } from "../shell/screens";
+import { DIALOGUE_PANELS } from "./dialogue";
 import { MIXER_PANELS } from "./mixer";
 import { PACKAGES_PANELS } from "./packages";
 import { PLAYLISTS_PANELS } from "./playlists";
@@ -13,6 +14,7 @@ import { TAKE_PANELS } from "./take";
 export const SCREEN_PANELS: Readonly<Record<ScreenId, readonly StudioPanel[]>> = {
   samples: SAMPLES_PANELS,
   playlists: PLAYLISTS_PANELS,
+  dialogue: DIALOGUE_PANELS,
   mixer: MIXER_PANELS,
   spatial: SPATIAL_PANELS,
   take: TAKE_PANELS,

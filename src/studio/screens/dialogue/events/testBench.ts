@@ -78,6 +78,41 @@ export function candidateRanks(e: DialogueEvent, picked: Readonly<Record<string,
   return candidateOrder(e, values, seededRandom(ctx.seed));
 }
 
+// --- the bench's memory (0341 §4: event history, line cooldowns and once-lines) -----------------------------------------
+
+export interface BenchMemory {
+  /** Event name → its spoken lines, newest last. */
+  readonly history: Readonly<Record<string, readonly string[]>>;
+  /** Line key → when it was last said (seconds). */
+  readonly said: Readonly<Record<string, number>>;
+}
+
+export const EMPTY_MEMORY: BenchMemory = { history: {}, said: {} };
+
+/** A line's cooldown and once, from its table row. */
+export interface LineRules {
+  readonly cooldown: number;
+  readonly once: boolean;
+}
+
+/** Whether a line may be said at `now`: it exists, isn't a once-line already said, and isn't cooling down. */
+export function benchAvailable(memory: BenchMemory, rules: (key: string) => LineRules | null, now: number): (key: string) => boolean {
+  return (key) => {
+    const r = rules(key);
+    if (!r) return false;
+    const at = memory.said[key];
+    if (at === undefined) return true;
+    if (r.once) return false;
+    return now - at >= r.cooldown;
+  };
+}
+
+/** The memory after `event` said `key` at `now`. */
+export const rememberSaid = (memory: BenchMemory, event: string, key: string, now: number): BenchMemory => ({
+  history: { ...memory.history, [event]: rememberLine(memory.history[event] ?? [], key) },
+  said: { ...memory.said, [key]: now },
+});
+
 export interface RollBar {
   /** A line key, or a reason for nothing (`silence`, `noMatch`, `unavailable`). */
   readonly outcome: string;
