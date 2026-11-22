@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "./fixtures";
+import { expect, test, type Locator, type Page, waitForEditor } from "./fixtures";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 
 // Formation assets (ADR 0065, Foxfire's NavFormation): New Navigation Formation in the Assets panel's menu makes
@@ -7,8 +7,6 @@ import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 // shows its preview with an Edit button that selects the asset again.
 
 test.describe.configure({ timeout: 60_000 });
-
-type Hooks = { engine?: { world: { time: { frameCount: number } } } };
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -38,7 +36,7 @@ async function open(page: Page): Promise<void> {
   await page.goto("/editor.html");
   await nextFolder(page, "Formations");
   await page.getByRole("dialog", { name: "Start" }).getByRole("button", { name: "Open Project…" }).click();
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await waitForEditor(page);
 }
 
 async function box(locator: Locator) {

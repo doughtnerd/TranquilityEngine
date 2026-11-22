@@ -1,5 +1,5 @@
-import { expect, test, type Locator, type Page } from "./fixtures";
-import { BUSES, TONE_PEAK, fader, openAudioSettings, openLiveMix, openMixer, playLiveMix, savedProject, stopPlay, strip, type MixBus } from "./audioMixLive";
+import { expect, test, type Locator, type Page, playWithAudio } from "./fixtures";
+import { BUSES, TONE_PEAK, fader, openAudioSettings, openLiveMix, openMixer, savedProject, stopPlay, strip, type MixBus } from "./audioMixLive";
 import { FINE_DRAG_SCALE, gainToPosition, positionToGain } from "../../src/plugins/audio/editor/mix/faderModel";
 
 // M5c live mixing in the real editor app (ADR 0171 amended by 0172 and 0173, task E3): an edit made in Play through the Mixer panel
@@ -144,7 +144,7 @@ void stopPlay;
 test("M5c: a fader edit is heard in Play on the audio clock, kept in project.json after Stop, and undone and redone with the same heard value", async ({ page }) => {
   const errors = track(page);
   await openLiveMix(page, { tones: [{ bus: "Aux" }] });
-  await playLiveMix(page);
+  await playWithAudio(page);
   await openMixer(page);
   await heard(page, "Aux", 1);
   const counters = await clickCounters(page);
@@ -167,7 +167,7 @@ test("M5c: a fader edit is heard in Play on the audio clock, kept in project.jso
   });
 
   await test.step("Play again: the bus starts at the edited value, heard", async () => {
-    await playLiveMix(page);
+    await playWithAudio(page);
     await heard(page, "Aux", v1);
   });
 
@@ -189,7 +189,7 @@ test("M5c: a fader edit is heard in Play on the audio clock, kept in project.jso
 test("M5c: every fader key is one committed edit, heard, and one undo step: arrows, page keys, Home, End, the fine modifiers, a double-click", async ({ page }) => {
   const errors = track(page);
   await openLiveMix(page, { tones: [{ bus: "Aux" }] });
-  await playLiveMix(page);
+  await playWithAudio(page);
   await openMixer(page);
   await heard(page, "Aux", 1);
   await focusFader(page, "Aux");
@@ -240,7 +240,7 @@ test("M5c: every fader key is one committed edit, heard, and one undo step: arro
 test("M5c: a pointer drag previews live and commits one edit on release; Escape puts the start value back and commits nothing; Shift drags finely", async ({ page }) => {
   const errors = track(page);
   await openLiveMix(page, { tones: [{ bus: "Aux" }] });
-  await playLiveMix(page);
+  await playWithAudio(page);
   await openMixer(page);
   await heard(page, "Aux", 1);
   await fader(page, "Aux").scrollIntoViewIfNeeded();
@@ -308,7 +308,7 @@ const toneAction = (page: Page, bus: string, action: "play" | "stop") =>
 test("M5c: M mutes and saves, MM mutes in the monitor only, S solos in the monitor only; neither monitor control is saved or outlives Stop", async ({ page }) => {
   const errors = track(page);
   await openLiveMix(page, { tones: [{ bus: "Aux" }, { bus: "Music" }] });
-  await playLiveMix(page);
+  await playWithAudio(page);
   await openMixer(page);
   await heard(page, "Aux", 1);
   const mute = (bus: string) => page.getByRole("button", { name: `Mute ${bus}`, exact: true });
@@ -359,7 +359,7 @@ test("M5c: M mutes and saves, MM mutes in the monitor only, S solos in the monit
     await mm("Aux").click();
     await expect(mm("Aux")).toHaveAttribute("aria-pressed", "true");
     await stopPlay(page);
-    await playLiveMix(page);
+    await playWithAudio(page);
     await expect(mm("Aux")).toHaveAttribute("aria-pressed", "false");
     expect((await dbg(page)).mix.monitorActive).toBe(false);
     await heard(page, "Aux", 1);
@@ -376,7 +376,7 @@ test("M5c: snapshot buttons are disabled outside Play, one is in force at a time
   const snap = (name: string) => page.locator(".mixer-snapshots").getByRole("button", { name, exact: true });
   await expect(snap("Muffled")).toBeDisabled();
   await expect(snap("Quiet")).toBeDisabled();
-  await playLiveMix(page);
+  await playWithAudio(page);
   await heard(page, "Aux", 1);
   await expect(snap("Muffled")).toBeEnabled();
 
@@ -419,7 +419,7 @@ test("M5c: snapshot buttons are disabled outside Play, one is in force at a time
 test("M5c: the target picker sets every target, Reset and Pause act on the meters and the timer, the clip lamp latches and clears", async ({ page }) => {
   const errors = track(page);
   await openLiveMix(page, { tones: [{ bus: "Music" }, { bus: "Aux", volume: 20 }] });
-  await playLiveMix(page);
+  await playWithAudio(page);
   await openMixer(page);
   const loud = (): Promise<{ elapsed: number; paused: boolean }> =>
     page.evaluate(() => {
@@ -476,7 +476,7 @@ test("M5c: Compare plays the saved mix from Play start with the faders locked, s
   await openMixer(page);
   const compare = page.getByRole("button", { name: "Compare", exact: true });
   await expect(compare, "outside Play there is nothing to compare").toBeDisabled();
-  await playLiveMix(page);
+  await playWithAudio(page);
   await expect(compare).toBeEnabled();
   await expect(compare).toHaveAttribute("title", /same as at Play start/);
   await focusFader(page, "Aux");
@@ -520,7 +520,7 @@ test("M5c: every edit class is applied live and kept: direct (volume, mute, send
   const errors = track(page);
   const buses = [...withBus("Aux", { volume: 0.5 }), FX4];
   await openLiveMix(page, { buses, tones: [{ bus: "UI" }, { bus: "Music" }, { bus: "SFX" }, { bus: "Ambience" }, { bus: "Deep" }] });
-  await playLiveMix(page);
+  await playWithAudio(page);
   await openMixer(page);
   await openAudioSettings(page);
   // The Mixer and Project panels are tabs of one dock: `inMixer` looks at the strips and comes back to the (re-expanded) settings.
@@ -630,7 +630,7 @@ test("M5c: every edit class is applied live and kept: direct (volume, mute, send
 test("M5c: a fifth effect is refused live with the message that it applies at the next Play, and the refusal is counted", async ({ page }) => {
   const errors = track(page);
   await openLiveMix(page, { buses: [...BUSES, FX4], tones: [{ bus: "UI" }] });
-  await playLiveMix(page);
+  await playWithAudio(page);
   await openMixer(page);
   await openAudioSettings(page);
   await expandBus(page, "Fx");
@@ -652,7 +652,7 @@ test("M5c: an add that finds no free slot is deferred (kept, and live at the nex
   const errors = track(page);
   const many: MixBus[] = [{ name: "Master" }, ...Array.from({ length: 31 }, (_, i) => ({ name: `B${String(i + 1).padStart(2, "0")}`, parent: "Master" }))];
   await openLiveMix(page, { buses: many, tones: [{ bus: "B01" }] });
-  await playLiveMix(page);
+  await playWithAudio(page);
   await openAudioSettings(page);
   await audioFor(page, 0.5);
   const before = await page.evaluate(() => [...(globalThis as unknown as Api).__myco.Audio.buses]);
@@ -681,7 +681,7 @@ test("M5c: an add that finds no free slot is deferred (kept, and live at the nex
 // entry with those keys (G9b; it dropped it before), so the banner's `restartRequired` list shows it.
 test("M5c: an edit with no live path (the AAC codec) is saved and the Mixer's banner says it applies at the next Play", async ({ page }) => {
   await openLiveMix(page, { tones: [{ bus: "UI" }] });
-  await playLiveMix(page);
+  await playWithAudio(page);
   await openAudioSettings(page);
   await audioPanel(page).getByLabel("AAC codec", { exact: true }).click();
   await expect.poll(async () => ((await savedProject(page)).audio as { codecs?: { aac?: boolean } }).codecs?.aac, { timeout: 10_000 }).toBe(true);
@@ -711,7 +711,7 @@ test("M5c: a level rule ducks its target to the rule's amount while the trigger 
   const errors = track(page);
   // The trigger is the tone at full scale: -23 dBFS peak is -26 dBFS RMS, over the rule's -30.
   await openLiveMix(page, { audio: { ducking: [LEVEL] }, tones: [{ bus: "Music" }, { bus: "SFX", playOnAwake: false }, { bus: "SFX", volume: 0.02, playOnAwake: false, label: "SFX quiet" }] });
-  await playLiveMix(page);
+  await playWithAudio(page);
   await openMixer(page);
   const gr = page.getByRole("meter", { name: "Music gain reduction", exact: true });
   await heard(page, "Music", 0.6);
@@ -751,7 +751,7 @@ test("M5c: a level rule ducks its target to the rule's amount while the trigger 
 test("M5c: every level-rule setting is live: threshold, detector, amount and mode (level against presence) change the duck while the trigger plays", async ({ page }) => {
   const errors = track(page);
   await openLiveMix(page, { audio: { ducking: [LEVEL] }, tones: [{ bus: "Music" }, { bus: "SFX", playOnAwake: false }, { bus: "SFX", volume: 0.02, playOnAwake: false, label: "SFX quiet" }, { bus: "SFX", clip: "audio/drum-loop.wav", playOnAwake: false, label: "SFX drum" }] });
-  await playLiveMix(page);
+  await playWithAudio(page);
   await openMixer(page);
   await openAudioSettings(page);
   const rule = (label: string) => audioPanel(page).getByLabel(`Ducking 1 ${label}`, { exact: true });

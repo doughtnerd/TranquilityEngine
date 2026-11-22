@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test } from "./fixtures";
+import { expect, test, type Hooks } from "./fixtures";
 import {
   MARKER_TEXT,
   captureState,
@@ -140,7 +140,7 @@ test.describe("a game exported without the option", { tag: "@slow" }, () => {
       const downloads: string[] = [];
       page.on("download", (d) => downloads.push(d.suggestedFilename()));
       await page.goto(served!.url);
-      await expect.poll(() => page.evaluate(() => Boolean((window as unknown as { engine?: unknown }).engine)), { timeout: 30_000 }).toBe(true);
+      await expect.poll(() => page.evaluate(() => Boolean((window as unknown as Hooks).engine)), { timeout: 30_000 }).toBe(true);
       await page.locator("#game canvas").click();
       await expect.poll(async () => (await readTruth(page)).voices.length, { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
       await audioClockRuns(page, 1.5);

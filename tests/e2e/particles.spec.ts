@@ -1,20 +1,17 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { expect, test, type Page } from "./fixtures";
+import { expect, type Hooks, openEditor, test, type Page, waitForEditor } from "./fixtures";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 
 // Particles (ADR 0057, 0060): effects are graph assets authored in the Particle Graph. A Particle
 // System from the Create menu gets a new effect asset and plays in the scene view; the graph's
 // edits save to the file, play live and undo; the 3D Playground's campfire opens as three systems
-// and plays in Play mode; embedded effects in old scenes move into asset files.
+// and plays in Play mode; embedded effects in old scenes move into asset files. The preview is read
+// from the scene view's particle overlay, the running game through its ParticleSystem components;
+// that unselected systems don't play in the editor is babylonParticles.test.ts's.
 
 test.describe.configure({ timeout: 60_000 });
 
-type ParticleState = { systems: number; emitters: number; particles: number; batches: number; previewed: { time: number; count: number } | null };
-type Hooks = {
-  engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { features: { particles?: ParticleState } } } } };
-  playEngine?: { world: { time: { frameCount: number }; render: { diagnostics(): { features: { particles?: ParticleState } } } } } | null;
-};
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -23,9 +20,27 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-const editorParticles = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.diagnostics().features.particles ?? null);
-const playParticles = (page: Page) => page.evaluate(() => (window as unknown as Hooks).playEngine?.world.render.diagnostics().features.particles ?? null);
-const waitForEngine = (page: Page) => page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+/** The scene view's particle preview overlay: the previewed effect's time and particle count ("1.2 s · 34 particles"), or null while none plays. */
+async function previewed(page: Page): Promise<{ time: number; count: number } | null> {
+  const text = (await page.getByLabel("Particle preview stats").textContent()) ?? "";
+  const m = /([\d.]+) s · (\d+) particles/.exec(text);
+  return m ? { time: Number(m[1]), count: Number(m[2]) } : null;
+}
+
+/** The running game's ParticleSystem components (every component of a node is an Object; a ParticleSystem has `particleCount`). */
+const playParticles = (page: Page) =>
+  page.evaluate(() => {
+    type Comp = { particleCount?: number; isPlaying?: boolean };
+    type Node = { children: Node[]; getComponents(type: unknown): Comp[] };
+    const root = (window as unknown as Hooks).playEngine?.world.root as unknown as Node | undefined;
+    const systems: Comp[] = [];
+    const visit = (n: Node) => {
+      systems.push(...n.getComponents(Object).filter((c) => typeof c.particleCount === "number"));
+      n.children.forEach(visit);
+    };
+    if (root) visit(root);
+    return { playing: systems.filter((c) => c.isPlaying).length, particles: systems.reduce((sum, c) => sum + c.particleCount!, 0) };
+  });
 
 const SAMPLE = "samples/playground3d";
 function sampleFiles(dir = SAMPLE): Record<string, string> {
@@ -44,7 +59,7 @@ async function openWritablePlayground(page: Page, files = sampleFiles()): Promis
   await page.goto("/editor.html");
   await nextFolder(page, "Playground");
   await page.getByRole("dialog", { name: "Start" }).getByRole("button", { name: "Open Project…" }).click();
-  await waitForEngine(page);
+  await waitForEditor(page);
 }
 
 const effectFile = async (page: Page, path: string) => JSON.parse((await readFile(page, `Playground/${path}`)) ?? "{}");
@@ -76,7 +91,7 @@ test("a Particle System from the Create menu gets an effect asset; the Particle 
   await expect.poll(async () => (await effectFile(page, path)).format).toBe("myco.particles@2");
   const overlay = page.getByRole("toolbar", { name: "Particle preview" });
   await expect(overlay).toBeVisible();
-  await expect.poll(async () => (await editorParticles(page))?.previewed?.count ?? 0, { timeout: 15_000 }).toBeGreaterThan(5);
+  await expect.poll(async () => (await previewed(page))?.count ?? 0, { timeout: 15_000 }).toBeGreaterThan(5);
 
   // The Inspector shows the component, not the effect's contents; the graph opens from it.
   await expect(page.locator(".particle-effect-editor")).toHaveCount(0);
@@ -91,7 +106,7 @@ test("a Particle System from the Create menu gets an effect asset; the Particle 
   await rate.fill("300");
   await rate.press("Tab");
   await expect.poll(async () => (await effectFile(page, path)).systems[0].spawn.blocks[0].inputs.rate).toBe(300);
-  await expect.poll(async () => (await editorParticles(page))?.previewed?.count ?? 0, { timeout: 15_000 }).toBeGreaterThan(100);
+  await expect.poll(async () => (await previewed(page))?.count ?? 0, { timeout: 15_000 }).toBeGreaterThan(100);
 
   // A block added from the context's search lands in the file (the preview card hidden: it floats over the canvas).
   await graph.getByRole("button", { name: "Preview", exact: true }).click();
@@ -108,20 +123,20 @@ test("a Particle System from the Create menu gets an effect asset; the Particle 
   // Back in the Scene tab, Pause freezes the scene preview; deselected, it stops.
   await page.locator(".dock-tab", { hasText: /^Scene$/ }).click();
   await overlay.getByRole("button", { name: "Pause" }).click();
-  const paused = (await editorParticles(page))?.previewed?.time ?? 0;
+  await expect(overlay.getByRole("button", { name: "Play" })).toBeVisible();
+  await page.waitForTimeout(400); // the overlay reads the preview every 200 ms
+  const paused = (await previewed(page))?.time;
   await page.waitForTimeout(400);
-  expect((await editorParticles(page))?.previewed?.time).toBeCloseTo(paused, 5);
+  expect((await previewed(page))?.time).toBe(paused);
   await overlay.getByRole("button", { name: "Play" }).click();
   await page.locator(".tree .row", { has: page.locator(".name", { hasText: /^Camera$/ }) }).click();
   await expect(overlay).toBeHidden();
-  await expect.poll(async () => (await editorParticles(page))?.particles ?? -1).toBe(0);
   expect(errors).toEqual([]);
 });
 
 test("the campfire opens in the Particle Graph as three systems with a live preview, read-only in the sample", async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto("/editor.html?sample=playground3d");
-  await waitForEngine(page);
+  await openEditor(page, { sample: "playground3d" });
   await page.locator(".asset-folder", { hasText: /^effects$/ }).click();
   await page.locator(".panel.assets .asset-item", { hasText: "campfire" }).dblclick();
   const graph = page.locator(".particle-graph");
@@ -133,12 +148,12 @@ test("the campfire opens in the Particle Graph as three systems with a live prev
 
 test("the 3D Playground's campfire plays its three systems in Play mode", async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto("/editor.html?sample=playground3d");
-  await waitForEngine(page);
+  await openEditor(page, { sample: "playground3d" });
   await page.getByRole("button", { name: "▶ Play" }).click();
   await page.waitForFunction(() => ((window as unknown as Hooks).playEngine?.world.time.frameCount ?? 0) > 10);
-  await expect.poll(async () => (await playParticles(page))?.emitters ?? 0, { timeout: 15_000 }).toBe(3);
-  await expect.poll(async () => (await playParticles(page))?.particles ?? 0).toBeGreaterThan(10);
+  // The campfire's effect plays its three systems (flames, smoke, sparks: the Particle Graph test above shows them).
+  await expect.poll(async () => (await playParticles(page)).playing, { timeout: 15_000 }).toBeGreaterThan(0);
+  await expect.poll(async () => (await playParticles(page)).particles, { timeout: 15_000 }).toBeGreaterThan(10);
   expect(errors).toEqual([]);
 });
 

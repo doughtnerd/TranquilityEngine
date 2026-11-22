@@ -1,12 +1,5 @@
-import { expect, openTestProject, type Page, test } from "./fixtures";
+import { expect, openEditor, type Page, test, type Hooks } from "./fixtures";
 
-
-/** The editor's debug hooks on `window` (see session.ts). Page callbacks are serialized, so each casts `window` itself. */
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  openTestProject(extra: Record<string, string>): Promise<void>;
-  testFolder: { read(path: string): string | undefined };
-};
 
 const WHEEL = `import { GameBehavior, behavior, field } from "myco";
 import { spin } from "./util";
@@ -29,7 +22,7 @@ export function spin(t: Transform, degrees: number): void {
 
 /** Open the demo as a project folder with two scripts, and the Assets panel's scripts folder. */
 async function openProject(page: Page): Promise<void> {
-  await openTestProject(page, { "scripts/Wheel.ts": WHEEL, "scripts/util.ts": UTIL });
+  await openEditor(page, { files: { "scripts/Wheel.ts": WHEEL, "scripts/util.ts": UTIL } });
   await page.locator(".asset-folder", { hasText: /^scripts$/ }).click();
 }
 

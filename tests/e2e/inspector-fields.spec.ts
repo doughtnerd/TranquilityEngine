@@ -1,13 +1,6 @@
-import { expect, openTestProject, type Page, test } from "./fixtures";
+import { expect, openEditor, type Page, test } from "./fixtures";
 
 // ADR 0042: list fields, dropdowns, Euler-angle quaternions, a component's Worlds and node tags in the Inspector.
-
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
-
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  openTestProject(extra: Record<string, string>): Promise<void>;
-};
 
 const ROUTE = `import { GameBehavior, GameObject, Quaternion, Vector2, behavior, field } from "myco";
 
@@ -21,15 +14,9 @@ export class Route extends GameBehavior {
 }
 `;
 
-async function openEditor(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-}
-
 /** Open the sample as a project folder with the Route script, so its component can be added. */
 async function openProject(page: Page): Promise<void> {
-  await openTestProject(page, { "scripts/Route.ts": ROUTE });
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await openEditor(page, { files: { "scripts/Route.ts": ROUTE } });
 }
 
 const row = (page: Page, key: string) => page.locator(`.tree .row[data-key="${key}"]`);
@@ -43,7 +30,7 @@ async function addRoute(page: Page): Promise<void> {
 }
 
 test("enum-like engine fields are dropdowns; sorting layers come from the project", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await row(page, "bird").click();
   const bodyType = card(page, "RigidBody2D").getByRole("combobox", { name: "bodyType" });
   await expect(bodyType.locator("option")).toHaveText(["dynamic", "kinematic", "static"]);
@@ -125,7 +112,7 @@ test("with several nodes, lists that differ show a dash and an edit replaces eac
 });
 
 test("a component's Worlds are set from its header menu and shown as a badge", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await row(page, "bird").click();
   const body = card(page, "RigidBody2D");
   await body.getByRole("button", { name: "RigidBody2D options" }).click();
@@ -151,7 +138,7 @@ test("a component's Worlds are set from its header menu and shown as a badge", a
 });
 
 test("node tags show as chips that can be added and removed", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await row(page, "bird").click();
   const tags = page.getByRole("group", { name: "Tags" });
   await expect(tags.locator(".tag-chip .tag-name")).toHaveText(["Player"]);

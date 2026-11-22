@@ -1,5 +1,5 @@
-import { expect, test, type Page } from "./fixtures";
-import { inspector, openSpatial, row, type SpatialHooks } from "./audioSpatial";
+import { expect, type Hooks, test, type Page } from "./fixtures";
+import { inspector, openSpatial, row } from "./audioSpatial";
 
 // The reverb zone gizmo with Edit Zone, and the occluder Inspector section (ADR 0162 E1, E2, E9) in a real browser, on
 // the spatial scene of audioSpatial.ts. The zone's handles are read back through the editor's `overlayHandles` hook.
@@ -13,9 +13,9 @@ const editZone = (page: Page) => zone(page).getByRole("button", { name: "Edit Zo
 
 /** The zone's handles in page coordinates, once there are any. */
 async function handles(page: Page): Promise<Record<string, Handle>> {
-  await page.waitForFunction(() => ((window as unknown as SpatialHooks).overlayHandles?.() ?? []).length > 0);
+  await page.waitForFunction(() => ((window as unknown as Hooks).overlayHandles?.() ?? []).length > 0);
   const canvas = (await page.locator(".viewport canvas").boundingBox())!;
-  const list = await page.evaluate(() => (window as unknown as SpatialHooks).overlayHandles!());
+  const list = await page.evaluate(() => (window as unknown as Hooks).overlayHandles!());
   return Object.fromEntries(list.map((h) => [h.id, { ...h, x: canvas.x + h.x, y: canvas.y + h.y }]));
 }
 
@@ -29,7 +29,7 @@ async function drag(page: Page, from: { x: number; y: number }, dx: number, dy: 
 /** Select the zone, frame it and turn on Edit Zone. */
 async function startEditing(page: Page): Promise<Record<string, Handle>> {
   await row(page, "zone").click();
-  await page.evaluate(() => (window as unknown as SpatialHooks).orbit.focus([0, 1, 0], 22));
+  await page.evaluate(() => (window as unknown as Hooks).orbit.focus([0, 1, 0], 22));
   await editZone(page).click();
   await expect(editZone(page)).toHaveAttribute("aria-pressed", "true");
   return handles(page);
@@ -39,7 +39,7 @@ test("Edit Zone shows a box's face handles and the blend handle; dragging a face
   await openSpatial(page);
   await row(page, "zone").click();
   await expect(editZone(page)).toHaveAttribute("aria-pressed", "false");
-  expect(await page.evaluate(() => (window as unknown as SpatialHooks).overlayHandles!())).toEqual([]); // the volume draws, the handles wait for Edit Zone
+  expect(await page.evaluate(() => (window as unknown as Hooks).overlayHandles!())).toEqual([]); // the volume draws, the handles wait for Edit Zone
   const h = await startEditing(page);
   expect(Object.keys(h).sort()).toEqual(["blend", "x+", "x-", "y+", "y-", "z+", "z-"]);
   await expect(field(page, "size x")).toHaveValue("10");
@@ -76,7 +76,7 @@ test("a sphere zone has rim handles that set the radius; undo restores it", asyn
   await row(page, "zone").click();
   await zone(page).getByRole("combobox").first().selectOption("sphere");
   await expect(field(page, "radius")).toHaveValue("5");
-  await page.evaluate(() => (window as unknown as SpatialHooks).orbit.focus([0, 1, 0], 22));
+  await page.evaluate(() => (window as unknown as Hooks).orbit.focus([0, 1, 0], 22));
   await editZone(page).click();
   const h = await handles(page);
   expect(Object.keys(h).sort()).toEqual(["blend", "radius:x+", "radius:x-", "radius:y+", "radius:y-", "radius:z+", "radius:z-"]);
@@ -91,11 +91,11 @@ test("Edit Zone ends when another tool is picked, or another node is selected, h
   await startEditing(page);
   await page.getByRole("button", { name: "Move", exact: true }).click();
   await expect(editZone(page)).toHaveAttribute("aria-pressed", "false");
-  await page.waitForFunction(() => (window as unknown as SpatialHooks).overlayHandles!().length === 0);
+  await page.waitForFunction(() => (window as unknown as Hooks).overlayHandles!().length === 0);
   await editZone(page).click();
   await handles(page);
   await row(page, "wall").click();
-  await page.waitForFunction(() => (window as unknown as SpatialHooks).overlayHandles!().length === 0);
+  await page.waitForFunction(() => (window as unknown as Hooks).overlayHandles!().length === 0);
   await row(page, "zone").click();
   await expect(editZone(page)).toHaveAttribute("aria-pressed", "false");
 });

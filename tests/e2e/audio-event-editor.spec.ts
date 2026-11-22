@@ -1,4 +1,4 @@
-import { expect, type Locator, openTestProject, type Page, test } from "./fixtures";
+import { expect, type Locator, type Page, test, openEditor, type Hooks } from "./fixtures";
 
 // The Event editor (ADR 0158 §7, M2 E6) in a real browser, on a writable in-memory copy of the Flappy sample:
 // authoring (New Event, containers, drag in clips, weights, wrap / reorder / duplicate / delete, event and node
@@ -7,7 +7,6 @@ import { expect, type Locator, openTestProject, type Page, test } from "./fixtur
 // no sound output: `Audio.debug()` stands in for ears, as in audio-events.spec.ts.
 test.describe.configure({ timeout: 120_000 });
 
-type Hooks = { testFolder: { read(path: string): string | undefined } };
 type Json = Record<string, unknown>;
 type DebugEvent = { id: number; asset: string; voices: number; parameters: Record<string, number | string> };
 
@@ -32,7 +31,7 @@ async function openMusic(page: Page): Promise<void> {
 
 async function open(page: Page, extra: Record<string, string> = {}): Promise<void> {
   await page.setViewportSize({ width: 1600, height: 1000 }); // the Event editor's panel sits in the narrow right dock
-  await openTestProject(page, extra);
+  await openEditor(page, { files: extra });
   await openMusic(page);
 }
 

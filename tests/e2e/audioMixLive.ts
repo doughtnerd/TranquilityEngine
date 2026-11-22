@@ -1,10 +1,9 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, type Page, play } from "./fixtures";
+import { expect, type Hooks, openEditor, type Page, type ProjectFiles } from "./fixtures";
 import { menu } from "./menus";
 import { pickCategory } from "./projectCategory";
 import { showTab } from "./tabs";
-import { mixDebug } from "./audioMix";
 
 // Shared helpers of the M5c live-mixing e2e (ADR 0171 amended by 0172, 0173; task E3): `audio-mix-c.spec.ts`, the smoke spec's
 // M5c case and the walker's M5c case. The Sound Lab opens read-only, so a live edit that must be kept after Stop needs a
@@ -77,23 +76,17 @@ export function liveScene(o: LiveMixOptions = {}): string {
   });
 }
 
-type Hooks = { openTestProject?(extra: Record<string, unknown>): Promise<void>; testFolder?: { read(path: string): string | undefined }; engine?: { world: { time: { frameCount: number } } } };
-
 /** Opens the live-mix project (see the header), in Edit mode. A large viewport so the Project and Mixer panels have room. */
 export async function openLiveMix(page: Page, o: LiveMixOptions = {}): Promise<void> {
-  await page.setViewportSize({ width: 1600, height: 1000 });
-  await page.goto("/editor.html");
-  await page.waitForFunction(() => typeof (window as unknown as Hooks).openTestProject === "function");
-  const extra = { "project.json": liveProject(o), "scenes/main.scene.json": liveScene(o), [TONE]: clip("loudness-reference.wav"), "audio/loudness-hot.wav": clip("loudness-hot.wav"), "audio/drum-loop.wav": clip("drum-loop.wav") };
-  await page.evaluate((files) => (window as unknown as Hooks).openTestProject!(files), extra);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  const files = { "project.json": liveProject(o), "scenes/main.scene.json": liveScene(o), [TONE]: clip("loudness-reference.wav"), "audio/loudness-hot.wav": clip("loudness-hot.wav"), "audio/drum-loop.wav": clip("drum-loop.wav") };
+  await openEditor(page, { files, viewport: { width: 1600, height: 1000 } });
 }
 
 const TEXT_FILE = /\.(json|ts|md|txt|css|html)$/;
 
 /** Every file of the Sound Lab sample (path under the sample, text or bytes), `tools/` left out. */
-function labFiles(dir = join(process.cwd(), "samples", "sound-lab"), rel = ""): Record<string, string | Uint8Array> {
-  const out: Record<string, string | Uint8Array> = {};
+function labFiles(dir = join(process.cwd(), "samples", "sound-lab"), rel = ""): ProjectFiles {
+  const out: ProjectFiles = {};
   for (const e of readdirSync(join(dir, rel), { withFileTypes: true })) {
     const path = rel === "" ? e.name : `${rel}/${e.name}`;
     if (e.isDirectory()) {
@@ -115,27 +108,11 @@ function flappyScripts(dir = join(process.cwd(), "samples", "flappy"), rel = "sc
  * scene and project.json are replaced; its unused prefabs, images and scripts stay beside.
  */
 export async function openLabCopy(page: Page): Promise<void> {
-  await page.setViewportSize({ width: 1600, height: 1000 });
-  await page.goto("/editor.html");
-  await page.waitForFunction(() => typeof (window as unknown as Hooks).openTestProject === "function");
   const files = labFiles();
   // Flappy's scripts that the copy doesn't replace would fail to type-check against the Sound Lab's (its GameManager imports from the
   // readout module the lab replaces), and Play would ask before starting: each becomes an empty module.
   for (const flappy of flappyScripts()) if (!(flappy in files)) files[flappy] = "export {};\n";
-  await page.evaluate((f) => (window as unknown as Hooks).openTestProject!(f), files);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-}
-
-/** Starts Play and unlocks the audio context with a click; waits for the running core backend. */
-export async function playLiveMix(page: Page, o: { startTimeout?: number } = {}): Promise<void> {
-  if (o.startTimeout) {
-    // A bigger project (the Sound Lab copy) type-checks more scripts in a cold worker before Play starts.
-    await page.getByRole("button", { name: "▶ Play" }).click();
-    await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: o.startTimeout });
-  } else await play(page);
-  await page.mouse.click(480, 250);
-  await expect.poll(async () => (await mixDebug(page))?.status, { timeout: 30_000 }).toBe("running");
-  expect((await mixDebug(page))!.core.backend).toBe("core");
+  await openEditor(page, { files, viewport: { width: 1600, height: 1000 } });
 }
 
 /** Stop: the toolbar's Stop button; waits for Play's button to come back. */
@@ -146,7 +123,7 @@ export async function stopPlay(page: Page): Promise<void> {
 
 /** `project.json` as the editor wrote it. */
 export const savedProject = async (page: Page): Promise<{ audio?: { buses?: { name: string; volume: number; mute: boolean; parent?: string; effects?: { type: string; [k: string]: unknown }[] }[]; [k: string]: unknown } }> =>
-  JSON.parse((await page.evaluate(() => (window as unknown as Hooks).testFolder!.read("project.json")))!);
+  JSON.parse((await page.evaluate(() => (window as unknown as Hooks).testFolder.read("project.json")))!);
 
 /** Opens Window > Audio Mixer and waits for its strips. */
 export async function openMixer(page: Page): Promise<void> {

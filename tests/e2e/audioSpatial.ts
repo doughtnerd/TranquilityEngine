@@ -1,7 +1,7 @@
 // Shared by the audio-spatial-*.spec.ts files (ADR 0162 E9): a 3D scene built for the M3 editor work, opened as a
 // writable in-memory copy of the Flappy sample (its music clips, its project folder) with `scenes/main.scene.json`
 // replaced.
-import { expect, openTestProject, type Page } from "./fixtures";
+import { expect, openEditor, type Page } from "./fixtures";
 
 type Comp = { type: string; data?: Record<string, unknown> };
 const node = (id: string, name: string, position: number[], components: Comp[], extra: Record<string, unknown> = {}) => ({
@@ -30,17 +30,9 @@ export const SPATIAL_SCENE = {
   ],
 };
 
-/** The editor's debug hooks (session.ts). */
-export type SpatialHooks = {
-  orbit: { focus(point?: [number, number, number], distance?: number): void };
-  overlayHandles?: () => { id: string; x: number; y: number }[];
-  testFolder: { read(path: string): string | undefined };
-};
-
 /** Open the spatial scene in a writable project (a wide window: the Inspector sits in the right dock). */
 export async function openSpatial(page: Page, extra: Record<string, string> = {}): Promise<void> {
-  await page.setViewportSize({ width: 1600, height: 1000 });
-  await openTestProject(page, { "scenes/main.scene.json": JSON.stringify(SPATIAL_SCENE), ...extra });
+  await openEditor(page, { files: { "scenes/main.scene.json": JSON.stringify(SPATIAL_SCENE), ...extra }, viewport: { width: 1600, height: 1000 } });
   await expect(page.locator('.tree .row[data-key="zone"]')).toBeVisible();
 }
 

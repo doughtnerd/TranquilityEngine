@@ -44,7 +44,7 @@ async function main(): Promise<void> {
   installProjectTheme(); // a project's own .myco/theme.json overrides it while the project is open (ADR 0116)
   setStartActions(startActions);
   // End-to-end test hook; usable before the session has loaded.
-  Object.assign(window, { openTestProject: async (extra?: Record<string, string>) => (await session()).openTestProject(extra) });
+  Object.assign(window, { openTestProject: async (extra?: Record<string, string | Uint8Array>) => (await session()).openTestProject(extra) });
   const root = document.getElementById("app")!;
   const sample = new URLSearchParams(location.search).get("sample");
   const load = () => Promise.all([import("./ui/App"), import("./shortcuts"), import("./ui/panels"), session()]);

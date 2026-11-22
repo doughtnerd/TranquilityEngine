@@ -1,4 +1,4 @@
-import { expect, openTestProject, type Page, test } from "./fixtures";
+import { expect, type Page, test, openEditor } from "./fixtures";
 import { showTab } from "./tabs";
 
 // The Project panel's settings as a category list (left) with the selected category's settings
@@ -8,7 +8,7 @@ test.describe.configure({ timeout: 60_000 });
 const CATEGORIES = ["Project", "Display", "Time", "Physics", "Rendering", "Graphics", "Navigation", "Audio", "Plugins", "Autoloads", "Build"];
 
 async function openProject(page: Page): Promise<void> {
-  await openTestProject(page);
+  await openEditor(page, { files: {} });
   await showTab(page, /^Project/);
 }
 
@@ -45,7 +45,7 @@ test("the categories list, selection and keyboard", async ({ page }) => {
 
   // The choice is remembered (per user) across a reload.
   await list.getByRole("tab", { name: "Physics" }).click();
-  await openTestProject(page); // a fresh page load
+  await openEditor(page, { files: {} }); // a fresh page load
   await showTab(page, /^Project/);
   await expect(p.getByRole("tab", { name: "Physics" })).toHaveAttribute("aria-selected", "true");
 });

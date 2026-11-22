@@ -1,23 +1,10 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Page, openEditor } from "./fixtures";
 import { closeMenus, undoItem } from "./menus";
-
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
-
-declare global {
-  interface Window {
-    engine?: { world: { time: { frameCount: number } } };
-  }
-}
-
-async function openEditor(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => (window.engine?.world.time.frameCount ?? 0) > 10);
-}
 
 const assets = (page: Page) => page.locator(".panel.assets");
 
 test("browses folders with image thumbnails", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await assets(page).getByRole("tree", { name: "Folders" }).locator(".asset-folder", { hasText: /^images$/ }).click();
   const tiles = assets(page).locator(".asset-tile");
   await expect(tiles.filter({ hasText: "flappyBird.png" })).toHaveCount(1);
@@ -31,7 +18,7 @@ test("browses folders with image thumbnails", async ({ page }) => {
 test("searches across folders and adds a prefab to the scene as an undoable step", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await assets(page).getByRole("searchbox", { name: "Search assets" }).fill("pipe");
   const names = assets(page).locator(".asset-name");
   await expect(names).toHaveText(["pipe-pair.prefab.json", "PipeDown.png", "PipeSpawner.ts", "PipeUp.png"]); // the sample's scripts are project files
@@ -48,7 +35,7 @@ test("searches across folders and adds a prefab to the scene as an undoable step
 });
 
 test("double-clicking a prefab opens it", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await assets(page).getByRole("tree", { name: "Folders" }).locator(".asset-folder", { hasText: /^prefabs$/ }).click();
   await assets(page).locator(".asset-tile").filter({ hasText: "pipe-pair.prefab.json" }).dblclick();
   await expect(page.locator(".scene-name")).toHaveText("pipe-pair.prefab.json");

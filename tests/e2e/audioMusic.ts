@@ -1,13 +1,10 @@
 import type { CDPSession } from "@playwright/test";
-import { expect, type Page, play } from "./fixtures";
+import { type Page, readAudioDebug } from "./fixtures";
 
 // Shared helpers of the interactive-music e2e specs (ADR 0166/0167, M4a): `audio-music-a.spec.ts` and the M4a case of
 // `audio-music-listening.spec.ts`. The music events are built here, in the spec, from the Sound Lab's clips and added to the
 // page's asset sources (`Assets.addSource`, in front of the project's), so no sample is edited and a spec can make the
 // scene an item needs (8 stems, a switch with rules, a stinger, a 3-item playlist).
-
-export const LAB = "/editor.html?sample=sound-lab";
-export const FLAPPY = "/editor.html?sample=flappy";
 
 /** The Sound Lab's 4 s, 24 kHz mono stems (the same length, as a segment needs): pad, pulse and lead decode, the melody streams (its sidecar). */
 export const STEM = {
@@ -82,7 +79,7 @@ type Api = {
   Assets: { addSource(s: unknown): void; fromObject(m: Record<string, unknown>): unknown; has(path: string): boolean };
 };
 
-export const audioDebug = (page: Page) => page.evaluate(() => ((globalThis as unknown as { __myco?: Api }).__myco?.Audio.debug() as Debug | undefined) ?? null);
+export const audioDebug = (page: Page) => readAudioDebug<Debug>(page);
 export const musicRows = async (page: Page): Promise<Row[]> => (await audioDebug(page))?.music ?? [];
 
 /** The highest peak of a bus's meter over `ms` in the page (one reading can land in a quiet part of the clip). */
@@ -118,25 +115,6 @@ export function watchConsole(page: Page): { errors: string[]; warnings: string[]
     else if (msg.type() === "warning" && /music|audio|stream|stinger|segment|stem|\bring|group/i.test(msg.text()) && !/shader|Emitter/i.test(msg.text())) seen.warnings.push(msg.text());
   });
   return seen;
-}
-
-/** Opens a sample in Play mode and unlocks the audio context with a click; waits for the running core (or Babylon) backend. */
-export async function bootSample(page: Page, url: string, backend: "core" | "babylon" = "core"): Promise<void> {
-  if (backend === "babylon") {
-    const project = url.includes("flappy") ? "flappy" : "sound-lab";
-    await page.route(`**/samples/${project}/project.json`, async (route) => {
-      const res = await route.fetch();
-      const json = await res.json();
-      json.audio = { ...(json.audio ?? {}), backend: "babylon" };
-      await route.fulfill({ response: res, json });
-    });
-  }
-  await page.goto(url);
-  await page.waitForFunction(() => ((window as unknown as { engine?: { world: { time: { frameCount: number } } } }).engine?.world.time.frameCount ?? 0) > 10);
-  await play(page);
-  await page.mouse.click(480, 250); // the user gesture that unlocks the context
-  await expect.poll(async () => (await audioDebug(page))?.status, { timeout: 30_000 }).toBe("running");
-  expect((await audioDebug(page))!.core.backend).toBe(backend);
 }
 
 /** Adds audio events (path -> the JSON object) and generated clips (path -> a sine, see `Sine`) to the page's asset sources. */

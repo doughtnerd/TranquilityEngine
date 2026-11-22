@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Page, openEditor } from "./fixtures";
 import { menu } from "./menus";
 
 // Detached panel windows' groundwork (ADR 0174, src/editor/windows/childWindow.ts): a same-origin child
@@ -7,16 +7,7 @@ import { menu } from "./menus";
 // Each test detaches the Inspector from its tab's menu, as a user does; panels.spec.ts covers what the
 // layout does with detached windows.
 
-const EDITOR = "/editor.html?sample=flappy";
-
-type Hooks = { engine?: { world: { time: { frameCount: number } } } };
-
 const tab = (page: Page, name: string) => page.locator(".dock-tab", { has: page.locator(".dock-tab-label", { hasText: new RegExp(`^${name}$`) }) });
-
-async function openEditor(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-}
 
 /** Detach the Inspector into a window of its own; resolves with the window once its panel shows. */
 async function detachInspector(page: Page): Promise<Page> {
@@ -28,7 +19,7 @@ async function detachInspector(page: Page): Promise<Page> {
 }
 
 test("a detached window copies the editor's stylesheets and theme, and keeps them in step", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const popup = await detachInspector(page);
   expect(popup.url()).toMatch(/\/panel-window\.html$/);
   await expect.poll(() => popup.title()).toBe("Inspector · Myco Engine");
@@ -69,7 +60,7 @@ test("a detached window copies the editor's stylesheets and theme, and keeps the
 });
 
 test("the shell's shortcuts and the menu bar's Alt key work from a detached window, and text fields keep their keys", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const popup = await detachInspector(page);
   await page.locator(".hierarchy-view .tree .row", { hasText: "Bird" }).first().click();
   const rotate = page.getByRole("button", { name: "Rotate", exact: true });
@@ -100,7 +91,7 @@ test("the shell's shortcuts and the menu bar's Alt key work from a detached wind
 });
 
 test("a detached window remembers its size, reports being closed by the user, and closes with the main window", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const first = await detachInspector(page);
   // Resized, the layout saves the window's new size.
   await first.setViewportSize({ width: 520, height: 410 });

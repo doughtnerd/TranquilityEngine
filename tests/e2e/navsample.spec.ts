@@ -1,4 +1,4 @@
-import { expect, type Page, play, test } from "./fixtures";
+import { expect, type Page, play, test, openEditor } from "./fixtures";
 import { inLiveWorld, type LiveNode } from "./liveWorld";
 import { captureView, pixelsNear, themeColor } from "./viewCapture";
 
@@ -12,10 +12,6 @@ import { captureView, pixelsNear, themeColor } from "./viewCapture";
 const START = "/editor.html"; // relative to baseURL (E2E_PORT)
 
 test.describe.configure({ timeout: 120_000 });
-
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-};
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -63,8 +59,7 @@ test("the start screen lists Navigation", async ({ page }) => {
 
 test("Play: chunks stream in round the agents, agents of every kind move, the Nav overlay draws the live navigation", { tag: "@slow" }, async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto(`${START}?sample=navigation`);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await openEditor(page, { sample: "navigation" });
   await expect(page.locator(".project-name")).toHaveText("Navigation (sample, read-only)");
 
   await play(page);

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Page, waitForEditor } from "./fixtures";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 import { pickCategory } from "./projectCategory";
 import { showTab } from "./tabs";
@@ -7,8 +7,6 @@ import { showTab } from "./tabs";
 // a layer, puts an agent type on it and edits the who-avoids-whom matrix; project.json follows.
 
 test.describe.configure({ timeout: 60_000 });
-
-type Hooks = { engine?: { world: { time: { frameCount: number } } } };
 
 const PROJECT = {
   "project.json": JSON.stringify({ name: "Layers" }, null, 2),
@@ -34,7 +32,7 @@ test("names an avoidance layer, puts an agent type on it and edits the matrix", 
   await page.goto("/editor.html");
   await nextFolder(page, "Layers");
   await page.getByRole("dialog", { name: "Start" }).getByRole("button", { name: "Open Project…" }).click();
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await waitForEditor(page);
   await showTab(page, /^Project/);
   await showNavigation(page);
   const nav = page.locator(".panel.project").getByRole("group", { name: "Navigation settings" });

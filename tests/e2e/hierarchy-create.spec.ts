@@ -1,17 +1,4 @@
-import { afterFrames, expect, type Locator, type Page, test } from "./fixtures";
-
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
-
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  orbit: { focus(point?: [number, number, number], distance?: number): void };
-  nodeRect(key: string): { left: number; top: number; right: number; bottom: number } | null;
-};
-
-async function openEditor(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-}
+import { afterFrames, expect, type Locator, type Page, test, openEditor, type Hooks } from "./fixtures";
 
 const row = (page: Page, key: string) => page.locator(`.tree .row[data-key="${key}"]`);
 const selected = (page: Page) => page.locator(".tree .row.selected").evaluateAll((rows) => rows.map((r) => (r as HTMLElement).dataset.key!));
@@ -22,7 +9,7 @@ const menuItem = (page: Page, name: string) =>
 const box = async (l: Locator) => (await l.boundingBox())!;
 
 test("the + menu and the row menu create nodes, selected, one undo step each", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await page.getByRole("button", { name: "Create node" }).click();
   await menuItem(page, "Create Sprite").click();
   await expect(row(page, "sprite")).toHaveClass(/selected/);
@@ -46,7 +33,7 @@ test("the + menu and the row menu create nodes, selected, one undo step each", a
 });
 
 test("copy, paste, duplicate and cut nodes with the keyboard and the menu", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await row(page, "bird").click();
   await page.keyboard.press("ControlOrMeta+c");
   await page.keyboard.press("ControlOrMeta+v");
@@ -79,7 +66,7 @@ test("copy, paste, duplicate and cut nodes with the keyboard and the menu", asyn
 test("Ctrl/Cmd+V pastes nodes another editor put on the system clipboard (ADR 0226)", async ({ page, context, browserName }) => {
   test.skip(browserName !== "chromium", "clipboard permissions are Chromium's");
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await row(page, "bird").click();
   await page.keyboard.press("ControlOrMeta+c"); // this editor's own copy, older than the text below
   // Another editor process copies a node: its clipboard text lands on the system clipboard.
@@ -97,7 +84,7 @@ test("Ctrl/Cmd+V pastes nodes another editor put on the system clipboard (ADR 02
 });
 
 test("prefab instances copy with their overrides", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await row(page, "bg-b").click({ button: "right" });
   await menuItem(page, "Duplicate").click();
   await expect(row(page, "bg-b-2")).toHaveClass(/selected/);
@@ -106,7 +93,7 @@ test("prefab instances copy with their overrides", async ({ page }) => {
 });
 
 test("the search box filters rows by name and t:Type, keeping ancestors; Escape clears", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const search = page.getByRole("searchbox", { name: "Search nodes" });
   await search.fill("sprite");
   await expect(row(page, "bird-sprite")).toBeVisible();
@@ -122,7 +109,7 @@ test("the search box filters rows by name and t:Type, keeping ancestors; Escape 
 });
 
 test("dragging several selected rows moves them all in one undo step", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await row(page, "ceiling").click();
   await row(page, "ground-collider").click({ modifiers: ["ControlOrMeta"] });
   const a = await box(row(page, "ceiling"));
@@ -143,7 +130,7 @@ test("dragging several selected rows moves them all in one undo step", async ({ 
 });
 
 test("hidden nodes don't draw in the Scene view and locked ones can't be picked; both are remembered", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await page.evaluate(() => (window as unknown as Hooks).orbit.focus([0, 0, 0], 14));
   await afterFrames(page); // the camera moves on the next frame
   await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).nodeRect("bird-sprite"))).not.toBeNull();
@@ -167,7 +154,7 @@ test("hidden nodes don't draw in the Scene view and locked ones can't be picked;
   await expect(page.locator(".scene-name")).not.toContainText("•");
 
   // Remembered per user across reloads.
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await expect(page.getByRole("button", { name: "Show Bird" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "Unlock Bird" })).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).nodeRect("bird-sprite"))).toBeNull();

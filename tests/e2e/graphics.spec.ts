@@ -1,13 +1,15 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { expect, test, type Page } from "./fixtures";
+import { expect, openEditor, test, type Page, waitForEditor } from "./fixtures";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 import { pickCategory } from "./projectCategory";
 import { showTab } from "./tabs";
 
 // Graphics quality tiers (ADR 0050): the Project panel edits project.json's tiers, the scene
-// view's Quality menu previews one, and the render backend applies it (pixel ratio, shadows,
-// texture filtering).
+// view's Quality menu previews one, and the scene view draws at its render scale. The rest the
+// render backend applies from a tier (shadows, cascades, probes, post-processing) is its unit
+// tests' (renderFeatureHooks.test.ts for the surface's applied tier, babylonLighting.test.ts,
+// babylonProbes.test.ts, postEffects.test.ts).
 
 test.describe.configure({ timeout: 60_000 }); // WebKit renders on the CPU
 
@@ -23,8 +25,6 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
   return out;
 }
 
-type Quality = { tier: string; pixelRatio: number; shadows: boolean; shadowMapSize: number; msaa: boolean };
-type Hooks = { engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { quality: Quality } } } } };
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -35,27 +35,22 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-const quality = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.diagnostics().quality);
-const waitForFrames = (page: Page) => page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+/** The scene view's drawing-buffer pixels per CSS pixel: the device's ratio times the tier's render scale. */
+const pixelRatio = (page: Page) => page.locator(".viewport canvas").evaluate((c: HTMLCanvasElement) => c.width / c.clientWidth);
 
 test("the scene view's Quality menu previews a tier: resolution, shadows and texture filtering follow it", async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto("/editor.html?sample=playground3d");
-  await waitForFrames(page);
+  await openEditor(page, { sample: "playground3d" });
   const menu = page.getByRole("combobox", { name: "Quality" });
   await expect(menu).toHaveValue("High"); // the default tiers' default
   await expect(menu.locator("option")).toHaveText(["Low", "Medium", "High", "Ultra"]);
-  const high = await quality(page);
-  expect(high).toMatchObject({ tier: "High", shadows: true, shadowMapSize: 2048 });
+  const high = await pixelRatio(page); // High's render scale is 1
 
-  await menu.selectOption("Low");
-  await expect.poll(async () => (await quality(page)).tier).toBe("Low");
-  // The tier switches at once; the render scale applies on the surface's next frame.
-  await expect.poll(async () => (await quality(page)).pixelRatio).toBeCloseTo(high.pixelRatio * 0.75, 5);
-  expect(await quality(page)).toMatchObject({ shadows: true, shadowMapSize: 512 });
-
-  await menu.selectOption("Ultra");
-  await expect.poll(async () => (await quality(page)).shadowMapSize).toBe(4096);
+  // The tier switches at once; its render scale applies on the surface's next frame.
+  await menu.selectOption("Low"); // render scale 0.75
+  await expect.poll(() => pixelRatio(page)).toBeCloseTo(high * 0.75, 2);
+  await menu.selectOption("Ultra"); // render scale 1.25
+  await expect.poll(() => pixelRatio(page)).toBeCloseTo(high * 1.25, 2);
   expect(errors).toEqual([]);
 });
 
@@ -67,7 +62,7 @@ test("the Project panel edits the tiers, saves them to project.json, and the edi
   await nextFolder(page, "Playground");
   await page.getByRole("dialog", { name: "Start" }).getByRole("button", { name: "Open Project…" }).click();
   await expect(page.locator(".project-name")).toHaveText("3D Playground");
-  await waitForFrames(page);
+  await waitForEditor(page);
 
   await showTab(page, /^Project/);
   await pickCategory(page, "Graphics");
@@ -88,13 +83,17 @@ test("the Project panel edits the tiers, saves them to project.json, and the edi
   await panel.getByRole("combobox", { name: "Default tier" }).selectOption("Medium");
   await expect.poll(async () => (await projectJson()).graphics.defaultTier).toBe("Medium");
 
-  // The scene view's menu lists the new tier, and previewing Low turns shadows off.
+  // The scene view's menu lists the new tier and previews it, and Low as edited. (That the surface applies the
+  // project's tiers, Low's shadows off included, is renderFeatureHooks.test.ts's.)
   await showTab(page, /^Scene$/);
   const menu = page.getByRole("combobox", { name: "Quality" });
   await expect(menu.locator("option")).toHaveText(["Low", "Medium", "High", "Ultra", "Cinematic"]);
+  const full = await pixelRatio(page); // High or Medium: render scale 1
   await menu.selectOption("Low");
-  await expect.poll(async () => (await quality(page)).shadows).toBe(false);
-  await menu.selectOption("Cinematic");
-  await expect.poll(async () => (await quality(page)).shadows).toBe(true);
+  await expect(menu).toHaveValue("Low");
+  await expect.poll(() => pixelRatio(page)).toBeCloseTo(full * 0.75, 2);
+  await menu.selectOption("Cinematic"); // a new tier has High's values: render scale 1
+  await expect(menu).toHaveValue("Cinematic");
+  await expect.poll(() => pixelRatio(page)).toBeCloseTo(full, 2);
   expect(errors).toEqual([]);
 });
