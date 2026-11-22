@@ -293,3 +293,9 @@ screen's Pickup and Tail are derived loop-playback regions (trim start → first
 play. The musical post-exit tail (W9-D) is the audio after a sample's or sequence's Exit marker, Wwise's exit-cue model:
 on a handover the outgoing section rings past it to its end; no Exit marker = no tail (today). Exit markers work on
 any sample, looped or not, so no extra "mark a tail" tool is needed. Optional Entry/pre-entry likewise.
+
+**D39. Blend overlaps are per-entry regions (coordinator, after an owner question).** Today a 1D entry is a point:
+layers ramp in from the previous point and never end; crossfades span the whole gap. W9-D gives each 1D entry an
+optional region (start, end, fade-in and fade-out widths with shapes), like FMOD parameter-sheet instruments and Wwise
+blend-track ranges; unset regions derive from today's rules so old files keep their weights. The 1D lane draws
+draggable trapezoids. 2D blends unchanged.
