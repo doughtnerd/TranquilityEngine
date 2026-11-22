@@ -47,7 +47,7 @@ async function openPlayground(page: Page, writable: boolean): Promise<void> {
 }
 
 /**
- * Which of the scene's nodes (by path key: their ids from the scene root, joined by "/") draw on the scene view's canvas:
+ * Which of the scene's nodes (by path key: a node's id, prefixed by its prefab instances' ids, joined by "/") draw on the scene view's canvas:
  * the ones the editor finds a rectangle for (`nodeRect`). (That the renderer reports what each feature drew is
  * babylonEditorViewport.test.ts's, and every Light's icon babylonEditorDrawing.test.ts's.)
  */
@@ -105,7 +105,7 @@ test("the 3D Playground draws its models, shapes and lights", async ({ page }) =
   const errors = trackErrors(page);
   await openPlayground(page, false);
   // Its models (FBX, OBJ, glTF) and shapes: Ball, Body, Crate 1–4, Ground, Head, Orb, Pillar, Street Lamp.
-  const meshes = ["ball", "robot/robot-body", "crate-1", "crate-2", "crate-3", "crate-4", "ground", "robot/robot-head", "orb", "pillar", "street-lamp"];
+  const meshes = ["ball", "robot-body", "crate-1", "crate-2", "crate-3", "crate-4", "ground", "robot-head", "orb", "pillar", "street-lamp"];
   await expect.poll(() => drawnOf(page, meshes), { timeout: 20_000 }).toEqual(meshes);
   // A point light draws its range as a wireframe sphere while selected, in the selection colour (the theme's
   // accent). The Lamp has no mesh, so nothing else of it is outlined: the accent pixels that appear are its wires.
@@ -133,7 +133,7 @@ test("dropping an FBX model in the viewport adds a node with a child per mesh; a
 
   await page.locator('.tree .row[data-key="robot-2-head"]').click();
   await expect(card(page, "MeshRenderer").getByRole("combobox", { name: "mesh" })).toHaveValue("models/robot.fbx#Head");
-  await expect.poll(() => drawnOf(page, ["robot-2/robot-2-head"])).toEqual(["robot-2/robot-2-head"]);
+  await expect.poll(() => drawnOf(page, ["robot-2-head"])).toEqual(["robot-2-head"]);
 
   await page.locator(".asset-tile", { hasText: "crate.obj" }).getByRole("button", { name: /^Add crate/ }).click();
   await expect(page.locator(".tree .row.selected .name")).toHaveText("Crate");

@@ -106,7 +106,9 @@ test("a Particle System from the Create menu gets an effect asset; the Particle 
   await rate.fill("300");
   await rate.press("Tab");
   await expect.poll(async () => (await effectFile(page, path)).systems[0].spawn.blocks[0].inputs.rate).toBe(300);
-  await expect.poll(async () => (await previewed(page))?.count ?? 0, { timeout: 15_000 }).toBeGreaterThan(100);
+  // The graph's own preview card plays the edit too ("340 particles · 1.2s"); the scene view is behind the graph's tab.
+  const graphCount = async () => Number(/(\d+) particles/.exec((await graph.getByLabel("Preview stats").textContent()) ?? "")?.[1] ?? 0);
+  await expect.poll(graphCount, { timeout: 15_000 }).toBeGreaterThan(100);
 
   // A block added from the context's search lands in the file (the preview card hidden: it floats over the canvas).
   await graph.getByRole("button", { name: "Preview", exact: true }).click();
