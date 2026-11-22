@@ -196,6 +196,7 @@ describe("stats helpers", () => {
           sent: traffic(bytes),
           received: traffic(bytes / 2),
           snapshotBytes: 20,
+          snapshotParts: 1,
           ghosts: 1,
           inputs: [],
           ghostTypes: [

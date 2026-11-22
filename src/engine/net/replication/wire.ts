@@ -6,10 +6,13 @@ import type { BitReader, BitWriter } from "../codec";
 import { registerNetMessage } from "../session";
 import type { FieldShape, LayoutSpec } from "./layout";
 
-/** Server → client, unreliable: one per peer per sent tick. */
+/** Server → client, unreliable: one or more parts per peer per sent tick (ADR 0334). */
 export const SNAPSHOT = registerNetMessage("net.snapshot");
-/** Client → server, unreliable: the newest snapshot tick received. */
+/** Client → server, unreliable: the newest snapshot tick read, and which of its parts (ADR 0334). */
 export const ACK = registerNetMessage("net.snapshotAck");
+
+/** Parts an ack may name at most (a tick has at most `maxSnapshotBytes` / the datagram size). */
+export const MAX_SNAPSHOT_PARTS = 1024;
 
 /**
  * Baselines older than this many ticks aren't used (the ghost is sent whole instead), so both
