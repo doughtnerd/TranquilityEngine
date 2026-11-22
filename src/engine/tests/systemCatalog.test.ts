@@ -118,10 +118,10 @@ describe("the system catalog (T2)", () => {
     // The 3D physics systems (ADR 0045) do nothing in a World without 3D physics.
     // The physics and navigation systems come from first-party plugins (ADR 0135): 2D and 3D physics
     // each restore their interpolated bodies before the fixedUpdate scripts.
-    // The UI document systems (ADR 0077) do nothing in a World without UIDocuments.
+    // The UI document systems (ADR 0077) and LocalizedText (ADR 0342) do nothing in a World without UIDocuments.
     expect(engine.world.scheduler.order("fixedUpdate")).toEqual(["engine.PhysicsRestoreInterpolated", "engine.Physics3DRestoreInterpolated", "engine.NetReceiveTick", "engine.NetInputTick", "engine.PredictionTick", "engine.FixedUpdateScripts", "engine.NavSync", "engine.NavStep", "engine.NavWriteBack", "engine.PhysicsPush", "engine.PhysicsStep", "engine.PhysicsWriteBack", "engine.PhysicsEvents", "engine.Buoyancy", "engine.Physics3DPush", "engine.Physics3DStep", "engine.Physics3DWriteBack", "engine.Physics3DEvents"]);
     expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UIDocumentEvents", "engine.UpdateScripts", "test.cat.Default"]);
-    expect(engine.world.scheduler.order("lateUpdate")).toEqual(["engine.LateUpdateScripts", "engine.UIDocumentSync", "engine.AudioZones", "engine.NetInputSend", "engine.ReplicationSend", "engine.NetSend", "engine.Audio"]);
+    expect(engine.world.scheduler.order("lateUpdate")).toEqual(["engine.LateUpdateScripts", "engine.LocalizedText", "engine.UIDocumentSync", "engine.AudioZones", "engine.NetInputSend", "engine.ReplicationSend", "engine.NetSend", "engine.Audio"]);
     engine.dispose();
   });
 });
