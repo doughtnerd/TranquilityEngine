@@ -80,7 +80,7 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
     }
     active.add(msg.id);
     try {
-      let bytes = new Uint8Array(msg.bytes);
+      let bytes: Uint8Array = new Uint8Array(msg.bytes);
       let hint = msg.hint;
       if (msg.pack) {
         const held = packs.entry(msg.pack.pack, msg.pack.path);

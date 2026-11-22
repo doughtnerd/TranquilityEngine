@@ -606,6 +606,18 @@ export interface AudioOutputDevice {
   onOutputDevice: ((sink: string, change: "opened" | "changed") => void) | null;
 }
 
+/**
+ * ADR 0337 A4, A7: the shipped codecs (`.mycopak` entries) the backend plays as the package holds them. The core has it:
+ * IMA ADPCM held compressed in its arena and decoded per voice (clip format 6), and Ogg Opus in its decoder worker. The
+ * Babylon fallback has none (absent): the runtime plays an ADPCM `compressed` sound decoded instead and warns once.
+ */
+export interface AudioCodecs {
+  /** An ADPCM sound with load `compressed` stays compressed (the backend decodes it as it plays). */
+  readonly adpcmCompressed: boolean;
+  /** Ogg Opus entries decode. */
+  readonly opus: boolean;
+}
+
 export interface AudioBackend {
   readonly name: string;
   /** Start a clip. Null if the backend can't (not ready, unknown clip). */
@@ -654,7 +666,13 @@ export interface AudioBackend {
    * other effect types are skipped with one warning.
    */
   readonly submixes?: AudioSubmixes;
+  /**
+   * ADR 0337 A4, A7: the package codecs the backend plays as they are shipped. Absent: an ADPCM `compressed` sound plays
+   * decoded (the runtime warns once) and Opus isn't assumed.
+   */
+  readonly codecs?: AudioCodecs;
 }
+
 
 /**
  * ADR 0331: the instance submix pool. A submix runs an instance's insert chain on the mix of its voices on one bus and
