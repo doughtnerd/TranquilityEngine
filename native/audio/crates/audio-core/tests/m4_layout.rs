@@ -8,7 +8,7 @@ use audio_wire::generated as wire;
 
 /// `coreDriver.ts` `M2_REGIONS_HEADROOM_BYTES`: the Memory's headroom for every region before the
 /// arena except ADR 0162's (`spatialRegionsBytes`, mirrored there separately).
-const M2_REGIONS_HEADROOM_BYTES: usize = 16 << 20;
+const M2_REGIONS_HEADROOM_BYTES: usize = 18 << 20;
 /// The HRIR table, an arena clip the M2 headroom also leaves room for (`coreDriver.ts`: "plus the
 /// 0.75 MB HRIR").
 const HRIR_BYTES: usize = 768 * 1024;

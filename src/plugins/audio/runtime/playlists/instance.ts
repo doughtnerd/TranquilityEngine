@@ -26,7 +26,8 @@ import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPa
 import { clipRequest, samplePlan } from "../clipResolver";
 import { warnOnce } from "../core/handle";
 import { events, type EventOptions } from "../events/eventRuntime";
-import { MAX_LOCAL_SLOTS, type ParamRef } from "../events/automation";
+import { MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type ParamRef, type VoiceLoop } from "../events/automation";
+import { Assets } from "../../../../engine/scene/Assets";
 import { evalTimeCurves } from "./curves";
 import { linkedPlaylist, loadAttenuation } from "./loader";
 import { clockOver, MUSICAL_FALLBACK_NOTE, type MusicalClock, type MusicalSource } from "./musical";
@@ -67,6 +68,8 @@ export const STOP_FADE_SECONDS = 0.12;
 /** A trimmed sample's end: a short fade, so the cut doesn't click. */
 const TRIM_FADE = 0.005;
 const HELD: LoopBehaviour = Object.freeze({ active: "held", exit: "finish", exitFadeMs: 40, reentry: "ignore" });
+/** ADR 0328: the loop programs of voices playing a sample's loops (the core runs them; `resend` sends them again). */
+const programs = new WeakMap<LoopRun, readonly VoiceLoop[]>();
 
 const dbToGain = (db: number): number => Math.pow(10, db / 20);
 const stToRatio = (st: number): number => Math.pow(2, st / 12);
@@ -454,8 +457,12 @@ export class PlaylistInstance implements NodeHost {
       if (!v.voice.playing || v.leaving) continue;
       v.voice.setVolume(v.base.volume);
       v.voice.setPitch(v.base.pitch);
-      if (v.bindings.length > 0) sink.bindVoice(v.voice, this.group, v.bindings, v.base);
-      if (v.loop) sink.setLoop(v.voice, v.loop.start, v.loop.end, v.loop.looping);
+      if (v.bindings.length > 0) sink.bindVoice(v.voice, this.group, v.bindings, v.base, v.start ?? undefined);
+      const program = v.loop ? programs.get(v.loop) : undefined;
+      if (program) {
+        sink.setLoops(v.voice, this.group, program);
+        if (!v.loop!.looping) sink.setLoop(v.voice, 0, 0, false);
+      } else if (v.loop) sink.setLoop(v.voice, v.loop.start, v.loop.end, v.loop.looping);
     }
   }
 
@@ -641,12 +648,14 @@ export class PlaylistInstance implements NodeHost {
     try { voice = audioBackend().play(req); } catch { voice = null; }
     if (!voice) return null;
     const sink = events().automation;
-    if (ctx.bindings.length > 0) sink.bindVoice(voice, this.group, ctx.bindings, base);
+    if (ctx.bindings.length > 0) sink.bindVoice(voice, this.group, ctx.bindings, base, ctx.at ?? undefined);
     if (ctx.fadeIn > 0) {
       voice.fade(0, 0);
       voice.fadeShaped({ to: 1, seconds: ctx.fadeIn, law: "equalPowerIn", ...(ctx.at !== null ? { at: ctx.at } : {}) });
     }
-    if (loop && (loop.start > 0 || loop.end > 0 || !looping)) sink.setLoop(voice, loop.start, loop.end, looping);
+    const program = loop ? programs.get(loop) : undefined;
+    if (program) sink.setLoops(voice, this.group, program);
+    else if (loop && (loop.start > 0 || loop.end > 0 || !looping)) sink.setLoop(voice, loop.start, loop.end, looping);
     if (trim && trim[0] > 0) voice.seek(trim[0]);
     // When it starts: its stamp, else the earliest exact start, else now (heard; voice time and end estimates count from it).
     const start = ctx.at ?? events().horizon() ?? this.clock();
@@ -673,39 +682,65 @@ export class PlaylistInstance implements NodeHost {
 
   /**
    * The loop a sample entry plays with. `on` loops the trimmed region (released by `release`); `off` none; `inherit` the
-   * sample's own first loop, else (in an `untilStopped` playlist) the trimmed region until released.
-   * TODO(ADR 0328 loop modes): repeat counts, ping-pong and backward loops, several loops and hold points arrive with
-   * the core's loop modes; this is the one place they plug in.
+   * sample's own loops as a core loop program (ADR 0328: directions, counts, crossfades, hold points, activations, exits
+   * and re-entry run in the voice; `programs` keeps it), else (in an `untilStopped` playlist) the trimmed region until
+   * released. A program's run is "held" when any of its loops is (so `release` sends its key-off); parameter loops are
+   * the core's, read from their parameter's slot.
    */
   private loopFor(entry: SampleEntry, plan: ReturnType<typeof samplePlan>, trim: [number, number] | null): LoopRun | null {
     const region = { start: trim?.[0] ?? 0, end: trim?.[1] ?? 0 };
     if (entry.loop === "off") return null;
     if (entry.loop === "on") return { ...region, behaviour: HELD, looping: true };
-    if (plan.loop) {
-      const b = plan.loop.behaviour;
-      let looping = true;
-      if (b.active === "parameter" && b.binding) {
-        const p = this.param(b.binding.parameter);
-        looping = p ? (b.binding.op === ">" ? p.value > b.binding.value : p.value < b.binding.value) : false;
+    const loops = Assets.importSettings(entry.sample).sample?.loops ?? [];
+    if (plan.loop || loops.length > 0) {
+      if (loops.length > MAX_VOICE_LOOPS) warnOnce(`playlist:loops:${entry.sample}`, `[myco] ${entry.sample}: a voice plays at most ${MAX_VOICE_LOOPS} loops; the rest are ignored.`);
+      const program: VoiceLoop[] = [];
+      for (const l of loops.slice(0, MAX_VOICE_LOOPS)) {
+        const b = l.binding;
+        let param: ParamRef | null = null;
+        let active = l.active;
+        if (active === "parameter") {
+          param = b ? this.paramRef(b.parameter) : null;
+          if (!param) {
+            // An unknown parameter (warned): the loop holds as its value does now, then stays.
+            const p = b ? this.param(b.parameter) : null;
+            if (!p || !(b!.op === ">" ? p.value > b!.value : p.value < b!.value)) continue;
+            active = "always";
+          }
+        }
+        program.push({
+          start: l.start, end: l.end, direction: l.direction, crossfade: l.crossfadeMs / 1000, count: l.count, active,
+          ...(param && b ? { param, op: b.op, threshold: b.value } : {}),
+          exit: l.exit, exitFade: l.exitFadeMs / 1000, reentry: l.reentry,
+        });
       }
-      if (plan.loop.count > 0) warnOnce(`playlist:loopcount:${entry.sample}`, `[myco] ${entry.sample}: loop repeat counts arrive with the core's loop modes (ADR 0328); it loops until released.`);
-      return { start: plan.loop.start, end: plan.loop.end, behaviour: b, looping };
+      const first = loops.find((l) => l.end > l.start) ?? loops[0]!;
+      const held = loops.some((l) => l.active === "held");
+      const behaviour: LoopBehaviour = { active: held ? "held" : "always", exit: first.exit, exitFadeMs: first.exitFadeMs, reentry: first.reentry };
+      const run: LoopRun = { start: first.start, end: first.end, behaviour, looping: program.length > 0 };
+      if (program.length > 0) programs.set(run, program);
+      return run;
     }
     return this.untilStopped ? { ...region, behaviour: HELD, looping: true } : null;
   }
 
-  /** A loop ends by its exit settings: `finish` plays the pass out; `jump` leaves at once; `crossfade` (until the core's loop modes) as `finish`. */
+  /**
+   * A loop ends by its exit settings. A program's key-off goes to the core, which lets its held loops go by each one's
+   * exit (finish, jump or crossfade). A plain region: `finish` plays the pass out; `jump` leaves at once; `crossfade` as
+   * `finish`.
+   */
   endLoop(v: PVoice): void {
     const loop = v.loop;
     if (!loop || !loop.looping) return;
     loop.looping = false;
     events().automation.setLoop(v.voice, loop.start, loop.end, false);
+    if (programs.has(loop)) return;
     if (loop.behaviour.exit === "jump" && loop.end > 0) v.voice.seek(loop.end);
   }
 
   setLoopActive(v: PVoice, active: boolean): void {
     const loop = v.loop;
-    if (!loop || loop.looping === active) return;
+    if (!loop || loop.looping === active || programs.has(loop)) return; // a program's parameter loops are the core's
     if (!active) { this.endLoop(v); return; }
     // After a release, or with `reentry: "ignore"`, a loop that was left stays left. TODO(ADR 0328 loop modes): `reenter`
     // jumps back into a region already passed; re-arming here only catches a voice still before the loop's end.
@@ -730,7 +765,7 @@ export class PlaylistInstance implements NodeHost {
         v.appliedPitch = pitch;
         v.base.volume = v.staticVolume * gain;
         v.base.pitch = clampPitch(v.staticPitch * pitch);
-        if (v.bindings.length > 0) sink.bindVoice(v.voice, this.group, v.bindings, v.base);
+        if (v.bindings.length > 0) sink.bindVoice(v.voice, this.group, v.bindings, v.base, v.start ?? undefined);
         else {
           if (gainMoved) v.voice.setVolume(v.base.volume);
           if (pitchMoved) v.voice.setPitch(v.base.pitch);

@@ -125,6 +125,9 @@ pub enum Route {
     /// Per voice, but its voice is gone (a stale id, an ended voice): applying it would change
     /// nothing, so it is dropped without a split (Z2a: today's apply drops it too).
     Dropped,
+    /// ADR 0332: a TIME (a group clock's re-anchor), applied now with its own frame: the clock reads
+    /// from that frame on, and bindings read clocks once per quantum. Never a split.
+    Clock,
 }
 
 /// The sample of `record` in the quantum at `frame`: its offset, or 0 for a record already late.
@@ -335,6 +338,11 @@ pub fn sequence_of(record: &DueRecord) -> u16 {
 ///
 /// With the due list full, a record that would go into it splits instead ([`Route::Split`]).
 pub fn route(core: &mut Core, record: &DueRecord, frame: u64) -> Route {
+    if record.op as u16 == op::TIME {
+        // ADR 0332: a group clock's re-anchor carries its own frame; never a split.
+        crate::scheduler::apply(core, record);
+        return Route::Clock;
+    }
     match classify(record) {
         Class::Quantum => return Route::Split,
         Class::B => {

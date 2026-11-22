@@ -20,9 +20,11 @@ export const MEMORY_INITIAL_PAGES = 64;
 export const PAGE_BYTES = 65_536;
 /**
  * @internal Headroom in the Memory's `maximum` for M2's fixed regions past the arena (architecture §5.1: ≈ 7.7 MB, 9.6 MB
- * high, plus the 0.75 MB HRIR). ADR 0162's regions and the zone kernels come on top: `fixedRegionsHeadroomBytes`.
+ * high, plus the 0.75 MB HRIR). ADR 0162's regions and the zone kernels come on top: `fixedRegionsHeadroomBytes`. 18 MiB since
+ * ADR 0332/0328: the automation region's time clocks, voice start frames and loop-program pool took the last of 16 MiB on
+ * the largest preset (8,192 logical voices at 96 kHz: 16.1 MB with the HRIR 16.9 MB).
  */
-export const M2_REGIONS_HEADROOM_BYTES = 16 << 20;
+export const M2_REGIONS_HEADROOM_BYTES = 18 << 20;
 /** wasm32's limit: 4 GiB. */
 const MAX_PAGES = 65_536;
 

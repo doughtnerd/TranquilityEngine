@@ -159,11 +159,17 @@ pub struct Scene {
     pub bindings: u32,
     /// ADR 0332: the bound curves are made of Bézier keys (the same values, each segment a cubic).
     pub bezier: bool,
+    /// ADR 0332: the bindings read time parameters instead (volume on voiceTime, pitch on clipTime, lowpass on
+    /// sequenceTime), and every batch re-anchors 32 groups' sequence clocks with stamped TIMEs.
+    pub time: bool,
     /// ADR 0158 E2: every bus has a volume and a lowpass binding to the seeking globals.
     pub bus_automation: bool,
     /// ADR 0158 E2: mixed voices are clips looping a SET_LOOP region (no whole-clip loop); each batch releases two,
     /// which play their tails and end, and new ones replace them.
     pub sustain: bool,
+    /// ADR 0328: with `sustain`, each mixed voice plays a LOOPS program instead of a SET_LOOP region: a held forward
+    /// loop with a 256-frame seam crossfade, then a held ping-pong loop; the key-offs let them go by crossfade.
+    pub loop_programs: bool,
     /// ADR 0158 E2: also time one extra `automation::begin_quantum` before each quantum (outside the timed work;
     /// the parameters then seek twice as fast) and report its percentiles: the control-rate pass on its own.
     pub probe_automation: bool,
@@ -381,8 +387,10 @@ impl Scene {
             cap: false,
             bindings: 0,
             bezier: false,
+            time: false,
             bus_automation: false,
             sustain: false,
+            loop_programs: false,
             probe_automation: false,
             beds: 0,
             bed_voices: 0,
@@ -581,9 +589,13 @@ pub fn scene(name: &str) -> Option<Scene> {
         "automation-base" => Scene::looping(name, 256),
         // ADR 0332: `automation` with every curve's keys Bézier (a bisection per binding per quantum).
         "automation-bezier" => Scene { bindings: 3, bezier: true, ..Scene::looping(name, 256) },
+        // ADR 0332: `automation` with every binding on a time parameter (voice, clip and sequence time).
+        "automation-time" => Scene { bindings: 3, time: true, ..Scene::looping(name, 256) },
         "automation-virtual" => Scene { bindings: 3, virtual_voices: 256, ..Scene::looping(name, 16) },
         "bus-automation" => Scene { buses: 32, snapshot_lp: true, bus_automation: true, ..Scene::looping(name, 32) },
         "sustain" => Scene { sustain: true, ..Scene::looping(name, 128) },
+        // ADR 0328: `sustain` with loop programs (crossfaded forward and ping-pong held loops, released by crossfade).
+        "loop-programs" => Scene { sustain: true, loop_programs: true, ..Scene::looping(name, 128) },
         // Not gated: the timed control-rate pass of `automation`, and the virtual scene's twin without bindings.
         "automation-probe" => Scene { bindings: 3, probe_automation: true, ..Scene::looping(name, 256) },
         "automation-virtual-base" => Scene { virtual_voices: 256, ..Scene::looping(name, 16) },
@@ -1821,11 +1833,30 @@ impl Bench {
             });
         }
         if s.bindings > 0 && stream.is_none() {
-            let all = [(0x8000u16, 0u16, 0u32), (0, 1, 1), (0x8001, 2, 2)];
+            let all = if s.time {
+                let t = wire::PARAM_TIME as u16;
+                [(t | wire::TIME_VOICE as u16, 0u16, 0u32), (t | wire::TIME_CLIP as u16, 1, 1), (t | wire::TIME_SEQUENCE as u16, 2, 2)]
+            } else {
+                [(0x8000u16, 0u16, 0u32), (0, 1, 1), (0x8001, 2, 2)]
+            };
             let bindings = all[..s.bindings.min(3) as usize].iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target }).collect();
             self.push(&wire::Automate { voice_id: id, frame_offset: wire::ASAP, bindings });
         }
-        if s.sustain && mixed && stream.is_none() {
+        if s.sustain && s.loop_programs && mixed && stream.is_none() {
+            let item = |start: u32, end: u32, dir: u16| wire::LoopsLoops {
+                start_frame: start,
+                end_frame: end,
+                crossfade_frames: 256,
+                exit_fade_frames: 512,
+                count: 0,
+                flags: dir | 1 << wire::LOOP_ACTIVE_SHIFT | 2 << wire::LOOP_EXIT_SHIFT,
+                param: 0,
+                reserved: 0,
+                threshold: 0.0,
+            };
+            let loops = vec![item(frames / 6, frames / 3, 0), item(frames / 2, 2 * frames / 3, 1)];
+            self.push(&wire::Loops { voice_id: id, frame_offset: wire::ASAP, loops });
+        } else if s.sustain && mixed && stream.is_none() {
             // A region in the clip's middle third; the voice starts before it.
             self.push(&wire::SetLoop { voice_id: id, frame_offset: wire::ASAP, loop_start_frame: frames / 3, loop_end_frame: 2 * frames / 3, flags: wire::SET_LOOP_FLAGS_LOOPING });
         }
@@ -2045,7 +2076,12 @@ impl Bench {
                 for k in 0..32u64 {
                     let group = 1 + ((q / BATCH_EVERY * 32 + k) % (s.mixed + s.virtual_voices).max(1) as u64) as u16;
                     let value = self.rng.unit();
-                    self.push(&wire::Param { voice_id: 0, frame_offset: wire::ASAP, group, slot: 0, value, seek_per_second: 2.0 });
+                    if s.time {
+                        // A sequence wrapping its loop: the clock jumps back, stamped like a voice record.
+                        self.push(&wire::Time { voice_id: 0, frame_offset: (k as u32 * 37) % (BATCH_EVERY as u32 * QUANTUM as u32), group, which: wire::TIME_SEQUENCE as u16, value, rate: 1.0 });
+                    } else {
+                        self.push(&wire::Param { voice_id: 0, frame_offset: wire::ASAP, group, slot: 0, value, seek_per_second: 2.0 });
+                    }
                 }
             }
         }
@@ -2322,7 +2358,7 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck);
+wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck, wire::Time, wire::Loops);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
 /// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps). With `bezier` (ADR 0332)
@@ -2492,7 +2528,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
         b.pump_zones();
         if scene.probe_automation {
             let t1 = platform::now_us();
-            audio_core::automation::begin_quantum(&mut b.core);
+            audio_core::automation::begin_quantum(&mut b.core, frame);
             let pt = platform::now_us() - t1;
             if recording {
                 probe.push(pt as f32);

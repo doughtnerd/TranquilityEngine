@@ -101,7 +101,7 @@ describe("coreDriver with the real wasm", () => {
     const addresses = (c: CoreInstance) => [c.exports.myco_audio_inbox_ptr(), c.exports.myco_audio_status_ptr(), c.exports.myco_audio_process(0, 0), c.memory.buffer.byteLength];
     expect(addresses(a)).toEqual(addresses(b));
     expect(a.exports.myco_audio_process(0, 0)).toBeGreaterThanOrEqual(MEMORY_INITIAL_PAGES * 65_536);
-    expect(memoryMaximumPages(PRESET, RATE)).toBe(64 + Math.ceil(((16 << 20) + spatialRegionsBytes(PRESET, RATE) + (16 << 20)) / 65_536));
+    expect(memoryMaximumPages(PRESET, RATE)).toBe(64 + Math.ceil((M2_REGIONS_HEADROOM_BYTES + spatialRegionsBytes(PRESET, RATE) + (16 << 20)) / 65_536));
   });
 
   it("refuses a schema hash or ABI major mismatch with CoreLoadError", () => {
@@ -120,7 +120,7 @@ describe("coreDriver with the real wasm", () => {
     expect(r.blocks).toHaveLength(1);
     const first = r.blocks[0]!;
     expect(first.flags & STATUS_FLAGS_READY).toBeTruthy();
-    expect(first.abiVersion).toBe(0x401); // 4.1 (ADR 0332)
+    expect(first.abiVersion).toBe(0x403); // 4.3 (ADR 0328 loop programs)
     expect(first.currentFrame).toBe(6 * 128);
     await expect(r.link.ready).resolves.toBeUndefined();
     r.run(6);

@@ -4,7 +4,12 @@
 // - `defineCurve` → CURVES, `setParam` → PARAM, `bindVoice` → AUTOMATE (after the voice's PLAY, with the PLAY's stamp
 //   so it stays behind it in the batch), `bindBus` → BUS_AUTOMATE (by bus name; re-sent when the bus tree is
 //   reconfigured), `setLoop` → SET_LOOP (stamped behind the voice's PLAY while that is still ahead, else asap, like the
-//   other voice commands).
+//   other voice commands), `setLoops` → LOOPS (ADR 0328: a clip voice's loop program, behind its PLAY like AUTOMATE; a
+//   later `setLoop(…, false)` is its key-off), `setSequenceTime` → TIME (ADR 0332: stamped at its heard time, or asap).
+// - **Time parameters** (ADR 0332): a binding on `TimeParam.Voice`, `Clip` or `Sequence` goes out as `AUTOMATION_TIME |
+//   which`; the core advances the times itself. Main can't follow them without a per-frame cost, so selection sees a
+//   time-bound volume curve at its loudest key (a voice fading in by voice time is never culled as silent) and a
+//   time-bound pitch curve at its first key; the playhead estimate is re-anchored by STATUS as usual.
 // - Voices are found by `voice.id` in the voice table, never by class: after the hand-over from the pending backend,
 //   the runtime re-sends voices it holds as `PendingVoice`s, whose `id` is the core voice's (C6).
 // - A voice whose PLAY hasn't gone out yet (its clip still loading, or the context locked) keeps its bindings and loop
@@ -52,15 +57,25 @@ import {
   writeCurves,
   writeParam,
   writeSetLoop,
+  writeTime,
+  writeLoops,
+  LOOPS_LOOPS_FIXED_END,
+  LOOP_ACTIVE_SHIFT,
+  LOOP_BELOW,
+  LOOP_EXIT_SHIFT,
+  LOOP_REENTER,
+  TIME_SEQUENCE,
+  type LoopsLoops,
   type AutomateBindings,
   type CurvesCurves,
 } from "../wire.generated";
 import type { AudioVoice, PlayRequest } from "../backend";
-import { AutoTarget, evaluateInto, MAX_BINDINGS, MAX_CURVES, MAX_GLOBAL_SLOTS, MAX_GROUPS, MAX_LOCAL_SLOTS, type AutomationSink, type AutoResult, type Binding } from "../events/automation";
+import { AutoTarget, evaluateInto, MAX_BINDINGS, MAX_CURVES, MAX_GLOBAL_SLOTS, MAX_GROUPS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type AutomationSink, type AutoResult, type Binding, type VoiceLoop } from "../events/automation";
+import { evalCurve } from "../../../../engine/core/curve";
 import { onLoopPoints } from "../loopPoints";
 import type { ClipInfo } from "./clipRegistry";
 import type { ClockMap } from "./clock";
-import { AUTOMATION_GLOBAL, CORE_CURVE_KEYS, coreCurveBytes, wireCurveKey, type AutomationBinding, type CommandWriter } from "./commandWriter";
+import { AUTOMATION_GLOBAL, AUTOMATION_TIME, CORE_CURVE_KEYS, coreCurveBytes, wireCurveKey, type AutomationBinding, type CommandWriter } from "./commandWriter";
 import type { PlayheadTracker, ReplayBuilder } from "./replay";
 import type { SendGate } from "./session";
 import { VoiceFlag, VoiceState, type VoiceTable } from "./voiceTable";
@@ -103,8 +118,9 @@ export function wrapPosition(pos: number, loopStart: number, loopEnd: number, le
 /** What the sink drives and reads of the core backend (`CoreBackend` passes these). */
 export interface CoreAutomationDeps {
   readonly table: VoiceTable;
-  readonly writer: Pick<CommandWriter, "automate" | "param" | "curves" | "busAutomate" | "setLoop">;
-  readonly clockMap: Pick<ClockMap, "framesNow" | "lookaheadFrames"> & Partial<Pick<ClockMap, "sampleRate">>;
+  readonly writer: Pick<CommandWriter, "automate" | "param" | "curves" | "busAutomate" | "setLoop"> & Partial<Pick<CommandWriter, "time" | "loops">>;
+  /** `frameOfTime` and `stampFor` turn a heard time into a stamp (TIME, ADR 0332); without them TIME goes asap. */
+  readonly clockMap: Pick<ClockMap, "framesNow" | "lookaheadFrames"> & Partial<Pick<ClockMap, "sampleRate" | "frameOfTime" | "stampFor">>;
   readonly playheads: Pick<PlayheadTracker, "positionNow" | "start" | "retime">;
   /** A voice's clip (a stream voice's stream) info: frames and rate, null while unknown. */
   clipInfo(i: number): ClipInfo | null;
@@ -137,12 +153,16 @@ interface VoiceEntry {
   n: number;
   /** Per binding: the parameter's index in the core's table for this voice (`paramKey`), or -1 (reads 0). */
   readonly keys: Int32Array;
+  /** Per binding: the `TimeParam` it reads (ADR 0332), or -1 for a parameter slot. */
+  readonly times: Int8Array;
   readonly curveIds: Int32Array;
   readonly targets: Uint8Array;
   /** The first `n` of `wirePool`, as the writer takes them. */
   readonly wire: AutomationBinding[];
   readonly wirePool: AutomationBinding[];
   loop: LoopRecord | null;
+  /** ADR 0328: its loop program (`loop`, when set beside it, is the program's key-off). */
+  program: readonly VoiceLoop[] | null;
 }
 
 const newEntry = (): VoiceEntry => ({
@@ -150,11 +170,13 @@ const newEntry = (): VoiceEntry => ({
   group: 0,
   n: 0,
   keys: new Int32Array(MAX_BINDINGS),
+  times: new Int8Array(MAX_BINDINGS).fill(-1),
   curveIds: new Int32Array(MAX_BINDINGS),
   targets: new Uint8Array(MAX_BINDINGS),
   wire: [],
   wirePool: Array.from({ length: MAX_BINDINGS }, () => ({ param: 0, curve: 0, target: 0 })),
   loop: null,
+  program: null,
 });
 
 /** Counts for `Audio.debug()` and the tests. */
@@ -165,6 +187,8 @@ export interface CoreAutomationStats {
   automates: number;
   busAutomates: number;
   loops: number;
+  /** ADR 0332: TIME records (sequence clock re-anchors). */
+  times: number;
   /** Hard rebuilds and idle resets whose state was restored. */
   replays: number;
   resyncs: number;
@@ -173,7 +197,7 @@ export interface CoreAutomationStats {
 }
 
 export class CoreAutomation implements AutomationSink {
-  readonly stats: CoreAutomationStats = { curves: 0, params: 0, automates: 0, busAutomates: 0, loops: 0, replays: 0, resyncs: 0, evaluations: 0 };
+  readonly stats: CoreAutomationStats = { curves: 0, params: 0, automates: 0, busAutomates: 0, loops: 0, times: 0, replays: 0, resyncs: 0, evaluations: 0 };
   private readonly curves = new Map<number, Curve>();
   private readonly paramValue = new Float64Array(PARAM_SLOTS);
   private readonly paramSeek = new Float32Array(PARAM_SLOTS);
@@ -228,6 +252,9 @@ export class CoreAutomation implements AutomationSink {
   private readonly busIds = new Int32Array(MAX_BINDINGS);
   private readonly busTargets = new Uint8Array(MAX_BINDINGS);
   private readonly busAuto: AutoResult = { gain: 1, pitch: 1, lowpass: 0 };
+  /** ADR 0332: each group's sequence clock as last sent: `value` seconds at context frame `frame`, moving at `rate`. */
+  private readonly clocks = new Map<number, { value: number; rate: number; frame: number }>();
+  private readonly dirtyClocks = new Set<number>();
   private budget = RESYNC_BYTES_PER_FRAME;
 
   constructor(private readonly deps: CoreAutomationDeps) {
@@ -301,15 +328,18 @@ export class CoreAutomation implements AutomationSink {
     for (let j = 0; j < n; j++) {
       const b = bindings[j]!;
       const p = b.param;
-      // As the parameters are read: a global slot, or the group's local one (none without a group).
-      e.keys[j] = p.global ? paramKey(0, p.slot) : group > 0 ? paramKey(group, p.slot) : -1;
+      const time = p.time !== undefined && p.time >= 0 && p.time <= 2 ? p.time : -1;
+      // As the parameters are read: a global slot, or the group's local one (none without a group); a time reads none.
+      e.keys[j] = time >= 0 ? -1 : p.global ? paramKey(0, p.slot) : group > 0 ? paramKey(group, p.slot) : -1;
+      e.times[j] = time;
       e.curveIds[j] = b.curve;
       e.targets[j] = b.target;
       const w = e.wirePool[j]!;
-      w.param = p.global ? AUTOMATION_GLOBAL | p.slot : p.slot;
+      w.param = time >= 0 ? AUTOMATION_TIME | time : p.global ? AUTOMATION_GLOBAL | p.slot : p.slot;
       w.curve = b.curve;
       w.target = b.target;
       wire[j] = w;
+      if (time >= 0) continue;
       if (p.global) global = true;
       else local = true;
     }
@@ -339,12 +369,45 @@ export class CoreAutomation implements AutomationSink {
     const i = this.resolve(voice);
     if (i < 0) return;
     const e = this.entry(i);
+    if (looping) e.program = null; // a region replaces a program; a release is the program's key-off
     e.loop = { start: Math.max(0, Number.isFinite(start) ? start : 0), end: Math.max(0, Number.isFinite(end) ? end : 0), looping };
     if ((this.deps.table.flags[i]! & VoiceFlag.STREAM) !== 0) {
       this.routeStreamLoop(i, e.loop);
       return;
     }
     if (this.onCore(i)) this.sendLoop(i, e, this.stampBehindPlay(i, e.id), true);
+  }
+
+  setLoops(voice: AudioVoice, group: number, loops: readonly VoiceLoop[]): void {
+    void group; // the core reads the voice's group from its PLAY
+    const i = this.resolve(voice);
+    if (i < 0) return;
+    const e = this.entry(i);
+    e.loop = null;
+    e.program = loops.length > 0 ? loops.slice(0, MAX_VOICE_LOOPS) : null;
+    if ((this.deps.table.flags[i]! & VoiceFlag.STREAM) !== 0) {
+      // Streams loop through the decoder worker: its first region, forward.
+      const first = loops.find((l) => l.end > l.start);
+      if (first) {
+        e.loop = { start: first.start, end: first.end, looping: true };
+        this.routeStreamLoop(i, e.loop);
+      }
+      return;
+    }
+    if (this.onCore(i)) this.sendProgram(i, e, this.stampBehindPlay(i, e.id));
+    this.dropIfEmpty(i);
+  }
+
+  setSequenceTime(group: number, value: number, rate: number, at?: number): void {
+    if (!Number.isInteger(group) || group < 0 || group > MAX_GROUPS || !Number.isFinite(value) || !Number.isFinite(rate)) return;
+    const clock = this.deps.clockMap;
+    const stamp = at !== undefined && Number.isFinite(at) && clock.frameOfTime && clock.stampFor ? clock.stampFor(clock.frameOfTime(at)) : undefined;
+    this.clocks.set(group, { value, rate, frame: stamp ?? clock.framesNow() + clock.lookaheadFrames() });
+    if (this.deps.session.mayQueue && this.deps.writer.time) {
+      this.dirtyClocks.delete(group);
+      this.deps.writer.time(group, value, rate, stamp);
+      this.stats.times++;
+    } else this.dirtyClocks.add(group);
   }
 
   // --- Seams (C6) -------------------------------------------------------------------------------------------------
@@ -403,6 +466,7 @@ export class CoreAutomation implements AutomationSink {
       return;
     }
     if (e.n > 0) this.sendBindings(i, e, stamp);
+    if (e.program && (this.deps.table.flags[i]! & VoiceFlag.STREAM) === 0) this.sendProgram(i, e, stamp);
     if (e.loop && (this.deps.table.flags[i]! & VoiceFlag.STREAM) === 0) this.sendLoop(i, e, stamp, false);
     else if (e.loop) this.routeStreamLoop(i, e.loop);
   }
@@ -435,7 +499,11 @@ export class CoreAutomation implements AutomationSink {
   beginFrame(): void {
     this.budget = RESYNC_BYTES_PER_FRAME;
     if (this.fading.size > 0) this.stepFades();
-    if (!this.deps.session.mayQueue || (this.dirtyCurves.size === 0 && this.dirtyParams.size === 0 && this.dirtyBuses.size === 0)) return;
+    if (!this.deps.session.mayQueue || (this.dirtyCurves.size === 0 && this.dirtyParams.size === 0 && this.dirtyBuses.size === 0 && this.dirtyClocks.size === 0)) return;
+    for (const g of this.dirtyClocks) {
+      if (this.budget < PARAM_BYTES) return;
+      this.sendClock(g);
+    }
     if (this.dirtyCurves.size > 0) {
       const ids = [...this.dirtyCurves].sort((a, b) => a - b);
       for (const id of ids) {
@@ -466,6 +534,7 @@ export class CoreAutomation implements AutomationSink {
     for (let k = 0; k < PARAM_SLOTS; k++) if (this.paramSet[k]) this.dirtyParams.add(k);
     this.busSentTo.clear();
     for (const bus of this.buses.keys()) this.dirtyBuses.add(bus);
+    for (const g of this.clocks.keys()) this.dirtyClocks.add(g);
     this.budget = 0;
     this.publishBuses();
   }
@@ -521,7 +590,12 @@ export class CoreAutomation implements AutomationSink {
     this.dirtyCurves.clear();
     this.dirtyParams.clear();
     this.dirtyBuses.clear();
+    this.dirtyClocks.clear();
     this.publishBuses();
+    for (const g of this.clocks.keys()) {
+      const { value, rate } = this.clockNow(g);
+      b.record(PARAM_BYTES, (view, off) => writeTime(view, off, { voiceId: 0, frameOffset: ASAP, group: g, which: TIME_SEQUENCE, value, rate }));
+    }
     const ids = [...this.curves.keys()].sort((x, y) => x - y);
     let k = 0;
     while (k < ids.length) {
@@ -565,6 +639,8 @@ export class CoreAutomation implements AutomationSink {
       const wire = e.wire;
       b.record(bindingBytes(wire.length), (view, off) => writeAutomate(view, off, { voiceId: id, frameOffset: ASAP, bindings: wire }));
     }
+    const items = e.program ? this.programItems(i, e.program) : null;
+    if (items) b.record(16 + LOOPS_LOOPS_FIXED_END * items.length, (view, off) => writeLoops(view, off, { voiceId: id, frameOffset: ASAP, loops: items }));
     const frames = this.loopFrames(i, e);
     if (frames) b.record(24, (view, off) => writeSetLoop(view, off, { voiceId: id, frameOffset: ASAP, loopStartFrame: frames.start, loopEndFrame: frames.end, flags: frames.looping ? SET_LOOP_FLAGS_LOOPING : 0 }));
   }
@@ -585,7 +661,7 @@ export class CoreAutomation implements AutomationSink {
   get counts(): { curves: number; voices: number; pending: number } {
     let voices = 0;
     for (const e of this.voices) if (e) voices++;
-    return { curves: this.curves.size, voices, pending: this.dirtyCurves.size + this.dirtyParams.size + this.dirtyBuses.size };
+    return { curves: this.curves.size, voices, pending: this.dirtyCurves.size + this.dirtyParams.size + this.dirtyBuses.size + this.dirtyClocks.size };
   }
 
   /**
@@ -634,6 +710,7 @@ export class CoreAutomation implements AutomationSink {
       const wire = e.wire;
       while (wire.length > 0) wire.pop();
       e.loop = null;
+      e.program = null;
       this.voices[i] = e;
     }
     return e;
@@ -653,7 +730,7 @@ export class CoreAutomation implements AutomationSink {
 
   private dropIfEmpty(i: number): void {
     const e = this.voices[i];
-    if (e && e.n === 0 && !e.loop) this.dropMirror(i);
+    if (e && e.n === 0 && !e.loop && !e.program) this.dropMirror(i);
   }
 
   private onCore(i: number): boolean {
@@ -742,13 +819,17 @@ export class CoreAutomation implements AutomationSink {
     }
   }
 
-  /** `e`'s bindings evaluated at the parameters' targets, or (`smoothed`) at the core's smoothed values now. */
+  /**
+   * `e`'s bindings evaluated at the parameters' targets, or (`smoothed`) at the core's smoothed values now. A time-bound
+   * binding (ADR 0332) reads its curve's loudest key (volume) or its first key (pitch, low-pass).
+   */
   private evaluateEntry(e: VoiceEntry, smoothed: boolean, out: AutoResult): AutoResult {
     const xs = this.xs;
     const n = e.n;
     for (let j = 0; j < n; j++) {
       const k = e.keys[j]!;
-      xs[j] = k < 0 ? 0 : smoothed ? this.smoothed(k) : this.paramValue[k]!;
+      if (e.times[j]! >= 0) xs[j] = e.targets[j] === AutoTarget.Volume ? loudestX(this.curves.get(e.curveIds[j]!)) : -Infinity;
+      else xs[j] = k < 0 ? 0 : smoothed ? this.smoothed(k) : this.paramValue[k]!;
     }
     return evaluateInto(n, e.curveIds, e.targets, xs, this.curves, out);
   }
@@ -880,12 +961,62 @@ export class CoreAutomation implements AutomationSink {
     this.deps.playheads.start(i, at, wrapPosition(pos, frames.start, frames.end, length));
   }
 
+  /** LOOPS for slot `i`'s program (its clip's rate must be known: until then nothing goes, and `onPlaySent` sends it). */
+  private sendProgram(i: number, e: VoiceEntry, stamp: number | undefined): void {
+    const items = e.program && this.deps.writer.loops ? this.programItems(i, e.program) : null;
+    if (!items) return;
+    this.deps.writer.loops!(e.id, stamp, items);
+    this.stats.loops++;
+  }
+
+  /** A program in the clip's frames, as LOOPS carries it; null while the clip's rate isn't known. */
+  private programItems(i: number, program: readonly VoiceLoop[]): LoopsLoops[] | null {
+    const rate = this.deps.clipInfo(i)?.sampleRate ?? 0;
+    if (!(rate > 0)) return null;
+    const frames = (s: number): number => Math.max(0, Math.round((Number.isFinite(s) ? s : 0) * rate));
+    return program.map((l) => {
+      const dir = l.direction === "pingPong" ? 1 : l.direction === "backward" ? 2 : 0;
+      const active = l.active === "held" ? 1 : l.active === "parameter" ? 2 : 0;
+      const exit = l.exit === "jump" ? 1 : l.exit === "crossfade" ? 2 : 0;
+      const p = l.param;
+      return {
+        startFrame: frames(l.start),
+        endFrame: frames(Math.max(l.start, l.end)),
+        crossfadeFrames: frames(l.crossfade),
+        exitFadeFrames: frames(l.exitFade),
+        count: Math.min(0xffff, Math.max(0, Math.round(l.count) || 0)),
+        flags: dir | (active << LOOP_ACTIVE_SHIFT) | (exit << LOOP_EXIT_SHIFT) | (l.reentry === "reenter" ? LOOP_REENTER : 0) | (l.op === "<" ? LOOP_BELOW : 0),
+        param: p && p.time === undefined ? (p.global ? AUTOMATION_GLOBAL | p.slot : p.slot) : 0,
+        reserved: 0,
+        threshold: Number.isFinite(l.threshold) ? l.threshold! : 0,
+      };
+    });
+  }
+
   private loopFrames(i: number, e: VoiceEntry): { start: number; end: number; looping: boolean } | null {
     if (!e.loop) return null;
     const info = this.deps.clipInfo(i);
     const rate = info?.sampleRate ?? 0;
     if (!(rate > 0)) return null;
     return { start: Math.round(e.loop.start * rate), end: e.loop.end > 0 ? Math.round(e.loop.end * rate) : 0, looping: e.loop.looping };
+  }
+
+  /** Group `g`'s sequence clock extrapolated to now (`frame` may still be ahead: then its anchor value). */
+  private clockNow(g: number): { value: number; rate: number } {
+    const c = this.clocks.get(g)!;
+    const now = this.deps.clockMap.framesNow();
+    const rate = this.deps.clockMap.sampleRate ?? 48000;
+    return { value: now > c.frame ? c.value + (c.rate * (now - c.frame)) / rate : c.value, rate: c.rate };
+  }
+
+  /** A resync of group `g`'s clock: asap, from where main estimates it is now. */
+  private sendClock(g: number): void {
+    this.dirtyClocks.delete(g);
+    if (!this.clocks.has(g) || !this.deps.writer.time) return;
+    const { value, rate } = this.clockNow(g);
+    this.deps.writer.time(g, value, rate);
+    this.budget -= PARAM_BYTES;
+    this.stats.times++;
   }
 
   private sendCurve(id: number): void {
@@ -934,6 +1065,15 @@ function paramKey(group: number, slot: number): number {
   if (group === 0) return slot < MAX_GLOBAL_SLOTS ? slot : -1;
   if (group < 1 || group > MAX_GROUPS || slot >= MAX_LOCAL_SLOTS) return -1;
   return MAX_GLOBAL_SLOTS + (group - 1) * MAX_LOCAL_SLOTS + slot;
+}
+
+/** The x of `curve`'s loudest key (ADR 0332: selection's view of a time-bound volume curve); 0 for an empty one. */
+function loudestX(curve: Curve | undefined): number {
+  if (!curve || curve.length === 0) return 0;
+  let best = 0;
+  for (let k = 1; k < curve.length; k++) if (curve[k]![1] > curve[best]![1]) best = k;
+  // A Bézier segment can overshoot its keys; selection only needs a loud, not the loudest, point.
+  return evalCurve(curve, curve[best]![0]) >= 0 ? curve[best]![0] : 0;
 }
 
 function toWire(b: Binding): AutomateBindings {

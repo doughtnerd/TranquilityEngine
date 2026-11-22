@@ -206,7 +206,7 @@ describe("automated gain is never the request's volume", () => {
     expect(voice.volume).toBeCloseTo(0.4);
     const log: string[] = [];
     const sink: AutomationSink = {
-      defineCurve() {}, setParam() {}, bindBus() {}, setLoop() {},
+      defineCurve() {}, setParam() {}, bindBus() {}, setLoop() {}, setSequenceTime() {}, setLoops() {},
       bindVoice(v, _g, _b, base) { log.push(`bind:${base.volume.toFixed(2)}:${voice === v ? voice.volume.toFixed(2) : "?"}`); },
     };
     const core: AudioBackend = Object.assign(Object.create(fake) as AudioBackend, { automation: sink });

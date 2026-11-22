@@ -4,7 +4,7 @@
 //! This file (lead-owned) holds the constants, enums and **error codes** (section 5), and assembles
 //! the transcribed tables: `envelope` (4.1), `batch` (4.2), `status` (4.3), ADR 0162's `spatial` and
 //! ADR 0166's `music` (the M4 constants and enums; the M4 fields are in `batch` and `status`) and ADR 0171's
-//! `mix` (the M5 constants, opcodes and STATUS items).
+//! `mix` (the M5 constants, opcodes and STATUS items) and the Audio Studio's `studio` (ADRs 0328, 0332).
 //!
 //! **Schema hash.** First 16 bytes of SHA-256 over `SCHEMA_SOURCES` (see `schema_hash`). The generated
 //! TypeScript embeds it, the wasm exports `myco_audio_schema_hash()`, and `wire.schemaHash.test.ts`
@@ -17,6 +17,7 @@ pub mod mix;
 pub mod music;
 pub mod spatial;
 pub mod status;
+pub mod studio;
 
 use crate::model::{Const, Enum, ErrorCode, Schema};
 
@@ -30,6 +31,7 @@ pub const SCHEMA_SOURCES: &[(&str, &str)] = &[
     ("src/schema/music.rs", include_str!("schema/music.rs")),
     ("src/schema/spatial.rs", include_str!("schema/spatial.rs")),
     ("src/schema/status.rs", include_str!("schema/status.rs")),
+    ("src/schema/studio.rs", include_str!("schema/studio.rs")),
 ];
 
 /// `SHA-256( for each file in SCHEMA_SOURCES: path, 0x00, contents with CRLF turned into LF, 0x00 )`,
@@ -221,10 +223,10 @@ pub const ERRORS: &[ErrorCode] = &[
     er!("MALFORMED", -16, "a record's fields are inconsistent (count versus length)"),
 ];
 
-/// `CONSTANTS` followed by `music::CONSTANTS` and `mix::CONSTANTS`.
+/// `CONSTANTS` followed by `music::CONSTANTS`, `mix::CONSTANTS` and `studio::CONSTANTS`.
 fn all_constants() -> &'static [Const] {
     static ALL: std::sync::OnceLock<Vec<Const>> = std::sync::OnceLock::new();
-    ALL.get_or_init(|| CONSTANTS.iter().chain(music::CONSTANTS).chain(mix::CONSTANTS).copied().collect())
+    ALL.get_or_init(|| CONSTANTS.iter().chain(music::CONSTANTS).chain(mix::CONSTANTS).chain(studio::CONSTANTS).copied().collect())
 }
 
 /// `ENUMS` followed by `music::ENUMS`.

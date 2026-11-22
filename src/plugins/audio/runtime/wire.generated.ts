@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "46b5792c1d3cb35e64177494156f4594";
+export const SCHEMA_HASH = "36d7d7b06bdb405ddb536ac67693fa05";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
@@ -248,6 +248,30 @@ export const LOUD_FLAG_LOST = 0x100;
 export const LOUD_FLAG_GATED = 0x200;
 /** loudBuses flags bit 10: the true-peak gate is in force */
 export const LOUD_FLAG_TP_GATE_ACTIVE = 0x400;
+/** binding param bit 15: a global slot (low 15 bits) */
+export const PARAM_GLOBAL = 0x8000;
+/** binding param bit 14 (bit 15 clear): a time parameter, TIME_* in bits 0-1 (ADR 0332; voices only) */
+export const PARAM_TIME = 0x4000;
+/** binding param bits 0-1 of a time parameter: which */
+export const PARAM_TIME_MASK = 0x3;
+/** voiceTime: seconds since the voice started (its start frame; paused time counts) */
+export const TIME_VOICE = 0x0;
+/** clipTime: the voice's playhead in the clip, in seconds of the clip */
+export const TIME_CLIP = 0x1;
+/** sequenceTime: the voice's group's sequence clock (TIME re-anchors it) */
+export const TIME_SEQUENCE = 0x2;
+/** loops a voice's LOOPS program keeps (ADR 0328); extra ones are ignored */
+export const VOICE_LOOPS_MAX = 0x4;
+/** LOOPS item flags bits 0-1: 0 forward, 1 ping-pong, 2 backward */
+export const LOOP_DIRECTION_MASK = 0x3;
+/** LOOPS item flags bits 2-3: 0 always, 1 held (until the key-off), 2 parameter */
+export const LOOP_ACTIVE_SHIFT = 0x2;
+/** LOOPS item flags bits 4-5: 0 finish, 1 jump (through crossfadeFrames), 2 crossfade (exitFadeFrames) */
+export const LOOP_EXIT_SHIFT = 0x4;
+/** LOOPS item flags bit 6: re-enter (clear: ignore) */
+export const LOOP_REENTER = 0x40;
+/** LOOPS item flags bit 7: a parameter activation holds while the parameter is below threshold (clear: above) */
+export const LOOP_BELOW = 0x80;
 
 /** Negative i32 results of the C ABI (0 is ok). */
 export const ErrorCode = {
@@ -305,6 +329,7 @@ export const Op = {
   SET_LOOP: 0x08,
   AUTOMATE: 0x09,
   SET_VOICE_FX: 0x0a,
+  LOOPS: 0x0b,
   BUS_CONFIG: 0x10,
   MASTER: 0x12,
   CURVES: 0x13,
@@ -317,6 +342,7 @@ export const Op = {
   BUS_PRESENCE: 0x1a,
   LOUD_CONFIG: 0x1b,
   BUS_SLOT: 0x1c,
+  TIME: 0x1d,
   LISTENER: 0x20,
   RESET: 0x30,
 } as const;
@@ -1529,7 +1555,7 @@ export function readSetLoop(view: DataView, off: number): SetLoop {
 }
 
 export interface AutomateBindings {
-  /** bit15 set: global slot (low 15 bits); clear: local slot of the voice's group */
+  /** bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group */
   param: number;
   /** curve id (CURVES) */
   curve: number;
@@ -1681,6 +1707,110 @@ export function readSetVoiceFx(view: DataView, off: number): SetVoiceFx {
   const limit = off + view.getUint16(off + 2, true) * 4;
   if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "SetVoiceFx: truncated");
   return _readSetVoiceFx(view, off, limit)[0];
+}
+
+export interface LoopsLoops {
+  /** clip frames */
+  startFrame: number;
+  /** clip frames; equal to startFrame: a hold point */
+  endFrame: number;
+  /** the seam's equal-power crossfade (and a hold point's fades), clip frames */
+  crossfadeFrames: number;
+  /** exit crossfade's length, clip frames */
+  exitFadeFrames: number;
+  /** 0 endless; else passes in all, the first included */
+  count: number;
+  /** LOOP_* direction, activation, exit, re-entry and comparison */
+  flags: number;
+  /** activation parameter: a binding param (PARAM_GLOBAL | slot, or a local slot) */
+  param: number;
+  reserved: number;
+  /** activation threshold */
+  threshold: number;
+}
+
+export const LOOPS_LOOPS_FIXED_END = 28;
+
+export function writeLoopsLoops(view: DataView, off: number, rec: LoopsLoops): number {
+  view.setUint32(off + 0, rec.startFrame, true);
+  view.setUint32(off + 4, rec.endFrame, true);
+  view.setUint32(off + 8, rec.crossfadeFrames, true);
+  view.setUint32(off + 12, rec.exitFadeFrames, true);
+  view.setUint16(off + 16, rec.count, true);
+  view.setUint16(off + 18, rec.flags, true);
+  view.setUint16(off + 20, rec.param, true);
+  view.setUint16(off + 22, rec.reserved, true);
+  view.setFloat32(off + 24, rec.threshold, true);
+  let cur = off + 28;
+  return cur - off;
+}
+
+function _readLoopsLoops(view: DataView, off: number, limit: number): [LoopsLoops, number] {
+  if (off + 28 > limit) throw new WireError(ErrorCode.TRUNCATED, "LoopsLoops: truncated");
+  const startFrame = view.getUint32(off + 0, true);
+  const endFrame = view.getUint32(off + 4, true);
+  const crossfadeFrames = view.getUint32(off + 8, true);
+  const exitFadeFrames = view.getUint32(off + 12, true);
+  const count = view.getUint16(off + 16, true);
+  const flags = view.getUint16(off + 18, true);
+  const param = view.getUint16(off + 20, true);
+  const reserved = view.getUint16(off + 22, true);
+  const threshold = view.getFloat32(off + 24, true);
+  let cur = off + 28;
+  return [{ startFrame, endFrame, crossfadeFrames, exitFadeFrames, count, flags, param, reserved, threshold }, cur - off];
+}
+
+export function readLoopsLoops(view: DataView, off: number): LoopsLoops {
+  const limit = view.byteLength;
+  return _readLoopsLoops(view, off, limit)[0];
+}
+
+/** replace a clip voice's loop program (ADR 0328); count 0 clears it */
+export interface Loops {
+  voiceId: number;
+  frameOffset: number;
+  loops: LoopsLoops[];
+}
+
+export const LOOPS_FIXED_END = 16;
+
+export function writeLoops(view: DataView, off: number, rec: Loops): number {
+  view.setUint32(off + 12, rec.loops.length, true);
+  let cur = off + 16;
+  for (const item of rec.loops) cur += writeLoopsLoops(view, cur, item);
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Loops: record too long");
+  view.setUint16(off + 0, 11, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readLoops(view: DataView, off: number, limit: number): [Loops, number] {
+  if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "Loops: truncated");
+  const loopCount = view.getUint32(off + 12, true);
+  let cur = off + 16;
+  if (loopCount * 28 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "Loops: loops overrun");
+  const loops: LoopsLoops[] = [];
+  for (let i = 0; i < loopCount; i++) {
+    const [item, used] = _readLoopsLoops(view, cur, limit);
+    cur += used;
+    loops.push(item);
+  }
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "Loops: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, loops }, cur - off];
+}
+
+export function readLoops(view: DataView, off: number): Loops {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Loops: truncated");
+  if (view.getUint16(off + 0, true) !== 11) throw new WireError(ErrorCode.MALFORMED, "Loops: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Loops: truncated");
+  return _readLoops(view, off, limit)[0];
 }
 
 export interface BusConfigBusesEffects {
@@ -2028,7 +2158,7 @@ export function readParam(view: DataView, off: number): Param {
 }
 
 export interface BusAutomateBindings {
-  /** bit15 set: global slot (low 15 bits); clear: local slot of the voice's group */
+  /** bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group */
   param: number;
   /** curve id (CURVES) */
   curve: number;
@@ -2669,6 +2799,59 @@ export function readBusSlot(view: DataView, off: number): BusSlot {
   const limit = off + view.getUint16(off + 2, true) * 4;
   if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusSlot: truncated");
   return _readBusSlot(view, off, limit)[0];
+}
+
+/** re-anchor a group's sequence clock (ADR 0332); stamped */
+export interface Time {
+  voiceId: number;
+  frameOffset: number;
+  /** 0 the global clock, else the instance group 1..=1024 */
+  group: number;
+  /** the clock: TIME_SEQUENCE (2); any other value is ignored (reserved) */
+  which: number;
+  /** seconds at the anchor */
+  value: number;
+  /** seconds per second from the anchor; 0 parks */
+  rate: number;
+}
+
+export const TIME_FIXED_END = 24;
+
+export function writeTime(view: DataView, off: number, rec: Time): number {
+  view.setUint16(off + 12, rec.group, true);
+  view.setUint16(off + 14, rec.which, true);
+  view.setFloat32(off + 16, rec.value, true);
+  view.setFloat32(off + 20, rec.rate, true);
+  let cur = off + 24;
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Time: record too long");
+  view.setUint16(off + 0, 29, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readTime(view: DataView, off: number, limit: number): [Time, number] {
+  if (off + 24 > limit) throw new WireError(ErrorCode.TRUNCATED, "Time: truncated");
+  const group = view.getUint16(off + 12, true);
+  const which = view.getUint16(off + 14, true);
+  const value = view.getFloat32(off + 16, true);
+  const rate = view.getFloat32(off + 20, true);
+  let cur = off + 24;
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "Time: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, group, which, value, rate }, cur - off];
+}
+
+export function readTime(view: DataView, off: number): Time {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Time: truncated");
+  if (view.getUint16(off + 0, true) !== 29) throw new WireError(ErrorCode.MALFORMED, "Time: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Time: truncated");
+  return _readTime(view, off, limit)[0];
 }
 
 /** a camera cut: jump to the rotation, no ramp */

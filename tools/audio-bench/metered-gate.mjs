@@ -53,6 +53,10 @@ const SCENES = [
   "automation-base",
   // ADR 0332: `automation` with Bézier curves.
   "automation-bezier",
+  // ADR 0332: `automation` with every binding on a time parameter, and stamped TIMEs re-anchoring 32 groups a batch.
+  "automation-time",
+  // ADR 0328: 128 voices each running a loop program (a crossfaded forward loop and a ping-pong loop), released by crossfade.
+  "loop-programs",
   "automation-virtual",
   "bus-automation",
   "sustain",
