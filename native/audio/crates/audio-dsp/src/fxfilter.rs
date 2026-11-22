@@ -33,7 +33,7 @@
 //!   ramp settles at its off end point.
 //! - **Running state** is the biquad's own `last[0]` (its kind: 0 none, 1 lowpass, 2 highpass,
 //!   `Biquad`'s documented contract): a filter not running has `last == [0.0; 3]`. So [`FxFilter`]
-//!   is exactly two biquads and two ramps, 272 B, inside the mixed-voice pool entry (448 B,
+//!   is exactly two biquads and two ramps, 272 B, inside the mixed-voice pool entry (560 B since ADR 0333, 448 before;
 //!   `audio-core`'s `fxpool.rs`).
 //!
 //! Q is [`Q_DB`] (1 dB, the bus snapshot low-pass's `SNAPSHOT_Q_DB`) for both filters.
