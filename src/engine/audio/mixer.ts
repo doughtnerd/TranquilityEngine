@@ -259,6 +259,9 @@ export class Bus {
 const mixKeysJson = (a: Partial<MixSection>): string =>
   JSON.stringify([a.buses ?? [], a.snapshots ?? [], a.ducking ?? [], a.parameters ?? [], a.automation ?? [], a.loudnessTargets ?? null, a.loudnessResetOnPlay ?? true]);
 
+/** The old mix keys of settings that carry none (the parse's defaults), as `mixKeysJson` writes them; made on first use. */
+let UNSET_MIX_KEYS: string | undefined;
+
 /** A curve's value at `x`, interpolated in log scale (frequency parameters, ADR 0330). */
 function evalLogCurve(curve: Curve, x: number): number {
   if (curve.some((k) => !(k[1] > 0))) return evalCurve(curve, x);
@@ -328,9 +331,11 @@ export class Mixer {
     let project: AudioProject;
     if (settings.mix !== undefined) {
       project = projectOfMix(settings.mix, engineSettingsOf(settings));
-      // D2: the editor's legacy panels edit the old keys beside `mix`; an edit of them is written back first.
+      // D2: the editor's legacy panels edit the old keys beside `mix`; an edit of them is written back first. Old keys
+      // at their defaults are settings that carry only the mix (a host that sends no legacy view).
       const given = mixKeysJson(settings);
-      if (given !== mixKeysJson(legacySectionOf(project)) && given !== mixKeysJson(coreSectionOf(project))) project = mergeLegacyIntoProject(project, settings);
+      const edited = given !== (UNSET_MIX_KEYS ??= mixKeysJson(defaultAudioSettings())) && given !== mixKeysJson(legacySectionOf(project)) && given !== mixKeysJson(coreSectionOf(project));
+      if (edited) project = mergeLegacyIntoProject(project, settings);
       this.settings = { ...settings, ...coreSectionOf(project), mix: settings.mix };
     } else {
       project = fromLegacySection(settings);
