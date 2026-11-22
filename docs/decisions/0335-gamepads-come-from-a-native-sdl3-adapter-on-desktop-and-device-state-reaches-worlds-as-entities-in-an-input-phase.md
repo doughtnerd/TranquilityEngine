@@ -162,6 +162,15 @@ The "later, not v1" WebHID adapter is built, at the owner's request (`src/engine
   `rumbleTriggers` on a DualSense plays a low-frequency trigger vibration over the game's effect.
 - **Not yet:** touchpad touch points (the snapshot has no touch-surface controls; the touchpad click is reported),
   battery level, HD rumble frequencies on the Switch Pro (both bands at SDL's fixed frequencies), Joy-Cons.
+- **Later the same day:** touchpad points (DualSense, DualShock 4; normalized as SDL scales them, 1920 × 1070 and
+  1920 × 920) and battery (those and Switch controllers) reach the input end as `gamepadTouch` and `gamepadBattery`,
+  on change. Joy-Cons over Bluetooth (`joyCon.ts`, sharing setup, calibration and rumble with the Pro in
+  `nintendo.ts`): one alone is SDL's sideways mini pad; a left and a right open together join automatically into one
+  pad (product 0x2008) under the left's id, as SDL's combined Joy-Cons default does, with no option to keep them
+  apart; the pair's motion is the right's, rumble splits low band left and high band right. Switch rumble uses SDL's
+  amplitude table at SDL's band frequencies (about 150 Hz; SDL has no frequency table, only these fixed codes), is
+  written at most once per 30 ms per device and re-sent every 50 ms while playing. Still not: the charging grip, per-side
+  motion of a pair (the sink has one gyro per pad).
 
 ## Open questions
 

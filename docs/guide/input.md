@@ -224,15 +224,19 @@ Colours, `fontSize`, `glyphSize` and `width` are fields. Scripts read `rows` (ea
 
 ## Enhanced gamepads in Chrome (WebHID)
 
-In Chrome, Edge and other Chromium browsers on desktop, PlayStation and Switch Pro controllers can do more on the web than the Gamepad API allows. The engine opens them as HID devices instead.
+In Chrome, Edge and other Chromium browsers on desktop, PlayStation controllers, the Switch Pro Controller and Joy-Cons can do more on the web than the Gamepad API allows. The engine opens them as HID devices instead.
 
 **What it adds:**
 - gyro and accelerometer (`<Gamepad>/gyro`, `<Gamepad>/accel`, after `player.setSensors(true)`);
 - adaptive triggers on DualSense: `player.rumbleTriggers(...)`, and `player.setTriggerEffect("right", { mode: "weapon", start: 0.3, end: 0.6, strength: 0.8 })` (also `resistance`, `vibration` and `off`);
 - light bars (`player.setLight(r, g, b)`) and player lights;
-- the touchpad click (`touchpadPress`) and the mute or capture button (`misc1`).
+- the touchpad click (`touchpadPress`) and the mute or capture button (`misc1`);
+- touchpad finger positions (two fingers) on DualSense and DualShock 4, and the battery level and charging state on those and on Switch controllers, reported to the input end (`gamepadTouch`, `gamepadBattery`);
+- HD rumble on Switch controllers, re-sent while it plays so it doesn't cut out.
 
-**Controllers:** DualSense and DualSense Edge, DualShock 4 (and Sony's USB wireless adapter), and the Switch Pro Controller, over USB or Bluetooth.
+**Controllers:** DualSense and DualSense Edge, DualShock 4 (and Sony's USB wireless adapter), and the Switch Pro Controller, over USB or Bluetooth; Joy-Cons over Bluetooth (not in the USB charging grip).
+
+**Joy-Cons:** one Joy-Con on its own is a small pad held sideways: the face buttons by where they sit when held that way (the bottom one is `buttonSouth`), SL and SR as the shoulders, the stick turned to match, as SDL does. A left and a right open at the same time join into one pad, "Joy-Con (L/R)", laid out like a Pro Controller with SL and SR as paddles; its motion is the right Joy-Con's, and rumble's low band plays on the left and its high band on the right. If one of them goes, the other carries on as a small pad. There's no setting to keep a pair apart.
 
 **The permission click:** the browser shows a controller only after the player picks it in its chooser, and the chooser opens only from a click or key press. Call `Input.requestHidGamepads()` from one, for example behind an "Enable full controller features" button. It resolves with how many controllers were opened. Controllers picked once reopen on their own on later visits, and when they're plugged back in.
 

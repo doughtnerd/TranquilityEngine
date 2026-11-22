@@ -9,10 +9,12 @@
  * - **Output:** USB report 0x02 and Bluetooth report 0x31 (a sequence byte, 0x10, the same effects
  *   block, a CRC-32): motors, adaptive triggers, light bar, player lights.
  * - **Motion:** gyro and accelerometer through the factory calibration in feature report 0x05.
+ * - **Touchpad and battery:** two touch points (normalized as SDL does, 1920 × 1070) and the
+ *   battery byte, from the full reports.
  */
 import type { TriggerEffect } from "../triggerEffects";
 import { Later, PadState, SLOT_COLOURS, byte01, byte255, bytesOf, featureBody, hasOutputReport, outputLength, send, type HidPadFactory, type HidPadOutput } from "./driver";
-import { BluetoothCrcCheck, NOMINAL_IMU, reportImu, reportSonyControls, sealBluetoothReport, sonyImuCalibration, type ImuCalibration } from "./sony";
+import { BluetoothCrcCheck, NOMINAL_IMU, reportImu, reportSonyControls, reportTouchpad, sealBluetoothReport, sonyImuCalibration, type ImuCalibration } from "./sony";
 
 export const SONY_VENDOR = 0x054c;
 export const DUALSENSE_PRODUCTS: readonly number[] = [0x0ce6, 0x0df2];
@@ -25,6 +27,24 @@ const PLAYER_LIGHTS = [0x04, 0x0a, 0x15, 0x1b, 0x1f, 0x11, 0x0e];
  * this sensor timestamp (in 0.33 µs units, about 3.4 s) and then resets the lights.
  */
 const BT_LIGHTS_READY = 10200000;
+
+/** The touchpad's height in its own units, as SDL scales it (the pad reports up to about 1080). */
+const TOUCHPAD_HEIGHT = 1070;
+
+/** The battery byte: level 0..10 in the low nibble; status in the high (0 on battery, 1 charging, 2 full). */
+function battery(v: number): [number, boolean] {
+  const level = Math.min(1, ((v & 0x0f) * 10 + 5) / 100);
+  switch (v >> 4) {
+    case 0:
+      return [level, false];
+    case 1:
+      return [level, true];
+    case 2:
+      return [1, false];
+    default:
+      return [-1, false];
+  }
+}
 
 /** The frequency trigger rumble vibrates at, Hz. */
 const TRIGGER_RUMBLE_HZ = 50;
@@ -151,6 +171,8 @@ export const dualSense: HidPadFactory = (device, link) => {
   const full = (b: Uint8Array, o: number) => {
     reportSonyControls(pad, b, o, o + 7, b[o + 4], b[o + 5], true);
     if (sensors) reportImu(pad, imu, b, o + 15, o + 21);
+    reportTouchpad(pad, b, o + 32, TOUCHPAD_HEIGHT);
+    pad.battery(...battery(b[o + 52]));
     if (!lightsReady) {
       const t = (b[o + 27] | (b[o + 28] << 8) | (b[o + 29] << 16) | (b[o + 30] << 24)) >>> 0;
       if (t >= BT_LIGHTS_READY) {

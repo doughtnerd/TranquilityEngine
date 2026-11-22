@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Input } from "../input/Input";
 import type { DeviceEventSink, GamepadInfo, GamepadOutput } from "../input/devices";
 import { loadInputMapping } from "../input/mapping";
@@ -7,6 +7,7 @@ import { crc32 } from "../input/webHid/crc32";
 import type { HidPadDriver, HidPadFactory, HidPadLink } from "../input/webHid/driver";
 import { dualSense } from "../input/webHid/dualSense";
 import { dualShock4 } from "../input/webHid/dualShock4";
+import { JOYCON_LEFT, JOYCON_RIGHT, joyCons } from "../input/webHid/joyCon";
 import type { Hid, HidCollectionInfo, HidConnectionEvent, HidDevice, HidDeviceFilter, HidInputReportEvent } from "../input/webHid/hidTypes";
 import { switchPro } from "../input/webHid/switchPro";
 import { webHidGamepads } from "../input/webHid/webHidGamepads";
@@ -79,6 +80,8 @@ function recorder() {
   const buttons = new Map<string, number>();
   const axes = new Map<string, number>();
   const sensors = new Map<string, number[]>();
+  const touches = new Map<string, [boolean, number, number]>();
+  const batteries = new Map<number, [number, boolean]>();
   const infos: GamepadInfo[] = [];
   const sink: DeviceEventSink = {
     keyDown: () => {},
@@ -101,8 +104,10 @@ function recorder() {
     gamepadButton: (id, i, v) => (buttons.set(`${id}:${i}`, v), log.push(["button", id, i, v])),
     gamepadAxis: (id, i, v) => (axes.set(`${id}:${i}`, v), log.push(["axis", id, i, v])),
     gamepadSensor: (id, kind, x, y, z) => (sensors.set(`${id}:${kind}`, [x, y, z]), log.push(["sensor", id, kind])),
+    gamepadTouch: (id, finger, down, x, y) => (touches.set(`${id}:${finger}`, [down, x, y]), log.push(["touch", id, finger, down, x, y])),
+    gamepadBattery: (id, level, charging) => (batteries.set(id, [level, charging]), log.push(["battery", id, level, charging])),
   };
-  return { sink, log, buttons, axes, sensors, infos };
+  return { sink, log, buttons, axes, sensors, touches, batteries, infos };
 }
 
 /** Start a family's driver on `device` with a link that reports to a recorder as pad 1. */
@@ -115,6 +120,7 @@ async function startDriver(factory: HidPadFactory, device: FakeDevice, slot = 0)
     slot,
     connected: (info) => ((present = true), rec.sink.gamepadConnected({ ...info, id: 1 })),
     disconnected: () => ((present = false), rec.sink.gamepadDisconnected(1)),
+    joined: () => {},
   };
   const driver: HidPadDriver = factory(device, link);
   device.addEventListener("inputreport", (e) => driver.report(e.reportId, e.data));
@@ -384,6 +390,85 @@ describe("DualShock 4 (dualShock4.ts)", () => {
   });
 });
 
+/** A touch point at `at`: down or lifted, 12-bit x and y. */
+function putTouch(b: Uint8Array, at: number, down: boolean, x: number, y: number) {
+  b.set([down ? 0x01 : 0x81, x & 0xff, ((x >> 8) & 0x0f) | ((y & 0x0f) << 4), y >> 4], at);
+}
+
+describe("touchpad points and battery (dualSense.ts, dualShock4.ts)", () => {
+  it("DualSense USB: two fingers normalized by 1920 × 1070, reported on change; the battery byte", async () => {
+    const device = new FakeDevice(0x054c, 0x0ce6, [0x02]);
+    const pad = await startDriver(dualSense, device);
+    const report = (f0: [boolean, number, number], f1: [boolean, number, number], battery: number) => {
+      const b = dualSenseState(bytes(63), 0);
+      putTouch(b, 32, ...f0);
+      putTouch(b, 36, ...f1);
+      b[52] = battery;
+      return b;
+    };
+    device.emit(0x01, report([true, 960, 535], [false, 0, 0], 0x14));
+    expect(pad.touches.get("1:0")).toEqual([true, 0.5, 0.5]);
+    expect(pad.touches.get("1:1")).toBeUndefined(); // never down: nothing to report
+    expect(pad.batteries.get(1)).toEqual([0.45, true]); // charging, level 4
+    pad.log.length = 0;
+    device.emit(0x01, report([true, 960, 535], [false, 5, 5], 0x14)); // a lifted finger's position doesn't matter
+    expect(pad.log).toEqual([]);
+    device.emit(0x01, report([true, 1920, 1070], [true, 0, 0], 0x09));
+    device.emit(0x01, report([false, 1920, 1070], [true, 0, 0], 0x22));
+    device.emit(0x01, report([false, 1920, 1070], [true, 0, 0], 0x0c | 0x30));
+    expect(pad.log).toEqual([
+      ["touch", 1, 0, true, 1, 1],
+      ["touch", 1, 1, true, 0, 0],
+      ["battery", 1, 0.95, false],
+      ["touch", 1, 0, false, 1, 1],
+      ["battery", 1, 1, false], // full
+      ["battery", 1, -1, false], // unknown status
+    ]);
+  });
+
+  it("DualSense Bluetooth: the same, one byte in", async () => {
+    const device = new FakeDevice(0x054c, 0x0ce6, [0x31]);
+    const pad = await startDriver(dualSense, device);
+    const b = dualSenseState(bytes(77), 1, { time: 1000 });
+    putTouch(b, 33, false, 0, 0);
+    putTouch(b, 37, true, 480, 107);
+    b[53] = 0x02;
+    device.emit(0x31, sealInput(0x31, b));
+    expect(pad.touches.get("1:1")).toEqual([true, 0.25, 0.1]);
+    expect(pad.batteries.get(1)).toEqual([0.25, false]);
+  });
+
+  it("DualShock 4 USB and Bluetooth: touch normalized by 1920 × 920 (clamped), battery with the cable bit", async () => {
+    const usb = new FakeDevice(0x054c, 0x09cc, [0x05]);
+    const pad = await startDriver(dualShock4, usb);
+    const b = dualShock4State(bytes(63), 0);
+    putTouch(b, 34, true, 960, 460);
+    putTouch(b, 38, true, 1920, 943);
+    b[29] = 0x08; // on battery, level 8
+    usb.emit(0x01, b);
+    expect(pad.touches.get("1:0")).toEqual([true, 0.5, 0.5]);
+    expect(pad.touches.get("1:1")).toEqual([true, 1, 1]);
+    expect(pad.batteries.get(1)).toEqual([0.85, false]);
+    b[29] = 0x10 | 0x03; // on the cable, charging
+    usb.emit(0x01, b);
+    expect(pad.batteries.get(1)).toEqual([0.35, true]);
+    b[29] = 0x10 | 0x0b; // on the cable, full
+    usb.emit(0x01, b);
+    expect(pad.batteries.get(1)).toEqual([1, false]);
+
+    const bt = new FakeDevice(0x054c, 0x05c4, [0x11]);
+    const pad2 = await startDriver(dualShock4, bt);
+    const r = dualShock4State(bytes(77), 2);
+    r[0] = 0xc0;
+    putTouch(r, 36, true, 192, 92);
+    putTouch(r, 40, false, 0, 0);
+    r[31] = 0x05;
+    bt.emit(0x11, sealInput(0x11, r));
+    expect(pad2.touches.get("1:0")).toEqual([true, 0.1, 0.1]);
+    expect(pad2.batteries.get(1)).toEqual([0.55, false]);
+  });
+});
+
 /** Six 12-bit values packed into nine bytes, as the Switch's SPI calibration stores them. */
 function pack12(values: number[]): number[] {
   const out: number[] = [];
@@ -395,7 +480,7 @@ function pack12(values: number[]): number[] {
 }
 
 /** A Switch Pro controller that answers the handshake and subcommands, with SPI flash contents. */
-function fakeSwitch(usb: boolean) {
+function fakeSwitch(usb: boolean, product = 0x2009) {
   const spi = new Map<number, number>();
   const write = (address: number, data: number[]) => data.forEach((v, i) => spi.set(address + i, v));
   // Factory sticks: left (max above, centre, min below), right (centre, min, max).
@@ -417,7 +502,7 @@ function fakeSwitch(usb: boolean) {
       queueMicrotask(() => device.emit(0x21, r));
     }
   };
-  return new FakeDevice(0x057e, 0x2009, usb ? [0x01, 0x10, 0x80] : [0x01, 0x10], {}, reply, "Pro Controller");
+  return new FakeDevice(0x057e, product, usb ? [0x01, 0x10, 0x80] : [0x01, 0x10], {}, reply, "Pro Controller");
 }
 
 /** A Switch full report (0x30): A, capture, d-pad up, ZL; sticks raw; IMU sample 0. */
@@ -471,22 +556,146 @@ describe("Switch Pro Controller (switchPro.ts)", () => {
     expect(gyro[2]).toBeCloseTo(-dps * RAD, 4);
   });
 
-  it("Bluetooth: no handshake, 48-byte reports; rumble in report 0x10, neutral when it ends", async () => {
+  it("Bluetooth: no handshake, 48-byte reports; reports the battery on change", async () => {
     const device = fakeSwitch(false);
     const pad = await startDriver(switchPro, device);
     expect(device.sent.some((s) => s.id === 0x80)).toBe(false);
     expect(device.sent[0].data.length).toBe(48);
-    pad.driver.output.rumble(1, 1, 10);
-    expect([...device.last(0x10).subarray(1, 9)]).toEqual([0x74, 0xc8, 0x3d, 0x72, 0x74, 0xc8, 0x3d, 0x72]);
-    pad.driver.output.rumble(0, 0.5, 1000);
-    const half = device.last(0x10);
-    expect([half[1], half[2], half[3], half[4]]).toEqual([0x74, 2 * 68, 0x3d, 0x40]); // high band only
-    pad.driver.output.rumble(0.5, 0, 10);
-    await sleep(30);
-    expect([...device.last(0x10).subarray(1, 9)]).toEqual([0x00, 0x01, 0x40, 0x40, 0x00, 0x01, 0x40, 0x40]);
+    const report = switchState([2000, 2100], [2048, 2048]);
+    report[1] = 0x60; // level 6 of 8, on battery
+    device.emit(0x30, report);
+    expect(pad.batteries.get(1)).toEqual([0.75, false]);
+    pad.log.length = 0;
+    device.emit(0x30, report);
+    expect(pad.log).toEqual([]);
+    report[1] = 0x50; // level 4, charging
+    device.emit(0x30, report);
+    report[1] = 0x90; // level 8 on the charger: full, not charging
+    device.emit(0x30, report);
+    expect(pad.log).toEqual([
+      ["battery", 1, 0.5, true],
+      ["battery", 1, 1, false],
+    ]);
   });
 });
 
+describe("Switch HD rumble (nintendo.ts, through switchPro.ts)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const rumbles = (device: FakeDevice) => device.sent.filter((s) => s.id === 0x10).map((s) => [...s.data.subarray(1, 9)]);
+  const both = (block: number[]) => [...block, ...block];
+  const NEUTRAL = [0x00, 0x01, 0x40, 0x40];
+
+  it("encodes strengths through SDL's amplitude table at SDL's band frequencies (0x74 high, 0x3d low)", async () => {
+    const device = fakeSwitch(false);
+    const pad = await startDriver(switchPro, device);
+    vi.useFakeTimers();
+    pad.driver.output.rumble(1, 1, 1000);
+    vi.advanceTimersByTime(30);
+    pad.driver.output.rumble(0, 0.5, 1000); // 32768: step 68 of 100 (up to 32861): high band 0x88
+    vi.advanceTimersByTime(30);
+    pad.driver.output.rumble(0.5, 0, 1000); // low band: 0x40 + 68 / 2
+    vi.advanceTimersByTime(30);
+    pad.driver.output.rumble(0.0078, 0, 1000); // 511: step 1 (up to 514), odd so bit 15: 0x8040
+    expect(rumbles(device)).toEqual([both([0x74, 0xc8, 0x3d, 0x72]), both([0x74, 0x88, 0x3d, 0x40]), both([0x74, 0x00, 0x3d, 0x62]), both([0x74, 0x00, 0xbd, 0x40])]);
+    pad.driver.stop();
+  });
+
+  it("writes at most once per 30 ms (the strongest request in between wins, a stop follows), re-sends every 50 ms while playing, and stops", async () => {
+    const device = fakeSwitch(false);
+    const pad = await startDriver(switchPro, device);
+    vi.useFakeTimers();
+    const out = pad.driver.output;
+    out.rumble(0, 0.25, 1000);
+    out.rumble(0, 1, 1000); // within 30 ms: waits
+    out.rumble(0, 0.5, 1000); // weaker than the one waiting
+    out.rumble(0, 0, 0); // and then a stop
+    expect(rumbles(device).length).toBe(1);
+    vi.advanceTimersByTime(29);
+    expect(rumbles(device).length).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(rumbles(device)[1]).toEqual(both([0x74, 0xc8, 0x3d, 0x40]));
+    vi.advanceTimersByTime(30);
+    expect(rumbles(device)[2]).toEqual(both(NEUTRAL));
+    vi.advanceTimersByTime(500);
+    expect(rumbles(device).length).toBe(3); // stopped: no refresh
+
+    // A long rumble is re-sent every 50 ms until its duration ends.
+    out.rumble(1, 0, 120);
+    vi.advanceTimersByTime(110);
+    expect(rumbles(device).length).toBe(3 + 3); // at 0, 50, 100
+    vi.advanceTimersByTime(10);
+    expect(rumbles(device).length).toBe(6); // over, but the refresh at 100 holds the stop back to 130
+    vi.advanceTimersByTime(10);
+    expect(rumbles(device).at(-1)).toEqual(both(NEUTRAL));
+    vi.advanceTimersByTime(500);
+    expect(rumbles(device).length).toBe(7);
+
+    // Stopping the driver silences the pad and leaves no timers.
+    out.rumble(1, 1, 10_000);
+    vi.advanceTimersByTime(60);
+    pad.driver.stop();
+    expect(rumbles(device).at(-1)).toEqual(both(NEUTRAL));
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+/** A Joy-Con full report (0x30): button bytes, its stick raw, the battery byte, IMU sample 0. */
+function joyConState(side: "left" | "right", s: { right?: number; shared?: number; left?: number; stick?: [number, number]; battery?: number; accel?: number[]; gyro?: number[] } = {}) {
+  const b = bytes(48, { 1: s.battery ?? 0x80, 2: s.right ?? 0, 3: s.shared ?? 0, 4: s.left ?? 0 });
+  const [x, y] = s.stick ?? (side === "left" ? [2000, 2100] : [2048, 2048]);
+  b.set([x & 0xff, ((x >> 8) & 0x0f) | ((y & 0x0f) << 4), y >> 4], side === "left" ? 5 : 8);
+  (s.accel ?? [0, 0, 0]).forEach((v, i) => put16(b, 12 + i * 2, v));
+  (s.gyro ?? [0, 0, 0]).forEach((v, i) => put16(b, 18 + i * 2, v));
+  return b;
+}
+
+/** Degrees per second of a 1337-step gyro reading through the fake's calibration. */
+const DPS = (1337 * 936) / 13371;
+
+describe("Joy-Cons (joyCon.ts)", () => {
+  it("one left Joy-Con is a sideways mini pad: buttons by position, the stick and motion turned", async () => {
+    const device = fakeSwitch(false, JOYCON_LEFT);
+    const pad = await startDriver(joyCons(), device);
+    expect(pad.infos[0]).toMatchObject({ name: "Joy-Con (L)", family: "switch", product: JOYCON_LEFT, sensors: true, rumble: true });
+    expect(device.sent.filter((s) => s.id === 0x01).map((s) => s.data[9])).toEqual([0x10, 0x10, 0x10, 0x10, 0x48, 0x03, 0x30]); // the Pro's setup
+    // D-pad left (south when held sideways), SL (left shoulder), L (paddle), capture (home); stick pushed along its +X.
+    device.emit(0x30, joyConState("left", { left: 0x08 | 0x20 | 0x40, shared: 0x20, stick: [3500, 2100], battery: 0x46 }));
+    const b = (i: number) => pad.buttons.get(`1:${i}`) ?? 0;
+    expect([b(0), b(1), b(4), b(5), b(19), b(16), b(12)]).toEqual([1, 0, 1, 0, 1, 1, 0]);
+    expect(pad.axes.get("1:0") ?? 0).toBeCloseTo(0, 6);
+    expect(pad.axes.get("1:1")).toBe(-1); // the stick's +X points up when held sideways
+    expect(pad.batteries.get(1)).toEqual([0.5, false]);
+    pad.driver.output.setSensors(true);
+    await tick();
+    device.emit(0x30, joyConState("left", { accel: [0, 0, 4096], gyro: [10 + 1337, 20, 30] }));
+    const gyro = pad.sensors.get("1:gyro")!.map((v) => v / RAD);
+    expect(gyro[0]).toBeCloseTo(-DPS, 3);
+    expect(gyro[1]).toBeCloseTo(0, 6);
+    expect(gyro[2]).toBeCloseTo(0, 6);
+    expect(pad.sensors.get("1:accel")![1]).toBeCloseTo(G, 4);
+  });
+
+  it("one right Joy-Con: A south, SR right shoulder, R/ZR paddles, the stick turned the other way", async () => {
+    const device = fakeSwitch(false, JOYCON_RIGHT);
+    const pad = await startDriver(joyCons(), device);
+    expect(pad.infos[0]).toMatchObject({ name: "Joy-Con (R)", product: JOYCON_RIGHT });
+    device.emit(0x30, joyConState("right", { right: 0x08 | 0x10 | 0x80, shared: 0x02 | 0x10, stick: [2048 + 1500, 2048] }));
+    const b = (i: number) => pad.buttons.get(`1:${i}`) ?? 0;
+    expect([b(0), b(5), b(20), b(9), b(16), b(4)]).toEqual([1, 1, 1, 1, 1, 0]);
+    expect(pad.axes.get("1:1")).toBe(1);
+    pad.driver.output.setSensors(true);
+    await tick();
+    device.emit(0x30, joyConState("right", { accel: [0, 0, 4096], gyro: [10 + 1337, 20, 30] }));
+    expect(pad.sensors.get("1:gyro")![0]).toBeCloseTo(DPS * RAD, 4);
+    expect(pad.sensors.get("1:accel")![1]).toBeCloseTo(-G, 4); // the right Joy-Con's sensor is turned round
+    pad.driver.output.rumble(0.5, 1, 100);
+    expect([...device.last(0x10).subarray(1, 5)]).toEqual([0x74, 0xc8, 0x3d, 0x62]); // alone, it plays both bands
+    pad.driver.stop();
+  });
+});
 /** A fake `navigator.hid` with granted devices and a chooser that picks `chooser`. */
 function fakeHid(granted: FakeDevice[], chooser: FakeDevice[] | Error = []) {
   const listeners = { connect: new Set<(e: HidConnectionEvent) => void>(), disconnect: new Set<(e: HidConnectionEvent) => void>() };
@@ -601,6 +810,8 @@ describe("the WebHID adapter (webHidGamepads.ts)", () => {
       { vendorId: 0x054c, productId: 0x09cc },
       { vendorId: 0x054c, productId: 0x0ba0 },
       { vendorId: 0x057e, productId: 0x2009 },
+      { vendorId: 0x057e, productId: 0x2006 },
+      { vendorId: 0x057e, productId: 0x2007 },
     ]);
     expect(rec.infos.map((i) => i.family)).toEqual(["switch"]);
     adapter.stop();
@@ -631,6 +842,101 @@ describe("the WebHID adapter (webHidGamepads.ts)", () => {
     await settle();
     expect(rec.infos.length).toBe(1);
     expect(adapter.owns(sonyPad(0))).toBe(true);
+    adapter.stop();
+  });
+});
+
+const joyConPad = (index: number, product: number) =>
+  ({ index, id: `Joy-Con (Vendor: 057e Product: ${product.toString(16)})`, mapping: "", connected: true, buttons: [], axes: [], timestamp: 0 }) as unknown as Gamepad;
+
+describe("Joy-Con pairs (joyCon.ts, through webHidGamepads.ts)", () => {
+  /** Open a left and a right Joy-Con through the chooser. */
+  async function pairUp() {
+    const left = fakeSwitch(false, JOYCON_LEFT);
+    const right = fakeSwitch(false, JOYCON_RIGHT);
+    const { hid, fire } = fakeHid([], [left, right]);
+    const rec = recorder();
+    const pads = [joyConPad(0, JOYCON_LEFT), joyConPad(1, JOYCON_RIGHT), joyConPad(2, 0x2008)];
+    const adapter = webHidGamepads(rec.sink, { hid, getGamepads: () => pads } as unknown as Navigator)!;
+    await expect(adapter.request()).resolves.toBe(2);
+    return { left, right, fire, rec, pads, adapter };
+  }
+
+  /** The pads connected now, from the log. */
+  const connectedNow = (log: unknown[][]) => {
+    const now = new Set<unknown>();
+    for (const e of log) {
+      if (e[0] === "connect") now.add(e[1]);
+      if (e[0] === "disconnect") now.delete(e[1]);
+    }
+    return [...now];
+  };
+
+  it("a left and a right open together join into one pad under the left's id", async () => {
+    const { left, right, rec, pads, adapter } = await pairUp();
+    const pair = rec.infos.at(-1)!;
+    expect(pair).toMatchObject({ name: "Joy-Con (L/R)", vendor: 0x057e, product: 0x2008, family: "switch" });
+    expect(connectedNow(rec.log)).toEqual([pair.id]);
+    // Both halves' player lights show the pair's slot.
+    const lights = (d: FakeDevice) => d.sent.filter((s) => s.id === 0x01 && s.data[9] === 0x30).at(-1)!.data[10];
+    expect([lights(left), lights(right)]).toEqual([0x1, 0x1]);
+    // The Gamepad API skips both halves (and Chrome's own L+R pad).
+    expect(pads.map((p) => adapter.owns(p))).toEqual([true, true, true]);
+
+    // Laid out like a Pro Controller: the left's d-pad, L, SL; the right's A, ZR and stick.
+    left.emit(0x30, joyConState("left", { left: 0x02 | 0x40 | 0x20, shared: 0x01, battery: 0x60 }));
+    right.emit(0x30, joyConState("right", { right: 0x08 | 0x80, stick: [2048 + 1500, 2048], battery: 0x40 }));
+    const b = (i: number) => rec.buttons.get(`${pair.id}:${i}`) ?? 0;
+    expect([b(12), b(4), b(19), b(8), b(1), b(7), b(0)]).toEqual([1, 1, 1, 1, 1, 1, 0]);
+    expect(rec.axes.get(`${pair.id}:2`)).toBe(1);
+    expect(rec.batteries.get(pair.id)).toEqual([0.5, false]); // the lower of the two
+
+    // Rumble: low band on the left, high band on the right.
+    const output = adapter.output(null);
+    output.rumble(pair.id, 0.5, 1, 100);
+    expect([...left.last(0x10).subarray(1, 5)]).toEqual([0x74, 0x00, 0x3d, 0x62]);
+    expect([...right.last(0x10).subarray(1, 5)]).toEqual([0x74, 0xc8, 0x3d, 0x40]);
+
+    // Motion: the right Joy-Con's, in the combined (upright) axes.
+    output.setSensors!(pair.id, true);
+    await tick();
+    const imuOn = (d: FakeDevice) => d.sent.some((s) => s.id === 0x01 && s.data[9] === 0x40 && s.data[10] === 1);
+    expect([imuOn(left), imuOn(right)]).toEqual([false, true]);
+    right.emit(0x30, joyConState("right", { accel: [0, 0, 4096], gyro: [10 + 1337, 20, 30] }));
+    const gyro = rec.sensors.get(`${pair.id}:gyro`)!;
+    expect(gyro[2]).toBeCloseTo(-DPS * RAD, 4);
+    expect(rec.sensors.get(`${pair.id}:accel`)![1]).toBeCloseTo(-G, 4);
+    output.rumble(pair.id, 0, 0, 0);
+    adapter.stop();
+    expect(connectedNow(rec.log)).toEqual([]);
+  });
+
+  it("when the right goes, the left becomes a mini pad under the same id; when the left goes, the right gets its own", async () => {
+    const { left, right, fire, rec, pads, adapter } = await pairUp();
+    const pairId = rec.infos.at(-1)!.id;
+    rec.log.length = 0;
+    fire("disconnect", right);
+    expect(rec.log).toEqual([
+      ["disconnect", pairId],
+      ["connect", pairId, "switch"],
+    ]);
+    expect(rec.infos.at(-1)).toMatchObject({ name: "Joy-Con (L)", product: JOYCON_LEFT });
+    expect(pads.map((p) => adapter.owns(p))).toEqual([true, false, false]);
+    left.emit(0x30, joyConState("left", { left: 0x08 }));
+    expect(rec.buttons.get(`${pairId}:0`)).toBe(1); // mini layout again
+
+    // The right comes back: they join again.
+    fire("connect", right);
+    await settle();
+    expect(rec.infos.at(-1)).toMatchObject({ name: "Joy-Con (L/R)", id: pairId });
+    expect(connectedNow(rec.log)).toEqual([pairId]);
+
+    rec.log.length = 0;
+    fire("disconnect", left);
+    const rightId = rec.infos.at(-1)!.id;
+    expect(rec.infos.at(-1)).toMatchObject({ name: "Joy-Con (R)", product: JOYCON_RIGHT });
+    expect(rightId).not.toBe(pairId);
+    expect(connectedNow([["connect", pairId], ...rec.log])).toEqual([rightId]);
     adapter.stop();
   });
 });

@@ -162,6 +162,10 @@ export interface DeviceEventSink {
   gamepadAxis(id: number, index: number, value: number): void;
   /** Motion sensors (the SDL adapter): gyro in rad/s, accelerometer in m/s². */
   gamepadSensor(id: number, kind: "gyro" | "accel", x: number, y: number, z: number): void;
+  /** A gamepad touchpad finger (0 or 1): down, and where, normalized 0..1 with (0, 0) top-left. */
+  gamepadTouch(id: number, finger: number, down: boolean, x: number, y: number): void;
+  /** A gamepad's battery: level 0..1 (-1 unknown), and whether it's charging. */
+  gamepadBattery(id: number, level: number, charging: boolean): void;
   /**
    * A finger touched the touchscreen at canvas pixels. `id` is the adapter's (the DOM's `pointerId`),
    * the same until it lifts. The DOM adapter also reports the primary touch as the pointer.
@@ -549,6 +553,14 @@ class DeviceSnapshot implements DeviceEventSink {
 
   gamepadSensor(id: number, sensor: "gyro" | "accel", x: number, y: number, z: number): void {
     this.padQueue.push({ kind: "sensor", id, sensor, x, y, z, time: now() });
+  }
+
+  gamepadTouch(_id: number, _finger: number, _down: boolean, _x: number, _y: number): void {
+    // Not in the snapshot yet.
+  }
+
+  gamepadBattery(_id: number, _level: number, _charging: boolean): void {
+    // Not in the snapshot yet.
   }
 
   touchStart(id: number, x: number, y: number): void {
