@@ -258,3 +258,18 @@ describe("round trip over generated playlists", () => {
     }
   });
 });
+
+describe("sequence markers", () => {
+  it("keep their type (note, cue, exit) through write and parse; an unknown type reads as a note with a problem", () => {
+    const raw = { format: "myco.playlist@1", type: "sequence", sequence: { length: 4, markers: [
+      { id: "a", name: "Hit", at: 1, type: "cue" }, { id: "b", name: "Out", at: 2, type: "exit" },
+      { id: "c", name: "Plain", at: 3 }, { id: "d", name: "Odd", at: 3.5, type: "bogus" },
+    ] } };
+    const { playlist, problems } = parsePlaylist(raw);
+    expect(playlist.sequence!.markers.map((m) => m.type)).toEqual(["cue", "exit", undefined, undefined]);
+    expect(problems.some((p) => p.includes("bogus"))).toBe(true);
+    const again = parsePlaylist(playlistToJson(playlist));
+    expect(again.problems).toEqual([]);
+    expect(again.playlist.sequence!.markers).toEqual(playlist.sequence!.markers);
+  });
+});

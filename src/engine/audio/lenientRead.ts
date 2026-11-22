@@ -143,8 +143,8 @@ export class LenientReader {
   }
 }
 
-/** A curve as JSON: a fresh array of fresh keys (keys are written as they are, so key forms added later survive). */
-export const curveToJson = (curve: Curve): unknown[] => curve.map((k) => [...k]);
+/** A curve as JSON: the engine curve's own writer (one writer for every key form, Bézier included). */
+export { curveToJson } from "../core/curve";
 
 /**
  * Hands out ids unique within one scope: `take(raw, where, prefix)` keeps a valid unused id and otherwise makes a fresh

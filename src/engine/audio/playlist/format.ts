@@ -497,6 +497,8 @@ class PlaylistReader {
       if (out.markers.length >= PLAYLIST_LIMITS.sequenceMarkers) return void r.problem(w, `at most ${PLAYLIST_LIMITS.sequenceMarkers} markers; dropped.`);
       if (!isRecord(raw)) return void r.problem(w, "a marker must be an object; dropped.");
       const marker: SequenceMarker = { id: markerIds.take(raw.id, w, "m"), name: r.str(raw.name, `${w}.name`, "Marker"), at: r.num(raw.at, `${w}.at`, 0, 0) };
+      if (raw.type === "cue" || raw.type === "exit") marker.type = raw.type;
+      else if (raw.type !== undefined && raw.type !== "note") r.problem(`${w}.type`, `"${String(raw.type)}" isn't note, cue or exit; using note.`);
       out.markers.push(marker);
     });
     return out;
@@ -679,7 +681,7 @@ function sequenceToJson(s: SequenceSettings): JsonRecord {
   if (s.tempo) out.tempo = { bpm: s.tempo.bpm, meter: s.tempo.meter };
   out.tracks = s.tracks.map(trackToJson);
   if (s.loops.length) out.loops = s.loops.map((l) => ({ id: l.id, start: l.start, end: l.end, ...loopBehaviourToJson(l) }));
-  if (s.markers.length) out.markers = s.markers.map((m) => ({ id: m.id, name: m.name, at: m.at }));
+  if (s.markers.length) out.markers = s.markers.map((m) => ({ id: m.id, name: m.name, at: m.at, ...(m.type && m.type !== "note" ? { type: m.type } : {}) }));
   return out;
 }
 
