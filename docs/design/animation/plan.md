@@ -68,9 +68,9 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
 | T20r | **Track kinds in `anim-sample`** (see below) | S | 2 | T11 |
 | T31 | **`anim-graph` complete** (see below) | S | 5 | T13r, T20r |
 | T22r | **Tweens and timelines in the core** (see below) | M | 2 | T20r, T13r |
-| T40 | **`anim-rig`** (see below) | S | 4 | T31 |
-| T41 | **`anim-retarget`** (see below) | S | 3 | T31 |
-| T42 | **`anim-match`** (see below) | S | 4 | T31 |
+| T40 | **`anim-rig`** (see below). Split: solvers done early (no graph needed); the rig node family and `rig` wire family follow T31 | S | 4 | T31 (node half) |
+| T41 | **`anim-retarget`** (see below). Split like T40: solvers first, node family after T31 | S | 3 | T31 (node half) |
+| T42 | **`anim-match`** (see below). Split like T40: search and bake first, database node after T31 | S | 4 | T31 (node half) |
 | T44r | **`anim-physics`** (see below) | M | 1.5 | T31 |
 | T45 | **Third-party nodes, Rust side (0340)** (see below) | S | 3 | T31 |
 | T82r | **`anim-bench`** (see below) | M | 1 | T40, T42 |

@@ -38,3 +38,9 @@ Decisions made during the build that the records didn't settle. Each entry: the 
 - **D34 (T13r).** *Update every frame, pose when due;* LOD shows a lerp with one step of latency. `whenVisible` freezes pose and root motion; `rootMotionOnly` keeps root motion.
 - **D35 (T13r).** *Root delta* is in the character's frame at the step start (clip frame-0 heading = rest heading). Layers give no root motion.
 - **D36 (T13r).** *Columns:* the highest-weight clip fills the column block (blended columns later); at most 256 notify states per clip. Clip references in graph assets bind through a per-graph table (`graph_bind`).
+- **D37 (T40).** *Rig weights* blend each local as nlerp(input, solved) with solved locals taken against solved parents (Animation Rigging).
+- **D38 (T40).** *Joint limits* are swing-twist about local +X relative to the rest rotation, with an elliptical swing cone pulled radially (PhysX style).
+- **D39 (T40).** *Full-body sub-bases* (hips, chest) are fitted to their children by an iterative weighted rotation fit; fitting to the first child alone missed hands by 1 cm.
+- **D40 (T40).** *Spring bones* use Störmer-Verlet (k·h² ≤ 1) with dynamic follow-the-leader (Müller 2012), simulated in world space so locomotion gives inertia; an implicit spring varied 20 cm with dt.
+- **D41 (T40).** *Grounder* rays and hits are in model space (the host converts); a miss returns the foot to its animated height; the pelvis only lowers by default.
+- **D42 (T40).** *Motion warp* uses smoothstep and rotates the path about its start with the yaw, so the root never slides sideways; it matches position and yaw only.
