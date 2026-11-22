@@ -145,7 +145,7 @@ pub const WIDE_CHUNK_FRAMES: usize = wire::STREAM_WIDE_CHUNK_FRAMES as usize;
 /// Channels a wide ring stores.
 pub const WIDE_CHANNELS: usize = wire::STREAM_MAX_CHANNELS as usize;
 /// Bytes of one wide ring's storage: the ring, a chunk's tail and the seek fade's copy, 16 channels
-/// of f32 (C8: 16 × (16,384 + 2,048 + 1,536) × 4 B = 1.22 MiB).
+/// of f32 (C8, R16: 16 × (32,768 + 2,048 + 1,536) × 4 B = 2,326,528 B, 2.22 MiB).
 pub const WIDE_RING_BYTES: usize = WIDE_CHANNELS * (WIDE_RING_FRAMES + WIDE_CHUNK_FRAMES + FADE_TAIL_FRAMES) * 4;
 
 /// The `Wide` region's size (C8): `max_wide` wide rings. K2 lays it out; B4 gives it its ring class.

@@ -32,12 +32,12 @@ pub const ENVELOPE: &[Field] = &[
     Field::new("version", Ty::U16)
         .at(4)
         .doc("Protocol version: high byte major, low byte minor (1.0 is 0x0100)."),
-    Field::new("kind", Ty::U16).at(6).doc("Message kind, one of `KINDS` (1..=12)."),
+    Field::new("kind", Ty::U16).at(6).doc("Message kind, one of `KINDS` (1..=13)."),
     Field::new("seq", Ty::U32).at(8).doc("Per-sender sequence number; wraps at 2^32."),
     Field::new("bodyBytes", Ty::U32).at(12).doc("Bytes of body after the 16-byte envelope."),
 ];
 
-/// Every kind 1..=12 with its body (fixed fields and tail), in id order.
+/// Every kind 1..=13 with its body (fixed fields and tail), in id order.
 pub const KINDS: &[Kind] = &[
     Kind {
         id: 1,
@@ -168,6 +168,32 @@ pub const KINDS: &[Kind] = &[
         body: Body::with_tail(super::batch::BATCH_HEADER, Tail::Records),
         doc: "Replays a recorded batch of opcode records (section 4.2).",
     },
+    Kind {
+        id: 13,
+        name: "INIT",
+        dir: Dir::ShellToCore,
+        body: Body::fixed(INIT_FIELDS),
+        doc: "ADR 0328: the core's init parameters. The shell writes it at the inbox's start before `myco_audio_init`, \
+              `myco_audio_memory_pages` and `myco_audio_memory_part_bytes`, which read it; never posted. A refused \
+              field is the error `INIT_` + its name (`ERR_INIT_MAX_MIXED`).",
+    },
+];
+
+/// INIT's body (ADR 0328): every fixed region's size is a pure function of these, so the same record always gives
+/// the same layout. Each field that can be refused has the error code `INIT_` + its name in screaming case.
+pub const INIT_FIELDS: &[Field] = &[
+    Field::new("sampleRate", Ty::F32).doc("The AudioContext's rate in Hz, 8,000 to 192,000."),
+    Field::new("maxLogical", Ty::U32).doc("Logical voices (voice slots), 1 to 65,536."),
+    Field::new("maxMixed", Ty::U32).doc("Voices mixed per quantum, 1 to `maxLogical`."),
+    Field::new("maxBuses", Ty::U32).doc("Buses in the bus tree, master included, 1 to 256."),
+    Field::new("arenaInitialBytes", Ty::U32)
+        .doc("The clip arena's initial reserve in bytes, rounded up to whole 64 KiB pages; never refused (0: it starts empty)."),
+    Field::new("maxBeds", Ty::U32).doc("Bed slots, 0 to MAX_BEDS (0: no `Beds` region)."),
+    Field::new("maxZoneSlots", Ty::U32).doc("Reverb zone convolver slots, 0 to MAX_ZONE_SLOTS (0: no zone slot)."),
+    Field::new("zoneMaxFrames", Ty::U32)
+        .doc("The longest zone kernel in frames at `sampleRate`: 1 to 8 s of frames with zone slots, ignored without."),
+    Field::new("maxWide", Ty::U32).doc("Wide (3-16 channel) stream rings and their private bed decoders, 0 to 4."),
+    Field::new("maxMusicRings", Ty::U32).doc("Music stream rings, 0 to MAX_MUSIC_RINGS."),
 ];
 
 /// First-chunk header of a `format = 2` HRIR clip: `u32 elevations; u32 azimuths; u32 irLength;
@@ -193,11 +219,11 @@ mod tests {
     }
 
     #[test]
-    fn kinds_are_1_to_12_with_unique_names() {
+    fn kinds_are_1_to_13_with_unique_names() {
         let ids: Vec<u16> = super::KINDS.iter().map(|k| k.id).collect();
-        assert_eq!(ids, (1..=12).collect::<Vec<u16>>());
+        assert_eq!(ids, (1..=13).collect::<Vec<u16>>());
         let names: std::collections::HashSet<&str> = super::KINDS.iter().map(|k| k.name).collect();
-        assert_eq!(names.len(), 12);
+        assert_eq!(names.len(), 13);
     }
 
     #[test]
@@ -216,6 +242,8 @@ mod tests {
         assert_eq!(fixed(7), 4, "STREAM_CLOSE");
         assert_eq!(fixed(8), 4, "TIME_PING");
         assert_eq!(fixed(11), 16, "STREAM_CREDIT");
+        assert_eq!(fixed(13), 40, "INIT");
+        assert!(matches!(kind(13).body.tail, crate::model::Tail::None));
 
         for id in [9u16, 10] {
             assert!(kind(id).body.fields.is_empty(), "kind {id} has no body");

@@ -1,163 +1,158 @@
-// The core's Memory layout as main and the worklet size it (architecture §5.1; ADR 0162 C8): the initial pages, the
-// fixed regions past the arena (M2's headroom, the beds, zones, wide and music stream rings, the FX pool) and the
-// Memory's maximum. A TypeScript mirror of audio-core's `layout.rs` and friends; `coreDriver.test.ts` checks it against
-// the wasm's own `myco_audio_layout_bytes` and `myco_audio_zone_kernel_budget_bytes`, so a drift fails a test.
-import type { CorePreset } from "./coreDriver";
+// The core's init record and the Memory it asks for (ADR 0327, 0328; architecture §5.1). The shell writes the INIT
+// record (the wire's kind 13, generated from `audio-wire`'s schema) at the start of the core's inbox; `myco_audio_init`,
+// `myco_audio_memory_pages` and `myco_audio_memory_part_bytes` read it there. The core alone knows its layout, so the
+// Memory's `maximum` and the debug panel's memory row are its answers, asked of a throwaway instance on a Memory of
+// `MEMORY_INITIAL_PAGES` pages that never grows: no region size is mirrored here. (`zoneKernelBlobBytes` sizes a wire blob
+// main builds, from the schema's generated constants.)
+import type { CoreExports, CorePreset } from "./coreDriver";
 import {
   ClipFormat,
-  STREAM_MAX_CHANNELS,
-  STREAM_RING_FRAMES_WIDE,
-  STREAM_WIDE_CHUNK_FRAMES,
+  CORE_ABI_MAJOR,
+  ErrorCode,
+  INIT_FIXED_END,
+  Kind,
+  MemoryPart,
+  QUANTUM_FRAMES,
+  SCHEMA_HASH,
+  writeEnvelope,
+  writeInit,
   ZONE_HEAD_BINS,
   ZONE_KERNEL_HEADER_BYTES,
   ZONE_KERNEL_MAX_HEAD_PARTS,
   ZONE_TAIL_BINS,
+  type Init,
 } from "../wire.generated";
 
 /** @internal Pages the shell's Memory starts with: the same every time (`native/audio/build.mjs` uses 64), which is what makes init deterministic (A0.1). */
 export const MEMORY_INITIAL_PAGES = 64;
-/** @internal WebAssembly's page size. */
-export const PAGE_BYTES = 65_536;
+
+/** @internal Why the core couldn't start (the host falls back, architecture §2.1). */
+export class CoreLoadError extends Error {
+  override readonly name = "CoreLoadError";
+}
+
+/** What `instantiateCore` checks the module against; tests pass other values to see the refusals. */
+export interface CoreExpectations {
+  readonly schemaHash: string;
+  readonly abiMajor: number;
+}
+
+/** @internal The schema hash and ABI major this build speaks. */
+export const EXPECTED: CoreExpectations = { schemaHash: SCHEMA_HASH, abiMajor: CORE_ABI_MAJOR };
+
+function hex(bytes: Uint8Array): string {
+  let s = "";
+  for (const b of bytes) s += b.toString(16).padStart(2, "0");
+  return s;
+}
+
 /**
- * @internal Headroom in the Memory's `maximum` for M2's fixed regions past the arena (architecture §5.1: ≈ 7.7 MB, 9.6 MB
- * high, plus the 0.75 MB HRIR). ADR 0162's regions and the zone kernels come on top: `fixedRegionsHeadroomBytes`.
+ * @internal Instantiates `module` over `memory` and checks its ABI major, then its schema hash (both static, so before
+ * anything reads the inbox: a core of another ABI reads another INIT, or none). Throws `CoreLoadError`.
  */
-export const M2_REGIONS_HEADROOM_BYTES = 16 << 20;
+export function openCore(module: WebAssembly.Module, memory: WebAssembly.Memory, expected: CoreExpectations = EXPECTED): CoreExports {
+  let exports: CoreExports;
+  try {
+    exports = new WebAssembly.Instance(module, { env: { memory } }).exports as unknown as CoreExports;
+  } catch (error) {
+    throw new CoreLoadError(`audio core: instantiating myco_audio.wasm failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const abi = exports.myco_audio_abi_version();
+  if (abi >> 8 !== expected.abiMajor) throw new CoreLoadError(`audio core: ABI ${abi >> 8}.${abi & 0xff} where ${expected.abiMajor}.x was expected`);
+  const schema = hex(new Uint8Array(memory.buffer, exports.myco_audio_schema_hash(), 16));
+  if (schema !== expected.schemaHash) throw new CoreLoadError(`audio core: wire schema ${schema} where ${expected.schemaHash} was expected`);
+  return exports;
+}
+
+/** @internal The INIT record for a preset at the context's rate: the preset's counts, and its longest zone IR in frames at the rate (0 without zone slots). */
+export function initRecord(preset: CorePreset, sampleRate: number): Init {
+  return {
+    sampleRate,
+    maxLogical: preset.maxLogical,
+    maxMixed: preset.maxMixed,
+    maxBuses: preset.maxBuses,
+    arenaInitialBytes: preset.arenaInitialBytes,
+    maxBeds: preset.maxBeds,
+    maxZoneSlots: preset.maxZoneSlots,
+    zoneMaxFrames: preset.maxZoneSlots > 0 ? Math.ceil(preset.zoneMaxSeconds * sampleRate) : 0,
+    maxWide: preset.maxWide,
+    maxMusicRings: preset.maxMusicRings,
+  };
+}
+
+/** @internal Writes the INIT message (envelope and record) at the start of the core's inbox, for the exports that read it. */
+export function writeInitRecord(exports: CoreExports, memory: WebAssembly.Memory, record: Init): void {
+  const view = new DataView(memory.buffer, exports.myco_audio_inbox_ptr(), INIT_FIXED_END);
+  writeEnvelope(view, 0, { kind: Kind.INIT, seq: 0, bodyBytes: INIT_FIXED_END - 16 });
+  writeInit(view, 0, record);
+}
+
+const ERROR_NAMES = new Map<number, string>(Object.entries(ErrorCode).map(([name, code]) => [code, name]));
+
+/**
+ * @internal Why a call that read the INIT record refused it, in words: an `INIT_*` code names the field (ADR 0328:
+ * `INIT_MAX_MIXED` is `maxMixed`), with the value the record held; any other code by its wire name.
+ */
+export function initRefusal(code: number, record: Init): string {
+  const name = ERROR_NAMES.get(code) ?? "unknown error";
+  if (!name.startsWith("INIT_")) return `${name} (code ${code})`;
+  const field = name.slice(5).toLowerCase().replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()) as keyof Init;
+  return `${field} ${record[field]} (${name}, code ${code})`;
+}
+
+/** @internal What the core takes for an INIT record, bytes (ADR 0327): `MemoryPart`'s parts. */
+export interface CoreMemoryParts {
+  /** The block `myco_audio_init` takes: every fixed region and the arena's initial reserve, whole pages. */
+  readonly layout: number;
+  /** The `Beds` region: bed slots and the wide streams' private decoders. */
+  readonly beds: number;
+  /** The `Zones` region. */
+  readonly zones: number;
+  /** The `Wide` region: 16-channel stream rings. */
+  readonly wide: number;
+  /** The zone kernel budget in the arena, outside `clipMemoryMB`. */
+  readonly zoneKernels: number;
+  /** The HRIR table, its HRTF bank and the MagLS filters in the arena, outside `clipMemoryMB`. */
+  readonly spatialData: number;
+}
+
+/** @internal The core's answer for a preset at a rate: the Memory's `maximum` in pages, and what its parts take. */
+export interface CoreMemory {
+  readonly maximumPages: number;
+  readonly parts: CoreMemoryParts;
+}
+
 /** wasm32's limit: 4 GiB. */
 const MAX_PAGES = 65_536;
 
-// ADR 0162 C8: a TypeScript mirror of the layout of the regions ABI 2.0 adds (audio-core `bed.rs`, `zones.rs`,
-// `stream.rs`, `fxpool.rs`, `layout.rs`). `coreDriver.test.ts` checks it against the wasm's own
-// `myco_audio_layout_bytes` and `myco_audio_zone_kernel_budget_bytes`, so a drift fails a test.
-const REGION_ALIGN = 64;
-const QUANTUM = 128;
 /**
- * The `Beds` region's parts (`bed::region_bytes`, A4): a header, the FFT scratch, the shared MagLS filters for P partitions,
- * then one slot (16-channel accumulator + decoder) per bed or private decoder. P is the HRTF's partition count at the rate
- * (2 up to 48 kHz, 4 from 88.2 kHz); at other counts MagLS can't run and a slot is its accumulator alone.
+ * @internal Asks a throwaway instance of the core what it needs for `preset` at `sampleRate` (ADR 0327): the Memory's
+ * `maximum` (`MEMORY_INITIAL_PAGES` plus `myco_audio_memory_pages` for the clip ceiling) and each `MemoryPart`. The
+ * instance's Memory never grows. Throws `CoreLoadError` on a module of another ABI or schema, or when the core refuses
+ * the record (naming the field).
  */
-const BEDS_HEADER_BYTES = 20_800;
-const BEDS_SCRATCH_BYTES = 33_792;
-const BEDS_FILTER_BYTES: Readonly<Record<number, number>> = { 2: 65_600, 4: 131_136 };
-const BEDS_SLOT_BYTES: Readonly<Record<number, number>> = { 2: 49_216, 4: 81_984 };
-const BEDS_ACC_ONLY_SLOT_BYTES = 8_192;
-
-/** `hrtf::partitions_for_sample_rate`: the HRTF's FFT size at the rate (as `core/hrir.ts`'s `hrtfFftSize`) over 256, at least 1. */
-function bedPartitions(sampleRate: number): number {
-  const ratio = Math.fround(Math.fround(sampleRate) / 44100);
-  const exponent = Math.min(Math.max(0, Math.floor(Math.log2(256 * ratio))), 29);
-  const fft = 2 * Math.max(2, 2 ** exponent);
-  return Math.max(1, fft / 256);
-}
-
-function bedsRegionBytes(slots: number, sampleRate: number): number {
-  if (slots === 0) return 0;
-  const p = bedPartitions(sampleRate);
-  return BEDS_HEADER_BYTES + BEDS_SCRATCH_BYTES + (BEDS_FILTER_BYTES[p] ?? 0) + slots * (BEDS_SLOT_BYTES[p] ?? BEDS_ACC_ONLY_SLOT_BYTES);
-}
-/** `stream::FADE_TAIL_FRAMES`. */
-const FADE_TAIL_FRAMES = 1_536;
-/** `stream::WIDE_RING_BYTES`: 16 × (32,768 + 2,048 + 1,536) × 4 B (R16 after B4's stall test). */
-const WIDE_RING_BYTES = STREAM_MAX_CHANNELS * (STREAM_RING_FRAMES_WIDE + STREAM_WIDE_CHUNK_FRAMES + FADE_TAIL_FRAMES) * 4;
-/** `fxpool::FX_ENTRY_BYTES`. */
-const FX_ENTRY_BYTES = 448;
-/** `layout::PLANAR_SCRATCH_BYTES`. */
-const PLANAR_SCRATCH_BYTES = 16 * QUANTUM * 4;
-
-const alignUp = (n: number, to: number): number => Math.ceil(n / to) * to;
-const headParts = (frames: number): number => Math.min(Math.ceil(frames / QUANTUM), ZONE_KERNEL_MAX_HEAD_PARTS);
-const tailParts = (frames: number): number => Math.ceil(Math.max(0, frames - ZONE_KERNEL_MAX_HEAD_PARTS * QUANTUM) / ZONE_TAIL_BINS);
-
-/** @internal `zones::kernel_blob_bytes`: a format 3 blob for an IR of `frames`. */
-export function zoneKernelBlobBytes(frames: number): number {
-  return ZONE_KERNEL_HEADER_BYTES + 2 * headParts(frames) * ZONE_HEAD_BINS * 8 + 2 * tailParts(frames) * ZONE_TAIL_BINS * 8;
-}
-
-/** @internal `zones::kernel_budget_bytes` (`myco_audio_zone_kernel_budget_bytes`). */
-export function zoneKernelBudgetBytes(maxZoneSlots: number, zoneMaxFrames: number): number {
-  return maxZoneSlots === 0 ? 0 : maxZoneSlots * arenaBlockBytes(zoneKernelBlobBytes(zoneMaxFrames));
-}
-
-/** @internal `zones::arena_block_bytes`: the arena size class a request takes (four per doubling from 4 KB). */
-export function arenaBlockBytes(bytes: number): number {
-  for (let d = 0; d < 20; d++) {
-    for (let s = 0; s < 4; s++) {
-      const block = 1024 * 2 ** d * (4 + s);
-      if (block >= bytes) return block;
-    }
-  }
-  return Infinity;
-}
-
-/** `zones::SLOT_HEADER_BYTES`: a slot's header (state, ramps, stereo input and wet buffers), 32 past a 64-byte boundary. */
-const ZONE_SLOT_HEADER_BYTES = 2_208;
-
-
-/** @internal `zones::slot_state_bytes`: one zone slot's convolver state. */
-export function zoneSlotStateBytes(frames: number): number {
-  // `instance::state_bytes`: header, per channel the head input (32 x 128 bins + a quantum), the tail delay line,
-  // the accumulator, the 8,192-frame input ring and the 4,096-frame accumulation buffer.
-  const instance = 32 + 2 * (ZONE_KERNEL_MAX_HEAD_PARTS * ZONE_HEAD_BINS * 8 + QUANTUM * 4) + 2 * tailParts(frames) * ZONE_TAIL_BINS * 8 + 2 * ZONE_TAIL_BINS * 8 + 2 * 8_192 * 4 + 2 * 4_096 * 4;
-  return alignUp(ZONE_SLOT_HEADER_BYTES + instance, REGION_ALIGN);
-}
-
-/**
- * @internal `zones::region_bytes`: the slots, the aux accumulator (`max_buses` x 1 KB, with or without slots), the sends
- * area (`zones::sends_bytes`: a 64-byte header and `max_buses` x 512 B of chain gains) and a 64-byte tail.
- */
-export function zonesRegionBytes(maxZoneSlots: number, zoneMaxFrames: number, maxBuses: number): number {
-  const slots = maxZoneSlots > 0 ? maxZoneSlots * zoneSlotStateBytes(zoneMaxFrames) : 0;
-  return slots + maxBuses * 2 * QUANTUM * 4 + (REGION_ALIGN + maxBuses * QUANTUM * 4) + REGION_ALIGN;
-}
-
-/** @internal `zone_max_frames`: the preset's longest zone IR at the context rate (0 without zone slots). */
-export function zoneMaxFrames(preset: CorePreset, sampleRate: number): number {
-  return preset.maxZoneSlots > 0 ? Math.ceil(preset.zoneMaxSeconds * sampleRate) : 0;
-}
-
-/**
- * @internal ADR 0162 C8: bytes of the regions ABI 2.0 adds before the arena (`Beds`, `Zones`, `Wide`, `Fx` and the planar
- * scratch), each aligned as `layout.rs` aligns it. 0 for the first three when their parameter is 0.
- */
-export function spatialRegionsBytes(preset: CorePreset, sampleRate: number): number {
-  const beds = bedsRegionBytes(preset.maxBeds + preset.maxWide, sampleRate);
-  const zones = zonesRegionBytes(preset.maxZoneSlots, zoneMaxFrames(preset, sampleRate), preset.maxBuses);
-  const wide = preset.maxWide * WIDE_RING_BYTES;
-  const fx = alignUp(preset.maxMixed * FX_ENTRY_BYTES, REGION_ALIGN);
-  return [beds, zones, wide, fx, PLANAR_SCRATCH_BYTES].reduce((sum, n) => sum + alignUp(n, REGION_ALIGN), 0);
-}
-
-/**
- * @internal The Memory's headroom past the arena for these parameters (replaces M2's constant): M2's regions, ADR 0162's
- * regions (`spatialRegionsBytes`) and the zone kernel budget (kernels are arena clips outside `clipMemoryMB`, C8).
- */
-export function fixedRegionsHeadroomBytes(preset: CorePreset, sampleRate: number): number {
-  return (
-    M2_REGIONS_HEADROOM_BYTES +
-    spatialRegionsBytes(preset, sampleRate) +
-    m4FixedRegionsBytes() +
-    musicRingsBytes(preset) +
-    zoneKernelBudgetBytes(preset.maxZoneSlots, zoneMaxFrames(preset, sampleRate))
-  );
-}
-
-/**
- * @internal ADR 0166 M4 (API section 3.1, 5.3): the regions the core lays out on every preset before the arena, which
- * Q1 adds to `layout.rs`: `Due` (256 due + 128 parked records of 48 B = 18,432 B), `Curves` (255 entries, 8,160 B) and
- * `Groups` (16 entries, 2,560 B) = 29,152 B, each aligned as `layout.rs` aligns it. A mirror of the core's layout once Q1
- * has merged; it is only a headroom bound (M2's 16 MiB constant already covers it), so a small drift cannot overrun.
- */
-export function m4FixedRegionsBytes(): number {
-  return [18_432, 8_160, 2_560].reduce((sum, n) => sum + alignUp(n, REGION_ALIGN), 0);
-}
-
-/**
- * @internal The music rings' part of the `Streams` region: C1 sizes it `(G + M) x RING_BYTES` with `M` = `maxMusicRings`
- * (RING_BYTES 307,200). C1 lays them out after the general rings in the `Streams` region (`stream::region_bytes`).
- * C1 switched this function on (it returned 0 while W1 only passed the count); nothing else in the headroom changed.
- */
-export function musicRingsBytes(preset: CorePreset): number {
-  return preset.maxMusicRings * 307_200;
+export function askCoreMemory(module: WebAssembly.Module, preset: CorePreset, sampleRate: number, expected: CoreExpectations = EXPECTED): CoreMemory {
+  const memory = new WebAssembly.Memory({ initial: MEMORY_INITIAL_PAGES, maximum: MEMORY_INITIAL_PAGES });
+  const exports = openCore(module, memory, expected);
+  const record = initRecord(preset, sampleRate);
+  writeInitRecord(exports, memory, record);
+  const answer = (n: number): number => {
+    if (n < 0) throw new CoreLoadError(`audio core: the INIT record was refused: ${initRefusal(n, record)}`);
+    return n;
+  };
+  const pages = answer(exports.myco_audio_memory_pages(Math.max(0, Math.min(0xffff_ffff, Math.floor(preset.clipCeilingBytes)))));
+  const part = (p: number): number => answer(exports.myco_audio_memory_part_bytes(p));
+  return {
+    maximumPages: Math.min(MAX_PAGES, MEMORY_INITIAL_PAGES + pages),
+    parts: {
+      layout: part(MemoryPart.Layout),
+      beds: part(MemoryPart.Beds),
+      zones: part(MemoryPart.Zones),
+      wide: part(MemoryPart.Wide),
+      zoneKernels: part(MemoryPart.ZoneKernels),
+      spatialData: part(MemoryPart.SpatialData),
+    },
+  };
 }
 
 /** @internal Bytes per sample of a CLIP_BEGIN format (0 for a format the shell doesn't know): ADR 0162 C6 adds 3-5, all f32. */
@@ -176,12 +171,13 @@ export function clipSampleBytes(format: number): number {
   }
 }
 
-
 /**
- * @internal The Memory's `maximum` in pages: the initial pages, the fixed regions (`fixedRegionsHeadroomBytes`, with the
- * zone kernel budget) and the arena up to its ceiling (architecture §5.1, ADR 0162 C8).
+ * @internal Bytes of a format 3 zone kernel blob for an IR of `frames` (`zones::kernel_blob_bytes`): the wire's blob layout
+ * (`ZoneKernelHeader`, then the head and tail partitions' packed spectra, ADR 0162 §4.5), from the generated constants.
+ * What main prepares and sends; what the core reserves for it is its own answer (`MemoryPart.ZoneKernels`).
  */
-export function memoryMaximumPages(preset: CorePreset, sampleRate: number): number {
-  const arena = Math.max(preset.arenaInitialBytes, preset.clipCeilingBytes);
-  return Math.min(MAX_PAGES, MEMORY_INITIAL_PAGES + Math.ceil((fixedRegionsHeadroomBytes(preset, sampleRate) + arena) / PAGE_BYTES));
+export function zoneKernelBlobBytes(frames: number): number {
+  const head = Math.min(Math.ceil(frames / QUANTUM_FRAMES), ZONE_KERNEL_MAX_HEAD_PARTS);
+  const tail = Math.ceil(Math.max(0, frames - ZONE_KERNEL_MAX_HEAD_PARTS * QUANTUM_FRAMES) / ZONE_TAIL_BINS);
+  return ZONE_KERNEL_HEADER_BYTES + 2 * head * ZONE_HEAD_BINS * 8 + 2 * tail * ZONE_TAIL_BINS * 8;
 }

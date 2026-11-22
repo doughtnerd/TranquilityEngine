@@ -22,15 +22,10 @@ use audio_core::InitParams;
 use crate::instance::Instance;
 use crate::memory::{PlatformMemory, PLATFORM_MEMORY};
 
-/// ABI version, `(major << 8) | minor`. Bump the minor for an added export, the major for a change.
-/// 2.0 (ADR 0162 R6, C8): `myco_audio_init` takes nine parameters; `myco_audio_zone_kernel_budget_bytes`.
-/// 3.0 (ADR 0166 M4, API section 4.5): `myco_audio_init` and `myco_audio_layout_bytes` take a tenth,
-/// `max_music_rings` (0..16, `InitError::MusicRings`).
-/// 4.0 (ADR 0171/0172 M5, API section 4.1): the STATUS header is 256 B and gains the `loudBuses`,
-/// `loudEnergies` and `busDuck` sections; `BUS_RAMP`, `BUS_DUCK`, `BUS_PRESENCE`, `LOUD_CONFIG` and
-/// `BUS_SLOT`; stamped configuration changes behaviour. `myco_audio_init` is unchanged.
-pub const ABI_MAJOR: u32 = 4;
-pub const ABI_MINOR: u32 = 0;
+/// ABI version, `(major << 8) | minor`: generated from `audio-wire`'s schema beside the schema hash
+/// (`CORE_ABI_MAJOR`, `CORE_ABI_MINOR`; their history is there), so the shell and the capture header read the same value.
+pub const ABI_MAJOR: u32 = audio_wire::generated::CORE_ABI_MAJOR;
+pub const ABI_MINOR: u32 = audio_wire::generated::CORE_ABI_MINOR;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
 pub const INBOX_BYTES: usize = 1 << 20;
@@ -95,57 +90,49 @@ pub extern "C" fn myco_audio_source_hash() -> *const u8 {
 
 // --- Lifecycle ------------------------------------------------------------------------------
 
-/// Deterministic init (see `Instance::init`). May grow memory: the shell refreshes its views after.
-/// ABI 2.0 (ADR 0162 C8): the four M3 counts size the `Beds`, `Zones` and `Wide` regions before the
-/// arena (0 is none); ABI 3.0: `max_music_rings` (0..16) sizes the music rings; `INVALID_ARGUMENT` past
-/// their ranges (`InitParams::validate`).
+/// Deterministic init (see `Instance::init`) from the INIT record (ADR 0328) the shell wrote at the inbox's start. May
+/// grow memory: the shell refreshes its views after. A refusal names its field (`ERR_INIT_MAX_MIXED`, ...;
+/// `InitParams::read`); `ERR_BAD_STATE` when already initialised, `ERR_ARENA_FULL` when memory can't grow.
 #[no_mangle]
-#[allow(clippy::too_many_arguments)]
-pub extern "C" fn myco_audio_init(
-    sample_rate: f32,
-    max_logical: u32,
-    max_mixed: u32,
-    max_buses: u32,
-    arena_initial_bytes: u32,
-    max_beds: u32,
-    max_zone_slots: u32,
-    zone_max_frames: u32,
-    max_wide: u32,
-    max_music_rings: u32,
-) -> i32 {
-    instance().init(InitParams { sample_rate, max_logical, max_mixed, max_buses, arena_initial_bytes, max_beds, max_zone_slots, zone_max_frames, max_wide, max_music_rings })
-}
-
-/// ABI 2.0 (ADR 0162 C8): bytes the arena needs for `max_zone_slots` zone kernels of
-/// `zone_max_frames` (format 3 blobs, outside `clipMemoryMB`), which the shell adds to the Memory's
-/// maximum. Pure; callable before `init`. Saturates at `u32::MAX`.
-#[no_mangle]
-pub extern "C" fn myco_audio_zone_kernel_budget_bytes(max_zone_slots: u32, zone_max_frames: u32) -> u32 {
-    audio_core::zones::kernel_budget_bytes(max_zone_slots, zone_max_frames).min(u32::MAX as usize) as u32
-}
-
-/// ABI 2.0 (ADR 0162 C8): bytes of the block `myco_audio_init` would take for these parameters (every
-/// fixed region and the arena's initial reserve, in whole pages), or 0 when they are refused. Pure;
-/// callable before `init`. The shell's TypeScript mirror of the layout is tested against it.
-#[no_mangle]
-#[allow(clippy::too_many_arguments)]
-pub extern "C" fn myco_audio_layout_bytes(
-    sample_rate: f32,
-    max_logical: u32,
-    max_mixed: u32,
-    max_buses: u32,
-    arena_initial_bytes: u32,
-    max_beds: u32,
-    max_zone_slots: u32,
-    zone_max_frames: u32,
-    max_wide: u32,
-    max_music_rings: u32,
-) -> u32 {
-    let p = InitParams { sample_rate, max_logical, max_mixed, max_buses, arena_initial_bytes, max_beds, max_zone_slots, zone_max_frames, max_wide, max_music_rings };
-    if p.validate().is_err() {
-        return 0;
+pub extern "C" fn myco_audio_init() -> i32 {
+    match init_params() {
+        Ok(p) => instance().init(p),
+        Err(code) => code,
     }
-    audio_core::Layout::new(&p).total().min(u32::MAX as usize) as u32
+}
+
+/// ADR 0327: the 64 KiB pages the core grows its Memory by over its life, past the module's own, for the INIT record in
+/// the inbox and the clip ceiling (`audio.clipMemoryMB`): its block, the arena's growth to the ceiling, the zone kernel
+/// budget and the spatial data (`audio_core::layout::memory_growth_bytes`). The shell's Memory `maximum` is its initial
+/// pages plus this. Pure; callable before `init` (on a throwaway instance). A refused record gives its negative code.
+#[no_mangle]
+pub extern "C" fn myco_audio_memory_pages(clip_ceiling_bytes: u32) -> i32 {
+    match init_params() {
+        Ok(p) => {
+            let bytes = audio_core::layout::memory_growth_bytes(&p, clip_ceiling_bytes as usize);
+            bytes.div_ceil(audio_core::layout::PAGE_BYTES).min(i32::MAX as usize) as i32
+        }
+        Err(code) => code,
+    }
+}
+
+/// ADR 0327: bytes of one `MemoryPart` (the block `init` takes, the `Beds`, `Zones` and `Wide` regions, the zone kernel
+/// budget, the spatial data) for the INIT record in the inbox: the debug panel's memory row. Pure; callable before
+/// `init`. `ERR_BAD_ARG` for an unknown part; a refused record gives its negative code. Saturates at `i32::MAX`.
+#[no_mangle]
+pub extern "C" fn myco_audio_memory_part_bytes(part: u32) -> i32 {
+    match init_params() {
+        Ok(p) => match audio_core::layout::memory_part_bytes(&p, part) {
+            Some(bytes) => bytes.min(i32::MAX as usize) as i32,
+            None => codes::INVALID_ARGUMENT,
+        },
+        Err(code) => code,
+    }
+}
+
+/// The INIT record at the inbox's start, read and validated (`InitParams::read`).
+fn init_params() -> Result<InitParams, i32> {
+    InitParams::read(inbox(INBOX_BYTES as u32).expect("the whole inbox"))
 }
 
 /// Sets the master limiter's look-ahead in ms (A2.9, ABI 1.1; the project's
@@ -346,27 +333,41 @@ mod tests {
 
     #[test]
     fn identity_exports() {
-        assert_eq!(myco_audio_abi_version(), 0x400);
+        assert_eq!(myco_audio_abi_version(), audio_wire::generated::CORE_ABI_VERSION);
         assert_eq!(myco_audio_inbox_cap(), 1 << 20);
         assert_eq!(myco_audio_inbox_ptr() as usize % 64, 0);
         assert_eq!(myco_audio_status_ptr() as usize % 64, 0);
         assert!(!myco_audio_source_hash().is_null());
     }
 
+    /// Writes the INIT record for `p` at the inbox's start, as the shell does (ADR 0328).
+    fn write_init(p: &InitParams) {
+        use audio_wire::generated as wire;
+        // SAFETY: single-threaded use of the inbox in this test (no other test writes it).
+        let inbox = unsafe { &mut (&mut *INBOX.get()).0 };
+        wire::Envelope::new(wire::kind::INIT, 0, (wire::Init::FIXED_END - 16) as u32).write(inbox, 0).unwrap();
+        let r = wire::Init { sample_rate: p.sample_rate, max_logical: p.max_logical, max_mixed: p.max_mixed, max_buses: p.max_buses, arena_initial_bytes: p.arena_initial_bytes, max_beds: p.max_beds, max_zone_slots: p.max_zone_slots, zone_max_frames: p.zone_max_frames, max_wide: p.max_wide, max_music_rings: p.max_music_rings };
+        r.write(inbox, 0).unwrap();
+    }
+
     #[test]
-    fn the_layout_and_kernel_budget_exports_are_pure() {
-        // ADR 0162 C8: zero M3 counts give M2's layout plus the pool and scratch; refused parameters 0.
-        let m2 = myco_audio_layout_bytes(48_000.0, 4_096, 128, 32, 16 << 20, 0, 0, 0, 0, 0);
-        let m3 = myco_audio_layout_bytes(48_000.0, 4_096, 128, 32, 16 << 20, 2, 3, 96_000, 1, 0);
-        assert_eq!(m2 as usize % 65_536, 0);
-        let extra = audio_core::bed::region_bytes(&InitParams { max_beds: 2, max_wide: 1, ..InitParams::default() })
-            + 3 * audio_core::zones::slot_state_bytes(96_000)
-            + audio_core::stream::WIDE_RING_BYTES;
-        // Whole pages around the arena: within a page either way.
-        assert!(((m3 - m2) as i64 - extra as i64).abs() <= 65_536, "{m2} -> {m3}, regions {extra}");
-        assert_eq!(myco_audio_layout_bytes(48_000.0, 4_096, 128, 32, 0, 5, 0, 0, 0, 0), 0, "5 beds are refused");
-        assert_eq!(myco_audio_zone_kernel_budget_bytes(0, 96_000), 0);
-        assert_eq!(myco_audio_zone_kernel_budget_bytes(3, 96_000) as usize, audio_core::zones::kernel_budget_bytes(3, 96_000));
+    fn the_memory_exports_read_the_init_record_and_are_pure() {
+        use audio_wire::generated::{self as wire, memory_part as mp};
+        // ADR 0327: the pages cover the block, the arena to the ceiling, the kernel budget and the spatial data.
+        let p = InitParams { max_beds: 2, max_zone_slots: 3, zone_max_frames: 96_000, max_wide: 1, ..InitParams::default() };
+        write_init(&p);
+        let layout = audio_core::Layout::new(&p);
+        assert_eq!(myco_audio_memory_part_bytes(mp::LAYOUT) as usize, layout.total());
+        assert_eq!(myco_audio_memory_part_bytes(mp::ZONE_KERNELS) as usize, audio_core::zones::kernel_budget_bytes(3, 96_000));
+        assert_eq!(myco_audio_memory_part_bytes(mp::WIDE) as usize, audio_core::stream::WIDE_RING_BYTES);
+        assert_eq!(myco_audio_memory_part_bytes(77), codes::INVALID_ARGUMENT);
+        let pages = myco_audio_memory_pages(128 << 20) as usize;
+        assert_eq!(pages, audio_core::layout::memory_growth_bytes(&p, 128 << 20).div_ceil(65_536));
+        assert!(pages * 65_536 >= layout.total() + (128 << 20) - (16 << 20));
+        // ADR 0328: a refused record names its field, and every export that reads it says so.
+        write_init(&InitParams { max_beds: 5, ..p });
+        assert_eq!(myco_audio_memory_pages(0), wire::ERR_INIT_MAX_BEDS);
+        assert_eq!(myco_audio_memory_part_bytes(mp::LAYOUT), wire::ERR_INIT_MAX_BEDS);
     }
 
     #[test]

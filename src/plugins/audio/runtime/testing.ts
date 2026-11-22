@@ -45,9 +45,10 @@ import { mixer, Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
 import { AudioHost as CoreAudioHost, CoreLink, presetFromSettings as presetOf, type AudioHost, type LinkPort, type WorldShare } from "./core/context";
 import type { HostClock } from "./core/hostClock";
-import { Kind, QUANTUM_FRAMES, readEnvelope, STATUS_BUFFER_BYTES, STATUS_FLAGS_READY, writeStatus, type StatusBlock } from "./wire.generated";
+import { CORE_ABI_VERSION, Kind, QUANTUM_FRAMES, readEnvelope, STATUS_BUFFER_BYTES, STATUS_FLAGS_READY, writeStatus, type StatusBlock } from "./wire.generated";
 import { DEFAULT_LIMITER_LOOKAHEAD_MS, defaultAudioSettings, type AudioSettings } from "../../../engine/audio/settings";
-import { CORE_ABI_MAJOR, CoreDriver, instantiateCore, type CoreInstance, type CorePreset } from "./worklet/coreDriver";
+import { CoreDriver, instantiateCore, type CoreInstance, type CorePreset } from "./worklet/coreDriver";
+import { loadCoreWasm } from "./core/loader";
 import { notifyEngineLifecycle } from "../../../engine/core/engineLifecycle";
 import { batchRecords, type PostedBatch } from "./core/batchRecords";
 import { batchRecorder, type BatchRecorder, type BatchWatch } from "./core/batchWatch";
@@ -759,10 +760,11 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
   // A variable specifier: the engine's declaration build (tsconfig.engine.json) has no Node types, and this file only runs in Node tests.
   const nodeFs = "node:fs/promises";
   const { readFile } = (await import(/* @vite-ignore */ nodeFs)) as { readFile(url: URL): Promise<Uint8Array> };
-  const wasm = await readFile(new URL("./wasm/myco_audio.wasm", import.meta.url));
+  // Through the page's loader, as the host loads it (so what asks the loaded core, the debug memory row, finds it).
+  const readCore = (async (url: URL) => new Response((await readFile(url)) as Uint8Array<ArrayBuffer>)) as unknown as typeof fetch;
+  const { module } = await loadCoreWasm(readCore);
   const clock = options.clock ?? fakeHostClock();
   const preset = options.preset ?? LOOPBACK_PRESET;
-  const module = new WebAssembly.Module(wasm as Uint8Array<ArrayBuffer>);
 
   let rate = LOOPBACK_RATE;
   /** The open `watch`es: each gets every BATCH or REPLAY posted to the shell, decoded. */
@@ -1564,7 +1566,7 @@ function statusBuffer(fields: Partial<StatusBlock>): ArrayBuffer {
 }
 
 /** The first STATUS of a core that started: the ready flag and this ABI. */
-const readyStatus = (): ArrayBuffer => statusBuffer({ flags: STATUS_FLAGS_READY, abiVersion: CORE_ABI_MAJOR << 8 });
+const readyStatus = (): ArrayBuffer => statusBuffer({ flags: STATUS_FLAGS_READY, abiVersion: CORE_ABI_VERSION });
 
 /**
  * ADR 0234: the core backend as production assembles it (`assembleCore`) over a recording host: no wasm, no core, no
