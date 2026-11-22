@@ -524,6 +524,11 @@ export class StreamDecoder {
     this.setProgram(s, program);
     const end = region.end > 0 ? region.end : s.frames;
     if (s.pos >= region.start && (!(end > 0) || s.pos < end)) return;
+    // ADR 0328: arriving at the region's end is its seam (the pass that led there counts, and the seam crossfades).
+    if (end > 0 && s.pos === end) {
+      this.wrap(s, at);
+      return;
+    }
     this.decoder!.seek(s.handle, region.start);
     s.pos = region.start;
     this.mark(s, at, region.start);

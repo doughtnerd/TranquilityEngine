@@ -24,7 +24,7 @@ import { Camera } from "../../../../engine/render/components";
 import { AudioListener, listenerPose } from "../AudioListener";
 import { CURVE_DRIVEN_ATTENUATION, curveDbToGain, evalAttenuation, FLAT_SEND_CURVE, LOWPASS_OFF_HZ, type AttenuationAt, type AttenuationCurveSet } from "../core/spatial";
 import { isLabelled, parameterDefault, type ParameterDef } from "../../../../engine/audio/parameters";
-import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest, type SubmixLevel } from "../backend";
+import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest, type SubmixLevel, type VoiceSpatialOptions } from "../backend";
 import { clipRequest, SAMPLE_END_FADE, sampleEdits, samplePass, samplePlan } from "../clipResolver";
 import { warnOnce } from "../core/handle";
 import { playlistHost } from "./host";
@@ -728,10 +728,11 @@ export class PlaylistInstance implements NodeHost {
       const spreadMoved = Math.abs(spread - cv.appliedSpread) > 0.5 || (spread === 0) !== (cv.appliedSpread === 0);
       const bedMoved = this.zoneBed !== cv.appliedBed;
       if (sendMoved || spreadMoved || bedMoved) {
-        if (sendMoved) cv.appliedSend = send;
-        cv.appliedSpread = spread;
-        cv.appliedBed = this.zoneBed;
-        v.voice.setSpatialOptions(sendMoved ? { reverbSend: send, spread, bed: this.zoneBed } : { spread, bed: this.zoneBed });
+        const o: VoiceSpatialOptions = {};
+        if (sendMoved) o.reverbSend = cv.appliedSend = send;
+        if (spreadMoved) o.spread = cv.appliedSpread = spread;
+        if (bedMoved) o.bed = cv.appliedBed = this.zoneBed;
+        v.voice.setSpatialOptions(o);
       }
     }
   }

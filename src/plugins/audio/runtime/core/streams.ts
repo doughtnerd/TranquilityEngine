@@ -503,9 +503,11 @@ export class StreamManager {
     if (!rec) return;
     const p0 = Number.isNaN(at) ? e.openFrame : this.playheadAt(e.voice, at);
     const region = this.regionNow(e);
+    const before = e.segments.slice();
     const x = applyLoopChange(e.segments, p0, e.frames, region, rec.looping);
     const program = rec.looping ? programOf(rec, e.rate, e.frames) : undefined;
-    if (x !== undefined) extendProgram(e.segments, program, e.frames);
+    // ADR 0328: a change landing on the region's end is its seam (the worker counts the pass that led there).
+    if (x !== undefined) extendProgram(e.segments, program, e.frames, x > before[0]!.stream && fileAt(before, x - 1, e.frames) + 1 === region.end);
     e.loop = rec.looping;
     e.epoch = (e.epoch + 1) >>> 0;
     this.subscribed?.loopStream?.(streamId, rec.looping, rec.looping ? region.start : undefined, rec.looping ? region.end : undefined, x, program);
@@ -618,9 +620,10 @@ function programOf(rec: LoopRecord | null, rate: number, frames: number): Stream
 /**
  * ADR 0328: the map `segs` after its newest segment (a loop just starting) follows `program`: once the loop has played
  * its count the stream plays on from the region's end, into each later loop in turn (which loops from its start, after
- * its own pre-roll, for its count). An endless loop, or none, ends the map there.
+ * its own pre-roll, for its count). An endless loop, or none, ends the map there. `seamDone`: the newest segment begins
+ * at a seam the stream reached at the region's end (the pass that led there is the loop's first, as the worker counts).
  */
-function extendProgram(segs: Segment[], program: StreamLoopProgram | undefined, frames: number): void {
+function extendProgram(segs: Segment[], program: StreamLoopProgram | undefined, frames: number, seamDone = false): void {
   if (!program || segs.length === 0) return;
   let cur = segs[segs.length - 1]!;
   if (!cur.loop) return;
@@ -629,8 +632,10 @@ function extendProgram(segs: Segment[], program: StreamLoopProgram | undefined, 
     if (count <= 0) return; // endless: nothing after it
     const end = cur.region.end > 0 ? cur.region.end : frames;
     if (!(end > cur.region.start)) return;
-    const firstPass = Math.max(0, end - cur.file);
-    const exit = cur.stream + firstPass + (count - 1) * (end - cur.region.start);
+    const len = end - cur.region.start;
+    const exit = k === 0 && seamDone ? cur.stream + (count - 1) * len : cur.stream + Math.max(0, end - cur.file) + (count - 1) * len;
+    // A loop of one pass that began at its seam doesn't wrap: the stream plays on from there.
+    if (exit <= cur.stream) segs.pop();
     const next = program.then[k];
     cur = next
       ? { stream: exit, file: end, loop: true, region: { start: next.startFrame, end: next.endFrame } }
