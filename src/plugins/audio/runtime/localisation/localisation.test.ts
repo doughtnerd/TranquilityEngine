@@ -257,6 +257,38 @@ describe("Audio.line", () => {
     off();
   });
 
+  it("viseme() reads the heard file's lipsync keys at the voice's playhead (audio clock, trim applied), blending over the last 60 ms", async () => {
+    const lipsync = { set: "rhubarb", keys: [[0, "X"], [0.5, "B"], [1, "E"], [1.4, "X"]] };
+    await boot(files({ "audio/vo/en/ch1/intro_01.wav.meta.json": { format: "myco.import@1", sample: { lipsync } } }));
+    fake.durations.set("audio/vo/en/ch1/intro_01.wav", 2);
+    fake.advanceTo(10); // the line starts at heard time 10
+    const h = Audio.line("intro_01");
+    expect(h.viseme()).toEqual({ viseme: "X", next: "B", blend: 0 });
+    fake.advanceTo(10.47); // 30 ms before B: halfway into the blend
+    const v = h.viseme()!;
+    expect(v.viseme).toBe("X");
+    expect(v.next).toBe("B");
+    expect(v.blend).toBeCloseTo(0.5, 5);
+    fake.advanceTo(10.5);
+    expect(h.viseme()).toEqual({ viseme: "B", next: "E", blend: 0 });
+    fake.advanceTo(11.5);
+    expect(h.viseme()).toEqual({ viseme: "X", next: null, blend: 0 });
+    // A line without lip-sync data, and a line that has ended, give null.
+    expect(Audio.line("intro_02").viseme()).toBeNull();
+    h.stop(0);
+    expect(h.viseme()).toBeNull();
+  });
+
+  it("viseme() counts the playhead from the trim's start (keys are file seconds)", async () => {
+    const lipsync = { set: "rhubarb", keys: [[0, "X"], [0.5, "B"], [1, "E"]] };
+    await boot(files({ "audio/vo/en/ch1/intro_01.wav.meta.json": { format: "myco.import@1", sample: { trim: [0.5, 2], lipsync } } }));
+    fake.durations.set("audio/vo/en/ch1/intro_01.wav", 2);
+    const h = Audio.line("intro_01");
+    expect(h.viseme()?.viseme).toBe("B"); // heard 0 = file 0.5
+    fake.advanceTo(0.5);
+    expect(h.viseme()?.viseme).toBe("E");
+  });
+
   it("stop ends it stopped (onLine end reason stopped)", async () => {
     await boot();
     const events: AudioLineEvent[] = [];
