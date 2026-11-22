@@ -6,7 +6,20 @@
 // This module is tiny and always loaded; the recorder behind the sink (`takeRecorder.ts`) is a lazy chunk.
 import type { Vec3Like } from "../../../../engine/core/math";
 import type { TakeMixOp } from "../../../../engine/audio/take/records";
-import type { TakePlayOptions } from "../../../../engine/audio/take/types";
+import type { TakePlayOptions, TakeSayOptions, TakeSayPick, TakeSayState } from "../../../../engine/audio/take/types";
+
+/** What a say record holds beyond its time and instance (ADR 0341 §6). */
+export interface TakeSayInit {
+  event: string;
+  /** The resolved value of every argument. */
+  args: Record<string, string>;
+  options: TakeSayOptions;
+  state: TakeSayState;
+  picked: TakeSayPick | null;
+  /** The World generator's state just before it decided; null when unseeded or queued. */
+  random: number | null;
+  emitter: TakeEmitter | null;
+}
 
 /** Where a play sounds from: an entity (an `AudioSource`'s node) or a script-placed instance. `key` identifies it across plays. */
 export interface TakeEmitter {
@@ -40,6 +53,14 @@ export interface TakeRequestSink {
   release(instance: object): void;
   trigger(instance: object, name: string): void;
   mix(op: TakeMixOp, target: string, value: number, seconds: number): void;
+  /** ADR 0340 §10: `Audio.line(key)` played in `language` (null: nothing heard). `instance` is the line's handle. */
+  line(instance: object, key: string, language: string | null, emitter: TakeEmitter | null, options: TakePlayOptions): void;
+  /** ADR 0340 §10, 0343 §2: the audio or subtitle language changed. */
+  language(audio: string, subtitles: string | null): void;
+  /** ADR 0341 §6: `Audio.say` as asked. `instance` is the say's handle. */
+  say(instance: object, say: TakeSayInit): void;
+  /** ADR 0341 §6: a queued say started (with its pick) or was dropped. */
+  sayState(instance: object, state: "playing" | "dropped", picked: TakeSayPick | null, random: number | null): void;
   /**
    * Once per audio frame, before the backend's frame (`audioFrame.ts`): poses at 30 Hz, changes only, the take keyframe
    * each second, and a picture of `picture` (the World's canvas; null headless) about once a second when the take has them.

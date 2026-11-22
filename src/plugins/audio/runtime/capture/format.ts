@@ -103,7 +103,7 @@ export const RecordType = {
   WRAP: 0x09,
   INDEX: 0x7f,
 } as const;
-/** ADR 0334: a take's request record codes (0x10..0x19, `engine/audio/take/records.ts`): only in a file with the `take` flag. */
+/** ADR 0334: a take's request record codes (0x10..0x1d, `engine/audio/take/records.ts`): only in a file with the `take` flag. */
 export { TakeRecordType, isTakeRecordType };
 export type RecordTypeCode = (typeof RecordType)[keyof typeof RecordType];
 /** The first required (never skipped) unknown type. */

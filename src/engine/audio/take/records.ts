@@ -11,7 +11,7 @@
  * the same code). Every payload starts with `t`, an f64 of seconds on the take's clock (0 = recording start, never negative).
  */
 import type { Vec3 } from "../spatial/testSceneTypes";
-import type { TakeFrame, TakeKeyframe, TakePlayOptions, TakeRequest } from "./types";
+import type { TakeFrame, TakeKeyframe, TakePlayOptions, TakeRequest, TakeSayOptions, TakeSayPick } from "./types";
 
 /** Request record `type` codes in the capture framing (all below 0x80: §5.3's skippable range). */
 export const TakeRecordType = {
@@ -26,11 +26,19 @@ export const TakeRecordType = {
   FRAME: 0x18,
   /** A take KEYFRAME (what is alive, for seeking); the profile's KEYFRAME is the capture's 0x04. */
   KEYFRAME: 0x19,
+  /** ADR 0340 §10: a line played by key. */
+  LINE: 0x1a,
+  /** ADR 0340 §10: the audio and subtitle languages changed. */
+  LANGUAGE: 0x1b,
+  /** ADR 0341 §6: an `Audio.say` as asked, with its resolved arguments and pick. */
+  SAY: 0x1c,
+  /** ADR 0341 §6: a queued say started or was dropped. */
+  SAYSTATE: 0x1d,
 } as const;
 export type TakeRecordTypeCode = (typeof TakeRecordType)[keyof typeof TakeRecordType];
 
 const FIRST = TakeRecordType.PLAY;
-const LAST = TakeRecordType.KEYFRAME;
+const LAST = TakeRecordType.SAYSTATE;
 /** True for a request record type. */
 export function isTakeRecordType(type: number): boolean {
   return type >= FIRST && type <= LAST;
@@ -54,6 +62,19 @@ export const TAKE_MAX_KEYFRAME_INSTANCES = 2048;
 export const TAKE_FRAME_MAX_BYTES = 240 * 1024;
 /** A FRAME's width and height, pixels. */
 export const TAKE_FRAME_MAX_SIDE = 4096;
+/** Arguments on one SAY (a dialogue event has at most 8; the cap leaves room). */
+export const TAKE_MAX_SAY_ARGS = 64;
+/** SAY `state` codes, in `TakeSayState` order. */
+export const TAKE_SAY_STATES = ["playing", "queued", "refused"] as const;
+/** SAY `whenBusy` codes. */
+export const TAKE_SAY_WHEN_BUSY = ["queue", "interrupt", "drop"] as const;
+/** SAYSTATE `state` codes. */
+export const TAKE_SAY_STATE_CHANGES = ["playing", "dropped"] as const;
+/**
+ * The take format's minor version: 1 adds LINE, LANGUAGE, SAY and SAYSTATE (ADR 0340 §10, 0341 §6). They sit in the
+ * skippable range, so a reader of minor 0 passes over them by length.
+ */
+export const TAKE_FORMAT_MINOR = 1;
 
 /** MIX `op` codes, in `TakeRequest` "mix" order. */
 export const TAKE_MIX_OPS = ["busVolume", "busFade", "snapshotStart", "snapshotStop", "masterVolume"] as const;
@@ -183,7 +204,11 @@ export type TakeRecordInit =
   | { type: typeof TakeRecordType.TRIGGER; payload: Extract<TakeRequest, { kind: "trigger" }> }
   | { type: typeof TakeRecordType.MARK; payload: Extract<TakeRequest, { kind: "mark" }> }
   | { type: typeof TakeRecordType.FRAME; payload: TakeFrame }
-  | { type: typeof TakeRecordType.KEYFRAME; payload: TakeKeyframe };
+  | { type: typeof TakeRecordType.KEYFRAME; payload: TakeKeyframe }
+  | { type: typeof TakeRecordType.LINE; payload: Extract<TakeRequest, { kind: "line" }> }
+  | { type: typeof TakeRecordType.LANGUAGE; payload: Extract<TakeRequest, { kind: "language" }> }
+  | { type: typeof TakeRecordType.SAY; payload: Extract<TakeRequest, { kind: "say" }> }
+  | { type: typeof TakeRecordType.SAYSTATE; payload: Extract<TakeRequest, { kind: "sayState" }> };
 
 /** One POSE record: every emitter that moved at one read (the listener is emitter 0). */
 export interface TakePoses {
@@ -264,8 +289,104 @@ export function encodeTakeRecord(view: DataView, off: number, r: TakeRecordInit)
       if (k.random !== undefined) o.u32(k.random);
       break;
     }
+    case TakeRecordType.LINE: {
+      const p = r.payload;
+      o.f64(p.t); o.u32(p.instance);
+      writePlayOptions(o, p.options, p.language !== null ? LINE_LANGUAGE : 0);
+      o.text(cutTakeText(p.key, TAKE_NAME_MAX_BYTES)); o.text(cutTakeText(p.language ?? "", TAKE_NAME_MAX_BYTES));
+      writeParams(o, params(p.options.parameters));
+      break;
+    }
+    case TakeRecordType.LANGUAGE: {
+      const p = r.payload;
+      o.f64(p.t); o.u8(p.subtitles !== null ? 1 : 0); o.text(cutTakeText(p.audio, TAKE_NAME_MAX_BYTES)); o.text(cutTakeText(p.subtitles ?? "", TAKE_NAME_MAX_BYTES));
+      break;
+    }
+    case TakeRecordType.SAY: {
+      const p = r.payload;
+      const extra = (p.options.channel !== undefined ? SAY_CHANNEL : 0) | (p.options.whenBusy !== undefined ? SAY_WHEN_BUSY : 0) | (p.random !== undefined ? SAY_RANDOM : 0);
+      o.f64(p.t); o.u32(p.instance);
+      writePlayOptions(o, p.options, extra);
+      o.u8(TAKE_SAY_STATES.indexOf(p.state)); o.u8(p.options.whenBusy !== undefined ? TAKE_SAY_WHEN_BUSY.indexOf(p.options.whenBusy) : 0); o.u32(p.random ?? 0);
+      o.text(cutTakeText(p.event, TAKE_NAME_MAX_BYTES)); o.text(cutTakeText(p.options.channel ?? "", TAKE_NAME_MAX_BYTES));
+      const args = sayArgs(p.args);
+      o.u16(args.length);
+      for (const [k, v] of args) { o.text(k); o.text(v); }
+      writeParams(o, params(p.options.parameters));
+      writePick(o, p.picked);
+      break;
+    }
+    case TakeRecordType.SAYSTATE: {
+      const p = r.payload;
+      o.f64(p.t); o.u32(p.instance); o.u8(TAKE_SAY_STATE_CHANGES.indexOf(p.state)); o.u8(p.random !== undefined ? 1 : 0); o.u32(p.random ?? 0);
+      writePick(o, p.picked);
+      break;
+    }
   }
   return o.bytes;
+}
+
+// --- LINE, LANGUAGE, SAY, SAYSTATE (ADR 0340 §10, 0341 §6) ----------------------------------------------------------------
+
+/** LINE flags past the play options': the language is set (else nothing was heard). */
+const LINE_LANGUAGE = 0x10;
+/** SAY flags past the play options'. */
+const SAY_CHANNEL = 0x10, SAY_WHEN_BUSY = 0x20, SAY_RANDOM = 0x40;
+const PICK_NULL = 0, PICK_KEY = 1, PICK_NONE = 2;
+
+/** The play options' flags, values and bus: `u8 flags, f32 volume, f32 pitch, u16 priority, text bus`. */
+function writePlayOptions(o: Out, opt: TakePlayOptions, extraFlags: number): void {
+  const flags = (opt.volume !== undefined ? PLAY_VOLUME : 0) | (opt.pitch !== undefined ? PLAY_PITCH : 0) | (opt.bus !== undefined ? PLAY_BUS : 0) | (opt.priority !== undefined ? PLAY_PRIORITY : 0) | extraFlags;
+  o.u8(flags); o.f32(opt.volume ?? 0); o.f32(opt.pitch ?? 0); o.u16(Math.max(0, Math.min(0xffff, Math.round(opt.priority ?? 0))));
+  o.text(cutTakeText(opt.bus ?? "", TAKE_NAME_MAX_BYTES));
+}
+const playOptionsBytes = (opt: TakePlayOptions): number => 1 + 4 + 4 + 2 + 2 + cutTakeText(opt.bus ?? "", TAKE_NAME_MAX_BYTES).byteLength;
+
+const sayArgs = (args: Record<string, string>): [Uint8Array, Uint8Array][] =>
+  Object.keys(args).slice(0, TAKE_MAX_SAY_ARGS).map((k) => [cutTakeText(k, TAKE_NAME_MAX_BYTES), cutTakeText(String(args[k]), TAKE_NAME_MAX_BYTES)]);
+
+function writePick(o: Out, pick: TakeSayPick | null): void {
+  if (pick === null) o.u8(PICK_NULL);
+  else if ("key" in pick) { o.u8(PICK_KEY); o.text(cutTakeText(pick.key, TAKE_NAME_MAX_BYTES)); o.u32(pick.pathIndex); }
+  else { o.u8(PICK_NONE); o.text(cutTakeText(pick.none, TAKE_NAME_MAX_BYTES)); }
+}
+const pickBytes = (pick: TakeSayPick | null): number =>
+  pick === null ? 1 : "key" in pick ? 1 + 2 + cutTakeText(pick.key, TAKE_NAME_MAX_BYTES).byteLength + 4 : 1 + 2 + cutTakeText(pick.none, TAKE_NAME_MAX_BYTES).byteLength;
+
+function readPlayOptions(i: In, knownExtra: number): { options: TakePlayOptions; flags: number } {
+  const at = i.at;
+  const flags = i.u8();
+  if (flags & ~(PLAY_FLAGS_KNOWN | knownExtra)) i.bad(at, `flags 0x${flags.toString(16)}`);
+  const volume = i.f32("volume");
+  const pitch = i.f32("pitch");
+  const priority = i.u16();
+  const bus = i.text(TAKE_NAME_MAX_BYTES, "bus");
+  const options: TakePlayOptions = {};
+  if (flags & PLAY_VOLUME) options.volume = volume;
+  if (flags & PLAY_PITCH) options.pitch = pitch;
+  if (flags & PLAY_BUS) options.bus = bus;
+  if (flags & PLAY_PRIORITY) options.priority = priority;
+  return { options, flags };
+}
+
+function readPick(i: In): TakeSayPick | null {
+  const at = i.at;
+  const kind = i.u8();
+  if (kind === PICK_NULL) return null;
+  if (kind === PICK_KEY) {
+    const key = i.text(TAKE_NAME_MAX_BYTES, "picked key");
+    return { key, pathIndex: i.u32() };
+  }
+  if (kind === PICK_NONE) return { none: i.text(TAKE_NAME_MAX_BYTES, "picked reason") };
+  return i.bad(at, `pick kind ${kind}`);
+}
+
+function code<T>(i: In, list: readonly T[], what: string): T {
+  const at = i.at;
+  const c = i.u8();
+  const v = list[c];
+  if (v === undefined) i.bad(at, `${what} ${c}`);
+  return v!;
 }
 
 function writeParams(o: Out, ps: [Uint8Array, number][]): void {
@@ -294,6 +415,19 @@ export function takeRecordBytes(r: TakeRecordInit): number {
       for (const i of k.instances.slice(-TAKE_MAX_KEYFRAME_INSTANCES)) n += 4 + 4 + 8 + 2 + cutTakeText(i.path, TAKE_PATH_MAX_BYTES).byteLength + paramsBytes(params(i.parameters));
       return k.random !== undefined ? n + 4 : n;
     }
+    case TakeRecordType.LINE: {
+      const p = r.payload;
+      return 8 + 4 + playOptionsBytes(p.options) + 2 + cutTakeText(p.key, TAKE_NAME_MAX_BYTES).byteLength + 2 + cutTakeText(p.language ?? "", TAKE_NAME_MAX_BYTES).byteLength + paramsBytes(params(p.options.parameters));
+    }
+    case TakeRecordType.LANGUAGE:
+      return 8 + 1 + 2 + cutTakeText(r.payload.audio, TAKE_NAME_MAX_BYTES).byteLength + 2 + cutTakeText(r.payload.subtitles ?? "", TAKE_NAME_MAX_BYTES).byteLength;
+    case TakeRecordType.SAY: {
+      const p = r.payload;
+      const args = sayArgs(p.args).reduce((n, [k, v]) => n + 2 + k.byteLength + 2 + v.byteLength, 2);
+      return 8 + 4 + playOptionsBytes(p.options) + 1 + 1 + 4 + 2 + cutTakeText(p.event, TAKE_NAME_MAX_BYTES).byteLength + 2 + cutTakeText(p.options.channel ?? "", TAKE_NAME_MAX_BYTES).byteLength
+        + args + paramsBytes(params(p.options.parameters)) + pickBytes(p.picked);
+    }
+    case TakeRecordType.SAYSTATE: return 8 + 4 + 1 + 1 + 4 + pickBytes(r.payload.picked);
   }
 }
 
@@ -310,6 +444,7 @@ const NAMES: Record<number, string> = {
   [TakeRecordType.PLAY]: "PLAY", [TakeRecordType.STOP]: "STOP", [TakeRecordType.RELEASE]: "RELEASE", [TakeRecordType.PARAM]: "PARAM",
   [TakeRecordType.POSE]: "POSE", [TakeRecordType.MIX]: "MIX", [TakeRecordType.TRIGGER]: "TRIGGER", [TakeRecordType.MARK]: "MARK",
   [TakeRecordType.FRAME]: "FRAME", [TakeRecordType.KEYFRAME]: "take KEYFRAME",
+  [TakeRecordType.LINE]: "LINE", [TakeRecordType.LANGUAGE]: "LANGUAGE", [TakeRecordType.SAY]: "SAY", [TakeRecordType.SAYSTATE]: "SAYSTATE",
 };
 
 function readParams(i: In, name: string): Record<string, number> {
@@ -416,6 +551,63 @@ export function decodeTakeRecord(type: number, view: DataView, off: number, len:
       const n = i.u32();
       if (n > TAKE_FRAME_MAX_BYTES) throw new TakeRecordError("badValue", base + nAt, `FRAME picture ${n} B past ${TAKE_FRAME_MAX_BYTES}`);
       out = { type: "frame", frame: { t, width, height, jpeg: i.bytes(n) } };
+      break;
+    }
+    case TakeRecordType.LINE: {
+      const instance = i.u32();
+      const { options, flags } = readPlayOptions(i, LINE_LANGUAGE);
+      const key = i.text(TAKE_NAME_MAX_BYTES, "key");
+      const language = i.text(TAKE_NAME_MAX_BYTES, "language");
+      const parameters = readParams(i, "parameter");
+      if (Object.keys(parameters).length > 0) options.parameters = parameters;
+      out = { type: "request", requests: [{ kind: "line", t, instance, key, language: flags & LINE_LANGUAGE ? language : null, options }] };
+      break;
+    }
+    case TakeRecordType.LANGUAGE: {
+      const at = i.at;
+      const flags = i.u8();
+      if (flags & ~1) i.bad(at, `flags 0x${flags.toString(16)}`);
+      const audio = i.text(TAKE_NAME_MAX_BYTES, "audio");
+      const subtitles = i.text(TAKE_NAME_MAX_BYTES, "subtitles");
+      out = { type: "request", requests: [{ kind: "language", t, audio, subtitles: flags & 1 ? subtitles : null }] };
+      break;
+    }
+    case TakeRecordType.SAY: {
+      const instance = i.u32();
+      const { options, flags } = readPlayOptions(i, SAY_CHANNEL | SAY_WHEN_BUSY | SAY_RANDOM);
+      const state = code(i, TAKE_SAY_STATES, "state");
+      const whenBusy = code(i, TAKE_SAY_WHEN_BUSY, "whenBusy");
+      const random = i.u32();
+      const event = i.text(TAKE_NAME_MAX_BYTES, "event");
+      const channel = i.text(TAKE_NAME_MAX_BYTES, "channel");
+      const n = i.count(TAKE_MAX_SAY_ARGS, 4, "argument");
+      const args: Record<string, string> = {};
+      for (let k = 0; k < n; k++) {
+        const name = i.text(TAKE_NAME_MAX_BYTES, "argument name");
+        args[name] = i.text(TAKE_NAME_MAX_BYTES, "argument value");
+      }
+      const parameters = readParams(i, "parameter");
+      const sayOptions: TakeSayOptions = { ...options };
+      if (Object.keys(parameters).length > 0) sayOptions.parameters = parameters;
+      if (flags & SAY_CHANNEL) sayOptions.channel = channel;
+      if (flags & SAY_WHEN_BUSY) sayOptions.whenBusy = whenBusy;
+      const picked = readPick(i);
+      const say: Extract<TakeRequest, { kind: "say" }> = { kind: "say", t, instance, event, args: { ...args }, options: sayOptions, state, picked };
+      if (flags & SAY_RANDOM) say.random = random;
+      out = { type: "request", requests: [say] };
+      break;
+    }
+    case TakeRecordType.SAYSTATE: {
+      const instance = i.u32();
+      const state = code(i, TAKE_SAY_STATE_CHANGES, "state");
+      const at = i.at;
+      const flags = i.u8();
+      if (flags & ~1) i.bad(at, `flags 0x${flags.toString(16)}`);
+      const random = i.u32();
+      const picked = readPick(i);
+      const change: Extract<TakeRequest, { kind: "sayState" }> = { kind: "sayState", t, instance, state, picked };
+      if (flags & 1) change.random = random;
+      out = { type: "request", requests: [change] };
       break;
     }
     default: {
