@@ -357,3 +357,12 @@ World; Doppler correct on the core); broken were a pitch spike (+150 cents, ~50 
 start (the wrap jump was under the teleport guard's threshold) and the plan view never showing motion. Velocity now
 carries across a near-closed wrap (gap ≤ max(5 m, 2·maxSpeed·dt)); longer gaps jump and are zeroed. The Inspector
 shows Doppler as ratio + cents.
+
+**D47. Samples detection, re-import, render cache (W11-C, merged).** Detection uses the existing UI (Detect buttons,
+the import's "Detect what's missing", the "Detected" chip; checked against the prototype's Samples artboard, which
+has exactly these plus Tap tempo, already built). Choices to review: the 120 BPM octave prior (a plain click track
+above ~185 BPM reads at half tempo; 2× is offered); confidence floors 0.35 tempo / 0.5 root at import, 0.2 on
+demand; re-import defaults to Keep seconds (Wwise/FMOD keep absolute marker times), keeps the file extension, and
+undo restores the old audio via `sample.sourceVersion`; exports render baked samples as `<stem>.render-<hash12>.wav`
+(normalize-only isn't rendered; non-WAV sources ship without effects, with a warning); Entry markers reuse the exit
+marker token, dotted. Measured: 60–179 BPM click tracks within ±0.26 BPM; 204 test tones, 0 wrong notes.
