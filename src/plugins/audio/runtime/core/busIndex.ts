@@ -17,8 +17,7 @@
 //   consumer reads the slot from this map or `BusLanes.slot` (G7c). The mixer holds a tombstone's state by slot
 //   (`Mixer._tombstoneLanes`) until the slot recycles, for the replay's dip lane.
 // - **Live effects (ADR 0330).** A slot's effects on the wire are the mixer's live effects (`Mixer._busEffects`): the
-//   authored chain with the main thread's values in (snapshot overrides, effect and send automation, a send following
-//   its return's lanes and the mutes). Each mixer change (`replanBedsOnSettings`, which the backend runs on every one)
+//   authored chain with the main thread's values in (snapshot overrides, effect automation). Each mixer change (`replanBedsOnSettings`, which the backend runs on every one)
 //   writes one `BUS_SLOT` for each slot whose live parameter values moved (`syncEffects`); a change of the chain itself
 //   (an effect added, removed or moved) is the live ops' (`liveMix.ts`, the structural dip), never this.
 // - **Sends (ADR 0330, ABI 4.7).** A return is a bus of the mixer's view with a slot like any other; a bus's post-fader
