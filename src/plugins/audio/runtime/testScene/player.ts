@@ -136,11 +136,25 @@ function placeBox(node: GameObject, box: SceneBox): void {
 const PANNERS: Readonly<Record<AudioPanner, TestSceneRendering>> = { hrtf: "hrtf", equalPower: "panned", bed: "bed", ambisonic: "ambisonic", flat: "2d" };
 
 /**
+ * A base scene's own sound to read in `voices()` (decision log D43): the row's id, and where its component is, as a
+ * `replace` key names it (`"Cave/Campfire/AudioSource"`, `[i]` for the i-th of its type on the node).
+ */
+export interface BaseSoundRef {
+  readonly id: string;
+  readonly path: string;
+}
+
+export interface PlayAudioTestSceneOptions {
+  /** The loaded base scene's emitters and audio zones, read into `voices()` beside the scene's own (after them). */
+  readonly base?: readonly BaseSoundRef[];
+}
+
+/**
  * Builds `scene` in `world` and plays it. The World plays sound only while it has the view, as any World; the caller
  * steps it. A base scene, when the test scene names one, is the caller's to load first (its `replace` entries apply to
- * what is loaded).
+ * what is loaded); `options.base` names its sounds for the Voices readout.
  */
-export function playAudioTestScene(world: World, scene: AudioTestScene): AudioTestScenePlayer {
+export function playAudioTestScene(world: World, scene: AudioTestScene, options: PlayAudioTestSceneOptions = {}): AudioTestScenePlayer {
   const root = GameObject.create(`Audio test scene${scene.folder ? ` (${scene.folder})` : ""}`, { parent: world.activeScene ?? world.root });
   const listeners = new Map<string, AudioListener>();
   const emitters = new Map<string, { emitter: TestEmitter; source: AudioSource; mover: RouteMover | null }>();
@@ -237,6 +251,13 @@ export function playAudioTestScene(world: World, scene: AudioTestScene): AudioTe
     }
   }
 
+  // The base scene's own sounds (they play as the game's do; the readout reads them as it reads the scene's).
+  const baseSounds: { id: string; component: AudioSource | AudioZone }[] = [];
+  for (const ref of options.base ?? []) {
+    const component = componentAt(world, ref.path);
+    if (component) baseSounds.push({ id: ref.id, component });
+  }
+
   let active = scene.activeListener;
   const activePosition = (): Vec3 | null => {
     const l = listeners.get(active);
@@ -283,8 +304,9 @@ export function playAudioTestScene(world: World, scene: AudioTestScene): AudioTe
       const rows = Audio.debug().voices;
       const lp = activePosition();
       const out: TestSceneVoiceRow[] = [];
-      const read = (id: string, kind: TestSceneVoiceRow["kind"], playing: boolean, distance: number | null, panner: AudioPanner | null, occlusionGain: number | null): void => {
-        const mine = rows.filter((r) => r.owner === id);
+      const read = (id: string, kind: TestSceneVoiceRow["kind"], playing: boolean, distance: number | null, panner: AudioPanner | null, occlusionGain: number | null, owner = id): void => {
+        // A voice's owner is its node's name: the scene's nodes are named by id, a base scene's by the game's names.
+        const mine = rows.filter((r) => r.owner === owner);
         const row = mine.find((r) => r.state === "playing") ?? mine[0];
         const p = row?.panner ?? panner;
         const doppler = row?.doppler ?? null;
@@ -304,6 +326,16 @@ export function playAudioTestScene(world: World, scene: AudioTestScene): AudioTe
       }
       for (const [id, z] of zones) read(id, "zone", z.isPlaying, lp ? z.distance : null, null, null);
       for (const [id, s] of sounds2d) read(id, "sound2d", s.isPlaying, null, s.panner, null);
+      for (const { id, component: c } of baseSounds) {
+        if (!c.node.isValid) continue;
+        if (c instanceof AudioZone) {
+          read(id, "zone", c.isPlaying, lp ? c.distance : null, null, null, c.node.name);
+          continue;
+        }
+        const pos = c.node.transform?.worldPosition;
+        if (!c.spatial) read(id, "sound2d", c.isPlaying, null, c.panner, null, c.node.name);
+        else read(id, "emitter", c.isPlaying, lp && pos ? Math.hypot(pos.x - lp.x, pos.y - lp.y, pos.z - lp.z) : null, c.panner, c.isPlaying ? c.occlusionGain : null, c.node.name);
+      }
       return out;
     },
     motion() {

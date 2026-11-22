@@ -296,7 +296,7 @@ function VoicesListPanel() {
 
 function VoicesTable(props: { blocked?: string }) {
   const s = scene.value;
-  const rows = s ? voiceTable(s, voices.value, silenced) : [];
+  const rows = s ? voiceTable(s, voices.value, silenced, { base: baseImport.value, motion: playing.value ? motion.value : [] }) : [];
   return <VoicesPanel rows={rows} playing={playing.value} blocked={props.blocked} selected={selected.value} onSelect={(id) => (selected.value = id)} onPlay={playScene} />;
 }
 

@@ -15,6 +15,7 @@
 .sp-icon { background: none; border: 1px solid transparent; color: var(--muted); border-radius: 3px; padding: 0 5px; cursor: pointer; }
 .sp-icon:hover:not(:disabled) { color: var(--text); border-color: var(--border); }
 .sp-link { background: none; border: none; color: var(--link); padding: 0; cursor: pointer; font: inherit; }
+.sp-base-tag { margin-left: 4px; padding: 0 4px; border: 1px solid var(--border); border-radius: 3px; color: var(--muted); font-size: calc(10px * var(--ui-scale)); }
 .sp-tag { margin-left: 6px; font-size: calc(10px * var(--ui-scale)); padding: 0 5px; border-radius: 8px; background: var(--accent-soft); color: var(--text); }
 .sp-tag.quiet { background: var(--hover); color: var(--muted); }
 .sp-transport { background: var(--accent); color: var(--accent-text); border: 1px solid var(--accent); border-radius: 4px; padding: 3px 14px; cursor: pointer; }

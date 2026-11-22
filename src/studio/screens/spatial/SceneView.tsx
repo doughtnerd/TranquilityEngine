@@ -19,7 +19,7 @@ import type { SceneHost } from "./sceneHost";
 import { BASE_CLASS, baseBanner, basePlanItems } from "./baseLayer";
 import { activeListener, allObjects, boxOf, findObject, insertRoutePoint, moveObjectTo, positionOf, removeRoutePoint, renameObject, setBoxHeights, setHeight, type SceneObject } from "./sceneEdits";
 import { pickTool, placesByClick, TOOLS, type Tool } from "./tools";
-import { LEGEND, raysOf } from "./voicesTable";
+import { LEGEND, rayEnd, raysOf } from "./voicesTable";
 import { gridStep, panBy, pinch, toPlan, toScreen, visibleBounds, zoomAt, zoomPercent, ZOOM_STEP, type Px, type Size, type View } from "./viewTransform";
 
 const useSize = (ref: { current: Element | null }, onSize?: (s: Size) => void): Size => {
@@ -407,10 +407,10 @@ function PlanObjects(props:{ host: SceneHost; S: (p: P2) => Px; visible: (o: Sce
         return <polyline key={`route-${o.obj.id}`} class={`sp-route${dim(o)}${host.tools.pathEdit === o.obj.id ? " editing" : ""}`} points={pts(e.route.map(S))} />;
       })}
       {rays.map((r) => {
+        // A moving emitter's ray goes to where it is now; a base scene's sound's to its place underneath (D43).
         const o = findObject(s, r.id);
-        if (!o || !shownInPlan(s, o)) return null;
-        const b = boxOf(o);
-        const to = b ? nearestOnBox(b, listener.position) : positionOf(o);
+        if (o && !shownInPlan(s, o)) return null;
+        const to = rayEnd(s, r.id, listener.position, host.playing ? (host.motion ?? []) : [], host.base);
         if (!to) return null;
         const a = S(listener.position), z = S(to);
         return <line key={`ray-${r.id}`} class={`sp-ray${r.occluded ? " occluded" : ""}`} x1={a.x} y1={a.y} x2={z.x} y2={z.y} />;

@@ -1,6 +1,7 @@
 // The Voices panel (ADR 0333 "The Voices table reads the runtime's own debug rows"; the prototype's Voices table): each
 // emitter, audio zone and 2D sound of the scene with its distance from the listener, how it is rendered (HRTF, panned,
-// ambisonic bed, 2D), its occlusion and Doppler, read from the test scene player while the scene plays. A click selects.
+// ambisonic bed, 2D), its occlusion and Doppler, read from the test scene player while the scene plays, then the base game
+// scene's own sounds (marked "base"; read-only, so a click doesn't select them). A click selects.
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import type { VoiceTableRow } from "./voicesTable";
 
@@ -39,9 +40,15 @@ export function VoicesPanel(props: VoicesPanelProps) {
         </thead>
         <tbody>
           {props.rows.map((r) => (
-            <tr key={r.id} class={`${props.selected === r.id ? "selected" : ""}${r.silenced || !r.playing ? " quiet" : ""}`} onClick={() => props.onSelect(r.id)}>
+            <tr key={r.id} class={`${props.selected === r.id ? "selected" : ""}${r.silenced || !r.playing ? " quiet" : ""}`} onClick={() => !r.base && props.onSelect(r.id)}>
               <th scope="row">
-                <button type="button" class="sp-link" onClick={() => props.onSelect(r.id)}>{r.name}</button>
+                {r.base ? (
+                  <span title="A sound of the base game scene, playing underneath (read-only)">
+                    {r.name} <span class="sp-base-tag">base</span>
+                  </span>
+                ) : (
+                  <button type="button" class="sp-link" onClick={() => props.onSelect(r.id)}>{r.name}</button>
+                )}
               </th>
               <td class="num">{r.distanceText}</td>
               <td>

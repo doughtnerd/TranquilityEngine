@@ -12,9 +12,9 @@ import { ScenesPanel } from "./ScenesPanel";
 import { setHidden, setLocked } from "./sceneEdits";
 import { SettingsPanel } from "./SettingsPanel";
 import { AttenuationChoiceDialog, GameSceneDialog, TakeDialog } from "./SpatialDialogs";
-import { FIXTURE_SCENE_FILES, fixtureScene, fixtureVoices } from "./spatialFixture";
+import { FIXTURE_SCENE_FILES, fixtureBase, fixtureScene, fixtureVoices } from "./spatialFixture";
 import { VoicesPanel } from "./VoicesPanel";
-import { voiceTable } from "./voicesTable";
+import { baseSoundId, voiceTable } from "./voicesTable";
 import "../../components/audioParts.css";
 import "../playlists/playlists.css";
 import "./spatial.css";
@@ -139,6 +139,20 @@ export const Voices: Story = {
     const c = within(canvasElement);
     await expect(c.getByRole("row", { name: /Generator/ })).toHaveTextContent("Panned");
     await expect(c.getByRole("row", { name: /Drone/ })).toHaveTextContent("+34 ct");
+  },
+};
+
+/** D43: the base game scene's own well plays underneath, after the scene's sounds, marked "base". */
+export const VoicesWithBase: Story = {
+  render: () => {
+    const base = fixtureBase();
+    const well = base.objects.find((o) => o.name === "Well")!;
+    const rows = [...fixtureVoices(), { id: baseSoundId(well.key), kind: "emitter" as const, playing: true, rendered: "hrtf" as const, distance: 15.7, occlusion: { gain: 1, cutoffHz: null, material: null }, doppler: 1, dopplerCents: 0 }];
+    return frame(640, 300, <VoicesPanel rows={voiceTable(fixtureScene(), rows, undefined, { base })} playing selected={null} onSelect={fn()} onPlay={fn()} />);
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByRole("row", { name: /Well/ })).toHaveTextContent("base");
   },
 };
 
