@@ -6,6 +6,9 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WindowEvent};
 /// The editor window's label (tauri.conf.json, the capabilities, `EDITOR_WINDOW` in editorWindowStart.ts).
 const EDITOR_WINDOW: &str = "main";
 
+/// The Audio Studio's window label (ADR 0327; tauri.conf.json, the capabilities, `create_studio_window`).
+const STUDIO_WINDOW: &str = "studio";
+
 /// Detached panel windows (ADR 0174) are labelled `panel-window-<n>`.
 const PANEL_WINDOW_PREFIX: &str = "panel-window-";
 
@@ -36,6 +39,40 @@ async fn create_editor_window(app: AppHandle) -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Opens the Audio Studio's window (ADR 0327) from its tauri.conf.json entry (`create: false`), or shows,
+/// unminimises and focuses it when it is open. The editor's Window > Audio Studio and Open in Audio
+/// Studio call this, then hand the Studio the project over Tauri events (`myco://studio-open`). The
+/// Studio is its own app: it stays open when the editor closes, and the app ends with its last window.
+/// Async for the same reason as `create_editor_window`. Resolves to whether it created the window.
+#[tauri::command]
+async fn create_studio_window(app: AppHandle) -> Result<bool, String> {
+    if let Some(studio) = app.get_webview_window(STUDIO_WINDOW) {
+        let _ = studio.unminimize();
+        studio.show().map_err(|e| e.to_string())?;
+        studio.set_focus().map_err(|e| e.to_string())?;
+        return Ok(false);
+    }
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == STUDIO_WINDOW)
+        .cloned()
+        .ok_or_else(|| format!("tauri.conf.json has no \"{STUDIO_WINDOW}\" window"))?;
+    WebviewWindowBuilder::from_config(&app, &config)
+        .map_err(|e| e.to_string())?
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// This process's id, for the project lock files (`.myco/locks/<app>.json`, ADR 0327).
+#[tauri::command]
+fn process_id() -> u32 {
+    std::process::id()
 }
 
 /// The editor's `window.open` (ADR 0174, detached panel windows): a Tauri window built with the
@@ -126,7 +163,11 @@ pub fn run() {
         // window while the editor is hidden. (The editor's own guard asks about unsaved changes first.)
         // Quitting destroys the other window and lets the app end with its last window: exiting with
         // a window still open makes WebView2 log "Failed to unregister class Chrome_WidgetWin_0".
-        .invoke_handler(tauri::generate_handler![create_editor_window])
+        .invoke_handler(tauri::generate_handler![
+            create_editor_window,
+            create_studio_window,
+            process_id
+        ])
         .on_window_event(|window, event| {
             let other = |label: &str| window.app_handle().get_webview_window(label);
             match (window.label(), event) {

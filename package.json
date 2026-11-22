@@ -41,6 +41,8 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "tauri:studio:dev": "node tools/tauri-studio.mjs dev",
+    "tauri:studio:build": "node tools/tauri-studio.mjs build",
     "postinstall": "patch-package",
     "bench:particles": "node bench/particles/run.mjs",
     "check:filenames": "node tools/check-filename-case.mjs"
