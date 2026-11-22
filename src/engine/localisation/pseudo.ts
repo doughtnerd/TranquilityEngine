@@ -26,7 +26,7 @@ const ACCENTS: Readonly<Record<string, string>> = {
 };
 
 /** ASCII letters accented (`Start` → `Šţàŕţ`); everything else as it is. */
-export const accentText = (text: string): string => text.replace(/[A-Za-z]/g, (c) => ACCENTS[c] ?? c);
+const accentText = (text: string): string => text.replace(/[A-Za-z]/g, (c) => ACCENTS[c] ?? c);
 
 /** A message tree with its literal text accented; arguments, keywords and `#` untouched. */
 export function accentMessage(ast: readonly MessageNode[]): MessageNode[] {
@@ -38,7 +38,7 @@ export function accentMessage(ast: readonly MessageNode[]): MessageNode[] {
 }
 
 /** Extra characters for text of `length` characters: +100% under 10, falling to +30% at 70 and beyond. */
-export function pseudoExpansion(length: number): number {
+function pseudoExpansion(length: number): number {
   const ratio = length < 10 ? 1 : length >= 70 ? 0.3 : 1 - (0.7 * (length - 10)) / 60;
   return Math.ceil(length * ratio);
 }

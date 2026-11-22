@@ -36,7 +36,7 @@ const LENGTH_FIELDS: ReadonlySet<string> = new Set(["width", "height", "top", "r
 /** Attributes that aren't fields (`translate="no"` marks text as deliberately unlocalised, ADR 0342 §4). */
 const NOT_FIELDS: ReadonlySet<string> = new Set(["id", "class", "translate"]);
 /** The prefix of key attributes (`t:text="menu.start"`, ADR 0342 §4): the runtime writes the localised message. */
-export const KEY_ATTRIBUTE_PREFIX = "t:";
+const KEY_ATTRIBUTE_PREFIX = "t:";
 
 // --- Parsing ------------------------------------------------------------------------------------
 
