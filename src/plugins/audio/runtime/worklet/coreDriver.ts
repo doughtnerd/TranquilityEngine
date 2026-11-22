@@ -52,6 +52,7 @@ import {
 } from "../wire.generated";
 import { askCoreMemory, clipSampleBytes, CoreLoadError, EXPECTED, initRecord, initRefusal, MEMORY_INITIAL_PAGES, openCore, writeInitRecord, type CoreExpectations } from "./coreMemory";
 import { UnderrunProbe } from "./underrunProbe";
+import { peekKind } from "../wireEnvelope";
 
 /** @internal The name `processor.ts` registers and the host creates its node with. */
 export const PROCESSOR_NAME = "myco-audio-core";
@@ -298,7 +299,7 @@ export class CoreDriver {
     if (buffer.byteLength < 16) return this.giveBack(buffer);
     const view = new DataView(buffer);
     if (view.getUint32(0, true) !== MAGIC || view.getUint16(4, true) >> 8 !== VERSION_MAJOR) return this.giveBack(buffer);
-    const kind = view.getUint16(6, true);
+    const kind = peekKind(view);
     if (this.dead) {
       // Nothing reaches a trapped core. STATUS buffers go back to the pool (they're the shell's), clip buffers are the
       // main side's and simply dropped (it re-sends every clip to the new core), the rest return to the host.
@@ -351,7 +352,7 @@ export class CoreDriver {
     while (this.clipQueue.length > 0 && !this.dead) {
       const buffer = this.clipQueue[0]!;
       const view = new DataView(buffer);
-      const kind = view.getUint16(6, true);
+      const kind = peekKind(view);
       if (kind === Kind.CLIP_CHUNK) {
         const bytes = this.chunkBytes(view);
         // A chunk larger than a whole budget is refused by the core anyway; let it through on a fresh budget.
@@ -460,7 +461,7 @@ export class CoreDriver {
     if (!(data instanceof ArrayBuffer) || data.byteLength < 16 || this.dead) return;
     const view = new DataView(data);
     if (view.getUint32(0, true) !== MAGIC || view.getUint16(4, true) >> 8 !== VERSION_MAJOR) return;
-    switch (view.getUint16(6, true)) {
+    switch (peekKind(view)) {
       case Kind.STREAM_OPEN: {
         if (data.byteLength < STREAM_OPEN_FIXED_END) return;
         const open = readStreamOpen(view, 0);
@@ -488,7 +489,7 @@ export class CoreDriver {
       }
       case Kind.CLIP_CHUNK:
       case Kind.CLIP_UNLOAD: {
-        const kind = view.getUint16(6, true);
+        const kind = peekKind(view);
         if (data.byteLength < (kind === Kind.CLIP_CHUNK ? CLIP_CHUNK_FIXED_END : CLIP_UNLOAD_FIXED_END)) return;
         const clipId = kind === Kind.CLIP_CHUNK ? readClipChunk(view, 0).clipId : readClipUnload(view, 0).clipId;
         if (!this.portKernels.has(clipId)) return;
