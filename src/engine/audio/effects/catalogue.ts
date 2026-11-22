@@ -14,7 +14,7 @@
  *
  * Pure; no plugin, no DOM.
  */
-import { IdScope, isFiniteNumber, isRecord, LenientReader } from "./lenientRead";
+import { IdScope, isFiniteNumber, isRecord, LenientReader } from "../lenientRead";
 import { EFFECT_TYPES, type Effect, type EffectLevel, type EffectParamSpec, type EffectSpec, type EffectType } from "./types";
 
 export const EFFECT_LEVELS: readonly EffectLevel[] = ["sample", "voice", "instance", "bus"];

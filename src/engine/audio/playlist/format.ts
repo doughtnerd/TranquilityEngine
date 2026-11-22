@@ -21,7 +21,7 @@
  */
 import { attenuationToJson, parseAttenuation } from "../attenuation/format";
 import { effectsToJson, parseEffects } from "../effects/catalogue";
-import { curveToJson, IdScope, isFiniteNumber, isRecord, LenientReader, CURVE_KEY_LIMIT, type JsonRecord } from "../effects/lenientRead";
+import { curveToJson, IdScope, isFiniteNumber, isRecord, LenientReader, CURVE_KEY_LIMIT, type JsonRecord } from "../lenientRead";
 import type { EffectLevel } from "../effects/types";
 import { isLabelled, MAX_LOCAL_PARAMETERS, parseParameters, type ParameterDef } from "../eventFormat";
 import { loopBehaviourToJson, loopOverrideToJson, parseLoopBehaviour, parseLoopOverride } from "./loopBehaviour";

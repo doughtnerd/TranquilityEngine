@@ -4,7 +4,7 @@
  *
  * Pure; no plugin, no DOM.
  */
-import { isRecord, LenientReader } from "../effects/lenientRead";
+import { isRecord, LenientReader } from "../lenientRead";
 import type { LoopBehaviour } from "./types";
 
 export const LOOP_ACTIVE = ["always", "held", "parameter"] as const satisfies readonly LoopBehaviour["active"][];

@@ -10,7 +10,7 @@
  */
 import { deepEqual } from "../deepEqual";
 import { effectsToJson, parseEffects } from "../effects/catalogue";
-import { IdScope, isFiniteNumber, isRecord, LenientReader, type JsonRecord } from "../effects/lenientRead";
+import { IdScope, isFiniteNumber, isRecord, LenientReader, type JsonRecord } from "../lenientRead";
 import { loopBehaviourToJson, parseLoopBehaviour } from "../playlist/loopBehaviour";
 import { NOTE_NAME_PATTERN } from "./noteNames";
 import {

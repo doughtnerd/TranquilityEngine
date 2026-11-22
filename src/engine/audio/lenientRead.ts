@@ -1,12 +1,12 @@
 /**
  * The lenient JSON reading the Audio Studio formats share (effects, attenuation, playlists, samples): a bad value falls
  * back to its default with one problem line under `where`, a value out of range is clamped with one problem line, and
- * nothing throws (the engine's lenient parse, ADR 0306). It lives beside the effect catalogue because the catalogue is
- * the lowest of those formats; every other format imports the catalogue anyway.
+ * nothing throws (the engine's lenient parse, ADR 0306). It sits at the top of `audio/` because every format folder
+ * (effects, attenuation, playlist, sample, project) reads with it and none of them owns it.
  *
  * Pure; no plugin, no DOM.
  */
-import { parseCurve, type Curve } from "../../core/curve";
+import { parseCurve, type Curve } from "../core/curve";
 
 /** At most this many keys in one curve of the new audio formats (ADR 0329 "keys per curve ≤ 64"; declared once here). */
 export const CURVE_KEY_LIMIT = 64;
