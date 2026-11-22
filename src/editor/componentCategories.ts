@@ -61,6 +61,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   UIButton: "UI",
   UIInputField: "UI",
   UIDocument: "UI",
+  LocalizedText: "UI", // ADR 0342 §4
 };
 
 /** The category of an engine component id, or null when the table doesn't know it (it lands in Other). */

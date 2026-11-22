@@ -18,6 +18,11 @@ export interface AssetSource {
   has(path: string): boolean;
   /** The asset value for `path` by its kind (ADR 0254): parsed JSON for `.json` files, the text of text files, a URL otherwise. */
   get(path: string): unknown;
+  /**
+   * Every path the source holds, when it can list them (ADR 0342: string tables are found by name). A source without
+   * it still serves lookups; what it holds just isn't discovered.
+   */
+  paths?(): Iterable<string>;
 }
 
 const sources: AssetSource[] = [];
@@ -97,6 +102,13 @@ export const Assets = {
   has(path: string): boolean {
     const p = normalizeAssetPath(path);
     return sources.some((s) => s.has(p));
+  },
+
+  /** @internal Every path the registered sources list (`AssetSource.paths`), each once, in source order. */
+  paths(): string[] {
+    const out = new Set<string>();
+    for (const s of sources) for (const p of s.paths?.() ?? []) out.add(normalizeAssetPath(p));
+    return [...out];
   },
 
   /**
@@ -197,6 +209,7 @@ export const Assets = {
     return {
       has: (path) => map.has(path),
       get: (path) => map.get(path),
+      paths: () => map.keys(),
     };
   },
 
@@ -205,6 +218,7 @@ export const Assets = {
     return {
       has: (path) => Object.prototype.hasOwnProperty.call(map, path),
       get: (path) => map[path],
+      paths: () => Object.keys(map),
     };
   },
 };

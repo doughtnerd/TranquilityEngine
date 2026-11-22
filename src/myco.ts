@@ -98,6 +98,7 @@ export {
   type UIEventType,
   type UIListOptions,
   type UITag,
+  LocalizedText, // ADR 0342 §4
 } from "./plugins/ui/runtime";
 
 // The Environment plugin (ADR 0140).
