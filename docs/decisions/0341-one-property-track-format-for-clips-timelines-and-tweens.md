@@ -149,7 +149,7 @@ We will use **one track model** for everything that changes over time. A clip, a
 
 ## Open questions
 
-- **Loadable packages:** the owner decided (2026-11-22) that audio 0337's packages become engine-wide and are renamed **BioPak** (`.biopak`). They get their own record after the audio branch merges; audio itself is renamed Biosonic afterwards. Clips, skeletons and pose databases then ship in them.
+- **Loadable packages:** BioPaks are audio-only (0347). A package of mixed assets (clips, skeletons, pose databases, models) gets a different name and convention in its own record, after this build. Until then clips and pose databases load as individual assets.
 
 ## References
 
