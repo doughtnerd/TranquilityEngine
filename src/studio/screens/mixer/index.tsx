@@ -1,5 +1,6 @@
 // The Mixer screen's panels (ADR 0330, 0327 "The shell"; the prototype's layout): Snapshots and Gain lanes (left),
-// Buses (the fixed panel), the Inspector and Game parameters (right), Loudness (bottom) and History on demand. They
+// Buses (the fixed panel), the Inspector, Game parameters (test values) and Global parameters (their definitions) on the
+// right, Loudness (bottom) and History on demand. They
 // share one session over `audio.json`'s document (`mixerScreen.ts`), made here for the open project with the real
 // confirm dialog, toasts, status bar, project-wide renames and the Studio's runtime (`mixerRuntime.ts`).
 import { effect } from "@preact/signals";
@@ -23,6 +24,9 @@ import { auditionSnapshot, liveMixHost, readBus, readLoudness, setLoudnessTarget
 import { createMixerSession, type MixerSession } from "./mixerScreen";
 import { busRenameEdit } from "./renameReferences";
 import { GainLanesPanel, LoudnessPanel, ParametersPanel } from "./SidePanels";
+import { GlobalParametersPanel } from "./GlobalParametersPanel";
+import { sessionParametersHost } from "./globalParametersHost";
+import { renameParameterOutside } from "./globalParametersPanels";
 import { SnapshotsPanel } from "./SnapshotsPanel";
 import { TriggerDialogHost } from "./TriggerDialog";
 import "./mixer.css";
@@ -109,6 +113,7 @@ export const MIXER_PANELS: readonly StudioPanel[] = [
   mixPanel("mixer-board", "Buses", "fill", (s) => <BoardView session={s} />, { fixed: true }),
   mixPanel("mixer-inspector", "Inspector", "right", (s) => <MixerInspector session={s} />),
   mixPanel("mixer-parameters", "Game parameters", "right", (s) => <ParametersPanel session={s} />),
+  mixPanel("mixer-global-parameters", "Global parameters", "right", (s) => <GlobalParametersPanel host={sessionParametersHost(s, renameParameterOutside)} />),
   mixPanel("mixer-loudness", "Loudness · Master", "bottom", (s) => <LoudnessPanel session={s} />),
   historyPanel("mixer"),
 ];

@@ -39,7 +39,7 @@ export function ParametersPanel(props: { session: MixerSession }) {
       <ParameterPanel
         parameters={p.parameters}
         values={session.testValues.value}
-        empty="No game parameters yet. Snapshot conditions and automation are driven by them."
+        empty="No game parameters yet: add them in the Global parameters panel. Snapshot conditions and automation are driven by them."
         onValue={(name, value) => session.setTestValue(name, value)}
       />
     </MixFrame>
