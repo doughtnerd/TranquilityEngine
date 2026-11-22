@@ -89,7 +89,11 @@ fn check(
 
 #[test]
 fn cached_samples_match_uncached_bit_for_bit() {
-    for (shape, seed) in [(Shape::Humanoid, 3), (Shape::Tree(37), 8), (Shape::Single, 2)] {
+    for (shape, seed) in [
+        (Shape::Humanoid, 3),
+        (Shape::Tree(37), 8),
+        (Shape::Single, 2),
+    ] {
         let fx = fixture(shape, seed);
         let n = fx.rest.len();
         let tables: Vec<(ClipSampler<'_>, ClipBindings)> = fx
@@ -110,13 +114,35 @@ fn cached_samples_match_uncached_bit_for_bit() {
             let mut t = 0.0f32;
             for _ in 0..200 {
                 t = (t + speed / 60.0).rem_euclid(fx.duration);
-                check(&bound[0], t, &fx.rest, &mut cache, &format!("{shape:?} speed {speed}"));
+                check(
+                    &bound[0],
+                    t,
+                    &fx.rest,
+                    &mut cache,
+                    &format!("{shape:?} speed {speed}"),
+                );
             }
         }
         // Seeks, and the clip's last frame (f0 == f1).
         let mut cache = FrameCache::new(&mut head, &mut mem, 1);
-        for t in [0.0, 1.9, 0.53, 0.54, 1.0, fx.duration, fx.duration + 1.0, 0.02, -0.5] {
-            check(&bound[0], t, &fx.rest, &mut cache, &format!("{shape:?} seek"));
+        for t in [
+            0.0,
+            1.9,
+            0.53,
+            0.54,
+            1.0,
+            fx.duration,
+            fx.duration + 1.0,
+            0.02,
+            -0.5,
+        ] {
+            check(
+                &bound[0],
+                t,
+                &fx.rest,
+                &mut cache,
+                &format!("{shape:?} seek"),
+            );
         }
         // One cache handed between two clips, two rest poses and two tags.
         let mut t = 0.0f32;
@@ -124,7 +150,13 @@ fn cached_samples_match_uncached_bit_for_bit() {
             t += 1.0 / 60.0;
             let mut cache = FrameCache::new(&mut head, &mut mem, (i / 7) as u32);
             let rest = if i % 5 == 0 { &fx.identity } else { &fx.rest };
-            check(&bound[i % 2], t, rest, &mut cache, &format!("{shape:?} shared"));
+            check(
+                &bound[i % 2],
+                t,
+                rest,
+                &mut cache,
+                &format!("{shape:?} shared"),
+            );
         }
         // Too short: samples without it.
         let mut short = vec![SoaTransform::default(); FrameCache::frames_len(n) - 1];

@@ -82,7 +82,9 @@ fn parents_of(shape: Shape, rng: &mut Rng) -> Vec<u16> {
         Shape::Humanoid80 => {
             let mut p = parents_of(Shape::Humanoid, rng);
             // Leaves on the hips, spine, neck and head, the upper arms, forearms, thighs, shins and hands.
-            for parent in [1u16, 2, 3, 4, 5, 6, 6, 6, 6, 6, 11, 13, 32, 34, 52, 53, 56, 57, 15, 36] {
+            for parent in [
+                1u16, 2, 3, 4, 5, 6, 6, 6, 6, 6, 11, 13, 32, 34, 52, 53, 56, 57, 15, 36,
+            ] {
                 p.push(parent);
             }
             assert_eq!(p.len(), 80);

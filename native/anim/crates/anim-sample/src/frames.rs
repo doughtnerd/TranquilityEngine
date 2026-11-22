@@ -113,7 +113,15 @@ pub(crate) fn sample(
         || h[REST..REST + 2] != rest_key
     {
         h.copy_from_slice(&[
-            n as u32, cache.tag, key[0], key[1], rest_key[0], rest_key[1], NO_FRAME, NO_FRAME, 0,
+            n as u32,
+            cache.tag,
+            key[0],
+            key[1],
+            rest_key[0],
+            rest_key[1],
+            NO_FRAME,
+            NO_FRAME,
+            0,
             NO_FRAME,
         ]);
     }
