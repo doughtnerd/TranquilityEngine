@@ -111,7 +111,35 @@ describe("per-level submixes on the core (ADR 0331, ABI 4.9)", () => {
     }
   });
 
-  it("a nested playlist's EQ applies to its own voices only", { timeout: 30_000 }, async (ctx) => {
+  it("a loading clip with a delay, played unstamped, still runs its chain once it starts", { timeout: 30_000 }, async (ctx) => {
+    // The clip isn't on the core yet: the sequence restarts each frame while it loads (D44), so the voice that sounds
+    // is a restarted one, stamped; its ROUTE into the clip's submix must still follow its PLAY.
+    const delay = { id: "d", type: "delay", on: true, params: { time: 150, feedback: 50, mix: 50 } };
+    const r = await rig({
+      "cold.playlist.json": {
+        format: "myco.playlist@1", type: "sequence", entries: [],
+        sequence: { length: 1, tracks: [{ id: "t", kind: "audio", clips: [{ id: "c", sample: "burst.wav", at: 0, length: 0, effects: [delay] }] }] },
+      },
+    });
+    if (!r) return ctx.skip();
+    try {
+      const mark = r.out.length;
+      Audio.play("cold.playlist.json");
+      await vi.waitFor(async () => {
+        await r.step(1);
+        expect(r.out.some((s, k) => k >= mark && Math.abs(s) > 1e-4)).toBe(true);
+      });
+      await r.step(60);
+      const onset = r.out.findIndex((s, k) => k >= mark && Math.abs(s) > 1e-4);
+      const at = (s: number) => onset + Math.round(s * RATE);
+      expect(level(r.out, at(0.02), at(0.08))).toBeCloseTo(LEVEL / 2, 2);
+      expect(level(r.out, at(0.17), at(0.23))).toBeCloseTo(LEVEL / 2, 2);
+    } finally {
+      r.dispose();
+    }
+  });
+
+  it("a nested playlist's EQ applies to its own voices only",{ timeout: 30_000 }, async (ctx) => {
     // Low and high shelves at −18 dB: DC and Nyquist both fall 18 dB through it.
     const eq = { id: "e", type: "eq", on: true, params: { low: -18, mid: 0, high: -18 } };
     const r = await rig({

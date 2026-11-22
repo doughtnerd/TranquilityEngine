@@ -558,8 +558,9 @@ export class CoreVoices {
     host.playheads.start(i, stamp ?? clockMap.framesNow(), a.startOffsetFrames);
     // ADR 0158: the voice's bindings and loop, right behind its PLAY.
     host.automation.onPlaySent(id, i, stamp);
-    // ADR 0331 levels (ABI 4.9): into its playlist level's submix (applies on arrival, like the bindings).
-    if (t.submix[i]! > 0) host.writer.route(id, t.submix[i]! - 1);
+    // ADR 0331 levels (ABI 4.9): into its playlist level's submix (applies on arrival, like the bindings), stamped as
+    // its PLAY so the frame-ordered batch keeps it after the PLAY (which would otherwise clear it).
+    if (t.submix[i]! > 0) host.writer.route(id, t.submix[i]! - 1, stamp);
     // ADR 0162 (C3): its SET_VOICE_FX at the same frame, when mixed and non-default.
     host.voiceFx.onPlay(i, stamp);
     // A3.7: paused before it reached the core (locked, or its clip loading): it waits there, paused, until resumed.
