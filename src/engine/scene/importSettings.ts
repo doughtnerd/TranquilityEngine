@@ -43,7 +43,17 @@
  *
  * Audio files may also carry a `sample` block (ADR 0328: loops, markers, trim, tempo, root note…), read and written by
  * `audio/sample/format.ts`; old sidecars without it are unchanged.
+ *
+ * And an `encoding` block (ADR 0337 §2): how the file is converted per platform in a game build, read and written by
+ * `audio/encoding/format.ts` and resolved by `audio/encoding/resolve.ts`. It has its own `platforms`, so image and audio
+ * keys never mix:
+ *
+ * ```jsonc
+ * "encoding": { "profile": "UI", "quality": 0.7, "platforms": { "android": { "channels": "mono" } } }
+ * ```
  */
+import { parseSidecarEncoding, sidecarEncodingToJson } from "../audio/encoding/format";
+import type { SidecarEncoding } from "../audio/encoding/types";
 import { parseSampleEdits, sampleEditsToJson } from "../audio/sample/format";
 import type { SampleEdits } from "../audio/sample/types";
 
@@ -55,9 +65,9 @@ export type TextureWrap = "clamp" | "repeat" | "mirror";
 /** How hard a texture is compressed on its way to the GPU: `none` keeps it as authored; `high` is smallest and lowest quality (ADR 0115). */
 export type TextureCompression = "none" | "low" | "normal" | "high";
 export const TEXTURE_COMPRESSIONS: readonly TextureCompression[] = ["none", "low", "normal", "high"];
-/** A build target an import setting can differ on (ADR 0115). */
-export type ImportPlatform = "web" | "desktop";
-export const IMPORT_PLATFORMS: readonly ImportPlatform[] = ["web", "desktop"];
+/** A build target an import setting can differ on (ADR 0115; `android` since ADR 0337 §1). */
+export type ImportPlatform = "web" | "desktop" | "android";
+export const IMPORT_PLATFORMS: readonly ImportPlatform[] = ["web", "desktop", "android"];
 /** The image settings a platform can override. */
 export interface PlatformOverrides {
   filter?: TextureFilter;
@@ -135,6 +145,8 @@ export interface ImportSettings {
    * replace `loopStart`/`loopEnd` (`sampleEditsFromSidecar`).
    */
   sample: SampleEdits | null;
+  /** Audio (ADR 0337 §2): the file's encoding overrides and profile; null (absent) when it inherits everything. */
+  encoding: SidecarEncoding | null;
   /** Models (ADR 0044): multiplies the model's size. */
   scale: number;
   upAxis: ModelUpAxis;
@@ -164,6 +176,7 @@ const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<ImportSe
   loopEnd: null,
   ambisonic: null,
   sample: null,
+  encoding: null,
   scale: 1,
   upAxis: "y",
   normals: "import",
@@ -317,6 +330,7 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
     }
   }
   if (raw.sample !== undefined && raw.sample !== null) settings.sample = parseSampleEdits(raw.sample, `${where}: sample`, problems);
+  settings.encoding = parseSidecarEncoding(raw.encoding, `${where}: encoding`, problems);
   if (raw.scale !== undefined) {
     if (typeof raw.scale === "number" && raw.scale > 0 && Number.isFinite(raw.scale)) settings.scale = raw.scale;
     else bad("scale", "a number > 0");
@@ -463,6 +477,8 @@ function importSettingsJSON(settings: ImportSettings): Record<string, unknown> {
     out.ambisonic = { ...(a.order !== null ? { order: a.order } : {}), ...(a.convention !== "ambix" ? { convention: a.convention } : {}) };
   }
   if (settings.sample) out.sample = sampleEditsToJson(settings.sample);
+  const encoding = sidecarEncodingToJson(settings.encoding ?? null);
+  if (encoding) out.encoding = encoding;
   if (settings.scale !== d.scale) out.scale = settings.scale;
   if (settings.upAxis !== d.upAxis) out.upAxis = settings.upAxis;
   if (settings.normals !== d.normals) out.normals = settings.normals;

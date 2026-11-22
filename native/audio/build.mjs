@@ -8,13 +8,17 @@
 // shipped and not size-gated.
 // Audio Studio W9 (ADR 0328): also the offline sample render, myco_audio_offline.wasm, into src/engine/audio/sample/wasm/
 // (its own module: the mixer's size and ABI are untouched; it embeds the same source hash).
+// ADR 0337 A2 (amended by 0345): also the encoder, myco_audio_encode.wasm, a wasm32-wasip1 reactor with libvorbis, libogg
+// and libopus, into src/export/wasm/ (editor, Studio and export only; never in a game build). It needs wasi-sdk's clang
+// (README "The encoder"); without it the step is skipped and the committed encoder is kept, unless its sources changed.
 // Needs the toolchain pinned in rust-toolchain.toml and `rustup target add wasm32-unknown-unknown`.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { meter, METER_VERSION } from "../../src/engine/wasm/meter.js";
+import { encoderSourceHash } from "./crates/audio-encode/sourceHash.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const out = fileURLToPath(new URL("../../src/plugins/audio/runtime/wasm/", import.meta.url));
@@ -22,7 +26,13 @@ const out = fileURLToPath(new URL("../../src/plugins/audio/runtime/wasm/", impor
 const meteredOut = fileURLToPath(new URL("../../tools/audio-bench/metered/", import.meta.url));
 /** The offline sample render's directory (ADR 0328): an engine module (`src/engine/audio/sample/sampleRender.ts`) loads it. */
 const offlineOut = fileURLToPath(new URL("../../src/engine/audio/sample/wasm/", import.meta.url));
+/** The encoder's directory (ADR 0337 A2): `src/export/audioEncoder*.ts` load it. */
+const encodeOut = fileURLToPath(new URL("../../src/export/wasm/", import.meta.url));
 const TARGET = "wasm32-unknown-unknown";
+/** The encoder's target (ADR 0337 §4): the C libraries need a libc. */
+const ENCODE_TARGET = "wasm32-wasip1";
+/** The wasi-sdk release the encoder is built with (README "The encoder"). */
+const WASI_SDK_VERSION = "25.0";
 /**
  * The mixer's size tripwire (ADR 0158 amends 0157): a guard against accidental bloat, not a design constraint; raise it
  * with a line in the build log saying why. 320 KB since ADR 0162 M3 (2026-11-12, owner): beds, zones, ambisonic voices
@@ -46,6 +56,10 @@ const DECODER_AAC_LIMIT = 1280 * 1024;
 /** The offline render's size tripwire (Audio Studio W9, 2026-11-22): the kernels, the curve evaluator and the spectral
  *  gate, ≈ 120 KB when it was written. It is fetched only by the Studio and the export's render, never by a game. */
 const OFFLINE_LIMIT = 256 * 1024;
+/** The encoder's size tripwire (ADR 0345 §1): 1.75 MB. The A0 spike measured 1,483,882 B with every codec and SIMD; the
+ *  1.5 MB of ADR 0337 was an estimate, and per CLAUDE.md a tripwire is raised with a reason rather than trading speed
+ *  (`-Os` would save ≈ 270 KB at the cost of SIMD resampling). Fetched only by the editor, the Studio and the export. */
+const ENCODER_LIMIT = 1792 * 1024;
 /** Only +simd128 here: --import-memory and the 256 KB stack are link args in audio-wasm's build.rs. */
 const WASM_RUSTFLAGS = "-C target-feature=+simd128";
 /** Pages of the Memory the hash read instantiates the wasm with (enough for its data and stack). */
@@ -182,6 +196,179 @@ function smokeOffline(path) {
   return Buffer.from(x.memory.buffer, x.myco_offline_source_hash(), 16).toString("hex");
 }
 
+/** wasi-sdk's root (it holds `bin/clang`), or null: `$WASI_SDK_PATH`, else `native/audio/target/wasi-sdk-<version>-*`
+ *  (where the README's steps unpack it), else `/opt/wasi-sdk`. */
+function findWasiSdk() {
+  const exe = process.platform === "win32" ? "clang.exe" : "clang";
+  const candidates = [];
+  if (process.env.WASI_SDK_PATH) candidates.push(process.env.WASI_SDK_PATH);
+  const local = fileURLToPath(new URL("target/", import.meta.url));
+  try {
+    for (const name of readdirSync(local)) if (name.startsWith(`wasi-sdk-${WASI_SDK_VERSION}-`)) candidates.push(join(local, name));
+  } catch {
+    // no target/ yet
+  }
+  candidates.push("/opt/wasi-sdk");
+  return candidates.find((dir) => existsSync(join(dir, "bin", exe))) ?? null;
+}
+
+/** Whether rustup lists `target` as installed (true when rustup is absent: cargo reports any gap). */
+function hasTarget(target) {
+  try {
+    const installed = execFileSync("rustup", ["target", "list", "--installed"], { cwd: root, encoding: "utf8" });
+    return installed.split(/\r?\n/).map((line) => line.trim()).includes(target);
+  } catch {
+    return true;
+  }
+}
+
+/** Builds audio-encode (ADR 0337 A2) for wasm32-wasip1 in release with wasi-sdk's clang at `sdk`; returns the built
+ *  .wasm's path. +simd128 for Rust (here) and C (its build.rs; 0345 §1); CARGO_HOME is remapped as for the decoder. */
+function buildEncoder(sdk) {
+  const cargoHome = process.env.CARGO_HOME ?? join(homedir(), ".cargo");
+  const flags = [...WASM_RUSTFLAGS.split(" "), `--remap-path-prefix=${cargoHome}=/cargo`];
+  const exe = process.platform === "win32" ? ".exe" : "";
+  run("cargo", ["build", "-p", "audio-encode", "--lib", "--release", "--target", ENCODE_TARGET, "--target-dir", "target/encode"], {
+    CARGO_ENCODED_RUSTFLAGS: flags.join("\x1f"),
+    CC_wasm32_wasip1: join(sdk, "bin", `clang${exe}`),
+    AR_wasm32_wasip1: join(sdk, "bin", `llvm-ar${exe}`),
+  });
+  return fileURLToPath(new URL(`target/encode/${ENCODE_TARGET}/release/myco_audio_encode.wasm`, import.meta.url));
+}
+
+/** The WASI imports the encoder may call (0345 §1), as stubs: no file descriptors, an empty environment. */
+function wasiStubs(memory) {
+  const view = () => new DataView(memory().buffer);
+  return {
+    wasi_snapshot_preview1: {
+      fd_write: (_fd, iovs, count, written) => {
+        const v = view();
+        let n = 0;
+        for (let i = 0; i < count; i++) n += v.getUint32(iovs + i * 8 + 4, true);
+        v.setUint32(written, n, true);
+        return 0;
+      },
+      random_get: (ptr, len) => {
+        new Uint8Array(memory().buffer, ptr, len).fill(4);
+        return 0;
+      },
+      clock_time_get: (_id, _precision, at) => {
+        view().setBigUint64(at, BigInt(Math.round(performance.now() * 1e6)), true);
+        return 0;
+      },
+      environ_sizes_get: (count, size) => {
+        view().setUint32(count, 0, true);
+        view().setUint32(size, 0, true);
+        return 0;
+      },
+      environ_get: () => 0,
+      proc_exit: (code) => {
+        throw new Error(`the encoder exited (${code})`);
+      },
+    },
+  };
+}
+
+/** Instantiates an encoder wasm with the stubs (and runs `_initialize` when the module has it). */
+function instantiateEncoder(path) {
+  let x = null;
+  const { exports } = new WebAssembly.Instance(new WebAssembly.Module(readFileSync(path)), wasiStubs(() => x.memory));
+  x = exports;
+  x._initialize?.();
+  return x;
+}
+
+/** Encodes one second of a stereo tone with the built encoder to each codec, checks each result's shape (the Vorbis one
+ *  through `decoderPath`'s decoder to its exact frame count), and returns the encoder's source hash (hex). Exits 1 on a
+ *  mismatch. */
+function smokeEncoder(path, decoderPath) {
+  const x = instantiateEncoder(path);
+  const rate = 44100, frames = rate, channels = 2;
+  const fail = (what) => {
+    console.error(`[build:audio] myco_audio_encode.wasm: ${what}`);
+    process.exit(1);
+  };
+  const encodeTo = (codec) => {
+    const bytes = frames * channels * 4;
+    const p = x.myco_encode_alloc(bytes);
+    const pcm = new Float32Array(x.memory.buffer, p, frames * channels);
+    for (let i = 0; i < frames; i++) pcm[i * 2] = pcm[i * 2 + 1] = 0.5 * Math.sin((2 * Math.PI * 440 * i) / rate);
+    const r = x.myco_encode_run(p, frames, channels, rate, codec, 0.4, 0, 0);
+    x.myco_encode_free(p, bytes);
+    if (r !== 0) fail(`codec ${codec} failed (${r}): ${Buffer.from(x.memory.buffer, x.myco_encode_error_ptr(), x.myco_encode_error_len()).toString()}`);
+    const out = Buffer.from(new Uint8Array(x.memory.buffer, x.myco_encode_output_ptr(), x.myco_encode_output_len()));
+    const info = { rate: x.myco_encode_output_rate(), frames: x.myco_encode_output_frames(), preSkip: x.myco_encode_output_pre_skip() };
+    x.myco_encode_output_free();
+    return { out, ...info };
+  };
+  const pcm = encodeTo(0);
+  if (pcm.out.toString("latin1", 0, 4) !== "RIFF" || pcm.out.length !== 44 + frames * channels * 2) fail("the PCM output isn't the expected WAV");
+  const adpcm = encodeTo(1);
+  if (adpcm.out.length !== Math.ceil(frames / 1024) * channels * 516) fail(`the ADPCM output is ${adpcm.out.length} bytes`);
+  const opus = encodeTo(3);
+  if (opus.out.toString("latin1", 28, 36) !== "OpusHead" || opus.rate !== 48000 || opus.preSkip <= 0) fail("the Opus output has no OpusHead or pre-skip");
+  const vorbis = encodeTo(2);
+  if (vorbis.out.toString("latin1", 0, 4) !== "OggS" || vorbis.frames !== frames) fail("the Vorbis output isn't Ogg");
+  const { exports: d } = new WebAssembly.Instance(new WebAssembly.Module(readFileSync(decoderPath)), {});
+  const p = d.myco_decode_alloc(vorbis.out.length);
+  new Uint8Array(d.memory.buffer, p, vorbis.out.length).set(vorbis.out);
+  const h = d.myco_decode_open(p, vorbis.out.length, 4);
+  const chunk = 4096;
+  const buf = d.myco_decode_alloc(chunk * channels * 4);
+  let total = 0;
+  for (let n = h > 0 ? d.myco_decode_read_f32(h, buf, chunk) : 0; n > 0; n = d.myco_decode_read_f32(h, buf, chunk)) total += n;
+  if (h > 0) d.myco_decode_close(h);
+  if (total !== frames) fail(`its Vorbis decodes to ${total} frames, expected ${frames}`);
+  console.log("[build:audio] myco_audio_encode.wasm encodes PCM, ADPCM, Opus and Vorbis (decoded to its exact length)");
+  return Buffer.from(x.memory.buffer, x.myco_encode_source_hash(), 16).toString("hex");
+}
+
+/** Writes src/export/wasm/encode.json: the encoder's source hash, ABI and size. */
+function writeEncodeJson(sourceHash, bytes) {
+  const x = instantiateEncoder(`${encodeOut}myco_audio_encode.wasm`);
+  const v = x.myco_encode_abi_version();
+  const json = { sourceHash, abiVersion: `${v >> 8}.${v & 0xff}`, bytes };
+  writeFileSync(`${encodeOut}encode.json`, JSON.stringify(json, null, 2) + "\n");
+  console.log(`[build:audio] wrote ${encodeOut}encode.json`);
+}
+
+/** ADR 0337 A2: builds, gates, smoke-tests and copies the encoder when wasi-sdk and the wasm32-wasip1 target are
+ *  installed. Otherwise it keeps the committed encoder, gating its size, and fails only when the encoder's sources
+ *  changed since it was built (the README says how to install wasi-sdk). `decoderPath`: the decoder wasm the smoke test
+ *  decodes the Vorbis output with. */
+function encoderStep(decoderPath) {
+  const sources = encoderSourceHash(root);
+  const committed = `${encodeOut}myco_audio_encode.wasm`;
+  const sdk = findWasiSdk();
+  if (!sdk || !hasTarget(ENCODE_TARGET)) {
+    const why = !sdk ? `wasi-sdk ${WASI_SDK_VERSION} isn't installed` : `the ${ENCODE_TARGET} target isn't installed (rustup target add ${ENCODE_TARGET})`;
+    let built = null;
+    try {
+      built = JSON.parse(readFileSync(`${encodeOut}encode.json`, "utf8")).sourceHash;
+    } catch {
+      // no committed encoder yet
+    }
+    if (built !== sources || !existsSync(committed)) {
+      console.error(`[build:audio] audio-encode's sources changed (${sources}; the committed encoder was built from ${built ?? "nothing"}) and ${why}. Install it as native/audio/README.md "The encoder" says, then rebuild.`);
+      process.exit(1);
+    }
+    console.log(`[build:audio] ${why}: keeping the committed myco_audio_encode.wasm (its sources are unchanged)`);
+    gate(committed, ENCODER_LIMIT, "myco_audio_encode.wasm");
+    return;
+  }
+  const build = buildEncoder(sdk);
+  optimize(build);
+  const bytes = gate(build, ENCODER_LIMIT, "myco_audio_encode.wasm");
+  const hash = smokeEncoder(build, decoderPath ?? `${out}myco_audio_decode.wasm`);
+  if (hash !== sources) {
+    console.error(`[build:audio] myco_audio_encode.wasm embeds source hash ${hash}, sourceHash.mjs computes ${sources}: the two rules disagree.`);
+    process.exit(1);
+  }
+  mkdirSync(encodeOut, { recursive: true });
+  copyFileSync(build, committed);
+  writeEncodeJson(hash, bytes);
+}
+
 /** Runs `wasm-opt -O3` on `path` in place if wasm-opt is on PATH; logs a skip otherwise. */
 function optimize(path) {
   try {
@@ -307,6 +494,14 @@ function main() {
   bytes["myco_audio_offline.wasm"] = offlineBytes;
   writeHashJson(identity, bytes);
   buildMetered(identity.sourceHash);
+  // The encoder (ADR 0337 A2): its own source hash, not the core's, so a core change never needs wasi-sdk.
+  encoderStep(decoderBuild);
 }
 
-main();
+// `node native/audio/build.mjs --encoder`: only the encoder (its smoke test decodes with the committed decoder).
+if (process.argv.includes("--encoder")) {
+  checkToolchain();
+  encoderStep(null);
+} else {
+  main();
+}

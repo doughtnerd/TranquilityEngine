@@ -13,7 +13,7 @@ import "./assetInspector.css";
 const projectPPU = (settings: { render?: { pixelsPerUnit?: number } }) => settings.render?.pixelsPerUnit ?? 100;
 
 const COMPRESSION_LABELS = { none: "None", low: "Low quality (smallest)", normal: "Normal quality", high: "High quality" } as const;
-const PLATFORM_LABELS: Record<ImportPlatform, string> = { web: "Web", desktop: "Desktop" };
+const PLATFORM_LABELS: Record<ImportPlatform, string> = { web: "Web", desktop: "Desktop", android: "Android" };
 const parseMaxSize = (text: string) => {
   const v = Math.round(Number(text));
   return Number.isFinite(v) && v > 0 ? v : 0;

@@ -14,6 +14,8 @@ import type { Curve } from "../../core/curve";
 import type { Effect } from "../effects/types";
 import type { ParameterDef } from "../parameters";
 import type { AudioSettings, DuckingDetector, DuckingMode, LoudnessTarget } from "../settings";
+import type { EncodingConfig } from "../encoding/types";
+import type { PackageDef, PackagingOptions } from "../packaging/definitions";
 
 export const AUDIO_PROJECT_FORMAT = "myco.audio@1";
 export const AUDIO_PROJECT_FILE = "audio.json";
@@ -126,6 +128,15 @@ export interface AudioProject {
   ducking: DuckingRule[];
   snapshots: Snapshot[];
   loudness: { targets: LoudnessTarget[]; resetOnPlay: boolean };
+  /**
+   * ADR 0337 §2: encoding profiles, folder rules and budgets (`encoding/format.ts`). Absent when the file has none (every
+   * file takes the built-in defaults; read it as `defaultEncodingConfig()`).
+   */
+  encoding?: EncodingConfig;
+  /** ADR 0337 §7: package definitions (`packaging/definitions.ts`). Absent when there are none (no packages). */
+  packages?: PackageDef[];
+  /** ADR 0337 §7: package rules. Absent at the default (`strict: true`). */
+  packaging?: PackagingOptions;
 }
 
 export interface AudioProjectParse {

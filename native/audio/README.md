@@ -11,6 +11,7 @@ The Rust half of ADR 0157: a mixer that runs in an `AudioWorklet` as WebAssembly
 | `crates/audio-core` | The mixer: voices, buses, clip arena, scheduler, streams, status, the adaptive cap. No I/O, no globals |
 | `crates/audio-wasm` | The C ABI over imported memory, built as `myco_audio.wasm`. Its `src/lib.rs` is the ABI |
 | `crates/audio-decode` | Symphonia behind a C ABI, built as `myco_audio_decode.wasm` (WAV, FLAC, MP3, Ogg Vorbis) and, with the `aac` feature, `myco_audio_decode_aac.wasm` |
+| `crates/audio-encode` | The export's encoder (ADR 0337, 0345): PCM, IMA ADPCM, Ogg Vorbis (libvorbis), Ogg Opus (libopus), rubato's FFT resampler, a mono downmix. A `wasm32-wasip1` reactor, `src/export/wasm/myco_audio_encode.wasm`; editor, Studio and export only. See "The encoder" below |
 
 The built files are committed in `src/plugins/audio/runtime/wasm/` (`myco_audio.wasm`, the two decoders and `hash.json`), so the engine builds without Rust. `myco_hrir.bin` beside them is the HRTF data, made by `tools/hrir/convert.mjs` (see `tools/hrir/README.md`; licence in `docs/design/0157-audio-core/hrir-licence.md`).
 
@@ -42,10 +43,36 @@ npm run check:audio-metered                        # the cost gate: instruction 
 4. Enforces the size gates: mixer 320 KB (a tripwire since ADR 0158, not a design limit; raised from 256 KB after ADR 0162 M3), default decoder 900 KB, AAC decoder 1,100 KB. A build over a gate fails. The mixer also warns past 300 KB, so a milestone sees its headroom shrink before the gate.
 5. Reads the source hash and ABI version out of the wasm and writes `hash.json`.
 6. Builds `audio-bench` for `wasm32` the same way, injects an instruction counter (`tools/audio-bench/meter.mjs`) and writes the metered test wasm and `metered.json` to `tools/audio-bench/metered/`. It is never shipped and not size-gated.
+7. Builds the encoder (`audio-encode`) for `wasm32-wasip1` when wasi-sdk is installed, gates it at 1.75 MB, encodes a tone to every codec (decoding the Vorbis with the decoder just built) and writes `src/export/wasm/myco_audio_encode.wasm` and `encode.json`; without wasi-sdk it keeps the committed encoder (see "The encoder").
 
 Commit the regenerated wasm, `hash.json`, the metered wasm and any generated wire files with the source change.
 
 **The cost gate** (ADR 0157 C1b; CI runs it): `npm run check:audio-metered` runs `audio-bench`'s presets, the Stress twins and focused scenes (effects, HRTF still and turning, streams, pitch 4, virtual voices, parameter updates, and ADR 0158's automation: 256 bound voices and their unbound twin, bound virtual voices, bus automation, sustain loops) through the metered wasm in Node and fails when a scene's wasm instructions per quantum rise more than 10% over `tools/audio-bench/metered/baseline.json`. Counts are the same on every machine and run, unlike wall time. For a change meant to cost more (or to keep a gain), rewrite the baseline with `UPDATE_METERED_BASELINE=1 npm run check:audio-metered` and commit it, saying why. `src/plugins/audio/runtime/wasm/sourceHash.test.ts` recomputes the hash of every `*.rs`, `Cargo.toml`, `Cargo.lock` and `rust-toolchain.toml` under `native/audio/` (not `target/`, `vectors/` or `tests/`) and fails when the committed wasm is older than the source. Editing even a comment in a hashed file needs a rebuild.
+
+## The encoder
+
+`crates/audio-encode` (ADR 0337 §4, amended by 0345) turns PCM into what a platform ships. It links three C libraries vendored unmodified under `third_party/` (`libogg`, `libvorbis`, `opus`; each has a `PROVENANCE.md`, the notices are in the root `THIRD_PARTY_NOTICES.md`), so its wasm build needs a C compiler with a libc for wasm: **wasi-sdk 25**. Its host ABI is in `src/lib.rs`'s header; the TypeScript side is `src/export/audioEncoder*.ts`.
+
+- **You only need wasi-sdk to change the encoder.** `npm run build:audio` builds the encoder when it finds wasi-sdk; otherwise it keeps the committed `src/export/wasm/myco_audio_encode.wasm` (and still gates its size), and fails only if the encoder's sources changed since that wasm was built. The encoder has its own source hash (`crates/audio-encode/sourceHash.mjs`, the same rule as its `build.rs`; recorded in `src/export/wasm/encode.json` and checked by `src/export/audioEncoder.test.ts`), so a change to the core never needs wasi-sdk.
+- `node native/audio/build.mjs --encoder` builds only the encoder.
+- `cargo test -p audio-encode` (or `--manifest-path native/audio/crates/audio-encode/Cargo.toml`) runs its tests natively with the system's C compiler; no wasi-sdk needed.
+- Its size tripwire is 1.75 MB (0345 §1). It builds with `+simd128` for Rust and C.
+
+**Installing wasi-sdk 25** (these are the steps the A0 spike and the first build used, on Linux x86-64):
+
+```sh
+rustup target add wasm32-wasip1                       # the toolchain is pinned in rust-toolchain.toml
+mkdir -p native/audio/target
+curl -sSfL -o native/audio/target/wasi-sdk.tar.gz \
+  https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-25/wasi-sdk-25.0-x86_64-linux.tar.gz
+sha256sum native/audio/target/wasi-sdk.tar.gz          # 52640dde13599bf127a95499e61d6d640256119456d1af8897ab6725bcf3d89c
+tar -xzf native/audio/target/wasi-sdk.tar.gz -C native/audio/target/
+npm run build:audio                                    # or: node native/audio/build.mjs --encoder
+```
+
+`build.mjs` looks for wasi-sdk in `$WASI_SDK_PATH`, then `native/audio/target/wasi-sdk-25.0-*/` (where the steps above put it; `cargo clean` removes it with the rest of `target/`), then `/opt/wasi-sdk`. On macOS and Windows take the matching asset of the same release (`wasi-sdk-25.0-arm64-macos.tar.gz`, `wasi-sdk-25.0-x86_64-macos.tar.gz`, `wasi-sdk-25.0-x86_64-windows.tar.gz`) and unpack it the same way, or point `WASI_SDK_PATH` at it. The build passes wasi-sdk's `clang` and `llvm-ar` to the `cc` crate as `CC_wasm32_wasip1` / `AR_wasm32_wasip1`; `WASI_SDK_PATH` alone also works for a plain `cargo build -p audio-encode --target wasm32-wasip1`.
+
+Without `wasm-opt` on `PATH` the encoder is built as the other modules are, without `-O3`.
 
 ## The wire
 

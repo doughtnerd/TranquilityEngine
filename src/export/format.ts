@@ -1,5 +1,5 @@
 // The layout of a web build (ADR 0041): what the exporter writes and the player reads. Shared by
-// the exporter (Node CLI and editor) and the player, so it imports nothing.
+// the exporter (Node CLI and editor) and the player, so it imports nothing but types.
 //
 //   index.html     the player page (player.html of the prebuilt player in dist/player/)
 //   assets/        the player's bundle
@@ -11,6 +11,9 @@
 //   serve.mjs      a tiny static server (`node serve.mjs`), since browsers won't load modules from file://
 //   README.txt     how to run it
 
+import type { LoadMode } from "../engine/audio/encoding/types";
+import type { PackCodec } from "../engine/audio/packaging/format";
+import type { ImportPlatform } from "../engine/scene/importSettings";
 import type { BuiltPlugin } from "../plugins/thirdParty";
 
 /** The manifest's file name, at the build's root. */
@@ -61,6 +64,42 @@ export interface GameManifest {
   readonly audioTake?: true;
   /** ADR 0334: `false` keeps takes from recording pictures of the game view (a small JPEG about once a second). Omitted: they do. */
   readonly audioTakeFrames?: false;
+  /**
+   * ADR 0337 §7: the build's converted audio — its packages and the media table the clip resolver consults before
+   * `Assets`. Omitted when nothing was converted or packaged (every sound ships loose, as before).
+   */
+  readonly audio?: AudioManifest;
+}
+
+/** `game.json`'s `audio` (ADR 0337 §7). */
+export interface AudioManifest {
+  /** The platform the build's audio was converted for. */
+  readonly platform: ImportPlatform;
+  /** The build's packages (`audio/packages/<name>.mycopak`), in `audio.json`'s order. */
+  readonly packages: readonly AudioManifestPackage[];
+  /** Converted or packaged sounds by project path (references in scenes, playlists and scripts stay project paths). */
+  readonly media: Readonly<Record<string, AudioMediaEntry>>;
+}
+
+export interface AudioManifestPackage {
+  readonly name: string;
+  /** The package file, relative to the build's root. */
+  readonly url: string;
+  readonly bytes: number;
+  /** Loaded at engine start, before the first scene. */
+  readonly preload: boolean;
+}
+
+/** One sound in the media table: in a package (`package`), or a loose file (`url`: a `stream` sound's media, or a converted file). */
+export interface AudioMediaEntry {
+  readonly package?: string;
+  readonly url?: string;
+  readonly codec: PackCodec;
+  readonly load: LoadMode;
+  readonly rate: number;
+  readonly channels: number;
+  /** Frames per channel it decodes to. */
+  readonly frames: number;
 }
 
 /** Where a compiled script, or a JSON file's module, goes in the build. */
