@@ -25,11 +25,14 @@ export const CURSOR_KEYS: readonly CursorKey[] = [
 /** The words the At cursor panel shows for the keys. */
 export const CURSOR_KEYS_HINT = "← → step · Shift+← → jump to markers";
 
+/** Two times this close are one target (a marker and its message, rebased by different sums). */
+const SAME_TIME_S = 1e-6;
+
 /** Sorted, without repeats. */
 function sortedUnique(values: Iterable<number>): Float64Array {
   const a = Float64Array.from(values).sort();
   let n = 0;
-  for (let i = 0; i < a.length; i++) if (i === 0 || a[i] !== a[i - 1]) a[n++] = a[i]!;
+  for (let i = 0; i < a.length; i++) if (n === 0 || a[i]! - a[n - 1]! > SAME_TIME_S) a[n++] = a[i]!;
   return a.slice(0, n);
 }
 
