@@ -1,0 +1,4 @@
+{"workers":1,"jobs":["vorbis:0.4","vorbis:0.4"],"wallMs":2646,"aggregateXRealtime":62.2,"perWorker":[[64,66.7]]}
+{"workers":2,"jobs":["vorbis:0.4","vorbis:0.4"],"wallMs":2584,"aggregateXRealtime":127.5,"perWorker":[[67.9,72],[68,67.3]]}
+{"workers":3,"jobs":["vorbis:0.4","vorbis:0.4"],"wallMs":2896,"aggregateXRealtime":170.6,"perWorker":[[62.6,63.2],[64.2,70.1],[58.9,64.3]]}
+{"workers":4,"jobs":["vorbis:0.4","vorbis:0.4"],"wallMs":3767,"aggregateXRealtime":174.9,"perWorker":[[44.9,52.4],[45.1,56.9],[51.8,47.4],[51,43.1]]}
