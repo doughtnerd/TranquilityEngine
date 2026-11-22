@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "acacc91a878dc08cfa9f6a5a6702a800";
+export const SCHEMA_HASH = "e9ba9db71802b3a502576f9258349709";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
@@ -1748,7 +1748,9 @@ export const SET_VOICE_FX_MASK_SENDS = 0x2;
 export const SET_VOICE_FX_MASK_YAW = 0x4;
 /** auxLevel and auxBus */
 export const SET_VOICE_FX_MASK_AUX = 0x8;
-/** a mixed voice's high-pass, zone sends, ambisonic yaw and aux send (ADR 0162 C3); stamped like SET_PARAMS */
+/** spread (ADR 0333, ABI 4.11) */
+export const SET_VOICE_FX_MASK_SPREAD = 0x10;
+/** a mixed voice's high-pass, zone sends, ambisonic yaw, aux send and spread (ADR 0162 C3, ADR 0333); stamped like SET_PARAMS */
 export interface SetVoiceFx {
   voiceId: number;
   frameOffset: number;
@@ -1764,7 +1766,8 @@ export interface SetVoiceFx {
   auxLevel: number;
   /** aux send's bus; 0xFFFF (AUX_BUS_NONE) is none */
   auxBus: number;
-  reserved: number;
+  /** ADR 0333 (ABI 4.11): a spatial voice's spread in hundredths of a degree, 0..36000 (0 a point source, 36000 all round); ramped over rampFrames */
+  spread: number;
 }
 
 export const SET_VOICE_FX_FIXED_END = 52;
@@ -1777,7 +1780,7 @@ export function writeSetVoiceFx(view: DataView, off: number, rec: SetVoiceFx): n
   view.setFloat32(off + 40, rec.yaw, true);
   view.setFloat32(off + 44, rec.auxLevel, true);
   view.setUint16(off + 48, rec.auxBus, true);
-  view.setUint16(off + 50, rec.reserved, true);
+  view.setUint16(off + 50, rec.spread, true);
   let cur = off + 52;
   const total = cur - off;
   if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "SetVoiceFx: record too long");
@@ -1797,13 +1800,13 @@ function _readSetVoiceFx(view: DataView, off: number, limit: number): [SetVoiceF
   const yaw = view.getFloat32(off + 40, true);
   const auxLevel = view.getFloat32(off + 44, true);
   const auxBus = view.getUint16(off + 48, true);
-  const reserved = view.getUint16(off + 50, true);
+  const spread = view.getUint16(off + 50, true);
   let cur = off + 52;
   if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "SetVoiceFx: malformed");
   cur = limit;
   const voiceId = view.getUint32(off + 4, true);
   const frameOffset = view.getUint32(off + 8, true);
-  return [{ voiceId, frameOffset, mask, rampFrames, hpHz, send, yaw, auxLevel, auxBus, reserved }, cur - off];
+  return [{ voiceId, frameOffset, mask, rampFrames, hpHz, send, yaw, auxLevel, auxBus, spread }, cur - off];
 }
 
 export function readSetVoiceFx(view: DataView, off: number): SetVoiceFx {
