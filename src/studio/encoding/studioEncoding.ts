@@ -3,12 +3,10 @@
 // over the open project, the conversion service, Hear as over the page's `Assets`, and Convert now (the export's
 // `processAudio` run for one platform into the cache, with progress, answering its report).
 import { audioProjectText } from "../../editor/audioProjectFile";
-import { readAsset } from "../../editor/assetDocuments";
 import type { EditorProject } from "../../editor/projects";
 import { joinPath } from "../../editor/projectPaths";
 import { currentProject } from "../../editor/state";
 import { audioSection } from "../../engine/audio/audioSection";
-import type { PackageDef } from "../../engine/audio/packaging/definitions";
 import { writeAudioPack } from "../../engine/audio/packaging/format";
 import type { AudioProject } from "../../engine/audio/project/types";
 import { AUDIO_PROJECT_FILE } from "../../engine/audio/project/types";
@@ -130,15 +128,6 @@ export function studioHearAs(): HearAsService {
   return hear;
 }
 
-/** A sidecar's live settings for the plan, read through its document when the Samples screen has one open. */
-export function readSidecar(project: EditorProject, kind: string, path: string): ImportSettings | null {
-  try {
-    return readAsset<ImportSettings>(project, `${path}.meta.json`, kind).value;
-  } catch {
-    return null;
-  }
-}
-
 /** Convert now's progress. */
 export interface ConvertNowProgress {
   readonly done: number;
@@ -177,6 +166,3 @@ export async function convertProjectNow(project: EditorProject, platform: Import
   });
   return report;
 }
-
-/** Packages defined in `audio.json` now (for views that only need the list). */
-export const packagesNow = (project: EditorProject): readonly PackageDef[] => audioProjectNow(project)?.packages ?? [];

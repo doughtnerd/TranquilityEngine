@@ -3,7 +3,7 @@
 // by bus with status colours, a click on a stolen voice selecting it and moving the cursor to its start, "Problems only"
 // dimming played voices, lanes by sound, and the ruler's markers and warnings.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
 import { CaptureSource } from "../../../plugins/audio/editor/mix/profilerSource";
 import { QUANTA_PER_STATUS, QUANTUM_MS, records, type Fields } from "../../../plugins/audio/editor/mix/tracks/cpuCountersTestSupport";
 import { assembleCapture } from "../../../plugins/audio/runtime/capture/format";
@@ -74,7 +74,9 @@ export const Memory: Story = {
     await expect(within(row).getByRole("note", { name: /^Forest unloaded at/ })).toBeInTheDocument();
     await expect(row).toHaveTextContent("peak arena");
     // At 5 s the package is resident: the readout counts it.
-    await userEvent.click(row.querySelector<HTMLElement>(".pf-plot")!, { clientX: row.querySelector<HTMLElement>(".pf-plot")!.getBoundingClientRect().left + row.querySelector<HTMLElement>(".pf-plot")!.getBoundingClientRect().width * 0.42 });
+    const plot = row.querySelector<HTMLElement>(".pf-plot")!;
+    const box = plot.getBoundingClientRect();
+    fireEvent.click(plot, { clientX: box.left + box.width * 0.42, clientY: box.top + 2 });
     await waitFor(() => expect(row.querySelector(".pf-track-value")?.textContent).toMatch(/^arena .* · packages 880 KB$/));
   },
 };
