@@ -18,6 +18,7 @@ import type { AudioBackend, AudioCaptureSource, AudioDebugInfo, MusicBackend, Mu
 import type { KeyframeEvent, KeyframeMusic, KeyframePayload } from "./capture/format";
 import { KEYFRAME_MAX_EVENTS, KEYFRAME_MAX_MUSIC, KeyframeMusicState, keyframeU16 } from "./capture/keyframeLayout";
 import { events, type EventDebugRow } from "./events/eventRuntime";
+import { playlists, type PlaylistTotals } from "./playlists/playlistSystem";
 import { ticksAt } from "./music/anchors";
 import { segmentGrid } from "./music/segmentGrids";
 import { musicCounterTotals, musicPlayers, type MusicPlayer, type MusicPlayerState } from "./music/musicSystem";
@@ -25,8 +26,11 @@ import { spanAtTicks, ticksToPosition, type SegmentGrid } from "../../../engine/
 
 /** What the composer adds to a backend's `AudioDebugInfo` for `Audio.debug()`. */
 export interface AudioDebugRows {
+  /** The event runtime's instances, then the playlist runtime's (ADR 0329: `asset` is the playlist path). */
   events: EventDebugRow[];
   eventTotals: { lateStarts: number };
+  /** ADR 0329: the playlist runtime's refused triggers (by reason, and the latest), steals and late starts (always set by `debugRows`). */
+  playlistTotals?: PlaylistTotals;
   /** Present on a backend with music (`AudioBackend.music`). */
   music?: MusicDebugRow[];
   musicTotals?: MusicDebugTotals;
@@ -44,7 +48,8 @@ export function debugRows(info: Pick<AudioDebugInfo, "voices">, backend: DebugRo
   const listed = new Map<number, number>();
   for (const v of info.voices) if (v.event != null && v.state !== "stolen") listed.set(v.event, (listed.get(v.event) ?? 0) + 1);
   const rows = events();
-  const out: AudioDebugRows = { events: rows.debugRows(listed), eventTotals: { lateStarts: rows.lateStartTotal } };
+  const pl = playlists();
+  const out: AudioDebugRows = { events: [...rows.debugRows(listed), ...pl.debugRows(listed)], eventTotals: { lateStarts: rows.lateStartTotal }, playlistTotals: pl.totals() };
   const music = backend.music;
   if (music) {
     const view = music.debugView();
@@ -90,8 +95,11 @@ export class KeyframeRows {
     out.length = 0;
     // Pooled: the event runtime refills `debugOut` with its own reused row objects (nothing built per keyframe).
     const rows = events().debugRows(listed, this.debugOut);
-    for (let i = 0; i < rows.length; i++) {
-      const e = rows[i]!;
+    // ADR 0329: the playlist runtime's instances follow (fresh rows: their count is small and they don't outlive the read).
+    const playlistRows = playlists().debugRows(listed);
+    const n = rows.length + playlistRows.length;
+    for (let i = 0; i < n; i++) {
+      const e = i < rows.length ? rows[i]! : playlistRows[i - rows.length]!;
       if (out.length >= KEYFRAME_MAX_EVENTS) break;
       const row = (this.eventsPool[out.length] ??= { id: 0, asset: 0, voices: 0, state: 0, paramsHash: 0 });
       row.id = e.id >>> 0;

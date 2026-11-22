@@ -14,8 +14,12 @@ import { audioHorizon, audioTimeAt, musicHandleOf } from "./music/handle";
 import { onMusicOf, _setMusicHandleFactory } from "./music/musicSystem";
 import { triggerOn } from "./music/stingers";
 import { audioLatency, getCalibration, isCalibrationStale, rhythmModeSetting, setCalibration } from "./music/calibration";
-import { audioBackend, type AudioDebugInfo, type AudioEventHandle, type AudioHandle, type AudioPanner, type AudioReason, type AudioStatus, type AudioVoice, type SendCurve } from "./backend";
+import { audioBackend, type AudioDebugInfo, type AudioHandle, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioPlaylistHandle, type AudioReason, type AudioStatus, type AudioVoice, type SendCurve } from "./backend";
 import { events, type EventInstance, type EventOptions } from "./events/eventRuntime";
+import { isPlaylistPath } from "../../../engine/audio/playlist/format";
+import { playlists } from "./playlists/playlistSystem";
+import { playlistHandleOf } from "./playlists/handle";
+import type { PlaylistInstance } from "./playlists/instance";
 import { debugRows, type AudioDebugRows } from "./audioRows";
 import { audioCapture, captureDebug, type AudioCapture } from "./capture/capture";
 import { loudnessTarget, setLoudnessTarget } from "./mix/loudnessHub";
@@ -81,16 +85,16 @@ class VoiceHandle implements AudioHandle {
 }
 
 
-/** A handle for an event that didn't play. */
-const INERT_EVENT: AudioEventHandle = Object.freeze({
+/** A handle for a playlist or event that didn't play. */
+const INERT_EVENT: AudioPlaylistHandle = Object.freeze({
   playing: false, reason: null, position: null, panner: null, occlusion: 1,
-  stop() {}, fade() {}, setParameter() {}, getParameter: () => undefined, release() {},
+  stop() {}, fade() {}, setParameter() {}, getParameter: () => undefined, release() {}, onMarker: () => () => {},
   // ADR 0166 §1.2 (Q0): an event that didn't play has no music.
   music: undefined, onMusic: () => () => {}, trigger: () => false,
 });
 
 /** The public handle over an event instance (ADR 0158 §5). */
-class EventHandle implements AudioEventHandle {
+class EventHandle implements AudioPlaylistHandle {
   constructor(private readonly instance: EventInstance) {}
   get playing(): boolean { return this.instance.playing; }
   get reason(): AudioReason | null { return this.instance.reason; }
@@ -110,12 +114,14 @@ class EventHandle implements AudioEventHandle {
   get music(): MusicHandle | undefined { return musicHandleOf(this.instance); }
   onMusic(kind: MusicKind, fn: (e: MusicEvent) => void): () => void { return onMusicOf(this.instance, kind, fn); }
   trigger(name: string): boolean { return triggerOn(this.instance, String(name)); }
+  /** ADR 0329: an audio event reports no markers (`*.audioevent.json` predates them); kept for the shared handle shape. */
+  onMarker(_type: AudioMarkerType, _fn: (e: AudioMarkerEvent) => void): () => void { return () => {}; }
 }
 
 // ADR 0166 K2: `MusicEvent.handle` for the music an `AudioSource` plays is the same public handle `Audio.play` returns.
 const handles = new WeakMap<EventInstance, EventHandle>();
 /** @internal One public handle per instance: `Audio.play` returns it and `MusicEvent.handle` is it (`e.handle === handle`). */
-export function _handleOf(instance: EventInstance): AudioEventHandle {
+export function _handleOf(instance: EventInstance): AudioPlaylistHandle {
   let h = handles.get(instance);
   if (!h) handles.set(instance, (h = new EventHandle(instance)));
   return h;
@@ -126,6 +132,12 @@ _setMusicHandleFactory(_handleOf);
 export function _playEvent(path: string, options: EventOptions, world: World | null, sourceKey?: string): EventInstance | null {
   if (!worldPlays(world)) return null;
   return events().play(path, options, worldKeyOf(world), sourceKey);
+}
+
+/** @internal ADR 0329: a playlist (`*.playlist.json`) through the playlist runtime. */
+export function _playPlaylist(path: string, options: EventOptions, world: World | null, sourceKey?: string): PlaylistInstance | null {
+  if (!worldPlays(world)) return null;
+  return playlists().play(path, options, worldKeyOf(world), sourceKey);
 }
 
 const MIN_PITCH = 0.0625;
@@ -196,12 +208,19 @@ export const Audio = {
   },
 
   /**
-   * Play an audio event asset (`*.audioevent.json`, ADR 0158), or a clip as a one-clip event. Always returns a handle
-   * (an inert one when nothing played: no World with the view, a missing asset, a cooldown or a full limit); never throws.
+   * Play a playlist (`*.playlist.json`, ADR 0329), a sample, or an audio event asset (`*.audioevent.json`, ADR 0158, until
+   * the migration replaces it). Always returns a handle (an inert one when nothing played: no World with the view, a
+   * missing asset, or a trigger the playback rules refused; `Audio.debug().playlistTotals` says why); never throws.
    */
-  play(event: string, options?: EventOptions): AudioEventHandle {
+  play(pathOrSample: string, options?: EventOptions): AudioPlaylistHandle {
     try {
-      const i = _playEvent(String(event), options !== null && typeof options === "object" ? options : {}, World.active);
+      const o = options !== null && typeof options === "object" ? options : {};
+      const path = String(pathOrSample).replace(/^asset:/, "");
+      if (isPlaylistPath(path)) {
+        const p = _playPlaylist(path, o, World.active);
+        return p ? playlistHandleOf(p) : INERT_EVENT;
+      }
+      const i = _playEvent(path, o, World.active);
       return i ? _handleOf(i) : INERT_EVENT;
     } catch (e) {
       warnOnce("play:threw", `Audio.play failed (${e instanceof Error ? e.message : String(e)}); no sound.`);

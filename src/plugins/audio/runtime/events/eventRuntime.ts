@@ -202,8 +202,32 @@ interface VoiceRec {
   pointsOff: (() => void) | null;
 }
 
+/**
+ * @internal ADR 0329: a runtime hosted beside the event instances (the playlist runtime, `runtime/playlists/`). It shares
+ * this system's automation sink, curve table, global parameters, instance groups (one id space: debug rows, the profile
+ * and the core's `group` all key on it), per-World generators and frame, and hears what changes them. When the container
+ * half of this file goes (after the migration ships), these hooks become that shared host's own.
+ */
+export interface HostedRuntime {
+  /** Once per frame, after this system's timers and before the fallback evaluator. */
+  update(dt: number): void;
+  /** A global parameter changed. */
+  onGlobal(name: string): void;
+  /** The backend changed: re-send locals, bindings and loops. */
+  resend(): void;
+  /** Stop every instance (scene change, tests). */
+  stopAll(): void;
+  /** The audio session was released: forget everything. */
+  release(): void;
+  /** A World's state goes (the World went away, or its key was reused). */
+  forgetWorld(key: number): void;
+  /** Instance groups ran short: retire finished instances now. */
+  sweep(): void;
+}
+
 /** The event runtime. One per page (the backend is one per page too); `events()` returns it. */
 export class EventSystem {
+  private readonly hosted: HostedRuntime[] = [];
   private sink: AutomationSink | null = null;
   private sinkOf: AudioBackend | null = null;
   private ts: TsAutomation | null = null;
@@ -290,6 +314,28 @@ export class EventSystem {
     if (taps.sink !== NULL_PROFILE_SINK) noteParameter(name, g.def, v, null);
     this.sink!.setParam(0, g.slot, v, isLabelled(g.def) ? 0 : g.def.seekSpeed);
     for (const i of this.live) i.onParameter(name, true);
+    for (const h of this.hosted) h.onGlobal(name);
+  }
+
+  /** @internal ADR 0329: host `runtime` beside the event instances (see `HostedRuntime`). Once per runtime. */
+  host(runtime: HostedRuntime): void {
+    if (!this.hosted.includes(runtime)) this.hosted.push(runtime);
+  }
+
+  /** @internal ADR 0329: an instance group for a hosted runtime's instance (0 when every group is taken; one warning). */
+  takeGroup(): number {
+    return this.allocGroup(null);
+  }
+
+  /** @internal ADR 0329: a hosted runtime's instance group is free again (its last voice has ended). */
+  giveGroup(group: number): void {
+    if (group > 0) this.freeGroup(group);
+  }
+
+  /** @internal The global parameters (name → slot, definition, value), for a hosted runtime's switches and bindings. */
+  globalParameter(name: string): { readonly slot: number; readonly def: ParameterDef; readonly value: number } | undefined {
+    this.refresh();
+    return this.globals.get(name);
   }
 
   getGlobal(name: string): number | string | undefined {
@@ -301,6 +347,10 @@ export class EventSystem {
 
   /** Once per frame: due timers (continuous containers, sustain hand-offs), and the fallback evaluator. */
   update(dt: number): void {
+    if (this.hosted.length > 0) {
+      this.refresh();
+      for (const h of this.hosted) h.update(dt);
+    }
     // F-17: not while a retired instance is held: its release (and a music player's disposal) waits on `reapIfEnded`,
     // and on the core (no `ts`) a music event stopped with nothing else live otherwise stayed in the registry for ever.
     if (this.live.size === 0 && !this.ts && this.timers.length === 0 && this.holding.length === 0) return;
@@ -332,6 +382,7 @@ export class EventSystem {
   stopAll(): void {
     for (const i of [...this.live]) i.stop(0);
     this.live.clear();
+    for (const h of this.hosted) h.stopAll();
     this.lingering.length = 0;
     this.timers.length = 0;
   }
@@ -351,13 +402,17 @@ export class EventSystem {
     this.lateStarts = 0;
     this.endsSeen = mixer.voicesEnded;
     clipEvents.clear();
+    for (const h of this.hosted) h.release();
   }
 
   /** The World `key` is (still) this `world`: a different object under the same key means the key was reused, so the old state goes. Cheap; per frame. */
   noteWorld(key: number, world: object): void {
     const ref = this.worldRefs.get(key);
     if (ref?.deref() === world) return;
-    if (ref) this.worlds.delete(key);
+    if (ref) {
+      this.worlds.delete(key);
+      for (const h of this.hosted) h.forgetWorld(key);
+    }
     this.worldRefs.set(key, new WeakRef(world));
   }
 
@@ -365,6 +420,7 @@ export class EventSystem {
   forgetWorld(key: number): void {
     this.worlds.delete(key);
     this.worldRefs.delete(key);
+    for (const h of this.hosted) h.forgetWorld(key);
   }
 
   /** Forget every World's state but those in `live` and key 0 (the audio system passes the keys the host still lists). */
@@ -637,7 +693,7 @@ export class EventSystem {
     this.holding.length = w;
   }
 
-  private allocGroup(asset: AudioEventAsset): number {
+  private allocGroup(asset: AudioEventAsset | null): number {
     // An event without local parameters still gets a group: blends and the debug view use it.
     void asset;
     // Never-used groups first, then the one free longest: a just-freed group is not reused while anything of it may be in flight.
@@ -652,6 +708,7 @@ export class EventSystem {
   private sweep(): void {
     this.reap();
     this.releaseHeld();
+    for (const h of this.hosted) h.sweep();
   }
 
   /**
@@ -681,6 +738,7 @@ export class EventSystem {
       for (const g of this.globals.values()) this.sink.setParam(0, g.slot, g.value, 0);
       this.busOf = null;
       for (const i of this.live) i.resend();
+      for (const h of this.hosted) h.resend();
     }
     if (settings.parameters !== this.globalsOf) {
       this.globalsOf = settings.parameters;
