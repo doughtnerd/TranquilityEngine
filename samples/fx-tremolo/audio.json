@@ -1,0 +1,47 @@
+{
+  "format": "myco.audio@1",
+  "settings": {},
+  "parameters": [],
+  "buses": [
+    {
+      "name": "Master",
+      "parent": null,
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": { "own": true, "priority": 255 },
+      "meter": true,
+      "effects": [],
+      "sends": []
+    },
+    {
+      "name": "Music",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [],
+      "sends": []
+    },
+    {
+      "name": "Tremolo",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": true,
+      "effects": [
+        { "id": "trem", "type": "example.tremolo", "on": true, "params": { "rate": 4, "depth": 80, "shape": 0 } }
+      ],
+      "sends": []
+    }
+  ],
+  "returns": [],
+  "vcas": [],
+  "snapshots": [],
+  "automation": [],
+  "ducking": []
+}

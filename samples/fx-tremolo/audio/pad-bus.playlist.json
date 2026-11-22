@@ -1,0 +1,8 @@
+{
+  "format": "myco.playlist@1",
+  "type": "clip",
+  "output": "Tremolo",
+  "note": "The pad on the Tremolo bus: the bus's insert chain runs the plugin's tremolo (4 Hz, sine).",
+  "playback": { "plays": "untilStopped", "maxInstances": 1 },
+  "entries": [{ "sample": "audio/pad.wav", "loop": "on" }]
+}
