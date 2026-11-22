@@ -50,6 +50,9 @@ export const KIND_NOUN: Readonly<Record<ObjectKind, string>> = {
   sound2d: "2D sound",
 };
 
+/** "an emitter", "a listener". */
+export const aKind = (kind: ObjectKind): string => `${/^[aeiou]/.test(KIND_NOUN[kind]) ? "an" : "a"} ${KIND_NOUN[kind]}`;
+
 /** Every object of a scene, kind by kind. */
 export function allObjects(scene: AudioTestScene): SceneObject[] {
   return [
@@ -143,7 +146,7 @@ export function moveObjectTo(scene: AudioTestScene, id: string, p: P2): EditResu
       case "sound2d":
         return refuse("a 2D sound has no place in the scene");
       default:
-        return { ...o.obj, box: moveBox(o.obj.box, p) } as SceneObjectBase;
+        return { ...o.obj, box: moveBox(o.obj.box, p) } as unknown as SceneObjectBase;
     }
   });
 }
@@ -153,11 +156,11 @@ export function setBox(scene: AudioTestScene, id: string, box: SceneBox): EditRe
   return updateObject(scene, id, (o) => {
     const locked = lockedRefusal(o);
     if (locked) return locked;
-    if (!boxOf(o)) return refuse(`a ${KIND_NOUN[o.kind]} has no box`);
+    if (!boxOf(o)) return refuse(`${aKind(o.kind)} has no box`);
     if (!(box.top - box.bottom >= AUDIO_SCENE_LIMITS.minHeight - 1e-9)) return refuse(`the bottom must be at least ${AUDIO_SCENE_LIMITS.minHeight} m below the top`);
     const [lo, hi] = AUDIO_SCENE_LIMITS.size;
     if (box.width < lo || box.depth < lo || box.width > hi || box.depth > hi) return refuse(`a box is ${lo}–${hi} m across`);
-    return { ...o.obj, box } as SceneObjectBase;
+    return { ...o.obj, box } as unknown as SceneObjectBase;
   });
 }
 
@@ -171,7 +174,7 @@ export function setHeight(scene: AudioTestScene, id: string, y: number): EditRes
     if (locked) return locked;
     if (o.kind === "listener") return { ...o.obj, position: { ...o.obj.position, y: h } };
     if (o.kind === "emitter") return o.obj.kind === "static" ? { ...o.obj, position: { ...o.obj.position, y: h } } : { ...o.obj, height: h };
-    return refuse(`a ${KIND_NOUN[o.kind]} has no single height`);
+    return refuse(`${aKind(o.kind)} has no single height`);
   });
 }
 

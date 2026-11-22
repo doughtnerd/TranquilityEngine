@@ -46,7 +46,7 @@ export type LiveUpdate =
 
 /** An object with its place taken out: what must match for a pose to be enough. */
 function shapeless(o: SceneObject): unknown {
-  const { name: _n, hidden: _h, locked: _l, ...rest } = o.obj as SceneObjectBase & Record<string, unknown>;
+  const { name: _n, hidden: _h, locked: _l, ...rest } = o.obj as unknown as SceneObjectBase & Record<string, unknown>;
   const r = rest as Record<string, unknown>;
   delete r.position; delete r.yaw; delete r.box; delete r.route; delete r.height; delete r.start;
   return { kind: o.kind, ...r };
