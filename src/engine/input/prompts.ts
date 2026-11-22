@@ -50,6 +50,7 @@ const COMMON_PAD: Record<string, string> = {
   dpadUp: "D-pad Up", dpadDown: "D-pad Down", dpadLeft: "D-pad Left", dpadRight: "D-pad Right", dpad: "D-pad",
   leftStick: "Left Stick", rightStick: "Right Stick", leftStickX: "Left Stick", leftStickY: "Left Stick", rightStickX: "Right Stick", rightStickY: "Right Stick",
   rightPaddle1: "P1", leftPaddle1: "P2", rightPaddle2: "P3", leftPaddle2: "P4", touchpadPress: "Touchpad", gyro: "Gyro", accel: "Motion",
+  touchpad0: "Touchpad Finger 1", touchpad1: "Touchpad Finger 2", touchpad0Position: "Touchpad", touchpad1Position: "Touchpad",
   // Touchscreen and pen controls (`<Touch>/…`, `<Pen>/…`) reach this table too.
   primary: "Tap", primaryPosition: "Touch", primaryDelta: "Drag", pinch: "Pinch", swipe: "Swipe", count: "Fingers",
   touch0: "Finger 1", touch1: "Finger 2", touch2: "Finger 3", touch3: "Finger 4", touch4: "Finger 5", touch5: "Finger 6", touch6: "Finger 7", touch7: "Finger 8", touch8: "Finger 9", touch9: "Finger 10",

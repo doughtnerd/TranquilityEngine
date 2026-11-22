@@ -246,7 +246,13 @@ Load saved bindings with `player.loadBindings()` when the game starts.
 
 ## Devices
 
-- **Desktop:** gamepads come from SDL3 inside the Tauri app, in the editor and in exported games. That includes rumble, trigger rumble, light bars and gyro (`player.setSensors(true)`).
+- **Desktop:** gamepads come from SDL3 inside the Tauri app, in the editor and in exported games. That includes rumble, trigger rumble, light bars, gyro (`player.setSensors(true)`), touchpads, batteries and DualSense adaptive triggers (`player.setTriggerEffect(...)`).
+- **Touchpads** (DualSense, DualShock 4): `<Gamepad>/touchpad0` and `<Gamepad>/touchpad1` are two fingers touching, and `<Gamepad>/touchpad0Position` and `touchpad1Position` are where they are. Positions run 0..1 across the touchpad from its top-left corner, with +Y **down** like other positions, and read 0, 0 while that finger is up. Pressing the touchpad in is still `touchpadPress`.
+
+  ```ts
+  defineActions("game.Menu", { cursor: vec2("<Gamepad>/touchpad0Position"), touching: button("<Gamepad>/touchpad0") });
+  ```
+- **Battery:** `player.battery` is `{ level, charging }`, with `level` 0..1, for the player's gamepad with the lowest charge. It is `null` when no gamepad reports one: a wired pad without a battery, or the browser's Gamepad API, which can't tell. Desktop builds and WebHID pads in Chrome can.
 - **Web:** builds read the browser's Gamepad API. The engine applies the SDL controller database to pads the browser doesn't map, and detects each pad's family.
 - **Touch and pen:** a touchscreen and a pen are devices of their own, which appear when first used. The first finger down and the pen also act as the mouse, so `Input.getMouseButton(0)` and UI buttons work by touch. A touch or pen press on a UI button goes to the UI, not the game.
 - **Your own devices:** `Input.inject` reports device events as an adapter does, for on-screen controls, automation and tests.
@@ -291,5 +297,7 @@ enhanceButton.addEventListener("click", async () => {
   const opened = await Input.requestHidGamepads();
 });
 ```
+
+Desktop builds already have all of this through SDL, adaptive triggers included.
 
 **Fallback:** until a controller is picked, or if it fails or is unplugged, the Gamepad API reports it as before, so the game never sees it twice. Firefox and Safari have no WebHID: `requestHidGamepads()` resolves `0` there, and in desktop builds, where SDL already gives all of this.

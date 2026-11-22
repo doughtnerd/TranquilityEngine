@@ -12,7 +12,7 @@
  * - **Touchpad and battery:** two touch points (normalized as SDL does, 1920 × 1070) and the
  *   battery byte, from the full reports.
  */
-import type { TriggerEffect } from "../triggerEffects";
+import { TRIGGER_OFF, TRIGGER_RUMBLE_HZ, encodeTriggerEffect } from "../dualSenseEffects";
 import { Later, PadState, SLOT_COLOURS, byte01, byte255, bytesOf, featureBody, hasOutputReport, outputLength, send, type HidPadFactory, type HidPadOutput } from "./driver";
 import { BluetoothCrcCheck, NOMINAL_IMU, reportImu, reportSonyControls, reportTouchpad, sealBluetoothReport, sonyImuCalibration, type ImuCalibration } from "./sony";
 
@@ -46,61 +46,6 @@ function battery(v: number): [number, boolean] {
   }
 }
 
-/** The frequency trigger rumble vibrates at, Hz. */
-const TRIGGER_RUMBLE_HZ = 50;
-
-const TRIGGER_OFF = Uint8Array.of(0x05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-
-/** An adaptive trigger effect as the DualSense's 11-byte trigger block. */
-function encodeTriggerEffect(effect: TriggerEffect): Uint8Array {
-  const out = new Uint8Array(11);
-  const frac = (v: number | undefined, d: number) => Math.min(1, Math.max(0, Number.isFinite(v) ? (v as number) : d));
-  const zone = (v: number | undefined, d: number) => Math.round(frac(v, d) * 9);
-  const level = (v: number | undefined) => Math.round(frac(v, 1) * 8); // 0 none, 1..8
-  // Ten zones along the travel: a mask of active zones and a 3-bit value per zone.
-  const zones = (start: number, value: number) => {
-    let active = 0;
-    let values = 0;
-    for (let z = start; z < 10; z++) {
-      active |= 1 << z;
-      values += (value - 1) * 2 ** (3 * z);
-    }
-    out[1] = active & 0xff;
-    out[2] = active >> 8;
-    for (let i = 0; i < 4; i++) out[3 + i] = Math.floor(values / 2 ** (8 * i)) & 0xff;
-  };
-  switch (effect.mode) {
-    case "resistance": {
-      const strength = level(effect.strength);
-      if (!strength) return TRIGGER_OFF;
-      out[0] = 0x21;
-      zones(zone(effect.start, 0), strength);
-      return out;
-    }
-    case "weapon": {
-      const strength = level(effect.strength);
-      if (!strength) return TRIGGER_OFF;
-      const start = Math.min(7, Math.max(2, zone(effect.start, 0.3)));
-      const end = Math.min(8, Math.max(start + 1, zone(effect.end, 0.6)));
-      const mask = (1 << start) | (1 << end);
-      out[0] = 0x25;
-      out[1] = mask & 0xff;
-      out[2] = mask >> 8;
-      out[3] = strength - 1;
-      return out;
-    }
-    case "vibration": {
-      const amplitude = level(effect.amplitude);
-      if (!amplitude) return TRIGGER_OFF;
-      out[0] = 0x26;
-      zones(zone(effect.start, 0), amplitude);
-      out[9] = Math.min(255, Math.max(1, Math.round(effect.frequency ?? TRIGGER_RUMBLE_HZ)));
-      return out;
-    }
-    default:
-      return TRIGGER_OFF;
-  }
-}
 
 export const dualSense: HidPadFactory = (device, link) => {
   const pad = new PadState(link);

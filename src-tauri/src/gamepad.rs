@@ -2,12 +2,13 @@
 //!
 //! A background thread owns SDL (initialised for gamepads, sensors and haptics only), waits on its
 //! events and streams them to the page in batches over a Tauri channel; the page sends output
-//! (rumble, trigger rumble, LEDs, sensor switching) back as commands. Under Tauri this is the only
-//! gamepad source: the page never reads the browser Gamepad API there.
+//! (rumble, trigger rumble, LEDs, sensor switching, controller effect packets such as DualSense
+//! adaptive triggers) back as commands. Under Tauri this is the only gamepad source: the page never
+//! reads the browser Gamepad API there.
 //!
 //! This file is self-contained: the desktop export (src/export/desktop.ts) copies it verbatim into
 //! exported games' generated Tauri projects, which need `sdl3`, `sdl3-sys` and `serde` with the
-//! features in src-tauri/Cargo.toml, and the five commands below in `generate_handler!`.
+//! features in src-tauri/Cargo.toml, and the six commands below in `generate_handler!`.
 //!
 //! Wire indices (shared with the web adapter and `native/input`): buttons in the W3C "standard"
 //! order then extras (0 south, 1 east, 2 west, 3 north, 4/5 shoulders, 6/7 triggers 0..1, 8 select,
@@ -16,14 +17,18 @@
 //! left Y, right X, right Y in -1..1 with +Y down. Buttons are positional: south is the bottom face
 //! button whatever its label. Sensors are in SDL's units and axes (gyro rad/s, accelerometer m/s²;
 //! +X right, +Y up, +Z towards the player). `time` is SDL's event timestamp in milliseconds
-//! (monotonic, arbitrary origin); `id` is SDL's joystick instance id.
+//! (monotonic, arbitrary origin); `id` is SDL's joystick instance id. Touchpad fingers (the first
+//! touchpad's fingers 0 and 1) are in 0..1 of the touchpad, origin top-left, +Y down. Battery
+//! levels are 0..1, or -1 when SDL can't tell or the pad is wired without a battery; they're read
+//! on connect, when SDL reports a battery change, and every few seconds, and sent when they change.
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use sdl3::event::Event;
 use sdl3::gamepad::{Axis, Button, Gamepad};
+use sdl3::joystick::PowerLevel;
 use sdl3::sensor::SensorType;
 use serde::Serialize;
 use tauri::ipc::Channel;
@@ -49,6 +54,10 @@ pub enum GamepadEvent {
     Button { id: u32, index: u8, value: f32, time: f64 },
     Axis { id: u32, index: u8, value: f32, time: f64 },
     Sensor { id: u32, kind: &'static str, x: f32, y: f32, z: f32, time: f64 },
+    /// A touchpad finger: `down` when it touches or moves, false when it lifts.
+    Touch { id: u32, finger: u8, down: bool, x: f32, y: f32, time: f64 },
+    /// `level` 0..1, or -1 when unknown or wired without a battery; `charging` while plugged in.
+    Battery { id: u32, level: f32, charging: bool },
 }
 
 /// Starts streaming gamepad events to `on_event`, replacing any previous listener. Pads already
@@ -83,12 +92,21 @@ pub fn myco_gamepad_sensors(id: u32, enabled: bool) -> Result<(), String> {
     send(Command::Sensors { id, enabled })
 }
 
+/// Sends a controller-specific effect packet as it is (`SDL_SendGamepadEffect`): for a DualSense,
+/// a `DS5EffectsState_t` block (adaptive triggers; the page builds it). Pads without such packets
+/// ignore it.
+#[tauri::command]
+pub fn myco_gamepad_trigger_effect(id: u32, bytes: Vec<u8>) -> Result<(), String> {
+    send(Command::Effect { id, bytes })
+}
+
 enum Command {
     Listen(Channel<Vec<GamepadEvent>>),
     Rumble { id: u32, low: f32, high: f32, duration_ms: u32 },
     TriggerRumble { id: u32, left: f32, right: f32, duration_ms: u32 },
     Led { id: u32, r: u8, g: u8, b: u8 },
     Sensors { id: u32, enabled: bool },
+    Effect { id: u32, bytes: Vec<u8> },
 }
 
 /// The SDL thread's command queue, started on first use; an error if SDL couldn't start.
@@ -139,7 +157,8 @@ fn run(inbox: Receiver<Command>, ready: mpsc::SyncSender<Result<(), String>>) {
         }
     };
 
-    let mut state = State { pads: HashMap::new(), listener: None, batch: Vec::new() };
+    let mut state = State { pads: HashMap::new(), batteries: HashMap::new(), listener: None, batch: Vec::new() };
+    let mut battery_read = Instant::now();
     loop {
         loop {
             match inbox.try_recv() {
@@ -154,17 +173,45 @@ fn run(inbox: Receiver<Command>, ready: mpsc::SyncSender<Result<(), String>>) {
                 state.event(&gamepads, event);
             }
         }
+        // Not every driver sends battery events: read the levels now and then.
+        if battery_read.elapsed() >= BATTERY_READ {
+            battery_read = Instant::now();
+            state.read_batteries();
+        }
         state.flush();
     }
 }
 
+/// How often battery levels are read when SDL hasn't reported a change.
+const BATTERY_READ: Duration = Duration::from_secs(5);
+
 struct State {
     pads: HashMap<u32, Gamepad>,
+    /// The battery level and charging state last sent per pad, to send only changes.
+    batteries: HashMap<u32, (f32, bool)>,
     listener: Option<Channel<Vec<GamepadEvent>>>,
     batch: Vec<GamepadEvent>,
 }
 
 impl State {
+    /// Queues a pad's battery when it changed since it was last sent (always, with `force`).
+    fn battery(&mut self, id: u32, force: bool) {
+        let Some(pad) = self.pads.get(&id) else { return };
+        let info = pad.power_info();
+        let (level, charging) = battery_of(info.state, info.percentage);
+        if force || self.batteries.get(&id) != Some(&(level, charging)) {
+            self.batteries.insert(id, (level, charging));
+            self.batch.push(GamepadEvent::Battery { id, level, charging });
+        }
+    }
+
+    fn read_batteries(&mut self) {
+        let ids: Vec<u32> = self.pads.keys().copied().collect();
+        for id in ids {
+            self.battery(id, false);
+        }
+    }
+
     fn flush(&mut self) {
         if self.batch.is_empty() {
             return;
@@ -190,6 +237,7 @@ impl State {
                     let pad = &self.pads[&id];
                     self.batch.push(connect_event(id, pad));
                     current_state(id, pad, now, &mut self.batch);
+                    self.battery(id, true);
                 }
                 self.flush();
             }
@@ -218,6 +266,11 @@ impl State {
                     }
                 }
             }
+            Command::Effect { id, bytes } => {
+                if let Some(pad) = self.pads.get_mut(&id) {
+                    let _ = pad.send_effect(&bytes);
+                }
+            }
         }
     }
 
@@ -232,9 +285,11 @@ impl State {
                     self.batch.push(connect_event(id, &pad));
                     current_state(id, &pad, now_ms(), &mut self.batch);
                     self.pads.insert(id, pad);
+                    self.battery(id, true);
                 }
             }
             Event::GamepadRemoved { which, .. } => {
+                self.batteries.remove(&which.raw());
                 if self.pads.remove(&which.raw()).is_some() {
                     self.batch.push(GamepadEvent::Disconnect { id: which.raw() });
                 }
@@ -259,6 +314,17 @@ impl State {
                     self.batch.push(GamepadEvent::Sensor { id, kind, x, y, z, time: ms(timestamp) });
                 }
             }
+            Event::GamepadTouchpadDown { timestamp, which, touchpad, finger, x, y, .. }
+            | Event::GamepadTouchpadMotion { timestamp, which, touchpad, finger, x, y, .. } => {
+                self.touch(which.raw(), touchpad, finger, true, x, y, timestamp)
+            }
+            Event::GamepadTouchpadUp { timestamp, which, touchpad, finger, x, y, .. } => {
+                self.touch(which.raw(), touchpad, finger, false, x, y, timestamp)
+            }
+            // SDL_EVENT_JOYSTICK_BATTERY_UPDATED, which the sdl3 crate doesn't name: read every pad's battery now.
+            Event::Unknown { type_, .. } if type_ == sdl3::sys::events::SDL_EVENT_JOYSTICK_BATTERY_UPDATED.0 => {
+                self.read_batteries()
+            }
             _ => {}
         }
     }
@@ -267,6 +333,36 @@ impl State {
         if let (true, Some(index)) = (self.pads.contains_key(&id), button_index(button)) {
             self.batch.push(GamepadEvent::Button { id, index, value, time: ms(timestamp) });
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn touch(&mut self, id: u32, touchpad: i32, finger: i32, down: bool, x: f32, y: f32, timestamp: u64) {
+        if !self.pads.contains_key(&id) {
+            return;
+        }
+        if let Some(event) = touch_event(id, touchpad, finger, down, x, y, ms(timestamp)) {
+            self.batch.push(event);
+        }
+    }
+}
+
+/// The first touchpad's fingers 0 and 1 (the engine's `touchpad0`, `touchpad1`); `None` for others.
+fn touch_event(id: u32, touchpad: i32, finger: i32, down: bool, x: f32, y: f32, time: f64) -> Option<GamepadEvent> {
+    if touchpad != 0 || !(0..2).contains(&finger) {
+        return None;
+    }
+    Some(GamepadEvent::Touch { id, finger: finger as u8, down, x: x.clamp(0.0, 1.0), y: y.clamp(0.0, 1.0), time })
+}
+
+/// A battery as the page reads it, from SDL's power state and percentage (-1 when unknown).
+/// `charging` is true while plugged in, charging or full.
+fn battery_of(state: PowerLevel, percentage: i32) -> (f32, bool) {
+    let level = if percentage >= 0 { (percentage.min(100) as f32) / 100.0 } else { -1.0 };
+    match state {
+        PowerLevel::OnBattery => (level, false),
+        PowerLevel::Charging => (level, true),
+        PowerLevel::Charged => (if level >= 0.0 { level } else { 1.0 }, true),
+        PowerLevel::NoBattery | PowerLevel::Unknown | PowerLevel::Error => (-1.0, false),
     }
 }
 
@@ -435,6 +531,32 @@ mod tests {
             serde_json::to_string(&GamepadEvent::Sensor { id: 1, kind: "gyro", x: 0.5, y: 0.0, z: -0.25, time: 1.0 }).unwrap(),
             r#"{"t":"sensor","id":1,"kind":"gyro","x":0.5,"y":0.0,"z":-0.25,"time":1.0}"#
         );
+        assert_eq!(
+            serde_json::to_string(&GamepadEvent::Touch { id: 2, finger: 1, down: true, x: 0.25, y: 0.5, time: 3.0 }).unwrap(),
+            r#"{"t":"touch","id":2,"finger":1,"down":true,"x":0.25,"y":0.5,"time":3.0}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&GamepadEvent::Battery { id: 2, level: 0.75, charging: false }).unwrap(),
+            r#"{"t":"battery","id":2,"level":0.75,"charging":false}"#
+        );
+    }
+
+    #[test]
+    fn touchpad_fingers() {
+        assert_eq!(touch_event(4, 0, 1, true, 0.5, 1.5, 2.0), Some(GamepadEvent::Touch { id: 4, finger: 1, down: true, x: 0.5, y: 1.0, time: 2.0 }));
+        assert_eq!(touch_event(4, 0, 0, false, 0.1, 0.2, 2.0), Some(GamepadEvent::Touch { id: 4, finger: 0, down: false, x: 0.1, y: 0.2, time: 2.0 }));
+        assert_eq!(touch_event(4, 0, 2, true, 0.5, 0.5, 2.0), None); // a third finger
+        assert_eq!(touch_event(4, 1, 0, true, 0.5, 0.5, 2.0), None); // a second touchpad
+    }
+
+    #[test]
+    fn batteries() {
+        assert_eq!(battery_of(PowerLevel::OnBattery, 40), (0.4, false));
+        assert_eq!(battery_of(PowerLevel::OnBattery, -1), (-1.0, false));
+        assert_eq!(battery_of(PowerLevel::Charging, 70), (0.7, true));
+        assert_eq!(battery_of(PowerLevel::Charged, -1), (1.0, true));
+        assert_eq!(battery_of(PowerLevel::NoBattery, 100), (-1.0, false));
+        assert_eq!(battery_of(PowerLevel::Unknown, 50), (-1.0, false));
     }
 
     #[test]
@@ -457,6 +579,7 @@ mod tests {
         // Commands for pads that aren't open are ignored; this one only needs the thread up.
         assert_eq!(myco_gamepad_sensors(u32::MAX, false), Ok(()));
         assert_eq!(myco_gamepad_rumble(u32::MAX, 1.0, 1.0, 10), Ok(()));
+        assert_eq!(myco_gamepad_trigger_effect(u32::MAX, vec![0x04; 47]), Ok(()));
     }
 
     #[test]

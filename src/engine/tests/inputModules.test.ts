@@ -164,8 +164,8 @@ function recorder() {
     gamepadButton: (id, i, v) => log.push(["button", id, i, v]),
     gamepadAxis: (id, i, v) => log.push(["axis", id, i, v]),
     gamepadSensor: (id, kind) => log.push(["sensor", id, kind]),
-    gamepadTouch: () => {},
-    gamepadBattery: () => {},
+    gamepadTouch: (id, finger, down, x, y) => log.push(["touch", id, finger, down, x, y]),
+    gamepadBattery: (id, level, charging) => log.push(["battery", id, level, charging]),
     touchStart: () => {},
     touchMove: () => {},
     touchEnd: () => {},
@@ -185,9 +185,19 @@ describe("the Tauri adapter (native SDL3 batches)", () => {
       { t: "button", id: 3, index: 7, value: 0.5, time: 1 },
       { t: "axis", id: 3, index: 1, value: -1, time: 1 },
       { t: "sensor", id: 3, kind: "gyro", x: 0, y: 1, z: 0, time: 1 },
+      { t: "touch", id: 3, finger: 1, down: true, x: 0.25, y: 0.75, time: 1 },
+      { t: "battery", id: 3, level: 0.5, charging: true },
       { t: "disconnect", id: 3 },
     ]);
-    expect(log).toEqual([["connect", 3, "playstation"], ["button", 3, 7, 0.5], ["axis", 3, 1, -1], ["sensor", 3, "gyro"], ["disconnect", 3]]);
+    expect(log).toEqual([
+      ["connect", 3, "playstation"],
+      ["button", 3, 7, 0.5],
+      ["axis", 3, 1, -1],
+      ["sensor", 3, "gyro"],
+      ["touch", 3, 1, true, 0.25, 0.75],
+      ["battery", 3, 0.5, true],
+      ["disconnect", 3],
+    ]);
   });
 });
 
