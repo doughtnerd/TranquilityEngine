@@ -170,15 +170,12 @@ export interface SampleEntry extends EntryUse {
  * beside its sample entries. `line` is a fixed line key, null (programmer: the key comes from the play's `line`
  * option), or `{ event }` (decided when picked, with arguments from the instance's labelled parameters of the same
  * name). Its file resolves by 0340 §5 when the entry is picked.
- *
- * Not yet a member of `Entry`: the playlist runtime and the Studio's playlist screens switch on `Entry.kind`, so it
- * joins the union with them (0340 L2); until then the parse reports a line entry and leaves it out.
  */
 export interface LineEntry extends EntryUse {
   kind: "line";
   line: string | null | { event: string };
 }
-export type Entry = LinkedEntry | EmbeddedEntry | SampleEntry;
+export type Entry = LinkedEntry | EmbeddedEntry | SampleEntry | LineEntry;
 
 /**
  * ADR 0343 §4: a playlist's sound caption: a string key (`[door slams]`) and the seconds within which the same caption
