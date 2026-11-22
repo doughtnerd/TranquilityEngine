@@ -56,7 +56,10 @@ export function setRuntimeParameter(name: string, value: number | string): void 
   if (runtimeRunning()) audioHost().audio.setParameter(name, value);
 }
 
-/** Audition a snapshot in the runtime (null: back to the plain mix). The runtime plays one snapshot at a time for now. */
+/**
+ * Audition a snapshot in the runtime (null: back to the plain mix): the shorthand (`Audio.snapshot(name, fade)`), which
+ * fades out the other snapshots started from code; base and conditions snapshots keep blending with it (ADR 0330).
+ */
 export function auditionSnapshot(name: string | null, fadeSeconds: number): void {
   if (!runtimeRunning()) return;
   if (name === null) audioHost().audio.clearSnapshot(fadeSeconds);

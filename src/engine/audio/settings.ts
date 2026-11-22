@@ -1,8 +1,10 @@
 /**
  * Internal (ADR 0097): the runtime's mix model, a tree of mixer buses with per-bus volume, mute and effects, plus
  * snapshots and ducking rules. It was the `audio` section of `project.json`; since ADR 0330 the project's mix lives in
- * `audio.json` (`project/format.ts`) and the runtime runs `toRuntimeSettings` of it, in this shape. The old section is
- * read only by the migration (`project/legacy.ts`).
+ * `audio.json` (`project/format.ts`). The runtime's settings carry it whole under `mix` (`projectWithAudio`), and the
+ * mixer runs that model (`mixer.ts`); the old mix keys beside it are the editor's legacy panels' view (decision D2) and
+ * the shape the mixer hands its backends (`project/runtimeView.ts`). The old section is read only by the migration
+ * (`project/legacy.ts`).
  *
  * ```jsonc
  * "audio": {
@@ -179,7 +181,17 @@ export interface AudioSettings {
   loudnessTargets?: LoudnessTarget[];
   /** ADR 0171 §2.1 (types from K0; parse Ld5): reset the loudness meters at the editor's Play. Absent: true. */
   loudnessResetOnPlay?: boolean;
+  /**
+   * ADR 0330: `audio.json`'s mix (its top-level keys but `format` and `settings`), as written. When present the mixer runs
+   * it (parsed by `project/format.ts`) and the old mix keys above are only a view of it (`project/runtimeView.ts`); a
+   * view the editor's legacy panels edited is written back into it first (decision D2). Absent: the old keys are the mix
+   * (migrated on the fly, `fromLegacySection`).
+   */
+  mix?: AudioMixJson;
 }
+
+/** `audio.json`'s mix as JSON (`parameters`, `buses`, `returns`, `vcas`, `automation`, `ducking`, `snapshots`, `loudness`). */
+export type AudioMixJson = Readonly<Record<string, unknown>>;
 
 /** `audio.music` (ADR 0166 §2.1). */
 export interface MusicSettings { rings: number }
@@ -216,7 +228,7 @@ export interface ZoneSettings {
 }
 /**
  * `audio.doppler`: `maxSpeed` in world units per second, above 0, default 150. `amount` (ADR 0333) is the project's global
- * Doppler multiplier 0..2 (`audio.json` `settings.dopplerAmount`), which the runtime view (`toRuntimeSettings`) writes
+ * Doppler multiplier 0..2 (`audio.json` `settings.dopplerAmount`), which the runtime's views (`project/runtimeView.ts`) write
  * here; absent is 1.
  */
 export interface DopplerSettings { maxSpeed: number; amount?: number }
@@ -446,10 +458,12 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
       }
       settings.buses = buses.slice(0, MAX_BUSES);
     }
-    // ADR 0175: the bus capability rules (bus count, effects and compressors per bus) decide severity and message.
+    // ADR 0175: the bus capability rules (bus count, the insert cap, effects and compressors per bus) decide severity and message.
     for (const f of busRuleFindings(buses)) {
       const text = findingText(f.rule, f.bus < 0 ? "audio.buses" : `audio.buses[${rawIndex[f.bus]}]`);
       (BUS_RULES[f.rule].parse === "problem" ? problems : warnings).push(text);
+      // A problem drops the rest (ADR 0331: a bus keeps its first `insertsPerBus` effects).
+      if (f.rule === "insertsPerBus") buses[f.bus]!.effects.length = BUS_RULES.insertsPerBus.limit;
     }
   }
   const known = (name: unknown): name is string => typeof name === "string" && settings.buses.some((b) => b.name === name);
@@ -473,6 +487,11 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
   parseEventKeys(input, settings, problems);
   parseMusicKeys(input, settings, problems);
   parseMeteringKeys(input, settings, problems);
+  // ADR 0330: the mix as `audio.json` holds it; the mixer parses it (`project/format.ts`), so it is kept as written here.
+  if (input.mix !== undefined) {
+    if (isRecord(input.mix)) settings.mix = structuredClone(input.mix);
+    else problems.push("audio.mix: must be an object (audio.json's mix); ignored.");
+  }
   return { settings, problems, warnings };
 }
 

@@ -245,4 +245,17 @@ describe("the audio op log", () => {
     emitSectionChanged({ key: "audio", before, after, cause: "edit" });
     expect(log.entries).toHaveLength(count);
   });
+
+  it("ADR 0330: a level edited in the legacy view (VCAs folded in) reaches the mixer as the fader alone", () => {
+    const mixer = new FakeMixer();
+    const log = startLog(mixer);
+    const mix = {
+      buses: [{ name: "master", parent: null }, { name: "sfx", parent: "master" }],
+      vcas: [{ name: "V", volumeDb: 20 * Math.log10(0.5), members: ["sfx"] }],
+    };
+    const before = { buses: [{ name: "master" }, { name: "sfx", parent: "master", volume: 0.5 }], mix };
+    const after = { buses: [{ name: "master" }, { name: "sfx", parent: "master", volume: 0.25 }], mix };
+    emitSectionChanged({ key: "audio", before, after, cause: "edit" });
+    expect(log.entries.at(-1)!.ops).toEqual([{ op: "setBus", bus: "sfx", key: "volume", value: 0.5 }]);
+  });
 });

@@ -180,6 +180,8 @@ export { Calibration, type GridSpec, type GridPoint, type MusicEvent, type Music
 export type { AudioCapture, AudioCaptureState, AudioCpuDebug, AudioMixCaps, AudioMixDebug, AudioMixSlotDebug, AudioRecorderDebug } from "./plugins/audio/runtime";
 // ADR 0334: `Audio.take`.
 export type { AudioTake, AudioTakeState } from "./plugins/audio/runtime";
+// ADR 0330: `Audio.snapshot(name)`'s handle (`start`, `stop`, `active`).
+export type { AudioSnapshot } from "./plugins/audio/runtime";
 
 // Interactive-music types, exported as types only (ADR 0168): a script can name them in annotations, and nothing
 // reaches the runtime bundle. The handle and event types, then the music format's node model and rules.

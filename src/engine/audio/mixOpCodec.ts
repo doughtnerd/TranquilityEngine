@@ -4,7 +4,8 @@
  * ids, buses as `busRef`, §6.3). `encodeMixOp` and `decodeMixOp` are exact inverses for every `MixOp`.
  */
 import { CURVE_KEY_INTERPS, curveKeyHandles, curveKeyInterpCode, type Curve, type CurveKey } from "../core/curve";
-import { EFFECT_KEYS, MIX_OP_NAMES, OP_CLASSES, OP_CLASS_CODES, type MixOp, type OpClass } from "./mixOps";
+import { EFFECT_KEYS, MIX_OP_NAMES, OP_CLASSES, OP_CLASS_CODES, isProjectOp, type MixOp, type OpClass } from "./mixOps";
+import { isProjectOp as isProjectOpName } from "./projectOps";
 import { EFFECT_TYPES, type BusAutomation, type BusEffect, type DuckingRule, type LoudnessTarget } from "./settings";
 
 /** The byte form of one op (the capture's MIXOP record): `u8 op`, `u8 class`, `u16 argc`, `argc` u32 words (§6.2). */
@@ -94,10 +95,14 @@ class Reader {
  * index, hasName[, name] · setSnapshot index, bus, key, value · setDucking index, flags[, target, trigger, mode, detector,
  * hasThreshold[, threshold], amount, attack, release] · setAutomation index, flags[, bus, parameter, target, keys, (x, y,
  * interp[, f64 inDx, inDy, outDx, outDy, u32 free when interp is 6, bezier])…] · setTarget index, flags[, name, integrated, tolerance, truePeak] · setOption key, value.
+ * The mix model's own ops (ADR 0330: setMute, setReturn, setSend, setVca, setSnapshotDef, setSnapshotLevel,
+ * setSnapshotEffect; `projectOps.ts`) are one word: the op as JSON, interned like a name (returns and VCAs have no bus
+ * slot, so no `busRef` applies; JSON keeps their nested definitions exact).
  */
 export function encodeMixOp(op: MixOp, cls: OpClass, names: MixOpNameTable): MixOpBytes {
   const w = new Writer(names);
-  switch (op.op) {
+  if (isProjectOp(op)) w.s(JSON.stringify(op));
+  else switch (op.op) {
     case "setBus": w.b(op.bus); w.code(SET_BUS_KEYS, op.key); w.value(op.value); break;
     case "addBus": w.s(op.name); w.b(op.parent); w.u(op.index !== undefined ? 1 : 0); if (op.index !== undefined) w.u(op.index); break;
     case "removeBus": w.b(op.bus); break;
@@ -154,7 +159,11 @@ export function decodeMixOp(bytes: MixOpBytes, names: { name(id: number): string
   const r = new Reader(bytes.words, names);
   const withInsert = (fl: { insert?: boolean }) => (fl.insert !== undefined ? { insert: fl.insert } : {});
   let op: MixOp;
-  switch (name) {
+  if (isProjectOpName({ op: name })) {
+    const parsed = JSON.parse(r.s()) as MixOp;
+    if (parsed.op !== name) throw new Error(`decodeMixOp: the record says ${name} but holds ${parsed.op}`);
+    op = parsed;
+  } else switch (name) {
     case "setBus": { const bus = r.b(); const key = r.code(SET_BUS_KEYS); op = { op: name, bus, key, value: r.value() }; break; }
     case "addBus": { const n = r.s(); const parent = r.b(); op = r.u() ? { op: name, name: n, parent, index: r.u() } : { op: name, name: n, parent }; break; }
     case "removeBus": op = { op: name, bus: r.b() }; break;
@@ -210,6 +219,7 @@ export function decodeMixOp(bytes: MixOpBytes, names: { name(id: number): string
       break;
     }
     case "setOption": r.u(); op = { op: name, key: "loudnessResetOnPlay", value: r.u() !== 0 }; break;
+    default: throw new Error(`decodeMixOp: unknown op ${name}`);
   }
   if (!r.done) throw new Error("decodeMixOp: trailing words");
   return { op, class: cls };

@@ -5,8 +5,8 @@
  * `settings` holds today's engine budgets and options unchanged; the mix (buses, returns, VCAs, automation, ducking,
  * snapshots) is the prototype's model. Gains are dB. Names are identities, unique across buses, returns and VCAs.
  *
- * Until the runtime runs the whole mix model (ADR 0330/0331 milestones), `toRuntimeSettings` (in `format.ts`) adapts an
- * `AudioProject` to the runtime's `AudioSettings`.
+ * The runtime's mixer runs this model (`mixer.ts`; the runtime settings carry it under `mix`); its views in the old
+ * `AudioSettings` shape (the backends' bus tree, the editor's legacy panels) are `runtimeView.ts`'s.
  *
  * Pure; no plugin, no DOM.
  */

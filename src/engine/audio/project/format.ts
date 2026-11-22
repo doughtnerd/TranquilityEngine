@@ -1,8 +1,7 @@
 /**
  * Internal (ADR 0330): `audio.json` (`myco.audio@1`), read and written. `parseAudioProject` reads leniently (bad values
  * fall back to defaults or are dropped, one problem line each; it never throws); `audioProjectToJson` writes what it
- * reads back unchanged; `toRuntimeSettings` adapts a project to the runtime's current mix model (`AudioSettings`) until
- * the runtime runs the whole of ADR 0330.
+ * reads back unchanged. The runtime's views of a project are `project/runtimeView.ts`'s.
  *
  * The engine settings (`settings`) are parsed by `parseAudioSettings`' own rules, so their limits stay declared once
  * (`AUDIO_NUMBERS`, ADR 0306).
@@ -18,9 +17,10 @@ import { sameMaterial } from "../audioSection";
 import {
   BED_PRIORITY_LIMITS, DEFAULT_BED_PRIORITY, DEFAULT_DUCK_DETECTOR, DEFAULT_DUCK_THRESHOLD, DEFAULT_LOUDNESS_TARGETS, MASTER,
   MAX_BUSES, MAX_DUCK_RULES, MAX_LEVEL_RULES, ROOT_BED_PRIORITY, defaultAudioSettings, parseAudioSettings,
-  type AudioParseOptions, type AudioSettings, type BusSettings, type DuckingRule as RuntimeDuckingRule,
+  type AudioMixJson, type AudioParseOptions, type AudioSettings, type BusSettings, type DuckingRule as RuntimeDuckingRule,
   type LoudnessTarget, type SnapshotSettings, type BusAutomation,
 } from "../settings";
+import { MAX_BUS_INSERTS } from "../busCapability";
 import { MAX_DB, MIN_DB, dbToGain } from "./gain";
 import { isCarrier, isShown, secondsOf, toBusEffect } from "./legacyEffects";
 import {
@@ -28,8 +28,11 @@ import {
   type DuckingRule, type MixAutomation, type Return, type Send, type Snapshot, type SnapshotCondition, type SnapshotStart, type Vca,
 } from "./types";
 
+/** Moved to the runtime's views (`runtimeView.ts`); re-exported for the Studio's mix edits. */
+export { reverbSendOf, vcaOffsetDb } from "./runtimeView";
+
 /** The `AudioSettings` keys that are the mix (top-level keys of `audio.json`), not engine settings. */
-const MIX_KEYS = ["buses", "snapshots", "ducking", "parameters", "automation", "loudnessTargets", "loudnessResetOnPlay"] as const;
+const MIX_KEYS = ["buses", "snapshots", "ducking", "parameters", "automation", "loudnessTargets", "loudnessResetOnPlay", "mix"] as const;
 
 /** ADR 0331: the instance submix pool when `settings.submixes` is absent, and its range. */
 export const DEFAULT_SUBMIXES = 32;
@@ -43,7 +46,8 @@ export const MIX_LIMITS = {
   vcas: 32,
   snapshots: 128,
   automation: 256,
-  effectsPerOwner: 16,
+  /** ADR 0331: a bus's or return's insert chain (`busCapability.ts`' declared rule). */
+  effectsPerOwner: MAX_BUS_INSERTS,
   /** A ducking rule's threshold, dBFS. */
   thresholdDb: [-80, 0],
   /** A ducking rule's amount, dB (0: no dip). */
@@ -506,6 +510,19 @@ export function audioProjectToJson(project: AudioProject): Record<string, unknow
   };
 }
 
+/** `project`'s mix as `audio.json` writes it: every top-level key but `format` and `settings` (the runtime settings' `mix`). */
+export function mixJsonOf(project: AudioProject): AudioMixJson {
+  const { format: _format, settings: _settings, ...mix } = audioProjectToJson(project);
+  return mix;
+}
+
+/** A project from a mix (`mixJsonOf`'s shape) and the engine settings it runs with; parse problems go to `problems`. */
+export function projectOfMix(mix: AudioMixJson, settings: AudioEngineSettings, problems: string[] = []): AudioProject {
+  const parsed = parseAudioProject({ ...mix, format: AUDIO_PROJECT_FORMAT });
+  problems.push(...parsed.problems);
+  return { ...parsed.project, settings: structuredClone(settings) };
+}
+
 function settingsToJson(s: AudioEngineSettings): Record<string, unknown> {
   const defaults = defaultEngineSettings() as unknown as Record<string, unknown>;
   const pruned = { ...s, occlusion: { ...s.occlusion, materials: s.occlusion.materials.filter((m) => { const b = BUILTIN_MATERIALS.find((x) => x.name === m.name); return !b || !sameMaterial(m, b); }) } };
@@ -519,134 +536,3 @@ function settingsToJson(s: AudioEngineSettings): Record<string, unknown> {
   return out;
 }
 
-// --- the runtime's view ----------------------------------------------------------------------------------------------
-
-/** The sum of the VCA levels on `name`: each VCA that lists it, unless it also lists one of its ancestors (counted there). */
-export function vcaOffsetDb(project: Pick<AudioProject, "buses" | "vcas">, name: string): number {
-  const ancestors: string[] = [];
-  const seen = new Set<string>([name]);
-  for (let p = project.buses.find((b) => b.name === name)?.parent ?? null; p !== null && !seen.has(p); p = project.buses.find((b) => b.name === p)?.parent ?? null) {
-    ancestors.push(p);
-    seen.add(p);
-  }
-  let db = 0;
-  for (const v of project.vcas) if (v.members.includes(name) && !ancestors.some((a) => v.members.includes(a))) db += v.volumeDb;
-  return db;
-}
-
-/** The return a bus's legacy reverb send stands for: the first of its sends to a return with an `on` reverb. */
-export function reverbSendOf(project: Pick<AudioProject, "returns">, bus: Bus): { send: Send; ret: Return } | null {
-  for (const send of bus.sends) {
-    const ret = project.returns.find((r) => r.name === send.to);
-    if (ret && ret.effects.some((e) => e.type === "reverb" && e.on)) return { send, ret };
-  }
-  return null;
-}
-
-const clampGain = (g: number, max: number) => Math.min(max, Math.max(0, g));
-const curveToGain = (curve: Curve): CurveKey[] => curve.map((k) => (k.length === 3 ? [k[0], dbToGain(k[1]), k[2]] : [k[0], dbToGain(k[1])]) as CurveKey);
-
-/** The runtime bus of `bus` (warnings into `warn`). */
-function runtimeBus(project: AudioProject, bus: Bus, warn: (line: string) => void): BusSettings {
-  const root = bus.parent === null;
-  const out: BusSettings = { name: bus.name, ...(root ? {} : { parent: bus.parent! }), volume: clampGain(dbToGain(bus.volumeDb + vcaOffsetDb(project, bus.name)), 2), mute: bus.mute, effects: [] };
-  for (const e of bus.effects) {
-    if (isShown(project, bus.name, e)) {
-      const lost: string[] = [];
-      out.effects.push(toBusEffect(e, lost));
-      if (lost.length > 0) warn(`bus "${bus.name}": the ${e.type} "${e.id}" ${lost.join(" and ")} needs the new mixer; left out until then.`);
-    } else if (e.on && !isCarrier(project, bus.name, e)) warn(`bus "${bus.name}": the ${e.type} effect "${e.id}" needs the new mixer; left out until then.`);
-  }
-  const reverb = reverbSendOf(project, bus);
-  for (const s of bus.sends) {
-    if (reverb && s === reverb.send) {
-      const g = reverb.ret.mute ? 0 : dbToGain(s.levelDb + reverb.ret.volumeDb);
-      if (g > 1) warn(`bus "${bus.name}": the send to "${s.to}" is above the runtime's reverb send of 1; using 1.`);
-      out.effects.push({ type: "reverb", send: clampGain(g, 1) });
-    } else warn(`bus "${bus.name}": the send to "${s.to}" needs the new mixer; left out until then.`);
-  }
-  if (bus.voiceLimit !== null) out.maxVoices = bus.voiceLimit;
-  if (root) {
-    if (bus.bed && bus.bed.priority !== ROOT_BED_PRIORITY) out.bedPriority = bus.bed.priority;
-  } else if (bus.bed) {
-    if (bus.bed.own) out.bed = "own";
-    else out.bed = "none";
-    if (bus.bed.priority !== DEFAULT_BED_PRIORITY) out.bedPriority = bus.bed.priority;
-  }
-  if (!root && bus.meter) out.meter = "loudness";
-  return out;
-}
-
-/**
- * `project` as the runtime's current mix model (ADR 0330 until the runtime runs the whole mix): levels in linear gain
- * with each bus's VCA offsets folded in; a send to a return holding a reverb becomes the old `reverb` send effect (its
- * level plus the return's); snapshot offsets become multipliers and a snapshot override of a low-pass cutoff the old
- * snapshot low-pass; `volume` automation becomes the old volume automation (its dB curve as multipliers) and
- * `fx:<id>:cutoff` on a low-pass the old low-pass automation. What the runtime can't express is left out of this view
- * only (never out of the file), with one line in `warnings` each. Disabled ducking rules and bypassed effects and
- * automation are left out silently: the runtime wouldn't play them.
- */
-export function toRuntimeSettings(project: AudioProject, warnings: string[] = []): AudioSettings {
-  const warn = (line: string) => void warnings.push(line);
-  const { submixes: _submixes, bedBeyond, dopplerAmount, ...engine } = project.settings;
-  // TODO(ADR 0333): `bedBeyond` needs the audio core's panner pick to send a voice past it to its bus's bed (it picks beds
-  // by HRTF rank only today); the runtime view leaves it out until then.
-  if (bedBeyond !== null) warn("settings.bedBeyond needs the audio core's distance-based beds; beds go by HRTF rank until then.");
-  const isBus = (name: string) => project.buses.some((b) => b.name === name);
-  const out: AudioSettings = { ...structuredClone(engine), buses: [], snapshots: [], ducking: [], parameters: structuredClone(project.parameters), automation: [] };
-  // ADR 0333: the global Doppler amount scales every voice's Doppler level (the Doppler pass reads it).
-  if (dopplerAmount !== 1) out.doppler = { ...out.doppler, amount: dopplerAmount };
-  out.buses = project.buses.map((b) => runtimeBus(project, b, warn));
-  for (const r of project.returns) {
-    if (r.output !== project.buses[0]?.name) warn(`return "${r.name}": its output "${r.output}" needs the new mixer; it plays into the master bus until then.`);
-    for (const e of r.effects) if (e.on && e.type !== "reverb") warn(`return "${r.name}": the ${e.type} effect "${e.id}" needs the new mixer; left out until then.`);
-  }
-
-  for (const s of project.snapshots) {
-    if (s.start.kind === "base" || s.start.kind === "conditions") warn(`snapshot "${s.name}": starting ${s.start.kind === "base" ? "with the base mix" : "on conditions"} needs the new mixer; it starts from code until then.`);
-    if (s.combine === "add") warn(`snapshot "${s.name}": Add needs the new mixer; it overrides until then.`);
-    const snap: SnapshotSettings = { name: s.name, volumes: {}, lowpass: {} };
-    for (const [name, db] of Object.entries(s.buses)) {
-      if (isBus(name)) snap.volumes[name] = clampGain(dbToGain(db), 2);
-      else warn(`snapshot "${s.name}": the offset on "${name}" needs the new mixer; left out until then.`);
-    }
-    for (const [name, byId] of Object.entries(s.effects)) {
-      const bus = project.buses.find((b) => b.name === name);
-      for (const [id, params] of Object.entries(byId)) {
-        const e = bus?.effects.find((x) => x.id === id);
-        for (const [p, v] of Object.entries(params)) {
-          if (bus && e?.type === "lowpass" && p === "cutoff") snap.lowpass[name] = Math.min(snap.lowpass[name] ?? Infinity, v);
-          else warn(`snapshot "${s.name}": the override of ${name} ${id}.${p} needs the new mixer; left out until then.`);
-        }
-      }
-    }
-    out.snapshots.push(snap);
-  }
-
-  for (const d of project.ducking) {
-    if (!d.enabled) continue;
-    if (!isBus(d.target) || !isBus(d.trigger)) { warn(`ducking: "${d.trigger}" ducking "${d.target}" needs the new mixer (a return); left out until then.`); continue; }
-    const rule: RuntimeDuckingRule = { target: d.target, trigger: d.trigger, mode: d.mode, amount: clampGain(dbToGain(d.amountDb), 1), attack: secondsOf(d.attackMs), release: secondsOf(d.releaseMs) };
-    if (d.mode === "level") { rule.detector = d.detector; rule.threshold = d.thresholdDb; }
-    out.ducking.push(rule);
-  }
-
-  for (const a of project.automation) {
-    if (a.bypass) continue;
-    const bus = project.buses.find((b) => b.name === a.on);
-    let entry: BusAutomation | null = null;
-    if (bus && a.target === "volume") entry = { bus: bus.name, parameter: a.parameter, target: "volume", curve: curveToGain(a.curve) };
-    else if (bus && a.target.startsWith("fx:")) {
-      const [, id, p] = a.target.split(":");
-      if (p === "cutoff" && bus.effects.find((e) => e.id === id)?.type === "lowpass") entry = { bus: bus.name, parameter: a.parameter, target: "lowpass", curve: structuredClone(a.curve) as CurveKey[] };
-    }
-    if (entry) out.automation.push(entry);
-    else warn(`automation: ${a.target} on "${a.on}" needs the new mixer; left out until then.`);
-  }
-
-  const t = project.loudness.targets;
-  const same = t.length === DEFAULT_LOUDNESS_TARGETS.length && t.every((x, i) => JSON.stringify(x) === JSON.stringify(DEFAULT_LOUDNESS_TARGETS[i]));
-  if (!same) out.loudnessTargets = structuredClone(t) as LoudnessTarget[];
-  if (!project.loudness.resetOnPlay) out.loudnessResetOnPlay = false;
-  return out;
-}

@@ -70,7 +70,8 @@ describe("mixer", () => {
     const m = mk({ snapshots: [{ name: "Paused", volumes: { Music: 0.2, SFX: 0 }, lowpass: { Music: 800 } }] });
     m.snapshot("Paused", 1);
     m.update(0.5);
-    expect(m.bus("Music").effectiveGain).toBeCloseTo(0.6);
+    // ADR 0330: linear in dB, so half-way from 1 to 0.2 is their geometric mean.
+    expect(m.bus("Music").effectiveGain).toBeCloseTo(Math.sqrt(0.2));
     m.update(0.5);
     expect(m.bus("Music").effectiveGain).toBeCloseTo(0.2);
     expect(m.bus("SFX").effectiveGain).toBe(0);

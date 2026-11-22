@@ -217,6 +217,49 @@ function clampWarn(name: string, value: number, min: number, max: number): numbe
   return Math.min(max, Math.max(min, value));
 }
 
+/** ADR 0330: a snapshot of the project's mix, as game code reaches it (`Audio.snapshot(name)`). */
+export interface AudioSnapshot {
+  readonly name: string;
+  /** The project has a snapshot by this name. */
+  readonly exists: boolean;
+  /** It is on now: fading in, on, held, or fading out. */
+  readonly active: boolean;
+  /** Fade it in over its fade-in time (or `fadeSeconds`); the snapshots already on stay on and blend with it. */
+  start(fadeSeconds?: number): void;
+  /** Fade it out over its fade-out time (or `fadeSeconds`), once its hold time is over. A base snapshot is always on. */
+  stop(fadeSeconds?: number): void;
+}
+
+function snapshotHandle(name: string): AudioSnapshot {
+  return {
+    name,
+    get exists() { return mixer.snapshotNames.includes(name); },
+    get active() { return mixer.snapshotActive(name); },
+    start(fadeSeconds?: number) {
+      const fade = fadeSeconds !== undefined && Number.isFinite(fadeSeconds) ? Math.max(0, fadeSeconds) : undefined;
+      // `value` 2: a start that keeps the other snapshots (the shorthand records 1).
+      takeTap.sink?.mix("snapshotStart", name, 2, fade ?? -1);
+      mixer.startSnapshot(name, fade);
+    },
+    stop(fadeSeconds?: number) {
+      const fade = fadeSeconds !== undefined && Number.isFinite(fadeSeconds) ? Math.max(0, fadeSeconds) : undefined;
+      takeTap.sink?.mix("snapshotStop", name, 0, fade ?? -1);
+      mixer.stopSnapshot(name, fade);
+    },
+  };
+}
+
+/** `Audio.snapshot(name)`: the snapshot's handle; `Audio.snapshot(name, fadeSeconds)`: the shorthand (fade to it), and its handle. */
+function snapshotOf(name: string, fadeSeconds?: number): AudioSnapshot {
+  const n = String(name);
+  if (fadeSeconds !== undefined) {
+    const fade = Number.isFinite(fadeSeconds) ? Math.max(0, fadeSeconds) : 0.5;
+    takeTap.sink?.mix("snapshotStart", n, 1, fade);
+    mixer.snapshot(n, fade);
+  }
+  return snapshotHandle(n);
+}
+
 /** One-shot and global audio helpers. */
 export const Audio = {
   /** Start a clip once. A bare number is the volume. Always returns a handle (refused or failed plays give an inert one with `playing` false); never throws. */
@@ -293,9 +336,10 @@ export const Audio = {
     }
   },
 
-  /** Set a global audio parameter (Project Settings > Audio > Parameters; labelled ones by label). */
+  /** Set a global audio parameter (the Studio's Parameters; labelled ones by label). Snapshots started by conditions on it follow (ADR 0330). */
   setParameter(name: string, value: number | string): void {
     try { events().setGlobal(String(name), value); } catch (e) { warnOnce("setParameter:threw", `Audio.setParameter failed (${e instanceof Error ? e.message : String(e)}).`); }
+    mixer.setParameter(String(name), value);
   },
 
   /** A global audio parameter's value (a label for labelled ones); undefined if there is none by that name. */
@@ -314,13 +358,14 @@ export const Audio = {
     return mixer.busNames;
   },
 
-  /** Fade to a named mix from the project's audio snapshots (e.g. a muffled pause menu). Default fade 0.5 s. */
-  snapshot(name: string, fadeSeconds = 0.5): void {
-    takeTap.sink?.mix("snapshotStart", String(name), 1, fadeSeconds);
-    mixer.snapshot(name, fadeSeconds);
-  },
+  /**
+   * A snapshot of the project's mix by name (ADR 0330): `Audio.snapshot("Underwater").start()` and `.stop()` fade it in
+   * and out over its own times, blending with the other snapshots on (priority, Override or Add). With `fadeSeconds`,
+   * the shorthand: fade to it over that time, fading out the other snapshots game code started.
+   */
+  snapshot: snapshotOf,
 
-  /** Fade back to the plain mix. Default fade 0.5 s. */
+  /** Fade out every snapshot game code started (the shorthand's way back to the plain mix). Default fade 0.5 s. */
   clearSnapshot(fadeSeconds = 0.5): void {
     takeTap.sink?.mix("snapshotStop", "", 0, fadeSeconds);
     mixer.clearSnapshot(fadeSeconds);

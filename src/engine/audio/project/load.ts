@@ -1,6 +1,7 @@
 /**
  * Internal (ADR 0330): the Engine's project settings from a project's files. `project.json` holds no audio any more:
- * the `audio` settings the Engine runs with are `audio.json`'s runtime view (`toRuntimeSettings`). The player, the
+ * the `audio` settings the Engine runs with are `audio.json`'s engine settings, its mix whole under `mix` (the mixer runs
+ * it, `mixer.ts`), and the old mix keys as the editor's legacy panels' view of it (`legacySectionOf`, decision D2). The player, the
  * dedicated server and the exporter read a project through this; the editor's projects compose the same view
  * (`src/editor/projects.ts`). A `project.json` that still has an `audio` section is refused here (`legacyAudio`): the
  * editor migrates it when the project opens.
@@ -9,7 +10,8 @@
  */
 import type { ProjectSettingsInput } from "../../core/settings";
 import type { AudioParseOptions } from "../settings";
-import { parseAudioProject, toRuntimeSettings } from "./format";
+import { mixJsonOf, parseAudioProject } from "./format";
+import { coreSectionOf, legacySectionOf } from "./runtimeView";
 import { AUDIO_PROJECT_FILE } from "./types";
 
 /** What a runtime or an export says of a `project.json` that still has the old `audio` section. */
@@ -21,13 +23,13 @@ export const hasLegacyAudio = (projectJson: unknown): boolean =>
   typeof projectJson === "object" && projectJson !== null && Object.prototype.hasOwnProperty.call(projectJson, "audio");
 
 export interface ProjectWithAudio {
-  /** `project.json`'s values with `audio` set to `audio.json`'s runtime view (absent without `audio.json`: the default mix). */
+  /** `project.json`'s values with `audio` set to `audio.json`'s runtime settings (absent without `audio.json`: the default mix). */
   readonly project: ProjectSettingsInput;
   /** `project.json` still has the old section: it was left out, and the host refuses the project (`LEGACY_AUDIO_MESSAGE`). */
   readonly legacyAudio: boolean;
   /** `audio.json`'s parse problems, each a sentence. */
   readonly problems: readonly string[];
-  /** What the runtime can't play of the mix yet (`toRuntimeSettings`' warnings). */
+  /** What the runtime can't play of the mix yet (`coreSectionOf`'s warnings). */
   readonly warnings: readonly string[];
 }
 
@@ -39,6 +41,7 @@ export function projectWithAudio(projectJson: unknown, audioJson: unknown, optio
   if (audioJson === undefined) return { project: rest as ProjectSettingsInput, legacyAudio, problems: [], warnings: [] };
   const { project, problems } = parseAudioProject(audioJson, options);
   const warnings: string[] = [];
-  const audio = toRuntimeSettings(project, warnings) as unknown as Record<string, unknown>;
+  coreSectionOf(project, warnings);
+  const audio = { ...legacySectionOf(project), mix: mixJsonOf(project) } as unknown as Record<string, unknown>;
   return { project: { ...rest, audio } as ProjectSettingsInput, legacyAudio, problems, warnings };
 }

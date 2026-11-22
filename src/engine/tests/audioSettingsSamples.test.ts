@@ -2,7 +2,8 @@
 // (`audio.json` since ADR 0330) parses without a problem.
 import { describe, expect, it } from "vitest";
 import stress from "../../../samples/stress/audio.json";
-import { parseAudioProject, toRuntimeSettings } from "../audio/project/format";
+import { parseAudioProject } from "../audio/project/format";
+import { legacySectionOf as toRuntimeSettings } from "../audio/project/runtimeView";
 import { parseAudioSettings } from "../audio/settings";
 
 describe("sample audio settings", () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseAudioSettings, type AudioSettings } from "../settings";
-import { audioProjectToJson, parseAudioProject, toRuntimeSettings } from "./format";
+import { audioProjectToJson, parseAudioProject } from "./format";
+import { legacySectionOf as toRuntimeSettings } from "./runtimeView";
 import { fromLegacySection, mergeLegacyIntoProject } from "./legacy";
 import { AUDIO_PROJECT_FORMAT, type AudioProject } from "./types";
 

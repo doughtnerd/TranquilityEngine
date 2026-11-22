@@ -16,6 +16,11 @@
 //   appended), so after a live remove or an add into a recycled slot a bus's position there is not its slot: every
 //   consumer reads the slot from this map or `BusLanes.slot` (G7c). The mixer holds a tombstone's state by slot
 //   (`Mixer._tombstoneLanes`) until the slot recycles, for the replay's dip lane.
+// - **Live effects (ADR 0330).** A slot's effects on the wire are the mixer's live effects (`Mixer._busEffects`): the
+//   authored chain with the main thread's values in (snapshot overrides, effect and send automation, a send following
+//   its return's lanes and the mutes). Each mixer change (`replanBedsOnSettings`, which the backend runs on every one)
+//   writes one `BUS_SLOT` for each slot whose live parameter values moved (`syncEffects`); a change of the chain itself
+//   (an effect added, removed or moved) is the live ops' (`liveMix.ts`, the structural dip), never this.
 import type { Mixer, ResolvedBus } from "../../../../engine/audio/mixer";
 import { MAX_BUSES, type AudioSettings, type BusEffect } from "../../../../engine/audio/settings";
 import { SlotTable, type SlotDeferred } from "../../../../engine/audio/slotTable";
@@ -93,6 +98,8 @@ export class BusIndex {
   private readonly planParents = new Int16Array(MAX_BUSES);
   /** The settings object the beds were last planned from (E7: a settings change that keeps the bus names plans them again). */
   private bedsPlannedFrom: AudioSettings | null = null;
+  /** ADR 0330: the live effects each slot's last `BUS_SLOT` (or `BUS_CONFIG`) carried, by slot. */
+  private sentEffects: (readonly BusEffect[] | undefined)[] = [];
 
   constructor(private readonly host: BusIndexHost) {}
 
@@ -120,6 +127,7 @@ export class BusIndex {
    * undo back to the names the core started with) gets no remap either: the tree is configured again from the settings.
    */
   replanBedsOnSettings(): void {
+    this.syncEffects();
     const settings = this.host.mixer.audioSettings;
     if (settings === this.bedsPlannedFrom) return;
     if (settings.buses.length !== this.names.length || settings.buses.some((b, i) => b.name !== this.names[i])) {
@@ -170,9 +178,32 @@ export class BusIndex {
     this.host.applyMix(mixer.resolveAll());
   }
 
-  /** BUS_CONFIG's buses in slot order (the table's tree; also the hard rebuild's replay, A3.4a). */
+  /** BUS_CONFIG's buses in slot order (the table's tree, each bus's live effects; also the hard rebuild's replay, A3.4a). */
   busConfigWire(mixer: Mixer = this.host.mixer): BusConfigBuses[] {
-    return this.slots.configWire(mixer.audioSettings) as BusConfigBuses[];
+    const settings = mixer.audioSettings;
+    const live = settings.buses.map((b) => ({ ...b, effects: (mixer._busEffects(b.name) ?? b.effects) as BusEffect[] }));
+    this.sentEffects = this.slots.slots.map((slot) => (slot.state === "live" ? live.find((b) => b.name === slot.name)?.effects : undefined));
+    return this.slots.configWire({ ...settings, buses: live }) as BusConfigBuses[];
+  }
+
+  /**
+   * ADR 0330: one `BUS_SLOT` for each live slot whose live effects moved since its last write, when only their values
+   * did (the same effect types in the same order): a snapshot override, an automation value, a send following its
+   * return. A different chain waits for the live op that changes it (its `BUS_SLOT` goes through `writeSlot`).
+   */
+  syncEffects(): void {
+    const mixer = this.host.mixer;
+    const slots = this.slots.slots;
+    for (let s = 0; s < slots.length; s++) {
+      const slot = slots[s]!;
+      if (slot.state !== "live" || slot.name === null) continue;
+      const live = mixer._busEffects(slot.name);
+      const sent = this.sentEffects[s];
+      if (!live || live === sent || !sent) continue;
+      if (live.length !== sent.length || live.some((e, i) => e.type !== sent[i]!.type)) continue;
+      if (live.every((e, i) => JSON.stringify(e) === JSON.stringify(sent[i]))) { this.sentEffects[s] = live; continue; }
+      this.writeSlot(slot.name);
+    }
   }
 
   // --- Ma1: the live path's edits of the table (`liveMix.ts`) ---
@@ -207,7 +238,10 @@ export class BusIndex {
     const slot = this.slots.slots[s];
     if (!slot || slot.state !== "live") return { slot: s, parent: BUS_ROOT, effects: [] };
     const bus = this.host.mixer.audioSettings.buses.find((b) => b.name === slot.name);
-    return { slot: s, parent: slot.parent < 0 ? BUS_ROOT : slot.parent, effects: (bus?.effects ?? []).map(wireEffect) };
+    // ADR 0330: the live effects (the authored chain with the main thread's values in).
+    const effects = (bus ? this.host.mixer._busEffects(bus.name) : undefined) ?? bus?.effects ?? [];
+    this.sentEffects[s] = effects;
+    return { slot: s, parent: slot.parent < 0 ? BUS_ROOT : slot.parent, effects: effects.map(wireEffect) };
   }
 
   // --- Ma2: the structural edits' side of the table (`structuralDip.ts`) ---

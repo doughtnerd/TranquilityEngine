@@ -6,11 +6,15 @@
  * | rule                | limit | parse    | live (mixer.apply)                        | runs on         |
  * |---------------------|-------|----------|-------------------------------------------|-----------------|
  * | `busCount`          | 32    | problem  | refused (`opRefusal`)                     | every backend   |
+ * | `insertsPerBus`     | 8     | problem  | refused (`opRefusal`)                     | every backend   |
  * | `compressorsPerBus` | 1     | warning  | kept; applies at the next Play            | the audio core  |
  * | `effectsPerBus`     | 4     | warning  | kept; applies at the next Play            | the audio core  |
  *
- * A warning is a note on a valid section: the edit is kept as authored and saved (R10). At the next Play the core runs a
- * bus's first `MAX_CORE_BUS_EFFECTS` effects and the first compressor of the list (`audio-core/src/fx.rs`; the wire's
+ * `insertsPerBus` is the mix model's declared cap (ADR 0331: a bus's or a return's insert chain holds at most 8
+ * effects; `audio.json`'s parse reads it from here, `MIX_LIMITS.effectsPerOwner`). The two core rules are the audio
+ * core's real limits today, kept with their reason until the core runs the longer chain: a warning is a note on a valid
+ * section: the edit is kept as authored and saved (R10). At the next Play the core runs a bus's first
+ * `MAX_CORE_BUS_EFFECTS` effects and the first compressor of the list (`audio-core/src/fx.rs`; the wire's
  * `BUS_SLOT_MAX_EFFECTS`, which a plugin-side test holds equal to `MAX_CORE_BUS_EFFECTS`). The Web Audio fallback runs
  * every effect, so the core-only rules don't apply to it live.
  *
@@ -25,12 +29,14 @@ import type { ApplyResult, MixOp, OpClass } from "./mixOps";
 
 /** Buses per project: the core's slot count (`MAX_BUS` in the wire; tombstones count, `slotTable.ts`). */
 export const MAX_BUSES = 32;
+/** ADR 0331: effects per bus or return the mix model holds (the insert chain's cap, on every backend). */
+export const MAX_BUS_INSERTS = 8;
 /** Effects per bus the audio core runs (`MAX_EFFECTS` in `audio-core/src/fx.rs`, `BUS_SLOT_MAX_EFFECTS` on the wire). */
 export const MAX_CORE_BUS_EFFECTS = 4;
 /** Compressors per bus the audio core runs (the first of the list). */
 export const MAX_CORE_BUS_COMPRESSORS = 1;
 
-export type BusRule = "busCount" | "compressorsPerBus" | "effectsPerBus";
+export type BusRule = "busCount" | "insertsPerBus" | "compressorsPerBus" | "effectsPerBus";
 
 /** What the rule's breach is to the parse: a `problem` (the rest is dropped) or a `warning` (kept as authored). */
 export type ParseSeverity = "problem" | "warning";
@@ -49,6 +55,7 @@ export interface BusRuleSpec {
 
 export const BUS_RULES: Readonly<Record<BusRule, BusRuleSpec>> = {
   busCount: { limit: MAX_BUSES, parse: "problem", live: "refused", coreOnly: false, message: `at most ${MAX_BUSES} buses` },
+  insertsPerBus: { limit: MAX_BUS_INSERTS, parse: "problem", live: "refused", coreOnly: false, message: `a bus holds at most ${MAX_BUS_INSERTS} effects` },
   compressorsPerBus: {
     limit: MAX_CORE_BUS_COMPRESSORS, parse: "warning", live: "nextPlay", coreOnly: true,
     message: "a bus runs one compressor; the edit is saved and applies at the next Play, where only the first compressor of the list runs and the others are skipped",
@@ -64,12 +71,14 @@ const compressors = (effects: readonly Pick<BusEffect, "type">[]): number => eff
 /** One rule a parsed bus list breaks: `bus` is the bus's index, or -1 for the list (`busCount`). */
 export interface BusRuleFinding { rule: BusRule; bus: number }
 
-/** The rules `buses` breaks, in list order (the list's own first, then each bus's: effects, then compressors). */
+/** The rules `buses` breaks, in list order (the list's own first, then each bus's: the insert cap, the core's effects, then compressors). */
 export function busRuleFindings(buses: readonly Pick<BusSettings, "effects">[]): BusRuleFinding[] {
   const out: BusRuleFinding[] = [];
   if (buses.length > BUS_RULES.busCount.limit) out.push({ rule: "busCount", bus: -1 });
   buses.forEach((b, i) => {
-    if (b.effects.length > BUS_RULES.effectsPerBus.limit) out.push({ rule: "effectsPerBus", bus: i });
+    // Past the insert cap the chain is cut to it (a problem); the core's own limit is reported once the chain fits.
+    if (b.effects.length > BUS_RULES.insertsPerBus.limit) out.push({ rule: "insertsPerBus", bus: i });
+    else if (b.effects.length > BUS_RULES.effectsPerBus.limit) out.push({ rule: "effectsPerBus", bus: i });
     if (compressors(b.effects) > BUS_RULES.compressorsPerBus.limit) out.push({ rule: "compressorsPerBus", bus: i });
   });
   return out;
@@ -87,6 +96,7 @@ export function ruleBrokenBy(a: Pick<AudioSettings, "buses">, op: MixOp): BusRul
   if (op.op !== "addEffect") return null;
   const bus = a.buses.find((b) => b.name === op.bus);
   if (!bus) return null;
+  if (bus.effects.length + 1 > BUS_RULES.insertsPerBus.limit) return "insertsPerBus";
   if (op.effect?.type === "compressor" && compressors(bus.effects) + 1 > BUS_RULES.compressorsPerBus.limit) return "compressorsPerBus";
   return bus.effects.length + 1 > BUS_RULES.effectsPerBus.limit ? "effectsPerBus" : null;
 }
@@ -141,7 +151,7 @@ export const appliesAtNextPlay = (r: Pick<ApplyResult, "ok" | "reason">): r is A
 export function liveRuleAnswer(a: Pick<AudioSettings, "buses">, op: MixOp, caps: LiveCaps): ApplyReason | null {
   const rule = ruleBrokenBy(a, op);
   if (rule === null || BUS_RULES[rule].live !== "nextPlay" || (BUS_RULES[rule].coreOnly && !caps.coreChain)) return null;
-  return rule as Exclude<BusRule, "busCount">;
+  return rule as Exclude<BusRule, "busCount" | "insertsPerBus">;
 }
 
 /** The answer, after a target applied `op` to the model, for a feature the target doesn't run (a level ducking rule), else null. */

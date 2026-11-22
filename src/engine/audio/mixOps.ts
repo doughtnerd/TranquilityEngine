@@ -20,6 +20,10 @@
  * its trigger…) is refused: `opRefusal` says why and `applyOpToSettings` returns its input unchanged (the same object).
  */
 import { ruleRefusal, type ApplyReason } from "./busCapability";
+import { PROJECT_OP_NAMES, diffProjectOps, isProjectOp, type ProjectMixOp } from "./projectOps";
+import { audioProjectToJson, parseAudioProject } from "./project/format";
+import { coreSectionOf } from "./project/runtimeView";
+import type { AudioProject } from "./project/types";
 import { LIVE_KEYS, audioSection, withLiveKeys } from "./audioSection";
 import { deepEqual } from "./deepEqual";
 import { uniqueName } from "../core/uniqueName";
@@ -66,12 +70,17 @@ export type MixOp =
   | { op: "setDucking"; index: number; rule: DuckingRule | null; insert?: boolean }
   | { op: "setAutomation"; index: number; rule: BusAutomation | null; insert?: boolean }
   | { op: "setTarget"; index: number; target: LoudnessTarget | null; insert?: boolean }
-  | { op: "setOption"; key: "loudnessResetOnPlay"; value: boolean };
+  | { op: "setOption"; key: "loudnessResetOnPlay"; value: boolean }
+  /** ADR 0330: the mix model's own ops (returns, VCAs, mute, sends, snapshot edits), `projectOps.ts`. */
+  | ProjectMixOp;
+
+export { isProjectOp, type ProjectMixOp };
 
 /** The `op` names, in the byte form's `u8 op` order (index = code). Append only: a capture stores the code. */
 export const MIX_OP_NAMES = [
   "setBus", "addBus", "removeBus", "renameBus", "moveBus", "addEffect", "removeEffect", "moveEffect", "setEffect",
   "addSnapshot", "removeSnapshot", "renameSnapshot", "setSnapshot", "setDucking", "setAutomation", "setTarget", "setOption",
+  ...PROJECT_OP_NAMES,
 ] as const satisfies readonly MixOp["op"][];
 
 /** What `audioEdit` registers for one undo step: the ops that made it and the ops that undo it (§6.4). */
@@ -174,6 +183,7 @@ function listRefusal(len: number, index: number, item: unknown, insert: boolean 
  * metered"), or null when it applies. An op that applies may still change nothing (a value set to what it is).
  */
 export function opRefusal(a: AudioSettings, op: MixOp): string | null {
+  if (isProjectOp(op)) return "This edit needs the mix in audio.json; the old audio section can't hold it.";
   const noBus = (name: string) => `No bus named "${name}".`;
   switch (op.op) {
     case "setBus": {
@@ -220,7 +230,7 @@ export function opRefusal(a: AudioSettings, op: MixOp): string | null {
     case "addEffect":
       if (!busOf(a, op.bus)) return noBus(op.bus);
       if (!Number.isInteger(op.index)) return "An effect index must be a whole number.";
-      return effectRefusal(op.effect);
+      return effectRefusal(op.effect) ?? ruleRefusal(a, op); // ADR 0331: the insert cap
     case "removeEffect": {
       const b = busOf(a, op.bus);
       if (!b) return noBus(op.bus);
@@ -303,6 +313,7 @@ function editList<T>(list: readonly T[], index: number, item: T | null, insert: 
 
 /** `a` after `op`, in canonical form; `a` itself (the same object) when the op is refused or changes nothing. */
 export function applyOpToSettings(a: AudioSettings, op: MixOp): AudioSettings {
+  if (isProjectOp(op)) return a; // the old section can't hold it (`opRefusal`); the mixer applies it to its project
   if (opRefusal(a, op) !== null) return a;
   const mapBus = (name: string, f: (b: BusSettings) => BusSettings): AudioSettings => ({ ...a, buses: a.buses.map((b) => (b.name === name ? f(b) : b)) });
   switch (op.op) {
@@ -421,7 +432,7 @@ export function applyOpToDraft<D extends MixDraft>(d: D, op: MixOp): D {
  * `none` (refused, or changes nothing).
  */
 export function opClass(op: MixOp, settings: AudioSettings): OpClass {
-  if (applyOpToSettings(settings, op) === settings) return "none";
+  if (isProjectOp(op) || applyOpToSettings(settings, op) === settings) return "none";
   switch (op.op) {
     case "setBus": return op.key === "bed" || op.key === "bedPriority" ? "config" : "direct";
     case "addBus": return "direct";
@@ -474,7 +485,7 @@ function invertList<T>(list: readonly T[], index: number, item: T | null, insert
  * snapshot entries, ducking rules and automation; undoing `removeSnapshot` re-adds its entries.
  */
 export function invert(op: MixOp, before: AudioSettings): MixOp[] {
-  if (applyOpToSettings(before, op) === before) return [];
+  if (isProjectOp(op) || applyOpToSettings(before, op) === before) return [];
   switch (op.op) {
     case "setBus": return [{ op: "setBus", bus: op.bus, key: op.key, value: busValue(busOf(before, op.bus)!, op.key) }];
     case "addBus": return [{ op: "removeBus", bus: op.name.trim() }];
@@ -658,4 +669,21 @@ export function diffOps(before: AudioSettings, after: AudioSettings): { ops: Mix
   const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
   const restartRequired = [...keys].filter((k) => !live.has(k) && !deepEqual((before as unknown as Record<string, unknown>)[k], (after as unknown as Record<string, unknown>)[k]));
   return { ops, restartRequired };
+}
+
+/**
+ * ADR 0330: the ops that move a running mix from `before` to `after` (the Studio's edits of `audio.json`). First the old
+ * ops over the backends' view (`coreSectionOf`: the bus tree, bus levels and mutes, effects, ducking, automation,
+ * loudness), with returns, VCAs, sends and snapshots held at `before`'s; then the mix model's own ops (`diffProjectOps`)
+ * for those. `restartRequired` lists the engine settings that wait for the next start.
+ */
+export function diffProjectMix(before: AudioProject, after: AudioProject): { ops: MixOp[]; restartRequired: string[] } {
+  if (before === after) return { ops: [], restartRequired: [] };
+  const held = (name: string) => before.buses.find((b) => b.name === name)?.sends ?? [];
+  const mid = parseAudioProject(audioProjectToJson({
+    ...after, returns: before.returns, vcas: before.vcas, snapshots: before.snapshots,
+    buses: after.buses.map((b) => ({ ...b, sends: held(b.name) })),
+  })).project;
+  const old = diffOps(coreSectionOf(before), coreSectionOf(mid));
+  return { ops: [...old.ops, ...diffProjectOps(mid, after)], restartRequired: old.restartRequired };
 }

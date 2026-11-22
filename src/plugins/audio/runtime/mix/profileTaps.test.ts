@@ -2,7 +2,7 @@
 // with a recording stub sink. A busRamp is the lane's name, its frames (a 0-second write is `BUS_MIN_RAMP_MS` long on the
 // wire) and its target; a write that changes nothing taps nothing; a mixer with no tap pays one null check.
 import { describe, expect, it } from "vitest";
-import { BUS_MIN_RAMP_MS, DRAG_RAMP_MS, Mixer } from "../../../../engine/audio/mixer";
+import { BUS_MIN_RAMP_MS, DRAG_RAMP_MS, Mixer, SNAPSHOT_SEGMENT_MS } from "../../../../engine/audio/mixer";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { NULL_PROFILE_SINK } from "./profileSink";
 import { mixerTapFor, taps, wireProfileTaps } from "./profileTaps";
@@ -54,15 +54,18 @@ describe("the mixer's setter taps (§5.6 kinds 11, 14, 15)", () => {
     expect(stub.calls.every((c) => c[0] === "busRamp" && c[2] === "runtime" && c[3] === Math.round((BUS_MIN_RAMP_MS / 1000) * RATE))).toBe(true);
   });
 
-  it("a snapshot taps one snapshot record and a snapshot-lane ramp per bus that moves; clearing it is the empty name", () => {
+  // ADR 0330: a snapshot fade is linear in dB, so its lane is written (and tapped) as segments of SNAPSHOT_SEGMENT_MS.
+  it("a snapshot taps one snapshot record and a snapshot-lane segment per bus that moves; clearing it is the empty name", () => {
     const { mixer, stub } = rig();
+    const seg = Math.round((SNAPSHOT_SEGMENT_MS / 1000) * RATE);
     mixer.snapshot("Paused", 0.5);
     expect(stub.of("snapshot")).toEqual([["Paused", 0.5]]);
-    expect(stub.of("busRamp")).toEqual([[ref("Music"), "snapshot", Math.round(0.5 * RATE), 0.5]]);
+    expect(stub.of("busRamp")).toEqual([[ref("Music"), "snapshot", seg, expect.closeTo(Math.pow(0.5, 0.1), 8)]]);
+    mixer.update(0.5);
     stub.clear();
     mixer.clearSnapshot(0.25);
     expect(stub.of("snapshot")).toEqual([["", 0.25]]);
-    expect(stub.of("busRamp")).toEqual([[ref("Music"), "snapshot", Math.round(0.25 * RATE), 1]]);
+    expect(stub.of("busRamp")).toEqual([[ref("Music"), "snapshot", seg, expect.closeTo(Math.pow(0.5, 0.8), 8)]]);
   });
 
   it("an unknown snapshot taps nothing", () => {

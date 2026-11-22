@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseAudioSettings } from "../settings";
-import { audioProjectToJson, defaultAudioProject, parseAudioProject, toRuntimeSettings } from "./format";
+import { audioProjectToJson, defaultAudioProject, parseAudioProject } from "./format";
+import { coreSectionOf, legacySectionOf as toRuntimeSettings } from "./runtimeView";
 import { MAX_DB } from "./gain";
 import { AUDIO_PROJECT_FORMAT } from "./types";
 
@@ -159,23 +160,23 @@ describe("parseAudioProject", () => {
     expect(problems).toHaveLength(5);
   });
 
-  it("parses effects by the catalogue at the bus level: ranges clamped, at most 16 per owner, other levels' types kept with a problem", () => {
+  it("parses effects by the catalogue at the bus level: ranges clamped, at most 8 per owner (ADR 0331), other levels' types kept with a problem", () => {
     const { project, problems } = parseAudioProject({
       format: AUDIO_PROJECT_FORMAT,
       buses: [{ name: "Master", effects: [
         { id: "c", type: "compressor", params: { threshold: -90, knee: 6 } },
         { id: "g", type: "gain", params: { gain: 3 } },
-        ...Array.from({ length: 15 }, (_, i) => ({ id: `e${i}`, type: "eq" })),
+        ...Array.from({ length: 7 }, (_, i) => ({ id: `e${i}`, type: "eq" })),
       ] }],
     });
     const fx = project.buses[0].effects;
-    expect(fx).toHaveLength(16);
+    expect(fx).toHaveLength(8);
     expect(fx[0].params).toMatchObject({ threshold: -60, knee: 6, ratio: 3 });
     expect(fx[1]).toMatchObject({ type: "gain", params: { gain: 3 } });
     expect(problems).toEqual([
       "buses[0].effects[0].params.threshold: -90 is outside -60..0; using -60.",
       "buses[0].effects[1]: Gain can't run at the bus level (it runs at sample, voice); kept but it won't play there.",
-      "buses[0].effects[16]: at most 16 effects here; dropped.",
+      "buses[0].effects[8]: at most 8 effects here; dropped.",
     ]);
   });
 
@@ -205,7 +206,23 @@ describe("parseAudioProject", () => {
   });
 });
 
-describe("toRuntimeSettings", () => {
+describe("coreSectionOf (the backends' view, ADR 0330)", () => {
+  const { project } = parseAudioProject(FULL);
+
+  it("keeps each fader alone (the mixer runs VCAs as a lane) and warns only of what nothing in the runtime runs", () => {
+    const warnings: string[] = [];
+    const settings = coreSectionOf(project, warnings);
+    expect(parseAudioSettings(settings).problems).toEqual([]);
+    expect(settings.buses.find((b) => b.name === "SFX")!.volume).toBeCloseTo(Math.pow(10, -2 / 20), 9);
+    const text = warnings.join("\n");
+    expect(text).toMatch(/eq effect "fx1"/); // the core's catalogue
+    expect(text).not.toMatch(/on conditions/); // the mixer runs snapshots
+    expect(text).not.toMatch(/send:Reverb/); // and send automation
+    expect(text).not.toMatch(/offset on "Reverb"/); // and returns' lanes
+  });
+});
+
+describe("legacySectionOf (the editor's legacy view, decision D2)", () => {
   const { project } = parseAudioProject(FULL);
 
   it("gives a section the runtime's parse reads without problems", () => {
