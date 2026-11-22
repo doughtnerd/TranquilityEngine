@@ -35,6 +35,7 @@ import { Assets } from "../../../../engine/scene/Assets";
 import { AudioReverbZone } from "../AudioReverbZone";
 import type { AudioZoneDebug, ZoneIrService } from "../backend";
 import { ASAP, MAX_ZONE_SLOTS, writeZoneConfig, ZONE_KERNEL_ID_FIRST, ZONE_KERNEL_ID_LAST, ZoneEvent, ZoneSlotState, ZoneState, type ZoneConfigSlots } from "../wire.generated";
+import { zoneKernelBlobBytes } from "../worklet/coreMemory";
 import type { CommandWriter } from "./commandWriter";
 import type { StatusMirror } from "./mirror";
 import type { ReplayBuilder } from "./replay";
@@ -317,7 +318,7 @@ export class ZoneManager {
         state,
         ir: z.comp.ir || z.comp.preset,
         irSeconds: k && k.state === "ready" ? k.frames / this.rate : 0,
-        kernelKB: k && k.state === "ready" ? Math.ceil(kernelBytes(k.frames) / 1024) : 0,
+        kernelKB: k && k.state === "ready" ? Math.ceil(zoneKernelBlobBytes(k.frames) / 1024) : 0,
         prepareMs: k?.prepareMs ?? 0,
         by: "worker",
         sendEnergy: z.energy,
@@ -867,10 +868,3 @@ export class ZoneManager {
 
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 const clampWet = (w: number): number => (Number.isFinite(w) ? Math.min(2, Math.max(0, w)) : 0);
-
-/** Bytes of a prepared kernel (`zones.rs` `kernel_blob_bytes`): header, two channels of head and tail spectra. */
-export function kernelBytes(frames: number): number {
-  const head = Math.min(32, Math.ceil(frames / 128));
-  const tail = Math.ceil(Math.max(0, frames - 32 * 128) / 2048);
-  return 32 + 2 * head * 128 * 8 + 2 * tail * 2048 * 8;
-}

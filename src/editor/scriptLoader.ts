@@ -11,6 +11,7 @@ import { importSites, rewriteImports, typescript, type ImportSite } from "./modu
 import { bundlePackages, chunkOrder, isPackageSpecifier, packagesKey, type PackageBundle, type PackageSource } from "./packages";
 import { isScriptPath } from "./projectPaths";
 import { isEditorHalfPath, type FoundPlugin } from "../plugins/thirdParty";
+import { compilerOptions, relativeImportCandidates, SCRIPT_EMIT } from "../scriptCompiler.mjs";
 
 /** The bare specifier scripts import the engine by. */
 export const ENGINE_MODULE = "myco";
@@ -35,8 +36,8 @@ interface Compiled {
 }
 
 /**
- * Compile one script to JavaScript with the editor's own settings (`typescriptTranspile()` in
- * vite.shared.ts: ES2022, ES modules, define-semantics class fields, standard decorators), with
+ * Compile one script to JavaScript with the engine's own settings (`SCRIPT_EMIT`, ADR 0332: ES2022,
+ * ES modules, define-semantics class fields, standard decorators), with
  * an inline source map so stack traces and the debugger show the TypeScript. Only syntax errors
  * stop it; type errors are the code editor's business. Game builds (ADR 0041) pass
  * `sourceMap: false`, so they don't ship the TypeScript.
@@ -47,13 +48,7 @@ export async function compileScript(path: string, source: string, options: { sou
   const out = ts.transpileModule(source, {
     fileName: path,
     reportDiagnostics: true,
-    compilerOptions: {
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.ESNext,
-      useDefineForClassFields: true,
-      inlineSourceMap: sourceMap,
-      inlineSources: sourceMap,
-    },
+    compilerOptions: { ...compilerOptions(SCRIPT_EMIT), inlineSourceMap: sourceMap, inlineSources: sourceMap },
   });
   const error = out.diagnostics?.find((d) => d.category === ts.DiagnosticCategory.Error);
   if (error) {
@@ -65,8 +60,8 @@ export async function compileScript(path: string, source: string, options: { sou
 }
 
 /**
- * The script a relative specifier in `from` refers to, among `paths`: as written, or with `.ts`
- * added, `.js` swapped for `.ts` (the TypeScript convention), or `/index.ts`. Null if none.
+ * The script a relative specifier in `from` refers to, among `paths`, by the shared relative import
+ * rule (`relativeImportCandidates`, ADR 0332). Null if none.
  */
 export function resolveScript(from: string, specifier: string, paths: ReadonlySet<string>): string | null {
   if (!specifier.startsWith("./") && !specifier.startsWith("../")) return null;
@@ -75,9 +70,7 @@ export function resolveScript(from: string, specifier: string, paths: ReadonlySe
     if (part === "..") parts.pop();
     else if (part !== ".") parts.push(part);
   }
-  const base = parts.join("/");
-  const candidates = [base, `${base}.ts`, base.replace(/\.js$/, ".ts"), `${base}/index.ts`];
-  return candidates.find((c) => paths.has(c)) ?? null;
+  return relativeImportCandidates(parts.join("/")).find((c) => paths.has(c)) ?? null;
 }
 
 /**

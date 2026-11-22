@@ -13,6 +13,7 @@ import engineTypes from "virtual:myco-types";
 import { codeLanguageOf, isScriptPath } from "../projectPaths";
 import { codeFilePath, codeFileUri } from "./codeBuffers";
 import { codeAppearance, monacoColors } from "../theme";
+import { compilerOptions, SCRIPT_CHECK } from "../../scriptCompiler.mjs";
 
 (self as unknown as { MonacoEnvironment: monaco.Environment }).MonacoEnvironment = {
   // Each language service runs in its own worker; everything else in the editor's.
@@ -21,17 +22,9 @@ import { codeAppearance, monacoColors } from "../theme";
 };
 
 const ts = monaco.typescript;
-ts.typescriptDefaults.setCompilerOptions({
-  target: 9 as monaco.typescript.ScriptTarget, // ES2022, as scripts are compiled (Monaco's enum stops at ES2020)
-  module: ts.ModuleKind.ESNext,
-  moduleResolution: ts.ModuleResolutionKind.NodeJs,
-  lib: ["es2022", "dom"],
-  strict: true,
-  noEmit: true,
-  useDefineForClassFields: true,
-  allowNonTsExtensions: true,
-  resolveJsonModule: true,
-});
+// Scripts are checked as every host compiles and resolves them (ADR 0332), as an external editor
+// checks them with the project's tsconfig.json.
+ts.typescriptDefaults.setCompilerOptions({ ...compilerOptions(SCRIPT_CHECK), noEmit: true, allowNonTsExtensions: true });
 // Every script model, not only the one showing, so imports between scripts resolve.
 ts.typescriptDefaults.setEagerModelSync(true);
 // The engine's declarations, served as the package scripts import.

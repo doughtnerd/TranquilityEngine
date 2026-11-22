@@ -38,6 +38,7 @@ import {
   packRampShape,
   writeBusRamp,
 } from "../wire.generated";
+import { MAX_BUSES } from "../../../../engine/audio/settings";
 import type { CommandWriter } from "./commandWriter";
 import type { ClockMap } from "./clock";
 import type { ReplayBuilder } from "./replay";
@@ -61,8 +62,6 @@ export interface BusLaneRamp {
   sequenceId?: number;
 }
 
-/** The core's bus count (`MAX_BUS` in `coreBackend.ts`). */
-const MAX_BUS = 32;
 
 const LANE_OF: Record<MixLane, number> = { authored: LANE_AUTHORED, runtime: LANE_RUNTIME, snapshot: LANE_SNAPSHOT, monitor: LANE_MONITOR, dip: LANE_DIP };
 const LINEAR = packRampShape(FadeLaw.Linear, 0, 0);
@@ -83,38 +82,38 @@ export interface LaneWriterHost {
 
 export class LaneWriter {
   /** M2 F3: selection's bus factor inputs, by bus index: effective gain without automation, parent, automated gain, chain product. */
-  readonly selBase = new Float64Array(MAX_BUS).fill(1);
-  readonly selParent = new Int16Array(MAX_BUS).fill(-1);
-  readonly selAuto = new Float64Array(MAX_BUS).fill(1);
-  private readonly selChain = new Float64Array(MAX_BUS).fill(1);
+  readonly selBase = new Float64Array(MAX_BUSES).fill(1);
+  readonly selParent = new Int16Array(MAX_BUSES).fill(-1);
+  readonly selAuto = new Float64Array(MAX_BUSES).fill(1);
+  private readonly selChain = new Float64Array(MAX_BUSES).fill(1);
   selCount = 0;
   /** Each bus's snapshot cutoff now (`BUS_LP_OFF_HZ`: none), for the sharing chain's fold. */
-  readonly snapLp = new Float32Array(MAX_BUS).fill(BUS_LP_OFF_HZ);
+  readonly snapLp = new Float32Array(MAX_BUSES).fill(BUS_LP_OFF_HZ);
 
   // What was last sent, per core slot (Ma2: keyed by slot, not by name): the bus state it was for (its `authored` ramp
   // object, which a live rename keeps and a new bus on a recycled slot doesn't), each lane ramp's `seq`, the mutes, the
   // monitor gain.
-  private readonly sentFor: (Readonly<Ramp> | null)[] = new Array<Readonly<Ramp> | null>(MAX_BUS).fill(null);
+  private readonly sentFor: (Readonly<Ramp> | null)[] = new Array<Readonly<Ramp> | null>(MAX_BUSES).fill(null);
   /** Per slot, set while a `sync` or replay visits it (a name listed twice, or a stale state on a reused slot, is skipped). */
-  private readonly visited = new Uint8Array(MAX_BUS);
+  private readonly visited = new Uint8Array(MAX_BUSES);
   /** The parent's name of each bus, from the settings object it was read from. */
   private parentOf = new Map<string, string | undefined>();
   private parentsFrom: unknown = null;
-  private readonly seqAuthored = new Float64Array(MAX_BUS);
-  private readonly seqRuntime = new Float64Array(MAX_BUS);
-  private readonly seqSnapshot = new Float64Array(MAX_BUS);
-  private readonly seqLowpass = new Float64Array(MAX_BUS);
-  private readonly seqDip = new Float64Array(MAX_BUS);
-  private readonly mutedAuthored = new Uint8Array(MAX_BUS);
-  private readonly mutedRuntime = new Uint8Array(MAX_BUS);
-  private readonly monitorSent = new Float32Array(MAX_BUS);
+  private readonly seqAuthored = new Float64Array(MAX_BUSES);
+  private readonly seqRuntime = new Float64Array(MAX_BUSES);
+  private readonly seqSnapshot = new Float64Array(MAX_BUSES);
+  private readonly seqLowpass = new Float64Array(MAX_BUSES);
+  private readonly seqDip = new Float64Array(MAX_BUSES);
+  private readonly mutedAuthored = new Uint8Array(MAX_BUSES);
+  private readonly mutedRuntime = new Uint8Array(MAX_BUSES);
+  private readonly monitorSent = new Float32Array(MAX_BUSES);
   /** The solo and monitor switches per bus (bit 0 script solo, 1 monitor mute, 2 monitor solo) the monitor gains were computed from. */
-  private readonly switches = new Uint8Array(MAX_BUS);
+  private readonly switches = new Uint8Array(MAX_BUSES);
   /** The monitor lane's gain now, per bus (recomputed only when a switch moves). */
-  private readonly monitorNow = new Float32Array(MAX_BUS).fill(1);
-  private readonly own = new Float64Array(MAX_BUS);
+  private readonly monitorNow = new Float32Array(MAX_BUSES).fill(1);
+  private readonly own = new Float64Array(MAX_BUSES);
   /** The start frame of each bus's last stamped `BUS_RAMP` (NaN: none yet). */
-  private readonly lastStamp = new Float64Array(MAX_BUS).fill(Number.NaN);
+  private readonly lastStamp = new Float64Array(MAX_BUSES).fill(Number.NaN);
   /** Every lane of every bus is resent at the next `sync` (a new tree, or a core whose lanes are unknown). */
   private full = true;
 
@@ -133,7 +132,7 @@ export class LaneWriter {
 
   /** `Audio.debug()`'s bus row: the start frame of bus `b`'s last stamped `BUS_RAMP`, undefined before one. */
   lastRampStartFrame(b: number): number | undefined {
-    const f = b >= 0 && b < MAX_BUS ? this.lastStamp[b]! : Number.NaN;
+    const f = b >= 0 && b < MAX_BUSES ? this.lastStamp[b]! : Number.NaN;
     return Number.isNaN(f) ? undefined : f;
   }
 
@@ -241,7 +240,7 @@ export class LaneWriter {
       const l = mixer._lanes(name);
       if (!l) continue;
       const b = l.slot;
-      if (b < 0 || b >= MAX_BUS || this.visited[b] || map.get(name) !== b) continue;
+      if (b < 0 || b >= MAX_BUSES || this.visited[b] || map.get(name) !== b) continue;
       this.visited[b] = 1;
       out.push(name);
     }
@@ -303,7 +302,7 @@ export class LaneWriter {
     const frames = Number.isFinite(r.seconds) && r.seconds > 0 ? Math.round(r.seconds * cm.sampleRate) : 0;
     const at = r.at === undefined ? undefined : cm.stampFor(cm.frameOfTime(r.at));
     this.host.writer.busRampFrames(b, lane, mask, r.gain ?? 1, r.lpHz ?? BUS_LP_OFF_HZ, frames, (r.sequenceId ?? 0) & 0x1fff, at);
-    if (at !== undefined && b < MAX_BUS) this.lastStamp[b] = at;
+    if (at !== undefined && b < MAX_BUSES) this.lastStamp[b] = at;
   }
 
   /**
@@ -323,7 +322,7 @@ export class LaneWriter {
     // by slot (`_tombstoneLanes`, out of `busNames`) until the slot table recycles it.
     const live = this.liveBuses();
     for (const l of mixer._tombstoneLanes?.() ?? []) {
-      if (l.slot < 0 || l.slot >= MAX_BUS || this.visited[l.slot]) continue;
+      if (l.slot < 0 || l.slot >= MAX_BUSES || this.visited[l.slot]) continue;
       this.visited[l.slot] = 1;
       step(l.slot, LANE_DIP, BUS_RAMP_MASK_GAIN, l.dip.to, BUS_LP_OFF_HZ, 0);
     }
