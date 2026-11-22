@@ -54,6 +54,16 @@ export { registerAssetDropTarget, draggedAssets, type AssetDropTargetSpec, type 
 // prefix, built-ins, the missing state), and a slider and a colour field that report drags by one commit rule.
 export { AssetPicker, type AssetPickerProps } from "../ui/AssetPicker";
 export { ColorField, SliderField, type ColorFieldProps, type SliderFieldProps, type ValueReport } from "../ui/valueControls";
+// The generic kit (ADR 0335), shared by the scene editor and the Audio Studio: empty states, undo toasts, context menus,
+// the Move to… folder picker, segmented controls, chips, the History popover and the keyboard shortcuts dialog.
+export { EmptyState, type EmptyStateProps } from "../ui/EmptyState";
+export { UndoToasts, createToastQueue, UNDO_TOAST_MS, type Toast, type ToastQueue, type ToastRequest } from "../ui/UndoToast";
+export { ContextMenu, SEPARATOR, tidyEntries, type ContextMenuProps, type MenuEntry, type MenuItem } from "../ui/ContextMenu";
+export { MoveToDialog, type MoveToDialogProps, type MovingItem } from "../ui/MoveToDialog";
+export { SegmentedControl, type SegmentedControlProps, type SegmentOption } from "../ui/SegmentedControl";
+export { Chip, type ChipProps, type ChipTone } from "../ui/Chip";
+export { HistoryPopover, type HistoryPopoverProps } from "../ui/HistoryPopover";
+export { KeyboardShortcutsDialog, type KeyboardShortcutsDialogProps, type ShortcutEntry, type ShortcutGroup } from "../ui/KeyboardShortcutsDialog";
 // The 3D shape kit (ADR 0295): pose maths, wireframes, the face, radius and blend-shell handle rules and the axis drag
 // that 3D handle gizmos build their shape tables from.
 export * as shapeKit3d from "../shapeKit3d";
