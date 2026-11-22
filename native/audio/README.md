@@ -59,7 +59,7 @@ ADR 0158 (ABI 1.4, wire major unchanged) added five opcodes, applied in `audio-c
 
 - `0x08 SET_LOOP`: a clip voice's loop region (`loopStartFrame`, `loopEndFrame`, 0 = the clip's end) or, with bit0 clear, its release; stamped.
 - `0x09 AUTOMATE`: a voice's bindings (parameter slot, curve id, target volume/pitch/lowpass), at most 8; applies on arrival.
-- `0x13 CURVES`: defines curves from `firstCurve` (1,024 ids, 32 keys each), evaluated as `src/engine/core/curve.ts`.
+- `0x13 CURVES`: defines curves from `firstCurve` (1,024 ids, 32 keys each; 64 since ADR 0332, whose keys also carry Bézier handles, interp 5: ABI 4.1), evaluated as `src/engine/core/curve.ts`.
 - `0x14 PARAM`: a global (group 0) or instance-group parameter's target and seek speed.
 - `0x15 BUS_AUTOMATE`: a bus's bindings to global parameters (volume, lowpass), at most 8.
 

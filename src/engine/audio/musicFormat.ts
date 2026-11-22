@@ -27,7 +27,8 @@
  * be a cycle), so the automation reader below repeats the 0158 one for the targets music allows.
  */
 
-import { parseCurve, type Curve } from "../core/curve";
+import type { Curve } from "../core/curve";
+import { audioCurve } from "./audioCurveLimit";
 import type { Automation, NodeBase } from "./eventFormat";
 import {
   checkMusicRules, admitLibrarySegments, parseStingers, parseTransitions, stingerToJson, transitionToJson,
@@ -78,8 +79,6 @@ export const MIN_BPM = 1;
 export const MAX_BPM = 1000;
 /** Largest `gridOffset`, seconds (a sanity bound, not in the spec). */
 export const MAX_GRID_OFFSET = 3600;
-/** Keys of one stem automation curve (the 0158 bound, `MAX_CURVE_KEYS`). */
-export const MUSIC_CURVE_KEYS = 32;
 
 export const TRACK_PICKS = ["random", "sequence"] as const;
 export type TrackPick = (typeof TRACK_PICKS)[number];
@@ -316,17 +315,6 @@ function capped(raw: unknown, where: string, max: number, problems: string[]): u
   return items.slice(0, max);
 }
 
-/** The curve of a stem's automation: `parseCurve` capped at `MUSIC_CURVE_KEYS` keys; null when it has no keys. */
-function musicCurve(raw: unknown, where: string, problems: string[]): Curve | null {
-  const curve = parseCurve(raw, where, problems);
-  if (!curve || curve.length === 0) return null;
-  if (curve.length > MUSIC_CURVE_KEYS) {
-    problems.push(`${where}: at most ${MUSIC_CURVE_KEYS} keys; the rest are dropped.`);
-    curve.length = MUSIC_CURVE_KEYS;
-  }
-  return curve;
-}
-
 // --- tempo (§2.2, §2.3) ---------------------------------------------------------------------------------------------
 
 /**
@@ -472,7 +460,7 @@ function parseAutomation(raw: unknown, where: string, problems: string[]): Music
     if (typeof a.target !== "string" || !(MUSIC_AUTOMATION_TARGETS as readonly string[]).includes(a.target)) {
       return void problems.push(`${w}: target must be one of ${MUSIC_AUTOMATION_TARGETS.join(", ")}; dropped.`);
     }
-    const curve = musicCurve(a.curve, `${w}.curve`, problems);
+    const curve = audioCurve(a.curve, `${w}.curve`, problems); // capped at `MAX_CURVE_KEYS`, the one declaration
     if (!curve) return void problems.push(`${w}: the curve has no keys; dropped.`);
     const binding: MusicAutomation = { parameter: a.parameter, target: a.target as MusicAutomationTarget, curve };
     if (a.quantize !== undefined) {

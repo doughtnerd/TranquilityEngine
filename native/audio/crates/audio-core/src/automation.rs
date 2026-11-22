@@ -10,10 +10,14 @@
 //!    overshooting. 64 global slots, and 16 local slots for each instance `group` 1..=1024. PARAM
 //!    with seek 0 jumps. Out-of-range groups and slots are ignored; main resets a reused group's
 //!    locals itself (the core has no instance lifecycle).
-//! 2. **Curves** (CURVES): 1,024 curves of at most 32 keys, evaluated exactly as
+//! 2. **Curves** (CURVES): 1,024 curves of at most 64 keys, evaluated exactly as
 //!    `src/engine/core/curve.ts` (in f32): flat before the first key and after the last, NaN reads
 //!    the first key, `step` holds until the next key, keys with the same x jump, and the shapes
 //!    smooth `u²(3−2u)`, easeIn `u²`, easeOut `1−(1−u)²`. An empty or undefined curve is 0.
+//!    A Bézier segment (interp 5, ADR 0332) is the cubic through the key's out handle and the next
+//!    key's in handle (a flat handle a third of the segment long when the next key isn't Bézier),
+//!    control x clamped into the segment; its control points are worked out once, at CURVES, and
+//!    the parameter at `x` is found by [`BEZIER_STEPS`] halvings.
 //! 3. **Voice bindings** (AUTOMATE, up to 8 per voice): each quantum the voice's volume curves
 //!    multiply into `gainMul`, its pitch curves into `pitchMul`, and its lowpass curves give
 //!    `lpAuto` (their minimum; 24,000 Hz when none), each curve evaluated once (control rate).
@@ -60,8 +64,12 @@ pub const LOCAL_PARAMS: usize = 16;
 pub const PARAMS: usize = GLOBAL_PARAMS + GROUPS * LOCAL_PARAMS;
 /// Curve ids 0..CURVES.
 pub const CURVES: usize = 1_024;
-/// Keys kept per curve (extra keys are ignored).
-pub const CURVE_KEYS: usize = 32;
+/// Keys kept per curve (extra keys are ignored; ADR 0332 raised it from 32).
+pub const CURVE_KEYS: usize = 64;
+/// The Bézier interp code (CURVES `interp`).
+pub const INTERP_BEZIER: u8 = 5;
+/// Halvings of the Bézier parameter search (`curve.ts` `BEZIER_STEPS`).
+pub const BEZIER_STEPS: usize = 28;
 /// Bindings kept per voice and per bus (extra ones are ignored).
 pub const BINDINGS: usize = 8;
 /// `lpAuto` with no lowpass binding, and the cut-off that means "off" (the wire's `BUS_LP_OFF_HZ`).
@@ -100,9 +108,15 @@ pub struct Curve {
     pub count: u32,
     pub x: [f32; CURVE_KEYS],
     pub y: [f32; CURVE_KEYS],
-    /// The shape from each key to the next: 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut
-    /// (anything else is linear, as `curve.ts`'s default).
+    /// The shape from each key to the next: 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut,
+    /// 5 Bézier (anything else is linear, as `curve.ts`'s default).
     pub interp: [u8; CURVE_KEYS],
+    /// The control points of each Bézier segment (from key `k` to `k + 1`): x relative to `x[k]`
+    /// and inside `0..=span`, y absolute. Unused for other shapes.
+    pub c1x: [f32; CURVE_KEYS],
+    pub c1y: [f32; CURVE_KEYS],
+    pub c2x: [f32; CURVE_KEYS],
+    pub c2y: [f32; CURVE_KEYS],
 }
 
 /// One binding: AUTOMATE's and BUS_AUTOMATE's item, as on the wire.
@@ -434,7 +448,69 @@ pub fn eval(c: &Curve, x: f32) -> f32 {
     if span <= 0.0 {
         return c.y[hi];
     }
+    if c.interp[lo] == INTERP_BEZIER {
+        return bezier_at(c, lo, span, x - c.x[lo]);
+    }
     c.y[lo] + (c.y[hi] - c.y[lo]) * shape(c.interp[lo], (x - c.x[lo]) / span)
+}
+
+/// The cubic Bézier through `p0..p3` at `t` (`curve.ts`'s `cubic`, term for term).
+#[inline]
+fn cubic(p0: f32, p1: f32, p2: f32, p3: f32, t: f32) -> f32 {
+    let m = 1.0 - t;
+    m * m * m * p0 + 3.0 * m * m * t * p1 + 3.0 * m * t * t * p2 + t * t * t * p3
+}
+
+/// The Bézier segment from key `k` (span `> 0`) at `dx` past its key: bisection for the parameter
+/// whose x is `dx` (x(t) never decreases with control x inside the segment), then its y.
+fn bezier_at(c: &Curve, k: usize, span: f32, dx: f32) -> f32 {
+    let (c1x, c2x) = (c.c1x[k], c.c2x[k]);
+    let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    for _ in 0..BEZIER_STEPS {
+        let t = (lo + hi) * 0.5;
+        if cubic(0.0, c1x, c2x, span, t) < dx {
+            lo = t;
+        } else {
+            hi = t;
+        }
+    }
+    cubic(c.y[k], c.c1y[k], c.c2y[k], c.y[k + 1], (lo + hi) * 0.5)
+}
+
+/// `v` clamped into `0..=span`; NaN is 0 (`curve.ts`'s `clampSpan`).
+#[inline]
+fn clamp_span(v: f32, span: f32) -> f32 {
+    if v > 0.0 {
+        if v < span {
+            v
+        } else {
+            span
+        }
+    } else {
+        0.0
+    }
+}
+
+/// Works out the control points of every Bézier segment of `c` from the keys' handles:
+/// `handles(k)` is key `k`'s `(inDx, inDy, outDx, outDy)` (`curve.ts`'s `bezierControls`).
+fn bezier_controls(c: &mut Curve, n: usize, handles: impl Fn(usize) -> (f32, f32, f32, f32)) {
+    for k in 0..n.saturating_sub(1) {
+        if c.interp[k] != INTERP_BEZIER {
+            continue;
+        }
+        let span = c.x[k + 1] - c.x[k];
+        let (_, _, out_dx, out_dy) = handles(k);
+        c.c1x[k] = clamp_span(out_dx, span);
+        c.c1y[k] = c.y[k] + out_dy;
+        if c.interp[k + 1] == INTERP_BEZIER {
+            let (in_dx, in_dy, _, _) = handles(k + 1);
+            c.c2x[k] = clamp_span(span + in_dx, span);
+            c.c2y[k] = c.y[k + 1] + in_dy;
+        } else {
+            c.c2x[k] = span - span / 3.0;
+            c.c2y[k] = c.y[k + 1];
+        }
+    }
 }
 
 #[inline]
@@ -490,12 +566,17 @@ pub fn curves(core: &mut Core, msg: &[u8], off: usize) {
         if let Some(c) = first.checked_add(i).and_then(|id| v.curves.get_mut(id)) {
             let n = keys.min(CURVE_KEYS);
             c.count = n as u32;
+            let key = |k: usize| cur + k * wire::CurvesCurvesKeys::FIXED_END;
             for k in 0..n {
-                let at = cur + k * wire::CurvesCurvesKeys::FIXED_END;
+                let at = key(k);
                 c.x[k] = f32_at(msg, at);
                 c.y[k] = f32_at(msg, at + 4);
                 c.interp[k] = u32_at(msg, at + 8).min(255) as u8;
             }
+            bezier_controls(c, n, |k| {
+                let at = key(k);
+                (f32_at(msg, at + 12), f32_at(msg, at + 16), f32_at(msg, at + 20), f32_at(msg, at + 24))
+            });
         }
         cur += keys * wire::CurvesCurvesKeys::FIXED_END;
     }
@@ -740,6 +821,11 @@ mod tests {
 
     /// A curve from `(x, y, interp)` keys.
     fn curve(keys: &[(f32, f32, u8)]) -> Curve {
+        bez(&keys.iter().map(|&(x, y, i)| (x, y, i, [0.0; 4])).collect::<Vec<_>>())
+    }
+
+    /// A curve from `(x, y, interp, [inDx, inDy, outDx, outDy])` keys.
+    fn bez(keys: &[(f32, f32, u8, [f32; 4])]) -> Curve {
         let mut c: Curve = unsafe { core::mem::zeroed() };
         c.count = keys.len() as u32;
         for (i, k) in keys.iter().enumerate() {
@@ -747,6 +833,7 @@ mod tests {
             c.y[i] = k.1;
             c.interp[i] = k.2;
         }
+        bezier_controls(&mut c, keys.len(), |k| (keys[k].3[0], keys[k].3[1], keys[k].3[2], keys[k].3[3]));
         c
     }
 
@@ -800,11 +887,42 @@ mod tests {
 
     #[test]
     fn finds_the_right_segment_in_a_long_curve() {
-        let keys: Vec<(f32, f32, u8)> = (0..32).map(|i| (i as f32, i as f32 * 2.0, 0)).collect();
+        let keys: Vec<(f32, f32, u8)> = (0..CURVE_KEYS).map(|i| (i as f32, i as f32 * 2.0, 0)).collect();
         let c = curve(&keys);
-        for x in [0.5f32, 17.25, 23.9, 30.5] {
+        for x in [0.5f32, 17.25, 23.9, 30.5, 47.1, 62.5] {
             assert!(close(eval(&c, x), x * 2.0), "{x}");
         }
+    }
+
+    // The Bézier cases of `curve.test.ts` (ADR 0332).
+
+    #[test]
+    fn a_bezier_with_handles_on_the_line_is_linear() {
+        let c = bez(&[(0.0, 0.0, 5, [0.0, 0.0, 1.0, 1.0]), (3.0, 3.0, 5, [-1.0, -1.0, 0.0, 0.0])]);
+        for x in [0.3f32, 1.0, 1.7, 2.9] {
+            assert!(close(eval(&c, x), x), "{x}: {}", eval(&c, x));
+        }
+    }
+
+    #[test]
+    fn a_bezier_before_a_plain_key_uses_a_flat_third_handle() {
+        // Out handle flat and a third long, next key plain: the same control points as smoothstep's cubic.
+        let c = bez(&[(0.0, 0.0, 5, [0.0, 0.0, 1.0 / 3.0, 0.0]), (1.0, 1.0, 0, [0.0; 4])]);
+        for x in [0.1f32, 0.25, 0.5, 0.8] {
+            assert!(close(eval(&c, x), x * x * (3.0 - 2.0 * x)), "{x}");
+        }
+        assert_eq!(eval(&c, 0.0), 0.0);
+        assert_eq!(eval(&c, 1.0), 1.0);
+    }
+
+    #[test]
+    fn a_bezier_clamps_control_x_into_the_segment_and_overshoots_in_y() {
+        // Handles reaching past the segment: x clamped, so the curve stays a function and ends on its keys.
+        let c = bez(&[(0.0, 0.0, 5, [0.0, 0.0, 9.0, 2.0]), (1.0, 1.0, 5, [-9.0, 2.0, 0.0, 0.0])]);
+        assert_eq!((c.c1x[0], c.c2x[0]), (1.0, 0.0));
+        let mid = eval(&c, 0.5);
+        assert!(mid > 1.0, "{mid}: control y of 2 and 3 lift the middle above both keys");
+        assert!((eval(&c, 0.999) - 1.0).abs() < 0.05);
     }
 
     #[test]
@@ -830,6 +948,7 @@ mod tests {
         let p = InitParams { sample_rate: 48_000.0, max_logical: 4_096, max_mixed: 128, max_buses: 32, arena_initial_bytes: 16 << 20, ..InitParams::default() };
         let n = region_bytes(&p);
         eprintln!("automation region: {n} B (VoiceAuto {} B, Curve {} B, BusAuto {} B)", core::mem::size_of::<VoiceAuto>(), core::mem::size_of::<Curve>(), core::mem::size_of::<BusAuto>());
-        assert!(n < 2 << 20, "{n}");
+        // ≈ 2.4 MB since ADR 0332: 64 keys with Bézier control points make the curve table ≈ 1.6 MB.
+        assert!(n < 3 << 20, "{n}");
     }
 }

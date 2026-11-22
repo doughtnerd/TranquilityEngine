@@ -157,6 +157,8 @@ pub struct Scene {
     /// ADR 0158 E2: automation bindings per voice (0 to 3: volume on a global parameter, pitch on the voice's
     /// group's local one, lowpass on a second global), with every batch seeking the globals and 32 groups' locals.
     pub bindings: u32,
+    /// ADR 0332: the bound curves are made of Bézier keys (the same values, each segment a cubic).
+    pub bezier: bool,
     /// ADR 0158 E2: every bus has a volume and a lowpass binding to the seeking globals.
     pub bus_automation: bool,
     /// ADR 0158 E2: mixed voices are clips looping a SET_LOOP region (no whole-clip loop); each batch releases two,
@@ -378,6 +380,7 @@ impl Scene {
             ramps: true,
             cap: false,
             bindings: 0,
+            bezier: false,
             bus_automation: false,
             sustain: false,
             probe_automation: false,
@@ -576,6 +579,8 @@ pub fn scene(name: &str) -> Option<Scene> {
         // (the twin is the `snapshot-true` sweep); sustain loops released and replaced.
         "automation" => Scene { bindings: 3, ..Scene::looping(name, 256) },
         "automation-base" => Scene::looping(name, 256),
+        // ADR 0332: `automation` with every curve's keys Bézier (a bisection per binding per quantum).
+        "automation-bezier" => Scene { bindings: 3, bezier: true, ..Scene::looping(name, 256) },
         "automation-virtual" => Scene { bindings: 3, virtual_voices: 256, ..Scene::looping(name, 16) },
         "bus-automation" => Scene { buses: 32, snapshot_lp: true, bus_automation: true, ..Scene::looping(name, 32) },
         "sustain" => Scene { sustain: true, ..Scene::looping(name, 128) },
@@ -1461,7 +1466,7 @@ impl Bench {
             self.zones_init();
         }
         if s.bindings > 0 || s.bus_automation || s.lanes7 {
-            self.push(&bench_curves());
+            self.push(&bench_curves(s.bezier));
             for slot in 0..2u16 {
                 self.push(&wire::Param { voice_id: 0, frame_offset: wire::ASAP, group: 0, slot, value: 0.5, seek_per_second: 0.0 });
             }
@@ -2320,9 +2325,16 @@ macro_rules! wire_record {
 wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
-/// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps).
-fn bench_curves() -> wire::Curves {
-    let key = |x: f32, y: f32, interp: u32| wire::CurvesCurvesKeys { x, y, interp };
+/// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps). With `bezier` (ADR 0332)
+/// every key is Bézier, with handles 0.02 long either side (inside every segment), tilted a little.
+fn bench_curves(bezier: bool) -> wire::Curves {
+    let key = |x: f32, y: f32, interp: u32| {
+        if bezier {
+            wire::CurvesCurvesKeys { x, y, interp: 5, in_dx: -0.02, in_dy: -0.01 * y, out_dx: 0.02, out_dy: 0.01 * y }
+        } else {
+            wire::CurvesCurvesKeys { x, y, interp, in_dx: 0.0, in_dy: 0.0, out_dx: 0.0, out_dy: 0.0 }
+        }
+    };
     let volume = (0..8).map(|i| key(i as f32 / 7.0, 0.2 + 0.8 * (i as f32 / 7.0), 2)).collect();
     let pitch = vec![key(0.0, 0.8, 3), key(1.0, 1.25, 0)];
     let lowpass = (0..16).map(|i| key(i as f32 / 15.0, 800.0 + 19_200.0 * (i as f32 / 15.0) * (i as f32 / 15.0), 4)).collect();

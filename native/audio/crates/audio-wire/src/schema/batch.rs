@@ -89,20 +89,24 @@ const AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindi
 /// BUS_AUTOMATE bindings: global parameters only; target 0 volume or 2 lowpass; at most 8 per bus.
 const BUS_AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: BINDING_ITEM, then: None, max: 0 };
 
-/// One CURVES key: `f32 x; f32 y; u32 interp`.
+/// One CURVES key: `f32 x; f32 y; u32 interp; f32 inDx, inDy, outDx, outDy` (ADR 0332 adds the handles).
 const CURVE_KEYS: Repeat = Repeat {
     name: "keys",
     count_field: "keyCount",
     item: &[
         Field::new("x", Ty::F32),
         Field::new("y", Ty::F32),
-        Field::new("interp", Ty::U32).doc("shape to the next key: 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut"),
+        Field::new("interp", Ty::U32).doc("shape to the next key: 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut, 5 bezier"),
+        Field::new("inDx", Ty::F32).doc("bezier: the in handle's offset from the key (x); 0 otherwise"),
+        Field::new("inDy", Ty::F32).doc("bezier: the in handle's offset from the key (y); 0 otherwise"),
+        Field::new("outDx", Ty::F32).doc("bezier: the out handle's offset from the key (x); 0 otherwise"),
+        Field::new("outDy", Ty::F32).doc("bezier: the out handle's offset from the key (y); 0 otherwise"),
     ],
     then: None,
     max: 0,
 };
 
-/// CURVES curves: `u16 keyCount; u16 reserved`, then the keys (sorted by x; at most 32 kept).
+/// CURVES curves: `u16 keyCount; u16 reserved`, then the keys (sorted by x; at most 64 kept).
 const CURVES_CURVES: Repeat = Repeat {
     name: "curves",
     count_field: "curveCount",
@@ -289,7 +293,7 @@ pub const OPCODES: &[Opcode] = &[
         ),
         total_bytes: None,
         sent: true,
-        doc: "define or overwrite curves firstCurve.. (ADR 0158 §3); 1024 curves of at most 32 keys",
+        doc: "define or overwrite curves firstCurve.. (ADR 0158 §3, 0332); 1024 curves of at most 64 keys",
     },
     Opcode {
         id: 0x14,

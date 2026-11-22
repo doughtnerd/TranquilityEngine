@@ -29,8 +29,10 @@ use crate::memory::{PlatformMemory, PLATFORM_MEMORY};
 /// 4.0 (ADR 0171/0172 M5, API section 4.1): the STATUS header is 256 B and gains the `loudBuses`,
 /// `loudEnergies` and `busDuck` sections; `BUS_RAMP`, `BUS_DUCK`, `BUS_PRESENCE`, `LOUD_CONFIG` and
 /// `BUS_SLOT`; stamped configuration changes behaviour. `myco_audio_init` is unchanged.
+/// 4.1 (ADR 0332): CURVES keys carry Bézier handles (interp 5) and curves keep 64 keys; the schema hash
+/// guards the record's new layout.
 pub const ABI_MAJOR: u32 = 4;
-pub const ABI_MINOR: u32 = 0;
+pub const ABI_MINOR: u32 = 1;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
 pub const INBOX_BYTES: usize = 1 << 20;
@@ -346,7 +348,7 @@ mod tests {
 
     #[test]
     fn identity_exports() {
-        assert_eq!(myco_audio_abi_version(), 0x400);
+        assert_eq!(myco_audio_abi_version(), 0x401);
         assert_eq!(myco_audio_inbox_cap(), 1 << 20);
         assert_eq!(myco_audio_inbox_ptr() as usize % 64, 0);
         assert_eq!(myco_audio_status_ptr() as usize % 64, 0);

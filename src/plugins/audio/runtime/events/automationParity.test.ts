@@ -135,6 +135,24 @@ const volumeScenes: Scene[] = [
     actions: [act(2, 0, 5.5, 40)],
     quanta: 130,
   },
+  // ADR 0332: Bézier keys. Handles in and out of a key, a flat third-long handle into a plain key, control x clamped
+  // into the segment (a handle reaching past it) and an overshoot above both keys.
+  {
+    name: "volume, Bézier segments (handles both sides, a flat handle into a plain key), a seek from 0 to 1",
+    curves: { 0: [[0, 0.2, "bezier", { in: [0, 0], out: [0.2, 0.7] }], [0.5, 0.9, "bezier", { in: [-0.1, 0.1], out: [0.15, -0.3] }], [1, 0.3]] },
+    voices: [{ group: 0, bindings: [bind(0, 0, AutoTarget.Volume)] }],
+    initial: [{ group: 0, slot: 0, value: 0 }],
+    actions: [act(3, 0, 1, 20)],
+    quanta: 30,
+  },
+  {
+    name: "volume, a Bézier segment whose handles reach past it (x clamped) and overshoot in y, swept and swept back",
+    curves: { 0: [[0, 0.1, "bezier", { in: [0, 0], out: [3, 0.8] }], [1, 0.4, "bezier", { in: [-3, 0.9], out: [0, 0] }]] },
+    voices: [{ group: 0, volume: 0.5, bindings: [bind(0, 0, AutoTarget.Volume)] }],
+    initial: [{ group: 0, slot: 0, value: 0.01 }],
+    actions: [act(2, 0, 0.99, 25), act(20, 0, 0.3, 40)],
+    quanta: 40,
+  },
   {
     name: "volume, seek speed 0 jumps (and a jump back)",
     curves: { 0: shaped("linear") },

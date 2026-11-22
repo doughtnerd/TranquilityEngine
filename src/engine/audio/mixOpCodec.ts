@@ -3,7 +3,7 @@
  * its MIXOP record: `u8 op`, `u8 class`, `u16 argc`, then `argc` u32 words (floats as f64 bit patterns, strings as name
  * ids, buses as `busRef`, §6.3). `encodeMixOp` and `decodeMixOp` are exact inverses for every `MixOp`.
  */
-import { CURVE_INTERPS, type Curve, type CurveKey } from "../core/curve";
+import { CURVE_KEY_INTERPS, curveKeyHandles, curveKeyInterpCode, type Curve, type CurveKey } from "../core/curve";
 import { EFFECT_KEYS, MIX_OP_NAMES, OP_CLASSES, OP_CLASS_CODES, type MixOp, type OpClass } from "./mixOps";
 import { EFFECT_TYPES, type BusAutomation, type BusEffect, type DuckingRule, type LoudnessTarget } from "./settings";
 
@@ -93,7 +93,7 @@ class Reader {
  * fields) · removeEffect bus, index · moveEffect bus, from, to · setEffect bus, index, key, f64 · add/remove/renameSnapshot
  * index, hasName[, name] · setSnapshot index, bus, key, value · setDucking index, flags[, target, trigger, mode, detector,
  * hasThreshold[, threshold], amount, attack, release] · setAutomation index, flags[, bus, parameter, target, keys, (x, y,
- * interp)…] · setTarget index, flags[, name, integrated, tolerance, truePeak] · setOption key, value.
+ * interp[, f64 inDx, inDy, outDx, outDy, u32 free when interp is 6, bezier])…] · setTarget index, flags[, name, integrated, tolerance, truePeak] · setOption key, value.
  */
 export function encodeMixOp(op: MixOp, cls: OpClass, names: MixOpNameTable): MixOpBytes {
   const w = new Writer(names);
@@ -125,7 +125,11 @@ export function encodeMixOp(op: MixOp, cls: OpClass, names: MixOpNameTable): Mix
       const r = op.rule;
       if (r) {
         w.b(r.bus); w.s(r.parameter); w.code(AUTOMATION_TARGETS, r.target); w.u(r.curve.length);
-        for (const k of r.curve) { w.f(k[0]); w.f(k[1]); w.u(k.length > 2 ? CURVE_INTERPS.indexOf(k[2]!) + 1 : 0); }
+        for (const k of r.curve) {
+          w.f(k[0]); w.f(k[1]); w.u(k.length > 2 ? curveKeyInterpCode(k) + 1 : 0);
+          const h = curveKeyHandles(k);
+          if (h) { w.f(h.in[0]); w.f(h.in[1]); w.f(h.out[0]); w.f(h.out[1]); w.u(h.free ? 1 : 0); }
+        }
       }
       break;
     }
@@ -186,8 +190,12 @@ export function decodeMixOp(bytes: MixOpBytes, names: { name(id: number): string
         const curve: CurveKey[] = [];
         for (let i = 0; i < n; i++) {
           const x = r.f(), y = r.f(), interp = r.u();
-          if (interp > CURVE_INTERPS.length) throw new Error("decodeMixOp: bad curve interpolation");
-          curve.push(interp ? [x, y, CURVE_INTERPS[interp - 1]] : [x, y]);
+          if (interp > CURVE_KEY_INTERPS.length) throw new Error("decodeMixOp: bad curve interpolation");
+          const name = interp ? CURVE_KEY_INTERPS[interp - 1]! : undefined;
+          if (name === "bezier") {
+            const inH: [number, number] = [r.f(), r.f()], out: [number, number] = [r.f(), r.f()], free = r.u() === 1;
+            curve.push([x, y, "bezier", { in: inH, out, ...(free ? { free } : {}) }]);
+          } else curve.push(name ? [x, y, name] : [x, y]);
         }
         rule = { bus, parameter, target, curve: curve as Curve };
       }
