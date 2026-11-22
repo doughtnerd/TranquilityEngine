@@ -182,3 +182,12 @@ state at the playhead; buses the take touched reset at seek and close; held span
 step; the Loop button loops the selected note region else the whole take; the replay slot shows on every screen while a
 take is open (a screen may hide it). Gaps: World reseed (picks may differ — needs an internal reseed hook), start
 offsets for seeks, the replay capture naming its take.
+
+**D27. Spatial screen (W5-A, merged).** The screen reaches the Studio runtime World through `World.active` while the host
+is playable (a host seam is a follow-up); changing the active listener is an undo step (it's in the file); no 100×70 m
+clamp (engine space is unbounded); height range grows to fit; bypassed or flat attenuation lanes are left out on Apply;
+new obstacles use the project's default occlusion material; Space pans inside the Scene panel and plays elsewhere;
+scene "Move" changes the scene's folder field, not the file; deleting a scene is undone by recreating it. Gaps: base
+game scenes aren't loaded under the audition (no loader into the Studio World), A/B replacement UI, 3D physics in the
+Studio for test-scene occlusion, live positions/zoneDepth in the readout, shared field rows still in the Playlists
+folder (to lift into components).
