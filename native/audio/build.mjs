@@ -6,6 +6,8 @@
 // wasm-bindgen: the core's exports are plain `extern "C"` functions over imported memory.
 // From C1b it also writes the metered test wasm (tools/audio-bench/metered/), which CI's cost gate runs; it is never
 // shipped and not size-gated.
+// Audio Studio W9 (ADR 0328): also the offline sample render, myco_audio_offline.wasm, into src/engine/audio/sample/wasm/
+// (its own module: the mixer's size and ABI are untouched; it embeds the same source hash).
 // Needs the toolchain pinned in rust-toolchain.toml and `rustup target add wasm32-unknown-unknown`.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -18,6 +20,8 @@ const root = fileURLToPath(new URL(".", import.meta.url));
 const out = fileURLToPath(new URL("../../src/plugins/audio/runtime/wasm/", import.meta.url));
 /** The metered build's directory (C1b): test-only, beside the gate that runs it. */
 const meteredOut = fileURLToPath(new URL("../../tools/audio-bench/metered/", import.meta.url));
+/** The offline sample render's directory (ADR 0328): an engine module (`src/engine/audio/sample/sampleRender.ts`) loads it. */
+const offlineOut = fileURLToPath(new URL("../../src/engine/audio/sample/wasm/", import.meta.url));
 const TARGET = "wasm32-unknown-unknown";
 /**
  * The mixer's size tripwire (ADR 0158 amends 0157): a guard against accidental bloat, not a design constraint; raise it
@@ -39,6 +43,9 @@ const DECODER_LIMIT = 900 * 1024;
  *  bloat, and M2's loop points are wanted growth). It ships beside the default decoder and is fetched only when a project sets
  *  `audio.codecs.aac`. */
 const DECODER_AAC_LIMIT = 1280 * 1024;
+/** The offline render's size tripwire (Audio Studio W9, 2026-11-22): the kernels, the curve evaluator and the spectral
+ *  gate, ≈ 120 KB when it was written. It is fetched only by the Studio and the export's render, never by a game. */
+const OFFLINE_LIMIT = 256 * 1024;
 /** Only +simd128 here: --import-memory and the 256 KB stack are link args in audio-wasm's build.rs. */
 const WASM_RUSTFLAGS = "-C target-feature=+simd128";
 /** Pages of the Memory the hash read instantiates the wasm with (enough for its data and stack). */
@@ -142,6 +149,39 @@ function smokeDecoder(path, { aac, label }) {
   return Buffer.from(x.memory.buffer, x.myco_decode_source_hash(), 16).toString("hex");
 }
 
+/** Builds audio-offline (ADR 0328's offline render) for wasm32 in release; returns the built .wasm's path. Its build.rs
+ *  adds `--strip-all`; memory is exported (the render runs alone). */
+function buildOffline() {
+  run("cargo", ["build", "-p", "audio-offline", "--target", TARGET, "--release"], { CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: WASM_RUSTFLAGS });
+  return fileURLToPath(new URL(`target/${TARGET}/release/myco_audio_offline.wasm`, import.meta.url));
+}
+
+/** Renders a 10 ms stereo impulse through a 100 ms delay (no feedback, 50 % mix) with the built offline wasm, checks the
+ *  echo lands 100 ms in, and returns the source hash it embeds (hex). Exits 1 on a mismatch. */
+function smokeOffline(path) {
+  const { exports: x } = new WebAssembly.Instance(new WebAssembly.Module(readFileSync(path)), {});
+  const rate = 48000, frames = 480, channels = 2;
+  const pcm = x.myco_offline_alloc(frames * channels * 4);
+  const input = new Float32Array(x.memory.buffer, pcm, frames * channels);
+  input.fill(0);
+  input[0] = input[1] = 1;
+  // version, 1 effect, 0 lanes, 0 segments, tail cap 10 s; delay (catalogue index 14): 100 ms, 0 %, 50 %.
+  const spec = [1, 1, 0, 0, 10, 14, 1, 100, 0, 50, 0, 0, 0, 0, 0];
+  const sp = x.myco_offline_alloc(spec.length * 8);
+  new Float64Array(x.memory.buffer, sp, spec.length).set(spec);
+  const h = x.myco_offline_render(pcm, frames, channels, rate, sp, spec.length);
+  const n = h ? x.myco_offline_output_frames(h) : 0;
+  const out = h ? new Float32Array(x.memory.buffer, x.myco_offline_output_pcm(h), n * channels) : new Float32Array(0);
+  const echo = rate / 10;
+  if (!h || n <= echo || Math.abs(out[echo * channels] - 0.5) > 0.01) {
+    console.error(`[build:audio] myco_audio_offline.wasm rendered ${n} frames, echo ${out[echo * channels]} (want 0.5 at frame ${echo})`);
+    process.exit(1);
+  }
+  x.myco_offline_output_free(h);
+  console.log(`[build:audio] myco_audio_offline.wasm renders a delay's echo and tail (${n} frames)`);
+  return Buffer.from(x.memory.buffer, x.myco_offline_source_hash(), 16).toString("hex");
+}
+
 /** Runs `wasm-opt -O3` on `path` in place if wasm-opt is on PATH; logs a skip otherwise. */
 function optimize(path) {
   try {
@@ -241,14 +281,21 @@ function main() {
     aacBytes = gate(aacBuild, DECODER_AAC_LIMIT, "myco_audio_decode_aac.wasm");
     aacHash = smokeDecoder(aacBuild, { aac: true, label: "myco_audio_decode_aac.wasm" });
   }
+  // The offline sample render (ADR 0328): its own module, so the mixer's size and ABI don't change.
+  const offlineBuild = buildOffline();
+  optimize(offlineBuild);
+  const offlineBytes = gate(offlineBuild, OFFLINE_LIMIT, "myco_audio_offline.wasm");
+  const offlineHash = smokeOffline(offlineBuild);
   mkdirSync(out, { recursive: true });
+  mkdirSync(offlineOut, { recursive: true });
+  copyFileSync(offlineBuild, `${offlineOut}myco_audio_offline.wasm`);
   copyFileSync(mixerBuild, `${out}myco_audio.wasm`);
   if (decoderBuild) copyFileSync(decoderBuild, `${out}myco_audio_decode.wasm`);
   if (aacBuild) copyFileSync(aacBuild, `${out}myco_audio_decode_aac.wasm`);
 
   const identity = readIdentity(`${out}myco_audio.wasm`);
   console.log(`[build:audio] source hash ${identity.sourceHash}, ABI ${identity.abiVersion}`);
-  for (const [label, hash] of [["myco_audio_decode.wasm", decoderHash], ["myco_audio_decode_aac.wasm", aacHash]]) {
+  for (const [label, hash] of [["myco_audio_decode.wasm", decoderHash], ["myco_audio_decode_aac.wasm", aacHash], ["myco_audio_offline.wasm", offlineHash]]) {
     if (hash !== null && hash !== identity.sourceHash) {
       console.error(`[build:audio] ${label} embeds source hash ${hash}, the mixer ${identity.sourceHash}; rebuild both.`);
       process.exit(1);
@@ -257,6 +304,7 @@ function main() {
   const bytes = { "myco_audio.wasm": mixerBytes };
   if (decoderBuild) bytes["myco_audio_decode.wasm"] = decoderBytes;
   if (aacBuild) bytes["myco_audio_decode_aac.wasm"] = aacBytes;
+  bytes["myco_audio_offline.wasm"] = offlineBytes;
   writeHashJson(identity, bytes);
   buildMetered(identity.sourceHash);
 }
