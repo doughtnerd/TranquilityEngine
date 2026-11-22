@@ -1,6 +1,6 @@
 // The Profiler screen's store and recorder through their interfaces: opening a project capture over the in-process
 // capture Worker, the cursor keys and seeks, selecting a voice, a refused file; and the recorder's flow over a fake
-// `Audio.capture` (start, stop, save into the captures folder and open it, or say the browser downloaded it).
+// `Audio.capture` (start, stop, the take's bytes written into the captures folder and opened).
 import { describe, expect, it, vi } from "vitest";
 import { CaptureSource } from "../../../plugins/audio/editor/mix/profilerSource";
 import { inProcessWorker } from "../../../plugins/audio/editor/mix/tracks/cpuCountersTestSupport";
@@ -64,15 +64,14 @@ describe("the Profiler store", () => {
 });
 
 function recorderSeams(over: Partial<RecorderSeams> = {}) {
-  const capture = { state: "idle" as const, seconds: 3, start: vi.fn(async () => {}), stop: vi.fn(), save: vi.fn(async (name?: string) => `/data/cache/${name}.mycap.bin`) };
+  const capture = { state: "idle" as const, seconds: 3, start: vi.fn(async () => {}), stop: vi.fn() };
   const storeFake = { openLive: vi.fn(async () => {}), refreshLive: vi.fn(async () => {}), openPath: vi.fn(async () => true), close: vi.fn() };
   const seams: RecorderSeams = {
     capture,
     liveHost: null,
     store: storeFake,
     files: () => ["captures/capture_01.mycap"],
-    readSaved: vi.fn(async () => new Uint8Array([9])),
-    forgetSaved: vi.fn(async () => {}),
+    fileBytes: vi.fn(async () => new Uint8Array([9])),
     write: vi.fn(async (path: string) => path),
     ...over,
   };
@@ -89,22 +88,19 @@ describe("the recorder", () => {
     expect(recorderStatus(r.state.value, r.seconds)).toBe("Recording the Studio · 3.0 s");
     await r.stop();
     expect(capture.stop).toHaveBeenCalled();
-    expect(capture.save).toHaveBeenCalledWith("capture_02");
-    expect(seams.readSaved).toHaveBeenCalledWith("capture_02.mycap");
+    expect(seams.fileBytes).toHaveBeenCalled();
     expect(seams.write).toHaveBeenCalledWith("captures/capture_02.mycap", new Uint8Array([9]));
-    expect(seams.forgetSaved).toHaveBeenCalledWith("capture_02.mycap");
     expect(storeFake.openPath).toHaveBeenCalledWith("captures/capture_02.mycap");
     expect(r.state.value).toEqual({ kind: "saved", path: "captures/capture_02.mycap" });
   });
 
-  it("says the browser downloaded the file when the save can't be read back", async () => {
-    const { seams } = recorderSeams({ readSaved: async () => null });
-    (seams.capture.save as ReturnType<typeof vi.fn>).mockResolvedValue("capture_02.mycap");
+  it("reports a save that failed, and never writes into the project", async () => {
+    const { seams } = recorderSeams({ fileBytes: async () => Promise.reject(new Error("nothing recorded")) });
     const r = new CaptureRecorder(seams);
     await r.start();
     await r.stop();
-    expect(r.state.value).toEqual({ kind: "downloaded", file: "capture_02.mycap" });
-    expect(recorderStatus(r.state.value, 0)).toMatch(/import it with Open capture file/);
+    expect(r.state.value).toEqual({ kind: "failed", message: "Couldn't save the capture: nothing recorded" });
+    expect(seams.write).not.toHaveBeenCalled();
   });
 
   it("reports a start the core refused", async () => {

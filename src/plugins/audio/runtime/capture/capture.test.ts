@@ -14,7 +14,7 @@ import { notifyEngineLifecycle } from "../../../../engine/core/engineLifecycle";
 import { setAudioBackend } from "../backend";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { makeFakeBackend, type FakeBackend } from "../testing";
-import { captureDebug, captureLiveHost, releaseCapture, setCaptureProject, type CaptureLiveHost } from "./capture";
+import { captureDebug, captureFileBytes, captureLiveHost, releaseCapture, setCaptureProject, type CaptureLiveHost } from "./capture";
 import {
   CAPTURE_FLAG_COMPRESSED, CAPTURE_FLAG_MAIN_SIDE_ONLY, CAPTURE_MARKER_MAX_BYTES, EpochReason, GapReason, RecordType, assembleCapture, readCaptureHeader,
 } from "./format";
@@ -340,6 +340,29 @@ function decodeMarker_(c: CaptureContents, i: number): string {
   const rec = decodeRecordAt(c, i);
   return rec.kind === "marker" ? rec.payload.text : "";
 }
+
+describe("captureFileBytes: the take's file for the Audio Studio (ADR 0334, D13)", () => {
+  it("hands back the bytes save would write, compressed, without downloading or storing anything", async () => {
+    const r = rig();
+    await Audio.capture.start();
+    r.feed(2 * SECOND);
+    Audio.capture.stop();
+    const bytes = await captureFileBytes();
+    expect(r.downloads).toEqual([]);
+    expect(r.saved).toEqual([]);
+    expect(readCaptureHeader(bytes).flags & CAPTURE_FLAG_COMPRESSED).toBeTruthy();
+    const c = await r.open(bytes);
+    expect(c.warnings).toEqual([]);
+    expect(framesOf(c).length).toBe(2 * SECOND);
+    await Audio.capture.save("same");
+    expect(r.downloads[0]!.bytes).toEqual(bytes);
+  });
+
+  it("rejects as save does when nothing was recorded", async () => {
+    rig();
+    await expect(captureFileBytes()).rejects.toThrow("nothing recorded: call Audio.capture.start() first");
+  });
+});
 
 describe("save: the web Blob and the Tauri Storage paths, deflate-raw or stored", () => {
   it("on the web it downloads a deflate-raw file named from the sanitised name and resolves with the file name", async () => {

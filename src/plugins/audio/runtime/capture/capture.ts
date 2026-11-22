@@ -213,6 +213,16 @@ class Capture implements AudioCapture {
   }
 
   save(name?: string): Promise<string> {
+    return this.withTake((s, take) => s.saveCapture(take, name));
+  }
+
+  /** The take as a `.mycap` file's bytes, as `save` would write them (the Studio's save into its project). */
+  fileBytes(): Promise<Uint8Array> {
+    return this.withTake((s, take) => s.captureFileBytes(take));
+  }
+
+  /** `use` the save chunk on the take as of this call, or reject as `save` does when there is none. */
+  private withTake<T>(use: (save: typeof import("./save"), take: SaveTake) => Promise<T>): Promise<T> {
     if (!this.hasTake || !(this.frozen || this.rec)) return Promise.reject(new Error(NOTHING_RECORDED));
     let take: SaveTake;
     try {
@@ -220,7 +230,7 @@ class Capture implements AudioCapture {
     } catch (e) {
       return Promise.reject(new Error(messageOf(e)));
     }
-    return import("./save").then((s) => s.saveCapture(take, name));
+    return import("./save").then((s) => use(s, take));
   }
 
   // --- the seam and the debug view ------------------------------------------------------------------------------------
@@ -626,6 +636,15 @@ export const audioCapture: AudioCapture = {
 
 /** @internal The Profiler panel's way onto the ring (Pf7's `LiveHost`): `join()` is an owner distinct from a take. Not part of `Audio.capture`'s public type. */
 export const captureLiveHost: CaptureLiveHost = { join: () => capture.join() };
+
+/**
+ * @internal ADR 0334 (decision log D13): the latest take as a `.mycap` file's bytes, compressed as `Audio.capture.save()`
+ * writes them, for the Audio Studio to write into its project's `captures/` on every platform (`save()` downloads in a
+ * browser). Rejects as `save()` does when nothing was recorded. Not part of `Audio.capture`'s public type.
+ */
+export function captureFileBytes(): Promise<Uint8Array> {
+  return capture.fileBytes();
+}
 
 /** @internal `Audio.debug().recorder` (§1.3): null while no ring exists. The coordinator wires it into `Audio.debug()`. */
 export function captureDebug(): AudioRecorderDebug | null {

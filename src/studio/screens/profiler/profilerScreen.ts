@@ -6,9 +6,8 @@ import { importFiles, whyNotImportable } from "../../../editor/assetImportFiles"
 import { deleteAssets } from "../../../editor/assetDelete";
 import { moveAssetsTo, renameAsset } from "../../../editor/assetOps";
 import { currentProject, status } from "../../../editor/state";
-import { Storage } from "../../../engine/platform/Storage";
 import { CaptureSource } from "../../../plugins/audio/editor/mix/profilerSource";
-import { captureLiveHost } from "../../../plugins/audio/runtime/capture/capture";
+import { captureFileBytes, captureLiveHost } from "../../../plugins/audio/runtime/capture/capture";
 import { audioHost, openRoute } from "../../shell/studioServices";
 import { CaptureRecorder } from "./captureRecorder";
 import { CAPTURES_FOLDER, whyNotCaptureFile } from "./captureTree";
@@ -59,12 +58,8 @@ export function profilerRecorder(): CaptureRecorder {
       },
     },
     files: () => currentProject.peek()?.files ?? [],
-    // The desktop app's `Audio.capture.save` writes `<name>.mycap` into the storage cache; a browser downloads it instead.
-    readSaved: async (fileName) => {
-      const v = await Storage.load<ArrayBuffer>(fileName, "cache");
-      return v instanceof ArrayBuffer ? new Uint8Array(v) : null;
-    },
-    forgetSaved: (fileName) => Storage.delete(fileName, "cache"),
+    // The take's file, as `Audio.capture.save` would write it, written into the project on every platform (D13).
+    fileBytes: captureFileBytes,
     write: writeCapture,
   }));
 }
