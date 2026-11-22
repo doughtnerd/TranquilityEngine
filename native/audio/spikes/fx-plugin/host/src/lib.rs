@@ -87,6 +87,19 @@ pub extern "C" fn host_quantum(n: u32) -> u32 {
     }
 }
 
+/// Only the calls of one quantum (no signal fill, no hash): isolates the import's cost for the timing runs.
+#[no_mangle]
+pub extern "C" fn host_calls(n: u32) -> i32 {
+    unsafe {
+        let n = (n as usize).min(SLOTS);
+        let mut rc = 0;
+        for s in 0..n {
+            rc |= process(HANDLES[s], L[s].as_mut_ptr(), R[s].as_mut_ptr(), FRAMES as u32, P0[s].as_ptr(), P1[s].as_ptr(), 0);
+        }
+        rc
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn host_hash() -> u32 {
     unsafe { HASH }
