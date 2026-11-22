@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { compileModifier, deadzone } from "../input/modifiers";
-import { combineTriggers, compileTrigger } from "../input/triggers";
+import { combineTriggers, compileTrigger, defineTrigger } from "../input/triggers";
+import type { TriggerSpec } from "../input/contextTypes";
 import { applyNativeBatch } from "../input/tauriGamepads";
 import { webGamepads } from "../input/webGamepads";
 import { loadInputMapping } from "../input/mapping";
@@ -95,6 +96,31 @@ describe("triggers", () => {
     const frame = (p: string) => ((performed = p), combineTriggers(t, false, DT, others).state);
     expect([frame("a"), frame(""), frame("b")]).toEqual([1, 1, 2]);
     expect([frame("a"), frame(""), frame(""), frame(""), frame("b")]).toEqual([1, 1, 1, 0, 0]); // too slow
+  });
+
+  it("custom triggers: each mapping gets its own instance; booleans, pulses, types and reads", () => {
+    defineTrigger<{ every: number }>("test.modules.pulseEvery", ({ every }) => {
+      let n = 0;
+      const t = {
+        pulsed: false,
+        reads: ["mod"],
+        update(actuated: boolean) {
+          n = actuated ? n + 1 : 0;
+          t.pulsed = actuated && n % every === 0;
+          return actuated;
+        },
+      };
+      return t;
+    });
+    const spec = { "test.modules.pulseEvery": { every: 2 } } as TriggerSpec;
+    const a = [compileTrigger(spec)];
+    const b = compileTrigger({ ...spec, type: "blocker" } as TriggerSpec);
+    expect(a[0].reads).toEqual(["mod"]);
+    expect(b.type).toBe("blocker");
+    expect([1, 2, 3, 4].map(() => combineTriggers(a, true, DT, none).pulse)).toEqual([false, true, false, true]);
+    defineTrigger("test.modules.bad", () => ({ update: () => 7 as never }));
+    expect(() => compileTrigger({ "test.modules.bad": {} } as TriggerSpec).update(true, DT, none)).toThrow(/returned 7/);
+    expect(() => compileTrigger({ "test.modules.nope": {} } as TriggerSpec)).toThrow(/Unknown trigger "test.modules.nope"/);
   });
 });
 

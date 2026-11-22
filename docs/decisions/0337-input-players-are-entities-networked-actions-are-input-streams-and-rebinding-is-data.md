@@ -117,6 +117,13 @@ Nothing. `defineInput` stays for input that isn't an action set.
 - Player 0 is created once an action set is defined, so Worlds of games without actions get no player node.
 - The default glyph set ships as labels and icon keys per family; images are not included yet. Conflict checks cover the contexts active when rebinding.
 
+## Build notes (2026-11-22, second pass)
+
+- Supersedes the conflict-check note above: rebinding checks every context the player could have, compiled with the player's profile: the default context, every context registered with `defineInputContext`, and every context an `InputContext` component in the World names for that player, active or not.
+- Repeat rate: `InputAccessibility.repeat = { delay, interval, actions? }`. A button action kept triggered performs again `delay` seconds after it first performed, then every `interval` (one repeat per frame at most); `actions` limits it, else every button action repeats.
+- Server pawns get `ActionEvents`: when `engine.InputNetApply` writes a client's tick into a pawn's set, the tick's edge flags become events with `node` = the pawn, `player` = the owning connection's node and `index` = the client's local player. They're dispatched to `on` by `engine.InputTickEventScripts` (fixedUpdate, before scripts). A tick the server repeats because its input is missing keeps the values and level flags but clears the edges, so a press isn't performed twice.
+- Several local players per connection: a client sends every local player's actions. `defineInput` streams gain an optional local player index (`write(values, player)`, `localOf(player)`, `of(node, player)`, `stats(node, player)`); each player's inputs travel in their own packets, with their own buffer and counters on the server. The wire is unchanged for player 0; another player's packet body starts with a varuint 0 (never a valid count) and the player's index. On the server a pawn names the client's local player with the data component `ConnectionPlayer { index }` (absent: player 0). It's separate from `ControlledBy`, which names a player of the World's own, so a host doesn't copy its local players' actions onto remote pawns. While a client re-simulates, a pawn without `ConnectionPlayer` takes its `ControlledBy` player's input.
+
 ## Open questions
 
 - Maximum local players, and whether one World may host several local players' views (split screen).

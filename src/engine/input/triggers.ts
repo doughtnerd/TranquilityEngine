@@ -7,6 +7,9 @@
  * - **blocker**: a satisfied blocker stops the mapping triggering.
  *
  * A mapping with no explicit trigger behaves as if it had `down`: it triggers while actuated.
+ *
+ * Games add trigger kinds with `defineTrigger("game.doubleHold", (params) => ({ update… }))`; a
+ * context names one as `{ "game.doubleHold": { …params } }`, as it names a built-in one.
  */
 import type { TriggerSpec, TriggerType } from "./contextTypes";
 
@@ -14,11 +17,16 @@ import type { TriggerSpec, TriggerType } from "./contextTypes";
 export const TriggerState = { none: 0, ongoing: 1, triggered: 2 } as const;
 export type TriggerStateValue = 0 | 1 | 2;
 
-/** What a trigger can ask about other actions of its set: their final flags of the last frame. */
+/**
+ * What a trigger can ask about other actions (bare names are of its own set; `"set.Id:action"`
+ * names another's): their final flags this frame. The evaluator resolves the actions a trigger
+ * `reads` before the mappings that read them; only an action in a dependency cycle reads the
+ * cycle's other actions as they were last frame.
+ */
 export interface TriggerWorld {
-  /** Whether `action` was triggered (level) last frame. */
+  /** Whether `action` is triggered (level). */
   triggered(action: string): boolean;
-  /** Whether `action` performed last frame. */
+  /** Whether `action` performed. */
   performed(action: string): boolean;
 }
 
@@ -184,7 +192,96 @@ export function compileTrigger(spec: TriggerSpec): CompiledTrigger {
       steps.map((s) => s.action),
     );
   }
-  throw new Error(`Unknown trigger ${JSON.stringify(spec)} (down, pressed, released, hold, holdAndRelease, tap, multiTap, pulse, chord or combo).`);
+  return compileCustom(spec as unknown as Record<string, unknown>);
+}
+
+// --- custom triggers ---------------------------------------------------------------------------
+
+const BUILT_IN = ["down", "pressed", "released", "hold", "holdAndRelease", "tap", "multiTap", "pulse", "chord", "combo"];
+
+/**
+ * One mapping's instance of a custom trigger, made by its factory (each mapping gets its own, so
+ * it may keep state in closures).
+ */
+export interface CustomTrigger {
+  /** Explicit (default), implicit or blocker; a spec's `type` overrides it. */
+  readonly type?: TriggerType;
+  /** Actions it reads through `others` (bare names are of the mapping's set). They're resolved first, as a chord's are. */
+  readonly reads?: readonly string[];
+  /**
+   * One frame: `actuated` is whether the mapping's value is actuated now, `dt` the frame's
+   * seconds. Return a `TriggerState` (0 none, 1 ongoing, 2 triggered), or true / false for
+   * triggered / none.
+   */
+  update(actuated: boolean, dt: number, others: TriggerWorld): TriggerStateValue | boolean;
+  /** Read after each `update`: true when it fired a pulse (each pulse performs the action again, as `pulse` does). */
+  readonly pulsed?: boolean;
+}
+
+/** Makes a custom trigger from the value its spec gives under its name (`{ "game.doubleHold": params }`). */
+export type TriggerFactory<P = unknown> = (params: P) => CustomTrigger;
+
+const custom = new Map<string, TriggerFactory>();
+let customVersion = 0;
+
+const TRIGGER_NAME = /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$/;
+
+/**
+ * Register a trigger kind that contexts (`*.input.json`, `defineInputContext`) and inline
+ * mappings can name: `{ "action": "jump", "control": "…", "triggers": [{ "game.doubleHold": { "min": 0.3 } }] }`.
+ * The name is namespaced, as ids are (`"game.doubleHold"`), so it never clashes with a built-in
+ * trigger. Registering a name again replaces it, and bindings using it recompile.
+ *
+ * ```ts
+ * defineTrigger<{ min: number }>("game.doubleHold", ({ min }) => {
+ *   let held = 0;
+ *   return { update: (actuated, dt) => ((held = actuated ? held + dt : 0) >= min ? 2 : actuated ? 1 : 0) };
+ * });
+ * ```
+ */
+export function defineTrigger<P = unknown>(name: string, factory: TriggerFactory<P>): void {
+  if (typeof name !== "string" || !TRIGGER_NAME.test(name)) {
+    throw new Error(`defineTrigger: ${JSON.stringify(name)} isn't a trigger name: use a namespaced one of letters, digits and underscores, such as "game.doubleHold".`);
+  }
+  if (typeof factory !== "function") throw new Error(`defineTrigger("${name}"): the second argument must be a function that makes the trigger from its parameters.`);
+  custom.set(name, factory as TriggerFactory);
+  customVersion++;
+}
+
+/** @internal Bumped whenever a custom trigger is (re)defined, so compiled tables rebuild. */
+export function triggersVersion(): number {
+  return customVersion;
+}
+
+function compileCustom(spec: Record<string, unknown>): CompiledTrigger {
+  const keys = spec && typeof spec === "object" ? Object.keys(spec).filter((k) => k !== "type") : [];
+  const known = `built-in: ${BUILT_IN.join(", ")}${custom.size ? `; defined: ${[...custom.keys()].join(", ")}` : ""}`;
+  if (keys.length !== 1) throw new Error(`Trigger ${JSON.stringify(spec)} must name exactly one trigger (${known}).`);
+  const name = keys[0];
+  const factory = custom.get(name);
+  if (!factory) {
+    const hint = TRIGGER_NAME.test(name) ? ` Register it with defineTrigger("${name}", …) before the context is used.` : "";
+    throw new Error(`Unknown trigger "${name}" (${known}).${hint}`);
+  }
+  const made = factory(spec[name]);
+  if (!made || typeof made.update !== "function") throw new Error(`Trigger "${name}": its factory must return an object with an update(actuated, dt, others) method.`);
+  const type = (spec.type as TriggerType | undefined) ?? made.type ?? "explicit";
+  if (type !== "explicit" && type !== "implicit" && type !== "blocker") throw new Error(`Trigger "${name}": type "${String(type)}" isn't explicit, implicit or blocker.`);
+  const reads = [...(made.reads ?? [])];
+  return {
+    type,
+    reads,
+    get pulsed() {
+      return made.pulsed === true;
+    },
+    update(actuated, dt, others) {
+      const r = made.update(actuated, dt, others);
+      if (r === true) return 2;
+      if (r === false) return 0;
+      if (r === 0 || r === 1 || r === 2) return r;
+      throw new Error(`Trigger "${name}": update returned ${JSON.stringify(r)}; return 0 (none), 1 (ongoing), 2 (triggered) or a boolean.`);
+    },
+  };
 }
 
 function positive(name: string, v: number, allowZero: boolean): void {

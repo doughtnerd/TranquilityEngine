@@ -44,7 +44,11 @@ export type TriggerSpec =
   /** Satisfied while another action of the same set is triggered. Implicit by default. */
   | ({ readonly chord: { readonly action: string } } & TriggerBase)
   /** Satisfied when other actions performed in order, each within `within` seconds of the one before; Ongoing part-way. */
-  | ({ readonly combo: { readonly steps: readonly { readonly action: string; readonly within?: number }[] } } & TriggerBase);
+  | ({ readonly combo: { readonly steps: readonly { readonly action: string; readonly within?: number }[] } } & TriggerBase)
+  | CustomTriggerSpec;
+
+/** A trigger registered with `defineTrigger`, named by its namespaced name: `{ "game.doubleHold": { "min": 0.3 } }`. */
+export type CustomTriggerSpec = { readonly [name: `${string}.${string}`]: unknown } & TriggerBase;
 
 /** One mapping: controls to an action. */
 export interface MappingSpec {

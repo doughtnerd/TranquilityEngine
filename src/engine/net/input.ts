@@ -20,6 +20,12 @@
  * self-contained, so it needs no acks. n is at most `redundancy + 1` (default 3 + 1): a lost packet
  * loses nothing as long as one of the next `redundancy` packets arrives.
  *
+ * **Local players.** A client may send input for several of its local players (local co-op over
+ * one connection, ADR 0337): `write(values, player)`. Each player's inputs travel in their own
+ * packets and are buffered, repeated and counted on their own; the server reads them with
+ * `of(node, player)`. Player 0's packets are as above; another player's body starts with a varuint
+ * 0 (never a valid count), then the player's index as a varuint, then the count and inputs.
+ *
  * ## Timing
  *
  * Inputs are tagged with the client's `serverTick`, which runs RTT/2 plus the command slack
@@ -72,6 +78,8 @@ const MAX_AHEAD = 128;
 const MISSED_KEPT = 256;
 /** Inputs per packet at most, whatever `redundancy` says (and what a receiver accepts). */
 const MAX_PER_PACKET = 32;
+/** Local players per connection at most (indices 0 … MAX_LOCAL_PLAYERS - 1). */
+export const MAX_LOCAL_PLAYERS = 64;
 
 type Values = Record<string, number>;
 
@@ -107,8 +115,10 @@ interface Stream {
   readonly fields: readonly string[];
   readonly coerce: (values: Values) => Values;
   readonly redundancy: number;
-  readonly clients: WeakMap<World, ClientState>;
-  readonly servers: WeakMap<NetSession, Map<NetPeer, PeerState>>;
+  /** Client Worlds' state, by local player. */
+  readonly clients: WeakMap<World, Map<number, ClientState>>;
+  /** Server sessions' state, by connection, then by the client's local player. */
+  readonly servers: WeakMap<NetSession, Map<NetPeer, Map<number, PeerState>>>;
   /** Editor (thin clients): set a client World's current input, as `write` would. */
   readonly writeSynthetic: (world: World, values: Values) => void;
 }
@@ -177,38 +187,48 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
     clients: streams.get(id)?.clients ?? new WeakMap(),
     servers: streams.get(id)?.servers ?? new WeakMap(),
     writeSynthetic(world, values) {
-      const state = clientState(world, "write");
+      const state = clientState(world, "write", 0);
       for (const f of fields) if (typeof values[f] === "number") state.current[f] = values[f];
     },
   };
   streams.set(id, stream);
 
-  const clientState = (world: World, what: string): ClientState => {
+  const clientState = (world: World, what: string, player: number): ClientState => {
     if (netSession(world)?.isServer) throw new Error(`Can't ${what} input "${id}" in World "${world.name}": it's a network server; read clients' input with ${id}.of(connection).`);
-    let state = stream.clients.get(world);
+    let players = stream.clients.get(world);
+    if (!players) stream.clients.set(world, (players = new Map()));
+    let state = players.get(player);
     if (!state) {
       const current: Values = {};
       for (const f of fields) current[f] = 0;
       // First written during a fixed step: the input is for that step's tick.
       const tick = fixedTicks.get(world) ?? -1;
-      stream.clients.set(world, (state = { current, history: new TickHistory(CLIENT_HISTORY), tick, pending: tick >= 0 }));
+      players.set(player, (state = { current, history: new TickHistory(CLIENT_HISTORY), tick, pending: tick >= 0 }));
     }
     return state;
   };
 
   /** Where the game's writes go: the current input, or a scratch copy while the editor drives it. */
-  const writable = (world: World): Values => {
-    const state = clientState(world, "write");
+  const writable = (world: World, player: number): Values => {
+    const state = clientState(world, "write", player);
     return synthetic.get(world)?.has(id) ? { ...state.current } : state.current;
+  };
+  const checkPlayer = (what: string, player: number) => {
+    if (!(Number.isInteger(player) && player >= 0 && player < MAX_LOCAL_PLAYERS)) throw new Error(`Input "${id}".${what}: player must be a local player index from 0 to ${MAX_LOCAL_PLAYERS - 1} (got ${player}).`);
   };
   const def: InputDef<S> = {
     id,
     schema,
     get local() {
-      return writable(World.require()) as DataView<S>;
+      return writable(World.require(), 0) as DataView<S>;
     },
-    write(values) {
-      const current = writable(World.require());
+    localOf(player) {
+      checkPlayer("localOf", player);
+      return writable(World.require(), player) as DataView<S>;
+    },
+    write(values, player = 0) {
+      checkPlayer("write", player);
+      const current = writable(World.require(), player);
       for (const key of Object.keys(values)) {
         const v = (values as Record<string, unknown>)[key];
         const i = fields.indexOf(key);
@@ -217,30 +237,30 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
         current[key] = steps[i] ? wire(i, v) : v;
       }
     },
-    of(node) {
+    of(node, player = 0) {
       const world = World.require();
       const session = netSession(world);
       if (!session) return null;
       if (session.isServer) {
         const peer = connectionOf(session, node);
-        const state = peer ? stream.servers.get(session)?.get(peer) : undefined;
+        const state = peer ? stream.servers.get(session)?.get(peer)?.get(player) : undefined;
         return (state?.current as Readonly<DataView<S>> | undefined) ?? null;
       }
       // A client has its own input only, for its connection node (or a node it owns, T11).
       const peer = connectionOf(session, node);
       if (!peer || peer !== session.serverPeer) return null;
-      const state = stream.clients.get(world);
+      const state = stream.clients.get(world)?.get(player);
       if (!state) return null;
       const replay = session.replayTick;
       if (replay !== null) return replayed(state, replay) as Readonly<DataView<S>> | null;
       return state.current as Readonly<DataView<S>>;
     },
-    stats(node) {
+    stats(node, player = 0) {
       const world = World.require();
       const session = netSession(world);
       if (!session?.isServer) return null;
       const peer = connectionOf(session, node);
-      const state = peer ? stream.servers.get(session)?.get(peer) : undefined;
+      const state = peer ? stream.servers.get(session)?.get(peer)?.get(player) : undefined;
       return state ? { ...state.stats } : null;
     },
   };
@@ -297,8 +317,8 @@ function replayed(state: ClientState, tick: number): Readonly<Values> | null {
   return null;
 }
 
-/** Store the pending input under its tick and send it with the ones before it. */
-function commit(stream: Stream, session: NetSession, state: ClientState): void {
+/** Store the pending input under its tick and send it with the ones before it (for local player `player`). */
+function commit(stream: Stream, session: NetSession, state: ClientState, player: number): void {
   state.pending = false;
   const tick = state.tick;
   if (tick < 0) return;
@@ -319,6 +339,10 @@ function commit(stream: Stream, session: NetSession, state: ClientState): void {
   let count = 1;
   while (count <= stream.redundancy && history.has(newest - count)) count++;
   const w = createBitWriter();
+  if (player !== 0) {
+    w.writeVarUint(0); // not a count: a local player's index follows
+    w.writeVarUint(player);
+  }
   w.writeVarUint(count);
   let baseline: Values | undefined;
   for (let t = newest - count + 1; t <= newest; t++) {
@@ -334,23 +358,25 @@ function clientTick(world: World, session: NetSession): void {
   const open = peer?.state === "open";
   fixedTicks.set(world, open ? session.time.serverTick : -1);
   for (const stream of streams.values()) {
-    const state = stream.clients.get(world);
-    if (!state) continue; // never written: nothing to send
-    if (state.pending && open) commit(stream, session, state);
-    if (!open) {
-      // Not connected (yet, or any more): a new connection starts a new history.
-      state.history.clear();
+    const players = stream.clients.get(world);
+    if (!players) continue; // never written: nothing to send
+    for (const [player, state] of players) {
+      if (state.pending && open) commit(stream, session, state, player);
+      if (!open) {
+        // Not connected (yet, or any more): a new connection starts a new history.
+        state.history.clear();
+      }
+      state.tick = open ? session.time.serverTick : -1;
+      state.pending = open;
     }
-    state.tick = open ? session.time.serverTick : -1;
-    state.pending = open;
   }
 }
 
 function clientSend(world: World, session: NetSession): void {
   if (session.serverPeer?.state !== "open") return;
   for (const stream of streams.values()) {
-    const state = stream.clients.get(world);
-    if (state?.pending) commit(stream, session, state);
+    const players = stream.clients.get(world);
+    if (players) for (const [player, state] of players) if (state.pending) commit(stream, session, state, player);
   }
 }
 
@@ -365,12 +391,12 @@ function serverTick(session: NetSession): void {
 
     for (const m of session.drain(stream.kind)) {
       if (m.peer.state === "closed") continue;
-      let state = peers.get(m.peer);
-      if (!state) peers.set(m.peer, (state = { buffer: new Map(), missed: new Set(), current: null, simulated: tick - 1, stats: { received: 0, repeated: 0, late: 0 } }));
-      receive(stream, state, m.tick, m.data);
+      let players = peers.get(m.peer);
+      if (!players) peers.set(m.peer, (players = new Map()));
+      receive(stream, players, tick, m.tick, m.data);
     }
 
-    for (const state of peers.values()) {
+    for (const players of peers.values()) for (const state of players.values()) {
       const input = state.buffer.get(tick);
       if (input) {
         state.current = input;
@@ -386,12 +412,18 @@ function serverTick(session: NetSession): void {
   }
 }
 
-/** Decode one packet into a connection's buffer. A malformed one is dropped. */
-function receive(stream: Stream, state: PeerState, newest: number, data: Uint8Array): void {
+/** Decode one packet into the buffer of a connection's local player. A malformed one is dropped. */
+function receive(stream: Stream, players: Map<number, PeerState>, tick: number, newest: number, data: Uint8Array): void {
   let decoded: Readonly<Values>[];
+  let player = 0;
   try {
     const r = createBitReader(data);
-    const count = r.readVarUint();
+    let count = r.readVarUint();
+    if (count === 0) {
+      player = r.readVarUint();
+      if (player < 1 || player >= MAX_LOCAL_PLAYERS) return;
+      count = r.readVarUint();
+    }
     if (count < 1 || count > MAX_PER_PACKET) return;
     decoded = [];
     let baseline: Values | undefined;
@@ -403,6 +435,8 @@ function receive(stream: Stream, state: PeerState, newest: number, data: Uint8Ar
   } catch {
     return; // truncated: unreliable messages from a misbehaving client aren't worth a disconnect
   }
+  let state = players.get(player);
+  if (!state) players.set(player, (state = { buffer: new Map(), missed: new Set(), current: null, simulated: tick - 1, stats: { received: 0, repeated: 0, late: 0 } }));
   const first = newest - decoded.length + 1;
   for (let i = 0; i < decoded.length; i++) {
     const t = first + i;

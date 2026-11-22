@@ -93,6 +93,31 @@ A context is a set of mappings. Write it as a `*.input.json` asset, or register 
 
 Each trigger is explicit, implicit or a blocker, as in Unreal's Enhanced Input.
 
+**Chords and combos see the same frame.** An action a chord or combo reads is worked out first, so Shift+F fires in the frame both keys go down. Actions that read each other in a circle get a warning in the console.
+
+**Your own triggers:** register a trigger kind with a namespaced name, then use it in any context or inline mapping:
+
+```ts
+import { defineTrigger } from "myco";
+
+defineTrigger<{ min: number }>("game.doubleHold", ({ min }) => {
+  let held = 0;
+  return {
+    update(actuated, dt, others) {   // return 0 none, 1 ongoing, 2 triggered (or true / false)
+      held = actuated ? held + dt : 0;
+      return held >= min && others.triggered("guard") ? 2 : actuated ? 1 : 0;
+    },
+    reads: ["guard"],                // actions it asks about: worked out before this one
+  };
+});
+```
+
+```json
+{ "action": "parry", "control": "<Gamepad>/buttonEast", "triggers": [{ "game.doubleHold": { "min": 0.3 } }] }
+```
+
+Each mapping gets its own trigger from the function, so it can keep state. An unknown trigger name is reported with the names that exist.
+
 ## Players and pawns
 
 **Joining:** `project.json` `input.join` decides how players join:
@@ -119,10 +144,11 @@ Each trigger is explicit, implicit or a blocker, as in Unreal's Enhanced Input.
 ```ts
 const player = InputPlayers.get(0)!;
 const result = await player.rebind("jump", { device: "keyboard" }); // the next key pressed (Escape cancels)
-if (result.conflicts.length) showWarning(result.conflicts);
+if (result.conflicts.length) showWarning(result.conflicts); // checked against every context the player could have, active or not
 await player.saveBindings();                 // settings storage, input.player0.json
 player.prompt("jump");                       // { label: "A" | "Cross" | "Space", icons: ["xbox/buttonSouth"], … } for the device last used
-player.accessibility = { holdToToggle: ["aim"], invertY: ["look"], sensitivity: { look: 1.5 }, deadzone: 0.2 };
+player.accessibility = { holdToToggle: ["aim"], invertY: ["look"], sensitivity: { look: 1.5 }, deadzone: 0.2,
+  repeat: { delay: 0.4, interval: 0.1, actions: ["menuDown", "menuUp"] } }; // held buttons perform again, as key repeat
 player.rumble(0.3, 0.8, 200);
 ```
 
@@ -130,7 +156,9 @@ player.rumble(0.3, 0.8, 200);
 
 `defineActions(id, spec, { networked: true })` also makes the set an input stream (ADR 0033).
 
-**Server:** give the pawn the set's component (`pawn.addData(PlayerActions)`). Each tick the server fills it with the owning client's actions, so gameplay code reads the same component online and offline. Server pawns are read by polling; `on` fires only for local players.
+**Server:** give the pawn the set's component (`pawn.addData(PlayerActions)`). Each tick the server fills it with the owning client's actions, so gameplay code reads the same component online and offline. `this.input.on(...)` works on server pawns too: the tick's started, performed, completed and canceled become `ActionEvents` with the pawn as `node` and the client's connection node as `player`. A tick whose input was lost repeats the last values, not the presses.
+
+**Local co-op online:** a client sends every local player's actions over its one connection. On the server, add `ConnectionPlayer { index: 1 }` to the pawn the client's second player drives (no `ConnectionPlayer` means player 0). The same works for plain streams: `Move.write(values, 1)` on the client, `Move.of(connection, 1)` on the server.
 
 **Client:** prediction replays each tick with that tick's actions.
 

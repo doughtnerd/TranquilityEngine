@@ -2,7 +2,9 @@
  * Rebinding (ADR 0337) as data: `player.rebind("jump")` adds a `RebindRequest` to the player's node;
  * `engine.InputRebind` (input phase, before evaluation) takes the player's next press from
  * `DeviceEvents`, writes it into the player's profile as an override of that mapping's control,
- * reports conflicts with other mappings that can be active with it, and appends to `RebindResults`.
+ * reports conflicts with other mappings that can be active with it (in every context the player
+ * could have: the default one, those registered with `defineInputContext`, and those `InputContext`
+ * components in the World name for the player, active or not), and appends to `RebindResults`.
  */
 import type { World } from "../core/World";
 import { defineBuffer, defineComponent, i32 } from "../core/data";
@@ -10,7 +12,7 @@ import { defineBuiltinSystem } from "../core/systems";
 import type { GameObject } from "../scene/GameObject";
 import { PRESS_POINT, control, controlById, type DeviceFamily } from "./controls";
 import { DeviceEvents, InputDevice } from "./deviceEntities";
-import { playerTable, resolveAction, type CompiledMapping } from "./evaluate";
+import { knownContexts, playerTable, resolveAction, type CompiledMapping } from "./evaluate";
 import { InputPlayer, familyName } from "./players";
 import { overrideKey, profileOf } from "./profiles";
 import { mappingFits } from "./prompts";
@@ -24,7 +26,7 @@ export interface RebindResult {
   /** The new control path; null when canceled. */
   readonly control: string | null;
   readonly canceled: boolean;
-  /** Other mappings now using the control, as `"<context>: <action>"`. */
+  /** Other mappings now using the control, in any context the player could have active, as `"<context>: <action>"`. */
   readonly conflicts: readonly string[];
 }
 
@@ -123,11 +125,13 @@ function step(world: World, dt: number): void {
       const profile = profileOf(world, index);
       profile.overrides[overrideKey(p.context, p.mapping, p.part)] = c.path;
       profile.version++;
+      // Every context the player could have active, not only today's: a vehicle's context counts while on foot.
       const conflicts: string[] = [];
-      for (const ctx of playerTable(world, player).contexts) {
+      for (const ctx of knownContexts(world, index)) {
         for (const m of ctx.mappings) {
           if (m.context === p.context && m.index === p.mapping) continue;
-          if (m.controls.some((id) => controlById(id) === c)) conflicts.push(`${ctx.name}: ${m.action.name}`);
+          const conflict = `${ctx.name}: ${m.action.name}`;
+          if (m.controls.some((id) => controlById(id) === c) && !conflicts.includes(conflict)) conflicts.push(conflict);
         }
       }
       finish(player, token, { control: c.path, conflicts });
