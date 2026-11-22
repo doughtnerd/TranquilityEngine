@@ -615,3 +615,145 @@ pub fn req(name: u32) -> CondNode {
         value: 1,
     }
 }
+
+/// The ids of [`locomotion`]'s graph.
+#[derive(Clone, Debug)]
+pub struct Loco {
+    pub x: u32,
+    pub y: u32,
+    pub speed: u32,
+    pub moving: u32,
+    pub jump: u32,
+    pub machine: MachineIds,
+    pub blend_space: u32,
+    pub slot: u32,
+    pub output: u32,
+    /// String ids to bind: the idle, walk and run clips and the upper-body mask.
+    pub idle: u32,
+    pub walk: u32,
+    pub run: u32,
+    pub upper: u32,
+}
+
+/// The benchmark's graph (ADR 0340's budget scenario, without the rig): a state machine (Idle,
+/// Locomotion: a 2D blend space of idle, walk and run with speed scaling and sync; Jump, entered on
+/// a request through an any-state transition and left at its exit) under an upper-body slot, under
+/// an inertialization node.
+pub fn locomotion(b: &mut Builder) -> Loco {
+    use anim_format::graph::{family, CmpOp, ParamValue};
+    let x = b.param("x", ParamValue::Float(0.0));
+    let y = b.param("y", ParamValue::Float(0.0));
+    let speed = b.param("speed", ParamValue::Float(1.0));
+    let moving = b.param("moving", ParamValue::Bool(false));
+    let jump = b.s("Jump");
+    let idle_p = b.player("idle");
+    let walk_p = b.player("walk");
+    let run_p = b.player("run");
+    let idle2 = b.player("idle");
+    let jump_p = b.player_with("run", 1.5, anim_graph::sources::PLAYER_LOOP_SET);
+    let mut words = vec![
+        x,
+        y,
+        speed,
+        150.0f32.to_bits(),
+        anim_graph::sources::BS_SYNC | anim_graph::sources::BS_SPEED,
+        0.0f32.to_bits(),
+        0.0f32.to_bits(),
+    ];
+    for c in [0.0f32, 0.0, 0.0, 1.0, 1.0, 1.0] {
+        words.push(c.to_bits());
+    }
+    let bs = b.node(
+        family::SOURCES,
+        anim_graph::sources::kind::BLEND_SPACE_2D,
+        &[idle2, walk_p, run_p],
+        &words,
+    );
+    let on = b.cond(&[CondNode::Compare {
+        operand: anim_format::graph::Operand::Param(moving),
+        op: CmpOp::Eq,
+        value: 1,
+    }]);
+    let off = b.cond(&[CondNode::Compare {
+        operand: anim_format::graph::Operand::Param(moving),
+        op: CmpOp::Eq,
+        value: 0,
+    }]);
+    let jumped = b.cond(&[req(jump)]);
+    let machine = b.machine(
+        &[("Idle", idle_p, 0), ("Locomotion", bs, 0), ("Jump", jump_p, 0)],
+        0,
+        &[
+            vec![tr(
+                1,
+                on,
+                When::Now,
+                How::Crossfade {
+                    duration: 0.2,
+                    shape: 1,
+                },
+            )],
+            vec![tr(0, off, When::Now, How::Inertialize { duration: 0.25 })],
+            vec![tr(
+                1,
+                NONE,
+                When::Exit,
+                How::Crossfade {
+                    duration: 0.15,
+                    shape: 0,
+                },
+            )],
+        ],
+        &[tr(2, jumped, When::Now, How::Inertialize { duration: 0.2 })],
+    );
+    let upper = b.s("upper");
+    let (slot, _) = b.slot("UpperBody", machine.node, upper, None);
+    let output = b.node(
+        family::MIXING,
+        anim_graph::mixing::kind::INERTIALIZE,
+        &[slot],
+        &[],
+    );
+    let idle = b.s("idle");
+    let walk = b.s("walk");
+    let run = b.s("run");
+    Loco {
+        x,
+        y,
+        speed,
+        moving,
+        jump,
+        machine,
+        blend_space: bs,
+        slot,
+        output,
+        idle,
+        walk,
+        run,
+        upper,
+    }
+}
+
+/// A frame script for [`locomotion`] instances: the commands to send before frame `f` of a run.
+pub fn loco_script(h: u32, ids: &Loco, f: usize, shot: u32) -> Vec<Vec<u8>> {
+    match f {
+        2 => vec![set_bool(h, ids.moving, true), set_float(h, ids.y, 0.6)],
+        8 => vec![set_float(h, ids.x, 0.7), set_float(h, ids.speed, 2.5)],
+        14 => vec![wg::SlotPlay {
+            instance: h,
+            slot: 0,
+            clip: shot,
+            play_id: 5,
+            blend_in: 0.1,
+            blend_out: 0.1,
+            speed: 1.0,
+            start: 0.0,
+            end: 0.5,
+            flags: 0,
+        }
+        .encode()],
+        20 => vec![request(h, ids.jump, 0.2)],
+        34 => vec![set_bool(h, ids.moving, false)],
+        _ => Vec::new(),
+    }
+}

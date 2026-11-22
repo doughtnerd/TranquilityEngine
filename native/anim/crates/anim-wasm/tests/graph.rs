@@ -1395,3 +1395,67 @@ fn curve_and_state_time_operands() {
     let f = frames_until(&mut r.core, 0, 2, 30).unwrap();
     assert!((6..=7).contains(&f), "0.2 s in B: frame {f}");
 }
+
+/// The locomotion graph's clips over `r`'s skeleton, bound: (binds, shot clip).
+fn loco_clips(r: &mut Rig, ids: &Loco) -> (Vec<(u32, u32)>, u32) {
+    let mut idle = ClipSpec::new(1.0, true, 31);
+    idle.speed = 0.0;
+    idle.sync = vec![("L", 0.0), ("R", 0.5)];
+    let mut walk = ClipSpec::new(1.0, true, 32);
+    walk.speed = 1.4;
+    walk.sync = vec![("L", 0.05), ("R", 0.55)];
+    let mut run = ClipSpec::new(0.7, true, 33);
+    run.speed = 3.5;
+    run.sync = vec![("L", 0.0), ("R", 0.35)];
+    let ci = r.clip(idle);
+    let cw = r.clip(walk);
+    let cr = r.clip(run);
+    let shot = r.clip(ClipSpec::new(1.0, false, 34));
+    let weights: Vec<f32> = (0..r.bones).map(|i| if i >= 3 { 1.0 } else { 0.0 }).collect();
+    let mask = r.core.load_mask(&weights);
+    (
+        vec![(ids.idle, ci), (ids.walk, cw), (ids.run, cr), (ids.upper, mask)],
+        shot,
+    )
+}
+
+#[test]
+fn snapshot_and_restore_are_exact_through_transitions_and_inertialization() {
+    let mut r = rig();
+    let mut b = Builder::new();
+    let ids = locomotion(&mut b);
+    let (binds, shot) = loco_clips(&mut r, &ids);
+    let bytes = b.build(ids.output);
+    let (_, h) = instance(&mut r.core, &bytes, r.skel, &binds);
+    type Frame = (Vec<f32>, [f32; 7], Vec<GraphChange>);
+    let run = |r: &mut Rig, from: usize, to: usize| -> Vec<Frame> {
+        (from..to)
+            .map(|f| {
+                let cmds = loco_script(h, &ids, f, shot);
+                send(&mut r.core, &cmds);
+                r.core.evaluate(0, 0, DT, DT);
+                (r.mats(h), root(&r.core, h), graph_changes(&r.core))
+            })
+            .collect()
+    };
+    let before = run(&mut r, 0, 21);
+    // The jump (frame 20) inertializes: the snapshot is taken mid-decay, mid-slot, mid-fade.
+    assert!(before
+        .iter()
+        .any(|f| f.2.iter().any(|c| c.kind == GRAPH_STATE_ENTERED && c.value == 2)));
+    let snap_len = r.core.snapshot_bytes(h) as usize;
+    let mut snap = vec![0u8; snap_len];
+    assert_eq!(r.core.snapshot(h, &mut snap), 0);
+    let first = run(&mut r, 21, 50);
+    assert!(
+        first.iter().any(|f| f.2.iter().any(|c| c.kind == GRAPH_STATE_ENTERED && c.value == 0)),
+        "the replay crosses the jump's exit and the stop's inertialization"
+    );
+    assert_eq!(r.core.restore(h, &snap), 0);
+    let second = run(&mut r, 21, 50);
+    for (i, (a, b)) in first.iter().zip(&second).enumerate() {
+        assert_eq!(a.0, b.0, "matrices, frame {}", 21 + i);
+        assert_eq!(a.1, b.1, "root, frame {}", 21 + i);
+        assert_eq!(a.2, b.2, "state changes, frame {}", 21 + i);
+    }
+}
