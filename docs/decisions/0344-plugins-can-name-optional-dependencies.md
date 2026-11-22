@@ -1,6 +1,6 @@
 # 0344. Plugins can name optional dependencies
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

@@ -1,6 +1,6 @@
 # 0090. Game builds carry each model baked into a `.mycomesh` file, which the engine loads instead of parsing the model
 
-- **Status:** Proposed, amended by [0296](0296-one-web-build-writer-behind-a-build-folder-seam.md) (the build writer bakes the models)
+- **Status:** Proposed, amended by [0296](0296-one-web-build-writer-behind-a-build-folder-seam.md) (the build writer bakes the models) and 0341 (baked models carry skins and morphs; clips bake beside them)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

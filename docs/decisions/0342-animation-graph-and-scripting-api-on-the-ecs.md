@@ -1,6 +1,6 @@
 # 0342. Animation graphs, state machines, rigs, retargeting, motion matching and physical animation are driven through ECS components, a typed blackboard and a code-first Animator API
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

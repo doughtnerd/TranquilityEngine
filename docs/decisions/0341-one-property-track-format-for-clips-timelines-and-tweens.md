@@ -1,6 +1,6 @@
 # 0341. One property-track format serves skeletal clips, property animation, sprite flipbooks, timelines and tweens; models import skins, clips and morphs
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

@@ -1,6 +1,6 @@
 # 0346. A debug link connects running builds to the editor and the Studio over the engine's transports, separate from game traffic
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

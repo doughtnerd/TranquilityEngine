@@ -1,6 +1,6 @@
 # 0347. Audio packages are named BioPak
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

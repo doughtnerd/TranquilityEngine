@@ -1,6 +1,6 @@
 # 0343. The editor gets an Animation window, an animation graph editor, a Timeline, rig, retarget, pose database and ragdoll tools, and a live animation debugger
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

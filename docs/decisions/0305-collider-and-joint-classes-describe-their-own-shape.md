@@ -1,6 +1,6 @@
 # 0305. Collider and joint classes describe their own shape
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0345 (ball joints describe their swing and twist limits and drive)
 - **Date:** 2026-11-21
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
