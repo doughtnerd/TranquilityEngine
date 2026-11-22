@@ -67,8 +67,8 @@ const playlistJson = {
   entries: [
     { sample: "a.wav", curves: { gain: { input: { parameter: "surface" }, curve: [[0, 0], [1, -6]] }, pitch: { input: "voiceTime", curve: [[0, 0], [1, 1]] }, lowpass: { input: "surface", curve: [[0, 20000], [1, 800]] } } },
     { embedded: { type: "blend", entries: [], blend: { axes: [{ parameter: "surface" }, { parameter: "speed" }] } } },
-    // A local parameter of that name shadows the global one: left alone.
-    { embedded: { type: "switch", parameters: [{ name: "surface", labels: ["a", "b"], default: "a" }], switch: { parameter: "surface", map: {} }, entries: [] } },
+    // A local parameter of another name, and what reads it: left alone.
+    { embedded: { type: "switch", parameters: [{ name: "gear", labels: ["a", "b"], default: "a" }], switch: { parameter: "gear", map: {} }, entries: [] } },
     {
       embedded: {
         type: "sequence",
@@ -96,7 +96,7 @@ describe("renaming a global parameter in playlists", () => {
     const blend = back.entries[1]!;
     expect(blend.kind === "embedded" && blend.embedded.blend!.axes).toEqual([{ parameter: "ground" }, { parameter: "speed" }]);
     const local = back.entries[2]!;
-    expect(local.kind === "embedded" && local.embedded.switch!.parameter).toBe("surface");
+    expect(local.kind === "embedded" && local.embedded.switch!.parameter).toBe("gear");
     const seq = back.entries[3]!;
     if (seq.kind !== "embedded") throw new Error("embedded");
     const track = seq.embedded.sequence!.tracks[0]!;
@@ -106,6 +106,24 @@ describe("renaming a global parameter in playlists", () => {
     expect(seq.embedded.sequence!.loops[0]!.binding!.parameter).toBe("ground");
     const stinger = back.stingers[0]!.playlist;
     expect(stinger.kind === "embedded" && stinger.embedded.entries[0]!.curves.gain!.input).toEqual({ parameter: "ground" });
+  });
+
+  it("renames a playlist instance's own automation inputs, at the root and in embedded playlists", () => {
+    const json = {
+      format: "myco.playlist@1",
+      type: "layer",
+      automation: [{ id: "a", target: "volume", input: { parameter: "surface" }, curve: [[0, 0]] }, { id: "b", target: "pitch", input: "voiceTime", curve: [[0, 0]] }],
+      entries: [{ embedded: { type: "clip", automation: [{ id: "c", target: "pan", input: "surface", curve: [[0, 0]] }], entries: [{ sample: "a.wav" }] } }],
+    };
+    const back = parsePlaylist(renameParameterInPlaylist(json, "surface", "ground")).playlist;
+    expect(back.automation.map((a) => a.input)).toEqual([{ parameter: "ground" }, "voiceTime"]);
+    const e = back.entries[0]!;
+    expect(e.kind === "embedded" && e.embedded.automation[0]!.input).toEqual({ parameter: "ground" });
+  });
+
+  it("leaves the whole playlist alone when any playlist in its instance defines a local one (the runtime's rule)", () => {
+    const json = { format: "myco.playlist@1", type: "switch", switch: { parameter: "surface", map: {} }, entries: [{ embedded: { type: "clip", parameters: [{ name: "surface", min: 0, max: 1, default: 0 }], entries: [] } }] };
+    expect(renameParameterInPlaylist(json, "surface", "ground")).toBe(json);
   });
 
   it("returns the playlist itself when nothing names the parameter, or when it defines a local one of either name", () => {

@@ -3,6 +3,7 @@
 // undo step. Entries are addressed by index; removing or moving one keeps a Switch's label map pointing at the same
 // entries. Values are clamped to the ranges the prototype's fields allow. Pure.
 import { defaultEntryUse, emptyPlaylistBody, PLAYLIST_LIMITS } from "../../../engine/audio/playlist/format";
+import { renamePlaylistParameter } from "../../../engine/audio/playlist/references";
 import type {
   Adsr, BlendAxis, BlendSettings, ChangeHow, ChangeRule, Entry, EntryUse, PlaybackRules, PlaylistBody, PlaylistSpatial, QueueSettings, SampleEntry, SwitchSettings,
 } from "../../../engine/audio/playlist/types";
@@ -380,5 +381,8 @@ export function setParameters(b: PlaylistBody, parameters: ParameterDef[]): Edit
   const names = parameters.map((p) => p.name);
   if (names.some((n) => n.trim() === "")) return refuse("a parameter needs a name");
   if (new Set(names).size !== names.length) return refuse("two parameters can't share a name");
-  return accept({ ...b, parameters });
+  // A rename (one name changed, nothing added or removed) renames what reads it too, in this one edit (the engine's walk).
+  const changed = parameters.length === b.parameters.length ? parameters.flatMap((p, i) => (p.name !== b.parameters[i]!.name ? [i] : [])) : [];
+  const renamed = changed.length === 1 ? renamePlaylistParameter(b, b.parameters[changed[0]!]!.name, parameters[changed[0]!]!.name, "local") : b;
+  return accept({ ...renamed, parameters });
 }

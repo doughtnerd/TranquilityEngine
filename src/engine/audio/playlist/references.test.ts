@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { QUEUE, SEQUENCE, SWITCH } from "./__fixtures__/playlists";
 import { parsePlaylist } from "./format";
-import { playlistReferences, referencedPaths, rewritePlaylistReferences, wouldContain } from "./references";
+import {
+  playlistLocalParameterNames, playlistParameterReferences, playlistReferences, referencedPaths, renamePlaylistParameter, rewritePlaylistReferences, wouldContain,
+} from "./references";
 import type { PlaylistBody } from "./types";
 
 const parsed = (raw: unknown) => parsePlaylist(raw).playlist;
@@ -94,5 +96,82 @@ describe("wouldContain", () => {
     expect(wouldContain("x.playlist.json", "loop1.playlist.json", load)).toBe(false);
     expect(loads.sort()).toEqual(["loop1.playlist.json", "loop2.playlist.json"]);
     expect(wouldContain("x.playlist.json", "missing.playlist.json", () => null)).toBe(false);
+  });
+});
+
+describe("playlist parameter references", () => {
+  const json = {
+    format: "myco.playlist@1",
+    type: "switch",
+    parameters: [{ name: "gear", min: 0, max: 5, default: 0 }],
+    automation: [{ id: "i", target: "volume", input: { parameter: "speed" }, curve: [[0, 0]] }, { id: "t", target: "pan", input: "voiceTime", curve: [[0, 0]] }],
+    switch: { parameter: "surface", map: {}, onChange: { transition: { embedded: { type: "blend", entries: [], blend: { axes: ["speed", { voiceTime: 2 }] } } } }, rules: [{ from: "*", to: "a", transition: { playlist: "x.playlist.json" } }] },
+    entries: [
+      { sample: "a.wav", curves: { gain: { input: "gear" }, pitch: { input: "clipTime" } } },
+      {
+        embedded: {
+          type: "sequence",
+          entries: [],
+          sequence: {
+            tracks: [{ automation: [{ input: { parameter: "speed" } }], clips: [{ automation: [{ input: "sequenceTime" }], loops: { l: { binding: { parameter: "gear" } } }, playlist: { type: "clip", automation: [{ input: { parameter: "speed" } }], entries: [] } }] }],
+            loops: [{ binding: { parameter: "surface" } }],
+          },
+        },
+      },
+    ],
+    stingers: [{ playlist: { embedded: { type: "clip", entries: [{ sample: "s.wav", curves: { lowpass: { input: { parameter: "surface" } } } }] } } }],
+  };
+
+  it("lists every name a playlist reads, in file order, with where it sits (times aren't parameters)", () => {
+    expect(playlistParameterReferences(json).map((r) => [r.use, r.name, r.where.join(".")])).toEqual([
+      ["definition", "gear", "parameters.0.name"],
+      ["automation", "speed", "automation.0.input.parameter"],
+      ["curve", "gear", "entries.0.curves.gain.input"],
+      ["automation", "speed", "entries.1.embedded.sequence.tracks.0.automation.0.input.parameter"],
+      ["binding", "gear", "entries.1.embedded.sequence.tracks.0.clips.0.loops.l.binding.parameter"],
+      ["automation", "speed", "entries.1.embedded.sequence.tracks.0.clips.0.playlist.automation.0.input.parameter"],
+      ["binding", "surface", "entries.1.embedded.sequence.loops.0.binding.parameter"],
+      ["curve", "surface", "stingers.0.playlist.embedded.entries.0.curves.lowpass.input.parameter"],
+      ["switch", "surface", "switch.parameter"],
+      ["axis", "speed", "switch.onChange.transition.embedded.blend.axes.0"],
+    ]);
+  });
+
+  it("lists the same on a parsed playlist", () => {
+    const names = playlistParameterReferences(parsed(json)).map((r) => `${r.use}:${r.name}`);
+    expect(names).toContain("automation:speed");
+    expect(names).toContain("switch:surface");
+    expect(names).toContain("axis:speed");
+  });
+
+  it("collects an instance's local parameters as the runtime does: the root's and embedded entries'", () => {
+    const b = { parameters: [{ name: "a" }], entries: [{ embedded: { parameters: [{ name: "b" }], entries: [] } }], stingers: [{ playlist: { embedded: { parameters: [{ name: "c" }] } } }] };
+    expect([...playlistLocalParameterNames(b)]).toEqual(["a", "b"]);
+  });
+
+  it("renames a global parameter everywhere, copying only what changes", () => {
+    const next = renamePlaylistParameter(json, "speed", "pace", "global");
+    expect(playlistParameterReferences(next).filter((r) => r.name === "pace")).toHaveLength(4);
+    expect(playlistParameterReferences(next).some((r) => r.name === "speed")).toBe(false);
+    expect(next.stingers).toBe(json.stingers);
+    expect(renamePlaylistParameter(json, "rpm", "revs", "global")).toBe(json);
+  });
+
+  it("leaves a playlist alone for a global rename when its instance has a local of either name", () => {
+    expect(renamePlaylistParameter(json, "gear", "cog", "global")).toBe(json);
+    expect(renamePlaylistParameter(json, "speed", "gear", "global")).toBe(json);
+  });
+
+  it("renames a local parameter's definition and every reference to it", () => {
+    const next = renamePlaylistParameter(json, "gear", "cog", "local");
+    expect(playlistParameterReferences(next).filter((r) => r.name === "cog").map((r) => r.use)).toEqual(["definition", "curve", "binding"]);
+    expect(renamePlaylistParameter(json, "speed", "pace", "local")).toBe(json);
+  });
+
+  it("renames in a parsed playlist, sharing what it doesn't touch", () => {
+    const p = parsed(json);
+    const next = renamePlaylistParameter(p, "surface", "ground", "global");
+    expect(next.switch!.parameter).toBe("ground");
+    expect(next.entries[0]).toBe(p.entries[0]);
   });
 });
