@@ -5,10 +5,10 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, GameObject, Input, SceneManager, Text } from "../../myco";
 import { readProject } from "../../server/project";
-import { Audio } from "../../plugins/audio/runtime";
+import { Audio, AudioSource } from "../../plugins/audio/runtime";
 import { setAudioBackend } from "../../plugins/audio/runtime/backend";
 import { makeFakeBackend, endAudioSession } from "../../plugins/audio/runtime/testing";
-import { events } from "../../plugins/audio/runtime/events/eventRuntime";
+import { playlistHost } from "../../plugins/audio/runtime/playlists/host";
 import "../../editor/sampleTypes";
 import { BirdEvents } from "../../../samples/flappy/scripts/data";
 import { GameManager } from "../../../samples/flappy/scripts/behaviors/GameManager";
@@ -51,7 +51,7 @@ beforeEach(() => {
   fake.advanceTo(0); // the rAF time moves with it, back to 0
   fake.ready = true;
   setAudioBackend(fake);
-  events().now = () => fake.time;
+  playlistHost().now = () => fake.time;
   endAudioSession();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
@@ -76,6 +76,21 @@ describe("Flappy's town music in play", () => {
     advance(0.5);
     expect(readout()).toBe("");
     expect(Audio.debug()).toBeTruthy();
+  });
+
+  it("the music prefab plays the town playlist (migrated from its audio event, ADR 0329) on the Music bus, on its 105 bpm grid", async () => {
+    await boot();
+    // The autoloaded prefab woke before this headless World had a render host (so `playOnAwake` played nothing): play it.
+    const source = GameObject.findObjectOfType(AudioSource)!;
+    expect(source.clip).toBe("music/town.playlist.json");
+    source.play();
+    expect(Audio.debug().events.map((r) => r.asset)).toEqual(["music/town.playlist.json"]);
+    expect(fake.plays.map((p) => [p.path, p.bus])).toEqual([["music/town.mp3", "Music"]]);
+    const h = Audio.play("music/town.playlist.json"); // max instances 1: steals the source's
+    advance(0.5);
+    expect(h.music?.tempo).toBe(105);
+    expect(h.music?.beatsPerBar).toBe(4);
+    expect(Audio.debug().events).toHaveLength(1);
   });
 
   it("game over dips the Music bus and the next run's start brings it back", async () => {

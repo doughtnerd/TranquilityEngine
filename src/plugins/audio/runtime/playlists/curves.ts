@@ -19,7 +19,7 @@
 import { evalCurve, type Curve, type CurveKey } from "../../../../engine/core/curve";
 import type { CurveInput, VoiceCurve, VoiceCurveTarget } from "../../../../engine/audio/playlist/types";
 import { warnOnce } from "../core/handle";
-import { AutoTarget, MAX_BINDINGS, TimeParam, timeParam, type Binding, type ParamRef } from "../events/automation";
+import { AutoTarget, MAX_BINDINGS, TimeParam, timeParam, type Binding, type ParamRef } from "../automation";
 
 /** The core target of each voice curve target. */
 const TARGETS: Record<VoiceCurveTarget, AutoTarget> = {

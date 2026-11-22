@@ -6,7 +6,7 @@
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
-import { isLabelled } from "../../../engine/audio/eventFormat";
+import { isLabelled } from "../../../engine/audio/parameters";
 import { MIX_LIMITS } from "../../../engine/audio/project/format";
 import type { Snapshot, SnapshotCondition, SnapshotStart } from "../../../engine/audio/project/types";
 import { parameterNote } from "./boardModel";

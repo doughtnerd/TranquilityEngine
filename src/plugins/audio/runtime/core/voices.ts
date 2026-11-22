@@ -47,7 +47,7 @@ import type { StructuralDip } from "./structuralDip";
 import { UnlockQueue } from "./unlockQueue";
 import { MAX_STEM_PENDING, VoiceFlag, VoiceFlag2, VoiceReason, VoiceRolloff, VoiceState, type VoiceTable } from "./voiceTable";
 import { LowpassBy, type VoiceFx } from "./voiceFx";
-import { MAX_GROUPS } from "../events/automation";
+import { MAX_GROUPS } from "../automation";
 import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
 
 const DIR_EPSILON = 0.005;

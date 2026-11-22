@@ -21,7 +21,7 @@
  */
 import { effectParamSpec } from "../effects/catalogue";
 import type { Effect } from "../effects/types";
-import { isLabelled } from "../eventFormat";
+import { isLabelled } from "../parameters";
 import type { Automation, ChangeHow, Entry, PlaylistBody, Track } from "./types";
 
 export type PlaylistLintCode =

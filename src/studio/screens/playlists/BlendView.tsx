@@ -6,7 +6,7 @@
 // scrubs them. Weights are the engine's (`blendViewModel.ts`). A view over props.
 import { useRef, useState } from "preact/hooks";
 import type { Adsr, BlendAxis, PlaylistBody } from "../../../engine/audio/playlist/types";
-import { isLabelled } from "../../../engine/audio/eventFormat";
+import { isLabelled } from "../../../engine/audio/parameters";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { NumberBox, SelectBox, Section } from "./fields";
 import type { BodyEdit } from "./EntryList";

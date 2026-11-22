@@ -2,7 +2,7 @@
 // applied to `a` gives `b`, including property-style random settings pairs. Skeleton by Mo1; the leaf fills the cases.
 import { describe, expect, it } from "vitest";
 import { applyOpToSettings, diffOps, invert, LIVE_KEYS, opRefusal, type MixOp } from "./mixOps";
-import type { ParameterDef } from "./eventFormat";
+import type { ParameterDef } from "./parameters";
 import {
   BUS_BEDS, DEFAULT_BED_PRIORITY, defaultAudioSettings, ROOT_BED_PRIORITY,
   type AudioSettings, type BusAutomation, type BusEffect, type BusSettings, type DuckingRule, type LoudnessTarget, type SnapshotSettings,

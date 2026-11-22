@@ -163,7 +163,7 @@ for (const [name, file] of files) {
   console.log(`${name}  ${file.length} bytes`);
 }
 
-// --- Events page (ADR 0158 §8): clips for ../audio/events, played by its *.audioevent.json files -------------------------
+// --- Events page (ADR 0158 §8): clips for ../audio/events, played by its *.playlist.json files -------------------------
 // Footsteps on four surfaces (three variants each), engine loops at three RPMs with authored loop regions, an engine start,
 // an engine-off tail, a one-clip engine with its own run-up and spin-down, and three music layers that share one 4 s loop.
 // All synthesised from seeded noise and sines: no recordings, nothing to license.

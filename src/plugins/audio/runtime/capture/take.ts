@@ -11,7 +11,7 @@
 // it holds can still be saved. A take stops by itself when Play stops (or the Engine goes): it is kept for a `save()`.
 import { mixer } from "../../../../engine/audio/mixer";
 import { onAudioSessionReleased } from "../audioSession";
-import { events } from "../events/eventRuntime";
+import { playlistHost } from "../playlists/host";
 import { captureTakeRing, onCapturePlayStopped, type CaptureTakeRing } from "./capture";
 import type { SaveTake } from "./save";
 import { takeTap } from "./takeTap";
@@ -104,7 +104,7 @@ class Take implements AudioTake {
       globals: () => {
         const out: Record<string, number> = {};
         for (const p of settings.parameters ?? []) {
-          const g = events().globalParameter(p.name);
+          const g = playlistHost().globalParameter(p.name);
           if (g) out[p.name] = g.value;
         }
         return out;

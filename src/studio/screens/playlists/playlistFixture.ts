@@ -3,7 +3,7 @@
 // Sequence), and the project files and parameters around them. Parsed through the format, as a project reads them.
 import { parsePlaylist } from "../../../engine/audio/playlist/format";
 import type { PlaylistAsset, PlaylistBody } from "../../../engine/audio/playlist/types";
-import type { ParameterDef } from "../../../engine/audio/eventFormat";
+import type { ParameterDef } from "../../../engine/audio/parameters";
 import { lintPlaylist } from "../../../engine/audio/playlist/lint";
 
 const clip = (sample: string, extra: Record<string, unknown> = {}) => ({ embedded: { type: "clip", entries: [{ sample }] }, ...extra });

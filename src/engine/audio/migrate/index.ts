@@ -6,7 +6,7 @@
  * of that over a project folder. Never throws.
  */
 import { formatPlaylist } from "../playlist/format";
-import { AUDIO_EVENT_SUFFIX, isAudioEventPath, parseAudioEvent } from "../eventFormat";
+import { AUDIO_EVENT_SUFFIX, isAudioEventPath, parseAudioEvent } from "./legacy/eventFormat";
 import { PLAYLIST_SUFFIX, type PlaylistAsset } from "../playlist/types";
 import { migrateAudioEvent, type MigrateOptions } from "./audioEvent1";
 

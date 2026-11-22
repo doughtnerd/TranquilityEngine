@@ -3,7 +3,7 @@
 // (authored values, with the runtime's public `Bus` readings when it runs), meter readings, loudness readouts, and the
 // live board's pins (a per-user preference, at most 8). Pure.
 import { evalCurve } from "../../../engine/core/curve";
-import { isLabelled, type ParameterDef } from "../../../engine/audio/eventFormat";
+import { isLabelled, type ParameterDef } from "../../../engine/audio/parameters";
 import type { AudioProject, MixAutomation } from "../../../engine/audio/project/types";
 import type { GainInputs, LiveLanes } from "../../components/gainLanesModel";
 import { effectParamSpec, effectSpec } from "../../../engine/audio/effects/catalogue";

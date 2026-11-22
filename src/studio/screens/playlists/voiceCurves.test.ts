@@ -2,7 +2,7 @@
 // driven by voice time or a parameter) and its result written back as the entry's curves with one undo label.
 import { describe, expect, it } from "vitest";
 import { createDraft, draftResult, setLaneInput, withLane, type CurveDraft } from "../../../editor/ui/curves/curveEditorModel";
-import type { ParameterDef } from "../../../engine/audio/eventFormat";
+import type { ParameterDef } from "../../../engine/audio/parameters";
 import { curvesLabel, parameterInputs, parameterOfInput, setParameterHistogramSource } from "../curveInputs";
 import { applyVoiceCurveResult, voiceCurveDialog, type VoiceCurves } from "./voiceCurves";
 

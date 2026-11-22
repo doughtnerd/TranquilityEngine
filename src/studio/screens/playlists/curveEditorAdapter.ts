@@ -2,7 +2,7 @@
 // opens the dialog on an entry's voice curves (`voiceCurves.ts`: gain, pitch, pan, low-pass, high-pass over voice time or
 // a parameter) and applies its result through `apply`, one labelled undo step on the playlist.
 import { openCurveEditorDialog } from "../../../editor/ui/curves/openCurveEditorDialog";
-import type { ParameterDef } from "../../../engine/audio/eventFormat";
+import type { ParameterDef } from "../../../engine/audio/parameters";
 import { applyVoiceCurveResult, voiceCurveDialog, type VoiceCurves } from "./voiceCurves";
 
 /** What the Playlists screen asks the curve editor to edit: one entry's voice curves. */

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { MusicEvent } from "../../../../engine/audio/musicTypes";
 import { Audio, AudioSource, type AudioMarkerEvent } from "../index";
 import { GameBehavior, GameObject } from "../../../../myco";
-import { eventKit, pla, sample } from "../events/eventTestKit";
+import { eventKit, pla, sample } from "./testKit";
 
 const kit = eventKit();
 const fake = kit.fake;

@@ -9,8 +9,9 @@
 //   local parameter of either name is left alone: its references read the local one. A remove leaves playlists alone
 //   (their lints say what's missing), as an event parameter's remove keeps its uses.
 // Pure.
-import { AUDIO_EVENT_SUFFIX, MAX_PARAMETERS, type ParameterDef } from "../../../engine/audio/eventFormat";
-import { renameEventName } from "../../../engine/audio/eventReferences";
+import { MAX_PARAMETERS, type ParameterDef } from "../../../engine/audio/parameters";
+import { AUDIO_EVENT_SUFFIX } from "../../../engine/audio/retiredAudioEvent";
+import { renameEventName } from "../../../engine/audio/migrate/legacy/eventReferences";
 import { PLAYLIST_SUFFIX } from "../../../engine/audio/playlist/types";
 import { AUDIO_PROJECT_FILE, type AudioProject, type Snapshot } from "../../../engine/audio/project/types";
 import type { ProjectFileEdit } from "../../../editor/projectFileEdits";

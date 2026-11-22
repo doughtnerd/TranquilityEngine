@@ -36,7 +36,7 @@ import { applyOpToProject, projectOpRefusal, type ProjectMixOp } from "./project
 type EffectOverrides = ResolvedMix["effects"];
 import { liveRuleAnswer, unsupportedAnswer, type LiveCaps, type SentClass } from "./busCapability";
 import { LoudnessView, EMPTY_BUS_LOUDNESS, type BusLoudness, type LoudnessSource } from "./loudnessTypes";
-import { parameterDefault } from "./eventFormat";
+import { parameterDefault } from "./parameters";
 import { engineSettingsOf, projectOfMix } from "./project/format";
 import { dbToGain, levelDbOf, MIN_DB } from "./project/gain";
 import { fromLegacySection, mergeLegacyIntoProject } from "./project/legacy";
@@ -181,7 +181,7 @@ export type MixerClock = () => number;
 /** ADR 0172 §1.1 (Dp1): where the duck lane is read from when the core computes it: a bus's gain (1 = not ducked). */
 export type DuckSource = (bus: string) => number;
 
-/** Monitor controls (§6.6): the Mixer panel's mute and solo, never saved, never set through `apply`. */
+/** Monitor controls (§6.6): a mixer view's mute and solo (the Audio Studio's), never saved, never set through `apply`. */
 export interface MonitorControls {
   mute?: boolean;
   solo?: boolean;
@@ -682,7 +682,7 @@ export class Mixer {
     return to;
   }
 
-  /** §6.6: the Mixer panel's monitor mute and solo for `bus` (the `monitor` lane), never saved, never through `apply`. */
+  /** §6.6: a mixer view's monitor mute and solo for `bus` (the `monitor` lane), never saved, never through `apply`. */
   setMonitor(bus: string, controls: MonitorControls): void {
     const s = this.buses.get(bus) ?? this.returns.get(bus);
     if (!s) return;

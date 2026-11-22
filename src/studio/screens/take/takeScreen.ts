@@ -8,7 +8,7 @@ import { computed, signal, type ReadonlySignal } from "@preact/signals";
 import { emptyTakeNotes, formatTakeNotes, parseTakeNotes, takeNotesPath } from "../../../engine/audio/take/notes";
 import type { Take } from "../../../engine/audio/take/reader";
 import type { TakeNotes } from "../../../engine/audio/take/types";
-import { isLabelled } from "../../../engine/audio/eventFormat";
+import { isLabelled } from "../../../engine/audio/parameters";
 import { openAssetDocument, type AssetDocument } from "../../../editor/assetDocuments";
 import { deleteAssets } from "../../../editor/assetDelete";
 import { importFiles, whyNotImportable } from "../../../editor/assetImportFiles";

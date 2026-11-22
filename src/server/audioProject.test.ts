@@ -1,5 +1,5 @@
 // ADR 0330: the dedicated server's project reader takes the mix from audio.json and refuses an old project.json section.
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -31,5 +31,16 @@ describe("the server's project reader and audio.json", () => {
     const err = await readProject(dir).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ServerError);
     expect((err as Error).message).toMatch(/moved to audio\.json \(ADR 0330\)\. Open the project in the editor once/);
+  });
+
+  it("refuses a project with an audio event file (ADR 0329), naming the migration; a migrated one under .myco is not read", async () => {
+    const dir = folder({ "project.json": { name: "Game" }, "step.audioevent.json": { format: "myco.audioevent@1", root: { type: "clip", clip: "a.wav" } } });
+    const err = await readProject(dir).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ServerError);
+    expect((err as Error).message).toMatch(/"step\.audioevent\.json" is an audio event \(myco\.audioevent@1\).*npm run audio:migrate/);
+    const migrated = folder({ "project.json": { name: "Game" } });
+    mkdirSync(join(migrated, ".myco/migrated"), { recursive: true });
+    writeFileSync(join(migrated, ".myco/migrated/step.audioevent.json"), "{}");
+    await expect(readProject(migrated)).resolves.toBeDefined();
   });
 });

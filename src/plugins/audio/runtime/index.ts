@@ -24,7 +24,7 @@ export type { AudioCpuDebug, AudioMixCaps, AudioMixDebug, AudioMixSlotDebug, Aud
 export type { AudioCapture, AudioCaptureState } from "./capture/capture";
 export type { AudioTake, AudioTakeState } from "./capture/take";
 export { DEFAULT_SEND_CURVE } from "./backend";
-export type { EventOptions } from "./events/eventRuntime";
+export type { EventOptions } from "./playlists/options";
 export { AudioSource, type Rolloff } from "./AudioSource";
 export { AudioOccluder } from "./AudioOccluder";
 export { AudioReverbZone, ZONE_PRESETS } from "./AudioReverbZone";

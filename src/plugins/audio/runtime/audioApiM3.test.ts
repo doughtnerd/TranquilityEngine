@@ -220,16 +220,16 @@ describe("§1.2 AudioSource additions", () => {
     expect(warn.mock.calls.filter((c) => String(c[0]).includes("ambisonic"))).toHaveLength(1);
   });
 
-  it("ADR 0293: an ambisonic clip plays as an ambisonic voice from an audio event too, as from a source or a one-shot", () => {
+  it("ADR 0293: an ambisonic clip plays as an ambisonic voice from a playlist too, as from a source or a one-shot", () => {
     Assets.addSource(Assets.fromObject({
       "amb.wav": "data:audio/wav;base64,AAAA",
       "amb.wav.meta.json": { format: "myco.import@1", ambisonic: { convention: "ambix" } },
-      "amb.audioevent.json": { format: "myco.audioevent@1", root: { type: "layer", children: [{ type: "clip", clip: "amb.wav" }, { type: "clip", clip: "a.wav" }] } },
+      "amb.playlist.json": { format: "myco.playlist@1", type: "layer", entries: [{ embedded: { type: "clip", entries: [{ sample: "amb.wav" }] } }, { embedded: { type: "clip", entries: [{ sample: "a.wav" }] } }] },
     }));
     GameObject.create("amb").addBehavior(AudioSource, { clip: "asset:amb.wav", playOnAwake: false }).play();
     Audio.playOneShot("asset:amb.wav");
     Audio.play("asset:amb.wav");
-    Audio.play("amb.audioevent.json");
+    Audio.play("amb.playlist.json");
     expect(fake.plays.map((p) => [p.path, p.ambisonic === true])).toEqual([
       ["amb.wav", true], ["amb.wav", true], ["amb.wav", true], ["amb.wav", true], ["a.wav", false],
     ]);

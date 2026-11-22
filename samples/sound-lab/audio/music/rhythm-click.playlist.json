@@ -1,0 +1,60 @@
+{
+  "format": "myco.playlist@1",
+  "type": "sequence",
+  "output": "Music",
+  "playback": {
+    "plays": "untilStopped",
+    "maxInstances": 1,
+    "priority": 200
+  },
+  "entries": [],
+  "sequence": {
+    "length": 2,
+    "tempo": {
+      "bpm": 120,
+      "meter": "4/4"
+    },
+    "tracks": [
+      {
+        "id": "t1",
+        "name": "click",
+        "kind": "audio",
+        "color": 1,
+        "clips": [
+          {
+            "id": "t1c1",
+            "sample": "audio/music/click-track.wav",
+            "at": 0,
+            "length": 2,
+            "sync": true
+          }
+        ]
+      }
+    ],
+    "loops": [
+      {
+        "id": "loop",
+        "start": 0,
+        "end": 2,
+        "active": "always",
+        "exit": "finish",
+        "exitFadeMs": 0,
+        "reentry": "ignore"
+      }
+    ],
+    "markers": [
+      {
+        "id": "m1",
+        "name": "entry",
+        "at": 0,
+        "type": "exit"
+      },
+      {
+        "id": "m2",
+        "name": "exit",
+        "at": 2,
+        "type": "exit"
+      }
+    ]
+  }
+}

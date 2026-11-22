@@ -2,7 +2,7 @@
 // (`curveParts`), like its parameter curves; nothing is left for main to evaluate per frame.
 import { describe, expect, it } from "vitest";
 import type { Curve } from "../../../../engine/core/curve";
-import { AutoTarget, TimeParam } from "../events/automation";
+import { AutoTarget, TimeParam } from "../automation";
 import { anchorTimeCurves, coreTimeBindings, curveParts, staticPanBinding, toCoreCurve, type TimeCurve } from "./curves";
 
 describe("curveParts: time curves are bindings (ADR 0332)", () => {

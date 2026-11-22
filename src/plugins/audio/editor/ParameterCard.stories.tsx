@@ -6,7 +6,7 @@
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, fireEvent, fn, spyOn, userEvent, within, type MockInstance } from "storybook/test";
-import { MAX_LOCAL_PARAMETERS, MAX_PARAMETERS, type ParameterDef } from "../../../engine/audio/eventFormat";
+import { MAX_LOCAL_PARAMETERS, MAX_PARAMETERS, type ParameterDef } from "../../../engine/audio/parameters";
 import { editor } from "../../../editor/sdk";
 import { applyEdit } from "./editResult";
 import { ParameterCards } from "./ParameterCard";

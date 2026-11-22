@@ -28,7 +28,7 @@ class PendingVoice implements AudioVoice {
   private shapedParams: ShapedParams | null = null;
   /** ADR 0264: where the sound is to start, from a `seek` while waiting (an event's `startOffset`, `AudioSource.seek`). */
   private seekTo: number | null = null;
-  /** ADR 0158 §4: the loop region the event runtime asked for while waiting (the latest call wins). */
+  /** ADR 0158 §4: the loop region the playlist runtime asked for while waiting (the latest call wins). */
   private loop: { start: number; end: number; looping: boolean } | null = null;
   /** ADR 0162 (K4): main's latest M3 values while waiting, applied at the hand-over where the real voice takes them. */
   private velocity: Vec3Like | null = null;
@@ -77,7 +77,7 @@ class PendingVoice implements AudioVoice {
     if (this.shapedFade) voice.fadeShaped(this.shapedFade);
     if (this.shapedParams) voice.paramsShaped(this.shapedParams);
     if (this.paused) voice.pause();
-    // The request's `group` went with `play`. The loop region is a state set, so the event runtime's re-send that
+    // The request's `group` went with `play`. The loop region is a state set, so the playlist runtime's re-send that
     // follows repeats it harmlessly.
     if (this.loop) voice.setLoop(this.loop.start, this.loop.end, this.loop.looping);
     // ADR 0162 (K4): the M3 values given while waiting.

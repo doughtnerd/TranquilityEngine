@@ -1,5 +1,5 @@
 // ADR 0171 amended by 0172 (M5, contract K0; api-and-models §5.3, §5.6, architecture §3.5): the event taps behind one
-// `ProfileSink`. The voice table, selection, the core backend, the event runtime, music and the mixer's setters call it;
+// `ProfileSink`. The voice table, selection, the core backend, the playlist runtime, music and the mixer's setters call it;
 // the recorder (Rc3's `capture/events.ts`) implements it. With no recorder the sink is `NULL_PROFILE_SINK`, and a tap
 // costs a pointer comparison (`sink !== NULL_PROFILE_SINK`) or a call into an empty method; nothing allocates.
 //

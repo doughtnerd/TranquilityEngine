@@ -29,13 +29,34 @@
  * lead's contract.
  */
 
-import {
-  DEFAULT_TEMPO, segmentEntryPosition, segmentExitPosition, type SegmentNode, type TempoMarker,
-} from "./musicFormat";
 import type { GridSpec } from "./musicTypes";
 import {
   MAX_POSITION_BAR, MUSIC_TICKS_PER_BEAT, formatPosition, isBarBeatTick, parsePosition, type BarBeatTick,
 } from "./musicPosition";
+
+/** A tempo marker (ADR 0166 §2.3, the grid's input; a sample's or a sequence's tempo compiles through it). */
+export interface TempoMarker {
+  /** `"bar:beat:tick"`, tick 0; the first marker is `"1:1:0"`. */
+  at: string;
+  bpm: number;
+  beatsPerBar: number;
+  beatUnit: number;
+}
+
+/** The default tempo map: one marker, 120 bpm, 4/4. */
+export const DEFAULT_TEMPO: readonly TempoMarker[] = [{ at: "1:1:0", bpm: 120, beatsPerBar: 4, beatUnit: 4 }];
+
+/**
+ * What `compileSegmentGrid` reads of a segment: its tempo, its grid offset, its cues, and the names of its entry and exit
+ * cues (default `entry` and `exit`). An old music segment (`migrate/legacy/musicFormat.ts`) is one.
+ */
+export interface GridSegment {
+  readonly tempo: readonly TempoMarker[];
+  readonly gridOffset: number;
+  readonly cues: readonly { readonly name: string; readonly at: string }[];
+  readonly entry?: string;
+  readonly exit?: string;
+}
 
 /** Ticks per second of a span is this times its bpm: 960 ticks per beat / 60 s per minute = 16. */
 const TICKS_PER_SECOND_PER_BPM = MUSIC_TICKS_PER_BEAT / 60;
@@ -167,7 +188,7 @@ export function compileTempoMap(tempo: readonly TempoMarker[], gridOffset: numbe
  * (`"start"` is the file start: `-gridOffset` seconds, negative ticks; `"end"` needs `options.endSeconds`). A cue whose
  * beat is past its bar's metre is dropped with a problem (G1's check, §2.3).
  */
-export function compileSegmentGrid(seg: SegmentNode, options: CompileOptions = {}): SegmentGrid {
+export function compileSegmentGrid(seg: GridSegment, options: CompileOptions = {}): SegmentGrid {
   const problems = options.problems ?? [];
   const map = compileTempoMap(seg.tempo, seg.gridOffset, problems);
   const endSeconds = options.endSeconds ?? NaN;
@@ -179,8 +200,11 @@ export function compileSegmentGrid(seg: SegmentNode, options: CompileOptions = {
     if (t === null) return void problems.push(`cues[${i}].at: "${c.at}" is past its bar's metre or not a position; the cue is dropped.`);
     names.push(c.name); ticks.push(t);
   });
-  const entry = positionTextToTicks(map, segmentEntryPosition(seg), endTicks);
-  const exit = positionTextToTicks(map, segmentExitPosition(seg), endTicks);
+  // The entry: the cue it names, else the cue `entry`, else 1:1:0; the exit: the cue it names, else `exit`, else the end.
+  const entryAt = seg.cues.find((c) => c.name === (seg.entry ?? "entry"))?.at ?? "1:1:0";
+  const exitAt = seg.cues.find((c) => c.name === (seg.exit ?? "exit"))?.at ?? "end";
+  const entry = positionTextToTicks(map, entryAt, endTicks);
+  const exit = positionTextToTicks(map, exitAt, endTicks);
   return Object.assign(map, {
     cueNames: names, cueTicks: Float64Array.from(ticks), endSeconds, entryTicks: entry ?? 0, exitTicks: exit ?? endTicks,
   });

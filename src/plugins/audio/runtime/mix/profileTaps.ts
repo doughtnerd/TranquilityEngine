@@ -1,7 +1,7 @@
 // ADR 0171 amended by 0172 (M5, Rc3; api-and-models §5.6, architecture §3.7): where the event taps that aren't a
 // backend's own instance state find the recorder's `ProfileSink`, and how the engine's mixer reports its setters.
 //
-// The voice table and selection hold the sink in `VoiceTable.profile` (one table per backend). The event runtime and
+// The voice table and selection hold the sink in `VoiceTable.profile` (one table per backend). The playlist runtime and
 // the music player are one per page, so they read `taps.sink`. The mixer is the engine's (it imports no plugin): it
 // has its own `MixerTap` shape, which `mixerTapFor` adapts to the sink. `wireProfileTaps` sets all three at once; the
 // core backend calls it from `setProfileSink` (so one sink reaches every tap, and null restores every null object).

@@ -23,12 +23,13 @@ import type { MusicEventHandle } from "../../../../engine/audio/musicTypes";
 import { Camera } from "../../../../engine/render/components";
 import { AudioListener, listenerPose } from "../AudioListener";
 import { CURVE_DRIVEN_ATTENUATION, curveDbToGain, evalAttenuation, FLAT_SEND_CURVE, LOWPASS_OFF_HZ, type AttenuationAt, type AttenuationCurveSet } from "../core/spatial";
-import { isLabelled, parameterDefault, type ParameterDef } from "../../../../engine/audio/eventFormat";
+import { isLabelled, parameterDefault, type ParameterDef } from "../../../../engine/audio/parameters";
 import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
 import { clipRequest, samplePlan } from "../clipResolver";
 import { warnOnce } from "../core/handle";
-import { events, startOffsetOf, type EventOptions } from "../events/eventRuntime";
-import { MAX_BINDINGS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type Binding, type ParamRef, type VoiceLoop } from "../events/automation";
+import { playlistHost } from "./host";
+import { startOffsetOf, type EventOptions } from "./options";
+import { MAX_BINDINGS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type Binding, type ParamRef, type VoiceLoop } from "../automation";
 import { Assets } from "../../../../engine/scene/Assets";
 import { anchorTimeCurves, coreTimeBindings, evalTimeCurves, staticPanBinding } from "./curves";
 import { PlaylistBeats, type PlaylistBeatKind } from "./beatCallbacks";
@@ -360,7 +361,7 @@ export class PlaylistInstance implements NodeHost {
   }
 
   start(): void {
-    const sink = events().automation;
+    const sink = playlistHost().automation;
     if (this.group > 0) for (let slot = 0; slot < this.locals.length; slot++) sink.setParam(this.group, slot, this.locals[slot]!, 0);
     const a = this.asset;
     const optionAt = this.options.at !== undefined && Number.isFinite(this.options.at) ? this.options.at : null;
@@ -396,7 +397,7 @@ export class PlaylistInstance implements NodeHost {
    * ADR 0331: a submix for the root playlist's (or sequence's) enabled effects, feeding the bus its voices play on (the
    * root's output, else the play's bus: what `clipRequest` resolves for them). The root's effects when it got one; null
    * when it has none to run, the backend has no submixes, or the pool is full (the voices then map them, `effects.ts`).
-   * The event runtime frees it with the group.
+   * The playlist runtime frees it with the group.
    */
   private openSubmix(a: PlaylistAsset): readonly Effect[] | null {
     const chain = instanceChain(a.effects);
@@ -449,7 +450,7 @@ export class PlaylistInstance implements NodeHost {
   setParameter(name: string, value: number | string): void {
     const l = this.localDefs.get(name);
     if (!l) {
-      if (events().globalParameter(name)) warnOnce(`playlist:setlocal-global:${name}`, `AudioPlaylistHandle.setParameter: "${name}" is a global parameter; use Audio.setParameter.`);
+      if (playlistHost().globalParameter(name)) warnOnce(`playlist:setlocal-global:${name}`, `AudioPlaylistHandle.setParameter: "${name}" is a global parameter; use Audio.setParameter.`);
       else warnOnce(`playlist:local:${this.path}:${name}`, `AudioPlaylistHandle.setParameter: the playlist "${this.path}" has no parameter "${name}".`);
       return;
     }
@@ -457,14 +458,14 @@ export class PlaylistInstance implements NodeHost {
     if (v === null || v === this.locals[l.slot]) return;
     this.locals[l.slot] = v;
     this.sys.noteParameter(name, l.def, v, this.group);
-    if (this.group > 0) events().automation.setParam(this.group, l.slot, v, isLabelled(l.def) ? 0 : l.def.seekSpeed);
+    if (this.group > 0) playlistHost().automation.setParam(this.group, l.slot, v, isLabelled(l.def) ? 0 : l.def.seekSpeed);
     this.onParameter(name, false);
   }
 
   getParameter(name: string): number | string | undefined {
     const l = this.localDefs.get(name);
     if (l) return isLabelled(l.def) ? l.def.labels[this.locals[l.slot]!] : this.locals[l.slot];
-    return events().getGlobal(name);
+    return playlistHost().getGlobal(name);
   }
 
   parameterValues(): Record<string, number | string> {
@@ -514,7 +515,7 @@ export class PlaylistInstance implements NodeHost {
   /** The backend changed: locals, bindings and loops again, for voices still playing. */
   resend(): void {
     if (this.stopped) return;
-    const sink = events().automation;
+    const sink = playlistHost().automation;
     if (this.group > 0) this.locals.forEach((v, slot) => sink.setParam(this.group, slot, v, 0));
     for (const v of this.voices) {
       if (!v.voice.playing || v.leaving) continue;
@@ -533,21 +534,21 @@ export class PlaylistInstance implements NodeHost {
 
   random(): number { return this.sys.random(this.world); }
   pickState(key: string): PickState { return this.sys.pickState(this.world, key); }
-  clock(): number { return events().clock(); }
-  startOf(at: number | null): number { return at ?? events().horizon() ?? this.clock(); }
-  curveId(curve: Curve): number | null { return events().curveId(curve); }
+  clock(): number { return playlistHost().clock(); }
+  startOf(at: number | null): number { return at ?? playlistHost().horizon() ?? this.clock(); }
+  curveId(curve: Curve): number | null { return playlistHost().curveId(curve); }
 
   param(name: string): { value: number; def: ParameterDef } | null {
     const l = this.localDefs.get(name);
     if (l) return { value: this.locals[l.slot]!, def: l.def };
-    const g = events().globalParameter(name);
+    const g = playlistHost().globalParameter(name);
     return g ? { value: g.value, def: g.def } : null;
   }
 
   paramRef(name: string): ParamRef | null {
     const l = this.localDefs.get(name);
     if (l) return this.group > 0 ? { global: false, slot: l.slot } : null;
-    const g = events().globalParameter(name);
+    const g = playlistHost().globalParameter(name);
     if (g) return { global: true, slot: g.slot };
     if (name) warnOnce(`playlist:param:${this.path}:${name}`, `[myco] ${this.path}: the parameter "${name}" is neither the playlist's nor a global one; ignored.`);
     return null;
@@ -675,7 +676,7 @@ export class PlaylistInstance implements NodeHost {
     const staticVolume = req.volume! * plan.gain * dbToGain(c.gainDb) * Math.max(0, this.options.volume ?? 1);
     const staticPitch = clampPitch(stToRatio(c.pitchSt) * this.pitchOption);
     // When it starts: its stamp, else the earliest exact start, else now (heard; voice time and end estimates count from it).
-    const start = ctx.at ?? events().horizon() ?? this.clock();
+    const start = ctx.at ?? playlistHost().horizon() ?? this.clock();
     // Time-keyed lanes read from the voice's start; pan and high-pass ones go to the core as voice-time bindings (ABI 4.4).
     const timed = coreTimeBindings(anchorTimeCurves(ctx.timeCurves, start), ctx.bindings, (curve) => this.curveId(curve), ctx.where);
     const timeCurves = timed.timeCurves;
@@ -721,7 +722,7 @@ export class PlaylistInstance implements NodeHost {
     let voice: AudioVoice | null;
     try { voice = audioBackend().play(req); } catch { voice = null; }
     if (!voice) return null;
-    const sink = events().automation;
+    const sink = playlistHost().automation;
     const bindings = this.withStaticPan(timed.bindings, c.pan, ctx.where);
     if (bindings.length > 0) sink.bindVoice(voice, this.group, bindings, base, ctx.at ?? undefined);
     if (ctx.fadeIn > 0) {
@@ -731,7 +732,7 @@ export class PlaylistInstance implements NodeHost {
     const program = loop ? programs.get(loop) : undefined;
     if (program) sink.setLoops(voice, this.group, program);
     else if (loop && (loop.start > 0 || loop.end > 0 || !looping)) sink.setLoop(voice, loop.start, loop.end, looping);
-    const fileLength = events().clipLength(path);
+    const fileLength = playlistHost().clipLength(path);
     const to = trim ? Math.min(trim[1], fileLength ?? Infinity) : fileLength;
     const length = to !== null && Number.isFinite(to) ? Math.max(0, to - from - skip) / base.pitch : null;
     const v: PVoice = {
@@ -756,7 +757,7 @@ export class PlaylistInstance implements NodeHost {
    * `offset` seconds in: wrapped into its loop region when it loops; null when a one-pass sample would have ended.
    */
   private offsetInto(offset: number, from: number, trim: [number, number] | null, loop: LoopRun | null, path: string): number | null {
-    const fileLength = events().clipLength(path);
+    const fileLength = playlistHost().clipLength(path);
     const end = trim ? Math.min(trim[1], fileLength ?? Infinity) : (fileLength ?? Infinity);
     let at = from + offset;
     if (loop && loop.looping) {
@@ -831,7 +832,7 @@ export class PlaylistInstance implements NodeHost {
     const loop = v.loop;
     if (!loop || !loop.looping) return;
     loop.looping = false;
-    events().automation.setLoop(v.voice, loop.start, loop.end, false);
+    playlistHost().automation.setLoop(v.voice, loop.start, loop.end, false);
     if (programs.has(loop)) return;
     if (loop.behaviour.exit === "jump" && loop.end > 0) v.voice.seek(loop.end);
   }
@@ -844,12 +845,12 @@ export class PlaylistInstance implements NodeHost {
     // jumps back into a region already passed; re-arming here only catches a voice still before the loop's end.
     if (this.released || loop.behaviour.reentry === "ignore") return;
     loop.looping = true;
-    events().automation.setLoop(v.voice, loop.start, loop.end, true);
+    playlistHost().automation.setLoop(v.voice, loop.start, loop.end, true);
   }
 
   /** Applies changed dynamic gains and voice-time curves to the voices. */
   private applyDynamics(now: number): void {
-    const sink = events().automation;
+    const sink = playlistHost().automation;
     for (const v of this.voices) {
       if (v.leaving || (v.dyn.length === 0 && v.timeCurves.length === 0)) continue;
       if (!v.voice.playing) continue;

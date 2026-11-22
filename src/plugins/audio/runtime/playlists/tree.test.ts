@@ -1,7 +1,7 @@
 // ADR 0329: down-the-tree accumulation, playlist effects, linked playlists and Layer, through `Audio.play` on the fake backend.
 import { describe, expect, it } from "vitest";
 import { Audio } from "../Audio";
-import { embed, eventKit, link, pl, pla, sample } from "../events/eventTestKit";
+import { embed, eventKit, link, pl, pla, sample } from "./testKit";
 
 const kit = eventKit();
 const fake = kit.fake;

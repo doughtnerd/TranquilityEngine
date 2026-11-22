@@ -10,12 +10,11 @@ import { worldKeyOf, worldPlays } from "./AudioSource";
 import { clipRequest } from "./clipResolver";
 import { warnOnce } from "./core/handle";
 import type { AudioLatency, MusicEvent, MusicHandle, MusicKind } from "../../../engine/audio/musicTypes";
-import { audioHorizon, audioTimeAt, musicHandleOf } from "./music/handle";
-import { onMusicOf, _setMusicHandleFactory } from "./music/musicSystem";
-import { triggerOn } from "./music/stingers";
+import { audioHorizon, audioTimeAt } from "./music/handle";
 import { audioLatency, getCalibration, isCalibrationStale, rhythmModeSetting, setCalibration } from "./music/calibration";
 import { audioBackend, coreUnavailable, type AudioDebugInfo, type AudioHandle, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioPlaylistHandle, type AudioReason, type AudioStatus, type AudioVoice, type SendCurve } from "./backend";
-import { events, startOffsetOf, type EventInstance, type EventOptions } from "./events/eventRuntime";
+import { startOffsetOf, type EventOptions } from "./playlists/options";
+import { playlistHost } from "./playlists/host";
 import { playlists } from "./playlists/playlistSystem";
 import { playlistHandleOf } from "./playlists/handle";
 import type { PlaylistInstance } from "./playlists/instance";
@@ -26,10 +25,10 @@ import { audioTake, type AudioTake } from "./capture/take";
 import { takePlayOptions, takeTap, type TakeEmitter } from "./capture/takeTap";
 
 /**
- * `Audio.debug()`: the backend's state plus the rows composed above the seam (ADR 0249, `audioRows.ts`): the event runtime's
- * rows (`AudioDebugInfo.events` with the late-start count each row carries) and its session totals (ADR 0220:
- * `eventTotals.lateStarts` counts the clips every instance started late, the ended ones included, where the rows only hold
- * the playing instances'), and on a backend with music the `music` rows and `musicTotals`.
+ * `Audio.debug()`: the backend's state plus the rows composed above the seam (ADR 0249, `audioRows.ts`): the playlist
+ * runtime's rows (`AudioDebugInfo.events` with the late-start count each row carries) and its session totals (ADR 0220:
+ * `eventTotals.lateStarts` counts the entries every instance started late, the ended ones included, where the rows only
+ * hold the playing instances'), and on a backend with music the `music` rows and `musicTotals`.
  */
 export type AudioDebugState = Omit<AudioDebugInfo, "events" | "music" | "musicTotals"> & AudioDebugRows;
 
@@ -88,48 +87,13 @@ class VoiceHandle implements AudioHandle {
 }
 
 
-/** A handle for a playlist or event that didn't play. */
+/** A handle for a playlist that didn't play. */
 const INERT_EVENT: AudioPlaylistHandle = Object.freeze({
   playing: false, reason: null, position: null, panner: null, occlusion: 1,
   stop() {}, fade() {}, setParameter() {}, getParameter: () => undefined, release() {}, onMarker: () => () => {},
-  // ADR 0166 §1.2 (Q0): an event that didn't play has no music.
+  // ADR 0166 §1.2 (Q0): a playlist that didn't play has no music.
   music: undefined, onMusic: () => () => {}, trigger: () => false,
 });
-
-/** The public handle over an event instance (ADR 0158 §5). */
-class EventHandle implements AudioPlaylistHandle {
-  constructor(private readonly instance: EventInstance) {}
-  get playing(): boolean { return this.instance.playing; }
-  get reason(): AudioReason | null { return this.instance.reason; }
-  get position(): Vec3Like | null { return this.instance.position; }
-  set position(p: Vec3Like | null) { this.instance.position = p; }
-  /** ADR 0162 §1.1 across the instance's voices: the first playing voice's panner. */
-  get panner(): AudioPanner | null { return this.instance.panner; }
-  /** ADR 0162 §1.1 across the instance's voices: the lowest (most occluded) smoothed dry gain. */
-  get occlusion(): number { return this.instance.occlusion; }
-  stop(fadeSeconds = 0): void { takeTap.sink?.stop(this.instance, fadeSeconds); this.instance.stop(fadeSeconds); }
-  fade(to: number, seconds: number): void { this.instance.fade(Math.min(4, Math.max(0, to)), Math.max(0, seconds)); }
-  setParameter(name: string, value: number | string): void { this.instance.setParameter(name, value); }
-  getParameter(name: string): number | string | undefined { return this.instance.getParameter(name); }
-  release(): void { takeTap.sink?.release(this.instance); this.instance.release(); }
-  // ADR 0166 §1.2 (Q2): each delegates to its owner's file: `music/handle.ts` (P7, K3), `music/musicSystem.ts` (K5),
-  // `music/stingers.ts` (R5). `music` is undefined, never an empty object, for a non-music event.
-  get music(): MusicHandle | undefined { return musicHandleOf(this.instance); }
-  onMusic(kind: MusicKind, fn: (e: MusicEvent) => void): () => void { return onMusicOf(this.instance, kind, fn); }
-  trigger(name: string): boolean { takeTap.sink?.trigger(this.instance, String(name)); return triggerOn(this.instance, String(name)); }
-  /** ADR 0329: an audio event reports no markers (`*.audioevent.json` predates them); kept for the shared handle shape. */
-  onMarker(_type: AudioMarkerType, _fn: (e: AudioMarkerEvent) => void): () => void { return () => {}; }
-}
-
-// ADR 0166 K2: `MusicEvent.handle` for the music an `AudioSource` plays is the same public handle `Audio.play` returns.
-const handles = new WeakMap<EventInstance, EventHandle>();
-/** @internal One public handle per instance: `Audio.play` returns it and `MusicEvent.handle` is it (`e.handle === handle`). */
-export function _handleOf(instance: EventInstance): AudioPlaylistHandle {
-  let h = handles.get(instance);
-  if (!h) handles.set(instance, (h = new EventHandle(instance)));
-  return h;
-}
-_setMusicHandleFactory(_handleOf);
 
 /**
  * ADR 0334: the public handle over a playlist instance, with the take's hooks on the requests a replay re-issues (stop,
@@ -187,20 +151,11 @@ class TakeBus extends Bus {
   }
 }
 
-/** @internal `AudioSource` plays events through this too. */
-export function _playEvent(path: string, options: EventOptions, world: World | null, sourceKey?: string): EventInstance | null {
-  if (!worldPlays(world)) return null;
-  return events().play(path, options, worldKeyOf(world), sourceKey);
-}
-
-/** @internal ADR 0329: a playlist (`*.playlist.json`) through the playlist runtime. */
+/** @internal ADR 0329: a playlist (`*.playlist.json`) or a sample through the playlist runtime (`AudioSource` plays through it too). */
 export function _playPlaylist(path: string, options: EventOptions, world: World | null, sourceKey?: string): PlaylistInstance | null {
   if (!worldPlays(world)) return null;
   return playlists().play(path, options, worldKeyOf(world), sourceKey);
 }
-
-/** ADR 0329: a playlist asset path (`PLAYLIST_SUFFIX`, any case). */
-const PLAYLIST_PATH = /\.playlist\.json$/i;
 
 const MIN_PITCH = 0.0625;
 const MAX_PITCH = 16;
@@ -316,24 +271,18 @@ export const Audio = {
   },
 
   /**
-   * Play a playlist (`*.playlist.json`, ADR 0329), a sample, or an audio event asset (`*.audioevent.json`, ADR 0158, until
-   * the migration replaces it). Always returns a handle (an inert one when nothing played: no World with the view, a
-   * missing asset, or a trigger the playback rules refused; `Audio.debug().playlistTotals` says why); never throws.
+   * Play a playlist (`*.playlist.json`, ADR 0329) or a sample (as a one-sample Clip playlist). Always returns a handle (an
+   * inert one when nothing played: no World with the view, a missing asset, a trigger the playback rules refused, or an
+   * old audio event file, which is refused with a message naming the migration; `Audio.debug().playlistTotals` says
+   * why); never throws.
    */
   play(pathOrSample: string, options?: EventOptions): AudioPlaylistHandle {
     try {
       const o = options !== null && typeof options === "object" ? options : {};
-      const path = String(pathOrSample);
-      // A suffix test, not `isPlaylistPath` (which lowercases a copy): a sample's play allocates nothing more for it.
-      if (PLAYLIST_PATH.test(path)) {
-        const asset = path.replace(/^asset:/, "");
-        const p = _playPlaylist(asset, o, World.active);
-        if (p && takeTap.sink) takeTap.sink.play(p, asset, o.position ? placedEmitter(p, asset) : null, takePlayOptions(o));
-        return p ? takePlaylistHandleOf(p) : INERT_EVENT;
-      }
-      const i = _playEvent(path, o, World.active);
-      if (i && takeTap.sink) takeTap.sink.play(i, path, o.position ? placedEmitter(i, path) : null, takePlayOptions(o));
-      return i ? _handleOf(i) : INERT_EVENT;
+      const asset = String(pathOrSample).replace(/^asset:/, "");
+      const p = _playPlaylist(asset, o, World.active);
+      if (p && takeTap.sink) takeTap.sink.play(p, asset, o.position ? placedEmitter(p, asset) : null, takePlayOptions(o));
+      return p ? takePlaylistHandleOf(p) : INERT_EVENT;
     } catch (e) {
       warnOnce("play:threw", `Audio.play failed (${e instanceof Error ? e.message : String(e)}); no sound.`);
       return INERT_EVENT;
@@ -342,13 +291,13 @@ export const Audio = {
 
   /** Set a global audio parameter (the Studio's Parameters; labelled ones by label). Snapshots started by conditions on it follow (ADR 0330). */
   setParameter(name: string, value: number | string): void {
-    try { events().setGlobal(String(name), value); } catch (e) { warnOnce("setParameter:threw", `Audio.setParameter failed (${e instanceof Error ? e.message : String(e)}).`); }
+    try { playlistHost().setGlobal(String(name), value); } catch (e) { warnOnce("setParameter:threw", `Audio.setParameter failed (${e instanceof Error ? e.message : String(e)}).`); }
     mixer.setParameter(String(name), value);
   },
 
   /** A global audio parameter's value (a label for labelled ones); undefined if there is none by that name. */
   getParameter(name: string): number | string | undefined {
-    return events().getGlobal(String(name));
+    return playlistHost().getGlobal(String(name));
   },
 
   /** A mixer bus by name (ADR 0097): `Audio.bus("Music").volume = 0.5`. */
@@ -411,8 +360,7 @@ export const Audio = {
     return audioBackend().status;
   },
 
-  // ADR 0166 §1.3, §1.5 (Q2 declares the surface; each member delegates to its owner's file, so later tasks never edit
-  // this one: `music/handle.ts` P7, `music/calibration.ts` Rh1 and Rh2).
+  // ADR 0166 §1.3, §1.5: each member delegates to its owner's file (`music/handle.ts`, `music/calibration.ts`).
 
   /**
    * Seconds, read-only: the earliest heard time a stamped start is exact for a decoded clip (now + lookahead). Not a

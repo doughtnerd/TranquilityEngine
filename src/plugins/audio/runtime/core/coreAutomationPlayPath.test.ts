@@ -4,7 +4,7 @@
 // holds re-evaluates nothing (unless a seek runs), and a slot's reused entry carries nothing over from its last voice.
 import { describe, expect, it } from "vitest";
 import type { Curve } from "../../../../engine/core/curve";
-import { AutoTarget, evaluate, evaluateInto, type Binding } from "../events/automation";
+import { AutoTarget, evaluate, evaluateInto, type Binding } from "../automation";
 import type { AudioVoice } from "../backend";
 import { CoreAutomation, type CoreAutomationDeps } from "./coreAutomation";
 import { VoiceState, VoiceTable } from "./voiceTable";

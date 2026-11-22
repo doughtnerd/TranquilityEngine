@@ -4,7 +4,7 @@
 // Pure.
 import { blendWeights1D, blendWeights2D, delaunay } from "../../../engine/audio/playlist/blendWeights";
 import type { BlendAxis, BlendSettings, Entry } from "../../../engine/audio/playlist/types";
-import { isLabelled, parameterDefault, type ParameterDef } from "../../../engine/audio/eventFormat";
+import { isLabelled, parameterDefault, type ParameterDef } from "../../../engine/audio/parameters";
 import { axisRange, normalise, type AxisRange } from "./blendPlacement";
 
 /** Each entry's weight at `samples` evenly spaced positions over 0..1 (entry order): `[x, weight]` pairs. */

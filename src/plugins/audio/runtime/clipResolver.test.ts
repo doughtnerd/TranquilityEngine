@@ -1,9 +1,9 @@
-// ADR 0293: the clip resolver turns a clip path into the base play request every caller (sources, one-shots, event
-// clips, music stems) starts from. Driven through its own interface on the fake backend, whose clip cache reports the
+// ADR 0293: the clip resolver turns a clip path into the base play request every caller (sources, one-shots, zones,
+// playlist voices) starts from. Driven through its own interface on the fake backend, whose clip cache reports the
 // clips' facts (ADR 0286), and the project's assets and buses.
 import { describe, expect, it } from "vitest";
 import { clipFacts, clipRequest, clipStreams, clipVolume, isAmbisonicClip } from "./clipResolver";
-import { eventKit } from "./events/eventTestKit";
+import { eventKit } from "./playlists/testKit";
 
 const kit = eventKit();
 const RATE = 48_000;
@@ -35,22 +35,11 @@ describe("the clip resolver (ADR 0293)", () => {
     expect("ambisonic" in clipRequest("a.wav", false, undefined)).toBe(false);
   });
 
-  it("music decodes up to 30 s and streams beyond once the backend knows the clip's facts, else follows the import setting", async () => {
-    await kit.boot({ "long.ogg": "data:l", "short.ogg": "data:s", "s.ogg": "data:x", "s.ogg.meta.json": { format: IMPORT, stream: true } });
-    expect([clipStreams("long.ogg", "music"), clipStreams("s.ogg", "music")]).toEqual([false, true]);
+  it("the clip's facts come from the backend's clip cache once it knows them; the import setting decides streaming", async () => {
+    await kit.boot({ "long.ogg": "data:l", "s.ogg": "data:x", "s.ogg.meta.json": { format: IMPORT, stream: true } });
     expect(clipFacts("long.ogg")).toBeUndefined();
     kit.fake.facts.set("long.ogg", { frames: 31 * RATE, rate: RATE, channels: 2, gapless: true });
-    kit.fake.facts.set("short.ogg", { frames: 30 * RATE, rate: RATE, channels: 2, gapless: true });
-    kit.fake.facts.set("s.ogg", { frames: 10 * RATE, rate: RATE, channels: 2, gapless: true });
     expect(clipFacts("long.ogg")?.frames).toBe(31 * RATE);
-    expect(["long.ogg", "short.ogg", "s.ogg"].map((p) => clipStreams(p, "music"))).toEqual([true, false, false]);
-    expect(clipRequest("long.ogg", true, undefined, "music").stream).toBe(true);
-    // The import setting still decides a sound.
-    expect(clipStreams("long.ogg")).toBe(false);
-  });
-
-  it("music is never ambisonic (the music lint refuses ambisonic stems)", async () => {
-    await kit.boot({ "amb.wav": "data:amb", "amb.wav.meta.json": { format: IMPORT, ambisonic: { convention: "ambix" } } });
-    expect("ambisonic" in clipRequest("amb.wav", false, undefined, "music")).toBe(false);
+    expect([clipStreams("long.ogg"), clipStreams("s.ogg")]).toEqual([false, true]);
   });
 });

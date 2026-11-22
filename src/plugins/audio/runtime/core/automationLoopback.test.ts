@@ -7,8 +7,8 @@ import { Assets, Engine, SceneManager } from "../../../../myco";
 import type { Curve } from "../../../../engine/core/curve";
 import { setAudioBackend, type AudioVoice } from "../backend";
 import { Audio } from "../index";
-import { events } from "../events/eventRuntime";
-import { AutoTarget, TsAutomation, type Binding } from "../events/automation";
+import { playlistHost } from "../playlists/host";
+import { AutoTarget, TsAutomation, type Binding } from "../automation";
 import { CORE_CURVE_KEYS } from "./commandWriter";
 import { BATCH_FLAGS_OVERFLOWED } from "../wire.generated";
 import { endAudioSession, loopbackAudio, closeLoopbackAudio } from "../testing";
@@ -62,14 +62,17 @@ async function loopbackRig(options: { pageMixer?: boolean } = {}) {
 
 const vol = (slot: number, curve: number, global = false): Binding => ({ param: { global, slot }, curve, target: AutoTarget.Volume });
 
-describe("event automation in the core (E3.1, loopback)", () => {
-  it("runs an event's automation in the core: no TsAutomation on main, and a parameter change reaches the level within the seek time", { timeout: 30_000 }, async (ctx) => {
-    const F = "myco.audioevent@1";
+describe("playlist automation in the core (E3.1, loopback)", () => {
+  it("runs a playlist's parameter automation in the core: no TsAutomation on main, and a parameter change reaches the level within the seek time", { timeout: 30_000 }, async (ctx) => {
     Assets.clearSources();
     Assets.addSource(Assets.fromObject({
       "s.json": { format: "myco.scene@1", nodes: [] },
       "dc.wav": "data:,",
-      "e.audioevent.json": { format: F, parameters: [{ name: "Speed", min: 0, max: 1, default: 1, seekSpeed: 10 }], automation: [{ parameter: "Speed", target: "volume", curve: [[0, 0], [1, 1]] }], root: { type: "clip", clip: "dc.wav", loop: true } },
+      // A gain curve in dB whose keys are the old linear curve's values at 0, 0.25 and 1 (0.25 is -12.04 dB).
+      "e.playlist.json": {
+        format: "myco.playlist@1", type: "layer", parameters: [{ name: "Speed", min: 0, max: 1, default: 1, seekSpeed: 10 }],
+        entries: [{ embedded: { type: "clip", entries: [{ sample: "dc.wav", loop: "on" }] }, curves: { gain: { input: { parameter: "Speed" }, curve: [[0, -96], [0.25, 20 * Math.log10(0.25)], [1, 0]] } } }],
+      },
     }));
     const engine = await Engine.create({ headless: true, project: { audio: { buses: [{ name: "Master" }, { name: "SFX", parent: "Master" }], seed: 7 } } });
     await SceneManager.load("s.json");
@@ -82,11 +85,11 @@ describe("event automation in the core (E3.1, loopback)", () => {
     const evaluated = vi.spyOn(TsAutomation.prototype, "update");
     const applied = vi.spyOn(TsAutomation.prototype, "bindVoice");
     try {
-      const h = Audio.play("e.audioevent.json");
+      const h = Audio.play("e.playlist.json");
       expect(h.playing).toBe(true);
       // The runtime's sink is the core's.
-      expect(events().automation).toBe(backend.automation);
-      const tick = () => events().update(0.0107);
+      expect(playlistHost().automation).toBe(backend.automation);
+      const tick = () => playlistHost().update(0.0107);
       await vi.waitFor(async () => {
         await step(1, tick);
         expect(out.some((s) => s !== 0)).toBe(true);

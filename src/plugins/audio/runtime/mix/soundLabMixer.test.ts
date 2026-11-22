@@ -10,7 +10,7 @@ import { readProject } from "../../../../server/project";
 import.meta.glob("../../../../../samples/sound-lab/scripts/behaviors/*.ts", { eager: true });
 import { setAudioBackend } from "../backend";
 import { makeFakeBackend, endAudioSession } from "../testing";
-import { events } from "../events/eventRuntime";
+import { playlistHost } from "../playlists/host";
 import { DomInput } from "../../../../engine/tests/domInput";
 
 const SAMPLE = fileURLToPath(new URL("../../../../../samples/sound-lab", import.meta.url));
@@ -50,7 +50,7 @@ beforeEach(() => {
   fake.advanceTo(0);
   fake.ready = true;
   setAudioBackend(fake);
-  events().now = () => fake.time;
+  playlistHost().now = () => fake.time;
   endAudioSession();
   warnings.length = 0;
   errors.length = 0;

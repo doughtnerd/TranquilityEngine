@@ -36,6 +36,14 @@ describe("sequence playhead", () => {
     ]);
   });
 
+  it("a frame that stops within float noise of a loop's end still wraps it (frames of 1/60 s from 0.1 s, the loop ending the sequence)", () => {
+    const p = new Playhead([loop(0, 2)], 2, 0, 0.1);
+    const moves: PlayheadMove[] = [];
+    for (let t = 0.1; t < 3; t += 1 / 60) p.advance(t + 0.1, () => true, moves);
+    expect(p.ended).toBe(false);
+    expect(moves.filter((m) => m.kind === "jump").map((m) => m.kind === "jump" && m.why)).toEqual(["wrap"]);
+  });
+
   it("an inactive loop with finish plays to its end and carries on; jump leaves at once; crossfade leaves with its fade", () => {
     let on = true;
     const p = new Playhead([loop(0, 2)], 3, 0, 0);

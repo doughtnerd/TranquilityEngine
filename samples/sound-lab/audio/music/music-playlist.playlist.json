@@ -1,0 +1,385 @@
+{
+  "format": "myco.playlist@1",
+  "type": "queue",
+  "output": "Music",
+  "playback": {
+    "plays": "untilStopped",
+    "maxInstances": 1,
+    "priority": 200
+  },
+  "entries": [
+    {
+      "embedded": {
+        "type": "sequence",
+        "entries": [],
+        "sequence": {
+          "length": 4,
+          "tempo": {
+            "bpm": 120,
+            "meter": "4/4"
+          },
+          "tracks": [
+            {
+              "id": "t1",
+              "name": "pad",
+              "kind": "audio",
+              "color": 1,
+              "volume": -1.938,
+              "clips": [
+                {
+                  "id": "t1c1",
+                  "sample": "audio/music/explore-pad.wav",
+                  "at": 0,
+                  "length": 4,
+                  "sync": true
+                }
+              ]
+            },
+            {
+              "id": "t2",
+              "name": "arp",
+              "kind": "audio",
+              "color": 2,
+              "volume": -3.098,
+              "clips": [
+                {
+                  "id": "t2c1",
+                  "sample": "audio/music/explore-arp.wav",
+                  "at": 0,
+                  "length": 4,
+                  "sync": true
+                }
+              ]
+            }
+          ],
+          "markers": [
+            {
+              "id": "m1",
+              "name": "entry",
+              "at": 0,
+              "type": "exit"
+            },
+            {
+              "id": "m2",
+              "name": "exit",
+              "at": 4,
+              "type": "exit"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "embedded": {
+        "type": "sequence",
+        "entries": [],
+        "sequence": {
+          "length": 4,
+          "tempo": {
+            "bpm": 120,
+            "meter": "4/4"
+          },
+          "tracks": [
+            {
+              "id": "t1",
+              "name": "pad",
+              "kind": "audio",
+              "color": 1,
+              "volume": -1.938,
+              "clips": [
+                {
+                  "id": "t1c1",
+                  "sample": "audio/music/explore-pad.wav",
+                  "at": 0,
+                  "length": 4,
+                  "sync": true
+                }
+              ]
+            },
+            {
+              "id": "t2",
+              "name": "arp",
+              "kind": "audio",
+              "color": 2,
+              "volume": -3.098,
+              "clips": [
+                {
+                  "id": "t2c1",
+                  "sample": "audio/music/explore-arp.wav",
+                  "at": 0,
+                  "length": 4,
+                  "sync": true
+                }
+              ]
+            }
+          ],
+          "markers": [
+            {
+              "id": "m1",
+              "name": "entry",
+              "at": 0,
+              "type": "exit"
+            },
+            {
+              "id": "m2",
+              "name": "exit",
+              "at": 4,
+              "type": "exit"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "embedded": {
+        "type": "sequence",
+        "entries": [],
+        "sequence": {
+          "length": 4,
+          "tempo": {
+            "bpm": 120,
+            "meter": "4/4"
+          },
+          "tracks": [
+            {
+              "id": "t1",
+              "name": "pad",
+              "kind": "audio",
+              "color": 1,
+              "volume": -1.938,
+              "clips": [
+                {
+                  "id": "t1c1",
+                  "sample": "audio/music/calm-pad.wav",
+                  "at": 0,
+                  "length": 4,
+                  "sync": true
+                }
+              ]
+            },
+            {
+              "id": "t2",
+              "name": "bells",
+              "kind": "audio",
+              "color": 2,
+              "volume": -3.098,
+              "clips": [
+                {
+                  "id": "t2c1",
+                  "sample": "audio/music/calm-bells.wav",
+                  "at": 0,
+                  "length": 4,
+                  "sync": true
+                }
+              ]
+            }
+          ],
+          "markers": [
+            {
+              "id": "m1",
+              "name": "entry",
+              "at": 0,
+              "type": "exit"
+            },
+            {
+              "id": "m2",
+              "name": "exit",
+              "at": 4,
+              "type": "exit"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "embedded": {
+        "type": "sequence",
+        "entries": [],
+        "sequence": {
+          "length": 4,
+          "tempo": {
+            "bpm": 120,
+            "meter": "4/4"
+          },
+          "tracks": [
+            {
+              "id": "t1",
+              "name": "pad",
+              "kind": "audio",
+              "color": 1,
+              "volume": -1.938,
+              "clips": [
+                {
+                  "id": "t1c1",
+                  "sample": "audio/music/calm-pad.wav",
+                  "at": 0,
+                  "length": 4,
+                  "sync": true
+                }
+              ]
+            },
+            {
+              "id": "t2",
+              "name": "bells",
+              "kind": "audio",
+              "color": 2,
+              "volume": -3.098,
+              "clips": [
+                {
+                  "id": "t2c1",
+                  "sample": "audio/music/calm-bells.wav",
+                  "at": 0,
+                  "length": 4,
+                  "sync": true
+                }
+              ]
+            }
+          ],
+          "markers": [
+            {
+              "id": "m1",
+              "name": "entry",
+              "at": 0,
+              "type": "exit"
+            },
+            {
+              "id": "m2",
+              "name": "exit",
+              "at": 4,
+              "type": "exit"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "embedded": {
+        "type": "sequence",
+        "entries": [],
+        "sequence": {
+          "length": 4,
+          "tempo": {
+            "bpm": 120,
+            "meter": "4/4"
+          },
+          "tracks": [
+            {
+              "id": "t1",
+              "name": "drums",
+              "kind": "audio",
+              "color": 1,
+              "volume": -0.915,
+              "clips": [
+                {
+                  "id": "t1c1",
+                  "sample": "audio/music/combat-drums.wav",
+                  "at": 0,
+                  "length": 4,
+                  "sync": true
+                }
+              ]
+            },
+            {
+              "id": "t2",
+              "name": "bass",
+              "kind": "audio",
+              "color": 2,
+              "volume": -1.938,
+              "clips": [
+                {
+                  "id": "t2c1",
+                  "sample": "audio/music/combat-bass.wav",
+                  "at": 0,
+                  "length": 4,
+                  "sync": true
+                }
+              ]
+            }
+          ],
+          "markers": [
+            {
+              "id": "m1",
+              "name": "entry",
+              "at": 0,
+              "type": "exit"
+            },
+            {
+              "id": "m2",
+              "name": "exit",
+              "at": 4,
+              "type": "exit"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "embedded": {
+        "type": "sequence",
+        "entries": [],
+        "sequence": {
+          "length": 4,
+          "tempo": {
+            "bpm": 120,
+            "meter": "4/4"
+          },
+          "tracks": [
+            {
+              "id": "t1",
+              "name": "drums",
+              "kind": "audio",
+              "color": 1,
+              "volume": -0.915,
+              "clips": [
+                {
+                  "id": "t1c1",
+                  "sample": "audio/music/combat-drums.wav",
+                  "at": 0,
+                  "length": 4,
+                  "sync": true
+                }
+              ]
+            },
+            {
+              "id": "t2",
+              "name": "bass",
+              "kind": "audio",
+              "color": 2,
+              "volume": -1.938,
+              "clips": [
+                {
+                  "id": "t2c1",
+                  "sample": "audio/music/combat-bass.wav",
+                  "at": 0,
+                  "length": 4,
+                  "sync": true
+                }
+              ]
+            }
+          ],
+          "markers": [
+            {
+              "id": "m1",
+              "name": "entry",
+              "at": 0,
+              "type": "exit"
+            },
+            {
+              "id": "m2",
+              "name": "exit",
+              "at": 4,
+              "type": "exit"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "queue": {
+    "pick": "roundRobin",
+    "avoidRepeat": 0,
+    "continuous": {
+      "gapMs": 0
+    }
+  }
+}

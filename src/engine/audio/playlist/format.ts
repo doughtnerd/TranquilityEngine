@@ -23,7 +23,7 @@ import { attenuationToJson, parseAttenuation } from "../attenuation/format";
 import { effectsToJson, parseEffects } from "../effects/catalogue";
 import { curveToJson, IdScope, isFiniteNumber, isRecord, LenientReader, CURVE_KEY_LIMIT, type JsonRecord } from "../lenientRead";
 import type { EffectLevel } from "../effects/types";
-import { isLabelled, MAX_LOCAL_PARAMETERS, parseParameters, type ParameterDef } from "../eventFormat";
+import { isLabelled, MAX_LOCAL_PARAMETERS, parseParameters, type ParameterDef } from "../parameters";
 import { loopBehaviourToJson, loopOverrideToJson, parseLoopBehaviour, parseLoopOverride } from "./loopBehaviour";
 import {
   PLAYLIST_FORMAT, PLAYLIST_SUFFIX, PLAYLIST_TYPES, type Adsr, type Automation, type BlendAxis, type BlendSettings, type ChangeHow, type ChangeRule,

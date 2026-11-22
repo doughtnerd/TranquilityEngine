@@ -60,7 +60,6 @@ import { setAudioBackend as registerBackend } from "./backend";
 import { makeStatusBlock } from "./core/statusFixtures";
 import { ListenerFrame } from "./core/spatial";
 import { runAudioFrame } from "./audioFrame";
-import { musicEarlyStep, musicPlanStep, type MusicFrame } from "./music/musicSystem";
 import type { World } from "../../../engine/core/World";
 
 /** The controls a test has over a fake clock. */
@@ -478,27 +477,6 @@ export function makeFakeBackend(): FakeBackend {
   return backend;
 }
 
-/**
- * ADR 0286: the frame the music plan step hands a player, with the fake's clock moved to heard `now` first (default: where
- * it is). For a test of one music module's own step (the planner's `planTick`, `requestStart`) on the fake; a test of the
- * tick order steps `musicPlanStep(backend, dt)` itself.
- */
-export function musicFrameAt(backend: FakeBackend, now = backend.time, dt = 1 / 60): MusicFrame {
-  backend.advanceTo(now);
-  return { backend, music: backend.music ?? null, now, dt, hidden: false };
-}
-
-/**
- * ADR 0286: the fake's clock moved to heard `now`, then one frame of the music as the audio systems run it: step 0
- * (`musicEarlyStep`: the backend's frame, the beat dispatch) and step 9 (`musicPlanStep`: every player's tick in its
- * order). A call between two of these is one from outside the frame, as in production (F-25).
- */
-export function musicFrameStep(backend: FakeBackend, now: number, dt = 1 / 60): void {
-  backend.advanceTo(now);
-  musicEarlyStep(backend, dt);
-  musicPlanStep(backend, dt);
-}
-
 let nextFakeVoiceId = 1;
 
 function makeFakeVoice(request: PlayRequest): FakeVoice {
@@ -666,7 +644,7 @@ export function makeFakeZoneIrService(): FakeZoneIrService {
 
 /**
  * Ends the audio session as a game's exit does (ADR 0218): the Engines' lifecycle reports a game Engine disposed, so every
- * listener of the release forgets the project's audio state (the event runtime's instances and groups, the music players,
+ * listener of the release forgets the project's audio state (the playlist runtime's instances and groups, the music players,
  * the files' loop points, the warn-once keys, the core fallback's warning, the capture). Call it between tests instead of
  * resetting modules by hand. Nothing else about an Engine happens (no mixer reconfigure), so a rig may call it at any point.
  */
@@ -1074,7 +1052,7 @@ export interface LoopbackAudio {
    */
   tick(dt?: number): void;
   /**
-   * `frames` main-thread frames (default 1), each `mixer.update`, `tick` and, on the page mixer, the event runtime's
+   * `frames` main-thread frames (default 1), each `mixer.update`, `tick` and, on the page mixer, the playlist runtime's
    * `update`, then `quantaPerFrame` quanta and a few microtask turns. Returns what all of them rendered.
    */
   step(frames?: number): Promise<LoopbackOutput>;
@@ -1186,7 +1164,7 @@ const defaultClip = (): LoopbackClip => ({ channelData: [new Float32Array(LOOPBA
  * the STATUS blocks received) with no backend.
  */
 export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise<LoopbackAudio | null> {
-  const [{ assembleCore }, { AudioHost, presetFromSettings }, { Unlock }, { createClipRegistry }, { fakeDecoder }, { rebuildHost }, { setAudioBackend }, { Audio }, { events }] = await Promise.all([
+  const [{ assembleCore }, { AudioHost, presetFromSettings }, { Unlock }, { createClipRegistry }, { fakeDecoder }, { rebuildHost }, { setAudioBackend }, { Audio }, { playlistHost }] = await Promise.all([
     import("./core/assembly"),
     import("./core/context"),
     import("./core/unlock"),
@@ -1195,7 +1173,7 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
     import("./core/recovery"),
     import("./backend"),
     import("./Audio"),
-    import("./events/eventRuntime"),
+    import("./playlists/host"),
   ]);
   const own = options.mixer === "own";
   // On the page's mixer without `settings`, whatever configured it (an Engine's create) stands.
@@ -1345,7 +1323,7 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
         const dt = dtOf();
         rigMixer.update(dt);
         tick(dt);
-        if (!own) events().update(dt);
+        if (!own) playlistHost().update(dt);
         const out = renderQuanta(quantaPerFrame);
         left.set(out.left, f * out.left.length);
         right.set(out.right, f * out.right.length);

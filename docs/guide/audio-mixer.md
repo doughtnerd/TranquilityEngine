@@ -25,7 +25,7 @@ Sound plays on **buses**: a tree that starts at `Master` (default children `Musi
 
 Occlusion, reverb zones and Doppler, which shape spatial sounds before they reach their bus, are in [Spatial audio](spatial-audio.md). The `reverb` effect above stays: it is the shared reverb for sounds outside every zone.
 
-A bus's volume and low-pass can also follow a global parameter through a curve (`audio.automation`); see [Sound events](sound-events.md). `bus.effectiveGain` includes that automation on both backends (the volume curve at the parameter's smoothed value), multiplied with the bus's volume, snapshots, ducking and its parents' gains.
+A bus's volume and low-pass can also follow a global parameter through a curve (`audio.automation`); see [Playlists](playlists.md#global-parameters). `bus.effectiveGain` includes that automation on both backends (the volume curve at the parameter's smoothed value), multiplied with the bus's volume, snapshots, ducking and its parents' gains.
 
 ## Scripting
 

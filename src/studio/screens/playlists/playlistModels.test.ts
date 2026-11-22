@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { emptyPlaylist, emptyPlaylistBody, defaultEntryUse } from "../../../engine/audio/playlist/format";
 import type { Entry, PlaylistBody } from "../../../engine/audio/playlist/types";
-import type { ParameterDef } from "../../../engine/audio/eventFormat";
+import type { ParameterDef } from "../../../engine/audio/parameters";
 import { place1D, place2D, spreadPositions, axisRange } from "./blendPlacement";
 import {
   addEntries, addRule, duplicateEntry, moveEntry, removeEntry, setAxis, setClipSample, setClipSampleFields, setDimensions, setEntryUse, setLabelEntry,

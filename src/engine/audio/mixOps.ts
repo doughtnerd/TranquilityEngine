@@ -1,15 +1,13 @@
 /**
- * Internal (ADR 0171 amended by 0172; api-and-models §6.2): live mix operations. An edit in Project Settings > Audio or
- * the Mixer panel is one `MixOp` (not a diff: a rename is `renameBus`, so a bus's voices, slot and held handles survive),
- * applied to the settings draft by `applyOpToDraft` and to the running mixer by `mixer.apply(op)`.
+ * Internal (ADR 0171 amended by 0172; api-and-models §6.2): live mix operations. A mix edit is one `MixOp` (not a diff:
+ * a rename is `renameBus`, so a bus's voices, slot and held handles survive), applied to the settings draft by
+ * `applyOpToDraft` and to the running mixer by `mixer.apply(op)`.
  *
  * Pure: no plugin, no DOM. Contract K0 declared the shapes; task Mo1 filled the functions.
  *
- * **One edit path.** The engine may not import the editor plugin, so the edit itself lives here, in
- * `applyOpToSettings`, and the model functions of `src/plugins/audio/editor/audioSettingsModel.ts` (`addBus`,
- * `removeBus`, `renameBus`, `setBusParent`, `setBusValue`, the effect, snapshot, ducking, automation, meter and target
- * functions) build an op and call `applyOpToDraft`: an op and the Project Settings UI edit the same way (§6.2's
- * "`applyOpToDraft` calls the model functions", read with the engine-imports-no-plugin rule).
+ * **One edit path.** The edit itself lives here, in `applyOpToSettings`: whoever edits the mix (the Audio Studio,
+ * ADR 0327, through its project ops, and the runtime it auditions with) builds an op and applies it, so every editor
+ * edits the same way.
  *
  * **Canonical form.** `applyOpToSettings` writes optional keys the way the parse and the model functions do: a bus's
  * `maxVoices`, `bed`, `bedPriority` and `meter` are absent when unset or at their default; `loudnessTargets` is absent
@@ -57,7 +55,7 @@ export const OP_CLASSES: readonly OpClass[] = ["direct", "smoothed", "dip", "con
 export type MixOp =
   | { op: "setBus"; bus: string; key: "volume" | "mute" | "maxVoices" | "bed" | "bedPriority" | "meter"; value: number | boolean | string | null }
   | { op: "addBus"; name: string; parent: string; index?: number }
-  /** The bus and its descendants (`audioSettingsModel.ts` `removeBus`). */
+  /** The bus and its descendants (what `removeBus` takes with it). */
   | { op: "removeBus"; bus: string }
   | { op: "renameBus"; from: string; to: string }
   | { op: "moveBus"; bus: string; parent: string }

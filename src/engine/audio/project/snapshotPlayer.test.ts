@@ -1,7 +1,7 @@
 // ADR 0330 "Snapshots blend": the snapshot player through its interface — start kinds, linear fades, hold, interrupted
 // fades, conditions on parameters, live edits — and the blend it feeds (`resolveAt`: priority, Add, effect overrides).
 import { describe, expect, it } from "vitest";
-import type { ParameterDef } from "../eventFormat";
+import type { ParameterDef } from "../parameters";
 import { SnapshotPlayer } from "./snapshotPlayer";
 import type { Snapshot } from "./types";
 

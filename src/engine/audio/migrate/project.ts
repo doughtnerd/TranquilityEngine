@@ -13,7 +13,7 @@
  *
  * Internal: tooling, not the engine's public API.
  */
-import { eventClips, isAudioEventPath, parseAudioEvent } from "../eventFormat";
+import { eventClips, isAudioEventPath, parseAudioEvent } from "./legacy/eventFormat";
 import { audioFileSeconds, TIMED_AUDIO_EXTENSIONS } from "./audioDuration";
 import { migrateProjectAudioEvents } from "./index";
 import { rewriteJsonReferences } from "./jsonReferences";

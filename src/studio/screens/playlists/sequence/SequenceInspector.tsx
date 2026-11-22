@@ -6,8 +6,8 @@
 // points, and with nothing selected the sequence itself (length, tempo, meter) above the playlist's own Inspector
 // (playback rules, output, effects), which the screen passes as children. A view over props and the shared selection.
 import type { ComponentChildren } from "preact";
-import type { ParameterDef } from "../../../../engine/audio/eventFormat";
-import { isLabelled } from "../../../../engine/audio/eventFormat";
+import type { ParameterDef } from "../../../../engine/audio/parameters";
+import { isLabelled } from "../../../../engine/audio/parameters";
 import type { PlaylistLint } from "../../../../engine/audio/playlist/lint";
 import type { Automation, LoopBehaviour, PlaylistBody, SequenceSettings } from "../../../../engine/audio/playlist/types";
 import { SegmentedControl } from "../../../../editor/ui/SegmentedControl";

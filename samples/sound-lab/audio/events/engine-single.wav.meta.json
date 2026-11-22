@@ -1,0 +1,9 @@
+{
+  "format": "myco.import@1",
+  "sample": {
+    "kind": "loop",
+    "loops": [
+      { "id": "run", "start": 0.5, "end": 1.5, "active": "held", "exit": "finish", "exitFadeMs": 0, "reentry": "ignore" }
+    ]
+  }
+}

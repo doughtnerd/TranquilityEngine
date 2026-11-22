@@ -89,6 +89,10 @@ Rule out the plain things: `Audio.muted`, `Audio.volume` (or `masterVolume`), th
 
 A spatial sound beyond `maxDistance` is silent, and one far from the listener is very quiet. Check where the `AudioListener` is (without one the main camera listens), `minDistance`, `maxDistance` and `rolloff`. Walls count: a sound behind a thick wall (a `concrete` occluder takes 30 dB) can fall to nothing and read `reason` `"occluded"`. The voice row's `occlusion` shows the gain and cutoff, how many walls it crossed and which collider, and the Occlusion section of the panel shows the rays; the **Beds** and **Zones** sections answer questions about beds and reverb. A World that has no view doesn't play; only the World that renders is heard. If the HRTF data failed to load, the panel says `(HRTF data failed to load)` and spatial sounds stay equal-power; that's a quality change, not silence.
 
+## A playlist that plays nothing
+
+`Audio.play` returns an inert handle (`playing` false) when a trigger played nothing. `debug().playlistTotals.refused` counts why (`cooldown`, `chance`, `maxInstances`, `missing`, `unsupported`) and `recentRefusals` names the playlist; `recentSteals` shows instances a `maxInstances` limit took over. A missing playlist warns once with its path. An old audio event file (`*.audioevent.json`) is refused (`unsupported`) with one warning naming the migration: open the project in the editor or the Audio Studio, or run `npm run audio:migrate -- <project folder>` ([Playlists](playlists.md)). A Switch whose label maps to no entry plays nothing on purpose, and an entry with weight 0 in a random Queue never plays.
+
 ## Crackling instead of silence
 
 `debug().counters.underruns` counts the times the audio thread missed its deadline, the usual cause of clicks and crackle. A few are normal while the editor is busy. If it climbs during play, lower **Voices > Mixed** or choose the `low` preset, turn off HRTF, or remove effects from busy buses. `lateCommands` and `droppedPlays` also count.

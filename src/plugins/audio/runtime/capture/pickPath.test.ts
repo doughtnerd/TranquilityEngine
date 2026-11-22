@@ -3,7 +3,7 @@
 // each with its nesting depth and playlist. Driven through `Audio.play` on the fake backend.
 import { afterEach, describe, expect, it } from "vitest";
 import { Audio } from "../Audio";
-import { eventKit, pla, sample } from "../events/eventTestKit";
+import { eventKit, pla, sample } from "../playlists/testKit";
 import { NULL_PROFILE_SINK, type ProfilePick } from "../mix/profileSink";
 import { taps } from "../mix/profileTaps";
 import { recordingSink } from "../mix/recordingSink";

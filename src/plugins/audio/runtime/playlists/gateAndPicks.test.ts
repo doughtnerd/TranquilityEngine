@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Audio } from "../Audio";
 import { endAudioSession } from "../testing";
-import { eventKit, pla, sample } from "../events/eventTestKit";
+import { eventKit, pla, sample } from "./testKit";
 
 const kit = eventKit();
 const fake = kit.fake;

@@ -3,7 +3,7 @@
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, userEvent, within } from "storybook/test";
-import type { ParameterDef } from "../../engine/audio/eventFormat";
+import type { ParameterDef } from "../../engine/audio/parameters";
 import { ParameterPanel } from "./ParameterPanel";
 import { withTestValue } from "./parameterPanelModel";
 

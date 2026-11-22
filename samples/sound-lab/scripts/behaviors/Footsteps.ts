@@ -4,14 +4,14 @@ import { Audio, GameBehavior, Input, Text, Time, behavior, field } from "myco";
 const SURFACES = ["Grass", "Gravel", "Wood", "Metal"];
 
 /**
- * Footsteps by surface (ADR 0158). Keys 1-4 pick the surface (the global labelled parameter "Surface") and take one
- * step; hold W to walk and Shift with it to run. One event, `footstep.audioevent.json`, holds a switch on Surface, each
- * surface a random container of three clips (no immediate repeat, a little random pitch and volume), so the script
+ * Footsteps by surface (ADR 0329 playlists). Keys 1-4 pick the surface (the global labelled parameter "Surface") and take
+ * one step; hold W to walk and Shift with it to run. One playlist, `footstep.playlist.json`, is a Switch on Surface, each
+ * surface a random Queue of three samples (no immediate repeat, a little random pitch and volume), so the script
  * only says which surface and when.
  */
 @behavior("lab.Footsteps")
 export class Footsteps extends GameBehavior {
-  @field(String) event = "audio/events/footstep.audioevent.json";
+  @field(String) event = "audio/events/footstep.playlist.json";
   @field(String) walkKey = "w";
   @field(String) runKey = "shift";
   /** Seconds between steps. */

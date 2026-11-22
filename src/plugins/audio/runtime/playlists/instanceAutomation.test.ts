@@ -1,7 +1,7 @@
 // D23: a playlist's own (instance-level) automation, through `Audio.play` on the fake backend.
 import { describe, expect, it } from "vitest";
 import { Audio } from "../Audio";
-import { eventKit, pla, sample } from "../events/eventTestKit";
+import { eventKit, pla, sample } from "./testKit";
 
 const kit = eventKit();
 const fake = kit.fake;

@@ -16,7 +16,7 @@ import { changeFor } from "../../../../engine/audio/playlist/switchRules";
 import type {
   Adsr, BlendAxis, ChangeHow, Entry, EntryUse, PlaylistBody, PlaylistType, SampleEntry,
 } from "../../../../engine/audio/playlist/types";
-import { isLabelled, parameterRange } from "../../../../engine/audio/eventFormat";
+import { isLabelled, parameterRange } from "../../../../engine/audio/parameters";
 import { warnOnce } from "../core/handle";
 import { curveParts } from "./curves";
 import { playlistEffectProps } from "./effects";

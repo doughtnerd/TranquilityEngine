@@ -5,8 +5,8 @@
 import { editor, type EditorPlugin } from "../../../editor/sdk";
 import { audioManifest } from "../manifest";
 import { Audio } from "../runtime";
-import { AUDIO_EVENT_SUFFIX } from "../../../engine/audio/eventFormat";
-import { audioEventFormat, audioEventReferences } from "./eventAsset";
+import { AUDIO_EVENT_SUFFIX } from "../../../engine/audio/retiredAudioEvent";
+import { audioEventReferences } from "./eventAsset";
 import { registerStudioAssetKinds } from "./studioAssets";
 import { occlusionLayerReferences } from "./audioNames";
 import { zoneTool } from "./AudioReverbZoneGizmo";
@@ -43,16 +43,15 @@ export const audioEditorPlugin: EditorPlugin = {
     context.registerPlayStatsCounter({ id: "myco.audio.underruns", label: "audio underruns", count: () => Audio.debug().counters.underruns });
     // ADR 0334: Record take and Record capture on the Play toolbar, saving into the project's takes/ and captures/ folders.
     context.registerPlayToolbarItem({ id: "myco.audio.record", view: () => import("./mix/RecordToggles").then((m) => m.RecordToggles) });
-    // The legacy audio event asset (ADR 0158 §1, replaced by playlists, ADR 0329): `AudioSource.clip` still accepts it and
-    // its clips are references (ADR 0148). No panel and no New entry: opening one opens the Audio Studio.
+    // The retired audio event asset (ADR 0158 §1, replaced by playlists, ADR 0329): listed as the old format to migrate,
+    // its clips still counted as used (ADR 0148). Nothing plays or edits it (no format, no field accepts it); opening one
+    // opens the Audio Studio, which offers the migration, as the editor does when the project opens.
     context.registerAssetKind({
       id: "audioEvent",
       extensions: [AUDIO_EVENT_SUFFIX],
-      label: "Audio Event",
+      label: "Audio Event (old format: migrate)",
       icon: EVENT_ICON,
-      format: audioEventFormat,
       folder: "audio",
-      referencedAs: ["audioEvent"],
       references: { ...audioEventReferences, extensions: [AUDIO_EVENT_SUFFIX] },
     });
     // The Audio Studio's assets (ADR 0329, 0328, 0333): playlists, derived samples, attenuation presets. Listed, moved and

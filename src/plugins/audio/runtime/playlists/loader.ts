@@ -1,6 +1,6 @@
 /**
- * Loading playlists (ADR 0329) and the attenuation presets they name (ADR 0333) through the engine's asset system, as
- * the event runtime loads `*.audioevent.json` (`loadAudioEvent`): `Assets.json` gives the raw value, the parse runs once
+ * Loading playlists (ADR 0329) and the attenuation presets they name (ADR 0333) through the engine's asset system:
+ * `Assets.json` gives the raw value, the parse runs once
  * per raw object (an edited asset is a new object, so a hot reload re-parses and the next trigger plays the new
  * version), and each problem is reported once.
  *
@@ -10,7 +10,7 @@ import { Assets } from "../../../../engine/scene/Assets";
 import { parseAttenuationAsset } from "../../../../engine/audio/attenuation/format";
 import type { Attenuation } from "../../../../engine/audio/attenuation/types";
 import { parsePlaylist } from "../../../../engine/audio/playlist/format";
-import type { PlaylistAsset } from "../../../../engine/audio/playlist/types";
+import { PLAYLIST_FORMAT, type PlaylistAsset } from "../../../../engine/audio/playlist/types";
 import { warnOnce } from "../core/handle";
 
 const playlists = new WeakMap<object, PlaylistAsset>();
@@ -38,6 +38,21 @@ export function loadPlaylist(path: string): PlaylistAsset | null {
     playlists.set(raw, value);
   }
   return value;
+}
+
+const samplePlaylists = new Map<string, PlaylistAsset>();
+
+/**
+ * A sample played through `Audio.play` (or an `AudioSource` with a sample's playlist path): a Clip playlist of that one
+ * sample, as the Studio wraps one (ADR 0329). Built once per path; the sample's sidecar is read when it plays.
+ */
+export function samplePlaylist(path: string): PlaylistAsset {
+  let p = samplePlaylists.get(path);
+  if (!p) {
+    p = parsePlaylist({ format: PLAYLIST_FORMAT, type: "clip", entries: [{ sample: path }] }, path).playlist;
+    samplePlaylists.set(path, p);
+  }
+  return p;
 }
 
 /** A linked playlist below `chain` (the paths of the linked playlists above it, the root first): null when missing or when it would contain itself. */

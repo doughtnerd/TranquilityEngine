@@ -10,7 +10,7 @@
 import type { Curve } from "../../core/curve";
 import type { Attenuation } from "../attenuation/types";
 import type { Effect } from "../effects/types";
-import type { ParameterDef } from "../eventFormat";
+import type { ParameterDef } from "../parameters";
 
 export const PLAYLIST_FORMAT = "myco.playlist@1";
 export const PLAYLIST_SUFFIX = ".playlist.json";

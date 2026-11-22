@@ -4,7 +4,7 @@
 // output tells the playhead.
 import { afterEach, describe, expect, it } from "vitest";
 import { closeLoopbackAudio, loopbackAudio } from "../testing";
-import type { VoiceLoop } from "../events/automation";
+import type { VoiceLoop } from "../automation";
 
 const RATE = 48_000;
 const Q = 128;

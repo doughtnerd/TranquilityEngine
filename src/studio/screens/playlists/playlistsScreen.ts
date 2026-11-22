@@ -13,7 +13,7 @@ import { duplicateAssets, moveAssets, moveAssetsTo, newFolder, renameAsset } fro
 import { currentProject, docVersion, status } from "../../../editor/state";
 import { parseImportSettings, sidecarPath } from "../../../engine/scene/importSettings";
 import { parseDerivedSample } from "../../../engine/audio/sample/format";
-import type { ParameterDef } from "../../../engine/audio/eventFormat";
+import type { ParameterDef } from "../../../engine/audio/parameters";
 import { emptyPlaylist, emptyPlaylistBody, isPlaylistPath } from "../../../engine/audio/playlist/format";
 import { lintPlaylist, type PlaylistLint } from "../../../engine/audio/playlist/lint";
 import { PLAYLIST_FORMAT, type PlaylistAsset, type PlaylistBody, type SampleEntry } from "../../../engine/audio/playlist/types";

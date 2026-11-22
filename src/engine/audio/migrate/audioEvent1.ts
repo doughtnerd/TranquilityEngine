@@ -26,12 +26,12 @@ import {
   eventRootNode, isLabelled, REVERB_SEND_KEY, type AnyEventNode, type AudioEventAsset, type Automation as EventAutomation,
   type BlendNode, type ClipNode, type EventSpatial, type LayerNode, type ParameterDef, type RandomNode, type SequenceNode,
   type SustainNode, type SwitchNode,
-} from "../eventFormat";
+} from "./legacy/eventFormat";
 import {
   segmentEntryPosition, segmentExitPosition, type MusicAutomation, type MusicNode, type MusicSwitchNode, type MusicTrack,
   type PlaylistNode, type RegionCondition, type SegmentNode, type TempoMarker,
-} from "../musicFormat";
-import { RULE_WILDCARD, type StingerAt, type StingerDef, type TransitionExit, type TransitionFade, type TransitionRule } from "../musicRules";
+} from "./legacy/musicFormat";
+import { RULE_WILDCARD, type StingerAt, type StingerDef, type TransitionExit, type TransitionFade, type TransitionRule } from "./legacy/musicRules";
 import { comparePositions, isBarBeatTick, MUSIC_TICKS_PER_BEAT, parsePosition, type BarBeatTick } from "../musicPosition";
 import type { GridSpec } from "../musicTypes";
 import {

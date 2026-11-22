@@ -6,13 +6,13 @@
  * snapshots) is the prototype's model. Gains are dB. Names are identities, unique across buses, returns and VCAs.
  *
  * The runtime's mixer runs this model (`mixer.ts`; the runtime settings carry it under `mix`); its views in the old
- * `AudioSettings` shape (the backends' bus tree, the editor's legacy panels) are `runtimeView.ts`'s.
+ * `AudioSettings` shape (the backends' bus tree, the runtime's settings) are `runtimeView.ts`'s.
  *
  * Pure; no plugin, no DOM.
  */
 import type { Curve } from "../../core/curve";
 import type { Effect } from "../effects/types";
-import type { ParameterDef } from "../eventFormat";
+import type { ParameterDef } from "../parameters";
 import type { AudioSettings, DuckingDetector, DuckingMode, LoudnessTarget } from "../settings";
 
 export const AUDIO_PROJECT_FORMAT = "myco.audio@1";
