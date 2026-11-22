@@ -476,3 +476,10 @@ legacy `stream` flag; Hear as serves converted audio under each sound's own path
 Open owner question: should derived samples get their own `encoding` block? W13 L1/T1/S1/D1 formats are pure and
 unexported; the playlist `line` entry waits on a side branch until the runtime/Studio switches handle it; ICU
 parse+format is 3.0 KB gzip; `@formatjs/icu-messageformat-parser` added as a devDependency (test oracle only).
+
+**D61. Locale runtime (W13 T2–T4, merged).** Public API added (0342 §6): `Locale`, `LocalText`, `LocaleLanguage`,
+`MessageArg(s)` from `src/engine/index.ts`; `LocalizedText` from `myco`; `UITextAlign` gains `start`/`end` (default
+`start`, identical in LTR). Choices to review: `keep-all` keeps meaning "never wrap" (CSS meaning would change Latin
+wrapping, against 0342 §12); a superseded `setLanguage` resolves without switching (no unhandled rejections); system
+language counts only for drawing runtimes; editor Play doesn't persist the language; `Locale` is a process global like
+`Graphics`; in RTL the input field aligns to its start edge.
