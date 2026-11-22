@@ -11,7 +11,8 @@
  * - `unboundParameter`: a Switch or a Blend axis that names no parameter;
  * - `unknownLabel`: a Switch map label that isn't one of its local parameter's labels;
  * - `trackKindMismatch`: a sample clip on a playlist track or a playlist clip on an audio track;
- * - `danglingEffectTarget`: automation of an effect (or a parameter) its owner's chain doesn't have.
+ * - `danglingEffectTarget`: automation of an effect (or a parameter) its owner's chain doesn't have (a clip's, a
+ *   track's, or a playlist's own instance-level automation against the playlist's `effects`).
  *
  * Embedded playlists are linted too, with their place in `where`. What the Studio knows about samples and linked
  * playlists comes in through `LintContext`; without it the rules that need it stay quiet rather than guess.
@@ -89,6 +90,7 @@ export function lintPlaylist(body: PlaylistBody, ctx: LintContext = {}): Playlis
 
   const visit = (b: PlaylistBody, where: string) => {
     const w = (k: string) => join(where, k);
+    automation(b.automation, b.effects, w("automation"));
 
     if (b.type === "queue" && b.queue?.pick === "random" && b.entries.length > 0 && b.entries.every((e) => e.weight === 0)) {
       add("allWeightsZero", w("entries"), "Every entry has weight 0, so this Queue never plays anything.");

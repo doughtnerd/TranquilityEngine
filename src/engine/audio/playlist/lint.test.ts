@@ -105,6 +105,16 @@ describe("lintPlaylist", () => {
     expect(lintPlaylist(parsed(raw)).map((l) => l.where)).toEqual(["sequence.tracks[0].automation[2]", "sequence.tracks[0].automation[3]"]);
   });
 
+  it("checks a playlist's own automation against its effects, in embedded playlists too", () => {
+    const raw = { ...P, type: "layer", effects: [{ id: "g", type: "gain" }],
+      automation: [{ target: "fx:g:gain", curve: [[0, 0]] }, { target: "fx:lp:cutoff", curve: [[0, 1]] }],
+      entries: [{ embedded: { type: "queue", entries: [], automation: [{ target: "fx:g:gain", curve: [[0, 0]] }] } }] };
+    expect(lintPlaylist(parsed(raw)).map((l) => [l.code, l.where])).toEqual([
+      ["danglingEffectTarget", "automation[1]"],
+      ["danglingEffectTarget", "entries[0].embedded.automation[0]"],
+    ]);
+  });
+
   it("lints embedded playlists with their place", () => {
     const raw = { ...P, type: "layer", entries: [{ embedded: { type: "queue", entries: [{ playlist: "a.playlist.json", weight: 0 }] } }] };
     expect(lintPlaylist(parsed(raw))).toEqual([{ code: "allWeightsZero", where: "entries[0].embedded.entries", message: "Every entry has weight 0, so this Queue never plays anything." }]);

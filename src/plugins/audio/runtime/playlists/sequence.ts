@@ -35,21 +35,19 @@
  * - `untilStopped` keeps the instance after the playhead's end; `release` ends held loops (sequence loops and sync clip
  *   loops by their exit settings, async voices' through the adapter); `stop` fades everything.
  */
-import type { Curve, CurveKey } from "../../../../engine/core/curve";
 import { accumulate } from "../../../../engine/audio/playlist/accumulate";
 import { compileTempoMap, nextGridSeconds, positionToTicks, ticksToSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
 import { isBarBeatTick, parsePosition } from "../../../../engine/audio/musicPosition";
 import type { GridSpec, MusicSeekResult } from "../../../../engine/audio/musicTypes";
 import type {
-  Automation, Clip, LoopBehaviour, PlaylistAsset, PlaylistBody, SampleEntry, SequenceSettings, Track, VoiceCurve,
+  Clip, LoopBehaviour, PlaylistAsset, PlaylistBody, SampleEntry, SequenceSettings, Track,
 } from "../../../../engine/audio/playlist/types";
-import type { Effect } from "../../../../engine/audio/effects/types";
-import { effectParamValue } from "../../../../engine/audio/effects/catalogue";
 import { warnOnce } from "../core/handle";
 import { RELOAD_FADE_MS, sameTempoMap } from "../music/reload";
 import { clipGeometry, clipTimesOf, pieceAt, type ClipGeometry } from "./clipMap";
-import { curveParts, type TimeCurve } from "./curves";
+import { shiftedCurve, type TimeCurve } from "./curves";
 import { playlistEffectProps } from "./effects";
+import { automationParts, type TimeAuto } from "./levelAutomation";
 import { LiveNode, type Ctx, type LoopRun, type NodeHost, type PVoice } from "./liveNode";
 import { linkedPlaylist, loadPlaylist } from "./loader";
 import type { MusicalBoundary, MusicalPosition, MusicalSource } from "./musical";
@@ -69,13 +67,6 @@ const EPS = 1e-9;
 const HISTORY_SECONDS = 2;
 /** How far a boundary question looks ahead of the plan, heard seconds. */
 const PREDICT_SECONDS = 256;
-
-/** A time-keyed automation curve, shifted to a voice's start when it plays. */
-interface TimeAuto {
-  target: TimeCurve["target"];
-  curve: Curve;
-  input: "clipTime" | "sequenceTime" | "voiceTime";
-}
 
 interface ClipRt {
   readonly clip: Clip;
@@ -109,22 +100,6 @@ interface PhLoop {
 }
 
 type HistoryItem = PlayheadMove;
-
-const shiftCache = new WeakMap<Curve, Map<number, Curve>>();
-/** `curve` read `offset` seconds later: what it says at t + offset, at t. */
-function shifted(curve: Curve, offset: number): Curve {
-  if (Math.abs(offset) < EPS) return curve;
-  let m = shiftCache.get(curve);
-  if (!m) shiftCache.set(curve, (m = new Map()));
-  const hit = m.get(offset);
-  if (hit) return hit;
-  const out = curve.map((k) => [k[0] - offset, ...k.slice(1)] as unknown as CurveKey);
-  if (m.size > 64) m.clear();
-  m.set(offset, out);
-  return out;
-}
-
-const STEP_OFF_DB = -120;
 
 export class SequenceNode extends LiveNode implements MusicalSource {
   private body: PlaylistBody;
@@ -204,7 +179,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
       bus: override ? track.output! : this.ctx.bus,
     };
     const time: TimeAuto[] = [];
-    ctx = this.automation(track.automation, track.effects, ctx, time, `track "${track.name}"`);
+    ctx = automationParts(this.host, track.automation, track.effects, ctx, time, `track "${track.name}"`);
     return { ctx, time };
   }
 
@@ -213,7 +188,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     if (clip.reverse) warnOnce(`playlist:reverse:${this.ctx.where}:${clip.id}`, `[myco] ${where}: reverse playback isn't supported by the audio core yet; it plays forward.`);
     let ctx: Ctx = { ...level.ctx, props: accumulate(level.ctx.props, { gainDb: clip.gain, pitchSt: clip.pitch, pan: clip.pan, fx: playlistEffectProps(clip.effects, where) }) };
     const time = level.time.slice();
-    ctx = this.automation(clip.automation, clip.effects, ctx, time, where);
+    ctx = automationParts(this.host, clip.automation, clip.effects, ctx, time, where);
     const base = { clip, track, start: clip.at, sync: clip.sync, audible, ctx, time, inside: false, voice: null, pieceTo: Number.POSITIVE_INFINITY, node: null, driving: -1 };
     if (clip.sample === undefined) {
       return { ...base, end: clip.length > 0 ? clip.at + clip.length : Number.POSITIVE_INFINITY, facts: null, geo: null, loop: null, markers: [] };
@@ -235,47 +210,6 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     const geo = clipGeometry(clip.length, offset, facts.end, loop);
     const hidden = new Set(clip.hiddenMarkers);
     return { ...base, end: clip.at + geo.length, facts, geo, loop: geo.loop ? loop : null, markers: facts.markers.filter((m) => !hidden.has(m.id)) };
-  }
-
-  /**
-   * Automation as voice controls: parameter-keyed curves become bindings on `ctx`; time-keyed ones go to `time` (shifted
-   * per voice). Returns the context with the bindings added.
-   */
-  private automation(list: readonly Automation[], effects: readonly Effect[], ctx: Ctx, time: TimeAuto[], where: string): Ctx {
-    for (const a of list) {
-      if (a.bypass || a.curve.length === 0) continue;
-      let target: TimeCurve["target"] | null = null;
-      let curve: Curve = a.curve;
-      if (a.target === "volume") target = "gain";
-      else if (a.target === "pitch") target = "pitch";
-      else if (a.target === "enabled") { target = "gain"; curve = a.curve.map((k) => [k[0], k[1] >= 0.5 ? 0 : STEP_OFF_DB, "step"] as CurveKey); }
-      else if (a.target === "pan") {
-        warnOnce(`playlist:auto-pan`, `[myco] ${where}: pan automation needs a voice pan control the audio core doesn't have yet; skipped.`);
-        continue;
-      } else {
-        const [, id, param] = a.target.split(":");
-        const fx = effects.find((e) => e.id === id);
-        if (fx?.type === "lowpass" && param === "cutoff") target = "lowpass";
-        else if (fx?.type === "gain" && param === "gain") target = "gain";
-        else {
-          warnOnce(`playlist:auto-fx:${fx?.type ?? id}:${param}`, `[myco] ${where}: automation of "${a.target}" needs instance submixes (ADR 0331)${fx ? "" : " and names no effect of its level"}; skipped. Low-pass cutoff and gain apply.`);
-          continue;
-        }
-        if (target === "gain" && fx) {
-          // The curve is the effect's gain; the effect's static gain is already in the level, so automate the difference.
-          const base = effectParamValue(fx, "gain") ?? 0;
-          curve = a.curve.map((k) => [k[0], k[1] - base, ...k.slice(2)] as unknown as CurveKey);
-        }
-      }
-      if (typeof a.input === "string") {
-        time.push({ target, curve, input: a.input });
-        continue;
-      }
-      const vc: VoiceCurve = { input: a.input, curve, bypass: false };
-      const parts = curveParts({ [target]: vc }, ctx, (n) => this.host.paramRef(n), (c) => this.host.curveId(c), where);
-      ctx = { ...ctx, bindings: parts.bindings };
-    }
-    return ctx;
   }
 
   /** Sync clips' first loops as playhead loops: the higher track drives where they overlap. */
@@ -492,7 +426,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     const out = c.ctx.timeCurves.slice();
     for (const t of c.time) {
       const offset = t.input === "clipTime" ? u : t.input === "sequenceTime" ? c.start + u : 0;
-      out.push({ target: t.target, curve: shifted(t.curve, offset) });
+      out.push({ target: t.target, curve: shiftedCurve(t.curve, offset) });
     }
     return out;
   }

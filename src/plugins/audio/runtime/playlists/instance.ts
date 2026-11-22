@@ -27,7 +27,7 @@ import { clipRequest, samplePlan } from "../clipResolver";
 import { warnOnce } from "../core/handle";
 import { events, type EventOptions } from "../events/eventRuntime";
 import { MAX_LOCAL_SLOTS, type ParamRef } from "../events/automation";
-import { evalTimeCurves } from "./curves";
+import { anchorTimeCurves, evalTimeCurves } from "./curves";
 import { linkedPlaylist, loadAttenuation } from "./loader";
 import { clockOver, MUSICAL_FALLBACK_NOTE, type MusicalClock, type MusicalSource } from "./musical";
 import { sampleFacts, type SampleFacts } from "./sampleFacts";
@@ -604,7 +604,10 @@ export class PlaylistInstance implements NodeHost {
     }
     const staticVolume = req.volume! * plan.gain * dbToGain(c.gainDb) * Math.max(0, this.options.volume ?? 1);
     const staticPitch = clampPitch(stToRatio(c.pitchSt) * this.pitchOption);
-    const t = evalTimeCurves(ctx.timeCurves, 0);
+    // When it starts: its stamp, else the earliest exact start, else now (heard; voice time and end estimates count from it).
+    const start = ctx.at ?? events().horizon() ?? this.clock();
+    const timeCurves = anchorTimeCurves(ctx.timeCurves, start);
+    const t = evalTimeCurves(timeCurves, 0);
     // ADR 0333: a positioned voice's plan adds its distance gain to the voice's dynamic gains.
     const curved = ctx.spatial && this.pos && req.ambisonic !== true ? this.curvePlans.get(ctx.spatial) ?? null : null;
     const dynList: readonly DynGain[] = curved ? [...ctx.dyn, curved.gain] : ctx.dyn;
@@ -648,14 +651,12 @@ export class PlaylistInstance implements NodeHost {
     }
     if (loop && (loop.start > 0 || loop.end > 0 || !looping)) sink.setLoop(voice, loop.start, loop.end, looping);
     if (trim && trim[0] > 0) voice.seek(trim[0]);
-    // When it starts: its stamp, else the earliest exact start, else now (heard; voice time and end estimates count from it).
-    const start = ctx.at ?? events().horizon() ?? this.clock();
     const fileLength = events().clipLength(path);
     const from = trim ? trim[0] : 0;
     const to = trim ? Math.min(trim[1], fileLength ?? Infinity) : fileLength;
     const length = to !== null && Number.isFinite(to) ? Math.max(0, to - from) / base.pitch : null;
     const v: PVoice = {
-      voice, path, base, staticVolume, staticPitch, bindings: ctx.bindings, dyn: dynList, timeCurves: ctx.timeCurves,
+      voice, path, base, staticVolume, staticPitch, bindings: ctx.bindings, dyn: dynList, timeCurves,
       start, length, loop, leaving: false, appliedGain: dyn, appliedPitch: t.pitch, appliedLowpass: curved ? lowpass : t.lowpass, positioned: req.position !== undefined,
     };
     this.voices.push(v);

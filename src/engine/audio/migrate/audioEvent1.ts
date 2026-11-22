@@ -79,7 +79,7 @@ const DEFAULT_PLAYBACK = (): PlaybackRules => ({
 
 const newBody = (type: PlaylistType): PlaylistBody => ({
   type, output: null, playback: DEFAULT_PLAYBACK(), volume: 0, pitch: 0, volumeRandom: [0, 0], pitchRandom: [0, 0],
-  effects: [], spatial: null, parameters: [], stingers: [], entries: [], queue: null, switch: null, blend: null, sequence: null,
+  effects: [], automation: [], spatial: null, parameters: [], stingers: [], entries: [], queue: null, switch: null, blend: null, sequence: null,
 });
 
 const newUse = (): EntryUse => ({ volume: 0, pitch: 0, weight: 1, atZeroWeight: "stop", curves: {} });
