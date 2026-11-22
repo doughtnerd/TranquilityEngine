@@ -21,6 +21,7 @@ import { planPluginCode, type BuiltPlugin } from "../plugins/thirdParty";
 import type { AudioReport } from "./audio";
 import { planAudioEffects, type PlannedAudioEffect } from "./audioEffects";
 import { ENGINE_FILE, MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, modulePath, relativeSpecifier, type GameManifest } from "./format";
+import { planLocalisation, type BuildLanguages } from "./strings";
 
 /** A project to build, however it was read. */
 export interface BuildSource {
@@ -47,6 +48,10 @@ export interface BuildOptions {
   readonly audioTake?: boolean;
   /** ADR 0334: with `audioTake`, false writes `audioTakeFrames: false`: takes record no pictures of the game view (default: they do). */
   readonly audioTakeFrames?: boolean;
+  /** ADR 0340 §6, 0342 §11: `--languages`: ship only these of the project's shipped languages. Absent: every one. */
+  readonly languages?: readonly string[];
+  /** ADR 0342 §9: `--pseudo`: add the pseudo-languages, for QA builds. */
+  readonly pseudo?: boolean;
 }
 
 /** What a web build is made of, before anything is written. */
@@ -70,6 +75,13 @@ export interface WebBuildPlan {
    * and writes `game.json`'s `audioEffects`. Absent: none.
    */
   readonly audioEffects?: readonly PlannedAudioEffect[];
+  /**
+   * ADR 0342 §11, 0340 §6: the languages the build ships (`strings.ts`), which the audio step splits packages by and
+   * writes the line index for. Absent: the audio step reads them from `project.json`.
+   */
+  readonly languages?: BuildLanguages;
+  /** Build warnings found while planning (`--languages` codes ignored, string keys that fell back), for the log. */
+  readonly warnings?: readonly string[];
 }
 
 /** A project that can't be built: scripts that don't compile, a missing bootstrap script or scene. */
@@ -202,6 +214,10 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   // ADR 0338 §8: the enabled plugins' audio modules ship (hashed into game.json by the build writer); a disabled one's don't.
   const audioEffects = planAudioEffects(pluginPlan.plugins, pluginPlan.enabled);
   if (audioEffects.leaveOut.size > 0) copies = copies.filter((p) => !audioEffects.leaveOut.has(p));
+  // ADR 0342 §11, 0340 §6: the shipped languages' string files; string tables and other languages' variants stay out.
+  const localisation = planLocalisation(source.json, copies, { languages: options.languages, pseudo: options.pseudo }, copiedPath("project.json"));
+  if (localisation.error) throw new ExportError(localisation.error);
+  copies = [...localisation.copies];
   const { order, files, packageEntries } = await compileForBuild(pluginPlan.code, source.json, source.packages, pluginPlan.npmEntries);
   const plugins: BuiltPlugin[] = pluginPlan.runtime.map((p) => ({ manifest: p.manifest, module: p.source.kind === "project" ? modulePath(p.runtime!) : packageEntries.get(p.runtime!)! }));
   const name = typeof source.settings.name === "string" && source.settings.name ? source.settings.name : source.name;
@@ -215,14 +231,20 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
     ...(options.audioCapture === true && { audioCapture: true as const }),
     ...(options.audioTake === true && { audioTake: true as const }),
     ...(options.audioTake === true && options.audioTakeFrames === false && { audioTakeFrames: false as const }),
+    ...(localisation.manifest && { localisation: localisation.manifest }),
   };
   const assetRefs = projectScriptAssetRefs(source.scripts.values(), (p) => copies.includes(p));
   if (assetRefs.length) (manifest as { assetRefs?: readonly string[] }).assetRefs = assetRefs;
-  const generated = new Map(files);
+  const generated = new Map([...files, ...localisation.generated]);
   generated.set(MANIFEST_FILE, `${JSON.stringify(manifest, null, 2)}\n`);
   generated.set("serve.mjs", SERVE_SCRIPT);
   generated.set("README.txt", webReadme(name));
-  return { manifest, copies, generated, ...(audioEffects.modules.length > 0 && { audioEffects: audioEffects.modules }) };
+  return {
+    manifest, copies, generated,
+    ...(audioEffects.modules.length > 0 && { audioEffects: audioEffects.modules }),
+    languages: localisation.languages,
+    ...(localisation.warnings.length > 0 && { warnings: localisation.warnings }),
+  };
 }
 
 /** Model files the build bakes (ADR 0090; the same extensions as `scene/models.ts`, which isn't imported here). */

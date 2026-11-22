@@ -3,7 +3,7 @@
  *
  * ```sh
  * npm run export -- <projectDir> [--out <dir>] [--target web|desktop] [--platform web|desktop|android]
- *                   [--no-audio-convert] [--scene <path>] [--audio-capture]
+ *                   [--no-audio-convert] [--scene <path>] [--audio-capture] [--languages <codes>] [--pseudo]
  * ```
  *
  * - `--target web` (default) writes a static web build: the prebuilt player (dist/player/, built
@@ -33,6 +33,10 @@ Options:
   --no-audio-convert
                    Ship audio as its sources (packages are still built); for debugging
   --scene PATH     The scene to start in (default: scenes/main.scene.json, else the first scene)
+  --languages L    Ship only these languages, comma-separated (default: every language project.json ships;
+                   ship: false ones are always left out). Each gets its strings/<code>.json, its fonts, its
+                   localised files and its part of each audio package
+  --pseudo         Add the pseudo-languages (qps-ploc, qps-plocm), for testing text expansion and right-to-left
   --audio-capture  Ship the audio capture trigger: F9 (or a one-second three-finger hold) records the game's audio mix and
                    saves a .mycap file for the editor's Profiler. The file names the project's clips, buses and events.
   --audio-take     Ship the audio take trigger: F10 records a take (what the game asked of audio, and the profile) and
@@ -65,6 +69,15 @@ const EXPORT_COMMAND: Command<ExportOptions> = {
     },
     "--no-audio-convert": { set: (o) => void (o.audioConvert = false) },
     "--scene": { takes: "a scene path", set: (o, v) => void (o.mainScene = v.replace(/\\/g, "/").replace(/^\.?\//, "")) },
+    "--languages": {
+      takes: "language codes",
+      set: (o, v) => {
+        const codes = v.split(",").map((c) => c.trim()).filter(Boolean);
+        if (codes.length === 0) throw new UsageError(`--languages needs language codes such as en,fr (got ${JSON.stringify(v)}).`);
+        o.languages = codes;
+      },
+    },
+    "--pseudo": { set: (o) => void (o.pseudo = true) },
     "--audio-capture": { set: (o) => void (o.audioCapture = true) },
     "--audio-take": { set: (o) => void (o.audioTake = true) },
     "--no-take-pictures": { set: (o) => void (o.audioTakeFrames = false) },

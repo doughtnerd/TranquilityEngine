@@ -49,6 +49,10 @@ export interface ExportOptions {
   platform?: ImportPlatform;
   /** ADR 0337 §5: `--no-audio-convert`: audio ships as its sources (packages are still built), and the report says so. */
   audioConvert?: boolean;
+  /** ADR 0340 §6, 0342 §11: `--languages`: ship only these of the project's shipped languages (default: every one). */
+  languages?: string[];
+  /** ADR 0342 §9: `--pseudo`: add the pseudo-languages, for QA builds. */
+  pseudo?: boolean;
   /** Audio encoder threads (default: cores − 1). */
   audioWorkers?: number;
   log?: (line: string) => void;
@@ -76,7 +80,7 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   if (isOutputInsideProject(project.root, out)) {
     throw new ExportError(`The output folder "${out}" is inside the project, where the next export would copy it in. Use a folder outside it, or under its dist/ folder.`);
   }
-  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture, audioTake: options.audioTake, audioTakeFrames: options.audioTakeFrames });
+  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture, audioTake: options.audioTake, audioTakeFrames: options.audioTakeFrames, languages: options.languages, pseudo: options.pseudo });
   const playerDir = options.playerDir ?? (await ensurePlayer(log));
 
   const folder = nodeFolder(out);
