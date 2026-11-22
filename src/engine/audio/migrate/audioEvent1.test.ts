@@ -7,7 +7,7 @@ import { parseAudioEvent } from "../eventFormat";
 import type { Attenuation } from "../attenuation/types";
 import type { EmbeddedEntry, PlaylistBody, SampleEntry } from "../playlist/types";
 import { migrateAudioEvent, type MigrateOptions } from "./audioEvent1";
-import { validatePlaylist } from "./validate.testkit";
+import { validatePlaylist } from "./testing/playlistShape";
 
 const PATH = "audio/a.audioevent.json";
 

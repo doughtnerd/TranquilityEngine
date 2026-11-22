@@ -3,7 +3,7 @@
  * one sample entry and samples sit only in Clips; Switch maps point at real entries; a sequence clip has exactly one of
  * `sample` / `playlist`; Blend entries have a position; Queue and Switch blocks match the type. Returns problems.
  */
-import type { Entry, PlaylistBody } from "../playlist/types";
+import type { Entry, PlaylistBody } from "../../playlist/types";
 
 export function validatePlaylist(body: PlaylistBody, where = "root", out: string[] = []): string[] {
   const entryBody = (e: Entry, w: string): void => {

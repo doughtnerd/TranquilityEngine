@@ -8,7 +8,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { migrateProjectAudioEvents, playlistPathFor } from "./index";
-import { validatePlaylist } from "./validate.testkit";
+import { validatePlaylist } from "./testing/playlistShape";
 
 const ROOT = join(__dirname, "../../../..");
 
