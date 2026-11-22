@@ -22,6 +22,8 @@ import {
   type LoudnessTarget, type SnapshotSettings, type BusAutomation,
 } from "../settings";
 import { MAX_BUS_INSERTS } from "../busCapability";
+import { encodingConfigToJson, isEmptyEncodingConfig, parseEncodingConfig } from "../encoding/format";
+import { packagesToJson, packagingOptionsToJson, parsePackages, parsePackagingOptions } from "../packaging/definitions";
 import { MAX_DB, MIN_DB, dbToGain } from "./gain";
 import { isCarrier, isShown, secondsOf, toBusEffect } from "./legacyEffects";
 import {
@@ -261,6 +263,13 @@ export function parseAudioProject(raw: unknown, options: AudioParseOptions = {})
   project.ducking = parseDucking(raw.ducking, project, problems);
   project.snapshots = parseSnapshots(raw.snapshots, project, problems);
   project.loudness = parseLoudness(raw.loudness, problems);
+  // ADR 0337: encoding and packages, set only when the file holds something (absent keys read as their defaults).
+  const encoding = parseEncodingConfig(raw.encoding, problems);
+  if (!isEmptyEncodingConfig(encoding)) project.encoding = encoding;
+  const packages = parsePackages(raw.packages, problems);
+  if (packages.length > 0) project.packages = packages;
+  const packaging = parsePackagingOptions(raw.packaging, problems);
+  if (packagingOptionsToJson(packaging) !== null) project.packaging = packaging;
   return { project, problems, warnings };
 }
 
@@ -508,8 +517,14 @@ export function audioProjectToJson(project: AudioProject): Record<string, unknow
     ducking: project.ducking.map((d) => ({ ...d })),
     snapshots: project.snapshots.map((s) => clone(s)),
     loudness: { targets: project.loudness.targets.map((t) => ({ ...t })), resetOnPlay: project.loudness.resetOnPlay },
+    ...optional("encoding", project.encoding && encodingConfigToJson(project.encoding)),
+    ...optional("packages", project.packages && packagesToJson(project.packages)),
+    ...optional("packaging", project.packaging && packagingOptionsToJson(project.packaging)),
   };
 }
+
+/** `{ [key]: value }`, or nothing when `value` is null or undefined (ADR 0337's keys are left out when empty). */
+const optional = (key: string, value: unknown): Record<string, unknown> => (value === null || value === undefined ? {} : { [key]: value });
 
 /** `project`'s mix as `audio.json` writes it: every top-level key but `format` and `settings` (the runtime settings' `mix`). */
 export function mixJsonOf(project: AudioProject): AudioMixJson {
