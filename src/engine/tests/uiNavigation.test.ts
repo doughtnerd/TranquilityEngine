@@ -163,6 +163,36 @@ describe("navigate (ADR 0340)", () => {
     expect(focusedName(...col)).toBe("R3");
   });
 
+  it("moves at once when the held direction changes: rolling from one arrow to the next, or a tap in each of two frames", async () => {
+    const c = canvas();
+    const g = grid(c);
+    const all = g.flat();
+    await pointer();
+    g[0][0].focused = true;
+    step();
+    // Right held, then down pressed before right is released: navigate never goes back to 0.
+    Input.inject.keyDown("arrowright");
+    step();
+    expect(focusedName(...all)).toBe("B01");
+    Input.inject.keyDown("arrowdown");
+    Input.inject.keyUp("arrowright");
+    step();
+    expect(focusedName(...all)).toBe("B11");
+    Input.inject.keyUp("arrowdown");
+    step();
+    // Two taps, each pressed and released within one frame, in consecutive frames.
+    Input.inject.keyDown("arrowright");
+    Input.inject.keyUp("arrowright");
+    step();
+    expect(focusedName(...all)).toBe("B12");
+    Input.inject.keyDown("arrowdown");
+    Input.inject.keyUp("arrowdown");
+    step();
+    expect(focusedName(...all)).toBe("B22");
+    step(3);
+    expect(focusedName(...all)).toBe("B22");
+  });
+
   it("follows explicit neighbours, and navigation explicit or none turns the search off", async () => {
     const c = canvas();
     const g = grid(c);

@@ -121,7 +121,7 @@ Menus work with the arrow keys, Tab, Enter and Escape, and with a gamepad's d-pa
 | `cancel` | Escape, east button (B) | records a cancel on the focused element's canvas |
 | `next`, `previous` | Tab, Shift+Tab | move focus in tree order, wrapping within the canvas |
 
-`navigate`, `next` and `previous` repeat while held: at once, then after 0.4 s every 0.1 s. The `ui` context is on for a player only while their World's UI has focus, at priority 1000, so a focused menu's arrows, d-pad, Enter, Space and Escape don't also move or pause the game; with nothing focused, the game gets every control. Players rebind it like any other context ([Input](input.md#contexts-vehicles-menus-modes)).
+`navigate`, `next` and `previous` repeat while held: at once, then after 0.4 s every 0.1 s. Turning `navigate` to another direction while it's held (rolling from one arrow key to the next, sweeping the stick round) moves at once too. The `ui` context is on for a player only while their World's UI has focus, at priority 1000, so a focused menu's arrows, d-pad, Enter, Space and Escape don't also move or pause the game; with nothing focused, the game gets every control. Players rebind it like any other context ([Input](input.md#contexts-vehicles-menus-modes)).
 
 Pressing a button focuses it, so Space and Enter then press it until focus moves on (as in Unity). Give HUD buttons that shouldn't take the keyboard `focusable = false`.
 

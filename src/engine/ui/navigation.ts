@@ -184,6 +184,8 @@ interface NavState {
   active: Set<UICanvas>;
   /** autoFocus canvases waiting for a focusable element. */
   pending: Set<UICanvas>;
+  /** Each player's `navigate` direction at the last run while it was held, by player index. */
+  held: Map<number, Direction>;
 }
 
 const states = new WeakMap<World, NavState>();
@@ -199,8 +201,12 @@ interface Actions {
   previous: boolean;
 }
 
-/** What the players driving `canvas` performed this frame (any of them; a pending rebind takes a player's presses). */
-function readActions(world: World, canvas: UICanvas | null): Actions {
+/**
+ * What the players driving `canvas` performed this frame (any of them; a pending rebind takes a player's presses).
+ * `navigate` also counts as performed when its direction changed while it stayed held (rolling from one arrow key to
+ * the next, or a stick swept round): the action's triggers see one long press there, and would only repeat it.
+ */
+function readActions(world: World, canvas: UICanvas | null, held: Map<number, Direction>): Actions {
   const out: Actions = { navigate: null, submit: false, cancel: false, next: false, previous: false };
   const only = canvas?.player ?? -1;
   // `engine.RebindRequest` (input/rebind.ts), looked up by id: importing it here would load the evaluator early and reorder built-in systems.
@@ -210,10 +216,13 @@ function readActions(world: World, canvas: UICanvas | null): Actions {
     if (rebinding && node.hasData(rebinding)) continue;
     const a = actionView(node, UIActions);
     if (!a) continue;
-    if (!out.navigate && a.performed("navigate")) {
-      const v = a.vector2("navigate");
-      out.navigate = { x: v.x, y: v.y };
-    }
+    const index = node.getData(InputPlayer)!.index;
+    const v = a.vector2("navigate");
+    const dir = v.x !== 0 || v.y !== 0 ? direction(v) : null;
+    const before = held.get(index) ?? null;
+    if (dir) held.set(index, dir);
+    else held.delete(index);
+    if (!out.navigate && dir && (a.performed("navigate") || (before !== null && before !== dir))) out.navigate = { x: v.x, y: v.y };
     out.submit ||= a.performed("submit");
     out.cancel ||= a.performed("cancel");
     out.next ||= a.performed("next");
@@ -226,7 +235,7 @@ function run(world: World): void {
   if (!takesLocalInput(world)) return;
   const log = uiInteractions(world);
   let state = states.get(world);
-  if (!state) states.set(world, (state = { active: new Set(), pending: new Set() }));
+  if (!state) states.set(world, (state = { active: new Set(), pending: new Set(), held: new Map() }));
   const layout = new Layout(log.layout);
 
   // Focus on something that can't have it any more is lost (a script's doing: no events).
@@ -261,7 +270,7 @@ function run(world: World): void {
   if (!canvas) for (const c of active) if (c.mode === "screen" && layout.list(c).length) canvas = c;
 
   const requests = log.takeRequests();
-  const act = readActions(world, canvas);
+  const act = readActions(world, canvas, state.held);
   if (requests.length || act.navigate || act.submit || act.cancel || act.next || act.previous) log.navigating = true;
 
   for (const r of requests) {
