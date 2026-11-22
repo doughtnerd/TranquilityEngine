@@ -543,7 +543,7 @@ function read(c: Control, paired: Paired, out: Float32Array): void {
     tmp[0] = tmp[1] = tmp[2] = 0;
     switch (s.read) {
       case "button":
-        tmp[0] = v[`b${s.index}`];
+        tmp[0] = padButton(v, s.index);
         break;
       case "axis":
         tmp[0] = s.index === 1 || s.index === 3 ? -v[`a${s.index}`] : v[`a${s.index}`];
@@ -553,8 +553,8 @@ function read(c: Control, paired: Paired, out: Float32Array): void {
         tmp[1] = -v[`a${s.y}`];
         break;
       case "dpad":
-        tmp[0] = v.b15 - v.b14;
-        tmp[1] = v.b12 - v.b13;
+        tmp[0] = padButton(v, 15) - padButton(v, 14);
+        tmp[1] = padButton(v, 12) - padButton(v, 13);
         break;
       case "gyro":
         tmp[0] = v.gyroX;
@@ -585,6 +585,12 @@ function read(c: Control, paired: Paired, out: Float32Array): void {
       if (m > 0) readFamily = pad.family;
     }
   }
+}
+
+/** A gamepad button's value; one pressed and released inside the frame reads fully pressed (it went down this frame, as a key tapped between frames reads held). */
+function padButton(v: Record<string, number>, index: number): number {
+  const bit = 1 << index;
+  return v.down & bit && !(v.held & bit) ? 1 : v[`b${index}`];
 }
 
 const scratchPad = new Float32Array(3);

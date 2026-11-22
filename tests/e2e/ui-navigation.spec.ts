@@ -92,9 +92,9 @@ const menuState = (page: Page): Promise<MenuState | null> =>
   });
 
 /**
- * Wait until the game has stepped `n` more frames. Two taps of one key in consecutive frames read as one long press (an
- * action's `pressed` trigger sees its control actuated in both), and with the e2e frame cap a frame lasts 100 ms, so a spec
- * tapping one key again waits for a frame without it first, as a player's taps, many frames apart, always are.
+ * Wait until the game has stepped `n` more frames. With the e2e frame cap a frame lasts 100 ms, and a press of a key right
+ * after one reads a frame or two later (the snapshot puts a frame that reads the key up between two presses, ADR 0336), so
+ * a spec tapping one key again waits for a frame without it first, as a player's taps, many frames apart, always are.
  */
 async function frames(page: Page, n = 2): Promise<void> {
   const at = await inLiveWorld(page, null, (w) => w?.time.frameCount ?? 0);
@@ -151,7 +151,7 @@ test("arrow keys and Tab move focus between a canvas's buttons, Enter clicks, Es
     await page.keyboard.press("Tab");
     await expect.poll(() => focused(page), { message: `Tab focuses ${to}` }).toEqual([to]);
   }
-  // Shift held first, as a player holds it (the frame cap makes a frame 100 ms, longer than Playwright's whole Shift+Tab).
+  // Shift held first, as a player holds it (Shift+Tab inside one frame counts too; the unit tests cover it).
   await page.keyboard.down("Shift");
   for (const to of ["d", "c"]) {
     await frames(page);

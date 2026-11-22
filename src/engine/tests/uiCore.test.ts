@@ -704,6 +704,7 @@ describe("UICore pointer routing", () => {
     dom.pointerDown(0, 900, 600); // the previous touch, far from the button
     dom.pointerUp(0, 900, 600);
     engine.step(DT);
+    engine.step(DT); // a frame reads the button up between two presses (ADR 0336)
     dom.pointerDown(0, 100, 40); // over Play
     engine.step(DT);
     expect(Input.mousePosition).toEqual(new Vector2(100, 40));

@@ -7,7 +7,15 @@
  *   buttons, movement, scroll, touches, pen samples and gamepad changes queue, timestamped, until
  *   the next snapshot.
  * - **Snapshot** (`beginFrame`, ADR 0011 step 2): once per Engine frame, applies the queue, then the
- *   routing step.
+ *   routing step. A key, button or touch reads down in a frame it's held at the end of or went down
+ *   in (a tap between two frames isn't lost), and the queue is applied so that every press shows
+ *   (ADR 0336, build notes): **one press per control per frame, with a frame that reads it up between
+ *   two** (a press of a control that read down this frame or last waits for the next frame), and
+ *   **every press with what was held at that moment** (a key or button held when another went down
+ *   this frame keeps reading held: its release waits for the next frame, so a chord's modifier lifted
+ *   after its key still counts). An event that waits keeps its place: it and every event queued after
+ *   it (on that device kind) are applied from the next frame, in order. So N presses of one key
+ *   inside a frame play out over the next 2N frames, none merged or lost.
  * - **Routing step** (ADR 0069): each router (the UI core) is handed what the pointer did this frame
  *   and answers what it claims; this frame's mouse presses over claimed UI then go to the UI until
  *   they're released, and so do the primary touch and the pen's buttons pressed in that frame (the
@@ -294,17 +302,24 @@ class Touchscreen {
     const v = this.view;
     for (let i = 0; i < TOUCH_SLOTS; i++) if (this.ended & (1 << i)) this.ids[i] = -1;
     this.ui &= ~this.ended;
+    const lastDown = this.down;
     this.ended = this.down = this.up = 0;
     this.dx = this.dy = 0;
     this.sx = this.sy = 0;
     this.changes.length = 0;
-    for (const ev of this.queue) {
+    let applied = 0;
+    for (; applied < this.queue.length; applied++) {
+      const ev = this.queue[applied];
       if (ev.kind === "start") {
         if (this.slotOf(ev.id) >= 0) continue;
         let slot = -1;
         for (let i = 0; i < TOUCH_SLOTS && slot < 0; i++) if (this.ids[i] === -1) slot = i;
         if (slot < 0) continue; // more fingers than slots
         const bit = 1 << slot;
+        // One press per frame (the keys' rule): a touch that would take a slot, or be the primary touch, read down
+        // this frame or last waits, with the events after it, for the next frame.
+        const primary = this.primaryId === -1 && (this.held & ~PRIMARY) === 0;
+        if ((lastDown | this.down | this.up) & (bit | (primary ? PRIMARY : 0))) break;
         this.ids[slot] = ev.id;
         this.held |= bit;
         this.down |= bit;
@@ -354,7 +369,7 @@ class Touchscreen {
         }
       }
     }
-    this.queue.length = 0;
+    this.queue.splice(0, applied);
   }
 
   /** After routing: the primary touch pressed this frame over claimed UI is the UI's until it lifts. */
@@ -394,6 +409,13 @@ class Touchscreen {
   /** Lift every finger (the devices lost focus). */
   releaseAll(time: number): void {
     for (let i = 0; i < TOUCH_SLOTS; i++) if (this.held & (1 << i)) this.queue.push({ kind: "end", id: this.ids[i], x: this.view.x[i], y: this.view.y[i], time });
+    // Touches whose start still waits in the queue without their end.
+    const waiting = new Map<number, TouchEvent>();
+    for (const ev of this.queue) {
+      if (ev.kind === "end") waiting.delete(ev.id);
+      else waiting.set(ev.id, ev);
+    }
+    for (const [id, ev] of waiting) if (this.slotOf(id) < 0) this.queue.push({ kind: "end", id, x: ev.x, y: ev.y, time });
   }
 
   reset(): void {
@@ -423,6 +445,7 @@ class Pen {
   apply(): void {
     const v = this.view;
     this.ui &= this.held;
+    const lastDown = this.down;
     this.down = this.up = 0;
     v.deltaX = v.deltaY = 0;
     this.changes.length = 0;
@@ -432,7 +455,9 @@ class Pen {
       this.up |= 1 << bit;
       this.changes.push({ bit, value: 0, time });
     };
-    for (const ev of this.queue) {
+    let applied = 0;
+    for (; applied < this.queue.length; applied++) {
+      const ev = this.queue[applied];
       if (ev.kind === "at") {
         if (v.inRange) {
           v.deltaX += ev.x - v.x;
@@ -448,17 +473,22 @@ class Pen {
       } else if (ev.kind === "down") {
         const bit = 1 << ev.bit;
         if (this.held & bit) continue;
+        // The keys' rules: one press per button per frame, and a button held while another went down stays held through it.
+        if ((lastDown | this.down | this.up) & bit) break;
         this.held |= bit;
         this.down |= bit;
         this.changes.push({ bit: ev.bit, value: 1, time: ev.time });
-      } else if (ev.kind === "up") release(ev.bit, ev.time);
-      else {
+      } else if (ev.kind === "up") {
+        const bit = 1 << ev.bit;
+        if (this.held & bit && this.down && !(this.down & bit)) break;
+        release(ev.bit, ev.time);
+      } else {
         for (let i = 0; i < PEN_BUTTONS.length; i++) release(i, ev.time);
         v.inRange = false;
         v.pressure = 0;
       }
     }
-    this.queue.length = 0;
+    this.queue.splice(0, applied);
   }
 
   /** After routing: buttons pressed this frame while the pointer is over claimed UI are the UI's until released. */
@@ -471,7 +501,14 @@ class Pen {
   }
 
   releaseAll(time: number): void {
-    for (let i = 0; i < PEN_BUTTONS.length; i++) if (this.held & (1 << i)) this.queue.push({ kind: "up", bit: i, time });
+    // Held buttons, and buttons whose press still waits in the queue without its release.
+    let down = this.held;
+    for (const ev of this.queue) {
+      if (ev.kind === "down") down |= 1 << ev.bit;
+      else if (ev.kind === "up") down &= ~(1 << ev.bit);
+      else if (ev.kind === "leave") down = 0;
+    }
+    for (let i = 0; i < PEN_BUTTONS.length; i++) if (down & (1 << i)) this.queue.push({ kind: "up", bit: i, time });
   }
 
   reset(): void {
@@ -490,6 +527,8 @@ class DeviceSnapshot implements DeviceEventSink {
   private readonly heldKeys = new Set<string>();
   private readonly downNow = new Set<string>();
   private readonly upNow = new Set<string>();
+  /** Last frame's `downNow`: a key read down then (pressed, maybe released too) isn't pressed again until a frame reads it up. */
+  private readonly lastDown = new Set<string>();
   private readonly pointer = new Vector2();
   private readonly pendingMove = new Vector2();
   private readonly moved = new Vector2();
@@ -558,7 +597,13 @@ class DeviceSnapshot implements DeviceEventSink {
 
   releaseAll(): void {
     const time = now();
-    for (const k of this.heldKeys) this.queue.push({ down: false, key: k, time });
+    // Held keys, and keys whose press still waits in the queue without its release.
+    const down = new Set(this.heldKeys);
+    for (const ev of this.queue) {
+      if (ev.down) down.add(ev.key);
+      else down.delete(ev.key);
+    }
+    for (const k of down) this.queue.push({ down: false, key: k, time });
     this.touchscreen.releaseAll(time);
     this.penDevice.releaseAll(time);
   }
@@ -639,23 +684,31 @@ class DeviceSnapshot implements DeviceEventSink {
       }
     }
     this.frame++;
+    this.lastDown.clear();
+    for (const k of this.downNow) this.lastDown.add(k);
     this.downNow.clear();
     this.upNow.clear();
     this.rawEvents.length = 0;
     const keyEvents: QueuedEvent[] = [];
-    for (const ev of this.queue) {
+    // One press per key per frame, each with the keys held at that moment (see the module comment): an event that
+    // would break that waits, with every event after it, for the next frame.
+    let applied = 0;
+    for (; applied < this.queue.length; applied++) {
+      const ev = this.queue[applied];
       if (ev.down) {
-        if (!this.heldKeys.has(ev.key)) {
-          this.downNow.add(ev.key);
-          keyEvents.push(ev);
-        }
+        if (this.heldKeys.has(ev.key)) continue;
+        if (this.downNow.has(ev.key) || this.upNow.has(ev.key) || this.lastDown.has(ev.key)) break;
+        this.downNow.add(ev.key);
         this.heldKeys.add(ev.key);
-      } else if (this.heldKeys.delete(ev.key)) {
+        keyEvents.push(ev);
+      } else if (this.heldKeys.has(ev.key)) {
+        if (this.downNow.size > 0 && !this.downNow.has(ev.key)) break;
+        this.heldKeys.delete(ev.key);
         this.upNow.add(ev.key);
         keyEvents.push(ev);
       }
     }
-    this.queue.length = 0;
+    this.queue.splice(0, applied);
     this.applyPads();
     this.touchscreen.apply();
     this.penDevice.apply();
@@ -685,8 +738,15 @@ class DeviceSnapshot implements DeviceEventSink {
   private applyPads(): void {
     this.padsConnected.length = 0;
     this.padsDisconnected.length = 0;
-    for (const pad of this.pads.values()) pad.down = pad.up = pad.touchDown = pad.touchUp = 0;
-    for (const ev of this.padQueue) {
+    // Last frame's presses (buttons, touchpad fingers), for the one-press-per-frame rule the keys follow.
+    const lastDown = new Map<GamepadSnapshot, [number, number]>();
+    for (const pad of this.pads.values()) {
+      lastDown.set(pad, [pad.down, pad.touchDown]);
+      pad.down = pad.up = pad.touchDown = pad.touchUp = 0;
+    }
+    let applied = 0;
+    for (; applied < this.padQueue.length; applied++) {
+      const ev = this.padQueue[applied];
       if (ev.kind === "connect") {
         if (this.pads.has(ev.info.id)) continue;
         const pad: GamepadSnapshot = {
@@ -717,9 +777,11 @@ class DeviceSnapshot implements DeviceEventSink {
         this.pads.delete(ev.id);
         this.padsDisconnected.push(pad);
       } else if (ev.kind === "button") {
-        pad.buttons[ev.index] = ev.value;
         const bit = 1 << ev.index;
         const pressed = ev.value >= PRESS_POINT;
+        if (pressed && !(pad.held & bit) && (pad.down | pad.up | (lastDown.get(pad)?.[0] ?? 0)) & bit) break;
+        if (!pressed && pad.held & bit && pad.down && !(pad.down & bit)) break;
+        pad.buttons[ev.index] = ev.value;
         if (pressed && !(pad.held & bit)) {
           pad.held |= bit;
           pad.down |= bit;
@@ -737,9 +799,10 @@ class DeviceSnapshot implements DeviceEventSink {
           this.rawEvents.push({ device: ev.id, control: `<Gamepad>/${GAMEPAD_AXES[ev.index]}`, value: ev.value, time: ev.time });
         }
       } else if (ev.kind === "touch") {
+        const bit = 1 << ev.finger;
+        if (ev.down && !(pad.touchHeld & bit) && (pad.touchDown | pad.touchUp | (lastDown.get(pad)?.[1] ?? 0)) & bit) break;
         pad.touchX[ev.finger] = ev.x;
         pad.touchY[ev.finger] = ev.y;
-        const bit = 1 << ev.finger;
         const control = `<Gamepad>/touchpad${ev.finger}`;
         if (ev.down && !(pad.touchHeld & bit)) {
           pad.touchHeld |= bit;
@@ -760,7 +823,7 @@ class DeviceSnapshot implements DeviceEventSink {
         v[2] = ev.z;
       }
     }
-    this.padQueue.length = 0;
+    this.padQueue.splice(0, applied);
   }
 
   /** Call `poll` at the start of every snapshot (adapters that poll their devices). Returns its removal. */
@@ -832,6 +895,7 @@ class DeviceSnapshot implements DeviceEventSink {
     this.heldKeys.clear();
     this.downNow.clear();
     this.upNow.clear();
+    this.lastDown.clear();
     this.queue.length = 0;
     this.moved.set(0, 0);
     this.pendingMove.set(0, 0);
