@@ -586,10 +586,10 @@ fn loop_fires_keys_at_the_end_and_at_zero_when_wrapping() {
         frame(&mut core, 0.5);
         times.extend(events(&core).iter().map(|e| e.time));
     }
-    // The track windows' loop rule (T20r): a looping window crosses the key at the end and the key
-    // at 0 when it passes the loop point, and the first window (which includes its start) also
-    // takes the end key as the previous cycle's: every pass reads 2.0 then 0.0.
-    assert_eq!(times, [2.0, 0.0, 2.0, 0.0, 2.0, 0.0]);
+    // The track windows' loop rule (T20r, D27): a looping window crosses the key at the end and the
+    // key at 0 when it passes the loop point. The first window includes its start (the key at 0)
+    // but not the end key: no previous cycle has ended.
+    assert_eq!(times, [0.0, 2.0, 0.0, 2.0, 0.0]);
 }
 
 #[test]

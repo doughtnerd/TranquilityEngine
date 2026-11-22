@@ -274,11 +274,297 @@ export function source_hash() {
 }
 
 /**
+ * Timeline instances evaluated this frame.
+ * @returns {number}
+ */
+export function timeline_active_count() {
+    const ret = wasm.timeline_active_count();
+    return ret >>> 0;
+}
+
+/**
+ * The byte offset of the evaluated instances' handles (`u32` each).
+ * @returns {number}
+ */
+export function timeline_active_ptr() {
+    const ret = wasm.timeline_active_ptr();
+    return ret >>> 0;
+}
+
+/**
+ * Binds a subclip string id of `owner`'s string table to a clip handle; returns a status. The
+ * instance's outputs may move: read `timeline_info` after binding.
+ * @param {number} instance
+ * @param {number} owner
+ * @param {number} string_id
+ * @param {number} asset
+ * @returns {number}
+ */
+export function timeline_bind(instance, owner, string_id, asset) {
+    const ret = wasm.timeline_bind(instance, owner, string_id, asset);
+    return ret >>> 0;
+}
+
+/**
+ * Bytes of an instance's `TIMELINE_BLOCK` records.
+ * @param {number} instance
+ * @returns {number}
+ */
+export function timeline_block_bytes(instance) {
+    const ret = wasm.timeline_block_bytes(instance);
+    return ret >>> 0;
+}
+
+/**
+ * Writes an instance's `TIMELINE_BLOCK` records into `out`; returns the bytes written.
+ * @param {number} instance
+ * @param {Uint8Array} out
+ * @returns {number}
+ */
+export function timeline_blocks(instance, out) {
+    const val2 = +instance;
+    var ptr0 = passArray8ToWasm0(out, wasm.__wbindgen_malloc);
+    var len0 = WASM_VECTOR_LEN;
+    const ret = wasm.timeline_blocks(val2, ptr0, len0, out);
+    return ret >>> 0;
+}
+
+/**
+ * `TIMELINE_CHANGE` records this frame.
+ * @returns {number}
+ */
+export function timeline_changes_count() {
+    const ret = wasm.timeline_changes_count();
+    return ret >>> 0;
+}
+
+/**
+ * Timeline changes dropped this frame because the buffer was full.
+ * @returns {number}
+ */
+export function timeline_changes_dropped() {
+    const ret = wasm.timeline_changes_dropped();
+    return ret >>> 0;
+}
+
+/**
+ * The byte offset of the timeline change records.
+ * @returns {number}
+ */
+export function timeline_changes_ptr() {
+    const ret = wasm.timeline_changes_ptr();
+    return ret >>> 0;
+}
+
+/**
+ * Applies a `TIMELINE_CONTROL` record; returns a status.
+ * @param {Uint8Array | number[]} record
+ * @returns {number}
+ */
+export function timeline_control(record) {
+    const ptr0 = passArray8ToWasm0(record, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.timeline_control(ptr0, len0);
+    return ret >>> 0;
+}
+
+/**
+ * Creates an instance of a clip used as a timeline (`TIMELINE_CREATE`); returns its handle or 0.
+ * @param {Uint8Array | number[]} record
+ * @returns {number}
+ */
+export function timeline_create(record) {
+    const ptr0 = passArray8ToWasm0(record, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.timeline_create(ptr0, len0);
+    return ret >>> 0;
+}
+
+/**
+ * Creates a sequence (`SEQ_CREATE` then its `SEQ_MEMBER` records); returns its handle or 0.
+ * @param {Uint8Array | number[]} bytes
+ * @returns {number}
+ */
+export function timeline_create_sequence(bytes) {
+    const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.timeline_create_sequence(ptr0, len0);
+    return ret >>> 0;
+}
+
+/**
+ * Writes an instance's `TIMELINE_INFO` into `out`; returns the bytes written (0: stale or short).
+ * @param {number} instance
+ * @param {Uint8Array} out
+ * @returns {number}
+ */
+export function timeline_info(instance, out) {
+    const val2 = +instance;
+    var ptr0 = passArray8ToWasm0(out, wasm.__wbindgen_malloc);
+    var len0 = WASM_VECTOR_LEN;
+    const ret = wasm.timeline_info(val2, ptr0, len0, out);
+    return ret >>> 0;
+}
+
+/**
+ * How many `tracks` records the timelines wrote this frame.
+ * @returns {number}
+ */
+export function timeline_records_count() {
+    const ret = wasm.timeline_records_count();
+    return ret >>> 0;
+}
+
+/**
+ * How many `tracks` records did not fit this frame.
+ * @returns {number}
+ */
+export function timeline_records_dropped() {
+    const ret = wasm.timeline_records_dropped();
+    return ret >>> 0;
+}
+
+/**
+ * Bytes of `tracks` records the timelines wrote this frame.
+ * @returns {number}
+ */
+export function timeline_records_len() {
+    const ret = wasm.timeline_records_len();
+    return ret >>> 0;
+}
+
+/**
+ * The byte offset of the timelines' `tracks` records.
+ * @returns {number}
+ */
+export function timeline_records_ptr() {
+    const ret = wasm.timeline_records_ptr();
+    return ret >>> 0;
+}
+
+/**
+ * The byte offset of the timeline value words.
+ * @returns {number}
+ */
+export function timeline_values_ptr() {
+    const ret = wasm.timeline_values_ptr();
+    return ret >>> 0;
+}
+
+/**
+ * The byte offset of the timeline block weights (`f32` each).
+ * @returns {number}
+ */
+export function timeline_weights_ptr() {
+    const ret = wasm.timeline_weights_ptr();
+    return ret >>> 0;
+}
+
+/**
+ * Resizes the timeline table and the frame record buffer; drops every instance. Returns a status.
+ * @param {number} max_timelines
+ * @param {number} record_bytes
+ * @returns {number}
+ */
+export function timelines_configure(max_timelines, record_bytes) {
+    const ret = wasm.timelines_configure(max_timelines, record_bytes);
+    return ret >>> 0;
+}
+
+/**
  * The track regions' byte offset in memory (`TRACK_STRIDE` bytes per instance index).
  * @returns {number}
  */
 export function tracks_ptr() {
     const ret = wasm.tracks_ptr();
+    return ret >>> 0;
+}
+
+/**
+ * `TWEEN_CHANGE` records this frame.
+ * @returns {number}
+ */
+export function tween_changes_count() {
+    const ret = wasm.tween_changes_count();
+    return ret >>> 0;
+}
+
+/**
+ * Tween changes dropped this frame because the buffer was full.
+ * @returns {number}
+ */
+export function tween_changes_dropped() {
+    const ret = wasm.tween_changes_dropped();
+    return ret >>> 0;
+}
+
+/**
+ * The byte offset of the tween change records.
+ * @returns {number}
+ */
+export function tween_changes_ptr() {
+    const ret = wasm.tween_changes_ptr();
+    return ret >>> 0;
+}
+
+/**
+ * The byte offset of the tween rows' column ids (`u32` each).
+ * @returns {number}
+ */
+export function tween_columns_ptr() {
+    const ret = wasm.tween_columns_ptr();
+    return ret >>> 0;
+}
+
+/**
+ * Applies a `TWEEN_CONTROL` record (pause, resume, kill, destroyed); returns a status.
+ * @param {Uint8Array | number[]} record
+ * @returns {number}
+ */
+export function tween_control(record) {
+    const ptr0 = passArray8ToWasm0(record, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.tween_control(ptr0, len0);
+    return ret >>> 0;
+}
+
+/**
+ * Creates a tween from a `TWEEN_CREATE` record; returns its handle, or 0 (see `last_status`).
+ * @param {Uint8Array | number[]} record
+ * @returns {number}
+ */
+export function tween_create(record) {
+    const ptr0 = passArray8ToWasm0(record, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.tween_create(ptr0, len0);
+    return ret >>> 0;
+}
+
+/**
+ * Tween output rows this frame.
+ * @returns {number}
+ */
+export function tween_values_count() {
+    const ret = wasm.tween_values_count();
+    return ret >>> 0;
+}
+
+/**
+ * The byte offset of the tween rows' values (four `f32` each).
+ * @returns {number}
+ */
+export function tween_values_ptr() {
+    const ret = wasm.tween_values_ptr();
+    return ret >>> 0;
+}
+
+/**
+ * Resizes the tween table (`DEFAULT_MAX_TWEENS` by default); drops every tween. Returns a status.
+ * @param {number} max_tweens
+ * @returns {number}
+ */
+export function tweens_configure(max_tweens) {
+    const ret = wasm.tweens_configure(max_tweens);
     return ret >>> 0;
 }
 

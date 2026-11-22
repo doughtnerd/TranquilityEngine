@@ -44,3 +44,7 @@ Decisions made during the build that the records didn't settle. Each entry: the 
 - **D40 (T40).** *Spring bones* use Störmer-Verlet (k·h² ≤ 1) with dynamic follow-the-leader (Müller 2012), simulated in world space so locomotion gives inertia; an implicit spring varied 20 cm with dt.
 - **D41 (T40).** *Grounder* rays and hits are in model space (the host converts); a miss returns the foot to its animated height; the pelvis only lowers by default.
 - **D42 (T40).** *Motion warp* uses smoothstep and rotates the path about its start with the yaw, so the root never slides sideways; it matches position and yaw only.
+- **D43 (coordinator, from T22r).** *A looping play's first window* includes the key at its start but not the key at `d` (and, backward, not the key at 0): no previous cycle has ended. Amends D27.
+- **D44 (T22r).** *Tween and timeline control* goes through direct exports taking one wire record each (creation isn't per-frame); kill and destroy records appear at the next `evaluate`; capacities are set by `tweens_configure`/`timelines_configure`, not the `Init` record.
+- **D45 (T22r).** *Yoyo* runs `ease(1 − p)` on odd cycles (DOTween); endpoints are exact; weight 0 in a timeline's output means leave the field alone, partial weights mean the host blends.
+- **D46 (T22r).** *A timeline is a `myco.anim@1` clip used as a timeline* (no new format); overlapping entries on a track crossfade (f32 weighted, quaternions sign-aligned nlerp, u32 heaviest); only depth-1 entries contribute values.

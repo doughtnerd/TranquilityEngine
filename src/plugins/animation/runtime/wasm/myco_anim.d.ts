@@ -124,9 +124,150 @@ export function snapshot_bytes(handle: number): number;
 export function source_hash(): string;
 
 /**
+ * Timeline instances evaluated this frame.
+ */
+export function timeline_active_count(): number;
+
+/**
+ * The byte offset of the evaluated instances' handles (`u32` each).
+ */
+export function timeline_active_ptr(): number;
+
+/**
+ * Binds a subclip string id of `owner`'s string table to a clip handle; returns a status. The
+ * instance's outputs may move: read `timeline_info` after binding.
+ */
+export function timeline_bind(instance: number, owner: number, string_id: number, asset: number): number;
+
+/**
+ * Bytes of an instance's `TIMELINE_BLOCK` records.
+ */
+export function timeline_block_bytes(instance: number): number;
+
+/**
+ * Writes an instance's `TIMELINE_BLOCK` records into `out`; returns the bytes written.
+ */
+export function timeline_blocks(instance: number, out: Uint8Array): number;
+
+/**
+ * `TIMELINE_CHANGE` records this frame.
+ */
+export function timeline_changes_count(): number;
+
+/**
+ * Timeline changes dropped this frame because the buffer was full.
+ */
+export function timeline_changes_dropped(): number;
+
+/**
+ * The byte offset of the timeline change records.
+ */
+export function timeline_changes_ptr(): number;
+
+/**
+ * Applies a `TIMELINE_CONTROL` record; returns a status.
+ */
+export function timeline_control(record: Uint8Array | number[]): number;
+
+/**
+ * Creates an instance of a clip used as a timeline (`TIMELINE_CREATE`); returns its handle or 0.
+ */
+export function timeline_create(record: Uint8Array | number[]): number;
+
+/**
+ * Creates a sequence (`SEQ_CREATE` then its `SEQ_MEMBER` records); returns its handle or 0.
+ */
+export function timeline_create_sequence(bytes: Uint8Array | number[]): number;
+
+/**
+ * Writes an instance's `TIMELINE_INFO` into `out`; returns the bytes written (0: stale or short).
+ */
+export function timeline_info(instance: number, out: Uint8Array): number;
+
+/**
+ * How many `tracks` records the timelines wrote this frame.
+ */
+export function timeline_records_count(): number;
+
+/**
+ * How many `tracks` records did not fit this frame.
+ */
+export function timeline_records_dropped(): number;
+
+/**
+ * Bytes of `tracks` records the timelines wrote this frame.
+ */
+export function timeline_records_len(): number;
+
+/**
+ * The byte offset of the timelines' `tracks` records.
+ */
+export function timeline_records_ptr(): number;
+
+/**
+ * The byte offset of the timeline value words.
+ */
+export function timeline_values_ptr(): number;
+
+/**
+ * The byte offset of the timeline block weights (`f32` each).
+ */
+export function timeline_weights_ptr(): number;
+
+/**
+ * Resizes the timeline table and the frame record buffer; drops every instance. Returns a status.
+ */
+export function timelines_configure(max_timelines: number, record_bytes: number): number;
+
+/**
  * The track regions' byte offset in memory (`TRACK_STRIDE` bytes per instance index).
  */
 export function tracks_ptr(): number;
+
+/**
+ * `TWEEN_CHANGE` records this frame.
+ */
+export function tween_changes_count(): number;
+
+/**
+ * Tween changes dropped this frame because the buffer was full.
+ */
+export function tween_changes_dropped(): number;
+
+/**
+ * The byte offset of the tween change records.
+ */
+export function tween_changes_ptr(): number;
+
+/**
+ * The byte offset of the tween rows' column ids (`u32` each).
+ */
+export function tween_columns_ptr(): number;
+
+/**
+ * Applies a `TWEEN_CONTROL` record (pause, resume, kill, destroyed); returns a status.
+ */
+export function tween_control(record: Uint8Array | number[]): number;
+
+/**
+ * Creates a tween from a `TWEEN_CREATE` record; returns its handle, or 0 (see `last_status`).
+ */
+export function tween_create(record: Uint8Array | number[]): number;
+
+/**
+ * Tween output rows this frame.
+ */
+export function tween_values_count(): number;
+
+/**
+ * The byte offset of the tween rows' values (four `f32` each).
+ */
+export function tween_values_ptr(): number;
+
+/**
+ * Resizes the tween table (`DEFAULT_MAX_TWEENS` by default); drops every tween. Returns a status.
+ */
+export function tweens_configure(max_tweens: number): number;
 
 /**
  * Applies the first `len` bytes of the command buffer; returns the commands applied.
@@ -161,7 +302,35 @@ export interface InitOutput {
     readonly snapshot: (a: number, b: number, c: number, d: any) => number;
     readonly snapshot_bytes: (a: number) => number;
     readonly source_hash: () => [number, number];
+    readonly timeline_active_count: () => number;
+    readonly timeline_active_ptr: () => number;
+    readonly timeline_bind: (a: number, b: number, c: number, d: number) => number;
+    readonly timeline_block_bytes: (a: number) => number;
+    readonly timeline_blocks: (a: number, b: number, c: number, d: any) => number;
+    readonly timeline_changes_count: () => number;
+    readonly timeline_changes_dropped: () => number;
+    readonly timeline_changes_ptr: () => number;
+    readonly timeline_control: (a: number, b: number) => number;
+    readonly timeline_create: (a: number, b: number) => number;
+    readonly timeline_create_sequence: (a: number, b: number) => number;
+    readonly timeline_info: (a: number, b: number, c: number, d: any) => number;
+    readonly timeline_records_count: () => number;
+    readonly timeline_records_dropped: () => number;
+    readonly timeline_records_len: () => number;
+    readonly timeline_records_ptr: () => number;
+    readonly timeline_values_ptr: () => number;
+    readonly timeline_weights_ptr: () => number;
+    readonly timelines_configure: (a: number, b: number) => number;
     readonly tracks_ptr: () => number;
+    readonly tween_changes_count: () => number;
+    readonly tween_changes_dropped: () => number;
+    readonly tween_changes_ptr: () => number;
+    readonly tween_columns_ptr: () => number;
+    readonly tween_control: (a: number, b: number) => number;
+    readonly tween_create: (a: number, b: number) => number;
+    readonly tween_values_count: () => number;
+    readonly tween_values_ptr: () => number;
+    readonly tweens_configure: (a: number) => number;
     readonly write_inputs: (a: number) => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;

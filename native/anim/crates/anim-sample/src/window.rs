@@ -338,12 +338,20 @@ impl Span {
     }
 
     /// Whether an instant at unwrapped time `t` is crossed.
-    fn crosses(&self, t: f32) -> bool {
+    /// Whether key time `key` (in `[0, d]`), shifted into cycle position `key + shift`, is crossed.
+    ///
+    /// The start point of a [`WINDOW_START`] window is included, except for the loop seam's
+    /// other side: a looping play starting at 0 doesn't fire the key at `d` as if a previous cycle
+    /// had just ended (nor, playing backward from the end, the key at 0).
+    fn crosses(&self, key: f32, shift: f32) -> bool {
         let (a, b) = (self.a, self.b);
+        let t = key + shift;
         if self.forward() {
-            (a < t || (self.start && a == t)) && t <= b
+            let seam = self.looping && key == self.d && self.d > 0.0;
+            (a < t || (self.start && a == t && !seam)) && t <= b
         } else {
-            b <= t && (t < a || (self.start && t == a))
+            let seam = self.looping && key == 0.0 && self.d > 0.0;
+            b <= t && (t < a || (self.start && t == a && !seam))
         }
     }
 
@@ -431,7 +439,7 @@ impl ClipBindings {
             let range = first..end.max(first);
             let mut emit = |i: usize| {
                 let c = self.crossings[i];
-                if sp.crosses(c.time + shift) {
+                if sp.crosses(c.time, shift) {
                     self.emit_cross(c.track, c.key, weight, sink);
                 }
             };
