@@ -11,6 +11,8 @@ import { closeTestProject, openTestProject, ROOT, useCoreAssetKinds } from "../.
 import { joinPath } from "../../../editor/projects";
 import { emptyPlaylist, emptyPlaylistBody, formatPlaylist, parsePlaylist } from "../../../engine/audio/playlist/format";
 import type { EmbeddedEntry, PlaylistAsset } from "../../../engine/audio/playlist/types";
+import { applyBlipPreset } from "../../../engine/audio/generators/blipPresets";
+import { emptyGenerator, formatGenerator, parseGenerator } from "../../../engine/audio/generators/format";
 import { registerStudioAssetKinds } from "./studioAssets";
 
 /** Just the Studio kinds, as the audio plugin's `activate` registers them. */
@@ -97,5 +99,45 @@ describe("the Studio's asset kinds", () => {
     expect(moved.playlist.spatial!.attenuation).toBe("audio/presets/far.attenuation.json");
     expect((moved.playlist.entries[0] as EmbeddedEntry).embedded.entries[0]).toMatchObject({ sample: "sfx/step.wav" });
     expect(JSON.parse(read("audio/step.sample.json"))).toMatchObject({ source: "sfx/step.wav", lineage: { parent: "audio/base.sample.json" } });
+  });
+
+  describe("generators (ADR 0346)", () => {
+    const COIN = formatGenerator(applyBlipPreset(emptyGenerator("blip"), "coin", 1734));
+    function usesCoin(): PlaylistAsset {
+      const p = emptyPlaylist("clip");
+      p.entries = [{ kind: "generator", generator: "audio/ui/coin.generator.json", ...use }];
+      return p;
+    }
+    const baked = JSON.stringify({ format: "myco.import@1", generated: { generator: "audio/ui/coin.generator.json", hash: "ab", seed: 1734, variation: 0 } });
+
+    it("resolve, and read and write through the engine's generator format", () => {
+      expect(assetKind("audio/ui/Coin.generator.json")).toBe("generator");
+      expect(registeredKind("generator")).toMatchObject({ label: "Generator", folder: "audio" });
+      const g = registeredKind("generator")!.format!;
+      const read = g.parse(JSON.parse(COIN), "coin.generator.json");
+      expect(read).toEqual({ value: parseGenerator(JSON.parse(COIN)).generator, problems: [] });
+      expect(g.format(read.value)).toBe(COIN);
+      expect(g.parse(JSON.parse(g.format(g.empty())), "x.generator.json").problems).toEqual([]);
+      expect(g.parse({ kind: "blip" }, "x.generator.json").problems).toEqual([{ message: 'x.generator.json: format: expected "myco.generator@1"; reading it anyway.' }]);
+    });
+
+    it("are named by playlists and baked samples' sidecars, and a move rewrites both", async () => {
+      const { project, fs } = await openTestProject({
+        "audio/ui/coin.generator.json": COIN,
+        "audio/shop.playlist.json": formatPlaylist(usesCoin()),
+        "audio/ui/coin.baked.wav": new Uint8Array([1]),
+        "audio/ui/coin.baked.wav.meta.json": baked,
+      });
+      expect(registeredKind("playlist")!.references!.read("audio/shop.playlist.json", formatPlaylist(usesCoin()))).toEqual(["audio/ui/coin.generator.json"]);
+      expect((await assetUsers(project, ["audio/ui/coin.generator.json"])).sort()).toEqual(["audio/shop.playlist.json", "audio/ui/coin.baked.wav.meta.json"]);
+
+      await project.move("audio/ui/coin.generator.json", "audio/sfx/coin.generator.json");
+      const { updated, notRewritten } = await rewriteReferences(project, [["audio/ui/coin.generator.json", "audio/sfx/coin.generator.json"]], "Move");
+      expect(updated.sort()).toEqual(["audio/shop.playlist.json", "audio/ui/coin.baked.wav.meta.json"]);
+      expect(notRewritten).toEqual([]);
+      const read = (path: string) => fs.files.get(joinPath(ROOT, path)) as string;
+      expect(parsePlaylist(JSON.parse(read("audio/shop.playlist.json"))).playlist.entries[0]).toMatchObject({ kind: "generator", generator: "audio/sfx/coin.generator.json" });
+      expect(JSON.parse(read("audio/ui/coin.baked.wav.meta.json")).generated.generator).toBe("audio/sfx/coin.generator.json");
+    });
   });
 });

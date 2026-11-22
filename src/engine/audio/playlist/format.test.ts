@@ -178,7 +178,7 @@ describe("parsePlaylist: the rules the runtime needs", () => {
     ]);
     expect(problems).toEqual([
       "automation[1].input: clipTime belongs to sequence clips and tracks; a playlist's own automation reads voiceTime.",
-      "automation[3].target: must be volume, pitch, pan, enabled or fx:<effect id>:<parameter>; dropped.",
+      "automation[3].target: must be volume, pitch, pan, enabled, fx:<effect id>:<parameter> or gen:<parameter>; dropped.",
     ]);
     expect(parsePlaylist(playlistToJson(playlist)).playlist).toEqual(playlist);
     expect(playlistToJson(emptyPlaylist())).not.toHaveProperty("automation");
