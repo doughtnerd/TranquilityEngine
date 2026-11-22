@@ -111,7 +111,8 @@ export interface QueueSettings {
   pick: "random" | "shuffle" | "roundRobin";
   /** 0..5. */
   avoidRepeat: number;
-  /** Back to back until stopped (the engine's continuous containers); null = one pick per trigger. */
+  /** Back to back until stopped (the engine's continuous containers); null = one pick per trigger. A negative
+   *  `gapMs` overlaps consecutive entries with an equal-power crossfade of that length. */
   continuous: { gapMs: number } | null;
 }
 
@@ -148,13 +149,15 @@ export interface BlendSettings {
 }
 
 export interface SequenceLoop extends LoopBehaviour { id: string; start: number; end: number }
-export interface SequenceMarker { id: string; name: string; at: number }
+/** `exit` markers are where Switch rules timed `exit` and sync clips may leave (ADR 0329); `cue` reports to the game. */
+export interface SequenceMarker { id: string; name: string; at: number; type?: "note" | "cue" | "exit" }
 export interface Clip {
   id: string;
   /** Exactly one of `sample` / `playlist`. */
   sample?: string;
   playlist?: string | PlaylistBody;
   at: number;
+  /** Seconds; 0 = to the end of the source (the sample after its trim, or the playlist's natural length). */
   length: number;
   offset: number;
   gain: number;
@@ -187,6 +190,7 @@ export interface Track {
   clips: Clip[];
 }
 export interface SequenceSettings {
+  /** Seconds; 0 = to the end of the longest clip. */
   length: number;
   tempo: { bpm: number; meter: string } | null;
   tracks: Track[];
