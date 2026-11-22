@@ -4,6 +4,7 @@
 import type { StudioPanel } from "../shell/studioPanels";
 import { SCREENS, type ScreenId } from "../shell/screens";
 import { historyPanel, placeholderPanel } from "./placeholder";
+import { MIXER_PANELS } from "./mixer";
 import { PLAYLISTS_PANELS } from "./playlists";
 import { PROFILER_PANELS } from "./profiler";
 import { SAMPLES_PANELS } from "./samples";
@@ -13,12 +14,7 @@ const purpose = (id: ScreenId) => SCREENS.find((s) => s.id === id)!.purpose;
 export const SCREEN_PANELS: Readonly<Record<ScreenId, readonly StudioPanel[]>> = {
   samples: SAMPLES_PANELS,
   playlists: PLAYLISTS_PANELS,
-  mixer: [
-    placeholderPanel({ id: "mixer-snapshots", title: "Snapshots", dock: "left", empty: "No snapshots yet", body: "Named mixes the game blends to (a pause menu, underwater)." }),
-    placeholderPanel({ id: "mixer-board", title: "Mixer", dock: "fill", fixed: true, icon: "☰", empty: "Mixer", body: <p>{purpose("mixer")} Changes are heard through the Studio's runtime: audition a playlist or replay a take.</p> }),
-    placeholderPanel({ id: "mixer-inspector", title: "Inspector", dock: "right", empty: "Nothing selected", body: "The selected bus's effects, sends and ducking." }),
-    historyPanel("mixer"),
-  ],
+  mixer: MIXER_PANELS,
   spatial: [
     placeholderPanel({ id: "spatial-scenes", title: "Test scenes", dock: "left", empty: "No test scenes yet", body: "Scenes of sources, a listener and zones to hear spatial settings in." }),
     placeholderPanel({ id: "spatial-scene", title: "Scene", dock: "fill", fixed: true, icon: "◎", empty: "Spatial", body: <p>{purpose("spatial")}</p> }),
