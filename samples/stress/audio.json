@@ -243,7 +243,7 @@
     {
       "name": "Bus00",
       "parent": "Mix0",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -286,14 +286,14 @@
       "sends": [
         {
           "to": "Reverb",
-          "levelDb": -16.478174818886377
+          "levelDb": -16.4781748
         }
       ]
     },
     {
       "name": "Bus01",
       "parent": "Mix1",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -338,7 +338,7 @@
     {
       "name": "Bus02",
       "parent": "Mix2",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -383,7 +383,7 @@
     {
       "name": "Bus03",
       "parent": "Mix3",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -426,14 +426,14 @@
       "sends": [
         {
           "to": "Reverb",
-          "levelDb": -10.457574905606752
+          "levelDb": -10.4575749
         }
       ]
     },
     {
       "name": "Bus04",
       "parent": "Mix0",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -478,7 +478,7 @@
     {
       "name": "Bus05",
       "parent": "Mix1",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -523,7 +523,7 @@
     {
       "name": "Bus06",
       "parent": "Mix2",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -566,14 +566,14 @@
       "sends": [
         {
           "to": "Reverb",
-          "levelDb": -12.041199826559248
+          "levelDb": -12.04119983
         }
       ]
     },
     {
       "name": "Bus07",
       "parent": "Mix3",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -618,7 +618,7 @@
     {
       "name": "Bus08",
       "parent": "Mix0",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -663,7 +663,7 @@
     {
       "name": "Bus09",
       "parent": "Mix1",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -706,14 +706,14 @@
       "sends": [
         {
           "to": "Reverb",
-          "levelDb": -13.979400086720375
+          "levelDb": -13.9794001
         }
       ]
     },
     {
       "name": "Bus10",
       "parent": "Mix2",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -758,7 +758,7 @@
     {
       "name": "Bus11",
       "parent": "Mix3",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -803,7 +803,7 @@
     {
       "name": "Bus12",
       "parent": "Mix0",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -846,14 +846,14 @@
       "sends": [
         {
           "to": "Reverb",
-          "levelDb": -16.478174818886377
+          "levelDb": -16.4781748
         }
       ]
     },
     {
       "name": "Bus13",
       "parent": "Mix1",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -898,7 +898,7 @@
     {
       "name": "Bus14",
       "parent": "Mix2",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -943,7 +943,7 @@
     {
       "name": "Bus15",
       "parent": "Mix3",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -986,14 +986,14 @@
       "sends": [
         {
           "to": "Reverb",
-          "levelDb": -10.457574905606752
+          "levelDb": -10.4575749
         }
       ]
     },
     {
       "name": "Bus16",
       "parent": "Mix0",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -1038,7 +1038,7 @@
     {
       "name": "Bus17",
       "parent": "Mix1",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -1083,7 +1083,7 @@
     {
       "name": "Bus18",
       "parent": "Mix2",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -1126,14 +1126,14 @@
       "sends": [
         {
           "to": "Reverb",
-          "levelDb": -12.041199826559248
+          "levelDb": -12.04119983
         }
       ]
     },
     {
       "name": "Bus19",
       "parent": "Mix3",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -1178,7 +1178,7 @@
     {
       "name": "Bus20",
       "parent": "Mix0",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -1223,7 +1223,7 @@
     {
       "name": "Bus21",
       "parent": "Mix1",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -1266,14 +1266,14 @@
       "sends": [
         {
           "to": "Reverb",
-          "levelDb": -13.979400086720375
+          "levelDb": -13.9794001
         }
       ]
     },
     {
       "name": "Bus22",
       "parent": "Mix2",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -1318,7 +1318,7 @@
     {
       "name": "Bus23",
       "parent": "Mix3",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -1363,7 +1363,7 @@
     {
       "name": "Bus24",
       "parent": "Mix0",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -1408,7 +1408,7 @@
     {
       "name": "Bus25",
       "parent": "Mix1",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -1453,7 +1453,7 @@
     {
       "name": "Bus26",
       "parent": "Mix2",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -1521,7 +1521,7 @@
       "mode": "presence",
       "detector": "rms",
       "thresholdDb": -30,
-      "amountDb": -3.0980391997148637,
+      "amountDb": -3.0980392,
       "attackMs": 50,
       "releaseMs": 500,
       "enabled": true
@@ -1540,8 +1540,8 @@
       "priority": 0,
       "combine": "override",
       "buses": {
-        "Mix0": -3.0980391997148637,
-        "Mix1": -3.0980391997148637
+        "Mix0": -3.0980392,
+        "Mix1": -3.0980392
       },
       "effects": {
         "Mix0": {
@@ -1573,8 +1573,8 @@
       "priority": 0,
       "combine": "override",
       "buses": {
-        "Mix2": -7.958800173440752,
-        "Mix3": -7.958800173440752
+        "Mix2": -7.95880017,
+        "Mix3": -7.95880017
       },
       "effects": {}
     }

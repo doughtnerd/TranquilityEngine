@@ -41,7 +41,7 @@
     {
       "name": "Music",
       "parent": "Master",
-      "volumeDb": -4.436974992327127,
+      "volumeDb": -4.43697499,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -118,7 +118,7 @@
     {
       "name": "Ambience",
       "parent": "Master",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": {
@@ -141,7 +141,7 @@
       "sends": [
         {
           "to": "Reverb",
-          "levelDb": -6.020599913279624
+          "levelDb": -6.02059991
         }
       ]
     },
@@ -235,7 +235,7 @@
     {
       "name": "Engine",
       "parent": "Master",
-      "volumeDb": -1.938200260161128,
+      "volumeDb": -1.93820026,
       "mute": false,
       "voiceLimit": null,
       "bed": null,
@@ -289,7 +289,7 @@
       "target": "volume",
       "parameter": "Intensity",
       "curve": [
-        [0, -6.935749724493126],
+        [0, -6.93574972],
         [1, 0]
       ],
       "bypass": false
@@ -313,7 +313,7 @@
       "mode": "presence",
       "detector": "rms",
       "thresholdDb": -30,
-      "amountDb": -10.457574905606752,
+      "amountDb": -10.4575749,
       "attackMs": 50,
       "releaseMs": 400,
       "enabled": true
@@ -324,7 +324,7 @@
       "mode": "level",
       "detector": "rms",
       "thresholdDb": -30,
-      "amountDb": -9.118639112994488,
+      "amountDb": -9.11863911,
       "attackMs": 50,
       "releaseMs": 500,
       "enabled": true
@@ -335,7 +335,7 @@
       "mode": "level",
       "detector": "peak",
       "thresholdDb": -20,
-      "amountDb": -6.020599913279624,
+      "amountDb": -6.02059991,
       "attackMs": 100,
       "releaseMs": 800,
       "enabled": true
@@ -354,8 +354,8 @@
       "priority": 0,
       "combine": "override",
       "buses": {
-        "Music": -4.436974992327127,
-        "Ambience": -6.020599913279624
+        "Music": -4.43697499,
+        "Ambience": -6.02059991
       },
       "effects": {
         "Music": {

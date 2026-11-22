@@ -23,7 +23,7 @@ import {
   DEFAULT_SNAPSHOT_FADE_MS, DEFAULT_SNAPSHOT_PRIORITY, audioProjectToJson, defaultAudioProject, engineSettingsOf, freeEffectId, newBus,
   parseAudioProject, reverbSendOf, toRuntimeSettings, vcaOffsetDb,
 } from "./format";
-import { clampDb, gainToDb } from "./gain";
+import { levelDbOf } from "./gain";
 import { OPEN_CUTOFF, isCarrier, isShown, msOf, paramsOf, toBusEffect, updatedParams } from "./legacyEffects";
 import type { AudioEngineSettings, AudioProject, Bus, DuckingRule, MixAutomation, Return, Snapshot } from "./types";
 
@@ -36,7 +36,7 @@ function newSnapshot(name: string): Snapshot {
   return { name, folder: "", start: { kind: "code" }, fadeInMs: DEFAULT_SNAPSHOT_FADE_MS, fadeOutMs: DEFAULT_SNAPSHOT_FADE_MS, holdMs: 0, priority: DEFAULT_SNAPSHOT_PRIORITY, combine: "override", buses: {}, effects: {} };
 }
 
-const curveToDb = (curve: Curve): CurveKey[] => curve.map((k) => (k.length === 3 ? [k[0], gainToDb(k[1]), k[2]] : [k[0], gainToDb(k[1])]) as CurveKey);
+const curveToDb = (curve: Curve): CurveKey[] => curve.map((k) => (k.length === 3 ? [k[0], levelDbOf(k[1], 0, false), k[2]] : [k[0], levelDbOf(k[1], 0, false)]) as CurveKey);
 
 /** A bus's bed in the new shape, from the old `bed` and `bedPriority` (defaults applied). */
 function bedOf(a: Pick<AudioSettings, "buses">, name: string, root: boolean): Bus["bed"] {
@@ -59,7 +59,7 @@ function addCarrier(bus: Bus): string {
 
 const duckingFrom = (r: RuntimeDuckingRule): DuckingRule => ({
   target: r.target, trigger: r.trigger, mode: r.mode ?? "presence", detector: r.detector ?? "rms", thresholdDb: r.threshold ?? -30,
-  amountDb: clampDb(Math.min(0, gainToDb(r.amount))), attackMs: msOf(r.attack), releaseMs: msOf(r.release), enabled: true,
+  amountDb: Math.min(0, levelDbOf(r.amount)), attackMs: msOf(r.attack), releaseMs: msOf(r.release), enabled: true,
 });
 
 /** The migration of an old `audio` section (as `project.json` held it) to `audio.json`. Problems of the old section's parse go to `problems`. */
@@ -74,14 +74,14 @@ export function fromLegacySection(section: unknown, problems: string[] = []): Au
   let usesReverb = false;
   project.buses = a.buses.map((b, i) => {
     const root = i === 0;
-    const bus: Bus = { ...newBus(b.name, root ? null : b.parent!), volumeDb: clampDb(gainToDb(b.volume)), mute: b.mute, voiceLimit: b.maxVoices ?? null, bed: bedOf(a, b.name, root), meter: root || b.meter === "loudness" };
+    const bus: Bus = { ...newBus(b.name, root ? null : b.parent!), volumeDb: levelDbOf(b.volume), mute: b.mute, voiceLimit: b.maxVoices ?? null, bed: bedOf(a, b.name, root), meter: root || b.meter === "loudness" };
     for (const e of b.effects) {
       if (e.type !== "reverb") {
         bus.effects.push({ id: freeEffectId(bus.effects.map((x) => x.id)), type: e.type, on: true, params: paramsOf(e) });
       } else if (root) problems.push(`buses "${b.name}": the master bus can't send, so its reverb send is dropped.`);
       else if (bus.sends.length > 0) problems.push(`buses "${b.name}": a second reverb send is dropped.`);
       else {
-        bus.sends.push({ to: reverbName, levelDb: clampDb(gainToDb(e.send)) });
+        bus.sends.push({ to: reverbName, levelDb: levelDbOf(e.send) });
         usesReverb = true;
       }
     }
@@ -96,7 +96,7 @@ export function fromLegacySection(section: unknown, problems: string[] = []): Au
   };
   project.snapshots = a.snapshots.map((s) => {
     const snap = newSnapshot(s.name);
-    for (const [bus, v] of Object.entries(s.volumes)) snap.buses[bus] = clampDb(gainToDb(v));
+    for (const [bus, v] of Object.entries(s.volumes)) snap.buses[bus] = levelDbOf(v);
     for (const [bus, hz] of Object.entries(s.lowpass)) (snap.effects[bus] ??= {})[carrier(bus)] = { cutoff: hz };
     return snap;
   });
@@ -242,7 +242,7 @@ export function mergeLegacyIntoProject(original: AudioProject, section: unknown)
         // Master can't send (ADR 0330): the old section's reverb on the root has nowhere to go.
       } else if (nRev?.type === "reverb") {
         const ret = old ? out.returns.find((r) => r.name === old.ret.name)! : reverbReturn();
-        sends.splice(Math.max(0, index), 0, { to: ret.name, levelDb: clampDb(gainToDb(nRev.send) - ret.volumeDb) });
+        sends.splice(Math.max(0, index), 0, { to: ret.name, levelDb: levelDbOf(nRev.send, ret.volumeDb) });
       }
       bus.sends = sends;
     }
@@ -254,7 +254,7 @@ export function mergeLegacyIntoProject(original: AudioProject, section: unknown)
   for (const v of out.vcas) v.members = v.members.filter((m) => busNames.has(m));
   for (const r of out.returns) if (!busNames.has(r.output)) r.output = out.buses[0].name;
   // Levels last: a VCA's offset is folded into the old section's volume, so it comes off again here.
-  for (const { bus, nb, changed } of volumes) if (changed) bus.volumeDb = clampDb(gainToDb(nb.volume) - vcaOffsetDb(out, bus.name));
+  for (const { bus, nb, changed } of volumes) if (changed) bus.volumeDb = levelDbOf(nb.volume, vcaOffsetDb(out, bus.name));
 
   // Carriers for an old snapshot or automation low-pass: one per bus, shared.
   const created = new Set<Effect>();
@@ -276,7 +276,7 @@ export function mergeLegacyIntoProject(original: AudioProject, section: unknown)
     if (!es || !same(ns.volumes, es.volumes)) {
       const buses: Record<string, number> = {};
       for (const [k, v] of Object.entries(snap.buses)) if (!busNames.has(k)) buses[k] = v; // returns: the old shape can't name them
-      for (const [k, v] of Object.entries(ns.volumes)) buses[k] = es && os && es.volumes[k] === v && os.buses[k] !== undefined ? os.buses[k] : clampDb(gainToDb(v));
+      for (const [k, v] of Object.entries(ns.volumes)) buses[k] = es && os && es.volumes[k] === v && os.buses[k] !== undefined ? os.buses[k] : levelDbOf(v);
       snap.buses = buses;
     }
     if (!es || !same(ns.lowpass, es.lowpass)) {
@@ -306,7 +306,7 @@ export function mergeLegacyIntoProject(original: AudioProject, section: unknown)
     const shown = project.ducking.filter((d) => showsRule(project, d));
     const update = (d: DuckingRule, n: RuntimeDuckingRule, e: RuntimeDuckingRule): DuckingRule => {
       const r = { ...d, target: n.target, trigger: n.trigger, mode: n.mode ?? d.mode };
-      if (n.amount !== e.amount) r.amountDb = clampDb(Math.min(0, gainToDb(n.amount)));
+      if (n.amount !== e.amount) r.amountDb = Math.min(0, levelDbOf(n.amount));
       if (n.attack !== e.attack) r.attackMs = msOf(n.attack);
       if (n.release !== e.release) r.releaseMs = msOf(n.release);
       if (n.detector !== undefined && n.detector !== e.detector) r.detector = n.detector;

@@ -99,6 +99,15 @@ describe("planWebBuild", () => {
     expect((err as Error).message).toContain("scripts/b.ts: can't find");
   });
 
+  it("ships audio.json with the project's files and refuses a project.json that still has an audio section (ADR 0330)", async () => {
+    const plan = await planWebBuild(source({ jsonFiles: { "audio.json": '{ "format": "myco.audio@1" }' } }));
+    expect(plan.copies).toContain("audio.json");
+    const legacy = source({ jsonFiles: { "project.json": '{ "name": "Old", "audio": { "buses": [{ "name": "Master" }] } }' } });
+    const err = await planWebBuild(legacy).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ExportError);
+    expect((err as Error).message).toMatch(/still has an "audio" section, which moved to audio\.json/);
+  });
+
   it("checks the bootstrap script and the main scene", async () => {
     await expect(planWebBuild(source({ settings: { bootstrap: "scripts/Boot.ts" } }))).rejects.toThrow(/bootstrap is the script "scripts\/Boot.ts"/);
     await expect(planWebBuild(source(), { mainScene: "scenes/nope.scene.json" })).rejects.toThrow(/no scene/);

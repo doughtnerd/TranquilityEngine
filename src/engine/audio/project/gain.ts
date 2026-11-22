@@ -24,5 +24,21 @@ export function gainToDb(gain: number): number {
   return gain <= Math.pow(10, MIN_DB / 20) ? MIN_DB : 20 * Math.log10(gain);
 }
 
+/**
+ * The shortest level in dB (fewest decimals, up to 9) that, with `offset` dB added, reads back as `gain`
+ * (`dbToGain(level + offset) === gain`), clamped to the fader's range: so a converted level is written as -6.0206, not
+ * -6.020599913279624, and an undo through the linear view lands on the level it left (-6, not -6.0000000057).
+ */
+export function levelDbOf(gain: number, offset = 0, clamp = true): number {
+  const limit = clamp ? clampDb : (db: number) => Math.max(MIN_DB, db);
+  const exact = gainToDb(gain) - offset;
+  for (let places = 0; places <= 9; places++) {
+    const f = Math.pow(10, places);
+    const c = limit(Math.round(exact * f) / f);
+    if (dbToGain(c + offset) === gain) return c;
+  }
+  return limit(exact);
+}
+
 /** `db` clamped to the fader's range. */
 export const clampDb = (db: number): number => Math.min(MAX_DB, Math.max(MIN_DB, db));

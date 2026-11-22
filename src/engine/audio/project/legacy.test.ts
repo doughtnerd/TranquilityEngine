@@ -37,7 +37,7 @@ describe("fromLegacySection (the migration)", () => {
 
   it("converts levels to dB and keeps the engine settings", () => {
     expect(problems).toEqual([]);
-    expect(busOf(project, "Music").volumeDb).toBeCloseTo(20 * Math.log10(0.8), 9);
+    expect(busOf(project, "Music").volumeDb).toBeCloseTo(20 * Math.log10(0.8), 6);
     expect(busOf(project, "Master").volumeDb).toBe(0);
     expect(project.settings).toMatchObject({ voices: { mixed: 96, logical: 2048, hrtf: 8 }, rhythmMode: true, submixes: 32, bedBeyond: null, dopplerAmount: 1 });
     expect(project.loudness.resetOnPlay).toBe(false);
@@ -46,7 +46,7 @@ describe("fromLegacySection (the migration)", () => {
   it("turns the reverb send effect into a send to a created Reverb return", () => {
     expect(project.returns).toEqual([{ name: "Reverb", output: "Master", volumeDb: 0, mute: false, effects: [{ id: "fx1", type: "reverb", on: true, params: {} }] }]);
     const sfx = busOf(project, "SFX");
-    expect(sfx.sends).toEqual([{ to: "Reverb", levelDb: expect.closeTo(20 * Math.log10(0.25), 9) }]);
+    expect(sfx.sends).toEqual([{ to: "Reverb", levelDb: expect.closeTo(20 * Math.log10(0.25), 6) }]);
     expect(sfx.effects[0]).toEqual({ id: "fx1", type: "compressor", on: true, params: { threshold: -20, ratio: 4, attack: 70, release: 300, makeup: 0, knee: 10 } });
     expect(sfx.effects.slice(1).map((e) => [e.id, e.type, e.params.cutoff])).toEqual([["fx2", "lowpass", 20000]]); // the carrier of its low-pass automation
   });
@@ -56,13 +56,13 @@ describe("fromLegacySection (the migration)", () => {
     expect(music.effects.map((e) => [e.id, e.type, e.params.cutoff])).toEqual([["fx1", "lowpass", 18000], ["fx2", "lowpass", 20000]]);
     expect(project.snapshots).toEqual([{
       name: "Paused", folder: "", start: { kind: "code" }, fadeInMs: 300, fadeOutMs: 300, holdMs: 0, priority: 0, combine: "override",
-      buses: { Music: expect.closeTo(20 * Math.log10(0.3), 9), SFX: -60 }, effects: { Music: { fx2: { cutoff: 800 } } },
+      buses: { Music: expect.closeTo(20 * Math.log10(0.3), 6), SFX: -60 }, effects: { Music: { fx2: { cutoff: 800 } } },
     }]);
   });
 
   it("keeps bus automation as volume (in dB) and low-pass targets", () => {
     expect(project.automation).toEqual([
-      { on: "Music", target: "volume", parameter: "Intensity", curve: [[0, expect.closeTo(20 * Math.log10(0.4), 9)], [1, 0]], bypass: false },
+      { on: "Music", target: "volume", parameter: "Intensity", curve: [[0, expect.closeTo(20 * Math.log10(0.4), 6)], [1, 0]], bypass: false },
       { on: "SFX", target: "fx:fx2:cutoff", parameter: "Intensity", curve: [[0, 500], [1, 20000]], bypass: false },
     ]);
   });
@@ -73,7 +73,7 @@ describe("fromLegacySection (the migration)", () => {
     expect(busOf(project, "Voice")).toMatchObject({ mute: true, bed: { own: false, priority: 128 } });
     expect(busOf(project, "Music").bed).toBeNull();
     expect(busOf(project, "Music").meter).toBe(true);
-    expect(project.ducking[1]).toEqual({ target: "SFX", trigger: "Voice", mode: "level", detector: "peak", thresholdDb: -24, amountDb: expect.closeTo(20 * Math.log10(0.5), 9), attackMs: 50, releaseMs: 500, enabled: true });
+    expect(project.ducking[1]).toEqual({ target: "SFX", trigger: "Voice", mode: "level", detector: "peak", thresholdDb: -24, amountDb: expect.closeTo(20 * Math.log10(0.5), 6), attackMs: 50, releaseMs: 500, enabled: true });
   });
 
   it("writes a file that parses back to itself", () => {
@@ -129,7 +129,7 @@ describe("mergeLegacyIntoProject (the legacy panels' adapter)", () => {
     const v = view(RICH);
     v.buses.find((b) => b.name === "Music")!.volume = 0.5;
     const out = mergeLegacyIntoProject(RICH, v);
-    expect(busOf(out, "Music").volumeDb).toBeCloseTo(20 * Math.log10(0.5) + 6, 9);
+    expect(busOf(out, "Music").volumeDb).toBeCloseTo(20 * Math.log10(0.5) + 6, 6);
     expect({ ...out, buses: out.buses.map((b) => (b.name === "Music" ? { ...b, volumeDb: -3 } : b)) }).toEqual(RICH);
   });
 
@@ -157,7 +157,7 @@ describe("mergeLegacyIntoProject (the legacy panels' adapter)", () => {
     const v = view(RICH);
     const sfx = v.buses.find((b) => b.name === "SFX")!;
     sfx.effects = [{ type: "reverb", send: 0.5 }];
-    expect(busOf(mergeLegacyIntoProject(RICH, v), "SFX").sends).toEqual([{ to: "Delay", levelDb: -6 }, { to: "Reverb", levelDb: expect.closeTo(20 * Math.log10(0.5) + 2, 9) }]);
+    expect(busOf(mergeLegacyIntoProject(RICH, v), "SFX").sends).toEqual([{ to: "Delay", levelDb: -6 }, { to: "Reverb", levelDb: expect.closeTo(20 * Math.log10(0.5) + 2, 6) }]);
     sfx.effects = [];
     expect(busOf(mergeLegacyIntoProject(RICH, v), "SFX").sends).toEqual([{ to: "Delay", levelDb: -6 }]);
   });
