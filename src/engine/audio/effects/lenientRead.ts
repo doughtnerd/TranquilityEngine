@@ -32,11 +32,12 @@ export class LenientReader {
       return fallback;
     }
     if (raw < min || raw > max) {
-      const c = Math.min(max, Math.max(min, raw));
+      const c = Math.min(max, Math.max(min, raw)) + 0;
       this.problem(where, `${raw} is outside ${min}..${max}; using ${c}.`);
       return c;
     }
-    return raw;
+    // `+ 0` turns -0 into 0, so a value the writer leaves out as "0" reads back the same.
+    return raw + 0;
   }
 
   /** A whole number in `min..max`; a fraction is rounded with a problem. */
