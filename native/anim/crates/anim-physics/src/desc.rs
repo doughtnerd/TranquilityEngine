@@ -152,9 +152,10 @@ impl RagdollDesc {
     /// every bone with a joint range in `ranges` (its own, or its profile role's default; the
     /// caller resolves them), with that range; a skeleton without any range gets a body on every
     /// bone with [`DEFAULT_RANGE`]. Joint frames identity, the default drive, strength 1; root
-    /// bodies pinned (pin 1). The pelvis is `pelvis` when it has a body, else the first root body;
-    /// its front axis +Z (the model's forward, decision D60). The editor's ragdoll builder (ADR
-    /// 0343) refines it.
+    /// bodies pinned (pin 1). `pelvis` (when in range) always gets a body, even without a range
+    /// (profiles give the hips none: it is the root body), and is the pelvis; without one the
+    /// pelvis is the first root body. Its front axis is +Z (the model's forward, decision D60).
+    /// The editor's ragdoll builder (ADR 0343) refines it.
     pub fn from_skeleton(parents: &[u16], ranges: &[Option<JointRange>], pelvis: u16) -> Self {
         let n = parents.len();
         let any = ranges.iter().any(Option::is_some);
@@ -162,7 +163,7 @@ impl RagdollDesc {
             .map(|b| {
                 let r = ranges.get(b).copied().flatten();
                 BoneDesc {
-                    body: r.is_some() || !any,
+                    body: r.is_some() || !any || b == pelvis as usize,
                     range: r.unwrap_or(DEFAULT_RANGE),
                     ..BoneDesc::default()
                 }

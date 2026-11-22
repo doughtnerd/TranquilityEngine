@@ -133,21 +133,25 @@ fn build_desc(view: &SkeletonView<'_>, profile: &anim_retarget::Profile) -> Ragd
     let has_ranges = view
         .section(anim_format::skeleton::section::JOINT_RANGES)
         .is_some();
+    // The pelvis: the bone with the profile's hips role, else (a skeleton whose root and hips are
+    // one bone stores only the root role) the bone with its root role.
+    let with_role = |role: u16| {
+        (role != anim_format::skeleton::NO_ROLE)
+            .then(|| (0..n).find(|&b| view.role(b) == Some(role)))
+            .flatten()
+    };
+    let pelvis = with_role(profile.hips).or_else(|| with_role(profile.root));
+    let role_range = |r: u16| profile.roles.get(r as usize).and_then(|r| r.range);
     let ranges: Vec<Option<JointRange>> = (0..n)
         .map(|b| {
             if has_ranges {
                 view.joint_range(b)
             } else {
-                view.role(b)
-                    .and_then(|r| profile.roles.get(r as usize))
-                    .and_then(|r| r.range)
+                view.role(b).and_then(role_range)
             }
         })
         .collect();
-    let hips = profile.hips;
-    let pelvis = (0..n)
-        .find(|&b| hips != anim_format::skeleton::NO_ROLE && view.role(b) == Some(hips))
-        .map_or(NO_BONE, |b| b as u16);
+    let pelvis = pelvis.map_or(NO_BONE, |b| b as u16);
     RagdollDesc::from_skeleton(&data.parents, &ranges, pelvis)
 }
 
