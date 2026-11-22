@@ -344,3 +344,10 @@ scene's listener hears); per-World filters dropped. The Studio now activates the
 - *Takes (W10-A):* META `seed` now holds the World's generator state (older takes may pick differently on replay);
   pictures on by default (game builds opt out in `game.json`); effects-cost track is a per-section estimate until the
   core reports per-effect cost; renames follow the runtime's instance-wide local-parameter shadowing.
+
+**D45. Owner (2026-11-22): agrees with all recommendations; moving emitters must really work.** "a user does have
+the ability to have an emitter follow a path (to test Doppler type stuff, etc). I do want that to actually work - Im
+fine if that movement is in the spatial scene only though." The route motion existed in the test scene player with a
+position-only fake-backend test; W11-F makes it work end to end in the Spatial screen (the Studio's frame loop drives
+the player, Doppler heard on the core and measured in a loopback test, no pitch spike at a loop wrap, live position in
+the plan view).
