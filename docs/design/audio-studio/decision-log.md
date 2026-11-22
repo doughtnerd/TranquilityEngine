@@ -396,3 +396,15 @@ receiving slot; submix automation is dropped when its group changes (ringing tai
 `voiceTime`/`clipTime` (those lanes keep the per-voice path); undo vs redo is read from the history tree. New members
 flagged: `Audio.debug().mix.fxStarved`/`fxStarvedOwner` (public debug type), `AudioSubmixes.automate`/`SubmixLane`
 (backend seam, internal). Mixer wasm 472,160 B.
+
+**D52. ADRs 0340 (localised audio, voice-over) and 0341 (dynamic dialogue) accepted (W13 design).** The engine has
+no text localisation, so subtitle text lives in line tables keyed so a later text record can move it. **Owner
+questions, each proceeding on its default unless answered:** (1) UI text localisation now? default no; (2) which
+languages? default per project, new projects `en` only; (3) built-in subtitle widget? default no — text +
+`Audio.onLine` + a guide recipe; (4) lip-sync generator in the Studio? default no, import Rhubarb output; (5) playing
+VO on language change? default finishes; (6) on-demand language packs? default every shipped language in the build;
+(7) remember the player's language? default yes; (8) one line per speaker, max 3 at once? default yes; (9) dialogue
+memory in saves? default engine provides memory()/restore(), saving is the game's; (10) languages in `project.json`,
+Studio edits only without an editor lock? default yes. Choices to review: per-language folders with references to the
+reference language's file; project-unique line keys and event names; subtitle-only playback for lines missing in
+every language; dialogue as its own asset (not a playlist type); take replay re-decides by default.
