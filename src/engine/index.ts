@@ -57,6 +57,7 @@ export { ConnectionPlayer } from "./input/inputNet";
 export { GAMEPAD_AXES, GAMEPAD_BUTTONS, type DeviceFamily } from "./input/controls";
 export { DeviceEvents, DeviceKind, GamepadState, InputDevice, type DeviceEvent } from "./input/deviceEntities";
 export type { DeviceEventSink, GamepadInfo } from "./input/devices";
+export type { TriggerEffect } from "./input/triggerEffects";
 export { InputPlayers, PlayerInput } from "./input/facade";
 export { ControlledBy, InputPlayer, PlayerJoined, PlayerLeft, type PlayerChange } from "./input/players";
 export type { InputAccessibility } from "./input/profiles";

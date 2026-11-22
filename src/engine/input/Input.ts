@@ -4,6 +4,7 @@ import { devices, mouseKey, normalizeKey, type DeviceEventSink } from "./devices
 import { listenToDom } from "./domDevices";
 import { tauriGamepads } from "./tauriGamepads";
 import { webGamepads } from "./webGamepads";
+import { webHidGamepads, type WebHidGamepads } from "./webHid/webHidGamepads";
 // The input systems (ADR 0335–0337) come with Input: players, evaluation, rebinding, netcode, the script facade.
 import "./players";
 import "./evaluate";
@@ -13,6 +14,8 @@ import "./facade";
 
 let detachDom: (() => void) | null = null;
 let detachGamepads: (() => void) | null = null;
+/** The WebHID adapter, where the browser has WebHID (never under Tauri). */
+let hidGamepads: WebHidGamepads | null = null;
 
 /**
  * The devices are the Engine's, attached once and shared; what they report reaches only Worlds
@@ -33,13 +36,19 @@ function attachGamepads(): void {
     detachGamepads = native.stop;
     return;
   }
-  const web = typeof navigator !== "undefined" ? webGamepads(devices, navigator) : null;
-  if (!web) return;
-  const removePoller = devices.addPoller(web.poll);
-  devices.output = web.output;
+  if (typeof navigator === "undefined") return;
+  // WebHID (Chromium) reports the controllers it opens; the Gamepad API reports the rest.
+  const hid = webHidGamepads(devices, navigator);
+  const web = webGamepads(devices, navigator, hid ? (pad) => hid.owns(pad) : undefined);
+  if (!web && !hid) return;
+  const removePoller = web ? devices.addPoller(web.poll) : null;
+  devices.output = hid ? hid.output(web?.output ?? null) : web!.output;
+  hidGamepads = hid;
   detachGamepads = () => {
-    removePoller();
-    web.stop();
+    removePoller?.();
+    web?.stop();
+    hid?.stop();
+    hidGamepads = null;
   };
 }
 
@@ -152,6 +161,24 @@ export class Input {
    */
   static get inject(): DeviceEventSink {
     return injector;
+  }
+
+  /**
+   * Enhanced gamepads in Chromium browsers (WebHID): open the browser's chooser for DualSense,
+   * DualShock 4 and Switch Pro controllers and report the ones the player picks with gyro,
+   * accelerometer, adaptive triggers and lights. Call it from a click or key press (the browser
+   * requires one). Resolves with how many controllers are now open; 0 where WebHID doesn't exist
+   * (other browsers, desktop builds, where SDL already gives all of this) or nothing was picked.
+   * Controllers picked once are reopened automatically on later visits.
+   *
+   * ```ts
+   * enhanceButton.addEventListener("click", async () => {
+   *   const opened = await Input.requestHidGamepads();
+   * });
+   * ```
+   */
+  static requestHidGamepads(): Promise<number> {
+    return hidGamepads ? hidGamepads.request() : Promise.resolve(0);
   }
 
   /** @internal Listen to keyboard on the window and pointer events on the canvas (the DOM adapter), and start the gamepad adapter. */

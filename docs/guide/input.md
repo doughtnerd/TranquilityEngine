@@ -169,3 +169,25 @@ player.rumble(0.3, 0.8, 200);
 - **Desktop:** gamepads come from SDL3 inside the Tauri app, in the editor and in exported games. That includes rumble, trigger rumble, light bars and gyro (`player.setSensors(true)`).
 - **Web:** builds read the browser's Gamepad API. The engine applies the SDL controller database to pads the browser doesn't map, and detects each pad's family.
 - **Your own devices:** `Input.inject` reports device events as an adapter does, for on-screen controls, automation and tests.
+
+## Enhanced gamepads in Chrome (WebHID)
+
+In Chrome, Edge and other Chromium browsers on desktop, PlayStation and Switch Pro controllers can do more on the web than the Gamepad API allows. The engine opens them as HID devices instead.
+
+**What it adds:**
+- gyro and accelerometer (`<Gamepad>/gyro`, `<Gamepad>/accel`, after `player.setSensors(true)`);
+- adaptive triggers on DualSense: `player.rumbleTriggers(...)`, and `player.setTriggerEffect("right", { mode: "weapon", start: 0.3, end: 0.6, strength: 0.8 })` (also `resistance`, `vibration` and `off`);
+- light bars (`player.setLight(r, g, b)`) and player lights;
+- the touchpad click (`touchpadPress`) and the mute or capture button (`misc1`).
+
+**Controllers:** DualSense and DualSense Edge, DualShock 4 (and Sony's USB wireless adapter), and the Switch Pro Controller, over USB or Bluetooth.
+
+**The permission click:** the browser shows a controller only after the player picks it in its chooser, and the chooser opens only from a click or key press. Call `Input.requestHidGamepads()` from one, for example behind an "Enable full controller features" button. It resolves with how many controllers were opened. Controllers picked once reopen on their own on later visits, and when they're plugged back in.
+
+```ts
+enhanceButton.addEventListener("click", async () => {
+  const opened = await Input.requestHidGamepads();
+});
+```
+
+**Fallback:** until a controller is picked, or if it fails or is unplugged, the Gamepad API reports it as before, so the game never sees it twice. Firefox and Safari have no WebHID: `requestHidGamepads()` resolves `0` there, and in desktop builds, where SDL already gives all of this.

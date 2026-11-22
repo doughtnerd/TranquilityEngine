@@ -39,9 +39,14 @@ interface Tracked {
 /**
  * Start reporting the page's gamepads to `sink`. `poll` is called once per snapshot, before it
  * (`devices.addPoller`). Returns the poller and the output to give the snapshot, and a function
- * that stops (reporting every tracked pad as disconnected).
+ * that stops (reporting every tracked pad as disconnected). Pads `skip` accepts aren't reported
+ * (another adapter, WebHID, reports them); one that stops being skipped is reported again.
  */
-export function webGamepads(sink: DeviceEventSink, nav: Navigator & Partial<GamepadNavigator> = navigator): { poll: () => void; output: GamepadOutput; stop: () => void } | null {
+export function webGamepads(
+  sink: DeviceEventSink,
+  nav: Navigator & Partial<GamepadNavigator> = navigator,
+  skip?: (pad: Gamepad) => boolean,
+): { poll: () => void; output: GamepadOutput; stop: () => void } | null {
   if (typeof nav?.getGamepads !== "function") return null;
   const tracked = new Map<number, Tracked>();
   /** Pads seen whose mapping is still loading. */
@@ -80,7 +85,7 @@ export function webGamepads(sink: DeviceEventSink, nav: Navigator & Partial<Game
     const seen = new Set<number>();
     for (let i = 0; i < pads.length; i++) {
       const pad = pads[i];
-      if (!pad || !pad.connected) continue;
+      if (!pad || !pad.connected || skip?.(pad)) continue;
       seen.add(pad.index);
       const t = tracked.get(pad.index);
       if (t) read(pad, t);
@@ -101,7 +106,7 @@ export function webGamepads(sink: DeviceEventSink, nav: Navigator & Partial<Game
             // Report pads without the database: standard-layout pads still work.
             for (let j = 0; j < pads.length; j++) {
               const p = pads[j];
-              if (p?.connected && !tracked.has(p.index)) connect(p, null);
+              if (p?.connected && !tracked.has(p.index) && !skip?.(p)) connect(p, null);
             }
           },
         );

@@ -19,6 +19,7 @@ import { ControlledBy, InputPlayer, createPlayer, familyName, playerNode, player
 import { profileOf, type InputAccessibility, type InputProfileData } from "./profiles";
 import { promptFor, type InputPrompt } from "./prompts";
 import { startRebind, type RebindOptions, type RebindResult } from "./rebind";
+import type { TriggerEffect } from "./triggerEffects";
 
 interface Subscription {
   readonly owner: GameBehavior | null;
@@ -246,6 +247,17 @@ export class PlayerInput {
     for (const d of this.devices) {
       const data = d.getData(InputDevice)!;
       if (data.kind === DeviceKind.gamepad) devices.output?.triggerRumble?.(data.device, left, right, durationMs);
+    }
+  }
+
+  /**
+   * Set an adaptive trigger effect: resistance, a weapon's click, vibration (DualSense, in
+   * Chromium browsers through WebHID). `{ mode: "off" }` frees the trigger.
+   */
+  setTriggerEffect(trigger: "left" | "right", effect: TriggerEffect): void {
+    for (const d of this.devices) {
+      const data = d.getData(InputDevice)!;
+      if (data.kind === DeviceKind.gamepad) devices.output?.triggerEffect?.(data.device, trigger, effect);
     }
   }
 
