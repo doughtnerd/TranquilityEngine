@@ -431,3 +431,10 @@ over the playlist's; anything inside a zone (edge or inside kind, and an inside 
 (ADR 0333's "plays non-spatially", rendered enveloping); bedBeyond and zone beds are decided on main in the panner pick
 (ADR 0162's split); stream loops are forward only (ping-pong/backward play forward with a warning; FMOD/Wwise streams
 also loop forward); preset times from EAX families. Mixer 475,285 B; metered +0.07%. Wave 11 complete.
+
+**D56. W12 first round merged (0337 A1/A2, 0338 B1/B2).** Choices to review: encoding settings fall through a profile
+chain (nearest profile → rule's → default → built-in) rather than 0337's single profile; the encoder has its own
+source hash so core contributors never need wasi-sdk; Opus encodes mono/stereo only (ambisonic files fall back to
+Vorbis); loose ADPCM has no container (packages carry frames) — A3/A4 decide; no dither on 16-bit/ADPCM; plugin
+`maxInstances` cap 128 (default 16), ≤ 256 effects per plugin; plugin params arrive in declared units; fuel mode caps a
+plugin's memory at `memoryMB`; start functions refused; SDK at `native/fx-sdk/`.
