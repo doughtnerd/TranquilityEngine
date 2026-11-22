@@ -120,6 +120,32 @@ describe("down the tree", () => {
   });
 });
 
+describe("spatial", () => {
+  it("distances come from the attenuation preset the playlist names; the handle's position moves its voices", async () => {
+    await kit.boot({
+      "near.attenuation.json": { format: "myco.attenuation@1", minDistance: 2, maxDistance: 40 },
+      "s.playlist.json": pla("clip", [sample("a.wav")], { spatial: { attenuation: "near.attenuation.json", occlusion: false, doppler: 1.5 } }),
+    });
+    const h = Audio.play("s.playlist.json", { position: { x: 1, y: 2, z: 3 } });
+    expect(fake.plays[0]).toMatchObject({ attenuation: { minDistance: 2, maxDistance: 40, rolloff: "inverse" }, position: { x: 1, y: 2, z: 3 }, occlusion: false, dopplerLevel: 1.5 });
+    expect(h.position).toEqual({ x: 1, y: 2, z: 3 });
+    h.position = { x: 4, y: 5, z: 6 };
+    expect(fake.voices[0]!.position).toEqual({ x: 4, y: 5, z: 6 });
+  });
+
+  it("inline attenuation; a flat playlist ignores the position", async () => {
+    await kit.boot({
+      "i.playlist.json": pla("clip", [sample("a.wav")], { spatial: { attenuation: { minDistance: 3, maxDistance: 9 } } }),
+      "f.playlist.json": pla("clip", [sample("b.wav")]),
+    });
+    Audio.play("i.playlist.json", { position: { x: 0, y: 0, z: 1 } });
+    const flat = Audio.play("f.playlist.json", { position: { x: 0, y: 0, z: 1 } });
+    expect(fake.plays[0]!.attenuation).toEqual({ minDistance: 3, maxDistance: 9, rolloff: "inverse" });
+    expect(fake.plays[1]!.position).toBeUndefined();
+    expect(flat.position).toBeNull();
+  });
+});
+
 describe("linked playlists", () => {
   it("resolve by path", async () => {
     await kit.boot({

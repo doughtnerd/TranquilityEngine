@@ -84,7 +84,6 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
     const asset = loadPlaylist(path);
     if (!asset) return this.refuse(path, world, "missing");
     if (asset.type === "sequence") {
-      host.syncSettings();
       return this.refuse(path, world, "unsupported", `[myco] ${path}: Sequence playlists play from M5 (sequences arrive with the musical clock); the trigger plays nothing.`);
     }
     const key = `${world}:${sourceKey ?? path}`;
@@ -208,25 +207,48 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
    * Rows for `Audio.debug().events` (ADR 0249): every playing instance, and one whose voices the backend still lists
    * (`listed`: voices per instance id), so a row goes with its last voice. `asset` is the playlist path.
    */
-  debugRows(listed?: ReadonlyMap<number, number>): EventDebugRow[] {
-    const rows: EventDebugRow[] = [];
-    const shown = new Set<number>();
-    const row = (i: PlaylistInstance, voices: number): void => {
-      rows.push({ id: i.group, asset: i.path, world: i.world, voices, parameters: i.parameterValues(), lateStarts: i.lateStarts });
-      if (i.group > 0) shown.add(i.group);
-    };
-    for (const i of this.live) if (i.playing) row(i, i.voiceCount);
+  debugRows(listed?: ReadonlyMap<number, number>, out?: EventDebugRow[]): EventDebugRow[] {
+    const rows = out ?? [];
+    rows.length = 0;
+    const pooled = out !== undefined;
+    this.shown.clear();
+    for (const i of this.live) if (i.playing) this.row(rows, pooled, i, i.voiceCount);
     if (!listed) return rows;
-    const still = (i: PlaylistInstance): boolean => i.group > 0 && !shown.has(i.group) && (listed.get(i.group) ?? 0) > 0;
-    for (const i of this.live) if (!i.playing && still(i)) row(i, listed.get(i.group)!);
+    for (const i of this.live) if (!i.playing && this.stillListed(i, listed)) this.row(rows, pooled, i, listed.get(i.group)!);
     let w = 0;
     for (const i of this.lingering) {
-      if (this.live.has(i) || !still(i)) continue;
-      row(i, listed.get(i.group)!);
+      if (this.live.has(i) || !this.stillListed(i, listed)) continue;
+      this.row(rows, pooled, i, listed.get(i.group)!);
       this.lingering[w++] = i;
     }
     this.lingering.length = w;
     return rows;
+  }
+
+  /** The groups `debugRows` has shown this call (one Set, cleared per call). */
+  private readonly shown = new Set<number>();
+  /** Row objects `debugRows(listed, out)` reuses (the keyframe source's per-keyframe read). */
+  private readonly rowPool: EventDebugRow[] = [];
+
+  private stillListed(i: PlaylistInstance, listed: ReadonlyMap<number, number>): boolean {
+    return i.group > 0 && !this.shown.has(i.group) && (listed.get(i.group) ?? 0) > 0;
+  }
+
+  /** Appends one row: pooled (a reused row and the instance's reused parameter record), else fresh objects to keep. */
+  private row(rows: EventDebugRow[], pooled: boolean, i: PlaylistInstance, voices: number): void {
+    if (i.group > 0) this.shown.add(i.group);
+    if (!pooled) {
+      rows.push({ id: i.group, asset: i.path, world: i.world, voices, parameters: i.parameterValues(), lateStarts: i.lateStarts });
+      return;
+    }
+    const row = (this.rowPool[rows.length] ??= { id: 0, asset: "", world: 0, voices: 0, parameters: {}, lateStarts: 0 });
+    row.id = i.group;
+    row.asset = i.path;
+    row.world = i.world;
+    row.voices = voices;
+    row.parameters = i.parameterValuesShared();
+    row.lateStarts = i.lateStarts;
+    rows.push(row);
   }
 
   totals(): PlaylistTotals {
@@ -294,6 +316,11 @@ function distanceTo(p: Vec3Like | null, listener: Vec3Like | null): number {
 }
 
 let system: PlaylistSystem | null = null;
+
+/** The page's playlist runtime if anything has started it (debug readers ask without starting it). */
+export function playlistsIfStarted(): PlaylistSystem | null {
+  return system;
+}
 
 /** The page's playlist runtime (hosted by the event runtime on first use). */
 export function playlists(): PlaylistSystem {

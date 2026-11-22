@@ -289,6 +289,14 @@ export class PlaylistInstance implements NodeHost {
     return out;
   }
 
+  /** The parameter values in one record this instance reuses (refilled per call): for per-keyframe readers. */
+  parameterValuesShared(): Readonly<Record<string, number | string>> {
+    const out = (this.sharedValues ??= {});
+    for (const name of this.localDefs.keys()) out[name] = this.getParameter(name)!;
+    return out;
+  }
+  private sharedValues: Record<string, number | string> | undefined;
+
   /** A parameter changed (local, or a global one the instance doesn't shadow). */
   onParameter(name: string, global: boolean): void {
     if (this.stopped || (global && this.localDefs.has(name))) return;
