@@ -47,7 +47,8 @@ export function entryNodes(file: string, body: PlaylistBody, prefix: readonly nu
   if (body.type === "clip") return [];
   const out: PlaylistNode[] = [];
   body.entries.forEach((e, i) => {
-    if (e.kind === "sample") return;
+    // Samples and lines (ADR 0340 §5) are a Clip's leaves, not rows.
+    if (e.kind === "sample" || e.kind === "line") return;
     const indices = [...prefix, i];
     if (e.kind === "embedded") {
       out.push({ kind: "entry", key: entryKey(file, indices), file, indices, name: entryName(e, i), link: null, children: entryNodes(file, e.embedded, indices), ...factsOf(e.embedded) });

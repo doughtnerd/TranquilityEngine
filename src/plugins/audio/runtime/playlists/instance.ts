@@ -1068,6 +1068,7 @@ function hitOffset(entry: Entry, chain: readonly string[]): number {
 function firstSample(entry: Entry, chain: readonly string[], depth: number): SampleEntry | null {
   if (depth > 16) return null;
   if (entry.kind === "sample") return entry;
+  if (entry.kind === "line") return null; // ADR 0340 §5: its file is known only when it is picked
   const body = entry.kind === "embedded" ? entry.embedded : linkedPlaylist(entry.playlist, chain);
   if (!body) return null;
   const next = entry.kind === "linked" ? [...chain, entry.playlist] : chain;
