@@ -1,0 +1,144 @@
+# 0334. One property-track format serves skeletal clips, property animation, sprite flipbooks, timelines and tweens; models import skins, clips and morphs
+
+- **Status:** Proposed
+- **Date:** 2026-11-22
+- **Deciders:** Chris Carlson
+- **Supersedes:** —
+- **Amends:** 0088 and 0044 (skins, animations and morph targets are imported, not dropped), 0040 (model sidecars gain animation settings; images gain flipbooks and 2D bones), 0090 (baked models carry skins and morphs; clips bake beside them)
+- **Related:** 0010, 0158, 0159, 0333, 0335, 0336
+
+## Context
+
+Unity animates almost any serialized property with curves. Godot goes further: a track targets any property path on any node, and there are method, audio, bezier, sub-animation and expression tracks. Unreal's clips are bone-centric, with curves on the side. The engines that split "skeletal clips", "property animation", "timelines" and "tweens" into separate systems end up with several curve editors and several event models.
+
+**Today in Myco:**
+- Models load through three.js loaders and are baked (`scene/models.ts`, `scene/gltf.ts`, 0090). Skins, clips and morphs are dropped with one warning.
+- Sidecars (`*.meta.json`, `myco.import@1`) carry model `scale`, `upAxis`, `normals` and `materials`.
+- Images carry named slices.
+- `@field` carries `replicate`, `predicted`, `quantize`, `choices`, `kind`, `hidden` and `description` (0159), which left "can this field be animated" to this record.
+- The editor has a `CurveEditor` (`src/editor/ui/CurveEditor.tsx`, `curveEdit.ts`).
+
+## Decision
+
+We will use **one track model** for everything that changes over time. A clip, a timeline and a tween all sample the same track kinds through the same binding, in the Rust core (0333).
+
+### Bindings
+
+- **A track's target** is `nodePath` (relative to the Animator's node, as Godot's `root_node`), plus `component` id and `field` path. Example: `Body/Sword` + `engine.MeshRenderer` + `material.emissive`.
+- **Bone tracks** target a bone of the Animator's skeleton by name.
+- **Binding happens once per (clip, Animator)** into a binding table: each track gets an output column in wasm and a destination ECS column. `animation.Apply` (0333) scatters columns into ECS storage in bulk. No string lookups happen per frame.
+- **A missing target** leaves that track unbound and gives one warning per clip and node, as missing slices do.
+- **Animatable fields (completing 0159):** `@field(type, { animatable })`.
+  - The default is `true` for `Number`, the vector, quaternion and colour types, `Boolean`, enums with `choices`, and asset references.
+  - The default is `false` for strings, arrays and plain objects.
+  - `animatable: false` opts a field out, for example a physics body's `type`.
+  - Built-in components set it where animating would break invariants.
+  - The Inspector's key buttons (0336) appear only on animatable fields.
+
+### Track kinds
+
+| Kind | Values | Interpolation |
+|---|---|---|
+| `bone` | translation, rotation, scale per bone | linear translation and scale; normalised lerp rotation (slerp option per clip) |
+| `float`, `vec2`, `vec3`, `vec4`, `color` | numbers | constant, linear, cubic bezier with tangents (the existing `CurveEditor` model) |
+| `quat` | rotation of a node field | nlerp or slerp |
+| `discrete` | bool, enum, asset reference (a sprite slice `asset:sheet.png#run_3`, a material, a mesh) | step |
+| `morph` | morph target weights by name | linear |
+| `event` | notifies: `{ time, method, args }` and states `{ start, end, method, args }` (0335) | — |
+| `audio` | an audio event or clip (0158) with parameters | — |
+| `activation` | node active on and off ranges | step |
+| `subclip` | another clip or timeline with start, offset, speed, blend in and out | — |
+| `control` | a particle effect play and stop, a camera cut, a nested Animator's slot play | — |
+| `marker` | sync markers (`"L"`, `"R"`) for phase sync (0335) | — |
+| `curve` | a named float exposed to the graph as a parameter source (Unreal's anim curves, Unity's float curves); drives material values, IK weights, blend weights | cubic |
+
+### Assets
+
+| Asset | File | Notes |
+|---|---|---|
+| Authored clip | `*.anim.json` (`myco.anim-source@1`) | text, diff-friendly, one track per line block; made in the editor (0336) |
+| Imported clip | `model.glb#Anim/Run` | a reference into a model, like `#Mesh` today; settings in the model's sidecar |
+| Compiled clip | `*.anim.bin` (`myco.anim@1`, 0333) | compressed; made by the editor's worker into `.myco/anim/` (content-keyed like thumbnails, 0061) and by exports beside the source, as 0090 bakes models |
+| Skeleton | `model.glb#Skeleton` | bones, parents, rest pose, inverse bind matrices; compiled to `myco.skel@1` |
+| Skeleton profile | `*.skelprofile.json` | bone roles and chains; a built-in **Humanoid** profile (Godot's `SkeletonProfileHumanoid` roles plus finger and twist chains) |
+| Timeline | `*.timeline.json` | tracks on many nodes (paths relative to the timeline's director node) plus `control` and `subclip` tracks (0335, 0336) |
+| Animation graph | `*.animgraph.json` | 0335 |
+| Pose database | `*.posedb.json` (sources, tags, features) + `*.posedb.bin` baked | 0335 |
+| Avatar mask | `*.mask.json` | bone set with weights, or profile roles |
+
+### Model import (amends 0088, 0044, 0090)
+
+- **glTF:**
+  - skins (joints, inverse bind matrices, 4 or 8 influences from `JOINTS_n`/`WEIGHTS_n`, normalised);
+  - animations (TRS channels to bone or node tracks, `weights` to morph tracks, `STEP`/`LINEAR`/`CUBICSPLINE`);
+  - morph targets (positions, normals, tangents);
+  - `KHR_animation_pointer` channels to property tracks where the pointer maps to an engine field (material factors, light intensity and colour, camera FOV), with one warning listing pointers that don't.
+- **FBX:** through three's `FBXLoader` output (skinned meshes, bones, animation stacks as clips, blend shapes).
+- **OBJ:** no animation.
+- **Baked models (0090)** add skin weights, joint indices, morph deltas and the skeleton. Exports bake every referenced clip to `*.anim.bin`.
+- **Sidecar `animation` section** (model sidecars, `myco.import@1`):
+  - `profile` (a skeleton profile reference) and `boneMap` (profile role → bone name), auto-filled by name heuristics on import (Godot's bone-map guessing) and edited in 0336;
+  - `clips`: per source take, any number of `{ name, from, to, loop, rootMotion: { bone, axes, bakeIntoPose }, additive: { reference: "first" | clip#frame }, compression: { error (mm, default 0.1), maxRate }, markers, events, curves, mirror }`. This is Unity's clip splitting and Unreal's per-sequence settings in one place;
+  - `retargetSource`: the profile pose the clip was authored in, for runtime retargeting (0335).
+
+### Compression (`anim-compress`, 0333)
+
+- Every track is **uniformly sampled** at the clip's rate (default 30 Hz; source keys are resampled).
+- **Constant tracks** collapse to one value; **default tracks** (equal to the rest pose) are dropped.
+- **Range reduction** per track and per segment (16 frames per segment).
+- **Bit rate** per track per segment, chosen from {0, 3–16, 19, 23, raw} so the **object-space error** of virtual vertices at a shell distance per bone (default 3 cm, from bone length) stays under `compression.error`. This is ACL's method.
+- Generic property tracks use the same range and bit-rate scheme with an absolute error from the field's `quantize` (0159) or `1e-4`.
+- `discrete`, `event`, `marker`, `audio`, `activation`, `control` and `subclip` tracks are stored as sorted key lists, uncompressed.
+- The compressor reports per-clip size and maximum error. The Asset Inspector (0336) shows both, and a test fails if a fixture's error exceeds its bound.
+
+### Sprites and 2D (amends 0040)
+
+- **Flipbooks:**
+  - a `discrete` track over a sheet's slices, made in one step from a slice selection (0336);
+  - image sidecars gain `flipbooks: { name: { slices: [...], fps, loop } }` as a shortcut that compiles to a clip `image.png#Flip/Run`.
+  - `SpriteRenderer.sprite` is animatable, so any clip can flip it.
+- **2D bones:**
+  - an image sidecar's slice gains `skin: { bones: [{ name, parent, position, rotation, length }], mesh: { vertices, triangles }, weights }`;
+  - the mesh comes from the slice's opaque outline (the auto-slice islands, simplified) plus interior points; weights are painted or computed automatically by bone distance (0336);
+  - a `Skeleton2D` (0335) drives it with bone tracks like 3D;
+  - several slices can share one 2D skeleton (a cut-out character).
+
+### Tweens
+
+- A tween is a one-track clip built in code: target binding, from/to or by, duration, an easing curve (the standard Penner set plus a custom bezier), delay, loops (restart and yoyo), time scale (scaled, unscaled or fixed).
+- Tweens run in the core like any track (0333) and are ECS data on the target's entity (0335).
+- Sequences and parallel groups compile to a small timeline.
+
+## Alternatives considered
+
+- **Separate systems for skeletal clips, property animation and tweens (Unity's legacy, DOTween beside Mecanim).** Each would be simpler alone, but there would be three event models, three time bases and two curve editors.
+- **Keyframe-reduction compression (curve fitting, Unity's "Optimal").** Smaller for smooth curves, but its error is hard to bound in object space and decoding is slower. ACL showed uniform sampling with variable bit rate wins on both speed and size for games.
+- **Binary-only authored clips.** Smaller, but they don't merge in git. The text source stays, and binary is compiled from it.
+- **Bone tracks only (Unreal).** Properties would need a second mechanism, as in Unreal's curves and Sequencer.
+
+## Consequences
+
+**Positive**
+- One curve and dope-sheet editor and one event model for clips, timelines, tweens and sprites.
+- Any animatable field of any component, including plugin components, can be keyed without extra code.
+- Imported characters animate immediately. Sidecars keep clip splits and root-motion settings in the project like other import settings.
+
+**Negative / costs**
+- Generic property tracks crossing into ECS storage cost a scatter per bound column per frame. This is bounded by binding once, but it isn't free for thousands of tracks.
+- FBX animation depends on three's `FBXLoader` fidelity (pre and post rotations, take timing). Fixtures must cover Mixamo-style and Blender exports.
+- The compressor's bit-rate search makes the editor's first preview of a long clip slow. It runs in the worker, and the raw clip plays until it finishes.
+
+## Deprecates
+
+- The 0088 warning for skins, animations and morph targets.
+- 0040's "Missing: sprite animation over slices".
+
+## Open questions
+
+- Which `KHR_animation_pointer` targets map in the first build beyond materials, lights and cameras (UI fields, particle parameters)?
+- Spine and Rive files: their runtimes are separate products (Spine's runtime licence requires a Spine licence; Rive's is MIT). Importing them would be its own record and isn't part of this design.
+
+## References
+
+- `src/engine/scene/gltf.ts`, `models.ts`, `bakedModel.ts`, `importSettings.ts`; `src/engine/core/registry.ts` (`@field`); `src/editor/ui/CurveEditor.tsx`.
+- glTF 2.0 skins and animations; `KHR_animation_pointer`. ACL compression papers (Frechette). Godot `SkeletonProfileHumanoid`, Unity clip import settings, Unreal anim curves and sync markers.
