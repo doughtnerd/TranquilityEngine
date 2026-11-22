@@ -210,7 +210,7 @@ Colours, `fontSize`, `glyphSize` and `width` are fields. Scripts read `rows` (ea
 - **New contexts:** the Assets panel's New… menu has **New Input Context**, which writes `New Input Context.input.json` in the folder the panel shows.
 - **Editing a context:** select the file to edit it in the Inspector, or double-click it to open the **Input Context** panel. For each mapping, pick:
   - the action;
-  - its controls: one control, a d-pad, an axis or a chord. Type a path, pick one from the list by device, or click **Bind** and press the key, mouse button or gamepad control. Escape cancels.
+  - its controls: one control, a d-pad, an axis or a chord. Type a path, pick one from the list by device, or click **Bind** and press it: a key, a mouse button, a touch, a pen button, or a gamepad button or stick. Bind reads the engine's own devices, so every gamepad works, including the desktop editor's (SDL) and controllers opened over WebHID, while editing or playing. Escape, or clicking **Cancel**, cancels.
   - its modifiers, its triggers and their type, and whether it consumes its controls.
 
   Under each mapping are the problems Play would report: an unknown action, a bad control path, bad parameters. Edits undo like any asset's, and a running game picks up the saved file.
@@ -221,6 +221,8 @@ Colours, `fontSize`, `glyphSize` and `width` are fields. Scripts read `rows` (ea
   - every action's value, phase flags and hold time, and the mapping that produced it;
   - rebinds in progress;
   - a log of recent action, device, join and rebind events.
+- **Overlay** (in the Input Debugger's bar): while playing, a compact block per player over the game view, opposite Stats: the player and the device family it last used, its active contexts by priority, each action's value bar and phase badges, and its last few presses. It follows the World the debugger shows. Its × or the toggle hides it; the editor remembers the setting.
+- **Record** (in the Input Debugger's bar, while editing or playing): records your controllers' raw input as it reaches the engine (WebHID reports, SDL batches in the desktop editor, Gamepad API readings) until **Stop**, which saves it as `recordings/input-<date>-<time>.input-recording.json` (downloaded from a read-only project). A test can replay the file through the same adapter code without the controller: see "Recording" in [the hardware checklist](../plans/2026-11-input-hardware-checklist.md).
 
 ## Enhanced gamepads in Chrome (WebHID)
 

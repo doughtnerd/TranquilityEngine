@@ -14,6 +14,7 @@
  * Desktop builds never use this: under Tauri, SDL3 reports these controllers natively.
  */
 import type { DeviceEventSink, GamepadOutput } from "../devices";
+import { tapHidDevice, type HidDeviceTap } from "../recording";
 import type { HidPadDriver, HidPadFactory, HidPadLink } from "./driver";
 import { DUALSENSE_PRODUCTS, SONY_VENDOR, dualSense } from "./dualSense";
 import { DUALSHOCK4_PRODUCTS, dualShock4 } from "./dualShock4";
@@ -54,6 +55,7 @@ interface Entry {
   driver: HidPadDriver | null;
   announced: boolean;
   listener: ((e: HidInputReportEvent) => void) | null;
+  tap?: HidDeviceTap;
 }
 
 const keyOf = (vendor: number, product: number) => `${vendor.toString(16).padStart(4, "0")}:${product.toString(16).padStart(4, "0")}`;
@@ -85,6 +87,7 @@ export function webHidGamepads(sink: DeviceEventSink, nav: Navigator): WebHidGam
     entries.delete(entry.device);
     byId.delete(entry.id);
     if (entry.listener) entry.device.removeEventListener("inputreport", entry.listener);
+    entry.tap?.close();
     try {
       entry.driver?.stop();
     } catch {
@@ -124,10 +127,13 @@ export function webHidGamepads(sink: DeviceEventSink, nav: Navigator): WebHidGam
           sink.gamepadDisconnected(entry.id);
         },
       };
-      const driver = known.factory(device, link);
+      const tap = tapHidDevice(device); // input recording (recording.ts): notes the setup exchange
+      entry.tap = tap;
+      const driver = known.factory(tap.device, link);
       entry.driver = driver;
       entry.listener = (e) => {
         try {
+          tap.input(e);
           driver.report(e.reportId, e.data);
         } catch (err) {
           console.error("[myco] A WebHID gamepad report couldn't be read:", err);
@@ -135,6 +141,7 @@ export function webHidGamepads(sink: DeviceEventSink, nav: Navigator): WebHidGam
       };
       device.addEventListener("inputreport", entry.listener);
       await driver.start();
+      tap.ready();
       return entries.get(device) === entry;
     } catch (err) {
       console.warn(`[myco] ${device.productName || "A controller"} couldn't be opened over WebHID; the Gamepad API reports it instead:`, err);

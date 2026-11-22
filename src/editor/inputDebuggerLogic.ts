@@ -1,7 +1,7 @@
 // What the Input debugger panel shows (ADR 0336, 0337), as text: which play World it follows, an action's value, the
 // mapping that produced it, its phase flags split into levels and edges, and one line per logged event. Pure, so the
 // panel's wording is unit-tested; `ui/InputDebuggerPanel.tsx` samples the World through the editor SDK and draws it.
-import type { InputActionRow, InputLogEntry, InputSourceRow } from "../engine/editor";
+import type { InputActionRow, InputDeviceRow, InputLogEntry, InputRecording, InputSourceRow } from "../engine/editor";
 
 /**
  * The World to follow: the one picked while it's still playing, else the first that takes local input (the only kind
@@ -65,3 +65,29 @@ export function logText(e: InputLogEntry): string {
 
 /** Seconds as the panel shows them: `0.42 s`, `—` when infinite (a rebind without a timeout). */
 export const seconds = (s: number) => (Number.isFinite(s) ? `${s.toFixed(2)} s` : "—");
+
+/**
+ * A player's last `n` presses, newest first, as the overlay lists them: the logged device events of the devices paired
+ * with `player` that pressed something (a key or button down, a stick past the press point), by control name.
+ */
+export function recentPresses(log: readonly InputLogEntry[], devices: readonly InputDeviceRow[], player: number, n: number): string[] {
+  const mine = new Set(devices.filter((d) => d.player === player).map((d) => d.name));
+  const out: string[] = [];
+  for (let i = log.length - 1; i >= 0 && out.length < n; i--) {
+    const e = log[i];
+    if (e.kind === "device" && mine.has(e.device) && Math.abs(e.value) >= 0.5) out.push(short(e.control));
+  }
+  return out;
+}
+
+/** A hardware recording's file name: `input-2026-11-22-103005.input-recording.json` (local time). */
+export function recordingFileName(at: Date): string {
+  const p = (v: number) => String(v).padStart(2, "0");
+  return `input-${at.getFullYear()}-${p(at.getMonth() + 1)}-${p(at.getDate())}-${p(at.getHours())}${p(at.getMinutes())}${p(at.getSeconds())}.input-recording.json`;
+}
+
+/** What a hardware recording holds, in a few words: `2 WebHID devices, SDL, 140 events, 3.2 s`. */
+export function recordingSummary(r: InputRecording): string {
+  const sources = [r.hid.length ? `${r.hid.length} WebHID device${r.hid.length === 1 ? "" : "s"}` : "", r.native ? "SDL" : "", r.web ? "Gamepad API" : ""].filter(Boolean);
+  return [...sources, `${r.events.length} event${r.events.length === 1 ? "" : "s"}`, `${(r.duration / 1000).toFixed(1)} s`].join(", ");
+}

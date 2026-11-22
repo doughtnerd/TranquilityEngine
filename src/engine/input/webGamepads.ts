@@ -11,6 +11,7 @@
 import { GAMEPAD_AXES, GAMEPAD_BUTTONS, GAMEPAD_FAMILIES, type DeviceFamily } from "./controls";
 import type { DeviceEventSink, GamepadOutput } from "./devices";
 import { loadInputMapping, type InputMapping } from "./mapping";
+import { tapWebPads, type WebPlatform } from "./recording";
 
 /** What the adapter needs of `navigator`. */
 interface GamepadNavigator {
@@ -18,6 +19,8 @@ interface GamepadNavigator {
 }
 
 type Platform = 0 | 1 | 2 | 3;
+
+const PLATFORM_NAMES: readonly WebPlatform[] = ["windows", "mac", "linux", "other"];
 
 /** The SDL database's platform for the page's OS: 0 Windows, 1 macOS, 2 Linux, 3 other. */
 function platformOf(nav: Navigator | undefined): Platform {
@@ -82,6 +85,7 @@ export function webGamepads(
     } catch {
       return; // a permissions policy can forbid it
     }
+    tapWebPads(pads, PLATFORM_NAMES[platform], skip); // input recording (recording.ts): one check unless recording
     const seen = new Set<number>();
     for (let i = 0; i < pads.length; i++) {
       const pad = pads[i];

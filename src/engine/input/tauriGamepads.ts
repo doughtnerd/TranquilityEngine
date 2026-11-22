@@ -6,6 +6,7 @@
  */
 import { GAMEPAD_FAMILIES } from "./controls";
 import type { DeviceEventSink, GamepadOutput } from "./devices";
+import { tapNativeBatch } from "./recording";
 
 /** What `myco_gamepad_listen` sends, as `src-tauri/src/gamepad.rs` serialises it. */
 export type NativeGamepadEvent =
@@ -59,7 +60,9 @@ export function tauriGamepads(sink: DeviceEventSink): { output: GamepadOutput; s
     const core = await import("@tauri-apps/api/core");
     const channel = new core.Channel<NativeGamepadEvent[]>();
     channel.onmessage = (batch) => {
-      if (!stopped) applyNativeBatch(sink, batch);
+      if (stopped) return;
+      tapNativeBatch(batch); // input recording (recording.ts)
+      applyNativeBatch(sink, batch);
     };
     await core.invoke("myco_gamepad_listen", { onEvent: channel });
   })().catch((err: unknown) => console.warn("[myco] Native gamepads aren't available:", err));

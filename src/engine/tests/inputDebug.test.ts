@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, InputContext, InputPlayers, button, defineActions, defineInputContext, dpad, vec2 } from "../index";
-import { canonicalControlPath, inputActionSets, inputContextNames, inputContextProblems, inputState, watchInput } from "../editor";
+import { canonicalControlPath, inputActionSets, inputContextNames, inputContextProblems, inputState, watchInput, watchRawPresses, type RawPress } from "../editor";
 
 // The editor's view of the input system (ADR 0336, 0337): what the Input debugger panel and the context asset editor
 // read through the editor SDK, driven through Input.inject as real adapters drive it.
@@ -126,5 +126,48 @@ describe("for the context asset editor", () => {
     expect(problems[0].message).toContain('there\'s no action "nothing"');
     expect(problems[1].message).toContain("isn't a control path");
     expect(problems[2].message).toContain("hold.min");
+  });
+});
+
+describe("watchRawPresses", () => {
+  it("reports every device's presses from the snapshot, not releases or presses from before it started", () => {
+    Input.inject.keyDown("q"); // before watching
+    step();
+    const presses: RawPress[] = [];
+    const stop = watchRawPresses((p) => presses.push(p));
+    Input.inject.keyUp("q");
+    Input.inject.keyDown("k");
+    Input.inject.gamepadConnected({ id: 0x4001, name: "HID pad", family: "playstation" });
+    Input.inject.gamepadButton(0x4001, 0, 1);
+    Input.inject.gamepadAxis(0x4001, 1, -0.2); // inside the press point: not a press
+    Input.inject.touchStart(5, 10, 10);
+    Input.inject.penButtonDown(1);
+    step(2); // read at the start of the frame after
+    Input.inject.gamepadAxis(0x4001, 1, -0.9);
+    Input.inject.gamepadButton(0x4001, 0, 0);
+    step(2);
+    expect(presses).toEqual([
+      { device: "keyboard", control: "<Keyboard>/k", value: 1 },
+      { device: "gamepad", control: "<Gamepad>/buttonSouth", value: 1 },
+      { device: "touch", control: "<Touch>/touch0", value: 1 },
+      { device: "pen", control: "<Pen>/barrel", value: 1 },
+      { device: "gamepad", control: "<Gamepad>/leftStickY", value: expect.closeTo(-0.9, 5) },
+    ]);
+    stop();
+    Input.inject.keyDown("j");
+    step(2);
+    expect(presses.length).toBe(5);
+    Input.inject.touchEnd(5, 10, 10);
+    Input.inject.penButtonUp(1);
+  });
+
+  it("takes snapshots itself while no Engine steps (play paused, nothing running)", async () => {
+    const presses: RawPress[] = [];
+    const stop = watchRawPresses((p) => presses.push(p));
+    Input.inject.gamepadConnected({ id: 9, name: "SDL pad", family: "xbox" });
+    Input.inject.gamepadButton(9, 3, 1);
+    await new Promise((r) => setTimeout(r, 400));
+    stop();
+    expect(presses).toEqual([{ device: "gamepad", control: "<Gamepad>/buttonNorth", value: 1 }]);
   });
 });

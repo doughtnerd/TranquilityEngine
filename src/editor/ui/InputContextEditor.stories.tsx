@@ -3,7 +3,7 @@
 // Add… menus and parameter boxes) and checks the file written, the evaluator's problems under the mapping, and Undo.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
-import { button, defineActions, vec2, type InputContextSpec } from "../../engine";
+import { Input, button, defineActions, vec2, type InputContextSpec } from "../../engine";
 import { fileJson, withEditor, type EditorStoryParameters } from "../stories/editorStory";
 import { InputContextInspector } from "./InputContextEditor";
 
@@ -108,6 +108,42 @@ export const PressToBind: Story = {
     await userEvent.click(card.getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(card.getByRole("button", { name: "Bind" })).toBeVisible());
     expect((await saved()).mappings[0].control).toBe("<Keyboard>/m");
+  },
+};
+
+/**
+ * Bind reads the Engine's device snapshot, so any adapter's gamepad binds: here one reported through `Input.inject`,
+ * the input end the WebHID and SDL adapters report to, which the browser's Gamepad API never sees.
+ */
+export const BindAnyDevice: Story = {
+  play: async ({ canvasElement, step }) => {
+    const c = within(canvasElement);
+    const card = within(c.getByRole("listitem", { name: "Mapping 1" }));
+    const pad = 0x4321;
+    try {
+      await step("a gamepad button from an adapter the browser doesn't see", async () => {
+        await userEvent.click(card.getByRole("button", { name: "Bind" }));
+        Input.inject.gamepadConnected({ id: pad, name: "Story pad", family: "playstation" });
+        Input.inject.gamepadButton(pad, 3, 1); // buttonNorth
+        await waitFor(async () => expect((await saved()).mappings[0].control).toBe("<Gamepad>/buttonNorth"), { timeout: 3000 });
+        expect(card.getByRole("button", { name: "Bind" })).toBeVisible();
+      });
+      await step("a stick pushed past the press point binds its axis, though the button is still held", async () => {
+        await userEvent.click(card.getByRole("button", { name: "Bind" }));
+        Input.inject.gamepadAxis(pad, 2, 0.95); // rightStickX
+        await waitFor(async () => expect((await saved()).mappings[0].control).toBe("<Gamepad>/rightStickX"), { timeout: 3000 });
+      });
+      await step("Escape still cancels, and a later pad press binds nothing", async () => {
+        await userEvent.click(card.getByRole("button", { name: "Bind" }));
+        await userEvent.keyboard("{Escape}");
+        await waitFor(() => expect(card.getByRole("button", { name: "Bind" })).toBeVisible());
+        Input.inject.gamepadButton(pad, 0, 1);
+        await new Promise((r) => setTimeout(r, 400));
+        expect((await saved()).mappings[0].control).toBe("<Gamepad>/rightStickX");
+      });
+    } finally {
+      Input.inject.gamepadDisconnected(pad);
+    }
   },
 };
 

@@ -269,7 +269,7 @@ function ControlRow(props: { part: string; listId: string; single: boolean; valu
             </optgroup>
           ))}
         </select>
-        <button class={capturing ? "active" : ""} disabled={props.readOnly} aria-pressed={capturing} title={capturing ? "Stop waiting for a press" : "Bind: press the key, mouse button or gamepad control to use"} onClick={bind}>
+        <button class={capturing ? "active" : ""} disabled={props.readOnly} aria-pressed={capturing} title={capturing ? "Stop waiting for a press" : "Bind: press the key, button, stick, touch or pen to use, on any device"} onClick={bind}>
           {capturing ? "Cancel" : "Bind"}
         </button>
       </span>
