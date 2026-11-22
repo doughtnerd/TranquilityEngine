@@ -1,4 +1,4 @@
-// The Studio shell's rules: the six screens, the router and its hash, the keymap's scopes and preferences.
+// The Studio shell's rules: the seven screens, the router and its hash, the keymap's scopes and preferences.
 import { describe, expect, it, vi } from "vitest";
 import type { KeyEventLike } from "../../editor/ui/keyCombo";
 import { startRequest } from "../boot/startQuery";
@@ -13,13 +13,14 @@ import { canClosePanel } from "../../editor/layout/catalog";
 import { closePanel, instancesOf, openTypes } from "../../editor/layout/model";
 
 describe("screens", () => {
-  it("are six in three groups, Ctrl/⌘+1…6 in header order", () => {
+  it("are seven in four groups, Ctrl/⌘+1…7 in header order (Packages, ADR 0337 §6, ships)", () => {
     expect(screenGroups().map((g) => [g.title, g.screens.map((s) => s.title)])).toEqual([
       ["Author", ["Samples", "Playlists"]],
       ["Mix", ["Mixer", "Spatial"]],
       ["Run", ["Take", "Profiler"]],
+      ["Ship", ["Packages"]],
     ]);
-    expect(SCREENS.map((s) => s.digit)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(SCREENS.map((s) => s.digit)).toEqual([1, 2, 3, 4, 5, 6, 7]);
   });
 });
 
