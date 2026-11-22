@@ -329,3 +329,18 @@ with ancestors) loaded additively through `SceneManager`, never the full scene (
 throw); `AudioListener`, `RigidBody`, character controllers and 2D colliders are left out (static snapshot, the test
 scene's listener hears); per-World filters dropped. The Studio now activates the physics + Rapier runtime halves
 (lazy-loaded). `core/zoneIr.test.ts` failed again under full-suite load (passes alone) — recurring, needs a task.
+
+**D44. W9 and W10 merged: returns on the core, playlist shaping (ADR 0336), takes and renames.** Full Vitest after:
+804 files, 8926 passed, 0 failed. Choices to review:
+- *Returns (W9-A):* returns share the core's 32 slots after the buses (a non-reverb return that doesn't fit is left
+  out with a warning); `Audio.buses` now lists returns too (behaviour change); a removed send fades out muted; the old
+  `addEffect {type:"reverb"}` op is refused (use `setSend`); >4 sends is a warning; a presence duck keyed by a return
+  never ducks (no voices; FMOD/Wwise use level). Babylon fallback plays returns silent.
+- *ADR 0336 (W9-D):* `ChangeHow.tail` on by default, so an existing cut at an Exit marker now rings its tail;
+  `SequenceLoop.tail` off; tails ring only on cuts (crossfades fade, as Wwise); quantise is per lane and gain-only
+  (non-gain targets warn) — for rhythm games, quantising pitch/filter/effect params is a follow-up; log/exp shapes use
+  exponents 1.41/2/3 as 12 stamped pieces; a beat-timed cut now fades exactly at the boundary (bug fix: it stopped
+  0.25 s early). Seen: a sequence started with no stamp is first heard ~22 ms late on loopback.
+- *Takes (W10-A):* META `seed` now holds the World's generator state (older takes may pick differently on replay);
+  pictures on by default (game builds opt out in `game.json`); effects-cost track is a per-section estimate until the
+  core reports per-effect cost; renames follow the runtime's instance-wide local-parameter shadowing.
