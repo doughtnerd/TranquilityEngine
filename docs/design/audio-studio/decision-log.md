@@ -129,3 +129,34 @@ mix at runtime start; snapshots affect only what they list (Wwise/FMOD), fades s
 auditions it; structural effect edits in a snapshot edit the base chain, parameter values go to overrides; deleting a
 bus moves children up; Master's name is locked; bed priority 0..255 with Share/Own/Off. Gap: game parameters have no
 authoring home now that Project Settings > Audio is retiring — scheduled (a Parameters panel in the Studio).
+
+**D20. Sequences and musical timing (W3-E, merged).** The sequence playhead is exact (event to event), planned 0.1 s
+ahead so every clip voice starts stamped (a parameter change or release reaches it ~0.1 s later; a release from a hold
+point acts at once); sync clips play as stamped pieces swapped at piece boundaries (2 ms splice), async clips use the
+voice loop; voices already sounding at a hold keep playing; muted/unsoloed tracks still drive the playhead; Exit
+fallbacks: clip → loop wrap → sample end, sequence → next loop wrap; `hit` stingers land on the next bar; markers fire on
+[from, to), delivered on the next frame with exact `time`. Gaps: `onAudioMarker` component hook and playlist beat
+callbacks (need an engine hook), group priming of streamed sync clips, voice pan, reverse.
+
+**D21. Spatial runtime (W4-A1, merged).** Attenuation curves are evaluated in the playlist instance on the main thread
+(one frame of lag) because the core's attenuation step wasn't in scope; `AudioSource` min/max act as overrides only
+when they differ from the defaults (no new public flag); a spatial playlist with no volume curve keeps the inverse law;
+the reverb send stays independent of the dry curve (Wwise aux practice), capped by the send range; `zoneDepth` exists
+only on zone-played instances; four new reverb presets map onto the five generated reverbs (own reverb times need
+native presets). Gaps (core/native): per-voice spread, beds for zone interiors and `bedBeyond`. New public API
+`AudioZone`, `AudioReverbZone.levelDefault`, four preset names (ADR 0333).
+
+**D22. Takes (W4-B1, merged).** Request records 0x10–0x19 (skippable by length, refused without the take flag);
+capture format 2 (format 1 refused); 256 MiB cap only with the take flag; requests live outside the ring with seqs
+from its counter; take clock = performance.now() from start; instance ids = runtime groups (one-shots from 2^30);
+pick paths are `pick` EVENTs after `eventStart` (picks can happen later in an instance's life); MIXOP origin is always
+`editor` for now; F10 in exported players only (no touch gesture); no picture frames yet (needs a canvas seam). New
+editor SDK contribution point `registerPlayToolbarItem` (flagged: may want a decision-record line). Coordinator merge:
+reconciled pick hooks with the sequence node split and removed duplicate capture-bytes functions both branches added.
+
+**D23. Integration pass (W4-G, merged).** Parameters appear as curve inputs named `param:<name>` (a parameter called
+"time" can't collide); a voice-curve lane is removed only when flat at its plain value (a flat −6 dB lane is a
+deliberate offset); Apply writes only changed lanes; global parameter renames rewrite playlists and events without a
+confirm (status bar reports the count) and removal drops automation and snapshot conditions that read it; a "Global
+parameters" panel lives in the Mixer (and on demand in Playlists). Gap: playlist instance-level effect automation and
+sample effect automation need format fields (scheduled).
