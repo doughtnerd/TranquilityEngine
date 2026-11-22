@@ -505,6 +505,8 @@ pub fn evaluate(
         if (flags & FLAG_FIXED != 0) != (pass == PASS_FIXED) {
             continue;
         }
+        // T45: plugin fault reports name the instance being evaluated.
+        arena.plugin_rt.set_instance(h);
         let Ok(skel) = arena.skeleton(inst.skeleton) else {
             continue;
         };

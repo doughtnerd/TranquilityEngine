@@ -88,15 +88,18 @@ fn total_bytes(init: &Init) -> u64 {
 
 /// The animation core.
 pub struct Core {
-    started: bool,
-    max_bones: usize,
-    arena: Arena,
-    table: Table,
+    // `pub(crate)`: feature modules add their own `impl Core` blocks (T42 `matching`, T45 `plugin`).
+    pub(crate) started: bool,
+    pub(crate) max_bones: usize,
+    pub(crate) arena: Arena,
+    pub(crate) table: Table,
     frame: Frame,
     implicit: Program,
     last_status: u32,
     tweens: Tweens,
     timelines: Timelines,
+    /// T42: the match debug buffer (`crate::matching`).
+    pub(crate) matching: crate::matching::MatchBuffers,
 }
 
 impl Default for Core {
@@ -118,6 +121,7 @@ impl Core {
             last_status: STATUS_NOT_INITIALIZED,
             tweens: Tweens::default(),
             timelines: Timelines::default(),
+            matching: crate::matching::MatchBuffers::default(),
         }
     }
 
@@ -150,7 +154,7 @@ impl Core {
         self.last_status
     }
 
-    fn handle(&mut self, r: Result<u32, u32>) -> u32 {
+    pub(crate) fn handle(&mut self, r: Result<u32, u32>) -> u32 {
         match r {
             Ok(h) => {
                 self.last_status = STATUS_OK;
@@ -326,6 +330,8 @@ impl Core {
         // T22r: tween and timeline outputs are per frame, cleared here.
         self.tweens.begin_frame();
         self.timelines.begin_frame();
+        // T45: plugin fault reports are per frame, cleared here.
+        self.arena.plugin_rt.begin_frame();
         frame_calls::write_inputs(
             &self.arena,
             &mut self.table,
@@ -549,7 +555,7 @@ impl Core {
         &self.timelines
     }
 
-    fn addr<T>(v: &[T]) -> u32 {
+    pub(crate) fn addr<T>(v: &[T]) -> u32 {
         v.as_ptr() as usize as u32
     }
 }
@@ -559,7 +565,7 @@ thread_local! {
     static CORE: RefCell<Core> = RefCell::new(Core::new());
 }
 
-fn with<R>(f: impl FnOnce(&mut Core) -> R) -> R {
+pub(crate) fn with<R>(f: impl FnOnce(&mut Core) -> R) -> R {
     CORE.with(|c| f(&mut c.borrow_mut()))
 }
 

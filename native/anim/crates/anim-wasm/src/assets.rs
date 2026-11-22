@@ -16,6 +16,8 @@
 //! | clip (`myco.anim@1`) | a sampler over its compressed form (else its raw form) with its binding table (`anim-sample`'s `ClipBindings`: decoded channel, track and key tables, so sampling and track windows don't re-read records), duration, flags, root curve; and (T31) its sync markers keyed by name hash, its exit markers' times and its curve tracks by name hash, for the graph's markers, exit times and curve conditions |
 //! | graph (`myco.animgraph@1`) | its [`Program`] and a binding table (an asset handle per string id: clips, masks and, for linked graphs, graphs) |
 //! | mask | per-bone weights packed like a pose |
+//! | pose database (`myco.posedb@1`, T42) | the search-ready `MatchDb`, a clip handle per database clip (`crate::matching`) |
+//! | plugin module (T45) | its descriptor's node kinds and default parameter blocks (`crate::plugin`) |
 //!
 //! The parsed views borrow the asset's own block for as long as the asset lives (the block never
 //! moves and is freed after the views, when the slot is cleared).
@@ -161,6 +163,10 @@ pub enum Asset {
     Clip(ClipAsset),
     Graph(GraphAsset),
     Mask(MaskAsset),
+    /// T42: a pose database (`crate::matching`).
+    PoseDb(crate::matching::PoseDbAsset),
+    /// T45: a registered third-party node module (`crate::plugin`).
+    Plugin(crate::plugin::PluginModule),
 }
 
 struct Slot {
@@ -175,6 +181,8 @@ pub struct Arena {
     free: Vec<u16>,
     /// Bytes of asset files held.
     held: usize,
+    /// T45: the plugin host's call buffers and fault reports (`crate::plugin`).
+    pub(crate) plugin_rt: crate::plugin::Runtime,
 }
 
 /// `generation << 16 | index`.
@@ -197,6 +205,7 @@ impl Arena {
             slots: Vec::with_capacity(slots),
             free: Vec::new(),
             held: 0,
+            plugin_rt: crate::plugin::Runtime::new(),
         }
     }
 
@@ -205,7 +214,7 @@ impl Arena {
         self.held
     }
 
-    fn insert(&mut self, asset: Asset) -> Result<u32, u32> {
+    pub(crate) fn insert(&mut self, asset: Asset) -> Result<u32, u32> {
         if let Some(index) = self.free.pop() {
             let slot = &mut self.slots[index as usize];
             slot.asset = Some(asset);
@@ -233,7 +242,7 @@ impl Arena {
         }
     }
 
-    fn get_mut(&mut self, handle: u32) -> Result<&mut Asset, u32> {
+    pub(crate) fn get_mut(&mut self, handle: u32) -> Result<&mut Asset, u32> {
         let (index, generation) = split(handle);
         match self.slots.get_mut(index) {
             Some(Slot {
@@ -405,6 +414,8 @@ impl Arena {
         if asset != 0 {
             match self.get(asset) {
                 Ok(Asset::Clip(_)) | Ok(Asset::Mask(_)) | Ok(Asset::Graph(_)) => {}
+                // T42 pose databases, T45 plugin modules.
+                Ok(Asset::PoseDb(_)) | Ok(Asset::Plugin(_)) => {}
                 Ok(_) => return STATUS_WRONG_KIND,
                 Err(e) => return e,
             }
@@ -460,6 +471,16 @@ impl Assets for Arena {
 
     fn mask(&self, handle: u32) -> Option<&[F32x4]> {
         self.mask_asset(handle).ok().map(|m| m.packed.as_slice())
+    }
+
+    // T42: pose databases (`crate::matching`).
+    fn match_db(&self, handle: u32) -> Option<anim_graph::matching::MatchRef<'_>> {
+        crate::matching::match_ref(self, handle)
+    }
+
+    // T45: the plugin host (`crate::plugin`).
+    fn plugins(&self) -> Option<&dyn anim_graph::plugin::PluginHost> {
+        Some(self)
     }
 }
 
