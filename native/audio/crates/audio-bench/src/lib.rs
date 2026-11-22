@@ -171,9 +171,14 @@ pub struct Scene {
     /// ADR 0328: with `sustain`, each mixed voice plays a LOOPS program instead of a SET_LOOP region: a held forward
     /// loop with a 256-frame seam crossfade, then a held ping-pong loop; the key-offs let them go by crossfade.
     pub loop_programs: bool,
+    /// ABI 4.9: with `loop_programs`, the loops' LOOPS `shapes` (seam and exit crossfade shapes; 0 equal power).
+    pub loop_shapes: u16,
     /// ADR 0331: instance submixes (0 none): the voices spread over this many groups, each with a submix running a
     /// low-pass and a compressor on bus 0.
     pub submixes: u32,
+    /// ADR 0331 levels (ABI 4.9): with `submixes`, that many more slots after them, each a nested level (no group,
+    /// the same chain) feeding instance slot `i % submixes`; every other voice is ROUTEd into one.
+    pub submix_levels: u32,
     /// ADR 0331 (ABI 4.6): the catalogue effects a scene runs ([`Catalogue`]); `None` none.
     pub catalogue: Option<Catalogue>,
     /// ADR 0158 E2: also time one extra `automation::begin_quantum` before each quantum (outside the timed work;
@@ -397,7 +402,9 @@ impl Scene {
             bus_automation: false,
             sustain: false,
             loop_programs: false,
+            loop_shapes: 0,
             submixes: 0,
+            submix_levels: 0,
             catalogue: None,
             probe_automation: false,
             beds: 0,
@@ -620,8 +627,12 @@ pub fn scene(name: &str) -> Option<Scene> {
         "sustain" => Scene { sustain: true, ..Scene::looping(name, 128) },
         // ADR 0328: `sustain` with loop programs (crossfaded forward and ping-pong held loops, released by crossfade).
         "loop-programs" => Scene { sustain: true, loop_programs: true, ..Scene::looping(name, 128) },
+        // ABI 4.9: `loop-programs` with shaped crossfades: a log seam (1.41, the one shape with a powf) and an exp exit.
+        "loop-programs-shaped" => Scene { sustain: true, loop_programs: true, loop_shapes: (wire::FADE_SHAPE_LOG1 << wire::LOOP_SEAM_SHAPE_SHIFT | wire::FADE_SHAPE_EXP1 << wire::LOOP_EXIT_SHAPE_SHIFT) as u16, ..Scene::looping(name, 128) },
         // ADR 0331: 128 voices in 32 instances, each instance's submix running a low-pass and a compressor.
         "submixes" => Scene { submixes: 32, ..Scene::looping(name, 128) },
+        // ABI 4.9: 16 instance submixes and 16 nested levels feeding them (two levels), half the voices ROUTEd into a level.
+        "submix-levels" => Scene { submixes: 16, submix_levels: 16, ..Scene::looping(name, 128) },
         // ADR 0331 (ABI 4.6): the catalogue's DSP. `fx-chain-8`: 8 buses, each with an eight-effect chain (EQ, band-pass
         // with drive, saturation, distortion, bit-crush, chorus or reverb, delay, limiter). `fx-submix-*`: 128 voices in 32
         // instances, each instance's submix running one heavy kind. `fx-sidechain`: 16 buses, 12 with a sidechain
@@ -1541,7 +1552,10 @@ impl Bench {
                 self.push(&wire::BusSends { voice_id: bus, frame_offset: wire::ASAP, sends });
             }
         }
-        for slot in 0..s.submixes.min(wire::SUBMIXES_MAX as u32) {
+        let levels = if s.submixes > 0 { s.submix_levels.min(wire::SUBMIXES_MAX as u32 - s.submixes.min(wire::SUBMIXES_MAX as u32)) } else { 0 };
+        for slot in 0..(s.submixes + levels).min(wire::SUBMIXES_MAX as u32) {
+            // ABI 4.9: a level slot (after the instances') has no group and feeds instance slot `slot % submixes`.
+            let (group, parent) = if slot < s.submixes { (slot as u16 + 1, 0) } else { (0, (slot % s.submixes) as u16 + 1) };
             // ADR 0331: a 1.2 kHz low-pass, then a compressor (catalogue parameters); an `fx-submix-*` scene's one kind.
             let effects = match s.catalogue {
                 Some(Catalogue::Submix(kind, p)) => vec![wire::SubmixEffects { type_: kind, flags: wire::SUBMIX_FX_ON, p: [p[0], p[1], p[2], 0.0, 0.0, 0.0, 0.0, 0.0] }],
@@ -1550,7 +1564,7 @@ impl Bench {
                     wire::SubmixEffects { type_: wire::SUBMIX_FX_COMPRESSOR as u32, flags: wire::SUBMIX_FX_ON, p: [-24.0, 4.0, 10.0, 120.0, 3.0, 6.0, 0.0, 0.0] },
                 ],
             };
-            self.push(&wire::Submix { voice_id: slot, frame_offset: wire::ASAP, group: slot as u16 + 1, bus: 0, effects });
+            self.push(&wire::Submix { voice_id: slot, frame_offset: wire::ASAP, group, bus: 0, parent, reserved: 0, effects });
         }
         if s.bindings > 0 || s.bus_automation || s.lanes7 {
             self.push(&bench_curves(s.bezier));
@@ -1884,6 +1898,11 @@ impl Bench {
             gate: self.gate,
             ..Default::default()
         });
+        if s.submixes > 0 && s.submix_levels > 0 && index % 2 == 0 {
+            // ABI 4.9: into the level slot that feeds this voice's instance slot.
+            let level = s.submixes + (index % s.submixes.min(s.submix_levels).max(1));
+            self.push(&wire::Route { voice_id: id, frame_offset: wire::ASAP, submix: level as u16 + 1, reserved: 0 });
+        }
         if hp {
             self.push(&wire::SetVoiceFx { voice_id: id, frame_offset: wire::ASAP, mask: wire::SET_VOICE_FX_MASK_HP_HZ, hp_hz: HP_START_HZ, ..Default::default() });
         }
@@ -1914,7 +1933,7 @@ impl Bench {
             } else {
                 [(0x8000u16, 0u16, 0u32), (0, 1, 1), (0x8001, 2, 2), (0x8000, 0, 4), (0x8001, 2, 3)]
             };
-            let bindings = all[..s.bindings.min(5) as usize].iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target }).collect();
+            let bindings = all[..s.bindings.min(5) as usize].iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target, offset: 0.0 }).collect();
             self.push(&wire::Automate { voice_id: id, frame_offset: wire::ASAP, bindings });
         }
         if s.sustain && s.loop_programs && mixed && stream.is_none() {
@@ -1926,7 +1945,7 @@ impl Bench {
                 count: 0,
                 flags: dir | 1 << wire::LOOP_ACTIVE_SHIFT | 2 << wire::LOOP_EXIT_SHIFT,
                 param: 0,
-                reserved: 0,
+                shapes: s.loop_shapes,
                 threshold: 0.0,
             };
             let loops = vec![item(frames / 6, frames / 3, 0), item(frames / 2, 2 * frames / 3, 1)];
@@ -2433,7 +2452,7 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck, wire::Time, wire::Loops, wire::Submix, wire::BusSends);
+wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck, wire::Time, wire::Loops, wire::Submix, wire::BusSends, wire::Route);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
 /// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps). With `bezier` (ADR 0332)

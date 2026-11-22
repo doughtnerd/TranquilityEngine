@@ -17,13 +17,15 @@ import { clampView, fitView, timeToX, xToTime, type WaveBand } from "../../compo
 import { useElementWidth } from "../../components/useElementWidth";
 import * as act from "./sampleActions";
 import {
-  addLoop, addMarker, convertMarker, deleteMarker, hasFixedName, isHold, MARKER_TOKENS, MARKER_TYPE_NAMES, moveLoop, moveMarker, removeLoop, resetTrim, setSnapToZero, setTrim,
+  addLoop, addMarker, convertMarker, deleteMarker, hasFixedName, isHold, MARKER_TOKENS, MARKER_TYPE_NAMES, MARKER_TYPE_ORDER, moveLoop, moveMarker, removeLoop, resetTrim, setSnapToZero, setTrim,
   slideLoop, snippets, sourceTime, updateLoop, updateMarker, viewTime, type SampleEdit,
 } from "./sampleEditing";
 import { detachMarker, fileOrigin, markerDiff, revertLoop, revertMarker } from "./sampleFile";
-import { lengthOf, loudnessOf, pcmNow, peaksFailure, peaksOf, wavMetadataOf, type SampleSession } from "./sampleSession";
+import { lengthOf, loudnessOf, pcmNow, pcmOf, peaksFailure, peaksOf, wavMetadataOf, type SampleSession } from "./sampleSession";
+import type { DetectKind } from "../../../engine/audio/sample/detect/detect";
+import { detectInto } from "./sampleDetect";
 import { editedLength, trimOf } from "./sampleTime";
-import { estimateLabelWidth, liveSelection, loopRegions, MARKER_ROWS_SHOWN, nextMarker, packMarkerRows, regionAt, sampleWarnings, selectionSpan, snapTime, trimHoldingMarkers, fitToSource } from "./sampleView";
+import { estimateLabelWidth, liveSelection, loopRegions, MARKER_ROWS_SHOWN, musicalSpans,nextMarker, packMarkerRows, regionAt, sampleWarnings, selectionSpan, snapTime, trimHoldingMarkers, fitToSource } from "./sampleView";
 import { nearestZeroCrossing, seamJump } from "./seam";
 import { NormalizePopover, RootPopover, SnapPopover, TempoPopover, TimeFormatPopover } from "./SampleTools";
 import { dialog, hoverTime, openSession, playheadTime, razorOn, select, selection, snapSetting, timeFormat, viewSpan } from "./samplesState";
@@ -97,6 +99,8 @@ function Timeline(props: { session: SampleSession }) {
     return zero && pcm ? nearestZeroCrossing(pcm, t) : t;
   };
   const commit = (r: SampleEdit, coalesce = false) => session.commit(r, { coalesce });
+  /** Detect (the Tempo and Root note popovers): the source audio, analysed on the detection worker, committed as one step. */
+  const detect = async (kind: DetectKind) => detectInto(session, await pcmOf(project, session.source.peek()), kind);
   const [ta, tb] = trimOf(e, length);
   const seamPcm = pcmNow(project, source);
   const seams = new Map(seamPcm ? e.loops.filter((l) => !isHold(l)).map((l) => [l.id, seamJump(seamPcm, l.start, l.end)] as const) : []);
@@ -115,6 +119,10 @@ function Timeline(props: { session: SampleSession }) {
     ...(scope && sel.kind !== "sample" ? [{ start: v(scope.start), end: v(scope.end), color: "--accent" }] : []),
   ];
   if (e.trim) bands.push({ start: 0, end: v(ta), color: "--faint", hatched: true }, { start: v(tb), end: len, color: "--faint", hatched: true });
+  // ADR 0336: the post-exit tail and the pre-entry, shaded under the waveform.
+  const spans = musicalSpans(e, length);
+  if (spans.tail) bands.push({ start: v(spans.tail[0]), end: v(spans.tail[1]), color: "--marker-exit", hatched: true, label: "Tail" });
+  if (spans.preEntry) bands.push({ start: v(spans.preEntry[0]), end: v(spans.preEntry[1]), color: "--marker-exit", label: "Pre-entry" });
 
   const markerMenu = (m: SampleMarker, at: { x: number; y: number }) => {
     const diff = markerDiff(m);
@@ -122,7 +130,7 @@ function Timeline(props: { session: SampleSession }) {
       ...at,
       label: `${m.name} menu`,
       entries: tidyEntries([
-        ...(["note", "exit", "hit", "cue"] as const).map((t) => ({ id: `type-${t}`, label: `${m.type === t ? "✓ " : ""}${MARKER_TYPE_NAMES[t]}`, run: () => commit(updateMarker(e, m.id, { type: t })) })),
+        ...MARKER_TYPE_ORDER.map((t) => ({ id: `type-${t}`, label: `${m.type === t ? "✓ " : ""}${MARKER_TYPE_NAMES[t]}`, run: () => commit(updateMarker(e, m.id, { type: t })) })),
         SEPARATOR,
         m.type === "note" && { id: "convert", label: m.end !== undefined ? "Convert to point" : "Convert to range", run: () => commit(convertMarker(e, m.id, length)) },
         { id: "play", label: "Play from here", run: () => act.togglePlay({ kind: "marker", id: m.id }) },
@@ -171,10 +179,11 @@ function Timeline(props: { session: SampleSession }) {
             <HistoryPopover none="No edits yet" />
           </span>
           <button class="smp-tool" title="Write markers, loops, tempo and root into the WAV (a backup is kept)" disabled={session.readOnly || !/\.wave?$/i.test(source)} onClick={() => (dialog.value = { kind: "write" })}>Write to file…</button>
+          <button class="smp-tool" title="Replace the audio with a new file, keeping the edits (the current audio is kept as a version)" disabled={session.readOnly || session.derived.value !== null} onClick={() => (dialog.value = { kind: "reimport" })}>Re-import…</button>
           <button class="smp-tool" title="Fork as new sample (Ctrl+Shift+S)" disabled={session.readOnly} onClick={() => (dialog.value = { kind: "fork", mode: "fork" })}>Fork…</button>
           <span class="smp-sep" />
-          <TempoPopover edits={e} commit={(r) => commit(r)} disabled={session.readOnly} />
-          <RootPopover edits={e} commit={(r) => commit(r)} disabled={session.readOnly} />
+          <TempoPopover edits={e} commit={(r) => commit(r)} detect={detect} disabled={session.readOnly} />
+          <RootPopover edits={e} commit={(r) => commit(r)} detect={detect} disabled={session.readOnly} />
           <NormalizePopover edits={e} measured={loudnessOf(project, source)} bextLoudness={wav?.bext?.loudnessValue ?? null} commit={(r) => commit(r)} disabled={session.readOnly} />
           <span class="smp-sep" />
           <button class="smp-tool" title="Add marker at the playhead (M)" disabled={session.readOnly} onClick={act.addMarkerAtPlayhead}>+ Marker</button>
@@ -221,7 +230,7 @@ function Timeline(props: { session: SampleSession }) {
                 return (
                   <div
                     key={m.id}
-                    class={`smp-marker${on ? " on" : ""}${m.file ? " ff" : ""}${outside ? " outside" : ""}`}
+                    class={`smp-marker${m.type === "entry" ? " entry" : ""}${on ? " on" : ""}${m.file ? " ff" : ""}${outside ? " outside" : ""}`}
                     style={{ left: `${mx}px`, top: `${(rows.get(m.id) ?? 0) * ROW_PX}px`, width: m.end !== undefined ? `${Math.max(2, x(m.end) - mx)}px` : undefined, "--mk": token }}
                     role="button"
                     tabIndex={-1}

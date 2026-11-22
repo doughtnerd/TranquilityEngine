@@ -7,8 +7,9 @@ import { isLabelled } from "../../../engine/audio/parameters";
 import type { PlaylistBody, PlaybackRules } from "../../../engine/audio/playlist/types";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { EffectChain } from "../../components/EffectChain";
+import { chainNote } from "./chainCost";
 import type { BodyEdit } from "./EntryList";
-import { FieldRow, NumberBox, SelectBox, Section } from "./fields";
+import { FieldRow, NumberBox, SelectBox, Section } from "../../../editor/ui/PanelFields";
 import { setEffects, setEntryUse, setOutput, setParameters, setPlayback, setSpatial, USE_LIMITS, type EditContext } from "./playlistEdits";
 import { axisRange } from "./blendPlacement";
 import { entryName, playlistTitle } from "./playlistPaths";
@@ -99,7 +100,7 @@ export function PlaylistInspector(props: PlaylistInspectorProps) {
       </Section>
       <Section title={body.type === "clip" ? "Clip effects" : "Playlist effects"}>
         <EffectChain effects={body.effects} level="instance" readOnly={!writable}
-          note={body.type === "clip" ? "Run on this clip's voice, once per playing clip." : "Run once on the mixed output, one instance per playing playlist: after the entries are mixed and before the Mixer bus."}
+          note={chainNote("playlist", body.effects)}
           onEdit={(r, label, drag) => onEdit(label, (b) => ("refused" in r ? r : setEffects(b, r.next)), drag)} />
       </Section>
       <Section title="Spatial" open={!!spatial}>

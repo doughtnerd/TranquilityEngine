@@ -60,6 +60,20 @@ pub const CONSTANTS: &[Const] = &[
     c!("BUS_FX_TYPE_MASK", 0xFFFF, "bus effect type bits 0-15: the type"),
     c!("FX_STARVED_SUBMIX", 0x8000, "STATUS fxStarvedOwner bit 15: the owner is a submix slot (low bits), else a bus slot"),
     c!("FX_STARVED_NONE", 0xFFFF, "STATUS fxStarvedOwner: no effect has starved"),
+    c!("SUBMIX_PARENT_NONE", 0, "SUBMIX parent: the slot feeds its bus (else parent - 1 is the slot it feeds; ABI 4.9)"),
+    c!("SUBMIX_DEPTH_MAX", 8, "submix levels a chain of parents keeps (ABI 4.9); a slot deeper than this feeds its bus"),
+    c!("FADE_SHAPE_EQUAL_POWER", 0, "LOOPS shapes nibble: equal power (sin in, cos out; the default, ABI 4.9)"),
+    c!("FADE_SHAPE_LINEAR", 1, "LOOPS shapes nibble: linear"),
+    c!("FADE_SHAPE_S_CURVE", 2, "LOOPS shapes nibble: s-curve u^2(3 - 2u)"),
+    c!("FADE_SHAPE_INV_S_CURVE", 3, "LOOPS shapes nibble: inverse s-curve 2u - u^2(3 - 2u)"),
+    c!("FADE_SHAPE_LOG1", 4, "LOOPS shapes nibble: log 1 - (1 - u)^1.41"),
+    c!("FADE_SHAPE_LOG2", 5, "LOOPS shapes nibble: log 1 - (1 - u)^2"),
+    c!("FADE_SHAPE_LOG3", 6, "LOOPS shapes nibble: log 1 - (1 - u)^3"),
+    c!("FADE_SHAPE_EXP1", 7, "LOOPS shapes nibble: exp u^1.41"),
+    c!("FADE_SHAPE_EXP2", 8, "LOOPS shapes nibble: exp u^2"),
+    c!("FADE_SHAPE_EXP3", 9, "LOOPS shapes nibble: exp u^3"),
+    c!("LOOP_SEAM_SHAPE_SHIFT", 0, "LOOPS item shapes bits 0-3: the seam crossfade's FADE_SHAPE_* (ABI 4.9)"),
+    c!("LOOP_EXIT_SHAPE_SHIFT", 4, "LOOPS item shapes bits 4-7: the exit crossfade's FADE_SHAPE_* (ABI 4.9)"),
 ];
 
 /// One effect of a SUBMIX chain: 40 B.
@@ -75,24 +89,44 @@ const SUBMIX_EFFECTS: Repeat = Repeat {
     max: 0,
 };
 
-/// 0x0C SUBMIX (ADR 0331, ABI 4.5): configures instance submix slot `voiceId` (0..SUBMIXES_MAX-1):
-/// the voices of instance `group` route into it, it runs its chain and feeds bus `bus`. An effect
-/// count of 0 (or group 0) frees the slot. Applies on arrival, like AUTOMATE; main sends it before
-/// the instance's first PLAY.
+/// 0x0C SUBMIX (ADR 0331, ABI 4.5; levels ABI 4.9): configures submix slot `voiceId`
+/// (0..SUBMIXES_MAX-1): the voices of instance `group` on bus `bus` route into it (group 0: only
+/// the voices a ROUTE names), it runs its chain and feeds slot `parent - 1` (a nested playlist's, a
+/// track's or a clip's submix feeding its parent level's) or, with parent 0 or a free parent, bus
+/// `bus`. An effect count of 0 frees the slot; a slot whose group goes to 0 keeps running its chain
+/// (its tail rings) until freed. Applies on arrival, like AUTOMATE; main sends it before the PLAYs.
 pub const SUBMIX: Opcode = Opcode {
     id: 0x0C,
     name: "SUBMIX",
     payload: Body::with_tail(
         &[
-            Field::new("group", Ty::U16).doc("the instance group 1..=1024 whose voices route here; 0 frees"), // 12
+            Field::new("group", Ty::U16).doc("the instance group 1..=1024 whose voices on `bus` route here; 0 none (ROUTE only)"), // 12
             Field::new("bus", Ty::U16).doc("the output bus index"),                                           // 14
-            Field::new("effectCount", Ty::U32),                                                              // 16
+            Field::new("effectCount", Ty::U32).doc("0 frees the slot"),                                       // 16
+            Field::new("parent", Ty::U16).doc("ABI 4.9: the slot this one feeds, plus 1; SUBMIX_PARENT_NONE (0) the bus"), // 20
+            Field::new("reserved", Ty::U16),                                                                 // 22
         ],
         Tail::Repeat(&SUBMIX_EFFECTS),
     ),
     total_bytes: None,
     sent: true,
-    doc: "configure an instance submix's group, bus and insert chain (ADR 0331); no effects frees it",
+    doc: "configure a submix's group, bus, parent and insert chain (ADR 0331); no effects frees it",
+};
+
+/// 0x0D ROUTE, 16 B (ADR 0331 levels, ABI 4.9): voice `voiceId` mixes into submix slot `submix - 1`
+/// (its playlist level's) instead of its group's; 0 goes back to the group's route. Applies on
+/// arrival, like AUTOMATE, so main sends it right after the PLAY (and after a replayed PLAY). A free
+/// slot routes the voice to the slot's bus, as a group route does.
+pub const ROUTE: Opcode = Opcode {
+    id: 0x0D,
+    name: "ROUTE",
+    payload: Body::fixed(&[
+        Field::new("submix", Ty::U16).doc("the submix slot plus 1; 0 the group's route"), // 12
+        Field::new("reserved", Ty::U16),                                                // 14
+    ]),
+    total_bytes: Some(16),
+    sent: true,
+    doc: "route a voice into a submix slot (ADR 0331 levels)",
 };
 
 /// SUBMIX_AUTOMATE bindings (AUTOMATE's items): AUTO_TARGET_FX targets only; params global, local to the submix's
@@ -120,12 +154,12 @@ const LOOPS_ITEMS: Repeat = Repeat {
     item: &[
         Field::new("startFrame", Ty::U32).doc("clip frames"),
         Field::new("endFrame", Ty::U32).doc("clip frames; equal to startFrame: a hold point"),
-        Field::new("crossfadeFrames", Ty::U32).doc("the seam's equal-power crossfade (and a hold point's fades), clip frames"),
-        Field::new("exitFadeFrames", Ty::U32).doc("exit crossfade's length, clip frames"),
+        Field::new("crossfadeFrames", Ty::U32).doc("the seam's crossfade (and a hold point's fades), clip frames; shaped by `shapes` bits 0-3"),
+        Field::new("exitFadeFrames", Ty::U32).doc("exit crossfade's length, clip frames; shaped by `shapes` bits 4-7"),
         Field::new("count", Ty::U16).doc("0 endless; else passes in all, the first included"),
         Field::new("flags", Ty::U16).doc("LOOP_* direction, activation, exit, re-entry and comparison"),
         Field::new("param", Ty::U16).doc("activation parameter: a binding param (PARAM_GLOBAL | slot, or a local slot)"),
-        Field::new("reserved", Ty::U16),
+        Field::new("shapes", Ty::U16).doc("ABI 4.9: FADE_SHAPE_* of the seam (bits 0-3) and exit (bits 4-7) crossfades; 0 equal power"),
         Field::new("threshold", Ty::F32).doc("activation threshold"),
     ],
     then: None,

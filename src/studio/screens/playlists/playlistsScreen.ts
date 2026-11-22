@@ -23,6 +23,7 @@ import { audioHost, openRoute, toasts } from "../../shell/studioServices";
 import { linkEntry, unlinkEntry, type EditContext } from "./playlistEdits";
 import { bodyAt, canonical, editAt, entryName, filePath, indicesToSelect, pathTarget, playlistTitle, whereOf, type PlaylistPath } from "./playlistPaths";
 import { linkedByIndex } from "./playlistTree";
+import { clipsPlaylist } from "./clipsPlaylist";
 import { childrenToKeep, deleteEntry, moveAcrossFiles, moveWithinFile, insertEntries, planDelete, replaceLinks, takeEntry, type ChildrenChoice, type DeletePlan, type DeleteTarget, type LinksChoice } from "./structureEdits";
 import type { DropPlan } from "./treeDrop";
 import { updateLog, voicesNow, type DebugSnapshot, type LogRow } from "./voiceLog";
@@ -176,6 +177,29 @@ export async function newPlaylist(folder: string | null, nested: boolean): Promi
   }
   const path = await createAsset<PlaylistAsset>("playlist", { folder: folder ?? "", name: "New playlist", value: emptyPlaylist("queue") });
   if (path) openPlaylist(filePath(path));
+}
+
+/**
+ * "Create playlist from clips": a new playlist file of `samples` (a Clip for one, a Queue for several; `clipsPlaylist`),
+ * opened here. A file isn't an undo step of any document, so the toast's Undo deletes it (the editor's delete, which
+ * asks first when the user has it ask).
+ */
+export async function newPlaylistFromSamples(samples: readonly string[]): Promise<string | null> {
+  const made = clipsPlaylist(samples);
+  if (!made) return null;
+  const path = await createAsset<PlaylistAsset>("playlist", { folder: made.folder, name: made.name, value: made.value });
+  if (!path) return null;
+  openPlaylist(filePath(path));
+  const what = samples.length === 1 ? "1 sample" : `${new Set(samples).size} samples`;
+  toasts.show({
+    text: `Created ${playlistTitle(path)} from ${what}.`,
+    undo: () => {
+      void deleteAssets([path]).then((gone) => {
+        if (gone && openPath.peek()?.some((s) => "file" in s && s.file === path)) openPath.value = null;
+      });
+    },
+  });
+  return path;
 }
 
 /** New sequence: a Sequence playlist file in `folder` (its timeline is edited from M5). */

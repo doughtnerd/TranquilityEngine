@@ -26,6 +26,19 @@ describe("the Profiler's data reader", () => {
     source.close();
   });
 
+  it("a take's pictures from its source plan the Picture track first; a capture has none", async () => {
+    const source = await openFixture();
+    expect((await new ProfilerDataReader(source).refresh()).frames).toEqual([]);
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+    const frames = [{ t: 0, width: 320, height: 180, jpeg }, { t: 1, width: 320, height: 180, jpeg }];
+    // The same source answering pictures, as the capture Worker does for a take file.
+    const take = Object.assign(Object.create(source) as CaptureSource, { frames: async () => frames });
+    const data = await new ProfilerDataReader(take).refresh();
+    expect(data.tracks[0]).toEqual({ id: "picture", kind: "picture", label: "Picture" });
+    expect(data.frames).toEqual(frames);
+    source.close();
+  });
+
   it("reads the voices with their statuses, and the messages in time order", async () => {
     const source = await openFixture();
     const data = await new ProfilerDataReader(source).refresh();

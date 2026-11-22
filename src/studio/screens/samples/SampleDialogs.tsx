@@ -6,6 +6,7 @@ import { currentProject, status } from "../../../editor/state";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { toasts } from "../../shell/studioServices";
 import { ImportDialog } from "./ImportDialog";
+import { ReimportDialog } from "./ReimportDialog";
 import { applyMerge, writeSummary, type MergeChoice, type MergeRow, type WriteSummaryRow } from "./sampleFile";
 import { diskChange } from "./sampleDisk";
 import { snippets } from "./sampleEditing";
@@ -166,6 +167,7 @@ export function SampleDialogs() {
   if (!d) return null;
   const close = () => (dialog.value = null);
   if (d.kind === "import") return <ImportDialog />;
+  if (d.kind === "reimport") return <ReimportDialog />;
   if (d.kind === "fork") return <DeriveDialog kind={d.mode} />;
   if (d.kind === "snippet") return <DeriveDialog kind="snippet" snippet={d.index} />;
   if (!session) return null;

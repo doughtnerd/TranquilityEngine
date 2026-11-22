@@ -285,6 +285,11 @@ export interface PlayRequest {
   /** ADR 0158: the event instance this voice belongs to (1..1024; 0 or omitted: none). The core carries it in PLAY's `group`. */
   group?: number;
   /**
+   * ADR 0331 levels: the playlist level's submix the voice mixes into (`AudioSubmixes.openLevel`) instead of its
+   * instance's (`group`'s). A backend without submixes ignores it.
+   */
+  submix?: SubmixLevel;
+  /**
    * Seconds into the source the voice starts at (ADR 0329 and 0334: audition from a point, seek). 0, negative,
    * non-finite or omitted: the start. A looping voice wraps it into the clip; past the end of a non-looping clip it ends
    * at once. Clip voices start there sample-exactly; a stream voice seeks its stream before its first chunk.
@@ -648,7 +653,20 @@ export interface AudioSubmixes {
    * instance plays without its chain (the refusal is warned once and marked in a capture). `where` names the instance.
    */
   open(group: number, bus: string, effects: readonly Effect[], where: string): boolean;
-  /** Frees instance `group`'s submix once its voices have ended (its group is given back). */
+  /** The level instance `group`'s own submix is (`open`), so a nested level can feed it; null when it has none. */
+  levelOf(group: number): SubmixLevel | null;
+  /**
+   * ADR 0331 levels: a submix of instance `group`'s own for one of its levels (a nested playlist, a sequence track or a
+   * clip; `key` names it within the instance, so a level played again reuses its submix and its state), feeding
+   * `parent` (the level above it on the same bus; null: `bus`) and running `effects`. Voices name it in
+   * `PlayRequest.submix`. Null when the pool is full (warned once): the level plays without its chain. Freed with the
+   * group (`close`).
+   */
+  openLevel(group: number, key: string, bus: string, effects: readonly Effect[], parent: SubmixLevel | null, where: string): SubmixLevel | null;
+  /**
+   * Instance `group`'s voices have ended (its group is given back): its submixes stop taking its voices and are freed
+   * once their chains' tails (delay feedback, reverb decay) have rung out.
+   */
   close(group: number): void;
   /**
    * ADR 0331 instance automation (ABI 4.8): replaces instance `group`'s submix parameter automation (empty: none).
@@ -669,6 +687,12 @@ export interface SubmixLane {
   log: boolean;
   input: ParamRef;
   curve: number;
+}
+
+/** ADR 0331 levels: a playlist level's submix (`AudioSubmixes.openLevel`), as a voice names it (`PlayRequest.submix`). */
+export interface SubmixLevel {
+  /** The backend's slot. */
+  readonly slot: number;
 }
 
 let backend: AudioBackend | null = null;

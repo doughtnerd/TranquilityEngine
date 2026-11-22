@@ -17,22 +17,26 @@ const fx = (type: string, params: Record<string, number> = {}, on = true): Effec
 function rig(pool?: number) {
   const sent: { slot: number; group: number; bus: number; effects: SubmixEffects[] }[] = [];
   const autos: { slot: number; bindings: { param: number; curve: number; target: number }[] }[] = [];
+  const parents: (number | null)[] = [];
+  const keys: string[] = [];
+  const clock = { now: 0 };
   const warnings: string[] = [];
   const markers: string[] = [];
   let profile: ProfileSink = NULL_PROFILE_SINK;
   const buses = new Map([["Master", 0], ["SFX", 1], ["Music", 2]]);
   const s = new CoreSubmixes({
     writer: {
-      submix: (slot, group, bus, effects) => void sent.push({ slot, group, bus, effects: effects.map((e) => ({ ...e, p: [...e.p] })) }),
+      submix: (slot, group, bus, effects, parent = null) => { sent.push({ slot, group, bus, effects: effects.map((e) => ({ ...e, p: [...e.p] })) }); parents.push(parent); },
       submixAutomate: (slot, bindings) => void autos.push({ slot, bindings: bindings.map((b) => ({ ...b })) }),
     },
+    now: () => clock.now,
     session: { maySend: true, mayQueue: true } as never,
     poolSize: () => pool,
     busIndex: (name) => buses.get(name) ?? -1,
     profile: () => profile,
-    warnOnce: (_k, m) => void warnings.push(m),
+    warnOnce: (k, m) => { keys.push(k); warnings.push(m); },
   });
-  return { s, sent, autos, warnings, markers, buses, record: () => { profile = { ...NULL_PROFILE_SINK, marker: (t: string) => void markers.push(t) }; } };
+  return { s, sent, autos, parents, keys, clock, warnings, markers, buses, record: () => { profile = { ...NULL_PROFILE_SINK, marker: (t: string) => void markers.push(t) }; } };
 }
 
 describe("CoreSubmixes (ADR 0331)", () => {
@@ -106,10 +110,73 @@ describe("CoreSubmixes (ADR 0331)", () => {
     s.close(4);
     const records: number[] = [];
     s.replayHeader({ record: (bytes: number) => void records.push(bytes) } as unknown as ReplayBuilder);
-    expect(records).toEqual([20 + 40]);
+    expect(records).toEqual([24 + 40]);
     buses.set("Music", 7);
     sent.length = 0;
     s.busesReset();
     expect(sent.map((r) => [r.slot, r.group, r.bus])).toEqual([[1, 9, 7]]);
+  });
+});
+
+describe("CoreSubmixes levels and tails (ADR 0331, ABI 4.9)", () => {
+  const delay = fx("delay", { time: 500, feedback: 50 });
+
+  it("a level's submix has no group, feeds its parent level, and is reused by its key without a resend", () => {
+    const { s, sent, parents } = rig();
+    expect(s.open(5, "SFX", [fx("lowpass")], "a")).toBe(true);
+    const root = s.levelOf(5)!;
+    expect(root.slot).toBe(0);
+    const nested = s.openLevel(5, "a>b", "SFX", [fx("eq")], root, "b")!;
+    const clip = s.openLevel(5, "a/clip:c", "SFX", [delay], nested, "c")!;
+    expect([nested.slot, clip.slot]).toEqual([1, 2]);
+    expect(sent.slice(1).map((r) => [r.slot, r.group, r.bus])).toEqual([[1, 0, 1], [2, 0, 1]]);
+    expect(parents.slice(1)).toEqual([0, 1]);
+    // Played again with the same effects list: the same slot, nothing sent.
+    const effects = [fx("gain")];
+    const again = s.openLevel(5, "x", "SFX", effects, null, "x")!;
+    const n = sent.length;
+    expect(s.openLevel(5, "x", "SFX", effects, null, "x")).toBe(again);
+    expect(sent).toHaveLength(n);
+    // Another instance's level of the same key is its own.
+    expect(s.openLevel(6, "x", "SFX", effects, null, "x")!.slot).not.toBe(again.slot);
+    expect(s.levelOf(6)).toBeNull();
+  });
+
+  it("close frees tail-less chains at once and lets a delay ring out ungrouped until its tail is over", () => {
+    const { s, sent, clock } = rig();
+    s.open(5, "SFX", [delay], "a");
+    s.openLevel(5, "lvl", "SFX", [fx("lowpass")], s.levelOf(5), "lvl");
+    s.open(6, "SFX", [fx("lowpass")], "b");
+    sent.length = 0;
+    s.close(6);
+    expect(sent).toEqual([{ slot: 2, group: 0, bus: 0, effects: [] }]); // freed at once
+    sent.length = 0;
+    s.close(5);
+    // The instance's slots ring out together: the root slot loses its group (no new voices), the level keeps its chain.
+    expect(sent.map((r) => [r.slot, r.group, r.effects.length])).toEqual([[0, 0, 1]]);
+    expect(s.size).toBe(2);
+    expect(s.levelOf(5)).toBeNull();
+    // 500 ms at 50 % feedback falls 80 dB in ~7.1 s: still held at 5 s, freed (both) when asked for a slot after it.
+    clock.now = 5;
+    s.open(7, "SFX", [fx("lowpass")], "c");
+    expect(s.size).toBe(3);
+    clock.now = 8;
+    sent.length = 0;
+    s.open(8, "SFX", [fx("lowpass")], "d");
+    expect(sent.filter((r) => r.effects.length === 0).map((r) => r.slot).sort()).toEqual([0, 1]);
+    expect(s.size).toBe(2);
+  });
+
+  it("a full pool frees the ringing instance nearest its end before it refuses, and warns once", () => {
+    const { s, keys, clock } = rig(2);
+    s.open(1, "SFX", [delay], "a");
+    s.close(1);
+    clock.now = 1;
+    expect(s.open(2, "SFX", [fx("lowpass")], "b")).toBe(true);
+    expect(s.open(3, "SFX", [fx("lowpass")], "c")).toBe(true); // took the ringing slot
+    expect(s.openLevel(3, "k", "SFX", [fx("eq")], null, "c/k")).toBeNull();
+    expect(s.open(4, "SFX", [fx("lowpass")], "d")).toBe(false);
+    expect(keys.filter((k) => k === "submix-full")).toHaveLength(2); // one key: the host's warnOnce says it once
+    expect(s.refused).toBe(2);
   });
 });

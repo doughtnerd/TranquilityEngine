@@ -1,8 +1,8 @@
 {
-  "sourceHash": "f28728a6a82adea313b3348e831b3dad",
-  "abiVersion": "4.8",
+  "sourceHash": "95ce7611720736976944ede721e094e5",
+  "abiVersion": "4.10",
   "bytes": {
-    "myco_audio.wasm": 469793,
+    "myco_audio.wasm": 472160,
     "myco_audio_decode.wasm": 804382,
     "myco_audio_decode_aac.wasm": 1128625,
     "myco_audio_offline.wasm": 136587

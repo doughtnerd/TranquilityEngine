@@ -26,7 +26,11 @@ class PlaylistMusic implements MusicHandle {
   get beatsPerBar(): number { return this.pos()?.beatsPerBar ?? 0; }
   get beatUnit(): number { return this.pos()?.beatUnit ?? 0; }
   get time(): number { return this.now(); }
-  get transition(): { to: string; time: number } | null { return null; }
+  /** The Switch change waiting for its boundary: the label it changes to and when it lands (heard seconds). */
+  get transition(): { to: string; time: number } | null {
+    const c = this.instance.pendingChange();
+    return c ? { to: c.to ?? "", time: c.at } : null;
+  }
   nextGrid(spec: GridSpec): GridPoint | null {
     const s = this.instance.musicalSource();
     const p = s?.nextGrid(spec, this.now());

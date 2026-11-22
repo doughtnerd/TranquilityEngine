@@ -13,9 +13,9 @@
  * - `trackKindMismatch`: a sample clip on a playlist track or a playlist clip on an audio track;
  * - `danglingEffectTarget`: automation of an effect (or a parameter) its owner's chain doesn't have (a clip's, a
  *   track's, or a playlist's own instance-level automation against the playlist's `effects`);
- * - `quantizeIgnored` (ADR 0336): a quantised lane keyed on time, or of a target other than volume, enabled or a gain
- *   effect's gain (it follows its parameter);
- * - `quantizeNoTempo` (ADR 0336): a quantised lane in a playlist with no tempo (it moves at once);
+ * - `quantizeIgnored` (ADR 0336): a quantised lane or entry voice curve keyed on time, or a lane of an effect parameter
+ *   the voice doesn't carry (only low-pass and high-pass cutoff and a gain effect's gain are; it follows its parameter);
+ * - `quantizeNoTempo` (ADR 0336): a quantised lane or entry voice curve in a playlist with no tempo (it moves at once);
  * - `regionIgnored` (ADR 0336): a region on an entry of a 2D Blend (regions are 1D; 2D shapes by weight curves);
  * - `tailWithoutExit` (ADR 0336): a sequence loop with `tail` but no Exit marker after its end (it has nothing to ring).
  *
@@ -87,9 +87,10 @@ export function lintPlaylist(body: PlaylistBody, ctx: LintContext = {}): Playlis
     list.forEach((a, i) => {
       if (a.quantize !== undefined) {
         const fx = a.target.startsWith("fx:") ? chain.find((e) => e.id === a.target.split(":")[1]) : undefined;
-        const gainLike = a.target === "volume" || a.target === "enabled" || (fx?.type === "gain" && a.target.endsWith(":gain"));
+        const param = a.target.split(":")[2];
+        const onVoice = !a.target.startsWith("fx:") || (fx?.type === "gain" && param === "gain") || ((fx?.type === "lowpass" || fx?.type === "highpass") && param === "cutoff");
         if (typeof a.input === "string") add("quantizeIgnored", `${where}[${i}].quantize`, `Lane "${a.id}" is keyed on ${a.input}; quantize applies to lanes keyed on a parameter.`);
-        else if (!gainLike) add("quantizeIgnored", `${where}[${i}].quantize`, `Lane "${a.id}" of ${a.target} can't be quantised (only volume, enabled and gain lanes are); it follows its parameter.`);
+        else if (!onVoice) add("quantizeIgnored", `${where}[${i}].quantize`, `Lane "${a.id}" of ${a.target} can't be quantised (volume, enabled, pitch, pan, low-pass and high-pass cutoff and gain lanes can); it follows its parameter.`);
         else if (owner && tempoOfBody(owner, new Set()) === "no") add("quantizeNoTempo", `${where}[${i}].quantize`, `Lane "${a.id}" waits for the next beat, but this playlist has no tempo, so it moves at once.`);
       }
       if (!a.target.startsWith("fx:")) return;
@@ -192,6 +193,14 @@ export function lintPlaylist(body: PlaylistBody, ctx: LintContext = {}): Playlis
       }
     }
 
+    b.entries.forEach((e, i) => {
+      for (const [target, c] of Object.entries(e.curves)) {
+        if (!c || c.quantize === undefined) continue;
+        const at = w(`entries[${i}].curves.${target}.quantize`);
+        if (typeof c.input === "string") add("quantizeIgnored", at, `Entry ${i + 1}'s ${target} curve is keyed on ${c.input}; quantize applies to curves keyed on a parameter.`);
+        else if (tempoOfBody(b, new Set()) === "no") add("quantizeNoTempo", at, `Entry ${i + 1}'s ${target} curve waits for the next beat, but this playlist has no tempo, so it moves at once.`);
+      }
+    });
     b.entries.forEach((e, i) => e.kind === "embedded" && visit(e.embedded, w(`entries[${i}].embedded`)));
     b.stingers.forEach((s, i) => s.playlist.kind === "embedded" && visit(s.playlist.embedded, w(`stingers[${i}].playlist.embedded`)));
     if (b.switch) {

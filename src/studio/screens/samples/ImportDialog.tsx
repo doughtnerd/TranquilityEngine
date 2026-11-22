@@ -12,7 +12,10 @@ import { projectFileSystem } from "../../../editor/projectFs";
 import type { EditorProject } from "../../../editor/projects";
 import { currentProject, docVersion, status } from "../../../editor/state";
 import { toasts } from "../../shell/studioServices";
-import { destinationFolder, importedMessage, isAudioPath, isWavPath, kindOn, kindsFound, METADATA_KINDS, sampleBlockFor, type KindToggles, type MetadataKind, type PickedFile } from "./importPlan";
+import type { SampleDetection } from "../../../engine/audio/sample/detect/detect";
+import { destinationFolder, detectionFor, importedMessage, isAudioPath, isWavPath, kindOn, kindsFound, METADATA_KINDS, sampleBlockFor, type KindToggles, type MetadataKind, type PickedFile } from "./importPlan";
+import { detectInBackground } from "./sampleDetect";
+import { decodeAudio } from "./sampleSession";
 import { dialog, openSample } from "./samplesState";
 
 interface Picked extends PickedFile {
@@ -27,6 +30,8 @@ export interface ImportReviewProps {
   readonly keep: boolean;
   readonly stream: boolean;
   readonly busy?: boolean;
+  /** While importing: what is happening ("Detecting tempo and root of door.wav…"). */
+  readonly progress?: string;
   onToggle(kind: MetadataKind | "all" | "none", on: boolean): void;
   onInto(folder: string): void;
   onKeep(keep: boolean): void;
@@ -61,8 +66,8 @@ export function ImportReview(props: ImportReviewProps) {
             <ul class="smp-kinds">
               {found.map((k) => (
                 <li key={k.kind.id}>
-                  <label class="smp-check" title={k.kind.id === "detect" ? "Tempo and pitch detection aren't built yet" : undefined}>
-                    <input type="checkbox" checked={kindOn(props.toggles, k.kind.id)} disabled={k.kind.id === "detect"} onChange={(e) => props.onToggle(k.kind.id, (e.currentTarget as HTMLInputElement).checked)} />
+                  <label class="smp-check" title={k.kind.id === "detect" ? "Analyse the audio for a tempo and root note where the file says none (confident results only; marked Detected)" : undefined}>
+                    <input type="checkbox" checked={kindOn(props.toggles, k.kind.id)} onChange={(e) => props.onToggle(k.kind.id, (e.currentTarget as HTMLInputElement).checked)} />
                     <span>
                       <b>{k.kind.title}</b> <span class="smp-muted">{k.kind.chunks}</span>
                       <br />
@@ -111,6 +116,7 @@ export function ImportReview(props: ImportReviewProps) {
           <input type="checkbox" checked={props.keep} disabled={!hasStructure} onChange={(e) => props.onKeep((e.currentTarget as HTMLInputElement).checked)} />
           Keep structure (the picked folders inside {props.into ? props.into.split("/").join(" › ") : "the top level"})
         </label>
+        {props.busy && props.progress && <p class="smp-muted" role="status">{props.progress}</p>}
         <div class="dialog-buttons">
           <button onClick={props.onCancel}>Cancel</button>
           <button class="primary" disabled={props.busy || props.files.length === 0} onClick={props.onImport}>
@@ -144,8 +150,24 @@ async function readPicked(incoming: readonly IncomingFile[]): Promise<Picked[]> 
 const fromInput = (list: FileList | null): IncomingFile[] =>
   Array.from(list ?? [], (file) => ({ path: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name, read: async () => new Uint8Array(await file.arrayBuffer()) }));
 
-/** Copy the picked files and write their sidecars; returns the imported audio paths. */
-export async function runImport(project: EditorProject, files: readonly Picked[], toggles: KindToggles, into: string, keep: boolean, stream: boolean): Promise<string[]> {
+/** "Detect what's missing" for one file: its audio decoded and analysed on the workers (null when it can't be read). */
+async function detectFor(project: EditorProject, f: Picked, toggles: KindToggles): Promise<SampleDetection | null> {
+  const what = detectionFor(f.meta, toggles);
+  if (what.length === 0) return null;
+  try {
+    // The decoder may take the buffer it is given: it gets a copy.
+    const pcm = await decodeAudio(project, (await f.read()).slice(), f.rel);
+    return await detectInBackground(pcm, what);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Copy the picked files and write their sidecars; returns the imported audio paths. With "Detect what's missing" on,
+ * a file without tempo or root is analysed first (`onProgress` hears which file).
+ */
+export async function runImport(project: EditorProject, files: readonly Picked[], toggles: KindToggles, into: string, keep: boolean, stream: boolean, onProgress?: (text: string) => void): Promise<string[]> {
   const imported: string[] = [];
   for (const f of files) {
     const folder = destinationFolder(into, f.rel, keep);
@@ -153,7 +175,8 @@ export async function runImport(project: EditorProject, files: readonly Picked[]
     const path = result.imported[0];
     if (!path) continue;
     imported.push(path);
-    const sample = sampleBlockFor(f.meta, toggles);
+    if (detectionFor(f.meta, toggles).length) onProgress?.(`Detecting tempo and root of ${baseName(f.rel)}…`);
+    const sample = sampleBlockFor(f.meta, toggles, await detectFor(project, f, toggles));
     if (sample || stream) {
       try {
         await project.writeText(sidecarPath(path), formatImportSettings({ ...defaultImportSettings(), stream, sample }));
@@ -174,6 +197,7 @@ export function ImportDialog() {
   const [keep, setKeep] = useState(true);
   const [stream, setStream] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState("");
   const filesInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   if (!project) return null;
@@ -219,6 +243,7 @@ export function ImportDialog() {
       keep={keep}
       stream={stream}
       busy={busy}
+      progress={progress}
       onToggle={(k, on) => setToggles(k === "all" || k === "none" ? Object.fromEntries(METADATA_KINDS.map((x) => [x.id, k === "all"])) : { ...toggles, [k]: on })}
       onInto={setInto}
       onKeep={setKeep}
@@ -226,8 +251,9 @@ export function ImportDialog() {
       onCancel={close}
       onImport={async () => {
         setBusy(true);
-        const done = await runImport(project, files, toggles, into, keep, stream);
+        const done = await runImport(project, files, toggles, into, keep, stream, setProgress);
         setBusy(false);
+        setProgress("");
         close();
         if (done.length) {
           toasts.show({ text: importedMessage(done.length, into) });

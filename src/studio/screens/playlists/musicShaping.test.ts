@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { emptyPlaylistBody, defaultEntryUse } from "../../../engine/audio/playlist/format";
 import type { Entry, PlaylistBody, SequenceSettings } from "../../../engine/audio/playlist/types";
 import type { ParameterDef } from "../../../engine/audio/parameters";
-import { FADE_SHAPE_OPTIONS, fadeShapePath, narrowWeightCurve, weightCurvePreset } from "./fadeShapeModel";
+import { FADE_SHAPE_OPTIONS, fadeShapePath, narrowWeightCurve, weightCurvePreset } from "../../components/fadeShapeModel";
 import { dragRegion, handleAt, influenceGrid, laneCurves, liveWeights, nudgeRegion, regionsOf, shownRegion } from "./blendViewModel";
 import { applyWeightCurveResult, weightCurveDialog, WEIGHT_LANE } from "./weightCurves";
 import { setEntryUse, setOnChange, setRule } from "./playlistEdits";

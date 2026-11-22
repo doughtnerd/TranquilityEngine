@@ -44,3 +44,31 @@ export function libraryGroups(files: readonly string[], query = "", limit = LIBR
 export const SAMPLE_DRAG_PREFIX = "sample:";
 export const sampleDragText = (path: string): string => `${SAMPLE_DRAG_PREFIX}${path}`;
 export const sampleFromDrag = (text: string | null | undefined): string | null => (text && text.startsWith(SAMPLE_DRAG_PREFIX) ? text.slice(SAMPLE_DRAG_PREFIX.length) : null);
+
+/** The Library's selection after a click on `path` among `order` (the rows shown, top to bottom). */
+export interface LibrarySelection {
+  readonly selected: readonly string[];
+  /** Where a Shift-click range starts (the last plain or Ctrl/⌘ click). */
+  readonly anchor: string | null;
+}
+
+/** A click: plain selects only `path`; Ctrl/⌘ toggles it; Shift selects the shown rows from the anchor to it. */
+export function libraryClick(s: LibrarySelection, order: readonly string[], path: string, mods: { readonly toggle?: boolean; readonly range?: boolean }): LibrarySelection {
+  if (mods.range && s.anchor !== null && order.includes(s.anchor) && order.includes(path)) {
+    const a = order.indexOf(s.anchor), b = order.indexOf(path);
+    return { selected: order.slice(Math.min(a, b), Math.max(a, b) + 1), anchor: s.anchor };
+  }
+  if (mods.toggle) {
+    const on = s.selected.includes(path);
+    return { selected: on ? s.selected.filter((p) => p !== path) : [...s.selected, path], anchor: path };
+  }
+  return { selected: [path], anchor: path };
+}
+
+/** What a row's menu acts on: the selection when the row is in it, else just that row. */
+export const menuTargets = (s: LibrarySelection, path: string): readonly string[] => (s.selected.includes(path) ? s.selected : [path]);
+
+/** The menu label of "Create playlist from clips" for `paths` (one sample's name, or how many). */
+export function createPlaylistLabel(paths: readonly string[]): string {
+  return paths.length === 1 ? `Create playlist from “${sampleTitle(paths[0]!)}”` : `Create playlist from ${paths.length} samples`;
+}

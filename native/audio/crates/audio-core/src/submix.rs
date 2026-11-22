@@ -8,12 +8,22 @@
 //!   the allocation (`settings.voices.submixes` slots at most, clamped to the core's); the core
 //!   keeps no instance lifecycle.
 //! - **SUBMIX** (0x0C, applies on arrival like AUTOMATE) configures slot `voiceId`: the instance
-//!   `group` (1..=1024) whose voices route into it, the output `bus`, and the chain. An effect count
-//!   of 0 frees the slot. A slot taken over by another group drops the old group's route; a group
-//!   routed to another slot moves.
-//! - **Routing.** A mixed voice whose PLAY `group` has a submix, and whose bus is the submix's
-//!   bus, mixes into the submix's buffer instead of its bus's input (a voice of the instance on
-//!   another bus, a nested playlist's output override, isn't the instance's mix): its dry
+//!   `group` (1..=1024; 0 none) whose voices route into it, the output `bus`, the `parent` slot it
+//!   feeds (ABI 4.9) and the chain. An effect count of 0 frees the slot. A slot taken over by
+//!   another group drops the old group's route; a group routed to another slot moves (the slot it
+//!   left keeps running, ungrouped, until main frees it). A slot whose group goes to 0 keeps its
+//!   chain's state: that is how main lets an ended instance's tails ring (it frees the slot later).
+//! - **Levels** (ABI 4.9, ADR 0331): a nested playlist's, a sequence track's or a clip's chain is a
+//!   slot of its own, usually with group 0, whose `parent` is the slot of the level above it (on
+//!   the same bus). Its voices name it with **ROUTE** (0x0D, `automation::route`), which overrides
+//!   the group route. A slot's output goes into its parent's buffer (the parent's chain then runs
+//!   on it) when the parent is in use, else into its bus. Chains of parents are kept to
+//!   [`DEPTH_MAX`] levels; a longer chain (or a loop) feeds the bus. [`render`] runs the deepest
+//!   slots first, so a parent always has its children's output before its own chain runs.
+//! - **Routing.** A mixed voice with a ROUTE mixes into that slot. Otherwise a voice whose PLAY
+//!   `group` has a submix, and whose bus is the submix's bus, mixes into the submix's buffer
+//!   instead of its bus's input (a voice of the instance on another bus, a nested playlist's
+//!   output override, isn't the instance's mix): its dry
 //!   output, and its HRTF half (`panner::flush` reads the route code the voice was panned with,
 //!   [`route_code`]). A voice routed so is panned without the bed: a submix has no bed (the bed
 //!   half of a kind-2 voice goes equal-power or HRTF into the submix), and an ambisonic voice still
@@ -61,6 +71,8 @@ pub const SUBMIX_EFFECTS: usize = wire::SUBMIX_EFFECTS_MAX as usize;
 pub const PARAMS: usize = 8;
 /// Instance groups 1..=GROUPS (as PLAY's `group`).
 pub const GROUPS: usize = crate::automation::GROUPS;
+/// Levels a chain of parents keeps (the wire's `SUBMIX_DEPTH_MAX`).
+pub const DEPTH_MAX: usize = wire::SUBMIX_DEPTH_MAX as usize;
 /// Quanta without input after which a slot's chain stops running (≈ 85 ms at 48 kHz).
 pub const QUIET_QUANTA: u32 = 32;
 /// The level under which a chain's output counts as silent (−140 dB): its tail has died away.
@@ -94,19 +106,29 @@ pub type SubmixEffect = Effect;
 pub struct Submix {
     /// This quantum's input, planar stereo `[L; 128][R; 128]`; routed voices add into it.
     pub buf: [f32; 2 * QUANTUM],
-    /// The instance group (1..=1024) routed here; 0 when free.
+    /// The instance group (1..=1024) routed here; 0 none (ROUTE only, or a ringing tail).
     pub group: u16,
     /// The output bus index.
     pub bus: u16,
     /// Effects in use.
     pub count: u32,
-    /// Non-zero when a voice added into `buf` this quantum.
+    /// Non-zero when a voice (or a child slot) added into `buf` this quantum.
     pub fed: u32,
     /// Quanta since a voice last fed it (saturating at [`QUIET_QUANTA`]).
     pub quiet: u32,
-    /// ABI 4.8: fx bindings in use (SUBMIX_AUTOMATE).
+    /// The slot this one feeds, plus 1, as SUBMIX gave it (ABI 4.9); 0 its bus.
+    pub parent: u16,
+    /// The slot its output goes into, plus 1 (its parent when that is in use and the chain of
+    /// parents ends within [`DEPTH_MAX`]); 0 its bus. Worked out after every SUBMIX.
+    pub out: u16,
+    /// Non-zero while the slot is in use (configured with effects).
+    pub used: u8,
+    /// Its level: parents above it (0 feeds a bus); [`render`] runs the deepest first.
+    pub depth: u8,
+    pub _pad: u16,
+    /// ABI 4.10: fx bindings in use (SUBMIX_AUTOMATE).
     pub auto_n: u32,
-    pub _pad: u32,
+    pub _pad2: u32,
     pub effects: [SubmixEffect; SUBMIX_EFFECTS],
     /// ABI 4.8: the fx bindings (SUBMIX_AUTOMATE).
     pub auto: [Binding; automation::BUS_BINDINGS],
@@ -190,43 +212,56 @@ fn apply(regions: &mut Regions, msg: &[u8], off: usize, index: usize, sample_rat
     let group = u16_at(msg, off + 12) as usize;
     let bus = u16_at(msg, off + 14);
     let n = u32_at(msg, off + 16) as usize;
+    let parent = u16_at(msg, off + 20);
     let was = v.slots[index].group as usize;
+    let used = v.slots[index].used != 0;
     if was != 0 && v.header.route.get(was) == Some(&(index as u8 + 1)) {
         v.header.route[was] = 0;
     }
-    if n == 0 || group == 0 || group > GROUPS {
-        if was != 0 {
+    if n == 0 {
+        if used {
             v.header.active -= 1;
         }
         // SAFETY: all-zero is a free slot (its memory goes back at the sweep).
         v.slots[index] = unsafe { core::mem::zeroed() };
+        rebuild_levels(v.slots);
         return;
     }
-    // A group routed to another slot moves here (that slot goes free).
-    if let Some(&old) = v.header.route.get(group) {
-        if old != 0 && old as usize - 1 != index {
-            // SAFETY: all-zero is a free slot.
-            v.slots[old as usize - 1] = unsafe { core::mem::zeroed() };
-            v.header.active -= 1;
+    let group = if group > GROUPS { 0 } else { group };
+    // A group routed to another slot moves here (that slot keeps running, ungrouped, until freed).
+    if group != 0 {
+        if let Some(&old) = v.header.route.get(group) {
+            if old != 0 && old as usize - 1 != index {
+                v.slots[old as usize - 1].group = 0;
+                v.slots[old as usize - 1].auto_n = 0;
+            }
         }
     }
     let s = &mut v.slots[index];
-    if was == 0 {
+    if !used {
         v.header.active += 1;
         s.quiet = 0;
     }
     let mut had = s.count as usize;
     if group != was {
-        // Another instance: the chain starts from silence, with no automation.
-        s.buf = [0.0; 2 * QUANTUM];
+        // Its automation reads the group it was given: another group (or none) drops it.
         s.auto_n = 0;
+    }
+    if !used || (group != 0 && group != was) {
+        // A new slot or another instance: the chain starts from silence. (A group going to 0 keeps
+        // its state: the instance ended and its tail rings.)
+        s.buf = [0.0; 2 * QUANTUM];
         had = 0;
     }
     crate::fxmem::set_owner(fxmem, wire::FX_STARVED_SUBMIX as u16 | index as u16);
-    v.header.route[group] = index as u8 + 1;
-    v.header.route_bus[group] = bus;
+    if group != 0 {
+        v.header.route[group] = index as u8 + 1;
+        v.header.route_bus[group] = bus;
+    }
+    s.used = 1;
     s.group = group as u16;
     s.bus = bus;
+    s.parent = if parent as usize > SUBMIXES || parent as usize == index + 1 { 0 } else { parent };
     let kept = n.min(SUBMIX_EFFECTS);
     for i in 0..kept {
         let at = off + wire::Submix::FIXED_END + i * wire::SubmixEffects::FIXED_END;
@@ -244,6 +279,49 @@ fn apply(regions: &mut Regions, msg: &[u8], off: usize, index: usize, sample_rat
         *e = Effect::default();
     }
     s.count = kept as u32;
+    rebuild_levels(v.slots);
+}
+
+/// Works out every slot's output (`out`) and level (`depth`) from the parents (after a SUBMIX): a
+/// slot feeds its parent when the parent is in use and the chain of parents ends at a bus within
+/// [`DEPTH_MAX`] levels; otherwise (a free parent, a longer chain, a loop) it feeds its bus.
+fn rebuild_levels(slots: &mut [Submix]) {
+    for i in 0..slots.len() {
+        if slots[i].used == 0 {
+            continue;
+        }
+        let (mut depth, mut at, mut ends) = (0usize, slots[i].parent, false);
+        while depth <= DEPTH_MAX {
+            if at == 0 || slots[at as usize - 1].used == 0 {
+                ends = true;
+                break;
+            }
+            depth += 1;
+            at = slots[at as usize - 1].parent;
+        }
+        // A free parent ends the chain at the slot above it: that slot feeds its bus.
+        let feeds = slots[i].parent != 0 && slots[slots[i].parent as usize - 1].used != 0;
+        if ends && feeds {
+            slots[i].out = slots[i].parent;
+            slots[i].depth = depth as u8;
+        } else {
+            slots[i].out = 0;
+            slots[i].depth = 0;
+        }
+    }
+    // A slot whose parent was cut off (it feeds its bus) is level 0, so its children's levels
+    // count from it: work them out again from the outputs.
+    for i in 0..slots.len() {
+        if slots[i].used == 0 {
+            continue;
+        }
+        let (mut depth, mut at) = (0u8, slots[i].out);
+        while at != 0 && (depth as usize) < DEPTH_MAX {
+            depth += 1;
+            at = slots[at as usize - 1].out;
+        }
+        slots[i].depth = depth;
+    }
 }
 
 /// SUBMIX_AUTOMATE (ABI 4.8): replaces slot `voiceId`'s fx bindings (count 0 clears them). A free
@@ -265,7 +343,7 @@ pub fn reset(core: &mut Core) {
 /// Calls `f` with every configured effect of the slots in use (the effect memory's sweep).
 pub(crate) fn for_each_effect(regions: &mut Regions, f: &mut impl FnMut(&Effect)) {
     let Some(v) = view(&mut regions.submixes[..]) else { return };
-    for s in v.slots.iter().filter(|s| s.group != 0) {
+    for s in v.slots.iter().filter(|s| s.used != 0) {
         for e in &s.effects[..(s.count as usize).min(SUBMIX_EFFECTS)] {
             f(e);
         }
@@ -310,7 +388,7 @@ impl Buffers {
     /// `true` when slot `s` is in use.
     pub(crate) fn live(&self, s: usize) -> bool {
         // SAFETY: as `get`.
-        s < SUBMIXES && unsafe { (*self.base.add(s)).group } != 0
+        s < SUBMIXES && unsafe { (*self.base.add(s)).used } != 0
     }
 
     /// Slot `s`'s input (marking it fed), or `None` for a free or out-of-range slot.
@@ -320,7 +398,7 @@ impl Buffers {
         }
         // SAFETY: `s < SUBMIXES` slots of the region viewed in `of`; `&mut self` keeps one borrowed.
         let slot = unsafe { &mut *self.base.add(s) };
-        if slot.group == 0 {
+        if slot.used == 0 {
             return None;
         }
         slot.fed = 1;
@@ -339,7 +417,8 @@ impl Buffers {
 }
 
 /// Once a quantum after every voice and the HRTF flush (`Core::process`): each slot in use runs its
-/// chain and adds into its bus's input (see the module comment).
+/// chain, deepest level first, and adds into its parent's buffer or its bus's input (see the
+/// module comment).
 pub fn render(core: &mut Core) {
     let frame = core.frame();
     let regions = core.regions_mut();
@@ -350,42 +429,60 @@ pub fn render(core: &mut Core) {
         return;
     }
     let eval = automation::submix_eval(&mut regions.automation[..], frame);
-    for s in v.slots.iter_mut() {
-        if s.group == 0 {
-            continue;
-        }
-        if s.fed != 0 {
-            s.quiet = 0;
-        } else if s.quiet >= QUIET_QUANTA {
-            continue;
-        } else {
-            s.quiet += 1;
-        }
-        s.fed = 0;
-        if s.auto_n != 0 {
-            if let Some(e) = &eval {
-                let count = (s.count as usize).min(SUBMIX_EFFECTS);
-                let effects = &mut s.effects;
-                automation::submix_bindings(e, &s.auto[..(s.auto_n as usize).min(automation::BUS_BINDINGS)], s.group, |slot, p, value| {
-                    if slot < count {
-                        effects[slot].automate(p, value);
-                    }
-                });
+    let deepest = v.slots.iter().filter(|s| s.used != 0).map(|s| s.depth).max().unwrap_or(0);
+    let mut out = [0.0f32; 2 * QUANTUM];
+    for depth in (0..=deepest).rev() {
+        for i in 0..SUBMIXES {
+            let s = &mut v.slots[i];
+            if s.used == 0 || s.depth != depth {
+                continue;
+            }
+            if s.fed != 0 {
+                s.quiet = 0;
+            } else if s.quiet >= QUIET_QUANTA {
+                continue;
+            } else {
+                s.quiet += 1;
+            }
+            s.fed = 0;
+            // ABI 4.10: the slot's automated parameters reach its chain before it runs.
+            if s.auto_n != 0 && s.group != 0 {
+                if let Some(e) = &eval {
+                    let count = (s.count as usize).min(SUBMIX_EFFECTS);
+                    let effects = &mut s.effects;
+                    automation::submix_bindings(e, &s.auto[..(s.auto_n as usize).min(automation::BUS_BINDINGS)], s.group, |slot, p, value| {
+                        if slot < count {
+                            effects[slot].automate(p, value);
+                        }
+                    });
+                }
+            }
+            {
+                let (l, r) = s.buf.split_at_mut(QUANTUM);
+                run_chain(&mut s.effects[..(s.count as usize).min(SUBMIX_EFFECTS)], fxdata, l, r);
+            }
+            // A tail still sounding (a delay, a reverb) keeps the slot running.
+            if s.buf.iter().any(|x| x.abs() > TAIL_FLOOR) {
+                s.quiet = 0;
+            }
+            out.copy_from_slice(&s.buf);
+            s.buf = [0.0; 2 * QUANTUM];
+            let (bus, to) = (s.bus, s.out as usize);
+            let (l, r) = out.split_at(QUANTUM);
+            if to != 0 && v.slots[to - 1].used != 0 {
+                // Into the level above (rendered later: it is shallower).
+                let p = &mut v.slots[to - 1];
+                p.fed = 1;
+                for (d, x) in p.buf.iter_mut().zip(out.iter()) {
+                    *d += *x;
+                }
+            } else if let Some((dl, dr)) = inputs.get(bus) {
+                for j in 0..QUANTUM {
+                    dl[j] += l[j];
+                    dr[j] += r[j];
+                }
             }
         }
-        let (l, r) = s.buf.split_at_mut(QUANTUM);
-        run_chain(&mut s.effects[..(s.count as usize).min(SUBMIX_EFFECTS)], fxdata, l, r);
-        // A tail still sounding (a delay, a reverb) keeps the slot running.
-        if l.iter().chain(r.iter()).any(|x| x.abs() > TAIL_FLOOR) {
-            s.quiet = 0;
-        }
-        if let Some((dl, dr)) = inputs.get(s.bus) {
-            for i in 0..QUANTUM {
-                dl[i] += l[i];
-                dr[i] += r[i];
-            }
-        }
-        s.buf = [0.0; 2 * QUANTUM];
     }
 }
 

@@ -219,6 +219,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::LOOPS => wire::Loops::FIXED_END,
             wire::op::SUBMIX => wire::Submix::FIXED_END,
             wire::op::SUBMIX_AUTOMATE => wire::SubmixAutomate::FIXED_END,
+            wire::op::ROUTE => wire::Route::FIXED_END,
             wire::op::CURVES => wire::Curves::FIXED_END,
             wire::op::PARAM => wire::Param::FIXED_END,
             wire::op::BUS_AUTOMATE => wire::BusAutomate::FIXED_END,
@@ -373,6 +374,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::LOOPS => voices::loops(core, msg, off),
             wire::op::SUBMIX => crate::submix::configure(core, msg, off),
             wire::op::SUBMIX_AUTOMATE => crate::submix::automate(core, msg, off),
+            wire::op::ROUTE => automation::route(core, msg, off),
             wire::op::BUS_AUTOMATE => automation::bus_automate(core, msg, off),
             wire::op::CURVES => automation::curves(core, msg, off),
             wire::op::PARAM => {

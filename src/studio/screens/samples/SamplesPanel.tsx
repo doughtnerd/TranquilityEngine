@@ -9,6 +9,7 @@ import { parseImportSettings, sidecarPath } from "../../../engine/scene/importSe
 import { deleteAssets } from "../../../editor/assetDelete";
 import { folderEntry } from "../../../editor/assetEntry";
 import { moveAssets, newFolder, renameAsset, whyNotValidName } from "../../../editor/assetOps";
+import { moveSourceVersions } from "./sampleVersions";
 import { currentProject, docVersion, status } from "../../../editor/state";
 import type { EditorProject } from "../../../editor/projects";
 import { Chip } from "../../../editor/ui/Chip";
@@ -52,6 +53,22 @@ function MiniWave(props: { project: EditorProject; path: string }) {
   );
 }
 
+/** The engine's asset moves, then the moved samples' source versions with them (ADR 0328, per machine). */
+async function moveSamples(moves: readonly (readonly [string, string])[], verb?: string): Promise<boolean> {
+  const ok = await moveAssets(moves, verb);
+  const project = currentProject.peek();
+  if (ok && project) await moveSourceVersions(project, moves);
+  return ok;
+}
+
+/** The engine's rename of `entry` (a file, or a folder entry) to `name`; `from` → `to` are the project paths it changes. */
+async function renameSample(entry: string, name: string, from: string, to: string): Promise<boolean> {
+  const ok = await renameAsset(entry, name);
+  const project = currentProject.peek();
+  if (ok && project) await moveSourceVersions(project, [[from, to]]);
+  return ok;
+}
+
 export function SamplesPanel() {
   docVersion.value; // follow writes and moves
   const project = currentProject.value;
@@ -90,7 +107,7 @@ export function SamplesPanel() {
       confirmLabel: "Delete folder",
     });
     if (!ok.ok) return;
-    if (plan.length && !(await moveAssets(plan, "Moved"))) return;
+    if (plan.length && !(await moveSamples(plan, "Moved"))) return;
     try {
       await project.deleteFolder(folder);
       docVersion.value++;
@@ -130,7 +147,7 @@ export function SamplesPanel() {
         { id: "new", label: "New folder", disabled: readOnly, run: () => void addFolder(folder) },
         { id: "rename", label: "Rename", hint: "F2", disabled: readOnly, run: () => renameRow(TREE, `f:${folder}`) },
         { id: "move", label: "Move to…", disabled: readOnly, run: () => setMoving([folder]) },
-        folderOf(folder) !== "" && { id: "top", label: "Move to top level", disabled: readOnly, run: () => void moveAssets([[folder, nameOf(folder)]]) },
+        folderOf(folder) !== "" && { id: "top", label: "Move to top level", disabled: readOnly, run: () => void moveSamples([[folder, nameOf(folder)]]) },
         SEPARATOR,
         { id: "delete", label: "Delete folder", danger: true, disabled: readOnly, run: () => void deleteFolder(folder) },
       ]),
@@ -158,7 +175,7 @@ export function SamplesPanel() {
       setDropOn(null);
       if (started && target !== null) {
         const to = target ? `${target}/${nameOf(path)}` : nameOf(path);
-        void moveAssets([[path, to]]).then((ok) => {
+        void moveSamples([[path, to]]).then((ok) => {
           if (ok) {
             toasts.show({ text: `${nameOf(path)} → ${target ? target.split("/").join(" › ") : "top level"}` });
             if (open === path) openSample(to);
@@ -209,7 +226,7 @@ export function SamplesPanel() {
               const bad = whyNotValidName(next);
               if (bad) return void (status.value = { kind: "info", text: `Can't rename: ${bad}.` });
               const to = folderOf(path) ? `${folderOf(path)}/${next}` : next;
-              void renameAsset(path, next).then((ok) => ok && open === path && openSample(to));
+              void renameSample(path, next, path, to).then((ok) => ok && open === path && openSample(to));
             },
           },
       remove: readOnly ? undefined : () => void deleteSample(path),
@@ -239,7 +256,7 @@ export function SamplesPanel() {
           label: "Folder name",
           commit: (name) => {
             const clean = cleanFolderName(name);
-            if (clean && clean !== f.name) void renameAsset(folderEntry(f.path), clean);
+            if (clean && clean !== f.name) void renameSample(folderEntry(f.path), clean, f.path, folderOf(f.path) ? `${folderOf(f.path)}/${clean}` : clean);
           },
         },
     remove: readOnly ? undefined : () => void deleteFolder(f.path),
@@ -290,7 +307,7 @@ export function SamplesPanel() {
           onMove={(folder) => {
             const items = moving;
             setMoving(null);
-            void moveAssets(items.map((p) => [p, folder ? `${folder}/${nameOf(p)}` : nameOf(p)] as const)).then((ok) => {
+            void moveSamples(items.map((p) => [p, folder ? `${folder}/${nameOf(p)}` : nameOf(p)] as const)).then((ok) => {
               if (ok && open && items.includes(open)) openSample(folder ? `${folder}/${nameOf(open)}` : nameOf(open));
             });
           }}

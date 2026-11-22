@@ -7,7 +7,10 @@ import type { SampleEdits, ValueSource } from "../../../engine/audio/sample/type
 import { Chip } from "../../../editor/ui/Chip";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { TIME_FORMATS, type TimeFormat } from "../../components/timeRulerModel";
+import type { DetectKind } from "../../../engine/audio/sample/detect/detect";
 import { clipAfterGain, isNoteName, NORMALIZE_RANGES, normalizeGain, setNormalize, setRoot, setTempo, type SampleEdit } from "./sampleEditing";
+import type { DetectOutcome } from "./sampleDetect";
+import { detectionSummary, tempoCandidateEdit } from "./sampleDetectModel";
 import { parseSnapStep, SNAP_PRESETS, type SnapSetting, type SnapUnit } from "./sampleView";
 import { addTap, tapResult } from "./tapTempo";
 import { ToolPopover } from "./ToolPopover";
@@ -25,8 +28,35 @@ function SourceChip(props: { source: ValueSource | null; chunk: string }) {
   );
 }
 
-export function TempoPopover(props: { edits: SampleEdits; commit(r: SampleEdit): void; disabled?: boolean }) {
+/** Runs a detection (the screen's `detectInto` over the sample's audio); the popover shows what it found. */
+export type DetectRun = (kind: DetectKind) => Promise<DetectOutcome>;
+
+/** Detect's state in a popover: running, and the last outcome's line. */
+function useDetect(kind: DetectKind, run: DetectRun | undefined) {
+  const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<DetectOutcome | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  const start = async () => {
+    if (!run || busy) return;
+    setBusy(true);
+    setFailed(null);
+    try {
+      setOutcome(await run(kind));
+    } catch (err) {
+      setOutcome(null);
+      setFailed(`Couldn't analyse the audio: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const line = busy ? "Analysing the audio…" : failed ?? (outcome ? (outcome.applied ? detectionSummary(outcome.result, kind) : `Nothing changed: ${outcome.refused}.`) : null);
+  return { busy, outcome, line, start };
+}
+
+export function TempoPopover(props: { edits: SampleEdits; commit(r: SampleEdit): void; detect?: DetectRun; disabled?: boolean }) {
   const t = props.edits.tempo;
+  const det = useDetect("tempo", props.detect);
+  const candidates = det.outcome?.applied && t?.source === "detected" ? (det.outcome.result.tempo?.candidates ?? []) : [];
   const [taps, setTaps] = useState<number[]>([]);
   const tap = tapResult(taps);
   const doTap = () => setTaps((x) => addTap(x, performance.now()));
@@ -68,9 +98,19 @@ export function TempoPopover(props: { edits: SampleEdits; commit(r: SampleEdit):
             <span role="status" aria-live="polite">{tap ? `${tap.bpm} BPM · ${tap.steadiness} · ${tap.taps} taps` : "Tap the beat (Space, Enter or T)"}</span>
             <button disabled={!tap?.usable} onClick={() => tap && props.commit(setTempo(props.edits, { bpm: tap.bpm, meter: t?.meter ?? "4/4" }))}>Use</button>
           </div>
+          {det.line && <p class="smp-muted" role="status" aria-live="polite">{det.line}</p>}
+          {candidates.length > 0 && (
+            <div class="smp-form-actions" aria-label="Tempo candidates">
+              {candidates.map((c) => (
+                <button key={c.relation} title={`${c.relation === "half" ? "Half" : "Double"} the detected tempo · ${Math.round(c.confidence * 100)} % sure`} aria-pressed={t?.bpm === c.bpm}
+                  onClick={() => props.commit(tempoCandidateEdit(props.edits, c.bpm))}>
+                  {c.relation === "half" ? "½×" : "2×"} {c.bpm} BPM
+                </button>
+              ))}
+            </div>
+          )}
           <div class="smp-form-actions">
-            {/* TODO(ADR 0328): Detect needs a tempo detector (none in the engine yet). */}
-            <button disabled title="Tempo detection isn't built yet">Detect</button>
+            <button disabled={!props.detect || props.disabled || det.busy} title="Analyse the audio for its tempo (marked Detected; Clear or type to change it)" onClick={() => void det.start()}>{det.busy ? "Detecting…" : "Detect"}</button>
             <button disabled={!t} onClick={() => props.commit(setTempo(props.edits, null))}>Clear</button>
           </div>
         </div>
@@ -79,9 +119,16 @@ export function TempoPopover(props: { edits: SampleEdits; commit(r: SampleEdit):
   );
 }
 
-export function RootPopover(props: { edits: SampleEdits; commit(r: SampleEdit): void; disabled?: boolean }) {
+export function RootPopover(props: { edits: SampleEdits; commit(r: SampleEdit): void; detect?: DetectRun; disabled?: boolean }) {
   const r = props.edits.root;
+  const det = useDetect("root", props.detect);
   const [text, setText] = useState(r?.note ?? "");
+  // A detected (or undone) root shows in the field.
+  const [shown, setShown] = useState(r?.note ?? "");
+  if ((r?.note ?? "") !== shown) {
+    setShown(r?.note ?? "");
+    setText(r?.note ?? "");
+  }
   const bad = text.trim() !== "" && !isNoteName(text);
   return (
     <ToolPopover label={r ? `${r.note}${r.cents ? ` ${r.cents > 0 ? "+" : ""}${r.cents}` : ""}` : "Root"} title="Root note" heading="Root note" disabled={props.disabled}>
@@ -102,8 +149,9 @@ export function RootPopover(props: { edits: SampleEdits; commit(r: SampleEdit): 
             <span>Source</span>
             <SourceChip source={r?.source ?? null} chunk="smpl" />
           </div>
+          {det.line && <p class="smp-muted" role="status" aria-live="polite">{det.line}</p>}
           <div class="smp-form-actions">
-            <button disabled title="Pitch detection isn't built yet">Detect</button>
+            <button disabled={!props.detect || props.disabled || det.busy} title="Analyse the audio for its root note and fine tune (marked Detected)" onClick={() => void det.start()}>{det.busy ? "Detecting…" : "Detect"}</button>
             <button disabled={!r} onClick={() => props.commit(setRoot(props.edits, null))}>Clear</button>
           </div>
         </div>

@@ -11,6 +11,7 @@ import { OutlinePanel } from "./OutlinePanel";
 import * as act from "./sampleActions";
 import { SampleDialogs } from "./SampleDialogs";
 import { installDiskWatch } from "./sampleDisk";
+import { installVersionSync } from "./sampleVersions";
 import { installSampleTransport } from "./SamplePlayerBar";
 import { SamplesPanel } from "./SamplesPanel";
 import { registerSampleKinds } from "./sampleSession";
@@ -27,6 +28,7 @@ function start(): void {
   registerSampleKinds();
   installSampleTransport();
   installDiskWatch();
+  installVersionSync();
   const scope = { screen: "samples" } as const;
   const group = "Sample";
   const keys: [string, string[], string, () => boolean][] = [

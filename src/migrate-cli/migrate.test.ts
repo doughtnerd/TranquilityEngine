@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { parseArgs } from "./main";
+import { parseArgs, reportLines } from "./main";
 
 describe("audio:migrate CLI", () => {
   const dirs: string[] = [];
@@ -22,6 +22,26 @@ describe("audio:migrate CLI", () => {
     expect(() => parseArgs([])).toThrow();
     expect(() => parseArgs(["p", "q"])).toThrow();
     expect(() => parseArgs(["p", "--nope"])).toThrow();
+  });
+
+  it("reports sample files (settings sidecars, derived samples) in their own words and count, apart from playlists and references", () => {
+    const report = {
+      written: ["audio/engine.playlist.json", "audio/hum.wav.meta.json", "audio/engine_loop.sample.json"],
+      rewritten: ["scenes/main.scene.json", "audio/idle.wav.meta.json"],
+      moved: [{ from: "audio/engine.audioevent.json", to: ".myco/migrated/audio/engine.audioevent.json" }],
+      notes: [],
+    };
+    expect(reportLines(report, true)).toEqual([
+      "would write audio/engine.playlist.json",
+      "would write sample settings audio/hum.wav.meta.json",
+      "would write derived sample audio/engine_loop.sample.json",
+      "would update the sample settings in audio/idle.wav.meta.json",
+      "would rewrite references in scenes/main.scene.json",
+      "would move audio/engine.audioevent.json -> .myco/migrated/audio/engine.audioevent.json",
+      "1 playlists to write, 3 sample files to write or update, 1 files to rewrite, 1 events to move, 0 notes.",
+    ]);
+    expect(reportLines(report, false)).toContain("updated the sample settings in audio/idle.wav.meta.json");
+    expect(reportLines({ written: [], rewritten: [], moved: [], notes: [] }, false)).toEqual(["No audio events to migrate."]);
   });
 
   it("--dry-run reports and writes nothing; a real run migrates; bad arguments exit 2", () => {
@@ -41,7 +61,7 @@ describe("audio:migrate CLI", () => {
 
     const real = run(dir);
     expect(real.status).toBe(0);
-    expect(real.stdout).toContain("1 playlists written, 1 files rewritten, 1 events moved");
+    expect(real.stdout).toContain("1 playlists written, 0 sample files written or updated, 1 files rewritten, 1 events moved");
     expect(JSON.parse(readFileSync(join(dir, "audio", "a.playlist.json"), "utf8"))).toMatchObject({ format: "myco.playlist@1", type: "clip" });
     expect(readFileSync(join(dir, "scenes", "main.scene.json"), "utf8")).toBe(`{ "clip": "asset:audio/a.playlist.json" }\n`);
     expect(readFileSync(join(dir, ".myco", "migrated", "audio", "a.audioevent.json"), "utf8")).toBe(eventText);

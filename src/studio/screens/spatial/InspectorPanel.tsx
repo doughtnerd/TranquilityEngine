@@ -1,18 +1,18 @@
 // The Inspector (the prototype's inspector by selection, B.3): the selected object's fields, each change one labelled
 // undo step on the scene. A 2D sound: sound, volume, output bus. An emitter: sound, volume, speed and place on its path
-// for a moving one, X/Y/Z, how it is heard now (from the player's readout), its attenuation in a line and Edit
+// for a moving one, X/Y/Z, how it is heard now (from the player's readout; a moving emitter's speed and distance live), its attenuation in a line and Edit
 // attenuation…. A listener; an obstacle (material from `audio.json`, box); an audio zone (sound, heard from its edge or
 // inside only, feather, its depth at the listener, box); a reverb zone (preset, priority, wet, level default, box). The
 // Height block keeps a box's bottom at least 0.5 m below its top.
 import { useRef, useState } from "preact/hooks";
 import type { AudioTestScene, SceneBox } from "../../../engine/audio/spatial/testSceneTypes";
-import type { TestSceneVoiceRow } from "../../../plugins/audio/runtime/testScene/player";
+import type { TestSceneMotionRow, TestSceneVoiceRow } from "../../../plugins/audio/runtime/testScene/player";
 import { ZONE_PRESETS } from "../../../plugins/audio/runtime/reverbPresets";
 import { SoundPicker } from "../../components/SoundPicker";
 import type { SoundItem } from "../../components/soundPickerModel";
 import { soundName } from "../../components/soundPickerModel";
 import { TypeBadge } from "../../components/TypeBadge";
-import { FieldRow, NumberBox, Section, SelectBox } from "../playlists/fields";
+import { FieldRow, NumberBox, Section, SelectBox } from "../../../editor/ui/PanelFields";
 import { ROLLOFF_PRESETS } from "./attenuationModel";
 import type { AttenuationPreset } from "../../../engine/audio/attenuation/types";
 import { depthIn } from "./geometry";
@@ -21,7 +21,8 @@ import { editLabel } from "./pointerModel";
 import {
   activeListener, aKind, findObject, KIND_NOUN, moveObjectTo, patchAudioZone, patchEmitter, patchListener, patchObstacle, patchReverbZone, patchSound2d, positionOf, renameObject, setBox, setBoxHeights, setHeight, type EditResult, type SceneObject,
 } from "./sceneEdits";
-import { distanceText, dopplerText, occlusionText, RENDERED_LABEL } from "./voicesTable";
+import { dopplerRatioText, liveDistanceText, livePlace, speedText } from "./liveMotion";
+import { distanceText, occlusionText, RENDERED_LABEL } from "./voicesTable";
 
 /** "smallStone" → "Small stone". */
 export const presetLabel = (id: string): string => {
@@ -45,6 +46,8 @@ export interface InspectorProps {
   readonly selected: string | null;
   readonly readOnly: boolean;
   readonly voices: readonly TestSceneVoiceRow[];
+  /** Where each emitter is now while playing (`liveMotion.ts`): a moving emitter's speed and distance follow it. */
+  readonly motion?: readonly TestSceneMotionRow[];
   readonly playing: boolean;
   readonly buses: readonly string[];
   readonly materials: readonly string[];
@@ -112,6 +115,7 @@ function ObjectInspector(props: InspectorProps & { o: SceneObject }) {
   const sound = "sound" in o.obj ? (o.obj as { sound: string }).sound : null;
   const locked = o.obj.locked;
   const pos = positionOf(o);
+  const live = props.playing ? livePlace(o, props.motion ?? []) : null;
 
   return (
     <div class="sp-inspector">
@@ -180,11 +184,13 @@ function ObjectInspector(props: InspectorProps & { o: SceneObject }) {
             <dt>Heard as</dt>
             <dd>{props.playing ? (props.silenced(id) ? "Muted" : row?.playing && row.rendered ? RENDERED_LABEL[row.rendered] : "Not playing") : "Play the scene to hear it"}</dd>
             <dt>Distance</dt>
-            <dd>{row ? distanceText(row) : pos ? `${Math.hypot(pos.x - listener.position.x, pos.y - listener.position.y, pos.z - listener.position.z).toFixed(1)} m` : "—"}</dd>
+            <dd>{live ? liveDistanceText(live.position, listener.position) : row ? distanceText(row) : pos ? `${Math.hypot(pos.x - listener.position.x, pos.y - listener.position.y, pos.z - listener.position.z).toFixed(1)} m` : "—"}</dd>
             <dt>Occlusion</dt>
             <dd>{row ? occlusionText(row) : "—"}</dd>
+            {live && <dt>Speed</dt>}
+            {live && <dd>{speedText(live.speed)}</dd>}
             {o.kind === "emitter" && <dt>Doppler</dt>}
-            {o.kind === "emitter" && <dd>{row ? dopplerText(row) : "—"}</dd>}
+            {o.kind === "emitter" && <dd title="The pitch ratio Doppler gives it now: above 1 approaching, below 1 going away">{dopplerRatioText(row)}</dd>}
           </dl>
         </Section>
       )}

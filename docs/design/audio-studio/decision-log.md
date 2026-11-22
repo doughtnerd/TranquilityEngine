@@ -344,3 +344,42 @@ scene's listener hears); per-World filters dropped. The Studio now activates the
 - *Takes (W10-A):* META `seed` now holds the World's generator state (older takes may pick differently on replay);
   pictures on by default (game builds opt out in `game.json`); effects-cost track is a per-section estimate until the
   core reports per-effect cost; renames follow the runtime's instance-wide local-parameter shadowing.
+
+**D45. Owner (2026-11-22): agrees with all recommendations; moving emitters must really work.** "a user does have
+the ability to have an emitter follow a path (to test Doppler type stuff, etc). I do want that to actually work - Im
+fine if that movement is in the spatial scene only though." The route motion existed in the test scene player with a
+position-only fake-backend test; W11-F makes it work end to end in the Spatial screen (the Studio's frame loop drives
+the player, Doppler heard on the core and measured in a loopback test, no pitch spike at a loop wrap, live position in
+the plan view).
+
+**D46. Moving emitters (W11-F, merged).** Most of it already worked (the Engine's own frame loop steps the Studio
+World; Doppler correct on the core); broken were a pitch spike (+150 cents, ~50 ms) when a looping route ends near its
+start (the wrap jump was under the teleport guard's threshold) and the plan view never showing motion. Velocity now
+carries across a near-closed wrap (gap ≤ max(5 m, 2·maxSpeed·dt)); longer gaps jump and are zeroed. The Inspector
+shows Doppler as ratio + cents.
+
+**D47. Samples detection, re-import, render cache (W11-C, merged).** Detection uses the existing UI (Detect buttons,
+the import's "Detect what's missing", the "Detected" chip; checked against the prototype's Samples artboard, which
+has exactly these plus Tap tempo, already built). Choices to review: the 120 BPM octave prior (a plain click track
+above ~185 BPM reads at half tempo; 2× is offered); confidence floors 0.35 tempo / 0.5 root at import, 0.2 on
+demand; re-import defaults to Keep seconds (Wwise/FMOD keep absolute marker times), keeps the file extension, and
+undo restores the old audio via `sample.sourceVersion`; exports render baked samples as `<stem>.render-<hash12>.wav`
+(normalize-only isn't rendered; non-WAV sources ship without effects, with a warning); Entry markers reuse the exit
+marker token, dotted. Measured: 60–179 BPM click tracks within ±0.26 BPM; 204 test tones, 0 wrong notes.
+
+**D48. W11-E merged (smaller items).** Quantise on pitch/pan/filters and entry curves is recorded as ADR 0339
+(amends 0336; quantum-accurate, not sample-accurate). An unstamped sequence whose clips are still loading now starts
+as late as its data (was up to 588 frames ahead of its sound); picks are redrawn on each restart. "Create playlist
+from clips" lives in the Playlists Library (one sample → Clip, several → Queue of Clips; undo is a toast that deletes
+the file, since creating a file isn't a document step). An emptied number box now restores its value instead of
+committing 0. `--no-take-pictures` requires `--audio-take`. `zoneIr.test.ts` fixed (waited a fixed 20 ms; now waits
+for the service's answers: 5/5 under heavy load).
+
+**D49. Per-level submixes (W11-B, merged, ABI 4.9).** One submix per level with effects (nested playlist, sequence
+track, clip), not a chain per voice: a clip's delay or reverb must ring after its voice ends; per-voice delay lines
+would drain `FxMem`; overlapping voices of one level share one chain (FMOD's model). Routing costs nothing measurable
+(metered `submix-levels` 6.97 M vs `submixes` 7.14 M instructions/quantum); shaped loop seams cost +0.9% mean.
+Mixer wasm 471,630 B. Supersedes D30's "track, clip and nested effects keep per-voice mapping" while a submix is free.
+Coordinator choice: gain added to the instance level in the catalogue (the core runs it there). Tails ring after a
+stop with fade (FMOD allow-fadeout). Known red after merging: the clip-delay loopback (interaction with W11-E's
+unstamped restart or quantised bindings); a fix task is running.

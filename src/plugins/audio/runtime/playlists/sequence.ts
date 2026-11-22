@@ -33,6 +33,12 @@
  * - **Hot reload:** an edited sequence swaps at the next bar (at once without a tempo): the old voices fade out over
  *   5 ms there and the new version continues at the same sequence time when the tempo is unchanged and that time is
  *   inside it, else from its start (the music runtime's reload rule, `music/reload.ts`).
+ * - **An unstamped start** (no `at`: as soon as possible) starts at the earliest stampable time, so every voice is stamped
+ *   where the playhead starts. A starting clip whose sample isn't on the core yet waits for its data and would then start
+ *   unstamped, late, while the playhead had already begun (decision log D44: ~22 ms on loopback). So while a starting
+ *   voice reports `waitingForData` the sequence isn't planned: each frame it starts again a frame later (new voices on
+ *   the same clips, then the waiting ones stopped, so the load carries on), and once none waits it plans from where its
+ *   voices are stamped. The playhead and the first sound agree; the start is as late as the data.
  * - `untilStopped` keeps the instance after the playhead's end; `release` ends held loops (sequence loops and sync clip
  *   loops by their exit settings, async voices' through the adapter); `stop` fades everything.
  */
@@ -46,8 +52,8 @@ import type {
 import { warnOnce } from "../core/handle";
 import { RELOAD_FADE_MS, sameTempoMap } from "../music/reload";
 import { clipGeometry, clipTimesOf, pieceAt, type ClipGeometry } from "./clipMap";
-import { shiftedCurve, type TimeCurve } from "./curves";
-import { playlistEffectProps } from "./effects";
+import type { TimeCurve } from "./curves";
+import { levelEffects } from "./effects";
 import { automationParts, type TimeAuto } from "./levelAutomation";
 import { LiveNode, shapedFade, type Ctx, type LoopRun, type NodeHost, type PVoice } from "./liveNode";
 import type { FadeShape } from "../../../../engine/audio/playlist/types";
@@ -64,6 +70,8 @@ const PLAN_AHEAD = 0.1;
 const SPLICE_FADE = 0.002;
 /** A cut's fade (a sync clip left, an async clip jumped before), seconds. */
 const CUT_FADE = 0.005;
+/** D44: a start moved while its data loads lands at least this far past the earliest stampable time (a frame's slack). */
+const MIN_START_SLACK = 1 / 60;
 const EPS = 1e-9;
 /** Heard seconds of past playhead moves kept for position questions. */
 const HISTORY_SECONDS = 2;
@@ -125,6 +133,11 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   private endAt = Number.NaN;
   private readonly scratch: number[] = [];
 
+  /** ADR 0331 levels: where this sequence's tracks' and clips' submixes are keyed in the instance. */
+  private get levelKey(): string {
+    return `${this.ctx.chain.join(">")}|${this.key}`;
+  }
+
   constructor(host: NodeHost, ctx: Ctx, key: string, body: PlaylistBody) {
     super(host, ctx, key);
     this.body = body;
@@ -133,7 +146,46 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     const offset = host.startOffset ?? 0;
     if (offset > 0) host.startOffset = 0;
     try { this.build(body, offset, host.startOf(ctx.at), 0); } finally { if (offset > 0) host.startOffset = offset; }
-    this.plan();
+    this.startPosition = offset;
+    // D44: an unstamped start whose clips are still loading waits for them (`followData`) before it plans.
+    this.awaitingData = ctx.at === null && this.anyWaiting();
+    if (!this.awaitingData) this.plan();
+  }
+
+  /** Where the playhead starts (the play's offset), for a start moved while its data loads. */
+  private startPosition = 0;
+  /** An unstamped start whose starting voices wait for their data: not planned yet, moved on each frame. */
+  private awaitingData = false;
+
+  private anyWaiting(): boolean {
+    for (const v of this.voices) if (!v.leaving && v.voice.reason === "waitingForData") return true;
+    for (const c of this.children) if (!c.stopped && c.waitingForData()) return true;
+    return false;
+  }
+
+  override waitingForData(): boolean {
+    return this.awaitingData || super.waitingForData();
+  }
+
+  /**
+   * D44: while a starting voice still waits for its data, start again `slack` after the earliest stampable time (new
+   * voices first, so the clips stay held and keep loading, then the old ones stopped: they never reached the core);
+   * once none waits, plan from the start the voices are stamped at. True while it still waits.
+   */
+  private followData(slack: number): boolean {
+    if (!this.anyWaiting()) {
+      this.awaitingData = false;
+      return false;
+    }
+    const oldVoices = this.voices.splice(0);
+    const oldChildren = this.children.splice(0);
+    this.history = [];
+    this.endAt = Number.NaN;
+    this.firedAt = Number.NaN;
+    this.build(this.body, this.startPosition, this.host.startOf(null) + slack, 0);
+    for (const v of oldVoices) if (!v.leaving) { v.leaving = true; v.voice.stop(0); }
+    for (const c of oldChildren) c.stop(0);
+    return true;
   }
 
   // --- building ----------------------------------------------------------------------------------------------------
@@ -182,10 +234,14 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   /** A track's level below the sequence: volume, pan, effects, output, automation. */
   private trackCtx(track: Track): { ctx: Ctx; time: TimeAuto[] } {
     const override = track.output !== null;
+    const bus = override ? track.output! : this.ctx.bus;
+    // ADR 0331 levels (ABI 4.9): the track's chain on a submix of its own, else mapped onto its voices.
+    const { fx, submix } = levelEffects(this.host, this.ctx, track.effects, bus, `${this.levelKey}/track:${track.id}`, `${this.ctx.where} track "${track.name}"`);
     let ctx: Ctx = {
       ...this.ctx,
-      props: accumulate(this.ctx.props, { gainDb: track.volume, pan: track.pan, fx: playlistEffectProps(track.effects, this.ctx.where), outputOverride: override }),
-      bus: override ? track.output! : this.ctx.bus,
+      props: accumulate(this.ctx.props, { gainDb: track.volume, pan: track.pan, ...(fx ? { fx } : {}), outputOverride: override }),
+      bus,
+      submix,
     };
     const time: TimeAuto[] = [];
     ctx = automationParts(this.host, track.automation, track.effects, ctx, time, `track "${track.name}"`);
@@ -195,7 +251,10 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   private clipRt(clip: Clip, index: number, track: Track, level: { ctx: Ctx; time: TimeAuto[] }, audible: boolean): ClipRt | null {
     const where = `${this.ctx.where} clip "${clip.id}"`;
     if (clip.reverse) warnOnce(`playlist:reverse:${this.ctx.where}:${clip.id}`, `[myco] ${where}: reverse playback isn't supported by the audio core yet; it plays forward.`);
-    let ctx: Ctx = { ...level.ctx, props: accumulate(level.ctx.props, { gainDb: clip.gain, pitchSt: clip.pitch, pan: clip.pan, fx: playlistEffectProps(clip.effects, where) }) };
+    // ADR 0331 levels (ABI 4.9): the clip's chain on a submix of its own (its delay or reverb rings on after the clip's
+    // voice ends), feeding its track's (or the sequence's); else mapped onto its voice.
+    const { fx, submix } = levelEffects(this.host, level.ctx, clip.effects, level.ctx.bus, `${this.levelKey}/clip:${clip.id}`, where);
+    let ctx: Ctx = { ...level.ctx, props: accumulate(level.ctx.props, { gainDb: clip.gain, pitchSt: clip.pitch, pan: clip.pan, ...(fx ? { fx } : {}) }), submix };
     const time = level.time.slice();
     ctx = automationParts(this.host, clip.automation, clip.effects, ctx, time, where);
     const base = { clip, index, track, start: clip.at, sync: clip.sync, audible, ctx, time, inside: false, voice: null, pieceTo: Number.POSITIVE_INFINITY, node: null, driving: -1 };
@@ -484,7 +543,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     const out = c.ctx.timeCurves.slice();
     for (const t of c.time) {
       const offset = t.input === "clipTime" ? u : t.input === "sequenceTime" ? c.start + u : 0;
-      out.push({ target: t.target, curve: shiftedCurve(t.curve, offset) });
+      out.push(offset !== 0 ? { target: t.target, curve: t.curve, offset } : { target: t.target, curve: t.curve });
     }
     return out;
   }
@@ -557,6 +616,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   override update(now: number, dt: number): void {
     super.update(now, dt);
     if (this.stopped) return;
+    if (this.awaitingData && this.followData(Math.max(dt, MIN_START_SLACK))) return;
     this.checkReload();
     this.plan();
     // Voices that have gone for good leave the list.

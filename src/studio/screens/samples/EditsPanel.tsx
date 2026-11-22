@@ -4,7 +4,8 @@
 //
 // Flatten (ADR 0328) renders the chain and the normalize gain into `<name>.flat<n>.wav` beside the source and points
 // the sample at it (`sample.source`, one undoable step); Unflatten points it back. The render keeps the source's
-// timeline, so trim and closed gaps stay live edits. Freeze, A/B and effect automation editing are later tasks.
+// timeline, so trim and closed gaps stay live edits. "Automate…" on an effect opens the shared curve editor on its
+// parameters over sample time (`sampleAutomation.ts`, D23); the render bakes the lanes. Freeze and A/B are later tasks.
 import { allowedAt, effectParamValue, effectSpec, effectTypesAt } from "../../../engine/audio/effects/catalogue";
 import type { Effect, EffectType } from "../../../engine/audio/effects/types";
 import type { SampleEdits } from "../../../engine/audio/sample/types";
@@ -13,17 +14,40 @@ import { Chip } from "../../../editor/ui/Chip";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import { effectEdits } from "./sampleEffects";
-import { flattenSample, hasRenderableEdits, renderPathOf, unflattenSample } from "./sampleFlatten";
+import { hasRenderableEdits } from "../../../engine/audio/sample/sampleRender";
+import { flattenSample, renderPathOf, unflattenSample } from "./sampleFlatten";
 import { nameOf } from "./sampleLibrary";
-import { pcmOf, type SampleSession } from "./sampleSession";
+import { bytesOf, lengthOf, pcmOf, type SampleSession } from "./sampleSession";
+import { applyAutomationResult, automatedCount, automationDialog } from "./sampleAutomation";
+import type { SampleEdit } from "./sampleEditing";
+import { openCurveEditorDialog } from "../../../editor/ui/curves/openCurveEditorDialog";
 import { toasts } from "../../shell/studioServices";
 import { openSession } from "./samplesState";
 import { removedSeconds } from "./sampleTime";
 
-function EffectRow(props: { f: Effect; e: SampleEdits; first: boolean; last: boolean; ro: boolean; commit(r: { next: SampleEdits; label: string } | { refused: string }): void }) {
+/** Open the curve editor on effect `f`'s parameters over the sample (one step on Apply). */
+function automate(session: SampleSession, f: Effect, commit: (r: SampleEdit) => void): void {
+  const e = session.edits.peek();
+  const spec = automationDialog(e, f.id, lengthOf(session.project, session.source.peek()) ?? 1);
+  if (!spec) return;
+  openCurveEditorDialog(document, {
+    ...spec,
+    title: "Sample automation",
+    target: effectSpec(f.type).label,
+    context: `${nameOf(session.path)} · baked into the render`,
+    onCancel: () => {},
+    onApply(result) {
+      const r = applyAutomationResult(session.edits.peek(), f.id, result);
+      if (r) commit(r);
+    },
+  });
+}
+
+function EffectRow(props: { f: Effect; e: SampleEdits; first: boolean; last: boolean; ro: boolean; session: SampleSession; commit(r: SampleEdit): void }) {
   const { f, e, ro, commit } = props;
   const spec = effectSpec(f.type);
   const misplaced = !allowedAt(f.type, "sample");
+  const lanes = automatedCount(e, f.id);
   return (
     <li class={`smp-fx${f.on ? "" : " off"}`}>
       <div class="smp-fx-head">
@@ -33,7 +57,9 @@ function EffectRow(props: { f: Effect; e: SampleEdits; first: boolean; last: boo
         </label>
         <span class="smp-muted">v{spec.version}</span>
         {misplaced && <Chip tone="warning" title="This effect can't run baked into a sample; move it to a clip, playlist or bus">Not at sample level</Chip>}
+        {lanes > 0 && <Chip tone="accent" title="Parameters automated over the sample; Flatten bakes them">Automated · {lanes}</Chip>}
         <span class="smp-fx-tools">
+          <button aria-label={`Automate ${spec.label}`} title="Automate its parameters over the sample (curve editor)" disabled={ro} onClick={() => automate(props.session, f, commit)}>Automate…</button>
           <button aria-label={`Move ${spec.label} up`} disabled={ro || props.first} onClick={() => commit(effectEdits.move(e, f.id, -1))}>↑</button>
           <button aria-label={`Move ${spec.label} down`} disabled={ro || props.last} onClick={() => commit(effectEdits.move(e, f.id, 1))}>↓</button>
           <button aria-label={`Remove ${spec.label}`} disabled={ro} onClick={() => commit(effectEdits.remove(e, f.id))}>×</button>
@@ -59,9 +85,11 @@ function FlattenBar(props: { session: SampleSession; e: SampleEdits; ro: boolean
   const flatten = async () => {
     setBusy(true);
     try {
-      const r = await flattenSample(session, await pcmOf(session.project, session.source.peek()));
+      const project = session.project, src = session.source.peek();
+      const r = await flattenSample(session, { bytes: await bytesOf(project, src), pcm: () => pcmOf(project, src) });
       if ("refused" in r) toasts.show({ text: `Can't flatten: ${r.refused}.` });
-      else toasts.show({ text: [`Flattened to ${nameOf(r.path)}`, ...r.render.warnings].join(" · "), undo: () => session.undo() });
+      else if (r.unchanged) toasts.show({ text: `${nameOf(r.path)} is up to date: the edits haven't changed since it was rendered` });
+      else toasts.show({ text: [`Flattened to ${nameOf(r.path)}${r.hit ? " (from the render cache)" : ""}`, ...r.warnings].join(" · "), undo: () => session.undo() });
     } catch (err) {
       toasts.show({ text: `Can't flatten: ${err instanceof Error ? err.message : String(err)}`, kind: "error" });
     } finally {
@@ -100,7 +128,7 @@ export function EditsPanel() {
         <li class="smp-fx locked"><b>Source</b> <span class="smp-muted">{session.source.value}</span></li>
         {e.trim && <li class="smp-fx locked"><b>Trim</b> <span class="smp-muted">locked · edit it on the timeline</span></li>}
         {e.closedGaps.length > 0 && <li class="smp-fx locked"><b>Closed gaps</b> <span class="smp-muted">{e.closedGaps.length} · {removedSeconds(e.closedGaps).toFixed(2)} s removed</span></li>}
-        {e.effects.map((f, i) => <EffectRow key={f.id} f={f} e={e} first={i === 0} last={i === e.effects.length - 1} ro={ro} commit={commit} />)}
+        {e.effects.map((f, i) => <EffectRow key={f.id} f={f} e={e} first={i === 0} last={i === e.effects.length - 1} ro={ro} session={session} commit={commit} />)}
         {n.mode !== "off" && <li class="smp-fx locked"><b>Normalize</b> <span class="smp-muted">{n.gainDb > 0 ? "+" : ""}{n.gainDb.toFixed(1)} dB · applied last, after the effects</span></li>}
       </ol>
       <FlattenBar session={session} e={e} ro={ro} />

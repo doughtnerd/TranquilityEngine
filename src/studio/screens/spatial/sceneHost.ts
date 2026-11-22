@@ -3,7 +3,7 @@
 // rules are the pure models (`pointerModel.ts`, `tools.ts`, `elevation.ts`, `viewTransform.ts`).
 import type { BaseSceneImport } from "../../../engine/audio/spatial/baseScene";
 import type { AudioTestScene } from "../../../engine/audio/spatial/testSceneTypes";
-import type { TestSceneVoiceRow } from "../../../plugins/audio/runtime/testScene/player";
+import type { TestSceneMotionRow, TestSceneVoiceRow } from "../../../plugins/audio/runtime/testScene/player";
 import type { Slab } from "./elevation";
 import type { P2 } from "./geometry";
 import type { EditResult } from "./sceneEdits";
@@ -38,6 +38,8 @@ export interface SceneHost {
   /** The audition: playing, the readout, and whether an object is silenced (muted or not soloed). */
   readonly playing: boolean;
   readonly voices: readonly TestSceneVoiceRow[];
+  /** Where each emitter is now while playing (`liveMotion.ts`); empty or absent when stopped (moving emitters at their start). */
+  readonly motion?: readonly TestSceneMotionRow[];
   silenced(id: string): boolean;
   readonly solo: string | null;
   /** Apply a scene edit as one labelled step (`drag`: coalesce until `endDrag`). */

@@ -274,7 +274,9 @@ pub struct VoiceAuto {
     pub _pad: u8,
     /// ADR 0328: its loop program's pool entry ([`ProgramEntry`]) plus 1; 0 none.
     pub prog: u16,
-    pub _pad2: u16,
+    /// ABI 4.9 (ROUTE): the submix slot the voice mixes into, plus 1 (its playlist level's); 0 its
+    /// group's route. PLAY clears it.
+    pub submix: u16,
     /// Position in the active list plus 1; 0 when not in it.
     pub list: u32,
     /// SET_LOOP's region in clip frames (`loop_end` 0 is the clip's end).
@@ -294,6 +296,8 @@ pub struct VoiceAuto {
     pub pan0: f32,
     pub pan1: f32,
     pub bindings: [Binding; BINDINGS],
+    /// ABI 4.9: each binding's time origin, seconds added to its time parameter (AUTOMATE `offset`).
+    pub offsets: [f32; BINDINGS],
     /// The context frame the voice started (or starts) at, or [`UNANCHORED`] (`voiceTime`).
     pub vstart: u64,
 }
@@ -803,7 +807,17 @@ pub fn bindings_is_well_formed(msg: &[u8], off: usize, len: usize) -> bool {
         return false;
     }
     let n = u32_at(msg, off + 12) as usize;
-    n.checked_mul(wire::AutomateBindings::FIXED_END).is_some_and(|bytes| wire::Automate::FIXED_END + bytes <= len)
+    n.checked_mul(binding_stride(msg, off)).is_some_and(|bytes| wire::Automate::FIXED_END + bytes <= len)
+}
+
+/// A binding's size in the record at `msg[off..]`: AUTOMATE's carries a time offset (ABI 4.9),
+/// BUS_AUTOMATE's doesn't.
+fn binding_stride(msg: &[u8], off: usize) -> usize {
+    if u16_at(msg, off) == wire::op::AUTOMATE {
+        wire::AutomateBindings::FIXED_END
+    } else {
+        wire::BusAutomateBindings::FIXED_END
+    }
 }
 
 /// CURVES: defines or overwrites curves `firstCurve..` from the (well-formed) record at `msg[off..]`.
@@ -837,15 +851,17 @@ pub fn curves(core: &mut Core, msg: &[u8], off: usize) {
 
 /// Reads up to `out.len()` bindings of the (well-formed) record at `msg[off..]` into `out`;
 /// returns how many, and their [`has`] bits. `bus` keeps only global volume, lowpass, fx and send
-/// bindings (ABI 4.8; a voice ignores fx and send targets).
-fn read_bindings(msg: &[u8], off: usize, out: &mut [Binding], bus: bool) -> (u8, u8, bool) {
+/// bindings (ABI 4.10; a voice ignores fx and send targets). `offsets` (AUTOMATE) takes each kept
+/// binding's time offset (ABI 4.9; non-finite reads 0).
+fn read_bindings(msg: &[u8], off: usize, out: &mut [Binding], bus: bool, mut offsets: Option<&mut [f32; BINDINGS]>) -> (u8, u8, bool) {
     let n = u32_at(msg, off + 12) as usize;
+    let stride = binding_stride(msg, off);
     let (mut count, mut targets, mut time) = (0usize, 0u8, false);
     for i in 0..n {
         if count == out.len() {
             break;
         }
-        let at = off + wire::Automate::FIXED_END + i * wire::AutomateBindings::FIXED_END;
+        let at = off + wire::Automate::FIXED_END + i * stride;
         let b = Binding { param: u16_at(msg, at), curve: u16_at(msg, at + 2), target: u32_at(msg, at + 4) };
         let bit = match b.target {
             target::VOLUME => has::GAIN,
@@ -862,6 +878,10 @@ fn read_bindings(msg: &[u8], off: usize, out: &mut [Binding], bus: bool) -> (u8,
         }
         time |= b.param & 0xC000 == wire::PARAM_TIME as u16;
         out[count] = b;
+        if let Some(o) = offsets.as_deref_mut() {
+            let x = if stride >= 12 { f32_at(msg, at + 8) } else { 0.0 };
+            o[count] = if x.is_finite() { x } else { 0.0 };
+        }
         count += 1;
         targets |= bit;
     }
@@ -881,7 +901,7 @@ pub fn automate(core: &mut Core, msg: &[u8], off: usize) {
         e.vstart = UNANCHORED;
     }
     let had_lowpass = e.count != 0 && e.targets & has::LOWPASS != 0;
-    let (count, targets, time) = read_bindings(msg, off, &mut e.bindings, false);
+    let (count, targets, time) = read_bindings(msg, off, &mut e.bindings, false, Some(&mut e.offsets));
     e.count = count;
     e.targets = targets;
     e.time = time as u8;
@@ -901,7 +921,7 @@ pub fn bus_automate(core: &mut Core, msg: &[u8], off: usize) {
     let Some(v) = view(&mut core.regions_mut().automation[..]) else { return };
     let Some(b) = v.buses.get_mut(bus) else { return };
     let was = b.count != 0;
-    let (count, targets, _) = read_bindings(msg, off, &mut b.bindings, true);
+    let (count, targets, _) = read_bindings(msg, off, &mut b.bindings, true, None);
     b.count = count;
     b.targets = targets;
     b.sends = 0;
@@ -967,7 +987,7 @@ pub fn loops(core: &mut Core, index: usize, voice_id: u32, msg: &[u8], off: usiz
             count: u16_at(msg, at + 16),
             flags: u16_at(msg, at + 18),
             param: u16_at(msg, at + 20),
-            _pad: 0,
+            shapes: u16_at(msg, at + 22),
             threshold: f32_at(msg, at + 24),
         };
     }
@@ -1070,8 +1090,25 @@ pub fn on_play(core: &mut Core, index: usize, voice_id: u32, group: u16, start_f
     e.targets = 0;
     e.time = 0;
     e.loop_on = 0;
+    e.submix = 0;
     free_program(v.programs, e);
     e.vstart = start_frame;
+}
+
+/// ROUTE (ABI 4.9): voice `voiceId` mixes into submix slot `submix - 1` (0: its group's route). A
+/// stale id is dropped.
+pub fn route(core: &mut Core, msg: &[u8], off: usize) {
+    let voice_id = u32_at(msg, off + 4);
+    let submix = u16_at(msg, off + 12);
+    let Some(index) = crate::voices::live_index(core, voice_id) else { return };
+    let Some(v) = view(&mut core.regions_mut().automation[..]) else { return };
+    let e = &mut v.voices[index];
+    if e.id != voice_id {
+        *e = zeroed_voice();
+        e.id = voice_id;
+        e.vstart = UNANCHORED;
+    }
+    e.submix = if submix as usize > crate::submix::SUBMIXES { 0 } else { submix };
 }
 
 fn zeroed_voice() -> VoiceAuto {
@@ -1105,10 +1142,15 @@ struct Evaluated {
 /// below 0 is silence for its binding (two negative curves don't multiply to a positive gain), and
 /// a pitch curve at or below 0 leaves the rate alone (a factor of 1; no binding stalls a voice).
 /// High-pass curves take the highest (0 none), pan curves sum, clamped to −1..1 (NaN is 0).
-fn evaluate(params: &[Param], curves: &[Curve], bindings: &[Binding], group: u16, times: &[f32; 3]) -> Evaluated {
+/// `offsets[i]` (ABI 4.9, absent: 0) is added to binding `i`'s time parameter: its time origin.
+fn evaluate(params: &[Param], curves: &[Curve], bindings: &[Binding], offsets: &[f32], group: u16, times: &[f32; 3]) -> Evaluated {
     let (mut g, mut p, mut lp, mut hp, mut pan) = (1.0f32, 1.0f32, LP_OFF_HZ, 0.0f32, 0.0f32);
-    for b in bindings {
-        let y = curve_value(curves, b.curve, binding_value(params, b.param, group, times));
+    for (i, b) in bindings.iter().enumerate() {
+        let mut x = binding_value(params, b.param, group, times);
+        if b.param & 0xC000 == wire::PARAM_TIME as u16 {
+            x += offsets.get(i).copied().unwrap_or(0.0);
+        }
+        let y = curve_value(curves, b.curve, x);
         match b.target {
             target::VOLUME => g *= y.max(0.0),
             target::PITCH => {
@@ -1190,7 +1232,7 @@ pub fn begin_quantum(core: &mut Core, frame: u64) {
                     times = voice_times(e, s, v.clocks, frame, sample_rate);
                 }
             }
-            let Evaluated { g, p, lp, hp, pan } = evaluate(v.params, v.curves, &e.bindings[..e.count as usize], e.group, &times);
+            let Evaluated { g, p, lp, hp, pan } = evaluate(v.params, v.curves, &e.bindings[..e.count as usize], &e.offsets, e.group, &times);
             if e.fresh != 0 {
                 e.fresh = 0;
                 e.g0 = g;
@@ -1215,7 +1257,7 @@ pub fn begin_quantum(core: &mut Core, frame: u64) {
                 continue;
             }
             let n = (b.count as usize).min(BUS_BINDINGS);
-            let Evaluated { g, lp, .. } = evaluate(v.params, v.curves, &b.bindings[..n], 0, &[0.0; 3]);
+            let Evaluated { g, lp, .. } = evaluate(v.params, v.curves, &b.bindings[..n], &[], 0, &[0.0; 3]);
             let fresh = b.fresh != 0;
             b.g0 = if fresh { g } else { b.g1 };
             b.g1 = g;
@@ -1280,7 +1322,7 @@ pub(crate) fn read_submix_bindings(msg: &[u8], off: usize, out: &mut [Binding]) 
         if count == out.len() {
             break;
         }
-        let at = off + wire::Automate::FIXED_END + i * wire::AutomateBindings::FIXED_END;
+        let at = off + wire::Automate::FIXED_END + i * wire::SubmixAutomateBindings::FIXED_END;
         let b = Binding { param: u16_at(msg, at), curve: u16_at(msg, at + 2), target: u32_at(msg, at + 4) };
         if target::kind(b.target) != target::FX {
             continue;

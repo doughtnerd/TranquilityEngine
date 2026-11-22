@@ -25,14 +25,10 @@
 .pl-lints { list-style: none; margin: 4px 8px; padding: 6px 8px; background: var(--warning-soft); border-radius: 4px; }
 
 /* Fields and sections */
-.pl-field, .pl-kv { display: grid; grid-template-columns: minmax(90px, 34%) 1fr; align-items: center; gap: 6px; padding: 2px 8px; min-height: 24px; }
+.pl-kv { display: grid; grid-template-columns: minmax(90px, 34%) 1fr; align-items: center; gap: 6px; padding: 2px 8px; min-height: 24px; }
 .pl-field-label { color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
 .pl-field-control { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.pl-section { border-bottom: 1px solid var(--border); }
-.pl-section-head { display: flex; align-items: center; gap: 6px; padding: 5px 8px; cursor: pointer; color: var(--text-strong); font-weight: 600; font-size: calc(12px * var(--ui-scale)); }
-.pl-section-actions { margin-left: auto; }
-.pl-section-body { padding-bottom: 6px; display: flex; flex-direction: column; gap: 2px; }
-.pl-section-body > .pl-small { align-self: flex-start; margin: 4px 8px; }
+.kit-section-body > .pl-small { align-self: flex-start; margin: 4px 8px; }
 
 /* Tree */
 .pl-tree, .pl-library { display: flex; flex-direction: column; min-height: 100%; }
@@ -58,6 +54,7 @@
 .pl-lib-folder { color: var(--faint); font-size: calc(11px * var(--ui-scale)); text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 8px 2px; }
 .pl-lib-row { display: flex; align-items: center; gap: 6px; padding: 2px 8px; cursor: grab; }
 .pl-lib-row:hover { background: var(--hover); }
+.pl-lib-row.selected { background: var(--selection); color: var(--selection-text); }
 .pl-lib-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-play { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 50%; width: 20px; height: 20px; padding: 0; font-size: calc(9px * var(--ui-scale)); }
 .pl-play.on, .pl-play:hover { color: var(--accent); border-color: var(--accent); }
@@ -130,8 +127,6 @@
 .pl-region-handle { fill: var(--panel); stroke: var(--series); stroke-width: 2; vector-effect: non-scaling-stroke; cursor: ew-resize; outline: none; }
 .pl-region-handle:focus-visible { stroke: var(--focus-ring); stroke-width: 3; }
 .pl-influence { fill: var(--series); pointer-events: none; }
-.pl-shape { gap: 4px; }
-.pl-shape-glyph path { fill: none; stroke: var(--accent); stroke-width: 1.5; }
 .pl-fades .pl-fades-cell { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding-left: 12px; }
 .pl-wrap { flex-wrap: wrap; }
 .pl-adsr { display: grid; grid-template-columns: 80px repeat(4, max-content) 1fr; gap: 6px; align-items: center; padding: 2px 8px; }

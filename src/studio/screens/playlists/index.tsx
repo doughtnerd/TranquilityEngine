@@ -29,7 +29,7 @@ import { addEntries, duplicateEntry, removeEntry, setEntryUse, sampleEntry } fro
 import { breadcrumb, childPath, editAt, effectiveOutput, entryName, filePath, pathTarget, playlistTitle, whereOf, type PlaylistPath } from "./playlistPaths";
 import {
   adding, allParameters, askDelete, audioNow, auditioning, busNames, confirmDelete, deleting, docFor, duplicatePlaylistFiles, editContext, editFile, editOpen, followRoute,
-  linkedBy, loadPlaylist, logCursor, makeShared, moveToFolder, newPlaylist, newPlaylistFolder, newSequence, openBody, openDoc, openFile, openLints, openPath, openPlaylist,
+  linkedBy, loadPlaylist, logCursor, makeShared, moveToFolder, newPlaylist, newPlaylistFolder, newPlaylistFromSamples, newSequence, openBody, openDoc, openFile, openLints, openPath, openPlaylist,
   playingNow, releaseAudition, renameFolder, renamePlaylistFile, removeLinkEntry, runDrop, selectedEntry, setTestValue, stopAudition, target, testValues, trigger, unlink, voiceLog, clearLog,
 } from "./playlistsScreen";
 import { PlaylistTreeView, type TreeActions } from "./PlaylistTreeView";
@@ -150,7 +150,7 @@ function LibraryPanel() {
   const addTo = body && body.type !== "sequence" ? lastCrumbName() : null;
   return (
     <Panel bodyClass="pl-panel-body">
-      <LibraryList files={currentProject.value?.files ?? []} addTo={addTo} previewing={previewing.value?.path ?? null} onPreview={preview} onAdd={addSample} onOpenSamples={() => openRoute({ screen: "samples" })} />
+      <LibraryList files={currentProject.value?.files ?? []} addTo={addTo} previewing={previewing.value?.path ?? null} onPreview={preview} onAdd={addSample} onOpenSamples={() => openRoute({ screen: "samples" })} onCreatePlaylist={(paths) => void newPlaylistFromSamples(paths)} writable={writable()} />
     </Panel>
   );
 }

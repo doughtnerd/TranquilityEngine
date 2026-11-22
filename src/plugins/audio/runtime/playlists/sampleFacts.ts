@@ -41,6 +41,8 @@ export interface SampleFacts {
   /** Loops in file order (the first is the one clips map passes of). */
   readonly loops: readonly FactLoop[];
   readonly markers: readonly FactMarker[];
+  /** ADR 0336 pre-entry: the first Entry marker's time (file seconds), null without one. Not reported to the game. */
+  readonly entry: number | null;
   /** The sample's musical grid (file seconds, bar 1 beat 1 at the file's start), null without a tempo. */
   readonly grid: SegmentGrid | null;
 }
@@ -67,11 +69,15 @@ function compile(path: string, edits: SampleEdits | null, length: number | null)
   const end = trim ? (length !== null ? Math.min(trim[1], length) : trim[1]) : length;
   const loops: FactLoop[] = (edits?.loops ?? []).filter((l) => l.end >= l.start).map(toLoop);
   const markers: FactMarker[] = [];
-  for (const m of edits?.markers ?? []) if (m.type !== "note") markers.push(toMarker(m));
+  let entry: number | null = null;
+  for (const m of edits?.markers ?? []) {
+    if (m.type === "entry") entry = entry === null ? m.at : Math.min(entry, m.at);
+    else if (m.type !== "note") markers.push(toMarker(m));
+  }
   markers.sort((a, b) => a.at - b.at);
   const endSeconds = end ?? undefined;
   const grid = edits?.tempo ? tempoGrid(edits.tempo, endSeconds, path) : null;
-  return { path, from, end, loops, markers, grid };
+  return { path, from, end, loops, markers, entry, grid };
 }
 
 const toLoop = (l: SampleLoop): FactLoop => ({

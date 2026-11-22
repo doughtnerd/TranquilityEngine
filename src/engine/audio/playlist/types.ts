@@ -77,6 +77,8 @@ export interface VoiceCurve {
   input: CurveInput;
   curve: Curve;
   bypass: boolean;
+  /** A curve keyed on a parameter moves only on this musical boundary (as `Automation.quantize`); absent: continuously. */
+  quantize?: Quantize;
 }
 export type VoiceCurveTarget = "gain" | "pitch" | "pan" | "lowpass" | "highpass";
 
@@ -90,7 +92,10 @@ export interface Automation {
   input: CurveInput;
   curve: Curve;
   bypass: boolean;
-  /** ADR 0336: a parameter-keyed `volume` or low-pass `cutoff` lane moves only on this musical boundary; absent: continuously. */
+  /**
+   * ADR 0336: a parameter-keyed lane moves only on this musical boundary; absent: continuously. Volume, enabled, pitch,
+   * pan and the effect parameters the voice carries (low-pass and high-pass cutoff, a gain effect's gain) take it.
+   */
   quantize?: Quantize;
 }
 
@@ -102,6 +107,13 @@ export interface LoopBehaviour {
   exit: "finish" | "jump" | "crossfade";
   exitFadeMs: number;
   reentry: "ignore" | "reenter";
+  /**
+   * ADR 0336 (the audio core's ABI 4.9): a sample loop's seam crossfade shape (also its hold point's fades, a jump exit
+   * and a re-entry); absent: equalPower. Sequence loops splice and ignore it.
+   */
+  crossfadeShape?: FadeShape;
+  /** ADR 0336: the exit crossfade's shape (`exit: "crossfade"`; a sequence loop's both sides); absent: equalPower. */
+  exitShape?: FadeShape;
 }
 
 // --- entries ---------------------------------------------------------------------------------------------------------

@@ -8,7 +8,7 @@ import type { Entry, PlaylistBody } from "../../../engine/audio/playlist/types";
 import { ContextMenu, SEPARATOR, tidyEntries } from "../../../editor/ui/ContextMenu";
 import type { EditResult } from "../../../plugins/audio/editor/editResult";
 import { TypeBadge } from "../../components/TypeBadge";
-import { NumberBox, SelectBox } from "./fields";
+import { NumberBox, SelectBox } from "../../../editor/ui/PanelFields";
 import { duplicateEntry, moveEntry, setEntryUse, USE_LIMITS, type EditContext } from "./playlistEdits";
 import { entryName } from "./playlistPaths";
 import type { PlaylistFacts } from "./playlistTree";

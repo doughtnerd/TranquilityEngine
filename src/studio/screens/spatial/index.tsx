@@ -27,7 +27,7 @@ import { AttenuationChoiceDialog, GameSceneDialog, TakeDialog } from "./SpatialD
 import {
   applyFolderChanges, applyRolloff, attenuationChoice, audition, auditionStatus, chooseAttenuation, copySelection, deleteScenes, deleteSelected, duplicateScene, duplicateSelection, editAttenuation, editMix, editScene, endDrag,
   ensureSceneKind, escapeKey, extraFolders, fit, followRoute, hover, listenHere, mix, mixDoc, materials, mute, newDialog, newFromGameScene, newFromTake, newScene, openDoc, openPath, openPlaylist, openScene, openTake, ownerOf, pasteClipboard,
-  baseImport, placeAt, playAllFrom, playing, playScene, readOnly, renameScene, renaming, scene, sceneEntries, selected, sideView, silenced, slab, solo, soundItems, stopAudition, togglePlay, tools, busNames, view, viewportSize, voices,
+  baseImport, placeAt, playAllFrom, playing, playScene, readOnly, renameScene, renaming, scene, sceneEntries, selected, sideView, silenced, slab, solo, soundItems, stopAudition, togglePlay, tools, busNames, view, viewportSize, voices, motion,
 } from "./spatialScreen";
 import { sceneName } from "./sceneTree";
 import { viewKey } from "./viewTransform";
@@ -114,6 +114,7 @@ function sceneHost(): SceneHost | null {
     setRenaming: (id) => (renaming.value = id),
     playing: playing.value,
     voices: voices.value,
+    motion: motion.value,
     silenced: (id) => silenced(id),
     solo: audition.value.solo,
     edit: editScene,
@@ -245,6 +246,7 @@ function InspectorListPanel() {
           selected={sel}
           readOnly={readOnly.value}
           voices={voices.value}
+          motion={motion.value}
           playing={playing.value}
           buses={busNames.value}
           materials={materials.value.map((m) => m.name)}
@@ -294,7 +296,7 @@ function VoicesListPanel() {
 
 function VoicesTable(props: { blocked?: string }) {
   const s = scene.value;
-  const rows = s ? voiceTable(s, voices.value, silenced) : [];
+  const rows = s ? voiceTable(s, voices.value, silenced, { base: baseImport.value, motion: playing.value ? motion.value : [] }) : [];
   return <VoicesPanel rows={rows} playing={playing.value} blocked={props.blocked} selected={selected.value} onSelect={(id) => (selected.value = id)} onPlay={playScene} />;
 }
 

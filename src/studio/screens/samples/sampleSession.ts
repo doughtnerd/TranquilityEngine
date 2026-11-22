@@ -211,17 +211,20 @@ export async function bytesOf(project: EditorProject, path: string): Promise<Uin
   return new Uint8Array(await (await fetch(url)).arrayBuffer());
 }
 
+/** Audio bytes (named `path`, for the format hint) decoded on the decoder worker of the project's codecs. */
+export async function decodeAudio(project: EditorProject, bytes: Uint8Array, path: string): Promise<Pcm> {
+  const aac = audioSection((project.settings as { audio?: unknown }).audio).settings.codecs.aac;
+  const clip = await sharedDecoderClient(aac ? "aac" : "default").decodeClip(bytes, hintFromName(path));
+  return { pcm: clip.pcm, channels: clip.channels, rate: clip.rate };
+}
+
 /** The file decoded (cached per version) on the decoder worker of the project's codecs. */
 export function pcmOf(project: EditorProject, path: string): Promise<Pcm> {
   const url = urlOf(project, path);
   if (!url) return Promise.reject(new Error(`${path} is not an audio file in the project`));
   let p = pcms.get(url);
   if (!p) {
-    const aac = audioSection((project.settings as { audio?: unknown }).audio).settings.codecs.aac;
-    p = bytesOf(project, path).then(async (bytes) => {
-      const clip = await sharedDecoderClient(aac ? "aac" : "default").decodeClip(bytes, hintFromName(path));
-      return { pcm: clip.pcm, channels: clip.channels, rate: clip.rate };
-    });
+    p = bytesOf(project, path).then((bytes) => decodeAudio(project, bytes, path));
     p.then((v) => setIn(pcmReady, url, v)).catch(() => pcms.delete(url));
     pcms.set(url, p);
   }

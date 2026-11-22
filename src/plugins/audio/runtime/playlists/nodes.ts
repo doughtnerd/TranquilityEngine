@@ -7,22 +7,22 @@
  *
  * Sequences are `sequence.ts`; the musical clock a Switch waits on is its playing entry's (`LiveNode.musicalSource`).
  */
-import { accumulate } from "../../../../engine/audio/playlist/accumulate";
+import { accumulate, type EffectProps } from "../../../../engine/audio/playlist/accumulate";
 import { blendWeights1D, blendWeights2D } from "../../../../engine/audio/playlist/blendWeights";
 import { adsrLevel, envelopeHoldMs, lerpAdsr } from "../../../../engine/audio/playlist/envelope";
 import { defaultBlend, defaultQueue, defaultSwitch } from "../../../../engine/audio/playlist/format";
 import { pickEntry } from "../../../../engine/audio/playlist/picks";
 import { changeFor } from "../../../../engine/audio/playlist/switchRules";
 import type {
-  Adsr, BlendAxis, ChangeHow, Entry, EntryUse, FadeShape, PlaylistBody, PlaylistType, SampleEntry, TimeLength,
+  Adsr, BlendAxis, ChangeHow, ChangeRule, Entry, EntryUse, FadeShape, PlaylistBody, PlaylistType, SampleEntry, SwitchSettings, TimeLength,
 } from "../../../../engine/audio/playlist/types";
 import type { Region1D } from "../../../../engine/audio/playlist/blendWeights";
 import { isLabelled, parameterRange } from "../../../../engine/audio/parameters";
 import { warnOnce } from "../core/handle";
 import { curveParts } from "./curves";
-import { playlistEffectProps } from "./effects";
+import { levelEffects, playlistEffectProps } from "./effects";
 import { automationParts, type TimeAuto } from "./levelAutomation";
-import { EmptyNode, LiveNode, type Ctx, type DynGain, type NodeHost, type PVoice, type SpatialPlan } from "./liveNode";
+import { EmptyNode, LiveNode, type Ctx, type DynGain, type NodeHost, type PendingSwitchChange, type PVoice, type SpatialPlan } from "./liveNode";
 import { linkedPlaylist } from "./loader";
 import { FALLBACK_SECONDS_PER_BEAT, MUSICAL_FALLBACK_NOTE, type MusicalSource } from "./musical";
 import { resolveSequence } from "./sequence";
@@ -32,7 +32,7 @@ import { sampleFacts, type SampleFacts } from "./sampleFacts";
 import { VoiceClock, VoiceMusical } from "./voiceMusical";
 
 export { EmptyNode, LiveNode } from "./liveNode";
-export type { Ctx, DynGain, LoopRun, NodeHost, PVoice, SpatialPlan } from "./liveNode";
+export type { Ctx, DynGain, LoopRun, NodeHost, PendingSwitchChange, PVoice, SpatialPlan } from "./liveNode";
 
 /** Below this a weight counts as zero (the prototype drops entries under 1e-4). */
 export const ZERO_WEIGHT = 1e-4;
@@ -55,21 +55,28 @@ export function useCtx(host: NodeHost, ctx: Ctx, use: EntryUse): Ctx {
   const hasCurves = Object.keys(use.curves).length > 0;
   if (use.volume === 0 && use.pitch === 0 && !hasCurves) return ctx;
   const parts = hasCurves ? curveParts(use.curves, ctx, (n) => host.paramRef(n), (c) => host.curveId(c), ctx.where) : ctx;
-  return { ...ctx, props: accumulate(ctx.props, { gainDb: use.volume, pitchSt: use.pitch }), bindings: parts.bindings, timeCurves: parts.timeCurves };
+  const quantized = "quantized" in parts && parts.quantized ? { quantized: parts.quantized } : {};
+  return { ...ctx, props: accumulate(ctx.props, { gainDb: use.volume, pitchSt: use.pitch }), bindings: parts.bindings, timeCurves: parts.timeCurves, ...quantized };
 }
 
 /** A playlist's own level below `ctx`: volume and pitch with their random ranges (drawn per trigger), effects, output, spatial, delay. */
-export function bodyCtx(host: NodeHost, ctx: Ctx, body: PlaylistBody, where: string): Ctx {
+export function bodyCtx(host: NodeHost, ctx: Ctx, body: PlaylistBody, where: string, key = where): Ctx {
   // The draws are taken even for a fixed range, so a level's picks don't depend on its neighbours' settings.
   const gainDb = body.volume + lerp(body.volumeRandom, host.random());
   const pitchSt = body.pitch + lerp(body.pitchRandom, host.random());
   const override = body.output !== null;
-  // ADR 0331: the instance's own chain runs on its submix when it has one (`NodeHost.submixedEffects`).
-  const fx = body.effects === host.submixedEffects ? undefined : playlistEffectProps(body.effects, where);
+  const bus = override ? body.output! : ctx.bus;
+  // ADR 0331: the instance's own chain runs on its submix when it has one (`NodeHost.submixedEffects`); a nested level's
+  // on a submix of its own (ABI 4.9, `levelEffects`), else mapped onto its voices.
+  let fx: Partial<EffectProps> | undefined;
+  let submix = ctx.submix ?? null;
+  if (body.effects === host.submixedEffects) fx = undefined;
+  else if (ctx.depth > 0) ({ fx, submix } = levelEffects(host, ctx, body.effects, bus, `${ctx.chain.join(">")}|${key}`, where));
+  else fx = playlistEffectProps(body.effects, where);
   const props = accumulate(ctx.props, { gainDb, pitchSt, ...(fx ? { fx } : {}), outputOverride: override });
   const delay = ctx.depth > 0 ? body.playback.delay : 0; // the root's delay is the instance's (`PlaylistInstance.start`)
   const at = delay > 0 ? host.startOf(ctx.at) + delay : ctx.at;
-  const out: Ctx = { ...ctx, props, bus: override ? body.output! : ctx.bus, at, spatial: host.spatialOf(body, ctx.spatial), where };
+  const out: Ctx = { ...ctx, props, bus, at, spatial: host.spatialOf(body, ctx.spatial), where, submix };
   return body.automation.length > 0 ? instanceAutomation(host, out, body, where) : out;
 }
 
@@ -102,7 +109,7 @@ export type Resolver = (host: NodeHost, body: PlaylistBody, ctx: Ctx, key: strin
 /** Resolve a playlist body below `ctx` (`key`: where its pick state lives; `where`: its path for messages). */
 export function resolveBody(host: NodeHost, body: PlaylistBody, parent: Ctx, key: string, where: string): LiveNode {
   if (parent.depth > 32) return new EmptyNode(host, parent, key); // the parse limits nesting; links are cycle-checked
-  const ctx = bodyCtx(host, parent, body, where);
+  const ctx = bodyCtx(host, parent, body, where, key);
   return RESOLVERS[body.type](host, body, ctx, key);
 }
 
@@ -323,11 +330,18 @@ class SwitchNode extends LiveNode {
     if (next === this.label) return;
     const from = this.label;
     this.label = next;
-    this.change(changeFor(this.s, from ?? "", next ?? ""));
+    this.change(changeFor(this.s, from ?? "", next ?? ""), from);
   }
 
   /** Bumped per change: a change still waiting for its boundary when a newer one arrives is dropped. */
   private serial = 0;
+  /** The change waiting for its boundary (or bridging to it), for the debug rows and `handle.music.transition`. */
+  private waiting: PendingSwitchChange | null = null;
+
+  override pendingChange(): PendingSwitchChange | null {
+    if (this.stopped) return null;
+    return this.waiting ?? super.pendingChange();
+  }
 
   /** The musical clock of the entry playing now (ADR 0329: Switch timing waits on the playing entry). */
   private clock(): MusicalSource | null {
@@ -338,16 +352,22 @@ class SwitchNode extends LiveNode {
     return this.clock() ?? super.musicalSource();
   }
 
-  private change(how: ChangeHow): void {
+  private change(how: ChangeHow, from: string | null): void {
     if (how.when === "nextTrigger") return; // the playing entry carries on; the next trigger reads the new label
     const serial = ++this.serial;
+    this.waiting = null;
     if (how.when !== "now") {
       const at = this.clock()?.nextBoundary(how.when, this.host.startOf(null)) ?? null;
       if (at === null) warnOnce(`playlist:switch-when:${this.ctx.where}:${how.when}`, `[myco] ${this.ctx.where}: a Switch change at the next ${how.when} ${MUSICAL_FALLBACK_NOTE}.`);
       else {
         // ADR 0336 (pre-entry): an incoming sequence with an Entry marker starts that much early, so its timer is too.
         const lead = how.how === "transition" ? 0 : this.preEntry(this.label);
-        this.host.schedule(at - lead - LOOKAHEAD, () => { if (serial === this.serial) this.apply(how, at); });
+        this.waiting = pendingOf(this.s, how, from, this.label, at, this.ctx.where);
+        this.host.schedule(at - lead - LOOKAHEAD, () => {
+          if (serial !== this.serial) return;
+          this.waiting = null;
+          this.apply(how, at);
+        });
         return;
       }
     }
@@ -422,13 +442,23 @@ class SwitchNode extends LiveNode {
     const enter = exit !== null && exit > from ? exit : from;
     const lead = this.preEntry(this.label);
     const serial = this.serial;
+    if (enter > from) this.waiting = { ...pendingOf(this.s, how, null, this.label, enter, this.ctx.where), bridging: true };
     this.host.schedule(enter - lead - LOOKAHEAD, () => {
       if (serial !== this.serial || this.stopped) return;
+      this.waiting = null;
       if (tOut.seconds > 0) t.leave(tOut.seconds, enter, tOut.shape); else cutAt(t, enter);
       this.startFor(this.label, fade, enter - lead, how.shapeIn ?? "equalPower");
     });
     return true;
   }
+}
+
+/** The debug view of a change from `from` to `to` landing at `at` (the rule's index and specificity, ADR 0166's tiers). */
+function pendingOf(s: SwitchSettings, how: ChangeHow, from: string | null, to: string | null, at: number, where: string): PendingSwitchChange {
+  const rule = s.rules.indexOf(how as ChangeRule);
+  const r = rule >= 0 ? s.rules[rule]! : null;
+  const tier = !r ? 4 : r.from !== "*" && r.to !== "*" ? 1 : r.from !== "*" ? 2 : r.to !== "*" ? 3 : 4;
+  return { from, to, at, how, rule, tier, where, bridging: false };
 }
 
 /**
@@ -440,10 +470,21 @@ function cutAt(node: LiveNode, at: number | null): void {
   else node.leave(CUT_FADE, at, "linear");
 }
 
-/** ADR 0336: seconds before a sequence entry's first `entry` marker (its pre-entry), 0 for anything else. */
+/**
+ * ADR 0336: seconds before an entry's first `entry` marker (its pre-entry): a sequence's, or a Clip playlist's sample's
+ * (its Entry marker, ADR 0328, past where the clip starts playing: its trim's start), 0 for anything else.
+ */
 export function preEntryOf(entry: Entry, chain: readonly string[]): number {
   const body = entry.kind === "embedded" ? entry.embedded : entry.kind === "linked" ? linkedPlaylist(entry.playlist, chain) : null;
-  if (!body || body.type !== "sequence" || !body.sequence) return 0;
+  if (!body) return 0;
+  if (body.type === "clip") {
+    const sample = body.entries.find((e): e is SampleEntry => e.kind === "sample");
+    if (!sample) return 0;
+    const facts = sampleFacts(sample.sample);
+    const from = sample.trim ? sample.trim[0] : facts.from;
+    return facts.entry !== null && facts.entry > from ? facts.entry - from : 0;
+  }
+  if (body.type !== "sequence" || !body.sequence) return 0;
   const m = body.sequence.markers.find((k) => k.type === "entry");
   return m && m.at > 0 ? m.at : 0;
 }

@@ -6,6 +6,7 @@ import { historyPopoverText } from "./historyPopoverModel";
 import { formatCombo, formatKeys, isSingleKey, matchesCombo, parseCombo, type KeyEventLike } from "./keyCombo";
 import { allFolders, folderTree, parentFolder, searchFolders, whyNotMoveTo } from "./moveToModel";
 import { segmentForKey } from "./segmentedModel";
+import { numberBoxCommit, numberBoxStep, numberBoxText } from "./panelFieldsModel";
 import { shownShortcuts } from "./shortcutListModel";
 import { INFO_TOAST_MS, UNDO_TOAST_MS, createToastQueue } from "./undoToastModel";
 
@@ -189,5 +190,26 @@ describe("History popover", () => {
     expect(t.undo.title).toBe("Undo (⌘Z)");
     expect(t.heading).toBe("Open a document to undo");
     expect(historyPopoverText({ history: history({ name: "Calibration" }) }, false).heading).toBe("Calibration keeps a short undo list");
+  });
+});
+
+describe("panel fields' number box", () => {
+  const r = { value: -6, min: -96, max: 12, step: 0.5 };
+  it("shows its digits without trailing zeros", () => {
+    expect(numberBoxText(-6, 2)).toBe("-6");
+    expect(numberBoxText(1 / 3, 2)).toBe("0.33");
+  });
+  it("commits a typed value (a comma reads as a point), clamped; nothing for no change, text or an empty box", () => {
+    expect(numberBoxCommit("-3,5", r)).toBe(-3.5);
+    expect(numberBoxCommit("40", r)).toBe(12);
+    expect(numberBoxCommit("-6", r)).toBeNull();
+    expect(numberBoxCommit("loud", r)).toBeNull();
+    expect(numberBoxCommit("  ", r)).toBeNull();
+  });
+  it("steps by its step, ×10 with Shift, clamped", () => {
+    expect(numberBoxStep(r, 1, false)).toBe(-5.5);
+    expect(numberBoxStep(r, -1, true)).toBe(-11);
+    expect(numberBoxStep({ ...r, value: 11.8 }, 1, false)).toBe(12);
+    expect(numberBoxStep({ value: 0.1 }, 1, false)).toBe(1.1);
   });
 });

@@ -9,7 +9,8 @@ import { addMarker, addRegion, deleteNote, editNote, moveNote, noteColourCss, se
 import { FIXTURE_DURATION, FIXTURE_NOTES, SURFACE_LABELS, fixtureTake } from "./takeFixture";
 import { NO_TAKES, TAKES_FOLDER, takeDeletion, takeFiles, takeMoves, takeTree, whyNotTakeFile } from "./takeFiles";
 import { busStrip, instanceParametersAt, parameterRows, valueText } from "./takeInspectorModel";
-import { findInstance, frameIndexAt, labelSegments, parameterText, pathLabel, pictureStrip, playlistsInTake, takeInstances, takeTimeline, visibleFrames } from "./takeTimeline";
+import { findInstance, labelSegments, parameterText, pathLabel, playlistsInTake, takeInstances, takeTimeline } from "./takeTimeline";
+import { frameIndexAt, pictureStrip, visibleFrames } from "../../components/filmstripModel";
 
 const take = fixtureTake();
 const labelsOf = (name: string, path: string | null) => (name === "Surface" && path === null ? SURFACE_LABELS : null);

@@ -22,6 +22,7 @@ import { effectsCost, type EffectsCost } from "./effectsCostModel";
 import { buildMessages, rulerMarks, type LoudnessWarning, type ProfilerMessage, type ProfilerNote, type RulerMark } from "./messagesModel";
 import { profilerTargets } from "./cursorKeys";
 import { planTracks, type CaptureContents, type PlannedTrack } from "./trackPlan";
+import type { TakeFrame } from "../../../engine/audio/take/types";
 import { VOICE_EVENT_TYPES, buildVoices, type InitialVoice, type VoiceBlock } from "./voiceModel";
 
 /** A line on the viewport axis (seconds), values in the track's own units. */
@@ -66,6 +67,11 @@ export interface ProfilerData {
   readonly targets: CursorTargets;
   /** The loudness target in force (from the capture's META), or null. */
   readonly target: CaptureLoudnessTarget | null;
+  /**
+   * ADR 0334: a take's pictures of the game view (the Picture track), in time order; empty for a capture. Their times
+   * are take seconds, which count from the recording's start as viewport time does.
+   */
+  readonly frames: readonly TakeFrame[];
 }
 
 /** The events the screen reads beside the voices. */
@@ -120,6 +126,8 @@ export class ProfilerDataReader {
   private events: CaptureEventAt[] = [];
   private next = 0;
   private initial: InitialVoice[] | null = null;
+  /** A take's pictures, read once (a file never grows; a live view has none). */
+  private frames: readonly TakeFrame[] | null = null;
   private running: Promise<ProfilerData> | null = null;
 
   constructor(private readonly source: ProfileSource, opts: ProfilerDataOptions = {}) {
@@ -147,6 +155,7 @@ export class ProfilerDataReader {
       const s = await src.seek(src.startSeconds + feed.times[0]!);
       this.initial = (s.keyframe?.voices ?? []).filter((v) => v.state !== "stolen").map((v) => ({ voice: v.id, clip: v.clip, slot: v.slot, gain: v.gain }));
     }
+    if (this.frames === null) this.frames = src.live || !src.frames ? [] : await src.frames();
     const page = await src.events(this.next, [...VOICE_EVENT_TYPES, ...OTHER_EVENT_TYPES]);
     this.next = page.next;
     this.events.push(...page.events);
@@ -193,7 +202,7 @@ export class ProfilerDataReader {
     const effects = effectsCost(this.sections?.data()?.lines);
 
     const contents: CaptureContents = {
-      frames: false,
+      frames: this.frames.length > 0,
       status: feed.length > 0 && !src.summary.mainSideOnly,
       cpu: cpuLines.length > 0,
       effects: effects !== null,
@@ -208,7 +217,7 @@ export class ProfilerDataReader {
     const cursorCols = feed.length ? feed.columns() : emptyCursorColumns();
     return {
       duration, contents, tracks: planTracks(contents), load, effects, buses, loudness, voices, parameters, messages, marks,
-      targets: profilerTargets(cursorCols, src.markers, origin, marks), target: this.target,
+      targets: profilerTargets(cursorCols, src.markers, origin, marks), target: this.target, frames: this.frames,
     };
   }
 }

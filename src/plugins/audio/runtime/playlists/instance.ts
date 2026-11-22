@@ -24,7 +24,7 @@ import { Camera } from "../../../../engine/render/components";
 import { AudioListener, listenerPose } from "../AudioListener";
 import { CURVE_DRIVEN_ATTENUATION, curveDbToGain, evalAttenuation, FLAT_SEND_CURVE, LOWPASS_OFF_HZ, type AttenuationAt, type AttenuationCurveSet } from "../core/spatial";
 import { isLabelled, parameterDefault, type ParameterDef } from "../../../../engine/audio/parameters";
-import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
+import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest, type SubmixLevel } from "../backend";
 import { clipRequest, SAMPLE_END_FADE, sampleEdits, samplePass, samplePlan } from "../clipResolver";
 import { warnOnce } from "../core/handle";
 import { playlistHost } from "./host";
@@ -40,7 +40,7 @@ import { clockOver, MUSICAL_FALLBACK_NOTE, type MusicalClock, type MusicalSource
 import { sampleFacts, type SampleFacts } from "./sampleFacts";
 import { VoiceClock, VoiceMarkers } from "./voiceMusical";
 import { decideStinger } from "../music/stingerPolicy";
-import { resolveBody, resolveEntry, type Ctx, type DynGain, type LiveNode, type LoopRun, type NodeHost, type PVoice, type SpatialPlan } from "./nodes";
+import { resolveBody, resolveEntry, type Ctx, type DynGain, type LiveNode, type LoopRun, type NodeHost, type PendingSwitchChange, type PVoice, type SpatialPlan } from "./nodes";
 import { shapedFade } from "./liveNode";
 import { QuantizedLanes } from "./quantizedLanes";
 
@@ -63,7 +63,12 @@ export interface InstanceSystem {
   noteLateStart(instance: PlaylistInstance): void;
   retire(instance: PlaylistInstance): void;
   noteParameter(name: string, def: ParameterDef, value: number, instance: number | null): void;
+  /** A stinger trigger's outcome (`Audio.debug().musicTotals.stingers`, summed over the session). */
+  noteStinger(outcome: StingerOutcome): void;
 }
+
+/** What became of a stinger trigger: on its point, late (`ifLate`), skipped (`ifLate: "skip"`), dropped (a repeat or no point). */
+export type StingerOutcome = "played" | "late" | "skipped" | "dropped";
 
 /** The stop fade when the game names none (ADR 0329: "stop fades everything over 120 ms"). */
 export const STOP_FADE_SECONDS = 0.12;
@@ -312,6 +317,23 @@ export class PlaylistInstance implements NodeHost {
   private rootCtx: Ctx | null = null;
   private readonly stingers: { name: string; node: LiveNode; at: number }[] = [];
   private readonly stingerPlayed = new Map<string, number>();
+  /** Stinger outcomes since the instance started (`Audio.debug().music[].stingers`). */
+  readonly stingerCounts: Record<StingerOutcome, number> = { played: 0, late: 0, skipped: 0, dropped: 0 };
+
+  /** The stingers accepted and still to end: each one's name and heard start. */
+  stingersQueued(): readonly { readonly name: string; readonly at: number }[] {
+    return this.stingers.filter((s) => s.node.sounding);
+  }
+
+  /** The Switch change waiting for its boundary below, null when none. */
+  pendingChange(): PendingSwitchChange | null {
+    return this.stopped ? null : this.root?.pendingChange() ?? null;
+  }
+
+  private countStinger(outcome: StingerOutcome): void {
+    this.stingerCounts[outcome]++;
+    this.sys.noteStinger(outcome);
+  }
 
   /**
    * Fires the stinger named `name` (the playlist's, else an embedded playlist's): at `now`, or the playing entry's next
@@ -349,13 +371,14 @@ export class PlaylistInstance implements NodeHost {
       now, earliest, point, nextPoint, ifTooLate: s.ifLate, dontRepeat: s.dontRepeat,
       lastPlayed: this.stingerPlayed.get(name) ?? Number.NaN, sounding: this.stingers.length,
     });
-    if (!d.play) return false;
+    if (!d.play) { this.countStinger(d.reason === "skip" ? "skipped" : "dropped"); return false; }
     if (d.steal) this.stingers.shift()?.node.stop(0.04);
     const ctx: Ctx = { ...this.rootCtx!, at: d.at, depth: 1 };
     const node = resolveEntry(this, s.playlist, ctx, `${this.path}/stinger:${name}`, 0);
     if (!node) return false;
     this.stingerPlayed.set(name, d.at);
     this.stingers.push({ name, node, at: d.at });
+    this.countStinger(d.late ? "late" : "played");
     return true;
   }
 
@@ -378,9 +401,12 @@ export class PlaylistInstance implements NodeHost {
       spatial: null,
       where: this.path,
     };
-    this.rootCtx = ctx;
     // ADR 0331: the instance's own effects run on a submix of its voices on its bus, when the backend has one free.
     this.submixedEffects = this.openSubmix(a);
+    // ABI 4.9: nested levels' submixes on the same bus feed it.
+    const root = this.submixedEffects ? audioBackend().submixes?.levelOf(this.group) ?? null : null;
+    if (root) ctx.submix = { level: root, bus: this.resolveBus(a.output !== null ? a.output : this.options.bus), root: true };
+    this.rootCtx = ctx;
     // `EventOptions.offset`: what this resolve starts begins as if that much had played (`playSample`, `SequenceNode`).
     this.startOffset = startOffsetOf(this.options.offset, `Audio.play("${this.path}")`);
     try { this.root = resolveBody(this, a, ctx, this.path, this.path); } finally { this.startOffset = 0; }
@@ -391,6 +417,17 @@ export class PlaylistInstance implements NodeHost {
 
   /** `NodeHost.submixedEffects`: the root's effects when they run on the instance's submix. */
   submixedEffects: readonly Effect[] | null = null;
+
+  /** `NodeHost.resolveBus`: the mixer bus a level's output resolves to (what `clipRequest` plays its voices on). */
+  resolveBus(bus: string | undefined): string {
+    return mixer.resolveOutput(bus);
+  }
+
+  /** `NodeHost.levelSubmix` (ADR 0331 levels, ABI 4.9): a submix of this instance's own for one of its levels. */
+  levelSubmix(key: string, effects: readonly Effect[], bus: string, parent: SubmixLevel | null, where: string): SubmixLevel | null {
+    if (this.group <= 0 || this.stopped || effects.length === 0) return null;
+    return audioBackend().submixes?.openLevel(this.group, key, bus, effects, parent, where) ?? null;
+  }
 
   /**
    * ADR 0331: a submix for the root playlist's (or sequence's) enabled effects, feeding the bus its voices play on (the
@@ -697,6 +734,8 @@ export class PlaylistInstance implements NodeHost {
     req.priority = this.options.priority ?? this.asset.playback.priority;
     req.world = this.world;
     req.group = this.group;
+    // ADR 0331 levels (ABI 4.9): into its level's submix (the instance's own takes its voices by their group).
+    if (ctx.submix && !ctx.submix.root && ctx.submix.bus === req.bus) req.submix = ctx.submix.level;
     if (ctx.at !== null) req.at = ctx.at;
     if (this.options.owner) req.owner = this.options.owner;
     const lowpass = Math.min(c.lowpass, t.lowpass ?? LOWPASS_NONE, curved ? curved.at.lowpassHz : LOWPASS_NONE);
@@ -732,7 +771,7 @@ export class PlaylistInstance implements NodeHost {
     try { voice = audioBackend().play(req); } catch { voice = null; }
     if (!voice) return null;
     const sink = playlistHost().automation;
-    const bindings = this.withStaticPan(timed.bindings, c.pan, ctx.where);
+    const bindings = this.quant.bindings(this.withStaticPan(timed.bindings, c.pan, ctx.where), ctx.quantized, start);
     if (bindings.length > 0) sink.bindVoice(voice, this.group, bindings, base, ctx.at ?? undefined);
     if (ctx.fadeIn > 0) {
       voice.fade(0, 0);
@@ -819,6 +858,8 @@ export class PlaylistInstance implements NodeHost {
           start: l.start, end: l.end, direction: l.direction, crossfade: l.crossfadeMs / 1000, count: l.count, active,
           ...(param && b ? { param, op: b.op, threshold: b.value } : {}),
           exit: l.exit, exitFade: l.exitFadeMs / 1000, reentry: l.reentry,
+          // ADR 0336 (ABI 4.9): the seam and exit crossfades take the loop's shapes (absent: equal power).
+          ...(l.crossfadeShape ? { crossfadeShape: l.crossfadeShape } : {}), ...(l.exitShape ? { exitShape: l.exitShape } : {}),
         });
       }
       const first = loops.find((l) => l.end > l.start) ?? loops[0]!;

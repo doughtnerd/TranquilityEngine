@@ -88,6 +88,19 @@ describe("a test scene over a base game scene (headless)", () => {
     expect(player.root.find("bell")!.getBehavior(AudioSource)!.occlusionGain).toBeCloseTo(wood, 3);
   });
 
+  it("the base scene's own emitters are in the Voices readout after the scene's, by the ids the caller gives (D43)", async () => {
+    const s = testScene("scenes/yard.scene.json");
+    base = await loadBaseScene(s.base!);
+    player = playAudioTestScene(engine.world, s, { base: [{ id: "base:radio", path: "Radio/AudioSource" }, { id: "base:gone", path: "Nowhere/AudioSource" }] });
+    run(10);
+    const rows = player.voices();
+    expect(rows.map((r) => r.id)).toEqual(["bell", "base:radio"]); // a path the base doesn't have reads nothing
+    const radio = rows[1]!;
+    expect(radio).toMatchObject({ kind: "emitter", playing: true });
+    expect(radio.distance).toBeCloseTo(8, 6); // the listener at the origin, the radio 8 m along −z
+    expect(radio.rendered).not.toBeNull();
+  });
+
   it("without a base, the test scene's own obstacle occludes: its collider starts the World's 3D physics", async () => {
     const s = testScene(null);
     s.obstacles = [{ id: "fence", name: "Fence", hidden: false, locked: false, material: "metal", box: { center: { x: 5, y: 0, z: 0 }, width: 0.5, depth: 6, yaw: 0, bottom: -3, top: 3 } }];

@@ -2,16 +2,16 @@
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, userEvent, within } from "storybook/test";
-import type { FadeShape } from "../../../engine/audio/playlist/types";
+import type { FadeShape } from "../../engine/audio/playlist/types";
 import { FadeShapeSelect } from "./FadeShapeSelect";
-import "./playlists.css";
+
 
 function Harness(props: { readonly out?: boolean; readonly initial: FadeShape }) {
   const [v, setV] = useState<FadeShape>(props.initial);
   return <FadeShapeSelect label={props.out ? "Fade-out shape" : "Fade-in shape"} out={props.out} value={v} onValue={setV} />;
 }
 
-const meta = { title: "Studio/Playlists/Fade shape", component: Harness, args: { initial: "equalPower" as FadeShape } } satisfies Meta<typeof Harness>;
+const meta = { title: "Studio/Fade shape", component: Harness, args: { initial: "equalPower" as FadeShape } } satisfies Meta<typeof Harness>;
 export default meta;
 type Story = StoryObj<typeof meta>;
 

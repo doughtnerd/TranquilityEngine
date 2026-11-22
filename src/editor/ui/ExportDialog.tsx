@@ -20,6 +20,7 @@ export function ExportDialog() {
   const [target, setTarget] = useState<Target>("web");
   const [audioCapture, setAudioCapture] = useState(false);
   const [audioTake, setAudioTake] = useState(false);
+  const [takePictures, setTakePictures] = useState(true);
   const [fs, setFs] = useState<FileSystem | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "info" | "error"; text: string; folder?: string } | null>(null);
@@ -44,7 +45,7 @@ export function ExportDialog() {
     setBusy(true);
     setMessage({ kind: "info", text: "Compiling scripts…" });
     try {
-      const plan = await exportProjectBuild(project, fs, out, (done, total) => setMessage({ kind: "info", text: `Writing files… ${done} of ${total}` }), { audioCapture, audioTake });
+      const plan = await exportProjectBuild(project, fs, out, (done, total) => setMessage({ kind: "info", text: `Writing files… ${done} of ${total}` }), { audioCapture, audioTake, audioTakeFrames: takePictures });
       const text = `Exported ${plan.manifest.name} to ${out}. Put the folder on any web host, or run node serve.mjs in it to play locally.`;
       setMessage({ kind: "info", text, folder: out });
       status.value = { kind: "info", text };
@@ -56,7 +57,7 @@ export function ExportDialog() {
       setBusy(false);
     }
   };
-  const command = desktopExportCommand(project, audioCapture, audioTake);
+  const command = desktopExportCommand(project, audioCapture, audioTake, takePictures);
 
   return (
     <div class="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && close()}>
@@ -95,6 +96,10 @@ export function ExportDialog() {
         <label class="export-audio-take" title="Press F10 in the exported game to record a take (what the game asked of audio, with its profile), then again to save a .mycotake file the Studio replays">
           <input type="checkbox" name="export-audio-take" checked={audioTake} disabled={busy} onChange={(e) => setAudioTake(e.currentTarget.checked)} />
           Let the game record audio takes (F10)
+        </label>
+        <label class="export-audio-take-pictures" title="A take holds a small picture of the game view about once a second, which the Studio shows beside it; leave this off to keep the game's screen out of takes">
+          <input type="checkbox" name="export-audio-take-pictures" checked={audioTake && takePictures} disabled={busy || !audioTake} onChange={(e) => setTakePictures(e.currentTarget.checked)} />
+          Include pictures of the game view in takes
         </label>
         {target === "web" ? (
           <>

@@ -12,13 +12,14 @@ import { HistoryPopover } from "../../../editor/ui/HistoryPopover";
 import type { SceneBox, Vec3 } from "../../../engine/audio/spatial/testSceneTypes";
 import { dragSlabEdge, heightMarks, heightRange, inRange, inSlab, LISTENER_STEP, moveSlab, relativeHeight, shiftSpan, slabRange, type HeightMark } from "./elevation";
 import { boxCorners, boxSpanX, growBox, nearestOnBox, rotateKnob, routeMidpoints, type P2 } from "./geometry";
+import { livePlace, placeNow, speedText } from "./liveMotion";
 import { shownInPlan } from "./outline";
 import { beginDrag, dragTo, editLabel, hitTest, KNOB_PX, type Drag } from "./pointerModel";
 import type { SceneHost } from "./sceneHost";
 import { BASE_CLASS, baseBanner, basePlanItems } from "./baseLayer";
 import { activeListener, allObjects, boxOf, findObject, insertRoutePoint, moveObjectTo, positionOf, removeRoutePoint, renameObject, setBoxHeights, setHeight, type SceneObject } from "./sceneEdits";
 import { pickTool, placesByClick, TOOLS, type Tool } from "./tools";
-import { LEGEND, raysOf } from "./voicesTable";
+import { LEGEND, rayEnd, raysOf } from "./voicesTable";
 import { gridStep, panBy, pinch, toPlan, toScreen, visibleBounds, zoomAt, zoomPercent, ZOOM_STEP, type Px, type Size, type View } from "./viewTransform";
 
 const useSize = (ref: { current: Element | null }, onSize?: (s: Size) => void): Size => {
@@ -406,20 +407,28 @@ function PlanObjects(props:{ host: SceneHost; S: (p: P2) => Px; visible: (o: Sce
         return <polyline key={`route-${o.obj.id}`} class={`sp-route${dim(o)}${host.tools.pathEdit === o.obj.id ? " editing" : ""}`} points={pts(e.route.map(S))} />;
       })}
       {rays.map((r) => {
+        // A moving emitter's ray goes to where it is now; a base scene's sound's to its place underneath (D43).
         const o = findObject(s, r.id);
-        if (!o || !shownInPlan(s, o)) return null;
-        const b = boxOf(o);
-        const to = b ? nearestOnBox(b, listener.position) : positionOf(o);
+        if (o && !shownInPlan(s, o)) return null;
+        const to = rayEnd(s, r.id, listener.position, host.playing ? (host.motion ?? []) : [], host.base);
         if (!to) return null;
         const a = S(listener.position), z = S(to);
         return <line key={`ray-${r.id}`} class={`sp-ray${r.occluded ? " occluded" : ""}`} x1={a.x} y1={a.y} x2={z.x} y2={z.y} />;
       })}
       {objects.filter((o) => o.kind === "emitter").map((o) => {
-        const p = positionOf(o)!;
+        const start = positionOf(o)!;
+        const live = host.playing ? livePlace(o, host.motion ?? []) : null;
+        const p = live?.position ?? start;
         const at = S(p);
         const moving = o.kind === "emitter" && o.obj.kind === "moving";
+        const from = S(start);
+        // While it travels: its start stays marked (drag it to move the start), and an arrow shows where it's heading.
+        const arrow = live?.direction ? { x: at.x + live.direction.x * 18, y: at.y - live.direction.z * 18 } : null;
         return (
-          <g key={o.obj.id} class={`sp-emitter${renderClass(host, o.obj.id)}${dim(o)}${hover(o)}${o.obj.locked ? " locked" : ""}`} data-id={o.obj.id}>
+          <g key={o.obj.id} class={`sp-emitter${renderClass(host, o.obj.id)}${dim(o)}${hover(o)}${o.obj.locked ? " locked" : ""}${live ? " live" : ""}`} data-id={o.obj.id}>
+            {live && <title>{`${o.obj.name} · ${speedText(live.speed)}`}</title>}
+            {live && Math.hypot(at.x - from.x, at.y - from.y) > 3 && <circle class="sp-start" cx={from.x} cy={from.y} r={4}><title>Its start on the path</title></circle>}
+            {arrow && <line class="sp-heading" x1={at.x} y1={at.y} x2={arrow.x} y2={arrow.y} />}
             {moving ? <rect x={at.x - 6} y={at.y - 6} width={12} height={12} transform={`rotate(45 ${at.x} ${at.y})`} /> : <circle cx={at.x} cy={at.y} r={6.5} />}
             {label(o, at, p.y)}
           </g>
@@ -459,7 +468,7 @@ function Selection(props: { host: SceneHost; o: SceneObject; S: (p: P2) => Px })
       c.forEach((p, i) => out.push(<rect key={`c${i}`} class="sp-handle" x={p.x - 5} y={p.y - 5} width={10} height={10}><title>Drag to resize</title></rect>));
     }
   } else {
-    const p = positionOf(o);
+    const p = placeNow(o, host.playing ? (host.motion ?? []) : []); // a moving emitter's ring follows it while playing
     if (p) {
       const at = S(p);
       out.push(<circle key="sel" class="sp-sel" cx={at.x} cy={at.y} r={11} />);

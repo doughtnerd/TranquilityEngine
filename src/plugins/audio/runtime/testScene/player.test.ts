@@ -86,6 +86,21 @@ describe("playAudioTestScene", () => {
     player.dispose();
   });
 
+  it("reads back where each emitter is as the World moves it, and a new start puts it back", async () => {
+    await kit.boot(assets);
+    const player = playAudioTestScene(World.require(), scene());
+    kit.frame(0);
+    const drone = () => player.motion().find((m) => m.id === "drone")!;
+    expect(player.motion().find((m) => m.id === "fire")).toEqual({ id: "fire", position: { x: 0, y: 0.5, z: 10 }, direction: null, speed: 0 });
+    expect(drone()).toMatchObject({ position: { x: 0, y: 9, z: 0 }, direction: { x: 1, y: 0, z: 0 }, speed: 10 });
+    for (let i = 0; i < 10; i++) kit.frame(0.1); // 10 m along the 20 m route
+    expect(drone().position.x).toBeCloseTo(10, 6);
+    expect(voiceOf("a.wav").position!.x).toBeCloseTo(10, 6);
+    expect(player.moveObject("drone", { at: 0 })).toBe(true);
+    expect(drone().position.x).toBe(0);
+    player.dispose();
+  });
+
   it("switches the active listener and moves objects live", async () => {
     await kit.boot(assets);
     const player = playAudioTestScene(World.require(), scene());

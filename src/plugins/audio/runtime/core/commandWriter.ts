@@ -26,12 +26,17 @@
 import {
   ASAP,
   BUS_AUTOMATE_MAX_BINDINGS,
+  SUBMIX_AUTOMATE_BINDINGS_FIXED_END,
   writeSubmixAutomate,
   type SubmixAutomate,
   PARAM_GLOBAL,
   PARAM_TIME,
   TIME_SEQUENCE,
   AUTOMATE_BINDINGS_FIXED_END,
+  BUS_AUTOMATE_BINDINGS_FIXED_END,
+  ROUTE_FIXED_END,
+  writeRoute,
+  type Route,
   BATCH_HEADER_FLAGS_OVERFLOWED,
   BATCH_MAX_BYTES,
   BUS_SLOT_FLAGS_FRESH,
@@ -80,6 +85,7 @@ import {
   LOOPS_LOOPS_FIXED_END,
   writeSubmix,
   SUBMIX_EFFECTS_FIXED_END,
+  SUBMIX_FIXED_END,
   writePlay,
   writeReset,
   writeSeek,
@@ -191,6 +197,8 @@ export interface PlayArgs {
  * from `curves`,. `target`: volume 0, pitch 1, lowpass 2.
  */
 export type AutomationBinding = AutomateBindings;
+/** A BUS_AUTOMATE or SUBMIX_AUTOMATE binding (no time offset: ABI 4.9 gives that to voices only). */
+export type BusAutomationBinding = Omit<AutomateBindings, "offset">;
 
 /** `AutomationBinding.param` bit for a global parameter slot (0..63); without it the slot is the instance's local one (0..15). */
 export const AUTOMATION_GLOBAL = PARAM_GLOBAL;
@@ -320,7 +328,8 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly loopRec: SetLoop = { voiceId: 0, frameOffset: ASAP, loopStartFrame: 0, loopEndFrame: 0, flags: 0 };
   private readonly paramRec: Param = { voiceId: 0, frameOffset: ASAP, group: 0, slot: 0, value: 0, seekPerSecond: 0 };
   private readonly loopsRec: Loops = { voiceId: 0, frameOffset: ASAP, loops: [] };
-  private readonly submixRec: Submix = { voiceId: 0, frameOffset: ASAP, group: 0, bus: 0, effects: [] };
+  private readonly submixRec: Submix = { voiceId: 0, frameOffset: ASAP, group: 0, bus: 0, parent: 0, reserved: 0, effects: [] };
+  private readonly routeRec: Route = { voiceId: 0, frameOffset: ASAP, submix: 0, reserved: 0 };
   private readonly timeRec: Time = { voiceId: 0, frameOffset: ASAP, group: 0, which: TIME_SEQUENCE, value: 0, rate: 0 };
   private readonly automateRec: Automate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
   private readonly busAutomateRec: BusAutomate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
@@ -719,18 +728,32 @@ export class CommandWriter implements VoiceCommandSink {
   }
 
   /**
-   * SUBMIX (ADR 0331, ABI 4.5): configures instance submix `slot`: the voices of instance `group` on bus index `bus`
-   * route into it and it runs `effects`; no effects (or group 0) frees it. Applies on arrival (asap).
+   * SUBMIX (ADR 0331, ABI 4.5; levels 4.9): configures submix `slot`: the voices of instance `group` (0: none, only
+   * the voices a ROUTE names; a slot whose group goes to 0 keeps ringing) on bus index `bus` route into it, it runs
+   * `effects` and feeds slot `parent` (null: the bus); no effects frees it. Applies on arrival (asap).
    */
-  submix(slot: number, group: number, bus: number, effects: readonly SubmixEffects[]): void {
+  submix(slot: number, group: number, bus: number, effects: readonly SubmixEffects[], parent: number | null = null): void {
     const r = this.submixRec;
     r.voiceId = slot;
     r.group = effects.length > 0 ? group : 0;
     r.bus = bus;
+    r.parent = parent === null || effects.length === 0 ? 0 : parent + 1;
     r.effects = effects as SubmixEffects[];
-    const at = this.begin(20 + SUBMIX_EFFECTS_FIXED_END * effects.length);
+    const at = this.begin(SUBMIX_FIXED_END + SUBMIX_EFFECTS_FIXED_END * effects.length);
     if (at >= 0) this.end(at, writeSubmix(this.view, at, r), undefined);
     r.effects = [];
+  }
+
+  /**
+   * ROUTE (ADR 0331 levels, ABI 4.9): voice `voiceId` mixes into submix `slot` (its playlist level's; null: back to its
+   * group's route). Applies on arrival: send it right after the voice's PLAY.
+   */
+  route(voiceId: number, slot: number | null): void {
+    const r = this.routeRec;
+    r.voiceId = voiceId;
+    r.submix = slot === null ? 0 : slot + 1;
+    const at = this.begin(ROUTE_FIXED_END);
+    if (at >= 0) this.end(at, writeRoute(this.view, at, r), undefined);
   }
 
   /**
@@ -800,11 +823,11 @@ export class CommandWriter implements VoiceCommandSink {
   }
 
   /** BUS_AUTOMATE `bus` (ADR 0158 §3): replaces the bus's bindings (global parameters; volume and lowpass). Asap. */
-  busAutomate(bus: number, bindings: readonly AutomationBinding[]): void {
+  busAutomate(bus: number, bindings: readonly BusAutomationBinding[]): void {
     const r = this.busAutomateRec;
     r.voiceId = bus;
-    r.bindings = (bindings.length > BUS_AUTOMATE_MAX_BINDINGS ? bindings.slice(0, BUS_AUTOMATE_MAX_BINDINGS) : bindings) as AutomateBindings[];
-    const at = this.begin(16 + AUTOMATE_BINDINGS_FIXED_END * r.bindings.length);
+    r.bindings = (bindings.length > BUS_AUTOMATE_MAX_BINDINGS ? bindings.slice(0, BUS_AUTOMATE_MAX_BINDINGS) : bindings) as BusAutomate["bindings"];
+    const at = this.begin(16 + BUS_AUTOMATE_BINDINGS_FIXED_END * r.bindings.length);
     if (at >= 0) this.end(at, writeBusAutomate(this.view, at, r));
     r.bindings = [];
   }
@@ -813,11 +836,11 @@ export class CommandWriter implements VoiceCommandSink {
    * SUBMIX_AUTOMATE (ADR 0331, ABI 4.8): replaces instance submix slot `slot`'s effect-parameter bindings (an empty list
    * clears them; past `BUS_AUTOMATE_MAX_BINDINGS` dropped), asap. Send it after the slot's SUBMIX.
    */
-  submixAutomate(slot: number, bindings: readonly AutomationBinding[]): void {
+  submixAutomate(slot: number, bindings: readonly BusAutomationBinding[]): void {
     const r = this.submixAutomateRec;
     r.voiceId = slot;
-    r.bindings = (bindings.length > BUS_AUTOMATE_MAX_BINDINGS ? bindings.slice(0, BUS_AUTOMATE_MAX_BINDINGS) : bindings) as AutomateBindings[];
-    const at = this.begin(16 + AUTOMATE_BINDINGS_FIXED_END * r.bindings.length);
+    r.bindings = (bindings.length > BUS_AUTOMATE_MAX_BINDINGS ? bindings.slice(0, BUS_AUTOMATE_MAX_BINDINGS) : bindings) as SubmixAutomate["bindings"];
+    const at = this.begin(16 + SUBMIX_AUTOMATE_BINDINGS_FIXED_END * r.bindings.length);
     if (at >= 0) this.end(at, writeSubmixAutomate(this.view, at, r));
     r.bindings = [];
   }

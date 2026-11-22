@@ -11,7 +11,7 @@ import { RenameField } from "../../../editor/ui/RenameField";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { BlendView } from "./BlendView";
 import { EntryList, type BodyEdit, type EntryActions } from "./EntryList";
-import { FieldRow, NumberBox, Section } from "./fields";
+import { FieldRow, NumberBox, Section } from "../../../editor/ui/PanelFields";
 import { sampleFromDrag } from "./libraryModel";
 import { setClipSampleFields, setLevels, setQueue, type EditContext } from "./playlistEdits";
 import { sampleTitle, typeName, type Crumb, type PlaylistPath } from "./playlistPaths";
@@ -20,7 +20,7 @@ import { SwitchView } from "./SwitchView";
 import { SequencePanel } from "./sequence/SequencePanel";
 import { convertType, typeOptions } from "./typeConversion";
 import { liveWeights } from "./blendViewModel";
-import { FadeShapeSelect } from "./FadeShapeSelect";
+import { FadeShapeSelect } from "../../components/FadeShapeSelect";
 
 export interface PlaylistEditorProps extends EntryActions {
   readonly body: PlaylistBody;

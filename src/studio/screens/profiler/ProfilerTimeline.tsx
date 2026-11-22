@@ -1,12 +1,15 @@
 // The Profiler's timeline (ADR 0334 "The Profiler screen"; the prototype's tracks): a ruler with the capture's markers
-// and every warning and error, then the tracks `planTracks` chose, in its order: Picture (a take's frames; a slot until
-// takes exist), Load (voices and CPU against the voice cap), Effects cost (the estimated DSP share per section, one line
+// and every warning and error, then the tracks `planTracks` chose, in its order: Picture (a take's pictures, the kit's filmstrip;
+// none for a capture), Load (voices and CPU against the voice cap), Effects cost (the estimated DSP share per section, one line
 // each), a Bus track per bus (its effective gain, with the lane
 // breakdown floating at the cursor), Loudness (short-term against the target), the voice lanes (by bus or by clip, with
 // status colours; a click selects a voice and seeks to its start) and the game parameters. Clicking a track seeks. The
 // whole capture fits the width; lines are drawn in a fixed SVG box stretched to the track (`timelineGeometry.ts`).
 // A view over props: the panel feeds it the store's signals, a story its own.
 import type { ComponentChildren, JSX } from "preact";
+import { useRef } from "preact/hooks";
+import { Filmstrip } from "../../components/Filmstrip";
+import { useElementWidth } from "../../components/useElementWidth";
 import { formatDb } from "../../../plugins/audio/editor/dbScale";
 import { breakdownText, type BusReadout } from "./cursorReadout";
 import { EFFECT_SECTIONS, effectsCostText } from "./effectsCostModel";
@@ -78,6 +81,21 @@ function TrackRow(props: TrackRowProps) {
         {props.children}
       </div>
     </div>
+  );
+}
+
+/** ADR 0334: a take's pictures of the game view, as the kit's filmstrip across the track's width. */
+function PictureTrack({ data, track, cursor, onSeek }: { data: ProfilerData; track: PlannedTrack; cursor: number; onSeek(t: number): void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const width = useElementWidth(ref);
+  const toX = (t: number) => (data.duration > 0 ? (Math.min(Math.max(t, 0), data.duration) / data.duration) * width : 0);
+  const n = data.frames.length;
+  return (
+    <TrackRow track={track} value={n === 1 ? "1 picture" : `${n} pictures`} duration={data.duration} onSeek={onSeek} height={40}>
+      <div ref={ref} class="pf-picture">
+        {width > 0 && <Filmstrip frames={data.frames} toX={toX} time={cursor} thumbWidth={56} onSeek={onSeek} />}
+      </div>
+    </TrackRow>
   );
 }
 
@@ -254,11 +272,7 @@ export function ProfilerTimeline(props: ProfilerTimelineProps) {
         {data.tracks.map((track) => {
           switch (track.kind) {
             case "picture":
-              return (
-                <TrackRow key={track.id} track={track} duration={data.duration} onSeek={props.onSeek} height={36}>
-                  <p class="pf-lane-empty">Picture frames</p>
-                </TrackRow>
-              );
+              return <PictureTrack key={track.id} data={data} track={track} cursor={cursor} onSeek={props.onSeek} />;
             case "load":
               return <LoadTrack key={track.id} data={data} track={track} cursor={cursor} onSeek={props.onSeek} />;
             case "effects":

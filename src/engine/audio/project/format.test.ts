@@ -175,7 +175,7 @@ describe("parseAudioProject", () => {
     expect(fx[1]).toMatchObject({ type: "gain", params: { gain: 3 } });
     expect(problems).toEqual([
       "buses[0].effects[0].params.threshold: -90 is outside -60..0; using -60.",
-      "buses[0].effects[1]: Gain can't run at the bus level (it runs at sample, voice); kept but it won't play there.",
+      "buses[0].effects[1]: Gain can't run at the bus level (it runs at sample, voice, instance); kept but it won't play there.",
       "buses[0].effects[8]: at most 8 effects here; dropped.",
     ]);
   });
