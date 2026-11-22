@@ -1,14 +1,17 @@
 // Stories (ADR 0219, 0335) for the Spatial screen's Scene view on the fixture scene ("Canyon run"): the plan with its
 // boxes, route, listeners and emitters, the rays and render colours from a voices readout, a selected box with its
-// handles and floating toolbar, path editing, the side view, and the tool palette placing an object. The host is local
+// handles and floating toolbar, a moving emitter travelling its route while playing, path editing, the side view, and the tool palette placing an object. The host is local
 // state standing in for the screen (`sceneHost.ts`), so edits apply to the story's scene.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import type { BaseSceneImport } from "../../../engine/audio/spatial/baseScene";
+import { advanceRoute, closeDistance, travelAt, travelPose, travelSpeed } from "../../../engine/audio/spatial/routeTravel";
 import type { AudioTestScene } from "../../../engine/audio/spatial/testSceneTypes";
+import type { TestSceneMotionRow } from "../../../plugins/audio/runtime/testScene/player";
 import { NO_AUDITION, isSilenced, toggleMute, toggleSolo } from "./audition";
 import { INITIAL_SLAB } from "./elevation";
+import { startFrameLoop } from "./liveMotion";
 import { boundsOf } from "./geometry";
 import type { SceneHost } from "./sceneHost";
 import { SceneView } from "./SceneView";
@@ -28,6 +31,32 @@ interface Args {
   readonly readOnly?: boolean;
   /** The base game scene underneath (`fixtureBase()`), or null. */
   readonly base?: BaseSceneImport | null;
+  /** Playing with the moving emitters travelling (a Stop / Play button beside the view), as the test scene player moves them. */
+  readonly moving?: boolean;
+}
+
+/**
+ * Stands in for the test scene player's `motion()` while the story plays: each moving emitter travels its route on the
+ * browser's animation frames (`routeTravel.ts`, as the player's route movers do); empty while stopped.
+ */
+function useStoryMotion(scene: AudioTestScene, on: boolean): TestSceneMotionRow[] {
+  const [rows, setRows] = useState<TestSceneMotionRow[]>([]);
+  useEffect(() => {
+    if (!on) {
+      setRows([]);
+      return;
+    }
+    const movers = scene.emitters.flatMap((e) => (e.kind === "moving" ? [{ e, t: travelAt(e.start) }] : []));
+    const pose = { position: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 0, z: 1 } };
+    return startFrameLoop((dt) => {
+      setRows(movers.map(({ e, t }) => {
+        advanceRoute(e.route, e.speed, e.loop, t, dt, closeDistance(150, dt));
+        travelPose(e.route, e.height, e.loop, t, pose);
+        return { id: e.id, position: { ...pose.position }, direction: { ...pose.direction }, speed: travelSpeed(e.route, e.speed, e.loop, t) };
+      }));
+    });
+  }, [scene, on]);
+  return rows;
 }
 
 function StoryScene(props: Args) {
@@ -41,6 +70,9 @@ function StoryScene(props: Args) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [audition, setAudition] = useState(NO_AUDITION);
   const [size, setSize] = useState({ width: 800, height: 600 });
+  const [running, setRunning] = useState(!!props.moving);
+  const motion = useStoryMotion(scene, running);
+  const playing = !!props.playing || running;
   const fit = () => {
     const b = boundsOf(framePoints(scene), 20);
     setView(b ? fitView(b, size) : DEFAULT_VIEW);
@@ -70,8 +102,9 @@ function StoryScene(props: Args) {
     setHover,
     renaming,
     setRenaming,
-    playing: !!props.playing,
-    voices: props.playing ? fixtureVoices() : [],
+    playing,
+    voices: playing ? fixtureVoices() : [],
+    motion,
     silenced: (id) => isSilenced(audition, id),
     solo: audition.solo,
     edit: (_label, edit) => {
@@ -102,7 +135,13 @@ function StoryScene(props: Args) {
       if ("next" in r) setScene(r.next);
     },
   };
-  return <SceneView host={host} />;
+  if (!props.moving) return <SceneView host={host} />;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+      <button type="button" style={{ alignSelf: "flex-start" }} onClick={() => setRunning(!running)}>{running ? "Stop" : "Play"}</button>
+      <SceneView host={host} />
+    </div>
+  );
 }
 
 const meta = {
@@ -130,6 +169,26 @@ export const Playing: Story = {
     await waitFor(() => expect(canvasElement.querySelectorAll(".sp-ray").length).toBe(4));
     await expect(canvasElement.querySelectorAll(".sp-ray.occluded").length).toBe(1);
     await expect(canvasElement.querySelector(".sp-emitter.hrtf")).not.toBeNull();
+  },
+};
+
+/** The drone flies its route while playing: drawn where it is now with its heading, its start marked; Stop puts it back. */
+export const MovingEmitter: Story = {
+  args: { moving: true, selected: "emitter4" },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const drone = () => canvasElement.querySelector<SVGGElement>('.sp-emitter[data-id="emitter4"]')!;
+    const at = () => Number(drone().querySelector("rect")!.getAttribute("x"));
+    await waitFor(() => expect(drone().classList.contains("live")).toBe(true));
+    const first = at();
+    await waitFor(() => expect(Math.abs(at() - first)).toBeGreaterThan(4)); // it travels
+    await expect(drone().querySelector(".sp-heading")).not.toBeNull();
+    await expect(drone().querySelector(".sp-start")).not.toBeNull();
+    await expect(drone().querySelector("title")).toHaveTextContent("Drone · 12.0 m/s");
+    await userEvent.click(c.getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(drone().classList.contains("live")).toBe(false));
+    await expect(drone().querySelector(".sp-heading")).toBeNull();
+    await expect(drone().querySelector(".sp-start")).toBeNull();
   },
 };
 
