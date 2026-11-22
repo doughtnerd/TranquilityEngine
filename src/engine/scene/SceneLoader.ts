@@ -105,6 +105,7 @@ const migrations = new Map<number, Migration>([
 /** Register an upgrade from format version `from` to `from + 1`. */
 export function registerSceneMigration(from: number, migrate: Migration): void {
   migrations.set(from, migrate);
+  migrated = new WeakMap(); // files read before were upgraded without it
 }
 
 /** Parse the format header and run migrations up to the current version. */
@@ -124,8 +125,19 @@ export function migrateSceneFile(file: SceneFile, path = "<inline>"): SceneFile 
   return { ...out, format: `${SCENE_FORMAT}@${CURRENT_FORMAT_VERSION}` };
 }
 
+/**
+ * Migrated files by their raw asset value (as `resolvedScene` caches by it): a file is upgraded once, not on every
+ * load, prefab instance and `GameObject.instantiate`. A changed file is a new value (`Assets` sources replace it).
+ */
+let migrated = new WeakMap<object, SceneFile>();
+
+/** The scene or prefab file at `path`, migrated to the current format. The result is shared: don't mutate it. */
 export function loadSceneFile(path: string): SceneFile {
-  return migrateSceneFile(Assets.json<SceneFile>(path), path);
+  const raw = Assets.json<SceneFile>(path);
+  if (typeof raw !== "object" || raw === null) return migrateSceneFile(raw, path); // throws its format error
+  let file = migrated.get(raw);
+  if (!file) migrated.set(raw, (file = migrateSceneFile(raw, path)));
+  return file;
 }
 
 /**

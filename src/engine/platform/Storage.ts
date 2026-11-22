@@ -1,31 +1,29 @@
 /**
- * Saves and settings (ADR 0024). Game code uses the static `Storage` API; the platform adapter
- * supplies the backend (IndexedDB in browsers, files under Tauri, memory in tests).
+ * Saves and settings (ADR 0024). Game code uses the static `Storage` API; `storageScope.ts` picks the backend for
+ * the game (IndexedDB in browsers, files under Tauri, memory in tests) and owns the value contract (ADR 0317).
  */
+import { EncodedStorage, MemoryRecords } from "./storageScope";
+
 export type StorageNamespace = "saves" | "settings" | "cache";
-export type StorageValue = unknown; // JSON-serializable data or ArrayBuffer
+/**
+ * JSON data (null, booleans, finite numbers, strings, arrays, plain objects) or bytes (an ArrayBuffer or typed
+ * array; loaded back as an ArrayBuffer). The built-in backends reject anything else when saving (ADR 0317).
+ */
+export type StorageValue = unknown;
 
 export interface StorageBackend {
   save(namespace: StorageNamespace, key: string, value: StorageValue): Promise<void>;
   load(namespace: StorageNamespace, key: string): Promise<StorageValue | undefined>;
   delete(namespace: StorageNamespace, key: string): Promise<void>;
   list(namespace: StorageNamespace): Promise<string[]>;
+  /** The folder the backend writes files under, where it writes files (desktop); undefined otherwise. */
+  readonly root?: string;
 }
 
-export class MemoryStorage implements StorageBackend {
-  private data = new Map<string, StorageValue>();
-  async save(ns: StorageNamespace, key: string, value: StorageValue): Promise<void> {
-    this.data.set(`${ns}/${key}`, structuredClone(value));
-  }
-  async load(ns: StorageNamespace, key: string): Promise<StorageValue | undefined> {
-    const v = this.data.get(`${ns}/${key}`);
-    return v === undefined ? undefined : structuredClone(v);
-  }
-  async delete(ns: StorageNamespace, key: string): Promise<void> {
-    this.data.delete(`${ns}/${key}`);
-  }
-  async list(ns: StorageNamespace): Promise<string[]> {
-    return [...this.data.keys()].filter((k) => k.startsWith(`${ns}/`)).map((k) => k.slice(ns.length + 1));
+/** Storage in memory (tests, headless Engines): the same value contract as every built-in backend (ADR 0317). */
+export class MemoryStorage extends EncodedStorage {
+  constructor() {
+    super(new MemoryRecords());
   }
 }
 
@@ -37,9 +35,16 @@ export class MemoryStorage implements StorageBackend {
 let backend: StorageBackend = new MemoryStorage();
 
 export class Storage {
-  /** @internal Set by the Engine from the platform adapter. */
-  static use(b: StorageBackend): void {
+  /** @internal Set by the project context (ADR 0319) from the platform adapter. Returns the backend it replaced. */
+  static use(b: StorageBackend): StorageBackend {
+    const replaced = backend;
     backend = b;
+    return replaced;
+  }
+
+  /** @internal The folder the backend in use writes files under (desktop), for a host that reports where a file went. */
+  static root(): string | undefined {
+    return backend.root;
   }
 
   static save(key: string, value: StorageValue, namespace: StorageNamespace = "saves"): Promise<void> {

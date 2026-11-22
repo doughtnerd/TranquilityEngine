@@ -3,11 +3,12 @@
 // load, which plugin set it activates, the entry scene and its Engine flags. The engine knows nothing of
 // plugins (ADR 0135), so activation is a function the host passes.
 import { Engine, type EngineOptions } from "./core/Engine";
-import { Assets, type AssetSource } from "./scene/Assets";
+import { acquireProjectContext } from "./core/projectContext";
+import type { AssetSource } from "./scene/Assets";
 import { _setScriptAssetRefs } from "./scene/warmUp";
 
 export interface GameLaunchOptions {
-  /** The game's files; registered first and removed by `dispose()`. */
+  /** The game's files; registered first, in a project context of their own (ADR 0319), and removed by `dispose()`. */
   readonly assets: AssetSource;
   /** Prefabs and materials the scripts name, warmed up with every scene (ADR 0080). Omit to keep the refs the host's script loader set. */
   readonly scriptAssetRefs?: readonly string[];
@@ -31,6 +32,8 @@ export interface GameLaunchOptions {
   readonly headless?: boolean;
   /** `"keep"` leaves the active graphics tier alone (play mode); default `"player"`. */
   readonly quality?: EngineOptions["quality"];
+  /** Saves and settings (ADR 0317): play mode passes the played project's own; default the game's (`storageScope.ts`). */
+  readonly storage?: EngineOptions["storage"];
   /** Log shader variants compiled mid-game (ADR 0080; play mode). */
   readonly reportShaderVariants?: boolean;
 }
@@ -38,7 +41,7 @@ export interface GameLaunchOptions {
 export interface LaunchedGame {
   /** The game's Engine, not yet started: the host owns the loop. */
   readonly engine: Engine;
-  /** Undo the launch in reverse: dispose the Engine (stopping it), then remove the asset source. Idempotent. */
+  /** Undo the launch in reverse: dispose the Engine (stopping it, releasing its context), then release the asset source's. Idempotent. */
   dispose(): void;
 }
 
@@ -48,15 +51,15 @@ export interface LaunchedGame {
  * error unchanged, for the host to present.
  */
 export async function launchGame(options: GameLaunchOptions): Promise<LaunchedGame> {
-  const { assets } = options;
-  Assets.addSource(assets);
+  // The files come first, on their own: the scripts load from them before the Engine (and its context) exists.
+  const files = acquireProjectContext({ assets: options.assets });
   let engine: Engine | null = null;
   let disposed = false;
   const dispose = () => {
     if (disposed) return;
     disposed = true;
     engine?.dispose();
-    Assets.removeSource(assets);
+    files.release();
   };
   try {
     if (options.scriptAssetRefs) _setScriptAssetRefs(options.scriptAssetRefs);
@@ -69,6 +72,7 @@ export async function launchGame(options: GameLaunchOptions): Promise<LaunchedGa
       ...(options.container ? { container: options.container } : {}),
       headless: options.headless ?? !options.container,
       ...(options.quality ? { quality: options.quality } : {}),
+      ...(options.storage ? { storage: options.storage } : {}),
     });
     if (options.reportShaderVariants) engine._setVariantReport(true);
     if (options.entryScene !== null) await fillEmptyWorlds(engine, options.entryScene);

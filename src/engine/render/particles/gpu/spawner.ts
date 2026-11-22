@@ -4,7 +4,8 @@
 // (the executor's dead list, ADR 0126, picks the slots where it keeps one). A frame's particles all
 // start at its end (no per-particle spawn times).
 import type { SpawnSettings } from "../../../scene/particleCompile";
-import { evalCurve, type ParticleNumber } from "../../../scene/particles";
+import { evalCurve } from "../../../core/curve";
+import type { ParticleNumber } from "../../../scene/particles";
 
 /** A value a binding of the program writes each frame and the spawner reads (`ProgramRunner.live`). */
 export interface LiveBox {

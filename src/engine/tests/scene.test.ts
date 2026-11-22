@@ -151,6 +151,24 @@ describe("scene format (ADR 0013, 0016)", () => {
     expect(old.find("Old")).not.toBeNull();
     await expect(SceneManager.load("scenes/future.json")).rejects.toThrow(/newer/);
   });
+
+  it("migrates an old file once per value, not on every read, instance or instantiate", async () => {
+    const prefab = { format: "myco.scene@0", nodes: [{ id: "p", title: "Thing" }] };
+    const scene = { format: "myco.scene@1", nodes: [{ id: "a", prefab: "prefabs/old.prefab.json" }, { id: "b", prefab: "prefabs/old.prefab.json" }] };
+    await engineWith();
+    Assets.addSource(Assets.fromObject({ "prefabs/old.prefab.json": prefab, "scenes/twice.json": scene }));
+    let runs = 0;
+    registerSceneMigration(0, (f) => (runs++, { ...f, nodes: f.nodes.map((n) => ({ ...n, name: (n as unknown as { title: string }).title })) }));
+    const loaded = await SceneManager.load("scenes/twice.json");
+    expect(loaded.children.map((c) => c.name)).toEqual(["Thing", "Thing"]);
+    GameObject.instantiate("prefabs/old.prefab.json");
+    GameObject.instantiate("prefabs/old.prefab.json");
+    expect(runs).toBe(1);
+    // A changed file (its source serves a new value) is migrated again.
+    Assets.addSource(Assets.fromObject({ "prefabs/old.prefab.json": { ...prefab, nodes: [{ id: "p", title: "New" }] } }));
+    expect(GameObject.instantiate("prefabs/old.prefab.json").name).toBe("New");
+    expect(runs).toBe(2);
+  });
 });
 
 describe("scene files under the engine's former name (ADR 0037)", () => {

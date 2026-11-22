@@ -37,6 +37,11 @@ interface OpenedMessage {
 }
 
 /** The Projects window's side: `open` resolves once the editor window shows the project, and throws its error if it couldn't open it. */
+/** The editor window answered that it couldn't open the project; the message is its own wording of why (ADR 0318). */
+export class EditorRefusal extends Error {
+  override name = "EditorRefusal";
+}
+
 export interface EditorLink {
   /** Resolves once the editor window has loaded. */
   readonly ready: Promise<void>;
@@ -56,7 +61,7 @@ export function linkToEditor(bus: Bus, onShowProjects: () => void): EditorLink {
       if (!w) return;
       waiting.delete(id);
       if (error === undefined) w.resolve();
-      else w.reject(new Error(error));
+      else w.reject(new EditorRefusal(error));
     }),
     bus.listen(EVENTS.showProjects, () => onShowProjects()),
   ];

@@ -26,7 +26,7 @@
  *
  * **Ringing runs** (P4's open point). When the player's run changes while the old run still sounds (the audio after
  * its exit cue ringing under the next segment), the old run is kept here until its voices end, so `handle.stop`
- * stops it and the instance counts its voices, like the tail voices (`eventRuntime.ts` `musicVoices`; F-7e).
+ * stops it and the instance counts its voices, like the tail voices (`soundingVoices.ts`, ADR 0320; F-7e).
  */
 import type { AudioVoice, ClipSpanHold, PlayRequest } from "../backend";
 import type { MusicNode } from "../../../../engine/audio/musicFormat";
@@ -283,7 +283,7 @@ export function stopLoopTails(player: MusicPlayer, seconds: number, at: number):
 
 /**
  * R4a: the voices this state keeps sounding beyond the player's run and next run (tail voices, outgoing runs), for the
- * instance's voice reads (`hasVoices`, pause, fades; F-7e). Appends to `out`.
+ * instance's voice walk (`soundingVoices.ts`, ADR 0320; F-7e). Appends to `out`.
  */
 export function loopTailVoices(player: MusicPlayer, out: AudioVoice[]): void {
   const st = player.tails;

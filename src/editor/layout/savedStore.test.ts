@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { StorageBackend } from "../../engine/platform/Storage";
-import { defaultHistoryPlatform } from "../historyPersistence";
+import { editorPlatform } from "../projectPlace";
 import { joinPath } from "../projects";
 import { ROOT, closeTestProject, openTestProject, useBuiltinPanels } from "../testing";
 import { closePanel, defaultLayout, instancesOf, openTypes } from "./model";
@@ -46,7 +46,7 @@ async function rereadWithoutProject(): Promise<void> {
 }
 
 beforeEach(async () => {
-  storage = (await defaultHistoryPlatform()).userStorage;
+  storage = (await editorPlatform()).userStorage;
   for (const key of await storage.list("settings")) await storage.delete("settings", key);
   await rereadWithoutProject(); // nothing from the last test
   applyDefaultLayout();

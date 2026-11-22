@@ -325,7 +325,7 @@ function realRig(opts: { tauri?: boolean; existing?: string[] } = {}) {
         deleted.push(key);
       },
     },
-    appDataDir: async () => "/data/app",
+    storageRoot: async () => "/data/app",
     download: (_bytes, fileName) => void downloads.push(fileName),
     compress: defaultSaveEnv().compress,
     now: () => new Date(2026, 10, 13, 10, 15, 0),

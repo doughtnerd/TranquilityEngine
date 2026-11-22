@@ -5,6 +5,7 @@
 // A project's own scripts (`scripts/**/*.ts`, ADR 0030) are read here and loaded by the session
 // (scriptLoader.ts). No game code is compiled into the editor.
 import { Assets, type AssetSource, type ProjectSettingsInput } from "../engine";
+import { acquireProjectContext, type ProjectContext } from "../engine/core/projectContext";
 import type { FileSystem } from "../engine/platform/FileSystem";
 import { isSidecarPath, sidecarPath } from "../engine/scene/importSettings";
 import { isProjectFile, loadProjectFiles, projectFileKind, skipsFolder, textFileValue } from "../engine/scene/projectFiles";
@@ -394,8 +395,11 @@ export function editorSettings(project: EditorProject): ProjectSettingsInput {
   return { ...s, autoload: [], display: { ...s.display, backgroundColor: "#24272d" } };
 }
 
-/** Register a project's assets as the only asset source. */
+/** The open project's context (ADR 0319): its asset source, replaced when another project opens. */
+let projectContext: ProjectContext | null = null;
+
+/** Register a project's assets as the editor's project source, releasing the previous project's (ADR 0319). */
 export function useProjectAssets(project: EditorProject): void {
-  Assets.clearSources();
-  Assets.addSource(project.assets);
+  projectContext?.release();
+  projectContext = acquireProjectContext({ assets: project.assets });
 }

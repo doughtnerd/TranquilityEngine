@@ -2,17 +2,15 @@
 // Assets panel (a summary), and under a ParticleSystem component the effect's exposed properties as
 // per-instance overrides. Effects are edited in the Particle Graph panel, not here.
 import type { ComponentChildren } from "preact";
-import { expandParticleGraph, projectAssets } from "../../../../engine/scene/particleSubgraphs";
 import type { GraphInputValue, ParticleGraph } from "../../../../engine/scene/particleGraph";
-import { compileParticleGraph } from "../../../../engine/scene/particleCompile";
-import { effectFileMigrated, particleDocument } from "../particleAssets";
+import { compileEffectGraph, effectFileMigrated, particleDocument } from "../particleAssets";
 import { parseBlockAsset, parseSubgraphAsset, type AssetPort } from "../../../../engine/scene/particleSubgraphs";
 import { assetDocKind, docToAsset } from "../particleGraph/assetDocs";
 import { ParticlePropertyValue } from "./ParticlePropertyValue";
-import { AssetDocumentFrame, editor, type NodePath, type OpenScene, LargePreview, sectionField, useFieldDrag, type InspectorSectionProps } from "../../../../editor/sdk";
+import { AssetDocumentFrame, editor, type EditorProject, type NodePath, type OpenScene, LargePreview, sectionField, useFieldDrag, type InspectorSectionProps } from "../../../../editor/sdk";
 
-/** What compiling a graph reports (its parse problems are the document's). */
-const compileProblems = (graph: ParticleGraph): string[] => compileParticleGraph(expandParticleGraph(graph, projectAssets).graph).problems.map((p) => p.message);
+/** What expanding and compiling a graph reports (ADR 0315; its parse problems are the document's). */
+const compileProblems = (project: EditorProject, graph: ParticleGraph): string[] => compileEffectGraph(project, graph).problems.map((p) => p.message);
 
 /**
  * A particle effect asset selected in the Assets panel: what it holds, and a way into the graph. It shows the asset
@@ -28,7 +26,7 @@ export function ParticleEffectInspector(props: { path: string }) {
   const migrated = effectFileMigrated(project, props.path);
   const exposed = graph.properties.filter((p) => p.exposed);
   return (
-    <AssetDocumentFrame doc={doc} kind="Particle effect" class="asset-inspector particle-inspector" problems={compileProblems(graph)}>
+    <AssetDocumentFrame doc={doc} kind="Particle effect" class="asset-inspector particle-inspector" problems={compileProblems(project, graph)}>
       <p class="hint">ParticleSystem components play it; edit it in the Particle Graph.</p>
       <button onClick={() => editor.assets.open(props.path)}>Open in Particle Graph</button>
       {/* The shared thumbnail renderer's live preview (ADR 0061): no WebGL context of its own, and it
@@ -167,7 +165,7 @@ function ParticleSystemEffect(props: { scene: OpenScene; path: NodePath; index: 
   const { value: graph, problems } = editor.assets.read<ParticleGraph>(project, asset);
   const overrides = (props.overrides && typeof props.overrides === "object" ? props.overrides : {}) as Record<string, GraphInputValue>;
   const exposed = graph.properties.filter((p) => p.exposed);
-  const issues = [...new Set([...problems.map((p) => p.message), ...compileProblems(graph)])];
+  const issues = [...new Set([...problems.map((p) => p.message), ...compileProblems(project, graph)])];
   const setOverride = (name: string, value: GraphInputValue, dragging: boolean) => drag.follow(dragging, () => set("overrides", { ...overrides, [name]: value }));
   const revert = (name: string) => {
     const { [name]: _removed, ...rest } = overrides;

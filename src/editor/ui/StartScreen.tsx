@@ -17,7 +17,7 @@ const sizeOf = (s: SampleInfo) => {
   return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 };
 
-async function run(id: string, action: () => Promise<void>): Promise<void> {
+async function run(id: string, action: () => Promise<unknown>): Promise<void> {
   busy.value = id;
   try {
     await action();
@@ -62,11 +62,11 @@ export function StartScreen({ chrome }: { chrome?: ComponentChildren } = {}) {
                     </span>
                   </div>
                   <div class="sample-actions">
-                    <button disabled={busy.value !== null} title={`Open ${s.name} read-only`} onClick={() => void run(s.id, () => startActions().openSample(s))}>
+                    <button disabled={busy.value !== null} title={`Open ${s.name} read-only`} onClick={() => void run(s.id, () => startActions().open({ kind: "sample", sample: s }))}>
                       {busy.value === s.id ? "Opening…" : "Open"}
                     </button>
                     {desktop && (
-                      <button disabled={busy.value !== null} title={`Copy ${s.name} into a folder and open the copy to edit it`} onClick={() => void run(s.id, () => startActions().copySampleToFolder(s))}>
+                      <button disabled={busy.value !== null} title={`Copy ${s.name} into a folder and open the copy to edit it`} onClick={() => void run(s.id, () => startActions().open({ kind: "copy-sample", sample: s }))}>
                         Make a Copy…
                       </button>
                     )}

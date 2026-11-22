@@ -1,7 +1,7 @@
 import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { NO_FOLDERS_NOTE, canOpenFolders, projectFileSystem } from "../projectFs";
-import { locationOf, recentProjects, recentVersion, type RecentProject, type RecentState } from "../recentProjects";
+import { locationOf, recentProjects, type RecentProject, type RecentState } from "../recentProjects";
 import { startActions } from "../startActions";
 import { openNewProjectDialog } from "./NewProjectDialog";
 import "./projects.css";
@@ -36,24 +36,21 @@ const when = (time: number) => {
  * Where folders can't be opened (Safari, Firefox in a browser) it says so instead.
  */
 export function StartProjects() {
-  recentVersion.value;
+  const version = recentProjects().version.value;
   const can = canOpenFolders();
   const list = can ? recentProjects().list() : [];
   const ids = list.map((e) => e.id).join();
-  useEffect(() => void checkAll(list), [ids, recentVersion.value]);
+  useEffect(() => void checkAll(list), [ids, version]);
 
   const reopen = async (entry: RecentProject) => {
     busy.value = entry.id;
     try {
-      await startActions().openRecentProject(entry);
+      await startActions().open({ kind: "recent", entry });
     } finally {
       busy.value = null;
     }
   };
-  const forget = async (entry: RecentProject) => {
-    await recentProjects().remove(entry.id);
-    recentVersion.value++;
-  };
+  const forget = (entry: RecentProject) => recentProjects().remove(entry.id);
 
   return (
     <section class="start-projects" aria-label="Projects">
@@ -62,7 +59,7 @@ export function StartProjects() {
         <button class="primary" disabled={!can} onClick={openNewProjectDialog}>
           New Project…
         </button>
-        <button disabled={!can} onClick={() => void startActions().openProjectFolder()}>
+        <button disabled={!can} onClick={() => void startActions().open({ kind: "pick-folder" })}>
           Open Project…
         </button>
       </div>
@@ -113,7 +110,6 @@ export function StartProjects() {
                       onBlur={(ev) => {
                         recentProjects().setLabel(e.id, (ev.currentTarget as HTMLInputElement).value);
                         editingLabel.value = null;
-                        recentVersion.value++;
                       }}
                     />
                   )}

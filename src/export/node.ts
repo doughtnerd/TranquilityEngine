@@ -13,7 +13,7 @@ import { readProject, ServerError } from "../server/project";
 import { nodePackageSource } from "../server/packages";
 import { DEFAULT_ICON_SVG, ICON_FILES, desktopProjectFiles, desktopReadme, type BuildSettings } from "./desktop";
 import { PLAYER_FILE_LIST } from "./format";
-import { Assets } from "../engine/scene/Assets";
+import { acquireProjectContext } from "../engine/core/projectContext";
 import { bakeModelFile } from "../engine/scene/models";
 import { writeWebBuild, type BuildFolder, type FileSource } from "./buildWriter";
 import { sharpTranscoder } from "./imagesNode";
@@ -65,7 +65,7 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   const folder = nodeFolder(out);
   const desktop = target === "desktop";
   // Models bake through the project's files as the server loads them (ADR 0090).
-  Assets.addSource(project.assets);
+  const context = acquireProjectContext({ assets: project.assets });
   try {
     plan = await writeWebBuild(plan, {
       project: nodeFiles(project.root),
@@ -82,7 +82,7 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
       log,
     });
   } finally {
-    Assets.removeSource(project.assets);
+    context.release();
   }
   const web = desktop ? join(out, "web") : out;
   log(`Wrote the web build of ${plan.manifest.name} to ${web} (${plan.copies.length} project files, ${plan.manifest.scripts.length} scripts).`);

@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getFileSystem, isTauri, type DirEntry, type FileSystem } from "../platform/FileSystem";
+import { getFileSystem, isTauri, type DirEntry } from "../platform/FileSystem";
 import { TauriFileSystem } from "../platform/TauriFileSystem";
-import { TauriStorage } from "../platform/TauriStorage";
 
 // --- Tauri plugin mocks (an in-memory disk) ------------------------------------------------
 
@@ -57,7 +56,6 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   }),
 }));
 
-vi.mock("@tauri-apps/api/path", () => ({ appDataDir: async () => "C:/AppData/com.foxfirestudios.myco.flappy/" }));
 
 beforeEach(() => {
   disk.clear();
@@ -88,55 +86,6 @@ describe("TauriFileSystem (ADR 0026)", () => {
   it("opens a recursive folder dialog so the whole project is in the fs scope", async () => {
     expect(await fs.pickFolder("Open project")).toBe("C:/Projects/MyGame");
     expect(calls).toContain('open {"directory":true,"multiple":false,"recursive":true,"title":"Open project"}');
-  });
-});
-
-describe("TauriStorage (ADR 0024)", () => {
-  it("stores one JSON file per key under <appDataDir>/<namespace>/", async () => {
-    const storage = await TauriStorage.create(new TauriFileSystem());
-    await storage.save("saves", "best", 12);
-    expect(disk.get("C:/AppData/com.foxfirestudios.myco.flappy/saves/best.json")).toBe("12");
-    expect(await storage.load("saves", "best")).toBe(12);
-    expect(await storage.load("saves", "missing")).toBeUndefined();
-  });
-
-  it("encodes keys, lists, overwrites and deletes", async () => {
-    const storage = await TauriStorage.create(new TauriFileSystem());
-    await storage.save("settings", "audio/volume", { music: 0.5 });
-    await storage.save("settings", "audio/volume", { music: 0.8 });
-    await storage.save("settings", "lang", "en");
-    expect(disk.has("C:/AppData/com.foxfirestudios.myco.flappy/settings/audio%2Fvolume.json")).toBe(true);
-    expect((await storage.list("settings")).sort()).toEqual(["audio/volume", "lang"]);
-    expect(await storage.load("settings", "audio/volume")).toEqual({ music: 0.8 });
-    await storage.delete("settings", "lang");
-    expect(await storage.list("settings")).toEqual(["audio/volume"]);
-    expect(await storage.list("cache")).toEqual([]);
-  });
-
-  it("stores ArrayBuffers as .bin files and returns an ArrayBuffer", async () => {
-    const storage = await TauriStorage.create(new TauriFileSystem());
-    await storage.save("cache", "blob", new Uint8Array([9, 8, 7]).buffer);
-    const v = await storage.load("cache", "blob");
-    expect(v).toBeInstanceOf(ArrayBuffer);
-    expect([...new Uint8Array(v as ArrayBuffer)]).toEqual([9, 8, 7]);
-    await storage.save("cache", "blob", "now json");
-    expect(await storage.load("cache", "blob")).toBe("now json");
-    expect(await storage.list("cache")).toEqual(["blob"]);
-  });
-
-  it("works over any FileSystem implementation", async () => {
-    const files = new Map<string, string>();
-    const fake = {
-      canWrite: true,
-      readText: async (p: string) => files.get(p)!,
-      writeText: async (p: string, t: string) => void files.set(p, t),
-      exists: async (p: string) => files.has(p),
-      mkdir: async () => {},
-      remove: async (p: string) => void files.delete(p),
-    } as unknown as FileSystem;
-    const storage = new TauriStorage(fake, "/data");
-    await storage.save("saves", "slot1", { level: 3 });
-    expect(files.get("/data/saves/slot1.json")).toBe('{"level":3}');
   });
 });
 

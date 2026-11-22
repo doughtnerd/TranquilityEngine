@@ -25,11 +25,11 @@ import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { loopPointsFor, onLoopPoints } from "../loopPoints";
 import { onAudioSessionReleased } from "../audioSession";
 import { createMusicPlayer, disposeMusicPlayer, type MusicFrame, type MusicPlayer } from "../music/musicSystem";
-import { musicPending, stopPlayer } from "../music/musicPlayer";
+import { stopPlayer } from "../music/musicPlayer";
+import { musicSounds, soundingMusicVoices } from "../music/soundingVoices";
 import { stopPlayerRuns, type StemRun } from "../music/segmentRun";
 import { clipRequest, clipVolume } from "../clipResolver";
 import { quantizedRamp } from "../music/stems";
-import { loopTailVoices } from "../music/loopTail";
 import type { SegmentNode } from "../../../../engine/audio/musicFormat";
 import {
   AutoTarget, continuousBindings, evaluateQuantized, LOWPASS_OFF, MAX_BINDINGS, MAX_CURVES, MAX_GROUPS, QUANTIZED_RAMP_SECONDS, quantizedBindings, TsAutomation,
@@ -869,10 +869,26 @@ export class EventInstance {
   /** A rough level for `steal: "quietest"`: the event's volume times the option's. */
   get loudness(): number { return this.asset.volume * (this.options.volume ?? 1); }
 
+  /** ADR 0320: the scratch list `sounding` refills; one per instance, so the per-frame reads allocate nothing. */
+  private readonly soundingScratch: AudioVoice[] = [];
+
+  /**
+   * ADR 0320: the voices this instance sounds, read from one walk: its own 0158 voices, then its music's (stems,
+   * stingers, loop tails; `music/soundingVoices.ts` decides which). Every voice read and control below goes through
+   * it. The list is refilled on each call, so hold it only for the loop that reads it.
+   */
+  private sounding(): readonly AudioVoice[] {
+    const out = this.soundingScratch;
+    out.length = 0;
+    for (const v of this.voices) out.push(v.voice);
+    if (this.music) soundingMusicVoices(this.music, out);
+    return out;
+  }
+
   /** No side effects: an ended instance is retired by `EventSystem` (`play` and `update`). */
   get playing(): boolean {
     if (this.stopped) return false;
-    if (this.asset.musicRoot) return this.music !== null && this.musicPlaying(this.music);
+    if (this.asset.musicRoot) return this.music !== null && musicSounds(this.music, this.sounding());
     if (this.pending > 0) return true;
     for (const r of this.runners) if (!r.stopped) return true;
     for (const v of this.voices) if (v.voice.playing) return true;
@@ -881,99 +897,38 @@ export class EventInstance {
 
   /** ADR 0162 §1.1: the panner of the first playing voice that reports one (a backend without panners: null). */
   get panner(): AudioPanner | null {
-    if (this.music) {
-      for (const v of this.musicVoices()) if (v.playing && v.panner) return v.panner;
-      return null;
-    }
-    for (const v of this.voices) {
-      if (!v.voice.playing) continue;
-      const p = v.voice.panner;
-      if (p) return p;
-    }
+    for (const v of this.sounding()) if (v.playing && v.panner) return v.panner;
     return null;
   }
 
   /** ADR 0162 §1.1: the lowest smoothed dry occlusion gain across the playing voices (1 open, or none playing). */
   get occlusion(): number {
     let g = 1;
-    if (this.music) {
-      for (const v of this.musicVoices()) if (v.playing) g = Math.min(g, v.occlusion ?? 1);
-      return g;
-    }
-    for (const v of this.voices) if (v.voice.playing) g = Math.min(g, v.voice.occlusion ?? 1);
+    for (const v of this.sounding()) if (v.playing) g = Math.min(g, v.occlusion ?? 1);
     return g;
   }
 
+  /** Null while any voice is audible; else the first voice's reason (inaudible, or ended early). */
   get reason(): AudioReason | null {
-    if (this.music) {
-      let first: AudioReason | null = null;
-      for (const v of this.musicVoices()) {
-        if (!v.playing && v.reason === null) continue;
-        if (v.reason === null && v.playing) return null;
-        first ??= v.reason;
-      }
-      return first;
-    }
     let first: AudioReason | null = null;
-    for (const v of this.voices) {
-      if (!v.voice.playing && v.voice.reason === null) continue;
-      const r = v.voice.reason;
-      if (r === null && v.voice.playing) return null;
-      first ??= r;
+    for (const v of this.sounding()) {
+      if (!v.playing && v.reason === null) continue;
+      if (v.reason === null && v.playing) return null;
+      first ??= v.reason;
     }
     return first;
   }
 
   /** @internal Any voice of this instance still playing (a fading-out voice counts). */
   get hasVoices(): boolean {
-    if (this.music) for (const v of this.musicVoices()) if (v.alive ?? v.playing) return true;
-    for (const v of this.voices) if (v.voice.alive ?? v.voice.playing) return true;
+    for (const v of this.sounding()) if (v.alive ?? v.playing) return true;
     return false;
   }
 
   get voiceCount(): number {
-    let n = this.voices.filter((v) => v.voice.playing).length;
-    if (this.music) for (const v of this.musicVoices()) if (v.playing) n++;
+    let n = 0;
+    for (const v of this.sounding()) if (v.playing) n++;
     return n;
-  }
-
-  /** ADR 0166 P6: the voices of the music player's playing and successor runs (their stems), in track order. Allocates one small array. */
-  private musicVoices(): AudioVoice[] {
-    const out: AudioVoice[] = [];
-    const p = this.music;
-    if (!p) return out;
-    for (const run of [p.run, p.next]) {
-      if (!run) continue;
-      for (const s of run.stems) if (s.voice) out.push(s.voice);
-    }
-    // R5: stinger voices count too, so `hasVoices` and the panner/occlusion reads see them.
-    for (const e of p.stingers?.sounding ?? []) for (const v of e.voices) out.push(v);
-    // R4a (F-7e): loop tail voices and outgoing runs still ringing past their turn.
-    loopTailVoices(p, out);
-    return out;
-  }
-
-  /**
-   * Whether the music instance still sounds or is about to: before its first group (`starting`, `waiting`), while a
-   * group primes or a transition is pending, or while any stem voice plays. A refused or stopped player is over.
-   */
-  private musicPlaying(p: MusicPlayer): boolean {
-    if (musicPending(p)) return true;
-    if (p.state === "stopped" || p.state === "refused") return false;
-    // Playing or stopping: the voices say.
-    for (const run of [p.run, p.next]) if (run) for (const s of run.stems) if (s.voice?.playing) return true;
-    // R5: a queued or sounding stinger keeps the player alive past its stems.
-    if (p.stingers) {
-      if (p.stingers.queued.length > 0) return true;
-      for (const e of p.stingers.sounding) for (const v of e.voices) if (v.alive ?? v.playing) return true;
-    }
-    // R4a: a ringing loop tail, or an outgoing run's post-exit audio, keeps it alive too.
-    if (p.tails) {
-      const tails: AudioVoice[] = [];
-      loopTailVoices(p, tails);
-      for (const v of tails) if (v.playing) return true;
-    }
-    return false;
   }
 
   /** @internal G-1: a local parameter's value by slot (0 for a slot the event doesn't have). */
@@ -1127,18 +1082,15 @@ export class EventInstance {
 
   fade(to: number, seconds: number): void {
     this.fadeTo = to;
-    for (const v of this.voices) if (v.voice.playing) v.voice.fade(to, seconds);
-    if (this.music) for (const v of this.musicVoices()) if (v.playing) v.fade(to, seconds);
+    for (const v of this.sounding()) if (v.playing) v.fade(to, seconds);
   }
 
   pause(): void {
-    for (const v of this.voices) if (v.voice.playing) v.voice.pause();
-    if (this.music) for (const v of this.musicVoices()) if (v.playing) v.pause();
+    for (const v of this.sounding()) if (v.playing) v.pause();
   }
 
   resume(): void {
-    for (const v of this.voices) if (v.voice.playing) v.voice.resume();
-    if (this.music) for (const v of this.musicVoices()) if (v.playing) v.resume();
+    for (const v of this.sounding()) if (v.playing) v.resume();
   }
 
   /** Key-off (ADR 0158 §4): sustain clips and containers leave their loops and play their tails. */

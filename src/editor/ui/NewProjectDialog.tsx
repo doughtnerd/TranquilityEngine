@@ -57,10 +57,13 @@ export function NewProjectDialog() {
   };
   const choose = async () => {
     const picked = await startActions().pickProjectLocation();
-    if (picked) {
-      setLocation(picked);
+    if (picked.kind === "chosen") {
+      const chosen = { fs: picked.fs, path: picked.path };
+      setLocation(chosen);
       setError(null);
-      lastLocation = picked;
+      lastLocation = chosen;
+    } else if (picked.kind === "refused") {
+      setError(picked.reason.text);
     }
   };
   const create = async () => {
@@ -68,8 +71,9 @@ export function NewProjectDialog() {
     setBusy(true);
     setError(null);
     try {
-      await startActions().createProject(location.fs, location.path, name, template);
-      open.value = false;
+      const outcome = await startActions().open({ kind: "new", fs: location.fs, parent: location.path, name, template });
+      if (outcome.kind === "refused") setError(outcome.reason.text);
+      else open.value = false;
     } catch (err) {
       setError(describeError(err).message);
     } finally {

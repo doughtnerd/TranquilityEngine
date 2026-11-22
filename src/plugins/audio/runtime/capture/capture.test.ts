@@ -67,7 +67,7 @@ function rig(opts: { ringBytes?: number; tauri?: boolean } = {}) {
   const env: SaveEnv = {
     tauri: opts.tauri ?? false,
     storage: { save: async (key, value) => void saved.push({ key, bytes: value as Uint8Array }), list: async () => saved.map((s) => s.key), delete: async () => {} },
-    appDataDir: async () => "/data/app",
+    storageRoot: async () => "/data/app",
     download: (bytes, fileName) => void downloads.push({ bytes, fileName }),
     compress: defaultSaveEnv().compress,
     now: () => new Date(2026, 10, 13, 10, 15, 0),

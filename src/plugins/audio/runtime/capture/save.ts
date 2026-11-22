@@ -2,7 +2,7 @@
 // take's records, WRAP stripped, Rc2's `copyRecords`) becomes a file: the 96 B plain header, META, the records and an INDEX
 // record, the part after the header deflate-raw compressed with `CompressionStream` (or stored raw, `compressed` clear,
 // where the runtime has none). The web saves a `Blob` through `a[download]`; Tauri (desktop and Android) saves through
-// `Storage.save(key, bytes, "cache")`, `<appDataDir>/cache/<key>.bin`, and keeps the newest 16 auto-named files
+// `Storage.save(key, bytes, "cache")`, `<storage root>/cache/<key>.bin`, and keeps the newest 16 auto-named files
 // (`CAPTURE_TRIGGER_MAX_FILES`: oldest deleted first through `Storage.list` and `delete`).
 //
 // This file is part of the lazy chunk: `capture/capture.ts` loads it by `import()` on the first `save`, never statically,
@@ -31,8 +31,8 @@ export interface SaveEnv {
     list(namespace: "cache"): Promise<string[]>;
     delete(key: string, namespace: "cache"): Promise<void>;
   };
-  /** `<appDataDir>` (Tauri's path API). */
-  appDataDir(): Promise<string>;
+  /** The folder `Storage` writes files under (Tauri: the storage scope's folder, ADR 0317). */
+  storageRoot(): Promise<string>;
   /** Hands the bytes to the browser as a download named `fileName`. */
   download(bytes: Uint8Array, fileName: string): void;
   /** deflate-raw of `payload`; null where the runtime has no `CompressionStream` or it failed (the file is then stored raw). */
@@ -176,9 +176,9 @@ async function compressCapture(file: Uint8Array, compress: SaveEnv["compress"]):
 
 // --- where it goes --------------------------------------------------------------------------------------------------
 
-/** Where Tauri's `Storage` puts `key` in the `cache` namespace (`TauriStorage`: `<appDataDir>/cache/<encoded key>.bin`). */
-function cachePath(appDataDir: string, key: string): string {
-  return `${appDataDir.replace(/[\\/]+$/, "")}/cache/${encodeURIComponent(key)}.bin`;
+/** Where Tauri's `Storage` puts `key` in the `cache` namespace (`TauriRecords`: `<storage root>/cache/<encoded key>.bin`). */
+function cachePath(root: string, key: string): string {
+  return `${root.replace(/[\\/]+$/, "")}/cache/${encodeURIComponent(key)}.bin`;
 }
 
 /** `[date, time, repeat]` of an auto-named file, for ordering; null for any other name. */
@@ -231,7 +231,7 @@ export function defaultSaveEnv(): SaveEnv {
       list: (namespace) => Storage.list(namespace),
       delete: (key, namespace) => Storage.delete(key, namespace),
     },
-    appDataDir: async () => (await import("@tauri-apps/api/path")).appDataDir(),
+    storageRoot: async () => Storage.root() ?? (await import("@tauri-apps/api/path")).appDataDir(),
     download: browserDownload,
     compress: deflateRawCompress,
     now: () => new Date(),
@@ -254,7 +254,7 @@ export async function saveCapture(take: SaveTake, name?: string, env: SaveEnv = 
   await env.storage.save(file, bytes, "cache");
   if (auto) await rotateCaptures(env.storage);
   try {
-    return cachePath(await env.appDataDir(), file);
+    return cachePath(await env.storageRoot(), file);
   } catch {
     return `cache/${encodeURIComponent(file)}.bin`;
   }
