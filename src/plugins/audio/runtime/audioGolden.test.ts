@@ -74,6 +74,7 @@ import {
   writeMaster,
   writeParam,
   writeTime,
+  writeLoops,
   PARAM_TIME,
   TIME_CLIP,
   TIME_SEQUENCE,
@@ -165,6 +166,9 @@ const automate = (voiceId: number, bindings: [number, number, number][]): Writer
 const busAutomate = (bus: number, bindings: [number, number, number][]): Writer => (view, off) =>
   writeBusAutomate(view, off, { voiceId: bus, frameOffset: ASAP, bindings: bindings.map(([param, curve, target]) => ({ param, curve, target })) });
 /** SET_LOOP `voiceId`, `frameOffset` frames into the batch (ASAP for at once). */
+/** ADR 0328: a loop program: `[start, end, crossfade, exitFade, count, flags]` per loop (no parameter). */
+const loops = (voiceId: number, list: [number, number, number, number, number, number][]): Writer => (view, off) =>
+  writeLoops(view, off, { voiceId, frameOffset: ASAP, loops: list.map(([startFrame, endFrame, crossfadeFrames, exitFadeFrames, count, flags]) => ({ startFrame, endFrame, crossfadeFrames, exitFadeFrames, count, flags, param: 0, reserved: 0, threshold: 0 })) });
 const setLoop = (voiceId: number, frameOffset: number, start: number, end: number, looping: boolean): Writer => (view, off) =>
   writeSetLoop(view, off, { voiceId, frameOffset, loopStartFrame: start, loopEndFrame: end, flags: looping ? 1 : 0 });
 const GLOBAL = 0x8000;
@@ -507,6 +511,24 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
     s.run(10);
     s.send(param(0, 1, 1, 1.5));
     s.run(90);
+  },
+  // ADR 0328: a loop program on one voice: a forward loop with a crossfaded seam played three times, a ping-pong loop,
+  // a held backward loop let go by crossfade at a stamped key-off, then a hold point parked until a second key-off.
+  "loop-program"(s) {
+    s.send(
+      play(voice(1), CLIP, { flags: MIXED }),
+      loops(voice(1), [
+        [600, 1800, 240, 0, 3, 0],
+        [2400, 3000, 0, 0, 2, 1],
+        [3600, 4800, 120, 480, 0, 2 | (1 << 2) | (2 << 4)],
+        [6000, 6000, 240, 0, 0, 1 << 2],
+      ]),
+    );
+    s.run(70);
+    s.send(setLoop(voice(1), 64, 0, 0, false));
+    s.run(30);
+    s.send(setLoop(voice(1), 32, 0, 0, false));
+    s.run(30);
   },
   // ADR 0332: time parameters. A volume fade-in on voice time, a pitch curve on clip time and a low-pass on its group's
   // sequence clock, which runs, wraps back (a stamped TIME) and parks at a hold point.

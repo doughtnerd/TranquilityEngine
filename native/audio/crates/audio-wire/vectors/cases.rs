@@ -555,6 +555,36 @@ pub fn cases() -> Vec<VectorCase> {
             ],
             concat!("1400", "0600", "00000000", "ffffffff", "0300", "0100", "0000003f", "00000040"),
         ),
+        // LOOPS (ADR 0328), variable length: 16 + 28 = 44 B = 11 words, asap. Voice 3; one loop: frames
+        // 100..200, crossfade 32, exit fade 64, count 2, flags ping-pong (1) | held (1 << 2) |
+        // crossfade exit (2 << 4) | reenter (0x40) = 0x65, parameter global slot 1, threshold 0.5.
+        case(
+            "LOOPS_one_ping_pong_loop",
+            Subject::Opcode("LOOPS"),
+            vec![
+                ("voiceId", vu(3)),
+                ("frameOffset", vu(0xFFFF_FFFF)),
+                (
+                    "loops",
+                    va(vec![vr(vec![
+                        ("startFrame", vu(100)),
+                        ("endFrame", vu(200)),
+                        ("crossfadeFrames", vu(32)),
+                        ("exitFadeFrames", vu(64)),
+                        ("count", vu(2)),
+                        ("flags", vu(0x65)),
+                        ("param", vu(0x8001)),
+                        ("reserved", vu(0)),
+                        ("threshold", vf(0.5)),
+                    ])]),
+                ),
+            ],
+            concat!(
+                "0b00", "0b00", "03000000", "ffffffff", "01000000", // head, loopCount 1
+                "64000000", "c8000000", "20000000", "40000000", // start, end, crossfade, exit fade
+                "0200", "6500", "0180", "0000", "0000003f", // count, flags, param, reserved, threshold
+            ),
+        ),
         // TIME (ADR 0332), 24 B = 6 words, stamped at 256: group 7's sequence clock (which 2) at 1.5 s,
         // rate 1.0.
         case(

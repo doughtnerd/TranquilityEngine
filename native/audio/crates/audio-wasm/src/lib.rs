@@ -33,8 +33,10 @@ use crate::memory::{PlatformMemory, PLATFORM_MEMORY};
 /// guards the record's new layout.
 /// 4.2 (ADR 0332): time parameters: a binding's `param` bit 14 reads voiceTime, clipTime or
 /// sequenceTime, and TIME (0x1D) re-anchors a group's sequence clock (stamped).
+/// 4.3 (ADR 0328): LOOPS (0x0B) gives a clip voice a loop program (up to 4 loops: directions, counts,
+/// crossfades, hold points, activations, exits, re-entry); SET_LOOP release is its key-off.
 pub const ABI_MAJOR: u32 = 4;
-pub const ABI_MINOR: u32 = 2;
+pub const ABI_MINOR: u32 = 3;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
 pub const INBOX_BYTES: usize = 1 << 20;
@@ -350,7 +352,7 @@ mod tests {
 
     #[test]
     fn identity_exports() {
-        assert_eq!(myco_audio_abi_version(), 0x402);
+        assert_eq!(myco_audio_abi_version(), 0x403);
         assert_eq!(myco_audio_inbox_cap(), 1 << 20);
         assert_eq!(myco_audio_inbox_ptr() as usize % 64, 0);
         assert_eq!(myco_audio_status_ptr() as usize % 64, 0);

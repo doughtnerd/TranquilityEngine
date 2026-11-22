@@ -4,7 +4,8 @@
 // - `defineCurve` → CURVES, `setParam` → PARAM, `bindVoice` → AUTOMATE (after the voice's PLAY, with the PLAY's stamp
 //   so it stays behind it in the batch), `bindBus` → BUS_AUTOMATE (by bus name; re-sent when the bus tree is
 //   reconfigured), `setLoop` → SET_LOOP (stamped behind the voice's PLAY while that is still ahead, else asap, like the
-//   other voice commands), `setSequenceTime` → TIME (ADR 0332: stamped at its heard time, or asap).
+//   other voice commands), `setLoops` → LOOPS (ADR 0328: a clip voice's loop program, behind its PLAY like AUTOMATE; a
+//   later `setLoop(…, false)` is its key-off), `setSequenceTime` → TIME (ADR 0332: stamped at its heard time, or asap).
 // - **Time parameters** (ADR 0332): a binding on `TimeParam.Voice`, `Clip` or `Sequence` goes out as `AUTOMATION_TIME |
 //   which`; the core advances the times itself. Main can't follow them without a per-frame cost, so selection sees a
 //   time-bound volume curve at its loudest key (a voice fading in by voice time is never culled as silent) and a
@@ -57,12 +58,19 @@ import {
   writeParam,
   writeSetLoop,
   writeTime,
+  writeLoops,
+  LOOPS_LOOPS_FIXED_END,
+  LOOP_ACTIVE_SHIFT,
+  LOOP_BELOW,
+  LOOP_EXIT_SHIFT,
+  LOOP_REENTER,
   TIME_SEQUENCE,
+  type LoopsLoops,
   type AutomateBindings,
   type CurvesCurves,
 } from "../wire.generated";
 import type { AudioVoice, PlayRequest } from "../backend";
-import { AutoTarget, evaluateInto, MAX_BINDINGS, MAX_CURVES, MAX_GLOBAL_SLOTS, MAX_GROUPS, MAX_LOCAL_SLOTS, type AutomationSink, type AutoResult, type Binding } from "../events/automation";
+import { AutoTarget, evaluateInto, MAX_BINDINGS, MAX_CURVES, MAX_GLOBAL_SLOTS, MAX_GROUPS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type AutomationSink, type AutoResult, type Binding, type VoiceLoop } from "../events/automation";
 import { evalCurve } from "../../../../engine/core/curve";
 import { onLoopPoints } from "../loopPoints";
 import type { ClipInfo } from "./clipRegistry";
@@ -110,7 +118,7 @@ export function wrapPosition(pos: number, loopStart: number, loopEnd: number, le
 /** What the sink drives and reads of the core backend (`CoreBackend` passes these). */
 export interface CoreAutomationDeps {
   readonly table: VoiceTable;
-  readonly writer: Pick<CommandWriter, "automate" | "param" | "curves" | "busAutomate" | "setLoop"> & Partial<Pick<CommandWriter, "time">>;
+  readonly writer: Pick<CommandWriter, "automate" | "param" | "curves" | "busAutomate" | "setLoop"> & Partial<Pick<CommandWriter, "time" | "loops">>;
   /** `frameOfTime` and `stampFor` turn a heard time into a stamp (TIME, ADR 0332); without them TIME goes asap. */
   readonly clockMap: Pick<ClockMap, "framesNow" | "lookaheadFrames"> & Partial<Pick<ClockMap, "sampleRate" | "frameOfTime" | "stampFor">>;
   readonly playheads: Pick<PlayheadTracker, "positionNow" | "start" | "retime">;
@@ -153,6 +161,8 @@ interface VoiceEntry {
   readonly wire: AutomationBinding[];
   readonly wirePool: AutomationBinding[];
   loop: LoopRecord | null;
+  /** ADR 0328: its loop program (`loop`, when set beside it, is the program's key-off). */
+  program: readonly VoiceLoop[] | null;
 }
 
 const newEntry = (): VoiceEntry => ({
@@ -166,6 +176,7 @@ const newEntry = (): VoiceEntry => ({
   wire: [],
   wirePool: Array.from({ length: MAX_BINDINGS }, () => ({ param: 0, curve: 0, target: 0 })),
   loop: null,
+  program: null,
 });
 
 /** Counts for `Audio.debug()` and the tests. */
@@ -358,12 +369,33 @@ export class CoreAutomation implements AutomationSink {
     const i = this.resolve(voice);
     if (i < 0) return;
     const e = this.entry(i);
+    if (looping) e.program = null; // a region replaces a program; a release is the program's key-off
     e.loop = { start: Math.max(0, Number.isFinite(start) ? start : 0), end: Math.max(0, Number.isFinite(end) ? end : 0), looping };
     if ((this.deps.table.flags[i]! & VoiceFlag.STREAM) !== 0) {
       this.routeStreamLoop(i, e.loop);
       return;
     }
     if (this.onCore(i)) this.sendLoop(i, e, this.stampBehindPlay(i, e.id), true);
+  }
+
+  setLoops(voice: AudioVoice, group: number, loops: readonly VoiceLoop[]): void {
+    void group; // the core reads the voice's group from its PLAY
+    const i = this.resolve(voice);
+    if (i < 0) return;
+    const e = this.entry(i);
+    e.loop = null;
+    e.program = loops.length > 0 ? loops.slice(0, MAX_VOICE_LOOPS) : null;
+    if ((this.deps.table.flags[i]! & VoiceFlag.STREAM) !== 0) {
+      // Streams loop through the decoder worker: its first region, forward.
+      const first = loops.find((l) => l.end > l.start);
+      if (first) {
+        e.loop = { start: first.start, end: first.end, looping: true };
+        this.routeStreamLoop(i, e.loop);
+      }
+      return;
+    }
+    if (this.onCore(i)) this.sendProgram(i, e, this.stampBehindPlay(i, e.id));
+    this.dropIfEmpty(i);
   }
 
   setSequenceTime(group: number, value: number, rate: number, at?: number): void {
@@ -434,6 +466,7 @@ export class CoreAutomation implements AutomationSink {
       return;
     }
     if (e.n > 0) this.sendBindings(i, e, stamp);
+    if (e.program && (this.deps.table.flags[i]! & VoiceFlag.STREAM) === 0) this.sendProgram(i, e, stamp);
     if (e.loop && (this.deps.table.flags[i]! & VoiceFlag.STREAM) === 0) this.sendLoop(i, e, stamp, false);
     else if (e.loop) this.routeStreamLoop(i, e.loop);
   }
@@ -606,6 +639,8 @@ export class CoreAutomation implements AutomationSink {
       const wire = e.wire;
       b.record(bindingBytes(wire.length), (view, off) => writeAutomate(view, off, { voiceId: id, frameOffset: ASAP, bindings: wire }));
     }
+    const items = e.program ? this.programItems(i, e.program) : null;
+    if (items) b.record(16 + LOOPS_LOOPS_FIXED_END * items.length, (view, off) => writeLoops(view, off, { voiceId: id, frameOffset: ASAP, loops: items }));
     const frames = this.loopFrames(i, e);
     if (frames) b.record(24, (view, off) => writeSetLoop(view, off, { voiceId: id, frameOffset: ASAP, loopStartFrame: frames.start, loopEndFrame: frames.end, flags: frames.looping ? SET_LOOP_FLAGS_LOOPING : 0 }));
   }
@@ -675,6 +710,7 @@ export class CoreAutomation implements AutomationSink {
       const wire = e.wire;
       while (wire.length > 0) wire.pop();
       e.loop = null;
+      e.program = null;
       this.voices[i] = e;
     }
     return e;
@@ -694,7 +730,7 @@ export class CoreAutomation implements AutomationSink {
 
   private dropIfEmpty(i: number): void {
     const e = this.voices[i];
-    if (e && e.n === 0 && !e.loop) this.dropMirror(i);
+    if (e && e.n === 0 && !e.loop && !e.program) this.dropMirror(i);
   }
 
   private onCore(i: number): boolean {
@@ -923,6 +959,38 @@ export class CoreAutomation implements AutomationSink {
     const length = this.deps.clipInfo(i)?.frames ?? 0;
     const pos = this.deps.playheads.positionNow(i, at);
     this.deps.playheads.start(i, at, wrapPosition(pos, frames.start, frames.end, length));
+  }
+
+  /** LOOPS for slot `i`'s program (its clip's rate must be known: until then nothing goes, and `onPlaySent` sends it). */
+  private sendProgram(i: number, e: VoiceEntry, stamp: number | undefined): void {
+    const items = e.program && this.deps.writer.loops ? this.programItems(i, e.program) : null;
+    if (!items) return;
+    this.deps.writer.loops!(e.id, stamp, items);
+    this.stats.loops++;
+  }
+
+  /** A program in the clip's frames, as LOOPS carries it; null while the clip's rate isn't known. */
+  private programItems(i: number, program: readonly VoiceLoop[]): LoopsLoops[] | null {
+    const rate = this.deps.clipInfo(i)?.sampleRate ?? 0;
+    if (!(rate > 0)) return null;
+    const frames = (s: number): number => Math.max(0, Math.round((Number.isFinite(s) ? s : 0) * rate));
+    return program.map((l) => {
+      const dir = l.direction === "pingPong" ? 1 : l.direction === "backward" ? 2 : 0;
+      const active = l.active === "held" ? 1 : l.active === "parameter" ? 2 : 0;
+      const exit = l.exit === "jump" ? 1 : l.exit === "crossfade" ? 2 : 0;
+      const p = l.param;
+      return {
+        startFrame: frames(l.start),
+        endFrame: frames(Math.max(l.start, l.end)),
+        crossfadeFrames: frames(l.crossfade),
+        exitFadeFrames: frames(l.exitFade),
+        count: Math.min(0xffff, Math.max(0, Math.round(l.count) || 0)),
+        flags: dir | (active << LOOP_ACTIVE_SHIFT) | (exit << LOOP_EXIT_SHIFT) | (l.reentry === "reenter" ? LOOP_REENTER : 0) | (l.op === "<" ? LOOP_BELOW : 0),
+        param: p && p.time === undefined ? (p.global ? AUTOMATION_GLOBAL | p.slot : p.slot) : 0,
+        reserved: 0,
+        threshold: Number.isFinite(l.threshold) ? l.threshold! : 0,
+      };
+    });
   }
 
   private loopFrames(i: number, e: VoiceEntry): { start: number; end: number; looping: boolean } | null {

@@ -260,6 +260,7 @@ pub const OPCODES: &[Opcode] = &[
         doc: "replace a voice's automation bindings (ADR 0158 §3); count 0 clears them",
     },
     super::spatial::SET_VOICE_FX,
+    super::studio::LOOPS,
     Opcode {
         id: 0x10,
         name: "BUS_CONFIG",
@@ -379,7 +380,7 @@ mod tests {
     fn opcode_ids_are_unique_and_sorted() {
         let ids: Vec<u16> = OPCODES.iter().map(|o| o.id).collect();
         assert!(ids.windows(2).all(|w| w[0] < w[1]), "ids not strictly increasing: {ids:?}");
-        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x10, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x20, 0x30]);
+        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x10, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x20, 0x30]);
         assert!(OPCODES.iter().all(|o| o.sent));
         assert!(OPCODES.iter().all(|o| o.id != 0x11), "0x11 stays reserved (BUS_MIX, retired)");
     }
@@ -410,7 +411,7 @@ mod tests {
             assert_eq!(size(RECORD_HEAD) + size(o.payload.fields), total, "{}", o.name);
             assert!(matches!(o.payload.tail, Tail::None), "{}", o.name);
         }
-        for id in [0x09, 0x10, 0x13, 0x15, 0x17, 0x19, 0x1B, 0x1C] {
+        for id in [0x09, 0x0B, 0x10, 0x13, 0x15, 0x17, 0x19, 0x1B, 0x1C] {
             let o = op(id);
             assert_eq!(o.total_bytes, None, "{}", o.name);
             assert!(matches!(o.payload.tail, Tail::Repeat(_)), "{}", o.name);

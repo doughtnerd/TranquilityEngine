@@ -9,6 +9,7 @@
  */
 
 import { evalCurve, type Curve } from "../../../../engine/core/curve";
+import { VOICE_LOOPS_MAX } from "../wire.generated";
 import { mixer } from "../../../../engine/audio/mixer";
 import type { AudioVoice } from "../backend";
 import { warnOnce } from "../core/handle";
@@ -31,6 +32,32 @@ export interface ParamRef {
   global: boolean;
   slot: number;
   time?: TimeParam;
+}
+
+/** ADR 0328: the loops a voice's loop program keeps (the core's bound, declared once on the wire). */
+export const MAX_VOICE_LOOPS = VOICE_LOOPS_MAX;
+
+/**
+ * ADR 0328: one loop of a voice's loop program (`AutomationSink.setLoops`), in seconds of the clip. `start === end` is a
+ * hold point (the playhead parks there while the loop is active). See `native/audio/crates/audio-core/src/voice_loops.rs`.
+ */
+export interface VoiceLoop {
+  start: number;
+  end: number;
+  direction: "forward" | "pingPong" | "backward";
+  /** The seam's equal-power crossfade (and a hold point's fades), seconds. */
+  crossfade: number;
+  /** 0 endless; else passes in all, the first included. */
+  count: number;
+  /** `held`: until the voice's key-off (`setLoop(voice, 0, 0, false)`); `parameter`: while `param` is `op` `threshold`. */
+  active: "always" | "held" | "parameter";
+  param?: ParamRef;
+  op?: ">" | "<";
+  threshold?: number;
+  exit: "finish" | "jump" | "crossfade";
+  /** The exit crossfade (`exit: "crossfade"`), seconds. */
+  exitFade: number;
+  reentry: "ignore" | "reenter";
 }
 
 /** A `ParamRef` to the time parameter `which` (ADR 0332). */
@@ -96,9 +123,16 @@ export interface AutomationSink {
   bindBus(bus: string, bindings: readonly Binding[]): void;
   /**
    * Loop a region of a playing clip (seconds; `end` 0 is the clip's end) or, with `looping` false, release it: the voice
-   * finishes its current pass and plays on to the clip's end.
+   * finishes its current pass and plays on to the clip's end. On a voice with a loop program (`setLoops`), `looping`
+   * false is its key-off (held loops let go by their exit settings) and `looping` true replaces the program.
    */
   setLoop(voice: AudioVoice, start: number, end: number, looping: boolean): void;
+  /**
+   * ADR 0328: give a clip voice of instance `group` (whose local parameters its parameter loops read) a loop program of
+   * up to `MAX_VOICE_LOOPS` loops (replacing any loop or program; an empty list clears it). The core runs directions,
+   * counts, crossfades, hold points, activations, exits and re-entry; `TsAutomation` approximates at control rate.
+   */
+  setLoops(voice: AudioVoice, group: number, loops: readonly VoiceLoop[]): void;
 }
 
 /** A parameter being smoothed toward its target. */
@@ -189,6 +223,15 @@ interface BoundVoice {
   timed: boolean;
 }
 
+/** A voice's loop program on `TsAutomation`: its first region, looping or not, and whether it was left. */
+interface TsProgram {
+  voice: AudioVoice;
+  group: number;
+  loop: VoiceLoop;
+  looping: boolean;
+  left: boolean;
+}
+
 /** One re-anchor of a sequence clock: `value` seconds at `at`, moving `rate` seconds per second. */
 interface ClockAnchor {
   value: number;
@@ -212,6 +255,8 @@ export class TsAutomation implements AutomationSink {
   private readonly locals = new Map<number, ParamState[]>();
   private readonly voices: BoundVoice[] = [];
   private readonly buses = new Map<string, readonly Binding[]>();
+  /** ADR 0328: voices with a loop program: its first region, run at control rate (activation, key-off, exit jump). */
+  private readonly programs = new Map<AudioVoice, TsProgram>();
   /** ADR 0332: each group's sequence clock anchors, oldest first (only the newest at or before now matters). */
   private readonly clocks = new Map<number, ClockAnchor[]>();
   private dirty = true;
@@ -228,6 +273,7 @@ export class TsAutomation implements AutomationSink {
     if (!p) return;
     p.set(value, seekPerSecond);
     this.dirty = true;
+    if (this.programs.size > 0) this.followLoops();
   }
 
   bindVoice(voice: AudioVoice, group: number, bindings: readonly Binding[], base: { volume: number; pitch: number }, startAt?: number): void {
@@ -263,7 +309,30 @@ export class TsAutomation implements AutomationSink {
   }
 
   setLoop(voice: AudioVoice, start: number, end: number, looping: boolean): void {
+    const prog = this.programs.get(voice);
+    if (prog && !looping) {
+      // The program's key-off: a held loop lets go by its exit (a jump seeks to its end; finish and crossfade play the pass out).
+      this.programs.delete(voice);
+      if (prog.looping && prog.loop.active === "held") {
+        voice.setLoop(prog.loop.start, prog.loop.end, false);
+        if (prog.loop.exit === "jump") voice.seek(prog.loop.end);
+      }
+      return;
+    }
+    if (looping) this.programs.delete(voice);
     voice.setLoop(start, end, looping);
+  }
+
+  setLoops(voice: AudioVoice, group: number, loops: readonly VoiceLoop[]): void {
+    this.programs.delete(voice);
+    const first = loops.find((l) => l.end > l.start);
+    if (loops.some((l) => l.end <= l.start || l.direction !== "forward" || l.count > 0) || loops.filter((l) => l.end > l.start).length > 1) {
+      warnOnce("events:loop-modes-fallback", "Audio: loop modes (hold points, several loops, ping-pong and backward loops, repeat counts) need the audio core; the Babylon fallback loops the first region forward.");
+    }
+    if (!first) return;
+    const prog: TsProgram = { voice, group, loop: first, looping: this.loopActive(group, first), left: false };
+    this.programs.set(voice, prog);
+    if (prog.looping) voice.setLoop(first.start, first.end, true);
   }
 
   /** Once per frame: smooth parameters, then re-apply every bound voice and bus whose inputs moved. */
@@ -273,6 +342,7 @@ export class TsAutomation implements AutomationSink {
     for (const p of this.globals) if (p.advance(dt)) this.dirty = true;
     for (const ps of this.locals.values()) for (const p of ps) if (p.advance(dt)) this.dirty = true;
     if (!this.dirty) return;
+    if (this.programs.size > 0) this.followLoops();
     this.dirty = false;
     let w = 0;
     for (const v of this.voices) {
@@ -325,6 +395,33 @@ export class TsAutomation implements AutomationSink {
   private read(group: number, p: ParamRef): number {
     if (p.time !== undefined) return 0; // a bus reads no time
     return (p.global ? this.globals[p.slot] : this.locals.get(group)?.[p.slot])?.value ?? 0;
+  }
+
+  /** A loop's activation now (`held` and `always`: on; `parameter`: its test of the parameter). */
+  private loopActive(group: number, l: VoiceLoop): boolean {
+    if (l.active !== "parameter") return true;
+    if (!l.param) return false;
+    const v = this.read(group, l.param);
+    return l.op === "<" ? v < (l.threshold ?? 0) : v > (l.threshold ?? 0);
+  }
+
+  /** Parameter loops follow their parameter: off exits (a jump seeks to the end), on re-enters only with `reenter`. */
+  private followLoops(): void {
+    for (const [voice, prog] of this.programs) {
+      if (!voice.playing) { this.programs.delete(voice); continue; }
+      if (prog.loop.active !== "parameter") continue;
+      const on = this.loopActive(prog.group, prog.loop);
+      if (on === prog.looping) continue;
+      if (!on) {
+        prog.looping = false;
+        prog.left = true;
+        voice.setLoop(prog.loop.start, prog.loop.end, false);
+        if (prog.loop.exit === "jump") voice.seek(prog.loop.end);
+      } else if (!prog.left || prog.loop.reentry === "reenter") {
+        prog.looping = true;
+        voice.setLoop(prog.loop.start, prog.loop.end, true);
+      }
+    }
   }
 
   private now(): number {

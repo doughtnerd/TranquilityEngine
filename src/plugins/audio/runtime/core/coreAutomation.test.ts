@@ -90,6 +90,38 @@ describe("CoreAutomation: time parameters (ADR 0332)", () => {
     expect(calls).toEqual([]);
   });
 
+  it("sends a loop program as LOOPS in clip frames behind its PLAY, its key-off as SET_LOOP, and replays both", () => {
+    const calls: Call[] = [];
+    const { auto, voice } = rig({
+      writer: {
+        automate: () => {}, param: () => {}, curves: () => {}, busAutomate: () => {}, time: () => {},
+        setLoop: (id, at, s, e, l) => void calls.push(["setLoop", id, at, s, e, l]),
+        loops: (id, at, items) => void calls.push(["loops", id, at, items.map((x) => ({ ...x }))]),
+      },
+    });
+    const v = voice(2);
+    auto.onPlaySent(v.id, v.id & 0xffff, 20_000);
+    auto.setLoops(v, 2, [
+      { start: 0.5, end: 1, direction: "pingPong", crossfade: 0.01, count: 3, active: "parameter", param: { global: true, slot: 4 }, op: "<", threshold: 0.25, exit: "crossfade", exitFade: 0.05, reentry: "reenter" },
+      { start: 2, end: 2, direction: "forward", crossfade: 0, count: 0, active: "held", exit: "finish", exitFade: 0, reentry: "ignore" },
+    ]);
+    auto.setLoop(v, 0, 0, false);
+    expect(calls).toEqual([
+      ["loops", v.id, 20_000, [
+        { startFrame: 24_000, endFrame: 48_000, crossfadeFrames: 480, exitFadeFrames: 2400, count: 3, flags: 1 | (2 << 2) | (2 << 4) | 0x40 | 0x80, param: AUTOMATION_GLOBAL | 4, reserved: 0, threshold: 0.25 },
+        { startFrame: 96_000, endFrame: 96_000, crossfadeFrames: 0, exitFadeFrames: 0, count: 0, flags: 1 << 2, param: 0, reserved: 0, threshold: 0 },
+      ]],
+      ["setLoop", v.id, 20_000, 0, 0, false],
+    ]);
+    const b = new ReplayBuilder();
+    auto.replayVoice(b, v.id, v.id & 0xffff);
+    const posted: ArrayBuffer[] = [];
+    b.post({ post: (m) => void posted.push(m), nextSeq: () => 0 }, 0, false);
+    const view = new DataView(posted[0]!);
+    const first = readRecordHead(view, 32);
+    expect([first.opcode, readRecordHead(view, 32 + first.words * 4).opcode]).toEqual([Op.LOOPS, Op.SET_LOOP]);
+  });
+
   it("replays each sequence clock in the header", () => {
     const { auto, state } = rig();
     auto.setSequenceTime(0, 1, 1);

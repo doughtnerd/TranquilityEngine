@@ -35,6 +35,13 @@
 //!    low-pass at `min(snapshot lane lpHz, lpAuto)`.
 //! 5. **Loop regions** (SET_LOOP, clip voices): kept beside the bindings ([`VoiceAuto`]); the
 //!    render loop reads them. See [`set_loop`].
+//! 7. **Loop programs** (LOOPS, ADR 0328, ABI 4.3; clip voices): up to `VOICE_LOOPS_MAX` loops with
+//!    directions, counts, crossfades, hold points, activations, exits and re-entry, kept in a pool of
+//!    [`PROGRAMS`] entries linked from the voice's entry ([`VoiceAuto::prog`], `loop_on`
+//!    [`LOOP_PROGRAM`]; per voice slot they would cost ≈ 1.2 MB of the Memory's 16 MiB fixed-region
+//!    headroom on the largest preset). With the pool full, a LOOPS program falls back to its first
+//!    region as a SET_LOOP loop. `voice_loops.rs` runs them in the render loop. Here, once a quantum, every program's activations are worked out
+//!    (`Program::want`: always, held until the key-off, or a parameter against its threshold).
 //! 6. **Time parameters** (ADR 0332, ABI 4.2): a voice binding whose `param` has bit 14 set (bit 15
 //!    clear) reads a time in seconds instead of a parameter slot, at the quantum's first frame:
 //!    `voiceTime` (`TIME_VOICE`: the quantum's frame less the voice's start frame, 0 before it
@@ -59,6 +66,7 @@
 use audio_wire::generated as wire;
 
 use crate::core::{Core, Regions};
+use crate::voice_loops::{self, LoopDef, Program};
 use crate::layout::REGION_ALIGN;
 use crate::params::InitParams;
 use crate::QUANTUM;
@@ -84,6 +92,23 @@ pub const BEZIER_STEPS: usize = 28;
 pub const BINDINGS: usize = 8;
 /// Group clocks: the global one (group 0) and one per instance group.
 pub const CLOCKS: usize = GROUPS + 1;
+/// Loop programs in use at once (ADR 0328): voices playing a sample's own loops; more fall back to
+/// a plain region.
+pub const PROGRAMS: usize = 256;
+
+/// One pool entry: the slot that owns it (index + 1, 0 free) and the program. All-zero is free.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ProgramEntry {
+    pub owner: u32,
+    pub _pad: u32,
+    pub prog: Program,
+}
+
+/// `VoiceAuto::loop_on`: a SET_LOOP region loops.
+pub const LOOP_REGION: u8 = 1;
+/// `VoiceAuto::loop_on`: a LOOPS program runs (ADR 0328).
+pub const LOOP_PROGRAM: u8 = 2;
 /// A clock or start frame not known yet (an asap TIME, a voice not seen scheduled).
 pub const UNANCHORED: u64 = u64::MAX;
 /// `lpAuto` with no lowpass binding, and the cut-off that means "off" (the wire's `BUS_LP_OFF_HZ`).
@@ -183,11 +208,15 @@ pub struct VoiceAuto {
     pub fresh: u8,
     /// [`has`] bits of the bindings.
     pub targets: u8,
-    /// Non-zero while a SET_LOOP region loops (clip voices).
+    /// [`LOOP_REGION`] while a SET_LOOP region loops, [`LOOP_PROGRAM`] while a LOOPS program runs
+    /// (clip voices); 0 none.
     pub loop_on: u8,
     /// Non-zero when a binding reads a time parameter (ADR 0332).
     pub time: u8,
     pub _pad: u8,
+    /// ADR 0328: its loop program's pool entry ([`ProgramEntry`]) plus 1; 0 none.
+    pub prog: u16,
+    pub _pad2: u16,
     /// Position in the active list plus 1; 0 when not in it.
     pub list: u32,
     /// SET_LOOP's region in clip frames (`loop_end` 0 is the clip's end).
@@ -284,6 +313,7 @@ struct Sections {
     curves: usize,
     buses: usize,
     clocks: usize,
+    programs: usize,
     active: usize,
     voices: usize,
     total: usize,
@@ -299,10 +329,11 @@ const fn sections(max_logical: usize, max_buses: usize) -> Sections {
     let curves = align(seeking + PARAMS * core::mem::size_of::<u16>());
     let buses = align(curves + CURVES * core::mem::size_of::<Curve>());
     let clocks = align(buses + max_buses * core::mem::size_of::<BusAuto>());
-    let active = align(clocks + CLOCKS * core::mem::size_of::<GroupClock>());
+    let programs = align(clocks + CLOCKS * core::mem::size_of::<GroupClock>());
+    let active = align(programs + PROGRAMS * core::mem::size_of::<ProgramEntry>());
     let voices = align(active + max_logical * core::mem::size_of::<u32>());
     let total = align(voices + max_logical * core::mem::size_of::<VoiceAuto>());
-    Sections { params, seeking, curves, buses, clocks, active, voices, total }
+    Sections { params, seeking, curves, buses, clocks, programs, active, voices, total }
 }
 
 const _: () = assert!(PARAMS <= u16::MAX as usize, "seeking list entries are u16");
@@ -321,6 +352,7 @@ pub(crate) struct View<'a> {
     pub curves: &'a mut [Curve],
     pub buses: &'a mut [BusAuto],
     pub clocks: &'a mut [GroupClock],
+    pub programs: &'a mut [ProgramEntry],
     pub active: &'a mut [u32],
     pub voices: &'a mut [VoiceAuto],
 }
@@ -333,7 +365,7 @@ pub(crate) fn view(region: &mut [u8]) -> Option<View<'_>> {
     }
     let base = region.as_mut_ptr();
     // SAFETY: the region is 64-byte aligned and zeroed at init (Layout); all-zero bytes are a valid
-    // Header, Param, u16, Curve, BusAuto, GroupClock, u32 and VoiceAuto (integers, floats, arrays of them, and a
+    // Header, Param, u16, Curve, BusAuto, GroupClock, ProgramEntry, u32 and VoiceAuto (integers, floats, arrays of them, and a
     // Biquad that `audio-dsp` keeps all-zero valid). `sections` places each table at an aligned
     // offset inside `region_bytes`, which `init` checked the region holds for the header's sizes.
     // The slices don't overlap. Only this module (and the render loops, through it) views these bytes.
@@ -351,6 +383,7 @@ pub(crate) fn view(region: &mut [u8]) -> Option<View<'_>> {
             curves: core::slice::from_raw_parts_mut(base.add(s.curves) as *mut Curve, CURVES),
             buses: core::slice::from_raw_parts_mut(base.add(s.buses) as *mut BusAuto, mb),
             clocks: core::slice::from_raw_parts_mut(base.add(s.clocks) as *mut GroupClock, CLOCKS),
+            programs: core::slice::from_raw_parts_mut(base.add(s.programs) as *mut ProgramEntry, PROGRAMS),
             active: core::slice::from_raw_parts_mut(base.add(s.active) as *mut u32, ml),
             voices: core::slice::from_raw_parts_mut(base.add(s.voices) as *mut VoiceAuto, ml),
         })
@@ -738,12 +771,139 @@ pub fn set_loop(core: &mut Core, index: usize, voice_id: u32, start: u32, end: u
         *e = zeroed_voice();
         e.id = voice_id;
     }
-    e.loop_on = looping as u8;
+    if !looping && e.loop_on == LOOP_PROGRAM {
+        return; // the program's key-off (`voices::set_loop` lets its held loops go)
+    }
+    free_program(v.programs, e);
+    e.loop_on = if looping { LOOP_REGION } else { 0 };
     e.loop_start = start;
     e.loop_end = end;
     if looping {
         enlist(v.header, v.active, e, index);
     }
+}
+
+/// `true` when the (well-formed-length) LOOPS record at `msg[off..off + len]` holds its loops.
+pub fn loops_is_well_formed(msg: &[u8], off: usize, len: usize) -> bool {
+    if len < wire::Loops::FIXED_END || off + len > msg.len() {
+        return false;
+    }
+    let n = u32_at(msg, off + 12) as usize;
+    n.checked_mul(wire::LoopsLoops::FIXED_END).is_some_and(|bytes| wire::Loops::FIXED_END + bytes <= len)
+}
+
+/// LOOPS (ADR 0328) on slot `index` (voice `voice_id`, its playhead at `pos`): replaces its loop
+/// program with the (well-formed) record's loops, at most `VOICE_LOOPS_MAX`; none clears it.
+pub fn loops(core: &mut Core, index: usize, voice_id: u32, msg: &[u8], off: usize, pos: f64) {
+    let Some(v) = view(&mut core.regions_mut().automation[..]) else { return };
+    let Some(e) = v.voices.get_mut(index) else { return };
+    if e.id != voice_id {
+        *e = zeroed_voice();
+        e.id = voice_id;
+        e.vstart = UNANCHORED;
+    }
+    let n = (u32_at(msg, off + 12) as usize).min(voice_loops::MAX_LOOPS);
+    let mut defs = [LoopDef::default(); voice_loops::MAX_LOOPS];
+    for (i, d) in defs[..n].iter_mut().enumerate() {
+        let at = off + wire::Loops::FIXED_END + i * wire::LoopsLoops::FIXED_END;
+        let (start, end) = (u32_at(msg, at), u32_at(msg, at + 4));
+        *d = LoopDef {
+            start: start.min(end),
+            end: end.max(start),
+            xfade: u32_at(msg, at + 8),
+            exit_fade: u32_at(msg, at + 12),
+            count: u16_at(msg, at + 16),
+            flags: u16_at(msg, at + 18),
+            param: u16_at(msg, at + 20),
+            _pad: 0,
+            threshold: f32_at(msg, at + 24),
+        };
+    }
+    if n == 0 {
+        free_program(v.programs, e);
+        if e.loop_on == LOOP_PROGRAM {
+            e.loop_on = 0;
+        }
+        return;
+    }
+    let mut probe = Program::default();
+    probe.defs[..n].copy_from_slice(&defs[..n]);
+    probe.n = n as u8;
+    let want = activations(&probe, v.params, e.group);
+    let slot = if e.prog != 0 { Some(e.prog as usize - 1) } else { v.programs.iter().position(|p| p.owner == 0) };
+    let Some(slot) = slot else {
+        // The pool is full: the first region loops as SET_LOOP would (held loops still end at the key-off).
+        let first = defs[..n].iter().find(|d| !d.hold()).copied();
+        e.loop_on = if first.is_some() { LOOP_REGION } else { 0 };
+        if let Some(d) = first {
+            e.loop_start = d.start;
+            e.loop_end = d.end;
+            enlist(v.header, v.active, e, index);
+        }
+        return;
+    };
+    v.programs[slot].owner = index as u32 + 1;
+    e.prog = slot as u16 + 1;
+    voice_loops::load(&mut v.programs[slot].prog, &defs[..n], want, pos);
+    e.loop_on = LOOP_PROGRAM;
+    enlist(v.header, v.active, e, index);
+}
+
+/// Gives `e`'s program entry back to the pool.
+fn free_program(programs: &mut [ProgramEntry], e: &mut VoiceAuto) {
+    if e.prog != 0 {
+        if let Some(p) = programs.get_mut(e.prog as usize - 1) {
+            *p = ProgramEntry::default();
+        }
+        e.prog = 0;
+    }
+}
+
+/// Programs in use (tests and a debugger).
+pub fn programs_in_use(core: &mut Core) -> usize {
+    view(&mut core.regions_mut().automation[..]).map_or(0, |v| v.programs.iter().filter(|p| p.owner != 0).count())
+}
+
+/// Slot `index`'s loop program (tests and a debugger).
+pub fn program(core: &mut Core, index: usize) -> Option<Program> {
+    let v = view(&mut core.regions_mut().automation[..])?;
+    let e = v.voices.get(index)?;
+    (e.loop_on == LOOP_PROGRAM && e.prog != 0).then(|| v.programs[e.prog as usize - 1].prog)
+}
+
+/// The programs' pool for the render loop (`voices.rs`), indexed by `VoiceAuto::prog - 1`.
+pub(crate) fn program_entries(region: &mut [u8]) -> Option<&mut [ProgramEntry]> {
+    view(region).map(|v| v.programs)
+}
+
+/// A program's activation bits now: always loops on, held ones until the key-off, parameter ones by
+/// their test of the parameter (read as a binding of a voice in `group` reads it).
+fn activations(p: &Program, params: &[Param], group: u16) -> u8 {
+    let mut m = 0u8;
+    for i in 0..p.n as usize {
+        let d = &p.defs[i];
+        let on = match d.activation() {
+            voice_loops::active::HELD => p.released == 0,
+            voice_loops::active::PARAMETER => d.passes_threshold(binding_value(params, d.param, group, &[0.0; 3])),
+            _ => true,
+        };
+        if on {
+            m |= 1 << i;
+        }
+    }
+    m
+}
+
+/// The key-off of slot `index`'s program (voice `voice_id`) at its playhead `*pos`: `false` when it
+/// has none (the SET_LOOP is a region's release).
+pub fn release_program(core: &mut Core, index: usize, voice_id: u32, pos: &mut f64) -> bool {
+    let Some(v) = view(&mut core.regions_mut().automation[..]) else { return false };
+    let Some(e) = v.voices.get_mut(index) else { return false };
+    if e.id != voice_id || e.loop_on != LOOP_PROGRAM || e.prog == 0 {
+        return false;
+    }
+    voice_loops::release(&mut v.programs[e.prog as usize - 1].prog, pos);
+    true
 }
 
 /// PLAY on slot `index`: the entry now belongs to `voice_id` in `group`, with nothing bound and no
@@ -758,6 +918,7 @@ pub fn on_play(core: &mut Core, index: usize, voice_id: u32, group: u16, start_f
     e.targets = 0;
     e.time = 0;
     e.loop_on = 0;
+    free_program(v.programs, e);
     e.vstart = start_frame;
 }
 
@@ -839,6 +1000,7 @@ pub fn begin_quantum(core: &mut Core, frame: u64) {
         let live = slot.is_some();
         if !live || (e.count == 0 && e.loop_on == 0) {
             e.list = 0;
+            free_program(v.programs, e);
             let last = v.header.active_len as usize - 1;
             if i != last {
                 let moved = v.active[last];
@@ -847,6 +1009,10 @@ pub fn begin_quantum(core: &mut Core, frame: u64) {
             }
             v.header.active_len -= 1;
             continue;
+        }
+        if e.loop_on == LOOP_PROGRAM && e.prog != 0 {
+            let p = &mut v.programs[e.prog as usize - 1].prog;
+            p.want = activations(p, v.params, e.group);
         }
         if e.count != 0 {
             let mut times = [0.0f32; 3];
@@ -1062,7 +1228,7 @@ mod tests {
         let p = InitParams { sample_rate: 48_000.0, max_logical: 4_096, max_mixed: 128, max_buses: 32, arena_initial_bytes: 16 << 20, ..InitParams::default() };
         let n = region_bytes(&p);
         eprintln!("automation region: {n} B (VoiceAuto {} B, Curve {} B, BusAuto {} B)", core::mem::size_of::<VoiceAuto>(), core::mem::size_of::<Curve>(), core::mem::size_of::<BusAuto>());
-        // ≈ 2.4 MB since ADR 0332: 64 keys with Bézier control points make the curve table ≈ 1.6 MB.
+        // ≈ 2.4 MB since ADR 0332: 64 keys with Bézier control points make the curve table ≈ 1.6 MB;
         assert!(n < 3 << 20, "{n}");
     }
 }

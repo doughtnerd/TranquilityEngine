@@ -55,7 +55,7 @@ describe("PendingVoice", () => {
     const bound: number[] = [];
     const sinkLog: string[] = [];
     const sink: AutomationSink = {
-      defineCurve() {}, setParam() {}, bindBus() {}, setSequenceTime() {},
+      defineCurve() {}, setParam() {}, bindBus() {}, setSequenceTime() {}, setLoops() {},
       bindVoice(v, group, bindings, base) { bound.push(v.id); sinkLog.push(`bind:g${group}:n${bindings.length}:v${base.volume}`); },
       setLoop(v, s, e, l) { sinkLog.push(`loop:${s}:${e}:${l}`); void v; },
     };
@@ -169,7 +169,7 @@ describe("backend switch re-send", () => {
     const second = makeFakeBackend();
     const log: string[] = [];
     const sink: AutomationSink = {
-      defineCurve() {}, setParam(g, slot, v) { log.push(`param:${g}:${slot}:${v}`); }, bindBus() {}, setSequenceTime() {},
+      defineCurve() {}, setParam(g, slot, v) { log.push(`param:${g}:${slot}:${v}`); }, bindBus() {}, setSequenceTime() {}, setLoops() {},
       bindVoice(_v, g, b) { log.push(`bind:${g}:${b.length}`); },
       setLoop(_v, s, e, l) { log.push(`loop:${s}:${e}:${l}`); },
     };

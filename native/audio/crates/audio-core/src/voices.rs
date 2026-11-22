@@ -474,6 +474,8 @@ fn render_voices<const LIST: bool>(core: &mut Core, frame: u64, from: usize, to:
     // ADR 0158 E2: the voices' automation and loop entries, or `None` when no voice has any (then
     // every voice takes exactly the M1 path below). Another region than the ones `v` views.
     let autos: Option<*mut [VoiceAuto]> = automation::voice_entries(&mut regions.automation[..]).map(|a| a as *mut _);
+    // ADR 0328: the loop programs' pool, in the same region (read only through an entry that links one).
+    let progs: Option<*mut [automation::ProgramEntry]> = if autos.is_some() { automation::program_entries(&mut regions.automation[..]).map(|p| p as *mut _) } else { None };
     // ADR 0162 K3: the zone slot inputs the send tap writes (`sends::tap`), another region again.
     let zones: *mut [u8] = &mut regions.zones[..];
     // ADR 0162 A4: the beds kind-2 voices encode into, another region again (`None` without beds).
@@ -567,6 +569,9 @@ fn render_voices<const LIST: bool>(core: &mut Core, frame: u64, from: usize, to:
         // SAFETY: `autos` views the automation region, distinct from the voices, core-state and
         // buses regions borrowed here, and one entry is borrowed at a time.
         let auto = autos.and_then(|a| unsafe { (&mut *a).get_mut(index) }).filter(|a| a.active_for(slot.id));
+        // SAFETY: the pool is a section of the automation region apart from the entries `auto` views;
+        // one entry is borrowed at a time.
+        let prog = auto.as_deref().filter(|a| a.loop_on == automation::LOOP_PROGRAM && a.prog != 0).and_then(|a| progs.and_then(|p| unsafe { (&mut *p).get_mut(a.prog as usize - 1) })).map(|e| &mut e.prog);
         // SAFETY: `zones` views the `Zones` region, distinct from every region borrowed here; one
         // voice holds it at a time.
         let fx = VoiceFx { entry: crate::fxpool::owned(v.pool, slot.fx, index), zones: unsafe { &mut *zones }, beds: beds.as_mut(), due };
@@ -575,10 +580,10 @@ fn render_voices<const LIST: bool>(core: &mut Core, frame: u64, from: usize, to:
         match (slot.flags & flag::STREAM != 0, auto.is_some()) {
             (true, true) => render_stream_voice::<true>(slot, auto, fx, streams, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
             (true, false) => render_stream_voice::<false>(slot, None, fx, streams, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
-            (false, true) if LIST => render_voice::<true, false>(slot, auto, fx, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
-            (false, false) if LIST => render_voice::<false, false>(slot, None, fx, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
-            (false, true) => render_voice::<true, true>(slot, auto, fx, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
-            (false, false) => render_voice::<false, true>(slot, None, fx, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
+            (false, true) if LIST => render_voice::<true, false>(slot, auto, prog, fx, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
+            (false, false) if LIST => render_voice::<false, false>(slot, None, None, fx, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
+            (false, true) => render_voice::<true, true>(slot, auto, prog, fx, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
+            (false, false) => render_voice::<false, true>(slot, None, None, fx, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
         }
         // A voice that left the mix (a demote or pause fade settled) or ended gives its entry back.
         let s = &mut v.slots[index];
@@ -909,8 +914,9 @@ fn set_entry_lowpass(v: &mut View<'_>, index: usize, lp_hz: f32, frames: u32) {
 /// (F-8): the voice has no due record (`fx.due` is `DueGain::NONE`), so the due compare compiles
 /// away and the virtual path advances its ramps plainly, the code M3 ran; the result is the same.
 #[allow(clippy::too_many_arguments)]
-fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, mut fx: VoiceFx<'_>, clips: &ClipStore, hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
+fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, prog: Option<&mut crate::voice_loops::Program>, mut fx: VoiceFx<'_>, clips: &ClipStore, hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, fade_frames: u32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
     let mut auto = if AUTO { auto } else { None };
+    let mut prog = if AUTO { prog } else { None };
     if slot.flags & (flag::PAUSED | flag::MIXED) == flag::PAUSED {
         // Paused and out of the mix (A3.7): holds its position, ramps and panner exactly. A stop
         // (or a stopping fade) asked for while held ends it now: it is silent.
@@ -950,6 +956,9 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
         if slot.flags & flag::MIXED == 0 || slot.mix.is_settled() {
             let fade_in = slot.flags & flag::MIXED != 0 && slot.mix.value == 0.0 && slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) == 0;
             clip_seek_jump(slot, clip.source.frames, looping);
+            if let Some(p) = prog.as_deref_mut() {
+                crate::voice_loops::place(p, slot.position);
+            }
             if fade_in {
                 slot.mix.set_target(1.0, fade_frames);
             }
@@ -959,12 +968,20 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
     }
     // ADR 0158 §4: a SET_LOOP region (the slot's whole-clip loop flag is clear while it loops).
     let region = auto.as_deref().and_then(|a| loop_region(a, clip.source.frames));
+    // ADR 0328: a loop program (not for an ambisonic voice, which plays it straight); this
+    // quantum's activations apply at its start.
+    let program = AUTO && slot.flags2 & flag2::AMBISONIC == 0 && prog.as_deref().is_some_and(|p| p.n != 0);
+    if program {
+        if let Some(p) = prog.as_deref_mut() {
+            crate::voice_loops::settle(p, &mut slot.position);
+        }
+    }
     let pitched = auto.as_deref().is_some_and(|a| a.count != 0 && a.targets & automation::has::PITCH != 0);
     // Virtual at a settled pitch (A3.5): every step is the same, so the position moves in O(1)
     // (`advance_constant`, bit-exact to the per-frame loop). Most logical voices take this path.
     // A virtual voice with a pitch binding keeps time at its pitchMul's mean over the range (control
     // rate: nobody hears it, and the O(1) path keeps 0158 §6's budget with many bound voices).
-    let constant = slot.flags & flag::MIXED == 0 && slot.pitch.remaining == 0 && region.is_none();
+    let constant = slot.flags & flag::MIXED == 0 && slot.pitch.remaining == 0 && region.is_none() && !program;
     let mut steps = [0.0f32; QUANTUM];
     if !constant {
         for step in steps[..n].iter_mut() {
@@ -986,7 +1003,11 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
     } else if slot.flags & flag::MIXED != 0 {
         let mut l = [0.0f32; QUANTUM];
         let mut r = [0.0f32; QUANTUM];
-        if let Some((start, end)) = region {
+        if program {
+            if let Some(p) = prog.as_deref_mut() {
+                crate::voice_loops::render(p, &clip.source, &mut slot.position, &steps[..n], &mut l[..n], &mut r[..n]);
+            }
+        } else if let Some((start, end)) = region {
             resample::lagrange_region(&clip.source, &mut slot.position, &steps[..n], start, end, &mut l[..n], &mut r[..n]);
         } else {
             resample::lagrange(&clip.source, &mut slot.position, &steps[..n], looping, &mut l[..n], &mut r[..n]);
@@ -1008,6 +1029,10 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
                 }
             }
             resample::advance_constant(&mut slot.position, step, n, clip.source.frames, looping);
+        } else if program {
+            if let Some(p) = prog.as_deref_mut() {
+                crate::voice_loops::advance(p, &mut slot.position, &steps[..n]);
+            }
         } else if let Some((start, end)) = region {
             resample::advance_region(&mut slot.position, &steps[..n], start, end, clip.source.frames);
         } else {
@@ -1023,7 +1048,7 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
         slot.mix.advance(n as u32);
         slot.panner.advance(n as u32);
     }
-    let ran_out = (region.is_some() || !looping) && slot.position >= clip.source.frames as f64;
+    let ran_out = (region.is_some() || program || !looping) && slot.position >= clip.source.frames as f64;
     if ran_out || (stopping && slot.fade.is_settled()) {
         slot.state = state::ENDED;
     }
@@ -1363,7 +1388,7 @@ fn render_seek_tail<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut Vo
 /// ADR 0158 §4: the voice's SET_LOOP region resolved against its clip's `frames` (`end` 0 or past
 /// the clip is the clip's end; an empty region loops the whole clip), or `None` when it has none.
 fn loop_region(a: &VoiceAuto, frames: u32) -> Option<(u32, u32)> {
-    if a.loop_on == 0 || frames == 0 {
+    if a.loop_on != automation::LOOP_REGION || frames == 0 {
         return None;
     }
     let end = if a.loop_end == 0 { frames } else { a.loop_end.min(frames) };
@@ -2106,7 +2131,33 @@ pub fn set_loop(core: &mut Core, voice_id: u32, start: u32, end: u32, looping: b
         s.flags &= !flag::LOOP;
         index
     };
+    if !looping {
+        // ADR 0328: a voice with a loop program takes it as its key-off, at this sample.
+        let mut pos = view(core.regions_mut()).slots[index].position;
+        if automation::release_program(core, index, voice_id, &mut pos) {
+            view(core.regions_mut()).slots[index].position = pos;
+            return;
+        }
+    }
     automation::set_loop(core, index, voice_id, start, end, looping);
+}
+
+/// LOOPS (ADR 0328): replaces clip voice `voiceId`'s loop program (`automation::loops`), placed at
+/// its playhead; PLAY's whole-clip loop flag no longer applies. A stale id and stream voices are
+/// ignored (their loops go through the decoder worker).
+pub fn loops(core: &mut Core, msg: &[u8], off: usize) {
+    let voice_id = crate::wire_read::u32_at(msg, off + 4);
+    let (index, pos) = {
+        let v = view(core.regions_mut());
+        let Some(index) = find(&v, voice_id) else { return };
+        let s = &mut v.slots[index];
+        if s.flags & flag::STREAM != 0 {
+            return;
+        }
+        s.flags &= !flag::LOOP;
+        (index, s.position)
+    };
+    automation::loops(core, index, voice_id, msg, off, pos);
 }
 
 /// SEEK (api-and-models §4.2, B3b): moves voice `voice_id` to `frame` (a clip frame, or a stream

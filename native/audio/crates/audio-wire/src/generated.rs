@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: ae0cc1ffd1b129b6f96338f4df72e041).
+/// First 16 bytes of the schema's SHA-256 (hex: 36d7d7b06bdb405ddb536ac67693fa05).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0xae,
-    0x0c,
-    0xc1,
-    0xff,
-    0xd1,
-    0xb1,
-    0x29,
-    0xb6,
-    0xf9,
-    0x63,
-    0x38,
-    0xf4,
-    0xdf,
-    0x72,
-    0xe0,
-    0x41,
+    0x36,
+    0xd7,
+    0xd7,
+    0xb0,
+    0x6b,
+    0xdb,
+    0x40,
+    0x5d,
+    0xdb,
+    0x53,
+    0x6a,
+    0xc6,
+    0x76,
+    0x93,
+    0xfa,
+    0x05,
 ];
-pub const SCHEMA_HASH_HEX: &str = "ae0cc1ffd1b129b6f96338f4df72e041";
+pub const SCHEMA_HASH_HEX: &str = "36d7d7b06bdb405ddb536ac67693fa05";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -277,6 +277,18 @@ pub const TIME_VOICE: u32 = 0x0;
 pub const TIME_CLIP: u32 = 0x1;
 /// sequenceTime: the voice's group's sequence clock (TIME re-anchors it)
 pub const TIME_SEQUENCE: u32 = 0x2;
+/// loops a voice's LOOPS program keeps (ADR 0328); extra ones are ignored
+pub const VOICE_LOOPS_MAX: u32 = 0x4;
+/// LOOPS item flags bits 0-1: 0 forward, 1 ping-pong, 2 backward
+pub const LOOP_DIRECTION_MASK: u32 = 0x3;
+/// LOOPS item flags bits 2-3: 0 always, 1 held (until the key-off), 2 parameter
+pub const LOOP_ACTIVE_SHIFT: u32 = 0x2;
+/// LOOPS item flags bits 4-5: 0 finish, 1 jump (through crossfadeFrames), 2 crossfade (exitFadeFrames)
+pub const LOOP_EXIT_SHIFT: u32 = 0x4;
+/// LOOPS item flags bit 6: re-enter (clear: ignore)
+pub const LOOP_REENTER: u32 = 0x40;
+/// LOOPS item flags bit 7: a parameter activation holds while the parameter is below threshold (clear: above)
+pub const LOOP_BELOW: u32 = 0x80;
 
 /// K2 stub: the export exists but does nothing yet
 pub const ERR_NOT_IMPLEMENTED: i32 = -1;
@@ -337,6 +349,7 @@ pub mod op {
     pub const SET_LOOP: u16 = 0x08;
     pub const AUTOMATE: u16 = 0x09;
     pub const SET_VOICE_FX: u16 = 0x0a;
+    pub const LOOPS: u16 = 0x0b;
     pub const BUS_CONFIG: u16 = 0x10;
     pub const MASTER: u16 = 0x12;
     pub const CURVES: u16 = 0x13;
@@ -2173,6 +2186,147 @@ impl SetVoiceFx {
             aux_level,
             aux_bus,
             reserved,
+        }, cur - base))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LoopsLoops {
+    /// clip frames
+    pub start_frame: u32,
+    /// clip frames; equal to startFrame: a hold point
+    pub end_frame: u32,
+    /// the seam's equal-power crossfade (and a hold point's fades), clip frames
+    pub crossfade_frames: u32,
+    /// exit crossfade's length, clip frames
+    pub exit_fade_frames: u32,
+    /// 0 endless; else passes in all, the first included
+    pub count: u16,
+    /// LOOP_* direction, activation, exit, re-entry and comparison
+    pub flags: u16,
+    /// activation parameter: a binding param (PARAM_GLOBAL | slot, or a local slot)
+    pub param: u16,
+    pub reserved: u16,
+    /// activation threshold
+    pub threshold: f32,
+}
+
+impl LoopsLoops {
+    pub const FIXED_END: usize = 28;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 0, self.start_frame);
+        put_u32(out, base + 4, self.end_frame);
+        put_u32(out, base + 8, self.crossfade_frames);
+        put_u32(out, base + 12, self.exit_fade_frames);
+        put_u16(out, base + 16, self.count);
+        put_u16(out, base + 18, self.flags);
+        put_u16(out, base + 20, self.param);
+        put_u16(out, base + 22, self.reserved);
+        put_f32(out, base + 24, self.threshold);
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let start_frame = get_u32(buf, base + 0);
+        let end_frame = get_u32(buf, base + 4);
+        let crossfade_frames = get_u32(buf, base + 8);
+        let exit_fade_frames = get_u32(buf, base + 12);
+        let count = get_u16(buf, base + 16);
+        let flags = get_u16(buf, base + 18);
+        let param = get_u16(buf, base + 20);
+        let reserved = get_u16(buf, base + 22);
+        let threshold = get_f32(buf, base + 24);
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            start_frame,
+            end_frame,
+            crossfade_frames,
+            exit_fade_frames,
+            count,
+            flags,
+            param,
+            reserved,
+            threshold,
+        }, cur - base))
+    }
+}
+
+/// replace a clip voice's loop program (ADR 0328); count 0 clears it
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Loops {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    pub loops: Vec<LoopsLoops>,
+}
+
+impl Loops {
+    pub const FIXED_END: usize = 16;
+    pub const OPCODE: u16 = 11; // LOOPS
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 12, u32::try_from(self.loops.len()).map_err(|_| ERR_OVERSIZE)?);
+        let mut cur = base + Self::FIXED_END;
+        for item in &self.loops {
+            cur += item.write(out, cur)?;
+        }
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let loop_count = get_u32(buf, base + 12);
+        let mut cur = base + Self::FIXED_END;
+        let count = loop_count as usize;
+        if count.checked_mul(28).map_or(true, |n| n > limit - cur) {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut loops = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (item, n) = LoopsLoops::read_to(buf, cur, limit)?;
+            cur += n;
+            loops.push(item);
+        }
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            loops,
         }, cur - base))
     }
 }

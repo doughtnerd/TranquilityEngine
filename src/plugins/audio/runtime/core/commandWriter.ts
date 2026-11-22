@@ -71,6 +71,8 @@ import {
   writeMaster,
   writeParam,
   writeTime,
+  writeLoops,
+  LOOPS_LOOPS_FIXED_END,
   writePlay,
   writeReset,
   writeSeek,
@@ -97,6 +99,8 @@ import {
   type Master,
   type Param,
   type Time,
+  type Loops,
+  type LoopsLoops,
   type Play,
   type Reset,
   type Seek,
@@ -305,6 +309,7 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly resetRec: Reset = { voiceId: 0, frameOffset: ASAP, keepClips: 0 } as Reset;
   private readonly loopRec: SetLoop = { voiceId: 0, frameOffset: ASAP, loopStartFrame: 0, loopEndFrame: 0, flags: 0 };
   private readonly paramRec: Param = { voiceId: 0, frameOffset: ASAP, group: 0, slot: 0, value: 0, seekPerSecond: 0 };
+  private readonly loopsRec: Loops = { voiceId: 0, frameOffset: ASAP, loops: [] };
   private readonly timeRec: Time = { voiceId: 0, frameOffset: ASAP, group: 0, which: TIME_SEQUENCE, value: 0, rate: 0 };
   private readonly automateRec: Automate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
   private readonly busAutomateRec: BusAutomate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
@@ -672,6 +677,20 @@ export class CommandWriter implements VoiceCommandSink {
     const at = this.begin(24);
     if (at < 0) return;
     this.end(at, writeParam(this.view, at, r));
+  }
+
+  /**
+   * LOOPS (ADR 0328): replaces clip voice `voiceId`'s loop program (an empty list clears it; past `VOICE_LOOPS_MAX` loops
+   * the core ignores the rest). Send it right after the voice's PLAY with the same `atFrame` (omitted = asap), so it
+   * stays after the PLAY in the batch; the core applies it on arrival.
+   */
+  loops(voiceId: number, atFrame: number | undefined, loops: readonly LoopsLoops[]): void {
+    const r = this.loopsRec;
+    r.voiceId = voiceId;
+    r.loops = loops as LoopsLoops[];
+    const at = this.begin(16 + LOOPS_LOOPS_FIXED_END * loops.length);
+    if (at >= 0) this.end(at, writeLoops(this.view, at, r), atFrame);
+    r.loops = [];
   }
 
   /**

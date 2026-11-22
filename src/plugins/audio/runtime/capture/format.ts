@@ -32,7 +32,7 @@ export const CAPTURE_HEADER_BYTES = 96;
 /** `format` this build writes and reads. */
 export const CAPTURE_FORMAT = 1;
 /** The core ABI the header names (4.0, `worklet/coreDriver.ts` `CORE_ABI_MAJOR` << 8; a test keeps them equal). */
-export const CAPTURE_ABI_VERSION = 0x402;
+export const CAPTURE_ABI_VERSION = 0x403;
 /** R16: the uncompressed payload's cap, from the header before inflate and while inflating (64 MiB). */
 export const CAPTURE_MAX_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
 /** The META chunk's cap (1 MiB). */

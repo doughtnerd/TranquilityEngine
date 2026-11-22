@@ -19,6 +19,7 @@
 //! - ADR 0158 E2: CURVES, PARAM, AUTOMATE and BUS_AUTOMATE (`automation.rs`) apply at once, in
 //!   arrival order, whatever their `frameOffset` (AUTOMATE finds its voice because PLAY writes the
 //!   slot at once); SET_LOOP is scheduled like STOP (a release lands on its exact frame).
+//! - ADR 0328: LOOPS (a clip voice's loop program) applies at once, like AUTOMATE (`voices::loops`).
 //! - ADR 0332: TIME (a group clock's re-anchor) is scheduled like STOP; when its quantum comes it
 //!   applies with its own frame (`due::route`, `Route::Clock`), never splitting. Asap anchors at
 //!   the next quantum's first frame.
@@ -215,6 +216,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::TIME => wire::Time::FIXED_END,
             wire::op::SET_LOOP => wire::SetLoop::FIXED_END,
             wire::op::AUTOMATE => wire::Automate::FIXED_END,
+            wire::op::LOOPS => wire::Loops::FIXED_END,
             wire::op::CURVES => wire::Curves::FIXED_END,
             wire::op::PARAM => wire::Param::FIXED_END,
             wire::op::BUS_AUTOMATE => wire::BusAutomate::FIXED_END,
@@ -236,6 +238,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
         let entries_fit = match head.opcode {
             wire::op::BUS_CONFIG => bus::config_is_well_formed(msg, off, len),
             wire::op::AUTOMATE | wire::op::BUS_AUTOMATE => automation::bindings_is_well_formed(msg, off, len),
+            wire::op::LOOPS => automation::loops_is_well_formed(msg, off, len),
             wire::op::CURVES => automation::curves_is_well_formed(msg, off, len),
             wire::op::BED_CONFIG => bed::config_is_well_formed(msg, off, len),
             wire::op::ZONE_CONFIG => zones::config_is_well_formed(msg, off, len),
@@ -362,6 +365,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
                 }
             }
             wire::op::AUTOMATE => automation::automate(core, msg, off),
+            wire::op::LOOPS => voices::loops(core, msg, off),
             wire::op::BUS_AUTOMATE => automation::bus_automate(core, msg, off),
             wire::op::CURVES => automation::curves(core, msg, off),
             wire::op::PARAM => {

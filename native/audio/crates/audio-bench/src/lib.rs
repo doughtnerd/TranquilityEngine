@@ -167,6 +167,9 @@ pub struct Scene {
     /// ADR 0158 E2: mixed voices are clips looping a SET_LOOP region (no whole-clip loop); each batch releases two,
     /// which play their tails and end, and new ones replace them.
     pub sustain: bool,
+    /// ADR 0328: with `sustain`, each mixed voice plays a LOOPS program instead of a SET_LOOP region: a held forward
+    /// loop with a 256-frame seam crossfade, then a held ping-pong loop; the key-offs let them go by crossfade.
+    pub loop_programs: bool,
     /// ADR 0158 E2: also time one extra `automation::begin_quantum` before each quantum (outside the timed work;
     /// the parameters then seek twice as fast) and report its percentiles: the control-rate pass on its own.
     pub probe_automation: bool,
@@ -387,6 +390,7 @@ impl Scene {
             time: false,
             bus_automation: false,
             sustain: false,
+            loop_programs: false,
             probe_automation: false,
             beds: 0,
             bed_voices: 0,
@@ -590,6 +594,8 @@ pub fn scene(name: &str) -> Option<Scene> {
         "automation-virtual" => Scene { bindings: 3, virtual_voices: 256, ..Scene::looping(name, 16) },
         "bus-automation" => Scene { buses: 32, snapshot_lp: true, bus_automation: true, ..Scene::looping(name, 32) },
         "sustain" => Scene { sustain: true, ..Scene::looping(name, 128) },
+        // ADR 0328: `sustain` with loop programs (crossfaded forward and ping-pong held loops, released by crossfade).
+        "loop-programs" => Scene { sustain: true, loop_programs: true, ..Scene::looping(name, 128) },
         // Not gated: the timed control-rate pass of `automation`, and the virtual scene's twin without bindings.
         "automation-probe" => Scene { bindings: 3, probe_automation: true, ..Scene::looping(name, 256) },
         "automation-virtual-base" => Scene { virtual_voices: 256, ..Scene::looping(name, 16) },
@@ -1836,7 +1842,21 @@ impl Bench {
             let bindings = all[..s.bindings.min(3) as usize].iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target }).collect();
             self.push(&wire::Automate { voice_id: id, frame_offset: wire::ASAP, bindings });
         }
-        if s.sustain && mixed && stream.is_none() {
+        if s.sustain && s.loop_programs && mixed && stream.is_none() {
+            let item = |start: u32, end: u32, dir: u16| wire::LoopsLoops {
+                start_frame: start,
+                end_frame: end,
+                crossfade_frames: 256,
+                exit_fade_frames: 512,
+                count: 0,
+                flags: dir | 1 << wire::LOOP_ACTIVE_SHIFT | 2 << wire::LOOP_EXIT_SHIFT,
+                param: 0,
+                reserved: 0,
+                threshold: 0.0,
+            };
+            let loops = vec![item(frames / 6, frames / 3, 0), item(frames / 2, 2 * frames / 3, 1)];
+            self.push(&wire::Loops { voice_id: id, frame_offset: wire::ASAP, loops });
+        } else if s.sustain && mixed && stream.is_none() {
             // A region in the clip's middle third; the voice starts before it.
             self.push(&wire::SetLoop { voice_id: id, frame_offset: wire::ASAP, loop_start_frame: frames / 3, loop_end_frame: 2 * frames / 3, flags: wire::SET_LOOP_FLAGS_LOOPING });
         }
@@ -2338,7 +2358,7 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck, wire::Time);
+wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck, wire::Time, wire::Loops);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
 /// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps). With `bezier` (ADR 0332)
