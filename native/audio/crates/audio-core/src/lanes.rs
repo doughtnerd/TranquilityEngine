@@ -821,6 +821,37 @@ mod tests {
     }
 
     #[test]
+    fn a_decibel_lane_ramps_geometrically_asap_and_stamped() {
+        // Asap: lane 2 from 1 to 0.01 over 256 frames in dB; frame k is 10^(-2 (k + 1) / 256).
+        let mut lanes = BusLanes::default();
+        let mut rt = Ramp::at(1.0);
+        set_lane(&mut lanes, &mut rt, None, 2, Some(0.01), None, 256, true);
+        assert_eq!(lanes.db, 1 << 2);
+        let mut curve = [0.0; QUANTUM];
+        let (mut l, mut r) = ([1.0f32; QUANTUM], [1.0f32; QUANTUM]);
+        apply(&mut lanes, &mut rt, None, None, &mut l, &mut r, &mut curve);
+        for k in [0usize, 63, 127] {
+            let want = libm::powf(10.0, -2.0 * (k + 1) as f32 / 256.0);
+            assert!((curve[k] / want - 1.0).abs() < 1e-4, "frame {k}: {} vs {want}", curve[k]);
+        }
+        // Stamped at sample 64: the lane holds its motion to the stamp, then heads for 1 in dB from there.
+        let held = lanes.lanes[2];
+        assert!(stage(&mut lanes, Stamp { lane: 2, at: 64, gain: 1.0, frames: 64, db: true }, 9));
+        apply(&mut lanes, &mut rt, None, None, &mut l, &mut r, &mut curve);
+        let mut want = held;
+        for (i, &c) in curve.iter().enumerate() {
+            if i == 64 {
+                want.set_target_db(1.0, 64);
+            }
+            assert_eq!(c.to_bits(), want.next_db().to_bits(), "frame {i}");
+        }
+        assert_eq!(curve[127], 1.0, "lands on the target");
+        // A linear BUS_RAMP after it clears the law bit.
+        set_lane(&mut lanes, &mut rt, None, 2, Some(0.5), None, 64, false);
+        assert_eq!(lanes.db, 0);
+    }
+
+    #[test]
     fn a_fourth_stamp_finds_no_room_and_stale_stamps_go() {
         let mut lanes = BusLanes::default();
         for at in 1..=STAMPS as u16 {

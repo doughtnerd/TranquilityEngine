@@ -42,7 +42,11 @@ use crate::memory::{PlatformMemory, PLATFORM_MEMORY};
 /// region (effect memory); smoothed catalogue parameters; sidechain keys order the buses.
 pub const ABI_MAJOR: u32 = 4;
 /// 4.7 (ADR 0330): BUS_SENDS (0x1E), post-fader bus-to-return sends with level ramps and core-side muting.
-pub const ABI_MINOR: u32 = 7;
+/// 4.8 (ADR 0330, 0331): BUS_AUTOMATE fx and send targets (any catalogue parameter of a bus chain, send levels;
+/// 16 bindings a bus), SUBMIX_AUTOMATE (0x1F, instance submix parameter automation), held parameters in the bus
+/// effect type's bits 16-23, the BUS_RAMP `Decibel` law (snapshot fades linear in dB), STATUS `fxStarved` and
+/// `fxStarvedOwner`.
+pub const ABI_MINOR: u32 = 8;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
 pub const INBOX_BYTES: usize = 1 << 20;

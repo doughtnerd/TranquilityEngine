@@ -41,7 +41,14 @@ export type BusEffect =
    * catalogue's names and units (`effects/catalogue.ts`; missing ones take the default); `key` names a sidechain
    * compressor's key bus. The Web Audio fallback runs none of them.
    */
-  | { type: "fx"; fx: CoreEffectType; params: Record<string, number>; key?: string };
+  | {
+      type: "fx"; fx: CoreEffectType; params: Record<string, number>; key?: string;
+      /**
+       * ADR 0330 (ABI 4.8): parameters the running mixer holds at their value against automation while a snapshot
+       * override is in force (the mixer's live effects only; never in a project's view).
+       */
+      held?: string[];
+    };
 
 export const EFFECT_TYPES = ["lowpass", "highpass", "compressor", "reverb", "fx"] as const;
 export type EffectType = (typeof EFFECT_TYPES)[number];
@@ -140,13 +147,27 @@ export interface LoudnessTarget {
   truePeak: number;
 }
 
-/** ADR 0158 §3: a bus property driven by a global parameter through a curve. Multiplies with snapshots and ducking (volume) or takes the lowest cutoff (lowpass). */
+/**
+ * ADR 0158 §3: a bus property driven by a global parameter through a curve. Multiplies with snapshots and ducking
+ * (volume) or takes the lowest cutoff (lowpass). ADR 0330 (ABI 4.8) adds `fx` (a catalogue parameter of one of the bus's
+ * effects: `effect` is its index in the bus's `effects`, `param` the catalogue parameter's index; with `log` the curve
+ * holds log2 of the value, so frequencies interpolate in log scale) and `send` (the curve's dB added to the bus's send
+ * into `to`). The audio core runs all four; the Web Audio fallback runs none of the bus effects or sends.
+ */
 export interface BusAutomation {
   bus: string;
   parameter: string;
-  /** `volume`: a linear gain multiplier; `lowpass`: a cutoff in Hz. */
-  target: "volume" | "lowpass";
+  /** `volume`: a linear gain multiplier; `lowpass`: a cutoff in Hz; `fx`: the parameter's value; `send`: dB. */
+  target: "volume" | "lowpass" | "fx" | "send";
   curve: Curve;
+  /** `fx`: the effect's index in the bus's `effects`. */
+  effect?: number;
+  /** `fx`: the catalogue parameter's index in its type's parameters. */
+  param?: number;
+  /** `fx`: the curve's values are log2 of the parameter's. */
+  log?: boolean;
+  /** `send`: the bus the send feeds (a return). */
+  to?: string;
 }
 
 export interface AudioSettings {
