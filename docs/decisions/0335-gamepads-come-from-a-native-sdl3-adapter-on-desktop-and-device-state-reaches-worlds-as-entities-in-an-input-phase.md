@@ -126,6 +126,20 @@ effects, LEDs), as another adapter with the Gamepad API as fallback.
 - Touch and pen aren't devices of their own yet; touches arrive as the pointer.
 - The mapping table can't express the ~40 SDL database entries that drive a stick from two buttons.
 
+## Build notes (2026-11-22, touch, pen and composed axes)
+
+These supersede the last two notes above.
+
+- **Touch and pen are devices.** The DOM adapter reads `pointerType`. It reports fingers by `pointerId` (`touchStart`, `touchMove`, `touchEnd`) and the pen's position, pressure, tilt, twist and buttons (`penAt`, `penButtonDown`/`Up`, `penLeave`). These sink methods are on `DeviceEventSink` and so on `Input.inject`.
+- **The primary finger and the pen are still the pointer.** The DOM adapter reports the primary one (`isPrimary`) as the pointer too, as browsers emulate the mouse, so `Input.getMouseButton`, `mousePosition` and UI routing work by touch. A second finger no longer moves the pointer. Injected touches don't move the pointer.
+- **Routing.** A primary touch or pen button pressed in a frame the pointer is over claimed UI is the UI's until released: it is missing from the device state and `DeviceEvents`. Other fingers aren't routed, because routers only see the pointer.
+- **Device nodes.** `Touchscreen` (`DeviceKind.touch`, family `touch`, `TouchState`) and `Pen` (`DeviceKind.pen`, family `pen`, `PenState`) appear the first time an adapter reports them. Their device ids are -3 and -4.
+- **Fingers take slots 0–9.** A finger takes the lowest free slot and keeps it until it lifts. The primary touch is bit 10 of the touch bitmasks.
+- **Control paths.** `<Touch>/primary`, `primaryPosition`, `primaryDelta`, `touch0`…`touch9`, `touch0Position`…, `pinch`, `count`; `<Pen>/tip`, `barrel`, `eraser`, `pressure`, `position`, `delta`, `tilt`, `twist`, `inRange`.
+- **Joining.** Touch and pen join the keyboard+pointer group. A device that appears after its group is paired joins the group's player.
+- **Gestures.** Pinch is a control: `<Touch>/pinch`, the change in distance between the two lowest-slot fingers each frame, additive like `<Pointer>/delta`. It is derived from finger positions the way `leftStick` is derived from axes. Swipe, multi-finger tap and long press are timings over a value, so in 0336's model they are triggers (a swipe is a speed or distance threshold within a time window on `primaryDelta`). They wait for a trigger change, and the open question above stays open for them.
+- **Composed axes.** The mapping table is `[kind, index, kind2, index2]` per control: the value is the first source's minus the second's. A half-axis target (`+rightx:b9,-rightx:b4`, or `+leftx:h0.2,-leftx:h0.8`) fills one half, so the ~50 such database entries (N64-style pads, Joy-Cons) now map their sticks. In `input-map` this is `Binding { positive, negative }`.
+
 ## Open questions
 
 - Which SDL3 Rust binding (`sdl3` crate versus our own thin bindings) and whether SDL is linked statically.

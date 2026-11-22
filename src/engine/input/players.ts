@@ -4,6 +4,8 @@
  * project's join policy (`project.json` `input.join`):
  *
  * - `single` (default): player 0, created as soon as an action set is defined, owns every device.
+ * The keyboard, pointer, touchscreen and pen are one join group; each gamepad is a group of its own.
+ *
  * - `onePerDevice`: the keyboard and pointer are one player, each gamepad another; a player leaves
  *   when its gamepad is unplugged.
  * - `pressToJoin`: a device not yet paired joins as a new player with its first press.
@@ -97,7 +99,7 @@ export function removePlayer(world: World, index: number): void {
   world._destroyNode(node.entity);
 }
 
-/** The devices as join groups: the keyboard and pointer together, each gamepad alone. */
+/** The devices as join groups: the keyboard, pointer, touchscreen and pen together, each gamepad alone. */
 function groups(world: World): GameObject[][] {
   const kbm: GameObject[] = [];
   const out: GameObject[][] = [];
@@ -112,7 +114,14 @@ function groups(world: World): GameObject[][] {
   return out;
 }
 
-const pairedTo = (group: GameObject[]): number => group[0].getData(InputDevice)!.player;
+/** The player a group is paired with: any member's (a device that joins the group later, the touchscreen or pen, isn't paired yet). */
+const pairedTo = (group: GameObject[]): number => {
+  for (const d of group) {
+    const player = d.getData(InputDevice)!.player;
+    if (player >= 0) return player;
+  }
+  return -1;
+};
 const pairGroup = (group: GameObject[], index: number) => {
   for (const d of group) d.getData(InputDevice)!.player = index;
 };
@@ -138,7 +147,10 @@ function pair(world: World): void {
     }
     for (const group of all) {
       const owner = pairedTo(group);
-      if (owner >= 0 && playerNode(world, owner)) continue;
+      if (owner >= 0 && playerNode(world, owner)) {
+        pairGroup(group, owner); // devices that joined the group since
+        continue;
+      }
       if (playerNodes(world).length >= max) break;
       const node = createPlayer(world);
       pairGroup(group, node.getData(InputPlayer)!.index);
@@ -150,7 +162,10 @@ function pair(world: World): void {
   for (const e of DeviceEvents.read()) if (e.value >= PRESS_POINT || e.value <= -PRESS_POINT) pressed.add(e.device);
   for (const group of all) {
     const owner = pairedTo(group);
-    if (owner >= 0 && playerNode(world, owner)) continue;
+    if (owner >= 0 && playerNode(world, owner)) {
+      pairGroup(group, owner); // devices that joined the group since
+      continue;
+    }
     if (owner >= 0) pairGroup(group, -1); // its player left
     if (!group.some((d) => pressed.has(d))) continue;
     if (playerNodes(world).length >= max) break;

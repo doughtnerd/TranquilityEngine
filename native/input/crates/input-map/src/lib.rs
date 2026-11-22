@@ -6,7 +6,8 @@
 //! * [`parse_web_gamepad_id`]: vendor and product from a browser `Gamepad.id`.
 //! * [`web_mapping`]: for a browser gamepad without the `"standard"` mapping, where each of the
 //!   engine's controls ([`BUTTONS`], [`AXES`], in wire order) comes from in its raw buttons, axes
-//!   and hats, from the SDL controller database (`db/gamecontrollerdb.txt`, zlib licence,
+//!   and hats (a [`Binding`]: one source, or for a stick axis driven by buttons or hat directions,
+//!   a positive and a negative one), from the SDL controller database (`db/gamecontrollerdb.txt`, zlib licence,
 //!   <https://github.com/mdqinc/SDL_GameControllerDB>).
 //!
 //! Wire order is the W3C "standard" gamepad's (buttons 0..16, axes 0..3, +Y down) followed by the
@@ -192,6 +193,12 @@ pub enum Source {
 }
 
 impl Source {
+    /// True for sources that read 0..1 (buttons, hat directions, half axes): the ones a half-axis
+    /// target (`+leftx:b3`) can take.
+    pub fn is_half(self) -> bool {
+        matches!(self, Source::Button(_) | Source::Hat(..) | Source::AxisPositive(_) | Source::AxisNegative(_))
+    }
+
     /// The wire form `[kind, index]` (see the `input-wasm` crate).
     pub fn wire(self) -> [i16; 2] {
         match self {
@@ -206,17 +213,42 @@ impl Source {
     }
 }
 
-/// A raw gamepad's layout: the source of each control in wire order ([`BUTTONS`] then [`AXES`]).
+/// Where one control's value comes from: `positive − negative`. Most controls have one source
+/// (`leftx:a0`, `a:b2`) in `positive` and no `negative`. A stick axis driven by two buttons or hat
+/// directions (`+rightx:b9,-rightx:b4`, the N64-style pads and Joy-Cons) has a 0..1 source for each
+/// half.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct Binding {
+    pub positive: Source,
+    pub negative: Source,
+}
+
+impl From<Source> for Binding {
+    fn from(positive: Source) -> Binding {
+        Binding { positive, negative: Source::None }
+    }
+}
+
+impl Binding {
+    /// The wire form `[kind, index, kind2, index2]`: the value is the first source's minus the second's.
+    pub fn wire(self) -> [i16; 4] {
+        let [k, i] = self.positive.wire();
+        let [k2, i2] = self.negative.wire();
+        [k, i, k2, i2]
+    }
+}
+
+/// A raw gamepad's layout: the binding of each control in wire order ([`BUTTONS`] then [`AXES`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Mapping {
     /// The controller's name in the database.
     pub name: String,
-    pub controls: [Source; CONTROL_COUNT],
+    pub controls: [Binding; CONTROL_COUNT],
 }
 
 impl Mapping {
-    /// The source of a control by its engine name (`"buttonSouth"`, `"leftStickX"`…).
-    pub fn control(&self, name: &str) -> Option<Source> {
+    /// The binding of a control by its engine name (`"buttonSouth"`, `"leftStickX"`…).
+    pub fn control(&self, name: &str) -> Option<Binding> {
         let i = BUTTONS.iter().chain(AXES.iter()).position(|n| *n == name)?;
         Some(self.controls[i])
     }
@@ -280,18 +312,28 @@ pub fn web_mapping(vendor: u16, product: u16, platform: Platform) -> Option<Mapp
     None
 }
 
-/// A database line's mapping. Controls driven by half-axis targets (`+leftx:b3,-leftx:b2`: buttons
-/// or hats acting as a stick) need two sources, which a [`Source`] can't say, so they read as none.
+/// A database line's mapping. A half-axis target (`+leftx:b3,-leftx:b2`: buttons, hat directions
+/// or half axes acting as a stick) sets one half of an axis's [`Binding`]; it takes 0..1 sources
+/// only (a whole axis there, which the database doesn't use, reads as none).
 pub fn parse_mapping(line: &str) -> Option<Mapping> {
     let mut fields = line.trim().split(',');
     fields.next()?; // GUID
     let name = fields.next()?.to_string();
-    let mut controls = [Source::None; CONTROL_COUNT];
+    let mut controls = [Binding::default(); CONTROL_COUNT];
     for field in fields {
         let Some((target, input)) = field.split_once(':') else { continue };
+        let (half, target) = match target.as_bytes().first() {
+            Some(b'+') => (1, &target[1..]),
+            Some(b'-') => (-1, &target[1..]),
+            _ => (0, target),
+        };
         let Some(i) = SDL_NAMES.iter().position(|n| *n == target) else { continue };
-        if let Some(source) = parse_source(input) {
-            controls[i] = source;
+        let Some(source) = parse_source(input) else { continue };
+        match half {
+            0 => controls[i] = source.into(),
+            _ if i < BUTTONS.len() || !source.is_half() => {}
+            1 => controls[i].positive = source,
+            _ => controls[i].negative = source,
         }
     }
     Some(Mapping { name, controls })
@@ -388,20 +430,40 @@ mod tests {
     fn parses_a_line() {
         let m = parse_mapping("03000000300f00000a01000000000000,3 In 1 Conversion Box,a:b2,b:b1,back:b9,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,leftshoulder:b6,leftstick:b10,lefttrigger:b4,leftx:a0,lefty:a1,rightshoulder:b7,rightstick:b11,righttrigger:b5,rightx:a3,righty:a2,start:b8,x:b3,y:b0,platform:Windows,").unwrap();
         assert_eq!(m.name, "3 In 1 Conversion Box");
-        assert_eq!(m.control("buttonSouth"), Some(Source::Button(2)));
-        assert_eq!(m.control("buttonNorth"), Some(Source::Button(0)));
-        assert_eq!(m.control("select"), Some(Source::Button(9)));
-        assert_eq!(m.control("dpadLeft"), Some(Source::Hat(0, 8)));
-        assert_eq!(m.control("rightStickY"), Some(Source::Axis(2)));
-        assert_eq!(m.control("home"), Some(Source::None));
+        assert_eq!(m.control("buttonSouth"), Some(Source::Button(2).into()));
+        assert_eq!(m.control("buttonNorth"), Some(Source::Button(0).into()));
+        assert_eq!(m.control("select"), Some(Source::Button(9).into()));
+        assert_eq!(m.control("dpadLeft"), Some(Source::Hat(0, 8).into()));
+        assert_eq!(m.control("rightStickY"), Some(Source::Axis(2).into()));
+        assert_eq!(m.control("home"), Some(Binding::default()));
         assert_eq!(m.control("nope"), None);
     }
 
     #[test]
-    fn half_axis_targets_read_as_none() {
-        let m = parse_mapping("x,N64,a:b0,+rightx:b9,-rightx:b8,lefttrigger:+a2,platform:Linux,").unwrap();
-        assert_eq!(m.control("rightStickX"), Some(Source::None));
-        assert_eq!(m.control("leftTrigger"), Some(Source::AxisPositive(2)));
+    fn half_axis_targets_compose_an_axis() {
+        let m = parse_mapping("x,N64,a:b0,+rightx:b9,-rightx:b8,+leftx:h0.2,-leftx:h0.8,-lefty:-a3,+lefty:+a3,lefttrigger:+a2,platform:Linux,").unwrap();
+        assert_eq!(m.control("rightStickX"), Some(Binding { positive: Source::Button(9), negative: Source::Button(8) }));
+        assert_eq!(m.control("leftStickX"), Some(Binding { positive: Source::Hat(0, 2), negative: Source::Hat(0, 8) }));
+        assert_eq!(m.control("leftStickY"), Some(Binding { positive: Source::AxisPositive(3), negative: Source::AxisNegative(3) }));
+        assert_eq!(m.control("leftTrigger"), Some(Source::AxisPositive(2).into()));
+        assert_eq!(m.control("rightStickX").unwrap().wire(), [1, 9, 1, 8]);
+        assert_eq!(Binding::from(Source::Axis(1)).wire(), [2, 1, 0, 0]);
+    }
+
+    #[test]
+    fn half_targets_take_half_sources_on_axes_only() {
+        let m = parse_mapping("x,Odd,+leftx:a0,-rightx:b2,+a:b1,platform:Linux,").unwrap();
+        assert_eq!(m.control("leftStickX"), Some(Binding::default()));
+        assert_eq!(m.control("rightStickX"), Some(Binding { positive: Source::None, negative: Source::Button(2) }));
+        assert_eq!(m.control("buttonSouth"), Some(Binding::default()));
+    }
+
+    #[test]
+    fn the_database_composes_n64_sticks() {
+        // 8BitDo N64 (Windows): its C buttons are the right stick.
+        let m = web_mapping(0x2dc8, 0x9002, Platform::Windows).expect("8BitDo N64 on Windows");
+        assert_eq!(m.control("rightStickX"), Some(Binding { positive: Source::Button(9), negative: Source::Button(4) }));
+        assert_eq!(m.control("rightStickY"), Some(Binding { positive: Source::Button(3), negative: Source::Button(8) }));
     }
 
     #[test]
@@ -421,9 +483,9 @@ mod tests {
     fn maps_known_pads_per_platform() {
         // The DualShock 4 (v1) on Linux: evdev order puts the triggers on axes 2 and 5.
         let m = web_mapping(0x054c, 0x05c4, Platform::Linux).expect("DualShock 4 on Linux");
-        assert_ne!(m.control("buttonSouth"), Some(Source::None));
-        assert!(matches!(m.control("leftStickX"), Some(Source::Axis(0))));
-        assert!(matches!(m.control("leftStickY"), Some(Source::Axis(1))));
+        assert_ne!(m.control("buttonSouth"), Some(Binding::default()));
+        assert_eq!(m.control("leftStickX"), Some(Source::Axis(0).into()));
+        assert_eq!(m.control("leftStickY"), Some(Source::Axis(1).into()));
         // The same pad on Windows and macOS is also known, numbered as each platform numbers it.
         assert!(web_mapping(0x054c, 0x05c4, Platform::Windows).is_some());
         assert!(web_mapping(0x054c, 0x05c4, Platform::MacOs).is_some());

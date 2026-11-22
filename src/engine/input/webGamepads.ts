@@ -30,7 +30,7 @@ function platformOf(nav: Navigator | undefined): Platform {
 
 interface Tracked {
   readonly index: number;
-  /** Per control in wire order (23 buttons, then 4 axes): `[kind, index]`, or null for the standard layout. */
+  /** Per control in wire order (23 buttons, then 4 axes): `[kind, index, kind2, index2]` (`InputMapping.webMapping`), or null for the standard layout. */
   readonly table: Int16Array | null;
   readonly buttons: Float32Array;
   readonly axes: Float32Array;
@@ -139,15 +139,25 @@ export function webGamepads(sink: DeviceEventSink, nav: Navigator & Partial<Game
   };
 }
 
-/** A control's value from a raw (non-standard) pad through a mapping table entry. */
+/**
+ * A control's value from a raw (non-standard) pad through a mapping table entry: its first source
+ * minus its second (a stick axis driven by two buttons or hat directions has both).
+ */
 function mapped(pad: Gamepad, table: Int16Array, control: number): number {
-  const kind = table[control * 2];
-  const index = table[control * 2 + 1];
+  const at = control * 4;
+  const kind = table[at];
+  const index = table[at + 1];
   // A button (the triggers) read from a full axis: -1..1 becomes 0..1.
   if (control < GAMEPAD_BUTTONS.length && (kind === 2 || kind === 5)) {
     const v = pad.axes[index] ?? -1;
     return ((kind === 5 ? -v : v) + 1) / 2;
   }
+  const v = source(pad, kind, index);
+  return table[at + 2] ? v - source(pad, table[at + 2], table[at + 3]) : v;
+}
+
+/** One source's value: a raw button, axis or half axis, or a hat direction (`InputMapping.webMapping`'s kinds). */
+function source(pad: Gamepad, kind: number, index: number): number {
   switch (kind) {
     case 1:
       return pad.buttons[index]?.value ?? 0;

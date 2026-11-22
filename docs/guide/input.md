@@ -19,7 +19,7 @@ export const PlayerActions = defineActions("game.PlayerActions", {
 
 - **Action types:** `button` (0..1, pressed past 0.5), `axis` (-1..1), `vec2`, `vec3`.
 - **Default controls:** the controls you list are the action's defaults. Together they make the **default context**, which is always on. A small game needs nothing else.
-- **Directions:** sticks, the d-pad and pointer delta have **+Y up**.
+- **Directions:** sticks, the d-pad, deltas and pen tilt have **+Y up**. Positions are canvas pixels, +Y down.
 - **Dead zone:** sticks get a 0.15 dead zone unless a mapping gives its own.
 
 **Control paths** name a position, not a vendor's label:
@@ -27,6 +27,8 @@ export const PlayerActions = defineActions("game.PlayerActions", {
 - Pointer: `<Pointer>/button0`…, `<Pointer>/delta`, `<Pointer>/scroll`, `<Pointer>/position`.
 - Gamepad buttons: `<Gamepad>/buttonSouth` (A / Cross), `buttonEast`, `buttonWest`, `buttonNorth`, `leftShoulder`, `rightTrigger`, `start`, `dpadUp`, …
 - Gamepad sticks and motion: `<Gamepad>/leftStick`, `rightStick`, `leftStickX`, `dpad`, `gyro`, `accel`.
+- Touch: `<Touch>/primary` (the first finger down, pressed), `primaryPosition`, `primaryDelta`, `touch0`…`touch9` (each finger by slot), `touch0Position`…, `pinch` (how much two fingers spread this frame, in pixels), `count`.
+- Pen: `<Pen>/tip`, `barrel`, `eraser`, `pressure` (0..1), `position`, `delta`, `tilt` (-1..1), `twist`, `inRange`.
 
 ## Read them
 
@@ -122,7 +124,7 @@ Each mapping gets its own trigger from the function, so it can keep state. An un
 
 **Joining:** `project.json` `input.join` decides how players join:
 - `single` (default): player 0 has every device.
-- `onePerDevice`: the keyboard and mouse are one player, each gamepad another.
+- `onePerDevice`: the keyboard and mouse are one player (with the touchscreen and pen), each gamepad another.
 - `pressToJoin`: a device's first press makes it a new player.
 - `manual`: you join players with `InputPlayers.join()` and `player.pair(device)`.
 
@@ -132,7 +134,7 @@ Each mapping gets its own trigger from the function, so it can keep state. An un
 
 **Where things live:** players and devices are nodes under the World's `Input` node. The node types are:
 - `InputPlayer` on players;
-- `InputDevice` on devices, plus `GamepadState` on gamepads.
+- `InputDevice` on devices, plus `GamepadState` on gamepads, `TouchState` on the touchscreen and `PenState` on the pen.
 
 **Buffers:**
 - `DeviceEvents`: raw presses this frame.
@@ -168,4 +170,5 @@ player.rumble(0.3, 0.8, 200);
 
 - **Desktop:** gamepads come from SDL3 inside the Tauri app, in the editor and in exported games. That includes rumble, trigger rumble, light bars and gyro (`player.setSensors(true)`).
 - **Web:** builds read the browser's Gamepad API. The engine applies the SDL controller database to pads the browser doesn't map, and detects each pad's family.
+- **Touch and pen:** a touchscreen and a pen are devices of their own, which appear when first used. The first finger down and the pen also act as the mouse, so `Input.getMouseButton(0)` and UI buttons work by touch. A touch or pen press on a UI button goes to the UI, not the game.
 - **Your own devices:** `Input.inject` reports device events as an adapter does, for on-screen controls, automation and tests.

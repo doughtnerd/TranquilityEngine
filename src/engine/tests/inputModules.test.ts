@@ -132,6 +132,19 @@ describe("control paths", () => {
     expect(control("<Pointer>/delta")!.additive).toBe(true);
     expect(control("<Gamepad>/nope")).toBeNull();
   });
+
+  it("names touch and pen controls", () => {
+    expect(control("<Touch>/primary")!.source).toEqual({ device: "touch", read: "press", slot: -1 });
+    expect(control("<Touchscreen>/touch3")!.path).toBe("<Touch>/touch3");
+    expect(control("<Touch>/touch9Position")!).toMatchObject({ source: { device: "touch", read: "position", slot: 9 }, dimensions: 2 });
+    expect(control("<Touch>/primaryDelta")!.additive).toBe(true);
+    expect(control("<Touch>/pinch")!).toMatchObject({ dimensions: 1, additive: true });
+    expect(control("<Touch>/touch10")).toBeNull();
+    expect(control("<Pen>/eraser")!.source).toEqual({ device: "pen", read: "button", bit: 2 });
+    expect(control("<Pen>/tilt")!.dimensions).toBe(2);
+    expect(control("<Pen>/pressure")!.dimensions).toBe(1);
+    expect(control("<Pen>/nope")).toBeNull();
+  });
 });
 
 /** A sink that records what an adapter reports. */
@@ -151,6 +164,13 @@ function recorder() {
     gamepadButton: (id, i, v) => log.push(["button", id, i, v]),
     gamepadAxis: (id, i, v) => log.push(["axis", id, i, v]),
     gamepadSensor: (id, kind) => log.push(["sensor", id, kind]),
+    touchStart: () => {},
+    touchMove: () => {},
+    touchEnd: () => {},
+    penAt: () => {},
+    penButtonDown: () => {},
+    penButtonUp: () => {},
+    penLeave: () => {},
   };
   return { sink, log };
 }
@@ -183,6 +203,20 @@ describe("the mapping module (native/input as wasm)", () => {
     expect(m.familyOf(0x054c, 0x0ce6, "")).toBe(2);
     expect(m.familyOf(0, 0, "Pro Controller")).toBe(3);
   });
+
+  it("composes a stick axis from two buttons (the database's +rightx:b9,-rightx:b4)", async () => {
+    const m = await loadInputMapping();
+    const table = m.webMapping(0x2dc8, 0x9002, 0)!; // 8BitDo N64 on Windows
+    expect(table.length).toBe(27 * 4);
+    const entry = (name: string) => {
+      const i = m.controlNames().indexOf(name);
+      return [...table.subarray(i * 4, i * 4 + 4)];
+    };
+    expect(entry("rightStickX")).toEqual([1, 9, 1, 4]);
+    expect(entry("rightStickY")).toEqual([1, 3, 1, 8]);
+    expect(entry("leftStickX")).toEqual([2, 0, 0, 0]);
+    expect(entry("buttonSouth")).toEqual([1, 0, 0, 0]);
+  });
 });
 
 describe("the browser adapter (Gamepad API)", () => {
@@ -205,5 +239,36 @@ describe("the browser adapter (Gamepad API)", () => {
     log.length = 0;
     web.poll();
     expect(log).toEqual([["disconnect", 0]]);
+  });
+
+  it("reads a raw pad through the database, driving a stick from two buttons", async () => {
+    const { sink, log } = recorder();
+    const buttons = Array.from({ length: 12 }, () => ({ value: 0, pressed: false, touched: false }));
+    const axes = [0, 0, 0, 0];
+    const pads = [{ index: 1, id: "2dc8-9002-8BitDo N64", mapping: "", connected: true, buttons, axes, timestamp: 0 } as unknown as Gamepad];
+    const web = webGamepads(sink, { getGamepads: () => pads, userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" } as unknown as Navigator)!;
+    await loadInputMapping();
+    web.poll();
+    await new Promise((r) => setTimeout(r, 0));
+    web.poll();
+    expect(log.shift()).toEqual(["connect", 1, "generic"]);
+    log.length = 0;
+    const rightStickX = GAMEPAD_AXES.indexOf("rightStickX");
+    const rightStickY = GAMEPAD_AXES.indexOf("rightStickY");
+    buttons[9].value = 1; // C-right
+    web.poll();
+    expect(log).toEqual([["axis", 1, rightStickX, 1]]);
+    log.length = 0;
+    buttons[9].value = 0;
+    buttons[4].value = 1; // C-left
+    buttons[3].value = 1; // C-down (+Y down on the wire)
+    axes[0] = 0.25;
+    web.poll();
+    expect(log).toEqual([["axis", 1, 0, 0.25], ["axis", 1, rightStickX, -1], ["axis", 1, rightStickY, 1]]);
+    log.length = 0;
+    buttons[9].value = 1; // both halves held cancel out
+    web.poll();
+    expect(log).toEqual([["axis", 1, rightStickX, 0]]);
+    web.stop();
   });
 });

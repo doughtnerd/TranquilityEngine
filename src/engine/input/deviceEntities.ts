@@ -1,7 +1,8 @@
 /**
  * Device entities (ADR 0335): each World that takes local input mirrors the Engine's device
  * snapshot into ECS data in its `input` phase. Every device is a node under the World's `Input`
- * node with `InputDevice`, gamepads also with `GamepadState`; this frame's raw device events are
+ * node with `InputDevice`, gamepads also with `GamepadState`, the touchscreen with `TouchState`
+ * and the pen with `PenState`; this frame's raw device events are
  * the `DeviceEvents` buffer. A World that doesn't take input (a server, `input: false`, an editor
  * tile without focus) has no device nodes: gating is the system not running there.
  */
@@ -9,17 +10,18 @@ import { World } from "../core/World";
 import { defineBuffer, defineComponent, f32, i32, u8, type DataView } from "../core/data";
 import { defineBuiltinSystem } from "../core/systems";
 import type { GameObject } from "../scene/GameObject";
-import { GAMEPAD_AXES, GAMEPAD_BUTTONS, type DeviceFamily } from "./controls";
-import { KEYBOARD_DEVICE, POINTER_DEVICE, devices, type GamepadSnapshot } from "./devices";
+import { GAMEPAD_AXES, GAMEPAD_BUTTONS, TOUCH_SLOTS, type DeviceFamily } from "./controls";
+import { KEYBOARD_DEVICE, PEN_DEVICE, POINTER_DEVICE, TOUCH_DEVICE, devices, type GamepadSnapshot, type PenSnapshot, type TouchscreenSnapshot } from "./devices";
 
 /** `InputDevice.kind`. */
-export const DeviceKind = { keyboard: 0, pointer: 1, gamepad: 2 } as const;
+export const DeviceKind = { keyboard: 0, pointer: 1, gamepad: 2, touch: 3, pen: 4 } as const;
 
 /** `InputDevice.family`, by index. */
-export const DEVICE_FAMILIES: readonly DeviceFamily[] = ["keyboard", "pointer", "generic", "xbox", "playstation", "switch"];
+export const DEVICE_FAMILIES: readonly DeviceFamily[] = ["keyboard", "pointer", "generic", "xbox", "playstation", "switch", "touch", "pen"];
 
 /**
- * A device this World sees. `device` is the adapter's id (`-1` keyboard, `-2` pointer, gamepads ≥ 0),
+ * A device this World sees. `device` is the adapter's id (`-1` keyboard, `-2` pointer, `-3`
+ * touchscreen, `-4` pen, gamepads ≥ 0),
  * `slot` the gamepad's order of connection (0 first; keyboard and pointer 0), `player` the index of
  * the player it's paired with (ADR 0337), -1 for none. `connected` drops to 0 for the frame a gamepad
  * is unplugged, then its node is destroyed.
@@ -39,11 +41,33 @@ for (const f of ["gyroX", "gyroY", "gyroZ", "accelX", "accelY", "accelZ"]) gamep
  */
 export const GamepadState = defineComponent("engine.GamepadState", gamepadSchema);
 
+const touchSchema: Record<string, typeof f32 | typeof i32> = { held: i32, down: i32, up: i32, count: i32 };
+for (let i = 0; i < TOUCH_SLOTS; i++) touchSchema[`x${i}`] = touchSchema[`y${i}`] = f32;
+for (const f of ["primaryX", "primaryY", "primaryDeltaX", "primaryDeltaY", "pinch"]) touchSchema[f] = f32;
+
+/**
+ * The touchscreen this frame (it appears with the first touch): `held`/`down`/`up` bitmasks (bits
+ * 0–9: the finger in that slot; bit 10: the primary touch, the first finger down), `count` fingers
+ * down, each slot's position `x0`/`y0`…`x9`/`y9` and the primary's (`primaryX`, `primaryY`) in
+ * canvas pixels, the primary's movement this frame (`primaryDeltaX`/`Y`, +Y down), and `pinch`, how
+ * much the distance between the two lowest-slot fingers grew this frame (pixels). A touch the UI
+ * took (ADR 0069) isn't in the bitmasks.
+ */
+export const TouchState = defineComponent("engine.TouchState", touchSchema);
+
+/**
+ * The pen this frame (it appears when first sensed): `held`/`down`/`up` bitmasks (bit 0 the tip
+ * touching, 1 the barrel button, 2 the eraser), position `x`/`y` in canvas pixels and movement
+ * `deltaX`/`deltaY` (+Y down), `pressure` 0..1, `tiltX`/`tiltY` -1..1 (±90°, +Y toward the user),
+ * `twist` 0..1 of a turn, and `inRange` 1 while hovering or touching.
+ */
+export const PenState = defineComponent("engine.PenState", { held: i32, down: i32, up: i32, x: f32, y: f32, deltaX: f32, deltaY: f32, pressure: f32, tiltX: f32, tiltY: f32, twist: f32, inRange: u8 });
+
 /** One raw device event this frame: a key, a pointer button, a gamepad button, or an axis crossing the press point. */
 export interface DeviceEvent {
   /** The device's node. */
   readonly device: GameObject;
-  /** The control path, e.g. `<Keyboard>/space`, `<Gamepad>/buttonSouth`, `<Gamepad>/leftStickX`. */
+  /** The control path, e.g. `<Keyboard>/space`, `<Gamepad>/buttonSouth`, `<Gamepad>/leftStickX`, `<Touch>/touch0`, `<Pen>/tip`. */
   readonly control: string;
   readonly value: number;
   /** `performance.now()` milliseconds. */
@@ -113,6 +137,37 @@ function writePad(view: DataView<Record<string, typeof f32>>, pad: GamepadSnapsh
   v.accelZ = pad.accel[2];
 }
 
+function writeTouch(view: Record<string, number>, touch: TouchscreenSnapshot): void {
+  view.held = touch.held;
+  view.down = touch.down;
+  view.up = touch.up;
+  view.count = touch.count;
+  for (let i = 0; i < TOUCH_SLOTS; i++) {
+    view[`x${i}`] = touch.x[i];
+    view[`y${i}`] = touch.y[i];
+  }
+  view.primaryX = touch.primaryX;
+  view.primaryY = touch.primaryY;
+  view.primaryDeltaX = touch.primaryDeltaX;
+  view.primaryDeltaY = touch.primaryDeltaY;
+  view.pinch = touch.pinch;
+}
+
+function writePen(view: Record<string, number>, pen: PenSnapshot): void {
+  view.held = pen.held;
+  view.down = pen.down;
+  view.up = pen.up;
+  view.x = pen.x;
+  view.y = pen.y;
+  view.deltaX = pen.deltaX;
+  view.deltaY = pen.deltaY;
+  view.pressure = pen.pressure;
+  view.tiltX = pen.tiltX;
+  view.tiltY = pen.tiltY;
+  view.twist = pen.twist;
+  view.inRange = pen.inRange ? 1 : 0;
+}
+
 function sync(world: World): void {
   const s = stateOf(world);
   for (const node of s.leaving) if (node.isValid) world._destroyNode(node.entity);
@@ -132,6 +187,17 @@ function sync(world: World): void {
   if (devices.hasKeyboardAndPointer) {
     if (!s.nodes.get(KEYBOARD_DEVICE)?.isValid) add(KEYBOARD_DEVICE, "Keyboard", DeviceKind.keyboard, "keyboard", 0);
     if (!s.nodes.get(POINTER_DEVICE)?.isValid) add(POINTER_DEVICE, "Pointer", DeviceKind.pointer, "pointer", 0);
+  }
+  // The touchscreen and pen exist once an adapter has reported them.
+  if (devices.hasTouch) {
+    let node = s.nodes.get(TOUCH_DEVICE);
+    if (!node?.isValid) (node = add(TOUCH_DEVICE, "Touchscreen", DeviceKind.touch, "touch", 0)).addData(TouchState);
+    writeTouch(node.getData(TouchState) as unknown as Record<string, number>, devices.touch);
+  }
+  if (devices.hasPen) {
+    let node = s.nodes.get(PEN_DEVICE);
+    if (!node?.isValid) (node = add(PEN_DEVICE, "Pen", DeviceKind.pen, "pen", 0)).addData(PenState);
+    writePen(node.getData(PenState) as unknown as Record<string, number>, devices.pen);
   }
   // Gamepads: unplugged ones leave, new ones join with the lowest free slot.
   const live = new Set<number>();

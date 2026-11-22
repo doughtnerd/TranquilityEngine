@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ActionEvents,
   ControlledBy,
+  DeviceKind,
   DeviceEvents,
   Engine,
   GameBehavior,
@@ -36,6 +37,17 @@ const Player = defineActions("test.inputActions.Player", {
   steer: axis(axisOf("<Keyboard>/arrowleft", "<Keyboard>/arrowright")),
   look: vec2("<Pointer>/delta"),
   honk: button(),
+});
+
+const Touch = defineActions("test.inputActions.Touch", {
+  tap: button("<Touch>/primary"),
+  second: button("<Touch>/touch1"),
+  drag: vec2("<Touch>/primaryDelta"),
+  zoom: axis("<Touch>/pinch"),
+  draw: button("<Pen>/tip"),
+  ink: axis("<Pen>/pressure"),
+  lean: vec2("<Pen>/tilt"),
+  nib: vec2("<Pen>/position"),
 });
 
 defineInputContext({ name: "test.vehicle", mappings: [{ action: "honk", control: "<Keyboard>/space" }] });
@@ -160,6 +172,52 @@ describe("actions and the default context (ADR 0336)", () => {
     expect(p0().value("steer")).toBe(-1);
   });
 
+  it("reads touch controls: the primary touch, a finger by slot, the drag with +Y up, and the pinch", () => {
+    const events: [string, string, number][] = [];
+    defineSystem({ name: "test.inputActions.touchEvents", phase: "update", run: () => { for (const e of DeviceEvents.read()) events.push([e.device.name, e.control, e.value]); } });
+    Input.inject.touchStart(1, 100, 100);
+    step();
+    expect(p0().performed("tap")).toBe(true);
+    expect(p0().held("second")).toBe(false);
+    expect(events.splice(0)).toEqual([["Touchscreen", "<Touch>/touch0", 1]]);
+    expect(engine.world.root.find("Input/Touchscreen")!.getData(InputDevice)!.kind).toBe(DeviceKind.touch);
+    Input.inject.touchStart(2, 200, 90);
+    Input.inject.touchMove(1, 110, 90);
+    step();
+    expect(p0().held("second")).toBe(true);
+    expect(events.splice(0)).toEqual([["Touchscreen", "<Touch>/touch1", 1]]);
+    expect(p0().vector2("drag").toArray()).toEqual([10, 10]);
+    Input.inject.touchMove(2, 260, 90);
+    step();
+    expect(p0().value("zoom")).toBeCloseTo(60);
+    expect(p0().vector2("drag").toArray()).toEqual([0, 0]);
+    Input.inject.touchEnd(1, 110, 90);
+    Input.inject.touchEnd(2, 260, 90);
+    step();
+    expect(p0().released("tap")).toBe(true);
+    expect(events.splice(0)).toEqual([["Touchscreen", "<Touch>/touch0", 0], ["Touchscreen", "<Touch>/touch1", 0]]);
+    expect(Input.getMouseButton(0)).toBe(false); // injected touches aren't the pointer
+  });
+
+  it("reads pen controls: the tip, pressure, tilt with +Y away from the user, and position", () => {
+    Input.inject.penAt(30, 40, 0, 0, 0, 0);
+    step();
+    expect(engine.world.root.find("Input/Pen")!.getData(InputDevice)!.kind).toBe(DeviceKind.pen);
+    expect(p0().held("draw")).toBe(false);
+    Input.inject.penAt(32, 40, 0.6, 30, 45, 0);
+    Input.inject.penButtonDown(0);
+    step();
+    expect(p0().performed("draw")).toBe(true);
+    expect(p0().value("ink")).toBeCloseTo(0.6);
+    expect(p0().vector2("lean").x).toBeCloseTo(1 / 3);
+    expect(p0().vector2("lean").y).toBeCloseTo(-0.5);
+    expect(p0().vector2("nib").toArray()).toEqual([32, 40]);
+    Input.inject.penButtonUp(0);
+    Input.inject.penLeave();
+    step();
+    expect(p0().released("draw")).toBe(true);
+  });
+
   it("triggers a hold after its time, reporting progress", () => {
     Input.inject.keyDown("h");
     step();
@@ -263,6 +321,25 @@ describe("players and pawns (ADR 0337)", () => {
     step();
     expect(InputPlayers.get(1)!.performed("jump")).toBe(true);
     expect(InputPlayers.get(0)!.held("jump")).toBe(false);
+  });
+
+  it("joins the touchscreen and pen with the keyboard and pointer (pressToJoin)", async () => {
+    engine.dispose();
+    engine = await Engine.create({ headless: true, project: { input: { join: "pressToJoin", maxPlayers: 4 } } });
+    Input.inject.keyDown("q");
+    Input.inject.keyUp("q");
+    pad(12);
+    step();
+    expect(InputPlayers.all().map((p) => p.index)).toEqual([0]); // the keyboard's press joined
+    Input.inject.touchStart(4, 10, 10);
+    Input.inject.penAt(5, 5, 0, 0, 0, 0);
+    step();
+    expect(InputPlayers.all().map((p) => p.index)).toEqual([0]); // no new player: same group
+    const playerOf = (name: string) => engine.world.root.find(`Input/${name}`)!.getData(InputDevice)!.player;
+    expect([playerOf("Keyboard"), playerOf("Touchscreen"), playerOf("Pen"), playerOf("Pad 12")]).toEqual([0, 0, 0, -1]);
+    step();
+    expect(InputPlayers.get(0)!.held("tap")).toBe(true);
+    Input.inject.touchEnd(4, 10, 10);
   });
 
   it("rebinds an action to the next press, and names prompts for the device last used", async () => {
