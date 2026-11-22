@@ -18,3 +18,7 @@ Decisions made during the build that the records didn't settle. Each entry: the 
 - **D14 (T03r).** *Formats refuse unknown sections and flag bits* and require canonical layouts; writers re-parse their output. *Revert:* skip unknown kinds in `container::parse`.
 - **D15 (T03r).** *Compressed bone tracks split into rotation (drop-w or full), translation and scale channels,* with an 8-bit range per channel per segment and bit rates {0, 3–16, 19, 23, 32 = raw}.
 - **D16 (T03r).** *Every key is 32 bytes* with per-kind meaning, so TypeScript indexes one table.
+- **D17 (T12).** *Blends use nlerp;* no positive weight gives the rest pose.
+- **D18 (T12).** *Mirror is a local sign flip assuming mirrored local frames.* Rigs with flipped-axis conventions need a per-bone flip table in the skeleton profile: added to T41's scope.
+- **D19 (T12).** *Inertialization:* a scalar offset per channel (translation vector, rotation axis-angle), a0 = 0, blend time clamped to `min(T, 2.5·|x0|/|v0|)` (the exact no-overshoot bound for a0 = 0 is 2.50087; Bollo's 5 overshoots); scale isn't inertialized; under 1e-4 s is a cut.
+- **D20 (T12).** *Sync phase* = (marker index, id, fraction, normalised time), falling back to normalised time when a clip lacks the marker.

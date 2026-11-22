@@ -139,7 +139,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
   - per-entry weights.
   
   Tests against `anim-offline/rig`.
-- **T41, `anim-retarget`:** the built-in Humanoid profile with joint ranges; chain retargeting with rest-pose compensation, root and goal scaling and IK pinning; `guess_bone_map` (name heuristics, in Rust, so TypeScript only calls it); the runtime node; the offline bake.
+- **T41, `anim-retarget`:** the built-in Humanoid profile with joint ranges and a per-bone mirror axis-flip table (D18; `anim-pose::mirror` applies it); chain retargeting with rest-pose compensation, root and goal scaling and IK pinning; `guess_bone_map` (name heuristics, in Rust, so TypeScript only calls it); the runtime node; the offline bake.
 - **T42, `anim-match`:** features and normalisation, KD-tree plus SIMD brute force, spring-damped trajectory prediction, tags, the database bake, search every N frames or on a large change, inertialized switches, the database node. A small synthetic database.
 - **T44r, `anim-physics`:** joint drive targets and strengths per bone from a pose and a ragdoll description; physical-pose blend input.
 - **T45, third-party nodes, Rust side:**

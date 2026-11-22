@@ -19,3 +19,4 @@ Wave results, measurements (marked measured or estimated) and gate changes.
 
 - `anim-math` with bit-identical simd128 and scalar paths, verified on wasm in Node (the task's own runner), plus f64 reference and golden hash. First pass green; agent time about 16 minutes. Wasm unchanged in size (25,206 B; the core doesn't use the maths yet).
 - **T03r merged:** the four binary formats, 25 tests including 2,000 random bit-flips per buffer. First pass green; agent time about 20 minutes. It adopted T10's u16 parent layout from a coordinator note mid-task.
+- **T12 merged:** `anim-pose`, 48 tests, also on wasm32 simd128. First pass green (mid model); agent time about 30 minutes.
