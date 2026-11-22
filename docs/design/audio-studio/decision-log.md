@@ -214,3 +214,17 @@ it (ADR 0330); `Audio.snapshot(name, fade)` still starts it. Revert: make the on
 Core features still needed (listed for a core task): bus-to-return sends with slots, a dB-linear ramp law, a VCA wire
 lane, 8 effects per bus and the catalogue's bus effects, smoothed effect parameters, automation of any effect parameter
 and send, core-side send muting, ducking with returns.
+
+**D30. Core pan/high-pass, start offsets, submixes (W6-A, merged via a merge task).** Mono pan is equal-power
+normalised so centre is unchanged (+3 dB hard-panned), stereo is balance; spatial voices ignore pan (FMOD 2D panner
+practice); sends are unpanned; a high-pass floor ≤ 20 Hz is no floor (ABI 4.4). Start offsets ride the existing PLAY
+`startOffsetFrames` (sample-exact, no fade); `offset` applies to whatever an instance starts synchronously. **New public
+API:** `OneShotOptions.offset`, `EventOptions.offset` (needed by audition, sequence transport and take seek; covered by
+ADR 0329/0334's seek and audition requirements — flagged for review). Submixes: a fixed 64-slot core pool, one per
+instance carrying the root playlist's/sequence's effects (track, clip and nested effects keep per-voice mapping),
+routing only for voices on the submix's bus, unknown effect kinds pass through (ABI 4.5). Mixer wasm 403,838 B; the
+tripwire was raised 400 KB → 512 KB (native/audio/build.mjs, reason: ADR 0331 submixes and the DSP catalogue to come).
+Merge decision: pan/high-pass time lanes become core bindings per voice start (one conversion point). Known follow-ups:
+the core curve table (1024, never freed) can fill with per-voice shifted curves on long instances with time-keyed
+pan/high-pass lanes (fix: a time origin per binding); instance low-pass automation can't open above a submix's fixed
+cutoff (needs submix parameter automation).
