@@ -1,5 +1,9 @@
 // ADR 0162 C2b: main's ZoneIrService over the real decoder client and handler (in-process worker, real wasm): the cache,
 // release, re-preparation on a rate change, failures, and that no kernel bytes ever reach main.
+//
+// Timing: every step waits for the service's own answer (`onPrepared` / `onFailed`, or the worklet's unload), never for
+// a wall-clock delay: the in-process worker compiles real wasm and decodes, which under a loaded machine takes longer than
+// any fixed wait (decision log D43: a 20 ms wait failed under the full suite).
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -15,7 +19,11 @@ import { createZoneIrService } from "./zoneIr";
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio_decode.wasm", import.meta.url)));
 const wasmBytes = () => WASM.buffer.slice(WASM.byteOffset, WASM.byteOffset + WASM.byteLength) as ArrayBuffer;
 const ID = ZONE_KERNEL_ID_FIRST;
-const tick = () => new Promise<void>((r) => setTimeout(r, 20));
+
+/** Yield to the event loop until `done()` holds (the in-process worker's wasm compile and fetches are real async work). */
+async function until(done: () => boolean): Promise<void> {
+  while (!done()) await new Promise<void>((r) => setTimeout(r, 0));
+}
 
 async function setup(assets: Record<string, ArrayBuffer> = {}) {
   const fetched: string[] = [];
@@ -56,7 +64,11 @@ async function setup(assets: Record<string, ArrayBuffer> = {}) {
   const failed: { token: number; kernelId: number; code: number; message: string }[] = [];
   service.onPrepared = (e) => void prepared.push(e);
   service.onFailed = (e) => void failed.push(e);
-  return { service, client, worklet, fetched, toMain, requests, prepared, failed };
+  /** The service's answers so far (each prepare, re-preparation or refusal is answered once). */
+  const answers = () => prepared.length + failed.length;
+  /** Waits until the service has given `n` answers in all since setup. */
+  const answered = (n: number) => until(() => answers() >= n);
+  return { service, client, worklet, fetched, toMain, requests, prepared, failed, answers, answered };
 }
 
 const asset = (url: string, rate = 48000) => ({ kernelId: ID, assetUrl: url, contextRate: rate, maxFrames: 48000 });
@@ -65,7 +77,7 @@ describe("ZoneIrService", () => {
   it("prepares an asset: kernel to the worklet, only timings to main", async () => {
     const t = await setup({ "ir/hall.wav": ir(9600, 2) });
     const token = t.service.prepare(asset("ir/hall.wav"));
-    await tick();
+    await t.answered(1);
     expect(t.prepared).toEqual([expect.objectContaining({ token, kernelId: ID, truncated: false })]);
     expect(t.prepared[0].frames).toBeGreaterThan(0);
     expect(t.worklet.kernels.get(ID)!.received).toBeGreaterThan(1000);
@@ -76,7 +88,7 @@ describe("ZoneIrService", () => {
   it("a kernel already prepared at this rate answers at once, without a worker request", async () => {
     const t = await setup({ "ir/hall.wav": ir(9600, 2) });
     t.service.prepare(asset("ir/hall.wav"));
-    await tick();
+    await t.answered(1);
     const posted = t.requests.length;
     const again = t.service.prepare(asset("ir/hall.wav"));
     expect(t.prepared).toHaveLength(1); // not inside prepare()
@@ -89,7 +101,7 @@ describe("ZoneIrService", () => {
     const t = await setup({ "ir/hall.wav": ir(9600, 2) });
     const a = t.service.prepare(asset("ir/hall.wav"));
     const b = t.service.prepare(asset("ir/hall.wav"));
-    await tick();
+    await t.answered(2);
     expect(t.prepared.map((p) => p.token).sort()).toEqual([a, b]);
     expect(t.requests.filter((r) => r.type === "prepareIr")).toHaveLength(1);
   });
@@ -98,10 +110,10 @@ describe("ZoneIrService", () => {
     const t = await setup({ "ir/hall.wav": ir(9600, 2) });
     t.service.prepare(asset("ir/hall.wav"));
     t.service.prepare({ kernelId: ID + 1, preset: "room", contextRate: 48000, maxFrames: 48000 });
-    await tick();
+    await t.answered(2);
     t.prepared.length = 0;
     t.service.reprepareAll?.(44100);
-    await tick();
+    await until(() => t.prepared.length >= 2);
     expect(t.fetched).toEqual(["ir/hall.wav"]);
     expect(t.prepared.map((p) => p.kernelId).sort()).toEqual([ID, ID + 1]);
     expect(t.worklet.kernels.get(ID)!.rate).toBe(44100);
@@ -112,7 +124,7 @@ describe("ZoneIrService", () => {
     expect(t.requests.length).toBe(posted);
     t.service.prepare(asset("ir/hall.wav", 48000));
     expect(t.requests.length).toBe(posted + 1);
-    await tick();
+    await until(() => t.prepared.length >= 3);
     expect(t.fetched.length).toBe(1);
     expect(t.toMain.every((m) => m.bytes === 0)).toBe(true);
   });
@@ -120,16 +132,16 @@ describe("ZoneIrService", () => {
   it("release forgets the kernel: the worklet unloads it and a later prepare re-sends", async () => {
     const t = await setup({ "ir/hall.wav": ir(4800, 1) });
     t.service.prepare(asset("ir/hall.wav"));
-    await tick();
+    await t.answered(1);
+    expect(t.worklet.kernels.has(ID)).toBe(true);
     t.service.release(ID);
     t.service.release(ID + 9); // unknown: ignored
-    await tick();
+    await until(() => t.worklet.log.includes(`unload ${ID}`)); // the worklet's unload is the release's answer
     expect(t.worklet.kernels.has(ID)).toBe(false);
-    t.service.reprepareAll?.(44100); // nothing held
-    await tick();
+    t.service.reprepareAll?.(44100); // nothing held: nothing is asked of the worker
     expect(t.requests.filter((r) => r.type === "prepareIr")).toHaveLength(1);
     t.service.prepare(asset("ir/hall.wav"));
-    await tick();
+    await t.answered(2);
     expect(t.fetched.length).toBe(2);
     expect(t.worklet.kernels.has(ID)).toBe(true);
   });
@@ -141,7 +153,7 @@ describe("ZoneIrService", () => {
     const bad = t.service.prepare({ ...asset("ir/bad.wav"), kernelId: ID + 2 });
     const missing = t.service.prepare({ ...asset("ir/none.wav"), kernelId: ID + 3 });
     const preset = t.service.prepare({ kernelId: ID + 4, preset: "cathedral", contextRate: 48000, maxFrames: 4800 });
-    await tick();
+    await t.answered(5);
     const by = (token: number) => t.failed.find((f) => f.token === token)!;
     expect(by(surround).code).toBe(-4);
     expect(by(silent).code).toBe(-5);
@@ -160,7 +172,7 @@ describe("ZoneIrService", () => {
     const t = await setup();
     t.service.prepare({ kernelId: ID, contextRate: 48000, maxFrames: 4800 });
     t.service.prepare({ kernelId: ID, assetUrl: "a.wav", preset: "room", contextRate: 48000, maxFrames: 4800 });
-    await tick();
+    await t.answered(2);
     expect(t.failed).toHaveLength(2);
     expect(t.requests.filter((r) => r.type === "prepareIr" || r.type === "generateIr")).toHaveLength(0);
   });
@@ -169,12 +181,12 @@ describe("ZoneIrService", () => {
     const t = await setup({ "ir/hall.wav": ir(9600, 2) });
     const first = t.service.prepare(asset("ir/hall.wav"));
     const second = t.service.prepare({ ...asset("ir/hall.wav"), maxFrames: 24000 });
-    await tick();
+    await t.answered(2);
     expect(t.failed.map((f) => f.token)).toEqual([first]);
     expect(t.prepared.map((p) => p.token)).toEqual([second]);
     t.service.dispose?.();
     t.service.prepare(asset("ir/hall.wav"));
-    await tick();
+    await t.answered(3);
     expect(t.failed).toHaveLength(2); // disposed: refused
   });
 });
