@@ -433,7 +433,7 @@ class PlaylistReader {
   sequence(o: JsonRecord, where: string, depth: number): SequenceSettings {
     const r = this.r;
     const out = defaultSequence();
-    out.length = r.num(o.length, `${where}.length`, 4, 0.001, 86400);
+    out.length = r.num(o.length, `${where}.length`, 4, 0, 86400);
     if (o.tempo !== undefined && o.tempo !== null) {
       const t = r.record(o.tempo, `${where}.tempo`);
       if (t) {
@@ -539,7 +539,7 @@ class PlaylistReader {
       id: ids.take(raw.id, where, "c"),
       ...source,
       at: r.num(raw.at, `${where}.at`, 0, 0),
-      length: r.num(raw.length, `${where}.length`, 1, 0.001),
+      length: r.num(raw.length, `${where}.length`, 1, 0),
       offset: r.num(raw.offset, `${where}.offset`, 0, 0),
       gain: r.num(raw.gain, `${where}.gain`, 0, -96, 24),
       pitch: r.num(raw.pitch, `${where}.pitch`, 0, -48, 48),

@@ -1,5 +1,6 @@
 /** `migrateProjectAudioEvents` (ADR 0329 §"Migration"): every event file becomes a playlist beside it. */
 import { describe, expect, it } from "vitest";
+import { emptyPlaylist, parsePlaylist } from "../playlist/format";
 import { migrateProjectAudioEvents, playlistPathFor, writePlaylistText } from "./index";
 
 const event = (root: unknown, extra: Record<string, unknown> = {}) => JSON.stringify({ format: "myco.audioevent@1", root, ...extra });
@@ -20,7 +21,7 @@ describe("migrateProjectAudioEvents", () => {
     ]);
     const text = r.writes.get("audio/step.playlist.json")!;
     expect(text.endsWith("\n")).toBe(true);
-    expect(JSON.parse(text)).toMatchObject({ format: "myco.playlist@1", type: "clip", entries: [{ kind: "sample", sample: "audio/step.wav" }] });
+    expect(parsePlaylist(JSON.parse(text)).playlist).toMatchObject({ format: "myco.playlist@1", type: "clip", entries: [{ kind: "sample", sample: "audio/step.wav" }] });
     expect(r.notes).toEqual([]);
   });
 
@@ -50,6 +51,8 @@ describe("migrateProjectAudioEvents", () => {
 
   it("names the playlist after the event and writes two-space JSON", () => {
     expect(playlistPathFor("a/b/c.audioevent.json")).toBe("a/b/c.playlist.json");
-    expect(writePlaylistText({ format: "myco.playlist@1" } as never)).toBe('{\n  "format": "myco.playlist@1"\n}\n');
+    const text = writePlaylistText(emptyPlaylist("clip"));
+    expect(text.endsWith("\n")).toBe(true);
+    expect(text.split("\n")[1]).toBe('  "format": "myco.playlist@1",');
   });
 });

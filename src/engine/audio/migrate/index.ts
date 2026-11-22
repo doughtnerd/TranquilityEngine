@@ -4,6 +4,7 @@
  * write, what to delete (callers move the old file to `.myco/migrated/`) and the path moves, so callers rewrite the
  * references (scenes' `AudioSource.clip`, scripts, other assets) themselves. Never throws.
  */
+import { formatPlaylist } from "../playlist/format";
 import { AUDIO_EVENT_SUFFIX, isAudioEventPath, parseAudioEvent } from "../eventFormat";
 import { PLAYLIST_SUFFIX, type PlaylistAsset } from "../playlist/types";
 import { migrateAudioEvent, type MigrateOptions } from "./audioEvent1";
@@ -24,9 +25,9 @@ export interface ProjectMigration {
 /** The playlist path that replaces an audio event path: same folder and base name. */
 export const playlistPathFor = (eventPath: string): string => eventPath.slice(0, eventPath.length - AUDIO_EVENT_SUFFIX.length) + PLAYLIST_SUFFIX;
 
-/** A playlist as file text. TODO: switch to `playlistToJson` from `../playlist/format.ts` once it lands. */
+/** A playlist as file text (the playlist format's canonical writer). */
 export function writePlaylistText(asset: PlaylistAsset): string {
-  return JSON.stringify(asset, null, 2) + "\n";
+  return formatPlaylist(asset);
 }
 
 /** Migrate every `*.audioevent.json` among `files` (project path → text). */

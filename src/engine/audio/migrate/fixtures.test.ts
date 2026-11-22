@@ -1,3 +1,4 @@
+import { parsePlaylist } from "../playlist/format";
 /**
  * Every audio event in the repo migrates without throwing and gives a structurally valid playlist (ADR 0329): exactly
  * one sample per Clip, Switch maps pointing at real entries, sequence clips with exactly one source. The repo's events
@@ -48,7 +49,8 @@ describe("every repo audio event migrates", () => {
       expect(result.deletes.sort()).toEqual([...texts.keys()].sort());
       expect(result.references).toEqual(result.deletes.map((from) => ({ from, to: playlistPathFor(from) })));
       for (const [path, text] of result.writes) {
-        const playlist = JSON.parse(text);
+        const { playlist, problems } = parsePlaylist(JSON.parse(text), path);
+        expect(problems, path).toEqual([]);
         expect(playlist.format, path).toBe("myco.playlist@1");
         expect(validatePlaylist(playlist), path).toEqual([]);
       }
