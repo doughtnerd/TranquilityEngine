@@ -149,6 +149,15 @@ Nothing. `defineInput` stays for input that isn't an action set.
   where an action has none for a device (`rebind` only replaces existing controls), and accessibility settings on the
   screen.
 
+## Build notes (2026-11-22, chord rebinding and accessibility on the screen)
+
+- **Chord rebinding:** `RebindOptions.chord`, on by default for a modifier composite's `control` part. The rebind finishes at the first release of a control pressed during it. The chord is every control of the device group then held, plus Shift, Ctrl, Alt and Meta held as it started. The main control is the last one pressed (on the keyboard, the last key that isn't one of those four), and the rest are written as `modifier0`… overrides in press order. Finishing on release rather than on press lets a gamepad button be a modifier, and lets a modifier key alone be bound. A control already down at the start is ignored.
+- **Modifier count:** a profile (format 1) replaces a mapping's controls but can't add or remove them. A chord whose modifier count differs from the mapping's is canceled with `reason: "modifierCount"`, and the binding is unchanged. Changing the count waits on the profile-format change (additions and removals).
+- `RebindResult` gains `reason` (`cancel`, `timeout`, `replaced`, `modifierCount`; null when bound), `chord` (a chord rebind's controls, modifiers first) and `modifierCount`.
+- A chord's conflicts are mappings of exactly the same controls; a plain mapping of its main key isn't one, since the chord claims it. `PendingRebind` gains `chord`.
+- **UIControlMapper:** a chord is one cell, labelled with `text.chord` between the controls ("Shift + B") and showing every glyph, and its rebind captures the whole chord. `showAccessibility` adds a section with invert Y, sensitivity and hold-to-toggle rows for the actions listed in `invertYActions`, `sensitivityActions` and `holdToToggleActions`, plus repeat (on/off, delay and interval steppers, `repeatActions`) and the stick dead zone. The rows read and write `PlayerInput.accessibility` and are saved by Save. They sit in the screen's row and column selection, between the bindings and the buttons (a stepper's − and + are two columns), and are read through `settings`.
+- Still not done: adding a binding where an action has none for a device.
+
 ## Open questions
 
 - Maximum local players, and whether one World may host several local players' views (split screen).

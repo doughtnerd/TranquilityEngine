@@ -156,6 +156,26 @@ player.rumble(0.3, 0.8, 200);
 
 `prompt.parts` names each control's rebind part (`control`, `up`…, `modifier0`…) and `prompt.context` its context, the `part` and `context` options of `rebind`.
 
+**Chords.** Rebinding a chord (`chordOf("<Keyboard>/shift", "<Keyboard>/b")`) takes the keys or buttons pressed together:
+
+```ts
+const r = await player.rebind("dash");       // hold Ctrl, press N, let go: dash is now Ctrl+N
+r.chord;                                     // ["<Keyboard>/control", "<Keyboard>/n"]: modifiers first, then the main control
+player.prompt("dash", "keyboard")!.label;    // "Ctrl+N"
+await player.rebind("dash", { part: "modifier0" });  // only the modifier: the next key pressed
+await player.rebind("dash", { chord: false });       // only the main key, keeping the modifier
+await player.rebind("jump", { chord: true });        // a single control, captured the same way
+```
+
+- A chord rebind finishes when the player lets go of a control pressed during it. The chord is everything of that device group held at that moment, plus the Shift, Ctrl, Alt and Meta keys held when it started.
+- The main control is the last one pressed. On the keyboard it's the last key that isn't Shift, Ctrl, Alt or Meta. The rest become `modifier0`, `modifier1`… in the order they were pressed.
+- A control already down when the rebind started (the Enter or south button that opened it) isn't part of the chord, and letting go of it doesn't finish it.
+- `chord` is the default for a chord's main control. It works on a single control and on a chord's `control` part; any other part throws.
+- A chord conflicts with mappings of the same controls only. Shift+B doesn't conflict with a plain B mapping, because the chord claims its key.
+- **The number of modifiers can't change yet.** A profile replaces a mapping's controls but can't add or remove any. A chord with a different number of modifiers from the mapping's (a lone key for Shift+B, or Ctrl+Shift+B) is canceled with `reason: "modifierCount"`. `r.chord` says what was held and `r.modifierCount` how many modifiers the mapping takes. The binding stays as it was.
+
+Every canceled result has a `reason`: `cancel` (the cancel control), `timeout`, `replaced` (another rebind for the player started) or `modifierCount`.
+
 ### Glyphs
 
 The engine draws a glyph for every icon key a prompt gives: keycaps with the key's label, the mouse with the button lit, and each gamepad family's buttons, shoulders, triggers, sticks, d-pad, menu buttons, touchpad and gyro (PlayStation's shapes, Xbox's coloured letters, Switch's letters, positions for other pads). They're plain shapes and letters, built on first use, so nothing needs shipping with a game.
@@ -175,6 +195,7 @@ img.src = glyph.url;                               // an HTML <img>; glyph.svg i
 
 - One row per action (`actions`: a comma-separated list, empty for every action), one per part for a d-pad or axis composite ("Move Up"…), with a **Keyboard** and a **Gamepad** cell. Each shows the binding's glyphs and label; the gamepad column follows the pad the player last used.
 - Click a cell, or select it with the arrow keys or d-pad and press Enter or the south button, then press the new key or button. **Escape** cancels; after `timeout` seconds (default 10) it gives up.
+- A chord is one cell ("Shift + B", with both glyphs). Its rebind takes the keys or buttons held together: hold them, then let go. A chord with a different number of modifiers is refused in the status line, and the binding stays.
 - A conflict is shown in the status line ("B is also bound to Bomb.") and conflicting cells turn `warningColor`.
 - **Reset to defaults** calls `resetBindings`; **Save** calls `saveBindings(profile)`.
 
@@ -184,7 +205,32 @@ mapper.actionLabels = { fire: "Shoot" };
 mapper.text.save = "Speichern";                     // every word it shows is in `text`
 ```
 
-Colours, `fontSize`, `glyphSize` and `width` are fields. Scripts read `rows` (each cell's label, icons and button), `rebinding`, `status` and `conflicts`. Load saved bindings with `player.loadBindings()` when the game starts.
+**Accessibility section.** Turn on `showAccessibility` for a section below the bindings that edits `player.accessibility`:
+
+| Row | Shown for | Control |
+|---|---|---|
+| Invert Y | each action in `invertYActions` | On/Off |
+| Sensitivity | each action in `sensitivityActions` | − value + (0.1 to 5, steps of 0.1) |
+| Press to toggle (hold-to-toggle) | each action in `holdToToggleActions` | On/Off |
+| Repeat held buttons | always | On/Off. When on, it repeats the actions in `repeatActions`, or every button action if that's empty. |
+| Repeat delay, repeat interval | always | − value + (seconds). They work only while repeat is on. |
+| Stick dead zone | always | − value + (0 to 90%) |
+
+```ts
+const mapper = menu.addComponent(UIControlMapper, {
+  actions: "move, look, jump", showAccessibility: true,
+  invertYActions: "look", sensitivityActions: "look", holdToToggleActions: "aim",
+});
+```
+
+The mouse, the arrow keys and the d-pad select these rows as they do the cells: a stepper's − and + are two columns. Enter or the south button toggles or steps. Changes apply at once, **Save** writes them with the bindings, and **Reset to defaults** leaves them alone. Their words are in `text` too (`accessibility`, `invertY`, `on`, `off`, `seconds`…).
+
+Colours, `fontSize`, `glyphSize` and `width` are fields. Scripts read:
+- `rows`: each cell's label, icons, button and whether it's a `chord`;
+- `settings`: each accessibility row's label, value and buttons;
+- `rebinding`, `status`, `conflicts` and `selected`.
+
+Load saved bindings with `player.loadBindings()` when the game starts.
 
 ## Multiplayer
 

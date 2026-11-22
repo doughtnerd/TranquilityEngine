@@ -3,8 +3,11 @@
  * panel of UI elements as its node's children listing a player's actions with their keyboard and
  * gamepad bindings (glyph and label, following the device family the player last used), and
  * rebinds the one the player clicks or confirms through `PlayerInput.rebind`, reports conflicts,
- * resets to the defaults and saves with `saveBindings`. Mouse, keyboard (arrows, Enter) and gamepad
- * (d-pad, south button) all drive it.
+ * resets to the defaults and saves with `saveBindings`. A chord ("Shift + B") is one cell whose
+ * rebind takes the keys or buttons pressed together. With `showAccessibility` it also edits the
+ * player's accessibility settings (invert Y, sensitivity, hold-to-toggle, repeat, stick dead zone),
+ * which Save writes with the bindings. Mouse, keyboard (arrows, Enter) and gamepad (d-pad, south
+ * button) all drive it.
  *
  * Like a UI document's elements, the nodes it builds belong to it: they aren't in the scene file
  * and go when it does. Without a `UICanvas` above it, it makes its own screen canvas.
@@ -17,12 +20,14 @@ import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import { actionSets } from "../input/actions";
 import { DEFAULT_CONTEXT } from "../input/contexts";
-import type { DeviceFamily } from "../input/controls";
+import { control, type DeviceFamily } from "../input/controls";
 import { DeviceEvents, DeviceKind, InputDevice } from "../input/deviceEntities";
+import { DEFAULT_STICK_DEADZONE } from "../input/evaluate";
 import { InputPlayers, type PlayerInput } from "../input/facade";
 import { InputGlyphs } from "../input/glyphs";
 import { familyName } from "../input/players";
-import type { InputPrompt } from "../input/prompts";
+import type { InputAccessibility } from "../input/profiles";
+import { controlLabel, type InputPrompt } from "../input/prompts";
 import { RebindResults, type RebindResult } from "../input/rebind";
 import { UIButton, UICanvas, UIImage, UIPanel, UIText, type UIComponentType, type UILength } from "./components";
 
@@ -51,6 +56,35 @@ export interface UIControlMapperText {
   noPlayer: string;
   /** Part names of composite bindings, after the action's name ("Move Up"). */
   parts: Record<string, string>;
+  /** Between a chord's controls ("Shift + B"). */
+  chord: string;
+  /** In a chord's cell being rebound. */
+  pressChordKey: string;
+  pressChordButton: string;
+  /** The status line while waiting for a chord; `{cancel}` is the cancel key's label. */
+  waitingChordKey: string;
+  waitingChordButton: string;
+  /** A chord with the wrong number of modifiers: `{chord}` is what was pressed, `{count}` the modifiers the binding takes, `{held}` how many were held. */
+  chordCount: string;
+  /** The accessibility section's heading and rows; `{action}` is the action's display name. */
+  accessibility: string;
+  invertY: string;
+  sensitivity: string;
+  holdToToggle: string;
+  repeat: string;
+  repeatDelay: string;
+  repeatInterval: string;
+  deadzone: string;
+  /** A toggle's value. */
+  on: string;
+  off: string;
+  /** A stepper's buttons. */
+  decrease: string;
+  increase: string;
+  /** Stepper values: `{value}` is the number. */
+  multiplier: string;
+  seconds: string;
+  percent: string;
 }
 
 const DEFAULT_TEXT: UIControlMapperText = {
@@ -72,6 +106,27 @@ const DEFAULT_TEXT: UIControlMapperText = {
   saveFailed: "Couldn't save the bindings.",
   noPlayer: "There's no player {player}.",
   parts: { up: "Up", down: "Down", left: "Left", right: "Right", negative: "−", positive: "+" },
+  chord: " + ",
+  pressChordKey: "Press the keys…",
+  pressChordButton: "Press the buttons…",
+  waitingChordKey: "Hold the keys together, then let go… ({cancel} to cancel)",
+  waitingChordButton: "Hold the buttons together, then let go… ({cancel} to cancel)",
+  chordCount: "This binding takes {count} held with the key or button; {chord} has {held}.",
+  accessibility: "Accessibility",
+  invertY: "{action}: Invert Y",
+  sensitivity: "{action}: Sensitivity",
+  holdToToggle: "{action}: Press to toggle",
+  repeat: "Repeat held buttons",
+  repeatDelay: "Repeat delay",
+  repeatInterval: "Repeat interval",
+  deadzone: "Stick dead zone",
+  on: "On",
+  off: "Off",
+  decrease: "−",
+  increase: "+",
+  multiplier: "{value}×",
+  seconds: "{value} s",
+  percent: "{value}%",
 };
 
 /** A device column. */
@@ -86,6 +141,8 @@ export interface UIControlMapperCell {
   readonly icons: readonly string[];
   /** The rebind part (`control`, `up`…), or null when there's nothing to rebind. */
   readonly part: string | null;
+  /** A chord (modifiers and a main control): its rebind takes the controls pressed together. */
+  readonly chord: boolean;
   /** True when another listed action's binding for this device uses the same control. */
   readonly conflict: boolean;
   /** The button: click it (or select it and press Enter) to rebind. */
@@ -102,11 +159,32 @@ export interface UIControlMapperRow {
   readonly gamepad: UIControlMapperCell | null;
 }
 
+/** An accessibility setting the screen edits. */
+export type UIControlMapperSettingKind = "invertY" | "sensitivity" | "holdToToggle" | "repeat" | "repeatDelay" | "repeatInterval" | "deadzone";
+
+/** One accessibility row: a toggle (On/Off) or a stepper (− value +). */
+export interface UIControlMapperSetting {
+  readonly setting: UIControlMapperSettingKind;
+  /** The action it's for (invert Y, sensitivity, hold-to-toggle), or null. */
+  readonly action: string | null;
+  readonly label: string;
+  /** What it shows: the `on` or `off` text, or the stepper's value ("1.5×", "0.4 s", "15%"). */
+  readonly value: string;
+  /** False for the repeat steppers while repeat is off. */
+  readonly enabled: boolean;
+  /** A toggle's button, or null for a stepper. */
+  readonly toggle: UIButton | null;
+  /** A stepper's buttons, or null for a toggle. */
+  readonly decrease: UIButton | null;
+  readonly increase: UIButton | null;
+}
+
 interface Entry {
   readonly part: string;
   readonly label: string;
   readonly icons: readonly string[];
   readonly controls: readonly string[];
+  readonly chord: boolean;
 }
 
 interface CellState {
@@ -116,11 +194,43 @@ interface CellState {
   part: string | null;
   context: string | null;
   controls: readonly string[];
+  chord: boolean;
   conflict: boolean;
   button: UIButton;
   text: UIText;
   images: UIImage[];
 }
+
+interface SettingState {
+  setting: UIControlMapperSettingKind;
+  action: string | null;
+  label: string;
+  value: string;
+  enabled: boolean;
+  name: UIText;
+  valueText: UIText | null;
+  toggle: UIButton | null;
+  toggleText: UIText | null;
+  decrease: UIButton | null;
+  decreaseText: UIText | null;
+  increase: UIButton | null;
+  increaseText: UIText | null;
+}
+
+/** A selectable column of an accessibility row. */
+interface SettingColumn {
+  readonly row: SettingState;
+  readonly op: "toggle" | "decrease" | "increase";
+}
+
+/** Stepper ranges: step, least and most. */
+const STEPPERS: Record<"sensitivity" | "repeatDelay" | "repeatInterval" | "deadzone", { step: number; min: number; max: number }> = {
+  sensitivity: { step: 0.1, min: 0.1, max: 5 },
+  repeatDelay: { step: 0.05, min: 0, max: 2 },
+  repeatInterval: { step: 0.05, min: 0.05, max: 1 },
+  deadzone: { step: 0.05, min: 0, max: 0.9 },
+};
+const DEFAULT_REPEAT = { delay: 0.4, interval: 0.1 };
 
 interface RowState {
   action: string;
@@ -139,6 +249,10 @@ interface Built {
   headerGamepad: UIText;
   headerAction: UIText;
   list: UIPanel;
+  settingsHeading: UIText;
+  settingsList: UIPanel;
+  settingsSignature: string;
+  settings: SettingState[];
   status: UIText;
   reset: UIButton;
   resetText: UIText;
@@ -190,6 +304,16 @@ export class UIControlMapper extends Component {
   @field(String) profile = "";
   /** Seconds to wait for a press before giving up (0: wait until a press or Escape). */
   @field(Number) timeout = 10;
+  /** Show the accessibility section below the bindings: the rows the next four fields ask for, then repeat and the stick dead zone. */
+  @field(Boolean) showAccessibility = false;
+  /** Vector or axis actions with an Invert Y toggle, comma-separated (`"look"`). */
+  @field(String) invertYActions = "";
+  /** Actions with a sensitivity stepper, comma-separated. */
+  @field(String) sensitivityActions = "";
+  /** Button actions with a press-to-toggle switch (hold-to-toggle), comma-separated. */
+  @field(String) holdToToggleActions = "";
+  /** The button actions that repeat when repeat is on, comma-separated (empty: every button action). */
+  @field(String) repeatActions = "";
   @field(String) title = "Controls";
   /** The panel's width in UI pixels (`720`), a percentage, or `"auto"`. */
   @field(String) width: UILength = "720";
@@ -214,7 +338,9 @@ export class UIControlMapper extends Component {
 
   private built: Built | null = null;
   private selection = { row: 0, column: 0 };
-  private waiting: { action: string; device: UIControlMapperDevice; rowIndex: number; column: number } | null = null;
+  private waiting: { action: string; device: UIControlMapperDevice; rowIndex: number; column: number; chord: boolean } | null = null;
+  /** Repeat's delay and interval while it's off, for when it's turned back on. */
+  private repeatMemory = { ...DEFAULT_REPEAT };
   private statusMessage = "";
   private statusWarning = false;
   private lastConflicts: readonly string[] = [];
@@ -225,6 +351,11 @@ export class UIControlMapper extends Component {
   /** The rows as last shown (empty before the first frame). */
   get rows(): readonly UIControlMapperRow[] {
     return (this.built?.rows ?? []).map((r) => ({ action: r.action, part: r.part, label: r.label, keyboard: r.keyboard && cellView(r.keyboard), gamepad: r.gamepad && cellView(r.gamepad) }));
+  }
+
+  /** The accessibility rows as last shown (empty unless `showAccessibility`). */
+  get settings(): readonly UIControlMapperSetting[] {
+    return (this.built?.settings ?? []).map((r) => ({ setting: r.setting, action: r.action, label: r.label, value: r.value, enabled: r.enabled, toggle: r.toggle, decrease: r.decrease, increase: r.increase }));
   }
 
   /** The rebind being waited for, or null. */
@@ -242,7 +373,11 @@ export class UIControlMapper extends Component {
     return this.lastConflicts;
   }
 
-  /** The selected cell: a row index (`rows.length` is the button row) and a column (0: the first shown). */
+  /**
+   * The selected cell: a row index and a column (0: the first shown). Rows count the binding rows,
+   * then the accessibility rows (`settings`; a stepper's columns are − and +), then the button row
+   * (`rows.length + settings.length`).
+   */
   get selected(): { readonly row: number; readonly column: number } {
     return { ...this.selection };
   }
@@ -293,6 +428,7 @@ export class UIControlMapper extends Component {
     const built = (this.built ??= this.build(world));
     const finished = input ? this.collectResults(input) : false;
     this.syncRows(world, built, input);
+    this.syncSettings(world, built, input);
     if (input && !this.waiting && !finished) this.handleInput(built, input);
     this.paint(built);
   }
@@ -308,11 +444,16 @@ export class UIControlMapper extends Component {
     }
     this.waiting = null;
     this.lastConflicts = result.conflicts;
+    if (result.reason === "modifierCount") {
+      const chord = this.chordLabel(input, w.device, result.chord);
+      this.setStatus(fill(this.text.chordCount, { chord, count: result.modifierCount, held: result.chord.length - 1 }), true);
+      return true;
+    }
     if (result.canceled || !result.control) {
       this.setStatus(this.text.canceled);
       return true;
     }
-    const label = this.controlLabel(input, w.action, w.device, result.control);
+    const label = result.chord.length > 1 ? this.chordLabel(input, w.device, result.chord) : this.controlLabel(input, w.action, w.device, result.control);
     if (result.conflicts.length) {
       const names = result.conflicts.map((c) => {
         const colon = c.indexOf(": ");
@@ -331,6 +472,12 @@ export class UIControlMapper extends Component {
     const i = prompt?.controls.indexOf(path) ?? -1;
     if (prompt && i >= 0) return prompt.labels[i];
     return path.slice(path.indexOf("/") + 1);
+  }
+
+  /** Controls' labels joined as a chord ("Shift + B"), named for the device's family. */
+  private chordLabel(input: PlayerInput, device: UIControlMapperDevice, paths: readonly string[]): string {
+    const family = device === "keyboard" ? "keyboard" : this.padFamily(input);
+    return paths.map((path) => (control(path) ? controlLabel(control(path)!, family) : path)).join(this.text.chord);
   }
 
   private setStatus(message: string, warning = false): void {
@@ -379,9 +526,10 @@ export class UIControlMapper extends Component {
   private entries(prompt: InputPrompt | null): Entry[] {
     if (!prompt) return [];
     const composite = prompt.parts.length > 1 && !prompt.parts.some((p) => p === "control");
-    if (composite) return prompt.parts.map((part, i) => ({ part, label: prompt.labels[i], icons: [prompt.icons[i]], controls: [prompt.controls[i]] }));
-    // A chord rebinds its main control; its label and glyphs show the whole chord.
-    return [{ part: "control", label: prompt.label, icons: prompt.icons, controls: prompt.controls }];
+    if (composite) return prompt.parts.map((part, i) => ({ part, label: prompt.labels[i], icons: [prompt.icons[i]], controls: [prompt.controls[i]], chord: false }));
+    // A chord is one cell: its label and glyphs show the whole chord, and its rebind takes the controls pressed together.
+    const chord = prompt.parts.length > 1;
+    return [{ part: "control", label: chord ? prompt.labels.join(this.text.chord) : prompt.label, icons: prompt.icons, controls: prompt.controls, chord }];
   }
 
   // --- Building ---------------------------------------------------------------------------------
@@ -404,13 +552,15 @@ export class UIControlMapper extends Component {
     const headerKeyboard = this.el(world, UIText, "Keyboard", header.node, { flexGrow: 1, width: 0 as UILength });
     const headerGamepad = this.el(world, UIText, "Gamepad", header.node, { flexGrow: 1, width: 0 as UILength });
     const list = this.el(world, UIPanel, "Rows", panel.node, { flexDirection: "column", gap: 6 });
+    const settingsHeading = this.el(world, UIText, "Accessibility", panel.node, { fontWeight: "bold", display: "none" });
+    const settingsList = this.el(world, UIPanel, "Settings", panel.node, { flexDirection: "column", gap: 6, display: "none" });
     const status = this.el(world, UIText, "Status", panel.node, {});
     const footer = this.el(world, UIPanel, "Buttons", panel.node, { gap: 8, justifyContent: "flex-end" });
     const reset = this.el(world, UIButton, "Reset", footer.node, { borderWidth: 2 });
     const resetText = this.el(world, UIText, "Label", reset.node, {});
     const save = this.el(world, UIButton, "Save", footer.node, { borderWidth: 2 });
     const saveText = this.el(world, UIText, "Label", save.node, {});
-    return { root, panel, title, headerAction, headerKeyboard, headerGamepad, list, status, reset, resetText, save, saveText, signature: "", rows: [] };
+    return { root, panel, title, headerAction, headerKeyboard, headerGamepad, list, settingsHeading, settingsList, settingsSignature: "", settings: [], status, reset, resetText, save, saveText, signature: "", rows: [] };
   }
 
   private buildCell(world: World, row: GameObject, device: UIControlMapperDevice): CellState {
@@ -418,7 +568,7 @@ export class UIControlMapper extends Component {
     const images: UIImage[] = [];
     for (let i = 0; i < IMAGES_PER_CELL; i++) images.push(this.el(world, UIImage, `Glyph${i}`, button.node, { display: "none" }));
     const text = this.el(world, UIText, "Label", button.node, { wordBreak: "keep-all" });
-    return { device, label: "", icons: [], part: null, context: null, controls: [], conflict: false, button, text, images };
+    return { device, label: "", icons: [], part: null, context: null, controls: [], chord: false, conflict: false, button, text, images };
   }
 
   /** Work out the rows from the player's bindings; rebuild the row elements when their shape changed. */
@@ -467,6 +617,7 @@ export class UIControlMapper extends Component {
         cell.part = entry?.part ?? null;
         cell.context = entry ? context : null;
         cell.controls = entry?.controls ?? [];
+        cell.chord = entry?.chord ?? false;
         if (entry && entry.controls.length === 1) {
           const key = `${cell.device}|${entry.controls[0]}`;
           uses.set(key, (uses.get(key) ?? 0) + 1);
@@ -481,23 +632,39 @@ export class UIControlMapper extends Component {
 
   // --- Input ------------------------------------------------------------------------------------
 
-  /** Columns of a row: its cells, or Reset and Save on the button row. */
-  private columns(built: Built, row: number): (CellState | "reset" | "save")[] {
-    if (row >= built.rows.length) return ["reset", "save"];
+  /** The button row's index: after the binding and accessibility rows. */
+  private footerRow(built: Built): number {
+    return built.rows.length + built.settings.length;
+  }
+
+  /** Columns of a row: its cells, an accessibility row's toggle or − and +, or Reset and Save on the button row. */
+  private columns(built: Built, row: number): (CellState | SettingColumn | "reset" | "save")[] {
+    if (row >= this.footerRow(built)) return ["reset", "save"];
+    if (row >= built.rows.length) {
+      const setting = built.settings[row - built.rows.length];
+      return setting.toggle ? [{ row: setting, op: "toggle" }] : [{ row: setting, op: "decrease" }, { row: setting, op: "increase" }];
+    }
     const r = built.rows[row];
     return [r.keyboard, r.gamepad].filter((c): c is CellState => c !== null);
   }
 
+  private buttonOf(built: Built, c: CellState | SettingColumn | "reset" | "save"): UIButton {
+    if (c === "reset") return built.reset;
+    if (c === "save") return built.save;
+    if ("op" in c) return (c.op === "toggle" ? c.row.toggle : c.op === "decrease" ? c.row.decrease : c.row.increase)!;
+    return c.button;
+  }
+
   private clampSelection(built: Built): void {
-    this.selection.row = Math.max(0, Math.min(this.selection.row, built.rows.length));
+    this.selection.row = Math.max(0, Math.min(this.selection.row, this.footerRow(built)));
     this.selection.column = Math.max(0, Math.min(this.selection.column, this.columns(built, this.selection.row).length - 1));
   }
 
   private handleInput(built: Built, input: PlayerInput): void {
     // The pointer: hovering selects, clicking activates.
-    for (let row = 0; row <= built.rows.length; row++) {
+    for (let row = 0; row <= this.footerRow(built); row++) {
       this.columns(built, row).forEach((c, column) => {
-        const button = c === "reset" ? built.reset : c === "save" ? built.save : c.button;
+        const button = this.buttonOf(built, c);
         if (button.hovered) this.selection = { row, column };
         if (button.clicked) {
           this.selection = { row, column };
@@ -521,7 +688,7 @@ export class UIControlMapper extends Component {
   private move(built: Built, dir: "up" | "down" | "left" | "right"): void {
     const s = this.selection;
     if (dir === "up" || dir === "down") {
-      s.row = Math.max(0, Math.min(built.rows.length, s.row + (dir === "up" ? -1 : 1)));
+      s.row = Math.max(0, Math.min(this.footerRow(built), s.row + (dir === "up" ? -1 : 1)));
     } else s.column += dir === "left" ? -1 : 1;
     this.clampSelection(built);
   }
@@ -547,6 +714,10 @@ export class UIControlMapper extends Component {
       );
       return;
     }
+    if ("op" in c) {
+      if (input.player) this.changeSetting(input, c);
+      return;
+    }
     if (!c.part) return;
     const action = built.rows[row].action;
     try {
@@ -555,8 +726,151 @@ export class UIControlMapper extends Component {
       this.setStatus(err instanceof Error ? err.message : String(err), true);
       return;
     }
-    this.waiting = { action, device: c.device, rowIndex: row, column };
-    this.setStatus(fill(c.device === "keyboard" ? this.text.waitingKey : this.text.waitingButton, { cancel: "Esc" }));
+    this.waiting = { action, device: c.device, rowIndex: row, column, chord: c.chord };
+    const waitingText = c.chord ? (c.device === "keyboard" ? this.text.waitingChordKey : this.text.waitingChordButton) : c.device === "keyboard" ? this.text.waitingKey : this.text.waitingButton;
+    this.setStatus(fill(waitingText, { cancel: "Esc" }));
+  }
+
+  // --- Accessibility ----------------------------------------------------------------------------
+
+  /** The settings rows wanted: per listed action, then repeat and the dead zone. */
+  private settingRows(): { setting: UIControlMapperSettingKind; action: string | null }[] {
+    if (!this.showAccessibility) return [];
+    const list = (field: string) =>
+      field
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean);
+    return [
+      ...list(this.invertYActions).map((action) => ({ setting: "invertY" as const, action })),
+      ...list(this.sensitivityActions).map((action) => ({ setting: "sensitivity" as const, action })),
+      ...list(this.holdToToggleActions).map((action) => ({ setting: "holdToToggle" as const, action })),
+      { setting: "repeat", action: null },
+      { setting: "repeatDelay", action: null },
+      { setting: "repeatInterval", action: null },
+      { setting: "deadzone", action: null },
+    ];
+  }
+
+  private buildSetting(world: World, parent: GameObject, index: number, setting: UIControlMapperSettingKind, action: string | null): SettingState {
+    const row = this.el(world, UIPanel, `Setting${index}`, parent, { gap: 8, alignItems: "center" });
+    const name = this.el(world, UIText, "Name", row.node, { width: "34%" });
+    const height = (this.glyphSize + 14) as UILength;
+    const state: SettingState = { setting, action, label: "", value: "", enabled: true, name, valueText: null, toggle: null, toggleText: null, decrease: null, decreaseText: null, increase: null, increaseText: null };
+    if (setting === "invertY" || setting === "holdToToggle" || setting === "repeat") {
+      state.toggle = this.el(world, UIButton, "Toggle", row.node, { flexGrow: 1, width: 0 as UILength, height, padding: 6, justifyContent: "center", alignItems: "center", borderWidth: 2 });
+      state.toggleText = this.el(world, UIText, "Label", state.toggle.node, {});
+    } else {
+      const side = { width: height, height, justifyContent: "center", alignItems: "center", borderWidth: 2 } as const;
+      state.decrease = this.el(world, UIButton, "Decrease", row.node, side);
+      state.decreaseText = this.el(world, UIText, "Label", state.decrease.node, {});
+      state.valueText = this.el(world, UIText, "Value", row.node, { flexGrow: 1, width: 0 as UILength, textAlign: "center" });
+      state.increase = this.el(world, UIButton, "Increase", row.node, side);
+      state.increaseText = this.el(world, UIText, "Label", state.increase.node, {});
+    }
+    return state;
+  }
+
+  /** Build the accessibility rows when the list changed, and show each one's value from the player's settings. */
+  private syncSettings(world: World, built: Built, input: PlayerInput | null): void {
+    const want = input ? this.settingRows() : [];
+    const signature = want.map((w) => `${w.setting}/${w.action ?? ""}`).join(",");
+    if (signature !== built.settingsSignature) {
+      built.settingsSignature = signature;
+      for (const r of built.settings) if (r.name.node.parent?.isValid) world._destroyNode(r.name.node.parent.entity);
+      built.settings = want.map((w, i) => this.buildSetting(world, built.settingsList.node, i, w.setting, w.action));
+      this.clampSelection(built);
+    }
+    if (!input?.player) return;
+    const a = input.accessibility;
+    const t = this.text;
+    const num = (v: number) => String(Math.round(v * 100) / 100);
+    for (const r of built.settings) {
+      const action = r.action ? this.labelOf(r.action) : "";
+      r.enabled = true;
+      switch (r.setting) {
+        case "invertY":
+        case "holdToToggle": {
+          r.label = fill(r.setting === "invertY" ? t.invertY : t.holdToToggle, { action });
+          r.value = (a[r.setting] ?? []).includes(r.action!) ? t.on : t.off;
+          break;
+        }
+        case "repeat":
+          r.label = t.repeat;
+          r.value = a.repeat ? t.on : t.off;
+          break;
+        case "sensitivity":
+          r.label = fill(t.sensitivity, { action });
+          r.value = fill(t.multiplier, { value: (a.sensitivity?.[r.action!] ?? 1).toFixed(1) });
+          break;
+        case "repeatDelay":
+        case "repeatInterval": {
+          const key = r.setting === "repeatDelay" ? "delay" : "interval";
+          r.label = r.setting === "repeatDelay" ? t.repeatDelay : t.repeatInterval;
+          r.value = fill(t.seconds, { value: num(a.repeat?.[key] ?? this.repeatMemory[key]) });
+          r.enabled = !!a.repeat;
+          break;
+        }
+        case "deadzone":
+          r.label = t.deadzone;
+          r.value = fill(t.percent, { value: Math.round((a.deadzone ?? DEFAULT_STICK_DEADZONE) * 100) });
+          break;
+      }
+    }
+  }
+
+  /** Toggle or step a setting, writing the player's accessibility (Save writes it with the bindings). */
+  private changeSetting(input: PlayerInput, c: SettingColumn): void {
+    const r = c.row;
+    if (!r.enabled) return;
+    const cur = input.accessibility;
+    const next: InputAccessibility = {
+      ...cur,
+      ...(cur.invertY && { invertY: [...cur.invertY] }),
+      ...(cur.holdToToggle && { holdToToggle: [...cur.holdToToggle] }),
+      ...(cur.sensitivity && { sensitivity: { ...cur.sensitivity } }),
+      ...(cur.repeat && { repeat: { ...cur.repeat } }),
+    };
+    const round = (v: number) => Math.round(v * 100) / 100;
+    const stepped = (kind: keyof typeof STEPPERS, value: number) => {
+      const { step, min, max } = STEPPERS[kind];
+      return round(Math.max(min, Math.min(max, value + (c.op === "increase" ? step : -step))));
+    };
+    switch (r.setting) {
+      case "invertY":
+      case "holdToToggle": {
+        const list = next[r.setting] ?? [];
+        next[r.setting] = list.includes(r.action!) ? list.filter((x) => x !== r.action) : [...list, r.action!];
+        break;
+      }
+      case "repeat":
+        if (next.repeat) {
+          this.repeatMemory = { delay: next.repeat.delay, interval: next.repeat.interval };
+          delete next.repeat;
+        } else {
+          const actions = this.repeatActions
+            .split(",")
+            .map((x) => x.trim())
+            .filter(Boolean);
+          next.repeat = { ...this.repeatMemory, ...(actions.length && { actions }) };
+        }
+        break;
+      case "sensitivity":
+        next.sensitivity = { ...next.sensitivity, [r.action!]: stepped("sensitivity", next.sensitivity?.[r.action!] ?? 1) };
+        break;
+      case "repeatDelay":
+        next.repeat!.delay = stepped("repeatDelay", next.repeat!.delay);
+        break;
+      case "repeatInterval":
+        next.repeat!.interval = stepped("repeatInterval", next.repeat!.interval);
+        break;
+      case "deadzone":
+        next.deadzone = stepped("deadzone", next.deadzone ?? DEFAULT_STICK_DEADZONE);
+        break;
+    }
+    input.accessibility = next;
+    // Shown now, not next frame: the value text follows what was just written.
+    this.syncSettings(this._world, this.built!, input);
   }
 
   // --- Drawing ----------------------------------------------------------------------------------
@@ -586,7 +900,8 @@ export class UIControlMapper extends Component {
           const waiting = this.waiting?.rowIndex === rowIndex && this.waiting.column === column;
           const selected = this.selection.row === rowIndex && this.selection.column === column;
           this.styleButton(cell.button, selected, waiting);
-          const label = waiting ? (cell.device === "keyboard" ? this.text.pressKey : this.text.pressButton) : cell.label;
+          const pressText = cell.chord ? (cell.device === "keyboard" ? this.text.pressChordKey : this.text.pressChordButton) : cell.device === "keyboard" ? this.text.pressKey : this.text.pressButton;
+          const label = waiting ? pressText : cell.label;
           text(cell.text, label, waiting ? this.textColor : cell.conflict ? this.warningColor : cell.part ? this.textColor : this.mutedColor);
           cell.button.interactable = cell.part !== null;
           const glyphs = waiting ? [] : cell.icons.map((k) => InputGlyphs.get(k)).filter((g) => g !== null);
@@ -600,7 +915,28 @@ export class UIControlMapper extends Component {
           });
         });
     });
-    const footerRow = built.rows.length;
+    const showSettings = built.settings.length > 0;
+    built.settingsHeading.display = showSettings ? "flex" : "none";
+    built.settingsList.display = showSettings ? "flex" : "none";
+    text(built.settingsHeading, showSettings ? this.text.accessibility : "", this.textColor, Math.round(size * 1.2));
+    built.settings.forEach((r, i) => {
+      const rowIndex = built.rows.length + i;
+      const selected = (column: number) => this.selection.row === rowIndex && this.selection.column === column;
+      text(r.name, r.label);
+      const colour = r.enabled ? this.textColor : this.mutedColor;
+      if (r.toggle) {
+        this.styleButton(r.toggle, selected(0), false);
+        text(r.toggleText!, r.value, colour);
+      } else {
+        this.styleButton(r.decrease!, selected(0), false);
+        this.styleButton(r.increase!, selected(1), false);
+        r.decrease!.interactable = r.increase!.interactable = r.enabled;
+        text(r.decreaseText!, this.text.decrease, colour);
+        text(r.increaseText!, this.text.increase, colour);
+        text(r.valueText!, r.value, colour);
+      }
+    });
+    const footerRow = this.footerRow(built);
     this.styleButton(built.reset, this.selection.row === footerRow && this.selection.column === 0, false);
     this.styleButton(built.save, this.selection.row === footerRow && this.selection.column === 1, false);
     text(built.resetText, this.text.reset);
@@ -616,7 +952,7 @@ export class UIControlMapper extends Component {
 }
 
 function cellView(c: CellState): UIControlMapperCell {
-  return { device: c.device, label: c.label, icons: [...c.icons], part: c.part, conflict: c.conflict, button: c.button };
+  return { device: c.device, label: c.label, icons: [...c.icons], part: c.part, chord: c.chord, conflict: c.conflict, button: c.button };
 }
 
 function mappersOf(world: World): UIControlMapper[] {
