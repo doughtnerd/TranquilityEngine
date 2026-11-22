@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { Connection, ConnectionState, Engine, Input, Replicated, defineSystem, i32, type DataComponentDef, type GameObject, type RpcDef } from "../engine";
 import { World } from "../engine/core/World";
-import { loadedScriptModule } from "../editor/scriptLoader";
+import { scriptExports } from "./project";
 import { parseArgs } from "./main";
 import { ServerError, startServer, type RunningServer, type ServerOptions } from "./run";
 import { DomInput } from "../engine/tests/domInput";
@@ -88,7 +88,7 @@ describe("myco-server (T14)", () => {
 
   it("answers an RPC from a client", async () => {
     const server = await start();
-    const { Ping, Pong } = (await loadedScriptModule("scripts/game.ts")) as Record<"Ping" | "Pong", RpcDef<{ n: typeof i32 }>>;
+    const { Ping, Pong } = (await scriptExports("scripts/game.ts")) as Record<"Ping" | "Pong", RpcDef<{ n: typeof i32 }>>;
     const got: number[] = [];
     defineSystem({ name: "test.server.readPong", phase: "update", worlds: ["client"], run: () => got.push(...[...Pong.read()].map((m) => m.n)) });
     const player = await client(server.listeners[0].url);
@@ -402,7 +402,7 @@ describe("the arena sample on myco-server (T16)", () => {
   /** Start the server on the arena; resolves with it and the sample's `Player` component (its scripts are loaded then). */
   async function startArena(lines: string[] = []): Promise<{ server: RunningServer; Player: DataComponentDef }> {
     const server = await start({ projectDir: ARENA }, lines);
-    const { Player } = (await loadedScriptModule("scripts/data.ts")) as { Player: DataComponentDef };
+    const { Player } = (await scriptExports("scripts/data.ts")) as { Player: DataComponentDef };
     return { server, Player };
   }
 
