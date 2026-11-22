@@ -27,6 +27,16 @@
  * (`finish: true` lets them end first) and frees the clip (its arena hold, or its in-memory URL). The package leaves the
  * decoder worker (`releasePack`) once its finishing voices have ended (at once otherwise: a fading voice plays from the
  * arena or from its stream's own copy).
+ *
+ * **Language parts** (ADR 0340 §6, L3). A build's package whose contents reach localised files has a base part (its
+ * `url`) and one part per shipped language (`languages`, `<name>.<code>.mycopak`); the media table gives each localised
+ * sound its `language` part(s). Internally each part is a unit of its own (`<name>|<code>`: `|` can't be in a package
+ * name) with its own load, clips and decoder package, held by the package while it has references. `load()` loads the
+ * base and the part of the package language (its chain's first language with a part), and the handle's state, progress,
+ * `bytes` and `memoryBytes` cover both. The package language is the voice language a text language follows (0343 §2)
+ * until the audio language switch sets it with `switchPackageLanguage`, which loads every loaded package's new part,
+ * then unloads the old ones. Strict packaging applies per part: a localised sound whose part isn't loaded is refused
+ * with `notLoaded`.
  */
 import { World } from "../../../../engine/core/World";
 import { isPlaylistPath, parsePlaylistBody } from "../../../../engine/audio/playlist/format";
@@ -54,10 +64,12 @@ export interface AudioPackage {
   readonly state: "unloaded" | "loading" | "loaded" | "failed";
   /** 0..1 while loading (1 once loaded, 0 when unloaded). */
   readonly progress: number;
-  /** Its download size for this platform, bytes (0 over the sources in the editor). */
+  /** Its download size for this platform, bytes (0 over the sources in the editor); with language parts, the base and the current language's part. */
   readonly bytes: number;
-  /** What it holds in memory while loaded, bytes: decoded clips, compressed bytes, prefetch heads. */
+  /** What it holds in memory while loaded, bytes: decoded clips, compressed bytes, prefetch heads (the base and the current language's part). */
   readonly memoryBytes: number;
+  /** ADR 0340 §6: the languages it has a part for (empty for a package without localised sounds, and over the sources). */
+  readonly languages: readonly string[];
   /** Reference-counted: resolves once it is loaded, rejects with the reason (an unknown name, a failed fetch). */
   load(): Promise<void>;
   /**
@@ -90,11 +102,15 @@ interface Definition {
   readonly bytes: number;
   /** Over the sources: whether the package holds the sound at `path`. A build answers from its media table. */
   holds(path: string): boolean;
+  /** ADR 0340 §6: a build package's language parts (code → file), or null without. */
+  readonly parts: Readonly<Record<string, { readonly url: string; readonly bytes: number }>> | null;
 }
 
 interface Definitions {
   readonly list: readonly Definition[];
   readonly byName: ReadonlyMap<string, Definition>;
+  /** Every loadable unit by key: each package's base (its name) and its language parts (`partKey`). */
+  readonly units: ReadonlyMap<string, Definition>;
   readonly packaging: PackagingOptions;
   readonly config: EncodingConfig;
   /** From a build's media table (packaged bytes in `.mycopak` files), or over the sources. */
@@ -149,11 +165,15 @@ function definitions(): Definitions {
     const media = installed.audio.media;
     const holders = new Map<string, Set<string>>();
     for (const [path, entry] of Object.entries(media)) for (const name of entryPackages(entry)) (holders.get(name) ?? holders.set(name, new Set()).get(name)!).add(path);
-    list = installed.audio.packages.map((p) => ({ name: p.name, preload: p.preload, url: p.url, bytes: p.bytes, holds: (path: string) => holders.get(p.name)?.has(path) ?? false }));
+    list = installed.audio.packages.map((p) => ({ name: p.name, preload: p.preload, url: p.url, bytes: p.bytes, holds: (path: string) => holders.get(p.name)?.has(path) ?? false, parts: p.languages && Object.keys(p.languages).length ? p.languages : null }));
   } else {
-    list = (project?.packages ?? []).filter((d) => shipsOn(d, platform)).map((d) => ({ name: d.name, preload: d.preload, url: null, bytes: 0, holds: sourceHolds(d) }));
+    list = (project?.packages ?? []).filter((d) => shipsOn(d, platform)).map((d) => ({ name: d.name, preload: d.preload, url: null, bytes: 0, holds: sourceHolds(d), parts: null }));
   }
-  const defs: Definitions = { list, byName: new Map(list.map((d) => [d.name, d])), packaging, config, built: installed !== null };
+  const units = new Map<string, Definition>(list.map((d) => [d.name, d]));
+  for (const d of list) {
+    for (const [code, part] of Object.entries(d.parts ?? {})) units.set(partKey(d.name, code), { name: partKey(d.name, code), preload: false, url: part.url, bytes: part.bytes, holds: () => false, parts: null });
+  }
+  const defs: Definitions = { list, byName: new Map(list.map((d) => [d.name, d])), units, packaging, config, built: installed !== null };
   parsedFrom = { raw, platform, installed, defs };
   return defs;
 }
