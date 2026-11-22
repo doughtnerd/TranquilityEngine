@@ -19,6 +19,7 @@ import { ControlledBy, InputPlayer, createPlayer, familyName, playerNode, player
 import { profileOf, type InputAccessibility, type InputProfileData } from "./profiles";
 import { promptFor, type InputPrompt } from "./prompts";
 import { startRebind, type RebindOptions, type RebindResult } from "./rebind";
+import type { TriggerEffect } from "./triggerEffects";
 
 interface Subscription {
   readonly owner: GameBehavior | null;
@@ -249,7 +250,18 @@ export class PlayerInput {
     }
   }
 
-  /** Set the light bar colour (0..255 each; DualSense, DualShock 4, on desktop). */
+  /**
+   * Set an adaptive trigger effect: resistance, a weapon's click, vibration (DualSense, in
+   * Chromium browsers through WebHID). `{ mode: "off" }` frees the trigger.
+   */
+  setTriggerEffect(trigger: "left" | "right", effect: TriggerEffect): void {
+    for (const d of this.devices) {
+      const data = d.getData(InputDevice)!;
+      if (data.kind === DeviceKind.gamepad) devices.output?.triggerEffect?.(data.device, trigger, effect);
+    }
+  }
+
+  /** Set the light bar colour (0..255 each; DualSense and DualShock 4, on desktop and through WebHID in Chromium). */
   setLight(r: number, g: number, b: number): void {
     for (const d of this.devices) {
       const data = d.getData(InputDevice)!;
@@ -257,7 +269,7 @@ export class PlayerInput {
     }
   }
 
-  /** Turn gyro and accelerometer reports on or off (desktop; off by default, they cost battery). */
+  /** Turn gyro and accelerometer reports on or off (desktop, and WebHID in Chromium; off by default, they cost battery). */
   setSensors(enabled: boolean): void {
     for (const d of this.devices) {
       const data = d.getData(InputDevice)!;

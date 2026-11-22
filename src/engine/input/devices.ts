@@ -19,6 +19,7 @@
  */
 import { Vector2 } from "../core/math";
 import { GAMEPAD_AXES, GAMEPAD_BUTTONS, PEN_BUTTONS, PRESS_POINT, TOUCH_SLOTS, normalizeKey, type DeviceFamily } from "./controls";
+import type { TriggerEffect } from "./triggerEffects";
 
 export { normalizeKey };
 
@@ -40,6 +41,8 @@ export interface GamepadInfo {
 export interface GamepadOutput {
   rumble(id: number, low: number, high: number, durationMs: number): void;
   triggerRumble?(id: number, left: number, right: number, durationMs: number): void;
+  /** An adaptive trigger effect (DualSense through WebHID). */
+  triggerEffect?(id: number, trigger: "left" | "right", effect: TriggerEffect): void;
   setLed?(id: number, r: number, g: number, b: number): void;
   setSensors?(id: number, enabled: boolean): void;
 }

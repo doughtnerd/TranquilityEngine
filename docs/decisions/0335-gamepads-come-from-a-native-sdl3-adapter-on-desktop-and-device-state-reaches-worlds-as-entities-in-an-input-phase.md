@@ -140,6 +140,29 @@ These supersede the last two notes above.
 - **Gestures.** Pinch and swipe are controls, derived from finger positions the way `leftStick` is derived from axes. `<Touch>/pinch` is the change in distance between the two lowest-slot fingers each frame. `<Touch>/swipe` is the primary touch's stroke in the frame it lifts, when it lifted within `SWIPE_MAX_SECONDS` (0.5) and at least `SWIPE_MIN_DISTANCE` (40 px) away. Both add up between ticks like `<Pointer>/delta`. Long press and multi-finger tap need no new code: a `hold` trigger on `<Touch>/primary` and a `tap` trigger on `<Touch>/touch1`.
 - **Composed axes.** The mapping table is `[kind, index, kind2, index2]` per control: the value is the first source's minus the second's. A half-axis target (`+rightx:b9,-rightx:b4`, or `+leftx:h0.2,-leftx:h0.8`) fills one half, so the ~50 such database entries (N64-style pads, Joy-Cons) now map their sticks. In `input-map` this is `Binding { positive, negative }`.
 
+## Build notes: WebHID enhanced mode (2026-11-22)
+
+The "later, not v1" WebHID adapter is built, at the owner's request (`src/engine/input/webHid/`).
+
+- **Devices:** DualSense and DualSense Edge, DualShock 4 (both models and Sony's USB wireless adapter), Switch Pro
+  Controller; USB and Bluetooth. Report parsing and output encoding are ported from SDL's HIDAPI drivers, one module per
+  family (`dualSense.ts`, `dualShock4.ts`, `switchPro.ts`): Bluetooth CRC-32s, the Switch USB handshake and
+  subcommands, factory motion calibration (Sony feature reports, Switch SPI flash). Gyro and accelerometer arrive in
+  SDL's units and axes, as on desktop.
+- **Permission:** `Input.requestHidGamepads()` opens the browser's chooser from a user gesture; devices granted
+  before are reopened at start and on `connect`. Where WebHID is missing (Firefox, Safari, Node) or under Tauri it
+  resolves 0 and nothing else changes.
+- **Ownership and fallback:** HID pads get their own device ids (from 0x4000). The Gamepad API adapter takes a skip
+  predicate and skips, per vendor and product, as many pads (in index order) as the HID adapter has announced; when a
+  HID device fails to open, fails to start or disconnects, its pad stops being skipped and the Gamepad API reports it
+  again. Output is routed by id: HID pads' to their drivers, any other pad's to the Gamepad API's output.
+- **Adaptive triggers:** `GamepadOutput` gains an optional `triggerEffect`, and `PlayerInput.setTriggerEffect(trigger,
+  effect)` with a public `TriggerEffect` type (`off`, `resistance`, `weapon`, `vibration`). Only the DualSense through
+  WebHID implements it so far; SDL could send the same blocks on desktop (`SDL_SendGamepadEffect`) later.
+  `rumbleTriggers` on a DualSense plays a low-frequency trigger vibration over the game's effect.
+- **Not yet:** touchpad touch points (the snapshot has no touch-surface controls; the touchpad click is reported),
+  battery level, HD rumble frequencies on the Switch Pro (both bands at SDL's fixed frequencies), Joy-Cons.
+
 ## Open questions
 
 - Which SDL3 Rust binding (`sdl3` crate versus our own thin bindings) and whether SDL is linked statically.
