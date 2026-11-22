@@ -211,20 +211,50 @@ export interface MusicBackend {
   debugView(): MusicBackendDebug;
 }
 
-/**
- * ADR 0158 §5: a playing event. M1's four members keep their meaning across all of the instance's voices. ADR 0166 §1.2
- * adds `music`, `onMusic` and `trigger` (declared in `MusicEventHandle`).
- */
-export interface AudioEventHandle extends AudioHandle, MusicEventHandle {
-  /** Set one of the event's own parameters (labelled ones by label). Unknown names warn once. */
-  setParameter(name: string, value: number | string): void;
-  /** One of the event's parameters, else a global one; undefined if neither. */
-  getParameter(name: string): number | string | undefined;
-  /** Where a spatial event plays; set it to move it. Null for a flat event. */
-  position: Vec3Like | null;
-  /** Key-off: sustain loops leave their loops and play their tails; the event ends when they do. A no-op without sustain. */
-  release(): void;
+/** ADR 0329: the sample markers a playlist handle reports as they pass (ADR 0328 marker types). */
+export type AudioMarkerType = "cue" | "exit" | "hit";
+
+/** ADR 0329: what `AudioPlaylistHandle.onMarker` passes: the marker, the sample it is in and its heard time. */
+export interface AudioMarkerEvent {
+  type: AudioMarkerType;
+  /** The marker's name. */
+  name: string;
+  /** The sample path it is in. */
+  sample: string;
+  /** Heard time (seconds, `Audio.time`'s base) it passed at. */
+  time: number;
 }
+
+/**
+ * ADR 0329: a playing playlist (or sample), what `Audio.play` returns. ADR 0158 §5's members keep their meaning across all
+ * of the instance's voices; ADR 0166 §1.2 adds `music`, `onMusic` and `trigger` (declared in `MusicEventHandle`); ADR 0329
+ * adds `onMarker`.
+ */
+export interface AudioPlaylistHandle extends AudioHandle, MusicEventHandle {
+  /** Set one of the playlist's own parameters (labelled ones by label). Unknown names warn once. */
+  setParameter(name: string, value: number | string): void;
+  /** One of the playlist's parameters, else a global one; undefined if neither. */
+  getParameter(name: string): number | string | undefined;
+  /** Where a spatial playlist plays; set it to move it. Null for a flat one. */
+  position: Vec3Like | null;
+  /**
+   * Key-off: held loops end by their exit settings, a Blend's envelope releases, a continuous Queue stops picking; the
+   * instance ends when its voices do (an `untilStopped` playlist too). A no-op without any of those.
+   */
+  release(): void;
+  /**
+   * Call `fn` each time a Cue, Exit or Hit marker of a playing sample passes. Returns an unsubscribe function. Markers are
+   * reported once the audio core reports sample cues (ADR 0328) and, for sequence markers, from M5; until then `fn` is
+   * kept and never called.
+   */
+  onMarker(type: AudioMarkerType, fn: (e: AudioMarkerEvent) => void): () => void;
+}
+
+/**
+ * The handle's name before playlists (ADR 0158 §5).
+ * @deprecated ADR 0329: use `AudioPlaylistHandle`; this alias stays for one release.
+ */
+export type AudioEventHandle = AudioPlaylistHandle;
 
 export interface Attenuation {
   minDistance: number;
