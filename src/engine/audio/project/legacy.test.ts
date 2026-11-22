@@ -1,0 +1,241 @@
+import { describe, expect, it } from "vitest";
+import { parseAudioSettings, type AudioSettings } from "../settings";
+import { audioProjectToJson, parseAudioProject, toRuntimeSettings } from "./format";
+import { fromLegacySection, mergeLegacyIntoProject } from "./legacy";
+import { AUDIO_PROJECT_FORMAT, type AudioProject } from "./types";
+
+/** An old `audio` section using everything the old shape has. */
+const LEGACY = {
+  buses: [
+    { name: "Master", bedPriority: 200 },
+    { name: "Music", parent: "Master", volume: 0.8, effects: [{ type: "lowpass", frequency: 18000, q: 1 }], meter: "loudness" },
+    { name: "SFX", parent: "Master", volume: 0.5, maxVoices: 48, bed: "own", bedPriority: 80, effects: [{ type: "compressor", threshold: -20, knee: 10, ratio: 4, attack: 0.07, release: 0.3 }, { type: "reverb", send: 0.25 }] },
+    { name: "Voice", parent: "Master", mute: true, bed: "none" },
+  ],
+  snapshots: [{ name: "Paused", volumes: { Music: 0.3, SFX: 0 }, lowpass: { Music: 800 } }],
+  ducking: [
+    { target: "Music", trigger: "Voice", mode: "presence", amount: 0.4, attack: 0.1, release: 0.6 },
+    { target: "SFX", trigger: "Voice", mode: "level", detector: "peak", threshold: -24, amount: 0.5, attack: 0.05, release: 0.5 },
+  ],
+  parameters: [{ name: "Intensity", min: 0, max: 1 }],
+  automation: [
+    { bus: "Music", parameter: "Intensity", target: "volume", curve: [[0, 0.4], [1, 1]] },
+    { bus: "SFX", parameter: "Intensity", target: "lowpass", curve: [[0, 500], [1, 20000]] },
+  ],
+  voices: { mixed: 96, logical: 2048, hrtf: 8 },
+  rhythmMode: true,
+  loudnessResetOnPlay: false,
+};
+
+const runtime = (p: AudioProject): AudioSettings => toRuntimeSettings(p);
+const busOf = (p: AudioProject, name: string) => p.buses.find((b) => b.name === name)!;
+const view = (p: AudioProject) => structuredClone(runtime(p)) as AudioSettings;
+
+describe("fromLegacySection (the migration)", () => {
+  const problems: string[] = [];
+  const project = fromLegacySection(LEGACY, problems);
+
+  it("converts levels to dB and keeps the engine settings", () => {
+    expect(problems).toEqual([]);
+    expect(busOf(project, "Music").volumeDb).toBeCloseTo(20 * Math.log10(0.8), 9);
+    expect(busOf(project, "Master").volumeDb).toBe(0);
+    expect(project.settings).toMatchObject({ voices: { mixed: 96, logical: 2048, hrtf: 8 }, rhythmMode: true, submixes: 32, bedBeyond: null, dopplerAmount: 1 });
+    expect(project.loudness.resetOnPlay).toBe(false);
+  });
+
+  it("turns the reverb send effect into a send to a created Reverb return", () => {
+    expect(project.returns).toEqual([{ name: "Reverb", output: "Master", volumeDb: 0, mute: false, effects: [{ id: "fx1", type: "reverb", on: true, params: {} }] }]);
+    const sfx = busOf(project, "SFX");
+    expect(sfx.sends).toEqual([{ to: "Reverb", levelDb: expect.closeTo(20 * Math.log10(0.25), 9) }]);
+    expect(sfx.effects[0]).toEqual({ id: "fx1", type: "compressor", on: true, params: { threshold: -20, ratio: 4, attack: 70, release: 300, makeup: 0, knee: 10 } });
+    expect(sfx.effects.slice(1).map((e) => [e.id, e.type, e.params.cutoff])).toEqual([["fx2", "lowpass", 20000]]); // the carrier of its low-pass automation
+  });
+
+  it("turns snapshot multipliers into dB offsets and a snapshot low-pass into an override of a created open low-pass", () => {
+    const music = busOf(project, "Music");
+    expect(music.effects.map((e) => [e.id, e.type, e.params.cutoff])).toEqual([["fx1", "lowpass", 18000], ["fx2", "lowpass", 20000]]);
+    expect(project.snapshots).toEqual([{
+      name: "Paused", folder: "", start: { kind: "code" }, fadeInMs: 300, fadeOutMs: 300, holdMs: 0, priority: 0, combine: "override",
+      buses: { Music: expect.closeTo(20 * Math.log10(0.3), 9), SFX: -60 }, effects: { Music: { fx2: { cutoff: 800 } } },
+    }]);
+  });
+
+  it("keeps bus automation as volume (in dB) and low-pass targets", () => {
+    expect(project.automation).toEqual([
+      { on: "Music", target: "volume", parameter: "Intensity", curve: [[0, expect.closeTo(20 * Math.log10(0.4), 9)], [1, 0]], bypass: false },
+      { on: "SFX", target: "fx:fx2:cutoff", parameter: "Intensity", curve: [[0, 500], [1, 20000]], bypass: false },
+    ]);
+  });
+
+  it("maps beds, voice limits, metering and ducking", () => {
+    expect(busOf(project, "Master").bed).toEqual({ own: true, priority: 200 });
+    expect(busOf(project, "SFX")).toMatchObject({ voiceLimit: 48, bed: { own: true, priority: 80 } });
+    expect(busOf(project, "Voice")).toMatchObject({ mute: true, bed: { own: false, priority: 128 } });
+    expect(busOf(project, "Music").bed).toBeNull();
+    expect(busOf(project, "Music").meter).toBe(true);
+    expect(project.ducking[1]).toEqual({ target: "SFX", trigger: "Voice", mode: "level", detector: "peak", thresholdDb: -24, amountDb: expect.closeTo(20 * Math.log10(0.5), 9), attackMs: 50, releaseMs: 500, enabled: true });
+  });
+
+  it("writes a file that parses back to itself", () => {
+    const back = parseAudioProject(audioProjectToJson(project));
+    expect(back.problems).toEqual([]);
+    expect(back.project).toEqual(project);
+  });
+
+  it("plays as the old section did: the runtime view is the old section, parsed", () => {
+    const warnings: string[] = [];
+    expect(toRuntimeSettings(project, warnings)).toEqual(parseAudioSettings(LEGACY).settings);
+    expect(warnings).toEqual([]);
+  });
+
+  it("migrates nothing to the default mix, and drops a reverb on Master with a problem", () => {
+    expect(runtime(fromLegacySection(undefined))).toEqual(parseAudioSettings(undefined).settings);
+    const p: string[] = [];
+    const m = fromLegacySection({ buses: [{ name: "Master", effects: [{ type: "reverb", send: 0.5 }] }] }, p);
+    expect(m.returns).toEqual([]);
+    expect(p).toHaveLength(1);
+  });
+
+  it("names the return around a bus already called Reverb", () => {
+    const m = fromLegacySection({ buses: [{ name: "Master" }, { name: "Reverb", parent: "Master", effects: [{ type: "reverb", send: 0.5 }] }] });
+    expect(m.returns.map((r) => r.name)).toEqual(["Reverb 2"]);
+  });
+});
+
+/** A project with what the old shape can't express. */
+const RICH = parseAudioProject({
+  format: AUDIO_PROJECT_FORMAT,
+  parameters: [{ name: "p", min: 0, max: 1 }],
+  buses: [
+    { name: "Master" },
+    { name: "Music", parent: "Master", volumeDb: -3, effects: [{ id: "eq", type: "eq", params: { low: 2 } }, { id: "lp", type: "lowpass", params: { cutoff: 5000, resonance: 0.3, drive: 0 } }, { id: "off", type: "highpass", on: false }] },
+    { name: "SFX", parent: "Master", volumeDb: -2, sends: [{ to: "Delay", levelDb: -6 }, { to: "Reverb", levelDb: -10 }] },
+  ],
+  returns: [{ name: "Delay", effects: [{ id: "fx1", type: "delay" }] }, { name: "Reverb", volumeDb: -2, effects: [{ id: "fx1", type: "reverb" }] }],
+  vcas: [{ name: "All", volumeDb: -6, members: ["Music", "SFX"] }],
+  automation: [{ on: "SFX", target: "send:Delay", parameter: "p", curve: [[0, -6]] }, { on: "Music", target: "volume", parameter: "p", curve: [[0, 0], [1, -6]] }],
+  ducking: [{ target: "Music", trigger: "SFX", mode: "presence", enabled: false }, { target: "SFX", trigger: "Music", mode: "presence", amountDb: -4 }],
+  snapshots: [{ name: "Calm", start: { kind: "base" }, priority: 30, buses: { Music: -4, Delay: -10 }, effects: { Music: { eq: { low: -3 } } } }],
+}).project;
+
+describe("mergeLegacyIntoProject (the legacy panels' adapter)", () => {
+  it("is the identity on an unchanged view", () => {
+    expect(mergeLegacyIntoProject(RICH, view(RICH))).toEqual(RICH);
+    const migrated = fromLegacySection(LEGACY);
+    expect(mergeLegacyIntoProject(migrated, view(migrated))).toEqual(migrated);
+  });
+
+  it("takes a VCA's offset back off a changed level and keeps everything the view doesn't show", () => {
+    const v = view(RICH);
+    v.buses.find((b) => b.name === "Music")!.volume = 0.5;
+    const out = mergeLegacyIntoProject(RICH, v);
+    expect(busOf(out, "Music").volumeDb).toBeCloseTo(20 * Math.log10(0.5) + 6, 9);
+    expect({ ...out, buses: out.buses.map((b) => (b.name === "Music" ? { ...b, volumeDb: -3 } : b)) }).toEqual(RICH);
+  });
+
+  it("updates a shown effect in place, keeping its id, its unmapped params and the hidden effects", () => {
+    const v = view(RICH);
+    const lp = v.buses.find((b) => b.name === "Music")!.effects[0];
+    expect(lp.type).toBe("lowpass");
+    if (lp.type === "lowpass") lp.frequency = 3000;
+    const music = busOf(mergeLegacyIntoProject(RICH, v), "Music");
+    expect(music.effects).toEqual([
+      { id: "eq", type: "eq", on: true, params: { low: 2 } },
+      { id: "lp", type: "lowpass", on: true, params: { cutoff: 3000, resonance: 0.3, drive: 0 } },
+      { id: "off", type: "highpass", on: false, params: {} },
+    ]);
+  });
+
+  it("adds and removes shown effects where they stood, never reusing a removed id", () => {
+    const v = view(RICH);
+    v.buses.find((b) => b.name === "Music")!.effects = [{ type: "compressor", threshold: -10, knee: 5, ratio: 2, attack: 0.01, release: 0.2 }];
+    const music = busOf(mergeLegacyIntoProject(RICH, v), "Music");
+    expect(music.effects.map((e) => [e.id, e.type])).toEqual([["eq", "eq"], ["fx1", "compressor"], ["off", "highpass"]]);
+  });
+
+  it("writes a changed reverb send as a send to the reverb return, its level less the return's", () => {
+    const v = view(RICH);
+    const sfx = v.buses.find((b) => b.name === "SFX")!;
+    sfx.effects = [{ type: "reverb", send: 0.5 }];
+    expect(busOf(mergeLegacyIntoProject(RICH, v), "SFX").sends).toEqual([{ to: "Delay", levelDb: -6 }, { to: "Reverb", levelDb: expect.closeTo(20 * Math.log10(0.5) + 2, 9) }]);
+    sfx.effects = [];
+    expect(busOf(mergeLegacyIntoProject(RICH, v), "SFX").sends).toEqual([{ to: "Delay", levelDb: -6 }]);
+  });
+
+  it("creates a Reverb return for a reverb added where there was none", () => {
+    const p = parseAudioProject({ format: AUDIO_PROJECT_FORMAT }).project;
+    const v = view(p);
+    v.buses.find((b) => b.name === "SFX")!.effects.push({ type: "reverb", send: 1 });
+    const out = mergeLegacyIntoProject(p, v);
+    expect(out.returns.map((r) => r.name)).toEqual(["Reverb"]);
+    expect(busOf(out, "SFX").sends).toEqual([{ to: "Reverb", levelDb: 0 }]);
+  });
+
+  it("keeps a snapshot's trigger, return offsets and effect overrides when its levels change", () => {
+    const v = view(RICH);
+    v.snapshots[0].volumes.Music = 1;
+    const snap = mergeLegacyIntoProject(RICH, v).snapshots[0];
+    expect(snap).toEqual({ ...RICH.snapshots[0], buses: { Delay: -10, Music: 0 } });
+  });
+
+  it("writes a snapshot low-pass to a carrier on the bus and removes the carrier with the last override", () => {
+    const v = view(RICH);
+    v.snapshots[0].lowpass.SFX = 600;
+    const withLp = mergeLegacyIntoProject(RICH, v);
+    expect(busOf(withLp, "SFX").effects).toEqual([{ id: "fx1", type: "lowpass", on: true, params: expect.objectContaining({ cutoff: 20000 }) }]);
+    expect(withLp.snapshots[0].effects.SFX).toEqual({ fx1: { cutoff: 600 } });
+    expect(runtime(withLp).snapshots[0].lowpass).toEqual({ SFX: 600 });
+    expect(runtime(withLp).buses.find((b) => b.name === "SFX")!.effects).toEqual([{ type: "reverb", send: expect.any(Number) }]);
+    const v2 = view(withLp);
+    v2.snapshots[0].lowpass = {};
+    expect(mergeLegacyIntoProject(withLp, v2)).toEqual(RICH);
+  });
+
+  it("pairs ducking rules among the shown ones, keeping the disabled one", () => {
+    const v = view(RICH);
+    v.ducking[0].amount = 1;
+    const out = mergeLegacyIntoProject(RICH, v);
+    expect(out.ducking).toEqual([RICH.ducking[0], { ...RICH.ducking[1], amountDb: 0 }]);
+    v.ducking = [];
+    expect(mergeLegacyIntoProject(RICH, v).ducking).toEqual([RICH.ducking[0]]);
+  });
+
+  it("pairs automation among the shown ones, keeping the one the view can't show", () => {
+    const v = view(RICH);
+    v.automation[0].curve = [[0, 1], [1, 1]];
+    const out = mergeLegacyIntoProject(RICH, v);
+    expect(out.automation).toEqual([RICH.automation[0], { ...RICH.automation[1], curve: [[0, 0], [1, 0]] }]);
+  });
+
+  it("follows a bus renamed in place into VCAs, sends, hidden effects and snapshots", () => {
+    const v = view(RICH);
+    v.buses.find((b) => b.name === "Music")!.name = "Score";
+    v.snapshots[0].volumes = { Score: v.snapshots[0].volumes.Music };
+    v.automation[0].bus = "Score";
+    v.ducking[0].trigger = "Score";
+    const out = mergeLegacyIntoProject(RICH, v);
+    expect(busOf(out, "Score").effects.map((e) => e.id)).toEqual(["eq", "lp", "off"]);
+    expect(out.vcas[0].members).toEqual(["Score", "SFX"]);
+    expect(out.snapshots[0].effects).toEqual({ Score: { eq: { low: -3 } } });
+    expect(out.ducking[1].trigger).toBe("Score");
+  });
+
+  it("drops what named a removed bus, as the file's parse would", () => {
+    const v = view(RICH);
+    v.buses = v.buses.filter((b) => b.name !== "Music");
+    v.snapshots[0].volumes = {};
+    v.automation = [];
+    v.ducking = [];
+    const out = mergeLegacyIntoProject(RICH, v);
+    expect(out.buses.map((b) => b.name)).toEqual(["Master", "SFX"]);
+    expect(out.vcas[0].members).toEqual(["SFX"]);
+    expect(out.snapshots[0].effects).toEqual({});
+  });
+
+  it("writes engine settings the view changed, and only those", () => {
+    const v = view(RICH);
+    v.spatial = "equalPower";
+    const out = mergeLegacyIntoProject(RICH, v);
+    expect(out.settings).toEqual({ ...RICH.settings, spatial: "equalPower" });
+  });
+});
