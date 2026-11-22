@@ -388,3 +388,11 @@ unstamped restart or quantised bindings); a fix task is running.
 the writer's frame sort moved it ahead of a stamped PLAY, which clears the voice's route on the core — so any stamped
 voice in a level with effects played dry. It showed only once W11-E's restart began stamping loading voices. ROUTE now
 carries its PLAY's stamp, as AUTOMATE and LOOPS already did; covered by a writer unit test and a loopback test.
+
+**D51. Mix automation in the core (W11-A, merged, ABI 4.10).** Full Vitest after: 827 files, 9072 passed, 0 failed.
+Choices to review: a snapshot override wins over core automation while it holds a parameter (glides back after);
+automated effects always travel as catalogue effects; frequency curves are sent as log2; send automation sums dB per
+receiving slot; submix automation is dropped when its group changes (ringing tail); submix inputs can't be
+`voiceTime`/`clipTime` (those lanes keep the per-voice path); undo vs redo is read from the history tree. New members
+flagged: `Audio.debug().mix.fxStarved`/`fxStarvedOwner` (public debug type), `AudioSubmixes.automate`/`SubmixLane`
+(backend seam, internal). Mixer wasm 472,160 B.
