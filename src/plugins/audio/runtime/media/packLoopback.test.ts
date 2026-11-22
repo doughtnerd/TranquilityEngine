@@ -17,6 +17,7 @@ import { encodeWavFloat32 } from "../../../../engine/audio/sample/wavEncode";
 import type { GameManifest } from "../../../../export/format";
 import { exportProject } from "../../../../export/node";
 import { QPF, rig } from "../../testing/streamRig";
+import { maxStep } from "../golden/maxStep";
 import { closeLoopbackAudio } from "../testing";
 import { installAudioMedia } from "./mediaTable";
 
@@ -103,7 +104,7 @@ function serveBuild() {
     } catch {
       return new Response(null, { status: 404 });
     }
-    return new Response(bytes, { status: 200, headers: { "content-length": String(bytes.length) } });
+    return new Response(bytes.slice().buffer as ArrayBuffer, { status: 200, headers: { "content-length": String(bytes.length) } });
   });
   return fetched;
 }
@@ -220,6 +221,73 @@ describe("packages on the core (W12)", () => {
     // The clip unloads a frame (a 16 ms timer here) after the hold and its voice let go.
     await stepUntil(r, () => r.link.lastStatus!.arenaUsedKB === arenaBefore);
     expect(Audio.playOneShot("audio/ui/click.wav").reason).toBe("notLoaded");
+  });
+
+  it("a packaged Vorbis stream sound starts at once on its head and continues through the ring with no gap or click", { timeout: 60_000 }, async (ctx) => {
+    const g = await game();
+    if (!g) return ctx.skip();
+    const { r } = g;
+    const { Audio } = r.audio;
+    const media = build.manifest.audio!.media["audio/music/theme.wav"]!;
+    expect(media).toMatchObject({ package: "Level", codec: "vorbis", load: "stream", rate: RATE, frames: 2 * RATE });
+    const level = Audio.package("Level");
+    const loaded = level.load();
+    await stepUntil(r, () => level.state === "loaded");
+    await loaded;
+    // The head (250 ms of 16-bit stereo PCM) is in the arena from the load, with the compressed ambience's bytes.
+    const head = RATE / 4;
+    expect(level.memoryBytes).toBeGreaterThan(head * 2 * 2);
+    expect(g.fetched).toEqual(["audio/packages/Level.mycopak"]);
+
+    await r.step(2);
+    const from = r.left.length;
+    const h = Audio.playOneShot("audio/music/theme.wav");
+    expect(h.playing).toBe(true);
+    // At once: sounding within two frames (the head is resident; nothing was fetched or decoded for it).
+    await r.step(2);
+    const start = r.left.findIndex((s, i) => i >= from && s !== 0) - from;
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(start).toBeLessThan(2 * QPF * 128);
+    // Its loose media is fetched only now, for the ring.
+    await stepUntil(r, () => !h.playing, 400);
+    expect(g.fetched).toEqual(["audio/packages/Level.mycopak", media.url]);
+
+    const out = Float32Array.from(r.left.slice(from + start, from + start + 2 * RATE));
+    // No gap: every 5 ms of the sound holds signal (a starved ring would leave silence after the head).
+    let quietest = Infinity;
+    for (let w = 0; w + 240 <= out.length - 480; w += 240) {
+      let e = 0;
+      for (let i = w; i < w + 240; i++) e += out[i]! * out[i]!;
+      quietest = Math.min(quietest, Math.sqrt(e / 240));
+    }
+    // Against the source's left channel, lined up and scaled on the head (exact 16-bit PCM): the stream after it must be
+    // on the same frames (a frame slipped at the seam would cost the body ≈ 30 dB at 220 Hz) and the seam's own step no
+    // larger than the signal's step plus the codec's error there.
+    const src = Float32Array.from({ length: 2 * RATE }, (_, i) => 0.25 * Math.sin((2 * Math.PI * 220 * i) / RATE));
+    const fit = fitSnr(src.subarray(0, head), r.left.slice(from), start);
+    const got = Float32Array.from(r.left.slice(from + fit.lag, from + fit.lag + 2 * RATE));
+    let k = 0;
+    let kk = 0;
+    for (let i = 0; i < head; i++) (k += src[i]! * got[i]!, kk += got[i]! * got[i]!);
+    const scale = k / kk;
+    const residual = Float32Array.from(got, (v, i) => v * scale - src[i]!);
+    const snrOf = (a: number, b: number) => {
+      let s = 0;
+      let e = 0;
+      for (let i = a; i < b; i++) (s += src[i]! * src[i]!, e += residual[i]! ** 2);
+      return 10 * Math.log10(s / Math.max(e, 1e-30));
+    };
+    const headSnr = snrOf(0, head);
+    const bodySnr = snrOf(head, 2 * RATE - 4096);
+    const codecError = Math.max(...residual.subarray(head + 1024, 2 * RATE - 4096).map(Math.abs));
+    const seamStep = maxStep(Float32Array.from(got, (v) => v * scale), head - 64, head + 64);
+    const srcStep = maxStep(src, head - 64, head + 64);
+    console.log(`head hand-over: sounding ${start} frames after the play; head ${headSnr.toFixed(1)} dB, stream ${bodySnr.toFixed(1)} dB against the source; step across the seam ${seamStep.toFixed(5)} against the source's ${srcStep.toFixed(5)} (codec error ≤ ${codecError.toFixed(5)}); quietest 5 ms RMS ${quietest.toFixed(4)}`);
+    expect(quietest).toBeGreaterThan(0.05);
+    expect(headSnr).toBeGreaterThan(60);
+    expect(bodySnr).toBeGreaterThan(36);
+    expect(seamStep).toBeLessThanOrEqual(srcStep + 2 * codecError);
+    expect(h.reason).toBeNull();
   });
 
   it("a compressed Vorbis sound streams from the decoder's copy, and recovers after the decoder crashes mid-play", { timeout: 60_000 }, async (ctx) => {

@@ -167,6 +167,8 @@ export class CoreVoices {
   private readonly stemStaleTo: Float64Array;
   /** `PlayRequest.offset` per slot, seconds into the source, until the voice's PLAY carries it (0: the start). */
   private readonly startOffset: Float64Array;
+  /** W12: per slot, the stream frame a stream voice opens at (`CorePlayRequest.streamStartFrame`: after a head clip), else 0. */
+  private readonly streamStart: Uint32Array;
   private stemStaleCount = 0;
   /**
    * F-24: per slot, the id of the voice whose PLAY went out flat (non-spatial, not ambisonic), else 0. The core reads
@@ -189,6 +191,7 @@ export class CoreVoices {
     this.stemStaleAfter = new Float64Array(t.capacity);
     this.stemStaleTo = new Float64Array(t.capacity);
     this.startOffset = new Float64Array(t.capacity);
+    this.streamStart = new Uint32Array(t.capacity);
     this.flatPlayId = new Uint32Array(t.capacity);
     this.gainApplied = new Float32Array(t.capacity).fill(1);
     this.basis.set(this.listenerPos, this.listenerFwd, this.listenerUp);
@@ -265,6 +268,7 @@ export class CoreVoices {
     t.pitch[i] = req.pitch !== undefined && Number.isFinite(req.pitch) ? clamp(req.pitch, MIN_PITCH, MAX_PITCH) : 1;
     t.flags[i] = (req.loop ? VoiceFlag.LOOP : 0) | (req.oneShot ? VoiceFlag.ONE_SHOT : 0) | (stream ? VoiceFlag.STREAM | VoiceFlag.WANTS_PLAYHEAD : 0);
     this.startOffset[i] = req.offset !== undefined && Number.isFinite(req.offset) && req.offset > 0 ? req.offset : 0;
+    this.streamStart[i] = stream && req.streamStartFrame !== undefined && Number.isInteger(req.streamStartFrame) && req.streamStartFrame > 0 ? req.streamStartFrame : 0;
     if (member) host.musicOps.adoptMember(id, i, member);
     else if (stream) host.streams.register(clip, id, req.path, req.loop === true);
     t.lpHz[i] = BUS_LP_OFF_HZ;
@@ -373,7 +377,10 @@ export class CoreVoices {
         t.free(id, VoiceReason.FAILED);
         return;
       }
-      this.launchStream(id, i);
+      // W12: a stream after its head clip opens where the head ends (no seek, no fade-in).
+      const from = this.streamStart[i]!;
+      this.streamStart[i] = 0;
+      this.launchStream(id, i, from);
       // A start offset: the stream seeks before its first chunk (or, its rate not known yet, once the worker opened it).
       const offset = this.startOffset[i]!;
       this.startOffset[i] = 0;

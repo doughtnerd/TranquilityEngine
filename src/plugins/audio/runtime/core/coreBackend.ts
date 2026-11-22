@@ -82,7 +82,8 @@ import { reopenStamp, StreamManager, type StreamDecoderLike, type StreamManagerD
 import { WorkletChannel } from "./workletChannel";
 import { sharedDecoderClient } from "../decoder/decoderClient";
 import { createPackHost } from "./packHost";
-import { packedMediaUrl } from "./packMedia";
+import { packedMediaUrl, packedSound } from "./packMedia";
+import { headedVoice } from "./headedVoice";
 import { createWarnOnce, type WarnOnce } from "./codecs";
 import { effectiveMixedCap, Selection } from "./selection";
 import { PannerKind, PannerPick, type PannerKindCode, type PannerSink } from "./pannerPick";
@@ -116,6 +117,8 @@ export interface CorePlayRequest extends PlayRequest {
   music?: MusicMemberTag;
   /** The World key of the playing World (0 or omitted: none). */
   world?: number;
+  /** W12: a stream voice opens its stream at this frame of the file (after a prefetch head that plays frames before it). */
+  streamStartFrame?: number;
 }
 
 /** One voice as `AudioVoice`, with §6's optional members required, plus the handle. */
@@ -766,12 +769,47 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   /** Starts a clip. Returns null only when the backend can't play at all (the host failed). */
   play(req: CorePlayRequest): CoreVoice | null {
     if (this.disposed || this.host.status === "failed") return null;
+    const head = this.prefetchHead(req);
+    if (head) return this.playHeaded(req, head);
     // A3.4a: while locked or a hard rebuild runs, new plays wait in the locked queue (`voices.start` asks `maySend`).
     const id = this.voices.start(req);
     if (id === 0) return null;
     const voice = new Voice(this.voices, this.table, id, this.automation);
     this.automation.onPlay(voice, req);
     return voice;
+  }
+
+  /**
+   * ADR 0337 §3 (W12): the resident prefetch head a stream play of a packaged `stream` sound starts on (frames and rate),
+   * or null to stream as usual: no head, not resident, a stamp can't be exact (locked, a rebuild, no clock yet), or the
+   * play asks for what a head can't give (a start offset, a span, a music member).
+   */
+  private prefetchHead(req: CorePlayRequest): { frames: number; rate: number } | null {
+    if (!req.stream || req.music || req.span || (req.offset ?? 0) > 0 || !this.session.maySend || !this.clips.acquireSpan) return null;
+    const packed = packedSound(req.path);
+    if (!packed || packed.load !== "stream" || packed.headFrames <= 0) return null;
+    // A peek: the package holds the head, so this reference changes nothing.
+    const id = this.clips.acquireSpan(req.path, 0, packed.headFrames);
+    const info = this.clips.info(id);
+    this.clips.release(id);
+    if (!info || info.state !== "ready" || !(info.sampleRate > 0) || info.frames <= 0) return null;
+    const now = this.clockMap.framesNow();
+    if (!(now > 0)) return null;
+    return { frames: info.frames, rate: info.sampleRate };
+  }
+
+  /** W12: the head as a clip voice at T0 and the stream from the head's end at T0 + its length, as one voice (`headedVoice.ts`). */
+  private playHeaded(req: CorePlayRequest, head: { frames: number; rate: number }): CoreVoice | null {
+    const horizon = this.horizon();
+    const at = req.at !== undefined && Number.isFinite(req.at) && req.at > horizon ? req.at : horizon;
+    const pitch = req.pitch !== undefined && Number.isFinite(req.pitch) && req.pitch > 0 ? req.pitch : 1;
+    const bodyId = this.voices.start({ ...req, at: at + head.frames / (head.rate * pitch), streamStartFrame: head.frames });
+    if (bodyId === 0) return null;
+    const body = new Voice(this.voices, this.table, bodyId, this.automation);
+    this.automation.onPlay(body, req);
+    const headId = this.voices.start({ ...req, stream: false, loop: false, at, span: { startFrame: 0, endFrame: head.frames } });
+    if (headId === 0) return body;
+    return headedVoice(new Voice(this.voices, this.table, headId, this.automation), body);
   }
 
   /** The listener pose the spatial voices' distance gains and directions come from (`voices.setListener`). */
