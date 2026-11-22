@@ -1,6 +1,7 @@
 // The Samples screen's actions on the open sample, shared by the toolbar, menus and the keyboard (the prototype's
 // keys: M marker, L loop, I/O trim, S snip, C razor, Delete, = − 0 Z zoom, Space play, arrows move the playhead). Each
 // edit applies through the sample's session as one step.
+import { studioHearAs } from "../../encoding/studioEncoding";
 import { toasts, audioHost } from "../../shell/studioServices";
 import { fitView, followTime, zoomAt, zoomTo } from "../../components/waveformModel";
 import { addLoop, addMarker, closeGap, deleteMarker, removeLoop, setTrim, snip, toggleSnippet, viewTime } from "./sampleEditing";
@@ -172,10 +173,16 @@ export function togglePlay(sel?: SampleSelection): boolean {
   const back = playheadTime.peek();
   // A flattened sample plays its render, which keeps the source's timeline: the plan's source seconds hold.
   const audio = renderPathOf(c.s.project.files, c.s.source.peek(), c.e) ?? c.s.source.peek();
-  const why = startPlay(host, c.s.path, audio, plan, preRoll.peek() ? 1 : 0, (t) => movePlayhead(t, followPlayhead.peek()), () => {
-    if (returnToStart.peek()) playheadTime.value = back;
-  });
-  if (why) toasts.show({ text: `Can't play: ${why}.`, kind: "error" });
+  const begin = () => {
+    const why = startPlay(host, c.s.path, audio, plan, preRoll.peek() ? 1 : 0, (t) => movePlayhead(t, followPlayhead.peek()), () => {
+      if (returnToStart.peek()) playheadTime.value = back;
+    });
+    if (why) toasts.show({ text: `Can't play: ${why}.`, kind: "error" });
+  };
+  // ADR 0337 §6: Hear as a platform converts the sound first (cached), then plays what that platform ships.
+  const hear = studioHearAs();
+  if (hear.choice.peek() === "source") begin();
+  else void hear.prepare([audio]).then(begin);
   return true;
 }
 

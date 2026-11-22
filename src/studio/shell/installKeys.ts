@@ -1,6 +1,6 @@
 // The Studio's global keys (ADR 0335 "Keyboard"), registered in the keymap and dispatched from the window: Ctrl/⌘+1…6
 // switch screens (also while typing), F6 and Shift+F6 move focus between the screen's panels, ? opens the shortcut
-// list (a single-key shortcut), and Undo, Redo and stepping through history act on the active history (ADR 0145) with
+// list (a single-key shortcut), H flips Hear as between Source and the last platform (ADR 0337 §6), and Undo, Redo and stepping through history act on the active history (ADR 0145) with
 // the editor's keys (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z or Ctrl+Y, Ctrl/⌘+Alt(+Shift)+Z): those are classified by the editor's
 // own key classifier (`shortcutFor`, shortcutKeys.ts), so both apps answer the same keys; the keymap lists them for the
 // shortcuts dialog. Text fields keep their own undo.
@@ -41,6 +41,8 @@ export function installStudioKeys(win: Window = window): () => void {
     keymap.register({ id: "panel.next", keys: ["F6"], label: "Next panel", scope: "global", inText: true, run: () => cyclePanels(win.document, 1) }),
     keymap.register({ id: "panel.previous", keys: ["Shift+F6"], label: "Previous panel", scope: "global", inText: true, run: () => cyclePanels(win.document, -1) }),
     keymap.register({ id: "shortcuts", keys: ["?"], label: "Keyboard shortcuts", scope: "global", run: () => void (shortcutsOpen.value = true) }),
+    // ADR 0337 §6: A/B between the source and the last platform Hear as played.
+    keymap.register({ id: "hearAs.toggle", keys: ["H"], label: "Hear as: switch between Source and the last platform", group: "Audio", scope: "global", run: () => void import("../encoding/studioEncoding").then((m) => m.studioHearAs().toggle()) }),
     keymap.register({ id: "undo", keys: ["Mod+Z"], label: "Undo", group: "Edit", scope: "global", run: withHistory(undo) }),
     keymap.register({ id: "redo", keys: ["Mod+Shift+Z", "Ctrl+Y"], label: "Redo", group: "Edit", scope: "global", run: withHistory(redo) }),
     keymap.register({ id: "history.back", keys: ["Mod+Alt+Z"], label: "Step back through history (in the order made)", group: "Edit", scope: "global", run: withHistory(stepBack) }),

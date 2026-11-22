@@ -1,7 +1,8 @@
 // The player bar, "Layout A" (ADR 0335 `PlayerBar`; the prototype's adopted transport): a three-column frame every
 // screen fills through slots. Left: the now-playing tile (a kind badge, a title and a subtitle). Centre: the screen's
 // transport buttons above its scrub row. Right: a status line, and a slot reserved for a take's replay controls
-// (owner decision 2026-11-22: v1 has no Game session pill and no "Linked to game" badge; take replay stands in).
+// (owner decision 2026-11-22: v1 has no Game session pill and no "Linked to game" badge; take replay stands in), and the
+// Hear as control (ADR 0337 §6) beside it.
 import type { ComponentChildren } from "preact";
 import "./studioComponents.css";
 
@@ -22,6 +23,8 @@ export interface PlayerBarSlots {
   readonly status?: string;
   /** Reserved for a take's replay (M8): drawn at the right end. */
   readonly replay?: ComponentChildren;
+  /** ADR 0337 §6: the Hear as control, before the replay slot (the shell's, the same on every screen). */
+  readonly hearAs?: ComponentChildren;
 }
 
 export function PlayerBar(props: PlayerBarSlots & { readonly label?: string; readonly idleArt?: string }) {
@@ -45,6 +48,7 @@ export function PlayerBar(props: PlayerBarSlots & { readonly label?: string; rea
       </div>
       <div class="studio-player-right">
         {props.status && <span class="studio-player-status">{props.status}</span>}
+        {props.hearAs}
         {props.replay && <div class="studio-player-replay">{props.replay}</div>}
       </div>
     </footer>
