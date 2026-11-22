@@ -6,7 +6,7 @@ import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { Input, button, defineActions, dpad, vec2 } from "../../engine";
 import { editor } from "../sdk";
-import { PanelStory, startPlaying, stopPlaying, withEditor, type EditorStoryParameters } from "../stories/editorStory";
+import { PanelStory, fileJson, startPlaying, stopPlaying, withEditor, type EditorStoryParameters } from "../stories/editorStory";
 
 defineActions("story.inputDebugger.Player", {
   walk: vec2(dpad("<Keyboard>/w", "<Keyboard>/s", "<Keyboard>/a", "<Keyboard>/d")),
@@ -37,6 +37,31 @@ export const WhileEditing: Story = {
   play: async ({ canvasElement }) => {
     expect(editor.scene.playState).toBe("edit");
     await waitFor(() => expect(within(canvasElement).getByText(/Play to see a World's input here/)).toBeVisible(), { timeout: 10000 });
+  },
+};
+
+/**
+ * Record works while editing too: it records the controllers' raw input at the adapters until Stop, which saves a
+ * `myco-input-recording` fixture in the project's `recordings/` folder. (The story's editor has no adapters running,
+ * so the recording is empty; `src/engine/tests/inputRecording.test.ts` records and replays real adapter traffic.)
+ */
+export const RecordHardware: Story = {
+  play: async ({ canvasElement, step }) => {
+    const c = within(canvasElement);
+    await step("Record: the button becomes Stop, with the time and events so far", async () => {
+      await userEvent.click(await c.findByRole("button", { name: "Record" }, { timeout: 10000 }));
+      const stop = await c.findByRole("button", { name: /^Stop/ });
+      expect(stop).toHaveAttribute("aria-pressed", "true");
+      await waitFor(() => expect(stop).toHaveTextContent(/\d+\.\d s · 0 events/));
+    });
+    await step("Stop: saved in recordings/, as a version 1 recording", async () => {
+      await userEvent.click(c.getByRole("button", { name: /^Stop/ }));
+      const saved = await c.findByText(/^Saved recordings\/input-.*\.input-recording\.json: 0 events, \d+\.\d s\.$/);
+      const path = /^Saved (\S+):/.exec(saved.textContent ?? "")![1];
+      const file = await fileJson<{ format: string; version: number; events: unknown[]; hid: unknown[] }>(path);
+      expect(file).toMatchObject({ format: "myco-input-recording", version: 1, events: [], hid: [] });
+      expect(c.getByRole("button", { name: "Record" })).toHaveAttribute("aria-pressed", "false");
+    });
   },
 };
 

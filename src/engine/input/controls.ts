@@ -11,7 +11,9 @@
  * Value conventions in action space: sticks, the d-pad, pointer, touch and pen deltas, scroll and
  * pen tilt have +Y **up** (the wire's gamepad axes are +Y down, as the W3C API reports them; reading
  * a control flips them). Positions (`<Pointer>/position`, `<Touch>/primaryPosition`,
- * `<Pen>/position`) are canvas pixels, origin top-left, +Y down.
+ * `<Pen>/position`) are canvas pixels, origin top-left, +Y down. A gamepad touchpad's finger
+ * positions (`<Gamepad>/touchpad0Position`, `touchpad1Position`) are positions too, but in 0..1 of
+ * the touchpad's width and height: origin top-left, +Y down.
  */
 
 /** Gamepad buttons in wire order. Triggers (6, 7) are analog, 0..1. */
@@ -31,6 +33,9 @@ export type GamepadAxisName = (typeof GAMEPAD_AXES)[number];
 
 /** A device family: what kind of device, for prompts (ADR 0337) and per-family bindings. */
 export type DeviceFamily = "keyboard" | "pointer" | "xbox" | "playstation" | "switch" | "generic" | "touch" | "pen";
+
+/** How many fingers a gamepad's touchpad tracks (DualSense, DualShock 4): `<Gamepad>/touchpad0`, `touchpad1`. */
+export const TOUCHPAD_FINGERS = 2;
 
 /** How many fingers a touchscreen tracks: `<Touch>/touch0` … `<Touch>/touch9`. */
 export const TOUCH_SLOTS = 10;
@@ -54,6 +59,8 @@ export type ControlSource =
   | { readonly device: "gamepad"; readonly read: "stick"; readonly x: number; readonly y: number }
   | { readonly device: "gamepad"; readonly read: "dpad" }
   | { readonly device: "gamepad"; readonly read: "gyro" | "accel" }
+  /** A touchpad finger (0 or 1) touching, or its position (0..1, +Y down). */
+  | { readonly device: "gamepad"; readonly read: "touchpad" | "touchpadPosition"; readonly finger: number }
   /** A finger's press (`slot` 0–9), or the primary touch's (`slot` -1); its position; the primary's delta; the pinch. */
   | { readonly device: "touch"; readonly read: "press" | "position"; readonly slot: number }
   | { readonly device: "touch"; readonly read: "delta" | "pinch" | "count" | "swipe" }
@@ -107,6 +114,11 @@ function parse(path: string): Omit<Control, "id"> | null {
     if (name === "rightStick") return { path: "<Gamepad>/rightStick", source: { device: "gamepad", read: "stick", x: 2, y: 3 }, dimensions: 2, additive: false };
     if (name === "dpad") return { path: "<Gamepad>/dpad", source: { device: "gamepad", read: "dpad" }, dimensions: 2, additive: false };
     if (name === "gyro" || name === "accel") return { path: `<Gamepad>/${name}`, source: { device: "gamepad", read: name }, dimensions: 3, additive: false };
+    const finger = /^touchpad(\d)(Position)?$/.exec(name);
+    if (finger && Number(finger[1]) < TOUCHPAD_FINGERS) {
+      const read = finger[2] ? "touchpadPosition" : "touchpad";
+      return { path: `<Gamepad>/${name}`, source: { device: "gamepad", read, finger: Number(finger[1]) }, dimensions: finger[2] ? 2 : 1, additive: false };
+    }
     return null;
   }
   if (device === "touch" || device === "touchscreen") {
@@ -131,6 +143,22 @@ function parse(path: string): Omit<Control, "id"> | null {
     return null;
   }
   return null;
+}
+
+/**
+ * Every control path `parse` accepts by name, in canonical form, by device, except keys (any `KeyboardEvent.key` is
+ * one) and pointer buttons past button4 and touch fingers past `TOUCH_SLOTS`. What the editor's control picker lists;
+ * keep it in step with `parse` (a test parses every entry).
+ */
+export function namedControlPaths(): { readonly device: "pointer" | "gamepad" | "touch" | "pen"; readonly paths: readonly string[] }[] {
+  const range = (n: number) => Array.from({ length: n }, (_, i) => i);
+  const fingers = (prefix: string, n: number) => range(n).flatMap((i) => [`${prefix}${i}`, `${prefix}${i}Position`]);
+  return [
+    { device: "pointer", paths: [...range(5).map((i) => `button${i}`), "delta", "scroll", "position"].map((n) => `<Pointer>/${n}`) },
+    { device: "gamepad", paths: [...GAMEPAD_BUTTONS, ...GAMEPAD_AXES, "leftStick", "rightStick", "dpad", "gyro", "accel", ...fingers("touchpad", TOUCHPAD_FINGERS)].map((n) => `<Gamepad>/${n}`) },
+    { device: "touch", paths: ["primary", "primaryPosition", "primaryDelta", "pinch", "swipe", "count", ...fingers("touch", TOUCH_SLOTS)].map((n) => `<Touch>/${n}`) },
+    { device: "pen", paths: [...PEN_BUTTONS, "position", "delta", "pressure", "tilt", "twist", "inRange"].map((n) => `<Pen>/${n}`) },
+  ];
 }
 
 /** The control a path names (interned: the same object for the same control), or null if the path names none. */

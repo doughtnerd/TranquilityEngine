@@ -1,7 +1,7 @@
 // The Input debugger panel's wording (ADR 0336, 0337).
 import { describe, expect, it } from "vitest";
-import type { InputLogEntry } from "../engine/editor";
-import { formatValue, logText, pickWorld, seconds, sourceLabel, splitPhases, valueMagnitude } from "./inputDebuggerLogic";
+import type { InputLogEntry, InputRecording } from "../engine/editor";
+import { formatValue, logText, pickWorld, recentPresses, recordingFileName, recordingSummary, seconds, sourceLabel, splitPhases, valueMagnitude } from "./inputDebuggerLogic";
 
 describe("the Input debugger's text", () => {
   it("follows the picked World while it plays, else the first that takes input", () => {
@@ -52,5 +52,30 @@ describe("the Input debugger's text", () => {
       "P0 rebind jump → <Keyboard>/k (conflicts: default: fire)",
       "P0 rebind jump canceled",
     ]);
+  });
+
+  it("lists a player's recent presses from its own devices, newest first", () => {
+    const at = { frame: 1, time: 0 };
+    const devices = [
+      { id: -1, name: "Keyboard", kind: "keyboard", family: "keyboard", slot: 0, player: 0, connected: true },
+      { id: 0, name: "Pad 0", kind: "gamepad", family: "xbox", slot: 0, player: 1, connected: true },
+    ] as const;
+    const log = [
+      { ...at, kind: "device", device: "Keyboard", control: "<Keyboard>/w", value: 1 },
+      { ...at, kind: "device", device: "Pad 0", control: "<Gamepad>/buttonSouth", value: 1 },
+      { ...at, kind: "device", device: "Keyboard", control: "<Keyboard>/w", value: 0 },
+      { ...at, kind: "action", player: 0, set: "s", action: "jump", phase: "performed", value: 1 },
+      { ...at, kind: "device", device: "Keyboard", control: "<Keyboard>/space", value: 1 },
+      { ...at, kind: "device", device: "Pad 0", control: "<Gamepad>/leftStickY", value: -0.8 },
+    ] as InputLogEntry[];
+    expect(recentPresses(log, devices, 0, 5)).toEqual(["space", "w"]);
+    expect(recentPresses(log, devices, 1, 1)).toEqual(["leftStickY"]);
+    expect(recentPresses(log, devices, 2, 5)).toEqual([]);
+  });
+
+  it("names and sums up a hardware recording", () => {
+    expect(recordingFileName(new Date(2026, 10, 22, 9, 5, 7))).toBe("input-2026-11-22-090507.input-recording.json");
+    const r = { format: "myco-input-recording", version: 1, recorded: "", duration: 3210, hid: [{}, {}], native: { pads: [] }, web: null, events: [{}, {}, {}] } as unknown as InputRecording;
+    expect(recordingSummary(r)).toBe("2 WebHID devices, SDL, 3 events, 3.2 s");
   });
 });

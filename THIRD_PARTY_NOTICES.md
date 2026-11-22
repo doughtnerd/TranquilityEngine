@@ -35,7 +35,7 @@ Code from these projects is compiled into Myco Engine's own modules. Libraries u
 
 ## WebHID gamepads (`src/engine/input/webHid/`; ADR 0335)
 
-- **SDL3's HIDAPI controller drivers** (`src/joystick/hidapi/SDL_hidapi_ps5.c`, `SDL_hidapi_ps4.c`, `SDL_hidapi_switch.c`: report layouts, calibration, output encoding and the Switch handshake, ported to TypeScript; no C is included) — zlib licence, copyright (C) 1997-2025 Sam Lantinga. https://github.com/libsdl-org/SDL. This port is an altered version: plainly marked as such here and in each module's header.
+- **SDL3's HIDAPI controller drivers** (`src/joystick/hidapi/SDL_hidapi_ps5.c`, `SDL_hidapi_ps4.c`, `SDL_hidapi_switch.c`: report layouts, calibration, touchpad and battery decoding, output encoding, the Switch handshake, Joy-Con layouts and motion axes, and the Switch HD rumble amplitude table and write rate limits, ported to TypeScript; no C is included) — zlib licence, copyright (C) 1997-2025 Sam Lantinga. https://github.com/libsdl-org/SDL. This port is an altered version: plainly marked as such here and in each module's header.
 
 ## Fonts (`src/engine/ui/fonts/`; ADR 0076)
 

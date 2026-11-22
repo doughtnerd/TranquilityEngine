@@ -3,16 +3,21 @@
 // order with the controls they consumed, each action's value, phase flags and elapsed time with the mapping that gave
 // the value, a rebind in progress, and a short log of action, device, join and rebind events. Read-only: it samples
 // the World through the editor SDK (`inputState`, ten times a second) and records its events every frame
-// (`watchInput`) while it shows.
+// (`watchInput`) while it shows, one sampling shared with the game-view overlay (`inputDebugFeed.ts`).
+//
+// Its bar also has Overlay, which shows a compact per-player summary over the game view during play
+// (`InputOverlay.tsx`), and Record, which records controllers' raw input at the adapters (the editor SDK's
+// `recordInput`) until Stop saves it as a `myco-input-recording` fixture file in the project's `recordings/` folder
+// (downloaded where the project can't be written).
+import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { World } from "../../engine/core/World";
-import { inputState, watchInput, type InputActionRow, type InputLogEntry, type InputPlayerRow, type InputWorldState } from "../../engine/editor";
-import { actionLabel, formatValue, logText, pickWorld, seconds, sourceLabel, splitPhases, valueMagnitude } from "../inputDebuggerLogic";
+import { inputState, type InputActionRow, type InputLogEntry, type InputPlayerRow, type InputRecording, type InputWorldState } from "../../engine/editor";
+import { clearInputLog, followedInputWorld, inputOverlayShown, inputRecording, startHardwareRecording, useInputSample } from "../inputDebugFeed";
+import { actionLabel, formatValue, logText, pickWorld, recordingFileName, recordingSummary, seconds, sourceLabel, splitPhases, valueMagnitude } from "../inputDebuggerLogic";
 import { editor, Panel, usePanelState } from "../sdk";
 import "./inputDebugger.css";
 
-/** The panel samples this often (the log records every frame regardless). */
-const REFRESH_MS = 100;
 /** Log lines shown, newest first. */
 const LOG_LINES = 60;
 
@@ -25,13 +30,102 @@ export function InputDebuggerPanel() {
         {playing ? (
           <Live worlds={worlds} />
         ) : (
-          <p class="input-debugger-empty">
-            Play to see a World's input here: its devices and players, each player's active contexts by priority, every action's value, phase and hold time with the mapping that produced it, the
-            controls higher contexts consumed, rebinds in progress and recent events.
-          </p>
+          <>
+            <Bar />
+            <p class="input-debugger-empty">
+              Play to see a World's input here: its devices and players, each player's active contexts by priority, every action's value, phase and hold time with the mapping that produced it, the
+              controls higher contexts consumed, rebinds in progress and recent events. Record works now too: it records your controllers' raw input for a test fixture.
+            </p>
+          </>
         )}
       </div>
     </Panel>
+  );
+}
+
+/** The panel's bar: the World picker while playing (`children`), Overlay and Record. */
+function Bar(props: { children?: ComponentChildren }) {
+  const overlay = inputOverlayShown.value;
+  return (
+    <div class="input-debugger-bar">
+      {props.children}
+      <span class="input-debugger-bar-tools">
+        <button class="input-debugger-toggle" aria-pressed={overlay} title="Show each player's contexts, actions and recent presses over the game view while playing" onClick={() => (inputOverlayShown.value = !overlay)}>
+          Overlay
+        </button>
+        <RecordControl />
+      </span>
+    </div>
+  );
+}
+
+/** Save `recording` in the project's `recordings/` folder, or download it where the project can't be written. Its path or file name, or null. */
+async function saveRecording(recording: InputRecording): Promise<{ where: string; downloaded: boolean } | null> {
+  const name = recordingFileName(new Date(recording.recorded));
+  const text = `${JSON.stringify(recording, null, 1)}\n`;
+  const project = editor.project.peek();
+  if (project?.canSave) {
+    const path = await editor.project.createFile({ folder: "recordings", name, what: "input recordings", write: (p, at) => p.writeText(at, text), created: (at) => `Saved the input recording as ${at}.` });
+    return path ? { where: path, downloaded: false } : null;
+  }
+  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return { where: name, downloaded: true };
+}
+
+/** Record / Stop: a hardware recording of the controllers' raw input, saved on Stop. */
+function RecordControl() {
+  const recorder = inputRecording.value;
+  const [, setTicks] = useState(0);
+  const [saved, setSaved] = useState<string | null>(null);
+  useEffect(() => {
+    if (!recorder) return;
+    const t = setInterval(() => setTicks((n) => n + 1), 250);
+    return () => clearInterval(t);
+  }, [recorder]);
+  const stop = async () => {
+    if (!recorder) return;
+    const recording = recorder.stop();
+    inputRecording.value = null;
+    try {
+      const result = await saveRecording(recording);
+      setSaved(result ? `${result.downloaded ? "Downloaded" : "Saved"} ${result.where}: ${recordingSummary(recording)}.` : null);
+    } catch (err) {
+      editor.messages.failed("Couldn't save the input recording", err);
+    }
+  };
+  return (
+    <>
+      {recorder ? (
+        <button class="input-debugger-record recording" aria-pressed={true} title="Stop recording and save the fixture file" onClick={() => void stop()}>
+          Stop
+          <span class="input-debugger-facts">
+            {(recorder.elapsed / 1000).toFixed(1)} s · {recorder.events} events
+          </span>
+        </button>
+      ) : (
+        <button
+          class="input-debugger-record"
+          aria-pressed={false}
+          title="Record controllers' raw input as it arrives (WebHID reports, SDL batches, Gamepad API readings) and save it as a fixture file for tests"
+          onClick={() => {
+            setSaved(null);
+            startHardwareRecording();
+          }}
+        >
+          Record
+        </button>
+      )}
+      {saved && !recorder && (
+        <span class="input-debugger-saved" role="status">
+          {saved}
+        </span>
+      )}
+    </>
   );
 }
 
@@ -40,9 +134,12 @@ function Live(props: { worlds: readonly World[] }) {
   const choices = props.worlds.map((w) => ({ name: w.name, takesInput: inputState(w).takesInput }));
   const name = pickWorld(choices, picked.value);
   const world = props.worlds.find((w) => w.name === name) ?? null;
+  useEffect(() => {
+    followedInputWorld.value = name; // the overlay follows the same World
+  }, [name]);
   return (
     <>
-      <div class="input-debugger-bar">
+      <Bar>
         <label>
           World
           <select aria-label="World" value={name ?? ""} onChange={(e) => (picked.value = e.currentTarget.value)}>
@@ -54,7 +151,7 @@ function Live(props: { worlds: readonly World[] }) {
             ))}
           </select>
         </label>
-      </div>
+      </Bar>
       {world && <WorldView key={world.name} world={world} />}
     </>
   );
@@ -62,31 +159,7 @@ function Live(props: { worlds: readonly World[] }) {
 
 function WorldView(props: { world: World }) {
   const { world } = props;
-  const [state, setState] = useState<InputWorldState | null>(null);
-  const [log, setLog] = useState<readonly InputLogEntry[]>([]);
-  const [recorder, setRecorder] = useState<ReturnType<typeof watchInput> | null>(null);
-  useEffect(() => {
-    const rec = watchInput(world);
-    setRecorder(rec);
-    let seen = -1;
-    const refresh = () => {
-      try {
-        setState(inputState(world));
-        if (rec.version !== seen) {
-          seen = rec.version;
-          setLog([...rec.entries()]);
-        }
-      } catch (err) {
-        console.error("[myco] The Input debugger couldn't read the World:", err);
-      }
-    };
-    refresh();
-    const t = setInterval(refresh, REFRESH_MS);
-    return () => {
-      clearInterval(t);
-      rec.stop();
-    };
-  }, [world]);
+  const { state, log } = useInputSample(world);
   if (!state) return null;
   if (!state.takesInput) return <p class="input-debugger-empty">{state.world} doesn't take local input (a server, a World with input off, or a tile without focus), so it has no devices or actions.</p>;
   return (
@@ -97,7 +170,7 @@ function WorldView(props: { world: World }) {
       ) : (
         state.players.map((p) => <Player key={p.index} player={p} sets={new Set(p.actions.map((a) => a.set)).size} />)
       )}
-      <Log entries={log} onClear={() => recorder?.clear()} />
+      <Log entries={log} onClear={() => clearInputLog(world)} />
     </>
   );
 }
@@ -150,7 +223,7 @@ function Player(props: { player: InputPlayerRow; sets: number }) {
       </h4>
       {p.rebind && (
         <p class="input-debugger-rebind" role="status">
-          Rebinding {p.rebind.action} ({p.rebind.context} #{p.rebind.mapping + 1}, {p.rebind.part}): waiting for a {p.rebind.device} press · {p.rebind.cancel} cancels · {seconds(p.rebind.remaining)} left
+          {p.rebind.add ? "Adding a binding for" : "Rebinding"} {p.rebind.action} ({p.rebind.context} #{p.rebind.mapping + 1}{p.rebind.add ? "" : `, ${p.rebind.part}`}): waiting for a {p.rebind.device} press · {p.rebind.cancel} cancels · {seconds(p.rebind.remaining)} left
         </p>
       )}
       <div class="input-debugger-contexts" role="list" aria-label="Active contexts">

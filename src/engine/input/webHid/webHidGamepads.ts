@@ -1,7 +1,8 @@
 /**
  * The WebHID gamepad adapter (ADR 0335, build notes): in Chromium browsers on desktop, DualSense,
- * DualShock 4 and Switch Pro controllers can be opened as HID devices, which gives what the
- * Gamepad API doesn't: gyro and accelerometer, adaptive triggers, light bars, player lights.
+ * DualShock 4, Switch Pro controllers and Joy-Cons can be opened as HID devices, which gives what
+ * the Gamepad API doesn't: gyro and accelerometer, adaptive triggers, light bars, player lights,
+ * touchpad points, battery. A left and a right Joy-Con join into one pad (`joyCon.ts`).
  *
  * - **Permission:** a page sees a device only after the user picks it in the browser's chooser,
  *   which `request()` opens (from a click or key press). Devices granted before are reopened at
@@ -14,19 +15,24 @@
  * Desktop builds never use this: under Tauri, SDL3 reports these controllers natively.
  */
 import type { DeviceEventSink, GamepadOutput } from "../devices";
+import { tapHidDevice, type HidDeviceTap } from "../recording";
 import type { HidPadDriver, HidPadFactory, HidPadLink } from "./driver";
 import { DUALSENSE_PRODUCTS, SONY_VENDOR, dualSense } from "./dualSense";
 import { DUALSHOCK4_PRODUCTS, dualShock4 } from "./dualShock4";
 import type { Hid, HidConnectionEvent, HidDevice, HidDeviceFilter, HidInputReportEvent } from "./hidTypes";
+import { JOYCON_LEFT, JOYCON_RIGHT, joyCons } from "./joyCon";
 import { NINTENDO_VENDOR, SWITCH_PRO_PRODUCT, switchPro } from "./switchPro";
 
 /** HID pads' device ids start here, clear of the Gamepad API's indices. */
 const FIRST_ID = 0x4000;
 
-const DRIVERS: readonly { readonly vendorId: number; readonly productId: number; readonly factory: HidPadFactory }[] = [
+/** Each family's driver; Joy-Cons' is made per adapter, since the Joy-Cons it opens pair up. */
+const DRIVERS: readonly { readonly vendorId: number; readonly productId: number; readonly factory: HidPadFactory | "joyCon" }[] = [
   ...DUALSENSE_PRODUCTS.map((productId) => ({ vendorId: SONY_VENDOR, productId, factory: dualSense })),
   ...DUALSHOCK4_PRODUCTS.map((productId) => ({ vendorId: SONY_VENDOR, productId, factory: dualShock4 })),
   { vendorId: NINTENDO_VENDOR, productId: SWITCH_PRO_PRODUCT, factory: switchPro },
+  { vendorId: NINTENDO_VENDOR, productId: JOYCON_LEFT, factory: "joyCon" },
+  { vendorId: NINTENDO_VENDOR, productId: JOYCON_RIGHT, factory: "joyCon" },
 ];
 
 /** What the browser's device chooser lists. */
@@ -53,7 +59,12 @@ interface Entry {
   readonly key: string;
   driver: HidPadDriver | null;
   announced: boolean;
+  /** The announced pad's vendor and product (a joined Joy-Con pair's differ from the device's). */
+  padKey: string;
+  /** In use as part of another entry's pad (a joined Joy-Con). */
+  joined: boolean;
   listener: ((e: HidInputReportEvent) => void) | null;
+  tap?: HidDeviceTap;
 }
 
 const keyOf = (vendor: number, product: number) => `${vendor.toString(16).padStart(4, "0")}:${product.toString(16).padStart(4, "0")}`;
@@ -72,6 +83,7 @@ export function webHidGamepads(sink: DeviceEventSink, nav: Navigator): WebHidGam
   const byId = new Map<number, Entry>();
   let nextId = FIRST_ID;
   let stopped = false;
+  const joyCon = joyCons();
 
   const freeSlot = () => {
     const used = new Set([...entries.values()].map((e) => e.slot));
@@ -85,6 +97,7 @@ export function webHidGamepads(sink: DeviceEventSink, nav: Navigator): WebHidGam
     entries.delete(entry.device);
     byId.delete(entry.id);
     if (entry.listener) entry.device.removeEventListener("inputreport", entry.listener);
+    entry.tap?.close();
     try {
       entry.driver?.stop();
     } catch {
@@ -103,7 +116,7 @@ export function webHidGamepads(sink: DeviceEventSink, nav: Navigator): WebHidGam
     if (entries.has(device)) return true;
     const known = DRIVERS.find((d) => d.vendorId === device.vendorId && d.productId === device.productId);
     if (!known) return false;
-    const entry: Entry = { device, id: nextId++, slot: freeSlot(), key: keyOf(device.vendorId, device.productId), driver: null, announced: false, listener: null };
+    const entry: Entry = { device, id: nextId++, slot: freeSlot(), key: keyOf(device.vendorId, device.productId), driver: null, announced: false, padKey: "", joined: false, listener: null };
     entries.set(device, entry);
     byId.set(entry.id, entry);
     try {
@@ -114,8 +127,9 @@ export function webHidGamepads(sink: DeviceEventSink, nav: Navigator): WebHidGam
         sink,
         slot: entry.slot,
         connected(info) {
-          if (entry.announced || entries.get(device) !== entry) return;
+          if (stopped || entry.announced || entries.get(device) !== entry) return;
           entry.announced = true;
+          entry.padKey = keyOf(info.vendor ?? device.vendorId, info.product ?? device.productId);
           sink.gamepadConnected({ ...info, id: entry.id });
         },
         disconnected() {
@@ -123,11 +137,17 @@ export function webHidGamepads(sink: DeviceEventSink, nav: Navigator): WebHidGam
           entry.announced = false;
           sink.gamepadDisconnected(entry.id);
         },
+        joined(on) {
+          entry.joined = on;
+        },
       };
-      const driver = known.factory(device, link);
+      const tap = tapHidDevice(device); // input recording (recording.ts): notes the setup exchange
+      entry.tap = tap;
+      const driver = (known.factory === "joyCon" ? joyCon : known.factory)(tap.device, link);
       entry.driver = driver;
       entry.listener = (e) => {
         try {
+          tap.input(e);
           driver.report(e.reportId, e.data);
         } catch (err) {
           console.error("[myco] A WebHID gamepad report couldn't be read:", err);
@@ -135,6 +155,7 @@ export function webHidGamepads(sink: DeviceEventSink, nav: Navigator): WebHidGam
       };
       device.addEventListener("inputreport", entry.listener);
       await driver.start();
+      tap.ready();
       return entries.get(device) === entry;
     } catch (err) {
       console.warn(`[myco] ${device.productName || "A controller"} couldn't be opened over WebHID; the Gamepad API reports it instead:`, err);
@@ -181,7 +202,7 @@ export function webHidGamepads(sink: DeviceEventSink, nav: Navigator): WebHidGam
       const key = gamepadKey(pad.id);
       if (!key) return false;
       let owned = 0;
-      for (const e of entries.values()) if (e.announced && e.key === key) owned++;
+      for (const e of entries.values()) if ((e.announced && (e.key === key || e.padKey === key)) || (e.joined && e.key === key)) owned++;
       if (!owned) return false;
       // The first `owned` Gamepad API pads of the same model, in index order.
       let before = 0;

@@ -9,6 +9,11 @@
  *   few times a second would miss them). While nothing watches, no system runs.
  * - What the context asset editor offers and checks: the defined action sets, the contexts registered in code, a
  *   control path's canonical form, and the problems the evaluator reports for a context.
+ * - `watchRawPresses(callback)`: every press the Engine's device snapshot sees (keys, mouse buttons, gamepad buttons
+ *   and stick directions from every gamepad adapter, touches, pen buttons), with or without a play World: the
+ *   context editor's Bind.
+ * - `recordInput()`: a hardware recording of the gamepad adapters' raw input (`input/recording.ts`), the Input
+ *   debugger's Record.
  */
 import type { World } from "../core/World";
 import { _undefineBuiltinSystem, defineBuiltinSystem, type BuiltinSystem } from "../core/systems";
@@ -16,13 +21,17 @@ import type { GameObject } from "../scene/GameObject";
 import { ActionEvents, ActionPhase, actionSets, actionView, type ActionEventPhase, type ActionKind, type ActionPhaseName } from "../input/actions";
 import { DEFAULT_CONTEXT, registeredContexts } from "../input/contexts";
 import type { InputContextSpec } from "../input/contextTypes";
-import { control, type DeviceFamily } from "../input/controls";
+import { PRESS_POINT, control, namedControlPaths, type DeviceFamily } from "../input/controls";
 import { DEVICE_FAMILIES, DeviceEvents, DeviceKind, InputDevice, deviceNodes, takesLocalInput } from "../input/deviceEntities";
 import { contextProblems, lastEvaluation, playerTable, type CompiledMapping } from "../input/evaluate";
 import { ControlledBy, InputPlayer, PlayerJoined, PlayerLeft, playerNodes } from "../input/players";
 import { RebindResults, pendingRebind, type PendingRebind } from "../input/rebind";
+import { Input } from "../input/Input";
+import { KEYBOARD_DEVICE, PEN_DEVICE, POINTER_DEVICE, TOUCH_DEVICE, devices } from "../input/devices";
+import { startInputRecording, type InputRecorder } from "../input/recording";
 
 export type { PendingRebind } from "../input/rebind";
+export { RECORDING_FORMAT, RECORDING_VERSION, parseInputRecording, type InputRecorder, type InputRecording, type RecordedHidDevice, type RecordedInputEvent, type RecordedWebPad } from "../input/recording";
 
 // --- live state ----------------------------------------------------------------------------------
 
@@ -292,6 +301,15 @@ export function inputContextNames(): string[] {
   return [DEFAULT_CONTEXT, ...registeredContexts()];
 }
 
+/**
+ * Every named control path the engine parses, grouped by device in the order a picker lists them: Pointer, Gamepad,
+ * Touch, Pen (keys aren't listed: any `KeyboardEvent.key` names one).
+ */
+export function inputControlPaths(): { readonly device: string; readonly controls: readonly string[] }[] {
+  const names = { pointer: "Pointer", gamepad: "Gamepad", touch: "Touch", pen: "Pen" } as const;
+  return namedControlPaths().map((g) => ({ device: names[g.device], controls: g.paths }));
+}
+
 /** A control path's canonical form (`<keyboard>/Space` → `<Keyboard>/space`), or null if it names no control. */
 export function canonicalControlPath(path: string): string | null {
   return control(path)?.path ?? null;
@@ -300,4 +318,71 @@ export function canonicalControlPath(path: string): string | null {
 /** The problems the evaluator reports for a context, each with its mapping's index: the messages Play would log. */
 export function inputContextProblems(spec: InputContextSpec): { readonly mapping: number; readonly message: string }[] {
   return contextProblems(spec);
+}
+
+// --- raw presses (Bind) ----------------------------------------------------------------------------
+
+/** One press the device snapshot saw. */
+export interface RawPress {
+  /** What pressed it. */
+  readonly device: "keyboard" | "pointer" | "touch" | "pen" | "gamepad";
+  /** The control's path as the engine names it: `<Keyboard>/k`, `<Pointer>/button0`, `<Gamepad>/buttonSouth`, `<Gamepad>/leftStickX`, `<Touch>/touch0`, `<Pen>/tip`. */
+  readonly control: string;
+  /** The value it reached: 1 for keys and digital buttons, an analog button's 0..1, a stick axis's -1..1. */
+  readonly value: number;
+}
+
+const deviceOf = (id: number): RawPress["device"] => (id === KEYBOARD_DEVICE ? "keyboard" : id === POINTER_DEVICE ? "pointer" : id === TOUCH_DEVICE ? "touch" : id === PEN_DEVICE ? "pen" : "gamepad");
+
+/** The snapshot counts as stalled (nothing steps an Engine: play paused, or no Engine running) after this long without one. */
+const STALLED_MS = 200;
+const PUMP_MS = 50;
+
+/**
+ * Call `callback` with every press the Engine's device snapshot sees from now on (releases aren't presses; a stick
+ * counts when it crosses the press point): keyboard, mouse, every gamepad adapter (the Gamepad API, WebHID, SDL on
+ * desktop), touch and pen, after the snapshot's own UI routing. Runs with or without a play World: the snapshot is
+ * read at the start of each Engine frame, and while no Engine steps it (play paused, nothing running) this takes the
+ * snapshot itself so presses still arrive. Returns a function that stops.
+ */
+export function watchRawPresses(callback: (press: RawPress) => void): () => void {
+  let seen = devices.frame; // events already in the snapshot happened before this call
+  let lastFrameAt = performance.now();
+  let stopped = false;
+  const read = () => {
+    if (stopped || devices.frame === seen) return;
+    seen = devices.frame;
+    lastFrameAt = performance.now();
+    for (const e of devices.events) {
+      const gamepadAxis = e.control.startsWith("<Gamepad>/") && /Stick[XY]$/.test(e.control);
+      if (gamepadAxis ? Math.abs(e.value) < PRESS_POINT : e.value < PRESS_POINT) continue;
+      callback({ device: deviceOf(e.device), control: e.control, value: e.value });
+      if (stopped) return;
+    }
+  };
+  // At the start of each snapshot the previous frame's events are still there: read them before they're replaced.
+  const removePoller = devices.addPoller(read);
+  const pump = setInterval(() => {
+    read();
+    if (stopped || performance.now() - lastFrameAt < STALLED_MS) return;
+    Input.beginFrame(); // nothing is taking snapshots: take one, so the adapters are polled and their events applied
+    read();
+  }, PUMP_MS);
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    removePoller();
+    clearInterval(pump);
+  };
+}
+
+// --- hardware recording -------------------------------------------------------------------------
+
+/**
+ * Start recording the gamepad adapters' raw input: WebHID input reports (with each device's descriptor and setup
+ * exchange), SDL batches on desktop, and Gamepad API readings, until `stop()` returns the recording (a JSON value,
+ * format `myco-input-recording` version 1; `input/replay.ts` plays it back through the same adapters).
+ */
+export function recordInput(): InputRecorder {
+  return startInputRecording();
 }

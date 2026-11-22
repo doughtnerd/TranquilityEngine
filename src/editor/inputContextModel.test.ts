@@ -2,7 +2,7 @@
 // against the evaluator's own problems through the editor SDK.
 import { describe, expect, it } from "vitest";
 import { button, defineActions, dpad, vec2, type MappingSpec } from "../engine";
-import { inputActionSets, inputContextProblems } from "../engine/editor";
+import { canonicalControlPath, inputActionSets, inputContextProblems } from "../engine/editor";
 import {
   CONTROL_GROUPS,
   actionChoices,
@@ -105,7 +105,10 @@ describe("actions, controls and problems", () => {
   });
 
   it("offers controls by device, each one the evaluator accepts", () => {
-    expect(CONTROL_GROUPS.map((g) => g.device)).toEqual(["Keyboard", "Pointer", "Gamepad"]);
+    expect(CONTROL_GROUPS.map((g) => g.device)).toEqual(["Keyboard", "Pointer", "Gamepad", "Touch", "Pen"]);
+    const all = CONTROL_GROUPS.flatMap((g) => g.controls);
+    for (const path of ["<Gamepad>/touchpad1Position", "<Gamepad>/touchpadPress", "<Touch>/swipe", "<Touch>/touch9", "<Pen>/pressure", "<Pointer>/scroll"]) expect(all).toContain(path);
+    for (const path of all) expect(canonicalControlPath(path)).toBe(path);
     const mappings = CONTROL_GROUPS.flatMap((g) => g.controls).map((control) => ({ action: "back", control }));
     expect(inputContextProblems({ name: "all", mappings })).toEqual([]);
   });

@@ -1,6 +1,6 @@
 // The play bar's own tools (Gizmos toggle with its kinds menu, Stats toggle) and the Stats overlay
 // in the game view's corner. Mounted into the game view's play bar and overlay layer for each play
-// session (`mountPlayTools`, from session.ts).
+// session (`mountPlayTools`, from session.ts), with the Input debugger's input overlay (`InputOverlay.tsx`) beside Stats.
 import { render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { setEngineTiming } from "../../engine/editor";
@@ -8,6 +8,7 @@ import { PLAY_GIZMO_KINDS, cleanPlayGizmos, playGizmos, updatePlayGizmos } from 
 import type { PlaySession } from "../playMode";
 import { StatsCollector, megabytes, takeSnapshot, type StatsSnapshot, type WorldStats } from "../playStats";
 import { persisted } from "../preferences";
+import { InputOverlay } from "./InputOverlay";
 import { usePopover } from "./popover";
 import "./playstats.css";
 
@@ -22,7 +23,13 @@ export function mountPlayTools(session: PlaySession): () => void {
   const view = session.view;
   if (!view) return () => {};
   render(<PlayBarTools />, view.tools);
-  render(<PlayStatsOverlay session={session} />, view.hud);
+  render(
+    <>
+      <PlayStatsOverlay session={session} />
+      <InputOverlay />
+    </>,
+    view.hud,
+  );
   return () => {
     render(null, view.tools);
     render(null, view.hud);

@@ -135,7 +135,8 @@ pub fn run() {
             gamepad::myco_gamepad_rumble,
             gamepad::myco_gamepad_trigger_rumble,
             gamepad::myco_gamepad_set_led,
-            gamepad::myco_gamepad_sensors
+            gamepad::myco_gamepad_sensors,
+            gamepad::myco_gamepad_trigger_effect
         ])
         .on_window_event(|window, event| {
             let other = |label: &str| window.app_handle().get_webview_window(label);

@@ -1,7 +1,13 @@
 /* Input debugger panel (ADR 0336, 0337) */
 .panel.inputDebugger .panel-body { padding: 0; overflow: auto; }
 .input-debugger { display: flex; flex-direction: column; min-width: 0; font-size: calc(12px * var(--ui-scale)); }
-.input-debugger-bar { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.input-debugger-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.input-debugger-bar-tools { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
+.input-debugger-bar-tools button { padding: 1px 8px; font-size: calc(11px * var(--ui-scale)); }
+.input-debugger-bar-tools button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.input-debugger-record.recording { display: inline-flex; align-items: baseline; gap: 6px; background: var(--danger) !important; border-color: var(--danger) !important; }
+.input-debugger-record.recording .input-debugger-facts { color: inherit; }
+.input-debugger-saved { flex-basis: 100%; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .input-debugger-bar label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .input-debugger-bar select { background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; }
 .input-debugger-empty, .input-debugger-none { margin: 0; padding: 8px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }

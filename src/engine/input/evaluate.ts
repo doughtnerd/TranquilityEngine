@@ -3,7 +3,7 @@
  * players' action sets.
  *
  * - `engine.InputEvaluate` (input phase, after pairing): per player, compiles its active contexts
- *   (and profile overrides) into a table when they changed, then evaluates them from the highest
+ *   (with the player's profile: removals, additions, overrides) into a table when they changed, then evaluates them from the highest
  *   priority down. A mapping whose triggers are active claims its controls, so lower-priority
  *   contexts don't see them; within a context a chord (Shift+B) claims its main control (B).
  *   Composites, then modifiers, then triggers give each mapping a value and a state; an action
@@ -27,13 +27,13 @@ import type { DataComponentDef } from "../core/data";
 import type { GameObject } from "../scene/GameObject";
 import { ActionEvents, ActionPhase, EDGE_FLAGS, actionSets, type ActionEventPhase, type ActionInfo, type ActionSetDef } from "./actions";
 import type { InputContextSpec, MappingSpec, ModifierSpec } from "./contextTypes";
-import { DEFAULT_CONTEXT, InputContext, activeContexts, bindingsVersion, registeredContexts, resolveContext } from "./contexts";
+import { DEFAULT_CONTEXT, InputContext, activeContexts, bindingsVersion, registeredContexts, resolveContext, sourcedContexts } from "./contexts";
 import { PRESS_POINT, controlById, requireControl, type Control } from "./controls";
 import { DeviceKind, GamepadState, InputDevice, PenState, TouchState, deviceNodes, takesLocalInput } from "./deviceEntities";
 import { devices, mouseKey } from "./devices";
 import { compileModifier, deadzone, type Modifier } from "./modifiers";
 import { ControlledBy, InputPlayer, playerNodes } from "./players";
-import { overrideKey, profileOf, type InputAccessibility, type PlayerProfile } from "./profiles";
+import { profileMappings, profileOf, type InputAccessibility, type PlayerProfile } from "./profiles";
 import { combineTriggers, compileTrigger, type CompiledTrigger, type TriggerWorld } from "./triggers";
 
 /** The stick dead zone mappings that read a stick get when they have none of their own. */
@@ -50,8 +50,12 @@ type Source =
 /** One mapping, compiled for one player. */
 export interface CompiledMapping {
   readonly context: string;
-  /** Its index in the context's `mappings`. */
+  /** Its index in the context's `mappings`, or, for a mapping the player's profile added, the context's mapping count plus its position among the additions. */
   readonly index: number;
+  /** Its position among the profile's additions to the context, or -1 for one of the context's own. */
+  readonly addition: number;
+  /** The mapping as compiled: its spec with the profile's controls. */
+  readonly spec: MappingSpec;
   readonly set: ActionSetDef;
   readonly action: ActionInfo;
   readonly source: Source;
@@ -68,6 +72,8 @@ export interface CompiledMapping {
 export interface CompiledContext {
   readonly name: string;
   readonly priority: number;
+  /** How many mappings the context itself has (the profile's additions are indexed after them). */
+  readonly own: number;
   /** Chords first, so they claim their main control before plain mappings of it run. */
   readonly mappings: readonly CompiledMapping[];
 }
@@ -103,19 +109,26 @@ export function resolveAction(name: string): { set: ActionSetDef; action: Action
   return null;
 }
 
+/** Whether two action names (bare or `"set.Id:action"`) name the same action; names that resolve to none compare as text. */
+function sameAction(a: string, b: string): boolean {
+  if (a === b) return true;
+  const x = resolveAction(a);
+  const y = resolveAction(b);
+  return !!x && !!y && x.set === y.set && x.action === y.action;
+}
+
 const isStickControl = (c: Control) => c.source.device === "gamepad" && (c.source.read === "stick" || c.source.read === "axis");
 
-function compileMapping(spec: MappingSpec, context: string, index: number, profile: PlayerProfile, problems: string[]): CompiledMapping | null {
-  const where = `Input context "${context}", mapping ${index + 1}`;
+function compileMapping(spec: MappingSpec, context: string, index: number, addition: number, a11y: InputAccessibility, problems: string[]): CompiledMapping | null {
+  const where = addition >= 0 ? `Input context "${context}", added mapping ${addition + 1}` : `Input context "${context}", mapping ${index + 1}`;
   const target = resolveAction(spec.action);
   if (!target) {
     problems.push(`${where}: there's no action "${spec.action}".`);
     return null;
   }
   const ctl = (part: string, path: string | undefined): Control => {
-    const replaced = profile.overrides[overrideKey(context, index, part)] ?? path;
-    if (!replaced) throw new Error(`${where}: "${part}" is missing.`);
-    return requireControl(replaced, where);
+    if (!path) throw new Error(`${where}: "${part}" is missing.`);
+    return requireControl(path, where);
   };
   try {
     let source: Source;
@@ -131,7 +144,7 @@ function compileMapping(spec: MappingSpec, context: string, index: number, profi
     const options = target.action.type.options;
     const specs: ModifierSpec[] = [...(spec.modifiers ?? [])];
     const stick = all.some(isStickControl);
-    const override = profile.accessibility.deadzone;
+    const override = a11y.deadzone;
     const hasDeadzone = specs.some((m) => "deadzone" in m);
     if (stick && !hasDeadzone) specs.unshift({ deadzone: { min: override ?? DEFAULT_STICK_DEADZONE } });
     else if (stick && override !== undefined) for (let i = 0; i < specs.length; i++) if ("deadzone" in specs[i]) specs[i] = { deadzone: { ...(specs[i] as { deadzone: object }).deadzone, min: override } };
@@ -139,6 +152,8 @@ function compileMapping(spec: MappingSpec, context: string, index: number, profi
     return {
       context,
       index,
+      addition,
+      spec,
       set: target.set,
       action: target.action,
       source,
@@ -157,15 +172,15 @@ function compileMapping(spec: MappingSpec, context: string, index: number, profi
 
 function compileContext(spec: InputContextSpec, priority: number, profile: PlayerProfile, problems: string[]): CompiledContext {
   const mappings: CompiledMapping[] = [];
-  spec.mappings.forEach((m, i) => {
-    const c = compileMapping(m, spec.name, i, profile, problems);
+  for (const m of profileMappings(spec, profile, sameAction)) {
+    const c = compileMapping(m.spec, spec.name, m.index, m.addition, profile.accessibility, problems);
     if (c) mappings.push(c);
-  });
+  }
   mappings.sort((a, b) => Number(b.source.kind === "modifier") - Number(a.source.kind === "modifier"));
-  return { name: spec.name, priority, mappings };
+  return { name: spec.name, priority, own: spec.mappings.length, mappings };
 }
 
-/** The contexts active for player `index`: the default one, and every active InputContext that names this player. */
+/** The contexts active for player `index`: the default one, every active InputContext that names this player, and those engine sources switch on (the UI's `ui`, ADR 0340). */
 function contextsFor(world: World, index: number): { ref: string; priority: number; order: number }[] {
   const out = [{ ref: DEFAULT_CONTEXT, priority: 0, order: -1 }];
   let order = 0;
@@ -175,6 +190,7 @@ function contextsFor(world: World, index: number): { ref: string; priority: numb
     if (playerOfContext(c) !== index) continue;
     out.push({ ref: c.context, priority: c.priority, order });
   }
+  for (const s of sourcedContexts(world, index)) out.push({ ref: s.context, priority: s.priority, order: ++order });
   return out.sort((a, b) => b.priority - a.priority || a.order - b.order);
 }
 
@@ -358,8 +374,6 @@ export function lastEvaluation(world: World, player: GameObject): EvaluationTrac
   };
 }
 
-const NO_PROFILE: PlayerProfile = { format: 1, overrides: {}, accessibility: {}, version: 0 };
-
 /**
  * @internal The problems the evaluator reports for a context (unknown actions, control paths that name no control,
  * bad modifier and trigger parameters), each with its mapping's index, as the editor's context asset editor lists them.
@@ -368,7 +382,7 @@ export function contextProblems(spec: InputContextSpec): { readonly mapping: num
   const out: { mapping: number; message: string }[] = [];
   spec.mappings.forEach((m, i) => {
     const problems: string[] = [];
-    compileMapping(m, spec.name, i, NO_PROFILE, problems);
+    compileMapping(m, spec.name, i, -1, {}, problems);
     for (const message of problems) out.push({ mapping: i, message });
   });
   return out;
@@ -529,7 +543,7 @@ function read(c: Control, paired: Paired, out: Float32Array): void {
     tmp[0] = tmp[1] = tmp[2] = 0;
     switch (s.read) {
       case "button":
-        tmp[0] = v[`b${s.index}`];
+        tmp[0] = padButton(v, s.index);
         break;
       case "axis":
         tmp[0] = s.index === 1 || s.index === 3 ? -v[`a${s.index}`] : v[`a${s.index}`];
@@ -539,8 +553,8 @@ function read(c: Control, paired: Paired, out: Float32Array): void {
         tmp[1] = -v[`a${s.y}`];
         break;
       case "dpad":
-        tmp[0] = v.b15 - v.b14;
-        tmp[1] = v.b12 - v.b13;
+        tmp[0] = padButton(v, 15) - padButton(v, 14);
+        tmp[1] = padButton(v, 12) - padButton(v, 13);
         break;
       case "gyro":
         tmp[0] = v.gyroX;
@@ -552,6 +566,17 @@ function read(c: Control, paired: Paired, out: Float32Array): void {
         tmp[1] = v.accelY;
         tmp[2] = v.accelZ;
         break;
+      case "touchpad":
+        tmp[0] = (v.tpHeld | v.tpDown) & (1 << s.finger) ? 1 : 0;
+        break;
+      case "touchpadPosition":
+        // Where the finger is while it touches (and in the frame it lifts); 0, 0 otherwise, so a
+        // finger that lifted doesn't keep an action actuated or outweigh another pad's.
+        if ((v.tpHeld | v.tpDown | v.tpUp) & (1 << s.finger)) {
+          tmp[0] = v[`tp${s.finger}X`];
+          tmp[1] = v[`tp${s.finger}Y`];
+        }
+        break;
     }
     const m = tmp[0] * tmp[0] + tmp[1] * tmp[1] + tmp[2] * tmp[2];
     if (m > best) {
@@ -560,6 +585,12 @@ function read(c: Control, paired: Paired, out: Float32Array): void {
       if (m > 0) readFamily = pad.family;
     }
   }
+}
+
+/** A gamepad button's value; one pressed and released inside the frame reads fully pressed (it went down this frame, as a key tapped between frames reads held). */
+function padButton(v: Record<string, number>, index: number): number {
+  const bit = 1 << index;
+  return v.down & bit && !(v.held & bit) ? 1 : v[`b${index}`];
 }
 
 const scratchPad = new Float32Array(3);
