@@ -54,7 +54,7 @@ pub(super) const EFFECTS: Repeat = Repeat {
     name: "effects",
     count_field: "effectCount",
     item: &[
-        Field::new("type", Ty::U32).doc("0 lowpass, 1 highpass, 2 compressor, 3 reverb send"),
+        Field::new("type", Ty::U32).doc("0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6)"),
         Field::new("p", Ty::F32).array(7).doc("parameters; q in dB; unused p = 0"),
     ],
     then: None,

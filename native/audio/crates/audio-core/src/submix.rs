@@ -35,8 +35,7 @@
 //!
 //! RESET frees every slot (main replays the ones in use). Nothing here allocates.
 
-use audio_dsp::biquad::Biquad;
-use audio_dsp::compressor::{db_to_linear, Compressor};
+use audio_dsp::fx::{Ctx, Effect};
 use audio_wire::generated as wire;
 
 use crate::core::{Core, Regions};
@@ -59,28 +58,23 @@ pub const ROUTE_SUBMIX: u16 = 0x8000;
 /// A filter's Q in dB at resonance 0 and 1 (the bus chain's `Q_RANGE`, `legacyEffects.ts`).
 pub const Q_RANGE_DB: (f32, f32) = (0.5, 20.0);
 
-/// Effect kinds (the wire's `SUBMIX_FX_*`). 0 is an empty slot.
+/// Effect kinds (the wire's `SUBMIX_FX_*`, `audio_dsp::fx::kind`). 0 is an empty slot.
 pub mod kind {
-    use super::wire;
-    pub const NONE: u32 = 0;
-    pub const LOWPASS: u32 = wire::SUBMIX_FX_LOWPASS as u32;
-    pub const HIGHPASS: u32 = wire::SUBMIX_FX_HIGHPASS as u32;
-    pub const COMPRESSOR: u32 = wire::SUBMIX_FX_COMPRESSOR as u32;
+    pub use audio_dsp::fx::kind::*;
 }
 
-/// One effect slot. All-zero is an empty slot.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct SubmixEffect {
-    /// [`kind`].
-    pub kind: u32,
-    /// Non-zero: runs; 0: passes the signal through (bypassed, state kept).
-    pub on: u32,
-    /// The catalogue's parameters in its order, non-finite read as 0.
-    pub p: [f32; PARAMS],
-    /// A filter's state (zeroed and unused for the other kinds).
-    pub biquad: Biquad,
-}
+const _: () = {
+    use audio_dsp::fx::kind as k;
+    assert!(k::LOWPASS == wire::SUBMIX_FX_LOWPASS && k::HIGHPASS == wire::SUBMIX_FX_HIGHPASS && k::COMPRESSOR == wire::SUBMIX_FX_COMPRESSOR);
+    assert!(k::EQ == wire::SUBMIX_FX_EQ && k::BANDPASS == wire::SUBMIX_FX_BANDPASS && k::SATURATION == wire::SUBMIX_FX_SATURATION);
+    assert!(k::DISTORTION == wire::SUBMIX_FX_DISTORTION && k::BITCRUSH == wire::SUBMIX_FX_BITCRUSH && k::CHORUS == wire::SUBMIX_FX_CHORUS);
+    assert!(k::DELAY == wire::SUBMIX_FX_DELAY && k::REVERB == wire::SUBMIX_FX_REVERB && k::FORMANT == wire::SUBMIX_FX_FORMANT);
+    assert!(k::PITCH == wire::SUBMIX_FX_PITCH && k::LIMITER == wire::SUBMIX_FX_LIMITER && k::SIDECHAIN == wire::SUBMIX_FX_SIDECHAIN);
+    assert!(k::GAIN == wire::SUBMIX_FX_GAIN && PARAMS == audio_dsp::fx::PARAMS);
+};
+
+/// One effect slot (the catalogue's shared effect, `audio_dsp::fx`). All-zero is an empty slot.
+pub type SubmixEffect = Effect;
 
 /// One submix slot. All-zero is a free slot.
 #[repr(C)]
@@ -94,16 +88,12 @@ pub struct Submix {
     pub bus: u16,
     /// Effects in use.
     pub count: u32,
-    /// The slot that runs [`Submix::compressor`], or `u32::MAX`.
-    pub compressor_slot: u32,
     /// Non-zero when a voice added into `buf` this quantum.
     pub fed: u32,
     /// Quanta since a voice last fed it (saturating at [`QUIET_QUANTA`]).
     pub quiet: u32,
-    pub _pad: u32,
+    pub _pad: [u32; 2],
     pub effects: [SubmixEffect; SUBMIX_EFFECTS],
-    /// The chain's one compressor.
-    pub compressor: Compressor,
 }
 
 /// The region's scalars, then the group routes. All-zero is valid: nothing routed.
@@ -165,17 +155,18 @@ pub fn config_is_well_formed(msg: &[u8], off: usize, len: usize) -> bool {
     n.checked_mul(wire::SubmixEffects::FIXED_END).is_some_and(|bytes| wire::Submix::FIXED_END + bytes <= len)
 }
 
-/// A filter's Q in dB at resonance `r` (0..1, clamped).
-fn q_db(r: f32) -> f32 {
-    let r = if r.is_finite() { r.clamp(0.0, 1.0) } else { 0.0 };
-    Q_RANGE_DB.0 + r * (Q_RANGE_DB.1 - Q_RANGE_DB.0)
-}
-
 /// SUBMIX: configures slot `voiceId` (see the module comment). Out-of-range slots are ignored.
 pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
     let sample_rate = core.params().sample_rate;
     let index = u32_at(msg, off + 4) as usize;
-    let Some(v) = view(&mut core.regions_mut().submixes[..]) else { return };
+    let regions = core.regions_mut();
+    apply(regions, msg, off, index, sample_rate);
+    crate::fxmem::rebuild(regions);
+}
+
+fn apply(regions: &mut Regions, msg: &[u8], off: usize, index: usize, sample_rate: f32) {
+    let fxmem = &mut regions.fxmem[..];
+    let Some(v) = view(&mut regions.submixes[..]) else { return };
     if index >= SUBMIXES {
         return;
     }
@@ -191,7 +182,7 @@ pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
         if was != 0 {
             v.header.active -= 1;
         }
-        // SAFETY: all-zero is a free slot.
+        // SAFETY: all-zero is a free slot (its memory goes back at the sweep).
         v.slots[index] = unsafe { core::mem::zeroed() };
         return;
     }
@@ -208,21 +199,16 @@ pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
         v.header.active += 1;
         s.quiet = 0;
     }
+    let mut had = s.count as usize;
     if group != was {
         // Another instance: the chain starts from silence.
         s.buf = [0.0; 2 * QUANTUM];
-        for e in s.effects.iter_mut() {
-            e.kind = kind::NONE;
-        }
-        s.compressor = Compressor::default();
+        had = 0;
     }
     v.header.route[group] = index as u8 + 1;
     v.header.route_bus[group] = bus;
     s.group = group as u16;
     s.bus = bus;
-    let old_compressor = s.compressor_slot;
-    let had = s.count as usize;
-    let mut compressor = u32::MAX;
     let kept = n.min(SUBMIX_EFFECTS);
     for i in 0..kept {
         let at = off + wire::Submix::FIXED_END + i * wire::SubmixEffects::FIXED_END;
@@ -230,40 +216,33 @@ pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
         let flags = u32_at(msg, at + 4);
         let mut p = [0.0f32; PARAMS];
         for (j, x) in p.iter_mut().enumerate() {
-            let y = f32::from_bits(u32_at(msg, at + 8 + 4 * j));
-            *x = if y.is_finite() { y } else { 0.0 };
+            *x = f32::from_bits(u32_at(msg, at + 8 + 4 * j));
         }
-        let e = &mut s.effects[i];
-        if e.kind != k || i >= had {
-            e.biquad = Biquad::default();
-        }
-        e.kind = k;
-        e.on = flags & wire::SUBMIX_FX_ON;
-        e.p = p;
-        match k {
-            kind::LOWPASS => e.biquad.set_lowpass(sample_rate, p[0], q_db(p[1])),
-            kind::HIGHPASS => e.biquad.set_highpass(sample_rate, p[0], q_db(p[1])),
-            kind::COMPRESSOR if compressor == u32::MAX => {
-                // Catalogue order: threshold, ratio, attack ms, release ms, makeup, knee.
-                if old_compressor != i as u32 {
-                    s.compressor = Compressor::default();
-                }
-                s.compressor.configure(sample_rate, p[0], p[5], p[1], p[2] / 1000.0, p[3] / 1000.0);
-                compressor = i as u32;
-            }
-            _ => {}
-        }
+        // A sidechain compressor needs a key bus: an instance has none, so it passes through.
+        let k = if k == kind::SIDECHAIN { kind::NONE } else { k };
+        crate::fxmem::configure(fxmem, &mut s.effects[i], i < had, k, flags & wire::SUBMIX_FX_ON != 0, &p, sample_rate);
     }
     for e in s.effects[kept..].iter_mut() {
-        e.kind = kind::NONE;
+        *e = Effect::default();
     }
     s.count = kept as u32;
-    s.compressor_slot = compressor;
 }
 
 /// RESET: every slot goes free and every route with it.
 pub fn reset(core: &mut Core) {
-    core.regions_mut().submixes.fill(0);
+    let regions = core.regions_mut();
+    regions.submixes.fill(0);
+    crate::fxmem::rebuild(regions);
+}
+
+/// Calls `f` with every configured effect of the slots in use (the effect memory's sweep).
+pub(crate) fn for_each_effect(regions: &mut Regions, f: &mut impl FnMut(&Effect)) {
+    let Some(v) = view(&mut regions.submixes[..]) else { return };
+    for s in v.slots.iter().filter(|s| s.group != 0) {
+        for e in &s.effects[..(s.count as usize).min(SUBMIX_EFFECTS)] {
+            f(e);
+        }
+    }
 }
 
 /// The route code a voice of instance `group` on bus `bus` pans with: its submix's
@@ -337,6 +316,7 @@ impl Buffers {
 pub fn render(core: &mut Core) {
     let regions = core.regions_mut();
     let mut inputs = crate::bus::Inputs::of(regions);
+    let Some((_, fxdata)) = crate::fxmem::split(&mut regions.fxmem[..]) else { return };
     let Some(v) = view(&mut regions.submixes[..]) else { return };
     if v.header.active == 0 {
         return;
@@ -354,7 +334,7 @@ pub fn render(core: &mut Core) {
         }
         s.fed = 0;
         let (l, r) = s.buf.split_at_mut(QUANTUM);
-        run_chain(&mut s.effects[..s.count as usize], &mut s.compressor, s.compressor_slot, l, r);
+        run_chain(&mut s.effects[..(s.count as usize).min(SUBMIX_EFFECTS)], fxdata, l, r);
         if let Some((dl, dr)) = inputs.get(s.bus) {
             for i in 0..QUANTUM {
                 dl[i] += l[i];
@@ -365,27 +345,16 @@ pub fn render(core: &mut Core) {
     }
 }
 
-/// Runs `effects` in order on one block (the kind dispatch: see the module comment).
-fn run_chain(effects: &mut [SubmixEffect], compressor: &mut Compressor, compressor_slot: u32, l: &mut [f32], r: &mut [f32]) {
-    for (i, e) in effects.iter_mut().enumerate() {
-        if e.on == 0 {
+/// Runs `effects` in order on one block, each on its effect memory (the kind dispatch is
+/// `audio_dsp::fx::Effect::process`: see the module comment).
+fn run_chain(effects: &mut [SubmixEffect], fxdata: &mut [f32], l: &mut [f32], r: &mut [f32]) {
+    let ctx = Ctx::default();
+    for e in effects.iter_mut() {
+        if e.on == 0 || e.kind == kind::NONE {
             continue;
         }
-        match e.kind {
-            kind::LOWPASS | kind::HIGHPASS => e.biquad.process(l, r),
-            kind::COMPRESSOR if compressor_slot == i as u32 => {
-                compressor.process(l, r);
-                let makeup = e.p[4];
-                if makeup != 0.0 {
-                    let g = db_to_linear(makeup.clamp(0.0, 24.0));
-                    for j in 0..l.len() {
-                        l[j] *= g;
-                        r[j] *= g;
-                    }
-                }
-            }
-            _ => {}
-        }
+        let mem = crate::fxmem::slice(fxdata, e);
+        e.process(mem, l, r, &ctx);
     }
 }
 
@@ -415,13 +384,5 @@ mod tests {
         assert_eq!(route_code(Some(&h), 3, 5), ROUTE_SUBMIX | 6);
         assert_eq!(route_code(Some(&h), 3, 2), 2, "another bus of the instance");
         assert_eq!(route_code(Some(&h), 4, 5), 5);
-    }
-
-    #[test]
-    fn resonance_maps_onto_the_bus_chains_q_range() {
-        assert_eq!(q_db(0.0), 0.5);
-        assert_eq!(q_db(1.0), 20.0);
-        assert_eq!(q_db(f32::NAN), 0.5);
-        assert_eq!(q_db(3.0), 20.0);
     }
 }

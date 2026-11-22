@@ -2,7 +2,7 @@
 //! architecture §4.7, R7, R8, R9, R10; api-and-models §4.2 `BUS_SLOT`, tombstones, C27).
 //!
 //! **Design.**
-//! - **`BUS_SLOT`** (0x1C): one slot's configuration (parent, up to 4 effects in BUS_CONFIG's item
+//! - **`BUS_SLOT`** (0x1C): one slot's configuration (parent, up to 8 effects in BUS_CONFIG's item
 //!   layout), so a parameter edit no longer resends the tree. `flags` bit 0 `structural` (quantum
 //!   granularity, the late-batch rule), bit 1 `fresh` (the slot starts zeroed with unity lanes).
 //!   Direct edits are asap; only a compressor's parameters are smoothed (B4).
@@ -38,12 +38,12 @@ use crate::wire_read::{u16_at, u32_at};
 /// compressor, unknown types) and whether a slot in use is a reverb send. The tree is repaired and
 /// ordered by the caller. K1: `bus::configure`'s loop body, verbatim. B2: also the tombstone and
 /// `fresh` of `BUS_SLOT` (unity lanes through `lanes.rs`).
-pub fn apply<I: IntoIterator<Item = (u32, [f32; 7])>>(slot: &mut BusSlot, fresh: bool, parent: u16, effects: I, sample_rate: f32) -> (u32, bool) {
+pub fn apply<I: IntoIterator<Item = (u32, [f32; 7])>>(slot: &mut BusSlot, fresh: bool, parent: u16, effects: I, sample_rate: f32, fxmem: &mut [u8]) -> (u32, bool) {
     if fresh {
         *slot = bus::fresh(parent);
     }
     slot.parent = parent;
-    let dropped = slot.fx.configure(effects, sample_rate);
+    let dropped = slot.fx.configure_with(effects, sample_rate, fxmem);
     (dropped, slot.fx.has_reverb_send())
 }
 
@@ -86,11 +86,15 @@ pub fn on_slot(core: &mut Core, msg: &[u8], off: usize, _at: Option<u64>) {
     let parent = u16_at(msg, off + 24);
     let n = u16_at(msg, off + 26) as usize;
     let kept = n.min(wire::BUS_SLOT_MAX_EFFECTS as usize);
-    let v = bus::view(core.regions_mut());
+    let regions = core.regions_mut();
+    // The effect memory is borrowed apart from the bus view (distinct regions); put back below.
+    let fxmem = core::mem::take(&mut regions.fxmem);
+    let v = bus::view(regions);
     let max = max_buses.min(v.slots.len()).min(InitParams::MAX_BUSES as usize);
     let count = (v.area.count as usize).min(max);
     if slot >= max || slot > count {
         v.area.dropped = v.area.dropped.wrapping_add(1 + n as u32);
+        core.regions_mut().fxmem = fxmem;
         return;
     }
     let added = slot == count;
@@ -103,12 +107,15 @@ pub fn on_slot(core: &mut Core, msg: &[u8], off: usize, _at: Option<u64>) {
         }
         (u32_at(msg, at), p)
     });
-    let (dropped, _) = apply(&mut v.slots[slot], fresh, parent, effects, sample_rate);
+    let (dropped, _) = apply(&mut v.slots[slot], fresh, parent, effects, sample_rate, &mut *fxmem);
     let count = if added { count + 1 } else { count };
     attach(&mut v.slots[..count], slot);
     v.area.count = count as u32;
     v.area.has_reverb = v.slots[..count].iter().any(|s| s.fx.has_reverb_send()) as u32;
     v.area.dropped = v.area.dropped.wrapping_add(dropped + (n - kept) as u32);
+    let regions = core.regions_mut();
+    regions.fxmem = fxmem;
+    crate::fxmem::rebuild(regions);
     // B3: the order with the rule table's level edges, the rules re-checked against the new tree.
     crate::bus_order::rerun(core);
     if fresh {

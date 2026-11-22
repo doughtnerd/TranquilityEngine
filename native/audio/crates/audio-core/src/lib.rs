@@ -33,6 +33,7 @@ pub mod curves;
 pub mod duck;
 pub mod due;
 pub mod fx;
+pub mod fxmem;
 pub mod fxpool;
 pub mod group_hold;
 pub mod group_rebase;

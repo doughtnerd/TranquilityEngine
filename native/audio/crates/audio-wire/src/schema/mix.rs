@@ -46,7 +46,7 @@ pub const CONSTANTS: &[Const] = &[
     c!("BUS_RAMP_LP_MIN_HZ", 10, "BUS_RAMP lpHz lower bound; BUS_LP_OFF_HZ (24,000) is off"),
     c!("SHAPE_SEQUENCE_SHIFT", 3, "BUS_RAMP shape bits 3-15: sequenceId (0 = none, C27)"),
     c!("SHAPE_SEQUENCE_MASK", 0x1FFF, "BUS_RAMP shape sequenceId after the shift: 13 bits"),
-    c!("BUS_SLOT_MAX_EFFECTS", 4, "effects a slot keeps; a BUS_SLOT naming more keeps the first four"),
+    c!("BUS_SLOT_MAX_EFFECTS", 8, "effects a slot keeps; a BUS_SLOT naming more keeps the first eight (ADR 0331, ABI 4.6)"),
     c!("DUCK_FLAG_LEVEL", 0x1, "BUS_DUCK rule flags bit 0: level mode (reads the trigger bus's buffer; adds a bus-order edge)"),
     c!("DUCK_FLAG_RMS", 0x2, "BUS_DUCK rule flags bit 1: the detector is RMS rather than peak"),
     c!("LOUD_FLAG_NEW_BLOCKS_MASK", 0x3F, "loudBuses flags bits 0-5: sub-blocks this meter added since the last take, 0..=32"),
@@ -96,7 +96,7 @@ const BUS_SLOT_FLAGS: &[Bits] = &[
 ];
 
 /// 0x1C BUS_SLOT, variable (R7): one slot's configuration, so a parameter edit no longer resends the
-/// tree. The effects are BUS_CONFIG's (`u32 type; f32 p[7]`); at most four are kept.
+/// tree. The effects are BUS_CONFIG's (`u32 type; f32 p[7]`); at most eight are kept (ABI 4.6).
 pub const BUS_SLOT: Opcode = Opcode {
     id: 0x1C,
     name: "BUS_SLOT",
@@ -108,7 +108,7 @@ pub const BUS_SLOT: Opcode = Opcode {
             Field::new("reserved", Ty::U16).doc("reserved, 0"),                                          // 18
             Field::new("reserved2", Ty::U32).doc("reserved, 0"),                                         // 20
             Field::new("parent", Ty::U16).doc("parent slot; BUS_ROOT (0xFFFF) for a root"),              // 24
-            Field::new("effectCount", Ty::U16).doc("at most 4 are kept"),                                // 26
+            Field::new("effectCount", Ty::U16).doc("at most 8 are kept"),                                // 26
         ],
         Tail::Repeat(&super::batch::EFFECTS),
     ),

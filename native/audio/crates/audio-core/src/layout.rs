@@ -103,12 +103,15 @@ pub enum RegionKind {
     /// ADR 0331 (ABI 4.5): the instance submix slots (`submix::REGION_BYTES`, ≈ 320 KB on every
     /// preset).
     Submixes,
+    /// ADR 0331 (ABI 4.6): the effect memory of bus chains and submixes (`fxmem::region_bytes`:
+    /// `FX_MEMORY_SECONDS` of stereo audio at the rate, 7.7 MB at 48 kHz).
+    FxMem,
     /// The clip arena's initial reserve. Always last.
     Arena,
 }
 
 /// The layout order. Append-only before `Arena` (see the module comment).
-pub const REGION_ORDER: [RegionKind; 25] = [
+pub const REGION_ORDER: [RegionKind; 26] = [
     RegionKind::Output,
     RegionKind::CoreState,
     RegionKind::Pending,
@@ -133,6 +136,7 @@ pub const REGION_ORDER: [RegionKind; 25] = [
     RegionKind::Loudness,
     RegionKind::Sends,
     RegionKind::Submixes,
+    RegionKind::FxMem,
     RegionKind::Arena,
 ];
 
@@ -211,6 +215,7 @@ fn region_len(kind: RegionKind, p: &InitParams) -> usize {
         RegionKind::Loudness => crate::loudness::REGION_BYTES,
         RegionKind::Sends => crate::sends::REGION_BYTES,
         RegionKind::Submixes => crate::submix::REGION_BYTES,
+        RegionKind::FxMem => crate::fxmem::region_bytes(p),
         RegionKind::Arena => align_up(p.arena_initial_bytes as usize, PAGE_BYTES),
     }
 }
@@ -297,8 +302,12 @@ mod tests {
         let automation = layout.region(RegionKind::Automation).len;
         // ≈ 2.4 MB since ADR 0332 (64-key curves with Bézier control points: the curve table is ≈ 1.6 MB of it).
         assert!(automation < 3 << 20, "the automation region (ADR 0158 E2, 0332): {automation}");
-        let fixed = fixed - streams - automation;
-        assert!(fixed < 2 << 20, "fixed regions stay under 2 MB before reverb, HRTF, streams and automation: {fixed}");
+        // ADR 0331's effect memory (7.7 MB at 48 kHz) and submix slots are their own budget lines.
+        let fxmem = layout.region(RegionKind::FxMem).len;
+        assert_eq!(fxmem, crate::fxmem::region_bytes(&preset(4_096, 128, 16)));
+        let submixes = layout.region(RegionKind::Submixes).len;
+        let fixed = fixed - streams - automation - fxmem - submixes;
+        assert!(fixed < 2 << 20, "fixed regions stay under 2 MB before reverb, HRTF, streams, automation, effect memory and submixes: {fixed}");
         eprintln!("default preset: automation {automation} B, total {} B", layout.total());
     }
 
@@ -351,12 +360,13 @@ mod tests {
     #[test]
     fn a_bus_stays_near_the_memory_table() {
         // architecture §5.1 budgets 3 KB per bus. The stereo quantum buffer (1 KB) and the bus's one
-        // compressor (2.4 KB, most of it the 6 ms pre-delay line) are most of a bus; the four effect
-        // slots hold only a biquad (120 B) or a send (fx.rs). About 4 KB (4,208 B rounded to a cache
-        // line) keeps 32 buses near 132 KB; a compressor per slot made it 10,944 B.
+        // compressor (2.4 KB, most of it the 6 ms pre-delay line) were most of a bus at 4 KB. ADR 0331
+        // (ABI 4.6): eight slots, each with a catalogue effect's small state (≈ 600 B: three biquads,
+        // smoothed parameters, kernel cursors; delay lines live in the effect memory), make it
+        // ≈ 9.5 KB, 32 buses ≈ 305 KB (a compressor per slot inline would have made it 27 KB).
         let (slot, fx) = (core::mem::size_of::<crate::bus::BusSlot>(), core::mem::size_of::<crate::fx::FxChain>());
         eprintln!("BusSlot {slot} B, BUS_BYTES {BUS_BYTES} B, FxChain {fx} B, FxSlot {} B", core::mem::size_of::<crate::fx::FxSlot>());
-        assert!(BUS_BYTES <= 4 * 1024 + 2 * REGION_ALIGN, "BUS_BYTES: {BUS_BYTES}");
+        assert!(BUS_BYTES <= 10 * 1024, "BUS_BYTES: {BUS_BYTES}");
         assert_eq!(Layout::new(&preset(4_096, 128, 16)).region(RegionKind::Buses).len, 32 * BUS_BYTES);
     }
 }

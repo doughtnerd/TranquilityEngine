@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: be0897c5c766511fb84c1fa79910f175).
+/// First 16 bytes of the schema's SHA-256 (hex: 907b703be038b187ee0b51182f40c156).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0xbe,
-    0x08,
-    0x97,
-    0xc5,
-    0xc7,
-    0x66,
+    0x90,
+    0x7b,
+    0x70,
+    0x3b,
+    0xe0,
+    0x38,
+    0xb1,
+    0x87,
+    0xee,
+    0x0b,
     0x51,
-    0x1f,
-    0xb8,
-    0x4c,
-    0x1f,
-    0xa7,
-    0x99,
-    0x10,
-    0xf1,
-    0x75,
+    0x18,
+    0x2f,
+    0x40,
+    0xc1,
+    0x56,
 ];
-pub const SCHEMA_HASH_HEX: &str = "be0897c5c766511fb84c1fa79910f175";
+pub const SCHEMA_HASH_HEX: &str = "907b703be038b187ee0b51182f40c156";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -247,8 +247,8 @@ pub const BUS_RAMP_LP_MIN_HZ: u32 = 0xa;
 pub const SHAPE_SEQUENCE_SHIFT: u32 = 0x3;
 /// BUS_RAMP shape sequenceId after the shift: 13 bits
 pub const SHAPE_SEQUENCE_MASK: u32 = 0x1fff;
-/// effects a slot keeps; a BUS_SLOT naming more keeps the first four
-pub const BUS_SLOT_MAX_EFFECTS: u32 = 0x4;
+/// effects a slot keeps; a BUS_SLOT naming more keeps the first eight (ADR 0331, ABI 4.6)
+pub const BUS_SLOT_MAX_EFFECTS: u32 = 0x8;
 /// BUS_DUCK rule flags bit 0: level mode (reads the trigger bus's buffer; adds a bus-order edge)
 pub const DUCK_FLAG_LEVEL: u32 = 0x1;
 /// BUS_DUCK rule flags bit 1: the detector is RMS rather than peak
@@ -299,6 +299,36 @@ pub const SUBMIX_FX_LOWPASS: u32 = 0x1;
 pub const SUBMIX_FX_HIGHPASS: u32 = 0x2;
 /// SUBMIX effect type: the catalogue's compressor; p threshold dB, ratio, attack ms, release ms, makeup dB, knee dB
 pub const SUBMIX_FX_COMPRESSOR: u32 = 0x3;
+/// effect type: the catalogue's eq; p low, mid, high dB (shelf 250 Hz, peak 1 kHz Q 0.7, shelf 4 kHz; ABI 4.6)
+pub const SUBMIX_FX_EQ: u32 = 0x4;
+/// effect type: the catalogue's bandpass; p centre Hz, resonance 0..1 (Q 0.5..10), drive %
+pub const SUBMIX_FX_BANDPASS: u32 = 0x5;
+/// effect type: the catalogue's saturation; p amount %
+pub const SUBMIX_FX_SATURATION: u32 = 0x6;
+/// effect type: the catalogue's distortion; p drive 0..1, mix %
+pub const SUBMIX_FX_DISTORTION: u32 = 0x7;
+/// effect type: the catalogue's bitcrush; p bits, downsample, mix %
+pub const SUBMIX_FX_BITCRUSH: u32 = 0x8;
+/// effect type: the catalogue's chorus; p rate Hz, depth %, mix %
+pub const SUBMIX_FX_CHORUS: u32 = 0x9;
+/// effect type: the catalogue's delay; p time ms, feedback %, mix %
+pub const SUBMIX_FX_DELAY: u32 = 0xa;
+/// effect type: the catalogue's reverb (an FDN); p size 0..1, decay s, mix %
+pub const SUBMIX_FX_REVERB: u32 = 0xb;
+/// effect type: the catalogue's formantShift; p shift st
+pub const SUBMIX_FX_FORMANT: u32 = 0xc;
+/// effect type: the catalogue's pitchShift (granular); p semitones, cents
+pub const SUBMIX_FX_PITCH: u32 = 0xd;
+/// effect type: the catalogue's limiter (no look-ahead); p ceiling dB, release ms
+pub const SUBMIX_FX_LIMITER: u32 = 0xe;
+/// effect type: the catalogue's sidechainCompressor (buses only); p threshold dB, ratio, release ms, key bus slot
+pub const SUBMIX_FX_SIDECHAIN: u32 = 0xf;
+/// effect type: the catalogue's gain; p gain dB
+pub const SUBMIX_FX_GAIN: u32 = 0x10;
+/// a bus effect type at or above this is a catalogue effect: SUBMIX_FX_* plus 16, p the catalogue's parameters in its order (ABI 4.6)
+pub const BUS_FX_CATALOGUE: u32 = 0x10;
+/// the effect memory region holds this many seconds of stereo audio at the context rate (delay lines, reverbs; ABI 4.6)
+pub const FX_MEMORY_SECONDS: u32 = 0x14;
 /// SUBMIX effect flags bit 0: the effect runs (clear: bypassed, its state kept)
 pub const SUBMIX_FX_ON: u32 = 0x1;
 
@@ -2468,7 +2498,7 @@ impl Submix {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BusConfigBusesEffects {
-    /// 0 lowpass, 1 highpass, 2 compressor, 3 reverb send
+    /// 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6)
     pub type_: u32,
     /// parameters; q in dB; unused p = 0
     pub p: [f32; 7],
@@ -3708,7 +3738,7 @@ pub const BUS_SLOT_FLAGS_STRUCTURAL: u16 = 0x1;
 pub const BUS_SLOT_FLAGS_FRESH: u16 = 0x2;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BusSlotEffects {
-    /// 0 lowpass, 1 highpass, 2 compressor, 3 reverb send
+    /// 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6)
     pub type_: u32,
     /// parameters; q in dB; unused p = 0
     pub p: [f32; 7],

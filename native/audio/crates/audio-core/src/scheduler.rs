@@ -700,9 +700,9 @@ pub fn pending_len(core: &mut Core) -> usize {
 /// presence changes inside the lookahead. A record that finds it full applies at once (as a full
 /// pending queue does).
 pub const CONFIG_PENDING: usize = 64;
-/// Bytes of one queued record's copy: a `BUS_SLOT` with the 4 effects it keeps is 28 + 4 × 32 =
-/// 156 B; `BUS_PRESENCE` is 16 B.
-pub const CONFIG_RECORD_BYTES: usize = 160;
+/// Bytes of one queued record's copy: a `BUS_SLOT` with the 8 effects it keeps is 28 + 8 × 32 =
+/// 284 B (ADR 0331; 156 B with four before ABI 4.6); `BUS_PRESENCE` is 16 B.
+pub const CONFIG_RECORD_BYTES: usize = 288;
 
 /// One stamped configuration record waiting for its quantum: its absolute frame (shifted with its
 /// sequence), its sequence and a copy of the record, head included (a `BUS_SLOT` cut to the
