@@ -1,5 +1,5 @@
 //! `anim-sample` (ADR 0340): decompress and sample clips into SoA local poses; sample generic
-//! property tracks; sample discrete and event tracks over a time window.
+//! property tracks; sample discrete, event and the other keyed tracks over a time window.
 //!
 //! Tested against `anim-offline::sample`.
 //!
@@ -28,6 +28,21 @@
 //! [`ClipSampler::cache_len`] gives the sizes). Sequential playback stays in one segment for 16
 //! frames, so most samples skip that work. Results are bit-identical with and without a cache.
 //! A cache used with another clip, or too short, is refilled or ignored, never misread.
+//!
+//! # Binding table
+//!
+//! A [`ClipSampler`] reads the clip's 16-byte channel and 32-byte track records as it samples,
+//! which suits one-off sampling. A playing clip builds a [`ClipBindings`] once (when it loads;
+//! that allocates) and samples through the [`BoundClip`] it pairs with the sampler: the same bits
+//! (the same arithmetic in the same order; a test holds them equal), without the record parsing.
+//! See [`bind`'s docs](ClipBindings) for what it holds, and its output columns.
+//!
+//! # Track windows
+//!
+//! [`window`] samples the keyed kinds (`discrete`, `activation`, `event` notifies and notify
+//! states, `marker`, `subclip`, `control`, `audio`) over a playhead move `(t_prev, t_now]`, with
+//! loops, reverse play, seeks and weight gating, into caller-provided column words and a
+//! [`TrackSink`] of [`TrackRecord`]s. Tested against `anim-offline::sample`'s window reference.
 
 use anim_format::clip::{
     ChannelKind, ChannelMode, ClipView, CompressedView, QuatInterp, RotationFormat, TrackKind,

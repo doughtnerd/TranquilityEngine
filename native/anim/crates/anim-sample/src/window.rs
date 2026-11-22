@@ -234,7 +234,7 @@ pub trait TrackSink {
     fn push(&mut self, record: TrackRecord);
 }
 
-impl<F: FnMut(TrackRecord)> TrackSink for F {
+impl<F: FnMut(TrackRecord) + ?Sized> TrackSink for F {
     fn push(&mut self, record: TrackRecord) {
         self(record)
     }
@@ -413,12 +413,12 @@ fn set_bit(words: &mut [u32], i: usize, on: bool) {
 impl ClipBindings {
     /// Pushes the window's crossed instant keys (notifies, markers, audio, control) in travel
     /// order, gated by `weight` (see the module docs). Nothing on a seek.
-    pub fn crossings(&self, window: &Window, weight: f32, sink: &mut impl TrackSink) {
+    pub fn crossings(&self, window: &Window, weight: f32, sink: &mut (impl TrackSink + ?Sized)) {
         let sp = Span::new(window, self.duration);
         self.cross(&sp, weight, sink);
     }
 
-    fn cross(&self, sp: &Span, weight: f32, sink: &mut impl TrackSink) {
+    fn cross(&self, sp: &Span, weight: f32, sink: &mut (impl TrackSink + ?Sized)) {
         if sp.seek || self.crossings.is_empty() {
             return;
         }
@@ -443,7 +443,7 @@ impl ClipBindings {
         }
     }
 
-    fn emit_cross(&self, track: u32, key: u32, weight: f32, sink: &mut impl TrackSink) {
+    fn emit_cross(&self, track: u32, key: u32, weight: f32, sink: &mut (impl TrackSink + ?Sized)) {
         let Some(k) = self.keys.get(key as usize) else {
             return;
         };
@@ -454,18 +454,14 @@ impl ClipBindings {
                 args,
                 threshold,
                 always,
-            } => {
-                if always || weight > threshold {
-                    sink.push(TrackRecord::Event {
-                        track,
-                        key,
-                        method,
-                        args,
-                        time,
-                        weight,
-                    });
-                }
-            }
+            } if always || weight > threshold => sink.push(TrackRecord::Event {
+                track,
+                key,
+                method,
+                args,
+                time,
+                weight,
+            }),
             KeyData::Marker { kind, name } => sink.push(TrackRecord::Marker {
                 track,
                 key,
@@ -473,37 +469,29 @@ impl ClipBindings {
                 name,
                 time,
             }),
-            KeyData::Audio { asset, params } => {
-                if weight > 0.0 {
-                    sink.push(TrackRecord::Audio {
-                        track,
-                        key,
-                        asset,
-                        params,
-                        time,
-                        duration,
-                        weight,
-                    });
-                }
-            }
+            KeyData::Audio { asset, params } if weight > 0.0 => sink.push(TrackRecord::Audio {
+                track,
+                key,
+                asset,
+                params,
+                time,
+                duration,
+                weight,
+            }),
             KeyData::Control {
                 kind,
                 target,
                 payload,
-            } => {
-                if weight > 0.0 {
-                    sink.push(TrackRecord::Control {
-                        track,
-                        key,
-                        kind,
-                        target,
-                        payload,
-                        time,
-                        duration,
-                        weight,
-                    });
-                }
-            }
+            } if weight > 0.0 => sink.push(TrackRecord::Control {
+                track,
+                key,
+                kind,
+                target,
+                payload,
+                time,
+                duration,
+                weight,
+            }),
             _ => {}
         }
     }
@@ -516,13 +504,19 @@ impl ClipBindings {
         window: &Window,
         weight: f32,
         open: &mut [u32],
-        sink: &mut impl TrackSink,
+        sink: &mut (impl TrackSink + ?Sized),
     ) {
         let sp = Span::new(window, self.duration);
         self.states_in(&sp, weight, open, sink);
     }
 
-    fn states_in(&self, sp: &Span, weight: f32, open: &mut [u32], sink: &mut impl TrackSink) {
+    fn states_in(
+        &self,
+        sp: &Span,
+        weight: f32,
+        open: &mut [u32],
+        sink: &mut (impl TrackSink + ?Sized),
+    ) {
         for (si, st) in self.states.iter().enumerate() {
             let Some(k) = self.keys.get(st.key as usize) else {
                 continue;
@@ -616,7 +610,7 @@ impl ClipBindings {
         time: f32,
         weight: f32,
         open: &mut [u32],
-        sink: &mut impl TrackSink,
+        sink: &mut (impl TrackSink + ?Sized),
     ) {
         for (si, st) in self.states.iter().enumerate() {
             if !bit(open, si) {
@@ -686,12 +680,12 @@ impl ClipBindings {
 
     /// Pushes an [`Activation`](TrackRecord::Activation) record for every `activation` track
     /// whose level at the window's end differs from its start (with [`WINDOW_START`], from off).
-    pub fn activation_edges(&self, window: &Window, sink: &mut impl TrackSink) {
+    pub fn activation_edges(&self, window: &Window, sink: &mut (impl TrackSink + ?Sized)) {
         let sp = Span::new(window, self.duration);
         self.edges(&sp, sink);
     }
 
-    fn edges(&self, sp: &Span, sink: &mut impl TrackSink) {
+    fn edges(&self, sp: &Span, sink: &mut (impl TrackSink + ?Sized)) {
         let hold = !sp.looping;
         let from = sp.fold(sp.a, 0);
         for (ti, tb) in self.tracks.iter().enumerate() {
@@ -712,12 +706,12 @@ impl ClipBindings {
 
     /// Pushes a [`Subclip`](TrackRecord::Subclip) record for every subclip entry active during
     /// the window (entered, continuing, or left), per track in travel order.
-    pub fn subclips(&self, window: &Window, sink: &mut impl TrackSink) {
+    pub fn subclips(&self, window: &Window, sink: &mut (impl TrackSink + ?Sized)) {
         let sp = Span::new(window, self.duration);
         self.subclips_in(&sp, sink);
     }
 
-    fn subclips_in(&self, sp: &Span, sink: &mut impl TrackSink) {
+    fn subclips_in(&self, sp: &Span, sink: &mut (impl TrackSink + ?Sized)) {
         let hold_end = (!sp.looping).then_some(sp.d);
         for (ti, tb) in self.tracks.iter().enumerate() {
             if tb.kind != TrackKind::Subclip {
@@ -740,7 +734,7 @@ impl ClipBindings {
                     else {
                         continue;
                     };
-                    if !(k.end > k.time) {
+                    if k.end <= k.time {
                         continue;
                     }
                     let (s, e) = (k.time + shift, k.end + shift);
@@ -851,7 +845,7 @@ impl BoundClip<'_, '_> {
         weight: f32,
         open: &mut [u32],
         columns: &mut [u32],
-        sink: &mut impl TrackSink,
+        sink: &mut (impl TrackSink + ?Sized),
     ) -> f32 {
         let b = self.bindings;
         let sp = Span::new(window, b.duration);

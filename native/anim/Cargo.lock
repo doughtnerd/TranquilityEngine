@@ -127,6 +127,7 @@ dependencies = [
  "anim-format",
  "anim-math",
  "anim-offline",
+ "anim-pose",
 ]
 
 [[package]]

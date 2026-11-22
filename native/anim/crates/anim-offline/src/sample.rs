@@ -414,7 +414,11 @@ pub fn window_span(w: &WindowRef, duration: f64) -> (f64, f64, bool) {
         let a = if a >= d { 0.0 } else { a };
         (a, a + w.delta.clamp(-4.0 * d, 4.0 * d), true)
     } else {
-        (w.from.clamp(0.0, d), (w.from + w.delta).clamp(0.0, d), false)
+        (
+            w.from.clamp(0.0, d),
+            (w.from + w.delta).clamp(0.0, d),
+            false,
+        )
     }
 }
 

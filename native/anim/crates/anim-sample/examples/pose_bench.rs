@@ -3,7 +3,6 @@
 //! with and without a segment cache. Wall-clock numbers for the build log, not a test.
 
 #[path = "../../anim-compress/tests/common/mod.rs"]
-#[allow(dead_code)]
 mod common;
 
 use anim_compress::{compress, Settings};
@@ -16,6 +15,9 @@ use std::hint::black_box;
 use std::time::Instant;
 
 const ITERS: usize = 200_000;
+
+/// One sampling call: time, scratch, output.
+type Sample<'f> = &'f mut dyn FnMut(f32, &mut [AosTransform], &mut [SoaTransform]);
 
 fn main() {
     let mut rng = Rng::new(3);
@@ -46,7 +48,7 @@ fn main() {
     let mut mem = vec![0.0f32; sampler.cache_len()];
     let dt = 1.0 / 60.0;
 
-    let mut run = |name: &str, f: &mut dyn FnMut(f32, &mut [AosTransform], &mut [SoaTransform])| {
+    let mut run = |name: &str, f: Sample<'_>| {
         let mut t = 0.0f32;
         for _ in 0..1000 {
             f(t, &mut scratch, &mut out);
