@@ -1,4 +1,4 @@
-import { expect, type Page, play, PLAY_START, test } from "./fixtures";
+import { expect, type HookNode, type Hooks, openEditor, type Page, play, PLAY_START, test } from "./fixtures";
 import { inLiveWorld } from "./liveWorld";
 import { showTab } from "./tabs";
 import { menu } from "./menus";
@@ -8,17 +8,6 @@ import { menu } from "./menus";
 // into the scene on Stop as one undo step; the session pauses and steps a frame at a time (toolbar,
 // shortcuts, and per World in the game view's strip); the Host pattern (samples/arena) plays with
 // N clients plus thin clients; the Network panel breaks snapshot bandwidth down by ghost type.
-const FLAPPY = "/editor.html?sample=flappy"; // relative to baseURL (E2E_PORT)
-const ARENA = "/editor.html?sample=arena";
-
-type LiveNode = { name: string; children: LiveNode[]; transform: { position: { x: number; y: number } } | null; isValid: boolean };
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  playEngine?: {
-    world: { name: string; root: LiveNode; time: { frameCount: number } };
-    worlds(): { name: string }[];
-  } | null;
-};
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -29,15 +18,10 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-async function open(page: Page, url: string): Promise<void> {
-  await page.goto(url);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-}
-
 /** The x of the first live node named `name` in the running game's default World (`Engine.world`, its public root). */
 const liveX = (page: Page, name: string) =>
   page.evaluate((n) => {
-    const find = (node: LiveNode): LiveNode | null => (node.name === n ? node : node.children.reduce<LiveNode | null>((hit, c) => hit ?? find(c), null));
+    const find = (node: HookNode): HookNode | null => (node.name === n ? node : node.children.reduce<HookNode | null>((hit, c) => hit ?? find(c), null));
     return find((window as unknown as Hooks).playEngine!.world.root)?.transform?.position.x ?? null;
   }, name);
 
@@ -46,7 +30,7 @@ const frames = (page: Page) => page.evaluate(() => (window as unknown as Hooks).
 
 test("the World picker shows the running game; live edits; Keep values writes them on Stop, undoably", async ({ page }) => {
   const errors = trackErrors(page);
-  await open(page, FLAPPY);
+  await openEditor(page, { sample: "flappy" });
   const hierarchy = page.locator(".panel.hierarchy");
   const inspector = page.locator(".panel.inspector");
   // Editing: no picker.
@@ -121,15 +105,15 @@ test("the World picker shows the running game; live edits; Keep values writes th
 /** The name of the live node `name`'s parent in the running game's default World, or null if there's no such node. */
 const liveParent = (page: Page, name: string) =>
   page.evaluate((n) => {
-    const find = (node: LiveNode, parent: LiveNode | null): LiveNode | null | undefined =>
-      node.name === n ? parent : node.children.reduce<LiveNode | null | undefined>((hit, c) => (hit !== undefined ? hit : find(c, node)), undefined);
+    const find = (node: HookNode, parent: HookNode | null): HookNode | null | undefined =>
+      node.name === n ? parent : node.children.reduce<HookNode | null | undefined>((hit, c) => (hit !== undefined ? hit : find(c, node)), undefined);
     const parent = find((window as unknown as Hooks).playEngine!.world.root, null);
     return parent === undefined ? null : (parent?.name ?? "(root)");
   }, name);
 
 test("the live Hierarchy creates, renames, reparents and deletes nodes; the live Inspector adds and removes components and sets node references (ADR 0124)", async ({ page }) => {
   const errors = trackErrors(page);
-  await open(page, FLAPPY);
+  await openEditor(page, { sample: "flappy" });
   const hierarchy = page.locator(".panel.hierarchy");
   const inspector = page.locator(".panel.inspector");
   await play(page);
@@ -203,7 +187,7 @@ test("the live Hierarchy creates, renames, reparents and deletes nodes; the live
 
 test("Pause, Step and the shortcuts hold and advance the whole game; a World steps alone from the strip", async ({ page }) => {
   const errors = trackErrors(page);
-  await open(page, FLAPPY);
+  await openEditor(page, { sample: "flappy" });
   const pause = page.getByRole("button", { name: "❚❚ Pause", exact: true });
   await expect(pause).toBeDisabled(); // editing
   await play(page);
@@ -246,7 +230,7 @@ test("Pause, Step and the shortcuts hold and advance the whole game; a World ste
 test("Host pattern: Arena plays with 2 clients and a thin client on a server made from its template; bandwidth per ghost type", async ({ page }) => {
   test.setTimeout(60_000);
   const errors = trackErrors(page);
-  await open(page, ARENA);
+  await openEditor(page, { sample: "arena" });
   await showTab(page, /^Network/);
   const panel = page.locator(".panel.network");
   await panel.getByRole("checkbox", { name: "Multiplayer play" }).check();
@@ -266,7 +250,7 @@ test("Host pattern: Arena plays with 2 clients and a thin client on a server mad
   const serverPlayers = () =>
     inLiveWorld(page, "Server", (w) => {
       const out: number[] = [];
-      const visit = (n: LiveNode) => {
+      const visit = (n: HookNode) => {
         if (n.name === "Player" && n.transform) out.push(n.transform.position.x);
         n.children.forEach(visit);
       };
@@ -278,7 +262,7 @@ test("Host pattern: Arena plays with 2 clients and a thin client on a server mad
   // The thin client's synthetic input moves its player (the game's keyboard system writes zeros there).
   const thinPlayerX = () =>
     inLiveWorld(page, "Thin 1", (w, { myco, componentsOf }) => {
-      type Rep = { node: LiveNode; isOwnedLocally: boolean };
+      type Rep = { node: HookNode; isOwnedLocally: boolean };
       if (!w) return null;
       return componentsOf<Rep>(w.root, myco.Replicated).find((r) => r.isOwnedLocally && r.node.name === "Player")?.node.transform?.position.x ?? null;
     });

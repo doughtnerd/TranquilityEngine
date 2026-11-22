@@ -1,4 +1,4 @@
-import { expect, type Page, play, test } from "./fixtures";
+import { expect, type Page, test, openEditor, LAB, playWithAudio, readAudioDebug } from "./fixtures";
 
 // Audio events (ADR 0158, M2 E5.4) in a real browser: the Sound Lab's events page (key E on the main page) on the audio
 // core and on the Babylon fallback. Footsteps (keys 1-4), the blended engine (E, Up, Right), the single-clip engine (T)
@@ -7,7 +7,6 @@ import { expect, type Page, play, test } from "./fixtures";
 // output, so the core's own meters and status stand in for ears. The Babylon half also records what the sample's
 // single-clip engine does to the native Web Audio nodes under Babylon (the decision log's open follow-up on live
 // `loopStart`/`loopEnd` changes).
-const LAB = "/editor.html?sample=sound-lab";
 
 test.describe.configure({ timeout: 240_000 });
 
@@ -21,11 +20,7 @@ type Debug = {
   core: Record<string, number | string | boolean>;
 };
 
-const audioDebug = (page: Page) =>
-  page.evaluate(() => {
-    const myco = (globalThis as unknown as { __myco?: { Audio: { debug(): unknown } } }).__myco;
-    return myco ? (myco.Audio.debug() as Debug) : null;
-  });
+const audioDebug = (page: Page) => readAudioDebug<Debug>(page);
 /**
  * The Music bus's automated loudness. On Babylon the mixer applies the automation itself, so the debug `effectiveGain`
  * shows it. On the core the automation runs inside the worklet (`effectiveGain` is the bus tree's static gain, 0.6), so
@@ -166,12 +161,8 @@ for (const backend of ["core", "babylon"] as const) {
     }
     const core = backend === "core";
     onCore = core;
-    await page.goto(LAB);
-    await page.waitForFunction(() => ((window as unknown as { engine?: { world: { time: { frameCount: number } } } }).engine?.world.time.frameCount ?? 0) > 10);
-    await play(page);
-    await page.mouse.click(480, 250); // the user gesture that unlocks the context, and focus for the keys
-    await expect.poll(async () => (await audioDebug(page))?.status, { timeout: 30_000 }).toBe("running");
-    expect(((await audioDebug(page))!).core.backend).toBe(backend);
+    await openEditor(page, { sample: LAB });
+    await playWithAudio(page, { backend }); // its click unlocks the context and focuses the game for the keys
 
     await test.step("E opens the events page; its music starts about two seconds in", async () => {
       await press(page, "e");

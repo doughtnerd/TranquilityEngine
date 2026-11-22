@@ -1,30 +1,10 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, type HookHandle, type Hooks, test, type Page, waitForEditor, openEditor } from "./fixtures";
 import { captureArea, captureView, pixelsChanged, steadyView, type ViewCapture } from "./viewCapture";
-
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
-
-interface Handle {
-  id: string;
-  x: number;
-  y: number;
-}
-
-/** The editor's debug hooks on `window` (see session.ts). Page callbacks are serialized, so each casts `window` itself. */
-type Hooks = {
-  engine?: { world: { time: { frameCount: number }; root: unknown } };
-  orbit: { focus(point?: [number, number, number], distance?: number): void };
-  overlayHandles?: () => Handle[];
-};
 
 /** The scene view's canvas; what it draws (the grid, the camera preview) is read from captures of it. */
 const sceneCanvas = (page: Page) => page.locator(".panel.scene #viewport canvas");
 /** How many of the scene view's pixels changed since `before`. The grid's lines are faint, so a small difference counts. */
 const changedSince = async (page: Page, before: ViewCapture) => pixelsChanged(before, await captureView(sceneCanvas(page)), 8);
-
-async function openEditor(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-}
 
 // Several steps each, and WebKit renders on the CPU: give these tests the slow-test allowance.
 test.beforeEach(() => test.slow());
@@ -36,7 +16,7 @@ async function nodeState(page: Page, id: string): Promise<{ x: number; y: number
   return page.evaluate((id) => {
     type N = { id: string; children: N[]; getComponent(type: unknown): unknown; transform: { worldPosition: { x: number; y: number } } };
     const find = (n: N): N | null => (n.id === id ? n : n.children.reduce<N | null>((f, c) => f ?? find(c), null));
-    const node = find((window as unknown as Hooks).engine!.world.root as N)!;
+    const node = find((window as unknown as Hooks).engine!.world.root as unknown as N)!;
     const myco = (globalThis as unknown as { __myco: { PolygonCollider2D: unknown } }).__myco; // the engine module scripts import as "myco"
     const poly = node.getComponent(myco.PolygonCollider2D) as { points: number[][] } | null;
     const p = node.transform.worldPosition;
@@ -44,7 +24,7 @@ async function nodeState(page: Page, id: string): Promise<{ x: number; y: number
   }, id);
 }
 
-async function handles(page: Page): Promise<Record<string, Handle>> {
+async function handles(page: Page): Promise<Record<string, HookHandle>> {
   await page.waitForFunction(() => ((window as unknown as Hooks).overlayHandles?.() ?? []).length > 0);
   const canvas = (await page.locator(".viewport canvas").boundingBox())!;
   const list = await page.evaluate(() => (window as unknown as Hooks).overlayHandles!());
@@ -52,7 +32,7 @@ async function handles(page: Page): Promise<Record<string, Handle>> {
 }
 
 test("space and pivot toggle from the toolbar and with X / Z, and are remembered", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const space = toolbar(page).locator(".gizmo-space");
   const pivot = toolbar(page).locator(".gizmo-pivot");
   await expect(space).toHaveText("World");
@@ -67,13 +47,13 @@ test("space and pivot toggle from the toolbar and with X / Z, and are remembered
   await expect(space).toHaveText("World");
   await page.keyboard.press("x");
   await page.reload();
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await waitForEditor(page);
   await expect(toolbar(page).locator(".gizmo-space")).toHaveText("Local");
   await expect(toolbar(page).locator(".gizmo-pivot")).toHaveText("Pivot");
 });
 
 test("snap settings set the grid and steps; Always snap toggles; settings are remembered", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   // The grid is an editor helper, loaded lazily: wait until the view has stopped changing. The popover stays open (and
   // still) over the view meanwhile, so each change shows in the view's pixels.
   await toolbar(page).getByRole("button", { name: "Snap settings" }).click();
@@ -104,7 +84,7 @@ test("snap settings set the grid and steps; Always snap toggles; settings are re
   await expect(page.locator(".viewport-hint")).toContainText("Snapping");
 
   await page.reload();
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await waitForEditor(page);
   await expect(toolbar(page).locator(".snap-toggle")).toHaveAttribute("aria-pressed", "true");
   await toolbar(page).getByRole("button", { name: "Snap settings" }).click();
   await expect(page.getByRole("textbox", { name: "Grid size" })).toHaveValue("4");
@@ -113,7 +93,7 @@ test("snap settings set the grid and steps; Always snap toggles; settings are re
 });
 
 test("Align right lines selected nodes up in one undo step; Align is off with one node", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await toolbar(page).getByRole("button", { name: "2D", exact: true }).click();
   const align = toolbar(page).getByRole("button", { name: "Align" });
   await page.locator('.tree .row[data-key="bird"]').click();
@@ -133,7 +113,7 @@ test("Align right lines selected nodes up in one undo step; Align is off with on
 });
 
 test("a polygon collider's vertices drag, an edge's middle handle adds one, Ctrl+click removes one", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await page.locator('.tree .row[data-key="bird"]').click();
   await page.locator(".add-component-button").click();
   await page.keyboard.type("PolygonCollider2D");
@@ -175,7 +155,7 @@ test("a polygon collider's vertices drag, an edge's middle handle adds one, Ctrl
 });
 
 test("selecting a camera shows its preview inset; the toolbar toggle hides it", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await expect(page.locator(".camera-preview")).toHaveCount(0);
   await page.locator('.tree .row[data-key="camera"]').click();
   await expect(page.locator(".camera-preview")).toBeVisible();

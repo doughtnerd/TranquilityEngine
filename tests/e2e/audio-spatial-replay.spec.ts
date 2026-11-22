@@ -1,5 +1,4 @@
-import { expect, type Page, test } from "./fixtures";
-import { bootSample, LAB } from "./audioMusic";
+import { expect, type Page, test, openEditor, playWithAudio, LAB } from "./fixtures";
 
 // F-22: a spatial AudioSource played again stays spatial. The Sound Lab's spatial page, as the listening pass plays it:
 // 0 silences the page, then 5 cycles the "Bed orbit" source (a level circle, a vertical one, off) twice. The second
@@ -48,7 +47,8 @@ async function listen(page: Page, ms: number) {
 }
 
 test("the Sound Lab's orbit stays spatial when it is cycled a second time", async ({ page }) => {
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await press(page, "s");
   await expect.poll(async () => (await debug(page)).voices.some((v) => v.clip.includes("radio-loop")), { timeout: 30_000 }).toBe(true);
   await page.mouse.click(480, 250); // focus for the keys

@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "./fixtures";
-import { addAssets, audioDebug, bootSample, event, LAB, offGrid, peakOver, readLate, segment, watchConsole } from "./audioMusic";
+import { expect, type Page, test, openEditor, playWithAudio, LAB } from "./fixtures";
+import { addAssets, audioDebug, event, offGrid, peakOver, readLate, segment, watchConsole } from "./audioMusic";
 
 // Interactive music, milestone M4b (ADR 0166/0167; waves plan, task E2): the milestone's seams, stingers, switch, seek, beat
 // callbacks and playlist rules in the real browser, on the core backend (one case on Babylon), played on SM2's scene: the Sound
@@ -70,7 +70,8 @@ const lastSample = (page: Page) => page.evaluate(() => (globalThis as unknown as
 
 /** Opens the Sound Lab, warms the clips, goes to the music page (key M) and waits for the world switch to play. */
 async function openMusicPage(page: Page, backend: "core" | "babylon" = "core", warm = true): Promise<void> {
-  await bootSample(page, LAB, backend);
+  await openEditor(page, { sample: LAB, audioBackend: backend });
+  await playWithAudio(page, { backend });
   if (warm) await warmClips(page);
   await page.keyboard.press("m");
   if (backend === "core") {

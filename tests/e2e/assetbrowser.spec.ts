@@ -1,16 +1,10 @@
-import { expect, type Locator, openTestProject, type Page, test } from "./fixtures";
+import { expect, type Locator, openEditor, type Page, test, type Hooks } from "./fixtures";
 import { closeMenus, undoItem } from "./menus";
 
 // The Assets panel as a file browser, on a writable in-memory copy of the demo project.
 
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  openTestProject(extra: Record<string, string>): Promise<void>;
-  testFolder: { read(path: string): string | undefined };
-};
-
 async function openProject(page: Page): Promise<void> {
-  await openTestProject(page);
+  await openEditor(page, { files: {} });
   await page.locator(".dock-tab", { hasText: "Assets" }).click();
 }
 
@@ -163,7 +157,7 @@ test("the list view shows kind and size; the view and tile size are remembered",
   await expect(row.locator(".asset-col-kind")).toHaveText("Prefab");
   await expect(row.locator(".asset-col-size")).toHaveText(/\d+ B$/);
 
-  await openTestProject(page); // a fresh page load
+  await openEditor(page, { files: {} }); // a fresh page load
   await page.locator(".dock-tab", { hasText: "Assets" }).click();
   await expect(panel(page).getByRole("button", { name: "List" })).toHaveAttribute("aria-pressed", "true");
 });
@@ -203,7 +197,7 @@ test("several selected images drag into the hierarchy together, as one undo step
 
 test("the Inspector follows the latest selection, between the Hierarchy and the Assets panel", async ({ page }) => {
   const material = JSON.stringify({ format: "myco.material@1", shader: "lit", color: "#ffffff" });
-  await openTestProject(page, { "materials/sail.material.json": material });
+  await openEditor(page, { files: { "materials/sail.material.json": material } });
   await page.locator(".dock-tab", { hasText: "Assets" }).click();
   const inspector = page.locator(".panel.inspector .inspector-body");
   const assetInspector = page.locator(".panel.inspector .asset-inspector");

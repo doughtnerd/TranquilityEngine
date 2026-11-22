@@ -3,7 +3,7 @@ import { Engine, GameObject, getComponentClass } from "../engine";
 import { getFields } from "../engine/core/registry";
 import { instantiateDocument } from "../engine/editor";
 import { joinPath, openFolderProject } from "./projects";
-import { compileScript, isScriptPath, loadOrder, loadScripts, resolveScript, rewriteImports } from "./scriptLoader";
+import { isScriptPath, loadScripts, replaceScripts } from "./scriptLoader";
 import { ROOT, demoFolder } from "./testing";
 
 
@@ -20,78 +20,12 @@ export class Spin extends GameBehavior {
 }
 `;
 
-describe("finding scripts and their imports", () => {
+describe("finding scripts", () => {
   it("counts .ts files under scripts/, not declarations or files elsewhere", () => {
     expect(isScriptPath("scripts/Spin.ts")).toBe(true);
     expect(isScriptPath("scripts/ai/Enemy.ts")).toBe(true);
     expect(isScriptPath("scripts/types.d.ts")).toBe(false);
     expect(isScriptPath("behaviors/Bird.ts")).toBe(false);
-  });
-
-  it("resolves relative imports the way TypeScript does", () => {
-    const paths = new Set(["scripts/util.ts", "scripts/ai/index.ts", "scripts/ai/Enemy.ts"]);
-    expect(resolveScript("scripts/Spin.ts", "./util", paths)).toBe("scripts/util.ts");
-    expect(resolveScript("scripts/Spin.ts", "./util.js", paths)).toBe("scripts/util.ts");
-    expect(resolveScript("scripts/Spin.ts", "./ai", paths)).toBe("scripts/ai/index.ts");
-    expect(resolveScript("scripts/ai/Enemy.ts", "../util.ts", paths)).toBe("scripts/util.ts");
-    expect(resolveScript("scripts/Spin.ts", "./nope", paths)).toBeNull();
-    expect(resolveScript("scripts/Spin.ts", "lodash", paths)).toBeNull();
-  });
-});
-
-describe("compiling", () => {
-  it("compiles standard decorators and lists imports with their positions", async () => {
-    const out = await compileScript("scripts/Spin.ts", SPIN);
-    if (!("code" in out)) throw new Error(out.message);
-    expect(out.code).toContain("__esDecorate"); // standard decorators, lowered like the editor build
-    expect(out.code).toContain("sourceMappingURL=data:");
-    expect(out.imports.map((i) => i.specifier)).toEqual(["myco", "./util"]);
-    const first = out.imports[0];
-    expect(out.code.slice(first.start, first.end)).toBe("myco");
-  });
-
-  it("reports syntax errors with a line number; type errors don't stop it", async () => {
-    expect(await compileScript("scripts/Bad.ts", "const a = ;\n")).toMatchObject({ path: "scripts/Bad.ts", message: expect.stringMatching(/^line 1: /) });
-    expect(await compileScript("scripts/Typo.ts", "const n: number = 'text';\n")).toHaveProperty("code");
-  });
-
-  it("rewrites specifiers in place", () => {
-    const code = `import { a } from "./a"; export * from "myco";`;
-    const imports = [
-      { specifier: "./a", start: code.indexOf("./a"), end: code.indexOf("./a") + 3 },
-      { specifier: "myco", start: code.indexOf("myco"), end: code.indexOf("myco") + 4 },
-    ];
-    expect(rewriteImports(code, imports, (s) => (s === "./a" ? "data:A" : "data:E"))).toBe(`import { a } from "data:A"; export * from "data:E";`);
-  });
-});
-
-describe("load order", () => {
-  const compiled = (imports: Record<string, string[]>) =>
-    new Map(Object.entries(imports).map(([path, specs]) => [path, { path, code: "", imports: specs.map((specifier) => ({ specifier, start: 0, end: 0 })) }]));
-
-  it("loads each script after the scripts it imports", () => {
-    const plan = loadOrder(compiled({ "scripts/a.ts": ["./b", "myco"], "scripts/b.ts": ["./c"], "scripts/c.ts": [] }));
-    expect(plan.order).toEqual(["scripts/c.ts", "scripts/b.ts", "scripts/a.ts"]);
-    expect(plan.problems).toEqual([]);
-  });
-
-  it("reports cycles, missing scripts and packages, and what depends on them; the rest still load", () => {
-    const plan = loadOrder(
-      compiled({
-        "scripts/a.ts": ["./b"],
-        "scripts/b.ts": ["./a"],
-        "scripts/c.ts": ["./gone"],
-        "scripts/d.ts": ["lodash"],
-        "scripts/e.ts": ["./c"],
-        "scripts/f.ts": [],
-      }),
-    );
-    expect(plan.order).toEqual(["scripts/f.ts"]);
-    const problem = (p: string) => plan.problems.find((x) => x.path === p)?.message;
-    expect(problem("scripts/a.ts")).toMatch(/import cycle/);
-    expect(problem("scripts/c.ts")).toMatch(/can't find "\.\/gone"/);
-    expect(problem("scripts/d.ts")).toMatch(/can't import "lodash"/);
-    expect(problem("scripts/e.ts")).toMatch(/imports scripts\/c\.ts/);
   });
 });
 
@@ -149,6 +83,14 @@ describe("loading into the editor", () => {
     expect(problem("scripts/Boom.ts")).toBe("kaboom");
     expect(problem("scripts/Uses.ts")).toMatch(/didn't load/);
     expect(problem("scripts/Bad.ts")).toMatch(/^line 1/);
+  });
+});
+
+describe("the engine for the console and tests", () => {
+  it("is globalThis.__myco in the editor even when a project has no scripts, as in the player", async () => {
+    const engine = await import("../myco");
+    await replaceScripts(new Map());
+    expect((globalThis as { __myco?: unknown }).__myco).toBe(engine);
   });
 });
 

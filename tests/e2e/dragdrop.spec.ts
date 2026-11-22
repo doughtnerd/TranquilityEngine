@@ -1,18 +1,5 @@
-import { expect, test, type Locator, type Page } from "./fixtures";
+import { expect, test, type Locator, type Page, openEditor } from "./fixtures";
 import { closeMenus, undoItem } from "./menus";
-
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
-
-declare global {
-  interface Window {
-    engine?: { world: { time: { frameCount: number } } };
-  }
-}
-
-async function openEditor(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => (window.engine?.world.time.frameCount ?? 0) > 10);
-}
 
 const box = async (l: Locator) => (await l.boundingBox())!;
 const row = (page: Page, key: string) => page.locator(`.tree .row[data-key="${key}"]`);
@@ -33,7 +20,7 @@ async function dragAsset(page: Page, file: string, x: number, y: number, release
 }
 
 test("dropping an image in the viewport adds a sprite under the cursor", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await showFolder(page, "images");
   const vp = await box(page.locator(".viewport-panel"));
   await dragAsset(page, "flappyBird.png", vp.x + vp.width * 0.7, vp.y + vp.height * 0.3, false);
@@ -51,7 +38,7 @@ test("dropping an image in the viewport adds a sprite under the cursor", async (
 });
 
 test("dropping on a hierarchy node makes it the parent, with the node highlighted first", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await showFolder(page, "music");
   const bird = await box(row(page, "bird"));
   await dragAsset(page, "foo.mp3", bird.x + 40, bird.y + bird.height / 2, false);
@@ -69,7 +56,7 @@ test("dropping on a hierarchy node makes it the parent, with the node highlighte
 });
 
 test("dropping between hierarchy nodes adds a sibling, with a line showing where", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await showFolder(page, "prefabs");
   const ceiling = await box(row(page, "ceiling"));
   await dragAsset(page, "pipe-pair", ceiling.x + 40, ceiling.y + 2, false);
@@ -80,7 +67,7 @@ test("dropping between hierarchy nodes adds a sibling, with a line showing where
 });
 
 test("dropping on a node inside a prefab instance adds the asset there as an override (ADR 0258)", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await showFolder(page, "prefabs");
   await page.locator(".asset-tile", { hasText: "pipe-pair" }).getByRole("button").click();
   await row(page, "pipe-pair").locator(".caret").click();
@@ -95,7 +82,7 @@ test("dropping on a node inside a prefab instance adds the asset there as an ove
 });
 
 test("dropping in the hierarchy's empty space adds at the scene's top level", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await showFolder(page, "images");
   const tree = await box(page.locator(".panel.hierarchy .panel-body"));
   await dragAsset(page, "flappyBird.png", tree.x + tree.width / 2, tree.y + tree.height - 10, false);
@@ -105,7 +92,7 @@ test("dropping in the hierarchy's empty space adds at the scene's top level", as
 });
 
 test("assets with no node type, and invalid spots, change nothing", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const before = await page.locator(".tree .row").count();
   const vp = await box(page.locator(".viewport-panel"));
 

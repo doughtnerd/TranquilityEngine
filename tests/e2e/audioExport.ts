@@ -15,7 +15,7 @@ import {
 } from "../../src/plugins/audio/runtime/capture/format";
 import { formatDb, gainToDb } from "../../src/plugins/audio/editor/dbScale";
 import { barButton, panelOf, table } from "./audioProfiler";
-import { expect, type Page } from "./fixtures";
+import { expect, LAB, openEditor, type Page, type Hooks } from "./fixtures";
 import { showTab } from "./tabs";
 
 // Helpers of the export round-trip spec (ADR 0171 amended by 0172, task X3; `audio-mix-d.spec.ts`): export a sample with
@@ -195,7 +195,7 @@ export interface RecordedScene {
 
 export const MARKER_TEXT = "x3 marker";
 
-const engineUp = (page: Page) => page.evaluate(() => Boolean((window as unknown as { engine?: unknown }).engine));
+const engineUp = (page: Page) => page.evaluate(() => Boolean((window as unknown as Hooks).engine));
 const voicesOf = (t: Truth) => t.voices.map((v) => `${v.clip}@${v.bus}:${v.state}`);
 
 /** Polls the game until `want` holds (the work a key did), then lets the audio clock run `hold` seconds and reads the plateau. */
@@ -296,12 +296,9 @@ export function planCursor(p: ParsedCapture): CursorPlan {
 
 // --- the editor's Audio Profiler ------------------------------------------------------------------------------------------
 
-export const LAB_EDITOR = "/editor.html?sample=sound-lab";
-
 /** Opens the Sound Lab in the editor with the Audio Profiler tab showing. */
 export async function openProfilerTab(page: Page): Promise<void> {
-  await page.goto(LAB_EDITOR);
-  await page.waitForFunction(() => ((window as unknown as { engine?: { world: { time: { frameCount: number } } } }).engine?.world.time.frameCount ?? 0) > 10);
+  await openEditor(page, { sample: LAB });
   await showTab(page, /^Audio Profiler/);
   await expect(panelOf(page)).toBeVisible();
 }

@@ -16,13 +16,25 @@ export function coreWasmUrl(): URL {
   return new URL("../wasm/myco_audio.wasm", import.meta.url);
 }
 
+/** The core this page loaded last (`loadCoreWasm`), or null before one loaded. */
+let loaded: CoreWasm | null = null;
+
 /** @internal Fetches and compiles the core. Throws on a fetch or compile failure (the host falls back, architecture §2.1). */
 export async function loadCoreWasm(fetchImpl: typeof fetch = fetch): Promise<CoreWasm> {
   const response = await fetchImpl(coreWasmUrl());
   if (!response.ok) throw new Error(`audio core: fetching myco_audio.wasm failed (HTTP ${response.status})`);
   const bytes = await response.arrayBuffer();
   const module = await WebAssembly.compile(bytes);
-  return { bytes, module };
+  loaded = { bytes, module };
+  return loaded;
+}
+
+/**
+ * @internal The core this page loaded last, or null before one loaded: what main asks about the core's own figures
+ * without a node (ADR 0327: the debug panel's memory row asks a throwaway instance, `worklet/coreMemory.ts`).
+ */
+export function loadedCoreWasm(): CoreWasm | null {
+  return loaded;
 }
 
 /** @internal The URL of the bundled worklet module (`worklet/processor.ts` with `coreDriver.ts`) for `audioWorklet.addModule`. */

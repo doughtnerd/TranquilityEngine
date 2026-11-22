@@ -1,22 +1,10 @@
 // Tilemaps in the editor (ADR 0103): the platformer sample's level draws, the Tile Palette shows its
 // tileset, and painting in the scene view is one undoable step.
-import { afterFrames, expect, type Page, test } from "./fixtures";
+import { afterFrames, expect, test, openEditor, type Hooks } from "./fixtures";
 import { menu, openMenu } from "./menus";
 
-const EDITOR = "/editor.html?sample=platformer";
-
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  orbit: { focus(point?: [number, number, number], distance?: number): void };
-};
-
-async function openEditor(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-}
-
 test("paints tiles from the Tile Palette in the scene view, as one undo step", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "platformer" });
   await page.locator('.tree .row[data-key="level"]').click();
   await expect(page.locator(".tilemap-summary")).toContainText("2 layers");
   await page.getByRole("button", { name: "Open Tile Palette" }).click();
@@ -49,7 +37,7 @@ test("paints tiles from the Tile Palette in the scene view, as one undo step", a
 });
 
 test("Create > Tilemap adds a tilemap node", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "platformer" });
   await menu(page, "Create", "Tilemap");
   await expect(page.locator(".tilemap-summary")).toContainText("1 layer");
 });

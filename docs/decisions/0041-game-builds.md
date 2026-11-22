@@ -1,6 +1,6 @@
 # 0041. Games build to a static web player, packaged for desktop through Tauri
 
-- **Status:** Accepted, amended by [0296](0296-one-web-build-writer-behind-a-build-folder-seam.md) (one build writer writes every web build)
+- **Status:** Accepted, amended by [0296](0296-one-web-build-writer-behind-a-build-folder-seam.md) (one build writer writes every web build); amended by [0329](0329-one-linker-links-a-projects-code-into-a-memory-or-build-target.md) (a build's code links through the project code linker's build target; its asset references come from the built code only)
 - **Date:** 2026-11-02
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

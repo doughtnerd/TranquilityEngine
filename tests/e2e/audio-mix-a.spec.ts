@@ -1,6 +1,6 @@
 import { readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { inflateRawSync } from "node:zlib";
-import { expect, openTestProject, type Page, test } from "./fixtures";
+import { expect, type Page, test, openEditor, LAB } from "./fixtures";
 import { showTab } from "./tabs";
 import {
   BLOCK,
@@ -66,7 +66,6 @@ const BANNER_TEXT = {
   babylon: "Babylon fallback: main-side events and keyframes only. The CPU, underrun and loudness tracks are absent.",
 } as const;
 
-const LAB = "/editor.html?sample=sound-lab";
 const TAB = /^Audio Profiler/;
 
 type Api = { __myco: { Audio: { time: number; capture: { state: string; seconds: number; mark(t: string): void }; play(e: string, o?: object): unknown } } };
@@ -96,8 +95,7 @@ async function openProfiler(page: Page): Promise<string[]> {
       return fill.call(this, text, ...rest);
     };
   });
-  await page.goto(LAB);
-  await page.waitForFunction(() => ((window as unknown as { engine?: { world: { time: { frameCount: number } } } }).engine?.world.time.frameCount ?? 0) > 10);
+  await openEditor(page, { sample: LAB });
   await showTab(page, TAB);
   await expect(panelOf(page)).toBeVisible();
   return errors;
@@ -694,7 +692,7 @@ test("the Babylon backend live: the Audio Profiler follows the main-side ring an
   const project = JSON.stringify({ ...JSON.parse(readFileSync("samples/flappy/project.json", "utf8")), audio: { backend: "babylon" } });
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
-  await openTestProject(page, { "project.json": project });
+  await openEditor(page, { files: { "project.json": project } });
   await showTab(page, TAB);
   await expect(panelOf(page).locator(".profiler-empty")).toHaveText(EMPTY_STATES.notPlaying);
   await playGame(page);

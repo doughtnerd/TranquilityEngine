@@ -45,6 +45,11 @@ interface Exports {
   myco_ir_blob_ptr(): number;
   myco_ir_blob_len(): number;
   myco_ir_truncated(): number;
+  /** ABI 1.4 (ADR 0331): the spatial assets' preparation. */
+  myco_hrir_prepare(ptr: number, len: number, rate: number): number;
+  myco_magls_prepare(ptr: number, len: number, rate: number): number;
+  myco_spatial_blob_ptr(): number;
+  myco_spatial_blob_len(): number;
 }
 
 /** The generated zone IRs (R10, api-and-models §2.3), in `myco_ir_generate`'s code order. */
@@ -62,8 +67,8 @@ export interface PreparedIr {
 
 /** The ABI major this code speaks. */
 export const DECODER_ABI_MAJOR = 1;
-/** The lowest ABI minor this code needs (1.3: the `myco_ir_*` exports, ADR 0162 C2a). */
-export const DECODER_ABI_MINOR = 3;
+/** The lowest ABI minor this code needs (1.4: `myco_hrir_prepare` and `myco_magls_prepare`, ADR 0331). */
+export const DECODER_ABI_MINOR = 4;
 /** Size of the info record `myco_decode_info` writes (ABI 1.1; 1.0 wrote 32 bytes without the loop fields). */
 const INFO_BYTES = 40;
 
@@ -210,6 +215,30 @@ export class DecoderWasm {
   generateIr(preset: string, targetRate: number, maxFrames: number): PreparedIr {
     const index = (IR_PRESETS as readonly string[]).indexOf(preset);
     return this.preparedIr(this.x.myco_ir_generate(index < 0 ? 0xffffffff : index, targetRate, maxFrames));
+  }
+
+  /**
+   * ADR 0331 (decoder ABI 1.4): the HRIR asset (`myco_hrir.bin`, responses at its own rate with their delays in) as the
+   * wire's clip format 2 for a context at `rate` (Chromium's resampling and group-delay extraction; layout in audio-dsp's
+   * hrtf/database.rs). Returns the blob (a copy, owned by the caller). Throws a `DecoderError`: `ERR_ARG` (-2) for a rate
+   * that isn't finite and positive, `ERR_FORMAT` (-3) for an asset that isn't the documented layout.
+   */
+  prepareHrir(asset: Uint8Array, rate: number): Uint8Array {
+    return this.preparedSpatial(asset, (ptr, len) => this.x.myco_hrir_prepare(ptr, len, rate));
+  }
+
+  /** As `prepareHrir`, for the MagLS asset (`magls-o3.bin`) as the clip format 4 filters at `rate`. */
+  prepareMagls(asset: Uint8Array, rate: number): Uint8Array {
+    return this.preparedSpatial(asset, (ptr, len) => this.x.myco_magls_prepare(ptr, len, rate));
+  }
+
+  private preparedSpatial(asset: Uint8Array, prepare: (ptr: number, len: number) => number): Uint8Array {
+    if (asset.length === 0) throw new DecoderError("audio decoder: the spatial asset is empty", -2);
+    const ptr = this.x.myco_decode_alloc(asset.length);
+    if (ptr === 0) throw new DecoderError("audio decoder: out of memory for the spatial asset", -8);
+    new Uint8Array(this.x.memory.buffer, ptr, asset.length).set(asset);
+    const len = this.check(prepare(ptr, asset.length));
+    return new Uint8Array(this.x.memory.buffer, this.x.myco_spatial_blob_ptr(), len).slice();
   }
 
   private preparedIr(frames: number): PreparedIr {

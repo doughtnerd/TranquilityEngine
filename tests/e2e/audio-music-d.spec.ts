@@ -1,4 +1,4 @@
-import { expect, openTestProject, type Page, test } from "./fixtures";
+import { expect, type Page, test, openEditor, type Hooks } from "./fixtures";
 import { event, segment } from "./audioMusic";
 import { menu } from "./menus";
 import { pickCategory } from "./projectCategory";
@@ -8,7 +8,6 @@ import { showTab } from "./tabs";
 // (Ed10), the segment view and panel (Ed3, Ed4), the rules table and transition audition (Ed6, Ed7) and music import (Ed9).
 test.describe.configure({ timeout: 150_000 });
 
-type Hooks = { testFolder: { read(path: string): string | undefined } };
 type SavedAudio = { music?: { rings?: number }; rhythmMode?: boolean };
 
 const panel = (page: Page) => page.locator(".panel.project");
@@ -18,7 +17,7 @@ const saved = async (page: Page): Promise<SavedAudio> => (JSON.parse(await proje
 
 async function openAudio(page: Page, extra: Record<string, string> = {}): Promise<void> {
   await page.setViewportSize({ width: 1600, height: 1000 });
-  await openTestProject(page, extra);
+  await openEditor(page, { files: extra });
   await showTab(page, /^Project/);
   await pickCategory(page, "Audio");
   await expect(audio(page)).toBeVisible();
@@ -137,7 +136,7 @@ const watch = (page: Page): string[] => {
 /** Open the project with the song event, open it in the Event editor and select the node at `node` ("" is the root). */
 async function openSong(page: Page, node: string, extra: Record<string, string> = {}): Promise<void> {
   await page.setViewportSize({ width: 1600, height: 1000 });
-  await openTestProject(page, { [SONG]: JSON.stringify(songEvent()), ...extra });
+  await openEditor(page, { files: { [SONG]: JSON.stringify(songEvent()), ...extra } });
   const assets = page.locator(".panel.assets");
   await page.locator(".dock-tab", { hasText: "Assets" }).click();
   await assets.locator(".asset-folder", { hasText: /^music$/ }).click();
@@ -414,7 +413,7 @@ const eventRows = (page: Page) =>
 /** Open the list event in the Event editor, select its item `index` and open that segment in the segment view. */
 async function openListSegment(page: Page, index: number, beforeOpen?: () => Promise<void>): Promise<void> {
   await page.setViewportSize({ width: 1600, height: 1000 });
-  await openTestProject(page, { [LIST]: JSON.stringify(listEvent()) });
+  await openEditor(page, { files: { [LIST]: JSON.stringify(listEvent()) } });
   await page.locator(".dock-tab", { hasText: "Assets" }).click();
   const assets = page.locator(".panel.assets");
   await assets.locator(".asset-folder", { hasText: /^music$/ }).click();
@@ -549,7 +548,7 @@ for (const entry of ["1:1:0", "2:1:0"]) {
   test(`segment view transport: every "start from" choice starts there once, with no jump back or voice restart (entry cue at ${entry})`, async ({ page }) => {
     const problems = watch(page);
     await page.setViewportSize({ width: 1600, height: 1000 });
-    await openTestProject(page, { [ONE]: JSON.stringify(oneEvent(entry)) });
+    await openEditor(page, { files: { [ONE]: JSON.stringify(oneEvent(entry)) } });
     await page.locator(".dock-tab", { hasText: "Assets" }).click();
     const assets = page.locator(".panel.assets");
     await assets.locator(".asset-folder", { hasText: /^music$/ }).click();

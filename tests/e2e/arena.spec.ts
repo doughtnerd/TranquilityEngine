@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { expect, type Page, PLAY_START, test } from "./fixtures";
+import { expect, type Page, PLAY_START, test, openEditor, type Hooks } from "./fixtures";
 import { inLiveWorld, type LiveNode } from "./liveWorld";
 import { showTab } from "./tabs";
 
@@ -10,11 +10,6 @@ import { showTab } from "./tabs";
 test.describe.configure({ timeout: 60_000 }); // several Worlds play at once; each new renderer is seconds of CPU with software GL
 
 const START = "/editor.html"; // relative to baseURL (E2E_PORT)
-
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  playEngine?: { worlds(): { name: string }[] } | null;
-};
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -70,8 +65,7 @@ test("the start screen lists Arena", async ({ page }) => {
 test("Play: Host makes the server World, P adds a second player, input moves players, a hit scores", async ({ page }) => {
   test.setTimeout(60_000);
   const errors = trackErrors(page);
-  await page.goto(`${START}?sample=arena`);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await openEditor(page, { sample: "arena" });
   await expect(page.locator(".project-name")).toHaveText("Arena (sample, read-only)");
 
   await page.getByRole("button", { name: "▶ Play" }).click();
@@ -166,8 +160,7 @@ test("Play: Join connects to a dedicated server, which spawns a player the keybo
   const log: string[] = [];
   const server = await dedicatedServer(log);
   try {
-    await page.goto(`${START}?sample=arena`);
-    await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+    await openEditor(page, { sample: "arena" });
     await page.getByRole("button", { name: "▶ Play" }).click();
     await expect.poll(() => worldNames(page), { timeout: PLAY_START }).toEqual(["Client"]);
     // Point Join at this server (the scene says ws://localhost:7777, the server's default port).

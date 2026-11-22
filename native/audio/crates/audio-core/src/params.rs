@@ -1,4 +1,10 @@
 //! The parameters of `myco_audio_init` (api-and-models §5) and their validation.
+//!
+//! ADR 0328: they cross the seam as the wire's INIT record (kind 13, `audio-wire`'s `schema/envelope.rs`), which the
+//! shell writes at the inbox's start; [`InitParams::read`] reads it with the generated reader and validates it, and a
+//! refusal is the error code that names the field ([`InitError::code`]).
+
+use audio_wire::generated as wire;
 
 /// What `myco_audio_init` receives. Every fixed region's size is a pure function of these, so the
 /// same parameters always give the same [`crate::Layout`].
@@ -61,13 +67,31 @@ pub enum InitError {
     MaxBuses,
     /// `max_beds` above [`InitParams::MAX_BEDS`].
     MaxBeds,
-    /// `max_zone_slots` above [`InitParams::MAX_ZONE_SLOTS`], or zone slots with `zone_max_frames`
-    /// 0, or `zone_max_frames` past [`InitParams::MAX_ZONE_SECONDS`] at the rate.
-    Zones,
+    /// `max_zone_slots` above [`InitParams::MAX_ZONE_SLOTS`].
+    MaxZoneSlots,
+    /// Zone slots with `zone_max_frames` 0, or past [`InitParams::MAX_ZONE_SECONDS`] at the rate.
+    ZoneMaxFrames,
     /// `max_wide` above [`InitParams::MAX_WIDE`].
     MaxWide,
     /// `max_music_rings` above [`InitParams::MAX_MUSIC_RINGS`] (ABI 3.0).
     MusicRings,
+}
+
+impl InitError {
+    /// ADR 0328: the C ABI code that names the refused INIT field (`ERR_INIT_` + the field's name).
+    pub fn code(self) -> i32 {
+        match self {
+            InitError::SampleRate => wire::ERR_INIT_SAMPLE_RATE,
+            InitError::MaxLogical => wire::ERR_INIT_MAX_LOGICAL,
+            InitError::MaxMixed => wire::ERR_INIT_MAX_MIXED,
+            InitError::MaxBuses => wire::ERR_INIT_MAX_BUSES,
+            InitError::MaxBeds => wire::ERR_INIT_MAX_BEDS,
+            InitError::MaxZoneSlots => wire::ERR_INIT_MAX_ZONE_SLOTS,
+            InitError::ZoneMaxFrames => wire::ERR_INIT_ZONE_MAX_FRAMES,
+            InitError::MaxWide => wire::ERR_INIT_MAX_WIDE,
+            InitError::MusicRings => wire::ERR_INIT_MAX_MUSIC_RINGS,
+        }
+    }
 }
 
 impl InitParams {
@@ -109,10 +133,11 @@ impl InitParams {
         if self.max_beds > Self::MAX_BEDS {
             return Err(InitError::MaxBeds);
         }
-        if self.max_zone_slots > Self::MAX_ZONE_SLOTS
-            || (self.max_zone_slots > 0 && (self.zone_max_frames == 0 || self.zone_max_frames as f32 > (Self::MAX_ZONE_SECONDS * self.sample_rate).ceil()))
-        {
-            return Err(InitError::Zones);
+        if self.max_zone_slots > Self::MAX_ZONE_SLOTS {
+            return Err(InitError::MaxZoneSlots);
+        }
+        if self.max_zone_slots > 0 && (self.zone_max_frames == 0 || self.zone_max_frames as f32 > (Self::MAX_ZONE_SECONDS * self.sample_rate).ceil()) {
+            return Err(InitError::ZoneMaxFrames);
         }
         if self.max_wide > Self::MAX_WIDE {
             return Err(InitError::MaxWide);
@@ -121,6 +146,38 @@ impl InitParams {
             return Err(InitError::MusicRings);
         }
         Ok(())
+    }
+
+    /// ADR 0328: reads the INIT message at the start of `msg` (the inbox) with the generated reader and validates it.
+    /// `Err` is a C ABI code: the generated reader's (`ERR_TRUNCATED`), `ERR_BAD_MAGIC`, `ERR_VERSION_MISMATCH` (another
+    /// envelope major), `ERR_MALFORMED` (another kind, or a body shorter than INIT's), or the [`InitError::code`] that names
+    /// the refused field.
+    pub fn read(msg: &[u8]) -> Result<InitParams, i32> {
+        let (env, _) = wire::Envelope::read(msg, 0)?;
+        if env.magic != wire::MAGIC {
+            return Err(wire::ERR_BAD_MAGIC);
+        }
+        if (env.version >> 8) as u32 != wire::VERSION_MAJOR {
+            return Err(wire::ERR_VERSION_MISMATCH);
+        }
+        if env.kind != wire::kind::INIT || (env.body_bytes as usize) + (wire::ENVELOPE_BYTES as usize) < wire::Init::FIXED_END {
+            return Err(wire::ERR_MALFORMED);
+        }
+        let (r, _) = wire::Init::read(msg, 0)?;
+        let p = InitParams {
+            sample_rate: r.sample_rate,
+            max_logical: r.max_logical,
+            max_mixed: r.max_mixed,
+            max_buses: r.max_buses,
+            arena_initial_bytes: r.arena_initial_bytes,
+            max_beds: r.max_beds,
+            max_zone_slots: r.max_zone_slots,
+            zone_max_frames: r.zone_max_frames,
+            max_wide: r.max_wide,
+            max_music_rings: r.max_music_rings,
+        };
+        p.validate().map_err(InitError::code)?;
+        Ok(p)
     }
 }
 
@@ -154,9 +211,9 @@ mod tests {
         assert_eq!(InitParams { max_mixed: 5_000, ..p }.validate(), Err(InitError::MaxMixed));
         assert_eq!(InitParams { max_buses: 0, ..p }.validate(), Err(InitError::MaxBuses));
         assert_eq!(InitParams { max_beds: 5, ..p }.validate(), Err(InitError::MaxBeds));
-        assert_eq!(InitParams { max_zone_slots: 5, zone_max_frames: 96_000, ..p }.validate(), Err(InitError::Zones));
-        assert_eq!(InitParams { max_zone_slots: 1, zone_max_frames: 0, ..p }.validate(), Err(InitError::Zones));
-        assert_eq!(InitParams { max_zone_slots: 1, zone_max_frames: 384_001, ..p }.validate(), Err(InitError::Zones));
+        assert_eq!(InitParams { max_zone_slots: 5, zone_max_frames: 96_000, ..p }.validate(), Err(InitError::MaxZoneSlots));
+        assert_eq!(InitParams { max_zone_slots: 1, zone_max_frames: 0, ..p }.validate(), Err(InitError::ZoneMaxFrames));
+        assert_eq!(InitParams { max_zone_slots: 1, zone_max_frames: 384_001, ..p }.validate(), Err(InitError::ZoneMaxFrames));
         assert_eq!(InitParams { max_wide: 5, ..p }.validate(), Err(InitError::MaxWide));
         assert_eq!(InitParams { max_music_rings: 17, ..p }.validate(), Err(InitError::MusicRings));
         assert_eq!(InitParams { max_music_rings: 16, ..p }.validate(), Ok(()));
@@ -170,5 +227,43 @@ mod tests {
         assert_eq!(InitParams { max_beds: 4, max_zone_slots: 3, zone_max_frames: 192_000, max_wide: 2, ..p }.validate(), Ok(()));
         assert_eq!(InitParams { max_beds: 0, max_zone_slots: 1, zone_max_frames: 48_000, max_wide: 1, ..p }.validate(), Ok(()));
         assert_eq!(InitParams { zone_max_frames: 1, ..p }.validate(), Ok(()), "frames are ignored without slots");
+    }
+
+    /// The INIT message for `p`, as the shell writes it into the inbox (`writeEnvelope` then `writeInit`).
+    fn init_message(p: &InitParams) -> Vec<u8> {
+        let mut buf = vec![0u8; wire::Init::FIXED_END];
+        wire::Envelope::new(wire::kind::INIT, 0, (wire::Init::FIXED_END - wire::ENVELOPE_BYTES as usize) as u32).write(&mut buf, 0).unwrap();
+        let r = wire::Init {
+            sample_rate: p.sample_rate,
+            max_logical: p.max_logical,
+            max_mixed: p.max_mixed,
+            max_buses: p.max_buses,
+            arena_initial_bytes: p.arena_initial_bytes,
+            max_beds: p.max_beds,
+            max_zone_slots: p.max_zone_slots,
+            zone_max_frames: p.zone_max_frames,
+            max_wide: p.max_wide,
+            max_music_rings: p.max_music_rings,
+        };
+        r.write(&mut buf, 0).unwrap();
+        buf
+    }
+
+    #[test]
+    fn the_init_record_reads_back_and_a_refusal_names_its_field() {
+        let p = InitParams { max_beds: 2, max_zone_slots: 3, zone_max_frames: 96_000, max_wide: 1, max_music_rings: 12, ..default_preset() };
+        assert_eq!(InitParams::read(&init_message(&p)), Ok(p));
+        assert_eq!(InitParams::read(&init_message(&InitParams { max_mixed: 0, ..p })), Err(wire::ERR_INIT_MAX_MIXED));
+        assert_eq!(InitParams::read(&init_message(&InitParams { zone_max_frames: 0, ..p })), Err(wire::ERR_INIT_ZONE_MAX_FRAMES));
+        assert_eq!(InitParams::read(&init_message(&InitParams { max_music_rings: 17, ..p })), Err(wire::ERR_INIT_MAX_MUSIC_RINGS));
+        let msg = init_message(&p);
+        assert_eq!(InitParams::read(&msg[..40]), Err(wire::ERR_TRUNCATED));
+        let mut other = msg.clone();
+        other[6] = wire::kind::BATCH as u8;
+        assert_eq!(InitParams::read(&other), Err(wire::ERR_MALFORMED));
+        let mut bad = msg.clone();
+        bad[0] = 0;
+        assert_eq!(InitParams::read(&bad), Err(wire::ERR_BAD_MAGIC));
+        assert_eq!(InitParams::read(&[0u8; 8]), Err(wire::ERR_TRUNCATED));
     }
 }

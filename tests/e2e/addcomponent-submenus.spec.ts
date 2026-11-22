@@ -1,12 +1,7 @@
-import { expect, test, type Page } from "./fixtures";
-
-const EDITOR = "/editor.html?sample=flappy"; // relative to baseURL (E2E_PORT)
-
-type Hooks = { engine?: { world: { time: { frameCount: number } } } };
+import { expect, test, type Page, openEditor } from "./fixtures";
 
 async function openMenu(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await openEditor(page, { sample: "flappy" });
   await page.locator('.tree .row[data-key="ceiling"]').click();
   await page.getByRole("button", { name: "Add Component" }).click();
 }

@@ -1,4 +1,5 @@
-// ADR 0162 A3 (leaf L-A3a): the MagLS asset's format 4 loader in hrir.ts (`resampleMagls`, `createMaglsLoader`).
+// ADR 0162 A3 (leaf L-A3a): the MagLS asset's format 4 loader in hrir.ts (`createMaglsLoader`) and the blob the decoder
+// prepares for it (ADR 0331: `myco_magls_prepare`, here on the committed decoder wasm in process).
 import { describe, expect, it, vi } from "vitest";
 import {
   ClipEvent,
@@ -15,7 +16,10 @@ import {
 } from "../wire.generated";
 import { createClipRegistry } from "./clipRegistry";
 import { createMaglsLoader } from "./hrir";
-import { resampleMagls } from "./hrirResample";
+import { inProcessSpatialPrepare } from "../testing";
+
+const prepare = inProcessSpatialPrepare();
+const prepareMagls = (asset: ArrayBuffer, rate: number) => prepare("magls", asset, rate);
 
 const RESPONSES = 32;
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -57,57 +61,57 @@ function response(blob: ArrayBuffer, taps: number, r: number): Float32Array {
 
 const peakAt = (x: Float32Array): number => x.reduce((best, s, i) => (Math.abs(s) > Math.abs(x[best]!) ? i : best), 0);
 
-describe("resampleMagls (format 4 for the context rate)", () => {
-  it("returns a blob equal to the asset at the asset's own rate (44.1 kHz)", () => {
+describe("myco_magls_prepare (format 4 for the context rate)", () => {
+  it("returns a blob equal to the asset at the asset's own rate (44.1 kHz)", async () => {
     const a = asset44();
-    const out = resampleMagls(a, 44100);
+    const out = await prepareMagls(a, 44100);
     expect(out.byteLength).toBe(a.byteLength);
     expect(new Uint8Array(out)).toEqual(new Uint8Array(a));
   });
 
-  it("at 48 kHz: 256 taps, header rate 48000, an impulse at frame k peaks at round(k * 48000 / 44100)", () => {
-    const out = resampleMagls(asset44(), 48000);
+  it("at 48 kHz: 256 taps, header rate 48000, an impulse at frame k peaks at round(k * 48000 / 44100)", async () => {
+    const out = await prepareMagls(asset44(), 48000);
     expect(readMaglsHeader(new DataView(out), 0)).toEqual({ magic: MAGLS_MAGIC, version: MAGLS_VERSION, order: MAGLS_ORDER, taps: 256, sampleRate: 48000, reserved: [0, 0, 0] });
     expect(out.byteLength).toBe(32 + RESPONSES * 256 * 4);
     for (const r of [0, 7, 31]) expect(peakAt(response(out, 256, r)), `response ${r}`).toBe(Math.round((50 * 48000) / 44100));
   });
 
-  it("at 96 kHz: 512 taps (MAGLS_TAPS_HIGH_RATE); at 22.05 kHz: 128 taps", () => {
-    const high = resampleMagls(asset44(), 96000);
+  it("at 96 kHz: 512 taps (MAGLS_TAPS_HIGH_RATE); at 22.05 kHz: 128 taps", async () => {
+    const high = await prepareMagls(asset44(), 96000);
     expect(readMaglsHeader(new DataView(high), 0).taps).toBe(512);
     expect(high.byteLength).toBe(32 + RESPONSES * 512 * 4);
     expect(peakAt(response(high, 512, 0))).toBe(Math.round((50 * 96000) / 44100));
-    const low = resampleMagls(asset44(), 22050);
+    const low = await prepareMagls(asset44(), 22050);
     expect(readMaglsHeader(new DataView(low), 0).taps).toBe(128);
     expect(low.byteLength).toBe(32 + RESPONSES * 128 * 4);
     expect(peakAt(response(low, 128, 0))).toBe(25);
   });
 
-  it("cuts a response longer than taps with a linear fade over its last trunc(rate / 4410) frames", () => {
+  it("cuts a response longer than taps with a linear fade over its last trunc(rate / 4410) frames", async () => {
     // A DC response at 48 kHz resamples to 278 frames; the cut to 256 fades the last trunc(48000 / 4410) = 10 frames.
-    const out = resampleMagls(build(256, 44100, () => 0.5), 48000);
+    const out = await prepareMagls(build(256, 44100, () => 0.5), 48000);
     const r = response(out, 256, 3);
     for (let i = 100; i < 246; i++) expect(Math.abs(r[i]! - 0.5), `frame ${i}`).toBeLessThan(3e-3);
     for (let i = 246; i < 256; i++) expect(Math.abs(r[i]! - 0.5 * (1 - (i - 246) / 10)), `frame ${i}`).toBeLessThan(3e-3);
   });
 
-  it("keeps the asset's response order [16 channels][2 ears]", () => {
+  it("keeps the asset's response order [16 channels][2 ears]", async () => {
     const at = (r: number) => 10 + r;
-    const out = resampleMagls(build(256, 44100, impulses(at)), 48000);
+    const out = await prepareMagls(build(256, 44100, impulses(at)), 48000);
     for (let r = 0; r < RESPONSES; r++) expect(peakAt(response(out, 256, r)), `response ${r}`).toBe(Math.round((at(r) * 48000) / 44100));
   });
 
-  it("throws on a bad magic, version, order, byte length or asset rate, and on a bad target rate", () => {
-    expect(() => resampleMagls(build(256, 44100, undefined, { magic: 0 }), 48000)).toThrow();
-    expect(() => resampleMagls(build(256, 44100, undefined, { version: 2 }), 48000)).toThrow();
-    expect(() => resampleMagls(build(256, 44100, undefined, { order: 2 }), 48000)).toThrow();
-    expect(() => resampleMagls(build(256, 44100, undefined, { extra: 4 }), 48000)).toThrow();
-    expect(() => resampleMagls(asset44().slice(0, -4), 48000)).toThrow();
-    expect(() => resampleMagls(new ArrayBuffer(16), 48000)).toThrow();
-    expect(() => resampleMagls(build(256, 0), 48000)).toThrow();
-    expect(() => resampleMagls(build(256, Number.NaN), 48000)).toThrow();
-    expect(() => resampleMagls(build(0, 44100), 48000)).toThrow();
-    for (const bad of [0, -48000, Number.NaN, Number.POSITIVE_INFINITY]) expect(() => resampleMagls(asset44(), bad), `${bad}`).toThrow();
+  it("throws on a bad magic, version, order, byte length or asset rate, and on a bad target rate", async () => {
+    await expect(prepareMagls(build(256, 44100, undefined, { magic: 0 }), 48000)).rejects.toThrow();
+    await expect(prepareMagls(build(256, 44100, undefined, { version: 2 }), 48000)).rejects.toThrow();
+    await expect(prepareMagls(build(256, 44100, undefined, { order: 2 }), 48000)).rejects.toThrow();
+    await expect(prepareMagls(build(256, 44100, undefined, { extra: 4 }), 48000)).rejects.toThrow();
+    await expect(prepareMagls(asset44().slice(0, -4), 48000)).rejects.toThrow();
+    await expect(prepareMagls(new ArrayBuffer(16), 48000)).rejects.toThrow();
+    await expect(prepareMagls(build(256, 0), 48000)).rejects.toThrow();
+    await expect(prepareMagls(build(256, Number.NaN), 48000)).rejects.toThrow();
+    await expect(prepareMagls(build(0, 44100), 48000)).rejects.toThrow();
+    for (const bad of [0, -48000, Number.NaN, Number.POSITIVE_INFINITY]) await expect(prepareMagls(asset44(), bad), `${bad}`).rejects.toThrow();
   });
 });
 
@@ -116,7 +120,7 @@ describe("createMaglsLoader", () => {
     const sent: ArrayBuffer[] = [];
     const clips = createClipRegistry({ send: (m) => sent.push(m), nextQuantum: (cb) => void setTimeout(cb, 0), nextFrame: (cb) => void setTimeout(cb, 0) });
     const warn = vi.fn();
-    const loader = createMaglsLoader({ clips, sampleRate: 48000, fetchBytes, warn });
+    const loader = createMaglsLoader({ clips, sampleRate: 48000, fetchBytes, prepare, warn });
     return { clips, sent, loader, fetchBytes, warn };
   }
 
@@ -137,7 +141,7 @@ describe("createMaglsLoader", () => {
     await pump();
     expect(h.fetchBytes).toHaveBeenCalledTimes(1);
     expect(h.loader.started).toBe(true);
-    const blob = resampleMagls(asset44(), 48000);
+    const blob = await prepareMagls(asset44(), 48000);
     expect(readClipBegin(new DataView(h.sent[0]!), 0)).toEqual({ clipId: MAGLS_CLIP_ID, frames: blob.byteLength / 4, channels: 1, sampleRate: 48000, format: ClipFormat.MagLS });
     // The paced chunks carry the blob in order; the first begins with the MYBD header.
     const chunks = h.sent.filter((m) => new DataView(m).getUint16(6, true) === Kind.CLIP_CHUNK);
@@ -201,7 +205,7 @@ describe("createMaglsLoader", () => {
     await pump();
     const at96 = readClipBegin(new DataView(h.sent[0]!), 0);
     expect(at96.sampleRate).toBe(96000);
-    expect(at96.frames).toBe(resampleMagls(asset44(), 96000).byteLength / 4);
+    expect(at96.frames).toBe((await prepareMagls(asset44(), 96000)).byteLength / 4);
     expect(at96.frames).toBe((32 + RESPONSES * 512 * 4) / 4);
   });
 });
@@ -225,9 +229,9 @@ describe("the committed magls-o3.bin (made by native/audio/tools/bake-magls)", (
 
   it("loads unchanged at 44.1 kHz and resamples to 256 taps at 48 kHz and 512 at 96 kHz", async () => {
     const asset = await load();
-    expect(new Uint8Array(resampleMagls(asset, 44100))).toEqual(new Uint8Array(asset));
+    expect(new Uint8Array(await prepareMagls(asset, 44100))).toEqual(new Uint8Array(asset));
     for (const [rate, taps] of [[48000, 256], [96000, 512]] as const) {
-      const blob = resampleMagls(asset, rate);
+      const blob = await prepareMagls(asset, rate);
       expect(readMaglsHeader(new DataView(blob), 0)).toMatchObject({ taps, sampleRate: rate });
       expect(blob.byteLength).toBe(32 + 32 * taps * 4);
       // The W channel's left response keeps its energy within 1 dB (Chromium resamples HRIRs without a gain change, so

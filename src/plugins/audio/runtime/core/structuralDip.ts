@@ -37,6 +37,7 @@
 //   frame that runs backwards (a new context) does the same.
 import type { ApplyResult, MixOp } from "../../../../engine/audio/mixOps";
 import type { Mixer } from "../../../../engine/audio/mixer";
+import { MAX_BUSES } from "../../../../engine/audio/settings";
 import { BUS_LP_OFF_HZ, BUS_RAMP_MASK_GAIN, FadeLaw, LANE_DIP, QUANTUM_FRAMES, SHAPE_SEQUENCE_MASK } from "../wire.generated";
 import type { BusIndex, SlotStamp } from "./busIndex";
 import type { CommandWriter } from "./commandWriter";
@@ -51,8 +52,6 @@ function dipFrames(sampleRate: number): number {
   return Math.round((DIP_MS / 1000) * sampleRate);
 }
 
-/** The core's bus count. */
-const MAX_BUS = 32;
 
 /** A planned end this far (in seconds) past now belongs to another epoch's frames: forget it. */
 const STALE_SECONDS = 2;
@@ -94,8 +93,8 @@ export class StructuralDip {
   /** The highest frame seen: a frame far below it is a new epoch (a new context's frames). */
   private lastFrame = Number.NEGATIVE_INFINITY;
   /** Per slot: the frame its last structural `BUS_SLOT` applies at, and that sequence's id. */
-  private readonly slotAt = new Float64Array(MAX_BUS).fill(Number.NEGATIVE_INFINITY);
-  private readonly slotSeq = new Uint16Array(MAX_BUS);
+  private readonly slotAt = new Float64Array(MAX_BUSES).fill(Number.NEGATIVE_INFINITY);
+  private readonly slotSeq = new Uint16Array(MAX_BUSES);
   /** Per voice id moved by `dipVoice`: its planned end (B + DIP_FRAMES), frames of this epoch. */
   private readonly voiceEnd = new Map<number, number>();
 
@@ -119,7 +118,7 @@ export class StructuralDip {
     switch (op.op) {
       case "moveBus": {
         const s = buses.slotOf(op.bus);
-        if (s < 0 || s >= MAX_BUS || buses.slotOf(op.parent) < 0) return unavailable();
+        if (s < 0 || s >= MAX_BUSES || buses.slotOf(op.parent) < 0) return unavailable();
         if (mixer.audioSettings.buses.find((b) => b.name === op.bus)?.parent === op.parent) return { ok: true, class: "none" };
         try {
           buses.moveBus(op.bus, op.parent);
@@ -134,7 +133,7 @@ export class StructuralDip {
       }
       case "removeBus": {
         const top = buses.slotOf(op.bus);
-        if (top < 0 || top >= MAX_BUS) return unavailable();
+        if (top < 0 || top >= MAX_BUSES) return unavailable();
         const root = buses.rootOf(top);
         let tombs: number[];
         try {
@@ -164,7 +163,7 @@ export class StructuralDip {
       case "moveEffect":
       case "addEffect": {
         const s = buses.slotOf(op.bus);
-        if (s < 0 || s >= MAX_BUS) return unavailable();
+        if (s < 0 || s >= MAX_BUSES) return unavailable();
         if (!mixer._applyLive(op)) return { ok: true, class: "none" };
         const o = this.gather();
         o.roots.add(s);
@@ -186,7 +185,7 @@ export class StructuralDip {
    */
   directSlot(s: number): SlotStamp | null | undefined {
     if (this.open?.slots.has(s)) return null;
-    if (s < 0 || s >= MAX_BUS || !this.host) return undefined;
+    if (s < 0 || s >= MAX_BUSES || !this.host) return undefined;
     const at = this.slotAt[s]!;
     return at > this.now() ? { at, sequenceId: this.slotSeq[s]! } : undefined;
   }
@@ -225,7 +224,7 @@ export class StructuralDip {
     const f = frame ?? this.now();
     this.epoch(f);
     const freed = host.buses().recycle(f);
-    for (const s of freed) if (s < MAX_BUS) this.slotAt[s] = Number.NEGATIVE_INFINITY;
+    for (const s of freed) if (s < MAX_BUSES) this.slotAt[s] = Number.NEGATIVE_INFINITY;
     if (freed.length > 0) host.mixer()._releaseTombstones?.(freed);
     return freed;
   }
@@ -318,7 +317,7 @@ export class StructuralDip {
     for (const t of tombstones) w.busRampFrames(t, LANE_DIP, BUS_RAMP_MASK_GAIN, 0, BUS_LP_OFF_HZ, d, id, f0);
     for (const s of slots) {
       w.busSlot({ ...buses.slotConfig(s), structural: true, sequenceId: id }, b);
-      if (s < MAX_BUS) {
+      if (s < MAX_BUSES) {
         this.slotAt[s] = b;
         this.slotSeq[s] = id;
       }

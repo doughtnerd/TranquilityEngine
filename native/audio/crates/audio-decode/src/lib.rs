@@ -37,6 +37,15 @@
 //!    `myco_ir_truncated()` says whether it was cut at `max_frames`, all valid until the next
 //!    `myco_ir_*` call (a failed call leaves no blob: length 0). Independent of the decoders.
 //!
+//! 7. **Spatial assets** (ABI 1.4, ADR 0331, [`spatial`]): `bytes = myco_hrir_prepare(p, len, rate)`
+//!    takes the HRIR asset from `myco_decode_alloc` (owned from then on, as `open`) and prepares
+//!    its clip-format-2 table for a context at `rate`; `myco_magls_prepare(p, len, rate)` does the
+//!    same for the MagLS asset (clip format 4). Each returns the blob's byte length (> 0) or an
+//!    `ERR_*` code (`ERR_ARG` for a rate that isn't finite and positive, `ERR_FORMAT` for an asset
+//!    that isn't the documented layout); the blob is then at `myco_spatial_blob_ptr()` for
+//!    `myco_spatial_blob_len()` bytes, valid until the next `myco_*_prepare` of either kind (a
+//!    failed call leaves no blob: length 0). Independent of the decoders and the zone kernels.
+//!
 //! Negative `i32` (or `f64`) results are the `ERR_*` codes; `myco_decode_error_ptr/len` give the
 //! last failure's message (UTF-8). No export panics on bad input: arguments are checked and
 //! symphonia's errors become codes. The release build is `panic = "abort"`, so a bug that does
@@ -46,6 +55,7 @@ pub mod ambisonic;
 mod decoder;
 pub mod ir;
 mod loop_points;
+pub mod spatial;
 #[cfg(feature = "aac")]
 mod mp4_gapless;
 
@@ -57,12 +67,13 @@ use std::alloc::{alloc, dealloc, Layout};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// `(major << 8) | minor` of this ABI.
-pub const ABI_VERSION: u32 = 0x103;
+pub const ABI_VERSION: u32 = 0x104;
 /// Open decoders at once.
 pub const MAX_DECODERS: usize = 64;
 /// Bytes of the record `myco_decode_info` writes: `u32 sampleRate; u32 channels; f64 frames (-1
 /// unknown); f64 framesEstimate (-1 unknown); u32 codec (0 other, 1 PCM, 2 FLAC, 3 MP3, 4 Vorbis,
-/// 5 AAC); u32 flags (bit0: frames is exact)`.
+/// 5 AAC); u32 flags (bit0: frames is exact; bit1: the file states a loop); u32 loopStart @32;
+/// u32 loopEnd @36` (loop frames, the end exclusive; both 0 without a loop; ABI 1.1).
 pub const INFO_BYTES: usize = 40;
 /// Alignment of every `myco_decode_alloc` block (enough for f32, i16 and f64 views).
 pub const ALLOC_ALIGN: usize = 16;
@@ -138,9 +149,11 @@ struct Table {
     error: String,
     /// The last `myco_ir_*` call's kernel.
     ir: Option<ir::Prepared>,
+    /// The last `myco_hrir_prepare` / `myco_magls_prepare` call's blob.
+    spatial: Option<Vec<u8>>,
 }
 
-static TABLE: Mutex<Table> = Mutex::new(Table { slots: Vec::new(), error: String::new(), ir: None });
+static TABLE: Mutex<Table> = Mutex::new(Table { slots: Vec::new(), error: String::new(), ir: None, spatial: None });
 
 fn table() -> MutexGuard<'static, Table> {
     // panic = "abort": a poisoned lock can't be observed in release; tests recover it.
@@ -219,8 +232,9 @@ fn valid_range(ptr: usize, bytes: usize, align: usize) -> bool {
 
 // --- Exports -----------------------------------------------------------------------------------
 
-/// `(major << 8) | minor`: 1.3 (1.1 added the loop fields to the info record, 1.2
-/// `myco_decode_set_convention`, 1.3 the `myco_ir_*` exports).
+/// `(major << 8) | minor`: 1.4 (1.1 added the loop fields to the info record, 1.2
+/// `myco_decode_set_convention`, 1.3 the `myco_ir_*` exports, 1.4 `myco_hrir_prepare`,
+/// `myco_magls_prepare` and `myco_spatial_blob_*`).
 #[no_mangle]
 pub extern "C" fn myco_decode_abi_version() -> u32 {
     ABI_VERSION
@@ -475,4 +489,58 @@ pub extern "C" fn myco_ir_blob_len() -> u32 {
 #[no_mangle]
 pub extern "C" fn myco_ir_truncated() -> u32 {
     table().ir.as_ref().map_or(0, |p| u32::from(p.truncated))
+}
+
+// --- Spatial assets (ABI 1.4, ADR 0331) -----------------------------------------------------------
+
+/// Runs `prepare` on the asset at `ptr` (`len` bytes from `myco_decode_alloc(len)`, owned from now
+/// on and freed before returning) and keeps the blob.
+unsafe fn prepare_spatial(ptr: *mut u8, len: u32, rate: f64, what: &str, prepare: fn(&[u8], f64) -> Result<Vec<u8>, ir::IrError>) -> i32 {
+    let mut t = table();
+    t.spatial = None;
+    if !valid_range(ptr as usize, len as usize, ALLOC_ALIGN) || len == 0 {
+        return t.fail(ERR_ARG, &format!("{what}: null or invalid buffer"));
+    }
+    let block = OwnedBlock { ptr, len: len as usize };
+    match prepare(block.as_ref(), rate) {
+        Ok(blob) => {
+            let n = blob.len().min(i32::MAX as usize) as i32;
+            t.spatial = Some(blob);
+            n
+        }
+        Err(e) => t.fail(e.code, &e.message),
+    }
+}
+
+/// Prepares the HRIR asset at `ptr` (`len` bytes from `myco_decode_alloc(len)`, which this call
+/// owns from now on) as the clip-format-2 table for a context at `rate` ([`spatial::prepare_hrir`]).
+/// Returns the blob's byte length (> 0) or an `ERR_*` code; the blob is at `myco_spatial_blob_ptr`
+/// until the next `myco_*_prepare` call.
+///
+/// # Safety
+/// `ptr` must come from `myco_decode_alloc(len)` and not be freed or opened already.
+#[no_mangle]
+pub unsafe extern "C" fn myco_hrir_prepare(ptr: *mut u8, len: u32, rate: f64) -> i32 {
+    prepare_spatial(ptr, len, rate, "hrir_prepare", spatial::prepare_hrir)
+}
+
+/// As `myco_hrir_prepare`, for the MagLS asset as the clip-format-4 filters ([`spatial::prepare_magls`]).
+///
+/// # Safety
+/// `ptr` must come from `myco_decode_alloc(len)` and not be freed or opened already.
+#[no_mangle]
+pub unsafe extern "C" fn myco_magls_prepare(ptr: *mut u8, len: u32, rate: f64) -> i32 {
+    prepare_spatial(ptr, len, rate, "magls_prepare", spatial::prepare_magls)
+}
+
+/// The last prepared spatial blob's address (null when the last `myco_*_prepare` call failed).
+#[no_mangle]
+pub extern "C" fn myco_spatial_blob_ptr() -> *const u8 {
+    table().spatial.as_ref().map_or(std::ptr::null(), |b| b.as_ptr())
+}
+
+/// The last prepared spatial blob's length in bytes (0 when the last `myco_*_prepare` call failed).
+#[no_mangle]
+pub extern "C" fn myco_spatial_blob_len() -> u32 {
+    table().spatial.as_ref().map_or(0, |b| b.len() as u32)
 }

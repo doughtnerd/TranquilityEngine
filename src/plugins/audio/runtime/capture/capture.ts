@@ -342,7 +342,9 @@ class Capture implements AudioCapture {
     } finally {
       this.epochFrame = null;
     }
-    const init: CaptureHeaderInit = { sampleRate: rec.sampleRate, preset: this.presetOf(rec.ring.capacity), startDateMs: Date.now(), ringBytes: rec.ring.capacity, firstFrame: 0, mainSideOnly: this.mainSideOnly };
+    // ADR 0328: the header names the running core's ABI (its first STATUS), not a copy of the number.
+    const abi = backend.debug().core.abiVersion;
+    const init: CaptureHeaderInit = { sampleRate: rec.sampleRate, preset: this.presetOf(rec.ring.capacity), startDateMs: Date.now(), ringBytes: rec.ring.capacity, firstFrame: 0, mainSideOnly: this.mainSideOnly, ...(typeof abi === "number" && abi !== 0 ? { abiVersion: abi } : {}) };
     this.head = save.liveHead(init, meta);
     this.headInit = init;
     this.takeMeta = meta;

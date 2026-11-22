@@ -15,7 +15,10 @@
 // a stream like `openStream`'s: its `streamOpened`, `streamClosed` and errors reach `onStream`, and `closeStream` closes
 // it), `cancelGroup` closes a group's members, `protectMusic` and `releaseMusic` steer the worker's encoded cache, and
 // `onMusic` hears `groupOpened` (diagnostics only) and `needBytes` (Q0's miss rule: resend those members with `bytes`).
-import type { AmbisonicConvention, ClipInfo, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, IrFailedMessage, IrPreparedMessage, IrRequest, MusicReply, PrimeGroupMessage, StreamClosedMessage, StreamOpenedMessage, StreamPortLike } from "./protocol";
+//
+// ADR 0331: `prepareSpatial` has the worker prepare the HRIR table or the MagLS filters for a context rate and resolves with
+// the blob. Like peaks, it is not posted again to a respawned worker: a crash rejects it and the loader reports the failure.
+import type { AmbisonicConvention, ClipInfo, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, IrFailedMessage, IrPreparedMessage, IrRequest, MusicReply, PrimeGroupMessage, SpatialAssetKind, StreamClosedMessage, StreamOpenedMessage, StreamPortLike } from "./protocol";
 import type { StreamLoopAt } from "./streams";
 
 /** What the client needs of a worker (a `Worker`, or an in-process stand-in in tests). */
@@ -165,6 +168,13 @@ export interface DecoderClient {
   /** B3: every stream reply; returns the unsubscribe. */
   onStream(listener: (reply: StreamReply) => void): () => void;
   /**
+   * ADR 0331: the worker prepares a spatial asset (`asset` as fetched, at its own rate; copied, so the caller keeps it) for
+   * a context at `rate`: the HRIR table as clip format 2, or the MagLS filters as format 4. Resolves with the blob; rejects
+   * with `DecodeFailedError` (the decoder refused the rate or the layout) or `DecoderUnavailableError` (no worker could run,
+   * or it died).
+   */
+  prepareSpatial(kind: SpatialAssetKind, asset: ArrayBuffer, rate: number): Promise<ArrayBuffer>;
+  /**
    * ADR 0166 (§4.6, C8): opens and primes a music group (breadth-first on the worker), or with `retarget` restarts its
    * open members at new start frames under new epochs. Each member is a stream: its replies reach `onStream`, and
    * `closeStream` closes it. A member sent without `bytes` that the worker doesn't hold comes back in `needBytes`
@@ -233,6 +243,8 @@ class Client implements DecoderClient {
   /** ADR 0166: each music member stream's group, and the music listeners. */
   private readonly memberGroup = new Map<number, number>();
   private readonly musicListeners = new Set<(reply: MusicReply) => void>();
+  /** ADR 0331: spatial preparations awaiting their blob, by request id. */
+  private readonly spatialPending = new Map<number, { resolve(bytes: ArrayBuffer): void; reject(reason: unknown): void }>();
   generation = 0;
 
   constructor(
@@ -328,6 +340,28 @@ class Client implements DecoderClient {
       this.pending.set(id, entry);
       worker.postMessage({ type: "computePeaks", id, asset: options?.asset, bytes: buffer, hint, binFrames }, [buffer]);
     });
+  }
+
+  prepareSpatial(kind: SpatialAssetKind, asset: ArrayBuffer, rate: number): Promise<ArrayBuffer> {
+    let worker: WorkerLike;
+    try {
+      worker = this.ensureWorker();
+    } catch (e) {
+      return Promise.reject(new DecoderUnavailableError(`audio decoder: no worker (${e instanceof Error ? e.message : String(e)})`));
+    }
+    const id = this.nextId++;
+    const bytes = asset.slice(0);
+    return new Promise<ArrayBuffer>((resolve, reject) => {
+      this.spatialPending.set(id, { resolve, reject });
+      worker.postMessage({ type: "prepareSpatial", id, kind, bytes, rate }, [bytes]);
+    });
+  }
+
+  /** The worker is gone: the spatial preparations it held fail (the loaders warn once and stay on their fallback). */
+  private failSpatial(message: string): void {
+    const pending = [...this.spatialPending.values()];
+    this.spatialPending.clear();
+    for (const p of pending) p.reject(new DecoderUnavailableError(message));
   }
 
   connectWorklet(port: MessagePort | StreamPortLike): void {
@@ -510,6 +544,15 @@ class Client implements DecoderClient {
       case "irFailed":
         if (this.irPending.delete(msg.token)) this.emitIr(msg);
         return;
+      case "spatialPrepared":
+      case "spatialFailed": {
+        const entry = this.spatialPending.get(msg.id);
+        if (!entry) return;
+        this.spatialPending.delete(msg.id);
+        if (msg.type === "spatialPrepared") entry.resolve(msg.bytes);
+        else entry.reject(new DecodeFailedError(msg.message, msg.code || undefined));
+        return;
+      }
       case "groupOpened":
       case "needBytes":
       case "musicWarn":
@@ -541,6 +584,7 @@ class Client implements DecoderClient {
     this.retire(worker);
     this.failStreams(`${message}; the stream stopped`);
     this.failIr(message);
+    this.failSpatial(message);
     if (entries.length === 0) return;
     let next: WorkerLike;
     try {
@@ -577,6 +621,7 @@ class Client implements DecoderClient {
     for (const id of [...this.pending.keys()]) this.settle(id)?.reject(error);
     this.failStreams(error.message);
     this.failIr(error.message);
+    this.failSpatial(error.message);
   }
 
   /** B3: the worker's streams are gone with it (its decoder state and its end of the worklet channel). */

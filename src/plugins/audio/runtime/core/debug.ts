@@ -7,7 +7,8 @@ import type { Mixer } from "../../../../engine/audio/mixer";
 import { MAX_BUSES } from "../../../../engine/audio/settings";
 import { AUX_BUS_NONE } from "../wire.generated";
 import { type CorePreset } from "../worklet/coreDriver";
-import { spatialRegionsBytes, zoneKernelBudgetBytes, zoneMaxFrames, zonesRegionBytes } from "../worklet/coreMemory";
+import { askCoreMemory, type CoreMemoryParts } from "../worklet/coreMemory";
+import { loadedCoreWasm } from "./loader";
 import type { ClipInfo } from "./clipRegistry";
 import type { ClockMap } from "./clock";
 import type { CoreMusicOps } from "./musicOps";
@@ -33,7 +34,7 @@ export interface DebugSource {
     readonly sampleRate: number;
     readonly health?: { readonly traps: number; readonly recoveries: number; readonly rebuilds: number };
     /** ADR 0162 D5: the regions the core was laid out with, for `memory`; absent in hand-built sources. */
-    readonly preset?: { readonly maxMixed?: number; readonly maxBeds?: number; readonly maxZoneSlots?: number; readonly zoneMaxSeconds?: number; readonly maxWide?: number };
+    readonly preset?: { readonly maxLogical?: number; readonly maxMixed?: number; readonly maxBeds?: number; readonly maxZoneSlots?: number; readonly zoneMaxSeconds?: number; readonly maxWide?: number };
   };
   readonly status: AudioStatus;
   readonly time: number;
@@ -268,7 +269,8 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
     ...bedRows(backend),
     ...m3Rows(backend, zoneRows),
     // `backend` names the backend the way babylonBackend does, so the panel can show it for either.
-    core: { backend: "core", hrtfReady: backend.hrtfReady, ...hrtf(backend), ...timing(backend), ...hostHealth(backend), ...health(backend), ...streamHealth(backend), ...automation(backend), ...ladder(backend) },
+    // `abiVersion`: the running core's, from its first STATUS (0 before it; the capture header stamps it, ADR 0328).
+    core: { backend: "core", abiVersion: m.abiVersion, hrtfReady: backend.hrtfReady, ...hrtf(backend), ...timing(backend), ...hostHealth(backend), ...health(backend), ...streamHealth(backend), ...automation(backend), ...ladder(backend) },
     // Cp2 (§1.3): the CPU figure the mirror's meter computed (`coreBackend.debug` sets the same object from `cpu()`).
     cpu: m.cpu.debug(),
   };
@@ -366,35 +368,53 @@ function m3Rows(backend: DebugSource, zoneRows: ReturnType<ZoneManager["debug"]>
   return out;
 }
 
-/** A preset with nothing laid out, which `spatialRegionsBytes` takes the parts of (it reads only the fields set here). */
-function emptyPreset(maxBeds: number, maxWide: number): CorePreset {
-  return { maxBeds, maxWide, maxZoneSlots: 0, zoneMaxSeconds: 0, maxMixed: 0, maxBuses: MAX_BUSES, maxLogical: 0, arenaInitialBytes: 0, clipCeilingBytes: 0, limiterLookaheadMs: 0, maxMusicRings: 0 };
-}
+/** The core's answers by module and by the preset fields and rate the memory row's parts depend on (asking makes an instance). */
+const memoryAnswers = new WeakMap<WebAssembly.Module, Map<string, CoreMemoryParts | null>>();
 
 /**
- * ADR 0162 §1.6 `memory` (D5), bytes, from the preset the core was laid out with and `coreDriver.ts`'s layout mirror
- * (which `coreDriver.test.ts` checks against the wasm's own figures). The mirror exports the regions' sum, so the parts
- * are differences of it: `beds` is the `Beds` region for the bed slots and the private decoders (a wide stream's),
- * `wideRings` the rings without those decoders, `zones` the `Zones` region, `kernels` the kernels resident now (STATUS
- * `zoneUsedKB`) and `kernelBudget` the arena the preset reserves for them.
+ * ADR 0162 §1.6 `memory` (D5), bytes, from the core itself (ADR 0327): a throwaway instance of the module this page loaded
+ * answers `myco_audio_memory_part_bytes` for the preset the core was laid out with. `beds` is the `Beds` region (the bed
+ * slots and the wide streams' private decoders), `wideRings` the `Wide` region, `zones` the `Zones` region, `kernels` the
+ * kernels resident now (STATUS `zoneUsedKB`) and `kernelBudget` the arena the preset reserves for them. Absent without a
+ * preset or before the page loaded the core.
  */
 function memoryRow(backend: DebugSource): AudioMemoryDebug | undefined {
   const p = backend.host.preset;
-  if (!p) return undefined;
+  const module = loadedCoreWasm()?.module;
+  if (!p || !module) return undefined;
+  const preset: CorePreset = {
+    maxLogical: p.maxLogical ?? Math.max(1, p.maxMixed ?? 1),
+    maxMixed: p.maxMixed ?? 1,
+    maxBuses: MAX_BUSES,
+    arenaInitialBytes: 0,
+    clipCeilingBytes: 0,
+    limiterLookaheadMs: 0,
+    maxBeds: p.maxBeds ?? 0,
+    maxZoneSlots: p.maxZoneSlots ?? 0,
+    zoneMaxSeconds: p.zoneMaxSeconds ?? 0,
+    maxWide: p.maxWide ?? 0,
+    maxMusicRings: 0,
+  };
   const rate = backend.host.sampleRate;
-  const maxBeds = p.maxBeds ?? 0;
-  const maxWide = p.maxWide ?? 0;
-  const slots = p.maxZoneSlots ?? 0;
-  const base = spatialRegionsBytes(emptyPreset(0, 0), rate);
-  const bedSlots = spatialRegionsBytes(emptyPreset(maxBeds + maxWide, 0), rate) - base;
-  const wideRings = spatialRegionsBytes(emptyPreset(0, maxWide), rate) - spatialRegionsBytes(emptyPreset(maxWide, 0), rate);
-  const frames = zoneMaxFrames({ ...emptyPreset(0, 0), maxZoneSlots: slots, zoneMaxSeconds: p.zoneMaxSeconds ?? 0 }, rate);
+  const key = [preset.maxLogical, preset.maxMixed, preset.maxBeds, preset.maxZoneSlots, preset.zoneMaxSeconds, preset.maxWide, rate].join();
+  let byPreset = memoryAnswers.get(module);
+  if (!byPreset) memoryAnswers.set(module, (byPreset = new Map()));
+  let parts = byPreset.get(key);
+  if (parts === undefined) {
+    try {
+      parts = askCoreMemory(module, preset, rate).parts;
+    } catch {
+      parts = null; // a preset the core refuses has no row
+    }
+    byPreset.set(key, parts);
+  }
+  if (!parts) return undefined;
   return {
-    beds: bedSlots,
-    zones: zonesRegionBytes(slots, frames, MAX_BUSES),
+    beds: parts.beds,
+    zones: parts.zones,
     kernels: backend.mirror.header.zoneUsedKB * 1024,
-    kernelBudget: zoneKernelBudgetBytes(slots, frames),
-    wideRings,
+    kernelBudget: parts.zoneKernels,
+    wideRings: parts.wide,
   };
 }
 

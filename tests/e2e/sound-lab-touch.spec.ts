@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "./fixtures";
-import { audioDebug, bootSample, FLAPPY, LAB, musicRows, readLate, watchConsole } from "./audioMusic";
+import { expect, type Page, test, openEditor, playWithAudio, LAB } from "./fixtures";
+import { audioDebug, musicRows, readLate, watchConsole } from "./audioMusic";
 
 // Task L2 (M4d): the last sample polish in the real browser. The Sound Lab's music and rhythm pages have on-screen
 // buttons (a phone has no keys), the music page starts the eight-stem and A, B, C events itself, a pointer press on the
@@ -12,7 +12,8 @@ const bar = (page: Page, key: string) => page.locator(`[data-touch-bar] button[d
 
 /** Goes from the tour to a page through the tour's own buttons (the touch way). */
 async function openPage(page: Page, key: "m" | "r"): Promise<void> {
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await bar(page, key).click();
 }
 
@@ -78,7 +79,8 @@ test("L2: on the rhythm page a press on the view is a tap, a press on a button i
 });
 
 test("L2: a page that claims the keyboard keeps the main page's handlers quiet", async ({ page }) => {
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await page.evaluate(() => {
     const g = globalThis as unknown as { __myco: { Audio: { playOneShot(clip: string, o?: object): unknown } }; __oneShots: string[] };
     g.__oneShots = [];
@@ -98,7 +100,8 @@ test("L2: a page that claims the keyboard keeps the main page's handlers quiet",
 
 test("L2: Flappy's town music plays through a run, game over and the restart without a restart of its own; game over dips it", async ({ page }) => {
   const seen = watchConsole(page);
-  await bootSample(page, FLAPPY); // the unlocking click also starts the run
+  await openEditor(page, { sample: "flappy" }); // the unlocking click also starts the run
+  await playWithAudio(page);
   await expect.poll(async () => (await musicRows(page)).find((r) => r.asset.includes("town"))?.state, { timeout: 60_000 }).toBe("playing");
   const id = (await musicRows(page)).find((r) => r.asset.includes("town"))!.id;
   const volume = () => page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { bus(n: string): { volume: number } } } }).__myco.Audio.bus("Music").volume);

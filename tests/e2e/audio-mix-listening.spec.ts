@@ -1,6 +1,6 @@
-import { expect, type Page, play, test } from "./fixtures";
-import { bootMix, mixDebug } from "./audioMix";
-import { fader, openAudioSettings, openLabCopy, openMixer, playLiveMix, savedProject } from "./audioMixLive";
+import { expect, type Page, play, test, openEditor, playWithAudio, LAB } from "./fixtures";
+import { mixDebug } from "./audioMix";
+import { fader, openAudioSettings, openLabCopy, openMixer, savedProject } from "./audioMixLive";
 
 // The M5 listening sections (ADR 0171 amended by 0172; waves plan, "Owner procedures"), one case per milestone, each an owner-run
 // page and a headless walker in one (the shape of `audio-music-listening.spec.ts`). Today: **M5-0**, the stamped bus path: a
@@ -133,7 +133,8 @@ async function boot(page: Page): Promise<string[]> {
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
-  await bootMix(page);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await installM50(page, LISTEN);
   // The clips decode on their first play; the drums and the noise start from their keys.
   await page.waitForTimeout(1000);
@@ -451,7 +452,8 @@ async function boot5b(page: Page): Promise<string[]> {
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
-  await bootMix(page);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await installM5b(page, LISTEN);
   await page.waitForTimeout(1000); // the clips decode on their first play
   return errors;
@@ -691,7 +693,7 @@ async function boot5c(page: Page): Promise<string[]> {
     if (msg.type() === "error") errors.push(msg.text());
   });
   await openLabCopy(page);
-  await playLiveMix(page, { startTimeout: 90_000 });
+  await playWithAudio(page, { startTimeout: 90_000 });
   await page.keyboard.press("-"); // the tour page's key to the Mixer page
   await expect
     .poll(() => page.evaluate(() => (globalThis as unknown as { __myco?: { getComponentClass(id: string): unknown } }).__myco?.getComponentClass("lab.MixerLab") !== undefined), { timeout: 30_000 })

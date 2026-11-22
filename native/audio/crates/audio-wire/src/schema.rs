@@ -59,8 +59,19 @@ macro_rules! c {
     };
 }
 
+/// The core's C ABI version, `(major, minor)` (api-and-models section 5): the minor for an added export, the major for a
+/// change. Defined once here, beside the schema hash, so the wasm (`myco_audio_abi_version`), the shell and the capture
+/// header read one value. 2.0 (ADR 0162 C8): nine init parameters and the kernel budget; 3.0 (ADR 0166 W1):
+/// `max_music_rings`; 4.0 (ADR 0171/0172 M5): the 256 B STATUS header and the M5 opcodes; 5.0 (ADR 0327, 0328):
+/// `myco_audio_init` reads the INIT record from the inbox, `myco_audio_memory_pages` and `myco_audio_memory_part_bytes`
+/// replace `myco_audio_layout_bytes` and `myco_audio_zone_kernel_budget_bytes`, and a refusal names its field.
+const CORE_ABI: (u64, u64) = (5, 0);
+
 /// Constants from section 4 and 5 that code on both sides needs.
 pub const CONSTANTS: &[Const] = &[
+    c!("CORE_ABI_MAJOR", CORE_ABI.0, "the core's C ABI major (`myco_audio_abi_version() >> 8`); a shell refuses a different one"),
+    c!("CORE_ABI_MINOR", CORE_ABI.1, "the core's C ABI minor (an added export)"),
+    c!("CORE_ABI_VERSION", (CORE_ABI.0 << 8) | CORE_ABI.1, "`(CORE_ABI_MAJOR << 8) | CORE_ABI_MINOR`: `myco_audio_abi_version()`, STATUS `abiVersion` and the capture header"),
     c!("MAGIC", 0x4D59_4131u32, "envelope magic, 'MYA1'"),
     c!("VERSION_MAJOR", 1, "a core refuses a different major"),
     c!("VERSION_MINOR", 3, "new opcodes or appended payload words are minor (1.1: ADR 0162; 1.2: the shape word, ADR 0166; 1.3: the M5 mix opcodes, ADR 0171)"),
@@ -192,6 +203,14 @@ pub const ENUMS: &[Enum] = &[
         ("Compressor", 2, "threshold dB, knee dB, ratio, attack s, release s"),
         ("ReverbSend", 3, "p0 send"),
     ]),
+    en!("MemoryPart", "`myco_audio_memory_part_bytes` part (ADR 0327): bytes the core takes for the INIT record in the inbox", [
+        ("Layout", 0, "the block `myco_audio_init` takes: every fixed region and the arena's initial reserve, in whole pages"),
+        ("Beds", 1, "the `Beds` region: bed slots and the wide streams' private decoders"),
+        ("Zones", 2, "the `Zones` region: zone convolver slots, the aux accumulator and the sends area"),
+        ("Wide", 3, "the `Wide` region: 16-channel stream rings"),
+        ("ZoneKernels", 4, "the zone kernel budget: prepared kernels in the arena, outside clipMemoryMB"),
+        ("SpatialData", 5, "the HRIR table, its HRTF bank and the MagLS filters in the arena, outside clipMemoryMB"),
+    ]),
 ];
 
 macro_rules! er {
@@ -219,6 +238,16 @@ pub const ERRORS: &[ErrorCode] = &[
     er!("UNKNOWN_STREAM", -14, "no such stream id"),
     er!("BAD_FORMAT", -15, "unsupported clip format, or an HRIR header that does not fit"),
     er!("MALFORMED", -16, "a record's fields are inconsistent (count versus length)"),
+    // ADR 0328: `myco_audio_init` names the INIT field it refused: `INIT_` + the field's name.
+    er!("INIT_SAMPLE_RATE", -17, "INIT sampleRate is outside 8 kHz..192 kHz"),
+    er!("INIT_MAX_LOGICAL", -18, "INIT maxLogical is 0 or above 65,536"),
+    er!("INIT_MAX_MIXED", -19, "INIT maxMixed is 0 or above maxLogical"),
+    er!("INIT_MAX_BUSES", -20, "INIT maxBuses is 0 or above 256"),
+    er!("INIT_MAX_BEDS", -21, "INIT maxBeds is above MAX_BEDS"),
+    er!("INIT_MAX_ZONE_SLOTS", -22, "INIT maxZoneSlots is above MAX_ZONE_SLOTS"),
+    er!("INIT_ZONE_MAX_FRAMES", -23, "INIT zoneMaxFrames is 0 or past 8 s at sampleRate while there are zone slots"),
+    er!("INIT_MAX_WIDE", -24, "INIT maxWide is above 4"),
+    er!("INIT_MAX_MUSIC_RINGS", -25, "INIT maxMusicRings is above MAX_MUSIC_RINGS"),
 ];
 
 /// `CONSTANTS` followed by `music::CONSTANTS` and `mix::CONSTANTS`.
@@ -275,6 +304,17 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         for c in all_constants() {
             assert!(seen.insert(c.name), "duplicate constant {}", c.name);
+        }
+    }
+
+    /// ADR 0328: every `INIT_*` code names a field of the INIT record, so a refusal says which parameter.
+    #[test]
+    fn init_error_codes_name_init_fields() {
+        let fields: Vec<String> = envelope::INIT_FIELDS.iter().map(|f| crate::gen::layout::screaming(f.name)).collect();
+        let named: Vec<&str> = ERRORS.iter().filter_map(|e| e.name.strip_prefix("INIT_")).collect();
+        assert_eq!(named.len(), 9);
+        for n in named {
+            assert!(fields.iter().any(|f| f == n), "INIT_{n} names no INIT field");
         }
     }
 

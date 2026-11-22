@@ -26,6 +26,10 @@
 import {
   ASAP,
   AUTOMATE_BINDINGS_FIXED_END,
+  CURVES_CURVES_FIXED_END,
+  CURVES_CURVES_KEYS_FIXED_END,
+  CURVES_FIXED_END,
+  PARAM_FIXED_END,
   BATCH_HEADER_FLAGS_OVERFLOWED,
   BATCH_MAX_BYTES,
   BUS_SLOT_FLAGS_FRESH,
@@ -178,7 +182,9 @@ export const AUTOMATION_GLOBAL = 0x8000;
 const CORE_BINDINGS = 8;
 export const CORE_CURVE_KEYS = 32;
 /** Most bytes of curves in one CURVES record: larger uploads are split into several records (each fits a batch). */
-const CURVES_RECORD_BUDGET = 32 * 1024;
+export const CURVES_RECORD_BUDGET = 32 * 1024;
+/** Bytes `curve` takes in a CURVES record (its key count, then at most `CORE_CURVE_KEYS` keys); a record adds `CURVES_FIXED_END`. */
+export const curveBytes = (curve: Curve): number => CURVES_CURVES_FIXED_END + CURVES_CURVES_KEYS_FIXED_END * Math.min(curve.length, CORE_CURVE_KEYS);
 
 /** The staging area's size in bytes: four full batches. */
 const STAGING_BYTES = 4 * BATCH_MAX_BYTES;
@@ -649,7 +655,7 @@ export class CommandWriter implements VoiceCommandSink {
     r.slot = slot;
     r.value = value;
     r.seekPerSecond = seekPerSecond > 0 && Number.isFinite(seekPerSecond) ? seekPerSecond : 0;
-    const at = this.begin(24);
+    const at = this.begin(PARAM_FIXED_END);
     if (at < 0) return;
     this.end(at, writeParam(this.view, at, r));
   }
@@ -664,9 +670,9 @@ export class CommandWriter implements VoiceCommandSink {
     while (i < curves.length) {
       // As many curves as fit the record budget (at least one).
       let end = i;
-      let bytes = 20;
+      let bytes = CURVES_FIXED_END;
       while (end < curves.length) {
-        const size = 4 + 12 * Math.min(curves[end]!.length, CORE_CURVE_KEYS);
+        const size = curveBytes(curves[end]!);
         if (end > i && bytes + size > CURVES_RECORD_BUDGET) break;
         bytes += size;
         end++;

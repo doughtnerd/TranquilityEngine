@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { expect, type Page, play, test } from "./fixtures";
-import { addAssets, audioDebug as fullDebug, bootSample, FLAPPY, pauseWorkers, peakOver as peakOverFull, playlist3, readLate, startEvent, stems8, watchConsole } from "./audioMusic";
+import { expect, type Page, test, openEditor, playWithAudio, LAB, readAudioDebug } from "./fixtures";
+import { addAssets, audioDebug as fullDebug, pauseWorkers, peakOver as peakOverFull, playlist3, readLate, startEvent, stems8, watchConsole } from "./audioMusic";
 
 // The interactive-music milestones' listening sections (ADR 0166/0167; waves plan, "Owner procedures"), consolidated into one pass
 // (`docs/design/0166-audio-music/listening-pass.md`): one case per section, M4-0, M4a, M4b, M4c, and M4d (the real-device probe
@@ -41,7 +41,6 @@ import { addAssets, audioDebug as fullDebug, bootSample, FLAPPY, pauseWorkers, p
 //     town music in Chromium; a phone's value is the owner's.
 //   - M4a key 3 in WebKit or Firefox (the worker is paused through the DevTools protocol, Chromium only), and the exported player
 //     (the walker runs the editor's page of each sample).
-const LAB = "/editor.html?sample=sound-lab";
 const LISTEN = process.env.E2E_LISTEN === "1";
 
 test.describe.configure({ timeout: LISTEN ? 3_600_000 : 180_000 });
@@ -60,7 +59,7 @@ type Lab = {
   crowd: number;
 };
 
-const audioDebug = (page: Page) => page.evaluate(() => ((globalThis as unknown as { __myco?: { Audio: { debug(): unknown } } }).__myco?.Audio.debug() as Debug | undefined) ?? null);
+const audioDebug = (page: Page) => readAudioDebug<Debug>(page);
 const lab = (page: Page) => page.evaluate(() => (globalThis as unknown as { __m40: Lab }).__m40);
 
 /** The highest peak of a bus's meter over `ms` in the page (one reading can land in a quiet part of the clip). */
@@ -227,12 +226,8 @@ test.describe("listening M4-0: in-voice stamped records", () => {
     page.on("console", (msg) => {
       if (msg.type() === "error") errors.push(msg.text());
     });
-    await page.goto(LAB);
-    await page.waitForFunction(() => ((window as unknown as { engine?: { world: { time: { frameCount: number } } } }).engine?.world.time.frameCount ?? 0) > 10);
-    await play(page);
-    await page.mouse.click(480, 250); // the user gesture that unlocks the context
-    await expect.poll(async () => (await audioDebug(page))?.status, { timeout: 30_000 }).toBe("running");
-    expect((await audioDebug(page))!.core.backend).toBe("core");
+    await openEditor(page, { sample: LAB });
+    await playWithAudio(page);
     await installM40(page, LISTEN);
 
     const splitOf = async () => {
@@ -382,7 +377,8 @@ test.describe("listening M4a: segments, stems and playlists", () => {
   test("M4a: eight stems, a slow ring, a held group, a playlist and the flappy streamed segment", { tag: "@slow" }, async ({ page, context }, info) => {
     info.setTimeout(LISTEN ? 3_600_000 : 240_000);
     const seen = watchConsole(page);
-    await bootSample(page, LAB);
+    await openEditor(page, { sample: LAB });
+    await playWithAudio(page);
     await installM4aCard(page, LISTEN, "M4a: segments, stems, playlists (Tape bus alone)\n1 eight stems   2 slow ring   3 held group (worker paused)   4 playlist   5 flappy town music\nPress a key, listen. The test then reads the music rows and the counters.");
     await page.evaluate(() => {
       const { Audio } = (globalThis as unknown as { __myco: { Audio: { buses: readonly string[]; bus(n: string): { volume: number } } } }).__myco;
@@ -492,7 +488,8 @@ test.describe("listening M4a: segments, stems and playlists", () => {
 
     await test.step("key 5: the flappy sample's streamed segment, 20 s", async () => {
       await m4aKey(page, "5", "opens the Flappy sample: its town music, 20 s");
-      await bootSample(page, FLAPPY);
+      await openEditor(page, { sample: "flappy" });
+      await playWithAudio(page);
       holdBase = null; // a new page: its counters start at 0
       await installM4aCard(page, LISTEN, "M4a: the flappy sample's town music, a streamed segment (105 bpm). Listen for 20 s: steady, no gap at the loop.");
       await expect.poll(async () => (await m4aRow(page, "town"))?.state, { timeout: 60_000 }).toBe("playing");
@@ -576,7 +573,8 @@ test.describe("listening M4b: transitions, stingers and loop exits", () => {
     info.setTimeout(LISTEN ? 3_600_000 : 300_000);
     const seen = watchConsole(page);
     holdBase = null; // a new page: its counters start at 0
-    await bootSample(page, LAB);
+    await openEditor(page, { sample: LAB });
+    await playWithAudio(page);
     await page.evaluate((clips) => {
       const { Audio } = (globalThis as unknown as { __myco: { Audio: { buses: readonly string[]; bus(n: string): { volume: number }; playOneShot(c: string, o?: object): unknown } } }).__myco;
       for (const n of Audio.buses) if (!["UI", "Music", "Master"].includes(n)) Audio.bus(n).volume = 0;
@@ -836,7 +834,8 @@ test.describe("listening M4c: beat feel, calibration and the tap game", () => {
     const seen = watchConsole(page);
     holdBase = null; // a new page: its counters start at 0
     const prepare = async () => {
-      await bootSample(page, LAB);
+      await openEditor(page, { sample: LAB });
+      await playWithAudio(page);
       await page.evaluate((clips) => {
         const { Audio } = (globalThis as unknown as { __myco: { Audio: { buses: readonly string[]; bus(n: string): { volume: number }; playOneShot(c: string, o?: object): unknown } } }).__myco;
         for (const n of Audio.buses) if (!["UI", "Music", "Master"].includes(n)) Audio.bus(n).volume = 0;
@@ -1059,7 +1058,8 @@ test.describe("listening M4d: the real-device probe and the prime lead readout",
   test("M4d: the prime lead readout on the Flappy town music (the numbers the phone run reads)", { tag: "@slow" }, async ({ page }) => {
     const seen = watchConsole(page);
     holdBase = null;
-    await bootSample(page, FLAPPY);
+    await openEditor(page, { sample: "flappy" });
+    await playWithAudio(page);
     await expect.poll(async () => (await m4aRow(page, "town"))?.state, { timeout: 60_000 }).toBe("playing");
     await hear(page, 4_000);
     const row = ((await fullDebug(page)) as unknown as { music: { asset: string; leadMs: number; primeEmaMs: number; primeLastMs: number; lateGroups: number; groupsHeld: number }[] }).music.find((r) => r.asset.includes("town"))!;

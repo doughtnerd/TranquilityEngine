@@ -3,8 +3,9 @@
 // `dateNow` as arguments on every call and reads no globals but its clock (`Date.now` unless given another), which
 // it reads once more after each quantum for the CPU counters (0171/0172 M5, architecture §4.3).
 //
-// It instantiates the core over an imported `WebAssembly.Memory` (always `MEMORY_INITIAL_PAGES` initial pages,
-// and `myco_audio_init` before anything that could grow memory, so init is deterministic), takes messages from
+// It instantiates the core over an imported `WebAssembly.Memory` (always `MEMORY_INITIAL_PAGES` initial pages, its
+// `maximum` what the core asks for, ADR 0327; the INIT record in the inbox and `myco_audio_init` before anything that
+// could grow memory, so init is deterministic, ADR 0328), takes messages from
 // the host (TIME_PING, RECYCLE, BATCH/REPLAY into the inbox, CLIP_BEGIN/CHUNK/UNLOAD into the arena, and returns
 // every other buffer), renders one quantum per `process`, runs the underrun probe, and posts STATUS from a pool of
 // 8 buffers every 6 quanta (every 48 after 250 ms without a batch), skipping the post when the pool is empty.
@@ -38,6 +39,8 @@ import {
   STREAM_CREDIT_FIXED_END,
   STREAM_OPEN_FIXED_END,
   STATUS_EVERY_QUANTA,
+  STATUS_FLAGS_TRAP_CAUGHT,
+  STATUS_HEADER_COLUMNS,
   STATUS_IDLE_AFTER_MS,
   STATUS_IDLE_EVERY_QUANTA,
   STREAM_MAX_CHANNELS,
@@ -47,14 +50,16 @@ import {
   writeStreamClose,
   writeStreamCredit,
 } from "../wire.generated";
-import { clipSampleBytes, memoryMaximumPages, MEMORY_INITIAL_PAGES, zoneMaxFrames } from "./coreMemory";
+import { askCoreMemory, clipSampleBytes, CoreLoadError, EXPECTED, initRecord, initRefusal, MEMORY_INITIAL_PAGES, openCore, writeInitRecord, type CoreExpectations } from "./coreMemory";
 import { UnderrunProbe } from "./underrunProbe";
+import { peekKind } from "../wireEnvelope";
 
 /** @internal The name `processor.ts` registers and the host creates its node with. */
 export const PROCESSOR_NAME = "myco-audio-core";
 
-/** @internal The C ABI's major version this shell speaks (`myco_audio_abi_version() >> 8`, api-and-models §5; 2 since ADR 0162 R6, 3 since ADR 0166 W1: `max_music_rings`; 4 since ADR 0171 M5: the 256-B STATUS header and `BUS_RAMP`). */
-export const CORE_ABI_MAJOR = 4;
+/** @internal The C ABI's major version this shell speaks (`myco_audio_abi_version() >> 8`, api-and-models §5): generated beside the schema hash, where its history is. */
+export { CORE_ABI_MAJOR } from "../wire.generated";
+export type { CoreExpectations } from "./coreMemory";
 
 /** @internal `myco_audio_init`'s parameters, less the rate (the worklet's `sampleRate`), plus the clip ceiling. */
 export interface CorePreset extends SpatialInitParams, MusicInitParams {
@@ -92,34 +97,12 @@ export type CoreShellEvent = { readonly type: "error"; readonly message: string 
 export interface CoreExports {
   myco_audio_abi_version(): number;
   myco_audio_schema_hash(): number;
-  /** ABI 3.0 (ADR 0166 W1): the M2 five, then `max_beds`, `max_zone_slots`, `zone_max_frames`, `max_wide`, `max_music_rings`. */
-  myco_audio_init(
-    sampleRate: number,
-    maxLogical: number,
-    maxMixed: number,
-    maxBuses: number,
-    arenaInitialBytes: number,
-    maxBeds: number,
-    maxZoneSlots: number,
-    zoneMaxFrames: number,
-    maxWide: number,
-    maxMusicRings: number,
-  ): number;
-  /** ABI 2.0: bytes the zone kernels need in the arena. Pure. */
-  myco_audio_zone_kernel_budget_bytes(maxZoneSlots: number, zoneMaxFrames: number): number;
-  /** ABI 3.0: bytes of the block `myco_audio_init` takes for these parameters (0 when refused). Pure. */
-  myco_audio_layout_bytes(
-    sampleRate: number,
-    maxLogical: number,
-    maxMixed: number,
-    maxBuses: number,
-    arenaInitialBytes: number,
-    maxBeds: number,
-    maxZoneSlots: number,
-    zoneMaxFrames: number,
-    maxWide: number,
-    maxMusicRings: number,
-  ): number;
+  /** ABI 5.0 (ADR 0328): init from the INIT record at the inbox's start; a refusal is the `INIT_*` code naming the field. */
+  myco_audio_init(): number;
+  /** ABI 5.0 (ADR 0327): pages the core grows its Memory by over its life, for the INIT record and the clip ceiling. Pure. */
+  myco_audio_memory_pages(clipCeilingBytes: number): number;
+  /** ABI 5.0 (ADR 0327): bytes of one `MemoryPart` for the INIT record. Pure. */
+  myco_audio_memory_part_bytes(part: number): number;
   /** ABI 1.1 (A2.9): once after init, before the first `process`. */
   myco_audio_set_limiter_lookahead(ms: number): number;
   myco_audio_inbox_ptr(): number;
@@ -148,90 +131,56 @@ export interface CoreInstance {
   readonly sampleRate: number;
 }
 
-/** @internal Why the core couldn't start (the host falls back, architecture §2.1). */
-class CoreLoadError extends Error {
-  override readonly name = "CoreLoadError";
-}
-
-/** What `instantiateCore` checks the module against; tests pass other values to see the refusals. */
-export interface CoreExpectations {
-  readonly schemaHash: string;
-  readonly abiMajor: number;
-}
-
-const EXPECTED: CoreExpectations = { schemaHash: SCHEMA_HASH, abiMajor: CORE_ABI_MAJOR };
-
-function hex(bytes: Uint8Array): string {
-  let s = "";
-  for (const b of bytes) s += b.toString(16).padStart(2, "0");
-  return s;
-}
-
 /**
  * @internal Instantiates the core synchronously (the worklet has no async compile budget) over a fresh Memory of
- * `MEMORY_INITIAL_PAGES` pages and calls `myco_audio_init` first, before any export that could grow memory.
- * Then sets the limiter's look-ahead from the preset (ABI 1.1). Throws `CoreLoadError` on an ABI major or schema hash
- * mismatch, a module without that export, or when init refuses.
+ * `MEMORY_INITIAL_PAGES` pages whose `maximum` a throwaway instance of the same module answered for this preset and rate
+ * (ADR 0327). Writes the INIT record into the inbox and calls `myco_audio_init` first, before any export that could grow
+ * memory (ADR 0328), then sets the limiter's look-ahead from the preset (ABI 1.1). Throws `CoreLoadError` on an ABI major
+ * or schema hash mismatch, a module without that export, or when the core refuses the record (naming the field).
  */
 export function instantiateCore(wasm: BufferSource | WebAssembly.Module, preset: CorePreset, sampleRate: number, expected: CoreExpectations = EXPECTED): CoreInstance {
-  const memory = new WebAssembly.Memory({ initial: MEMORY_INITIAL_PAGES, maximum: memoryMaximumPages(preset, sampleRate) });
-  let exports: CoreExports;
+  let module: WebAssembly.Module;
   try {
-    const module = wasm instanceof WebAssembly.Module ? wasm : new WebAssembly.Module(wasm);
-    exports = new WebAssembly.Instance(module, { env: { memory } }).exports as unknown as CoreExports;
+    module = wasm instanceof WebAssembly.Module ? wasm : new WebAssembly.Module(wasm);
   } catch (error) {
-    throw new CoreLoadError(`audio core: instantiating myco_audio.wasm failed: ${error instanceof Error ? error.message : String(error)}`);
+    throw new CoreLoadError(`audio core: compiling myco_audio.wasm failed: ${error instanceof Error ? error.message : String(error)}`);
   }
+  const { maximumPages } = askCoreMemory(module, preset, sampleRate, expected);
+  const memory = new WebAssembly.Memory({ initial: MEMORY_INITIAL_PAGES, maximum: maximumPages });
+  const exports = openCore(module, memory, expected);
   // Init first: it's the one call that grows memory, and it must land on the same pages every time.
-  // The ABI comes first: an ABI 1 module's init takes five parameters and would ignore the M3 four.
-  const abi = exports.myco_audio_abi_version();
-  if (abi >> 8 !== expected.abiMajor) throw new CoreLoadError(`audio core: ABI ${abi >> 8}.${abi & 0xff} where ${expected.abiMajor}.x was expected`);
-  const code = exports.myco_audio_init(
-    sampleRate,
-    preset.maxLogical,
-    preset.maxMixed,
-    preset.maxBuses,
-    preset.arenaInitialBytes,
-    preset.maxBeds,
-    preset.maxZoneSlots,
-    zoneMaxFrames(preset, sampleRate),
-    preset.maxWide,
-    preset.maxMusicRings,
-  );
-  if (code !== 0) throw new CoreLoadError(`audio core: myco_audio_init refused (code ${code})`);
-  const schema = hex(new Uint8Array(memory.buffer, exports.myco_audio_schema_hash(), 16));
-  if (schema !== expected.schemaHash) throw new CoreLoadError(`audio core: wire schema ${schema} where ${expected.schemaHash} was expected`);
+  const record = initRecord(preset, sampleRate);
+  writeInitRecord(exports, memory, record);
+  const code = exports.myco_audio_init();
+  if (code !== 0) throw new CoreLoadError(`audio core: myco_audio_init refused ${initRefusal(code, record)}`);
   // The limiter's look-ahead fixes the core's output latency for its life, so it goes in before anything renders.
-  if (typeof exports.myco_audio_set_limiter_lookahead !== "function") throw new CoreLoadError(`audio core: ABI ${abi >> 8}.${abi & 0xff} lacks myco_audio_set_limiter_lookahead (1.1)`);
+  if (typeof exports.myco_audio_set_limiter_lookahead !== "function") throw new CoreLoadError("audio core: the module lacks myco_audio_set_limiter_lookahead (1.1)");
   const lookahead = exports.myco_audio_set_limiter_lookahead(preset.limiterLookaheadMs);
   if (lookahead !== 0) throw new CoreLoadError(`audio core: myco_audio_set_limiter_lookahead refused (code ${lookahead})`);
   return { exports, memory, sampleRate };
 }
 
-/** @internal Where the shell's own STATUS fields sit (api-and-models §4.3); `coreDriver.test.ts` checks them with `readStatus`. */
+/** @internal Where the shell's own STATUS fields sit (api-and-models §4.3): the generated header columns' offsets. */
 const SHELL_FIELD = {
-  dateMs: 24,
-  pingSeq: 32,
-  pingFrameLo: 36,
-  underruns: 40,
-  flags: 60,
-  traps: 82,
-  underrunFrames: 88,
+  dateMs: STATUS_HEADER_COLUMNS.dateMs[0],
+  pingSeq: STATUS_HEADER_COLUMNS.pingSeq[0],
+  pingFrameLo: STATUS_HEADER_COLUMNS.pingFrameLo[0],
+  underruns: STATUS_HEADER_COLUMNS.underruns[0],
+  flags: STATUS_HEADER_COLUMNS.flags[0],
+  traps: STATUS_HEADER_COLUMNS.traps[0],
+  underrunFrames: STATUS_HEADER_COLUMNS.underrunFrames[0],
   /** 0171/0172 M5 (Cp1, R18): `Date.now()` deltas around `process()`, ms, cumulative f64. */
-  busyMsTotal: 176,
+  busyMsTotal: STATUS_HEADER_COLUMNS.busyMsTotal[0],
   /** `process()` calls, cumulative f64. */
-  quantaTotal: 184,
+  quantaTotal: STATUS_HEADER_COLUMNS.quantaTotal[0],
   /** u16: the smallest non-zero `Date.now` delta seen, ms; 0 until one. */
-  clockStepMs: 238,
+  clockStepMs: STATUS_HEADER_COLUMNS.clockStepMs[0],
   /** u16: quanta whose busy delta was clamped (below 0 or above `CPU_DELTA_MAX_MS`), saturating. */
-  clockSteps: 244,
+  clockSteps: STATUS_HEADER_COLUMNS.clockSteps[0],
 } as const;
 
 /** @internal A quantum's busy delta outside 0..this (ms) counts 0 and one `clockSteps` (architecture §4.3): the wall clock stepped. */
 export const CPU_DELTA_MAX_MS = 1_000;
-
-/** @internal STATUS `flags` bit5, set by the shell after a trap. */
-const FLAG_TRAP_CAUGHT = 1 << 5;
 
 /** @internal How the driver posts: `port.postMessage(buffer, transfer)` in the worklet, a fake in tests. */
 export type CorePost = (message: ArrayBuffer | CoreShellEvent, transfer?: Transferable[]) => void;
@@ -350,7 +299,7 @@ export class CoreDriver {
     if (buffer.byteLength < 16) return this.giveBack(buffer);
     const view = new DataView(buffer);
     if (view.getUint32(0, true) !== MAGIC || view.getUint16(4, true) >> 8 !== VERSION_MAJOR) return this.giveBack(buffer);
-    const kind = view.getUint16(6, true);
+    const kind = peekKind(view);
     if (this.dead) {
       // Nothing reaches a trapped core. STATUS buffers go back to the pool (they're the shell's), clip buffers are the
       // main side's and simply dropped (it re-sends every clip to the new core), the rest return to the host.
@@ -403,7 +352,7 @@ export class CoreDriver {
     while (this.clipQueue.length > 0 && !this.dead) {
       const buffer = this.clipQueue[0]!;
       const view = new DataView(buffer);
-      const kind = view.getUint16(6, true);
+      const kind = peekKind(view);
       if (kind === Kind.CLIP_CHUNK) {
         const bytes = this.chunkBytes(view);
         // A chunk larger than a whole budget is refused by the core anyway; let it through on a fresh budget.
@@ -512,7 +461,7 @@ export class CoreDriver {
     if (!(data instanceof ArrayBuffer) || data.byteLength < 16 || this.dead) return;
     const view = new DataView(data);
     if (view.getUint32(0, true) !== MAGIC || view.getUint16(4, true) >> 8 !== VERSION_MAJOR) return;
-    switch (view.getUint16(6, true)) {
+    switch (peekKind(view)) {
       case Kind.STREAM_OPEN: {
         if (data.byteLength < STREAM_OPEN_FIXED_END) return;
         const open = readStreamOpen(view, 0);
@@ -540,7 +489,7 @@ export class CoreDriver {
       }
       case Kind.CLIP_CHUNK:
       case Kind.CLIP_UNLOAD: {
-        const kind = view.getUint16(6, true);
+        const kind = peekKind(view);
         if (data.byteLength < (kind === Kind.CLIP_CHUNK ? CLIP_CHUNK_FIXED_END : CLIP_UNLOAD_FIXED_END)) return;
         const clipId = kind === Kind.CLIP_CHUNK ? readClipChunk(view, 0).clipId : readClipUnload(view, 0).clipId;
         if (!this.portKernels.has(clipId)) return;
@@ -768,7 +717,7 @@ export class CoreDriver {
     view.setUint32(SHELL_FIELD.underruns, this.probe.underruns, true);
     view.setUint32(SHELL_FIELD.underrunFrames, this.probe.underrunFrames, true);
     view.setUint16(SHELL_FIELD.traps, Math.min(this.traps, 0xffff), true);
-    if (this.traps > 0) view.setUint32(SHELL_FIELD.flags, view.getUint32(SHELL_FIELD.flags, true) | FLAG_TRAP_CAUGHT, true);
+    if (this.traps > 0) view.setUint32(SHELL_FIELD.flags, view.getUint32(SHELL_FIELD.flags, true) | STATUS_FLAGS_TRAP_CAUGHT, true);
     this.post(buffer, this.pool.transferList(buffer));
   }
 }

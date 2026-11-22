@@ -1343,7 +1343,43 @@ pub fn cases() -> Vec<VectorCase> {
     .chain(crate::spatial_cases::spatial_cases())
     .chain(mix_cases())
     .chain(mix_status::mix_status_cases())
+    .chain(init_cases())
     .collect()
+}
+
+/// ADR 0328's INIT record (kind 13, written into the inbox by the shell, never posted): the default preset at
+/// 48 kHz with every M3 count set. Envelope version 1.3 (`0301`); seq 18.
+fn init_cases() -> Vec<VectorCase> {
+    vec![case(
+        "INIT_default_preset_with_m3_counts",
+        Subject::Kind("INIT"),
+        vec![
+            ("seq", vu(18)),
+            ("sampleRate", vf(48000.0)),
+            ("maxLogical", vu(4096)),
+            ("maxMixed", vu(128)),
+            ("maxBuses", vu(32)),
+            ("arenaInitialBytes", vu(16 << 20)),
+            ("maxBeds", vu(2)),
+            ("maxZoneSlots", vu(3)),
+            ("zoneMaxFrames", vu(96_000)),
+            ("maxWide", vu(1)),
+            ("maxMusicRings", vu(12)),
+        ],
+        concat!(
+            "3141594d", "0301", "0d00", "12000000", "28000000", // envelope: kind 13, seq 18, bodyBytes 40
+            "00803b47", // 16 sampleRate 48000.0
+            "00100000", // 20 maxLogical 4096
+            "80000000", // 24 maxMixed 128
+            "20000000", // 28 maxBuses 32
+            "00000001", // 32 arenaInitialBytes 16 MiB
+            "02000000", // 36 maxBeds 2
+            "03000000", // 40 maxZoneSlots 3
+            "00770100", // 44 zoneMaxFrames 96,000
+            "01000000", // 48 maxWide 1
+            "0c000000", // 52 maxMusicRings 12
+        ),
+    )]
 }
 
 #[path = "mix_status_cases.rs"]

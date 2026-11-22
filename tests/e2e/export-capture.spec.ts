@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Page, type Hooks } from "./fixtures";
 
 // X1 (ADR 0172 owner decision 7). UNVERIFIED DRAFT: no Chromium in the X1 worktree, so this was never run.
 // A game exported with --audio-capture: F9 records and the second F9 downloads a .mycap; without the option F9 does nothing
@@ -34,7 +34,7 @@ const stop = (s: Served | undefined) => {
   if (s) rmSync(s.dir, { recursive: true, force: true });
 };
 
-const engineUp = (page: Page) => page.evaluate(() => Boolean((window as unknown as { engine?: unknown }).engine));
+const engineUp = (page: Page) => page.evaluate(() => Boolean((window as unknown as Hooks).engine));
 const toast = (page: Page) => page.locator('[data-myco-toast="audio-capture"]');
 
 test.describe("a game exported with --audio-capture", { tag: "@slow" }, () => {

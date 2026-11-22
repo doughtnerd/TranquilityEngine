@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { expect, type Locator, type Page, play, test } from "./fixtures";
+import { expect, type HookHandle, type Hooks, type Locator, openEditor, type Page, play, test, waitForEditor } from "./fixtures";
 import { binarySeed, installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 import { captureView, pixelsNear, steadyView, themeColor } from "./viewCapture";
 
@@ -23,27 +23,6 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
   return out;
 }
 
-interface Handle {
-  id: string;
-  x: number;
-  y: number;
-}
-
-/** The editor's debug hooks on `window` (session.ts). Page callbacks are serialized, so each casts `window` itself. */
-type Hooks = {
-  engine?: {
-    world: {
-      time: { frameCount: number };
-      render: {
-        diagnostics(): { drawn: { node: { name: string }; feature: string }[] }; // ADR 0128, 0276
-        editorViewport(): { lightIcons(): { node: { name: string }; x: number; y: number }[] };
-      };
-    };
-  };
-  orbit: { focus(point?: [number, number, number], distance?: number): void };
-  overlayHandles?: () => Handle[];
-};
-
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
@@ -61,18 +40,18 @@ async function openPlayground(page: Page, writable: boolean): Promise<void> {
     await nextFolder(page, "Playground");
     await page.getByRole("dialog", { name: "Start" }).getByRole("button", { name: "Open Project…" }).click();
     await expect(page.locator(".project-name")).toHaveText("3D Playground");
+    await waitForEditor(page);
   } else {
-    await page.goto("/editor.html?sample=playground3d");
+    await openEditor(page, { sample: "playground3d" });
   }
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
 }
 
-/** Names of the nodes whose meshes are drawn in the scene view, once each. */
-const drawnMeshes = (page: Page) =>
-  page.evaluate(() => {
-    const names = (window as unknown as Hooks).engine!.world.render.diagnostics().drawn.filter((d) => d.feature === "meshes").map((d) => d.node.name);
-    return [...new Set(names)].sort();
-  });
+/**
+ * Which of the scene's nodes (by path key: a node's id, prefixed by its prefab instances' ids, joined by "/") draw on the scene view's canvas:
+ * the ones the editor finds a rectangle for (`nodeRect`). (That the renderer reports what each feature drew is
+ * babylonEditorViewport.test.ts's, and every Light's icon babylonEditorDrawing.test.ts's.)
+ */
+const drawnOf = (page: Page, keys: string[]) => page.evaluate((ks) => ks.filter((k) => (window as unknown as Hooks).nodeRect(k) !== null), keys);
 
 const box = async (l: Locator) => (await l.boundingBox())!;
 const row = (page: Page, name: string) => page.locator(".tree .row", { has: page.locator(".name", { hasText: new RegExp(`^${name}$`) }) });
@@ -100,7 +79,7 @@ async function dragAsset(page: Page, file: string, x: number, y: number): Promis
  * overlay syncs its handles each frame, so right after Edit Collider moves to another collider it can
  * still list the previous one's for a frame.
  */
-async function handles(page: Page, ids?: string[]): Promise<Record<string, Handle>> {
+async function handles(page: Page, ids?: string[]): Promise<Record<string, HookHandle>> {
   await page.waitForFunction(
     (want) => {
       const got = ((window as unknown as Hooks).overlayHandles?.() ?? []).map((h) => h.id).sort();
@@ -125,12 +104,9 @@ const num = async (l: Locator) => parseFloat(await l.inputValue());
 test("the 3D Playground draws its models, shapes and lights", async ({ page }) => {
   const errors = trackErrors(page);
   await openPlayground(page, false);
-  await expect.poll(() => drawnMeshes(page)).toEqual(["Ball", "Body", "Crate 1", "Crate 2", "Crate 3", "Crate 4", "Ground", "Head", "Orb", "Pillar", "Street Lamp"]);
-  // Every light shows an icon; the sun's arrow and other wireframes are drawn.
-  const icons = await page.evaluate(() => {
-    return (window as unknown as Hooks).engine!.world.render.editorViewport().lightIcons().map((i) => i.node.name).sort();
-  });
-  expect(icons).toEqual(["Ambient Light", "Lamp", "Sun"]);
+  // Its models (FBX, OBJ, glTF) and shapes: Ball, Body, Crate 1–4, Ground, Head, Orb, Pillar, Street Lamp.
+  const meshes = ["ball", "robot-body", "crate-1", "crate-2", "crate-3", "crate-4", "ground", "robot-head", "orb", "pillar", "street-lamp"];
+  await expect.poll(() => drawnOf(page, meshes), { timeout: 20_000 }).toEqual(meshes);
   // A point light draws its range as a wireframe sphere while selected, in the selection colour (the theme's
   // accent). The Lamp has no mesh, so nothing else of it is outlined: the accent pixels that appear are its wires.
   const view = page.locator(".viewport canvas");
@@ -157,7 +133,7 @@ test("dropping an FBX model in the viewport adds a node with a child per mesh; a
 
   await page.locator('.tree .row[data-key="robot-2-head"]').click();
   await expect(card(page, "MeshRenderer").getByRole("combobox", { name: "mesh" })).toHaveValue("models/robot.fbx#Head");
-  await expect.poll(async () => (await drawnMeshes(page)).filter((n) => n === "Head").length).toBe(1);
+  await expect.poll(() => drawnOf(page, ["robot-2-head"])).toEqual(["robot-2-head"]);
 
   await page.locator(".asset-tile", { hasText: "crate.obj" }).getByRole("button", { name: /^Add crate/ }).click();
   await expect(page.locator(".tree .row.selected .name")).toHaveText("Crate");
@@ -243,7 +219,7 @@ test("a cube from the Create menu has a box collider whose face handles resize i
   expect(errors).toEqual([]);
 });
 
-test("sphere and capsule collider handles set the radius and height; lights from the Create menu get icons", async ({ page }) => {
+test("sphere and capsule collider handles set the radius and height; a spot light comes from the Create menu", async ({ page }) => {
   const errors = trackErrors(page);
   await openPlayground(page, false);
   await page.getByRole("button", { name: "Create node" }).click();
@@ -271,13 +247,6 @@ test("sphere and capsule collider handles set the radius and height; lights from
   await menuItem(page, "Create Spot Light").click();
   await expect(page.locator(".tree .row.selected .name")).toHaveText("Spot Light");
   await expect(card(page, "Light").getByRole("combobox", { name: "type" }).locator("option:checked")).toHaveText("spot");
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        return (window as unknown as Hooks).engine!.world.render.editorViewport().lightIcons().some((i) => i.node.name === "Spot Light");
-      }),
-    )
-    .toBe(true);
   expect(errors).toEqual([]);
 });
 
@@ -287,7 +256,7 @@ test("Play drops the playground's crates under 3D physics, and Stop puts them ba
   await play(page);
   // The live World in the Hierarchy and Inspector (ADR 0032): Crate 3 starts 6 m up and lands.
   const picker = page.locator(".panel.hierarchy").getByRole("combobox", { name: "Inspect World" });
-  const worldName = await page.evaluate(() => (window as unknown as { playEngine: { world: { name: string } } }).playEngine.world.name);
+  const worldName = await page.evaluate(() => (window as unknown as Hooks).playEngine!.world.name);
   await picker.selectOption(worldName);
   await page.locator(".panel.hierarchy").getByRole("tree", { name: "Live nodes" }).locator(".row .name", { hasText: /^Crate 3$/ }).click();
   const y = page.getByRole("textbox", { name: "position y" });

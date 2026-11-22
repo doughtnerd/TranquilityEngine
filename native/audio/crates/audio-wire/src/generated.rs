@@ -2,27 +2,33 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: 437412c9bad8b878ade83c2f04be5c5c).
+/// First 16 bytes of the schema's SHA-256 (hex: 84e4c67c396510a12124af7d38bfb46f).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0x43,
-    0x74,
-    0x12,
-    0xc9,
-    0xba,
-    0xd8,
-    0xb8,
-    0x78,
-    0xad,
-    0xe8,
-    0x3c,
-    0x2f,
-    0x04,
-    0xbe,
-    0x5c,
-    0x5c,
+    0x84,
+    0xe4,
+    0xc6,
+    0x7c,
+    0x39,
+    0x65,
+    0x10,
+    0xa1,
+    0x21,
+    0x24,
+    0xaf,
+    0x7d,
+    0x38,
+    0xbf,
+    0xb4,
+    0x6f,
 ];
-pub const SCHEMA_HASH_HEX: &str = "437412c9bad8b878ade83c2f04be5c5c";
+pub const SCHEMA_HASH_HEX: &str = "84e4c67c396510a12124af7d38bfb46f";
 
+/// the core's C ABI major (`myco_audio_abi_version() >> 8`); a shell refuses a different one
+pub const CORE_ABI_MAJOR: u32 = 0x5;
+/// the core's C ABI minor (an added export)
+pub const CORE_ABI_MINOR: u32 = 0x0;
+/// `(CORE_ABI_MAJOR << 8) | CORE_ABI_MINOR`: `myco_audio_abi_version()`, STATUS `abiVersion` and the capture header
+pub const CORE_ABI_VERSION: u32 = 0x500;
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
 /// a core refuses a different major
@@ -298,6 +304,24 @@ pub const ERR_UNKNOWN_STREAM: i32 = -14;
 pub const ERR_BAD_FORMAT: i32 = -15;
 /// a record's fields are inconsistent (count versus length)
 pub const ERR_MALFORMED: i32 = -16;
+/// INIT sampleRate is outside 8 kHz..192 kHz
+pub const ERR_INIT_SAMPLE_RATE: i32 = -17;
+/// INIT maxLogical is 0 or above 65,536
+pub const ERR_INIT_MAX_LOGICAL: i32 = -18;
+/// INIT maxMixed is 0 or above maxLogical
+pub const ERR_INIT_MAX_MIXED: i32 = -19;
+/// INIT maxBuses is 0 or above 256
+pub const ERR_INIT_MAX_BUSES: i32 = -20;
+/// INIT maxBeds is above MAX_BEDS
+pub const ERR_INIT_MAX_BEDS: i32 = -21;
+/// INIT maxZoneSlots is above MAX_ZONE_SLOTS
+pub const ERR_INIT_MAX_ZONE_SLOTS: i32 = -22;
+/// INIT zoneMaxFrames is 0 or past 8 s at sampleRate while there are zone slots
+pub const ERR_INIT_ZONE_MAX_FRAMES: i32 = -23;
+/// INIT maxWide is above 4
+pub const ERR_INIT_MAX_WIDE: i32 = -24;
+/// INIT maxMusicRings is above MAX_MUSIC_RINGS
+pub const ERR_INIT_MAX_MUSIC_RINGS: i32 = -25;
 
 pub mod kind {
     pub const BATCH: u16 = 1;
@@ -312,6 +336,7 @@ pub mod kind {
     pub const RECYCLE: u16 = 10;
     pub const STREAM_CREDIT: u16 = 11;
     pub const REPLAY: u16 = 12;
+    pub const INIT: u16 = 13;
 }
 
 pub mod op {
@@ -461,6 +486,22 @@ pub mod effect_type {
     pub const REVERB_SEND: u32 = 3;
 }
 
+/// `myco_audio_memory_part_bytes` part (ADR 0327): bytes the core takes for the INIT record in the inbox
+pub mod memory_part {
+    /// the block `myco_audio_init` takes: every fixed region and the arena's initial reserve, in whole pages
+    pub const LAYOUT: u32 = 0;
+    /// the `Beds` region: bed slots and the wide streams' private decoders
+    pub const BEDS: u32 = 1;
+    /// the `Zones` region: zone convolver slots, the aux accumulator and the sends area
+    pub const ZONES: u32 = 2;
+    /// the `Wide` region: 16-channel stream rings
+    pub const WIDE: u32 = 3;
+    /// the zone kernel budget: prepared kernels in the arena, outside clipMemoryMB
+    pub const ZONE_KERNELS: u32 = 4;
+    /// the HRIR table, its HRTF bank and the MagLS filters in the arena, outside clipMemoryMB
+    pub const SPATIAL_DATA: u32 = 5;
+}
+
 /// shape word bits 0-2: the law of a gain ramp (FADE, SET_PARAMS, STOP)
 pub mod fade_law {
     /// linear: today's behaviour
@@ -540,7 +581,7 @@ pub struct Envelope {
     pub magic: u32,
     /// Protocol version: high byte major, low byte minor (1.0 is 0x0100).
     pub version: u16,
-    /// Message kind, one of `KINDS` (1..=12).
+    /// Message kind, one of `KINDS` (1..=13).
     pub kind: u16,
     /// Per-sender sequence number; wraps at 2^32.
     pub seq: u32,
@@ -1265,6 +1306,84 @@ pub const REPLAY_FLAGS_OVERFLOWED: u32 = 0x1;
 pub const REPLAY_FLAGS_FIRST_CHUNK: u32 = 0x2;
 /// last chunk of a REPLAY
 pub const REPLAY_FLAGS_LAST_CHUNK: u32 = 0x4;
+/// ADR 0328: the core's init parameters. The shell writes it at the inbox's start before `myco_audio_init`, `myco_audio_memory_pages` and `myco_audio_memory_part_bytes`, which read it; never posted. A refused field is the error `INIT_` + its name (`ERR_INIT_MAX_MIXED`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Init {
+    /// The AudioContext's rate in Hz, 8,000 to 192,000.
+    pub sample_rate: f32,
+    /// Logical voices (voice slots), 1 to 65,536.
+    pub max_logical: u32,
+    /// Voices mixed per quantum, 1 to `maxLogical`.
+    pub max_mixed: u32,
+    /// Buses in the bus tree, master included, 1 to 256.
+    pub max_buses: u32,
+    /// The clip arena's initial reserve in bytes, rounded up to whole 64 KiB pages; never refused (0: it starts empty).
+    pub arena_initial_bytes: u32,
+    /// Bed slots, 0 to MAX_BEDS (0: no `Beds` region).
+    pub max_beds: u32,
+    /// Reverb zone convolver slots, 0 to MAX_ZONE_SLOTS (0: no zone slot).
+    pub max_zone_slots: u32,
+    /// The longest zone kernel in frames at `sampleRate`: 1 to 8 s of frames with zone slots, ignored without.
+    pub zone_max_frames: u32,
+    /// Wide (3-16 channel) stream rings and their private bed decoders, 0 to 4.
+    pub max_wide: u32,
+    /// Music stream rings, 0 to MAX_MUSIC_RINGS.
+    pub max_music_rings: u32,
+}
+
+impl Init {
+    pub const FIXED_END: usize = 56;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_f32(out, base + 16, self.sample_rate);
+        put_u32(out, base + 20, self.max_logical);
+        put_u32(out, base + 24, self.max_mixed);
+        put_u32(out, base + 28, self.max_buses);
+        put_u32(out, base + 32, self.arena_initial_bytes);
+        put_u32(out, base + 36, self.max_beds);
+        put_u32(out, base + 40, self.max_zone_slots);
+        put_u32(out, base + 44, self.zone_max_frames);
+        put_u32(out, base + 48, self.max_wide);
+        put_u32(out, base + 52, self.max_music_rings);
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let sample_rate = get_f32(buf, base + 16);
+        let max_logical = get_u32(buf, base + 20);
+        let max_mixed = get_u32(buf, base + 24);
+        let max_buses = get_u32(buf, base + 28);
+        let arena_initial_bytes = get_u32(buf, base + 32);
+        let max_beds = get_u32(buf, base + 36);
+        let max_zone_slots = get_u32(buf, base + 40);
+        let zone_max_frames = get_u32(buf, base + 44);
+        let max_wide = get_u32(buf, base + 48);
+        let max_music_rings = get_u32(buf, base + 52);
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            sample_rate,
+            max_logical,
+            max_mixed,
+            max_buses,
+            arena_initial_bytes,
+            max_beds,
+            max_zone_slots,
+            zone_max_frames,
+            max_wide,
+            max_music_rings,
+        }, cur - base))
+    }
+}
+
 /// loop the clip
 pub const PLAY_FLAGS_LOOP: u16 = 0x1;
 /// a stream voice (STREAM_OPEN), not a clip

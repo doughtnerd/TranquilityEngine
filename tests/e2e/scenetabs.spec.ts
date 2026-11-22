@@ -1,22 +1,9 @@
-import { expect, openTestProject, type Page, PLAY_START, test } from "./fixtures";
+import { expect, openEditor, type Page, PLAY_START, test, type Hooks } from "./fixtures";
 import { closeMenus, undoItem } from "./menus";
-
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
-
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  openTestProject(extra?: Record<string, string>): Promise<void>;
-  testFolder: { read(path: string): string | undefined };
-};
-
-async function openEditor(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-}
 
 /** The Flappy sample as a writable project folder in memory. */
 async function openProject(page: Page): Promise<void> {
-  await openTestProject(page);
+  await openEditor(page, { files: {} });
   await expect(page.locator(".scene-tab")).toHaveCount(1);
 }
 
@@ -40,7 +27,7 @@ async function openPipePair(page: Page): Promise<void> {
 }
 
 test("each open scene has a tab with its own unsaved edits and undo history", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   expect(await tabs(page)).toEqual(["main.scene.json"]);
   await setBirdY(page, "5");
   await expect(tab(page, "main.scene.json")).toContainText("•");
@@ -74,7 +61,7 @@ test("each open scene has a tab with its own unsaved edits and undo history", as
 });
 
 test("closing a tab with unsaved changes asks first", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await openPipePair(page);
   await tab(page, "main.scene.json").click();
   await setBirdY(page, "6");
@@ -123,7 +110,7 @@ test("New Scene in the Assets panel writes a scene with a camera in scenes/ (the
 });
 
 test("Play plays the active tab", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await openPipePair(page);
   await page.getByRole("button", { name: "▶ Play" }).click();
   await expect(page.locator(".status-bar")).toContainText("Playing prefabs/pipe-pair.prefab.json", { timeout: PLAY_START });

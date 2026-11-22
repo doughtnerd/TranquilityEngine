@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { inflateRawSync } from "node:zlib";
-import { expect, test } from "./fixtures";
-import { bootMix, installFrameClock, mixDebug, sampleBusGain, type MixDebug } from "./audioMix";
+import { expect, test, openEditor, playWithAudio, LAB } from "./fixtures";
+import { installFrameClock, mixDebug, sampleBusGain, type MixDebug } from "./audioMix";
 import { MARKER_TEXT, exportAndServe, expectTablesAt, openCaptureFile, openProfilerTab, press, recordScene, rulerAt, stopServed } from "./audioExport";
 import { panelOf } from "./audioProfiler";
-import { TONE_PEAK, fader, openLiveMix, openMixer, playLiveMix, savedProject, stopPlay } from "./audioMixLive";
+import { TONE_PEAK, fader, openLiveMix, openMixer, savedProject, stopPlay } from "./audioMixLive";
 
 // M5 smoke (ADR 0171 amended by 0172, plan task S0, H6): the milestone path in the real editor app, through the Sound Lab
 // sample, one case per milestone, grown by later waves (each owning task un-fixmes its case in its own wave).
@@ -20,7 +20,8 @@ test("M5 smoke (today): the buses exist, effective gain is the tree's product, a
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
-  await bootMix(page);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await installFrameClock(page);
 
   await test.step("the project's buses exist in the API and in Audio.debug()", async () => {
@@ -130,7 +131,8 @@ test("M5 smoke (today): the buses exist, effective gain is the tree's product, a
 test("M5-0 smoke: a fade lands through the lanes on its stamp", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
-  await bootMix(page);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await installFrameClock(page);
   type Row = { name: string; effectiveGain: number; lastRampStartFrame?: number };
   type Dbg = MixDebugM5 & { buses: Row[] };
@@ -182,7 +184,8 @@ test("M5-0 smoke: a fade lands through the lanes on its stamp", async ({ page })
 test("M5-0 smoke: a presence duck starts on its stamped frame", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
-  await bootMix(page);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   type Handle = { stop(): void };
   type Read = { frame: number; duck: number };
   type G = { __myco: { Audio: { time: number; debug(): MixDebug; bus(n: string): { duckGain: number }; playOneShot(c: string, o: object): Handle } }; __dp1?: Handle };
@@ -290,7 +293,8 @@ test("M5a smoke: a capture starts, stops, is saved and is non-empty", async ({ p
   });
   page.on("request", (req) => requests.push(req.url()));
   const isRecorderChunk = (url: string) => /(^|\/)recorder[-.][\w-]*\.js|capture\/recorder(\.ts)?(\?|$)/.test(url);
-  await bootMix(page);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await installFrameClock(page);
   const rate = (await mixDebug(page))!.sampleRate;
 
@@ -404,7 +408,8 @@ test("M5b smoke: master's momentary loudness reads a number, steadily, and is em
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
-  await bootMix(page);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   const master = () =>
     page.evaluate(() => {
       const m = (globalThis as unknown as Api).__myco.Audio.bus("Master").loudness;
@@ -475,7 +480,7 @@ test("M5c smoke: a live edit in Play is heard and kept after Stop", async ({ pag
       [bus, seconds] as const,
     );
   await openLiveMix(page, { tones: [{ bus: "Aux" }] });
-  await playLiveMix(page);
+  await playWithAudio(page);
   await openMixer(page);
 
   await test.step("the tone is on Aux at its authored volume", async () => {
@@ -497,7 +502,7 @@ test("M5c smoke: a live edit in Play is heard and kept after Stop", async ({ pag
   await test.step("Stop keeps the edit in project.json; Play again starts the bus at the edited value", async () => {
     await stopPlay(page);
     expect((await savedProject(page)).audio!.buses!.find((b) => b.name === "Aux")!.volume).toBeCloseTo(edited, 9);
-    await playLiveMix(page);
+    await playWithAudio(page);
     await expect.poll(async () => (await row("Aux")).effectiveGain, { timeout: 20_000 }).toBeCloseTo(edited, 3);
   });
   expect(errors).toEqual([]);

@@ -196,7 +196,7 @@ fn presets_are_prepared_as_files_are() {
 /// The C ABI, as the worker calls it (one test: the state is process-wide).
 #[test]
 fn the_abi() {
-    assert_eq!(myco_decode_abi_version(), 0x103);
+    assert_eq!(myco_decode_abi_version(), 0x104);
     let file = wav16(48_000, 2, &noise_ir(3_000, 2, 9));
     let p = myco_decode_alloc(file.len() as u32);
     let frames = unsafe {
