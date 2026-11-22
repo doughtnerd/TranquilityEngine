@@ -160,3 +160,25 @@ deliberate offset); Apply writes only changed lanes; global parameter renames re
 confirm (status bar reports the count) and removal drops automation and snapshot conditions that read it; a "Global
 parameters" panel lives in the Mixer (and on demand in Playlists). Gap: playlist instance-level effect automation and
 sample effect automation need format fields (scheduled).
+
+**D24. Core time parameters and loop programs (W3-A, merged).** Time parameters are a bit in a binding's param (bit 14 +
+which) with group clocks computed only when read (ABI 4.2); voiceTime counts paused time (as main's clock did);
+selection sees a time-bound volume curve at its loudest key so fade-ins aren't culled; loop programs hold up to 4 loops
+in a pool of 256 programs in the automation region (voice slot stays 192 B; a full pool falls back to the first region);
+count = total passes (WAV smpl semantics); seam crossfade reads a post-seam tail; ping-pong turns are continuous; hold
+points park silent with fades (ABI 4.3). Fixed-region headroom raised 16 → 18 MiB (a reservation, not a platform limit).
+Mixer wasm 396,409 B against the 400 KB tripwire (raise scheduled with the next core item). Not done: voice pan and
+high-pass automation targets (design in the report; scheduled).
+
+**D25. Sequence view (W4-D, merged).** Split offsets follow loop passes (the prototype added split time) and the right
+half's automation is shifted with a key at the cut; a vertical drag onto a wrong-kind track moves in time only; new
+hold points default to while-held + jump, new loops always + finish; a playlist dropped below the tracks makes a
+playlist track; drags preview locally and commit one step on release; refusals show as toasts; music-kind samples
+default to Sync. Gaps: playback from a start offset (needs the API), overlap crossfade visual, ADSR handles, spectrogram.
+
+**D26. Take screen and replay (W5-B, merged).** Notes live at `<take>.mycotake.notes.json`; note colours are the
+designer's RGB data (inline variable), all else uses tokens; pause stops sounds with a 50 ms fade and play rebuilds the
+state at the playhead; buses the take touched reset at seek and close; held span = start to RELEASE; parameter lanes
+step; the Loop button loops the selected note region else the whole take; the replay slot shows on every screen while a
+take is open (a screen may hide it). Gaps: World reseed (picks may differ — needs an internal reseed hook), start
+offsets for seeks, the replay capture naming its take.
