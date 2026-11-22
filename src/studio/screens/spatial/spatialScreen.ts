@@ -32,7 +32,7 @@ import { NO_AUDITION, auditionScene, isSilenced, liveUpdate, toggleMute, toggleS
 import { INITIAL_SLAB, type Slab } from "./elevation";
 import { boundsOf, type P2 } from "./geometry";
 import { blankScene, copyScene, gameScene, sceneFromTake, type NewSceneKind } from "./newScene";
-import { activeListener, allObjects, boxOf, deleteObject, duplicateObject, findObject, KIND_NOUN, pasteObject, positionOf, type EditResult, type SceneObject } from "./sceneEdits";
+import { activeListener, deleteObject, framePoints, duplicateObject, findObject, KIND_NOUN, pasteObject, positionOf, type EditResult, type SceneObject } from "./sceneEdits";
 import { isScenePath, sceneName, type FolderChange, type SceneEntry } from "./sceneTree";
 import { escape as escapeTool, INITIAL_TOOLS, afterPlace, place, placeLabel, type Tool, type ToolState } from "./tools";
 import { DEFAULT_VIEW, fitView, type Size, type View } from "./viewTransform";
@@ -320,22 +320,6 @@ export function escapeKey(): void {
 }
 
 // --- camera ----------------------------------------------------------------------------------------------------------
-
-/** The plan points that frame a scene: every shown object's place, box corners and route. */
-export function framePoints(s: AudioTestScene): P2[] {
-  const out: P2[] = [];
-  for (const o of allObjects(s)) {
-    const b = boxOf(o);
-    if (b) {
-      out.push({ x: b.center.x - b.width / 2, z: b.center.z - b.depth / 2 }, { x: b.center.x + b.width / 2, z: b.center.z + b.depth / 2 });
-      continue;
-    }
-    if (o.kind === "emitter" && o.obj.kind === "moving") out.push(...o.obj.route);
-    const p = positionOf(o);
-    if (p) out.push(p);
-  }
-  return out;
-}
 
 /** Frame the open scene. */
 export function fit(): void {

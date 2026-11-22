@@ -233,8 +233,9 @@ function Viewport(props: { host: SceneHost; slab: [number, number] }) {
     } else if (g.kind === "drag") {
       if (!g.moved && Math.hypot(at.x - g.start.x, at.y - g.start.y) < 3) return;
       g.moved = true;
-      const { result, label } = dragTo(h.scene, g.drag, plan(at));
-      h.edit(label, () => result, true);
+      const p = plan(at);
+      // The label from the scene as drawn; the edit from the document's latest value (a burst's earlier steps included).
+      h.edit(dragTo(h.scene, g.drag, p).label, (latest) => dragTo(latest, g.drag, p).result, true);
     }
   };
 

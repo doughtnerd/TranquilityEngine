@@ -11,6 +11,7 @@ import { Panel } from "../../../editor/ui/panel/Panel";
 import { applyAttenuationPreset } from "../../../engine/audio/attenuation/format";
 import type { StudioPanel } from "../../shell/studioPanels";
 import { audioHost, keymap, setPlayerSlots, studioRouter } from "../../shell/studioServices";
+import { ensureAudioProjectKind } from "../mixer/mixerDocument";
 import { historyPanel } from "../placeholder";
 import { attenuationSummary, ownedAttenuation, ownerText } from "./attenuationModel";
 import { InspectorPanel } from "./InspectorPanel";
@@ -34,6 +35,10 @@ import { voiceTable } from "./voicesTable";
 import { VoicesPanel } from "./VoicesPanel";
 import "../playlists/playlists.css";
 import "./spatial.css";
+
+// The document kinds this screen opens, registered when the page loads its screens (not inside a computed signal).
+ensureSceneKind();
+ensureAudioProjectKind();
 
 const writable = () => !!currentProject.value?.canSave;
 
@@ -150,6 +155,8 @@ function useScreen(): void {
     const stops = [
       followRoute(studioRouter().route),
       ...SCENE_KEYS.map((k) => keymap.register({ id: k.id, keys: k.keys, label: k.label, group: "Scene view", scope: { panel: "spatial-scene" }, run: () => runSceneAction(k.action) })),
+      // In the Scene view, holding Space pans with the pointer (the viewport follows the key itself); elsewhere it plays.
+      keymap.register({ id: "spatial.spacePan", keys: ["Space"], label: "Hold and drag to pan", group: "Scene view", scope: { panel: "spatial-scene" }, run: () => true }),
       keymap.register({ id: "spatial.play", keys: ["Space"], label: "Play / stop the scene", scope: { screen: "spatial" }, run: () => (scene.peek() ? togglePlay() : false) }),
       effect(() => {
         const s = scene.value;

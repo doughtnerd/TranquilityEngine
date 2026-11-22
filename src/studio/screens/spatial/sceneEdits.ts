@@ -114,6 +114,22 @@ function routePosition(e: MovingEmitter, u: number): Vec3 {
   return { x: last.x, y: e.height, z: last.z };
 }
 
+/** The plan points that frame a scene (Fit): every object's place, box corners and route; 2D sounds have none. */
+export function framePoints(scene: AudioTestScene): { x: number; z: number }[] {
+  const out: { x: number; z: number }[] = [];
+  for (const o of allObjects(scene)) {
+    const b = boxOf(o);
+    if (b) {
+      out.push({ x: b.center.x - b.width / 2, z: b.center.z - b.depth / 2 }, { x: b.center.x + b.width / 2, z: b.center.z + b.depth / 2 });
+      continue;
+    }
+    if (o.kind === "emitter" && o.obj.kind === "moving") out.push(...o.obj.route);
+    const p = positionOf(o);
+    if (p) out.push(p);
+  }
+  return out;
+}
+
 /** Replace object `id` with `update(obj)` in whichever list holds it. */
 export function updateObject(scene: AudioTestScene, id: string, update: (o: SceneObject) => SceneObjectBase | EditResult<SceneObjectBase>): EditResult<AudioTestScene> {
   const found = findObject(scene, id);
