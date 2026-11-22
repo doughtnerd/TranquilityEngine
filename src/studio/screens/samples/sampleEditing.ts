@@ -414,3 +414,8 @@ export const sourceTime = (e: Pick<SampleEdits, "closedGaps">, v: number): numbe
 // --- loop direction names ---------------------------------------------------------------------------------------------
 
 export const DIRECTION_NAMES: Readonly<Record<LoopDirection, string>> = { forward: "Forward", pingPong: "Ping-pong", backward: "Backward" };
+
+// --- flags -----------------------------------------------------------------------------------------------------------
+
+export const setSnapToZero = (e: SampleEdits, on: boolean): SampleEdit => ok({ ...e, snapToZero: on }, `Snap to zero crossings ${on ? "on" : "off"}`);
+export const setStinger = (e: SampleEdits, on: boolean): SampleEdit => ok({ ...e, stinger: on }, `Sting ${on ? "on" : "off"}`);
