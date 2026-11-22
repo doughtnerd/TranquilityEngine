@@ -1,0 +1,12 @@
+{"wall":true,"mode":"int16","voices":256,"pitch":1,"usPerQuantum":539.9,"usPerVoice":2.109}
+{"wall":true,"mode":"block","voices":256,"pitch":1,"usPerQuantum":858.6,"usPerVoice":3.354}
+{"wall":true,"mode":"incremental","voices":256,"pitch":1,"usPerQuantum":901.9,"usPerVoice":3.523}
+{"wall":true,"mode":"incremental-fast","voices":256,"pitch":1,"usPerQuantum":940.6,"usPerVoice":3.674}
+{"wall":true,"mode":"int16","voices":256,"pitch":1,"usPerQuantum":615,"usPerVoice":2.402}
+{"wall":true,"mode":"block","voices":256,"pitch":1,"usPerQuantum":869.3,"usPerVoice":3.396}
+{"wall":true,"mode":"incremental","voices":256,"pitch":1,"usPerQuantum":966.4,"usPerVoice":3.775}
+{"wall":true,"mode":"incremental-fast","voices":256,"pitch":1,"usPerQuantum":810.6,"usPerVoice":3.166}
+{"wall":true,"mode":"int16","voices":256,"pitch":1,"usPerQuantum":565.5,"usPerVoice":2.209}
+{"wall":true,"mode":"block","voices":256,"pitch":1,"usPerQuantum":808.2,"usPerVoice":3.157}
+{"wall":true,"mode":"incremental","voices":256,"pitch":1,"usPerQuantum":876.9,"usPerVoice":3.425}
+{"wall":true,"mode":"incremental-fast","voices":256,"pitch":1,"usPerQuantum":798.4,"usPerVoice":3.119}

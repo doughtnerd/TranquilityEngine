@@ -1,0 +1,23 @@
+[package]
+name = "adpcm-bench-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "ADR 0337 spike A0/S3: wasm instructions per quantum of N voices reading IMA ADPCM against int16, through the core's own resampler."
+
+# Standalone: not a member of native/audio's workspace.
+[workspace]
+
+[lib]
+name = "adpcm_bench"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+audio-dsp = { path = "../../../native/audio/crates/audio-dsp" }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false

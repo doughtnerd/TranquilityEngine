@@ -1,0 +1,41 @@
+[package]
+name = "decode-size-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "ADR 0337 spike A0/S2: what Opus decoding (libopus, fixed point) and symphonia's adpcm feature add to myco_audio_decode.wasm."
+
+# Standalone: not a member of native/audio's workspace. Links the shipped audio-decode crate unchanged (as an rlib) and
+# re-exports its C ABI, so the baseline build is the shipped decoder; the features add on top. Cargo.lock starts as a
+# copy of native/audio's, so symphonia and its dependencies resolve to the shipped versions.
+[workspace]
+
+[lib]
+name = "myco_audio_decode_spike"
+crate-type = ["cdylib"]
+
+[features]
+# libopus 1.5.2 decoder, FIXED_POINT, compiled for wasm32-unknown-unknown against stub headers (cstub/); malloc and
+# free come from Rust's allocator (src/lib.rs).
+libopus = []
+# symphonia 0.6.1's IMA and Microsoft ADPCM (registered by audio-decode's default registry).
+adpcm = ["symphonia/adpcm"]
+# Pure-Rust Opus decoding through opus-rs 0.1.42 instead (BSD-3-Clause, first published 2026-02).
+opusrs = ["dep:opus-rs"]
+# The shipped AAC build's feature, to measure Opus on top of it.
+aac = ["audio-decode/aac"]
+
+[dependencies]
+audio-decode = { path = "../../../native/audio/crates/audio-decode" }
+symphonia = { version = "=0.6.1", default-features = false }
+opus-rs = { version = "=0.1.42", optional = true, default-features = false, features = ["std", "heap"] }
+
+[build-dependencies]
+cc = "1.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
