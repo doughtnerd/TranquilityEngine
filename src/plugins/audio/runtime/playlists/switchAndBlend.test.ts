@@ -83,14 +83,14 @@ describe("Switch", () => {
     expect(fake.plays.map((p) => p.path)).toEqual(["a.wav", "b.wav", "c.wav"]);
   });
 
-  it("a rule timed to a bar changes now until the musical clock arrives (M5), with one warning", async () => {
+  it("a rule timed to a bar changes now when the playing entry has no tempo, with one warning", async () => {
     await kit.boot({ "s.playlist.json": SWITCH({ onChange: { when: "bar", how: "crossfade", length: { beats: 1 } } }) });
     const h = Audio.play("s.playlist.json");
     h.setParameter("Surface", "Stone");
     expect(fake.plays.map((p) => p.path)).toEqual(["a.wav", "b.wav"]);
     // A beat with no tempo is the prototype's 500 ms.
     expect(voiceOf("b.wav").events).toContainEqual({ kind: "fadeShaped", to: 1, seconds: 0.5, law: "equalPowerIn" });
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("M5"));
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("no boundary to wait for"));
   });
 
   it("follows a global parameter (Audio.setParameter)", async () => {

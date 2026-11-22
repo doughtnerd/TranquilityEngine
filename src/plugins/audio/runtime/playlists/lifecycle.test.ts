@@ -198,7 +198,7 @@ describe("the handle, debug rows and taps", () => {
     expect(h.getParameter("Wind")).toBe(0.25);
   });
 
-  it("onMarker returns an unsubscribe function; music is undefined and trigger refuses until M5", async () => {
+  it("onMarker returns an unsubscribe function; music is undefined without a tempo and an unknown stinger is refused", async () => {
     await kit.boot({ "p.playlist.json": pla("clip", [sample("a.wav")]) });
     const h = Audio.play("p.playlist.json");
     const off = h.onMarker("cue", () => {});
