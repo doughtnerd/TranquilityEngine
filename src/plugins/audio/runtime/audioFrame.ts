@@ -26,7 +26,8 @@ import { takeTap } from "./capture/takeTap";
 /** ADR 0270: runs one backend frame in the production order (see the header). Allocates nothing. */
 export function runAudioFrame(backend: AudioBackend, frame: ListenerFrame, dt: number, settings: AudioSettings): void {
   // ADR 0334: a recording take reads the listener's and the emitters' poses once per frame (30 Hz, changes only).
-  if (takeTap.sink) takeTap.sink.frame(frame.node ? frame : null);
+  // and, when it takes pictures, the canvas the World renders into (none headless).
+  if (takeTap.sink) takeTap.sink.frame(frame.node ? frame : null, frame.world?.render?.canvas ?? null);
   if (isStagedFrameHost(backend)) {
     const view = backend.spatialVoices;
     backend.frameAttenuate(dt); // 1. attenuation
