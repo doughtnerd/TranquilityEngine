@@ -85,11 +85,15 @@ A Sequence has a `length`, an optional `tempo`, **tracks** (audio tracks hold sa
   Studio shades a loop's tail and the post-exit tail on the timeline.
 - **Markers:** `cue` markers report to the game, `exit` markers are where Switch rules timed `exit` and sync clips may
   leave (what follows the last one is the post-exit tail), `entry` markers are where a Switch lands the sequence.
-- **Beat-quantised automation** (ADR 0336, for rhythm games): a volume, enabled or gain lane keyed on a parameter may
-  set `"quantize": "beat" | "bar" | { "beats": n }`. A parameter change then takes effect exactly on the next boundary of
-  the instance's musical clock (counted from the bar for `beats`), as a 20 ms ramp stamped at that sample on the audio
-  clock, not at the frame the game set it. The last change before the boundary's ramp is stamped (a quarter second
-  ahead) wins; one later moves at the following boundary. Without a tempo it moves at once (the Studio lints it).
+- **Beat-quantised automation** (ADR 0336, for rhythm games): an automation lane keyed on a parameter (volume, enabled,
+  pitch, pan, a low-pass or high-pass `cutoff`, a gain effect's `gain`), or an entry's voice curve keyed on one, may set
+  `"quantize": "beat" | "bar" | { "beats": n }`. A parameter change then takes effect on the next boundary of the
+  instance's musical clock (counted from the bar for `beats`), as a 20 ms ramp, not at the frame the game set it. Volume
+  and gain ramps are stamped at that sample on the audio clock; pitch, pan and the filters move within one 128-frame
+  quantum of it (2.7 ms at 48 kHz: the core evaluates those once a quantum). The last change before the boundary's ramp
+  is stamped (a quarter second ahead) wins; one later moves at the following boundary. Without a tempo it moves at once
+  (the Studio lints it). Effect parameters other than those (a delay's time, a reverb's mix) aren't automated on voices
+  at all yet, so they can't be quantised either.
 
   ```jsonc
   "automation": [{ "id": "a1", "target": "volume", "input": { "parameter": "Intensity" },
@@ -123,8 +127,8 @@ The migration (`npm run audio:migrate`, or on opening the project) maps each mus
 | music `playlist` | continuous round-robin Queue (`rounds` are not kept: it plays until stopped) |
 | `musicSwitch` and its transition rules | Switch; exit `beat`/`bar`/`exitCue` → `when`, fades → `length`, fade curves → `shapeOut`/`shapeIn`, bridge → `transition` with its own fades as `transitionIn`/`transitionOut` |
 | a region's `tailBeats` | the loop's `tail`, ringing to the next Exit marker (one is added at the tail's end when none follows the loop) |
-| a stem's quantised volume automation | a `quantize`d volume lane |
+| a stem's quantised automation (volume, pitch, low-pass) | a `quantize`d lane (a low-pass one on a low-pass effect's cutoff) |
 | stingers | stingers |
 
 Not kept (each noted per file): fade offsets, different fade-out and fade-in lengths (the longer is the crossfade),
-quantised low-pass automation, and finite region counts.
+and finite region counts.

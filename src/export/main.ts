@@ -31,6 +31,9 @@ Options:
                    saves a .mycap file for the editor's Profiler. The file names the project's clips, buses and events.
   --audio-take     Ship the audio take trigger: F10 records a take (what the game asked of audio, and the profile) and
                    saves a .mycotake file for the Studio. The file names the project's playlists, parameters and nodes.
+  --no-take-pictures
+                   With --audio-take: takes record no pictures of the game view (by default a small JPEG about
+                   once a second, which the Studio shows beside the take)
   --build          Desktop: run tauri build (default when Rust is installed)
   --no-build       Desktop: only write the Tauri project
   -h, --help       Show this help`;
@@ -50,6 +53,7 @@ const EXPORT_COMMAND: Command<ExportOptions> = {
     "--scene": { takes: "a scene path", set: (o, v) => void (o.mainScene = v.replace(/\\/g, "/").replace(/^\.?\//, "")) },
     "--audio-capture": { set: (o) => void (o.audioCapture = true) },
     "--audio-take": { set: (o) => void (o.audioTake = true) },
+    "--no-take-pictures": { set: (o) => void (o.audioTakeFrames = false) },
     "--build": { set: (o) => void (o.tauriBuild = true) },
     "--no-build": { set: (o) => void (o.tauriBuild = false) },
   },
@@ -60,6 +64,7 @@ export function parseArgs(argv: readonly string[]): ExportOptions | "help" {
   const parsed = parseCommandLine(argv, EXPORT_COMMAND);
   if (parsed === "help") return parsed;
   if (parsed.options.tauriBuild !== undefined && parsed.options.target !== "desktop") throw new UsageError("--build and --no-build go with --target desktop.");
+  if (parsed.options.audioTakeFrames === false && parsed.options.audioTake !== true) throw new UsageError("--no-take-pictures goes with --audio-take.");
   return { ...parsed.options, projectDir: parsed.argument };
 }
 

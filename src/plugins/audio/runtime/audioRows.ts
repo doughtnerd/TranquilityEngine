@@ -5,9 +5,10 @@
 // rows.
 //
 // - **Debug** (`debugRows`): `events` (the playlist runtime's rows, keeping an instance while the backend still lists one of
-//   its voices, E3.9), `eventTotals` and `playlistTotals`; on a backend with music, `music` (empty: ADR 0166's music
-//   players, which had these rows, were retired by ADR 0329; a playlist's musical clock is `handle.music`) and
-//   `musicTotals` (the music backend's own view). Fresh objects per call; debug only.
+//   its voices, E3.9), `eventTotals` and `playlistTotals`; `music`, one row per playing playlist instance with a tempo
+//   (`playlists/musicRows.ts`: ADR 0166's music players, which first had these rows, were retired by ADR 0329), and on a
+//   backend with music `musicTotals` (the music backend's own view and the playlists' stinger outcomes). Fresh objects
+//   per call; debug only.
 // - **Keyframe** (`KeyframeRows`): the backend's keyframe with the `events` section added (§5.5) and an empty `music`
 //   section. Every row is pooled and rewritten in place, as the recorder asks of its sources (FU5); what still allocates is
 //   the strings an instance's parameter values hash through.
@@ -28,7 +29,10 @@ export interface AudioDebugRows {
   eventTotals: { lateStarts: number };
   /** ADR 0329: the playlist runtime's refused triggers (by reason, and the latest), steals and late starts; present once a playlist was played. */
   playlistTotals?: PlaylistTotals;
-  /** Present on a backend with music (`AudioBackend.music`); no rows since the music players were retired (ADR 0329). */
+  /**
+   * The playlist instances with a musical clock (a tempo), as ADR 0166's music rows; present on a backend with music
+   * (`AudioBackend.music`) or when a row exists.
+   */
   music?: MusicDebugRow[];
   musicTotals?: MusicDebugTotals;
 }
@@ -50,11 +54,10 @@ export function debugRows(info: Pick<AudioDebugInfo, "voices">, backend: DebugRo
     out.playlistTotals = pl.totals();
     out.eventTotals.lateStarts = out.playlistTotals.lateStarts;
   }
+  const rows = pl ? pl.musicRows() : [];
   const music = backend.music;
-  if (music) {
-    out.music = [];
-    out.musicTotals = musicTotals(music.debugView());
-  }
+  if (music || rows.length > 0) out.music = rows;
+  if (music) out.musicTotals = musicTotals(music.debugView(), pl?.stingerOutcomes());
   return out;
 }
 
@@ -121,8 +124,11 @@ function paramsHash(parameters: Readonly<Record<string, number | string>>, keys:
   return h >>> 0;
 }
 
-/** `musicTotals`: the music backend's own figures; main's music counters (ADR 0220) stay zero since the players went (ADR 0329). */
-function musicTotals(view: MusicBackendDebug): MusicDebugTotals {
+/**
+ * `musicTotals`: the music backend's own figures, and the playlists' stinger outcomes over the session (ADR 0220's sums;
+ * re-plans, refusals and recoveries were the music players' and stay empty since they went, ADR 0329).
+ */
+function musicTotals(view: MusicBackendDebug, stingers: MusicDebugTotals["stingers"] | undefined): MusicDebugTotals {
   const { groups: _groups, ...own } = view;
-  return { ...own, replans: {}, refusals: {}, recoveries: {}, stingers: { played: 0, late: 0, skipped: 0, dropped: 0 } };
+  return { ...own, replans: {}, refusals: {}, recoveries: {}, stingers: stingers ?? { played: 0, late: 0, skipped: 0, dropped: 0 } };
 }

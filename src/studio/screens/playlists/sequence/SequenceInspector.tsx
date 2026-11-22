@@ -13,11 +13,11 @@ import type { Automation, LoopBehaviour, PlaylistBody, SequenceSettings } from "
 import { SegmentedControl } from "../../../../editor/ui/SegmentedControl";
 import { accept, type EditResult } from "../../../../plugins/audio/editor/editResult";
 import { EffectChain } from "../../../components/EffectChain";
-import { FieldRow, NumberBox, SelectBox, Section } from "../fields";
+import { FieldRow, NumberBox, SelectBox, Section } from "../../../../editor/ui/PanelFields";
 import { addAutomation, deletePoints as deletePointsOf, isTimeInput, ownerOf, QUANTIZE_CHOICES, quantizeChoice, removeAutomation, setAutomation, setPointShape, SHAPES, targetSpec, targetSpecs, type AutomationOwner } from "./automationEdits";
 import { clipFollows, clipLoops } from "./clipGeometry";
 import { clearLoopOverride, deleteLoops, deleteMarkers, makeHoldPoint, moveLoop, moveMarker, renameMarker, setLoopBehaviour, setLoopEdge, setLoopMusic, setLoopOverride, setMarkerHidden, setMarkerType } from "./loopMarkerEdits";
-import { FadeShapeSelect } from "../FadeShapeSelect";
+import { FadeShapeSelect } from "../../../components/FadeShapeSelect";
 import { openSequenceCurves } from "./openSequenceCurves";
 import { makeAsync, setClip, setClipEffects, setMeter, setSequenceLength, setTempo, setTrack, setTrackEffects } from "./sequenceEdits";
 import { METERS } from "./sequenceGrid";

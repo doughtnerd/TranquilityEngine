@@ -181,6 +181,7 @@ export class PlaylistHost {
     this.stopAll();
     this.sink = null; this.sinkOf = null; this.ts = null;
     this.curvesById.length = 0;
+    this.leases.clear(); this.freeCurves.length = 0;
     this.curveIds = new WeakMap(); // a parsed asset's curves outlive a reset (the asset cache), so their ids must go too
     this.freeGroups.length = 0; this.freeHead = 0; this.nextGroup = 1;
     this.globals.clear(); this.globalsOf = null; this.busOf = null;
@@ -287,6 +288,39 @@ export class PlaylistHost {
     this.curveIds.set(curve, id);
     this.sink?.defineCurve(id, curve);
     return id;
+  }
+
+  /** Curve ids lent out by `leaseCurve`, with whether their holder still needs them. */
+  private readonly leases = new Map<number, () => boolean>();
+  /** Lent ids given back, to lend again. */
+  private readonly freeCurves: number[] = [];
+
+  /**
+   * A curve id of its own for a holder that redefines it while playing (`redefineCurve`; a quantised lane's stepped
+   * curve per voice). The id goes back to the pool once `alive()` is false (checked when the pool needs an id), so
+   * lent ids never accumulate. Null when the table is full.
+   */
+  leaseCurve(curve: Curve, alive: () => boolean): number | null {
+    if (this.freeCurves.length === 0) for (const [id, live] of this.leases) if (!live()) { this.leases.delete(id); this.freeCurves.push(id); }
+    let id = this.freeCurves.pop();
+    if (id === undefined) {
+      if (this.curvesById.length >= MAX_CURVES) {
+        warnOnce("event:curves-full", `Audio playlists: more than ${MAX_CURVES} distinct automation curves are in use (the cap is ${MAX_CURVES}); new ones are ignored.`);
+        return null;
+      }
+      id = this.curvesById.length;
+      this.curvesById.push(curve);
+    }
+    this.leases.set(id, alive);
+    this.redefineCurve(id, curve);
+    return id;
+  }
+
+  /** Replace the curve of a lent id (`leaseCurve`); the backend applies it when it arrives. */
+  redefineCurve(id: number, curve: Curve): void {
+    if (!this.leases.has(id)) return;
+    this.curvesById[id] = curve;
+    this.sink?.defineCurve(id, curve);
   }
 
   /**

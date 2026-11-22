@@ -52,6 +52,7 @@
 .pf-ref-label { position: absolute; right: 4px; top: 2px; color: var(--faint); font-size: calc(10px * var(--ui-scale)); pointer-events: none; }
 .pf-float { position: absolute; top: 2px; margin-left: 6px; padding: 1px 6px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 4px; color: var(--text); font-size: calc(10px * var(--ui-scale)); white-space: nowrap; pointer-events: none; z-index: 2; }
 .pf-float.left { transform: translateX(calc(-100% - 12px)); }
+.pf-picture { position: absolute; inset: 0; }
 .pf-lane-empty { margin: 0; padding: 3px 6px; color: var(--faint); font-size: calc(11px * var(--ui-scale)); }
 
 /* Ruler */

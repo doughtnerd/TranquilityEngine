@@ -11,6 +11,7 @@ import {
 import { decodeRecordAt, openCapture } from "./reader";
 import { assembleTakeFile, captureFileBytes, mergeRequests, type SaveTake } from "./save";
 import { openTakeFile } from "./takeFile";
+import { createCaptureWorkerHandler, type CaptureResponse } from "./worker";
 import { TakeRecorder, type TakeRecorderRing } from "./takeRecorder";
 import { SAMPLE_HEADER, SAMPLE_META, SAMPLE_RATE, keyframeBytesPlaceholder, statusBytes } from "./testSupport";
 import { TakeRecordType, encodeTakeRecordBytes } from "../../../../engine/audio/take/records";
@@ -252,5 +253,35 @@ describe("a take file (ADR 0334)", () => {
     expect(bytes.byteLength).toBe(assembleTakeFile(take).byteLength);
     expect(bytes.subarray(0, 8)).toEqual(assembleTakeFile(take).subarray(0, 8));
     expect(CAPTURE_HEADER_BYTES).toBe(96);
+  });
+
+  it("the capture Worker answers a take's pictures (for the Profiler's Picture track); a capture has none", async () => {
+    const JPEG = new Uint8Array([0xff, 0xd8, 7, 0xff, 0xd9]);
+    clock = 1000;
+    const ring = new FakeRing();
+    const early = profile(ring, [768]);
+    const rec = new TakeRecorder(ring, { now, frames: { encode: async () => JPEG, defer: (fn) => fn() } });
+    for (clock = 1000; clock <= 3200; clock += 100) {
+      rec.frame(null, { width: 1280, height: 720 });
+      await new Promise<void>((r) => setTimeout(r, 0));
+    }
+    const late = profile(ring, [1536], false);
+    const { requests, section } = rec.finish({ seed: 1, seeded: false, audioHash: "" });
+    const file = assembleTakeFile({ header: SAMPLE_HEADER, meta: { ...SAMPLE_META, take: section }, span: spanOf([...early, ...late]), truncatedFromSeq: 0, requests });
+    const ask = async (bytes: Uint8Array) => {
+      const got: CaptureResponse[] = [];
+      const w = createCaptureWorkerHandler({ post: (r) => got.push(r), yieldNow: async () => {} });
+      await w.handle({ type: "open", id: 1, source: "file", bytes: bytes.slice().buffer as ArrayBuffer });
+      expect(got.at(-1)?.type).toBe("opened");
+      await w.handle({ type: "frames", id: 2 });
+      await w.handle({ type: "frames", id: 3 }); // asked again: the session kept them
+      return got.filter((r): r is Extract<CaptureResponse, { type: "frames" }> => r.type === "frames");
+    };
+    const [first, again] = await ask(file);
+    expect(first!.frames.map((f) => [f.t, f.width, f.height])).toEqual([[0, 320, 180], [1, 320, 180], [2, 320, 180]]);
+    expect([...first!.frames[0]!.jpeg]).toEqual([...JPEG]);
+    expect(again!.frames).toHaveLength(3);
+    const capture = assembleCapture(SAMPLE_HEADER, SAMPLE_META, profile(new FakeRing(), [768]));
+    expect((await ask(capture))[0]!.frames).toEqual([]);
   });
 });

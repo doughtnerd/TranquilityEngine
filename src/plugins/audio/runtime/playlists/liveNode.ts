@@ -6,7 +6,7 @@ import type { Curve } from "../../../../engine/core/curve";
 import type { Effect } from "../../../../engine/audio/effects/types";
 import type { VoiceProps } from "../../../../engine/audio/playlist/accumulate";
 import type { PickState } from "../../../../engine/audio/playlist/picks";
-import type { LoopBehaviour, PlaylistBody, SampleEntry } from "../../../../engine/audio/playlist/types";
+import type { ChangeHow, LoopBehaviour, PlaylistBody, SampleEntry } from "../../../../engine/audio/playlist/types";
 import type { ParameterDef } from "../../../../engine/audio/parameters";
 import type { AudioMarkerEvent, AudioVoice, Attenuation } from "../backend";
 import type { Binding, ParamRef } from "../automation";
@@ -34,6 +34,26 @@ export function shapedFade(voice: AudioVoice, shape: FadeShape, seconds: number,
 }
 
 // --- shared shapes ---------------------------------------------------------------------------------------------------
+
+/**
+ * A Switch change waiting for its musical boundary (or a transition bridging to it), for `Audio.debug().music` and
+ * `handle.music.transition`. `rule` is the matched rule's index in the Switch's list, -1 for its `onChange`.
+ */
+export interface PendingSwitchChange {
+  /** The label left and the one changed to (null: plays nothing). */
+  from: string | null;
+  to: string | null;
+  /** Heard time the change lands (for a transition, where the new entry enters once it is bridging). */
+  at: number;
+  how: ChangeHow;
+  rule: number;
+  /** Specificity: 1 both labels exact, 2 `from` exact, 3 `to` exact, 4 wildcards or the default rule. */
+  tier: 1 | 2 | 3 | 4;
+  /** The Switch's playlist path (the container that supplied the rule). */
+  where: string;
+  /** The transition plays and the new entry waits for its Exit marker. */
+  bridging: boolean;
+}
 
 /** A gain factor a node changes while its voices play (a Blend weight, an envelope, the instance's fade). */
 export interface DynGain { gain: number }
@@ -244,6 +264,25 @@ export abstract class LiveNode {
       if (c.stopped) continue;
       const s = c.musicalSource();
       if (s) return s;
+    }
+    return null;
+  }
+
+  /** A voice below still waits for its clip's data (it hasn't reached the core, so it can't start where it was stamped). */
+  waitingForData(): boolean {
+    for (const v of this.voices) if (!v.leaving && v.voice.reason === "waitingForData") return true;
+    for (const c of this.children) if (!c.stopped && c.waitingForData()) return true;
+    return false;
+  }
+
+  /** The Switch change waiting below (the newest playing child's first), null when none. */
+  pendingChange(): PendingSwitchChange | null {
+    if (this.stopped) return null;
+    for (let k = this.children.length - 1; k >= 0; k--) {
+      const c = this.children[k]!;
+      if (c.stopped) continue;
+      const p = c.pendingChange();
+      if (p) return p;
     }
     return null;
   }

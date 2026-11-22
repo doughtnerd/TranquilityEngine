@@ -12,7 +12,8 @@ import { ExportError, isOutputInsideProject, planWebBuild, type BuildOptions, ty
 import { jsonFiles, type EditorProject } from "./projects";
 
 /** The command-line export, for what the editor can't do (desktop packages need Rust and a shell). */
-export const desktopExportCommand = (project: EditorProject, audioCapture = false, audioTake = false) => `npm run export -- "${project.root ?? "<projectDir>"}" --target desktop${audioCapture ? " --audio-capture" : ""}${audioTake ? " --audio-take" : ""}`;
+export const desktopExportCommand = (project: EditorProject, audioCapture = false, audioTake = false, takePictures = true) =>
+  `npm run export -- "${project.root ?? "<projectDir>"}" --target desktop${audioCapture ? " --audio-capture" : ""}${audioTake ? " --audio-take" : ""}${audioTake && !takePictures ? " --no-take-pictures" : ""}`;
 
 async function fetchBytes(url: string): Promise<Uint8Array> {
   const res = await fetch(url);

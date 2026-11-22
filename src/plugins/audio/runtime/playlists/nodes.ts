@@ -14,7 +14,7 @@ import { defaultBlend, defaultQueue, defaultSwitch } from "../../../../engine/au
 import { pickEntry } from "../../../../engine/audio/playlist/picks";
 import { changeFor } from "../../../../engine/audio/playlist/switchRules";
 import type {
-  Adsr, BlendAxis, ChangeHow, Entry, EntryUse, FadeShape, PlaylistBody, PlaylistType, SampleEntry, TimeLength,
+  Adsr, BlendAxis, ChangeHow, ChangeRule, Entry, EntryUse, FadeShape, PlaylistBody, PlaylistType, SampleEntry, SwitchSettings, TimeLength,
 } from "../../../../engine/audio/playlist/types";
 import type { Region1D } from "../../../../engine/audio/playlist/blendWeights";
 import { isLabelled, parameterRange } from "../../../../engine/audio/parameters";
@@ -22,7 +22,7 @@ import { warnOnce } from "../core/handle";
 import { curveParts } from "./curves";
 import { playlistEffectProps } from "./effects";
 import { automationParts, type TimeAuto } from "./levelAutomation";
-import { EmptyNode, LiveNode, type Ctx, type DynGain, type NodeHost, type PVoice, type SpatialPlan } from "./liveNode";
+import { EmptyNode, LiveNode, type Ctx, type DynGain, type NodeHost, type PendingSwitchChange, type PVoice, type SpatialPlan } from "./liveNode";
 import { linkedPlaylist } from "./loader";
 import { FALLBACK_SECONDS_PER_BEAT, MUSICAL_FALLBACK_NOTE, type MusicalSource } from "./musical";
 import { resolveSequence } from "./sequence";
@@ -32,7 +32,7 @@ import { sampleFacts, type SampleFacts } from "./sampleFacts";
 import { VoiceClock, VoiceMusical } from "./voiceMusical";
 
 export { EmptyNode, LiveNode } from "./liveNode";
-export type { Ctx, DynGain, LoopRun, NodeHost, PVoice, SpatialPlan } from "./liveNode";
+export type { Ctx, DynGain, LoopRun, NodeHost, PendingSwitchChange, PVoice, SpatialPlan } from "./liveNode";
 
 /** Below this a weight counts as zero (the prototype drops entries under 1e-4). */
 export const ZERO_WEIGHT = 1e-4;
@@ -55,7 +55,8 @@ export function useCtx(host: NodeHost, ctx: Ctx, use: EntryUse): Ctx {
   const hasCurves = Object.keys(use.curves).length > 0;
   if (use.volume === 0 && use.pitch === 0 && !hasCurves) return ctx;
   const parts = hasCurves ? curveParts(use.curves, ctx, (n) => host.paramRef(n), (c) => host.curveId(c), ctx.where) : ctx;
-  return { ...ctx, props: accumulate(ctx.props, { gainDb: use.volume, pitchSt: use.pitch }), bindings: parts.bindings, timeCurves: parts.timeCurves };
+  const quantized = "quantized" in parts && parts.quantized ? { quantized: parts.quantized } : {};
+  return { ...ctx, props: accumulate(ctx.props, { gainDb: use.volume, pitchSt: use.pitch }), bindings: parts.bindings, timeCurves: parts.timeCurves, ...quantized };
 }
 
 /** A playlist's own level below `ctx`: volume and pitch with their random ranges (drawn per trigger), effects, output, spatial, delay. */
@@ -323,11 +324,18 @@ class SwitchNode extends LiveNode {
     if (next === this.label) return;
     const from = this.label;
     this.label = next;
-    this.change(changeFor(this.s, from ?? "", next ?? ""));
+    this.change(changeFor(this.s, from ?? "", next ?? ""), from);
   }
 
   /** Bumped per change: a change still waiting for its boundary when a newer one arrives is dropped. */
   private serial = 0;
+  /** The change waiting for its boundary (or bridging to it), for the debug rows and `handle.music.transition`. */
+  private waiting: PendingSwitchChange | null = null;
+
+  override pendingChange(): PendingSwitchChange | null {
+    if (this.stopped) return null;
+    return this.waiting ?? super.pendingChange();
+  }
 
   /** The musical clock of the entry playing now (ADR 0329: Switch timing waits on the playing entry). */
   private clock(): MusicalSource | null {
@@ -338,16 +346,22 @@ class SwitchNode extends LiveNode {
     return this.clock() ?? super.musicalSource();
   }
 
-  private change(how: ChangeHow): void {
+  private change(how: ChangeHow, from: string | null): void {
     if (how.when === "nextTrigger") return; // the playing entry carries on; the next trigger reads the new label
     const serial = ++this.serial;
+    this.waiting = null;
     if (how.when !== "now") {
       const at = this.clock()?.nextBoundary(how.when, this.host.startOf(null)) ?? null;
       if (at === null) warnOnce(`playlist:switch-when:${this.ctx.where}:${how.when}`, `[myco] ${this.ctx.where}: a Switch change at the next ${how.when} ${MUSICAL_FALLBACK_NOTE}.`);
       else {
         // ADR 0336 (pre-entry): an incoming sequence with an Entry marker starts that much early, so its timer is too.
         const lead = how.how === "transition" ? 0 : this.preEntry(this.label);
-        this.host.schedule(at - lead - LOOKAHEAD, () => { if (serial === this.serial) this.apply(how, at); });
+        this.waiting = pendingOf(this.s, how, from, this.label, at, this.ctx.where);
+        this.host.schedule(at - lead - LOOKAHEAD, () => {
+          if (serial !== this.serial) return;
+          this.waiting = null;
+          this.apply(how, at);
+        });
         return;
       }
     }
@@ -422,13 +436,23 @@ class SwitchNode extends LiveNode {
     const enter = exit !== null && exit > from ? exit : from;
     const lead = this.preEntry(this.label);
     const serial = this.serial;
+    if (enter > from) this.waiting = { ...pendingOf(this.s, how, null, this.label, enter, this.ctx.where), bridging: true };
     this.host.schedule(enter - lead - LOOKAHEAD, () => {
       if (serial !== this.serial || this.stopped) return;
+      this.waiting = null;
       if (tOut.seconds > 0) t.leave(tOut.seconds, enter, tOut.shape); else cutAt(t, enter);
       this.startFor(this.label, fade, enter - lead, how.shapeIn ?? "equalPower");
     });
     return true;
   }
+}
+
+/** The debug view of a change from `from` to `to` landing at `at` (the rule's index and specificity, ADR 0166's tiers). */
+function pendingOf(s: SwitchSettings, how: ChangeHow, from: string | null, to: string | null, at: number, where: string): PendingSwitchChange {
+  const rule = s.rules.indexOf(how as ChangeRule);
+  const r = rule >= 0 ? s.rules[rule]! : null;
+  const tier = !r ? 4 : r.from !== "*" && r.to !== "*" ? 1 : r.from !== "*" ? 2 : r.to !== "*" ? 3 : 4;
+  return { from, to, at, how, rule, tier, where, bridging: false };
 }
 
 /**

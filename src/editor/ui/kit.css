@@ -81,3 +81,17 @@ button.kit-chip { cursor: pointer; }
 .kit-shortcuts-none { color: var(--muted); }
 .kit-shortcuts-buttons { align-items: center; }
 .kit-shortcuts-single { margin-right: auto; display: flex; align-items: center; gap: 6px; color: var(--muted); }
+
+/* Panel fields (PanelFields.tsx): a labelled row, a number box, a select, a collapsible section */
+.kit-field { display: grid; grid-template-columns: minmax(90px, 34%) 1fr; align-items: center; gap: 6px; padding: 2px 8px; min-height: 24px; }
+.kit-field-label { color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
+.kit-field-control { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.kit-unit { color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.kit-num { width: 64px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; font-variant-numeric: tabular-nums; }
+.kit-num:focus { border-color: var(--focus-ring); outline: none; }
+.kit-select { background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; min-width: 0; }
+.kit-section { border-bottom: 1px solid var(--border); }
+.kit-section-head { display: flex; align-items: center; gap: 6px; padding: 5px 8px; cursor: pointer; color: var(--text-strong); font-weight: 600; font-size: calc(12px * var(--ui-scale)); }
+.kit-section-actions { margin-left: auto; }
+.kit-section-body { padding-bottom: 6px; display: flex; flex-direction: column; gap: 2px; }
+.kit-note { color: var(--muted); margin: 6px 8px; font-size: calc(12px * var(--ui-scale)); }

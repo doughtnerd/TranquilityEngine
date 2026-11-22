@@ -36,6 +36,8 @@ export interface ExportOptions {
   audioCapture?: boolean;
   /** ADR 0334: ship the take trigger (F10): the game can record takes for the Studio (default off). */
   audioTake?: boolean;
+  /** ADR 0334: with `audioTake`, false keeps pictures of the game view out of takes (default: takes record them). */
+  audioTakeFrames?: boolean;
   log?: (line: string) => void;
 }
 
@@ -61,7 +63,7 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   if (isOutputInsideProject(project.root, out)) {
     throw new ExportError(`The output folder "${out}" is inside the project, where the next export would copy it in. Use a folder outside it, or under its dist/ folder.`);
   }
-  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture, audioTake: options.audioTake });
+  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture, audioTake: options.audioTake, audioTakeFrames: options.audioTakeFrames });
   const playerDir = options.playerDir ?? (await ensurePlayer(log));
 
   const folder = nodeFolder(out);

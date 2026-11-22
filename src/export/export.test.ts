@@ -169,6 +169,16 @@ describe("the audio take option (ADR 0334)", () => {
     expect(parseArgs(["proj", "--audio-take"])).toEqual({ projectDir: "proj", audioTake: true });
     expect(USAGE).toMatch(/--audio-take[\s\S]*F10/);
   });
+
+  it("takes record pictures unless asked not to: audioTakeFrames false (with audioTake), --no-take-pictures", async () => {
+    expect((await planWebBuild(source(), { audioTake: true })).manifest).not.toHaveProperty("audioTakeFrames");
+    const off = await planWebBuild(source(), { audioTake: true, audioTakeFrames: false });
+    expect(JSON.parse(off.generated.get("game.json")!)).toMatchObject({ audioTake: true, audioTakeFrames: false });
+    expect((await planWebBuild(source(), { audioTakeFrames: false })).manifest).not.toHaveProperty("audioTakeFrames"); // no takes, nothing to say
+    expect(parseArgs(["proj", "--audio-take", "--no-take-pictures"])).toEqual({ projectDir: "proj", audioTake: true, audioTakeFrames: false });
+    expect(() => parseArgs(["proj", "--no-take-pictures"])).toThrow(/--audio-take/);
+    expect(USAGE).toMatch(/--no-take-pictures/);
+  });
 });
 
 describe("desktop project", () => {

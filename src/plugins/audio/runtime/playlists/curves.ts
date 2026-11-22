@@ -20,6 +20,7 @@ import { evalCurve, type Curve, type CurveKey } from "../../../../engine/core/cu
 import type { CurveInput, VoiceCurve, VoiceCurveTarget } from "../../../../engine/audio/playlist/types";
 import { warnOnce } from "../core/handle";
 import { AutoTarget, MAX_BINDINGS, TimeParam, timeParam, type Binding, type ParamRef } from "../automation";
+import { QuantLane } from "./quantizedLanes";
 
 /** The core target of each voice curve target. */
 const TARGETS: Record<VoiceCurveTarget, AutoTarget> = {
@@ -104,6 +105,8 @@ export function toCoreCurve(curve: Curve, target: "gain" | "pitch"): Curve {
 export interface CurveParts {
   bindings: Binding[];
   timeCurves: TimeCurve[];
+  /** Curves keyed on a parameter with `quantize` (`quantizedLanes.ts`), after the parent's; absent: none added. */
+  quantized?: QuantLane[];
 }
 
 /**
@@ -112,17 +115,26 @@ export interface CurveParts {
  */
 export function curveParts(
   curves: Partial<Record<VoiceCurveTarget, VoiceCurve>>,
-  parent: { readonly bindings: readonly Binding[]; readonly timeCurves: readonly TimeCurve[] },
+  parent: { readonly bindings: readonly Binding[]; readonly timeCurves: readonly TimeCurve[]; readonly quantized?: readonly QuantLane[] },
   paramRef: (name: string) => ParamRef | null,
   curveId: (curve: Curve) => number | null,
   where: string,
 ): CurveParts {
   let bindings = parent.bindings as Binding[];
   const timeCurves = parent.timeCurves as TimeCurve[];
+  let quantized: QuantLane[] | undefined;
   for (const target of Object.keys(curves) as VoiceCurveTarget[]) {
     const vc = curves[target];
     if (!vc || vc.bypass || vc.curve.length === 0) continue;
     const input: CurveInput = vc.input;
+    if (vc.quantize !== undefined) {
+      // A curve on a parameter that moves only on the musical clock's boundaries: a quantised lane, not a binding.
+      if (typeof input !== "string") {
+        if (paramRef(input.parameter)) (quantized ??= [...(parent.quantized ?? [])]).push(new QuantLane(input.parameter, vc.curve, vc.quantize, where, target));
+        continue;
+      }
+      warnOnce(`playlist:quantize-time:${where}:${target}`, `[myco] ${where}: the ${target} curve is keyed on ${input}; quantize applies to curves keyed on a parameter and is ignored.`);
+    }
     const p = typeof input === "string" ? timeParam(TIME_INPUTS[input] ?? TimeParam.Voice) : paramRef(input.parameter);
     if (!p) continue;
     const id = curveId(target === "gain" || target === "pitch" ? toCoreCurve(vc.curve, target) : vc.curve);
@@ -134,7 +146,7 @@ export function curveParts(
     if (bindings === parent.bindings) bindings = bindings.slice();
     bindings.push({ param: p, curve: id, target: TARGETS[target] });
   }
-  return { bindings, timeCurves };
+  return quantized ? { bindings, timeCurves, quantized } : { bindings, timeCurves };
 }
 
 /**

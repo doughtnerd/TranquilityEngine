@@ -35,6 +35,7 @@ import { NO_AUDITION, auditionScene, isSilenced, liveUpdate, toggleMute, toggleS
 import { INITIAL_SLAB, type Slab } from "./elevation";
 import { sameMotion, startFrameLoop } from "./liveMotion";
 import { boundsOf, type P2 } from "./geometry";
+import { baseSoundRefs } from "./voicesTable";
 import { blankScene, copyScene, gameScene, sceneFromTake, type NewSceneKind } from "./newScene";
 import { activeListener, deleteObject, framePoints, duplicateObject, findObject, KIND_NOUN, pasteObject, positionOf, type EditResult, type SceneObject } from "./sceneEdits";
 import { isScenePath, sceneName, type FolderChange, type SceneEntry } from "./sceneTree";
@@ -409,7 +410,8 @@ function build(s: AudioTestScene): boolean {
   if (!world) return false;
   const a = auditionScene(s, audition.peek());
   try {
-    player = playAudioTestScene(world, a);
+    // D43: the base game scene's own sounds play underneath; the Voices table and the rays read them too.
+    player = playAudioTestScene(world, a, { base: baseSoundRefs(loadedBase?.path === s.base ? loadedBase.loaded.import : null) });
   } catch (err) {
     status.value = { kind: "error", text: `Couldn't play the scene: ${err instanceof Error ? err.message : String(err)}` };
     player = null;

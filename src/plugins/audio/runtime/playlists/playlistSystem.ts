@@ -21,7 +21,9 @@ import { playlistHost, type HostedRuntime } from "./host";
 import { taps } from "../mix/profileTaps";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { loadPlaylist, samplePlaylist } from "./loader";
-import { PlaylistInstance, type InstanceSystem, type PlaylistOptions } from "./instance";
+import { PlaylistInstance, type InstanceSystem, type PlaylistOptions, type StingerOutcome } from "./instance";
+import { musicRowOf } from "./musicRows";
+import type { MusicDebugRow } from "../debugTypes";
 
 /** A row of `Audio.debug().events`: one playlist instance (`asset` is the playlist's path) and its late-start count. */
 export interface EventDebugRow {
@@ -74,6 +76,7 @@ const LINGERING_MAX = 64;
 interface Timer { at: number; run: () => void; instance: PlaylistInstance }
 
 const emptyRefused = (): Record<PlaylistRefusalReason, number> => ({ cooldown: 0, chance: 0, maxInstances: 0, missing: 0, unsupported: 0 });
+const emptyStingers = (): Record<StingerOutcome, number> => ({ played: 0, late: 0, skipped: 0, dropped: 0 });
 
 export class PlaylistSystem implements HostedRuntime, InstanceSystem {
   private readonly live = new Set<PlaylistInstance>();
@@ -88,6 +91,7 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
   private readonly refusals: PlaylistRefusal[] = [];
   private readonly steals: PlaylistSteal[] = [];
   private lateStarts = 0;
+  private stingerTotals = emptyStingers();
   private endsSeen = 0;
   /** Audio event paths already warned about (one warning each per session). */
   private readonly refusedEvents = new Set<string>();
@@ -168,6 +172,7 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
     this.refusals.length = 0;
     this.steals.length = 0;
     this.lateStarts = 0;
+    this.stingerTotals = emptyStingers();
     this.endsSeen = mixer.voicesEnded;
     this.refusedEvents.clear();
   }
@@ -214,6 +219,10 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
     }
     if (instance.hasVoices && instance.group > 0) this.holding.push(instance);
     else playlistHost().giveGroup(instance.group);
+  }
+
+  noteStinger(outcome: StingerOutcome): void {
+    this.stingerTotals[outcome]++;
   }
 
   noteParameter(name: string, def: ParameterDef, value: number, instance: number | null): void {
@@ -271,6 +280,26 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
     row.parameters = i.parameterValuesShared();
     row.lateStarts = i.lateStarts;
     rows.push(row);
+  }
+
+  /**
+   * Rows for `Audio.debug().music` (`musicRows.ts`): every playing instance whose playing entry has a musical clock with
+   * a tempo, heard now. Fresh objects; debug only.
+   */
+  musicRows(): MusicDebugRow[] {
+    const now = playlistHost().clock();
+    const rows: MusicDebugRow[] = [];
+    for (const i of this.live) {
+      if (!i.playing) continue;
+      const r = musicRowOf(i, now);
+      if (r) rows.push(r);
+    }
+    return rows;
+  }
+
+  /** Stinger outcomes over the session, ended instances included (`Audio.debug().musicTotals.stingers`). */
+  stingerOutcomes(): Record<StingerOutcome, number> {
+    return { ...this.stingerTotals };
   }
 
   totals(): PlaylistTotals {

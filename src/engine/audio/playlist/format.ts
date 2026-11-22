@@ -302,7 +302,10 @@ class PlaylistReader {
     if (!isRecord(raw)) { r.problem(where, "a curve must be an object { input, curve }; dropped."); return null; }
     const curve = r.curve(raw.curve, `${where}.curve`);
     if (!curve || curve.length === 0) { if (curve) r.problem(`${where}.curve`, "has no keys; dropped."); return null; }
-    return { input: this.input(raw.input, `${where}.input`, "voiceTime"), curve, bypass: r.bool(raw.bypass, `${where}.bypass`, false) };
+    const out: VoiceCurve = { input: this.input(raw.input, `${where}.input`, "voiceTime"), curve, bypass: r.bool(raw.bypass, `${where}.bypass`, false) };
+    const quantize = this.quantize(raw.quantize, `${where}.quantize`);
+    if (quantize !== undefined) out.quantize = quantize;
+    return out;
   }
 
   /** Automation lanes; `instance` (a playlist's own lanes) takes voice time or a parameter only. */
@@ -690,6 +693,7 @@ function useToJson(e: EntryUse, out: JsonRecord): void {
     if (!c) continue;
     const json: JsonRecord = { input: inputToJson(c.input), curve: curveToJson(c.curve) };
     if (c.bypass) json.bypass = true;
+    if (c.quantize !== undefined) json.quantize = typeof c.quantize === "string" ? c.quantize : { beats: c.quantize.beats };
     curves[t] = json;
   }
   if (Object.keys(curves).length) out.curves = curves;

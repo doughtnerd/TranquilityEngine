@@ -12,7 +12,7 @@ import { SoundPicker } from "../../components/SoundPicker";
 import type { SoundItem } from "../../components/soundPickerModel";
 import { soundName } from "../../components/soundPickerModel";
 import { TypeBadge } from "../../components/TypeBadge";
-import { FieldRow, NumberBox, Section, SelectBox } from "../playlists/fields";
+import { FieldRow, NumberBox, Section, SelectBox } from "../../../editor/ui/PanelFields";
 import { ROLLOFF_PRESETS } from "./attenuationModel";
 import type { AttenuationPreset } from "../../../engine/audio/attenuation/types";
 import { depthIn } from "./geometry";

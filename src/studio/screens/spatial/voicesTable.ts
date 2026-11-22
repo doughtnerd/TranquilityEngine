@@ -1,12 +1,41 @@
 // The Voices panel and the plan's rays (ADR 0333 "The Voices table reads the runtime's own debug rows"; the prototype's
 // Voices table, B.4): one row per emitter, audio zone and 2D sound with how it is heard, read from the test scene
-// player's `voices()` readout, never simulated. A ray runs from the active listener to each playing positioned sound:
-// solid when it is heard clear, dashed when something occludes it.
+// player's `voices()` readout, never simulated; the base game scene's own emitters and audio zones follow the scene's
+// (decision log D43: they play underneath, so they are heard too), marked as the base's. A moving emitter's distance is
+// read each animation frame from where it is now (`liveMotion.ts`). A ray runs from the active listener to each playing
+// positioned sound, a moving emitter where it is now: solid when it is heard clear, dashed when something occludes it.
 //
 // Pure: no DOM, no signals.
-import type { TestSceneRendering, TestSceneVoiceRow } from "../../../plugins/audio/runtime/testScene/player";
-import type { AudioTestScene } from "../../../engine/audio/spatial/testSceneTypes";
-import { findObject } from "./sceneEdits";
+import type { BaseSoundRef, TestSceneMotionRow, TestSceneRendering, TestSceneVoiceRow } from "../../../plugins/audio/runtime/testScene/player";
+import type { BaseSceneImport, BaseSceneObject } from "../../../engine/audio/spatial/baseScene";
+import type { AudioTestScene, Vec3 } from "../../../engine/audio/spatial/testSceneTypes";
+import { nearestOnBox, type P2 } from "./geometry";
+import { liveDistanceText, placeNow } from "./liveMotion";
+import { activeListener, boxOf, findObject } from "./sceneEdits";
+
+/** The id a base scene's sound has in the readout (apart from the scene's own ids). */
+export const baseSoundId = (key: string): string => `base:${key}`;
+
+/** The base scene's object a readout id names, or null for the scene's own. */
+export function baseObjectOf(base: BaseSceneImport | null | undefined, id: string): BaseSceneObject | null {
+  if (!base || !id.startsWith("base:")) return null;
+  const key = id.slice(5);
+  return base.objects.find((o) => o.key === key) ?? null;
+}
+
+/**
+ * The base scene's sounds for the player to read (`PlayAudioTestSceneOptions.base`): each active emitter and audio zone,
+ * by the `replace` key of its component (`"Cave/Campfire/AudioSource"`, `[i]` past the first of its type on the node).
+ */
+export function baseSoundRefs(base: BaseSceneImport | null | undefined): BaseSoundRef[] {
+  if (!base) return [];
+  return base.objects
+    .filter((o) => o.active && (o.kind === "emitter" || o.kind === "audioZone"))
+    .map((o) => {
+      const short = o.type.replace(/^engine\./, "");
+      return { id: baseSoundId(o.key), path: `${o.path}/${short}${o.index > 0 ? `[${o.index}]` : ""}` };
+    });
+}
 
 /** What the Rendered column says for each rendering (the legend's words). */
 export const RENDERED_LABEL: Readonly<Record<TestSceneRendering, string>> = {
@@ -32,6 +61,8 @@ export interface VoiceTableRow {
   readonly dopplerText: string;
   /** Muted or not soloed in the audition. */
   readonly silenced: boolean;
+  /** One of the base game scene's own sounds (read-only, not in the scene). */
+  readonly base: boolean;
 }
 
 const dbOf = (gain: number) => (gain <= 0 ? -Infinity : 20 * Math.log10(gain));
@@ -61,21 +92,35 @@ export function dopplerText(row: TestSceneVoiceRow): string {
 
 export const distanceText = (row: TestSceneVoiceRow): string => (row.distance === null ? "—" : `${row.distance.toFixed(1)} m`);
 
-/** The table's rows, in the readout's order, named from the scene. */
-export function voiceTable(scene: AudioTestScene, rows: readonly TestSceneVoiceRow[], silenced: (id: string) => boolean = () => false): VoiceTableRow[] {
+/** What else the table reads: the base scene (names its sounds) and, while playing, where each emitter is now. */
+export interface VoiceTableContext {
+  readonly base?: BaseSceneImport | null;
+  readonly motion?: readonly TestSceneMotionRow[];
+}
+
+/**
+ * The table's rows, in the readout's order, named from the scene (a base sound by its node's name). A moving emitter's
+ * distance is from where it is now when `motion` has it (read every frame), else the readout's.
+ */
+export function voiceTable(scene: AudioTestScene, rows: readonly TestSceneVoiceRow[], silenced: (id: string) => boolean = () => false, ctx: VoiceTableContext = {}): VoiceTableRow[] {
+  const listener = activeListener(scene).position;
   return rows.map((r) => {
     const o = findObject(scene, r.id);
+    const b = o ? null : baseObjectOf(ctx.base, r.id);
+    const moving = o?.kind === "emitter" && o.obj.kind === "moving" && ctx.motion?.some((m) => m.id === r.id);
+    const quiet = !b && silenced(r.id);
     return {
       id: r.id,
-      name: o?.obj.name ?? r.id,
+      name: o?.obj.name ?? b?.name ?? r.id,
       kind: r.kind,
       playing: r.playing,
       rendered: r.rendered,
-      renderedText: silenced(r.id) ? "Muted" : !r.playing ? "Not playing" : r.rendered ? RENDERED_LABEL[r.rendered] : "—",
-      distanceText: distanceText(r),
+      renderedText: quiet ? "Muted" : !r.playing ? "Not playing" : r.rendered ? RENDERED_LABEL[r.rendered] : "—",
+      distanceText: moving && o ? liveDistanceText(placeNow(o, ctx.motion!)!, listener) : distanceText(r),
       occlusionText: occlusionText(r),
       dopplerText: dopplerText(r),
-      silenced: silenced(r.id),
+      silenced: quiet,
+      base: b !== null,
     };
   });
 }
@@ -84,6 +129,22 @@ export function voiceTable(scene: AudioTestScene, rows: readonly TestSceneVoiceR
 export interface Ray {
   readonly id: string;
   readonly occluded: boolean;
+}
+
+/**
+ * Where a ray to readout row `id` ends: a moving emitter where it is now (`motion`), a zone's nearest point to the
+ * listener, a point object where it is; a base sound at its object's place (a box zone's nearest point). Null when the
+ * id names nothing on the plan.
+ */
+export function rayEnd(scene: AudioTestScene, id: string, listener: Vec3, motion: readonly TestSceneMotionRow[], base?: BaseSceneImport | null): P2 | null {
+  const o = findObject(scene, id);
+  if (o) {
+    const box = boxOf(o);
+    return box ? nearestOnBox(box, listener) : placeNow(o, motion);
+  }
+  const b = baseObjectOf(base, id);
+  if (!b) return null;
+  return b.box ? nearestOnBox(b.box, listener) : b.position;
 }
 
 export function raysOf(rows: readonly TestSceneVoiceRow[]): Ray[] {
