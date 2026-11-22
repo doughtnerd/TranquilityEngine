@@ -1,7 +1,7 @@
 //! Full-body IK: FABRIK over a tree of chains, with effectors for chain ends and the root, a body
 //! pull and a centre-of-mass target.
 
-use crate::geom::{fraction, from_to, from_to_pair, normalize_or, unit_clamp, DEGENERATE_SQ};
+use crate::geom::{fraction, from_to, normalize_or, unit_clamp, DEGENERATE_SQ};
 use crate::pose::{
     blend_rotation, chain_parent_rotation, gather, parent_space_point, ChainJoint, RigPose,
 };
@@ -116,20 +116,81 @@ pub fn scratch_len(chains: &[BodyChain]) -> usize {
     chains.iter().map(|c| c.bones.len()).sum()
 }
 
-/// The rotation that best carries the old child directions onto the new ones: the first child
-/// exactly, then a twist about it for the second (2 children) or for the vector from the second
-/// to the third (3 or more, e.g. thigh to thigh, shoulder to shoulder).
-fn branch_rotation(old: &[AosVec3], new: &[AosVec3]) -> AosQuat {
+/// Iterations of the weighted rotation fit in [`branch_rotation`].
+const FIT_ITERATIONS: usize = 4;
+
+/// The rotation that best carries the old child directions onto the new ones, weighting each
+/// child by `weights`: starting from identity, each round turns by the weighted, normalised sum
+/// of the shortest arcs `from_to(q·oldₖ, newₖ)` (an iterative weighted Procrustes fit; it is
+/// exact for one child and converges to `R` when the new directions are the old ones turned by
+/// `R`). Children that carry effectors (the planted legs at the hips) dominate the fit.
+fn branch_rotation(old: &[AosVec3], new: &[AosVec3], weights: &[f32]) -> AosQuat {
     let n = old.len();
     if n == 0 {
         return AosQuat::identity();
     }
-    let u1 = normalize_or(old[0], AosVec3::new(0.0, 1.0, 0.0));
-    let v1 = normalize_or(new[0], u1);
-    match n {
-        1 => from_to(u1, v1),
-        2 => from_to_pair(u1, old[1], v1, new[1]),
-        _ => from_to_pair(u1, old[2] - old[1], v1, new[2] - new[1]),
+    if n == 1 {
+        let u = normalize_or(old[0], AosVec3::new(0.0, 1.0, 0.0));
+        return from_to(u, normalize_or(new[0], u));
+    }
+    let mut q = AosQuat::identity();
+    for _ in 0..FIT_ITERATIONS {
+        let mut sum = AosQuat::new(0.0, 0.0, 0.0, 0.0);
+        for k in 0..n {
+            let u = normalize_or(q.rotate(old[k]), AosVec3::new(0.0, 1.0, 0.0));
+            let v = normalize_or(new[k], u);
+            sum = sum + from_to(u, v).scale(weights[k]);
+        }
+        q = (sum.normalize_or_identity() * q).normalize_or_identity();
+    }
+    q
+}
+
+/// Fits the branch bone whose rotation the children of `parent` (`None`: the root chains) share
+/// to those children's current first-joint positions ([`branch_rotation`] about `base`), blends
+/// in `effector`'s rotation, and places each child's first segment rigidly from `base`.
+fn fit_branch(
+    s: &mut [ChainJoint],
+    chains: &[BodyChain],
+    off: &[usize; MAX_CHAINS],
+    weight: &[f32; MAX_CHAINS],
+    nc: usize,
+    parent: Option<usize>,
+    base: AosVec3,
+    effector: Option<&Effector>,
+) {
+    let is_child = |c: &BodyChain| c.parent.map(|p| p as usize) == parent;
+    let Some(first) = (0..nc).find(|&k| is_child(&chains[k])) else {
+        return;
+    };
+    let r_cur = s[off[first]].rotation;
+    let mut old = [AosVec3::zero(); MAX_CHAINS];
+    let mut new = [AosVec3::zero(); MAX_CHAINS];
+    let mut w = [0.0f32; MAX_CHAINS];
+    let mut k = 0;
+    for c in 0..nc {
+        if is_child(&chains[c]) {
+            let o = off[c];
+            old[k] = r_cur.rotate(s[o].offset);
+            new[k] = s[o + 1].position - base;
+            w[k] = weight[c];
+            k += 1;
+        }
+    }
+    let mut r = (branch_rotation(&old[..k], &new[..k], &w[..k]) * r_cur).normalize_or_identity();
+    if let Some(e) = effector {
+        r = blend_rotation(r, e.rotation, e.rotation_weight);
+    }
+    if let Some(p) = parent {
+        s[off[p] + chains[p].bones.len() - 1].rotation = r;
+    }
+    for c in 0..nc {
+        if is_child(&chains[c]) {
+            let o = off[c];
+            s[o].rotation = r;
+            s[o].position = base;
+            s[o + 1].position = base + r.rotate(s[o].offset);
+        }
     }
 }
 
@@ -155,14 +216,19 @@ fn branch_rotation(old: &[AosVec3], new: &[AosVec3]) -> AosQuat {
 ///    mean of the chain bones and `goal = COM₀ + weight·(target − COM₀)` (projected off `up`
 ///    when given). Then the root moves from the anchor toward the weighted centroid of the root
 ///    chains' sub-base estimates by `body_pull·(1 − root.position_weight)`.
-/// 3. **Forward pass**, chains first to last: the sub-base takes the root's (or the parent
-///    chain's final end) position, and `pⱼ₊₁ ← pⱼ + normalize(pⱼ₊₁ − pⱼ)·lⱼ`.
-/// 4. Repeat 1–3 until every weighted effector is within `tolerance`, or `iterations`.
+/// 3. **Forward pass**, chains first to last. A sub-base bone (the root, a chain end with
+///    children such as the chest) is **fitted** to its children's backward positions (a
+///    weighted rotation fit, [`branch_rotation`], weighted like the centroids), its effector
+///    rotation blended in, and each child chain's first segment
+///    (hips to thigh, chest to clavicle) is placed rigidly from it, so the bones fixed to a
+///    sub-base keep their shape. The rest of each chain follows
+///    `pⱼ₊₁ ← pⱼ + normalize(pⱼ₊₁ − pⱼ)·lⱼ`.
+/// 4. Repeat 1–3 until every weighted effector (and the centre of mass) is within `tolerance`,
+///    or `iterations`.
 /// 5. **Rotations**, top-down. An inner bone keeps the twist it inherits (`parent' · local`) and
-///    turns by the shortest arc onto its new bone direction. A branch bone (the root, the chest)
-///    turns to fit its children ([`from_to_pair`]: the first child exactly, then the second, or
-///    the second-to-third vector, about it). A leaf end keeps its inherited rotation, blended
-///    toward its effector rotation by `rotation_weight`. The root's translation is written too.
+///    turns by the shortest arc onto its new bone direction; a sub-base bone takes its fitted
+///    rotation; a leaf end keeps its inherited rotation, blended toward its effector rotation by
+///    `rotation_weight`. The root's translation is written too.
 ///
 /// Locals are blended from the input by `goal.weight`. Effectors that pull apart can't all be
 /// reached; the result is FABRIK's weighted compromise. Never allocates.
@@ -293,17 +359,21 @@ pub fn full_body(
     let mut base_est = [AosVec3::zero(); MAX_CHAINS];
     let mut iterations = 0;
     let tol = goal.tolerance.max(0.0);
-    while iterations < goal.iterations
-        && (error_of(s) > tol || (com_goal.is_some() && iterations == 0))
-    {
-        iterations += 1;
-        if let (Some(cg), Some(c)) = (com_goal, goal.centre_of_mass) {
-            let mut d = cg - com_of(s, c.masses);
-            if c.up.length_squared() > DEGENERATE_SQ {
-                d = d - c.up.scale(d.dot(c.up));
+    let com_miss = |s: &[ChainJoint]| -> AosVec3 {
+        match (com_goal, goal.centre_of_mass) {
+            (Some(cg), Some(c)) => {
+                let mut d = cg - com_of(s, c.masses);
+                if c.up.length_squared() > DEGENERATE_SQ {
+                    d = d - c.up.scale(d.dot(c.up));
+                }
+                d
             }
-            anchor = anchor + d;
+            _ => AosVec3::zero(),
         }
+    };
+    while iterations < goal.iterations && (error_of(s) > tol || com_miss(s).length() > tol) {
+        iterations += 1;
+        anchor = anchor + com_miss(s);
         let shift = root_pos - root_start;
 
         // 1. Backward.
@@ -345,49 +415,28 @@ pub fn full_body(
         let root_bwd = sum.scale(1.0 / wsum);
         root_pos = anchor + (root_bwd - anchor).scale(pull);
 
-        // 3. Forward.
+        // 3. Forward. Branch bones (the root, then each chain end with children) are fitted to
+        // their children and place each child chain's first segment rigidly.
+        fit_branch(s, chains, &off, &weight, nc, None, root_pos, None);
         for ci in 0..nc {
             let len = chains[ci].bones.len();
             let o = off[ci];
-            let start = match chains[ci].parent {
-                None => root_pos,
-                Some(p) => {
-                    let p = p as usize;
-                    s[off[p] + chains[p].bones.len() - 1].position
-                }
-            };
-            s[o].position = start;
-            for j in 0..len - 1 {
+            for j in 1..len - 1 {
                 let bone_dir = s[o + j].rotation.rotate(s[o + j].offset);
                 let d = s[o + j + 1].position - s[o + j].position;
                 let dir = normalize_or(d, normalize_or(bone_dir, AosVec3::new(0.0, 1.0, 0.0)));
                 s[o + j + 1].position = s[o + j].position + dir.scale(s[o + j].length);
+            }
+            if has_children[ci] {
+                let end = s[o + len - 1].position;
+                fit_branch(s, chains, &off, &weight, nc, Some(ci), end, Some(&goal.effectors[ci]));
             }
         }
     }
     let error = error_of(s);
 
     // 5. Rotations, top-down.
-    let mut old = [AosVec3::zero(); MAX_CHAINS];
-    let mut new = [AosVec3::zero(); MAX_CHAINS];
-    let r_root = {
-        let r_inh = s[0].rotation;
-        let mut k = 0;
-        for ci in 0..nc {
-            if chains[ci].parent.is_none() {
-                let o = off[ci];
-                old[k] = r_inh.rotate(s[o].offset);
-                new[k] = s[o + 1].position - root_pos;
-                k += 1;
-            }
-        }
-        (branch_rotation(&old[..k], &new[..k]) * r_inh).normalize_or_identity()
-    };
-    for ci in 0..nc {
-        if chains[ci].parent.is_none() {
-            s[off[ci]].rotation = r_root;
-        }
-    }
+    let r_root = s[0].rotation;
     let w = goal.weight;
     let root_local = (root_parent.rotation.conjugate() * r_root).normalize_or_identity();
     pose.blend_local_rotation(root as usize, root_local, w);
@@ -405,29 +454,14 @@ pub fn full_body(
                 let to = normalize_or(s[o + j + 1].position - s[o + j].position, from);
                 (from_to(from, to) * r_inh).normalize_or_identity()
             } else if has_children[ci] {
-                let mut k = 0;
-                for (kc, child) in chains.iter().enumerate().skip(ci + 1) {
-                    if child.parent == Some(ci as u8) {
-                        let co = off[kc];
-                        old[k] = r_inh.rotate(s[co].offset);
-                        new[k] = s[co + 1].position - s[o + j].position;
-                        k += 1;
-                    }
-                }
-                (branch_rotation(&old[..k], &new[..k]) * r_inh).normalize_or_identity()
+                // Fitted in the forward pass (its effector rotation included).
+                s[o + j].rotation
             } else {
                 r_inh
             };
-            if j + 1 == len {
+            if j + 1 == len && !has_children[ci] {
                 let eff = &goal.effectors[ci];
                 r = blend_rotation(r, eff.rotation, eff.rotation_weight);
-                if has_children[ci] {
-                    for (kc, child) in chains.iter().enumerate().skip(ci + 1) {
-                        if child.parent == Some(ci as u8) {
-                            s[off[kc]].rotation = r;
-                        }
-                    }
-                }
             }
             s[o + j].rotation = r;
             let local = (pr.conjugate() * r).normalize_or_identity();

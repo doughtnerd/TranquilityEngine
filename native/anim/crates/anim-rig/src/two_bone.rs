@@ -89,7 +89,7 @@ pub struct TwoBoneResult {
 ///    line `d` with slope 1 at `dₛ` and approaches `L` without reaching it, so the limb never
 ///    snaps straight. ([`exp_neg`] makes `e^-x` deterministic.)
 /// 2. **Stretch**: with `max_stretch > 1`, the limb scales by `k = clamp(d / d_soft, 1, max)`
-///    (`mid`'s and `tip`'s local translations scale by `k`, which is exact when they are the
+///    (`d_soft` is `min(d, L)` without soft IK; `mid`'s and `tip`'s local translations scale by `k`, which is exact when they are the
 ///    children of `root` and `mid`), so the tip still reaches `T` when
 ///    soft IK alone would leave it short. The placed reach is `r = d_soft·k`, never more than `d`.
 /// 3. The reach is clamped to `[|a − b|, L]` (fully folded to fully straight, scaled by `k`).
@@ -143,7 +143,7 @@ pub fn two_bone(pose: &mut RigPose, limb: TwoBone, goal: &TwoBoneGoal) -> TwoBon
     let d_soft = if band > 1e-6 && d > start {
         start + band * (1.0 - exp_neg((d - start) / band))
     } else {
-        d
+        d.min(full)
     };
     // 2. Stretch.
     let max_stretch = goal.max_stretch.max(1.0);
