@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerPluginEffects, unregisterPluginEffects } from "../../engine/audio/effects/catalogue";
 import { parsePluginAudio } from "../../engine/audio/effects/pluginEffects";
+import type { Effect, EffectType } from "../../engine/audio/effects/types";
 import type { AudioPluginDebug } from "../../plugins/audio/runtime/debugTypes";
 import { effectMenuGroups, faultsText, memoryText, pluginCardView, pluginHealthView } from "./effectChainModel";
 
@@ -26,7 +27,7 @@ const row = (over: Partial<AudioPluginDebug> = {}): AudioPluginDebug => ({
   instructionsPerQuantum: 2 * 41 * 128, faults: { trap: 0, budget: 0, grow: 0, nonFinite: 0, range: 0 }, starved: 0, noInstance: 0, memoryBytes: 64 * 1024, ...over,
 });
 
-const fx = (type: string) => ({ id: "fx1", type, on: true, params: {} });
+const fx = (type: string): Effect => ({ id: "fx1", type: type as EffectType, on: true, params: {} });
 
 beforeEach(() => {
   register("example.tremolo", "Tremolo", true, [decl("example.tremolo", "Tremolo")]);
