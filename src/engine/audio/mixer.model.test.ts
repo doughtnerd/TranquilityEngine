@@ -175,6 +175,28 @@ describe("the mixer runs the audio.json model (ADR 0330)", () => {
     expect(db(m.laneGain("SFX", Lane.snapshot))).toBeCloseTo(-1, 6);
   });
 
+  it("a return's inserts take snapshot overrides and fx: automation, and its volume automation is the core's, as a bus's", () => {
+    const p = project({
+      returns: [{ name: "Reverb", output: "Master", volumeDb: -3, effects: [{ id: "fx1", type: "delay", params: { time: 250, feedback: 30, mix: 100 } }] }],
+      automation: [
+        { on: "Reverb", target: "fx:fx1:feedback", parameter: "threat", curve: [[0, 10], [1, 60]] },
+        { on: "Reverb", target: "volume", parameter: "threat", curve: [[0, 0], [1, -6]] },
+      ],
+      snapshots: [{ name: "Long", fadeInMs: 0, fadeOutMs: 0, effects: { Reverb: { fx1: { time: 400 } } } }],
+    });
+    const { m } = rig(p);
+    const delay = () => m._busEffects("Reverb")![0] as Extract<BusEffect, { type: "fx" }>;
+    expect(delay().params).toMatchObject({ time: 250, feedback: 10 });
+    m.setParameter("threat", 1);
+    m.update(0);
+    expect(delay().params).toMatchObject({ time: 250, feedback: 60 });
+    m.startSnapshot("Long");
+    m.update(0);
+    expect(delay().params).toMatchObject({ time: 400, feedback: 60 });
+    // Volume automation of the return goes to the core (the view's automation), as for a bus.
+    expect(m.audioSettings.automation).toEqual([{ bus: "Reverb", parameter: "threat", target: "volume", curve: [[0, 1], [1, expect.closeTo(Math.pow(10, -6 / 20), 9)]] }]);
+  });
+
   it("send automation runs on the main thread from the parameter", () => {
     const { m } = rig();
     m.setParameter("threat", 1);
