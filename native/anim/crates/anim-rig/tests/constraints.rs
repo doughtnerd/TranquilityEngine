@@ -144,6 +144,18 @@ fn limit_rotation_clamps_twist_and_swing() {
     );
     limit_rotation(&mut rig.pose(), 1, &limit, 1.0);
     assert!((rotation_angle(rig.local(1).rotation).to_degrees() - 45.0).abs() < 1e-3);
+    // From a skeleton's joint range (degrees).
+    let range = anim_format::skeleton::JointRange {
+        swing_y: 30.0,
+        swing_z: 60.0,
+        twist_min: -20.0,
+        twist_max: 45.0,
+    };
+    let from = JointLimit::from_range(AosQuat::identity(), &range);
+    assert!(
+        (from.swing_y - limit.swing_y).abs() < 1e-7
+            && (from.twist_max - limit.twist_max).abs() < 1e-7
+    );
     // Free limits never change anything.
     assert!(JointLimit::FREE
         .limit(axis_angle(1.0, 2.0, 3.0, 170.0))

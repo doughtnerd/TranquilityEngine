@@ -218,11 +218,12 @@ fn fit_branch(
 ///    when given). Then the root moves from the anchor toward the weighted centroid of the root
 ///    chains' sub-base estimates by `body_pull·(1 − root.position_weight)`.
 /// 3. **Forward pass**, chains first to last. A sub-base bone (the root, a chain end with
-///    children such as the chest) is **fitted** to its children's backward positions (a
-///    weighted rotation fit, [`branch_rotation`], weighted like the centroids), its effector
-///    rotation blended in, and each child chain's first segment
-///    (hips to thigh, chest to clavicle) is placed rigidly from it, so the bones fixed to a
-///    sub-base keep their shape. The rest of each chain follows
+///    children such as the chest) is **fitted** to its children's backward positions (an
+///    iterative weighted Procrustes fit: each round turns by the weighted, normalised sum of the
+///    shortest arcs from the current to the wanted child directions, weighted like the
+///    centroids, so planted legs dominate the hips), its effector rotation blended in, and each
+///    child chain's first segment (hips to thigh, chest to clavicle) is placed rigidly from it,
+///    so the bones fixed to a sub-base keep their shape. The rest of each chain follows
 ///    `pⱼ₊₁ ← pⱼ + normalize(pⱼ₊₁ − pⱼ)·lⱼ`.
 /// 4. Repeat 1–3 until every weighted effector (and the centre of mass) is within `tolerance`,
 ///    or `iterations`.
