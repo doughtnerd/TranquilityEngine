@@ -438,7 +438,8 @@ export async function processAudio(build: WebBuildPlan, options: ProcessAudioOpt
     }
     const packaged = sound.packages.length > 0;
     const needsFacts = sound.codec !== "source" || packaged || sound.load !== "decode";
-    if (!needsFacts) return { sound, codec: "source", bytes: input, sourceBytes: input.length, rate: 0, channels: 0, frames: 0, key: "", head: null, cached: true };
+    // Shipped as it is, loose, decoded on load: nothing to convert or to know (the report gives no rate, channels or frames).
+    if (!needsFacts) return { sound, codec: "source", bytes: input, sourceBytes: input.length, rate: 0, channels: 0, frames: 0, key: "", head: null, cached: false };
     const wantsHead = packaged && sound.load === "stream";
     const s = sound.resolution.settings;
     let codec = sound.codec;
