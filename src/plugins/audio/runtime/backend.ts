@@ -680,6 +680,11 @@ export interface AudioBackend {
    * pending backend doesn't (the core's host registers when the core is ready); the fake records registrations.
    */
   readonly effectPlugins?: AudioEffectPlugins;
+  /**
+   * ADR 0337 §7 (W12): packages held by the backend's decoder, whose sounds it commits to its clip memory at load. Absent
+   * (the Babylon fallback): the runtime hands each packaged sound to `play` by an in-memory URL.
+   */
+  readonly packs?: AudioPacks;
 }
 
 /**
@@ -718,6 +723,39 @@ export interface AudioEffectPlugins {
   reset(type: string): void;
   /** Per registered effect: state, instances, faults, instructions, memory (`Audio.debug().plugins`). */
   health(): readonly AudioPluginDebug[];
+}
+
+/**
+ * ADR 0337 §7 (W12): a backend's packages. The package registry (`media/packages.ts`) loads a package's bytes into the
+ * decoder, holds its arena-resident sounds there while it is loaded, and releases both when it unloads. Which loaded
+ * package holds a path the registry answers itself (`core/packMedia.ts`).
+ */
+export interface AudioPacks {
+  /**
+   * Holds `bytes` (a `.mycopak`, transferred) in the decoder as package `pack`. `refetch` fetches the same bytes again,
+   * for a decoder that restarts while the package is loaded. Resolves once it is held; rejects with the reason.
+   */
+  loadPack(pack: number, bytes: ArrayBuffer, refetch: () => Promise<ArrayBuffer>): Promise<void>;
+  /** Drops package `pack` from the decoder (streams already open on it keep their copy). */
+  releasePack(pack: number): void;
+  /**
+   * Commits the sound at `path` (a loaded package's entry) to clip memory now, or its first `frames` frames (a `stream`
+   * sound's prefetch head), and holds it there until `release`.
+   */
+  holdClip(path: string, frames?: number): PackClipHold;
+}
+
+/** A sound `AudioPacks.holdClip` committed (or is committing) to clip memory. */
+export interface PackClipHold {
+  readonly state: "loading" | "ready" | "failed";
+  /** Bytes of clip memory it takes (known once its copy began; 0 before and after a failure). */
+  readonly bytes: number;
+  /**
+   * Resolves once it is resident or failed. While the backend's output is locked (no user gesture yet), once its copy is
+   * queued: the core takes it in as soon as it runs.
+   */
+  settled(): Promise<void>;
+  release(): void;
 }
 
 

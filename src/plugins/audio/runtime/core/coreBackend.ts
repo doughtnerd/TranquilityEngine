@@ -58,7 +58,7 @@
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../../engine/audio/mixer";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioCodecs, AudioOutputDevice, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, ShapedParams, VoiceSpatialOptions, ZoneIrService } from "../backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioCodecs, AudioOutputDevice, AudioPacks, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, ShapedParams, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
 import { BUS_LP_OFF_HZ, FX_MEMORY_SECONDS, readStatus, type BusConfigBuses } from "../wire.generated";
 import { AudioHandle, type AudioReason } from "./handle";
@@ -81,6 +81,9 @@ import { connectVoiceTable, VoiceFlag, VoiceFlag2, VoiceState, VoiceTable } from
 import { reopenStamp, StreamManager, type StreamDecoderLike, type StreamManagerDeps } from "./streams";
 import { WorkletChannel } from "./workletChannel";
 import { sharedDecoderClient } from "../decoder/decoderClient";
+import { createPackHost } from "./packHost";
+import { packedMediaUrl, packedSound } from "./packMedia";
+import { headedVoice } from "./headedVoice";
 import { createWarnOnce, type WarnOnce } from "./codecs";
 import { effectiveMixedCap, Selection } from "./selection";
 import { PannerKind, PannerPick, type PannerKindCode, type PannerSink } from "./pannerPick";
@@ -115,6 +118,8 @@ export interface CorePlayRequest extends PlayRequest {
   music?: MusicMemberTag;
   /** The World key of the playing World (0 or omitted: none). */
   world?: number;
+  /** W12: a stream voice opens its stream at this frame of the file (after a prefetch head that plays frames before it). */
+  streamStartFrame?: number;
 }
 
 /** One voice as `AudioVoice`, with §6's optional members required, plus the handle. */
@@ -229,6 +234,11 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   get codecs(): AudioCodecs {
     return this;
   }
+  /** ADR 0337 §7 (W12): packages in the decoder, their sounds committed to the arena at load (`packHost.ts`). */
+  get packs(): AudioPacks {
+    return (this.packHost ??= createPackHost({ decoder: () => this.decoderOf(), clips: this.clips, locked: () => this.status === "locked" }));
+  }
+  private packHost: AudioPacks | null = null;
 
   /** ADR 0338 §7: plugin effects (the core runs them inside its chains; `effectPlugins/host.ts`). */
   get effectPlugins(): EffectPluginHost {
@@ -282,6 +292,8 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   private readonly voices: CoreVoices;
   /** B3: the stream voices' main side (`streams.ts`). */
   readonly streams: StreamManager;
+  /** The decoder client clips and streams use (W12: packages load into it). */
+  private readonly decoderOf: () => StreamDecoderLike;
   /** ADR 0158 (E3.1): the event runtime's automation sink on the core, and its mirror for a rebuild (`coreAutomation.ts`). */
   readonly automation: CoreAutomation;
   /** ADR 0331: the instance submix pool (`submixes.ts`). */
@@ -399,6 +411,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     const streamDeps = deps.streams ?? {};
     // B4: the AAC build's worker when the project decodes AAC, else the default one.
     const decoder = streamDeps.decoder ?? (() => sharedDecoderClient(this.aac ? "aac" : "default"));
+    this.decoderOf = decoder;
     this.worklet = new WorkletChannel<StreamDecoderLike>({
       decoder,
       connectWorklet:
@@ -437,7 +450,8 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     const fetchBytes =
       streamDeps.fetchBytes ??
       (async (path: string) => {
-        const response = await fetch(Assets.url(path));
+        // ADR 0337 §7 (W12): a packaged `stream` sound's loose media (music stems read it through here).
+        const response = await fetch(packedMediaUrl(path) ?? Assets.url(path));
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.arrayBuffer();
       });
@@ -772,12 +786,47 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   /** Starts a clip. Returns null only when the backend can't play at all (the host failed). */
   play(req: CorePlayRequest): CoreVoice | null {
     if (this.disposed || this.host.status === "failed") return null;
+    const head = this.prefetchHead(req);
+    if (head) return this.playHeaded(req, head);
     // A3.4a: while locked or a hard rebuild runs, new plays wait in the locked queue (`voices.start` asks `maySend`).
     const id = this.voices.start(req);
     if (id === 0) return null;
     const voice = new Voice(this.voices, this.table, id, this.automation);
     this.automation.onPlay(voice, req);
     return voice;
+  }
+
+  /**
+   * ADR 0337 §3 (W12): the resident prefetch head a stream play of a packaged `stream` sound starts on (frames and rate),
+   * or null to stream as usual: no head, not resident, a stamp can't be exact (locked, a rebuild, no clock yet), or the
+   * play asks for what a head can't give (a start offset, a span, a music member).
+   */
+  private prefetchHead(req: CorePlayRequest): { frames: number; rate: number } | null {
+    if (!req.stream || req.music || req.span || (req.offset ?? 0) > 0 || !this.session.maySend || !this.clips.acquireSpan) return null;
+    const packed = packedSound(req.path);
+    if (!packed || packed.load !== "stream" || packed.headFrames <= 0) return null;
+    // A peek: the package holds the head, so this reference changes nothing.
+    const id = this.clips.acquireSpan(req.path, 0, packed.headFrames);
+    const info = this.clips.info(id);
+    this.clips.release(id);
+    if (!info || info.state !== "ready" || !(info.sampleRate > 0) || info.frames <= 0) return null;
+    const now = this.clockMap.framesNow();
+    if (!(now > 0)) return null;
+    return { frames: info.frames, rate: info.sampleRate };
+  }
+
+  /** W12: the head as a clip voice at T0 and the stream from the head's end at T0 + its length, as one voice (`headedVoice.ts`). */
+  private playHeaded(req: CorePlayRequest, head: { frames: number; rate: number }): CoreVoice | null {
+    const horizon = this.horizon();
+    const at = req.at !== undefined && Number.isFinite(req.at) && req.at > horizon ? req.at : horizon;
+    const pitch = req.pitch !== undefined && Number.isFinite(req.pitch) && req.pitch > 0 ? req.pitch : 1;
+    const bodyId = this.voices.start({ ...req, at: at + head.frames / (head.rate * pitch), streamStartFrame: head.frames });
+    if (bodyId === 0) return null;
+    const body = new Voice(this.voices, this.table, bodyId, this.automation);
+    this.automation.onPlay(body, req);
+    const headId = this.voices.start({ ...req, stream: false, loop: false, at, span: { startFrame: 0, endFrame: head.frames } });
+    if (headId === 0) return body;
+    return headedVoice(new Voice(this.voices, this.table, headId, this.automation), body);
   }
 
   /** The listener pose the spatial voices' distance gains and directions come from (`voices.setListener`). */

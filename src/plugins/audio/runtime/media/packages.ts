@@ -8,18 +8,25 @@
  * dependencies of its exact includes (`packageContents`, `audioDependencies`); loading it makes its sounds playable from
  * their project files, so a missing load shows before export (ADR 0337 §7 "The editor's Play ... enforce the same rule").
  *
- * **Loading.** A build's package is fetched with progress, its TOC read (`readAudioPack`), and each entry's bytes kept
- * as an in-memory URL the backend loads the clip from, without the network. A `stream` entry's media stays loose (its
- * `url`); the package holds its prefetch head. Until the decoder worker reads packages itself (A4's `packs.ts`), clips
- * decode on their first play from those bytes; `memoryBytes` is the TOC's runtime estimate (decoded PCM, compressed
- * bytes, prefetch heads; `load: "compressed"` plays the decoded form until A4).
+ * **Loading** (W12). A build's package is fetched with progress and its TOC read (`readAudioPack`). On a backend with
+ * packages (`AudioBackend.packs`: the core) the bytes go to its decoder worker (`loadPack`, with the package URL to fetch
+ * again if the worker restarts), and the runtime answers which loaded package holds a path (`core/packMedia.ts`), so the
+ * clip registry and the stream manager read entries from the worker, never fetching. Every `decode` entry and every
+ * ADPCM `compressed` one is then committed to the clip arena (`holdClip`), and the package is `loaded` once all of them
+ * are resident: `progress` follows the fetch, then the commits, and `memoryBytes` is the arena those clips take plus the
+ * `compressed` Vorbis/Opus bytes the worker holds. A `stream` entry's media stays loose (its `url`); its prefetch head
+ * (16-bit PCM in the package) is committed as a span clip, so a play starts on it at once and hands over to the stream
+ * ring (the core's head hand-over). Over a backend without packages (the Babylon fallback) each entry's bytes become an
+ * in-memory URL the backend loads the clip from, and `memoryBytes` is the TOC's estimate.
  *
  * **Ownership.** Every reference has an owner and a World: a script's `load()` is owned by the World it runs in (the
  * active one), an `AudioPackageLoader` by itself, a scene's preparation and the preload packages by its World. A World
  * torn down (Play stop, `destroyWorld`) drops the references it owned; the audio session's release (ADR 0218) drops all.
  *
  * **Unloading** the last reference stops the voices of every clip no other loaded package holds with a 50 ms fade
- * (`finish: true` lets them end first) and frees the clip (`AudioClipCache.invalidateClip`, its in-memory bytes).
+ * (`finish: true` lets them end first) and frees the clip (its arena hold, or its in-memory URL). The package leaves the
+ * decoder worker (`releasePack`) once its finishing voices have ended (at once otherwise: a fading voice plays from the
+ * arena or from its stream's own copy).
  */
 import { World } from "../../../../engine/core/World";
 import { isPlaylistPath, parsePlaylistBody } from "../../../../engine/audio/playlist/format";
@@ -33,7 +40,8 @@ import { compileGlob, hasWildcard } from "../../../../engine/audio/encoding/path
 import { parseAudioProject } from "../../../../engine/audio/project/format";
 import { AUDIO_PROJECT_FILE } from "../../../../engine/audio/project/types";
 import { Assets, fetchAssetBytes } from "../../../../engine/scene/Assets";
-import { audioBackend, hasAudioBackend, type AudioVoice, type PlayRequest } from "../backend";
+import { audioBackend, hasAudioBackend, isPendingCoreBackend, onAudioBackendAttached, type AudioBackend, type AudioPacks, type AudioVoice, type PackClipHold, type PlayRequest } from "../backend";
+import { setPackedSounds, streamsFromPack, type PackedSound } from "../core/packMedia";
 import { warnOnce } from "../core/handle";
 import { onAudioSessionReleased } from "../audioSession";
 import { taps } from "../mix/profileTaps";
@@ -170,17 +178,24 @@ interface Ref {
 interface Clip {
   /** Loaded packages holding it. */
   readonly holders: Set<string>;
-  /** Its bytes as an in-memory URL (a build's entry), or null (over the sources: its project file plays). */
+  /** Its bytes as an in-memory URL (a build's entry over a backend without packages), or null. */
   url: string | null;
   /** A `stream` entry: its loose media's URL. */
   streamUrl: string | null;
   load: LoadMode;
+  /** W12: its TOC record, when a package in the backend's decoder holds it (null otherwise). */
+  entry: PackEntry | null;
+  /** W12: each holding package's decoder id (`AudioPacks.loadPack`). */
+  readonly packs: Map<string, number>;
+  /** W12: its arena hold (a `decode` or ADPCM `compressed` entry, a `stream` entry's head), or null. */
+  hold: PackClipHold | null;
 }
 
 interface Pkg {
   readonly name: string;
   state: AudioPackage["state"];
   progress: number;
+  /** Over a backend without packages: the TOC's estimate (a package in the decoder sums its clips, `memoryOf`). */
   memoryBytes: number;
   refs: Ref[];
   loading: Promise<void> | null;
@@ -188,6 +203,9 @@ interface Pkg {
   generation: number;
   /** The sounds it holds while loaded. */
   paths: string[];
+  /** W12: its id in the backend's decoder while it is held there, and that backend's packages. */
+  packId: number | null;
+  packHost: AudioPacks | null;
 }
 
 const pkgs = new Map<string, Pkg>();
@@ -197,11 +215,65 @@ const voices = new Map<string, Set<AudioVoice>>();
 /** Clips whose last package went with `finish: true`: freed once their voices end. */
 const finishing = new Set<string>();
 let finishTimer: ReturnType<typeof setTimeout> | null = null;
+/** W12: decoder packages released by an unload with `finish: true`, let go once none of `paths` is finishing. */
+const packReleases: { readonly host: AudioPacks; readonly pack: number; readonly paths: readonly string[] }[] = [];
+/** W12: the decoder ids handed out (one per load, never reused in a session). */
+let nextPackId = 0;
 
 function pkgOf(name: string): Pkg {
   let p = pkgs.get(name);
-  if (!p) pkgs.set(name, (p = { name, state: "unloaded", progress: 0, memoryBytes: 0, refs: [], loading: null, generation: 0, paths: [] }));
+  if (!p) pkgs.set(name, (p = { name, state: "unloaded", progress: 0, memoryBytes: 0, refs: [], loading: null, generation: 0, paths: [], packId: null, packHost: null }));
   return p;
+}
+
+/** Whether a loaded entry lives in the clip arena: `decode`, ADPCM `compressed`, and a `stream` sound's prefetch head. */
+function arenaResident(e: PackEntry): boolean {
+  if (e.load === "stream") return (e.prefetch?.frames ?? 0) > 0;
+  return e.load === "decode" || e.codec === "adpcm" || e.codec === "pcm";
+}
+
+/** The memory package `p` holds while loaded: its clips' arena bytes and the compressed bytes the decoder holds for it. */
+function memoryOf(p: Pkg): number {
+  if (p.state !== "loaded") return 0;
+  if (p.packId === null) return p.memoryBytes;
+  let total = 0;
+  for (const path of p.paths) {
+    const c = clips.get(path);
+    if (!c?.entry) continue;
+    if (c.hold) total += c.hold.bytes;
+    else if (streamsFromPack({ load: c.entry.load, codec: c.entry.codec })) total += c.entry.bytes;
+  }
+  return total;
+}
+
+/** The packed sound at `path` for the core (`packMedia.ts`): the first holding package still in the decoder. */
+function packedSoundOf(path: string): PackedSound | null {
+  const c = clips.get(path);
+  if (!c?.entry) return null;
+  for (const [name, id] of c.packs) {
+    if (pkgs.get(name)?.packId !== id) continue;
+    const e = c.entry;
+    return { pack: id, load: e.load, codec: e.codec, headFrames: e.prefetch?.frames ?? 0, url: c.streamUrl };
+  }
+  return null;
+}
+setPackedSounds(packedSoundOf);
+
+/** W12: the installed backend's packages, once the core has loaded (null for a backend without them, or none). */
+const attachWaiters: ((b: AudioBackend) => void)[] = [];
+onAudioBackendAttached((b) => {
+  for (const w of attachWaiters.splice(0)) w(b);
+});
+/** At once when a backend is installed (so a load's fetch starts in the same turn), else once the core has loaded. */
+function packHostFor(): AudioPacks | null | Promise<AudioPacks | null> {
+  let b: AudioBackend;
+  try {
+    b = audioBackend();
+  } catch {
+    return null;
+  }
+  if (isPendingCoreBackend(b)) return new Promise<AudioBackend>((resolve) => attachWaiters.push(resolve)).then((next) => next.packs ?? null);
+  return b.packs ?? null;
 }
 
 function emit(name: string, event: ProfilePackageEvent, bytes: number): void {
@@ -257,17 +329,22 @@ function revoke(url: string | null): void {
   }
 }
 
-/** Takes the clip at `path` into package `name`. */
-function holdClip(name: string, path: string, data: { url: string | null; streamUrl: string | null; load: LoadMode }): void {
+/** Takes the clip at `path` into package `name` (with its decoder package id and TOC record when it is in the decoder). */
+function holdClip(name: string, path: string, data: { url: string | null; streamUrl: string | null; load: LoadMode; entry?: PackEntry; packId?: number }): Clip {
   finishing.delete(path);
   const c = clips.get(path);
   if (c) {
     c.holders.add(name);
     if (!c.url && data.url) c.url = data.url;
     else revoke(data.url === c.url ? null : data.url);
-    return;
+    if (data.packId !== undefined) c.packs.set(name, data.packId);
+    if (!c.entry && data.entry) c.entry = data.entry;
+    if (!c.streamUrl && data.streamUrl) c.streamUrl = data.streamUrl;
+    return c;
   }
-  clips.set(path, { holders: new Set([name]), ...data });
+  const made: Clip = { holders: new Set([name]), url: data.url, streamUrl: data.streamUrl, load: data.load, entry: data.entry ?? null, packs: new Map(data.packId !== undefined ? [[name, data.packId]] : []), hold: null };
+  clips.set(path, made);
+  return made;
 }
 
 /** The live voices of `path` (pruned). */
@@ -293,6 +370,12 @@ function freeClip(path: string): void {
   finishing.delete(path);
   voices.delete(path);
   revoke(c?.url ?? null);
+  if (c?.hold) {
+    // W12: the arena hold goes; the clip unloads one frame after its last voice let go too.
+    c.hold.release();
+    c.hold = null;
+    return;
+  }
   if (hasAudioBackend()) {
     try {
       audioBackend().clipCache?.invalidateClip(path);
@@ -302,9 +385,28 @@ function freeClip(path: string): void {
   }
 }
 
+/** W12: lets go of the decoder packages whose finishing sounds have all ended. */
+function settlePackReleases(): void {
+  for (let i = packReleases.length - 1; i >= 0; i--) {
+    const r = packReleases[i]!;
+    if (r.paths.some((p) => finishing.has(p))) continue;
+    packReleases.splice(i, 1);
+    releasePackSafely(r.host, r.pack);
+  }
+}
+
+function releasePackSafely(host: AudioPacks, pack: number): void {
+  try {
+    host.releasePack(pack);
+  } catch {
+    // a decoder going away
+  }
+}
+
 /** Frees the finishing clips whose voices have ended; polls while some remain. */
 function sweepFinishing(): void {
   for (const path of [...finishing]) if (liveVoices(path).length === 0) freeClip(path);
+  settlePackReleases();
   if (finishing.size > 0 && finishTimer === null) {
     finishTimer = setTimeout(() => {
       finishTimer = null;
@@ -323,10 +425,15 @@ function release(p: Pkg, finish: boolean): void {
   p.memoryBytes = 0;
   p.loading = null;
   p.refs = [];
+  const packId = p.packId;
+  const packHost = p.packHost;
+  p.packId = null;
+  p.packHost = null;
   for (const path of p.paths) {
     const c = clips.get(path);
     if (!c) continue;
     c.holders.delete(p.name);
+    c.packs.delete(p.name);
     if (c.holders.size > 0) continue;
     const live = liveVoices(path);
     if (finish && live.length > 0) {
@@ -342,9 +449,56 @@ function release(p: Pkg, finish: boolean): void {
     }
     freeClip(path);
   }
+  // W12: the package leaves the decoder once its finishing voices have ended (at once without any).
+  if (packHost && packId !== null) packReleases.push({ host: packHost, pack: packId, paths: p.paths.filter((path) => finishing.has(path)) });
   p.paths = [];
   if (was === "loaded" || was === "loading") emit(p.name, "unload", bytes);
   sweepFinishing();
+}
+
+/** The share of a package load's `progress` its fetch takes (the arena commits take the rest). */
+const FETCH_SHARE = 0.8;
+
+/** A package's bytes as an ArrayBuffer of their own (transferred to the decoder). */
+function ownBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? (bytes.buffer as ArrayBuffer) : (bytes.slice().buffer as ArrayBuffer);
+}
+
+/**
+ * W12: package `p`'s bytes into the backend's decoder (`host`), its entries registered for the core (`packMedia.ts`),
+ * and its arena-resident entries committed to the clip arena; resolves once every commit is resident or failed (a
+ * failed one was warned by the clip registry). `refetch` fetches the package again for a restarted decoder.
+ */
+async function loadIntoDecoder(p: Pkg, generation: number, host: AudioPacks, entries: readonly PackEntry[], bytes: Uint8Array, refetch: () => Promise<Uint8Array>): Promise<void> {
+  const packId = ++nextPackId;
+  p.packId = packId;
+  p.packHost = host;
+  await host.loadPack(packId, ownBuffer(bytes), () => refetch().then(ownBuffer));
+  if (p.generation !== generation) return;
+  const holds: PackClipHold[] = [];
+  for (const e of entries) {
+    const media = mediaEntry(e.path);
+    const streamUrl = e.load === "stream" && media?.url ? buildUrl(media.url) : null;
+    const c = holdClip(p.name, e.path, { url: null, streamUrl, load: e.load, entry: e, packId });
+    if (!c.hold && arenaResident(e)) {
+      try {
+        c.hold = host.holdClip(e.path, e.load === "stream" ? e.prefetch!.frames : undefined);
+      } catch {
+        c.hold = null;
+      }
+    }
+    if (c.hold) holds.push(c.hold);
+  }
+  p.paths = entries.map((e) => e.path);
+  let settled = 0;
+  await Promise.all(
+    holds.map((h) =>
+      h.settled().then(() => {
+        settled++;
+        if (p.generation === generation) p.progress = FETCH_SHARE + ((1 - FETCH_SHARE) * settled) / holds.length;
+      }),
+    ),
+  );
 }
 
 /** Starts (or joins) the load of package `p`. */
@@ -359,11 +513,27 @@ function startLoad(p: Pkg, def: Definition): Promise<void> {
     const held: { path: string; url: string | null; streamUrl: string | null; load: LoadMode }[] = [];
     let memory = 0;
     if (def.url !== null) {
-      const bytes = await fetchPackage(buildUrl(def.url), def.bytes, (x) => {
-        if (p.generation === generation) p.progress = x;
+      const url = buildUrl(def.url);
+      // The backend first (the core may still be loading): with packages, the arena commits take the end of `progress`.
+      const found = packHostFor();
+      const host = found instanceof Promise ? await found : found;
+      if (p.generation !== generation) return;
+      const share = host ? FETCH_SHARE : 1;
+      const bytes = await fetchPackage(url, def.bytes, (x) => {
+        if (p.generation === generation) p.progress = x * share;
       });
       const read = readAudioPack(bytes);
       if ("error" in read) throw new Error(`${def.url}: ${read.error}`);
+      if (p.generation !== generation) return;
+      if (host) {
+        await loadIntoDecoder(p, generation, host, read.pack.toc.entries.slice(), bytes, () => fetchPackage(url, def.bytes, () => {}));
+        if (p.generation !== generation) return;
+        p.progress = 1;
+        p.state = "loaded";
+        p.loading = null;
+        emit(p.name, "loaded", def.bytes);
+        return;
+      }
       for (const e of read.pack.toc.entries) {
         memory += entryMemory(e);
         const media = mediaEntry(e.path);
@@ -398,6 +568,10 @@ function startLoad(p: Pkg, def: Definition): Promise<void> {
     p.progress = 0;
     p.loading = null;
     p.refs = [];
+    // W12: a decoder load that failed holds nothing more (its entries were never registered).
+    if (p.packHost && p.packId !== null) releasePackSafely(p.packHost, p.packId);
+    p.packId = null;
+    p.packHost = null;
     throw new Error(`Audio.package("${p.name}") failed to load: ${why}`);
   });
   return p.loading;
@@ -445,7 +619,7 @@ export function audioPackage(name: string): AudioPackage {
       get state() { return pkgs.get(n)?.state ?? "unloaded"; },
       get progress() { return pkgs.get(n)?.progress ?? 0; },
       get bytes() { return definitions().byName.get(n)?.bytes ?? 0; },
-      get memoryBytes() { return pkgs.get(n)?.memoryBytes ?? 0; },
+      get memoryBytes() { const p = pkgs.get(n); return p ? memoryOf(p) : 0; },
       load() {
         const world = World.active;
         return acquire(n, world ?? PAGE, world);
@@ -471,7 +645,7 @@ export function audioPackages(): readonly AudioPackage[] {
 export function packagesDebug(): AudioPackageDebug[] {
   return definitions().list.map((d) => {
     const p = pkgs.get(d.name);
-    return { name: d.name, state: p?.state ?? "unloaded", refs: p?.refs.length ?? 0, bytes: d.bytes, memoryBytes: p?.memoryBytes ?? 0, preload: d.preload };
+    return { name: d.name, state: p?.state ?? "unloaded", refs: p?.refs.length ?? 0, bytes: d.bytes, memoryBytes: p ? memoryOf(p) : 0, preload: d.preload };
   });
 }
 
@@ -605,7 +779,8 @@ export function mediaSource(path: string, settingsPath: string): { url: string |
   const entry = mediaEntry(path);
   if (entry) {
     const c = clips.get(path);
-    const stream = entry.load === "stream";
+    // W12: a `compressed` Vorbis or Opus sound in the decoder plays through a stream ring from the decoder's copy.
+    const stream = entry.load === "stream" || (c?.entry != null && c.packs.size > 0 && streamsFromPack(c.entry));
     if (stream && entry.url) return { url: buildUrl(entry.url), stream };
     return { url: c?.url ?? null, stream };
   }
@@ -652,13 +827,25 @@ export function mediaPlay(req: PlayRequest): AudioVoice | null {
 
 /** The audio session's release (ADR 0218): every package unloaded, every clip and reference dropped. */
 function reset(): void {
-  for (const c of clips.values()) revoke(c.url);
+  for (const c of clips.values()) {
+    revoke(c.url);
+    try {
+      c.hold?.release();
+    } catch {
+      // its backend went with the session
+    }
+  }
   clips.clear();
   voices.clear();
   finishing.clear();
   if (finishTimer !== null) clearTimeout(finishTimer);
   finishTimer = null;
-  for (const p of pkgs.values()) p.generation++;
+  // W12: the decoder worker is the page's and outlives the session: it lets go of every package.
+  for (const r of packReleases.splice(0)) releasePackSafely(r.host, r.pack);
+  for (const p of pkgs.values()) {
+    p.generation++;
+    if (p.packHost && p.packId !== null) releasePackSafely(p.packHost, p.packId);
+  }
   pkgs.clear();
   parsedFrom = null;
 }
