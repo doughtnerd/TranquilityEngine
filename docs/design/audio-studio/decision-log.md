@@ -438,3 +438,12 @@ source hash so core contributors never need wasi-sdk; Opus encodes mono/stereo o
 Vorbis); loose ADPCM has no container (packages carry frames) — A3/A4 decide; no dither on 16-bit/ADPCM; plugin
 `maxInstances` cap 128 (default 16), ≤ 256 effects per plugin; plugin params arrive in declared units; fuel mode caps a
 plugin's memory at `memoryMB`; start functions refused; SDK at `native/fx-sdk/`.
+
+**D57. Export and package runtime (W12-A3/A5, merged).** Sound Lab (51 sounds, 6.3 MB sources) exports to 0.64–0.81 MB
+per platform with the built-in defaults. Choices to review: loose ADPCM ships as Vorbis (ADPCM lives in packages, as in
+Unity/FMOD/Wwise banks); lenient packaging in a build skips the play and starts one load; `audio-report.json` sits at
+the build folder root (inside a plain web build); an unknown package name rejects `load()` with one warning; script
+loads are owned by the active World and dropped at Play stop. Public API added (0337 §9): `Audio.package`,
+`Audio.packages`, `AudioPackageLoader`, `AudioPackage`, reason `notLoaded`, `Audio.debug().packages`. Coordinator
+fixes found by the merge: `npm run build:player` failed the lazy-only rule (the take service from W4/W10 sat in the
+capture folder; now exempt with a reason), and the export CLI couldn't resolve vite's bin.

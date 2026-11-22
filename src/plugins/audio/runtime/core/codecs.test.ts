@@ -2,8 +2,8 @@
 // decoder handler and wasm in process):
 // - with `audio.codecs.aac` off, an `.m4a` / `.mp4` / `.aac` asset doesn't load (not even fetched), its voices read
 //   `reason` "failed", and there is one warning per asset naming the setting, however often it is played or reloaded;
-// - a file the decoder can't open (Ogg Opus, garbage) fails with one warning per asset naming its format and the
-//   supported list, and its voices read "failed", as a clip and as a stream.
+// - a file the decoder can't open (garbage under two extensions; Ogg Opus decodes since ADR 0337 A7) fails with one
+//   warning per asset naming its format and the supported list, and its voices read "failed", as a clip and as a stream.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { closeLoopbackAudio } from "../testing";
@@ -32,10 +32,10 @@ describe("codecs.ts", () => {
   });
 
   it("names the format and the supported list for the decoder's format and codec errors only", () => {
-    const m = unsupportedFormat("sfx/a.opus", false, -4 /* ERR_CODEC */, "unsupported codec opus")!;
-    expect(m).toContain('"sfx/a.opus"');
-    expect(m).toContain("(.opus)");
-    expect(m).toContain("Supported: WAV, FLAC, MP3 and Ogg Vorbis (AAC with audio.codecs.aac on)");
+    const m = unsupportedFormat("sfx/a.wma", false, -4 /* ERR_CODEC */, "unsupported codec wma")!;
+    expect(m).toContain('"sfx/a.wma"');
+    expect(m).toContain("(.wma)");
+    expect(m).toContain("Supported: WAV, FLAC, MP3, Ogg Vorbis and Ogg Opus (AAC with audio.codecs.aac on)");
     expect(unsupportedFormat("sfx/blob", true, -3 /* ERR_FORMAT */, "x")).toContain("a file without an extension");
     expect(unsupportedFormat("sfx/blob", true, -3 /* ERR_FORMAT */, "x")).toContain("and AAC (.m4a, .mp4, .aac)");
     expect(unsupportedFormat("sfx/a.wav", false, -5, "truncated")).toBeNull();
@@ -134,14 +134,14 @@ describe("AAC opt-in and unknown formats on the core (B4)", () => {
   });
 
   it("a format the decoder can't open warns once per asset with its format and the supported list; voices read failed", async (ctx) => {
-    const opus = read("tone-48000-stereo.opus");
+    const other = new Uint8Array(4096).fill(0xa5).buffer;
     const garbage = new Uint8Array(4096).fill(0x5a).buffer;
-    const r = await rig({ "sfx/s.opus": opus, "sfx/s.aiff": garbage }, { clipFiles: { "sfx/c.opus": opus, "sfx/c.aiff": garbage } });
+    const r = await rig({ "sfx/s.wma": other, "sfx/s.aiff": garbage }, { clipFiles: { "sfx/c.wma": other, "sfx/c.aiff": garbage } });
     if (!r) return ctx.skip();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const cases = [
-      ["sfx/c.opus", false],
-      ["sfx/s.opus", true],
+      ["sfx/c.wma", false],
+      ["sfx/s.wma", true],
       ["sfx/c.aiff", false],
       ["sfx/s.aiff", true],
     ] as const;
@@ -158,7 +158,7 @@ describe("AAC opt-in and unknown formats on the core (B4)", () => {
       }
     }
     // The stream voices too: replay one and watch it end failed.
-    const v = await playToFailure(r, "sfx/s.opus", true);
+    const v = await playToFailure(r, "sfx/s.wma", true);
     expect(v.reason).toBe("failed");
     const unsupported = warnings(warn, "can't be decoded");
     expect(unsupported).toHaveLength(4);
@@ -166,7 +166,8 @@ describe("AAC opt-in and unknown formats on the core (B4)", () => {
       const mine = warnings(warn, `"${path}"`);
       expect(mine, path).toHaveLength(1);
       expect(mine[0]).toContain(`(.${path.slice(path.lastIndexOf(".") + 1)})`);
-      expect(mine[0]).toContain("Supported: WAV, FLAC, MP3 and Ogg Vorbis");
+      expect(mine[0]).toContain("Supported: WAV, FLAC, MP3, Ogg Vorbis and Ogg Opus");
+
     }
     r.backend.dispose();
   });

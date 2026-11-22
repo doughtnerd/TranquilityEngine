@@ -15,7 +15,7 @@
 // a stream like `openStream`'s: its `streamOpened`, `streamClosed` and errors reach `onStream`, and `closeStream` closes
 // it), `cancelGroup` closes a group's members, `protectMusic` and `releaseMusic` steer the worker's encoded cache, and
 // `onMusic` hears `groupOpened` (diagnostics only) and `needBytes` (Q0's miss rule: resend those members with `bytes`).
-import type { AmbisonicConvention, ClipInfo, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, IrFailedMessage, IrPreparedMessage, IrRequest, MusicReply, PrimeGroupMessage, StreamClosedMessage, StreamLoopProgram, StreamOpenedMessage, StreamPortLike } from "./protocol";
+import type { AmbisonicConvention, ClipInfo, PackRef, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, IrFailedMessage, IrPreparedMessage, IrRequest, MusicReply, PrimeGroupMessage, StreamClosedMessage, StreamLoopProgram, StreamOpenedMessage, StreamPortLike } from "./protocol";
 import type { StreamLoopAt } from "./streams";
 
 /** What the client needs of a worker (a `Worker`, or an in-process stand-in in tests). */
@@ -92,6 +92,12 @@ export interface DecodeClipOptions {
   readonly collect?: boolean;
   /** Called with each chunk as it arrives, before the result resolves (a copy of nothing: the chunk is also part of the result). */
   readonly onChunk?: (pcm: Int16Array, index: number) => void;
+  /**
+   * ADR 0337 A4: decode this entry of a package loaded with `loadPack` instead of `bytes` (pass an empty buffer). An ADPCM
+   * entry with load `compressed` comes back as clip format 6 (`info.clipFormat` 6): each chunk then holds whole ADPCM blocks
+   * viewed as int16 words, not samples, and the result's `pcm` is those words.
+   */
+  readonly pack?: PackRef;
 }
 
 /** Ed1: a clip's base peaks level: `peaks` is int16 `[min, max]` pairs per bin, channel-major (see `PeaksMessage`). */
@@ -129,6 +135,8 @@ export interface StreamOpenOptions {
   readonly program?: StreamLoopProgram;
   /** ADR 0162 B4: the sidecar's ambisonic convention, so the worker streams a 4, 9 or 16-channel file (FuMa converted). */
   readonly convention?: AmbisonicConvention;
+  /** ADR 0337 A4: stream this entry of a package loaded with `loadPack` instead of `bytes` (pass an empty buffer). */
+  readonly pack?: PackRef;
 }
 
 /** B3: the replies about streams. */
@@ -158,6 +166,15 @@ export interface DecoderClient {
   loopStream(streamId: number, looping: boolean, loopStartFrame?: number, loopEndFrame?: number, atStreamFrame?: number, program?: StreamLoopProgram): void;
   /** B3: closes a stream (the worker sends STREAM_CLOSE to the worklet). Unknown ids are answered too. */
   closeStream(streamId: number): void;
+  /**
+   * ADR 0337 §7, A4: holds the `.mycopak` `bytes` in the worker as package `pack` (a copy is kept here so a respawned worker
+   * gets it back), whose entries `decodeClip` and `openStream` then name with `pack` (a `compressed` Vorbis or Opus entry
+   * plays from the worker's copy through a stream ring). Resolves with its entry count, rejects when the worker can't read
+   * it or can't run. A second load under the same id replaces the first.
+   */
+  loadPack(pack: number, bytes: ArrayBuffer): Promise<{ readonly entries: number; readonly bytes: number }>;
+  /** ADR 0337: drops package `pack` here and in the worker (streams already open on it keep their copy). */
+  releasePack(pack: number): void;
   /**
    * ADR 0162 C2b: posts a zone IR request (`prepareIr`, `generateIr`, `releaseIr`) to the worker, which sends the kernel to
    * the connected worklet itself. A request the worker can't take is answered with `irFailed` through `onIr`.
@@ -236,6 +253,9 @@ class Client implements DecoderClient {
   /** ADR 0166: each music member stream's group, and the music listeners. */
   private readonly memberGroup = new Map<number, number>();
   private readonly musicListeners = new Set<(reply: MusicReply) => void>();
+  /** ADR 0337: the packages loaded (their bytes, re-sent to a respawned worker) and the loads awaiting their answer. */
+  private readonly packs = new Map<number, ArrayBuffer>();
+  private readonly packWaiters = new Map<number, { resolve(value: { entries: number; bytes: number }): void; reject(reason: unknown): void }[]>();
   generation = 0;
 
   constructor(
@@ -259,7 +279,51 @@ class Client implements DecoderClient {
     } else {
       worker.postMessage({ type: "init", wasmUrl: this.options.wasmUrl ?? decoderWasmUrl().href });
     }
+    // ADR 0337: a respawned worker gets the packages back before any request that names them.
+    for (const [pack, kept] of this.packs) {
+      const bytes = kept.slice(0);
+      worker.postMessage({ type: "packLoad", pack, bytes }, [bytes]);
+    }
     return worker;
+  }
+
+  loadPack(pack: number, bytes: ArrayBuffer): Promise<{ readonly entries: number; readonly bytes: number }> {
+    // The waiter goes in first: an in-process worker may answer within `postMessage`.
+    const answer = new Promise<{ entries: number; bytes: number }>((resolve, reject) => {
+      const waiters = this.packWaiters.get(pack) ?? [];
+      waiters.push({ resolve, reject });
+      this.packWaiters.set(pack, waiters);
+    });
+    this.packs.set(pack, bytes.slice(0));
+    try {
+      const had = this.worker !== null;
+      const worker = this.ensureWorker();
+      // A worker spawned just now was sent the package (with every other) as it started.
+      if (had) {
+        const copy = bytes.slice(0);
+        worker.postMessage({ type: "packLoad", pack, bytes: copy }, [copy]);
+      }
+    } catch (e) {
+      this.packs.delete(pack);
+      this.settlePack(pack, new DecoderUnavailableError(`audio decoder: no worker (${e instanceof Error ? e.message : String(e)})`));
+    }
+    return answer;
+  }
+
+
+  releasePack(pack: number): void {
+    this.packs.delete(pack);
+    this.worker?.postMessage({ type: "packRelease", pack });
+  }
+
+  /** The first load waiting on `pack` hears its answer (loads under one id are answered in order). */
+  private settlePack(pack: number, outcome: { entries: number; bytes: number } | Error): void {
+    const waiters = this.packWaiters.get(pack);
+    const first = waiters?.shift();
+    if (waiters && waiters.length === 0) this.packWaiters.delete(pack);
+    if (!first) return;
+    if (outcome instanceof Error) first.reject(outcome);
+    else first.resolve(outcome);
   }
 
   decodeClip(bytes: ArrayBuffer | Uint8Array, hint: DecodeHint = 0, options?: DecodeClipOptions): Promise<DecodedClip> {
@@ -288,7 +352,7 @@ class Client implements DecoderClient {
         signal.addEventListener("abort", entry.abort, { once: true });
       }
       this.pending.set(id, entry);
-      worker.postMessage({ type: "decodeClip", id, asset: options?.asset, bytes: buffer, hint, convention: options?.convention }, [buffer]);
+      worker.postMessage({ type: "decodeClip", id, asset: options?.asset, bytes: buffer, hint, convention: options?.convention, pack: options?.pack }, [buffer]);
     });
   }
 
@@ -348,7 +412,7 @@ class Client implements DecoderClient {
     }
     this.streams.set(o.streamId, o.asset);
     const region = o.loopStartFrame !== undefined || o.loopEndFrame !== undefined ? { loopStartFrame: o.loopStartFrame ?? 0, loopEndFrame: o.loopEndFrame ?? 0 } : {};
-    worker.postMessage({ type: "streamOpen", streamId: o.streamId, asset: o.asset, bytes: o.bytes, hint: o.hint, startFrame: o.startFrame, epoch: o.epoch, loop: o.loop, ...region, ...(o.program ? { program: o.program } : {}), ...(o.convention ? { convention: o.convention } : {}) }, [o.bytes]);
+    worker.postMessage({ type: "streamOpen", streamId: o.streamId, asset: o.asset, bytes: o.bytes, hint: o.hint, startFrame: o.startFrame, epoch: o.epoch, loop: o.loop, ...region, ...(o.program ? { program: o.program } : {}), ...(o.convention ? { convention: o.convention } : {}), ...(o.pack ? { pack: o.pack } : {}) }, [o.bytes]);
   }
 
   loopStream(streamId: number, looping: boolean, loopStartFrame?: number, loopEndFrame?: number, atStreamFrame?: number, program?: StreamLoopProgram): void {
@@ -519,8 +583,17 @@ class Client implements DecoderClient {
       case "musicWarn":
         for (const listener of [...this.musicListeners]) listener(msg);
         return;
+      case "packLoaded":
+        this.settlePack(msg.pack, { entries: msg.entries, bytes: msg.bytes });
+        return;
       case "error": {
+        if (msg.pack !== undefined) {
+          this.packs.delete(msg.pack);
+          this.settlePack(msg.pack, new DecodeFailedError(msg.message, msg.code));
+          return;
+        }
         if (msg.streamId !== undefined) {
+
           if (this.streams.has(msg.streamId)) this.emitStream({ ...msg, streamId: msg.streamId });
           return;
         }
@@ -561,7 +634,7 @@ class Client implements DecoderClient {
         continue;
       }
       const bytes = entry.bytes.slice(0);
-      next.postMessage({ type: "decodeClip", id, bytes, hint: entry.hint, asset: entry.options?.asset, convention: entry.options?.convention }, [bytes]);
+      next.postMessage({ type: "decodeClip", id, bytes, hint: entry.hint, asset: entry.options?.asset, convention: entry.options?.convention, pack: entry.options?.pack }, [bytes]);
     }
   }
 

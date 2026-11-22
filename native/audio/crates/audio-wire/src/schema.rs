@@ -123,6 +123,8 @@ pub const CONSTANTS: &[Const] = &[
     c!("MAX_PLAYHEADS_PER_BLOCK", 256, "STATUS playheads section cap, round-robin"),
     c!("MAX_CLIP_EVENTS_PER_BLOCK", 64, "STATUS clipEvents cap"),
     c!("MAX_STREAM_EVENTS_PER_BLOCK", 64, "STATUS streamEvents cap"),
+    c!("ADPCM_BLOCK_FRAMES", 1024, "frames per channel in one block of a format 6 (IMA ADPCM) clip (ADR 0337 §3, 0345 §5)"),
+    c!("ADPCM_CHANNEL_BYTES", 516, "bytes per channel per block of a format 6 clip: a 4-byte header, then 512 bytes of codes"),
     c!("ERR_OK", 0, "i32 result: ok"),
 ];
 
@@ -141,6 +143,7 @@ pub const ENUMS: &[Enum] = &[
         ("ZoneKernel", 3, "prepared zone kernel: ZoneKernelHeader then packed spectra; channels 1, frames = bytes / 4"),
         ("MagLS", 4, "MagLS filters: MaglsHeader then f32 [16][2][taps]; id 0xFFFF0100"),
         ("ZoneIrPcm", 5, "zone IR PCM: interleaved stereo f32 at the context rate; the core prepares it"),
+        ("AdpcmIma", 6, "IMA ADPCM blocks (ADR 0337 §3, 0345 §5): channels 1 or 2, ADPCM_BLOCK_FRAMES frames of ADPCM_CHANNEL_BYTES per channel per block; chunks start on a block and carry whole blocks; decoded per voice"),
     ]),
     en!("ClipEvent", "STATUS clipEvents code", [
         ("Resident", 1, "the last range was committed"),

@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: 194212f0ff19b8c2eaac92775359df98).
+/// First 16 bytes of the schema's SHA-256 (hex: 797237fb87d71684489bf0737d14986d).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0x19,
-    0x42,
-    0x12,
+    0x79,
+    0x72,
+    0x37,
+    0xfb,
+    0x87,
+    0xd7,
+    0x16,
+    0x84,
+    0x48,
+    0x9b,
     0xf0,
-    0xff,
-    0x19,
-    0xb8,
-    0xc2,
-    0xea,
-    0xac,
-    0x92,
-    0x77,
-    0x53,
-    0x59,
-    0xdf,
+    0x73,
+    0x7d,
+    0x14,
     0x98,
+    0x6d,
 ];
-pub const SCHEMA_HASH_HEX: &str = "194212f0ff19b8c2eaac92775359df98";
+pub const SCHEMA_HASH_HEX: &str = "797237fb87d71684489bf0737d14986d";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -143,6 +143,10 @@ pub const MAX_PLAYHEADS_PER_BLOCK: u32 = 0x100;
 pub const MAX_CLIP_EVENTS_PER_BLOCK: u32 = 0x40;
 /// STATUS streamEvents cap
 pub const MAX_STREAM_EVENTS_PER_BLOCK: u32 = 0x40;
+/// frames per channel in one block of a format 6 (IMA ADPCM) clip (ADR 0337 §3, 0345 §5)
+pub const ADPCM_BLOCK_FRAMES: u32 = 0x400;
+/// bytes per channel per block of a format 6 clip: a 4-byte header, then 512 bytes of codes
+pub const ADPCM_CHANNEL_BYTES: u32 = 0x204;
 /// i32 result: ok
 pub const ERR_OK: i32 = 0;
 /// the STATUS header with the M5 fields, envelope included (STATUS_HEADER_BYTES); sections start here
@@ -495,6 +499,8 @@ pub mod clip_format {
     pub const MAG_LS: u32 = 4;
     /// zone IR PCM: interleaved stereo f32 at the context rate; the core prepares it
     pub const ZONE_IR_PCM: u32 = 5;
+    /// IMA ADPCM blocks (ADR 0337 §3, 0345 §5): channels 1 or 2, ADPCM_BLOCK_FRAMES frames of ADPCM_CHANNEL_BYTES per channel per block; chunks start on a block and carry whole blocks; decoded per voice
+    pub const ADPCM_IMA: u32 = 6;
 }
 
 /// STATUS clipEvents code
@@ -1027,7 +1033,7 @@ pub struct ClipBegin {
     pub channels: u32,
     /// Sample rate in Hz.
     pub sample_rate: f32,
-    /// ClipFormat: 0 f32, 1 i16 (1, 2, 4, 9 or 16 channels), 2 HRIR, 3 prepared zone kernel, 4 MagLS filters, 5 zone IR PCM (formats 3-5: ADR 0162 C6).
+    /// ClipFormat: 0 f32, 1 i16 (1, 2, 4, 9 or 16 channels), 2 HRIR, 3 prepared zone kernel, 4 MagLS filters, 5 zone IR PCM (formats 3-5: ADR 0162 C6), 6 IMA ADPCM blocks (1 or 2 channels; ADR 0337).
     pub format: u32,
 }
 
@@ -1076,7 +1082,7 @@ pub struct ClipChunk {
     pub clip_id: u32,
     /// First frame of this chunk within the clip.
     pub frame_offset: u32,
-    /// Sample frames in this chunk.
+    /// Sample frames in this chunk (format 6: whole blocks of ADPCM_BLOCK_FRAMES from a block start, the last chunk ending at the clip's frames).
     pub frames: u32,
     /// Reserved; 0.
     pub reserved: u32,

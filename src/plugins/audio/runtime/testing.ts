@@ -1038,7 +1038,7 @@ export interface LoopbackAudioOptions {
   /** Decodes a clip by path (default: one second of 0.5, mono at 48 kHz). The registry "fetches" the path's own bytes. */
   readonly decode?: (path: string) => LoopbackClip | Promise<LoopbackClip>;
   /** Parts of the rig's clip registry to replace instead (a real decoder client and its fetch, a warning spy). */
-  readonly clipRegistry?: Partial<Pick<ClipRegistryDeps, "fetchBytes" | "decodeWorker" | "warn" | "nextQuantum">>;
+  readonly clipRegistry?: Partial<Pick<ClipRegistryDeps, "fetchBytes" | "decodeWorker" | "warn" | "nextQuantum" | "packRef">>;
   /**
    * The backend's other dependencies (`createCoreBackend`'s: `hrir`, `magls`, `streams`, `zoneIr`, `warnOnce`, or `clips` to
    * replace the registry), or a function of the rig's clip registry that gives them (an HRIR loader on it).

@@ -58,7 +58,7 @@
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../../engine/audio/mixer";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioOutputDevice, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, ShapedParams, VoiceSpatialOptions, ZoneIrService } from "../backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioCodecs, AudioOutputDevice, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, ShapedParams, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
 import { BUS_LP_OFF_HZ, FX_MEMORY_SECONDS, readStatus, type BusConfigBuses } from "../wire.generated";
 import { AudioHandle, type AudioReason } from "./handle";
@@ -180,7 +180,7 @@ export interface CoreBackendDeps {
    * B3: stream plumbing. Defaults: the page's decoder client, `host.link.connectStreamPort`, a `MessageChannel`, and a
    * fetch of the asset's URL. Tests pass an in-process decoder and channel.
    */
-  streams?: Partial<Pick<StreamManagerDeps, "decoder" | "connectWorklet" | "channel" | "fetchBytes">>;
+  streams?: Partial<Pick<StreamManagerDeps, "decoder" | "connectWorklet" | "channel" | "fetchBytes" | "packRef">>;
   /** B4: warns once per asset the core can't decode (shared with the clip registry); default: the backend's own over `console.warn`. */
   warnOnce?: WarnOnce;
   /** ADR 0162 (K0, C9): zone IR preparation; default `createZoneIrService` (`zoneIr.ts`). Tests inject a fake. */
@@ -202,8 +202,12 @@ const mixerOwners = new WeakMap<Mixer, CoreBackend>();
  * (`core/assembly.ts`) through `createCoreBackend`, so no caller builds it over a hand-made host or without its clip
  * registry and background controller.
  */
-class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLiveMix, AudioCaptureSource, AudioOutputDevice, StagedFrameHost {
+class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLiveMix, AudioCaptureSource, AudioOutputDevice, AudioCodecs, StagedFrameHost {
   readonly name = "core";
+  /** ADR 0337 A4 (`AudioCodecs`): IMA ADPCM clips held compressed in the arena, decoded per voice (clip format 6, ABI 4.12). */
+  readonly adpcmCompressed = true;
+  /** ADR 0337 A7 (`AudioCodecs`): Ogg Opus in the decoder worker (libopus, decoder ABI 1.5). */
+  readonly opus = true;
 
   // ADR 0179: the core has every capability, and each is the backend itself (its own members are the capability's: no
   // object, no allocation). `music` and `automation` are its music ops and automation tables.
@@ -222,6 +226,10 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   get device(): AudioOutputDevice {
     return this;
   }
+  get codecs(): AudioCodecs {
+    return this;
+  }
+
   /** ADR 0338 §7: plugin effects (the core runs them inside its chains; `effectPlugins/host.ts`). */
   get effectPlugins(): EffectPluginHost {
     return this.plugins;
@@ -439,6 +447,8 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
       connectWorklet: () => {},
       worklet,
       fetchBytes,
+      // ADR 0337 A4: entries of packages the worker holds stream from its copy.
+      ...(streamDeps.packRef ? { packRef: streamDeps.packRef } : {}),
       onError: (id, asset, message, code) => this.voices.streamFailed(id, asset, message, code),
       sendSeek: (id, frame, epoch) => this.writer.seek(id, frame, epoch),
       // ADR 0162 B4: a FuMa stream's headroom scale multiplies its volume, as a FuMa clip's import volume.

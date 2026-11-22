@@ -33,7 +33,14 @@ const parsedSidecars = new WeakMap<object, ImportSettings>();
 /** The parsed sidecars resolved for each platform (ADR 0115). */
 const resolvedSidecars = new WeakMap<ImportSettings, Partial<Record<ImportPlatform, ImportSettings>>>();
 let platformOverride: ImportPlatform | null = null;
-const detectPlatform = (): ImportPlatform => (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window ? "desktop" : "web");
+/**
+ * Under Tauri: "android" on Tauri mobile's Android webview (its user agent names Android, ADR 0337 §1), else "desktop";
+ * in a browser: "web".
+ */
+const detectPlatform = (): ImportPlatform => {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return "web";
+  return typeof navigator !== "undefined" && /\bAndroid\b/i.test(navigator.userAgent ?? "") ? "android" : "desktop";
+};
 
 /**
  * @internal The raw JSON of the sidecar for `path` (a slice reference reads its image's), or
@@ -120,7 +127,10 @@ export const Assets = {
     return fetchAssetBytes(Assets.url(path));
   },
 
-  /** The platform per-platform import overrides resolve for (ADR 0115): "desktop" under Tauri, else "web"; settable (null = detect). */
+  /**
+   * The platform per-platform import overrides resolve for (ADR 0115): "android" under Tauri mobile on Android, "desktop"
+   * under Tauri elsewhere, else "web" (ADR 0337 §1); settable (null = detect).
+   */
   get platform(): ImportPlatform {
     return platformOverride ?? detectPlatform();
   },

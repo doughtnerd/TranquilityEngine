@@ -17,6 +17,7 @@
 //! B2), `duck` (the duck lane; B3, Dp1, Sc1), `loudness` (meters; Ld2, Ld7). `bus.rs` calls them as
 //! stage hooks; `scheduler.rs` dispatches the M5 opcodes to them. This module list is final for M5.
 
+pub mod adpcm_voice;
 pub mod arena;
 pub mod automation;
 pub mod bed;

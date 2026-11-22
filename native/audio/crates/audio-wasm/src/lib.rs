@@ -57,6 +57,8 @@ pub const ABI_MAJOR: u32 = 5;
 /// linear in dB), STATUS `fxStarved` and `fxStarvedOwner`.
 /// 4.11 (ADR 0333): SET_VOICE_FX `spread` (mask bit 4, the reserved u16 at offset 50: hundredths of a degree),
 /// a spatial voice spread over an arc by a decorrelated diffuse part (`audio-core` `spread.rs`).
+/// 4.12 (ADR 0337 A4, 0345 §5): CLIP_BEGIN format 6, IMA ADPCM blocks held compressed in the arena and decoded per
+/// voice a little each quantum (`audio-core` `adpcm_voice.rs`); the `AdpcmCursors` region before the arena.
 /// 5.0: the minor starts again (above).
 pub const ABI_MINOR: u32 = 0;
 

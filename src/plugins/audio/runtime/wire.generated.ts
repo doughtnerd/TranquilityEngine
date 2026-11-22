@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "194212f0ff19b8c2eaac92775359df98";
+export const SCHEMA_HASH = "797237fb87d71684489bf0737d14986d";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
@@ -126,6 +126,10 @@ export const MAX_PLAYHEADS_PER_BLOCK = 0x100;
 export const MAX_CLIP_EVENTS_PER_BLOCK = 0x40;
 /** STATUS streamEvents cap */
 export const MAX_STREAM_EVENTS_PER_BLOCK = 0x40;
+/** frames per channel in one block of a format 6 (IMA ADPCM) clip (ADR 0337 §3, 0345 §5) */
+export const ADPCM_BLOCK_FRAMES = 0x400;
+/** bytes per channel per block of a format 6 clip: a 4-byte header, then 512 bytes of codes */
+export const ADPCM_CHANNEL_BYTES = 0x204;
 /** i32 result: ok */
 export const ERR_OK = 0x0;
 /** the STATUS header with the M5 fields, envelope included (STATUS_HEADER_BYTES); sections start here */
@@ -469,6 +473,7 @@ export const ClipFormat = {
   ZoneKernel: 3,
   MagLS: 4,
   ZoneIrPcm: 5,
+  AdpcmIma: 6,
 } as const;
 
 /** STATUS clipEvents code */
@@ -856,7 +861,7 @@ export interface ClipBegin {
   channels: number;
   /** Sample rate in Hz. */
   sampleRate: number;
-  /** ClipFormat: 0 f32, 1 i16 (1, 2, 4, 9 or 16 channels), 2 HRIR, 3 prepared zone kernel, 4 MagLS filters, 5 zone IR PCM (formats 3-5: ADR 0162 C6). */
+  /** ClipFormat: 0 f32, 1 i16 (1, 2, 4, 9 or 16 channels), 2 HRIR, 3 prepared zone kernel, 4 MagLS filters, 5 zone IR PCM (formats 3-5: ADR 0162 C6), 6 IMA ADPCM blocks (1 or 2 channels; ADR 0337). */
   format: number;
 }
 
@@ -894,7 +899,7 @@ export interface ClipChunk {
   clipId: number;
   /** First frame of this chunk within the clip. */
   frameOffset: number;
-  /** Sample frames in this chunk. */
+  /** Sample frames in this chunk (format 6: whole blocks of ADPCM_BLOCK_FRAMES from a block start, the last chunk ending at the clip's frames). */
   frames: number;
   /** Reserved; 0. */
   reserved: number;

@@ -47,7 +47,8 @@ import {
   writeStreamClose,
   writeStreamCredit,
 } from "../wire.generated";
-import { clipSampleBytes, memoryMaximumPages, MEMORY_INITIAL_PAGES, zoneMaxFrames } from "./coreMemory";
+import { clipChunkBytes, memoryMaximumPages, MEMORY_INITIAL_PAGES, zoneMaxFrames } from "./coreMemory";
+
 import { UnderrunProbe } from "./underrunProbe";
 import { EffectGlue, type FxControlMessage, type FxShellEvent } from "./effectGlue";
 
@@ -248,9 +249,10 @@ export type CorePost = (message: ArrayBuffer | CoreShellEvent, transfer?: Transf
 /** @internal Most clip bytes the shell copies per quantum (architecture §3.5, api-and-models §5: 256 KB). */
 export const CLIP_BYTES_PER_QUANTUM = 256 * 1024;
 
-/** What the shell remembers of a reserved clip: enough to size its chunks. */
+/** What the shell remembers of a reserved clip: enough to size its chunks (`clipChunkBytes`). */
 interface ClipShape {
-  readonly frameBytes: number;
+  readonly format: number;
+  readonly channels: number;
 }
 
 /** What the shell keeps per open stream (B3): its shape, the credit due, and the chunk buffers to hand back. */
@@ -427,12 +429,12 @@ export class CoreDriver {
     }
   }
 
-  /** A chunk's sample bytes: `frames * channels * bytesPerSample`, never the (padded) body size; 0 when unusable. */
+  /** A chunk's bytes (`clipChunkBytes`: its samples, or its ADPCM blocks), never the (padded) body size; 0 when unusable. */
   private chunkBytes(view: DataView): number {
     if (view.byteLength < CLIP_CHUNK_FIXED_END) return 0;
     const chunk = readClipChunk(view, 0);
     const shape = this.clips.get(chunk.clipId);
-    return shape ? chunk.frames * shape.frameBytes : 0;
+    return shape ? clipChunkBytes(shape.format, shape.channels, chunk.frames) : 0;
   }
 
   /** CLIP_BEGIN → `myco_audio_clip_reserve` (may grow memory: the views are re-created before the next copy). */
@@ -443,7 +445,8 @@ export class CoreDriver {
     this.views();
     // A refusal is reported by the core as a STATUS clip event (refusedCeiling / refusedGrow).
     // ADR 0162 C6: formats 3-5 are f32 (a format 3 kernel is `channels` 1, `frames` = bytes / 4).
-    if (code === 0) this.clips.set(begin.clipId, { frameBytes: begin.channels * clipSampleBytes(begin.format) });
+    // ADR 0337 A4: format 6 chunks carry whole IMA ADPCM blocks.
+    if (code === 0) this.clips.set(begin.clipId, { format: begin.format, channels: begin.channels });
   }
 
   /** CLIP_CHUNK → `clip_chunk_ptr`, one copy from the message, `clip_commit`; the last range makes the clip resident. */

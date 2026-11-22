@@ -77,6 +77,10 @@ pub enum ClipFormat {
     /// ADR 0162 A4: the MagLS bed filters (format 4, id `MAGLS_CLIP_ID`): f32 words, the
     /// `MaglsHeader` then `[16][2][taps]`; transformed into `bed.rs` at commit; never a voice's source.
     MagLs,
+    /// ADR 0337 §3, 0345 §5 (ABI 4.12): IMA ADPCM blocks (format 6, `audio_adpcm`'s layout), 1 or 2 channels, held
+    /// compressed and decoded per voice a little each quantum (`adpcm_voice.rs`). Chunks start on a block and carry
+    /// whole blocks.
+    Adpcm,
 }
 
 impl ClipFormat {
@@ -89,6 +93,7 @@ impl ClipFormat {
             wire::clip_format::ZONE_KERNEL => Some(ClipFormat::ZoneKernel),
             wire::clip_format::ZONE_IR_PCM => Some(ClipFormat::ZoneIrPcm),
             wire::clip_format::MAG_LS => Some(ClipFormat::MagLs),
+            wire::clip_format::ADPCM_IMA => Some(ClipFormat::Adpcm),
             _ => None,
         }
     }
@@ -102,14 +107,16 @@ impl ClipFormat {
             ClipFormat::ZoneKernel => 3,
             ClipFormat::ZoneIrPcm => 5,
             ClipFormat::MagLs => 4,
+            ClipFormat::Adpcm => 6,
         }
     }
 
-    /// Bytes per sample.
+    /// Bytes per sample (0 for ADPCM, whose ranges are whole blocks instead: `Entry::offset_of`, `ClipStore::range`).
     pub fn sample_bytes(self) -> usize {
         match self {
             ClipFormat::F32 | ClipFormat::ZoneKernel | ClipFormat::ZoneIrPcm | ClipFormat::MagLs => 4,
             ClipFormat::I16 | ClipFormat::Hrir => 2,
+            ClipFormat::Adpcm => 0,
         }
     }
 }
@@ -118,6 +125,18 @@ impl ClipFormat {
 #[derive(Clone, Copy, Debug)]
 pub struct Clip<'a> {
     pub source: Source<'a>,
+    /// The clip's own rate, in Hz.
+    pub sample_rate: f32,
+}
+
+/// A resident ADPCM clip (format 6) as a voice reads it: its blocks (`audio_adpcm`'s layout), decoded per voice.
+#[derive(Clone, Copy, Debug)]
+pub struct AdpcmClip<'a> {
+    /// Whole blocks: `audio_adpcm::encoded_bytes(frames, channels)` bytes.
+    pub blocks: &'a [u8],
+    /// 1 or 2.
+    pub channels: u32,
+    pub frames: u32,
     /// The clip's own rate, in Hz.
     pub sample_rate: f32,
 }
@@ -152,12 +171,31 @@ impl Entry {
             3 => ClipFormat::ZoneKernel,
             5 => ClipFormat::ZoneIrPcm,
             4 => ClipFormat::MagLs,
+            6 => ClipFormat::Adpcm,
             _ => ClipFormat::F32,
         }
     }
 
     fn frame_bytes(&self) -> usize {
         self.channels as usize * self.format().sample_bytes()
+    }
+
+    /// The clip's bytes in the arena: its samples, or an ADPCM clip's whole blocks.
+    fn data_bytes(&self) -> usize {
+        if self.format() == ClipFormat::Adpcm {
+            audio_adpcm::encoded_bytes(self.frames as usize, self.channels as usize)
+        } else {
+            self.frames as usize * self.frame_bytes()
+        }
+    }
+
+    /// The byte offset of frame `frame` (an ADPCM clip: of its block, `frame` being a block start).
+    fn offset_of(&self, frame: u32) -> usize {
+        if self.format() == ClipFormat::Adpcm {
+            frame as usize / audio_adpcm::BLOCK_FRAMES * audio_adpcm::block_bytes(self.channels as usize)
+        } else {
+            frame as usize * self.frame_bytes()
+        }
     }
 
     fn block(&self) -> Block {
@@ -290,6 +328,10 @@ impl ClipStore {
         if format == ClipFormat::MagLs && (id != wire::MAGLS_CLIP_ID || channels != 1) {
             return Err(wire::ERR_BAD_ARG);
         }
+        if format == ClipFormat::Adpcm && channels > 2 {
+            // ADR 0337: ADPCM clips are mono or stereo (the voice's reader decodes at most two channels).
+            return Err(wire::ERR_BAD_ARG);
+        }
         let bank_bytes = if hrir {
             match HrtfBank::bytes_for(sample_rate) {
                 Some(b) => b,
@@ -307,7 +349,13 @@ impl ClipStore {
             Err(at) => at,
         };
         let pcm = format == ClipFormat::ZoneIrPcm;
-        let bytes = if pcm { Some(kernel::kernel_bytes(frames as usize)) } else { (frames as usize).checked_mul(channels as usize * format.sample_bytes()) };
+        let bytes = if pcm {
+            Some(kernel::kernel_bytes(frames as usize))
+        } else if format == ClipFormat::Adpcm {
+            Some(audio_adpcm::encoded_bytes(frames as usize, channels as usize))
+        } else {
+            (frames as usize).checked_mul(channels as usize * format.sample_bytes())
+        };
         let block = match bytes {
             _ if self.len == self.entries.len() => Err(Refusal::Ceiling),
             None => Err(Refusal::Ceiling),
@@ -358,9 +406,22 @@ impl ClipStore {
 
     /// Checks a range of `bytes` at frame `frame_offset`: whole frames, non-empty, inside the clip.
     /// Gives the entry's index and the range in frames.
+    /// An ADPCM clip's range is whole blocks from a block start (`frame_offset` a multiple of 1,024, `bytes` of the
+    /// block size), every block inside the clip; its frames end at the clip's last frame.
     fn range(&self, id: u32, frame_offset: u32, bytes: usize) -> Result<(usize, usize), i32> {
         let at = self.find(id).map_err(|_| wire::ERR_UNKNOWN_CLIP)?;
         let e = &self.entries[at];
+        if e.format() == ClipFormat::Adpcm {
+            let bb = audio_adpcm::block_bytes(e.channels as usize);
+            let bf = audio_adpcm::BLOCK_FRAMES;
+            if bytes == 0 || bytes % bb != 0 || frame_offset as usize % bf != 0 || frame_offset >= e.frames {
+                return Err(wire::ERR_BAD_ARG);
+            }
+            if frame_offset as usize / bf + bytes / bb > audio_adpcm::blocks(e.frames as usize) {
+                return Err(wire::ERR_BAD_ARG);
+            }
+            return Ok((at, (bytes / bb * bf).min(e.frames as usize - frame_offset as usize)));
+        }
         let fb = e.frame_bytes();
         if bytes % fb != 0 {
             return Err(wire::ERR_BAD_ARG);
@@ -382,7 +443,7 @@ impl ClipStore {
         let e = self.entries[at];
         // SAFETY: the range is inside the clip's block (checked); the source is a distinct slice.
         // Wasm and every native test host are little-endian, so the bytes are the samples.
-        unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), (e.addr + frame_offset as usize * e.frame_bytes()) as *mut u8, bytes.len()) };
+        unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), (e.addr + e.offset_of(frame_offset)) as *mut u8, bytes.len()) };
         if frame_offset <= e.committed {
             self.commit_frames(at, frame_offset, n)?;
         }
@@ -399,7 +460,7 @@ impl ClipStore {
         }
         let (at, _) = self.range(id, frame_offset, bytes)?;
         let e = &self.entries[at];
-        Ok((e.addr + frame_offset as usize * e.frame_bytes()) as *mut u8)
+        Ok((e.addr + e.offset_of(frame_offset)) as *mut u8)
     }
 
     /// Marks a range written (`myco_audio_clip_commit`); the same checks as `chunk_ptr`. Ranges
@@ -511,10 +572,30 @@ impl ClipStore {
                 ClipFormat::F32 => Samples::F32(core::slice::from_raw_parts(e.addr as *const f32, len)),
                 ClipFormat::I16 => Samples::I16(core::slice::from_raw_parts(e.addr as *const i16, len)),
                 // The HRTF table, zone kernels and the MagLS filters aren't a voice's source.
-                ClipFormat::Hrir | ClipFormat::ZoneKernel | ClipFormat::ZoneIrPcm | ClipFormat::MagLs => return None,
+                // An ADPCM clip is read through `adpcm` (a voice decodes it).
+                ClipFormat::Hrir | ClipFormat::ZoneKernel | ClipFormat::ZoneIrPcm | ClipFormat::MagLs | ClipFormat::Adpcm => return None,
             }
         };
         Some(Clip { source: Source { samples, channels: e.channels as u32, frames: e.frames }, sample_rate: e.sample_rate })
+    }
+
+    /// An ADPCM clip's blocks (format 6), or `None` when `id` isn't held or isn't one. Never allocates (`process`
+    /// calls it). As with a PCM clip, a voice may start before the last range is committed (it reads silence there:
+    /// the block was zeroed, and a zero header and codes decode to exact silence).
+    pub fn adpcm(&self, id: u32) -> Option<AdpcmClip<'_>> {
+        let e = &self.entries[self.find(id).ok()?];
+        if e.format() != ClipFormat::Adpcm {
+            return None;
+        }
+        // SAFETY: the block holds `data_bytes()` bytes (reserved for whole blocks); only `onmessage` writes it, never
+        // while `process` reads.
+        let blocks = unsafe { core::slice::from_raw_parts(e.addr as *const u8, e.data_bytes()) };
+        Some(AdpcmClip { blocks, channels: e.channels as u32, frames: e.frames, sample_rate: e.sample_rate })
+    }
+
+    /// A voice clip's channels and rate (PCM or ADPCM); `None` when `id` isn't held or isn't a voice's source.
+    pub fn shape(&self, id: u32) -> Option<(u32, f32)> {
+        self.frames(id).map(|c| (c.source.channels, c.sample_rate)).or_else(|| self.adpcm(id).map(|a| (a.channels, a.sample_rate)))
     }
 
     /// Drops the clip (`myco_audio_clip_free`); its block goes back to the arena. `ERR_UNKNOWN_CLIP`

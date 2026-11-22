@@ -24,6 +24,7 @@ import { Camera } from "../../../../engine/render/components";
 import { AudioListener, listenerPose } from "../AudioListener";
 import { CURVE_DRIVEN_ATTENUATION, curveDbToGain, evalAttenuation, FLAT_SEND_CURVE, LOWPASS_OFF_HZ, type AttenuationAt, type AttenuationCurveSet } from "../core/spatial";
 import { isLabelled, parameterDefault, type ParameterDef } from "../../../../engine/audio/parameters";
+import { mediaPlay } from "../media/packages";
 import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest, type SubmixLevel, type VoiceSpatialOptions } from "../backend";
 import { clipRequest, SAMPLE_END_FADE, sampleEdits, samplePass, samplePlan } from "../clipResolver";
 import { warnOnce } from "../core/handle";
@@ -819,7 +820,8 @@ export class PlaylistInstance implements NodeHost {
     if (pass.offset > 0) req.offset = pass.offset;
     else delete req.offset;
     let voice: AudioVoice | null;
-    try { voice = audioBackend().play(req); } catch { voice = null; }
+    // ADR 0337 §7: through the package registry (the strict rule; an unload stops the voice).
+    try { voice = mediaPlay(req); } catch { voice = null; }
     if (!voice) return null;
     const sink = playlistHost().automation;
     const bindings = this.quant.bindings(this.withStaticPan(timed.bindings, c.pan, ctx.where), ctx.quantized, start);

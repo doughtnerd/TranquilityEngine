@@ -161,7 +161,23 @@ const SCENES = [
   "duck-gate",
   "duck-8-gate",
   "lanes-7",
+  // ADR 0337 A4 (0345 §5): ADPCM clips decoded per voice each quantum: 256 looping voices crossing every block together,
+  // 128 at pitch 4, and the default preset's one-shots. `ADPCM_PAIRS` reports each against its int16 twin.
+  "adpcm",
+  "adpcm-pitch4",
+  "adpcm-default",
 ];
+
+/** ADR 0337 A4 (0345 §5): each ADPCM scene -> its int16 twin and the voices it decodes. Reported: the decode's cost per voice
+ *  per quantum (the A0 spike measured +23.0k at pitch 1, +34.3k at 1.5, in its stripped-down bench) and the worst quantum
+ *  against the mean. `flat` scenes fail the gate when their worst quantum passes `ADPCM_FLAT_MAX` × their mean: their voices
+ *  cross every block in the same quantum, where the rejected block-cache design spiked 9.4×. */
+const ADPCM_PAIRS = {
+  adpcm: { twin: "automation-base", voices: 256, flat: true },
+  "adpcm-pitch4": { twin: "pitch4", voices: 128, flat: true },
+  "adpcm-default": { twin: "default", voices: 128, flat: false },
+};
+const ADPCM_FLAT_MAX = 1.25;
 
 /** Bn1 (`-base` is the same per-quantum path with no records): each ramping scene -> its settled base and its number of ramping lanes (informational: §7.1's model is 1.7-1.8k
  *  instructions per ramping lane per quantum, today's ramping bus 5.4k). */
@@ -341,7 +357,18 @@ function main() {
     console.log(`[metered] ${stamped} vs ${twin}: ${a.perQuantum.toLocaleString("en-US")} vs ${b.perQuantum.toLocaleString("en-US")}, ${delta >= 0 ? "+" : ""}${delta.toLocaleString("en-US")} instructions per quantum (limit +${TWIN_LIMIT.toLocaleString("en-US")})`);
     if (delta > TWIN_LIMIT) twinFailures.push(`${stamped} costs ${delta.toLocaleString("en-US")} instructions per quantum more than ${twin} (limit ${TWIN_LIMIT.toLocaleString("en-US")})`);
   }
+  // ADR 0337 A4: the ADPCM decode's cost per voice and its flatness.
+  for (const [scene, { twin, voices, flat }] of Object.entries(ADPCM_PAIRS)) {
+    const a = results[scene];
+    const b = results[twin];
+    if (!a) continue;
+    const peak = a.max / a.perQuantum;
+    const perVoice = b ? `, ${Math.round((a.perQuantum - b.perQuantum) / voices).toLocaleString("en-US")} per voice over ${twin} (${(a.perQuantum / b.perQuantum).toFixed(2)}×; A0: +23.0k at pitch 1)` : "";
+    console.log(`[metered] ${scene}: worst quantum ${peak.toFixed(3)}× its mean${perVoice}`);
+    if (flat && peak > ADPCM_FLAT_MAX) twinFailures.push(`${scene}'s worst quantum is ${peak.toFixed(2)}× its mean (limit ${ADPCM_FLAT_MAX}×): the ADPCM decode must spread over quanta (0345 §5)`);
+  }
   // M4b: each music scene's own cost against its S7 allowance.
+
   for (const [scene, { twin, limit }] of Object.entries(MUSIC_PAIRS)) {
     const a = results[scene];
     const b = results[twin];

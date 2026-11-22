@@ -7,7 +7,10 @@ import { mixer, Bus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
 import { World } from "../../../engine/core/World";
 import { worldKeyOf, worldPlays } from "./AudioSource";
-import { clipRequest } from "./clipResolver";
+import { clipRequest, clipSource } from "./clipResolver";
+import { isPlaylistPath } from "../../../engine/audio/playlist/format";
+import { Assets } from "../../../engine/scene/Assets";
+import { audioPackage, audioPackages, mediaRefusal, packagesDebug, playlistRefusal, type AudioPackage, type AudioPackageDebug } from "./media/packages";
 import { playSampleVoice } from "./sampleVoice";
 import { warnOnce } from "./core/handle";
 import type { AudioLatency, MusicEvent, MusicHandle, MusicKind } from "../../../engine/audio/musicTypes";
@@ -31,7 +34,10 @@ import { takePlayOptions, takeTap, type TakeEmitter } from "./capture/takeTap";
  * `eventTotals.lateStarts` counts the entries every instance started late, the ended ones included, where the rows only
  * hold the playing instances'), and on a backend with music the `music` rows and `musicTotals`.
  */
-export type AudioDebugState = Omit<AudioDebugInfo, "events" | "music" | "musicTotals"> & AudioDebugRows;
+export type AudioDebugState = Omit<AudioDebugInfo, "events" | "music" | "musicTotals"> & AudioDebugRows & {
+  /** ADR 0337 §9: every package with its state, references, download bytes and memory. */
+  packages: AudioPackageDebug[];
+};
 
 /** Options for `Audio.playOneShot` (ADR 0074, api-and-models §1). */
 export interface OneShotOptions {
@@ -95,6 +101,12 @@ const INERT_EVENT: AudioPlaylistHandle = Object.freeze({
   // ADR 0166 §1.2 (Q0): a playlist that didn't play has no music.
   music: undefined, onMusic: () => () => {}, trigger: () => false,
 });
+
+// ADR 0337 §7: refused plays of packaged sounds (`notLoaded`) and of media the backend can't decode yet (`failed`).
+const NOT_LOADED: AudioHandle = Object.freeze({ ...INERT, reason: "notLoaded" as const });
+const FAILED: AudioHandle = Object.freeze({ ...INERT, reason: "failed" as const });
+const NOT_LOADED_EVENT: AudioPlaylistHandle = Object.freeze({ ...INERT_EVENT, reason: "notLoaded" as const });
+const FAILED_EVENT: AudioPlaylistHandle = Object.freeze({ ...INERT_EVENT, reason: "failed" as const });
 
 /**
  * ADR 0334: the public handle over a playlist instance, with the take's hooks on the requests a replay re-issues (stop,
@@ -226,6 +238,9 @@ export const Audio = {
       if (!worldPlays(World.active)) return INERT;
       const o: OneShotOptions = typeof options === "number" ? { volume: options } : options !== null && typeof options === "object" ? options : {};
       const path = String(clip).replace(/^asset:/, "");
+      // ADR 0337 §7: a packaged sound whose packages are unloaded (strict), or media the backend can't play yet.
+      const refused = mediaRefusal(clipSource(path));
+      if (refused) return refused === "notLoaded" ? NOT_LOADED : FAILED;
       const req = clipRequest(path, false, o.bus);
       req.oneShot = true;
       req.world = worldKeyOf(World.active);
@@ -281,6 +296,11 @@ export const Audio = {
     try {
       const o = options !== null && typeof options === "object" ? options : {};
       const asset = String(pathOrSample).replace(/^asset:/, "");
+      // ADR 0337 §7: the strict rule for a packaged playlist or sample (`playlistRefusal` for a playlist).
+      if (worldPlays(World.active)) {
+        const refused = isPlaylistPath(asset) ? playlistRefusal(asset, clipSource) : Assets.has(asset) ? mediaRefusal(clipSource(asset)) : null;
+        if (refused) return refused === "notLoaded" ? NOT_LOADED_EVENT : FAILED_EVENT;
+      }
       const p = _playPlaylist(asset, o, World.active);
       if (p && takeTap.sink) takeTap.sink.play(p, asset, o.position ? placedEmitter(p, asset) : null, takePlayOptions(o));
       return p ? takePlaylistHandleOf(p) : INERT_EVENT;
@@ -436,6 +456,21 @@ export const Audio = {
     const info = backend.debug();
     // Rc4: the shared capture ring (null while none runs). ADR 0327: why the core couldn't run, once known.
     const why = coreUnavailable();
-    return { ...info, ...debugRows(info, backend), recorder: captureDebug(), ...(why !== null ? { coreUnavailable: why } : {}) };
+    return { ...info, ...debugRows(info, backend), recorder: captureDebug(), packages: packagesDebug(), ...(why !== null ? { coreUnavailable: why } : {}) };
+  },
+
+  /**
+   * ADR 0337 §9: a package of sounds from `audio.json` (Wwise's SoundBanks, FMOD's banks): `await Audio.package("Forest").load()`
+   * before playing its sounds, `unload()` when they're done. Loads are reference-counted; an unknown name gives a handle
+   * whose `load()` rejects, with one warning. With strict packaging (the default) a packaged sound whose packages are all
+   * unloaded doesn't play: its handle's `reason` is "notLoaded".
+   */
+  package(name: string): AudioPackage {
+    return audioPackage(name);
+  },
+
+  /** ADR 0337 §9: every package this game has for its platform, in `audio.json`'s order. */
+  get packages(): readonly AudioPackage[] {
+    return audioPackages();
   },
 };

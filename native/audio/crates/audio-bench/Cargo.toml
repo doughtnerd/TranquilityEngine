@@ -16,4 +16,6 @@ crate-type = ["rlib", "cdylib"]
 audio-core.workspace = true
 audio-dsp.workspace = true
 audio-wire.workspace = true
+# ADR 0337 A4: the ADPCM scenes' block layout.
+audio-adpcm.workspace = true
 libm.workspace = true
