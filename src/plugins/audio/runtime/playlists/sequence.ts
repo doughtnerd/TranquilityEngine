@@ -668,7 +668,47 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   // --- the musical clock -------------------------------------------------------------------------------------------
 
   get label(): string { return this.ctx.where; }
-  get hasGrid(): boolean { return this.grid !== null; }
+  /** A tempo: the sequence's own, else a sync clip's sample tempo (ADR 0329: "its sequence's tempo, else its sync sample's"). */
+  get hasGrid(): boolean { return this.grid !== null || this.clips.some((c) => c.sync && c.facts?.grid); }
+
+  /** The sync clip with a sample tempo holding sequence time `s` (the higher track first), else the next one after `s`. */
+  private tempoClip(s: number, after: boolean): ClipRt | null {
+    let next: ClipRt | null = null;
+    for (const c of this.clips) {
+      if (!c.sync || !c.geo || !c.facts?.grid) continue;
+      if (s >= c.start - EPS && s < c.end - EPS) return c;
+      if (after && c.start > s && (!next || c.start < next.start)) next = c;
+    }
+    return next;
+  }
+
+  /** Sequence seconds of the first grid point of `spec` at or after `s` (NaN: none). */
+  private nextPoint(s: number, spec: GridSpec): number {
+    if (this.grid) return nextGridSeconds(this.grid, s, spec);
+    const c = this.tempoClip(s, true);
+    if (!c) return Number.NaN;
+    const g = c.facts!.grid!;
+    let u = Math.max(0, s - c.start);
+    for (let guard = 0; guard < 4096; guard++) {
+      const p = pieceAt(c.geo!, u);
+      if (!p) return Number.NaN;
+      if (p.sample !== null) {
+        const x = nextGridSeconds(g, p.sample + (u - p.from), spec);
+        if (x < p.sample + (p.to - p.from) - EPS) return c.start + p.from + (x - p.sample);
+      }
+      u = p.to;
+    }
+    return Number.NaN;
+  }
+
+  /** The musical position at sequence seconds `s`. */
+  private positionAtSeq(s: number): MusicalPosition | null {
+    if (this.grid) return positionOn(this.grid, s);
+    const c = this.tempoClip(s, false);
+    if (!c) return null;
+    const p = pieceAt(c.geo!, s - c.start);
+    return p && p.sample !== null ? positionOn(c.facts!.grid!, p.sample + (s - c.start - p.from)) : null;
+  }
 
   /** Walks the playhead's moves at or after heard `from` (the kept past, the plan, then a prediction) until `visit` says stop. */
   private walk(from: number, visit: (m: PlayheadMove) => boolean): void {
@@ -726,14 +766,14 @@ export class SequenceNode extends LiveNode implements MusicalSource {
       this.walk(from, (m) => (m.kind === "jump" && m.why === "wrap" && m.at >= from - EPS ? ((out = m.at), true) : false));
       return out;
     }
-    const g = this.grid;
-    if (!g) return null;
-    return this.firstHeard(from, (s) => nextGridSeconds(g, s, kind));
+    if (!this.hasGrid) return null;
+    return this.firstHeard(from, (s) => this.nextPoint(s, kind));
   }
 
   secondsPerBeat(): number | null {
-    const g = this.grid;
-    return g ? 60 / g.bpm[0]! : null;
+    if (this.grid) return 60 / this.grid.bpm[0]!;
+    const p = this.hasGrid ? this.positionAt(this.host.clock()) : null;
+    return p && p.tempo > 0 ? 60 / p.tempo : null;
   }
 
   /** Sequence seconds heard at `time`, NaN when unknown (before the kept past, or past the end). */
@@ -760,19 +800,17 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   }
 
   positionAt(time: number): MusicalPosition | null {
-    const g = this.grid;
-    if (!g || this.stopped) return null;
+    if (!this.hasGrid || this.stopped) return null;
     const s = this.sequenceAt(time);
-    return Number.isFinite(s) ? positionOn(g, s) : null;
+    return Number.isFinite(s) ? this.positionAtSeq(s) : null;
   }
 
   nextGrid(spec: GridSpec, from: number): { time: number; bar: number; beat: number } | null {
-    const g = this.grid;
-    if (!g) return null;
+    if (!this.hasGrid) return null;
     let point = Number.NaN;
-    const t = this.firstHeard(from, (s) => (point = nextGridSeconds(g, s, spec)));
+    const t = this.firstHeard(from, (s) => (point = this.nextPoint(s, spec)));
     if (t === null) return null;
-    const p = positionOn(g, point);
+    const p = this.positionAtSeq(point + 1e-9);
     return p ? { time: t, bar: p.bar, beat: p.beat } : null;
   }
 

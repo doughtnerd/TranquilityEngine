@@ -306,6 +306,20 @@ describe("Sequence: musical clock, positions and hot reload", () => {
     expect(m.nextGrid("beat")).toEqual({ time: 3, bar: 1, beat: 4, segment: "s.playlist.json" });
   });
 
+  it("without a tempo of its own a sequence reads its sync clip's sample tempo through the clip map", async () => {
+    await kit.boot({
+      "a.wav.meta.json": meta({ tempo: { bpm: 60, meter: "4/4" } }),
+      "s.playlist.json": seq({ length: 16, tracks: [track([{ id: "c1", sample: "a.wav", at: 1, length: 12, sync: true }])] }),
+    });
+    fake.durations.set("a.wav", 16);
+    const h = Audio.play("s.playlist.json");
+    at(3); // sample time 2
+    const m = h.music!;
+    expect([m.bar, m.beat, m.tempo]).toEqual([1, 3, 60]);
+    expect(m.nextGrid("bar")).toEqual({ time: 5, bar: 2, beat: 1, segment: "s.playlist.json" });
+    expect(m.seek("2:1:0")).toMatchObject({ ok: false }); // seeking needs the sequence's own tempo
+  });
+
   it("seek jumps the playhead at the planned time: sync clips restart at their map there", async () => {
     await kit.boot({ "s.playlist.json": tempoSeq() });
     fake.durations.set("a.wav", 16);
