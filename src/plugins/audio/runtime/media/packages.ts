@@ -57,6 +57,8 @@ import { onAudioSessionReleased } from "../audioSession";
 import { taps } from "../mix/profileTaps";
 import { NULL_PROFILE_SINK, type ProfilePackageEvent } from "../mix/profileSink";
 import { buildUrl, entryPackages, installedAudio, mediaEntry } from "./mediaTable";
+import { fallbackChain } from "../../../../engine/localisation/languages";
+import { audioLanguage, projectLanguages } from "../localisation/languageState";
 
 /** ADR 0337 §9: a package of sounds a game loads and unloads (`Audio.package(name)`). */
 export interface AudioPackage {
@@ -178,14 +180,109 @@ function definitions(): Definitions {
   return defs;
 }
 
-/** The packages holding the sound at project path `path` (a build's media table, or the definitions over the sources). */
+/**
+ * The units holding the sound at project path `path` (a build's media table, or the definitions over the sources): its
+ * packages, or for a localised sound their language parts (`partKey`) that hold it.
+ */
 function holdersOf(path: string): readonly string[] {
   const defs = definitions();
   if (defs.built) {
     const entry = mediaEntry(path);
-    return entry ? entryPackages(entry) : [];
+    if (!entry) return [];
+    const names = entryPackages(entry);
+    const languages = entry.languages ?? (entry.language ? [entry.language] : []);
+    return languages.length ? names.flatMap((n) => languages.map((c) => partKey(n, c))) : names;
   }
   return defs.list.filter((d) => d.holds(path)).map((d) => d.name);
+}
+
+// --- language parts (ADR 0340 §6) ---------------------------------------------------------------------------------------
+
+/** A language part's unit key: `|` can't be in a package name (`whyNotPackageName`). */
+function partKey(name: string, code: string): string {
+  return `${name}|${code}`;
+}
+
+/** The package a unit key belongs to. */
+const packageOfUnit = (key: string): string => key.split("|")[0]!;
+
+/** A unit as messages and capture events name it: the package, or its part's file stem (`Dialogue.fr`). */
+const unitLabel = (key: string): string => key.replace("|", ".");
+
+/** The language `switchPackageLanguage` last committed; null: follow `Audio.language`. */
+let packageLanguage: string | null = null;
+
+/** The part of `def` the language `code` loads: its chain's first language with a part, else the first part; null without parts. */
+function partCodeFor(def: Definition, code: string): string | null {
+  if (!def.parts) return null;
+  const codes = Object.keys(def.parts);
+  for (const c of fallbackChain(projectLanguages(), code)) {
+    const hit = codes.find((x) => x.toLowerCase() === c.toLowerCase());
+    if (hit) return hit;
+  }
+  return codes[0] ?? null;
+}
+
+/** The part of `def` loaded now (the package language's), or null without parts. */
+function currentPartCode(def: Definition): string | null {
+  return def.parts ? partCodeFor(def, packageLanguage ?? audioLanguage()) : null;
+}
+
+/** The unit of `def`'s current part, if it has parts. */
+function currentPart(def: Definition): Pkg | null {
+  const code = currentPartCode(def);
+  return code === null ? null : (pkgs.get(partKey(def.name, code)) ?? null);
+}
+
+/** Holds and loads language part `code` of package `def` for the package (one reference, the package's). */
+function holdPart(def: Definition, code: string): Promise<void> {
+  const unit = definitions().units.get(partKey(def.name, code));
+  if (!unit) return Promise.resolve();
+  const p = pkgOf(unit.name);
+  if (p.refs.length === 0) p.refs.push({ owner: PART_OWNER, world: null });
+  return startLoad(p, unit);
+}
+
+/** The package's own reference on its parts. */
+const PART_OWNER = {};
+
+/** Lets go of every part of package `name` but `keep` (`finish`: their voices end first). */
+function releaseParts(name: string, keep: string | null, finish: boolean): void {
+  for (const p of [...pkgs.values()]) {
+    if (!p.name.startsWith(`${name}|`) || p.name === keep) continue;
+    if (p.refs.length > 0 || p.state !== "unloaded") release(p, finish);
+  }
+}
+
+let switchSerial = 0;
+
+/**
+ * @internal The audio language switch (ADR 0340 §4, §6): loads language `code`'s part of every loaded (or loading)
+ * package, then makes `code` the package language and unloads the other parts, after their voices finish (`"finish"`,
+ * the default) or at once with a 50 ms fade (`"stop"`). Resolves once the new parts are in (a part that fails was
+ * warned about and doesn't stop the switch); a later call supersedes a pending one, which then resolves without
+ * switching. With no package parts it completes at once.
+ */
+export async function switchPackageLanguage(code: string, options?: { playing?: "finish" | "stop" }): Promise<void> {
+  const serial = ++switchSerial;
+  const defs = definitions();
+  const held = (def: Definition) => (pkgs.get(def.name)?.refs.length ?? 0) > 0;
+  const loads: Promise<void>[] = [];
+  for (const def of defs.list) {
+    const next = held(def) ? partCodeFor(def, code) : null;
+    if (next !== null) loads.push(holdPart(def, next).catch(() => undefined));
+  }
+  if (loads.length) await Promise.all(loads);
+  if (serial !== switchSerial) return;
+  packageLanguage = code;
+  const finish = options?.playing !== "stop";
+  for (const def of definitions().list) {
+    if (!def.parts) continue;
+    const next = held(def) ? partCodeFor(def, code) : null;
+    releaseParts(def.name, next === null ? null : partKey(def.name, next), finish);
+    // A package that started loading during the switch took the old part: it takes the new one now.
+    if (next !== null) void holdPart(def, next).catch(() => undefined);
+  }
 }
 
 // --- state ------------------------------------------------------------------------------------------------------------
@@ -299,7 +396,7 @@ function packHostFor(): AudioPacks | null | Promise<AudioPacks | null> {
 /** A `PKG` capture event; `memoryBytes` (loaded and unload) is what the package holds resident (the Profiler's memory track). */
 function emit(name: string, event: ProfilePackageEvent, bytes: number, memoryBytes?: number): void {
   const sink = taps.sink;
-  if (sink !== NULL_PROFILE_SINK) sink.audioPackage?.(name, event, bytes, memoryBytes);
+  if (sink !== NULL_PROFILE_SINK) sink.audioPackage?.(unitLabel(name), event, bytes, memoryBytes);
 }
 
 /** The runtime memory of a package entry (ADR 0337 §3; `load: "compressed"` counts its bytes, as A4 will hold them). */
@@ -440,7 +537,7 @@ function sweepFinishing(): void {
 function release(p: Pkg, finish: boolean): void {
   p.generation++;
   const was = p.state;
-  const bytes = definitions().byName.get(p.name)?.bytes ?? 0;
+  const bytes = definitions().units.get(p.name)?.bytes ?? 0;
   const held = memoryOf(p);
   p.state = "unloaded";
   p.progress = 0;
@@ -475,6 +572,8 @@ function release(p: Pkg, finish: boolean): void {
   if (packHost && packId !== null) packReleases.push({ host: packHost, pack: packId, paths: p.paths.filter((path) => finishing.has(path)) });
   p.paths = [];
   if (was === "loaded" || was === "loading") emit(p.name, "unload", bytes, held);
+  // ADR 0340 §6: a package's language parts go with it.
+  if (!p.name.includes("|")) releaseParts(p.name, null, finish);
   sweepFinishing();
 }
 
@@ -583,7 +682,8 @@ function startLoad(p: Pkg, def: Definition): Promise<void> {
   p.loading = run().catch((err: unknown) => {
     if (p.generation !== generation) return;
     const why = err instanceof Error ? err.message : String(err);
-    warnOnce(`package:failed:${p.name}:${why}`, `Audio.package("${p.name}") failed to load (${why}).`);
+    const label = p.name.includes("|") ? `Audio.package("${packageOfUnit(p.name)}")'s ${p.name.slice(p.name.indexOf("|") + 1)} part` : `Audio.package("${p.name}")`;
+    warnOnce(`package:failed:${p.name}:${why}`, `${label} failed to load (${why}).`);
     emit(p.name, "failed", def.bytes);
     p.generation++;
     p.state = "failed";
@@ -594,7 +694,7 @@ function startLoad(p: Pkg, def: Definition): Promise<void> {
     if (p.packHost && p.packId !== null) releasePackSafely(p.packHost, p.packId);
     p.packId = null;
     p.packHost = null;
-    throw new Error(`Audio.package("${p.name}") failed to load: ${why}`);
+    throw new Error(`${label} failed to load: ${why}`);
   });
   return p.loading;
 }
@@ -608,7 +708,53 @@ function acquire(name: string, owner: object, world: World | null): Promise<void
   }
   const p = pkgOf(name);
   p.refs.push({ owner, world });
-  return startLoad(p, def);
+  const base = startLoad(p, def);
+  // ADR 0340 §6: the base and the package language's part.
+  const code = currentPartCode(def);
+  if (code === null) return base;
+  return Promise.all([base, holdPart(def, code)]).then(
+    () => undefined,
+    (err: unknown) => {
+      // A base that failed holds no part; a part that failed leaves the base loaded (a later load tries the part again).
+      if (p.state === "failed") releaseParts(name, null, false);
+      throw err;
+    },
+  );
+}
+
+/** A package's state with its current part: failed or loading if either is, loaded once both are. */
+function stateOf(def: Definition | undefined, name: string): AudioPackage["state"] {
+  const base = pkgs.get(name)?.state ?? "unloaded";
+  const part = def ? currentPart(def) : null;
+  if (!def?.parts || base === "unloaded") return base;
+  const ps = part?.state ?? "unloaded";
+  if (base === "failed" || ps === "failed") return "failed";
+  if (base === "loaded" && ps === "loaded") return "loaded";
+  return "loading";
+}
+
+/** A package's progress with its current part, weighted by their sizes. */
+function progressOf(def: Definition | undefined, name: string): number {
+  const base = pkgs.get(name);
+  const part = def ? currentPart(def) : null;
+  if (!def?.parts) return base?.progress ?? 0;
+  const partBytes = currentPartBytes(def);
+  const total = def.bytes + partBytes;
+  if (total <= 0) return ((base?.progress ?? 0) + (part?.progress ?? 0)) / 2;
+  return ((base?.progress ?? 0) * def.bytes + (part?.progress ?? 0) * partBytes) / total;
+}
+
+/** The size of a package's current part (0 without parts). */
+function currentPartBytes(def: Definition): number {
+  const code = currentPartCode(def);
+  return code === null ? 0 : (def.parts?.[code]?.bytes ?? 0);
+}
+
+/** The memory a package holds with its current part. */
+function packageMemory(def: Definition | undefined, name: string): number {
+  const p = pkgs.get(name);
+  const part = def ? currentPart(def) : null;
+  return (p ? memoryOf(p) : 0) + (part ? memoryOf(part) : 0);
 }
 
 /** Drops one reference `owner` holds on package `name` (any one when `owner` is null); the last one releases it. */
@@ -638,10 +784,11 @@ export function audioPackage(name: string): AudioPackage {
   if (!h) {
     h = {
       name: n,
-      get state() { return pkgs.get(n)?.state ?? "unloaded"; },
-      get progress() { return pkgs.get(n)?.progress ?? 0; },
-      get bytes() { return definitions().byName.get(n)?.bytes ?? 0; },
-      get memoryBytes() { const p = pkgs.get(n); return p ? memoryOf(p) : 0; },
+      get state() { return stateOf(definitions().byName.get(n), n); },
+      get progress() { return progressOf(definitions().byName.get(n), n); },
+      get bytes() { const d = definitions().byName.get(n); return d ? d.bytes + currentPartBytes(d) : 0; },
+      get memoryBytes() { return packageMemory(definitions().byName.get(n), n); },
+      get languages() { return Object.keys(definitions().byName.get(n)?.parts ?? {}); },
       load() {
         const world = World.active;
         return acquire(n, world ?? PAGE, world);
@@ -667,7 +814,7 @@ export function audioPackages(): readonly AudioPackage[] {
 export function packagesDebug(): AudioPackageDebug[] {
   return definitions().list.map((d) => {
     const p = pkgs.get(d.name);
-    return { name: d.name, state: p?.state ?? "unloaded", refs: p?.refs.length ?? 0, bytes: d.bytes, memoryBytes: p ? memoryOf(p) : 0, preload: d.preload };
+    return { name: d.name, state: stateOf(d, d.name), refs: p?.refs.length ?? 0, bytes: d.bytes + currentPartBytes(d), memoryBytes: packageMemory(d, d.name), preload: d.preload };
   });
 }
 
@@ -749,16 +896,17 @@ export function mediaRefusal(path: string): "notLoaded" | "failed" | null {
   const holders = holdersOf(path);
   if (holders.length === 0 || loadedHolder(path, holders)) return null;
   const defs = definitions();
-  const names = holders.map((h) => `"${h}"`).join(" or ");
+  const names = holders.map((h) => (h.includes("|") ? `"${packageOfUnit(h)}" (its ${h.slice(h.indexOf("|") + 1)} part)` : `"${h}"`)).join(" or ");
+  const firstPackage = packageOfUnit(holders[0]);
   if (defs.packaging.strict) {
-    warnOnce(`media:notLoaded:${path}`, `audio: "${path}" is in package ${names}, which isn't loaded; it won't play. Load it first (Audio.package(${JSON.stringify(holders[0])}).load(), or an AudioPackageLoader).`);
+    warnOnce(`media:notLoaded:${path}`, `audio: "${path}" is in package ${names}, which isn't loaded; it won't play. Load it first (Audio.package(${JSON.stringify(firstPackage)}).load(), or an AudioPackageLoader).`);
     return "notLoaded";
   }
   warnOnce(`media:lenient:${path}`, `audio: "${path}" is in package ${names}, which isn't loaded${defs.built ? "; loading it now (this play is skipped)" : "; playing it from its file"} (packaging.strict is off).`);
   if (!defs.built) return null;
   // One on-demand load, owned by the World playing it; the plays meanwhile add no references.
-  const first = pkgs.get(holders[0]);
-  if (!first || first.state === "unloaded" || first.state === "failed") void acquire(holders[0], World.active ?? PAGE, World.active).catch(() => undefined);
+  const first = pkgs.get(firstPackage);
+  if (!first || first.state === "unloaded" || first.state === "failed") void acquire(firstPackage, World.active ?? PAGE, World.active).catch(() => undefined);
   return "notLoaded";
 }
 
@@ -870,5 +1018,7 @@ function reset(): void {
   }
   pkgs.clear();
   parsedFrom = null;
+  packageLanguage = null;
+  switchSerial++;
 }
 onAudioSessionReleased(reset);
