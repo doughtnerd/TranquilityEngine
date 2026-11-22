@@ -119,7 +119,9 @@ pub struct Effect {
     pub mem_off: u32,
     /// The owner's: the floats its memory slice holds (0: none).
     pub mem_len: u32,
-    pub _pad: u32,
+    /// ABI 4.8: bit `i` set holds parameter `i` at its configured value: [`Effect::automate`]
+    /// leaves it (a snapshot override in force, ADR 0330). Kept across a `configure`.
+    pub held: u32,
     /// Filters: the filter (`bq[0]`), the EQ's three bands.
     pub bq: [Biquad; 3],
     pub crush: shape::CrushState,
@@ -199,10 +201,11 @@ impl Effect {
     pub fn configure(&mut self, kind: u32, on: bool, p: &[f32; PARAMS], sample_rate: f32) -> bool {
         let fresh = self.kind != kind || self.sample_rate != sample_rate;
         if fresh {
-            let (off, len) = (self.mem_off, self.mem_len);
+            let (off, len, held) = (self.mem_off, self.mem_len, self.held);
             *self = Effect::default();
             self.mem_off = off;
             self.mem_len = len;
+            self.held = held;
         }
         self.kind = kind;
         self.on = on as u32;
@@ -224,6 +227,25 @@ impl Effect {
             }
         }
         fresh
+    }
+
+    /// ABI 4.8 (ADR 0330/0331 automation): parameter `i` follows an automation value `v`, set once
+    /// per block by its owner before [`Effect::process`]. A running effect reaches it over the next
+    /// block (filters re-designed once, ramped parameters moving per sample across it), or with a
+    /// glide already in flight by that glide's end; an effect that hasn't run takes it at once. A
+    /// held parameter ([`Effect::held`]), a non-finite value or `i` out of range changes nothing.
+    pub fn automate(&mut self, i: usize, v: f32) {
+        if i >= PARAMS || !v.is_finite() || self.held & (1 << i) != 0 || self.target[i] == v {
+            return;
+        }
+        self.target[i] = v;
+        if self.running == 0 || is_discrete(self.kind, i) {
+            self.cur[i] = v;
+            return;
+        }
+        if self.glide == 0 {
+            self.glide = BLOCK as u32;
+        }
     }
 
     /// Clears the DSP state and `mem` (RESET), keeping the configuration; a glide lands.

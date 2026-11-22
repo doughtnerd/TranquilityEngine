@@ -170,11 +170,14 @@ impl FxChain {
         let mut compressor = None;
         let mut n = 0usize;
         let mut dropped = 0u32;
-        for (type_, raw) in effects {
+        for (word, raw) in effects {
             if n >= MAX_EFFECTS {
                 dropped += 1;
                 continue;
             }
+            // ABI 4.8: bits 16-23 hold catalogue parameters against automation (a snapshot override).
+            let type_ = word & wire::BUS_FX_TYPE_MASK;
+            let held = (word >> wire::BUS_FX_HELD_SHIFT) & 0xFF;
             let mut p = [0.0f32; 7];
             for (dst, src) in p.iter_mut().zip(raw) {
                 *dst = if src.is_finite() { src } else { 0.0 };
@@ -204,7 +207,10 @@ impl FxChain {
             slot.kind = k;
             slot.p = p;
             match (kind::catalogue(k), cat) {
-                (Some(c), Some(q)) => crate::fxmem::configure(fxmem, &mut slot.fx, kept, c, true, &q, sample_rate),
+                (Some(c), Some(q)) => {
+                    slot.fx.held = held;
+                    crate::fxmem::configure(fxmem, &mut slot.fx, kept, c, true, &q, sample_rate)
+                }
                 _ => slot.fx = Effect::default(),
             }
             match k {
@@ -298,6 +304,16 @@ impl FxChain {
             }
         }
         sent
+    }
+
+    /// ABI 4.8 (ADR 0330 automation): catalogue parameter `param` of the effect in slot `slot`
+    /// follows `value` (`audio_dsp::fx::Effect::automate`; called once a quantum before
+    /// [`FxChain::process_with`]). A slot out of use, a legacy kind (main sends an automated effect
+    /// as the catalogue's) or a held parameter is left alone.
+    pub fn automate(&mut self, slot: usize, param: usize, value: f32) {
+        if slot < self.used() && kind::catalogue(self.slots[slot].kind).is_some() {
+            self.slots[slot].fx.automate(param, value);
+        }
     }
 
     /// `true` when a slot in use is a reverb send.

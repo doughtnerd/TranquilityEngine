@@ -175,7 +175,7 @@ describe("the mixer runs the audio.json model (ADR 0330)", () => {
     expect(db(m.laneGain("SFX", Lane.snapshot))).toBeCloseTo(-1, 6);
   });
 
-  it("a return's inserts take snapshot overrides and fx: automation, and its volume automation is the core's, as a bus's", () => {
+  it("a return's inserts take snapshot overrides (held against automation), and its fx: and volume automation are the core's, as a bus's", () => {
     const p = project({
       returns: [{ name: "Reverb", output: "Master", volumeDb: -3, effects: [{ id: "fx1", type: "delay", params: { time: 250, feedback: 30, mix: 100 } }] }],
       automation: [
@@ -186,25 +186,30 @@ describe("the mixer runs the audio.json model (ADR 0330)", () => {
     });
     const { m } = rig(p);
     const delay = () => m._busEffects("Reverb")![0] as Extract<BusEffect, { type: "fx" }>;
-    expect(delay().params).toMatchObject({ time: 250, feedback: 10 });
+    // ABI 4.8: the core runs the feedback's automation; the live effect carries the authored value.
+    expect(delay().params).toMatchObject({ time: 250, feedback: 30 });
     m.setParameter("threat", 1);
     m.update(0);
-    expect(delay().params).toMatchObject({ time: 250, feedback: 60 });
+    expect(delay().params).toMatchObject({ time: 250, feedback: 30 });
+    expect(delay().held).toBeUndefined();
     m.startSnapshot("Long");
     m.update(0);
-    expect(delay().params).toMatchObject({ time: 400, feedback: 60 });
-    // Volume automation of the return goes to the core (the view's automation), as for a bus.
-    expect(m.audioSettings.automation).toEqual([{ bus: "Reverb", parameter: "threat", target: "volume", curve: [[0, 1], [1, expect.closeTo(Math.pow(10, -6 / 20), 9)]] }]);
+    // The override replaces the value and holds it against the core's automation while in force.
+    expect(delay().params).toMatchObject({ time: 400, feedback: 30 });
+    expect(delay().held).toEqual(["time"]);
+    // Effect and volume automation of the return go to the core (the view's automation), as for a bus.
+    expect(m.audioSettings.automation).toEqual([
+      { bus: "Reverb", parameter: "threat", target: "fx", effect: 0, param: 1, curve: [[0, 10], [1, 60]] },
+      { bus: "Reverb", parameter: "threat", target: "volume", curve: [[0, 1], [1, expect.closeTo(Math.pow(10, -6 / 20), 9)]] },
+    ]);
   });
 
-  it("send automation runs on the main thread from the parameter", () => {
+  it("send automation runs in the core (ABI 4.8): the live send keeps its level and the view carries the automation", () => {
     const { m } = rig();
     m.setParameter("threat", 1);
     m.update(0);
-    expect(db(reverbSend(m, "SFX")!.level)).toBeCloseTo(-6, 6); // -12 dB plus the curve's 6
-    m.setParameter("threat", 0);
-    m.update(0);
     expect(db(reverbSend(m, "SFX")!.level)).toBeCloseTo(-12, 6);
+    expect(m.audioSettings.automation.filter((a) => a.target === "send")).toEqual([{ bus: "SFX", parameter: "threat", target: "send", to: "Reverb", curve: expect.any(Array) }]);
   });
 
   it("live ops: a VCA, a return and a snapshot edit apply to the model; the bus view's changes go out as the old ops", () => {

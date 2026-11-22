@@ -60,6 +60,7 @@ const OPCODES: Record<string, Codec> = {
   SUBMIX: { write: wire.writeSubmix, read: wire.readSubmix },
   BUS_SENDS: { write: wire.writeBusSends, read: wire.readBusSends },
   ROUTE: { write: wire.writeRoute, read: wire.readRoute },
+  SUBMIX_AUTOMATE: { write: wire.writeSubmixAutomate, read: wire.readSubmixAutomate },
   ZONE_CONFIG: { write: wire.writeZoneConfig, read: wire.readZoneConfig },
   LISTENER: { write: wire.writeListener, read: wire.readListener },
 };
@@ -548,7 +549,8 @@ describe("wire round trip", () => {
       maxSlipFrames: 4000000002,
       splitQuanta: 4000000003,
       voiceSplits: 4000000004,
-      reserved: 0,
+      fxStarved: 3,
+      fxStarvedOwner: 0x8001,
       busyMsTotal: 123456.5,
       quantaTotal: 9007199254740991,
       wuVoices: 1e9,
@@ -818,7 +820,8 @@ function handStatus(s: wire.StatusBlock, seq: number): Uint8Array {
   view.setUint32(160, s.maxSlipFrames, true);
   view.setUint32(164, s.splitQuanta, true);
   view.setUint32(168, s.voiceSplits, true);
-  view.setUint32(172, s.reserved, true);
+  view.setUint16(172, s.fxStarved, true);
+  view.setUint16(174, s.fxStarvedOwner, true);
   view.setFloat64(176, s.busyMsTotal, true);
   view.setFloat64(184, s.quantaTotal, true);
   view.setFloat64(192, s.wuVoices, true);

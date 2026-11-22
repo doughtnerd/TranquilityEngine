@@ -97,7 +97,9 @@ pub mod off {
     pub const MAX_SLIP_FRAMES: usize = 160;
     pub const SPLIT_QUANTA: usize = 164;
     pub const VOICE_SPLITS: usize = 168;
-    pub const M4_RESERVED: usize = 172;
+    /// ABI 4.8: `fxStarved` and `fxStarvedOwner` (the M4 reserve's two halves).
+    pub const FX_STARVED: usize = 172;
+    pub const FX_STARVED_OWNER: usize = 174;
     // 0171/0172 M5, API §4.3 (K1: from `Counters::mix` and the `MixSections` of the take).
     pub const BUSY_MS_TOTAL: usize = 176;
     pub const QUANTA_TOTAL: usize = 184;
@@ -214,7 +216,11 @@ pub fn take(core: &mut Core, out: &mut [u8], abi_version: u32) -> usize {
     let mut mix = MixSections::default();
     crate::loudness::status(core, &mut mix);
     crate::duck::status(core, &mut mix);
+    // ABI 4.8: effects that got no effect memory, and whose the last one was.
+    let (starved, owner) = crate::fxmem::starvation(core.regions_mut());
     let area = area_mut(core);
+    area.counters.mix.fx_starved = starved.min(u16::MAX as u32) as u16;
+    area.counters.mix.fx_starved_owner = if starved == 0 { audio_wire::generated::FX_STARVED_NONE as u16 } else { owner };
     let n = write_with(&area.counters, &mix, area.writer.seq, out);
     if n == 0 {
         return 0;
@@ -323,7 +329,9 @@ pub fn write_with(c: &Counters, mix: &MixSections, seq: u32, out: &mut [u8]) -> 
     put_u32(out, off::MAX_SLIP_FRAMES, m.max_slip_frames);
     put_u32(out, off::SPLIT_QUANTA, m.split_quanta);
     put_u32(out, off::VOICE_SPLITS, m.voice_splits);
-    put_u32(out, off::M4_RESERVED, 0);
+    // ABI 4.8: the effect memory's starvation (`fxmem.rs`), refreshed by `take`.
+    put_u16(out, off::FX_STARVED, c.mix.fx_starved);
+    put_u16(out, off::FX_STARVED_OWNER, c.mix.fx_starved_owner);
     // 0171/0172 M5, API §4.3 (K1). The shell writes `busyMsTotal`, `quantaTotal`, `clockStepMs` and
     // `clockSteps` into its posted copy; the core's counters for them stay 0.
     let x = &c.mix;
@@ -581,7 +589,7 @@ mod tests {
         assert_eq!(read, HEADER_BYTES);
         assert_eq!((s.music_rings.len(), s.group_starts.len(), s.music_rings_open, s.stream_starts_late), (0, 0, 3, 4));
         assert_eq!((s.groups_late, s.groups_held, s.groups_abandoned, s.curve_pool_full), (5, 6, 7, 8));
-        assert_eq!((s.max_slip_frames, s.split_quanta, s.voice_splits, s.reserved), (0x0001_0009, 0x0002_000A, 0x0003_000B, 0));
+        assert_eq!((s.max_slip_frames, s.split_quanta, s.voice_splits, s.fx_starved), (0x0001_0009, 0x0002_000A, 0x0003_000B, 0));
         assert_eq!(u32_at(&out, off::VOICE_SPLITS), 0x0003_000B);
     }
 
@@ -731,7 +739,7 @@ mod tests {
         assert_eq!((u16_at(&out, off::LOUD_SHED), u16_at(&out, off::BUS_RECORDS_EARLY), u16_at(&out, off::SIDECHAIN_LATE)), (1, 7, 9));
         assert_eq!(u32_at(&out, off::M5_RESERVED), 0);
         assert_eq!(u32_at(&out, off::BODY_BYTES), (HEADER_BYTES - 16) as u32);
-        assert_eq!(u32_at(&out, off::M4_RESERVED), 0, "the M4 reserve still reads 0");
+        assert_eq!((u16_at(&out, off::FX_STARVED), u16_at(&out, off::FX_STARVED_OWNER)), (0, audio_wire::generated::FX_STARVED_NONE as u16), "no effect has starved");
     }
 
     #[test]

@@ -50,6 +50,11 @@
 import type { Curve } from "../../../../engine/core/curve";
 import {
   ASAP,
+  AUTO_TARGET_FX,
+  AUTO_TARGET_LOG,
+  AUTO_TARGET_PARAM_SHIFT,
+  AUTO_TARGET_SEND,
+  AUTO_TARGET_SLOT_SHIFT,
   AUTOMATE_BINDINGS_FIXED_END,
   SET_LOOP_FLAGS_LOOPING,
   writeAutomate,
@@ -85,12 +90,12 @@ import {
 } from "../wire.generated";
 import type { AudioVoice, PlayRequest } from "../backend";
 import type { FadeShape } from "../../../../engine/audio/playlist/types";
-import { AutoTarget, evaluateInto, MAX_BINDINGS, MAX_CURVES, MAX_GLOBAL_SLOTS, MAX_GROUPS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type AutomationSink, type AutoResult, type Binding, type VoiceLoop } from "../automation";
+import { AutoTarget, evaluateInto, MAX_BINDINGS, MAX_BUS_BINDINGS, MAX_CURVES, MAX_GLOBAL_SLOTS, MAX_GROUPS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type AutomationSink, type AutoResult, type Binding, type VoiceLoop } from "../automation";
 import { evalCurve } from "../../../../engine/core/curve";
 import { onLoopPoints } from "../loopPoints";
 import type { ClipInfo } from "./clipRegistry";
 import type { ClockMap } from "./clock";
-import { AUTOMATION_GLOBAL, AUTOMATION_TIME, CORE_CURVE_KEYS, coreCurveBytes, wireCurveKey, type AutomationBinding, type CommandWriter } from "./commandWriter";
+import { AUTOMATION_GLOBAL, AUTOMATION_TIME, CORE_CURVE_KEYS, coreCurveBytes, wireCurveKey, type AutomationBinding, type BusAutomationBinding, type CommandWriter } from "./commandWriter";
 import type { PlayheadTracker, ReplayBuilder } from "./replay";
 import type { SendGate } from "./session";
 import { VoiceFlag, VoiceState, type VoiceTable } from "./voiceTable";
@@ -254,7 +259,10 @@ export class CoreAutomation implements AutomationSink {
   private readonly atNow: AutoResult = { gain: 1, pitch: 1, lowpass: 0, highpass: 0, pan: 0 };
   /** Per slot: the unsubscribe of a plain looping voice's wait for its clip's loop points (E4.5). */
   private readonly plainUnsub: ((() => void) | null)[];
-  private readonly buses = new Map<string, AutomationBinding[]>();
+  /** Each bound bus's bindings (global volume, low-pass, effect and send; ABI 4.8), as bound: a send names its return, resolved to a slot at each write. */
+  private readonly buses = new Map<string, Binding[]>();
+  /** What each bound bus's bindings were last written as (`wireKey`), so a remap that moves a send's return re-sends them. */
+  private readonly busSentKey = new Map<string, string>();
   /** The bus index each bound bus's bindings were last sent to. */
   private readonly busSentTo = new Map<string, number>();
   private readonly dirtyCurves = new Set<number>();
@@ -369,7 +377,7 @@ export class CoreAutomation implements AutomationSink {
   }
 
   bindBus(bus: string, bindings: readonly Binding[]): void {
-    const wire = bindings.filter((b) => b.param.global && (b.target === AutoTarget.Volume || b.target === AutoTarget.Lowpass)).slice(0, MAX_BINDINGS).map(toWire);
+    const wire = bindings.filter((b) => b.param.global && BUS_TARGETS.has(b.target)).slice(0, MAX_BUS_BINDINGS).map((b) => ({ ...b, param: { ...b.param } }));
     const had = this.buses.has(bus);
     if (wire.length === 0) {
       this.buses.delete(bus);
@@ -537,7 +545,7 @@ export class CoreAutomation implements AutomationSink {
       this.sendParamKey(k);
     }
     for (const bus of this.dirtyBuses) {
-      if (this.budget < bindingBytes(MAX_BINDINGS)) return;
+      if (this.budget < bindingBytes(MAX_BUS_BINDINGS)) return;
       this.sendBus(bus);
     }
   }
@@ -572,7 +580,8 @@ export class CoreAutomation implements AutomationSink {
         this.busSentTo.delete(bus);
       }
     }
-    for (const bus of this.buses.keys()) if (this.busSentTo.get(bus) !== this.deps.busIndex(bus)) this.sendBus(bus);
+    // ABI 4.8: a send binding names its return by slot, so a remap that moved the return re-sends the bindings too.
+    for (const bus of this.buses.keys()) if (this.busSentTo.get(bus) !== this.deps.busIndex(bus) || this.busSentKey.get(bus) !== wireKey(this.busWire(bus))) this.sendBus(bus);
   }
 
   /**
@@ -591,6 +600,7 @@ export class CoreAutomation implements AutomationSink {
     };
     move(this.buses);
     move(this.busSentTo);
+    move(this.busSentKey);
     move(this.viewSent);
     move(this.selSent);
     if (this.dirtyBuses.delete(from)) this.dirtyBuses.add(to);
@@ -636,11 +646,13 @@ export class CoreAutomation implements AutomationSink {
       b.record(PARAM_BYTES, (view, off) => writeParam(view, off, { voiceId: 0, frameOffset: ASAP, group, slot, value, seekPerSecond: 0 }));
     }
     this.busSentTo.clear();
-    for (const [bus, wire] of this.buses) {
+    for (const bus of this.buses.keys()) {
       const index = this.deps.busIndex(bus);
       if (index < 0) continue;
+      const wire = this.busWire(bus);
       b.record(bindingBytes(wire.length), (view, off) => writeBusAutomate(view, off, { voiceId: index, frameOffset: ASAP, bindings: wire }));
       this.busSentTo.set(bus, index);
+      this.busSentKey.set(bus, wireKey(wire));
     }
   }
 
@@ -923,18 +935,43 @@ export class CoreAutomation implements AutomationSink {
 
   /** Bus `name`'s volume curves at the smoothed globals, allocation free; 1 when unbound. */
   private busGainNow(name: string, smoothed = true): number {
-    const wire = this.buses.get(name);
-    if (!wire) return 1;
-    const n = Math.min(wire.length, MAX_BINDINGS);
+    const bound = this.buses.get(name);
+    if (!bound) return 1;
     const xs = this.xs;
-    for (let j = 0; j < n; j++) {
-      const b = wire[j]!;
-      const k = paramKey(0, b.param & 0x7fff);
-      this.busIds[j] = b.curve;
-      this.busTargets[j] = b.target;
-      xs[j] = k < 0 ? 0 : smoothed ? this.smoothed(k) : this.paramValue[k]!;
+    let n = 0;
+    // Only the gain and low-pass bindings shape the bus's gain (effect and send bindings act inside the core).
+    for (let j = 0; j < bound.length && n < MAX_BINDINGS; j++) {
+      const b = bound[j]!;
+      if (b.target !== AutoTarget.Volume && b.target !== AutoTarget.Lowpass) continue;
+      const k = paramKey(0, b.param.slot);
+      this.busIds[n] = b.curve;
+      this.busTargets[n] = b.target;
+      xs[n] = k < 0 ? 0 : smoothed ? this.smoothed(k) : this.paramValue[k]!;
+      n++;
     }
     return evaluateInto(n, this.busIds, this.busTargets, xs, this.curves, this.busAuto).gain;
+  }
+
+  /**
+   * Bus `bus`'s bindings as `BUS_AUTOMATE` takes them (ABI 4.8): an effect binding's slot and parameter, and a send
+   * binding's return as its slot now, in the target's upper bits. A send whose return has no slot is left out.
+   */
+  private busWire(bus: string): BusAutomationBinding[] {
+    const out: BusAutomationBinding[] = [];
+    for (const b of this.buses.get(bus) ?? []) {
+      let target: number = b.target;
+      if (b.target === AutoTarget.Effect) {
+        const fx = b.fx;
+        if (!fx || fx.slot < 0 || fx.slot > 0xff || fx.param < 0 || fx.param > 0xff) continue;
+        target = (AUTO_TARGET_FX | (fx.slot << AUTO_TARGET_SLOT_SHIFT) | (fx.param << AUTO_TARGET_PARAM_SHIFT) | (fx.log ? AUTO_TARGET_LOG : 0)) >>> 0;
+      } else if (b.target === AutoTarget.Send) {
+        const to = b.send === undefined ? -1 : this.deps.busIndex(b.send);
+        if (to < 0) continue;
+        target = (AUTO_TARGET_SEND | (to << AUTO_TARGET_SLOT_SHIFT)) >>> 0;
+      }
+      out.push({ param: AUTOMATION_GLOBAL | b.param.slot, curve: b.curve, target });
+    }
+    return out;
   }
 
   private reevaluateCurve(id: number): void {
@@ -946,7 +983,7 @@ export class CoreAutomation implements AutomationSink {
   }
 
   /** What `bindings` read goes out first (curves and parameters still waiting in the resync). */
-  private sendNeeds(group: number, bindings: readonly AutomationBinding[]): void {
+  private sendNeeds(group: number, bindings: readonly BusAutomationBinding[]): void {
     if (this.dirtyCurves.size === 0 && this.dirtyParams.size === 0) return;
     for (const b of bindings) {
       if (this.dirtyCurves.has(b.curve)) this.sendCurve(b.curve);
@@ -1062,7 +1099,7 @@ export class CoreAutomation implements AutomationSink {
   private sendBus(bus: string): void {
     this.dirtyBuses.delete(bus);
     const index = this.deps.busIndex(bus);
-    const wire = this.buses.get(bus) ?? [];
+    const wire = this.busWire(bus);
     const old = this.busSentTo.get(bus);
     if (old !== undefined && old !== index) this.deps.writer.busAutomate(old, []);
     if (index < 0) {
@@ -1073,6 +1110,7 @@ export class CoreAutomation implements AutomationSink {
     this.deps.writer.busAutomate(index, wire);
     this.budget -= bindingBytes(wire.length);
     this.stats.busAutomates++;
+    this.busSentKey.set(bus, wireKey(wire));
     if (wire.length > 0) this.busSentTo.set(bus, index);
     else this.busSentTo.delete(bus);
   }
@@ -1095,6 +1133,11 @@ function loudestX(curve: Curve | undefined): number {
   return evalCurve(curve, curve[best]![0]) >= 0 ? curve[best]![0] : 0;
 }
 
+/** The targets a bus binding may have (ABI 4.8 adds effect parameters and sends). */
+const BUS_TARGETS: ReadonlySet<AutoTarget> = new Set([AutoTarget.Volume, AutoTarget.Lowpass, AutoTarget.Effect, AutoTarget.Send]);
+
+/** A comparable form of bindings as written. */
+const wireKey = (wire: readonly BusAutomationBinding[]): string => wire.map((b) => `${b.param}:${b.curve}:${b.target}`).join(",");
 /** ADR 0336 (ABI 4.9): a fade shape's LOOPS `shapes` nibble (absent: equal power, the core's default). */
 const LOOP_SHAPES: Readonly<Record<FadeShape, number>> = {
   equalPower: FADE_SHAPE_EQUAL_POWER, linear: FADE_SHAPE_LINEAR, sCurve: FADE_SHAPE_S_CURVE, invSCurve: FADE_SHAPE_INV_S_CURVE,

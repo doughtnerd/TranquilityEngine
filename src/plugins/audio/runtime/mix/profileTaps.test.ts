@@ -54,18 +54,19 @@ describe("the mixer's setter taps (§5.6 kinds 11, 14, 15)", () => {
     expect(stub.calls.every((c) => c[0] === "busRamp" && c[2] === "runtime" && c[3] === Math.round((BUS_MIN_RAMP_MS / 1000) * RATE))).toBe(true);
   });
 
-  // ADR 0330: a snapshot fade is linear in dB, so its lane is written (and tapped) as segments of SNAPSHOT_SEGMENT_MS.
-  it("a snapshot taps one snapshot record and a snapshot-lane segment per bus that moves; clearing it is the empty name", () => {
+  // ADR 0330 (ABI 4.8): a snapshot fade is linear in dB, and its lane is one ramp of the core's dB law to the fade's end.
+  it("a snapshot taps one snapshot record and one snapshot-lane ramp per bus that moves; clearing it is the empty name", () => {
     const { mixer, stub } = rig();
-    const seg = Math.round((SNAPSHOT_SEGMENT_MS / 1000) * RATE);
     mixer.snapshot("Paused", 0.5);
     expect(stub.of("snapshot")).toEqual([["Paused", 0.5]]);
-    expect(stub.of("busRamp")).toEqual([[ref("Music"), "snapshot", seg, expect.closeTo(Math.pow(0.5, 0.1), 8)]]);
-    mixer.update(0.5);
+    expect(stub.of("busRamp")).toEqual([[ref("Music"), "snapshot", Math.round(0.5 * RATE), expect.closeTo(0.5, 6)]]);
+    mixer.update(0.1);
+    expect(stub.of("busRamp")).toHaveLength(1); // the next segments find the lane already heading there
+    mixer.update(0.4);
     stub.clear();
     mixer.clearSnapshot(0.25);
     expect(stub.of("snapshot")).toEqual([["", 0.25]]);
-    expect(stub.of("busRamp")).toEqual([[ref("Music"), "snapshot", seg, expect.closeTo(Math.pow(0.5, 0.8), 8)]]);
+    expect(stub.of("busRamp")).toEqual([[ref("Music"), "snapshot", Math.round(0.25 * RATE), 1]]);
   });
 
   it("an unknown snapshot taps nothing", () => {

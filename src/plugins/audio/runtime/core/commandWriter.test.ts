@@ -333,7 +333,7 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
 
   it("busAutomate writes BUS_AUTOMATE for the bus index", () => {
     const { writer, posted } = rig();
-    writer.busAutomate(2, [{ param: AUTOMATION_GLOBAL, curve: 4, target: 2 /* lowpass */, offset: 0 }]);
+    writer.busAutomate(2, [{ param: AUTOMATION_GLOBAL, curve: 4, target: 2 /* lowpass */ }]);
     writer.flush(0);
     const b = records(posted[0]!);
     const r = readBusAutomate(b.view, b.records[0]!.off);

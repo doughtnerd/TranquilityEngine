@@ -306,12 +306,46 @@ describe("coreSectionOf: the old section shape's mapping", () => {
     expect(settings.snapshots).toEqual([{ name: "Underwater", volumes: { Music: expect.closeTo(Math.pow(10, -6 / 20), 9), Reverb: expect.closeTo(Math.pow(10, -3 / 20), 9) }, lowpass: { Music: 800 } }]);
     expect(settings.buses.find((b) => b.name === "Music")!.effects).toEqual([]); // the carrier is neutral and hidden
     expect(settings.ducking).toEqual([{ target: "Music", trigger: "SFX", mode: "presence", amount: expect.closeTo(Math.pow(10, -6 / 20), 9), attack: 0.08, release: 0.4 }]);
-    expect(settings.automation).toEqual([{ bus: "Music", parameter: "threat", target: "volume", curve: [[0, 1], [1, expect.closeTo(Math.pow(10, -6 / 20), 9), "easeOut"]] }]);
+    expect(settings.automation).toEqual([
+      { bus: "Music", parameter: "threat", target: "volume", curve: [[0, 1], [1, expect.closeTo(Math.pow(10, -6 / 20), 9), "easeOut"]] },
+      // ABI 4.8: the core runs send automation (dB, added to the send).
+      { bus: "SFX", parameter: "depth", target: "send", to: "Reverb", curve: [[0, -12], [100, 0]] },
+    ]);
     expect(settings.loudnessTargets).toEqual(FULL.loudness.targets);
     expect(settings.loudnessResetOnPlay).toBe(false);
     expect(settings.buses.find((b) => b.name === "Music")!.maxVoices).toBe(8);
     expect(settings.buses.find((b) => b.name === "SFX")).toMatchObject({ bed: "own", bedPriority: 80 });
     expect(settings.buses.find((b) => b.name === "Music")!.meter).toBe("loudness");
+  });
+
+  it("ABI 4.8: hands the core any effect parameter's automation by index (an automated effect as the catalogue's), and a send's", () => {
+    const { project: p } = parseAudioProject({
+      format: AUDIO_PROJECT_FORMAT,
+      parameters: [{ name: "x", min: 0, max: 1, default: 0 }],
+      buses: [
+        { name: "Master" },
+        { name: "SFX", parent: "Master", effects: [{ id: "hp", type: "highpass", params: { cutoff: 80 } }, { id: "lp", type: "lowpass", params: { cutoff: 5000 } }, { id: "d", type: "delay" }], sends: [{ to: "Verb", levelDb: -6 }] },
+      ],
+      returns: [{ name: "Verb", effects: [{ id: "r", type: "reverb" }] }],
+      automation: [
+        { on: "SFX", target: "fx:lp:cutoff", parameter: "x", curve: [[0, 5000], [1, 500]] },
+        { on: "SFX", target: "fx:d:feedback", parameter: "x", curve: [[0, 0], [1, 60]] },
+        { on: "SFX", target: "send:Verb", parameter: "x", curve: [[0, 0], [1, -12]] },
+        { on: "Verb", target: "fx:r:mix", parameter: "x", curve: [[0, 100], [1, 50]] },
+      ],
+    });
+    const warnings: string[] = [];
+    const s = coreSectionOf(p, warnings);
+    expect(parseAudioSettings(s).problems).toEqual([]);
+    // The high-pass stays the exact legacy shape; the automated low-pass goes as the catalogue's.
+    expect(s.buses.find((b) => b.name === "SFX")!.effects.map((e) => (e.type === "fx" ? `fx:${e.fx}` : e.type))).toEqual(["highpass", "fx:lowpass", "fx:delay"]);
+    expect(s.automation).toEqual([
+      { bus: "SFX", parameter: "x", target: "fx", effect: 1, param: 0, log: true, curve: [[0, Math.log2(5000)], [1, Math.log2(500)]] },
+      { bus: "SFX", parameter: "x", target: "fx", effect: 2, param: 1, curve: [[0, 0], [1, 60]] },
+      { bus: "SFX", parameter: "x", target: "send", to: "Verb", curve: [[0, 0], [1, -12]] },
+      { bus: "Verb", parameter: "x", target: "fx", effect: 0, param: 2, curve: [[0, 100], [1, 50]] },
+    ]);
+    expect(warnings).toEqual([]);
   });
 
   it("silences a level at the fader floor and caps it at the old model's top", () => {

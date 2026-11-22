@@ -18,10 +18,13 @@ export interface StudioAudioStats {
   /** Output latency, ms (base + output + limiter); `latencyReliable` false when the browser's figure is a guess. */
   readonly latencyMs: number;
   readonly latencyReliable: boolean;
+  /** ADR 0331 (ABI 4.8): effects that got no effect memory (they pass their signal through), and whose the last was. */
+  readonly fxStarved: number;
+  readonly fxStarvedOwner: string | null;
 }
 
 /** The figures from a debug copy and the latency. Missing parts read as zero or unknown, never throw. */
-export function statsFromDebug(info: Pick<AudioDebugInfo, "status" | "sampleRate" | "counters" | "core" | "cpu">, latency: AudioLatency | null | undefined): StudioAudioStats {
+export function statsFromDebug(info: Pick<AudioDebugInfo, "status" | "sampleRate" | "counters" | "core" | "cpu"> & Partial<Pick<AudioDebugInfo, "mix">>, latency: AudioLatency | null | undefined): StudioAudioStats {
   const cpu = info.cpu;
   const permille = cpu && cpu.hidden === null ? cpu.loadPermille : null;
   return {
@@ -35,5 +38,7 @@ export function statsFromDebug(info: Pick<AudioDebugInfo, "status" | "sampleRate
     underruns: info.counters?.underruns ?? 0,
     latencyMs: latency && Number.isFinite(latency.total) ? latency.total * 1000 : 0,
     latencyReliable: latency?.reliable ?? false,
+    fxStarved: info.mix?.fxStarved ?? 0,
+    fxStarvedOwner: info.mix?.fxStarvedOwner ?? null,
   };
 }

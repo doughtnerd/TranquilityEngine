@@ -74,8 +74,14 @@ export const DRAG_RAMP_MS = 10;
 /** A live edit of an active snapshot's definition retargets its lane over this long (architecture §4.7). */
 export const SNAPSHOT_EDIT_MS = 20;
 
-/** ADR 0330: a snapshot fade is linear in dB; its lane (linear in gain) is written as segments of at most this long. */
+/**
+ * ADR 0330: how often the blend is re-planned while a snapshot fades: the gain lane is one ramp linear in dB to the
+ * fade's next break (ABI 4.8's `Decibel` law), and the carrier low-pass and the effect overrides follow the blend in
+ * steps of at most this long.
+ */
 export const SNAPSHOT_SEGMENT_MS = 50;
+/** Seconds before a fade's break where the gain lane's ramp aims (the blend's value as the break is reached, not after it). */
+const BREAK_EPSILON = 1e-9;
 
 /**
  * Lane ids: the wire's `LANE_*` constants (api-and-models §4.1), and `vca` (ADR 0330), a main-side lane the wire
@@ -84,10 +90,12 @@ export const SNAPSHOT_SEGMENT_MS = 50;
 export const Lane = { authored: 0, runtime: 1, snapshot: 2, monitor: 3, dip: 4, duck: 5, automation: 6, vca: 7 } as const;
 export type LaneId = (typeof Lane)[keyof typeof Lane];
 
-export type RampLaw = "linear";
+/** How a ramp moves: linear in gain, or linear in dB (ADR 0330 snapshot fades; a ramp to or from 0 is linear). */
+export type RampLaw = "linear" | "db";
 
 /**
- * One lane's ramp on the heard clock: `from` at `start`, `to` at `start + seconds`, linear between (§3.1). `seconds`
+ * One lane's ramp on the heard clock: `from` at `start`, `to` at `start + seconds`, linear between (§3.1; in dB with law
+ * `db`, when both ends are above 0). `seconds`
  * 0 is an asap write: main reads `to` at once and the lane writer ramps it over `BUS_MIN_RAMP_MS` (never an unramped
  * step). `seq` grows on every write, so a writer can tell which lanes moved since it last looked.
  */
@@ -101,11 +109,13 @@ export interface Ramp {
   seq: number;
 }
 
-/** A ramp's value at heard time `now`. */
+/** A ramp's value at heard time `now` (law `db` with both ends above 0: geometric, as the core's `Decibel` law). */
 export function rampAt(r: Ramp, now: number): number {
   if (!(r.seconds > 0) || now >= r.start + r.seconds) return r.to;
   if (now <= r.start) return r.from;
-  return r.from + (r.to - r.from) * ((now - r.start) / r.seconds);
+  const u = (now - r.start) / r.seconds;
+  if (r.law === "db" && r.from > 0 && r.to > 0) return r.from * Math.pow(r.to / r.from, u);
+  return r.from + (r.to - r.from) * u;
 }
 
 /** Whether `r` changes value somewhere in (`a`, `b`]: a frame that spans any of it must re-send the mix. */
@@ -287,10 +297,11 @@ export class Mixer {
   private segmentEnd = Number.POSITIVE_INFINITY;
   /** Global parameter values the main thread's automation reads, by name (labels as their index). */
   private paramValues: Record<string, number> = {};
-  /** Effect-parameter values the main thread's automation sets: owner → effect id → param → value. */
+  /**
+   * Main's estimate of the effect-parameter values the core's automation sets (ABI 4.8: the core runs every automation
+   * target), owner → effect id → param → value: what a snapshot override blends from.
+   */
   private autoFx = new Map<string, Map<string, Map<string, number>>>();
-  /** Send automation, dB: bus → return → dB. */
-  private autoSend = new Map<string, Map<string, number>>();
   /** The live effects and sends need recomputing (a snapshot segment, an automation value, a mute). */
   private effectsDirty = true;
   /** While a project op runs, the old ops it sends don't lift into the project again. */
@@ -941,10 +952,19 @@ export class Mixer {
     // where the last segment stopped (the core ramps from wherever its lane is; only main's getters read `from`).
     const at = fromBlend && seconds > 0 ? this.player.resolveAt(now, base) : null;
     const gainOf = (db: number) => (db <= MIN_DB ? 0 : Math.min(MAX_LANE_GAIN, dbToGain(db)));
+    // ABI 4.8: the gain lane is one ramp linear in dB to the fade's next break (the core's `Decibel` law), not a
+    // segment: re-planning on the way finds it already heading there.
+    const gEnd = brk === Number.POSITIVE_INFINITY ? end : brk;
+    const gSeconds = Math.max(gEnd - now, minSeconds);
+    // At the break, or just before it where the blend steps there (a fade out of 0 s at a hold's end): the next plan
+    // writes that step.
+    const gAt = brk === Number.POSITIVE_INFINITY ? mix : this.player.resolveAt(gEnd, base);
+    const gBefore = brk === Number.POSITIVE_INFINITY ? mix : this.player.resolveAt(gEnd - BREAK_EPSILON, base);
     const write = (name: string, s: BusState) => {
       // A lane already heading for its value keeps its ramp (an edit of a snapshot not in force moves nothing).
-      const g = gainOf(mix.levels[name] ?? 0);
-      if (s.snapshot.to !== g) this.lane(name, Lane.snapshot, s.snapshot, g, seconds);
+      const atBreak = gainOf(gAt.levels[name] ?? 0), before = gainOf(gBefore.levels[name] ?? 0);
+      const g = Math.abs(atBreak - before) < 1e-6 ? atBreak : before;
+      if (s.snapshot.to !== g) this.lane(name, Lane.snapshot, s.snapshot, g, gSeconds, true, "db");
       const hz = this.carrierCutoff(name, mix.effects[name]);
       if (s.lp.to !== hz) this.retarget(s.lp, hz, seconds);
       if (at && s.snapshot.start === now) s.snapshot.from = gainOf(at.levels[name] ?? 0);
@@ -978,7 +998,7 @@ export class Mixer {
     return this.project.buses.find((b) => b.name === name) ?? this.project.returns.find((r) => r.name === name);
   }
 
-  /** An effect parameter's base value (what an override blends from): the main thread's automation, else the project's. */
+  /** An effect parameter's base value (what an override blends from): main's estimate of its automation, else the project's. */
   private baseParam(owner: string, id: string, p: string): number | undefined {
     const auto = this.autoFx.get(owner)?.get(id)?.get(p);
     if (auto !== undefined) return auto;
@@ -986,35 +1006,25 @@ export class Mixer {
     return e ? effectParam(e, p) : undefined;
   }
 
-  // --- automation the main thread runs (ADR 0330) --------------------------------------------------------------------
+  // --- main's estimate of the effect automation (ADR 0330) ----------------------------------------------------------
 
   /**
-   * The automation the core doesn't run, at the current parameter values: any `send:<return>` (dB on the send), and
-   * `fx:<id>:<param>` on a bus or return unless it is a low-pass cutoff (the core's bus low-pass automation runs that; a
-   * return is a bus of the view, ADR 0330, and its `volume` automation is the core's too). Frequency parameters
-   * interpolate in log scale.
+   * Main's estimate of each `fx:<id>:<param>` automation at the current parameter values (frequency parameters in log
+   * scale), what a snapshot override of that parameter blends from. The core runs every automation target itself (ABI
+   * 4.8: effect parameters, sends, levels; `coreSectionOf`'s `automation`), so nothing here reaches the sound but the
+   * override's starting point.
    */
   private evaluateAutomation(): void {
     this.autoFx.clear();
-    this.autoSend.clear();
     for (const a of this.project.automation) {
-      if (a.bypass || a.target === "volume") continue;
+      if (a.bypass || !a.target.startsWith("fx:")) continue;
       const def = this.project.parameters.find((p) => p.name === a.parameter);
       if (!def) continue;
       const x = this.paramValues[a.parameter] ?? parameterDefault(def);
-      if (a.target.startsWith("send:")) {
-        if (!this.project.buses.some((b) => b.name === a.on)) continue;
-        const to = a.target.slice(5);
-        const m = this.autoSend.get(a.on) ?? new Map<string, number>();
-        m.set(to, (m.get(to) ?? 0) + evalCurve(a.curve, x));
-        this.autoSend.set(a.on, m);
-        continue;
-      }
       const [, id, p] = a.target.split(":");
       if (!id || !p) continue;
       const e = this.ownerOf(a.on)?.effects.find((x2) => x2.id === id);
       if (!e) continue;
-      if (this.buses.has(a.on) && e.type === "lowpass" && p === "cutoff") continue; // the core's bus low-pass automation
       const byId = this.autoFx.get(a.on) ?? new Map<string, Map<string, number>>();
       const ps = byId.get(id) ?? new Map<string, number>();
       ps.set(p, FREQUENCY_PARAMS.has(p) ? evalLogCurve(a.curve, x) : evalCurve(a.curve, x));
@@ -1027,9 +1037,10 @@ export class Mixer {
 
   /**
    * Each bus's (and return's) live effects: `audioSettings`' effects with, for an effect of the bus, the blend's
-   * overrides and the main thread's automation; and its live sends (`_busSends`): each send of the view at its level plus
-   * its automation, muted while the bus is muted by the project, a script or a monitor control (a muted bus silences its
-   * sends, ADR 0330; the core ramps a muted send to 0 and keeps its level). An unchanged effect keeps its object, and an
+   * overrides (a catalogue effect also names them in `held`, so the core's automation of those parameters waits while the
+   * override is in force, ABI 4.8); and its live sends (`_busSends`): each send of the view at its level, muted while the
+   * bus is muted by the project, a script or a monitor control (a muted bus silences its sends, ADR 0330; the core ramps a
+   * muted send to 0 and keeps its level; its automation runs in the core). An unchanged effect keeps its object, and an
    * unchanged send list its list, so a backend can compare by identity.
    */
   private refreshEffects(): void {
@@ -1048,13 +1059,11 @@ export class Mixer {
         const ne = shown[k++];
         if (!ne) return e;
         const over = this.overrides[name]?.[ne.id];
-        const auto = this.autoFx.get(name)?.get(ne.id);
-        if (!over && !auto) return e;
+        if (!over) return e;
         const params = { ...ne.params };
-        if (auto) for (const [p, v] of auto) params[p] = v;
-        if (over) for (const [p, v] of Object.entries(over)) params[p] = v.value;
+        for (const [p, v] of Object.entries(over)) params[p] = v.value;
         // The authored shape stays (a legacy filter or compressor stays legacy while an override moves it).
-        const live: BusEffect = e.type === "fx" ? { ...e, params } : toBusEffect({ ...ne, params }, []);
+        const live: BusEffect = e.type === "fx" ? { ...e, params, held: Object.keys(over) } : toBusEffect({ ...ne, params }, []);
         if (JSON.stringify(live) === JSON.stringify(e)) return e;
         moved = true;
         return live;
@@ -1071,15 +1080,8 @@ export class Mixer {
     const view = s.settings.sends;
     if (!view || view.length === 0) return NO_SENDS;
     const muted = s.authoredMute || s.mute || s.monitorMute;
-    const auto = this.autoSend.get(name);
-    const pb = auto ? this.project.buses.find((b) => b.name === name) : undefined;
-    const out = view.map((v): LiveBusSend => {
-      const db = auto?.get(v.to);
-      const authored = pb?.sends.find((x) => x.to === v.to);
-      // With automation, the send's dB plus the curve's (ADR 0330: `send:<return>` adds dB); without, the view's level.
-      const level = db === undefined || !authored ? v.level : sendLevelOf(authored.levelDb + db);
-      return { to: v.to, level, muted };
-    });
+    // The view's level: a send's automation (`send:<return>`, dB added) runs in the core (ABI 4.8).
+    const out = view.map((v): LiveBusSend => ({ to: v.to, level: v.level, muted }));
     const prev = s.sends;
     return prev.length === out.length && prev.every((p, i) => p.to === out[i]!.to && p.level === out[i]!.level && p.muted === out[i]!.muted) ? prev : out;
   }
@@ -1094,7 +1096,7 @@ export class Mixer {
    * A new ramp on `r` from its value now to `to` over `seconds` (non-finite or <= 0: asap). Re-setting a settled lane to
    * its value writes nothing. `stamped` false (the authored lane's drag, Ma1): the ramp starts now, as the backend sends it asap.
    */
-  private retarget(r: Ramp, to: number, seconds: number, stamped = true): boolean {
+  private retarget(r: Ramp, to: number, seconds: number, stamped = true, law: RampLaw = "linear"): boolean {
     const now = this.time;
     const dur = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
     // A ramp with a length starts where the backend stamps it (Dp1): from the lane's value there.
@@ -1105,13 +1107,13 @@ export class Mixer {
     }
     const from = rampAt(r, start);
     if (from === to && r.to === to) return false;
-    r.from = from; r.to = to; r.start = start; r.seconds = dur; r.law = "linear"; r.seq = ++this.seq;
+    r.from = from; r.to = to; r.start = start; r.seconds = dur; r.law = law; r.seq = ++this.seq;
     this._dirty();
     return true;
   }
   /** `retarget` on a lane main writes: when it wrote, the capture's tap hears the ramp (Rc3; one null check without a tap). */
-  private lane(bus: string, lane: LaneId, r: Ramp, to: number, seconds: number, stamped = true): void {
-    if (this.retarget(r, to, seconds, stamped) && this.tap !== null) this.tap.busRamp(bus, lane, r.seconds, to);
+  private lane(bus: string, lane: LaneId, r: Ramp, to: number, seconds: number, stamped = true, law: RampLaw = "linear"): void {
+    if (this.retarget(r, to, seconds, stamped, law) && this.tap !== null) this.tap.busRamp(bus, lane, r.seconds, to);
   }
   private ramp(from: number, to: number, start: number, seconds: number): Ramp {
     return { from, to, start, seconds, law: "linear", seq: ++this.seq };

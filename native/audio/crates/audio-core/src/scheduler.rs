@@ -218,6 +218,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::AUTOMATE => wire::Automate::FIXED_END,
             wire::op::LOOPS => wire::Loops::FIXED_END,
             wire::op::SUBMIX => wire::Submix::FIXED_END,
+            wire::op::SUBMIX_AUTOMATE => wire::SubmixAutomate::FIXED_END,
             wire::op::ROUTE => wire::Route::FIXED_END,
             wire::op::CURVES => wire::Curves::FIXED_END,
             wire::op::PARAM => wire::Param::FIXED_END,
@@ -240,7 +241,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
         }
         let entries_fit = match head.opcode {
             wire::op::BUS_CONFIG => bus::config_is_well_formed(msg, off, len),
-            wire::op::AUTOMATE | wire::op::BUS_AUTOMATE => automation::bindings_is_well_formed(msg, off, len),
+            wire::op::AUTOMATE | wire::op::BUS_AUTOMATE | wire::op::SUBMIX_AUTOMATE => automation::bindings_is_well_formed(msg, off, len),
             wire::op::LOOPS => automation::loops_is_well_formed(msg, off, len),
             wire::op::SUBMIX => crate::submix::config_is_well_formed(msg, off, len),
             wire::op::CURVES => automation::curves_is_well_formed(msg, off, len),
@@ -372,6 +373,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::AUTOMATE => automation::automate(core, msg, off),
             wire::op::LOOPS => voices::loops(core, msg, off),
             wire::op::SUBMIX => crate::submix::configure(core, msg, off),
+            wire::op::SUBMIX_AUTOMATE => crate::submix::automate(core, msg, off),
             wire::op::ROUTE => automation::route(core, msg, off),
             wire::op::BUS_AUTOMATE => automation::bus_automate(core, msg, off),
             wire::op::CURVES => automation::curves(core, msg, off),

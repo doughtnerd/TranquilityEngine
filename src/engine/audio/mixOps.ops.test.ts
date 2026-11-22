@@ -33,6 +33,9 @@ const duck = { target: "SFX", trigger: "UI", mode: "level" as const, detector: "
 const auto = { bus: "Music", parameter: "Intensity", target: "lowpass" as const, curve: [[0, 24000], [1, 500, "easeIn"]] as const };
 /** ADR 0332: a curve with Bézier keys (one free) round-trips through the byte form with its handles. */
 const bezierAuto = { bus: "Music", parameter: "Intensity", target: "volume" as const, curve: [[0, 1, "bezier", { in: [0, 0], out: [0.25, -0.5] }], [0.5, 0.4, "bezier", { in: [-0.1, 0.2], out: [0.2, 0], free: true }], [1, 0]] as const };
+/** ABI 4.8: an effect parameter's automation (by the effect's and the parameter's index, a log2 curve) and a send's. */
+const fxAuto = { bus: "Music", parameter: "Intensity", target: "fx" as const, effect: 0, param: 0, log: true, curve: [[0, 14], [1, 9]] as const };
+const sendAuto = { bus: "Stems", parameter: "Intensity", target: "send" as const, to: "SFX", curve: [[0, 0], [1, -12]] as const };
 const tgt = { name: "radio", integrated: -23, tolerance: 1, truePeak: -2 };
 
 /** Every op kind (and each variant that changes its class), with the class it has against `base()`. */
@@ -74,6 +77,8 @@ const CASES: [string, MixOp, OpClass][] = [
   ["setAutomation replace", { op: "setAutomation", index: 0, rule: auto }, "direct"],
   ["setAutomation replace, Bézier keys", { op: "setAutomation", index: 0, rule: bezierAuto }, "direct"],
   ["setAutomation remove", { op: "setAutomation", index: 0, rule: null }, "direct"],
+  ["setAutomation insert, an effect parameter", { op: "setAutomation", index: 1, rule: fxAuto, insert: true }, "direct"],
+  ["setAutomation replace, a send", { op: "setAutomation", index: 0, rule: sendAuto }, "direct"],
   ["setTarget insert", { op: "setTarget", index: 2, target: tgt, insert: true }, "direct"],
   ["setTarget replace", { op: "setTarget", index: 1, target: tgt }, "direct"],
   ["setTarget remove", { op: "setTarget", index: 1, target: null }, "direct"],

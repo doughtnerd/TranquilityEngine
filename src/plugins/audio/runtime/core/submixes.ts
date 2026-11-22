@@ -29,7 +29,12 @@
 // buses' new indices (`busesReset`).
 import { effectParamValue } from "../../../../engine/audio/effects/catalogue";
 import type { Effect } from "../../../../engine/audio/effects/types";
-import { SUBMIX_EFFECTS_MAX, SUBMIX_FIXED_END, SUBMIX_EFFECTS_FIXED_END, SUBMIX_FX_ON, SUBMIXES_MAX, ASAP, writeSubmix, type SubmixEffects } from "../wire.generated";
+import {
+  AUTO_TARGET_FX, AUTO_TARGET_LOG, AUTO_TARGET_PARAM_SHIFT, AUTO_TARGET_SLOT_SHIFT, SUBMIX_AUTOMATE_BINDINGS_FIXED_END, BUS_AUTOMATE_MAX_BINDINGS, SUBMIX_EFFECTS_MAX,
+  SUBMIX_FIXED_END, SUBMIX_EFFECTS_FIXED_END, SUBMIX_FX_ON, SUBMIXES_MAX, ASAP, writeSubmix, writeSubmixAutomate, type SubmixAutomateBindings as AutomateBindings, type SubmixEffects,
+} from "../wire.generated";
+import type { SubmixLane } from "../backend";
+import { AUTOMATION_GLOBAL, AUTOMATION_TIME } from "./commandWriter";
 import { FX_KINDS, fxKind, fxParams } from "./effectKinds";
 import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
 import type { CommandWriter } from "./commandWriter";
@@ -50,7 +55,7 @@ const TAIL_MAX = 30;
 
 /** What the pool needs of the core backend. */
 export interface CoreSubmixesHost {
-  readonly writer: Pick<CommandWriter, "submix">;
+  readonly writer: Pick<CommandWriter, "submix"> & Partial<Pick<CommandWriter, "submixAutomate">>;
   readonly session: SendGate;
   /** The pool size the settings ask for (`settings.voices.submixes`; undefined: the default). */
   poolSize(): number | undefined;
@@ -80,6 +85,10 @@ interface Slot {
   freeAt: number;
   /** The close it rings out from (the slots of one instance are freed together). */
   ring: number;
+  /** The effects' ids, in chain order (what `SubmixLane.effect` names). */
+  ids: string[];
+  /** ABI 4.10: the slot's parameter automation as written (SUBMIX_AUTOMATE; an instance's own chain only). */
+  bindings: AutomateBindings[];
 }
 
 /** The catalogue effect `e` as a SUBMIX effect: its kind, bypass flag and parameters in the catalogue's order. */
@@ -158,8 +167,36 @@ export class CoreSubmixes {
       if (index < 0) return false;
       this.byGroup.set(group, index);
     }
-    this.configure(index, { owner: group, group, key: "", bus, parent: null, effects: this.chain(effects, where), source: effects, tail: tailSeconds(effects), freeAt: Number.NaN, ring: 0 });
+    const kept = effects.slice(0, SUBMIX_EFFECTS_MAX);
+    // A reconfigured instance keeps its automation while its chain keeps the effects it names (the core keeps it too).
+    const prev = this.slots[index];
+    const ids = kept.map((e) => e.id);
+    const keep = !!prev && prev.group === group && prev.ids.join("\u0000") === ids.join("\u0000");
+    this.configure(index, { owner: group, group, key: "", bus, parent: null, effects: this.chain(effects, where), source: effects, tail: tailSeconds(effects), freeAt: Number.NaN, ring: 0, ids, bindings: keep ? prev!.bindings : [] });
+    // The core keeps a slot's automation across a SUBMIX of the same group: clear it when the chain it named changed.
+    if (!keep && prev?.group === group && prev.bindings.length > 0 && this.host.session.mayQueue) this.host.writer.submixAutomate?.(index, []);
     return true;
+  }
+
+  /**
+   * ADR 0331 instance automation (ABI 4.10): instance `group`'s own submix's parameter automation (SUBMIX_AUTOMATE,
+   * replacing what it had). A lane naming an effect the chain doesn't hold, or a parameter past the wire's, is left out.
+   */
+  automate(group: number, lanes: readonly SubmixLane[]): void {
+    const index = this.byGroup.get(group);
+    if (index === undefined) return;
+    const s = this.slots[index]!;
+    const bindings: AutomateBindings[] = [];
+    for (const l of lanes) {
+      const fx = s.ids.indexOf(l.effect);
+      if (fx < 0 || l.param < 0 || l.param > 0xff || bindings.length >= BUS_AUTOMATE_MAX_BINDINGS) continue;
+      const param = l.input.time !== undefined ? AUTOMATION_TIME | l.input.time : l.input.global ? AUTOMATION_GLOBAL | l.input.slot : l.input.slot;
+      const target = (AUTO_TARGET_FX | (fx << AUTO_TARGET_SLOT_SHIFT) | (l.param << AUTO_TARGET_PARAM_SHIFT) | (l.log ? AUTO_TARGET_LOG : 0)) >>> 0;
+      bindings.push({ param, curve: l.curve, target });
+    }
+    if (bindings.length === 0 && s.bindings.length === 0) return;
+    s.bindings = bindings;
+    this.sendBindings(index, s);
   }
 
   /** The level instance `group`'s own submix is, or null. */
@@ -186,7 +223,7 @@ export class CoreSubmixes {
     const was = this.slots[index];
     // Played again unchanged (a Queue's next pick of the entry, the next pass of a sequence loop): nothing to send.
     if (was && was.source === effects && was.bus === bus && was.parent === up) return this.handles[index]!;
-    this.configure(index, { owner: group, group: 0, key, bus, parent: up, effects: this.chain(effects, where), source: effects, tail: tailSeconds(effects), freeAt: Number.NaN, ring: 0 });
+    this.configure(index, { owner: group, group: 0, key, bus, parent: up, effects: this.chain(effects, where), source: effects, tail: tailSeconds(effects), freeAt: Number.NaN, ring: 0, ids: effects.slice(0, SUBMIX_EFFECTS_MAX).map((e) => e.id), bindings: [] });
     return this.handles[index]!;
   }
 
@@ -226,6 +263,7 @@ export class CoreSubmixes {
       s.owner = 0;
       if (s.group !== 0) {
         s.group = 0;
+        s.bindings = []; // the core drops a slot's automation with its group
         this.send(i, s);
       }
     }
@@ -237,6 +275,10 @@ export class CoreSubmixes {
       if (!s) return;
       const rec = { voiceId: index, frameOffset: ASAP, group: s.group, bus: this.busIndex(s.bus), parent: s.parent === null ? 0 : s.parent + 1, reserved: 0, effects: s.effects };
       b.record(SUBMIX_FIXED_END + SUBMIX_EFFECTS_FIXED_END * s.effects.length, (view, off) => writeSubmix(view, off, rec));
+      if (s.bindings.length > 0 && s.group !== 0) {
+        const auto = { voiceId: index, frameOffset: ASAP, bindings: s.bindings };
+        b.record(16 + SUBMIX_AUTOMATE_BINDINGS_FIXED_END * s.bindings.length, (view, off) => writeSubmixAutomate(view, off, auto));
+      }
     });
   }
 
@@ -294,6 +336,10 @@ export class CoreSubmixes {
 
   private send(index: number, s: Slot): void {
     if (this.host.session.mayQueue) this.host.writer.submix(index, s.group, this.busIndex(s.bus), s.effects, s.parent);
+  }
+
+  private sendBindings(index: number, s: Slot): void {
+    if (this.host.session.mayQueue) this.host.writer.submixAutomate?.(index, s.bindings);
   }
 
   private busIndex(name: string): number {

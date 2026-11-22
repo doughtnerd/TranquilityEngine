@@ -9,7 +9,8 @@
 //!   (its kind is new, or it needs more than it holds: a delay made longer); it gets the first run
 //!   of free blocks that fits, zeroed. Its slot records where (`Effect::mem_off`, `mem_len`).
 //!   When nothing fits the effect has no memory and passes its signal through; `starved` counts
-//!   it (tests and a debugger: the wire has no STATUS field for it yet).
+//!   it and `starved_owner` names whose it was (ABI 4.8: STATUS `fxStarved`, `fxStarvedOwner`;
+//!   the owner is set by the bus or submix configuring its effects, [`set_owner`]).
 //! - **Freeing is a sweep** ([`rebuild`]): after every message that configures effects (BUS_CONFIG,
 //!   BUS_SLOT, SUBMIX, RESET) the block map is rebuilt from the effects that are still configured,
 //!   so a slot overwritten, tombstoned or freed by any path gives its memory back without each path
@@ -42,6 +43,11 @@ pub struct Header {
     pub starved: u32,
     /// Allocations made, cumulative.
     pub allocs: u32,
+    /// ABI 4.8: whose effects are being configured now ([`set_owner`]): a bus slot, or
+    /// `FX_STARVED_SUBMIX | slot`.
+    pub owner: u16,
+    /// ABI 4.8: the owner when an allocation was last refused.
+    pub starved_owner: u16,
     pub map: [u8; MAX_BLOCKS],
 }
 
@@ -83,7 +89,10 @@ fn alloc(h: &mut Header, data: &mut [f32], floats: usize) -> Option<u32> {
     let need = floats.div_ceil(BLOCK_FLOATS);
     let n = (h.blocks as usize).min(MAX_BLOCKS);
     if need == 0 || need > n {
-        h.starved = h.starved.wrapping_add((need > 0) as u32);
+        if need > 0 {
+            h.starved = h.starved.wrapping_add(1);
+            h.starved_owner = h.owner;
+        }
         return None;
     }
     let mut run = 0usize;
@@ -103,7 +112,22 @@ fn alloc(h: &mut Header, data: &mut [f32], floats: usize) -> Option<u32> {
         }
     }
     h.starved = h.starved.wrapping_add(1);
+    h.starved_owner = h.owner;
     None
+}
+
+/// ABI 4.8: names the owner whose effects the next configures are for (a bus slot, or
+/// `FX_STARVED_SUBMIX | slot`), so a refusal can say whose effect starved.
+pub fn set_owner(region: &mut [u8], owner: u16) {
+    if let Some((h, _)) = split(region) {
+        h.owner = owner;
+    }
+}
+
+/// ABI 4.8: allocations refused (cumulative) and the owner of the last one (STATUS `fxStarved`,
+/// `fxStarvedOwner`).
+pub fn starvation(regions: &mut Regions) -> (u32, u16) {
+    split(&mut regions.fxmem[..]).map_or((0, 0), |(h, _)| (h.starved, h.starved_owner))
 }
 
 /// `e`'s memory slice in the region's data (empty when it holds none or it is out of range).

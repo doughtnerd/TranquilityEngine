@@ -3,8 +3,8 @@
 // selection's view of automated gain, and the region-aware wrap.
 import { describe, expect, it } from "vitest";
 import type { Curve } from "../../../../engine/core/curve";
-import { AutoTarget, TimeParam, timeParam, type Binding } from "../automation";
-import { Kind, Op, readEnvelope, readRecordHead } from "../wire.generated";
+import { AutoTarget, MAX_BUS_BINDINGS, TimeParam, timeParam, type Binding } from "../automation";
+import { AUTO_TARGET_FX, AUTO_TARGET_LOG, AUTO_TARGET_PARAM_SHIFT, AUTO_TARGET_SEND, AUTO_TARGET_SLOT_SHIFT, Kind, Op, readEnvelope, readRecordHead } from "../wire.generated";
 import type { AudioVoice } from "../backend";
 import { CommandWriter, CORE_CURVE_KEYS, AUTOMATION_GLOBAL, AUTOMATION_TIME } from "./commandWriter";
 import { BufferPool } from "./bufferPool";
@@ -152,7 +152,7 @@ describe("CoreAutomation: the sink over the writer (E3.1)", () => {
       ["param", 5, 2, 0.5, 4],
       ["automate", v.id, 12_345, [{ param: 2, curve: 3, target: AutoTarget.Volume, offset: 0 }]],
       // Local and pitch bindings are not for buses.
-      ["busAutomate", 2, [{ param: AUTOMATION_GLOBAL | 1, curve: 3, target: AutoTarget.Volume, offset: 0 }]],
+      ["busAutomate", 2, [{ param: AUTOMATION_GLOBAL | 1, curve: 3, target: AutoTarget.Volume }]],
     ]);
   });
 
@@ -237,8 +237,37 @@ describe("CoreAutomation: the sink over the writer (E3.1)", () => {
     auto.onBusesConfigured();
     expect(calls).toEqual([
       ["busAutomate", 2, []],
-      ["busAutomate", 1, [{ param: AUTOMATION_GLOBAL, curve: 0, target: AutoTarget.Volume, offset: 0 }]],
+      ["busAutomate", 1, [{ param: AUTOMATION_GLOBAL, curve: 0, target: AutoTarget.Volume }]],
     ]);
+  });
+
+  it("ABI 4.8: an effect binding carries its slot, parameter and log flag; a send binding its return's slot, re-sent when a remap moves the return", () => {
+    const { auto, calls, buses } = rig();
+    auto.defineCurve(0, [[0, 1]]);
+    auto.bindBus("Music", [
+      { param: { global: true, slot: 2 }, curve: 0, target: AutoTarget.Effect, fx: { slot: 1, param: 0, log: true } },
+      { param: { global: true, slot: 3 }, curve: 0, target: AutoTarget.Send, send: "SFX" },
+      { param: { global: true, slot: 3 }, curve: 0, target: AutoTarget.Send, send: "Nowhere" }, // no such bus: left out
+    ]);
+    const fxTarget = (AUTO_TARGET_FX | (1 << AUTO_TARGET_SLOT_SHIFT) | (0 << AUTO_TARGET_PARAM_SHIFT) | AUTO_TARGET_LOG) >>> 0;
+    expect(calls.filter((c) => c[0] === "busAutomate").at(-1)).toEqual(["busAutomate", 2, [
+      { param: AUTOMATION_GLOBAL | 2, curve: 0, target: fxTarget },
+      { param: AUTOMATION_GLOBAL | 3, curve: 0, target: AUTO_TARGET_SEND | (1 << AUTO_TARGET_SLOT_SHIFT) },
+    ]]);
+    calls.length = 0;
+    // The return moves slot, the bus doesn't: its bindings go again with the new slot.
+    buses.set("SFX", 3);
+    auto.onBusesConfigured();
+    expect(calls).toEqual([["busAutomate", 2, [
+      { param: AUTOMATION_GLOBAL | 2, curve: 0, target: fxTarget },
+      { param: AUTOMATION_GLOBAL | 3, curve: 0, target: AUTO_TARGET_SEND | (3 << AUTO_TARGET_SLOT_SHIFT) },
+    ]]]);
+    calls.length = 0;
+    auto.onBusesConfigured();
+    expect(calls).toEqual([]); // nothing moved
+    // Up to 16 bindings a bus (MAX_BUS_BINDINGS).
+    auto.bindBus("Music", Array.from({ length: 20 }, () => ({ param: { global: true, slot: 0 }, curve: 0, target: AutoTarget.Volume })));
+    expect((calls.at(-1)![2] as unknown[]).length).toBe(MAX_BUS_BINDINGS);
   });
 
   it("a live rename moves a bus's bindings to the new name (Ma1): removing them afterwards clears the slot", () => {

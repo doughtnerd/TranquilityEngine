@@ -45,11 +45,19 @@
 //!   keeps its state. An effect that keeps its kind in its slot keeps its state across a SUBMIX and
 //!   glides to the new parameters (an edit doesn't click).
 //!
+//! - **Automation** (SUBMIX_AUTOMATE, ABI 4.8; ADR 0331 instance automation): up to
+//!   [`automation::BUS_BINDINGS`] fx bindings per slot, each a parameter of its chain driven by a
+//!   curve of a global parameter, a local one of the slot's group, or the group's `sequenceTime`,
+//!   evaluated once a quantum before the chain runs (`automation::submix_bindings`; the effect
+//!   reaches the value across the quantum). A SUBMIX that frees the slot or gives it to another
+//!   group clears them; one that keeps the group keeps them.
+//!
 //! RESET frees every slot (main replays the ones in use). Nothing here allocates.
 
 use audio_dsp::fx::{Ctx, Effect};
 use audio_wire::generated as wire;
 
+use crate::automation::{self, Binding};
 use crate::core::{Core, Regions};
 use crate::layout::REGION_ALIGN;
 use crate::wire_read::{u16_at, u32_at};
@@ -118,7 +126,12 @@ pub struct Submix {
     /// Its level: parents above it (0 feeds a bus); [`render`] runs the deepest first.
     pub depth: u8,
     pub _pad: u16,
+    /// ABI 4.10: fx bindings in use (SUBMIX_AUTOMATE).
+    pub auto_n: u32,
+    pub _pad2: u32,
     pub effects: [SubmixEffect; SUBMIX_EFFECTS],
+    /// ABI 4.8: the fx bindings (SUBMIX_AUTOMATE).
+    pub auto: [Binding; automation::BUS_BINDINGS],
 }
 
 /// The region's scalars, then the group routes. All-zero is valid: nothing routed.
@@ -220,6 +233,7 @@ fn apply(regions: &mut Regions, msg: &[u8], off: usize, index: usize, sample_rat
         if let Some(&old) = v.header.route.get(group) {
             if old != 0 && old as usize - 1 != index {
                 v.slots[old as usize - 1].group = 0;
+                v.slots[old as usize - 1].auto_n = 0;
             }
         }
     }
@@ -229,12 +243,17 @@ fn apply(regions: &mut Regions, msg: &[u8], off: usize, index: usize, sample_rat
         s.quiet = 0;
     }
     let mut had = s.count as usize;
+    if group != was {
+        // Its automation reads the group it was given: another group (or none) drops it.
+        s.auto_n = 0;
+    }
     if !used || (group != 0 && group != was) {
         // A new slot or another instance: the chain starts from silence. (A group going to 0 keeps
         // its state: the instance ended and its tail rings.)
         s.buf = [0.0; 2 * QUANTUM];
         had = 0;
     }
+    crate::fxmem::set_owner(fxmem, wire::FX_STARVED_SUBMIX as u16 | index as u16);
     if group != 0 {
         v.header.route[group] = index as u8 + 1;
         v.header.route_bus[group] = bus;
@@ -303,6 +322,15 @@ fn rebuild_levels(slots: &mut [Submix]) {
         }
         slots[i].depth = depth;
     }
+}
+
+/// SUBMIX_AUTOMATE (ABI 4.8): replaces slot `voiceId`'s fx bindings (count 0 clears them). A free
+/// or out-of-range slot ignores it.
+pub fn automate(core: &mut Core, msg: &[u8], off: usize) {
+    let index = u32_at(msg, off + 4) as usize;
+    let Some(v) = view(&mut core.regions_mut().submixes[..]) else { return };
+    let Some(s) = v.slots.get_mut(index).filter(|s| s.group != 0) else { return };
+    s.auto_n = automation::read_submix_bindings(msg, off, &mut s.auto) as u32;
 }
 
 /// RESET: every slot goes free and every route with it.
@@ -392,6 +420,7 @@ impl Buffers {
 /// chain, deepest level first, and adds into its parent's buffer or its bus's input (see the
 /// module comment).
 pub fn render(core: &mut Core) {
+    let frame = core.frame();
     let regions = core.regions_mut();
     let mut inputs = crate::bus::Inputs::of(regions);
     let Some((_, fxdata)) = crate::fxmem::split(&mut regions.fxmem[..]) else { return };
@@ -399,6 +428,7 @@ pub fn render(core: &mut Core) {
     if v.header.active == 0 {
         return;
     }
+    let eval = automation::submix_eval(&mut regions.automation[..], frame);
     let deepest = v.slots.iter().filter(|s| s.used != 0).map(|s| s.depth).max().unwrap_or(0);
     let mut out = [0.0f32; 2 * QUANTUM];
     for depth in (0..=deepest).rev() {
@@ -415,6 +445,18 @@ pub fn render(core: &mut Core) {
                 s.quiet += 1;
             }
             s.fed = 0;
+            // ABI 4.10: the slot's automated parameters reach its chain before it runs.
+            if s.auto_n != 0 && s.group != 0 {
+                if let Some(e) = &eval {
+                    let count = (s.count as usize).min(SUBMIX_EFFECTS);
+                    let effects = &mut s.effects;
+                    automation::submix_bindings(e, &s.auto[..(s.auto_n as usize).min(automation::BUS_BINDINGS)], s.group, |slot, p, value| {
+                        if slot < count {
+                            effects[slot].automate(p, value);
+                        }
+                    });
+                }
+            }
             {
                 let (l, r) = s.buf.split_at_mut(QUANTUM);
                 run_chain(&mut s.effects[..(s.count as usize).min(SUBMIX_EFFECTS)], fxdata, l, r);

@@ -49,6 +49,17 @@ pub const CONSTANTS: &[Const] = &[
     c!("BUS_FX_CATALOGUE", 16, "a bus effect type at or above this is a catalogue effect: SUBMIX_FX_* plus 16, p the catalogue's parameters in its order (ABI 4.6)"),
     c!("FX_MEMORY_SECONDS", 20, "the effect memory region holds this many seconds of stereo audio at the context rate (delay lines, reverbs; ABI 4.6)"),
     c!("SUBMIX_FX_ON", 1, "SUBMIX effect flags bit 0: the effect runs (clear: bypassed, its state kept)"),
+    c!("AUTO_TARGET_KIND_MASK", 0xFF, "binding target bits 0-7: the kind (0 volume .. 4 pan, AUTO_TARGET_FX, AUTO_TARGET_SEND)"),
+    c!("AUTO_TARGET_FX", 5, "binding target kind: an effect parameter of the bus's (BUS_AUTOMATE) or submix's (SUBMIX_AUTOMATE) chain, replaced by the curve's value (ABI 4.8)"),
+    c!("AUTO_TARGET_SEND", 6, "binding target kind: a bus's send, the curve's dB added to its level (BUS_AUTOMATE only; ABI 4.8)"),
+    c!("AUTO_TARGET_SLOT_SHIFT", 8, "binding target bits 8-15: the effect's slot in the chain (FX), or the receiving bus slot of the send (SEND)"),
+    c!("AUTO_TARGET_PARAM_SHIFT", 16, "binding target bits 16-23: the catalogue parameter's index (FX)"),
+    c!("AUTO_TARGET_LOG", 0x0100_0000u32, "binding target bit 24: the curve's value is log2 of the parameter (frequencies interpolate in log scale); the core takes 2^value (FX)"),
+    c!("BUS_AUTOMATE_MAX_BINDINGS", 16, "bindings a bus or a submix keeps (BUS_AUTOMATE, SUBMIX_AUTOMATE; ABI 4.8, 8 before)"),
+    c!("BUS_FX_HELD_SHIFT", 16, "bus effect type bits 16-23: bit i set holds catalogue parameter i at its sent value (a snapshot override); automation leaves it (ABI 4.8)"),
+    c!("BUS_FX_TYPE_MASK", 0xFFFF, "bus effect type bits 0-15: the type"),
+    c!("FX_STARVED_SUBMIX", 0x8000, "STATUS fxStarvedOwner bit 15: the owner is a submix slot (low bits), else a bus slot"),
+    c!("FX_STARVED_NONE", 0xFFFF, "STATUS fxStarvedOwner: no effect has starved"),
     c!("SUBMIX_PARENT_NONE", 0, "SUBMIX parent: the slot feeds its bus (else parent - 1 is the slot it feeds; ABI 4.9)"),
     c!("SUBMIX_DEPTH_MAX", 8, "submix levels a chain of parents keeps (ABI 4.9); a slot deeper than this feeds its bus"),
     c!("FADE_SHAPE_EQUAL_POWER", 0, "LOOPS shapes nibble: equal power (sin in, cos out; the default, ABI 4.9)"),
@@ -116,6 +127,24 @@ pub const ROUTE: Opcode = Opcode {
     total_bytes: Some(16),
     sent: true,
     doc: "route a voice into a submix slot (ADR 0331 levels)",
+};
+
+/// SUBMIX_AUTOMATE bindings (AUTOMATE's items): AUTO_TARGET_FX targets only; params global, local to the submix's
+/// group, or its group's `sequenceTime`; at most BUS_AUTOMATE_MAX_BINDINGS kept.
+const SUBMIX_AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: super::batch::BINDING_ITEM, then: None, max: 0 };
+
+/// 0x1F SUBMIX_AUTOMATE (ADR 0331 instance automation, ABI 4.8): replaces instance submix slot `voiceId`'s
+/// bindings (count 0 clears them; a SUBMIX that frees the slot or gives it another group clears them too). Each
+/// binding drives one parameter of the submix's chain (AUTO_TARGET_FX, the slot and parameter in the target's
+/// upper bits), evaluated once a quantum before the chain runs, from a global parameter, a local one of the
+/// submix's group, or the group's `sequenceTime`. Applies on arrival, like AUTOMATE; main sends it after the SUBMIX.
+pub const SUBMIX_AUTOMATE: Opcode = Opcode {
+    id: 0x1F,
+    name: "SUBMIX_AUTOMATE",
+    payload: Body::with_tail(&[Field::new("bindingCount", Ty::U32)], Tail::Repeat(&SUBMIX_AUTOMATE_BINDINGS)),
+    total_bytes: None,
+    sent: true,
+    doc: "replace an instance submix's effect-parameter automation (ADR 0331, ABI 4.8); count 0 clears it",
 };
 
 /// One loop of a LOOPS program: 28 B.

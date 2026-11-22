@@ -81,4 +81,42 @@ describe("PlaylistBody.automation", () => {
     expect(warnings.filter((w) => w.includes('automation of "fx:r:mix"'))).toHaveLength(1);
     expect(fake.plays).toHaveLength(2);
   });
+
+  it("ABI 4.10: with an instance submix, a parameter-keyed lane of the root's own effect drives the submix's effect, not the voices", async () => {
+    const automated: [number, { effect: string; param: number; log: boolean; input: unknown }[]][] = [];
+    Object.assign(fake, {
+      submixes: {
+        open: () => true,
+        close: () => {},
+        levelOf: () => ({ slot: 0 }),
+        openLevel: () => null,
+        automate: (group: number, lanes: { effect: string; param: number; log: boolean; input: unknown }[]) => void automated.push([group, lanes.map((l) => ({ effect: l.effect, param: l.param, log: l.log, input: l.input }))]),
+      },
+    });
+    try {
+      await kit.boot({
+        "s.playlist.json": pla("clip", [sample("a.wav")], {
+          parameters: [{ name: "Open", min: 0, max: 1, default: 0 }],
+          effects: [{ id: "lp", type: "lowpass", params: { cutoff: 500 } }, { id: "d", type: "delay" }],
+          automation: [
+            { id: "c", target: "fx:lp:cutoff", input: { parameter: "Open" }, curve: [[0, 500], [1, 18000]] },
+            { id: "f", target: "fx:d:feedback", input: { parameter: "Open" }, curve: [[0, 0], [1, 60]] },
+          ],
+        }),
+      });
+      Audio.play("s.playlist.json");
+      const group = fake.plays[0]!.group!;
+      // The low-pass's cutoff in log scale (2^curve) and the delay's feedback: both on the submix, from the local parameter.
+      expect(automated).toEqual([[group, [
+        { effect: "lp", param: 0, log: true, input: { global: false, slot: 0 } },
+        { effect: "d", param: 1, log: false, input: { global: false, slot: 0 } },
+      ]]]);
+      // The voice gets no low-pass cap from it (the D30 limit: it couldn't open above the effect's cutoff), and no warning.
+      expect(fake.plays[0]!.filter).toBeUndefined();
+      const warnings = (console.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0]));
+      expect(warnings.filter((w) => w.includes("needs instance submixes"))).toHaveLength(0);
+    } finally {
+      delete (fake as { submixes?: unknown }).submixes;
+    }
+  });
 });

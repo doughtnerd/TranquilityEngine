@@ -139,6 +139,13 @@ export interface AudioMixDebug {
   busRecordsEarly: number;
   /** STATUS `sidechainLate`. */
   sidechainLate: number;
+  /**
+   * ADR 0331 (ABI 4.8): STATUS `fxStarved`: effects that asked for the core's effect memory and got none, so they pass
+   * their signal through (cumulative). 0 on the Babylon fallback.
+   */
+  fxStarved: number;
+  /** Whose effect starved last: a bus or return's name, or "instance submix N"; null before any. */
+  fxStarvedOwner: string | null;
   /** Live edits refused. */
   liveRefused: number;
   /** Live adds deferred for want of a free slot (architecture §4.7, debug-only). */

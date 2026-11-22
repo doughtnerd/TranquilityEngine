@@ -60,7 +60,7 @@ import { mixer as defaultMixer, type Mixer, type MixOpTarget, type ResolvedBus }
 import { Assets } from "../../../../engine/scene/Assets";
 import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioOutputDevice, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, ShapedParams, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
-import { BUS_LP_OFF_HZ, readStatus, type BusConfigBuses } from "../wire.generated";
+import { BUS_LP_OFF_HZ, FX_MEMORY_SECONDS, readStatus, type BusConfigBuses } from "../wire.generated";
 import { AudioHandle, type AudioReason } from "./handle";
 import { limiterLatencyFrames } from "./limiterLatency";
 import { ClockMap } from "./clock";
@@ -71,7 +71,7 @@ import { DEFAULT_CLIP_CEILING_MB, type AudioHost, type CoreLink, type HostHealth
 import { PlayheadTracker, Replayer, replayBusConfig, replayMaster, type ReplaySource } from "./replay";
 import { CoreSession } from "./session";
 import { CoreLoudness } from "./coreLoudness";
-import { buildDebugInfo, mixDebugInfo, type AudioDebugInfo, type DebugSource } from "./debug";
+import { buildDebugInfo, fxStarvedOwnerName, mixDebugInfo, type AudioDebugInfo, type DebugSource } from "./debug";
 import { BackgroundController } from "./background";
 import { browserHostClock, type HostClock } from "./hostClock";
 import { StatusMirror } from "./mirror";
@@ -720,6 +720,23 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     this.clockMap.reanchor();
   }
 
+  /** ABI 4.8: STATUS `fxStarved` as last seen (a new core starts again from its own count). */
+  private fxStarvedSeen = 0;
+
+  /**
+   * ADR 0331 (ABI 4.8): the core's effect memory ran out for an effect (it passes its signal through): one warning per
+   * owner (a bus, a return, an instance submix), and `Audio.debug().mix.fxStarved` counts them.
+   */
+  private noteFxStarved(): void {
+    const h = this.mirror.header;
+    if (h.fxStarved === this.fxStarvedSeen) return;
+    const grew = h.fxStarved > this.fxStarvedSeen;
+    this.fxStarvedSeen = h.fxStarved;
+    if (!grew) return;
+    const who = fxStarvedOwnerName(h.fxStarvedOwner, this.names) ?? "an effect chain";
+    this.warnOnce(`fx-starved:${who}`, `[myco] audio: an effect of ${who} got no effect memory (the audio core holds ${FX_MEMORY_SECONDS} s of stereo for delays, reverbs, chorus and pitch shifters) and passes its signal through; shorten delay times or run fewer of those effects (ADR 0331).`);
+  }
+
   /** The bus names by index (root first), as last configured. */
   get busNames(): readonly string[] {
     return this.names;
@@ -809,6 +826,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     if (this.mirror.blocks > this.staleBlocks) clockMap.noteStatus(this.mirror.frameAudio, this.mirror.frameDateMs);
     this.syncMixerClock();
     this.mirror.beginFrame();
+    this.noteFxStarved();
     // F-9b: stem levels whose stamps come before this frame's asap records land (selection and dry-gain writes read them).
     // Asap records apply on arrival, about `framesNow`; a stamp after that is still pending (`ClockMap.stampFor`'s rule).
     this.table.resolveStems(clockMap.framesNow());

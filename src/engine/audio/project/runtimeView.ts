@@ -4,12 +4,13 @@
  * **`coreSectionOf(project)`** is what the runtime's mixer hands its backends (`Mixer.audioSettings`): the bus tree
  *   the audio core's slots and the Web Audio fallback's nodes are built from. Levels are each bus's fader alone (the
  *   mixer runs VCAs as their own gain lane), the effects the backends' bus chains run (every type the audio core runs, `CORE_EFFECT_TYPES`, ADR 0331 ABI 4.6: legacy low-pass, high-pass and compressor when exact, else catalogue effects, `coreBusEffect`),
- *   each bus's sends (`BusSettings.sends`, linear levels), ducking and the `volume` and low-pass automation the core
- *   runs. **Returns are buses** of the section (ADR 0330, ABI 4.7: the core's bus-to-return sends): each after the
+ *   each bus's sends (`BusSettings.sends`, linear levels), ducking and the automation the core runs (ABI 4.8: `volume`,
+ *   any effect parameter of a chain the core runs, an automated effect being sent as the catalogue's, and send levels;
+ *   a migrated low-pass carrier's cutoff as the old bus low-pass). **Returns are buses** of the section (ADR 0330, ABI 4.7: the core's bus-to-return sends): each after the
  *   project's buses, under its own name (names are unique across buses, returns and VCAs), its `output` as the parent,
  *   its fader, mute and inserts; the sends into it are post-fader `sends` of the buses that feed it. The mixer itself
  *   runs everything else on the main thread from the `AudioProject` (snapshots, VCAs, effect-parameter overrides, send
- *   and effect automation, send muting): `warnings` lists only what nothing runs yet.
+ *   muting): `warnings` lists only what nothing runs yet.
  *   The Web Audio fallback runs no bus effects and no sends (ADR 0331's fallback rule), so it needs nothing folded: a
  *   return is a silent bus there.
  * `mergeLegacyIntoProject` (`legacy.ts`) writes an edit of it back. It carries the snapshots in the old shape
@@ -28,8 +29,9 @@ import {
 } from "../settings";
 import { DEFAULT_SUBMIXES } from "./format";
 import { dbToGain } from "./gain";
+import { fxParamSlot, log2Curve } from "./fxAutomation";
 import { isCarrier, isMappable, secondsOf, toBusEffect } from "./legacyEffects";
-import type { AudioProject, Bus, Return, Send } from "./types";
+import type { AudioProject, Bus, MixAutomation, Return, Send } from "./types";
 
 /** The sum of the VCA levels on `name`: each VCA that lists it, unless it also lists one of its ancestors (counted there). */
 export function vcaOffsetDb(project: Pick<AudioProject, "buses" | "vcas">, name: string): number {
@@ -67,9 +69,11 @@ export const coreShown = (project: Pick<AudioProject, "snapshots" | "automation"
 /**
  * The bus effect the core runs for `e` (`coreShown`): a low-pass, high-pass or compressor the legacy shape holds exactly
  * stays legacy (the Web Audio fallback and the parity reference run those), anything else is a catalogue effect (`fx`).
+ * `catalogue` forces the catalogue shape: an effect automation drives (ABI 4.8: the core automates catalogue parameters
+ * by index, `automatedEffect`).
  */
-export function coreBusEffect(e: Effect): BusEffect {
-  if (isMappable(e)) {
+export function coreBusEffect(e: Effect, catalogue = false): BusEffect {
+  if (isMappable(e) && !catalogue) {
     const lost: string[] = [];
     const b = toBusEffect(e, lost);
     if (lost.length === 0) return b;
@@ -91,13 +95,17 @@ export function sectionReturnsOf(project: Pick<AudioProject, "buses" | "returns"
 const clampGain = (g: number, max: number) => Math.min(max, Math.max(0, g));
 const curveToGain = (curve: Curve): CurveKey[] => curve.map((k) => (k.length === 3 ? [k[0], dbToGain(k[1]), k[2]] : [k[0], dbToGain(k[1])]) as CurveKey);
 
+/** ADR 0330 (ABI 4.8): true when an automation of `owner` (not bypassed) drives a parameter of `e`, so the core runs it as the catalogue's. */
+export const automatedEffect = (project: Pick<AudioProject, "automation">, owner: string, e: Effect): boolean =>
+  project.automation.some((a) => !a.bypass && a.on === owner && a.target.startsWith(`fx:${e.id}:`));
+
 /** The effects the core runs of `owner`'s chain (warnings into `warn`). */
 function sectionEffects(project: AudioProject, owner: { name: string; effects: Effect[] }, kind: "bus" | "return", warn: (line: string) => void): BusEffect[] {
   const out: BusEffect[] = [];
   for (const e of owner.effects) {
     // Every type the core's bus chain runs (ADR 0331).
     if (coreShown(project, owner.name, e)) {
-      out.push(coreBusEffect(e));
+      out.push(coreBusEffect(e, automatedEffect(project, owner.name, e)));
       if (e.type === "sidechainCompressor" && !project.buses.some((b) => b.name === e.key) && !project.returns.some((r) => r.name === e.key)) warn(`${kind} "${owner.name}": the sidechain compressor "${e.id}" has no key bus; it doesn't compress until it has one.`);
     } else if (e.on && !isCarrier(project, owner.name, e)) warn(`${kind} "${owner.name}": the ${e.type} effect "${e.id}" doesn't run on a ${kind} (ADR 0331); left out.`);
   }
@@ -132,6 +140,39 @@ function sectionBus(project: AudioProject, bus: Bus, returns: ReadonlySet<string
 /** ADR 0330: the section bus of return `r`: its output as the parent, its fader, mute and inserts; no voices, bed or meter of its own. */
 function sectionReturn(project: AudioProject, r: Return, warn: (line: string) => void): BusSettings {
   return { name: r.name, parent: r.output, volume: clampGain(dbToGain(r.volumeDb), 2), mute: r.mute, effects: sectionEffects(project, r, "return", warn) };
+}
+
+/**
+ * The section's entry for automation `a` (`coreSectionOf`'s `automation`), or null when the view leaves it out (bypassed,
+ * its owner not in the section, a send the bus doesn't have, an effect the core doesn't run): `volume` (as a gain curve);
+ * ADR 0330 (ABI 4.8) `send:<return>` (dB) and `fx:<id>:<param>` of an effect the core runs, by its index in the chain the
+ * view shows and the catalogue parameter's index (a log-scale parameter as a log2 curve); a migrated low-pass carrier's
+ * cutoff as the old bus low-pass. What has no parameter the core runs goes to `warn`.
+ */
+export function sectionAutomationOf(project: AudioProject, a: MixAutomation, warn: (line: string) => void = () => {}): BusAutomation | null {
+  if (a.bypass) return null;
+  const fitting = sectionReturnsOf(project);
+  const isBus = project.buses.some((b) => b.name === a.on);
+  const owner: Bus | Return | undefined = project.buses.find((b) => b.name === a.on) ?? fitting.find((r) => r.name === a.on);
+  if (!owner) return null;
+  if (a.target === "volume") return { bus: owner.name, parameter: a.parameter, target: "volume", curve: curveToGain(a.curve) };
+  if (a.target.startsWith("send:")) {
+    const to = a.target.slice(5);
+    const ok = isBus && fitting.some((r) => r.name === to) && (owner as Bus).sends.some((s) => s.to === to);
+    return ok ? { bus: owner.name, parameter: a.parameter, target: "send", to, curve: structuredClone(a.curve) as CurveKey[] } : null;
+  }
+  const [, id, p] = a.target.split(":");
+  const e = owner.effects.find((x) => x.id === id);
+  if (!e || !p) return null;
+  if (isCarrier(project, owner.name, e)) return p === "cutoff" ? { bus: owner.name, parameter: a.parameter, target: "lowpass", curve: structuredClone(a.curve) as CurveKey[] } : null;
+  if (!coreShown(project, owner.name, e)) return null;
+  const slot = fxParamSlot(e.type, p);
+  if (!slot) {
+    warn(`automation of ${owner.name} "${a.target}": the ${e.type} effect has no parameter "${p}" the audio core runs; left out.`);
+    return null;
+  }
+  const effect = owner.effects.filter((x) => coreShown(project, owner.name, x)).indexOf(e);
+  return { bus: owner.name, parameter: a.parameter, target: "fx", effect, param: slot.index, ...(slot.log ? { log: true, curve: log2Curve(a.curve) } : { curve: structuredClone(a.curve) as CurveKey[] }) };
 }
 
 /** The mix keys of the section (engine keys left out: the caller adds its own). */
@@ -182,14 +223,7 @@ function sectionOf(project: AudioProject, warnings: string[]): MixSection {
   }
 
   for (const a of project.automation) {
-    if (a.bypass) continue;
-    const owner = ownerOf(a.on);
-    let entry: BusAutomation | null = null;
-    if (owner && a.target === "volume") entry = { bus: owner.name, parameter: a.parameter, target: "volume", curve: curveToGain(a.curve) };
-    else if (owner && a.target.startsWith("fx:")) {
-      const [, id, p] = a.target.split(":");
-      if (p === "cutoff" && owner.effects.find((e) => e.id === id)?.type === "lowpass") entry = { bus: owner.name, parameter: a.parameter, target: "lowpass", curve: structuredClone(a.curve) as CurveKey[] };
-    }
+    const entry = sectionAutomationOf(project, a, warn);
     if (entry) out.automation.push(entry);
   }
 

@@ -10,7 +10,7 @@ import { mixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../
 import type { MixOp, OpClass } from "../../../engine/audio/mixOps";
 import type { AudioSettings } from "../../../engine/audio/settings";
 import { onAudioConfigured } from "../../../engine/core/audioConfigure";
-import type { AutomationSink } from "./automation";
+import type { AutomationSink, ParamRef } from "./automation";
 import type { Curve } from "../../../engine/core/curve";
 import type { AudioLatency, MusicEventHandle } from "../../../engine/audio/musicTypes";
 import type { AudioMarkerEvent, AudioMarkerType } from "../../../engine/audio/markerTypes";
@@ -668,6 +668,25 @@ export interface AudioSubmixes {
    * once their chains' tails (delay feedback, reverb decay) have rung out.
    */
   close(group: number): void;
+  /**
+   * ADR 0331 instance automation (ABI 4.8): replaces instance `group`'s submix parameter automation (empty: none).
+   * Nothing when the instance holds no submix. Absent on a backend without the core's submix automation.
+   */
+  automate?(group: number, lanes: readonly SubmixLane[]): void;
+}
+
+/**
+ * One automated parameter of an instance submix's chain (ABI 4.8): effect `effect` (its id, one of the effects given to
+ * `open`), catalogue parameter index `param` (`fxParamSlot`), read from `input` (a global parameter, one of the
+ * instance's local ones, or its group's `sequenceTime`) through curve id `curve` (defined through the automation sink;
+ * with `log`, a curve of log2 of the value).
+ */
+export interface SubmixLane {
+  effect: string;
+  param: number;
+  log: boolean;
+  input: ParamRef;
+  curve: number;
 }
 
 /** ADR 0331 levels: a playlist level's submix (`AudioSubmixes.openLevel`), as a voice names it (`PlayRequest.submix`). */

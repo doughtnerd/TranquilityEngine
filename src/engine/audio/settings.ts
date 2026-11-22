@@ -41,7 +41,14 @@ export type BusEffect =
    * catalogue's names and units (`effects/catalogue.ts`; missing ones take the default); `key` names a sidechain
    * compressor's key bus. The Web Audio fallback runs none of them.
    */
-  | { type: "fx"; fx: CoreEffectType; params: Record<string, number>; key?: string };
+  | {
+      type: "fx"; fx: CoreEffectType; params: Record<string, number>; key?: string;
+      /**
+       * ADR 0330 (ABI 4.8): parameters the running mixer holds at their value against automation while a snapshot
+       * override is in force (the mixer's live effects only; never in a project's view).
+       */
+      held?: string[];
+    };
 
 export const EFFECT_TYPES = ["lowpass", "highpass", "compressor", "reverb", "fx"] as const;
 export type EffectType = (typeof EFFECT_TYPES)[number];
@@ -140,13 +147,27 @@ export interface LoudnessTarget {
   truePeak: number;
 }
 
-/** ADR 0158 §3: a bus property driven by a global parameter through a curve. Multiplies with snapshots and ducking (volume) or takes the lowest cutoff (lowpass). */
+/**
+ * ADR 0158 §3: a bus property driven by a global parameter through a curve. Multiplies with snapshots and ducking
+ * (volume) or takes the lowest cutoff (lowpass). ADR 0330 (ABI 4.8) adds `fx` (a catalogue parameter of one of the bus's
+ * effects: `effect` is its index in the bus's `effects`, `param` the catalogue parameter's index; with `log` the curve
+ * holds log2 of the value, so frequencies interpolate in log scale) and `send` (the curve's dB added to the bus's send
+ * into `to`). The audio core runs all four; the Web Audio fallback runs none of the bus effects or sends.
+ */
 export interface BusAutomation {
   bus: string;
   parameter: string;
-  /** `volume`: a linear gain multiplier; `lowpass`: a cutoff in Hz. */
-  target: "volume" | "lowpass";
+  /** `volume`: a linear gain multiplier; `lowpass`: a cutoff in Hz; `fx`: the parameter's value; `send`: dB. */
+  target: "volume" | "lowpass" | "fx" | "send";
   curve: Curve;
+  /** `fx`: the effect's index in the bus's `effects`. */
+  effect?: number;
+  /** `fx`: the catalogue parameter's index in its type's parameters. */
+  param?: number;
+  /** `fx`: the curve's values are log2 of the parameter's. */
+  log?: boolean;
+  /** `send`: the bus the send feeds (a return). */
+  to?: string;
 }
 
 export interface AudioSettings {
@@ -912,10 +933,16 @@ function parseEventKeys(input: Record<string, unknown>, settings: AudioSettings,
       if (!isRecord(raw)) return void problems.push(`${where}: must be an object; dropped.`);
       if (typeof raw.bus !== "string" || !settings.buses.some((b) => b.name === raw.bus)) return void problems.push(`${where}: bus must name a bus; dropped.`);
       if (typeof raw.parameter !== "string" || !settings.parameters.some((p) => p.name === raw.parameter)) return void problems.push(`${where}: parameter must name a global parameter; dropped.`);
-      if (raw.target !== "volume" && raw.target !== "lowpass") return void problems.push(`${where}: target must be "volume" or "lowpass"; dropped.`);
+      if (raw.target !== "volume" && raw.target !== "lowpass" && raw.target !== "fx" && raw.target !== "send") return void problems.push(`${where}: target must be "volume", "lowpass", "fx" or "send"; dropped.`);
+      // ADR 0330 (ABI 4.8): an effect parameter by its effect's index and the catalogue parameter's index, or a send.
+      const index = (v: unknown) => typeof v === "number" && Number.isInteger(v) && v >= 0 && v < 256;
+      const bus = settings.buses.find((b) => b.name === raw.bus)!;
+      if (raw.target === "fx" && (!index(raw.effect) || !index(raw.param) || (raw.effect as number) >= bus.effects.length)) return void problems.push(`${where}: an fx automation needs effect (one of the bus's effects, by index) and param (an index); dropped.`);
+      if (raw.target === "send" && (typeof raw.to !== "string" || !settings.buses.some((b) => b.name === raw.to))) return void problems.push(`${where}: a send automation's to must name a bus; dropped.`);
       const curve = audioCurve(raw.curve, `${where}.curve`, problems);
       if (!curve) return void problems.push(`${where}: the curve has no keys; dropped.`);
-      settings.automation.push({ bus: raw.bus, parameter: raw.parameter, target: raw.target, curve });
+      const extra = raw.target === "fx" ? { effect: raw.effect as number, param: raw.param as number, ...(raw.log === true ? { log: true } : {}) } : raw.target === "send" ? { to: raw.to as string } : {};
+      settings.automation.push({ bus: raw.bus, parameter: raw.parameter, target: raw.target, ...extra, curve });
     });
   }
   const seed = wholeNumber(input.seed, "audio.seed", 0, 0xffffffff, problems);

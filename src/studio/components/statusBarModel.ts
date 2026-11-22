@@ -34,6 +34,7 @@ export function statusParts(state: StudioAudioState, stats: StudioAudioStats | n
       parts.push(stats.cpuPercent === null ? { text: "CPU —", tone: "muted", title: stats.cpuNote ?? "CPU not measured yet" } : { text: `CPU ${stats.cpuPercent.toFixed(1)} %`, title: "The audio core's share of its time budget", tone: stats.cpuPercent >= 80 ? "warning" : undefined });
       if (stats.latencyMs > 0) parts.push({ text: `${Math.round(stats.latencyMs)} ms`, title: stats.latencyReliable ? "Output latency" : "Output latency (the browser's estimate)", tone: stats.latencyReliable ? undefined : "muted" });
       if (stats.underruns > 0) parts.push({ text: `${stats.underruns} underrun${stats.underruns === 1 ? "" : "s"}`, tone: "warning", title: "Times the core couldn't fill the output in time (audible glitches)" });
+      if (stats.fxStarved > 0) parts.push({ text: "Effect memory full", tone: "warning", title: `${stats.fxStarved} effect${stats.fxStarved === 1 ? "" : "s"} got no effect memory and pass${stats.fxStarved === 1 ? "es" : ""} the sound through unprocessed${stats.fxStarvedOwner ? ` (last: ${stats.fxStarvedOwner})` : ""}. Shorten delay times or run fewer delays, reverbs, chorus and pitch shifters.` });
       return parts;
     }
   }

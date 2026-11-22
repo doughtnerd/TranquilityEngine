@@ -657,6 +657,8 @@ pub fn spatial_cases() -> Vec<VectorCase> {
                 ("maxSlipFrames", vu(0)),
                 ("splitQuanta", vu(0)),
                 ("voiceSplits", vu(0)),
+                ("fxStarved", vu(0)),
+                ("fxStarvedOwner", vu(0)),
                 ("ended", va(vec![])),
                 ("demoted", va(vec![])),
                 ("starved", va(vec![])),

@@ -107,6 +107,8 @@ pub fn on_slot(core: &mut Core, msg: &[u8], off: usize, _at: Option<u64>) {
         }
         (u32_at(msg, at), p)
     });
+    let fxmem = fxmem;
+    crate::fxmem::set_owner(&mut fxmem[..], slot as u16);
     let (dropped, _) = apply(&mut v.slots[slot], fresh, parent, effects, sample_rate, &mut *fxmem);
     let count = if added { count + 1 } else { count };
     attach(&mut v.slots[..count], slot);

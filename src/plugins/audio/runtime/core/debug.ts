@@ -5,7 +5,14 @@ import { buildMixDebug } from "../mix/mixDebug";
 import type { AudioBackground, AudioDebugInfo, AudioMixDebug,AudioMemoryDebug, AudioM3Counters, AudioStatus, AudioVoiceM3Debug } from "../backend";
 import type { Mixer } from "../../../../engine/audio/mixer";
 import { MAX_BUSES } from "../../../../engine/audio/settings";
-import { AUX_BUS_NONE } from "../wire.generated";
+import { AUX_BUS_NONE, FX_STARVED_NONE, FX_STARVED_SUBMIX } from "../wire.generated";
+
+/** ABI 4.8: whose effect starved (STATUS `fxStarvedOwner`): a bus or return by slot (`names`), or an instance submix; null for none. */
+export function fxStarvedOwnerName(owner: number, names: readonly string[]): string | null {
+  if (owner === FX_STARVED_NONE) return null;
+  if (owner & FX_STARVED_SUBMIX) return `instance submix ${owner & ~FX_STARVED_SUBMIX}`;
+  return names[owner] ?? `bus slot ${owner}`;
+}
 import { type CorePreset } from "../worklet/coreDriver";
 import { spatialRegionsBytes, zoneKernelBudgetBytes, zoneMaxFrames, zonesRegionBytes } from "../worklet/coreMemory";
 import type { ClipInfo } from "./clipRegistry";
@@ -291,6 +298,8 @@ export function mixDebugInfo(backend: DebugSource, liveRefused: number, liveDefe
     loudShed: m.header.loudShed,
     busRecordsEarly: m.header.busRecordsEarly,
     sidechainLate: m.header.sidechainLate,
+    fxStarved: m.header.fxStarved,
+    fxStarvedOwner: m.header.fxStarved > 0 ? fxStarvedOwnerName(m.header.fxStarvedOwner, backend.busNames) : null,
     liveRefused,
     liveDeferred,
     liveDeferredPending: backend.deferredAdds?.pending ?? 0,

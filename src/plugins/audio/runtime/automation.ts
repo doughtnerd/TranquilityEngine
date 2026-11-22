@@ -9,7 +9,8 @@
  */
 
 import { evalCurve, type Curve } from "../../../engine/core/curve";
-import { VOICE_LOOPS_MAX } from "./wire.generated";
+import { BUS_AUTOMATE_MAX_BINDINGS, VOICE_LOOPS_MAX } from "./wire.generated";
+import type { BusAutomation } from "../../../engine/audio/settings";
 import { mixer } from "../../../engine/audio/mixer";
 import type { AudioVoice } from "./backend";
 import type { FadeShape } from "../../../engine/audio/playlist/types";
@@ -17,9 +18,11 @@ import { warnOnce } from "./core/handle";
 
 /**
  * What a curve drives. The numbers are the core's `target` values. `Highpass` (a cut-off floor in Hz, the highest curve
- * wins) and `Pan` (−1..1, curves summed and clamped) are voice-only (ABI 4.4); buses ignore them.
+ * wins) and `Pan` (−1..1, curves summed and clamped) are voice-only (ABI 4.4); buses ignore them. `Effect` (a catalogue
+ * parameter of an effect in the bus's chain, `Binding.fx`) and `Send` (the curve's dB on the bus's send into
+ * `Binding.send`) are bus-only (ABI 4.8, ADR 0330); the Babylon fallback runs neither (it runs no bus effects or sends).
  */
-export const enum AutoTarget { Volume = 0, Pitch = 1, Lowpass = 2, Highpass = 3, Pan = 4 }
+export const enum AutoTarget { Volume = 0, Pitch = 1, Lowpass = 2, Highpass = 3, Pan = 4, Effect = 5, Send = 6 }
 
 /**
  * ADR 0332: the time parameters a voice binding can read instead of a parameter slot, in seconds. The numbers are the
@@ -79,6 +82,10 @@ export interface Binding {
   /** A curve id given to `defineCurve`. */
   curve: number;
   target: AutoTarget;
+  /** `AutoTarget.Effect` (ABI 4.8): the effect's slot in the bus's chain, the catalogue parameter's index, and whether the curve holds log2 of the value. */
+  fx?: { slot: number; param: number; log?: boolean };
+  /** `AutoTarget.Send` (ABI 4.8): the bus the send feeds (a return), by name. */
+  send?: string;
   /**
    * ADR 0166 §2.3 (R6): a music stem's binding that moves only at the next `beat` or `bar` line. The core evaluates its
    * bindings continuously, so a quantised binding is never given to `bindVoice`: the music player evaluates it on main at
@@ -112,6 +119,22 @@ export const MAX_LOCAL_SLOTS = 16;
 export const MAX_GROUPS = 1024;
 export const MAX_CURVES = 1024;
 export const MAX_BINDINGS = 8;
+/** ABI 4.8: bindings per bus (`BUS_AUTOMATE_MAX_BINDINGS`). */
+export const MAX_BUS_BINDINGS = BUS_AUTOMATE_MAX_BINDINGS;
+
+/**
+ * The binding of one entry of the mix's bus automation (`AudioSettings.automation`, ADR 0158 §3 and ADR 0330) on global
+ * parameter `slot` through curve `curve`: its target and, for an effect or send automation, what it names.
+ */
+export function busAutomationBinding(a: BusAutomation, slot: number, curve: number): Binding {
+  const param = { global: true, slot };
+  switch (a.target) {
+    case "volume": return { param, curve, target: AutoTarget.Volume };
+    case "lowpass": return { param, curve, target: AutoTarget.Lowpass };
+    case "fx": return { param, curve, target: AutoTarget.Effect, fx: { slot: a.effect ?? 0, param: a.param ?? 0, ...(a.log ? { log: true } : {}) } };
+    case "send": return { param, curve, target: AutoTarget.Send, send: a.to ?? "" };
+  }
+}
 /** The cutoff that means "no low-pass". */
 export const LOWPASS_OFF = 24000;
 /** The high-pass floor with no highpass binding (at or below 20 Hz the core runs none). */
@@ -135,7 +158,10 @@ export interface AutomationSink {
    * calls it when a sequence starts, wraps a loop, parks or leaves; bindings on `TimeParam.Sequence` follow it.
    */
   setSequenceTime(group: number, value: number, rate: number, at?: number): void;
-  /** Bind a bus to global parameters (replacing its earlier bindings); pitch bindings are ignored. */
+  /**
+   * Bind a bus to global parameters (replacing its earlier bindings, at most `MAX_BUS_BINDINGS`); pitch, high-pass and
+   * pan bindings are ignored, and effect and send bindings on a sink without the audio core.
+   */
   bindBus(bus: string, bindings: readonly Binding[]): void;
   /**
    * Loop a region of a playing clip (seconds; `end` 0 is the clip's end) or, with `looping` false, release it: the voice

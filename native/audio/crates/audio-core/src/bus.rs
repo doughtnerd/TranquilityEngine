@@ -321,6 +321,7 @@ pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
         let start = cur;
         let list = (0..effects).filter_map(|e| BusConfigBusesEffects::read(&msg[..end], start + e * BusConfigBusesEffects::FIXED_END).ok()).map(|(fx, _)| (fx.type_, fx.p));
         // M5 (K1): the per-slot apply, shared with B2's `BUS_SLOT`.
+        crate::fxmem::set_owner(&mut *fxmem, i as u16);
         let (d, reverb) = crate::bus_slots::apply(&mut v.slots[i], i >= old_count, parent, list, sample_rate, &mut *fxmem);
         dropped += d;
         has_reverb |= reverb;
@@ -593,6 +594,10 @@ pub fn mixdown(core: &mut Core) {
             crate::bed::decode_into(beds, b, l, r);
             crate::zones::add_returns(zones, b, l, r);
             crate::sends::add_aux(zones, b, l, r);
+            // ABI 4.8 (ADR 0330): automated effect parameters reach the chain before it runs.
+            if let Some(a) = auto {
+                a.for_each_fx(|s, p, value| slot.fx.automate(s, p, value));
+            }
             let fed = slot.fx.process_with(l, r, &mut send.l, &mut send.r, fxdata, &v.area.key_db[..count]);
             sent |= fed;
             let lp = match auto {
@@ -622,7 +627,7 @@ pub fn mixdown(core: &mut Core) {
         let parent = slot.parent;
         // ADR 0330 (ABI 4.7): post-fader sends into the returns (mixed after this bus).
         if slot.sends.count != 0 {
-            crate::bus_sends::feed(&mut v.slots[..count], b, &block);
+            crate::bus_sends::feed(&mut v.slots[..count], b, &block, auto);
         }
         let (dst_l, dst_r): (&mut [f32], &mut [f32]) = if parent == ROOT || parent as usize >= count {
             (&mut out_l[..], &mut out_r[..])
