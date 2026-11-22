@@ -106,7 +106,7 @@ pub fn run() -> Gait {
         looping: true,
     }
 }
-pub fn turn_left() -> Gait {
+pub fn turn() -> Gait {
     Gait {
         speed: |_| 1.4,
         yaw_rate: 1.2,
@@ -215,15 +215,23 @@ pub fn clip(gait: Gait) -> Clip {
     }
 }
 
-/// The locomotion set: (asset name, gait, tag).
-pub fn locomotion() -> Vec<(&'static str, Gait, &'static str)> {
+/// A tagged range: (start, end, tags).
+pub type Range = (f32, f32, &'static [&'static str]);
+
+/// The locomotion set: (asset name, gait, tagged ranges). The stop clip's tail, standing still,
+/// is tagged idle as well as its deceleration is tagged stop.
+pub fn locomotion() -> Vec<(&'static str, Gait, Vec<Range>)> {
     vec![
-        ("idle.anim", idle(), "idle"),
-        ("walk.anim", walk(), "walk"),
-        ("run.anim", run(), "run"),
-        ("turn.anim", turn_left(), "turn"),
-        ("start.anim", start(), "start"),
-        ("stop.anim", stop(), "stop"),
+        ("idle.anim", idle(), vec![(0.0, 2.0, &["idle"])]),
+        ("walk.anim", walk(), vec![(0.0, 2.0, &["walk"])]),
+        ("run.anim", run(), vec![(0.0, 2.1, &["run"])]),
+        ("turn.anim", turn(), vec![(0.0, 2.0, &["turn"])]),
+        ("start.anim", start(), vec![(0.0, 2.5, &["start"])]),
+        (
+            "stop.anim",
+            stop(),
+            vec![(0.0, 1.0, &["stop"]), (1.0, 2.5, &["idle"])],
+        ),
     ]
 }
 
@@ -232,7 +240,7 @@ pub struct Fixture {
     pub skel: Vec<u8>,
     pub clips: Vec<Vec<u8>>,
     pub names: Vec<&'static str>,
-    pub tags: Vec<&'static [&'static str]>,
+    pub ranges: Vec<Vec<Range>>,
     pub durations: Vec<f32>,
 }
 
@@ -242,19 +250,7 @@ pub fn fixture() -> Fixture {
         skel: skeleton().write().unwrap(),
         clips: set.iter().map(|(_, g, _)| clip(*g).write().unwrap()).collect(),
         names: set.iter().map(|(n, _, _)| *n).collect(),
-        tags: set
-            .iter()
-            .map(|(_, _, t)| -> &'static [&'static str] {
-                match *t {
-                    "idle" => &["idle"],
-                    "walk" => &["walk"],
-                    "run" => &["run"],
-                    "turn" => &["turn"],
-                    "start" => &["start"],
-                    _ => &["stop"],
-                }
-            })
-            .collect(),
+        ranges: set.iter().map(|(_, _, r)| r.clone()).collect(),
         durations: set.iter().map(|(_, g, _)| g.duration).collect(),
     }
 }
@@ -275,19 +271,16 @@ impl Fixture {
         )
     }
 
-    /// Bakes every clip whole, one tag each.
+    /// Bakes every clip with its tagged ranges.
     pub fn bake(&self, schema: &[FeatureSpec], settings: &BakeSettings<'_>) -> Baked {
         let (skel, views) = self.views();
-        let ranges: Vec<[TaggedRange<'_>; 1]> = self
-            .tags
+        let ranges: Vec<Vec<TaggedRange<'_>>> = self
+            .ranges
             .iter()
-            .zip(&self.durations)
-            .map(|(t, d)| {
-                [TaggedRange {
-                    start: 0.0,
-                    end: *d,
-                    tags: t,
-                }]
+            .map(|rs| {
+                rs.iter()
+                    .map(|&(start, end, tags)| TaggedRange { start, end, tags })
+                    .collect()
             })
             .collect();
         let clips: Vec<BakeClip<'_>> = views
