@@ -43,6 +43,8 @@ export interface BuildOptions {
   readonly audioCapture?: boolean;
   /** ADR 0334: write `audioTake: true` into the manifest, so the player installs the take trigger (F10; default off). */
   readonly audioTake?: boolean;
+  /** ADR 0334: with `audioTake`, false writes `audioTakeFrames: false`: takes record no pictures of the game view (default: they do). */
+  readonly audioTakeFrames?: boolean;
 }
 
 /** What a web build is made of, before anything is written. */
@@ -195,6 +197,7 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
     ...(plugins.length > 0 && { plugins }),
     ...(options.audioCapture === true && { audioCapture: true as const }),
     ...(options.audioTake === true && { audioTake: true as const }),
+    ...(options.audioTake === true && options.audioTakeFrames === false && { audioTakeFrames: false as const }),
   };
   const assetRefs = projectScriptAssetRefs(source.scripts.values(), (p) => copies.includes(p));
   if (assetRefs.length) (manifest as { assetRefs?: readonly string[] }).assetRefs = assetRefs;

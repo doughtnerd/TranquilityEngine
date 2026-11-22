@@ -14,6 +14,7 @@ import {
   type CaptureRangeColumns, type CaptureSeekState,
 } from "../../runtime/capture/reader";
 import type { CaptureRequest, CaptureResponse } from "../../runtime/capture/worker";
+import type { TakeFrame } from "../../../../engine/audio/take/types";
 
 /** `Omit` that keeps a union's members apart. */
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -37,6 +38,8 @@ export interface ProfileSource {
   range(t0: number, t1: number, columns: readonly string[], buckets?: number): Promise<CaptureRangeColumns>;
   /** The typed EVENTs after record cursor `from` (0 for the first; then the last answer's `next`), only `types` when given, with axis seconds. */
   events(from: number, types?: readonly CaptureEventType[]): Promise<CaptureEventsPage>;
+  /** ADR 0334: a take's pictures (take seconds, about viewport seconds: both count from the recording's start), none for a capture. Absent: none. */
+  frames?(): Promise<readonly TakeFrame[]>;
   close(): void;
 }
 
@@ -158,6 +161,12 @@ export class CaptureSource implements ProfileSource {
     const r = await this.request({ type: "events", id: this.nextId++, from, ...(types === undefined ? {} : { types: [...types] }) }, []);
     if (r.type !== "events") throw new Error(`capture worker: unexpected ${r.type}`);
     return { events: r.events, next: r.next };
+  }
+
+  async frames(): Promise<readonly TakeFrame[]> {
+    const r = await this.request({ type: "frames", id: this.nextId++ }, []);
+    if (r.type !== "frames") throw new Error(`capture worker: unexpected ${r.type}`);
+    return r.frames;
   }
 
   async range(t0: number, t1: number, columns: readonly string[], buckets?: number): Promise<CaptureRangeColumns> {
