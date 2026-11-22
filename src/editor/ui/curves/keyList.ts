@@ -1,9 +1,11 @@
 /**
- * Pure helpers behind the curve widget (`CurveEditor.tsx`; ADR 0158 §7, from the particle editor's ADR 0057): key
- * lists stay sorted by `x` within an x range, a key's `interp` is kept through every edit, and pixel mapping is
- * linear over `[xMin, xMax]`. No DOM here, so they're tested headless.
+ * Generic key-list helpers (ADR 0158 §7, from the particle editor's ADR 0057; moved here from `curveEdit.ts` by ADR
+ * 0332): key lists of any value (curve keys, a gradient's colour and alpha keys) stay sorted by `x` within an x range,
+ * a key's `interp` is kept through every edit, and the plot scale maps linearly over `[xMin, xMax]`. The inline curve
+ * field (`CurveField.tsx`) and the particle gradient editor use them; the curve editor dialog's own rules (end keys,
+ * snapping, shapes) are `curveEditorModel.ts`'s. No DOM here, so they're tested headless.
  */
-import type { Curve, CurveHandles, CurveInterp, CurveKey } from "../../engine/core/curve";
+import type { Curve, CurveHandles, CurveInterp, CurveKey } from "../../../engine/core/curve";
 
 /** A `[x, y]` pair, as colour and alpha keys of a gradient use. */
 export type Key<T> = [number, T];

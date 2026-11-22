@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 // The graph's width must come from its container, not from the readout row (E6.1b): in the 280 px right dock the
 // readout's fields used to make the svg ~474 px wide the moment a key was selected. Layout needs a browser (the
 // editor specs measure it); this pins the CSS that keeps the readout from sizing the graph.
-const css = readFileSync(new URL("./curveEditor.css", import.meta.url), "utf8");
+const css = readFileSync(new URL("./curveField.css", import.meta.url), "utf8");
 const rule = (selector: string): string => {
   const m = css.match(new RegExp(`^${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`, "m"));
   expect(m, `rule for ${selector}`).not.toBeNull();

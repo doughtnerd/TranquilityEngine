@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Curve } from "../../engine/core/curve";
-import { addKey, axisTicks, fitYRange, moveKey, pixelToX, pixelToY, removeKey, setKeyInterp, xToPixel, yToPixel } from "./curveEdit";
+import type { Curve } from "../../../engine/core/curve";
+import { addKey, axisTicks, fitYRange, moveKey, pixelToX, pixelToY, removeKey, setKeyInterp, xToPixel, yToPixel } from "./keyList";
 
 describe("curve keys (ported from the particle editor)", () => {
   it("adds keys in order and clamps t", () => {
