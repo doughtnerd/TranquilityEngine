@@ -18,6 +18,7 @@ import { gainToDb } from "../../../plugins/audio/editor/dbScale";
 import {
   CAPTURE_OUTPUT_SLOT, captureNames, type CaptureEventAt, type CaptureEventType, type CaptureLoudnessMark, type CaptureLoudnessTarget, type CaptureNames,
 } from "../../../plugins/audio/runtime/capture/reader";
+import { effectsCost, type EffectsCost } from "./effectsCostModel";
 import { buildMessages, rulerMarks, type LoudnessWarning, type ProfilerMessage, type ProfilerNote, type RulerMark } from "./messagesModel";
 import { profilerTargets } from "./cursorKeys";
 import { planTracks, type CaptureContents, type PlannedTrack } from "./trackPlan";
@@ -52,6 +53,8 @@ export interface ProfilerData {
   readonly contents: CaptureContents;
   readonly tracks: readonly PlannedTrack[];
   readonly load: LoadData | null;
+  /** DSP cost by section (where effects run), estimated from the CPU meter (`effectsCostModel.ts`); null before it is fitted. */
+  readonly effects: EffectsCost | null;
   /** Each bus's effective gain, dB, by slot. */
   readonly buses: ReadonlyMap<number, Series>;
   readonly loudness: LoudnessData | null;
@@ -110,6 +113,7 @@ export interface ProfilerDataOptions {
 export class ProfilerDataReader {
   private readonly kit: TrackKit;
   private readonly cpu: TrackModule | undefined;
+  private readonly sections: TrackModule | undefined;
   private readonly sampler: BusSampler;
   private readonly loud: LoudnessSource | null;
   private readonly target: CaptureLoudnessTarget | null;
@@ -121,7 +125,9 @@ export class ProfilerDataReader {
   constructor(private readonly source: ProfileSource, opts: ProfilerDataOptions = {}) {
     this.kit = TrackKit.of(source);
     this.kit.status([...VOICE_COLUMNS, ...CURSOR_COLUMNS]);
-    this.cpu = cpuTracks({ source }).find((m) => m.track.id === "cpu.load");
+    const cpu = cpuTracks({ source });
+    this.cpu = cpu.find((m) => m.track.id === "cpu.load");
+    this.sections = cpu.find((m) => m.track.id === "cpu.sections");
     this.sampler = new BusSampler(source);
     this.loud = canAskLoudness(source) ? new LoudnessSource(source) : null;
     this.target = opts.target !== undefined ? opts.target : metaTarget(source.summary.meta.target);
@@ -136,7 +142,7 @@ export class ProfilerDataReader {
   private async read(): Promise<ProfilerData> {
     const src = this.source;
     const feed = this.kit.status();
-    await Promise.all([this.kit.refresh(), this.cpu?.refresh(), this.sampler.refresh()]);
+    await Promise.all([this.kit.refresh(), this.cpu?.refresh(), this.sections?.refresh(), this.sampler.refresh()]);
     if (this.initial === null && feed.length > 0) {
       const s = await src.seek(src.startSeconds + feed.times[0]!);
       this.initial = (s.keyframe?.voices ?? []).filter((v) => v.state !== "stolen").map((v) => ({ voice: v.id, clip: v.clip, slot: v.slot, gain: v.gain }));
@@ -184,11 +190,13 @@ export class ProfilerDataReader {
     const vs = feed.length ? voiceSeries(feed.columns()) : null;
     const cpuLines = this.cpu?.data()?.lines ?? [];
     const load: LoadData | null = vs ? { voices: { times: vs.times, values: vs.mixed }, cap: { times: vs.times, values: vs.cap }, cpu: cpuLines } : null;
+    const effects = effectsCost(this.sections?.data()?.lines);
 
     const contents: CaptureContents = {
       frames: false,
       status: feed.length > 0 && !src.summary.mainSideOnly,
       cpu: cpuLines.length > 0,
+      effects: effects !== null,
       buses: [...buses.keys()].sort((a, b) => a - b).map((slot) => ({ slot, name: names.bus(slot) })),
       loudness: loudness !== null && loudness.shortTerm.times.length > 0,
       voices: voices.length > 0,
@@ -199,7 +207,7 @@ export class ProfilerDataReader {
     const marks = rulerMarks(messages);
     const cursorCols = feed.length ? feed.columns() : emptyCursorColumns();
     return {
-      duration, contents, tracks: planTracks(contents), load, buses, loudness, voices, parameters, messages, marks,
+      duration, contents, tracks: planTracks(contents), load, effects, buses, loudness, voices, parameters, messages, marks,
       targets: profilerTargets(cursorCols, src.markers, origin, marks), target: this.target,
     };
   }
