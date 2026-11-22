@@ -36,6 +36,7 @@ import { KeyframeRows } from "../audioRows";
 import type { RingSpan } from "./ring";
 import type { SaveTake } from "./save";
 import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
+import type { MixOp, OpClass } from "../../../../engine/audio/mixOps";
 
 /**
  * ADR 0334: what a take reads of the profile taps beside the capture's records: every effective parameter change (global
@@ -623,6 +624,20 @@ class Capture implements AudioCapture {
     return { ...meta, names };
   }
 
+  /**
+   * ADR 0334: the live mix sent an op: a MIXOP record. Every `mixer.apply` caller is the editor's (the op log, the mixer
+   * panel, Compare), so the origin is `editor`; scripts change the mix through the bus setters, not ops.
+   */
+  mixOpSent(op: MixOp, cls: OpClass): void {
+    const sink = this.sink;
+    const backend = this.backend;
+    if (!sink || !backend || this.ringState !== "recording") return;
+    sink.mixOp(op, cls, "editor", (bus) => {
+      for (const s of backend.debug().mix?.slots ?? []) if (s.name === bus && s.state !== "free") return s.slot;
+      return NO_NAME;
+    });
+  }
+
   /** ADR 0260: the live mix sent an op (a bus added, removed or renamed among them): name the slots it changed now. */
   busNamesChanged(): void {
     if (this.sink && this.backend && this.ringState === "recording") writeBusNames(this.sink, this.backend);
@@ -700,8 +715,14 @@ export function onCapturePlayStopped(fn: () => void): void {
 
 const capture = new Capture();
 
-/** ADR 0260: a bus added, removed or renamed while recording is named in the capture from that instant. */
-onMixOpSent(() => capture.busNamesChanged());
+/**
+ * ADR 0260: a bus added, removed or renamed while recording is named in the capture from that instant. ADR 0334: the op
+ * itself is written as a MIXOP record.
+ */
+onMixOpSent((op, cls) => {
+  capture.busNamesChanged();
+  capture.mixOpSent(op, cls);
+});
 
 /** `Audio.capture`: only the eight public members; the owners, the seam and the debug view stay behind this file's own exports. */
 export const audioCapture: AudioCapture = {

@@ -19,6 +19,7 @@ export type { AudioBedDebug, AudioDebugInfo, AudioEventHandle, AudioPlaylistHand
 // ADR 0171 §1.2, §1.3 (K0): the capture surface and the M5 debug shapes.
 export type { AudioCpuDebug, AudioMixCaps, AudioMixDebug, AudioMixSlotDebug, AudioRecorderDebug } from "./backend";
 export type { AudioCapture, AudioCaptureState } from "./capture/capture";
+export type { AudioTake, AudioTakeState } from "./capture/take";
 export { DEFAULT_SEND_CURVE } from "./backend";
 export type { EventOptions } from "./events/eventRuntime";
 export { AudioSource, type Rolloff } from "./AudioSource";

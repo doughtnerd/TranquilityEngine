@@ -25,6 +25,8 @@ import { curveParts, type TimeCurve } from "./curves";
 import { playlistEffectProps } from "./effects";
 import { linkedPlaylist } from "./loader";
 import { FALLBACK_SECONDS_PER_BEAT, MUSICAL_FALLBACK_NOTE, type MusicalClock } from "./musical";
+import { taps } from "../mix/profileTaps";
+import { NULL_PROFILE_SINK, type ProfilePick } from "../mix/profileSink";
 
 // --- shared shapes ---------------------------------------------------------------------------------------------------
 
@@ -94,6 +96,8 @@ export interface Ctx {
 /** What the nodes need of their instance. */
 export interface NodeHost {
   readonly stopped: boolean;
+  /** ADR 0334: the instance's id (its group) for the capture's pick records; absent or 0: none. */
+  readonly group?: number;
   readonly untilStopped: boolean;
   readonly musical: MusicalClock;
   /** A number in [0, 1) from the World's seeded generator. */
@@ -253,6 +257,16 @@ function bodyCtx(host: NodeHost, ctx: Ctx, body: PlaylistBody, where: string): C
   };
 }
 
+/**
+ * ADR 0334: one decision, for the capture's "Why it played" chain (a `pick` EVENT after the instance's `eventStart`):
+ * nothing while no recorder runs, or for an instance without a group.
+ */
+function notePick(host: NodeHost, ctx: Ctx, type: ProfilePick["type"], choice: number, label: string | null = null, weights: ProfilePick["weights"] = null): void {
+  const sink = taps.sink;
+  if (sink === NULL_PROFILE_SINK || !sink.pick || !host.group) return;
+  sink.pick({ instance: host.group, depth: ctx.depth, playlist: ctx.where, type, choice, label, weights });
+}
+
 /** A resolver: the live node a playlist of one type becomes. */
 export type Resolver = (host: NodeHost, body: PlaylistBody, ctx: Ctx, key: string) => LiveNode;
 
@@ -330,6 +344,7 @@ class QueueNode extends LiveNode {
     super(host, ctx, key);
     const q = body.queue ?? defaultQueue();
     const i = pickEntry(q, body.entries.map((e) => e.weight), host.pickState(key), () => host.random());
+    notePick(host, ctx, "queue", i);
     if (i < 0) return;
     const c = resolveEntry(host, body.entries[i]!, ctx, key, i);
     if (c) this.children.push(c);
@@ -357,6 +372,7 @@ class RunnerNode extends LiveNode {
     if (!this.running || this.stopped || this.host.stopped) { this.running = false; return; }
     const q = this.body.queue ?? defaultQueue();
     const i = pickEntry(q, this.body.entries.map((e) => e.weight), this.host.pickState(this.key), () => this.host.random());
+    notePick(this.host, this.ctx, "queue", i);
     if (i < 0) { this.running = false; return; }
     const prev = this.current;
     const overlap = this.gap < 0 && prev ? -this.gap : 0;
@@ -434,6 +450,7 @@ class SwitchNode extends LiveNode {
     this.current = null;
     if (label === null || this.stopped) return;
     const index = this.s.map[label];
+    notePick(this.host, this.ctx, "switch", index ?? -1, label);
     if (index === null || index === undefined || !this.body.entries[index]) return;
     const gainDb = this.s.labelGain[label] ?? 0;
     const ctx: Ctx = { ...this.ctx, at, fadeIn, props: gainDb !== 0 ? accumulate(this.ctx.props, { gainDb }) : this.ctx.props };
@@ -538,6 +555,10 @@ class BlendNode extends LiveNode {
     this.input = this.readInput();
     if (this.morph) this.morph.gain = adsrLevel(this.morphAdsr(), 0, null);
     const w = this.weights();
+    if (taps.sink !== NULL_PROFILE_SINK) {
+      const top = w.map((weight, entry) => [entry, weight] as const).sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, 2);
+      notePick(host, ctx, "blend", top[0]?.[0] ?? -1, null, top);
+    }
     for (const s of this.slots) {
       s.weight.gain = w[s.index]!;
       if (s.weight.gain >= ZERO_WEIGHT || s.entry.atZeroWeight === "continue") this.startSlot(s, ctx.at);

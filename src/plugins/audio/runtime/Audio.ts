@@ -3,7 +3,7 @@
  * debug state. A1.6 declares the whole api-and-models §1 surface here (K10); A2.3 and A2.5 fill `Bus.peak` and `debug()`
  * behind it without touching this file.
  */
-import { mixer, type Bus } from "../../../engine/audio/mixer";
+import { mixer, Bus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
 import { World } from "../../../engine/core/World";
 import { worldKeyOf, worldPlays } from "./AudioSource";
@@ -22,6 +22,8 @@ import type { PlaylistInstance } from "./playlists/instance";
 import { debugRows, type AudioDebugRows } from "./audioRows";
 import { audioCapture, captureDebug, type AudioCapture } from "./capture/capture";
 import { loudnessTarget, setLoudnessTarget } from "./mix/loudnessHub";
+import { audioTake, type AudioTake } from "./capture/take";
+import { takePlayOptions, takeTap, type TakeEmitter } from "./capture/takeTap";
 
 /**
  * `Audio.debug()`: the backend's state plus the rows composed above the seam (ADR 0249, `audioRows.ts`): the event runtime's
@@ -79,7 +81,7 @@ class VoiceHandle implements AudioHandle {
   get playing(): boolean { try { return this.voice.playing; } catch { return false; } }
   get reason(): AudioReason | null { try { return this.voice.reason; } catch { return null; } }
   // The voice clamps and warns once (`AudioHandle`), so the values go through as given.
-  stop(fadeSeconds = 0): void { try { this.voice.stop(fadeSeconds); } catch { /* a voice already gone */ } }
+  stop(fadeSeconds = 0): void { takeTap.sink?.stop(this.voice, fadeSeconds); try { this.voice.stop(fadeSeconds); } catch { /* a voice already gone */ } }
   fade(to: number, seconds: number): void { try { this.voice.fade(to, seconds); } catch { /* a voice already gone */ } }
 }
 
@@ -103,16 +105,16 @@ class EventHandle implements AudioPlaylistHandle {
   get panner(): AudioPanner | null { return this.instance.panner; }
   /** ADR 0162 §1.1 across the instance's voices: the lowest (most occluded) smoothed dry gain. */
   get occlusion(): number { return this.instance.occlusion; }
-  stop(fadeSeconds = 0): void { this.instance.stop(fadeSeconds); }
+  stop(fadeSeconds = 0): void { takeTap.sink?.stop(this.instance, fadeSeconds); this.instance.stop(fadeSeconds); }
   fade(to: number, seconds: number): void { this.instance.fade(Math.min(4, Math.max(0, to)), Math.max(0, seconds)); }
   setParameter(name: string, value: number | string): void { this.instance.setParameter(name, value); }
   getParameter(name: string): number | string | undefined { return this.instance.getParameter(name); }
-  release(): void { this.instance.release(); }
+  release(): void { takeTap.sink?.release(this.instance); this.instance.release(); }
   // ADR 0166 §1.2 (Q2): each delegates to its owner's file: `music/handle.ts` (P7, K3), `music/musicSystem.ts` (K5),
   // `music/stingers.ts` (R5). `music` is undefined, never an empty object, for a non-music event.
   get music(): MusicHandle | undefined { return musicHandleOf(this.instance); }
   onMusic(kind: MusicKind, fn: (e: MusicEvent) => void): () => void { return onMusicOf(this.instance, kind, fn); }
-  trigger(name: string): boolean { return triggerOn(this.instance, String(name)); }
+  trigger(name: string): boolean { takeTap.sink?.trigger(this.instance, String(name)); return triggerOn(this.instance, String(name)); }
   /** ADR 0329: an audio event reports no markers (`*.audioevent.json` predates them); kept for the shared handle shape. */
   onMarker(_type: AudioMarkerType, _fn: (e: AudioMarkerEvent) => void): () => void { return () => {}; }
 }
@@ -126,6 +128,62 @@ export function _handleOf(instance: EventInstance): AudioPlaylistHandle {
   return h;
 }
 _setMusicHandleFactory(_handleOf);
+
+/**
+ * ADR 0334: the public handle over a playlist instance, with the take's hooks on the requests a replay re-issues (stop,
+ * release, trigger; parameters reach the take through the profile taps). One per instance, whether or not a take records.
+ */
+class TakePlaylistHandle implements AudioPlaylistHandle {
+  constructor(private readonly instance: PlaylistInstance, private readonly h: AudioPlaylistHandle) {}
+  get playing(): boolean { return this.h.playing; }
+  get reason(): AudioReason | null { return this.h.reason; }
+  get position(): Vec3Like | null { return this.h.position; }
+  set position(p: Vec3Like | null) { this.h.position = p; }
+  get panner(): AudioPanner | null { return this.h.panner; }
+  get occlusion(): number { return this.h.occlusion; }
+  stop(fadeSeconds?: number): void { takeTap.sink?.stop(this.instance, fadeSeconds === undefined || !Number.isFinite(fadeSeconds) ? PLAYLIST_STOP_FADE : fadeSeconds); this.h.stop(fadeSeconds); }
+  fade(to: number, seconds: number): void { this.h.fade(to, seconds); }
+  setParameter(name: string, value: number | string): void { this.h.setParameter(name, value); }
+  getParameter(name: string): number | string | undefined { return this.h.getParameter(name); }
+  release(): void { takeTap.sink?.release(this.instance); this.h.release(); }
+  onMarker(type: AudioMarkerType, fn: (e: AudioMarkerEvent) => void): () => void { return this.h.onMarker(type, fn); }
+  get music(): MusicHandle | undefined { return this.h.music; }
+  onMusic(kind: MusicKind, fn: (e: MusicEvent) => void): () => void { return this.h.onMusic(kind, fn); }
+  trigger(name: string): boolean { takeTap.sink?.trigger(this.instance, String(name)); return this.h.trigger(name); }
+}
+
+/** A playlist's stop without a fade fades over 120 ms (ADR 0329); the take records the fade the replay must use. */
+const PLAYLIST_STOP_FADE = 0.12;
+const playlistHandles = new WeakMap<PlaylistInstance, TakePlaylistHandle>();
+function takePlaylistHandleOf(instance: PlaylistInstance): AudioPlaylistHandle {
+  let h = playlistHandles.get(instance);
+  if (!h) playlistHandles.set(instance, (h = new TakePlaylistHandle(instance, playlistHandleOf(instance))));
+  return h;
+}
+
+/** ADR 0334: a script-placed play's emitter: the instance itself, wherever its handle's `position` puts it. */
+function placedEmitter(instance: { readonly position: Vec3Like | null }, path: string): TakeEmitter {
+  return { key: instance, name: path, position: () => instance.position };
+}
+
+/** ADR 0334: a one-shot's emitter, fixed where it was played. */
+function fixedEmitter(key: object, path: string, p: Vec3Like): TakeEmitter {
+  const at = { x: p.x, y: p.y, z: p.z };
+  return { key, name: path, position: () => at };
+}
+
+/** ADR 0334: a bus whose script volume and fades the take records. `Audio.bus` hands these out, so a bus kept from before a take records too. */
+class TakeBus extends Bus {
+  override get volume(): number { return super.volume; }
+  override set volume(v: number) {
+    takeTap.sink?.mix("busVolume", this.name, v, 0);
+    super.volume = v;
+  }
+  override fadeTo(v: number, seconds: number): void {
+    takeTap.sink?.mix("busFade", this.name, v, seconds);
+    super.fadeTo(v, seconds);
+  }
+}
 
 /** @internal `AudioSource` plays events through this too. */
 export function _playEvent(path: string, options: EventOptions, world: World | null, sourceKey?: string): EventInstance | null {
@@ -202,6 +260,7 @@ export const Audio = {
       }
       if (o.yaw !== undefined) req.yaw = clampWarn("yaw", finiteOr("yaw", o.yaw, 0), -180, 180);
       const v = audioBackend().play(req);
+      if (v && takeTap.sink) takeTap.sink.play(v, path, req.position ? fixedEmitter(v, path, req.position) : null, takePlayOptions(o));
       return v ? new VoiceHandle(v) : INERT;
     } catch (e) {
       warnOnce("playOneShot:threw", `Audio.playOneShot failed (${e instanceof Error ? e.message : String(e)}); no sound.`);
@@ -220,10 +279,13 @@ export const Audio = {
       const path = String(pathOrSample);
       // A suffix test, not `isPlaylistPath` (which lowercases a copy): a sample's play allocates nothing more for it.
       if (PLAYLIST_PATH.test(path)) {
-        const p = _playPlaylist(path.replace(/^asset:/, ""), o, World.active);
-        return p ? playlistHandleOf(p) : INERT_EVENT;
+        const asset = path.replace(/^asset:/, "");
+        const p = _playPlaylist(asset, o, World.active);
+        if (p && takeTap.sink) takeTap.sink.play(p, asset, o.position ? placedEmitter(p, asset) : null, takePlayOptions(o));
+        return p ? takePlaylistHandleOf(p) : INERT_EVENT;
       }
       const i = _playEvent(path, o, World.active);
+      if (i && takeTap.sink) takeTap.sink.play(i, path, o.position ? placedEmitter(i, path) : null, takePlayOptions(o));
       return i ? _handleOf(i) : INERT_EVENT;
     } catch (e) {
       warnOnce("play:threw", `Audio.play failed (${e instanceof Error ? e.message : String(e)}); no sound.`);
@@ -243,7 +305,8 @@ export const Audio = {
 
   /** A mixer bus by name (ADR 0097): `Audio.bus("Music").volume = 0.5`. */
   bus(name: string): Bus {
-    return mixer.bus(name);
+    mixer.bus(name); // the unknown-bus warning
+    return new TakeBus(mixer, name);
   },
 
   /** Names of the project's buses. */
@@ -253,11 +316,13 @@ export const Audio = {
 
   /** Fade to a named mix from the project's audio snapshots (e.g. a muffled pause menu). Default fade 0.5 s. */
   snapshot(name: string, fadeSeconds = 0.5): void {
+    takeTap.sink?.mix("snapshotStart", String(name), 1, fadeSeconds);
     mixer.snapshot(name, fadeSeconds);
   },
 
   /** Fade back to the plain mix. Default fade 0.5 s. */
   clearSnapshot(fadeSeconds = 0.5): void {
+    takeTap.sink?.mix("snapshotStop", "", 0, fadeSeconds);
     mixer.clearSnapshot(fadeSeconds);
   },
 
@@ -266,6 +331,7 @@ export const Audio = {
     return audioBackend().masterVolume;
   },
   set volume(v: number) {
+    takeTap.sink?.mix("masterVolume", "", v, 0);
     audioBackend().masterVolume = v;
   },
 
@@ -274,6 +340,7 @@ export const Audio = {
     return audioBackend().masterVolume;
   },
   set masterVolume(v: number) {
+    takeTap.sink?.mix("masterVolume", "", v, 0);
     audioBackend().masterVolume = v;
   },
 
@@ -346,6 +413,15 @@ export const Audio = {
    */
   get capture(): AudioCapture {
     return audioCapture;
+  },
+
+  /**
+   * ADR 0334: record a take of the game run for the audio designer: what the game asked of audio and the engine's profile,
+   * in one `*.mycotake` file. `await Audio.take.start()`, `Audio.take.mark("boss")`, then `Audio.take.save()`. The recorder
+   * loads on the first `start()`; a game that never calls it loads nothing.
+   */
+  get take(): AudioTake {
+    return audioTake;
   },
 
   /** The entry of `audio.loudnessTargets` the loudness meters check against (default the first); an unknown name is ignored with one warning. */
