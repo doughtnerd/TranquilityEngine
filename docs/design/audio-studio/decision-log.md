@@ -416,3 +416,11 @@ accessibility guidance expects adjustable size, a background box and speaker nam
 built-in": text + `Audio.onLine` events as the base, plus a drop-in subtitle component built only on those public
 events, with a player on/off setting; games can replace it. (3) Language packs: all shipped languages in the build.
 (4) Lip-sync: import only (Rhubarb output). Other 0340/0341 questions proceed on their defaults (D52).
+
+**D54. ADRs 0342 (text localisation) and 0343 (subtitles) accepted.** Owner questions proceeding on defaults unless
+answered: script API named `Locale` (`Text` is taken); no bundled CJK/Arabic fonts (guide points to Noto); subtitles
+on by default on first run, sound captions off; RTL layout mirroring deferred (RTL text works). Choices to review:
+an engine-owned ICU MessageFormat 1 (<4 KB est.) instead of `intl-messageformat` (9.8 KB) or Fluent; `t:<field>`
+attributes in UI documents; line-table `text` removed (one copy of each subtitle, in string tables); voice follows the
+text language by default; 15 chars/s reading speed with per-language defaults; captions via a new public
+`Audio.onCaption`; `textAlign` default becomes `start`; `myco.subtitles` is its own plugin, on in new projects.
