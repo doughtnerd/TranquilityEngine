@@ -2,5 +2,136 @@
 // native/anim/crates/anim-wire/src/debug.rs. Do not edit: change the Rust and rebuild.
 // Internal to the animation plugin (ADR 0340): never part of the public API.
 
-/** Wire family `debug`: debug records: transition blockers, request lifetimes and node weights for the graph debugger (ADR 0342, 0343). */
+/**
+ * Wire family `debug`: the graph debugger's records (ADR 0342, 0343): active nodes with weights and phases, state
+ * machines with each candidate transition's blocker, live request lifetimes (native/anim/crates/anim-wire/src/debug.rs).
+ */
 export const DEBUG_FAMILY = { name: "debug", id: 10, version: 1 } as const;
+
+/** The debug buffer's size in bytes. */
+export const DEBUG_BYTES = 32768;
+
+/** `DEBUG_TRANSITION.blocker`: it would fire now. */
+export const BLOCK_READY = 0;
+
+/** `DEBUG_TRANSITION.blocker`: condition false (`detail` the failing node, `value` its operand now). */
+export const BLOCK_CONDITION = 1;
+
+/** `DEBUG_TRANSITION.blocker`: ready, but transition `detail` wins by priority. */
+export const BLOCK_SHADOWED = 2;
+
+/** `DEBUG_TRANSITION.blocker`: the transition in progress doesn't let it interrupt. */
+export const BLOCK_INTERRUPT = 3;
+
+/** `DEBUG_TRANSITION.blocker`: exit time, marker or normalised time not reached. */
+export const BLOCK_WHEN = 4;
+
+/** `DEBUG_TRANSITION.blocker`: travelling along another path. */
+export const BLOCK_TRAVEL = 5;
+
+/** The head of a debug report. */
+export const DEBUG_HEADER = {
+  opcode: 0x0a01,
+  version: 1,
+  stride: 32,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** `DebugNode` records. */
+    nodes: { offset: 8, type: "u32" },
+    /** `DebugMachine` records. */
+    machines: { offset: 12, type: "u32" },
+    /** `DebugTransition` records. */
+    transitions: { offset: 16, type: "u32" },
+    /** `DebugRequest` records. */
+    requests: { offset: 20, type: "u32" },
+    /** Bytes of records after this header. */
+    recordBytes: { offset: 24, type: "u32" },
+    /** Records that didn't fit. */
+    dropped: { offset: 28, type: "u32" },
+  },
+} as const;
+
+/** An active node: reached by the output's weighted walk. */
+export const DEBUG_NODE = {
+  opcode: 0x0a02,
+  version: 1,
+  stride: 24,
+  fields: {
+    /** The node index. */
+    node: { offset: 4, type: "u32" },
+    /** Its effective weight (summed over the paths that reach it). */
+    weight: { offset: 8, type: "f32" },
+    /** The clip that times it (0: none). */
+    clip: { offset: 12, type: "u32" },
+    /** That clip's playhead, seconds. */
+    time: { offset: 16, type: "f32" },
+    /** The playhead over the clip's duration. */
+    normalized: { offset: 20, type: "f32" },
+  },
+} as const;
+
+/** A state machine. */
+export const DEBUG_MACHINE = {
+  opcode: 0x0a03,
+  version: 1,
+  stride: 48,
+  fields: {
+    /** The machine index. */
+    machine: { offset: 4, type: "u32" },
+    /** The current state (local index). */
+    current: { offset: 8, type: "u32" },
+    /** The state a bridge leads to (`0xFFFFFFFF`: none). */
+    target: { offset: 12, type: "u32" },
+    /** The transition in progress (`0xFFFFFFFF`: none). */
+    active: { offset: 16, type: "u32" },
+    /** The newest entry's fade: elapsed seconds. */
+    elapsed: { offset: 20, type: "f32" },
+    /** Its duration. */
+    duration: { offset: 24, type: "f32" },
+    /** Seconds in the current state. */
+    stateTime: { offset: 28, type: "f32" },
+    /** The current state's normalised time (loops count whole). */
+    normalized: { offset: 32, type: "f32" },
+    /** The travel target (`0xFFFFFFFF`: none). */
+    travel: { offset: 36, type: "u32" },
+    /** The last transition fired (`0xFFFFFFFF`: none). */
+    lastFired: { offset: 40, type: "u32" },
+    /** Entries in the blend stack. */
+    entries: { offset: 44, type: "u32" },
+  },
+} as const;
+
+/** A candidate transition of a machine's current state and what blocks it. */
+export const DEBUG_TRANSITION = {
+  opcode: 0x0a04,
+  version: 1,
+  stride: 28,
+  fields: {
+    /** The machine index. */
+    machine: { offset: 4, type: "u32" },
+    /** The transition index. */
+    transition: { offset: 8, type: "u32" },
+    /** Its target state. */
+    target: { offset: 12, type: "u32" },
+    /** `BLOCK_*`. */
+    blocker: { offset: 16, type: "u32" },
+    /** `BLOCK_CONDITION`: the failing condition node; `BLOCK_SHADOWED`: the transition that wins. */
+    detail: { offset: 20, type: "u32" },
+    /** `BLOCK_CONDITION`: the failing comparison's operand value now. */
+    value: { offset: 24, type: "f32" },
+  },
+} as const;
+
+/** A request name the conditions read. */
+export const DEBUG_REQUEST = {
+  opcode: 0x0a05,
+  version: 1,
+  stride: 12,
+  fields: {
+    /** The name's string id. */
+    name: { offset: 4, type: "u32" },
+    /** Seconds left (0: not live). */
+    life: { offset: 8, type: "f32" },
+  },
+} as const;

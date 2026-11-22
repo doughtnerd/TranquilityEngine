@@ -2,5 +2,19 @@
   "family": "graph",
   "id": 3,
   "version": 1,
-  "vectors": []
+  "vectors": [
+    { "name": "set_param_float", "record": "SET_PARAM", "values": { "instance": 65538, "param": 3, "paramType": 0, "w0": 1075838976, "w1": 0, "w2": 0, "w3": 0 }, "hex": "0103010002000100030000000000000000002040000000000000000000000000" },
+    { "name": "request_jump", "record": "REQUEST", "values": { "instance": 131073, "name": 7, "lifetime": 0.2 }, "hex": "020301000100020007000000cdcc4c3e" },
+    { "name": "travel", "record": "TRAVEL", "values": { "instance": 65536, "machine": 1, "state": 4 }, "hex": "03030100000001000100000004000000" },
+    { "name": "jump", "record": "JUMP", "values": { "instance": 65536, "machine": 0, "state": 2 }, "hex": "04030100000001000000000002000000" },
+    { "name": "slot_play_section", "record": "SLOT_PLAY", "values": { "instance": 196609, "slot": 0, "clip": 65545, "playId": 42, "blendIn": 0.1, "blendOut": 0.15, "speed": 1.25, "start": 0.5, "end": 1, "flags": 1 }, "hex": "050301000100030000000000090001002a000000cdcccc3d9a99193e0000a03f0000003f0000803f01000000" },
+    { "name": "slot_next_section", "record": "SLOT_NEXT_SECTION", "values": { "instance": 196609, "slot": 0, "playId": 42, "start": 1, "end": 0, "flags": 0 }, "hex": "0603010001000300000000002a0000000000803f0000000000000000" },
+    { "name": "slot_stop", "record": "SLOT_STOP", "values": { "instance": 196609, "slot": 1, "playId": 0, "fade": 0.2 }, "hex": "07030100010003000100000000000000cdcc4c3e" },
+    { "name": "link", "record": "LINK", "values": { "instance": 65540, "linked": 0, "graph": 131077 }, "hex": "08030100040001000000000005000200" },
+    { "name": "layer_weight", "record": "LAYER_WEIGHT", "values": { "instance": 65540, "layer": 2, "weight": 0.5 }, "hex": "0903010004000100020000000000003f" },
+    { "name": "set_seed", "record": "SET_SEED", "values": { "instance": 65540, "seed": 3735928559 }, "hex": "0a03010004000100efbeadde" },
+    { "name": "capture_pose", "record": "CAPTURE_POSE", "values": { "instance": 65540, "node": 12 }, "hex": "0b030100040001000c000000" },
+    { "name": "debug_on", "record": "DEBUG", "values": { "instance": 65540, "flags": 1 }, "hex": "0c0301000400010001000000" },
+    { "name": "graph_change_slot_stopped", "record": "GRAPH_CHANGE", "values": { "instance": 65540, "kind": 4, "index": 1, "value": 42, "reason": 2 }, "hex": "0d0301000400010004000000010000002a00000002000000" }
+  ]
 }

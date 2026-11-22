@@ -4,6 +4,11 @@
 //! records). The layouts are `anim-wire` core's (`INPUT_*`, `ROOT_STRIDE`, `MATRIX_FLOATS`,
 //! [`StateChange`]). Never allocates.
 //!
+//! T31 additions: `write_inputs` applies the blackboard view's dirty parameters, then routes the
+//! `graph` family's commands to [`crate::graph`] (refusals are `CHANGE_REFUSED` records like the
+//! core's); graph state events (states entered and exited, slot plays, requests) go to the graph
+//! state-change buffer; the frame also owns the blackboard rows and the debug buffer.
+//!
 //! # Per instance, per frame
 //!
 //! 1. `dt` = `dt_scaled` (or `dt_unscaled` with `FLAG_UNSCALED`) × the row's time scale.
@@ -38,6 +43,7 @@ use anim_wire::core::{
 use anim_wire::WireRecord;
 
 use crate::assets::{split, Arena};
+use crate::graph::GraphChanges;
 use crate::instances::{implicit, Instance, Table};
 use crate::tracks::{self, RecordWriter};
 
@@ -85,6 +91,12 @@ pub struct Frame {
     pub changes: Vec<u8>,
     pub change_count: usize,
     pub changes_dropped: u32,
+    /// The blackboard view (`graph` family, `BLACKBOARD_STRIDE` bytes per instance index).
+    pub blackboard: Vec<u32>,
+    /// The graph state-change records.
+    pub graph_changes: GraphChanges,
+    /// The debug buffer (`debug` family).
+    pub debug: Vec<u8>,
     poses: Vec<SoaTransform>,
     display: Vec<SoaTransform>,
     sample: Vec<AosTransform>,
@@ -110,6 +122,12 @@ impl Frame {
             ],
             change_count: 0,
             changes_dropped: 0,
+            blackboard: vec![
+                0;
+                max_instances * (anim_wire::graph::BLACKBOARD_STRIDE / 4) as usize
+            ],
+            graph_changes: GraphChanges::new(max_instances),
+            debug: vec![0; anim_wire::debug::DEBUG_BYTES as usize],
             poses: vec![SoaTransform::identity(); slots * groups],
             display: vec![SoaTransform::identity(); groups],
             sample: vec![AosTransform::identity(); 2 * max_bones],
@@ -149,6 +167,10 @@ impl Frame {
         roots.fill(0.0);
         roots[6] = 1.0;
         self.tracks[index * TRACK_WORDS..(index + 1) * TRACK_WORDS].fill(0);
+        let bb = (anim_wire::graph::BLACKBOARD_STRIDE / 4) as usize;
+        if let Some(row) = self.blackboard.get_mut(index * bb..(index + 1) * bb) {
+            row.fill(0);
+        }
     }
 
     fn push_change(&mut self, change: StateChange) {
@@ -169,14 +191,38 @@ struct Sink<'f> {
     changes: &'f mut [u8],
     count: &'f mut usize,
     dropped: &'f mut u32,
+    graph: &'f mut GraphChanges,
     instance: u32,
 }
 
 impl Events for Sink<'_> {
     fn push(&mut self, e: StateEvent) {
+        use anim_wire::graph::*;
+        let graph = |kind: u32, reason: u32| GraphChange {
+            instance: self.instance,
+            kind,
+            index: e.layer,
+            value: e.play_id,
+            reason,
+        };
         let kind = match e.kind {
             StateEventKind::Finished => CHANGE_FINISHED,
             StateEventKind::Interrupted => CHANGE_INTERRUPTED,
+            other => {
+                let c = match other {
+                    StateEventKind::StateEntered => graph(GRAPH_STATE_ENTERED, 0),
+                    StateEventKind::StateExited => graph(GRAPH_STATE_EXITED, 0),
+                    StateEventKind::SlotFinished => graph(GRAPH_SLOT_FINISHED, REASON_FINISHED),
+                    StateEventKind::SlotInterrupted => {
+                        graph(GRAPH_SLOT_INTERRUPTED, REASON_INTERRUPTED)
+                    }
+                    StateEventKind::SlotStopped => graph(GRAPH_SLOT_INTERRUPTED, REASON_STOPPED),
+                    StateEventKind::RequestConsumed => graph(GRAPH_REQUEST_CONSUMED, 0),
+                    _ => graph(GRAPH_REQUEST_EXPIRED, 0),
+                };
+                self.graph.push(c);
+                return;
+            }
         };
         let stride = StateChange::STRIDE as usize;
         let at = *self.count * stride;
@@ -263,19 +309,50 @@ pub fn write_inputs(
 ) -> u32 {
     frame.change_count = 0;
     frame.changes_dropped = 0;
+    frame.graph_changes.clear();
+    crate::graph::apply_blackboard(arena, table, &mut frame.blackboard);
     let len = len.min(frame.commands.len());
     let mut at = 0usize;
     let mut applied = 0u32;
     while at + 4 <= len {
         let opcode = u16::from_le_bytes([frame.commands[at], frame.commands[at + 1]]);
         let stride = match opcode {
-            Play::OPCODE => Play::STRIDE,
-            Stop::OPCODE => Stop::STRIDE,
-            SetLayer::OPCODE => SetLayer::STRIDE,
-            _ => break,
-        } as usize;
+            Play::OPCODE => Play::STRIDE as usize,
+            Stop::OPCODE => Stop::STRIDE as usize,
+            SetLayer::OPCODE => SetLayer::STRIDE as usize,
+            op => match crate::graph::command_stride(op) {
+                Some(s) => s,
+                None => break,
+            },
+        };
         if at + stride > len {
             break;
+        }
+        if crate::graph::command_stride(opcode).is_some() {
+            // A graph command: copied out of the buffer (at most 64 bytes) so the frame can be
+            // written while it applies.
+            let mut record = [0u8; 64];
+            let n = stride.min(record.len());
+            record[..n].copy_from_slice(&frame.commands[at..at + n]);
+            match crate::graph::apply(
+                arena,
+                table,
+                &mut frame.inputs,
+                &mut frame.graph_changes,
+                opcode,
+                &record[..n],
+            ) {
+                Ok(()) => applied += 1,
+                Err((status, instance, layer, play_id)) => frame.push_change(StateChange {
+                    instance,
+                    layer,
+                    kind: CHANGE_REFUSED,
+                    play_id,
+                    status,
+                }),
+            }
+            at += stride;
+            continue;
         }
         let bytes = &frame.commands[at..at + stride];
         let result = match opcode {
@@ -466,6 +543,7 @@ pub fn evaluate(
             rest: &skel.rest,
             rest_soa: &skel.rest_soa,
             identity: &skel.identity,
+            bind_soa: &skel.bind_soa,
         };
         let history = (inst.history >= 2).then_some(History {
             last: &inst.last,
@@ -484,6 +562,7 @@ pub fn evaluate(
             changes: &mut frame.changes,
             count: &mut frame.change_count,
             dropped: &mut frame.changes_dropped,
+            graph: &mut frame.graph_changes,
             instance: h,
         };
         program.update(&inputs, &mut inst.state, dt, &mut sink);

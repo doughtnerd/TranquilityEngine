@@ -73,6 +73,8 @@ pub struct Instance {
     pub dt_since: f32,
     /// The pose froze (culled); the next evaluation restarts the history.
     pub stale: bool,
+    /// Flagged for the graph debugger (`graph` family `DEBUG`; not part of snapshots).
+    pub debug: bool,
 }
 
 struct Slot {
@@ -120,6 +122,7 @@ impl Table {
             since: 0,
             dt_since: 0.0,
             stale: false,
+            debug: false,
         };
         if let Some(index) = self.free.pop() {
             let slot = &mut self.slots[index as usize];

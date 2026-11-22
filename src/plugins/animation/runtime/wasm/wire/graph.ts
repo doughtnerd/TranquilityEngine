@@ -2,5 +2,292 @@
 // native/anim/crates/anim-wire/src/graph.rs. Do not edit: change the Rust and rebuild.
 // Internal to the animation plugin (ADR 0340): never part of the public API.
 
-/** Wire family `graph`: graph inputs and state: blackboard parameter rows, requests, slot plays, linked-graph selections and state-change records (ADR 0342). */
+/**
+ * Wire family `graph`: graph inputs and state (ADR 0342): the blackboard view, parameter and request commands,
+ * travel and jump, slot plays with sections, linked graphs, layer weights, the seed, pose captures, the debug flag,
+ * and graph state-change records (native/anim/crates/anim-wire/src/graph.rs documents them).
+ */
 export const GRAPH_FAMILY = { name: "graph", id: 3, version: 1 } as const;
+
+/** Status: the target state can't be reached from the current one (`TRAVEL`). */
+export const STATUS_UNREACHABLE = 769;
+
+/** Status: no such parameter, machine, state, slot, linked-graph slot, request or node, or another parameter type. */
+export const STATUS_NO_SUCH = 770;
+
+/** Blackboard: parameters per row. */
+export const BLACKBOARD_PARAMS = 64;
+
+/** Blackboard: the dirty masks' offset (two `u32`: parameters 0-31, 32-63). */
+export const BLACKBOARD_DIRTY = 0;
+
+/** Blackboard: the values' offset (four words per parameter). */
+export const BLACKBOARD_VALUES = 8;
+
+/** Blackboard: bytes per instance row. */
+export const BLACKBOARD_STRIDE = 1032;
+
+/** `GRAPH_CHANGE.kind`: machine `index` entered state `value`. */
+export const GRAPH_STATE_ENTERED = 1;
+
+/** `GRAPH_CHANGE.kind`: machine `index` left state `value`. */
+export const GRAPH_STATE_EXITED = 2;
+
+/** `GRAPH_CHANGE.kind`: slot `index`'s play `value` reached its end. */
+export const GRAPH_SLOT_FINISHED = 3;
+
+/** `GRAPH_CHANGE.kind`: slot `index`'s play `value` ended early (`reason`). */
+export const GRAPH_SLOT_INTERRUPTED = 4;
+
+/** `GRAPH_CHANGE.kind`: request `index` consumed by transition `value`. */
+export const GRAPH_REQUEST_CONSUMED = 5;
+
+/** `GRAPH_CHANGE.kind`: request `index` expired unread. */
+export const GRAPH_REQUEST_EXPIRED = 6;
+
+/** `GRAPH_CHANGE.reason`: finished (or not a slot change). */
+export const REASON_FINISHED = 0;
+
+/** `GRAPH_CHANGE.reason`: replaced by another play. */
+export const REASON_INTERRUPTED = 1;
+
+/** `GRAPH_CHANGE.reason`: stopped by `SLOT_STOP`. */
+export const REASON_STOPPED = 2;
+
+/** `SLOT_PLAY.flags`, `SLOT_NEXT_SECTION.flags`: loop the section. */
+export const SECTION_LOOP = 1;
+
+/** `DEBUG.flags`: the instance answers `debug_write`. */
+export const DEBUG_ON = 1;
+
+/**
+ * Command: sets graph parameter `param` (typed: the four words as the graph's parameter
+ * table stores them).
+ */
+export const SET_PARAM = {
+  opcode: 0x0301,
+  version: 1,
+  stride: 32,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** The parameter index. */
+    param: { offset: 8, type: "u32" },
+    /** The parameter's type (`myco.animgraph@1`'s: 0 float, 1 int, 2 bool, 3 vec2, 4 vec3, 5 quat, 6 node); refused when it differs. */
+    paramType: { offset: 12, type: "u32" },
+    /** Word 0 (f32 bits, i32, 0/1 or a node id). */
+    w0: { offset: 16, type: "u32" },
+    w1: { offset: 20, type: "u32" },
+    w2: { offset: 24, type: "u32" },
+    w3: { offset: 28, type: "u32" },
+  },
+} as const;
+
+/**
+ * Command: a request (ADR 0342's `request`, replacing triggers): live for `lifetime`
+ * seconds, consumed by the first transition that reads it and fires.
+ */
+export const REQUEST = {
+  opcode: 0x0302,
+  version: 1,
+  stride: 16,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** The request's name (a string id of the graph). */
+    name: { offset: 8, type: "u32" },
+    /** Seconds (0 or less: 0.25, the default `within`). */
+    lifetime: { offset: 12, type: "f32" },
+  },
+} as const;
+
+/** Command: travel to a state along the shortest path through the machine (Godot's `travel`). */
+export const TRAVEL = {
+  opcode: 0x0303,
+  version: 1,
+  stride: 16,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** The machine index. */
+    machine: { offset: 8, type: "u32" },
+    /** The target state (local index). */
+    state: { offset: 12, type: "u32" },
+  },
+} as const;
+
+/** Command: cut to a state at the next update, no path (`jump`). */
+export const JUMP = {
+  opcode: 0x0304,
+  version: 1,
+  stride: 16,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** The machine index. */
+    machine: { offset: 8, type: "u32" },
+    /** The target state (local index). */
+    state: { offset: 12, type: "u32" },
+  },
+} as const;
+
+/**
+ * Command: plays a clip in a slot (a one-shot over the graph, Unreal's montage), from
+ * section `[start, end)`.
+ */
+export const SLOT_PLAY = {
+  opcode: 0x0305,
+  version: 1,
+  stride: 44,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** The slot index. */
+    slot: { offset: 8, type: "u32" },
+    /** The clip handle. */
+    clip: { offset: 12, type: "u32" },
+    /** The host's id for the play, echoed in its state changes (0: none). */
+    playId: { offset: 16, type: "u32" },
+    /** Seconds. */
+    blendIn: { offset: 20, type: "f32" },
+    /** Seconds; the play blends out so it reaches 0 at its section's end. */
+    blendOut: { offset: 24, type: "f32" },
+    /** Playback speed. */
+    speed: { offset: 28, type: "f32" },
+    /** Section start, clip seconds. */
+    start: { offset: 32, type: "f32" },
+    /** Section end, clip seconds (0, or not after `start`: the clip's end). */
+    end: { offset: 36, type: "f32" },
+    /** `SECTION_LOOP`. */
+    flags: { offset: 40, type: "u32" },
+  },
+} as const;
+
+/** Command: the section a slot's play continues with when its current section ends. */
+export const SLOT_NEXT_SECTION = {
+  opcode: 0x0306,
+  version: 1,
+  stride: 28,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** The slot index. */
+    slot: { offset: 8, type: "u32" },
+    /** The play it applies to (refused for another). */
+    playId: { offset: 12, type: "u32" },
+    /** Clip seconds. */
+    start: { offset: 16, type: "f32" },
+    /** Clip seconds (0: the clip's end). */
+    end: { offset: 20, type: "f32" },
+    /** `SECTION_LOOP`. */
+    flags: { offset: 24, type: "u32" },
+  },
+} as const;
+
+/** Command: blends a slot's play out. */
+export const SLOT_STOP = {
+  opcode: 0x0307,
+  version: 1,
+  stride: 20,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** The slot index. */
+    slot: { offset: 8, type: "u32" },
+    /** The play to stop (0: whatever plays). */
+    playId: { offset: 12, type: "u32" },
+    /** Seconds. */
+    fade: { offset: 16, type: "f32" },
+  },
+} as const;
+
+/** Command: runs a graph in a linked-graph slot from the next update (0 unlinks). */
+export const LINK = {
+  opcode: 0x0308,
+  version: 1,
+  stride: 16,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** The linked-graph slot index. */
+    linked: { offset: 8, type: "u32" },
+    /** A graph handle, or 0. */
+    graph: { offset: 12, type: "u32" },
+  },
+} as const;
+
+/** Command: a layer's weight (writes the input view's weight for layers below `MAX_LAYERS`). */
+export const LAYER_WEIGHT = {
+  opcode: 0x0309,
+  version: 1,
+  stride: 16,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** The layer index. */
+    layer: { offset: 8, type: "u32" },
+    /** In [0, 1]. */
+    weight: { offset: 12, type: "f32" },
+  },
+} as const;
+
+/** Command: reseeds the instance's random generator (from the World's seeded generator). */
+export const SET_SEED = {
+  opcode: 0x030a,
+  version: 1,
+  stride: 12,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** The seed (0 reads as the default). */
+    seed: { offset: 8, type: "u32" },
+  },
+} as const;
+
+/** Command: captures the instance's last output pose into a pose-snapshot node. */
+export const CAPTURE_POSE = {
+  opcode: 0x030b,
+  version: 1,
+  stride: 12,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** The pose-snapshot node's index. */
+    node: { offset: 8, type: "u32" },
+  },
+} as const;
+
+/**
+ * Command: flags an instance for the graph debugger (`debug_write` answers only for flagged
+ * instances).
+ */
+export const DEBUG = {
+  opcode: 0x030c,
+  version: 1,
+  stride: 12,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** `DEBUG_ON`, or 0. */
+    flags: { offset: 8, type: "u32" },
+  },
+} as const;
+
+/** Output: a graph state change. */
+export const GRAPH_CHANGE = {
+  opcode: 0x030d,
+  version: 1,
+  stride: 24,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** `GRAPH_*`. */
+    kind: { offset: 8, type: "u32" },
+    /** The machine, slot, or request name string id. */
+    index: { offset: 12, type: "u32" },
+    /** The state, play id, or transition (`0xFFFFFFFF` for none). */
+    value: { offset: 16, type: "u32" },
+    /** `REASON_*` for slot plays, else 0. */
+    reason: { offset: 20, type: "u32" },
+  },
+} as const;
