@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { desktopProjectFiles, slug } from "./desktop";
+import { GAMEPAD_COMMANDS, GAMEPAD_DEPENDENCIES, desktopProjectFiles, slug } from "./desktop";
 import { modulePath, relativeSpecifier, type GameManifest } from "./format";
 import { exportProject } from "./node";
 import { USAGE, parseArgs } from "./main";
@@ -10,6 +10,7 @@ import { ExportError, isOutputInsideProject, planWebBuild, type BuildSource } fr
 import { typescript } from "../editor/moduleImports";
 
 const SAMPLES = join(__dirname, "..", "..", "samples");
+const SRC_TAURI = join(__dirname, "..", "..", "src-tauri");
 
 // The TypeScript compiler loads once per file, on the first script compiled: seconds when the
 // machine is busy (the full suite in parallel), which is set-up, not the build a test times.
@@ -128,7 +129,7 @@ describe("the audio capture option", () => {
 
 describe("desktop project", () => {
   it("names the app after the project and points the window at the web build", () => {
-    const files = desktopProjectFiles({ name: "Flappy Bird", settings: { display: { width: 720, height: 680 } } });
+    const files = desktopProjectFiles({ name: "Flappy Bird", settings: { display: { width: 720, height: 680 } }, gamepadModule: "// gamepads\n" });
     const config = JSON.parse(files.get("tauri.conf.json")!);
     expect(config).toMatchObject({
       productName: "Flappy Bird",
@@ -142,13 +143,29 @@ describe("desktop project", () => {
     expect(files.get("src/main.rs")).toContain("flappy_bird_lib::run()");
     expect(files.get("src/lib.rs")).toContain("tauri_plugin_fs::init()");
     expect(JSON.parse(files.get("capabilities/default.json")!).permissions).toContain("fs:allow-appdata-write-recursive");
-    expect([...files.keys()].sort()).toEqual([".gitignore", "Cargo.toml", "build.rs", "capabilities/default.json", "src/lib.rs", "src/main.rs", "tauri.conf.json"]);
+    expect([...files.keys()].sort()).toEqual([".gitignore", "Cargo.toml", "build.rs", "capabilities/default.json", "src/gamepad.rs", "src/lib.rs", "src/main.rs", "tauri.conf.json"]);
+  });
+
+  it("includes the editor's native gamepad module, its dependencies and its commands (ADR 0335)", () => {
+    const files = desktopProjectFiles({ name: "x", settings: {}, gamepadModule: "// gamepads\n" });
+    expect(files.get("src/gamepad.rs")).toBe("// gamepads\n");
+    expect(files.get("src/lib.rs")).toContain("mod gamepad;");
+    for (const command of GAMEPAD_COMMANDS) expect(files.get("src/lib.rs")).toContain(`gamepad::${command},`);
+    expect(files.get("Cargo.toml")).toContain(GAMEPAD_DEPENDENCIES);
+    // The same SDL3 build as the editor's shell, and the commands gamepad.rs defines and the editor registers.
+    expect(readFileSync(join(SRC_TAURI, "Cargo.toml"), "utf8")).toContain(GAMEPAD_DEPENDENCIES);
+    const module = readFileSync(join(SRC_TAURI, "src", "gamepad.rs"), "utf8");
+    const editorLib = readFileSync(join(SRC_TAURI, "src", "lib.rs"), "utf8");
+    for (const command of GAMEPAD_COMMANDS) {
+      expect(module).toContain(`pub fn ${command}(`);
+      expect(editorLib).toContain(`gamepad::${command}`);
+    }
   });
 
   it("takes the identifier and version from project.json's build settings", () => {
-    const config = JSON.parse(desktopProjectFiles({ name: "x", settings: { build: { identifier: "com.example.x", version: "1.2.3" } } }).get("tauri.conf.json")!);
+    const config = JSON.parse(desktopProjectFiles({ name: "x", settings: { build: { identifier: "com.example.x", version: "1.2.3" } }, gamepadModule: "" }).get("tauri.conf.json")!);
     expect(config).toMatchObject({ identifier: "com.example.x", version: "1.2.3" });
-    expect(() => desktopProjectFiles({ name: "x", settings: { build: { identifier: "not an id" } } })).toThrow(/reverse-DNS/);
+    expect(() => desktopProjectFiles({ name: "x", settings: { build: { identifier: "not an id" } }, gamepadModule: "" })).toThrow(/reverse-DNS/);
     expect(slug("3D Racer!")).toBe("game-3d-racer");
   });
 });
@@ -256,5 +273,6 @@ describe("exportProject (Node)", () => {
     expect(JSON.parse(readFileSync(join(out, "src-tauri", "tauri.conf.json"), "utf8"))).toMatchObject({ productName: "arena", app: { windows: [{ width: 800, height: 600 }] } });
     for (const icon of ["icons/icon.ico", "icons/icon.icns", "icons/32x32.png"]) expect(existsSync(join(out, "src-tauri", icon)), icon).toBe(true);
     expect(readFileSync(join(out, "README.txt"), "utf8")).toContain("npx @tauri-apps/cli build");
+    expect(readFileSync(join(out, "src-tauri", "src", "gamepad.rs"), "utf8")).toBe(readFileSync(join(SRC_TAURI, "src", "gamepad.rs"), "utf8"));
   }, 60_000);
 });

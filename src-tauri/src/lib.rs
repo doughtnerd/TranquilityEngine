@@ -1,3 +1,5 @@
+mod gamepad;
+
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use tauri::webview::{NewWindowResponse, WebviewWindowBuilder};
@@ -126,7 +128,15 @@ pub fn run() {
         // window while the editor is hidden. (The editor's own guard asks about unsaved changes first.)
         // Quitting destroys the other window and lets the app end with its last window: exiting with
         // a window still open makes WebView2 log "Failed to unregister class Chrome_WidgetWin_0".
-        .invoke_handler(tauri::generate_handler![create_editor_window])
+        .invoke_handler(tauri::generate_handler![
+            create_editor_window,
+            // Native gamepads (ADR 0335).
+            gamepad::myco_gamepad_listen,
+            gamepad::myco_gamepad_rumble,
+            gamepad::myco_gamepad_trigger_rumble,
+            gamepad::myco_gamepad_set_led,
+            gamepad::myco_gamepad_sensors
+        ])
         .on_window_event(|window, event| {
             let other = |label: &str| window.app_handle().get_webview_window(label);
             match (window.label(), event) {

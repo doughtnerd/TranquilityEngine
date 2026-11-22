@@ -1,0 +1,22 @@
+# ADR 0335: CI runs the gamepad mapping crate's native tests (native/input: families, browser gamepad
+# ids, the vendored SDL controller database). The committed wasm in src/engine/input/wasm/ is rebuilt
+# by hand (`npm run build:input`), like native/nav's.
+name: Input mapping
+
+on:
+  push:
+    branches: [ master ]
+    paths: [ 'native/input/**', '.github/workflows/input-native.yml' ]
+  pull_request:
+    branches: [ master ]
+    paths: [ 'native/input/**', '.github/workflows/input-native.yml' ]
+
+jobs:
+  native:
+    name: cargo test (native/input)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: cargo test
+        working-directory: native/input
+        run: cargo test --workspace --locked

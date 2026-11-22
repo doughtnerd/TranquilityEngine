@@ -89,7 +89,8 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   if (!desktop) return { out, web, plan };
 
   const settings = project.settings as typeof project.settings & { build?: BuildSettings };
-  const files = desktopProjectFiles({ name: plan.manifest.name, settings });
+  const gamepadModule = await readFile(join(REPO, "src-tauri", "src", "gamepad.rs"), "utf8");
+  const files = desktopProjectFiles({ name: plan.manifest.name, settings, gamepadModule });
   const tauriDir = join(out, "src-tauri");
   for (const [path, text] of files) await folder.writeText(`src-tauri/${path}`, text);
   await makeIcons(project.root, settings.build?.icon, folder, tauriDir, log);
