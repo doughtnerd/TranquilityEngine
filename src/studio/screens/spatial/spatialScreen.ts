@@ -16,17 +16,20 @@ import { openCurveEditorDialog } from "../../../editor/ui/curves/openCurveEditor
 import { ATTENUATION_FORMAT, type Attenuation, type AttenuationAsset } from "../../../engine/audio/attenuation/types";
 import type { AudioProject } from "../../../engine/audio/project/types";
 import type { PlaylistAsset } from "../../../engine/audio/playlist/types";
+import { importBaseScene, type BaseSceneImport } from "../../../engine/audio/spatial/baseScene";
 import { audioTestSceneToJson, emptyAudioTestScene, parseAudioTestScene, testSceneReferences } from "../../../engine/audio/spatial/testScene";
 import { AUDIO_SCENE_SUFFIX, type AudioTestScene } from "../../../engine/audio/spatial/testSceneTypes";
 import { World } from "../../../engine/core/World";
 import { applyEdit } from "../../../plugins/audio/editor/editResult";
 import { openTakeFile } from "../../../plugins/audio/runtime/capture/takeFile";
+import { loadBaseScene, type LoadedBaseScene } from "../../../plugins/audio/runtime/testScene/baseScene";
 import { playAudioTestScene, type AudioTestScenePlayer, type TestSceneVoiceRow } from "../../../plugins/audio/runtime/testScene/player";
 import type { SoundItem } from "../../components/soundPickerModel";
 import { playlistBadge, sampleBadge } from "../../components/typeBadgeModel";
 import { audioHost, openRoute, toasts } from "../../shell/studioServices";
 import { openMixDocument } from "../mixer/mixerDocument";
 import { setSpatial } from "../playlists/playlistEdits";
+import { baseFramePoints } from "./baseLayer";
 import { attenuationDialog, attenuationFromResult, attenuationOwner, newAttenuation, presetNameFor, PRESET_FOLDER, type AttenuationOwner } from "./attenuationModel";
 import { NO_AUDITION, auditionScene, isSilenced, liveUpdate, toggleMute, toggleSolo, type AuditionState } from "./audition";
 import { INITIAL_SLAB, type Slab } from "./elevation";
@@ -135,6 +138,18 @@ export function loadScene(path: string): AudioTestScene | null {
 export const openDoc = computed(() => (openPath.value && loadScene(openPath.value) ? docFor(openPath.value) : null));
 export const scene = computed<AudioTestScene | null>(() => openDoc.value?.value.value ?? null);
 export const readOnly = computed(() => !project()?.canSave || !!openDoc.value?.readOnly);
+
+/**
+ * The open scene's base game scene as imported (ADR 0333: its audio components and colliders, read-only underneath), or
+ * null when it names none. Read from the project's files (the game scene's latest saved content). Tracks.
+ */
+export const baseImport = computed<BaseSceneImport | null>(() => {
+  const base = scene.value?.base;
+  void docVersion.value;
+  if (!base) return null;
+  if (!project()?.files.includes(base)) return importBaseScene(base, { read: () => undefined }); // missing: the warning
+  return importBaseScene(base);
+});
 
 /** The project's scene files with their folders, for the Scenes tree. Tracks. */
 export const sceneEntries = computed<SceneEntry[]>(() => {
@@ -324,7 +339,7 @@ export function escapeKey(): void {
 /** Frame the open scene. */
 export function fit(): void {
   const s = scene.peek();
-  const b = s ? boundsOf(framePoints(s), 20) : null;
+  const b = s ? boundsOf([...framePoints(s), ...baseFramePoints(baseImport.peek())], 20) : null;
   view.value = b ? fitView(b, viewportSize.peek()) : DEFAULT_VIEW;
 }
 
@@ -348,6 +363,43 @@ function studioWorld(): World | null {
   return World.active;
 }
 
+/** The base game scene loaded in the World under the audition (ADR 0333), by the path the scene names. */
+let loadedBase: { readonly path: string; readonly loaded: LoadedBaseScene } | null = null;
+/** Bumped by every start, base change and stop, so a base load that finishes after the audition moved on is dropped. */
+let auditionGen = 0;
+
+function unloadBase(): void {
+  loadedBase?.loaded.dispose();
+  loadedBase = null;
+}
+
+/**
+ * Make the World's base the game scene `path` (null: none), loading it underneath (its audio components and colliders,
+ * through the engine's scene loading) when it changed. Resolves false when the audition moved on meanwhile. A base
+ * that's missing or fails to load is said on the status line and the scene plays without it.
+ */
+async function useBase(path: string | null, gen: number): Promise<boolean> {
+  if ((loadedBase?.path ?? null) === path) return true;
+  unloadBase();
+  if (!path) return true;
+  const shown = baseImport.peek();
+  const imported = shown?.path === path ? shown : importBaseScene(path);
+  let loaded: LoadedBaseScene;
+  try {
+    loaded = await loadBaseScene(path, imported);
+  } catch (err) {
+    if (gen === auditionGen) status.value = { kind: "error", text: `Couldn't load the base scene ${path}, so the scene plays without it: ${err instanceof Error ? err.message : String(err)}` };
+    return gen === auditionGen;
+  }
+  if (gen !== auditionGen) {
+    loaded.dispose();
+    return false;
+  }
+  loadedBase = { path, loaded };
+  if (!imported.found) status.value = { kind: "info", text: imported.problems[0] ?? `The base scene ${path} isn't in the project; the scene plays without it.` };
+  return true;
+}
+
 function build(s: AudioTestScene): boolean {
   const world = studioWorld();
   if (!world) return false;
@@ -363,7 +415,18 @@ function build(s: AudioTestScene): boolean {
   return true;
 }
 
-/** Play the open scene from its active listener (the screen's Play). */
+/** Build the player for the open scene once its base is in the World (false: stopped or superseded meanwhile). */
+async function buildWithBase(gen: number): Promise<boolean> {
+  const s = scene.peek();
+  if (!s) return false;
+  if (!(await useBase(s.base, gen))) return false;
+  const now = scene.peek(); // edits made while the base loaded
+  if (!now || gen !== auditionGen) return false;
+  if (now.base !== s.base) return buildWithBase(gen);
+  return build(now);
+}
+
+/** Play the open scene from its active listener (the screen's Play), over its base game scene when it names one. */
 export function playScene(): void {
   const s = scene.peek();
   if (!s || playing.peek()) return;
@@ -373,11 +436,15 @@ export function playScene(): void {
     status.value = { kind: "info", text: st.kind === "failed" ? st.reason : "The Studio's audio runtime isn't running yet." };
     return;
   }
-  if (!build(s)) {
+  if (!studioWorld()) {
     status.value = { kind: "info", text: "The Studio's audio runtime has no World to play the scene in yet." };
     return;
   }
-  if (s.base) status.value = { kind: "info", text: `Playing without ${s.base} underneath: the Studio doesn't load game scenes into its runtime yet.` };
+  const gen = ++auditionGen;
+  if (s.base && loadedBase?.path !== s.base) status.value = { kind: "info", text: `Loading ${s.base} underneath…` };
+  void buildWithBase(gen).then((ok) => {
+    if (!ok && gen === auditionGen) stopAudition();
+  });
   playing.value = true;
   poll = setInterval(() => {
     try {
@@ -398,7 +465,15 @@ export function playScene(): void {
     if (u.kind === "rebuild") {
       player.dispose();
       player = null;
-      if (!build(next)) stopAudition();
+      played = null;
+      if (next.base === (loadedBase?.path ?? null)) {
+        if (!build(next)) stopAudition();
+        return;
+      }
+      const gen = ++auditionGen; // a new base: load it, then build
+      void buildWithBase(gen).then((ok) => {
+        if (!ok && gen === auditionGen) stopAudition();
+      });
       return;
     }
     for (const { id, pose } of u.poses) player.moveObject(id, pose);
@@ -413,9 +488,11 @@ export function stopAudition(): void {
   follow = null;
   if (poll) clearInterval(poll);
   poll = null;
-  player?.dispose();
+  auditionGen++;
+  player?.dispose(); // before the base: the player's nodes are under the base's scene node
   player = null;
   played = null;
+  unloadBase();
   playing.value = false;
   voices.value = [];
 }

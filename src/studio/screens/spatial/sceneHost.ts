@@ -1,6 +1,7 @@
 // What the Scene view needs from its owner (the screen over the real page, or a story's local state): the scene and the
 // screen's view state, and the actions it calls. The view draws and turns pointer and key input into these calls; the
 // rules are the pure models (`pointerModel.ts`, `tools.ts`, `elevation.ts`, `viewTransform.ts`).
+import type { BaseSceneImport } from "../../../engine/audio/spatial/baseScene";
 import type { AudioTestScene } from "../../../engine/audio/spatial/testSceneTypes";
 import type { TestSceneVoiceRow } from "../../../plugins/audio/runtime/testScene/player";
 import type { Slab } from "./elevation";
@@ -11,6 +12,8 @@ import type { Size, View } from "./viewTransform";
 
 export interface SceneHost {
   readonly scene: AudioTestScene;
+  /** The scene's base game scene as imported (drawn read-only under the scene), or null when it names none. */
+  readonly base?: BaseSceneImport | null;
   /** The scene file (the view's `data-asset-document`, so the History popover and Ctrl+Z follow it). */
   readonly path: string;
   readonly readOnly: boolean;

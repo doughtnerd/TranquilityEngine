@@ -5,6 +5,7 @@
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, userEvent, waitFor, within } from "storybook/test";
+import type { BaseSceneImport } from "../../../engine/audio/spatial/baseScene";
 import type { AudioTestScene } from "../../../engine/audio/spatial/testSceneTypes";
 import { NO_AUDITION, isSilenced, toggleMute, toggleSolo } from "./audition";
 import { INITIAL_SLAB } from "./elevation";
@@ -12,7 +13,7 @@ import { boundsOf } from "./geometry";
 import type { SceneHost } from "./sceneHost";
 import { SceneView } from "./SceneView";
 import { deleteObject, framePoints, setActiveListener } from "./sceneEdits";
-import { fixtureScene, fixtureVoices } from "./spatialFixture";
+import { FIXTURE_BASE_PATH, fixtureBase, fixtureScene, fixtureVoices } from "./spatialFixture";
 import { place, type ToolState } from "./tools";
 import { DEFAULT_VIEW, fitView } from "./viewTransform";
 import "../playlists/playlists.css";
@@ -25,6 +26,8 @@ interface Args {
   readonly playing?: boolean;
   readonly sideView?: boolean;
   readonly readOnly?: boolean;
+  /** The base game scene underneath (`fixtureBase()`), or null. */
+  readonly base?: BaseSceneImport | null;
 }
 
 function StoryScene(props: Args) {
@@ -44,6 +47,7 @@ function StoryScene(props: Args) {
   };
   const host: SceneHost = {
     scene,
+    base: props.base ?? null,
     path: "audio/scenes/canyon_run.audioscene.json",
     readOnly: !!props.readOnly,
     selected,
@@ -172,6 +176,32 @@ export const AddTwoDSound: Story = {
     await expect(c.getByRole("toolbar", { name: "2D sound 2 actions" })).toBeInTheDocument();
     await userEvent.click(c.getByRole("button", { name: "Obstacle" }));
     await expect(c.getByRole("button", { name: "Obstacle" })).toHaveAttribute("aria-pressed", "true");
+  },
+};
+
+export const OverBaseScene: Story = {
+  args: { scene: { ...fixtureScene(), base: FIXTURE_BASE_PATH }, base: fixtureBase() },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByText("Over canyon: 5 objects, read-only")).toBeVisible();
+    await waitFor(() => expect(canvasElement.querySelectorAll(".sp-base [data-base]").length).toBe(5));
+    await expect(canvasElement.querySelectorAll(".sp-base-collider").length).toBe(2);
+    await expect(canvasElement.querySelector(".sp-base-reverb circle")).not.toBeNull();
+    await expect(c.getByText("North wall · stone")).toBeInTheDocument();
+    await expect(c.getByText("Well")).toBeInTheDocument();
+    // Read-only: the pointer passes through the base layer to the plan (it can't be selected or dragged).
+    await expect(getComputedStyle(canvasElement.querySelector(".sp-base")!).pointerEvents).toBe("none");
+    // The test scene's own objects still draw over it.
+    await expect(c.getByRole("img", { name: /Plan of the scene, 14 objects/ })).toBeVisible();
+  },
+};
+
+export const MissingBaseScene: Story = {
+  args: { scene: { ...fixtureScene(), base: "scenes/gone.scene.json" }, base: fixtureBase(null) },
+  play: async ({ canvasElement }) => {
+    const alert = within(canvasElement).getByRole("alert");
+    await expect(alert).toHaveTextContent("Base scene scenes/gone.scene.json is missing; playing without it");
+    await expect(canvasElement.querySelectorAll(".sp-base [data-base]").length).toBe(0);
   },
 };
 

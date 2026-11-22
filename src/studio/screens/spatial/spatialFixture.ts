@@ -2,6 +2,7 @@
 // (x east, z north, y up): a player, a waterfall high on the cliff, a generator in the cave, a campfire, a drone flying a
 // route, a rock wall, a crate stack and a metal bridge, the cave's reverb zone, a wind zone and a storm front, and the
 // music. Also a voices readout as the test scene player would give it.
+import { importBaseScene, type BaseSceneImport } from "../../../engine/audio/spatial/baseScene";
 import { parseAudioTestScene } from "../../../engine/audio/spatial/testScene";
 import type { AudioTestScene } from "../../../engine/audio/spatial/testSceneTypes";
 import type { TestSceneVoiceRow } from "../../../plugins/audio/runtime/testScene/player";
@@ -57,3 +58,21 @@ export const fixtureVoices = (): TestSceneVoiceRow[] => [
   { id: "zone2", kind: "zone", playing: true, rendered: "ambisonic", distance: 26, occlusion: null, doppler: null, dopplerCents: null },
   { id: "sound1", kind: "sound2d", playing: true, rendered: "2d", distance: null, occlusion: null, doppler: null, dopplerCents: null },
 ];
+
+/** The game scene a fixture scene can name as its base: a ruined tower (walls with a stone occluder), a well, a fountain zone and a courtyard reverb. */
+export const FIXTURE_BASE_PATH = "scenes/canyon.scene.json";
+const baseFile = {
+  format: "myco.scene@4",
+  nodes: [
+    { id: "tower", name: "Tower", components: [{ type: "engine.Transform", data: { position: [40, 0, 30] } }, { type: "engine.AudioOccluder", data: { material: "stone" } }] },
+    { id: "north", name: "North wall", parent: "tower", components: [{ type: "engine.Transform", data: { position: [0, 0, 6] } }, { type: "engine.BoxCollider", data: { size: [12, 5, 1], center: [0, 2.5, 0] } }] },
+    { id: "pillar", name: "Pillar", parent: "tower", components: [{ type: "engine.Transform", data: { position: [-4, 0, 0] } }, { type: "engine.CapsuleCollider", data: { radius: 0.8, height: 5 } }] },
+    { id: "well", name: "Well", components: [{ type: "engine.Transform", data: { position: [58, 0, 22] } }, { type: "engine.AudioSource", data: { clip: "asset:audio/ambience/well_drip.wav", spatial: true } }] },
+    { id: "fountain", name: "Fountain", components: [{ type: "engine.Transform", data: { position: [12, 0, 28] } }, { type: "engine.AudioZone", data: { sound: "asset:audio/ambience/fountain.playlist.json", width: 8, depth: 8, top: 4 } }] },
+    { id: "yard", name: "Courtyard", components: [{ type: "engine.Transform", data: { position: [40, 0, 30] } }, { type: "engine.AudioReverbZone", data: { shape: "sphere", radius: 14, preset: "room" } }] },
+  ],
+};
+
+/** The fixture's base scene as the Spatial screen imports it (`base: null` reads as a missing scene). */
+export const fixtureBase = (path: string | null = FIXTURE_BASE_PATH): BaseSceneImport =>
+  importBaseScene(path ?? "scenes/gone.scene.json", { read: (p) => (path !== null && p === FIXTURE_BASE_PATH ? structuredClone(baseFile) : undefined) });

@@ -77,6 +77,17 @@
 .sp-listener.playing .sp-listener-ring { stroke-width: 3; }
 .sp-facing { stroke: var(--accent); stroke-width: 2; }
 .sp-plan .dim { opacity: 0.3; }
+/* The base game scene underneath (read-only): hatched outlines, never hit by the pointer */
+.sp-base { pointer-events: none; }
+.sp-base polygon, .sp-base circle, .sp-base rect { fill: none; stroke: var(--faint); stroke-width: 1; stroke-dasharray: 2 3; }
+.sp-base-collider polygon, .sp-base-collider circle, .sp-base-collider rect { fill: var(--border); fill-opacity: 0.6; stroke: var(--muted); }
+.sp-base-reverb polygon, .sp-base-reverb circle { stroke: var(--accent2); }
+.sp-base-azone polygon { stroke: var(--series-3); }
+.sp-base-emitter circle { fill: var(--bg-sunken); stroke: var(--muted); stroke-dasharray: none; }
+.sp-base .off { opacity: 0.4; }
+.sp-base-label { fill: var(--faint); font-size: 10px; font-style: italic; paint-order: stroke; stroke: var(--bg-sunken); stroke-width: 3px; }
+.sp-base-banner { color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-style: italic; }
+.sp-base-banner.warning { color: var(--danger); font-style: normal; }
 .sp-plan .hover polygon, .sp-plan .hover circle, .sp-plan .hover rect { stroke: var(--focus-ring); stroke-width: 2.5; }
 .sp-sel { fill: none; stroke: var(--focus-ring); stroke-width: 2; stroke-dasharray: 4 2; pointer-events: none; }
 .sp-handle { fill: var(--surface); stroke: var(--focus-ring); stroke-width: 1.5; }
