@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { DRAG_RAMP_MS } from "../../../../engine/audio/mixer";
 import { MIX_OP_NAMES, isProjectOp, opClass, type MixOp } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
+import { mixJsonOf, parseAudioProject } from "../../../../engine/audio/project/format";
 import { BUS_SLOT_FLAGS_STRUCTURAL, DRAG_RAMP_MS as WIRE_DRAG_RAMP_MS, FADER_COALESCE_MS, Op, readBusSlot } from "../wire.generated";
 import { closeRecordingAudio, recordingAudio } from "../testing";
 import { DeferredAdds } from "./deferredAdds";
@@ -80,6 +81,37 @@ describe("liveMix (Ma1)", () => {
       }
       backend.dispose();
     }
+  });
+
+  // ADR 0330: what the main thread moves of a bus's effects (a snapshot's override, a send following its return) reaches
+  // the core as one BUS_SLOT for that bus; the mix model's own ops send the old ops they change of the bus view.
+  it("the mixer's live effects reach the core: a snapshot override and a return's level are BUS_SLOTs for their buses", () => {
+    const project = parseAudioProject({
+      format: "myco.audio@1",
+      buses: [
+        { name: "Master", parent: null },
+        { name: "Music", parent: "Master", effects: [{ id: "fx1", type: "lowpass", params: { cutoff: 12000 } }] },
+        { name: "SFX", parent: "Master", sends: [{ to: "Reverb", levelDb: -6 }] },
+      ],
+      returns: [{ name: "Reverb", output: "Master", effects: [{ id: "fx1", type: "reverb", params: { mix: 100 } }] }],
+      snapshots: [{ name: "Under", fadeInMs: 0, effects: { Music: { fx1: { cutoff: 900 } } } }],
+    }).project;
+    const r = recordingAudio({ mixer: "own", settings: { ...parseAudioSettings({}).settings, mix: mixJsonOf(project) }, preset: { maxLogical: 16 } });
+    const slots = () => r.posted.takeOps(Op.BUS_SLOT).map((x) => readBusSlot(x.view, x.off));
+    r.tick(0.016);
+    r.posted.take();
+    r.mixer.startSnapshot("Under");
+    r.mixer.update(0.016); // the rig's tick runs the backend's frame only
+    r.tick(0.016);
+    const music = slots().filter((x) => x.slot === 1);
+    expect(music.at(-1)!.effects.map((e) => [e.type, e.p[0]])).toEqual([[0, 900]]);
+    r.mixer.apply({ op: "setReturn", name: "Reverb", ret: { name: "Reverb", output: "Master", volumeDb: -6, mute: false, effects: project.returns[0]!.effects } });
+    r.mixer.update(0.016);
+    r.tick(0.016);
+    const sfx = slots().filter((x) => x.slot === 2);
+    expect(sfx.at(-1)!.effects[0]!.type).toBe(3);
+    expect(sfx.at(-1)!.effects[0]!.p[0]).toBeCloseTo(Math.pow(10, -12 / 20), 6);
+    r.backend.dispose();
   });
 
   it("a structural op with no dip bound is kept for the next Play and changes nothing (a backend with no live path)", () => {
