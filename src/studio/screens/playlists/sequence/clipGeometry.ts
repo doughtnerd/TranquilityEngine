@@ -29,10 +29,10 @@ function stripUndefined<T extends object>(o: T): Partial<T> {
 }
 
 /** Where the clip starts in the sample's file time. */
-export const sourceStart = (c: Clip, src: SourceFacts | null): number => (src?.start ?? 0) + c.offset;
+const sourceStart = (c: Clip, src: SourceFacts | null): number => (src?.start ?? 0) + c.offset;
 
 /** The loop the clip's passes repeat: the first loop that ends after the clip's start (proto: only the first drives). */
-export function drivingLoop(c: Clip, src: SourceFacts | null): ClipLoop | null {
+function drivingLoop(c: Clip, src: SourceFacts | null): ClipLoop | null {
   const s0 = sourceStart(c, src);
   return clipLoops(c, src).find((l) => l.end > s0 || (l.start === l.end && l.start >= s0)) ?? null;
 }

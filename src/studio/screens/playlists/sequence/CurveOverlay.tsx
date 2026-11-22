@@ -24,7 +24,7 @@ export interface CurveOverlayProps {
 }
 
 /** A value → y in a box `height` tall (log for frequencies, top is max). */
-export function valueToY(v: number, spec: CurveOverlayProps["spec"], height: number): number {
+function valueToY(v: number, spec: CurveOverlayProps["spec"], height: number): number {
   const pad = 4;
   const h = Math.max(1, height - pad * 2);
   let f: number;

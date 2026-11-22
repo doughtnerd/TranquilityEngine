@@ -8,8 +8,8 @@ import type { Clip, SequenceLoop, SequenceMarker, SequenceSettings } from "../..
 import { accept, refuse, type EditResult } from "../../../../plugins/audio/editor/editResult";
 import { isTimeInput, MAX_KEYS, ownerOf, setAutomation, type AutomationOwner } from "./automationEdits";
 import { MAX_SEQUENCE_LOOPS, MAX_SEQUENCE_MARKERS } from "./loopMarkerEdits";
+import { shiftKey } from "./curveCut";
 import { MAX_CLIPS } from "./sequenceEdits";
-import { shiftKey } from "./sequenceEdits";
 import type { SeqSelection } from "./sequenceSelection";
 import { allClips, clipIds, findClip, fitsTrack, nextIds, tidy, trackIndex } from "./sequenceModel";
 

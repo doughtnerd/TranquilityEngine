@@ -5,8 +5,8 @@ import { addAutomation, addPoint, addVolumeEnvelope, deletePoints, movePoints, r
 import { addLoop, addMarker, clearLoopOverride, deleteLoops, makeHoldPoint, moveLoop, nudgeLoopsAndMarkers, renameMarker, setLoopBehaviour, setLoopEdge, setLoopOverride, setMarkerHidden, setMarkerType } from "./loopMarkerEdits";
 import { copySelection, paste, pasteLabel } from "./sequenceClipboard";
 import {
-  addPlaylistClip, addSampleClip, addSampleOnNewTrack, addTrack, cutCurve, deleteClips, duplicateClips, duplicateTrack, moveClips, moveClipsToAdjacentTrack, moveTrack, nudgeClipEdge,
-  removeTracks, setClip, setClipEffects, setClipLength, setMeter, setSequenceLength, setTempo, setTrack, splitClip, toggleClipsEnabled, trackNameFor, trimClipStart, trimToPlayhead,
+  addPlaylistClip, addSampleClip, addSampleOnNewTrack, addTrack, deleteClips, duplicateClips, duplicateTrack, moveClips, moveClipsToAdjacentTrack, moveTrack, nudgeClipEdge,
+  removeTracks, setClip, setClipEffects, setClipLength, setMeter, setSequenceLength, setTempo, setTrack, splitClip, toggleClipsEnabled, trimClipStart, trimToPlayhead,
 } from "./sequenceEdits";
 import { FIXTURE_SELF, fixtureSequence, fixtureSource, loadFixturePlaylist } from "./sequenceFixture";
 import { findClip } from "./sequenceModel";
@@ -60,7 +60,7 @@ describe("adding clips", () => {
     const s = ok(addSampleOnNewTrack(seq, "audio/brake_skid_02.wav", 1, { length: 2, loops: [], markers: [] }));
     expect(s.tracks[4]).toMatchObject({ name: "Brake", kind: "audio" });
     expect(s.tracks[4]!.clips[0]).toMatchObject({ at: 1, length: 2 });
-    expect(trackNameFor("x/hit-metal.sample.json")).toBe("Hit");
+    expect(ok(addSampleOnNewTrack(seq, "x/hit-metal.sample.json", 0, null)).tracks[4]!.name).toBe("Hit");
   });
 });
 
@@ -113,9 +113,6 @@ describe("moving, trimming, splitting", () => {
     expect(why(splitClip(seq, "c1", 2.995, fixtureSource))).toBe("Split point must be inside the clip");
   });
 
-  it("cuts a curve with keys holding the value at each cut", () => {
-    expect(cutCurve([[0, 0], [2, 2]], 0.5, 1.5)).toEqual([[0, 0.5], [1, 1.5]]);
-  });
 });
 
 describe("clip lists and fields", () => {

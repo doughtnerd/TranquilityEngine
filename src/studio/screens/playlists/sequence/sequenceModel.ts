@@ -66,10 +66,10 @@ export function clipLength(c: Clip, src: SourceFacts | null): number {
   return c.playlist !== undefined ? PLAYLIST_CLIP_LENGTH : 1;
 }
 
-export const clipEnd = (c: Clip, src: SourceFacts | null): number => c.at + clipLength(c, src);
+const clipEnd = (c: Clip, src: SourceFacts | null): number => c.at + clipLength(c, src);
 
 /** The end of the longest clip (0 with none). */
-export function contentEnd(s: SequenceSettings, sourceOf: SourceOf): number {
+function contentEnd(s: SequenceSettings, sourceOf: SourceOf): number {
   let end = 0;
   for (const t of s.tracks) for (const c of t.clips) end = Math.max(end, clipEnd(c, sourceOf(c)));
   return end;

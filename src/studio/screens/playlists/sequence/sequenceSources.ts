@@ -29,7 +29,7 @@ function resolveSample(p: EditorProject, path: string): { file: string; base: nu
 }
 
 /** A sample's facts for the timeline (length null until its peaks are read). */
-export function sampleFacts(p: EditorProject, path: string): SourceFacts {
+function sampleFacts(p: EditorProject, path: string): SourceFacts {
   const { file, base, edits } = resolveSample(p, path);
   const fileLength = lengthOf(p, file);
   const trim = edits?.trim ?? null;

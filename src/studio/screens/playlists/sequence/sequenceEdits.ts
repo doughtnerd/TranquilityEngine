@@ -1,12 +1,12 @@
 // The Sequence timeline's track, clip and sequence edits (proto §3.3–3.4; labels from the Sequencer's history list,
 // proto §3.1). Each is a pure `SeqEdit`: the next `sequence` block, or why it was refused (nothing changes). The view
 // applies one per gesture through the screen's `applyEdit` path, so every edit is one labelled undo step. Pure.
-import { evalCurve, type Curve, type CurveKey } from "../../../../engine/core/curve";
 import type { Effect } from "../../../../engine/audio/effects/types";
 import { wouldContain } from "../../../../engine/audio/playlist/references";
 import type { Automation, Clip, PlaylistBody, SequenceSettings, Track } from "../../../../engine/audio/playlist/types";
 import { accept, refuse, type EditResult } from "../../../../plugins/audio/editor/editResult";
 import { clipPlan, clipToSource } from "./clipGeometry";
+import { cutCurve } from "./curveCut";
 import {
   allClips, clipIds, clipLength, findClip, fitsTrack, kindRefusal, mapClips, mapTrack, MIN_CLIP_LENGTH, nextId, nextIds, PLAYLIST_CLIP_LENGTH, tidy, trackIndex,
   type SourceFacts, type SourceOf,
@@ -93,7 +93,7 @@ export function setTrackEffects(s: SequenceSettings, id: string, effects: Effect
   return accept(mapTrack(s, id, (t) => ({ ...t, effects, automation: keepFxAutomation(t.automation, effects) })));
 }
 
-export function keepFxAutomation(list: readonly Automation[], effects: readonly Effect[]): Automation[] {
+function keepFxAutomation(list: readonly Automation[], effects: readonly Effect[]): Automation[] {
   return list.filter((a) => !a.target.startsWith("fx:") || effects.some((e) => e.id === a.target.split(":")[1]));
 }
 
@@ -123,7 +123,7 @@ export function addSampleClip(s: SequenceSettings, trackId: string, sample: stri
 }
 
 /** A track name from a sample path's prefix ("audio/brake_skid_02.wav" → "brake"). */
-export function trackNameFor(sample: string): string {
+function trackNameFor(sample: string): string {
   const file = sample.slice(sample.lastIndexOf("/") + 1).replace(/\.(sample\.json|wav|ogg|mp3|flac|m4a)$/i, "");
   const head = file.split(/[_\-\s.]+/).find(Boolean) ?? "Audio";
   return head.charAt(0).toUpperCase() + head.slice(1);
@@ -283,22 +283,6 @@ export function splitClip(s: SequenceSettings, id: string, t: number, sourceOf: 
 }
 
 const isClipTime = (a: Automation) => a.input === "clipTime" || a.input === "voiceTime";
-
-/** The part of `curve` over `[from, to]`, moved to start at 0, with keys at both cuts holding the curve's value there. */
-export function cutCurve(curve: Curve, from: number, to: number): CurveKey[] {
-  const inside = curve.filter((k) => k[0] > from + 1e-9 && k[0] < to - 1e-9).map((k) => shiftKey(k, -from));
-  const startKey: CurveKey = [0, evalCurve(curve, from)];
-  const endKey: CurveKey = [tidy(to - from), evalCurve(curve, to)];
-  const hasAt = (x: number) => curve.some((k) => Math.abs(k[0] - x) < 1e-9);
-  const first = hasAt(from) ? shiftKey(curve.find((k) => Math.abs(k[0] - from) < 1e-9)!, -from) : startKey;
-  const last = hasAt(to) ? shiftKey(curve.find((k) => Math.abs(k[0] - to) < 1e-9)!, -from) : endKey;
-  return [first, ...inside, last];
-}
-
-export function shiftKey(k: CurveKey, dx: number): CurveKey {
-  const x = tidy(k[0] + dx);
-  return k.length === 2 ? [x, k[1]] : k[2] === "bezier" ? [x, k[1], "bezier", (k as readonly [number, number, "bezier", never])[3]] : [x, k[1], k[2]];
-}
 
 // --- clip lists ------------------------------------------------------------------------------------------------------
 

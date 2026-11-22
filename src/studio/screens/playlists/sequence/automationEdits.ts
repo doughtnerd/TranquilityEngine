@@ -15,8 +15,6 @@ type R = EditResult<SequenceSettings>;
 /** Whose automation: a clip's or a track's. */
 export type AutomationOwner = { readonly clip: string } | { readonly track: string };
 
-export const ownerKey = (o: AutomationOwner): string => ("clip" in o ? `c:${o.clip}` : `t:${o.track}`);
-
 /** The format's lane limit (ADR 0329). */
 export const MAX_AUTOMATION = 32;
 export const MAX_KEYS = 64;
@@ -205,12 +203,6 @@ export function setAutomation(s: SequenceSettings, o: AutomationOwner, id: strin
 
 /** "Remove automation". */
 export const removeAutomation = (s: SequenceSettings, o: AutomationOwner, id: string): R => mapAutomation(s, o, id, () => null);
-
-/** The value of an owner's automation of `target` at time `t` (null without a time lane for it). */
-export function automationValue(a: Automation | undefined, t: number): number | null {
-  if (!a || a.bypass || !isTimeInput(a.input)) return null;
-  return evalCurve(a.curve, t);
-}
 
 /** Touch writing keeps a key every this many seconds (proto: the control writes every 60 ms while held). */
 export const WRITE_INTERVAL = 0.06;

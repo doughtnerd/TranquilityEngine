@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { lintPlaylist } from "../../../../engine/audio/playlist/lint";
 import { clipChips, clipFollows, clipLoops, clipMarkers, clipPlan, clipToSource, loopBand, wavePieces } from "./clipGeometry";
 import { fixtureBody, fixtureSequence, fixtureSource } from "./sequenceFixture";
-import { beatSeconds, beatsPerBar, DEFAULT_SNAP, keepTaps, snapSpan, snapStep, snapTime, tapTempo } from "./sequenceGrid";
+import { beatSeconds, beatsPerBar, DEFAULT_SNAP, keepTaps, nudgeStep, snapSpan, snapTime, tapTempo } from "./sequenceGrid";
 import { clipLength, findClip, nextId, onSequence, sequenceLength } from "./sequenceModel";
 import { clickClip, clickPoint, EMPTY_SELECTION, marqueeSelect, pressClip, pruneSelection, selectAll, selectLoop } from "./sequenceSelection";
 import { clampTimeline, fitTimeline, followView, rowAt, snapEdges, thumbOf, trackIndexAt, trackRows, viewFromThumb, zoomTimeline } from "./timelineLayout";
@@ -37,10 +37,12 @@ describe("grid and snapping", () => {
     expect(beatSeconds(null)).toBe(0.5);
     expect(beatSeconds({ bpm: 90, meter: "3/4" })).toBeCloseTo(2 / 3);
     expect(beatsPerBar({ bpm: 90, meter: "3/4" })).toBe(3);
-    expect(snapStep({ ...DEFAULT_SNAP, mode: "bar" }, { bpm: 120, meter: "4/4" })).toBe(2);
-    expect(snapStep({ ...DEFAULT_SNAP, mode: "1000smp" }, null)).toBeCloseTo(1000 / 48000);
-    expect(snapStep({ ...DEFAULT_SNAP, mode: "custom", custom: 0.3 }, null)).toBe(0.3);
-    expect(snapStep({ ...DEFAULT_SNAP, mode: "off" }, null)).toBe(0);
+    // The nudge step is the grid's (10 ms with the grid off).
+    expect(nudgeStep({ ...DEFAULT_SNAP, mode: "bar" }, { bpm: 120, meter: "4/4" })).toBe(2);
+    expect(nudgeStep({ ...DEFAULT_SNAP, mode: "1000smp" }, null)).toBeCloseTo(1000 / 48000);
+    expect(nudgeStep({ ...DEFAULT_SNAP, mode: "custom", custom: 0.3 }, null)).toBe(0.3);
+    expect(nudgeStep({ ...DEFAULT_SNAP, mode: "off" }, null)).toBe(0.01);
+    expect(snapTime(0.333, { snap: { ...DEFAULT_SNAP, mode: "off", edges: false }, tempo: null, span: 10, edges: [] })).toBe(0.333);
   });
 
   it("snaps to an edge within 0.8 % of the visible span, else to the grid", () => {

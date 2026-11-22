@@ -47,7 +47,7 @@ export function beatsPerBar(tempo: SequenceSettings["tempo"]): number {
 }
 
 /** The grid step of `snap` in seconds, or 0 when snapping to the grid is off. */
-export function snapStep(snap: SnapSetting, tempo: SequenceSettings["tempo"]): number {
+function snapStep(snap: SnapSetting, tempo: SequenceSettings["tempo"]): number {
   const beat = beatSeconds(tempo);
   switch (snap.mode) {
     case "quarter": return beat / 4;

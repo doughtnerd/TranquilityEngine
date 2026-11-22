@@ -273,7 +273,7 @@ export function SequenceInspector(props: SequenceInspectorProps) {
       return (
         <div class="sq-inspector">
           <Section title={hold ? "Hold point" : "Loop"} note={hold ? "The playhead parks here while it is active." : "The playhead wraps from its end to its start while it is active."}>
-            <FieldRow label={hold ? "At" : "Start"} unit="s"><NumberBox label="Loop start" value={l.start} min={0} step={0.01} digits={3} disabled={!writable} onValue={(v) => runSeq("Loop start", (q) => (hold ? moveLoop(q, l.id, v - l.start) : setLoopEdge(q, l.id, "start", v)))} /></FieldRow>
+            <FieldRow label={hold ? "At" : "Start"} unit="s"><NumberBox label="Loop start" value={l.start} min={0} step={0.01} digits={3} disabled={!writable} onValue={(v) => runSeq(hold ? "Move loop" : "Loop start", (q) => (hold ? moveLoop(q, l.id, v - l.start) : setLoopEdge(q, l.id, "start", v)))} /></FieldRow>
             {!hold && <FieldRow label="End" unit="s"><NumberBox label="Loop end" value={l.end} min={0} step={0.01} digits={3} disabled={!writable} onValue={(v) => runSeq("Loop end", (q) => setLoopEdge(q, l.id, "end", v))} /></FieldRow>}
             {behaviourFields(l, (label, patch) => runSeq(label, (q) => setLoopBehaviour(q, l.id, patch)))}
             {!hold && <button type="button" class="pl-small" disabled={!writable} onClick={() => runSeq("Make hold point", (q) => makeHoldPoint(q, l.id))}>Make hold point</button>}
