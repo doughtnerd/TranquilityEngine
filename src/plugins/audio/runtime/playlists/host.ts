@@ -19,6 +19,7 @@ import { mixer } from "../../../../engine/audio/mixer";
 import { isLabelled, parameterDefault, parameterRange, type ParameterDef } from "../../../../engine/audio/parameters";
 import { audioBackend, onMixOpSent, type AudioBackend } from "../backend";
 import { warnOnce } from "../core/handle";
+import { clipDuration } from "../clipResolver";
 import { taps } from "../mix/profileTaps";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { onAudioSessionReleased } from "../audioSession";
@@ -224,9 +225,9 @@ export class PlaylistHost {
     try { return audioBackend().clock?.horizon() ?? null; } catch { return null; }
   }
 
-  /** @internal A clip's length in seconds at pitch 1, or null. */
+  /** @internal A clip's length in seconds at pitch 1, or null (a derived sample's: its source file's, ADR 0328). */
   clipLength(path: string): number | null {
-    try { return audioBackend().clipCache?.clipDuration(path) ?? null; } catch { return null; }
+    return clipDuration(path);
   }
 
   /** @internal A curve's id on the backend, defined on first use. Null (with a warning) once the table is full. */

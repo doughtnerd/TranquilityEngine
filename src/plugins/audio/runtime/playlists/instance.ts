@@ -25,12 +25,11 @@ import { AudioListener, listenerPose } from "../AudioListener";
 import { CURVE_DRIVEN_ATTENUATION, curveDbToGain, evalAttenuation, FLAT_SEND_CURVE, LOWPASS_OFF_HZ, type AttenuationAt, type AttenuationCurveSet } from "../core/spatial";
 import { isLabelled, parameterDefault, type ParameterDef } from "../../../../engine/audio/parameters";
 import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
-import { clipRequest, samplePlan } from "../clipResolver";
+import { clipRequest, sampleEdits, samplePlan } from "../clipResolver";
 import { warnOnce } from "../core/handle";
 import { playlistHost } from "./host";
 import { startOffsetOf, type EventOptions } from "./options";
 import { MAX_BINDINGS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type Binding, type ParamRef, type VoiceLoop } from "../automation";
-import { Assets } from "../../../../engine/scene/Assets";
 import { anchorTimeCurves, coreTimeBindings, evalTimeCurves, staticPanBinding } from "./curves";
 import { PlaylistBeats, type PlaylistBeatKind } from "./beatCallbacks";
 import { instanceChain } from "./effects";
@@ -790,7 +789,7 @@ export class PlaylistInstance implements NodeHost {
     const region = { start: trim?.[0] ?? 0, end: trim?.[1] ?? 0 };
     if (entry.loop === "off") return null;
     if (entry.loop === "on") return { ...region, behaviour: HELD, looping: true };
-    const loops = Assets.importSettings(entry.sample).sample?.loops ?? [];
+    const loops = sampleEdits(entry.sample)?.loops ?? [];
     if (plan.loop || loops.length > 0) {
       if (loops.length > MAX_VOICE_LOOPS) warnOnce(`playlist:loops:${entry.sample}`, `[myco] ${entry.sample}: a voice plays at most ${MAX_VOICE_LOOPS} loops; the rest are ignored.`);
       const program: VoiceLoop[] = [];
