@@ -4,10 +4,14 @@
  * **`coreSectionOf(project)`** is what the runtime's mixer hands its backends (`Mixer.audioSettings`): the bus tree
  *   the audio core's slots and the Web Audio fallback's nodes are built from. Levels are each bus's fader alone (the
  *   mixer runs VCAs as their own gain lane), the effects the backends' bus chains run (every type the audio core runs, `CORE_EFFECT_TYPES`, ADR 0331 ABI 4.6: legacy low-pass, high-pass and compressor when exact, else catalogue effects, `coreBusEffect`),
- *   a send to a return that holds a reverb as the core's reverb send (its level plus the return's, 0 while the return is
- *   muted), ducking and the `volume` and low-pass automation the core runs. The
- *   mixer itself runs everything else on the main thread from the `AudioProject` (snapshots, VCAs, returns' lanes,
- *   effect-parameter overrides, send and effect automation): `warnings` lists only what nothing runs yet.
+ *   each bus's sends (`BusSettings.sends`, linear levels), ducking and the `volume` and low-pass automation the core
+ *   runs. **Returns are buses** of the section (ADR 0330, ABI 4.7: the core's bus-to-return sends): each after the
+ *   project's buses, under its own name (names are unique across buses, returns and VCAs), its `output` as the parent,
+ *   its fader, mute and inserts; the sends into it are post-fader `sends` of the buses that feed it. The mixer itself
+ *   runs everything else on the main thread from the `AudioProject` (snapshots, VCAs, effect-parameter overrides, send
+ *   and effect automation, send muting): `warnings` lists only what nothing runs yet.
+ *   The Web Audio fallback runs no bus effects and no sends (ADR 0331's fallback rule), so it needs nothing folded: a
+ *   return is a silent bus there.
  * `mergeLegacyIntoProject` (`legacy.ts`) writes an edit of it back. It carries the snapshots in the old shape
  * (multipliers and the carrier low-pass), so the old ops that name them by index (ADR 0171) still find them; the
  * runtime's mixer doesn't read them. (The editor's legacy panels had a second view with VCAs folded into the levels,
@@ -16,10 +20,10 @@
  * Pure; no plugin, no DOM.
  */
 import type { Curve, CurveKey } from "../../core/curve";
-import { coreRuns, type CoreEffectType } from "../busCapability";
+import { BUS_RULES, MAX_BUSES, coreRuns, findingText, type CoreEffectType } from "../busCapability";
 import type { Effect } from "../effects/types";
 import {
-  DEFAULT_BED_PRIORITY, DEFAULT_LOUDNESS_TARGETS, ROOT_BED_PRIORITY,
+  DEFAULT_BED_PRIORITY, DEFAULT_LOUDNESS_TARGETS, MAX_SEND_LEVEL, ROOT_BED_PRIORITY,
   type AudioSettings, type BusAutomation, type BusEffect, type BusSettings, type DuckingRule as RuntimeDuckingRule, type LoudnessTarget, type SnapshotSettings,
 } from "../settings";
 import { DEFAULT_SUBMIXES } from "./format";
@@ -40,7 +44,10 @@ export function vcaOffsetDb(project: Pick<AudioProject, "buses" | "vcas">, name:
   return db;
 }
 
-/** The return a bus's reverb send stands for: the first of its sends to a return with an `on` reverb. */
+/**
+ * The return a bus's old-shape reverb send stands for: the first of its sends to a return with an `on` reverb. The
+ * migration's and the legacy merge's (an old section's `reverb` effect); the runtime's view sends into returns directly.
+ */
 export function reverbSendOf(project: Pick<AudioProject, "returns">, bus: Bus): { send: Send; ret: Return } | null {
   for (const send of bus.sends) {
     const ret = project.returns.find((r) => r.name === send.to);
@@ -50,9 +57,9 @@ export function reverbSendOf(project: Pick<AudioProject, "returns">, bus: Bus): 
 }
 
 /**
- * ADR 0331 (ABI 4.6): true when the audio core's bus chain runs `e` on `owner` in the backends' view: switched on, a
- * type the core runs (`CORE_EFFECT_TYPES`), and not a low-pass carrier (`isCarrier`: the old snapshot and automation
- * low-pass stand for it).
+ * ADR 0331 (ABI 4.6): true when the audio core's bus chain runs `e` on `owner` (a bus or a return) in the backends'
+ * view: switched on, a type the core runs (`CORE_EFFECT_TYPES`), and not a low-pass carrier (`isCarrier`: the old
+ * snapshot and automation low-pass stand for it).
  */
 export const coreShown = (project: Pick<AudioProject, "snapshots" | "automation">, owner: string, e: Effect): boolean =>
   e.on && coreRuns(e.type) && !isCarrier(project, owner, e);
@@ -70,44 +77,42 @@ export function coreBusEffect(e: Effect): BusEffect {
   return { type: "fx", fx: e.type as CoreEffectType, params: structuredClone(e.params), ...(e.key ? { key: e.key } : {}) };
 }
 
-/**
- * What each entry of a bus's effect list in the section stands for, in order: an effect of the bus (its id), or its
- * send to a return (the core's reverb send).
- */
-export type SectionEffectSource = { readonly kind: "fx"; readonly id: string } | { readonly kind: "send"; readonly to: string };
+/** A send's linear level in the section (`BusSettings.sends`): its dB as a gain, capped at the core's +12 dB. */
+export const sendLevelOf = (levelDb: number): number => clampGain(dbToGain(levelDb), MAX_SEND_LEVEL);
 
-/** The section's bus effects of `bus`, with what each stands for (the shown effects in order, then the reverb send). */
-export function sectionEffectsOf(project: Pick<AudioProject, "snapshots" | "automation" | "returns">, bus: Bus): SectionEffectSource[] {
-  const out: SectionEffectSource[] = bus.effects.filter((e) => coreShown(project, bus.name, e)).map((e) => ({ kind: "fx", id: e.id }));
-  const reverb = reverbSendOf(project, bus);
-  if (reverb) out.push({ kind: "send", to: reverb.send.to });
-  return out;
+/**
+ * ADR 0330: the returns the section holds as buses, in the project's order: those that fit in the core's slots after the
+ * buses (`MAX_BUSES`, slots shared with buses).
+ */
+export function sectionReturnsOf(project: Pick<AudioProject, "buses" | "returns">): Return[] {
+  return project.returns.slice(0, Math.max(0, MAX_BUSES - project.buses.length));
 }
 
 const clampGain = (g: number, max: number) => Math.min(max, Math.max(0, g));
 const curveToGain = (curve: Curve): CurveKey[] => curve.map((k) => (k.length === 3 ? [k[0], dbToGain(k[1]), k[2]] : [k[0], dbToGain(k[1])]) as CurveKey);
 
-/** The section bus of `bus` (warnings into `warn`): its fader alone (the mixer runs VCAs as a lane). */
-function sectionBus(project: AudioProject, bus: Bus, warn: (line: string) => void): BusSettings {
-  const root = bus.parent === null;
-  const out: BusSettings = { name: bus.name, ...(root ? {} : { parent: bus.parent! }), volume: clampGain(dbToGain(bus.volumeDb), 2), mute: bus.mute, effects: [] };
-  for (const e of bus.effects) {
+/** The effects the core runs of `owner`'s chain (warnings into `warn`). */
+function sectionEffects(project: AudioProject, owner: { name: string; effects: Effect[] }, kind: "bus" | "return", warn: (line: string) => void): BusEffect[] {
+  const out: BusEffect[] = [];
+  for (const e of owner.effects) {
     // Every type the core's bus chain runs (ADR 0331).
-    if (coreShown(project, bus.name, e)) {
-      out.effects.push(coreBusEffect(e));
-      if (e.type === "sidechainCompressor" && !project.buses.some((b) => b.name === e.key)) warn(`bus "${bus.name}": the sidechain compressor "${e.id}" has no key bus; it doesn't compress until it has one.`);
-    } else if (e.on && !isCarrier(project, bus.name, e)) warn(`bus "${bus.name}": the ${e.type} effect "${e.id}" doesn't run on a bus (ADR 0331); left out.`);
+    if (coreShown(project, owner.name, e)) {
+      out.push(coreBusEffect(e));
+      if (e.type === "sidechainCompressor" && !project.buses.some((b) => b.name === e.key) && !project.returns.some((r) => r.name === e.key)) warn(`${kind} "${owner.name}": the sidechain compressor "${e.id}" has no key bus; it doesn't compress until it has one.`);
+    } else if (e.on && !isCarrier(project, owner.name, e)) warn(`${kind} "${owner.name}": the ${e.type} effect "${e.id}" doesn't run on a ${kind} (ADR 0331); left out.`);
   }
-  const reverb = reverbSendOf(project, bus);
-  for (const s of bus.sends) {
-    if (reverb && s === reverb.send) {
-      // A muted return silences the send. A muted bus silences its sends too (ADR 0330), but that is the mixer's to run
-      // (with script and monitor mutes, `Mixer`'s live effects), so the authored view stays an exact image of the file.
-      const g = reverb.ret.mute ? 0 : dbToGain(s.levelDb + reverb.ret.volumeDb);
-      if (g > 1) warn(`bus "${bus.name}": the send to "${s.to}" is above the audio core's reverb send of 1; using 1.`);
-      out.effects.push({ type: "reverb", send: clampGain(g, 1) });
-    } else warn(`bus "${bus.name}": the send to "${s.to}" needs the audio core's bus sends (a return without a reverb, or a second send); left out until then.`);
-  }
+  return out;
+}
+
+/** The section bus of `bus` (warnings into `warn`): its fader alone (the mixer runs VCAs as a lane), its sends into the returns in `returns`. */
+function sectionBus(project: AudioProject, bus: Bus, returns: ReadonlySet<string>, warn: (line: string) => void): BusSettings {
+  const root = bus.parent === null;
+  const out: BusSettings = { name: bus.name, ...(root ? {} : { parent: bus.parent! }), volume: clampGain(dbToGain(bus.volumeDb), 2), mute: bus.mute, effects: sectionEffects(project, bus, "bus", warn) };
+  // ADR 0330: post-fader sends at their authored level. Mutes (the bus's, a script's, a monitor's) are the mixer's to run
+  // (the core's `BUS_SEND_MUTED`), so the authored view stays an exact image of the file.
+  const sends = bus.sends.filter((s) => returns.has(s.to)).map((s) => ({ to: s.to, level: sendLevelOf(s.levelDb) }));
+  if (sends.length > 0) out.sends = sends;
+  if (sends.length > BUS_RULES.sendsPerBus.limit) warn(findingText("sendsPerBus", `bus "${bus.name}"`));
   if (bus.voiceLimit !== null) out.maxVoices = bus.voiceLimit;
   if (root) {
     if (bus.bed && bus.bed.priority !== ROOT_BED_PRIORITY) out.bedPriority = bus.bed.priority;
@@ -120,30 +125,37 @@ function sectionBus(project: AudioProject, bus: Bus, warn: (line: string) => voi
   return out;
 }
 
+/** ADR 0330: the section bus of return `r`: its output as the parent, its fader, mute and inserts; no voices, bed or meter of its own. */
+function sectionReturn(project: AudioProject, r: Return, warn: (line: string) => void): BusSettings {
+  return { name: r.name, parent: r.output, volume: clampGain(dbToGain(r.volumeDb), 2), mute: r.mute, effects: sectionEffects(project, r, "return", warn) };
+}
+
 /** The mix keys of the section (engine keys left out: the caller adds its own). */
 export type MixSection = Pick<AudioSettings, "buses" | "snapshots" | "ducking" | "parameters" | "automation" | "loudnessTargets" | "loudnessResetOnPlay">;
 
 function sectionOf(project: AudioProject, warnings: string[]): MixSection {
   const warn = (line: string) => void warnings.push(line);
+  const fitting = sectionReturnsOf(project);
+  for (const r of project.returns.slice(fitting.length)) warn(`return "${r.name}": the audio core has ${MAX_BUSES} bus slots, buses and returns together; left out with the sends into it.`);
+  const returns = new Set(fitting.map((r) => r.name));
   const isBus = (name: string) => project.buses.some((b) => b.name === name);
+  const isOwner = (name: string) => isBus(name) || returns.has(name);
+  const ownerOf = (name: string) => project.buses.find((b) => b.name === name) ?? fitting.find((r) => r.name === name);
   const out: MixSection = { buses: [], snapshots: [], ducking: [], parameters: structuredClone(project.parameters), automation: [] };
-  out.buses = project.buses.map((b) => sectionBus(project, b, warn));
-  for (const r of project.returns) {
-    for (const e of r.effects) if (e.on && e.type !== "reverb") warn(`return "${r.name}": the ${e.type} effect "${e.id}" needs the audio core's return inserts; left out until then.`);
-  }
+  out.buses = [...project.buses.map((b) => sectionBus(project, b, returns, warn)), ...fitting.map((r) => sectionReturn(project, r, warn))];
 
   for (const s of project.snapshots) {
     const snap: SnapshotSettings = { name: s.name, volumes: {}, lowpass: {} };
     for (const [name, db] of Object.entries(s.buses)) {
-      if (isBus(name)) snap.volumes[name] = clampGain(dbToGain(db), 2);
+      if (isOwner(name)) snap.volumes[name] = clampGain(dbToGain(db), 2);
     }
     for (const [name, byId] of Object.entries(s.effects)) {
-      const bus = project.buses.find((b) => b.name === name);
+      const owner = ownerOf(name);
       for (const [id, params] of Object.entries(byId)) {
-        const e = bus?.effects.find((x) => x.id === id);
+        const e = owner?.effects.find((x) => x.id === id);
         for (const [p, v] of Object.entries(params)) {
-          if (bus && e?.type === "lowpass" && p === "cutoff") snap.lowpass[name] = Math.min(snap.lowpass[name] ?? Infinity, v);
-          else if (!e || !coreShown(project, name, e as Effect)) warn(`snapshot "${s.name}": the override of ${name} ${id}.${p} names an effect the bus doesn't run; left out.`);
+          if (owner && e?.type === "lowpass" && p === "cutoff") snap.lowpass[name] = Math.min(snap.lowpass[name] ?? Infinity, v);
+          else if (!e || !coreShown(project, name, e as Effect)) warn(`snapshot "${s.name}": the override of ${name} ${id}.${p} names an effect the ${returns.has(name) ? "return" : "bus"} doesn't run; left out.`);
         }
       }
     }
@@ -152,7 +164,9 @@ function sectionOf(project: AudioProject, warnings: string[]): MixSection {
 
   for (const d of project.ducking) {
     if (!d.enabled) continue;
-    if (!isBus(d.target) || !isBus(d.trigger)) { warn(`ducking: "${d.trigger}" ducking "${d.target}" needs the audio core's return slots; left out until then.`); continue; }
+    if (!isOwner(d.target) || !isOwner(d.trigger)) continue; // a return left out of the slots (warned above)
+    // A presence rule ducks while its trigger has voices; a return has none of its own (it is fed by sends only).
+    if (d.mode === "presence" && returns.has(d.trigger)) warn(`ducking: "${d.trigger}" is a return, which plays no sounds of its own, so its presence rule on "${d.target}" never ducks; use a level rule.`);
     const rule: RuntimeDuckingRule = { target: d.target, trigger: d.trigger, mode: d.mode, amount: clampGain(dbToGain(d.amountDb), 1), attack: secondsOf(d.attackMs), release: secondsOf(d.releaseMs) };
     if (d.mode === "level") { rule.detector = d.detector; rule.threshold = d.thresholdDb; }
     out.ducking.push(rule);
@@ -160,12 +174,12 @@ function sectionOf(project: AudioProject, warnings: string[]): MixSection {
 
   for (const a of project.automation) {
     if (a.bypass) continue;
-    const bus = project.buses.find((b) => b.name === a.on);
+    const owner = ownerOf(a.on);
     let entry: BusAutomation | null = null;
-    if (bus && a.target === "volume") entry = { bus: bus.name, parameter: a.parameter, target: "volume", curve: curveToGain(a.curve) };
-    else if (bus && a.target.startsWith("fx:")) {
+    if (owner && a.target === "volume") entry = { bus: owner.name, parameter: a.parameter, target: "volume", curve: curveToGain(a.curve) };
+    else if (owner && a.target.startsWith("fx:")) {
       const [, id, p] = a.target.split(":");
-      if (p === "cutoff" && bus.effects.find((e) => e.id === id)?.type === "lowpass") entry = { bus: bus.name, parameter: a.parameter, target: "lowpass", curve: structuredClone(a.curve) as CurveKey[] };
+      if (p === "cutoff" && owner.effects.find((e) => e.id === id)?.type === "lowpass") entry = { bus: owner.name, parameter: a.parameter, target: "lowpass", curve: structuredClone(a.curve) as CurveKey[] };
     }
     if (entry) out.automation.push(entry);
   }
@@ -191,8 +205,8 @@ export function engineSectionOf(project: AudioProject, warnings: string[] = []):
 }
 
 /**
- * The backends' view of `project` (see the header): its engine settings and the bus tree the backends build, levels
- * without VCAs. What nothing in the runtime runs yet goes to `warnings`, one line each.
+ * The backends' view of `project` (see the header): its engine settings and the bus tree the backends build (buses,
+ * then returns), levels without VCAs. What nothing in the runtime runs yet goes to `warnings`, one line each.
  */
 export function coreSectionOf(project: AudioProject, warnings: string[] = []): AudioSettings {
   return { ...engineSectionOf(project, warnings), ...sectionOf(project, warnings) };

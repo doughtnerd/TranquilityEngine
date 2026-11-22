@@ -25,7 +25,7 @@ import {
   DEFAULT_SNAPSHOT_FADE_MS, DEFAULT_SNAPSHOT_PRIORITY, audioProjectToJson, defaultAudioProject, engineSettingsOf, freeEffectId, newBus,
   parseAudioProject,
 } from "./format";
-import { coreSectionOf, reverbSendOf } from "./runtimeView";
+import { coreSectionOf, reverbSendOf, sectionReturnsOf } from "./runtimeView";
 import { levelDbOf } from "./gain";
 import { OPEN_CUTOFF, isCarrier, msOf, paramsOf, updatedParams } from "./legacyEffects";
 import { coreBusEffect, coreShown } from "./runtimeView";
@@ -58,7 +58,7 @@ function reverbEffect(): Effect {
 }
 
 /** A new low-pass carrier on `bus` (open, so neutral until a snapshot or automation moves it). */
-function addCarrier(bus: Bus): string {
+function addCarrier(bus: Pick<Bus, "effects">): string {
   const id = freeEffectId(bus.effects.map((e) => e.id));
   bus.effects.push({ id, type: "lowpass", on: true, params: paramsOf({ type: "lowpass", frequency: OPEN_CUTOFF, q: 1 }) });
   return id;
@@ -125,36 +125,47 @@ function renamed(project: AudioProject, renames: ReadonlyMap<string, string>): A
   if (renames.size === 0) return project;
   const r = (n: string) => renames.get(n) ?? n;
   const rekey = <T>(rec: Record<string, T>): Record<string, T> => Object.fromEntries(Object.entries(rec).map(([k, v]) => [r(k), v]));
+  const target = (t: MixAutomation["target"]): MixAutomation["target"] => (t.startsWith("send:") ? `send:${r(t.slice(5))}` : t);
   return {
     ...project,
-    buses: project.buses.map((b) => ({ ...b, name: r(b.name), parent: b.parent === null ? null : r(b.parent) })),
-    returns: project.returns.map((x) => ({ ...x, output: r(x.output) })),
+    buses: project.buses.map((b) => ({ ...b, name: r(b.name), parent: b.parent === null ? null : r(b.parent), sends: b.sends.map((s) => ({ ...s, to: r(s.to) })) })),
+    returns: project.returns.map((x) => ({ ...x, name: r(x.name), output: r(x.output) })),
     vcas: project.vcas.map((v) => ({ ...v, members: v.members.map(r) })),
-    automation: project.automation.map((a) => ({ ...a, on: r(a.on) })),
+    automation: project.automation.map((a) => ({ ...a, on: r(a.on), target: target(a.target) })),
     ducking: project.ducking.map((d) => ({ ...d, target: r(d.target), trigger: r(d.trigger) })),
     snapshots: project.snapshots.map((s) => ({ ...s, buses: rekey(s.buses), effects: rekey(s.effects) })),
   };
 }
 
-/** Renames the old section's edit made: an old bus missing at the same index as a new bus that wasn't there (the list kept its length). */
+/** The names of the section's buses in order (`coreSectionOf`: the buses, then the returns that fit). */
+const sectionNames = (p: AudioProject): string[] => [...p.buses.map((b) => b.name), ...sectionReturnsOf(p).map((r) => r.name)];
+
+/**
+ * Renames the old section's edit made: an old bus (or return, ADR 0330: returns are buses of the section) missing at the
+ * same index as a new bus that wasn't there (the list kept its length).
+ */
 function renamesOf(project: AudioProject, next: AudioSettings): Map<string, string> {
   const out = new Map<string, string>();
-  if (project.buses.length !== next.buses.length) return out;
-  const oldNames = new Set(project.buses.map((b) => b.name)), newNames = new Set(next.buses.map((b) => b.name));
-  project.buses.forEach((b, i) => {
+  const names = sectionNames(project);
+  if (names.length !== next.buses.length) return out;
+  const oldNames = new Set(names), newNames = new Set(next.buses.map((b) => b.name));
+  names.forEach((b, i) => {
     const n = next.buses[i].name;
-    if (!newNames.has(b.name) && !oldNames.has(n)) out.set(b.name, n);
+    if (!newNames.has(b) && !oldNames.has(n)) out.set(b, n);
   });
   return out;
 }
 
+/** The bus or return of the section named `name` (`runtimeView.ts`' owners). */
+const sectionOwner = (p: AudioProject, name: string): Bus | Return | undefined => p.buses.find((b) => b.name === name) ?? sectionReturnsOf(p).find((r) => r.name === name);
+
 /** Whether the section view shows `d` (`runtimeView.ts`' rule). */
-const showsRule = (p: AudioProject, d: DuckingRule) => d.enabled && p.buses.some((b) => b.name === d.target) && p.buses.some((b) => b.name === d.trigger);
+const showsRule = (p: AudioProject, d: DuckingRule) => d.enabled && sectionOwner(p, d.target) !== undefined && sectionOwner(p, d.trigger) !== undefined;
 
 /** Whether the section view shows `a` (`runtimeView.ts`' rule). */
 function showsAutomation(p: AudioProject, a: MixAutomation): boolean {
   if (a.bypass) return false;
-  const bus = p.buses.find((b) => b.name === a.on);
+  const bus = sectionOwner(p, a.on);
   if (!bus) return false;
   if (a.target === "volume") return true;
   const [kind, id, param] = a.target.split(":");
@@ -235,8 +246,24 @@ export function mergeLegacyIntoProject(original: AudioProject, section: unknown)
     }
     return ret;
   };
+  // ADR 0330: the returns the section holds as buses (`sectionReturnsOf`) are written back to the returns: output, mute,
+  // inserts and level; one the section no longer lists is removed with the sends into it. Those that didn't fit stay.
+  const shownReturns = new Set(sectionReturnsOf(project).map((r) => r.name));
+  const returnVolumes: { ret: Return; nb: BusSettings; changed: boolean }[] = [];
+  out.returns = out.returns.flatMap((ret): Return[] => {
+    if (!shownReturns.has(ret.name)) return [ret];
+    const nb = next.buses.find((b) => b.name === ret.name);
+    if (!nb) return [];
+    const eb = expected.buses.find((b) => b.name === ret.name);
+    if (nb.parent !== undefined && (!eb || nb.parent !== eb.parent)) ret.output = nb.parent;
+    ret.mute = nb.mute;
+    if (!eb || !same(nonReverb(nb), nonReverb(eb))) ret.effects = mergeEffects(project, ret.name, project.returns.find((r) => r.name === ret.name)?.effects ?? [], nonReverb(eb), nonReverb(nb));
+    returnVolumes.push({ ret, nb, changed: !eb || nb.volume !== eb.volume });
+    return [ret];
+  });
+  const isReturn = (name: string) => out.returns.some((r) => r.name === name);
   const volumes: { bus: Bus; nb: BusSettings; changed: boolean }[] = [];
-  out.buses = next.buses.map((nb, i) => {
+  out.buses = next.buses.filter((nb, i) => i === 0 || !shownReturns.has(nb.name)).map((nb, i) => {
     const root = i === 0;
     const ob = project.buses.find((b) => b.name === nb.name);
     const eb = expected.buses.find((b) => b.name === nb.name);
@@ -261,6 +288,17 @@ export function mergeLegacyIntoProject(original: AudioProject, section: unknown)
       }
       bus.sends = sends;
     }
+    // ADR 0330: the section's sends (linear levels) into returns; an unchanged level keeps its exact dB.
+    if (!eb || !same(nb.sends ?? [], eb.sends ?? [])) {
+      const was = new Map((eb?.sends ?? []).map((s) => [s.to, s.level]));
+      const fromSection = (nb.sends ?? []).filter((s) => isReturn(s.to)).map((s) => {
+        const old = ob?.sends.find((x) => x.to === s.to);
+        return { to: s.to, levelDb: old && was.get(s.to) === s.level ? old.levelDb : levelDbOf(s.level) };
+      });
+      // Sends into returns the section leaves out (past the core's slots) stay as they were.
+      const kept = bus.sends.filter((s) => !shownReturns.has(s.to) && !fromSection.some((x) => x.to === s.to));
+      bus.sends = [...fromSection, ...kept];
+    }
     if (root) bus.sends = [];
     volumes.push({ bus, nb, changed: !ob || !eb || nb.volume !== eb.volume });
     return bus;
@@ -270,11 +308,12 @@ export function mergeLegacyIntoProject(original: AudioProject, section: unknown)
   for (const r of out.returns) if (!busNames.has(r.output)) r.output = out.buses[0].name;
   // Levels last: the view's volume is the fader alone (VCAs are their own lane).
   for (const { bus, nb, changed } of volumes) if (changed) bus.volumeDb = levelDbOf(nb.volume);
+  for (const { ret, nb, changed } of returnVolumes) if (changed) ret.volumeDb = levelDbOf(nb.volume);
 
   // Carriers for an old snapshot or automation low-pass: one per bus, shared.
   const created = new Set<Effect>();
   const carrierOf = (name: string): string | null => {
-    const bus = out.buses.find((b) => b.name === name);
+    const bus = out.buses.find((b) => b.name === name) ?? out.returns.find((r) => r.name === name && shownReturns.has(r.name));
     if (!bus) return null;
     const found = bus.effects.find((e) => isCarrier(project, name, e) || (e.type === "lowpass" && e.on && created.has(e)));
     if (found) return found.id;
@@ -290,14 +329,14 @@ export function mergeLegacyIntoProject(original: AudioProject, section: unknown)
     const snap = os ? structuredClone(os) : newSnapshot(ns.name);
     if (!es || !same(ns.volumes, es.volumes)) {
       const buses: Record<string, number> = {};
-      for (const [k, v] of Object.entries(snap.buses)) if (!busNames.has(k)) buses[k] = v; // returns: the old shape can't name them
+      for (const [k, v] of Object.entries(snap.buses)) if (!busNames.has(k) && !shownReturns.has(k)) buses[k] = v; // returns past the core's slots: the section can't name them
       for (const [k, v] of Object.entries(ns.volumes)) buses[k] = es && os && es.volumes[k] === v && os.buses[k] !== undefined ? os.buses[k] : levelDbOf(v);
       snap.buses = buses;
     }
     if (!es || !same(ns.lowpass, es.lowpass)) {
       for (const k of new Set([...Object.keys(ns.lowpass), ...Object.keys(es?.lowpass ?? {})])) {
         if (es && ns.lowpass[k] === es.lowpass[k]) continue;
-        const bus = out.buses.find((b) => b.name === k);
+        const bus = out.buses.find((b) => b.name === k) ?? out.returns.find((r) => r.name === k && shownReturns.has(r.name));
         if (!bus) continue;
         const byId = snap.effects[k] ?? {};
         for (const id of Object.keys(byId)) {
@@ -356,7 +395,7 @@ export function mergeLegacyIntoProject(original: AudioProject, section: unknown)
   out.loudness = { targets: structuredClone(next.loudnessTargets ?? DEFAULT_LOUDNESS_TARGETS.map((t) => ({ ...t }))), resetOnPlay: next.loudnessResetOnPlay !== false };
 
   // A carrier no longer named by any snapshot or automation goes: it is open (neutral), and the old shape never showed it.
-  for (const bus of out.buses) bus.effects = bus.effects.filter((e) => !(isCarrier(project, bus.name, e) || created.has(e)) || isCarrier(out, bus.name, e));
+  for (const bus of [...out.buses, ...out.returns]) bus.effects = bus.effects.filter((e) => !(isCarrier(project, bus.name, e) || created.has(e)) || isCarrier(out, bus.name, e));
 
   // Through the parse, so a reference the edit left dangling (a removed bus) is dropped as the file would drop it.
   return parseAudioProject(audioProjectToJson(out)).project;
