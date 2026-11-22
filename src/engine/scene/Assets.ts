@@ -12,6 +12,7 @@
  * same on every host.
  */
 import { projectFileKind } from "./projectFiles";
+import { localisedParts, variantPath } from "../localisation/variants";
 import { defaultImportSettings, parseImportSettings, resolveImportSettings, sidecarPath, splitSpriteRef, type ImportPlatform, type ImportSettings } from "./importSettings";
 
 export interface AssetSource {
@@ -59,6 +60,36 @@ export function sidecarValue(path: string): object | undefined {
     return typeof v === "object" && v !== null ? v : undefined;
   }
   return undefined;
+}
+
+/**
+ * Localised textures and fonts (ADR 0342 §10): under a `languages.assetRoots` folder the first folder is a language
+ * code, a reference names the reference language's file, and `Assets.url` serves the variant the current language's
+ * fallback chain finds (`variantPath`). The localisation runtime sets the roots and the chain on every language change
+ * (`setAssetLanguage`); references resolved so far are remembered so a switch can preload and announce theirs.
+ */
+const LOCALISED_FILE = /\.(png|jpe?g|webp|gif|avif|bmp|tga|ktx2|svg|ttf|otf|woff2?)$/i;
+let assetLanguage: { roots: readonly string[]; chain: readonly string[] } | null = null;
+const localisedRefs = new Set<string>();
+
+/**
+ * @internal The localisation runtime (ADR 0342 §10): the asset roots and the current language's fallback chain textures
+ * and fonts resolve through (empty roots: nothing is localised).
+ */
+export function setAssetLanguage(roots: readonly string[], chain: readonly string[]): void {
+  assetLanguage = roots.length ? { roots: [...roots], chain: [...chain] } : null;
+}
+
+/** @internal The localised texture and font references `Assets.url` has resolved (for a language switch's preload). */
+export function localisedAssetRefs(): readonly string[] {
+  return [...localisedRefs];
+}
+
+/** The file a texture or font reference loads in the current language (the reference itself outside the asset roots). */
+function localisedPath(p: string): string {
+  if (!assetLanguage || !LOCALISED_FILE.test(p) || localisedParts(p, assetLanguage.roots) === null) return p;
+  localisedRefs.add(p);
+  return variantPath(p, assetLanguage.chain, assetLanguage.roots, (c) => sources.some((s) => s.has(c)))?.path ?? p;
 }
 
 /** Listeners of `Assets.onChanged`. */
@@ -129,7 +160,8 @@ export const Assets = {
     const p = normalizeAssetPath(path);
     const kind = projectFileKind(p);
     if (kind !== "url") throw new Error(`Asset "${p}" is a ${kind === "json" ? "JSON" : "text"} file, which loads as its contents, not a URL: read it with Assets.${kind}().`);
-    const v = Assets.get(p);
+    // ADR 0342 §10: a texture or font under an asset root serves the current language's variant.
+    const v = Assets.get(localisedPath(p));
     if (typeof v !== "string") throw new Error(`Asset "${p}" has no URL.`);
     return v;
   },

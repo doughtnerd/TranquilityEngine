@@ -93,6 +93,7 @@ export async function writeWebBuild(plan: WebBuildPlan, options: WriteBuildOptio
   const web = options.web ?? "";
   const log = options.log ?? (() => {});
   const player = await playerFiles(options.player, options.playerWhere);
+  for (const w of plan.warnings ?? []) log(`warning: ${w}`);
   const entries = (await folder.exists("")) ? await folder.list("") : [];
   if (entries.length > 0 && !(await folder.exists(join(web, MANIFEST_FILE)))) {
     throw new ExportError(`"${folder.where}" isn't empty and doesn't hold an earlier ${options.kind ? `${options.kind} ` : ""}build. Choose an empty folder.`);
@@ -111,7 +112,7 @@ export async function writeWebBuild(plan: WebBuildPlan, options: WriteBuildOptio
     log,
   });
   if (options.audio) {
-    const audio = await processAudio(plan, { platform: options.platform, read: (path) => project.read(path), encoder: options.audio.encoder, decode: options.audio.decode, cache: options.audio.cache, log });
+    const audio = await processAudio(plan, { platform: options.platform, read: (path) => project.read(path), encoder: options.audio.encoder, decode: options.audio.decode, cache: options.audio.cache, languages: plan.languages, log });
     plan = audio.report ? { ...audio.plan, audioReport: audio.report } : audio.plan;
   }
   if (options.notices !== undefined) plan = { ...plan, generated: new Map([...plan.generated, [NOTICES_FILE, options.notices]]) };

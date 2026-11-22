@@ -35,6 +35,7 @@ import { registerLanguageParticipant } from "../../../../engine/localisation/run
 import { warnOnce } from "../core/handle";
 import { onAudioSessionReleased } from "../audioSession";
 import type { AudioVoice } from "../backend";
+import { switchPackageLanguage } from "../media/packages";
 
 /** A shipped voice language as game code sees it (`Audio.languages`). */
 export interface AudioLanguage {
@@ -310,8 +311,9 @@ registerLanguageParticipant({
   prepare(text) {
     const s = projectLanguages();
     if (s.voice !== "followText") return;
-    // 0340 L3: load `voiceLanguageFor(s, text)`'s package parts here and await them.
-    void voiceLanguageFor(s, text);
+    // 0340 L3: every loaded package's part in the voice language loads before the switch commits.
+    const voice = voiceLanguageFor(s, text);
+    if (voice !== null) return switchPackageLanguage(voice);
   },
 });
 

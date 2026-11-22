@@ -75,6 +75,22 @@ export interface GameManifest {
    * `Engine.create` (so the first scene's chains find them). Omitted when no enabled plugin has an `audio` section.
    */
   readonly audioEffects?: readonly AudioEffectsEntry[];
+  /**
+   * ADR 0342 §11: the build's string files (`strings/<code>.json`, one per shipped language) and each language's fonts,
+   * which the player loads with a language switch (`installBuildStrings`). Omitted when the project has neither a
+   * `languages` section nor string tables.
+   */
+  readonly localisation?: LocalisationManifest;
+}
+
+/** `game.json`'s `localisation` (ADR 0342 §11), as `readBuildLocalisation` reads it. */
+export interface LocalisationManifest {
+  /** Language code → its string file (relative to the build's root) and size. */
+  readonly strings: Readonly<Record<string, { readonly url: string; readonly bytes: number }>>;
+  /** Language code → its font files (relative to the build's root); languages without fonts are left out. */
+  readonly fonts: Readonly<Record<string, readonly string[]>>;
+  /** `--pseudo`: the pseudo-languages (`qps-ploc`, `qps-plocm`) may be chosen. Omitted otherwise. */
+  readonly pseudo?: true;
 }
 
 /** One plugin audio module in a build (`game.json`'s `audioEffects`, ADR 0338 §8). */
@@ -105,11 +121,16 @@ export interface AudioManifest {
 
 export interface AudioManifestPackage {
   readonly name: string;
-  /** The package file, relative to the build's root. */
+  /** The package file (its base part when it has language parts), relative to the build's root. */
   readonly url: string;
   readonly bytes: number;
   /** Loaded at engine start, before the first scene. */
   readonly preload: boolean;
+  /**
+   * ADR 0340 §6: its language parts (`audio/packages/<name>.<code>.mycopak`), one per shipped language, when its contents
+   * reach localised files. Omitted for a package without any.
+   */
+  readonly languages?: Readonly<Record<string, { readonly url: string; readonly bytes: number }>>;
 }
 
 /**
@@ -122,6 +143,13 @@ export interface AudioMediaEntry {
   readonly package?: string;
   /** Every package holding it, when there are several (A3): its bytes are in each, and loading any one makes it playable. */
   readonly packages?: readonly string[];
+  /**
+   * ADR 0340 §6: a localised file's language part, in its package(s): the first shipped language whose part holds it
+   * (its own language, or one that falls back to it). Omitted for a sound in a base part or loose.
+   */
+  readonly language?: string;
+  /** Every language part holding it, when there are several (`fr-CA`'s part may hold the `fr` file). */
+  readonly languages?: readonly string[];
   readonly url?: string;
   readonly codec: PackCodec;
   readonly load: LoadMode;

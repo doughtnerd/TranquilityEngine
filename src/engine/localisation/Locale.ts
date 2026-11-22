@@ -21,6 +21,7 @@ import { formatMessage, formatMessageText } from "./message/format";
 import { parseMessage } from "./message/parse";
 import { accentMessage, isPseudoLanguage, PSEUDO_MIRRORED_LANGUAGE, pseudoWrap } from "./pseudo";
 import { prepareParticipants } from "./runtime/participants";
+import { localiseAssets } from "./runtime/assets";
 import { noStrings, type LocaleStrings } from "./runtime/strings";
 
 /** A value a message argument takes; a `LocalText` formats as its current string. */
@@ -289,6 +290,7 @@ export const Locale = {
         current = target;
         pending = null;
         epoch++;
+        localiseAssets(settings, current); // ADR 0342 §10: textures and fonts follow in the same step
         notify(previous);
         if (remember && settings.remember) Storage.save(LOCALE_STORAGE_KEY, target, "settings").catch((err: unknown) => console.warn(`[myco] Couldn't remember the language "${target}":`, err));
       },
@@ -426,6 +428,7 @@ export async function configureLocale(config: LocaleConfig): Promise<void> {
   current = start;
   pending = null;
   epoch++;
+  localiseAssets(settings, current);
   if (previous !== start) notify(previous);
 }
 
