@@ -388,6 +388,7 @@ describe("where focus can go (ADR 0340)", () => {
     expect(resume.focused).toBe(true); // the press clicked the HUD button, but focus stays in the menu
     menu.node.setActive(false); // closed: the HUD is reachable again
     p.sync();
+    step(); // a frame reads the button up between two presses (ADR 0336)
     p.click(shop);
     step();
     expect(shop.focused).toBe(true);
@@ -468,6 +469,7 @@ describe("pointer focus (ADR 0340)", () => {
     step();
     expect(b.focused).toBe(true);
     expect(a.focusedChanged).toBe(true);
+    step(); // a frame reads the button up between two presses (ADR 0336)
     p.dom.moveTo(1000, 600);
     p.dom.click();
     step();
@@ -662,5 +664,87 @@ describe("rebinding (ADR 0340)", () => {
     await expect(canceled).resolves.toMatchObject({ canceled: true });
     press("arrowleft"); // and navigation goes on
     expect(g[1][0].focused).toBe(true);
+  });
+});
+
+describe("navigation at a low frame rate (ADR 0336 snapshot rules, ADR 0340)", () => {
+  // 10 fps: a frame lasts 100 ms, longer than a quick key press, so whole taps (and Shift+Tab) land inside frames.
+  const SLOW = 0.1;
+  /** Apply key events ("+key" down, "-key" up), then step one slow frame. */
+  const frame = (...keys: string[]) => {
+    for (const k of keys) {
+      if (k.startsWith("+")) Input.inject.keyDown(k.slice(1));
+      else Input.inject.keyUp(k.slice(1));
+    }
+    step(1, SLOW);
+  };
+  /** A row of four buttons, the third focused; returns the name of the focused one after each step. */
+  async function row(): Promise<() => string | null> {
+    const c = canvas();
+    const all = ["A", "B", "C", "D"].map((name, i) => button(name, c, 20 + i * 150, 20));
+    await pointer();
+    all[2].focused = true;
+    frame();
+    return () => focusedName(...all);
+  }
+  const tap = (key: string) => [`+${key}`, `-${key}`];
+
+  it("moves once for each Tab tapped in consecutive frames, and each arrow tap", async () => {
+    const focus = await row();
+    const seen: (string | null)[] = [];
+    frame(...tap("tab"));
+    seen.push(focus());
+    frame(...tap("tab")); // waits a frame: this one reads Tab up
+    seen.push(focus());
+    frame();
+    seen.push(focus());
+    frame(...tap("arrowleft"));
+    seen.push(focus());
+    frame(...tap("arrowleft"));
+    frame();
+    seen.push(focus());
+    expect(seen).toEqual(["D", "D", "A", "A", "A"]); // the arrows stop at the edge
+    frame(...tap("arrowright"), ...tap("arrowright")); // two taps inside one frame: both count
+    frame();
+    frame();
+    expect(focus()).toBe("C");
+  });
+
+  it("treats Shift+Tab as Shift+Tab when it's all inside one frame, or Shift is lifted in the frame Tab is tapped", async () => {
+    const focus = await row();
+    frame("+shift", ...tap("tab"), "-shift");
+    expect(focus()).toBe("B");
+    frame();
+    frame("+shift");
+    frame(...tap("tab"), "-shift");
+    expect(focus()).toBe("A");
+    frame();
+    expect(focus()).toBe("A");
+  });
+
+  it("moves forward then back for Tab, then Shift+Tab in the next frame", async () => {
+    const focus = await row();
+    frame(...tap("tab"));
+    expect(focus()).toBe("D");
+    frame("+shift", ...tap("tab"), "-shift");
+    frame();
+    frame();
+    expect(focus()).toBe("C");
+  });
+
+  it("moves for each d-pad tap in consecutive frames", async () => {
+    const focus = await row();
+    pad(5);
+    frame();
+    const dpadTap = () => {
+      Input.inject.gamepadButton(5, DPAD.left, 1);
+      Input.inject.gamepadButton(5, DPAD.left, 0);
+    };
+    dpadTap();
+    frame();
+    dpadTap();
+    frame();
+    frame();
+    expect(focus()).toBe("A");
   });
 });

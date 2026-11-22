@@ -24,6 +24,7 @@ import {
   vec2,
   type ActionEvent,
 } from "../index";
+import { _undefineSystem } from "../core/systems";
 
 // ADR 0335–0337: devices as entities, actions and contexts, players — driven through Input.inject,
 // the input end real adapters use, and read through actions, players, pawns and behaviors.
@@ -409,5 +410,150 @@ describe("players and pawns (ADR 0337)", () => {
     Input.inject.move(0, 5);
     step();
     expect(p0().vector2("look").y).toBe(5);
+  });
+});
+
+describe("presses at a low frame rate (ADR 0336, snapshot rules)", () => {
+  // 10 fps: a frame lasts 100 ms, longer than a quick tap, so taps land inside frames, and next to each other.
+  const SLOW = 0.1;
+  /** Apply device events, then step one slow frame. */
+  const frame = (...events: (() => void)[]) => {
+    for (const e of events) e();
+    step(1, SLOW);
+  };
+  const down = (key: string) => () => Input.inject.keyDown(key);
+  const up = (key: string) => () => Input.inject.keyUp(key);
+  /** An action's edges this frame, and whether it's held. */
+  const seen = (action: string) => {
+    const p = p0();
+    const edges = (["pressed", "released", "performed", "completed"] as const).filter((f) => p[f](action));
+    return [...edges, ...(p.held(action) ? ["held"] : [])].join(" ") || "-";
+  };
+
+  it("gives each of two taps in consecutive frames its own press: the frame after the first reads it released", () => {
+    frame();
+    frame(down("space"), up("space"));
+    expect(seen("jump")).toBe("pressed performed held");
+    expect(Input.getKeyDown("space")).toBe(true);
+    frame(down("space"), up("space"));
+    expect(seen("jump")).toBe("released completed");
+    expect(Input.getKey("space")).toBe(false);
+    frame();
+    expect(seen("jump")).toBe("pressed performed held");
+    expect(Input.getKeyDown("space")).toBe(true);
+    frame();
+    expect(seen("jump")).toBe("released completed");
+  });
+
+  it("reads a key released and pressed again between two frames as a release, then a new press", () => {
+    frame(down("space"));
+    frame();
+    expect(seen("jump")).toBe("held");
+    frame(up("space"), down("space"));
+    expect(seen("jump")).toBe("released completed");
+    expect(Input.getKeyUp("space")).toBe(true);
+    frame();
+    expect(seen("jump")).toBe("pressed performed held");
+    frame();
+    expect(seen("jump")).toBe("held"); // still held: the second press was never released
+    frame(up("space"));
+    expect(seen("jump")).toBe("released completed");
+  });
+
+  it("plays three presses inside one frame out over the next frames, one press each, none lost", () => {
+    frame();
+    frame(down("space"), up("space"), down("space"), up("space"), down("space"), up("space"));
+    const log = [seen("jump")];
+    for (let i = 0; i < 6; i++) {
+      frame();
+      log.push(seen("jump"));
+    }
+    expect(log).toEqual(["pressed performed held", "released completed", "pressed performed held", "released completed", "pressed performed held", "released completed", "-"]);
+  });
+
+  it("reads a tap then a press held from the next frame as two presses", () => {
+    frame(down("space"), up("space"));
+    frame(down("space"));
+    expect(seen("jump")).toBe("released completed");
+    frame();
+    expect(seen("jump")).toBe("pressed performed held");
+    frame(up("space"));
+    expect(seen("jump")).toBe("released completed");
+  });
+
+  it("counts a chord whose modifier was lifted in the frame its key was tapped, and doesn't let the key through alone", () => {
+    frame(down("shift"));
+    frame(down("b"), up("b"), up("shift"));
+    expect(seen("dash")).toBe("pressed performed held");
+    expect(seen("bomb")).toBe("-");
+    expect(Input.getKey("shift")).toBe(true); // held through the press; its release reads in the next frame
+    frame();
+    expect(seen("dash")).toBe("released completed");
+    expect(Input.getKeyUp("shift")).toBe(true);
+    expect(seen("bomb")).toBe("-");
+    // The whole chord inside one frame counts too.
+    frame(down("shift"), down("b"), up("b"), up("shift"));
+    expect(seen("dash")).toBe("pressed performed held");
+    expect(seen("bomb")).toBe("-");
+  });
+
+  it("gives a gamepad button each tap inside consecutive frames", () => {
+    pad(4);
+    frame();
+    const tap = () => {
+      Input.inject.gamepadButton(4, 0, 1);
+      Input.inject.gamepadButton(4, 0, 0);
+    };
+    frame(tap);
+    expect(seen("jump")).toBe("pressed performed held");
+    frame(tap);
+    expect(seen("jump")).toBe("released completed");
+    frame();
+    expect(seen("jump")).toBe("pressed performed held");
+    frame();
+    expect(seen("jump")).toBe("released completed");
+  });
+
+  it("gives touches and pen taps in consecutive frames a press each", () => {
+    const taps = (id: number) => [() => Input.inject.touchStart(id, 10, 10), () => Input.inject.touchEnd(id, 10, 10), () => Input.inject.penButtonDown(0), () => Input.inject.penButtonUp(0)];
+    frame(...taps(1));
+    expect(seen("tap")).toBe("pressed performed held");
+    expect(seen("draw")).toBe("pressed performed held");
+    frame(...taps(2));
+    expect(seen("tap")).toBe("released completed");
+    expect(seen("draw")).toBe("released completed");
+    frame();
+    expect(seen("tap")).toBe("pressed performed held");
+    expect(seen("draw")).toBe("pressed performed held");
+    frame();
+    expect(seen("tap")).toBe("released completed");
+  });
+
+  it("gives fixed steps each press of taps in consecutive frames, latched until the next fixed step", () => {
+    const ticks: string[] = [];
+    defineSystem({
+      name: "test.inputActions.slowTicks",
+      phase: "fixedUpdate",
+      query: [Player],
+      run: (rows) => {
+        for (const r of rows) {
+          const p = (r as unknown as { player: { performed(a: string): boolean; released(a: string): boolean } }).player;
+          ticks.push(p.performed("jump") ? "performed" : p.released("jump") ? "released" : "-");
+        }
+      },
+    });
+    try {
+      step(1, SLOW);
+      ticks.length = 0;
+      // Each slow frame runs several fixed steps: the first of a frame gets the frame's edges, the rest see levels.
+      frame(down("space"), up("space"));
+      frame(down("space"), up("space"));
+      frame();
+      frame();
+      expect(ticks.filter((t) => t === "performed").length).toBe(2);
+      expect(ticks.filter((t) => t === "released").length).toBe(2);
+    } finally {
+      _undefineSystem("test.inputActions.slowTicks");
+    }
   });
 });
