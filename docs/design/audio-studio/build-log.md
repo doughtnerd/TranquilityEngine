@@ -35,3 +35,20 @@ Plan: [plan.md](plan.md). Ground rules for tasks: [ground-rules.md](ground-rules
 ### Wave 2 (running)
 - W2-A playlist runtime, W2-B data cleanup + migration CLI + playlist asset kind, W2-D Samples screen, W2-K audio
   component kit, W2-H Profiler screen.
+
+### Waves 3–6 (merged through 2026-11-22 evening)
+- Merged: W3-A core time params + loop programs, W3-B Playlists screen, W3-C Mixer screen, W3-D shared curve editor,
+  W3-E sequences + musical timing, W3-F Studio wiring, W4-A1 spatial runtime, W4-B1 takes + capture extensions,
+  W4-D Sequence view, W4-G integration pass, W5-A Spatial screen, W5-B Take screen + replay, W5-C engine follow-ups,
+  W6-C native mix model. Running: W6-A core (pan/high-pass, start offset, submixes).
+- Full Vitest after W6-C: 908 files, 10214 passed, 3 failed under load (~10 load average on 4 cores) — piratesSample,
+  eventBench allocation ceiling, musicBench wall clock — all pass alone.
+- **Load-sensitive tests seen this build** (each passed alone every time): `music/musicBench.test.ts` (wall-clock
+  bench, recurring at every full run — a work item, not a flake per the run-milestone-build rule), `core/zoneIr.test.ts`
+  (fails alone too under load; untouched by this build), `events/eventBench.test.ts`, `decoder/musicGroups.test.ts`,
+  `piratesSample.test.ts`, `uiDocumentEdits.test.ts`, `thumbnails.test.ts`, `packages.test.ts`. Re-check all on a quiet
+  machine at the end.
+- Merge fixes by the coordinator: screen registry conflicts (one line per screen), migration writer switched to the
+  playlist writer and its tests made stricter, sequence-marker types in the playlist format, one curve writer, duplicate
+  derived-sample kind removed, pick hooks re-applied over the sequence node split, duplicate capture-bytes functions
+  removed, AudioZone category, system catalog order, inspectorMetadata kinds.
