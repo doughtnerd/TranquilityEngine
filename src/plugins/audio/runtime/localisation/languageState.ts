@@ -35,7 +35,7 @@ import { registerLanguageParticipant } from "../../../../engine/localisation/run
 import { warnOnce } from "../core/handle";
 import { onAudioSessionReleased } from "../audioSession";
 import type { AudioVoice } from "../backend";
-import { switchPackageLanguage } from "../media/packages";
+import { committedPackageLanguage, switchPackageLanguage } from "../media/packages";
 
 /** A shipped voice language as game code sees it (`Audio.languages`). */
 export interface AudioLanguage {
@@ -242,12 +242,20 @@ export function setAudioLanguage(code: string, options?: SetLanguageOptions): Pr
   const playing = options?.playing === "stop" ? "stop" : "finish";
   const mine = ++serial;
   pending = { code: target, serial: mine };
-  // 0340 L3 loads every loaded package's new part here; with nothing to load the switch completes in this call.
-  if (pending.serial === mine) {
-    pending = null;
-    commit(target, playing);
+  // 0340 L3: every loaded package's part in the new language loads first; a later call supersedes this one.
+  const done = () => {
+    if (pending?.serial === mine) {
+      pending = null;
+      commit(target, playing);
+    }
+  };
+  const parts = switchPackageLanguage(target, { playing });
+  // No part to load: the switch completes in this call, as without packages.
+  if (committedPackageLanguage() === target) {
+    done();
+    return Promise.resolve();
   }
-  return Promise.resolve();
+  return parts.then(done);
 }
 
 /**

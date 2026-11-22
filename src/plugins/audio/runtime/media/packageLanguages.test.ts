@@ -109,9 +109,20 @@ describe("package language parts (ADR 0340 §6)", () => {
   it("refuses a localised sound whose language part isn't loaded (strict, per part)", async () => {
     await boot("separate");
     await Audio.package("Dialogue").load();
-    // The audio language changes without its part: the French file it resolves to is refused.
+    // The package language changes without its part's voices being held elsewhere: switching the parts directly to a
+    // language and back with the English part gone leaves the English file refused, per part.
+    await switchPackageLanguage("fr");
+    expect(Audio.playOneShot(EN_INTRO).reason).toBe("notLoaded"); // the audio language is still English
+  });
+
+  it("Audio.setLanguage in separate mode loads the new language's parts before it commits (ADR 0340 §6)", async () => {
+    const { fetched } = await boot("separate");
+    await Audio.package("Dialogue").load();
+    fetched.length = 0;
     await Audio.setLanguage("fr");
-    expect(Audio.playOneShot(EN_INTRO).reason).toBe("notLoaded");
+    expect(fetched).toEqual(["audio/packages/Dialogue.fr.mycopak"]);
+    expect(Audio.language).toBe("fr");
+    expect(Audio.playOneShot(EN_INTRO).playing).toBe(true); // resolves to the French file, whose part is in
   });
 
   it("switchPackageLanguage loads the new part, then unloads the old one, letting its voices finish", async () => {
@@ -121,17 +132,16 @@ describe("package language parts (ADR 0340 §6)", () => {
     Audio.playOneShot(EN_INTRO);
     const english = fake.voices.at(-1) as FakeVoice;
     fetched.length = 0;
-    await switchPackageLanguage("fr");
     await Audio.setLanguage("fr");
     expect(fetched).toEqual(["audio/packages/Dialogue.fr.mycopak"]);
     expect(english.events.filter((e) => e.kind === "stop")).toEqual([]); // "finish": it plays on
     expect(Audio.playOneShot(FR_INTRO).playing).toBe(true);
     expect(Audio.playOneShot(EN_ONLY).playing).toBe(true); // in the French part too
     expect(Audio.debug().packages[0].state).toBe("loaded");
-    // The English part went: back in English without it, the English file is refused.
+    // The English part went once its voice ended; switching back loads it again before the switch commits.
     english.end();
     await Audio.setLanguage("en");
-    expect(Audio.playOneShot(EN_INTRO).reason).toBe("notLoaded");
+    expect(Audio.playOneShot(EN_INTRO).playing).toBe(true);
   });
 
   it("stops the old part's voices with a 50 ms fade with playing: stop", async () => {

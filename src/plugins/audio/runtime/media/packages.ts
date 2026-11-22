@@ -263,7 +263,7 @@ let switchSerial = 0;
  * warned about and doesn't stop the switch); a later call supersedes a pending one, which then resolves without
  * switching. With no package parts it completes at once.
  */
-export async function switchPackageLanguage(code: string, options?: { playing?: "finish" | "stop" }): Promise<void> {
+export function switchPackageLanguage(code: string, options?: { playing?: "finish" | "stop" }): Promise<void> {
   const serial = ++switchSerial;
   const defs = definitions();
   const held = (def: Definition) => (pkgs.get(def.name)?.refs.length ?? 0) > 0;
@@ -272,17 +272,29 @@ export async function switchPackageLanguage(code: string, options?: { playing?: 
     const next = held(def) ? partCodeFor(def, code) : null;
     if (next !== null) loads.push(holdPart(def, next).catch(() => undefined));
   }
-  if (loads.length) await Promise.all(loads);
-  if (serial !== switchSerial) return;
-  packageLanguage = code;
-  const finish = options?.playing !== "stop";
-  for (const def of definitions().list) {
-    if (!def.parts) continue;
-    const next = held(def) ? partCodeFor(def, code) : null;
-    releaseParts(def.name, next === null ? null : partKey(def.name, next), finish);
-    // A package that started loading during the switch took the old part: it takes the new one now.
-    if (next !== null) void holdPart(def, next).catch(() => undefined);
+  const finishSwitch = () => {
+    if (serial !== switchSerial) return;
+    packageLanguage = code;
+    const finish = options?.playing !== "stop";
+    for (const def of definitions().list) {
+      if (!def.parts) continue;
+      const next = held(def) ? partCodeFor(def, code) : null;
+      releaseParts(def.name, next === null ? null : partKey(def.name, next), finish);
+      // A package that started loading during the switch took the old part: it takes the new one now.
+      if (next !== null) void holdPart(def, next).catch(() => undefined);
+    }
+  };
+  // With nothing to load the switch completes in this call (so a language change without packages stays synchronous).
+  if (loads.length === 0) {
+    finishSwitch();
+    return Promise.resolve();
   }
+  return Promise.all(loads).then(finishSwitch);
+}
+
+/** @internal The language whose package parts are committed (`switchPackageLanguage`). */
+export function committedPackageLanguage(): string | null {
+  return packageLanguage;
 }
 
 // --- state ------------------------------------------------------------------------------------------------------------
