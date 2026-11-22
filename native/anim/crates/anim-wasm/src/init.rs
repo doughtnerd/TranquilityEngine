@@ -22,10 +22,14 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use crate::assets::{split, Arena};
 use crate::evaluate::{self as frame_calls, Frame};
 use crate::instances::{implicit, Table};
+use crate::timeline::Timelines;
+use crate::tweens::Tweens;
 use crate::{
     assets, debug, evaluate, graph, instances, matching, physics, plugin, retarget, rig, timeline,
     tracks, tweens,
 };
+use anim_wire::timeline::{DEFAULT_MAX_TIMELINES, DEFAULT_RECORD_BYTES};
+use anim_wire::tween::DEFAULT_MAX_TWEENS;
 
 /// The source hash `build.rs` embedded.
 static SOURCE_HASH: [u8; 16] = *include_bytes!(concat!(env!("OUT_DIR"), "/source_hash.bin"));
@@ -91,6 +95,8 @@ pub struct Core {
     frame: Frame,
     implicit: Program,
     last_status: u32,
+    tweens: Tweens,
+    timelines: Timelines,
 }
 
 impl Default for Core {
@@ -110,6 +116,8 @@ impl Core {
             frame: Frame::default(),
             implicit: implicit::program(),
             last_status: STATUS_NOT_INITIALIZED,
+            tweens: Tweens::default(),
+            timelines: Timelines::default(),
         }
     }
 
@@ -125,6 +133,11 @@ impl Core {
             self.arena = Arena::with_capacity(64);
             self.table = Table::new(instances);
             self.frame = Frame::new(instances, bones, self.implicit.pose_slots());
+            self.tweens = Tweens::new(DEFAULT_MAX_TWEENS as usize);
+            self.timelines = Timelines::new(
+                DEFAULT_MAX_TIMELINES as usize,
+                DEFAULT_RECORD_BYTES as usize,
+            );
             self.started = true;
             self.last_status = STATUS_OK;
         }
@@ -309,6 +322,9 @@ impl Core {
         if !self.started {
             return 0;
         }
+        // T22r: tween and timeline outputs are per frame, cleared here.
+        self.tweens.begin_frame();
+        self.timelines.begin_frame();
         frame_calls::write_inputs(
             &self.arena,
             &mut self.table,
@@ -323,7 +339,7 @@ impl Core {
         if !self.started {
             return 0;
         }
-        frame_calls::evaluate(
+        let changes = frame_calls::evaluate(
             &self.arena,
             &mut self.table,
             &mut self.frame,
@@ -332,7 +348,12 @@ impl Core {
             pass,
             dt_scaled,
             dt_unscaled,
-        )
+        );
+        // T22r: the tween table and the timeline instances advance after the animators.
+        self.tweens.update(world, pass, dt_scaled, dt_unscaled);
+        self.timelines
+            .update(&self.arena, world, pass, dt_scaled, dt_unscaled);
+        changes
     }
 
     /// The bone-matrix view (`max_bones · 12` floats per instance index).
@@ -381,6 +402,114 @@ impl Core {
     /// The bytes of asset files the arena holds.
     pub fn arena_bytes(&self) -> usize {
         self.arena.held_bytes()
+    }
+
+    // ---- T22r: tweens and timelines (see `anim-wire` families `tween` and `timeline`) ----
+
+    /// Resizes the tween table (setup: every tween is dropped). Returns a status.
+    pub fn tweens_configure(&mut self, max_tweens: u32) -> u32 {
+        if !self.started {
+            return STATUS_NOT_INITIALIZED;
+        }
+        if max_tweens as usize > crate::tweens::MAX_TWEENS {
+            return STATUS_TOO_LARGE;
+        }
+        self.tweens = Tweens::new(max_tweens as usize);
+        STATUS_OK
+    }
+
+    /// Creates a tween from a `TWEEN_CREATE` record; 0 on failure.
+    pub fn tween_create(&mut self, record: &[u8]) -> u32 {
+        if !self.started {
+            return self.handle(Err(STATUS_NOT_INITIALIZED));
+        }
+        let r = self.tweens.create(record);
+        self.handle(r)
+    }
+
+    /// Applies a `TWEEN_CONTROL` record; returns a status.
+    pub fn tween_control(&mut self, record: &[u8]) -> u32 {
+        if !self.started {
+            return STATUS_NOT_INITIALIZED;
+        }
+        self.tweens.control(record)
+    }
+
+    /// Resizes the timeline table and its frame record buffer (setup: every instance is dropped).
+    pub fn timelines_configure(&mut self, max_timelines: u32, record_bytes: u32) -> u32 {
+        if !self.started {
+            return STATUS_NOT_INITIALIZED;
+        }
+        if max_timelines as usize > crate::timeline::MAX_TIMELINES {
+            return STATUS_TOO_LARGE;
+        }
+        self.timelines = Timelines::new(max_timelines as usize, record_bytes as usize);
+        STATUS_OK
+    }
+
+    /// Creates an instance of a clip used as a timeline; 0 on failure.
+    pub fn timeline_create(&mut self, record: &[u8]) -> u32 {
+        if !self.started {
+            return self.handle(Err(STATUS_NOT_INITIALIZED));
+        }
+        let r = self.timelines.create_clip(&self.arena, record);
+        self.handle(r)
+    }
+
+    /// Creates a sequence from `SEQ_CREATE` plus its `SEQ_MEMBER` records; 0 on failure.
+    pub fn timeline_create_sequence(&mut self, bytes: &[u8]) -> u32 {
+        if !self.started {
+            return self.handle(Err(STATUS_NOT_INITIALIZED));
+        }
+        let r = self.timelines.create_sequence(bytes);
+        self.handle(r)
+    }
+
+    /// Binds a subclip string id of `owner` to a clip; returns a status.
+    pub fn timeline_bind(&mut self, instance: u32, owner: u32, string_id: u32, asset: u32) -> u32 {
+        if !self.started {
+            return STATUS_NOT_INITIALIZED;
+        }
+        self.timelines
+            .bind(&self.arena, instance, owner, string_id, asset)
+    }
+
+    /// Applies a `TIMELINE_CONTROL` record; returns a status.
+    pub fn timeline_control(&mut self, record: &[u8]) -> u32 {
+        if !self.started {
+            return STATUS_NOT_INITIALIZED;
+        }
+        self.timelines.control(record)
+    }
+
+    /// Writes an instance's `TIMELINE_INFO` into `out`; the bytes written (0: stale or short).
+    pub fn timeline_info(&self, instance: u32, out: &mut [u8]) -> u32 {
+        match self.timelines.info(instance) {
+            Some(info) if info.encode_into(out).is_ok() => {
+                anim_wire::timeline::TimelineInfo::STRIDE
+            }
+            _ => 0,
+        }
+    }
+
+    /// Bytes of an instance's `TIMELINE_BLOCK` records.
+    pub fn timeline_block_bytes(&self, instance: u32) -> u32 {
+        self.timelines.block_bytes(instance) as u32
+    }
+
+    /// Writes an instance's `TIMELINE_BLOCK` records into `out`; the bytes written.
+    pub fn timeline_blocks(&self, instance: u32, out: &mut [u8]) -> u32 {
+        self.timelines.write_blocks(instance, out) as u32
+    }
+
+    /// The tween table (for tests and host views).
+    pub fn tweens(&self) -> &Tweens {
+        &self.tweens
+    }
+
+    /// The timeline table (for tests and host views).
+    pub fn timelines(&self) -> &Timelines {
+        &self.timelines
     }
 
     fn addr<T>(v: &[T]) -> u32 {
@@ -553,6 +682,177 @@ pub fn changes_dropped() -> u32 {
 #[wasm_bindgen]
 pub fn asset_bytes_ptr(handle: u32) -> u32 {
     with(|c| c.asset_bytes_addr(handle) as u32)
+}
+
+// ---- T22r: tweens and timelines ----
+
+/// Resizes the tween table (`DEFAULT_MAX_TWEENS` by default); drops every tween. Returns a status.
+#[wasm_bindgen]
+pub fn tweens_configure(max_tweens: u32) -> u32 {
+    with(|c| c.tweens_configure(max_tweens))
+}
+
+/// Creates a tween from a `TWEEN_CREATE` record; returns its handle, or 0 (see `last_status`).
+#[wasm_bindgen]
+pub fn tween_create(record: &[u8]) -> u32 {
+    with(|c| c.tween_create(record))
+}
+
+/// Applies a `TWEEN_CONTROL` record (pause, resume, kill, destroyed); returns a status.
+#[wasm_bindgen]
+pub fn tween_control(record: &[u8]) -> u32 {
+    with(|c| c.tween_control(record))
+}
+
+/// Tween output rows this frame.
+#[wasm_bindgen]
+pub fn tween_values_count() -> u32 {
+    with(|c| c.tweens.rows() as u32)
+}
+
+/// The byte offset of the tween rows' column ids (`u32` each).
+#[wasm_bindgen]
+pub fn tween_columns_ptr() -> u32 {
+    with(|c| Core::addr(c.tweens.columns()))
+}
+
+/// The byte offset of the tween rows' values (four `f32` each).
+#[wasm_bindgen]
+pub fn tween_values_ptr() -> u32 {
+    with(|c| Core::addr(c.tweens.values()))
+}
+
+/// `TWEEN_CHANGE` records this frame.
+#[wasm_bindgen]
+pub fn tween_changes_count() -> u32 {
+    with(|c| c.tweens.change_count() as u32)
+}
+
+/// The byte offset of the tween change records.
+#[wasm_bindgen]
+pub fn tween_changes_ptr() -> u32 {
+    with(|c| Core::addr(c.tweens.changes()))
+}
+
+/// Tween changes dropped this frame because the buffer was full.
+#[wasm_bindgen]
+pub fn tween_changes_dropped() -> u32 {
+    with(|c| c.tweens.dropped())
+}
+
+/// Resizes the timeline table and the frame record buffer; drops every instance. Returns a status.
+#[wasm_bindgen]
+pub fn timelines_configure(max_timelines: u32, record_bytes: u32) -> u32 {
+    with(|c| c.timelines_configure(max_timelines, record_bytes))
+}
+
+/// Creates an instance of a clip used as a timeline (`TIMELINE_CREATE`); returns its handle or 0.
+#[wasm_bindgen]
+pub fn timeline_create(record: &[u8]) -> u32 {
+    with(|c| c.timeline_create(record))
+}
+
+/// Creates a sequence (`SEQ_CREATE` then its `SEQ_MEMBER` records); returns its handle or 0.
+#[wasm_bindgen]
+pub fn timeline_create_sequence(bytes: &[u8]) -> u32 {
+    with(|c| c.timeline_create_sequence(bytes))
+}
+
+/// Binds a subclip string id of `owner`'s string table to a clip handle; returns a status. The
+/// instance's outputs may move: read `timeline_info` after binding.
+#[wasm_bindgen]
+pub fn timeline_bind(instance: u32, owner: u32, string_id: u32, asset: u32) -> u32 {
+    with(|c| c.timeline_bind(instance, owner, string_id, asset))
+}
+
+/// Applies a `TIMELINE_CONTROL` record; returns a status.
+#[wasm_bindgen]
+pub fn timeline_control(record: &[u8]) -> u32 {
+    with(|c| c.timeline_control(record))
+}
+
+/// Writes an instance's `TIMELINE_INFO` into `out`; returns the bytes written (0: stale or short).
+#[wasm_bindgen]
+pub fn timeline_info(instance: u32, out: &mut [u8]) -> u32 {
+    with(|c| c.timeline_info(instance, out))
+}
+
+/// Bytes of an instance's `TIMELINE_BLOCK` records.
+#[wasm_bindgen]
+pub fn timeline_block_bytes(instance: u32) -> u32 {
+    with(|c| c.timeline_block_bytes(instance))
+}
+
+/// Writes an instance's `TIMELINE_BLOCK` records into `out`; returns the bytes written.
+#[wasm_bindgen]
+pub fn timeline_blocks(instance: u32, out: &mut [u8]) -> u32 {
+    with(|c| c.timeline_blocks(instance, out))
+}
+
+/// Timeline instances evaluated this frame.
+#[wasm_bindgen]
+pub fn timeline_active_count() -> u32 {
+    with(|c| c.timelines.active_count() as u32)
+}
+
+/// The byte offset of the evaluated instances' handles (`u32` each).
+#[wasm_bindgen]
+pub fn timeline_active_ptr() -> u32 {
+    with(|c| Core::addr(c.timelines.active()))
+}
+
+/// The byte offset of the timeline value words.
+#[wasm_bindgen]
+pub fn timeline_values_ptr() -> u32 {
+    with(|c| Core::addr(c.timelines.values()))
+}
+
+/// The byte offset of the timeline block weights (`f32` each).
+#[wasm_bindgen]
+pub fn timeline_weights_ptr() -> u32 {
+    with(|c| Core::addr(c.timelines.weights()))
+}
+
+/// Bytes of `tracks` records the timelines wrote this frame.
+#[wasm_bindgen]
+pub fn timeline_records_len() -> u32 {
+    with(|c| c.timelines.records().0.len() as u32)
+}
+
+/// How many `tracks` records the timelines wrote this frame.
+#[wasm_bindgen]
+pub fn timeline_records_count() -> u32 {
+    with(|c| c.timelines.records().1)
+}
+
+/// How many `tracks` records did not fit this frame.
+#[wasm_bindgen]
+pub fn timeline_records_dropped() -> u32 {
+    with(|c| c.timelines.records().2)
+}
+
+/// The byte offset of the timelines' `tracks` records.
+#[wasm_bindgen]
+pub fn timeline_records_ptr() -> u32 {
+    with(|c| Core::addr(c.timelines.records_buffer()))
+}
+
+/// `TIMELINE_CHANGE` records this frame.
+#[wasm_bindgen]
+pub fn timeline_changes_count() -> u32 {
+    with(|c| c.timelines.change_count() as u32)
+}
+
+/// The byte offset of the timeline change records.
+#[wasm_bindgen]
+pub fn timeline_changes_ptr() -> u32 {
+    with(|c| Core::addr(c.timelines.changes()))
+}
+
+/// Timeline changes dropped this frame because the buffer was full.
+#[wasm_bindgen]
+pub fn timeline_changes_dropped() -> u32 {
+    with(|c| c.timelines.changes_dropped())
 }
 
 #[cfg(test)]

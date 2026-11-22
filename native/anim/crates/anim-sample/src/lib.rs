@@ -55,6 +55,7 @@ use anim_math::quant::{is_supported_bits, unpack_range, unpack_unorm};
 use anim_math::{AosQuat, AosTransform, AosVec3, F32x4, Lane, SoaTransform};
 
 mod bind;
+pub mod timeline;
 pub mod window;
 
 pub use bind::{BoundClip, ClipBindings, Column, ColumnType};
