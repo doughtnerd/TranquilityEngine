@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { ensureContrast } from "./colorMath";
 import {
   BASE_KEYS,
@@ -82,6 +83,25 @@ describe("presets", () => {
     expect(contrast(t.warning, t.panel)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(t.dangerText, t.dangerStrong)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(t.accent, t.panel)).toBeGreaterThanOrEqual(3);
+  });
+
+  const STUDIO_KEYS = ["markerExit", "markerHit", "markerCue", "markerNote", "rangeTrim", "rangeLoop", "rangePickup", "rangeTail", ...Array.from({ length: 8 }, (_, i) => `series-${i + 1}`)] as (keyof ThemeTokens)[];
+
+  it.each(PRESETS.map((p) => [p.name, p] as const))("%s gives the Audio Studio legible marker, range and series colours", (_name, preset) => {
+    const t = resolveTheme(preset);
+    const min = preset.kind === "high-contrast" ? 4.5 : 3;
+    for (const key of STUDIO_KEYS) expect(contrast(t[key], t.panel), key).toBeGreaterThanOrEqual(min - 0.01);
+    const series = Array.from({ length: 8 }, (_, i) => t[`series-${i + 1}` as keyof ThemeTokens]);
+    expect(new Set(series).size).toBe(8);
+    expect(new Set([t.markerExit, t.markerHit, t.markerCue, t.markerNote]).size).toBe(4);
+    expect(cssVar("series-1")).toBe("--series-1");
+    expect(cssVar("markerExit")).toBe("--marker-exit");
+  });
+
+  it("paints the Audio Studio tokens at first paint as Myco Dark resolves them (editor.css)", () => {
+    const css = readFileSync(new URL("./ui/editor.css", import.meta.url), "utf8");
+    const t = resolveTheme(presetById("myco-dark"));
+    for (const key of STUDIO_KEYS) expect(css, key).toContain(`${cssVar(key)}: ${t[key]};`);
   });
 
   it("Myco Dark follows the brand art: near-black, glowing cyan, moss green, warm white", () => {

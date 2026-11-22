@@ -1,0 +1,85 @@
+// The Studio's header (ADR 0327 "The shell"): the app's name and project, the screens in their three groups
+// (Author, Mix, Run; Ctrl/⌘+1…6), Undo, Redo and History over the active history, the shortcut list, and the
+// output-device menu.
+import { HistoryPopover } from "../../editor/ui/HistoryPopover";
+import { formatKeys, isMacPlatform } from "../../editor/ui/keyCombo";
+import { AudioDeviceMenu } from "../components/AudioDeviceMenu";
+import { isCalibrated, offsetsFor, withOffset } from "../components/deviceOffsets";
+import { outputDevice } from "./outputDevice";
+import { screenGroups, type ScreenId } from "./screens";
+import { audioHost, deviceOffsets, shortcutsOpen } from "./studioServices";
+
+export interface StudioHeaderProps {
+  readonly screen: ScreenId;
+  readonly projectName: string;
+  readonly readOnly?: boolean;
+  onScreen(screen: ScreenId): void;
+  onCloseProject(): void;
+}
+
+export function StudioHeader(props: StudioHeaderProps) {
+  const mac = isMacPlatform();
+  const device = outputDevice().value;
+  const host = audioHost();
+  const stats = host.stats.value; // re-render as the runtime's figures change
+  const live = host.playable.value;
+  const store = deviceOffsets.value;
+  let stale = false;
+  try {
+    stale = live && host.audio.calibrationStale;
+  } catch {
+    stale = false;
+  }
+  return (
+    <header class="studio-header">
+      <div class="studio-brand">
+        <span class="studio-logo" aria-hidden="true">
+          ∿
+        </span>
+        <span class="studio-app-name">Audio Studio</span>
+        <button class="studio-project" title={`${props.projectName}${props.readOnly ? " (read-only)" : ""} · Close the project`} onClick={props.onCloseProject}>
+          {props.projectName}
+          {props.readOnly && <span class="studio-readonly"> · read-only</span>}
+        </button>
+      </div>
+      <nav class="studio-nav" aria-label="Studio screens">
+        {screenGroups().map((g) => (
+          <div key={g.group} class="studio-nav-group" role="group" aria-label={g.title}>
+            <span class="studio-nav-group-title" aria-hidden="true">
+              {g.title}
+            </span>
+            {g.screens.map((s) => (
+              <a
+                key={s.id}
+                href={`#/${s.id}`}
+                class={`studio-tab${s.id === props.screen ? " on" : ""}`}
+                aria-current={s.id === props.screen ? "page" : undefined}
+                title={`${s.title} (${formatKeys(`Mod+${s.digit}`, mac)}): ${s.purpose}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  props.onScreen(s.id);
+                }}
+              >
+                {s.title}
+              </a>
+            ))}
+          </div>
+        ))}
+      </nav>
+      <div class="studio-header-tools">
+        <HistoryPopover none="Click into a document to undo its edits" />
+        <button class="kit-icon-button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => (shortcutsOpen.value = true)}>
+          ?
+        </button>
+        <AudioDeviceMenu
+          deviceName={device.name}
+          offsets={offsetsFor(store, device.id)}
+          calibrated={isCalibrated(store, device.id)}
+          stale={stale}
+          latencyMs={stats?.latencyMs ?? null}
+          onOffset={(kind, ms) => (deviceOffsets.value = withOffset(deviceOffsets.peek(), device.id, kind, ms))}
+        />
+      </div>
+    </header>
+  );
+}

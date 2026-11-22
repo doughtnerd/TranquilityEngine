@@ -1,0 +1,42 @@
+// The Audio Studio's six screens in three groups (ADR 0327 "The shell"): Author (Samples, Playlists), Mix (Mixer,
+// Spatial), Run (Take, Profiler). Each has its place in the header, its Ctrl/⌘+digit and what it is for, which its
+// empty state says until there is something to show.
+
+export type ScreenId = "samples" | "playlists" | "mixer" | "spatial" | "take" | "profiler";
+export type ScreenGroup = "author" | "mix" | "run";
+
+export interface ScreenInfo {
+  readonly id: ScreenId;
+  readonly title: string;
+  readonly group: ScreenGroup;
+  /** Its digit in Ctrl/⌘+1…6. */
+  readonly digit: number;
+  /** What the screen is for, in a sentence (its empty state and the header's tooltip). */
+  readonly purpose: string;
+  /** The kind badge its now-playing tile shows. */
+  readonly art: string;
+}
+
+export const GROUP_TITLES: Readonly<Record<ScreenGroup, string>> = { author: "Author", mix: "Mix", run: "Run" };
+
+export const SCREENS: readonly ScreenInfo[] = [
+  { id: "samples", title: "Samples", group: "author", digit: 1, art: "WAV", purpose: "Audio files and their non-destructive edits: markers, loops, trim, tempo and root, normalise and baked effects." },
+  { id: "playlists", title: "Playlists", group: "author", digit: 2, art: "PL", purpose: "What the game plays: clips, queues, switches, blends, layers and sequences, auditioned with test parameters." },
+  { id: "mixer", title: "Mixer", group: "mix", digit: 3, art: "MIX", purpose: "Buses, returns and VCAs with their effects, sends, ducking and snapshots." },
+  { id: "spatial", title: "Spatial", group: "mix", digit: 4, art: "3D", purpose: "Attenuation curves, audio zones and test scenes for how sound behaves in space." },
+  { id: "take", title: "Take", group: "run", digit: 5, art: "TAKE", purpose: "Recordings of what a game asked of audio, replayed against the current audio and annotated." },
+  { id: "profiler", title: "Profiler", group: "run", digit: 6, art: "CAP", purpose: "Engine performance captures: voices, CPU, buses and loudness over time, and why each sound played." },
+];
+
+export const DEFAULT_SCREEN: ScreenId = "samples";
+
+/** A screen by id, or undefined for anything else. */
+export const screenById = (id: string): ScreenInfo | undefined => SCREENS.find((s) => s.id === id);
+
+/** Whether `id` names a screen. */
+export const isScreenId = (id: string): id is ScreenId => screenById(id) !== undefined;
+
+/** The screens of each group, in header order. */
+export function screenGroups(): { group: ScreenGroup; title: string; screens: ScreenInfo[] }[] {
+  return (Object.keys(GROUP_TITLES) as ScreenGroup[]).map((group) => ({ group, title: GROUP_TITLES[group], screens: SCREENS.filter((s) => s.group === group) }));
+}

@@ -12,7 +12,8 @@
 import { computed, effect, signal, untracked, type ReadonlySignal } from "@preact/signals";
 import { deepEqual } from "../engine/audio/deepEqual";
 import { deleteAssetHistories, moveAssetHistories, persistHistory, type HistoryOutcome, type PersistedHistory } from "./historyPersistence";
-import { TextHistory, type HistoryState } from "./document";
+import type { HistoryState } from "./document/HistoryTree";
+import { TextHistory } from "./document/TextHistory"; // by leaf path: the barrel pulls in the scene loader (ADR 0327)
 import { errorStatus } from "./messages";
 import { isWithin, type EditorProject } from "./projects";
 import { assetKinds, type AssetFormat, type AssetProblem } from "./sdk/contributions";
