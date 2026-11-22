@@ -167,6 +167,7 @@ export interface Clip {
   pitch: number;
   pan: number;
   reverse: boolean;
+  /** Locked to the playhead. The file default is false; an editor adding a clip uses `defaultClipSync` (`clipDefaults.ts`). */
   sync: boolean;
   enabled: boolean;
   /** Per-clip overrides of the sample's loops, by loop id. */
