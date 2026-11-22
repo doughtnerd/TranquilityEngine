@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseAudioSettings, type AudioSettings } from "../settings";
 import { audioProjectToJson, parseAudioProject } from "./format";
-import { legacySectionOf as toRuntimeSettings } from "./runtimeView";
+import { coreSectionOf as toRuntimeSettings } from "./runtimeView";
 import { fromLegacySection, mergeLegacyIntoProject } from "./legacy";
 import { AUDIO_PROJECT_FORMAT, type AudioProject } from "./types";
 
@@ -119,18 +119,18 @@ const RICH = parseAudioProject({
   snapshots: [{ name: "Calm", start: { kind: "base" }, priority: 30, buses: { Music: -4, Delay: -10 }, effects: { Music: { eq: { low: -3 } } } }],
 }).project;
 
-describe("mergeLegacyIntoProject (the legacy panels' adapter)", () => {
+describe("mergeLegacyIntoProject (a live op of the old shape, lifted into the mix)", () => {
   it("is the identity on an unchanged view", () => {
     expect(mergeLegacyIntoProject(RICH, view(RICH))).toEqual(RICH);
     const migrated = fromLegacySection(LEGACY);
     expect(mergeLegacyIntoProject(migrated, view(migrated))).toEqual(migrated);
   });
 
-  it("takes a VCA's offset back off a changed level and keeps everything the view doesn't show", () => {
+  it("writes a changed level as the fader alone (the view has no VCAs) and keeps everything the view doesn't show", () => {
     const v = view(RICH);
     v.buses.find((b) => b.name === "Music")!.volume = 0.5;
     const out = mergeLegacyIntoProject(RICH, v);
-    expect(busOf(out, "Music").volumeDb).toBeCloseTo(20 * Math.log10(0.5) + 6, 6);
+    expect(busOf(out, "Music").volumeDb).toBeCloseTo(20 * Math.log10(0.5), 6);
     expect({ ...out, buses: out.buses.map((b) => (b.name === "Music" ? { ...b, volumeDb: -3 } : b)) }).toEqual(RICH);
   });
 

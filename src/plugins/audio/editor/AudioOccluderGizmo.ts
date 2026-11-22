@@ -10,7 +10,7 @@ import { GameObject, type Engine } from "../../../engine";
 import type { EditorOverlay } from "../../../engine/editor";
 import { nearestOccluder } from "../runtime/AudioOccluder";
 import { blendColor, colliderClass, materialTint } from "./audioInspectorModel";
-import { audioSettings } from "./audioDraft";
+import { projectAudio } from "./projectAudio";
 import { componentWireframe, editor, type ViewportToolContribution } from "../../../editor/sdk";
 
 /** The tool's id: also its overlay id. */
@@ -28,7 +28,7 @@ function occluderOverlay(engine: Engine): EditorOverlay {
   const colliders = base ? GameObject.findObjectsOfType(base) : [];
   if (colliders.length === 0) return overlay;
   const selected = new Set(editor.scene.selection.nodes().map((s) => s.node));
-  const audio = audioSettings.read(editor.project.current?.settings);
+  const audio = projectAudio(editor.project.current?.settings);
   for (const c of colliders) {
     const node = c.node;
     if (!node.transform || !engine.world.inEditMode(node.entity)) continue;

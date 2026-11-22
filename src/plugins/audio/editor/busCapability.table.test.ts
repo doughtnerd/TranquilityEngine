@@ -1,5 +1,5 @@
 // ADR 0175: one row per bus capability rule, asserting together what used to be checked in several places: the parse's
-// severity and text, Project Settings' problems and warnings, the live answer on the core (`LiveMix` through
+// severity and text, the live answer on the core (`LiveMix` through
 // `mixer.apply`, counted; ADR 0221: the production assembly on the loopback) and on the fallback's capabilities, and the
 // one message. The wire's `BUS_SLOT_MAX_EFFECTS` is held equal to the rule's limit here, from the plugin side (the engine
 // can't import the wire).
@@ -10,7 +10,6 @@ import {
 import { Mixer, type MixOpTarget } from "../../../engine/audio/mixer";
 import { opRefusal, type ApplyResult, type MixOp } from "../../../engine/audio/mixOps";
 import { parseAudioSettings, type BusEffect } from "../../../engine/audio/settings";
-import { settingsProblems, settingsWarnings } from "../../../editor/projectSettingsModel";
 import { BUS_SLOT_MAX_EFFECTS } from "../runtime/wire.generated";
 import { closeLoopbackAudio, loopbackAudio } from "../runtime/testing";
 
@@ -89,17 +88,13 @@ describe("bus capability rules (ADR 0175)", () => {
     expect(ROWS.map((r) => r.rule).sort()).toEqual(Object.keys(BUS_RULES).sort());
   });
 
-  it.for(ROWS)("$rule: parse severity, Project Settings, the live answer on the core and the fallback, and the message", { timeout: 30_000 }, async ({ rule, over, finding, at, ops }, ctx) => {
+  it.for(ROWS)("$rule: parse severity, the live answer on the core and the fallback, and the message", { timeout: 30_000 }, async ({ rule, over, finding, at, ops }, ctx) => {
     const spec = BUS_RULES[rule];
     // The parse: a problem drops the rest; a warning keeps the section as authored (R10).
     const parsed = parseAudioSettings(over);
     expect(spec.parse === "problem" ? parsed.problems : parsed.warnings).toEqual([finding]);
     expect(spec.parse === "problem" ? parsed.warnings : parsed.problems).toEqual([]);
     expect(finding).toContain(spec.message);
-    // Project Settings: a problem holds the draft unsaved; a warning doesn't.
-    const draft = { audio: over as Record<string, unknown> };
-    expect(settingsProblems(draft).map((p) => p.message).includes(finding)).toBe(spec.parse === "problem");
-    expect(settingsWarnings(draft).includes(finding)).toBe(spec.parse === "warning");
     // At the limit the rule reports nothing (and nothing at all, but the core's own limit under the insert cap's).
     const atLimit = parseAudioSettings(at);
     expect([...atLimit.problems, ...atLimit.warnings].some((m) => m.includes(spec.message))).toBe(false);
@@ -129,7 +124,7 @@ describe("bus capability rules (ADR 0175)", () => {
     }
   });
 
-  it("the Section's add-bus buttons follow the bus count rule", () => {
+  it("atBusLimit follows the bus count rule", () => {
     expect(atBusLimit(parseAudioSettings(many(MAX_BUSES - 1)).settings)).toBe(false);
     expect(atBusLimit(parseAudioSettings(many(MAX_BUSES)).settings)).toBe(true);
   });

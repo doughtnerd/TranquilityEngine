@@ -17,11 +17,11 @@ import { componentWireframes, viewportTools } from "../../../editor/sdk/contribu
 import { colliderWireframes } from "../../physics/editor/colliderGizmo";
 import type { EditorOverlay } from "../../../engine/editor";
 import { AMBISONIC_IGNORED_FIELDS, analyzeOccluder, blendColor, describeCost, materialTint, occluderCost, physics3dAvailable, sendCurveOf, zoneCostLine, zoneNotices, zoneReverbLine } from "./audioInspectorModel";
-import { audioSettings } from "./audioDraft";
+import { projectAudio } from "./projectAudio";
 
 const OCC = "engine.AudioOccluder";
 const BOX = "engine.BoxCollider";
-const defaults = audioSettings.read(undefined);
+const defaults = projectAudio(undefined);
 const codes = (o: AudioOccluder, physics3d = true, audio = defaults) => analyzeOccluder(o, { physics3d, audio }).warnings.map((w) => w.code);
 
 describe("audio inspector sections", () => {

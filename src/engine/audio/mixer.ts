@@ -41,7 +41,7 @@ import { engineSettingsOf, projectOfMix } from "./project/format";
 import { dbToGain, levelDbOf, MIN_DB } from "./project/gain";
 import { fromLegacySection, mergeLegacyIntoProject } from "./project/legacy";
 import { isCarrier, param as effectParam, toBusEffect } from "./project/legacyEffects";
-import { coreSectionOf, legacySectionOf, reverbSendOf, vcaOffsetDb, type MixSection } from "./project/runtimeView";
+import { coreSectionOf, reverbSendOf, vcaOffsetDb } from "./project/runtimeView";
 import { SnapshotPlayer } from "./project/snapshotPlayer";
 import { valueOf, type ResolvedMix } from "./project/snapshots";
 import type { AudioProject, Bus as ProjectBus, Return } from "./project/types";
@@ -255,13 +255,6 @@ export class Bus {
   get loudness(): BusLoudness { return this.s?.loudness ?? EMPTY_BUS_LOUDNESS; }
 }
 
-/** The mix keys of `a` as JSON, for telling whether a legacy view was edited. */
-const mixKeysJson = (a: Partial<MixSection>): string =>
-  JSON.stringify([a.buses ?? [], a.snapshots ?? [], a.ducking ?? [], a.parameters ?? [], a.automation ?? [], a.loudnessTargets ?? null, a.loudnessResetOnPlay ?? true]);
-
-/** The old mix keys of settings that carry none (the parse's defaults), as `mixKeysJson` writes them; made on first use. */
-let UNSET_MIX_KEYS: string | undefined;
-
 /** A curve's value at `x`, interpolated in log scale (frequency parameters, ADR 0330). */
 function evalLogCurve(curve: Curve, x: number): number {
   if (curve.some((k) => !(k[1] > 0))) return evalCurve(curve, x);
@@ -323,19 +316,14 @@ export class Mixer {
 
   /**
    * Replace the mix (project load). Every script value (volume, fades, mute, solo, snapshots started) and every monitor
-   * control resets; authored values come from `settings`: its `mix` (`audio.json`'s) when present — after writing back a
-   * legacy view the editor's panels edited (decision D2) — else its old mix keys, migrated (`fromLegacySection`).
+   * control resets; authored values come from `settings`: its `mix` (`audio.json`'s) when present, else its old mix keys,
+   * migrated (`fromLegacySection`).
    * `base` snapshots and those whose conditions hold with the parameters' defaults are on at once.
    */
   configure(settings: AudioSettings): void {
     let project: AudioProject;
     if (settings.mix !== undefined) {
       project = projectOfMix(settings.mix, engineSettingsOf(settings));
-      // D2: the editor's legacy panels edit the old keys beside `mix`; an edit of them is written back first. Old keys
-      // at their defaults are settings that carry only the mix (a host that sends no legacy view).
-      const given = mixKeysJson(settings);
-      const edited = given !== (UNSET_MIX_KEYS ??= mixKeysJson(defaultAudioSettings())) && given !== mixKeysJson(legacySectionOf(project)) && given !== mixKeysJson(coreSectionOf(project));
-      if (edited) project = mergeLegacyIntoProject(project, settings);
       this.settings = { ...settings, ...coreSectionOf(project), mix: settings.mix };
     } else {
       project = fromLegacySection(settings);
@@ -612,7 +600,7 @@ export class Mixer {
       const to = next.snapshots[op.index]?.name;
       if (was && to !== undefined) return applyOpToProject(p, { op: "setSnapshotDef", name: to, snapshot: { ...was, name: to }, from: was.name });
     }
-    return { ...mergeLegacyIntoProject(p, next, { view: "core" }), settings: p.settings };
+    return { ...mergeLegacyIntoProject(p, next), settings: p.settings };
   }
 
   /**

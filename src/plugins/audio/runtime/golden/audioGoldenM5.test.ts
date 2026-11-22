@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { mixer } from "../../../../engine/audio/mixer";
 import { parseAudioProject } from "../../../../engine/audio/project/format";
-import { legacySectionOf as toRuntimeSettings } from "../../../../engine/audio/project/runtimeView";
+import { coreSectionOf as toRuntimeSettings } from "../../../../engine/audio/project/runtimeView";
 import { abrupt, closeRigs, liveRig, sendRaw, SMOOTH } from "../mix/clickHarness";
 import { BUS_LP_OFF_HZ, BUS_MASTER_OUT, BUS_RAMP_MASK_GAIN, LANE_RUNTIME } from "../wire.generated";
 import { maxStep } from "./maxStep";

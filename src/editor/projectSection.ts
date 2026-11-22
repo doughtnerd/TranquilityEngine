@@ -1,5 +1,4 @@
-// A project section (ADR 0151): a set of top-level keys of `project.json` being edited by one panel (the `audio` key
-// is `audio.json`'s, ADR 0330: read as its runtime view and saved into it, `audioProjectFile.ts`)
+// A project section (ADR 0151): a set of top-level keys of `project.json` being edited by one panel
 // (Project Settings: everything but `bootstrap`; Worlds: `bootstrap`). It holds the draft and its
 // undo history, keeps them when another panel's keys change, tells its own write coming back from an
 // outside edit, writes valid drafts only (through the shared queue, so panels never drop each other's
@@ -15,8 +14,6 @@ import { emitSectionChanged } from "./sectionChanged";
 import { status } from "./state";
 import { EditHistory } from "./editHistory";
 import { withMember } from "./jsonMember";
-import { AUDIO_KEY, audioFileText, fileOfKey, sectionFilesText, sectionValueJson } from "./audioProjectFile";
-import { AUDIO_PROJECT_FILE } from "../engine/audio/project/types";
 
 // Writes to `project.json` run one at a time: each writes only its own keys into the file's current text, so
 // two built from the same text would drop one another's change (ADR 0038, 0151).
@@ -128,10 +125,10 @@ function pick(settings: unknown, keys: readonly string[]): Record<string, unknow
 const snapshot = (settings: unknown, keys: readonly string[]) => new Map(keys.map((k) => [k, json((settings as Record<string, unknown>)[k])]));
 
 class Session<D, P> implements ProjectSectionSession<D, P> {
-  /** The section files' text (`project.json`'s and `audio.json`'s, `sectionFilesText`) when the section last read or wrote them. */
+  /** `project.json`'s text when the section last read or wrote it. */
   fileText: string | undefined;
-  /** The texts a write in progress passes through (one file written, then both): until it's done, the project may hold either. */
-  writingText: readonly (string | undefined)[] | undefined;
+  /** The text a write in progress writes: until it's done, the project may hold it or the text before. */
+  writingText: string | undefined;
   /** The owned keys when last read or written, with their values (JSON). */
   saved: Map<string, string>;
   keys: readonly string[];
@@ -147,7 +144,7 @@ class Session<D, P> implements ProjectSectionSession<D, P> {
   ) {
     const spec = owner.spec;
     this.keys = spec.keys();
-    this.fileText = sectionFilesText((p) => project.textOf(p));
+    this.fileText = project.textOf(PROJECT_FILE);
     this.saved = snapshot(project.settings, this.keys);
     this.history = new EditHistory(spec.read(pick(project.settings, this.keys)));
     this.told = this.history.current;
@@ -187,7 +184,7 @@ class Session<D, P> implements ProjectSectionSession<D, P> {
   get unsaved(): boolean {
     const out = this.owner.spec.write(this.draft);
     const settings = this.project.settings as Record<string, unknown>;
-    return this.owner.spec.keys().some((k) => sectionValueJson(k, out[k]) !== sectionValueJson(k, settings[k]));
+    return this.owner.spec.keys().some((k) => json(out[k]) !== json(settings[k]));
   }
 
   /** Whether `a` and `b` write the same values. */
@@ -263,34 +260,26 @@ class Session<D, P> implements ProjectSectionSession<D, P> {
       const keys = spec.keys();
       const out = spec.write(draft);
       const settings = this.project.settings as Record<string, unknown>;
-      const changed = keys.filter((k) => sectionValueJson(k, out[k]) !== sectionValueJson(k, settings[k]));
+      const changed = keys.filter((k) => json(out[k]) !== json(settings[k]));
       if (changed.length === 0) return;
-      // `project.json` keys into its text; `audio` into `audio.json` (ADR 0330), merged into the mix it holds (D2).
       const oldText = this.project.textOf(PROJECT_FILE);
       let text = oldText ?? "{}\n";
-      for (const key of changed) if (fileOfKey(key) === PROJECT_FILE) text = withMember(text, key, out[key]);
-      const oldAudio = this.project.textOf(AUDIO_PROJECT_FILE);
-      const audioText = changed.includes(AUDIO_KEY) ? audioFileText(this.project, out[AUDIO_KEY]) : oldAudio;
-      const writes: [string, string][] = [];
-      if (text !== oldText) writes.push([PROJECT_FILE, text]);
-      if (audioText !== undefined && audioText !== oldAudio) writes.push([AUDIO_PROJECT_FILE, audioText]);
-      if (writes.length === 0) return;
+      for (const key of changed) text = withMember(text, key, out[key]);
+      if (text === oldText) return;
       const before = spec.read(pick(settings, keys));
-      const files = (project: string | undefined, audio: string | undefined) => sectionFilesText((p) => (p === PROJECT_FILE ? project : p === AUDIO_PROJECT_FILE ? audio : undefined));
-      const finalText = files(writes.some(([p]) => p === PROJECT_FILE) ? text : oldText, audioText);
       this.saving = true;
-      // A render mid-save sees the files before, between or after the writes, and mustn't take its own save for an outside change.
-      this.writingText = [files(text, oldAudio), finalText];
+      // A render mid-save sees the file before or after the write, and mustn't take its own save for an outside change.
+      this.writingText = text;
       this.owner.bump();
       try {
-        for (const [path, written] of writes) await this.project.writeText(path, written);
-        this.fileText = finalText;
+        await this.project.writeText(PROJECT_FILE, text);
+        this.fileText = text;
         this.keys = keys;
         this.saved = snapshot(this.project.settings, keys);
         this.error = null;
         spec.saved?.(this.project, draft, before);
       } catch (err) {
-        const failure = errorStatus(`Couldn't save ${spec.what} to ${writes.map(([p]) => p).join(" and ")}`, err);
+        const failure = errorStatus(`Couldn't save ${spec.what} to ${PROJECT_FILE}`, err);
         this.error = failure.text;
         status.value = failure;
       } finally {
@@ -319,8 +308,8 @@ class Session<D, P> implements ProjectSectionSession<D, P> {
       this.saved = saved;
       this.keys = keys;
     }
-    const text = sectionFilesText((p) => this.project.textOf(p));
-    if (this.fileText === text || (this.writingText !== undefined && this.writingText.includes(text))) return true;
+    const text = this.project.textOf(PROJECT_FILE);
+    if (this.fileText === text || (this.writingText !== undefined && this.writingText === text)) return true;
     // Another panel's key changed (its save, or the Code panel editing other keys): keep the draft and its undo.
     if (this.writingText === undefined && keys.every((k) => this.saved.get(k) === json(settings[k]))) {
       this.fileText = text;
