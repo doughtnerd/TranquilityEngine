@@ -192,8 +192,6 @@ export class PlaylistInstance implements NodeHost {
   private readonly pendingMarkers: AudioMarkerEvent[] = [];
   /** Voices whose sample markers are reported as they pass. */
   private markerVoices: VoiceMarkers[] = [];
-  /** Also told of every marker delivered (the `AudioSource` hook). */
-  markerSink: ((e: AudioMarkerEvent) => void) | null = null;
 
   /**
    * Listen for `type` markers passing: sequence `cue` and `exit` markers, and the Cue, Exit and Hit markers of the samples
@@ -209,12 +207,10 @@ export class PlaylistInstance implements NodeHost {
   /** A marker passed: every listener for its type hears it (a throwing listener is reported, the rest still run). */
   noteMarker(e: AudioMarkerEvent): void {
     const set = this.markerListeners.get(e.type);
-    if (set) {
-      for (const fn of [...set]) {
-        try { fn(e); } catch (err) { console.error(`[myco] ${this.path}: an onMarker listener threw:`, err); }
-      }
+    if (!set) return;
+    for (const fn of [...set]) {
+      try { fn(e); } catch (err) { console.error(`[myco] ${this.path}: an onMarker listener threw:`, err); }
     }
-    this.markerSink?.(e);
   }
 
   emitMarker(e: AudioMarkerEvent): void {

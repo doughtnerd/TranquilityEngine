@@ -20,11 +20,11 @@ import { isLabelled, parameterRange } from "../../../../engine/audio/eventFormat
 import { warnOnce } from "../core/handle";
 import { curveParts } from "./curves";
 import { playlistEffectProps } from "./effects";
-import { EmptyNode, LiveNode, type Ctx, type DynGain, type NodeHost, type SpatialPlan } from "./liveNode";
+import { EmptyNode, LiveNode, type Ctx, type DynGain, type NodeHost, type PVoice, type SpatialPlan } from "./liveNode";
 import { linkedPlaylist } from "./loader";
 import { FALLBACK_SECONDS_PER_BEAT, MUSICAL_FALLBACK_NOTE, type MusicalSource } from "./musical";
 import { resolveSequence } from "./sequence";
-import { sampleFacts } from "./sampleFacts";
+import { sampleFacts, type SampleFacts } from "./sampleFacts";
 import { VoiceClock, VoiceMusical } from "./voiceMusical";
 
 export { EmptyNode, LiveNode } from "./liveNode";
@@ -106,6 +106,7 @@ export function resolveEntry(host: NodeHost, entry: Entry, parent: Ctx, key: str
 
 class ClipNode extends LiveNode {
   private musical: VoiceMusical | null = null;
+  private clockArgs: { v: PVoice; facts: SampleFacts; from: number } | null = null;
 
   constructor(host: NodeHost, ctx: Ctx, key: string, entry: SampleEntry | null) {
     super(host, ctx, key);
@@ -116,12 +117,19 @@ class ClipNode extends LiveNode {
     const facts = sampleFacts(entry.sample);
     const from = entry.trim ? entry.trim[0] : facts.from;
     if (facts.markers.length > 0) host.trackMarkers(v, facts, from);
-    // Its musical clock: the sample's tempo, Exit markers and loop (ADR 0329 "the playing entry's sync sample").
-    this.musical = new VoiceMusical(new VoiceClock(v, facts, from), () => host.clock());
+    this.clockArgs = { v, facts, from };
+    // A looping voice's clock is anchored now, so it knows when the loop stops; a straight one's can wait to be asked.
+    if (v.loop) this.musical = new VoiceMusical(new VoiceClock(v, facts, from), () => this.host.clock());
   }
 
+  /** Its musical clock: the sample's tempo, Exit markers and loop (ADR 0329 "the playing entry's sync sample"), made when first asked. */
   override musicalSource(): MusicalSource | null {
-    return this.musical && this.sounding ? this.musical : null;
+    if (!this.clockArgs || !this.sounding) return null;
+    if (!this.musical) {
+      const { v, facts, from } = this.clockArgs;
+      this.musical = new VoiceMusical(new VoiceClock(v, facts, from), () => this.host.clock());
+    }
+    return this.musical;
   }
 
   override onParameter(name: string): void {
