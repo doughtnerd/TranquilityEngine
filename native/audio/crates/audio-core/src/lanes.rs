@@ -88,7 +88,11 @@ pub struct BusLanes {
     pub staged: u32,
     /// The quantum (its first frame / 128, truncated) the staged stamps belong to.
     pub staged_quantum: u32,
-    pub _reserved: u32,
+    /// ABI 4.8 (ADR 0330): bit `k` set while lane `k`'s ramp is linear in dB (`BUS_RAMP` law
+    /// `Decibel`: its `step` is a per-frame ratio, advanced by `Ramp::next_db`); clear, linear in
+    /// gain. Bit 1 is the runtime lane's (the slot's or MASTER's ramp). Read only while the lane
+    /// moves; a ramp to or from 0 is always linear (the bit stays clear).
+    pub db: u32,
 }
 
 /// Stamps one bus can hold staged in a quantum: the three ramps of its entry the lanes don't use
@@ -99,24 +103,58 @@ pub const STAMPS: usize = 3;
 const STAMP_SLOTS: [usize; STAMPS] = [RUNTIME, wire::LANE_DUCK as usize, wire::LANE_AUTOMATION as usize];
 
 /// One staged stamp: lane `lane` retargets to `gain` over `frames` at sample `at` (1..=127) of the
-/// quantum. Stored bit for bit in a spare [`Ramp`] (`value` the gain, `remaining` the frames,
-/// `step`'s bits `at | lane << 16`), so the entry keeps its 128 B.
+/// quantum, linear in dB when `db` (ABI 4.8). Stored bit for bit in a spare [`Ramp`] (`value` the
+/// gain, `remaining` the frames, `step`'s bits `at | lane << 16`, `target` 1 for a dB ramp), so the
+/// entry keeps its 128 B.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Stamp {
     pub lane: u16,
     pub at: u16,
     pub gain: f32,
     pub frames: u32,
+    pub db: bool,
 }
 
 impl Stamp {
     fn to_ramp(self) -> Ramp {
-        Ramp { value: self.gain, target: 0.0, step: f32::from_bits(self.at as u32 | (self.lane as u32) << 16), remaining: self.frames }
+        Ramp { value: self.gain, target: if self.db { 1.0 } else { 0.0 }, step: f32::from_bits(self.at as u32 | (self.lane as u32) << 16), remaining: self.frames }
     }
 
     fn of_ramp(r: &Ramp) -> Stamp {
         let packed = r.step.to_bits();
-        Stamp { lane: (packed >> 16) as u16, at: packed as u16, gain: r.value, frames: r.remaining }
+        Stamp { lane: (packed >> 16) as u16, at: packed as u16, gain: r.value, frames: r.remaining, db: r.target != 0.0 }
+    }
+}
+
+/// One frame of lane ramp `r` under its law (`db`: linear in dB, ABI 4.8).
+#[inline]
+fn next_of(r: &mut Ramp, db: bool) -> f32 {
+    if db {
+        r.next_db()
+    } else {
+        r.next()
+    }
+}
+
+/// Retargets lane ramp `r` to `gain` over `frames` from its value now, linear in dB when `db` and
+/// both ends are above 0; returns whether the ramp runs in dB (its law bit).
+#[inline]
+fn retarget(r: &mut Ramp, gain: f32, frames: u32, db: bool) -> bool {
+    if db {
+        r.set_target_db(gain, frames)
+    } else {
+        r.set_target(gain, frames);
+        false
+    }
+}
+
+/// Sets or clears bit `k` of `bits`.
+#[inline]
+fn set_bit(bits: &mut u32, k: usize, on: bool) {
+    if on {
+        *bits |= 1 << k;
+    } else {
+        *bits &= !(1 << k);
     }
 }
 
@@ -277,16 +315,17 @@ fn product_advance(lanes: &mut BusLanes, runtime: &mut Ramp, out: &mut [f32; QUA
         };
     }
     // §4.5 step 2: the curve, the first lane written as `Ramp::next` gives it (R3), each further
-    // lane multiplied in.
+    // lane multiplied in (a dB lane through `Ramp::next_db`, ABI 4.8).
     let mut first = true;
-    let mut lane_in = |ramp: &mut Ramp, out: &mut [f32; QUANTUM]| {
+    let db_bits = lanes.db;
+    let mut lane_in = |ramp: &mut Ramp, db: bool, out: &mut [f32; QUANTUM]| {
         if first {
             first = false;
             if ramp.is_settled() {
                 out.fill(ramp.value);
             } else {
                 for x in out.iter_mut() {
-                    *x = ramp.next();
+                    *x = next_of(ramp, db);
                 }
             }
         } else if ramp.is_settled() {
@@ -296,16 +335,16 @@ fn product_advance(lanes: &mut BusLanes, runtime: &mut Ramp, out: &mut [f32; QUA
             }
         } else {
             for x in out.iter_mut() {
-                *x *= ramp.next();
+                *x *= next_of(ramp, db);
             }
         }
     };
     if runtime_on {
-        lane_in(runtime, out);
+        lane_in(runtime, db_bits & (1 << RUNTIME) != 0, out);
     }
     for k in ENTRY_LANES {
         if others & (1 << k) != 0 {
-            lane_in(&mut lanes.lanes[k], out);
+            lane_in(&mut lanes.lanes[k], db_bits & (1 << k) != 0, out);
         }
     }
     lanes.rest();
@@ -316,7 +355,7 @@ fn product_advance(lanes: &mut BusLanes, runtime: &mut Ramp, out: &mut [f32; QUA
 /// multiplied in; a settled lane as its value (the hold segments), a moving one through
 /// `Ramp::next` (the ramp segment, the same arithmetic as an asap ramp's).
 #[inline]
-fn segment(ramp: &mut Ramp, out: &mut [f32; QUANTUM], from: usize, to: usize, write: bool) {
+fn segment(ramp: &mut Ramp, out: &mut [f32; QUANTUM], from: usize, to: usize, write: bool, db: bool) {
     let out = &mut out[from..to];
     match (write, ramp.is_settled()) {
         (true, true) => out.fill(ramp.value),
@@ -328,12 +367,12 @@ fn segment(ramp: &mut Ramp, out: &mut [f32; QUANTUM], from: usize, to: usize, wr
         }
         (true, false) => {
             for x in out.iter_mut() {
-                *x = ramp.next();
+                *x = next_of(ramp, db);
             }
         }
         (false, false) => {
             for x in out.iter_mut() {
-                *x *= ramp.next();
+                *x *= next_of(ramp, db);
             }
         }
     }
@@ -369,15 +408,17 @@ fn product_stamped(lanes: &mut BusLanes, runtime: &mut Ramp, out: &mut [f32; QUA
             }
             &mut lanes.lanes[k]
         };
+        let mut db = on && lanes.db & bit != 0;
         let mut from = 0;
         for s in stamps.iter().filter(|s| s.lane as usize == k) {
             let at = (s.at as usize).clamp(from, QUANTUM);
-            segment(ramp, out, from, at, first);
-            ramp.set_target(s.gain, s.frames);
+            segment(ramp, out, from, at, first, db);
+            db = retarget(ramp, s.gain, s.frames, s.db);
             from = at;
         }
-        segment(ramp, out, from, QUANTUM, first);
+        segment(ramp, out, from, QUANTUM, first, db);
         first = false;
+        set_bit(&mut lanes.db, k, db);
         if k != RUNTIME {
             if lanes.lanes[k].is_unity() {
                 lanes.moving &= !bit;
@@ -498,17 +539,19 @@ pub fn settle_master(lanes: &mut BusLanes, master: &mut Ramp) {
 /// Points lane `lane` (0-4) at `gain` over `frames` from its current value (`Ramp::set_target`,
 /// R3), and the snapshot low-pass at `lp_hz` when given. `runtime` is the bus's (or MASTER's)
 /// ramp, `lp` the slot's low-pass ramp (`None` for the output). Callers have validated the values.
-fn set_lane(lanes: &mut BusLanes, runtime: &mut Ramp, lp: Option<&mut Ramp>, lane: usize, gain: Option<f32>, lp_hz: Option<f32>, frames: u32) {
+fn set_lane(lanes: &mut BusLanes, runtime: &mut Ramp, lp: Option<&mut Ramp>, lane: usize, gain: Option<f32>, lp_hz: Option<f32>, frames: u32, db: bool) {
     if let Some(g) = gain {
         if lane == RUNTIME {
-            runtime.set_target(g, frames);
+            let d = retarget(runtime, g, frames, db);
+            set_bit(&mut lanes.db, RUNTIME, d);
         } else {
             let bit = 1u32 << lane;
             if lanes.moving & bit == 0 {
                 // A clear bit is a lane at 1, whatever its stored ramp holds.
                 lanes.lanes[lane] = Ramp::at(1.0);
             }
-            lanes.lanes[lane].set_target(g, frames);
+            let d = retarget(&mut lanes.lanes[lane], g, frames, db);
+            set_bit(&mut lanes.db, lane, d);
             if lanes.lanes[lane].is_unity() {
                 lanes.moving &= !bit;
             } else {
@@ -631,15 +674,17 @@ fn apply_ramp(core: &mut Core, rec: &wire::BusRamp, stage_at: Option<(u16, u32)>
         return true;
     };
     let lp_hz = lp_hz.filter(|_| lp.is_some());
+    // ABI 4.8: law `Decibel` ramps the gain linearly in dB (a snapshot's fade, ADR 0330).
+    let db = wire::shape_law(rec.shape) == wire::fade_law::DECIBEL;
     let mut staged = true;
     let gain_now = match (gain, stage_at) {
         (Some(g), Some((at, quantum))) => {
-            staged = stage(entry, Stamp { lane: lane as u16, at, gain: g, frames: rec.frames }, quantum);
+            staged = stage(entry, Stamp { lane: lane as u16, at, gain: g, frames: rec.frames, db }, quantum);
             (!staged).then_some(g)
         }
         (g, _) => g,
     };
-    set_lane(entry, runtime, lp, lane, gain_now, lp_hz, rec.frames);
+    set_lane(entry, runtime, lp, lane, gain_now, lp_hz, rec.frames, db);
     staged
 }
 
@@ -698,8 +743,8 @@ mod tests {
         s.lp = Ramp::at(LP_OFF_HZ);
         s.lp.set_target(500.0, 1000);
         let mut lanes = BusLanes::default();
-        set_lane(&mut lanes, &mut s.gain, None, 3, Some(0.0), None, 1000);
-        set_lane(&mut lanes, &mut s.gain, None, 4, Some(1.0), None, 0);
+        set_lane(&mut lanes, &mut s.gain, None, 3, Some(0.0), None, 1000, false);
+        set_lane(&mut lanes, &mut s.gain, None, 4, Some(1.0), None, 0, false);
         settle(&mut lanes, &mut s);
         assert!(s.gain.is_settled() && s.lp.is_settled());
         assert_eq!((s.gain.value, s.lp.value), (0.25, 500.0));
@@ -715,8 +760,8 @@ mod tests {
     fn a_lane_that_returns_to_one_clears_its_bit_and_is_skipped_again() {
         let mut lanes = BusLanes::default();
         let mut rt = Ramp::at(1.0);
-        set_lane(&mut lanes, &mut rt, None, 0, Some(0.5), None, 64);
-        set_lane(&mut lanes, &mut rt, None, 0, Some(1.0), None, 64);
+        set_lane(&mut lanes, &mut rt, None, 0, Some(0.5), None, 64, false);
+        set_lane(&mut lanes, &mut rt, None, 0, Some(1.0), None, 64, false);
         assert_eq!(lanes.moving, 1);
         let mut curve = [0.0; QUANTUM];
         let (mut l, mut r) = ([0.1f32; QUANTUM], [0.1f32; QUANTUM]);
@@ -742,10 +787,10 @@ mod tests {
     fn a_stamp_holds_then_ramps_from_the_lanes_value_at_its_sample() {
         let mut lanes = BusLanes::default();
         let mut rt = Ramp::at(1.0);
-        set_lane(&mut lanes, &mut rt, None, 4, Some(0.5), None, 300);
+        set_lane(&mut lanes, &mut rt, None, 4, Some(0.5), None, 300, false);
         let start = lanes.lanes[4];
-        assert!(stage(&mut lanes, Stamp { lane: 4, at: 40, gain: 0.0, frames: 50 }, 7));
-        assert!(stage(&mut lanes, Stamp { lane: 4, at: 100, gain: 1.0, frames: 64 }, 7));
+        assert!(stage(&mut lanes, Stamp { lane: 4, at: 40, gain: 0.0, frames: 50, db: false }, 7));
+        assert!(stage(&mut lanes, Stamp { lane: 4, at: 100, gain: 1.0, frames: 64, db: false }, 7));
         let mut curve = [0.0; QUANTUM];
         let (mut l, mut r) = ([1.0f32; QUANTUM], [1.0f32; QUANTUM]);
         assert_eq!(apply(&mut lanes, &mut rt, None, None, &mut l, &mut r, &mut curve), Gain::Curve);
@@ -762,8 +807,8 @@ mod tests {
         let mut rt = Ramp::at(1.0);
         rt.set_target(0.5, 200);
         let rt0 = rt;
-        assert!(stage(&mut lanes, Stamp { lane: 0, at: 64, gain: 0.25, frames: 32 }, 1));
-        assert!(stage(&mut lanes, Stamp { lane: 1, at: 10, gain: 2.0, frames: 0 }, 1));
+        assert!(stage(&mut lanes, Stamp { lane: 0, at: 64, gain: 0.25, frames: 32, db: false }, 1));
+        assert!(stage(&mut lanes, Stamp { lane: 1, at: 10, gain: 2.0, frames: 0, db: false }, 1));
         let mut curve = [0.0; QUANTUM];
         let (mut l, mut r) = ([1.0f32; QUANTUM], [1.0f32; QUANTUM]);
         apply(&mut lanes, &mut rt, None, None, &mut l, &mut r, &mut curve);
@@ -779,11 +824,11 @@ mod tests {
     fn a_fourth_stamp_finds_no_room_and_stale_stamps_go() {
         let mut lanes = BusLanes::default();
         for at in 1..=STAMPS as u16 {
-            assert!(stage(&mut lanes, Stamp { lane: 3, at, gain: 0.5, frames: 0 }, 2));
+            assert!(stage(&mut lanes, Stamp { lane: 3, at, gain: 0.5, frames: 0, db: false }, 2));
         }
-        assert!(!stage(&mut lanes, Stamp { lane: 3, at: 9, gain: 0.5, frames: 0 }, 2));
+        assert!(!stage(&mut lanes, Stamp { lane: 3, at: 9, gain: 0.5, frames: 0, db: false }, 2));
         assert_eq!(lanes.stamps().map(|s| s.at).collect::<Vec<_>>(), vec![1, 2, 3]);
-        assert!(stage(&mut lanes, Stamp { lane: 3, at: 9, gain: 0.5, frames: 0 }, 3), "another quantum drops what was left");
+        assert!(stage(&mut lanes, Stamp { lane: 3, at: 9, gain: 0.5, frames: 0, db: false }, 3), "another quantum drops what was left");
         assert_eq!(lanes.staged, 1);
     }
 

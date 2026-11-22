@@ -56,6 +56,7 @@ pub const ENUMS: &[Enum] = &[Enum {
         ("SCurve", 1, "S-curve"),
         ("EqualPowerIn", 2, "equal power, rising"),
         ("EqualPowerOut", 3, "equal power, falling"),
+        ("Decibel", 4, "linear in dB (geometric in gain): BUS_RAMP only, ABI 4.8; a ramp to or from 0 is linear; FADE, SET_PARAMS and STOP read it as linear"),
     ],
 }];
 

@@ -100,6 +100,36 @@ impl Ramp {
     pub fn is_unity(&self) -> bool {
         self.remaining == 0 && self.value == 1.0
     }
+
+    /// ABI 4.8 (ADR 0330: snapshots fade in dB): starts a ramp from `value` to `target` over
+    /// `frames` that is **linear in dB** (geometric in gain): `step` becomes the per-frame ratio
+    /// `(target / value)^(1 / frames)` and [`Ramp::next_db`] multiplies by it, the last frame landing
+    /// exactly on `target`. A ramp to or from 0 (or a non-positive or non-finite end) can't be
+    /// geometric: it starts a linear ramp ([`Ramp::set_target`]) and returns `false`, so the caller
+    /// advances it with [`Ramp::next`]. `frames == 0` jumps (and returns `false`).
+    pub fn set_target_db(&mut self, target: f32, frames: u32) -> bool {
+        let geometric = frames > 0 && self.value > 0.0 && target > 0.0 && self.value.is_finite() && target.is_finite() && self.value != target;
+        if !geometric {
+            self.set_target(target, frames);
+            return false;
+        }
+        self.target = target;
+        self.step = libm::powf(target / self.value, 1.0 / frames as f32);
+        self.remaining = frames;
+        true
+    }
+
+    /// [`Ramp::next`] for a ramp started by [`Ramp::set_target_db`] (`step` a ratio): when
+    /// `remaining > 0`, `remaining -= 1` and `value` becomes `target` if `remaining` is now 0, else
+    /// `value × step`. Settled, returns `value`.
+    #[inline]
+    pub fn next_db(&mut self) -> f32 {
+        if self.remaining > 0 {
+            self.remaining -= 1;
+            self.value = if self.remaining == 0 { self.target } else { self.value * self.step };
+        }
+        self.value
+    }
 }
 
 #[cfg(test)]
@@ -266,5 +296,31 @@ mod tests {
             assert_eq!(sample, stepped.next());
         }
         assert!(filled.is_settled());
+    }
+
+    #[test]
+    fn a_db_ramp_is_linear_in_db_and_lands_on_its_target() {
+        // 0 dB to -24 dB over 96 frames: frame k is -24 (k + 1) / 96 dB.
+        let mut ramp = Ramp::at(1.0);
+        assert!(ramp.set_target_db(libm::powf(10.0, -24.0 / 20.0), 96));
+        for k in 0..96 {
+            let g = ramp.next_db();
+            let db = 20.0 * libm::log10f(g);
+            let want = -24.0 * (k + 1) as f32 / 96.0;
+            assert!((db - want).abs() < 1e-3, "frame {k}: {db} dB, want {want}");
+        }
+        assert_eq!(ramp.value, ramp.target, "the last frame is exactly the target");
+        assert!(ramp.is_settled());
+    }
+
+    #[test]
+    fn a_db_ramp_to_or_from_zero_falls_back_to_linear() {
+        let mut ramp = Ramp::at(1.0);
+        assert!(!ramp.set_target_db(0.0, 4));
+        assert_eq!([ramp.next(), ramp.next(), ramp.next(), ramp.next()], [0.75, 0.5, 0.25, 0.0]);
+        let mut up = Ramp::at(0.0);
+        assert!(!up.set_target_db(1.0, 2));
+        assert!(!up.set_target_db(1.0, 0), "no frames: a jump");
+        assert_eq!(up.value, 1.0);
     }
 }

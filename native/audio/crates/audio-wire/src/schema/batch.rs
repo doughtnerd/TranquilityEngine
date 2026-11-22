@@ -54,7 +54,7 @@ pub(super) const EFFECTS: Repeat = Repeat {
     name: "effects",
     count_field: "effectCount",
     item: &[
-        Field::new("type", Ty::U32).doc("0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6)"),
+        Field::new("type", Ty::U32).doc("bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); bits 16-23: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8)"),
         Field::new("p", Ty::F32).array(7).doc("parameters; q in dB; unused p = 0"),
     ],
     then: None,
@@ -77,16 +77,17 @@ const BUS_CONFIG_BUSES: Repeat = Repeat {
 const SET_LOOP_FLAGS: &[Bits] = &[Bits::bit("looping", 0, "loop the region; clear is a release (play on to the clip's end)")];
 
 /// One automation binding of AUTOMATE and BUS_AUTOMATE (ADR 0158 §3): `u16 param; u16 curve; u32 target`.
-const BINDING_ITEM: &[Field] = &[
+pub(super) const BINDING_ITEM: &[Field] = &[
     Field::new("param", Ty::U16).doc("bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group"),
     Field::new("curve", Ty::U16).doc("curve id (CURVES)"),
-    Field::new("target", Ty::U32).doc("0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4)"),
+    Field::new("target", Ty::U32).doc("bits 0-7: 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4), AUTO_TARGET_FX and AUTO_TARGET_SEND (buses and submixes, ABI 4.8; their slot, parameter and log flag in the upper bits)"),
 ];
 
 /// AUTOMATE bindings: at most 8 per voice are kept.
 const AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: BINDING_ITEM, then: None, max: 0 };
 
-/// BUS_AUTOMATE bindings: global parameters only; target 0 volume or 2 lowpass; at most 8 per bus.
+/// BUS_AUTOMATE bindings: global parameters only; target 0 volume, 2 lowpass, AUTO_TARGET_FX or AUTO_TARGET_SEND; at most
+/// BUS_AUTOMATE_MAX_BINDINGS per bus (ABI 4.8; 8 before).
 const BUS_AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: BINDING_ITEM, then: None, max: 0 };
 
 /// One CURVES key: `f32 x; f32 y; u32 interp; f32 inDx, inDy, outDx, outDy` (ADR 0332 adds the handles).
@@ -327,6 +328,7 @@ pub const OPCODES: &[Opcode] = &[
     super::mix::BUS_SLOT,
     super::studio::TIME,
     super::mix::BUS_SENDS,
+    super::studio::SUBMIX_AUTOMATE,
     super::spatial::LISTENER,
     Opcode {
         id: 0x30,
@@ -382,7 +384,7 @@ mod tests {
     fn opcode_ids_are_unique_and_sorted() {
         let ids: Vec<u16> = OPCODES.iter().map(|o| o.id).collect();
         assert!(ids.windows(2).all(|w| w[0] < w[1]), "ids not strictly increasing: {ids:?}");
-        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x10, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x20, 0x30]);
+        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x10, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x30]);
         assert!(OPCODES.iter().all(|o| o.sent));
         assert!(OPCODES.iter().all(|o| o.id != 0x11), "0x11 stays reserved (BUS_MIX, retired)");
     }
@@ -413,7 +415,7 @@ mod tests {
             assert_eq!(size(RECORD_HEAD) + size(o.payload.fields), total, "{}", o.name);
             assert!(matches!(o.payload.tail, Tail::None), "{}", o.name);
         }
-        for id in [0x09, 0x0B, 0x0C, 0x10, 0x13, 0x15, 0x17, 0x19, 0x1B, 0x1C] {
+        for id in [0x09, 0x0B, 0x0C, 0x10, 0x13, 0x15, 0x17, 0x19, 0x1B, 0x1C, 0x1F] {
             let o = op(id);
             assert_eq!(o.total_bytes, None, "{}", o.name);
             assert!(matches!(o.payload.tail, Tail::Repeat(_)), "{}", o.name);

@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: b2283bb4820ce50e47272aa5f7361a2b).
+/// First 16 bytes of the schema's SHA-256 (hex: 076c9b3f3afe0a1ba655298e4640f5db).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0xb2,
-    0x28,
-    0x3b,
-    0xb4,
-    0x82,
-    0x0c,
-    0xe5,
-    0x0e,
-    0x47,
-    0x27,
-    0x2a,
-    0xa5,
-    0xf7,
-    0x36,
-    0x1a,
-    0x2b,
+    0x07,
+    0x6c,
+    0x9b,
+    0x3f,
+    0x3a,
+    0xfe,
+    0x0a,
+    0x1b,
+    0xa6,
+    0x55,
+    0x29,
+    0x8e,
+    0x46,
+    0x40,
+    0xf5,
+    0xdb,
 ];
-pub const SCHEMA_HASH_HEX: &str = "b2283bb4820ce50e47272aa5f7361a2b";
+pub const SCHEMA_HASH_HEX: &str = "076c9b3f3afe0a1ba655298e4640f5db";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -335,6 +335,28 @@ pub const BUS_FX_CATALOGUE: u32 = 0x10;
 pub const FX_MEMORY_SECONDS: u32 = 0x14;
 /// SUBMIX effect flags bit 0: the effect runs (clear: bypassed, its state kept)
 pub const SUBMIX_FX_ON: u32 = 0x1;
+/// binding target bits 0-7: the kind (0 volume .. 4 pan, AUTO_TARGET_FX, AUTO_TARGET_SEND)
+pub const AUTO_TARGET_KIND_MASK: u32 = 0xff;
+/// binding target kind: an effect parameter of the bus's (BUS_AUTOMATE) or submix's (SUBMIX_AUTOMATE) chain, replaced by the curve's value (ABI 4.8)
+pub const AUTO_TARGET_FX: u32 = 0x5;
+/// binding target kind: a bus's send, the curve's dB added to its level (BUS_AUTOMATE only; ABI 4.8)
+pub const AUTO_TARGET_SEND: u32 = 0x6;
+/// binding target bits 8-15: the effect's slot in the chain (FX), or the receiving bus slot of the send (SEND)
+pub const AUTO_TARGET_SLOT_SHIFT: u32 = 0x8;
+/// binding target bits 16-23: the catalogue parameter's index (FX)
+pub const AUTO_TARGET_PARAM_SHIFT: u32 = 0x10;
+/// binding target bit 24: the curve's value is log2 of the parameter (frequencies interpolate in log scale); the core takes 2^value (FX)
+pub const AUTO_TARGET_LOG: u32 = 0x1000000;
+/// bindings a bus or a submix keeps (BUS_AUTOMATE, SUBMIX_AUTOMATE; ABI 4.8, 8 before)
+pub const BUS_AUTOMATE_MAX_BINDINGS: u32 = 0x10;
+/// bus effect type bits 16-23: bit i set holds catalogue parameter i at its sent value (a snapshot override); automation leaves it (ABI 4.8)
+pub const BUS_FX_HELD_SHIFT: u32 = 0x10;
+/// bus effect type bits 0-15: the type
+pub const BUS_FX_TYPE_MASK: u32 = 0xffff;
+/// STATUS fxStarvedOwner bit 15: the owner is a submix slot (low bits), else a bus slot
+pub const FX_STARVED_SUBMIX: u32 = 0x8000;
+/// STATUS fxStarvedOwner: no effect has starved
+pub const FX_STARVED_NONE: u32 = 0xffff;
 
 /// K2 stub: the export exists but does nothing yet
 pub const ERR_NOT_IMPLEMENTED: i32 = -1;
@@ -411,6 +433,7 @@ pub mod op {
     pub const BUS_SLOT: u16 = 0x1c;
     pub const TIME: u16 = 0x1d;
     pub const BUS_SENDS: u16 = 0x1e;
+    pub const SUBMIX_AUTOMATE: u16 = 0x1f;
     pub const LISTENER: u16 = 0x20;
     pub const RESET: u16 = 0x30;
 }
@@ -545,6 +568,8 @@ pub mod fade_law {
     pub const EQUAL_POWER_IN: u32 = 2;
     /// equal power, falling
     pub const EQUAL_POWER_OUT: u32 = 3;
+    /// linear in dB (geometric in gain): BUS_RAMP only, ABI 4.8; a ramp to or from 0 is linear; FADE, SET_PARAMS and STOP read it as linear
+    pub const DECIBEL: u32 = 4;
 }
 
 #[inline]
@@ -2034,7 +2059,7 @@ pub struct AutomateBindings {
     pub param: u16,
     /// curve id (CURVES)
     pub curve: u16,
-    /// 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4)
+    /// bits 0-7: 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4), AUTO_TARGET_FX and AUTO_TARGET_SEND (buses and submixes, ABI 4.8; their slot, parameter and log flag in the upper bits)
     pub target: u32,
 }
 
@@ -2503,7 +2528,7 @@ impl Submix {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BusConfigBusesEffects {
-    /// 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6)
+    /// bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); bits 16-23: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8)
     pub type_: u32,
     /// parameters; q in dB; unused p = 0
     pub p: [f32; 7],
@@ -2982,7 +3007,7 @@ pub struct BusAutomateBindings {
     pub param: u16,
     /// curve id (CURVES)
     pub curve: u16,
-    /// 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4)
+    /// bits 0-7: 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4), AUTO_TARGET_FX and AUTO_TARGET_SEND (buses and submixes, ABI 4.8; their slot, parameter and log flag in the upper bits)
     pub target: u32,
 }
 
@@ -3338,7 +3363,7 @@ impl ZoneConfig {
 pub const BUS_RAMP_MASK_GAIN: u16 = 0x1;
 /// the lpHz target (lane 2 only: the snapshot low-pass)
 pub const BUS_RAMP_MASK_LP_HZ: u16 = 0x2;
-/// 0 linear (FadeLaw); only linear in M5
+/// 0 linear, 4 decibel (FadeLaw; ABI 4.8: linear in dB, a ramp to or from 0 linear); other laws read as linear
 pub const BUS_RAMP_SHAPE_LAW_SHIFT: u32 = 0;
 pub const BUS_RAMP_SHAPE_LAW_MASK: u32 = 0x7;
 /// the structural sequence this record belongs to; 0 = none (C27)
@@ -3743,7 +3768,7 @@ pub const BUS_SLOT_FLAGS_STRUCTURAL: u16 = 0x1;
 pub const BUS_SLOT_FLAGS_FRESH: u16 = 0x2;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BusSlotEffects {
-    /// 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6)
+    /// bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); bits 16-23: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8)
     pub type_: u32,
     /// parameters; q in dB; unused p = 0
     pub p: [f32; 7],
@@ -4068,6 +4093,118 @@ impl BusSends {
             voice_id: head.voice_id,
             frame_offset: head.frame_offset,
             sends,
+        }, cur - base))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SubmixAutomateBindings {
+    /// bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group
+    pub param: u16,
+    /// curve id (CURVES)
+    pub curve: u16,
+    /// bits 0-7: 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4), AUTO_TARGET_FX and AUTO_TARGET_SEND (buses and submixes, ABI 4.8; their slot, parameter and log flag in the upper bits)
+    pub target: u32,
+}
+
+impl SubmixAutomateBindings {
+    pub const FIXED_END: usize = 8;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 0, self.param);
+        put_u16(out, base + 2, self.curve);
+        put_u32(out, base + 4, self.target);
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let param = get_u16(buf, base + 0);
+        let curve = get_u16(buf, base + 2);
+        let target = get_u32(buf, base + 4);
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            param,
+            curve,
+            target,
+        }, cur - base))
+    }
+}
+
+/// replace an instance submix's effect-parameter automation (ADR 0331, ABI 4.8); count 0 clears it
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SubmixAutomate {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    pub bindings: Vec<SubmixAutomateBindings>,
+}
+
+impl SubmixAutomate {
+    pub const FIXED_END: usize = 16;
+    pub const OPCODE: u16 = 31; // SUBMIX_AUTOMATE
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 12, u32::try_from(self.bindings.len()).map_err(|_| ERR_OVERSIZE)?);
+        let mut cur = base + Self::FIXED_END;
+        for item in &self.bindings {
+            cur += item.write(out, cur)?;
+        }
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let binding_count = get_u32(buf, base + 12);
+        let mut cur = base + Self::FIXED_END;
+        let count = binding_count as usize;
+        if count.checked_mul(8).map_or(true, |n| n > limit - cur) {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut bindings = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (item, n) = SubmixAutomateBindings::read_to(buf, cur, limit)?;
+            cur += n;
+            bindings.push(item);
+        }
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            bindings,
         }, cur - base))
     }
 }
@@ -4746,8 +4883,10 @@ pub struct StatusBlock {
     pub split_quanta: u32,
     /// voice-local splits (cumulative; R3)
     pub voice_splits: u32,
-    /// reserved, 0
-    pub reserved: u32,
+    /// effects that asked for effect memory and got none, so pass their signal through (cumulative, saturating; ABI 4.8)
+    pub fx_starved: u16,
+    /// the owner of the last starved effect: a bus slot, or FX_STARVED_SUBMIX | a submix slot; FX_STARVED_NONE before any (ABI 4.8)
+    pub fx_starved_owner: u16,
     /// sum of Date.now() deltas around process(), ms, since the driver started (shell)
     pub busy_ms_total: f64,
     /// quanta processed since the driver started (shell)
@@ -4918,7 +5057,8 @@ impl StatusBlock {
         put_u32(out, base + 160, self.max_slip_frames);
         put_u32(out, base + 164, self.split_quanta);
         put_u32(out, base + 168, self.voice_splits);
-        put_u32(out, base + 172, self.reserved);
+        put_u16(out, base + 172, self.fx_starved);
+        put_u16(out, base + 174, self.fx_starved_owner);
         put_f64(out, base + 176, self.busy_ms_total);
         put_f64(out, base + 184, self.quanta_total);
         put_f64(out, base + 192, self.wu_voices);
@@ -5123,7 +5263,8 @@ impl StatusBlock {
         let max_slip_frames = get_u32(buf, base + 160);
         let split_quanta = get_u32(buf, base + 164);
         let voice_splits = get_u32(buf, base + 168);
-        let reserved = get_u32(buf, base + 172);
+        let fx_starved = get_u16(buf, base + 172);
+        let fx_starved_owner = get_u16(buf, base + 174);
         let busy_ms_total = get_f64(buf, base + 176);
         let quanta_total = get_f64(buf, base + 184);
         let wu_voices = get_f64(buf, base + 192);
@@ -5315,7 +5456,8 @@ impl StatusBlock {
             max_slip_frames,
             split_quanta,
             voice_splits,
-            reserved,
+            fx_starved,
+            fx_starved_owner,
             busy_ms_total,
             quanta_total,
             wu_voices,

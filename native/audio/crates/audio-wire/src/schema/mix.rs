@@ -65,9 +65,9 @@ const BUS_RAMP_MASK: &[Bits] = &[
     Bits::bit("lpHz", 1, "the lpHz target (lane 2 only: the snapshot low-pass)"),
 ];
 
-/// BUS_RAMP `shape`: the law and start phase as FADE's (linear only in M5), plus the sequence tag.
+/// BUS_RAMP `shape`: the law and start phase as FADE's (linear, or decibel since ABI 4.8), plus the sequence tag.
 const BUS_RAMP_SHAPE_BITS: &[Bits] = &[
-    Bits::range("law", 0, 3, "0 linear (FadeLaw); only linear in M5"),
+    Bits::range("law", 0, 3, "0 linear, 4 decibel (FadeLaw; ABI 4.8: linear in dB, a ramp to or from 0 linear); other laws read as linear"),
     Bits::range("sequenceId", 3, 13, "the structural sequence this record belongs to; 0 = none (C27)"),
     Bits::range("startPhase", 16, 16, "start phase of the curve as u0.16: value / 65,536"),
 ];

@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "b2283bb4820ce50e47272aa5f7361a2b";
+export const SCHEMA_HASH = "076c9b3f3afe0a1ba655298e4640f5db";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
@@ -318,6 +318,28 @@ export const BUS_FX_CATALOGUE = 0x10;
 export const FX_MEMORY_SECONDS = 0x14;
 /** SUBMIX effect flags bit 0: the effect runs (clear: bypassed, its state kept) */
 export const SUBMIX_FX_ON = 0x1;
+/** binding target bits 0-7: the kind (0 volume .. 4 pan, AUTO_TARGET_FX, AUTO_TARGET_SEND) */
+export const AUTO_TARGET_KIND_MASK = 0xff;
+/** binding target kind: an effect parameter of the bus's (BUS_AUTOMATE) or submix's (SUBMIX_AUTOMATE) chain, replaced by the curve's value (ABI 4.8) */
+export const AUTO_TARGET_FX = 0x5;
+/** binding target kind: a bus's send, the curve's dB added to its level (BUS_AUTOMATE only; ABI 4.8) */
+export const AUTO_TARGET_SEND = 0x6;
+/** binding target bits 8-15: the effect's slot in the chain (FX), or the receiving bus slot of the send (SEND) */
+export const AUTO_TARGET_SLOT_SHIFT = 0x8;
+/** binding target bits 16-23: the catalogue parameter's index (FX) */
+export const AUTO_TARGET_PARAM_SHIFT = 0x10;
+/** binding target bit 24: the curve's value is log2 of the parameter (frequencies interpolate in log scale); the core takes 2^value (FX) */
+export const AUTO_TARGET_LOG = 0x1000000;
+/** bindings a bus or a submix keeps (BUS_AUTOMATE, SUBMIX_AUTOMATE; ABI 4.8, 8 before) */
+export const BUS_AUTOMATE_MAX_BINDINGS = 0x10;
+/** bus effect type bits 16-23: bit i set holds catalogue parameter i at its sent value (a snapshot override); automation leaves it (ABI 4.8) */
+export const BUS_FX_HELD_SHIFT = 0x10;
+/** bus effect type bits 0-15: the type */
+export const BUS_FX_TYPE_MASK = 0xffff;
+/** STATUS fxStarvedOwner bit 15: the owner is a submix slot (low bits), else a bus slot */
+export const FX_STARVED_SUBMIX = 0x8000;
+/** STATUS fxStarvedOwner: no effect has starved */
+export const FX_STARVED_NONE = 0xffff;
 
 /** Negative i32 results of the C ABI (0 is ok). */
 export const ErrorCode = {
@@ -391,6 +413,7 @@ export const Op = {
   BUS_SLOT: 0x1c,
   TIME: 0x1d,
   BUS_SENDS: 0x1e,
+  SUBMIX_AUTOMATE: 0x1f,
   LISTENER: 0x20,
   RESET: 0x30,
 } as const;
@@ -481,6 +504,7 @@ export const FadeLaw = {
   SCurve: 1,
   EqualPowerIn: 2,
   EqualPowerOut: 3,
+  Decibel: 4,
 } as const;
 
 /** The shape word of FADE, SET_PARAMS and STOP: `law` (bits 0-2, `FadeLaw`) and `startPhase` as u0.16 (bits 16-31). */
@@ -1607,7 +1631,7 @@ export interface AutomateBindings {
   param: number;
   /** curve id (CURVES) */
   curve: number;
-  /** 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4) */
+  /** bits 0-7: 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4), AUTO_TARGET_FX and AUTO_TARGET_SEND (buses and submixes, ABI 4.8; their slot, parameter and log flag in the upper bits) */
   target: number;
 }
 
@@ -1951,7 +1975,7 @@ export function readSubmix(view: DataView, off: number): Submix {
 }
 
 export interface BusConfigBusesEffects {
-  /** 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6) */
+  /** bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); bits 16-23: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8) */
   type: number;
   /** parameters; q in dB; unused p = 0 */
   p: number[];
@@ -2299,7 +2323,7 @@ export interface BusAutomateBindings {
   param: number;
   /** curve id (CURVES) */
   curve: number;
-  /** 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4) */
+  /** bits 0-7: 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4), AUTO_TARGET_FX and AUTO_TARGET_SEND (buses and submixes, ABI 4.8; their slot, parameter and log flag in the upper bits) */
   target: number;
 }
 
@@ -2549,7 +2573,7 @@ export function readZoneConfig(view: DataView, off: number): ZoneConfig {
 export const BUS_RAMP_MASK_GAIN = 0x1;
 /** the lpHz target (lane 2 only: the snapshot low-pass) */
 export const BUS_RAMP_MASK_LP_HZ = 0x2;
-/** 0 linear (FadeLaw); only linear in M5 */
+/** 0 linear, 4 decibel (FadeLaw; ABI 4.8: linear in dB, a ramp to or from 0 linear); other laws read as linear */
 export const BUS_RAMP_SHAPE_LAW_SHIFT = 0;
 export const BUS_RAMP_SHAPE_LAW_MASK = 0x7;
 /** the structural sequence this record belongs to; 0 = none (C27) */
@@ -2840,7 +2864,7 @@ export const BUS_SLOT_FLAGS_STRUCTURAL = 0x1;
 /** the slot starts zeroed with unity lanes: a re-add after recycling */
 export const BUS_SLOT_FLAGS_FRESH = 0x2;
 export interface BusSlotEffects {
-  /** 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6) */
+  /** bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); bits 16-23: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8) */
   type: number;
   /** parameters; q in dB; unused p = 0 */
   p: number[];
@@ -3076,6 +3100,87 @@ export function readBusSends(view: DataView, off: number): BusSends {
   const limit = off + view.getUint16(off + 2, true) * 4;
   if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusSends: truncated");
   return _readBusSends(view, off, limit)[0];
+}
+
+export interface SubmixAutomateBindings {
+  /** bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group */
+  param: number;
+  /** curve id (CURVES) */
+  curve: number;
+  /** bits 0-7: 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4), AUTO_TARGET_FX and AUTO_TARGET_SEND (buses and submixes, ABI 4.8; their slot, parameter and log flag in the upper bits) */
+  target: number;
+}
+
+export const SUBMIX_AUTOMATE_BINDINGS_FIXED_END = 8;
+
+export function writeSubmixAutomateBindings(view: DataView, off: number, rec: SubmixAutomateBindings): number {
+  view.setUint16(off + 0, rec.param, true);
+  view.setUint16(off + 2, rec.curve, true);
+  view.setUint32(off + 4, rec.target, true);
+  let cur = off + 8;
+  return cur - off;
+}
+
+function _readSubmixAutomateBindings(view: DataView, off: number, limit: number): [SubmixAutomateBindings, number] {
+  if (off + 8 > limit) throw new WireError(ErrorCode.TRUNCATED, "SubmixAutomateBindings: truncated");
+  const param = view.getUint16(off + 0, true);
+  const curve = view.getUint16(off + 2, true);
+  const target = view.getUint32(off + 4, true);
+  let cur = off + 8;
+  return [{ param, curve, target }, cur - off];
+}
+
+export function readSubmixAutomateBindings(view: DataView, off: number): SubmixAutomateBindings {
+  const limit = view.byteLength;
+  return _readSubmixAutomateBindings(view, off, limit)[0];
+}
+
+/** replace an instance submix's effect-parameter automation (ADR 0331, ABI 4.8); count 0 clears it */
+export interface SubmixAutomate {
+  voiceId: number;
+  frameOffset: number;
+  bindings: SubmixAutomateBindings[];
+}
+
+export const SUBMIX_AUTOMATE_FIXED_END = 16;
+
+export function writeSubmixAutomate(view: DataView, off: number, rec: SubmixAutomate): number {
+  view.setUint32(off + 12, rec.bindings.length, true);
+  let cur = off + 16;
+  for (const item of rec.bindings) cur += writeSubmixAutomateBindings(view, cur, item);
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "SubmixAutomate: record too long");
+  view.setUint16(off + 0, 31, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readSubmixAutomate(view: DataView, off: number, limit: number): [SubmixAutomate, number] {
+  if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "SubmixAutomate: truncated");
+  const bindingCount = view.getUint32(off + 12, true);
+  let cur = off + 16;
+  if (bindingCount * 8 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "SubmixAutomate: bindings overrun");
+  const bindings: SubmixAutomateBindings[] = [];
+  for (let i = 0; i < bindingCount; i++) {
+    const [item, used] = _readSubmixAutomateBindings(view, cur, limit);
+    cur += used;
+    bindings.push(item);
+  }
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "SubmixAutomate: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, bindings }, cur - off];
+}
+
+export function readSubmixAutomate(view: DataView, off: number): SubmixAutomate {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "SubmixAutomate: truncated");
+  if (view.getUint16(off + 0, true) !== 31) throw new WireError(ErrorCode.MALFORMED, "SubmixAutomate: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "SubmixAutomate: truncated");
+  return _readSubmixAutomate(view, off, limit)[0];
 }
 
 /** a camera cut: jump to the rotation, no ramp */
@@ -3612,8 +3717,10 @@ export interface StatusHeader {
   splitQuanta: number;
   /** voice-local splits (cumulative; R3) */
   voiceSplits: number;
-  /** reserved, 0 */
-  reserved: number;
+  /** effects that asked for effect memory and got none, so pass their signal through (cumulative, saturating; ABI 4.8) */
+  fxStarved: number;
+  /** the owner of the last starved effect: a bus slot, or FX_STARVED_SUBMIX | a submix slot; FX_STARVED_NONE before any (ABI 4.8) */
+  fxStarvedOwner: number;
   /** sum of Date.now() deltas around process(), ms, since the driver started (shell) */
   busyMsTotal: number;
   /** quanta processed since the driver started (shell) */
@@ -3745,7 +3852,8 @@ export function writeStatus(view: DataView, off: number, rec: StatusBlock, seq: 
   view.setUint32(off + 160, rec.maxSlipFrames, true);
   view.setUint32(off + 164, rec.splitQuanta, true);
   view.setUint32(off + 168, rec.voiceSplits, true);
-  view.setUint32(off + 172, rec.reserved, true);
+  view.setUint16(off + 172, rec.fxStarved, true);
+  view.setUint16(off + 174, rec.fxStarvedOwner, true);
   view.setFloat64(off + 176, rec.busyMsTotal, true);
   view.setFloat64(off + 184, rec.quantaTotal, true);
   view.setFloat64(off + 192, rec.wuVoices, true);
@@ -3862,7 +3970,8 @@ export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
   const maxSlipFrames = view.getUint32(off + 160, true);
   const splitQuanta = view.getUint32(off + 164, true);
   const voiceSplits = view.getUint32(off + 168, true);
-  const reserved = view.getUint32(off + 172, true);
+  const fxStarved = view.getUint16(off + 172, true);
+  const fxStarvedOwner = view.getUint16(off + 174, true);
   const busyMsTotal = view.getFloat64(off + 176, true);
   const quantaTotal = view.getFloat64(off + 184, true);
   const wuVoices = view.getFloat64(off + 192, true);
@@ -3971,7 +4080,7 @@ export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
     busDuck.push(readStatusBusDuckItem(view, cur));
     cur += 8;
   }
-  return { currentFrame, dateMs, pingSeq, pingFrameLo, underruns, lateCommands, workUnits, workUnitsMax, mixedVoices, liveVoices, flags, mixedCap, loadPermille, traps, minSlackFrames, underrunFrames, arenaUsedKB, arenaLargestFreeKB, abiVersion, maxLatenessFrames, hrtfVoices, hrtfLoadFailure, bedVoices, fxVoices, ambisonicVoices, zonesActive, zonesRinging, bedsRefused, m3Shed, zoneUsedKB, workBed, workZones, musicRingsOpen, streamStartsLate, groupsLate, groupsHeld, groupsAbandoned, curvePoolFull, maxSlipFrames, splitQuanta, voiceSplits, reserved, busyMsTotal, quantaTotal, wuVoices, wuBuses, wuSpatial, wuMusic, wuLoudness, clockStepMs, loudSubBlockFrames, clockSteps, loudShed, busRecordsEarly, sidechainLate, reserved2, ended, demoted, starved, playheads, clipEvents, streamEvents, peaks, beds, zones, zoneEvents, musicRings, groupStarts, loudBuses, loudEnergies, busDuck };
+  return { currentFrame, dateMs, pingSeq, pingFrameLo, underruns, lateCommands, workUnits, workUnitsMax, mixedVoices, liveVoices, flags, mixedCap, loadPermille, traps, minSlackFrames, underrunFrames, arenaUsedKB, arenaLargestFreeKB, abiVersion, maxLatenessFrames, hrtfVoices, hrtfLoadFailure, bedVoices, fxVoices, ambisonicVoices, zonesActive, zonesRinging, bedsRefused, m3Shed, zoneUsedKB, workBed, workZones, musicRingsOpen, streamStartsLate, groupsLate, groupsHeld, groupsAbandoned, curvePoolFull, maxSlipFrames, splitQuanta, voiceSplits, fxStarved, fxStarvedOwner, busyMsTotal, quantaTotal, wuVoices, wuBuses, wuSpatial, wuMusic, wuLoudness, clockStepMs, loudSubBlockFrames, clockSteps, loudShed, busRecordsEarly, sidechainLate, reserved2, ended, demoted, starved, playheads, clipEvents, streamEvents, peaks, beds, zones, zoneEvents, musicRings, groupStarts, loudBuses, loudEnergies, busDuck };
 }
 
 /** A `StatusHeader` with every field 0. */
@@ -4018,7 +4127,8 @@ export function newStatusHeader(): StatusHeader {
     maxSlipFrames: 0,
     splitQuanta: 0,
     voiceSplits: 0,
-    reserved: 0,
+    fxStarved: 0,
+    fxStarvedOwner: 0,
     busyMsTotal: 0,
     quantaTotal: 0,
     wuVoices: 0,
@@ -4079,7 +4189,8 @@ export function copyStatusHeader(dst: StatusHeader, src: StatusHeader): void {
   dst.maxSlipFrames = src.maxSlipFrames;
   dst.splitQuanta = src.splitQuanta;
   dst.voiceSplits = src.voiceSplits;
-  dst.reserved = src.reserved;
+  dst.fxStarved = src.fxStarved;
+  dst.fxStarvedOwner = src.fxStarvedOwner;
   dst.busyMsTotal = src.busyMsTotal;
   dst.quantaTotal = src.quantaTotal;
   dst.wuVoices = src.wuVoices;
@@ -4140,7 +4251,8 @@ export function newStatusBlock(): StatusBlock {
     maxSlipFrames: 0,
     splitQuanta: 0,
     voiceSplits: 0,
-    reserved: 0,
+    fxStarved: 0,
+    fxStarvedOwner: 0,
     busyMsTotal: 0,
     quantaTotal: 0,
     wuVoices: 0,
@@ -4222,7 +4334,8 @@ export const STATUS_HEADER_COLUMNS = {
   maxSlipFrames: [160, "u32"],
   splitQuanta: [164, "u32"],
   voiceSplits: [168, "u32"],
-  reserved: [172, "u32"],
+  fxStarved: [172, "u16"],
+  fxStarvedOwner: [174, "u16"],
   busyMsTotal: [176, "f64"],
   quantaTotal: [184, "f64"],
   wuVoices: [192, "f64"],
@@ -4519,7 +4632,8 @@ export class StatusBlockReader {
     b.maxSlipFrames = view.getUint32(160, true);
     b.splitQuanta = view.getUint32(164, true);
     b.voiceSplits = view.getUint32(168, true);
-    b.reserved = view.getUint32(172, true);
+    b.fxStarved = view.getUint16(172, true);
+    b.fxStarvedOwner = view.getUint16(174, true);
     b.busyMsTotal = view.getFloat64(176, true);
     b.quantaTotal = view.getFloat64(184, true);
     b.wuVoices = view.getFloat64(192, true);
