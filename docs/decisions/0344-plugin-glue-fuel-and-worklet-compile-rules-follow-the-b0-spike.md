@@ -62,4 +62,4 @@ We will keep 0338's architecture and change these rules:
 
 ## References
 
-`docs/design/audio-studio/spikes/0338-b0.md`; `tools/spikes/fx-plugin/`; `native/audio/spikes/fx-plugin/`.
+`docs/design/audio-studio/spikes/0338-b0.md`; `tools/spikes/fx-plugin/`; `spikes/fx-plugin/`.
