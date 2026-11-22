@@ -12,8 +12,14 @@
  * past its chunk drops that field, never the whole result. All positions are sample frames, `end` exclusive.
  *
  * Skeleton by the Ed9 lead; bodies tagged `L-Ed9` are filled by leaf L-Ed9 (tests: `importHints.test.ts`).
+ *
+ * The RIFF walk and the chunk body readers live in the engine's `audio/sample/wavChunks.ts` (ADR 0328: the readers move
+ * to the sample import); these functions keep their shapes and delegate.
  */
 
+import {
+  matchesAscii, readAcidChunk, readAdtlChunk, readCueChunk, readSmplChunk, u16At, u32At, walkWavChunks,
+} from "../../../../engine/audio/sample/wavChunks";
 import { oggComments, type CommentPair } from "../../runtime/loopPointsReader";
 
 // --- types ------------------------------------------------------------------------------------------------------------
@@ -110,7 +116,8 @@ export function readImportHints(bytes: Uint8Array): ImportHints {
 export function readWavHints(bytes: Uint8Array): WavHints {
   const out: WavHints = { cues: [], loops: [] };
   try {
-    if (bytes.length < 12 || !matchesAscii(bytes, 0, "RIFF") || !matchesAscii(bytes, 8, "WAVE")) return out;
+    const walk = walkWavChunks(bytes);
+    if (!walk) return out;
 
     let fmt: Uint8Array | undefined;
     let dataBytes: number | undefined;
@@ -119,26 +126,16 @@ export function readWavHints(bytes: Uint8Array): WavHints {
     let smplBodyBytes: Uint8Array | undefined;
     const adtlBodies: Uint8Array[] = [];
 
-    let pos = 12;
-    while (pos + 8 <= bytes.length) {
-      const id = fourCC(bytes, pos);
-      const size = u32At(bytes, pos + 4);
-      const bodyStart = pos + 8;
-      const available = bytes.length - bodyStart;
-      if (size > available) {
-        // A chunk that overruns the file ends the walk; only `data` keeps its available frames.
-        if (id === "data") dataBytes ??= available;
-        break;
-      }
-      const body = bytes.subarray(bodyStart, bodyStart + size);
+    for (const { id, size, body } of walk.chunks) {
       if (id === "fmt ") fmt ??= body;
       else if (id === "data") dataBytes ??= size;
       else if (id === "acid") acidBodyBytes ??= body;
       else if (id === "cue ") cueBodyBytes ??= body;
       else if (id === "smpl") smplBodyBytes ??= body;
       else if (id === "LIST" && body.length >= 4 && matchesAscii(body, 0, "adtl")) adtlBodies.push(body);
-      pos = bodyStart + size + (size % 2);
     }
+    // A chunk that overruns the file ends the walk; only `data` keeps its available frames.
+    if (walk.overrun?.id === "data") dataBytes ??= walk.overrun.available;
 
     if (fmt !== undefined) {
       if (fmt.length >= 8) {
@@ -185,16 +182,9 @@ export function readWavHints(bytes: Uint8Array): WavHints {
  * `meterDenominator` come through as stored (0 = not said; no clamping beyond that).
  */
 export function readAcid(body: Uint8Array): AcidHint | null {
-  if (body.length < 24) return null;
-  const tempo = f32At(body, 20);
-  if (!Number.isFinite(tempo) || tempo <= 0) return null;
-  return {
-    bpm: tempo,
-    beats: u32At(body, 12),
-    meterNumerator: u16At(body, 18),
-    meterDenominator: u16At(body, 16),
-    oneShot: (u32At(body, 0) & 1) !== 0,
-  };
+  const acid = readAcidChunk(body);
+  if (!acid) return null;
+  return { bpm: acid.bpm, beats: acid.beats, meterNumerator: acid.meterNumerator, meterDenominator: acid.meterDenominator, oneShot: acid.oneShot };
 }
 
 /**
@@ -211,15 +201,7 @@ export function readAcid(body: Uint8Array): AcidHint | null {
  * Whole records only: read min(count, floor((len - 4) / 24)) of them, in file order. A body under 4 bytes is `[]`.
  */
 export function readCuePoints(body: Uint8Array): CuePoint[] {
-  if (body.length < 4) return [];
-  const count = u32At(body, 0);
-  const records = Math.min(count, Math.floor((body.length - 4) / 24));
-  const points: CuePoint[] = [];
-  for (let i = 0; i < records; i++) {
-    const at = 4 + i * 24;
-    points.push({ id: u32At(body, at), frame: u32At(body, at + 20) });
-  }
-  return points;
+  return readCueChunk(body);
 }
 
 /**
@@ -230,29 +212,13 @@ export function readCuePoints(body: Uint8Array): CuePoint[] {
  * an id wins. A body that isn't `adtl` (or a sub-chunk running past the body) gives what was read so far.
  */
 export function readAdtlLabels(body: Uint8Array): Map<number, string> {
-  const labels = new Map<number, string>();
-  const notes = new Map<number, string>();
   try {
-    if (body.length < 4 || !matchesAscii(body, 0, "adtl")) return labels;
-    let pos = 4;
-    while (pos + 8 <= body.length) {
-      const id = fourCC(body, pos);
-      const size = u32At(body, pos + 4);
-      const start = pos + 8;
-      if (size > body.length - start) break;
-      const end = start + size;
-      if ((id === "labl" || id === "note") && size >= 4) {
-        const cueId = u32At(body, start);
-        const target = id === "labl" ? labels : notes;
-        if (!target.has(cueId)) target.set(cueId, cText(body, start + 4, end));
-      }
-      pos = end + (size % 2);
-    }
+    const { labels, notes } = readAdtlChunk(body);
+    for (const [id, text] of notes) if (!labels.has(id)) labels.set(id, text);
+    return labels;
   } catch {
-    // keep the labels read so far
+    return new Map();
   }
-  for (const [id, text] of notes) if (!labels.has(id)) labels.set(id, text);
-  return labels;
 }
 
 /**
@@ -275,20 +241,7 @@ export function readAdtlLabels(body: Uint8Array): Map<number, string> {
  * reader (`smplLoopPoints`), loops of any type are returned.
  */
 export function readSmplLoops(body: Uint8Array): SmplLoop[] {
-  if (body.length < 36) return [];
-  const count = u32At(body, 28);
-  const records = Math.min(count, Math.floor((body.length - 36) / 24));
-  const loops: SmplLoop[] = [];
-  for (let i = 0; i < records; i++) {
-    const at = 36 + i * 24;
-    const type = u32At(body, at + 4);
-    const start = u32At(body, at + 8);
-    const end = u32At(body, at + 12);
-    const playCount = u32At(body, at + 20);
-    if (end < start || end + 1 > MAX_U32) continue;
-    loops.push({ start, end: end + 1, type, playCount });
-  }
-  return loops;
+  return (readSmplChunk(body)?.loops ?? []).map((l) => ({ start: l.start, end: l.end, type: l.type, playCount: l.playCount }));
 }
 
 /**
@@ -338,42 +291,6 @@ export function commentHints(comments: readonly CommentPair[]): OggHints {
 
 const MAX_U32 = 0xffffffff;
 const ASCII_SPACE = /^[ \t\n\f\r]+|[ \t\n\f\r]+$/g;
-
-/** Little-endian u16; the caller has checked that two bytes are there. */
-function u16At(bytes: Uint8Array, at: number): number {
-  return bytes[at] | (bytes[at + 1] << 8);
-}
-
-/** Little-endian u32; the caller has checked that four bytes are there. */
-function u32At(bytes: Uint8Array, at: number): number {
-  return (bytes[at] | (bytes[at + 1] << 8) | (bytes[at + 2] << 16)) + bytes[at + 3] * 0x1000000;
-}
-
-/** Little-endian f32; the caller has checked that four bytes are there. */
-function f32At(bytes: Uint8Array, at: number): number {
-  return new DataView(bytes.buffer, bytes.byteOffset + at, 4).getFloat32(0, true);
-}
-
-/** The four characters at `at` (the caller has checked the bounds). */
-function fourCC(bytes: Uint8Array, at: number): string {
-  return String.fromCharCode(bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]);
-}
-
-/** True when `bytes` holds the ASCII `text` at `at`. */
-function matchesAscii(bytes: Uint8Array, at: number, text: string): boolean {
-  if (at + text.length > bytes.length) return false;
-  for (let i = 0; i < text.length; i++) {
-    if (bytes[at + i] !== text.charCodeAt(i)) return false;
-  }
-  return true;
-}
-
-/** Label text from `[from, to)`, UTF-8, up to the first NUL. */
-function cText(bytes: Uint8Array, from: number, to: number): string {
-  let stop = from;
-  while (stop < to && bytes[stop] !== 0) stop++;
-  return new TextDecoder("utf-8").decode(bytes.subarray(from, stop));
-}
 
 /** Upper-cases ASCII letters only. */
 function asciiUpper(text: string): string {
