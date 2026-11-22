@@ -88,6 +88,19 @@ describe("a test scene over a base game scene (headless)", () => {
     expect(player.root.find("bell")!.getBehavior(AudioSource)!.occlusionGain).toBeCloseTo(wood, 3);
   });
 
+  it("without a base, the test scene's own obstacle occludes: its collider starts the World's 3D physics", async () => {
+    const s = testScene(null);
+    s.obstacles = [{ id: "fence", name: "Fence", hidden: false, locked: false, material: "metal", box: { center: { x: 5, y: 0, z: 0 }, width: 0.5, depth: 6, yaw: 0, bottom: -3, top: 3 } }];
+    player = playAudioTestScene(engine.world, s);
+    // The physics service loads asynchronously when the first collider attaches (Rapier), as in a game.
+    for (let i = 0; i < 50 && (bell().occlusion?.gain ?? 1) === 1; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+      run(2);
+    }
+    expect(bell().occlusion!.gain).toBeLessThan(0.5);
+    expect(bell().occlusion!.material).toBe("metal");
+  });
+
   it("loads the base's audio and colliders underneath, read-only, and unloads them", async () => {
     base = await loadBaseScene("scenes/yard.scene.json");
     const scene = base.scene!;

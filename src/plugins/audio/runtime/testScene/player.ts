@@ -12,7 +12,7 @@
  *   without the physics plugin or a 3D World they stay data (no collider), and occlusion is open, as in a game.
  * - **Reverb zones** are `AudioReverbZone` boxes (wet in dB as the zone's linear wet), **audio zones** `AudioZone`s and
  *   **2D sounds** flat `AudioSource`s on their output bus.
- * - A **base** game scene the caller loaded into the World first keeps its components; `replace` swaps the sound of each
+ * - A **base** game scene the caller loaded into the World first (`loadBaseScene`, `baseScene.ts`) keeps its components; `replace` swaps the sound of each
  *   named component (`"Node/Path/AudioSource"`, `"…/AudioZone"`, `[i]` for the i-th of a type) while the player plays and
  *   puts it back on `dispose`, so the scene file never changes.
  *
