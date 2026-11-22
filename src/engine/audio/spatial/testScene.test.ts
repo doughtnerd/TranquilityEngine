@@ -1,6 +1,6 @@
 // ADR 0333: spatial test scenes — the lenient parse, the writer's round trip and the references with their rewrite.
 import { describe, expect, it } from "vitest";
-import { audioTestSceneToJson, AUDIO_SCENE_LIMITS, emptyAudioTestScene, parseAudioTestScene, rewriteTestSceneReferences, testSceneReferences } from "./testScene";
+import { audioTestSceneToJson, AUDIO_SCENE_LIMITS, emptyAudioTestScene, parseAudioTestScene, rewriteTestSceneReferences, routeLength, routePose, testSceneReferences } from "./testScene";
 import { AUDIO_SCENE_FORMAT } from "./testSceneTypes";
 
 const full = {
@@ -92,6 +92,26 @@ describe("parseAudioTestScene", () => {
   it("reads a wrong format with one problem", () => {
     const { problems } = parseAudioTestScene({ format: "myco.scene@1" });
     expect(problems).toHaveLength(1);
+  });
+});
+
+describe("routes", () => {
+  const route = [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }, { x: 10, y: 0, z: 10 }];
+  const out = { position: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 0, z: 0 } };
+
+  it("places an emitter by arc length, at its height, facing along the segment", () => {
+    expect(routeLength(route)).toBe(20);
+    routePose(route, 3, 0.25, true, out);
+    expect(out).toEqual({ position: { x: 5, y: 3, z: 0 }, direction: { x: 1, y: 0, z: 0 } });
+    routePose(route, 3, 0.75, true, out);
+    expect(out).toEqual({ position: { x: 10, y: 3, z: 5 }, direction: { x: 0, y: 0, z: 1 } });
+  });
+
+  it("wraps when looping and clamps when not", () => {
+    routePose(route, 0, 1.25, true, out);
+    expect(out.position).toEqual({ x: 5, y: 0, z: 0 });
+    routePose(route, 0, 1.25, false, out);
+    expect(out.position).toEqual({ x: 10, y: 0, z: 10 });
   });
 });
 

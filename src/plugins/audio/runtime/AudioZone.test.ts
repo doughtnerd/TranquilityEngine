@@ -14,7 +14,7 @@ const rain = pla("clip", [sample("a.wav")], { playback: { plays: "untilStopped" 
 const flat = pla("clip", [sample("a.wav")], { playback: { plays: "untilStopped" } });
 const dbGain = (db: number) => Math.pow(10, db / 20);
 
-function zone(at: [number, number, number], fields: Partial<AudioZone>): AudioZone {
+function zone(at: [number, number, number], fields: Partial<Pick<AudioZone, "sound" | "heard" | "feather" | "volume" | "width" | "depth" | "yaw" | "bottom" | "top">>): AudioZone {
   const z = GameObject.create("zone").addBehavior(AudioZone, fields);
   z.node.transform!.position.set(...at);
   return z;

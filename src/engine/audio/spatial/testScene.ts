@@ -253,6 +253,44 @@ function box(r: LenientReader, raw: unknown, where: string): SceneBox {
   return b;
 }
 
+// --- routes ---------------------------------------------------------------------------------------------------------
+
+/** A route's length on the ground plane, metres (the sum of its segments in x/z). */
+export function routeLength(route: readonly Vec3[]): number {
+  let n = 0;
+  for (let i = 1; i < route.length; i++) n += Math.hypot(route[i]!.x - route[i - 1]!.x, route[i]!.z - route[i - 1]!.z);
+  return n;
+}
+
+/**
+ * Where a moving emitter is at arc-length fraction `u` (0..1, wrapped when `loop`, else clamped) of its route, `height`
+ * above the ground plane, and the unit direction it travels (its velocity is that times its speed). A route of one
+ * point, or of zero length, stays at its first point facing +z.
+ */
+export function routePose(route: readonly Vec3[], height: number, u: number, loop: boolean, out: { position: Vec3; direction: Vec3 }): void {
+  const total = routeLength(route);
+  const first = route[0] ?? { x: 0, y: 0, z: 0 };
+  out.direction.x = 0; out.direction.y = 0; out.direction.z = 1;
+  out.position.x = first.x; out.position.y = height; out.position.z = first.z;
+  if (!(total > 0)) return;
+  const f = loop ? ((u % 1) + 1) % 1 : Math.min(1, Math.max(0, u));
+  let left = f * total;
+  for (let i = 1; i < route.length; i++) {
+    const a = route[i - 1]!, b = route[i]!;
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    if (len <= 0) continue;
+    if (left <= len || i === route.length - 1) {
+      const t = Math.min(1, left / len);
+      out.position.x = a.x + (b.x - a.x) * t;
+      out.position.z = a.z + (b.z - a.z) * t;
+      out.direction.x = (b.x - a.x) / len;
+      out.direction.z = (b.z - a.z) / len;
+      return;
+    }
+    left -= len;
+  }
+}
+
 // --- writing --------------------------------------------------------------------------------------------------------
 
 const baseJson = (o: SceneObjectBase): JsonRecord => ({ id: o.id, name: o.name, ...(o.hidden ? { hidden: true } : {}), ...(o.locked ? { locked: true } : {}) });
