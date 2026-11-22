@@ -4,7 +4,11 @@
 import { describe, expect, it } from "vitest";
 import type { Effect } from "../../../../engine/audio/effects/types";
 import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
-import { SUBMIX_FX_CHORUS, SUBMIX_FX_COMPRESSOR, SUBMIX_FX_LOWPASS, SUBMIX_FX_ON, SUBMIXES_MAX, type SubmixEffects } from "../wire.generated";
+import {
+  AUTO_TARGET_FX, AUTO_TARGET_LOG, AUTO_TARGET_PARAM_SHIFT, AUTO_TARGET_SLOT_SHIFT, Op, SUBMIX_FX_CHORUS, SUBMIX_FX_COMPRESSOR, SUBMIX_FX_LOWPASS, SUBMIX_FX_ON, SUBMIXES_MAX,
+  type SubmixEffects,
+} from "../wire.generated";
+import { AUTOMATION_GLOBAL } from "./commandWriter";
 import { CoreSubmixes, DEFAULT_SUBMIXES, submixEffect } from "./submixes";
 import type { ReplayBuilder } from "./replay";
 
@@ -12,19 +16,23 @@ const fx = (type: string, params: Record<string, number> = {}, on = true): Effec
 
 function rig(pool?: number) {
   const sent: { slot: number; group: number; bus: number; effects: SubmixEffects[] }[] = [];
+  const autos: { slot: number; bindings: { param: number; curve: number; target: number }[] }[] = [];
   const warnings: string[] = [];
   const markers: string[] = [];
   let profile: ProfileSink = NULL_PROFILE_SINK;
   const buses = new Map([["Master", 0], ["SFX", 1], ["Music", 2]]);
   const s = new CoreSubmixes({
-    writer: { submix: (slot, group, bus, effects) => void sent.push({ slot, group, bus, effects: effects.map((e) => ({ ...e, p: [...e.p] })) }) },
+    writer: {
+      submix: (slot, group, bus, effects) => void sent.push({ slot, group, bus, effects: effects.map((e) => ({ ...e, p: [...e.p] })) }),
+      submixAutomate: (slot, bindings) => void autos.push({ slot, bindings: bindings.map((b) => ({ ...b })) }),
+    },
     session: { maySend: true, mayQueue: true } as never,
     poolSize: () => pool,
     busIndex: (name) => buses.get(name) ?? -1,
     profile: () => profile,
     warnOnce: (_k, m) => void warnings.push(m),
   });
-  return { s, sent, warnings, markers, buses, record: () => { profile = { ...NULL_PROFILE_SINK, marker: (t: string) => void markers.push(t) }; } };
+  return { s, sent, autos, warnings, markers, buses, record: () => { profile = { ...NULL_PROFILE_SINK, marker: (t: string) => void markers.push(t) }; } };
 }
 
 describe("CoreSubmixes (ADR 0331)", () => {
@@ -40,6 +48,30 @@ describe("CoreSubmixes (ADR 0331)", () => {
     expect(rec!.effects[0]!.p.slice(0, 3)).toEqual([800, 0.1, 0]); // cutoff, resonance and drive (defaults)
     expect(rec!.effects[1]!.p.slice(0, 6)).toEqual([-18, 6, 10, 120, 0, 30]); // threshold, ratio, attack, release, makeup, knee
     expect(submixEffect(fx("highpass")).p[0]).toBe(20);
+  });
+
+  it("ABI 4.8: automates a submix's effect parameters by the effect's id, replays them after its SUBMIX, and drops them with a new chain", () => {
+    const { s, sent, autos } = rig();
+    expect(s.open(5, "SFX", [fx("eq"), { ...fx("lowpass"), id: "lp" }], "a")).toBe(true);
+    s.automate(5, [
+      { effect: "lp", param: 0, log: true, input: { global: false, slot: 1 }, curve: 7 },
+      { effect: "eq", param: 2, log: false, input: { global: true, slot: 4 }, curve: 8 },
+      { effect: "gone", param: 0, log: false, input: { global: true, slot: 4 }, curve: 9 }, // not in the chain: left out
+    ]);
+    const lpTarget = (AUTO_TARGET_FX | (1 << AUTO_TARGET_SLOT_SHIFT) | AUTO_TARGET_LOG) >>> 0;
+    expect(autos).toEqual([{ slot: 0, bindings: [{ param: 1, curve: 7, target: lpTarget }, { param: AUTOMATION_GLOBAL | 4, curve: 8, target: AUTO_TARGET_FX | (2 << AUTO_TARGET_PARAM_SHIFT) }] }]);
+    s.automate(6, [{ effect: "lp", param: 0, log: true, input: { global: true, slot: 0 }, curve: 7 }]); // no submix: nothing
+    expect(autos).toHaveLength(1);
+    // A rebuild's replay: the SUBMIX, then its automation.
+    const recs: number[] = [];
+    s.replayHeader({ record: (_bytes: number, write: (v: DataView, off: number) => number) => { const v = new DataView(new ArrayBuffer(512)); write(v, 0); recs.push(v.getUint16(0, true)); } } as unknown as ReplayBuilder);
+    expect(recs).toEqual([Op.SUBMIX, Op.SUBMIX_AUTOMATE]);
+    // The same chain again keeps it; a new chain clears it on the core.
+    expect(s.open(5, "SFX", [fx("eq"), { ...fx("lowpass"), id: "lp" }], "a")).toBe(true);
+    expect(autos).toHaveLength(1);
+    expect(s.open(5, "SFX", [fx("eq")], "a")).toBe(true);
+    expect(autos.at(-1)).toEqual({ slot: 0, bindings: [] });
+    expect(sent.length).toBeGreaterThan(0);
   });
 
   it("refuses past the pool (warned once, marked in a capture) and frees a slot on close", () => {
