@@ -553,6 +553,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     c.voice = null;
     if (c.clip.sample === undefined) {
       if (!c.audible) return;
+      if (c.clip.generator !== undefined) return; // TODO(G3, ADR 0346 §5): generator clips; not playable yet
       c.node = this.resolveClipPlaylist(c, u, at, fadeIn, fadeInShape);
       if (c.node) this.children.push(c.node);
       return;

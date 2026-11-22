@@ -65,6 +65,7 @@ export function lintPlaylist(body: PlaylistBody, ctx: LintContext = {}): Playlis
     if (e.kind === "sample") return tempoOfSample(e.sample);
     if (e.kind === "embedded") return tempoOfBody(e.embedded, seen);
     if (e.kind === "line") return "unknown"; // its file is chosen when it plays (ADR 0340 §5)
+    if (e.kind === "generator") return "no"; // a generator has no tempo (ADR 0346)
     if (seen.has(e.playlist)) return "unknown";
     const linked = ctx.playlist?.(e.playlist);
     return linked ? tempoOfBody(linked, new Set([...seen, e.playlist])) : "unknown";

@@ -113,7 +113,7 @@ export function EntryList(props: EntryListProps) {
             <span class={`pl-grip${reorderable && writable ? "" : " off"}`} aria-hidden="true" title={reorderable ? "Drag to reorder (or Alt+↑/↓)" : "A Blend orders entries by position"} onPointerDown={(ev) => reorderable && startGrip(i, ev)}>
               ⋮⋮
             </span>
-            <span class="pl-entry-name" title={e.kind === "linked" ? `Linked: ${e.playlist}` : e.kind === "embedded" ? "Embedded" : e.kind === "line" ? name : e.sample}>
+            <span class="pl-entry-name" title={e.kind === "linked" ? `Linked: ${e.playlist}` : e.kind === "embedded" ? "Embedded" : e.kind === "line" || e.kind === "generator" ? name : e.sample}>
               {facts ? <TypeBadge playlist={facts.type} axes={facts.axes} /> : <TypeBadge sample />}
               <span class="pl-entry-label">{name}</span>
               {e.kind === "linked" && <span class="pl-link-mark" aria-label="Linked copy">⛓</span>}

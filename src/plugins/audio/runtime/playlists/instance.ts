@@ -1149,6 +1149,7 @@ function firstSample(entry: Entry, chain: readonly string[], depth: number): Sam
   if (depth > 16) return null;
   if (entry.kind === "sample") return entry;
   if (entry.kind === "line") return null; // ADR 0340 §5: its file is known only when it is picked
+  if (entry.kind === "generator") return null; // TODO(G3, ADR 0346): a generator has no sample
   const body = entry.kind === "embedded" ? entry.embedded : linkedPlaylist(entry.playlist, chain);
   if (!body) return null;
   const next = entry.kind === "linked" ? [...chain, entry.playlist] : chain;

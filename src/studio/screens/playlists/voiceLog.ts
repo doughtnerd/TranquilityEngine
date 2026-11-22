@@ -113,6 +113,7 @@ export function canRelease(body: PlaylistBody, load: (path: string) => PlaylistB
   return body.entries.some((e) => {
     if (e.kind === "sample") return body.type === "clip" && e.loop === "on";
     if (e.kind === "line") return false; // ADR 0340 §5: a line plays its file once
+    if (e.kind === "generator") return false; // TODO(G4, ADR 0346): an endless generator releases; display only for now
     if (e.kind === "embedded") return canRelease(e.embedded, load, seen);
     if (seen.has(e.playlist)) return false;
     const linked = load(e.playlist);

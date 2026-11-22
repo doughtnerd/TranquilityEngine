@@ -10,6 +10,7 @@
 import type { Curve } from "../../core/curve";
 import type { Attenuation } from "../attenuation/types";
 import type { Effect } from "../effects/types";
+import type { GeneratorBody } from "../generators/types";
 import type { ParameterDef } from "../parameters";
 
 export const PLAYLIST_FORMAT = "myco.playlist@1";
@@ -81,6 +82,11 @@ export interface VoiceCurve {
   quantize?: Quantize;
 }
 export type VoiceCurveTarget = "gain" | "pitch" | "pan" | "lowpass" | "highpass";
+/**
+ * ADR 0346 §4: a generator parameter as a curve or automation target, `gen:<param>` (the generator catalogue's name),
+ * sent as an AUTOMATE target-5 binding. Meant for an entry's voice curves and a generator clip's automation.
+ */
+export type GenTarget = `gen:${string}`;
 
 /**
  * Automation on sequence clips and tracks and on a playlist instance (`PlaylistBody.automation`): `fx:<effectId>:<param>`
@@ -88,7 +94,7 @@ export type VoiceCurveTarget = "gain" | "pitch" | "pan" | "lowpass" | "highpass"
  */
 export interface Automation {
   id: string;
-  target: "volume" | "pitch" | "pan" | "enabled" | `fx:${string}:${string}`;
+  target: "volume" | "pitch" | "pan" | "enabled" | `fx:${string}:${string}` | GenTarget;
   input: CurveInput;
   curve: Curve;
   bypass: boolean;
@@ -128,7 +134,8 @@ export interface EntryUse {
   x?: number;
   y?: number;
   atZeroWeight: "stop" | "continue";
-  curves: Partial<Record<VoiceCurveTarget, VoiceCurve>>;
+  /** Voice curves by target; a `gen:<param>` target (ADR 0346 §4) moves a generator's parameter. */
+  curves: Partial<Record<VoiceCurveTarget | GenTarget, VoiceCurve>>;
   /** ADR 0336: a 1D Blend entry's explicit region on the axis; absent: derived from `x` and its neighbours (ADR 0329's weights). */
   region?: BlendRegion;
   /**
@@ -175,7 +182,15 @@ export interface LineEntry extends EntryUse {
   kind: "line";
   line: string | null | { event: string };
 }
-export type Entry = LinkedEntry | EmbeddedEntry | SampleEntry | LineEntry;
+/**
+ * ADR 0346 §1: a sound generator (a `*.generator.json` path, or embedded); only inside a Clip playlist, beside its
+ * sample entries (elsewhere the parse wraps it in an embedded Clip, as it does a sample).
+ */
+export interface GeneratorEntry extends EntryUse {
+  kind: "generator";
+  generator: string | GeneratorBody;
+}
+export type Entry = LinkedEntry | EmbeddedEntry | SampleEntry | LineEntry | GeneratorEntry;
 
 /**
  * ADR 0343 §4: a playlist's sound caption: a string key (`[door slams]`) and the seconds within which the same caption
@@ -261,9 +276,10 @@ export interface SequenceLoop extends LoopBehaviour {
 export interface SequenceMarker { id: string; name: string; at: number; type?: "note" | "cue" | "exit" | "entry" }
 export interface Clip {
   id: string;
-  /** Exactly one of `sample` / `playlist`. */
+  /** Exactly one of `sample` / `playlist` / `generator` (ADR 0346: a generator source, on an audio track). */
   sample?: string;
   playlist?: string | PlaylistBody;
+  generator?: string | GeneratorBody;
   at: number;
   /** Seconds; 0 = to the end of the source (the sample after its trim, or the playlist's natural length). */
   length: number;
