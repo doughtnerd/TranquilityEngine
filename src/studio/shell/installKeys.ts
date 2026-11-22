@@ -1,9 +1,12 @@
 // The Studio's global keys (ADR 0335 "Keyboard"), registered in the keymap and dispatched from the window: Ctrl/⌘+1…6
 // switch screens (also while typing), F6 and Shift+F6 move focus between the screen's panels, ? opens the shortcut
 // list (a single-key shortcut), and Undo, Redo and stepping through history act on the active history (ADR 0145) with
-// the editor's keys (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z or Ctrl+Y, Ctrl/⌘+Alt(+Shift)+Z). Text fields keep their own undo.
+// the editor's keys (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z or Ctrl+Y, Ctrl/⌘+Alt(+Shift)+Z): those are classified by the editor's
+// own key classifier (`shortcutFor`, shortcutKeys.ts), so both apps answer the same keys; the keymap lists them for the
+// shortcuts dialog. Text fields keep their own undo.
 import { activeHistory, redo, stepBack, stepForward, undo } from "../../editor/activeHistory";
 import { isEditable } from "../../editor/editable";
+import { shortcutFor, type Shortcut } from "../../editor/shortcutKeys";
 import { isMacPlatform } from "../../editor/ui/keyCombo";
 import { panelScopesOf } from "./keymap";
 import { SCREENS } from "./screens";
@@ -28,6 +31,9 @@ const withHistory = (run: () => unknown) => () => {
   return true;
 };
 
+/** What the history shortcuts do (the keys are the shared classifier's). */
+const HISTORY_ACTIONS: Partial<Record<Shortcut, () => void>> = { undo, redo, back: stepBack, forward: stepForward };
+
 /** Register the global keys and listen on `win`; returns the stop. */
 export function installStudioKeys(win: Window = window): () => void {
   const stops = [
@@ -46,7 +52,17 @@ export function installStudioKeys(win: Window = window): () => void {
     // A modal dialog keeps its keys (the shortcuts dialog, calibration, Move to…).
     if (win.document.querySelector('[aria-modal="true"]')) return;
     const target = e.target as Element | null;
-    const handled = keymap.handle(e, { screen: studioRouter().route.peek().screen, panels: panelScopesOf(target), singleKeys: singleKeyShortcuts.peek(), typing: isEditable(target), mac });
+    const typing = isEditable(target);
+    const action = shortcutFor(e);
+    const history = action ? HISTORY_ACTIONS[action] : undefined;
+    if (history) {
+      // Undo, Redo and history steps: the active history's, unless a text field keeps its own.
+      if (typing || !activeHistory.peek()) return;
+      history();
+      e.preventDefault();
+      return;
+    }
+    const handled = keymap.handle(e, { screen: studioRouter().route.peek().screen, panels: panelScopesOf(target), singleKeys: singleKeyShortcuts.peek(), typing, mac });
     if (handled) e.preventDefault();
   };
   win.addEventListener("keydown", onKeyDown);
