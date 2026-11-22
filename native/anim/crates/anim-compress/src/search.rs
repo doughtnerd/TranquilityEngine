@@ -27,6 +27,8 @@ struct Ctx<'a> {
     rest: Vec<Transform>,
     parents: Vec<u16>,
     shells: Vec<f64>,
+    /// Raw local pose per frame (empty without bone tracks).
+    raw_local: Vec<Vec<Transform>>,
     /// Raw model-space pose per frame (empty without bone tracks).
     raw_model: Vec<Vec<Transform>>,
     ladder: Vec<u8>,
@@ -42,9 +44,16 @@ struct Solved {
     segs: Vec<Vec<(u8, Quantized)>>,
     bone_error: (f64, Option<(u32, u32)>),
     tracks: Vec<TrackError>,
+    /// A bone whose error the search couldn't bring under the bound even with every animated
+    /// channel on its chain at the top rate, while a default or constant channel sits there.
+    stuck: Option<u32>,
 }
 
 impl Solved {
+    fn within(&self, ctx: &Ctx<'_>) -> bool {
+        self.bone_error.0 <= ctx.bound && self.tracks.iter().all(|t| t.error <= t.bound)
+    }
+
     fn size(&self) -> usize {
         let mut n = 16 * self.chans.len();
         for c in &self.chans {
@@ -112,21 +121,26 @@ pub fn compress(
     let rate = settings.sample_rate.unwrap_or(clip.sample_rate);
     let (frames, raws) = channels::resample(clip, rate);
 
-    let raw_model: Vec<Vec<Transform>> = if has_bones {
+    let raw_local: Vec<Vec<Transform>> = if has_bones {
         (0..frames as usize)
             .map(|f| {
                 let mut local = rest.clone();
                 for (ti, t) in clip.tracks.iter().enumerate() {
                     if t.kind == TrackKind::Bone {
-                        local[t.binding.bone as usize] = transform_from(&raws[ti][f * 10..f * 10 + 10]);
+                        local[t.binding.bone as usize] =
+                            transform_from(&raws[ti][f * 10..f * 10 + 10]);
                     }
                 }
-                local_to_model(&parents, &local)
+                local
             })
             .collect()
     } else {
         Vec::new()
     };
+    let raw_model = raw_local
+        .iter()
+        .map(|l| local_to_model(&parents, l))
+        .collect();
 
     let ladder: Vec<u8> = BIT_RATES
         .iter()
@@ -141,6 +155,7 @@ pub fn compress(
         rest,
         parents,
         shells,
+        raw_local,
         raw_model,
         ladder,
         bound: settings.error as f64,
@@ -156,9 +171,10 @@ pub fn compress(
     let mut best: Option<(RotationFormat, Solved)> = None;
     for f in formats {
         let s = solve(&ctx, f);
+        // Prefer meeting the bound, then the smaller result.
         let better = match &best {
             None => true,
-            Some((_, b)) => s.size() < b.size(),
+            Some((_, b)) => (!s.within(&ctx), s.size()) < (!b.within(&ctx), b.size()),
         };
         if better {
             best = Some((f, s));
@@ -252,14 +268,20 @@ fn solve(ctx: &Ctx<'_>, format: RotationFormat) -> Solved {
         property_bound,
         property_default,
     );
+    screen(ctx, format, &mut chans);
     loop {
         let solved = search(ctx, format, chans);
         // A default or constant channel can break the bound (its error adds up along a chain, or
         // the search can't raise it): make the worst one animated and search again.
         let mut demote: Option<usize> = None;
         let mut worst_dev = -1.0;
-        if solved.bone_error.0 > ctx.bound {
-            if let Some((bone, _)) = solved.bone_error.1 {
+        let stuck = solved.stuck.or_else(|| {
+            (solved.bone_error.0 > ctx.bound)
+                .then_some(solved.bone_error.1.map(|(b, _)| b))
+                .flatten()
+        });
+        {
+            if let Some(bone) = stuck {
                 let chain = ancestors(&ctx.parents, bone as usize);
                 for (i, c) in solved.chans.iter().enumerate() {
                     if c.mode != ChannelMode::Animated
@@ -290,6 +312,72 @@ fn solve(ctx: &Ctx<'_>, format: RotationFormat) -> Solved {
                 chans[i].make_animated();
             }
             None => return solved,
+        }
+    }
+}
+
+/// The share of the bound one default or constant bone channel may cost on its own, in model
+/// space over every descendant; above it the channel is animated instead. Local thresholds alone
+/// miss the lever arm of a long chain.
+const SCREEN_SHARE: f64 = 0.2;
+
+/// Makes animated every default or constant bone channel whose own model-space error (all else
+/// raw) exceeds `SCREEN_SHARE` of the bound; records that error as its deviation.
+fn screen(ctx: &Ctx<'_>, format: RotationFormat, chans: &mut [Chan]) {
+    let n = ctx.rest.len();
+    if ctx.raw_local.is_empty() {
+        return;
+    }
+    let mut model = vec![Transform::IDENTITY; n];
+    for c in chans.iter_mut() {
+        let Some(cb) = c.bone else { continue };
+        if c.mode == ChannelMode::Animated {
+            continue;
+        }
+        let stored: Vec<f64> = match c.mode {
+            ChannelMode::Constant => c.constant.iter().map(|&x| x as f64).collect(),
+            _ => {
+                let r = ctx.rest[cb];
+                match c.kind {
+                    clip::ChannelKind::Rotation => {
+                        let q = if r.rotation.w < 0.0 { -r.rotation } else { r.rotation };
+                        let mut v = vec![q.x, q.y, q.z];
+                        if format == RotationFormat::QuatFull {
+                            v.push(q.w);
+                        }
+                        v
+                    }
+                    clip::ChannelKind::Translation => {
+                        vec![r.translation.x, r.translation.y, r.translation.z]
+                    }
+                    _ => vec![r.scale.x, r.scale.y, r.scale.z],
+                }
+            }
+        };
+        let mut worst = 0.0f64;
+        for f in 0..ctx.frames as usize {
+            let local = &ctx.raw_local[f];
+            let raw = &ctx.raw_model[f];
+            let mut l = local[cb];
+            apply_bone_value(&mut l, c.kind, &stored, format);
+            let p = ctx.parents[cb];
+            model[cb] = if p == NO_PARENT { l } else { raw[p as usize].compose(l) };
+            worst = worst.max(vertex_error(raw[cb], model[cb], ctx.shells[cb]));
+            // Descendants come after `cb`; a bone is one when its parent is `cb` or one.
+            let mut changed = vec![false; n];
+            changed[cb] = true;
+            for i in cb + 1..n {
+                let p = ctx.parents[i];
+                if p != NO_PARENT && changed[p as usize] {
+                    changed[i] = true;
+                    model[i] = model[p as usize].compose(local[i]);
+                    worst = worst.max(vertex_error(raw[i], model[i], ctx.shells[i]));
+                }
+            }
+        }
+        c.deviation = worst;
+        if worst > ctx.bound * SCREEN_SHARE {
+            c.make_animated();
         }
     }
 }
@@ -331,6 +419,7 @@ fn search(ctx: &Ctx<'_>, format: RotationFormat, chans: Vec<Chan>) -> Solved {
     let mut bone_error = (0.0f64, None);
     let mut track_err: Vec<(f64, u32)> = vec![(0.0, 0); chans.len()];
     let mut segs = Vec::new();
+    let mut stuck: Option<u32> = None;
 
     // Local pose with defaults and constants applied (animated channels go on top per frame).
     let mut base = ctx.rest.clone();
@@ -420,7 +509,9 @@ fn search(ctx: &Ctx<'_>, format: RotationFormat, chans: Vec<Chan>) -> Solved {
                 }
             }
             seg.refresh(0);
-            seg.raise(&mut memos, &mut steps);
+            if let Some(b) = seg.raise(&mut memos, &mut steps) {
+                stuck.get_or_insert(b as u32);
+            }
             for b in 0..n_bones {
                 let (e, f) = seg.err[b];
                 if e > bone_error.0 || bone_error.1.is_none() {
@@ -476,6 +567,7 @@ fn search(ctx: &Ctx<'_>, format: RotationFormat, chans: Vec<Chan>) -> Solved {
         segs,
         bone_error,
         tracks,
+        stuck,
     }
 }
 
@@ -491,6 +583,8 @@ struct BoneSeg<'a> {
     model: Vec<Vec<Transform>>,
     /// Per bone: the largest error over the segment and the frame (within the segment).
     err: Vec<(f64, usize)>,
+    /// Per bone: `Σ max(0, e_f − bound)` over the segment's frames.
+    excess: Vec<f64>,
     /// Per bone: its animated channels (indices into `anim`).
     bone_anim: Vec<Vec<usize>>,
 }
@@ -522,6 +616,7 @@ impl<'a> BoneSeg<'a> {
             local: vec![base.to_vec(); count],
             model: vec![vec![Transform::IDENTITY; n]; count],
             err: vec![(0.0, 0); n],
+            excess: vec![0.0; n],
             bone_anim,
         }
     }
@@ -550,23 +645,27 @@ impl<'a> BoneSeg<'a> {
         }
         for i in from..parents.len() {
             self.err[i] = (0.0, 0);
+            self.excess[i] = 0.0;
             for f in 0..self.count {
                 let raw = self.ctx.raw_model[self.start + f][i];
                 let e = vertex_error(raw, self.model[f][i], self.ctx.shells[i]);
                 if e > self.err[i].0 {
                     self.err[i] = (e, f);
                 }
+                self.excess[i] += (e - self.ctx.bound).max(0.0);
             }
         }
     }
 
     /// Bone `b`'s error if animated channel `a` (on `b`'s chain `chain`) took `decoded`.
-    fn eval(&self, b: usize, chain: &[usize], a: usize, decoded: &[f64]) -> f64 {
+    /// Returns the largest error and the excess `Σ max(0, e_f − bound)` over the frames.
+    fn eval(&self, b: usize, chain: &[usize], a: usize, decoded: &[f64]) -> (f64, f64) {
         let c = &self.chans[self.anim[a]];
         let cb = c.bone.expect("bone channel");
         let k = chain.iter().position(|&x| x == cb).expect("on the chain");
         let p = self.ctx.parents[cb];
         let mut worst = 0.0f64;
+        let mut excess = 0.0f64;
         for f in 0..self.count {
             let mut l = self.local[f][cb];
             apply_bone_value(&mut l, c.kind, &decoded[f * c.width..(f + 1) * c.width], self.format);
@@ -579,6 +678,30 @@ impl<'a> BoneSeg<'a> {
                 m = m.compose(self.local[f][j]);
             }
             let raw = self.ctx.raw_model[self.start + f][b];
+            let e = vertex_error(raw, m, self.ctx.shells[b]);
+            worst = worst.max(e);
+            excess += (e - self.ctx.bound).max(0.0);
+        }
+        (worst, excess)
+    }
+
+    /// Bone `b`'s error with every animated channel on its chain at the top rate.
+    fn floor(&self, b: usize, chain: &[usize], memos: &mut [Memo<'_>]) -> f64 {
+        let ladder = &self.ctx.ladder;
+        let top = ladder.len() - 1;
+        let mut worst = 0.0f64;
+        for f in 0..self.count {
+            let mut m = Transform::IDENTITY;
+            for &cb in chain {
+                let mut l = self.local[f][cb];
+                for &a in &self.bone_anim[cb] {
+                    let c = &self.chans[self.anim[a]];
+                    let q = memos[a].get(ladder, top);
+                    apply_bone_value(&mut l, c.kind, &q.decoded[f * c.width..(f + 1) * c.width], self.format);
+                }
+                m = if self.ctx.parents[cb] == NO_PARENT { l } else { m.compose(l) };
+            }
+            let raw = self.ctx.raw_model[self.start + f][b];
             worst = worst.max(vertex_error(raw, m, self.ctx.shells[b]));
         }
         worst
@@ -586,36 +709,51 @@ impl<'a> BoneSeg<'a> {
 
     /// The greedy pass: while a bone's error exceeds the bound, raise the channel on its chain
     /// whose next rate lowers that error most (ties: fewer added bits, then the earlier channel).
-    fn raise(&mut self, memos: &mut [Memo<'_>], steps: &mut [usize]) {
+    /// Returns a bone that can't meet the bound because of a default or constant channel on its
+    /// chain (raising the others would only waste bits), if any.
+    fn raise(&mut self, memos: &mut [Memo<'_>], steps: &mut [usize]) -> Option<usize> {
         let ladder = &self.ctx.ladder;
         let bound = self.ctx.bound;
         let n = self.ctx.rest.len();
-        for _pass in 0..4 {
+        // Repeats until nothing changes; it ends because every change raises a rate.
+        loop {
             let mut changed = false;
             for b in 0..n {
                 let chain = ancestors(&self.ctx.parents, b);
+                if self.err[b].0 > bound {
+                    let fixed = self.chans.iter().any(|c| {
+                        c.mode != ChannelMode::Animated && c.bone.is_some_and(|x| chain.contains(&x))
+                    });
+                    if fixed && self.floor(b, &chain, memos) > bound {
+                        return Some(b);
+                    }
+                }
                 while self.err[b].0 > bound {
-                    let mut best: Option<(f64, u64, usize)> = None;
+                    // The best drop of the excess (`Σ max(0, e_f − bound)`, which sees every
+                    // frame, not only the worst) per added bit; if no step lowers it, the lowest
+                    // (excess, error), so the search always moves. Ties: the earlier channel.
+                    let before = self.excess[b];
+                    let mut best: Option<(f64, usize)> = None;
+                    let mut lowest: Option<((f64, f64), usize)> = None;
                     for &cb in &chain {
                         for &a in &self.bone_anim[cb] {
                             let s = steps[a] + 1;
                             if s >= ladder.len() {
                                 continue;
                             }
-                            let w = self.chans[self.anim[a]].width as u64;
-                            let added = (ladder[s] - ladder[s - 1]) as u64 * w;
-                            let e = self.eval(b, &chain, a, &memos[a].get(ladder, s).decoded);
-                            let cand = (e, added, a);
-                            let better = match best {
-                                None => true,
-                                Some(x) => (cand.0, cand.1, cand.2) < (x.0, x.1, x.2),
-                            };
-                            if better {
-                                best = Some(cand);
+                            let w = self.chans[self.anim[a]].width as f64;
+                            let added = (ladder[s] - ladder[s - 1]) as f64 * w;
+                            let (e, x) = self.eval(b, &chain, a, &memos[a].get(ladder, s).decoded);
+                            let gain = (before - x) / added;
+                            if gain > 0.0 && best.is_none_or(|(g, _)| gain > g) {
+                                best = Some((gain, a));
+                            }
+                            if lowest.is_none_or(|(l, _)| (x, e) < l) {
+                                lowest = Some(((x, e), a));
                             }
                         }
                     }
-                    let Some((_, _, a)) = best else { break };
+                    let Some(a) = best.map(|b| b.1).or(lowest.map(|l| l.1)) else { break };
                     steps[a] += 1;
                     let q = memos[a].get(ladder, steps[a]).decoded.clone();
                     self.set_local(a, &q);
@@ -628,6 +766,7 @@ impl<'a> BoneSeg<'a> {
                 break;
             }
         }
+        None
     }
 }
 
@@ -643,6 +782,7 @@ fn write(
         segs,
         bone_error,
         tracks: track_errors,
+        ..
     } = solved;
     let mut channels = Vec::with_capacity(chans.len());
     let mut constants = Vec::new();
