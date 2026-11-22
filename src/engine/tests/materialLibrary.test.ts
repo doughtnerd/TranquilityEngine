@@ -1,7 +1,7 @@
 // ADR 0127: the Babylon material library, one per Babylon scene, builds and caches every material and
 // texture the World renderer, the warm-up, particles and the editor's previews draw with. Tested here
 // through its own interface on Babylon's NullEngine with in-memory assets: cache hits and staleness
-// (material JSON, graph JSON, shader code files), script Materials (ADR 0107: shared in place, instances
+// (material JSON, graph JSON, the sub-graphs a graph uses, shader code files), script Materials (ADR 0107: shared in place, instances
 // on copies), renderer overrides (ADR 0049), the fog opt-out (ADR 0071), material slots (ADR 0089) and a
 // preview scene's library building a shader asset (ADR 0106).
 import { readFileSync } from "node:fs";
@@ -19,6 +19,7 @@ import { BabylonMaterialLibrary } from "../render/babylon/materialLibrary";
 import { meshOf } from "../render/babylon/materials";
 import { previewMaterials } from "../render/babylon/previews/common";
 import { loadMeshes, materialSlots, meshesIfLoaded } from "../scene/models";
+import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph } from "../scene/shaderGraph";
 
 const RED = "asset:materials/red.material.json";
 const GREEN = "asset:materials/green.material.json";
@@ -116,6 +117,50 @@ describe("the Babylon material library (ADR 0127)", () => {
       expect(lib.material(GRAPHED)).toBe(a);
       useProject({ "shaders/pulse.shadergraph.json": { ...pulse } }); // the graph saved again
       const b = lib.material(GRAPHED)!;
+      expect(b).not.toBe(a);
+      expect(lib.isGraph(b)).toBe(true);
+    });
+
+    it("rebuilds a graph material when a sub-graph it uses is saved, not before (ADR 0048)", () => {
+      // A sub-graph (Out = Scale × 2) and a graph whose Base Color is the sub-graph's Out.
+      const double = (scale: number) =>
+        JSON.parse(
+          formatShaderGraph({
+            ...defaultShaderSubGraph(),
+            properties: [{ name: "Scale", type: "float", value: scale }],
+            nodes: [
+              { id: "output", type: "output", position: [0, 0] },
+              { id: "p", type: "property", position: [0, 0], settings: { property: "Scale" } },
+              { id: "m", type: "multiply", position: [0, 0], inputs: { b: 2 } },
+            ],
+            edges: [
+              { from: "p.out", to: "m.a" },
+              { from: "m.out", to: "output.Out" },
+            ],
+          }),
+        );
+      const doubled = JSON.parse(
+        formatShaderGraph({
+          ...defaultShaderGraph(),
+          nodes: [
+            { id: "output", type: "output", position: [0, 0] },
+            { id: "s", type: "subgraph", position: [0, 0], settings: { subgraph: "asset:shaders/double.shadersubgraph.json" } },
+          ],
+          edges: [{ from: "s.Out", to: "output.baseColor" }],
+        }),
+      );
+      const files = (scale: number) => ({
+        "materials/doubled.material.json": { format: "myco.material@1", shader: "asset:shaders/doubled.shadergraph.json" },
+        "shaders/doubled.shadergraph.json": doubled,
+        "shaders/double.shadersubgraph.json": double(scale),
+      });
+      const DOUBLED = "asset:materials/doubled.material.json";
+      useProject(files(4));
+      const a = lib.material(DOUBLED)!;
+      expect(lib.isGraph(a)).toBe(true);
+      expect(lib.material(DOUBLED)).toBe(a);
+      useProject(files(12)); // the sub-graph saved again with a new Scale
+      const b = lib.material(DOUBLED)!;
       expect(b).not.toBe(a);
       expect(lib.isGraph(b)).toBe(true);
     });

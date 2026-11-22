@@ -1,9 +1,11 @@
 // ADR 0154: the renderer asks render features things only through `BabylonFeature`'s optional hooks
 // (describe, warm, diagnostics, the UI core), never a particle or UI feature by name; the diagnostics'
-// empty value is one function next to the type; the particle preview is render policy, handed over once.
+// empty value is one function next to the type; the particle preview is render policy, handed over once;
+// the surface reports the graphics tier as it applied it (ADR 0050).
 import { readFileSync } from "node:fs";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { defaultGraphics } from "../core/graphics";
 import { World } from "../core/World";
 import { Assets, Camera, Engine, GameObject, Graphics, SceneManager } from "../index";
 import { BabylonRenderer, type PluginFeature } from "../render/babylon/BabylonRenderer";
@@ -158,11 +160,12 @@ describe("render feature hooks (ADR 0154)", () => {
   });
 });
 
-describe("the empty diagnostics (ADR 0154)", () => {
+describe("the surface's diagnostics (ADR 0154, 0050)", () => {
   const saved = { document: globalThis.document, ResizeObserver: globalThis.ResizeObserver };
   afterEach(() => {
     vi.restoreAllMocks();
     Object.assign(globalThis, saved);
+    Graphics._configure(defaultGraphics()); // the tier is global: leave the default tiers as other tests expect
   });
 
   /** Just enough DOM for a `BabylonSurface` to be made in Node. */
@@ -178,9 +181,10 @@ describe("the empty diagnostics (ADR 0154)", () => {
     return { clientWidth: 800, clientHeight: 600, appendChild() {} } as unknown as HTMLElement;
   }
 
-  /** A stand-in renderer that records the policy calls it gets. */
+  /** A stand-in renderer that records the policy and resize calls it gets. */
   function fakeRenderer(tools: Promise<null> = Promise.resolve(null)) {
     const setPolicy = vi.fn((_change: Partial<RenderPolicy>) => {});
+    const resize = vi.fn((_pixelRatio: number) => {});
     const r = {
       scene: {},
       setPolicy,
@@ -189,12 +193,16 @@ describe("the empty diagnostics (ADR 0154)", () => {
       editorTools: () => null,
       setClearColor() {},
       setVariantReport() {},
-      resize() {},
+      resize,
       sync() {},
+      diagnostics: () => {
+        const { started: _started, quality: _quality, ...rest } = noRenderDiagnostics();
+        return rest;
+      },
       dispose() {},
     };
     vi.spyOn(BabylonRenderer, "create").mockResolvedValue(r as unknown as BabylonRenderer);
-    return { setPolicy };
+    return { setPolicy, resize };
   }
 
   it("a fake surface and a surface whose renderer hasn't started report the same empty value", () => {
@@ -221,6 +229,30 @@ describe("the empty diagnostics (ADR 0154)", () => {
     toolsLoaded(null);
     expect(await surface.started).toBe(true);
     expect(setPolicy).toHaveBeenCalledTimes(2); // no second replay once the tools have loaded
+    surface.dispose();
+  });
+
+  it("reports the tier as applied: its shadows at once, its render scale from the renderer's next frame (the Quality menu)", async () => {
+    // The project's tiers, Low's shadows turned off (Project Settings > Graphics).
+    const graphics = defaultGraphics();
+    graphics.tiers = graphics.tiers.map((t) => (t.name === "Low" ? { ...t, shadows: "off" as const } : t));
+    Graphics._configure(graphics);
+    const { resize } = fakeRenderer();
+    const surface = new BabylonSurface(fakeDom(), new FakeSettings() as never, "runtime");
+    expect(await surface.started).toBe(true);
+    const world = {} as World; // the surface only claims it and hands it to the renderer
+    expect(surface.diagnostics().quality).toEqual({ tier: "High", pixelRatio: 1, shadows: true, shadowMapSize: 2048, msaa: true });
+
+    Graphics.quality = "Low";
+    expect(surface.diagnostics().quality).toMatchObject({ tier: "Low", pixelRatio: 1, shadows: false, shadowMapSize: 0, msaa: false });
+    surface.sync(world);
+    expect(surface.diagnostics().quality.pixelRatio).toBeCloseTo(0.75); // Low's render scale, at a device ratio of 1
+    expect(resize).toHaveBeenLastCalledWith(0.75);
+
+    Graphics.quality = "Ultra";
+    surface.sync(world);
+    expect(surface.diagnostics().quality).toEqual({ tier: "Ultra", pixelRatio: 1.25, shadows: true, shadowMapSize: 4096, msaa: true });
+    expect(resize).toHaveBeenLastCalledWith(1.25);
     surface.dispose();
   });
 });
