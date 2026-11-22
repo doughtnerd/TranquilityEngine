@@ -121,8 +121,9 @@ describe("the system catalog (T2)", () => {
     // The UI document systems (ADR 0077) do nothing in a World without UIDocuments.
     // `engine.AudioMusic` (ADR 0166/0167, the audio plugin) does nothing without music playing.
     expect(engine.world.scheduler.order("fixedUpdate")).toEqual(["engine.PhysicsRestoreInterpolated", "engine.Physics3DRestoreInterpolated", "engine.NetReceiveTick", "engine.NetInputTick", "engine.InputTick", "engine.PredictionTick", "engine.InputNetSend", "engine.InputNetApply", "engine.InputTickEventScripts", "engine.InputNetReplay", "engine.FixedUpdateScripts", "engine.NavSync", "engine.NavStep", "engine.NavWriteBack", "engine.PhysicsPush", "engine.PhysicsStep", "engine.PhysicsWriteBack", "engine.PhysicsEvents", "engine.Buoyancy", "engine.Physics3DPush", "engine.Physics3DStep", "engine.Physics3DWriteBack", "engine.Physics3DEvents"]);
-    // The input systems (ADR 0335–0337) do nothing in a World without input devices or action sets.
-    expect(engine.world.scheduler.order("input")).toEqual(["engine.InputDevices", "engine.InputPairing", "engine.InputRebind", "engine.InputEvaluate", "engine.InputEventScripts"]);
+    // The input systems (ADR 0335–0337) do nothing in a World without input devices or action sets;
+    // UI navigation (ADR 0340) does nothing without a focused element or laid-out UI.
+    expect(engine.world.scheduler.order("input")).toEqual(["engine.InputDevices", "engine.InputPairing", "engine.InputRebind", "engine.InputEvaluate", "engine.UINavigation", "engine.InputEventScripts"]);
     expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UIDocumentEvents", "engine.InputFrame", "engine.UIControlMapper", "engine.AudioMusic", "engine.UpdateScripts", "test.cat.Default"]);
     expect(engine.world.scheduler.order("lateUpdate")).toEqual(["engine.LateUpdateScripts", "engine.UIDocumentSync", "engine.NetInputSend", "engine.ReplicationSend", "engine.NetSend", "engine.Audio"]);
     engine.dispose();

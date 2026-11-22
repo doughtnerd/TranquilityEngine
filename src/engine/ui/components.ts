@@ -11,7 +11,10 @@
 import { Component } from "../core/Component";
 import { Color, Vector2 } from "../core/math";
 import { AssetRef, component, field } from "../core/registry";
+import { GameObject } from "../scene/GameObject";
 import { uiInteractions } from "./interactions";
+// Keyboard and gamepad navigation (ADR 0340) comes with the components: `engine.UIActions`, the `ui` context and `engine.UINavigation`.
+import "./navigation";
 
 /** A length in UI pixels (a number or `"120"`), a percentage of the parent (`"50%"`), or `"auto"`. */
 export type UILength = number | string;
@@ -25,6 +28,11 @@ export type UICanvasMode = "screen" | "world";
 export type UITextAlign = "left" | "center" | "right" | "justify";
 export type UIWordBreak = "break-word" | "break-all" | "keep-all";
 export type UIImageFit = "cover" | "contain" | "fill";
+/**
+ * How `navigate` leaves a focusable element (ADR 0340): `auto` takes its explicit neighbours, else the
+ * spatial search; `explicit` only its neighbours; `none` neither.
+ */
+export type UINavigationMode = "auto" | "explicit" | "none";
 
 const FLEX_DIRECTIONS = ["row", "column", "row-reverse", "column-reverse"];
 const JUSTIFY = ["flex-start", "center", "flex-end", "space-between", "space-around", "space-evenly"];
@@ -55,6 +63,22 @@ export class UICanvas extends UIComponent {
   @field(Number) sortOrder = 0;
   /** World mode: world units per UI pixel. */
   @field(Number) pixelSize = 0.01;
+  /**
+   * Keyboard and gamepad navigation (ADR 0340): while this canvas has a focusable element, focus can't
+   * leave it (a pause menu over a HUD keeps it), and focus elsewhere moves into it.
+   */
+  @field(Boolean) modal = false;
+  /** Focus `firstSelected` (else the first focusable element) when the canvas becomes active. */
+  @field(Boolean) autoFocus = false;
+  /** Where `autoFocus`, a modal canvas, and `navigate` with nothing focused put focus (null: the first focusable element). */
+  @field(GameObject) firstSelected: GameObject | null = null;
+  /** The local player whose UI actions drive this canvas; -1: any local player. */
+  @field(Number) player = -1;
+
+  /** True for the one frame the player pressed `cancel` (Escape, the east button) with focus on this canvas, in every phase of that frame. */
+  get canceled(): boolean {
+    return uiInteractions(this._world).happened(this, "cancel");
+  }
 }
 
 /** Layout fields every element has: Yoga's flexbox, in UI pixels. */
@@ -137,13 +161,43 @@ export class UIImage extends UIElement {
 }
 
 /**
+ * What buttons and input fields share (ADR 0340): they take focus, from the pointer, scripts, and
+ * keyboard and gamepad navigation (`engine.UINavigation`, driven by `engine.UIActions`). One element
+ * of a World has focus at a time.
+ */
+abstract class UIFocusable extends UIPanel {
+  /** False takes it out of focus: navigation skips it and a click doesn't focus it. */
+  @field(Boolean) focusable = true;
+  /** Drawn while it has focus and the last UI input was navigation, not the pointer. */
+  @field(Color) focusColor = new Color(0.29, 0.45, 0.75, 1);
+  /** `auto`: explicit neighbours, else the nearest element that way; `explicit`: neighbours only; `none`: `navigate` doesn't leave it. */
+  @field(String, { choices: ["auto", "explicit", "none"] }) navigation: UINavigationMode = "auto";
+  /** Explicit neighbours: where `navigate` up, down, left and right goes from here (null: the search, in `auto`). */
+  @field(GameObject) navUp: GameObject | null = null;
+  @field(GameObject) navDown: GameObject | null = null;
+  @field(GameObject) navLeft: GameObject | null = null;
+  @field(GameObject) navRight: GameObject | null = null;
+
+  /** True while it has focus. */
+  abstract get focused(): boolean;
+  abstract set focused(value: boolean);
+
+  /** True for the one frame the player (the pointer or navigation) gave it focus or took it away, in every phase of that frame. */
+  get focusedChanged(): boolean {
+    const log = uiInteractions(this._world);
+    const self = this as unknown as UIFocusableElement;
+    return log.happened(self, "focus") || log.happened(self, "blur");
+  }
+}
+
+/**
  * A panel that takes the pointer. Its children (usually a `UIText`, which has the font) are its label. Read its state
  * from scripts: `hovered`, `pressed`, and `clicked`, true for the frame a click finished, like
  * `Input.getMouseButtonUp`. A pointer press on a button goes to the UI, not to `Input`. The state is the
  * UI core's (its interaction log, ADR 0309).
  */
 @component("engine.UIButton")
-export class UIButton extends UIPanel {
+export class UIButton extends UIFocusable {
   @field(Color) hoverColor = new Color(0.33, 0.36, 0.43, 1);
   @field(Color) pressedColor = new Color(0.17, 0.19, 0.23, 1);
   /** False: the button ignores the pointer (it still blocks it from the game) and stays unhovered. */
@@ -168,21 +222,34 @@ export class UIButton extends UIPanel {
     return uiInteractions(this._world).isPressed(this) && this.interactable && this.isActiveAndEnabled;
   }
 
-  /** True for the one frame a click on the button finished (pressed and released over it), in every phase of that frame. */
+  /** True for the one frame a click on the button finished (pressed and released over it, or `submit` while it had focus), in every phase of that frame. */
   get clicked(): boolean {
     return uiInteractions(this._world).happened(this, "click") && this.interactable;
+  }
+
+  /** True while it has focus (a click, a script or navigation gave it). Set it to focus or unfocus the button. */
+  get focused(): boolean {
+    return uiInteractions(this._world).isFocused(this) && this.isActiveAndEnabled;
+  }
+
+  set focused(value: boolean) {
+    const log = uiInteractions(this._world);
+    if (value) log.focus(this, "script");
+    else log.blur(this, "script");
   }
 }
 
 /**
- * A one-line text field. Clicking it focuses it; typing goes through a hidden DOM `<input>`, so IME
- * and paste work. While it's focused, keys go to it and `Input.getKey*` report false. `changed` is
+ * A one-line text field. Clicking it focuses it and starts typing; typing goes through a hidden DOM
+ * `<input>`, so IME and paste work. While it's `typing`, keys go to it and `Input.getKey*` report false.
+ * Navigation (ADR 0340) focuses it without typing: `submit` starts typing, and Tab, Shift+Tab, Escape and
+ * the gamepad leave it. `changed` is
  * true for the frame after the player changed `value`, `submitted` for the frame after Enter was
  * pressed in it (both seen by every phase of that frame, like `UIButton.clicked`); a script writing
  * `value` never counts as a change.
  */
 @component("engine.UIInputField")
-export class UIInputField extends UIPanel {
+export class UIInputField extends UIFocusable {
   @field(String) value = "";
   @field(String) placeholder = "";
   /** 0: no limit. */
@@ -201,11 +268,12 @@ export class UIInputField extends UIPanel {
     this.borderRadius = 4;
     this.padding = 8;
     this.width = "240";
+    this.focusColor = new Color(0.36, 0.62, 1, 1);
   }
 
   /**
-   * True while it takes the keyboard. Set it to focus or unfocus the field from a script; one field
-   * in a World has focus, so focusing one unfocuses the others.
+   * True while it has focus. Set it to focus the field and start typing in it (as a click does), or to
+   * unfocus it; one element in a World has focus, so focusing one unfocuses the others.
    */
   get focused(): boolean {
     return uiInteractions(this._world).isFocused(this) && this.isActiveAndEnabled;
@@ -213,8 +281,13 @@ export class UIInputField extends UIPanel {
 
   set focused(value: boolean) {
     const log = uiInteractions(this._world);
-    if (value) log.focus(this);
-    else log.blur(this);
+    if (value) log.focus(this, "script", true);
+    else log.blur(this, "script");
+  }
+
+  /** True while it takes the keyboard: from a click, a script's `focused = true` or `submit`, until Escape, Tab or navigation leaves it. */
+  get typing(): boolean {
+    return uiInteractions(this._world).isTyping(this) && this.isActiveAndEnabled;
   }
 
   /** True for the one frame the player changed the value (typed, pasted, deleted). */
@@ -222,7 +295,7 @@ export class UIInputField extends UIPanel {
     return uiInteractions(this._world).happened(this, "change");
   }
 
-  /** True for the one frame Enter was pressed in the focused field. */
+  /** True for the one frame Enter was pressed in the field while typing. */
   get submitted(): boolean {
     return uiInteractions(this._world).happened(this, "submit");
   }
@@ -230,6 +303,9 @@ export class UIInputField extends UIPanel {
 
 /** Every UI component type, for the render backend and the routing. */
 export const UI_TYPES = [UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField] as const;
+
+/** An element that takes focus (ADR 0340). */
+export type UIFocusableElement = UIButton | UIInputField;
 
 /** Any UI component. */
 export type UIComponentType = UICanvas | UIPanel | UIText | UIImage | UIButton | UIInputField;

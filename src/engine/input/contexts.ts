@@ -96,6 +96,27 @@ export function activeContexts(world: World): ReadonlySet<InputContext> {
 
 const EMPTY: ReadonlySet<InputContext> = new Set();
 
+/** A context an engine source switches on for a player, without a node (`addContextSource`). */
+export interface SourcedContext {
+  readonly context: string;
+  readonly priority: number;
+}
+
+/** Engine-provided contexts: called per player at each evaluation (the UI's `ui` context, ADR 0340). */
+export type ContextSource = (world: World, player: number) => readonly SourcedContext[];
+
+const sources: ContextSource[] = [];
+
+/** @internal Switch contexts on from engine state rather than an `InputContext` node: `source` names those active for a player now. */
+export function addContextSource(source: ContextSource): void {
+  sources.push(source);
+}
+
+/** @internal The contexts engine sources switch on for player `index` now. */
+export function sourcedContexts(world: World, index: number): SourcedContext[] {
+  return sources.flatMap((s) => s(world, index));
+}
+
 /**
  * Switches an input context on while its node is active in the hierarchy (ADR 0336), at
  * `priority`, for one player. Higher priorities are evaluated first, and a performing mapping

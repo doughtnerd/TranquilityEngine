@@ -27,7 +27,7 @@ import type { DataComponentDef } from "../core/data";
 import type { GameObject } from "../scene/GameObject";
 import { ActionEvents, ActionPhase, EDGE_FLAGS, actionSets, type ActionEventPhase, type ActionInfo, type ActionSetDef } from "./actions";
 import type { InputContextSpec, MappingSpec, ModifierSpec } from "./contextTypes";
-import { DEFAULT_CONTEXT, InputContext, activeContexts, bindingsVersion, registeredContexts, resolveContext } from "./contexts";
+import { DEFAULT_CONTEXT, InputContext, activeContexts, bindingsVersion, registeredContexts, resolveContext, sourcedContexts } from "./contexts";
 import { PRESS_POINT, controlById, requireControl, type Control } from "./controls";
 import { DeviceKind, GamepadState, InputDevice, PenState, TouchState, deviceNodes, takesLocalInput } from "./deviceEntities";
 import { devices, mouseKey } from "./devices";
@@ -165,7 +165,7 @@ function compileContext(spec: InputContextSpec, priority: number, profile: Playe
   return { name: spec.name, priority, mappings };
 }
 
-/** The contexts active for player `index`: the default one, and every active InputContext that names this player. */
+/** The contexts active for player `index`: the default one, every active InputContext that names this player, and those engine sources switch on (the UI's `ui`, ADR 0340). */
 function contextsFor(world: World, index: number): { ref: string; priority: number; order: number }[] {
   const out = [{ ref: DEFAULT_CONTEXT, priority: 0, order: -1 }];
   let order = 0;
@@ -175,6 +175,7 @@ function contextsFor(world: World, index: number): { ref: string; priority: numb
     if (playerOfContext(c) !== index) continue;
     out.push({ ref: c.context, priority: c.priority, order });
   }
+  for (const s of sourcedContexts(world, index)) out.push({ ref: s.context, priority: s.priority, order: ++order });
   return out.sort((a, b) => b.priority - a.priority || a.order - b.order);
 }
 

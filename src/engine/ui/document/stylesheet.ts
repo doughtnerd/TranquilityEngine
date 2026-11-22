@@ -35,6 +35,8 @@ export const INHERITED_FIELDS: ReadonlySet<string> = new Set(["color", "fontSize
 const LENGTH_FIELDS: ReadonlySet<string> = new Set(["width", "height", "top", "right", "bottom", "left"]);
 /** Attributes that aren't fields. */
 const NOT_FIELDS: ReadonlySet<string> = new Set(["id", "class"]);
+/** Node reference fields an attribute sets by naming another element's id (ADR 0340): the document resolves them after building. */
+const REFERENCE_FIELDS: ReadonlySet<string> = new Set(["navUp", "navDown", "navLeft", "navRight", "firstSelected"]);
 
 // --- Parsing ------------------------------------------------------------------------------------
 
@@ -259,7 +261,8 @@ export function convertValue(raw: string, info: FieldInfo, file: string): unknow
   const type = info.type;
   const v = raw.trim();
   if (type === Number) return parseNumber(v);
-  if (type === Boolean) return v === "true" ? true : v === "false" ? false : undefined;
+  // A bare attribute (`<Canvas auto-focus>`) is true, as in HTML.
+  if (type === Boolean) return v === "true" || v === "" ? true : v === "false" ? false : undefined;
   if (type === Color) return parseColor(v);
   if (type === Vector2) {
     const parts = v.split(/[\s,]+/).filter(Boolean).map(parseNumber);
@@ -369,7 +372,15 @@ function isKnownField(name: string): boolean {
 
 /** The field an attribute sets (`flex-direction` and `flexDirection` both name `flexDirection`; `position` names `positionType`), or null for `id`/`class`. */
 export function attributeField(attribute: MarkupAttribute): string | null {
-  return NOT_FIELDS.has(attribute.name) ? null : propertyField(attribute.name);
+  if (NOT_FIELDS.has(attribute.name)) return null;
+  const field = propertyField(attribute.name);
+  return REFERENCE_FIELDS.has(field) ? null : field;
+}
+
+/** The node reference field an attribute names by an element id (`nav-up="play"` → `navUp`, `first-selected` → `firstSelected`), or null. */
+export function referenceField(attribute: MarkupAttribute): string | null {
+  const field = propertyField(attribute.name);
+  return REFERENCE_FIELDS.has(field) ? field : null;
 }
 
 /** A variable's key in a resolved map: `--name` (variables inherit, like the text properties). */

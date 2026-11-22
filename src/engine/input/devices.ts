@@ -196,10 +196,15 @@ export interface PointerFrame {
   up(button: number): boolean;
 }
 
-/** What a router takes this frame: the pointer (it's over interactable UI) and the keyboard (a text field is focused). */
+/**
+ * What a router takes this frame: the pointer (it's over interactable UI), the keyboard (a text field
+ * is typing), and single key presses (`keys`: Tab or Escape that left a text field), which stay the
+ * UI's until released.
+ */
 export interface InputClaim {
   readonly pointer?: boolean;
   readonly keyboard?: boolean;
+  readonly keys?: readonly string[];
 }
 
 export type InputRouter = (pointer: PointerFrame) => InputClaim | void;
@@ -474,6 +479,9 @@ class DeviceSnapshot implements DeviceEventSink {
   /** This frame's mouse presses and releases that went to the UI. */
   private readonly uiDown = new Set<string>();
   private readonly uiUp = new Set<string>();
+  /** Keys whose press a router took (`InputClaim.keys`): the game doesn't see them until they're released, nor the release. */
+  private readonly uiKeys = new Set<string>();
+  private readonly uiKeyUp = new Set<string>();
   private readonly padQueue: PadEvent[] = [];
   private readonly pads = new Map<number, GamepadSnapshot>();
   /** Gamepads connected and disconnected this frame. */
@@ -730,9 +738,16 @@ class DeviceSnapshot implements DeviceEventSink {
         const claim = router(frame);
         if (claim?.pointer) this.pointerToUI = true;
         if (claim?.keyboard) this.keyboardToUI = true;
+        for (const k of claim?.keys ?? []) this.uiKeys.add(normalizeKey(k));
       } catch (err) {
         console.error("[myco] UI input routing failed:", err);
       }
+    }
+    this.uiKeyUp.clear();
+    for (const k of this.uiKeys) {
+      if (this.heldKeys.has(k) || this.downNow.has(k)) continue;
+      this.uiKeys.delete(k);
+      if (this.upNow.has(k)) this.uiKeyUp.add(k);
     }
     for (const k of this.downNow) {
       if (!isMouseKey(k)) continue;
@@ -769,6 +784,8 @@ class DeviceSnapshot implements DeviceEventSink {
     this.uiHeld.clear();
     this.uiDown.clear();
     this.uiUp.clear();
+    this.uiKeys.clear();
+    this.uiKeyUp.clear();
     this.touchscreen.reset();
     this.penDevice.reset();
     this.hasTouch = this.hasPen = false;
@@ -776,9 +793,9 @@ class DeviceSnapshot implements DeviceEventSink {
 
   // --- Reading end: what the game sees after routing -------------------------------------------
 
-  /** False for a key the UI took: a mouse button in `uiTook`, or any other key while a text field is focused. */
+  /** False for a key the UI took: a mouse button in `uiTook`, a key press a router claimed (until released), or any other key while a text field is focused. */
   private gameSees(k: string, uiTook: Set<string>): boolean {
-    return isMouseKey(k) ? !uiTook.has(k) : !this.keyboardToUI;
+    return isMouseKey(k) ? !uiTook.has(k) : !this.keyboardToUI && !this.uiKeys.has(k) && !this.uiKeyUp.has(k);
   }
 
   /** Held, including the frame it went down. `key` is normalized. */

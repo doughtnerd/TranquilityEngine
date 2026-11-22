@@ -924,7 +924,7 @@ describe("UICore typing (DOM)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("gives DOM focus to the focused field, mirrors value and maxLength, and takes typing, Enter and Escape", async () => {
+  it("gives DOM focus to the focused field, mirrors value and maxLength, and takes typing, Enter and Escape (ADR 0340: Escape stops typing, focus stays)", async () => {
     const canvas = node("Canvas", null, UICanvas);
     const field = node("Name", canvas.node, UIInputField, { width: 300, height: 40, value: "Ad", maxLength: 5 } as Partial<UIInputField>);
     const c = await core();
@@ -954,7 +954,9 @@ describe("UICore typing (DOM)", () => {
     expect(field.submitted).toBe(false);
 
     fake.emit("keydown", { key: "Escape" });
-    expect(field.focused).toBe(false);
+    engine.step(DT); // navigation takes the Escape: the field stops typing and keeps focus
+    expect(field.typing).toBe(false);
+    expect(field.focused).toBe(true);
     sync(c);
     expect(fakeDocument().activeElement).toBeNull();
     expect(c.caretOf(field)).toBeNull();
