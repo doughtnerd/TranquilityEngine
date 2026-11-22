@@ -1,5 +1,6 @@
 // Thin typed wrapper over `myco_audio_decode.wasm` (ABI in the header of native/audio/crates/audio-decode/src/lib.rs).
 // The module exports its memory and every call that allocates may grow it, so views are made per use.
+import { reverbPresetBase } from "../reverbPresets";
 
 /** A decoder failure: `code` is the ABI's negative `ERR_*` (0 for a failure of this wrapper), `message` the decoder's text. */
 export class DecoderError extends Error {
@@ -208,7 +209,8 @@ export class DecoderWasm {
 
   /** As `prepareIr`, for a generated preset (`IR_PRESETS`); an unknown name throws `ERR_ARG` (-2). */
   generateIr(preset: string, targetRate: number, maxFrames: number): PreparedIr {
-    const index = (IR_PRESETS as readonly string[]).indexOf(preset);
+    // ADR 0333: the named presets (`smallStone`, …) play one of the generated reverbs (`reverbPresets.ts`).
+    const index = (IR_PRESETS as readonly string[]).indexOf(reverbPresetBase(preset));
     return this.preparedIr(this.x.myco_ir_generate(index < 0 ? 0xffffffff : index, targetRate, maxFrames));
   }
 
