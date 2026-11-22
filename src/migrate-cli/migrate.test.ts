@@ -50,5 +50,5 @@ describe("audio:migrate CLI", () => {
     expect(run(dir).stdout).toContain("No audio events to migrate.");
     expect(run().status).toBe(2);
     expect(run(join(dir, "missing")).status).toBe(1);
-  });
+  }, 60_000); // six runs of node, each loading the engine's TypeScript
 });
