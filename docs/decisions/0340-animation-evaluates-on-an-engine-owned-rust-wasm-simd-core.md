@@ -53,7 +53,7 @@ Public types are exported from `myco` like physics and navigation. No Rust, wasm
 
 ### Crates (in dependency order)
 
-- **`myco-curve`** (`native/common/curve/`, shared): the engine curve evaluator (linear, step, smooth, easeIn, easeOut, Bézier with bisection), **moved out of** `audio-core/src/automation.rs` so audio and animation link one evaluator. It is `no_std`, and its one parity test is against `core/curve.ts`. Audio's crate depends on it from then on. The audio branch merges before this build starts (owner, 2026-11-22), so the move is made on top of it.
+- **`myco-curve`** (`native/common/curve/`, shared): the engine curve evaluator (linear, step, smooth, easeIn, easeOut, Bézier with bisection), **moved out of** `audio-core/src/automation.rs` so audio and animation link one evaluator. It is `no_std`, and its one parity test is against `core/curve.ts`. Audio's crate depends on it from then on. The owner ordered the build (2026-11-22): the Rust core is built first, then the audio branch merges, then the TypeScript, ECS and editor parts and this move are made on top of it.
 - **`anim-wire`:** the boundary's input and output record layouts and the init parameters, defined once. TypeScript constants are generated from them (as `audio-wire`), with a round-trip test.
 - **`anim-math`:** SoA quaternion, vector and transform maths on `glam` with `core::arch::wasm32` `simd128` (4 lanes). Deterministic rules as in nav: no `mul_add`, no relaxed SIMD, no libm trig in hot paths.
 - **`anim-format`:** binary layouts (`myco.anim@1` clips, `myco.skel@1` skeletons, `myco.animgraph@1` compiled graphs, `myco.posedb@1` pose databases). Flat, little-endian, `repr(C)`, 4-byte aligned, so TypeScript reads them as typed-array views without copying.

@@ -33,6 +33,6 @@ All owner decisions are in the records and in the "Owner rules" section of `grou
 
 ## Kick-off
 
-1. Confirm the branch is at the plan commit, and that `npm ci`, the wasm target and wasm-bindgen 0.2.130 are installed (see build-log).
-2. Start W0: T01, T02, T03 (strongest model) and T04, T05 (mid model), each in its own worktree with a brief pointing at `ground-rules.md`.
-3. Merge in dependency order (T02, T03, T01, T04, T05), run the wave-end checks, then write T06 and log the pilot measures.
+1. Confirm the branch is at the plan commit and the tools are installed (see build-log).
+2. **Phase R:** start R-W0 (T02) in a worktree with a brief pointing at `ground-rules.md`. After merge, add the `build:anim` script to `package.json`, rebuild and commit the wasm, and log the pilot measures. Continue R-W1 to R-W7.
+3. **Phase B** begins only after gate A (the audio branch merged into master, master merged here), with B0.

@@ -6,3 +6,4 @@ Wave results, measurements (marked measured or estimated) and gate changes.
 
 - **Plan:** [plan.md](plan.md), with 13 waves (W0–W12); W11 is behind gate A (the audio branch merges).
 - **Machine:** 4 cores, 15 GB, about 59 GB disk free; Rust 1.99.1 with the wasm target; wasm-bindgen-cli 0.2.130.
+- **Revision 2 (2026-11-22):** after an independent review (50 findings, answered in plan.md) and the owner's ordering decision: Phase R (Rust core) now, Phase B after the audio merge. `origin/master` merged at `1773b414`.

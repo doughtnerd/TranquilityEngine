@@ -15,7 +15,7 @@ Ragdolls and powered ragdolls (PuppetMaster-style; 0342) need two things the phy
 
 **Today:**
 - `src/engine/physics/types.ts`: motors (`JointMotor`: target velocity and force) and springs (`JointSpring`: target position, stiffness, damping) exist only on hinges and sliders (`AxisJoint`).
-- `BallJoint` has no limits and no drive.
+- `BallJoint` already has `useLimits`, `twistLimits` (`{ min, max }` about its `axis`) and a scalar `swingLimit` (a circular cone), mapped to Rapier's per-axis limits (`PhysicsWorld3D.ts`, `rapier3d.ts`). It has no drive. *(Corrected 2026-11-22: the first version of this record said ball joints had no limits.)*
 - Only the physics backend (`src/plugins/physics-rapier/`) talks to Rapier (0010), and a later PhysX backend must offer the same features.
 
 The owner asked whether ragdolls could be a separate plugin rather than living in physics.
@@ -25,7 +25,7 @@ The owner asked whether ragdolls could be a separate plugin rather than living i
 **The joint features belong to the physics plugin.** They are general joint capabilities, also used for robot arms, vehicles and hanging props, and only the backend can implement them:
 
 - **`BallJoint` gains:**
-  - `useLimits` with `swing: { y, z }` (cone half-angles in degrees, elliptical when they differ) and `twist: { min, max }` (degrees about the joint's x axis);
+  - **elliptical swing:** `swingLimit` becomes `swing: { y, z }` (cone half-angles in degrees, elliptical when they differ). A saved `swingLimit: s` migrates to `{ y: s, z: s }` through the component's field migration, so existing scenes keep their behaviour. `twistLimits` stays as it is;
   - `useDrive` with `drive: { targetRotation (quaternion), stiffness, damping, maxForce }`.
   
   All are plain fields, animatable (0341), and described by the class (0305).

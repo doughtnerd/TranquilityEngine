@@ -18,7 +18,8 @@ Every brief in this build points here. Read it, then `CLAUDE.md`, then the recor
 - **When the records don't answer a question,** follow industry practice (Unreal, Unity, Godot, Animancer, Final IK, ACL) and the engine's goals. Note every such choice in your report under "Decisions".
 - **Tests:** run `npm run typecheck`, the unit tests of what you touched (`npx vitest related <files> --run` or `npx vitest run <paths>`), and `cargo test -p <crate>` for crates you touched. **Do not run Playwright or any browser suite** (`test:e2e*`, `test:stories`).
 - **Never bypass interfaces** (CLAUDE.md): no test-only members, exports, getters, flags or debug hooks. Test a module through the interface its callers use. A pure, reusable helper gets its own library module.
-- **Size and cost gates are tripwires:** raise them with a reason in your report, never trade features, quality or accuracy to stay under.
+- **Size and cost gates are tripwires:** raise them with a reason in your report (the coordinator copies it into the build log), never trade features, quality or accuracy to stay under.
+- **Build order (owner):** Phase R (now) touches only `native/anim/` and `src/plugins/animation/runtime/wasm/`. No existing file outside those, except a named grant in your brief. Phase B starts after the audio branch merges.
 
 ## Engine rules that bite
 
@@ -41,7 +42,7 @@ Every brief in this build points here. Read it, then `CLAUDE.md`, then the recor
   - `docs/README.md`, `docs/architecture/implementation-status.md`, `docs/design/animation/*`;
   - `src/plugins/catalogue.ts`;
   - `native/anim/Cargo.toml` (the workspace file; your crate's own `Cargo.toml` is yours);
-  - the committed wasm and generated wire files in `src/plugins/animation/runtime/wasm/`. Build them locally to test, but don't commit them.
+  - the committed `.wasm` and `hash.json` in `src/plugins/animation/runtime/wasm/`. Build them locally to test, but don't commit them. **Do** commit the generated wire file of the family your task owns (`wasm/wire/<family>.ts`), and only that one.
   
   Put suggested text for these in your report.
 - **Rust builds:** use your worktree's own `native/anim/target/`. Delete it before you finish (it's large).
