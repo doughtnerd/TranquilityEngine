@@ -252,3 +252,11 @@ migration can't lose clips. `engine.AudioMusic` system removed; music node/rule 
 0329 deprecates them; handle and event types stay). `Audio.debug().music` kept as `[]` so public types hold. E2E specs
 that used events or music players (`audio-music-*`, `audio-events`, `sound-lab-touch`, `projects`) need porting at the
 e2e phase.
+
+**D33. Migration places loops in sidecars (W8, merged).** A plain looping clip → Clip playlist with `loop: "inherit"`
+and an endless sidecar loop; a sustain clip → a one-clip Sequence with a held sidecar loop (`exit: finish`); clips under
+a sustain's loop section → held with the sustain's exit (release now+fade → crossfade, now → jump, loopEnd → finish),
+exactly as the old runtime behaved. Equal sidecar loops are reused; a conflicting one makes a derived sample
+`<name>.loop<n>.sample.json` (lineage duplicate/follow, holding only that loop). Risk accepted (as in the hand fix): a
+sidecar loop applies to every use of the file. Found: the runtime didn't resolve derived samples at all — a task
+(W8-B) is adding it to the clip resolver.
