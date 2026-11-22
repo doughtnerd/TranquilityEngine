@@ -240,3 +240,15 @@ kind keeps format/references so old files still list and play until the runtime 
 subject was a removed panel were deleted (7 specs, 2 helpers); others were edited (listed in the W7-A report) — none
 run yet. Lost authoring paths with no Studio equivalent yet: "Create playlist from clips" in the editor. Closes D11's
 "auto-migrate not yet enabled".
+
+**D32. Event and music player runtime retired (W7-B, merged).** Samples migrated by `npm run audio:migrate`, then
+hand-fixed: the migration turns a looping clip into an async clip in a looping sequence, which plays its sample once,
+so the engines went silent; their loop regions are now held loops in sidecars (follow-up: the migration should do this).
+Not restored in the samples: the engine blend's overlapping fades (now neighbour crossfades), `music-loop`'s tail,
+`music-world`'s linear/S-curve transitions (now equal-power), bridge fades, beat-quantised intensity automation. Two
+playlist runtime bugs fixed (sequence loop wrap within float noise; an Exit marker exactly at a sequence's end). The
+`audioEvent` editor kind stays as a listing "Audio Event (old format: migrate)" with clip references, so a declined
+migration can't lose clips. `engine.AudioMusic` system removed; music node/rule types dropped from `myco` exports (ADR
+0329 deprecates them; handle and event types stay). `Audio.debug().music` kept as `[]` so public types hold. E2E specs
+that used events or music players (`audio-music-*`, `audio-events`, `sound-lab-touch`, `projects`) need porting at the
+e2e phase.

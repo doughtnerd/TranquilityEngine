@@ -52,3 +52,12 @@ Plan: [plan.md](plan.md). Ground rules for tasks: [ground-rules.md](ground-rules
   playlist writer and its tests made stricter, sequence-marker types in the playlist format, one curve writer, duplicate
   derived-sample kind removed, pick hooks re-applied over the sequence node split, duplicate capture-bytes functions
   removed, AudioZone category, system catalog order, inspectorMetadata kinds.
+
+### Wave 7
+- Merged: W6-A core (via a merge task), W7-A editor panel retirement, W7-B M10 runtime half (event and music player
+  runtime retired, samples migrated, guides). Running: W7-C core DSP catalogue and mix features.
+- Full Vitest after W7-B: 785 files, 8731 passed, 3 skipped, 1 todo, 0 failed (load ~6). File and test counts fell
+  because the retired runtime's tests went with it (musicBench and eventBench, two of the recurring load-sensitive
+  tests, are deleted).
+- `golden/seams/*` is kept for `audioGoldenSeams` and the native test, but its writer (`music/seam.test.ts`) is gone,
+  so those goldens can't be regenerated (follow-up in impl status, ADR 0329 row). No size gates touched.
