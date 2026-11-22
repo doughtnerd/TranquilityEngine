@@ -13,6 +13,25 @@ import type { Binding, ParamRef } from "../automation";
 import type { TimeCurve } from "./curves";
 import type { MusicalClock, MusicalSource } from "./musical";
 import type { SampleFacts } from "./sampleFacts";
+import type { FadeShape } from "../../../../engine/audio/playlist/types";
+import { fadePieces } from "../../../../engine/audio/playlist/fadeShapes";
+import type { QuantLane } from "./quantizedLanes";
+
+/**
+ * ADR 0336: one fade of `voice`'s fade ramp from `from` to `to` over `seconds` in `shape`, starting at heard `at` (null:
+ * as soon as possible, or `asap` when a shape needs several stamped pieces). The core's laws are one record; other
+ * shapes are `fadePieces`' stamped linear pieces. `stopAtEnd` stops the voice when it ends.
+ */
+export function shapedFade(voice: AudioVoice, shape: FadeShape, seconds: number, from: number, to: number, at: number | null, asap: () => number, stopAtEnd = false): void {
+  const pieces = fadePieces(shape, seconds, from, to);
+  if (pieces.length === 1) {
+    const p = pieces[0]!;
+    voice.fadeShaped({ to, seconds: p.seconds, law: p.law, ...(stopAtEnd ? { stopAtEnd } : {}), ...(at !== null ? { at } : {}) });
+    return;
+  }
+  const t0 = at ?? asap();
+  pieces.forEach((p, k) => voice.fadeShaped({ to: p.to, seconds: p.seconds, law: p.law, at: t0 + p.at, ...(stopAtEnd && k === pieces.length - 1 ? { stopAtEnd } : {}) }));
+}
 
 // --- shared shapes ---------------------------------------------------------------------------------------------------
 
@@ -72,8 +91,12 @@ export interface Ctx {
   /** The linked playlists above, the root first (cycle protection). */
   chain: readonly string[];
   depth: number;
-  /** Seconds of equal-power fade-in for the voices started (a crossfade's incoming side). */
+  /** Seconds of fade-in for the voices started (a crossfade's incoming side). */
   fadeIn: number;
+  /** ADR 0336: the fade-in's shape; absent: equalPower. */
+  fadeInShape?: FadeShape;
+  /** ADR 0336: the beat-quantised automation lanes above (`quantizedLanes.ts`). */
+  quantized?: readonly QuantLane[];
   spatial: SpatialPlan | null;
   /** The nearest playlist path above, for messages. */
   where: string;
@@ -150,16 +173,43 @@ export abstract class LiveNode {
     for (const c of this.children) c.stop(fade);
   }
 
-  /** The outgoing side of a crossfade: every voice below fades out (equal power) over `seconds` from `at`, then stops. */
-  leave(seconds: number, at: number | null): void {
+  /** The outgoing side of a crossfade: every voice below fades out in `shape` (ADR 0336) over `seconds` from `at`, then stops. */
+  leave(seconds: number, at: number | null, shape: FadeShape = "equalPower"): void {
     if (this.stopped) return;
     this.stopped = true;
     for (const v of this.voices) {
       if (v.leaving) continue;
       v.leaving = true;
-      v.voice.fadeShaped({ to: 0, seconds, law: "equalPowerOut", stopAtEnd: true, ...(at !== null ? { at } : {}) });
+      shapedFade(v.voice, shape, seconds, 1, 0, at, () => this.host.startOf(null), true);
     }
-    for (const c of this.children) c.leave(seconds, at);
+    for (const c of this.children) c.leave(seconds, at, shape);
+  }
+
+  /**
+   * ADR 0336 (post-exit): a Switch handed over at heard `at` and this entry's tail rings on: its loops are let go by
+   * their exit settings (release exits a loop into the audio after it) and its voices play on to their natural end.
+   * It no longer counts as the Switch's playing entry; `stop` still ends it.
+   */
+  ringOut(at: number | null): void {
+    this.ringing = true;
+    for (const v of this.voices) {
+      if (!v.loop?.looping || v.leaving) continue;
+      // An always-active sample loop can't be let go (only a stop ends it): it is cut at the hand-over, as before.
+      if (v.loop.behaviour.active === "always") {
+        v.leaving = true;
+        v.voice.fadeShaped({ to: 0, seconds: 0.005, law: "linear", stopAtEnd: true, ...(at !== null ? { at } : {}) });
+      } else this.host.endLoop(v);
+    }
+    for (const c of this.children) c.ringOut(at);
+  }
+
+  /** ADR 0336: handed over and ringing out its tail (`ringOut`). */
+  ringing = false;
+
+  /** ADR 0336: whether what plays here has an Exit marker (its music then has a post-exit tail). */
+  hasExitMarker(): boolean {
+    for (const c of this.children) if (!c.stopped && c.hasExitMarker()) return true;
+    return false;
   }
 
   /** Key-off: held loops end by their exit settings. */

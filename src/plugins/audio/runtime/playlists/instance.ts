@@ -41,6 +41,8 @@ import { sampleFacts, type SampleFacts } from "./sampleFacts";
 import { VoiceClock, VoiceMarkers } from "./voiceMusical";
 import { decideStinger } from "../music/stingerPolicy";
 import { resolveBody, resolveEntry, type Ctx, type DynGain, type LiveNode, type LoopRun, type NodeHost, type PVoice, type SpatialPlan } from "./nodes";
+import { shapedFade } from "./liveNode";
+import { QuantizedLanes } from "./quantizedLanes";
 
 /** Options for `Audio.play` of a playlist: the event options (ADR 0158 §5), plus what the engine's components add. */
 export interface PlaylistOptions extends EventOptions {
@@ -485,7 +487,11 @@ export class PlaylistInstance implements NodeHost {
   onParameter(name: string, global: boolean): void {
     if (this.stopped || (global && this.localDefs.has(name))) return;
     this.root?.onParameter(name);
+    this.quant.onParameter(name);
   }
+
+  /** ADR 0336: the instance's beat-quantised automation lanes (`quantizedLanes.ts`). */
+  private readonly quant = new QuantizedLanes(this);
 
   /** Once per frame. */
   update(dt: number): void {
@@ -726,7 +732,7 @@ export class PlaylistInstance implements NodeHost {
     if (bindings.length > 0) sink.bindVoice(voice, this.group, bindings, base, ctx.at ?? undefined);
     if (ctx.fadeIn > 0) {
       voice.fade(0, 0);
-      voice.fadeShaped({ to: 1, seconds: ctx.fadeIn, law: "equalPowerIn", ...(ctx.at !== null ? { at: ctx.at } : {}) });
+      shapedFade(voice, ctx.fadeInShape ?? "equalPower", ctx.fadeIn, 0, 1, ctx.at, () => start);
     }
     const program = loop ? programs.get(loop) : undefined;
     if (program) sink.setLoops(voice, this.group, program);
@@ -739,6 +745,7 @@ export class PlaylistInstance implements NodeHost {
       start, length, loop, leaving: false, appliedGain: dyn, appliedPitch: t.pitch, appliedLowpass: curved ? lowpass : t.lowpass, positioned: req.position !== undefined,
     };
     this.voices.push(v);
+    this.quant.attach(v, ctx.quantized, start);
     if (curved) {
       this.curveVoices.set(v, { plan: curved, staticLowpass: c.lowpass, appliedSend: req.reverbSend ?? 1 });
       this.hasCurveVoices = true;

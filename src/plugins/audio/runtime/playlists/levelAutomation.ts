@@ -19,6 +19,7 @@ import { effectParamValue } from "../../../../engine/audio/effects/catalogue";
 import { warnOnce } from "../core/handle";
 import { curveParts, type TimeCurve } from "./curves";
 import type { Ctx, NodeHost } from "./liveNode";
+import { QuantLane } from "./quantizedLanes";
 
 /** A time-keyed lane, mapped onto a voice control, still to be placed in time. */
 export interface TimeAuto {
@@ -60,8 +61,17 @@ export function automationParts(host: NodeHost, list: readonly Automation[], eff
       }
     }
     if (typeof a.input === "string") {
+      if (a.quantize !== undefined) warnOnce(`playlist:quantize-time:${where}:${a.id}`, `[myco] ${where}: automation "${a.id}" is keyed on ${a.input}; quantize applies to parameter-keyed lanes and is ignored.`);
       time.push({ target, curve, input: a.input });
       continue;
+    }
+    if (a.quantize !== undefined) {
+      // ADR 0336: a quantised lane moves on the musical clock as the voices' own gain ramp (`quantizedLanes.ts`).
+      if (target === "gain") {
+        ctx = { ...ctx, quantized: [...(ctx.quantized ?? []), new QuantLane(a.input.parameter, curve, a.quantize, where)] };
+        continue;
+      }
+      warnOnce(`playlist:quantize-target:${where}:${a.id}`, `[myco] ${where}: automation "${a.id}" of ${a.target} can't be quantised (only volume, enabled and gain lanes are); it follows its parameter.`);
     }
     const vc: VoiceCurve = { input: a.input, curve, bypass: false };
     const parts = curveParts({ [target]: vc }, ctx, (n) => host.paramRef(n), (c) => host.curveId(c), where);
