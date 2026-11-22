@@ -18,7 +18,13 @@
 //! | 4 | u32 | layer index reported in state events (`NONE` when absent) |
 //!
 //! State words ([`player`] has the offsets): clip handle, time, previous time, speed, flags, play
-//! id, wraps in the last update, layer. Looping clips wrap; others clamp and report
+//! id, wraps in the last update, layer, the last update's travel, the play's notify-state bits
+//! ([`player::OPEN_WORDS`] words: up to 256 notify states per clip), and a pending end (the
+//! replaced clip, its time and its open bits, ended at the next Tracks phase).
+//!
+//! In the Tracks phase the player reports its window (from the previous playhead by the last
+//! travel, looping as it plays, flagged as the play's first window after a start) at its
+//! effective weight, after ending a replaced play's open notify states. Looping clips wrap; others clamp and report
 //! [`StateEventKind::Finished`] once when they reach their end (only plays the host gave an id).
 //!
 //! The pose is the clip sampled at the playhead (over identity for additive clips), with the
@@ -32,6 +38,7 @@ use anim_math::trig::sin_cos;
 use anim_math::{AosQuat, AosVec3, Lane};
 use anim_pose::root::{RootDelta, RootMotionAxes};
 use anim_pose::Axis;
+use anim_sample::{Window, WINDOW_START};
 
 use crate::dispatch::NodeStatus;
 use crate::eval::{ClipRef, EvalContext, NodeData, Phase, StateEvent, StateEventKind};
@@ -52,7 +59,9 @@ const PLAYER_FINISHED: u32 = 4;
 /// A clip player's state words.
 pub mod player {
     /// Words of state.
-    pub const WORDS: u32 = 8;
+    pub const WORDS: u32 = 28;
+    /// Words of notify-state bits per play.
+    pub const OPEN_WORDS: usize = 8;
     /// The clip's asset handle (0: none).
     pub const CLIP: usize = 0;
     /// The playhead, seconds (f32 bits).
@@ -69,7 +78,20 @@ pub mod player {
     pub const WRAPS: usize = 6;
     /// The layer reported in events.
     pub const LAYER: usize = 7;
+    /// The last update's travel, `speed × dt` (f32 bits).
+    pub const DELTA: usize = 8;
+    /// The play's notify-state bits.
+    pub const OPEN: usize = 9;
+    /// A replaced play's clip whose notify states still need ending (0: none).
+    pub const ENDED_CLIP: usize = 17;
+    /// Its clip time (f32 bits).
+    pub const ENDED_TIME: usize = 18;
+    /// Its open bits.
+    pub const ENDED_OPEN: usize = 19;
 }
+
+/// State flag: the next window is the play's first.
+const PLAYER_STARTED: u32 = 8;
 
 /// The parameter words of a clip player (for compilers and the implicit graph).
 pub fn clip_player_params(clip: u32, speed: f32, flags: u32, start: f32, layer: u32) -> [u32; 5] {
@@ -81,15 +103,29 @@ pub fn clip_player_params(clip: u32, speed: f32, flags: u32, start: f32, layer: 
 /// replaced if that play hadn't finished (the host reports it interrupted), else 0.
 pub fn start_play(state: &mut [u32], clip: u32, start: f32, speed: f32, flags: u32, play_id: u32) -> u32 {
     let replaced = interrupt(state);
+    retire(state);
     state[player::CLIP] = clip;
     let start = if start.is_finite() { start } else { 0.0 };
     state[player::TIME] = start.to_bits();
     state[player::PREV_TIME] = start.to_bits();
     state[player::SPEED] = if speed.is_finite() { speed } else { 1.0 }.to_bits();
-    state[player::FLAGS] = flags & (PLAYER_LOOP_SET | PLAYER_LOOP);
+    state[player::FLAGS] = (flags & (PLAYER_LOOP_SET | PLAYER_LOOP)) | PLAYER_STARTED;
     state[player::PLAY_ID] = play_id;
     state[player::WRAPS] = 0;
+    state[player::DELTA] = 0;
     replaced
+}
+
+/// Moves the current clip's open notify states to the pending end (ended at the next Tracks
+/// phase) and clears them.
+fn retire(state: &mut [u32]) {
+    let open = player::OPEN..player::OPEN + player::OPEN_WORDS;
+    if state[player::CLIP] != 0 && state[open.clone()].iter().any(|w| *w != 0) {
+        state[player::ENDED_CLIP] = state[player::CLIP];
+        state[player::ENDED_TIME] = state[player::TIME];
+        state.copy_within(open.clone(), player::ENDED_OPEN);
+    }
+    state[open].fill(0);
 }
 
 /// Ends a clip player's play without events of its own: it keeps playing (fading out), but
@@ -107,6 +143,7 @@ pub fn interrupt(state: &mut [u32]) -> u32 {
 /// Clears a clip player: no clip (its pose is empty). Returns its unfinished play's id, else 0.
 pub fn clear(state: &mut [u32]) -> u32 {
     let id = interrupt(state);
+    retire(state);
     state[player::CLIP] = 0;
     id
 }
@@ -154,7 +191,45 @@ fn clip_player(cx: &mut EvalContext<'_>, node: NodeData<'_>) {
             let delta = root(cx);
             cx.set_root(delta);
         }
+        Phase::Tracks => tracks(cx),
     }
+}
+
+fn tracks(cx: &mut EvalContext<'_>) {
+    let weight = cx.weight();
+    let assets = cx.assets();
+    let mut state = [0u32; player::WORDS as usize];
+    state.copy_from_slice(&cx.state()[..player::WORDS as usize]);
+    let Some(out) = cx.track_output() else {
+        return;
+    };
+    let ended = state[player::ENDED_CLIP];
+    if ended != 0 {
+        let at = player::ENDED_OPEN;
+        out.end(
+            ended,
+            f32::from_bits(state[player::ENDED_TIME]),
+            &mut state[at..at + player::OPEN_WORDS],
+        );
+        state[player::ENDED_CLIP] = 0;
+    }
+    let handle = state[player::CLIP];
+    let clip = if handle != 0 { assets.clip(handle) } else { None };
+    if let Some(clip) = clip {
+        let flags = state[player::FLAGS];
+        let mut window = Window::new(
+            f32::from_bits(state[player::PREV_TIME]),
+            f32::from_bits(state[player::DELTA]),
+            loops(&clip, flags),
+        );
+        if flags & PLAYER_STARTED != 0 {
+            window = window.with(WINDOW_START);
+            state[player::FLAGS] = flags & !PLAYER_STARTED;
+        }
+        let at = player::OPEN;
+        out.window(handle, &window, weight, &mut state[at..at + player::OPEN_WORDS]);
+    }
+    cx.state()[..player::WORDS as usize].copy_from_slice(&state);
 }
 
 fn loops(clip: &ClipRef<'_>, flags: u32) -> bool {
@@ -208,6 +283,7 @@ fn update(cx: &mut EvalContext<'_>) {
         }
     }
     s[player::PREV_TIME] = time.to_bits();
+    s[player::DELTA] = (dt * speed).to_bits();
     s[player::TIME] = t.to_bits();
     s[player::WRAPS] = wraps as u32;
     if finished && flags & PLAYER_FINISHED == 0 {
@@ -241,7 +317,7 @@ fn pose(cx: &mut EvalContext<'_>) {
     let rest = if clip.additive { skel.identity } else { skel.rest };
     let (out, scratch) = cx.pose_and_sample_scratch(slot);
     if clip
-        .sampler
+        .bound
         .sample_pose(time, rest, scratch, out, None)
         .is_err()
     {

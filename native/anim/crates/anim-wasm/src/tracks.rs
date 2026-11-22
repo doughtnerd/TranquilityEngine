@@ -26,15 +26,17 @@ use anim_wire::tracks::{
 };
 use anim_wire::WireRecord;
 
-/// Provisional: the record region each instance gets per frame, in bytes (about 60 of the largest
-/// record). T13r places the regions; records past it are counted as dropped.
-pub const RECORD_BYTES_PER_INSTANCE: u64 = 4096;
+/// The record region each instance gets per frame, in bytes (about 60 of the largest record;
+/// `anim-wire` core's `TRACK_RECORD_BYTES`, placed in the track region by T13r's evaluate loop).
+/// Records past it are counted as dropped.
+pub const RECORD_BYTES_PER_INSTANCE: u64 = anim_wire::core::TRACK_RECORD_BYTES as u64;
 
 /// The memory this feature needs for `init`'s parameters, in bytes (summed by [`crate::init`]):
-/// per instance, an output header and a record region. Column blocks and notify-state words are
-/// sized per bound clip, in the asset arena.
+/// per instance its track region (`anim-wire` core's `TRACK_STRIDE`: output header, column clip,
+/// column block, records). Notify-state words live in the clip players' graph state.
 pub(crate) fn bytes_needed(init: &Init) -> u64 {
-    let per_instance = OutputHeader::STRIDE as u64 + RECORD_BYTES_PER_INSTANCE;
+    let per_instance = anim_wire::core::TRACK_STRIDE as u64;
+    debug_assert!(per_instance >= OutputHeader::STRIDE as u64 + RECORD_BYTES_PER_INSTANCE);
     (init.max_instances as u64).saturating_mul(per_instance)
 }
 

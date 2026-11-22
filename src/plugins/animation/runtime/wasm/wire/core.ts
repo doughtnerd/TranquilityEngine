@@ -100,6 +100,27 @@ export const CULL_ROOT_MOTION_ONLY = 32;
 /** Root view: bytes per instance row (translation xyz, rotation xyzw, 4 spare). */
 export const ROOT_STRIDE = 32;
 
+/** Track region: bytes per instance row. */
+export const TRACK_STRIDE = 5152;
+
+/** Track region: the `tracks` family's `OUTPUT_HEADER`. */
+export const TRACK_HEADER = 0;
+
+/** Track region: `u32` handle of the clip whose columns fill the column block (0: none). */
+export const TRACK_COLUMN_CLIP = 16;
+
+/** Track region: the column block. */
+export const TRACK_COLUMNS = 32;
+
+/** Track region: column words at most. */
+export const TRACK_COLUMN_WORDS = 256;
+
+/** Track region: the records. */
+export const TRACK_RECORDS = 1056;
+
+/** Track region: record bytes at most per frame. */
+export const TRACK_RECORD_BYTES = 4096;
+
 /** Matrix view: floats per bone (3x4 row-major); an instance's row is `maxBones` bones. */
 export const MATRIX_FLOATS = 12;
 

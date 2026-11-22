@@ -349,6 +349,24 @@ impl Core {
         self.frame.changes_dropped
     }
 
+    /// Bytes of a clip's `COLUMN` records (`tracks` family; 0 for a stale handle).
+    pub fn clip_column_bytes(&self, clip: u32) -> u32 {
+        self.arena
+            .clip_asset(clip)
+            .map_or(0, |c| crate::tracks::column_records_len(&c.bindings) as u32)
+    }
+
+    /// Writes a clip's `COLUMN` records (where each property track's column sits in its block)
+    /// into `out`; returns the bytes written (0 for a stale handle or a short `out`).
+    pub fn clip_columns(&self, clip: u32, out: &mut [u8]) -> u32 {
+        self.arena.clip_asset(clip).ok().and_then(|c| crate::tracks::write_columns(&c.bindings, out)).unwrap_or(0) as u32
+    }
+
+    /// The track regions (`TRACK_STRIDE` bytes per instance index, as words).
+    pub fn tracks(&self) -> &[u32] {
+        &self.frame.tracks
+    }
+
     /// The bytes of asset files the arena holds.
     pub fn arena_bytes(&self) -> usize {
         self.arena.held_bytes()
@@ -494,6 +512,24 @@ pub fn roots_ptr() -> u32 {
 #[wasm_bindgen]
 pub fn changes_ptr() -> u32 {
     with(|c| Core::addr(&c.frame.changes))
+}
+
+/// The track regions' byte offset in memory (`TRACK_STRIDE` bytes per instance index).
+#[wasm_bindgen]
+pub fn tracks_ptr() -> u32 {
+    with(|c| Core::addr(&c.frame.tracks))
+}
+
+/// Bytes of a clip's `COLUMN` records.
+#[wasm_bindgen]
+pub fn clip_column_bytes(clip: u32) -> u32 {
+    with(|c| c.clip_column_bytes(clip))
+}
+
+/// Writes a clip's `COLUMN` records into `out`; returns the bytes written.
+#[wasm_bindgen]
+pub fn clip_columns(clip: u32, out: &mut [u8]) -> u32 {
+    with(|c| c.clip_columns(clip, out))
 }
 
 /// State changes dropped this frame because the buffer was full.

@@ -29,7 +29,13 @@
 //!    `maxBones · 12` floats, [`MATRIX_FLOATS`] per bone, 3×4 row-major `model × inverse bind`,
 //!    decision D10) and root-motion deltas (`roots_ptr()`: [`ROOT_STRIDE`] bytes per instance
 //!    index: translation x, y, z then rotation x, y, z, w, in the character's frame at the start of
-//!    the step).
+//!    the step), and each instance's **track region** (`tracks_ptr()`: [`TRACK_STRIDE`] bytes
+//!    per instance index): at [`TRACK_HEADER`] the `tracks` family's `OUTPUT_HEADER`, at
+//!    [`TRACK_COLUMN_CLIP`] the `u32` handle of the clip whose column block fills
+//!    [`TRACK_COLUMNS`] (the instance's highest-weight playing clip; 0 for none;
+//!    [`TRACK_COLUMN_WORDS`] words at most, its `COLUMN` records from `clip_columns`), and at
+//!    [`TRACK_RECORDS`] the frame's `tracks` records ([`TRACK_RECORD_BYTES`] bytes at most;
+//!    events, notify states, markers… of every contributing clip at its effective weight).
 //!
 //! Views are byte offsets into the module's memory; re-create typed arrays after any load or
 //! create call, which may grow it (`evaluate` and `write_inputs` never do).
@@ -111,6 +117,22 @@ pub const CULL_ROOT_MOTION_ONLY: u32 = 0x20;
 
 /// Root view: bytes per instance row.
 pub const ROOT_STRIDE: u32 = 32;
+/// Track region: bytes per instance row.
+pub const TRACK_STRIDE: u32 = TRACK_RECORDS + TRACK_RECORD_BYTES;
+/// Track region: the `tracks` family's `OUTPUT_HEADER` (16 bytes).
+pub const TRACK_HEADER: u32 = 0;
+/// Track region: `u32` handle of the clip whose columns fill the column block (0: none).
+pub const TRACK_COLUMN_CLIP: u32 = 16;
+/// Track region: the column block.
+pub const TRACK_COLUMNS: u32 = 32;
+/// Track region: column words at most (a clip with more property-track words writes no columns).
+pub const TRACK_COLUMN_WORDS: u32 = 256;
+/// Track region: the records.
+pub const TRACK_RECORDS: u32 = TRACK_COLUMNS + 4 * TRACK_COLUMN_WORDS;
+/// Track region: record bytes at most per frame (about 60 of the largest record; records past it
+/// are counted in the header's `dropped`).
+pub const TRACK_RECORD_BYTES: u32 = 4096;
+
 /// Matrix view: floats per bone (3×4 row-major).
 pub const MATRIX_FLOATS: u32 = 12;
 
@@ -356,6 +378,13 @@ pub const FAMILY: FamilyDesc = FamilyDesc {
         CULL_WHEN_VISIBLE: "Culling mode: when not visible, playheads advance; pose and root motion freeze.",
         CULL_ROOT_MOTION_ONLY: "Culling mode: when not visible, playheads advance and root motion is reported; the pose freezes.",
         ROOT_STRIDE: "Root view: bytes per instance row (translation xyz, rotation xyzw, 4 spare).",
+        TRACK_STRIDE: "Track region: bytes per instance row.",
+        TRACK_HEADER: "Track region: the `tracks` family's `OUTPUT_HEADER`.",
+        TRACK_COLUMN_CLIP: "Track region: `u32` handle of the clip whose columns fill the column block (0: none).",
+        TRACK_COLUMNS: "Track region: the column block.",
+        TRACK_COLUMN_WORDS: "Track region: column words at most.",
+        TRACK_RECORDS: "Track region: the records.",
+        TRACK_RECORD_BYTES: "Track region: record bytes at most per frame.",
         MATRIX_FLOATS: "Matrix view: floats per bone (3x4 row-major); an instance's row is `maxBones` bones.",
         PASS_NORMAL: "`evaluate` pass: instances without `FLAG_FIXED`.",
         PASS_FIXED: "`evaluate` pass: instances with `FLAG_FIXED`.",

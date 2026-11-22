@@ -30,6 +30,7 @@
 //! | [`Phase::Alpha`] | pulled from the output | [`EvalContext::set_alpha`]: how much real pose it outputs (0 = nothing, e.g. a player without a clip) |
 //! | [`Phase::Pose`] | pulled from the output | writes its local pose into [`EvalContext::out`], pulling inputs with [`EvalContext::eval_pose`] |
 //! | [`Phase::Root`] | pulled from the output | [`EvalContext::set_root`]: its root-motion delta this step |
+//! | [`Phase::Tracks`] | pulled from the output, every input (weight 0 too) | clip players report their playhead's window at their effective weight ([`EvalContext::weight`]) to the host's [`TrackOutput`] |
 //!
 //! Pulled phases let a blend skip an input of weight 0 (Unreal's relevance), so an idle layer
 //! costs nothing; [`Phase::Update`] still runs every node, so playheads advance everywhere (time
@@ -55,7 +56,7 @@ use anim_math::layout::soa_len;
 use anim_math::{AosQuat, AosTransform, AosVec3, F32x4, SoaTransform};
 use anim_pose::inertialize::Inertializer;
 use anim_pose::root::RootDelta;
-use anim_sample::ClipSampler;
+use anim_sample::{BoundClip, Window};
 
 use crate::dispatch::{dispatch, Family, NodeStatus};
 
@@ -72,13 +73,14 @@ pub enum Phase {
     Alpha,
     Pose,
     Root,
+    Tracks,
 }
 
 /// A loaded clip as nodes see it.
 #[derive(Clone, Copy)]
 pub struct ClipRef<'a> {
-    /// The sampler over the clip's compressed form (or raw form when it has no compressed form).
-    pub sampler: ClipSampler<'a>,
+    /// The clip's sampler (its compressed form, else its raw form) with its binding table.
+    pub bound: BoundClip<'a, 'a>,
     /// Seconds.
     pub duration: f32,
     /// The clip's `CLIP_LOOP` flag.
@@ -122,6 +124,17 @@ pub struct StateEvent {
 /// Where events go. Never allocates in the host's implementation.
 pub trait Events {
     fn push(&mut self, event: StateEvent);
+}
+
+/// Where clip players report what their tracks did this frame (the host samples the clip's
+/// property and event tracks over the window, `anim-sample`'s windows, into its outputs).
+pub trait TrackOutput {
+    /// Clip `clip` played over `window` at effective weight `weight`; `open` is the play's
+    /// notify-state bits.
+    fn window(&mut self, clip: u32, window: &Window, weight: f32, open: &mut [u32]);
+    /// Clip `clip`'s play ended early (replaced or cleared) at clip time `time`: end its open
+    /// notify states.
+    fn end(&mut self, clip: u32, time: f32, open: &mut [u32]);
 }
 
 /// The skeleton an instance evaluates against.
@@ -466,6 +479,15 @@ impl Program {
         }
     }
 
+    /// Reports every clip player's window of the last update to `out`, with the weight the
+    /// output gives it (Tracks phase). Never allocates.
+    pub fn tracks(&self, inputs: &Inputs<'_>, state: &mut [u32], out: &mut dyn TrackOutput) {
+        let mut sink = NoEvents;
+        let mut cx = EvalContext::with(self, Phase::Tracks, inputs, state, &mut sink, None, 0.0);
+        cx.tracks = Some(out);
+        cx.eval_tracks(self.output, 1.0);
+    }
+
     /// The output's root-motion delta for the last update, in the character's frame at the start
     /// of the step. Never allocates.
     pub fn root(&self, inputs: &Inputs<'_>, state: &mut [u32]) -> RootDelta {
@@ -563,6 +585,8 @@ pub struct EvalContext<'a> {
     root: RootDelta,
     layout: (u32, u32),
     inertia_request: f32,
+    weight: f32,
+    tracks: Option<&'a mut dyn TrackOutput>,
 }
 
 const EMPTY_SKELETON: SkeletonPose<'static> = SkeletonPose {
@@ -598,6 +622,8 @@ impl<'a> EvalContext<'a> {
             root: RootDelta::identity(),
             layout: (0, 0),
             inertia_request: 0.0,
+            weight: 0.0,
+            tracks: None,
         }
     }
 
@@ -650,6 +676,12 @@ impl<'a> EvalContext<'a> {
                     self.root = r;
                 }
                 (Phase::Root, None) => self.root = RootDelta::identity(),
+                (Phase::Tracks, _) => {
+                    let w = self.weight;
+                    for &input in data.inputs {
+                        self.eval_tracks(input, w);
+                    }
+                }
                 _ => {}
             }
         }
@@ -771,6 +803,25 @@ impl<'a> EvalContext<'a> {
         self.run(node);
         self.phase = phase;
         self.root
+    }
+
+    /// Tracks phase: the weight the output gives the current node.
+    pub fn weight(&self) -> f32 {
+        self.weight
+    }
+
+    /// Tracks phase: the host's track output.
+    pub fn track_output(&mut self) -> Option<&mut (dyn TrackOutput + 'a)> {
+        self.tracks.as_deref_mut()
+    }
+
+    /// Runs node `node`'s Tracks phase at effective weight `weight`.
+    pub fn eval_tracks(&mut self, node: u32, weight: f32) {
+        let phase = core::mem::replace(&mut self.phase, Phase::Tracks);
+        let saved = core::mem::replace(&mut self.weight, weight);
+        self.run(node);
+        self.weight = saved;
+        self.phase = phase;
     }
 
     /// Evaluates node `node`'s pose into slot `slot`.

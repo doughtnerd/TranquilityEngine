@@ -199,6 +199,13 @@ fn mix2(cx: &mut EvalContext<'_>, node: NodeData<'_>, wb: f32) {
     };
     let wb = unit(wb);
     let wa = 1.0 - wb;
+    if cx.phase() == Phase::Tracks {
+        // Every input, weight 0 too, so notify states can end when their clip fades out.
+        let w = cx.weight();
+        cx.eval_tracks(a, w * wa);
+        cx.eval_tracks(b, w * wb);
+        return;
+    }
     let ea = if wa > 0.0 { wa * cx.eval_alpha(a) } else { 0.0 };
     let eb = if wb > 0.0 { wb * cx.eval_alpha(b) } else { 0.0 };
     let total = ea + eb;
@@ -312,6 +319,12 @@ fn layer_node(cx: &mut EvalContext<'_>, node: NodeData<'_>) {
             };
             let index = node.params.first().copied().unwrap_or(NONE);
             let weight = unit(cx.layer_weight(index, node.f32_or(3, 1.0)));
+            if phase == Phase::Tracks {
+                let w = cx.weight();
+                cx.eval_tracks(base, w);
+                cx.eval_tracks(overlay, w * weight);
+                return;
+            }
             let w = if weight > 0.0 {
                 weight * cx.eval_alpha(overlay)
             } else {
@@ -436,6 +449,10 @@ fn inertialize(cx: &mut EvalContext<'_>, node: NodeData<'_>) {
         Phase::Root => {
             let r = cx.eval_root(source);
             cx.set_root(r);
+        }
+        Phase::Tracks => {
+            let w = cx.weight();
+            cx.eval_tracks(source, w);
         }
         Phase::Pose => {
             let out = cx.out();

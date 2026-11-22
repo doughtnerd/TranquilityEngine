@@ -13,7 +13,7 @@
 //! | Kind | Kept |
 //! |---|---|
 //! | skeleton (`myco.skel@1`) | parents, rest pose (AoS and packed SoA), identity pose, inverse bind matrices |
-//! | clip (`myco.anim@1`) | a sampler over its compressed form (else its raw form), duration, flags, root curve |
+//! | clip (`myco.anim@1`) | a sampler over its compressed form (else its raw form) with its binding table (`anim-sample`'s `ClipBindings`: decoded channel, track and key tables, so sampling and track windows don't re-read records), duration, flags, root curve |
 //! | graph (`myco.animgraph@1`) | its [`Program`] and a binding table (an asset handle per string id) |
 //! | mask | per-bone weights packed like a pose |
 //!
@@ -30,7 +30,7 @@ use anim_format::F32s;
 use anim_graph::eval::{Assets, ClipRef, Program};
 use anim_math::layout::{pack_pose, soa_len};
 use anim_math::{AosMat3x4, AosTransform, F32x4, SoaTransform};
-use anim_sample::{ClipSampler, Form};
+use anim_sample::{BoundClip, ClipBindings, ClipSampler, Form};
 use anim_wire::core::{
     Init, HANDLE_GENERATION_SHIFT, HANDLE_INDEX_MASK, STATUS_BAD_ASSET, STATUS_FULL,
     STATUS_MISMATCH, STATUS_OK, STATUS_STALE_HANDLE, STATUS_TOO_LARGE, STATUS_UNKNOWN_NODES,
@@ -102,6 +102,13 @@ pub struct SkeletonAsset {
     pub inverse_bind: Vec<AosMat3x4>,
 }
 
+impl ClipAsset {
+    /// The sampler paired with the binding table.
+    pub fn bound(&self) -> Option<BoundClip<'_, '_>> {
+        self.bindings.bind(self.sampler).ok()
+    }
+}
+
 impl SkeletonAsset {
     pub fn bones(&self) -> usize {
         self.parents.len()
@@ -114,6 +121,7 @@ impl SkeletonAsset {
 /// A loaded clip. The sampler and root curve borrow `bytes` (declared last, so dropped last).
 pub struct ClipAsset {
     sampler: ClipSampler<'static>,
+    pub bindings: ClipBindings,
     root_curve: Option<F32s<'static>>,
     pub duration: f32,
     pub flags: u32,
@@ -315,9 +323,12 @@ impl Arena {
             Form::Raw
         };
         let sampler = ClipSampler::new(view, form).map_err(|_| STATUS_BAD_ASSET)?;
+        let bindings = ClipBindings::new(&sampler);
+        bindings.bind(sampler).map_err(|_| STATUS_BAD_ASSET)?;
         let held = block.len;
         let asset = ClipAsset {
             sampler,
+            bindings,
             root_curve: view.root_curve(),
             duration: view.duration(),
             flags: view.flags(),
@@ -408,7 +419,7 @@ impl Assets for Arena {
     fn clip(&self, handle: u32) -> Option<ClipRef<'_>> {
         let c = self.clip_asset(handle).ok()?;
         Some(ClipRef {
-            sampler: c.sampler,
+            bound: c.bound()?,
             duration: c.duration,
             looping: c.flags & CLIP_LOOP != 0,
             additive: c.flags & CLIP_ADDITIVE != 0,

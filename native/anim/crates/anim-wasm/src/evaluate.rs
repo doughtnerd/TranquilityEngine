@@ -21,7 +21,9 @@
 
 use anim_graph::eval::{
     Events, History, Inputs, Program, Scratch, SkeletonPose, StateEvent, StateEventKind,
+    TrackOutput,
 };
+use anim_sample::Window;
 use anim_math::layout::soa_len;
 use anim_math::{AosTransform, SoaTransform};
 use anim_pose::inertialize::Inertializer;
@@ -30,12 +32,14 @@ use anim_wire::core::{
     COMMAND_BYTES, CULL_ALWAYS, CULL_MASK, CULL_ROOT_MOTION_ONLY, FLAG_BAKE_ROOT, FLAG_FIXED,
     FLAG_UNSCALED, FLAG_VISIBLE, INPUT_FLAGS, INPUT_LAYER_WEIGHTS, INPUT_LOD_STEP, INPUT_STRIDE,
     INPUT_TIME_SCALE, MATRIX_FLOATS, MAX_LAYERS, PASS_FIXED, ROOT_STRIDE, STATUS_BAD_RECORD,
-    STATUS_MISMATCH,
+    STATUS_MISMATCH, TRACK_COLUMNS, TRACK_COLUMN_CLIP, TRACK_COLUMN_WORDS, TRACK_HEADER,
+    TRACK_RECORDS, TRACK_STRIDE,
 };
 use anim_wire::WireRecord;
 
 use crate::assets::{split, Arena};
 use crate::instances::{implicit, Instance, Table};
+use crate::tracks::{self, RecordWriter};
 
 /// State-change records the buffer holds per instance (beyond a fixed reserve).
 pub const CHANGES_PER_INSTANCE: usize = 2 * MAX_LAYERS as usize;
@@ -44,6 +48,7 @@ pub const CHANGES_RESERVE: usize = 256;
 
 const INPUT_WORDS: usize = (INPUT_STRIDE / 4) as usize;
 const ROOT_FLOATS: usize = (ROOT_STRIDE / 4) as usize;
+const TRACK_WORDS: usize = (TRACK_STRIDE / 4) as usize;
 
 /// The memory this feature needs for `init`'s parameters, in bytes (summed by [`crate::init`]):
 /// the views (input and root rows, bone matrices), the command and state-change buffers, and the
@@ -72,6 +77,7 @@ pub struct Frame {
     pub inputs: Vec<u32>,
     pub matrices: Vec<f32>,
     pub roots: Vec<f32>,
+    pub tracks: Vec<u32>,
     pub commands: Vec<u8>,
     pub changes: Vec<u8>,
     pub change_count: usize,
@@ -92,6 +98,7 @@ impl Frame {
             inputs: vec![0; max_instances * INPUT_WORDS],
             matrices: vec![0.0; max_instances * max_bones * MATRIX_FLOATS as usize],
             roots: vec![0.0; max_instances * ROOT_FLOATS],
+            tracks: vec![0; max_instances * TRACK_WORDS],
             commands: vec![0; COMMAND_BYTES as usize],
             changes: vec![
                 0;
@@ -137,6 +144,7 @@ impl Frame {
         let roots = &mut self.roots[index * ROOT_FLOATS..(index + 1) * ROOT_FLOATS];
         roots.fill(0.0);
         roots[6] = 1.0;
+        self.tracks[index * TRACK_WORDS..(index + 1) * TRACK_WORDS].fill(0);
     }
 
     fn push_change(&mut self, change: StateChange) {
@@ -183,6 +191,52 @@ impl Events for Sink<'_> {
             None => *self.dropped = self.dropped.saturating_add(1),
         }
     }
+}
+
+/// Feeds clip players' windows to `tracks`' sampling: records into the instance's record region,
+/// columns of the highest-weight clip into its column block.
+struct TrackOut<'a, 'b> {
+    arena: &'a Arena,
+    writer: RecordWriter<'b>,
+    columns: &'b mut [u32],
+    best: f32,
+    column_clip: u32,
+    column_words: u32,
+}
+
+impl TrackOutput for TrackOut<'_, '_> {
+    fn window(&mut self, clip: u32, window: &Window, weight: f32, open: &mut [u32]) {
+        let Ok(c) = self.arena.clip_asset(clip) else {
+            return;
+        };
+        let Some(bound) = c.bound() else {
+            return;
+        };
+        let n = c.bindings.column_words();
+        let columns: &mut [u32] = if weight > self.best && n <= self.columns.len() {
+            self.best = weight;
+            self.column_clip = clip;
+            self.column_words = n as u32;
+            &mut self.columns[..n]
+        } else {
+            &mut []
+        };
+        tracks::evaluate_clip(&bound, clip, window, weight, open, columns, &mut self.writer);
+    }
+
+    fn end(&mut self, clip: u32, time: f32, open: &mut [u32]) {
+        if let Ok(c) = self.arena.clip_asset(clip) {
+            tracks::end_clip(&c.bindings, clip, time, 0.0, open, &mut self.writer);
+        }
+    }
+}
+
+/// `words` as bytes (wasm and every target the core builds for are little-endian, the layout's
+/// byte order).
+fn as_bytes(words: &mut [u32]) -> &mut [u8] {
+    // SAFETY: u8 has no alignment requirement and every bit pattern is valid for both types; the
+    // slice covers exactly the words' memory and borrows it for its lifetime.
+    unsafe { core::slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), words.len() * 4) }
 }
 
 /// Applies the first `len` bytes of the command buffer. Returns the commands applied; refused ones
@@ -382,6 +436,25 @@ pub fn evaluate(
         };
         program.update(&inputs, &mut inst.state, dt, &mut sink);
         inst.dt_since += dt;
+
+        // Track outputs every frame, culled or not (events and notify states stay exact).
+        let region = &mut frame.tracks[index * TRACK_WORDS..(index + 1) * TRACK_WORDS];
+        let (head, rest) = region.split_at_mut((TRACK_COLUMNS / 4) as usize);
+        let (columns, records) = rest.split_at_mut(((TRACK_RECORDS - TRACK_COLUMNS) / 4) as usize);
+        debug_assert_eq!(columns.len(), TRACK_COLUMN_WORDS as usize);
+        let mut out = TrackOut {
+            arena,
+            writer: RecordWriter::new(as_bytes(records), h),
+            columns,
+            best: 0.0,
+            column_clip: 0,
+            column_words: 0,
+        };
+        program.tracks(&inputs, &mut inst.state, &mut out);
+        let header = out.writer.header(out.column_words);
+        let column_clip = out.column_clip;
+        let _ = header.encode_into(&mut as_bytes(head)[TRACK_HEADER as usize..]);
+        head[(TRACK_COLUMN_CLIP / 4) as usize] = column_clip;
 
         let root = &mut frame.roots[index * ROOT_FLOATS..(index + 1) * ROOT_FLOATS];
         if !frozen || cull == CULL_ROOT_MOTION_ONLY {
