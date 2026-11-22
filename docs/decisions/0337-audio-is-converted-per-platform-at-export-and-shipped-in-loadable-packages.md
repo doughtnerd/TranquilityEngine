@@ -1,6 +1,6 @@
 # 0337. Audio is converted per platform at export, from inherited encoding settings, and ships in loadable packages
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by [0345](0345-audio-encoding-follows-the-a0-spike.md) (encoder build, resampling, Opus decode, ADPCM decode and notices from the A0 spike)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
