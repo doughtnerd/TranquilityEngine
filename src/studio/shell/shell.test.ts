@@ -13,14 +13,14 @@ import { canClosePanel } from "../../editor/layout/catalog";
 import { closePanel, instancesOf, openTypes } from "../../editor/layout/model";
 
 describe("screens", () => {
-  it("are seven in four groups, Ctrl/⌘+1…7 in header order (Packages, ADR 0337 §6, ships)", () => {
+  it("are eight in four groups; Dialogue (ADR 0340 §9) authors on Ctrl/⌘+8, the next free digit after Packages", () => {
     expect(screenGroups().map((g) => [g.title, g.screens.map((s) => s.title)])).toEqual([
-      ["Author", ["Samples", "Playlists"]],
+      ["Author", ["Samples", "Playlists", "Dialogue"]],
       ["Mix", ["Mixer", "Spatial"]],
       ["Run", ["Take", "Profiler"]],
       ["Ship", ["Packages"]],
     ]);
-    expect(SCREENS.map((s) => s.digit)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(SCREENS.map((s) => [s.id, s.digit])).toEqual([["samples", 1], ["playlists", 2], ["dialogue", 8], ["mixer", 3], ["spatial", 4], ["take", 5], ["profiler", 6], ["packages", 7]]);
   });
 });
 
