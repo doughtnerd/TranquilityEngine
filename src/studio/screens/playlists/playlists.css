@@ -58,6 +58,7 @@
 .pl-lib-folder { color: var(--faint); font-size: calc(11px * var(--ui-scale)); text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 8px 2px; }
 .pl-lib-row { display: flex; align-items: center; gap: 6px; padding: 2px 8px; cursor: grab; }
 .pl-lib-row:hover { background: var(--hover); }
+.pl-lib-row.selected { background: var(--selection); color: var(--selection-text); }
 .pl-lib-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-play { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 50%; width: 20px; height: 20px; padding: 0; font-size: calc(9px * var(--ui-scale)); }
 .pl-play.on, .pl-play:hover { color: var(--accent); border-color: var(--accent); }

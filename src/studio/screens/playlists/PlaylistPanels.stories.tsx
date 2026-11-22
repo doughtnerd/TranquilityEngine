@@ -63,7 +63,7 @@ export const ChooseSample: Story = {
 export const Library: Story = {
   render: () => (
     <div style={{ width: "280px", height: "420px" }}>
-      <LibraryList files={FIXTURE_FILES} addTo="dirt" previewing="audio/footsteps/dirt_02.wav" onPreview={fn()} onAdd={fn()} onOpenSamples={fn()} />
+      <LibraryList files={FIXTURE_FILES} addTo="dirt" previewing="audio/footsteps/dirt_02.wav" onPreview={fn()} onAdd={fn()} onOpenSamples={fn()} onCreatePlaylist={fn()} writable />
     </div>
   ),
 };
