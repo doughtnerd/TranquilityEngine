@@ -20,3 +20,15 @@ effect overrides) are preserved on write, not dropped. Why: keep `main` usable a
 
 **D3. Contracts first.** The new formats' TypeScript shapes were committed before wave 1
 (`src/engine/audio/{playlist,sample,project,effects,attenuation}/types.ts`) so tasks could run in parallel.
+
+**D4. Migration of audio events (W1-T6, merged).** Lossy mappings, each noted per file at migration time: volume
+linear→dB (silence −96 dB), pitch rate→semitones; sustain nodes → a Sequence with a held loop (weakest mapping: a
+non-clip loop section re-enters each pass); blend children at range midpoints; rolloff laws sampled into volume curve
+keys (beyond max now holds); event filters → playlist low/high-pass effects (exact); `sends.reverb` → the reverbSend
+attenuation curve, aux sends dropped (buses send instead); segment stems → sync audio tracks, alternatives → a Queue on
+a playlist track; finite region counts, tail beats and quantised automation are noted as lost. Callers must pass sample
+lengths (`sampleSeconds`) or whole-segment loops are dropped. Revert: n/a (one-way migration; old files kept in
+`.myco/migrated/`).
+
+**D5. Playlist contract additions.** Sequence markers carry `type` (note/cue/exit); clip and sequence `length: 0` mean
+"to the end"; a negative continuous-queue gap overlaps with an equal-power crossfade. Revert: remove the fields.
