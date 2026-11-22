@@ -45,7 +45,7 @@ export function ancestorsOf(p: Pick<AudioProject, "buses">, name: string): strin
 /** The buses directly under `name`, in list order. */
 export const childrenOf = (p: Pick<AudioProject, "buses">, name: string): Bus[] => p.buses.filter((b) => b.parent === name);
 
-/** Every bus below `name` (children first, then theirs), not `name` itself. */
+/** Every bus below `name`, depth first in list order, not `name` itself. */
 export function descendantsOf(p: Pick<AudioProject, "buses">, name: string): string[] {
   const out: string[] = [];
   const walk = (n: string) => {
@@ -224,7 +224,7 @@ export interface DeletePlan {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** What deleting `name` would do; null when it can't be deleted (Master, or nothing by that name). */
+/** What deleting `name` would do; refused for Master and for a name that isn't in the mix. */
 export function planDelete(p: AudioProject, name: string): EditResult<DeletePlan> {
   const kind = kindOf(p, name);
   if (!kind) return { refused: `there's nothing named "${name}"` };
@@ -276,7 +276,7 @@ export function deleteItem(p: AudioProject, name: string): EditResult<AudioProje
   if ("refused" in planned) return planned;
   const { kind, newParent } = planned.next;
   const unkey = <T extends { effects: Bus["effects"] }>(o: T): T =>
-    o.effects.some((e) => e.key === name) ? { ...o, effects: o.effects.map((e) => (e.key === name ? (({ key: _k, ...rest }) => rest)(e) : e)) } : o;
+    o.effects.some((e) => e.key === name) ? { ...o, effects: o.effects.map((e) => (e.key === name ? { ...e, key: "" } : e)) } : o;
   let buses = p.buses;
   let returns = p.returns;
   let vcas: Vca[] = p.vcas;
