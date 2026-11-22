@@ -58,3 +58,7 @@ Decisions made during the build that the records didn't settle. Each entry: the 
 - **D54 (T31).** *Travel* uses breadth-first next-hop tables, ties to the higher priority; a hop's condition is ignored but its `when` and interrupt rules apply (Godot). Unreachable targets are refused.
 - **D55 (T31).** *Names across tables* match by FNV-1a hash. The random seed defaults to 0x9E3779B9; `SET_SEED` reseeds.
 - **D56 (T31).** *Linked graphs* declare capacities in the node so the state blob stays fixed-size and snapshots exact. The blackboard has 64 parameters per row with dirty masks, applied before commands.
+- **D57 (T42).** *One-shot clip frames whose future runs past the end are excluded from the database;* looping clips wrap with the loop's root displacement.
+- **D58 (T42).** *Per-dimension normalisation by default* (std floor 0.01; Holden's per-feature mode available); weights are folded into the runtime copy as √weight, not stored in the file.
+- **D59 (T42).** *A forced search fires on the trajectory cost against the continuation frame;* a filtered-out or finished continuation switches at once, ignoring the minimum switch time.
+- **D60 (T42).** *Character space:* yaw 0 faces +Z; +X is "right" in Babylon's left-handed frame. Defaults: search every 6 updates, bias 0.1, minimum switch 0.2 s, skip ±6 frames.
