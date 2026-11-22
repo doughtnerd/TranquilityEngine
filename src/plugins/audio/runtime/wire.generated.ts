@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "437412c9bad8b878ade83c2f04be5c5c";
+export const SCHEMA_HASH = "46b5792c1d3cb35e64177494156f4594";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
@@ -1845,27 +1845,43 @@ export function readMaster(view: DataView, off: number): Master {
 export interface CurvesCurvesKeys {
   x: number;
   y: number;
-  /** shape to the next key: 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut */
+  /** shape to the next key: 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut, 5 bezier */
   interp: number;
+  /** bezier: the in handle's offset from the key (x); 0 otherwise */
+  inDx: number;
+  /** bezier: the in handle's offset from the key (y); 0 otherwise */
+  inDy: number;
+  /** bezier: the out handle's offset from the key (x); 0 otherwise */
+  outDx: number;
+  /** bezier: the out handle's offset from the key (y); 0 otherwise */
+  outDy: number;
 }
 
-export const CURVES_CURVES_KEYS_FIXED_END = 12;
+export const CURVES_CURVES_KEYS_FIXED_END = 28;
 
 export function writeCurvesCurvesKeys(view: DataView, off: number, rec: CurvesCurvesKeys): number {
   view.setFloat32(off + 0, rec.x, true);
   view.setFloat32(off + 4, rec.y, true);
   view.setUint32(off + 8, rec.interp, true);
-  let cur = off + 12;
+  view.setFloat32(off + 12, rec.inDx, true);
+  view.setFloat32(off + 16, rec.inDy, true);
+  view.setFloat32(off + 20, rec.outDx, true);
+  view.setFloat32(off + 24, rec.outDy, true);
+  let cur = off + 28;
   return cur - off;
 }
 
 function _readCurvesCurvesKeys(view: DataView, off: number, limit: number): [CurvesCurvesKeys, number] {
-  if (off + 12 > limit) throw new WireError(ErrorCode.TRUNCATED, "CurvesCurvesKeys: truncated");
+  if (off + 28 > limit) throw new WireError(ErrorCode.TRUNCATED, "CurvesCurvesKeys: truncated");
   const x = view.getFloat32(off + 0, true);
   const y = view.getFloat32(off + 4, true);
   const interp = view.getUint32(off + 8, true);
-  let cur = off + 12;
-  return [{ x, y, interp }, cur - off];
+  const inDx = view.getFloat32(off + 12, true);
+  const inDy = view.getFloat32(off + 16, true);
+  const outDx = view.getFloat32(off + 20, true);
+  const outDy = view.getFloat32(off + 24, true);
+  let cur = off + 28;
+  return [{ x, y, interp, inDx, inDy, outDx, outDy }, cur - off];
 }
 
 export function readCurvesCurvesKeys(view: DataView, off: number): CurvesCurvesKeys {
@@ -1893,7 +1909,7 @@ function _readCurvesCurves(view: DataView, off: number, limit: number): [CurvesC
   const keyCount = view.getUint16(off + 0, true);
   const reserved = view.getUint16(off + 2, true);
   let cur = off + 4;
-  if (keyCount * 12 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "CurvesCurves: keys overrun");
+  if (keyCount * 28 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "CurvesCurves: keys overrun");
   const keys: CurvesCurvesKeys[] = [];
   for (let i = 0; i < keyCount; i++) {
     const [item, used] = _readCurvesCurvesKeys(view, cur, limit);
@@ -1908,7 +1924,7 @@ export function readCurvesCurves(view: DataView, off: number): CurvesCurves {
   return _readCurvesCurves(view, off, limit)[0];
 }
 
-/** define or overwrite curves firstCurve.. (ADR 0158 §3); 1024 curves of at most 32 keys */
+/** define or overwrite curves firstCurve.. (ADR 0158 §3, 0332); 1024 curves of at most 64 keys */
 export interface Curves {
   voiceId: number;
   frameOffset: number;

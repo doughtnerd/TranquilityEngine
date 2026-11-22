@@ -51,6 +51,8 @@ const SCENES = [
   // sustain loops released and replaced.
   "automation",
   "automation-base",
+  // ADR 0332: `automation` with Bézier curves.
+  "automation-bezier",
   "automation-virtual",
   "bus-automation",
   "sustain",

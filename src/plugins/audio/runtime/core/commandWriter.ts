@@ -105,8 +105,9 @@ import {
   type SetVoiceFx,
   type ZoneConfig,
   type ZoneConfigSlots,
+  type CurvesCurvesKeys,
 } from "../wire.generated";
-import { CURVE_INTERPS, type Curve } from "../../../../engine/core/curve";
+import { curveKeyHandles, curveKeyInterpCode, type Curve, type CurveKey } from "../../../../engine/core/curve";
 import type { BufferPool } from "./bufferPool";
 import type { VoiceCommandSink } from "./voiceTable";
 
@@ -176,7 +177,18 @@ export type AutomationBinding = AutomateBindings;
 export const AUTOMATION_GLOBAL = 0x8000;
 /** The core keeps at most this many bindings per voice and per bus, curves of at most `CORE_CURVE_KEYS` keys. */
 const CORE_BINDINGS = 8;
-export const CORE_CURVE_KEYS = 32;
+/** The core's curve table keeps this many keys (`automation.rs` `CURVE_KEYS`; ADR 0332's limit, `MAX_CURVE_KEYS`). */
+export const CORE_CURVE_KEYS = 64;
+/** Bytes of one CURVES key: x, y, interp, then the Bézier handles (ADR 0332). */
+const CURVE_KEY_BYTES = 28;
+/** Bytes one curve takes in a CURVES record: its key count word and its keys (at most `CORE_CURVE_KEYS`). */
+export const coreCurveBytes = (c: Curve): number => 4 + CURVE_KEY_BYTES * Math.min(c.length, CORE_CURVE_KEYS);
+
+/** One key as a CURVES record carries it: its interp code and, for a Bézier key, its handles (0 otherwise). */
+export function wireCurveKey(key: CurveKey): CurvesCurvesKeys {
+  const h = curveKeyHandles(key);
+  return { x: key[0], y: key[1], interp: curveKeyInterpCode(key), inDx: h ? h.in[0] : 0, inDy: h ? h.in[1] : 0, outDx: h ? h.out[0] : 0, outDy: h ? h.out[1] : 0 };
+}
 /** Most bytes of curves in one CURVES record: larger uploads are split into several records (each fits a batch). */
 const CURVES_RECORD_BUDGET = 32 * 1024;
 
@@ -657,7 +669,7 @@ export class CommandWriter implements VoiceCommandSink {
   /**
    * CURVES (ADR 0158 §3): defines curve ids `first`, `first + 1`, … from `curves` (the engine's `Curve`, keys sorted by
    * x; past `CORE_CURVE_KEYS` keys are not sent). A large upload goes as several records of at most 32 KB. Asap. Upload
-   * per event asset: like any record, what doesn't fit the staging area (256 KB, about 660 full curves) is dropped.
+   * per event asset: like any record, what doesn't fit the staging area (256 KB, about 145 full 64-key curves) is dropped.
    */
   curves(first: number, curves: readonly Curve[]): void {
     let i = 0;
@@ -666,7 +678,7 @@ export class CommandWriter implements VoiceCommandSink {
       let end = i;
       let bytes = 20;
       while (end < curves.length) {
-        const size = 4 + 12 * Math.min(curves[end]!.length, CORE_CURVE_KEYS);
+        const size = coreCurveBytes(curves[end]!);
         if (end > i && bytes + size > CURVES_RECORD_BUDGET) break;
         bytes += size;
         end++;
@@ -689,11 +701,15 @@ export class CommandWriter implements VoiceCommandSink {
         off += 4;
         for (let k = 0; k < n; k++) {
           const key = keys[k]!;
+          const h = curveKeyHandles(key);
           v.setFloat32(off, key[0], true);
           v.setFloat32(off + 4, key[1], true);
-          const interp = key.length > 2 ? CURVE_INTERPS.indexOf(key[2]!) : 0;
-          v.setUint32(off + 8, interp < 0 ? 0 : interp, true);
-          off += 12;
+          v.setUint32(off + 8, curveKeyInterpCode(key), true);
+          v.setFloat32(off + 12, h ? h.in[0] : 0, true);
+          v.setFloat32(off + 16, h ? h.in[1] : 0, true);
+          v.setFloat32(off + 20, h ? h.out[0] : 0, true);
+          v.setFloat32(off + 24, h ? h.out[1] : 0, true);
+          off += CURVE_KEY_BYTES;
         }
       }
       this.end(at, bytes);

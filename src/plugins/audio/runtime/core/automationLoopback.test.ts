@@ -193,11 +193,12 @@ describe("a hard rebuild mid-automation (E3.1, loopback)", () => {
     const looping = backend.play({ path: "ramp.wav", url: "", loop: true, stream: false, bus: "SFX", group: 8 })!;
     a.bindVoice(looping, 8, [vol(3, 1000, true)], { volume: 1, pitch: 1 });
     a.setLoop(looping, 0.5, 0.6, true);
+    // A full table of 64-key curves (ADR 0332) is ≈ 1.8 MB: about 40 frames of resync at 48 KB a frame.
     await vi.waitFor(async () => {
       await step(1);
       expect(a.counts.pending).toBe(0);
       expect(out.some((s) => s !== 0)).toBe(true);
-    });
+    }, { timeout: 15_000, interval: 1 });
     await step(10);
     // Nothing was dropped: no posted batch carries the overflow flag (the curves past the staging area were carried).
     expect(posted.take().some((b) => (b.flags & BATCH_FLAGS_OVERFLOWED) !== 0)).toBe(false);

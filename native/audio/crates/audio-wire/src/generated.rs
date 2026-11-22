@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: 437412c9bad8b878ade83c2f04be5c5c).
+/// First 16 bytes of the schema's SHA-256 (hex: 46b5792c1d3cb35e64177494156f4594).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0x43,
-    0x74,
-    0x12,
-    0xc9,
-    0xba,
-    0xd8,
-    0xb8,
-    0x78,
-    0xad,
-    0xe8,
+    0x46,
+    0xb5,
+    0x79,
+    0x2c,
+    0x1d,
     0x3c,
-    0x2f,
-    0x04,
-    0xbe,
-    0x5c,
-    0x5c,
+    0xb3,
+    0x5e,
+    0x64,
+    0x17,
+    0x74,
+    0x94,
+    0x15,
+    0x6f,
+    0x45,
+    0x94,
 ];
-pub const SCHEMA_HASH_HEX: &str = "437412c9bad8b878ade83c2f04be5c5c";
+pub const SCHEMA_HASH_HEX: &str = "46b5792c1d3cb35e64177494156f4594";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -2389,12 +2389,20 @@ impl Master {
 pub struct CurvesCurvesKeys {
     pub x: f32,
     pub y: f32,
-    /// shape to the next key: 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut
+    /// shape to the next key: 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut, 5 bezier
     pub interp: u32,
+    /// bezier: the in handle's offset from the key (x); 0 otherwise
+    pub in_dx: f32,
+    /// bezier: the in handle's offset from the key (y); 0 otherwise
+    pub in_dy: f32,
+    /// bezier: the out handle's offset from the key (x); 0 otherwise
+    pub out_dx: f32,
+    /// bezier: the out handle's offset from the key (y); 0 otherwise
+    pub out_dy: f32,
 }
 
 impl CurvesCurvesKeys {
-    pub const FIXED_END: usize = 12;
+    pub const FIXED_END: usize = 28;
     pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
         if base + Self::FIXED_END > out.len() {
             return Err(ERR_OVERSIZE);
@@ -2402,6 +2410,10 @@ impl CurvesCurvesKeys {
         put_f32(out, base + 0, self.x);
         put_f32(out, base + 4, self.y);
         put_u32(out, base + 8, self.interp);
+        put_f32(out, base + 12, self.in_dx);
+        put_f32(out, base + 16, self.in_dy);
+        put_f32(out, base + 20, self.out_dx);
+        put_f32(out, base + 24, self.out_dy);
         let mut cur = base + Self::FIXED_END;
         Ok(cur - base)
     }
@@ -2416,11 +2428,19 @@ impl CurvesCurvesKeys {
         let x = get_f32(buf, base + 0);
         let y = get_f32(buf, base + 4);
         let interp = get_u32(buf, base + 8);
+        let in_dx = get_f32(buf, base + 12);
+        let in_dy = get_f32(buf, base + 16);
+        let out_dx = get_f32(buf, base + 20);
+        let out_dy = get_f32(buf, base + 24);
         let mut cur = base + Self::FIXED_END;
         Ok((Self {
             x,
             y,
             interp,
+            in_dx,
+            in_dy,
+            out_dx,
+            out_dy,
         }, cur - base))
     }
 }
@@ -2457,7 +2477,7 @@ impl CurvesCurves {
         let reserved = get_u16(buf, base + 2);
         let mut cur = base + Self::FIXED_END;
         let count = key_count as usize;
-        if count.checked_mul(12).map_or(true, |n| n > limit - cur) {
+        if count.checked_mul(28).map_or(true, |n| n > limit - cur) {
             return Err(ERR_TRUNCATED);
         }
         let mut keys = Vec::with_capacity(count);
@@ -2473,7 +2493,7 @@ impl CurvesCurves {
     }
 }
 
-/// define or overwrite curves firstCurve.. (ADR 0158 §3); 1024 curves of at most 32 keys
+/// define or overwrite curves firstCurve.. (ADR 0158 §3, 0332); 1024 curves of at most 64 keys
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Curves {
     pub voice_id: u32,

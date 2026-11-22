@@ -290,7 +290,8 @@ mod tests {
         let streams = layout.region(RegionKind::Streams).len;
         assert_eq!(streams, 8 * crate::stream::RING_BYTES, "8 rings at the default preset (architecture §5.3)");
         let automation = layout.region(RegionKind::Automation).len;
-        assert!(automation < 2 << 20, "the automation region (ADR 0158 E2): {automation}");
+        // ≈ 2.4 MB since ADR 0332 (64-key curves with Bézier control points: the curve table is ≈ 1.6 MB of it).
+        assert!(automation < 3 << 20, "the automation region (ADR 0158 E2, 0332): {automation}");
         let fixed = fixed - streams - automation;
         assert!(fixed < 2 << 20, "fixed regions stay under 2 MB before reverb, HRTF, streams and automation: {fixed}");
         eprintln!("default preset: automation {automation} B, total {} B", layout.total());

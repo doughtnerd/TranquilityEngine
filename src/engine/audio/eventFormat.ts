@@ -21,7 +21,7 @@
  * `audio` section, so the runtime checks those when it plays the event.
  */
 
-import { parseCurve, type Curve } from "../core/curve";
+import type { Curve } from "../core/curve";
 import {
   finishMusicContainer, isMusicContainer, isMusicNodeType, MUSIC_ID_PATTERN, MUSIC_NODE_TYPES, musicChildrenList, musicClips,
   musicNodeToJson, parseMusicContainerHead, parseMusicLibrary, parseSegmentNode, type MusicNode, type MusicParseContext,
@@ -65,19 +65,8 @@ export const parameterDefault = (p: ParameterDef): number => (isLabelled(p) ? Ma
 export const MAX_PARAMETERS = 64;
 /** At most this many local parameters per event (the core's slots per instance). */
 export const MAX_LOCAL_PARAMETERS = 16;
-/** At most this many keys per automation curve (the core's curve table). */
-export const MAX_CURVE_KEYS = 32;
-
-/** An automation curve: `parseCurve`, capped at `MAX_CURVE_KEYS` keys. `null` when it has no keys. */
-export function audioCurve(raw: unknown, where: string, problems: string[]): Curve | null {
-  const curve = parseCurve(raw, where, problems);
-  if (!curve || curve.length === 0) return null;
-  if (curve.length > MAX_CURVE_KEYS) {
-    problems.push(`${where}: at most ${MAX_CURVE_KEYS} keys; the rest are dropped.`);
-    curve.length = MAX_CURVE_KEYS;
-  }
-  return curve;
-}
+import { audioCurve } from "./audioCurveLimit";
+export { audioCurve, MAX_CURVE_KEYS } from "./audioCurveLimit";
 
 // --- automation -----------------------------------------------------------------------------------------------------
 

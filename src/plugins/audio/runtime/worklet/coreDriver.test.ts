@@ -120,7 +120,7 @@ describe("coreDriver with the real wasm", () => {
     expect(r.blocks).toHaveLength(1);
     const first = r.blocks[0]!;
     expect(first.flags & STATUS_FLAGS_READY).toBeTruthy();
-    expect(first.abiVersion).toBe(0x400);
+    expect(first.abiVersion).toBe(0x401); // 4.1 (ADR 0332)
     expect(first.currentFrame).toBe(6 * 128);
     await expect(r.link.ready).resolves.toBeUndefined();
     r.run(6);

@@ -4,7 +4,7 @@ import { parseAudioSettings, type AudioSettings } from "../../../engine/audio/se
 import type { SettingsDraft } from "../../../editor/sdk";
 import { withSettings } from "../../../editor/projectSettingsModel";
 import { readDraft } from "../../../editor/testing";
-import { addBus, addEffect, addSnapshot, applyVoicesPreset, VOICE_PRESETS, busTree, removeBus, renameBus, setBusMaxVoices, setBusParent, setBusValue, addBusAutomation, removeBusAutomation, setBusAutomationBus, setBusAutomationCurve, setBusAutomationParameter, setBusAutomationTarget, setSnapshotVolume, voicesPreset, addMaterial, bedPlan, materialIsModified, physicsLayerNames, removeMaterial, renameMaterial, resetMaterial, setBusBed, setBusBedPriority, setMaterial, toggleOcclusionLayer, zoneMemory, zoneWarnings, type BedPlan, addDucking, globalParameterList } from "./audioSettingsModel";
+import { addBus, addEffect, addSnapshot, applyVoicesPreset, VOICE_PRESETS, busTree, removeBus, renameBus, setBusMaxVoices, setBusParent, setBusValue, addBusAutomation, removeBusAutomation, setBusAutomationBus, setBusAutomationCurve, setBusAutomationParameter, setBusAutomationTarget, setSnapshotVolume, voicesPreset, addMaterial, bedPlan, materialIsModified, physicsLayerNames, removeMaterial, renameMaterial, resetMaterial, setBusBed, setBusBedPriority, setMaterial, toggleOcclusionLayer, zoneMemory, zoneWarnings, type BedPlan, addDucking, globalParameterList, MAX_CURVE_KEYS } from "./audioSettingsModel";
 import { audioSettings } from "./audioDraft";
 import { refusalOf, type EditResult } from "./editResult";
 
@@ -285,12 +285,12 @@ describe("global parameters and bus automation (ADR 0158 §2, §3; L6.5a)", () =
     expect(refusalOf(setBusAutomationCurve(d, 4, [[0, 1]]))).toBe("No automation 5.");
     d = nextOf(setBusAutomationCurve(d, 0, [[0, 0.2], [0.5, 1, "smooth"], [1, 0]]));
     expect(audioSettings.read(d).automation[0].curve).toEqual([[0, 0.2], [0.5, 1, "smooth"], [1, 0]]);
-    const many = Array.from({ length: 40 }, (_, i) => [i / 39, i % 2] as const);
+    const many = Array.from({ length: MAX_CURVE_KEYS + 6 }, (_, i) => [i / (MAX_CURVE_KEYS + 5), i % 2] as const);
     d = nextOf(setBusAutomationCurve(d, 0, many));
-    expect(audioSettings.read(d).automation[0].curve).toHaveLength(32);
+    expect(audioSettings.read(d).automation[0].curve).toHaveLength(MAX_CURVE_KEYS);
     const parsed = parseAudioSettings(JSON.parse(withSettings("{}", d, {})).audio);
     expect(parsed.problems).toEqual([]);
-    expect(parsed.settings.automation[0].curve).toHaveLength(32);
+    expect(parsed.settings.automation[0].curve).toHaveLength(MAX_CURVE_KEYS);
   });
 });
 

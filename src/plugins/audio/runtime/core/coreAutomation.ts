@@ -12,7 +12,7 @@
 // - **The mirror.** Everything sent is kept (curves, parameter targets, voice bindings and loops, bus bindings), so a
 //   hard rebuild's REPLAY restores it (`replayHeader` after MASTER: curves, parameters, bus bindings; `replayVoice`
 //   after each voice's replayed PLAY: its bindings and loop), and the idle `RESET 0` (which clears the core's tables)
-//   is followed by a re-send. The writer's staging area is 256 KB (about 660 full curves) while the core takes 1,024
+//   is followed by a re-send. The writer's staging area is 256 KB (about 145 full 64-key curves) while the core takes 1,024
 //   curves, so bulk uploads are spread over frames: at most `RESYNC_BYTES_PER_FRAME` of curves, parameters and bus
 //   bindings a frame; whatever a binding needs (its curves and parameters) goes out at once, ahead of its AUTOMATE.
 //   REPLAY has no staging limit (the builder grows and chunks at the inbox size), so the replay sends it all at once,
@@ -42,7 +42,7 @@
 // The edge E3.1 left (a stamped PLAY held back by an empty buffer pool, its stamp then behind *F*_now: a later
 // SET_LOOP/AUTOMATE went asap and sorted ahead of it) is fixed: while no batch has gone out since the PLAY was written
 // (`deps.writerBatches`), records keep the PLAY's stamp.
-import { CURVE_INTERPS, type Curve } from "../../../../engine/core/curve";
+import type { Curve } from "../../../../engine/core/curve";
 import {
   ASAP,
   AUTOMATE_BINDINGS_FIXED_END,
@@ -60,7 +60,7 @@ import { AutoTarget, evaluateInto, MAX_BINDINGS, MAX_CURVES, MAX_GLOBAL_SLOTS, M
 import { onLoopPoints } from "../loopPoints";
 import type { ClipInfo } from "./clipRegistry";
 import type { ClockMap } from "./clock";
-import { AUTOMATION_GLOBAL, CORE_CURVE_KEYS, type AutomationBinding, type CommandWriter } from "./commandWriter";
+import { AUTOMATION_GLOBAL, CORE_CURVE_KEYS, coreCurveBytes, wireCurveKey, type AutomationBinding, type CommandWriter } from "./commandWriter";
 import type { PlayheadTracker, ReplayBuilder } from "./replay";
 import type { SendGate } from "./session";
 import { VoiceFlag, VoiceState, type VoiceTable } from "./voiceTable";
@@ -73,7 +73,7 @@ const CURVES_RECORD_BYTES = 32 * 1024;
 /** Every parameter slot, laid out as the core's table: the globals, then each group's locals. */
 const PARAM_SLOTS = MAX_GLOBAL_SLOTS + MAX_GROUPS * MAX_LOCAL_SLOTS;
 const PARAM_BYTES = 24;
-const curveBytes = (c: Curve): number => 4 + 12 * Math.min(c.length, CORE_CURVE_KEYS);
+const curveBytes = coreCurveBytes;
 const bindingBytes = (n: number): number => 16 + AUTOMATE_BINDINGS_FIXED_END * n;
 
 /** A loop region in seconds (`end` 0 = the clip's end); `looping` false is a release. */
@@ -943,10 +943,6 @@ function toWire(b: Binding): AutomateBindings {
 function wireCurve(c: Curve): CurvesCurves {
   const n = Math.min(c.length, CORE_CURVE_KEYS);
   const keys = new Array(n);
-  for (let k = 0; k < n; k++) {
-    const key = c[k]!;
-    const interp = key.length > 2 ? CURVE_INTERPS.indexOf(key[2]!) : 0;
-    keys[k] = { x: key[0], y: key[1], interp: interp < 0 ? 0 : interp };
-  }
+  for (let k = 0; k < n; k++) keys[k] = wireCurveKey(c[k]!);
   return { reserved: 0, keys };
 }

@@ -3,12 +3,12 @@
  * lists stay sorted by `x` within an x range, a key's `interp` is kept through every edit, and pixel mapping is
  * linear over `[xMin, xMax]`. No DOM here, so they're tested headless.
  */
-import type { Curve, CurveInterp, CurveKey } from "../../engine/core/curve";
+import type { Curve, CurveHandles, CurveInterp, CurveKey } from "../../engine/core/curve";
 
 /** A `[x, y]` pair, as colour and alpha keys of a gradient use. */
 export type Key<T> = [number, T];
-/** Any key list entry: a curve key (`[x, y]` or `[x, y, interp]`), or a `[x, value]` pair with a non-numeric value. */
-export type AnyKey = readonly [number, unknown, CurveInterp?];
+/** Any key list entry: a curve key (`[x, y]`, `[x, y, interp]` or a Bézier key), or a `[x, value]` pair with a non-numeric value. */
+export type AnyKey = readonly [number, unknown, (CurveInterp | "bezier")?, CurveHandles?];
 
 /** The default x range: a particle curve's `t`. */
 const UNIT_RANGE: [number, number] = [0, 1];
@@ -48,7 +48,7 @@ export function moveKey<K extends AnyKey>(keys: readonly K[], index: number, x: 
   return keys.map((k, i) => {
     if (i !== index) return copyKey(k);
     const moved: unknown[] = [at, y];
-    if (k.length > 2) moved.push(k[2]);
+    moved.push(...k.slice(2)); // interp, and a Bézier key's handles
     return moved as unknown as K;
   });
 }

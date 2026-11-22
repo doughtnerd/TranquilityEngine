@@ -145,9 +145,12 @@ const master = (volume: number, muted: boolean, rampFrames: number): Writer => (
   writeMaster(view, off, { voiceId: 0, frameOffset: ASAP, volume, muted: muted ? 1 : 0, rampFrames });
 
 // ADR 0158 E2: automation records.
-/** CURVES from `first`: each curve `[x, y, interp]` keys (interp 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut). */
-const curves = (first: number, list: [number, number, number][][]): Writer => (view, off) =>
-  writeCurves(view, off, { voiceId: 0, frameOffset: ASAP, firstCurve: first, curves: list.map((keys) => ({ reserved: 0, keys: keys.map(([x, y, interp]) => ({ x, y, interp })) })) });
+/**
+ * CURVES from `first`: each curve `[x, y, interp]` keys (interp 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut), or
+ * `[x, y, 5, inDx, inDy, outDx, outDy]` for a Bézier key (ADR 0332).
+ */
+const curves = (first: number, list: ([number, number, number] | [number, number, number, number, number, number, number])[][]): Writer => (view, off) =>
+  writeCurves(view, off, { voiceId: 0, frameOffset: ASAP, firstCurve: first, curves: list.map((keys) => ({ reserved: 0, keys: keys.map(([x, y, interp, inDx = 0, inDy = 0, outDx = 0, outDy = 0]) => ({ x, y, interp, inDx, inDy, outDx, outDy })) })) });
 /** PARAM: `group` 0 global, else an instance group. */
 const param = (group: number, slot: number, value: number, seekPerSecond: number): Writer => (view, off) =>
   writeParam(view, off, { voiceId: 0, frameOffset: ASAP, group, slot, value, seekPerSecond });
@@ -479,6 +482,23 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
     s.run(90);
     s.send(param(0, 0, 0.3, 0), param(7, 2, 0.2, 0));
     s.run(20);
+  },
+  // ADR 0332: Bézier keys. A volume curve of two Bézier segments (an overshooting rise into a key whose in handle
+  // shapes it, then a fall into a plain key, so its flat third-long handle) and a pitch curve of one Bézier segment,
+  // swept by a seeking global parameter.
+  "automation-bezier"(s) {
+    s.send(
+      curves(0, [
+        [[0, 0.1, 5, 0, 0, 0.3, 0.9], [0.6, 0.8, 5, -0.2, 0.3, 0.1, -0.2], [1, 0.3, 0]],
+        [[0, 0.8, 5, 0, 0, 0.5, 0], [1, 1.25, 5, -0.5, 0, 0, 0]],
+      ]),
+      param(0, 1, 0, 0),
+      play(voice(1), CLIP, { flags: MIXED | LOOP }),
+      automate(voice(1), [[GLOBAL | 1, 0, 0], [GLOBAL | 1, 1, 1]]),
+    );
+    s.run(10);
+    s.send(param(0, 1, 1, 1.5));
+    s.run(90);
   },
   // ADR 0158 E2: bus volume automation on a global parameter (a step then a linear segment), seeking, over BUS_RAMP (the runtime lane).
   "automation-bus"(s) {

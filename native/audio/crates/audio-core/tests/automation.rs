@@ -44,8 +44,22 @@ fn curves(first: u32, list: &[&[(f32, f32, u32)]]) -> Rec {
         first_curve: first,
         curves: list
             .iter()
-            .map(|keys| wire::CurvesCurves { reserved: 0, keys: keys.iter().map(|&(x, y, interp)| wire::CurvesCurvesKeys { x, y, interp }).collect() })
+            .map(|keys| wire::CurvesCurves { reserved: 0, keys: keys.iter().map(|&(x, y, interp)| wire::CurvesCurvesKeys { x, y, interp, in_dx: 0.0, in_dy: 0.0, out_dx: 0.0, out_dy: 0.0 }).collect() })
             .collect(),
+    };
+    raw(move |b| c.write(b, 0))
+}
+
+/// CURVES of one curve at `first` from `(x, y, interp, [inDx, inDy, outDx, outDy])` keys (ADR 0332).
+fn bezier_curve(first: u32, keys: &[(f32, f32, u32, [f32; 4])]) -> Rec {
+    let c = wire::Curves {
+        voice_id: 0,
+        frame_offset: wire::ASAP,
+        first_curve: first,
+        curves: vec![wire::CurvesCurves {
+            reserved: 0,
+            keys: keys.iter().map(|&(x, y, interp, h)| wire::CurvesCurvesKeys { x, y, interp, in_dx: h[0], in_dy: h[1], out_dx: h[2], out_dy: h[3] }).collect(),
+        }],
     };
     raw(move |b| c.write(b, 0))
 }
@@ -321,15 +335,40 @@ fn malformed_records_refuse_the_batch() {
 #[test]
 fn extra_bindings_and_keys_are_ignored() {
     let mut m = mixer();
-    let keys: Vec<(f32, f32, u32)> = (0..40).map(|i| (i as f32, 1.0, 0)).collect();
-    m.submit(&[curves(1023, &[&keys, IDENTITY]), dc(V1, 0, 0.0)]);
+    // 70 keys: the first 64 (ADR 0332's limit) are 1, the rest 0; at x = 69 the kept curve holds key 63's 1.
+    let keys: Vec<(f32, f32, u32)> = (0..70).map(|i| (i as f32, if i < automation::CURVE_KEYS { 1.0 } else { 0.0 }, 0)).collect();
+    m.submit(&[curves(1023, &[&keys, IDENTITY]), param(0, 0, 69.0, 0.0), dc(V1, 0, 0.0)]);
     let many: Vec<(u16, u16, u32)> = (0..10).map(|_| (G, 1023, 0)).collect();
     m.submit(&[automate(V1, &many)]);
     assert_eq!(automation::voice_entry(&mut m.core, 1).unwrap().count, 8);
     let (l, _) = m.render();
-    check(&l, TOL, "the 32-key curve is 1 everywhere", |_| 1.0);
+    check(&l, TOL, "the 64-key curve is 1 everywhere", |_| 1.0);
     let s = voices::slots(&m.core)[1];
     assert_eq!(s.state, state::PLAYING);
+}
+
+#[test]
+fn a_bezier_volume_curve_shapes_the_gain() {
+    // ADR 0332: a Bézier key with a flat third-long out handle before a plain key is smoothstep's cubic; a second
+    // Bézier segment with handles on the line is linear. Parameter values off the keys.
+    let mut m = mixer();
+    let third = 1.0 / 3.0;
+    m.submit(&[
+        bezier_curve(0, &[(0.0, 0.0, 5, [0.0, 0.0, third, 0.0]), (1.0, 1.0, 5, [-0.25, -0.25, 0.25, -0.25]), (2.0, 0.0, 5, [-0.25, 0.25, 0.0, 0.0])]),
+        param(0, 0, 0.25, 0.0),
+        dc(V1, 0, 0.0),
+        automate(V1, &[(G, 0, 0)]),
+    ]);
+    let (l, _) = m.render();
+    // Segment 0: out (1/3, 0), next key Bézier with in (-0.25, -0.25): control points (1/3, 0) and (0.75, 0.75).
+    let expected = 0.25f32;
+    let got = l[127];
+    assert!(got > 0.0 && got < expected, "{got}: the cubic sits under the line at 0.25");
+    // Segment 1 runs on the line from (1, 1) to (2, 0): at 1.5 the gain is 0.5.
+    m.submit(&[param(0, 0, 1.5, 0.0)]);
+    m.render();
+    let (l, _) = m.render();
+    check(&l, 1e-4, "on the line", |_| 0.5);
 }
 
 #[test]

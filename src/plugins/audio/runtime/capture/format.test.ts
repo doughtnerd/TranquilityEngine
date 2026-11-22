@@ -32,7 +32,8 @@ function roundTrip<T>(bytes: number, enc: (v: DataView, off: number) => number, 
 
 describe("capture format constants", () => {
   it("names this build's ABI and the mix-op code counts", () => {
-    expect(CAPTURE_ABI_VERSION).toBe(CORE_ABI_MAJOR << 8);
+    expect(CAPTURE_ABI_VERSION >>> 8).toBe(CORE_ABI_MAJOR);
+    expect(CAPTURE_ABI_VERSION).toBe(0x401); // 4.1 since ADR 0332 (Bézier curve keys); the core's `myco_audio_abi_version`
     expect(CAPTURE_MIXOP_CODES).toBe(MIX_OP_NAMES.length);
     expect(CAPTURE_MIXOP_CLASSES).toBe(OP_CLASSES.length);
   });
@@ -65,7 +66,7 @@ describe("capture header (§5.1)", () => {
   it("names both ABI versions on a wire mismatch", () => {
     const c = sampleCapture().slice();
     c[12] ^= 0xff;
-    expect(() => readCaptureHeader(c)).toThrow(/ABI 4\.0.*re-record with this build/);
+    expect(() => readCaptureHeader(c)).toThrow(/ABI 4\.1.*re-record with this build/);
   });
 });
 

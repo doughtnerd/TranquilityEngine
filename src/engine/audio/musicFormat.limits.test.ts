@@ -532,7 +532,7 @@ describe("musicFormat limits (L-F1aa)", () => {
       expect(errors[0]).toContain("pitch");
     });
 
-    it("L-F1aa: an unknown target, a missing parameter or a curve with no keys drops the binding; a curve over 32 keys is cut with a problem", () => {
+    it("L-F1aa: an unknown target, a missing parameter or a curve with no keys drops the binding; a curve over 64 keys (ADR 0332) is cut with a problem", () => {
       const unknown = kept({ tracks: [{ ...track, automation: [{ parameter: "P", target: "pan", curve: [[0, 0]] }] }] });
       expect(unknown.node.tracks[0].automation).toEqual([]);
       expect(unknown.problems).toContainEqual(problem("segment.tracks[0].automation[0]", "dropped"));
@@ -545,11 +545,11 @@ describe("musicFormat limits (L-F1aa)", () => {
       expect(noKeys.node.tracks[0].automation).toEqual([]);
       expect(noKeys.problems).toContainEqual(problem("segment.tracks[0].automation[0]", "the curve has no keys; dropped"));
 
-      const keys = Array.from({ length: 33 }, (_, i) => [i / 32, i / 32]);
+      const keys = Array.from({ length: 65 }, (_, i) => [i / 64, i / 64]);
       const long = kept({ tracks: [{ ...track, automation: [{ parameter: "P", target: "volume", curve: keys }] }] });
       expect(long.node.tracks[0].automation).toHaveLength(1);
-      expect(long.node.tracks[0].automation[0].curve).toHaveLength(32);
-      expect(long.problems).toContainEqual(problem("segment.tracks[0].automation[0].curve", "at most 32 keys"));
+      expect(long.node.tracks[0].automation[0].curve).toHaveLength(64);
+      expect(long.problems).toContainEqual(problem("segment.tracks[0].automation[0].curve", "at most 64 keys"));
     });
   });
 });

@@ -499,8 +499,8 @@ pub fn cases() -> Vec<VectorCase> {
                 "0100", "0800", "02000000", // param 1, curve 8, target 2 (lowpass)
             ),
         ),
-        // CURVES (ADR 0158), variable length: 64 B = 16 words. Curves 10 and 11: curve 10 has keys
-        // (0, 0, linear) and (1, 1, smooth); curve 11 one key (0.5, 0.25, step).
+        // CURVES (ADR 0158, 0332), variable length: 112 B = 28 words. Curves 10 and 11: curve 10 has keys
+        // (0, 0, bezier, in (0, 0), out (0.25, 0.5)) and (1, 1, smooth); curve 11 one key (0.5, 0.25, step).
         case(
             "CURVES_two_curves",
             Subject::Opcode("CURVES"),
@@ -516,23 +516,29 @@ pub fn cases() -> Vec<VectorCase> {
                             (
                                 "keys",
                                 va(vec![
-                                    vr(vec![("x", vf(0.0)), ("y", vf(0.0)), ("interp", vu(0))]),
-                                    vr(vec![("x", vf(1.0)), ("y", vf(1.0)), ("interp", vu(2))]),
+                                    vr(vec![("x", vf(0.0)), ("y", vf(0.0)), ("interp", vu(5)), ("inDx", vf(0.0)), ("inDy", vf(0.0)), ("outDx", vf(0.25)), ("outDy", vf(0.5))]),
+                                    vr(vec![("x", vf(1.0)), ("y", vf(1.0)), ("interp", vu(2)), ("inDx", vf(0.0)), ("inDy", vf(0.0)), ("outDx", vf(0.0)), ("outDy", vf(0.0))]),
                                 ]),
                             ),
                         ]),
-                        vr(vec![("reserved", vu(0)), ("keys", va(vec![vr(vec![("x", vf(0.5)), ("y", vf(0.25)), ("interp", vu(1))])]))]),
+                        vr(vec![
+                            ("reserved", vu(0)),
+                            ("keys", va(vec![vr(vec![("x", vf(0.5)), ("y", vf(0.25)), ("interp", vu(1)), ("inDx", vf(0.0)), ("inDy", vf(0.0)), ("outDx", vf(0.0)), ("outDy", vf(0.0))])])),
+                        ]),
                     ]),
                 ),
             ],
             concat!(
-                "1300", "1000", "00000000", "ffffffff", // head: CURVES, 16 words, 0, asap
+                "1300", "1c00", "00000000", "ffffffff", // head: CURVES, 28 words, 0, asap
                 "0a000000", "02000000", // firstCurve 10, curveCount 2
                 "0200", "0000", // curve 10: keyCount 2, reserved
-                "00000000", "00000000", "00000000", // key (0.0, 0.0, linear)
+                "00000000", "00000000", "05000000", // key (0.0, 0.0, bezier)
+                "00000000", "00000000", "0000803e", "0000003f", // in (0, 0), out (0.25, 0.5)
                 "0000803f", "0000803f", "02000000", // key (1.0, 1.0, smooth)
+                "00000000", "00000000", "00000000", "00000000", // no handles
                 "0100", "0000", // curve 11: keyCount 1, reserved
                 "0000003f", "0000803e", "01000000", // key (0.5, 0.25, step)
+                "00000000", "00000000", "00000000", "00000000", // no handles
             ),
         ),
         // PARAM (ADR 0158), 24 B = 6 words: group 3, slot 1, value 0.5, seek 2.0 per second. Asap.

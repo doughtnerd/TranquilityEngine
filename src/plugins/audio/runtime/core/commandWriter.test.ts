@@ -284,6 +284,7 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
       [[0, 0], [1, 1, "smooth"]],
       [[0.5, 0.25, "step"], [2, 3, "easeOut"], [3, 3, "easeIn"]],
       [],
+      [[0, 1, "bezier", { in: [0, 0], out: [0.25, -0.5] }], [1, 0, "bezier", { in: [-0.5, 0.125], out: [0, 0], free: true }]],
     ]);
     writer.flush(0);
     const b = records(posted[0]!);
@@ -293,11 +294,15 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
       [[0, 0, 0], [1, 1, 2]],
       [[0.5, 0.25, 1], [2, 3, 4], [3, 3, 3]],
       [],
+      [[0, 1, 5], [1, 0, 5]],
     ]);
-    // 512 curves of 40 keys (≈ 200 KB): 32 keys each are sent, over several records with consecutive ids.
+    // ADR 0332: a Bézier key carries its handles; other keys carry zeros.
+    expect(c.curves[3]!.keys.map((k) => [k.inDx, k.inDy, k.outDx, k.outDy])).toEqual([[0, 0, 0.25, -0.5], [-0.5, 0.125, 0, 0]]);
+    expect(c.curves[1]!.keys.every((k) => k.inDx === 0 && k.inDy === 0 && k.outDx === 0 && k.outDy === 0)).toBe(true);
+    // 128 curves of 70 keys (≈ 230 KB): 64 keys each are sent, over several records with consecutive ids.
     const big = rig();
-    const long = Array.from({ length: 40 }, (_, i) => [i, i] as const);
-    big.writer.curves(0, Array.from({ length: 1024 / 2 }, () => long));
+    const long = Array.from({ length: CORE_CURVE_KEYS + 6 }, (_, i) => [i, i] as const);
+    big.writer.curves(0, Array.from({ length: 1024 / 8 }, () => long));
     big.writer.flush(0);
     let next = 0;
     for (const buffer of big.posted) {
@@ -309,7 +314,7 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
         next += cc.curves.length;
       }
     }
-    expect(next).toBe(1024 / 2);
+    expect(next).toBe(1024 / 8);
     expect(big.writer.pending).toBe(0);
     expect(big.writer.stats.dropped).toBe(0);
   });
