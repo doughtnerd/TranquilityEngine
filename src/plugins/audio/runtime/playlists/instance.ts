@@ -40,7 +40,7 @@ import { clockOver, MUSICAL_FALLBACK_NOTE, type MusicalClock, type MusicalSource
 import { sampleFacts, type SampleFacts } from "./sampleFacts";
 import { VoiceClock, VoiceMarkers } from "./voiceMusical";
 import { decideStinger } from "../music/stingerPolicy";
-import { resolveBody, resolveEntry, type Ctx, type DynGain, type LiveNode, type LoopRun, type NodeHost, type PVoice, type SpatialPlan } from "./nodes";
+import { resolveBody, resolveEntry, type Ctx, type DynGain, type LiveNode, type LoopRun, type NodeHost, type PendingSwitchChange, type PVoice, type SpatialPlan } from "./nodes";
 import { shapedFade } from "./liveNode";
 import { QuantizedLanes } from "./quantizedLanes";
 
@@ -63,7 +63,12 @@ export interface InstanceSystem {
   noteLateStart(instance: PlaylistInstance): void;
   retire(instance: PlaylistInstance): void;
   noteParameter(name: string, def: ParameterDef, value: number, instance: number | null): void;
+  /** A stinger trigger's outcome (`Audio.debug().musicTotals.stingers`, summed over the session). */
+  noteStinger(outcome: StingerOutcome): void;
 }
+
+/** What became of a stinger trigger: on its point, late (`ifLate`), skipped (`ifLate: "skip"`), dropped (a repeat or no point). */
+export type StingerOutcome = "played" | "late" | "skipped" | "dropped";
 
 /** The stop fade when the game names none (ADR 0329: "stop fades everything over 120 ms"). */
 export const STOP_FADE_SECONDS = 0.12;
@@ -312,6 +317,23 @@ export class PlaylistInstance implements NodeHost {
   private rootCtx: Ctx | null = null;
   private readonly stingers: { name: string; node: LiveNode; at: number }[] = [];
   private readonly stingerPlayed = new Map<string, number>();
+  /** Stinger outcomes since the instance started (`Audio.debug().music[].stingers`). */
+  readonly stingerCounts: Record<StingerOutcome, number> = { played: 0, late: 0, skipped: 0, dropped: 0 };
+
+  /** The stingers accepted and still to end: each one's name and heard start. */
+  stingersQueued(): readonly { readonly name: string; readonly at: number }[] {
+    return this.stingers.filter((s) => s.node.sounding);
+  }
+
+  /** The Switch change waiting for its boundary below, null when none. */
+  pendingChange(): PendingSwitchChange | null {
+    return this.stopped ? null : this.root?.pendingChange() ?? null;
+  }
+
+  private countStinger(outcome: StingerOutcome): void {
+    this.stingerCounts[outcome]++;
+    this.sys.noteStinger(outcome);
+  }
 
   /**
    * Fires the stinger named `name` (the playlist's, else an embedded playlist's): at `now`, or the playing entry's next
@@ -349,13 +371,14 @@ export class PlaylistInstance implements NodeHost {
       now, earliest, point, nextPoint, ifTooLate: s.ifLate, dontRepeat: s.dontRepeat,
       lastPlayed: this.stingerPlayed.get(name) ?? Number.NaN, sounding: this.stingers.length,
     });
-    if (!d.play) return false;
+    if (!d.play) { this.countStinger(d.reason === "skip" ? "skipped" : "dropped"); return false; }
     if (d.steal) this.stingers.shift()?.node.stop(0.04);
     const ctx: Ctx = { ...this.rootCtx!, at: d.at, depth: 1 };
     const node = resolveEntry(this, s.playlist, ctx, `${this.path}/stinger:${name}`, 0);
     if (!node) return false;
     this.stingerPlayed.set(name, d.at);
     this.stingers.push({ name, node, at: d.at });
+    this.countStinger(d.late ? "late" : "played");
     return true;
   }
 
