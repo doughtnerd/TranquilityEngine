@@ -1,6 +1,6 @@
 # 0339. Player input profiles add and remove mappings, and name the action each change is for
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

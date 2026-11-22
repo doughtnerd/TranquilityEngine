@@ -1,6 +1,6 @@
 # 0340. Game UI has keyboard and gamepad focus navigation, driven by built-in UI actions
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
