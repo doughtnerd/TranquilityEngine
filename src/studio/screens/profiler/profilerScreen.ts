@@ -1,13 +1,14 @@
 // The Profiler screen's services over the real page (ADR 0334): its one store and recorder, made on first use over the
 // open project, the capture Worker and the Studio's audio runtime (`audioHost().audio.capture`, the public API, and the
 // recorder's live ring through the `LiveHost` seam the editor's Profiler panel uses), and the captures' file actions
-// through the engine's asset operations (import, rename, move, delete). The panels call these; the models are elsewhere.
+// through the engine's asset operations (import, delete) and the Studio's moves (rename, move: studioAssetMoves.ts, which
+// leave the editor the references it owns while it has the project open). The panels call these; the models are elsewhere.
 import { importFiles, whyNotImportable } from "../../../editor/assetImportFiles";
 import { deleteAssets } from "../../../editor/assetDelete";
-import { moveAssetsTo, renameAsset } from "../../../editor/assetOps";
 import { currentProject, status } from "../../../editor/state";
 import { CaptureSource } from "../../../plugins/audio/editor/mix/profilerSource";
 import { captureFileBytes, captureLiveHost } from "../../../plugins/audio/runtime/capture/capture";
+import { moveStudioAssets, renameStudioAsset } from "../../boot/studioAssetMoves";
 import { audioHost, openRoute } from "../../shell/studioServices";
 import { CaptureRecorder } from "./captureRecorder";
 import { CAPTURES_FOLDER, whyNotCaptureFile } from "./captureTree";
@@ -87,13 +88,13 @@ export async function importCaptures(files: readonly File[]): Promise<void> {
 /** Rename a capture file in its folder; the open one follows. */
 export async function renameCapture(path: string, name: string): Promise<void> {
   const to = `${path.includes("/") ? `${path.slice(0, path.lastIndexOf("/"))}/` : ""}${name}`;
-  if (await renameAsset(path, name)) followMove(path, to);
+  if (await renameStudioAsset(path, name)) followMove(path, to);
 }
 
 /** Move a capture file to `folder`; the open one follows. */
 export async function moveCapture(path: string, folder: string): Promise<void> {
   const to = `${folder ? `${folder}/` : ""}${path.slice(path.lastIndexOf("/") + 1)}`;
-  if (await moveAssetsTo([path], folder)) followMove(path, to);
+  if (await moveStudioAssets([[path, to]])) followMove(path, to);
 }
 
 /** Delete a capture file (the engine's delete asks first); the open one closes. */

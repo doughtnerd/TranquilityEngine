@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { KeyEventLike } from "../../editor/ui/keyCombo";
 import { startRequest } from "../boot/startQuery";
+import { studioUrl } from "../../editor/studioAssets";
 import { createKeymap, panelScopesOf, type KeyContext } from "./keymap";
 import { createRouter, formatRoute, parseRoute, resolveRoute, type HashLocation } from "./route";
 import { SCREENS, screenGroups } from "./screens";
@@ -50,6 +51,16 @@ describe("router", () => {
     expect(parseRoute("#PROFILER")).toEqual({ screen: "profiler" });
     const route = { screen: "take", asset: "takes/run 1.mycotake", select: "i7" } as const;
     expect(parseRoute(formatRoute(route))).toEqual(route);
+  });
+
+  it("reads the editor's hand-off hash (#/<screen>/<asset path>, studioHash)", () => {
+    const request = { project: "/games/racer", asset: "music/boss fight.playlist.json" };
+    const hash = studioUrl(request).slice(studioUrl(request).indexOf("#"));
+    expect(parseRoute(hash)).toEqual({ screen: "playlists", asset: "music/boss fight.playlist.json" });
+    expect(parseRoute("#/mixer")).toEqual({ screen: "mixer" });
+    expect(parseRoute("#/profiler/captures/a.mycap?asset=captures/b.mycap")).toEqual({ screen: "profiler", asset: "captures/b.mycap" });
+    expect(parseRoute("#/nonsense/x.wav")).toEqual({ screen: "samples" });
+    expect(parseRoute("#/samples/bad%E0.wav")).toEqual({ screen: "samples" }); // a malformed escape: the screen alone
   });
 
   it("opens screens; a new screen or asset starts clean, the same screen keeps what isn't replaced", () => {

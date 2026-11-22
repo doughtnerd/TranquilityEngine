@@ -1,15 +1,20 @@
 // Audio Studio entry (ADR 0327 "One frontend, a new entry"): `studio.html` on the editor's frontend. It boots what
 // the editor's story harness boots, made real: the core asset kinds, the audio plugin (its asset kinds, and its
 // runtime for the Studio's own Engine), the theme, the start screen over the editor's project opening, the router,
-// the audio runtime host and the keymap. `?sample=<id>` opens a sample and `?project=<folder>` a project folder
-// (desktop); the hash picks the screen (`#/mixer?asset=…`). It never boots the scene editor.
+// the audio runtime host and the keymap. `?sample=<id>` opens a sample and `?project=<folder>` a project folder (a path
+// on the desktop; in a browser, the folder the editor's tab mounted, found among the recent projects); the hash picks
+// the screen (`#/mixer?asset=…`, or the editor's `#/<screen>/<asset>`). In the desktop app the Studio window also
+// serves the editor's hand-off (`myco://studio-open`, studioHandoff.ts): Window > Audio Studio and Open in Audio
+// Studio open their project, screen and asset here. It never boots the scene editor.
 import { render } from "preact";
 import { Audio } from "../plugins/audio/runtime";
 import { registerCoreAssetKinds } from "../editor/assetKinds.builtin";
 import { installMessageLog } from "../editor/messages";
 import { installProjectTheme } from "../editor/projectTheme";
 import { status } from "../editor/state";
+import { isTauri } from "../engine/platform/FileSystem";
 import { setStartActions } from "../editor/startActions";
+import type { StudioOpenRequest } from "../editor/studioAssets";
 import { installTheme } from "../editor/theme";
 import "../editor/ui/editor.css";
 import "../editor/ui/fonts";
@@ -43,13 +48,24 @@ async function main(): Promise<void> {
     },
   });
   provideStudio({ router, runtime });
-  const projects = studioProjects(runtime);
+  const projects = studioProjects({ runtime, openRoute: (request) => router.open(request) });
   setStartActions({ open: projects.open, pickProjectLocation: projects.pickLocation });
   installStudioKeys();
   installCalibration(runtime);
 
   render(<StudioApp onCloseProject={projects.close} />, document.getElementById("app")!);
+  if (isTauri()) await serveHandoff(projects.handOff);
   await projects.openRequest(startRequest(location.search));
+}
+
+/** The desktop app: answer the editor's hand-off over Tauri events (ADR 0327). The page serves it while it lives. */
+async function serveHandoff(open: (request: StudioOpenRequest) => Promise<void>): Promise<void> {
+  try {
+    const [{ tauriBus }, { serveStudioOpen }] = await Promise.all([import("../editor/launcher/handoff"), import("../editor/studioHandoff")]);
+    serveStudioOpen(await tauriBus(), open);
+  } catch (err) {
+    console.warn("[studio] can't take projects handed over by the editor:", err);
+  }
 }
 
 main().catch((err) => {
