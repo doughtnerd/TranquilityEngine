@@ -103,10 +103,14 @@ dependencies = [
 name = "anim-retarget"
 version = "0.1.0"
 dependencies = [
+ "anim-compress",
  "anim-format",
  "anim-math",
  "anim-offline",
  "anim-pose",
+ "anim-retarget",
+ "anim-rig",
+ "anim-sample",
 ]
 
 [[package]]
