@@ -10,7 +10,6 @@ import { UndoToasts } from "../../../editor/ui/UndoToast";
 import { createToastQueue } from "../../../editor/ui/undoToastModel";
 import type { AudioProject } from "../../../engine/audio/project/types";
 import { BusesPanel } from "./BusesPanel";
-import { CurveEditorHost } from "./curveEditor";
 import { MixerInspector } from "./MixerInspector";
 import { emptyMix, mixerFixture } from "./mixerFixture";
 import type { MixerSession } from "./mixerScreen";
@@ -51,7 +50,6 @@ function Screen(props: ScreenArgs) {
       {props.which === "parameters" && <ParametersPanel session={session} />}
       {props.which === "loudness" && <LoudnessPanel session={session} />}
       <TriggerDialogHost />
-      <CurveEditorHost />
       <UndoToasts queue={toasts} />
     </div>
   );

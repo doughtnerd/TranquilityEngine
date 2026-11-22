@@ -105,7 +105,7 @@
 .mx-loud-cell dd { margin: 0; font-variant-numeric: tabular-nums; font-size: calc(15px * var(--ui-scale)); color: var(--text-strong); }
 .mx-loud-cell dd.mx-loud-warn { font-size: calc(10px * var(--ui-scale)); color: var(--warning); }
 
-/* Dialogs (Trigger, the curve stand-in) */
+/* Dialogs (Trigger) */
 .mx-modal-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: var(--backdrop); }
 .mx-modal { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 12px 32px var(--shadow); }
 .mx-modal-title { margin: 0; font-size: calc(14px * var(--ui-scale)); color: var(--text-strong); }
@@ -122,6 +122,3 @@
 .mx-overlaps { margin: 4px 0 0; padding-left: 0; list-style: none; width: 100%; }
 .mx-overlaps li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 2px 0; }
 .mx-overlaps li.warn { color: var(--warning); }
-.mx-curve-lane { border: 1px solid var(--border); border-radius: 5px; padding: 6px 10px; }
-.mx-keys input { width: 90px; }
-.mx-row-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

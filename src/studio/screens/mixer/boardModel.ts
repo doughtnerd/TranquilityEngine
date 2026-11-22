@@ -166,13 +166,15 @@ export const DEFAULT_PINS: readonly string[] = ["Music", "Dialogue", "SFX", "Amb
 
 const effectParams = (type: EffectType) => effectSpec(type).params.filter((q) => !q.bool);
 
-/** One automatable property of a bus or return, for the curve editor (`curveEditor.tsx`'s `CurveLane`, structurally). */
+/** One automatable property of a bus or return: a lane of the curve editor (`automationCurves.ts`). */
 export interface AutomatableLane {
   readonly target: MixAutomation["target"];
   readonly label: string;
   readonly min: number;
   readonly max: number;
   readonly unit: string;
+  /** A typed value's step (and its shown precision). */
+  readonly step: number;
   readonly scale: "linear" | "log";
   readonly plain: number;
   readonly current: { readonly parameter: string; readonly curve: MixAutomation["curve"]; readonly bypass: boolean } | null;
@@ -190,12 +192,15 @@ export function automatableLanes(p: AudioProject, name: string, only?: string): 
     const a = p.automation.find((x) => x.on === name && x.target === target);
     return a ? { parameter: a.parameter, curve: a.curve, bypass: a.bypass } : null;
   };
-  const out: AutomatableLane[] = [{ target: "volume", label: "Level", min: -60, max: 6, unit: "dB", scale: "linear", plain: 0, current: current("volume") }];
-  for (const s of bus?.sends ?? []) out.push({ target: `send:${s.to}`, label: `Send to ${s.to}`, min: -60, max: 6, unit: "dB", scale: "linear", plain: 0, current: current(`send:${s.to}`) });
+  const out: AutomatableLane[] = [{ target: "volume", label: "Level", min: -60, max: 6, unit: "dB", step: 0.5, scale: "linear", plain: 0, current: current("volume") }];
+  for (const s of bus?.sends ?? []) out.push({ target: `send:${s.to}`, label: `Send to ${s.to}`, min: -60, max: 6, unit: "dB", step: 0.5, scale: "linear", plain: 0, current: current(`send:${s.to}`) });
   for (const e of owner.effects) {
+    // "Low-pass cutoff"; with two effects of a type on one bus, their ids tell them apart ("Low-pass (fx2) cutoff").
+    const spec = effectSpec(e.type);
+    const twin = owner.effects.some((o) => o !== e && o.type === e.type);
     for (const q of effectParams(e.type)) {
       const target = `fx:${e.id}:${q.name}` as const;
-      out.push({ target, label: `${effectSpec(e.type).label} ${e.id} · ${q.label}`, min: q.min, max: q.max, unit: q.unit, scale: q.scale, plain: e.params[q.name] ?? q.default, current: current(target) });
+      out.push({ target, label: `${spec.label}${twin ? ` (${e.id})` : ""} ${q.label.toLowerCase()}`, min: q.min, max: q.max, unit: q.unit, step: q.step, scale: q.scale, plain: e.params[q.name] ?? q.default, current: current(target) });
     }
   }
   if (only === undefined) return out;

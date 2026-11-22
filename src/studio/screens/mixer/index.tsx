@@ -16,7 +16,6 @@ import type { StudioPanel } from "../../shell/studioPanels";
 import { studioRouter, toasts } from "../../shell/studioServices";
 import { historyPanel } from "../placeholder";
 import { BusesPanel } from "./BusesPanel";
-import { CurveEditorHost } from "./curveEditor";
 import { DEFAULT_PINS } from "./boardModel";
 import { MixerInspector } from "./MixerInspector";
 import { openMixDocument } from "./mixerDocument";
@@ -100,7 +99,6 @@ function BoardView(props: { session: MixerSession }) {
     <>
       <BusesPanel session={props.session} />
       <TriggerDialogHost />
-      <CurveEditorHost />
     </>
   );
 }
