@@ -242,10 +242,10 @@ function sectionOf(project: AudioProject, warnings: string[]): MixSection {
 /** The engine settings of `project` in the runtime's shape (`AudioSettings` minus the mix): `settings` with ADR 0331/0333's keys applied. */
 export function engineSectionOf(project: AudioProject, warnings: string[] = []): Omit<AudioSettings, keyof MixSection | "mix"> {
   const { submixes, bedBeyond, dopplerAmount, ...engine } = project.settings;
-  // TODO(ADR 0333): `bedBeyond` needs the audio core's panner pick to send a voice past it to its bus's bed (it picks beds
-  // by HRTF rank only today); the runtime leaves it out until then.
-  if (bedBeyond !== null) warnings.push("settings.bedBeyond needs the audio core's distance-based beds; beds go by HRTF rank until then.");
+  void warnings;
   const out = structuredClone(engine);
+  // ADR 0333: voices farther than `bedBeyond` metres go to their bus's bed (the core backend's panner pick reads it).
+  if (bedBeyond !== null) out.bed = { ...out.bed, beyond: bedBeyond };
   if (submixes !== DEFAULT_SUBMIXES) out.voices = { ...out.voices, submixes }; // ADR 0331: the instance submix pool (absent: the default)
   // ADR 0333: the global Doppler amount scales every voice's Doppler level (the Doppler pass reads it).
   if (dopplerAmount !== 1) out.doppler = { ...out.doppler, amount: dopplerAmount };

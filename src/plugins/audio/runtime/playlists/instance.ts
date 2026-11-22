@@ -24,7 +24,7 @@ import { Camera } from "../../../../engine/render/components";
 import { AudioListener, listenerPose } from "../AudioListener";
 import { CURVE_DRIVEN_ATTENUATION, curveDbToGain, evalAttenuation, FLAT_SEND_CURVE, LOWPASS_OFF_HZ, type AttenuationAt, type AttenuationCurveSet } from "../core/spatial";
 import { isLabelled, parameterDefault, type ParameterDef } from "../../../../engine/audio/parameters";
-import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest, type SubmixLevel } from "../backend";
+import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest, type SubmixLevel, type VoiceSpatialOptions } from "../backend";
 import { clipRequest, SAMPLE_END_FADE, sampleEdits, samplePass, samplePlan } from "../clipResolver";
 import { warnOnce } from "../core/handle";
 import { playlistHost } from "./host";
@@ -50,6 +50,11 @@ export interface PlaylistOptions extends EventOptions {
   owner?: string;
   /** @internal ADR 0333: an `AudioZone` plays it, so it has the built-in local parameter `zoneDepth` (0..1). */
   zone?: boolean;
+  /**
+   * @internal ADR 0333: an `AudioZone` heard `inside` plays it: a playlist with no spatial block is positioned all the
+   * same (no distance loss), so the zone can place it around the listener in its bus's bed.
+   */
+  zoneInside?: boolean;
 }
 
 /** ADR 0333: the built-in local parameter an `AudioZone` sets on the instance it plays (0 at the edge, 1 at the centre). */
@@ -151,7 +156,8 @@ export class PlaylistInstance implements NodeHost {
         if (n !== null) this.locals[l.slot] = n;
       }
     }
-    this.spatialRoot = hasSpatial(asset);
+    // ADR 0333: an inside zone's playlist is positioned even without a spatial block, so its interior is heard in the bed.
+    this.spatialRoot = hasSpatial(asset) || options.zoneInside === true;
     this.pos = options.position ? { x: options.position.x, y: options.position.y, z: options.position.z } : null;
   }
 
@@ -613,7 +619,7 @@ export class PlaylistInstance implements NodeHost {
    */
   spatialOf(body: PlaylistBody, parent: SpatialPlan | null): SpatialPlan | null {
     const s = body.spatial;
-    if (!s) return parent;
+    if (!s) return parent ?? (this.options.zoneInside === true ? this.zoneInsidePlan(body) : null);
     const known = this.planByBody.get(body);
     if (known) return known;
     const loaded = typeof s.attenuation === "string" ? loadAttenuation(s.attenuation) : s.attenuation;
@@ -624,16 +630,49 @@ export class PlaylistInstance implements NodeHost {
       occlusion: s.occlusion,
       doppler: s.doppler,
     };
-    const curved: CurvePlan = { curves: att.curves, volumeCurve, gain: { gain: 1 }, at: { volumeDb: 0, lowpassHz: LOWPASS_OFF_HZ, reverbSendDb: 0, spreadDeg: -1 } };
-    if ((att.curves.spread?.length ?? 0) > 0 || s.spread !== null) {
-      // TODO(ADR 0333): the voices have no spread parameter yet (the core pans a point source); the spread curve is
-      // evaluated (`CurvePlan.at.spreadDeg`) and applies once the core takes a per-voice spread.
-      warnOnce(`playlist:spread:${this.path}`, `[myco] ${this.path}: spread needs per-voice spread in the audio core; the voices play as point sources until then.`);
-    }
+    // ADR 0333: the block's own `spread` (degrees) wins over the attenuation's spread curve; both reach the voices (`spreadOf`).
+    const curved: CurvePlan = { curves: att.curves, volumeCurve, gain: { gain: 1 }, at: { volumeDb: 0, lowpassHz: LOWPASS_OFF_HZ, reverbSendDb: 0, spreadDeg: -1 }, spread: s.spread };
     this.evaluate(curved, this.listenerDistance());
     this.curvePlans.set(plan, curved);
     this.planByBody.set(body, plan);
     return plan;
+  }
+
+  /**
+   * ADR 0333: the plan of an inside zone's playlist that has no spatial block: positioned (the zone places it around the
+   * listener), with no distance loss, no occlusion or Doppler, spread all round; the zone's spread and bed apply.
+   */
+  private zoneInsidePlan(body: PlaylistBody): SpatialPlan {
+    const known = this.planByBody.get(body);
+    if (known) return known;
+    const plan: SpatialPlan = { attenuation: CURVE_DRIVEN_ATTENUATION, occlusion: false, doppler: 0 };
+    this.curvePlans.set(plan, { curves: {}, volumeCurve: false, gain: { gain: 1 }, at: { volumeDb: 0, lowpassHz: LOWPASS_OFF_HZ, reverbSendDb: 0, spreadDeg: -1 }, spread: 360 });
+    this.planByBody.set(body, plan);
+    return plan;
+  }
+
+  /**
+   * ADR 0333: the spread a plan's voices play with, degrees: an audio zone's (`setZoneSpatial`), else the spatial block's
+   * own `spread`, else its attenuation's spread curve at the listener's distance, else 0 (a point source).
+   */
+  private spreadOf(p: CurvePlan): number {
+    if (this.zoneSpread !== null) return this.zoneSpread;
+    if (p.spread !== null) return p.spread;
+    return p.at.spreadDeg >= 0 ? p.at.spreadDeg : 0;
+  }
+
+  /** ADR 0333: an `AudioZone`'s spread for this instance's voices (degrees, null: the playlist's own) and whether they go to the bed. */
+  private zoneSpread: number | null = null;
+  private zoneBed = false;
+
+  /**
+   * @internal ADR 0333: the `AudioZone` playing this instance, each frame: the spread its voices have (degrees; null gives
+   * the playlist's own back) and whether they are heard in their bus's bed (inside the zone). Applied with the frame's
+   * attenuation update.
+   */
+  setZoneSpatial(spread: number | null, bed: boolean): void {
+    this.zoneSpread = spread === null || !Number.isFinite(spread) ? null : Math.min(360, Math.max(0, spread));
+    this.zoneBed = bed;
   }
 
   /** The attenuation with the source's distance overrides applied (`stretchAttenuation`); unchanged without any. */
@@ -683,9 +722,17 @@ export class PlaylistInstance implements NodeHost {
       const cv = this.curveVoices.get(v);
       if (!cv || v.leaving || !v.voice.playing) continue;
       const send = this.sendLevel(cv.plan);
-      if (Math.abs(send - cv.appliedSend) > Math.max(1e-4, cv.appliedSend * 0.01)) {
-        cv.appliedSend = send;
-        v.voice.setSpatialOptions({ reverbSend: send });
+      const spread = this.spreadOf(cv.plan);
+      const sendMoved = Math.abs(send - cv.appliedSend) > Math.max(1e-4, cv.appliedSend * 0.01);
+      // ADR 0333: spread and the zone's bed reach the voice through the same Play edit (the core takes them per voice).
+      const spreadMoved = Math.abs(spread - cv.appliedSpread) > 0.5 || (spread === 0) !== (cv.appliedSpread === 0);
+      const bedMoved = this.zoneBed !== cv.appliedBed;
+      if (sendMoved || spreadMoved || bedMoved) {
+        const o: VoiceSpatialOptions = {};
+        if (sendMoved) o.reverbSend = cv.appliedSend = send;
+        if (spreadMoved) o.spread = cv.appliedSpread = spread;
+        if (bedMoved) o.bed = cv.appliedBed = this.zoneBed;
+        v.voice.setSpatialOptions(o);
       }
     }
   }
@@ -755,6 +802,10 @@ export class PlaylistInstance implements NodeHost {
         // ADR 0333: the send follows the attenuation's `reverbSend` curve (and the volume curve's flat send curve).
         req.reverbSend = this.sendLevel(curved);
         if (curved.volumeCurve) req.reverbSendCurve = FLAT_SEND_CURVE;
+        // ADR 0333: the voice's spread and, inside an audio zone, its bus's bed.
+        const spread = this.spreadOf(curved);
+        if (spread > 0) req.spread = spread;
+        if (this.zoneBed) req.bed = true;
       }
     }
     if (ctx.fadeIn > 0) req.fadeZero = true;
@@ -788,7 +839,7 @@ export class PlaylistInstance implements NodeHost {
     this.voices.push(v);
     this.quant.attach(v, ctx.quantized, start);
     if (curved) {
-      this.curveVoices.set(v, { plan: curved, staticLowpass: c.lowpass, appliedSend: req.reverbSend ?? 1 });
+      this.curveVoices.set(v, { plan: curved, staticLowpass: c.lowpass, appliedSend: req.reverbSend ?? 1, appliedSpread: req.spread ?? 0, appliedBed: req.bed === true });
       this.hasCurveVoices = true;
     }
     // A trim that ends before the file does: stop there (after a release, a held loop plays out to it too).
@@ -939,6 +990,8 @@ interface CurvePlan {
   readonly gain: DynGain;
   /** The curves at the listener's distance. */
   readonly at: AttenuationAt;
+  /** The spatial block's own `spread`, degrees (null: the attenuation's spread curve, else 0). */
+  readonly spread: number | null;
 }
 
 /** ADR 0333: what a curve voice was last given beyond its volume. */
@@ -947,6 +1000,9 @@ interface CurveVoice {
   /** The voice's own cutoff (its playlists' effects), Hz. */
   readonly staticLowpass: number;
   appliedSend: number;
+  /** ADR 0333: the spread (degrees) and bed the voice was last given. */
+  appliedSpread: number;
+  appliedBed: boolean;
 }
 
 /** The listener's position in the active World (an enabled `AudioListener`, else the main camera), or null. */

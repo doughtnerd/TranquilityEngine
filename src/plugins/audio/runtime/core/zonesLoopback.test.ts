@@ -203,7 +203,7 @@ const play = (id: number, gain: number): Writer => (view, off) =>
 
 /** The zone sends of a voice: `[slot 0, 1, 2, 3]` linear levels. */
 const sends = (id: number, send: [number, number, number, number]): Writer => (view, off) =>
-  writeSetVoiceFx(view, off, { voiceId: id, frameOffset: ASAP, mask: SET_VOICE_FX_MASK_SENDS, rampFrames: 0, hpHz: 0, send, yaw: 0, auxLevel: 0, auxBus: 0xffff, reserved: 0 });
+  writeSetVoiceFx(view, off, { voiceId: id, frameOffset: ASAP, mask: SET_VOICE_FX_MASK_SENDS, rampFrames: 0, hpHz: 0, send, yaw: 0, auxLevel: 0, auxBus: 0xffff, spread: 0 });
 
 const slot = (kernelId: number, state: number, wet: number, irFrames: number): ZoneConfigSlots => ({ kernelId, returnBus: 0, state, reserved: 0, wet, irFrames });
 const config = (slots: ZoneConfigSlots[], shared = 1): Writer => (view, off) => writeZoneConfig(view, off, { voiceId: 0, frameOffset: ASAP, sharedReturnGain: shared, rampFrames: 0, slots });

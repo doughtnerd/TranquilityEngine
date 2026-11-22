@@ -424,3 +424,10 @@ an engine-owned ICU MessageFormat 1 (<4 KB est.) instead of `intl-messageformat`
 attributes in UI documents; line-table `text` removed (one copy of each subtitle, in string tables); voice follows the
 text language by default; 15 chars/s reading speed with per-language defaults; captions via a new public
 `Audio.onCaption`; `textAlign` default becomes `start`; `myco.subtitles` is its own plugin, on in new projects.
+
+**D55. Native spatial (W11-G, merged, ABI 4.11).** Spread = point part + decorrelated diffuse part (w = s/360; an
+amplitude-only spread can't decorrelate a mono source on two ears — Unreal/Resonance diffuse practice); zone spread wins
+over the playlist's; anything inside a zone (edge or inside kind, and an inside zone's feather) goes to the bed at 360°
+(ADR 0333's "plays non-spatially", rendered enveloping); bedBeyond and zone beds are decided on main in the panner pick
+(ADR 0162's split); stream loops are forward only (ping-pong/backward play forward with a warning; FMOD/Wwise streams
+also loop forward); preset times from EAX families. Mixer 475,285 B; metered +0.07%. Wave 11 complete.

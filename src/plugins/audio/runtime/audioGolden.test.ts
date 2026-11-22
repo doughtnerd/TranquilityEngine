@@ -692,7 +692,7 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
       play(voice(2), AMBI_O1, { flags: MIXED | LOOP | AMBISONIC, gain: 0.5, bus: 0, pitch: 1.25, startOffsetFrames: 3_000 }),
       play(voice(3), AMBI_O3, { flags: MIXED | LOOP | AMBISONIC, gain: 0.5, bus: 1, pitch: 0.8, startOffsetFrames: 5_000 }),
     );
-    s.send((view, off) => writeSetVoiceFx(view, off, { voiceId: voice(2), frameOffset: ASAP, mask: SET_VOICE_FX_MASK_YAW, rampFrames: 0, hpHz: 0, send: [0, 0, 0, 0], yaw: Math.PI / 6, auxLevel: 0, auxBus: 0xffff, reserved: 0 }));
+    s.send((view, off) => writeSetVoiceFx(view, off, { voiceId: voice(2), frameOffset: ASAP, mask: SET_VOICE_FX_MASK_YAW, rampFrames: 0, hpHz: 0, send: [0, 0, 0, 0], yaw: Math.PI / 6, auxLevel: 0, auxBus: 0xffff, spread: 0 }));
     s.run(24);
     for (let step = 1; step <= 6; step++) {
       const yaw = (step * Math.PI) / 12; // 15 degrees a step, 90 in all
@@ -756,7 +756,7 @@ function filtersFor(n: number, ramp: number, lp: (k: number) => number, hp: (k: 
   const out: Writer[] = [];
   for (let k = 0; k < n; k++) {
     out.push((view, off) => writeSetParams(view, off, { voiceId: voice(k + 1), frameOffset: ASAP, mask: SET_PARAMS_MASK_LP_HZ, gain: 0, pitch: 0, dirX: 0, dirY: 0, dirZ: 0, lpHz: lp(k), score: 0, bus: 0, rampFrames: ramp, flags: 0 }));
-    out.push((view, off) => writeSetVoiceFx(view, off, { voiceId: voice(k + 1), frameOffset: ASAP, mask: SET_VOICE_FX_MASK_HP_HZ, rampFrames: ramp, hpHz: hp(k), send: [0, 0, 0, 0], yaw: 0, auxLevel: 0, auxBus: 0xffff, reserved: 0 }));
+    out.push((view, off) => writeSetVoiceFx(view, off, { voiceId: voice(k + 1), frameOffset: ASAP, mask: SET_VOICE_FX_MASK_HP_HZ, rampFrames: ramp, hpHz: hp(k), send: [0, 0, 0, 0], yaw: 0, auxLevel: 0, auxBus: 0xffff, spread: 0 }));
   }
   return out;
 }

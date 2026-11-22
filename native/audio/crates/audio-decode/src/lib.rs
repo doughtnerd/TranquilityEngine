@@ -36,6 +36,9 @@
 //!    `ERR_*` code; the kernel is then at `myco_ir_blob_ptr()` for `myco_ir_blob_len()` bytes, and
 //!    `myco_ir_truncated()` says whether it was cut at `max_frames`, all valid until the next
 //!    `myco_ir_*` call (a failed call leaves no blob: length 0). Independent of the decoders.
+//! 7. **Stream loop seams** (ABI 1.4, ADR 0328, [`seam`]): `myco_decode_seam(out, tail, frames,
+//!    channels, phase, length, shape)` crossfades a looping stream's seam in place: the tail read
+//!    past the loop's end into the frames read from its start, in the clip voice's shapes.
 //!
 //! Negative `i32` (or `f64`) results are the `ERR_*` codes; `myco_decode_error_ptr/len` give the
 //! last failure's message (UTF-8). No export panics on bad input: arguments are checked and
@@ -46,6 +49,7 @@ pub mod ambisonic;
 mod decoder;
 pub mod ir;
 mod loop_points;
+pub mod seam;
 #[cfg(feature = "aac")]
 mod mp4_gapless;
 
@@ -57,7 +61,7 @@ use std::alloc::{alloc, dealloc, Layout};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// `(major << 8) | minor` of this ABI.
-pub const ABI_VERSION: u32 = 0x103;
+pub const ABI_VERSION: u32 = 0x104;
 /// Open decoders at once.
 pub const MAX_DECODERS: usize = 64;
 /// Bytes of the record `myco_decode_info` writes: `u32 sampleRate; u32 channels; f64 frames (-1
@@ -219,8 +223,8 @@ fn valid_range(ptr: usize, bytes: usize, align: usize) -> bool {
 
 // --- Exports -----------------------------------------------------------------------------------
 
-/// `(major << 8) | minor`: 1.3 (1.1 added the loop fields to the info record, 1.2
-/// `myco_decode_set_convention`, 1.3 the `myco_ir_*` exports).
+/// `(major << 8) | minor`: 1.4 (1.1 added the loop fields to the info record, 1.2
+/// `myco_decode_set_convention`, 1.3 the `myco_ir_*` exports, 1.4 `myco_decode_seam`).
 #[no_mangle]
 pub extern "C" fn myco_decode_abi_version() -> u32 {
     ABI_VERSION
@@ -328,6 +332,25 @@ pub unsafe extern "C" fn myco_decode_info(handle: i32, out: *mut u8) -> i32 {
 #[no_mangle]
 pub unsafe extern "C" fn myco_decode_read_f32(handle: i32, out: *mut f32, frames: u32) -> i32 {
     read(handle, out, frames, |d, s| d.read_f32(s))
+}
+
+/// ADR 0328 (ABI 1.4): a stream loop's seam crossfade ([`seam::crossfade`]) on `frames`
+/// interleaved f32 frames of `channels` at `out`, mixing in the tail at `tail`, from seam frame
+/// `phase` of a `length`-frame crossfade in fade shape `shape`. Returns the frames mixed, or
+/// `ERR_ARG` for a null pointer.
+///
+/// # Safety
+/// `out` and `tail` must each point at `frames * channels` f32 of this module's memory, not
+/// overlapping.
+#[no_mangle]
+pub unsafe extern "C" fn myco_decode_seam(out: *mut f32, tail: *const f32, frames: u32, channels: u32, phase: u32, length: u32, shape: u32) -> i32 {
+    if out.is_null() || tail.is_null() || channels == 0 || channels > 16 {
+        return ERR_ARG;
+    }
+    let n = frames as usize * channels as usize;
+    // SAFETY: (caller) both spans are ours, `n` f32 each, and distinct.
+    let (o, t) = unsafe { (core::slice::from_raw_parts_mut(out, n), core::slice::from_raw_parts(tail, n)) };
+    seam::crossfade(o, t, frames as usize, channels as usize, phase, length, shape.min(255) as u8) as i32
 }
 
 /// As `myco_decode_read_f32`, as int16 (`frames * channels * 2` bytes, 2-aligned).

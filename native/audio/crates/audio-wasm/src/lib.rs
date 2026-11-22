@@ -50,7 +50,9 @@ pub const ABI_MAJOR: u32 = 4;
 /// parameter of a bus chain, send levels; 16 bindings a bus), SUBMIX_AUTOMATE (0x1F, instance submix parameter
 /// automation), held parameters in the bus effect type's bits 16-23, the BUS_RAMP `Decibel` law (snapshot fades
 /// linear in dB), STATUS `fxStarved` and `fxStarvedOwner`.
-pub const ABI_MINOR: u32 = 10;
+/// 4.11 (ADR 0333): SET_VOICE_FX `spread` (mask bit 4, the reserved u16 at offset 50: hundredths of a degree),
+/// a spatial voice spread over an arc by a decorrelated diffuse part (`audio-core` `spread.rs`).
+pub const ABI_MINOR: u32 = 11;
 
 /// The inbox: BATCH, REPLAY and small control messages (api-and-models §5: fixed 1 MiB).
 pub const INBOX_BYTES: usize = 1 << 20;
@@ -366,7 +368,7 @@ mod tests {
 
     #[test]
     fn identity_exports() {
-        assert_eq!(myco_audio_abi_version(), 0x40A);
+        assert_eq!(myco_audio_abi_version(), 0x40B);
         assert_eq!(myco_audio_inbox_cap(), 1 << 20);
         assert_eq!(myco_audio_inbox_ptr() as usize % 64, 0);
         assert_eq!(myco_audio_status_ptr() as usize % 64, 0);

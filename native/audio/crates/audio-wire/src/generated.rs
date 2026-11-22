@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: acacc91a878dc08cfa9f6a5a6702a800).
+/// First 16 bytes of the schema's SHA-256 (hex: e9ba9db71802b3a502576f9258349709).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0xac,
-    0xac,
-    0xc9,
-    0x1a,
-    0x87,
-    0x8d,
-    0xc0,
-    0x8c,
-    0xfa,
-    0x9f,
-    0x6a,
-    0x5a,
-    0x67,
+    0xe9,
+    0xba,
+    0x9d,
+    0xb7,
+    0x18,
     0x02,
-    0xa8,
-    0x00,
+    0xb3,
+    0xa5,
+    0x02,
+    0x57,
+    0x6f,
+    0x92,
+    0x58,
+    0x34,
+    0x97,
+    0x09,
 ];
-pub const SCHEMA_HASH_HEX: &str = "acacc91a878dc08cfa9f6a5a6702a800";
+pub const SCHEMA_HASH_HEX: &str = "e9ba9db71802b3a502576f9258349709";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -2207,7 +2207,9 @@ pub const SET_VOICE_FX_MASK_SENDS: u32 = 0x2;
 pub const SET_VOICE_FX_MASK_YAW: u32 = 0x4;
 /// auxLevel and auxBus
 pub const SET_VOICE_FX_MASK_AUX: u32 = 0x8;
-/// a mixed voice's high-pass, zone sends, ambisonic yaw and aux send (ADR 0162 C3); stamped like SET_PARAMS
+/// spread (ADR 0333, ABI 4.11)
+pub const SET_VOICE_FX_MASK_SPREAD: u32 = 0x10;
+/// a mixed voice's high-pass, zone sends, ambisonic yaw, aux send and spread (ADR 0162 C3, ADR 0333); stamped like SET_PARAMS
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SetVoiceFx {
     pub voice_id: u32,
@@ -2224,7 +2226,8 @@ pub struct SetVoiceFx {
     pub aux_level: f32,
     /// aux send's bus; 0xFFFF (AUX_BUS_NONE) is none
     pub aux_bus: u16,
-    pub reserved: u16,
+    /// ADR 0333 (ABI 4.11): a spatial voice's spread in hundredths of a degree, 0..36000 (0 a point source, 36000 all round); ramped over rampFrames
+    pub spread: u16,
 }
 
 impl SetVoiceFx {
@@ -2241,7 +2244,7 @@ impl SetVoiceFx {
         put_f32(out, base + 40, self.yaw);
         put_f32(out, base + 44, self.aux_level);
         put_u16(out, base + 48, self.aux_bus);
-        put_u16(out, base + 50, self.reserved);
+        put_u16(out, base + 50, self.spread);
         let mut cur = base + Self::FIXED_END;
         let total = cur - base;
         if total % 4 != 0 || total / 4 > u16::MAX as usize {
@@ -2276,7 +2279,7 @@ impl SetVoiceFx {
         let yaw = get_f32(buf, base + 40);
         let aux_level = get_f32(buf, base + 44);
         let aux_bus = get_u16(buf, base + 48);
-        let reserved = get_u16(buf, base + 50);
+        let spread = get_u16(buf, base + 50);
         let mut cur = base + Self::FIXED_END;
         if cur > limit {
             return Err(ERR_MALFORMED);
@@ -2292,7 +2295,7 @@ impl SetVoiceFx {
             yaw,
             aux_level,
             aux_bus,
-            reserved,
+            spread,
         }, cur - base))
     }
 }

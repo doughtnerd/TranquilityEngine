@@ -1368,10 +1368,29 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     limits.hrtf = limit;
     limits.nowMs = this.gameMs;
     limits.bedSlot = this.beds.bedSlot;
+    limits.bedOnly = beds ? this.markBedOnly(settings.bed.beyond) : undefined;
     if (this.panners.run(limits, this.pannerSink) > 0) this.hrir.ensure();
   }
   /** ADR 0162 (K4): the panner pick's inputs, reused (`bedSlot` is the bed planner's live map). */
-  private readonly pannerLimits: { hrtf: number; nowMs: number; bedSlot: ArrayLike<number> } = { hrtf: 0, nowMs: 0, bedSlot: new Uint8Array(0) };
+  private readonly pannerLimits: { hrtf: number; nowMs: number; bedSlot: ArrayLike<number>; bedOnly: ArrayLike<number> | undefined } = { hrtf: 0, nowMs: 0, bedSlot: new Uint8Array(0), bedOnly: undefined };
+  /** ADR 0333: per slot, 1 for a voice the pick sends to its bus's bed whatever its rank (reused). */
+  private bedOnly = new Uint8Array(0);
+
+  /**
+   * ADR 0333: marks the spatial voices that go to their bus's bed whatever their rank: those asking for it (an audio
+   * zone's interior, `PlayRequest.bed`) and those farther from the listener than `beyond` metres (`audio.bed.beyond`,
+   * the project's `settings.bedBeyond`; absent or 0: none by distance).
+   */
+  private markBedOnly(beyond: number | undefined): Uint8Array {
+    const t = this.table;
+    if (this.bedOnly.length !== t.capacity) this.bedOnly = new Uint8Array(t.capacity);
+    const out = this.bedOnly;
+    const far = beyond !== undefined && Number.isFinite(beyond) && beyond > 0 ? beyond : Infinity;
+    for (let i = 0; i < t.capacity; i++) {
+      out[i] = (t.flags[i]! & VoiceFlag.SPATIAL) !== 0 && t.state[i] !== VoiceState.FREE && ((t.flags2[i]! & VoiceFlag2.BED) !== 0 || this.voices.distanceOf(i) > far) ? 1 : 0;
+    }
+    return out;
+  }
 
   /** H3, ADR 0162 C1: SET_PARAMS `flags` for slot `i`'s panner kind (0 equal-power, 1 HRTF, 2 bed). */
   private sendPanner(i: number, kind: PannerKindCode): void {

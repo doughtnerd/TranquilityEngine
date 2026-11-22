@@ -6,9 +6,11 @@
  *
  * - `heard: "edge"`: outside the box the sound plays from the box's nearest point, so walls between that point and the
  *   listener muffle it (occlusion) and the playlist's attenuation curves apply to that distance; its spread narrows with
- *   distance as `min(180°, 40° + 600°/max(3 m, d))`. Inside, it surrounds the listener.
- * - `heard: "inside"`: it plays around the listener, at full level inside and falling linearly to silence over
- *   `feather` metres outside.
+ *   distance as `min(180°, 40° + 600°/max(3 m, d))`. Inside, it surrounds the listener: spread all round, in its bus's
+ *   ambisonic bed.
+ * - `heard: "inside"`: it plays around the listener, spread all round in its bus's ambisonic bed (equal-power where the
+ *   bus has none), at full level inside and falling linearly to silence over `feather` metres outside. A playlist
+ *   without a spatial block is positioned for it all the same, with no distance loss.
  *
  * A playlist the zone plays has the built-in local parameter `zoneDepth`: 0 at the edge (and outside), 1 at the centre,
  * set each frame, so a playlist can bind a layer or a filter to how deep the listener is. `volume` (dB) sets its level.
@@ -57,6 +59,11 @@ export class AudioZone extends Component {
   private instance: PlaylistInstance | null = null;
   private voice: AudioVoice | null = null;
   private playing = "";
+  /** How the playing sound was started (an inside zone's playlist is positioned even without a spatial block). */
+  private playingHeard: AudioZoneHeard = "edge";
+  /** The spread and bed the sample voice was last given (a playlist instance takes them each frame). */
+  private appliedSpread = NaN;
+  private appliedBed = false;
   private readonly box = new UprightBox();
   private readonly near = { x: 0, y: 0, z: 0 };
   private appliedGain = NaN;
@@ -91,8 +98,7 @@ export class AudioZone extends Component {
 
   /**
    * The spread the zone's sound has now, degrees (ADR 0333): `min(180, 40 + 600/max(3, d))` for an edge zone heard
-   * from outside, 360 around the listener (inside an edge zone, and for an inside zone). The core's voices have no
-   * spread yet (TODO(ADR 0333): per-voice spread), so the voice plays as a point source until then.
+   * from outside, 360 around the listener (inside an edge zone, and for an inside zone). Its voices play with it.
    */
   get spread(): number { return this.spreadNow; }
 
@@ -102,7 +108,7 @@ export class AudioZone extends Component {
   /** @internal The AudioZone system, each frame: start, place and level the zone's sound for the listener at `listener`. */
   _sync(listener: Vec3Like | null): void {
     const path = this.sound.replace(/^asset:/, "");
-    if (path !== this.playing) this.restart(path);
+    if (path !== this.playing || (this.heard !== this.playingHeard && path !== "")) this.restart(path);
     if (!this.instance && !this.voice) return;
     const box = this._worldBox();
     const l = listener ?? { x: box.cx, y: (box.bottom + box.top) / 2, z: box.cz };
@@ -110,18 +116,20 @@ export class AudioZone extends Component {
     const inside = d < 0.01;
     this.distanceNow = inside ? 0 : d;
     let level = dbToGain(this.volume);
+    let bed = false;
     if (this.heard === "edge" && !inside) {
       // Outside an edge zone: a source at the nearest point.
       this.place(this.near);
       this.spreadNow = audioZoneEdgeSpread(d);
     } else {
-      // TODO(ADR 0333): inside an edge zone the sound should play as an ambisonic bed around the listener; a playlist voice
-      // can't be sent to a bed (the panner pick decides beds), so it plays at the listener (no direction, no distance
-      // loss, no occlusion) at full level until the core can take a voice into its bus's bed.
+      // Around the listener (inside an edge zone; an inside zone, whose level fades over the feather outside): placed
+      // at the listener, spread all round, in its bus's ambisonic bed (ADR 0333; the core's panner pick takes it there).
       this.place(l);
       this.spreadNow = 360;
+      bed = true;
       if (this.heard === "inside" && !inside) level *= Math.max(0, 1 - d / Math.max(0.5, this.feather));
     }
+    this.setSpatial(this.spreadNow, bed);
     this.setLevel(level);
     this.instance?.setZoneDepth(inside ? box.depth(l.x, l.z) : 0);
   }
@@ -130,6 +138,18 @@ export class AudioZone extends Component {
     this.pos.x = p.x; this.pos.y = p.y; this.pos.z = p.z;
     if (this.instance) this.instance.position = this.pos;
     else this.voice?.setPosition(this.pos);
+  }
+
+  /** ADR 0333: the sound's spread (degrees) and whether it is heard in its bus's bed. */
+  private setSpatial(spread: number, bed: boolean): void {
+    if (this.instance) {
+      this.instance.setZoneSpatial(spread, bed);
+      return;
+    }
+    if (!this.voice || (Math.abs(spread - this.appliedSpread) <= 0.5 && bed === this.appliedBed)) return;
+    this.appliedSpread = spread;
+    this.appliedBed = bed;
+    this.voice.setSpatialOptions({ spread, bed });
   }
 
   private setLevel(gain: number): void {
@@ -142,12 +162,13 @@ export class AudioZone extends Component {
   private restart(path: string): void {
     this.stopSound();
     this.playing = path;
+    this.playingHeard = this.heard;
     if (!path || !worldPlays(this._world)) return;
     const box = this._worldBox();
     const at = { x: box.cx, y: (box.bottom + box.top) / 2, z: box.cz };
     if (isPlaylistPath(path)) {
       // Placed and levelled in the same frame (`_sync` goes on after this), before the frame's commands go out.
-      this.instance = playlists().play(path, { position: at, owner: this.node.name, zone: true }, worldKeyOf(this._world));
+      this.instance = playlists().play(path, { position: at, owner: this.node.name, zone: true, zoneInside: this.heard === "inside" }, worldKeyOf(this._world));
       return;
     }
     try {
@@ -171,6 +192,8 @@ export class AudioZone extends Component {
     this.voice = null;
     this.playing = "";
     this.appliedGain = NaN;
+    this.appliedSpread = NaN;
+    this.appliedBed = false;
   }
 
   override _onActivate(): void {

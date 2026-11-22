@@ -1,6 +1,6 @@
 // Thin typed wrapper over `myco_audio_decode.wasm` (ABI in the header of native/audio/crates/audio-decode/src/lib.rs).
 // The module exports its memory and every call that allocates may grow it, so views are made per use.
-import { reverbPresetBase } from "../reverbPresets";
+import { IR_GENERATED } from "../reverbPresets";
 
 /** A decoder failure: `code` is the ABI's negative `ERR_*` (0 for a failure of this wrapper), `message` the decoder's text. */
 export class DecoderError extends Error {
@@ -46,10 +46,12 @@ interface Exports {
   myco_ir_blob_ptr(): number;
   myco_ir_blob_len(): number;
   myco_ir_truncated(): number;
+  /** ABI 1.4 (ADR 0328): a stream loop's seam crossfade. */
+  myco_decode_seam(out: number, tail: number, frames: number, channels: number, phase: number, length: number, shape: number): number;
 }
 
 /** The generated zone IRs (R10, api-and-models §2.3), in `myco_ir_generate`'s code order. */
-export const IR_PRESETS = ["room", "corridor", "hall", "cave", "open"] as const;
+export const IR_PRESETS = IR_GENERATED;
 
 /** A prepared zone kernel (clip format 3, api-and-models §4.5): what C2b sends to the worklet. */
 export interface PreparedIr {
@@ -63,8 +65,8 @@ export interface PreparedIr {
 
 /** The ABI major this code speaks. */
 export const DECODER_ABI_MAJOR = 1;
-/** The lowest ABI minor this code needs (1.3: the `myco_ir_*` exports, ADR 0162 C2a). */
-export const DECODER_ABI_MINOR = 3;
+/** The lowest ABI minor this code needs (1.4: `myco_decode_seam`, ADR 0328; 1.3: the `myco_ir_*` exports, ADR 0162 C2a). */
+export const DECODER_ABI_MINOR = 4;
 /** Size of the info record `myco_decode_info` writes (ABI 1.1; 1.0 wrote 32 bytes without the loop fields). */
 const INFO_BYTES = 40;
 
@@ -209,8 +211,8 @@ export class DecoderWasm {
 
   /** As `prepareIr`, for a generated preset (`IR_PRESETS`); an unknown name throws `ERR_ARG` (-2). */
   generateIr(preset: string, targetRate: number, maxFrames: number): PreparedIr {
-    // ADR 0333: the named presets (`smallStone`, …) play one of the generated reverbs (`reverbPresets.ts`).
-    const index = (IR_PRESETS as readonly string[]).indexOf(reverbPresetBase(preset));
+    // ADR 0333: the named presets (`smallStone`, …) have their own generated responses (`reverbPresets.ts`).
+    const index = (IR_PRESETS as readonly string[]).indexOf(preset);
     return this.preparedIr(this.x.myco_ir_generate(index < 0 ? 0xffffffff : index, targetRate, maxFrames));
   }
 
@@ -229,6 +231,16 @@ export class DecoderWasm {
 
   close(handle: number): void {
     this.x.myco_decode_close(handle);
+  }
+
+  /**
+   * ADR 0328 (decoder ABI 1.4): a looping stream's seam crossfade, in place: mixes the tail (`frames` interleaved frames of
+   * `channels` at `tailPtr`, read past the loop's end) into the frames at `outPtr` (read from the loop's start), from
+   * seam frame `phase` of a `length`-frame crossfade in fade shape `shape` (`FADE_SHAPE_*`), as the core's clip voices
+   * cross a loop's seam. Returns the frames mixed.
+   */
+  seam(outPtr: number, tailPtr: number, frames: number, channels: number, phase: number, length: number, shape: number): number {
+    return this.check(this.x.myco_decode_seam(outPtr, tailPtr, frames, channels, phase, length, shape));
   }
 
   /** A fresh view of `count` int16 at `ptr` (valid until the next call that may grow memory). */

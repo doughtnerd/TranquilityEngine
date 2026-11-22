@@ -48,6 +48,7 @@ pub mod panner;
 pub mod params;
 pub mod scheduler;
 pub mod sends;
+pub mod spread;
 pub mod status;
 pub mod stream;
 pub mod submix;
