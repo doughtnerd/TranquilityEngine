@@ -8,10 +8,10 @@ import { fixtureDialogue } from "../dialogueFixture";
 import { parseCsv } from "../csv";
 import { coverageCsv, eventCoverage, unnamedEvents, unusedLines } from "./coverage";
 import {
-  addEvent, addPath, applyArgumentChange, changeArgument, deleteEvent, duplicateEvent, eventList, pathLints, pathTree, renameEvent, setEventSettings, setPathEntry, setPathLines,
-  usedEventNames, type EventContext,
+  addEvent, addPath, applyArgumentChange, changeArgument, deleteEvent, duplicateEvent, eventList, labelsChange, pathLints, pathTree, renameEvent, renameLineInDialogue,
+  setEventSettings, setPathEntry, setPathLines, usedEventNames, type EventContext,
 } from "./eventsModel";
-import { bench, FROM_GLOBAL, roll } from "./testBench";
+import { bench, benchAvailable, EMPTY_MEMORY, FROM_GLOBAL, rememberSaid, roll } from "./testBench";
 
 const ctx: EventContext = { parameterLabels: (name) => (name === "weather" ? ["Clear", "Rain", "Fog"] : null) };
 const spotted = (): DialogueEvent => fixtureDialogue().events[0];
@@ -132,6 +132,25 @@ describe("path table and arguments", () => {
     expect("next" in merge && merge.next.impact.removed).toEqual([]);
     expect(changeArgument(e, { kind: "link", parameter: "weather" }, ctx)).toEqual({ refused: 'the event already has an argument "weather"' });
     expect(changeArgument(e, { kind: "link", parameter: "nope" }, ctx)).toEqual({ refused: '"nope" isn\'t a global labelled parameter' });
+  });
+
+  it("reads typed labels with renames, and follows a renamed line key into every path", () => {
+    expect(labelsChange(1, "Clear, Rain = Storm  Fog")).toEqual({ kind: "labels", arg: 1, labels: ["Clear", "Storm", "Fog"], renamed: { Rain: "Storm" } });
+    const renamed = renameLineInDialogue(fixtureDialogue(), "guard_01", "guard_hey");
+    expect(renamed?.events[0].paths[0].lines.map((l) => l.key)).toEqual(["guard_hey", "intro_02"]);
+    expect(renameLineInDialogue(fixtureDialogue(), "nobody", "x")).toBeNull();
+  });
+
+  it("remembers what the bench said: once-lines and cooldowns hold lines back until reset", () => {
+    const rules = (k: string) => (k === "a" ? { cooldown: 5, once: false } : k === "b" ? { cooldown: 0, once: true } : null);
+    let m = rememberSaid(EMPTY_MEMORY, "e", "a", 10);
+    m = rememberSaid(m, "e", "b", 10);
+    expect(m.history.e).toEqual(["a", "b"]);
+    expect(benchAvailable(m, rules, 12)("a")).toBe(false);
+    expect(benchAvailable(m, rules, 15)("a")).toBe(true);
+    expect(benchAvailable(m, rules, 1000)("b")).toBe(false);
+    expect(benchAvailable(EMPTY_MEMORY, rules, 0)("b")).toBe(true);
+    expect(benchAvailable(EMPTY_MEMORY, rules, 0)("missing")).toBe(false);
   });
 
   it("groups the table as a tree and lints it", () => {

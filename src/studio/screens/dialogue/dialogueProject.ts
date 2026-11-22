@@ -9,7 +9,7 @@ import type { EditorProject } from "../../../editor/projects";
 import { assetKinds, type AssetFormat } from "../../../editor/sdk/contributions";
 import { emptyDialogue, formatDialogue, isDialoguePath, parseDialogue } from "../../../engine/audio/dialogue/format";
 import type { DialogueAsset } from "../../../engine/audio/dialogue/types";
-import { defaultAudioLocalisation } from "../../../engine/audio/localisation/format";
+import { DEFAULT_CAPTIONS_TABLE, defaultAudioLocalisation } from "../../../engine/audio/localisation/format";
 import { emptyLineTable, formatLineTable, isLineTablePath, parseLineTable } from "../../../engine/audio/localisation/lines/format";
 import type { LineTable } from "../../../engine/audio/localisation/types";
 import { sampleEditsFromSidecar } from "../../../engine/audio/sample/format";
@@ -109,6 +109,22 @@ export const dialoguePaths = (project: EditorProject): string[] => project.files
 
 /** The dialogue files as the Events tab reads them. */
 export const dialogueDocs = (project: EditorProject): DialogueDoc[] => dialoguePaths(project).map((path) => ({ path, asset: readDoc<DialogueAsset>(project, path, DIALOGUE_KIND) }));
+
+/** ADR 0343 §4: the captions string table (`localisation.captions`) and its keys, for the Playlists Caption field. */
+export function captionTable(project: EditorProject): { path: string; keys: string[] } {
+  const path = openMixDocument(project)?.value.value.localisation?.captions ?? DEFAULT_CAPTIONS_TABLE;
+  const keys = project.assets.has(path) || project.files.includes(path) ? readDoc<StringTable>(project, path, STRINGS_KIND).strings.map((s) => s.key) : [];
+  return { path, keys };
+}
+
+/** Add `key` to the captions table (creating the table in the reference language), its text `[its words]`: one undo step. */
+export function createCaptionKey(project: EditorProject, key: string, text: string): void {
+  const { path } = captionTable(project);
+  const doc = openDoc<StringTable>(project, path, STRINGS_KIND);
+  const t = project.files.includes(path) ? doc.value.peek() : emptyStringTable(projectLanguages(project).reference);
+  if (t.strings.some((s) => s.key === key)) return;
+  doc.edit({ ...t, strings: [...t.strings, { key, text, tags: [], examples: {} }] }, { label: `Caption key ${key}` });
+}
 
 /** The project as the screen's models read it. */
 export function dialogueData(project: EditorProject): DialogueData {
