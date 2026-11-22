@@ -161,16 +161,19 @@ fn aac_refused_without_the_feature() {
     }
 }
 
-/// B4's unknown codec: Ogg Opus opens as Ogg but its codec isn't in either build, so it is refused
-/// with a codec error (the core's warning names the format and the supported list); garbage is a
-/// format error.
+/// ADR 0337 A7 (ABI 1.5): Ogg Opus (ffmpeg's libopus, 64 kb/s) now decodes, through libopus in the default build, to
+/// its source's length (the pre-skip and the end trimming honoured) and close to it; garbage is still a format error.
 #[test]
-fn opus_and_garbage_are_refused() {
-    match Decoder::open(bytes("tone-48000-stereo.opus"), FormatHint::None) {
-        Err(DecodeError::Codec(m)) => assert!(m.contains("unsupported codec"), "{m}"),
-        Err(e) => panic!("opus: unexpected {e:?}"),
-        Ok(_) => panic!("opus: opened"),
-    }
+fn opus_decodes_and_garbage_is_refused() {
+    let src = wav("tone-48000-stereo.wav");
+    let (info, dec) = decode_all("tone-48000-stereo.opus", 4096);
+    assert_eq!(info.codec, Codec::Opus);
+    assert_eq!((info.sample_rate, info.channels), (48_000, 2));
+    assert_eq!(dec.len(), src.samples.len(), "the pre-skip and the end padding are trimmed");
+    let (lag, snr) = check_lossy("tone-48000-stereo.opus", "tone-48000-stereo.wav", 20.0, Some(0));
+    assert_eq!(lag, 0);
+    eprintln!("ffmpeg Opus 64 kb/s: SNR {snr:.1} dB");
     let garbage: myco_audio_decode::Bytes = std::sync::Arc::new(vec![0x5au8; 4096]);
     assert!(matches!(Decoder::open(garbage, FormatHint::None), Err(DecodeError::Format(_))));
 }
+
