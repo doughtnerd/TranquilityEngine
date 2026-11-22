@@ -20,7 +20,7 @@
  * Pure; no plugin, no DOM.
  */
 import { attenuationToJson, parseAttenuation } from "../attenuation/format";
-import { effectsToJson, parseEffects } from "../effects/catalogue";
+import { effectSpec, effectsToJson, parseEffects } from "../effects/catalogue";
 import { curveToJson, IdScope, isFiniteNumber, isRecord, LenientReader, CURVE_KEY_LIMIT, type JsonRecord } from "../lenientRead";
 import type { EffectLevel } from "../effects/types";
 import { isLabelled, MAX_LOCAL_PARAMETERS, parseParameters, type ParameterDef } from "../parameters";
@@ -187,6 +187,18 @@ class PlaylistReader {
 
   effects(raw: unknown, where: string, level: EffectLevel) {
     return parseEffects(raw, level, where, this.problems, PLAYLIST_LIMITS.effects);
+  }
+
+  /**
+   * A sequence clip's chain (ADR 0331 levels, the audio core's ABI 4.9): it runs on a submix of the clip's own, so it
+   * takes the instance level's types (a delay or reverb rings past the clip), and a gain, which the catalogue lists at
+   * the voice level only, runs there too (the core's submixes run it).
+   */
+  clipEffects(raw: unknown, where: string) {
+    const scratch: string[] = [];
+    const out = parseEffects(raw, "instance", where, scratch, PLAYLIST_LIMITS.effects);
+    for (const p of scratch) if (!p.includes(`${effectSpec("gain").label} can't run at the instance level`)) this.problems.push(p);
+    return out;
   }
 
   spatial(raw: unknown, where: string): PlaylistSpatial | null {
@@ -632,7 +644,7 @@ class PlaylistReader {
       enabled: r.bool(raw.enabled, `${where}.enabled`, true),
       loops,
       hiddenMarkers: hidden,
-      effects: this.effects(raw.effects, `${where}.effects`, "voice"),
+      effects: this.clipEffects(raw.effects, `${where}.effects`),
       automation: this.automation(raw.automation, `${where}.automation`, "clipTime"),
     };
   }
