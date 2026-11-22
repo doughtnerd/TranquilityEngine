@@ -4,6 +4,7 @@
 import type { StudioPanel } from "../shell/studioPanels";
 import { SCREENS, type ScreenId } from "../shell/screens";
 import { historyPanel, placeholderPanel } from "./placeholder";
+import { PLAYLISTS_PANELS } from "./playlists";
 import { PROFILER_PANELS } from "./profiler";
 import { SAMPLES_PANELS } from "./samples";
 
@@ -11,13 +12,7 @@ const purpose = (id: ScreenId) => SCREENS.find((s) => s.id === id)!.purpose;
 
 export const SCREEN_PANELS: Readonly<Record<ScreenId, readonly StudioPanel[]>> = {
   samples: SAMPLES_PANELS,
-  playlists: [
-    placeholderPanel({ id: "playlists-library", title: "Playlists", dock: "left", empty: "No playlists yet", body: "The project's playlists by folder. Create one to start." }),
-    placeholderPanel({ id: "playlists-editor", title: "Playlist", dock: "fill", fixed: true, icon: "≡", empty: "Playlists", body: <p>{purpose("playlists")} Pick a playlist to edit and audition it.</p> }),
-    placeholderPanel({ id: "playlists-inspector", title: "Inspector", dock: "right", empty: "Nothing selected", body: "The selected entry's playback rules, voice curves, effects and output." }),
-    placeholderPanel({ id: "playlists-voices", title: "Plays now", dock: "bottom", empty: "Nothing playing", body: "What an audition plays, voice by voice, and why." }),
-    historyPanel("playlists"),
-  ],
+  playlists: PLAYLISTS_PANELS,
   mixer: [
     placeholderPanel({ id: "mixer-snapshots", title: "Snapshots", dock: "left", empty: "No snapshots yet", body: "Named mixes the game blends to (a pause menu, underwater)." }),
     placeholderPanel({ id: "mixer-board", title: "Mixer", dock: "fill", fixed: true, icon: "☰", empty: "Mixer", body: <p>{purpose("mixer")} Changes are heard through the Studio's runtime: audition a playlist or replay a take.</p> }),
