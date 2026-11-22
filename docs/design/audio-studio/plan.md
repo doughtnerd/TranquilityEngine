@@ -96,6 +96,6 @@ Waves (by file ownership, so parallel tasks don't collide):
   core and playlist runtime + per-level submixes; Samples re-import and source versions + tempo/root detection (owner: "I do have tempo and root note detection UI, make sure to use it" — wire the existing Detect buttons in `SampleTools.tsx` and the import dialog's detect toggle in `ImportDialog.tsx`/`importPlan.ts`, matching the prototype's detection UI; values land with `source: "detected"`) + the render follow-ups (worker, content-hash cache in `.myco/cache/samples/`, exports rendering baked samples, sample automation lane editing); native
   spatial (per-voice spread, zone-interior beds, `bedBeyond`, preset reverb times); smaller items (starved-memory
   status flag, music debug rows from playlists, "Create playlist from clips" in the Studio, stream-voice loops, curve
-  table per-binding time origin, lift `fields.tsx` into the kit, migrate CLI wording).
+  table per-binding time origin, lift `fields.tsx` into the kit, migrate CLI wording, the recurring `core/zoneIr.test.ts` load failure, base-scene emitters in the Spatial Voices table).
 - **W12:** implement (2) and (4). **W13:** ADRs and implementation for (1) and (3). **W14:** (5).
 - **Final:** minimal e2e specs for core workflows, one Playwright run, `test:stories`, handoff.
