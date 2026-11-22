@@ -7,8 +7,7 @@ import { BootstrapError, bootstrapLinks, resolveBootstrap, templateConfig, type 
 import type { AudioSettings } from "../audio/settings";
 import { onAudioConfigured } from "./audioConfigure";
 import { resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
-import { Graphics } from "../render/Graphics";
-import type { FrameMonitor } from "../render/qualityDetect";
+import type { AutoQuality } from "../render/autoQuality";
 import { LinkApplier } from "./linkApplier";
 import { bootProject } from "./projectBoot";
 import type { ProjectContext } from "./projectContext";
@@ -106,11 +105,10 @@ export class Engine implements BootstrapEngine, WorldOwner {
   /** The declarative bootstrap's links (ADR 0033, 0062). */
   private readonly links = new LinkApplier({ find: (name) => this._world(name), alive: (world) => this.handles.has(world) });
   private rafId = 0;
-  /** Automatic quality (ADR 0055): watches the first seconds of play and steps the tier down if they're slow. */
-  private qualityMonitor: FrameMonitor | null = null;
+  /** Automatic quality (ADR 0055, 0322): watches the first seconds of play and steps the tier down if they're slow. */
+  private autoQuality: AutoQuality | null = null;
   /** The process globals this Engine registered (ADR 0319), released by `dispose`. */
   private context: ProjectContext | null = null;
-  private monitorFrames = 0;
   private lastTime = 0;
   private running = false;
   /** @internal Editor: gets timings while set (play mode's Stats); null costs one check per phase. */
@@ -159,7 +157,7 @@ export class Engine implements BootstrapEngine, WorldOwner {
         quality: options.quality ?? "player",
       });
       engine.context = booted.context;
-      engine.qualityMonitor = booted.monitor;
+      engine.autoQuality = booted.autoQuality;
       const bootstrap: Bootstrap = ownWorld ? (e) => void e.createWorld(KIND_WORLDS[kind]) : await resolveBootstrap(setting, { loadScript: options.loadScript });
       await bootstrap(engine);
       const starting = engine.starting!;
@@ -395,28 +393,6 @@ export class Engine implements BootstrapEngine, WorldOwner {
     this.rafId = requestAnimationFrame(frame);
   }
 
-  /** Feed the quality monitor (ADR 0055), from the 30th frame on so start-up and the first load are past. */
-  private watchQuality(dt: number): void {
-    const monitor = this.qualityMonitor;
-    if (!monitor || ++this.monitorFrames < 30) return;
-    if (!Graphics.autoDetected) {
-      this.qualityMonitor = null; // the player chose a tier meanwhile
-      return;
-    }
-    const verdict = monitor.frame(dt);
-    if (verdict === "done") this.qualityMonitor = null;
-    else if (verdict === "stepDown") {
-      const tiers = Graphics.tiers;
-      const i = tiers.indexOf(Graphics.quality);
-      if (i > 0) {
-        Graphics._applyDetected(tiers[i - 1]);
-        console.info(`[myco] graphics quality stepped down to "${tiers[i - 1]}" to keep the frame rate up.`);
-      }
-      monitor.steppedDown();
-      monitor.setAtLowest(i - 1 <= 0);
-    }
-  }
-
   stop(): void {
     if (!this.running) return; // never started (headless, stepped by hand): nothing to cancel
     this.running = false;
@@ -431,7 +407,7 @@ export class Engine implements BootstrapEngine, WorldOwner {
   step(dt: number): void {
     const timing = this.timing;
     const begun = timing ? performance.now() : 0;
-    this.watchQuality(dt);
+    if (this.autoQuality && !this.autoQuality.frame(dt)) this.autoQuality = null;
     this.links.retryDeferred();
     // 2. Input snapshot: once per Engine frame, shared by the Worlds that take input
     Input.beginFrame();

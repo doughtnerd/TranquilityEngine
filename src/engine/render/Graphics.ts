@@ -2,45 +2,21 @@
  * Graphics quality (ADR 0050): which of the project's quality tiers is active. Like `Storage`, it
  * belongs to the player and the process, not to a World (ADR 0032): every render backend applies
  * the same tier. Setting `Graphics.quality` applies the tier at once and saves the choice, so it
- * comes back the next time the game starts.
+ * comes back the next time the game starts. Automatic quality (ADR 0055, 0322) is `autoQuality.ts`.
  */
 import { defaultGraphics, detectPlatform, type Platform, type GraphicsSettings, type QualityTier } from "../core/graphics";
 import { Storage } from "../platform/Storage";
-import { guessTier, tierForGuess, type DeviceInfo } from "./qualityDetect";
+import { detectedTier } from "./autoQuality";
 
 /** The Storage key (namespace "settings") holding the player's chosen tier. */
 export const QUALITY_KEY = "graphics.quality";
-/** The Storage key (namespace "settings") holding the tier automatic detection chose (ADR 0055). */
-export const AUTO_QUALITY_KEY = "graphics.autoQuality";
 
 let settings: GraphicsSettings = defaultGraphics();
 let current: QualityTier = settings.tiers.find((t) => t.name === settings.defaultTier)!;
 let version = 0;
 let autoDetected = false;
-let device: DeviceInfo | null = null;
 let platform: Platform = "web";
 let effectiveDefault = settings.defaultTier;
-
-/** What the browser says about the machine (ADR 0055): the GPU's name, cores, memory and screen. Read once. */
-function deviceInfo(): DeviceInfo {
-  if (device) return device;
-  const info: DeviceInfo = {};
-  const nav = globalThis.navigator as (Navigator & { deviceMemory?: number }) | undefined;
-  if (nav?.hardwareConcurrency) info.cores = nav.hardwareConcurrency;
-  if (typeof nav?.deviceMemory === "number") info.memoryGB = nav.deviceMemory;
-  if (typeof screen !== "undefined") info.screenPixels = screen.width * screen.height * (globalThis.devicePixelRatio || 1) ** 2;
-  try {
-    const gl = typeof document !== "undefined" ? document.createElement("canvas").getContext("webgl2") : null;
-    if (gl) {
-      const ext = gl.getExtension("WEBGL_debug_renderer_info");
-      info.gpu = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
-      gl.getExtension("WEBGL_lose_context")?.loseContext();
-    }
-  } catch {
-    // No GPU name: the guess falls back to the project's default.
-  }
-  return (device = info);
-}
 
 const pick = (name: string | undefined): QualityTier | undefined => (name === undefined ? undefined : settings.tiers.find((t) => t.name === name));
 
@@ -68,17 +44,18 @@ export class Graphics {
 
   /**
    * The tier the machine's GPU suggests (ADR 0055), among the project's tiers: a guess from the
-   * GPU's name, cores and memory. It doesn't apply it; set `Graphics.quality` to use it.
+   * GPU's name, cores and memory, where "the default" is this platform's default tier. It doesn't
+   * apply it; set `Graphics.quality` to use it.
    */
   static detectQuality(): string {
-    return tierForGuess(guessTier(deviceInfo()).guess, Graphics.tiers, settings.defaultTier);
+    return detectedTier();
   }
 
-  /** @internal The Engine's automatic detection: apply a tier and remember it as detected, not as the player's choice. */
-  static _applyDetected(name: string): void {
-    if (!Graphics._apply(name)) return;
+  /** @internal Automatic quality (ADR 0322): apply a tier as detected, not as the player's choice. False if there's no such tier. */
+  static _applyDetected(name: string): boolean {
+    if (!Graphics._apply(name)) return false;
     autoDetected = true;
-    void Storage.save(AUTO_QUALITY_KEY, name, "settings").catch(() => undefined);
+    return true;
   }
 
   /** @internal Bumped whenever the active tier or its values change, so render backends re-apply it. */
