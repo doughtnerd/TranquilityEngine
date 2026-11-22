@@ -74,10 +74,18 @@
 //! assumption). Words: 0 `u32` axis (0 X, 1 Y, 2 Z), 1 `u32` a bool parameter that switches it
 //! on, or `NONE` (always on), then one `u32` per bone: the bone whose motion it takes (itself for
 //! a centre bone; missing or out of range: itself). Root motion is mirrored too.
+//!
+//! **Flip table (T41, decision D48):** a bone's word may also carry its mirror flip in bits
+//! 16–17 ([`MIRROR_FLIP_SHIFT`]: 0 none, 1 X, 2 Y, 3 Z; bits 18–31 zero), as the skeleton
+//! profile's `mirror_table` gives it (`anim-wasm`'s `retarget_mirror_table` writes the words). A
+//! word with flips is corrected with `anim_pose::mirror::correct_flip` (the per-bone step of
+//! `mirror_flipped`) against the parent's flip; a table without flips gives exactly the plain
+//! local sign flip. A word with any of bits 18–31 set (such as `NONE`) means the bone itself, no
+//! flip.
 
 use anim_format::NONE;
 use anim_pose::blend::lerp;
-use anim_pose::mirror::mirror_transform;
+use anim_pose::mirror::{correct_flip, mirror_transform, Flip};
 use anim_pose::root::RootDelta;
 use anim_pose::Axis;
 
@@ -106,6 +114,23 @@ pub mod kind {
     pub const TIME_SCALE: u16 = 7;
     /// Its child mirrored.
     pub const MIRROR: u16 = 8;
+}
+
+/// [`kind::MIRROR`]: the shift of a bone word's flip (bits 16–17; module docs).
+pub const MIRROR_FLIP_SHIFT: u32 = 16;
+
+/// A [`kind::MIRROR`] bone word: partner `partner` with flip `flip` (0 none, 1 X, 2 Y, 3 Z).
+pub fn mirror_word(partner: u16, flip: u8) -> u32 {
+    partner as u32 | ((flip as u32 & 3) << MIRROR_FLIP_SHIFT)
+}
+
+/// A MIRROR bone word's partner (`None`: the bone itself) and flip.
+fn mirror_entry(word: u32) -> (Option<usize>, Flip) {
+    if word >> (MIRROR_FLIP_SHIFT + 2) != 0 {
+        return (None, Flip::None);
+    }
+    let flip = Flip::from_u8((word >> MIRROR_FLIP_SHIFT) as u8 & 3).unwrap_or_default();
+    (Some((word & 0xFFFF) as usize), flip)
 }
 
 /// The most inputs a weighted blend (enum, blend space, machine stack) folds.
@@ -822,8 +847,10 @@ fn mirror(cx: &mut EvalContext<'_>, node: NodeData<'_>) {
                 return;
             };
             cx.eval_pose(child, s1);
-            let bones = cx.skeleton().bones();
+            let skeleton = cx.skeleton();
+            let bones = skeleton.bones();
             let partners = &node.params[2.min(node.params.len())..];
+            let entry = |b: usize| mirror_entry(partners.get(b).copied().unwrap_or(NONE));
             // Gather bone by bone (a partner can sit in any group).
             let mut i = 0;
             while i < bones {
@@ -834,9 +861,14 @@ fn mirror(cx: &mut EvalContext<'_>, node: NodeData<'_>) {
                         if b >= bones {
                             return anim_math::AosTransform::identity();
                         }
-                        let p = partners.get(b).copied().unwrap_or(b as u32) as usize;
-                        let p = if p < bones { p } else { b };
-                        mirror_transform(anim_pose::bone(cx.pose(s1), p), axis)
+                        let (p, own) = entry(b);
+                        let p = p.filter(|&p| p < bones).unwrap_or(b);
+                        let m = mirror_transform(anim_pose::bone(cx.pose(s1), p), axis);
+                        let parent = match skeleton.parents.get(b) {
+                            Some(&pb) if (pb as usize) < bones => entry(pb as usize).1,
+                            _ => Flip::None,
+                        };
+                        correct_flip(m, own, parent)
                     });
                 cx.pose_mut(out)[g] = anim_math::SoaTransform::from_aos(&lanes);
                 i = (g + 1) * anim_math::layout::LANES;

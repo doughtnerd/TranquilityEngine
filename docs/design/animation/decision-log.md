@@ -71,3 +71,8 @@ Decisions made during the build that the records didn't settle. Each entry: the 
 - **D67 (T40g).** *Motion-warp windows* are named by cue markers; a late or moving target re-plans from the current frame to the window end.
 - **D68 (T40g).** *Distance warping* is a `DISTANCE_MATCH` node gating its input at a computed rate (same-frame exact), not a speed parameter.
 - **D69 (T40g).** *An invalid rig parameter block* loads as an unknown node: it passes its input through and is reported once at load.
+- **D70 (T41g).** *The RETARGET node runs a nested source graph* on the source skeleton inside its own state words, with declared capacities (like linked graphs), so the blob stays fixed-size and snapshots exact. Retarget scratch lives per map (it holds nothing between frames).
+- **D71 (T41g).** *MIRROR flips* are packed into the partner words (bits 16–17); no flips gives the old output exactly.
+- **D72 (T41g).** *The raw retarget bake ships in the runtime module;* compression only behind the `editor` cargo feature.
+- **D73 (T44r).** *Drive targets* are relative to the parent body, in model space (+Y up); the ragdoll plugin converts them to joint drive space with each joint's rest frames. Stiffness, damping and max force scale by global × bone × multiplier; pins default to 1 on root bodies. Builder defaults: stiffness 400, damping 40, max force 1000.
+- **D74 (T44r).** *The drive source* is the first `PHYSICS_BLEND` node's stored animated input, kept in the blob so drives after a restore are exact. Belly up means on the back; anything else counts as on the front.

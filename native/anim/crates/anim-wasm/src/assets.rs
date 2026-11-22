@@ -16,6 +16,8 @@
 //! | clip (`myco.anim@1`) | a sampler over its compressed form (else its raw form) with its binding table (`anim-sample`'s `ClipBindings`: decoded channel, track and key tables, so sampling and track windows don't re-read records), duration, flags, root curve; and (T31) its sync markers keyed by name hash, its exit markers' times and its curve tracks by name hash, for the graph's markers, exit times and curve conditions; (T40) its cue markers by name hash (motion-warp windows) and its root curve's cumulative ground travel per frame (distance matching) |
 //! | graph (`myco.animgraph@1`) | its [`Program`] and a binding table (an asset handle per string id: clips, masks and, for linked graphs, graphs) |
 //! | mask | per-bone weights packed like a pose |
+//! | retarget (T41) | a skeleton profile, or a retarget map with copies of its source skeleton and its scratch ([`crate::retarget`]) |
+//! | ragdoll (T44r) | a validated ragdoll description ([`crate::physics`]) |
 //!
 //! The parsed views borrow the asset's own block for as long as the asset lives (the block never
 //! moves and is freed after the views, when the slot is cleared).
@@ -170,6 +172,10 @@ pub enum Asset {
     Clip(ClipAsset),
     Graph(GraphAsset),
     Mask(MaskAsset),
+    /// T41: a skeleton profile or a retarget map ([`crate::retarget`]).
+    Retarget(Box<crate::retarget::RetargetAsset>),
+    /// T44r: a ragdoll description ([`crate::physics`]).
+    Ragdoll(Box<crate::physics::RagdollAsset>),
 }
 
 struct Slot {
@@ -214,7 +220,7 @@ impl Arena {
         self.held
     }
 
-    fn insert(&mut self, asset: Asset) -> Result<u32, u32> {
+    pub(crate) fn insert(&mut self, asset: Asset) -> Result<u32, u32> {
         if let Some(index) = self.free.pop() {
             let slot = &mut self.slots[index as usize];
             slot.asset = Some(asset);
@@ -421,6 +427,8 @@ impl Arena {
         if asset != 0 {
             match self.get(asset) {
                 Ok(Asset::Clip(_)) | Ok(Asset::Mask(_)) | Ok(Asset::Graph(_)) => {}
+                // T41: a retarget map, for the `retarget` node.
+                Ok(Asset::Retarget(r)) if r.is_map() => {}
                 Ok(_) => return STATUS_WRONG_KIND,
                 Err(e) => return e,
             }
@@ -478,6 +486,14 @@ impl Assets for Arena {
 
     fn mask(&self, handle: u32) -> Option<&[F32x4]> {
         self.mask_asset(handle).ok().map(|m| m.packed.as_slice())
+    }
+
+    // T41: retarget maps for the `retarget` node family.
+    fn retarget(&self, handle: u32) -> Option<anim_graph::retarget::RetargetRef<'_>> {
+        match self.get(handle).ok()? {
+            Asset::Retarget(r) => r.node_ref(),
+            _ => None,
+        }
     }
 }
 

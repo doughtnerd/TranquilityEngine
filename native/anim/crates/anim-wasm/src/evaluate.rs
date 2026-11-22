@@ -645,7 +645,9 @@ pub fn evaluate(
             else {
                 continue;
             };
-            let slots = program.pose_slots() * groups;
+            // T41: slots of the largest skeleton (`reserve_slots` sizes the stack so), so a
+            // retarget node's source graph on another skeleton has room after the outer slots.
+            let slots = program.pose_slots() * soa_len(max_bones);
             if frame.poses.len() < slots {
                 continue;
             }

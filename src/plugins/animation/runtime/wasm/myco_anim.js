@@ -157,6 +157,34 @@ export function graph_changes_ptr() {
 }
 
 /**
+ * Guesses a profile's bone map for a skeleton file; returns the role count (0: see `last_status`).
+ * @param {Uint8Array | number[]} skeleton
+ * @param {number} profile
+ * @param {Uint16Array} bones
+ * @param {Float32Array} confidence
+ * @returns {number}
+ */
+export function guess_bone_map(skeleton, profile, bones, confidence) {
+    const val4 = +profile;
+    let ptr0, len0, ptr1, len1, ptr2, len2;
+    try {
+        ptr0 = passArray8ToWasm0(skeleton, wasm.__wbindgen_malloc);
+        len0 = WASM_VECTOR_LEN;
+        ptr1 = passArray16ToWasm0(bones, wasm.__wbindgen_malloc);
+        len1 = WASM_VECTOR_LEN;
+        ptr2 = passArrayF32ToWasm0(confidence, wasm.__wbindgen_malloc);
+        len2 = WASM_VECTOR_LEN;
+    } catch (e) {
+        if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 4, 4); }
+        if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 2, 2); }
+        if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+        throw e;
+    }
+    const ret = wasm.guess_bone_map(ptr0, len0, val4, ptr1, len1, bones, ptr2, len2, confidence);
+    return ret >>> 0;
+}
+
+/**
  * Reads an `INIT` record and returns a `MEMORY_NEEDED` record (both `anim-wire` family `core`);
  * on `STATUS_OK` the core restarts with those limits. Never throws: a malformed record is
  * answered with `STATUS_BAD_RECORD`.
@@ -248,6 +276,147 @@ export function matrices_ptr() {
 }
 
 /**
+ * Gives an instance a physics row; returns its index or `NONE` (see `last_status`).
+ * @param {number} instance
+ * @param {number} ragdoll
+ * @returns {number}
+ */
+export function physics_attach(instance, ragdoll) {
+    const ret = wasm.physics_attach(instance, ragdoll);
+    return ret >>> 0;
+}
+
+/**
+ * Get-up: the physical pose into a pose-snapshot node; returns a status.
+ * @param {number} instance
+ * @param {number} physical_node
+ * @param {number} snapshot_node
+ * @returns {number}
+ */
+export function physics_capture(instance, physical_node, snapshot_node) {
+    const ret = wasm.physics_capture(instance, physical_node, snapshot_node);
+    return ret >>> 0;
+}
+
+/**
+ * Sizes the physics rows and views; returns a status.
+ * @param {number} max_rows
+ * @returns {number}
+ */
+export function physics_configure(max_rows) {
+    const ret = wasm.physics_configure(max_rows);
+    return ret >>> 0;
+}
+
+/**
+ * Frees an instance's physics row; returns a status.
+ * @param {number} instance
+ * @returns {number}
+ */
+export function physics_detach(instance) {
+    const ret = wasm.physics_detach(instance);
+    return ret >>> 0;
+}
+
+/**
+ * After the fixed evaluate: the drive targets into the output view. Returns rows written.
+ * @param {number} world
+ * @returns {number}
+ */
+export function physics_drive(world) {
+    const ret = wasm.physics_drive(world);
+    return ret >>> 0;
+}
+
+/**
+ * The byte offset of the physics input view.
+ * @returns {number}
+ */
+export function physics_in_ptr() {
+    const ret = wasm.physics_in_ptr();
+    return ret >>> 0;
+}
+
+/**
+ * The input view's bytes per row.
+ * @returns {number}
+ */
+export function physics_in_row_bytes() {
+    const ret = wasm.physics_in_row_bytes();
+    return ret >>> 0;
+}
+
+/**
+ * The byte offset of the physics output view.
+ * @returns {number}
+ */
+export function physics_out_ptr() {
+    const ret = wasm.physics_out_ptr();
+    return ret >>> 0;
+}
+
+/**
+ * The output view's bytes per row.
+ * @returns {number}
+ */
+export function physics_out_row_bytes() {
+    const ret = wasm.physics_out_row_bytes();
+    return ret >>> 0;
+}
+
+/**
+ * After the physics step: the simulated bodies into the physical-pose nodes. Returns rows applied.
+ * @param {number} world
+ * @returns {number}
+ */
+export function physics_read(world) {
+    const ret = wasm.physics_read(world);
+    return ret >>> 0;
+}
+
+/**
+ * Decodes a custom skeleton profile; returns its handle, or 0 (see `last_status`).
+ * @param {Uint8Array | number[]} bytes
+ * @returns {number}
+ */
+export function profile_decode(bytes) {
+    const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.profile_decode(ptr0, len0);
+    return ret >>> 0;
+}
+
+/**
+ * The default ragdoll description of a skeleton file (empty: see `last_status`).
+ * @param {Uint8Array | number[]} skeleton
+ * @param {number} profile
+ * @returns {Uint8Array}
+ */
+export function ragdoll_build(skeleton, profile) {
+    const val2 = +profile;
+    const ptr0 = passArray8ToWasm0(skeleton, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.ragdoll_build(ptr0, len0, val2);
+    var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v3;
+}
+
+/**
+ * Creates a ragdoll description asset for a skeleton; its handle, or 0 (see `last_status`).
+ * @param {number} skeleton
+ * @param {Uint8Array | number[]} bytes
+ * @returns {number}
+ */
+export function ragdoll_create(skeleton, bytes) {
+    const val2 = +skeleton;
+    const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.ragdoll_create(val2, ptr0, len0);
+    return ret >>> 0;
+}
+
+/**
  * Releases an asset; returns a status.
  * @param {number} handle
  * @returns {number}
@@ -268,6 +437,104 @@ export function restore(handle, bytes) {
     const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.restore(val2, ptr0, len0);
+    return ret >>> 0;
+}
+
+/**
+ * Bakes a clip through a retarget map into a raw clip (empty: see `last_status`).
+ * @param {number} map
+ * @param {Uint8Array | number[]} clip
+ * @param {number} root_axes
+ * @param {Float32Array | number[]} ik_weights
+ * @returns {Uint8Array}
+ */
+export function retarget_bake(map, clip, root_axes, ik_weights) {
+    const val3 = +map;
+    const val4 = +root_axes;
+    let ptr0, len0, ptr1, len1;
+    try {
+        ptr0 = passArray8ToWasm0(clip, wasm.__wbindgen_malloc);
+        len0 = WASM_VECTOR_LEN;
+        ptr1 = passArrayF32ToWasm0(ik_weights, wasm.__wbindgen_malloc);
+        len1 = WASM_VECTOR_LEN;
+    } catch (e) {
+        if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+        if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+        throw e;
+    }
+    const ret = wasm.retarget_bake(val3, ptr0, len0, val4, ptr1, len1);
+    var v5 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v5;
+}
+
+/**
+ * The IK goals of a retarget map.
+ * @param {number} map
+ * @returns {number}
+ */
+export function retarget_goal_count(map) {
+    const ret = wasm.retarget_goal_count(map);
+    return ret >>> 0;
+}
+
+/**
+ * Creates a retarget map asset; returns its handle, or 0 (see `last_status`).
+ * @param {number} src_skeleton
+ * @param {number} src_profile
+ * @param {Uint16Array | number[]} src_map
+ * @param {number} tgt_skeleton
+ * @param {number} tgt_profile
+ * @param {Uint16Array | number[]} tgt_map
+ * @param {number} flags
+ * @returns {number}
+ */
+export function retarget_map_create(src_skeleton, src_profile, src_map, tgt_skeleton, tgt_profile, tgt_map, flags) {
+    const val3 = +src_skeleton;
+    const val4 = +src_profile;
+    const val5 = +tgt_skeleton;
+    const val6 = +tgt_profile;
+    const val7 = +flags;
+    let ptr0, len0, ptr1, len1;
+    try {
+        ptr0 = passArray16ToWasm0(src_map, wasm.__wbindgen_malloc);
+        len0 = WASM_VECTOR_LEN;
+        ptr1 = passArray16ToWasm0(tgt_map, wasm.__wbindgen_malloc);
+        len1 = WASM_VECTOR_LEN;
+    } catch (e) {
+        if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 2, 2); }
+        if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 2, 2); }
+        throw e;
+    }
+    const ret = wasm.retarget_map_create(val3, val4, ptr0, len0, val5, val6, ptr1, len1, val7);
+    return ret >>> 0;
+}
+
+/**
+ * Writes the `MIRROR` node's bone words for a skeleton file; returns the bone count (0: failure).
+ * @param {Uint8Array | number[]} skeleton
+ * @param {number} profile
+ * @param {Uint16Array | number[]} map
+ * @param {Uint32Array} out
+ * @returns {number}
+ */
+export function retarget_mirror_table(skeleton, profile, map, out) {
+    const val4 = +profile;
+    let ptr0, len0, ptr1, len1, ptr2, len2;
+    try {
+        ptr0 = passArray8ToWasm0(skeleton, wasm.__wbindgen_malloc);
+        len0 = WASM_VECTOR_LEN;
+        ptr1 = passArray16ToWasm0(map, wasm.__wbindgen_malloc);
+        len1 = WASM_VECTOR_LEN;
+        ptr2 = passArray32ToWasm0(out, wasm.__wbindgen_malloc);
+        len2 = WASM_VECTOR_LEN;
+    } catch (e) {
+        if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 4, 4); }
+        if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 2, 2); }
+        if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+        throw e;
+    }
+    const ret = wasm.retarget_mirror_table(ptr0, len0, val4, ptr1, len1, ptr2, len2, out);
     return ret >>> 0;
 }
 
@@ -684,12 +951,42 @@ function getStringFromWasm0(ptr, len) {
     return decodeText(getUint8ArrayMemory0().subarray(ptr, ptr + len));
 }
 
+let cachedUint16ArrayMemory0 = null;
+function getUint16ArrayMemory0() {
+    if (cachedUint16ArrayMemory0 === null || cachedUint16ArrayMemory0.byteLength === 0) {
+        cachedUint16ArrayMemory0 = new Uint16Array(wasm.memory.buffer);
+    }
+    return cachedUint16ArrayMemory0;
+}
+
+let cachedUint32ArrayMemory0 = null;
+function getUint32ArrayMemory0() {
+    if (cachedUint32ArrayMemory0 === null || cachedUint32ArrayMemory0.byteLength === 0) {
+        cachedUint32ArrayMemory0 = new Uint32Array(wasm.memory.buffer);
+    }
+    return cachedUint32ArrayMemory0;
+}
+
 let cachedUint8ArrayMemory0 = null;
 function getUint8ArrayMemory0() {
     if (cachedUint8ArrayMemory0 === null || cachedUint8ArrayMemory0.byteLength === 0) {
         cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
     }
     return cachedUint8ArrayMemory0;
+}
+
+function passArray16ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 2, 2) >>> 0;
+    getUint16ArrayMemory0().set(arg, ptr / 2);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArray32ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 4, 4) >>> 0;
+    getUint32ArrayMemory0().set(arg, ptr / 4);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
 }
 
 function passArray8ToWasm0(arg, malloc) {
@@ -728,6 +1025,8 @@ function __wbg_finalize_init(instance, module) {
     wasm = instance.exports;
     wasmModule = module;
     cachedFloat32ArrayMemory0 = null;
+    cachedUint16ArrayMemory0 = null;
+    cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     wasm.__wbindgen_start();
     return wasm;
