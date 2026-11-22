@@ -46,7 +46,7 @@
 .pl-link-mark { color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .pl-original { opacity: 0.6; }
 .pl-out-mark { color: var(--accent); font-size: calc(11px * var(--ui-scale)); white-space: nowrap; }
-.tree-view .pl-linked > *:first-child, .pl-entry.pl-linked { outline: 1px dashed var(--border-strong); outline-offset: -2px; }
+.tree-view .row.pl-linked, .pl-entry.pl-linked { outline: 1px dashed var(--border-strong); outline-offset: -2px; }
 .pl-top-drop { margin: 4px 6px; padding: 4px 8px; border: 1px dashed var(--border-strong); border-radius: 4px; color: var(--muted); text-align: center; }
 .pl-top-drop.over { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
 .pl-drop-why { margin: 2px 8px; color: var(--warning); font-size: calc(11px * var(--ui-scale)); }

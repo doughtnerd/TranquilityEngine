@@ -11,7 +11,7 @@ import "../../components/audioParts.css";
 import "./playlists.css";
 
 const actions = (): TreeActions => ({
-  open: fn(), newPlaylist: fn(), newSequence: fn(), newFolder: fn(), renameFile: fn(), renameFolder: fn(), duplicate: fn(), remove: fn(), removeMany: fn(), deleteFolder: fn(),
+  open: fn(), newPlaylist: fn(), newPlaylistInside: fn(), newSequence: fn(), newFolder: fn(), renameFile: fn(), renameFolder: fn(), duplicate: fn(), remove: fn(), removeMany: fn(), deleteFolder: fn(),
   unlink: fn(), makeShared: fn(), moveTo: fn(), planDrop: (s, t, z) => planDrop(s, t, z, loadFixture), drop: fn(), openSamples: fn(),
 });
 

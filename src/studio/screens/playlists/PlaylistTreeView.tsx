@@ -15,6 +15,8 @@ import { dropZone, type DragSource, type DropPlan, type DropTarget, type DropZon
 export interface TreeActions {
   open(node: PlaylistNode): void;
   newPlaylist(folder: string): void;
+  /** New playlist inside the open one (an embedded Queue), when it holds entries. */
+  newPlaylistInside(): void;
   newSequence(folder: string): void;
   newFolder(parent: string): void;
   renameFile(path: string, name: string): void;
@@ -41,6 +43,8 @@ export interface PlaylistTreeViewProps {
   readonly openKey: string | null;
   readonly writable: boolean;
   readonly hasSamples: boolean;
+  /** The open playlist's name when it can hold a new playlist (offered as "New playlist in …"). */
+  readonly nestInto?: string | null;
   readonly actions: TreeActions;
 }
 
@@ -274,6 +278,7 @@ export function PlaylistTreeView(props: PlaylistTreeViewProps) {
           onClose={() => setAddMenu(null)}
           entries={[
             { id: "pl", label: "New playlist", run: () => actions.newPlaylist(selectedFolder) },
+            ...(props.nestInto ? [{ id: "in", label: `New playlist in ${props.nestInto}`, run: () => actions.newPlaylistInside() }] : []),
             { id: "sq", label: "New sequence", run: () => actions.newSequence(selectedFolder) },
             { id: "f", label: "New folder", run: () => actions.newFolder(selectedFolder) },
           ]}

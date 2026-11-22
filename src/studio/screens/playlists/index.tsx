@@ -60,6 +60,7 @@ const treeActions: TreeActions = {
     if (p) openPlaylist(p);
   },
   newPlaylist: (folder) => void newPlaylist(folder, false),
+  newPlaylistInside: () => void newPlaylist(null, true),
   newSequence: (folder) => void newSequence(folder),
   newFolder: (parent) => void newPlaylistFolder(parent),
   renameFile: (path, name) => void renamePlaylistFile(path, name),
@@ -105,9 +106,11 @@ function TreePanel() {
   const project = currentProject.value;
   const files = project?.files ?? [];
   const nodes = playlistTree(files, project?.folders ?? [], loadPlaylist);
+  const open = openBody.value;
+  const nestInto = open && open.type !== "clip" && open.type !== "sequence" ? lastCrumbName() : null;
   return (
     <Panel bodyClass="pl-panel-body">
-      <PlaylistTreeView nodes={nodes} folders={project?.folders ?? []} openKey={openKey()} writable={writable()} hasSamples={files.some(isSamplePath)} actions={treeActions} />
+      <PlaylistTreeView nodes={nodes} folders={project?.folders ?? []} openKey={openKey()} writable={writable()} hasSamples={files.some(isSamplePath)} nestInto={nestInto} actions={treeActions} />
     </Panel>
   );
 }
