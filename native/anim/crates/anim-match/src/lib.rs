@@ -54,7 +54,7 @@ pub use bake::{bake, BakeClip, BakeError, BakeSettings, Baked, Normalization, Ta
 pub use character::CharacterFrame;
 pub use controller::{ControllerSettings, MatchController, MatchOutput};
 pub use db::{tag_index, LoadError, MatchDb, TagFilter, TagMask};
-pub use query::{build_query, PoseInput, QueryError};
+pub use query::{build_query, build_query_from, BoneSource, PoseInput, QueryError};
 pub use schema::{default_schema, FeatureSpec};
 pub use search::{Match, SearchFilter, SearchMode, Skip};
 pub use trajectory::{Trajectory, TrajectoryInput, TrajectoryPredictor, TrajectorySettings};

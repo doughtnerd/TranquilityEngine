@@ -43,10 +43,40 @@ pub enum QueryError {
     Trajectory,
 }
 
+/// Where a query reads the character-space transforms of the bones its features name: this
+/// frame's and the previous frame's (only the translations are read). [`PoseInput`]'s slices are
+/// one source; the graph's matching node (T42) computes only the feature bones from its pose
+/// history instead of whole model-space poses.
+pub trait BoneSource {
+    /// Bone `bone`'s (current, previous) character-space transforms, or `None` when the pose
+    /// has no such bone.
+    fn bone(&self, bone: u32) -> Option<(AosTransform, AosTransform)>;
+}
+
+impl BoneSource for PoseInput<'_> {
+    fn bone(&self, bone: u32) -> Option<(AosTransform, AosTransform)> {
+        let b = bone as usize;
+        Some((*self.current.get(b)?, *self.previous.get(b)?))
+    }
+}
+
 /// Writes the query for `pose` and `trajectory` into `out` (`db.lanes()` long; padding 0).
 pub fn build_query(
     db: &MatchDb,
     pose: &PoseInput<'_>,
+    trajectory: &Trajectory,
+    out: &mut [F32x4],
+) -> Result<(), QueryError> {
+    build_query_from(db, pose, pose.delta, pose.dt, trajectory, out)
+}
+
+/// [`build_query`] with the bones read from `bones`; `delta` and `dt` as in [`PoseInput`]. The same
+/// operations in the same order, so both give the same bits for the same transforms.
+pub fn build_query_from(
+    db: &MatchDb,
+    bones: &impl BoneSource,
+    delta: RootDelta,
+    dt: f32,
     trajectory: &Trajectory,
     out: &mut [F32x4],
 ) -> Result<(), QueryError> {
@@ -66,20 +96,19 @@ pub fn build_query(
             fill = 0;
         }
     };
-    let inv_r = pose.delta.rotation.conjugate();
-    let inv_dt = if pose.dt > 0.0 { 1.0 / pose.dt } else { 0.0 };
+    let inv_r = delta.rotation.conjugate();
+    let inv_dt = if dt > 0.0 { 1.0 / dt } else { 0.0 };
     let mut d = 0usize;
     for f in &db.features {
         match f.kind {
             FeatureKind::BonePosition | FeatureKind::BoneVelocity => {
-                let b = f.bone as usize;
-                let (Some(p1), Some(p0)) = (pose.current.get(b), pose.previous.get(b)) else {
+                let Some((p1, p0)) = bones.bone(f.bone) else {
                     return Err(QueryError::Bone);
                 };
                 let v: AosVec3 = if f.kind == FeatureKind::BonePosition {
                     p1.translation
                 } else {
-                    let back = inv_r.rotate(p0.translation - pose.delta.translation);
+                    let back = inv_r.rotate(p0.translation - delta.translation);
                     (p1.translation - back).scale(inv_dt)
                 };
                 for x in [v.x, v.y, v.z] {
