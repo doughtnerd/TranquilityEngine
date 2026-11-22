@@ -5,8 +5,17 @@
 //
 // The ops of an edit are the ones it recorded (`recordMixOps`, filled by `audioEdit`), else `diffOps(before, after)`.
 // The mixer answers each op (ADR 0175: `ApplyResult.reason`, a closed set; `reasonMessage` is its text); the log keeps the answer.
+//
+// ADR 0330 (decision D2): the panels edit the legacy view of `audio.json`'s mix, where a bus's level has its VCAs folded
+// in; the running mixer runs the mix model, whose bus view (`coreSectionOf`) has the fader alone (VCAs are a lane). So
+// a level op is handed over in the model's terms: the section's mix (its `mix` key, `audio.json`'s) gives each bus's VCA
+// offset, which comes off the level. Everything else the legacy view shows reads the same in both views.
 import { diffOps, type ApplyResult, type MixOp, type MixOpEntry } from "../../../../engine/audio/mixOps";
 import { audioSection } from "../../../../engine/audio/audioSection";
+import { defaultEngineSettings, projectOfMix } from "../../../../engine/audio/project/format";
+import { dbToGain } from "../../../../engine/audio/project/gain";
+import { vcaOffsetDb } from "../../../../engine/audio/project/runtimeView";
+import type { AudioMixJson } from "../../../../engine/audio/settings";
 import { editor, type SectionChange } from "../../../../editor/sdk";
 
 /** What the log needs of the mixer: the play Engine's `mixer.apply`. */
@@ -58,8 +67,26 @@ export function recordMixOps(value: object, entry: MixOpEntry, base?: object): v
 
 const isObject = (v: unknown): v is object => typeof v === "object" && v !== null;
 
-/** The ops a change stands for: edit and redo, the entry on `after`; undo, the inverse on `before`; else a diff. */
+/** `ops` with each bus level in the mix model's terms (its VCA offset off), when `section` carries `audio.json`'s mix. */
+function inModelTerms(ops: MixOp[], section: unknown): MixOp[] {
+  const mix = isObject(section) ? (section as { mix?: AudioMixJson }).mix : undefined;
+  if (!mix || !ops.some((op) => op.op === "setBus" && op.key === "volume")) return ops;
+  const project = projectOfMix(mix, defaultEngineSettings());
+  if (project.vcas.length === 0) return ops;
+  return ops.map((op) => {
+    if (op.op !== "setBus" || op.key !== "volume" || typeof op.value !== "number") return op;
+    const offset = vcaOffsetDb(project, op.bus);
+    return offset === 0 ? op : { ...op, value: Math.min(2, op.value / dbToGain(offset)) };
+  });
+}
+
+/** The ops a change stands for: edit and redo, the entry on `after`; undo, the inverse on `before`; else a diff. In the mix model's terms. */
 function opsOf(change: Pick<SectionChange, "before" | "after" | "cause">): { ops: MixOp[]; source: "recorded" | "diff"; restartRequired: string[] } {
+  const r = legacyOpsOf(change);
+  return { ...r, ops: inModelTerms(r.ops, change.after ?? change.before) };
+}
+
+function legacyOpsOf(change: Pick<SectionChange, "before" | "after" | "cause">): { ops: MixOp[]; source: "recorded" | "diff"; restartRequired: string[] } {
   const undo = change.cause === "undo";
   const tagged = undo ? change.before : change.after;
   const tag = isObject(tagged) ? recorded.get(tagged) : undefined;
