@@ -3,9 +3,17 @@
 version = 4
 
 [[package]]
+name = "audio-adpcm"
+version = "0.1.0"
+dependencies = [
+ "audio-encode",
+]
+
+[[package]]
 name = "audio-bench"
 version = "0.1.0"
 dependencies = [
+ "audio-adpcm",
  "audio-core",
  "audio-dsp",
  "audio-wire",
@@ -22,7 +30,9 @@ checksum = "1254ebf6529f3763c491acfb5ab6e960809e3c75a38584cc664f8c5667fb7107"
 name = "audio-core"
 version = "0.1.0"
 dependencies = [
+ "audio-adpcm",
  "audio-dsp",
+ "audio-encode",
  "audio-wire",
  "libm",
 ]
@@ -31,7 +41,10 @@ dependencies = [
 name = "audio-decode"
 version = "0.1.0"
 dependencies = [
+ "audio-adpcm",
  "audio-dsp",
+ "audio-encode",
+ "cc",
  "libm",
  "sha2",
  "symphonia",
@@ -429,6 +442,7 @@ dependencies = [
  "symphonia-bundle-flac",
  "symphonia-bundle-mp3",
  "symphonia-codec-aac",
+ "symphonia-codec-adpcm",
  "symphonia-codec-pcm",
  "symphonia-codec-vorbis",
  "symphonia-core",
@@ -470,6 +484,16 @@ dependencies = [
  "lazy_static",
  "log",
  "symphonia-common",
+ "symphonia-core",
+]
+
+[[package]]
+name = "symphonia-codec-adpcm"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "445932ecb0c59362fde9c082dd63a75380650c5077fdb8b80b8cac850442a74c"
+dependencies = [
+ "log",
  "symphonia-core",
 ]
 

@@ -203,9 +203,10 @@ pub fn weights(t: f32) -> [f32; 4] {
 }
 
 /// The cubic of [`lagrange`] through `x[0..4]` (frames `idx - 1 ..= idx + 2`) at `t`, in Horner form:
-/// `((c3 t + c2) t + c1) t + x[1]`, so `t = 0` gives `x[1]` exactly.
+/// `((c3 t + c2) t + c1) t + x[1]`, so `t = 0` gives `x[1]` exactly. Public, as [`weights`] is, for readers that
+/// fetch their own neighbours (the core's ADPCM voice reads a mono clip through it, bit for bit as [`lagrange`]).
 #[inline(always)]
-fn horner(x: [f32; 4], t: f32) -> f32 {
+pub fn horner(x: [f32; 4], t: f32) -> f32 {
     let c1 = x[2] - (1.0 / 3.0) * x[0] - 0.5 * x[1] - (1.0 / 6.0) * x[3];
     let c2 = 0.5 * (x[0] + x[2]) - x[1];
     let c3 = (1.0 / 6.0) * (x[3] - x[0]) + 0.5 * (x[1] - x[2]);

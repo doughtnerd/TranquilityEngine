@@ -53,6 +53,8 @@ pub struct Regions {
     pub submixes: &'static mut [u8],
     /// ADR 0331 (ABI 4.6): the effect memory (`fxmem.rs`).
     pub fxmem: &'static mut [u8],
+    /// ADR 0337 A4 (ABI 4.12): the ADPCM voice cursors (`adpcm_voice.rs`).
+    pub adpcm: &'static mut [u8],
     /// Empty: the clip store owns the arena region (A1.3b).
     pub arena: &'static mut [u8],
 }
@@ -121,6 +123,7 @@ impl Core {
             sends: bytes(RegionKind::Sends),
             submixes: bytes(RegionKind::Submixes),
             fxmem: bytes(RegionKind::FxMem),
+            adpcm: bytes(RegionKind::AdpcmCursors),
             arena: bytes(RegionKind::Arena),
         };
         // A1.3b: the clip store owns the directory and arena regions (they stay empty here).

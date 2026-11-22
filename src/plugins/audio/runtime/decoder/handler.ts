@@ -1,14 +1,18 @@
-// The decoder worker's message handler, factored out of the worker so Node tests drive it in-process (K7): it routes
+// The decoder worker's message handler, factored out of the worker so Node tests drive it in-process (K7). ADR 0337 A4:
+// `packLoad` / `packRelease` hold `.mycopak` packages (`packs.ts`) whose entries `decodeClip` and `streamOpen` name with
+// `pack` (an ADPCM entry comes back as clip format 6 blocks or decoded int16). It routes
 // `decodeClip` and `cancel` to `clips.ts`, `stream*` (E4.4: `streamLoop` too) and `connectWorklet` to `streams.ts` (B3), and the
 // zone IR messages (ADR 0162 K0: `prepareIr`, `generateIr`, `releaseIr`) to `irPrepare.ts` (C2b), the music messages
 // (ADR 0166 §4.6, H3: `primeGroup`, `cancelGroup`, `protectMusic`, `releaseMusic`) to `musicGroups.ts` (D1a, D1b), loads the
 // wasm on `init` (requests that arrive first wait for it), and turns every failure into an `error` reply. Never throws,
 // never waits on anything but the wasm.
+import { ADPCM_BLOCK_FRAMES, ADPCM_CHANNEL_BYTES } from "../wire.generated";
 import { decodeClip } from "./clips";
 import { IrPreparer } from "./irPrepare";
 import { MusicCache } from "./musicCache";
 import { MusicGroups } from "./musicGroups";
-import type { ComputePeaksMessage, DecodeClipMessage, DecoderReply, DecoderRequest, InitMessage } from "./protocol";
+import { adpcmInfo, adpcmPieces, entryHint, PackStore, type HeldEntry } from "./packs";
+import { CLIP_CHUNK_FRAMES, type ComputePeaksMessage, type DecodeClipMessage, type DecoderReply, type DecoderRequest, type InitMessage, type StreamOpenMessage } from "./protocol";
 import { StreamDecoder } from "./streams";
 import { DecoderError, DecoderWasm } from "./wasm";
 
@@ -45,6 +49,8 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
   // ADR 0162 (K0): zone IR preparation, filled by C2b in irPrepare.ts. It sends kernels over the worklet port that
   // `connectWorklet` hands the stream decoder too, so it hears about each new port.
   const ir = new IrPreparer({ post, wasm: () => wasm, fetchBytes: options.fetchBytes });
+  // ADR 0337 §7, A4: the packages main loaded (`packs.ts`).
+  const packs = new PackStore();
 
   const load = async (msg: InitMessage): Promise<DecoderWasm> => {
     try {
@@ -74,7 +80,20 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
     }
     active.add(msg.id);
     try {
-      const info = await decodeClip(decoder, new Uint8Array(msg.bytes), msg.hint, {
+      let bytes: Uint8Array = new Uint8Array(msg.bytes);
+      let hint = msg.hint;
+      if (msg.pack) {
+        const held = packs.entry(msg.pack.pack, msg.pack.path);
+        if (!held) throw new DecoderError(`audio decoder: package ${msg.pack.pack} holds no entry "${msg.pack.path}" (not loaded, or released)`);
+        if (held.entry.codec === "adpcm") {
+          const done = await adpcmClip(decoder, msg, held);
+          post(done ? { type: "clipDone", id: msg.id, info: done } : { type: "cancelled", id: msg.id });
+          return;
+        }
+        bytes = held.data;
+        hint = entryHint(held.entry);
+      }
+      const info = await decodeClip(decoder, bytes, hint, {
         onInfo: (info) => post({ type: "clipInfo", id: msg.id, info }),
         onChunk: (index, pcm) => post({ type: "clipChunk", id: msg.id, index, pcm: pcm.buffer as ArrayBuffer }, [pcm.buffer as ArrayBuffer]),
         cancelled: () => cancelled.has(msg.id),
@@ -90,6 +109,45 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
       active.delete(msg.id);
       cancelled.delete(msg.id);
     }
+  };
+
+  /**
+   * ADR 0337 A4: a held ADPCM entry as a clip: with load `compressed`, its blocks unchanged (info `clipFormat` 6, the core
+   * decodes them per voice); otherwise decoded to int16 here (`myco_decode_adpcm`). Chunks of `CLIP_CHUNK_FRAMES` frames
+   * (64 blocks) as any clip's. Returns the info, or null when cancelled.
+   */
+  const adpcmClip = async (decoder: DecoderWasm, msg: DecodeClipMessage, held: HeldEntry): Promise<ReturnType<typeof adpcmInfo> | null> => {
+    const { entry, data } = held;
+    const compressed = entry.load === "compressed";
+    const info = adpcmInfo(entry, compressed);
+    const pieces = adpcmPieces(entry, data, ADPCM_BLOCK_FRAMES, ADPCM_CHANNEL_BYTES, CLIP_CHUNK_FRAMES);
+    post({ type: "clipInfo", id: msg.id, info });
+    const pcm = compressed ? null : decoder.decodeAdpcm(data, entry.channels, entry.frames);
+    for (let index = 0; index < pieces.length; index++) {
+      let chunk: ArrayBuffer;
+      if (pcm) {
+        const from = index * CLIP_CHUNK_FRAMES * entry.channels;
+        chunk = pcm.slice(from, Math.min(pcm.length, from + CLIP_CHUNK_FRAMES * entry.channels)).buffer as ArrayBuffer;
+      } else {
+        chunk = pieces[index]!.slice().buffer as ArrayBuffer;
+      }
+      post({ type: "clipChunk", id: msg.id, index, pcm: chunk }, [chunk]);
+      if (cancelled.has(msg.id)) return null;
+      await yieldToEvents();
+      if (cancelled.has(msg.id)) return null;
+    }
+    return info;
+  };
+
+  /** ADR 0337 A4: a stream over a held entry: the entry's bytes (a copy: the stream decoder owns what it opens) and hint. */
+  const packStream = (msg: StreamOpenMessage): StreamOpenMessage | null => {
+    if (!msg.pack) return msg;
+    const held = packs.entry(msg.pack.pack, msg.pack.path);
+    if (!held || held.entry.codec === "adpcm") {
+      post({ type: "error", streamId: msg.streamId, asset: msg.asset, message: held ? `audio decoder: "${msg.pack.path}" is ADPCM, which plays from the core's arena, not a stream` : `audio decoder: package ${msg.pack.pack} holds no entry "${msg.pack.path}" (not loaded, or released)` });
+      return null;
+    }
+    return { ...msg, bytes: held.data.slice().buffer as ArrayBuffer, hint: entryHint(held.entry) };
   };
 
   // Ed1: a clip decoded in the same chunks as `clip`, each reduced at once to one [min, max] pair per `binFrames` frames
@@ -190,8 +248,21 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
         case "cancel":
           if (active.has(request.id)) cancelled.add(request.id);
           return;
-        case "streamOpen":
+        case "streamOpen": {
+          const open = packStream(request);
+          if (open) return streams.handle(open);
+          return;
+        }
+        case "packLoad": {
+          const loaded = packs.load(request.pack, request.bytes);
+          post("error" in loaded ? { type: "error", pack: request.pack, message: loaded.error } : { type: "packLoaded", pack: request.pack, entries: loaded.entries, bytes: loaded.bytes });
+          return;
+        }
+        case "packRelease":
+          packs.release(request.pack);
+          return;
         case "streamCredit":
+
         case "streamSeek":
         case "streamClose":
         case "streamLoop":

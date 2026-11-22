@@ -544,8 +544,8 @@ export function mediaRefusal(path: string): "notLoaded" | "failed" | null {
   if (!path) return null;
   const entry = mediaEntry(path);
   if (entry && (entry.codec === "adpcm" || entry.codec === "opus")) {
-    const support = hasAudioBackend() ? audioBackend().media : undefined;
-    if (!support?.decodes(entry.codec)) {
+    const codecs = hasAudioBackend() ? audioBackend().codecs : undefined;
+    if (!(entry.codec === "adpcm" ? codecs?.adpcmCompressed : codecs?.opus)) {
       warnOnce(`media:codec:${path}`, `audio: "${path}" was shipped as ${entry.codec === "adpcm" ? "ADPCM" : "Opus"}, which this audio backend can't play yet; it won't play.`);
       return "failed";
     }

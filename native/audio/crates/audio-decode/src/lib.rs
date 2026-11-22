@@ -1,6 +1,7 @@
 //! Myco's audio decoder (ADR 0157, M1b; api-and-models §5): symphonia 0.6.1 behind a plain C ABI,
-//! compiled to `myco_audio_decode.wasm` and run in the decoder worker (architecture §1). WAV, FLAC,
-//! MP3 and Ogg Vorbis are always in; AAC in MP4/M4A or ADTS only with the `aac` feature.
+//! compiled to `myco_audio_decode.wasm` and run in the decoder worker (architecture §1). WAV (with IMA and
+//! Microsoft ADPCM, ADR 0345 §5), FLAC, MP3, Ogg Vorbis and Ogg Opus (libopus, fixed point, ADR 0337 A7: [`opus`]) are
+//! always in; AAC in MP4/M4A or ADTS only with the `aac` feature.
 //!
 //! # Memory
 //!
@@ -39,6 +40,9 @@
 //! 7. **Stream loop seams** (ABI 1.4, ADR 0328, [`seam`]): `myco_decode_seam(out, tail, frames,
 //!    channels, phase, length, shape)` crossfades a looping stream's seam in place: the tail read
 //!    past the loop's end into the frames read from its start, in the clip voice's shapes.
+//! 8. **The engine's IMA ADPCM** (ABI 1.5, ADR 0337 A4): `myco_decode_adpcm(src, len, channels, frames, out)`
+//!    decodes `frames` frames of a `.mycopak` ADPCM entry (`audio_adpcm`'s block layout, which isn't WAV IMA) into
+//!    interleaved int16 at `out`. ABI 1.5 also opens Ogg Opus (`info.codec` 6) in the default build.
 //!
 //! Negative `i32` (or `f64`) results are the `ERR_*` codes; `myco_decode_error_ptr/len` give the
 //! last failure's message (UTF-8). No export panics on bad input: arguments are checked and
@@ -49,6 +53,7 @@ pub mod ambisonic;
 mod decoder;
 pub mod ir;
 mod loop_points;
+pub mod opus;
 pub mod seam;
 #[cfg(feature = "aac")]
 mod mp4_gapless;
@@ -61,12 +66,12 @@ use std::alloc::{alloc, dealloc, Layout};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// `(major << 8) | minor` of this ABI.
-pub const ABI_VERSION: u32 = 0x104;
+pub const ABI_VERSION: u32 = 0x105;
 /// Open decoders at once.
 pub const MAX_DECODERS: usize = 64;
 /// Bytes of the record `myco_decode_info` writes: `u32 sampleRate; u32 channels; f64 frames (-1
 /// unknown); f64 framesEstimate (-1 unknown); u32 codec (0 other, 1 PCM, 2 FLAC, 3 MP3, 4 Vorbis,
-/// 5 AAC); u32 flags (bit0: frames is exact)`.
+/// 5 AAC, 6 Opus); u32 flags (bit0: frames is exact)`.
 pub const INFO_BYTES: usize = 40;
 /// Alignment of every `myco_decode_alloc` block (enough for f32, i16 and f64 views).
 pub const ALLOC_ALIGN: usize = 16;
@@ -223,8 +228,9 @@ fn valid_range(ptr: usize, bytes: usize, align: usize) -> bool {
 
 // --- Exports -----------------------------------------------------------------------------------
 
-/// `(major << 8) | minor`: 1.4 (1.1 added the loop fields to the info record, 1.2
-/// `myco_decode_set_convention`, 1.3 the `myco_ir_*` exports, 1.4 `myco_decode_seam`).
+/// `(major << 8) | minor`: 1.5 (1.1 added the loop fields to the info record, 1.2
+/// `myco_decode_set_convention`, 1.3 the `myco_ir_*` exports, 1.4 `myco_decode_seam`, 1.5 Ogg Opus and
+/// `myco_decode_adpcm`).
 #[no_mangle]
 pub extern "C" fn myco_decode_abi_version() -> u32 {
     ABI_VERSION
@@ -353,7 +359,31 @@ pub unsafe extern "C" fn myco_decode_seam(out: *mut f32, tail: *const f32, frame
     seam::crossfade(o, t, frames as usize, channels as usize, phase, length, shape.min(255) as u8) as i32
 }
 
+/// ADR 0337 A4 (ABI 1.5): decodes the first `frames` frames of the IMA ADPCM blocks at `src` (`len` bytes in
+/// `audio_adpcm`'s layout, `channels` 1 or 2) into interleaved int16 at `out` (`frames * channels * 2` bytes,
+/// 2-aligned). Returns `frames`, or `ERR_ARG` (a bad pointer or channel count) or `ERR_DECODE` (fewer bytes than the
+/// frames need).
+///
+/// # Safety
+/// `src` must point at `len` readable bytes and `out` at that many writable bytes of this module's memory, not
+/// overlapping.
+#[no_mangle]
+pub unsafe extern "C" fn myco_decode_adpcm(src: *const u8, len: u32, channels: u32, frames: u32, out: *mut i16) -> i32 {
+    let mut t = table();
+    let samples = frames as usize * channels as usize;
+    if src.is_null() || !(1..=2).contains(&channels) || frames > i32::MAX as u32 || !valid_range(out as usize, samples * 2, 2) || !valid_range(src as usize, len as usize, 1) {
+        return t.fail(ERR_ARG, "adpcm: null or invalid buffer, or not 1 or 2 channels");
+    }
+    // SAFETY: (caller) both spans are ours and distinct; checked in range above.
+    let (input, output) = unsafe { (core::slice::from_raw_parts(src, len as usize), core::slice::from_raw_parts_mut(out, samples)) };
+    match audio_adpcm::decode(input, channels as usize, frames as usize, output) {
+        Ok(()) => frames as i32,
+        Err(_) => t.fail(ERR_DECODE, "adpcm: the entry holds fewer blocks than its frames need"),
+    }
+}
+
 /// As `myco_decode_read_f32`, as int16 (`frames * channels * 2` bytes, 2-aligned).
+
 ///
 /// # Safety
 /// `out` must point at that many writable bytes of this module's memory.

@@ -48,6 +48,8 @@ interface Exports {
   myco_ir_truncated(): number;
   /** ABI 1.4 (ADR 0328): a stream loop's seam crossfade. */
   myco_decode_seam(out: number, tail: number, frames: number, channels: number, phase: number, length: number, shape: number): number;
+  /** ABI 1.5 (ADR 0337 A4): the engine's IMA ADPCM blocks to int16. */
+  myco_decode_adpcm(src: number, len: number, channels: number, frames: number, out: number): number;
 }
 
 /** The generated zone IRs (R10, api-and-models §2.3), in `myco_ir_generate`'s code order. */
@@ -65,8 +67,11 @@ export interface PreparedIr {
 
 /** The ABI major this code speaks. */
 export const DECODER_ABI_MAJOR = 1;
-/** The lowest ABI minor this code needs (1.4: `myco_decode_seam`, ADR 0328; 1.3: the `myco_ir_*` exports, ADR 0162 C2a). */
-export const DECODER_ABI_MINOR = 4;
+/**
+ * The lowest ABI minor this code needs (1.5: Ogg Opus and `myco_decode_adpcm`, ADR 0337 A4, A7; 1.4: `myco_decode_seam`,
+ * ADR 0328; 1.3: the `myco_ir_*` exports, ADR 0162 C2a).
+ */
+export const DECODER_ABI_MINOR = 5;
 /** Size of the info record `myco_decode_info` writes (ABI 1.1; 1.0 wrote 32 bytes without the loop fields). */
 const INFO_BYTES = 40;
 
@@ -243,7 +248,28 @@ export class DecoderWasm {
     return this.check(this.x.myco_decode_seam(outPtr, tailPtr, frames, channels, phase, length, shape));
   }
 
+  /**
+   * ADR 0337 A4 (decoder ABI 1.5): decodes the first `frames` frames of the engine's IMA ADPCM blocks (a `.mycopak` entry,
+   * `audio-adpcm`'s layout, `channels` 1 or 2) to interleaved int16 (a copy the caller owns). Throws a `DecoderError`
+   * (`ERR_DECODE`, -5, for fewer blocks than the frames need).
+   */
+  decodeAdpcm(blocks: Uint8Array, channels: number, frames: number): Int16Array {
+    const src = this.alloc(Math.max(1, blocks.length));
+    const outBytes = Math.max(2, frames * channels * 2);
+    let out = 0;
+    try {
+      out = this.alloc(outBytes);
+      new Uint8Array(this.x.memory.buffer, src, blocks.length).set(blocks);
+      this.check(this.x.myco_decode_adpcm(src, blocks.length, channels, frames, out));
+      return this.i16(out, frames * channels).slice();
+    } finally {
+      this.free(src, Math.max(1, blocks.length));
+      if (out !== 0) this.free(out, outBytes);
+    }
+  }
+
   /** A fresh view of `count` int16 at `ptr` (valid until the next call that may grow memory). */
+
   i16(ptr: number, count: number): Int16Array {
     return new Int16Array(this.x.memory.buffer, ptr, count);
   }

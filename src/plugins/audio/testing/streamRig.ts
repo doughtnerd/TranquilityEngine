@@ -10,7 +10,8 @@ import { defaultAudioSettings } from "../../../engine/audio/settings";
 import hash from "../runtime/wasm/hash.json";
 import { createDecoderHandler } from "../runtime/decoder/handler";
 import { createDecoderClient, type WorkerLike } from "../runtime/decoder/decoderClient";
-import type { DecoderReply, StreamPortLike } from "../runtime/decoder/protocol";
+import type { DecoderReply, PackRef, StreamPortLike } from "../runtime/decoder/protocol";
+
 import { ClipFormat, CLIP_CHUNK_FIXED_END, Kind, readClipBegin, readClipChunk, readClipUnload, readEnvelope, readStreamChunk, readStreamClose, readStreamOpen } from "../runtime/wire.generated";
 
 const WASM = readFileSync(fileURLToPath(new URL("../runtime/wasm/myco_audio_decode.wasm", import.meta.url)));
@@ -74,6 +75,8 @@ export interface RigOptions {
   readonly zones?: { readonly maxZoneSlots: number; readonly zoneMaxSeconds: number };
   /** ADR 0166 (R4b): the music ring pool (`audio.music.rings`) for the core (default 0: none). */
   readonly musicRings?: number;
+  /** ADR 0337 A4: which paths are entries of a package the rig's decoder holds (`decoder.loadPack`), for clips and streams alike. */
+  readonly packRef?: (path: string) => PackRef | null;
 }
 
 export async function rig(files: Record<string, ArrayBuffer>, options: RigOptions = {}) {
@@ -149,6 +152,7 @@ export async function rig(files: Record<string, ArrayBuffer>, options: RigOption
     clipRegistry: {
       fetchBytes: async (path) => options.clipFiles?.[path]?.slice(0) ?? new ArrayBuffer(8),
       decodeWorker: decoder,
+      ...(options.packRef ? { packRef: options.packRef } : {}),
     },
     backend: {
       streams: {
@@ -164,6 +168,7 @@ export async function rig(files: Record<string, ArrayBuffer>, options: RigOption
           if (!f) throw new Error(`HTTP 404 (${path})`);
           return f.slice(0);
         },
+        ...(options.packRef ? { packRef: options.packRef } : {}),
       },
     },
     eachQuantum: () => streamPort?.pump(workerStalled),

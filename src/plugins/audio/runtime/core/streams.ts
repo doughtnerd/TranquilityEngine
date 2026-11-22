@@ -50,7 +50,7 @@ import { Assets } from "../../../../engine/scene/Assets";
 import type { AmbisonicImport } from "../../../../engine/scene/importSettings";
 import { setFileLoopPoints } from "../loopPoints";
 import { wrapPosition, type LoopRecord } from "./coreAutomation";
-import type { DecodeHint, StreamLoopProgram, StreamPortLike } from "../decoder/protocol";
+import type { DecodeHint, PackRef, StreamLoopProgram, StreamPortLike } from "../decoder/protocol";
 import { hintFromName } from "../decoder/protocol";
 import type { DecoderClient, StreamReply } from "../decoder/decoderClient";
 import { checkAmbisonic, type ClipInfo } from "./clipRegistry";
@@ -126,6 +126,11 @@ export interface StreamManagerDeps {
   readonly sendSeek?: (id: number, frame: number, epoch: number) => void;
   /** Fetches an asset's encoded bytes. */
   readonly fetchBytes: (path: string) => Promise<ArrayBuffer>;
+  /**
+   * ADR 0337 §7, A4: where an asset is in a package the decoder worker holds (`DecoderClient.loadPack`), or null to fetch
+   * its file. A `compressed` Vorbis or Opus entry then streams from the worker's copy, never fetched. Default: none.
+   */
+  readonly packRef?: (path: string) => PackRef | null;
   /** A stream failed: stop voice `id` with a fade and warn (the backend's). `code` is the decoder's `ERR_*` code when it refused the file (B4). */
   readonly onError: (id: number, asset: string, message: string, code?: number) => void;
   /** E4.4: voice `voice`'s stream frame at context frame `frame` by the backend's playhead estimate (used until a STATUS shows it playing), or null. */
@@ -330,7 +335,9 @@ export class StreamManager {
       return;
     }
     const hint: DecodeHint = hintFromName(e.asset);
-    this.deps.fetchBytes(e.asset).then(
+    // ADR 0337 A4: a held package entry streams from the worker's copy (no fetch, an empty buffer).
+    const pack = this.deps.packRef?.(e.asset) ?? null;
+    (pack ? Promise.resolve(new ArrayBuffer(0)) : this.deps.fetchBytes(e.asset)).then(
       (bytes) => {
         if (this.byStream.get(streamId) !== e) return; // closed meanwhile
         this.stats.opened++;
@@ -345,7 +352,8 @@ export class StreamManager {
         const program = region && facts ? programOf(e.record, facts.rate, facts.frames) : undefined;
         // B4: the sidecar's convention lets the worker stream an ambisonic file's channels (FuMa converted per chunk).
         const convention = this.ambisonicOf(e.asset)?.convention;
-        decoder.openStream({ streamId, asset: e.asset, bytes, hint, startFrame, epoch: e.epoch, loop: e.loop, ...(e.loop ? { loopStartFrame: region?.start ?? 0, loopEndFrame: region?.end ?? 0 } : {}), ...(program ? { program } : {}), ...(convention ? { convention } : {}) });
+        decoder.openStream({ streamId, asset: e.asset, bytes, hint, startFrame, epoch: e.epoch, loop: e.loop, ...(e.loop ? { loopStartFrame: region?.start ?? 0, loopEndFrame: region?.end ?? 0 } : {}), ...(program ? { program } : {}), ...(convention ? { convention } : {}), ...(pack ? { pack } : {}) });
+
       },
       (err) => {
         if (this.byStream.get(streamId) === e) this.fail(streamId, err);
