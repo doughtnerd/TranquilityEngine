@@ -75,7 +75,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0023](decisions/0023-testing-vitest-and-browser-smoke-tests.md) | Testing: Vitest + browser smoke tests | Accepted |
 | [0024](decisions/0024-storage-via-platform-adapter.md) | Saves and settings through a platform Storage API | Accepted, amended by 0317 (storage scope per game, played project and editor; one JSON-or-bytes value contract) |
 | [0025](decisions/0025-editor-ui-dom-with-preact.md) | Editor UI: DOM panels built with Preact | Accepted |
-| [0026](decisions/0026-editor-scene-document-and-commands.md) | The editor edits a scene document through commands | Accepted |
+| [0026](decisions/0026-editor-scene-document-and-commands.md) | The editor edits a scene document through commands | Accepted; partly superseded by 0321 |
 | [0027](decisions/0027-persistent-undo-tree.md) | Persistent, tree-shaped edit history | Accepted, amended by 0267 |
 | [0028](decisions/0028-component-enabled-overrides.md) | Prefab overrides can switch a component on or off | Accepted |
 | [0029](decisions/0029-component-order-overrides.md) | Prefab overrides can reorder a node's components | Accepted |
@@ -339,6 +339,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0318](decisions/0318-opening-a-project-returns-an-outcome.md) | Opening a project from the start screen goes through one project-opening module (`projectOpening.ts`): an open intent (pick a folder, a recent entry, a sample, a copy, a new project) becomes an outcome (opened, cancelled, refused with a reason); the editor window opens it there, the Projects window hands it off; the recent list owns its change signal | Accepted |
 | [0319](decisions/0319-an-engine-acquires-one-project-context-and-releases-it-on-dispose.md) | An Engine acquires one project context (`core/projectContext.ts`: asset sources, storage, mixer, graphics) and `dispose` releases it; `launchGame`, the editor's open project and the exporter hold one for their asset sources; nested contexts: sources removed by their owner, storage back to the newest live context's (the editor's after Play), mixer and graphics kept | Accepted |
 | [0320](decisions/0320-an-event-instances-sounding-voices-come-from-one-walk.md) | An event instance's voice reads and controls (`panner`, `occlusion`, `reason`, `hasVoices`, `voiceCount`, `playing`, `fade`, `pause`, `resume`) walk one list of its sounding voices, without allocating; the music decides its part (`music/soundingVoices.ts`: stems, stingers, loop tails), so a new music voice kind is added once | Accepted |
+| [0321](decisions/0321-commands-only-apply-the-command-stack-undoes-by-patch.md) | A scene command is a label, an `apply` returning its `Change`s, and optional file writes; the `CommandStack`'s patches (0027) are the only undo, so every command `undo`, the snapshot/restore helpers, `CommandGroup` and `RebuildInstances` are gone and command tests go through `stack.execute`/`undo`/`redo`. Partly supersedes 0026 | Accepted |
 
 ## Working with decisions
 

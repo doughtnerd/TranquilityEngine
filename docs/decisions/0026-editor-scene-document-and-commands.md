@@ -1,6 +1,6 @@
 # 0026. The editor edits a scene document through commands
 
-- **Status:** Accepted
+- **Status:** Accepted; partly superseded by [0321](0321-commands-only-apply-the-command-stack-undoes-by-patch.md) (commands only apply; the command stack undoes by patch)
 - **Date:** 2026-10-31
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
