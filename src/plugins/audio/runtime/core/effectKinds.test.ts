@@ -25,11 +25,13 @@ describe("effect kinds (ADR 0331, ABI 4.6)", () => {
   it("writes parameters in the catalogue's order with its defaults, and catalogue bus effects as BUS_FX_CATALOGUE + kind", () => {
     expect(fxParams("reverb", { decay: 4 }, 8)).toEqual([0.5, 4, 20, 0, 0, 0, 0, 0]);
     expect(busFxType("reverb")).toBe(BUS_FX_CATALOGUE + SUBMIX_FX_REVERB);
-    expect(wireEffect({ type: "fx", fx: "delay", params: { time: 120 } })).toEqual({ type: busFxType("delay"), p: [120, 30, 25, 0, 0, 0, 0] });
+    expect(wireEffect({ type: "fx", fx: "delay", params: { time: 120 } })).toEqual({ type: busFxType("delay"), p: [120, 30, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
     const slots: Record<string, number> = { Music: 3 };
     const sc = wireEffect({ type: "fx", fx: "sidechainCompressor", params: {}, key: "Music" }, (n) => slots[n] ?? -1);
     expect(sc.p.slice(0, 4)).toEqual([-24, 3, 300, 3]);
     expect(wireEffect({ type: "fx", fx: "sidechainCompressor", params: {}, key: "Nope" }, (n) => slots[n] ?? -1).p[3]).toBe(-1);
-    expect(wireEffect({ type: "lowpass", frequency: 800, q: 1 })).toEqual({ type: 0, p: [800, 1, 0, 0, 0, 0, 0] });
+    expect(wireEffect({ type: "lowpass", frequency: 800, q: 1 })).toEqual({ type: 0, p: [800, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+    // ABI 5.0 (ADR 0338): every record carries 16 parameters.
+    expect(wireEffect({ type: "reverb", send: 0.5 }).p).toHaveLength(16);
   });
 });

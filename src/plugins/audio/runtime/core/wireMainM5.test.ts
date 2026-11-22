@@ -101,7 +101,7 @@ describe("CommandWriter, the M5 records", () => {
     expect(readBusRamp(view, recs[0]!.off).frames).toBe(123);
   });
 
-  it("busSlot: 28 B plus 32 B per effect, zero-padded parameters, flags and sequence tag; at most eight effects (ADR 0331)", () => {
+  it("busSlot: 28 B plus 68 B per effect (ABI 5.0), zero-padded parameters, flags and sequence tag; at most eight effects (ADR 0331)", () => {
     const { writer, posted } = writerRig();
     const fx = (type: number, ...p: number[]) => ({ type, p });
     writer.busSlot({ slot: 4, parent: BUS_ROOT, effects: [fx(0, 1500, 6), fx(3, 0.5)], structural: true, sequenceId: 9 }, 5000);
@@ -110,11 +110,11 @@ describe("CommandWriter, the M5 records", () => {
     writer.flush(0);
     const { view, records: recs } = records(posted[0]!);
     // The asap records sort first, the stamped one (at 5000) last.
-    expect(recs.map((r) => [r.op, r.bytes])).toEqual([[Op.BUS_SLOT, 28], [Op.BUS_SLOT, 28 + 256], [Op.BUS_SLOT, 28 + 64]]);
+    expect(recs.map((r) => [r.op, r.bytes])).toEqual([[Op.BUS_SLOT, 28], [Op.BUS_SLOT, 28 + 8 * 68], [Op.BUS_SLOT, 28 + 2 * 68]]);
     const a = readBusSlot(view, recs[2]!.off);
     expect(a).toMatchObject({ slot: 4, parent: BUS_ROOT, flags: BUS_SLOT_FLAGS_STRUCTURAL, sequenceId: 9 });
-    expect(a.effects[0]!.p).toEqual([1500, 6, 0, 0, 0, 0, 0]);
-    expect(a.effects[1]).toMatchObject({ type: 3, p: [0.5, 0, 0, 0, 0, 0, 0] });
+    expect(a.effects[0]!.p).toEqual([1500, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(a.effects[1]).toMatchObject({ type: 3, p: [0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
     expect(readBusSlot(view, recs[0]!.off)).toMatchObject({ slot: 5, parent: 4, flags: BUS_SLOT_FLAGS_FRESH, effects: [] });
     expect(readBusSlot(view, recs[1]!.off).effects).toHaveLength(8);
     // A later record never sees the earlier one's parameters.
@@ -123,7 +123,7 @@ describe("CommandWriter, the M5 records", () => {
     w2.busSlot({ slot: 2, parent: 0, effects: [fx(1)] });
     w2.flush(0);
     const r2 = records(p2[0]!);
-    expect(readBusSlot(r2.view, r2.records[1]!.off).effects[0]!.p).toEqual([0, 0, 0, 0, 0, 0, 0]);
+    expect(readBusSlot(r2.view, r2.records[1]!.off).effects[0]!.p).toEqual(new Array(16).fill(0));
   });
 
   it("busSends (ADR 0330, ABI 4.7): 16 B plus 12 B per send, at most MAX_BUS_SENDS", () => {

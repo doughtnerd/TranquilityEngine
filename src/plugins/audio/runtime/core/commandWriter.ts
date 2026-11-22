@@ -131,6 +131,9 @@ import {
   type ZoneConfig,
   type ZoneConfigSlots,
   type CurvesCurvesKeys,
+  BUS_CONFIG_BUSES_EFFECTS_FIXED_END,
+  BUS_SLOT_EFFECTS_FIXED_END,
+  FX_PARAMS,
 } from "../wire.generated";
 import { curveKeyHandles, curveKeyInterpCode, type Curve, type CurveKey } from "../../../../engine/core/curve";
 import type { BufferPool } from "./bufferPool";
@@ -142,7 +145,7 @@ export interface BusSlotArgs {
   slot: number;
   /** Parent slot; `BUS_ROOT` (0xFFFF) for a root. */
   parent: number;
-  /** In wire form (`type`, 7 parameters: a shorter `p` is zero-padded); at most `BUS_SLOT_MAX_EFFECTS` are written. */
+  /** In wire form (`type`, `FX_PARAMS` (16, ABI 5.0) parameters: a shorter `p` is zero-padded); at most `BUS_SLOT_MAX_EFFECTS` are written. */
   effects: readonly { type: number; p: readonly number[] }[];
   /** `BUS_SLOT_FLAGS_STRUCTURAL`: applies at quantum granularity under the gate (a dip's middle record). */
   structural?: boolean;
@@ -319,7 +322,7 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly rampRec: BusRamp = { voiceId: 0, frameOffset: ASAP, lane: 0, mask: 0, gain: 1, lpHz: 0, frames: 0, shape: 0 };
   private readonly slotRec: BusSlot = { voiceId: 0, frameOffset: ASAP, slot: 0, flags: 0, sequenceId: 0, reserved: 0, reserved2: 0, parent: 0xffff, effects: [] };
   /** `BUS_SLOT`'s effect scratch: `BUS_SLOT_MAX_EFFECTS` records with 7-entry parameter arrays, reused by every record. */
-  private readonly slotEffects: BusSlotEffects[] = Array.from({ length: BUS_SLOT_MAX_EFFECTS }, () => ({ type: 0, p: [0, 0, 0, 0, 0, 0, 0] }));
+  private readonly slotEffects: BusSlotEffects[] = Array.from({ length: BUS_SLOT_MAX_EFFECTS }, () => ({ type: 0, p: new Array<number>(FX_PARAMS).fill(0) }));
   /** `slotEffects` cut to each length 0..4, made once, so a record sets its list without slicing. */
   private readonly slotEffectViews: BusSlotEffects[][] = Array.from({ length: BUS_SLOT_MAX_EFFECTS + 1 }, (_, n) => this.slotEffects.slice(0, n));
   private readonly duckRec: BusDuck = { voiceId: 0, frameOffset: ASAP, rules: [] };
@@ -551,7 +554,7 @@ export class CommandWriter implements VoiceCommandSink {
   /** BUS_CONFIG: the whole tree, root first (`parent` 0xFFFF for the root). */
   busConfig(buses: readonly BusConfigBuses[]): void {
     let size = 16;
-    for (const b of buses) size += 4 + 32 * b.effects.length;
+    for (const b of buses) size += 4 + BUS_CONFIG_BUSES_EFFECTS_FIXED_END * b.effects.length;
     const at = this.begin(size);
     if (at < 0) return;
     this.end(at, writeBusConfig(this.view, at, { voiceId: 0, frameOffset: ASAP, buses: buses as BusConfigBuses[] }));
@@ -587,7 +590,7 @@ export class CommandWriter implements VoiceCommandSink {
 
   /**
    * ADR 0171 §4.2 BUS_SLOT: one slot's configuration (R7), stamped at `atFrame` or asap. A tombstone is a silent root
-   * (R9). The record's size is 28 B + 32 B per effect (at most `BUS_SLOT_MAX_EFFECTS`; more are not written). The wire
+   * (R9). The record's size is 28 B + 68 B per effect (ABI 5.0) (at most `BUS_SLOT_MAX_EFFECTS`; more are not written). The wire
    * guard only: whether a fifth effect is a warning, kept for the next Play or refused is `busCapability.ts`'s rule
    * (ADR 0175; `busCapability.table.test.ts` holds its limit equal to this one).
    */
@@ -598,14 +601,14 @@ export class CommandWriter implements VoiceCommandSink {
       const src = args.effects[i]!;
       const dst = this.slotEffects[i]!;
       dst.type = src.type;
-      for (let k = 0; k < 7; k++) dst.p[k] = src.p[k] ?? 0;
+      for (let k = 0; k < FX_PARAMS; k++) dst.p[k] = src.p[k] ?? 0;
     }
     r.slot = args.slot;
     r.parent = args.parent;
     r.flags = (args.structural ? BUS_SLOT_FLAGS_STRUCTURAL : 0) | (args.fresh ? BUS_SLOT_FLAGS_FRESH : 0);
     r.sequenceId = (args.sequenceId ?? 0) & 0x1fff;
     r.effects = this.slotEffectViews[n]!;
-    const at = this.begin(28 + 32 * n);
+    const at = this.begin(28 + BUS_SLOT_EFFECTS_FIXED_END * n);
     if (at >= 0) this.end(at, writeBusSlot(this.view, at, r), atFrame);
     r.effects = NO_SLOT_EFFECTS;
   }
