@@ -56,6 +56,13 @@ export function stepPath(line: LineInput, duration: number, min: number, max: nu
   return parts.join(" ");
 }
 
+/** The largest finite value, or -Infinity for none (a loop: a long capture's series is too long to spread into `Math.max`). */
+export function maxOf(values: ArrayLike<number>): number {
+  let max = -Infinity;
+  for (let i = 0; i < values.length; i++) if (Number.isFinite(values[i]!) && values[i]! > max) max = values[i]!;
+  return max;
+}
+
 /** The smallest and largest finite value (for a parameter's own scale), padded so a flat line sits mid-track. */
 export function extent(values: ArrayLike<number>): { min: number; max: number } {
   let min = Infinity;

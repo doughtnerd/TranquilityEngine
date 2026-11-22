@@ -10,7 +10,7 @@ import { formatDb } from "../../../plugins/audio/editor/dbScale";
 import { breakdownText, type BusReadout } from "./cursorReadout";
 import type { RulerMark } from "./messagesModel";
 import type { ProfilerData } from "./profilerData";
-import { BOX_H, BOX_W, clockText, extent, linePath, pct, rulerTicks, stepPath, valueAt, yOf } from "./timelineGeometry";
+import { BOX_H, BOX_W, clockText, extent, linePath, maxOf, pct, rulerTicks, stepPath, valueAt, yOf } from "./timelineGeometry";
 import type { PlannedTrack } from "./trackPlan";
 import { dimmed, STATUS_TEXT, voiceLanes, voiceSummary, type GroupBy, type VoiceBlock } from "./voiceModel";
 
@@ -81,7 +81,7 @@ function TrackRow(props: TrackRowProps) {
 
 function LoadTrack({ data, track, cursor, onSeek }: { data: ProfilerData; track: PlannedTrack; cursor: number; onSeek(t: number): void }) {
   const load = data.load!;
-  const top = Math.max(1, ...Array.from(load.cap.values), ...Array.from(load.voices.values)) * 1.15;
+  const top = Math.max(1, maxOf(load.cap.values), maxOf(load.voices.values)) * 1.15;
   const cap = valueAt(load.cap, cursor);
   const voices = valueAt(load.voices, cursor);
   const capNow = valueAt(load.cap, data.duration) ?? 0;
@@ -92,7 +92,7 @@ function LoadTrack({ data, track, cursor, onSeek }: { data: ProfilerData; track:
       <Lines
         height={56}
         paths={[
-          ...load.cpu.map((l) => ({ d: linePath(l, data.duration, 0, l.yMax ?? Math.max(1000, ...Array.from(l.values))), cls: "pf-line pf-cpu" })),
+          ...load.cpu.map((l) => ({ d: linePath(l, data.duration, 0, l.yMax ?? Math.max(1000, maxOf(l.values))), cls: "pf-line pf-cpu" })),
           { d: stepPath(load.cap, data.duration, 0, top), cls: "pf-line pf-cap" },
           { d: linePath(load.voices, data.duration, 0, top), cls: "pf-line pf-voices" },
         ]}
