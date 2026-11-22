@@ -1,28 +1,28 @@
 /**
- * The offline render of a sample (ADR 0328 "Baked effects are rendered offline", "Flatten"): what the sample sounds like,
- * as PCM, from its source PCM and its edits, in this order:
+ * The offline render of a sample (ADR 0328 "Baked effects are rendered offline", "Flatten"): the audio a flattened
+ * sample plays (`sample.source`), from its source PCM and its edits. **The render keeps the source file's timeline**:
+ * the same start and length, plus any effect tail appended after the end, so the runtime still applies the trim and
+ * loops and every loop and marker keeps its source seconds (the runtime's reading of `sample.source`). It bakes:
  *
- * 1. **The edit** (`sampleEditPlan`): the trim, less the closed gaps (removed; what follows moves up), the deleted
- *    snippets silent in place. Razor cuts alone change nothing.
- * 2. **The baked chain** (ADR 0331 level "sample"), each enabled effect in order, by the same Rust kernels the buses and
+ * 1. **The baked chain** (ADR 0331 level "sample"), each enabled effect in order, by the same Rust kernels the buses and
  *    submixes run (`myco_audio_offline.wasm`), with its automation lanes (`fx:<id>:<param>` over source seconds, read
  *    as the engine's curves are) and the tails a delay or reverb leaves (run until they fall below −90 dBFS, at most
- *    `TAIL_CAP_SECONDS` past the end). Reverse, fades and noise reduction are offline-only kinds; `envelope` (a voice
- *    effect) renders as an ADSR over the sample, its release ending at the end. Every type the chain holds renders, even
- *    one the catalogue doesn't list at the sample level (the Studio flags it): baked, it costs nothing at runtime.
- * 3. **Normalisation** (`normalize.gainDb`, after the effects, as ADR 0328 says).
+ *    `TAIL_CAP_SECONDS` past the end). Fades and noise reduction are offline-only kinds; fades and `envelope` (a voice
+ *    effect, rendered as an ADSR whose release ends at the end) shape the whole file. Every type the chain holds
+ *    renders, even one the catalogue doesn't list at the sample level (the Studio flags it): baked, it costs nothing.
+ *    **Reverse is left out** (with a warning): it would move every source second, and loops, markers and the trim are
+ *    in source seconds.
+ * 2. **Normalisation** (`normalize.gainDb`, after the effects, as ADR 0328 says); the runtime skips it for a render.
  *
- * The result starts at the trim's start; `renderTimeMap` (`sampleTimeMap.ts`) places source seconds in it. Loops and
- * the `source` field don't take part: the render is the audio a flattened sample plays (`sample.source`).
+ * Not baked (the runtime applies them, or they wait for core work): trim, razor cuts, deleted snippets, closed gaps.
  *
- * Works in the browser and in Node (the wasm loads on first use). Not pure (it loads a module), but it reads nothing
- * else: no plugin, no DOM.
+ * Works in the browser and in Node (the wasm loads on first use). It loads a module but reads nothing else: no plugin,
+ * no DOM.
  */
 import { effectSpec } from "../effects/catalogue";
 import { EFFECT_TYPES } from "../effects/types";
 import { curveKeyHandles, curveKeyInterpCode } from "../../core/curve";
 import { renderOffline } from "./offlineWasm";
-import { sampleEditPlan } from "./sampleTimeMap";
 import type { SampleEdits } from "./types";
 
 /** Interleaved PCM: int16 (scaled by 1/32768) or float. */
@@ -49,35 +49,16 @@ export const TAIL_CAP_SECONDS = 10;
 const PARAMS = 8;
 const SPEC_VERSION = 1;
 
-/** The edited PCM (step 1) as float, and the time segments for the render's automation. */
-function cut(input: SamplePcm, edits: SampleEdits): { pcm: Float32Array; segments: number[] } {
-  const ch = Math.max(1, input.channels);
-  const frames = Math.floor(input.pcm.length / ch);
-  const rate = input.rate;
-  const scale = input.pcm instanceof Int16Array ? 1 / 32768 : 1;
-  const plan = sampleEditPlan(edits, frames / rate);
-  const frame = (t: number) => Math.min(frames, Math.max(0, Math.round(t * rate)));
-  const spans = plan.pieces.map((p) => [frame(p.srcStart), frame(p.srcEnd)] as const);
-  const total = spans.reduce((n, [s, e]) => n + Math.max(0, e - s), 0);
-  const out = new Float32Array(total * ch);
-  const silent = plan.silent.map(([s, e]) => [frame(s), frame(e)] as const);
-  const segments: number[] = [];
-  let at = 0;
-  spans.forEach(([s, e], i) => {
-    if (e <= s) return;
-    segments.push(at, plan.pieces[i].srcStart);
-    for (let f = s; f < e; f++) {
-      const quiet = silent.some(([a, b]) => f >= a && f < b);
-      const o = (at + f - s) * ch;
-      if (!quiet) for (let c = 0; c < ch; c++) out[o + c] = input.pcm[f * ch + c] * scale;
-    }
-    at += e - s;
-  });
-  return { pcm: out, segments };
+/** The source PCM as float. */
+function toFloat(input: SamplePcm): Float32Array {
+  if (input.pcm instanceof Float32Array) return input.pcm;
+  const out = new Float32Array(input.pcm.length);
+  for (let i = 0; i < out.length; i++) out[i] = input.pcm[i] / 32768;
+  return out;
 }
 
 /** The render spec (`native/audio/crates/audio-offline/src/spec.rs`) for `edits`' chain and lanes. */
-function specOf(edits: SampleEdits, segments: number[], warnings: string[]): Float64Array {
+function specOf(edits: SampleEdits, warnings: string[]): Float64Array {
   const effects: number[] = [];
   edits.effects.forEach((f) => {
     const p = new Array<number>(PARAMS).fill(0);
@@ -85,7 +66,9 @@ function specOf(edits: SampleEdits, segments: number[], warnings: string[]): Flo
       const v = f.params[q.name];
       p[i] = typeof v === "number" && Number.isFinite(v) ? v : q.default;
     });
-    effects.push(EFFECT_TYPES.indexOf(f.type), f.on ? 1 : 0, ...p);
+    const on = f.on && f.type !== "reverse";
+    if (f.on && f.type === "reverse") warnings.push("Reverse isn't baked into a render: loops, markers and the trim are in source seconds, which it would move. It was left out.");
+    effects.push(EFFECT_TYPES.indexOf(f.type), on ? 1 : 0, ...p);
   });
   const lanes: number[] = [];
   let laneCount = 0;
@@ -107,7 +90,7 @@ function specOf(edits: SampleEdits, segments: number[], warnings: string[]): Flo
     }
     laneCount++;
   }
-  return new Float64Array([SPEC_VERSION, edits.effects.length, laneCount, segments.length / 2, TAIL_CAP_SECONDS].concat(effects, segments, lanes));
+  return new Float64Array([SPEC_VERSION, edits.effects.length, laneCount, 0, TAIL_CAP_SECONDS].concat(effects, lanes));
 }
 
 /** The render's warning bits (`render::warn` in the crate) as lines. */
@@ -122,9 +105,9 @@ function warningLines(bits: number): string[] {
 /** What `edits` make of `input` (see the file header). */
 export async function renderSample(input: SamplePcm, edits: SampleEdits): Promise<RenderedSample> {
   const channels = Math.max(1, input.channels);
-  const { pcm, segments } = cut(input, edits);
+  const pcm = toFloat(input);
   const warnings: string[] = [];
-  const spec = specOf(edits, segments, warnings);
+  const spec = specOf(edits, warnings);
   const raw = await renderOffline(pcm, channels, input.rate, spec);
   warnings.push(...warningLines(raw.warnings));
   const gain = edits.normalize.mode === "off" ? 1 : Math.pow(10, edits.normalize.gainDb / 20);

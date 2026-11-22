@@ -6,7 +6,6 @@ import { defaultEffect } from "../effects/catalogue";
 import type { Effect } from "../effects/types";
 import { defaultSampleEdits } from "./format";
 import { renderSample, TAIL_CAP_SECONDS } from "./sampleRender";
-import { renderTime, renderTimeMap, sampleEditPlan, sourceTimeAt } from "./sampleTimeMap";
 import type { SampleAutomation, SampleEdits } from "./types";
 import { readWavMetadata } from "./wavChunks";
 import { encodeWavFloat32 } from "./wavEncode";
@@ -28,28 +27,21 @@ const mono = (seconds: number, f: number | ((i: number) => number)) => {
 const db = (v: number, ref: number) => 20 * Math.log10(Math.abs(v) / ref);
 
 describe("renderSample", () => {
-  it("applies the trim, closes gaps and silences deleted snippets", async () => {
+  it("keeps the source's timeline: trim, cuts, deleted snippets and gaps aren't baked", async () => {
     // A ramp: sample i holds i / 48000 (its own source second).
     const src = mono(2, (i) => i / RATE);
-    const out = await renderSample(src, edits({ trim: [0.5, 1.8], closedGaps: [[1, 0.25]], cuts: [1.5], deleted: [1.5] }));
-    expect(out.frames).toBe(Math.round((1.3 - 0.25) * RATE));
-    expect(out.pcm[0]).toBeCloseTo(0.5, 6); // starts at the trim
-    expect(out.pcm[Math.round(0.5 * RATE) - 1]).toBeCloseTo(1 - 1 / RATE, 6); // up to the gap
-    expect(out.pcm[Math.round(0.5 * RATE)]).toBeCloseTo(1.25, 6); // the gap is closed
-    expect(out.pcm[Math.round(0.6 * RATE)]).toBeCloseTo(1.35, 6);
-    // 1.5 .. 1.8 (to the trim's end) is the deleted snippet: silent, in place.
-    const del = Math.round((1.5 - 0.5 - 0.25) * RATE);
-    expect(out.pcm[del - 10]).toBeGreaterThan(1.4);
-    expect(Array.from(out.pcm.subarray(del, out.frames)).every((v) => v === 0)).toBe(true);
+    const out = await renderSample(src, edits({ trim: [0.5, 1.8], closedGaps: [[1, 0.25]], cuts: [1.5], deleted: [1.5], effects: [fx("gain", "g", { gain: 0 })] }));
+    expect(out.frames).toBe(2 * RATE);
+    expect(Array.from(out.pcm)).toEqual(Array.from(src.pcm));
     expect(out.warnings).toEqual([]);
   });
 
   it("ramps a gain by its automation lane over source time, through the trim", async () => {
-    // A lane from −24 dB at 0 s to 0 dB at 2 s; the sample is trimmed to start at 1 s (where the lane is at −12 dB).
+    // A lane from −24 dB at 0 s to 0 dB at 2 s over a 2 s sample (the trim doesn't move it: source seconds).
     const e = edits({ trim: [1, 2], effects: [fx("gain", "fx1")], automation: [lane("fx:fx1:gain", [[0, -24], [2, 0]])] });
     const out = await renderSample(mono(2, 0.5), e);
-    expect(out.frames).toBe(RATE);
-    for (const [t, want] of [[0, -12], [0.25, -9], [0.5, -6], [0.9, -1.2]] as const) {
+    expect(out.frames).toBe(2 * RATE);
+    for (const [t, want] of [[0.5, -18], [1, -12], [1.5, -6], [1.9, -1.2]] as const) {
       expect(Math.abs(db(out.pcm[Math.round(t * RATE)], 0.5) - want)).toBeLessThan(0.1);
     }
     // A bypassed lane leaves the effect's own value.
@@ -69,11 +61,11 @@ describe("renderSample", () => {
     expect(out.frames).toBeLessThan(echo + 0.1 * RATE);
   });
 
-  it("reverses, fades and normalises after the effects", async () => {
+  it("leaves reverse out with a warning, fades the file and normalises after the effects", async () => {
     const ramp = mono(1, (i) => i / RATE);
     const rev = await renderSample(ramp, edits({ effects: [fx("reverse", "r")] }));
-    expect(rev.pcm[0]).toBeCloseTo(1 - 1 / RATE, 6);
-    expect(rev.pcm[RATE - 1]).toBe(0);
+    expect(Array.from(rev.pcm)).toEqual(Array.from(ramp.pcm));
+    expect(rev.warnings[0]).toMatch(/Reverse isn't baked/);
     const faded = await renderSample(mono(1, 1), edits({ effects: [fx("fades", "f", { in: 100, out: 0 })], normalize: { mode: "peak", target: -6, gainDb: -6 } }));
     const g = Math.pow(10, -6 / 20);
     expect(faded.pcm[0]).toBe(0);
@@ -96,25 +88,6 @@ describe("renderSample", () => {
     const capped = await renderSample(mono(0.1, (i) => (i === 0 ? 1 : 0)), edits({ effects: [fx("reverb", "rv", { size: 1, decay: 20, mix: 100 })] }));
     expect(capped.frames).toBe(Math.round(0.1 * RATE) + TAIL_CAP_SECONDS * RATE);
     expect(capped.warnings[0]).toMatch(/still sounding/);
-  });
-});
-
-describe("sample time map", () => {
-  const e = edits({ trim: [0.5, 2], closedGaps: [[1, 0.25]] });
-  it("plans the pieces and maps source seconds into a render and back", () => {
-    const plan = sampleEditPlan(e, 3);
-    expect(plan.pieces).toEqual([{ srcStart: 0.5, srcEnd: 1, outStart: 0 }, { srcStart: 1.25, srcEnd: 2, outStart: 0.5 }]);
-    expect(plan.length).toBe(1.25);
-    const map = renderTimeMap(e, 3, 1.5);
-    expect(renderTime(map, 0.75)).toBe(0.25);
-    expect(renderTime(map, 1.5)).toBe(0.75);
-    expect(renderTime(map, 1.1)).toBeNull(); // in the gap
-    expect(renderTime(map, 0.2)).toBeNull(); // before the trim
-    expect(sourceTimeAt(map, 0.75)).toBe(1.5);
-    expect(sourceTimeAt(map, 1.4)).toBeCloseTo(2.15, 9); // a tail continues the last piece
-    const rev = renderTimeMap({ ...e, effects: [fx("reverse", "r")] }, 3, 1.5);
-    expect(renderTime(rev, 0.75)).toBe(1.25);
-    expect(sourceTimeAt(rev, 1.25)).toBe(0.75);
   });
 });
 

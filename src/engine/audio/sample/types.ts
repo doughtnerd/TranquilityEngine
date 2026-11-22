@@ -92,10 +92,10 @@ export interface SampleEdits {
   stinger: boolean;
   snapToZero: boolean;
   /**
-   * Set when the sample plays a flattened render (`brake_skid.flat1.wav`, project path) instead of the original. The
-   * render (`renderSample`) already holds the trim, closed gaps, deleted snippets, the baked chain and normalisation and
-   * starts at the trim's start: it plays whole, with no trim or normalize gain applied again. Loops and markers keep
-   * their source seconds; `renderTimeMap` (`sampleTimeMap.ts`) places them in the render.
+   * Set when the sample plays a flattened render (`brake_skid.flat1.wav`: a project path, or a bare name in the source
+   * file's folder) instead of the original. The render (`renderSample`) keeps the source's timeline (same start and
+   * length, an effect tail appended) and bakes only the chain, its automation and normalisation: the runtime still
+   * applies trim and loops, skips the normalize gain, and loops and markers keep their source seconds.
    */
   source?: string;
 }
