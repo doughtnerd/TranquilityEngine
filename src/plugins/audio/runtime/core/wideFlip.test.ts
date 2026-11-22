@@ -5,11 +5,12 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { defaultAudioSettings } from "../../../../engine/audio/settings";
 import { instantiateCore, type CorePreset } from "../worklet/coreDriver";
-import { fixedRegionsHeadroomBytes, MEMORY_INITIAL_PAGES, memoryMaximumPages } from "../worklet/coreMemory";
+import { askCoreMemory, MEMORY_INITIAL_PAGES } from "../worklet/coreMemory";
 import { presetFromSettings } from "./context";
 import { spatialInitParams } from "./initParams";
 
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio.wasm", import.meta.url)));
+const MODULE = new WebAssembly.Module(WASM);
 const RATE = 48_000;
 
 const withClips = (maxClips: number) => {
@@ -36,8 +37,10 @@ describe("the wide memory flip (B5)", () => {
     expect(preset.maxWide).toBe(2);
     const core = instantiateCore(WASM, preset, RATE);
     const grown = core.memory.buffer.byteLength - MEMORY_INITIAL_PAGES * 65_536;
-    expect(grown - preset.arenaInitialBytes).toBeLessThanOrEqual(fixedRegionsHeadroomBytes(preset, RATE));
-    expect(core.memory.buffer.byteLength / 65_536).toBeLessThanOrEqual(memoryMaximumPages(preset, RATE));
+    // ADR 0327: init took the block the core answered, under the maximum it asked for.
+    const answer = askCoreMemory(MODULE, preset, RATE);
+    expect(grown).toBe(answer.parts.layout);
+    expect(core.memory.buffer.byteLength / 65_536).toBeLessThanOrEqual(answer.maximumPages);
     // The wide rings (2 x 2.22 MiB) are part of what init laid out, and the clip arena can still grow to its ceiling.
     const without = instantiateCore(WASM, { ...preset, maxWide: 0 }, RATE);
     expect(core.memory.buffer.byteLength - without.memory.buffer.byteLength).toBeGreaterThanOrEqual(2 * 2.2 * (1 << 20));
@@ -49,7 +52,7 @@ describe("the wide memory flip (B5)", () => {
       s.voices.logical = logical;
       const preset = presetFromSettings(s);
       const core = instantiateCore(WASM, preset, RATE);
-      expect(core.memory.buffer.byteLength / 65_536).toBeLessThanOrEqual(memoryMaximumPages(preset, RATE));
+      expect(core.memory.buffer.byteLength / 65_536).toBeLessThanOrEqual(askCoreMemory(MODULE, preset, RATE).maximumPages);
     }
   });
 });

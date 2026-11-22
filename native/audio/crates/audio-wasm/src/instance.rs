@@ -44,8 +44,8 @@ impl<M: LinearMemory> Instance<M> {
         if matches!(self.core, Slot::Live(_)) {
             return codes::ALREADY_INITIALIZED;
         }
-        if params.validate().is_err() {
-            return codes::INVALID_ARGUMENT;
+        if let Err(e) = params.validate() {
+            return e.code();
         }
         let layout = Layout::new(&params);
         let base = match self.block {
@@ -164,7 +164,7 @@ mod tests {
     #[test]
     fn bad_parameters_are_refused() {
         let mut a = fresh(4_096);
-        assert_eq!(a.init(InitParams { max_mixed: 0, ..default_preset() }), codes::INVALID_ARGUMENT);
+        assert_eq!(a.init(InitParams { max_mixed: 0, ..default_preset() }), audio_wire::generated::ERR_INIT_MAX_MIXED, "the refusal names the field (ADR 0328)");
         assert!(a.core().is_none());
     }
 

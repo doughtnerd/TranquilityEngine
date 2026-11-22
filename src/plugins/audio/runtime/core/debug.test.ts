@@ -193,7 +193,7 @@ describe("buildDebugInfo: header, counters and core (A2.5 keeps them)", () => {
     expect(info.time).toBe(1.5);
     expect(info.background).toBe("pause");
     expect(info.counters).toMatchObject({ underruns: 2, mixedVoices: 3, mixedCap: 16, logicalVoices: 1, queuedPlays: 0, droppedPlays: 0, refusedLoads: 0, hrtfVoices: 1 });
-    expect(info.core).toEqual({ backend: "core", hrtfReady: true, ladderState: "cap at floor", ladderRecoveries: 0 });
+    expect(info.core).toEqual({ backend: "core", abiVersion: 0, hrtfReady: true, ladderState: "cap at floor", ladderRecoveries: 0 });
   });
 
   it("counts the ladder's loudness step (loudShed, Ld7) in ladderState and names it (G7a)", () => {

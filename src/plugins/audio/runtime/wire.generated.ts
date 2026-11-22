@@ -4,8 +4,14 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "437412c9bad8b878ade83c2f04be5c5c";
+export const SCHEMA_HASH = "84e4c67c396510a12124af7d38bfb46f";
 
+/** the core's C ABI major (`myco_audio_abi_version() >> 8`); a shell refuses a different one */
+export const CORE_ABI_MAJOR = 0x5;
+/** the core's C ABI minor (an added export) */
+export const CORE_ABI_MINOR = 0x0;
+/** `(CORE_ABI_MAJOR << 8) | CORE_ABI_MINOR`: `myco_audio_abi_version()`, STATUS `abiVersion` and the capture header */
+export const CORE_ABI_VERSION = 0x500;
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
 /** a core refuses a different major */
@@ -267,6 +273,15 @@ export const ErrorCode = {
   UNKNOWN_STREAM: -14,
   BAD_FORMAT: -15,
   MALFORMED: -16,
+  INIT_SAMPLE_RATE: -17,
+  INIT_MAX_LOGICAL: -18,
+  INIT_MAX_MIXED: -19,
+  INIT_MAX_BUSES: -20,
+  INIT_MAX_BEDS: -21,
+  INIT_MAX_ZONE_SLOTS: -22,
+  INIT_ZONE_MAX_FRAMES: -23,
+  INIT_MAX_WIDE: -24,
+  INIT_MAX_MUSIC_RINGS: -25,
 } as const;
 
 /** Thrown by every generated reader and by writer cap checks; never a raw RangeError from a DataView. */
@@ -292,6 +307,7 @@ export const Kind = {
   RECYCLE: 10,
   STREAM_CREDIT: 11,
   REPLAY: 12,
+  INIT: 13,
 } as const;
 
 export const Op = {
@@ -401,6 +417,16 @@ export const EffectType = {
   ReverbSend: 3,
 } as const;
 
+/** `myco_audio_memory_part_bytes` part (ADR 0327): bytes the core takes for the INIT record in the inbox */
+export const MemoryPart = {
+  Layout: 0,
+  Beds: 1,
+  Zones: 2,
+  Wide: 3,
+  ZoneKernels: 4,
+  SpatialData: 5,
+} as const;
+
 /** shape word bits 0-2: the law of a gain ramp (FADE, SET_PARAMS, STOP) */
 export const FadeLaw = {
   Linear: 0,
@@ -450,7 +476,7 @@ export interface Envelope {
   magic?: number;
   /** Protocol version: high byte major, low byte minor (1.0 is 0x0100). */
   version?: number;
-  /** Message kind, one of `KINDS` (1..=12). */
+  /** Message kind, one of `KINDS` (1..=13). */
   kind: number;
   /** Per-sender sequence number; wraps at 2^32. */
   seq: number;
@@ -1017,6 +1043,68 @@ export const REPLAY_FLAGS_OVERFLOWED = 0x1;
 export const REPLAY_FLAGS_FIRST_CHUNK = 0x2;
 /** last chunk of a REPLAY */
 export const REPLAY_FLAGS_LAST_CHUNK = 0x4;
+/** ADR 0328: the core's init parameters. The shell writes it at the inbox's start before `myco_audio_init`, `myco_audio_memory_pages` and `myco_audio_memory_part_bytes`, which read it; never posted. A refused field is the error `INIT_` + its name (`ERR_INIT_MAX_MIXED`). */
+export interface Init {
+  /** The AudioContext's rate in Hz, 8,000 to 192,000. */
+  sampleRate: number;
+  /** Logical voices (voice slots), 1 to 65,536. */
+  maxLogical: number;
+  /** Voices mixed per quantum, 1 to `maxLogical`. */
+  maxMixed: number;
+  /** Buses in the bus tree, master included, 1 to 256. */
+  maxBuses: number;
+  /** The clip arena's initial reserve in bytes, rounded up to whole 64 KiB pages; never refused (0: it starts empty). */
+  arenaInitialBytes: number;
+  /** Bed slots, 0 to MAX_BEDS (0: no `Beds` region). */
+  maxBeds: number;
+  /** Reverb zone convolver slots, 0 to MAX_ZONE_SLOTS (0: no zone slot). */
+  maxZoneSlots: number;
+  /** The longest zone kernel in frames at `sampleRate`: 1 to 8 s of frames with zone slots, ignored without. */
+  zoneMaxFrames: number;
+  /** Wide (3-16 channel) stream rings and their private bed decoders, 0 to 4. */
+  maxWide: number;
+  /** Music stream rings, 0 to MAX_MUSIC_RINGS. */
+  maxMusicRings: number;
+}
+
+export const INIT_FIXED_END = 56;
+
+export function writeInit(view: DataView, off: number, rec: Init): number {
+  view.setFloat32(off + 16, rec.sampleRate, true);
+  view.setUint32(off + 20, rec.maxLogical, true);
+  view.setUint32(off + 24, rec.maxMixed, true);
+  view.setUint32(off + 28, rec.maxBuses, true);
+  view.setUint32(off + 32, rec.arenaInitialBytes, true);
+  view.setUint32(off + 36, rec.maxBeds, true);
+  view.setUint32(off + 40, rec.maxZoneSlots, true);
+  view.setUint32(off + 44, rec.zoneMaxFrames, true);
+  view.setUint32(off + 48, rec.maxWide, true);
+  view.setUint32(off + 52, rec.maxMusicRings, true);
+  let cur = off + 56;
+  return cur - off;
+}
+
+function _readInit(view: DataView, off: number, limit: number): [Init, number] {
+  if (off + 56 > limit) throw new WireError(ErrorCode.TRUNCATED, "Init: truncated");
+  const sampleRate = view.getFloat32(off + 16, true);
+  const maxLogical = view.getUint32(off + 20, true);
+  const maxMixed = view.getUint32(off + 24, true);
+  const maxBuses = view.getUint32(off + 28, true);
+  const arenaInitialBytes = view.getUint32(off + 32, true);
+  const maxBeds = view.getUint32(off + 36, true);
+  const maxZoneSlots = view.getUint32(off + 40, true);
+  const zoneMaxFrames = view.getUint32(off + 44, true);
+  const maxWide = view.getUint32(off + 48, true);
+  const maxMusicRings = view.getUint32(off + 52, true);
+  let cur = off + 56;
+  return [{ sampleRate, maxLogical, maxMixed, maxBuses, arenaInitialBytes, maxBeds, maxZoneSlots, zoneMaxFrames, maxWide, maxMusicRings }, cur - off];
+}
+
+export function readInit(view: DataView, off: number): Init {
+  const limit = view.byteLength;
+  return _readInit(view, off, limit)[0];
+}
+
 /** loop the clip */
 export const PLAY_FLAGS_LOOP = 0x1;
 /** a stream voice (STREAM_OPEN), not a clip */
