@@ -139,65 +139,90 @@ function parseWav(bytes: ArrayBuffer): PlanarClip {
   }
 }
 
-describe("a derived sample heard on the audio core (ADR 0328)", () => {
-  it("a playlist naming a snippet of a WAV sounds for the snippet's length, then goes quiet", { timeout: 60_000 }, async (ctx) => {
-    const seconds = audioFileSeconds(new Uint8Array(readFileSync(SOUND_LAB + IDLE)));
-    expect(seconds).toBeGreaterThan(1.2);
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    setAudioBackend(null);
-    endAudioSession();
-    Assets.clearSources();
-    Assets.addSource(Assets.fromObject({
-      "s.json": { format: "myco.scene@1", nodes: [] }, [IDLE]: "data:,",
-      "audio/idle.part.sample.json": snippet(IDLE, [0.2, 0.7]),
-      "audio/part.playlist.json": pla("clip", [sample("audio/idle.part.sample.json")]),
-    }));
-    const engine = await Engine.create({ headless: true, project: { audio: { buses: [{ name: "Master" }], seed: 7, backend: "core" } } });
-    await SceneManager.load("s.json");
-    engine.world.render = {} as never;
-    const fetchBytes = async (path: string) => {
-      const b = readFileSync(SOUND_LAB + path);
-      return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
-    };
-    const loop = await loopbackAudio({
-      register: false,
-      preset: { maxLogical: 64, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 0, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0, maxMusicRings: 0 },
-      clipRegistry: { fetchBytes, decodeWorker: fakeDecoder(async (b) => parseWav(b)) },
-    });
-    if (!loop) {
-      engine.dispose();
-      return ctx.skip();
-    }
-    setAudioBackend(loop.backend);
-    const rms: number[] = [];
-    try {
-      const frames = Math.ceil(1.5 / FRAME_SECONDS);
-      for (let f = 0; f < frames; f++) {
-        if (f === 0) Audio.play("audio/part.playlist.json");
-        playlistHost().update(FRAME_SECONDS);
-        loop.tick(FRAME_SECONDS);
-        const out = loop.render(FRAME_QUANTA);
-        for (let q = 0; q < FRAME_QUANTA; q++) {
-          let s = 0;
-          for (let k = q * QUANTUM; k < (q + 1) * QUANTUM; k++) s += out.left[k]! ** 2;
-          rms.push(Math.sqrt(s / QUANTUM));
-        }
-        await new Promise<void>((r) => setTimeout(r, 0));
+/**
+ * Plays `play()` at the first frame on the real audio core (the loopback host with the committed wasm) over `files` plus
+ * the Sound Lab's idle WAV, for 1.5 s: the left channel's RMS per quantum, or null when the core can't load here.
+ */
+async function heardOnCore(files: Record<string, unknown>, play: () => void): Promise<number[] | null> {
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  setAudioBackend(null);
+  endAudioSession();
+  Assets.clearSources();
+  Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] }, [IDLE]: "data:,", ...files }));
+  const engine = await Engine.create({ headless: true, project: { audio: { buses: [{ name: "Master" }], seed: 7, backend: "core" } } });
+  await SceneManager.load("s.json");
+  engine.world.render = {} as never;
+  const fetchBytes = async (path: string) => {
+    const b = readFileSync(SOUND_LAB + path);
+    return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
+  };
+  const loop = await loopbackAudio({
+    register: false,
+    preset: { maxLogical: 64, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 0, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0, maxMusicRings: 0 },
+    clipRegistry: { fetchBytes, decodeWorker: fakeDecoder(async (b) => parseWav(b)) },
+  });
+  if (!loop) {
+    engine.dispose();
+    return null;
+  }
+  setAudioBackend(loop.backend);
+  const rms: number[] = [];
+  try {
+    const frames = Math.ceil(1.5 / FRAME_SECONDS);
+    for (let f = 0; f < frames; f++) {
+      if (f === 0) play();
+      playlistHost().update(FRAME_SECONDS);
+      loop.tick(FRAME_SECONDS);
+      const out = loop.render(FRAME_QUANTA);
+      for (let q = 0; q < FRAME_QUANTA; q++) {
+        let s = 0;
+        for (let k = q * QUANTUM; k < (q + 1) * QUANTUM; k++) s += out.left[k]! ** 2;
+        rms.push(Math.sqrt(s / QUANTUM));
       }
-    } finally {
-      loop.backend.dispose();
-      endAudioSession();
-      setAudioBackend(null);
-      engine.dispose();
-      await closeLoopbackAudio();
+      await new Promise<void>((r) => setTimeout(r, 0));
     }
-    const quantaAt = (s: number) => Math.round((s * RATE) / QUANTUM);
-    // Heard while the snippet plays (0.5 s of it, from wherever the clip resident starts it)…
-    const loudest = Math.max(...rms.slice(0, quantaAt(0.9)));
-    expect(loudest).toBeGreaterThan(0.02);
-    // …and silent well after its 0.5 s have passed (the whole file is 1.3 s long).
-    const firstHeard = rms.findIndex((x) => x > 1e-3);
-    expect(firstHeard).toBeGreaterThanOrEqual(0);
-    expect(Math.max(...rms.slice(firstHeard + quantaAt(0.65)))).toBeLessThan(1e-3);
+  } finally {
+    loop.backend.dispose();
+    endAudioSession();
+    setAudioBackend(null);
+    engine.dispose();
+    await closeLoopbackAudio();
+  }
+  return rms;
+}
+
+const quantaAt = (s: number) => Math.round((s * RATE) / QUANTUM);
+
+/** A 0.5 s snippet of the idle WAV: heard while it plays, then silent well after its 0.5 s (the whole file is 1.3 s). */
+function expectSnippetLength(rms: readonly number[]): void {
+  // Heard while the snippet plays (0.5 s of it, from wherever the clip resident starts it)…
+  expect(Math.max(...rms.slice(0, quantaAt(0.9)))).toBeGreaterThan(0.02);
+  // …and silent well after its 0.5 s have passed.
+  const firstHeard = rms.findIndex((x) => x > 1e-3);
+  expect(firstHeard).toBeGreaterThanOrEqual(0);
+  expect(Math.max(...rms.slice(firstHeard + quantaAt(0.65)))).toBeLessThan(1e-3);
+  // …and not cut much short of them.
+  let lastHeard = rms.length - 1;
+  while (lastHeard > 0 && rms[lastHeard]! <= 1e-3) lastHeard--;
+  expect(lastHeard - firstHeard).toBeGreaterThan(quantaAt(0.4));
+}
+
+describe("a derived sample heard on the audio core (ADR 0328)", () => {
+  const SNIPPET = { "audio/idle.part.sample.json": snippet(IDLE, [0.2, 0.7]) };
+
+  it("the WAV is longer than its snippet", () => {
+    expect(audioFileSeconds(new Uint8Array(readFileSync(SOUND_LAB + IDLE)))).toBeGreaterThan(1.2);
+  });
+
+  it("a playlist naming a snippet of a WAV sounds for the snippet's length, then goes quiet", { timeout: 60_000 }, async (ctx) => {
+    const rms = await heardOnCore({ ...SNIPPET, "audio/part.playlist.json": pla("clip", [sample("audio/idle.part.sample.json")]) }, () => Audio.play("audio/part.playlist.json"));
+    if (!rms) return ctx.skip();
+    expectSnippetLength(rms);
+  });
+
+  it("a one-shot of a snippet of a WAV sounds for the snippet's length, then goes quiet", { timeout: 60_000 }, async (ctx) => {
+    const rms = await heardOnCore(SNIPPET, () => Audio.playOneShot("audio/idle.part.sample.json"));
+    if (!rms) return ctx.skip();
+    expectSnippetLength(rms);
   });
 });

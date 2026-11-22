@@ -12,6 +12,7 @@ import type { World } from "../../../engine/core/World";
 import { _worldServiceOf } from "../../../engine/core/worldServices";
 import { AUDIO, type AudioWorldService } from "./core/service";
 import { clipRequest, clipVolume, isAmbisonicClip } from "./clipResolver";
+import { playSampleVoice, releaseSampleVoice } from "./sampleVoice";
 import { isSpatialPassHost } from "./core/spatial";
 import { Assets } from "../../../engine/scene/Assets";
 import { audioBackend, hasAudioBackend, DEFAULT_SEND_CURVE, type AudioPanner, type AudioVoice, type PlayRequest, type Rolloff, type SendCurve } from "./backend";
@@ -158,8 +159,9 @@ export class AudioSource extends Component {
     const spatial = this.spatial && !this.ambisonicClip && this.node.transform !== null;
     // G9b: the voice starts at its volume and pitch. Set only afterwards (`apply`), the PLAY went out at gain 1 and the
     // volume a frame later, so a quiet source was heard at full scale for that frame (and dipped a level rule's target).
+    // ADR 0328: the sample's trim, normalisation gain and (when `loop`) loop region, as every play of it.
     const req = clipRequest(path, this.loop, this.output);
-    this.voice = audioBackend().play(Object.assign(req, {
+    this.voice = playSampleVoice(path, Object.assign(req, {
       volume: this.volume * req.volume!, pitch: this.pitch,
       priority: clamp255(this.priority), world: worldKeyOf(this._world), owner: this.node.name, ...this.spatialOptions(),
       ...(spatial ? { attenuation: { minDistance: this.minDistance, maxDistance: this.maxDistance, rolloff: this.rolloff }, position: this.node.transform!.worldPosition } : null),
@@ -200,11 +202,15 @@ export class AudioSource extends Component {
     return this.playlist?.getParameter(name);
   }
 
-  /** Key-off the playing playlist, so its held loops end by their exit settings. Does nothing for a clip. */
+  /**
+   * Key-off: the playing playlist's held loops, or a looping sample's held loop (ADR 0328, its sidecar's first loop),
+   * end by their exit settings. Does nothing for a clip without a held loop.
+   */
   release(): void {
     const sink = takeTap.sink;
     if (sink && this.playlist) sink.release(this.playlist);
     this.playlist?.release();
+    if (this.voice) releaseSampleVoice(this.voice);
   }
 
   /**

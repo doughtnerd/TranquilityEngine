@@ -8,6 +8,7 @@ import type { Vec3Like } from "../../../engine/core/math";
 import { World } from "../../../engine/core/World";
 import { worldKeyOf, worldPlays } from "./AudioSource";
 import { clipRequest } from "./clipResolver";
+import { playSampleVoice } from "./sampleVoice";
 import { warnOnce } from "./core/handle";
 import type { AudioLatency, MusicEvent, MusicHandle, MusicKind } from "../../../engine/audio/musicTypes";
 import { audioHorizon, audioTimeAt } from "./music/handle";
@@ -50,7 +51,7 @@ export interface OneShotOptions {
   priority?: number;
   /** Start at this audio-clock time (seconds, the base of `Audio.time`). Past or omitted: as soon as possible. Ignored while `Audio.status` is "locked". Non-finite: warns, plays now. */
   at?: number;
-  /** Start this many seconds into the clip (ADR 0329, 0334: audition from a point). 0 or omitted: the start; past the end it ends at once. Negative or non-finite: warns, plays from the start. */
+  /** Start this many seconds into the clip (ADR 0329, 0334: audition from a point; a trimmed sample: into its trimmed sound, ADR 0328). 0 or omitted: the start; past the end it ends at once. Negative or non-finite: warns, plays from the start. */
   offset?: number;
   // ADR 0162 §1.3. A flat one-shot (no `position`) has no occlusion, reverb send or Doppler; `lowpass` and `highpass` still apply.
   /** With a position: walls between the sound and the listener muffle it. Default true. */
@@ -236,7 +237,6 @@ export const Audio = {
         else warnOnce("at:nonfinite", "Audio.playOneShot: at must be a finite number of seconds; playing now.");
       }
       const offset = startOffsetOf(o.offset, "Audio.playOneShot");
-      if (offset > 0) req.offset = offset;
       const ambisonic = req.ambisonic === true;
       if (o.position && ambisonic) warnOnce(`position:ambisonic:${path}`, `Audio.playOneShot: "${path}" is an ambisonic clip; position, distances, occlusion and dopplerLevel are ignored (ADR 0162).`);
       else if (o.position) {
@@ -261,7 +261,8 @@ export const Audio = {
         if (o.highpass !== undefined) req.filter.highpass = clampWarn("highpass", finiteOr("highpass", o.highpass, 10), 10, 24000);
       }
       if (o.yaw !== undefined) req.yaw = clampWarn("yaw", finiteOr("yaw", o.yaw, 0), -180, 180);
-      const v = audioBackend().play(req);
+      // ADR 0328: the sample's trim (start and end) and its normalisation gain, as every play of it.
+      const v = playSampleVoice(path, req, offset);
       if (v && takeTap.sink) takeTap.sink.play(v, path, req.position ? fixedEmitter(v, path, req.position) : null, takePlayOptions(o));
       return v ? new VoiceHandle(v) : INERT;
     } catch (e) {
