@@ -36,9 +36,17 @@
 //!    the sum of its curves clamped to −1..1, ramped across the quantum like `gainMul` and applied
 //!    by the voice chain before the panner (equal-power on a mono voice, normalised so 0 is the
 //!    identity; balance on a stereo one). Buses ignore both.
-//! 4. **Bus bindings** (BUS_AUTOMATE, global parameters only, up to 8 per bus): `gainMul` on top of
-//!    the bus's main-written gain lanes (`lanes.rs`), ramped the same way, and the snapshot
-//!    low-pass at `min(snapshot lane lpHz, lpAuto)`.
+//! 4. **Bus bindings** (BUS_AUTOMATE, global parameters only, up to [`BUS_BINDINGS`] per bus):
+//!    `gainMul` on top of the bus's main-written gain lanes (`lanes.rs`), ramped the same way, and
+//!    the snapshot low-pass at `min(snapshot lane lpHz, lpAuto)`. ABI 4.8 (ADR 0330 automation)
+//!    adds two kinds, their arguments in the target's upper bits (the wire's `AUTO_TARGET_*`):
+//!    **fx** (5): a catalogue parameter of an effect in the bus's chain takes the curve's value
+//!    (2^value with `AUTO_TARGET_LOG`, so frequencies interpolate in log scale), handed to the
+//!    effect once a quantum before the chain runs (`bus::mixdown`, `fx::FxChain::automate`: the
+//!    effect reaches it across the quantum); **send** (6): the curves' dB, summed per receiving
+//!    bus, multiply that send's level as a gain ramped across the quantum (`bus_sends::feed`).
+//!    Instance submixes take fx bindings too (SUBMIX_AUTOMATE, [`submix_bindings`], evaluated in
+//!    `submix::render` from the submix's group).
 //! 5. **Loop regions** (SET_LOOP, clip voices): kept beside the bindings ([`VoiceAuto`]); the
 //!    render loop reads them. See [`set_loop`].
 //! 7. **Loop programs** (LOOPS, ADR 0328, ABI 4.3; clip voices): up to `VOICE_LOOPS_MAX` loops with
@@ -94,8 +102,12 @@ pub const CURVE_KEYS: usize = 64;
 pub const INTERP_BEZIER: u8 = 5;
 /// Halvings of the Bézier parameter search (`curve.ts` `BEZIER_STEPS`).
 pub const BEZIER_STEPS: usize = 28;
-/// Bindings kept per voice and per bus (extra ones are ignored).
+/// Bindings kept per voice (extra ones are ignored).
 pub const BINDINGS: usize = 8;
+/// Bindings kept per bus and per submix (ABI 4.8: 8 before; extra ones are ignored).
+pub const BUS_BINDINGS: usize = wire::BUS_AUTOMATE_MAX_BINDINGS as usize;
+/// Sends a bus keeps (`bus_sends.rs`): the most send bindings resolve to.
+pub const SEND_AUTOS: usize = wire::MAX_BUS_SENDS as usize;
 /// Group clocks: the global one (group 0) and one per instance group.
 pub const CLOCKS: usize = GROUPS + 1;
 /// Loop programs in use at once (ADR 0328): voices playing a sample's own loops; more fall back to
@@ -129,6 +141,36 @@ pub mod target {
     pub const HIGHPASS: u32 = 3;
     /// ABI 4.4: pan −1..1, summed. Voices only.
     pub const PAN: u32 = 4;
+    /// ABI 4.8: an effect parameter (buses and submixes): slot, parameter and log flag above.
+    pub const FX: u32 = audio_wire::generated::AUTO_TARGET_FX;
+    /// ABI 4.8: a send's dB (buses): the receiving slot above.
+    pub const SEND: u32 = audio_wire::generated::AUTO_TARGET_SEND;
+    /// Bits 0-7 of a target: its kind.
+    pub const KIND: u32 = audio_wire::generated::AUTO_TARGET_KIND_MASK;
+
+    /// The kind of target `t`.
+    #[inline]
+    pub const fn kind(t: u32) -> u32 {
+        t & KIND
+    }
+
+    /// The slot argument of an fx or send target (bits 8-15).
+    #[inline]
+    pub const fn slot(t: u32) -> usize {
+        ((t >> audio_wire::generated::AUTO_TARGET_SLOT_SHIFT) & 0xFF) as usize
+    }
+
+    /// The parameter argument of an fx target (bits 16-23).
+    #[inline]
+    pub const fn param(t: u32) -> usize {
+        ((t >> audio_wire::generated::AUTO_TARGET_PARAM_SHIFT) & 0xFF) as usize
+    }
+
+    /// `true` when an fx target's curve is in log2 of the parameter.
+    #[inline]
+    pub const fn log(t: u32) -> bool {
+        t & audio_wire::generated::AUTO_TARGET_LOG != 0
+    }
 }
 
 /// `VoiceAuto::targets` / `BusAuto::targets` bits: which kinds of binding are present.
@@ -138,6 +180,10 @@ pub mod has {
     pub const LOWPASS: u8 = 1 << 2;
     pub const HIGHPASS: u8 = 1 << 3;
     pub const PAN: u8 = 1 << 4;
+    /// ABI 4.8: effect-parameter bindings (buses).
+    pub const FX: u8 = 1 << 5;
+    /// ABI 4.8: send bindings (buses).
+    pub const SEND: u8 = 1 << 6;
 }
 
 /// One parameter. All-zero is a settled parameter at 0.
@@ -285,11 +331,20 @@ pub struct BusAuto {
     pub count: u8,
     pub fresh: u8,
     pub targets: u8,
-    pub _pad: u8,
+    /// ABI 4.8: receiving slots in `send_to` (send bindings resolved this quantum).
+    pub sends: u8,
     pub g0: f32,
     pub g1: f32,
     pub lp: f32,
-    pub bindings: [Binding; BINDINGS],
+    pub bindings: [Binding; BUS_BINDINGS],
+    /// ABI 4.8: each fx binding's value this quantum (by binding index; unused for other kinds).
+    pub vals: [f32; BUS_BINDINGS],
+    /// ABI 4.8: the receiving bus slot of each send multiplier.
+    pub send_to: [u16; SEND_AUTOS],
+    /// ABI 4.8: each send's gain multiplier at the end of the last quantum and of this one (ramped
+    /// between).
+    pub s0: [f32; SEND_AUTOS],
+    pub s1: [f32; SEND_AUTOS],
 }
 
 impl BusAuto {
@@ -297,6 +352,54 @@ impl BusAuto {
     #[inline]
     pub fn gain_at(&self, j: usize) -> f32 {
         ramp_at(self.g0, self.g1, j)
+    }
+
+    /// ABI 4.8: the send into slot `to`'s automation multiplier for this quantum, as `(start, end)`
+    /// (ramped across it), or `None` when no binding drives that send.
+    #[inline]
+    pub fn send_gain(&self, to: u16) -> Option<(f32, f32)> {
+        if self.targets & has::SEND == 0 {
+            return None;
+        }
+        let n = (self.sends as usize).min(SEND_AUTOS);
+        self.send_to[..n].iter().position(|&t| t == to).map(|k| (self.s0[k], self.s1[k]))
+    }
+
+    /// ABI 4.8: calls `f(slot, param, value)` for each fx binding's value this quantum, in binding
+    /// order (a later binding of the same parameter wins).
+    #[inline]
+    pub fn for_each_fx(&self, mut f: impl FnMut(usize, usize, f32)) {
+        if self.targets & has::FX == 0 {
+            return;
+        }
+        for (b, &v) in self.bindings[..(self.count as usize).min(BUS_BINDINGS)].iter().zip(self.vals.iter()) {
+            if target::kind(b.target) == target::FX {
+                f(target::slot(b.target), target::param(b.target), v);
+            }
+        }
+    }
+}
+
+/// A gain of `db` decibels (`10^(db/20)`); `-inf` and NaN are silence.
+#[inline]
+fn db_gain(db: f32) -> f32 {
+    let g = libm::powf(10.0, db * 0.05);
+    if g.is_finite() {
+        g
+    } else if db > 0.0 {
+        crate::bus_sends::MAX_LEVEL
+    } else {
+        0.0
+    }
+}
+
+/// An fx binding's value from its curve's `y` (2^y for a log2 curve).
+#[inline]
+fn fx_value(t: u32, y: f32) -> f32 {
+    if target::log(t) {
+        libm::exp2f(y)
+    } else {
+        y
     }
 }
 
@@ -732,13 +835,14 @@ pub fn curves(core: &mut Core, msg: &[u8], off: usize) {
     }
 }
 
-/// Reads up to [`BINDINGS`] bindings of the (well-formed) record at `msg[off..]` into `out`;
-/// returns how many, and their [`has`] bits. `bus` keeps only global volume and lowpass bindings.
-fn read_bindings(msg: &[u8], off: usize, out: &mut [Binding; BINDINGS], bus: bool) -> (u8, u8, bool) {
+/// Reads up to `out.len()` bindings of the (well-formed) record at `msg[off..]` into `out`;
+/// returns how many, and their [`has`] bits. `bus` keeps only global volume, lowpass, fx and send
+/// bindings (ABI 4.8; a voice ignores fx and send targets).
+fn read_bindings(msg: &[u8], off: usize, out: &mut [Binding], bus: bool) -> (u8, u8, bool) {
     let n = u32_at(msg, off + 12) as usize;
     let (mut count, mut targets, mut time) = (0usize, 0u8, false);
     for i in 0..n {
-        if count == BINDINGS {
+        if count == out.len() {
             break;
         }
         let at = off + wire::Automate::FIXED_END + i * wire::AutomateBindings::FIXED_END;
@@ -749,6 +853,8 @@ fn read_bindings(msg: &[u8], off: usize, out: &mut [Binding; BINDINGS], bus: boo
             target::LOWPASS => has::LOWPASS,
             target::HIGHPASS if !bus => has::HIGHPASS,
             target::PAN if !bus => has::PAN,
+            t if bus && target::kind(t) == target::FX => has::FX,
+            t if bus && target::kind(t) == target::SEND => has::SEND,
             _ => continue,
         };
         if bus && b.param & 0x8000 == 0 {
@@ -789,7 +895,7 @@ pub fn automate(core: &mut Core, msg: &[u8], off: usize) {
     }
 }
 
-/// BUS_AUTOMATE: replaces bus `voiceId`'s bindings (global volume and lowpass only).
+/// BUS_AUTOMATE: replaces bus `voiceId`'s bindings (global volume, lowpass, fx and send).
 pub fn bus_automate(core: &mut Core, msg: &[u8], off: usize) {
     let bus = u32_at(msg, off + 4) as usize;
     let Some(v) = view(&mut core.regions_mut().automation[..]) else { return };
@@ -798,6 +904,7 @@ pub fn bus_automate(core: &mut Core, msg: &[u8], off: usize) {
     let (count, targets, _) = read_bindings(msg, off, &mut b.bindings, true);
     b.count = count;
     b.targets = targets;
+    b.sends = 0;
     b.fresh = 1;
     match (was, count != 0) {
         (false, true) => v.header.buses_bound += 1,
@@ -1107,12 +1214,109 @@ pub fn begin_quantum(core: &mut Core, frame: u64) {
             if b.count == 0 {
                 continue;
             }
-            let Evaluated { g, lp, .. } = evaluate(v.params, v.curves, &b.bindings[..b.count as usize], 0, &[0.0; 3]);
-            b.g0 = if b.fresh != 0 { g } else { b.g1 };
-            b.fresh = 0;
+            let n = (b.count as usize).min(BUS_BINDINGS);
+            let Evaluated { g, lp, .. } = evaluate(v.params, v.curves, &b.bindings[..n], 0, &[0.0; 3]);
+            let fresh = b.fresh != 0;
+            b.g0 = if fresh { g } else { b.g1 };
             b.g1 = g;
             b.lp = lp;
+            if b.targets & (has::FX | has::SEND) != 0 {
+                evaluate_bus_extras(v.params, v.curves, b, fresh);
+            }
+            b.fresh = 0;
         }
+    }
+}
+
+/// ABI 4.8: a bus's fx values and send multipliers this quantum (see the module comment, step 4).
+/// Send dB sum per receiving slot (in binding order, at most [`SEND_AUTOS`] slots), then become
+/// gains; a fresh entry (just bound) starts at them with no ramp, as `gainMul` does.
+fn evaluate_bus_extras(params: &[Param], curves: &[Curve], b: &mut BusAuto, fresh: bool) {
+    let n = (b.count as usize).min(BUS_BINDINGS);
+    let mut db = [0.0f32; SEND_AUTOS];
+    let mut to = [0u16; SEND_AUTOS];
+    let mut sends = 0usize;
+    for i in 0..n {
+        let bind = b.bindings[i];
+        let kind = target::kind(bind.target);
+        if kind != target::FX && kind != target::SEND {
+            continue;
+        }
+        let y = curve_value(curves, bind.curve, binding_value(params, bind.param, 0, &[0.0; 3]));
+        if kind == target::FX {
+            b.vals[i] = fx_value(bind.target, y);
+            continue;
+        }
+        let slot = target::slot(bind.target) as u16;
+        let k = match to[..sends].iter().position(|&t| t == slot) {
+            Some(k) => k,
+            None if sends < SEND_AUTOS => {
+                to[sends] = slot;
+                sends += 1;
+                sends - 1
+            }
+            None => continue,
+        };
+        db[k] += if y.is_nan() { 0.0 } else { y };
+    }
+    // The same slots in the same order as last quantum (the bindings didn't change: a rebinding is
+    // fresh), so each multiplier ramps from its own previous value.
+    let keep = !fresh && b.sends as usize == sends && b.send_to[..sends] == to[..sends];
+    for k in 0..sends {
+        let g = db_gain(db[k]).min(crate::bus_sends::MAX_LEVEL);
+        b.s0[k] = if keep { b.s1[k] } else { g };
+        b.s1[k] = g;
+    }
+    b.send_to = to;
+    b.sends = sends as u8;
+}
+
+/// ABI 4.8 (SUBMIX_AUTOMATE): reads up to `out.len()` fx bindings of the (well-formed) record at
+/// `msg[off..]` into `out`; returns how many. Other kinds are skipped.
+pub(crate) fn read_submix_bindings(msg: &[u8], off: usize, out: &mut [Binding]) -> usize {
+    let n = u32_at(msg, off + 12) as usize;
+    let mut count = 0usize;
+    for i in 0..n {
+        if count == out.len() {
+            break;
+        }
+        let at = off + wire::Automate::FIXED_END + i * wire::AutomateBindings::FIXED_END;
+        let b = Binding { param: u16_at(msg, at), curve: u16_at(msg, at + 2), target: u32_at(msg, at + 4) };
+        if target::kind(b.target) != target::FX {
+            continue;
+        }
+        out[count] = b;
+        count += 1;
+    }
+    count
+}
+
+/// ABI 4.8: what `submix::render` reads to evaluate a submix's fx bindings: the parameter table,
+/// the curves and the group clocks, and the context frame and rate for `sequenceTime`.
+pub(crate) struct SubmixEval<'a> {
+    params: &'a [Param],
+    curves: &'a [Curve],
+    clocks: &'a [GroupClock],
+    frame: u64,
+    sample_rate: f32,
+}
+
+/// The tables [`submix_bindings`] reads (`None` without the region: never after `Core::new`).
+pub(crate) fn submix_eval(region: &mut [u8], frame: u64) -> Option<SubmixEval<'_>> {
+    let v = view(region)?;
+    let sample_rate = v.header.sample_rate;
+    Some(SubmixEval { params: v.params, curves: v.curves, clocks: v.clocks, frame, sample_rate })
+}
+
+/// ABI 4.8: calls `f(slot, param, value)` for each of a submix's fx `bindings` at this quantum,
+/// reading locals of `group` and its `sequenceTime` (the group's clock at the quantum's first
+/// frame); `voiceTime` and `clipTime` read 0 (a submix has no voice).
+pub(crate) fn submix_bindings(e: &SubmixEval<'_>, bindings: &[Binding], group: u16, mut f: impl FnMut(usize, usize, f32)) {
+    let seq = e.clocks.get(group as usize).map_or(0.0, |c| c.at(e.frame, e.sample_rate));
+    let times = [0.0, 0.0, seq];
+    for b in bindings {
+        let y = curve_value(e.curves, b.curve, binding_value(e.params, b.param, group, &times));
+        f(target::slot(b.target), target::param(b.target), fx_value(b.target, y));
     }
 }
 

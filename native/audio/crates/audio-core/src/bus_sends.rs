@@ -18,6 +18,7 @@
 use audio_dsp::ramp::Ramp;
 use audio_wire::generated as wire;
 
+use crate::automation::BusAuto;
 use crate::bus::{self, BusSlot};
 use crate::core::Core;
 use crate::wire_read::{u16_at, u32_at};
@@ -125,8 +126,10 @@ pub fn edges(slots: &[BusSlot], out: &mut [(u8, u8)]) -> usize {
 }
 
 /// Inside `mixdown`, after bus `b`'s gain stage: adds each of its sends (`block`: its post-fader
-/// quantum, planar stereo) into the receiving buses' inputs, stepping the send ramps.
-pub(crate) fn feed(slots: &mut [BusSlot], b: usize, block: &[f32]) {
+/// quantum, planar stereo) into the receiving buses' inputs, stepping the send ramps. ABI 4.8: a
+/// send its bus's automation drives (`auto`, [`BusAuto::send_gain`]) is multiplied by that gain too,
+/// ramped across the quantum.
+pub(crate) fn feed(slots: &mut [BusSlot], b: usize, block: &[f32], auto: Option<&BusAuto>) {
     let q = crate::QUANTUM;
     let n = (slots[b].sends.count as usize).min(MAX_SENDS);
     for i in 0..n {
@@ -139,7 +142,13 @@ pub(crate) fn feed(slots: &mut [BusSlot], b: usize, block: &[f32]) {
             continue;
         }
         let (dl, dr) = slots[to].buf.split_at_mut(q);
-        if send.gain.is_settled() {
+        if let Some((a0, a1)) = auto.and_then(|a| a.send_gain(send.to)) {
+            for k in 0..q {
+                let g = send.gain.next() * crate::automation::ramp_at(a0, a1, k);
+                dl[k] += g * block[k];
+                dr[k] += g * block[q + k];
+            }
+        } else if send.gain.is_settled() {
             let g = send.gain.value;
             for k in 0..q {
                 dl[k] += g * block[k];
