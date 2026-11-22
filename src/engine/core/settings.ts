@@ -73,6 +73,11 @@ export interface ProjectSettings {
 /** `project.json`'s `plugins` section. */
 export interface PluginSettings {
   disabled?: string[];
+  /**
+   * ADR 0344 §6: where plugin audio effects' wasm modules run. "chromium" (absent) runs them on Chromium's engine only
+   * (the only one measured so far); "all" runs them everywhere. Read by the audio plugin.
+   */
+  audioEffectEngines?: "chromium" | "all";
 }
 
 /**
@@ -85,7 +90,9 @@ export function pluginSettingsProblems(input: unknown, known?: readonly string[]
   const warnings: string[] = [];
   if (input === undefined) return { problems, warnings };
   if (!isRecord(input)) return { problems: [`plugins must be an object with a disabled list (got ${describe(input)}).`], warnings };
-  unknownKeys(input, ["disabled"], "plugins", problems);
+  unknownKeys(input, ["disabled", "audioEffectEngines"], "plugins", problems);
+  const engines = input.audioEffectEngines;
+  if (engines !== undefined && engines !== "chromium" && engines !== "all") problems.push(`plugins.audioEffectEngines must be "chromium" or "all" (got ${describe(engines)}); using "chromium".`);
   const list = input.disabled;
   if (list === undefined) return { problems, warnings };
   if (!isStringList(list)) return { problems: [...problems, `plugins.disabled must be a list of plugin names (got ${describe(list)}).`], warnings };

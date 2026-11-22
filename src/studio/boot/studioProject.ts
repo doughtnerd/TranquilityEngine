@@ -16,6 +16,7 @@ import { NO_FOLDERS_NOTE, projectFileSystem } from "../../editor/projectFs";
 import { projectOpening, type LocationOutcome, type OpenIntent, type OpenOutcome, type OpenResult, type ProjectSource } from "../../editor/projectOpening";
 import { editorSettings, openFolderProject, useProjectAssets } from "../../editor/projects";
 import { recentProjects, rememberProject } from "../../editor/recentProjects";
+import { applyProjectAudioEffects, clearProjectAudioEffects } from "../../plugins/projectAudioEffects";
 import { findSample, openSampleProject } from "../../editor/samples";
 import { currentProject, status } from "../../editor/state";
 import { requestScreen, type StudioOpenRequest } from "../../editor/studioAssets";
@@ -57,6 +58,8 @@ export function studioProjects({ runtime, openRoute, confirm = (q) => confirmInE
     useProjectAssets(project);
     currentProject.value = project;
     void runtime.open(editorSettings(project));
+    // ADR 0338 §8: the project's plugin audio effects (catalogue, the core's chains, offline renders).
+    void applyProjectAudioEffects(project);
     void rememberProject(project, "studio");
     if (!readOnly) void startStudioProjectWatch(project);
     // What the migration did stays in the status line (the opened note doesn't replace it).
@@ -108,6 +111,7 @@ export function studioProjects({ runtime, openRoute, confirm = (q) => confirmInE
     pendingAudioMigration.value = null;
     runtime.close();
     void stopStudioProjectWatch();
+    void clearProjectAudioEffects();
     currentProject.value = null;
     status.value = null;
   }

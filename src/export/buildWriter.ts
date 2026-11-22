@@ -16,6 +16,7 @@ import { joinPath } from "../editor/projectPaths";
 import { ENGINE_FILE, MANIFEST_FILE, PLAYER_FILE_LIST, PLAYER_PAGE } from "./format";
 import { AUDIO_REPORT_FILE, processAudio, type AudioCacheStore, type DecodeAudio } from "./audio";
 import type { AudioEncoder } from "./audioEncoder";
+import { withAudioEffects } from "./audioEffects";
 import { processImages, type ImageTranscoder } from "./images";
 import { withRenderedSamples } from "./sampleRenders";
 import { ExportError, copiedPath, withBakedModels, type BakeModel, type WebBuildPlan } from "./webBuild";
@@ -98,7 +99,10 @@ export async function writeWebBuild(plan: WebBuildPlan, options: WriteBuildOptio
   }
 
   plan = await withBakedModels(plan, options.bake, log);
-  plan = await withRenderedSamples(plan, (path) => project.read(path), log);
+  // ADR 0338 §8: the plugins' audio modules hashed into game.json; their offline host renders baked plugin effects.
+  const effects = await withAudioEffects(plan, (path) => project.read(path), log);
+  plan = effects.plan;
+  plan = await withRenderedSamples(plan, (path) => project.read(path), log, effects.renders);
   plan = await processImages(plan, {
     platform: options.platform,
     readText: (path) => project.read(path).then(textOf, () => undefined),

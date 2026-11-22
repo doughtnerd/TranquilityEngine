@@ -12,6 +12,7 @@ import { acquireLock, type HeldLock } from "../../editor/projectLocks";
 import type { EditorProject, FileChanges } from "../../editor/projects";
 import { watchProject, type ProjectChanges, type ProjectWatch } from "../../editor/projectWatch";
 import { currentProject, docVersion } from "../../editor/state";
+import { affectsAudioEffects, applyProjectAudioEffects } from "../../plugins/projectAudioEffects";
 
 interface Watching {
   readonly project: EditorProject;
@@ -44,6 +45,8 @@ export async function applyStudioChanges(project: EditorProject, changes: Pick<P
   const result = await project.rereadFiles(changes.files);
   if (result.removed.length > 0) await assetDocumentsDeleted(result.removed);
   if (result.changed.length + result.added.length + result.removed.length > 0) docVersion.value++;
+  // ADR 0338 §8: a plugin's manifest or module file changed (a rebuilt .wasm): its audio effects reload.
+  if ([...result.changed, ...result.added, ...result.removed].some(affectsAudioEffects)) await applyProjectAudioEffects(project);
   return result;
 }
 

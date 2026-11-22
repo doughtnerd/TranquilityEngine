@@ -3,7 +3,12 @@
  * built into ./wasm by `npm run build:audio`), the first time a render is asked for, and runs one render through its C
  * ABI (the header of the crate's `lib.rs`). Browsers fetch the file (Vite bundles it as an asset); Node (tests, the
  * export) reads it from disk. The module exports its memory and owns its allocator; nothing else shares it.
+ *
+ * ABI 1.1 (ADR 0338 §7): the module imports `myco_ext`, the plugin effect calls the core's chains make. One instance
+ * serves every render, so its import is a trampoline to the current render's plugin session (`offlinePlugins.ts`, the
+ * plugin glue a caller opened); with none, the stubs give no instance and plugin effects pass through dry.
  */
+import type { MycoExtCalls, OfflinePluginSession } from "./offlinePlugins";
 
 interface OfflineExports {
   readonly memory: WebAssembly.Memory;
@@ -29,6 +34,18 @@ export interface RawRender {
 
 let loading: Promise<OfflineExports> | null = null;
 
+/** The plugin session of the render running now (renders are synchronous in the module, so one at a time). */
+let current: MycoExtCalls | null = null;
+
+/** The `myco_ext` import: the current session's calls, else no plugin (no instance, every block dry). */
+const trampoline: MycoExtCalls = {
+  acquire: (e) => (current ? current.acquire(e) : 0),
+  release: (h) => current?.release(h),
+  describe: (e, what) => (current ? current.describe(e, what) : 0),
+  process: (h, l, r, frames, p0, p1, flags, fuel) => (current ? current.process(h, l, r, frames, p0, p1, flags, fuel) : -1),
+  sweep: (ptr, n, last) => current?.sweep(ptr, n, last),
+};
+
 async function instantiate(): Promise<OfflineExports> {
   const url = new URL("./wasm/myco_audio_offline.wasm", import.meta.url);
   let bytes: BufferSource;
@@ -42,7 +59,7 @@ async function instantiate(): Promise<OfflineExports> {
     if (!res.ok) throw new Error(`offline render: myco_audio_offline.wasm didn't load (${res.status})`);
     bytes = await res.arrayBuffer();
   }
-  const { instance } = await WebAssembly.instantiate(bytes, {});
+  const { instance } = await WebAssembly.instantiate(bytes, { myco_ext: trampoline as unknown as WebAssembly.ModuleImports });
   const x = instance.exports as unknown as OfflineExports;
   const major = x.myco_offline_abi_version() >> 8;
   if (major !== ABI_MAJOR) throw new Error(`offline render: myco_audio_offline.wasm speaks ABI ${major}, this build ${ABI_MAJOR}; run npm run build:audio`);
@@ -57,9 +74,14 @@ function load(): Promise<OfflineExports> {
   return loading;
 }
 
-/** Renders `pcm` (`channels` interleaved at `rate`) through `spec` (the crate's `spec.rs` layout). */
-export async function renderOffline(pcm: Float32Array, channels: number, rate: number, spec: Float64Array): Promise<RawRender> {
+/**
+ * Renders `pcm` (`channels` interleaved at `rate`) through `spec` (the crate's `spec.rs` layout); plugin effects in it
+ * run through `plugins` (opened for this render; absent: they pass through dry).
+ */
+export async function renderOffline(pcm: Float32Array, channels: number, rate: number, spec: Float64Array, plugins?: OfflinePluginSession): Promise<RawRender> {
   const x = await load();
+  if (plugins) plugins.attach(x.memory);
+  current = plugins?.imports ?? null;
   const frames = Math.floor(pcm.length / channels);
   const pcmBytes = Math.max(4, frames * channels * 4);
   const specBytes = Math.max(8, spec.length * 8);
@@ -80,6 +102,7 @@ export async function renderOffline(pcm: Float32Array, channels: number, rate: n
       x.myco_offline_output_free(h);
     }
   } finally {
+    current = null;
     if (p) x.myco_offline_free(p, pcmBytes);
     if (s) x.myco_offline_free(s, specBytes);
   }
