@@ -9,6 +9,11 @@
 //! core's); graph state events (states entered and exited, slot plays, requests) go to the graph
 //! state-change buffer; the frame also owns the blackboard rows and the debug buffer.
 //!
+//! T40 additions (hooks, each one line or a few): the frame owns the `rig` family's views
+//! ([`crate::rig::RigViews`]); `write_inputs` routes `rig` commands to [`crate::rig::apply`];
+//! `evaluate` gives each instance its rig rows (`Inputs::rig`) and clears its ray row before a
+//! pose evaluation.
+//!
 //! # Per instance, per frame
 //!
 //! 1. `dt` = `dt_scaled` (or `dt_unscaled` with `FLAG_UNSCALED`) × the row's time scale.
@@ -97,6 +102,8 @@ pub struct Frame {
     pub graph_changes: GraphChanges,
     /// The debug buffer (`debug` family).
     pub debug: Vec<u8>,
+    /// The rig input and ray output views (`rig` family, T40).
+    pub rig: crate::rig::RigViews,
     poses: Vec<SoaTransform>,
     display: Vec<SoaTransform>,
     sample: Vec<AosTransform>,
@@ -125,6 +132,7 @@ impl Frame {
             blackboard: vec![0; max_instances * (anim_wire::graph::BLACKBOARD_STRIDE / 4) as usize],
             graph_changes: GraphChanges::new(max_instances),
             debug: vec![0; anim_wire::debug::DEBUG_BYTES as usize],
+            rig: crate::rig::RigViews::new(max_instances),
             poses: vec![SoaTransform::identity(); slots * groups],
             display: vec![SoaTransform::identity(); groups],
             sample: vec![AosTransform::identity(); 2 * max_bones],
@@ -168,6 +176,7 @@ impl Frame {
         if let Some(row) = self.blackboard.get_mut(index * bb..(index + 1) * bb) {
             row.fill(0);
         }
+        self.rig.default_row(index);
     }
 
     fn push_change(&mut self, change: StateChange) {
@@ -317,13 +326,31 @@ pub fn write_inputs(
             Play::OPCODE => Play::STRIDE as usize,
             Stop::OPCODE => Stop::STRIDE as usize,
             SetLayer::OPCODE => SetLayer::STRIDE as usize,
-            op => match crate::graph::command_stride(op) {
+            op => match crate::graph::command_stride(op).or(crate::rig::command_stride(op)) {
                 Some(s) => s,
                 None => break,
             },
         };
         if at + stride > len {
             break;
+        }
+        if crate::rig::command_stride(opcode).is_some() {
+            // A rig command (T40): writes the instance's state words.
+            if let Err((status, instance, layer, play_id)) =
+                crate::rig::apply(arena, table, opcode, &frame.commands[at..at + stride])
+            {
+                frame.push_change(StateChange {
+                    instance,
+                    layer,
+                    kind: CHANGE_REFUSED,
+                    play_id,
+                    status,
+                });
+            } else {
+                applied += 1;
+            }
+            at += stride;
+            continue;
         }
         if crate::graph::command_stride(opcode).is_some() {
             // A graph command: copied out of the buffer (at most 64 bytes) so the frame can be
@@ -495,6 +522,8 @@ pub fn evaluate(
     dt_unscaled: f32,
 ) -> u32 {
     let max_bones = frame.max_bones;
+    let rig_inputs = &frame.rig.inputs[..];
+    let rig_rays = core::cell::Cell::from_mut(&mut frame.rig.rays[..]).as_slice_of_cells();
     for (h, inst) in table.iter_mut() {
         if inst.world != world {
             continue;
@@ -554,6 +583,7 @@ pub fn evaluate(
             layer_weights: &weights,
             history,
             bake_root: flags & FLAG_BAKE_ROOT != 0,
+            rig: crate::rig::row_inputs(rig_inputs, rig_rays, index, skel),
         };
         let mut sink = Sink {
             changes: &mut frame.changes,
@@ -625,6 +655,7 @@ pub fn evaluate(
                 inertializer,
             };
             let display = &mut frame.display[..groups];
+            crate::rig::clear_rays(rig_rays, index);
             program.pose(&inputs, &mut inst.state, scratch, display);
             if inst.history == 0 || inst.stale {
                 inst.prev.copy_from_slice(display);

@@ -80,6 +80,15 @@
 //! - A node of a kind its family doesn't know (a newer graph) is handled here: its pose is its
 //!   first input's (or the rest pose), its alpha, root and timing likewise; [`Program::unknown_nodes`]
 //!   counts them so the loader reports it once.
+//!
+//! # T40 hooks (the rig family)
+//!
+//! Three additions, each the minimum the rig nodes can't do without: [`Inputs::rig`] (the
+//! per-frame IK targets, ray hits, ray-request outputs, character transform and rig LOD, plus the
+//! skeleton's joint limits and roles, read through [`EvalContext::rig`]); [`ClipRef::cues`] and
+//! [`ClipRef::distance`] (motion-warp windows named by cue markers; distance matching's travel
+//! curve); and the rig family's `DISTANCE_MATCH` gating its input (it advances its child at a
+//! computed rate, as `TIME_SCALE` does at a fixed one).
 
 use anim_format::graph::{
     AnimGraphView, CondNode, CondProgram, How, Interrupt, Operand, ParamType, ParamValue,
@@ -159,6 +168,12 @@ pub struct ClipRef<'a> {
     pub exits: &'a [f32],
     /// Its `curve` tracks: ([`name_hash`] of the curve name, track index).
     pub curves: &'a [(u32, u32)],
+    /// Its `cue` markers sorted by time, ids as [`name_hash`] (T40: motion-warp windows named in
+    /// the clip, ADR 0342).
+    pub cues: &'a [SyncMarker],
+    /// Its root curve's cumulative ground travel per frame (`anim_rig::warp::cumulative_distance`
+    /// over the curve's positions, up +Y; empty without a curve). T40: distance matching.
+    pub distance: &'a [f32],
 }
 
 /// A loaded graph as a linked-graph node sees it.
@@ -304,6 +319,10 @@ pub struct Inputs<'a> {
     /// Clip players remove the root motion of their clip's root bone from the pose (it is reported
     /// as the root delta instead).
     pub bake_root: bool,
+    /// The rig stack's per-frame inputs and outputs (T40: IK targets, ray hits and requests, the
+    /// character's transform, rig LOD) and the skeleton's joint limits and roles;
+    /// [`RigInputs::NONE`](crate::rig::RigInputs::NONE) when there are none.
+    pub rig: crate::rig::RigInputs<'a>,
 }
 
 /// Scratch the caller owns; sized by the program and skeleton (see [`Program::pose_slots`]).
@@ -457,6 +476,7 @@ fn gates_inputs(family: Family, kind: u16) -> bool {
         ),
         Family::Logic => kind == crate::logic::kind::RANDOM,
         Family::Mixing => kind == crate::mixing::kind::TIME_SCALE,
+        Family::Rig => crate::rig::gates_input(kind),
         _ => false,
     }
 }
@@ -1348,6 +1368,7 @@ impl<'a> EvalContext<'a> {
                 layer_weights: &[],
                 history: None,
                 bake_root: false,
+                rig: crate::rig::RigInputs::NONE,
             },
             state: &mut [],
             events,
@@ -1499,6 +1520,11 @@ impl<'a> EvalContext<'a> {
     /// Whether clip players bake root motion out of their poses.
     pub fn bake_root(&self) -> bool {
         self.inputs.bake_root
+    }
+
+    /// The rig stack's inputs and outputs (T40).
+    pub fn rig(&self) -> crate::rig::RigInputs<'a> {
+        self.inputs.rig
     }
 
     /// The instance's last two evaluated output poses.

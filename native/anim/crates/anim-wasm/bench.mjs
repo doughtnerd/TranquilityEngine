@@ -2,8 +2,9 @@
 // Measures the committed animation core on wasm in Node (ADR 0340's budgets are tripwires): `evaluate` for 100
 // instances of the 60-bone fixture humanoid, (a) all playing one clip, (b) all mid-crossfade between two clips,
 // (c) T31: all running the locomotion graph (fixtures/loco.animgraph: a state machine with a 2D blend space of three
-// clips, synced and speed-scaled, under an upper-body slot playing a one-shot, under an inertialization node), plus the
-// wasm's size. Prints the numbers; asserts nothing (wall-clock). Run: node native/anim/crates/anim-wasm/bench.mjs
+// clips, synced and speed-scaled, under an upper-body slot playing a one-shot, under an inertialization node), (d) T40:
+// the same graph with a two-foot grounder (hits fed each frame from last frame's rays, the host's round trip) and a
+// look-at on the neck and head (fixtures/loco_rig.animgraph; ADR 0340's budget scenario shape), plus the wasm's size. Prints the numbers; asserts nothing (wall-clock). Run: node native/anim/crates/anim-wasm/bench.mjs
 import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -106,5 +107,68 @@ const gh = Array.from({ length: N }, () => glue.create_instance(0, skel, graph))
   if (applied !== N * 5) console.log(`warning: ${applied} of ${N * 5} graph commands applied`);
 }
 measure("locomotion graph (state machine + 2D blend space of 3 clips + upper-body slot)", 300);
+
+// (d) T40: the locomotion graph + grounder + look-at. Rig rows (anim-wire rig family, version 1): the character
+// transform (identity), target slot 0 (the look-at's, model space), and per frame the hits for last frame's rays
+// (flat ground at y = 0: the hit is the ray origin dropped to the plane).
+const RIG_STRIDE = 1088, TARGETS = 64, HITS = 832, RAY_ROW = 256;
+const rigGraph = glue.load_graph(fixture("loco_rig.animgraph"));
+if (glue.last_status() !== 0) console.log(`warning: loco_rig.animgraph loaded with status ${glue.last_status()}`);
+for (const [id, asset] of [[b.idle, idle], [b.walk, walk], [b.run, run], [b.upper, mask]]) glue.graph_bind(rigGraph, id, asset);
+for (const h of gh) glue.destroy_instance(h);
+const rh = Array.from({ length: N }, () => glue.create_instance(0, skel, rigGraph));
+{
+  const view = new DataView(exports.memory.buffer);
+  let at = glue.commands_ptr();
+  const start = at;
+  const f32 = (x) => new Uint32Array(new Float32Array([x]).buffer)[0];
+  rh.forEach((h, i) => {
+    for (const [param, type, w0] of [[3, 2, 1], [0, 0, f32((i % 10) / 10)], [1, 0, f32(0.5 + (i % 5) / 10)], [2, 0, f32(1 + (i % 3))]]) {
+      view.setUint16(at, 0x0301, true);
+      view.setUint16(at + 2, 1, true);
+      for (const [o, v] of [[4, h], [8, param], [12, type], [16, w0], [20, 0], [24, 0], [28, 0]]) view.setUint32(at + o, v, true);
+      at += 32;
+    }
+    const row = glue.rig_inputs_ptr() + (h & 0xffff) * RIG_STRIDE;
+    for (const [o, v] of [[0, 1.5], [4, 1.6], [8, 2.0], [28, 1], [32, 1]]) view.setFloat32(row + TARGETS + o, v, true);
+  });
+  glue.write_inputs(at - start);
+}
+function feedHits() {
+  const view = new DataView(exports.memory.buffer);
+  for (const h of rh) {
+    const i = h & 0xffff;
+    const rays = glue.rig_rays_ptr() + i * RAY_ROW;
+    const hits = glue.rig_inputs_ptr() + i * RIG_STRIDE + HITS;
+    for (let k = 0; k < 2; k++) {
+      const r = rays + k * 32;
+      const valid = view.getUint32(r + 28, true) & 1;
+      view.setFloat32(hits + k * 32, view.getFloat32(r, true), true);
+      view.setFloat32(hits + k * 32 + 4, 0, true);
+      view.setFloat32(hits + k * 32 + 8, view.getFloat32(r + 8, true), true);
+      view.setFloat32(hits + k * 32 + 16, 1, true);
+      view.setUint32(hits + k * 32 + 24, valid, true);
+    }
+  }
+}
+{
+  const dt = 1 / 60;
+  for (let i = 0; i < 30; i++) {
+    feedHits();
+    glue.write_inputs(0);
+    glue.evaluate(0, 0, dt, dt);
+  }
+  const frames = 300;
+  const t0 = performance.now();
+  for (let i = 0; i < frames; i++) {
+    feedHits();
+    glue.write_inputs(0);
+    glue.evaluate(0, 0, dt, dt);
+  }
+  const ms = (performance.now() - t0) / frames;
+  const view = new DataView(exports.memory.buffer);
+  const asked = rh.reduce((n, h) => n + [0, 1].filter((k) => view.getUint32(glue.rig_rays_ptr() + (h & 0xffff) * RAY_ROW + k * 32 + 28, true) & 1).length, 0);
+  console.log(`locomotion graph + two-foot grounder + look-at: ${ms.toFixed(3)} ms per frame (${N} instances x 60 bones, mean of ${frames}, hits fed each frame; ${asked} rays asked)`);
+}
 const wasm = fileURLToPath(new URL("myco_anim_bg.wasm", wasmDir));
 console.log(`wasm: ${statSync(wasm).size} bytes`);

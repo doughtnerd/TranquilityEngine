@@ -272,6 +272,26 @@ export function restore(handle, bytes) {
 }
 
 /**
+ * The rig input view's byte offset in memory (`rig` family, `RIG_INPUT_STRIDE` bytes per
+ * instance index; T40).
+ * @returns {number}
+ */
+export function rig_inputs_ptr() {
+    const ret = wasm.rig_inputs_ptr();
+    return ret >>> 0;
+}
+
+/**
+ * The ray output view's byte offset in memory (`rig` family, `RAY_ROW_STRIDE` bytes per instance
+ * index; T40).
+ * @returns {number}
+ */
+export function rig_rays_ptr() {
+    const ret = wasm.rig_rays_ptr();
+    return ret >>> 0;
+}
+
+/**
  * The root-motion view's byte offset in memory.
  * @returns {number}
  */

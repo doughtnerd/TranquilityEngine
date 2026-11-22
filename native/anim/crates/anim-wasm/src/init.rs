@@ -271,6 +271,7 @@ impl Core {
             layer_weights: &[],
             history: None,
             bake_root: false,
+            rig: anim_graph::rig::RigInputs::NONE,
         };
         program.init_state(&inputs, &mut inst.state);
         let (index, _) = split(h);
@@ -403,6 +404,16 @@ impl Core {
     /// The blackboard view (words; `graph` family `BLACKBOARD_STRIDE` bytes per instance index).
     pub fn blackboard_mut(&mut self) -> &mut [u32] {
         &mut self.frame.blackboard
+    }
+
+    /// The rig input view (words; `rig` family `RIG_INPUT_STRIDE` bytes per instance index).
+    pub fn rig_inputs_mut(&mut self) -> &mut [u32] {
+        &mut self.frame.rig.inputs
+    }
+
+    /// The ray output view (words; `rig` family `RAY_ROW_STRIDE` bytes per instance index).
+    pub fn rig_rays(&self) -> &[u32] {
+        &self.frame.rig.rays
     }
 
     /// The graph state-change records (`graph` family `GRAPH_CHANGE`) since the last
@@ -720,6 +731,20 @@ pub fn changes_dropped() -> u32 {
 #[wasm_bindgen]
 pub fn blackboard_ptr() -> u32 {
     with(|c| Core::addr(&c.frame.blackboard))
+}
+
+/// The rig input view's byte offset in memory (`rig` family, `RIG_INPUT_STRIDE` bytes per
+/// instance index; T40).
+#[wasm_bindgen]
+pub fn rig_inputs_ptr() -> u32 {
+    with(|c| Core::addr(&c.frame.rig.inputs))
+}
+
+/// The ray output view's byte offset in memory (`rig` family, `RAY_ROW_STRIDE` bytes per instance
+/// index; T40).
+#[wasm_bindgen]
+pub fn rig_rays_ptr() -> u32 {
+    with(|c| Core::addr(&c.frame.rig.rays))
 }
 
 /// The graph state-change records' byte offset in memory.

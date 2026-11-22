@@ -206,6 +206,34 @@ impl DampState {
     pub fn reset(&mut self) {
         self.initialized = false;
     }
+
+    /// The `u32` words [`write_words`](Self::write_words) fills: position, velocity, rotation,
+    /// angular velocity, then the initialised flag.
+    pub const WORDS: usize = 14;
+
+    /// Writes the state as [`WORDS`](Self::WORDS) words (f32 bits; the flag as 0 or 1), so it can
+    /// live in a word blob that snapshots by copying. Panics when `out` is shorter.
+    pub fn write_words(&self, out: &mut [u32]) {
+        let mut p = crate::words::Put::new(out);
+        p.v(self.position);
+        p.v(self.velocity);
+        p.q(self.rotation);
+        p.v(self.angular_velocity);
+        p.b(self.initialized);
+    }
+
+    /// The state [`write_words`](Self::write_words) wrote, bit for bit. Panics when `words` is
+    /// shorter than [`WORDS`](Self::WORDS).
+    pub fn read_words(words: &[u32]) -> Self {
+        let mut g = crate::words::Get::new(words);
+        Self {
+            position: g.v(),
+            velocity: g.v(),
+            rotation: g.q(),
+            angular_velocity: g.v(),
+            initialized: g.b(),
+        }
+    }
 }
 
 impl Default for DampState {

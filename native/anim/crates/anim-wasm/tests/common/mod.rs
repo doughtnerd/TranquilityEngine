@@ -7,6 +7,7 @@
 pub mod synth;
 
 pub mod graph;
+pub mod rig;
 
 use anim_compress::{compress, RootMotion, Settings, ROOT_ALL};
 use anim_format::clip::ClipView;

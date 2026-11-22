@@ -66,3 +66,8 @@ Decisions made during the build that the records didn't settle. Each entry: the 
 - **D62 (T45).** *The core owns plugin node state* and copies it in and out each call, so state survives a module reload after a trap and takes part in snapshots.
 - **D63 (T45).** *Plugin modules:* Wasm 2.0 with simd128 plus extended-const; relaxed SIMD (non-deterministic), threads, multi-memory, memory64, exceptions, tail calls and start functions are refused. A missing memory maximum gets the limit.
 - **D64 (T45).** *Fuel* is charged per block at its start; a trap fires when fuel goes below 0; a fresh instance starts at 0.
+- **D65 (T40g).** *Per-frame rig data* (targets, hits, rays) enters through an `Inputs::rig` struct, outside snapshots; ray rows are cleared before each pose so stale requests never look valid.
+- **D66 (T40g).** *Under update-rate LOD,* rig Update accumulates dt and Pose solves and consumes it. A node skipped by LOD or weight 0, or reset by command, forgets its history (springs restart on the animated pose).
+- **D67 (T40g).** *Motion-warp windows* are named by cue markers; a late or moving target re-plans from the current frame to the window end.
+- **D68 (T40g).** *Distance warping* is a `DISTANCE_MATCH` node gating its input at a computed rate (same-frame exact), not a speed parameter.
+- **D69 (T40g).** *An invalid rig parameter block* loads as an unknown node: it passes its input through and is reported once at load.

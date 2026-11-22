@@ -130,6 +130,41 @@ impl SpringChainState {
     pub fn position(&self, j: usize) -> AosVec3 {
         self.particles[j].pos
     }
+
+    /// The `u32` words [`write_words`](Self::write_words) fills: per particle its position,
+    /// previous position, animated position and last correction (12 words), then the previous
+    /// substep length and the initialised flag.
+    pub const WORDS: usize = 12 * MAX_SPRING_BONES + 2;
+
+    /// Writes the state as [`WORDS`](Self::WORDS) words (f32 bits; the flag as 0 or 1), so it can
+    /// live in a word blob that snapshots by copying. Panics when `out` is shorter.
+    pub fn write_words(&self, out: &mut [u32]) {
+        let mut p = crate::words::Put::new(out);
+        for q in &self.particles {
+            p.v(q.pos);
+            p.v(q.prev);
+            p.v(q.anim);
+            p.v(q.corr);
+        }
+        p.f(self.prev_h);
+        p.b(self.initialized);
+    }
+
+    /// The state [`write_words`](Self::write_words) wrote, bit for bit. Panics when `words` is
+    /// shorter than [`WORDS`](Self::WORDS).
+    pub fn read_words(words: &[u32]) -> Self {
+        let mut g = crate::words::Get::new(words);
+        let mut s = Self::new();
+        for q in &mut s.particles {
+            q.pos = g.v();
+            q.prev = g.v();
+            q.anim = g.v();
+            q.corr = g.v();
+        }
+        s.prev_h = g.f();
+        s.initialized = g.b();
+        s
+    }
 }
 
 impl Default for SpringChainState {

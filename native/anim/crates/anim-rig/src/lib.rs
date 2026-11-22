@@ -23,7 +23,9 @@
 //!
 //! Scratch is caller-provided ([`ChainJoint`] slices) and state is fixed-size
 //! ([`grounder::GrounderState`], [`spring::SpringChainState`], [`constraints::DampState`]), so
-//! **no solve function allocates**. Maths follows `anim-math`'s determinism rules (no fused
+//! **no solve function allocates**. Each state also writes itself to `u32` words and reads itself
+//! back bit for bit (`WORDS`, `write_words`, `read_words`), so the graph keeps it in an instance's
+//! state blob and snapshots stay exact. Maths follows `anim-math`'s determinism rules (no fused
 //! multiply-add, no libm; [`geom`] has the shared deterministic helpers).
 //!
 //! Each solver is tested against `anim-offline::rig`, the f64 reference.
@@ -44,6 +46,7 @@ pub mod pose;
 pub mod spring;
 pub mod two_bone;
 pub mod warp;
+mod words;
 
 pub use limit::JointLimit;
 pub use pose::{blend_rotation, blend_vec, ChainJoint, RigPose};

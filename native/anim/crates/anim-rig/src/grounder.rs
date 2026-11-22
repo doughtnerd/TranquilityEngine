@@ -143,6 +143,36 @@ impl GrounderState {
     pub fn reset(&mut self) {
         *self = Self::new();
     }
+
+    /// The `u32` words [`write_words`](Self::write_words) fills: per foot its offset and tilt
+    /// (5 words), then the pelvis offset and the initialised flag.
+    pub const WORDS: usize = 5 * MAX_FEET + 2;
+
+    /// Writes the state as [`WORDS`](Self::WORDS) words (f32 bits; the flag as 0 or 1), so it can
+    /// live in a word blob that snapshots by copying. Panics when `out` is shorter.
+    pub fn write_words(&self, out: &mut [u32]) {
+        let mut p = crate::words::Put::new(out);
+        for f in &self.feet {
+            p.f(f.offset);
+            p.q(f.tilt);
+        }
+        p.f(self.pelvis);
+        p.b(self.initialized);
+    }
+
+    /// The state [`write_words`](Self::write_words) wrote, bit for bit. Panics when `words` is
+    /// shorter than [`WORDS`](Self::WORDS).
+    pub fn read_words(words: &[u32]) -> Self {
+        let mut g = crate::words::Get::new(words);
+        let mut s = Self::new();
+        for f in &mut s.feet {
+            f.offset = g.f();
+            f.tilt = g.q();
+        }
+        s.pelvis = g.f();
+        s.initialized = g.b();
+        s
+    }
 }
 
 impl Default for GrounderState {

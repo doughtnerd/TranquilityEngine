@@ -14,6 +14,10 @@
 //! sub-graphs), ancestor inertialization routing, linked-graph program windows, the Timing and
 //! Weights phases ([`eval`]), the debugger's report ([`debug`]) and the 2D blend space's
 //! triangulation (`sources::triangulate`, leaf L31a). `dispatch.rs` is unchanged.
+//!
+//! T40 filled the `rig` family ([`rig`]: sixteen kinds calling `anim-rig`, their parameter-word
+//! layouts, and the per-frame [`rig::RigInputs`]), with three small hooks in [`eval`] (documented
+//! there under "T40 hooks").
 
 pub mod debug;
 pub mod dispatch;
