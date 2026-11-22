@@ -3,6 +3,7 @@
 // the queue (decided at start, `maxWait`, the cap), event cooldown and chance, line `once`, and the memory round trip.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Audio, AudioSpeaker, Engine, GameObject, SceneManager, type AudioLineEvent, type DialogueMemory } from "../../../../myco";
+import type { ProjectSettingsInput } from "../../../../engine";
 import { setAudioBackend } from "../backend";
 import { endAudioSession, makeFakeBackend, type FakeVoice } from "../testing";
 
@@ -49,7 +50,9 @@ function files(audioSettings: Record<string, unknown> = {}, scene: unknown[] = [
 async function boot(assets: Record<string, unknown> = files()): Promise<void> {
   Assets.clearSources();
   Assets.addSource(Assets.fromObject(assets));
-  engine = await Engine.create({ headless: true, project: { audio: { buses: [{ name: "Master" }, { name: "Voice", parent: "Master" }], seed: 7 }, languages: { list: [{ code: "en", name: "English" }], useSystemLanguage: false } } });
+  // `project.json` as written (the languages section in its file form; the Engine parses it).
+  const project = { audio: { buses: [{ name: "Master" }, { name: "Voice", parent: "Master" }], seed: 7 }, languages: { list: [{ code: "en", name: "English" }], useSystemLanguage: false } };
+  engine = await Engine.create({ headless: true, project: project as ProjectSettingsInput });
   engine.world.render = {} as never;
   await SceneManager.load("s.json");
 }

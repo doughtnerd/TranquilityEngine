@@ -5,6 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Audio, Engine, MemoryStorage, SceneManager, Storage, type AudioCaptionEvent, type AudioLineEvent } from "../../../../myco";
 import { resetTextLanguage, switchTextLanguage } from "../../../../engine/localisation/localeSeam";
+import type { ProjectSettingsInput } from "../../../../engine";
 import { setAudioBackend } from "../backend";
 import { endAudioSession, makeFakeBackend, type FakeVoice } from "../testing";
 
@@ -67,7 +68,8 @@ async function boot(assets: Record<string, unknown> = files(), project: Record<s
   engine = await Engine.create({
     headless: true,
     ...(storage ? { storage } : {}),
-    project: { audio: { buses: [{ name: "Master" }, { name: "Voice", parent: "Master" }, { name: "SFX", parent: "Master" }], seed: 7 }, languages: LANGUAGES, ...project },
+    // `project.json` as written (the languages section in its file form; the Engine parses it).
+    project: { audio: { buses: [{ name: "Master" }, { name: "Voice", parent: "Master" }, { name: "SFX", parent: "Master" }], seed: 7 }, languages: LANGUAGES, ...project } as ProjectSettingsInput,
   });
   engine.world.render = {} as never; // a World that plays sound
   await SceneManager.load("s.json");
