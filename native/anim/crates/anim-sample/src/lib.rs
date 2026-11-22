@@ -1,5 +1,5 @@
 //! `anim-sample` (ADR 0340): decompress and sample clips into SoA local poses; sample generic
-//! property tracks; sample discrete and event tracks over a time window.
+//! property tracks; sample discrete, event and the other keyed tracks over a time window.
 //!
 //! Tested against `anim-offline::sample`.
 //!
@@ -28,6 +28,21 @@
 //! [`ClipSampler::cache_len`] gives the sizes). Sequential playback stays in one segment for 16
 //! frames, so most samples skip that work. Results are bit-identical with and without a cache.
 //! A cache used with another clip, or too short, is refilled or ignored, never misread.
+//!
+//! # Binding table
+//!
+//! A [`ClipSampler`] reads the clip's 16-byte channel and 32-byte track records as it samples,
+//! which suits one-off sampling. A playing clip builds a [`ClipBindings`] once (when it loads;
+//! that allocates) and samples through the [`BoundClip`] it pairs with the sampler: the same bits
+//! (the same arithmetic in the same order; a test holds them equal), without the record parsing.
+//! See [`bind`'s docs](ClipBindings) for what it holds, and its output columns.
+//!
+//! # Track windows
+//!
+//! [`window`] samples the keyed kinds (`discrete`, `activation`, `event` notifies and notify
+//! states, `marker`, `subclip`, `control`, `audio`) over a playhead move `(t_prev, t_now]`, with
+//! loops, reverse play, seeks and weight gating, into caller-provided column words and a
+//! [`TrackSink`] of [`TrackRecord`]s. Tested against `anim-offline::sample`'s window reference.
 
 use anim_format::clip::{
     ChannelKind, ChannelMode, ClipView, CompressedView, QuatInterp, RotationFormat, TrackKind,
@@ -38,6 +53,15 @@ use anim_format::NONE;
 use anim_math::layout::{soa_len, LANES};
 use anim_math::quant::{is_supported_bits, unpack_range, unpack_unorm};
 use anim_math::{AosQuat, AosTransform, AosVec3, F32x4, Lane, SoaTransform};
+
+mod bind;
+pub mod window;
+
+pub use bind::{BoundClip, ClipBindings, Column, ColumnType};
+pub use window::{
+    NotifyPhase, TrackRecord, TrackSink, Window, MAX_WRAPS, SUBCLIP_ENTERED, SUBCLIP_EXITED,
+    WINDOW_SEEK, WINDOW_START,
+};
 
 /// Which stored form a sampler reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +83,8 @@ pub enum SampleError {
     ScratchLength,
     /// `out` doesn't hold `soa_len(bone count)` groups.
     OutLength,
+    /// The [`ClipBindings`] were built for another clip or form.
+    Bindings,
 }
 
 /// What [`ClipSampler::sample_track`] did.
@@ -106,12 +132,12 @@ pub fn rest_pose(skel: &SkeletonView<'_>, out: &mut [AosTransform]) -> bool {
 
 /// The last decoded segment's ranges, in caller-owned memory (see the crate docs).
 pub struct SegmentCache<'m> {
-    key: usize,
-    segment: u32,
+    pub(crate) key: usize,
+    pub(crate) segment: u32,
     /// The cached segment's bits per frame and Σ animated widths.
-    frame_bits: u64,
-    width_sum: usize,
-    ranges: &'m mut [f32],
+    pub(crate) frame_bits: u64,
+    pub(crate) width_sum: usize,
+    pub(crate) ranges: &'m mut [f32],
 }
 
 impl<'m> SegmentCache<'m> {
@@ -134,8 +160,8 @@ impl<'m> SegmentCache<'m> {
 /// A sampler over one form of a clip. `Copy`; holds only views into the clip's bytes.
 #[derive(Clone, Copy)]
 pub struct ClipSampler<'a> {
-    view: ClipView<'a>,
-    comp: Option<CompressedView<'a>>,
+    pub(crate) view: ClipView<'a>,
+    pub(crate) comp: Option<CompressedView<'a>>,
     frames: u32,
     rate: f32,
     bones: usize,
@@ -144,12 +170,12 @@ pub struct ClipSampler<'a> {
 
 /// A segment's decoding context.
 #[derive(Clone, Copy)]
-struct Seg<'a> {
-    index: usize,
-    data: &'a [u8],
-    rates: &'a [u8],
+pub(crate) struct Seg<'a> {
+    pub(crate) index: usize,
+    pub(crate) data: &'a [u8],
+    pub(crate) rates: &'a [u8],
     /// Bit position of the frame's first code.
-    frame_pos: u64,
+    pub(crate) frame_pos: u64,
 }
 
 impl<'a> ClipSampler<'a> {
@@ -238,6 +264,20 @@ impl<'a> ClipSampler<'a> {
         out: &mut [SoaTransform],
         cache: Option<&mut SegmentCache<'_>>,
     ) -> Result<(), SampleError> {
+        self.pose_impl(None, t, rest, scratch, out, cache)
+    }
+
+    /// [`sample_pose`](Self::sample_pose), decoding through `bind` when given (the same values,
+    /// bit for bit).
+    pub(crate) fn pose_impl(
+        &self,
+        bind: Option<&ClipBindings>,
+        t: f32,
+        rest: &[AosTransform],
+        scratch: &mut [AosTransform],
+        out: &mut [SoaTransform],
+        cache: Option<&mut SegmentCache<'_>>,
+    ) -> Result<(), SampleError> {
         let n = self.bones;
         if rest.len() != n {
             return Err(SampleError::RestLength);
@@ -253,9 +293,11 @@ impl<'a> ClipSampler<'a> {
         a.copy_from_slice(rest);
         b.copy_from_slice(rest);
         let p = self.frame_pos(t);
-        match self.comp {
-            Some(c) => self.decode_pose(&c, p, a, b, cache),
-            None => self.raw_pose(p, a, b),
+        match (self.comp, bind) {
+            (Some(c), Some(bind)) => bind.decode_pose(&c, p, a, b, cache),
+            (Some(c), None) => self.decode_pose(&c, p, a, b, cache),
+            (None, Some(bind)) => bind.raw_pose(self, p, a, b),
+            (None, None) => self.raw_pose(p, a, b),
         }
         let alpha = F32x4::splat(p.alpha);
         for (g, o) in out.iter_mut().enumerate() {
@@ -364,8 +406,14 @@ impl<'a> ClipSampler<'a> {
                 continue;
             }
             for k in 0..ch.width as usize {
-                let (min, ext) =
-                    seg_range(&clip_ranges, seg_ranges, &ch, k, seg * width_sum + comp + k);
+                let (min, ext) = seg_range(
+                    &clip_ranges,
+                    seg_ranges,
+                    ch.width,
+                    ch.data_offset,
+                    k,
+                    seg * width_sum + comp + k,
+                );
                 cache.ranges[2 * (comp + k)] = min;
                 cache.ranges[2 * (comp + k) + 1] = ext;
             }
@@ -448,7 +496,8 @@ impl<'a> ClipSampler<'a> {
                             None => seg_range(
                                 &clip_ranges,
                                 seg_ranges,
-                                &ch,
+                                ch.width,
+                                ch.data_offset,
                                 k,
                                 s0.index * width_sum + comp + k,
                             ),
@@ -459,7 +508,8 @@ impl<'a> ClipSampler<'a> {
                             seg_range(
                                 &clip_ranges,
                                 seg_ranges,
-                                &ch,
+                                ch.width,
+                                ch.data_offset,
                                 k,
                                 s1.index * width_sum + comp + k,
                             )
@@ -511,20 +561,7 @@ impl<'a> ClipSampler<'a> {
                 None => return TrackSample::Skipped,
             },
         }
-        if info.kind == TrackKind::Quat {
-            let qa = AosQuat::new(va[0], va[1], va[2], va[3]).normalize_or_identity();
-            let qb = AosQuat::new(vb[0], vb[1], vb[2], vb[3]).normalize_or_identity();
-            let q = if QuatInterp::from_u8(info.subtype) == Some(QuatInterp::Slerp) {
-                qa.slerp(qb, p.alpha).normalize_or_identity()
-            } else {
-                qa.nlerp(qb, p.alpha)
-            };
-            out[..4].copy_from_slice(&[q.x, q.y, q.z, q.w]);
-        } else {
-            for k in 0..w {
-                out[k] = va[k] + (vb[k] - va[k]) * p.alpha;
-            }
-        }
+        blend_track(info.kind, info.subtype, w, &va, &vb, p.alpha, out);
         TrackSample::Written
     }
 
@@ -593,14 +630,16 @@ impl<'a> ClipSampler<'a> {
             let (m0, e0) = seg_range(
                 &clip_ranges,
                 seg_ranges,
-                &ch,
+                ch.width,
+                ch.data_offset,
                 k,
                 s0.index * width_sum + comp + k,
             );
             let (m1, e1) = seg_range(
                 &clip_ranges,
                 seg_ranges,
-                &ch,
+                ch.width,
+                ch.data_offset,
                 k,
                 s1.index * width_sum + comp + k,
             );
@@ -613,21 +652,48 @@ impl<'a> ClipSampler<'a> {
     }
 }
 
-/// Component `k` of `ch`'s segment range at segment-range record `record`, widened into value
+/// Interpolates a property track's two frames into `out[..w]`: nlerp or slerp (by `subtype`) for
+/// `quat`, linear otherwise.
+#[inline]
+pub(crate) fn blend_track(
+    kind: TrackKind,
+    subtype: u8,
+    w: usize,
+    va: &[f32; 4],
+    vb: &[f32; 4],
+    alpha: f32,
+    out: &mut [f32],
+) {
+    if kind == TrackKind::Quat {
+        let qa = AosQuat::new(va[0], va[1], va[2], va[3]).normalize_or_identity();
+        let qb = AosQuat::new(vb[0], vb[1], vb[2], vb[3]).normalize_or_identity();
+        let q = if QuatInterp::from_u8(subtype) == Some(QuatInterp::Slerp) {
+            qa.slerp(qb, alpha).normalize_or_identity()
+        } else {
+            qa.nlerp(qb, alpha)
+        };
+        out[..4].copy_from_slice(&[q.x, q.y, q.z, q.w]);
+    } else {
+        for k in 0..w {
+            out[k] = va[k] + (vb[k] - va[k]) * alpha;
+        }
+    }
+}
+
+/// Component `k` of a channel's segment range at segment-range record `record`, widened into value
 /// space: `(clip_min + (q_min / 255) · clip_extent, (q_extent / 255) · clip_extent)`.
 #[inline]
-fn seg_range(
+pub(crate) fn seg_range(
     clip_ranges: &anim_format::F32s<'_>,
     seg_ranges: &[u8],
-    ch: &anim_format::clip::Channel,
+    width: u8,
+    data_offset: u32,
     k: usize,
     record: usize,
 ) -> (f32, f32) {
-    let w = ch.width as usize;
-    let cmin = clip_ranges.get(ch.data_offset as usize + k).unwrap_or(0.0);
-    let cext = clip_ranges
-        .get(ch.data_offset as usize + w + k)
-        .unwrap_or(0.0);
+    let w = width as usize;
+    let cmin = clip_ranges.get(data_offset as usize + k).unwrap_or(0.0);
+    let cext = clip_ranges.get(data_offset as usize + w + k).unwrap_or(0.0);
     let q_min = seg_ranges.get(2 * record).copied().unwrap_or(0) as u32;
     let q_ext = seg_ranges.get(2 * record + 1).copied().unwrap_or(0) as u32;
     (
@@ -656,7 +722,7 @@ fn read_bits(data: &[u8], pos: u64, bits: u32) -> u32 {
 
 /// One sample of rate `bits` at bit `pos` in a segment range.
 #[inline]
-fn decode(data: &[u8], pos: u64, bits: u32, min: f32, ext: f32) -> f32 {
+pub(crate) fn decode(data: &[u8], pos: u64, bits: u32, min: f32, ext: f32) -> f32 {
     match bits {
         0 => min,
         32 => f32::from_bits(read_bits(data, pos, 32)),
@@ -667,7 +733,7 @@ fn decode(data: &[u8], pos: u64, bits: u32, min: f32, ext: f32) -> f32 {
 
 /// Applies a bone channel's decoded components.
 #[inline]
-fn apply(t: &mut AosTransform, kind: ChannelKind, v: &[f32; 4], format: RotationFormat) {
+pub(crate) fn apply(t: &mut AosTransform, kind: ChannelKind, v: &[f32; 4], format: RotationFormat) {
     match kind {
         ChannelKind::Rotation => {
             let w = match format {

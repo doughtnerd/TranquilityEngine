@@ -2,5 +2,218 @@
 // native/anim/crates/anim-wire/src/tracks.rs. Do not edit: change the Rust and rebuild.
 // Internal to the animation plugin (ADR 0340): never part of the public API.
 
-/** Wire family `tracks`: track outputs: a value column per binding for property tracks, and discrete, event, notify-state, marker, subclip, control and audio records (ADR 0341). */
+/** Wire family `tracks`: track outputs (ADR 0341, 0342): per bound clip a column block of value words described by COLUMN records; per frame an OUTPUT_HEADER, then EVENT, NOTIFY_STATE, ACTIVATION_EDGE, CONTROL, AUDIO, MARKER and SUBCLIP_STATE records packed back to back. */
 export const TRACKS_FAMILY = { name: "tracks", id: 2, version: 1 } as const;
+
+/** `NOTIFY_STATE.phase`: the state began. */
+export const PHASE_BEGIN = 0;
+
+/** `NOTIFY_STATE.phase`: the state continues (once per frame). */
+export const PHASE_TICK = 1;
+
+/** `NOTIFY_STATE.phase`: the state ended. */
+export const PHASE_END = 2;
+
+/** `COLUMN.columnType`: f32 words. */
+export const COLUMN_F32 = 0;
+
+/** `COLUMN.columnType`: u32 words (discrete payload ids, activation 0/1). */
+export const COLUMN_U32 = 1;
+
+/** `COLUMN.flags`: a dropped default channel; never written. */
+export const COLUMN_DEFAULT = 1;
+
+/** `SUBCLIP_STATE.flags`: the entry became active this frame. */
+export const SUBCLIP_ENTERED = 1;
+
+/** `SUBCLIP_STATE.flags`: the entry stopped being active this frame. */
+export const SUBCLIP_EXITED = 2;
+
+/** The head of an instance's track output region. */
+export const OUTPUT_HEADER = {
+  opcode: 0x0201,
+  version: 1,
+  stride: 20,
+  fields: {
+    /** Words of the column blocks that follow, over every bound clip of the instance. */
+    columnWords: { offset: 4, type: "u32" },
+    /** Bytes of the records after this header. */
+    recordBytes: { offset: 8, type: "u32" },
+    /** Records after this header. */
+    recordCount: { offset: 12, type: "u32" },
+    /** Records that didn't fit this frame. */
+    dropped: { offset: 16, type: "u32" },
+  },
+} as const;
+
+/**
+ * Where one property track's column sits in its clip's column block (written when the clip
+ * is bound).
+ */
+export const COLUMN = {
+  opcode: 0x0202,
+  version: 1,
+  stride: 28,
+  fields: {
+    /** The track index. */
+    track: { offset: 4, type: "u32" },
+    /** The track kind id (`myco.anim@1`'s track kinds). */
+    trackKind: { offset: 8, type: "u32" },
+    /** `COLUMN_F32` or `COLUMN_U32`. */
+    columnType: { offset: 12, type: "u32" },
+    /** `COLUMN_DEFAULT` or 0. */
+    flags: { offset: 16, type: "u32" },
+    /** The first word in the clip's column block. */
+    offset: { offset: 20, type: "u32" },
+    /** Words (the stride to the next column is its own width). */
+    width: { offset: 24, type: "u32" },
+  },
+} as const;
+
+/** A notify crossed (an `event` key with `end == time`), past its weight threshold. */
+export const EVENT = {
+  opcode: 0x0203,
+  version: 1,
+  stride: 36,
+  fields: {
+    /** The Animator instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** The clip asset handle. */
+    clip: { offset: 8, type: "u32" },
+    track: { offset: 12, type: "u32" },
+    key: { offset: 16, type: "u32" },
+    /** Method name string id. */
+    method: { offset: 20, type: "u32" },
+    /** Args JSON string id, or `NONE`. */
+    args: { offset: 24, type: "u32" },
+    /** The key's time. */
+    time: { offset: 28, type: "f32" },
+    /** The clip's weight. */
+    weight: { offset: 32, type: "f32" },
+  },
+} as const;
+
+/** A notify state's begin, tick or end. */
+export const NOTIFY_STATE = {
+  opcode: 0x0204,
+  version: 1,
+  stride: 48,
+  fields: {
+    instance: { offset: 4, type: "u32" },
+    clip: { offset: 8, type: "u32" },
+    track: { offset: 12, type: "u32" },
+    key: { offset: 16, type: "u32" },
+    method: { offset: 20, type: "u32" },
+    args: { offset: 24, type: "u32" },
+    /** `PHASE_BEGIN`, `PHASE_TICK` or `PHASE_END`. */
+    phase: { offset: 28, type: "u32" },
+    /** Where it happened (entry or exit point, else the frame's clip time). */
+    time: { offset: 32, type: "f32" },
+    /** The state's start time. */
+    start: { offset: 36, type: "f32" },
+    /** The state's duration. */
+    duration: { offset: 40, type: "f32" },
+    weight: { offset: 44, type: "f32" },
+  },
+} as const;
+
+/** An `activation` track's level changed. */
+export const ACTIVATION_EDGE = {
+  opcode: 0x0205,
+  version: 1,
+  stride: 24,
+  fields: {
+    instance: { offset: 4, type: "u32" },
+    clip: { offset: 8, type: "u32" },
+    track: { offset: 12, type: "u32" },
+    /** 1 on, 0 off. */
+    active: { offset: 16, type: "u32" },
+    /** The frame's clip time. */
+    time: { offset: 20, type: "f32" },
+  },
+} as const;
+
+/** A control key crossed. */
+export const CONTROL = {
+  opcode: 0x0206,
+  version: 1,
+  stride: 44,
+  fields: {
+    instance: { offset: 4, type: "u32" },
+    clip: { offset: 8, type: "u32" },
+    track: { offset: 12, type: "u32" },
+    key: { offset: 16, type: "u32" },
+    /** The control kind id (`myco.anim@1`'s control kinds). */
+    control: { offset: 20, type: "u32" },
+    /** Target string id, or `NONE`. */
+    target: { offset: 24, type: "u32" },
+    /** Payload JSON string id, or `NONE`. */
+    payload: { offset: 28, type: "u32" },
+    time: { offset: 32, type: "f32" },
+    /** The key's `end - time`. */
+    duration: { offset: 36, type: "f32" },
+    weight: { offset: 40, type: "f32" },
+  },
+} as const;
+
+/** An audio key crossed. */
+export const AUDIO = {
+  opcode: 0x0207,
+  version: 1,
+  stride: 40,
+  fields: {
+    instance: { offset: 4, type: "u32" },
+    clip: { offset: 8, type: "u32" },
+    track: { offset: 12, type: "u32" },
+    key: { offset: 16, type: "u32" },
+    /** Audio asset string id. */
+    asset: { offset: 20, type: "u32" },
+    /** Params JSON string id, or `NONE`. */
+    params: { offset: 24, type: "u32" },
+    time: { offset: 28, type: "f32" },
+    /** The key's `end - time`. */
+    duration: { offset: 32, type: "f32" },
+    weight: { offset: 36, type: "f32" },
+  },
+} as const;
+
+/** A marker crossed. */
+export const MARKER = {
+  opcode: 0x0208,
+  version: 1,
+  stride: 32,
+  fields: {
+    instance: { offset: 4, type: "u32" },
+    clip: { offset: 8, type: "u32" },
+    track: { offset: 12, type: "u32" },
+    key: { offset: 16, type: "u32" },
+    /** The marker kind id (`myco.anim@1`'s marker kinds: sync, exit, hit, cue). */
+    marker: { offset: 20, type: "u32" },
+    /** Name string id, or `NONE`. */
+    name: { offset: 24, type: "u32" },
+    time: { offset: 28, type: "f32" },
+  },
+} as const;
+
+/** A subclip entry active this frame. */
+export const SUBCLIP_STATE = {
+  opcode: 0x0209,
+  version: 1,
+  stride: 40,
+  fields: {
+    instance: { offset: 4, type: "u32" },
+    clip: { offset: 8, type: "u32" },
+    track: { offset: 12, type: "u32" },
+    key: { offset: 16, type: "u32" },
+    /** The nested clip's asset string id. */
+    asset: { offset: 20, type: "u32" },
+    /** `SUBCLIP_ENTERED`, `SUBCLIP_EXITED`. */
+    flags: { offset: 24, type: "u32" },
+    /** The nested clip's time at the frame's end (or where the entry was left). */
+    localTime: { offset: 28, type: "f32" },
+    /** The nested clip's travel this frame. */
+    localDelta: { offset: 32, type: "f32" },
+    /** Blend weight (blend-in and blend-out ramps, the smaller). */
+    weight: { offset: 36, type: "f32" },
+  },
+} as const;

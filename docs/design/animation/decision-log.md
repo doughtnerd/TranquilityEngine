@@ -28,3 +28,7 @@ Decisions made during the build that the records didn't settle. Each entry: the 
 - **D24 (T11).** *Rotations drop w by default;* both formats are tried when any |w| < 0.1.
 - **D25 (T11).** *Root yaw* is the swing-twist yaw about +Y, relative to frame 0 and unwrapped, through anim-math's deterministic `atan2`.
 - **D26 (T11).** *Additive clips* get constant detection only; their error is measured on the delta pose (an approximation).
+- **D27 (T20r).** *Window rule:* forward `(a, b]`, reverse `[b, a)`; a start flag includes `a`; at a loop point the end key fires before the key at 0; each key fires once.
+- **D28 (T20r).** *Seeks fire no keys;* notify states don't begin or tick but still end, so `end` always follows `begin`; activation edges are still reported.
+- **D29 (T20r).** *Notify states are level-based on weight > threshold;* audio and control keys fire at any weight above 0 and carry it; markers are never gated.
+- **D30 (T20r).** *Ranges are `[time, end)`;* in non-looping clips activation and subclip ranges ending at the duration hold the end. Discrete before its first key holds the first key's value (Unity). Window deltas are capped at four durations.

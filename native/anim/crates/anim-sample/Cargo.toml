@@ -9,6 +9,8 @@ publish.workspace = true
 [dependencies]
 anim-math.workspace = true
 anim-format.workspace = true
+# Sync markers and their phase (`anim_pose::sync`).
+anim-pose.workspace = true
 
 [dev-dependencies]
 anim-offline.workspace = true
