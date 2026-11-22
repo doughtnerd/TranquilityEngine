@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { Take } from "../../engine/audio/take/reader";
 import type { TakeRecord } from "../../engine/audio/take/records";
 import type { TakeMeta, TakeRequest } from "../../engine/audio/take/types";
-import { SEEK_NOTE, TakeReplay, UNSEEDED_NOTE, type ReplayHandle, type ReplayPlayOptions, type ReplayPose, type ReplayTarget, type Vec3 } from "./takeReplay";
+import { TakeReplay, UNSEEDED_NOTE, type ReplayHandle, type ReplayPlayOptions, type ReplayPose, type ReplayTarget, type Vec3 } from "./takeReplay";
 
 const META: TakeMeta = { project: "P", engine: "myco", audioHash: "h", seed: 9, device: "ua", started: new Date(0).toISOString(), duration: 10, emitters: { 0: "Listener", 1: "Bike" }, frames: false };
 const req = (q: TakeRequest): TakeRecord => ({ type: "request", requests: [q] });
@@ -117,7 +117,8 @@ describe("TakeReplay (ADR 0334)", () => {
     expect(replay.time.value).toBe(2);
     replay.play();
     expect(alive().map((h) => h.path)).toEqual(["a"]);
-    expect(replay.note.value).toBe(SEEK_NOTE); // it started at 1, heard from its start at 2
+    expect(alive()[0]!.options.offset).toBeCloseTo(1, 9); // it started at 1: resumed 1 s in at 2
+    expect(replay.note.value).toBeNull();
   });
 
   it("seeks from the nearest keyframe: its instances and globals, then the requests up to the seek time", () => {
@@ -145,7 +146,9 @@ describe("TakeReplay (ADR 0334)", () => {
     expect(log).toContain("global Surface=2");
     expect(log.find((l) => l.startsWith("snapshot Pause/"))!.slice(15)).toMatch(/^0\.5/); // what is left of its fade
     expect(log).toContain("bus Music=0.5/0");
-    expect(replay.note.value).toBe(SEEK_NOTE);
+    expect(engine.options.offset).toBeCloseTo(1.2, 9); // started at 0.5, so 1.2 s in at 1.7
+    expect(started.find((h) => h.path === "boost")!.options.offset).toBeCloseTo(0.1, 9);
+    expect(replay.note.value).toBeNull();
     expect(replay.instances.value.map((i) => i.instance)).toEqual([1, 3]);
     // Requests at and after the seek time are still to come.
     expect(log).not.toContain("play later");

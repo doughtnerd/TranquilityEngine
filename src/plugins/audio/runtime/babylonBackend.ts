@@ -187,6 +187,8 @@ class BabylonVoice implements AudioVoice {
     this.looping = req.loop;
     this.occlusionOn = req.occlusion !== false;
     this.dopplerLevel = req.dopplerLevel ?? 0;
+    // `PlayRequest.offset`: where playback starts in the file (a loop wraps it once the buffer's length is known, `seek`).
+    if (req.offset !== undefined && Number.isFinite(req.offset) && req.offset > 0) this.startOffset = req.offset;
     if (music?.fadeZero) {
       this.gain = 0;
       this.appliedGain = 0;

@@ -159,7 +159,10 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     super(host, ctx, key);
     this.body = body;
     this.source = this.fileAsset();
-    this.build(body, 0, host.startOf(ctx.at), 0);
+    // `EventOptions.offset` while the instance starts: the playhead starts there, and nothing below is offset again.
+    const offset = host.startOffset ?? 0;
+    if (offset > 0) host.startOffset = 0;
+    try { this.build(body, offset, host.startOf(ctx.at), 0); } finally { if (offset > 0) host.startOffset = offset; }
     this.plan();
   }
 

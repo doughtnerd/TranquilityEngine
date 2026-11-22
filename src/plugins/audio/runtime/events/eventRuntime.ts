@@ -53,6 +53,13 @@ export interface EventOptions {
   priority?: number;
   /** Start at this audio-clock time (seconds, `Audio.time`'s base). */
   at?: number;
+  /**
+   * Start as if this many seconds had already played (ADR 0329, 0334: audition from a point, seek): a sequence starts
+   * its playhead there; the samples a playlist or event starts with begin that far into their sound (a looping one
+   * wraps). Later starts (a queue's next entry, a stinger) are unaffected. 0 or omitted: from the start; negative or
+   * non-finite: ignored with one warning.
+   */
+  offset?: number;
   /** Initial values of the event's local parameters (labelled ones by label). */
   parameters?: Record<string, number | string>;
   /**
@@ -1099,8 +1106,13 @@ export class EventInstance {
       sustain: null,
       owner: null,
     };
-    this.playNode(eventRootNode(a), base);
+    // `EventOptions.offset` applies to the clips started now, in this call (`playClip` reads `starting`).
+    this.starting = true;
+    try { this.playNode(eventRootNode(a), base); } finally { this.starting = false; }
   }
+
+  /** True only while `start` resolves the root: the clips it starts take `EventOptions.offset`. */
+  private starting = false;
 
   stop(fadeSeconds = 0): void {
     if (this.stopped) return;
@@ -1326,6 +1338,9 @@ export class EventInstance {
     }
     if (this.fx.filter) req.filter = this.fx.filter;
     if (this.fx.aux) req.aux = this.fx.aux;
+    // `EventOptions.offset`: the clips the instance starts with begin that far in (after the node's own start offset).
+    const offset = this.starting ? startOffsetOf(this.options.offset, "Audio.play") : 0;
+    if (offset > 0) req.offset = node.startOffset + offset;
     const voice = audioBackend().play(req);
     if (!voice) return null;
     const base = { volume, pitch };
@@ -1340,10 +1355,10 @@ export class EventInstance {
     if (fadeIn > 0) { voice.fade(0, 0); voice.fade(this.fadeTo ?? 1, fadeIn); }
     let loop: LoopState | null = null;
     if (looping) loop = this.startLoop(voice, node, held, sink);
-    if (node.startOffset > 0) voice.seek(node.startOffset);
+    if (node.startOffset > 0 && !(offset > 0)) voice.seek(node.startOffset);
     if (this.fadeTo !== null && !(fadeIn > 0)) voice.fade(this.fadeTo, 0);
     const len = sys.clipLength(node.clip);
-    const length = len !== null ? Math.max(0, len - node.startOffset) / base.pitch : null;
+    const length = len !== null ? Math.max(0, len - node.startOffset - (looping ? 0 : offset)) / base.pitch : null;
     const start = ctx.at ?? sys.horizon();
     const rec: VoiceRec = { voice, node, bindings, base, ctxPitch: ctx.pitch, loop, start, length, owner: ctx.owner, pointsOff: null };
     this.voices.push(rec);
@@ -1554,6 +1569,14 @@ interface VoiceFx {
  * `reverbSendCurve` only for a spatial one (a flat event ignores them). The asset's keys win over the source's options.
  * An aux send names a bus that must exist: an unknown one is dropped with one warning per event and bus.
  */
+/** `EventOptions.offset` (and `OneShotOptions.offset`) checked: seconds ≥ 0, else 0 with one warning naming `where`. */
+export function startOffsetOf(offset: unknown, where: string): number {
+  if (offset === undefined) return 0;
+  if (typeof offset === "number" && Number.isFinite(offset) && offset >= 0) return offset;
+  warnOnce(`${where}:offset`, `${where}: offset must be a finite number of seconds, 0 or more; starting from the beginning.`);
+  return 0;
+}
+
 function voiceFxOf(a: AudioEventAsset, options: EventOptions, path: string): VoiceFx {
   const fx: VoiceFx = {};
   const sp = a.spatial;

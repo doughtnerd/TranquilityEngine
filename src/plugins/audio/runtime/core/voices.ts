@@ -165,6 +165,8 @@ export class CoreVoices {
    */
   private readonly stemStaleAfter: Float64Array;
   private readonly stemStaleTo: Float64Array;
+  /** `PlayRequest.offset` per slot, seconds into the source, until the voice's PLAY carries it (0: the start). */
+  private readonly startOffset: Float64Array;
   private stemStaleCount = 0;
   /**
    * F-24: per slot, the id of the voice whose PLAY went out flat (non-spatial, not ambisonic), else 0. The core reads
@@ -186,6 +188,7 @@ export class CoreVoices {
     this.spatialDirty = new Uint8Array(t.capacity);
     this.stemStaleAfter = new Float64Array(t.capacity);
     this.stemStaleTo = new Float64Array(t.capacity);
+    this.startOffset = new Float64Array(t.capacity);
     this.flatPlayId = new Uint32Array(t.capacity);
     this.gainApplied = new Float32Array(t.capacity).fill(1);
     this.basis.set(this.listenerPos, this.listenerFwd, this.listenerUp);
@@ -259,6 +262,7 @@ export class CoreVoices {
     this.gainApplied[i] = req.ambisonic === true && !stream ? ambisonicImportGain(req.path) : 1;
     t.pitch[i] = req.pitch !== undefined && Number.isFinite(req.pitch) ? clamp(req.pitch, MIN_PITCH, MAX_PITCH) : 1;
     t.flags[i] = (req.loop ? VoiceFlag.LOOP : 0) | (req.oneShot ? VoiceFlag.ONE_SHOT : 0) | (stream ? VoiceFlag.STREAM | VoiceFlag.WANTS_PLAYHEAD : 0);
+    this.startOffset[i] = req.offset !== undefined && Number.isFinite(req.offset) && req.offset > 0 ? req.offset : 0;
     if (member) host.musicOps.adoptMember(id, i, member);
     else if (stream) host.streams.register(clip, id, req.path, req.loop === true);
     t.lpHz[i] = BUS_LP_OFF_HZ;
@@ -367,7 +371,12 @@ export class CoreVoices {
         t.free(id, VoiceReason.FAILED);
         return;
       }
-      return this.launchStream(id, i);
+      this.launchStream(id, i);
+      // A start offset: the stream seeks before its first chunk (or, its rate not known yet, once the worker opened it).
+      const offset = this.startOffset[i]!;
+      this.startOffset[i] = 0;
+      if (offset > 0) this.seek(id, offset);
+      return;
     }
     const clip = t.clip[i]!;
     const state = host.clips.state(clip);
@@ -377,7 +386,7 @@ export class CoreVoices {
       const mixed = host.selection.admit(i, host.mixedCap());
       t.state[i] = mixed ? VoiceState.PLAYING : VoiceState.VIRTUAL;
       t.reason[i] = mixed ? VoiceReason.NONE : VoiceReason.VIRTUAL;
-      this.sendPlay(id, i);
+      this.sendPlay(id, i, this.offsetFrames(i, clip));
     } else if (state === "failed") {
       this.clipFailed(id, i);
     } else {
@@ -389,6 +398,22 @@ export class CoreVoices {
         else this.clipFailed(id, i);
       });
     }
+  }
+
+  /**
+   * Slot `i`'s start offset (`PlayRequest.offset`) in frames of its ready clip, taken once: wrapped into the clip for a
+   * looping voice, clamped to its end otherwise (the voice then ends at once). A span clip (C14) counts from the span's
+   * first frame.
+   */
+  private offsetFrames(i: number, clip: number): number {
+    const offset = this.startOffset[i]!;
+    this.startOffset[i] = 0;
+    if (!(offset > 0)) return 0;
+    const info = this.host.clips.info(clip);
+    if (!info || !(info.sampleRate > 0)) return 0;
+    const frame = Math.round(offset * info.sampleRate);
+    if (info.frames <= 0) return frame;
+    return (this.t.flags[i]! & VoiceFlag.LOOP) !== 0 ? frame % info.frames : Math.min(frame, info.frames);
   }
 
   /**

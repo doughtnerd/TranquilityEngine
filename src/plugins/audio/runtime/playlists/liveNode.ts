@@ -115,6 +115,12 @@ export interface NodeHost {
   spatialOf(body: PlaylistBody, parent: SpatialPlan | null): SpatialPlan | null;
   /** Whether the instance has been released (held loops are inactive). */
   readonly released: boolean;
+  /**
+   * `EventOptions.offset` while the instance's start resolves its tree (0 otherwise, and absent on hosts without it):
+   * seconds the instance starts as if already played. Samples started then begin that far in; a sequence takes it as
+   * its playhead's start and sets it to 0 while it builds, so what it starts isn't offset twice.
+   */
+  startOffset?: number;
 }
 
 // --- the base node ---------------------------------------------------------------------------------------------------

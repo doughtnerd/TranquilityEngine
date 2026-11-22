@@ -97,14 +97,14 @@ describe("down the tree", () => {
     expect(fake.plays[0]!.at).toBeCloseTo(2.5, 6);
   });
 
-  it("sample sidecar edits: trim seeks to its start, normalise adds its gain", async () => {
+  it("sample sidecar edits: trim starts the voice at its start (a start offset), normalise adds its gain", async () => {
     await kit.boot({
       "a.wav.meta.json": { format: "myco.import@1", sample: { trim: [0.25, 0.75], normalize: { mode: "peak", target: -1, gainDb: 6 } } },
       "n.playlist.json": pla("clip", [sample("a.wav")]),
     });
     Audio.play("n.playlist.json");
     expect(fake.plays[0]!.volume).toBeCloseTo(db(6), 6);
-    expect(fake.voices[0]!.events).toContainEqual({ kind: "seek", seconds: 0.25 });
+    expect(fake.plays[0]!.offset).toBe(0.25);
   });
 
   it("a trimmed sample stops at its trim end", async () => {

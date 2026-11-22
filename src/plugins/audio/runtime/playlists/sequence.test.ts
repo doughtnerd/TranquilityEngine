@@ -19,7 +19,8 @@ const meta = (sampleBlock: Record<string, unknown>) => ({ format: "myco.import@1
 /** Plays and steps: `at(t)` moves the heard clock to `t` and runs one frame. */
 const at = (t: number): void => { kit.setTime(t); kit.frame(); };
 const plays = () => fake.plays.map((p) => [p.path, p.at === undefined ? undefined : Math.round(p.at * 1e6) / 1e6]);
-const seeks = () => fake.voices.map((v) => v.events.find((e) => e.kind === "seek")?.["seconds" as never] ?? null);
+/** Where each voice starts in its file: its play's start offset (a trim, a clip offset, a map piece), null at 0. */
+const seeks = () => fake.plays.map((p) => p.offset ?? null);
 const lastFade = (i: number) => fake.voices[i]!.events.filter((e) => e.kind === "fadeShaped").at(-1);
 
 describe("Sequence: clips on the timeline", () => {
@@ -71,6 +72,31 @@ describe("Sequence: clips on the timeline", () => {
     Audio.play("s.playlist.json");
     expect(plays()).toEqual([["a.wav", 0]]);
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("reverse playback isn't supported"));
+  });
+});
+
+describe("A play's start offset (EventOptions.offset)", () => {
+  it("starts a sequence's playhead there: a clip under it starts part-way, later clips at their times", async () => {
+    await kit.boot({ "s.playlist.json": seq({ length: 4, tracks: [track([{ id: "c1", sample: "a.wav", at: 0, length: 2, offset: 0.25 }, { id: "c2", sample: "b.wav", at: 2.5, length: 1 }])] }) });
+    fake.durations.set("a.wav", 3);
+    fake.durations.set("b.wav", 1);
+    Audio.play("s.playlist.json", { offset: 1.5 });
+    expect(fake.plays.map((p) => [p.path, p.offset])).toEqual([["a.wav", 1.75]]); // the clip's own offset plus 1.5 s
+    at(0.95);
+    expect(plays()).toEqual([["a.wav", 0], ["b.wav", 1]]); // b at 2.5 s on the timeline: 1 s after the start
+    expect(fake.plays[1]!.offset).toBeUndefined();
+  });
+
+  it("starts a clip playlist's sample that far in; a one-pass sample it has passed doesn't play", async () => {
+    await kit.boot({ "c.playlist.json": pla("clip", [sample("a.wav")]) });
+    fake.durations.set("a.wav", 2);
+    Audio.play("c.playlist.json", { offset: 0.5 });
+    expect(fake.plays.map((p) => p.offset)).toEqual([0.5]);
+    Audio.play("c.playlist.json", { offset: 3 });
+    expect(fake.plays).toHaveLength(1);
+    Audio.play("c.playlist.json", { offset: -1 });
+    expect(fake.plays.at(-1)!.offset).toBeUndefined();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("offset must be a finite number"));
   });
 });
 

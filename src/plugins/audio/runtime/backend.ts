@@ -289,6 +289,12 @@ export interface PlayRequest {
   position?: Vec3Like;
   /** ADR 0158: the event instance this voice belongs to (1..1024; 0 or omitted: none). The core carries it in PLAY's `group`. */
   group?: number;
+  /**
+   * Seconds into the source the voice starts at (ADR 0329 and 0334: audition from a point, seek). 0, negative,
+   * non-finite or omitted: the start. A looping voice wraps it into the clip; past the end of a non-looping clip it ends
+   * at once. Clip voices start there sample-exactly; a stream voice seeks its stream before its first chunk.
+   */
+  offset?: number;
 
   // ADR 0162 (contract K0). Every field is optional and means "as 0157/0158" when omitted, so a backend that predates
   // the feature ignores it. Ranges are api-and-models §1.2, §1.3 and §2.5; callers clamp before they get here.

@@ -25,7 +25,7 @@ import { isLabelled, parameterDefault, type ParameterDef } from "../../../../eng
 import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest } from "../backend";
 import { clipRequest, samplePlan } from "../clipResolver";
 import { warnOnce } from "../core/handle";
-import { events, type EventOptions } from "../events/eventRuntime";
+import { events, startOffsetOf, type EventOptions } from "../events/eventRuntime";
 import { MAX_BINDINGS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type Binding, type ParamRef, type VoiceLoop } from "../events/automation";
 import { Assets } from "../../../../engine/scene/Assets";
 import { evalTimeCurves, staticPanBinding } from "./curves";
@@ -341,8 +341,13 @@ export class PlaylistInstance implements NodeHost {
       where: this.path,
     };
     this.rootCtx = ctx;
-    this.root = resolveBody(this, a, ctx, this.path, this.path);
+    // `EventOptions.offset`: what this resolve starts begins as if that much had played (`playSample`, `SequenceNode`).
+    this.startOffset = startOffsetOf(this.options.offset, `Audio.play("${this.path}")`);
+    try { this.root = resolveBody(this, a, ctx, this.path, this.path); } finally { this.startOffset = 0; }
   }
+
+  /** `NodeHost.startOffset`: the play's offset while `start` resolves the tree, else 0. */
+  startOffset = 0;
 
   stop(fadeSeconds = STOP_FADE_SECONDS): void {
     if (this.stopped) return;
@@ -644,6 +649,12 @@ export class PlaylistInstance implements NodeHost {
       }
     }
     if (ctx.fadeIn > 0) req.fadeZero = true;
+    // `EventOptions.offset` (only while the instance starts): begin that far into the (trimmed) sound, wrapped into the
+    // loop when it loops; a one-pass sample it would already have finished doesn't play.
+    const from = trim ? trim[0] : 0;
+    const skip = this.startOffset > 0 ? this.offsetInto(this.startOffset, from, trim, loop, path) : 0;
+    if (skip === null) return null;
+    if (from + skip > 0) req.offset = from + skip; // a trimmed start, sample-exact (a start offset, not a seek)
     let voice: AudioVoice | null;
     try { voice = audioBackend().play(req); } catch { voice = null; }
     if (!voice) return null;
@@ -657,13 +668,11 @@ export class PlaylistInstance implements NodeHost {
     const program = loop ? programs.get(loop) : undefined;
     if (program) sink.setLoops(voice, this.group, program);
     else if (loop && (loop.start > 0 || loop.end > 0 || !looping)) sink.setLoop(voice, loop.start, loop.end, looping);
-    if (trim && trim[0] > 0) voice.seek(trim[0]);
     // When it starts: its stamp, else the earliest exact start, else now (heard; voice time and end estimates count from it).
     const start = ctx.at ?? events().horizon() ?? this.clock();
     const fileLength = events().clipLength(path);
-    const from = trim ? trim[0] : 0;
     const to = trim ? Math.min(trim[1], fileLength ?? Infinity) : fileLength;
-    const length = to !== null && Number.isFinite(to) ? Math.max(0, to - from) / base.pitch : null;
+    const length = to !== null && Number.isFinite(to) ? Math.max(0, to - from - skip) / base.pitch : null;
     const v: PVoice = {
       voice, path, base, staticVolume, staticPitch, bindings, dyn: dynList, timeCurves: ctx.timeCurves,
       start, length, loop, leaving: false, appliedGain: dyn, appliedPitch: t.pitch, appliedLowpass: curved ? lowpass : t.lowpass, positioned: req.position !== undefined,
@@ -679,6 +688,22 @@ export class PlaylistInstance implements NodeHost {
       this.schedule(end, () => { if (!v.leaving && !v.loop?.looping) { v.leaving = true; voice!.stop(TRIM_FADE); } });
     }
     return v;
+  }
+
+  /**
+   * How far into a sample entry (seconds after `from`, its trimmed start) a voice starts when the instance starts
+   * `offset` seconds in: wrapped into its loop region when it loops; null when a one-pass sample would have ended.
+   */
+  private offsetInto(offset: number, from: number, trim: [number, number] | null, loop: LoopRun | null, path: string): number | null {
+    const fileLength = events().clipLength(path);
+    const end = trim ? Math.min(trim[1], fileLength ?? Infinity) : (fileLength ?? Infinity);
+    let at = from + offset;
+    if (loop && loop.looping) {
+      const ls = loop.start, le = loop.end > 0 ? loop.end : end;
+      if (Number.isFinite(le) && le - ls > 1e-6 && at >= le) at = ls + ((at - ls) % (le - ls));
+      return Math.max(0, at - from);
+    }
+    return Number.isFinite(end) && at >= end ? null : offset;
   }
 
   /** A voice's bindings with its static pan (the tree's accumulated `pan`) added as a constant pan binding (ABI 4.4). */

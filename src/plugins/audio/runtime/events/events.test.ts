@@ -45,6 +45,19 @@ describe("Audio.play (ADR 0158)", () => {
     expect(h.playing).toBe(false);
   });
 
+  it("a start offset starts the clip that far in (Audio.play and Audio.playOneShot)", async () => {
+    await boot({ "l.audioevent.json": { format: F, root: { type: "layer", children: [{ type: "clip", clip: "a.wav" }, { type: "clip", clip: "b.wav", startOffset: 0.25 }] } } });
+    Audio.play("asset:a.wav", { offset: 0.4 });
+    expect(fake.plays[0].offset).toBe(0.4);
+    Audio.play("l.audioevent.json", { offset: 0.5 });
+    expect(fake.plays.slice(1).map((p) => p.offset)).toEqual([0.5, 0.75]); // after a clip's own start offset
+    Audio.playOneShot("a.wav", { offset: 0.3 });
+    expect(fake.plays.at(-1)!.offset).toBe(0.3);
+    Audio.playOneShot("a.wav", { offset: Number.NaN });
+    expect(fake.plays.at(-1)!.offset).toBeUndefined();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("Audio.playOneShot: offset must be"));
+  });
+
   it("returns an inert handle for a missing event", async () => {
     await boot({});
     const h = Audio.play("nope.audioevent.json");
