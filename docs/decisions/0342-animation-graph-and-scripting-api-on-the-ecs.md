@@ -4,7 +4,7 @@
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0007, 0011, 0017, 0033, 0133, 0158, 0303, 0340, 0341, 0343; audio 0329 (playlists: Blend, Switch rules, Queue picks, stingers), audio 0331 (one catalogue, one parameter schema), audio 0336 (fade shapes, exit markers, bridges)
+- **Related:** 0007, 0011, 0017, 0033, 0133, 0158, 0303, 0344, 0345, 0340, 0341, 0343; audio 0329 (playlists: Blend, Switch rules, Queue picks, stingers), audio 0331 (one catalogue, one parameter schema), audio 0336 (fade shapes, exit markers, bridges)
 
 ## Context
 
@@ -42,7 +42,6 @@ This graph uses the same rules and words, so a designer who knows one knows the 
 | `Animator` | graph asset (optional), linked-graph overrides, parameter defaults, `updateMode` (`normal`/`unscaled`/`fixed`), `cullingMode`, LOD, `rootMotion` (`none`/`transform`/`characterController`/`rigidBody`), IK target node bindings, replicated state fields (0340) | one per animated hierarchy; its tracks bind relative to its node |
 | `BoneAttachment` | skeleton node, bone, offset, `follow` (`position`/`rotation`/`both`) | a node that follows a bone; for weapons, props and hit volumes |
 | `TimelineDirector` | timeline asset, bindings (track → node), play on start, wrap mode, time | plays a `*.timeline.json` |
-| `Ragdoll` | per-bone body shape, mass, joint limits, motor strengths, `mode` (`off`/`ragdoll`/`powered`), blend | created from a skeleton in the editor (0343); bodies and joints go through the physics plugin's public interface |
 | Tween data (`defineComponent("animation.Tweens", …)`) | handles into the core's tween table | added to the target's entity by `tween()`; removed when the entity's tweens end |
 
 **Buffers (0017):**
@@ -53,7 +52,7 @@ This graph uses the same rules and words, so a designer who knows one knows the 
 **Built-in systems:**
 - `animation.Gather`, `Evaluate`, `Apply` and `FixedEvaluate`, as ordered in 0340.
 - `animation.Timeline`, before `Gather`.
-- `animation.Ragdoll`, inside the fixed step, after `FixedEvaluate` and before the physics step.
+- `animation.PredictedRootMotion` (0340's hybrid model), a predicted `fixedUpdate` system.
 
 All are registered with `registerEngineSystems`, so the System catalogue and Worlds panel (0032) show them.
 
@@ -102,11 +101,7 @@ All are registered with `registerEngineSystems`, so the System catalogue and Wor
   - Searches run every N frames, or immediately on a large change.
   - Switches use **inertialization**.
   - Tags (e.g. `idle`, `start`, `pivot`) gate the search through parameters or chooser tables.
-- **Physical animation:** `Ragdoll.mode`:
-  - `ragdoll`: bodies simulate, and the pose reads back from them;
-  - `powered`: joint motors drive bodies toward the animated pose with per-bone strengths, and a pinning strength holds the root (PuppetMaster).
-  
-  `blend` mixes the physical pose with the animated pose. Get-up uses a pose snapshot and a get-up state chosen by the pelvis facing.
+- **Physical animation lives in a separate `myco.ragdoll` plugin** (0345), which depends on animation and physics. That keeps animation usable without physics. The animation plugin provides only what it needs: the core's drive targets (`anim-physics`, 0340), the pose snapshot source, and a graph input that blends a physical pose in.
 
 ### Scripting API (public, from `myco`)
 
@@ -139,7 +134,8 @@ await dir.play();
 - **Promises fit the existing `wait` style.** A `play` promise resolves with `{ reason: "finished" | "interrupted" | "stopped" }`.
 - **Destroyed targets:** a tween whose target node or component is destroyed stops and is removed silently. Its promise resolves with `reason: "destroyed"`, so awaiting code doesn't hang.
 - **Notifies call methods.** An `event` track names a method. After `Evaluate`, `animation.Apply` delivers it through the World's behaviour messages (0303, `World._sendMessage(nodes, method, e)`): each node once, active behaviours only, throws logged. Each behaviour of the Animator's node that defines it gets `method(e: AnimationEvent)`, as Unity's AnimationEvent does. A notify state calls it with `e.phase` = `"begin"`, `"tick"` and `"end"`. The same records go to the `AnimationEvents` buffer for systems. There is no event bus (0017).
-- **Musical timing (optional, when the audio plugin is enabled):** `play`, `travel` and `request` accept `at: "beat" | "bar" | "exit"` with a music handle (`AudioPlaylistHandle`, audio 0329), and `align: "start" | "hit"`. `hit` lands the clip's `hit` marker on the boundary, as audio stingers do, for dance, rhythm and cutscene sync. The animation plugin reads the handle's music position through the public `Audio` API only. Without the audio plugin, `at` is refused with one warning.
+- **Musical timing (optional, when the audio plugin is enabled):** `play`, `travel` and `request` accept `at: "beat" | "bar" | "exit"` with a music handle (`AudioPlaylistHandle`, audio 0329), and `align: "start" | "hit"`. `hit` lands the clip's `hit` marker on the boundary, as audio stingers do, for dance, rhythm and cutscene sync. The animation plugin reads the handle's music position through the public `Audio` API only, and names audio as an optional dependency (0344). Without the audio plugin, `at` is refused with one warning.
+- **Computed parameters** (owner, 2026-11-22, instead of script functions inside transitions): `anim.compute("canVault", () => this.ledgeAhead())` registers a function that `animation.Gather` runs once per Animator per frame, before evaluation, writing the parameter. Transitions read it like any other parameter, so evaluation stays in the core, the debugger shows its value, and takes record it. Saved graph assets list computed parameters by name, and the script that fills them is the Animator node's behaviour.
 - **No triggers.** `request` replaces them: a request lives for `within` seconds (default 0.25) and is consumed by the first transition that reads it.
 - **Data path for systems:** user systems query `Animator` and call the same methods, or write parameters through `animatorParams(entity)`, a typed view into the blackboard row, for bulk updates (crowds).
 
@@ -163,9 +159,8 @@ Parameters declare `replicate` and `predicted` in the graph asset's parameter li
 - One-shots, weapon layers, IK, retargeting, matching and ragdolls compose in one graph.
 
 **Negative / costs**
-- A large public surface (`Animator`, `tween`, `TimelineDirector`, `BoneAttachment`, `Ragdoll`) to document and keep stable.
+- A large public surface (`Animator`, `tween`, `TimelineDirector`, `BoneAttachment`) to document and keep stable.
 - Structured conditions are wordier than expressions until the shared expression language arrives.
-- Physical animation couples to the physics plugin's joint-motor API, which has to grow motors, limits and pinning in Rapier's backend.
 
 ## Deprecates
 
@@ -173,7 +168,7 @@ Nothing.
 
 ## Open questions
 
-- Whether transition conditions accept arbitrary TypeScript functions in code-built graphs (each would call out of wasm per evaluation), or only expressions.
+None beyond the shared expression language, which comes after this build in its own record.
 
 ## References
 

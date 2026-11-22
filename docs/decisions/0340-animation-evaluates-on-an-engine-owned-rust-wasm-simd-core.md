@@ -5,7 +5,7 @@
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
 - **Amends:** 0075 (animation is neither Babylon's system nor a copy of it; skinning is the engine's own GPU compute pass and Babylon draws its output)
-- **Related:** 0010, 0011, 0017, 0033, 0065, 0133, 0157, 0303, 0327, 0328, 0341, 0342, 0343; audio 0332 (one curve model), audio 0338 (sandboxed third-party wasm effects)
+- **Related:** 0010, 0011, 0017, 0033, 0065, 0094, 0133, 0157, 0250, 0251, 0303, 0344, 0345, 0346, 0327, 0328, 0341, 0342, 0343; audio 0332 (one curve model), audio 0338 (sandboxed third-party wasm effects)
 
 ## Context
 
@@ -120,7 +120,7 @@ Public types are exported from `myco` like physics and navigation. No Rust, wasm
 
 | Step (0011) | Animation systems |
 |---|---|
-| 4. fixed steps | `animation.FixedEvaluate`: Animators with `updateMode: "fixed"` (physics-driven and predicted characters) evaluate before the physics step; root motion is applied to `CharacterController` or kinematic `RigidBody` targets; ragdoll drive targets are pushed to the physics plugin |
+| 4. fixed steps | `animation.FixedEvaluate`: Animators with `updateMode: "fixed"` (physics-driven and predicted characters) evaluate before the physics step; root motion is applied to `CharacterController` or kinematic `RigidBody` targets; the `myco.ragdoll` plugin (0345) reads the drive targets and pushes them to the physics plugin |
 | 5. after `update()` scripts | `animation.Gather` (blackboard and targets → inputs), `animation.Evaluate`, `animation.Apply` (property outputs → ECS columns, root motion for `"normal"` mode, notify dispatch, 0342) |
 | 6. `lateUpdate()` | scripts see this frame's pose and may override bones through the API (0342), as Unity's LateUpdate does |
 | 7. transform propagation | `BoneAttachment` nodes follow their bone (model-space bone × skeleton node's world matrix) |
@@ -138,14 +138,18 @@ Public types are exported from `myco` like physics and navigation. No Rust, wasm
 ### Rendering
 
 - **Skinned meshes stay engine-side data:** the `SkinnedMeshRenderer` component (0342) holds a mesh, a skeleton reference and bind matrices.
-- **Skinning is our own GPU compute pass on WebGPU** (owner, 2026-11-22):
-  - a WGSL compute shader applies morph deltas, then skins positions, normals and tangents (4 or 8 influences, 0341) into an output vertex buffer per skinned mesh;
-  - the shader reads the bone matrices from a storage buffer, written once per frame;
-  - Babylon draws that buffer as an ordinary mesh, so shadows, depth, picking and every other pass reuse the skinned result instead of skinning again.
+- **One skinning model, our own, with a backend per renderer** (owner, 2026-11-22: one path even at the cost of more code, kept small and reusable):
+  - **Written once in KSL** through the shader source module (0250): one `mycoSkin` function applies morph deltas, then skins position, normal and tangent with 4 or 8 influences (0341). 3D meshes and 2D skinned sprites both use it.
+  - **One GPU kernel executor.** The particle kernels' two runners (`render/particles/gpu/webgpuRun.ts` and `webgl2Run.ts`, 0094) are generalised into `render/gpuKernels/`: a renderer-neutral "run this KSL kernel over N items, from these inputs, into these outputs" with a WebGPU and a WebGL2 backend. Particles move onto it unchanged (their generated WGSL and GLSL stay byte-identical, as 0251 required), and skinning is its second user. This is where the code is condensed: skinning adds one KSL function and its bindings, not a third pair of runners.
+  - **WebGPU:** a compute dispatch writes skinned vertices into a storage buffer that the mesh draws from as its vertex buffer.
+  - **WebGL2 (no compute):** the same kernel runs through the executor's WebGL2 backend into float textures, one texel per vertex attribute, and the mesh's vertex shader reads them by vertex index. Transform feedback is the alternative; the first render-wave spike picks one, and the choice stays inside the executor.
+  - **Bone matrices** come from the core's output view (0340's boundary) and are uploaded once per frame per skeleton.
+  - **Babylon draws the skinned buffer as an ordinary mesh,** so shadows, depth, picking and every other pass reuse the result instead of skinning again.
+  - **Tests** run the KSL's JavaScript output (0250) against `anim-offline`'s reference skinning, through the executor's interface.
   
-  Babylon's own `Animation`, `AnimationGroup` and `Skeleton.beginAnimation` are never used. If compute skinning misses its budget, Babylon's vertex-shader skinning is measured against it before anything changes.
+  Babylon's own `Animation`, `AnimationGroup` and `Skeleton.beginAnimation` are never used. If GPU skinning misses its budget, Babylon's vertex-shader skinning is measured against it before anything changes.
 - Shadow casters, previews (0061) and thumbnails draw skinned meshes through the same path.
-- **2D bones:** sprite skinning deforms a slice mesh (0341). It is drawn by a skinned quad-batch path in `render/babylon/quadBatches.ts`, with the bone palette as a uniform array.
+- **2D bones:** sprite skinning deforms a slice mesh (0341) through the same `mycoSkin` kernel. The quad-batch path (`render/babylon/quadBatches.ts`) draws the skinned output.
 
 ### LOD and culling
 
@@ -166,8 +170,12 @@ Public types are exported from `myco` like physics and navigation. No Rust, wasm
   
   These are fields of the Animator component and use 0033's replication, quantisation and interpolation.
 - **Clients re-evaluate.** Interpolated ghosts evaluate at the interpolated tick.
-- **Predicted ghosts:** `updateMode: "fixed"` Animators on predicted ghosts are rolled back with their predicted fields. The core snapshots and restores an instance's graph state (a fixed-size blob per instance) for re-simulation.
-- Determinism (no FMA, no relaxed SIMD) keeps root motion identical between client and server on the same inputs.
+- **Predicted ghosts use the hybrid model** (owner, 2026-11-22; Unreal's approach):
+  - **Locomotion is driven by gameplay.** The controller's velocity comes from predicted gameplay code, as now. The Animator follows it, with stride and speed warping (0342) so feet don't slide. Locomotion is never rolled back.
+  - **Root-motion one-shots** (rolls, vaults, attacks, anything a clip marks `rootMotion` and plays in a slot) are **extracted at import into a root curve** (translation and yaw over time, part of `myco.anim@1`). A predicted `fixedUpdate` system, `animation.PredictedRootMotion`, samples that curve at the tick and moves the `CharacterController` with the physics plugin's queries against the current world. No physics stepping and no graph replay.
+  - **On correction,** only the slot play and its start tick are reconciled; the rest of the graph keeps running as cosmetic state.
+  - **This doesn't need CharacterController prediction from 0033's later step.** Moves are kinematic sweeps from a predicted system, which 0033 already supports.
+- Determinism (no FMA, no relaxed SIMD) keeps root curves identical between client and server.
 
 ### Budgets (tripwires, checked by `cargo bench` and a profiler counter)
 
@@ -187,7 +195,8 @@ The editor's Profiler (0326) gets an Animation table: instances evaluated, skipp
 - **Babylon's animation system, or a copy of it (0075's option).** It works on Babylon objects, isn't headless, and has no graph, IK, retargeting or matching. Copying it would give us the weakest part to start from.
 - **`ozz-animation-rs` (MPL-2.0, 0.11.0) for sampling and blending.** Its SoA design is the model we follow, but as far as its documentation shows it loads archives built by ozz's C++ offline tools and has no builder of its own. Its clips are bones only, so not our generic property tracks. It would add MPL files to an MIT engine. We take the design and not the crate.
 - **ACL (C++) compiled to wasm.** That is the best compression available, but it needs a C++ toolchain beside Rust in the build. We implement its approach (uniform sampling, variable bit rate per track, object-space error) in `anim-compress`.
-- **Babylon's vertex-shader skinning as the default.** Less code, but every pass (each shadow cascade, depth, picking) skins again, and morphs go through a second path. The owner chose compute. Babylon's skinning is the comparison if compute underperforms.
+- **Babylon's vertex-shader skinning as the default.** Less code, but every pass (each shadow cascade, depth, picking) skins again, and morphs go through a second path. The owner chose our own GPU skinning; Babylon's is the comparison if ours underperforms.
+- **Babylon's skinning on WebGL2 only, our compute on WebGPU.** Less new code for WebGL2, but two skinning models that can disagree. The owner chose one model with two backends.
 - **wasm threads now.** Faster with many characters, but it needs nightly Rust and cross-origin isolation for every export. The job-shaped core keeps that open.
 - **Bones as scene nodes (Unity).** Bones would be easy to parent and inspect, but every bone would be an entity, transform propagation would run over thousands of nodes, and the pose would cross the boundary each frame. Bones stay in the skeleton (Godot), with `BoneAttachment` for parenting (0342).
 
@@ -211,7 +220,7 @@ The editor's Profiler (0326) gets an Animation table: instances evaluated, skipp
 
 ## Open questions
 
-- **Skinning on the WebGL2 fallback (0075), which has no compute:** Babylon's skinning fed by a bone texture we write directly, or our own vertex-shader skinning. A spike at the start of the render wave decides.
+- **The WebGL2 backend's mechanism:** float textures with vertex pulling, or transform feedback. A spike at the start of the render wave decides; the choice stays inside the kernel executor.
 
 ## References
 

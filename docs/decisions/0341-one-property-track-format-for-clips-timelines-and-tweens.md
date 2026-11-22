@@ -76,7 +76,15 @@ We will use **one track model** for everything that changes over time. A clip, a
   - skins: joints and inverse bind matrices. **4 influences per vertex by default** (the default in Unity, Godot and Blender's glTF export), 8 when the model sidecar sets `influences: 8` (`JOINTS_0`/`JOINTS_1`). Weights are normalised, and extra influences are dropped smallest first;
   - animations (TRS channels to bone or node tracks, `weights` to morph tracks, `STEP`/`LINEAR`/`CUBICSPLINE`);
   - morph targets (positions, normals, tangents);
-  - `KHR_animation_pointer` channels to property tracks where the pointer maps to an engine field (material factors, light intensity and colour, camera FOV), with one warning listing pointers that don't.
+  - **`KHR_animation_pointer`** (owner, 2026-11-22: supported, as is now standard for glTF tools) maps channels to property tracks for every glTF property the importer brings in:
+    - **material values:** base colour, metallic, roughness, emissive colour and strength, alpha cutoff, normal scale, occlusion strength, and the physical layers' factors (clearcoat, sheen, transmission, volume, IOR, specular, iridescence, anisotropy, dispersion where imported);
+    - **texture transforms** (`KHR_texture_transform` offset, scale, rotation). These are baked into UVs today (0088), so a material whose transform is animated keeps it as a live material value instead;
+    - **lights** (`KHR_lights_punctual`): colour, intensity, range, spot inner and outer angles;
+    - **cameras:** vertical field of view, near and far planes, orthographic size;
+    - **node visibility** (`KHR_node_visibility`) as `activation` tracks;
+    - node transforms and morph weights, as plain channels already do.
+    
+    Pointers to anything else give one warning per file, listing them. Animating a shared material changes every mesh using it, as glTF defines.
 - **FBX:** through three's `FBXLoader` output (skinned meshes, bones, animation stacks as clips, blend shapes).
 - **OBJ:** no animation.
 - **Baked models (0090)** add skin weights, joint indices, morph deltas and the skeleton. Exports bake every referenced clip to `*.anim.bin`.
@@ -142,7 +150,6 @@ We will use **one track model** for everything that changes over time. A clip, a
 ## Open questions
 
 - **Loadable packages:** the owner decided (2026-11-22) that audio 0337's packages become engine-wide and are renamed **BioPak** (`.biopak`). They get their own record after the audio branch merges; audio itself is renamed Biosonic afterwards. Clips, skeletons and pose databases then ship in them.
-- Which `KHR_animation_pointer` targets map in the first build beyond materials, lights and cameras (UI fields, particle parameters)?
 
 ## References
 

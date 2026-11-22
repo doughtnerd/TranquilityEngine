@@ -5,7 +5,7 @@
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
 - **Amends:** the architecture overview's non-goal "animation timeline … in the editor" (removed)
-- **Related:** 0061, 0133, 0242, 0219, 0304, 0307, 0313, 0326, 0340, 0341, 0342; audio 0327 (the Audio Studio), audio 0332 (one curve editor), audio 0334 (takes), audio 0335 (one component kit)
+- **Related:** 0061, 0133, 0242, 0345, 0346, 0219, 0304, 0307, 0313, 0326, 0340, 0341, 0342; audio 0327 (the Audio Studio), audio 0332 (one curve editor), audio 0334 (takes), audio 0335 (one component kit)
 
 ## Context
 
@@ -48,7 +48,7 @@ The editor half lives in `src/plugins/animation/editor/`, contributed through th
   - **Parameters through the one parameter list module (0304)**, moved from `plugins/audio/editor/` into the editor SDK so audio and animation share it, with the shared parameter card;
   - **Node cards generated from the node catalogue's schema** (0342, including third-party nodes, 0340), as audio's effect cards are (audio 0338); rig-stack entries as a list with gizmos in the viewport (IK targets, pole vectors, spring-bone colliders, look-at limits).
 - **Live debugger:**
-  - In play mode, or on a selected Animator in a running build connected to the editor:
+  - In play mode, or on a selected Animator in a running build connected through the debug link (0346):
     - the graph highlights active nodes with weights and phases;
     - transitions show their condition's current value and why they're blocked (priority, interruption, exit time);
     - requests show their remaining lifetime;
@@ -81,7 +81,7 @@ The editor half lives in `src/plugins/animation/editor/`, contributed through th
   - markers, events and curves on the source take;
   - a live preview (0061) on the model or any profile-compatible character.
 - **Pose database tool:** pick clips and tag ranges; feature and weight settings; bake in the worker (0340) with progress; a debug view of the trajectory and the chosen pose in the viewport.
-- **Ragdoll builder:** generate bodies and joints from a skeleton (capsules by bone length, limits from the profile's joint ranges), then edit shapes and limits with gizmos. A test button drops the character in the viewport.
+- **Ragdoll builder** (the `myco.ragdoll` plugin's editor half, 0345): generate bodies and joints from a skeleton (capsules by bone length, limits from the profile's joint ranges), then edit shapes and limits with gizmos. A test button drops the character in the viewport.
 - **2D:**
   - flipbook from selected slices (Sprite Editor and Assets panel);
   - a 2D bone editor in the Sprite Editor: place bones, generate the mesh, paint weights with a brush and auto-weight.
@@ -117,7 +117,7 @@ The editor half lives in `src/plugins/animation/editor/`, contributed through th
 
 ## Open questions
 
-- Whether running builds connect to the editor for live debugging over the existing net transport (0033) or a dedicated debug channel.
+None. The live connection to running builds is 0346.
 
 ## References
 
