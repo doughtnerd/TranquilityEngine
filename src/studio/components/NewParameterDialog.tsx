@@ -19,6 +19,8 @@ export interface NewParameterDialogProps {
   readonly note?: string;
   /** The most parameters where it goes. */
   readonly limit?: number;
+  /** Also offer True / false and Text (the project's global parameters take them; a playlist's own don't). */
+  readonly types?: boolean;
   onCreate(def: ParameterDef): void;
   onCancel(): void;
 }
@@ -72,6 +74,8 @@ export function NewParameterDialog(props: NewParameterDialogProps) {
             <span>Kind</span>
             <label class="studio-newparam-radio"><input type="radio" name="studio-newparam-kind" checked={d.kind === "numeric"} onChange={() => set({ kind: "numeric" })} /> Number</label>
             <label class="studio-newparam-radio"><input type="radio" name="studio-newparam-kind" checked={d.kind === "labelled"} onChange={() => set({ kind: "labelled" })} /> Labels</label>
+            {props.types && <label class="studio-newparam-radio"><input type="radio" name="studio-newparam-kind" checked={d.kind === "bool"} onChange={() => set({ kind: "bool" })} /> True / false</label>}
+            {props.types && <label class="studio-newparam-radio"><input type="radio" name="studio-newparam-kind" checked={d.kind === "text"} onChange={() => set({ kind: "text" })} /> Text</label>}
           </div>
         )}
         {d.kind === "numeric" ? (
@@ -80,10 +84,10 @@ export function NewParameterDialog(props: NewParameterDialogProps) {
             {num("max", "Max")}
             {num("default", "Default")}
           </div>
-        ) : (
+        ) : d.kind === "bool" ? null : (
           <label class="studio-newparam-field">
-            <span>Labels</span>
-            <input type="text" aria-label="Labels" title="Comma-separated; the first is the default" value={d.labels} onInput={(e) => set({ labels: (e.currentTarget as HTMLInputElement).value })} />
+            <span>{d.kind === "text" ? "Values" : "Labels"}</span>
+            <input type="text" aria-label={d.kind === "text" ? "Values" : "Labels"} title={d.kind === "text" ? "The values the game sends, comma-separated, to test with (conditions can also match part of the text)" : "Comma-separated; the first is the default"} value={d.labels} onInput={(e) => set({ labels: (e.currentTarget as HTMLInputElement).value })} />
           </label>
         )}
         <div class="studio-newparam-buttons">

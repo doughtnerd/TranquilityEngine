@@ -108,15 +108,39 @@ export function allocateBeds(p: Pick<AudioProject, "buses" | "settings">): BedAl
   return { maxBeds, hosts, lost, state, chip };
 }
 
-/** A bed state as the Bed column says it ("Own · 80", "Lost · shares Master", "Shares SFX", "Off"). */
-export function bedText(s: BedState | undefined): string {
+/** A bed state as the Inspector's chip says it ("Base bed" on Master, "Own · p80", "Lost · shares Master", "→ SFX", "Off"). */
+export function bedText(s: BedState | undefined, master = false): string {
   if (!s) return "";
   switch (s.kind) {
-    case "own": return `Own · ${s.priority}`;
+    case "own": return master ? "Base bed" : `Own · p${s.priority}`;
     case "lost": return `Lost · shares ${s.host ?? "nothing"}`;
-    case "share": return s.host ? `Shares ${s.host}` : "Shares";
+    case "share": return s.host ? `→ ${s.host}` : "Shares";
     case "off": return "Off";
     case "none": return "No beds";
+  }
+}
+
+/** A bed state as the Bed column says it (spec §4.3.3): "Own · base" (Master), "Own · p80", "→ Master", "→ Ambience · p60" (lost). */
+export function bedCell(s: BedState | undefined, master = false): string {
+  if (!s) return "";
+  switch (s.kind) {
+    case "own": return master ? "Own · base" : `Own · p${s.priority}`;
+    case "lost": return `→ ${s.host ?? "nothing"} · p${s.priority}`;
+    case "share": return s.host ? `→ ${s.host}` : "—";
+    case "off": return "Off";
+    case "none": return "—";
+  }
+}
+
+/** The Bed column's tooltip (the prototype's words). */
+export function bedTitle(s: BedState | undefined, master: boolean, maxBeds: number): string {
+  if (!s) return "";
+  switch (s.kind) {
+    case "own": return master ? "Master always hosts a bed: the fallback every bus can share" : `Hosts its own bed (priority ${s.priority}). Distant sounds here and in buses under it without their own bed are mixed into it and decoded once.`;
+    case "lost": return `Asks for its own bed (priority ${s.priority}) but lost: only ${maxBeds} beds exist. Shares ${s.host ?? "no"} bed instead.`;
+    case "share": return s.host ? `Shares the nearest bed above it: ${s.host}` : "No bed above it";
+    case "off": return "Its distant sounds never go to a bed";
+    case "none": return "The project has no beds (Max beds is 0)";
   }
 }
 
@@ -136,4 +160,14 @@ export function setBed(p: AudioProject, name: string, mode: BedMode, priority?: 
   const bed = mode === "share" ? null : { own: mode === "own", priority: prio };
   if (JSON.stringify(bed) === JSON.stringify(bus.bed)) return { next: p };
   return { next: { ...p, buses: p.buses.map((b) => (b === bus ? { ...b, bed } : b)) } };
+}
+
+/** The beds chip's tooltip: who hosts, the budget, and who lost and shares where (the prototype's words). */
+export function bedsTitle(a: BedAllocation): string {
+  if (a.maxBeds <= 0) return "The project has no ambisonic beds (Max beds is a project setting).";
+  const lost = a.lost.map((n) => {
+    const s = a.state.get(n);
+    return `${n} → ${s && s.kind === "lost" ? (s.host ?? "nothing") : "nothing"}`;
+  });
+  return `Beds: ${a.hosts.join(", ")}. Max beds (${a.maxBeds}) is a project setting. Master always hosts one; the rest go to the buses that ask, by priority.${lost.length > 0 ? ` Lost and sharing: ${lost.join(", ")}.` : ""}`;
 }

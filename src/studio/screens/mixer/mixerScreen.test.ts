@@ -78,6 +78,34 @@ describe("the Mixer session", () => {
     expect(f.reports.at(-1)).toMatch(/Compare/);
   });
 
+  it("counts the edits made while the game session is live, keeps the count after it stops, and starts again at 0", () => {
+    let live = false;
+    const f = make(mixerFixture(), { extra: { sessionLive: () => live } });
+    const s = f.session;
+    s.commit(setLevel(s.project.peek(), "Music", -4, null), "Set level · Music");
+    expect(s.liveEdits.peek()).toBe(0);
+    live = true;
+    expect(s.sessionLive()).toBe(true);
+    // A drag is one edit however many moves it makes.
+    for (const db of [-5, -6, -7]) s.commit(setLevel(s.project.peek(), "Music", db, null), "Set level · Music", true);
+    s.commit(setLevel(s.project.peek(), "UI", -1, null), "Set level · UI");
+    expect(s.liveEdits.peek()).toBe(2);
+    live = false;
+    expect(s.sessionLive()).toBe(false);
+    expect(s.liveEdits.peek()).toBe(2);
+    live = true;
+    s.sessionLive();
+    expect(s.liveEdits.peek()).toBe(0);
+  });
+
+  it("makes snapshot folders as steps of the file, so Undo takes an empty folder away", () => {
+    const f = make(mixerFixture());
+    const s = f.session;
+    expect(s.newFolder("States")).toBe("States/New folder");
+    expect(s.project.peek().snapshotFolders).toEqual(["States/New folder"]);
+    expect(f.steps.at(-1)!.label).toBe("New folder · New folder");
+  });
+
   it("pins at most 8 and solo needs the runtime", () => {
     const f = make(mixerFixture());
     const s = f.session;

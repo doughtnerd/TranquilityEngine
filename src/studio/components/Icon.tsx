@@ -81,6 +81,7 @@ const PATHS = {
   // Playlists
   release: "M3 12h13M12 7l5 5-5 5M20 5v14",
   razor: "M6 6m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0M6 18m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0M8.5 7.8L20 18M8.5 16.2L20 6",
+  collapse: "M7 3l5 5 5-5M7 21l5-5 5 5M4 12h16",
 } as const;
 
 export type IconName = keyof typeof PATHS;

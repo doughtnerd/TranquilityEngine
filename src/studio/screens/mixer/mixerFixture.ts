@@ -13,6 +13,8 @@ export const MIXER_FIXTURE_JSON = {
     { name: "tod", min: 0, max: 24, default: 12 },
     { name: "gameState", labels: ["Playing", "Paused", "Cutscene", "Loading"], default: "Playing" },
     { name: "combat", labels: ["Off", "On"], default: "Off" },
+    { name: "inCombat", type: "bool", default: false },
+    { name: "surface", type: "text", labels: ["Dirt", "Gravel", "Wood", "Metal", "Water"], default: "Dirt" },
   ],
   buses: [
     { name: "Master", volumeDb: 0, voiceLimit: 64, effects: [{ id: "fx1", type: "limiter" }] },

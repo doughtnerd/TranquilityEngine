@@ -71,9 +71,54 @@ export const BusesList: Story = {
     const list = c.getByRole("listbox", { name: "Buses" });
     await expect(within(list).getAllByRole("option").map((o) => o.getAttribute("data-bus-row"))).toEqual(["Master", "SFX", "Vehicles", "Engine", "Footsteps", "Weapons", "Ambience", "Rain", "Dialogue", "Music", "UI"]);
     await expect(c.getByText("Beds 2/2 · 1 sharing")).toBeTruthy();
-    await expect(c.getByText("Lost · shares Ambience")).toBeTruthy();
+    // Each row says what's on it; a return its sends, a VCA its buses (spec §4.3.3).
+    await expect(canvasElement.querySelector('[data-bus-row="Ambience"] .mx-meta')).toHaveTextContent("fx 1 · auto 2");
+    await expect(c.getByText("fx 1 · ← 3 sends")).toBeTruthy();
+    await expect(c.getByText("3 buses")).toBeTruthy();
+    // Branch colours: SFX's buses share SFX's colour, Ambience's branch has the next one.
+    const stripe = (bus: string) => (canvasElement.querySelector(`[data-bus-row="${bus}"] .mx-stripe`) as HTMLElement).style.background;
+    await expect(stripe("Engine")).toBe(stripe("SFX"));
+    await expect(stripe("Rain")).not.toBe(stripe("SFX"));
+    // The bed column in the spec's notation; the VCA's value under the dB field.
+    await expect(canvasElement.querySelector('[data-bus-row="Rain"] .mx-bed')).toHaveTextContent("→ Ambience · p60");
     await userEvent.click(c.getByRole("button", { name: "Collapse SFX" }));
     await expect(within(list).queryByText("Engine")).toBeNull();
+    await expect(canvasElement.querySelector('[data-bus-row="SFX"] .mx-meta')).toHaveTextContent("+4 inside");
+  },
+};
+
+/** Strips view is a console: kind, typed dB, voices; right-clicking a strip opens the bus menu (MX-23). */
+export const StripsMenu: Story = {
+  args: { which: "buses", setup: (s) => void (s.view.value = "strips") },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
+    const music = c.getByRole("group", { name: "Music" });
+    await expect(music).toHaveTextContent("Bus · to Master");
+    await expect(within(music).getByRole("textbox", { name: "Music level in dB" })).toHaveValue("−10.0");
+    await expect(within(c.getByRole("group", { name: "Vehicles" })).getByText("Voices ↑ 48")).toBeTruthy();
+    await userEvent.pointer({ keys: "[MouseRight]", target: within(music).getByText("Music", { selector: ".mx-strip-name" }) });
+    const menu = await body.findByRole("menu", { name: "Music menu" });
+    await expect(within(menu).getByRole("menuitem", { name: "Add child bus" })).toBeTruthy();
+    await userEvent.keyboard("{Escape}");
+  },
+};
+
+/** The toolbar keeps the count of the edits made while the game session played ("N edits kept"). */
+export const ToolbarEditsKept: Story = {
+  args: {
+    which: "buses",
+    setup: (s) => {
+      // The session is live for one edit, then stops.
+      let live = true;
+      (s.deps as { sessionLive?: () => boolean }).sessionLive = () => live;
+      s.sessionLive();
+      s.commit({ next: { ...s.project.peek(), buses: s.project.peek().buses.map((b) => (b.name === "UI" ? { ...b, volumeDb: -9 } : b)) } }, "Set level · UI");
+      live = false;
+    },
+  },
+  play: async ({ canvasElement }) => {
+    await expect(canvasElement.querySelector(".mx-toolbar [role=status]")).toHaveTextContent("1 edit kept");
   },
 };
 
@@ -192,6 +237,24 @@ export const InspectorRowsDontOverlap: Story = {
 };
 
 export const InspectorReturn: Story = { args: { which: "inspector", width: 360, setup: (s) => s.select("Reverb") } };
+
+/** "→ X dB": the level automation reaches now at the test values (spec §4.3.4), and Used by lists the playlists routed here. */
+export const InspectorAutomatedAndUsedBy: Story = {
+  args: {
+    which: "inspector",
+    width: 360,
+    options: { usersOf: (n) => (n === "Music" ? ["audio/music/Theme.playlist.json", "audio/music/Combat.playlist.json", "scenes/a.scene.json"] : []) },
+    setup: (s) => { s.select("Music"); s.setTestValue("threat", 1); },
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByText("→ −13.0 dB")).toBeTruthy();
+    await expect(c.getByText("→ −13.0 dB").getAttribute("title")).toBe("Driven by threat (now 1)");
+    const used = c.getByRole("region", { name: "Used by" });
+    await expect([...used.querySelectorAll(".mx-link")].map((b) => b.textContent)).toEqual(["Combat", "Theme"]);
+    await expect(canvasElement.querySelector(".mx-ititle")).toHaveTextContent("BusMusic");
+  },
+};
 export const InspectorVca: Story = { args: { which: "inspector", width: 360, setup: (s) => s.select("Gameplay SFX") } };
 
 export const Snapshots: Story = {
@@ -210,15 +273,17 @@ export const SnapshotsNewFolderRenamed: Story = {
   args: { which: "snapshots", width: 280 },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await userEvent.click(c.getByRole("button", { name: "Folder" }));
+    const body = within(canvasElement.ownerDocument.body);
+    await userEvent.click(c.getByRole("button", { name: "More: New snapshot, New folder" }));
+    await userEvent.click(within(await body.findByRole("menu", { name: "New" })).getByRole("menuitem", { name: /New folder/ }));
     const input = await c.findByRole("textbox", { name: "Folder name" });
     await userEvent.clear(input);
     await userEvent.type(input, "Combat{Enter}");
-    await userEvent.click(c.getByRole("button", { name: "New" }));
+    await userEvent.click(c.getByRole("button", { name: "New snapshot" }));
     await userEvent.keyboard("Boss fight{Enter}");
     const tree = c.getByRole("tree", { name: "Snapshots" });
-    await expect(within(tree).queryByRole("treeitem", { name: "New folder" })).toBeNull();
-    const combat = within(tree).getByRole("treeitem", { name: "Combat" });
+    await expect(within(tree).queryByRole("treeitem", { name: /^New folder/ })).toBeNull();
+    const combat = within(tree).getByRole("treeitem", { name: /^Combat/ });
     await expect(within(combat).getByRole("treeitem", { name: /Boss fight/ })).toBeTruthy();
   },
 };
@@ -228,13 +293,15 @@ export const SnapshotsRenameKeptFolder: Story = {
   args: { which: "snapshots", width: 280 },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await userEvent.click(c.getByRole("button", { name: "Folder" }));
+    const body = within(canvasElement.ownerDocument.body);
+    await userEvent.click(c.getByRole("button", { name: "More: New snapshot, New folder" }));
+    await userEvent.click(within(await body.findByRole("menu", { name: "New" })).getByRole("menuitem", { name: /New folder/ }));
     const input = await c.findByRole("textbox", { name: "Folder name" });
     await userEvent.clear(input);
     await userEvent.type(input, "States{Enter}");
     const tree = c.getByRole("tree", { name: "Snapshots" });
-    await expect(within(tree).getByRole("treeitem", { name: "New folder" })).toBeTruthy();
-    await expect(within(tree).getAllByRole("treeitem", { name: "States" })).toHaveLength(1);
+    await expect(within(tree).getByRole("treeitem", { name: /^New folder/ })).toBeTruthy();
+    await expect(within(tree).getAllByRole("treeitem", { name: /^States/ })).toHaveLength(1);
   },
 };
 
@@ -253,7 +320,7 @@ export const SnapshotMenus: Story = {
     menu = await body.findByRole("menu", { name: "Snapshot menu" });
     await userEvent.click(within(menu).getByRole("menuitem", { name: "Move to top level" }));
     const tree = c.getByRole("tree", { name: "Snapshots" });
-    await expect(within(tree).getByRole("treeitem", { name: "Cut" }).parentElement).toBe(tree);
+    await expect(within(tree).getByRole("treeitem", { name: /^Cut/ }).parentElement).toBe(tree);
   },
 };
 
@@ -262,15 +329,52 @@ export const Trigger: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement.ownerDocument.body);
     await expect(c.getByText(/True now with the test values/)).toBeVisible();
-    await expect(c.getByRole("list", { name: "Overlapping snapshots" })).toHaveTextContent("Pause menu wins (priority 40 over 20).");
-    // Every parameter select ends with "+ New parameter…" (J4.1).
-    const select = c.getAllByRole("combobox", { name: "Parameter" })[0]! as HTMLSelectElement;
-    await expect([...select.options].at(-1)!.textContent).toBe("+ New parameter…");
+    const overlaps = c.getByRole("list", { name: "Overlapping snapshots" });
+    await expect(overlaps).toHaveTextContent("Pause menu wins (priority 40 over 20).");
+    await expect(overlaps).toHaveTextContent("priority 40 · also changes SFX, Ambience, Music");
+    // Every parameter list is an in-app dropdown naming each parameter's type, ending with "+ New parameter…" (J4.1).
+    await userEvent.click(c.getAllByRole("button", { name: /^Parameter:/ })[0]!);
+    const menu = await c.findByRole("menu", { name: "Parameter" });
+    await expect(within(menu).getByRole("menuitemradio", { name: /inCombat/ })).toHaveTextContent("true / false");
+    await expect(within(menu).getAllByRole("menuitem").at(-1)!).toHaveTextContent("+ New parameter…");
+    // A true / false parameter compares with "is true" / "is false" and needs no value.
+    await userEvent.click(within(menu).getByRole("menuitemradio", { name: /inCombat/ }));
+    const row = c.getByRole("group", { name: "Condition 1" });
+    await expect(within(row).getByRole("button", { name: /^Comparison:/ })).toHaveAccessibleName("Comparison: is true");
+    await expect(within(row).queryByRole("spinbutton")).toBeNull();
+  },
+};
+
+/** Two snapshots overriding the same effect parameter: the clash card names it in words, never by an internal id. */
+export const TriggerNoInternalIds: Story = {
+  args: {
+    which: "trigger",
+    project: () => {
+      const p = mixerFixture();
+      return { ...p, snapshots: p.snapshots.map((s) => (s.name === "Pause menu" ? { ...s, effects: { Ambience: { fx1: { cutoff: 400 } } } } : s)) };
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const overlaps = within(canvasElement.ownerDocument.body).getAllByRole("list", { name: "Overlapping snapshots" }).at(-1)!;
+    await expect(overlaps.closest("li, ul")!.innerHTML).not.toContain("fx1");
+    await expect(overlaps.querySelector(".mx-clr")!.getAttribute("title")).toContain("Ambience › Low-pass cutoff");
   },
 };
 
 export const GainLanesOfABus: Story = { args: { which: "gain", width: 300, setup: (s) => { s.select("Music"); s.editSnapshot("Underwater"); s.setTestValue("threat", 1); } } };
-export const GameParameters: Story = { args: { which: "parameters", width: 320 } };
+/** Test values per type: a slider and field for a number, a checkbox for true / false, a dropdown for a state or text. */
+export const GameParameters: Story = {
+  args: { which: "parameters", width: 320 },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const box = c.getByRole("checkbox", { name: "inCombat" });
+    await expect(box).not.toBeChecked();
+    await userEvent.click(box);
+    await expect(box).toBeChecked();
+    await expect(c.getByRole("button", { name: "surface: Dirt" })).toBeTruthy();
+    await expect(c.getByRole("button", { name: "gameState: Playing" })).toBeTruthy();
+  },
+};
 
 /** J4.1: a new project has no game parameters; "+ New parameter…" makes one right here (one undo step of audio.json). */
 export const GameParametersNewProject: Story = {
@@ -302,7 +406,8 @@ export const AutomateNewProject: Story = {
     await expect(ask.getByRole("textbox", { name: "Labels" })).toBeVisible();
     await userEvent.click(ask.getByRole("radio", { name: /Number/ }));
     await userEvent.click(ask.getByRole("button", { name: "Create" }));
-    const curves = await body.findByRole("dialog");
+    // Dialogs from earlier stories may still be in the page's floating root: the curves are the newest.
+    const curves = (await body.findAllByRole("dialog")).at(-1)!;
     await expect(curves).toHaveTextContent("Parameter");
     await userEvent.click(within(curves).getByRole("button", { name: "Cancel" }));
   },

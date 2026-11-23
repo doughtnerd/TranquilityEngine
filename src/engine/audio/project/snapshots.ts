@@ -1,9 +1,10 @@
 /**
  * Internal (ADR 0344 "Snapshots blend"): the one snapshot model the runtime's mixer and the Studio share.
  *
- * - **Conditions:** `lt le eq ne ge gt between` on numeric parameters, `is not` on labelled ones (a boolean is labelled
- *   ["Off", "On"]), evaluated against parameter values (a labelled parameter's value is its label's index). A snapshot
- *   whose start is `base` is always on; `code` and `never` are off until game code (or an audition) starts them.
+ * - **Conditions:** `lt le eq ne ge gt between` on numeric parameters, `is not` on labelled ones (a true / false
+ *   parameter is labelled ["false", "true"]; a text one also takes `contains starts`, read off its label), evaluated
+ *   against parameter values (a labelled parameter's value is its label's index). A snapshot whose start is `base` is
+ *   always on; `code` and `never` are off until game code (or an audition) starts them.
  * - **Resolution:** any number of snapshots can be active. Per bus, the Override snapshots that list the bus resolve by
  *   priority (equal priority: the one started last wins) and the Add snapshots that list it stack their offsets on top.
  *   An effect parameter takes the value of the winning Override snapshot that overrides it; Add snapshots never override
@@ -39,8 +40,13 @@ export function conditionHolds(c: SnapshotCondition, params: readonly ParameterD
   if (!def) return false;
   const v = testValueOf(def, values);
   if (isLabelled(def)) {
+    if (c.op === "contains" || c.op === "starts") {
+      const now = (def.labels[Math.round(v)] ?? "").toLowerCase();
+      const part = String(c.value).toLowerCase();
+      return c.op === "contains" ? now.includes(part) : now.startsWith(part);
+    }
     const want = typeof c.value === "string" ? def.labels.indexOf(c.value) : Math.round(c.value);
-    if (c.op === "is") return Math.round(v) === want;
+    if (c.op === "is") return want >= 0 && Math.round(v) === want;
     if (c.op === "not") return Math.round(v) !== want;
     return false;
   }

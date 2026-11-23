@@ -6,7 +6,7 @@
 // then picks.
 //
 // Pure: no DOM, no signals.
-import { MAX_PARAMETERS, type ParameterDef } from "../../engine/audio/parameters";
+import { BOOL_LABELS, MAX_PARAMETERS, type ParameterDef } from "../../engine/audio/parameters";
 import { uniqueName } from "../../engine/core/uniqueName";
 
 /** The option value of "+ New parameter…" (no parameter name holds a control character). */
@@ -22,7 +22,8 @@ export function withNewParameter<O extends { value: string; label: string }>(opt
 /** Whether a select's chosen value is "+ New parameter…". */
 export const isNewParameter = (value: string): boolean => value === NEW_PARAMETER;
 
-export type NewParameterKind = "numeric" | "labelled";
+/** Numeric, labels (a state), or — where the holder takes them (the project's global parameters) — true / false or text. */
+export type NewParameterKind = "numeric" | "labelled" | "bool" | "text";
 
 /** What the dialog edits. Labels are comma-separated text, as the parameter cards take them. */
 export interface ParameterDraft {
@@ -48,6 +49,7 @@ export function whyNotCreate(d: ParameterDraft, existing: readonly string[], lim
   if (existing.includes(name)) return `There's already a parameter named "${name}"`;
   if (existing.length >= limit) return `At most ${limit} parameters`;
   if (d.kind === "labelled") return labelsOf(d.labels).length === 0 ? "A labelled parameter needs at least one label" : null;
+  if (d.kind === "bool" || d.kind === "text") return null;
   if (![d.min, d.max, d.default].every(Number.isFinite)) return "Min, max and default must be numbers";
   if (d.min >= d.max) return "Max must be above min";
   return null;
@@ -59,6 +61,11 @@ export function parameterFromDraft(d: ParameterDraft): ParameterDef {
   if (d.kind === "labelled") {
     const labels = labelsOf(d.labels);
     return { name, labels, default: labels[0]! };
+  }
+  if (d.kind === "bool") return { name, labels: [...BOOL_LABELS], default: "false", type: "bool" };
+  if (d.kind === "text") {
+    const labels = labelsOf(d.labels);
+    return { name, labels: labels.length > 0 ? labels : [""], default: labels[0] ?? "", type: "text" };
   }
   return { name, min: d.min, max: d.max, default: Math.min(d.max, Math.max(d.min, d.default)), seekSpeed: 0 };
 }

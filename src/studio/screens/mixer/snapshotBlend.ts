@@ -1,8 +1,9 @@
 // Snapshot triggers and blending (ADR 0344 "Snapshots blend"; the prototype's Trigger dialog and its clash list).
 //
-// - Conditions: `lt le eq ne ge gt between` on numeric parameters, `is not` on labelled ones (a boolean is labelled
-//   ["Off", "On"]), evaluated against test values (a labelled parameter's value is its label's index). A snapshot whose
-//   start is `base` is always on; `code` and `never` are off until game code (or an audition) starts them.
+// - Conditions: `lt le eq ne ge gt between` on numeric parameters, `is not` on labelled ones (a true / false one is
+//   labelled ["false", "true"]; a text one also takes `contains starts`), evaluated against test values (a labelled
+//   parameter's value is its label's index). A snapshot whose start is `base` is always on; `code` and `never` are off
+//   until game code (or an audition) starts them.
 // - Resolution: any number of snapshots can be active. Per bus, the Override snapshots that list the bus resolve by
 //   priority (equal priority: the one started last wins) and the Add snapshots that list it stack their offsets on top.
 //   An effect parameter takes the value of the winning Override snapshot that overrides it; Add snapshots never
@@ -11,7 +12,7 @@
 // - Overlaps: for the Trigger dialog, the other snapshots sharing a bus or a parameter with one, and who wins where.
 //
 // Pure.
-import { isLabelled, type ParameterDef } from "../../../engine/audio/parameters";
+import { isLabelled, parameterKind, type ParameterDef } from "../../../engine/audio/parameters";
 import { startHolds } from "../../../engine/audio/project/snapshots";
 import type { ConditionOp, Snapshot, SnapshotCondition, SnapshotStart } from "../../../engine/audio/project/types";
 
@@ -22,54 +23,104 @@ export {
 } from "../../../engine/audio/project/snapshots";
 import type { TestValues } from "../../../engine/audio/project/snapshots";
 
-/** The comparisons a parameter offers, with their words. */
-export const NUMERIC_OPS: readonly { op: ConditionOp; label: string; symbol: string }[] = [
+/** The comparisons a parameter offers, with their words (spec §2.10, per type). */
+export interface OpChoice {
+  readonly op: ConditionOp;
+  readonly label: string;
+  readonly symbol: string;
+  /** A true / false comparison fixes the value too ("is true"). */
+  readonly value?: string;
+}
+export const NUMERIC_OPS: readonly OpChoice[] = [
   { op: "lt", label: "is below", symbol: "<" },
   { op: "le", label: "is at most", symbol: "≤" },
   { op: "eq", label: "equals", symbol: "=" },
-  { op: "ne", label: "isn't", symbol: "≠" },
+  { op: "ne", label: "is not", symbol: "≠" },
   { op: "ge", label: "is at least", symbol: "≥" },
   { op: "gt", label: "is above", symbol: ">" },
   { op: "between", label: "is between", symbol: "between" },
 ];
-export const LABEL_OPS: readonly { op: ConditionOp; label: string; symbol: string }[] = [
+export const LABEL_OPS: readonly OpChoice[] = [
   { op: "is", label: "is", symbol: "is" },
-  { op: "not", label: "isn't", symbol: "is not" },
+  { op: "not", label: "is not", symbol: "is not" },
+];
+export const BOOL_OPS: readonly OpChoice[] = [
+  { op: "is", label: "is true", symbol: "is", value: "true" },
+  { op: "is", label: "is false", symbol: "is", value: "false" },
+];
+export const TEXT_OPS: readonly OpChoice[] = [
+  ...LABEL_OPS,
+  { op: "contains", label: "contains", symbol: "contains" },
+  { op: "starts", label: "starts with", symbol: "starts with" },
 ];
 
 /** The ops a parameter allows. */
-export const opsFor = (def: ParameterDef | undefined) => (def && isLabelled(def) ? LABEL_OPS : NUMERIC_OPS);
+export function opsFor(def: ParameterDef | undefined): readonly OpChoice[] {
+  if (!def) return NUMERIC_OPS;
+  switch (parameterKind(def)) {
+    case "number": return NUMERIC_OPS;
+    case "bool": return BOOL_OPS;
+    case "text": return TEXT_OPS;
+    case "state": return LABEL_OPS;
+  }
+}
 
-/** A new condition row on `def`: "is above its default" for a number, "is its first label" for labels. */
+/** Which of `opsFor(def)` a condition is (a true / false one by its value too); -1 when none fits. */
+export function opIndex(c: SnapshotCondition, def: ParameterDef | undefined): number {
+  return opsFor(def).findIndex((o) => o.op === c.op && (o.value === undefined || o.value === String(c.value)));
+}
+
+/** A new condition row on `def`: "is above its default" for a number, "is true", "is its first label" otherwise. */
 export function defaultCondition(def: ParameterDef): SnapshotCondition {
-  return isLabelled(def) ? { parameter: def.name, op: "is", value: def.labels[0] ?? "" } : { parameter: def.name, op: "gt", value: def.default };
+  if (!isLabelled(def)) return { parameter: def.name, op: "gt", value: def.default };
+  if (parameterKind(def) === "bool") return { parameter: def.name, op: "is", value: "true" };
+  return { parameter: def.name, op: "is", value: def.labels[0] ?? "" };
 }
 
 /** A condition moved to parameter `def`: the op and value kept when they still fit its type, else its defaults. */
 export function retarget(c: SnapshotCondition, def: ParameterDef): SnapshotCondition {
-  const fits = opsFor(def).some((o) => o.op === c.op) && (isLabelled(def) ? typeof c.value === "string" && def.labels.includes(c.value) : typeof c.value === "number");
+  const kind = parameterKind(def);
+  const valueFits = !isLabelled(def) ? typeof c.value === "number" : kind === "text" ? typeof c.value === "string" : typeof c.value === "string" && def.labels.includes(c.value);
+  const fits = opIndex(c, def) >= 0 && valueFits;
   return fits ? { ...c, parameter: def.name } : defaultCondition(def);
+}
+
+/** Condition `c` with comparison `choice` (a true / false choice sets the value; a number keeps its value). */
+export function withOp(c: SnapshotCondition, choice: OpChoice): SnapshotCondition {
+  const next: SnapshotCondition = { ...c, op: choice.op };
+  if (choice.value !== undefined) next.value = choice.value;
+  if (choice.op !== "between") delete next.value2;
+  return next;
 }
 
 const fmt = (n: number) => String(Math.round(n * 1000) / 1000);
 
-/** One condition as text ("depth > 0", "state is Paused", "health between 0 and 20"). */
-export function conditionText(c: SnapshotCondition): string {
-  const op = [...NUMERIC_OPS, ...LABEL_OPS].find((o) => o.op === c.op);
-  const v = typeof c.value === "number" ? fmt(c.value) : c.value;
+/** One condition as text ("depth > 0", "gameState is Paused", 'surface contains "Dirt"', "health between 0 and 20"). */
+export function conditionText(c: SnapshotCondition, params: readonly ParameterDef[] = []): string {
+  const def = params.find((p) => p.name === c.parameter);
+  if (def && parameterKind(def) === "bool") return `${c.parameter} is ${c.op === "not" ? (c.value === "true" ? "false" : "true") : c.value}`;
+  const op = [...NUMERIC_OPS, ...TEXT_OPS].find((o) => o.op === c.op);
+  const v = typeof c.value === "number" ? fmt(c.value) : def && parameterKind(def) === "text" ? `"${c.value}"` : c.value;
   if (c.op === "between") return `${c.parameter} between ${v} and ${fmt(c.value2 ?? (typeof c.value === "number" ? c.value : 0))}`;
   return `${c.parameter} ${op?.symbol ?? c.op} ${v}`;
 }
 
-/** A start as text, for the tree's search and the snapshot chip ("Base mix", "From game code", "depth > 0 and …"). */
-export function triggerText(start: SnapshotStart): string {
+/** A start as text, for the tree's search and tooltips ("Base mix", "From game code", "depth > 0 and …"). */
+export function triggerText(start: SnapshotStart, params: readonly ParameterDef[] = []): string {
   switch (start.kind) {
     case "base": return "Base mix";
     case "code": return "From game code";
     case "never": return "Never (audition only)";
     case "conditions":
-      return start.conditions.length === 0 ? "No conditions" : start.conditions.map(conditionText).join(start.match === "all" ? " and " : " or ");
+      return start.conditions.length === 0 ? "No conditions" : start.conditions.map((c) => conditionText(c, params)).join(start.match === "all" ? " and " : " or ");
   }
+}
+
+/** A start in a few words, for the snapshot chip and the tree's meta: the first condition and "or 1 more" ('surface contains "Dirt" or 1 more'). */
+export function triggerSummary(start: SnapshotStart, params: readonly ParameterDef[] = []): string {
+  if (start.kind !== "conditions" || start.conditions.length <= 1) return triggerText(start, params);
+  const more = start.conditions.length - 1;
+  return `${conditionText(start.conditions[0]!, params)} ${start.match === "all" ? "and" : "or"} ${more} more`;
 }
 
 // --- overlaps -----------------------------------------------------------------------------------------------------------
@@ -77,8 +128,12 @@ export function triggerText(start: SnapshotStart): string {
 /** One other snapshot sharing something with the one being edited, and how they combine. */
 export interface Overlap {
   readonly name: string;
-  /** What they share: bus names, and "Bus · fx1.cutoff" for parameters. */
+  /** What they share: bus names, and parameters as `describe` names them ("Music › Low-pass cutoff"). */
   readonly shared: readonly string[];
+  /** The other snapshot's priority. */
+  readonly priority: number;
+  /** Every bus the other snapshot changes (its offsets and overridden parameters), for "also changes Ambience, Music". */
+  readonly changes: readonly string[];
   /** Who wins, in words. */
   readonly outcome: string;
   /** Equal priority between two Override snapshots: the one started last wins (worth a warning). */
@@ -92,10 +147,10 @@ export interface Overlap {
  * both Add → their offsets add up; one Add → its offsets add on top of the other; both Override → the higher priority
  * wins, equal → the one started last wins. `draft` stands in for the snapshot being edited (the dialog's unsaved state).
  */
-export function overlapsOf(snapshots: readonly Snapshot[], name: string, params: readonly ParameterDef[], values: TestValues, draft?: Snapshot): Overlap[] {
+export function overlapsOf(snapshots: readonly Snapshot[], name: string, params: readonly ParameterDef[], values: TestValues, draft?: Snapshot, describe: (bus: string, effect: string, param: string) => string = (bus, effect, param) => `${bus} › ${effect} ${param}`): Overlap[] {
   const self = draft ?? snapshots.find((s) => s.name === name);
   if (!self) return [];
-  const paramKeys = (s: Snapshot) => Object.entries(s.effects).flatMap(([bus, byId]) => Object.entries(byId).flatMap(([id, ps]) => Object.keys(ps).map((p) => `${bus} · ${id}.${p}`)));
+  const paramKeys = (s: Snapshot) => Object.entries(s.effects).flatMap(([bus, byId]) => Object.entries(byId).flatMap(([id, ps]) => Object.keys(ps).map((p) => describe(bus, id, p))));
   const mineBuses = Object.keys(self.buses);
   const mineParams = paramKeys(self);
   const out: Overlap[] = [];
@@ -117,7 +172,8 @@ export function overlapsOf(snapshots: readonly Snapshot[], name: string, params:
       const [hi, lo] = self.priority > other.priority ? [self, other] : [other, self];
       outcome = `${hi.name} wins (priority ${hi.priority} over ${lo.priority}).`;
     }
-    out.push({ name: other.name, shared: [...sharedBuses, ...sharedParams], outcome, warn, onNow: startHolds(other.start, params, values) });
+    const changes = [...new Set([...Object.keys(other.buses), ...Object.keys(other.effects)])];
+    out.push({ name: other.name, shared: [...sharedBuses, ...sharedParams], priority: other.priority, changes, outcome, warn, onNow: startHolds(other.start, params, values) });
   }
   return out;
 }

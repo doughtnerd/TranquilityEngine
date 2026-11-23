@@ -68,7 +68,7 @@ export const DEFAULT_DUCK_ATTACK_MS = 100;
 export const DEFAULT_DUCK_RELEASE_MS = 500;
 export const DEFAULT_SNAPSHOT_FADE_MS = 300;
 export const DEFAULT_SNAPSHOT_PRIORITY = 0;
-export const CONDITION_OPS: readonly ConditionOp[] = ["lt", "le", "eq", "ne", "ge", "gt", "between", "is", "not"];
+export const CONDITION_OPS: readonly ConditionOp[] = ["lt", "le", "eq", "ne", "ge", "gt", "between", "is", "not", "contains", "starts"];
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -240,6 +240,10 @@ export function parseAudioProject(raw: unknown, options: AudioParseOptions = {})
         else bus.bed = { own: bool(b.bed.own, `${where}.bed.own`, true, problems), priority: ranged(b.bed.priority, `${where}.bed.priority`, BED_PRIORITY_LIMITS, DEFAULT_BED_PRIORITY, problems, true) };
       }
       if (b.parent !== undefined && b.parent !== null && typeof b.parent !== "string") problems.push(`${where}.parent: must be a bus name or null.`);
+      if (b.colour !== undefined) {
+        if (typeof b.colour === "string" && b.colour.trim() !== "" && b.colour.length <= 64) bus.colour = b.colour;
+        else problems.push(`${where}.colour: must be a CSS colour; ignored.`);
+      }
       rawSends.set(bus, b.sends);
       buses.push(bus);
     });
@@ -281,6 +285,8 @@ export function parseAudioProject(raw: unknown, options: AudioParseOptions = {})
   project.automation = parseAutomation(raw.automation, project, problems);
   project.ducking = parseDucking(raw.ducking, project, problems);
   project.snapshots = parseSnapshots(raw.snapshots, project, problems);
+  const folders = parseSnapshotFolders(raw.snapshotFolders, project.snapshots, problems);
+  if (folders.length > 0) project.snapshotFolders = folders;
   project.loudness = parseLoudness(raw.loudness, problems);
   // ADR 0351: encoding and packages, set only when the file holds something (absent keys read as their defaults).
   const encoding = parseEncodingConfig(raw.encoding, problems);
@@ -459,6 +465,20 @@ function parseStart(raw: unknown, where: string, project: AudioProject, problems
   return { kind: "conditions", match, conditions };
 }
 
+/** The empty snapshot folders: unique "A/B" paths, none that a snapshot's folder already names (or sits inside). */
+function parseSnapshotFolders(raw: unknown, snapshots: readonly Snapshot[], problems: string[]): string[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) return void problems.push("snapshotFolders: must be a list of folder paths; ignored."), [];
+  const out: string[] = [];
+  const used = (f: string) => snapshots.some((s) => s.folder === f || s.folder.startsWith(`${f}/`));
+  raw.forEach((f, i) => {
+    const path = typeof f === "string" ? f.split("/").map((x) => x.trim()).filter((x) => x !== "").join("/") : "";
+    if (path === "") return void problems.push(`snapshotFolders[${i}]: must be a folder path; dropped.`);
+    if (!out.includes(path) && !used(path)) out.push(path);
+  });
+  return out;
+}
+
 function parseSnapshots(raw: unknown, project: AudioProject, problems: string[]): Snapshot[] {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) return void problems.push("snapshots: must be a list; ignored."), [];
@@ -532,12 +552,13 @@ export function audioProjectToJson(project: AudioProject): Record<string, unknow
     format: AUDIO_PROJECT_FORMAT,
     settings: settingsToJson(project.settings),
     parameters: clone(project.parameters),
-    buses: project.buses.map((b) => ({ name: b.name, parent: b.parent, volumeDb: b.volumeDb, mute: b.mute, voiceLimit: b.voiceLimit, bed: b.bed && { ...b.bed }, meter: b.meter, effects: effectsToJson(b.effects), sends: b.sends.map((s) => ({ ...s })) })),
+    buses: project.buses.map((b) => ({ name: b.name, parent: b.parent, volumeDb: b.volumeDb, mute: b.mute, voiceLimit: b.voiceLimit, bed: b.bed && { ...b.bed }, meter: b.meter, effects: effectsToJson(b.effects), sends: b.sends.map((s) => ({ ...s })), ...optional("colour", b.colour) })),
     returns: project.returns.map((r) => ({ name: r.name, output: r.output, volumeDb: r.volumeDb, mute: r.mute, effects: effectsToJson(r.effects) })),
     vcas: project.vcas.map((v) => ({ name: v.name, volumeDb: v.volumeDb, members: [...v.members] })),
     automation: project.automation.map((a) => ({ on: a.on, target: a.target, parameter: a.parameter, curve: clone(a.curve), bypass: a.bypass })),
     ducking: project.ducking.map((d) => ({ ...d })),
     snapshots: project.snapshots.map((s) => clone(s)),
+    ...optional("snapshotFolders", project.snapshotFolders && project.snapshotFolders.length > 0 ? [...project.snapshotFolders] : null),
     loudness: { targets: project.loudness.targets.map((t) => ({ ...t })), resetOnPlay: project.loudness.resetOnPlay },
     ...optional("encoding", project.encoding && encodingConfigToJson(project.encoding)),
     ...optional("packages", project.packages && packagesToJson(project.packages)),

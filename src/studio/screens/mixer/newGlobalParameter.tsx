@@ -34,6 +34,7 @@ export function NewGlobalParameterDialog(props: NewGlobalParameterDialogProps) {
     <NewParameterDialog
       existing={props.host.project.value.parameters.map((p) => p.name)}
       kind={props.kind}
+      types
       note={GLOBAL_PARAMETER_NOTE}
       onCancel={props.onCancel}
       onCreate={(def) => {
