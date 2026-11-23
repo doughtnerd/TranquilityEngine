@@ -108,12 +108,16 @@
 .mx-strip { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 96px; flex: none; box-sizing: border-box; padding: 6px; border: 1px solid var(--border); border-top: 3px solid var(--border-strong); border-radius: 3px; background: var(--bg); outline: none; }
 .mx-strip.selected { box-shadow: 0 0 0 1px var(--accent), 0 0 8px var(--accent-soft); }
 .mx-strip:focus-visible { box-shadow: 0 0 0 2px var(--focus-ring); }
-.mx-strip.compact { width: 64px; }
+.mx-strip.compact { width: 76px; }
 .mx-strip-name { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: calc(12px * var(--ui-scale)); font-weight: 600; color: var(--text-strong); }
 .mx-strip-kind, .mx-strip-line { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: calc(10px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
 .mx-strip-line.inherited { color: var(--faint); }
 .mx-strip-fader { height: 150px; display: flex; justify-content: center; }
 .mx-strip.compact .mx-strip-fader { height: 100px; }
+/* The strip's fader box sets the fader's height: the fader's own 120 px floor would run its track and cap into the dB
+   field under a compact (live board) strip (V10). */
+.mx-strip-fader { flex: none; }
+.mx-strip-fader .studio-fader.vertical { min-height: 0; }
 .mx-strip .mx-db { text-align: center; }
 .mx-board { border-top: 1px solid var(--border); padding-top: 4px; }
 .mx-board-head { display: inline-flex; align-items: center; gap: 4px; background: none; border: none; color: var(--text); padding: 2px 0; cursor: pointer; font-weight: 600; }
@@ -201,7 +205,8 @@
 .mx-loud-unit.warn { color: var(--warning); }
 .mx-loud-unit.ok { color: var(--success); }
 .mx-loud-graph { display: flex; flex-direction: column; gap: 2px; }
-.mx-spark { width: 100%; height: 50px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-sunken); }
+.mx-frame.mx-loudness { flex: 1 1 auto; overflow: auto; }
+.mx-spark { width: 100%; height: 50px; flex: none; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-sunken); }
 .mx-spark-line { fill: none; stroke: var(--accent2); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .mx-spark-target { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 
@@ -261,3 +266,6 @@
 .mx-targets td { padding: 3px 6px 3px 0; }
 .mx-target-name { width: 130px; }
 .mx-target-add { margin-top: 8px; display: inline-flex; align-items: center; gap: 4px; width: auto; align-self: flex-start; }
+
+/* The Inspector's Mute is the same compact M toggle as a row's, not a bar across the field (V10). */
+.mx-ivalue > .mx-toggle { justify-self: start; align-self: center; width: auto; flex: none; }

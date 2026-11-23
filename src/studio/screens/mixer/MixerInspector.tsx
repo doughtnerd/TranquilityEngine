@@ -90,8 +90,8 @@ function LevelField(props: { session: MixerSession; name: string }) {
   const commit = (db: number, drag?: boolean) => session.commit(setLevel(session.project.peek(), name, db, session.editing.peek()), levelLabel(session.project.peek(), name, session.editing.peek()), drag);
   return (
     <div class="mx-ilevel">
-      <Fader value={value} label={`${name} level`} ghosts={levelGhosts(p, name, editing)} disabled={session.readOnly} selected onValue={(db, drag) => commit(db, drag || undefined)} />
-      <DbField value={value} label={`${name} level in dB`} disabled={session.readOnly} title="Type a level in dB (−60 to +6)" onCommit={(db) => commit(db)} />
+      <Fader value={value} label="Level" ghosts={levelGhosts(p, name, editing)} disabled={session.readOnly} selected onValue={(db, drag) => commit(db, drag || undefined)} />
+      <DbField value={value} label="Level in dB" disabled={session.readOnly} title="Type a level in dB (−60 to +6)" onCommit={(db) => commit(db)} />
       <span class="mx-unit">dB</span>
       {live.length > 0 && <span class="mx-avalue" title={`Driven by ${driverText}`}>→ {formatDb(Math.max(-60, Math.min(6, value + auto)))} dB</span>}
       {kindOf(p, name) !== "vca" && <Diamond set={lanes.length > 0} label={`Automate ${name}'s level`} title={live.length > 0 ? `Driven by ${driverText} · click to edit the curves` : "Curves for the level (driven by a game parameter)"} disabled={session.readOnly} onClick={() => automate(session, name, "volume")} />}
@@ -139,9 +139,9 @@ function VoiceField(props: { session: MixerSession; name: string }) {
           <input type="number" class="mx-nf" min={lo} max={hi} step={1} value={bus.voiceLimit} aria-label="Voices" disabled={session.readOnly} onChange={(e) => session.commit(setVoiceLimit(session.project.peek(), name, Number((e.target as HTMLInputElement).value)), label)} />
           <span class="mx-unit">voices</span>
         </span>
-      ) : (
-        <span class="mx-ichip" title={v.from ? `Uses the limit of the nearest bus above: ${v.from}` : "No limit above it"}>{v.from ? `${v.limit} · ${v.from}` : "No limit"}</span>
-      )}
+      ) : v.from ? (
+        <span class="mx-ichip" title={`Uses the limit of the nearest bus above: ${v.from}`}>{`${v.limit} · ${v.from}`}</span>
+      ) : null}
     </div>
   );
 }
@@ -167,7 +167,7 @@ function BedField(props: { session: MixerSession; name: string }) {
       {mode === "own" && (
         <label class="mx-inline" title="When more buses ask for a bed than Max beds allows, the highest priorities win">
           Priority
-          <input type="number" class="mx-nf" min={BED_PRIORITY_LIMITS[0]} max={BED_PRIORITY_LIMITS[1]} value={bus.bed!.priority} disabled={session.readOnly} onChange={(e) => session.commit(setBed(session.project.peek(), name, "own", Number((e.target as HTMLInputElement).value)), label)} />
+          <input type="number" class="mx-nf" aria-label="Bed priority" min={BED_PRIORITY_LIMITS[0]} max={BED_PRIORITY_LIMITS[1]} value={bus.bed!.priority} disabled={session.readOnly} onChange={(e) => session.commit(setBed(session.project.peek(), name, "own", Number((e.target as HTMLInputElement).value)), label)} />
         </label>
       )}
       <span class={`mx-ichip${state?.kind === "lost" ? " warn" : ""}`}>{bedText(state, bus.parent === null)}</span>
@@ -396,7 +396,7 @@ function BusInspector(props: { session: MixerSession; name: string }) {
       <Field label="Parent">{bus.parent === null ? <span class="mx-faint">— (the output)</span> : <span title="Drag the bus in Routing to change its parent">{busPath(p, bus.parent)}</span>}</Field>
       <LevelRows session={session} name={name} />
       <Field label="Mute">
-        <button class={`mx-toggle mute${bus.mute ? " on" : ""}`} aria-pressed={bus.mute} disabled={session.readOnly} onClick={() => session.commit(setMute(session.project.peek(), name, !bus.mute), labelOn(bus.mute ? "Unmute" : "Mute", name))}>M</button>
+        <button class={`mx-toggle mute${bus.mute ? " on" : ""}`} aria-pressed={bus.mute} aria-label="Mute" title={bus.mute ? "Muted (saved): click to unmute" : "Mute (saved in the mix)"} disabled={session.readOnly} onClick={() => session.commit(setMute(session.project.peek(), name, !bus.mute), labelOn(bus.mute ? "Unmute" : "Mute", name))}>M</button>
       </Field>
       <Field label="Voice limit"><VoiceField session={session} name={name} /></Field>
       <Field label="Bed"><BedField session={session} name={name} /></Field>
@@ -424,7 +424,7 @@ function ReturnInspector(props: { session: MixerSession; name: string }) {
       </Field>
       <LevelRows session={session} name={name} />
       <Field label="Mute">
-        <button class={`mx-toggle mute${ret.mute ? " on" : ""}`} aria-pressed={ret.mute} disabled={session.readOnly} onClick={() => session.commit(setMute(session.project.peek(), name, !ret.mute), labelOn(ret.mute ? "Unmute" : "Mute", name))}>M</button>
+        <button class={`mx-toggle mute${ret.mute ? " on" : ""}`} aria-pressed={ret.mute} aria-label="Mute" title={ret.mute ? "Muted (saved): click to unmute" : "Mute (saved in the mix)"} disabled={session.readOnly} onClick={() => session.commit(setMute(session.project.peek(), name, !ret.mute), labelOn(ret.mute ? "Unmute" : "Mute", name))}>M</button>
       </Field>
       <Effects session={session} name={name} />
       <Ducking session={session} name={name} />

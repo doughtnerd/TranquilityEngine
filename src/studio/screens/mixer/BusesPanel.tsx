@@ -27,7 +27,7 @@ type Menu = { at: { x: number; y: number }; name: string } | null;
 type Drag = { bus: string; over: string | null; started: boolean } | null;
 
 /** A fader for `name` that edits its shown level (one coalesced undo step per drag). */
-function LevelFader(props: { session: MixerSession; name: string; orientation?: "horizontal" | "vertical"; meter?: boolean }) {
+function LevelFader(props: { session: MixerSession; name: string; orientation?: "horizontal" | "vertical"; meter?: boolean; label?: string }) {
   const { session, name } = props;
   const p = session.project.value;
   const editing = session.editing.value;
@@ -38,7 +38,7 @@ function LevelFader(props: { session: MixerSession; name: string; orientation?: 
     <Fader
       value={value}
       orientation={props.orientation}
-      label={`${name} level`}
+      label={props.label ?? `${name} level`}
       ghosts={levelGhosts(p, name, editing)}
       disabled={session.readOnly}
       selected={session.selected.value === name}
@@ -71,10 +71,10 @@ function MuteSolo(props: { session: MixerSession; name: string; solo?: boolean; 
   const soloed = session.soloed.value === name;
   return (
     <span class="mx-ms">
-      <button class={`mx-toggle mute${muted ? " on" : ""}`} aria-pressed={muted} title={props.disabled ? "A VCA has no audio to mute" : muted ? "Muted (saved): click to unmute" : "Mute (saved in the mix; silences the bus and its sends)"} disabled={session.readOnly || props.disabled} onClick={(e) => { e.stopPropagation(); session.commit(setMute(session.project.peek(), name, !muted), labelOn(muted ? "Unmute" : "Mute", name)); }}>
+      <button class={`mx-toggle mute${muted ? " on" : ""}`} aria-pressed={muted} aria-label={`Mute ${name}`} title={props.disabled ? "A VCA has no audio to mute" : muted ? "Muted (saved): click to unmute" : "Mute (saved in the mix; silences the bus and its sends)"} disabled={session.readOnly || props.disabled} onClick={(e) => { e.stopPropagation(); session.commit(setMute(session.project.peek(), name, !muted), labelOn(muted ? "Unmute" : "Mute", name)); }}>
         M
       </button>
-      <button class={`mx-toggle solo${soloed ? " on" : ""}`} aria-pressed={soloed} title={props.solo === false ? "Solo works on buses" : "Solo while you listen (never saved; marks the meters)"} disabled={props.solo === false || props.disabled} onClick={(e) => { e.stopPropagation(); session.toggleSolo(name); }}>
+      <button class={`mx-toggle solo${soloed ? " on" : ""}`} aria-pressed={soloed} aria-label={`Solo ${name}`} title={props.solo === false ? "Solo works on buses" : "Solo while you listen (never saved; marks the meters)"} disabled={props.solo === false || props.disabled} onClick={(e) => { e.stopPropagation(); session.toggleSolo(name); }}>
         S
       </button>
     </span>
@@ -422,8 +422,8 @@ function Strip(props: { session: MixerSession; name: string; compact?: boolean; 
     >
       <span class="mx-strip-name" title={name}>{name}</span>
       {!props.compact && <span class="mx-strip-kind">{stripKind(p, name)}</span>}
-      <div class="mx-strip-fader"><LevelFader session={session} name={name} orientation="vertical" /></div>
-      <DbField value={shownLevel(p, name, session.editing.value)} label={`${name} level in dB`} disabled={session.readOnly} title="Type a level in dB (−60 to +6)" onCommit={(db) => session.commit(setLevel(session.project.peek(), name, db, session.editing.peek()), levelLabel(session.project.peek(), name, session.editing.peek()))} />
+      <div class="mx-strip-fader"><LevelFader session={session} name={name} orientation="vertical" label={props.compact ? `Live board: ${name} level` : undefined} /></div>
+      <DbField value={shownLevel(p, name, session.editing.value)} label={props.compact ? `Live board: ${name} level in dB` : `${name} level in dB`} disabled={session.readOnly} title="Type a level in dB (−60 to +6)" onCommit={(db) => session.commit(setLevel(session.project.peek(), name, db, session.editing.peek()), levelLabel(session.project.peek(), name, session.editing.peek()))} />
       {!props.compact && kind !== "vca" && <span class="mx-strip-line" title={loud ? "Short-term loudness of this bus" : "Loudness shows while the Studio's audio plays (on metered buses)"}>{lufs}</span>}
       {!props.compact && v && <span class={`mx-strip-line${v.own ? "" : " inherited"}`}>Voices {v.text}</span>}
       {kind !== "vca" && <MuteSolo session={session} name={name} solo={kind === "bus"} />}
