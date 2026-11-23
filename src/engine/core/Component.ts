@@ -210,6 +210,38 @@ export type MessageHook = {
 /** The arguments a message hook takes. */
 export type MessageArgs<H extends MessageHook> = Parameters<NonNullable<LifecycleHooks[H]>>;
 
+/** Every lifecycle hook's name: a named message may not use one (checked complete against `LifecycleHooks`). */
+const LIFECYCLE_HOOK_NAMES: ReadonlySet<string> = new Set(
+  Object.keys({
+    awake: 1, onEnable: 1, start: 1, fixedUpdate: 1, update: 1, lateUpdate: 1, onDisable: 1, onDestroy: 1,
+    onTriggerEnter: 1, onTriggerStay: 1, onTriggerExit: 1, onCollisionEnter: 1, onCollisionStay: 1, onCollisionExit: 1,
+    onJointBreak: 1, onControllerColliderHit: 1, onMusicBeat: 1, onMusicBar: 1, onMusicCue: 1, onAudioMarker: 1,
+  } satisfies Record<keyof LifecycleHooks, 1>),
+);
+
+/**
+ * @internal A behaviour method an engine feature names at run time rather than at compile time: an animation clip's
+ * notify (ADR 0372, `World._sendMessage(nodes, NamedMessage.of("footstep"), e)`). The World delivers it with the same
+ * rules as the hooks (ADR 0303). `of` refuses (null) a lifecycle hook's name, so data can't fake a collision or call
+ * `update`, and any member `GameBehavior` or `Component` themselves have (`destroy`, `wait`, `constructor`…): only a
+ * method a behaviour class declares can be named. Instances are shared per name.
+ */
+export class NamedMessage {
+  private static readonly byName = new Map<string, NamedMessage>();
+
+  private constructor(readonly method: string) {}
+
+  /** The message for `method`, or null when that name is reserved (see the class). */
+  static of(method: string): NamedMessage | null {
+    const known = NamedMessage.byName.get(method);
+    if (known) return known;
+    if (!method || LIFECYCLE_HOOK_NAMES.has(method) || method in GameBehavior.prototype) return null;
+    const m = new NamedMessage(method);
+    NamedMessage.byName.set(method, m);
+    return m;
+  }
+}
+
 /**
  * A user script. Subclass it, implement lifecycle methods, and attach it to nodes.
  *

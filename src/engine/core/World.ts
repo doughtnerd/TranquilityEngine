@@ -9,7 +9,7 @@
 import { GameObject, type InstantiateOptions } from "../scene/GameObject";
 import { instantiatePrefab } from "../scene/SceneLoader";
 import { Transform } from "../scene/Transform";
-import { Component, GameBehavior, type FrameHook, type MessageHook, type MessageArgs, type PendingWait } from "./Component";
+import { Component, GameBehavior, type FrameHook, type MessageHook, type MessageArgs, type NamedMessage, type PendingWait } from "./Component";
 import { DataStore, type BufferDef, type DataComponentDef } from "./data";
 import { Mat4 } from "./math";
 import { QueryRows, type Rows } from "./rows";
@@ -1024,14 +1024,21 @@ export class World {
    * skipped), its components snapshotted first (a hook may add or remove components), none inside
    * a scene being edited (ADR 0026), and a hook that throws or returns a Promise that rejects is
    * logged with the behaviour's name, as lifecycle hooks are.
+   *
+   * A `NamedMessage` instead of a hook (ADR 0372: an animation notify names its method in data) calls that method,
+   * where a behaviour defines it as a function, with the same rules; `NamedMessage.of` has already refused lifecycle
+   * hook names and the base classes' own members.
    */
-  _sendMessage<H extends MessageHook>(nodes: Iterable<GameObject>, hook: H, ...args: MessageArgs<H>): void {
+  _sendMessage<H extends MessageHook>(nodes: Iterable<GameObject>, hook: H, ...args: MessageArgs<H>): void;
+  _sendMessage(nodes: Iterable<GameObject>, message: NamedMessage, ...args: readonly unknown[]): void;
+  _sendMessage(nodes: Iterable<GameObject>, hook: MessageHook | NamedMessage, ...args: readonly unknown[]): void {
+    const name = typeof hook === "string" ? hook : hook.method;
     const seen = new Set<number>();
     for (const node of nodes) {
       if (seen.has(node.entity) || !node.isValid) continue;
       seen.add(node.entity);
       for (const c of [...this.componentsOf[node.entity]]) {
-        if (c instanceof GameBehavior && c.isActiveAndEnabled && c[hook]) this.invoke(c, hook, args);
+        if (c instanceof GameBehavior && c.isActiveAndEnabled && typeof (c as unknown as Record<string, unknown>)[name] === "function") this.invoke(c, name, args);
       }
     }
   }
@@ -1039,10 +1046,10 @@ export class World {
   // --- internals ----------------------------------------------------------------------------
 
   /** Call one hook on one behaviour: the edit-mode gate, error and async rules every hook shares. */
-  private invoke(b: GameBehavior, hook: keyof GameBehavior, args: readonly unknown[] = []): void {
+  private invoke(b: GameBehavior, hook: string, args: readonly unknown[] = []): void {
     if (this.inEditMode(b._node.entity)) return; // scripts don't run in a scene being edited (ADR 0026)
     try {
-      const result = (b[hook] as (...a: unknown[]) => unknown).apply(b, args as unknown[]);
+      const result = ((b as unknown as Record<string, unknown>)[hook] as (...a: unknown[]) => unknown).apply(b, args as unknown[]);
       if (result instanceof Promise) {
         result.catch((err) => console.error(`[myco] ${b.constructor.name}.${String(hook)} rejected:`, err));
       }
