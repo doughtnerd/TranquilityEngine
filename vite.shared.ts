@@ -373,12 +373,18 @@ export const CAPTURE_CODEC: LazyOnlyRule = {
 };
 
 /**
- * The debug link (ADR 0376): everything in `src/engine/debugLink/` but the topic registry plugins register through
- * (`topics.ts`, a map of `import()` functions with type-only imports), and the plugins' topics (`runtime/**\/debugLink/`).
- * The player loads them by `import()` when `game.json` has `debug`; release exports leave their chunks out.
+ * The debug link (ADR 0376, 0380): everything under `src/engine/debugLink/` (subfolders too: pairing, rendezvous, the
+ * listener transport) but the topic registry plugins register through (`topics.ts`, a map of `import()` functions with
+ * type-only imports); the `webrtc` transport only the link uses (`src/engine/net/transport/webrtc.ts`); the player's
+ * pairing overlay (`src/player/debugOverlay*.ts`); and the plugins' topics (`runtime/**\/debugLink/`). The player loads
+ * them by `import()` when `game.json` has `debug`; release exports leave their chunks out.
  */
 export const DEBUG_LINK: LazyOnlyRule = {
-  matches: (id) => /\/src\/engine\/debugLink\/(?!topics\.ts$)[^/]+\.ts$/.test(id) || /\/src\/plugins\/[^/]+\/runtime\/(?:[^/]+\/)*debugLink\/[^/]+\.ts$/.test(id),
+  matches: (id) =>
+    /\/src\/engine\/debugLink\/(?!topics\.ts$)(?:[^/]+\/)*[^/]+\.ts$/.test(id) ||
+    /\/src\/engine\/net\/transport\/webrtc\.ts$/.test(id) ||
+    /\/src\/player\/debugOverlay[^/]*\.ts$/.test(id) ||
+    /\/src\/plugins\/[^/]+\/runtime\/(?:[^/]+\/)*debugLink\/[^/]+\.ts$/.test(id),
   why: "the debug link loads only in builds with debugging on, by import() (ADR 0376)",
 };
 
