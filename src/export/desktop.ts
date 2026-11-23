@@ -28,7 +28,21 @@ export interface DesktopOptions {
    * overrides `debug.link` (the shell hands it to the page before it loads). A release package has no such flag.
    */
   debug?: boolean;
+  /**
+   * ADR 0380 (pairing plan O2): the sources of the debug link's listener crates, by path under `src-tauri/vendor/`
+   * (`ws-listener/Cargo.toml`, `ws-listener/src/lib.rs`, `debug-link-tauri/…`), read from native/ by node.ts. With `debug`, the
+   * project gets them as path dependencies (`tauri build` compiles them), `lib.rs` manages `DebugLinkListeners` and registers
+   * the four `myco_debuglink_*` commands. A release package, or a debug one given none, has no listener.
+   */
+  debugListener?: ReadonlyMap<string, string>;
 }
+
+/** The crates a debug desktop export vendors, under `src-tauri/vendor/`: their folder in native/, and the Cargo dependency line. */
+export const DEBUG_LISTENER_CRATES = ["ws-listener", "debug-link-tauri"] as const;
+/** The listener crate's dependency line in the generated Cargo.toml (its own path dependency on `../ws-listener` resolves in vendor/). */
+export const DEBUG_LISTENER_DEPENDENCY = 'myco-debug-link-tauri = { path = "vendor/debug-link-tauri" }';
+/** The four commands native/debug-link-tauri defines, for the generated `generate_handler!`. */
+export const DEBUG_LISTENER_COMMANDS = ["myco_debuglink_listen_range", "myco_debuglink_listen", "myco_debuglink_send", "myco_debuglink_close"];
 
 /** ADR 0376: the shell lines that hand `--debug-link <address>` (or `--debug-link=<address>`) to the page as `__mycoDebugLink`. */
 export const DEBUG_LINK_FLAG_RUST = `    // ADR 0376: \`--debug-link <address>\` overrides game.json's debug.link: the page reads it as __mycoDebugLink.
@@ -41,6 +55,23 @@ export const DEBUG_LINK_FLAG_RUST = `    // ADR 0376: \`--debug-link <address>\`
         builder = builder.append_invoke_initialization_script(format!("globalThis.__mycoDebugLink = {literal};"));
     }
 `;
+
+/**
+ * ADR 0380: the shell lines that hand `--debug-code <code>` (or `--debug-code=<code>`) to the page as `__mycoDebugCode`: the
+ * pairing code a tool's connection to this game is expected to present (read by the player's debug link, like `__mycoDebugLink`).
+ */
+export const DEBUG_CODE_FLAG_RUST = `    // ADR 0380: \`--debug-code <code>\`: the page reads it as __mycoDebugCode.
+    let code = args.iter().enumerate().find_map(|(i, a)| {
+        if a == "--debug-code" { args.get(i + 1).cloned() } else { a.strip_prefix("--debug-code=").map(String::from) }
+    });
+    if let Some(code) = code {
+        let literal = serde_json::to_string(&code).expect("a string encodes as JSON");
+        builder = builder.append_invoke_initialization_script(format!("globalThis.__mycoDebugCode = {literal};"));
+    }
+`;
+
+/** The shell line that manages the listeners the debug link's commands open (ADR 0376, 0379). */
+export const DEBUG_LISTENER_MANAGE_RUST = "    builder = builder.manage(debug_link_tauri::DebugLinkListeners::default());\n";
 
 /**
  * gamepad.rs's Cargo dependencies, the same lines as src-tauri/Cargo.toml's: SDL3 built from source
@@ -102,6 +133,7 @@ export function desktopProjectFiles(options: DesktopOptions): Map<string, string
     },
     bundle: { active: true, targets: "all", icon: ICON_FILES },
   };
+  const listener = options.debug === true && options.debugListener !== undefined && options.debugListener.size > 0;
   const files = new Map<string, string>();
   files.set("tauri.conf.json", `${JSON.stringify(config, null, 2)}\n`);
   files.set(
@@ -123,7 +155,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
-${options.debug ? 'serde_json = "1"\n' : ""}${GAMEPAD_DEPENDENCIES}
+${options.debug ? 'serde_json = "1"\n' : ""}${listener ? `${DEBUG_LISTENER_DEPENDENCY}\n` : ""}${GAMEPAD_DEPENDENCIES}
 
 [dev-dependencies]
 serde_json = "1"
@@ -154,10 +186,10 @@ mod gamepad;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-${options.debug ? `    let mut builder = tauri::Builder::default();\n${DEBUG_LINK_FLAG_RUST}    builder` : "    tauri::Builder::default()"}
+${options.debug ? `    let mut builder = tauri::Builder::default();\n${DEBUG_LINK_FLAG_RUST}${DEBUG_CODE_FLAG_RUST}${listener ? DEBUG_LISTENER_MANAGE_RUST : ""}    builder` : "    tauri::Builder::default()"}
         .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
-${GAMEPAD_COMMANDS.map((command) => `            gamepad::${command},`).join("\n")}
+${[...GAMEPAD_COMMANDS.map((command) => `            gamepad::${command},`), ...(listener ? DEBUG_LISTENER_COMMANDS.map((command) => `            debug_link_tauri::commands::${command},`) : [])].join("\n")}
         ])
         .run(tauri::generate_context!())
         .expect("error while running the game");
@@ -165,6 +197,7 @@ ${GAMEPAD_COMMANDS.map((command) => `            gamepad::${command},`).join("\n
 `,
   );
   files.set("src/gamepad.rs", options.gamepadModule);
+  if (listener) for (const [path, text] of options.debugListener!) files.set(`vendor/${path}`, text);
   files.set(
     "capabilities/default.json",
     `${JSON.stringify(

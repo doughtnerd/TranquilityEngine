@@ -11,7 +11,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readProject, ServerError } from "../server/project";
 import { nodePackageSource } from "../server/packages";
-import { DEFAULT_ICON_SVG, ICON_FILES, desktopProjectFiles, desktopReadme, type BuildSettings } from "./desktop";
+import { DEBUG_LISTENER_CRATES, DEFAULT_ICON_SVG, ICON_FILES, desktopProjectFiles, desktopReadme, type BuildSettings } from "./desktop";
 import { PLAYER_FILE_LIST } from "./format";
 import { acquireProjectContext } from "../engine/core/projectContext";
 import { bakeModelFile } from "../engine/scene/models";
@@ -61,6 +61,12 @@ export interface ExportOptions {
    * of the link's code.
    */
   debugLink?: string;
+  /** ADR 0380: `--debug-listen`: the build listens for tools (`debug.listen`); a desktop one gets the native listener crates. Implies debugging on. */
+  debugListen?: boolean;
+  /** ADR 0380: `--debug-lan`: with listening, bind `0.0.0.0`, paired by code (`debug.lan`). Implies debugging on. */
+  debugLan?: boolean;
+  /** ADR 0380: `--debug-port N`: the first port a listening build tries (`debug.port`). Implies debugging on. */
+  debugPort?: number;
   log?: (line: string) => void;
 }
 
@@ -86,7 +92,7 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   if (isOutputInsideProject(project.root, out)) {
     throw new ExportError(`The output folder "${out}" is inside the project, where the next export would copy it in. Use a folder outside it, or under its dist/ folder.`);
   }
-  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture, audioTake: options.audioTake, audioTakeFrames: options.audioTakeFrames, languages: options.languages, pseudo: options.pseudo, ...(options.debugLink !== undefined && { debugLink: options.debugLink }) });
+  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture, audioTake: options.audioTake, audioTakeFrames: options.audioTakeFrames, languages: options.languages, pseudo: options.pseudo, ...(options.debugLink !== undefined && { debugLink: options.debugLink }), ...(options.debugListen && { debugListen: true }), ...(options.debugLan && { debugLan: true }), ...(options.debugPort !== undefined && { debugPort: options.debugPort }) });
   const playerDir = options.playerDir ?? (await ensurePlayer(log));
 
   const folder = nodeFolder(out);
@@ -122,7 +128,10 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
 
   const settings = project.settings as typeof project.settings & { build?: BuildSettings };
   const gamepadModule = await readFile(join(REPO, "src-tauri", "src", "gamepad.rs"), "utf8");
-  const files = desktopProjectFiles({ name: plan.manifest.name, settings, gamepadModule, debug: plan.manifest.debug !== undefined });
+  const debug = plan.manifest.debug !== undefined;
+  // ADR 0380: a debug package carries the listener crates' sources, compiled by its own `tauri build` (a release one carries none).
+  const debugListener = debug ? await readListenerCrates() : undefined;
+  const files = desktopProjectFiles({ name: plan.manifest.name, settings, gamepadModule, debug, ...(debugListener && { debugListener }) });
   const tauriDir = join(out, "src-tauri");
   for (const [path, text] of files) await folder.writeText(`src-tauri/${path}`, text);
   await makeIcons(project.root, settings.build?.icon, folder, tauriDir, log);
@@ -142,6 +151,17 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   }
   await folder.writeText("README.txt", desktopReadme(plan.manifest.name, built ? "src-tauri/target/release/bundle/" : null));
   return { out, web, plan, built };
+}
+
+/** native/ws-listener and native/debug-link-tauri's Cargo.toml and src/*.rs, by path under `vendor/` (their relative path dependency keeps working there). */
+async function readListenerCrates(): Promise<Map<string, string>> {
+  const crates = new Map<string, string>();
+  for (const crate of DEBUG_LISTENER_CRATES) {
+    const root = join(REPO, "native", crate);
+    crates.set(`${crate}/Cargo.toml`, await readFile(join(root, "Cargo.toml"), "utf8"));
+    for (const file of (await readdir(join(root, "src"))).filter((f) => f.endsWith(".rs")).sort()) crates.set(`${crate}/src/${file}`, await readFile(join(root, "src", file), "utf8"));
+  }
+  return crates;
 }
 
 const basename = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? "game";

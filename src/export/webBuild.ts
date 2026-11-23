@@ -62,6 +62,14 @@ export interface BuildOptions {
    * machine when it's `true`) and the build ships the debug link's code; without it the build holds none of it.
    */
   readonly debugLink?: string | true;
+  /**
+   * ADR 0380: `--debug-listen`, `--debug-lan`, `--debug-port`: written as `game.json`'s `debug.listen`, `debug.lan` and
+   * `debug.port`, and each implies debugging on (the default link when `debugLink` is absent). A native build then listens
+   * for tools (on `0.0.0.0` only with `lan`); a web build can't listen, so there the keys are harmless.
+   */
+  readonly debugListen?: boolean;
+  readonly debugLan?: boolean;
+  readonly debugPort?: number;
 }
 
 /** What a web build is made of, before anything is written. */
@@ -206,8 +214,10 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   const plugins: BuiltPlugin[] = pluginPlan.runtime.map((p) => ({ manifest: p.manifest, module: p.source.kind === "project" ? modulePath(p.runtime!) : linked.entries.get(p.runtime!)! }));
   const name = typeof source.settings.name === "string" && source.settings.name ? source.settings.name : source.name;
   let debugLink: string | null = null;
-  if (options.debugLink !== undefined) {
-    debugLink = options.debugLink === true ? DEFAULT_DEBUG_LINK : debugLinkAddress(options.debugLink);
+  const listening = options.debugListen === true || options.debugLan === true || options.debugPort !== undefined;
+  if (options.debugLink !== undefined || listening) {
+    debugLink = options.debugLink === undefined || options.debugLink === true ? DEFAULT_DEBUG_LINK : debugLinkAddress(options.debugLink);
+    if (options.debugPort !== undefined && !(Number.isInteger(options.debugPort) && options.debugPort >= 1 && options.debugPort <= 65526)) throw new ExportError(`The debug port ${options.debugPort} isn't a whole number from 1 to 65526.`);
     if (!debugLink) throw new ExportError(`The debug link address "${options.debugLink}" isn't a WebSocket address (ws://host:port, host:port or a port).`);
   }
   const manifest: GameManifest = {
@@ -222,7 +232,14 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
     ...(options.audioTake === true && options.audioTakeFrames === false && { audioTakeFrames: false as const }),
     ...(localisation.manifest && { localisation: localisation.manifest }),
     ...(linked.assetRefs.length > 0 && { assetRefs: linked.assetRefs }),
-    ...(debugLink && { debug: { link: debugLink } }),
+    ...(debugLink && {
+      debug: {
+        link: debugLink,
+        ...(options.debugListen === true && { listen: true }),
+        ...(options.debugLan === true && { lan: true }),
+        ...(options.debugPort !== undefined && { port: options.debugPort }),
+      },
+    }),
   };
   const generated = new Map([...files, ...localisation.generated, ...[...lineFiles].map(([p, t]) => [copiedPath(p), t] as const)]);
   generated.set(MANIFEST_FILE, `${JSON.stringify(manifest, null, 2)}\n`);
