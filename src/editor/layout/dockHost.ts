@@ -19,6 +19,11 @@ export interface DockHost {
   };
   /** The header menu's "Reset layout" (the host's default layout); without it the menu has none. */
   reset?(): void;
+  /**
+   * ADR 0361: below this width (CSS px) the main window's outermost open left dock folds to its strip while a right dock
+   * is open (`narrowFold.ts`); only how it's drawn, the stored layout keeps it open. Without it nothing folds.
+   */
+  readonly foldBelow?: number;
 }
 
 /** The host a `DockLayout` without a `host` prop draws; none: the editor's. */

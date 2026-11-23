@@ -1,28 +1,44 @@
 /* The Studio's shared components (ADR 0349): player bar, status bar, output-device menu, latency calibration.
  * Theme tokens only (src/editor/ui/editor.css lists them). */
 
-/* Player bar, Layout A */
-.studio-player { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(240px, 2fr) minmax(120px, 1fr); align-items: center; gap: 12px; padding: 6px 12px; background: var(--surface); border-top: 1px solid var(--border); min-height: 52px; container-type: inline-size; }
-.studio-player-now { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* Player bar, Layout A. Its own width decides what shows (ADR 0361): the status line goes first, then the subtitle and
+ * the "Hear as" caption, and on a phone the bar stacks the transport over a row with the now-playing tile and Hear as. */
+.studio-player { background: var(--surface); border-top: 1px solid var(--border); container-type: inline-size; min-width: 0; }
+.studio-player-grid { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(240px, 2fr) minmax(120px, 1fr); grid-template-areas: "now centre right"; align-items: center; gap: 4px 12px; padding: 6px 12px; min-height: 52px; box-sizing: border-box; }
+.studio-player-now { grid-area: now; display: flex; align-items: center; gap: 10px; min-width: 0; }
 .studio-player-art { flex: none; width: 38px; height: 38px; border-radius: 6px; display: grid; place-items: center; background: var(--accent-soft); color: var(--text-strong); font-size: calc(10px * var(--ui-scale)); font-weight: 700; letter-spacing: 0.04em; }
 .studio-player-art.idle { background: var(--button); color: var(--faint); }
 .studio-player-titles { min-width: 0; }
 .studio-player-title { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .studio-player-sub { color: var(--muted); font-size: calc(11px * var(--ui-scale)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.studio-player-centre { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
-.studio-player-transport { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 26px; }
+.studio-player-centre { grid-area: centre; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
+.studio-player-transport { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; min-height: 26px; max-width: 100%; }
 .studio-player-scrub { width: 100%; display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
-.studio-player-right { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
-.studio-player-status { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.studio-player-scrub input[type="range"] { flex: 1; min-width: 0; }
+.studio-player-right { grid-area: right; display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+.studio-player-status { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* Transport buttons */
+.studio-transport-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 32px; height: 30px; padding: 0 8px; box-sizing: border-box; border-radius: 6px; background: var(--button); border: 1px solid var(--border); color: var(--text); }
+.studio-transport-button:hover:not(:disabled) { background: var(--button-hover); }
+.studio-transport-button:disabled { color: var(--faint); }
+.studio-transport-button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--text-strong); }
+.studio-transport-button.primary { min-width: 40px; width: 40px; height: 36px; border-radius: 18px; background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.studio-transport-button.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.1); }
+.studio-transport-button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 /* ADR 0351 §6: Hear as. */
-.studio-hear-as { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.studio-hear-as { display: flex; align-items: center; gap: 6px; white-space: nowrap; min-width: 0; }
 .studio-hear-as-label { color: var(--muted); }
 .studio-hear-as-ab { padding: 0 6px; }
-@container (max-width: 840px) { .studio-player-status { display: none; } }
-@container (max-width: 620px) { .studio-player { grid-template-columns: auto 1fr; } .studio-player-titles, .studio-player-right { display: none; } }
+@container (max-width: 1000px) { .studio-player-status { display: none; } }
+@container (max-width: 840px) { .studio-player-grid { grid-template-columns: minmax(0, 1fr) auto minmax(0, auto); } .studio-player-sub, .studio-hear-as-label { display: none; } }
+@container (max-width: 620px) {
+  .studio-player-grid { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "centre centre" "now right"; padding: 6px 8px; }
+  .studio-player-centre:empty, .studio-player-transport:empty { display: none; }
+  .studio-player-art { width: 30px; height: 30px; }
+}
 
 /* Status bar */
-.studio-status { display: flex; align-items: center; gap: 12px; padding: 2px 12px; min-height: 22px; background: var(--bg); border-top: 1px solid var(--border); color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.studio-status { display: flex; min-width: 0; overflow: hidden; align-items: center; gap: 12px; padding: 2px 12px; min-height: 22px; background: var(--bg); border-top: 1px solid var(--border); color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .studio-status-message { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .studio-status-message.error { color: var(--danger); }
 .studio-status-message.warning { color: var(--warning); }
@@ -40,7 +56,8 @@
 .studio-device.warn .studio-device-offset { color: var(--warning); }
 .studio-device-icon { flex: none; color: var(--muted); }
 .studio-device-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.studio-device-offset { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.studio-device-offset { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.studio-device-chevron { color: var(--muted); }
 .studio-device-menu { position: fixed; z-index: 50; width: 320px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 8px 24px var(--shadow); display: flex; flex-direction: column; gap: 8px; }
 .studio-device-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .studio-device-label { color: var(--muted); }
@@ -66,3 +83,6 @@
 .studio-calibrate-scale.end { left: auto; right: 4px; }
 .studio-calibrate-summary { color: var(--muted); font-variant-numeric: tabular-nums; min-height: 1.4em; }
 @media (prefers-reduced-motion: reduce) { .studio-calibrate-box { transition: none; } }
+
+/* Status bar on a phone: the figures give way to the message (each keeps its tooltip). */
+@media (max-width: 620px) { .studio-status-parts .studio-status-part.muted { display: none; } }

@@ -31,6 +31,9 @@ export interface ScreenDockModel {
   readonly host: DockHost;
 }
 
+/** ADR 0361: below this width a screen's left dock folds while both sides are open. */
+export const FOLD_BELOW = 900;
+
 /** The layout store key of a screen. */
 export const layoutKey = (screen: ScreenId): string => `myco.studio.layout.${screen}`;
 
@@ -45,5 +48,5 @@ export function screenDock(screen: ScreenId, panels: readonly StudioPanel[]): Sc
   if (fixed.length !== 1) throw new Error(`The ${screen} screen needs exactly one fixed panel (has ${fixed.length}).`);
   const catalog = screenCatalog(panels);
   const store = createLayoutStore({ key: layoutKey(screen), catalog: () => catalog });
-  return { screen, panels: new Map(panels.map((p) => [p.id, p])), catalog, store, host: { store, reset: store.reset } };
+  return { screen, panels: new Map(panels.map((p) => [p.id, p])), catalog, store, host: { store, reset: store.reset, foldBelow: FOLD_BELOW } };
 }

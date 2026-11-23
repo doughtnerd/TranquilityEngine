@@ -25,6 +25,7 @@ import { engineRuntime } from "./runtime/engineRuntime";
 import { createStudioAudioHost } from "./runtime/studioAudioHost";
 import { installCalibration } from "./shell/applyCalibration";
 import { installStudioKeys } from "./shell/installKeys";
+import { installLongPress } from "./shell/longPress";
 import { createRouter, windowHash } from "./shell/route";
 import { StudioApp } from "./shell/StudioApp";
 import { provideStudio } from "./shell/studioServices";
@@ -51,6 +52,7 @@ async function main(): Promise<void> {
   const projects = studioProjects({ runtime, openRoute: (request) => router.open(request) });
   setStartActions({ open: projects.open, pickProjectLocation: projects.pickLocation });
   installStudioKeys();
+  installLongPress(window);
   installCalibration(runtime);
 
   render(<StudioApp onCloseProject={projects.close} />, document.getElementById("app")!);
