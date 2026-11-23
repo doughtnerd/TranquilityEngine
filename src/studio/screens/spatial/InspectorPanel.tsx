@@ -36,8 +36,8 @@ export interface AttenuationInfo {
   readonly summary: string | null;
   /** Whose it is, in words. */
   readonly owner: string;
-  /** Edit attenuation… can open (or offer Create preset / Inline). */
-  readonly editable: boolean;
+  /** Why Edit attenuation… can't open (its tooltip), or null when it opens the curves or offers Create preset / Inline. */
+  readonly whyNotEdit: string | null;
   /** A rolloff preset can be applied (there's an attenuation to apply it to). */
   readonly rolloff: boolean;
 }
@@ -201,7 +201,7 @@ function ObjectInspector(props: InspectorProps & { o: SceneObject }) {
           {props.attenuation.summary && <p class="sp-summary">{props.attenuation.summary}</p>}
           <p class="sp-note">{props.attenuation.owner}</p>
           <div class="sp-row-actions">
-            <button type="button" class="sp-small" disabled={!props.attenuation.editable} onClick={() => props.onEditAttenuation(id)}>Edit attenuation…</button>
+            <button type="button" class="sp-small" disabled={props.attenuation.whyNotEdit !== null} title={props.attenuation.whyNotEdit ?? undefined} onClick={() => props.onEditAttenuation(id)}>Edit attenuation…</button>
             {props.attenuation.rolloff && (
               <select class="pl-select" aria-label="Rolloff preset" value="" disabled={ro} onChange={(e) => {
                 const v = (e.currentTarget as HTMLSelectElement).value as AttenuationPreset;

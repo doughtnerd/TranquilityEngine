@@ -31,7 +31,7 @@ import { audioHost, openRoute, toasts } from "../../shell/studioServices";
 import { openMixDocument } from "../mixer/mixerDocument";
 import { setSpatial } from "../playlists/playlistEdits";
 import { baseFramePoints } from "./baseLayer";
-import { attenuationDialog, attenuationFromResult, attenuationOwner, newAttenuation, presetNameFor, PRESET_FOLDER, type AttenuationOwner } from "./attenuationModel";
+import { attenuationDialog, attenuationFromResult, attenuationOwner, newAttenuation, presetNameFor, PRESET_FOLDER, whyNotEditAttenuation, type AttenuationOwner } from "./attenuationModel";
 import { NO_AUDITION, auditionScene, isSilenced, liveUpdate, toggleMute, toggleSolo, type AuditionState } from "./audition";
 import { INITIAL_SLAB, type Slab } from "./elevation";
 import { sameMotion, startFrameLoop } from "./liveMotion";
@@ -742,7 +742,7 @@ export function editAttenuation(id: string, doc: Document = document): void {
   } else if (owner.kind === "none") {
     attenuationChoice.value = { emitter: id, playlist: owner.playlist };
   } else {
-    status.value = { kind: "info", text: owner.kind === "preset" ? `The attenuation preset ${fileName(owner.preset)} isn't in the project.` : "This emitter's sound has no attenuation to edit." };
+    status.value = { kind: "info", text: `Can't edit attenuation: ${whyNotEditAttenuation(owner) ?? "there's none to edit"}.` };
   }
 }
 

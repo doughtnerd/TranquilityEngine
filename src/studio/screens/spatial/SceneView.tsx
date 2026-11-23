@@ -528,7 +528,10 @@ function NodeToolbar(props: { host: SceneHost; o: SceneObject; S: (p: P2) => Px;
           <button type="button" aria-pressed={host.silenced(id) && host.solo !== null ? false : host.silenced(id)} class={host.silenced(id) && host.solo === null ? "on" : ""} title="Mute or unmute it in the audition" onClick={() => host.muteToggle(id)}>Mute</button>
         </>
       ) : null}
-      {o.kind === "emitter" && <button type="button" title="The curves of the playlist it plays" onClick={() => host.editAttenuation(id)}>Edit attenuation…</button>}
+      {o.kind === "emitter" && (() => {
+        const why = host.whyNotEditAttenuation(id);
+        return <button type="button" disabled={why !== null} title={why ?? "The curves of the playlist it plays"} onClick={() => host.editAttenuation(id)}>Edit attenuation…</button>;
+      })()}
       {o.kind === "emitter" && o.obj.kind === "moving" && (
         <button type="button" disabled={ro || o.obj.locked} aria-pressed={host.tools.pathEdit === id} class={host.tools.pathEdit === id ? "on" : ""} title="Drag waypoints, add and remove them" onClick={() => host.setTools({ tool: "select", pathEdit: host.tools.pathEdit === id ? null : id })}>
           Edit path

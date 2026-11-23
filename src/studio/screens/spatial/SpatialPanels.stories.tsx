@@ -80,7 +80,7 @@ const inspector = (selected: string, over: Partial<InspectorProps> = {}): Inspec
   playing: true,
   buses: ["Master", "Music", "SFX", "Ambience"],
   materials: ["none", "cloth", "glass", "wood", "metal", "concrete"],
-  attenuation: { summary: "Min 2.0 m · Max 40.0 m · ∿ Volume", owner: "Preset vehicle.attenuation.json, shared by the playlists that name it.", editable: true, rolloff: true },
+  attenuation: { summary: "Min 2.0 m · Max 40.0 m · ∿ Volume", owner: "Preset vehicle.attenuation.json, shared by the playlists that name it.", whyNotEdit: null, rolloff: true },
   solo: null,
   silenced: () => false,
   sounds: () => [{ path: "audio/ambience/waterfall.playlist.json", kind: "playlist", badge: "QUE" }, { path: "audio/sfx/generator_hum.wav", kind: "sample", badge: "SMP" }],

@@ -3,7 +3,7 @@ import { audioTestSceneToJson, parseAudioTestScene } from "../../../engine/audio
 import type { Attenuation } from "../../../engine/audio/attenuation/types";
 import type { PlaylistAsset } from "../../../engine/audio/playlist/types";
 import type { TakeRequest } from "../../../engine/audio/take/types";
-import { attenuationDialog, attenuationFromResult, attenuationOwner, attenuationSummary, newAttenuation, ownerText, presetNameFor, ROLLOFF_PRESETS } from "./attenuationModel";
+import { attenuationDialog, attenuationFromResult, attenuationOwner, attenuationSummary, newAttenuation, ownerText, presetNameFor, ROLLOFF_PRESETS, whyNotEditAttenuation } from "./attenuationModel";
 import { blankScene, copyScene, gameScene, gameScenePaths, sceneFromTake, takeClock } from "./newScene";
 import { deleteSceneFolder, moveSceneFolder, newSceneFolder, renameSceneFolder, sceneFolders, sceneMoveItem, sceneName, sceneTree, searchScenes, whyNotRenameScene } from "./sceneTree";
 import { whyNotMoveTo } from "../../../editor/ui/moveToModel";
@@ -109,6 +109,18 @@ describe("attenuation", () => {
     expect(attenuationOwner("c.playlist.json", read, presets).kind).toBe("none");
     expect(attenuationOwner("d.playlist.json", read, presets).kind).toBe("flat");
     expect(ownerText(attenuationOwner("x.wav", read, presets))).toMatch(/sample: attenuation lives on playlists/);
+  });
+
+  it("says why Edit attenuation… can't open, the same for the Inspector and the plan's toolbar (UI pass SV12)", () => {
+    const why = (sound: string) => whyNotEditAttenuation(attenuationOwner(sound, read, presets));
+    expect(why("")).toBe("Pick a sound first: attenuation lives on the playlist it plays");
+    expect(why("x.wav")).toBe("x.wav is a sample: attenuation lives on playlists");
+    expect(why("z.playlist.json")).toBe("z.playlist.json isn't in the project");
+    expect(why("d.playlist.json")).toMatch(/plays flat/);
+    expect(why("a.playlist.json")).toBeNull(); // opens the preset's curves
+    expect(why("b.playlist.json")).toBeNull(); // the inline curves
+    expect(why("c.playlist.json")).toBeNull(); // offers Create preset / Inline
+    expect(whyNotEditAttenuation({ kind: "preset", playlist: "e.playlist.json", preset: "audio/attenuation/gone.attenuation.json", attenuation: null })).toBe("The preset gone.attenuation.json isn't in the project");
   });
 
   it("summarises", () => {

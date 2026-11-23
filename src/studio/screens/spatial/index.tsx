@@ -15,7 +15,7 @@ import type { StudioPanel } from "../../shell/studioPanels";
 import { audioHost, keymap, setPlayerSlots, studioRouter } from "../../shell/studioServices";
 import { ensureAudioProjectKind } from "../mixer/mixerDocument";
 import { historyPanel } from "../placeholder";
-import { attenuationSummary, ownedAttenuation, ownerText } from "./attenuationModel";
+import { attenuationSummary, ownedAttenuation, ownerText, whyNotEditAttenuation } from "./attenuationModel";
 import { InspectorPanel } from "./InspectorPanel";
 import { gameScenePaths } from "./newScene";
 import { OutlinePanel } from "./OutlinePanel";
@@ -126,6 +126,10 @@ function sceneHost(): SceneHost | null {
     soloToggle: solo,
     muteToggle: mute,
     editAttenuation: (id) => editAttenuation(id),
+    whyNotEditAttenuation: (id) => {
+      const owner = ownerOf(id);
+      return owner ? whyNotEditAttenuation(owner) : "Only an emitter has attenuation";
+    },
     playAll: playAllFrom,
     listenHere,
   };
@@ -250,7 +254,7 @@ function InspectorListPanel() {
           playing={playing.value}
           buses={busNames.value}
           materials={materials.value.map((m) => m.name)}
-          attenuation={owner ? { summary: att ? attenuationSummary(att) : null, owner: ownerText(owner), editable: owner.kind === "preset" ? !!owner.attenuation : owner.kind === "inline" || owner.kind === "none", rolloff: !!att && !readOnly.value } : null}
+          attenuation={owner ? { summary: att ? attenuationSummary(att) : null, owner: ownerText(owner), whyNotEdit: whyNotEditAttenuation(owner), rolloff: !!att && !readOnly.value } : null}
           solo={audition.value.solo}
           silenced={silenced}
           sounds={soundItems}
