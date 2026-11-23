@@ -37,8 +37,8 @@ const player = (extra: Partial<Record<string, Partial<Chunk>>> = {}): Rollup.Out
       { fileName: "assets/host-b.js", imports: ["assets/shared-d.js", "assets/link-f.js"], moduleIds: [`${ROOT}/engine/debugLink/host.ts`, `${ROOT}/engine/debugLink/session.ts`, `${ROOT}/engine/debugLink/config.ts`] },
       { fileName: "assets/link-f.js", moduleIds: [`${ROOT}/engine/debugLink/records.ts`] },
       // The animation topic and what only it uses (the T52 recorder, the frame record).
-      { fileName: "assets/topic-e.js", imports: ["assets/link-f.js", "assets/recorder-g.js"], moduleIds: [`${ROOT}/plugins/animation/runtime/features/debug/debugLink/topic.ts`] },
-      { fileName: "assets/recorder-g.js", moduleIds: [`${ROOT}/plugins/animation/runtime/features/debug/recorder.ts`, `${ROOT}/plugins/animation/runtime/features/debug/frameRecord.ts`] },
+      { fileName: "assets/topic-e.js", imports: ["assets/link-f.js", "assets/animatorRecorder-g.js"], moduleIds: [`${ROOT}/plugins/animation/runtime/features/debug/debugLink/topic.ts`] },
+      { fileName: "assets/animatorRecorder-g.js", moduleIds: [`${ROOT}/plugins/animation/runtime/features/debug/animatorRecorder.ts`, `${ROOT}/plugins/animation/runtime/features/debug/frameRecord.ts`] },
     ].map((c) => ({ ...c, ...extra[c.fileName] })),
   );
 
@@ -48,14 +48,14 @@ describe("the player's debug link files", () => {
     expect("error" in out).toBe(false);
     if ("error" in out) return;
     expect(out.files).toHaveLength(8);
-    expect(out.debug).toEqual(["assets/host-b.js", "assets/link-f.js", "assets/recorder-g.js", "assets/topic-e.js"]);
+    expect(out.debug).toEqual(["assets/host-b.js", "assets/link-f.js", "assets/animatorRecorder-g.js", "assets/topic-e.js"]);
     // What every build ships holds no debug link module but the registry.
     const shipped = out.files.filter((f) => !out.debug!.includes(f));
     expect(shipped).toEqual(["assets/audioEffects-c.js", "assets/player-a.js", "assets/shared-d.js", "myco.js"]);
   });
 
   it("keeps a chunk the game uses too out of the debug files", () => {
-    const out = list(player({ "assets/audioEffects-c.js": { imports: ["assets/recorder-g.js"] } }));
+    const out = list(player({ "assets/audioEffects-c.js": { imports: ["assets/animatorRecorder-g.js"] } }));
     expect("debug" in out && out.debug).toEqual(["assets/host-b.js", "assets/link-f.js", "assets/topic-e.js"]);
   });
 

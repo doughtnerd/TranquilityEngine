@@ -1,12 +1,12 @@
 // The live debugger's source over the editor's play session (ADR 0373 "In play mode"; T52): the graph Animators of the
-// session's Worlds, their newest frames from a recorder (`runtime/features/debug/recorder.ts`, one Animator at a time:
+// session's Worlds, their newest frames from a recorder (`runtime/features/debug/animatorRecorder.ts`, one Animator at a time:
 // the one the debugger shows), parameter edits through `Animator.set`, and the Hierarchy's live selection. The session
 // is given as functions (`LocalSession`), so a headless World serves as well as the editor's.
 import type { World } from "../../../../engine/core/World";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import type { Animator } from "../../runtime/components/Animator";
 import type { AnimatorDebugFrame, DebugParamValue } from "../../runtime/features/debug/frame";
-import { AnimatorRecorder } from "../../runtime/features/debug/recorder";
+import { AnimatorRecorder } from "../../runtime/features/debug/animatorRecorder";
 import { graphAnimators, graphPath, paramValue } from "../../runtime/features/debug/targets";
 import { graphDebugReport, graphInstanceOf, writtenParameters } from "../../runtime/features/graph/runtime";
 import type { AnimationDebugSource, DebugRecording, DebugTarget } from "./source";

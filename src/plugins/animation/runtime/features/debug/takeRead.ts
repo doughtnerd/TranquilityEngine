@@ -5,7 +5,7 @@
 import type { TakeExtensionRecord } from "../../../../../engine/audio/take/extensions";
 import type { AnimatorDebugFrame } from "./frame";
 import { ANIM_FRAME, ANIM_KEY, ANIM_RAW, ANIM_SELECT, ANIM_TARGET, decodeFrameRecord } from "./frameRecord";
-import type { RawFrame } from "./recorder";
+import type { RawFrame } from "./animatorRecorder";
 import { RawDecoder, decodeKey, decodeSelect, decodeTarget, type TakeTargetInfo } from "./takeRecords";
 
 /** One recorded frame with what re-evaluating it takes. */

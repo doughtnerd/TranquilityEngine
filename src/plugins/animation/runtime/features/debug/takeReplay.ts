@@ -13,7 +13,7 @@ import type { AnimationWorldCore } from "../../core/AnimationWorldCore";
 import { MATRIX_FLOATS } from "../../wasm/wire/core";
 import { graphInstanceOf } from "../graph/runtime";
 import { animatorRuntime, type AnimatorRuntime } from "../instances";
-import { replayRows } from "./recorder";
+import { replayRows } from "./animatorRecorder";
 import type { CurrentGraph } from "./takeCompat";
 import { graphHash } from "./takeRecords";
 import type { AnimationTakeTarget } from "./takeRead";

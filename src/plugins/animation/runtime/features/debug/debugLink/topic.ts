@@ -14,7 +14,7 @@ import type { World } from "../../../../../../engine/core/World";
 import type { DebugSubscription, DebugTopic, DebugTopicHost } from "../../../../../../engine/debugLink/topics";
 import { graphInstanceOf } from "../../graph/runtime";
 import { ANIM_FRAME, encodeFrameRecord } from "../frameRecord";
-import { AnimatorRecorder } from "../recorder";
+import { AnimatorRecorder } from "../animatorRecorder";
 import { graphAnimators, graphPath, paramValue, wireParamValue } from "../targets";
 
 /** Samples per second each subscription sends at most (every frame since the last one goes in each). */

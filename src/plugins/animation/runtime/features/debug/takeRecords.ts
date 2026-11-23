@@ -17,7 +17,7 @@ import type { CompiledAnimGraph } from "../../../../../engine/animation/graphCom
 import { INPUT_STRIDE } from "../../wasm/wire/core";
 import { BLACKBOARD_STRIDE } from "../../wasm/wire/graph";
 import { RIG_INPUT_STRIDE } from "../../wasm/wire/rig";
-import type { RawFrame } from "./recorder";
+import type { RawFrame } from "./animatorRecorder";
 
 /** A string's cap, UTF-8 bytes. */
 export const TAKE_TEXT_MAX_BYTES = 1024;

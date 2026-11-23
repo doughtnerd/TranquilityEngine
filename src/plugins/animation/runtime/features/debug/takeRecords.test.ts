@@ -5,7 +5,7 @@ import type { CompiledAnimGraph } from "../../../../../engine/animation/graphCom
 import { INPUT_STRIDE } from "../../wasm/wire/core";
 import { BLACKBOARD_STRIDE } from "../../wasm/wire/graph";
 import { RIG_INPUT_STRIDE } from "../../wasm/wire/rig";
-import type { RawFrame } from "./recorder";
+import type { RawFrame } from "./animatorRecorder";
 import { RawDecoder, RawEncoder, TAKE_MAX_BEFORE, TAKE_MAX_COMMAND_BYTES, decodeKey, decodeSelect, decodeTarget, encodeKey, encodeSelect, encodeTarget, graphHash } from "./takeRecords";
 
 const tables: CompiledAnimGraph = {

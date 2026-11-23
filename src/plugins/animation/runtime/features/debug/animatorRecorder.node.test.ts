@@ -10,7 +10,7 @@ import { Animator, Assets, Engine, GameObject, Skeleton } from "../../../../../m
 import type { World } from "../../../../../engine/core/World";
 import { skinningMatrices } from "../../skeletonInstances";
 import { BLOCK_CONDITION, BLOCK_READY } from "../../wasm/wire/debug";
-import { AnimatorRecorder } from "./recorder";
+import { AnimatorRecorder } from "./animatorRecorder";
 
 const fixtureUrl = (name: string) => new URL(`../../wasm/fixtures/${name}`, import.meta.url);
 const dt = 1 / 30;

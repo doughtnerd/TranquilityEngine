@@ -13,7 +13,7 @@ import { Animator, Assets, Engine, GameObject, Skeleton } from "../../../../../m
 import type { World } from "../../../../../engine/core/World";
 import { skinningMatrices } from "../../skeletonInstances";
 import { ANIM_FRAME, ANIM_KEY, ANIM_RAW, ANIM_SELECT, ANIM_TARGET } from "./frameRecord";
-import { AnimatorRecorder } from "./recorder";
+import { AnimatorRecorder } from "./animatorRecorder";
 import { animationTakeSource } from "./takeRecord";
 import { readAnimationTake } from "./takeRead";
 import { TakeReplayer } from "./takeReplay";

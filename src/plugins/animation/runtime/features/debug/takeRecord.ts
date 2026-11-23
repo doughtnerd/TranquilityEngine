@@ -11,7 +11,7 @@ import type { Animator } from "../../components/Animator";
 import { graphInstanceOf } from "../graph/runtime";
 import { animatorRuntime } from "../instances";
 import { ANIM_FRAME, ANIM_KEY, ANIM_RAW, ANIM_SELECT, ANIM_TARGET, encodeFrameRecord } from "./frameRecord";
-import { AnimatorRecorder, type RecordedEntry } from "./recorder";
+import { AnimatorRecorder, type RecordedEntry } from "./animatorRecorder";
 import { graphAnimators, graphPath } from "./targets";
 import { RawEncoder, TAKE_MAX_TARGETS, encodeKey, encodeSelect, encodeTarget, graphHash } from "./takeRecords";
 
