@@ -3,6 +3,7 @@
 import type { ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
 import { usePopover } from "../../../editor/ui/popover";
+import { Icon } from "../../components/Icon";
 
 export interface ToolPopoverProps {
   readonly label: ComponentChildren;
@@ -22,8 +23,9 @@ export function ToolPopover(props: ToolPopoverProps) {
   usePopover(pop, open, { anchor: button.current, inside: [button], onDismiss: () => setOpen(false) });
   return (
     <>
-      <button ref={button} class={`smp-tool${props.pressed ? " on" : ""}`} title={props.title} aria-label={props.title} aria-expanded={open} aria-haspopup="dialog" disabled={props.disabled} onClick={() => setOpen(!open)}>
-        {props.label}
+      <button ref={button} class={`smp-tool smp-tool-icon${props.pressed ? " on" : ""}`} title={props.title} aria-label={props.title} aria-expanded={open} aria-haspopup="dialog" disabled={props.disabled} onClick={() => setOpen(!open)}>
+        <span class="smp-ellipsis">{props.label}</span>
+        <Icon name="chevronDown" size={12} />
       </button>
       {open && (
         <div ref={pop} class="smp-popover" role="dialog" aria-label={props.heading}>

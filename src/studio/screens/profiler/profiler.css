@@ -1,6 +1,8 @@
 /* The Studio's Profiler screen (ADR 0348). Theme tokens only (src/editor/ui/editor.css lists them). */
 
-.pf-panel-body { padding: 0; }
+.pf-panel-body { padding: 0; container-type: inline-size; }
+.pf-scroll { width: 100%; overflow-x: auto; }
+.pf-tool { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .pf-note { color: var(--muted); margin: 8px; font-size: calc(12px * var(--ui-scale)); }
 .pf-error { color: var(--danger); margin: 8px; }
 .pf-hint { color: var(--faint); font-weight: normal; margin-left: 6px; }
@@ -19,14 +21,15 @@
 .pf-captures { display: flex; flex-direction: column; min-height: 100%; }
 .pf-captures-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; border-bottom: 1px solid var(--border); }
 .pf-search { flex: 1 1 120px; min-width: 0; }
-.pf-file-icon { color: var(--muted); width: 14px; display: inline-block; text-align: center; }
+.pf-file-icon { flex: none; color: var(--muted); }
 
 /* Toolbar */
 .pf-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.pf-toggle { background: var(--button); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 2px 8px; }
+.pf-toggle { display: inline-flex; align-items: center; gap: 4px; background: var(--button); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 2px 8px; }
 .pf-toggle:hover { background: var(--button-hover); }
 .pf-toggle.on { background: var(--warning-soft); border-color: var(--warning); color: var(--text-strong); }
-.pf-replay-of { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+:is(.pf-toggle, .pf-tool, .pf-plugin-reset, button.pf-step-name):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.pf-replay-of { display: inline-flex; flex-wrap: wrap; min-width: 0; align-items: center; gap: 6px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .pf-replay-of strong { color: var(--text); font-weight: 600; }
 .pf-counts { margin-left: auto; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 
@@ -72,7 +75,7 @@
 
 /* Ruler */
 .pf-ruler-row { position: sticky; top: 0; z-index: 3; }
-.pf-ruler { height: 24px; background: var(--panel); }
+.pf-ruler { height: 24px; background: var(--panel); touch-action: none; }
 .pf-clock { font-variant-numeric: tabular-nums; color: var(--accent); }
 .pf-tick { position: absolute; bottom: 2px; transform: translateX(-50%); color: var(--faint); font-size: calc(10px * var(--ui-scale)); pointer-events: none; font-variant-numeric: tabular-nums; }
 .pf-tick:first-child { transform: none; }
@@ -130,11 +133,24 @@ button.pf-step-name:hover { text-decoration: underline; }
 .pf-message[data-kind="warning"] .pf-msg-kind { color: var(--warning); }
 .pf-message[data-kind="error"] .pf-msg-kind { color: var(--danger); }
 
-/* Record */
-.pf-record { display: inline-flex; align-items: center; gap: 6px; padding: 3px 12px; border-radius: 14px; background: var(--button); border: 1px solid var(--border); color: var(--text); }
-.pf-record:hover:not(:disabled) { background: var(--button-hover); }
-.pf-record:disabled { color: var(--faint); }
-.pf-record-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); }
-.pf-record:disabled .pf-record-dot { background: var(--faint); }
-.pf-record.on { background: var(--danger-soft); border-color: var(--danger); }
-.pf-record.on .pf-record-dot { border-radius: 2px; }
+/* Record: the player bar's transport button, its dot in the danger colour while it can record */
+.pf-record { display: contents; }
+.pf-record .studio-transport-button:not(:disabled) .studio-glyph { color: var(--danger); }
+.pf-record.on .studio-transport-button { background: var(--danger-soft); border-color: var(--danger); }
+
+/* Narrow (a phone's single panel, a side dock): the track names take less room, the effects legend goes (each line
+   keeps its colour and the track's value names them) and messages tighten (ADR 0361). */
+@container (max-width: 480px) {
+  .pf-timeline { --pf-head: 96px; }
+  .pf-fx-legend { display: none; }
+  .pf-message { grid-template-columns: 48px 56px minmax(0, 1fr); gap: 6px; }
+  .pf-step { grid-template-columns: 52px minmax(0, 1fr); }
+}
+
+/* Touch (ADR 0361): voice blocks and ruler marks keep their drawn size (the Studio's 36px button rule would stretch
+   them); a mark's hit area reaches past it instead. */
+@media (pointer: coarse) {
+  .studio :is(.pf-voice, .pf-mark) { min-height: 0; min-width: 0; }
+  .pf-mark::before { content: ""; position: absolute; inset: -8px -6px; }
+  .pf-plugin-reset { padding: 0 10px; }
+}

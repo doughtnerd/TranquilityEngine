@@ -8,6 +8,7 @@ import { HistoryPopover } from "../../../editor/ui/HistoryPopover";
 import { ContextMenu, SEPARATOR, type MenuEntry } from "../../../editor/ui/ContextMenu";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { Fader } from "../../components/Fader";
+import { Icon } from "../../components/Icon";
 import { busOf, kindOf, masterOf, reroute, routingRows, whyNotReroute } from "./busTree";
 import { compareText } from "./liveMix";
 import { editedSnapshot, labelOn, levelGhosts, levelLabel, setLevel, setMute, shownLevel } from "./mixEdits";
@@ -70,8 +71,8 @@ function SnapshotChip(props: { session: MixerSession }) {
   const on = s ? startHolds(s.start, p.parameters, session.testValues.value) : true;
   return (
     <span class={`mx-chip${s && editedSnapshot(p, name) ? " editing" : ""}`} title={s ? `Editing ${s.name}: ${triggerText(s.start)}` : "Editing the base mix"}>
-      <span class={`mx-dot${on ? " on" : ""}`} aria-label={on ? "On with the test values" : "Off with the test values"} />
-      {s ? s.name : "Base mix"}
+      <span class={`mx-dot${on ? " on" : ""}`} role="img" aria-label={on ? "On with the test values" : "Off with the test values"} />
+      <span class="mx-chip-name">{s ? s.name : "Base mix"}</span>
       {s && (
         <button class="mx-chip-button" onClick={() => openTriggerDialog(session, s.name)} aria-label={`Edit the trigger of ${s.name}`}>
           Trigger…
@@ -93,7 +94,7 @@ function Toolbar(props: { session: MixerSession }) {
     <div class="mx-toolbar" role="toolbar" aria-label="Mixer">
       <HistoryPopover none="Click into the mix to see its edit history" />
       <SnapshotChip session={session} />
-      <span class={`mx-status${running ? " live" : ""}`} title={running ? "Edits play in the Studio's audio right away and are kept" : "Audition a playlist or replay a take to hear changes"}>
+      <span class={`mx-status${running ? " live" : ""}`} role="status" title={running ? "Edits play in the Studio's audio right away and are kept" : "Audition a playlist or replay a take to hear changes"}>
         {running ? "Live" : "Not playing"}
       </span>
       <span class={`mx-chip${beds.lost.length > 0 ? " warn" : ""}`} title={`Ambisonic beds: Master plus the ${Math.max(0, beds.maxBeds - 1)} highest bed priorities (Max beds is a project setting)`}>
@@ -118,7 +119,7 @@ function Toolbar(props: { session: MixerSession }) {
         Collapse all
       </button>
       <button class="mx-tool primary" disabled={session.readOnly} onClick={() => session.newBus()} title={`New bus inside ${session.selected.value}`}>
-        + New bus
+        <Icon name="plus" /> New bus
       </button>
     </div>
   );
@@ -140,8 +141,9 @@ function useRerouteDrag(session: MixerSession) {
     const up = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
       setDrag(null);
-      if (!state.started) return;
+      if (!state.started || ev.type === "pointercancel") return;
       const over = target(ev);
       if (!over || over === bus) return;
       const result = reroute(session.project.peek(), bus, over);
@@ -150,6 +152,7 @@ function useRerouteDrag(session: MixerSession) {
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
   };
   return { drag, start };
 }
@@ -206,9 +209,17 @@ function ListView(props: { session: MixerSession }) {
     renaming === name ? (
       <RenameField value={name} label={`Rename ${name}`} onDone={(v) => doneRename(name, v)} />
     ) : (
-      <span class={`mx-name${draggable ? " draggable" : ""}`} onPointerDown={draggable ? (e) => start(e, name) : undefined} onDblClick={() => name !== masterOf(p) && !session.readOnly && setRenaming(name)} title={draggable ? "Drag onto another bus to re-route" : undefined}>
-        {name}
-      </span>
+      <>
+        {/* On a touch screen the name scrolls the list; the grip beside it re-routes (ADR 0361). */}
+        {draggable && (
+          <span class="mx-grip" aria-hidden="true" onPointerDown={(e) => start(e, name)} title="Drag onto another bus to re-route">
+            <Icon name="grip" size={14} />
+          </span>
+        )}
+        <span class={`mx-name${draggable ? " draggable" : ""}`} onPointerDown={draggable ? (e) => e.pointerType !== "touch" && start(e, name) : undefined} onDblClick={() => name !== masterOf(p) && !session.readOnly && setRenaming(name)} title={draggable ? `${name}: drag onto another bus to re-route` : name}>
+          {name}
+        </span>
+      </>
     );
   const rowProps = (name: string) => ({
     class: `mx-row${selected === name ? " selected" : ""}`,
@@ -225,7 +236,7 @@ function ListView(props: { session: MixerSession }) {
   return (
     <div class="mx-list">
       <div class="mx-head" aria-hidden="true">
-        <span>Routing</span><span>Level</span><span>dB</span><span>Voices</span><span>Bed</span><span>M S</span>
+        <span>Routing</span><span>Level</span><span class="mx-col-db">dB</span><span class="mx-voices">Voices</span><span class="mx-bed">Bed</span><span>M S</span>
       </div>
       <div role="listbox" aria-label="Buses">
         {rows.map((r) => {
@@ -239,7 +250,7 @@ function ListView(props: { session: MixerSession }) {
               <span class="mx-routing" style={{ paddingLeft: `${r.depth * 14}px` }}>
                 {r.hasChildren ? (
                   <button class="mx-caret" aria-label={session.collapsed.value.has(r.name) ? `Expand ${r.name}` : `Collapse ${r.name}`} aria-expanded={!session.collapsed.value.has(r.name)} onClick={(e) => { e.stopPropagation(); const s = new Set(session.collapsed.value); if (s.has(r.name)) s.delete(r.name); else s.add(r.name); session.collapsed.value = s; }}>
-                    {session.collapsed.value.has(r.name) ? "▸" : "▾"}
+                    <Icon name={session.collapsed.value.has(r.name) ? "chevronRight" : "chevronDown"} size={14} />
                   </button>
                 ) : <span class="mx-caret-space" />}
                 <span class="mx-stripe" />
@@ -263,7 +274,7 @@ function ListView(props: { session: MixerSession }) {
               <span class="mx-routing">{nameCell(r.name, false)}<span class="mx-faint"> → {r.output}</span></span>
               <LevelFader session={session} name={r.name} />
               <DbField value={shownLevel(p, r.name, session.editing.value)} label={`${r.name} level in dB`} disabled={session.readOnly} onCommit={(db) => session.commit(setLevel(session.project.peek(), r.name, db, session.editing.peek()), levelLabel(session.project.peek(), r.name, session.editing.peek()))} />
-              <span /><span />
+              <span class="mx-voices" /><span class="mx-bed" />
               <MuteSolo session={session} name={r.name} solo={false} />
             </div>
           ))}
@@ -271,8 +282,8 @@ function ListView(props: { session: MixerSession }) {
       )}
       <h3 class="mx-section">
         VCAs
-        <button class="mx-tool" disabled={session.readOnly} onClick={() => session.newVca()}>+ VCA</button>
-        <button class="mx-tool" disabled={session.readOnly} onClick={() => session.newReturn()}>+ Return</button>
+        <button class="mx-tool" disabled={session.readOnly} onClick={() => session.newVca()}><Icon name="plus" /> VCA</button>
+        <button class="mx-tool" disabled={session.readOnly} onClick={() => session.newReturn()}><Icon name="plus" /> Return</button>
       </h3>
       <div role="listbox" aria-label="VCAs">
         {p.vcas.map((v) => (
@@ -323,7 +334,7 @@ function LiveBoard(props: { session: MixerSession }) {
   return (
     <section class="mx-board" aria-label="Live board">
       <button class="mx-board-head" aria-expanded={open} onClick={() => (session.boardOpen.value = !open)}>
-        {open ? "▾" : "▸"} Live board <span class="mx-faint">{pins.length}/8 pinned</span>
+        <Icon name={open ? "chevronDown" : "chevronRight"} size={14} /> Live board <span class="mx-faint">{pins.length}/8 pinned</span>
       </button>
       {open && (pins.length === 0 ? <p class="mx-note">Pin buses here from a row's menu (right-click) to keep them in reach while you listen.</p> : <div class="mx-board-strips">{pins.map((n) => <Strip key={n} session={session} name={n} compact />)}</div>)}
     </section>

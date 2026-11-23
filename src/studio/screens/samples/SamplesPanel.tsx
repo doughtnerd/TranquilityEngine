@@ -20,6 +20,7 @@ import { Panel } from "../../../editor/ui/panel/Panel";
 import { renameRow, TreeView, type TreeRow } from "../../../editor/ui/TreeView";
 import { confirmInEditor } from "../../../editor/ui/ConfirmDialog";
 import { parseDerivedSample } from "../../../engine/audio/sample/format";
+import { Icon } from "../../components/Icon";
 import { toasts } from "../../shell/studioServices";
 import { allSamples, cleanFolderName, fileChip, folderOf, libraryTree, metaLine, moveUpPlan, nameOf, searchSamples, usesOf, type LibraryFolder } from "./sampleLibrary";
 import { lengthOf, peaksOf } from "./sampleSession";
@@ -168,12 +169,14 @@ export function SamplesPanel() {
       if (target !== null && (target === path || target.startsWith(`${path}/`) || folderOf(path) === target)) target = null;
       setDropOn(target);
     };
-    const onUp = () => {
+    const onUp = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       setDragging(null);
       setDropOn(null);
-      if (started && target !== null) {
+      // A touch that turned into a scroll is cancelled and moves nothing (the row's menu has Move to… for touch).
+      if (ev.type === "pointerup" && started && target !== null) {
         const to = target ? `${target}/${nameOf(path)}` : nameOf(path);
         void moveSamples([[path, to]]).then((ok) => {
           if (ok) {
@@ -185,6 +188,7 @@ export function SamplesPanel() {
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   };
 
   const sampleRow = (path: string, withPath = false): TreeRow => {
@@ -272,25 +276,30 @@ export function SamplesPanel() {
       toolbar={
         <div class="smp-library-bar">
           <input type="search" placeholder={`Search ${count} sample${count === 1 ? "" : "s"}`} aria-label="Search samples" value={query} onInput={(e) => setQuery((e.currentTarget as HTMLInputElement).value)} />
-          <button class="smp-tool" title="New folder (inside the selected folder)" aria-label="New folder" disabled={readOnly} onClick={() => void addFolder(folderSel ?? "")}>+▭</button>
-          <button class="smp-tool" title={readOnly ? "Open a project folder to import" : "Import samples… (files or a folder)"} disabled={readOnly} onClick={() => (dialog.value = { kind: "import" })}>Import…</button>
+          <button class="smp-tool smp-icon-button" title="New folder (inside the selected folder)" aria-label="New folder" disabled={readOnly} onClick={() => void addFolder(folderSel ?? "")}>
+            <Icon name="folderPlus" />
+          </button>
+          <button class="smp-tool smp-tool-icon" title={readOnly ? "Open a project folder to import" : "Import samples… (files or a folder)"} aria-label="Import…" disabled={readOnly} onClick={() => (dialog.value = { kind: "import" })}>
+            <Icon name="import" />
+            <span class="smp-hide-narrow">Import…</span>
+          </button>
         </div>
       }
     >
       {count === 0 && !found ? (
         <EmptyState
           title="No samples yet"
-          icon="∿"
+          icon={<Icon name="samples" size={28} />}
           body={<p>Import WAV, OGG, MP3 or FLAC files, or a folder of them. Their cue points, loops, tempo and root note come along.</p>}
           action={{ label: "Import samples…", disabled: readOnly, title: readOnly ? "Open a project folder to import" : undefined, run: () => (dialog.value = { kind: "import" }) }}
         />
       ) : found && found.length === 0 ? (
-        <p class="smp-muted smp-pad">No sample's name holds “{query.trim()}”.</p>
+        <p class="smp-muted smp-pad" role="status">No sample's name holds “{query.trim()}”.</p>
       ) : (
         <>
           {dragging && (
             <div class={`smp-toplevel${dropOn === "" ? " drop" : ""}`} data-drop-folder="">
-              ⤒ Top level
+              <Icon name="chevronUp" /> Top level
             </div>
           )}
           <TreeView tree={TREE} label="Samples" rows={rows} />

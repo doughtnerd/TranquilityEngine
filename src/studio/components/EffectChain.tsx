@@ -1,5 +1,5 @@
 // An effect chain (ADR 0349 `EffectChain`, ADR 0345): the cards of one owner's effects (a sample, a clip, a playlist
-// or track, a bus or return), top to bottom in the order they run, and "+ Add effect" listing the catalogue's types for
+// or track, a bus or return), top to bottom in the order they run, and Add effect listing the catalogue's types for
 // the level, alphabetically. A new effect opens expanded. Every change is an edit from `effectChainModel.ts` handed to
 // `onEdit(result, label, drag)`; the owner applies it as one undo step (`applyEdit`; a drag coalesces until `drag` is
 // false) and removes a removed effect's automation, which it holds.
@@ -11,6 +11,7 @@ import { SEPARATOR, type MenuEntry } from "../../editor/ui/contextMenuModel";
 import type { AudioPluginDebug } from "../../plugins/audio/runtime/debugTypes";
 import { addEffect, effectMenuGroups, moveEffect, nextEffectId, removeEffect, setEffectKey, setEffectOn, setEffectParam, type EditResult, type EffectMenuItem } from "./effectChainModel";
 import { EffectCard } from "./EffectCard";
+import { Icon } from "./Icon";
 import { resetPluginEffect, usePluginHealth } from "./EffectChainHealth";
 import "./audioParts.css";
 
@@ -85,7 +86,7 @@ export function EffectChain(props: EffectChainProps) {
           title={full ? `At most ${props.limit} effects here` : "Add an effect"}
           onClick={() => setMenu(!menu)}
         >
-          + Add effect
+          <Icon name="plus" size={14} /> Add effect
         </button>
       </header>
       {props.note && <p class="studio-chain-note">{props.note}</p>}

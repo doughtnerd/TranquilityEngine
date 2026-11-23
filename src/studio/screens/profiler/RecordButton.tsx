@@ -1,6 +1,9 @@
 // The Profiler's Record button in the player bar (ADR 0348 "Profiling a take as it plays"; the prototype's togRec):
 // it records the Studio's own runtime while it plays something (an audition, a take's replay), and Stop saves the
-// capture into the project's captures folder. Disabled, with why, while nothing plays. A view over props.
+// capture into the project's captures folder. Disabled, with why, while nothing plays. A view over props, drawn as the
+// player bar's `TransportButton` (ADR 0361).
+import { TransportButton } from "../../components/PlayerBar";
+
 export interface RecordButtonProps {
   readonly recording: boolean;
   /** Saving after Stop. */
@@ -14,10 +17,9 @@ export function RecordButton(props: RecordButtonProps) {
   const disabled = props.busy || (!props.recording && props.blocked !== null);
   const title = props.recording ? "Stop and save the capture into the project's captures folder" : (props.blocked ?? "Record a capture of the Studio's runtime");
   return (
-    <button type="button" class={`pf-record${props.recording ? " on" : ""}`} aria-pressed={props.recording} disabled={disabled} title={title} onClick={() => props.onToggle()}>
-      <span class="pf-record-dot" aria-hidden="true" />
-      {props.recording ? "Stop" : props.busy ? "Saving…" : "Record"}
-    </button>
+    <span class={`pf-record${props.recording ? " on" : ""}`}>
+      <TransportButton icon={props.recording ? "stop" : "record"} label={props.recording ? "Stop" : props.busy ? "Saving…" : "Record"} text pressed={props.recording} disabled={disabled} title={title} onClick={() => props.onToggle()} />
+    </span>
   );
 }
 

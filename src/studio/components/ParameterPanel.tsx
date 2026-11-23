@@ -4,6 +4,7 @@
 import type { ParameterDef } from "../../engine/audio/parameters";
 import type { ValueReport } from "../../editor/ui/valueControls";
 import { parameterRows } from "./parameterPanelModel";
+import { Icon } from "./Icon";
 import { ParameterRow } from "./ParameterRow";
 import "./audioParts.css";
 
@@ -26,8 +27,8 @@ export function ParameterPanel(props: ParameterPanelProps) {
     <div class="studio-params" role="group" aria-label="Game parameters (test values)">
       {rows.map((row) => {
         const reset = (
-          <button type="button" class="studio-icon" aria-label={`Reset ${row.name}`} title="Back to the default" disabled={row.isDefault} onClick={() => props.onValue(row.name, null, false)}>
-            ↺
+          <button type="button" class="studio-icon-button" aria-label={`Reset ${row.name}`} title={`Reset ${row.name} to its default`} disabled={row.isDefault} onClick={() => props.onValue(row.name, null, false)}>
+            <Icon name="undo" size={14} />
           </button>
         );
         if (row.kind === "labels") {

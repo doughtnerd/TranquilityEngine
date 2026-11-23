@@ -2,6 +2,7 @@
 // game session in v1): the open take on every screen, with play/pause, a scrub over the take and its time, a link to the
 // Take screen and a close. A view over props; the shell wires it to the replay store (`shell/ReplaySlot.tsx`).
 import { formatClock } from "./replayControlsModel";
+import { Icon } from "./Icon";
 import "./replayControls.css";
 
 export interface ReplayControlsProps {
@@ -22,7 +23,7 @@ export function ReplayControls(props: ReplayControlsProps) {
   return (
     <div class="studio-replay" role="group" aria-label={`Take replay: ${props.title}`}>
       <button type="button" class="studio-replay-play" aria-label={props.playing ? "Pause the take" : "Replay the take"} aria-pressed={props.playing} title={props.playing ? "Pause the take" : "Replay the take: its requests drive your current audio"} onClick={props.onToggle}>
-        {props.playing ? "❚❚" : "▶"}
+        <Icon name={props.playing ? "pause" : "play"} size={12} />
       </button>
       {props.onShow ? (
         <button type="button" class="studio-replay-title" title="Show this take on the Take screen" onClick={props.onShow}>
@@ -44,7 +45,7 @@ export function ReplayControls(props: ReplayControlsProps) {
       />
       <span class="studio-replay-time">{formatClock(time)}</span>
       <button type="button" class="studio-replay-close" aria-label="Close the take" title="Close the take (its sounds stop)" onClick={props.onClose}>
-        ×
+        <Icon name="close" size={14} />
       </button>
     </div>
   );

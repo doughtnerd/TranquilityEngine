@@ -49,7 +49,7 @@ export const BusChain: StoryObj = {
   render: () => <Demo level="bus" start={busChain()} limit={8} />,
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await userEvent.click(c.getByRole("button", { name: "+ Add effect" }));
+    await userEvent.click(c.getByRole("button", { name: "Add effect" }));
     const menu = within(document.body).getByRole("menu", { name: "Add effect" });
     // The built-ins (before any plugin group) are alphabetical.
     const children = [...menu.querySelectorAll('[role="menuitem"], [role="separator"]')];
@@ -98,7 +98,7 @@ export const PluginGroups: StoryObj = {
   ),
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await userEvent.click(c.getByRole("button", { name: "+ Add effect" }));
+    await userEvent.click(c.getByRole("button", { name: "Add effect" }));
     const menu = within(document.body).getByRole("menu", { name: "Add effect" });
     const heading = within(menu).getByRole("menuitem", { name: "Tremolo" });
     await expect(heading).toBeDisabled();

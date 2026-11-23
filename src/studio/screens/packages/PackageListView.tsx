@@ -5,6 +5,7 @@ import { useState } from "preact/hooks";
 import { ContextMenu, SEPARATOR, type MenuEntry } from "../../../editor/ui/ContextMenu";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import type { ImportPlatform } from "../../../engine/scene/importSettings";
+import { Icon } from "../../components/Icon";
 import type { PackageListRow } from "./packagesModel";
 
 /** The drag type a sound row carries (its project path). */
@@ -34,10 +35,13 @@ export function PackageListView(props: PackageListViewProps) {
   return (
     <div class="pk-list">
       <div class="pk-toolbar">
-        <button disabled={props.readOnly} onClick={props.onAdd}>New package</button>
+        <button class="pk-icon-text" disabled={props.readOnly} onClick={props.onAdd}>
+          <Icon name="plus" />
+          New package
+        </button>
       </div>
       {props.rows.length === 0 ? (
-        <EmptyState compact title="No packages" body="Every sound ships loose and loads when played. A package groups sounds a script or a scene loads and unloads together." />
+        <EmptyState compact title="No packages" icon={<Icon name="packages" size={28} />} body="Every sound ships loose and loads when played. A package groups sounds a script or a scene loads and unloads together." />
       ) : (
         <ul class="pk-rows" role="listbox" aria-label="Packages">
           {props.rows.map((r) => (
@@ -50,8 +54,18 @@ export function PackageListView(props: PackageListViewProps) {
               onClick={() => props.onSelect(r.name)}
               onDblClick={() => !props.readOnly && setRenaming(r.name)}
               onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return; // keys typed in the rename field or on the menu button
                 if (e.key === "F2" && !props.readOnly) setRenaming(r.name);
                 if (e.key === "Delete" && !props.readOnly) props.onDelete(r.name);
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  // Arrows select the next or previous package and take the focus with it.
+                  e.preventDefault();
+                  const i = props.rows.indexOf(r) + (e.key === "ArrowDown" ? 1 : -1);
+                  const next = props.rows[i];
+                  if (!next) return;
+                  props.onSelect(next.name);
+                  ((e.currentTarget as HTMLElement)[e.key === "ArrowDown" ? "nextElementSibling" : "previousElementSibling"] as HTMLElement | null)?.focus();
+                }
               }}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -90,7 +104,7 @@ export function PackageListView(props: PackageListViewProps) {
                   }}
                 />
               ) : (
-                <span class="pk-name">{r.name}</span>
+                <span class="pk-name" title={r.name}>{r.name}</span>
               )}
               <span class="pk-meta">
                 {r.preload && <span class="pk-badge">Preload</span>}
@@ -98,7 +112,9 @@ export function PackageListView(props: PackageListViewProps) {
                 {r.problems > 0 && <span class="pk-badge warn" title="Includes that match nothing, or dependencies missing from the project">{r.problems} problem{r.problems === 1 ? "" : "s"}</span>}
                 <span class="pk-count">{r.count}</span>
               </span>
-              <button class="pk-more" aria-label={`${r.name} menu`} onClick={(e) => { e.stopPropagation(); setMenu({ name: r.name, at: e.currentTarget as Element }); }}>⋯</button>
+              <button class="pk-more" aria-label={`${r.name} menu`} aria-haspopup="menu" aria-expanded={menu?.name === r.name} title="More" onClick={(e) => { e.stopPropagation(); setMenu({ name: r.name, at: e.currentTarget as Element }); }}>
+                <Icon name="more" />
+              </button>
             </li>
           ))}
         </ul>

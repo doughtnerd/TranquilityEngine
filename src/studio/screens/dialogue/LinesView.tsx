@@ -1,9 +1,11 @@
 // The Dialogue screen's Lines tab (ADR 0354 §9, 0357 §1, §6): every line table's rows — Key, Speaker, Text in the
 // preview language (written to the string table), and a status cell per language (recorded, fallback, missing, with
 // mismatch ⚠, script changed ✎ and reading-speed flags) — with the table filter, search, column filters, and Add,
-// Duplicate and Delete. Inline edits commit on Enter or blur, each one undo step. A view over props.
+// Duplicate and Delete. Inline edits commit on Enter or blur, each one undo step. Tabbing into a row's field selects the
+// row, so the keyboard reaches Duplicate, Delete and the inspector as a click does. A view over props.
 import { useEffect, useState } from "preact/hooks";
 import { SelectBox } from "../../../editor/ui/PanelFields";
+import { Icon } from "../../components/Icon";
 import type { LanguageDef } from "../../../engine/localisation/languages";
 import { cellLabel } from "./lineStatus";
 import { filterFromId, filterId, type LineRowView, type LinesQuery } from "./linesModel";
@@ -69,11 +71,13 @@ export function LinesView(props: LinesViewProps) {
         <SelectBox label="Line table" value={q.table ?? ""} options={[{ value: "", label: "Every table" }, ...props.tables.map((t) => ({ value: t, label: stem(t) }))]} onValue={(v) => props.onQuery({ ...q, table: v || null })} />
         <input type="search" aria-label="Search lines" placeholder="Search key, speaker, text, tag" value={q.search} onInput={(e) => props.onQuery({ ...q, search: (e.currentTarget as HTMLInputElement).value })} />
         <SelectBox label="Show" value={filterId(q.filter)} options={props.filters.map((f) => ({ value: filterId(f.filter), label: `${f.label} (${f.count})` }))} onValue={(v) => props.onQuery({ ...q, filter: filterFromId(v) })} />
-        <button disabled={props.readOnly || props.tables.length === 0} title={props.tables.length === 0 ? "Create a line table first (*.lines.json)" : "Add a line after the selected one"} onClick={props.onAdd}>Add line</button>
-        <button disabled={props.readOnly || !selected} onClick={() => selected && props.onDuplicate(selected.key)}>Duplicate</button>
-        <button disabled={props.readOnly || !selected} onClick={() => selected && props.onDelete(selected.key)}>Delete</button>
-        {props.onBatchImport && <button disabled={props.readOnly} onClick={props.onBatchImport}>Batch import…</button>}
+        <button disabled={props.readOnly || props.tables.length === 0} title={props.tables.length === 0 ? "Create a line table first (*.lines.json)" : "Add a line after the selected one"} onClick={props.onAdd}><Icon name="plus" /> Add line</button>
+        <button disabled={props.readOnly || !selected} title={selected ? `Duplicate ${selected.key}` : "Select a line first"} onClick={() => selected && props.onDuplicate(selected.key)}><Icon name="copy" /> Duplicate</button>
+        <button disabled={props.readOnly || !selected} title={selected ? `Delete ${selected.key}` : "Select a line first"} onClick={() => selected && props.onDelete(selected.key)}><Icon name="trash" /> Delete</button>
+        {props.onBatchImport && <button disabled={props.readOnly} title="Import a voice-over delivery: files or a folder" onClick={props.onBatchImport}><Icon name="import" /> Batch import…</button>}
       </div>
+      {/* Wide: one column per language. It scrolls inside its own box (both ways, so the header stays on top). */}
+      <div class="dl-scroll dl-lines-scroll">
       <table class="dl-table" aria-label="Lines">
         <thead>
           <tr>
@@ -88,7 +92,8 @@ export function LinesView(props: LinesViewProps) {
             <tr><td colSpan={3 + props.languages.length} class="dl-muted">{props.total === 0 ? "No lines yet: add a line, or import a script or a delivery." : "No line matches the search and filter."}</td></tr>
           )}
           {props.rows.map((r) => (
-            <tr key={`${r.ref.doc.path}#${r.key}`} class={r.key === props.selected ? "selected" : undefined} aria-selected={r.key === props.selected} onClick={() => props.onSelect(r.key)}>
+            <tr key={`${r.ref.doc.path}#${r.key}`} class={r.key === props.selected ? "selected" : undefined} aria-selected={r.key === props.selected} onClick={() => props.onSelect(r.key)}
+              onFocusIn={() => r.key !== props.selected && props.onSelect(r.key)}>
               <td class="dl-key"><InlineText value={r.key} label={`Key of ${r.key}`} disabled={props.readOnly} onCommit={(v) => props.onRename(r.key, v.trim())} /></td>
               <td><InlineText value={r.speaker ?? ""} label={`Speaker of ${r.key}`} list={`dl-speakers-${stem(r.ref.doc.path)}`} disabled={props.readOnly} onCommit={(v) => props.onSpeaker(r.key, v)} /></td>
               <td class="dl-text">
@@ -109,6 +114,7 @@ export function LinesView(props: LinesViewProps) {
           ))}
         </tbody>
       </table>
+      </div>
       {props.tables.map((t) => (
         <datalist key={t} id={`dl-speakers-${stem(t)}`}>
           {(props.speakers?.[t] ?? []).map((s) => <option key={s} value={s} />)}

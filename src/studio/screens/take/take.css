@@ -2,22 +2,25 @@
    designer's data, passed as `--tk-note`. */
 
 .tk-doc { display: contents; }
-.tk-panel-body { padding: 0; }
+.tk-panel-body { padding: 0; container-type: inline-size; }
 .tk-note { color: var(--muted); margin: 8px; font-size: calc(12px * var(--ui-scale)); }
 .tk-error { color: var(--danger); margin: 8px; }
 .tk-hint { color: var(--muted); background: var(--warning-soft); border-bottom: 1px solid var(--border); margin: 0; padding: 4px 8px; font-size: calc(11px * var(--ui-scale)); }
 .tk-link { background: none; border: none; padding: 0 2px; color: var(--link); cursor: pointer; font: inherit; }
 .tk-link:hover { text-decoration: underline; }
+.tk-tool { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+:is(.tk-link, .tk-swatch, .tk-tool):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.tk-scroll { width: 100%; overflow-x: auto; }
 
 /* Takes */
 .tk-list { display: flex; flex-direction: column; min-height: 100%; }
 .tk-list-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; border-bottom: 1px solid var(--border); }
 .tk-search { flex: 1 1 120px; min-width: 0; }
-.tk-file-icon { color: var(--muted); width: 14px; display: inline-block; text-align: center; }
+.tk-file-icon { flex: none; color: var(--muted); }
 
 /* Playlists in this take */
 .tk-playlists { list-style: none; margin: 0; padding: 4px 0; }
-.tk-playlists li { display: flex; align-items: center; gap: 8px; padding: 3px 8px; }
+.tk-playlists li { display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; padding: 3px 8px; }
 .tk-playlists li:hover { background: var(--hover); }
 .tk-pl-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .tk-pl-count { flex: none; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
@@ -52,9 +55,12 @@
 .tk-segment { position: absolute; top: 0; bottom: 0; padding: 0 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-size: calc(11px * var(--ui-scale)); line-height: 20px; }
 
 /* Notes */
-.tk-notes { height: 34px; background: var(--bg-sunken); cursor: copy; }
-.tk-region { position: absolute; top: 3px; height: 14px; border-radius: 3px; background: color-mix(in srgb, var(--tk-note) 30%, transparent); border: 1px solid var(--tk-note); cursor: grab; overflow: hidden; }
-.tk-marker { position: absolute; top: 2px; bottom: 2px; width: 2px; margin-left: -1px; background: var(--tk-note); cursor: grab; }
+.tk-notes { height: 34px; background: var(--bg-sunken); cursor: copy; outline: none; }
+.tk-notes:focus-visible { box-shadow: inset 0 0 0 2px var(--focus-ring); }
+.tk-region { position: absolute; top: 3px; height: 14px; border-radius: 3px; background: color-mix(in srgb, var(--tk-note) 30%, transparent); border: 1px solid var(--tk-note); cursor: grab; overflow: hidden; touch-action: none; }
+.tk-marker { position: absolute; top: 2px; bottom: 2px; width: 2px; margin-left: -1px; background: var(--tk-note); cursor: grab; touch-action: none; }
+/* A marker's hit area is wider than its line. */
+.tk-marker::after { content: ""; position: absolute; top: 0; bottom: 0; left: -5px; right: -5px; }
 .tk-marker::before { content: ""; position: absolute; top: 0; left: 0; width: 8px; height: 8px; background: var(--tk-note); clip-path: polygon(0 0, 100% 0, 0 100%); }
 .tk-mark { position: absolute; bottom: 2px; width: 1px; height: 14px; background: var(--muted); pointer-events: none; }
 .tk-mark::before { content: ""; position: absolute; bottom: 0; left: -4px; border: 4px solid transparent; border-bottom-color: var(--muted); }
@@ -90,9 +96,28 @@
 
 /* Mixer strip */
 .tk-mixer { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.tk-mixer-tools { display: flex; align-items: center; gap: 8px; }
+.tk-mixer-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; padding: 0 8px; }
+.tk-mixer-tools .tk-note { margin: 4px 0; flex: 1 1 160px; }
 .tk-strips { display: flex; gap: 10px; padding: 6px 8px; overflow-x: auto; flex: 1 1 auto; min-height: 0; }
 .tk-strip { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 72px; flex: none; min-height: 120px; }
 .tk-strip .studio-fader.vertical { flex: 1 1 auto; min-height: 80px; }
 .tk-strip-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .tk-strip-db { color: var(--muted); font-size: calc(10px * var(--ui-scale)); text-align: center; font-variant-numeric: tabular-nums; }
+
+/* Narrow (a phone's single panel, a side dock): the lane names take less room, and the take's toolbar and the
+   Inspector's fields wrap (ADR 0361). */
+@container (max-width: 480px) {
+  .tk-timeline { --tk-head: 96px; }
+  .tk-head-sub { display: none; }
+  .tk-field input { width: 72px; }
+}
+
+/* Touch (ADR 0361): the notes lane and its notes get room for a finger; their rows keep their own heights. */
+@media (pointer: coarse) {
+  .tk-notes { height: 48px; }
+  .tk-region { top: 4px; height: 24px; }
+  .studio .tk-notes [role="option"] { min-height: 0; }
+  .tk-marker::after { left: -12px; right: -12px; }
+  .tk-swatch { width: 32px; height: 32px; }
+  .studio .tk-swatch { min-height: 0; }
+}

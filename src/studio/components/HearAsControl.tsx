@@ -22,7 +22,7 @@ export function HearAsControl(props: HearAsControlProps) {
     <div class="studio-hear-as" role="group" aria-label="Hear as">
       <span class="studio-hear-as-label">Hear as</span>
       <SegmentedControl size="small" label="Hear as platform" value={props.choice} options={HEAR_AS_CHOICES} onChange={props.onChoose} />
-      <button class="studio-hear-as-ab" aria-label="Compare with source" title="A/B: switch between Source and the last platform (H)" onClick={props.onToggle}>
+      <button type="button" class="studio-hear-as-ab" aria-label="Compare with source" title="A/B: switch between Source and the last platform (H)" onClick={props.onToggle}>
         A/B
       </button>
       {(props.choice !== "source" || props.failure) && (

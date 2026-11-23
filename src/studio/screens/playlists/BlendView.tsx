@@ -69,10 +69,13 @@ function dragOn(e: PointerEvent, el: Element, move: (f: { x: number; y: number }
   const onUp = () => {
     doc.removeEventListener("pointermove", onMove);
     doc.removeEventListener("pointerup", onUp);
+    doc.removeEventListener("pointercancel", onUp);
     end();
   };
   doc.addEventListener("pointermove", onMove);
   doc.addEventListener("pointerup", onUp);
+  // A touch the browser takes over still ends the drag (the lane and plane are `touch-action: none`, so it rarely does).
+  doc.addEventListener("pointercancel", onUp);
   move(pointerFraction(e, el));
 }
 
@@ -253,7 +256,7 @@ export function BlendView(props: BlendViewProps) {
       {body.entries.length === 0 ? <p class="pl-note">Add entries to place them on the {twoD ? "plane" : "lane"}.</p> : twoD ? plane() : lane()}
       {body.entries.length > 0 && (
         <div class="pl-table pl-nodes" role="table" aria-label="Nodes">
-          <div class="pl-tr pl-th" role="row"><span>Entry</span><span>{twoD ? "X" : "Position"}</span>{twoD && <span>Y</span>}<span>Weight now</span></div>
+          <div class="pl-tr pl-th" role="row"><span role="columnheader">Entry</span><span role="columnheader">{twoD ? "X" : "Position"}</span>{twoD && <span role="columnheader">Y</span>}<span role="columnheader">Weight now</span></div>
           {body.entries.map((e, i) => (
             <div key={i} role="row" class={`pl-tr${props.selected === i ? " selected" : ""}`} onClick={() => props.onSelect(i)}>
               <span class={`pl-swatch ${series(i)}`}>{entryName(e, i)}</span>

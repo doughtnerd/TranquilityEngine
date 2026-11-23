@@ -14,3 +14,7 @@
 
 .tl-playhead { position: absolute; top: 0; bottom: 0; width: 1px; margin-left: -0.5px; background: var(--muted); pointer-events: none; z-index: 3; }
 .tl-playhead.playing { background: var(--accent); box-shadow: 0 0 4px var(--accent); }
+
+/* Waveform zoom buttons (`zoomButtons`, ADR 0361): over the top-right corner, on the panel's colour so they read over peaks. */
+.tl-wave-zoom { position: absolute; top: 2px; right: 2px; z-index: 4; display: flex; gap: 1px; padding: 1px; border-radius: 4px; background: var(--panel); border: 1px solid var(--border); }
+.tl-ruler:focus-visible, .tl-wave:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
