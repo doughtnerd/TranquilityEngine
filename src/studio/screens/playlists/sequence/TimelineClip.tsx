@@ -49,6 +49,9 @@ export function keyboardMenu(e: KeyboardEvent, open: (m: MouseEvent) => void): b
   return true;
 }
 
+/** The width of a clip's trim and length edges (`.sq-edge`), which win over curve points under them. */
+const EDGE_PX = 6;
+
 export const clipName = (c: Clip): string => (c.sample !== undefined ? sampleTitle(c.sample) : typeof c.playlist === "string" ? playlistTitle(c.playlist) : "Embedded playlist");
 
 export function TimelineClip(props: TimelineClipProps) {
@@ -122,6 +125,7 @@ export function TimelineClip(props: TimelineClipProps) {
           selected={props.curve.keys}
           muted={props.curve.automation.bypass}
           interactive={!props.razor}
+          edgeGuard={EDGE_PX}
           label={`${props.curve.spec.name} curve`}
           onPointPress={props.onPointPress}
           onPointDoubleClick={(i) => props.onPointDoubleClick(i)}

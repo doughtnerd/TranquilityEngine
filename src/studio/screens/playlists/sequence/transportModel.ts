@@ -4,7 +4,7 @@
 // is estimated from the audio clock since the start (the runtime's own position replaces it when it reports one).
 // Pure.
 import type { PlaybackRules, SequenceSettings } from "../../../../engine/audio/playlist/types";
-import { clipLoops } from "./clipGeometry";
+import { clipLoops, clipPlan, loopBand } from "./clipGeometry";
 import type { SeqSelection } from "./sequenceSelection";
 import { allClips, clipLength, sequenceLength, type SourceOf } from "./sequenceModel";
 
@@ -36,7 +36,7 @@ export interface PlayRange {
   readonly selection: boolean;
 }
 
-/** What Play plays. */
+/** What Play plays (from the playhead or a marker at the end: from the start). */
 export function playRange(s: SequenceSettings, sel: SeqSelection, playhead: number, opts: TransportOptions, sourceOf: SourceOf): PlayRange {
   const length = sequenceLength(s, sourceOf);
   let from = 0, to = length, selection = false;
@@ -56,6 +56,8 @@ export function playRange(s: SequenceSettings, sel: SeqSelection, playhead: numb
     } else if (sel.focus === "marker" && marker) from = Math.min(marker.at, length);
     else from = Math.min(playhead, length);
   }
+  // At (or past) the end there's nothing left to hear: Play wraps to the start (proto W53).
+  if (!selection && length > 0 && from >= length) from = 0;
   const start = opts.preRoll ? Math.max(0, from - PRE_ROLL_SECONDS) : from;
   return { start, from, to: Math.max(from, to), selection };
 }
@@ -72,9 +74,50 @@ export function spaceAction(playing: boolean, heldLoop: boolean, released: boole
   return heldLoop && !released ? "release" : "stop";
 }
 
-/** The playhead estimated from the audio clock: start + elapsed, clamped to the range end unless the sequence plays on. */
-export function estimatePlayhead(range: PlayRange, elapsed: number, plays: PlaybackRules["plays"]): number {
-  const t = range.start + Math.max(0, elapsed);
+/** A span of sequence time that holds the playhead until release: a loop's region (it wraps there) or a hold point (start = end). */
+export interface HeldRegion {
+  readonly start: number;
+  readonly end: number;
+}
+
+/**
+ * Where a "while held" loop holds the sequence playhead (J6.3, D24/D25; the runtime's loop program): the sequence's
+ * own held loops and hold points, and each enabled Sync clip's held driving loop over its last pass (the runtime wraps
+ * the playhead back one pass at the loop's last pass end; a zero-length loop parks it). Async clips' loops hold their
+ * own voice, not the playhead. Sorted by start.
+ */
+export function heldRegions(s: SequenceSettings, sourceOf: SourceOf): HeldRegion[] {
+  const out: HeldRegion[] = s.loops.filter((l) => l.active === "held").map((l) => ({ start: l.start, end: Math.max(l.start, l.end) }));
+  for (const { track, clip } of allClips(s)) {
+    if (!track.enabled || !clip.enabled || !clip.sync || clip.sample === undefined) continue;
+    const plan = clipPlan(clip, sourceOf(clip));
+    const band = loopBand(plan);
+    if (!band || band.active !== "held" || !plan.loop) continue;
+    const span = plan.loop.end - plan.loop.start;
+    out.push(span > 0 ? { start: clip.at + Math.max(band.start, band.end - span), end: clip.at + band.end } : { start: clip.at + band.start, end: clip.at + band.start });
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
+/** Where playback was released: the audio clock's elapsed seconds then, and the playhead there. */
+export interface ReleasePoint {
+  readonly elapsed: number;
+  readonly at: number;
+}
+
+/**
+ * The playhead estimated from the audio clock: start + elapsed, held by the first held region it reaches until
+ * released (wrapping inside a loop's region, parked on a hold point), then on from where it was at the release;
+ * clamped to the range end unless the sequence plays on.
+ */
+export function estimatePlayhead(range: PlayRange, elapsed: number, plays: PlaybackRules["plays"], held: readonly HeldRegion[] = [], released: ReleasePoint | null = null): number {
+  let t: number;
+  if (released) t = released.at + Math.max(0, elapsed - released.elapsed);
+  else {
+    t = range.start + Math.max(0, elapsed);
+    const r = held.find((h) => h.start >= range.start - 1e-9 && t >= h.end);
+    if (r) t = r.end > r.start ? r.start + ((t - r.start) % (r.end - r.start)) : r.start;
+  }
   return plays === "untilStopped" && !range.selection ? t : Math.min(range.to, t);
 }
 

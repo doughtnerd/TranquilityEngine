@@ -18,6 +18,7 @@ import { sampleTitle, typeName, type Crumb, type PlaylistPath } from "./playlist
 import type { PlaylistFacts } from "./playlistTree";
 import { SwitchView } from "./SwitchView";
 import { SequencePanel } from "./sequence/SequencePanel";
+import { warningLines } from "./sequence/sequenceLints";
 import { convertType, typeOptions } from "./typeConversion";
 import { liveWeights } from "./blendViewModel";
 import { FadeShapeSelect } from "../../components/FadeShapeSelect";
@@ -60,7 +61,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
   const [renaming, setRenaming] = useState(false);
   const [dropping, setDropping] = useState(false);
   const join = (k: string) => (props.where ? `${props.where}.${k}` : k);
-  const general = props.lints.filter((l) => !l.where.startsWith(join("switch.rules")));
+  const general = warningLines(props.lints.filter((l) => !l.where.startsWith(join("switch.rules"))), body);
   const canAdd = body.type !== "sequence";
   const weights = body.type === "blend" ? liveWeights(body, props.ctx.parameters, props.values, 0) : undefined;
 
@@ -179,7 +180,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
       </div>
       {general.length > 0 && (
         <ul class="pl-lints" aria-label="Warnings">
-          {general.map((l, i) => <li key={i} class="pl-lint"><Icon name="warning" size={14} /> {l.message}</li>)}
+          {general.map((text, i) => <li key={i} class="pl-lint"><Icon name="warning" size={14} /> {text}</li>)}
         </ul>
       )}
       <div class="pl-view">{view}</div>

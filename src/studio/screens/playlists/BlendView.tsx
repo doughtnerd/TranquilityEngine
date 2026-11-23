@@ -4,7 +4,7 @@
 // 2D plane (grid, Delaunay edges, the active triangle, spokes from the input to the entries playing, draggable nodes)
 // with a nodes list, and the voice envelope. The input marker follows the test values; dragging on the background
 // scrubs them. Weights are the engine's (`blendViewModel.ts`). A view over props.
-import { useRef, useState } from "preact/hooks";
+import { useId, useRef, useState } from "preact/hooks";
 import type { Adsr, BlendAxis, PlaylistBody } from "../../../engine/audio/playlist/types";
 import { isLabelled } from "../../../engine/audio/parameters";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
@@ -84,6 +84,7 @@ export function BlendView(props: BlendViewProps) {
   const blend = body.blend;
   const [voiceTime, setVoiceTime] = useState(0);
   const svg = useRef<SVGSVGElement>(null);
+  const soft = `pl-plane-soft-${useId()}`;
   if (!blend) return null;
   const numeric = ctx.parameters.filter((p) => !isLabelled(p));
   const ranges = blend.axes.map((a) => axisRange(a, ctx.parameters));
@@ -196,6 +197,11 @@ export function BlendView(props: BlendViewProps) {
     );
   };
 
+  const axisName = (k: 0 | 1) => {
+    const a = blend.axes[k];
+    return !a ? "" : "voiceTime" in a ? "Voice time" : a.parameter;
+  };
+  const fmt = (v: number) => String(Math.round(v * 100) / 100);
   const plane = () => {
     const edges = triangleEdges(pts);
     const tri = activeTriangle(weights);
@@ -205,9 +211,13 @@ export function BlendView(props: BlendViewProps) {
       <svg ref={svg} class="pl-plane" viewBox={`0 0 ${W} ${W}`} role="group" aria-label="Blend plane"
         onPointerDown={(e) => svg.current && dragOn(e, svg.current, (f) => { scrub(0, f.x); scrub(1, f.y); }, () => {})}>
         <rect class="pl-lane-bg" x="0" y="0" width={W} height={W} />
-        {influenceGrid(pts, blend.fade === "layer" ? "linear" : blend.curve, weightCurvesOf(body.entries), 16).map((c, k) => (
-          <rect key={`h${k}`} class={`pl-influence ${series(c.entry)}`} x={(c.x - 1 / 32) * W} y={(1 - c.y - 1 / 32) * W} width={W / 16} height={W / 16} style={{ opacity: String(0.06 + 0.3 * c.weight) }} />
-        ))}
+        {/* Each entry's influence, sampled on a grid and blurred into a smooth field (BL2: no staircase of cells). */}
+        <filter id={soft} x="0" y="0" width="1" height="1"><feGaussianBlur stdDeviation={W / 40} /></filter>
+        <g class="pl-influence-field" filter={`url(#${soft})`}>
+          {influenceGrid(pts, blend.fade === "layer" ? "linear" : blend.curve, weightCurvesOf(body.entries), 16).map((c, k) => (
+            <rect key={`h${k}`} class={`pl-influence ${series(c.entry)}`} x={(c.x - 1 / 32) * W} y={(1 - c.y - 1 / 32) * W} width={W / 16} height={W / 16} style={{ opacity: String(0.06 + 0.3 * c.weight) }} />
+          ))}
+        </g>
         {[0.25, 0.5, 0.75].map((g) => (
           <g key={g} class="pl-grid">
             <line x1={g * W} x2={g * W} y1="0" y2={W} />
@@ -224,9 +234,16 @@ export function BlendView(props: BlendViewProps) {
           <g key={i} class={`pl-node ${series(i)}${props.selected === i ? " selected" : ""}`} tabIndex={writable ? 0 : -1} role="slider" aria-label={`${entryName(body.entries[i]!, i)} position`}
             aria-valuenow={body.entries[i]!.x ?? 0} onPointerDown={(e) => startNode(i, e)} onKeyDown={(e) => nodeKeys(i, e)} onFocus={() => props.onSelect(i)}>
             <circle cx={P(p)[0]} cy={P(p)[1]} r={10 + 8 * (weights[i] ?? 0)} />
+            <text class="pl-node-name" x={P(p)[0] + (p.x > 0.75 ? -24 : 24)} y={P(p)[1] + 6} text-anchor={p.x > 0.75 ? "end" : "start"}>
+              {entryName(body.entries[i]!, i)}{(weights[i] ?? 0) > 1e-3 ? ` ${Math.round((weights[i] ?? 0) * 100)}%` : ""}
+            </text>
           </g>
         ))}
         <circle class="pl-input-dot" cx={inP[0]} cy={inP[1]} r="9" />
+        {/* The axes: X along the bottom, Y up the left side, each with its range. */}
+        <text class="pl-axis-name" x={12} y={W - 12}>{axisName(0)} {fmt(ranges[0]![0])}</text>
+        <text class="pl-axis-name" x={W - 12} y={W - 12} text-anchor="end">{fmt(ranges[0]![1])}</text>
+        <text class="pl-axis-name" x={12} y={36}>{axisName(1)} {fmt(ranges[1]![1])}</text>
       </svg>
     );
   };
