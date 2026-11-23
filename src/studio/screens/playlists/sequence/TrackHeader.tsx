@@ -5,6 +5,7 @@
 import { useState } from "preact/hooks";
 import type { Track } from "../../../../engine/audio/playlist/types";
 import { RenameField } from "../../../../editor/ui/RenameField";
+import { Icon } from "../../../components/Icon";
 
 export interface TrackHeaderProps {
   readonly track: Track;
@@ -68,7 +69,7 @@ export function TrackHeader(props: TrackHeaderProps) {
           </span>
         )}
         <span class="sq-kind" title={t.kind === "audio" ? "Audio track" : "Playlist track"}>{t.kind === "audio" ? "AUD" : "PL"}</span>
-        <button type="button" class="sq-icon" aria-label={`${t.name} menu`} title="Track menu" onClick={(e) => props.onMenu(e)}>⋯</button>
+        <button type="button" class="sq-icon" aria-label={`${t.name} menu`} title="Track menu" aria-haspopup="menu" onClick={(e) => props.onMenu(e)}><Icon name="more" /></button>
       </div>
       <div class="sq-head-line">
         <label class="sq-check" title="Enabled: a disabled track's clips don't play">
@@ -82,7 +83,7 @@ export function TrackHeader(props: TrackHeaderProps) {
       </div>
       <div class="sq-head-line">
         <button type="button" class="sq-icon sq-caret" aria-expanded={props.lanesOpen} aria-label={`${t.name} automation lanes`} title={t.automation.length ? "Show or hide the automation lanes" : "No automation yet (track menu › Automate)"} disabled={!t.automation.length} onClick={props.onToggleLanes}>
-          {props.lanesOpen ? "▾" : "▸"} {t.automation.length}
+          <Icon name={props.lanesOpen ? "chevronDown" : "chevronRight"} size={12} /> {t.automation.length}
         </button>
         <button type="button" class="sq-fx" title={t.effects.length ? t.effects.map((e) => e.type).join(", ") : "No track effects (edit them in the Inspector)"} onClick={(e) => props.onSelect(e)}>FX {t.effects.length}</button>
         <select class="sq-out" aria-label={`${t.name} output`} title="Output bus" disabled={!writable} value={t.output ?? ""} onChange={(e) => props.onOutput((e.currentTarget as HTMLSelectElement).value || null)}>

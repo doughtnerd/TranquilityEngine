@@ -12,6 +12,7 @@ import { addRule, changeLength, removeRule, setLabelEntry, setLabelGain, setOnCh
 import { entryName, playlistTitle } from "./playlistPaths";
 import { FadeShapeSelect } from "../../components/FadeShapeSelect";
 import { Fragment } from "preact";
+import { Icon } from "../../components/Icon";
 
 export interface SwitchViewProps {
   readonly body: PlaylistBody;
@@ -136,7 +137,7 @@ export function SwitchView(props: SwitchViewProps) {
             const i = s.map[l] ?? null;
             return (
               <div key={l} class={`pl-tr${l === current ? " pl-current" : ""}`} role="row">
-                <span role="cell" title={l === current ? "The test value: playing now" : undefined}>{l === current ? "▸ " : ""}{l}</span>
+                <span role="cell" title={l === current ? "The test value: playing now" : undefined}>{l === current && <Icon name="play" size={10} label="Playing now" />} {l}</span>
                 <SelectBox
                   label={`${l} plays`}
                   value={String(i ?? -1)}
@@ -173,8 +174,8 @@ export function SwitchView(props: SwitchViewProps) {
         title="Rules"
         note="The most specific rule wins (an exact label beats Any); the first listed breaks ties."
         actions={
-          <button type="button" class="pl-small" disabled={!writable} onClick={() => onEdit("Change setting", (b) => addRule(b, labels))}>
-            + Rule
+          <button type="button" class="pl-small" aria-label="Add rule" disabled={!writable} onClick={() => onEdit("Change setting", (b) => addRule(b, labels))}>
+            <Icon name="plus" size={12} /> Rule
           </button>
         }
       >
@@ -199,12 +200,12 @@ export function SwitchView(props: SwitchViewProps) {
                   <SelectBox label={`Rule ${i + 1}: from`} value={r.from} disabled={!writable} options={sideOptions} onValue={(v) => onEdit("Change setting", (b) => setRule(b, i, { from: v }))} />
                   <SelectBox label={`Rule ${i + 1}: to`} value={r.to} disabled={!writable} options={sideOptions} onValue={(v) => onEdit("Change setting", (b) => setRule(b, i, { to: v }))} />
                   {changeRow(r, (patch, label) => onEdit(label, (b) => setRule(b, i, patch)), `Rule ${i + 1}`)}
-                  <button type="button" class="pl-icon" aria-label={`Remove rule ${i + 1}`} disabled={!writable} onClick={() => onEdit("Change setting", (b) => removeRule(b, i))}>
-                    ×
+                  <button type="button" class="pl-icon" aria-label={`Remove rule ${i + 1}`} title="Remove rule" disabled={!writable} onClick={() => onEdit("Change setting", (b) => removeRule(b, i))}>
+                    <Icon name="close" />
                   </button>
                   {lint.map((l) => (
                     <p key={l.code} class="pl-lint" role="note">
-                      ⚠ {l.message}
+                      <Icon name="warning" size={14} /> {l.message}
                     </p>
                   ))}
                 </div>

@@ -1,5 +1,5 @@
 // The Sequence view (ADR 0343; the prototype's Sequencer timeline, proto §1.5, §2.6, §3.3–3.5, §4): the toolbar
-// (+ track, + Loop, + Hold, razor, Write, back to the parent playlist, waveforms, the time display, snap, tempo, zoom),
+// (add track, loop, hold point and marker, razor, Write, back to the parent playlist, waveforms, the time display, snap, tempo, zoom),
 // the Loops and Markers rows and the ruler above the tracks, the track headers and clip lanes with their automation
 // lanes, the scrollbar that zooms, and every gesture of the prototype: drops from the Library and the Playlists tree,
 // moves, trims, splits, marquee, envelope points, loops, markers, the sequence's end, copy and paste, the keyboard.
@@ -15,6 +15,7 @@ import { ContextMenu, SEPARATOR, type MenuEntry } from "../../../../editor/ui/Co
 import type { PopoverPoint } from "../../../../editor/ui/popover";
 import { accept, type EditResult } from "../../../../plugins/audio/editor/editResult";
 import type { PeakMips } from "../../../../plugins/audio/editor/music/peaksMip";
+import { Icon } from "../../../components/Icon";
 import { Playhead } from "../../../components/Playhead";
 import { TimeRuler } from "../../../components/TimeRuler";
 import { formatTime, TIME_FORMATS, type TimeFormat } from "../../../components/timeRulerModel";
@@ -40,7 +41,7 @@ import { clickClip, clickPoint, EMPTY_SELECTION, marqueeSelect, pressClip, selec
 import {
   bindSequence, playback, seqClipboard, seqOpenLanes, seqPlayhead, seqRazor, seqSelection, seqShownCurve, seqShowWave, seqSnap, seqTimeFormat, seqTransport, seqView, seqWrite, transportMessage,
 } from "./sequenceState";
-import { clipName, TimelineClip } from "./TimelineClip";
+import { clipName, keyboardMenu, TimelineClip } from "./TimelineClip";
 import { clampTimeline, fitTimeline, followView, HEADER_WIDTH, pxToTime, rowAt, scrollLimit, scrollTimeline, snapEdges, thumbOf, timeToPx, trackIndexAt, trackRows, viewFromThumb, zoomTimeline, zoomToSpan } from "./timelineLayout";
 import { TrackHeader } from "./TrackHeader";
 import "./sequence.css";
@@ -764,6 +765,7 @@ export function SequenceView(props: SequenceViewProps) {
         onAddTrack={addTrackOf}
         onAddLoop={() => addLoopAtPlayhead(false)}
         onAddHold={() => addLoopAtPlayhead(true)}
+        onAddMarker={() => runWith("Add marker", (q) => addMarker(q, playhead), (r) => select(selectMarker(sel, r.id)))}
         onTempo={(bpm) => runSeq(bpm === null ? "No tempo" : "Tempo", (q) => setTempo(q, bpm))}
         onTap={() => {
           const next = keepTaps(taps, performance.now());
@@ -790,11 +792,12 @@ export function SequenceView(props: SequenceViewProps) {
               const hold = l.start === l.end;
               return (
                 <div key={l.id} class={`sq-seq-loop${hold ? " hold" : ""}${sel.loop === l.id ? " selected" : ""} ${l.active}`} style={{ left: `${x}px`, width: `${hold ? 10 : Math.max(4, w)}px` }}
-                  role="button" aria-label={hold ? `Hold point at ${l.start.toFixed(2)} s` : `Loop ${l.start.toFixed(2)}–${l.end.toFixed(2)} s`} title={`${hold ? "Hold point" : "Loop"} · ${l.active === "parameter" ? (l.binding ? `while ${l.binding.parameter} ${l.binding.op} ${l.binding.value}` : "⚠ unbound") : l.active === "held" ? "while held" : "always"} · exit ${l.exit}`}
+                  role="button" aria-label={hold ? `Hold point at ${l.start.toFixed(2)} s` : `Loop ${l.start.toFixed(2)}–${l.end.toFixed(2)} s`} title={`${hold ? "Hold point" : "Loop"} · ${l.active === "parameter" ? (l.binding ? `while ${l.binding.parameter} ${l.binding.op} ${l.binding.value}` : "unbound (no parameter)") : l.active === "held" ? "while held" : "always"} · exit ${l.exit}`}
+                  tabIndex={0} aria-pressed={sel.loop === l.id} onKeyDown={(e) => e.target === e.currentTarget && !keyboardMenu(e, (m) => loopMenu(m, l.id)) && (e.key === "Enter" || e.key === " ") && (e.preventDefault(), e.stopPropagation(), select(selectLoop(sel, l.id)))}
                   onPointerDown={(e) => pressLoop(e, l.id, "body")} onDblClick={(e) => e.stopPropagation()} onContextMenu={(e) => { e.preventDefault(); loopMenu(e, l.id); }}>
                   {!hold && <span class="sq-cap start" onPointerDown={(e) => pressLoop(e, l.id, "start")} />}
                   <span class="sq-cap end" title={hold ? "Drag to stretch the hold point into a loop" : "Loop end"} onPointerDown={(e) => pressLoop(e, l.id, "end")} />
-                  {l.active === "parameter" && !l.binding && <span class="sq-chip unbound">⚠</span>}
+                  {l.active === "parameter" && !l.binding && <span class="sq-chip unbound"><Icon name="warning" size={10} label="Unbound" /></span>}
                 </div>
               );
             })}
@@ -809,6 +812,7 @@ export function SequenceView(props: SequenceViewProps) {
               return (
                 <div key={m.id} class={`sq-marker ${m.type ?? "note"}${sel.marker === m.id ? " selected" : ""}`} style={{ left: `${toPx(m.at)}px` }} role="button" aria-label={`Marker ${m.name}`}
                   title={`${m.name} · ${m.type === "exit" ? "Exit: music may leave here" : m.type === "cue" ? "Cue: reported to the game" : "Note"}`}
+                  tabIndex={0} aria-pressed={sel.marker === m.id} onKeyDown={(e) => e.target === e.currentTarget && !keyboardMenu(e, (ev) => markerMenu(ev, m.id)) && (e.key === "Enter" || e.key === " ") && (e.preventDefault(), e.stopPropagation(), select(selectMarker(sel, m.id)))}
                   onPointerDown={(e) => pressMarker(e, m.id)} onDblClick={(e) => { e.stopPropagation(); if (writable) setRenamingMarker(m.id); }} onContextMenu={(e) => { e.preventDefault(); markerMenu(e, m.id); }}>
                   {renamingMarker === m.id ? (
                     <input class="sq-marker-rename" aria-label="Marker name" value={m.name} ref={(el) => el?.focus()}
@@ -890,6 +894,7 @@ export function SequenceView(props: SequenceViewProps) {
                           onPointPress={(i, e) => shown && pressPoint(e, { clip: c.id }, shown.automation.id, i, r.h - 4)}
                           onPointDoubleClick={(i) => shown && runSeq("Delete automation point", (q) => deletePoints(q, { clip: c.id }, shown.automation.id, [i]))}
                           onPointMenu={(i, e) => shown && pointMenu(e, { clip: c.id }, shown.automation.id, i, clipName(c), len)}
+                          onKeySelect={(add) => select(clickClip(sel, c.id, t.id, { ctrl: add }))}
                         />
                       );
                     })}
@@ -906,8 +911,8 @@ export function SequenceView(props: SequenceViewProps) {
                         <span class="sq-auto-name" title={a.target}>{spec?.name ?? a.target}</span>
                         <span class="sq-faint">{time ? "time" : `by ${(a.input as { parameter: string }).parameter}`}</span>
                         <button type="button" class={`sq-icon${a.bypass ? "" : " on"}`} aria-pressed={!a.bypass} aria-label={`${spec?.name ?? a.target} automation on`} title={a.bypass ? "Bypassed: the plain value plays (click to turn on)" : "On (click to bypass)"} disabled={!writable}
-                          onClick={() => runSeq(`${spec?.name ?? a.target} automation ${a.bypass ? "on" : "off"}`, (q) => setAutomation(q, { track: t.id }, a.id, { bypass: !a.bypass }))}>●</button>
-                        <button type="button" class="sq-icon" aria-label={`Edit ${spec?.name ?? a.target} curve`} title="Open in the curve editor" onClick={() => openCurves({ track: t.id }, length, t.name, a.target)}>✎</button>
+                          onClick={() => runSeq(`${spec?.name ?? a.target} automation ${a.bypass ? "on" : "off"}`, (q) => setAutomation(q, { track: t.id }, a.id, { bypass: !a.bypass }))}><Icon name="record" size={10} /></button>
+                        <button type="button" class="sq-icon" aria-label={`Edit ${spec?.name ?? a.target} curve`} title="Open in the curve editor" onClick={() => openCurves({ track: t.id }, length, t.name, a.target)}><Icon name="edit" /></button>
                       </div>
                       <div class="sq-lane sq-auto-lane" onDblClick={(e) => dblClickLane(e, t.id, a.id)}>
                         {spec && time ? (
@@ -917,7 +922,7 @@ export function SequenceView(props: SequenceViewProps) {
                             onPointDoubleClick={(i) => runSeq("Delete automation point", (q) => deletePoints(q, { track: t.id }, a.id, [i]))}
                             onPointMenu={(i, e) => pointMenu(e, { track: t.id }, a.id, i, t.name, length)} />
                         ) : (
-                          <span class="sq-faint sq-driven">Driven by {(a.input as { parameter: string }).parameter}: edit it in the curve editor (✎).</span>
+                          <span class="sq-faint sq-driven">Driven by {(a.input as { parameter: string }).parameter}: edit it in the curve editor (the edit button).</span>
                         )}
                       </div>
                     </div>
@@ -927,7 +932,7 @@ export function SequenceView(props: SequenceViewProps) {
             );
           })}
           <div class="sq-fill" style={{ top: `${height}px` }} onPointerDown={() => select({ ...EMPTY_SELECTION })}>
-            {s.tracks.length === 0 && <p class="sq-faint sq-fill-hint">Drop a sample from the Library here for an audio track, or a playlist from the Playlists panel; or use + Track.</p>}
+            {s.tracks.length === 0 && <p class="sq-faint sq-fill-hint">Drop a sample from the Library here for an audio track, or a playlist from the Playlists panel; or use Add track.</p>}
             {ghost && ghost.ti === "new" && <div class="sq-ghost new" style={{ left: `${HEADER_WIDTH + toPx(ghost.at)}px`, width: `${Math.max(40, toPx(ghost.at + ghost.length) - toPx(ghost.at))}px` }}>{ghost.text}</div>}
           </div>
           <div class="sq-overlay" style={{ left: `${HEADER_WIDTH}px`, height: `${Math.max(height, 1)}px` }}>
@@ -991,6 +996,8 @@ interface ToolbarProps {
   onAddTrack(kind: "audio" | "playlist"): void;
   onAddLoop(): void;
   onAddHold(): void;
+  /** A marker at the playhead (the Markers row adds one on a double-click too). */
+  onAddMarker(): void;
   onTempo(bpm: number | null): void;
   onTap(): void;
   onMeter(meter: string): void;
@@ -1005,19 +1012,22 @@ function Toolbar(props: ToolbarProps) {
   const nextFormat = (f: TimeFormat): TimeFormat => (f === "timecode" ? "samples" : f === "samples" ? (s.tempo ? "bars" : "timecode") : "timecode");
   return (
     <div class="sq-toolbar" role="toolbar" aria-label="Sequence tools">
-      {props.back && <button type="button" class="pl-link sq-back" title={`Back to ${props.back.name}`} onClick={props.back.open}>‹ {props.back.name}</button>}
-      <button type="button" class="pl-small" disabled={!writable} aria-haspopup="menu" onClick={(e) => setTrackMenu(e.currentTarget)}>+ Track ▾</button>
+      {props.back && <button type="button" class="pl-link sq-back" title={`Back to ${props.back.name}`} onClick={props.back.open}><Icon name="chevronLeft" size={12} /> {props.back.name}</button>}
+      <button type="button" class="pl-small" disabled={!writable} aria-label="Add track" aria-haspopup="menu" aria-expanded={!!trackMenu} onClick={(e) => setTrackMenu(e.currentTarget)}>
+        <Icon name="plus" size={12} /> Track <Icon name="chevronDown" size={12} />
+      </button>
       {trackMenu && (
         <ContextMenu at={trackMenu} label="Add track" onClose={() => setTrackMenu(null)}
           entries={[{ id: "audio", label: "Audio track", title: "Takes samples", run: () => props.onAddTrack("audio") }, { id: "playlist", label: "Playlist track", title: "Takes playlists", run: () => props.onAddTrack("playlist") }]} />
       )}
-      <button type="button" class="pl-small" disabled={!writable} title="A one-bar loop at the playhead" onClick={props.onAddLoop}>+ Loop</button>
-      <button type="button" class="pl-small" disabled={!writable} title="A hold point at the playhead: the playhead parks there while it is active" onClick={props.onAddHold}>+ Hold</button>
-      <span class="sq-sep" />
-      <button type="button" class={`sq-tool${seqRazor.value ? " on" : ""}`} aria-pressed={seqRazor.value} title="Razor (C): click a clip to split it" onClick={() => (seqRazor.value = !seqRazor.peek())}>✂ Razor</button>
-      <button type="button" class={`sq-tool write${seqWrite.value ? " on" : ""}`} aria-pressed={seqWrite.value} title="Write automation (W): moving a track's volume or pan while it plays writes a curve over the time it is held" onClick={() => (seqWrite.value = !seqWrite.peek())}>● Write</button>
-      <button type="button" class={`sq-tool${seqShowWave.value ? " on" : ""}`} aria-pressed={seqShowWave.value} title="Draw waveforms in clips" onClick={() => (seqShowWave.value = !seqShowWave.peek())}>∿ Wave</button>
-      <span class="sq-sep" />
+      <button type="button" class="pl-small" disabled={!writable} title="A one-bar loop at the playhead" aria-label="Add loop" onClick={props.onAddLoop}><Icon name="plus" size={12} /> Loop</button>
+      <button type="button" class="pl-small" disabled={!writable} title="A hold point at the playhead: the playhead parks there while it is active" aria-label="Add hold point" onClick={props.onAddHold}><Icon name="plus" size={12} /> Hold</button>
+      <button type="button" class="pl-small" disabled={!writable} title="A marker at the playhead (or double-click the Markers row)" aria-label="Add marker" onClick={props.onAddMarker}><Icon name="plus" size={12} /> Marker</button>
+      <span class="sq-sep" aria-hidden="true" />
+      <button type="button" class={`sq-tool${seqRazor.value ? " on" : ""}`} aria-pressed={seqRazor.value} title="Razor (C): click a clip to split it" onClick={() => (seqRazor.value = !seqRazor.peek())}><Icon name="razor" size={12} /> Razor</button>
+      <button type="button" class={`sq-tool write${seqWrite.value ? " on" : ""}`} aria-pressed={seqWrite.value} title="Write automation (W): moving a track's volume or pan while it plays writes a curve over the time it is held" onClick={() => (seqWrite.value = !seqWrite.peek())}><Icon name="record" size={10} /> Write</button>
+      <button type="button" class={`sq-tool${seqShowWave.value ? " on" : ""}`} aria-pressed={seqShowWave.value} title="Draw waveforms in clips" onClick={() => (seqShowWave.value = !seqShowWave.peek())}><Icon name="samples" size={12} /> Wave</button>
+      <span class="sq-sep" aria-hidden="true" />
       <button type="button" class="sq-time" title="Time display (click for the next: timecode, samples, bars)" aria-label={`Playhead ${props.timeText}`} onClick={() => (seqTimeFormat.value = nextFormat(props.format))}>{props.timeText}</button>
       <label class="sq-inline" title="Snap: edges within 0.8 % of the view first, then the grid (hold Alt to place freely)">
         <span class="sq-faint">Snap</span>
@@ -1050,10 +1060,13 @@ function Toolbar(props: ToolbarProps) {
           <label class="sq-inline"><input type="checkbox" disabled={!writable} checked={!s.tempo} onChange={(e) => props.onTempo((e.currentTarget as HTMLInputElement).checked ? null : 120)} /> No tempo</label>
         </div>
       </details>
-      <span class="sq-sep" />
-      <button type="button" class="sq-icon" aria-label="Zoom out" title="Zoom out (−)" onClick={() => props.onZoom(1 / 1.5)}>−</button>
-      <button type="button" class="sq-icon" aria-label="Fit" title="Fit the sequence (0); Z zooms to the selection" onClick={props.onFit}>⤢</button>
-      <button type="button" class="sq-icon" aria-label="Zoom in" title="Zoom in (=)" onClick={() => props.onZoom(1.5)}>+</button>
+      <span class="sq-sep" aria-hidden="true" />
+      {/* Zoom for touch and keyboard too (Ctrl+wheel on the lanes does the same). */}
+      <span class="sq-zoom" role="group" aria-label="Zoom">
+        <button type="button" class="sq-icon" aria-label="Zoom out" title="Zoom out (−, or Ctrl+wheel)" onClick={() => props.onZoom(1 / 1.5)}><Icon name="zoomOut" /></button>
+        <button type="button" class="sq-icon" aria-label="Fit" title="Fit the sequence (0); Z zooms to the selection" onClick={props.onFit}><Icon name="fit" /></button>
+        <button type="button" class="sq-icon" aria-label="Zoom in" title="Zoom in (=, or Ctrl+wheel)" onClick={() => props.onZoom(1.5)}><Icon name="zoomIn" /></button>
+      </span>
     </div>
   );
 }

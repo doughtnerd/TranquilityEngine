@@ -145,3 +145,26 @@
 /* Player bar transport */
 .sq-transport { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .sq-transport label { display: inline-flex; align-items: center; gap: 2px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+
+/* Icons, focus and touch (ADR 0361). The timeline's drag surfaces keep the browser from scrolling under a finger;
+   the thin handles reach further on a touch screen. */
+.sq-toolbar :is(.pl-small, .sq-tool, .sq-icon, .sq-back) { display: inline-flex; align-items: center; gap: 3px; }
+.sq-zoom { display: inline-flex; gap: 2px; margin-left: auto; }
+.sq-icon { display: inline-flex; align-items: center; justify-content: center; }
+.sq-caret { gap: 2px; }
+.sq-chip .studio-glyph { vertical-align: -0.1em; }
+.sq-lane, .sq-loops-row, .sq-markers-row, .sq-seq-loop, .sq-marker, .sq-cap, .sq-edge, .sq-end-handle, .sq-thumb, .sq-key { touch-action: none; }
+:is(.sq-clip, .sq-seq-loop, .sq-marker):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; z-index: 3; }
+:is(.sq-tool, .sq-icon, .sq-ms, .sq-fx, .sq-swatch, .sq-time):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.sq-tempo > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+
+@media (pointer: coarse) {
+  .sq-ms { width: 32px; height: 32px; }
+  .sq-icon, .sq-fx { min-width: 32px; min-height: 32px; }
+  .sq-swatch { width: 20px; height: 20px; }
+  .sq-cap::before, .sq-edge::before, .sq-end-handle::before, .sq-thumb-edge::before { content: ""; position: absolute; inset: -6px -10px; }
+  .sq-key { r: 8px; }
+  .sq-edge { background: color-mix(in srgb, var(--text) 15%, transparent); }
+  .sq-scrollbar { height: 20px; border-radius: 10px; }
+  .sq-tempo > summary { min-height: 36px; display: inline-flex; align-items: center; }
+}

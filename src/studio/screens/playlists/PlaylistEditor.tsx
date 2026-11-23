@@ -21,6 +21,7 @@ import { SequencePanel } from "./sequence/SequencePanel";
 import { convertType, typeOptions } from "./typeConversion";
 import { liveWeights } from "./blendViewModel";
 import { FadeShapeSelect } from "../../components/FadeShapeSelect";
+import { Icon } from "../../components/Icon";
 
 export interface PlaylistEditorProps extends EntryActions {
   readonly body: PlaylistBody;
@@ -164,17 +165,21 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
             {props.title}
           </h2>
         )}
+        {!renaming && props.renamable && writable && (
+          <button type="button" class="pl-icon" aria-label="Rename playlist" title="Rename (F2)" onClick={() => setRenaming(true)}><Icon name="edit" /></button>
+        )}
         <SegmentedControl<PlaylistType> label="Playlist type" value={body.type} options={typeOptions(body)}
           onChange={(t) => writable && onEdit(`Mode: ${typeName(t)}`, (b) => convertType(b, t, props.ctx))} />
         {canAdd && (
           <button type="button" class="pl-primary pl-add-btn" disabled={!writable} onClick={props.onAdd}>
+            {body.type !== "clip" && <><Icon name="plus" size={12} /> </>}
             {body.type === "clip" ? (body.entries.length ? "Replace sample…" : "Choose sample…") : "Add…"}
           </button>
         )}
       </div>
       {general.length > 0 && (
         <ul class="pl-lints" aria-label="Warnings">
-          {general.map((l, i) => <li key={i} class="pl-lint">⚠ {l.message}</li>)}
+          {general.map((l, i) => <li key={i} class="pl-lint"><Icon name="warning" size={14} /> {l.message}</li>)}
         </ul>
       )}
       <div class="pl-view">{view}</div>
@@ -195,7 +200,7 @@ export function ClipView(props: { readonly body: PlaylistBody; readonly writable
           <span class="pl-field-label">Plays</span>
           <span class="pl-inline">
             <strong title={s.sample}>{sampleTitle(s.sample)}</strong>
-            <button type="button" class="pl-link" onClick={() => props.onOpenSamples(s.sample)} title="Edit its loops, markers and trim in Samples">Open in Samples ›</button>
+            <button type="button" class="pl-link" onClick={() => props.onOpenSamples(s.sample)} title="Edit its loops, markers and trim in Samples">Open in Samples <Icon name="chevronRight" size={12} /></button>
           </span>
         </div>
         {body.entries.length > 1 && <p class="pl-note">A Clip plays its first sample; the {body.entries.length - 1} after it are kept but not played.</p>}

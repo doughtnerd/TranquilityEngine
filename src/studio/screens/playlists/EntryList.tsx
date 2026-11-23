@@ -1,12 +1,13 @@
 // A playlist's entry list (the prototype's entry rows): a grip to drag an entry to another place (Alt+↑/↓ too), its
 // type badge and name (linked ones dashed), a weight for a random Queue (0 never plays), volume and pitch per use, what
-// happens at weight 0 for a Blend, › to open it and × to remove it. A click selects (the Inspector shows it); a
+// happens at weight 0 for a Blend, an Open and a Remove button. A click selects (the Inspector shows it); a
 // double-click opens it. The row menu has Open, Edit voice curves…, Move up / down, Duplicate, Make shared or Unlink,
 // and Remove. A view over props: every change is a labelled edit handed to the owner.
 import { useRef, useState } from "preact/hooks";
 import type { Entry, PlaylistBody } from "../../../engine/audio/playlist/types";
 import { ContextMenu, SEPARATOR, tidyEntries } from "../../../editor/ui/ContextMenu";
 import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import { Icon } from "../../components/Icon";
 import { TypeBadge } from "../../components/TypeBadge";
 import { NumberBox, SelectBox } from "../../../editor/ui/PanelFields";
 import { duplicateEntry, moveEntry, setEntryUse, USE_LIMITS, type EditContext } from "./playlistEdits";
@@ -59,14 +60,22 @@ export function EntryList(props: EntryListProps) {
       if (hit >= 0) to = hit;
       setDragging({ from, to });
     };
-    const up = () => {
+    const up = (ev: PointerEvent) => {
       doc.removeEventListener("pointermove", move);
       doc.removeEventListener("pointerup", up);
+      doc.removeEventListener("pointercancel", up);
       setDragging(null);
-      if (to !== from) props.onEdit("Reorder entries", (b) => moveEntry(b, from, to));
+      if (ev.type !== "pointercancel" && to !== from) props.onEdit("Reorder entries", (b) => moveEntry(b, from, to));
     };
     doc.addEventListener("pointermove", move);
     doc.addEventListener("pointerup", up);
+    doc.addEventListener("pointercancel", up);
+  };
+  /** The row menu from the keyboard (the context-menu key or Shift+F10), placed at the row. */
+  const menuAtRow = (i: number, row: HTMLElement) => {
+    const r = row.getBoundingClientRect();
+    props.onSelect(i);
+    setMenu({ i, x: r.left + 24, y: r.bottom });
   };
 
   if (body.entries.length === 0) return <p class="pl-note pl-entries-empty">No entries yet. Add samples or playlists with Add…, or drag samples here from the Library.</p>;
@@ -92,7 +101,8 @@ export function EntryList(props: EntryListProps) {
             role="listitem"
             data-entry={i}
             tabIndex={0}
-            aria-selected={props.selected === i}
+            aria-current={props.selected === i ? "true" : undefined}
+            aria-label={name}
             class={`pl-entry${props.selected === i ? " selected" : ""}${e.kind === "linked" ? " pl-linked" : ""}${dragging?.to === i && dragging.from !== i ? " pl-drop-here" : ""}${dragging?.from === i ? " dragging" : ""}${showWeight && e.weight === 0 ? " pl-muted" : ""}`}
             onClick={() => props.onSelect(i)}
             onDblClick={() => props.onOpen(i)}
@@ -103,6 +113,10 @@ export function EntryList(props: EntryListProps) {
                 props.onEdit("Reorder entries", (b) => moveEntry(b, i, i + (ev.key === "ArrowUp" ? -1 : 1)));
               } else if (ev.key === "Enter") props.onOpen(i);
               else if (ev.key === "Delete" && writable) props.onRemove(i);
+              else if (ev.key === "ContextMenu" || (ev.shiftKey && ev.key === "F10")) {
+                ev.preventDefault();
+                menuAtRow(i, ev.currentTarget as HTMLElement);
+              }
             }}
             onContextMenu={(ev) => {
               ev.preventDefault();
@@ -111,13 +125,13 @@ export function EntryList(props: EntryListProps) {
             }}
           >
             <span class={`pl-grip${reorderable && writable ? "" : " off"}`} aria-hidden="true" title={reorderable ? "Drag to reorder (or Alt+↑/↓)" : "A Blend orders entries by position"} onPointerDown={(ev) => reorderable && startGrip(i, ev)}>
-              ⋮⋮
+              <Icon name="grip" size={14} />
             </span>
             <span class="pl-entry-name" title={e.kind === "linked" ? `Linked: ${e.playlist}` : e.kind === "embedded" ? "Embedded" : e.kind === "line" || e.kind === "generator" ? name : e.sample}>
               {facts ? <TypeBadge playlist={facts.type} axes={facts.axes} /> : <TypeBadge sample />}
               <span class="pl-entry-label">{name}</span>
-              {e.kind === "linked" && <span class="pl-link-mark" aria-label="Linked copy">⛓</span>}
-              {Object.keys(e.curves).length > 0 && <span class="pl-row-meta" title="Has voice curves">~</span>}
+              {e.kind === "linked" && <span class="pl-link-mark" title="Linked copy"><Icon name="link" size={12} label="Linked copy" /></span>}
+              {Object.keys(e.curves).length > 0 && <span class="pl-row-meta" role="img" aria-label="Has voice curves" title="Has voice curves">~</span>}
               {w !== undefined && <span class="pl-weight-bar" style={{ "--w": String(Math.max(0, Math.min(1, w))) }} title={`Weight now ${(w * 100).toFixed(0)} %`} />}
             </span>
             {showWeight && (
@@ -136,8 +150,8 @@ export function EntryList(props: EntryListProps) {
               />
             )}
             <span class="pl-entry-actions">
-              {e.kind !== "sample" && <button type="button" class="pl-icon" aria-label={`Open ${name}`} title="Open" onClick={(ev) => (ev.stopPropagation(), props.onOpen(i))}>›</button>}
-              <button type="button" class="pl-icon" aria-label={`Remove ${name}`} title={e.kind === "linked" ? "Remove link" : "Remove"} disabled={!writable} onClick={(ev) => (ev.stopPropagation(), props.onRemove(i))}>×</button>
+              {e.kind !== "sample" && <button type="button" class="pl-icon" aria-label={`Open ${name}`} title="Open" onClick={(ev) => (ev.stopPropagation(), props.onOpen(i))}><Icon name="chevronRight" /></button>}
+              <button type="button" class="pl-icon" aria-label={`Remove ${name}`} title={e.kind === "linked" ? "Remove link" : "Remove"} disabled={!writable} onClick={(ev) => (ev.stopPropagation(), props.onRemove(i))}><Icon name="close" /></button>
             </span>
           </div>
         );
