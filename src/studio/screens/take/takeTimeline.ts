@@ -1,9 +1,10 @@
 // The Take screen's timeline, read from a take (ADR 0348 "The Take screen"; the prototype's Take): the instances per
-// playlist path (each a span from its PLAY to its STOP, or to the take's end, with the held part up to its RELEASE),
+// playlist path (each a span from its PLAY to its STOP, to where it played out, or to the take's end, with the held part up to its RELEASE),
 // the parameter lanes (each global parameter, and each instance parameter per path, from the keyframes' values and the
 // PARAM records; labelled parameters as segments), the game's marks, the pictures, and "Playlists in this take" (each
 // path with its instance count). Pure: the panels draw what this returns.
 import type { Take } from "../../../engine/audio/take/reader";
+import { TAKE_MAX_KEYFRAME_INSTANCES } from "../../../engine/audio/take/records";
 import type { TakeFrame, TakePlayOptions } from "../../../engine/audio/take/types";
 import type { Span } from "../../components/spanLaneModel";
 import type { ValuePoint } from "../../components/valueLaneModel";
@@ -16,7 +17,7 @@ export interface TakeInstance {
   readonly path: string;
   readonly emitter: number | null;
   readonly start: number;
-  /** STOP time; null when it played to the end of the take. */
+  /** STOP time, or for one the game never stopped the first keyframe that no longer lists it; null when it played to the end of the take. */
   readonly end: number | null;
   /** RELEASE time (the held part ends), or null. */
   readonly release: number | null;
@@ -84,6 +85,8 @@ export function takeInstances(take: Take): TakeInstance[] {
     start: number;
     end: number | null;
     release: number | null;
+    /** Ended by its STOP (not by played out, nor by its id being reused). */
+    stopped?: boolean;
     options: TakePlayOptions;
     parameters: Record<string, number>;
   }
@@ -108,12 +111,19 @@ export function takeInstances(take: Take): TakeInstance[] {
       open({ instance: q.instance, path: q.path, emitter: q.emitter, start: q.t, options: q.options, parameters: { ...q.options.parameters } });
     } else if (q.kind === "stop") {
       const l = live.get(q.instance);
-      if (l && l.end === null) l.end = q.t;
+      if (l && l.end === null) (l.end = q.t), (l.stopped = true);
       live.delete(q.instance);
     } else if (q.kind === "release") {
       const l = live.get(q.instance);
       if (l && l.release === null) l.release = q.t;
     }
+  }
+  // An instance the game never stopped (a one-shot that played out) ended before the first keyframe that no longer lists
+  // it: the recorder lists every instance still playing each second. One that every later keyframe lists ran to the end.
+  for (const x of out) {
+    if (x.stopped) continue;
+    const gone = take.keyframes.find((k) => k.t > x.start + 1e-6 && k.instances.length < TAKE_MAX_KEYFRAME_INSTANCES && !k.instances.some((i) => i.instance === x.instance && Math.abs(i.started - x.start) < 1e-6));
+    if (gone && (x.end === null || gone.t < x.end)) x.end = gone.t;
   }
   return out.sort((a, b) => a.start - b.start || a.instance - b.instance);
 }
