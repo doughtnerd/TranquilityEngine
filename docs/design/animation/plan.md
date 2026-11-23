@@ -239,6 +239,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
   - influences: 4 by default, 8 by sidecar;
   - the sidecar `animation` section (clips, root motion, additive, compression, markers, events, curves, mirror, `retargetSource`, `profile`, `boneMap` through Rust `guess_bone_map`, `influences`) in `importSettings.ts`;
   - a per-material "animated texture transform" flag;
+  - model sub-assets (`model.glb#Anim/<name>`, `#Skeleton`) satisfy `animclip` and `skeleton` asset fields (through the meshes model kind or a core field rule; T03t follow-up);
   - baked models carry skins and morphs;
   - CC0 fixtures.
 - **T19, clip compile pipeline (0370, 0371):**
