@@ -7,13 +7,9 @@
 //
 // Every drop goes through the refused-or-next result (ADR 0307, 0313) and `applyEdit`: a refusal is reported, an
 // accepted one is one undo step.
-import { writeComponentField } from "../../../../editor/componentField";
-import type { NodePath } from "../../../../editor/document";
-import { accept, applyEdit, refuse, refusalOf, type EditResult } from "../../../../editor/sdk/editResult";
-import type { OpenScene } from "../../../../editor/state";
+import { accept, applyEdit, editor, refuse, refusalOf, type EditResult, type NodePath, type OpenScene } from "../../../../editor/sdk";
 import { ANIM_SOURCE_SUFFIX } from "../../../../engine/animation/animSource";
 import { normalizeAssetPath } from "../../../../engine/scene/Assets";
-import { editStep } from "../../../../editor/editGate";
 import { Animator } from "../../runtime/components/Animator";
 
 /** The Assets panel entry is a clip: an authored clip, a compiled one, or a model's clip (`model.glb#Anim/<name>`). */
@@ -80,8 +76,7 @@ export function dropClipOnAnimator(scene: OpenScene, path: NodePath, entry: stri
   const label = "refused" in result ? `Add ${clipName(entry)} to ${animator.node.name}` : labelFor(animator, entry);
   let written = false;
   const accepted = applyEdit(result, label, (next) => {
-    const why = editStep({ kind: "scene", scene }, label, () => writeComponentField({ scene, path, type: "engine.Animator" }, "defaultClip", next));
-    written = why === null;
+    editor.scene.edit(label, () => (written = editor.scene.writeField({ scene, path, type: "engine.Animator" }, "defaultClip", next) === null), scene);
   });
   return accepted && written;
 }

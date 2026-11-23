@@ -1,6 +1,6 @@
 // Dropping a skinned model (ADR 0373 "Drop behaviour"; T18): through the editor's own add (`addAssets`, as a drop on the
 // scene view or the Hierarchy does), the Meshes plugin's model nodes are augmented by the Animation plugin through the
-// `modelNodeAugments` contribution point. A model whose meshes carry a skin (D105 `ModelMesh.skin`; the fixture's meshes
+// `registerAssetNodesAugment` contribution point. A model whose meshes carry a skin (D105 `ModelMesh.skin`; the fixture's meshes
 // are given one, as the importer T14 will fill it) gets a Skeleton, SkinnedMeshRenderers and an Animator playing its first
 // clip, in one undo step; a static model is untouched; deactivating the Animation plugin removes the augment.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";

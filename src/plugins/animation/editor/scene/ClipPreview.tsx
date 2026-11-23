@@ -8,14 +8,12 @@
 // animation core (a follow-up). The controls and the model choice are the finished part.
 import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { assetKind } from "../../../../editor/assetBrowser";
-import { registerAssetDropTarget } from "../../../../editor/assetDropTargets";
-import { LargePreview } from "../../../../editor/ui/AssetPreview";
+import { editor, LargePreview, registerAssetDropTarget } from "../../../../editor/sdk";
 import { clipName } from "./clipDrop";
 import { ClipPlayhead, clipTiming, modelOfClip, previewModel, type ClipTiming } from "./clipPreviewLogic";
 import "./scene.css";
 
-const isModel = (entry: string) => assetKind(entry) === "model";
+const isModel = (entry: string) => editor.assets.kindOf(entry) === "model";
 const seconds = (t: number) => `${t.toFixed(2)} s`;
 
 /** The drop zone that takes a model to preview the clip on. */

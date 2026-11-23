@@ -3,11 +3,12 @@
 // importer, T14), the root gets a `Skeleton` naming the model's skeleton (`model#Skeleton`) and an `Animator` playing
 // the model's first clip on start (D94 `defaultClip`, `model#Anim/<name>`), and each skinned mesh's `MeshRenderer`
 // becomes a `SkinnedMeshRenderer` (its Skeleton: the nearest ancestor's, the root). A model without skins is untouched.
-// The templates are added by the drop's node insertion, so the whole drop stays one undo step.
-import type { ComponentEntry, NodeTemplate } from "../../../../editor/sdk";
+// The templates are added by the drop's node insertion, so the whole drop stays one undo step. Registered as an augment
+// of the `model` kind's added nodes (`registerAssetNodesAugment`): the kind is the Meshes plugin's, which this plugin
+// doesn't import.
+import type { AssetNodesAugmentContribution, ComponentEntry, NodeTemplate } from "../../../../editor/sdk";
 import type { SkinnedModelFields } from "../../../../engine/render/skinning/skinData";
-import type { ModelData, ModelMesh } from "../../../../engine/scene/models";
-import type { ModelNodeAugment } from "../../../meshes/editor/modelNodes";
+import { loadModel, meshesIfLoaded, type ModelData, type ModelMesh } from "../../../../engine/scene/models";
 
 /**
  * @internal What the importer (T14) adds to a loaded model for its clips: their names, in file order, each a sub-asset
@@ -48,7 +49,7 @@ function asSkinned(renderer: ComponentEntry, ref: string): ComponentEntry {
  * The templates for the model at `path`, augmented for its skins (unchanged, the same list, when no mesh has one). Pure:
  * reads only `model`.
  */
-export function augmentSkinnedModel(path: string, templates: NodeTemplate[], model: ModelData & ModelClipFields): NodeTemplate[] {
+function augmentSkinnedModel(path: string, templates: NodeTemplate[], model: ModelData & ModelClipFields): NodeTemplate[] {
   const skinned = new Set(model.meshes.filter(hasSkin));
   if (skinned.size === 0 || templates.length === 0) return templates;
   const out = templates.map((t): NodeTemplate => {
@@ -72,8 +73,21 @@ export function augmentSkinnedModel(path: string, templates: NodeTemplate[], mod
   return out;
 }
 
-/** @internal The augment the scene seam contributes to `modelNodeAugments`. */
-export const skinnedModelAugment: ModelNodeAugment = {
+/** Each model the add prepared, by path (the model cache answers only meshes synchronously). */
+const prepared = new Map<string, ModelData>();
+
+/** @internal The augment of the `model` kind's added nodes the scene seam registers. */
+export const skinnedModelAugment: AssetNodesAugmentContribution = {
   id: "myco.animation.skinnedModels",
-  augment: augmentSkinnedModel,
+  kind: "model",
+  async prepare(path) {
+    const model = await loadModel(path).catch(() => null);
+    if (model) prepared.set(path, model);
+    else prepared.delete(path);
+  },
+  augment(path, templates) {
+    const model = prepared.get(path);
+    // Only the model still drawn (a reimport replaces it); a model that didn't load adds as the Meshes plugin made it.
+    return model && meshesIfLoaded(path) === model.meshes ? augmentSkinnedModel(path, templates, model) : templates;
+  },
 };

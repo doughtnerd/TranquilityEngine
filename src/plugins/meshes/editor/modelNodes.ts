@@ -2,9 +2,8 @@
 // the `model` asset kind. Moved from the shell's asset browser (ADR 0147).
 import { Color } from "../../../engine/core/math";
 import { composeMatrix, localPoseFromMatrix } from "../../../engine/render/gizmoMath";
-import { loadModel, meshesIfLoaded, modelTreeIfLoaded, type ModelData, type NodePose } from "../../../engine/scene/models";
+import { modelTreeIfLoaded, type NodePose } from "../../../engine/scene/models";
 import type { NodeEntry, NodeTemplate } from "../../../editor/sdk";
-import type { ContributionPoint } from "../../runtimeContext";
 
 type Vec3 = readonly [number, number, number];
 
@@ -24,56 +23,6 @@ type Vec3 = readonly [number, number, number];
  * its index in the list.
  */
 export function modelNodeTemplates(modelPath: string, position: Vec3 = [0, 0, 0]): NodeTemplate[] {
-  const entries = baseTemplates(modelPath, position);
-  const model = loaded.get(modelPath);
-  // Augments read the model `prepareModelNodes` loaded, while it is still the one drawn (not replaced by a reimport).
-  if (!model || meshesIfLoaded(modelPath) !== model.meshes) return entries;
-  return augments.reduce((list, a) => a.augment(modelPath, list, model), entries);
-}
-
-// ------------------------------------------------------------------------------------------------ augments (ADR 0373)
-
-/**
- * What another plugin's editor half adds to a dropped model's node templates (ADR 0373: the Animation plugin gives a
- * skinned model a Skeleton, SkinnedMeshRenderers and an Animator). Augments run in registration order on the templates
- * `modelNodeTemplates` built, all within the drop's one undo step.
- */
-export interface ModelNodeAugment {
-  readonly id: string;
-  /** Load what `augment` reads besides the model, while the drop prepares (never rejects). */
-  prepare?(path: string): Promise<void>;
-  /** The templates to add for the model at `path` (`templates[0]` the root), given the loaded model. Return a new list or `templates` itself. */
-  augment(path: string, templates: NodeTemplate[], model: ModelData): NodeTemplate[];
-}
-
-const augments: ModelNodeAugment[] = [];
-/** Each model the drop prepared, by path: what augments read (the model cache answers only meshes synchronously). */
-const loaded = new Map<string, ModelData>();
-
-/**
- * The contribution point for model-drop augments (ADR 0137's owner-exported point), contributed to through
- * `EditorPluginContext.contribute`, so deactivating the contributing plugin removes its augment.
- */
-export const modelNodeAugments: ContributionPoint<ModelNodeAugment> = {
-  id: "myco.meshes.modelNodes",
-  register(value) {
-    augments.push(value);
-    return () => {
-      const at = augments.indexOf(value);
-      if (at >= 0) augments.splice(at, 1);
-    };
-  },
-};
-
-/** The model kind's `addToScene.prepare`: load the model (and what augments read) before `modelNodeTemplates` runs. Never rejects. */
-export async function prepareModelNodes(path: string): Promise<void> {
-  const [model] = await Promise.all([loadModel(path).catch(() => null), ...augments.map((a) => a.prepare?.(path).catch(() => undefined))]);
-  if (model) loaded.set(path, model);
-  else loaded.delete(path);
-}
-
-/** The model's own templates (its node tree), before augments. */
-function baseTemplates(modelPath: string, position: Vec3): NodeTemplate[] {
   const tree = modelTreeIfLoaded(modelPath);
   const meshes = tree?.meshes ?? [];
   const extras = (tree?.nodes ?? []).filter((n) => n.light || n.camera);

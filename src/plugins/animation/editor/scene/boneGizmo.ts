@@ -3,8 +3,7 @@
 // model-space matrix (D104), so it follows the animated pose. Display only, like the joint gizmos (an always-on viewport
 // tool that never becomes active and takes no presses); the bone is read-only.
 import type { EditorOverlay } from "../../../../engine/editor";
-import type { ViewportToolContribution } from "../../../../editor/sdk/contributions";
-import { inspectorTarget } from "../../../../editor/inspectorTarget";
+import { editor, type ViewportToolContribution } from "../../../../editor/sdk";
 import { boneWorldMatrix } from "./bones";
 
 const AXIS_COLORS = [0xe5484d, 0x46a758, 0x3e63dd] as const;
@@ -28,9 +27,10 @@ function boneAxisLines(matrix: ArrayLike<number>, size: number): EditorOverlay["
 
 /** What the gizmo draws this frame: the selected bone's axes, or nothing. */
 function boneOverlay(): EditorOverlay {
-  const t = inspectorTarget.peek();
-  if (t.kind !== "bone") return { lines: [], handles: [] };
-  const found = boneWorldMatrix(t.scene, t.path, t.bone);
+  const selected = editor.scene.selection.bone;
+  const scene = editor.scene.peekOpen();
+  if (!selected || !scene) return { lines: [], handles: [] };
+  const found = boneWorldMatrix(scene, selected.path, selected.bone);
   return { lines: found ? boneAxisLines(found.matrix, found.size) : [], handles: [] };
 }
 

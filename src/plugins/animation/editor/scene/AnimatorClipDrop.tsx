@@ -2,8 +2,7 @@
 // the Assets panel. It says what releasing does (set or replace the default clip, or why not: an Animator with a graph
 // takes clips as states in the graph editor), and the drop is `clipDrop.ts`'s, as on the Animator's Hierarchy row.
 import { useEffect, useRef, useState } from "preact/hooks";
-import { registerAssetDropTarget } from "../../../../editor/assetDropTargets";
-import type { InspectorSectionProps } from "../../../../editor/ui/inspectorSections";
+import { registerAssetDropTarget, type InspectorSectionProps } from "../../../../editor/sdk";
 import { clipDropLabel, dropClipOnAnimator, isClipAsset } from "./clipDrop";
 import "./scene.css";
 

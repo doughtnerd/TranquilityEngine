@@ -5,12 +5,7 @@
 // Poses: the rest pose is the asset's (local TRS per bone). The current pose is the bone's model-space transform: the
 // animated one where the Editor World animates the skeleton (`skinningMatrices` × bind; D10), else the rest pose in model
 // space. Skinned draws and BoneAttachments live in the skeleton node's world space (D104), so the gizmo multiplies by it.
-import type { NodePath } from "../../../../editor/document";
-import { select } from "../../../../editor/inspectorTarget";
-import { insertNodes, whyNotInsert } from "../../../../editor/nodeInsertion";
-import { accept, applyEdit, refuse, type EditResult } from "../../../../editor/sdk/editResult";
-import type { NodeTemplate, SkeletonBoneRow, SkeletonBonesContribution } from "../../../../editor/sdk/contributions";
-import type { OpenScene } from "../../../../editor/state";
+import { accept, applyEdit, editor, refuse, type EditResult, type NodePath, type NodeTemplate, type OpenScene, type SkeletonBoneRow, type SkeletonBonesContribution } from "../../../../editor/sdk";
 import { localPoseFromMatrix } from "../../../../engine/render/gizmoMath";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import { multiply34, toMat4 } from "../../runtime/affine";
@@ -139,7 +134,7 @@ const attachmentTemplate = (bone: string): NodeTemplate => ({ name: bone, compon
 /** Add BoneAttachment for `bone` under the node at `path`, or why it can't (the node insertion's reasons: playing, a read-only scene…). */
 function addBoneAttachmentEdit(scene: OpenScene, path: NodePath, bone: string): EditResult<NodeTemplate> {
   const template = attachmentTemplate(bone);
-  const why = whyNotInsert(scene, { kind: "template", nodes: [template], label: "" }, { kind: "into", key: path.join("/") });
+  const why = editor.scene.whyNotInsert([template], path, scene);
   return why ? refuse(why) : accept(template);
 }
 
@@ -150,11 +145,8 @@ function addBoneAttachmentEdit(scene: OpenScene, path: NodePath, bone: string): 
 export function addBoneAttachment(scene: OpenScene, path: NodePath, bone: string): string | null {
   const label = `Add BoneAttachment for ${bone}`;
   let key: string | null = null;
-  applyEdit(addBoneAttachmentEdit(scene, path, bone), label, (template) => {
-    const made = insertNodes(scene, { kind: "template", nodes: [template], label }, { kind: "into", key: path.join("/") });
-    if (made.ok) key = made.keys[0] ?? null;
-  });
-  if (key) select([key], key);
+  applyEdit(addBoneAttachmentEdit(scene, path, bone), label, (template) => (key = editor.scene.insert(label, [template], path, scene)));
+  if (key) editor.scene.selection.set([key], key);
   return key;
 }
 

@@ -686,6 +686,22 @@ export interface NodeAssetDropContribution {
   drop(scene: OpenScene, path: NodePath, assets: readonly string[]): void;
 }
 
+/**
+ * A change another plugin makes to what adding a file of an asset kind to a scene makes (ADR 0140's `addToScene`, ADR
+ * 0373): the Animation plugin gives a dropped model whose meshes are skinned a Skeleton, SkinnedMeshRenderers and an
+ * Animator, though the model kind is the Meshes plugin's. Augments run in registration order on the kind's own templates,
+ * inside the add's one undo step; `prepare` runs beside the kind's own.
+ */
+export interface AssetNodesAugmentContribution {
+  readonly id: string;
+  /** The asset kind whose added nodes it changes, e.g. "model". */
+  readonly kind: string;
+  /** Load what `augment` reads, while the add prepares (with the kind's own `prepare`). Never rejects. */
+  prepare?(path: string): Promise<void>;
+  /** The templates to add for `path` (`templates[0]` the root): a new list, or `templates` itself to change nothing. */
+  augment(path: string, templates: NodeTemplate[]): NodeTemplate[];
+}
+
 export const componentNotes = createRegistry<ComponentNoteContribution>("Component note");
 export const assetKinds = createRegistry<AssetKindContribution>("Asset kind");
 export const panels = createRegistry<PanelContribution>("Panel");
@@ -705,6 +721,7 @@ export const nameReferences = createRegistry<NameReferencesContribution>("Name r
 export const componentWireframes = createRegistry<ComponentWireframeContribution>("Component wireframe");
 export const skeletonBones = createRegistry<SkeletonBonesContribution>("Skeleton bones");
 export const nodeAssetDrops = createRegistry<NodeAssetDropContribution>("Node asset drop");
+export const assetNodesAugments = createRegistry<AssetNodesAugmentContribution>("Asset nodes augment");
 
 /** The wireframe a registered contribution draws for `component` (by its Component type id), or null when none draws it or it can't be drawn now. */
 export function componentWireframe(component: Component): Wire | null {

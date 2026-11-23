@@ -2,9 +2,7 @@
 // its name, parent, rest pose (local, from the asset) and current pose (model space, animated where the Editor World
 // animates the skeleton), plus Add BoneAttachment. The logic is `bones.ts`.
 import { useEffect, useState } from "preact/hooks";
-import type { BoneInspectorProps } from "../../../../editor/sdk/contributions";
-import { docVersion } from "../../../../editor/state";
-import { whyNotEdit } from "../../../../editor/editGate";
+import { editor, type BoneInspectorProps } from "../../../../editor/sdk";
 import { addBoneAttachment, boneDetails, type BonePose } from "./bones";
 import "./scene.css";
 
@@ -30,7 +28,6 @@ function PoseRows(props: { pose: BonePose }) {
 
 export function BoneInspector(props: BoneInspectorProps) {
   const { scene, path, bone } = props;
-  docVersion.value; // the node or its Skeleton may change
   const [, tick] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => tick((n) => n + 1), POSE_REFRESH_MS);
@@ -44,7 +41,7 @@ export function BoneInspector(props: BoneInspectorProps) {
       </div>
     );
   }
-  const blocked = whyNotEdit({ kind: "scene", scene });
+  const blocked = editor.scene.whyNotEdit(scene);
   return (
     <div class="inspector-body bone-inspector">
       <div class="bone-inspector-header">
