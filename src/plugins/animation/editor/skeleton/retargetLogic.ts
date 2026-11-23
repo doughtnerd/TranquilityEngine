@@ -111,8 +111,27 @@ export function sideProblem(label: string, profile: SkeletonProfile, boneMap: Bo
   return missing.length ? `the ${label} has no bone for the required role${missing.length === 1 ? "" : "s"} ${missing.join(", ")}.` : null;
 }
 
+/** A retargeted clip's compiled bytes and compile report, or why not. */
+export type RetargetedClip = { readonly ok: true; readonly bytes: Uint8Array; readonly report: ClipReport } | { readonly ok: false; readonly error: string };
+
 /** Bake `request` and write the compiled clip (see the file comment). Never rejects. */
 export async function bakeRetargetedClip(env: RetargetEnv, request: RetargetRequest): Promise<BakeOutcome> {
+  const out = await retargetClipBytes(env, request);
+  if (!out.ok) return out;
+  try {
+    const path = bakedClipPath(request.target.model, request.clip, env.exists);
+    await env.writeBytes(path, out.bytes);
+    return { ok: true, path, size: out.bytes.length, report: out.report };
+  } catch (err) {
+    return { ok: false, error: `the retarget bake failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/**
+ * The retargeted clip's compiled bytes without writing them (the bake's compile step; the side-by-side preview plays them
+ * from memory, T18b). Never rejects.
+ */
+export async function retargetClipBytes(env: RetargetEnv, request: RetargetRequest): Promise<RetargetedClip> {
   try {
     const [source, target] = await Promise.all([env.model(request.source), env.model(request.target.model)]);
     if (!source) return { ok: false, error: `${request.source} has no skeleton to retarget from.` };
@@ -144,9 +163,7 @@ export async function bakeRetargetedClip(env: RetargetEnv, request: RetargetRequ
       job.raw,
     );
     if (!out.ok) return { ok: false, error: `the retarget bake failed: ${out.error}` };
-    const path = bakedClipPath(request.target.model, request.clip, env.exists);
-    await env.writeBytes(path, out.bytes);
-    return { ok: true, path, size: out.bytes.length, report: out.report };
+    return { ok: true, bytes: out.bytes, report: out.report };
   } catch (err) {
     return { ok: false, error: `the retarget bake failed: ${err instanceof Error ? err.message : String(err)}` };
   }

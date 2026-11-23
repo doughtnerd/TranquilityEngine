@@ -29,12 +29,12 @@ import { loadMeshes, meshesIfLoaded } from "../../../scene/models";
 import { CURRENT_FORMAT_VERSION, SCENE_FORMAT, type SceneFile } from "../../../scene/SceneLoader";
 import { World } from "../../../core/World";
 import type { ProjectSettings, ProjectSettingsInput } from "../../../core/settings";
-import { instantiateDocument } from "../../../editor";
+import { instantiateDocument, instantiateNodes } from "../../../editor";
 import { MeshRenderer, ParticleSystem } from "../../components";
 import { BabylonRenderer, loadPluginFeatures } from "../BabylonRenderer";
 import { EffectPlayer, EffectResources, libraryEffectHost } from "../effectPlayer";
 import { frameView, type Bounds } from "../../thumbnailMath";
-import type { ThumbnailKind } from "../../previewTypes";
+import type { PosedPreviewSpec, ThumbnailKind } from "../../previewTypes";
 import type { GraphShared } from "../graphMaterial";
 import { environmentKind } from "../lighting";
 import { meshOf, pbr } from "../materials";
@@ -150,6 +150,44 @@ export class ThumbnailScenes {
       }
     } catch (err) {
       console.warn(`[myco] thumbnail: couldn't draw ${path}:`, err);
+      return null;
+    }
+  }
+
+  /**
+   * A posed preview's scene (ADR 0373, T18b): `spec`'s nodes in a headless World that, unlike a prefab's, steps with each
+   * frame of the preview (`step`), so its plugins' systems run (an Animator posing a skeleton through the animation core);
+   * framed by what it draws at rest. Disposing it tears the World down, which closes the services it started.
+   */
+  async prepareWorld(spec: PosedPreviewSpec): Promise<ThumbnailScene | null> {
+    try {
+      await this.loadStudio();
+      const { world, renderer, dispose } = await this.headless(spec.scene, spec.key, true);
+      try {
+        await this.settle(world, renderer, 3000);
+        const scene = renderer.scene;
+        scene.clearColor = new Color4(0, 0, 0, 0); // follows the editor theme
+        const drawn = renderer.contentMeshes();
+        if (!drawn.length) throw new Error("it has nothing to draw.");
+        const framed = this.camera(scene, meshBounds(drawn), DIRECTION_3D, UNIT);
+        await this.ready(scene, 3000);
+        return {
+          scene,
+          ...framed,
+          beforeDraw: (camera) => renderer.beforeStill(camera),
+          step: (dt) => {
+            World._runIn(world, () => spec.frame?.(world));
+            world.step(dt);
+            World._runIn(world, () => renderer.sync(world));
+          },
+          dispose,
+        };
+      } catch (err) {
+        dispose();
+        throw err;
+      }
+    } catch (err) {
+      console.warn(`[myco] posed preview: couldn't draw ${spec.key}:`, err);
       return null;
     }
   }
@@ -368,13 +406,19 @@ export class ThumbnailScenes {
   /**
    * `file` loaded into a headless `World("editor")` of its own, and a thumbnail renderer with the registered
    * render features (and the lazy ones that World needs) to sync it (ADR 0153). The nodes are the World's
-   * own, so its cameras are canvas cameras; nothing runs, as the World never steps.
+   * own, so its cameras are canvas cameras; nothing runs, as the World never steps (unless `stepped`: a posed
+   * preview's World, whose nodes are live and whose frames the preview steps).
    */
-  private async headless(file: SceneFile, path: string): Promise<Headless> {
+  private async headless(file: SceneFile, path: string, stepped = false): Promise<Headless> {
     const world = new World("editor", this.settings());
     try {
-      const root = World._runIn(world, () => instantiateDocument(world, file, path, { onProblem: () => undefined }));
-      world.setEditMode(root.entity, false);
+      if (stepped) {
+        // A posed preview's nodes run as in a game (Animators start and evaluate): not an edit-mode scene, whose components stay inactive.
+        World._runIn(world, () => instantiateNodes(world, file, world.root, path, { onProblem: () => undefined }));
+      } else {
+        const root = World._runIn(world, () => instantiateDocument(world, file, path, { onProblem: () => undefined }));
+        world.setEditMode(root.entity, false);
+      }
       const renderer = BabylonRenderer.forThumbnail(this.engine, world.settings, await loadPluginFeatures(world), { studio: this.studioOk ? this.studio : null });
       renderer.setPolicy({ drawPolicy: "perObject" }); // a mesh per MeshRenderer and sprite, framed by their bounds
       return {

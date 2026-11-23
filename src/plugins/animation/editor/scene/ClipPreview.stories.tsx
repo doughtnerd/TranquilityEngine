@@ -1,6 +1,8 @@
 // Stories (ADR 0219) for the clip preview (ADR 0373; T18) in the Asset Inspector: an authored clip names no model, so the
 // preview asks for one to be dragged in; its play/pause button and time scrubber drive the playhead over the clip's
-// length. The model side is unit-tested (`clipPreviewLogic.test.ts`). Posing the preview isn't built yet (see the view).
+// length. The model side is unit-tested (`clipPreviewLogic.test.ts`). Posing a model with the clip (T18b) needs a skinned
+// model and the animation core in a preview World: the headless test `posedPreview.node.test.ts` covers it through the
+// runtime, and no story here drops a model in.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { withEditor, type EditorStoryParameters } from "../../../../editor/stories/editorStory";

@@ -24,7 +24,9 @@ export { useFieldDrag, type FieldDragHandlers } from "../ui/fieldDrag";
 // The frame every panel renders in, and its instance's own view state (ADR 0174).
 export { Panel, usePanel, usePanelState, usePanelValue, PanelInstanceContext, type PanelInstance, type PanelProps } from "../ui/panel/Panel";
 export { sectionField } from "../ui/inspectorSections";
-export { LargePreview } from "../ui/AssetPreview";
+export { LargePreview, type LargePreviewProps } from "../ui/AssetPreview";
+// ADR 0373 (T18b): posed live previews: the nodes an asset adds to a scene, and the content a LargePreview poses.
+export { assetNodesFor, type PosedPreview } from "../posedPreview";
 // The frame every asset document editor renders in (ADR 0265): head, Undo / Redo, problems, read-only notice; the kind gives the body.
 export { AssetDocumentFrame, type AssetDocumentFrameProps } from "../ui/AssetDocumentFrame";
 export { NameList, NumberField, ProblemList, Row, TextField } from "../ui/settingsControls";

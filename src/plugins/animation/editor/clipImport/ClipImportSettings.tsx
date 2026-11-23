@@ -8,20 +8,25 @@
 // the sidecar's `animation.clips` and Revert drops the draft. The compile report is of the clips as saved: Apply, then
 // Compile.
 //
-// Not yet: posing the preview (T18's finding: the live preview's scene has no World, so nothing evaluates a clip there);
-// the playhead runs and the strip follows it, and the model shows at rest.
+// The preview poses the model at the playhead (T18b): it plays the selected clip as the draft cuts it (`importPreviewLogic.ts`:
+// its range, loop and root motion as set, before Apply) through the runtime on the preview World's Animator. It binds the
+// clip by bone name, so another character shows it only when its bones are named alike.
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { Chip, LargePreview, editor, type ImportSettingsViewProps } from "../../../../editor/sdk";
-import { ROOT_MOTION_AXES } from "../../../../engine/animation/animSource";
+import { ROOT_MOTION_AXES, type AnimSource } from "../../../../engine/animation/animSource";
 import type { ModelAnimation } from "../../../../engine/scene/models";
 import { loadModel } from "../../../../engine/scene/models";
 import { clipCompileService } from "../compile/register";
+import { PosedClipPreview, previewClipOfSource } from "../scene/posedPreview";
+import { usePlayheadClock } from "../scene/usePlayheadClock";
+import { usePosedScene } from "../scene/usePosedScene";
 import { ClipPlayhead } from "../scene/clipPreviewLogic";
 import { animationOf, applyAnimation } from "../skeleton/animationDraft";
 import { readProfile, otherModels, useModelAnimation } from "../skeleton/modelAnimation";
 import { profileCompatible } from "../skeleton/retargetLogic";
 import { CurveRows, EventRows, MarkerRows } from "./ClipRows";
 import { TakeStrip } from "./TakeStrip";
+import { draftClipSource } from "./importPreviewLogic";
 import {
   addClip, clipLength, clipReportOf, clipsOfTake, describeReport, freshClipName, allClipNames, poseMatch, removeClip, renameClip, rootMotionWithAxis, setAdditive, setClipRange, setCompression, setCurves, setEvents, setLoop,
   setMarkers, setMirror, setRootMotion, splitClip, type ReportState,
@@ -29,6 +34,7 @@ import {
 import "./clipImport.css";
 import "../skeleton/skeleton.css";
 
+const ROLE = "Preview";
 const seconds = (t: number) => `${t.toFixed(2)} s`;
 const input = (e: Event) => e.currentTarget as HTMLInputElement;
 const select = (e: Event) => e.currentTarget as HTMLSelectElement;
@@ -60,17 +66,10 @@ function ClipImportCard(props: ImportSettingsViewProps & { animation: ModelAnima
   const length = clip ? clipLength(clip, take) : take.duration;
   const loop = clip?.loop ?? false;
   useEffect(() => playhead.setTiming({ duration: length, looping: loop, known: true }), [playhead, length, loop, clip?.name]);
-  useEffect(() => {
-    let frame = 0;
-    let last: number | null = null;
-    const step = (now: number) => {
-      if (last !== null) playhead.advance((now - last) / 1000);
-      last = now;
-      frame = requestAnimationFrame(step);
-    };
-    frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
-  }, [playhead]);
+  usePlayheadClock(playhead);
+  // The clip as the draft cuts it, played by the preview. Keyed by what the cut reads, not by identity: the settings are rebuilt each render.
+  const cutKey = JSON.stringify([take.name, clips, clip?.name]);
+  const source = useMemo(() => (clip ? draftClipSource(animation.takes, anim, take.name, clip.name) : null), [animation, take.name, cutKey]);
   const inClip = playhead.time.value;
   const atTake = (clip?.from ?? 0) + inClip;
 
@@ -101,7 +100,7 @@ function ClipImportCard(props: ImportSettingsViewProps & { animation: ModelAnima
 
   return (
     <>
-      <PreviewRow path={path} animation={animation} anim={anim} playhead={playhead} length={length} />
+      <PreviewRow path={path} animation={animation} anim={anim} playhead={playhead} length={length} source={source} />
       {takes.length > 1 && (
         <label class="import-row">
           <span>Take</span>
@@ -329,8 +328,8 @@ function ReportRows(props: { report: ReportState; saved: boolean; compiling: boo
 }
 
 /** The preview: the model (or a profile-compatible character) and the playhead's controls. */
-function PreviewRow(props: { path: string; animation: ModelAnimation; anim: ReturnType<typeof animationOf>; playhead: ClipPlayhead; length: number }) {
-  const { path, playhead } = props;
+function PreviewRow(props: { path: string; animation: ModelAnimation; anim: ReturnType<typeof animationOf>; playhead: ClipPlayhead; length: number; source: AnimSource | null }) {
+  const { path, playhead, source } = props;
   const [shown, setShown] = useState(path);
   const [note, setNote] = useState<string | null>(null);
   const files = editor.project.current?.files ?? [];
@@ -350,6 +349,12 @@ function PreviewRow(props: { path: string; animation: ModelAnimation; anim: Retu
   };
   const time = playhead.time.value;
   const playing = playhead.playing.value;
+  // The posed preview: the draft's clip served from memory, played on the shown model's Animator at the playhead.
+  const driver = useMemo(() => new PosedClipPreview(), []);
+  useEffect(() => () => driver.dispose(), [driver]);
+  useEffect(() => driver.setClip(ROLE, source ? previewClipOfSource(driver.files, source) : null), [driver, source]);
+  driver.setTime(time);
+  const posed = usePosedScene([{ role: ROLE, path: shown }]);
   return (
     <div class="clip-import-preview">
       {choices.length > 0 && (
@@ -366,7 +371,7 @@ function PreviewRow(props: { path: string; animation: ModelAnimation; anim: Retu
         </label>
       )}
       {note && <p class="skeleton-note" role="status">{note}</p>}
-      <LargePreview path={shown} />
+      <LargePreview path={shown} posed={posed.scene ? driver.content(posed.key, posed.scene) : undefined} />
       <div class="clip-preview-controls">
         <button type="button" aria-label={playing ? "Pause" : "Play"} aria-pressed={playing} onClick={() => playhead.toggle()}>
           {playing ? "❚❚" : "▶"}
@@ -376,7 +381,7 @@ function PreviewRow(props: { path: string; animation: ModelAnimation; anim: Retu
           {seconds(time)} / {seconds(props.length)}
         </span>
       </div>
-      <p class="skeleton-note">The model shows at rest: the preview doesn't pose it with the clip yet.</p>
+      {posed.state === "none" && <p class="skeleton-note">The model has no skeleton, so it shows at rest.</p>}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 // One service per project, kept in `.myco/thumbnails/` for a writable project folder and in memory
 // otherwise; the engine's thumbnail renderer is loaded the first time something needs drawing.
 import { effect } from "@preact/signals";
-import { createThumbnailRenderer, type ThumbnailKind, type ThumbnailPreview, type ThumbnailRenderer } from "../../engine/editor";
+import { createThumbnailRenderer, type PosedPreviewSpec, type ThumbnailKind, type ThumbnailPreview, type ThumbnailRenderer } from "../../engine/editor";
 import type { EditorProject } from "../projects";
 import { currentProject } from "../state";
 import { type AudioSummary, decodeAudioSummary } from "./audio";
@@ -193,6 +193,34 @@ export function previewAsset(path: string, canvas: HTMLCanvasElement): AssetPrev
     .then((r) => {
       if (stopped) return false;
       live = r.preview(kind as ThumbnailKind, path, canvas);
+      return live.ready;
+    })
+    .catch(previewFailed);
+  return {
+    ready,
+    orbit: (dyaw, dpitch) => live?.orbit(dyaw, dpitch),
+    zoom: (f) => live?.zoom(f),
+    reset: () => live?.reset(),
+    redraw: () => live?.redraw(),
+    stop: () => {
+      stopped = true;
+      live?.stop();
+    },
+  };
+}
+
+/**
+ * A live preview of a World a plugin describes (ADR 0373, T18b), in `canvas`, until `stop`: the World is made for the
+ * preview, steps every frame (so the plugin's systems pose what it holds) and is torn down by `stop`, with the services
+ * it started. Like `previewAsset`: one at a time, orbitable, and a handle that says whether it drew.
+ */
+export function previewPosed(spec: PosedPreviewSpec, canvas: HTMLCanvasElement): AssetPreviewHandle {
+  let live: ThumbnailPreview | null = null;
+  let stopped = false;
+  const ready = getRenderer()
+    .then((r) => {
+      if (stopped) return false;
+      live = r.previewPosed(spec, canvas);
       return live.ready;
     })
     .catch(previewFailed);

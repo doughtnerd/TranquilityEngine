@@ -3,17 +3,20 @@
 // with play/pause and a time scrubber. The model side (which model, the clip's length, the playhead) is
 // `clipPreviewLogic.ts`.
 //
-// Not yet: posing the preview. The live preview renders models in the thumbnail renderer's own scene, which has no World,
-// so nothing evaluates the clip there; the playhead runs and the model shows at rest until the preview hosts the
-// animation core (a follow-up). The controls and the model choice are the finished part.
+// The preview poses the model at the playhead (T18b): the live preview hosts a World of its own (`LargePreview`'s `posed`),
+// and `PosedClipPreview` plays the clip on its Animator through the runtime at speed 0 from the playhead's normalised time,
+// scrubbing and playing alike. A model without a skeleton shows at rest.
 import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { editor, LargePreview, registerAssetDropTarget } from "../../../../editor/sdk";
 import { clipName } from "./clipDrop";
+import { PosedClipPreview, prepareClip } from "./posedPreview";
+import { usePosedScene } from "./usePosedScene";
 import { ClipPlayhead, clipTiming, modelOfClip, previewModel, type ClipTiming } from "./clipPreviewLogic";
 import "./scene.css";
 
 const isModel = (entry: string) => editor.assets.kindOf(entry) === "model";
+const ROLE = "Preview";
 const seconds = (t: number) => `${t.toFixed(2)} s`;
 
 /** The drop zone that takes a model to preview the clip on. */
@@ -68,6 +71,17 @@ export function ClipPreview(props: { path: string }) {
   const own = modelOfClip(path);
   const shown = model.value;
   const time = playhead.time.value;
+  // The posed preview: the clip served from memory and played on the preview World's Animator at the playhead.
+  const driver = useMemo(() => new PosedClipPreview(), [path]);
+  useEffect(() => () => driver.dispose(), [driver]);
+  const version = editor.project.version;
+  useEffect(() => {
+    let live = true;
+    void prepareClip(driver.files, path).then((clip) => live && driver.setClip(ROLE, clip));
+    return () => void (live = false);
+  }, [driver, path, version]);
+  driver.setTime(time);
+  const posed = usePosedScene([{ role: ROLE, path: shown }]);
   const playing = playhead.playing.value;
   const duration = timing?.duration ?? 1;
   return (
@@ -82,7 +96,7 @@ export function ClipPreview(props: { path: string }) {
             </span>
             {!own && <span>(drop another model here to change it)</span>}
           </ModelDrop>
-          <LargePreview path={shown} />
+          <LargePreview path={shown} posed={posed.scene ? driver.content(posed.key, posed.scene) : undefined} />
         </>
       ) : (
         <ModelDrop class="clip-preview-drop" onModel={(m) => (model.value = m)}>
@@ -107,7 +121,7 @@ export function ClipPreview(props: { path: string }) {
         </span>
       </div>
       {timing && !timing.known && <p class="clip-preview-note">The clip's length isn't known until it's imported and compiled; the scrubber spans one second.</p>}
-      <p class="clip-preview-note">The model shows at rest for now: the preview doesn't pose it with the clip yet.</p>
+      {shown && posed.state === "none" && <p class="clip-preview-note">The model has no skeleton, so it shows at rest.</p>}
     </div>
   );
 }

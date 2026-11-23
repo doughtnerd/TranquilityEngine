@@ -4,13 +4,16 @@
 // - **Model:** a model's own clip (`model.glb#Anim/<name>`) previews on that model; an authored or compiled clip names no
 //   model, so the user drags one in (remembered per clip for the session).
 // - **Duration:** an authored clip's `duration` (`myco.anim-source@1`), a compiled clip's header (`myco.anim@1`); a model's
-//   clip has none until the importer (T14) and the compile (T19) make it a file, so the scrubber spans one second.
+//   clip is read from the importer's cut (`loadClipSource`), so it has one once its model has loaded; the scrubber spans
+//   one second until then (or when the model can't be read).
 // - **Playhead:** time in seconds, advanced by the preview's frame clock while playing; it loops for a looping clip and
 //   stops at the end otherwise.
 import { signal, type Signal } from "@preact/signals";
 import { parseAnimSource } from "../../../../engine/animation/animSource";
 import { Assets } from "../../../../engine/scene/Assets";
+import { modelClipOf } from "../../../../engine/animation/compile/keys";
 import { readClipInfo } from "../../runtime/assetInfo";
+import { loadClipSource } from "../../runtime/features/clipSources";
 
 /** The model a model's clip belongs to (`models/hero.glb#Anim/Run` → `models/hero.glb`), or null for a clip file. */
 export function modelOfClip(entry: string): string | null {
@@ -43,6 +46,10 @@ const UNKNOWN: ClipTiming = { duration: 1, looping: true, known: false };
 export async function clipTiming(entry: string): Promise<ClipTiming> {
   const path = entry.replace(/^asset:/, "");
   try {
+    if (modelClipOf(path)) {
+      const data = await loadClipSource(path);
+      return data ? { duration: data.source.duration, looping: data.source.loop, known: true } : UNKNOWN;
+    }
     if (!Assets.has(path)) return UNKNOWN;
     if (path.toLowerCase().endsWith(".anim.json")) {
       const clip = parseAnimSource(Assets.get(path)).value;

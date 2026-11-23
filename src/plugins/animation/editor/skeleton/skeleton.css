@@ -18,10 +18,9 @@
 .bone-map-match { color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* Retarget */
-.retarget-previews { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
-.retarget-side { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.retarget-side-title { font-size: calc(11px * var(--ui-scale)); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.retarget-empty { display: flex; align-items: center; justify-content: center; min-height: 90px; padding: 8px; border: 1px dashed var(--border-strong); border-radius: 4px; color: var(--muted); font-size: calc(12px * var(--ui-scale)); text-align: center; }
+.retarget-previews { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.retarget-titles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.retarget-side-title { min-width: 0; font-size: calc(11px * var(--ui-scale)); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .retarget-result { margin: 6px 0 0; font-size: calc(12px * var(--ui-scale)); color: var(--text); overflow-wrap: anywhere; }
 .retarget-problem { margin: 6px 0 0; font-size: calc(12px * var(--ui-scale)); color: var(--danger); }
 
