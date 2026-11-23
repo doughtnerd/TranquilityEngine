@@ -4,7 +4,7 @@ import { AddComponent } from "../../../editor/document";
 import { jointTool } from "./jointGizmo";
 import type { EditorOverlay } from "../../../engine/editor";
 import { viewportTools } from "../../../editor/sdk/contributions";
-import { ARC_RADIUS, arcPoints, crossLines, jointWire, perpendicular, rotateAround, zigzag } from "./jointMath";
+import { ARC_RADIUS, arcPoints, crossLines, jointWire, perpendicular, rotateAround, swingRimDirection, zigzag, type JointShape } from "./jointMath";
 import { openSceneFile } from "../../../editor/project";
 import { openScene, playState } from "../../../editor/state";
 import { select } from "../../../editor/inspectorTarget";
@@ -53,6 +53,52 @@ describe("joint geometry", () => {
   });
 });
 
+describe("ball joint limits geometry (ADR 0375)", () => {
+  const X = [1, 0, 0], Y = [0, 1, 0], Z = [0, 0, 1];
+  const deg = (v: readonly number[], w: readonly number[]) => (Math.acos(v[0] * w[0] + v[1] * w[1] + v[2] * w[2]) * 180) / Math.PI;
+  const ball = (swing: { y: number; z: number }, twist = { min: -20, max: 40 }): JointShape => ({ kind: "ball", anchor: [0, 0, 0], connected: null, axis: [1, 0, 0], ball: { twist, swing, frameY: [0, 1, 0], frameZ: [0, 0, 1] } });
+
+  it("puts the rim exactly at swing.z towards the frame's y and swing.y towards z", () => {
+    const swing = { y: 20, z: 50 };
+    expect(deg(swingRimDirection(X, Y, Z, swing, 0), X)).toBeCloseTo(50, 6); // towards +y: swing.z
+    expect(deg(swingRimDirection(X, Y, Z, swing, Math.PI), X)).toBeCloseTo(50, 6);
+    expect(deg(swingRimDirection(X, Y, Z, swing, Math.PI / 2), X)).toBeCloseTo(20, 6); // towards +z: swing.y
+    expect(deg(swingRimDirection(X, Y, Z, swing, (3 * Math.PI) / 2), X)).toBeCloseTo(20, 6);
+  });
+
+  it("is a circular cone when the two half-angles are equal", () => {
+    for (let t = 0; t < 6.3; t += 0.7) expect(deg(swingRimDirection(X, Y, Z, { y: 35, z: 35 }, t), X)).toBeCloseTo(35, 6);
+  });
+
+  it("is elliptical when they differ: between the axes the rim lies between the two half-angles", () => {
+    const a = deg(swingRimDirection(X, Y, Z, { y: 20, z: 50 }, Math.PI / 4), X);
+    expect(a).toBeGreaterThan(20);
+    expect(a).toBeLessThan(50);
+  });
+
+  it("draws the anchor cross, the closed rim, four spokes, the twist arc and its two radii", () => {
+    const wire = jointWire(ball({ y: 20, z: 50 }));
+    expect(wire).toHaveLength(3 + 1 + 4 + 1 + 2);
+    const rim = wire[3];
+    close(rim[0], rim[rim.length - 1]); // closed loop
+    for (const p of rim) expect(Math.hypot(p[0], p[1], p[2])).toBeCloseTo(ARC_RADIUS, 6);
+    close(wire[4][1], rim[0]); // the spokes run to the rim's ends on the two axes
+    close(wire[5][1], rim[8]);
+  });
+
+  it("draws the twist arc about the axis from min to max, starting from the frame's y direction", () => {
+    const wire = jointWire(ball({ y: 20, z: 50 }, { min: 0, max: 90 }));
+    const arc = wire[8];
+    close(arc[0], [0, 0.3, 0]);
+    close(arc[arc.length - 1], [0, 0, 0.3]);
+  });
+
+  it("omits the twist arc for an empty range, and the limits entirely while they are off", () => {
+    expect(jointWire(ball({ y: 20, z: 50 }, { min: 10, max: 10 }))).toHaveLength(3 + 1 + 4);
+    expect(jointWire({ kind: "ball", anchor: [0, 0, 0], connected: null, axis: [1, 0, 0] })).toHaveLength(3);
+  });
+});
+
 describe("joint overlay", () => {
   let engine: Engine;
   let view: ReturnType<typeof jointView>;
@@ -85,6 +131,29 @@ describe("joint overlay", () => {
     const normal = lines[0].color;
     select([a]);
     expect(view.overlay().lines[0].color).not.toBe(normal);
+  });
+
+  it("draws a ball joint's swing cone and twist arc in the joint's frame, turned with its axis", () => {
+    const scene = openScene.value!;
+    const a = insertNew(scene, "empty", { position: [1, 2, 3] });
+    scene.stack.execute(new AddComponent(a, { type: "engine.BallJoint", data: { useLimits: true, axis: [0, 1, 0], swing: { y: 30, z: 60 }, twistLimits: { min: -45, max: 45 } } }));
+    const lines = view.overlay().lines;
+    expect(lines).toHaveLength(11); // cross (3), rim, four spokes, arc, two radii
+    // The twist axis is world +y: every rim point leans off it between 30 and 60 degrees.
+    for (const p of lines[3].points) {
+      const d = [p[0] - 1, p[1] - 2, p[2] - 3];
+      const off = (Math.acos(d[1] / Math.hypot(d[0], d[1], d[2])) * 180) / Math.PI;
+      expect(off).toBeGreaterThan(29.9);
+      expect(off).toBeLessThan(60.1);
+    }
+    close(lines[0].points[0], [1 - 0.15, 2, 3]);
+  });
+
+  it("draws a ball joint without limits as just its cross", () => {
+    const scene = openScene.value!;
+    const a = insertNew(scene, "empty", { position: [0, 0, 0] });
+    scene.stack.execute(new AddComponent(a, { type: "engine.BallJoint", data: {} }));
+    expect(view.overlay().lines).toHaveLength(3);
   });
 
   it("draws a 2D joint's anchor and slider axis where the mirrored node's world matrix puts them (ADR 0301, 0305)", () => {

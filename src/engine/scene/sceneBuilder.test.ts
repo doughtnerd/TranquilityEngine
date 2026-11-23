@@ -22,7 +22,7 @@ describe("scene builder", () => {
       .toJSON();
 
     const handWritten: SceneFile = {
-      format: "myco.scene@4",
+      format: "myco.scene@5",
       settings: { physics: "2d" },
       nodes: [
         { id: "camera", name: "Camera", components: [{ type: "engine.Transform", data: { position: [0, 0, 10] } }] },

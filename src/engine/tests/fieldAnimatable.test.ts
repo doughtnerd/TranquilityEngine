@@ -27,6 +27,8 @@ class Sample extends Component {
   @field(String, { animatable: true }) title = "";
   @field(PlainObject, { animatable: true }) blob: Record<string, unknown> = {};
   @field(Boolean, { animatable: false, description: "kept beside other options" }) locked = false;
+  @field(PlainObject, { animatable: ["targetPosition", "pose.position"] }) spring: Record<string, unknown> = {};
+  @field(PlainObject, { animatable: [] }) emptyList: Record<string, unknown> = {};
 }
 
 @component("test.fieldAnimatable.Child")
@@ -83,5 +85,34 @@ describe("isFieldAnimatable through subclasses", () => {
   it("lets a subclass's redeclaration win", () => {
     expect(isFieldAnimatable(Redeclare, "n")).toBe(false);
     expect(isFieldAnimatable(Sample, "n")).toBe(true);
+  });
+});
+
+describe("isFieldAnimatable sub-paths (D86)", () => {
+  it("opens the listed paths of a plain object field", () => {
+    expect(isFieldAnimatable(Sample, "spring.targetPosition")).toBe(true);
+  });
+
+  it("keeps the object itself and unlisted paths closed", () => {
+    expect(isFieldAnimatable(Sample, "spring")).toBe(false);
+    expect(isFieldAnimatable(Sample, "spring.stiffness")).toBe(false);
+    expect(isFieldAnimatable(Sample, "emptyList.anything")).toBe(false);
+  });
+
+  it("matches a dotted entry exactly: an entry doesn't open the keys above or below it", () => {
+    expect(isFieldAnimatable(Sample, "spring.pose.position")).toBe(true);
+    expect(isFieldAnimatable(Sample, "spring.pose")).toBe(false);
+    expect(isFieldAnimatable(Sample, "spring.pose.position.x")).toBe(false);
+  });
+
+  it("is false for a path into a field with no list (boolean, default or unknown)", () => {
+    expect(isFieldAnimatable(Sample, "n.x")).toBe(false);
+    expect(isFieldAnimatable(Sample, "blob.x")).toBe(false); // animatable: true is the whole field, not a path
+    expect(isFieldAnimatable(Sample, "data.x")).toBe(false);
+    expect(isFieldAnimatable(Sample, "missing.x")).toBe(false);
+  });
+
+  it("is inherited by subclasses", () => {
+    expect(isFieldAnimatable(Child, "spring.targetPosition")).toBe(true);
   });
 });

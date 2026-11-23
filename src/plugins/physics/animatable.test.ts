@@ -42,12 +42,35 @@ describe("built-in physics opt-outs", () => {
     expect(isFieldAnimatable(BoxCollider2D, "size")).toBe(true);
     expect(isFieldAnimatable(CircleCollider2D, "radius")).toBe(true);
     expect(isFieldAnimatable(HingeJoint, "breakForce")).toBe(true);
-    expect(isFieldAnimatable(BallJoint, "swingLimit")).toBe(true);
+    expect(isFieldAnimatable(BallJoint, "useDrive")).toBe(true);
     expect(isFieldAnimatable(HingeJoint, "useMotor")).toBe(true);
   });
 
-  it("leaves joint limits, motor and spring objects to their type default (T43 opens spring.targetPosition)", () => {
+  it("leaves joint limits, motor, spring, swing and drive objects whole to their type default", () => {
     expect(isFieldAnimatable(HingeJoint, "limits")).toBe(false);
     expect(isFieldAnimatable(HingeJoint, "spring")).toBe(false);
+    expect(isFieldAnimatable(BallJoint, "swing")).toBe(false);
+    expect(isFieldAnimatable(BallJoint, "twistLimits")).toBe(false);
+    expect(isFieldAnimatable(BallJoint, "drive")).toBe(false);
+  });
+
+  it.each([
+    ["HingeJoint", HingeJoint],
+    ["SliderJoint", SliderJoint],
+  ] as [string, ComponentClass][])("%s: a clip may drive spring.targetPosition, not the rest of the spring", (_n, cls) => {
+    expect(isFieldAnimatable(cls, "spring.targetPosition")).toBe(true);
+    expect(isFieldAnimatable(cls, "spring.spring")).toBe(false);
+    expect(isFieldAnimatable(cls, "spring.damper")).toBe(false);
+    expect(isFieldAnimatable(cls, "motor.targetVelocity")).toBe(false);
+    expect(isFieldAnimatable(cls, "limits.min")).toBe(false);
+  });
+
+  it.each(["targetRotation", "stiffness", "damping", "maxForce"])("BallJoint: drive.%s is animatable", (key) => {
+    expect(isFieldAnimatable(BallJoint, `drive.${key}`)).toBe(true);
+  });
+
+  it("BallJoint: swing and twist limits are not animatable", () => {
+    expect(isFieldAnimatable(BallJoint, "swing.y")).toBe(false);
+    expect(isFieldAnimatable(BallJoint, "twistLimits.min")).toBe(false);
   });
 });

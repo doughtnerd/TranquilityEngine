@@ -145,8 +145,13 @@ export interface FieldOptions {
    * `Color`, `Boolean`, a field with `choices`, and `AssetRef`; false for strings without `choices`, lists, plain
    * objects and other types. Set `false` where animating would break an invariant, such as a physics body's
    * `bodyType`, or `true` to opt a field in that the default leaves out.
+   *
+   * On a `PlainObject` field, a list of sub-paths opts those in: `animatable: ["targetPosition"]` lets a clip drive
+   * `spring.targetPosition` (D86); the object as a whole stays not animatable. Each entry is a path below the
+   * field, keys joined by dots (`["pose.position"]` for a nested object), and names one leaf exactly: an entry
+   * doesn't open the keys below it. `isFieldAnimatable(type, "spring.targetPosition")` resolves it.
    */
-  animatable?: boolean;
+  animatable?: boolean | readonly string[];
   /** For a `Quaternion` field: how the Inspector shows it (ADR 0165; default: the editor's preference). Editor-only. */
   view?: "radians" | "degrees" | "quaternion";
 }
@@ -304,14 +309,20 @@ export function getFields(type: ComponentClass): readonly FieldInfo[] {
 /**
  * @internal Whether a clip, timeline or tween may animate the declared field `name` of a component class (ADR 0371):
  * its `animatable` option, else the default for its type (see `FieldOptions.animatable`). Inherited fields count.
- * False for a name the class doesn't declare. `name` is a top-level field; paths into plain objects aren't animatable.
+ * False for a name the class doesn't declare. `name` is a field, or a dotted path into a plain-object field
+ * (`"spring.targetPosition"`, D86): the path resolves the field named by its first segment, which must list the
+ * rest of the path in its `animatable` array. Any other path is not animatable.
  */
 export function isFieldAnimatable(type: ComponentClass, name: string): boolean {
   const fields = getFields(type);
+  const dot = name.indexOf(".");
+  const head = dot < 0 ? name : name.slice(0, dot);
   let info: FieldInfo | undefined;
-  for (let i = fields.length - 1; i >= 0 && !info; i--) if (fields[i]!.name === name) info = fields[i]; // a subclass's redeclaration wins
+  for (let i = fields.length - 1; i >= 0 && !info; i--) if (fields[i]!.name === head) info = fields[i]; // a subclass's redeclaration wins
   if (!info) return false;
-  if (info.options?.animatable !== undefined) return info.options.animatable;
+  const declared = info.options?.animatable;
+  if (dot >= 0) return Array.isArray(declared) && declared.includes(name.slice(dot + 1));
+  if (declared !== undefined) return declared === true;
   const t = info.type;
   if (isListType(t)) return false;
   if (info.options?.choices !== undefined) return true;

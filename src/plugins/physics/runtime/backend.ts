@@ -78,8 +78,17 @@ export interface JointSettings {
   readonly motor: { readonly targetVelocity: number; readonly maxForce: number } | null;
   /** Pull towards `target` with `stiffness` and `damping`. Ignored while a motor is on. */
   readonly spring: { readonly target: number; readonly stiffness: number; readonly damping: number } | null;
-  /** A spherical joint's twist range (around its x axis) and swing cone half-angle. */
-  readonly cone?: { readonly twist: readonly [number, number]; readonly swing: number } | null;
+  /**
+   * A spherical joint's twist range (around its x axis) and swing half-angles around its y and z axes, in its
+   * frame. The cone is elliptical; a backend without an exact elliptical limit approximates it (ADR 0375).
+   */
+  readonly cone?: { readonly twist: readonly [number, number]; readonly swing: readonly [number, number] } | null;
+  /**
+   * A spherical joint's drive: turn towards `rotation` (the joint body's rotation relative to the connected body,
+   * away from its pose when the joint was made, in the joint frame) with `stiffness` torque per radian and
+   * `damping` torque per radian per second, at most `maxForce` torque. Null is off.
+   */
+  readonly drive?: { readonly rotation: Quat; readonly stiffness: number; readonly damping: number; readonly maxForce: number } | null;
 }
 
 // --- Per-dimension type bundles ------------------------------------------------------------------
