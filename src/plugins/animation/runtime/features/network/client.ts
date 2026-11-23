@@ -8,7 +8,8 @@
 // - Parameters declared `replicate` are set when their value changes.
 // - Each layer machine's state: when the client's machine is in another state for `GRACE_SECONDS` after the server
 //   entered its state (so a transition the replicated parameters drive locally isn't fought), it jumps there (once per
-//   difference; again only if it drifts away again).
+//   difference; again only if it drifts away again). The core's `JUMP` carries no time yet, so the state starts from
+//   its beginning rather than at the server's normalised time (its time since the replicated entry tick).
 // - Slot plays start at their start tick; one that started earlier (a late join, a load) starts that far into its
 //   section, and one already over or stopped isn't played. Stops apply at their tick.
 // - Link choices apply at their tick.
@@ -30,13 +31,13 @@ import type { GraphMeta } from "../graph/asset";
 import { graphMeta, graphState, queueJump, queueLink, queueSlotPlay, queueSlotStop, setParameter } from "../graph/runtime";
 import { animatorsOf, clipEntry, type AnimatorRuntime } from "../instances";
 import { roleOf, sessionOf } from "./ghosts";
-import { applyingReplicated, netAnimator, queueReplicatedPlay, slotKey, trackEnd, type NetAnimator, type SlotTrack } from "./state";
+import { netAnimator, queueReplicatedPlay, slotKey, trackEnd, type NetAnimator, type SlotTrack } from "./state";
 import { decodeLinks, decodeParameters, decodeSlots, decodeStates, type NetParameterValue, type NetSlot } from "./wire";
 
 /** How long a client's state machine may differ from the server's before it jumps (interpolated ghosts). */
-export const GRACE_SECONDS = 0.1;
+const GRACE_SECONDS = 0.1;
 /** Snapshot ticks past a predicted play's tick after which the server not showing it means it didn't happen. */
-export const RECONCILE_MARGIN_TICKS = 3;
+const RECONCILE_MARGIN_TICKS = 3;
 
 /** Decodes the strings that changed since the last look. */
 function read(na: NetAnimator, a: Animator): void {
@@ -134,7 +135,7 @@ function applySlots(na: NetAnimator, rt: AnimatorRuntime, now: number, dt: numbe
     if (e.stopTick >= 0 && e.stopTick <= now && !na.stopped.has(key)) {
       na.stopped.add(key);
       const track = na.slots.get(e.slot);
-      if (track && track.tick === e.tick && track.clip === e.clip && track.play && !track.play.done) applyingReplicated(() => queueSlotStop(rt.animator, e.slot, e.stopFade));
+      if (track && track.tick === e.tick && track.clip === e.clip && track.play && !track.play.done) queueSlotStop(rt.animator, e.slot, e.stopFade);
     }
   }
 }
@@ -148,7 +149,7 @@ function reconcileSlots(na: NetAnimator, rt: AnimatorRuntime, session: NetSessio
     if (na.remoteSlots.some((e) => e.slot === t.slot && e.clip === t.clip && e.tick === t.tick)) continue;
     // The server has simulated past it and didn't play it: a misprediction.
     na.slots.delete(t.slot);
-    if (t.play && !t.play.done) applyingReplicated(() => queueSlotStop(rt.animator, t.slot, t.fade));
+    if (t.play && !t.play.done) queueSlotStop(rt.animator, t.slot, t.fade);
   }
   for (const e of na.remoteSlots) {
     const local = na.slots.get(e.slot);
@@ -156,7 +157,7 @@ function reconcileSlots(na: NetAnimator, rt: AnimatorRuntime, session: NetSessio
       if (e.stopTick >= 0 && local.stopTick !== e.stopTick) {
         local.stopTick = e.stopTick;
         local.stopFade = e.stopFade;
-        if (local.play && !local.play.done) applyingReplicated(() => queueSlotStop(rt.animator, e.slot, e.stopFade));
+        if (local.play && !local.play.done) queueSlotStop(rt.animator, e.slot, e.stopFade);
       }
       continue;
     }

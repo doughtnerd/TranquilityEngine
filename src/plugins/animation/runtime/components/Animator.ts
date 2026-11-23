@@ -102,17 +102,19 @@ export class Animator extends Component {
   ikTargetNodes: (GameObject | null)[] = [];
 
   // ------------------------------------------------------------------------------------------------ replicated state (ADR 0370, 0033; T33)
+  // Written by servers in `animation.Apply`, applied by clients in `animation.Gather` (`features/network/`); each a
+  // compact JSON array stamped with server ticks (`features/network/wire.ts`), at most 255 bytes (ADR 0068).
 
-  /** @internal Active state per layer with its entry tick, encoded by `animation.Apply` on servers (T33). */
+  /** @internal Each layer machine's state and the tick it was entered on (T33). */
   @field(String, { replicate: true, hidden: true, animatable: false })
   netStates = "";
-  /** @internal Slot plays (clip, start tick, sections), encoded by `animation.Apply` on servers (T33). */
+  /** @internal Each slot's latest play: clip, start tick, section, speed, loop, blend, and a stop's tick and fade (T33). */
   @field(String, { replicate: true, hidden: true, animatable: false })
   netSlots = "";
-  /** @internal Linked-graph selections made at run time (`link`), encoded on servers (T33). */
+  /** @internal Linked-graph choices made at run time (`link`), with their ticks (T33). */
   @field(String, { replicate: true, hidden: true, animatable: false })
   netLinks = "";
-  /** @internal Values of graph parameters declared `replicate`, encoded on servers (T33). */
+  /** @internal Values code set for graph parameters declared `replicate` (quantised), with the tick they last changed (T33). */
   @field(String, { replicate: true, hidden: true, animatable: false })
   netParameters = "";
 

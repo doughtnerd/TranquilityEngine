@@ -146,8 +146,8 @@ export function toNetSlot(t: SlotTrack): NetSlot {
 
 let applying = 0;
 
-/** @internal Runs `fn` with the hooks standing aside: the network feature applying replicated state itself. */
-export function applyingReplicated<T>(fn: () => T): T {
+/** Runs `fn` with the hooks standing aside: the network feature queueing replicated state itself. */
+function applyingReplicated<T>(fn: () => T): T {
   applying++;
   try {
     return fn();
