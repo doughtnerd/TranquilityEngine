@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // `npm run build:anim` (ADR 0370): compiles native/anim to WebAssembly with simd128 and writes the module, its
 // wasm-bindgen glue (setup calls only) and hash.json to src/plugins/animation/runtime/wasm/, which is committed, so
-// the engine builds without Rust. Also regenerates the wire constants (wasm/wire/<family>.ts) and their vectors.
+// the engine builds without Rust. Also regenerates the wire constants (wasm/wire/<family>.ts) and their vectors. Then
+// builds the editor's compile module (anim-editor-wasm, T19/D79: compression and bakes, never shipped in games) the same
+// way into wasm/editor/, with its own hash.json and size gate.
 // Modelled on native/nav/build.mjs (wasm-bindgen pin) and native/audio/build.mjs (wire generator, source hash, size gate).
 // Needs the toolchain pinned in rust-toolchain.toml, `rustup target add wasm32-unknown-unknown`, and wasm-bindgen-cli
 // at the version pinned in Cargo.toml.
@@ -41,6 +43,17 @@ const OUT_NAME = "myco_anim";
  * Raise it with a line in docs/design/animation/build-log.md saying why; never cut a feature to stay under it.
  */
 const SIZE_LIMIT = 970 * 1024;
+
+/** The editor's compile module (T19, D79): a separate cdylib the editor's worker and the exporters load, never games. */
+const editorOut = fileURLToPath(new URL("../../src/plugins/animation/runtime/wasm/editor/", import.meta.url));
+const EDITOR_OUT_NAME = "myco_anim_editor";
+/**
+ * The editor module's size tripwire, separate from the runtime's (it never ships in a game, so it guards only the editor's
+ * download and the exporter's). Set by T19 (2026-11-23) from its first build plus 20%, rounded: the compressor with its
+ * f64 reference, the skeleton compile, the compressed retarget bake and the pose-database bake measured 349,312 bytes;
+ * + 20% = 419,174 B -> 410 KB. Raise it with a line in docs/design/animation/build-log.md saying why.
+ */
+const EDITOR_SIZE_LIMIT = 410 * 1024;
 
 /** Runs `cmd args` in native/anim with inherited stdio. RUSTFLAGS are dropped so .cargo/config.toml's +simd128 applies. */
 function run(cmd, args) {
@@ -94,46 +107,52 @@ function checkToolchain() {
  * MYCO_ANIM_KEEP_NAMES=1 to keep the names for a profile (`node --cpu-prof` then names the wasm functions). That build
  * isn't for committing.
  */
-function buildWasm() {
-  run("cargo", ["build", "-p", "anim-wasm", "--target", TARGET, "--release"]);
-  mkdirSync(out, { recursive: true });
+function buildWasm(crate, dir, name) {
+  run("cargo", ["build", "-p", crate, "--target", TARGET, "--release"]);
+  mkdirSync(dir, { recursive: true });
   const strip = process.env.MYCO_ANIM_KEEP_NAMES === "1" ? [] : ["--remove-name-section", "--remove-producers-section"];
-  run("wasm-bindgen", [`target/${TARGET}/release/anim_wasm.wasm`, "--target", "web", "--out-dir", out, "--out-name", OUT_NAME, "--omit-default-module-path", ...strip]);
-  return `${out}${OUT_NAME}_bg.wasm`;
+  run("wasm-bindgen", [`target/${TARGET}/release/${crate.replace(/-/g, "_")}.wasm`, "--target", "web", "--out-dir", dir, "--out-name", name, "--omit-default-module-path", ...strip]);
+  return `${dir}${name}_bg.wasm`;
 }
 
-/** Fails the build when the wasm passes SIZE_LIMIT; returns its size. */
-function gate(path) {
+/** Fails the build when the wasm at `path` passes `limit` (the constant `constant` in this file); returns its size. */
+function gate(path, name, limit, constant) {
   const bytes = statSync(path).size;
   const kb = (bytes / 1024).toFixed(1);
-  if (SIZE_LIMIT > 0 && bytes > SIZE_LIMIT) {
+  if (limit > 0 && bytes > limit) {
     console.error(
-      `[build:anim] ${OUT_NAME}_bg.wasm is ${bytes} bytes (${kb} KB), over its ${SIZE_LIMIT / 1024} KB size gate.\n` +
+      `[build:anim] ${name}_bg.wasm is ${bytes} bytes (${kb} KB), over its ${limit / 1024} KB size gate.\n` +
         "[build:anim] The gate is a tripwire against accidental growth, not a design limit (CLAUDE.md): look for bloat first;\n" +
-        "[build:anim] if the growth is wanted, raise SIZE_LIMIT in native/anim/build.mjs and record why in docs/design/animation/build-log.md.",
+        `[build:anim] if the growth is wanted, raise ${constant} in native/anim/build.mjs and record why in docs/design/animation/build-log.md.`,
     );
     process.exit(1);
   }
-  console.log(`[build:anim] ${OUT_NAME}_bg.wasm: ${bytes} bytes (${kb} KB), gate ${SIZE_LIMIT / 1024} KB`);
+  console.log(`[build:anim] ${name}_bg.wasm: ${bytes} bytes (${kb} KB), gate ${limit / 1024} KB`);
   return bytes;
 }
 
 /** Loads the built module through its glue and returns the source hash it embeds. */
-async function readSourceHash(path) {
-  const glue = await import(pathToFileURL(`${out}${OUT_NAME}.js`).href);
+async function readSourceHash(dir, name, path) {
+  const glue = await import(pathToFileURL(`${dir}${name}.js`).href);
   glue.initSync({ module: readFileSync(path) });
   return glue.source_hash();
+}
+
+/** Builds one crate's module into `dir`, gates its size and writes its hash.json. */
+async function buildModule(crate, dir, name, limit, constant) {
+  const wasm = buildWasm(crate, dir, name);
+  const bytes = gate(wasm, name, limit, constant);
+  const sourceHash = await readSourceHash(dir, name, wasm);
+  const json = { sourceHash, bytes: { [`${name}_bg.wasm`]: bytes } };
+  writeFileSync(`${dir}hash.json`, JSON.stringify(json, null, 2) + "\n");
+  console.log(`[build:anim] source hash ${sourceHash}; wrote ${dir}`);
 }
 
 async function main() {
   checkToolchain();
   run("cargo", ["run", "-p", "anim-wire", "--bin", "gen_wire"]);
-  const wasm = buildWasm();
-  const bytes = gate(wasm);
-  const sourceHash = await readSourceHash(wasm);
-  const json = { sourceHash, bytes: { [`${OUT_NAME}_bg.wasm`]: bytes } };
-  writeFileSync(`${out}hash.json`, JSON.stringify(json, null, 2) + "\n");
-  console.log(`[build:anim] source hash ${sourceHash}; wrote ${out}`);
+  await buildModule("anim-wasm", out, OUT_NAME, SIZE_LIMIT, "SIZE_LIMIT");
+  await buildModule("anim-editor-wasm", editorOut, EDITOR_OUT_NAME, EDITOR_SIZE_LIMIT, "EDITOR_SIZE_LIMIT");
 }
 
 await main();
