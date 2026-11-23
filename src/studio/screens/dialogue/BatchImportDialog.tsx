@@ -1,7 +1,8 @@
 // Batch import (ADR 0340 §9, §8): pick files or a folder of a voice-over delivery, choose a naming pattern (presets or
 // typed, tokens {lang} {key} {table} {ignore}), the language of files without {lang}, and whether unknown keys become
 // rows of a table; the preview lists every file with what applying does (matched, replace, new row, skipped and why).
-// Apply copies the files into the localised roots and writes each sidecar's `vo` and `normalize`. A view over props;
+// Apply copies the files into the localised roots and writes each sidecar's `vo` and `normalize` (and `lipsync` from a
+// Rhubarb Lip Sync `.txt`/`.json` picked beside a file with the same name, ADR 0340 §7). A view over props;
 // the screen reads the files and applies the plan.
 import { SelectBox } from "../../../editor/ui/PanelFields";
 import type { LanguageDef } from "../../../engine/localisation/languages";
@@ -34,7 +35,7 @@ function Pick(props: { folder: boolean; onPick(files: readonly File[]): void }) 
   return (
     <label class="smp-link" style={{ cursor: "pointer" }}>
       {props.folder ? "Choose a folder…" : "Choose files…"}
-      <input type="file" hidden multiple accept="audio/*,.wav,.flac,.ogg,.mp3,.m4a" aria-label={props.folder ? "Choose a folder" : "Choose files"}
+      <input type="file" hidden multiple accept="audio/*,.wav,.flac,.ogg,.mp3,.m4a,.txt,.tsv,.json" aria-label={props.folder ? "Choose a folder" : "Choose files"}
         {...(props.folder ? { webkitdirectory: "" } : {})}
         onChange={(e) => {
           const input = e.currentTarget as HTMLInputElement;
@@ -82,7 +83,7 @@ export function BatchImportView(props: BatchImportViewProps) {
                 {rows.map((r, i) => (
                   <tr key={i}>
                     <th scope="row" class="dl-key">{r.rel}</th>
-                    <td><span class={`dl-status ${r.status}`} title={r.note}>{STATUS_TEXT[r.status]}</span>{r.note && <span class="dl-from">{r.note}</span>}</td>
+                    <td><span class={`dl-status ${r.status}`} title={r.note}>{STATUS_TEXT[r.status]}</span>{r.note && <span class="dl-from">{r.note}</span>}{r.lipsync && r.dest && <span class="dl-from" title={r.lipsync}>with lip-sync</span>}</td>
                     <td class="dl-key">{r.key ?? ""}</td>
                     <td>{r.lang ?? ""}</td>
                     <td class="dl-key dl-muted">{r.dest ?? "skipped"}</td>

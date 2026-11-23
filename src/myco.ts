@@ -189,6 +189,9 @@ export type { AudioTake, AudioTakeState } from "./plugins/audio/runtime";
 // ADR 0330: `Audio.snapshot(name)`'s handle (`start`, `stop`, `active`).
 export type { AudioSnapshot } from "./plugins/audio/runtime";
 
+// The Subtitles plugin (ADR 0343 §5): the optional built-in display and the player's subtitle settings.
+export { SubtitleDisplay, Subtitles, type SubtitleSettings } from "./plugins/subtitles/runtime";
+
 // Interactive-music types, exported as types only (ADR 0168): a script can name them in annotations, and nothing
 // reaches the runtime bundle. ADR 0329 retired the music format's node model and rules (`*.audioevent.json`), so only the
 // handle and event types remain; music is authored as playlists.

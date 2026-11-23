@@ -6,9 +6,14 @@
 // unmatched; the plan copies each to `<root>/<lang>/<folder>/<file ?? key>.<ext>` and gives each sidecar its `vo`
 // (key and the reference text's hash) and `normalize` from `localisation.loudness`. Pure; the dialog reads the files,
 // copies them and writes the sidecars.
+//
+// Lip-sync (ADR 0340 §7): a Rhubarb Lip Sync output file (`.txt`/`.tsv` or `.json`) picked beside a line's audio with
+// the same name (`fr/intro_01.wav` + `fr/intro_01.txt`) rides along with it: it gets no row of its own, and applying
+// writes its keys into the copied file's sidecar `lipsync` block in the same step.
+import { isLipsyncFile } from "../../../engine/audio/localisation/lipsync";
 import { lineRow, LINE_LIMITS } from "../../../engine/audio/localisation/lines/format";
 import type { LineTable } from "../../../engine/audio/localisation/types";
-import type { SampleEdits, SampleVo } from "../../../engine/audio/sample/types";
+import type { SampleEdits, SampleLipsync, SampleVo } from "../../../engine/audio/sample/types";
 import { languageOf } from "../../../engine/localisation/languages";
 import { textHash } from "../../../engine/localisation/textHash";
 import type { EditResult } from "../../../plugins/audio/editor/editResult";
@@ -80,6 +85,19 @@ export interface BatchRow {
   /** Where the file goes (null when skipped). */
   readonly dest: string | null;
   readonly note: string;
+  /** The Rhubarb output picked beside it (its relative path), imported into its sidecar's `lipsync`. */
+  readonly lipsync?: string;
+}
+
+/** A picked file's path without its extension. */
+const stemOf = (rel: string): string => rel.replace(/\\/g, "/").replace(/\.[^./]*$/, "");
+
+/** The picked lip-sync files that sit beside a picked audio file of the same name, by that audio file's stem. */
+export function lipsyncCompanions(files: readonly string[]): Map<string, string> {
+  const audio = new Set(files.filter((f) => splitExtension(f)).map(stemOf));
+  const out = new Map<string, string>();
+  for (const f of files) if (isLipsyncFile(f) && audio.has(stemOf(f)) && !out.has(stemOf(f))) out.set(stemOf(f), f);
+  return out;
 }
 
 export interface BatchOptions {
@@ -94,7 +112,9 @@ export function previewBatch(data: DialogueData, files: readonly string[], patte
   const compiled = compilePattern(pattern);
   if ("refused" in compiled) return compiled;
   const taken = new Map<string, string>();
-  const rows = files.map((rel): BatchRow => {
+  const companions = lipsyncCompanions(files);
+  const riders = new Set(companions.values());
+  const rows = files.filter((f) => !riders.has(f)).map((rel): BatchRow => {
     const skip = (status: BatchStatus, note: string, m?: Partial<PatternMatch> & { lang?: string | null }): BatchRow => ({ rel, status, key: m?.key ?? null, lang: m?.lang ?? null, table: m?.table ?? null, dest: null, note });
     const m = matchFile(compiled.re, rel);
     if (!m) return skip("unmatched", splitExtension(rel) ? `doesn't match ${pattern}` : "not an audio file");
@@ -126,7 +146,8 @@ export function previewBatch(data: DialogueData, files: readonly string[], patte
     const first = taken.get(id);
     if (first !== undefined) return skip("duplicate", `${first} already gives ${ref.line.key} in ${lang}`, { ...m, lang });
     taken.set(id, rel);
-    return { rel, status, key: ref.line.key, lang, table: ref.doc.path, dest, note };
+    const lipsync = companions.get(stemOf(rel));
+    return { rel, status, key: ref.line.key, lang, table: ref.doc.path, dest, note, ...(lipsync ? { lipsync } : {}) };
   });
   return { rows };
 }
@@ -158,10 +179,10 @@ export function voBlock(data: DialogueData, key: string): SampleVo | null {
 
 /**
  * A sidecar's `sample` block after import: `vo` set (or removed without text) and `normalize` from
- * `localisation.loudness`, its gain from `measured` (0 until measured).
+ * `localisation.loudness`, its gain from `measured` (0 until measured); `lipsync` set when a Rhubarb file came with it.
  */
-export function importedBlock(e: SampleEdits, vo: SampleVo | null, loudness: DialogueData["localisation"]["loudness"], measured: Measured | null): SampleEdits {
+export function importedBlock(e: SampleEdits, vo: SampleVo | null, loudness: DialogueData["localisation"]["loudness"], measured: Measured | null, lipsync: SampleLipsync | null = null): SampleEdits {
   const { vo: _old, ...rest } = e;
   const normalize = { mode: loudness.mode, target: loudness.target, gainDb: normalizeGain(loudness.mode, loudness.target, measured) };
-  return { ...rest, normalize, ...(vo ? { vo } : {}) };
+  return { ...rest, normalize, ...(vo ? { vo } : {}), ...(lipsync ? { lipsync } : {}) };
 }
