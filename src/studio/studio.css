@@ -5,44 +5,45 @@
 .studio.studio-starting { display: block; }
 .studio-start-title { margin: 0 0 4px; color: var(--accent); font-size: calc(11px * var(--ui-scale)); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
 
-/* Header. Its own width decides how much it shows (ADR 0361): the group titles go first, then the tabs' labels (the
- * icons stay, each tab keeps its name for assistive tech and its tooltip), and on a phone the screens take a row of
- * their own that scrolls sideways. */
+/* Header, as the prototype draws it: the app mark and name, the project, the screens as caps tabs in their groups
+ * (Author | Mix | Run | Ship, split by thin rules; each group names itself in its tooltip), the header tools and the
+ * output-device chip. Its own width decides how much it shows (ADR 0361): the app's name goes first (≤1280px), then the
+ * other tabs' labels (≤1100px: those tabs show their icons; each keeps its name for assistive tech and its tooltip), and
+ * on a phone the screens take a row of their own that scrolls sideways. */
 .studio-header { grid-area: header; container: studio-header / inline-size; display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 4px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--border); min-width: 0; }
-.studio-brand { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 0 1 auto; }
-.studio-logo { flex: none; width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; background: var(--accent); color: var(--accent-text); }
-.studio-app-name { font-weight: 600; color: var(--text-strong); white-space: nowrap; }
-.studio-project { display: inline-flex; align-items: center; gap: 6px; min-width: 0; background: none; border: 1px solid transparent; color: var(--muted); padding: 2px 6px; border-radius: 4px; max-width: 260px; white-space: nowrap; }
+.studio-brand { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 0 1 auto; }
+.studio-logo { flex: none; width: 22px; height: 22px; box-sizing: border-box; border-radius: 5px; background: var(--accent-soft); border: 1px solid var(--accent); box-shadow: 0 0 8px var(--accent-soft); }
+.studio-app-name { font-size: calc(13px * var(--ui-scale)); font-weight: 600; color: var(--text-strong); white-space: nowrap; }
+.studio-project { display: inline-flex; align-items: center; gap: 6px; min-width: 0; background: none; border: 1px solid transparent; color: var(--muted); padding: 2px 6px; border-radius: 4px; max-width: 220px; white-space: nowrap; font-size: calc(12px * var(--ui-scale)); }
 .studio-project-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .studio-project:hover { border-color: var(--border); color: var(--text); }
 .studio-project:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .studio-readonly { flex: none; display: inline-flex; align-items: center; gap: 3px; color: var(--warning); }
-.studio-nav { display: flex; align-items: center; gap: 6px; flex: 1 1 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.studio-nav { display: flex; align-items: center; gap: 2px; flex: 1 1 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .studio-nav::-webkit-scrollbar { display: none; }
 .studio-nav-group { display: flex; align-items: center; gap: 2px; flex: none; }
-.studio-nav-group-title { margin: 0 4px 0 6px; color: var(--faint); font-size: calc(10px * var(--ui-scale)); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
-.studio-nav-sep { display: none; width: 1px; height: 18px; margin: 0 4px; background: var(--border); }
-.studio-nav-group:first-child .studio-nav-sep { display: none !important; }
-.studio-tab { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; min-height: 28px; box-sizing: border-box; border-radius: 5px; color: var(--muted); text-decoration: none; white-space: nowrap; }
-.studio-tab .studio-glyph { opacity: 0.85; }
+.studio-nav-sep { flex: none; width: 1px; height: 16px; margin: 0 6px; background: var(--border); }
+.studio-nav-group:first-child .studio-nav-sep { display: none; }
+.studio-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; line-height: 18px; box-sizing: border-box; border-radius: 3px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; text-decoration: none; white-space: nowrap; }
+.studio-tab .studio-glyph { display: none; }
 .studio-tab:hover { background: var(--hover); color: var(--text); }
-.studio-tab.on { background: var(--selection); color: var(--selection-text); }
-.studio-tab.on .studio-glyph { opacity: 1; }
+.studio-tab.on { background: var(--active); color: var(--text-strong); box-shadow: inset 0 -2px 0 var(--accent); }
 .studio-tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .studio-header-tools { display: flex; align-items: center; gap: 6px; flex: none; margin-left: auto; }
-.studio-header-tools .kit-icon-button { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; min-height: 28px; }
+.studio-header-tools .kit-icon-button { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; min-height: 24px; padding: 2px 5px; }
 
-@container studio-header (max-width: 1680px) {
-  .studio-nav-group-title, .studio-app-name { display: none; }
-  .studio-nav-sep { display: block; }
-  .studio-project { max-width: 200px; }
+@container studio-header (max-width: 1280px) {
+  .studio-app-name { display: none; }
+  .studio-project { max-width: 180px; }
 }
-/* Then only the open screen's tab keeps its label. */
-@container studio-header (max-width: 1560px) {
-  .studio-tab { padding: 4px 8px; }
+/* Then only the open screen's tab keeps its label; the others show their icons. */
+@container studio-header (max-width: 1100px) {
+  .studio-tab:not(.on) { padding: 6px 8px; }
+  .studio-tab:not(.on) .studio-glyph { display: block; }
   .studio-tab:not(.on) .studio-tab-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 @container studio-header (max-width: 1000px) {
+  .studio-tab .studio-glyph { display: block; }
   .studio-tab .studio-tab-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .studio-project { max-width: 160px; }
 }

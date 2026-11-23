@@ -35,9 +35,7 @@ export function StudioHeader(props: StudioHeaderProps) {
   return (
     <header class="studio-header">
       <div class="studio-brand">
-        <span class="studio-logo" aria-hidden="true">
-          <Icon name="samples" size={16} />
-        </span>
+        <span class="studio-logo" aria-hidden="true" />
         <span class="studio-app-name">Audio Studio</span>
         <button class="studio-project" aria-label={`${props.projectName}${props.readOnly ? ", read-only" : ""}: close the project`} title={`${props.projectName}${props.readOnly ? " (read-only)" : ""} · Close the project`} onClick={props.onCloseProject}>
           <span class="studio-project-name">{props.projectName}</span>
@@ -51,10 +49,7 @@ export function StudioHeader(props: StudioHeaderProps) {
       </div>
       <nav class="studio-nav" aria-label="Studio screens">
         {screenGroups().map((g) => (
-          <div key={g.group} class="studio-nav-group" role="group" aria-label={g.title}>
-            <span class="studio-nav-group-title" aria-hidden="true">
-              {g.title}
-            </span>
+          <div key={g.group} class="studio-nav-group" role="group" aria-label={g.title} title={g.title}>
             <span class="studio-nav-sep" aria-hidden="true" />
             {g.screens.map((s) => (
               <a
@@ -62,7 +57,7 @@ export function StudioHeader(props: StudioHeaderProps) {
                 href={`#/${s.id}`}
                 class={`studio-tab${s.id === props.screen ? " on" : ""}`}
                 aria-current={s.id === props.screen ? "page" : undefined}
-                title={`${s.title} (${formatKeys(`Mod+${s.digit}`, mac)}): ${s.purpose}`}
+                title={`${s.title} (${formatKeys(`Mod+${s.digit}`, mac)})`}
                 aria-keyshortcuts={`${mac ? "Meta" : "Control"}+${s.digit}`}
                 onClick={(e) => {
                   e.preventDefault();
