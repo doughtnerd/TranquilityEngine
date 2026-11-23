@@ -1,6 +1,6 @@
 # 0380. Debug-link pairing reaches every native and browser endpoint on one network: either side listens, a short code pairs, WebRTC carries what a socket can't
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0381 (a room code carries its rendezvous's LAN address)
 - **Date:** 2026-11-23
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0376 in part (its **Endpoints** and **Remote devices** bullets: which side listens and how remote devices connect)
