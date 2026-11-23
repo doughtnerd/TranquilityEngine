@@ -103,7 +103,7 @@ export const Off: Story = {
 };
 
 export const Unavailable: Story = {
-  args: { builds: [], listen: { kind: "unavailable", why: "This editor can't listen for builds here: listening needs a host that can open a server socket." } },
+  args: { builds: [], listen: { kind: "unavailable", why: "This editor can't listen for builds here: a browser page can't open a server socket. The desktop editor can." } },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await userEvent.click(c.getByRole("button", { name: "Debug link off" }));
