@@ -62,10 +62,10 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 
 /**
  * End-to-end test hook: open the Flappy sample's files as a project folder in memory, plus `extra`
- * files (project path → text, e.g. scripts), as if opened from disk. The folder is left on
+ * files (project path → text, e.g. scripts, or bytes, e.g. clips), as if opened from disk. The folder is left on
  * `window.testFolder` (path → contents) so tests can see what the editor wrote.
  */
-export async function openTestProject(extra: Record<string, string> = {}): Promise<void> {
+export async function openTestProject(extra: Record<string, string | Uint8Array> = {}): Promise<void> {
   const [{ MemoryFileSystem }, sample] = await Promise.all([import("./memoryFs"), findSample("flappy")]);
   const ROOT = "C:\\Games\\flappy";
   const fs = new MemoryFileSystem();

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, fpsAtLeast, type Locator, openTestProject, type Page, play, test } from "./fixtures";
+import { expect, fpsAtLeast, type Locator, openEditor, type Page, play, test, type Hooks } from "./fixtures";
 import { showTab } from "./tabs";
 
 // Multiplayer play mode and the Network panel (ADR 0033 §9): a client/server project plays with
@@ -11,13 +11,6 @@ test.describe.configure({ timeout: 60_000 }); // several Worlds play at once; ea
 // Pings are answered in frames, so the RTT this spec compares carries up to a frame of jitter each
 // way: at the default cap (fixtures.ts) that is 100 ms, as much as the latency it adds.
 test.use({ fps: fpsAtLeast(30) });
-
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  playEngine?: { worlds(): { name: string }[] } | null;
-  openTestProject(extra: Record<string, string>): Promise<void>;
-  testFolder: { read(path: string): string | undefined };
-};
 
 /** The Flappy sample with two client Worlds linked to a headless server over loopback. */
 const PROJECT = JSON.stringify({
@@ -56,7 +49,7 @@ const slide = (slider: Locator, value: number) =>
 
 test("multiplayer play: 2 clients + 1 thin client, live stats, latency raises the RTT, Stop", async ({ page }) => {
   const errors = trackErrors(page);
-  await openTestProject(page, { "project.json": PROJECT });
+  await openEditor(page, { files: { "project.json": PROJECT } });
   await expect(page.locator(".tree .row .name", { hasText: /^Bird$/ })).toHaveCount(1);
 
   // The Network panel is a tab beside Worlds; not playing, it explains itself and offers the setup.

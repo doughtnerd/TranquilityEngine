@@ -27,3 +27,9 @@ tauri-plugin-fs = { version = "2", features = ["watch"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-persisted-scope = "2"
+# Gamepads (ADR 0335, src/gamepad.rs): SDL3 built from source with cmake and linked statically,
+# with only what gamepads need (no audio, video, rendering, camera, dialogs, tray or power). The
+# unix-console build lets SDL build on Linux without X11/Wayland headers, since it opens no windows.
+# Exported desktop games get the same lines (src/export/desktop.ts, GAMEPAD_DEPENDENCIES).
+sdl3 = { version = "0.22.1", features = ["build-from-source-static", "hidapi"] }
+sdl3-sys = { version = "0.7.3", default-features = false, features = ["no-sdl-audio", "no-sdl-video", "no-sdl-gpu", "no-sdl-render", "no-sdl-camera", "no-sdl-dialog", "no-sdl-tray", "no-sdl-power", "sdl-unix-console-build"] }

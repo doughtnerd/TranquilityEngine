@@ -1,10 +1,11 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { expect, requireWebGPU, test, type Locator, type Page } from "./fixtures";
+import { expect, requireWebGPU, test, type Locator, type Page, waitForEditor } from "./fixtures";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 
 // Shader sub-graphs, custom functions, node previews, copy and paste, groups, notes and the
 // minimap (ADR 0048), on the 3D Playground (its water graph uses the ripple sub-graph, which holds a Custom Function node).
+// That a saved sub-graph rebuilds the materials using it, and that graph materials draw lit, is materialLibrary.test.ts's.
 
 test.describe.configure({ timeout: 60_000 }); // WebKit renders on the CPU
 
@@ -19,11 +20,6 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
   }
   return out;
 }
-
-/** The editor's World on `window`; its render surface reports what it draws in engine terms (ADR 0128). */
-type Hooks = {
-  engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { drawn: { node: { name: string }; feature: string; materials: { unlit: boolean }[] }[]; stats: { programs: number } } } } };
-};
 
 function trackErrors(page: Page, allow: RegExp[] = []): string[] {
   const errors: string[] = [];
@@ -45,7 +41,7 @@ async function openPlayground(page: Page, writable: boolean): Promise<void> {
   } else {
     await page.goto("/editor.html?sample=playground3d");
   }
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await waitForEditor(page);
 }
 
 const box = async (l: Locator) => (await l.boundingBox())!;
@@ -58,14 +54,6 @@ const node = (page: Page, id: string) => page.locator(`.sg-node[data-node="${id}
 const json = async (page: Page, path: string) => JSON.parse((await readFile(page, path)) ?? "{}");
 const card = (page: Page, name: string) => page.locator(".inspector-body .component").filter({ has: page.getByRole("checkbox", { name: `${name} enabled`, exact: true }) });
 const row = (page: Page, name: string) => page.locator(".tree .row", { has: page.locator(".name", { hasText: new RegExp(`^${name}$`) }) });
-/** Whether a node's mesh draws lit or unlit, in engine material terms. */
-const meshMaterial = (page: Page, name: string) =>
-  page.evaluate((n) => {
-    const m = (window as unknown as Hooks).engine!.world.render.diagnostics().drawn.find((d) => d.feature === "meshes" && d.node.name === n)?.materials[0];
-    return m ? (m.unlit ? "unlit" : "lit") : null;
-  }, name);
-/** The shader programs the renderer has compiled: a rebuilt material's new shader adds one. */
-const programs = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.diagnostics().stats.programs);
 
 test("sub-graphs rebuild the materials using them; custom functions, copy and paste, groups, notes and previews save to the file", async ({ page, browserName, webgpu }) => {
   test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
@@ -78,10 +66,9 @@ test("sub-graphs rebuild the materials using them; custom functions, copy and pa
   await row(page, "Ground").click();
   const material = card(page, "MeshRenderer").getByRole("combobox", { name: "material" });
   await material.selectOption("materials/water.material.json");
-  await expect.poll(() => meshMaterial(page, "Ground")).toBe("lit");
-  const before = await programs(page);
+  await expect(material).toHaveValue("materials/water.material.json");
 
-  // Editing the sub-graph rebuilds the Ground's material.
+  // Editing the sub-graph saves it, which rebuilds the Ground's material.
   await openGraph(page, "ripple.shadersubgraph.json");
   const panel = page.locator(".shader-graph");
   await expect(panel.locator(".sg-kind")).toHaveText("Sub Graph");
@@ -89,7 +76,6 @@ test("sub-graphs rebuild the materials using them; custom functions, copy and pa
   await panel.getByLabel("Rings value").fill("12");
   await panel.getByLabel("Rings value").press("Enter");
   await expect.poll(async () => (await json(page, "Playground/shaders/ripple.shadersubgraph.json")).properties[0].value).toBe(12);
-  await expect.poll(() => programs(page)).toBeGreaterThan(before); // its shader compiles again
 
   // The Custom Function node's code is edited in the side bar; a body that doesn't compile shows the compiler's error.
   await node(page, "ripple").locator(".sg-node-header").click();
@@ -156,8 +142,5 @@ test("node previews draw and the minimap pans the canvas", async ({ page }) => {
   await page.mouse.move(map.x + map.width / 2 + 30, map.y + map.height / 2 + 10, { steps: 6 });
   await page.mouse.up();
   await expect.poll(() => viewport.getAttribute("style")).not.toBe(before);
-
-  // The Pillar draws lit with its graph material (a script override's own copy is materialLibrary.test.ts's).
-  expect(await meshMaterial(page, "Pillar")).toBe("lit");
   expect(errors).toEqual([]);
 });

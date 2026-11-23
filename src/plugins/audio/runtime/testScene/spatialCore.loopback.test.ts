@@ -23,7 +23,7 @@ import { createZoneIrService } from "../core/zoneIr";
 import { createDecoderHandler } from "../decoder/handler";
 import type { DecoderReply, IrFailedMessage, IrPreparedMessage, StreamPortLike } from "../decoder/protocol";
 import { pla, sample } from "../playlists/testKit";
-import { closeLoopbackAudio, endAudioSession, loopbackAudio, type LoopbackAudio, type LoopbackStreamPort } from "../testing";
+import { closeLoopbackAudio, endAudioSession, inProcessSpatialPrepare, loopbackAudio, type LoopbackAudio, type LoopbackStreamPort } from "../testing";
 import hash from "../wasm/hash.json";
 import { playAudioTestScene, type AudioTestScenePlayer } from "./player";
 
@@ -113,8 +113,8 @@ async function rig(audio: Record<string, unknown>, assets: Record<string, unknow
     decode: (path) => ({ channelData: [clip(path)] }),
     backend: (clips) => ({
       zoneIr,
-      hrir: createHrirLoader({ clips, sampleRate: RATE, warn: () => {}, fetchBytes: async () => HRIR.slice(0) }),
-      magls: createMaglsLoader({ clips, sampleRate: RATE, fetchBytes: async () => MAGLS.slice(0) }),
+      hrir: createHrirLoader({ clips, sampleRate: RATE, warn: () => {}, fetchBytes: async () => HRIR.slice(0), prepare: inProcessSpatialPrepare() }),
+      magls: createMaglsLoader({ clips, sampleRate: RATE, fetchBytes: async () => MAGLS.slice(0), prepare: inProcessSpatialPrepare() }),
     }),
   });
   if (!loop) return null;

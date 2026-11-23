@@ -14,10 +14,11 @@ import { Mat4, Vector2 } from "../core/math";
 import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import { devices, type InputClaim, type PointerFrame } from "../input/devices";
-import { UIButton, UICanvas, UIInputField, UIPanel, type UIComponentType } from "./components";
+import { UIButton, UICanvas, UIInputField, UIPanel, type UIComponentType, type UIFocusableElement } from "./components";
 import { UI_KIND_TYPES, flexShrinkOf, isInteractiveKind, isLeafKind, sameTextRun, textRunOf, uiKindOf } from "./elementKinds";
 import { fontEpoch } from "./fonts";
 import { uiInteractions } from "./interactions";
+import { pointerFocus } from "./navigation";
 import { canvasScale, estimateText, loadYogaOnce, loadedYoga, uiLength } from "./layout";
 import type { TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPickRay } from "./uiCoreTypes";
 
@@ -95,6 +96,10 @@ export class UICore implements UICoreLike {
   private active: UIInputField | null = null;
   private programmatic = false;
   private detachDom: (() => void) | null = null;
+  /** Keys the hidden input took since the last routing (Tab, Escape leaving a field), claimed from the game until released. */
+  private swallowed: string[] = [];
+  /** The pointer's position at the last routing: moving it ends navigation's focus colours (ADR 0340). */
+  private lastPointer: { x: number; y: number } | null = null;
 
   /** Whether clicks press buttons and focus fields (false: the editor's scene view, where they select; ADR 0129). */
   setInteractive(on: boolean): void {
@@ -232,6 +237,7 @@ export class UICore implements UICoreLike {
   dispose(): void {
     if (this.disposed) return;
     this.removeHook();
+    if (this.world && uiInteractions(this.world).layout === this) uiInteractions(this.world).layout = null;
     for (const c of [...this.entries.keys()]) this.release(c);
     this.unfocusDom();
     this.detachDom?.();
@@ -457,12 +463,12 @@ export class UICore implements UICoreLike {
 
   // --- Typing ---------------------------------------------------------------------------------
 
-  /** The input field that should have the keyboard now: focused, laid out and visible. */
+  /** The input field that should have the keyboard now: typing, laid out and visible. */
   private wantedField(): Entry | null {
     for (const e of this.entries.values()) {
       if (e.kind !== "input" || !e.canvas) continue;
       const c = e.comp as UIInputField;
-      if (c.focused && e.box.visible) return e;
+      if (c.typing && e.box.visible) return e;
     }
     return null;
   }
@@ -489,17 +495,28 @@ export class UICore implements UICoreLike {
       c.value = v;
       uiInteractions(c._world).record("change", c);
     };
+    // Enter submits; Tab, Shift+Tab and Escape leave the field through navigation (ADR 0340), and their
+    // presses stay the UI's until released, so the game (and the `ui` context) never sees them as new ones.
     const onKey = (e: KeyboardEvent) => {
       const c = this.active;
       if (!c) return;
-      if (e.key === "Enter") uiInteractions(c._world).record("submit", c);
-      else if (e.key === "Escape") uiInteractions(c._world).blur(c);
+      const log = uiInteractions(c._world);
+      if (e.key === "Enter") log.record("submit", c);
+      else if (e.key === "Escape") {
+        this.swallowed.push("escape");
+        log.request("cancel");
+      } else if (e.key === "Tab") {
+        e.preventDefault?.(); // not the browser's focus change
+        this.swallowed.push("tab");
+        if (e.shiftKey) this.swallowed.push("shift");
+        log.request(e.shiftKey ? "previous" : "next");
+      }
     };
     const onBlur = () => {
       if (this.programmatic || !this.active) return;
       // A press on the canvas takes DOM focus first; routing re-focuses the field that press hit.
       if (this.pointerHeld) return;
-      uiInteractions(this.active._world).blur(this.active);
+      uiInteractions(this.active._world).blur(this.active, "script");
     };
     el.addEventListener("input", onInput);
     el.addEventListener("keydown", onKey);
@@ -564,21 +581,32 @@ export class UICore implements UICoreLike {
   private route(raw: PointerFrame): InputClaim | void {
     this.pointerHeld = raw.down(0) || raw.held(0);
     const world = this.world;
+    const keys = this.swallowed;
+    this.swallowed = [];
     if (this.disposed || !world) return;
     const log = uiInteractions(world);
     if (!this.interactiveMode || !world._takesInput) {
+      if (log.layout === this) log.layout = null;
       log.idle();
       this.pressed = null;
       return;
     }
-    const fields = [...this.entries.values()].filter((e) => e.kind === "input");
+    log.layout = this; // navigation searches this core's layout (ADR 0340)
     const hit = this.hit(raw.x, raw.y);
     const usable = (e: Entry | null): e is Entry => !!e && e.kind === "button" && (e.comp as UIButton).interactable && e.comp.isActiveAndEnabled;
+    // The pointer moving or pressing makes it the last UI input: focus colours hide.
+    const last = this.lastPointer;
+    if (last && (last.x !== raw.x || last.y !== raw.y)) log.navigating = false;
+    this.lastPointer = { x: raw.x, y: raw.y };
 
     if (raw.down(0)) {
+      log.navigating = false;
       this.pressed = usable(hit) ? hit : null;
-      if (hit?.kind === "input") log.focus(hit.comp as UIInputField);
-      else for (const f of fields) log.blur(f.comp as UIInputField);
+      // A press focuses what it hit (an input field starts typing); elsewhere it unfocuses, unless a modal canvas keeps focus.
+      const target = hit && (hit.kind === "button" || hit.kind === "input") ? (hit.comp as UIFocusableElement) : null;
+      const press = pointerFocus(this, target);
+      if (press.focus) log.focus(target, "pointer", hit!.kind === "input");
+      else if (!press.trapped) log.focus(null, "pointer");
     }
     if (this.pressed && !this.entries.has(this.pressed.comp)) this.pressed = null;
     let clicked: UIButton | null = null;
@@ -588,8 +616,9 @@ export class UICore implements UICoreLike {
     } else if (this.pressed && !raw.held(0) && !raw.down(0)) this.pressed = null; // released without an up (focus lost)
     log.route({ hovered: usable(hit) ? (hit.comp as UIButton) : null, pressed: (this.pressed?.comp as UIButton | undefined) ?? null, clicked });
 
-    const focused = fields.some((f) => (f.comp as UIInputField).focused);
-    return { pointer: !!hit, keyboard: focused };
+    const focused = log.focused;
+    const typing = focused instanceof UIInputField && focused.typing;
+    return { pointer: !!hit, keyboard: typing, keys };
   }
 
   /**

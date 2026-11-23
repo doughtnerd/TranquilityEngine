@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Page, openEditor, waitForEditor } from "./fixtures";
 import sharp from "sharp";
 import { installFakeFolders, listFolder, nextFolder, writeFile } from "./fakeFolders";
 import { menu } from "./menus";
@@ -11,10 +11,6 @@ import { menu } from "./menus";
 
 test.describe.configure({ timeout: 90_000 });
 
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-};
-
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
@@ -23,8 +19,7 @@ function trackErrors(page: Page): string[] {
 }
 
 async function openSample(page: Page, id: string): Promise<void> {
-  await page.goto(`/editor.html?sample=${id}`);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 5);
+  await openEditor(page, { sample: id, frames: 5 });
 }
 
 const tile = (page: Page, name: string) => page.locator(".asset-tile", { hasText: name });
@@ -205,7 +200,7 @@ test("an environment map gets a preview in the Inspector", { tag: "@slow" }, asy
   await page.goto("/editor.html");
   await nextFolder(page, "Skies");
   await page.getByRole("dialog", { name: "Start" }).getByRole("button", { name: "Open Project…" }).click();
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 5);
+  await waitForEditor(page, { frames: 5 });
   await tile(page, "sky.hdr").click();
   const canvas = ".asset-large-preview.live canvas.asset-live-preview";
   await expect(page.locator(canvas)).toBeVisible({ timeout: 30_000 });
@@ -232,7 +227,7 @@ test("editing a material updates the Inspector's live preview", { tag: "@slow" }
   await page.goto("/editor.html");
   await nextFolder(page, "Playground");
   await page.getByRole("dialog", { name: "Start" }).getByRole("button", { name: "Open Project…" }).click();
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 5);
+  await waitForEditor(page, { frames: 5 });
   await page.locator(".asset-folder", { hasText: /^materials$/ }).click();
   await tile(page, "ground.material.json").click();
   const canvas = ".asset-large-preview.live canvas.asset-live-preview";
@@ -255,7 +250,7 @@ test("a writable project caches thumbnails in .myco/thumbnails/ and reads them b
   await page.goto("/editor.html");
   await nextFolder(page, "Playground");
   await page.getByRole("dialog", { name: "Start" }).getByRole("button", { name: "Open Project…" }).click();
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 5);
+  await waitForEditor(page, { frames: 5 });
 
   await page.locator(".asset-folder", { hasText: /^materials$/ }).click();
   for (const m of ["glow", "ground", "metal"]) await expect.poll(() => renderedWidth(page, `${m}.material.json`), { timeout: 30_000 }).toBeGreaterThan(0);

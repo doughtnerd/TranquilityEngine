@@ -579,3 +579,14 @@ The owner declared M2 complete. Carried as owner items: the lab-VM bench run (E5
 ## Test-only cleanup: no test-hooks wasm (2026-11-16)
 
 The `test-hooks` cargo feature, its two exports (`myco_audio_debug_trap_next`, and the `myco_audio_debug_decode_batch` stub that only returned `NOT_IMPLEMENTED`), its build in `build.mjs` and the committed `wasm/testing/myco_audio_test_hooks.wasm` are removed (CLAUDE.md: no feature-flagged builds for tests). The loopback tests that need a trap keep `LoopbackHost.trapNext()`: `testing.ts` hands the shell the real instance's exports with `myco_audio_process` wrapped to throw a `WebAssembly.RuntimeError` once, which the shell's trap catch takes as it takes a wasm trap. `createLoopbackHost` loses its `testHooks` option. Rebuilt with `npm run build:audio` (no `wasm-opt` on PATH, as before): new source hash `c8fdbfa8…`; `myco_audio.wasm` 377,648 B, both decoders the same size as before, so nothing moves against the size gates. The bundled `spikes/audio-mix/mix-core/live/build/live.mjs` still carries the old `testHooks` branch from its M5 build; it never takes it and is left as that spike's record.
+
+## ADR 0331: the spatial assets are prepared in the decoder (2026-11-22)
+
+The HRIR table (format 2) and the MagLS filters (format 4) are prepared for the context rate by the decoder wasm
+(`audio-decode/src/spatial.rs`, `myco_hrir_prepare` / `myco_magls_prepare`, decoder ABI 1.4) instead of
+`runtime/core/hrirResample.ts` on main, which is removed. The port is bit-exact: it keeps the TypeScript's f32/f64 split
+and its radix-2 f64 FFT (audio-dsp's f32 real FFT would move the low bits), and `tests/spatial.rs` pins both blobs'
+SHA-256 at 12 rates, recorded from the TypeScript before deletion. No golden or parity digest moved
+(`audioGolden.test.ts`, `hrtfParity.test.ts` pass unchanged); none was re-recorded. Rebuilt with `npm run build:audio`
+(no `wasm-opt` on PATH, as before): `myco_audio_decode.wasm` 804,382 B to 821,938 B (+17.5 KB: the preparation and its
+error messages; gate 900 KB, nothing raised), `myco_audio.wasm` unchanged at 377,648 B; new source hash.

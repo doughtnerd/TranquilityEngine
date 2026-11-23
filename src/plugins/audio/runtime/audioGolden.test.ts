@@ -23,12 +23,11 @@
 
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { resampleHrir, resampleMagls } from "./core/hrirResample";
 import { HRIR_CLIP_ID_FIRST as HRIR_CLIP_ID } from "./wire.generated";
 import { DecoderWasm } from "./decoder/wasm";
 import { maxStep } from "./golden/maxStep";
 import { goldenNames, levelDigest, matchLevelGolden, readLevelGolden, UPDATE_GOLDENS } from "./golden/replay";
-import { createLoopbackHost, LOOPBACK_PRESET, LOOPBACK_RATE, type LoopbackHost } from "./testing";
+import { createLoopbackHost, inProcessSpatialPrepare, LOOPBACK_PRESET, LOOPBACK_RATE, type LoopbackHost } from "./testing";
 import type { CorePreset } from "./worklet/coreDriver";
 import {
   ASAP,
@@ -233,13 +232,13 @@ class Stage {
   }
 
   /**
-   * Loads the HRIR table (H3's format 2 clip under the reserved id), resampled to the loopback rate as `hrir.ts` does at
-   * runtime, then renders `warmQuanta` quanta that are not part of the output: the core copies the table and builds its
+   * Loads the HRIR table (H3's format 2 clip under the reserved id), prepared for the loopback rate by the decoder as
+   * `hrir.ts` has it prepared at runtime (ADR 0331), then renders `warmQuanta` quanta that are not part of the output: the core copies the table and builds its
    * panner bank over them.
    */
   async loadHrir(warmQuanta = 40): Promise<void> {
     const bytes = await readFile(new URL("./wasm/myco_hrir.bin", import.meta.url));
-    const blob = resampleHrir(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, LOOPBACK_RATE);
+    const blob = await inProcessSpatialPrepare()("hrir", bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, LOOPBACK_RATE);
     const words = blob.byteLength / 2;
     const begin = new ArrayBuffer(16 + 20);
     const beginView = new DataView(begin);
@@ -260,12 +259,12 @@ class Stage {
   }
 
   /**
-   * ADR 0162 A7: loads the MagLS bed filters (H3-style: the committed asset resampled to the loopback rate as `hrir.ts`
-   * does at runtime, format 4 under `MAGLS_CLIP_ID`), then renders `warmQuanta` quanta that are not part of the output.
+   * ADR 0162 A7: loads the MagLS bed filters (H3-style: the committed asset prepared for the loopback rate by the decoder
+   * as at runtime, format 4 under `MAGLS_CLIP_ID`), then renders `warmQuanta` quanta that are not part of the output.
    */
   async loadMagls(warmQuanta = 8): Promise<void> {
     const bytes = await readFile(new URL("../../../engine/audio/magls-o3.bin", import.meta.url));
-    const blob = resampleMagls(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, LOOPBACK_RATE);
+    const blob = await inProcessSpatialPrepare()("magls", bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, LOOPBACK_RATE);
     const words = blob.byteLength / 4;
     const begin = new ArrayBuffer(16 + 20);
     const beginView = new DataView(begin);

@@ -6,7 +6,8 @@
 import type { OfflineEffectHost } from "../engine/audio/sample/offlinePlugins";
 import { offlineHostOf, type OfflineModuleFile } from "../plugins/audio/runtime/effectPlugins/offline";
 import { pluginModulePath, type FoundPlugin } from "../plugins/thirdParty";
-import { DEPS_DIR, copiedPath, type WebBuildPlan } from "./webBuild";
+import { DEPS_DIR } from "../projectCode/buildTarget";
+import { copiedPath, type WebBuildPlan } from "./webBuild";
 import { MANIFEST_FILE, PROJECT_DIR, type AudioEffectsEntry, type GameManifest } from "./format";
 
 /** One module the build ships, before its bytes are read: its entry without the hash, and where it is in the project. */

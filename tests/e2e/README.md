@@ -58,8 +58,28 @@ about 6.5 s of CPU. The default test timeout is 45 s with
 software GL (30 s on the GPU).
 
 Each project a page opens costs seconds of CPU (its renderer starts, compiling pipelines), so specs
-open as few as they need: `openTestProject(page, extra)` opens the writable Flappy folder straight
+open as few as they need: `openEditor(page, { files })` opens the writable Flappy folder straight
 from the start screen rather than after booting the read-only sample.
+
+## Opening the editor (ADR 0330)
+
+`fixtures.ts` opens the editor one way, and says once when it has booted:
+
+- `openEditor(page, { sample: "playground3d" })` opens a read-only sample (`?sample=`); `LAB` is the
+  Sound Lab. `openEditor(page, { files })` opens the writable test project: the Flappy sample in memory
+  with `files` (project path → text, or a `Uint8Array` for a clip or model) written over it; what the
+  editor writes is read back through `window.testFolder`. Options: `viewport` (set before the editor
+  loads), `audioBackend` (a sample's audio.json answered with another audio backend), and the boot
+  options below.
+- Both wait for boot: the edit World has stepped more than 10 frames (`frames` changes it, `timeout`
+  how long to wait). After a reload, or a project opened from the start screen (`installFakeFolders`,
+  then Open Project…), call `waitForEditor(page)` alone.
+- `playWithAudio(page, { backend, startTimeout })` presses Play, clicks the game view (the gesture
+  that unlocks audio) and waits until `Audio.debug()` reports audio running on that backend (default
+  the core); `readAudioDebug<T>(page)` reads `Audio.debug()` as the spec's own type.
+- `Hooks` is the one type of the editor's debug hooks on `window` (`engine`, `playEngine`, `orbit`,
+  `overlayHandles`, `nodeRect`, `testFolder`): page callbacks cast `window as unknown as Hooks`. Don't
+  declare another.
 
 ## Writing specs
 
@@ -76,3 +96,10 @@ from the start screen rather than after booting the read-only sample.
   play Engine (the default World for `null`, another by name, once it has stepped a frame), found
   the way a script finds it (a system's `ctx.world`), and walks nodes through `root`, `children`
   and `getComponents`. View and input state come from the game view's tiles and Worlds strip.
+- Never read the renderer (`world.render`, its diagnostics or editor viewport) from a page: it is
+  internal (CLAUDE.md). Check what it draws from captures (`./viewCapture`: `captureView`,
+  `captureArea`, `steadyView`, `pixelsChanged`, `pixelsNear`), the editor's UI (the particle preview's
+  stats, the camera preview inset, the canvas's drawing-buffer size), or `nodeRect`; what only the
+  renderer knows (composers, cascades, probe captures, program counts) belongs in a unit test of the
+  render module through its own interface (`renderDiagnostics(world)`, `BabylonSurface`,
+  `planFrame`, the material library).

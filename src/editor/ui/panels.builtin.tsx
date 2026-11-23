@@ -41,6 +41,10 @@ const BUILTIN_PANELS: readonly PanelContribution[] = [
   { id: "project", title: "Project", view: () => import("./ProjectSettingsPanel").then((m) => m.ProjectSettingsPanel), dock: "right", beside: "worlds" },
   // String tables, reports and translator exchange (ADR 0356 §9): opened from the Window menu, Project Settings > Languages or a table.
   { id: "localisation", title: "Localisation", view: () => import("./localisation/LocalisationPanel").then((m) => m.LocalisationPanel), beside: "assets", onDemand: true },
+  // The live input debugger (ADR 0336, 0337): opened from the Window menu, beside the Network panel.
+  { id: "inputDebugger", title: "Input Debugger", view: () => import("./InputDebuggerPanel").then((m) => m.InputDebuggerPanel), beside: "network", onDemand: true },
+  // A `*.input.json` opened from the Assets panel (ADR 0233: the kind's `panel`).
+  { id: "inputContext", title: "Input Context", view: () => import("./InputContextEditor").then((m) => m.InputContextPanel), beside: "inspector", onDemand: true },
 ];
 
 /** Register the built-in panels. Returns a function that removes them again (for tests). */

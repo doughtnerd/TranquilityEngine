@@ -1,18 +1,5 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Page, waitForEditor, openEditor } from "./fixtures";
 import { menu } from "./menus";
-
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
-
-declare global {
-  interface Window {
-    engine?: { world: { time: { frameCount: number } } };
-  }
-}
-
-async function openEditor(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => (window.engine?.world.time.frameCount ?? 0) > 10);
-}
 
 async function setBirdY(page: Page, value: string): Promise<void> {
   const y = page.getByRole("textbox", { name: "position y" });
@@ -23,14 +10,14 @@ async function setBirdY(page: Page, value: string): Promise<void> {
 
 /** Make two unsaved edits, then "close" the editor by reloading without saving. */
 async function editThenClose(page: Page): Promise<void> {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await page.locator('.tree .row[data-key="bird"]').click();
   await setBirdY(page, "2");
   await setBirdY(page, "3");
   await page.waitForTimeout(300); // history writes are asynchronous; give them a moment
   page.once("dialog", (d) => void d.accept()); // the browser's own "leave page?" prompt
   await page.reload();
-  await page.waitForFunction(() => (window.engine?.world.time.frameCount ?? 0) > 10);
+  await waitForEditor(page);
 }
 
 test("unsaved changes survive the editor closing, and can be restored", async ({ page }) => {
@@ -63,9 +50,9 @@ test("keeping the saved version leaves the unsaved changes reachable with redo",
 });
 
 test("no prompt when there were no unsaved changes", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await page.reload();
-  await page.waitForFunction(() => (window.engine?.world.time.frameCount ?? 0) > 10);
+  await waitForEditor(page);
   await page.waitForTimeout(500);
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
 });

@@ -11,6 +11,8 @@ import {
   CLIP_UNLOAD_FIXED_END,
   ClipEvent,
   ClipFormat,
+  CORE_ABI_VERSION,
+  ErrorCode,
   Kind,
   readStatus,
   SCHEMA_HASH,
@@ -23,10 +25,12 @@ import {
   type StatusBlock,
 } from "../wire.generated";
 import { CLIP_BYTES_PER_QUANTUM, CoreDriver, CORE_ABI_MAJOR, instantiateCore, type CoreExports, type CoreInstance, type CorePreset } from "./coreDriver";
-import { clipSampleBytes, fixedRegionsHeadroomBytes, fxMemRegionBytes, m4FixedRegionsBytes, musicRingsBytes, M2_REGIONS_HEADROOM_BYTES, MEMORY_INITIAL_PAGES, memoryMaximumPages, spatialRegionsBytes, zoneKernelBlobBytes, zoneKernelBudgetBytes, zoneMaxFrames } from "./coreMemory";
+import { askCoreMemory, clipChunkBytes, clipSampleBytes, MEMORY_INITIAL_PAGES, openCore, zoneKernelBlobBytes } from "./coreMemory";
+import { EffectGlue } from "./effectGlue";
 import { UnderrunProbe } from "./underrunProbe";
 
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio.wasm", import.meta.url)));
+const MODULE = new WebAssembly.Module(WASM);
 const RATE = 48_000;
 const QUANTUM_MS = (128 / RATE) * 1000;
 const PRESET: CorePreset = { maxLogical: 256, maxMixed: 32, maxBuses: 8, arenaInitialBytes: 1 << 20, clipCeilingBytes: 16 << 20, limiterLookaheadMs: 1.5, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0, maxMusicRings: 0 };
@@ -101,15 +105,17 @@ describe("coreDriver with the real wasm", () => {
     const addresses = (c: CoreInstance) => [c.exports.myco_audio_inbox_ptr(), c.exports.myco_audio_status_ptr(), c.exports.myco_audio_process(0, 0), c.memory.buffer.byteLength];
     expect(addresses(a)).toEqual(addresses(b));
     expect(a.exports.myco_audio_process(0, 0)).toBeGreaterThanOrEqual(MEMORY_INITIAL_PAGES * 65_536);
-    expect(memoryMaximumPages(PRESET, RATE)).toBe(64 + Math.ceil((M2_REGIONS_HEADROOM_BYTES + spatialRegionsBytes(PRESET, RATE) + m4FixedRegionsBytes() + fxMemRegionBytes(RATE) + (16 << 20)) / 65_536));
+    // The block init took is the core's own answer for the record (ADR 0327).
+    expect(a.memory.buffer.byteLength - MEMORY_INITIAL_PAGES * 65_536).toBe(askCoreMemory(MODULE, PRESET, RATE).parts.layout);
   });
 
   it("refuses a schema hash or ABI major mismatch with CoreLoadError", () => {
     expect(() => instantiateCore(WASM, PRESET, RATE, { schemaHash: "00".repeat(16), abiMajor: 1 })).toThrow(/audio core/);
     expect(() => instantiateCore(WASM, PRESET, RATE, { schemaHash: SCHEMA_HASH, abiMajor: 1 })).toThrow(/ABI/);
     expect(() => instantiateCore(WASM, PRESET, RATE, { schemaHash: SCHEMA_HASH, abiMajor: 2 })).toThrow(/ABI/);
-    expect(() => instantiateCore(WASM, { ...PRESET, maxBeds: 5 }, RATE)).toThrow(/init refused/);
-    expect(() => instantiateCore(WASM, { ...PRESET, maxMixed: 0 }, RATE)).toThrow(/init refused/);
+    // ADR 0328: a refusal names the INIT field and its value.
+    expect(() => instantiateCore(WASM, { ...PRESET, maxBeds: 5 }, RATE)).toThrow(/refused.*maxBeds 5 \(INIT_MAX_BEDS/);
+    expect(() => instantiateCore(WASM, { ...PRESET, maxMixed: 0 }, RATE)).toThrow(/refused.*maxMixed 0 \(INIT_MAX_MIXED/);
   });
 
   it("posts a STATUS every 6 quanta that readStatus reads, ready flag and ABI version in the first block", async () => {
@@ -120,7 +126,7 @@ describe("coreDriver with the real wasm", () => {
     expect(r.blocks).toHaveLength(1);
     const first = r.blocks[0]!;
     expect(first.flags & STATUS_FLAGS_READY).toBeTruthy();
-    expect(first.abiVersion).toBe(0x501); // 5.1 sound generators (ADR 0360: GEN, AUTOMATE target 5, STATUS genStarved); 5.0 16-parameter effect records and plugin effects (ADR 0352); 4.12 clip format 6 (IMA ADPCM); 4.11 per-voice spread; 4.10 effect and send automation, submix automation, dB ramps; 4.9 submix levels and ROUTE; 4.7 bus sends; 4.6 (ADR 0345 effect catalogue DSP; 4.5 instance submixes; 4.4 voice pan and high-pass, 4.3 loop programs)
+    expect(first.abiVersion).toBe(CORE_ABI_VERSION);
     expect(first.currentFrame).toBe(6 * 128);
     await expect(r.link.ready).resolves.toBeUndefined();
     r.run(6);
@@ -365,7 +371,7 @@ describe("coreDriver clip routing with the real wasm", () => {
     const small: CorePreset = { ...PRESET, arenaInitialBytes: 0, clipCeilingBytes: 0 };
     const r = rig({ core: instantiateCore(WASM, small, RATE) });
     const send = (m: ArrayBuffer) => r.driver.onMessage(m, r.clock.frame, r.clock.now);
-    send(clipBegin(11, 64 << 20, 1, ClipFormat.I16)); // 128 MB, far past the 16 MB headroom
+    send(clipBegin(11, 64 << 20, 1, ClipFormat.I16)); // 128 MB, far past what the core asked for a 0 B ceiling
     send(clipChunk(11, 0, 4, new Int16Array(4)));
     r.run(6);
     expect(clipEvents(r.blocks)).toEqual([[11, ClipEvent.RefusedGrow]]);
@@ -373,70 +379,72 @@ describe("coreDriver clip routing with the real wasm", () => {
   });
 });
 
-describe("ABI 2.0 init and the layout mirror (ADR 0162 C8)", () => {
+describe("the core's memory answer (ADR 0327) and its INIT record (ADR 0328)", () => {
   const HIGH: CorePreset = { ...PRESET, maxBeds: 4, maxZoneSlots: 3, zoneMaxSeconds: 4, maxWide: 2 };
   const LOW: CorePreset = { ...PRESET, maxBeds: 0, maxZoneSlots: 1, zoneMaxSeconds: 1, maxWide: 1 };
-  const zero = (p: CorePreset): CorePreset => ({ ...p, maxBeds: 0, maxZoneSlots: 0, zoneMaxSeconds: 0, maxWide: 0, maxMusicRings: 0 });
-  const layoutBytes = (e: CoreExports, p: CorePreset, rate: number) =>
-    e.myco_audio_layout_bytes(rate, p.maxLogical, p.maxMixed, p.maxBuses, p.arenaInitialBytes, p.maxBeds, p.maxZoneSlots, zoneMaxFrames(p, rate), p.maxWide, p.maxMusicRings);
+  const WIDE_RING_BYTES = 16 * (32_768 + 2_048 + 1_536) * 4;
 
-  it("the TypeScript mirror of the M3 regions matches the wasm's layout, within the arena's page rounding", () => {
-    const { exports } = instantiateCore(WASM, PRESET, RATE);
+  it("at 192 kHz with the parser's largest voice counts the Memory holds the block and a clip arena full to the ceiling (F-1)", () => {
+    // `audio.voices.logical` 8,192 and `mixed` 512 (the parser's ranges), the default M3 counts, a 64 MiB clip ceiling.
+    const preset: CorePreset = { ...PRESET, maxLogical: 8_192, maxMixed: 512, maxBuses: 32, arenaInitialBytes: 16 << 20, clipCeilingBytes: 64 << 20, maxBeds: 2, maxZoneSlots: 3, zoneMaxSeconds: 2, maxWide: 1, maxMusicRings: 12 };
+    const rate = 192_000;
+    const core = instantiateCore(WASM, preset, rate);
+    expect(core.memory.buffer.byteLength - MEMORY_INITIAL_PAGES * 65_536).toBe(askCoreMemory(MODULE, preset, rate).parts.layout);
+    // Clips one f32 frame past a size class (4 MiB + 4 B takes a 5 MiB block, the worst rounding) up to the ceiling.
+    const frames = (1 << 20) + 1;
+    const clips = Math.floor(preset.clipCeilingBytes / (frames * 4));
+    for (let id = 1; id <= clips; id++) {
+      expect(core.exports.myco_audio_clip_reserve(id, frames, 1, rate, ClipFormat.F32), `clip ${id} of ${clips}`).toBe(0);
+    }
+  });
+
+  it("init takes the block the core answered for each preset, and the parts are its regions", () => {
     for (const rate of [44_100, 48_000, 96_000]) {
       for (const p of [PRESET, HIGH, LOW]) {
-        const wasm = layoutBytes(exports, p, rate) - layoutBytes(exports, zero(p), rate);
-        const mirror = spatialRegionsBytes(p, rate) - spatialRegionsBytes(zero(p), rate);
-        expect(Math.abs(wasm - mirror), `${rate} Hz`).toBeLessThanOrEqual(65_536);
+        const { parts } = askCoreMemory(MODULE, p, rate);
+        const core = instantiateCore(MODULE, p, rate);
+        expect(core.memory.buffer.byteLength - MEMORY_INITIAL_PAGES * 65_536, `${rate} Hz`).toBe(parts.layout);
+        expect(parts.wide).toBe(p.maxWide * WIDE_RING_BYTES);
+        expect(parts.beds > 0).toBe(p.maxBeds + p.maxWide > 0);
+        expect(parts.zoneKernels > 0).toBe(p.maxZoneSlots > 0);
+        expect(parts.spatialData).toBeGreaterThan(0); // the HRIR table and its bank, at rates HRTF runs at
       }
     }
-    // An M2 preset: the pool, the scratch, and in Zones the aux accumulator (C3) and the sends area's chain gains (C4).
-    // ADR 0351 A4: and the ADPCM voice cursors (2,176 B per mixed voice).
-    expect(spatialRegionsBytes(PRESET, RATE)).toBe(32 * 560 + 8192 + PRESET.maxBuses * 1024 + (64 + PRESET.maxBuses * 512) + 64 + 32 * 2176);
+    // An M2 preset: no bed, no wide ring, no kernel budget; the Zones region still holds the aux accumulator and sends.
+    const m2 = askCoreMemory(MODULE, PRESET, RATE).parts;
+    expect([m2.beds, m2.wide, m2.zoneKernels]).toEqual([0, 0, 0]);
+    expect(m2.zones).toBe(PRESET.maxBuses * 1024 + (64 + PRESET.maxBuses * 512) + 64);
+    // Three 4 s zone slots take more than 3 MiB of state each, and their kernels more of the arena.
+    const high = askCoreMemory(MODULE, HIGH, RATE).parts;
+    expect(high.zones - m2.zones).toBeGreaterThan(3 * 3 * (1 << 20));
+    expect(high.zoneKernels).toBeGreaterThan(3 * zoneKernelBlobBytes(4 * RATE));
   });
 
-  it("ABI 4.0 (3.0 added max_music_rings): max_music_rings 0..16 is accepted, 17 refused, and the preset's count reaches init (ADR 0166 W1)", () => {
-    expect(CORE_ABI_MAJOR).toBe(5);
+  it("the Memory's maximum grows with the clip ceiling, and a load past it is refused", () => {
+    const at = (clipCeilingBytes: number) => askCoreMemory(MODULE, { ...PRESET, clipCeilingBytes }, RATE).maximumPages;
+    expect(at(256 << 20) - at(128 << 20)).toBe(((128 << 20) * 5) / 4 / 65_536);
+    expect(at(0)).toBeGreaterThan(MEMORY_INITIAL_PAGES);
+  });
+
+  it("max_music_rings 0..16 is accepted and 17 refused naming the field (ADR 0166 W1; ADR 0328)", () => {
     for (const maxMusicRings of [0, 8, 16]) expect(() => instantiateCore(WASM, { ...PRESET, maxMusicRings }, RATE)).not.toThrow();
-    expect(() => instantiateCore(WASM, { ...PRESET, maxMusicRings: 17 }, RATE)).toThrow(/refused/);
-    const { exports } = instantiateCore(WASM, PRESET, RATE);
-    expect(layoutBytes(exports, { ...PRESET, maxMusicRings: 17 }, RATE), "refused parameters lay out 0").toBe(0);
+    expect(() => instantiateCore(WASM, { ...PRESET, maxMusicRings: 17 }, RATE)).toThrow(/maxMusicRings 17 \(INIT_MAX_MUSIC_RINGS/);
+    expect(() => askCoreMemory(MODULE, { ...PRESET, maxZoneSlots: 1, zoneMaxSeconds: 9 }, RATE)).toThrow(/zoneMaxFrames 432000 \(INIT_ZONE_MAX_FRAMES/);
   });
 
-  it("the M4 fixed regions (Due, Curves, Groups) span 29,184 B as Q1 aligns them; each music ring adds 307,200 B (C1)", () => {
-    expect(m4FixedRegionsBytes()).toBe(18_432 + 8_192 + 2_560);
-    expect(musicRingsBytes({ ...PRESET, maxMusicRings: 0 })).toBe(0);
-    expect(musicRingsBytes({ ...PRESET, maxMusicRings: 16 })).toBe(16 * 307_200);
-    const base = fixedRegionsHeadroomBytes(PRESET, RATE);
-    expect(base).toBe(M2_REGIONS_HEADROOM_BYTES + spatialRegionsBytes(PRESET, RATE) + m4FixedRegionsBytes() + fxMemRegionBytes(RATE) + zoneKernelBudgetBytes(0, 0));
-    // ADR 0345: 469 blocks of 16 KB at 48 kHz, plus the header (`fxmem.rs`).
-    expect(fxMemRegionBytes(48_000)).toBe(2_112 + 469 * 16_384);
-    expect(fixedRegionsHeadroomBytes({ ...PRESET, maxMusicRings: 12 }, RATE) - base).toBe(12 * 307_200);
+  it("init reads only an INIT record: an inbox without one is refused and nothing is laid out", () => {
+    const memory = new WebAssembly.Memory({ initial: MEMORY_INITIAL_PAGES, maximum: MEMORY_INITIAL_PAGES * 2 });
+    const exports = openCore(MODULE, memory, new EffectGlue(RATE).imports);
+    expect(exports.myco_audio_init()).toBe(ErrorCode.BAD_MAGIC);
+    expect(memory.buffer.byteLength).toBe(MEMORY_INITIAL_PAGES * 65_536);
   });
 
-  it("the zone kernel budget mirror equals myco_audio_zone_kernel_budget_bytes", () => {
-    const { exports } = instantiateCore(WASM, PRESET, RATE);
-    for (const [slots, frames] of [[0, 96_000], [1, 48_000], [3, 96_000], [3, 192_000], [4, 1_536_000]] as const) {
-      expect(zoneKernelBudgetBytes(slots, frames), `${slots} x ${frames}`).toBe(exports.myco_audio_zone_kernel_budget_bytes(slots, frames));
-    }
-    expect(zoneKernelBlobBytes(96_000) / 1e6).toBeCloseTo(1.54, 2); // §4.5: 1.5 MB at 2 s
-  });
-
-  it("an M3 preset initialises with the nine parameters, its block fits under the Memory's maximum", () => {
-    for (const p of [PRESET, HIGH, LOW]) {
-      const core = instantiateCore(WASM, p, RATE);
-      const grown = core.memory.buffer.byteLength - MEMORY_INITIAL_PAGES * 65_536;
-      expect(grown).toBe(layoutBytes(core.exports, p, RATE));
-      const headroom = fixedRegionsHeadroomBytes(p, RATE);
-      expect(grown - p.arenaInitialBytes).toBeLessThanOrEqual(headroom);
-      expect(headroom - fixedRegionsHeadroomBytes(zero(p), RATE)).toBeGreaterThanOrEqual(zoneKernelBudgetBytes(p.maxZoneSlots, zoneMaxFrames(p, RATE)));
-      expect(core.memory.buffer.byteLength / 65_536).toBeLessThanOrEqual(memoryMaximumPages(p, RATE));
-    }
-    expect(zoneMaxFrames(HIGH, 44_100)).toBe(176_400);
-    expect(zoneMaxFrames({ ...HIGH, maxZoneSlots: 0 }, 48_000)).toBe(0);
-  });
-
-  it("clip frames are sized for formats 0-5 (3-5 are f32)", () => {
+  it("clip frames are sized for formats 0-5 (3-5 are f32), and a format 3 kernel blob from the wire's constants", () => {
     expect([0, 1, 2, 3, 4, 5, 6].map(clipSampleBytes)).toEqual([4, 2, 2, 4, 4, 4, 0]);
+    // ADR 0351 A4: a format 6 chunk carries whole IMA ADPCM blocks (516 B a channel per 1,024 frames, the last padded).
+    expect(clipChunkBytes(6, 2, 1_500)).toBe(2 * 2 * 516);
+    expect(clipChunkBytes(1, 2, 1_500)).toBe(1_500 * 2 * 2);
+    expect(zoneKernelBlobBytes(96_000) / 1e6).toBeCloseTo(1.54, 2); // §4.5: 1.5 MB at 2 s
   });
 });
 

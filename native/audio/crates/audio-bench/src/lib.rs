@@ -1341,7 +1341,7 @@ fn hrir_table(rate: f32) -> Vec<u8> {
 static MAGLS_ASSET: &[u8] = include_bytes!("../../../../../src/engine/audio/magls-o3.bin");
 
 /// The asset as main would send it for `RATE`: the header's rate set to the context's (the responses stay as they
-/// are: cost is independent of their values; listening needs `resampleMagls`).
+/// are: cost is independent of their values; listening needs `myco_magls_prepare`).
 fn magls_blob(rate: f32) -> Vec<u8> {
     let mut bytes = MAGLS_ASSET.to_vec();
     let (mut head, _) = wire::MaglsHeader::read(&bytes, 0).expect("the MagLS header");

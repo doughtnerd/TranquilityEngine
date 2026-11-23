@@ -561,3 +561,19 @@ voice's seed. Coordinator fix: `LocalizedText` declared before `UIDocumentSync`.
 kernel toward 0360's 1.5× tripwire without losing sfxr accuracy. Aliasing: "Make it a setting" — a per-generator
 quality parameter, standard (two-sample PolyBLEP, as built) or high (a higher-order band-limited method or
 oversampling for saw/square/pulse, more CPU), declared in the catalogue so it saves, automates and shows in the Studio.
+
+**D68. Merge with master (2026-11-23).** The Studio's records became 0341–0360 (table at the top). Calls made while
+joining master's 73 commits: (1) **core ABI 6.0**: master's 5.0 (INIT record, memory exports) and the Studio's 5.1
+(16-parameter effect records, `myco_ext`, generators) were both incompatible changes from 4.0, so the joined core is a
+new major; the version is generated from `schema.rs` (master's ADR 0328), which now carries the Studio's history.
+(2) **Decoder ABI 1.6**: both sides added different 1.4s (stream seams; HRIR/MagLS prep), so the union is 1.6.
+(3) Master's memory answer replaces the Studio's TypeScript headroom terms (FxMem, ADPCM cursors, the 18 MiB M2 share):
+the core's own layout already holds those regions; `openCore` binds the plugin glue (the throwaway instance gets a fresh
+`EffectGlue`). (4) One curve-size helper (master's generated `curveBytes`; the Studio's `coreCurveBytes` removed).
+(5) Capture format stays 2 (takes) with master's rule that `CAPTURE_ABI_VERSION` is the generated core ABI and the header
+stamps the running core's. (6) The decoder's 1,000 KB tripwire raised to 1,056 KB (master's `spatial.rs`, +17.5 KB,
+took it 411 B over). (7) Export links through master's linker; the Studio's audio-effect, localisation and line-index
+steps run before the link, and `DEPS_DIR` now comes from `projectCode/buildTarget.ts`. (8) The e2e fixture's
+`audioBackend` option answers the sample's `audio.json` (`settings.backend`), not `project.json`, since project.json
+holds no audio here. (9) E2E specs the Studio deleted stay deleted (master only converted them to `openEditor`).
+Revert: per item in the merge commit.

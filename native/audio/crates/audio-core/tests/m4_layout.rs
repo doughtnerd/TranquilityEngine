@@ -1,17 +1,10 @@
 //! 0166 M4 (Q1; api-and-models §3.1, §4.5; architecture §6): the `Due`, `Curves` and `Groups`
 //! regions are laid out on every preset, right before `Arena`, at their generated sizes, and the
-//! shell's Memory headroom still covers the fixed regions with them.
+//! Memory the core asks for (ADR 0327) covers the fixed regions with them.
 
 use audio_core::layout::{Layout, RegionKind, M4_REGIONS_BYTES, M4_REGIONS_SPAN, PAGE_BYTES, REGION_ALIGN};
 use audio_core::{InitParams, REGION_ORDER};
 use audio_wire::generated as wire;
-
-/// `coreDriver.ts` `M2_REGIONS_HEADROOM_BYTES`: the Memory's headroom for every region before the
-/// arena except ADR 0162's (`spatialRegionsBytes`, mirrored there separately).
-const M2_REGIONS_HEADROOM_BYTES: usize = 18 << 20;
-/// The HRIR table, an arena clip the M2 headroom also leaves room for (`coreDriver.ts`: "plus the
-/// 0.75 MB HRIR").
-const HRIR_BYTES: usize = 768 * 1024;
 
 fn preset(sample_rate: f32, max_logical: u32, max_mixed: u32, arena_mb: u32) -> InitParams {
     InitParams { sample_rate, max_logical, max_mixed, max_buses: 32, arena_initial_bytes: arena_mb << 20, ..InitParams::default() }
@@ -91,36 +84,20 @@ fn the_m4_regions_cost_at_most_one_page_and_change_nothing_before_them() {
     }
 }
 
-/// The shell's Memory `maximum` (`coreDriver.ts` `memoryMaximumPages`) leaves
-/// `M2_REGIONS_HEADROOM_BYTES + spatialRegionsBytes + the zone kernel budget` past the arena. The
-/// M4 regions sit in the M2 share (they aren't in `spatialRegionsBytes`), so init can't overrun
-/// the maximum while every non-spatial region before the arena, with the M4 regions and the HRIR,
-/// stays under 16 MiB. That holds on every preset, the largest voice limits and 192 kHz included.
+/// ADR 0327 (closes F-1): the Memory the core asks for (`memory_growth_bytes`) holds its block, the
+/// M4 regions included, the arena grown to the clip ceiling, the zone kernel budget and the HRIR,
+/// on every preset, the largest voice limits and 192 kHz included (where the 16 MiB headroom the
+/// shell used to guess was short).
 #[test]
-fn the_m3_headroom_covers_the_m4_regions_on_every_preset() {
-    let mut worst = 0usize;
+fn the_memory_the_core_asks_for_covers_the_m4_regions_on_every_preset() {
+    use audio_core::layout::{memory_growth_bytes, spatial_data_bytes};
+    let ceiling = 128 << 20;
     for p in presets() {
         let layout = Layout::new(&p);
-        let arena = layout.region(RegionKind::Arena).offset;
-        // ADR 0345's effect memory has its own headroom term (`coreMemory.ts` `fxMemRegionBytes`), like the spatial regions;
-        // so have ADR 0351's ADPCM cursors (`spatialRegionsBytes`, beside the `Fx` pool they follow).
-        let spatial: usize = [RegionKind::Beds, RegionKind::Zones, RegionKind::Wide, RegionKind::Fx, RegionKind::Scratch, RegionKind::FxMem, RegionKind::AdpcmCursors]
-
-            .iter()
-            .map(|k| layout.region(*k).len.next_multiple_of(REGION_ALIGN))
-            .sum();
-        let m2_share = arena - spatial;
-        let fits = m2_share + HRIR_BYTES <= M2_REGIONS_HEADROOM_BYTES;
-        if p.sample_rate <= 96_000.0 {
-            worst = worst.max(m2_share);
-            assert!(fits, "{} Hz, {} logical, {} mixed: {m2_share} B of fixed regions", p.sample_rate, p.max_logical, p.max_mixed);
-        } else if !fits {
-            // At 192 kHz the shared reverb's region (≈ 12 MB) already overruns the 16 MiB share
-            // before M4 on the default and larger presets (the shell's headroom, not the M4
-            // regions: reported to the coordinator). M4 must never be what tips a preset over.
-            eprintln!("192 kHz, {} logical, {} mixed: {m2_share} B with the HRIR over 16 MiB, before M4 too", p.max_logical, p.max_mixed);
-            assert!(m2_share - M4_REGIONS_SPAN + HRIR_BYTES > M2_REGIONS_HEADROOM_BYTES, "the M4 regions tip it over");
-        }
+        let need = memory_growth_bytes(&p, ceiling);
+        let arena = layout.region(RegionKind::Arena).len;
+        let floor = layout.total() + ceiling.saturating_sub(arena) + audio_core::zones::kernel_budget_bytes(p.max_zone_slots, p.zone_max_frames) + spatial_data_bytes(&p);
+        assert!(need >= floor, "{} Hz, {} logical, {} mixed: {need} B < {floor} B", p.sample_rate, p.max_logical, p.max_mixed);
+        assert!(layout.total() - arena >= M4_REGIONS_SPAN);
     }
-    eprintln!("largest non-spatial fixed share up to 96 kHz with the M4 regions: {worst} B ({} B left of 16 MiB after the HRIR)", M2_REGIONS_HEADROOM_BYTES - worst - HRIR_BYTES);
 }

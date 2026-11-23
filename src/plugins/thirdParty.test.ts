@@ -302,6 +302,19 @@ describe("game builds", () => {
     await expect(planWebBuild(source(settings))).rejects.toThrow("can't find");
   });
 
+  it("warm only the assets the built code names: not a disabled plugin's, never an editor half's (ADR 0080, 0329)", async () => {
+    const withRefs = (settings: Record<string, unknown> = {}) => {
+      const s = source(settings);
+      s.scripts.set("plugins/spinner/runtime/presets.ts", `export const fast = "prefabs/fast.prefab.json";\n`);
+      s.scripts.set("plugins/spinner/editor/preview.ts", `export const preview = "prefabs/preview.prefab.json";\n`);
+      return { ...s, files: [...s.files, "prefabs/fast.prefab.json", "prefabs/preview.prefab.json"] };
+    };
+    expect((await planWebBuild(withRefs())).manifest.assetRefs).toEqual(["prefabs/fast.prefab.json"]);
+    const off = withRefs({ plugins: { disabled: ["acme.spinner"] } });
+    off.scripts.delete("scripts/useSpinner.ts");
+    expect((await planWebBuild(off)).manifest.assetRefs).toBeUndefined();
+  });
+
   it("stop on a refused plugin", async () => {
     const s = source();
     s.json.set("plugins/spinner/plugin.json", JSON.stringify(manifest({ name: "acme.spinner", sdk: "^9.0.0" })));

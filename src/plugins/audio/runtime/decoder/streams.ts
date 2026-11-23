@@ -58,7 +58,6 @@
 // with it. Never throws: every failure becomes an `error` reply.
 import {
   Kind,
-  MAGIC,
   readStreamCredit,
   STREAM_CHUNK_FIXED_END,
   STREAM_CHUNK_FLAGS_LAST,
@@ -76,6 +75,7 @@ import {
   writeStreamClose,
   writeStreamOpen,
 } from "../wire.generated";
+import { peekKind } from "../wireEnvelope";
 import { CreditWindow, STREAM_CHUNK_FRAMES, STREAM_WINDOW_FRAMES } from "./credit";
 import type { AmbisonicConvention, ClipInfo, DecoderReply, StreamLoopMessage, StreamLoopProgram, StreamLoopStep, StreamOpenMessage, StreamPortLike, StreamRequest, StreamSeekMessage } from "./protocol";
 import { DecoderError, type DecoderWasm, type RawInfo } from "./wasm";
@@ -627,7 +627,7 @@ export class StreamDecoder {
       if (!(b instanceof ArrayBuffer)) continue;
       if (k === 0 && b.byteLength >= 32) {
         const view = new DataView(b);
-        if (view.getUint32(0, true) === MAGIC && view.getUint16(6, true) === Kind.STREAM_CREDIT) credit = readStreamCredit(view, 0);
+        if (peekKind(view) === Kind.STREAM_CREDIT) credit = readStreamCredit(view, 0);
       }
       const pool = this.pool.get(b.byteLength);
       if (pool && pool.length < POOL_MAX) pool.push(b);

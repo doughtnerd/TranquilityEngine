@@ -10,7 +10,7 @@ import type { Container } from "@babylonjs/gui/2D/controls/container.js";
 import { Control } from "@babylonjs/gui/2D/controls/control.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { World } from "../core/World";
-import { Color, Engine, GameObject, Locale, Vector2, type ProjectSettingsInput } from "../index";
+import { Color, Engine, GameObject, Input, Locale, Vector2, type ProjectSettingsInput } from "../index";
 import { Text } from "../render/components";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../ui/components";
 import type { UIComponentType } from "../ui/components";
@@ -223,6 +223,57 @@ describe("screen canvases on Babylon GUI (ADR 0076)", () => {
       sync(core);
       expect(bg()).toBe("rgba(51, 51, 51, 1)");
     } finally {
+      pointer.dispose();
+    }
+  });
+
+  it("draws focus colours only while the last UI input was navigation, not the pointer (ADR 0340)", async () => {
+    const canvas = node("C", null, UICanvas);
+    const grey = new Color(0.2, 0.2, 0.2, 1);
+    const first = node("First", canvas.node, UIButton, { backgroundColor: grey, hoverColor: new Color(0, 1, 0, 1), focusColor: new Color(1, 0, 0, 1), width: "100", height: "40", positionType: "absolute", left: "0", top: "0" });
+    const second = node("Second", canvas.node, UIButton, { backgroundColor: grey, hoverColor: new Color(0, 1, 0, 1), focusColor: new Color(1, 0, 0, 1), width: "100", height: "40", positionType: "absolute", left: "0", top: "100" });
+    const field = node("Field", canvas.node, UIInputField, { borderColor: new Color(1, 1, 1, 1), focusColor: new Color(0, 0, 1, 1), width: "200", height: "40", positionType: "absolute", left: "0", top: "200" });
+    const core = new FakeCore();
+    core.set([canvasInfo(canvas)], [[first, canvas], [second, canvas], [field, canvas]]);
+    const bg = (name: string) => (byName(rootOf(), name) as Rectangle).background;
+    const border = (name: string) => (byName(rootOf(), name) as Rectangle).color;
+    const frame = () => {
+      engine.step(1 / 60);
+      sync(core);
+    };
+    // The real core lays the UI out for navigation and routes the pointer; the fake core lays out the drawing.
+    const pointer = await UIPointer.create(World.require());
+    try {
+      pointer.leave(); // off every button
+      first.focused = true; // a script's focus: no navigation yet, no colour
+      frame();
+      expect(bg("First")).toBe("rgba(51, 51, 51, 1)");
+      Input.inject.keyDown("arrowdown");
+      frame();
+      Input.inject.keyUp("arrowdown");
+      frame();
+      expect(second.focused).toBe(true);
+      expect(bg("Second")).toBe("rgba(255, 0, 0, 1)");
+      expect(bg("First")).toBe("rgba(51, 51, 51, 1)");
+      Input.inject.keyDown("arrowdown");
+      frame();
+      Input.inject.keyUp("arrowdown");
+      frame();
+      expect(field.focused).toBe(true);
+      expect(border("Field")).toBe("rgba(0, 0, 255, 1)");
+      expect(bg("Second")).toBe("rgba(51, 51, 51, 1)");
+      pointer.dom.moveTo(600, 600); // the pointer moves (over nothing): it's the last UI input now
+      frame();
+      expect(field.focused).toBe(true);
+      expect(border("Field")).toBe("rgba(255, 255, 255, 1)");
+      pointer.click(second); // focused by a click: hovered, never the focus colour
+      frame();
+      pointer.leave();
+      frame();
+      expect(second.focused).toBe(true);
+      expect(bg("Second")).toBe("rgba(51, 51, 51, 1)");
+    } finally {
+      Input.inject.releaseAll();
       pointer.dispose();
     }
   });

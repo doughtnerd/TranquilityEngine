@@ -1,12 +1,6 @@
-import { expect, openTestProject, type Page, test } from "./fixtures";
+import { expect, openEditor, type Page, test, type Hooks } from "./fixtures";
 
 test.use({ codePreload: true }); // the first test checks the background warm-up; the rest open files sooner with it
-
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  openTestProject(extra: Record<string, string>): Promise<void>;
-  testFolder: { read(path: string): string | undefined };
-};
 
 const LEVELS = `{ "speed": 4, "names": ["one", "two"] }\n`;
 const RACER = `import { GameBehavior, behavior, field } from "myco";
@@ -24,7 +18,7 @@ writeFileSync("data/out.json", JSON.stringify({ ok: true }));
 `;
 
 async function openProject(page: Page): Promise<void> {
-  await openTestProject(page, { "data/levels.json": LEVELS, "scripts/Racer.ts": RACER, "tools/build.js": "console.log('build');\n", "tools/generate.mjs": TOOL, "tools/README.md": "# Tools\n\nRun `node tools/generate.mjs`.\n" });
+  await openEditor(page, { files: { "data/levels.json": LEVELS, "scripts/Racer.ts": RACER, "tools/build.js": "console.log('build');\n", "tools/generate.mjs": TOOL, "tools/README.md": "# Tools\n\nRun `node tools/generate.mjs`.\n" } });
 }
 
 const editor = (page: Page) => page.locator(".code-editor .monaco-editor");

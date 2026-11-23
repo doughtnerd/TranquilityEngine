@@ -106,6 +106,8 @@ ADR 0347 (ABI 4.11) adds per-voice **spread**: SET_VOICE_FX mask bit 4 and `spre
 
 **Stream loops** (ADR 0342; decoder ABI 1.4). A stream voice's loop program reaches the decoder worker as its first region plus a `StreamLoopProgram` (`runtime/decoder/protocol.ts`): the region's seam crossfade, shape, repeat count and the program's later loops. The worker wraps sample-accurately (it reads the region's end, seeks back to its start) and crossfades the seam with `myco_decode_seam` (`audio-decode/src/seam.rs`, the clip voice's `audio_dsp::fade_shapes`), so the ring still holds one continuous signal and the core is unchanged. Streams loop forward only (a ping-pong or backward loop plays forward, warned once), and a parameter activation reads as always.
 
+**Versions after the merge with master (2026-11-23).** The core's ABI is generated from `schema.rs` (`CORE_ABI`, ADR 0328), where its history is: master's 5.0 (the INIT record, the memory exports, ADR 0327/0328) and the Audio Studio's 4.1–5.1 (the records above, plugin effects through `myco_ext`, generators) were built apart, so the joined core is **6.0**. The decoder is **1.6**: the Studio's 1.4 (`myco_decode_seam`) and 1.5 (Opus, `myco_decode_adpcm`) beside master's 1.4 (`myco_hrir_prepare`, `myco_magls_prepare`, ADR 0331).
+
 `gen_wire --check` fails when any is stale; `npm run build:audio` runs the generator for you. Never edit the generated files. A schema change changes the schema hash: `wire.schemaHash.test.ts` and `wire.roundtrip.test.ts` fail until the TypeScript side is updated, which is the point. The wire is frozen for M1 (contract K1); a change needs a review and a version decision.
 
 ## Goldens and parity

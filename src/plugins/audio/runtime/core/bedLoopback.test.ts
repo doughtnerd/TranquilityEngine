@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { defaultAudioSettings, parseAudioSettings } from "../../../../engine/audio/settings";
 import { createHrirLoader, createMaglsLoader } from "./hrir";
-import { loopbackAudio, closeLoopbackAudio } from "../testing";
+import { inProcessSpatialPrepare, loopbackAudio, closeLoopbackAudio } from "../testing";
 
 /** The MagLS asset (`src/engine/audio/magls-o3.bin`). */
 const maglsUrl = (): URL => new URL("../../../../engine/audio/magls-o3.bin", import.meta.url);
@@ -41,8 +41,8 @@ async function rig(opts: { spatial?: "hrtf" | "equalPower"; hrtf?: number; maxBe
     preset: { maxBeds: 4 },
     decode: () => ({ channelData: [tone] }),
     backend: (clips) => ({
-      hrir: createHrirLoader({ clips, sampleRate: 48_000, fetchBytes: async () => (fetches.hrir++, readBytes(new URL("../wasm/myco_hrir.bin", import.meta.url))) }),
-      magls: createMaglsLoader({ clips, sampleRate: 48_000, fetchBytes: async () => (fetches.magls++, readBytes(maglsUrl())) }),
+      hrir: createHrirLoader({ clips, sampleRate: 48_000, prepare: inProcessSpatialPrepare(), fetchBytes: async () => (fetches.hrir++, readBytes(new URL("../wasm/myco_hrir.bin", import.meta.url))) }),
+      magls: createMaglsLoader({ clips, sampleRate: 48_000, prepare: inProcessSpatialPrepare(), fetchBytes: async () => (fetches.magls++, readBytes(maglsUrl())) }),
     }),
   });
   if (!audio) return null;

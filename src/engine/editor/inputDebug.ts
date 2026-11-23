@@ -1,0 +1,388 @@
+/**
+ * The editor's view of the input system (ADR 0336, 0337), part of the editor SDK (`./index.ts` re-exports it):
+ *
+ * - `inputState(world)`: a play World's devices, players, each player's active contexts in priority order, its
+ *   actions (value, phase flags, elapsed time, the mapping that gave the value), the controls higher-priority
+ *   contexts consumed, and a rebind in progress: what the Input debugger panel shows. A copy; read-only.
+ * - `watchInput(world)`: a log of the World's `ActionEvents`, `DeviceEvents`, `PlayerJoined`, `PlayerLeft` and
+ *   `RebindResults`, recorded every frame (those buffers are cleared at the end of each frame, so a panel sampling a
+ *   few times a second would miss them). While nothing watches, no system runs.
+ * - What the context asset editor offers and checks: the defined action sets, the contexts registered in code, a
+ *   control path's canonical form, and the problems the evaluator reports for a context.
+ * - `watchRawPresses(callback)`: every press the Engine's device snapshot sees (keys, mouse buttons, gamepad buttons
+ *   and stick directions from every gamepad adapter, touches, pen buttons), with or without a play World: the
+ *   context editor's Bind.
+ * - `recordInput()`: a hardware recording of the gamepad adapters' raw input (`input/recording.ts`), the Input
+ *   debugger's Record.
+ */
+import type { World } from "../core/World";
+import { _undefineBuiltinSystem, defineBuiltinSystem, type BuiltinSystem } from "../core/systems";
+import type { GameObject } from "../scene/GameObject";
+import { ActionEvents, ActionPhase, actionSets, actionView, type ActionEventPhase, type ActionKind, type ActionPhaseName } from "../input/actions";
+import { DEFAULT_CONTEXT, registeredContexts } from "../input/contexts";
+import type { InputContextSpec } from "../input/contextTypes";
+import { PRESS_POINT, control, namedControlPaths, type DeviceFamily } from "../input/controls";
+import { DEVICE_FAMILIES, DeviceEvents, DeviceKind, InputDevice, deviceNodes, takesLocalInput } from "../input/deviceEntities";
+import { contextProblems, lastEvaluation, playerTable, type CompiledMapping } from "../input/evaluate";
+import { ControlledBy, InputPlayer, PlayerJoined, PlayerLeft, playerNodes } from "../input/players";
+import { RebindResults, pendingRebind, type PendingRebind } from "../input/rebind";
+import { Input } from "../input/Input";
+import { KEYBOARD_DEVICE, PEN_DEVICE, POINTER_DEVICE, TOUCH_DEVICE, devices } from "../input/devices";
+import { startInputRecording, type InputRecorder } from "../input/recording";
+
+export type { PendingRebind } from "../input/rebind";
+export { RECORDING_FORMAT, RECORDING_VERSION, parseInputRecording, type InputRecorder, type InputRecording, type RecordedHidDevice, type RecordedInputEvent, type RecordedWebPad } from "../input/recording";
+
+// --- live state ----------------------------------------------------------------------------------
+
+/** A device a World sees. */
+export interface InputDeviceRow {
+  /** The adapter's id: -1 keyboard, -2 pointer, gamepads from 0. */
+  readonly id: number;
+  readonly name: string;
+  readonly kind: "keyboard" | "pointer" | "gamepad";
+  readonly family: DeviceFamily;
+  /** A gamepad's order of connection (0 first); 0 for the keyboard and pointer. */
+  readonly slot: number;
+  /** The paired player's index, -1 for none. */
+  readonly player: number;
+  readonly connected: boolean;
+}
+
+/** The mapping that gave an action its value this frame. */
+export interface InputSourceRow {
+  readonly context: string;
+  /** Its index in the context's mappings. */
+  readonly mapping: number;
+  /** `single`, `dpad`, `axis` or `modifier` (a chord). */
+  readonly composite: CompiledMapping["source"]["kind"];
+  /** The control paths it reads. */
+  readonly controls: readonly string[];
+}
+
+/** One action of a player, as its action set's row holds it now. */
+export interface InputActionRow {
+  readonly set: string;
+  readonly action: string;
+  readonly kind: ActionKind;
+  /** One component for buttons and axes, two or three for vectors. */
+  readonly value: readonly number[];
+  /** `ActionPhase` bits, and their names. */
+  readonly phase: number;
+  readonly phases: readonly ActionPhaseName[];
+  /** Seconds actuated. */
+  readonly elapsed: number;
+  /** Null when the action is at zero. */
+  readonly source: InputSourceRow | null;
+}
+
+/** An active context of a player, highest priority first. */
+export interface InputContextRow {
+  readonly name: string;
+  readonly priority: number;
+  readonly mappings: number;
+  /** The controls this context consumed this frame (lower contexts didn't see them). */
+  readonly consumed: readonly string[];
+}
+
+export interface InputPlayerRow {
+  readonly index: number;
+  readonly name: string;
+  readonly joinState: number;
+  /** The family of the device that last performed an action (prompts follow it). */
+  readonly lastFamily: DeviceFamily;
+  readonly contexts: readonly InputContextRow[];
+  readonly actions: readonly InputActionRow[];
+  /** Problems compiling its contexts (unknown actions, bad control paths, bad parameters, missing contexts). */
+  readonly problems: readonly string[];
+  /** The rebind it is waiting on, if any. */
+  readonly rebind: PendingRebind | null;
+  /** The names of the nodes it controls (`ControlledBy`). */
+  readonly pawns: readonly string[];
+}
+
+export interface InputWorldState {
+  readonly world: string;
+  /** Whether the World takes local input: only those have devices and evaluate actions. */
+  readonly takesInput: boolean;
+  readonly frame: number;
+  readonly devices: readonly InputDeviceRow[];
+  readonly players: readonly InputPlayerRow[];
+}
+
+const KINDS = ["keyboard", "pointer", "gamepad"] as const;
+const PHASE_NAMES = Object.entries(ActionPhase) as [ActionPhaseName, number][];
+
+/** The names of the `ActionPhase` bits set in `flags`. */
+export function phaseNames(flags: number): ActionPhaseName[] {
+  return PHASE_NAMES.filter(([, bit]) => (flags & bit) !== 0).map(([name]) => name);
+}
+
+/** Every device, player, context and action of `world` now (see the file comment). */
+export function inputState(world: World): InputWorldState {
+  const devices: InputDeviceRow[] = [];
+  for (const node of deviceNodes(world)) {
+    if (!node.isValid) continue;
+    const d = node.getData(InputDevice);
+    if (!d) continue;
+    devices.push({ id: d.device, name: node.name, kind: KINDS[d.kind] ?? "gamepad", family: DEVICE_FAMILIES[d.family] ?? "generic", slot: d.slot, player: d.player, connected: d.connected !== 0 });
+  }
+  devices.sort((a, b) => kindOrder(a) - kindOrder(b) || a.slot - b.slot);
+  const pawns = new Map<number, string[]>();
+  for (const row of world._query([ControlledBy])) {
+    const by = row.node.getData(ControlledBy);
+    if (!by) continue;
+    let list = pawns.get(by.player);
+    if (!list) pawns.set(by.player, (list = []));
+    list.push(row.node.name);
+  }
+  return {
+    world: world.name,
+    takesInput: takesLocalInput(world),
+    frame: world.time.frameCount,
+    devices,
+    players: playerNodes(world).map((p) => playerRow(world, p, pawns)),
+  };
+}
+
+const kindOrder = (d: InputDeviceRow) => (d.kind === "keyboard" ? DeviceKind.keyboard : d.kind === "pointer" ? DeviceKind.pointer : DeviceKind.gamepad);
+
+function playerRow(world: World, player: GameObject, pawns: ReadonlyMap<number, string[]>): InputPlayerRow {
+  const info = player.getData(InputPlayer)!;
+  const table = playerTable(world, player);
+  const trace = lastEvaluation(world, player);
+  const consumedBy = new Map<string, string[]>();
+  for (const [path, ctx] of trace?.consumed ?? []) {
+    let list = consumedBy.get(ctx);
+    if (!list) consumedBy.set(ctx, (list = []));
+    list.push(path);
+  }
+  const actions: InputActionRow[] = [];
+  for (const set of actionSets()) {
+    const view = actionView(player, set) as Record<string, number> | null;
+    for (const a of set.actions) {
+      const phase = view ? view[a.phaseField] : 0;
+      const m = trace?.sources.get(`${set.id}:${a.name}`);
+      actions.push({
+        set: set.id,
+        action: a.name,
+        kind: a.kind,
+        value: a.valueFields.map((f) => (view ? view[f] : 0)),
+        phase,
+        phases: phaseNames(phase),
+        elapsed: view ? view[a.timeField] : 0,
+        source: m ? sourceRow(m) : null,
+      });
+    }
+  }
+  return {
+    index: info.index,
+    name: player.name,
+    joinState: info.joinState,
+    lastFamily: DEVICE_FAMILIES[info.lastFamily] ?? "keyboard",
+    contexts: table.contexts.map((c) => ({ name: c.name, priority: c.priority, mappings: c.mappings.length, consumed: consumedBy.get(c.name) ?? [] })),
+    actions,
+    problems: [...table.problems],
+    rebind: pendingRebind(player),
+    pawns: pawns.get(info.index) ?? [],
+  };
+}
+
+function sourceRow(m: CompiledMapping): InputSourceRow {
+  const s = m.source;
+  const controls = s.kind === "single" ? [s.control] : s.kind === "dpad" ? [s.up, s.down, s.left, s.right] : s.kind === "axis" ? [s.negative, s.positive] : [...s.modifiers, s.control];
+  return { context: m.context, mapping: m.index, composite: s.kind, controls: controls.map((c) => c.path) };
+}
+
+// --- the event log -------------------------------------------------------------------------------
+
+interface LogBase {
+  /** The World's frame count when it happened. */
+  readonly frame: number;
+  /** The World's unscaled time since start-up, in seconds. */
+  readonly time: number;
+}
+
+/** One recorded input event. */
+export type InputLogEntry = LogBase &
+  (
+    | { readonly kind: "action"; readonly player: number; readonly set: string; readonly action: string; readonly phase: ActionEventPhase; readonly value: number }
+    | { readonly kind: "device"; readonly device: string; readonly control: string; readonly value: number }
+    | { readonly kind: "joined" | "left"; readonly player: number }
+    | { readonly kind: "rebind"; readonly player: number; readonly action: string; readonly control: string | null; readonly canceled: boolean; readonly conflicts: readonly string[] }
+  );
+
+/** A running log of one World's input events (`watchInput`). */
+export interface InputLog {
+  /** The recorded events, oldest first; at most `limit` (the newest). */
+  entries(): readonly InputLogEntry[];
+  /** Bumped whenever events are recorded. */
+  readonly version: number;
+  /** Forget what was recorded. */
+  clear(): void;
+  /** Stop recording (the system goes once nothing watches). */
+  stop(): void;
+}
+
+interface Recorder {
+  readonly limit: number;
+  list: InputLogEntry[];
+  version: number;
+}
+
+const recorders = new Map<World, Set<Recorder>>();
+
+const playerIndex = (node: GameObject) => (node.isValid ? (node.getData(InputPlayer)?.index ?? -1) : -1);
+
+function record(world: World): void {
+  const set = recorders.get(world);
+  if (!set?.size) return;
+  const base = { frame: world.time.frameCount, time: world.time.realtimeSinceStartup };
+  const found: InputLogEntry[] = [];
+  for (const e of DeviceEvents.read()) found.push({ ...base, kind: "device", device: e.device.isValid ? e.device.name : "?", control: e.control, value: e.value });
+  for (const e of PlayerJoined.read()) found.push({ ...base, kind: "joined", player: e.index });
+  for (const e of ActionEvents.read()) found.push({ ...base, kind: "action", player: playerIndex(e.player), set: e.set.id, action: e.action, phase: e.phase, value: e.value });
+  for (const e of RebindResults.read()) found.push({ ...base, kind: "rebind", player: playerIndex(e.player), action: e.action, control: e.control, canceled: e.canceled, conflicts: [...e.conflicts] });
+  for (const e of PlayerLeft.read()) found.push({ ...base, kind: "left", player: e.index });
+  if (!found.length) return;
+  for (const r of set) {
+    r.list.push(...found);
+    if (r.list.length > r.limit) r.list.splice(0, r.list.length - r.limit);
+    r.version++;
+  }
+}
+
+/** Records every World that something watches; defined while anything does. lateUpdate: after everything that appends to the buffers, before they're cleared. */
+const LOG_SYSTEM: BuiltinSystem = { name: "engine.InputDebugLog", phase: "lateUpdate", run: (w) => record(w) };
+
+/** Start recording `world`'s input events, keeping the newest `limit`. */
+export function watchInput(world: World, limit = 200): InputLog {
+  const r: Recorder = { limit, list: [], version: 0 };
+  if (recorders.size === 0) defineBuiltinSystem(LOG_SYSTEM);
+  let set = recorders.get(world);
+  if (!set) recorders.set(world, (set = new Set()));
+  set.add(r);
+  let stopped = false;
+  return {
+    entries: () => r.list,
+    get version() {
+      return r.version;
+    },
+    clear() {
+      r.list = [];
+      r.version++;
+    },
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      const s = recorders.get(world);
+      s?.delete(r);
+      if (s && s.size === 0) recorders.delete(world);
+      if (recorders.size === 0) _undefineBuiltinSystem(LOG_SYSTEM);
+    },
+  };
+}
+
+// --- for the context asset editor ----------------------------------------------------------------
+
+/** A defined action set and its actions. */
+export interface InputActionSetInfo {
+  readonly id: string;
+  readonly actions: readonly { readonly name: string; readonly kind: ActionKind }[];
+}
+
+/** Every action set the engine and the project's scripts define, in definition order. */
+export function inputActionSets(): InputActionSetInfo[] {
+  return actionSets().map((s) => ({ id: s.id, actions: s.actions.map((a) => ({ name: a.name, kind: a.kind })) }));
+}
+
+/** The names of the contexts scripts register with `defineInputContext`, and the default context's. */
+export function inputContextNames(): string[] {
+  return [DEFAULT_CONTEXT, ...registeredContexts()];
+}
+
+/**
+ * Every named control path the engine parses, grouped by device in the order a picker lists them: Pointer, Gamepad,
+ * Touch, Pen (keys aren't listed: any `KeyboardEvent.key` names one).
+ */
+export function inputControlPaths(): { readonly device: string; readonly controls: readonly string[] }[] {
+  const names = { pointer: "Pointer", gamepad: "Gamepad", touch: "Touch", pen: "Pen" } as const;
+  return namedControlPaths().map((g) => ({ device: names[g.device], controls: g.paths }));
+}
+
+/** A control path's canonical form (`<keyboard>/Space` → `<Keyboard>/space`), or null if it names no control. */
+export function canonicalControlPath(path: string): string | null {
+  return control(path)?.path ?? null;
+}
+
+/** The problems the evaluator reports for a context, each with its mapping's index: the messages Play would log. */
+export function inputContextProblems(spec: InputContextSpec): { readonly mapping: number; readonly message: string }[] {
+  return contextProblems(spec);
+}
+
+// --- raw presses (Bind) ----------------------------------------------------------------------------
+
+/** One press the device snapshot saw. */
+export interface RawPress {
+  /** What pressed it. */
+  readonly device: "keyboard" | "pointer" | "touch" | "pen" | "gamepad";
+  /** The control's path as the engine names it: `<Keyboard>/k`, `<Pointer>/button0`, `<Gamepad>/buttonSouth`, `<Gamepad>/leftStickX`, `<Touch>/touch0`, `<Pen>/tip`. */
+  readonly control: string;
+  /** The value it reached: 1 for keys and digital buttons, an analog button's 0..1, a stick axis's -1..1. */
+  readonly value: number;
+}
+
+const deviceOf = (id: number): RawPress["device"] => (id === KEYBOARD_DEVICE ? "keyboard" : id === POINTER_DEVICE ? "pointer" : id === TOUCH_DEVICE ? "touch" : id === PEN_DEVICE ? "pen" : "gamepad");
+
+/** The snapshot counts as stalled (nothing steps an Engine: play paused, or no Engine running) after this long without one. */
+const STALLED_MS = 200;
+const PUMP_MS = 50;
+
+/**
+ * Call `callback` with every press the Engine's device snapshot sees from now on (releases aren't presses; a stick
+ * counts when it crosses the press point): keyboard, mouse, every gamepad adapter (the Gamepad API, WebHID, SDL on
+ * desktop), touch and pen, after the snapshot's own UI routing. Runs with or without a play World: the snapshot is
+ * read at the start of each Engine frame, and while no Engine steps it (play paused, nothing running) this takes the
+ * snapshot itself so presses still arrive. Returns a function that stops.
+ */
+export function watchRawPresses(callback: (press: RawPress) => void): () => void {
+  let seen = devices.frame; // events already in the snapshot happened before this call
+  let lastFrameAt = performance.now();
+  let stopped = false;
+  const read = () => {
+    if (stopped || devices.frame === seen) return;
+    seen = devices.frame;
+    lastFrameAt = performance.now();
+    for (const e of devices.events) {
+      const gamepadAxis = e.control.startsWith("<Gamepad>/") && /Stick[XY]$/.test(e.control);
+      if (gamepadAxis ? Math.abs(e.value) < PRESS_POINT : e.value < PRESS_POINT) continue;
+      callback({ device: deviceOf(e.device), control: e.control, value: e.value });
+      if (stopped) return;
+    }
+  };
+  // At the start of each snapshot the previous frame's events are still there: read them before they're replaced.
+  const removePoller = devices.addPoller(read);
+  const pump = setInterval(() => {
+    read();
+    if (stopped || performance.now() - lastFrameAt < STALLED_MS) return;
+    Input.beginFrame(); // nothing is taking snapshots: take one, so the adapters are polled and their events applied
+    read();
+  }, PUMP_MS);
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    removePoller();
+    clearInterval(pump);
+  };
+}
+
+// --- hardware recording -------------------------------------------------------------------------
+
+/**
+ * Start recording the gamepad adapters' raw input: WebHID input reports (with each device's descriptor and setup
+ * exchange), SDL batches on desktop, and Gamepad API readings, until `stop()` returns the recording (a JSON value,
+ * format `myco-input-recording` version 1; `input/replay.ts` plays it back through the same adapters).
+ */
+export function recordInput(): InputRecorder {
+  return startInputRecording();
+}

@@ -651,6 +651,9 @@ export class World {
       // 1. Begin frame
       this.advanceClock(dt);
 
+      // 2b. The input phase (ADR 0335): the Engine's device snapshot becomes this World's input data
+      this.scheduler.run("input", time.unscaledDeltaTime);
+
       // 3. start() for newly enabled behaviors
       this.runPendingStarts();
 

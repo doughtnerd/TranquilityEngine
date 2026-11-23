@@ -660,8 +660,10 @@ export interface NetPeerInfo {
   readonly rtt: number;
   readonly sent: NetTrafficInfo;
   readonly received: NetTrafficInfo;
-  /** Server: the size of the last snapshot sent on this connection, in bytes; null on a client. */
+  /** Server: the size of the last snapshot sent on this connection, in bytes (all its parts); null on a client. */
   readonly snapshotBytes: number | null;
+  /** Server: how many parts (datagrams, ADR 0334) the last snapshot took; null on a client. */
+  readonly snapshotParts: number | null;
   /** Server: the ghosts this connection has been told about; null on a client. */
   readonly ghosts: number | null;
   /** Server: this connection's counters per input stream (only streams it has sent input on). */
@@ -716,6 +718,7 @@ export function netWorldInfo(engine: Engine): NetWorldInfo[] {
         sent: copyTraffic(peer.sent),
         received: copyTraffic(peer.received),
         snapshotBytes: session.isServer ? (ps?.lastBytes ?? 0) : null,
+        snapshotParts: session.isServer ? (ps?.lastParts ?? 0) : null,
         ghosts: session.isServer ? (ps?.known.size ?? 0) : null,
         ghostTypes: ps ? [...ps.typeBits].map(([type, bits]) => ({ type, bytes: bits / 8 })) : [],
         inputs: node?.isValid ? inputs.flatMap((def) => {
@@ -801,6 +804,37 @@ export function writeWorldInput(engine: Engine, worldName: string, streamId: str
   if (!world || !def || netSession(world)?.isServer) return false;
   return _writeSyntheticInput(world, streamId, values);
 }
+
+// --- Input debugger and context assets (ADR 0336, 0337) -------------------------------------------
+
+export {
+  canonicalControlPath,
+  inputActionSets,
+  inputContextNames,
+  inputContextProblems,
+  inputControlPaths,
+  inputState,
+  parseInputRecording,
+  phaseNames,
+  recordInput,
+  watchInput,
+  watchRawPresses,
+  RECORDING_FORMAT,
+  RECORDING_VERSION,
+  type InputRecorder,
+  type InputRecording,
+  type RawPress,
+  type InputActionRow,
+  type InputActionSetInfo,
+  type InputContextRow,
+  type InputDeviceRow,
+  type InputLog,
+  type InputLogEntry,
+  type InputPlayerRow,
+  type InputSourceRow,
+  type InputWorldState,
+  type PendingRebind,
+} from "./inputDebug";
 
 // --- Worlds panel: live connections (ADR 0062) -----------------------------------------------------
 

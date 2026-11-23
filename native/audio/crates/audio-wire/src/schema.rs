@@ -63,8 +63,36 @@ macro_rules! c {
     };
 }
 
+/// The core's C ABI version, `(major, minor)` (api-and-models section 5): the minor for an added export, the major for a
+/// change. Defined once here, beside the schema hash, so the wasm (`myco_audio_abi_version`), the shell and the capture
+/// header read one value. 2.0 (ADR 0162 C8): nine init parameters and the kernel budget; 3.0 (ADR 0166 W1):
+/// `max_music_rings`; 4.0 (ADR 0171/0172 M5): the 256 B STATUS header and the M5 opcodes; 5.0 (ADR 0327, 0328):
+/// `myco_audio_init` reads the INIT record from the inbox, `myco_audio_memory_pages` and `myco_audio_memory_part_bytes`
+/// replace `myco_audio_layout_bytes` and `myco_audio_zone_kernel_budget_bytes`, and a refusal names its field.
+///
+/// The Audio Studio's line, built on its own branch from 4.0 beside master's 5.0, so its numbers below were never
+/// shipped together with master's: 4.1 (ADR 0346): CURVES keys carry Bézier handles (interp 5), 64 keys a curve;
+/// 4.2 (ADR 0346): time parameters (binding `param` bit 14) and TIME (0x1D); 4.3 (ADR 0342): LOOPS (0x0B) loop
+/// programs; 4.4 (ADR 0345, 0343): AUTOMATE targets 3 (highpass floor) and 4 (pan); 4.5 (ADR 0345): SUBMIX (0x0C);
+/// 4.6 (ADR 0345 DSP): the catalogue's effect kinds on submixes and bus chains, eight effects a bus, the `FxMem` region;
+/// 4.7 (ADR 0344): BUS_SENDS (0x1E); 4.9 (ADR 0345, 0346, 0350): SUBMIX `parent`, ROUTE (0x0D), AUTOMATE time
+/// `offset`, LOOPS `shapes`; 4.10 (ADR 0344, 0345): BUS_AUTOMATE fx and send targets, SUBMIX_AUTOMATE (0x1F), held
+/// parameters, the BUS_RAMP `Decibel` law, STATUS `fxStarved`; 4.11 (ADR 0347): SET_VOICE_FX `spread`; 4.12 (ADR 0351
+/// A4, 0359 §5): CLIP_BEGIN format 6 (IMA ADPCM) and the `AdpcmCursors` region; 5.0 (ADR 0352, 0358): effect records
+/// carry 16 parameters, plugin effect kinds `FX_PLUGIN_BASE + e` through the `myco_ext` import the shell supplies at
+/// instantiation, plugin fuel per chain level, a 128 KB core-state region; 5.1 (ADR 0360): sound generators (reserved
+/// `GEN_CLIP_ID_FIRST` clip ids, GEN (0x21), AUTOMATE target kind 5, STATUS `genStarved`, the `GenEntries` region).
+///
+/// 6.0 (the merge of both lines, 2026-11-23): master's 5.0 (the INIT record, the memory exports) with the Studio's 5.1
+/// (the `myco_ext` import, 16-parameter effect records and the records above). Both 5.0s changed the ABI
+/// incompatibly, so the joined core is a new major.
+const CORE_ABI: (u64, u64) = (6, 0);
+
 /// Constants from section 4 and 5 that code on both sides needs.
 pub const CONSTANTS: &[Const] = &[
+    c!("CORE_ABI_MAJOR", CORE_ABI.0, "the core's C ABI major (`myco_audio_abi_version() >> 8`); a shell refuses a different one"),
+    c!("CORE_ABI_MINOR", CORE_ABI.1, "the core's C ABI minor (an added export)"),
+    c!("CORE_ABI_VERSION", (CORE_ABI.0 << 8) | CORE_ABI.1, "`(CORE_ABI_MAJOR << 8) | CORE_ABI_MINOR`: `myco_audio_abi_version()`, STATUS `abiVersion` and the capture header"),
     c!("MAGIC", 0x4D59_4131u32, "envelope magic, 'MYA1'"),
     c!("VERSION_MAJOR", 1, "a core refuses a different major"),
     c!("VERSION_MINOR", 3, "new opcodes or appended payload words are minor (1.1: ADR 0162; 1.2: the shape word, ADR 0166; 1.3: the M5 mix opcodes, ADR 0171)"),
@@ -199,6 +227,14 @@ pub const ENUMS: &[Enum] = &[
         ("Compressor", 2, "threshold dB, knee dB, ratio, attack s, release s"),
         ("ReverbSend", 3, "p0 send"),
     ]),
+    en!("MemoryPart", "`myco_audio_memory_part_bytes` part (ADR 0327): bytes the core takes for the INIT record in the inbox", [
+        ("Layout", 0, "the block `myco_audio_init` takes: every fixed region and the arena's initial reserve, in whole pages"),
+        ("Beds", 1, "the `Beds` region: bed slots and the wide streams' private decoders"),
+        ("Zones", 2, "the `Zones` region: zone convolver slots, the aux accumulator and the sends area"),
+        ("Wide", 3, "the `Wide` region: 16-channel stream rings"),
+        ("ZoneKernels", 4, "the zone kernel budget: prepared kernels in the arena, outside clipMemoryMB"),
+        ("SpatialData", 5, "the HRIR table, its HRTF bank and the MagLS filters in the arena, outside clipMemoryMB"),
+    ]),
 ];
 
 macro_rules! er {
@@ -226,6 +262,16 @@ pub const ERRORS: &[ErrorCode] = &[
     er!("UNKNOWN_STREAM", -14, "no such stream id"),
     er!("BAD_FORMAT", -15, "unsupported clip format, or an HRIR header that does not fit"),
     er!("MALFORMED", -16, "a record's fields are inconsistent (count versus length)"),
+    // ADR 0328: `myco_audio_init` names the INIT field it refused: `INIT_` + the field's name.
+    er!("INIT_SAMPLE_RATE", -17, "INIT sampleRate is outside 8 kHz..192 kHz"),
+    er!("INIT_MAX_LOGICAL", -18, "INIT maxLogical is 0 or above 65,536"),
+    er!("INIT_MAX_MIXED", -19, "INIT maxMixed is 0 or above maxLogical"),
+    er!("INIT_MAX_BUSES", -20, "INIT maxBuses is 0 or above 256"),
+    er!("INIT_MAX_BEDS", -21, "INIT maxBeds is above MAX_BEDS"),
+    er!("INIT_MAX_ZONE_SLOTS", -22, "INIT maxZoneSlots is above MAX_ZONE_SLOTS"),
+    er!("INIT_ZONE_MAX_FRAMES", -23, "INIT zoneMaxFrames is 0 or past 8 s at sampleRate while there are zone slots"),
+    er!("INIT_MAX_WIDE", -24, "INIT maxWide is above 4"),
+    er!("INIT_MAX_MUSIC_RINGS", -25, "INIT maxMusicRings is above MAX_MUSIC_RINGS"),
 ];
 
 /// `CONSTANTS` followed by `music::CONSTANTS`, `mix::CONSTANTS`, `studio::CONSTANTS` and `generator::CONSTANTS`.
@@ -282,6 +328,17 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         for c in all_constants() {
             assert!(seen.insert(c.name), "duplicate constant {}", c.name);
+        }
+    }
+
+    /// ADR 0328: every `INIT_*` code names a field of the INIT record, so a refusal says which parameter.
+    #[test]
+    fn init_error_codes_name_init_fields() {
+        let fields: Vec<String> = envelope::INIT_FIELDS.iter().map(|f| crate::gen::layout::screaming(f.name)).collect();
+        let named: Vec<&str> = ERRORS.iter().filter_map(|e| e.name.strip_prefix("INIT_")).collect();
+        assert_eq!(named.len(), 9);
+        for n in named {
+            assert!(fields.iter().any(|f| f == n), "INIT_{n} names no INIT field");
         }
     }
 

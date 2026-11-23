@@ -23,7 +23,7 @@ import type { World } from "../core/World";
 import { Assets, normalizeAssetPath } from "../scene/Assets";
 import { projectFileKind } from "../scene/projectFiles";
 import type { GameObject } from "../scene/GameObject";
-import { UIButton, UIInputField, type UIComponentType } from "./components";
+import { UIButton, UICanvas, UIInputField, type UIComponentType } from "./components";
 import { uiPseudoState, uiTypeOfTag } from "./elementKinds";
 import { uiInteractions, type UIInteractionType } from "./interactions";
 import { childPaths, labelPath } from "./documentSource";
@@ -56,7 +56,7 @@ export function loadUIDocumentSupport(): Promise<void> {
 
 // --- Events -------------------------------------------------------------------------------------
 
-export type UIEventType = "click" | "change" | "submit" | "hover";
+export type UIEventType = "click" | "change" | "submit" | "hover" | "focus" | "blur" | "cancel";
 
 /** One UI event of the frame. */
 export interface UIEvent {
@@ -71,8 +71,9 @@ export type UIEventHandler = (event: UIEvent) => void;
 
 /**
  * The frame's UI events from documents (ADR 0077), for systems: clicks, changes, submits and hovers
- * (the pointer moving onto a button), as the UI core recorded them (ADR 0309). Filled right after UI
- * input routing, before behaviors' `update`; cleared at the end of the frame.
+ * (the pointer moving onto a button), as the UI core recorded them (ADR 0309); focus and blur (the
+ * pointer or keyboard and gamepad navigation moving focus) and cancel (on the document's root, ADR
+ * 0340). Filled right after UI input routing, before behaviors' `update`; cleared at the end of the frame.
  */
 export const UIEvents = defineBuffer<UIEvent>("engine.UIEvents");
 
@@ -250,10 +251,12 @@ export class UIDocumentElement {
   }
 
   /**
-   * Call `handler` when the element is clicked (buttons), its value changes or Enter is pressed in it
-   * (input fields), or the pointer moves onto it (`hover`, buttons). Handlers run once per frame,
-   * right after UI input routing and before behaviors' `update`, exactly when the matching polled
-   * state is true. They're dropped with the element.
+   * Call `handler` when the element is clicked (buttons, by the pointer or `submit`), its value changes
+   * or Enter is pressed in it (input fields), the pointer moves onto it (`hover`, buttons), it gets or
+   * loses focus from the player (`focus`, `blur`: buttons and input fields), or, on the document's
+   * root, the player presses `cancel` (Escape, the east button) with focus on its canvas. Handlers run
+   * once per frame, right after UI input routing and before behaviors' `update`, exactly when the
+   * matching polled state is true. They're dropped with the element.
    */
   on(type: UIEventType, handler: UIEventHandler): this {
     const list = this._handlers.get(type);
@@ -298,9 +301,14 @@ export class UIDocumentElement {
     return this._comp instanceof UIInputField && this._comp.submitted;
   }
 
-  /** Input fields: true while it takes the keyboard. */
+  /** Buttons and input fields: true while it has focus. */
   get focused(): boolean {
-    return this._comp instanceof UIInputField && this._comp.focused;
+    return (this._comp instanceof UIButton || this._comp instanceof UIInputField) && this._comp.focused;
+  }
+
+  /** The document's root: true for the frame the player pressed `cancel` with focus on its canvas. */
+  get canceled(): boolean {
+    return this === this.document.root && this.document._canceled();
   }
 
   /** Input fields: the text in it; null for other elements. Setting it doesn't count as a change. */
@@ -495,6 +503,7 @@ export class UIDocument extends Component {
     state.rows = rows;
     state.keys = keys;
     for (const row of rows) this.updateBindings(row);
+    if (this.rootElement) this.resolveReferences(this.rootElement);
     for (const [row, item] of fresh) {
       try {
         setup?.(row, item);
@@ -632,6 +641,7 @@ export class UIDocument extends Component {
       }
     }
     for (const el of reuse.values()) dropElement(el);
+    if (this.rootElement) this.resolveReferences(this.rootElement);
     // Lists made before the rebuild are made again, with their setup.
     for (const [selector, l] of [...this.lists]) this.list(selector, l.items as never[], l.setup, l.options);
     const resolve = this.readyResolve;
@@ -739,6 +749,52 @@ export class UIDocument extends Component {
     const paths = scope ? null : childPaths(path, markup.children);
     markup.children.forEach((childMarkup, i) => el._children.push(this.build(childMarkup, el, null, scope ? null : reuse, paths?.[i] ?? "")));
     return el;
+  }
+
+  /**
+   * Node references the markup names by element id (ADR 0340): `nav-up`, `nav-down`, `nav-left`,
+   * `nav-right` and, on the root, `first-selected`. Set once the tree (and its list rows) is built; an id
+   * is looked up in the element's own list row first, then in the whole document.
+   */
+  private resolveReferences(from: UIDocumentElement): void {
+    const P = parsers!;
+    walk(from, (el) => {
+      if (!el._alive) return;
+      for (const a of el._markup.attributes) {
+        const field = P.referenceField(a);
+        if (!field) continue;
+        const where = `${el._markup.file}: <${el._markup.tag} ${a.name}="${a.value}">`;
+        if (!P.fieldsOf(el._comp.constructor as ComponentClass).has(field)) {
+          this.warnOnce(`${where}: <${el._markup.tag}> has no field "${a.name}".`);
+          continue;
+        }
+        const id = a.value.trim();
+        const target = id ? this.elementById(id, el) : null;
+        if (id && !target) this.warnOnce(`${where}: there's no element with id "${id}".`);
+        (el._comp as unknown as Record<string, unknown>)[field] = target?._node ?? null;
+      }
+    });
+  }
+
+  private elementById(id: string, near: UIDocumentElement): UIDocumentElement | null {
+    const find = (root: UIDocumentElement): UIDocumentElement | null => {
+      let found: UIDocumentElement | null = null;
+      walk(root, (el) => {
+        if (!found && el._alive && el._target.id === id) found = el;
+      });
+      return found;
+    };
+    let row: UIDocumentElement | null = near;
+    while (row && !row._scope) row = row._parent;
+    return (row && find(row)) ?? (this.rootElement ? find(this.rootElement) : null);
+  }
+
+  private readonly warned = new Set<string>();
+
+  private warnOnce(message: string): void {
+    if (this.warned.has(message)) return;
+    this.warned.add(message);
+    warn(message);
   }
 
   /** Resolve an element's style and write the fields that changed; restyles its children too (inheritance). */
@@ -906,12 +962,13 @@ export class UIDocument extends Component {
     if (world.inEditMode(this.node.entity)) return; // a scene being edited: no events (ADR 0026)
     const log = uiInteractions(world);
     const events: UIEvent[] = [];
+    if (this._canceled()) events.push({ type: "cancel", element: root, document: this, item: undefined });
     walk(root, (el) => {
       if (!el._alive) return;
       const c = el._comp;
       const types: readonly UIInteractionType[] = c instanceof UIButton ? BUTTON_EVENTS : c instanceof UIInputField ? FIELD_EVENTS : [];
       for (const type of types) {
-        if (type === "click" ? (c as UIButton).clicked : log.happened(c as UIButton | UIInputField, type)) events.push({ type, element: el, document: this, item: el.item });
+        if (type === "click" ? (c as UIButton).clicked : log.happened(c as UIButton | UIInputField, type)) events.push({ type: type as UIEventType, element: el, document: this, item: el.item });
       }
     });
     if (events.length === 0) return;
@@ -928,6 +985,15 @@ export class UIDocument extends Component {
         }
       }
     }
+  }
+
+  /** @internal True in the frame the player pressed `cancel` on the document's canvas: its root, or the canvas above it (ADR 0340). */
+  _canceled(): boolean {
+    const root = this.rootElement;
+    if (!root?._alive) return false;
+    let canvas: UICanvas | null = root._comp instanceof UICanvas ? root._comp : null;
+    for (let n: GameObject | null = this.node; !canvas && n; n = n.parent) canvas = n.getComponent(UICanvas);
+    return !!canvas && canvas.canceled;
   }
 
   /** @internal After behaviors' lateUpdate: hot reload, bindings, pseudo-class and class restyles. */
@@ -979,8 +1045,8 @@ export class UIDocument extends Component {
 }
 
 /** The events each kind can have, in the order a frame's are reported. */
-const BUTTON_EVENTS: readonly UIInteractionType[] = ["click", "hover"];
-const FIELD_EVENTS: readonly UIInteractionType[] = ["change", "submit"];
+const BUTTON_EVENTS: readonly UIInteractionType[] = ["blur", "focus", "click", "hover"];
+const FIELD_EVENTS: readonly UIInteractionType[] = ["blur", "focus", "change", "submit"];
 
 function walk(el: UIDocumentElement, fn: (el: UIDocumentElement) => void): void {
   fn(el);

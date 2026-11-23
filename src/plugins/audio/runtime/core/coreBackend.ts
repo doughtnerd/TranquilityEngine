@@ -60,12 +60,13 @@ import { mixer as defaultMixer, type Mixer, type MixOpTarget, type ResolvedBus }
 import { Assets } from "../../../../engine/scene/Assets";
 import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioCodecs, AudioOutputDevice, AudioPacks, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, ShapedParams, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
+import { MAX_BUSES } from "../../../../engine/audio/settings";
 import { BUS_LP_OFF_HZ, FX_MEMORY_SECONDS, readStatus, type BusConfigBuses } from "../wire.generated";
 import { AudioHandle, type AudioReason } from "./handle";
 import { limiterLatencyFrames } from "./limiterLatency";
 import { ClockMap } from "./clock";
 import { CommandWriter } from "./commandWriter";
-import { createHrirLoader, createMaglsLoader, type HrirLoader, type MaglsLoader } from "./hrir";
+import { createHrirLoader, createMaglsLoader, type HrirLoader, type MaglsLoader, type SpatialPrepare } from "./hrir";
 import { createClipRegistry, type ClipInfo, type ClipRegistry } from "./clipRegistry";
 import { DEFAULT_CLIP_CEILING_MB, type AudioHost, type CoreLink, type HostHealth } from "./context";
 import { PlayheadTracker, Replayer, replayBusConfig, replayMaster, type ReplaySource } from "./replay";
@@ -80,7 +81,7 @@ import { UnlockQueue } from "./unlockQueue";
 import { connectVoiceTable, VoiceFlag, VoiceFlag2, VoiceState, VoiceTable } from "./voiceTable";
 import { reopenStamp, StreamManager, type StreamDecoderLike, type StreamManagerDeps } from "./streams";
 import { WorkletChannel } from "./workletChannel";
-import { sharedDecoderClient } from "../decoder/decoderClient";
+import { sharedDecoderClient, type DecoderClient } from "../decoder/decoderClient";
 import { createPackHost } from "./packHost";
 import { packedMediaUrl, packedSound } from "./packMedia";
 import { headedVoice } from "./headedVoice";
@@ -192,7 +193,6 @@ export interface CoreBackendDeps {
   zoneIr?: ZoneIrService;
 }
 
-const MAX_BUS = 32;
 
 /** What the backend's parts read of it through its private view (`CoreBackend.view`). */
 type CoreView = DebugSource & KeyframeHost & ReplaySource & PresenceHost;
@@ -394,8 +394,6 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     this.warnOnce = deps.warnOnce ?? createWarnOnce();
     this.hostClock = deps.clock;
     this.clips = deps.clips;
-    this.hrir = deps.hrir ?? createHrirLoader({ clips: deps.clips, sampleRate: host.sampleRate });
-    this.magls = deps.magls ?? createMaglsLoader({ clips: deps.clips, sampleRate: host.sampleRate });
     this.table = new VoiceTable(host.preset.maxLogical);
     this.selection = new Selection(this.table);
     this.panners = new PannerPick(this.table);
@@ -412,6 +410,14 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     // B4: the AAC build's worker when the project decodes AAC, else the default one.
     const decoder = streamDeps.decoder ?? (() => sharedDecoderClient(this.aac ? "aac" : "default"));
     this.decoderOf = decoder;
+    // ADR 0331: the HRIR table and the MagLS filters are prepared for the context rate on that same worker.
+    const prepare: SpatialPrepare = (kind, asset, rate) => {
+      const worker = decoder() as StreamDecoderLike & Partial<Pick<DecoderClient, "prepareSpatial">>;
+      if (!worker.prepareSpatial) return Promise.reject(new Error("audio: this decoder can't prepare the spatial assets"));
+      return worker.prepareSpatial(kind, asset, rate);
+    };
+    this.hrir = deps.hrir ?? createHrirLoader({ clips: deps.clips, sampleRate: host.sampleRate, prepare });
+    this.magls = deps.magls ?? createMaglsLoader({ clips: deps.clips, sampleRate: host.sampleRate, prepare });
     this.worklet = new WorkletChannel<StreamDecoderLike>({
       decoder,
       connectWorklet:
@@ -526,7 +532,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
       busView: (name, gain) => this.mixer._setAutomationView(name, gain),
       busSelection: (name, gain) => {
         const b = this.busIndexByName.get(name);
-        if (b === undefined || b >= MAX_BUS) return;
+        if (b === undefined || b >= MAX_BUSES) return;
         this.lanes.selAuto[b] = gain;
         this.lanes.refreshBusGain();
       },

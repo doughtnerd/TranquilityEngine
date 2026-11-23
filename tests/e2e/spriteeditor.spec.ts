@@ -1,18 +1,10 @@
-import { expect, type Locator, openTestProject, type Page, test } from "./fixtures";
+import { expect, type Locator, openEditor, type Page, test, type Hooks } from "./fixtures";
 
 // Import settings (ADR 0040): the Asset Inspector, the Sprite Editor, and slices in the Assets
 // panel and the scene, on a writable in-memory copy of the Flappy sample.
 
-type Rect = { left: number; top: number; right: number; bottom: number };
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  openTestProject(extra: Record<string, string>): Promise<void>;
-  testFolder: { read(path: string): string | undefined };
-  nodeRect(key: string): Rect | null;
-};
-
 async function openProject(page: Page, extra: Record<string, string> = {}): Promise<void> {
-  await openTestProject(page, extra);
+  await openEditor(page, { files: extra });
   await page.locator(".dock-tab", { hasText: "Assets" }).click();
   await panel(page).locator(".asset-folder", { hasText: /^images$/ }).click();
 }

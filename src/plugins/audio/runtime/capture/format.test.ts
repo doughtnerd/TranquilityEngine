@@ -3,15 +3,15 @@
 import { describe, expect, it } from "vitest";
 import { MIX_OP_NAMES, OP_CLASSES } from "../../../../engine/audio/mixOps";
 import { CORE_ABI_MAJOR } from "../worklet/coreDriver";
-import { SCHEMA_HASH } from "../wire.generated";
+import { CORE_ABI_VERSION, SCHEMA_HASH } from "../wire.generated";
 import {
-  CAPTURE_ABI_VERSION, CAPTURE_HEADER_BYTES, CAPTURE_MIXOP_CLASSES, CAPTURE_MIXOP_CODES, CaptureError, RecordType,
+  assembleCapture, CAPTURE_ABI_VERSION, CAPTURE_HEADER_BYTES, CAPTURE_MIXOP_CLASSES, CAPTURE_MIXOP_CODES, CaptureError, RecordType,
   cutUtf8, decodeCaptureMeta, decodeEpoch, decodeEvent, decodeGap, decodeIndex, decodeMarker, decodeMixOpRecord, decodeNames,
   encodeCaptureMeta, encodeEpoch, encodeEvent, encodeGap, encodeIndex, encodeMarker, encodeMixOpRecord, encodeNames,
   eventBytes, indexBytes, markerBytes, mixOpBytes, namesBytes, readCaptureHeader, readRecordHead, writeRecordHead,
   type CaptureErrorCode,
 } from "./format";
-import { SAMPLE_META, sampleCapture } from "./testSupport";
+import { SAMPLE_HEADER, SAMPLE_META, sampleCapture } from "./testSupport";
 
 function codeOf(f: () => unknown): CaptureErrorCode | "none" {
   try {
@@ -32,8 +32,8 @@ function roundTrip<T>(bytes: number, enc: (v: DataView, off: number) => number, 
 
 describe("capture format constants", () => {
   it("names this build's ABI and the mix-op code counts", () => {
-    expect(CAPTURE_ABI_VERSION >>> 8).toBe(CORE_ABI_MAJOR);
-    expect(CAPTURE_ABI_VERSION).toBe(0x500); // 5.0 16-parameter effect records and plugin effects (ADR 0352); 4.12 clip format 6 (IMA ADPCM); 4.11 per-voice spread (SET_VOICE_FX spread); 4.10 mixer automation (effect and send automation, submix automation, dB ramps); 4.9 submix levels, ROUTE, binding time origins, shaped loop crossfades (4.8 mixer automation); 4.7 bus sends; 4.6 the effect catalogue DSP; 4.5 instance submixes; 4.4 voice pan and high-pass automation; 4.3 since ADR 0342 (loop programs; 4.2 time parameters, 4.1 Bézier keys); the core's `myco_audio_abi_version`
+    expect(CAPTURE_ABI_VERSION).toBe(CORE_ABI_MAJOR << 8);
+    expect(CAPTURE_ABI_VERSION).toBe(CORE_ABI_VERSION);
     expect(CAPTURE_MIXOP_CODES).toBe(MIX_OP_NAMES.length);
     expect(CAPTURE_MIXOP_CLASSES).toBe(OP_CLASSES.length);
   });
@@ -64,10 +64,17 @@ describe("capture header (§5.1)", () => {
     expect(codeOf(() => readCaptureHeader(v((d) => d.setUint32(84, 1, true))))).toBe("badHeader");
   });
 
+  it("stamps the running core's ABI the writer gives, and this build's without one (ADR 0328)", () => {
+    expect(readCaptureHeader(assembleCapture({ ...SAMPLE_HEADER, abiVersion: CORE_ABI_VERSION }, SAMPLE_META, [])).abiVersion).toBe(CORE_ABI_VERSION);
+    expect(readCaptureHeader(assembleCapture(SAMPLE_HEADER, SAMPLE_META, [])).abiVersion).toBe(CAPTURE_ABI_VERSION);
+    // A core of another ABI under this wire's hash is refused when read.
+    expect(codeOf(() => readCaptureHeader(assembleCapture({ ...SAMPLE_HEADER, abiVersion: CORE_ABI_VERSION + 1 }, SAMPLE_META, [])))).toBe("badHeader");
+  });
+
   it("names both ABI versions on a wire mismatch", () => {
     const c = sampleCapture().slice();
     c[12] ^= 0xff;
-    expect(() => readCaptureHeader(c)).toThrow(/ABI 5\.0.*re-record with this build/);
+    expect(() => readCaptureHeader(c)).toThrow(new RegExp(`ABI ${CORE_ABI_VERSION >> 8}\\.${CORE_ABI_VERSION & 0xff}.*re-record with this build`));
   });
 });
 

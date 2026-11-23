@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Camera, Engine, GameBehavior, GameObject, Input, Vector2 } from "../index";
+import { Camera, Engine, GameBehavior, GameObject, Input, PenState, TouchState, Vector2 } from "../index";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UILength } from "../ui/components";
 import { World } from "../core/World";
 import { UICore, canvasScale, uiLength } from "../ui/UICore";
@@ -704,6 +704,7 @@ describe("UICore pointer routing", () => {
     dom.pointerDown(0, 900, 600); // the previous touch, far from the button
     dom.pointerUp(0, 900, 600);
     engine.step(DT);
+    engine.step(DT); // a frame reads the button up between two presses (ADR 0336)
     dom.pointerDown(0, 100, 40); // over Play
     engine.step(DT);
     expect(Input.mousePosition).toEqual(new Vector2(100, 40));
@@ -711,6 +712,46 @@ describe("UICore pointer routing", () => {
     dom.pointerUp(0, 100, 40);
     engine.step(DT);
     expect(play.clicked).toBe(true);
+  });
+
+  it("a finger on a button presses it as the pointer, and the game's touchscreen doesn't see that finger", async () => {
+    const { play } = menu();
+    const c = await core();
+    sync(c);
+    const dom = DomInput.attach();
+    dom.touchStart(3, 100, 40); // primary, over Play
+    engine.step(DT);
+    expect(play.pressed).toBe(true);
+    const touch = () => engine.world.root.find("Input/Touchscreen")!.getData(TouchState)!;
+    expect([touch().held, touch().down, touch().count]).toEqual([0, 0, 0]);
+    dom.touchStart(4, 900, 500); // a second finger, away from UI, is the game's
+    engine.step(DT);
+    expect([touch().held, touch().count]).toEqual([0b10, 1]);
+    dom.touchEnd(3);
+    engine.step(DT);
+    expect(play.clicked).toBe(true);
+    expect(touch().up).toBe(0);
+    dom.touchEnd(4);
+    engine.step(DT);
+    expect(touch().up).toBe(0b10);
+  });
+
+  it("a pen tip on a button presses it, and the game's pen doesn't see the tip", async () => {
+    const { play } = menu();
+    const c = await core();
+    sync(c);
+    const dom = DomInput.attach();
+    dom.pen("pointermove", 100, 40);
+    engine.step(DT);
+    dom.pen("pointerdown", 100, 40, { pressure: 0.9 });
+    engine.step(DT);
+    expect(play.pressed).toBe(true);
+    const pen = engine.world.root.find("Input/Pen")!.getData(PenState)!;
+    expect([pen.held, pen.down, pen.pressure]).toEqual([0, 0, expect.closeTo(0.9)]);
+    dom.pen("pointerup", 100, 40);
+    engine.step(DT);
+    expect(play.clicked).toBe(true);
+    expect(pen.up).toBe(0);
   });
 
   it("a press and release in one frame clicks", async () => {
@@ -884,7 +925,7 @@ describe("UICore typing (DOM)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("gives DOM focus to the focused field, mirrors value and maxLength, and takes typing, Enter and Escape", async () => {
+  it("gives DOM focus to the focused field, mirrors value and maxLength, and takes typing, Enter and Escape (ADR 0340: Escape stops typing, focus stays)", async () => {
     const canvas = node("Canvas", null, UICanvas);
     const field = node("Name", canvas.node, UIInputField, { width: 300, height: 40, value: "Ad", maxLength: 5 } as Partial<UIInputField>);
     const c = await core();
@@ -914,7 +955,9 @@ describe("UICore typing (DOM)", () => {
     expect(field.submitted).toBe(false);
 
     fake.emit("keydown", { key: "Escape" });
-    expect(field.focused).toBe(false);
+    engine.step(DT); // navigation takes the Escape: the field stops typing and keeps focus
+    expect(field.typing).toBe(false);
+    expect(field.focused).toBe(true);
     sync(c);
     expect(fakeDocument().activeElement).toBeNull();
     expect(c.caretOf(field)).toBeNull();

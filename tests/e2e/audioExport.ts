@@ -13,7 +13,7 @@ import {
   decodeNames,
   NAME_TABLES,
 } from "../../src/plugins/audio/runtime/capture/format";
-import { expect, type Page } from "./fixtures";
+import { expect, type Page, type Hooks } from "./fixtures";
 
 // Helpers of the export round-trip spec (ADR 0171 amended by 0172, task X3; `audio-mix-d.spec.ts`): export a sample with
 // the game build (`src/export/cli.mjs`), serve it with its own `serve.mjs`, drive the exported page's recorder, and read the
@@ -192,7 +192,7 @@ export interface RecordedScene {
 
 export const MARKER_TEXT = "x3 marker";
 
-const engineUp = (page: Page) => page.evaluate(() => Boolean((window as unknown as { engine?: unknown }).engine));
+const engineUp = (page: Page) => page.evaluate(() => Boolean((window as unknown as Hooks).engine));
 const voicesOf = (t: Truth) => t.voices.map((v) => `${v.clip}@${v.bus}:${v.state}`);
 
 /** Polls the game until `want` holds (the work a key did), then lets the audio clock run `hold` seconds and reads the plateau. */

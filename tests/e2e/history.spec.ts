@@ -1,18 +1,12 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Page, waitForEditor } from "./fixtures";
 import { showTab } from "./tabs";
 import { menu } from "./menus";
 
 const EDITOR = process.env.EDITOR_URL ?? "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
-declare global {
-  interface Window {
-    engine?: { world: { time: { frameCount: number } } };
-  }
-}
-
 async function openEditor(page: Page): Promise<void> {
   await page.goto(EDITOR);
-  await page.waitForFunction(() => (window.engine?.world.time.frameCount ?? 0) > 10);
+  await waitForEditor(page);
 }
 
 const birdY = (page: Page) => page.getByRole("textbox", { name: "position y" });
@@ -65,7 +59,7 @@ test("Settings: history location is remembered, and the reference prompt checkbo
   await expect(dialog).toHaveCount(0);
 
   await page.reload();
-  await page.waitForFunction(() => (window.engine?.world.time.frameCount ?? 0) > 10);
+  await waitForEditor(page);
   await menu(page, "Edit", "Settings…");
   await expect(dialog.getByLabel("Per user (outside the project)")).toBeChecked();
   await expect(dialog.getByLabel("Ask before deleting a node other nodes reference")).not.toBeChecked();

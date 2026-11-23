@@ -55,8 +55,11 @@ const MIXER_LIMIT = 576 * 1024;
 const MIXER_WARN = 300 * 1024;
 /** The decoder's size tripwire (M1b: 900 KB). 1,000 KB since ADR 0359 §4 (2026-11-22, A7): libopus (fixed point, no
  *  imports) joins every game's decoder for Ogg Opus, +173.5 KB measured by the A0 spike (≈ 978–993 KB projected with
- *  symphonia's `adpcm` for imported WAV IMA sources), and no pure-Rust Opus decoder is mature enough to save it. */
-const DECODER_LIMIT = 1000 * 1024;
+ *  symphonia's `adpcm` for imported WAV IMA sources), and no pure-Rust Opus decoder is mature enough to save it.
+ *  1,056 KB since the merge with master (2026-11-23): master's ADR 0331 moved the HRIR and MagLS preparation into the
+ *  decoder (`spatial.rs`, +17.5 KB measured on master), which took the Studio's 1,006,855 B decoder to 1,024,411 B, 411 B
+ *  over; the preparation was main-thread TypeScript before, so this is wanted growth, not bloat (build log, merge). */
+const DECODER_LIMIT = 1056 * 1024;
 /** The AAC decoder build's own tripwire (B4; raised 1,100 -> 1,280 KB in M2 by the owner, 2026-11-10: gates are a signal to
  *  look for bloat, and M2's loop points are wanted growth). 1,350 KB since ADR 0359 §4 (A7): the AAC build gets libopus too
  *  (+173.5 KB; the spike projected ≈ 1,317 KB with `adpcm`, over 1,280). It ships beside the default decoder and is fetched

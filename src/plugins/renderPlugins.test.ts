@@ -18,6 +18,7 @@ import { isRuntimePluginActive, RUNTIME_PLUGINS, type RuntimePlugin } from "./ru
 import { applyTestPlugins } from "./testPlugins";
 import { spritesRuntimePlugin } from "./sprites/runtime";
 import { uiRuntimePlugin } from "./ui/runtime";
+import { UIControlMapper } from "../engine/ui/controlMapper";
 import { waterRuntimePlugin } from "./water/runtime";
 
 /** A plugin's render feature spec, as its activation registered it. */
@@ -80,7 +81,7 @@ const CASES: Case[] = [
   { plugin: waterRuntimePlugin, components: { "engine.WaterSurface": WaterSurface }, feature: WATER_SPEC, module: "water/runtime/waterFeature" },
   {
     plugin: uiRuntimePlugin,
-    components: { "engine.UICanvas": UICanvas, "engine.UIPanel": UIPanel, "engine.UIText": UIText, "engine.UIImage": UIImage, "engine.UIButton": UIButton, "engine.UIInputField": UIInputField, "engine.UIDocument": UIDocument, "engine.Text": Text },
+    components: { "engine.UICanvas": UICanvas, "engine.UIPanel": UIPanel, "engine.UIText": UIText, "engine.UIImage": UIImage, "engine.UIButton": UIButton, "engine.UIInputField": UIInputField, "engine.UIDocument": UIDocument, "engine.UIControlMapper": UIControlMapper, "engine.Text": Text },
     feature: UI_SPEC,
     module: "ui/runtime/uiFeature",
   },

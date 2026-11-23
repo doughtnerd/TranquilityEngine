@@ -3,7 +3,8 @@
 // `pack` (an ADPCM entry comes back as clip format 6 blocks or decoded int16). It routes
 // `decodeClip` and `cancel` to `clips.ts`, `stream*` (E4.4: `streamLoop` too) and `connectWorklet` to `streams.ts` (B3), and the
 // zone IR messages (ADR 0162 K0: `prepareIr`, `generateIr`, `releaseIr`) to `irPrepare.ts` (C2b), the music messages
-// (ADR 0166 §4.6, H3: `primeGroup`, `cancelGroup`, `protectMusic`, `releaseMusic`) to `musicGroups.ts` (D1a, D1b), loads the
+// (ADR 0166 §4.6, H3: `primeGroup`, `cancelGroup`, `protectMusic`, `releaseMusic`) to `musicGroups.ts` (D1a, D1b), prepares
+// the spatial assets (ADR 0331: `prepareSpatial`, the HRIR table and the MagLS filters for a context rate), loads the
 // wasm on `init` (requests that arrive first wait for it), and turns every failure into an `error` reply. Never throws,
 // never waits on anything but the wasm.
 import { ADPCM_BLOCK_FRAMES, ADPCM_CHANNEL_BYTES } from "../wire.generated";
@@ -12,7 +13,7 @@ import { IrPreparer } from "./irPrepare";
 import { MusicCache } from "./musicCache";
 import { MusicGroups } from "./musicGroups";
 import { adpcmInfo, adpcmPieces, entryHint, PackStore, type HeldEntry } from "./packs";
-import { CLIP_CHUNK_FRAMES, type ComputePeaksMessage, type DecodeClipMessage, type DecoderReply, type DecoderRequest, type InitMessage, type StreamOpenMessage } from "./protocol";
+import { CLIP_CHUNK_FRAMES, type ComputePeaksMessage, type DecodeClipMessage, type DecoderReply, type DecoderRequest, type InitMessage, type PrepareSpatialMessage, type StreamOpenMessage } from "./protocol";
 import { StreamDecoder } from "./streams";
 import { DecoderError, DecoderWasm } from "./wasm";
 
@@ -232,6 +233,26 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
     }
   };
 
+  // ADR 0331: the HRIR table or the MagLS filters for a context rate, prepared at once (a few ms) and sent back to main.
+  const spatial = async (msg: PrepareSpatialMessage): Promise<void> => {
+    const fail = (e: unknown) => post({ type: "spatialFailed", id: msg.id, code: e instanceof DecoderError ? e.code : 0, message: describe(e) });
+    if (!wasm) return fail(new DecoderError("audio decoder: not initialised"));
+    let decoder: DecoderWasm;
+    try {
+      decoder = await wasm;
+    } catch {
+      return fail(new DecoderError(failure ?? "audio decoder: failed to load"));
+    }
+    try {
+      const asset = new Uint8Array(msg.bytes);
+      const blob = msg.kind === "hrir" ? decoder.prepareHrir(asset, msg.rate) : decoder.prepareMagls(asset, msg.rate);
+      post({ type: "spatialPrepared", id: msg.id, bytes: blob.buffer as ArrayBuffer }, [blob.buffer as ArrayBuffer]);
+    } catch (e) {
+      if (!(e instanceof DecoderError)) decoder.reset();
+      fail(e);
+    }
+  };
+
   return {
     async handle(request) {
       switch (request.type) {
@@ -245,6 +266,8 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
           return clip(request);
         case "computePeaks":
           return peaks(request);
+        case "prepareSpatial":
+          return spatial(request);
         case "cancel":
           if (active.has(request.id)) cancelled.add(request.id);
           return;

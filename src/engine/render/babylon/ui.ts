@@ -42,6 +42,7 @@ import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComp
 import type { ICanvasRenderingContext } from "@babylonjs/core/Engines/ICanvas.js";
 import { Locale } from "../../localisation/Locale";
 import { fontEpoch, onFontLoaded, withLanguageFonts } from "../../ui/fonts";
+import { uiInteractions } from "../../ui/interactions";
 import { wrapLine, wrapText, type LineBreakMode } from "../../ui/text/lineBreak";
 import type { TextMeasureRequest, UICoreLike, UILaidOutCanvas, UILaidOutElement, UITextRun, UITextWrap } from "../../ui/uiCoreTypes";
 import { Text, type Anchor } from "../components";
@@ -449,17 +450,21 @@ export class BabylonUI {
   private syncPanel(e: ElementEntry, c: UIPanel): void {
     const r = e.control as Rectangle;
     let background = c.backgroundColor;
+    let border = c.borderColor;
+    // Focus colours (ADR 0340) show while the last UI input was navigation: a button's fill, a field's border.
+    const showsFocus = (c instanceof UIButton || c instanceof UIInputField) && uiInteractions(c._world).showsFocus(c);
     if (c instanceof UIButton && c.interactable) {
       // Pressed needs hovered too (a press dragged off the button shows it unpressed).
       if (c.pressed && c.hovered) background = c.pressedColor;
       else if (c.hovered) background = c.hoverColor;
-    }
+      else if (showsFocus) background = c.focusColor;
+    } else if (c instanceof UIInputField && showsFocus) border = c.focusColor;
     const bk = background ? colorKey(background) : -1;
     if (put(r, "bg", bk)) r.background = background ? background.toCss() : "";
     if (put(r, "radius", c.borderRadius)) r.cornerRadius = c.borderRadius;
     if (put(r, "border", c.borderWidth)) r.thickness = c.borderWidth;
-    const ck = colorKey(c.borderColor);
-    if (put(r, "color", ck)) r.color = c.borderColor.toCss();
+    const ck = colorKey(border);
+    if (put(r, "color", ck)) r.color = border.toCss();
   }
 
   /** A UIText: the core's text run (exactly what it measured), with the component's colour and alignment. */
@@ -544,7 +549,7 @@ export class BabylonUI {
     const lh = Math.max(0, el.height - 2 * inset);
     if (put(label, "h", lh)) label.heightInPixels = lh;
 
-    const index = c.focused ? (extra.caretOf?.(c) ?? null) : null;
+    const index = c.typing ? (extra.caretOf?.(c) ?? null) : null;
     if (index === null) {
       caret.isVisible = false;
       return;

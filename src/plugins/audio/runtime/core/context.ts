@@ -7,7 +7,7 @@
 // STATUS is copied in `onmessage` and its buffer goes back at once as RECYCLE (never waiting for a frame, so
 // STATUS keeps flowing with frames stopped, §4.5); returned BATCH buffers go back to the host's pool.
 import { MAX_BUSES, type AudioSettings } from "../../../../engine/audio/settings";
-import { Kind, MAGIC, readStatus, STATUS_FLAGS_READY, writeEnvelope, writeTimePing, type StatusBlock } from "../wire.generated";
+import { Kind, readStatus, STATUS_FLAGS_READY, writeEnvelope, writeTimePing, type StatusBlock } from "../wire.generated";
 import { CORE_ABI_MAJOR, PROCESSOR_NAME, type CoreControlMessage, type CorePreset, type CoreProcessorOptions, type CoreShellEvent } from "../worklet/coreDriver";
 import { createBatchPool, type BufferPool } from "./bufferPool";
 import { musicInitParams, spatialInitParams } from "./initParams";
@@ -16,6 +16,7 @@ import { Unlock } from "./unlock";
 import type { DeviceSnapshot } from "./deviceChange";
 import type { RecorderTap } from "../backend";
 import { busRemap } from "./busRemap";
+import { peekKind, peekMessageBytes } from "../wireEnvelope";
 
 /** @internal §2.1's states as `Audio.status` reports them. */
 export type HostStatus = "locked" | "running" | "failed";
@@ -244,10 +245,10 @@ export class CoreLink {
   /** The port's `onmessage`: STATUS (copy, then RECYCLE at once), returned buffers, shell events. */
   handleMessage(data: unknown): void {
     if (data instanceof ArrayBuffer) {
-      if (data.byteLength < 16) return;
       const view = new DataView(data);
-      if (view.getUint32(0, true) !== MAGIC) return;
-      if (view.getUint16(6, true) !== Kind.STATUS) {
+      const kind = peekKind(view);
+      if (kind === 0) return;
+      if (kind !== Kind.STATUS) {
         this.batchPool.release(data);
         return;
       }
@@ -258,7 +259,7 @@ export class CoreLink {
         // A block we can't read still goes back, or the shell's pool shrinks.
       }
       // ADR 0171 (K0): the recorder copies the raw block here, before RECYCLE overwrites its envelope and transfers it.
-      this.recorderTap?.(data, 16 + view.getUint32(12, true), view);
+      this.recorderTap?.(data, peekMessageBytes(view), view);
       // §4.3: return the buffer at once with RECYCLE (the transfer is the message), before anything else runs.
       writeEnvelope(view, 0, { kind: Kind.RECYCLE, seq: this.nextSeq(), bodyBytes: 0 });
       this.port.postMessage(data, [data]);

@@ -1,18 +1,5 @@
-import { expect, test, type Locator, type Page } from "./fixtures";
+import { expect, test, type Locator, type Page, waitForEditor, openEditor } from "./fixtures";
 import { menu } from "./menus";
-
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
-
-declare global {
-  interface Window {
-    engine?: { world: { time: { frameCount: number } } };
-  }
-}
-
-async function openEditor(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => (window.engine?.world.time.frameCount ?? 0) > 10);
-}
 
 const tab = (page: Page, name: string) => page.getByRole("tab", { name: new RegExp(`^${name}`) });
 /** The dock group (panel container) showing `name`. */
@@ -30,7 +17,7 @@ async function dragTab(page: Page, name: string, x: number, y: number, release =
 }
 
 test("dragging a panel to the window's outer edge docks it there at full height, with a preview first", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const area = await box(page.locator(".dock-layout"));
   await dragTab(page, "Inspector", area.x + 4, area.y + area.height / 2, false);
   // The preview re-renders after the pointer moves; wait for the last move's (an earlier step's
@@ -52,7 +39,7 @@ test("dragging a panel to the window's outer edge docks it there at full height,
 });
 
 test("dropping a panel where it already is changes nothing", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const before = await box(group(page, "Hierarchy")); // alone in its group and dock
   await dragTab(page, "Hierarchy", before.x + before.width / 2, before.y + before.height / 2, false);
   await expect(page.locator(".dock-layout.invalid")).toHaveCount(1);
@@ -62,7 +49,7 @@ test("dropping a panel where it already is changes nothing", async ({ page }) =>
 });
 
 test("the scene view is a panel: it moves like the others and keeps its canvas", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   // The graph tabs share the scene's group by default; they go first, so the scene's dock empties.
   let assets = await box(tab(page, "Assets"));
   await dragTab(page, "Shader Graph", assets.x + assets.width / 2, assets.y + assets.height / 2);
@@ -87,7 +74,7 @@ test("the scene view is a panel: it moves like the others and keeps its canvas",
 });
 
 test("dropping a panel inside the scene's dock splits it", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const scene = await box(group(page, "Scene"));
   await dragTab(page, "Code", scene.x + scene.width / 2, scene.y + scene.height * 0.8);
   const below = await box(group(page, "Code"));
@@ -98,7 +85,7 @@ test("dropping a panel inside the scene's dock splits it", async ({ page }) => {
 });
 
 test("dropping on another panel's header makes tabs; clicking a tab shows it", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const header = await box(tab(page, "Hierarchy"));
   await dragTab(page, "Inspector", header.x + header.width - 20, header.y + header.height / 2);
   await expect(tab(page, "Inspector")).toHaveAttribute("aria-selected", "true");
@@ -112,7 +99,7 @@ test("dropping on another panel's header makes tabs; clicking a tab shows it", a
 });
 
 test("dropping inside a dock splits it evenly", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const left = await box(group(page, "Hierarchy"));
   await dragTab(page, "Inspector", left.x + left.width / 2, left.y + left.height * 0.8);
   const hierarchy = await box(group(page, "Hierarchy"));
@@ -123,7 +110,7 @@ test("dropping inside a dock splits it evenly", async ({ page }) => {
 });
 
 test("Escape cancels a drag", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const before = await box(group(page, "Inspector"));
   const area = await box(page.locator(".dock-layout"));
   await dragTab(page, "Inspector", area.x + 4, area.y + 100, false);
@@ -133,7 +120,7 @@ test("Escape cancels a drag", async ({ page }) => {
 });
 
 test("resizing with a handle is remembered across reloads, and Reset Layout restores the default", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const before = await box(group(page, "Hierarchy"));
   const handle = await box(page.getByRole("separator", { name: "Resize left panels" }));
   await page.mouse.move(handle.x + handle.width / 2, handle.y + 200);
@@ -144,7 +131,7 @@ test("resizing with a handle is remembered across reloads, and Reset Layout rest
   expect(wider.width).toBeCloseTo(before.width + 80, 0);
 
   await page.reload();
-  await page.waitForFunction(() => (window.engine?.world.time.frameCount ?? 0) > 10);
+  await waitForEditor(page);
   expect((await box(group(page, "Hierarchy"))).width).toBeCloseTo(wider.width, 0);
 
   await menu(page, "Window", "Reset Layout");

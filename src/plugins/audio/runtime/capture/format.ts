@@ -18,7 +18,7 @@ import {
 import { voiceRowReason, type CaptureVoiceReason } from "./reasons";
 import { isTakeRecordType, TakeRecordError, TakeRecordType, decodeTakeRecord, type TakeRecord } from "../../../../engine/audio/take/records";
 import type { TakeMetaSection } from "../../../../engine/audio/take/reader";
-import { Kind, MAGIC, QUANTUM_FRAMES, SCHEMA_HASH, STATUS_BUFFER_BYTES, STATUS_EVERY_QUANTA, STATUS_HEADER_BYTES, STATUS_HEADER_COLUMNS, VERSION_MAJOR, VERSION_MINOR } from "../wire.generated";
+import { CORE_ABI_VERSION, Kind, MAGIC, QUANTUM_FRAMES, SCHEMA_HASH, STATUS_BUFFER_BYTES, STATUS_EVERY_QUANTA, STATUS_HEADER_BYTES, STATUS_HEADER_COLUMNS, VERSION_MAJOR, VERSION_MINOR } from "../wire.generated";
 export {
   KEYFRAME_AUDIBILITY_ONE, KEYFRAME_BUS_LANES, KEYFRAME_MAX_BUSES, KEYFRAME_MAX_EVENTS, KEYFRAME_MAX_METERED,
   KEYFRAME_MAX_MUSIC, KEYFRAME_MAX_VOICES, KEYFRAME_MUSIC_STATES, KEYFRAME_PITCH_ONE, KEYFRAME_VOICE_STATES,
@@ -36,8 +36,8 @@ export const CAPTURE_HEADER_BYTES = 96;
  * `take` header flag, META's `take` section and the request records; format 1 files are refused (not migrated).
  */
 export const CAPTURE_FORMAT = 2;
-/** The core ABI the header names (4.0, `worklet/coreDriver.ts` `CORE_ABI_MAJOR` << 8; a test keeps them equal). */
-export const CAPTURE_ABI_VERSION = 0x500;
+/** The core ABI this build reads captures of: the generated `CORE_ABI_VERSION`, beside the schema hash (ADR 0328). */
+export const CAPTURE_ABI_VERSION = CORE_ABI_VERSION;
 /** R16: the uncompressed payload's cap, from the header before inflate and while inflating (64 MiB). */
 export const CAPTURE_MAX_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
 /**
@@ -282,6 +282,8 @@ export type CaptureHeaderInit = Pick<CaptureHeader, "sampleRate" | "preset" | "s
   mainSideOnly?: boolean;
   /** ADR 0348: the file is a take (sets `CAPTURE_FLAG_TAKE`). */
   take?: boolean;
+  /** The running core's ABI, from its first STATUS (`Audio.debug().core.abiVersion`); absent (Babylon, or before it): `CAPTURE_ABI_VERSION`. */
+  abiVersion?: number;
 };
 
 /** Writes the 96 B header at `view[0..96)`. No validation: the writer's values are trusted. */
@@ -1445,7 +1447,7 @@ export function assembleCapture(init: CaptureHeaderInit, meta: CaptureMetaInit |
   const flags = (init.truncated ? CAPTURE_FLAG_TRUNCATED : 0) | (init.mainSideOnly ? CAPTURE_FLAG_MAIN_SIDE_ONLY : 0) | (opts.index ? CAPTURE_FLAG_HAS_INDEX : 0) | (init.take ? CAPTURE_FLAG_TAKE : 0);
   const out = new Uint8Array(CAPTURE_HEADER_BYTES + metaBytes.byteLength + body.byteLength);
   writeCaptureHeader(new DataView(out.buffer), {
-    format: CAPTURE_FORMAT, flags, schemaHash: SCHEMA_HASH, abiVersion: CAPTURE_ABI_VERSION,
+    format: CAPTURE_FORMAT, flags, schemaHash: SCHEMA_HASH, abiVersion: init.abiVersion ?? CAPTURE_ABI_VERSION,
     envelopeMajor: VERSION_MAJOR, envelopeMinor: VERSION_MINOR, statusBytesMax: STATUS_BUFFER_BYTES,
     sampleRate: init.sampleRate, quantumFrames: QUANTUM_FRAMES, statusEveryQuanta: STATUS_EVERY_QUANTA, preset: init.preset,
     startDateMs: init.startDateMs, keyframeIntervalMs: CAPTURE_KEYFRAME_INTERVAL_MS, metaBytes: metaBytes.byteLength,

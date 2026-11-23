@@ -18,6 +18,8 @@ aac = ["symphonia/aac", "symphonia/isomp4"]
 [dependencies]
 # Zone IR preparation (ADR 0162 C2a): `convolver::kernel::prepare_ir`, the normalisation, presets.
 audio-dsp.workspace = true
+# The MagLS header's generated reader and writer (ADR 0331: the spatial assets' preparation).
+audio-wire.workspace = true
 # The resampler table and the cut fade, bit-identical native and wasm (as audio-dsp).
 libm.workspace = true
 # Exactly 0.6.1, the version the decode spike measured. No metadata readers (ID3, APE): the probe
@@ -38,4 +40,6 @@ cc = "1.2"
 # ADR 0351 A7: the Opus tests decode the shipped encoder's own Ogg Opus (its float libopus is a separate, unrenamed
 # build; `opus/rename.h` keeps the two apart in one test binary).
 myco_audio_encode = { package = "audio-encode", path = "../audio-encode" }
+# The spatial blobs' pinned digests (tests/spatial.rs).
+sha2 = { workspace = true, features = ["std"] }
 

@@ -1,5 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
-import { bootMix } from "./audioMix";
+import { expect, test, type Page, openEditor, playWithAudio, LAB } from "./fixtures";
 
 // M5b loudness in the real editor app (ADR 0171 amended by 0172, task E2): the Sound Lab's loudness page (keys L, W, C, F, V, D;
 // `scripts/behaviors/Loudness.ts`) plays the project's reference (`audio/loudness-reference.wav`, the EBU Tech 3341 case 1
@@ -53,7 +52,8 @@ async function boot(page: Page): Promise<string[]> {
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
-  await bootMix(page);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   return errors;
 }
 

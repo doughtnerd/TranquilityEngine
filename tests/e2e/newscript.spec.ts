@@ -1,11 +1,5 @@
-import { expect, openTestProject, type Page, test } from "./fixtures";
+import { expect, openEditor, type Page, test, type Hooks } from "./fixtures";
 
-
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  openTestProject(extra: Record<string, string>): Promise<void>;
-  testFolder: { read(path: string): string | undefined };
-};
 
 const WHEEL = `import { GameBehavior, behavior, field } from "myco";
 @behavior("game.Wheel")
@@ -15,7 +9,7 @@ export class Wheel extends GameBehavior {
 `;
 
 async function openProject(page: Page): Promise<void> {
-  await openTestProject(page, { "scripts/Wheel.ts": WHEEL });
+  await openEditor(page, { files: { "scripts/Wheel.ts": WHEEL } });
 }
 
 const dialog = (page: Page) => page.getByRole("dialog", { name: "New script" });

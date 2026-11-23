@@ -27,6 +27,8 @@ export interface AssetSource {
 }
 
 const sources: AssetSource[] = [];
+/** Files the engine provides (the input glyphs, ADR 0337): looked up after the game's sources, and kept by `clearSources`. */
+const builtinSources: AssetSource[] = [];
 
 /** Strip the `asset:` prefix and leading `./` or `/`. */
 export function normalizeAssetPath(path: string): string {
@@ -130,9 +132,14 @@ export const Assets = {
     sources.length = 0;
   },
 
+  /** @internal Add files the engine itself provides (`@myco/…` paths): looked up after the game's sources, and never cleared. */
+  addBuiltinSource(source: AssetSource): void {
+    if (!builtinSources.includes(source)) builtinSources.push(source);
+  },
+
   has(path: string): boolean {
     const p = normalizeAssetPath(path);
-    return sources.some((s) => s.has(p));
+    return sources.some((s) => s.has(p)) || builtinSources.some((s) => s.has(p));
   },
 
   /** @internal Every path the registered sources list (`AssetSource.paths`), each once, in source order. */
@@ -149,6 +156,7 @@ export const Assets = {
   get(path: string): unknown {
     const p = normalizeAssetPath(path);
     for (const s of sources) if (s.has(p)) return s.get(p);
+    for (const s of builtinSources) if (s.has(p)) return s.get(p);
     throw new Error(`Asset not found: "${p}". Is it inside the asset root registered with Assets.addSource?`);
   },
 

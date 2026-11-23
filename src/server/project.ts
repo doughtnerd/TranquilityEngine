@@ -4,22 +4,27 @@
  * 0030), compiled and loaded so they register their components, systems, RPCs and inputs before
  * the Engine starts.
  *
- * Scripts load through the editor's script loader (`src/editor/scriptLoader.ts`), which only
- * depends on the engine: in Node it imports each compiled script from a `data:` URL, with
- * `"myco"` pointing at this process's engine. So the server and the editor compile scripts
- * the same way. Reading the folder is separate from the editor's `projects.ts`, which reads
- * through the platform FileSystem and serves binary assets as blob URLs.
+ * Scripts link through the project code linker's memory target (ADR 0329), as in the editor: in
+ * Node it imports each compiled script from a `data:` URL, with `"myco"` pointing at this
+ * process's engine. So the server and the editor compile scripts the same way. Reading the folder
+ * is separate from the editor's `projects.ts`, which reads through the platform FileSystem and
+ * serves binary assets as blob URLs.
  */
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { AssetSource, ProjectSettingsInput } from "../engine";
+import { setScriptAssetRefs, withScriptRegistrations } from "../engine/editor";
 import { isProjectFile, loadProjectFiles, projectFileKind, skipsFolder } from "../engine/scene/projectFiles";
 import { nodePackageSource } from "./packages";
 import { LEGACY_AUDIO_MESSAGE, projectWithAudio } from "../engine/audio/project/load";
 import { AUDIO_PROJECT_FILE } from "../engine/audio/project/types";
 import { audioEventRefusal, isAudioEventPath } from "../engine/audio/retiredAudioEvent";
-import { isScriptPath, loadScripts, loadedPluginModule, loadedScriptModule, type ScriptProblem } from "../editor/scriptLoader";
+import * as engine from "../myco";
+import { isScriptPath } from "../editor/projectPaths";
+import type { ScriptProblem } from "../projectCode/compile";
+import { link, type Linked } from "../projectCode/linker";
+import { MemoryTarget } from "../projectCode/memoryTarget";
 import type { RuntimePlugin } from "../plugins/runtimeContext";
 import { planPluginCode, toRuntimePlugin } from "../plugins/thirdParty";
 
@@ -105,41 +110,42 @@ async function listFiles(root: string, dir = root): Promise<string[]> {
   return out.sort();
 }
 
-/**
- * Compile and load the project's scripts (registrations replace any with the same id, so loading
- * again, in tests, is fine). Throws a `ServerError` listing every script that failed: a server
- * missing a system or RPC would run the wrong game, or reject every client in the handshake.
- */
-export async function loadProjectScripts(project: ServerProject): Promise<readonly string[]> {
-  return (await loadProjectCode(project)).loaded;
-}
+/** The server's link target (ADR 0329): what its scripts loaded, with `"myco"` this process's engine. */
+const target = new MemoryTarget(engine);
 
 /**
  * Load the project's scripts and its enabled third-party plugins' runtime halves (ADR 0139), minus
- * plugins marked `server: false`, and return those halves for the server to activate. A refused
- * plugin, or a script or plugin module that fails, is a `ServerError`.
+ * plugins marked `server: false`, and return those halves for the server to activate (registrations
+ * replace any with the same id, so loading again, in tests, is fine). Any problem is a `ServerError`
+ * listing them: a refused plugin, a script that fails, a plugin entry that can't be bundled, or an
+ * entry that exports no `activate`. A server missing a system or RPC would run the wrong game, or
+ * reject every client in the handshake.
  */
 export async function loadProjectCode(project: ServerProject): Promise<{ loaded: readonly string[]; plugins: RuntimePlugin[] }> {
   const packages = nodePackageSource(project.root, "production");
   const plan = await planPluginCode({ json: project.json, code: project.scripts, packages: packages.files, disabled: project.settings.plugins?.disabled, assets: project.files }, { editor: false, server: true });
-  if (plan.problems.length > 0) throw new ServerError(`Some plugins in "${project.root}" can't load:\n${plan.problems.map((p) => `  - ${p.where}: ${p.message}`).join("\n")}`);
-  if (plan.code.size === 0 && plan.npmEntries.length === 0) return { loaded: [], plugins: [] };
-  const result = await loadScripts(plan.code, project.json, packages, plan.npmEntries);
-  if (result.problems.length > 0) throw new ServerError(`Some scripts in "${project.root}" didn't load:\n${describeProblems(result.problems)}`);
+  if (plan.problems.length > 0) throw new ServerError(`Some plugins in "${project.root}" can't load:\n${describeProblems(plan.problems.map((p) => ({ path: p.where, message: p.message })))}`);
+  let linked: Linked<void> | undefined;
+  await withScriptRegistrations(async () => {
+    linked = await link({ code: plan.code, json: project.json, packages, extraEntries: plan.npmEntries, isAsset: (p) => project.assets.has(p) }, target);
+  });
+  const { loaded, problems, assetRefs } = linked!;
+  setScriptAssetRefs(assetRefs); // warmed with every scene load (ADR 0080), as in the editor and the player
+  if (problems.length > 0) throw new ServerError(`Some scripts in "${project.root}" didn't load:\n${describeProblems(problems)}`);
   const plugins: RuntimePlugin[] = [];
   for (const p of plan.runtime) {
     try {
-      plugins.push(toRuntimePlugin(p.manifest, p.runtime!, (await loadedPluginModule(p, "runtime"))!));
+      plugins.push(toRuntimePlugin(p.manifest, p.runtime!, (await target.pluginModule(p, "runtime"))!));
     } catch (err) {
       throw new ServerError(`The plugin ${p.manifest.name} (${p.where}) didn't load: ${(err as Error).message}`);
     }
   }
-  return { loaded: result.loaded, plugins };
+  return { loaded, plugins };
 }
 
 /** A loaded script's exports (for a code bootstrap's `bootstrap` function). */
 export function scriptExports(path: string): Promise<Record<string, unknown>> {
-  return loadedScriptModule(path);
+  return target.scriptModule(path);
 }
 
 function describeProblems(problems: readonly ScriptProblem[]): string {

@@ -37,6 +37,8 @@ const LENGTH_FIELDS: ReadonlySet<string> = new Set(["width", "height", "top", "r
 const NOT_FIELDS: ReadonlySet<string> = new Set(["id", "class", "translate"]);
 /** The prefix of key attributes (`t:text="menu.start"`, ADR 0356 §4): the runtime writes the localised message. */
 const KEY_ATTRIBUTE_PREFIX = "t:";
+/** Node reference fields an attribute sets by naming another element's id (ADR 0340): the document resolves them after building. */
+const REFERENCE_FIELDS: ReadonlySet<string> = new Set(["navUp", "navDown", "navLeft", "navRight", "firstSelected"]);
 
 // --- Parsing ------------------------------------------------------------------------------------
 
@@ -282,7 +284,8 @@ export function convertValue(raw: string, info: FieldInfo, file: string): unknow
   const type = info.type;
   const v = raw.trim();
   if (type === Number) return parseNumber(v);
-  if (type === Boolean) return v === "true" ? true : v === "false" ? false : undefined;
+  // A bare attribute (`<Canvas auto-focus>`) is true, as in HTML.
+  if (type === Boolean) return v === "true" || v === "" ? true : v === "false" ? false : undefined;
   if (type === Color) return parseColor(v);
   if (type === Vector2) {
     const parts = v.split(/[\s,]+/).filter(Boolean).map(parseNumber);
@@ -395,7 +398,9 @@ function isKnownField(name: string): boolean {
  * `positionType`), or null for `id`, `class`, `translate` and key attributes (`t:text`, see `keyAttributeField`).
  */
 export function attributeField(attribute: MarkupAttribute): string | null {
-  return NOT_FIELDS.has(attribute.name) || attribute.name.startsWith(KEY_ATTRIBUTE_PREFIX) ? null : propertyField(attribute.name);
+  if (NOT_FIELDS.has(attribute.name) || attribute.name.startsWith(KEY_ATTRIBUTE_PREFIX)) return null;
+  const field = propertyField(attribute.name);
+  return REFERENCE_FIELDS.has(field) ? null : field;
 }
 
 /** The field a key attribute localises (`t:text` → `text`, `t:placeholder` → `placeholder`), or null for other attributes. */
@@ -408,6 +413,13 @@ export function keyAttributeField(attribute: MarkupAttribute): string | null {
 /** True for a field a key attribute may localise: a plain string (not a length, a choice or an asset). */
 export function isTextField(info: FieldInfo): boolean {
   return info.type === String && !LENGTH_FIELDS.has(info.name) && !Array.isArray(info.options?.choices);
+}
+
+/** The node reference field an attribute names by an element id (`nav-up="play"` → `navUp`, `first-selected` → `firstSelected`), or null. */
+export function referenceField(attribute: MarkupAttribute): string | null {
+  if (attribute.name.startsWith(KEY_ATTRIBUTE_PREFIX)) return null;
+  const field = propertyField(attribute.name);
+  return REFERENCE_FIELDS.has(field) ? field : null;
 }
 
 /** A variable's key in a resolved map: `--name` (variables inherit, like the text properties). */

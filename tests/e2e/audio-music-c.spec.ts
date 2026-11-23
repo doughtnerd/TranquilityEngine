@@ -1,5 +1,5 @@
-import { expect, type Page, test } from "./fixtures";
-import { addAssets, audioDebug, bootSample, event, LAB, readLate, segment, STEM, watchConsole } from "./audioMusic";
+import { expect, type Page, test, openEditor, playWithAudio, LAB } from "./fixtures";
+import { addAssets, audioDebug, event, readLate, segment, STEM, watchConsole } from "./audioMusic";
 
 // Interactive music, milestone M4c (ADR 0166/0167; waves plan, task E3): the milestone's seams in the real browser, on the core
 // backend. Two halves.
@@ -149,7 +149,8 @@ let info_stalled = { stalled: 0, maxGap: 0 };
 
 /** Opens the Sound Lab on its rhythm page (R; nothing plays there until a key), warmed, with the cue event added. */
 async function openForCallbacks(page: Page): Promise<void> {
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await addAssets(page, { [CUES]: cueEvent() });
   await warm(page, [STEM.pad]);
   await page.keyboard.press("r");
@@ -281,7 +282,8 @@ async function openRhythm(page: Page, warmClips = true): Promise<void> {
       return add.call(this, type, ...rest);
     } as typeof add;
   });
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   if (warmClips) await warm(page, RHYTHM_CLIPS);
   await page.keyboard.press("r");
   await page.waitForFunction(() => !!(globalThis as unknown as Partial<G>).__rhythmLab, undefined, { timeout: 15_000 });
@@ -414,7 +416,8 @@ test("M4c: the calibration flow reads the injected offset, sets Audio.calibratio
   await expect.poll(async () => (await audioDebug(page))?.music?.filter((r) => r.state !== "ending").length, { timeout: 10_000, message: "the click track stops after the run" }).toBe(0);
 
   // Reload: the stored offset reads back (Rh3's acceptance, end to end).
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await page.keyboard.press("r");
   await page.waitForFunction(() => !!(globalThis as unknown as Partial<G>).__rhythmLab, undefined, { timeout: 15_000 });
   await expect.poll(async () => (await rhythm(page)).calibrationMs, { timeout: 10_000, message: "the stored offset is read back after a reload" }).toBeCloseTo(stored, 6);
@@ -446,14 +449,16 @@ test("M4c: the calibration flow reads the injected offset, sets Audio.calibratio
   await expect.poll(() => pageText(page), { timeout: 5_000, message: "the page says so" }).toContain("Unsteady: NOT applied");
 
   // Reload again: run 2's value (not run 3's) is what comes back; then X sets it to 0, and 0 is what the next reload reads.
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await page.keyboard.press("r");
   await page.waitForFunction(() => !!(globalThis as unknown as Partial<G>).__rhythmLab, undefined, { timeout: 15_000 });
   await expect.poll(async () => (await rhythm(page)).calibrationMs, { timeout: 10_000, message: "run 2's offset is read back" }).toBeCloseTo(second, 6);
   await page.keyboard.press("x");
   await expect.poll(async () => (await rhythm(page)).calibrationMs, { timeout: 10_000, message: "X resets the calibration to 0" }).toBe(0);
   expect(await page.evaluate(() => (globalThis as unknown as G).__myco.Audio.calibration), "Audio.calibration after X").toBe(0);
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await page.keyboard.press("r");
   await page.waitForFunction(() => !!(globalThis as unknown as Partial<G>).__rhythmLab, undefined, { timeout: 15_000 });
   await page.waitForTimeout(1_000); // the stored read has finished by now: 0 is what it holds
@@ -585,7 +590,8 @@ test("M4c: a device change sets Audio.calibrationStale, keeps the value, and a n
   await page.evaluate(() => navigator.mediaDevices.dispatchEvent(new Event("devicechange")));
   await expect.poll(async () => (await rhythm(page)).calibrationStale, { timeout: 10_000 }).toBe(true);
   const kept = (await rhythm(page)).calibrationMs;
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await page.keyboard.press("r");
   await page.waitForFunction(() => !!(globalThis as unknown as Partial<G>).__rhythmLab, undefined, { timeout: 15_000 });
   await expect.poll(async () => (await rhythm(page)).calibrationMs, { timeout: 10_000, message: "the stored value is read back" }).toBeCloseTo(kept, 6);

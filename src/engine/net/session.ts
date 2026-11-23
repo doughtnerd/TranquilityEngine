@@ -125,6 +125,9 @@ const NET_PROTOCOL_VERSION = 5;
 /** How often a client pings its server, for RTT and the server-tick estimate. */
 export const PING_INTERVAL_MS = 100;
 
+/** The most a message's header (its kind and tick, as varuints: up to 3 and 5 bytes) takes. */
+const MAX_HEADER_BYTES = 8;
+
 /** The interpolation buffer when a link doesn't set `interpolationMs`. */
 export const DEFAULT_INTERPOLATION_MS = 100;
 
@@ -279,6 +282,15 @@ export class NetPeer {
     this.ackedTick = tick;
     const data = this.node?.isValid ? this.node.getData(Connection) : null;
     if (data) data.lastAckedTick = tick;
+  }
+
+  /**
+   * While the transport sends unreliable messages as lossy datagrams (ADR 0333): the largest
+   * message body that still fits one, after the session's header (kind and tick, as varuints).
+   */
+  get datagramBodyBytes(): number | undefined {
+    const max = this.link.maxDatagramBytes;
+    return max === undefined ? undefined : max - MAX_HEADER_BYTES;
   }
 
   /** Number RPCs and message kinds the same way on both ends: sorted by name. */
@@ -516,6 +528,8 @@ export class NetSession implements WorldNet {
    * listener: `address` is set already for transports that listen synchronously (loopback).
    */
   listen(transportName: string, options: Record<string, unknown>): Listener {
+    const defaults = this.world._owner?._listenDefaults(transportName)?.options;
+    if (defaults) options = { ...defaults, ...options };
     const address = worldListenTarget(this.world, transportName, options).address;
     const key = `${transportName}|${address}`;
     const existing = this.listeners.get(key);

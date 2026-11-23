@@ -103,6 +103,8 @@ export class ClientReplication {
   readonly ghosts = new Map<number, ClientGhost>();
   /** The newest snapshot tick read. */
   newestTick = -1;
+  /** The parts of `newestTick` read (ADR 0334). */
+  private readonly partsRead = new Set<number>();
   private peer: NetPeer | null = null;
   private readonly despawned = new Set<number>();
   /** Scene and nested ghosts out of relevancy (ADR 0121): deactivated nodes, destroyed if they despawn. */
@@ -133,10 +135,18 @@ export class ClientReplication {
     }
     let received = false;
     for (const m of session.drain(SNAPSHOT)) {
-      if (m.peer !== peer || m.tick <= this.newestTick) continue;
+      // Each part of the newest tick once, and every part of a newer one (ADR 0334).
+      if (m.peer !== peer || m.tick < this.newestTick) continue;
       try {
-        this.read(m.tick, m.reader());
-        this.newestTick = m.tick;
+        const r = m.reader();
+        const part = r.readVarUint();
+        if (m.tick === this.newestTick && this.partsRead.has(part)) continue;
+        this.read(m.tick, r);
+        if (m.tick > this.newestTick) {
+          this.newestTick = m.tick;
+          this.partsRead.clear();
+        }
+        this.partsRead.add(part);
         received = true;
       } catch (err) {
         if (!this.errorLogged) {
@@ -157,8 +167,14 @@ export class ClientReplication {
     this.applyOrder();
     this.strings.apply(this.world, (id) => this.ghosts.get(id)?.node ?? null);
     if (received && peer?.state === "open") {
+      // The newest tick and every part of it read so far, so a lost ack is repeated by the next one.
       const tick = this.newestTick;
-      session.send(ACK, "server", "unreliable", (w) => w.writeVarUint(tick));
+      const parts = [...this.partsRead].sort((a, b) => a - b);
+      session.send(ACK, "server", "unreliable", (w) => {
+        w.writeVarUint(tick);
+        w.writeVarUint(parts.length);
+        parts.forEach((part, i) => w.writeVarUint(i === 0 ? part : part - parts[i - 1]));
+      });
     }
   }
 
@@ -219,7 +235,7 @@ export class ClientReplication {
     if (keepFrom > 0) s.splice(0, keepFrom);
   }
 
-  /** Read one snapshot (layout at the top of `server.ts`). */
+  /** Read one snapshot part after its index (layout at the top of `server.ts`). */
   private read(tick: number, r: BitReader): void {
     const ackGap = r.readVarUint();
     const snapshotBaseline = ackGap ? tick - ackGap : -1;
@@ -557,6 +573,7 @@ export class ClientReplication {
     this.strings.clear();
     this.table.clear();
     this.newestTick = -1;
+    this.partsRead.clear();
     this.errorLogged = false;
   }
 }

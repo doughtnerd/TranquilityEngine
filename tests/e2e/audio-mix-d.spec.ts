@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test } from "./fixtures";
+import { expect, test, type Hooks } from "./fixtures";
 import { audioClockRuns, captureState, exportAndServe, filesUnder, readTruth, stopServed, type Served } from "./audioExport";
 
 // M5d, task X3 (ADR 0171 amended by 0172, owner decision 7): a game exported without `--audio-capture` loads no part of the
@@ -45,7 +45,7 @@ test.describe("a game exported without the option", { tag: "@slow" }, () => {
       const downloads: string[] = [];
       page.on("download", (d) => downloads.push(d.suggestedFilename()));
       await page.goto(served!.url);
-      await expect.poll(() => page.evaluate(() => Boolean((window as unknown as { engine?: unknown }).engine)), { timeout: 30_000 }).toBe(true);
+      await expect.poll(() => page.evaluate(() => Boolean((window as unknown as Hooks).engine)), { timeout: 30_000 }).toBe(true);
       await page.locator("#game canvas").click();
       await expect.poll(async () => (await readTruth(page)).voices.length, { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
       await audioClockRuns(page, 1.5);

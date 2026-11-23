@@ -1,16 +1,4 @@
-import { expect, openTestProject, test, type Page } from "./fixtures";
-
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
-
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  orbit: { focusPoint: { toArray(): number[] } };
-};
-
-async function openEditor(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-}
+import { expect, test, type Page, openEditor, type Hooks } from "./fixtures";
 
 const row = (page: Page, key: string) => page.locator(`.tree .row[data-key="${key}"]`);
 const cards = (page: Page) => page.locator(".inspector-body .component h3");
@@ -19,7 +7,7 @@ const menuOptions = (page: Page) => page.getByRole("dialog", { name: "Add compon
 const card = (page: Page, name: string) => page.locator(".inspector-body .component", { has: page.locator("h3", { hasText: name }) });
 
 test("Add Component searches the list and adds a collider fitted to the sprite; ✕ removes it; both undo", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await row(page, "bird-sprite").click();
   await page.getByRole("button", { name: "Add Component" }).click();
   const search = page.getByRole("searchbox", { name: "Search components" });
@@ -47,7 +35,7 @@ test("Add Component searches the list and adds a collider fitted to the sprite; 
 });
 
 test("types a node can't take are greyed out with the reason; Escape closes the list", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await row(page, "bird-sprite").click();
   await page.getByRole("button", { name: "Add Component" }).click();
   await page.getByRole("searchbox", { name: "Search components" }).fill("SpriteRenderer");
@@ -62,7 +50,7 @@ test("types a node can't take are greyed out with the reason; Escape closes the 
 });
 
 test("with several nodes selected, Add Component adds to each in one undo step", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await row(page, "ceiling").click();
   await row(page, "ground-collider").click({ modifiers: ["ControlOrMeta"] });
   await page.getByRole("button", { name: "Add Component" }).click();
@@ -75,7 +63,7 @@ test("with several nodes selected, Add Component adds to each in one undo step",
 });
 
 test("on a prefab instance, adding or removing a component is an override", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await row(page, "bg-a").click();
   const badge = row(page, "bg-a").locator(".badge");
   await expect(badge).toHaveText("background");
@@ -88,7 +76,7 @@ test("on a prefab instance, adding or removing a component is an override", asyn
 });
 
 test("a component's checkbox switches it off and on; Transform and data components have none to use", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await row(page, "bird").click();
   const enabled = page.getByRole("checkbox", { name: "CircleCollider2D enabled" });
   await expect(enabled).toBeChecked();
@@ -103,7 +91,7 @@ test("a component's checkbox switches it off and on; Transform and data componen
 });
 
 test("dragging a number field's label scrubs it as one undo step; Escape during the drag puts it back", async ({ page }) => {
-  await openTestProject(page); // writable
+  await openEditor(page, { files: {} }); // writable
   await row(page, "bird").click();
   const circle = card(page, "CircleCollider2D");
   const radius = circle.getByRole("textbox", { name: "radius" });
@@ -133,7 +121,7 @@ test("dragging a number field's label scrubs it as one undo step; Escape during 
 });
 
 test("components reorder by dragging the grip, or with Alt+arrow keys", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await row(page, "bird").click();
   const titles = async () => (await cards(page).allTextContents()).map((t) => t.replace(/[⠿✕]|\{ \}|Edit Collider/g, "").trim().replace(/data$/, ""));
   expect(await titles()).toEqual(["Transform", "RigidBody2D", "CircleCollider2D", "Bird"]);
@@ -169,7 +157,7 @@ test("components reorder by dragging the grip, or with Alt+arrow keys", async ({
 });
 
 test("on a plain node, data components reorder among the rest", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await row(page, "ceiling").click();
   for (const name of ["Scroller", "Bird"]) {
     await page.getByRole("button", { name: "Add Component" }).click();

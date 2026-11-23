@@ -1,4 +1,4 @@
-import { expect, type Page, play, test } from "./fixtures";
+import { expect, type Page, play, test, type Hooks } from "./fixtures";
 import { inspector, openSpatial, SPATIAL_SCENE } from "./audioSpatial";
 import { captureView, pixelsChanged, type ViewCapture } from "./viewCapture";
 
@@ -16,8 +16,6 @@ type Voice = {
   filter?: { lowpassHz: number; lowpassBy: string | null };
 };
 type Debug = { voices: Voice[]; zones?: { node: string; ir: string; state: string; why: string | null; irSeconds: number }[]; occlusion?: { enabled: boolean; rays: number; note: string }; memory?: Record<string, number> };
-type Hooks = { playEngine?: { world: { name: string } } | null };
-
 const debug = (page: Page) => page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { debug(): unknown } } }).__myco.Audio.debug() as Debug);
 const emitter = async (page: Page) => (await debug(page)).voices.find((v) => v.clip === "music/foo.mp3");
 /** The game view after two steps of the paused game (a paused game isn't drawn again; the editor's drawing follows a change a frame later). */

@@ -81,9 +81,9 @@
 //! accumulator ([`aux_accumulator`], C4's, `max_buses × 1 KB`, also without slots), the sends
 //! area ([`sends_area`], C4's: the quantum's bus-chain gains, `max_buses × 512 B` plus a 64-byte
 //! header) and a 64-byte tail. The kernels
-//! are arena clips outside `clipMemoryMB`, within [`kernel_budget_bytes`] (the
-//! `myco_audio_zone_kernel_budget_bytes` export, which the shell adds to the Memory's maximum).
-//! The TypeScript mirror (`worklet/coreDriver.ts`) follows both functions. The table's scalars,
+//! are arena clips outside `clipMemoryMB`, within [`kernel_budget_bytes`] (part of what the core
+//! asks of the Memory, `layout::memory_growth_bytes`, ADR 0327; `MemoryPart::ZoneKernels`).
+//! Main's `zoneKernelBlobBytes` sizes the blob it builds from the wire's constants. The table's scalars,
 //! the shared-return ramp and the ladder live in [`ZoneArea`], in the core-state region after the
 //! bus area.
 
@@ -153,7 +153,7 @@ pub const fn kernel_blob_bytes(frames: usize) -> usize {
 }
 
 /// The arena block a request of `bytes` takes (`arena::size_class`: four classes per doubling
-/// from 4 KB), as a `const fn`, so the budget export and its TypeScript mirror agree.
+/// from 4 KB), as a `const fn`.
 pub const fn arena_block_bytes(bytes: usize) -> usize {
     let mut doubling = 0;
     while doubling < 20 {

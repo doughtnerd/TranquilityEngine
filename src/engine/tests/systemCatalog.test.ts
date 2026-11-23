@@ -108,7 +108,7 @@ describe("the system catalog (T2)", () => {
   it("orders each World's members with after/before, built-ins first by default", () => {
     defineSystem({ name: "test.cat.Before", phase: "update", worlds: ["ordered"], before: ["engine.UpdateScripts"], run() {} });
     defineSystem({ name: "test.cat.After", phase: "update", worlds: ["ordered"], after: ["test.cat.Missing"], run() {} });
-    expect(world("O", ["ordered"]).scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UIDocumentEvents", "test.cat.Before", "engine.UpdateScripts", "test.cat.After"]);
+    expect(world("O", ["ordered"]).scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UIDocumentEvents", "engine.InputFrame", "engine.UIControlMapper", "test.cat.Before", "engine.UpdateScripts", "test.cat.After"]);
   });
 
   it("the default World keeps today's system order", async () => {
@@ -119,8 +119,11 @@ describe("the system catalog (T2)", () => {
     // The physics and navigation systems come from first-party plugins (ADR 0135): 2D and 3D physics
     // each restore their interpolated bodies before the fixedUpdate scripts.
     // The UI document systems (ADR 0077) and LocalizedText (ADR 0356) do nothing in a World without UIDocuments.
-    expect(engine.world.scheduler.order("fixedUpdate")).toEqual(["engine.PhysicsRestoreInterpolated", "engine.Physics3DRestoreInterpolated", "engine.NetReceiveTick", "engine.NetInputTick", "engine.PredictionTick", "engine.FixedUpdateScripts", "engine.NavSync", "engine.NavStep", "engine.NavWriteBack", "engine.PhysicsPush", "engine.PhysicsStep", "engine.PhysicsWriteBack", "engine.PhysicsEvents", "engine.Buoyancy", "engine.Physics3DPush", "engine.Physics3DStep", "engine.Physics3DWriteBack", "engine.Physics3DEvents"]);
-    expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UIDocumentEvents", "engine.UpdateScripts", "test.cat.Default"]);
+    expect(engine.world.scheduler.order("fixedUpdate")).toEqual(["engine.PhysicsRestoreInterpolated", "engine.Physics3DRestoreInterpolated", "engine.NetReceiveTick", "engine.NetInputTick", "engine.InputTick", "engine.PredictionTick", "engine.InputNetSend", "engine.InputNetApply", "engine.InputTickEventScripts", "engine.InputNetReplay", "engine.FixedUpdateScripts", "engine.NavSync", "engine.NavStep", "engine.NavWriteBack", "engine.PhysicsPush", "engine.PhysicsStep", "engine.PhysicsWriteBack", "engine.PhysicsEvents", "engine.Buoyancy", "engine.Physics3DPush", "engine.Physics3DStep", "engine.Physics3DWriteBack", "engine.Physics3DEvents"]);
+    // The input systems (ADR 0335–0337) do nothing in a World without input devices or action sets;
+    // UI navigation (ADR 0340) does nothing without a focused element or laid-out UI.
+    expect(engine.world.scheduler.order("input")).toEqual(["engine.InputDevices", "engine.InputPairing", "engine.InputRebind", "engine.InputEvaluate", "engine.UINavigation", "engine.InputEventScripts"]);
+    expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UIDocumentEvents", "engine.InputFrame", "engine.UIControlMapper", "engine.UpdateScripts", "test.cat.Default"]);
     expect(engine.world.scheduler.order("lateUpdate")).toEqual(["engine.LateUpdateScripts", "engine.LocalizedText", "engine.UIDocumentSync", "engine.AudioZones", "engine.NetInputSend", "engine.ReplicationSend", "engine.NetSend", "engine.Audio"]);
     engine.dispose();
   });

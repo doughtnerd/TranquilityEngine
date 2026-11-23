@@ -41,6 +41,10 @@ import {
   ROUTE_FIXED_END,
   writeRoute,
   type Route,
+  CURVES_CURVES_FIXED_END,
+  CURVES_CURVES_KEYS_FIXED_END,
+  CURVES_FIXED_END,
+  PARAM_FIXED_END,
   BATCH_HEADER_FLAGS_OVERFLOWED,
   BATCH_MAX_BYTES,
   BUS_SLOT_FLAGS_FRESH,
@@ -231,10 +235,6 @@ export const GEN_MASK_ALL = 0xffffffff;
 const CORE_BINDINGS = 8;
 /** The core's curve table keeps this many keys (`automation.rs` `CURVE_KEYS`; ADR 0346's limit, `MAX_CURVE_KEYS`). */
 export const CORE_CURVE_KEYS = 64;
-/** Bytes of one CURVES key: x, y, interp, then the Bézier handles (ADR 0346). */
-const CURVE_KEY_BYTES = 28;
-/** Bytes one curve takes in a CURVES record: its key count word and its keys (at most `CORE_CURVE_KEYS`). */
-export const coreCurveBytes = (c: Curve): number => 4 + CURVE_KEY_BYTES * Math.min(c.length, CORE_CURVE_KEYS);
 
 /** One key as a CURVES record carries it: its interp code and, for a Bézier key, its handles (0 otherwise). */
 export function wireCurveKey(key: CurveKey): CurvesCurvesKeys {
@@ -242,7 +242,9 @@ export function wireCurveKey(key: CurveKey): CurvesCurvesKeys {
   return { x: key[0], y: key[1], interp: curveKeyInterpCode(key), inDx: h ? h.in[0] : 0, inDy: h ? h.in[1] : 0, outDx: h ? h.out[0] : 0, outDy: h ? h.out[1] : 0 };
 }
 /** Most bytes of curves in one CURVES record: larger uploads are split into several records (each fits a batch). */
-const CURVES_RECORD_BUDGET = 32 * 1024;
+export const CURVES_RECORD_BUDGET = 32 * 1024;
+/** Bytes `curve` takes in a CURVES record (its key count, then at most `CORE_CURVE_KEYS` keys); a record adds `CURVES_FIXED_END`. */
+export const curveBytes = (curve: Curve): number => CURVES_CURVES_FIXED_END + CURVES_CURVES_KEYS_FIXED_END * Math.min(curve.length, CORE_CURVE_KEYS);
 
 /** The staging area's size in bytes: four full batches. */
 const STAGING_BYTES = 4 * BATCH_MAX_BYTES;
@@ -740,7 +742,7 @@ export class CommandWriter implements VoiceCommandSink {
     r.slot = slot;
     r.value = value;
     r.seekPerSecond = seekPerSecond > 0 && Number.isFinite(seekPerSecond) ? seekPerSecond : 0;
-    const at = this.begin(24);
+    const at = this.begin(PARAM_FIXED_END);
     if (at < 0) return;
     this.end(at, writeParam(this.view, at, r));
   }
@@ -842,9 +844,9 @@ export class CommandWriter implements VoiceCommandSink {
     while (i < curves.length) {
       // As many curves as fit the record budget (at least one).
       let end = i;
-      let bytes = 20;
+      let bytes = CURVES_FIXED_END;
       while (end < curves.length) {
-        const size = coreCurveBytes(curves[end]!);
+        const size = curveBytes(curves[end]!);
         if (end > i && bytes + size > CURVES_RECORD_BUDGET) break;
         bytes += size;
         end++;
@@ -875,7 +877,7 @@ export class CommandWriter implements VoiceCommandSink {
           v.setFloat32(off + 16, h ? h.in[1] : 0, true);
           v.setFloat32(off + 20, h ? h.out[0] : 0, true);
           v.setFloat32(off + 24, h ? h.out[1] : 0, true);
-          off += CURVE_KEY_BYTES;
+          off += CURVES_CURVES_KEYS_FIXED_END;
         }
       }
       this.end(at, bytes);

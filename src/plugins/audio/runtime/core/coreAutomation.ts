@@ -56,6 +56,10 @@ import {
   AUTO_TARGET_SEND,
   AUTO_TARGET_SLOT_SHIFT,
   AUTOMATE_BINDINGS_FIXED_END,
+  CURVES_FIXED_END,
+  PARAM_FIXED_END,
+  SET_LOOP_FIXED_END,
+  TIME_FIXED_END,
   SET_LOOP_FLAGS_LOOPING,
   writeAutomate,
   writeBusAutomate,
@@ -95,7 +99,7 @@ import { evalCurve } from "../../../../engine/core/curve";
 import { onLoopPoints } from "../loopPoints";
 import type { ClipInfo } from "./clipRegistry";
 import type { ClockMap } from "./clock";
-import { AUTOMATION_GLOBAL, AUTOMATION_TIME, CORE_CURVE_KEYS, coreCurveBytes, wireCurveKey, type AutomationBinding, type BusAutomationBinding, type CommandWriter } from "./commandWriter";
+import { AUTOMATION_GLOBAL, AUTOMATION_TIME, CORE_CURVE_KEYS, curveBytes, CURVES_RECORD_BUDGET, wireCurveKey, type AutomationBinding, type BusAutomationBinding, type CommandWriter } from "./commandWriter";
 import type { PlayheadTracker, ReplayBuilder } from "./replay";
 import type { SendGate } from "./session";
 import { warnOnce } from "./handle";
@@ -104,12 +108,8 @@ import { VoiceFlag, VoiceState, type VoiceTable } from "./voiceTable";
 
 /** Most bytes of resync (curves, parameters, bus bindings) written per frame outside what a binding needs at once. */
 const RESYNC_BYTES_PER_FRAME = 48 * 1024;
-/** Most bytes of curves in one CURVES record (as the writer's own split). */
-const CURVES_RECORD_BYTES = 32 * 1024;
 /** Every parameter slot, laid out as the core's table: the globals, then each group's locals. */
 const PARAM_SLOTS = MAX_GLOBAL_SLOTS + MAX_GROUPS * MAX_LOCAL_SLOTS;
-const PARAM_BYTES = 24;
-const curveBytes = coreCurveBytes;
 const bindingBytes = (n: number): number => 16 + AUTOMATE_BINDINGS_FIXED_END * n;
 
 /** A loop region in seconds (`end` 0 = the clip's end); `looping` false is a release. */
@@ -323,7 +323,7 @@ export class CoreAutomation implements AutomationSink {
   defineCurve(id: number, curve: Curve): void {
     if (!(id >= 0 && id < MAX_CURVES) || !Number.isInteger(id)) return;
     this.curves.set(id, curve);
-    const bytes = curveBytes(curve) + 20;
+    const bytes = curveBytes(curve) + CURVES_FIXED_END;
     if (this.budget >= bytes && this.deps.session.mayQueue) this.sendCurve(id);
     else this.dirtyCurves.add(id);
     this.reevaluateCurve(id);
@@ -548,7 +548,7 @@ export class CoreAutomation implements AutomationSink {
     if (this.fading.size > 0) this.stepFades();
     if (!this.deps.session.mayQueue || (this.dirtyCurves.size === 0 && this.dirtyParams.size === 0 && this.dirtyBuses.size === 0 && this.dirtyClocks.size === 0)) return;
     for (const g of this.dirtyClocks) {
-      if (this.budget < PARAM_BYTES) return;
+      if (this.budget < TIME_FIXED_END) return;
       this.sendClock(g);
     }
     if (this.dirtyCurves.size > 0) {
@@ -559,12 +559,12 @@ export class CoreAutomation implements AutomationSink {
           this.dirtyCurves.delete(id);
           continue;
         }
-        if (this.budget < curveBytes(c) + 20) return;
+        if (this.budget < curveBytes(c) + CURVES_FIXED_END) return;
         this.sendCurve(id);
       }
     }
     for (const k of this.dirtyParams) {
-      if (this.budget < PARAM_BYTES) return;
+      if (this.budget < PARAM_FIXED_END) return;
       this.sendParamKey(k);
     }
     for (const bus of this.dirtyBuses) {
@@ -643,18 +643,18 @@ export class CoreAutomation implements AutomationSink {
     this.publishBuses();
     for (const g of this.clocks.keys()) {
       const { value, rate } = this.clockNow(g);
-      b.record(PARAM_BYTES, (view, off) => writeTime(view, off, { voiceId: 0, frameOffset: ASAP, group: g, which: TIME_SEQUENCE, value, rate }));
+      b.record(TIME_FIXED_END, (view, off) => writeTime(view, off, { voiceId: 0, frameOffset: ASAP, group: g, which: TIME_SEQUENCE, value, rate }));
     }
     const ids = [...this.curves.keys()].sort((x, y) => x - y);
     let k = 0;
     while (k < ids.length) {
       const first = ids[k]!;
       const run: CurvesCurves[] = [];
-      let bytes = 20;
+      let bytes = CURVES_FIXED_END;
       while (k < ids.length && ids[k] === first + run.length) {
         const c = this.curves.get(ids[k]!)!;
         const size = curveBytes(c);
-        if (run.length > 0 && bytes + size > CURVES_RECORD_BYTES) break;
+        if (run.length > 0 && bytes + size > CURVES_RECORD_BUDGET) break;
         run.push(wireCurve(c));
         bytes += size;
         k++;
@@ -666,7 +666,7 @@ export class CoreAutomation implements AutomationSink {
       const group = p < MAX_GLOBAL_SLOTS ? 0 : 1 + Math.floor((p - MAX_GLOBAL_SLOTS) / MAX_LOCAL_SLOTS);
       const slot = p < MAX_GLOBAL_SLOTS ? p : (p - MAX_GLOBAL_SLOTS) % MAX_LOCAL_SLOTS;
       const value = this.paramValue[p]!;
-      b.record(PARAM_BYTES, (view, off) => writeParam(view, off, { voiceId: 0, frameOffset: ASAP, group, slot, value, seekPerSecond: 0 }));
+      b.record(PARAM_FIXED_END, (view, off) => writeParam(view, off, { voiceId: 0, frameOffset: ASAP, group, slot, value, seekPerSecond: 0 }));
     }
     this.busSentTo.clear();
     for (const bus of this.buses.keys()) {
@@ -696,7 +696,7 @@ export class CoreAutomation implements AutomationSink {
     const items = e.program ? this.programItems(i, e.program) : null;
     if (items) b.record(16 + LOOPS_LOOPS_FIXED_END * items.length, (view, off) => writeLoops(view, off, { voiceId: id, frameOffset: ASAP, loops: items }));
     const frames = this.loopFrames(i, e);
-    if (frames) b.record(24, (view, off) => writeSetLoop(view, off, { voiceId: id, frameOffset: ASAP, loopStartFrame: frames.start, loopEndFrame: frames.end, flags: frames.looping ? SET_LOOP_FLAGS_LOOPING : 0 }));
+    if (frames) b.record(SET_LOOP_FIXED_END, (view, off) => writeSetLoop(view, off, { voiceId: id, frameOffset: ASAP, loopStartFrame: frames.start, loopEndFrame: frames.end, flags: frames.looping ? SET_LOOP_FLAGS_LOOPING : 0 }));
   }
 
   /**
@@ -1094,7 +1094,7 @@ export class CoreAutomation implements AutomationSink {
     if (!this.clocks.has(g) || !this.deps.writer.time) return;
     const { value, rate } = this.clockNow(g);
     this.deps.writer.time(g, value, rate);
-    this.budget -= PARAM_BYTES;
+    this.budget -= TIME_FIXED_END;
     this.stats.times++;
   }
 
@@ -1103,7 +1103,7 @@ export class CoreAutomation implements AutomationSink {
     this.dirtyCurves.delete(id);
     if (!c) return;
     this.deps.writer.curves(id, [c]);
-    this.budget -= curveBytes(c) + 20;
+    this.budget -= curveBytes(c) + CURVES_FIXED_END;
     this.stats.curves++;
   }
 
@@ -1115,7 +1115,7 @@ export class CoreAutomation implements AutomationSink {
     // A resync jumps to the target (the core's smoothing state is gone).
     this.deps.writer.param(group, slot, this.paramValue[k]!, 0);
     this.jumped(k);
-    this.budget -= PARAM_BYTES;
+    this.budget -= PARAM_FIXED_END;
     this.stats.params++;
   }
 

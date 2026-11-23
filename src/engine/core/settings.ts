@@ -9,6 +9,8 @@ import { parseSubtitleSettings, type SubtitleProjectSettings } from "../localisa
 
 /** How the game canvas scales to its container (see `ProjectSettings.display.scaleMode`). */
 export type ScaleMode = "fit" | "stretch" | "pixel-perfect";
+export type InputJoinPolicy = "single" | "onePerDevice" | "pressToJoin" | "manual";
+export const INPUT_JOIN_POLICIES: readonly InputJoinPolicy[] = ["single", "onePerDevice", "pressToJoin", "manual"];
 export const SCALE_MODES: readonly ScaleMode[] = ["fit", "stretch", "pixel-perfect"];
 
 /** Project settings, normally loaded from the game's `project.json`. */
@@ -61,6 +63,12 @@ export interface ProjectSettings {
   navigation: NavigationSettings;
   /** Audio mixer buses, snapshots, ducking and the backend (ADR 0097, 0098): `audio.json`'s runtime view (ADR 0344), never a `project.json` section. Omitted: Master with Music, SFX, UI and Voice. */
   audio: AudioSettings;
+  /**
+   * Input players (ADR 0337): how players join, and how many local players there can be. `single` (default):
+   * player 0 owns every device; `onePerDevice`: the keyboard and pointer are one player, each gamepad another;
+   * `pressToJoin`: a device's first press makes it a new player; `manual`: the game joins players (`InputPlayers`).
+   */
+  input: { join: InputJoinPolicy; maxPlayers: number };
   /** Scene/prefab files instanced under the World root at startup; they persist across scene loads (ADR 0016). */
   autoload: string[];
   /** Which Worlds the Engine creates at start (ADR 0032). Omitted: the default bootstrap, one World. */
@@ -199,6 +207,7 @@ const DEFAULT_DISPLAY: ProjectSettings["display"] = { width: 1280, height: 720, 
 const DEFAULT_TIME: ProjectSettings["time"] = { fixedDeltaTime: 1 / 60, maxSubSteps: 5, maxFrameTime: 0.25 };
 const DEFAULT_PHYSICS: ProjectSettings["physics"] = { gravity: [0, -9.81], layers: ["Default"] };
 const DEFAULT_RENDER: ProjectSettings["render"] = { sortingLayers: ["Default"], pixelsPerUnit: 100 };
+const DEFAULT_INPUT: ProjectSettings["input"] = { join: "single", maxPlayers: 4 };
 
 function parseName(written: unknown): Parsed<"name"> {
   if (written === undefined) return { value: "Untitled", problems: [], warnings: [] };
@@ -278,6 +287,15 @@ function parseRender(written: unknown): Parsed<"render"> {
   return { value, problems, warnings };
 }
 
+function parseInput(written: unknown): Parsed<"input"> {
+  const problems: SettingsIssue[] = [];
+  const value = fieldsOver("input", written, DEFAULT_INPUT, {
+    join: [(v) => (INPUT_JOIN_POLICIES as readonly unknown[]).includes(v), `Input join must be one of ${INPUT_JOIN_POLICIES.join(", ")}.`],
+    maxPlayers: [isPositiveInt, "Max players must be a whole number above 0."],
+  }, problems);
+  return { value, problems, warnings: [] };
+}
+
 function parseAutoload(written: unknown): Parsed<"autoload"> {
   if (written === undefined) return { value: [], problems: [], warnings: [] };
   if (!Array.isArray(written)) return { value: [], problems: [{ field: "autoload", message: "Autoloads must be a list of scene or prefab files." }], warnings: [] };
@@ -325,6 +343,7 @@ export const RUNTIME_SETTINGS: { readonly [K in RuntimeSettingsKey]: RuntimeSett
     const { settings, problems, warnings } = parseAudioSettings(w);
     return { value: settings, problems: asIssues("audio", problems), warnings: asIssues("audio", warnings) };
   }),
+  input: declare("input", parseInput),
   autoload: declare("autoload", parseAutoload),
   plugins: declare("plugins", parsePlugins),
   languages: declare("languages", (w) => {

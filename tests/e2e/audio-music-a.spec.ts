@@ -1,6 +1,6 @@
-import { expect, type Page, test } from "./fixtures";
+import { expect, type Page, test, openEditor, playWithAudio, LAB } from "./fixtures";
 import {
-  addAssets, audioDebug, bootSample, event, FLAPPY, INTENSITY_EVENT, LAB, layered, musicRows, offGrid, pauseWorkers, peakOver, playlist3, readLate, SINES, snap, startEvent, stems8, switchAB, watchConsole, withStinger,
+  addAssets, audioDebug, event, INTENSITY_EVENT, layered, musicRows, offGrid, pauseWorkers, peakOver, playlist3, readLate, SINES, snap, startEvent, stems8, switchAB, watchConsole, withStinger,
   type Row,
 } from "./audioMusic";
 
@@ -49,7 +49,8 @@ const rowOf = async (page: Page, asset: string): Promise<Row | undefined> => (aw
 
 test("M4a: a segment starts on the grid, at the time it was asked for, and the music reports it", async ({ page }) => {
   const seen = watchConsole(page);
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await page.waitForTimeout(500);
 
   // The sound-lab's `music-intensity` segment (120 bpm, 4 s, three stems), entry cue heard 3 s from now.
@@ -83,7 +84,8 @@ test("M4a: a segment starts on the grid, at the time it was asked for, and the m
 
 test("M4a: eight stems start together: one group, one start, no slip, streamed and decoded stems side by side", async ({ page }) => {
   const seen = watchConsole(page);
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await addAssets(page, { "e1/stems8.audioevent.json": stems8() });
   expect(await readLate(page)).toEqual({ groupsLate: 0, groupsHeld: 0, groupsAbandoned: 0, maxSlipFrames: 0, splitQuanta: 0 });
   await startEvent(page, "m", "e1/stems8.audioevent.json");
@@ -133,7 +135,8 @@ test("M4a: eight stems start together: one group, one start, no slip, streamed a
 
 // F-16 (found by E1, fixed): the voice rows of a streamed music stem read playing, with their clip and a playhead.
 test("M4a: a streamed stem's voice row reads playing, with its clip and a playhead (F-16)", async ({ page }) => {
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await addAssets(page, { "e1/stems8.audioevent.json": stems8() });
   await startEvent(page, "m", "e1/stems8.audioevent.json");
   await expect.poll(async () => (await rowOf(page, "stems8"))?.state, { timeout: 30_000 }).toBe("playing");
@@ -146,7 +149,8 @@ test("M4a: a streamed stem's voice row reads playing, with its clip and a playhe
 
 test("M4a: a playlist advances item to item on the grid, and stops after its rounds", async ({ page }) => {
   const seen = watchConsole(page);
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await addAssets(page, { "e1/playlist.audioevent.json": playlist3(1) });
   await startEvent(page, "m", "e1/playlist.audioevent.json");
   // Sample the music row for the whole run; the list is A, B, C (each 4 s) and ends.
@@ -178,7 +182,8 @@ test("M4a: a playlist advances item to item on the grid, and stops after its rou
 
 test("M4a: a quantised transition lands on a bar line, the debug row names its rule, a crossfade and a cut both play", async ({ page }) => {
   const seen = watchConsole(page);
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await addAssets(page, { "e1/switch.audioevent.json": switchAB() });
   const T = (await audioTime(page)) + 3;
   await startEvent(page, "m", "e1/switch.audioevent.json", { at: T });
@@ -250,7 +255,8 @@ test("M4a: a quantised transition lands on a bar line, the debug row names its r
 
 test("M4a: a stinger plays on the next bar, over the music, which carries on", async ({ page }) => {
   const seen = watchConsole(page);
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await addAssets(page, { "e1/stinger.audioevent.json": withStinger() }, SINES);
   const T = (await audioTime(page)) + 3;
   await startEvent(page, "m", "e1/stinger.audioevent.json", { at: T });
@@ -301,7 +307,8 @@ const CLOCK_SLACK = 0.03;
 
 test("M4a: quantised automation brings a stem in on the beat, not when the parameter moves", async ({ page }) => {
   const seen = watchConsole(page);
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await addAssets(page, { "e1/layered.audioevent.json": layered() }, SINES);
   const T = (await audioTime(page)) + 3;
   await startEvent(page, "m", "e1/layered.audioevent.json", { at: T });
@@ -357,7 +364,8 @@ test("M4a: quantised automation brings a stem in on the beat, not when the param
 
 test("M4a: the flappy sample's streamed segment plays on its grid without a warning", async ({ page }) => {
   const seen = watchConsole(page);
-  await bootSample(page, FLAPPY);
+  await openEditor(page, { sample: "flappy" });
+  await playWithAudio(page);
   // The sample's music prefab autoloads: a streamed segment, `town`, 105 bpm.
   await expect.poll(async () => (await rowOf(page, "town"))?.state, { timeout: 60_000, message: "the town segment plays" }).toBe("playing");
   const row = (await rowOf(page, "town"))!;
@@ -381,7 +389,8 @@ test("M4a: the flappy sample's streamed segment plays on its grid without a warn
 
 test("M4a on Babylon: a segment plays and a playlist advances", async ({ page }) => {
   const seen = watchConsole(page);
-  await bootSample(page, LAB, "babylon");
+  await openEditor(page, { sample: LAB, audioBackend: "babylon" });
+  await playWithAudio(page, { backend: "babylon" });
   const loop = event({ type: "segment", id: "I", tracks: [{ name: "pad", clip: "audio/events/music-pad.wav" }, { name: "pulse", clip: "audio/events/music-pulse.wav" }], regions: [{ id: "loop", from: "1:1:0", to: "end", count: 0 }] });
   await addAssets(page, { "e1/playlist.audioevent.json": playlist3(1), "e1/loop.audioevent.json": loop });
   await startEvent(page, "seg", "e1/loop.audioevent.json");
@@ -406,7 +415,8 @@ test("M4a on Babylon: a segment plays and a playlist advances", async ({ page })
 // worker through the DevTools protocol (`pauseWorkers`) stops the rings refilling; once they drain the core holds the group.
 test("M4b on Babylon: a switch lands on a bar line and a stinger plays over the music", async ({ page }) => {
   const seen = watchConsole(page);
-  await bootSample(page, LAB, "babylon");
+  await openEditor(page, { sample: LAB, audioBackend: "babylon" });
+  await playWithAudio(page, { backend: "babylon" });
   await addAssets(page, { "e1/switch.audioevent.json": switchAB(), "e1/stinger.audioevent.json": withStinger() }, SINES);
   const T = (await audioTime(page)) + 3;
   await startEvent(page, "m", "e1/switch.audioevent.json", { at: T });
@@ -432,7 +442,8 @@ test("M4b on Babylon: a switch lands on a bar line and a stinger plays over the 
 });
 
 test("M4a: a starved streamed stem holds the whole group, and it resumes together (C2c)", async ({ page }) => {
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await addAssets(page, { "e1/stems8.audioevent.json": stems8() });
   await startEvent(page, "m", "e1/stems8.audioevent.json");
   await expect.poll(async () => (await rowOf(page, "stems8"))?.state, { timeout: 30_000 }).toBe("playing");
@@ -453,7 +464,8 @@ test("M4a: a starved streamed stem holds the whole group, and it resumes togethe
 
 // F-17 (found by E1, fixed): a stopped music event's row leaves Audio.debug().music once its stems have faded.
 test("M4a: a stopped music event leaves the Music table (F-17)", async ({ page }) => {
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await addAssets(page, { "e1/stems8.audioevent.json": stems8() });
   await startEvent(page, "m", "e1/stems8.audioevent.json");
   await expect.poll(async () => (await rowOf(page, "stems8"))?.state, { timeout: 30_000 }).toBe("playing");
@@ -466,7 +478,8 @@ test("M4a: the 10-minute playlist runs with no late group", { tag: "@slow" }, as
   // The run is SECONDS of the audio clock; the timeout is the harness's patience for a busy machine (up to twice as slow as real time).
   info.setTimeout(SECONDS * 2000 + 180_000);
   const seen = watchConsole(page);
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   // 3 one-pass segments of 4 s (decoded, and one with a streamed stem) forever: an item every 4 s, a group per item.
   await addAssets(page, { "e1/long.audioevent.json": playlist3(0) });
   await startEvent(page, "m", "e1/long.audioevent.json");
@@ -525,7 +538,8 @@ test("M4a: the 10-minute playlist runs with no late group", { tag: "@slow" }, as
 // on its explore segment, key 2 asks for combat and the change lands on a bar, the other two events start on their keys.
 test("SM2: the sound-lab music page loads, plays the world switch and changes state on a key", async ({ page }) => {
   const seen = watchConsole(page);
-  await bootSample(page, LAB);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await page.keyboard.press("m");
   await expect.poll(async () => (await rowOf(page, "music-world"))?.state, { timeout: 30_000, message: "the world event is primed and playing" }).toBe("playing");
   const row = (await rowOf(page, "music-world"))!;

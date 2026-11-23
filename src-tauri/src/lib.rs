@@ -1,3 +1,5 @@
+mod gamepad;
+
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use tauri::webview::{NewWindowResponse, WebviewWindowBuilder};
@@ -166,7 +168,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             create_editor_window,
             create_studio_window,
-            process_id
+            process_id,
+            // Native gamepads (ADR 0335).
+            gamepad::myco_gamepad_listen,
+            gamepad::myco_gamepad_rumble,
+            gamepad::myco_gamepad_trigger_rumble,
+            gamepad::myco_gamepad_set_led,
+            gamepad::myco_gamepad_sensors,
+            gamepad::myco_gamepad_trigger_effect
         ])
         .on_window_event(|window, event| {
             let other = |label: &str| window.app_handle().get_webview_window(label);

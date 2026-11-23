@@ -44,6 +44,7 @@ dependencies = [
  "audio-adpcm",
  "audio-dsp",
  "audio-encode",
+ "audio-wire",
  "cc",
  "libm",
  "sha2",
