@@ -6,7 +6,7 @@
 //   argument; objects inside are passed as their JSON text), phase `instant`/`begin`/`tick`/`end`, the clip's asset
 //   reference and the key's time. Each is delivered through the World's behaviour messages (0303,
 //   `World._sendMessage(nodes, NamedMessage, e)`) to the behaviours of the Animator's node that define the method, and
-//   pushed to `AnimationEvents`. A method named like a lifecycle hook or a base-class member (`update`, `destroy`) is
+//   pushed to `AnimationEvents`. A method named like a lifecycle hook or a base-class member (`update`, `enabled`) is
 //   never called, with one warning per clip and name; its record still goes to the buffer.
 // - `AUDIO` keys play through the audio plugin's public API when it is active (`audio.ts`).
 // - `CONTROL` keys go to their action's handler (`controls.ts`, T22t's).

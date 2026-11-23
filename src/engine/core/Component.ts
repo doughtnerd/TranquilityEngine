@@ -223,7 +223,7 @@ const LIFECYCLE_HOOK_NAMES: ReadonlySet<string> = new Set(
  * @internal A behaviour method an engine feature names at run time rather than at compile time: an animation clip's
  * notify (ADR 0372, `World._sendMessage(nodes, NamedMessage.of("footstep"), e)`). The World delivers it with the same
  * rules as the hooks (ADR 0303). `of` refuses (null) a lifecycle hook's name, so data can't fake a collision or call
- * `update`, and any member `GameBehavior` or `Component` themselves have (`destroy`, `wait`, `constructor`…): only a
+ * `update`, and any member `GameBehavior` or `Component` themselves have (`enabled`, `wait`, `transform`, `constructor`…): only a
  * method a behaviour class declares can be named. Instances are shared per name.
  */
 export class NamedMessage {
