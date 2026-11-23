@@ -1,6 +1,6 @@
 [package]
 name = "anim-editor-wasm"
-description = "Myco animation core (ADR 0370, 0371; T19): the editor's compile module (clip compression, skeleton compile, compressed retarget bake, pose-database bake) for the editor's worker and exports. Never loaded by games."
+description = "Myco animation core (ADR 0370, 0371; T19, T45t): the editor's compile module (clip compression, skeleton compile, compressed retarget bake, pose-database bake, the fuel pass for third-party node modules) for the editor's worker and exports. Never loaded by games."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -15,6 +15,8 @@ anim-compress.workspace = true
 anim-sample.workspace = true
 anim-retarget = { workspace = true, features = ["compress"] }
 anim-match.workspace = true
+# T45t: the fuel pass (ADR 0370 "Third-party graph and rig nodes") for the editor's loader and exports.
+anim-meter.workspace = true
 wasm-bindgen.workspace = true
 
 [build-dependencies]

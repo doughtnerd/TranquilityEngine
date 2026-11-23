@@ -9,7 +9,7 @@
 import type { DiscreteType, DiscreteValue } from "../../../../engine/animation/tracks";
 import { Color, Quaternion, Vector2, Vector3 } from "../../../../engine/core/math";
 import { AssetRef, getComponentClass, getFields, isFieldAnimatable, resolveChoices, type FieldInfo } from "../../../../engine/core/registry";
-import { accept, refuse, type EditResult } from "../../../../editor/sdk/editResult";
+import { accept, refuse, type EditResult } from "../../../../editor/sdk";
 
 /** What track animates a field: a curve kind with its width, a rotation, or discrete values. */
 export type FieldTrackShape =

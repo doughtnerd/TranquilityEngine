@@ -64,6 +64,7 @@ dependencies = [
  "anim-format",
  "anim-match",
  "anim-math",
+ "anim-meter",
  "anim-offline",
  "anim-retarget",
  "anim-sample",

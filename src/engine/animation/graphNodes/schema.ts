@@ -23,6 +23,7 @@
  * Pure; no plugin, no DOM. Internal: not public API.
  */
 import type { GraphFamily, GraphParamType, NodeParamValue } from "../animGraph";
+import type { PluginModuleDescriptor } from "../pluginDescriptor";
 
 /** @internal "No index": an absent parameter, string, bone, slot or node word. */
 export const NONE = 0xffffffff;
@@ -114,6 +115,8 @@ export interface NodePacker {
   target(name: string): number;
   /** Whether the node sets the parameter. */
   has(name: string): boolean;
+  /** The node's raw value of a declared parameter (undefined when absent), for kinds that take several forms. */
+  value(name: string): NodeParamValue | undefined;
   /** A list parameter's packed words (floats as f32 bits). */
   list(name: string): number[];
   /** A top-level graph layer's index by name, or `NONE`. */
@@ -122,6 +125,12 @@ export interface NodePacker {
   rays(n: number): number;
   /** Reports a problem at the node (or one of its parameters). */
   problem(message: string, param?: string, warning?: boolean): void;
+}
+
+/** @internal What a kind may consult to pick a more specific schema for one node (`NodeKindSchema.resolve`). */
+export interface NodeResolveContext {
+  /** A third-party node module's descriptor by its project path (`plugins/acme/nodes/sway.wasm`), when it is loaded. */
+  pluginDescriptor(module: string): PluginModuleDescriptor | undefined;
 }
 
 /** @internal One node kind. */
@@ -137,6 +146,11 @@ export interface NodeKindSchema {
   readonly side?: NodeSideTable;
   /** Packs the parameter block. */
   pack(p: NodePacker): void;
+  /**
+   * A more specific schema for one node from its parameters, or undefined to use this one: the plugin family's generic
+   * kind answers the descriptor-generated kind of the module and node a node names (`plugin.ts`).
+   */
+  resolve?(params: Readonly<Record<string, NodeParamValue>>, context: NodeResolveContext): NodeKindSchema | undefined;
 }
 
 /** @internal One family file's contents. */

@@ -52,8 +52,12 @@ const EDITOR_OUT_NAME = "myco_anim_editor";
  * download and the exporter's). Set by T19 (2026-11-23) from its first build plus 20%, rounded: the compressor with its
  * f64 reference, the skeleton compile, the compressed retarget bake and the pose-database bake measured 349,312 bytes;
  * + 20% = 419,174 B -> 410 KB. Raise it with a line in docs/design/animation/build-log.md saying why.
+ * Raised by T45t (2026-11-23): the fuel pass for third-party node modules (anim-meter on wasmparser's validator with the
+ * simd128 operator set, and wasm-encoder to re-encode) links into the editor module so the editor's loader and exports
+ * can meter modules: 349,312 -> 1,012,652 bytes. The validator is the bulk and can't be cut (the pass must refuse
+ * modules outside the allowed proposal set). + 20% = 1,215,182 B -> 1190 KB.
  */
-const EDITOR_SIZE_LIMIT = 410 * 1024;
+const EDITOR_SIZE_LIMIT = 1190 * 1024;
 
 /** Runs `cmd args` in native/anim with inherited stdio. RUSTFLAGS are dropped so .cargo/config.toml's +simd128 applies. */
 function run(cmd, args) {

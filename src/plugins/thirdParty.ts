@@ -2,11 +2,13 @@
 // project (`plugins/<folder>/plugin.json`) and in its npm packages (`"myco": { "plugin": … }` in a
 // package's package.json), the checks that run before any plugin code does, and which project code a
 // host loads, as one plan (`planPluginCode`, ADR 0275). No file access and no editor imports (from
-// the engine only the pure parse of a manifest's `audio` section, ADR 0352): the editor, the exporter
+// the engine only the pure parses of a manifest's `audio` section, ADR 0352, and its `animationNodes`, ADR 0370): the
+// editor, the exporter
 // and the dedicated server each pass what they read and run the same plan against the same
 // first-party catalogue, so all three agree on what loads.
 import { parsePluginAudio } from "../engine/audio/effects/pluginEffects";
 import type { PluginAudio } from "../engine/audio/effects/types";
+import { parseAnimationNodes, type AnimationNodeModuleDecl } from "../engine/animation/pluginNodes";
 import { FIRST_PARTY_MANIFESTS } from "./catalogue";
 import { resolveEnabledPlugins } from "./enabled";
 import type { PluginManifest } from "./manifest";
@@ -43,6 +45,12 @@ export interface ThirdPartyManifest extends PluginManifest {
    * `editor` are optional: a DSP-only plugin runs no JavaScript.
    */
   readonly audio?: PluginAudio;
+  /**
+   * ADR 0370 "Third-party graph and rig nodes" (T45t): animation graph and rig nodes as sandboxed wasm modules
+   * (`[{ "module": "nodes/sway.wasm", "budget": 200000 }]`), read without running plugin code. Parsed leniently: a bad
+   * entry is dropped and a bad budget takes the default, each with a line in the plugin's `warnings`.
+   */
+  readonly animationNodes?: readonly AnimationNodeModuleDecl[];
 }
 
 /** Where a plugin was found. */
@@ -58,6 +66,8 @@ export interface FoundPlugin {
   readonly runtime?: string;
   /** The editor entry, the same way. */
   readonly editor?: string;
+  /** Problems that don't refuse the plugin (lenient sections such as `animationNodes`), each a line to show once. */
+  readonly warnings?: readonly string[];
 }
 
 /** Why a plugin was refused. `plugin` is its name, or its manifest's path when the name is unknown. */
@@ -78,9 +88,9 @@ const NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
  * Read a `plugin.json` value (ADR 0139). Returns the manifest, or null with every problem found.
  * Unknown keys are ignored.
  */
-function parsePluginManifest(raw: unknown): { manifest: ThirdPartyManifest | null; problems: string[] } {
+function parsePluginManifest(raw: unknown): { manifest: ThirdPartyManifest | null; problems: string[]; warnings: string[] } {
   const problems: string[] = [];
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { manifest: null, problems: ["plugin.json must hold an object"] };
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { manifest: null, problems: ["plugin.json must hold an object"], warnings: [] };
   const r = raw as Record<string, unknown>;
   const str = (key: string, required: boolean): string | undefined => {
     const value = r[key];
@@ -113,7 +123,9 @@ function parsePluginManifest(raw: unknown): { manifest: ThirdPartyManifest | nul
   };
   const runtime = entry("runtime");
   const editor = entry("editor");
-  if (r.runtime === undefined && r.editor === undefined && r.audio === undefined) problems.push(`a plugin needs a "runtime" or an "editor" entry, or an "audio" section`);
+  if (r.runtime === undefined && r.editor === undefined && r.audio === undefined && r.animationNodes === undefined) problems.push(`a plugin needs a "runtime" or an "editor" entry, or an "audio" or "animationNodes" section`);
+  // ADR 0370 (T45t): animation node modules, leniently: their problems are warnings, never a refusal.
+  const nodes = parseAnimationNodes(r.animationNodes);
   // ADR 0352 §3: the `audio` section, once the name and version it is stamped with are known to be good.
   let audio: PluginAudio | undefined;
   if (r.audio !== undefined && name !== undefined && NAME_RE.test(name)) audio = parsePluginAudio(r.audio, { name, version: version ?? "", ...(title !== undefined && { title }) }, problems);
@@ -153,7 +165,7 @@ function parsePluginManifest(raw: unknown): { manifest: ThirdPartyManifest | nul
       });
     }
   }
-  if (problems.length > 0) return { manifest: null, problems };
+  if (problems.length > 0) return { manifest: null, problems, warnings: [...nodes.problems] };
   const manifest: ThirdPartyManifest = {
     name: name!,
     version: version!,
@@ -167,8 +179,9 @@ function parsePluginManifest(raw: unknown): { manifest: ThirdPartyManifest | nul
     ...(editor !== undefined && { editor }),
     ...(assetKinds && { assetKinds }),
     ...(audio && { audio }),
+    ...(nodes.modules.length > 0 && { animationNodes: nodes.modules }),
   };
-  return { manifest, problems };
+  return { manifest, problems, warnings: [...nodes.problems] };
 }
 
 // --- discovery ------------------------------------------------------------------------------------
@@ -235,7 +248,7 @@ async function discoverPlugins(input: DiscoverInput): Promise<{ plugins: FoundPl
       refuse(where, `plugin.json isn't valid JSON: ${parsed.error}`);
       continue;
     }
-    const { manifest, problems: bad } = parsePluginManifest(parsed.value);
+    const { manifest, problems: bad, warnings } = parsePluginManifest(parsed.value);
     if (!manifest) {
       refuse(where, bad.join("; "), parsed.value);
       continue;
@@ -256,8 +269,11 @@ async function discoverPlugins(input: DiscoverInput): Promise<{ plugins: FoundPl
     for (const m of manifest.audio?.modules ?? []) {
       if (assets && !assets.has(`${folder}/${m.wasm}`)) entryProblems.push(`its audio module ${m.id}'s file ${folder}/${m.wasm} doesn't exist`);
     }
+    for (const m of manifest.animationNodes ?? []) {
+      if (assets && !assets.has(`${folder}/${m.module}`)) warnings.push(`its animation node module ${folder}/${m.module} doesn't exist; its nodes pass their input through`);
+    }
     if (entryProblems.length > 0) refuse(where, entryProblems.join("; "), manifest);
-    else plugins.push({ manifest, source: { kind: "project", folder }, where, ...(runtime && { runtime }), ...(editor && { editor }) });
+    else plugins.push({ manifest, source: { kind: "project", folder }, where, ...(runtime && { runtime }), ...(editor && { editor }), ...(warnings.length > 0 && { warnings }) });
   }
 
   const files = input.packages;
@@ -291,7 +307,7 @@ async function discoverPlugins(input: DiscoverInput): Promise<{ plugins: FoundPl
       refuse(where, `the manifest isn't valid JSON: ${raw.error}`);
       continue;
     }
-    const { manifest, problems: bad } = parsePluginManifest(raw.value);
+    const { manifest, problems: bad, warnings } = parsePluginManifest(raw.value);
     if (!manifest) {
       refuse(where, bad.join("; "), raw.value);
       continue;
@@ -312,6 +328,7 @@ async function discoverPlugins(input: DiscoverInput): Promise<{ plugins: FoundPl
         where,
         ...(manifest.runtime !== undefined && { runtime: `${pkg}/${manifest.runtime}` }),
         ...(manifest.editor !== undefined && { editor: `${pkg}/${manifest.editor}` }),
+        ...(warnings.length > 0 && { warnings }),
       });
   }
   return { plugins, problems };

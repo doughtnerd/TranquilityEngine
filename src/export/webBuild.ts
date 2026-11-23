@@ -18,6 +18,7 @@ import type { ScriptProblem } from "../projectCode/compile";
 import { link } from "../projectCode/linker";
 import { planPluginCode, type BuiltPlugin } from "../plugins/thirdParty";
 import type { AudioReport } from "./audio";
+import { planAnimationNodes, type PlannedAnimationNodeModule } from "./animationNodes";
 import { planAudioEffects, type PlannedAudioEffect } from "./audioEffects";
 import { MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, modulePath, type GameManifest } from "./format";
 import { planLocalisation, type BuildLanguages } from "./strings";
@@ -76,6 +77,11 @@ export interface WebBuildPlan {
    * and writes `game.json`'s `audioEffects`. Absent: none.
    */
   readonly audioEffects?: readonly PlannedAudioEffect[];
+  /**
+   * ADR 0370 (T45t): the enabled project plugins' animation node modules (`animationNodes.ts`), which the build writer
+   * meters into the build. Absent: none.
+   */
+  readonly animationNodes?: readonly PlannedAnimationNodeModule[];
   /**
    * ADR 0356 §11, 0354 §6: the languages the build ships (`strings.ts`), which the audio step splits packages by and
    * writes the line index for. Absent: the audio step reads them from `project.json`.
@@ -147,6 +153,9 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   // ADR 0352 §8: the enabled plugins' audio modules ship (hashed into game.json by the build writer); a disabled one's don't.
   const audioEffects = planAudioEffects(pluginPlan.plugins, pluginPlan.enabled);
   if (audioEffects.leaveOut.size > 0) copies = copies.filter((p) => !audioEffects.leaveOut.has(p));
+  // ADR 0370 (T45t): the enabled plugins' animation node modules ship metered (the build writer meters them); a disabled one's don't.
+  const animationNodes = planAnimationNodes(pluginPlan.plugins, pluginPlan.enabled);
+  if (animationNodes.leaveOut.size > 0) copies = copies.filter((p) => !animationNodes.leaveOut.has(p));
   // ADR 0356 §11, 0354 §6: the shipped languages' string files; string tables and other languages' variants stay out.
   const localisation = planLocalisation(source.json, copies, { languages: options.languages, pseudo: options.pseudo }, copiedPath("project.json"));
   if (localisation.error) throw new ExportError(localisation.error);
@@ -184,8 +193,9 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   return {
     manifest, copies, generated,
     ...(audioEffects.modules.length > 0 && { audioEffects: audioEffects.modules }),
+    ...(animationNodes.modules.length > 0 && { animationNodes: animationNodes.modules }),
     languages: localisation.languages,
-    ...(localisation.warnings.length > 0 && { warnings: localisation.warnings }),
+    ...(localisation.warnings.length + animationNodes.skipped.length > 0 && { warnings: [...localisation.warnings, ...animationNodes.skipped] }),
   };
 }
 

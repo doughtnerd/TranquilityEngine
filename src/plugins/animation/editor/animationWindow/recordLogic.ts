@@ -10,7 +10,7 @@
 //
 // Pure; no DOM.
 import type { AnimSource } from "../../../../engine/animation/animSource";
-import { accept, type EditResult } from "../../../../editor/sdk/editResult";
+import { accept, type EditResult } from "../../../../editor/sdk";
 import { keyField } from "./clipEditLogic";
 import { animatableSubPaths, isAnimatablePath, subValue } from "./fieldTracksLogic";
 

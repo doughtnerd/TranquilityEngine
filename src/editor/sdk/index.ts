@@ -40,7 +40,10 @@ export { addKey as addCurveKey, moveKey as moveCurveKey, removeKey as removeCurv
 // ADR 0373: the dope sheet's grid (ruler, rows of keys, box select) and the key-list edits of several keys at once, shared
 // by the curve editor's dope sheet and the Animation window.
 export { DopeSheetGrid, type DopeKey, type DopeRow, type DopeSelectMode, type DopeSheetGridProps, type DopeSpan } from "../ui/curves/DopeSheetGrid";
-export { copyKeysAt, pasteKeys, removeKeys, rippleKeys, scaleKeys, shiftKeys, SAME_X, type CopiedKeys, type KeysEdit } from "../ui/curves/keyList";
+export { copyKeysAt, fitYRange, pasteKeys, removeKeys, rippleKeys, scaleKeys, shiftKeys, SAME_X, type CopiedKeys, type KeysEdit } from "../ui/curves/keyList";
+export { withEnds as withCurveEnds } from "../ui/curves/curveEditorModel";
+/** What a component field holds in its scene document (or on the live node), in scene-file JSON (ADR 0373: the Animation window's record mode). */
+export { storedFieldValue } from "../componentField";
 /** @deprecated ADR 0346: use `CurveField` (the inline field) or `CurveEditorDialog`. Kept for one release. */
 export { CurveField as CurveEditor, type CurveFieldProps as CurveEditorProps } from "../ui/curves/CurveField";
 // Menus and floating panels (ADR 0180): placed, dismissed and focused in the window they're in (ADR 0174).

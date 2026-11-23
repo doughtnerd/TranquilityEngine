@@ -22,6 +22,16 @@ export function last_error(): string;
 export function last_report(): Float64Array;
 
 /**
+ * [`meter_module`]: the metered module, or empty (`last_error` says why it was refused).
+ */
+export function meter_node_module(bytes: Uint8Array | number[]): Uint8Array;
+
+/**
+ * The fuel pass's version ([`anim_meter::METER_VERSION`]): a metered module's cache key includes it.
+ */
+export function meter_version(): number;
+
+/**
  * [`compile_posedb`]: the database file, or empty (`last_error`).
  */
 export function posedb_bake(skeleton: Uint8Array | number[], skeleton_name: string, clips: Uint8Array | number[], clip_lengths: Uint32Array | number[], assets: string, ranges: Float32Array | number[], tags: string, schema: Float32Array | number[], settings: Float32Array | number[]): Uint8Array;
@@ -49,6 +59,8 @@ export interface InitOutput {
     readonly compress_clip: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly last_error: () => [number, number];
     readonly last_report: () => [number, number];
+    readonly meter_node_module: (a: number, b: number) => [number, number];
+    readonly meter_version: () => number;
     readonly posedb_bake: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number) => [number, number];
     readonly retarget_bake_compressed: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number, s: number, t: number) => [number, number];
     readonly skeleton_compile: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];

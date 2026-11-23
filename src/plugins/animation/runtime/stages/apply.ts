@@ -7,6 +7,7 @@ import { applyEvents } from "./apply/events";
 import { applyGraph } from "./apply/graph";
 import { applyIK } from "./apply/ik";
 import { applyNetwork } from "./apply/network";
+import { applyNodes } from "./apply/nodes";
 import { applyPhysical } from "./apply/physical";
 import { applyPlayback } from "./apply/playback";
 import { applyPose } from "./apply/pose";
@@ -17,6 +18,7 @@ import { frameFor, type AnimationFrame, type StageStep } from "./frame";
 
 /** The apply sub-steps, in order. */
 const APPLY: readonly StageStep[] = [
+  applyNodes, // T45t: third-party node faults, one warning per node instance
   applyPose, // T17: bone matrices for skinning and attachments, LOD interpolation
   applyProperties, // T20t: property columns into ECS fields
   applyRootMotion, // T17: the RootMotion buffer, then the Transform, CharacterController or RigidBody

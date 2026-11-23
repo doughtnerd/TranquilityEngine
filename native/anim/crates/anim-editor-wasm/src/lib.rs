@@ -14,6 +14,8 @@
 //! | `skeleton_compile(skeleton, roles, profile)` | a `myco.skel@1` file re-written canonically, with a role per bone and a profile name when given |
 //! | `retarget_bake_compressed(…)` | a clip retargeted through a map built from two skeleton files, compressed for the target |
 //! | `posedb_bake(…)` | a `myco.posedb@1` pose database from a skeleton and clips (`anim-match`'s bake) |
+//! | `meter_node_module(bytes)` | a third-party node module validated and metered by `anim-meter` (T45t; empty on refusal) |
+//! | `meter_version()` | `anim-meter`'s [`anim_meter::METER_VERSION`]: part of a metered module's cache key |
 //! | `last_report()` | the last compression's [`REPORT_LEN`] numbers (layout: [`report`]) |
 //! | `last_error()` | why the last call returned nothing ("" after a success) |
 //!
@@ -96,6 +98,15 @@ pub mod report {
     pub const CHANNELS: usize = 8;
     pub const WITHIN_BOUNDS: usize = 11;
     pub const ROTATION_FORMAT: usize = 12;
+}
+
+/// A third-party node module (ADR 0370, "Third-party graph and rig nodes") checked against the node
+/// ABI and the allowed proposals and rewritten with its fuel counter by `anim-meter`, at the default
+/// load limits. The editor's loader meters project modules with it (caching by content), and exports
+/// write the result into the build, so games load metered bytes and never this module.
+pub fn meter_module(bytes: &[u8]) -> Result<Vec<u8>, CompileError> {
+    anim_meter::meter(bytes, &anim_meter::Limits::default())
+        .map_err(|e| err(format_args!("node module: {e}")))
 }
 
 /// Why a compile failed (the text `last_error()` returns).
@@ -422,7 +433,9 @@ pub fn compile_posedb(
         return Err(err("schema: 4 values per feature"));
     }
     let features: Vec<FeatureSpec> = schema
-        .as_chunks::<FEATURE_LEN>().0.iter()
+        .as_chunks::<FEATURE_LEN>()
+        .0
+        .iter()
         .map(|f| FeatureSpec {
             kind: FeatureKind::from_u8(f[0] as u8).unwrap_or(FeatureKind::Custom),
             bone: if f[1] >= 0.0 { f[1] as u32 } else { NONE },
@@ -591,6 +604,18 @@ pub fn posedb_bake(
     )
 }
 
+/// [`meter_module`]: the metered module, or empty (`last_error` says why it was refused).
+#[wasm_bindgen]
+pub fn meter_node_module(bytes: &[u8]) -> Vec<u8> {
+    finish(meter_module(bytes), None)
+}
+
+/// The fuel pass's version ([`anim_meter::METER_VERSION`]): a metered module's cache key includes it.
+#[wasm_bindgen]
+pub fn meter_version() -> u32 {
+    anim_meter::METER_VERSION
+}
+
 /// The last compression's report record ([`REPORT_LEN`] values; empty after a failure or another call).
 #[wasm_bindgen]
 pub fn last_report() -> Vec<f64> {
@@ -633,6 +658,13 @@ mod tests {
                 .root_motion,
             None
         );
+    }
+
+    #[test]
+    fn refused_node_modules_set_the_error() {
+        assert!(meter_node_module(&[0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]).is_empty());
+        assert!(last_error().starts_with("node module:"), "{}", last_error());
+        assert_eq!(meter_version(), anim_meter::METER_VERSION);
     }
 
     #[test]

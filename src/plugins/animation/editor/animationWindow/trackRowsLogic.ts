@@ -10,7 +10,7 @@
 // Pure; no DOM.
 import type { CurveKey } from "../../../../engine/core/curve";
 import { CURVE_TRACK_WIDTH, type CurveTrackKind, type QuatKey, type Track, type TrackKind } from "../../../../engine/animation/tracks";
-import type { Key } from "../../../../editor/ui/curves/keyList";
+import type { CurveEditKey as Key } from "../../../../editor/sdk";
 
 /** Which keys of a track a row holds. */
 export type Channel =

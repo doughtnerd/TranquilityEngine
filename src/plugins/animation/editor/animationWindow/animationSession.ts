@@ -25,7 +25,7 @@ import {
   type NodePath,
   type OpenScene,
 } from "../../../../editor/sdk";
-import { storedFieldValue } from "../../../../editor/componentField";
+import { storedFieldValue } from "../../../../editor/sdk";
 import { Animator } from "../../runtime/components/Animator";
 import { ClipPlayhead } from "../scene/clipPreviewLogic";
 import type { KeyClipboard } from "./clipEditLogic";

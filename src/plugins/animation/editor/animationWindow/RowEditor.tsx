@@ -3,7 +3,7 @@
 // edits, applied by the window); a refused change says why in the status bar and leaves the key as it was.
 import type { AnimSource } from "../../../../engine/animation/animSource";
 import { MARKER_KINDS, type Track } from "../../../../engine/animation/tracks";
-import type { EditResult } from "../../../../editor/sdk/editResult";
+import type { EditResult } from "../../../../editor/sdk";
 import { jsonText, removeRowKey, setActivationRange, setAudioKey, setEventKey, setMarkerKey } from "./rowEditorsLogic";
 
 export interface RowEditorProps {

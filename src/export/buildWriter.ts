@@ -21,6 +21,7 @@ import { processImages, type ImageTranscoder } from "./images";
 import { withRenderedSamples } from "./sampleRenders";
 import { ExportError, copiedPath, withBakedModels, type BakeModel, type WebBuildPlan } from "./webBuild";
 import { withCompiledClips } from "./animationClips";
+import { withMeteredAnimationNodes } from "./animationNodes";
 import { loadAnimationCompiler } from "../plugins/animation/editor/compile/compiler";
 
 /** Read access to a folder of files (a project, a built player), by "/"-separated relative path. */
@@ -104,6 +105,8 @@ export async function writeWebBuild(plan: WebBuildPlan, options: WriteBuildOptio
   plan = await withBakedModels(plan, options.bake, log);
   // ADR 0371 (T19): every referenced clip compiled to *.anim.bin, and model skeletons to *.skel.bin, for the platform.
   plan = await withCompiledClips(plan, { platform: options.platform, read: (path) => project.read(path), compiler: loadAnimationCompiler, log });
+  // ADR 0370 (T45t): the plugins' animation node modules metered, since games can't meter.
+  plan = await withMeteredAnimationNodes(plan, { read: (path) => project.read(path), compiler: loadAnimationCompiler, log });
   // ADR 0352 §8: the plugins' audio modules hashed into game.json; their offline host renders baked plugin effects.
   const effects = await withAudioEffects(plan, (path) => project.read(path), log);
   plan = effects.plan;

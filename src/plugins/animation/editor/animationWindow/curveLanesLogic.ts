@@ -9,9 +9,9 @@
 import type { AnimSource } from "../../../../engine/animation/animSource";
 import { CURVE_TRACK_WIDTH, type CurveTrack, type CurveTrackKind } from "../../../../engine/animation/tracks";
 import type { Curve, CurveKey } from "../../../../engine/core/curve";
-import { accept, refuse, type EditResult } from "../../../../editor/sdk/editResult";
-import { withEnds, type CurveEditorResult, type CurveEditorSpec, type CurveLane } from "../../../../editor/ui/curves/curveEditorModel";
-import { fitYRange } from "../../../../editor/ui/curves/keyList";
+import { accept, refuse, type EditResult } from "../../../../editor/sdk";
+import { withCurveEnds as withEnds, type CurveEditorResult, type CurveEditorSpec, type CurveLane } from "../../../../editor/sdk";
+import { fitYRange } from "../../../../editor/sdk";
 import { parseRowId, rowId } from "./trackRowsLogic";
 
 const COMPONENT = { float: [""], morph: [""], curve: [""], vec2: ["x", "y"], vec3: ["x", "y", "z"], vec4: ["x", "y", "z", "w"], color: ["r", "g", "b", "a"] } as const;

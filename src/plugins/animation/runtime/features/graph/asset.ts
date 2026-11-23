@@ -2,7 +2,8 @@
 // compiled here by the graph compiler (`engine/animation/graphCompile.ts`, T30), with the skeleton's bone names (bone
 // references by name), then loaded into the World's core and its asset strings bound (`graph_bind`): clips, masks
 // (resolved to the skeleton's bones, `masks.ts`), linked graphs (loaded the same way, recursively), pose databases and
-// plugin modules. Compiles are cached page-wide by content (the source text and the bone names), loaded graphs per World
+// plugin modules (T45t: through the node loader, `../nodes/loader.ts`, which loads a graph's modules before it compiles
+// so plugin nodes pack the descriptor's named parameters). Compiles are cached page-wide by content (the source text and the bone names), loaded graphs per World
 // by the same key plus the skeleton, and reference-counted: the last Animator releasing one releases what it bound.
 //
 // The host keeps the compile's tables (`GraphMeta`): parameter indices and kinds, request names, state machines with
@@ -19,6 +20,7 @@ import { compileAnimGraph, type CompiledAnimGraph } from "../../../../../engine/
 import type { AnimationWorldCore } from "../../core/AnimationWorldCore";
 import { matchingInputs, type MatchingInputs } from "../matching/inputs";
 import { acquirePoseDatabase } from "../matching/posedb";
+import { acquireNodeModule, loadGraphNodeModules } from "../nodes/loader";
 import { acquireRetargetMap, retargetNodes, type RetargetBinding } from "../retarget/maps";
 import { warpWindows } from "../warp/windows";
 import { readJsonAsset } from "./jsonAsset";
@@ -255,9 +257,9 @@ interface Compiled {
 /** Compiles by content key (page-wide). */
 const compiles = new Map<string, Compiled | null>();
 
-function compileSource(path: string, raw: unknown, bones: readonly string[] | null): Compiled | null {
+function compileSource(path: string, raw: unknown, bones: readonly string[] | null, modules: string): Compiled | null {
   const text = JSON.stringify(raw) ?? "";
-  const key = `${text.length}:${fnv(text)}:${fnv(bones ? bones.join("\n") : "\u0000none")}`;
+  const key = `${text.length}:${fnv(text)}:${fnv(bones ? bones.join("\n") : "\u0000none")}${modules ? `:${fnv(modules)}` : ""}`;
   if (compiles.has(key)) return compiles.get(key)!;
   const parsed = parseAnimGraph(raw, path);
   const compiled = compileAnimGraph(parsed.value, bones ? { bones } : {});
@@ -309,8 +311,11 @@ async function bindAssets(ns: AnimationWorldCore, handle: number, meta: GraphMet
       const path = stripRef(b.ref);
       let asset = 0;
       switch (b.asset) {
-        case "clip":
         case "plugin":
+          asset = await acquireNodeModule(ns, path);
+          if (asset) held.push(asset);
+          break;
+        case "clip":
           asset = await ns.acquireFile(path, b.asset);
           if (asset) held.push(asset);
           else warnOnce(`bind:${path}`, `[myco] animation: couldn't load "${path}" for a graph; it plays as nothing.`);
@@ -345,7 +350,9 @@ async function bindAssets(ns: AnimationWorldCore, handle: number, meta: GraphMet
 }
 
 async function load(ns: AnimationWorldCore, path: string, rig: GraphRig, depth: number, map: Map<string, Promise<LoadedGraph | null>>, raw: unknown): Promise<LoadedGraph | null> {
-  const compiled = compileSource(path, raw, rig ? rig.info.names : null);
+  const modules = await loadGraphNodeModules(raw);
+  if (!ns.open) return null;
+  const compiled = compileSource(path, raw, rig ? rig.info.names : null, modules);
   if (!compiled) return null;
   const key = `${compiled.key}|${rig ? `${rig.path}|${rig.profile}|${rig.retargetSource ?? ""}` : ""}`;
   const known = map.get(key);

@@ -652,6 +652,16 @@ fn state_lives_in_the_blob_and_restores_exactly() {
         10.0,
         "ten successful calls counted in the core's state"
     );
+    // T45t: each call gets the frame's step (the update phase's dt), not the pose phase's 0.
+    let mut seconds = 0.0f32;
+    for _ in 0..10 {
+        seconds += 1.0 / 60.0;
+    }
+    assert_eq!(
+        f32::from_bits(words[0]),
+        seconds,
+        "the calls' dt summed in the core's state"
+    );
     let snapshot = run.state.clone();
     let after: Vec<Vec<u32>> = (0..5).map(|_| bits(&run.frame(1.0 / 60.0))).collect();
     run.state.copy_from_slice(&snapshot);

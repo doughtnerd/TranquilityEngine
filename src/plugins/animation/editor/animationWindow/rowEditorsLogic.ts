@@ -7,8 +7,8 @@
 // Pure; no DOM.
 import type { AnimSource } from "../../../../engine/animation/animSource";
 import { DEFAULT_NOTIFY_THRESHOLD, MARKER_KINDS, type ActivationTrack, type AudioKey, type AudioTrack, type EventKey, type EventTrack, type MarkerKey, type MarkerKind, type MarkerTrack, type RangeKey, type Track } from "../../../../engine/animation/tracks";
-import { accept, refuse, type EditResult } from "../../../../editor/sdk/editResult";
-import { SAME_X } from "../../../../editor/ui/curves/keyList";
+import { accept, refuse, type EditResult } from "../../../../editor/sdk";
+import { SAME_X } from "../../../../editor/sdk";
 import { whyNotKeyAt } from "./clipEditLogic";
 
 const withTrack = (clip: AnimSource, index: number, track: Track): AnimSource => ({ ...clip, tracks: clip.tracks.map((t, i) => (i === index ? track : t)) });

@@ -12,8 +12,8 @@
 // Pure; no DOM.
 import type { AnimSource } from "../../../../engine/animation/animSource";
 import { CURVE_TRACK_WIDTH, TRACK_LIMITS, type Binding, type CurveTrackKind, type DiscreteValue, type Track } from "../../../../engine/animation/tracks";
-import { accept, refuse, type EditResult } from "../../../../editor/sdk/editResult";
-import { copyKeysAt, pasteKeys, removeKeys, rippleKeys, scaleKeys, SAME_X, shiftKeys } from "../../../../editor/ui/curves/keyList";
+import { accept, refuse, type EditResult } from "../../../../editor/sdk";
+import { copyKeysAt, pasteKeys, removeKeys, rippleKeys, scaleKeys, SAME_X, shiftKeys } from "../../../../editor/sdk";
 import { fieldTrackShape, keyValueOf, type FieldTrackShape } from "./fieldTracksLogic";
 import { channelKeys, channelsCompatible, keyId, parseKeyId, parseRowId, rowId, withChannelKeys, type Channel, type KeyPair } from "./trackRowsLogic";
 

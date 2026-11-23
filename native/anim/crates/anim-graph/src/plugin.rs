@@ -19,7 +19,7 @@
 //! | then | 3 × u32 | `m` bindings: block word offset, word count (≤ 4), graph parameter whose words are copied there each evaluation (animatable parameters) |
 //!
 //! State ([`state`]): fault flags ([`FAULTED`], [`REPORTED`]), the last fault's status, the module
-//! handle, a reserved word, then the module's per-instance state (`state_stride(state bytes)`
+//! handle, this frame's step (written in the update phase, read by the call), then the module's per-instance state (`state_stride(state bytes)`
 //! bytes as words, zeroed on init). **The core owns it** (D62): it is copied out for each call and
 //! back only when the call succeeds, so it survives a module reload and joins snapshots.
 //!
@@ -76,6 +76,9 @@ pub mod state {
     pub const STATUS: usize = 1;
     /// The module's handle (resolved through the graph's bindings on init).
     pub const MODULE: usize = 2;
+    /// The update phase's step, `f32` bits: the pose phase (which has no step of its own) passes it to the
+    /// call (T45t).
+    pub const DT: usize = 3;
     /// The module's per-instance state starts here.
     pub const FIXED: usize = 4;
 }
@@ -225,7 +228,10 @@ fn plugin_node(cx: &mut EvalContext<'_>, node: &NodeData<'_>) {
             s.fill(0);
             s[state::MODULE] = module;
         }
-        Phase::Update => {}
+        Phase::Update => {
+            let dt = cx.dt();
+            cx.state()[state::DT] = dt.to_bits();
+        }
         Phase::Pose => pose(cx, node),
         Phase::Alpha if first.is_none() => cx.set_alpha(1.0),
         Phase::Tracks | Phase::Weights => {
@@ -413,7 +419,7 @@ fn call(cx: &mut EvalContext<'_>, node: &NodeData<'_>, out: usize) -> u32 {
             output: &mut rest[..pose_floats],
             params,
             state: st,
-            dt: cx.dt(),
+            dt: f32::from_bits(cx.state()[state::DT]),
         });
         if status == 0 && rest[..pose_floats].iter().any(|v| !v.is_finite()) {
             fault::NOT_FINITE
