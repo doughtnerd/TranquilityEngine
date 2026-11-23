@@ -128,6 +128,29 @@ describe("generator voices in the core (ADR 0346, loopback)", () => {
     expect(Audio.debug().voices.find((v) => v.generator === "silence")!.state).toBe("virtual");
   });
 
+  it("a hard rebuild replays a generator voice: PLAY of its reserved id and a GEN of its values, and it sounds again", { timeout: 30_000 }, async (ctx) => {
+    const r = await rig({
+      "d.playlist.json": { format: "myco.playlist@1", type: "clip", playback: { plays: "untilStopped" }, entries: [{ generator: { kind: "oscillator", params: { waveform: "sine", frequency: 330, level: -6 }, seed: 9 } }] },
+    });
+    if (!r) return ctx.skip();
+    Audio.play("d.playlist.json");
+    await r.step(30);
+    expect(frequencyOf(r.out.slice(-RATE / 4))).toBeCloseTo(330, 0);
+    const watch = r.loop.watch();
+    expect(await r.loop.until(r.loop.rebuild("stall"))).toBe("rebuilt");
+    r.out.length = 0;
+    await r.step(60);
+    const records = watch.takeRecords();
+    const play = records.find((x) => x.opcode === Op.PLAY && readPlay(x.view, x.off).clip === GEN_CLIP_ID_FIRST + generatorKindIndex("oscillator"));
+    expect(play).toBeDefined();
+    const gen = records.find((x) => x.opcode === Op.GEN && x.voiceId === play!.voiceId)!;
+    expect(gen).toBeDefined();
+    const g = readGen(gen.view, gen.off);
+    expect(g.seed).toBe(9);
+    expect(g.values[generatorParamIndex("oscillator", "frequency")]).toBe(330);
+    expect(frequencyOf(r.out.slice(-RATE / 4))).toBeCloseTo(330, 0);
+  });
+
   it("a blip preset lasts as long as sfxr's envelope (its catalogue length) and then ends its playlist", { timeout: 30_000 }, async (ctx) => {
     const params = blipPreset("blip", 3);
     const r = await rig({ "ui/blip.generator.json": { format: "myco.generator@1", kind: "blip", preset: "blip", seed: 3, params } });
