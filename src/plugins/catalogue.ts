@@ -2,6 +2,7 @@
 // folder, holding its manifest. Every host plans project code against it (`planPluginCode`, ADR 0139),
 // `runtime.ts` maps each entry to its runtime half and `editor.ts` to its editor half, so adding a
 // plugin is one entry here. Manifests only, no plugin code: the exporter and the server plan with it.
+import { animationManifest } from "./animation/manifest";
 import { audioManifest } from "./audio/manifest";
 import { environmentManifest } from "./environment/manifest";
 import { materialsManifest } from "./materials/manifest";
@@ -41,6 +42,8 @@ export const FIRST_PARTY = {
   audio: audioManifest,
   // After audio and UI, which it needs (ADR 0357 §5).
   subtitles: subtitlesManifest,
+  // After physics and audio, its optional dependencies (ADR 0370, 0374).
+  animation: animationManifest,
 } as const satisfies Readonly<Record<string, PluginManifest>>;
 
 /** A first-party plugin's catalogue key: its folder under `src/plugins/`. */

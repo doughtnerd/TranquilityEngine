@@ -1,6 +1,7 @@
 // First-party plugins' editor halves (ADR 0133). Editor code only: never imported by runtime code
 // (the player, the server, the engine). `main.tsx` activates this list before the layout loads.
 import type { EditorPlugin } from "../editor/sdk/plugins";
+import { animationEditorPlugin } from "./animation/editor";
 import { audioEditorPlugin } from "./audio/editor";
 import type { FirstPartyPlugin } from "./catalogue";
 import { materialsEditorPlugin } from "./materials/editor";
@@ -32,6 +33,7 @@ const EDITOR_HALVES: { readonly [K in FirstPartyPlugin]?: EditorPlugin } = {
   "post-processing": postProcessingEditorPlugin,
   ui: uiEditorPlugin,
   subtitles: subtitlesEditorPlugin,
+  animation: animationEditorPlugin,
 };
 
 /** The first-party editor halves, in registration order (panels, settings categories). */
