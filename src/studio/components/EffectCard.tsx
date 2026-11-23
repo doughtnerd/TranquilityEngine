@@ -1,5 +1,5 @@
 // One effect in a chain (ADR 0349 `EffectCard`, ADR 0345): a collapsible card with a caret, the effect's name (and its
-// summary while closed), Automate ◆, On/Off (bypass), ↑ ↓ to reorder and × to remove; open, its parameters as
+// summary while closed), Automate, On/Off (bypass), move up and down to reorder and Remove (icons, ADR 0361); open, its parameters as
 // `ParameterRow`s from the catalogue (a menu for a `choices` parameter) and, for a sidechain compressor, its key bus. It
 // reports intents; `EffectChain` turns them into edits of the list. A plugin effect (ADR 0352 §9) carries its plugin's
 // chip; while its plugin is off or missing the card is greyed with the reason (`pluginEffectNote`); with a health row
@@ -10,6 +10,7 @@ import type { Effect, EffectLevel, EffectParamSpec } from "../../engine/audio/ef
 import type { AudioPluginDebug } from "../../plugins/audio/runtime/debugTypes";
 import { effectSummary, levelWarning, pluginCardView } from "./effectChainModel";
 import { formatParam } from "./parameterRowModel";
+import { Icon } from "./Icon";
 import { ParameterRow } from "./ParameterRow";
 import "./audioParts.css";
 
@@ -77,10 +78,10 @@ export function EffectCard(props: EffectCardProps) {
     <div class={`studio-row studio-fx${effect.on ? "" : " off"}${warning ? " warn" : ""}${plugin?.greyed ? " greyed" : ""}`} data-effect={effect.id} aria-disabled={plugin?.greyed ? true : undefined}>
       <div class="studio-row-head">
         <button type="button" class="studio-row-caret" aria-expanded={open} aria-controls={bodyId} aria-label={`${open ? "Collapse" : "Expand"} ${spec.label}`} onClick={() => props.onOpen(!open)}>
-          {open ? "▾" : "▸"}
+          <Icon name={open ? "chevronDown" : "chevronRight"} size={14} />
         </button>
         <span class="studio-row-name" title={warning ?? spec.label}>
-          {warning && <span class="studio-row-warn" aria-label="Warning">⚠ </span>}
+          {warning && <Icon name="warning" size={12} label="Warning" class="studio-row-warn" />}
           {spec.label}
         </span>
         {plugin && (
@@ -93,7 +94,7 @@ export function EffectCard(props: EffectCardProps) {
           {props.onAutomate && (
             <button
               type="button"
-              class={`studio-icon${anyAuto ? " set" : ""}`}
+              class={`studio-icon-button${anyAuto ? " set" : ""}`}
               aria-label={`Automate ${spec.label}`}
               title={`Automate ${spec.label}: ${spec.params.map((q) => q.label.toLowerCase()).join(", ")}, driven by a game parameter${anyAuto ? ` · ${Object.keys(automated).join(", ")} automated` : ""}`}
               disabled={readOnly || spec.params.length === 0}
@@ -105,14 +106,14 @@ export function EffectCard(props: EffectCardProps) {
           <button type="button" class={`studio-onoff${effect.on ? "" : " off"}`} aria-pressed={effect.on} title={effect.on ? "On: click to bypass" : "Bypassed: click to turn on"} disabled={readOnly} onClick={() => props.onOn(!effect.on)}>
             {effect.on ? "On" : "Off"}
           </button>
-          <button type="button" class="studio-icon" aria-label={`Move ${spec.label} up`} title="Move up (runs earlier)" disabled={readOnly || props.first} onClick={() => props.onMove(-1)}>
-            ↑
+          <button type="button" class="studio-icon-button" aria-label={`Move ${spec.label} up`} title="Move up (runs earlier)" disabled={readOnly || props.first} onClick={() => props.onMove(-1)}>
+            <Icon name="chevronUp" size={14} />
           </button>
-          <button type="button" class="studio-icon" aria-label={`Move ${spec.label} down`} title="Move down (runs later)" disabled={readOnly || props.last} onClick={() => props.onMove(1)}>
-            ↓
+          <button type="button" class="studio-icon-button" aria-label={`Move ${spec.label} down`} title="Move down (runs later)" disabled={readOnly || props.last} onClick={() => props.onMove(1)}>
+            <Icon name="chevronDown" size={14} />
           </button>
-          <button type="button" class="studio-icon" aria-label={`Remove ${spec.label}`} title="Remove" disabled={readOnly} onClick={props.onRemove}>
-            ×
+          <button type="button" class="studio-icon-button" aria-label={`Remove ${spec.label}`} title={`Remove ${spec.label}`} disabled={readOnly} onClick={props.onRemove}>
+            <Icon name="close" size={14} />
           </button>
         </span>
       </div>

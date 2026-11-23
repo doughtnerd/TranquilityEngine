@@ -3,7 +3,8 @@
 // pictures, when it has them), one instance lane per playlist path (lifetimes, held parts up to the release; click
 // selects, Enter or a double-click opens the playlist), the parameter lanes (a line per parameter, labelled ones as
 // segments) and the notes lane (the game's marks, and the designer's note markers and regions: drag to move, a
-// double-click adds a marker). The playhead is the replay's time. A view over props.
+// double-click adds a marker; focused, Left and Right pick a note when none is, then nudge it by 0.1 s, 1 s with Shift).
+// The playhead is the replay's time. A view over props.
 import { useMemo, useRef } from "preact/hooks";
 import type { TakeNotes } from "../../../engine/audio/take/types";
 import { Playhead } from "../../components/Playhead";
@@ -113,6 +114,23 @@ function NotesRow(props: TakeTimelineViewProps & { axis: TimeAxis }) {
   const drag = useRef<{ id: string; grab: number; last: number } | null>(null);
   const timeAt = (e: PointerEvent, el: HTMLElement) => axis.toTime(e.clientX - el.closest(".tk-lane")!.getBoundingClientRect().left);
   const selectedId = props.selected?.kind === "note" ? props.selected.id : null;
+  // Every note's start, in time order (the keys step through them).
+  const starts = [...notes.markers.map((m) => ({ id: m.id, at: m.at })), ...notes.regions.map((r) => ({ id: r.id, at: r.from }))].sort((a, b) => a.at - b.at);
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const left = e.key === "ArrowLeft";
+    const current = starts.find((n) => n.id === selectedId);
+    if (!current) {
+      const pick = left ? starts[starts.length - 1] : starts[0];
+      if (!pick) return;
+      e.preventDefault();
+      props.onSelectNote(pick.id);
+      return;
+    }
+    if (!props.notesWritable) return;
+    e.preventDefault();
+    props.onMoveNote(current.id, Math.max(0, current.at + (e.shiftKey ? 1 : 0.1) * (left ? -1 : 1)), true);
+  };
   const grab = (id: string, start: number) => (e: PointerEvent) => {
     e.stopPropagation();
     props.onSelectNote(id);
@@ -144,8 +162,11 @@ function NotesRow(props: TakeTimelineViewProps & { axis: TimeAxis }) {
       <div
         class="tk-lane tk-notes"
         role="listbox"
+        tabIndex={0}
         aria-label="Notes and game marks"
-        title={props.notesWritable ? "Double-click to add a note marker" : undefined}
+        aria-activedescendant={selectedId ? `tk-note-${selectedId}` : undefined}
+        title={props.notesWritable ? "Double-click (or Add marker) to add a note marker; Left and Right move the selected note" : undefined}
+        onKeyDown={onKey}
         onDblClick={(e) => {
           if (!props.notesWritable || e.target !== e.currentTarget) return;
           props.onAddMarker(axis.toTime(e.clientX - (e.currentTarget as HTMLElement).getBoundingClientRect().left));
@@ -154,6 +175,7 @@ function NotesRow(props: TakeTimelineViewProps & { axis: TimeAxis }) {
         {notes.regions.map((r) => (
           <div
             key={r.id}
+            id={`tk-note-${r.id}`}
             role="option"
             aria-selected={r.id === selectedId}
             class={`tk-region${r.id === selectedId ? " selected" : ""}`}
@@ -162,6 +184,7 @@ function NotesRow(props: TakeTimelineViewProps & { axis: TimeAxis }) {
             onPointerDown={grab(r.id, r.from)}
             onPointerMove={move}
             onPointerUp={up}
+            onPointerCancel={up}
           >
             <span class="tk-note-text">{r.text}</span>
           </div>
@@ -174,6 +197,7 @@ function NotesRow(props: TakeTimelineViewProps & { axis: TimeAxis }) {
         {notes.markers.map((m) => (
           <div
             key={m.id}
+            id={`tk-note-${m.id}`}
             role="option"
             aria-selected={m.id === selectedId}
             class={`tk-marker${m.id === selectedId ? " selected" : ""}`}
@@ -182,6 +206,7 @@ function NotesRow(props: TakeTimelineViewProps & { axis: TimeAxis }) {
             onPointerDown={grab(m.id, m.at)}
             onPointerMove={move}
             onPointerUp={up}
+            onPointerCancel={up}
           >
             <span class="tk-note-text">{m.text}</span>
           </div>

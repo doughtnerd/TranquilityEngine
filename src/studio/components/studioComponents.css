@@ -29,6 +29,7 @@
 .studio-hear-as { display: flex; align-items: center; gap: 6px; white-space: nowrap; min-width: 0; }
 .studio-hear-as-label { color: var(--muted); }
 .studio-hear-as-ab { padding: 0 6px; }
+.studio-hear-as-ab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 @container (max-width: 1000px) { .studio-player-status { display: none; } }
 @container (max-width: 840px) { .studio-player-grid { grid-template-columns: minmax(0, 1fr) auto minmax(0, auto); } .studio-player-sub, .studio-hear-as-label { display: none; } }
 @container (max-width: 620px) {
@@ -68,7 +69,8 @@
 .studio-device-warn { margin: 0; color: var(--warning); font-size: calc(11px * var(--ui-scale)); }
 
 /* Latency calibration */
-.studio-calibrate { width: min(440px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 10px; }
+.studio-calibrate { width: min(440px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); overflow-y: auto; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; }
+.studio-calibrate .dialog-buttons { flex-wrap: wrap; }
 .studio-calibrate h2, .studio-calibrate p { margin: 0; }
 .studio-calibrate-device { color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
 .studio-calibrate-boxes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
