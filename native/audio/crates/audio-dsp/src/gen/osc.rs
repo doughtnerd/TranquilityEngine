@@ -54,8 +54,9 @@ pub fn blamp(t: f64, dt: f64) -> f64 {
 /// `sin(2π t)` for any `t` (in cycles), from a 9th-order odd polynomial on a quarter cycle: error below 4e-6 (−108 dB).
 #[inline]
 pub fn sine_cycles(t: f64) -> f32 {
-    // Wrap to [-0.5, 0.5), then fold to [-0.25, 0.25] (sin(π - θ) = sin θ).
-    let mut u = (t - libm::floor(t + 0.5)) as f32;
+    // Wrap to [-0.5, 0.5), then fold to [-0.25, 0.25] (sin(π - θ) = sin θ). `f64::floor` (exact, one wasm instruction),
+    // not `libm::floor` (a software routine on wasm32: libm's intrinsics need an unstable feature).
+    let mut u = (t - (t + 0.5).floor()) as f32;
     if u > 0.25 {
         u = 0.5 - u;
     } else if u < -0.25 {
@@ -123,6 +124,13 @@ pub fn saw_at(t: f64, dt: f64) -> f64 {
 #[inline]
 pub fn pulse_at(t: f64, dt: f64, width: f64, amp: f64) -> f64 {
     let naive = if t < width { amp } else { -amp };
+    // Most samples sit more than `dt` from both edges, where both residuals are 0: the naive value, with four compares
+    // (the residuals are continuous at the edges of their support, so where a compare rounds either way both are ~0).
+    let far = 1.0 - dt;
+    let u = (t - width).abs();
+    if t >= dt && t <= far && u >= dt && u <= far {
+        return naive;
+    }
     let mut down = t - width;
     if down < 0.0 {
         down += 1.0;

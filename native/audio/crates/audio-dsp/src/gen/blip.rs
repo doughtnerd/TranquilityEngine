@@ -108,7 +108,9 @@ struct Ticks {
     /// The oscillator's period (supersampled steps, an integer of at least 8) and its reciprocal.
     period: f64,
     inv_period: f64,
-    vib_phase: f64,
+    /// sfxr's `sin(vib_phase)` and its cosine: a phasor turned by `vib_speed` each tick.
+    vib_sin: f64,
+    vib_cos: f64,
     square_duty: f32,
     /// sfxr's `env_time`, counted every tick (a whole number, exact in `f32`).
     env_time: f32,
@@ -152,11 +154,55 @@ impl Ticks {
 /// sfxr's integer period from its float one (`(int)rfperiod`, at least 8).
 #[inline(always)]
 fn whole_period(rfperiod: f64) -> f64 {
-    let p = libm::trunc(rfperiod);
-    if p > 8.0 {
-        p
-    } else {
-        8.0
+    (rfperiod as i64).max(8) as f64
+}
+
+/// A block's second pass: `o[i] = (x[i] + y[i]) × e[i] × (g0 + dg × (base + i + 1))`, where `e[i]` is the envelope and
+/// `y[i]` the phaser's delayed sample `d[i] + (d[i + 1] − d[i]) × frac` or, with no phaser, `x[i]` (sfxr's doubling). Four
+/// lanes at a time on wasm with simd128 (lane for lane the same IEEE arithmetic as the scalar form, so both give the same
+/// samples).
+#[inline(always)]
+fn finish(o: &mut [f32], x: &[f32], e: &[f32], phaser: Option<(&[f32], f32)>, g0: f32, dg: f32, base: usize) {
+    let k = o.len().min(x.len()).min(e.len());
+    let k = match phaser {
+        Some((d, _)) => k.min(d.len().saturating_sub(1)),
+        None => k,
+    };
+    #[allow(unused_mut)]
+    let mut i = 0;
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    {
+        use core::arch::wasm32::*;
+        // SAFETY: every read and write here is of four floats at `i..i + 4` (`i + 1..i + 5` in `d`) with `i + 4 <= k`,
+        // and `k` is at most each slice's length (`d`'s less one); wasm's v128 loads and stores take any alignment.
+        let lanes = |s: &[f32], i: usize| unsafe { v128_load(s.as_ptr().add(i) as *const v128) };
+        let (g0v, dgv, one) = (f32x4_splat(g0), f32x4_splat(dg), u32x4(1, 2, 3, 4));
+        while i + 4 <= k {
+            let xv = lanes(x, i);
+            let y = match phaser {
+                Some((d, frac)) => {
+                    let (a, b) = (lanes(d, i), lanes(d, i + 1));
+                    f32x4_add(a, f32x4_mul(f32x4_sub(b, a), f32x4_splat(frac)))
+                }
+                None => xv,
+            };
+            let g = f32x4_add(g0v, f32x4_mul(dgv, f32x4_convert_u32x4(u32x4_add(u32x4_splat((base + i) as u32), one))));
+            unsafe { v128_store(o.as_mut_ptr().add(i) as *mut v128, f32x4_mul(f32x4_mul(f32x4_add(xv, y), lanes(e, i)), g)) };
+            i += 4;
+        }
+    }
+    let g = |i: usize| g0 + dg * (base + i + 1) as f32;
+    match phaser {
+        Some((d, frac)) => {
+            for i in i..k {
+                o[i] = (x[i] + (d[i] + (d[i + 1] - d[i]) * frac)) * e[i] * g(i);
+            }
+        }
+        None => {
+            for i in i..k {
+                o[i] = (x[i] + x[i]) * e[i] * g(i);
+            }
+        }
     }
 }
 
@@ -188,7 +234,9 @@ pub struct Blip {
     fmaxperiod: f64,
     fdslide: f64,
     arp_mod: f64,
-    vib_speed: f64,
+    /// The vibrato's turn a tick (`vib_speed` radians) as a rotation.
+    vib_turn_cos: f64,
+    vib_turn_sin: f64,
     vib_amp: f32,
     square_slide: f32,
     rep_limit: u32,
@@ -266,7 +314,8 @@ impl Blip {
         self.flthp_d = 1.0 + p[p::HIGHPASS_SWEEP] * 0.0003;
         self.lp_w_set = -1.0;
         self.hp_set = -1.0;
-        self.vib_speed = (sq(p[p::VIBRATO_SPEED]) * 0.01) as f64;
+        let vib_speed = (sq(p[p::VIBRATO_SPEED]) * 0.01) as f64;
+        (self.vib_turn_cos, self.vib_turn_sin) = (libm::cos(vib_speed), libm::sin(vib_speed));
         self.vib_amp = p[p::VIBRATO_DEPTH] * 0.5;
         self.env_length = envelope_ticks(p[p::ATTACK], p[p::SUSTAIN], p[p::DECAY]);
         self.env_inv = self.env_length.map(|l| if l == 0 { 0.0 } else { 1.0 / l as f32 });
@@ -290,7 +339,7 @@ impl Blip {
         self.moving = (self.fdslide != 0.0 || self.fslide0 != 1.0 || self.vib_amp > 0.0) as u8;
         self.duty_on = (self.square_slide != 0.0 && self.wave == wave::SQUARE) as u8;
         self.hp_sweep = (self.flthp_d != 1.0 || !(0.000_01..=0.1).contains(&self.flthp)) as u8;
-        let mut t = Ticks::default();
+        let mut t = Ticks { vib_cos: 1.0, ..Ticks::default() };
         self.retrigger(&mut t);
         self.stage(&mut t);
         // The first tick runs the events: the frequency limit's first check, then the real countdown.
@@ -390,13 +439,24 @@ impl Blip {
                 }
             }
             if self.vib_amp > 0.0 {
-                t.vib_phase += self.vib_speed;
+                // sfxr's `vib_phase += vib_speed`, as the phasor's turn (exact to within a few units in the last place
+                // of f64 over a minute of ticks, closer to sfxr's sin than a polynomial would be).
+                let (c, s) = (t.vib_cos, t.vib_sin);
+                t.vib_cos = c * self.vib_turn_cos - s * self.vib_turn_sin;
+                t.vib_sin = s * self.vib_turn_cos + c * self.vib_turn_sin;
             }
         }
         if self.duty_on != 0 {
-            t.square_duty = (t.square_duty + self.square_slide).clamp(0.0, 0.5);
+            // sfxr's clamp to 0..0.5, as two compares.
+            let d = t.square_duty + self.square_slide;
+            t.square_duty = if d < 0.0 {
+                0.0
+            } else if d > 0.5 {
+                0.5
+            } else {
+                d
+            };
         }
-        t.swept += 1;
     }
 
     /// After a sample's ticks: the period sfxr's last tick set (with the vibrato), if anything moved it.
@@ -406,8 +466,7 @@ impl Blip {
             t.stale = 0;
             let mut rfperiod = t.fperiod;
             if self.vib_amp > 0.0 {
-                // sfxr's sin(vib_phase), through the oscillators' polynomial sine (within 4e-6).
-                rfperiod = t.fperiod * (1.0 + sine_cycles(t.vib_phase * (1.0 / core::f64::consts::TAU)) as f64 * self.vib_amp as f64);
+                rfperiod = t.fperiod * (1.0 + t.vib_sin * self.vib_amp as f64);
             }
             t.set_period(whole_period(rfperiod));
         }
@@ -445,7 +504,7 @@ impl Blip {
     fn coefficients(&mut self, rate: f32) {
         if self.lp_on != 0 && self.fltw != self.lp_w_set {
             self.lp_w_set = self.fltw;
-            let s = libm::sqrtf(self.fltw);
+            let s = self.fltw.sqrt();
             let hz = (SFXR_SUPER as f32) * s * (1.0 / core::f32::consts::TAU);
             self.lp.set(hz, s / self.fltdmp, rate);
         }
@@ -477,10 +536,12 @@ impl Blip {
         // `a + (b - a) × frac` (frac 1 reads `b`, the delay a whole number of samples).
         let iphase = ((self.fphase as i32).unsigned_abs()).min(PHASER_STEPS as u32 - 1);
         let delay = iphase as f32 * (rate / SFXR_SUPER as f32);
-        let whole = libm::floorf(delay);
+        let whole = delay as i32 as f32;
         let (back, frac) = (whole as usize % LINE, 1.0 - (delay - whole));
-        let mut w = self.write as usize;
+        // The samples before the phaser and the envelope's level, for the second pass.
+        let (mut xb, mut eb) = ([0.0f32; BLOCK], [0.0f32; BLOCK]);
         let mut env = t.envelope();
+        let acc0 = t.acc;
         let mut j = from;
         let mut ended = false;
         // The re-trigger's sample has no ticks (sfxr's reset happens after them).
@@ -518,33 +579,53 @@ impl Blip {
             }
             let ph = phase * t.inv_period;
             let cycles = adv * t.inv_period;
+            // (A compare, not `f64::min`: no NaN can arrive, and `min`'s NaN rule costs a select chain.)
+            let dt = if cycles < MAX_DT { cycles } else { MAX_DT };
             phase += adv;
             let mut x = match W {
-                wave::SAW => -saw_at(ph, cycles.min(MAX_DT)) as f32,
+                wave::SAW => -saw_at(ph, dt) as f32,
                 wave::SINE => sine_cycles(ph),
                 // sfxr's 32 held values a period.
                 wave::NOISE => held.next(32.0 * cycles, || super::noise::uniform(noise)),
-                wave::TRIANGLE => triangle_at(ph, cycles.min(MAX_DT)) as f32,
-                _ => pulse_at(ph, cycles.min(MAX_DT), t.square_duty as f64, 0.5) as f32,
+                wave::TRIANGLE => triangle_at(ph, dt) as f32,
+                _ => pulse_at(ph, dt, t.square_duty as f64, 0.5) as f32,
             };
             if lp_mode == 1 {
                 x = lp.process(LOWPASS, x);
             } else if lp_mode == 2 {
                 x = 0.0;
             }
-            x = hp.highpass(x);
-            if phaser {
-                self.line[w] = x;
-                let b = self.line[(w + LINE - back) % LINE];
-                let a = self.line[(w + 2 * LINE - back - 1) % LINE];
-                x += a + (b - a) * frac;
-                w = (w + 1) % LINE;
-            } else {
-                x += x;
-            }
-            out[j] = x * env * (g0 + dg * (j + 1) as f32);
+            xb[j] = hp.highpass(x);
+            eb[j] = env;
             j += 1;
         }
+        if !ended {
+            // The run's ticks, for the once-a-block sweeps: the clock's advance less what it still owes (exact: a handful
+            // of additions far from rounding to the next whole tick).
+            let stepped = (j - from).saturating_sub(fresh as usize) as f64;
+            t.swept += (acc0 + stepped * step - t.acc + 0.5) as u32;
+        }
+        // The second pass, four lanes at a time where the build has simd128: the phaser (or sfxr's doubling without it),
+        // the envelope and the gain. The phaser reads only samples at or before its own (its delay is at least 0), so the
+        // block goes into the line first and its delayed window is read out of it in a line.
+        let (m, w0) = (j, self.write as usize % LINE);
+        let k = m - from;
+        let (o, x, e) = (&mut out[from..m], &xb[from..m], &eb[from..m]);
+        if phaser && k > 0 {
+            let first = (LINE - w0).min(k);
+            self.line[w0..w0 + first].copy_from_slice(&x[..first]);
+            self.line[..k - first].copy_from_slice(&x[first..]);
+            // d[i] is the sample `back + 1` before sample i (sfxr's `a`), d[i + 1] the one `back` before (`b`).
+            let mut d = [0.0f32; BLOCK + 1];
+            let s0 = (w0 + 2 * LINE - back - 1) % LINE;
+            let first = (LINE - s0).min(k + 1);
+            d[..first].copy_from_slice(&self.line[s0..s0 + first]);
+            d[first..k + 1].copy_from_slice(&self.line[..k + 1 - first]);
+            finish(o, x, e, Some((&d[..k + 1], frac)), g0, dg, from);
+        } else {
+            finish(o, x, e, None, g0, dg, from);
+        }
+        let w = if phaser { (w0 + k) % LINE } else { w0 };
         self.t = t;
         self.playing = playing;
         self.phase = phase;
@@ -594,7 +675,7 @@ impl Blip {
         self.t.rep_time += done;
         self.t.arp_time += done;
         self.t.acc += SFXR_RATE / rate as f64 * n as f64;
-        let mut ticks = libm::floor(self.t.acc) as u64;
+        let mut ticks = self.t.acc.floor() as u64;
         self.t.acc -= ticks as f64;
         self.t.rep_time = self.t.rep_time.wrapping_add(ticks as u32);
         while ticks > 0 && self.playing != 0 {
