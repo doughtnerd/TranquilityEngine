@@ -2237,7 +2237,7 @@ name = "myco"
 version = "0.1.0"
 dependencies = [
  "log",
- "myco-ws-listener",
+ "myco-debug-link-tauri",
  "sdl3",
  "sdl3-sys",
  "serde",
@@ -2249,6 +2249,15 @@ dependencies = [
  "tauri-plugin-log",
  "tauri-plugin-opener",
  "tauri-plugin-persisted-scope",
+]
+
+[[package]]
+name = "myco-debug-link-tauri"
+version = "0.1.0"
+dependencies = [
+ "myco-ws-listener",
+ "serde",
+ "tauri",
 ]
 
 [[package]]
