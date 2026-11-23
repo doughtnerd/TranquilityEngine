@@ -318,6 +318,16 @@ export function setNormalize(e: SampleEdits, mode: SampleNormalize["mode"], targ
   return ok({ ...e, normalize: { mode, target: t, gainDb: normalizeGain(mode, t, measured) } }, "Normalize");
 }
 
+/** A normalize target as the Studio writes numbers, with a true minus: "−16 LUFS", "−1 dBFS". */
+export function normalizeTargetText(n: Pick<SampleNormalize, "mode" | "target">): string {
+  return `${String(n.target).replace("-", "−")} ${n.mode === "peak" ? "dBFS" : "LUFS"}`;
+}
+
+/** A normalize gain: "+7.0 dB", "−3.5 dB". */
+export function normalizeGainText(gainDb: number): string {
+  return `${gainDb > 0 ? "+" : ""}${gainDb.toFixed(1).replace("-", "−")} dB`;
+}
+
 /** Where the peak lands after the normalize gain, when that passes −0.1 dBFS (the clip warning), else null. */
 export function clipAfterGain(peak: number, gainDb: number): number | null {
   const after = peak + gainDb;

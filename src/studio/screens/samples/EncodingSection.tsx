@@ -78,7 +78,7 @@ export function EncodingSection(props: EncodingSectionProps) {
           const v = (e.currentTarget as HTMLSelectElement).value;
           props.onProfile(v === "" ? null : v);
         }}>
-          <option value="">From rules and the default</option>
+          <option value="" title="The project's encoding rules and its default profile decide">Rules and default</option>
           {props.profiles.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
       </label>
@@ -114,7 +114,7 @@ export function EncodingSection(props: EncodingSectionProps) {
         </thead>
         <tbody>
           {props.readouts.map((r) => (
-            <tr key={r.platform} class={r.platform === props.platform ? "current" : undefined}>
+            <tr key={r.platform} class={r.platform === props.platform ? "current" : undefined} title={r.figures ? `${PLATFORM_LABELS[r.platform]}: ${figureText(r.figures.bytes, r.figures.exact)} shipped, ${figureText(r.figures.memoryBytes, r.figures.exact)} in memory` : undefined}>
               <th scope="row">{PLATFORM_LABELS[r.platform]}</th>
               <td>{r.figures ? `${r.figures.codec === "source" ? "source" : r.figures.codec}${r.figures.rate ? ` · ${r.figures.rate / 1000} kHz` : ""}${r.figures.channels ? ` · ${r.figures.channels === 1 ? "mono" : `${r.figures.channels} ch`}` : ""}` : "…"}</td>
               <td>{r.figures ? figureText(r.figures.bytes, r.figures.exact) : "…"}</td>

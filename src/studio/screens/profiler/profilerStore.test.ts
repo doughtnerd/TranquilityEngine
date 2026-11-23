@@ -150,6 +150,9 @@ describe("the recorder", () => {
     expect(whyNotRecord({ playable: false, voices: 0 })).toMatch(/isn't running/);
     expect(whyNotRecord({ playable: true, voices: 0 })).toMatch(/Nothing is playing/);
     expect(whyNotRecord({ playable: true, voices: 2 })).toBeNull();
+    // A take replaying (the game session) records even while it sounds nothing of this project (journeys walk 2, J10.3).
+    expect(whyNotRecord({ playable: true, voices: 0, replaying: true })).toBeNull();
+    expect(whyNotRecord({ playable: false, voices: 0, replaying: true })).toMatch(/isn't running/);
   });
 });
 

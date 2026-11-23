@@ -1,12 +1,12 @@
 // Undo, Redo and the History popover (ADR 0349, 0145, 0027): buttons acting on the active history (the focused
-// document's, `activeHistory.ts`) and a popover drawing its tree with `UndoTree` (click a state to go there; editing
+// document's, `activeHistory.ts`, or the one history a document's own toolbar names, `of`) and a popover drawing its tree with `UndoTree` (click a state to go there; editing
 // after an undo starts a branch, so nothing is lost). The cluster counts as part of the history UI
 // (`KEEPS_HISTORY_FOCUS`: `.history-panel`), so pressing it doesn't move the focus off the document whose history it is.
 // The popover floats at the page's floating root (`FloatingPortal`), so a toolbar or header with container queries
 // doesn't trap it. An app with its own icon set gives the buttons their glyphs through `HistoryIcons`.
 import { createContext, type ComponentChildren } from "preact";
 import { useContext, useRef, useState } from "preact/hooks";
-import { activeHistory, redo, undo } from "../activeHistory";
+import { activeHistory, redo, undo, type ActiveHistory } from "../activeHistory";
 import { docVersion } from "../state";
 import { FloatingPortal } from "./FloatingPortal";
 import { historyPopoverText } from "./historyPopoverModel";
@@ -18,6 +18,11 @@ import "./kit.css";
 export interface HistoryPopoverProps {
   /** What the heading says with no active history (default "Nothing here to undo"). */
   readonly none?: string;
+  /**
+   * The history the cluster belongs to, whatever has focus (`assetHistory(doc)`: a document's own toolbar); default the
+   * active history (the focused document's).
+   */
+  readonly of?: ActiveHistory | null;
 }
 
 /** The buttons' glyphs (each button keeps its name for assistive tech and its tooltip). */
@@ -36,7 +41,7 @@ export const HistoryIcons = createContext<HistoryIconSet>(TEXT_ICONS);
 export function HistoryPopover(props: HistoryPopoverProps) {
   const icons = useContext(HistoryIcons);
   docVersion.value; // re-render on every history change
-  const active = activeHistory.value;
+  const active = props.of !== undefined ? props.of : activeHistory.value;
   const tree = active?.history.tree;
   tree?.version?.value;
   const text = historyPopoverText(active, isMacPlatform(), props.none);
@@ -46,10 +51,10 @@ export function HistoryPopover(props: HistoryPopoverProps) {
   usePopover(pop, open, { anchor: button.current, align: "end", inside: [button], onDismiss: () => setOpen(false) });
   return (
     <span class="history-panel kit-history" role="group" aria-label="History">
-      <button class="kit-icon-button" aria-label="Undo" title={text.undo.title} disabled={!text.undo.enabled} onClick={() => undo()}>
+      <button class="kit-icon-button" aria-label="Undo" title={text.undo.title} disabled={!text.undo.enabled} onClick={() => (props.of ? props.of.history.canUndo && props.of.history.undo() : undo())}>
         {icons.undo}
       </button>
-      <button class="kit-icon-button" aria-label="Redo" title={text.redo.title} disabled={!text.redo.enabled} onClick={() => redo()}>
+      <button class="kit-icon-button" aria-label="Redo" title={text.redo.title} disabled={!text.redo.enabled} onClick={() => (props.of ? props.of.history.canRedo && props.of.history.redo() : redo())}>
         {icons.redo}
       </button>
       <button ref={button} class="kit-icon-button" aria-haspopup="dialog" aria-expanded={open} aria-label="History" title="History: every step, with branches" onClick={() => setOpen(!open)}>

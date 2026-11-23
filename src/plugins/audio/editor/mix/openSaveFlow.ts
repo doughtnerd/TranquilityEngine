@@ -13,7 +13,7 @@ const CAPTURE_ERROR_HEADLINES: Readonly<Record<CaptureErrorCode, string>> = {
   badMagic: "Not a Myco capture file.",
   newerFormat: "This capture was saved by a newer build; update this editor to open it.",
   olderFormat: "This capture was saved by an older build and old captures are not migrated; re-record it with this build.",
-  wireMismatch: "This capture was recorded by a different audio build, so its records can't be read.",
+  wireMismatch: "This capture was recorded by an audio core of another major version, so its records can't be read.",
   tooLarge: "This capture is larger than this build can open.",
   inflateOverrun: "The capture's data is bigger than its header says; the file is damaged or not trusted.",
   badHeader: "The capture's header is invalid.",

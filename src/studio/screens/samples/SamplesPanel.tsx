@@ -31,7 +31,7 @@ import { confirmInEditor } from "../../../editor/ui/ConfirmDialog";
 import { parseDerivedSample } from "../../../engine/audio/sample/format";
 import { Icon } from "../../components/Icon";
 import { toasts } from "../../shell/studioServices";
-import { allSamples, audioFolders, cleanFolderName, fileChip, folderOf, libraryTree, metaLine, moveUpPlan, nameOf, searchSamples, usesOf, type LibraryFolder } from "./sampleLibrary";
+import { allSamples, audioFolders, cleanFolderName, fileChip, folderOf, libraryTree, metaLine, moveUpPlan, nameOf, sampleName, searchSamples, usesOf, type LibraryFolder } from "./sampleLibrary";
 import { lengthOf, peaksOf, sampleSession } from "./sampleSession";
 import { filesOfDrop } from "../../../editor/assetImportFiles";
 import { deriveSample, freeSamplePath, stemOf, writeDerived } from "./sampleWrites";
@@ -201,7 +201,7 @@ export function SamplesPanel() {
     setMenu({
       x, y, label: `${nameOf(path)} menu`,
       entries: tidyEntries([
-        { kind: "group", label: nameOf(path) },
+        { kind: "group", label: sampleName(path) },
         { id: "rename", label: "Rename", hint: "F2", disabled: readOnly, title: "Renames the file; references follow", run: () => renameRow(TREE, `s:${path}`) },
         { id: "settings", label: "Import settings…", title: "Its Load and encoding settings, in the Inspector", run: () => openSample(path) },
         { id: "disk", label: "Show on disk", title: "Where the file is in the project folder", run: () => toasts.show({ text: `On disk: ${project.root ? `${project.root}/` : ""}${isDerivedSamplePath(path) ? path : path}` }) },
@@ -281,7 +281,7 @@ export function SamplesPanel() {
     const m = meta(path);
     return {
       key: `s:${path}`,
-      label: nameOf(path),
+      label: sampleName(path),
       expandable: false,
       open: false,
       selected: open === path,

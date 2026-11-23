@@ -12,7 +12,7 @@ import { Chip } from "../../../editor/ui/Chip";
 import { ContextMenu, type MenuEntry } from "../../../editor/ui/ContextMenu";
 import { KitDialog } from "../../../editor/ui/KitDialog";
 import { formatTime, TIME_FORMATS, type TimeContext, type TimeFormat } from "../../components/timeRulerModel";
-import { clipAfterGain, isNoteName, NORMALIZE_RANGES, normalizeGain, setNormalize, setRoot, setTempo, type SampleEdit } from "./sampleEditing";
+import { clipAfterGain, isNoteName, NORMALIZE_RANGES, normalizeGain, normalizeGainText, normalizeTargetText, setNormalize, setRoot, setTempo, type SampleEdit } from "./sampleEditing";
 import type { DetectOutcome } from "./sampleDetect";
 import { detectionSummary, tempoCandidateEdit } from "./sampleDetectModel";
 import { SampleIcon, type SampleIconName } from "./sampleIcons";
@@ -222,11 +222,11 @@ export function NormalizePopover(props: { edits: SampleEdits; measured: Loudness
   const n = props.edits.normalize;
   const m = props.measured;
   const clip = m ? clipAfterGain(m.peak, n.gainDb) : null;
-  const target = n.mode === "loudness" ? `${n.target} LUFS` : `${n.target} dBFS`;
+  const target = normalizeTargetText(n);
   const pick = (mode: typeof n.mode) => props.commit(setNormalize(props.edits, mode, mode === n.mode ? n.target : undefined, m));
   const stale = m && n.mode !== "off" && normalizeGain(n.mode, n.target, m) !== n.gainDb;
   return (
-    <ToolPopover icon="normalize" title={n.mode === "off" ? "Normalize: off · plays at the recorded level" : `Normalize to ${target} · gain ${n.gainDb > 0 ? "+" : ""}${n.gainDb.toFixed(1)} dB`} name="Normalize" heading={`Normalize · ${m ? `${db(m.integrated)} LUFS · peak ${db(m.peak)} dBFS` : "measuring…"}`} pressed={n.mode !== "off"} disabled={props.disabled}>
+    <ToolPopover icon="normalize" title={n.mode === "off" ? "Normalize: off · plays at the recorded level" : `Normalize to ${target} · gain ${normalizeGainText(n.gainDb)}`} name="Normalize" heading={`Normalize · ${m ? `${db(m.integrated)} LUFS · peak ${db(m.peak)} dBFS` : "measuring…"}`} pressed={n.mode !== "off"} disabled={props.disabled}>
       {() => (
         <>
           {props.bextLoudness !== null && <p class="smp-tci-line smp-muted">The file's bext says {db(props.bextLoudness)} LUFS</p>}

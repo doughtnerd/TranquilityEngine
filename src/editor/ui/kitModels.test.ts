@@ -54,11 +54,14 @@ describe("toasts with an Undo", () => {
   it("stay 10 s with an Undo, 5 s without, and leave when their time is up", () => {
     const q = createToastQueue();
     q.show({ text: "Deleted Engine loop", undo() {} });
-    q.show({ text: "Saved" });
-    expect(q.toasts.value.map((t) => t.remaining)).toEqual([UNDO_TOAST_MS, INFO_TOAST_MS]);
-    q.tick(INFO_TOAST_MS);
+    expect(q.toasts.value.map((t) => t.remaining)).toEqual([UNDO_TOAST_MS]);
+    q.tick(UNDO_TOAST_MS - 1);
     expect(q.toasts.value.map((t) => t.text)).toEqual(["Deleted Engine loop"]);
-    q.tick(UNDO_TOAST_MS - INFO_TOAST_MS);
+    q.tick(1);
+    expect(q.toasts.value).toEqual([]);
+    q.show({ text: "Saved" });
+    expect(q.toasts.value.map((t) => t.remaining)).toEqual([INFO_TOAST_MS]);
+    q.tick(INFO_TOAST_MS);
     expect(q.toasts.value).toEqual([]);
   });
 
@@ -75,7 +78,24 @@ describe("toasts with an Undo", () => {
     expect(undo).toHaveBeenCalledTimes(1);
   });
 
-  it("holds time while paused, can be dismissed, and keeps at most three", () => {
+  it("shows one at a time, and merges a run of the same action into one whose Undo undoes them all (journeys walk 2, V15)", () => {
+    const q = createToastQueue();
+    const undone: string[] = [];
+    q.show({ text: "Created step-wood-1", undo: () => undone.push("1") });
+    q.show({ text: "Created step-wood-2", undo: () => undone.push("2") });
+    const id = q.show({ text: "Created step-wood-3", undo: () => undone.push("3") });
+    expect(q.toasts.value.map((t) => t.text)).toEqual(["Created step-wood-3 · and 2 more"]);
+    expect(q.undo(id)).toBe(true);
+    expect(undone).toEqual(["3", "2", "1"]);
+    // Another action takes the place; its Undo is its own.
+    q.show({ text: "Created a", undo: () => undone.push("a") });
+    const other = q.show({ text: "Deleted b", undo: () => undone.push("b") });
+    expect(q.toasts.value.map((t) => t.text)).toEqual(["Deleted b"]);
+    q.undo(other);
+    expect(undone.slice(3)).toEqual(["b"]);
+  });
+
+  it("holds time while paused, can be dismissed, and a new one takes the place of the one showing", () => {
     const q = createToastQueue();
     const a = q.show({ text: "a", undo() {} });
     q.pause(true);
@@ -87,7 +107,7 @@ describe("toasts with an Undo", () => {
     const undo = vi.fn();
     const first = q.show({ text: "1", undo });
     for (const t of ["2", "3", "4"]) q.show({ text: t });
-    expect(q.toasts.value.map((t) => t.text)).toEqual(["2", "3", "4"]);
+    expect(q.toasts.value.map((t) => t.text)).toEqual(["4"]);
     expect(q.undo(first)).toBe(false);
     expect(q.show({ text: "e", kind: "error", undo() {}, undoLabel: "Restore" })).toBeGreaterThan(0);
     expect(q.toasts.value.at(-1)).toMatchObject({ kind: "error", undoLabel: "Restore" });

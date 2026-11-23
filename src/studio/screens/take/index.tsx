@@ -5,7 +5,7 @@
 // route names, the keys (Space, Home, M, Delete, Escape) and the player bar's slots (the take, its transport and scrub).
 import { effect } from "@preact/signals";
 import type { ComponentChildren } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { TakeNotes } from "../../../engine/audio/take/types";
 import { emptyTakeNotes } from "../../../engine/audio/take/notes";
 import { EmptyState } from "../../../editor/ui/EmptyState";
@@ -21,12 +21,11 @@ import { historyPanel } from "../placeholder";
 import { addMarker, addRegion, deleteNote, editNote, moveNote, setRegionSpan } from "./notesEdits";
 import { InstanceDetails, MixerStrip, NoteDetails, PlayheadValues } from "./TakeInspector";
 import { busStrip, instanceParametersAt, parameterRows, type BusStrip } from "./takeInspectorModel";
-import { isTakePath } from "./takeFiles";
+import { isTakePath, takeEmptyCopy, takeFiles } from "./takeFiles";
 import { PlaylistsInTake } from "./PlaylistsInTake";
 import { TakeList } from "./TakeList";
 import { globalParameters, openSource, openTake, takeFileKind, takePlaylist, takeScreen } from "./takeScreen";
-import { contentFolders } from "../../components/projectFolders";
-import { runTreeFolders } from "../profiler/captureTree";
+import { CAPTURES_FOLDER, runMoveFolders, runTreeFolders } from "../profiler/captureTree";
 import { deleteFile, deleteFolder, duplicateFile, importInto, moveItems, newRunFolder, renameFile, renameFolder } from "../profiler/runFileActions";
 import { durationsVersion, fileDuration } from "../profiler/runFileDurations";
 import { findInstance, parameterText, pathTitle, playlistsInTake, type TakeInstance, type TakeTimeline } from "./takeTimeline";
@@ -61,10 +60,10 @@ function TakesPanel() {
       <TakeList
         files={files}
         // A new project's scenes/, scripts/ and the sample and playlist folders aren't take folders (UI pass T5).
-        folders={runTreeFolders(folders, files, isTakePath)}
-        moveFolders={contentFolders(folders, files, isTakePath)}
+        folders={runTreeFolders(folders, files, isTakePath, [CAPTURES_FOLDER])}
+        moveFolders={runMoveFolders(folders, files, isTakePath, [CAPTURES_FOLDER])}
         rootName={project?.name}
-        openPath={replayStore().open.value?.path ?? null}
+        openPath={takeScreen().shownPath()}
         writable={!!project?.canSave && !!project.fileSystem}
         duration={(p) => fileDuration(project, p)}
         onFolder={(f) => (takeScreen().folder.value = f)}
@@ -178,7 +177,7 @@ function useScreen(): void {
       effect(() => {
         void docVersion.value;
         const asset = studioRouter().route.value.asset;
-        if (asset && isTakePath(asset) && currentProject.value?.files.includes(asset)) void store.openPath(asset);
+        store.follow(asset, !!asset && isTakePath(asset) && !!currentProject.value?.files.includes(asset));
       }),
       effect(() => {
         const open = replay.open.value;
@@ -223,6 +222,7 @@ function useLaneWords(timeline: TakeTimeline | null) {
 function TimelinePanel() {
   useScreen();
   const store = takeScreen();
+  const importPick = useRef<HTMLInputElement>(null);
   const s = store.state.value;
   const open = replayStore().open.value;
   const timeline = store.timeline.value;
@@ -260,9 +260,33 @@ function TimelinePanel() {
   let body;
   if (s.kind === "opening") body = <p class="tk-note" role="status">Opening {s.path}…</p>;
   else if (s.kind === "failed") body = <p class="tk-error" role="alert">Can't open {s.path}: {s.message}</p>;
-  else if (!open || !timeline)
-    body = <EmptyState title="Take" icon={<Icon name="take" size={28} />} body={<p>Recordings of what a game asked of audio, replayed against your current audio so edits are heard in context. Open a take from the Takes panel.</p>} />;
-  else
+  else if (!open || !timeline) {
+    const project = currentProject.value;
+    const copy = takeEmptyCopy(takeFiles(project?.files ?? []).length > 0);
+    const writable = !!project?.canSave && !!project.fileSystem;
+    body = (
+      <EmptyState
+        title={copy.title}
+        icon={<Icon name="take" size={28} />}
+        body={<p>{copy.line}</p>}
+        action={{ label: "Open take file…", title: writable ? "Copy a .mycotake into the project's takes folder and open it" : "This project is read-only", disabled: !writable, run: () => importPick.current?.click() }}
+      >
+        <input
+          ref={importPick}
+          type="file"
+          accept=".mycotake"
+          hidden
+          aria-label="Take file to open"
+          onChange={(e) => {
+            const input = e.currentTarget as HTMLInputElement;
+            const chosen = [...(input.files ?? [])];
+            input.value = "";
+            if (chosen.length) void importInto(takeFileKind, chosen, store.folder.peek());
+          }}
+        />
+      </EmptyState>
+    );
+  } else
     body = (
       <>
         {open.replay.note.value && <p class="tk-hint" role="status">{open.replay.note.value}</p>}

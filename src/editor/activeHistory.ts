@@ -205,6 +205,15 @@ function resolve(): ActiveHistory | null {
   return scene ? { kind: "scene", history: sceneHistory(scene.stack), path: scene.path } : null;
 }
 
+/**
+ * An asset document's history as the active one would be when its editor has focus: for a toolbar's Undo, Redo and
+ * History that belong to one document whatever is focused (the Audio Studio's Samples toolbar, which acts on the open
+ * sample from the moment it opens).
+ */
+export function assetHistory(doc: AssetDocument<unknown>): ActiveHistory {
+  return { kind: "asset", history: assetDocumentHistory(doc), path: doc.path };
+}
+
 /** The history Undo and Redo act on now, or null (no scene open and no editor with a history focused). */
 export const activeHistory: ReadonlySignal<ActiveHistory | null> = computed(resolve);
 

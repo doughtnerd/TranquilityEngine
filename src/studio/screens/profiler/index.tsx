@@ -13,13 +13,13 @@ import type { StudioPanel } from "../../shell/studioPanels";
 import { audioHost, keymap, openRoute, setPlayerSlots, studioRouter } from "../../shell/studioServices";
 import { CaptureList } from "./CaptureList";
 import { recorderStatus } from "./captureRecorder";
-import { durationText, isCapturePath, NO_CAPTURES, runTreeFolders } from "./captureTree";
+import { durationText, isCaptureFile, isCapturePath, NO_CAPTURES, runMoveFolders, runTreeFolders } from "./captureTree";
+import { TAKES_FOLDER } from "../take/takeFiles";
 import { openMixDocument } from "../mixer/mixerDocument";
 import { CURSOR_KEYS } from "./cursorKeys";
 import { messageCounts } from "./messagesModel";
 import { AtCursor, MessageList, OpenInTake, ReplayOrigin, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
 import { captureFileKind, captureFolder, openCapture, openInTake, profilerRecorder, profilerStore } from "./profilerScreen";
-import { contentFolders } from "../../components/projectFolders";
 import { deleteFile, deleteFolder, duplicateFile, importInto, moveItems, newRunFolder, renameFile, renameFolder } from "./runFileActions";
 import { durationsVersion, fileDuration } from "./runFileDurations";
 import { takeOfCapture } from "./reviewLink";
@@ -28,6 +28,7 @@ import { PluginHealth } from "./PluginHealth";
 import { resetPluginEffect, usePluginHealth } from "../../components/EffectChainHealth";
 import { Icon } from "../../components/Icon";
 import { RecordButton, whyNotRecord } from "./RecordButton";
+import { replayStore } from "../../shell/replay";
 import { clockText, valueAt } from "./timelineGeometry";
 import type { GroupBy } from "./voiceModel";
 import "./profiler.css";
@@ -46,8 +47,8 @@ function CapturesPanel() {
       <CaptureList
         files={files}
         // A new project's scenes/, scripts/ and the sample and playlist folders aren't capture folders (UI pass T5).
-        folders={runTreeFolders(folders, files, isCapturePath)}
-        moveFolders={contentFolders(folders, files, isCapturePath)}
+        folders={runTreeFolders(folders, files, isCaptureFile, [TAKES_FOLDER])}
+        moveFolders={runMoveFolders(folders, files, isCaptureFile, [TAKES_FOLDER])}
         rootName={project?.name}
         openPath={openPath}
         writable={!!project?.canSave && !!project.fileSystem}
@@ -83,7 +84,7 @@ function ProfilerTransport() {
   const host = audioHost();
   const r = recorder.state.value;
   const recording = r.kind === "recording" || r.kind === "starting";
-  return <RecordButton recording={recording} busy={r.kind === "saving"} blocked={whyNotRecord({ playable: host.playable.value, voices: host.stats.value?.voices ?? 0 })} onToggle={() => void recorder.toggle()} />;
+  return <RecordButton recording={recording} busy={r.kind === "saving"} blocked={whyNotRecord({ playable: host.playable.value, voices: host.stats.value?.voices ?? 0, replaying: replayStore().playing.value })} onToggle={() => void recorder.toggle()} />;
 }
 
 /** Bumped twice a second while recording, so the player bar's elapsed time moves. */

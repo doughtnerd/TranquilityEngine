@@ -40,7 +40,7 @@ export default meta;
 export const Everything: StoryObj = {
   render: () => <Demo />,
   play: async ({ canvasElement }) => {
-    const c = within(canvasElement);
+    const c = within(canvasElement.ownerDocument.body); // the picker floats at the page's root
     const search = await c.findByRole("searchbox", { name: "Search sounds" });
     await userEvent.type(search, "dirt");
     await userEvent.keyboard("{ArrowDown}{ArrowDown}{Enter}");
@@ -61,10 +61,47 @@ export const EmptyProject: StoryObj = { render: () => <Demo list={() => []} /> }
 export const ClickToPick: StoryObj = {
   render: () => <Demo focusableParent />,
   play: async ({ canvasElement }) => {
-    const c = within(canvasElement);
+    const c = within(canvasElement.ownerDocument.body); // the picker floats at the page's root
     await c.findByRole("searchbox", { name: "Search sounds" });
     await userEvent.click(await c.findByRole("option", { name: /engine_loop/ }));
     await expect(c.getByTestId("picked")).toHaveTextContent("audio/vehicles/engine_loop.ogg");
     await expect(c.queryByRole("dialog", { name: "Add to Footsteps" })).toBeNull();
+  },
+};
+
+/** The Spatial Inspector's Sound field: the opener sits in a field row (a `<label>`). */
+function InFieldRow() {
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  return (
+    <div style={{ height: "460px" }}>
+      <label class="kit-field">
+        <span class="kit-field-label">Sound</span>
+        <span class="kit-field-control">
+          <button ref={setAnchor} type="button" onClick={() => setOpen(true)}>
+            {picked ?? "Pick a sound…"}
+          </button>
+          {open && anchor && <SoundPicker at={anchor} title="Pick a sound" list={() => SOUNDS} onPick={setPicked} onClose={() => setOpen(false)} />}
+        </span>
+      </label>
+    </div>
+  );
+}
+
+/**
+ * Journeys walk 2, J9.1: a pick closes the picker, also when its opener is in a field row (a click in the picker used to
+ * reach the `<label>`, whose activation pressed the opener and opened the picker again), and focus goes back to the opener.
+ */
+export const PickInAFieldRow: StoryObj = {
+  render: () => <InFieldRow />,
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body);
+    const opener = within(canvasElement).getByRole("button", { name: "Sound" }); // named by its field row
+    await userEvent.click(opener);
+    await userEvent.click(await page.findByRole("option", { name: /engine_loop/ }));
+    await expect(page.queryByRole("dialog", { name: "Pick a sound" })).toBeNull();
+    await expect(opener).toHaveTextContent("audio/vehicles/engine_loop.ogg");
+    await expect(opener).toHaveFocus();
   },
 };

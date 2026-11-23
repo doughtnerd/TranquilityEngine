@@ -124,8 +124,36 @@ class TakeScreen {
       this.selected.value = null;
       this.state.value = { kind: "open", path };
     } catch (e) {
-      if (run === this.run) this.state.value = { kind: "failed", path, message: messageOf(e) };
+      if (run !== this.run) return;
+      // The screen now names the failed take: the take open before it closes, so the tree, the timeline and the player
+      // bar never show one take beside another's error (journeys walk 2, J10.2).
+      if (replayStore().open.peek()) replayStore().close();
+      this.selected.value = null;
+      this.state.value = { kind: "failed", path, message: messageOf(e) };
     }
+  }
+
+  /**
+   * Follow the route's asset: open the take it names (`openPath`), or, when it names none (or one that isn't a take
+   * in the project), drop a failure, which belonged to the take the route named before.
+   */
+  follow(asset: string | undefined, isTake: boolean): void {
+    if (asset && isTake) {
+      void this.openPath(asset);
+      return;
+    }
+    const s = this.state.peek();
+    if (s.kind === "failed" || s.kind === "opening") {
+      this.run++;
+      this.state.value = replayStore().open.peek() ? { kind: "open", path: replayStore().open.peek()!.path } : { kind: "none" };
+    }
+  }
+
+  /** The take the screen shows or tries to: the failed or opening one, else the open replay's (the Takes tree selects it). */
+  shownPath(): string | null {
+    const s = this.state.value;
+    if (s.kind === "failed" || s.kind === "opening") return s.path;
+    return replayStore().open.value?.path ?? null;
   }
 
   /** Close the open take. */

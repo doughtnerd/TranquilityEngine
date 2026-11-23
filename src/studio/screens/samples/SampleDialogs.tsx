@@ -9,11 +9,11 @@ import { FolderCombo } from "./FolderCombo";
 import { toasts } from "../../shell/studioServices";
 import { ImportDialog } from "./ImportDialog";
 import { ReimportDialog } from "./ReimportDialog";
-import { applyMerge, writeSummary, type MergeChoice, type MergeRow, type WriteSummaryRow } from "./sampleFile";
+import { applyMerge, writeSummary, wroteText, type MergeChoice, type MergeRow, type WriteSummaryRow } from "./sampleFile";
 import { diskChange } from "./sampleDisk";
 import { snippets } from "./sampleEditing";
 import { audioFolders, folderOf, nameOf } from "./sampleLibrary";
-import { lengthOf } from "./sampleSession";
+import { lengthOf, wavMetadataOf } from "./sampleSession";
 import { deriveSample, freeSamplePath, stemOf, writeDerived, writeToFile, type DeriveKind } from "./sampleWrites";
 import { dialog, openSample, openSession } from "./samplesState";
 
@@ -170,14 +170,15 @@ export function SampleDialogs() {
   if (d.kind === "snippet") return <DeriveDialog kind="snippet" snippet={d.index} />;
   if (!session) return null;
   if (d.kind === "write") {
-    const s = writeSummary(session.edits.value);
+    const meta = wavMetadataOf(session.project, session.source.value);
+    const s = writeSummary(session.edits.value, meta ? { loops: meta.loops.length, tempo: !!meta.tempo } : undefined);
     return (
       <WriteReview name={nameOf(session.source.value)} rows={s.rows} keptInSidecar={s.keptInSidecar} busy={busy} onCancel={close}
         onWrite={async () => {
           setBusy(true);
           try {
             const r = await writeToFile(session);
-            toasts.show({ text: `Wrote ${nameOf(session.source.peek())} · ${r.cues} cues, ${r.regions} regions and ${r.loops} loops (backup kept)` });
+            toasts.show({ text: wroteText(nameOf(session.source.peek()), r) });
             close();
           } catch (err) {
             status.value = { kind: "error", text: `Couldn't write ${nameOf(session.source.peek())}: ${err instanceof Error ? err.message : String(err)}` };

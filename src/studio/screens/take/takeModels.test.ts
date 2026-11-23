@@ -4,10 +4,11 @@
 // inspector's authored-versus-live rows and bus strips, and the replay slot's clock.
 import { describe, expect, it } from "vitest";
 import { TAKE_NOTES_LIMITS } from "../../../engine/audio/take/notes";
+import { Take } from "../../../engine/audio/take/reader";
 import { formatClock } from "../../components/replayControlsModel";
 import { addMarker, addRegion, deleteNote, editNote, moveNote, noteColourCss, setRegionSpan } from "./notesEdits";
 import { FIXTURE_DURATION, FIXTURE_NOTES, SURFACE_LABELS, fixtureTake } from "./takeFixture";
-import { NO_TAKES, TAKES_FOLDER, takeDeletion, takeFiles, takeMoves, takeTree, whyNotTakeFile } from "./takeFiles";
+import { NO_TAKES, TAKES_FOLDER, takeDeletion, takeEmptyCopy, takeFiles, takeMoves, takeTree, whyNotTakeFile } from "./takeFiles";
 import { busStrip, instanceParametersAt, parameterRows, valueText } from "./takeInspectorModel";
 import { findInstance, labelSegments, parameterText, pathLabel, pathTitle, playlistsInTake, takeInstances, takeTimeline } from "./takeTimeline";
 import { frameIndexAt, pictureStrip, visibleFrames } from "../../components/filmstripModel";
@@ -78,6 +79,19 @@ describe("the take timeline", () => {
     const instances = takeInstances(take);
     expect(instances.filter((i) => i.path === "vehicles/engine.playlist.json")).toHaveLength(1);
     expect(new Set(instances.map((i) => i.key)).size).toBe(instances.length);
+  });
+
+  it("ends a one-shot the game never stopped at the first keyframe that no longer lists it, not at the take's end (journeys walk 2, J10.2)", () => {
+    const meta = { ...take.meta, duration: 5 };
+    const play = (t: number, instance: number) => ({ kind: "play" as const, t, instance, path: "sfx/step.playlist.json", emitter: null, options: {} });
+    const listed = (t: number, ...started: number[]) => ({ type: "keyframe" as const, keyframe: { t, globals: {}, instances: started.map((s) => ({ instance: 1, path: "sfx/step.playlist.json", started: s, emitter: null, parameters: {} })) } });
+    const short = new Take(meta, [
+      { type: "request", requests: [play(0.2, 1)] },
+      listed(0), listed(1), // played out within the first second
+      { type: "request", requests: [play(1.5, 1)] }, // the id reused
+      listed(2, 1.5), listed(3, 1.5), listed(4, 1.5), listed(5, 1.5), // still playing at the end
+    ]);
+    expect(takeInstances(short).map((i) => [i.start, i.end])).toEqual([[0.2, 1], [1.5, null]]);
   });
 
   it("thins pictures so thumbnails don't overlap, and names paths", () => {
@@ -160,6 +174,16 @@ describe("the takes' files", () => {
     expect(TAKES_FOLDER).toBe("takes");
     expect(NO_TAKES).toContain("F10");
     expect(NO_TAKES).toMatch(/^Record one with Record take on the editor/); // a sentence of its own under "No takes yet" (T4)
+  });
+
+  it("the empty centre says how to record a take in one short line (spec §1.3; journeys walk 2, J1.5)", () => {
+    for (const has of [false, true]) {
+      const { title, line } = takeEmptyCopy(has);
+      expect(line).toContain("Record take on the editor's Play toolbar");
+      expect(line.length).toBeLessThanOrEqual(90); // one line at the centre's width
+      expect(line.split(". ").length).toBe(1);
+      expect(title).toBe(has ? "No take open" : "No takes yet");
+    }
   });
 
   it("moves and deletes a take's notes with it", () => {

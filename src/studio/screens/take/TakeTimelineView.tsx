@@ -1,15 +1,16 @@
 // The Take screen's timeline (ADR 0348 "The Take screen"; spec §4.5.4; the prototype's Take, with its fixed 32 s replaced
 // by the take's real duration): the playhead ruler (its readout, second labels, the triangle; press and drag to scrub),
 // the Gameplay take row (its name and length, and the take's FRAME pictures as a filmstrip), one instance lane per
-// playlist path (how it plays, mute and solo in the replay, lifetimes with held parts up to the release; click selects,
-// Enter or a double-click opens the playlist), the game parameter lanes ("Game · Speed": the value at the playhead, what
+// playlist path (how it plays, mute and solo in the replay, lifetimes with held parts up to the release, overlapping
+// ones on one row until the lane's caret stacks them; click selects, Enter or a double-click opens the playlist), the game parameter lanes ("Game · Speed": the value at the playhead, what
 // it drives, a line or labelled segments; hovering one outlines the Inspector cards it drives) and the notes lane (the game's marks, and the designer's note markers and regions: drag to move, a
 // double-click adds a marker; focused, Left and Right pick a note when none is, then nudge it by 0.1 s, 1 s with Shift).
 // The playhead is the replay's time. A view over props.
-import { useMemo, useRef } from "preact/hooks";
+import { useMemo, useRef, useState } from "preact/hooks";
 import type { TakeNotes } from "../../../engine/audio/take/types";
 import { Filmstrip } from "../../components/Filmstrip";
 import { SpanLane } from "../../components/SpanLane";
+import { packSpans } from "../../components/spanLaneModel";
 import { ValueLane } from "../../components/ValueLane";
 import { linearTimeAxis, type TimeAxis } from "../../components/timeAxis";
 import { useElementWidth } from "../../components/useElementWidth";
@@ -57,6 +58,9 @@ const TILES = 8;
 
 export function TakeTimelineView(props: TakeTimelineViewProps) {
   const lane = useRef<HTMLDivElement>(null);
+  // Lanes whose overlapping instances are stacked in rows; the rest draw them on one row, so the game parameter lanes
+  // stay in view (journeys walk 2, V16).
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const width = Math.max(0, useElementWidth(lane));
   const { timeline } = props;
   const duration = Math.max(0.001, timeline.duration);
@@ -91,10 +95,29 @@ export function TakeTimelineView(props: TakeTimelineViewProps) {
           const soloed = !!props.soloed?.has(l.path);
           const silent = muted || (!!props.soloed?.size && !soloed);
           const count = l.instances.length === 1 ? "1 instance" : `${l.instances.length} instances`;
+          const stacks = packSpans(l.spans, duration).count > 1;
+          const open = stacks && expanded.has(l.path);
           return (
             <div class={`tk-row tk-inst-row${l.instances.some((i) => i.key === selectedKey) ? " active" : ""}${silent ? " silent" : ""}`} key={l.path}>
               <div class="tk-head" title={`${l.path} · ${count}`}>
                 <span class="tk-head-line">
+                  {stacks ? (
+                    <button
+                      type="button"
+                      class="tk-head-caret"
+                      aria-expanded={open}
+                      aria-label={`${open ? "Collapse" : "Expand"} ${l.label} instances`}
+                      title={open ? "Draw the overlapping instances on one row" : "Stack the overlapping instances in rows"}
+                      onClick={() => setExpanded((was) => {
+                        const next = new Set(was);
+                        if (open) next.delete(l.path);
+                        else next.add(l.path);
+                        return next;
+                      })}
+                    >
+                      {open ? "▾" : "▸"}
+                    </button>
+                  ) : null}
                   <span class="tk-head-name">{l.label}</span>
                   {props.onMute && (
                     <span class="tk-ms" role="group" aria-label={`${l.label} mute and solo`}>
@@ -106,7 +129,7 @@ export function TakeTimelineView(props: TakeTimelineViewProps) {
                 <span class="tk-head-sub">{props.plays?.(l.path) || count}</span>
               </div>
               <div class="tk-lane tk-inst-lane">
-                <SpanLane spans={l.spans} toX={axis.toX} width={width} rowHeight={32} now={duration} label={`${l.label} instances`} selected={selectedKey} onSelect={props.onSelectInstance} onOpen={props.onOpenInstance} />
+                <SpanLane spans={l.spans} toX={axis.toX} width={width} rowHeight={32} collapsed={!open} now={duration} label={`${l.label} instances`} selected={selectedKey} onSelect={props.onSelectInstance} onOpen={props.onOpenInstance} />
               </div>
             </div>
           );

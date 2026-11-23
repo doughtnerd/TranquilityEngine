@@ -24,6 +24,9 @@ export const isCapturePath = (path: string): boolean => {
 
 export const isTakePath = (path: string): boolean => path.toLowerCase().endsWith(".mycotake");
 
+/** A capture file (`*.mycap`): what the Captures tree lists. Takes are the Take screen's (the Profiler still opens one it is sent). */
+export const isCaptureFile = (path: string): boolean => path.toLowerCase().endsWith(".mycap");
+
 const nameOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
 const folderOf = (path: string): string => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
@@ -92,9 +95,11 @@ export function treeFolders(nodes: readonly CaptureNode[]): string[] {
  * The folders a Takes or Captures tree shows: of the project's content folders (`contentFolders`: not the game's scenes,
  * scripts and plugins, nor hidden ones, unless they hold such files), those holding a file the tree lists, at any depth,
  * and those holding no file at all (a folder the user just made, to move files into). A folder of samples or playlists
- * stays in the Samples and Playlists trees. Move to… offers every content folder.
+ * stays in the Samples and Playlists trees, and the other tree's own folder (`takes/` for Captures, `captures/` for
+ * Takes: `otherRoots`), empty subfolders included, stays in that tree unless it holds a file this one lists. Move to…
+ * offers every content folder but the other tree's (`runMoveFolders`).
  */
-export function runTreeFolders(folders: readonly string[], files: readonly string[], isFile: (path: string) => boolean): string[] {
+export function runTreeFolders(folders: readonly string[], files: readonly string[], isFile: (path: string) => boolean, otherRoots: readonly string[] = []): string[] {
   const holding = new Set<string>();
   const used = new Set<string>();
   for (const f of files) {
@@ -105,7 +110,19 @@ export function runTreeFolders(folders: readonly string[], files: readonly strin
       if (isFile(f)) holding.add(dir);
     }
   }
-  return contentFolders(folders, files, isFile).filter((f) => holding.has(f) || !used.has(f));
+  return runMoveFolders(folders, files, isFile, otherRoots).filter((f) => holding.has(f) || !used.has(f));
+}
+
+/** The folders a Takes or Captures tree's Move to… offers: the content folders, without the other tree's (`otherRoots`) unless they hold a file this tree lists. */
+export function runMoveFolders(folders: readonly string[], files: readonly string[], isFile: (path: string) => boolean, otherRoots: readonly string[] = []): string[] {
+  const holding = new Set<string>();
+  for (const f of files) {
+    if (!isFile(f)) continue;
+    const parts = f.split("/");
+    for (let i = 1; i < parts.length; i++) holding.add(parts.slice(0, i).join("/"));
+  }
+  const underOther = (f: string): boolean => otherRoots.some((r) => f === r || f.startsWith(`${r}/`));
+  return contentFolders(folders, files, isFile).filter((f) => holding.has(f) || !underOther(f));
 }
 
 /** The folders a search result's meta names: "HoverBike › Canyon" ("" at the top level). */
@@ -133,7 +150,8 @@ export function nextCapturePath(files: readonly string[], stem = "capture", fold
   }
 }
 
-/** A file name for importing `name` into the captures folder: it must be a capture file. Null when it isn't. */
+/** Why `name` can't be imported into the captures folder (a take goes to the Take screen's Takes), or null. */
 export function whyNotCaptureFile(name: string): string | null {
-  return isCapturePath(name) ? null : `${name} isn't a capture file (.mycap or .mycotake).`;
+  if (isTakePath(name)) return `${name} is a take: open it from the Take screen's Takes panel.`;
+  return isCaptureFile(name) ? null : `${name} isn't a capture file (.mycap).`;
 }

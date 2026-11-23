@@ -20,7 +20,7 @@ import { FolderCombo } from "./FolderCombo";
 import type { SampleDetection } from "../../../engine/audio/sample/detect/detect";
 import { destinationFolder, detectionFor, importedMessage, isAudioPath, isWavPath, kindOn, kindsFound, METADATA_KINDS, sampleBlockFor, type KindToggles, type MetadataKind, type PickedFile } from "./importPlan";
 import { detectInBackground } from "./sampleDetect";
-import { audioFolders } from "./sampleLibrary";
+import { allSamples, audioFolders, libraryTree } from "./sampleLibrary";
 import { decodeAudio } from "./sampleSession";
 import { dialog, openSample } from "./samplesState";
 
@@ -257,7 +257,8 @@ export function ImportDialog(props: { dropped?: readonly IncomingFile[]; into?: 
         close();
         if (done.length) {
           toasts.show({ text: importedMessage(done.length, into) });
-          openSample(done[0]);
+          // The first one as the tree lists them (a folder picker hands files over in no particular order: J2.1).
+          openSample(allSamples(libraryTree(done, [])).find((p) => done.includes(p)) ?? done[0]!);
         }
       }}
     />

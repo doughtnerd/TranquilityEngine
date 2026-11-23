@@ -7,14 +7,14 @@ import type { SampleEdits, SampleLoop, SampleMarker } from "../../../engine/audi
 import type { WavMetadata } from "../../../engine/audio/sample/wavChunks";
 import { destinationFolder, destinationPath, guessKind, importedMessage, kindOn, kindsFound, sampleBlockFor } from "./importPlan";
 import {
-  addLoop, addMarker, clipAfterGain, closeGap, convertMarker, deleteMarker, loopGaps, moveLoop, moveMarker, normalizeGain, refusalOf, removeLoop, setNormalize,
+  addLoop, addMarker, clipAfterGain, closeGap, convertMarker, deleteMarker, loopGaps, moveLoop, moveMarker, normalizeGain, normalizeGainText, normalizeTargetText, refusalOf, removeLoop, setNormalize,
   setRoot, setTempo, setTrim, slideLoop, snip, snippets, tapeSnippet, toggleSnippet, updateLoop, updateMarker, type SampleEdit,
 } from "./sampleEditing";
-import { applyMerge, changedCount, detachAll, loopDiff, markerDiff, mergeRows, revertLoop, revertMarker, summarizeMerge, writeSummary } from "./sampleFile";
-import { allSamples, audioFolders, cleanFolderName, cleanPath, fileChip, folderChoices, libraryTree, metaLine, moveUpPlan, searchSamples, shortLength, usesOf } from "./sampleLibrary";
+import { applyMerge, changedCount, detachAll, loopDiff, markerDiff, mergeRows, revertLoop, revertMarker, summarizeMerge, writeSummary, wroteText } from "./sampleFile";
+import { allSamples, audioFolders, cleanFolderName, cleanPath, fileChip, folderChoices, libraryTree, metaLine, moveUpPlan, sampleName, searchSamples, shortLength, usesOf } from "./sampleLibrary";
 import { editedLength, inClosedGap, toSource, toView } from "./sampleTime";
 import {
-  colourCss, colourValue, fitToSource, landmarks, liveSelection, loopLabel, loopRegions, MARKER_PRESETS, markerColour, shortSeconds, musicalSpans, outlineGroups, packMarkerRows, parseSelection, parseSnapStep, regionAt, sampleWarnings, selectionKey, selectionSpan,
+  colourCss, colourValue, fitToSource, landmarks, liveSelection, loopLabel, loopRegions, MARKER_PRESETS, markerColour, nextMarker, shortSeconds, musicalSpans, outlineGroups, packMarkerRows, parseSelection, parseSnapStep, regionAt, sampleWarnings, selectionKey, selectionSpan,
   snapTime, snippetMenu, snippetUnder, trimHoldingMarkers,
 } from "./sampleView";
 import { nearestZeroCrossing, seamJump, seamStrip, seamWindow } from "./seam";
@@ -147,6 +147,10 @@ describe("tempo, root, normalize", () => {
     const measured = { integrated: -19.5, peak: -2 };
     expect(normalizeGain("loudness", -16, measured)).toBe(3.5);
     expect(normalizeGain("peak", -1, measured)).toBe(1);
+    // Written with a true minus, as every other number (journeys walk 2, J2.6).
+    expect(normalizeTargetText({ mode: "loudness", target: -16 })).toBe("−16 LUFS");
+    expect(normalizeTargetText({ mode: "peak", target: -1 })).toBe("−1 dBFS");
+    expect([normalizeGainText(7), normalizeGainText(-3.5)]).toEqual(["+7.0 dB", "−3.5 dB"]);
     expect(next(setNormalize(skid(), "loudness", -16, measured)).normalize).toEqual({ mode: "loudness", target: -16, gainDb: 3.5 });
     expect(refusalOf(setNormalize(skid(), "loudness", -16, null))).toMatch(/measured/);
     expect(refusalOf(setNormalize(skid(), "peak", 3, measured))).toMatch(/-12 to 0/);
@@ -248,6 +252,13 @@ describe("file diff, revert, detach, write and merge", () => {
     expect(s.keptInSidecar).toBe(1);
   });
 
+  it("says it removes loops or a tempo only when the file has them, and counts in the singular (journeys walk 2, J2.7)", () => {
+    const none = { ...skid(), loops: [], tempo: null };
+    expect(writeSummary(none, { loops: 0, tempo: false }).rows.slice(2, 4).map((r) => r.what)).toEqual(["No loops", "No tempo"]);
+    expect(writeSummary(none, { loops: 2, tempo: true }).rows.slice(2, 4).map((r) => r.what)).toEqual(["No loops (removes the file's 2 loops)", "No tempo (removes the file's tempo)"]);
+    expect(wroteText("brake_skid.wav", { cues: 1, regions: 0, loops: 1 })).toBe("Wrote brake_skid.wav · 1 cue, 0 regions and 1 loop (backup kept)");
+  });
+
   it("builds the merge review and applies choices", () => {
     const now: WavMetadata = {
       sampleRate: 1000, frames: 2600, channels: 1, root: null, tempo: null, bext: null, regions: [],
@@ -289,6 +300,10 @@ describe("timeline structure", () => {
     expect(loopRegions(e, 2).map((r) => r.label)).toEqual(["Pickup", "Loop 1 · while held", "Link", "Loop 2", "Tail"]);
     expect(regionAt(e, 2, 0.3)).toBe("loop 1 (while held)");
     expect(regionAt(e, 2, 0.8)).toBe("link");
+    // The next marker is by time, whatever order the markers were added in (journeys walk 2, V4).
+    const late = { ...e, markers: [{ ...e.markers[0]!, id: "late", at: 1.5 }, { ...e.markers[0]!, id: "soon", at: 0.9 }] };
+    expect(nextMarker(late, 0.5)?.id).toBe("soon");
+    expect(nextMarker(late, 1.6)).toBeNull();
     expect(selectionSpan({ kind: "tail" }, e, 2)).toEqual({ start: 1.4, end: 2 });
     expect(selectionSpan({ kind: "marker", id: "m1" }, e, 2)).toEqual({ start: 0.3, end: 2 });
     expect(landmarks(e, 2)).toContain(1.4);
@@ -455,7 +470,9 @@ describe("library", () => {
     expect(t.samples).toEqual(["a.wav"]);
     expect(t.folders.map((f) => f.name)).toEqual(["audio", "empty"]);
     expect(t.folders[0].folders.map((f) => f.name)).toEqual(["music", "sfx"]);
-    expect(t.folders[0].folders[1].samples).toEqual(["audio/sfx/door_fork.sample.json", "audio/sfx/door.wav"]); // natural order ignores punctuation
+    // By name without the extension: a fork after what it came from (journeys walk 2, J11.3), named without `.sample.json`.
+    expect(t.folders[0].folders[1].samples).toEqual(["audio/sfx/door.wav", "audio/sfx/door_fork.sample.json"]);
+    expect(t.folders[0].folders[1].samples.map(sampleName)).toEqual(["door.wav", "door_fork"]);
     expect(allSamples(t)).toHaveLength(4);
     expect(searchSamples(files, "DOOR")).toEqual(["audio/sfx/door.wav", "audio/sfx/door_fork.sample.json"]);
   });
