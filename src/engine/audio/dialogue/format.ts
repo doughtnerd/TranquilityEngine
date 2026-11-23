@@ -1,5 +1,5 @@
 /**
- * Dialogue events (ADR 0341 §1): parse and write `*.dialogue.json` (`myco.dialogue@1`). The shapes are the contract in
+ * Dialogue events (ADR 0355 §1): parse and write `*.dialogue.json` (`myco.dialogue@1`). The shapes are the contract in
  * `types.ts`.
  *
  * The parse is lenient (bad values fall back to defaults with one problem line; it never throws) and canonical:
@@ -22,7 +22,7 @@ import {
   type DialogueParse, type DialoguePath, type InterruptRule, type WhenBusy,
 } from "./types";
 
-/** Limits of a dialogue file, declared once (ADR 0306, 0341 §1). */
+/** Limits of a dialogue file, declared once (ADR 0306, 0355 §1). */
 export const DIALOGUE_LIMITS = Object.freeze({
   events: 512,
   arguments: 8,

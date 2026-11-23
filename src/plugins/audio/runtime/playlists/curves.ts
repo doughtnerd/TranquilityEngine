@@ -1,16 +1,16 @@
 /**
- * An entry's voice curves at runtime (ADR 0329 entry `curves`, ADR 0332): gain (dB), pitch (semitones), pan, low-pass and
+ * An entry's voice curves at runtime (ADR 0343 entry `curves`, ADR 0346): gain (dB), pitch (semitones), pan, low-pass and
  * high-pass (Hz), each keyed on a parameter or on voice time.
  *
  * - **Parameter and time curves** become automation bindings (the backend's `AutomationSink`: the core's curve tables,
  *   or `TsAutomation` on a backend without them), so the core follows the parameter, or advances the time, itself. A
- *   curve on `voiceTime`, `clipTime` or `sequenceTime` reads the core's time parameter of that name (ADR 0332:
+ *   curve on `voiceTime`, `clipTime` or `sequenceTime` reads the core's time parameter of that name (ADR 0346:
  *   `TimeParam`; sequence time is the instance group's clock, which the sequence runtime re-anchors). The core's targets
  *   are a linear volume multiplier, a pitch ratio, a low-pass cutoff, a high-pass floor and a pan (ABI 4.4), so a dB or
  *   semitone curve is resampled into a curve of those (`toCoreCurve`); cutoffs (Hz) and pan (−1..1) go as they are.
  * - The accumulated static pan of a voice is a binding too (`staticPanBinding`): a constant curve on voice time, which the
  *   core sums with the voice's pan curves.
- * - `TimeCurve` and `evalTimeCurves` remain for main-thread time curves (none are made here since ADR 0332's core time
+ * - `TimeCurve` and `evalTimeCurves` remain for main-thread time curves (none are made here since ADR 0346's core time
  *   parameters; sequence and instance-level automation lanes keyed on time make them). Gain, pitch and low-pass ones run
  *   on main; pan and high-pass ones become core bindings on the voice's time when the voice starts
  *   (`coreTimeBindings`, ABI 4.4).
@@ -60,7 +60,7 @@ export function anchorTimeCurves(curves: readonly TimeCurve[], start: number): r
 /** The most keys a resampled core curve gets (the core's curve key cap). */
 const CORE_KEYS = 32;
 
-/** ADR 0332: a curve input's time parameter. */
+/** ADR 0346: a curve input's time parameter. */
 const TIME_INPUTS = { voiceTime: TimeParam.Voice, clipTime: TimeParam.Clip, sequenceTime: TimeParam.Sequence } as const;
 
 const resampled = new WeakMap<Curve, { gain?: Curve; pitch?: Curve }>();

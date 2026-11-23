@@ -1,4 +1,4 @@
-// Under an AudioZone's fields in the Inspector (ADR 0333). The fields themselves (sound, heard, feather, volume, centre,
+// Under an AudioZone's fields in the Inspector (ADR 0347). The fields themselves (sound, heard, feather, volume, centre,
 // width, depth, yaw, bottom, top) are the card's rows; this section says how the zone is heard and warns when it has no
 // sound, its sound isn't in the project, or its box has no height.
 import { editor, type InspectorSectionProps } from "../../../editor/sdk";

@@ -1,4 +1,4 @@
-//! Write Myco audio effect plugins (ADR 0338 §2, amended by 0344): DSP that runs in the audio worklet beside the
+//! Write Myco audio effect plugins (ADR 0352 §2, amended by 0358): DSP that runs in the audio worklet beside the
 //! audio core, in its own WebAssembly memory, with no imports, under an instruction budget.
 //!
 //! Implement [`Effect`] for each effect and list them in [`export_effects!`]; the macro writes the DSP ABI 1.0 exports

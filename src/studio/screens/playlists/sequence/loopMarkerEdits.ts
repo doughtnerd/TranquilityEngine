@@ -9,7 +9,7 @@ import { findClip, mapClips, nextId, tidy } from "./sequenceModel";
 
 type R = EditResult<SequenceSettings>;
 
-/** The format's limits (ADR 0329). */
+/** The format's limits (ADR 0343). */
 export const MAX_SEQUENCE_LOOPS = 64;
 export const MAX_SEQUENCE_MARKERS = 256;
 
@@ -57,7 +57,7 @@ export function setLoopBehaviour(s: SequenceSettings, id: string, patch: Partial
   return mapLoop(s, id, (l) => cleanBehaviour({ ...l, ...patch }));
 }
 
-/** ADR 0336: a sequence loop's tail ("Ring the tail") and its crossfade exit's shape; false and equal power are written as absent. */
+/** ADR 0350: a sequence loop's tail ("Ring the tail") and its crossfade exit's shape; false and equal power are written as absent. */
 export function setLoopMusic(s: SequenceSettings, id: string, patch: { tail?: boolean; exitShape?: FadeShape }): R {
   return mapLoop(s, id, (l) => {
     const next = { ...l };

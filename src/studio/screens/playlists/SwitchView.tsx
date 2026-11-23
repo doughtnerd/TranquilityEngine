@@ -1,4 +1,4 @@
-// A Switch's settings (the prototype's Switch view; ADR 0329 "Switch"): the labelled parameter it follows, what each
+// A Switch's settings (the prototype's Switch view; ADR 0343 "Switch"): the labelled parameter it follows, what each
 // label plays (an entry, or nothing) and its gain, the default "When it changes", and the change rules (From / To /
 // When / How / Length / Transition) with the lint for rules waiting for a beat, bar or Exit marker with no tempo to
 // wait on. The label playing now (its test value) is marked. A view over props.
@@ -73,7 +73,7 @@ export function SwitchView(props: SwitchViewProps) {
     </>
   );
 
-  /** ADR 0336: a bridge fade's controls: its length (the rule's unit) and shape; "rule's" when unset. */
+  /** ADR 0350: a bridge fade's controls: its length (the rule's unit) and shape; "rule's" when unset. */
   const bridgeFade = (c: ChangeHow, which: "transitionIn" | "transitionOut", set: (patch: Partial<ChangeHow>, label: string) => void, name: string) => {
     const f = c[which];
     const what = which === "transitionIn" ? "fade in" : "fade out";
@@ -96,7 +96,7 @@ export function SwitchView(props: SwitchViewProps) {
     );
   };
 
-  /** ADR 0336: a change's fade shapes, its post-exit tail and (a transition) the bridge's own fades. */
+  /** ADR 0350: a change's fade shapes, its post-exit tail and (a transition) the bridge's own fades. */
   const fadesRow = (c: ChangeHow, set: (patch: Partial<ChangeHow>, label: string) => void, name: string) => (
     <div class="pl-tr pl-fades" role="row">
       <span class="pl-fades-cell" role="cell">

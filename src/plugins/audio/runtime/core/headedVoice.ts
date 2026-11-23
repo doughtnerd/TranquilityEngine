@@ -1,4 +1,4 @@
-// ADR 0337 §3 "Prefetch" (W12): a packaged `stream` sound starts on its prefetch head and hands over to its stream ring.
+// ADR 0351 §3 "Prefetch" (W12): a packaged `stream` sound starts on its prefetch head and hands over to its stream ring.
 // The head is a span clip `[0, H)` already resident in the arena (the package committed it at load); the play is two core
 // voices on one clock: the head as a clip voice stamped at T0 (the earliest exact frame, so it starts at once), and the
 // stream opened at file frame H as a stream voice stamped at T0 + H / (rate × pitch), so its first frame follows the

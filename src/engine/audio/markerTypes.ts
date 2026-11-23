@@ -1,5 +1,5 @@
 /**
- * ADR 0329: a marker passing in a playing playlist, the engine side of it. `AudioPlaylistHandle.onMarker` and the
+ * ADR 0343: a marker passing in a playing playlist, the engine side of it. `AudioPlaylistHandle.onMarker` and the
  * component hook `onAudioMarker` (`LifecycleHooks`, `core/Component.ts`) both pass this; it lives in the engine because
  * the core's hooks can't name the audio plugin's types (the plugin re-exports it as its public `AudioMarkerEvent`).
  *

@@ -1,4 +1,4 @@
-/* The Localisation panel (ADR 0342 §9) and the Inspector's Localise control. Theme tokens only. */
+/* The Localisation panel (ADR 0356 §9) and the Inspector's Localise control. Theme tokens only. */
 .localisation .panel-body { display: flex; flex-direction: column; min-height: 0; }
 .loc-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); padding: 0 6px; }
 .loc-tabs [role="tab"] { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); padding: 4px 10px; cursor: pointer; font: inherit; }

@@ -1,4 +1,4 @@
-// A chip (ADR 0335): a small rounded label for a kind, a state or a filter ("WAV", "Not calibrated", "Loop").
+// A chip (ADR 0349): a small rounded label for a kind, a state or a filter ("WAV", "Not calibrated", "Loop").
 // Plain, toggled (a filter: `pressed` and `onToggle`, drawn as a toggle button) or removable (a ×).
 import type { ComponentChildren } from "preact";
 import "./kit.css";

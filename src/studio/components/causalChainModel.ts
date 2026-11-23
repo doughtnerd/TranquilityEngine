@@ -1,4 +1,4 @@
-// "Why it played" (ADR 0335 `CausalChain`): the chain of steps from the game's request to the bus a voice played on
+// "Why it played" (ADR 0349 `CausalChain`): the chain of steps from the game's request to the bus a voice played on
 // (game trigger → sequence → playlists → sample → bus), each with why it went that way and how bad it was, drawn on a
 // pan/zoom grid. This model holds the view's maths: zoom about a point (25 %–250 %), panning, the keys (arrows pan
 // 48 px, + and − zoom ×1.25, 0 fits, 1 is 100 %), fitting the chain to the panel, and when a narrow panel stacks it

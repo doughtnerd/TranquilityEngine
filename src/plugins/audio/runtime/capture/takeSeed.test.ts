@@ -1,4 +1,4 @@
-// ADR 0334 "Replay": a take records the pick generator state of the World plays go to, and replay restarts that World's
+// ADR 0348 "Replay": a take records the pick generator state of the World plays go to, and replay restarts that World's
 // generator from it, so the picks after it are the recording's. Through `Audio.play` on the fake backend.
 import { describe, expect, it } from "vitest";
 import { Audio } from "../Audio";
@@ -15,7 +15,7 @@ function picks(path: string, n: number): string[] {
   return kit.fake.plays.slice(from).map((p) => p.path);
 }
 
-describe("take reseed (ADR 0334)", () => {
+describe("take reseed (ADR 0348)", () => {
   it("restarting from a recorded state repeats the picks made after it", async () => {
     await kit.boot({ "r.playlist.json": pla("queue", FOUR, { queue: { pick: "random", avoidRepeat: 0 } }) });
     picks("r.playlist.json", 3); // the game ran a while before the take began

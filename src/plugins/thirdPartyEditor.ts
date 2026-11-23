@@ -1,6 +1,7 @@
 // Third-party plugins in the editor (ADR 0139). Opening a project and every script reload go through
-// `loadProjectCode`: plan the project's code as every host does (`planPluginCode`, ADR 0275), load the
-// scripts plus the enabled plugins' code (both halves) through the script loader, then hand the halves from the fresh
+// `loadProjectCode`: plan the project's code as every host does (`planPluginCode`, ADR 0275), link the
+// scripts plus the enabled plugins' code (both halves) through the script loader (the project code
+// linker's memory target, ADR 0329), then hand the halves from the fresh
 // modules to the editor's plugin set (ADR 0144), which re-activates the ones whose module changed, so
 // saving an editor-half file re-registers its contributions live. Editor code only.
 import { signal } from "@preact/signals";
@@ -56,8 +57,9 @@ function toEditorPlugin(manifest: ThirdPartyManifest, entry: string | undefined,
 
 /**
  * The plan's loaded plugins as the plugin set takes them: each half built from its freshly loaded
- * module. A plugin whose code doesn't load gets a runtime half that throws the error, so the set
- * reports it as failing to activate and skips the plugins that need it.
+ * module. A plugin whose code didn't load (the link already reported why: a script problem, or an npm
+ * entry that can't be bundled) gets a runtime half that throws the error, so the set reports it as
+ * failing to activate and skips the plugins that need it.
  */
 async function toSetPlugins(plugins: readonly FoundPlugin[]): Promise<EditorSetPlugin[]> {
   const out: EditorSetPlugin[] = [];
@@ -93,7 +95,7 @@ export async function loadProjectCode(project: EditorProject, options: { runtime
   const packages = packageSourceFor(project);
   const disabled = project.settings.plugins?.disabled;
   const plan = await planPluginCode({ json, code: project.scripts, packages: packages?.files, disabled, assets: project.files }, { editor: true });
-  // ADR 0338 §8: the plugins' audio effects (catalogue, core, offline renders), before Play can start on this code.
+  // ADR 0352 §8: the plugins' audio effects (catalogue, core, offline renders), before Play can start on this code.
   await applyProjectAudioEffects(project, plan);
   const result = await replaceScripts(plan.code, json, packages, plan.npmEntries);
   const applied = applyEditorPlugins(disabled, { thirdParty: await toSetPlugins(plan.loaded), keepRuntime: !runtime });

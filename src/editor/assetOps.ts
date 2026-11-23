@@ -117,7 +117,7 @@ export async function moveAssets(moves: readonly (readonly [string, string])[], 
 }
 
 /**
- * Follow moves another app already made on disk (ADR 0327: the Audio Studio's `pending-moves.json`, applied while
+ * Follow moves another app already made on disk (ADR 0341: the Audio Studio's `pending-moves.json`, applied while
  * this editor holds the project): the project follows them without touching the disk, then they're followed as
  * `moveAssets` follows its own: open asset documents and their histories, Code panel buffers, and references in
  * scenes, prefabs, project.json and other JSON files (the open scene's change one undo step). Resolves to whether

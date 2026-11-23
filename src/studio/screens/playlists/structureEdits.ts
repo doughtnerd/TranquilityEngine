@@ -1,4 +1,4 @@
-// Edits that change where playlists live (ADR 0329; the prototype's tree moves and deletes, PL:926–957, 1430–1459):
+// Edits that change where playlists live (ADR 0343; the prototype's tree moves and deletes, PL:926–957, 1430–1459):
 // moving an entry between parents (in one file or across two), taking an embedded entry out to be a file of its own,
 // and planning a delete with the prototype's choices (children: move them up or delete them; links: unlink the copies
 // or remove them). Multi-file changes come back as one result per file; the screen applies each as an undo step of its

@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0337 §6) for the Samples Inspector's Encoding section over a music file caught by a folder rule,
+// Stories (ADR 0219, 0351 §6) for the Samples Inspector's Encoding section over a music file caught by a folder rule,
 // edited through the section's model: where each value comes from, an override for Android only (the row marked, its
 // origin "this file · Android"), Reset back to the profile's value, an override for every platform, the profile and
 // rule matches, and the readouts per platform (estimates, then exact after Exact sizes).

@@ -1,4 +1,4 @@
-// The Spatial screen's panels (ADR 0333, 0327 "The shell", 0335; the prototype's layout, B.4): Scenes and Outline on the
+// The Spatial screen's panels (ADR 0347, 0341 "The shell", 0349; the prototype's layout, B.4): Scenes and Outline on the
 // left, the Scene view in the middle (fixed), the Inspector and Scene settings on the right, Voices at the bottom, and
 // History on demand. The panels read the screen's state (`spatialScreen.ts`) and call its actions; the Scene panel also
 // owns what the screen does while it shows: following the route, the Scene view's keys, Space to play, and the player

@@ -1,7 +1,7 @@
-// The Inspector's Localise control, connected (ADR 0342 §9): for a selected UI document element's text field, the key
+// The Inspector's Localise control, connected (ADR 0356 §9): for a selected UI document element's text field, the key
 // it's bound to (with its text in the Play toolbar's preview language), or pick a key / Extract to string table. Writes
 // go through `uiDocumentEdits.ts` as one undo step on the scene's history (the markup and, for Extract, the table).
-// Tables audio data names are the Studio's (0343 §1), so Extract only writes the editor's own tables.
+// Tables audio data names are the Studio's (0357 §1), so Extract only writes the editor's own tables.
 import type { UIDocumentElement } from "../../../engine/ui/UIDocument";
 import { formatStringTable } from "../../../engine/localisation/strings/format";
 import { readAsset } from "../../assetDocuments";

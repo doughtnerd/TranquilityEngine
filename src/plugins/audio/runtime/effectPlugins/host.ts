@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0338 §7, §8, amended by 0344): the main-thread side of plugin effects on the audio core. The core backend
+ * Internal (ADR 0352 §7, §8, amended by 0358): the main-thread side of plugin effects on the audio core. The core backend
  * owns one (`coreBackend.ts`'s `effectPlugins` capability); it keeps the registry, gives each effect type its core index
  * `e` (its kind is `FX_PLUGIN_BASE + e`, which `effectKinds.ts` answers through `bindPluginKinds`), sends each module to
  * the worklet's glue (`worklet/effectGlue.ts`) as transferred bytes, replays every module after a hard rebuild (before

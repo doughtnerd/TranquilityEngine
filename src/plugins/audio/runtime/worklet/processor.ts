@@ -10,7 +10,7 @@
 // B3: `streamPort` hands the processor its end of the channel to the decoder worker; stream messages arrive there,
 // never through main, and the shell's STREAM_CREDITs go back on it.
 //
-// ADR 0338 (B4): `fxLoad`, `fxUnload` and `fxReset` carry plugin effect modules to the core's glue (`effectGlue.ts`):
+// ADR 0352 (B4): `fxLoad`, `fxUnload` and `fxReset` carry plugin effect modules to the core's glue (`effectGlue.ts`):
 // the bytes come transferred (a compiled Module can't be posted on the port) and compile asynchronously here.
 import { CoreDriver, instantiateCore, PROCESSOR_NAME, type CoreControlMessage, type CoreProcessorOptions, type CoreShellEvent } from "./coreDriver";
 

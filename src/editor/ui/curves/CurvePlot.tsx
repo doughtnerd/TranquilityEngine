@@ -1,4 +1,4 @@
-// The curve editor's plot (ADR 0332): the active lane's curve over its input, the other visible lanes on the same input
+// The curve editor's plot (ADR 0346): the active lane's curve over its input, the other visible lanes on the same input
 // behind it, backdrops (waveform, histogram, listener density), markers (playhead, game now, Min/Max, listener), keys
 // with the tangent toolbar, Bézier handles and the Min/Max handles. Every rule is `curveEditorModel.ts`'s; this draws
 // and turns pointer positions into axis x and normalised y.

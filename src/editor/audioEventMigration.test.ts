@@ -1,4 +1,4 @@
-// ADR 0329 "Migration" (D11): opening a project with old audio events asks once and, on yes, migrates them through the
+// ADR 0343 "Migration" (D11): opening a project with old audio events asks once and, on yes, migrates them through the
 // app's file system before anything reads the files; declined, nothing changes. Over the in-memory file system.
 import { describe, expect, it, vi } from "vitest";
 import { MemoryFileSystem } from "./memoryFs";

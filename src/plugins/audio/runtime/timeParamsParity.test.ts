@@ -1,4 +1,4 @@
-// ADR 0332: time parameters on the Rust core (the real wasm on the loopback host, through the core backend's automation
+// ADR 0346: time parameters on the Rust core (the real wasm on the loopback host, through the core backend's automation
 // sink) against `TsAutomation`, the Babylon fallback's evaluator. Both read a volume curve keyed on voice time or on a
 // group's sequence clock; the core's gain is read back from a DC clip (the last frame of each quantum is the value it
 // evaluated at that quantum's first frame), `TsAutomation`'s from what it hands `setVolume`.
@@ -90,7 +90,7 @@ function tsGains(curve: Curve, binding: Binding, quanta: number, opts: { group?:
 
 const FADE_IN: Curve = [[0, 0.1], [0.1, 1, "smooth"], [0.2, 0.4]];
 
-describe("time parameters: the core against TsAutomation (ADR 0332)", () => {
+describe("time parameters: the core against TsAutomation (ADR 0346)", () => {
   it("follows a volume curve on voice time from the voice's start, quantum for quantum", async () => {
     const binding: Binding = { param: timeParam(TimeParam.Voice), curve: 0, target: AutoTarget.Volume };
     const level = await unit().catch(() => null);
@@ -131,7 +131,7 @@ describe("time parameters: the core against TsAutomation (ADR 0332)", () => {
   });
 });
 
-describe("TsAutomation's time parameters (ADR 0332)", () => {
+describe("TsAutomation's time parameters (ADR 0346)", () => {
   it("keeps a stamped sequence anchor until its time, then reads from it; a park holds", () => {
     let now = 0;
     const ts = new TsAutomation(() => now);

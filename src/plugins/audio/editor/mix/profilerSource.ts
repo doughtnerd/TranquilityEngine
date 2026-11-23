@@ -38,7 +38,7 @@ export interface ProfileSource {
   range(t0: number, t1: number, columns: readonly string[], buckets?: number): Promise<CaptureRangeColumns>;
   /** The typed EVENTs after record cursor `from` (0 for the first; then the last answer's `next`), only `types` when given, with axis seconds. */
   events(from: number, types?: readonly CaptureEventType[]): Promise<CaptureEventsPage>;
-  /** ADR 0334: a take's pictures (take seconds, about viewport seconds: both count from the recording's start), none for a capture. Absent: none. */
+  /** ADR 0348: a take's pictures (take seconds, about viewport seconds: both count from the recording's start), none for a capture. Absent: none. */
   frames?(): Promise<readonly TakeFrame[]>;
   close(): void;
 }

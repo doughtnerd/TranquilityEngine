@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0337 §2, §6) for the Packages screen's Profiles and rules tab over the story project, edited through
+// Stories (ADR 0219, 0351 §2, §6) for the Packages screen's Profiles and rules tab over the story project, edited through
 // the screen's model: the default marked, a profile's key set for Android only (the profile's own value shown beside),
 // back to Inherit, a profile in use refused on delete, a new rule with its preview, and rule order (first match wins).
 import type { Meta, StoryObj } from "@storybook/preact-vite";

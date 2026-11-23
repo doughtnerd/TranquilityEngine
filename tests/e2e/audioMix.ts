@@ -1,9 +1,7 @@
-import { expect, type Page, play } from "./fixtures";
+import { type Page, readAudioDebug } from "./fixtures";
 
 // Shared helpers of the M5 audio-mix e2e specs (ADR 0171 amended by 0172): `audio-mix-smoke.spec.ts` and later the listening walker.
 // Timing here is on the product's clock: the core's rendered frame (the STATUS mirror's `currentFrame`), never a wall-clock tolerance.
-
-export const LAB = "/editor.html?sample=sound-lab";
 
 export type BusRow = { name: string; gain: number; effectiveGain: number; peakL: number; peakR: number; voices: number };
 export type MixDebug = {
@@ -17,17 +15,7 @@ export type MixDebug = {
 type BusApi = { volume: number; mute: boolean; effectiveGain: number; exists: boolean; fadeTo(v: number, s: number): void };
 type Api = { Audio: { debug(): unknown; time: number; bus(n: string): BusApi; buses: readonly string[]; playOneShot(c: string, o?: object): unknown } };
 
-export const mixDebug = (page: Page) => page.evaluate(() => ((globalThis as unknown as { __myco?: Api }).__myco?.Audio.debug() as MixDebug | undefined) ?? null);
-
-/** Opens a sample in Play mode and unlocks the audio context with a click; waits for the running core backend. */
-export async function bootMix(page: Page, url = LAB): Promise<void> {
-  await page.goto(url);
-  await page.waitForFunction(() => ((window as unknown as { engine?: { world: { time: { frameCount: number } } } }).engine?.world.time.frameCount ?? 0) > 10);
-  await play(page);
-  await page.mouse.click(480, 250); // the user gesture that unlocks the context
-  await expect.poll(async () => (await mixDebug(page))?.status, { timeout: 30_000 }).toBe("running");
-  expect((await mixDebug(page))!.core.backend).toBe("core");
-}
+export const mixDebug = (page: Page) => readAudioDebug<MixDebug>(page);
 
 /**
  * Installs `globalThis.__mixFrame()` in the page: the core's last rendered frame (STATUS `currentFrame`), as

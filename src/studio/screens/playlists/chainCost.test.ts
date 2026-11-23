@@ -1,4 +1,4 @@
-// ADR 0331 levels (ABI 4.9): the note under a Playlists or Sequence effect chain says it runs on a submix of the level's
+// ADR 0345 levels (ABI 4.9): the note under a Playlists or Sequence effect chain says it runs on a submix of the level's
 // own (a clip's delay rings past the clip) and shows its cost by the catalogue's classes, enabled effects only.
 import { describe, expect, it } from "vitest";
 import type { Effect } from "../../../engine/audio/effects/types";

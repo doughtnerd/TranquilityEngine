@@ -20,12 +20,12 @@ import { warnOnce } from "./core/handle";
  * What a curve drives. The numbers are the core's `target` values. `Highpass` (a cut-off floor in Hz, the highest curve
  * wins) and `Pan` (−1..1, curves summed and clamped) are voice-only (ABI 4.4); buses ignore them. `Effect` (a catalogue
  * parameter of an effect in the bus's chain, `Binding.fx`) and `Send` (the curve's dB on the bus's send into
- * `Binding.send`) are bus-only (ABI 4.8, ADR 0330); the Babylon fallback runs neither (it runs no bus effects or sends).
+ * `Binding.send`) are bus-only (ABI 4.8, ADR 0344); the Babylon fallback runs neither (it runs no bus effects or sends).
  */
 export const enum AutoTarget { Volume = 0, Pitch = 1, Lowpass = 2, Highpass = 3, Pan = 4, Effect = 5, Send = 6 }
 
 /**
- * ADR 0332: the time parameters a voice binding can read instead of a parameter slot, in seconds. The numbers are the
+ * ADR 0346: the time parameters a voice binding can read instead of a parameter slot, in seconds. The numbers are the
  * wire's `TIME_*`. `Voice`: since the voice started (paused time counts); `Clip`: the voice's playhead in its clip;
  * `Sequence`: the voice's instance group's sequence clock, which `AutomationSink.setSequenceTime` re-anchors.
  */
@@ -33,7 +33,7 @@ export const enum TimeParam { Voice = 0, Clip = 1, Sequence = 2 }
 
 /**
  * A parameter slot: one of the project's global parameters, or one of the voice's instance's local ones; or, with
- * `time` set (ADR 0332), a time parameter (then `global` and `slot` are unused). Bus bindings ignore time parameters.
+ * `time` set (ADR 0346), a time parameter (then `global` and `slot` are unused). Bus bindings ignore time parameters.
  */
 export interface ParamRef {
   global: boolean;
@@ -41,11 +41,11 @@ export interface ParamRef {
   time?: TimeParam;
 }
 
-/** ADR 0328: the loops a voice's loop program keeps (the core's bound, declared once on the wire). */
+/** ADR 0342: the loops a voice's loop program keeps (the core's bound, declared once on the wire). */
 export const MAX_VOICE_LOOPS = VOICE_LOOPS_MAX;
 
 /**
- * ADR 0328: one loop of a voice's loop program (`AutomationSink.setLoops`), in seconds of the clip. `start === end` is a
+ * ADR 0342: one loop of a voice's loop program (`AutomationSink.setLoops`), in seconds of the clip. `start === end` is a
  * hold point (the playhead parks there while the loop is active). See `native/audio/crates/audio-core/src/voice_loops.rs`.
  */
 export interface VoiceLoop {
@@ -54,9 +54,9 @@ export interface VoiceLoop {
   direction: "forward" | "pingPong" | "backward";
   /** The seam's crossfade (and a hold point's fades), seconds. */
   crossfade: number;
-  /** ADR 0336 (ABI 4.9): the seam crossfade's shape (also a jump exit's and a re-entry's). Absent: equalPower. */
+  /** ADR 0350 (ABI 4.9): the seam crossfade's shape (also a jump exit's and a re-entry's). Absent: equalPower. */
   crossfadeShape?: FadeShape;
-  /** ADR 0336 (ABI 4.9): the exit crossfade's shape. Absent: equalPower. */
+  /** ADR 0350 (ABI 4.9): the exit crossfade's shape. Absent: equalPower. */
   exitShape?: FadeShape;
   /** 0 endless; else passes in all, the first included. */
   count: number;
@@ -71,7 +71,7 @@ export interface VoiceLoop {
   reentry: "ignore" | "reenter";
 }
 
-/** A `ParamRef` to the time parameter `which` (ADR 0332). */
+/** A `ParamRef` to the time parameter `which` (ADR 0346). */
 export function timeParam(which: TimeParam): ParamRef {
   return { global: false, slot: 0, time: which };
 }
@@ -93,7 +93,7 @@ export interface Binding {
    */
   quantize?: "beat" | "bar";
   /**
-   * ADR 0332 (ABI 4.9): for a time parameter, seconds added to it before the curve reads it: the binding's time origin
+   * ADR 0346 (ABI 4.9): for a time parameter, seconds added to it before the curve reads it: the binding's time origin
    * (a lane keyed on its playlist's start, read by a voice that started `offset` seconds later). Absent: 0. The core
    * evaluates it, so one curve serves every voice whatever its start (no shifted copy per voice).
    */
@@ -123,7 +123,7 @@ export const MAX_BINDINGS = 8;
 export const MAX_BUS_BINDINGS = BUS_AUTOMATE_MAX_BINDINGS;
 
 /**
- * The binding of one entry of the mix's bus automation (`AudioSettings.automation`, ADR 0158 §3 and ADR 0330) on global
+ * The binding of one entry of the mix's bus automation (`AudioSettings.automation`, ADR 0158 §3 and ADR 0344) on global
  * parameter `slot` through curve `curve`: its target and, for an effect or send automation, what it names.
  */
 export function busAutomationBinding(a: BusAutomation, slot: number, curve: number): Binding {
@@ -153,7 +153,7 @@ export interface AutomationSink {
    */
   bindVoice(voice: AudioVoice, group: number, bindings: readonly Binding[], base: { volume: number; pitch: number }, startAt?: number): void;
   /**
-   * ADR 0332: re-anchor instance `group`'s sequence clock (0: the global one) at heard time `at` (omitted: as soon as
+   * ADR 0346: re-anchor instance `group`'s sequence clock (0: the global one) at heard time `at` (omitted: as soon as
    * possible): from there it reads `value` seconds, moving `rate` seconds per second (0 parks it at a hold point). Main
    * calls it when a sequence starts, wraps a loop, parks or leaves; bindings on `TimeParam.Sequence` follow it.
    */
@@ -170,7 +170,7 @@ export interface AutomationSink {
    */
   setLoop(voice: AudioVoice, start: number, end: number, looping: boolean): void;
   /**
-   * ADR 0328: give a clip voice of instance `group` (whose local parameters its parameter loops read) a loop program of
+   * ADR 0342: give a clip voice of instance `group` (whose local parameters its parameter loops read) a loop program of
    * up to `MAX_VOICE_LOOPS` loops (replacing any loop or program; an empty list clears it). The core runs directions,
    * counts, crossfades, hold points, activations, exits and re-entry; `TsAutomation` approximates at control rate.
    */
@@ -285,7 +285,7 @@ interface BoundVoice {
   base: { volume: number; pitch: number };
   gain: number;
   pitch: number;
-  /** ADR 0332: where its voice time starts (the sink's clock), and whether a binding reads a time parameter. */
+  /** ADR 0346: where its voice time starts (the sink's clock), and whether a binding reads a time parameter. */
   start: number;
   timed: boolean;
 }
@@ -311,7 +311,7 @@ interface ClockAnchor {
  * applied through the voice setters (`setVolume`, `setPitch`) and the mixer's bus automation. Per-voice low-pass isn't
  * available here (warns once); loops use the voice's own `setLoop`.
  *
- * ADR 0332's time parameters run on `clock` (the backend's heard clock in seconds; without one, the sum of `update`'s
+ * ADR 0346's time parameters run on `clock` (the backend's heard clock in seconds; without one, the sum of `update`'s
  * `dt`): voice time from the voice's `startAt` (or its first bind), sequence time from the group's anchors, and clip
  * time estimated as voice time × the voice's pitch (this sink can't read a playhead, so a seek or a loop wrap isn't
  * seen). A voice with a time binding is re-evaluated every frame.
@@ -322,9 +322,9 @@ export class TsAutomation implements AutomationSink {
   private readonly locals = new Map<number, ParamState[]>();
   private readonly voices: BoundVoice[] = [];
   private readonly buses = new Map<string, readonly Binding[]>();
-  /** ADR 0328: voices with a loop program: its first region, run at control rate (activation, key-off, exit jump). */
+  /** ADR 0342: voices with a loop program: its first region, run at control rate (activation, key-off, exit jump). */
   private readonly programs = new Map<AudioVoice, TsProgram>();
-  /** ADR 0332: each group's sequence clock anchors, oldest first (only the newest at or before now matters). */
+  /** ADR 0346: each group's sequence clock anchors, oldest first (only the newest at or before now matters). */
   private readonly clocks = new Map<number, ClockAnchor[]>();
   private dirty = true;
   private elapsed = 0;
@@ -431,7 +431,7 @@ export class TsAutomation implements AutomationSink {
     this.clocks.delete(group);
   }
 
-  /** ADR 0332: group `group`'s sequence clock now (seconds; 0 before any anchor). */
+  /** ADR 0346: group `group`'s sequence clock now (seconds; 0 before any anchor). */
   sequenceTime(group: number): number {
     const list = this.clocks.get(group);
     if (!list) return 0;

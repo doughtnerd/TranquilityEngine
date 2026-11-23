@@ -1,4 +1,4 @@
-// Converting one sound for one platform on demand in the Studio (ADR 0337 §6, 0345 §3): the Samples Inspector's exact
+// Converting one sound for one platform on demand in the Studio (ADR 0351 §6, 0359 §3): the Samples Inspector's exact
 // sizes and Hear as. A planned sound (`studioPlan.ts`) is read, keyed by content hash (`audioCacheKey`: the encoder's
 // version, the resolved settings and what they ship as, and the input bytes, the export's own key), looked up in memory,
 // then in the project's `.myco/cache/audio/` in the export's layout (`<key>.json` facts beside `<key>.<ext>` bytes), and

@@ -1,4 +1,4 @@
-//! Noise (ADR 0346 §3): white from xorshift32 seeded per voice (the GEN seed), pink by Paul Kellet's refined filter on
+//! Noise (ADR 0360 §3): white from xorshift32 seeded per voice (the GEN seed), pink by Paul Kellet's refined filter on
 //! white, brown by a leaky integrator (−6 dB/octave above [`BROWN_CORNER_HZ`]). The three are normalised to white's RMS
 //! (1/√3), so a colour change keeps the level. Deterministic: the same seed gives the same samples on every build.
 

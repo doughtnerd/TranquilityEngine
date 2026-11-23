@@ -1,4 +1,4 @@
-// Import samples (ADR 0328 "Import", the prototype's picker and review): pick files or a folder (the desktop's folder
+// Import samples (ADR 0342 "Import", the prototype's picker and review): pick files or a folder (the desktop's folder
 // dialog through the platform FileSystem; in the browser the file and directory inputs), read each WAV's chunks, then
 // review: the metadata kinds found with a toggle each, Load (the `stream` flag), Into folder and Keep structure. Import
 // copies the files with the editor's import rules (`importFiles`: never overwrites, a taken name gets " (1)") and

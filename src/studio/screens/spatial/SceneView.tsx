@@ -1,4 +1,4 @@
-// The Scene view (ADR 0333; the prototype's Scene panel, B.4): a top-down plan of the test scene (x across, north up), a
+// The Scene view (ADR 0347; the prototype's Scene panel, B.4): a top-down plan of the test scene (x across, north up), a
 // tool palette, the legend, a zoom bar (− % + Fit, Side view), the elevation strip and the optional side view. A press
 // selects and drags (handles of the selected box first, then the path being edited, then points, then the smallest box);
 // a placing tool puts its object where you click; wheel and pinch zoom about the pointer, Space-drag, the middle button

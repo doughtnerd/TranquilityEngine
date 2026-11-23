@@ -1,4 +1,4 @@
-// Detection on the Samples screen (ADR 0328 "detection of what's missing"): the analysers (`engine/audio/sample/detect`)
+// Detection on the Samples screen (ADR 0342 "detection of what's missing"): the analysers (`engine/audio/sample/detect`)
 // run on a worker of their own, so a long file never blocks the screen; the results land in the sidecar through the
 // session's undoable commit (`sampleDetectModel.ts` decides what changes). Detect in the Tempo and Root note popovers
 // and the import's "Detect what's missing" both come here.

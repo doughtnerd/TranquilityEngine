@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the parameter row: a log frequency (typed "2.4k" reads as 2400 Hz), a linear gain with
+// Stories (ADR 0219, 0349) for the parameter row: a log frequency (typed "2.4k" reads as 2400 Hz), a linear gain with
 // arrow keys, a value driven by automation, and the label scrub (drag the label; Shift ×10, Alt fine).
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

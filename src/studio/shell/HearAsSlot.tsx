@@ -1,4 +1,4 @@
-// The player bar's Hear as control over the page's Hear as service (ADR 0337 §6). Choosing a platform also converts
+// The player bar's Hear as control over the page's Hear as service (ADR 0351 §6). Choosing a platform also converts
 // what is open on the Samples screen in the background (the screen asks for the rest as it plays), so the chip shows
 // progress at once.
 import { HearAsControl } from "../components/HearAsControl";

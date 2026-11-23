@@ -60,7 +60,25 @@ Plan: [plan.md](plan.md). Ground rules for tasks: [ground-rules.md](ground-rules
   because the retired runtime's tests went with it (musicBench and eventBench, two of the recurring load-sensitive
   tests, are deleted).
 - `golden/seams/*` is kept for `audioGoldenSeams` and the native test, but its writer (`music/seam.test.ts`) is gone,
-  so those goldens can't be regenerated (follow-up in impl status, ADR 0329 row). No size gates touched.
+  so those goldens can't be regenerated (follow-up in impl status, ADR 0343 row). No size gates touched.
 - Merged W8 (migration loops), W7-C (core DSP, ABI 4.6/4.7) and W8-B (derived samples). Full Vitest after W7-C:
   787 files, 8755 passed, 0 failed. Mixer wasm 469,339 B of the 512 KB tripwire (92%: next native work should expect
   to raise it with a logged reason). Metered baseline adds 8 scenes; existing scenes moved ≤ +0.39%.
+
+### Merge with master (2026-11-23)
+- Master's 73 commits (input system, WebRTC transport, snapshot parts, the project code linker, script compiler
+  settings, browser-spec rules, and audio: core memory export, the INIT record, decoder HRIR/MagLS prep) merged into the
+  Studio branch. Master took ADR 0327–0340, so the Studio's records were renumbered to 0341–0360 first, in a commit of
+  their own (mapping table at the top of the decision log; calls in D68).
+- Versions: core ABI **6.0** (generated from `schema.rs`), decoder ABI **1.6**, capture format 2. Every wasm rebuilt
+  with `npm run build:audio`, the encoder too (wasi-sdk 25 installed under `native/audio/target/`: the renumbering
+  touched comments in `audio-encode`'s hashed sources).
+- Sizes: mixer 542,629 B (576 KB gate); decoder 1,024,411 B: **tripwire raised 1,000 → 1,056 KB** (master's
+  `spatial.rs`, +17.5 KB, took it 411 B over; HRIR/MagLS prep moved off main, wanted growth); AAC decoder 1,348,634 B
+  (1,350 KB gate, 99.9%: the next decoder addition should expect to raise it); offline 139,009 B; encoder 1,443,944 B.
+- Metered: every scene +0.00% (the INIT change touches no per-quantum path); only the baseline's source hash moved.
+- `tsconfig.engine.json` now leaves out `src/engine/**/*.test.ts` and `*TestSupport.ts` (the Studio's engine tests import
+  Node modules, which broke `build:engine`'s declaration emit).
+- Checks: typecheck clean; full Vitest 927 files, 10,039 passed after two fixes (a capture test that named ABI 5.0, and
+  the ADR 0347 spatial loopback test needing master's in-process spatial prepare); `cargo test` 1,335 passed;
+  `check:audio-metered` pass; `npm run build` passes. Playwright not run (coordinator).

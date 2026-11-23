@@ -1,4 +1,4 @@
-// The game parameters panel's rows (ADR 0335 `ParameterPanel`, ADR 0304 parameters): test values for the parameters
+// The game parameters panel's rows (ADR 0349 `ParameterPanel`, ADR 0304 parameters): test values for the parameters
 // a screen listens to: a slider for a numeric parameter (its range in 1000 steps), a select for a labelled one. Test
 // values are the Studio's, never saved into the project; a parameter without one shows its default.
 import { isLabelled, parameterDefault, type ParameterDef } from "../../engine/audio/parameters";

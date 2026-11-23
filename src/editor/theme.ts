@@ -89,7 +89,7 @@ export interface ThemeTokens {
   viewportGridCenter: string;
   viewportOutline: string;
   viewportGizmo: string;
-  // Audio Studio colours (ADR 0335): marker types, reserved ranges of a sample's timeline and a series palette for
+  // Audio Studio colours (ADR 0349): marker types, reserved ranges of a sample's timeline and a series palette for
   // curve and value lanes. Derived from the preset like the rest, kept legible on the panels.
   markerExit: string;
   markerHit: string;

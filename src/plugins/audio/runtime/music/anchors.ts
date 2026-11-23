@@ -1,6 +1,6 @@
 /**
  * The heard position of a looping voice (ADR 0285; first written for music segments, ADR 0166, and re-keyed on playlist
- * voices by ADR 0329): the one module that maps between heard time and file position for a playing sample that loops
+ * voices by ADR 0343): the one module that maps between heard time and file position for a playing sample that loops
  * regions of itself.
  *
  * An anchor is integer ticks from the grid's bar 1 beat 1 **plus** the heard time it is at, never raw audio frames, so
@@ -55,7 +55,7 @@ interface AnchorPoint {
 }
 
 /**
- * ADR 0329: the heard position of a playing playlist voice: its grid (the sample's tempo map, ticks) and loop regions
+ * ADR 0343: the heard position of a playing playlist voice: its grid (the sample's tempo map, ticks) and loop regions
  * (`loops`), so the pass walk answers for a sample that loops its own region.
  */
 export interface LoopAnchor extends AnchorPoint {

@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the output-device menu: not calibrated, calibrated with offsets, the output changed
+// Stories (ADR 0219, 0349) for the output-device menu: not calibrated, calibrated with offsets, the output changed
 // since; typing an offset clamps it to ±300 ms; Calibrate… opens the tap dialog (silent clicks here).
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

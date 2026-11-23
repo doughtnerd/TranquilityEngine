@@ -1,5 +1,5 @@
 /**
- * Translations of a string table (ADR 0342 §1): `<stem>.<code>.strings.json` (`myco.translation@1`) beside the table,
+ * Translations of a string table (ADR 0356 §1): `<stem>.<code>.strings.json` (`myco.translation@1`) beside the table,
  * one file per language, each key with its text, status (`translated` or `needsReview`; no entry is missing) and
  * `source`, the text hash of the reference text it was translated from. When the reference text changes, the entry's
  * effective status becomes `needsReview` without a write (`effectiveStatus`). Parsed leniently (never throws) and

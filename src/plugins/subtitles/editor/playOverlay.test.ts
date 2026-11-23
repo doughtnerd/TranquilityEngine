@@ -1,4 +1,4 @@
-// ADR 0343 §6: the Play toolbar's Subtitles overlay mounts the plugin's `SubtitleDisplay` (editor-only, never saved) on
+// ADR 0357 §6: the Play toolbar's Subtitles overlay mounts the plugin's `SubtitleDisplay` (editor-only, never saved) on
 // the play session's World, under its root so it survives scene loads, and removes it when turned off. The toggle is the
 // plugin's Play toolbar item, there only while the plugin is on.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";

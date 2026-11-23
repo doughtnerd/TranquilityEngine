@@ -1,4 +1,4 @@
-// `audio.json` as the Mixer's document (ADR 0330 "one document, one history"; ADR 0327 "the engine's undo tree"): the
+// `audio.json` as the Mixer's document (ADR 0344 "one document, one history"; ADR 0341 "the engine's undo tree"): the
 // editor's asset document machinery (`openAssetDocument`) over a format read by the engine's parse and written in the
 // editor's layout (`audioProjectText`, the same text the editor's settings adapter writes, decision D2), so the
 // Studio's edits are steps of the engine's persistent history tree, the History panel and Ctrl+Z follow it (the

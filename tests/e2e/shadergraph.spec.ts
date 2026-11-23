@@ -1,4 +1,4 @@
-import { expect, requireWebGPU, test, type Locator, type Page } from "./fixtures";
+import { expect, requireWebGPU, test, type Locator, type Page, waitForEditor } from "./fixtures";
 import { NODES } from "../../src/engine/render/shaderGraph/nodes";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 import { playgroundFiles, previewDraws, previewPixels, shaderGraphFile } from "./shaderPreview";
@@ -9,11 +9,6 @@ import { playgroundFiles, previewDraws, previewPixels, shaderGraphFile } from ".
 // files are all text, so a writable copy is seeded as an in-memory folder (fakeFolders.ts).
 
 test.describe.configure({ timeout: 60_000 }); // WebKit renders on the CPU
-
-/** The editor's debug hooks on `window`. Page callbacks are serialized, so each casts `window` itself. */
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-};
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -34,7 +29,7 @@ async function openPlayground(page: Page, writable: boolean, extraFiles: Record<
   } else {
     await page.goto("/editor.html?sample=playground3d");
   }
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await waitForEditor(page);
 }
 
 const box = async (l: Locator) => (await l.boundingBox())!;

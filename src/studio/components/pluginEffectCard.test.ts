@@ -1,4 +1,4 @@
-// ADR 0338 §9 (B6): a plugin effect's card and the Add effect menu, through the chain model. The menu groups plugin
+// ADR 0352 §9 (B6): a plugin effect's card and the Add effect menu, through the chain model. The menu groups plugin
 // effects under their plugin's title after the built-ins; a card carries its plugin's chip, is greyed with the
 // catalogue's reason while its plugin is off or missing, and reads its health row (`Audio.debug().plugins`): the status
 // line for each unhealthy state, the row's text (instructions per frame against the declared budget, memory, faults)

@@ -1,4 +1,4 @@
-//! ADPCM clips through the core (ADR 0337 A4, 0345 §5; ABI 4.12): a format 6 clip reserves, commits in whole-block
+//! ADPCM clips through the core (ADR 0351 A4, 0359 §5; ABI 4.12): a format 6 clip reserves, commits in whole-block
 //! chunks and plays, and its voices' output equals, bit for bit, an int16 clip of the same blocks decoded whole
 //! (`audio_adpcm::decode`) played the same way: one-shot and looping, at pitch ≠ 1, at a clip rate other than the
 //! context's, through a SET_LOOP region crossing blocks, and across a demote and promote (the voice keeps time

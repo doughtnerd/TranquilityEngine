@@ -1,4 +1,4 @@
-// ADR 0342 §9: the Inspector's Localise and Extract to string table on a UI document element — bind a text field to a
+// ADR 0356 §9: the Inspector's Localise and Extract to string table on a UI document element — bind a text field to a
 // key (`t:text`, literal text removed), unlink it, and extract the literal text into a string table under a new key,
 // the markup and the table written as one undo step in the scene's history. Driven through `uiDocumentEdits.ts` and the
 // Localise model, as the Inspector calls them.

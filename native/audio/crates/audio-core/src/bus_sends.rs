@@ -1,4 +1,4 @@
-//! Bus-to-return sends (ADR 0330 "returns and sends", decision D29 #1 and #7; ABI 4.7).
+//! Bus-to-return sends (ADR 0344 "returns and sends", decision D29 #1 and #7; ABI 4.7).
 //!
 //! - **BUS_SENDS** (0x1E, asap, replace-all for one bus: `voiceId` is its slot) gives a bus up to
 //!   [`MAX_SENDS`] post-fader sends, each into another bus slot (a return: an ordinary bus with its

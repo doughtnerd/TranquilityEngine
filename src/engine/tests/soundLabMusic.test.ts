@@ -1,4 +1,4 @@
-// ADR 0166 task SM2, migrated to playlists (ADR 0329): the Sound Lab's music playlists
+// ADR 0166 task SM2, migrated to playlists (ADR 0343): the Sound Lab's music playlists
 // (samples/sound-lab/audio/music/*.playlist.json, written by the audio event migration) read from disk. Each parses without
 // a problem, its samples exist and are as long as the clips that play them (read from the WAV headers
 // `tools/makeMusic.mjs` writes), and the lint finds only the stems' overlap (stems are sync clips on parallel tracks: the

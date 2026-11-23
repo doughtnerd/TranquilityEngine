@@ -1,4 +1,4 @@
-// The Samples screen's detection worker (ADR 0328): runs the tempo and root note analysers off the page, one request
+// The Samples screen's detection worker (ADR 0342): runs the tempo and root note analysers off the page, one request
 // at a time, and replies with what they found (`sampleDetect.ts` is the client).
 import { detectSample } from "../../../engine/audio/sample/detect/detect";
 import type { DetectReply, DetectRequest } from "./sampleDetect";

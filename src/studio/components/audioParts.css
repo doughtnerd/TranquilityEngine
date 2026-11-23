@@ -1,4 +1,4 @@
-/* The Studio's shared audio parts (ADR 0335): faders, meters, parameter rows, effect cards and chains, send and
+/* The Studio's shared audio parts (ADR 0349): faders, meters, parameter rows, effect cards and chains, send and
  * ducking rows, the game parameters panel, the sound picker, type badges, span and value lanes, gain lanes and the
  * "Why it played" chain. Theme tokens only (src/editor/ui/editor.css lists them). */
 
@@ -114,7 +114,7 @@
 .studio-chain-note { margin: 0; color: var(--faint); font-size: calc(11px * var(--ui-scale)); }
 .studio-fx-key select { grid-column: 2 / 4; }
 .studio-fx-choice select { grid-column: 2 / 4; }
-/* ADR 0338 §9: plugin effects */
+/* ADR 0352 §9: plugin effects */
 .studio-fx-chip { flex: none; padding: 0 4px; border: 1px solid var(--border-strong); border-radius: 3px; color: var(--muted); font-size: calc(9px * var(--ui-scale)); line-height: 14px; white-space: nowrap; }
 .studio-fx.greyed { background: var(--panel); border-style: dashed; }
 .studio-fx.greyed .studio-row-name, .studio-fx.greyed .studio-row-summary { color: var(--faint); }
@@ -217,13 +217,13 @@
   .studio-onoff { line-height: 26px; padding: 0 10px; }
 }
 
-/* Filmstrip (Filmstrip.tsx, ADR 0334): a take's pictures on a time axis */
+/* Filmstrip (Filmstrip.tsx, ADR 0348): a take's pictures on a time axis */
 .studio-filmstrip { position: relative; height: 100%; min-height: 40px; overflow: hidden; background: var(--bg-sunken); }
 .studio-thumb { position: absolute; top: 2px; bottom: 2px; padding: 0; overflow: hidden; border-radius: 2px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; }
 .studio-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .studio-thumb.current { border-color: var(--accent); outline: 1px solid var(--accent); z-index: 1; }
 .studio-thumb:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* Fade shape picker (FadeShapeSelect.tsx, ADR 0336): the curve's glyph beside its select */
+/* Fade shape picker (FadeShapeSelect.tsx, ADR 0350): the curve's glyph beside its select */
 .studio-shape { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .studio-shape-glyph path { fill: none; stroke: var(--accent); stroke-width: 1.5; }

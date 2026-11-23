@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the game parameters panel: numeric sliders and labelled selects with test values and a
+// Stories (ADR 0219, 0349) for the game parameters panel: numeric sliders and labelled selects with test values and a
 // reset to the default, and the empty state.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

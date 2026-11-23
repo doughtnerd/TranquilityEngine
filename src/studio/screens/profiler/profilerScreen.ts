@@ -1,4 +1,4 @@
-// The Profiler screen's services over the real page (ADR 0334): its one store and recorder, made on first use over the
+// The Profiler screen's services over the real page (ADR 0348): its one store and recorder, made on first use over the
 // open project, the capture Worker and the Studio's audio runtime (`audioHost().audio.capture`, the public API, and the
 // recorder's live ring through the `LiveHost` seam the editor's Profiler panel uses), and the captures' file actions
 // through the engine's asset operations (import, delete) and the Studio's moves (rename, move: studioAssetMoves.ts, which
@@ -63,7 +63,7 @@ export function profilerRecorder(): CaptureRecorder {
     // The take's file, as `Audio.capture.save` would write it, written into the project on every platform (D13).
     fileBytes: captureFileBytes,
     write: writeCapture,
-    // ADR 0334: a recording made while a take replays is that take's replay capture, and names it in META.
+    // ADR 0348: a recording made while a take replays is that take's replay capture, and names it in META.
     replaying: () => {
       const open = replayStore().open.peek();
       return open && open.replay.playing.peek() ? { path: open.path, audioHash: open.take.meta.audioHash } : null;

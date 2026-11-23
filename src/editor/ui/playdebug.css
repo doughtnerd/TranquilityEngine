@@ -1,6 +1,6 @@
 /* Play mode debugging (ADR 0022): pause/step, the World picker, the live Hierarchy and Inspector. */
 .play-controls .pause-button.active { color: var(--accent); border-color: var(--accent); }
-/* The preview language menu and the Subtitles overlay toggle (ADR 0342 §9, 0343 §6). */
+/* The preview language menu and the Subtitles overlay toggle (ADR 0356 §9, 0357 §6). */
 .play-controls .play-language { max-width: 150px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; }
 .play-controls .play-subtitles.active { color: var(--accent); border-color: var(--accent); }
 

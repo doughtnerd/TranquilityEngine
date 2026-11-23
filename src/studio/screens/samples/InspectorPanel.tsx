@@ -1,7 +1,7 @@
 // The Inspector on the Samples screen (the prototype's): the selected marker, loop, trim, snippet or the sample itself.
 // Markers: type, name, time or range, colour (notes), note, and the Source block (file vs project per field with a
 // revert each, Detach). Loops: Repeats, Active, Exit and its fade, Re-entry, Direction, Crossfade. The sample: Load,
-// kind, Stinger, measured loudness, lineage, the whole sample's Source block, its Encoding per platform (ADR 0337 §6:
+// kind, Stinger, measured loudness, lineage, the whole sample's Source block, its Encoding per platform (ADR 0351 §6:
 // where each setting comes from, overrides, sizes and memory) and the playlists that use it.
 import { useState } from "preact/hooks";
 import type { SampleEdits, SampleLoop, SampleMarker, SampleKind } from "../../../engine/audio/sample/types";

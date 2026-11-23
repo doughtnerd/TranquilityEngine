@@ -66,15 +66,15 @@ export interface EventSinkRecorder {
 /** The id an absent name or instance carries (`null` instance, `null` bus or `from`, a name the ring couldn't take); `format.ts` declares it, beside the KEYFRAME rows that use it too. */
 export { NO_NAME };
 
-/** ADR 0334: a pick's `type` arg, the playlist type's index here. */
+/** ADR 0348: a pick's `type` arg, the playlist type's index here. */
 export const PICK_TYPES = ["clip", "queue", "switch", "blend", "layer", "sequence"] as const satisfies readonly ProfilePick["type"][];
-/** ADR 0334: a loudness warning's `reason`. */
+/** ADR 0348: a loudness warning's `reason`. */
 const LOUDNESS_STATE: Readonly<Record<ProfileLoudnessState, number>> = { high: 1, low: 2, ok: 3 };
 const LOUDNESS_STATE_OF: readonly (ProfileLoudnessState | null)[] = [null, "high", "low", "ok"];
-/** ADR 0337 §9: a `PKG` event's `reason`. */
+/** ADR 0351 §9: a `PKG` event's `reason`. */
 const PACKAGE_EVENT: Readonly<Record<ProfilePackageEvent, number>> = { loadStart: 1, loaded: 2, failed: 3, unload: 4 };
 const PACKAGE_EVENT_OF: readonly (ProfilePackageEvent | null)[] = [null, "loadStart", "loaded", "failed", "unload"];
-/** ADR 0338 §6: a plugin fault's reason code (1-based). */
+/** ADR 0352 §6: a plugin fault's reason code (1-based). */
 const PLUGIN_FAULT: Readonly<Record<ProfilePluginFault, number>> = { trap: 1, budget: 2, grow: 3, nonFinite: 4, range: 5 };
 const PLUGIN_FAULT_OF: readonly (ProfilePluginFault | null)[] = [null, "trap", "budget", "grow", "nonFinite", "range"];
 
@@ -345,7 +345,7 @@ export class EventSink implements ProfileSink {
     this.now1(EventKind.hiddenTab, 0, hidden ? 1 : 0);
   }
 
-  // --- ADR 0334: pick paths, loudness warnings, mix ops --------------------------------------------------------------
+  // --- ADR 0348: pick paths, loudness warnings, mix ops --------------------------------------------------------------
 
   /**
    * args: instance, depth, playlist (`events` table), type (`PICK_TYPES` index), choice (`NO_NAME` for none), label
@@ -374,14 +374,14 @@ export class EventSink implements ProfileSink {
     this.now1(EventKind.loudnessWarning, LOUDNESS_STATE[state], this.nameOrNone(T_PARAM, bus));
   }
 
-  /** ADR 0338 §6. args: the effect type (`parameters` table), the glue's instance handle; reason 1 trap .. 5 range. */
+  /** ADR 0352 §6. args: the effect type (`parameters` table), the glue's instance handle; reason 1 trap .. 5 range. */
   pluginFault(type: string, reason: ProfilePluginFault, instance: number): void {
     this.now2(EventKind.pluginFault, PLUGIN_FAULT[reason], this.intern(T_PARAM, type), instance >>> 0);
   }
 
   /**
-   * ADR 0337 §9 (`PKG`): args: the package's name (`parameters` table, as a bus name in `loudnessWarning`), its download
-   * bytes (u32, saturating), and on `loaded` and `unload` the memory it holds resident (u32, saturating; ADR 0337 §6, an
+   * ADR 0351 §9 (`PKG`): args: the package's name (`parameters` table, as a bus name in `loudnessWarning`), its download
+   * bytes (u32, saturating), and on `loaded` and `unload` the memory it holds resident (u32, saturating; ADR 0351 §6, an
    * optional third arg added within format 2); reason 1 load start, 2 loaded, 3 failed, 4 unload.
    */
   audioPackage(name: string, event: ProfilePackageEvent, bytes: number, memoryBytes?: number): void {
@@ -390,7 +390,7 @@ export class EventSink implements ProfileSink {
       this.now2(EventKind.audioPackage, PACKAGE_EVENT[event], this.intern(T_PARAM, name), u32(bytes));
       return;
     }
-    // ADR 0337 §6 (the Profiler's memory track): a third arg, appended within format 2 (readers take ≥ 2 args).
+    // ADR 0351 §6 (the Profiler's memory track): a third arg, appended within format 2 (readers take ≥ 2 args).
     const a = this.args[3]!;
     a[0] = this.intern(T_PARAM, name);
     a[1] = u32(bytes);
@@ -399,7 +399,7 @@ export class EventSink implements ProfileSink {
   }
 
   /**
-   * A live mix op the mixer sent (ADR 0334: MIXOP is written): the op's byte form (`engine/audio/mixOpCodec.ts`), strings
+   * A live mix op the mixer sent (ADR 0348: MIXOP is written): the op's byte form (`engine/audio/mixOpCodec.ts`), strings
    * interned in the `parameters` table, buses as `busRef` from `busRef(name)` (`NO_NAME` when it has no slot).
    */
   mixOp(op: MixOp, cls: OpClass, origin: keyof typeof MixOpOrigin, busRef: (bus: string) => number): void {
@@ -489,16 +489,16 @@ export type CaptureEvent = CaptureEventBase & (
   | { readonly type: "masterChange"; readonly muted: boolean; readonly volume: number }
   | { readonly type: "hiddenTab"; readonly hidden: boolean }
   /**
-   * ADR 0334: one playlist decision of `instance` (its `eventStart` comes first). `playlist` an id in the `events` table,
+   * ADR 0348: one playlist decision of `instance` (its `eventStart` comes first). `playlist` an id in the `events` table,
    * `label` in the `parameters` table; `choice` null for none; `weights` a Blend's two heaviest entries, heaviest first.
    */
   | { readonly type: "pick"; readonly instance: number; readonly depth: number; readonly playlist: number; readonly playlistType: ProfilePick["type"] | null; readonly choice: number | null; readonly label: number | null; readonly weights: readonly { readonly entry: number; readonly weight: number }[] }
-  /** ADR 0334: a metered bus's loudness against its target; `bus` a name id in the `parameters` table, null for the output. */
+  /** ADR 0348: a metered bus's loudness against its target; `bus` a name id in the `parameters` table, null for the output. */
   | { readonly type: "loudnessWarning"; readonly bus: number | null; readonly state: ProfileLoudnessState | null }
-  /** ADR 0337 §9 (`PKG`): a package's load start, load, failure or unload; `name` an id in the `parameters` table. */
-  /** `memoryBytes`: what it holds resident (its third arg, written on loaded and unload by builds since ADR 0337 A6); null when absent. */
+  /** ADR 0351 §9 (`PKG`): a package's load start, load, failure or unload; `name` an id in the `parameters` table. */
+  /** `memoryBytes`: what it holds resident (its third arg, written on loaded and unload by builds since ADR 0351 A6); null when absent. */
   | { readonly type: "audioPackage"; readonly name: number; readonly event: ProfilePackageEvent | null; readonly bytes: number; readonly memoryBytes: number | null }
-  /** ADR 0338 §6: `effect` is the type's name id (`parameters` table). */
+  /** ADR 0352 §6: `effect` is the type's name id (`parameters` table). */
   | { readonly type: "pluginFault"; readonly effect: number; readonly instance: number; readonly reason: ProfilePluginFault | null }
 );
 

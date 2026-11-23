@@ -1,4 +1,4 @@
-//! The SDK's test plugin (ADR 0338 B1): built to `native/fx-sdk/wasm/test_fx.wasm`, which the engine's tests validate,
+//! The SDK's test plugin (ADR 0352 B1): built to `native/fx-sdk/wasm/test_fx.wasm`, which the engine's tests validate,
 //! instrument and run (`src/plugins/audio/runtime/effectPlugins/validate.test.ts`, `src/engine/wasm/fuel.test.ts`).
 //!
 //! Kinds:
@@ -6,7 +6,7 @@
 //! - 1 `biquad8`: an 8-stage stereo TDF-II low-pass cascade, p[0] cutoff (Hz), p[1] Q (a heavy, realistic kernel for
 //!   the fuel overhead measurement).
 //! - 2 `hog`: allocates 256 KiB in `new` and passes audio through (the allocator must give it back on destroy).
-//! - 3 `trap` (ADR 0338 B4, the glue's fault tests): `p1[0]` picks what `process` does: 0 halves the block (so a test
+//! - 3 `trap` (ADR 0352 B4, the glue's fault tests): `p1[0]` picks what `process` does: 0 halves the block (so a test
 //!   tells it from the dry block a fault leaves), 1 executes `unreachable`, 2 writes a NaN, 3 grows its memory by a page (a
 //!   module fault: `process` must never grow), 4 loops for ever (its fuel runs out), 5 writes a sample of 1000 (beyond ±64).
 //!   Each fault happens once, on the block whose parameters changed to it (`Flags::params_changed`); later blocks halve.

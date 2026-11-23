@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Page, openEditor } from "./fixtures";
 import { menu } from "./menus";
 
 // The Flappy sample (ADR 0031): listed on the start screen, opened from the files served beside the
@@ -51,8 +51,7 @@ test("the start screen lists the sample; Open loads it read-only with its script
 
 test("Play runs the game: a flap starts it, falling ends it", async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto(`${START}?sample=flappy`);
-  await page.waitForFunction(() => ((window as unknown as { engine?: { world: { time: { frameCount: number } } } }).engine?.world.time.frameCount ?? 0) > 10);
+  await openEditor(page, { sample: "flappy" });
   await page.getByRole("button", { name: "▶ Play" }).click();
   await expect.poll(() => gameState(page), { timeout: 20_000 }).toBe("ready");
 

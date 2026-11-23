@@ -1,5 +1,5 @@
 /**
- * The engine's ICU MessageFormat 1 parser (ADR 0342 §2): `{name}`, `{n, number[, style]}`, `{d, date|time[, style]}`,
+ * The engine's ICU MessageFormat 1 parser (ADR 0356 §2): `{name}`, `{n, number[, style]}`, `{d, date|time[, style]}`,
  * `{n, plural, [offset:k] =0 {…} one {…} other {…}}` with `#`, `{n, selectordinal, …}` and `{x, select, …}`, with
  * ICU's default apostrophe quoting (`''` is one apostrophe, `'{…}'` literal text, a lone apostrophe literal).
  *
@@ -12,7 +12,7 @@
 import type { MessageNode, MessageParse, MessageProblem, OptionNode } from "./ast";
 import { DATE_STYLES, numberStyleOptions } from "./numberStyle";
 
-/** Limits of one message, declared once (ADR 0306, 0342 §1). */
+/** Limits of one message, declared once (ADR 0306, 0356 §1). */
 export const MESSAGE_LIMITS = Object.freeze({
   /** Characters (UTF-16 units). */
   length: 4000,

@@ -13,7 +13,7 @@
 //   virtual voices hold none. Sent after PLAY (stamped at its frame) and with SET_MIXED on promotion, when
 //   non-default; afterwards on a change past 0.5 dB (levels), 1 Hz (cutoffs), 0.001 rad (yaw) or 1 degree (spread),
 //   one record per voice per frame carrying the mask of what moved.
-// - **Spread (ADR 0333, ABI 4.11):** a spatial voice's spread in degrees (0 a point, 360 all round), from its
+// - **Spread (ADR 0347, ABI 4.11):** a spatial voice's spread in degrees (0 a point, 360 all round), from its
 //   playlist's `spatial.spread` or attenuation spread curve, or an audio zone's; the core ramps it over `rampFrames`.
 // - **Promotion (C20):** send, high-pass, yaw and aux targets are re-sent with SET_MIXED; a demotion forgets what the
 //   core held (its pool entry is gone), so the next promotion sends again.
@@ -60,7 +60,7 @@ export const FX_LEVEL_DB_THRESHOLD = 0.5;
 export const FX_HZ_THRESHOLD = 1;
 /** @internal C3: yaw is re-sent when it moves more than this, radians. */
 export const FX_YAW_THRESHOLD = 0.001;
-/** @internal ADR 0333: a spread is re-sent when it moves more than this, degrees. */
+/** @internal ADR 0347: a spread is re-sent when it moves more than this, degrees. */
 export const FX_SPREAD_THRESHOLD = 1;
 /** @internal C3: zone send slots per voice (`MAX_ZONE_SLOTS`). */
 export const FX_SENDS = 4;
@@ -90,7 +90,7 @@ export class VoiceFx {
   private readonly yawRad: Float32Array;
   private readonly auxBusOf: Uint16Array;
   private readonly auxLevelOf: Float32Array;
-  /** Per slot: the spread asked for, degrees 0..360 (ADR 0333). */
+  /** Per slot: the spread asked for, degrees 0..360 (ADR 0347). */
   private readonly spreadDeg: Float32Array;
   /** Per slot: what the core's pool holds (C3's defaults while virtual or never sent). */
   private readonly sentHp: Float32Array;
@@ -196,7 +196,7 @@ export class VoiceFx {
     this.mark(i);
   }
 
-  /** ADR 0333: slot `i`'s spread, degrees (clamped to 0..360; non-finite is 0, a point source). */
+  /** ADR 0347: slot `i`'s spread, degrees (clamped to 0..360; non-finite is 0, a point source). */
   setSpread(i: number, deg: number): void {
     this.spreadDeg[i] = Number.isFinite(deg) ? Math.min(360, Math.max(0, deg)) : 0;
     this.mark(i);

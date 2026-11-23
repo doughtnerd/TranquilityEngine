@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the type badges: every playlist type, a two-axis Blend and a sample, each in its series
+// Stories (ADR 0219, 0349) for the type badges: every playlist type, a two-axis Blend and a sample, each in its series
 // colour (themed by Settings > Appearance).
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, within } from "storybook/test";

@@ -1,5 +1,5 @@
 /**
- * What the playlist runtime reads of a sample's edits (ADR 0328: its sidecar's, or a derived sample's resolved block,
+ * What the playlist runtime reads of a sample's edits (ADR 0342: its sidecar's, or a derived sample's resolved block,
  * `sampleEdits`) beyond the clip resolver's plan
  * (`samplePlan`): its loops with their ids (clip overrides name them), its markers (Cue, Exit, Hit), its playable end and
  * its musical grid (`sample.tempo`, tempo map included) compiled with the music grid maths (`engine/audio/musicGrid.ts`),
@@ -41,7 +41,7 @@ export interface SampleFacts {
   /** Loops in file order (the first is the one clips map passes of). */
   readonly loops: readonly FactLoop[];
   readonly markers: readonly FactMarker[];
-  /** ADR 0336 pre-entry: the first Entry marker's time (file seconds), null without one. Not reported to the game. */
+  /** ADR 0350 pre-entry: the first Entry marker's time (file seconds), null without one. Not reported to the game. */
   readonly entry: number | null;
   /** The sample's musical grid (file seconds, bar 1 beat 1 at the file's start), null without a tempo. */
   readonly grid: SegmentGrid | null;

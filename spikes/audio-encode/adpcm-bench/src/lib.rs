@@ -1,10 +1,10 @@
-//! ADR 0337 spike A0/S3: what reading IMA ADPCM costs a voice in the core, against int16, in wasm instructions per
+//! ADR 0351 spike A0/S3: what reading IMA ADPCM costs a voice in the core, against int16, in wasm instructions per
 //! quantum (`run.mjs` meters this crate's wasm with `tools/audio-bench/meter.mjs`, the metered gate's instrumenter).
 //!
 //! Every mode renders N looping stereo voices through the core's own resampler (`audio_dsp::resample::lagrange`,
 //! the voices' 4-point kernel) and sums them into a stereo mix, 128 frames a quantum. Only the source differs:
 //! - mode 0 `int16`: the clip's int16 samples, as the core reads a CLIP_BEGIN format I16 clip today;
-//! - mode 1 `block`: ADR 0337 §3's design: a 1,024-frame decode cache per voice (plus the 1 + 2 neighbour frames the
+//! - mode 1 `block`: ADR 0351 §3's design: a 1,024-frame decode cache per voice (plus the 1 + 2 neighbour frames the
 //!   kernel reads), filled with a whole block when the read position enters it;
 //! - mode 2 `incremental`: the alternative: each quantum decodes only the frames it is about to read into a small
 //!   sliding window, carrying the IMA state (block headers reset it), so no quantum pays for a whole block;

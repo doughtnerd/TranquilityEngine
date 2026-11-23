@@ -1,5 +1,5 @@
 /**
- * A plugin's `audio` section (ADR 0338 §3, budgets from 0344 §3): the DSP modules it ships and the effects they hold,
+ * A plugin's `audio` section (ADR 0352 §3, budgets from 0358 §3): the DSP modules it ships and the effects they hold,
  * read from `plugin.json` without running any plugin code, so the editor, the Studio, the exporter and the player
  * agree before anything loads.
  *
@@ -29,14 +29,14 @@ import { isFiniteNumber, isRecord } from "../lenientRead";
 import { EFFECT_LEVELS, isPluginEffectType } from "./catalogue";
 import type { EffectLevel, EffectParamSpec, EffectPluginInfo, PluginAudio, PluginEffectDecl, PluginEffectModule } from "./types";
 
-/** ADR 0338 §3 and 0344 §3: the `audio` section's limits and defaults. */
+/** ADR 0352 §3 and 0358 §3: the `audio` section's limits and defaults. */
 export const PLUGIN_AUDIO_LIMITS = Object.freeze({
   /** The DSP ABI major `abi` must name. */
   abi: 1,
   /** Parameters an effect may declare (the core's records carry 16 from ABI 5.0). */
   params: 16,
   memoryMB: Object.freeze({ default: 4, max: 64 }),
-  /** 0344 §3: the per-effect maximum lowered from 20,000 to 5,000. */
+  /** 0358 §3: the per-effect maximum lowered from 20,000 to 5,000. */
   instructionsPerFrame: Object.freeze({ default: 1000, max: 5000 }),
   maxInstances: Object.freeze({ default: 16, max: 128 }),
   /** `kind`: an index into one module's effects. */
@@ -172,7 +172,7 @@ export function parsePluginAudio(raw: unknown, plugin: PluginIdentity, problems:
   return out;
 }
 
-/** An effect's `params`: the catalogue's `EffectParamSpec` plus `choices` and `smooth` (ADR 0338 §3). */
+/** An effect's `params`: the catalogue's `EffectParamSpec` plus `choices` and `smooth` (ADR 0352 §3). */
 function parseParams(raw: unknown, where: string, bad: (where: string, message: string) => void): EffectParamSpec[] {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) {

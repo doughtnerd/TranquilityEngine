@@ -1,4 +1,4 @@
-// ADR 0338 (B3, B4) amended by 0344, on the loopback host with the real core wasm and the real plugin modules: a project's
+// ADR 0352 (B3, B4) amended by 0358, on the loopback host with the real core wasm and the real plugin modules: a project's
 // plugin with an `audio` section goes through `loadEffectPlugin` (the catalogue, the validator and instrumenter, the core
 // backend's `effectPlugins` capability, the worklet glue) and its effect runs inside a bus chain of the page's mix.
 //
@@ -139,7 +139,7 @@ const troughs = (x: Float32Array, floor: number): number => {
   return n;
 };
 
-describe("plugin effects on the core (ADR 0338, 0344)", () => {
+describe("plugin effects on the core (ADR 0352, 0358)", () => {
   it("the tremolo sample modulates a bus at its declared rate, and an automated parameter reaches it", async (ctx) => {
     // The plugin set enables the sample's plugin before the core exists: the specs join the catalogue at once (so the mix
     // runs the effect) and the module registers with the core backend when it is installed.

@@ -1,5 +1,5 @@
-import { expect, type Page, play, test } from "./fixtures";
-import { bootMix, mixDebug } from "./audioMix";
+import { expect, type Page, play, test, openEditor, playWithAudio, LAB } from "./fixtures";
+import { mixDebug } from "./audioMix";
 
 // The M5 listening sections (ADR 0171 amended by 0172; waves plan, "Owner procedures"), one case per milestone, each an owner-run
 // page and a headless walker in one (the shape of `audio-music-listening.spec.ts`). Today: **M5-0**, the stamped bus path: a
@@ -132,7 +132,8 @@ async function boot(page: Page): Promise<string[]> {
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
-  await bootMix(page);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await installM50(page, LISTEN);
   // The clips decode on their first play; the drums and the noise start from their keys.
   await page.waitForTimeout(1000);
@@ -450,7 +451,8 @@ async function boot5b(page: Page): Promise<string[]> {
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
-  await bootMix(page);
+  await openEditor(page, { sample: LAB });
+  await playWithAudio(page);
   await installM5b(page, LISTEN);
   await page.waitForTimeout(1000); // the clips decode on their first play
   return errors;

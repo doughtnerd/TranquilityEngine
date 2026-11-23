@@ -1,6 +1,6 @@
 // CSV as translators, recording studios and spreadsheets exchange it (RFC 4180; UTF-8 with a byte order mark so Excel
-// reads accents; CRLF line ends): the generic reader and writer under ADR 0342 §8's string CSV (`csvExchange.ts`), the
-// Studio's script and report exports (0340 §9) and anything else that trades rows. Reading is lenient: a missing
+// reads accents; CRLF line ends): the generic reader and writer under ADR 0356 §8's string CSV (`csvExchange.ts`), the
+// Studio's script and report exports (0354 §9) and anything else that trades rows. Reading is lenient: a missing
 // closing quote takes the rest of the text, LF or CRLF ends a record, a BOM is dropped, and blank lines are skipped.
 // Pure; no plugin, no DOM.
 

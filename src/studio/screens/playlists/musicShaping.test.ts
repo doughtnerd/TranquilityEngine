@@ -1,4 +1,4 @@
-// ADR 0336 in the Playlists screen: the fade-shape picker's model, the 1D region handles and their drags, the 2D influence
+// ADR 0350 in the Playlists screen: the fade-shape picker's model, the 1D region handles and their drags, the 2D influence
 // map, weight curves through the curve editor's result, quantise and loop-tail edits, change patches and the timeline's
 // tail shading. Every view draws from these, so they are tested through their own interfaces.
 import { describe, expect, it } from "vitest";
@@ -40,7 +40,7 @@ describe("fade shape picker model", () => {
 
 describe("1D regions in the lane", () => {
   const entries = [clip(0), clip(5), clip(10)];
-  it("an entry without a region shows its derived one (clamped to the axis) and the lane draws ADR 0329's weights", () => {
+  it("an entry without a region shows its derived one (clamped to the axis) and the lane draws ADR 0343's weights", () => {
     expect(shownRegion(entries, 1, [0, 10], "crossfade")).toEqual({ region: { start: 0, end: 10, fadeIn: 5, fadeOut: 5 }, explicit: false });
     expect(shownRegion(entries, 0, [0, 10], "crossfade").region).toEqual({ start: 0, end: 5, fadeIn: 0, fadeOut: 5 });
     expect(shownRegion(entries, 2, [0, 10], "layer").region).toEqual({ start: 5, end: 10, fadeIn: 5, fadeOut: 0 });

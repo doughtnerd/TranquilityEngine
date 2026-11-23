@@ -1,4 +1,4 @@
-// ADR 0330 (ABI 4.7) on the real wasm (the loopback host): returns are core buses fed by post-fader sends. A project from
+// ADR 0344 (ABI 4.7) on the real wasm (the loopback host): returns are core buses fed by post-fader sends. A project from
 // `audio.json` whose SFX bus sends into a return holding a delay insert (fully wet, no feedback) is heard on the return:
 // with a constant clip, the output is SFX's direct share at first, then that plus the send's share once the delay has
 // passed. A muted bus silences its send (`BUS_SEND_MUTED`, the level kept), a snapshot's offset on the return moves the
@@ -60,7 +60,7 @@ async function rig(m: Record<string, unknown> = mix()) {
   return { audio, backend: audio.backend, mixer: audio.mixer, step, posted: audio.watched! };
 }
 
-describe("returns are core buses fed by bus sends (ADR 0330, ABI 4.7)", () => {
+describe("returns are core buses fed by bus sends (ADR 0344, ABI 4.7)", () => {
   it("a bus's send into a return with a delay insert is heard on the return, after the delay", { timeout: 30_000 }, async (ctx) => {
     const r = await rig();
     if (!r) return ctx.skip();

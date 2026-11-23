@@ -1,4 +1,4 @@
-// ADR 0328: every play of a sample applies its plan — a one-shot, an `AudioSource` and an `AudioZone` as a playlist voice
+// ADR 0342: every play of a sample applies its plan — a one-shot, an `AudioSource` and an `AudioZone` as a playlist voice
 // does: the trimmed start (a start offset) and end (a stop with a short fade), the normalisation gain, and, when the
 // caller loops, the sample's loop region (a held loop until `AudioSource.release`). A flattened render (`sample.source`)
 // plays in the source's place without its baked gain applied again. Through the public API on the fake backend.
@@ -27,7 +27,7 @@ function source(fields: Partial<Pick<AudioSource, "clip" | "loop" | "volume" | "
   return GameObject.create("n").addBehavior(AudioSource, { playOnAwake: false, ...fields });
 }
 
-describe("a one-shot of a sample (ADR 0328)", () => {
+describe("a one-shot of a sample (ADR 0342)", () => {
   it("a snippet plays only its range: it starts at the range's start and stops at its end", async () => {
     await kit.boot({ "audio/skid.wav": "data:skid", "audio/skid.brake.sample.json": snippet("audio/skid.wav", [0.8, 1.6]) });
     fake.durations.set("audio/skid.wav", 3);
@@ -87,7 +87,7 @@ describe("a one-shot of a sample (ADR 0328)", () => {
   });
 });
 
-describe("an AudioSource playing a sample (ADR 0328)", () => {
+describe("an AudioSource playing a sample (ADR 0342)", () => {
   it("applies the normalisation gain at the play and on every volume change", async () => {
     await kit.boot({ "a.wav.meta.json": { format: IMPORT, volume: 0.5, sample: { normalize: NORMALIZE_6DB } } });
     const src = source({ clip: "a.wav", volume: 0.5 });
@@ -158,7 +158,7 @@ describe("an AudioSource playing a sample (ADR 0328)", () => {
   });
 });
 
-describe("an AudioZone playing a sample (ADR 0328)", () => {
+describe("an AudioZone playing a sample (ADR 0342)", () => {
   const withListener = { "s.json": { format: "myco.scene@1", nodes: [{ id: "ear", name: "ear", components: [{ type: "engine.Transform", data: { position: [0, 1, 0] } }, { type: "engine.AudioListener", data: {} }] }] } };
 
   it("loops the sample's loop region from its trimmed start, at its normalised level", async () => {
@@ -172,7 +172,7 @@ describe("an AudioZone playing a sample (ADR 0328)", () => {
   });
 });
 
-describe("a playlist voice of a sample (ADR 0328)", () => {
+describe("a playlist voice of a sample (ADR 0342)", () => {
   it("applies the normalisation gain once", async () => {
     await kit.boot({ "a.wav.meta.json": { format: IMPORT, volume: 0.5, sample: { normalize: NORMALIZE_6DB } }, "p.playlist.json": pla("clip", [sample("a.wav")]) });
     Audio.play("p.playlist.json");
@@ -180,7 +180,7 @@ describe("a playlist voice of a sample (ADR 0328)", () => {
   });
 });
 
-describe("a flattened render (ADR 0328, `sample.source`)", () => {
+describe("a flattened render (ADR 0342, `sample.source`)", () => {
   it("plays in the source's place with the source's import settings; its baked gain isn't applied again; trim still applies", async () => {
     await kit.boot({
       "a.flat1.wav": "data:flat",

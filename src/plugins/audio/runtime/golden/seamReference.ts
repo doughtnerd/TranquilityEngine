@@ -22,6 +22,7 @@
 import { createLoopbackHost, LOOPBACK_PRESET } from "../testing";
 import { Kind, readClipBegin, readClipChunk } from "../wire.generated";
 import { clipSampleBytes } from "../worklet/coreMemory";
+import { peekKind, peekMessageBytes } from "../wireEnvelope";
 import { concat, fromHex, LoopbackWire, type Replay } from "./replay";
 
 export const QUANTUM = 128;
@@ -176,11 +177,10 @@ export class SeamRecorder {
   private readonly clips = new Map<number, { begin: { id: number; frames: number; channels: number; sampleRate: number; format: number }; data: Uint8Array }>();
 
   onMessage(buffer: ArrayBuffer, frame: number): void {
-    if (buffer.byteLength < 16) return;
     const view = new DataView(buffer);
-    const kind = view.getUint16(6, true);
+    const kind = peekKind(view);
     if (kind === Kind.BATCH) {
-      const len = 16 + view.getUint32(12, true);
+      const len = peekMessageBytes(view);
       this.steps.push({ frame, batch: hexOf(new Uint8Array(buffer, 0, len)) });
     } else if (kind === Kind.CLIP_BEGIN) {
       const b = readClipBegin(view, 0);

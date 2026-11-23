@@ -1,4 +1,4 @@
-// ADR 0338 §7 (B5): plugin effects at the sample level render offline through the worklet's glue, in Node as in the
+// ADR 0352 §7 (B5): plugin effects at the sample level render offline through the worklet's glue, in Node as in the
 // browser. The tremolo sample's plugin, loaded as the plugin set loads it (`loadEffectPlugin`), is the offline host's;
 // a sample whose baked chain holds the tremolo renders modulated at its rate (`renderSample`, the real offline wasm and
 // the real plugin module). The render cache key names the plugin's module hash, so a rebuilt module renders again; a

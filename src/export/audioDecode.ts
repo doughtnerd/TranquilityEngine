@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0337 §5): decoding a build's audio sources to PCM for the encoder. WAV is read in TypeScript
+ * Internal (ADR 0351 §5): decoding a build's audio sources to PCM for the encoder. WAV is read in TypeScript
  * (`decodeWavPcm`, every PCM and float layout); every other format the game decodes (FLAC, MP3, Ogg Vorbis, AAC in the AAC
  * build) goes through the game's own decoder, `myco_audio_decode.wasm` (`DecoderWasm`), compiled once and given to this
  * module by the caller (Node reads the file, the editor fetches it), so conversion reads exactly what the game would.

@@ -1,4 +1,4 @@
-// The Play toolbar's "Subtitles" toggle (ADR 0343 §6), contributed by the subtitles plugin's editor half: a per-user
+// The Play toolbar's "Subtitles" toggle (ADR 0357 §6), contributed by the subtitles plugin's editor half: a per-user
 // preference (local storage, `myco.editor.subtitlesOverlay`), and while it is on, the play session's first World gets
 // the overlay display.
 import { useEffect } from "preact/hooks";

@@ -88,7 +88,7 @@ pub const HEADER_FIELDS: &[Field] = &[
     Field::new("loudShed", Ty::U16).at(246).doc("the load-shedding ladder's loudness step in force, 0 or 1"),
     Field::new("busRecordsEarly", Ty::U16).at(248).doc("BUS_RAMP records applied at the quantum's start because the due list was full (cumulative, saturating)"),
     Field::new("sidechainLate", Ty::U16).at(250).doc("late sidechain detections (cumulative, saturating)"),
-    Field::new("genStarved", Ty::U16).at(252).doc("generator voices that found the generator pool full and play silent (cumulative, saturating; ADR 0346, ABI 5.1)"),
+    Field::new("genStarved", Ty::U16).at(252).doc("generator voices that found the generator pool full and play silent (cumulative, saturating; ADR 0360, ABI 5.1)"),
     Field::new("reserved2", Ty::U16).at(254).doc("reserved, 0"),
 ];
 

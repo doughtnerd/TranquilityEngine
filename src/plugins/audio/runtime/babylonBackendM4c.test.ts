@@ -1,5 +1,5 @@
 // B3 (ADR 0166 M4c, api-and-models §8): the fallback's clock (no heard clock) and the rhythm-mode warning. Its beat
-// callbacks were the music player's (retired by ADR 0329); a playlist's beats come from `playlists/beatCallbacks.ts`.
+// callbacks were the music player's (retired by ADR 0343); a playlist's beats come from `playlists/beatCallbacks.ts`.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mixer } from "../../../engine/audio/mixer";
 import { defaultAudioSettings, parseAudioSettings } from "../../../engine/audio/settings";

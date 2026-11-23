@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0330): the Engine's project settings from a project's files. `project.json` holds no audio any more:
+ * Internal (ADR 0344): the Engine's project settings from a project's files. `project.json` holds no audio any more:
  * the `audio` settings the Engine runs with are `audio.json`'s engine settings, its mix whole under `mix` (the mixer runs
  * it, `mixer.ts`), and the old mix keys as the backends' view of it (`coreSectionOf`). The player, the
  * dedicated server and the exporter read a project through this; the editor's projects compose the same view
@@ -16,7 +16,7 @@ import { AUDIO_PROJECT_FILE } from "./types";
 
 /** What a runtime or an export says of a `project.json` that still has the old `audio` section. */
 export const LEGACY_AUDIO_MESSAGE =
-  `project.json still has an "audio" section, which moved to ${AUDIO_PROJECT_FILE} (ADR 0330). Open the project in the editor once: it migrates the section (keeping a copy of the old project.json in .myco/migrated/).`;
+  `project.json still has an "audio" section, which moved to ${AUDIO_PROJECT_FILE} (ADR 0344). Open the project in the editor once: it migrates the section (keeping a copy of the old project.json in .myco/migrated/).`;
 
 /** True when `projectJson` (parsed) still has the old `audio` section. */
 export const hasLegacyAudio = (projectJson: unknown): boolean =>

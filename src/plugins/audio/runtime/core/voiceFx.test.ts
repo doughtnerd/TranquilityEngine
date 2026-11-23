@@ -398,7 +398,7 @@ describe("VoiceFx promotion and lifetime (C20)", () => {
   });
 });
 
-describe("VoiceFx spread (ADR 0333, ABI 4.11)", () => {
+describe("VoiceFx spread (ADR 0347, ABI 4.11)", () => {
   /** A writer that keeps the spread each SET_VOICE_FX carried, with its mask. */
   function spreadRig() {
     const table = new VoiceTable(8);

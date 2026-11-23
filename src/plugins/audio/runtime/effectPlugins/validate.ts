@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0338 §6, amended by 0344): the checks a plugin effect module passes before the worklet ever sees it,
+ * Internal (ADR 0352 §6, amended by 0358): the checks a plugin effect module passes before the worklet ever sees it,
  * and its instrumentation. Runs on the main thread, once per module content (the host caches by hash).
  *
  * A module is refused when it:
@@ -14,13 +14,13 @@
  *
  * A module that passes comes back instrumented in fuel mode (`src/engine/wasm/meter.js`): an i32 `__fuel` global the
  * glue sets before each call, decremented per segment and checked branch-free at function entries and loop headers
- * (0344 §2), with the memory's maximum capped at `memoryMB`.
+ * (0358 §2), with the memory's maximum capped at `memoryMB`.
  */
 import { FUEL_EXPORT, meter, readModule, type FuelStats, type WasmFunctionType, type WasmModuleInfo } from "../../../../engine/wasm/meter.js";
 
-/** The DSP ABI this engine runs (0338 §2): `myco_fx_abi()` returns `major << 8 | minor`. */
+/** The DSP ABI this engine runs (0352 §2): `myco_fx_abi()` returns `major << 8 | minor`. */
 export const EFFECT_ABI = Object.freeze({ major: 1, minor: 0 });
-/** `memoryMB` when the manifest gives none, and its largest value (0338 §2). */
+/** `memoryMB` when the manifest gives none, and its largest value (0352 §2). */
 export const DEFAULT_PLUGIN_MEMORY_MB = 4;
 export const MAX_PLUGIN_MEMORY_MB = 64;
 /** Fuel granted to `myco_fx_abi` while validating (it should return a constant). */

@@ -133,7 +133,7 @@ describe("opening in the kind's panel", () => {
   });
 });
 
-describe("opening in the Audio Studio (ADR 0327)", () => {
+describe("opening in the Audio Studio (ADR 0341)", () => {
   const studioKinds: EditorPlugin = {
     manifest: { name: "t.studio", version: "1" },
     activate(context) {

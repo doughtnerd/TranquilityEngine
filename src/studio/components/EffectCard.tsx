@@ -1,7 +1,7 @@
-// One effect in a chain (ADR 0335 `EffectCard`, ADR 0331): a collapsible card with a caret, the effect's name (and its
+// One effect in a chain (ADR 0349 `EffectCard`, ADR 0345): a collapsible card with a caret, the effect's name (and its
 // summary while closed), Automate ◆, On/Off (bypass), ↑ ↓ to reorder and × to remove; open, its parameters as
 // `ParameterRow`s from the catalogue (a menu for a `choices` parameter) and, for a sidechain compressor, its key bus. It
-// reports intents; `EffectChain` turns them into edits of the list. A plugin effect (ADR 0338 §9) carries its plugin's
+// reports intents; `EffectChain` turns them into edits of the list. A plugin effect (ADR 0352 §9) carries its plugin's
 // chip; while its plugin is off or missing the card is greyed with the reason (`pluginEffectNote`); with a health row
 // it shows a status line when the effect isn't healthy (faulted, off after faults, no free instance, loading) with
 // Reset plugin, and the row (state, instructions per frame against the budget, memory, faults) when open.
@@ -32,7 +32,7 @@ export interface EffectCardProps {
   onKey?(bus: string): void;
   /** Automate ◆: absent hides the button. */
   onAutomate?(): void;
-  /** ADR 0338 §9: a plugin effect's health row (`Audio.debug().plugins`), when the runtime has one. */
+  /** ADR 0352 §9: a plugin effect's health row (`Audio.debug().plugins`), when the runtime has one. */
   readonly pluginHealth?: AudioPluginDebug | null;
   /** Reset plugin (a plugin effect that faulted): absent hides the button. */
   onResetPlugin?(): void;
@@ -46,7 +46,7 @@ function CurveIcon() {
   );
 }
 
-/** ADR 0338 §3: a `choices` parameter's menu (its value is the option's index). */
+/** ADR 0352 §3: a `choices` parameter's menu (its value is the option's index). */
 function ChoiceRow(props: { id: string; spec: EffectParamSpec; value: number; disabled: boolean; note?: string; title: string; onValue(v: number): void }) {
   const { spec } = props;
   const index = clampEffectParam(spec, props.value);

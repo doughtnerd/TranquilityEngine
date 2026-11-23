@@ -23,6 +23,20 @@ Code from these projects is compiled into Myco Engine's own modules. Libraries u
 
   This port is an altered version: plainly marked as such here and in the crate's documentation.
 
+## Gamepad mapping (`native/input`, compiled to `src/engine/input/wasm/`; ADR 0335)
+
+- **SDL_GameControllerDB** (`native/input/crates/input-map/db/gamecontrollerdb.txt`, the controller database, compiled into the module) — zlib licence, copyright (C) 1997-2025 Sam Lantinga. https://github.com/mdqinc/SDL_GameControllerDB. The licence text is `native/input/crates/input-map/db/LICENSE.txt`.
+- **wasm-bindgen** — MIT or Apache-2.0. https://github.com/rustwasm/wasm-bindgen
+
+## Desktop gamepads (`src-tauri/src/gamepad.rs`, and exported desktop games; ADR 0335)
+
+- **SDL3** (built from source and linked statically into the desktop app) — zlib licence, copyright (C) 1997-2025 Sam Lantinga. https://github.com/libsdl-org/SDL
+- **sdl3-rs** and **sdl3-sys** (the Rust bindings) — MIT; sdl3-sys is zlib. https://github.com/vhspace/sdl3-rs, https://codeberg.org/maia/sdl3-sys-rs
+
+## WebHID gamepads (`src/engine/input/webHid/`; ADR 0335)
+
+- **SDL3's HIDAPI controller drivers** (`src/joystick/hidapi/SDL_hidapi_ps5.c`, `SDL_hidapi_ps4.c`, `SDL_hidapi_switch.c`: report layouts, calibration, touchpad and battery decoding, output encoding, the Switch handshake, Joy-Con layouts and motion axes, and the Switch HD rumble amplitude table and write rate limits, ported to TypeScript; no C is included) — zlib licence, copyright (C) 1997-2025 Sam Lantinga. https://github.com/libsdl-org/SDL. This port is an altered version: plainly marked as such here and in each module's header.
+
 ## Fonts (`src/engine/ui/fonts/`; ADR 0076)
 
 - **Inter** (variable, weights 100–900, the Latin subset as Google Fonts publishes it through `@fontsource-variable/inter` 5.3.0) — SIL Open Font License 1.1, copyright 2016 The Inter Project Authors. https://github.com/rsms/inter. The licence text is `src/engine/ui/fonts/Inter-OFL.txt`; in builds the font file carries its copyright and licence notice in its own name table, as the OFL allows. 230 characters, 48 KB as WOFF2.
@@ -68,17 +82,17 @@ Code from these projects is compiled into Myco Engine's own modules. Libraries u
 
 ## Audio decoder (`native/audio/crates/audio-decode`, compiled to `src/plugins/audio/runtime/wasm/myco_audio_decode.wasm`; ADR 0157)
 
-- **Symphonia** (audio container and codec decoding) — MPL-2.0. Version 0.6.1: crates `symphonia`, `symphonia-core`, `symphonia-common`, `symphonia-metadata`, `symphonia-bundle-flac`, `symphonia-bundle-mp3`, `symphonia-codec-pcm`, `symphonia-codec-adpcm` (IMA and Microsoft ADPCM in WAV, ADR 0345 §5), `symphonia-codec-vorbis`, `symphonia-format-ogg`, `symphonia-format-riff`; with the `aac` build also `symphonia-codec-aac` and `symphonia-format-isomp4` (these two ship only in `myco_audio_decode_aac.wasm`, which a game downloads only when it sets `audio.codecs.aac`; the default `myco_audio_decode.wasm` doesn't contain them). Copyright Philip Deljanov and the Symphonia contributors. Unmodified; the Source Code Form is available at https://github.com/pdeljanov/Symphonia and https://crates.io/crates/symphonia (MPL-2.0 §3.2). https://www.mozilla.org/MPL/2.0/
+- **Symphonia** (audio container and codec decoding) — MPL-2.0. Version 0.6.1: crates `symphonia`, `symphonia-core`, `symphonia-common`, `symphonia-metadata`, `symphonia-bundle-flac`, `symphonia-bundle-mp3`, `symphonia-codec-pcm`, `symphonia-codec-adpcm` (IMA and Microsoft ADPCM in WAV, ADR 0359 §5), `symphonia-codec-vorbis`, `symphonia-format-ogg`, `symphonia-format-riff`; with the `aac` build also `symphonia-codec-aac` and `symphonia-format-isomp4` (these two ship only in `myco_audio_decode_aac.wasm`, which a game downloads only when it sets `audio.codecs.aac`; the default `myco_audio_decode.wasm` doesn't contain them). Copyright Philip Deljanov and the Symphonia contributors. Unmodified; the Source Code Form is available at https://github.com/pdeljanov/Symphonia and https://crates.io/crates/symphonia (MPL-2.0 §3.2). https://www.mozilla.org/MPL/2.0/
 - **lazy_static** 1.5.1, **log** 0.4.35, **bitflags** 2.13.2, **num-complex** 0.4.6, **num-traits** 0.2.19, **smallvec** 1.16.5, **regex-lite** 0.1.9 — MIT or Apache-2.0.
 - **bytemuck** 1.25.2 — Zlib or Apache-2.0 or MIT.
 - **extended** 0.1.0 (80-bit float parsing for AIFF and WAV headers) — MIT, Copyright 2022 Dietrich Epp.
-- **libopus** 1.5.2 (Opus decoding, fixed-point build, in both decoder builds and so in every game; ADR 0337 A7, 0345 §4) — BSD-3-Clause. https://opus-codec.org/ — the same vendored, unmodified source as the encoder's (`native/audio/third_party/opus/`, `PROVENANCE.md`); its licence and patent-licence paragraph are reproduced in full under "Audio encoder" below and apply to this binary too.
+- **libopus** 1.5.2 (Opus decoding, fixed-point build, in both decoder builds and so in every game; ADR 0351 A7, 0359 §4) — BSD-3-Clause. https://opus-codec.org/ — the same vendored, unmodified source as the encoder's (`native/audio/third_party/opus/`, `PROVENANCE.md`); its licence and patent-licence paragraph are reproduced in full under "Audio encoder" below and apply to this binary too.
 
 ## HRIR data (`src/plugins/audio/runtime/wasm/myco_hrir.bin`; ADR 0157)
 
 - **HRIR data (HRTF panner)** - the head-related impulse responses are the IRC_Composite_C set from the Listen HRTF database, Copyright 2002 IRCAM (Institut de Recherche et Coordination Acoustique/Musique), http://recherche.ircam.fr/equipes/salles/listen/. IRCAM states: "The Listen database is public and available for any use." The data is shipped as format 2 (blob `src/plugins/audio/runtime/wasm/myco_hrir.bin`), converted to 16-bit integers and resampled at load. It was taken from Chromium's copy of the set at commit `cbba46fd94646232cfd2318ac962138c2a98c1f9`; the licence is IRCAM's, not Chromium's. We acknowledge the database as IRCAM requests.
 
-## Audio encoder (`native/audio/crates/audio-encode`, compiled to `src/export/wasm/myco_audio_encode.wasm`; editor, Studio and export CLI only, never in a game build; ADR 0337, 0345)
+## Audio encoder (`native/audio/crates/audio-encode`, compiled to `src/export/wasm/myco_audio_encode.wasm`; editor, Studio and export CLI only, never in a game build; ADR 0351, 0359)
 
 - **libogg** 1.3.5 — BSD-3-Clause, Copyright (c) 2002, Xiph.org Foundation. **libvorbis** 1.3.7 (with vorbisenc) — BSD-3-Clause, Copyright (c) 2002-2020 Xiph.org Foundation. https://xiph.org/ — sources vendored unmodified in `native/audio/third_party/libogg/` and `native/audio/third_party/libvorbis/` (only the files the encoder compiles; `PROVENANCE.md` in each). Both carry this licence, each under its own copyright line:
 

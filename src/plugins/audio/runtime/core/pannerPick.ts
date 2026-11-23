@@ -18,7 +18,7 @@
 //   carries (`replay.ts`); a freed slot is forgotten (`forget`), so a new voice in the slot starts equal-power.
 // - A limit of 0 (`voices.hrtf: 0` or `audio.spatial: "equalPower"`, beds kept) flags no HRTF voice; `clear` puts every
 //   voice back to equal-power.
-// - **Bed-only voices (ADR 0333):** `PannerLimits.bedOnly[i]` 1 marks a voice that goes to its bus's bed whatever its
+// - **Bed-only voices (ADR 0347):** `PannerLimits.bedOnly[i]` 1 marks a voice that goes to its bus's bed whatever its
 //   rank: one farther than `audio.bed.beyond` (Wwise's and Unreal's distance-based switch from object panning to the
 //   ambisonic bed for distant sources) or inside an audio zone (its sound surrounds the listener). It is never an HRTF
 //   candidate, so it leaves HRTF (after the dwell) and takes the bed where its bus has one, else equal-power.
@@ -56,7 +56,7 @@ export interface PannerLimits {
   readonly bedSlot: ArrayLike<number>;
   /** Game time now, milliseconds (the 500 ms kind dwell, R13). */
   readonly nowMs: number;
-  /** ADR 0333: per slot, 1 for a voice that goes to its bus's bed whatever its rank (see the header). Absent: none. */
+  /** ADR 0347: per slot, 1 for a voice that goes to its bus's bed whatever its rank (see the header). Absent: none. */
   readonly bedOnly?: ArrayLike<number>;
 }
 

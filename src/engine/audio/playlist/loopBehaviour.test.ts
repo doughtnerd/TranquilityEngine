@@ -1,10 +1,10 @@
-// ADR 0336 (the audio core's ABI 4.9): a loop's seam and exit crossfade shapes in the one loop-behaviour parse and
+// ADR 0350 (the audio core's ABI 4.9): a loop's seam and exit crossfade shapes in the one loop-behaviour parse and
 // writer (sample loops, clip loop overrides, sequence loops): read when set, the default (equalPower) left out, a bad
 // name one problem line.
 import { describe, expect, it } from "vitest";
 import { loopBehaviourToJson, loopOverrideToJson, parseLoopBehaviour, parseLoopOverride } from "./loopBehaviour";
 
-describe("loop crossfade shapes (ADR 0336)", () => {
+describe("loop crossfade shapes (ADR 0350)", () => {
   it("reads and writes a seam and an exit shape; equalPower is the default and isn't written", () => {
     const problems: string[] = [];
     const b = parseLoopBehaviour({ exit: "crossfade", crossfadeShape: "sCurve", exitShape: "log2" }, "l", problems);

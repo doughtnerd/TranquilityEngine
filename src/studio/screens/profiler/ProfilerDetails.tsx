@@ -1,4 +1,4 @@
-// The Profiler's side panels as views over props (ADR 0334; the prototype's right dock and bottom log): At cursor (each
+// The Profiler's side panels as views over props (ADR 0348; the prototype's right dock and bottom log): At cursor (each
 // bus's level and why it differs at the cursor, and the loudness there), Voice (the selected voice's status, when it
 // played, its sound and bus, its start gain, and what a capture doesn't record yet), Why it played (the decision path,
 // `whyModel.ts`) and Messages (warnings, errors and notes in time order; a click seeks and selects).
@@ -15,7 +15,7 @@ import { whyChain } from "./whyModel";
 
 // ---- Replay of a take -------------------------------------------------------------------------------------------------
 
-/** ADR 0334: a replay capture names the take it recorded the Studio playing; "Open in Take" opens that take. */
+/** ADR 0348: a replay capture names the take it recorded the Studio playing; "Open in Take" opens that take. */
 export function ReplayOrigin(props: { readonly take: CaptureReplayOf; onOpenTake(path: string): void }) {
   const name = props.take.path.slice(props.take.path.lastIndexOf("/") + 1);
   return (

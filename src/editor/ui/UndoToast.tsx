@@ -1,4 +1,4 @@
-// The toasts of a toast queue (ADR 0335, `undoToastModel.ts`): bottom-left, newest last, each with its text, an Undo
+// The toasts of a toast queue (ADR 0349, `undoToastModel.ts`): bottom-left, newest last, each with its text, an Undo
 // when it has one, and a close button. A polite live region announces them; the pointer over them or focus in them
 // holds their time. One `UndoToasts` per page draws its queue and drives its clock.
 import { useEffect } from "preact/hooks";

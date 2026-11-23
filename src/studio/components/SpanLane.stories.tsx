@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the span lane: a capture's voices (played, held, blocked, stolen, missing, virtual and
+// Stories (ADR 0219, 0349) for the span lane: a capture's voices (played, held, blocked, stolen, missing, virtual and
 // still playing) stacked where they overlap; selecting with clicks and the arrow keys; the "problems only" filter.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

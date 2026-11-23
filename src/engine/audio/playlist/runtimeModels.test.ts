@@ -1,4 +1,4 @@
-// ADR 0329: the playlist runtime's pure models (accumulation, picks, switch rules, envelope, gate) through their interfaces.
+// ADR 0343: the playlist runtime's pure models (accumulation, picks, switch rules, envelope, gate) through their interfaces.
 import { describe, expect, it } from "vitest";
 import { accumulate, rootProps, voiceControls } from "./accumulate";
 import { adsrLevel, envelopeHoldMs, lerpAdsr } from "./envelope";

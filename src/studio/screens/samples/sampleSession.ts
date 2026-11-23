@@ -1,4 +1,4 @@
-// An open sample on the Samples screen (ADR 0328): its edits live in an asset document (the engine's undo tree and
+// An open sample on the Samples screen (ADR 0342): its edits live in an asset document (the engine's undo tree and
 // persistent history, ADR 0027/0133), either of the audio file's sidecar (`<file>.meta.json`, the `sample` block) or of
 // a derived sample (`*.sample.json`). Each edit is one labelled step; drags coalesce. Also the sample's audio as the
 // screen reads it: peaks (on the shared decoder worker), decoded PCM for the loudness measure, the loop seam and zero
@@ -24,7 +24,7 @@ import type { Pcm } from "./seam";
 
 /** The sidecar document kind (no file ending: opened by id, so the editor's classification of `.meta.json` is unchanged). */
 export const SIDECAR_KIND = "studio.sampleSidecar";
-/** Derived samples use the audio plugin's own `derivedSample` kind (ADR 0328), which the Studio activates. */
+/** Derived samples use the audio plugin's own `derivedSample` kind (ADR 0342), which the Studio activates. */
 export const DERIVED_KIND = "derivedSample";
 
 let registered = false;
@@ -243,7 +243,7 @@ export function pcmNow(project: EditorProject, path: string): Pcm | null {
 
 /**
  * The measured loudness (integrated LUFS, sample peak), null until measured; starts measuring the first time.
- * TODO(ADR 0328): cache the measure in `.myco/cache/` across sessions, and measure on a worker for long files.
+ * TODO(ADR 0342): cache the measure in `.myco/cache/` across sessions, and measure on a worker for long files.
  */
 export function loudnessOf(project: EditorProject, path: string): LoudnessMeasure | null {
   const url = urlOf(project, path);

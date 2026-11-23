@@ -1,6 +1,6 @@
-// The Studio router (ADR 0335 "Navigation between screens"): `open({ screen, asset, select })` shows a screen, on an
+// The Studio router (ADR 0349 "Navigation between screens"): `open({ screen, asset, select })` shows a screen, on an
 // asset, with something in it selected, and the URL hash says so (`#/mixer?asset=audio.json&select=Music`), so the
-// editor's hand-off (ADR 0327), a second window or a reload opens the same place. Back and Forward follow the hash.
+// editor's hand-off (ADR 0341), a second window or a reload opens the same place. Back and Forward follow the hash.
 // It replaces the prototype's `myco.nav` hand-off.
 import { signal, type ReadonlySignal } from "@preact/signals";
 import { parseStudioHash } from "../../editor/studioAssets";

@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the send row: closed with its level, open with the level row, and automated.
+// Stories (ADR 0219, 0349) for the send row: closed with its level, open with the level row, and automated.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, userEvent, within } from "storybook/test";

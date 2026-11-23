@@ -1,4 +1,4 @@
-// What the AudioZone Inspector section and gizmo show (ADR 0333), as pure functions of the zone's fields and the
+// What the AudioZone Inspector section and gizmo show (ADR 0347), as pure functions of the zone's fields and the
 // project's files: the outline of the zone's upright box (its bottom and top rectangles and the four vertical edges)
 // and, for an inside zone, the feather ring at mid height; the section's readout and notices. The box is the runtime's
 // by construction: the gizmo passes the zone's own world box (`AudioZone._worldBox`, an `UprightBox`).

@@ -51,21 +51,21 @@ const SCENES = [
   // sustain loops released and replaced.
   "automation",
   "automation-base",
-  // ADR 0332: `automation` with Bézier curves.
+  // ADR 0346: `automation` with Bézier curves.
   "automation-bezier",
-  // ADR 0332: `automation` with every binding on a time parameter, and stamped TIMEs re-anchoring 32 groups a batch.
+  // ADR 0346: `automation` with every binding on a time parameter, and stamped TIMEs re-anchoring 32 groups a batch.
   "automation-time",
   // ABI 4.4: `automation` plus a pan and a high-pass binding per voice (the pan gains and the high-pass floor).
   "automation-pan-highpass",
-  // ADR 0328: 128 voices each running a loop program (a crossfaded forward loop and a ping-pong loop), released by crossfade.
+  // ADR 0342: 128 voices each running a loop program (a crossfaded forward loop and a ping-pong loop), released by crossfade.
   "loop-programs",
   // ABI 4.9: the same with shaped seam (log, a powf a frame) and exit (exp) crossfades.
   "loop-programs-shaped",
-  // ADR 0331: 128 voices in 32 instances, each through its submix (a low-pass and a compressor).
+  // ADR 0345: 128 voices in 32 instances, each through its submix (a low-pass and a compressor).
   "submixes",
-  // ADR 0331 levels (ABI 4.9): 16 instance submixes and 16 nested levels feeding them, half the voices ROUTEd into a level.
+  // ADR 0345 levels (ABI 4.9): 16 instance submixes and 16 nested levels feeding them, half the voices ROUTEd into a level.
   "submix-levels",
-  // ADR 0331 (ABI 4.6): the catalogue's DSP: 8 buses with eight-effect chains, 32 submixes each running a reverb, a
+  // ADR 0345 (ABI 4.6): the catalogue's DSP: 8 buses with eight-effect chains, 32 submixes each running a reverb, a
   // delay, a chorus, a pitch shifter or a formant shifter, and 12 sidechain compressors keyed on one bus.
   "fx-chain-8",
   "fx-submix-reverb",
@@ -74,11 +74,11 @@ const SCENES = [
   "fx-submix-pitch",
   "fx-submix-formant",
   "fx-sidechain",
-  // ADR 0338 (ABI 5.0): 32 bus and 64 submix plugin slots through the `myco_ext` import (a stub host, `pluginHost`), beside
+  // ADR 0352 (ABI 5.0): 32 bus and 64 submix plugin slots through the `myco_ext` import (a stub host, `pluginHost`), beside
   // the same slots on the catalogue's gain. The plugins' own work runs in their own modules and isn't counted here.
   "fx-plugins",
   "fx-plugins-twin",
-  // ADR 0330 (ABI 4.7): 12 buses each sending into two returns.
+  // ADR 0344 (ABI 4.7): 12 buses each sending into two returns.
   "bus-sends",
   "automation-virtual",
   "bus-automation",
@@ -161,12 +161,12 @@ const SCENES = [
   "duck-gate",
   "duck-8-gate",
   "lanes-7",
-  // ADR 0337 A4 (0345 §5): ADPCM clips decoded per voice each quantum: 256 looping voices crossing every block together,
+  // ADR 0351 A4 (0359 §5): ADPCM clips decoded per voice each quantum: 256 looping voices crossing every block together,
   // 128 at pitch 4, and the default preset's one-shots. `ADPCM_PAIRS` reports each against its int16 twin.
   "adpcm",
   "adpcm-pitch4",
   "adpcm-default",
-  // ADR 0346 (G2): generator voices beside sample twins with the same voices and `max_mixed`: 256 PolyBLEP saws and 256
+  // ADR 0360 (G2): generator voices beside sample twins with the same voices and `max_mixed`: 256 PolyBLEP saws and 256
   // pink noises (twin `gen-twin-256`), 128 synths with an LFO on the cut-off (`gen-twin-128`), 256 sfxr blips retriggered at
   // about 200 a second (`gen-blip-twin`, sample one-shots at 200 a second), and 4,096 virtual silences (`gen-silence-twin`,
   // over `gen-silence-base`'s 16 mixed voices). `GEN_PAIRS` reports each kind's cost against its twin.
@@ -182,10 +182,10 @@ const SCENES = [
   "gen-silence-base",
 ];
 
-/** ADR 0346 (G2): each generator scene -> its sample twin, the voices it plays, and the scene both stand on (`base`, null: the
+/** ADR 0360 (G2): each generator scene -> its sample twin, the voices it plays, and the scene both stand on (`base`, null: the
  *  whole count). Reported: the kind's cost per voice per quantum against its twin's (with `base`, both less the base first:
  *  the silences are virtual, beside 16 mixed voices that would dwarf them), and against the record's estimate. **Tripwire**
- *  (0346 §3): a kind costing more than `GEN_TRIPWIRE` × its twin is logged for the owner (CLAUDE.md: a tripwire, not a design
+ *  (0360 §3): a kind costing more than `GEN_TRIPWIRE` × its twin is logged for the owner (CLAUDE.md: a tripwire, not a design
  *  limit; it doesn't fail the gate, the 10 % rise on the baseline does). */
 const GEN_PAIRS = {
   "gen-osc": { twin: "gen-twin-256", voices: 256, base: null, what: "oscillator (PolyBLEP saw)", estimate: 1.0 },
@@ -196,7 +196,7 @@ const GEN_PAIRS = {
 };
 const GEN_TRIPWIRE = 1.5;
 
-/** ADR 0337 A4 (0345 §5): each ADPCM scene -> its int16 twin and the voices it decodes. Reported: the decode's cost per voice
+/** ADR 0351 A4 (0359 §5): each ADPCM scene -> its int16 twin and the voices it decodes. Reported: the decode's cost per voice
  *  per quantum (the A0 spike measured +23.0k at pitch 1, +34.3k at 1.5, in its stripped-down bench) and the worst quantum
  *  against the mean. `flat` scenes fail the gate when their worst quantum passes `ADPCM_FLAT_MAX` × their mean: their voices
  *  cross every block in the same quantum, where the rejected block-cache design spiked 9.4×. */
@@ -299,7 +299,7 @@ function readJson(path, what) {
 }
 
 /**
- * ADR 0338 (ABI 5.0): the `myco_ext` import the core calls for plugin effects, as a stub host: every effect has
+ * ADR 0352 (ABI 5.0): the `myco_ext` import the core calls for plugin effects, as a stub host: every effect has
  * instances (handles from 1), a budget of 50 instructions a frame and no log or stepped parameters, and each call uses
  * its whole grant and leaves the block as it is. What it costs in JS isn't counted (the meter counts the bench's wasm).
  */
@@ -385,7 +385,7 @@ function main() {
     console.log(`[metered] ${stamped} vs ${twin}: ${a.perQuantum.toLocaleString("en-US")} vs ${b.perQuantum.toLocaleString("en-US")}, ${delta >= 0 ? "+" : ""}${delta.toLocaleString("en-US")} instructions per quantum (limit +${TWIN_LIMIT.toLocaleString("en-US")})`);
     if (delta > TWIN_LIMIT) twinFailures.push(`${stamped} costs ${delta.toLocaleString("en-US")} instructions per quantum more than ${twin} (limit ${TWIN_LIMIT.toLocaleString("en-US")})`);
   }
-  // ADR 0337 A4: the ADPCM decode's cost per voice and its flatness.
+  // ADR 0351 A4: the ADPCM decode's cost per voice and its flatness.
   for (const [scene, { twin, voices, flat }] of Object.entries(ADPCM_PAIRS)) {
     const a = results[scene];
     const b = results[twin];
@@ -393,9 +393,9 @@ function main() {
     const peak = a.max / a.perQuantum;
     const perVoice = b ? `, ${Math.round((a.perQuantum - b.perQuantum) / voices).toLocaleString("en-US")} per voice over ${twin} (${(a.perQuantum / b.perQuantum).toFixed(2)}×; A0: +23.0k at pitch 1)` : "";
     console.log(`[metered] ${scene}: worst quantum ${peak.toFixed(3)}× its mean${perVoice}`);
-    if (flat && peak > ADPCM_FLAT_MAX) twinFailures.push(`${scene}'s worst quantum is ${peak.toFixed(2)}× its mean (limit ${ADPCM_FLAT_MAX}×): the ADPCM decode must spread over quanta (0345 §5)`);
+    if (flat && peak > ADPCM_FLAT_MAX) twinFailures.push(`${scene}'s worst quantum is ${peak.toFixed(2)}× its mean (limit ${ADPCM_FLAT_MAX}×): the ADPCM decode must spread over quanta (0359 §5)`);
   }
-  // ADR 0346 (G2): each generator kind's cost per voice against its sample twin's.
+  // ADR 0360 (G2): each generator kind's cost per voice against its sample twin's.
   for (const [scene, { twin, voices, base, what, estimate }] of Object.entries(GEN_PAIRS)) {
     const a = results[scene];
     const b = results[twin];
@@ -404,9 +404,9 @@ function main() {
     const ours = (a.perQuantum - z.perQuantum) / voices;
     const theirs = (b.perQuantum - z.perQuantum) / voices;
     const ratio = ours / theirs;
-    const est = estimate === null ? "" : `; 0346 estimated ${estimate.toFixed(2)}×`;
+    const est = estimate === null ? "" : `; 0360 estimated ${estimate.toFixed(2)}×`;
     console.log(`[metered] ${scene} (${what}): ${Math.round(ours).toLocaleString("en-US")} instructions per voice per quantum against ${twin}'s ${Math.round(theirs).toLocaleString("en-US")}: ${ratio.toFixed(2)}×${est}`);
-    if (ratio > GEN_TRIPWIRE) console.warn(`[metered] TRIPWIRE ${scene}: ${ratio.toFixed(2)}× its twin per voice, over ADR 0346's ${GEN_TRIPWIRE}× (log it and raise it with the owner; not a gate failure)`);
+    if (ratio > GEN_TRIPWIRE) console.warn(`[metered] TRIPWIRE ${scene}: ${ratio.toFixed(2)}× its twin per voice, over ADR 0360's ${GEN_TRIPWIRE}× (log it and raise it with the owner; not a gate failure)`);
   }
   // M4b: each music scene's own cost against its S7 allowance.
 

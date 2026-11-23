@@ -1,4 +1,4 @@
-// The Dialogue screen's Events tab (ADR 0341 §7): the event list by file with search, add, duplicate, rename and
+// The Dialogue screen's Events tab (ADR 0355 §7): the event list by file with search, add, duplicate, rename and
 // delete; the selected event's settings (mode, priority, when busy, interrupt, wait, cooldown, chance, avoid repeat,
 // skip missing, on interrupted); and its path table, test bench and coverage, passed in as children so each stays its
 // own view. A view over props.

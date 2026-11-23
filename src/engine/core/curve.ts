@@ -1,5 +1,5 @@
 /**
- * The engine's curve type (ADR 0158 §3, extended by ADR 0332): a list of keys mapping an input `x` to a value `y`,
+ * The engine's curve type (ADR 0158 §3, extended by ADR 0346): a list of keys mapping an input `x` to a value `y`,
  * shared by audio automation and particles. Not audio's: it lives in the core so any system can use it.
  *
  * ```jsonc
@@ -10,7 +10,7 @@
  * - Keys are sorted by `x`. Before the first key the value is the first key's `y`; after the last, the last's.
  * - A key's `interp` is the shape of the segment from it to the next key: `"linear"` (default), `"step"` (hold `y`
  *   until the next key), `"smooth"` (smoothstep), `"easeIn"` (quadratic), `"easeOut"` (quadratic).
- * - A `"bezier"` key (ADR 0332) carries two handles, offsets `[dx, dy]` from the key: `in` (toward the previous key)
+ * - A `"bezier"` key (ADR 0346) carries two handles, offsets `[dx, dy]` from the key: `in` (toward the previous key)
  *   and `out` (toward the next). The segment from a Bézier key is the cubic from the key through its `out` handle and
  *   the next key's `in` handle (a flat handle a third of the segment long, `[-span / 3, 0]`, when the next key isn't
  *   Bézier) to the next key. Each control point's x is clamped into the segment, so the curve stays a function of x;
@@ -32,7 +32,7 @@ export type CurveInterp = (typeof CURVE_INTERPS)[number];
 export const CURVE_KEY_INTERPS = [...CURVE_INTERPS, "bezier"] as const;
 export type CurveKeyInterp = (typeof CURVE_KEY_INTERPS)[number];
 
-/** Halvings of the Bézier parameter search (ADR 0332). The core uses the same count. */
+/** Halvings of the Bézier parameter search (ADR 0346). The core uses the same count. */
 export const BEZIER_STEPS = 28;
 
 /** A Bézier key's handles, offsets from the key in the curve's units. */

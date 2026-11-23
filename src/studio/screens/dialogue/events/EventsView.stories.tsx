@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0341 §7) for the Events tab's list and settings over the fixture file: add an event with a free
+// Stories (ADR 0219, 0355 §7) for the Events tab's list and settings over the fixture file: add an event with a free
 // name, rename it (a taken name is refused), change a setting, delete with a confirm.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

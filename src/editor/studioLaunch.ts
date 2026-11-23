@@ -1,4 +1,4 @@
-// Opening the Audio Studio from the editor (ADR 0327): Window > Audio Studio, and Open in Audio Studio on the files
+// Opening the Audio Studio from the editor (ADR 0341): Window > Audio Studio, and Open in Audio Studio on the files
 // the Studio opens (studioAssets.ts). On the desktop it asks Rust for the `studio` window (`create_studio_window`
 // creates it, or shows and focuses the open one) and hands it the project and asset over Tauri events
 // (studioHandoff.ts); in the browser it opens the Studio page in its own tab, the request in the URL.

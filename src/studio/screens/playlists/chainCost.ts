@@ -1,5 +1,5 @@
 /**
- * Where a playlist level's effect chain runs on the audio core and what it costs (ADR 0331 levels, ABI 4.9), as the
+ * Where a playlist level's effect chain runs on the audio core and what it costs (ADR 0345 levels, ABI 4.9), as the
  * note under a Playlists or Sequence effect chain: every level's chain (a playlist's, a nested playlist's, a sequence
  * track's or clip's) runs on a submix of its own, once per playing instance, fed by the level's voices; a delay's,
  * reverb's or chorus's tail rings on after the voices end. The cost is the catalogue's cost class per enabled effect

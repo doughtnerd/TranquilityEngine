@@ -1,4 +1,4 @@
-// ADR 0342 §7: key gathering over a project — where each key is used (UI documents' `t:` attributes, LocalizedText in
+// ADR 0356 §7: key gathering over a project — where each key is used (UI documents' `t:` attributes, LocalizedText in
 // scenes and prefabs, `Locale.t`/`Locale.text` in scripts, line tables' subtitle keys, playlist captions), and the
 // report lists built from it: missing translations, keys used but defined nowhere, keys never used, unkeyed literal
 // text in UI documents. Driven through `gatherKeys` over a fixture project of files.

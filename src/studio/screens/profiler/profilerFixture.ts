@@ -99,14 +99,14 @@ export function fixtureRecords(seconds = FIXTURE_SECONDS): CaptureRecordInit[] {
     const voices = t < 0.2 ? 0 : t < 1.5 ? 2 : t < 3.2 ? 3 : t < 5 ? 5 : t < 10.5 ? 2 : 1;
     busy += 0.6 + voices * 0.15;
     quanta += 6;
-    // ADR 0337 §6: the clip arena holds the loose clips, plus the Forest package while it is loaded (1.2 s to 9 s).
+    // ADR 0351 §6: the clip arena holds the loose clips, plus the Forest package while it is loaded (1.2 s to 9 s).
     const arenaUsedKB = 2048 + voices * 64 + (t >= 1.2 && t < 9 ? 880 : 0);
     push({ type: RecordType.STATUS, epoch: 0, frame, payload: statusBytesWith({ currentFrame: frame, liveVoices: voices, mixedVoices: voices, mixedCap: 4, busyMsTotal: busy, quantaTotal: quanta, arenaUsedKB }) });
   }
   return out;
 }
 
-/** The fixture as a stored capture file with an INDEX; `replayOf` makes it a replay capture of that take (ADR 0334). */
+/** The fixture as a stored capture file with an INDEX; `replayOf` makes it a replay capture of that take (ADR 0348). */
 export function fixtureCapture(seconds = FIXTURE_SECONDS, replayOf?: CaptureReplayOf): Uint8Array {
   const meta = { ...SAMPLE_META, names: { ...SAMPLE_META.names, ...FIXTURE_NAMES }, target: null, ...(replayOf ? { replayOf } : {}) };
   return assembleCapture(SAMPLE_HEADER, meta, fixtureRecords(seconds), { index: true });

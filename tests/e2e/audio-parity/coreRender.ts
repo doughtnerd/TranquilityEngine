@@ -27,7 +27,7 @@ import {
   type BusConfigBuses,
   type BusConfigBusesEffects,
 } from "../../../src/plugins/audio/runtime/wire.generated";
-import { resampleHrir } from "../../../src/plugins/audio/runtime/core/hrirResample";
+import { DecoderWasm } from "../../../src/plugins/audio/runtime/decoder/wasm";
 import { CoreDriver, instantiateCore, type CorePreset } from "../../../src/plugins/audio/runtime/worklet/coreDriver";
 import { makeClip, prerollFrames, QUANTUM, sceneBuses, sceneFrames, type Scene } from "./scenes";
 import type { BusEffect } from "../../../src/engine/audio/settings";
@@ -70,18 +70,17 @@ function wireEffect(e: BusEffect): BusConfigBusesEffects {
       p[0] = e.send;
       return { type: 3, p };
     case "fx":
-      throw new Error("parity: catalogue effects (ADR 0331) have no Web Audio reference");
+      throw new Error("parity: catalogue effects (ADR 0345) have no Web Audio reference");
   }
 }
 
-let hrirAsset: ArrayBuffer | null = null;
-/** The shipped HRIR table (`myco_hrir.bin`, 44.1 kHz) resampled to `rate` as `hrir.ts` does at runtime. */
+let hrirAsset: Uint8Array | null = null;
+let decoder: Promise<DecoderWasm> | null = null;
+/** The shipped HRIR table (`myco_hrir.bin`, 44.1 kHz) prepared for `rate` by the committed decoder wasm, as the decoder worker does at runtime (ADR 0331). */
 async function hrirBlob(rate: number): Promise<ArrayBuffer> {
-  if (!hrirAsset) {
-    const bytes = await readFile(new URL("../../../src/plugins/audio/runtime/wasm/myco_hrir.bin", import.meta.url));
-    hrirAsset = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  }
-  return resampleHrir(hrirAsset, rate);
+  hrirAsset ??= await readFile(new URL("../../../src/plugins/audio/runtime/wasm/myco_hrir.bin", import.meta.url));
+  decoder ??= readFile(new URL("../../../src/plugins/audio/runtime/wasm/myco_audio_decode.wasm", import.meta.url)).then((bytes) => DecoderWasm.load(bytes as Uint8Array<ArrayBuffer>));
+  return (await decoder).prepareHrir(hrirAsset, rate).buffer as ArrayBuffer;
 }
 
 export interface Render {

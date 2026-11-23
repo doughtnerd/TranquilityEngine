@@ -65,7 +65,7 @@ const ROWS: Row[] = [
     ops: [[{ op: "addEffect", bus: "Fx", index: 8, effect: lp }, "none"]],
   },
   {
-    // ADR 0330 (ABI 4.7): the core's post-fader sends a bus. The live case is `audio.json`'s (a send names a return).
+    // ADR 0344 (ABI 4.7): the core's post-fader sends a bus. The live case is `audio.json`'s (a send names a return).
     rule: "sendsPerBus",
     over: { buses: [{ name: "Master" }, { name: "Fx", parent: "Master", sends: ["R1", "R2", "R3", "R4", "R5"].map((to) => ({ to, level: 0.5 })) }, ...["R1", "R2", "R3", "R4", "R5"].map((name) => ({ name, parent: "Master" }))] },
     finding: "audio.buses[1]: a bus runs at most 4 sends; the edit is saved and applies at the next Play, where only the first 4 sends of the list run.",
@@ -90,7 +90,7 @@ describe("bus capability rules (ADR 0175)", () => {
     expect([...ROWS.map((r) => r.rule), ...CAPPED_BY_INSERTS].sort()).toEqual(Object.keys(BUS_RULES).sort());
   });
 
-  // ABI 4.6 (ADR 0331): the core runs 8 effects a bus and any number of compressors, so these two limits equal the insert
+  // ABI 4.6 (ADR 0345): the core runs 8 effects a bus and any number of compressors, so these two limits equal the insert
   // cap and its refusal always comes first; they stay as rules (a warning a smaller backend could raise) but never fire here.
   it.for(CAPPED_BY_INSERTS)("%s: its limit is the insert cap, so a full chain reports only the insert cap", (rule) => {
     expect(BUS_RULES[rule].limit).toBe(BUS_RULES.insertsPerBus.limit);

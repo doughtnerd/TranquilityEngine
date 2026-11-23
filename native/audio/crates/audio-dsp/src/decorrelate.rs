@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
-//! A stereo decorrelator (ADR 0333 per-voice spread): two cascades of second-order all-pass
+//! A stereo decorrelator (ADR 0347 per-voice spread): two cascades of second-order all-pass
 //! sections, one per output channel, whose poles interleave across 120 Hz – 16 kHz, so the two
 //! outputs of one input have the input's magnitude spectrum (an all-pass changes only phase) but
 //! phases that drift apart by turns across the band: white noise through both reads an interaural

@@ -1,4 +1,4 @@
-// ADR 0333: the base game scene's layer on the Spatial screen's plan: shapes and labels for each imported object, their
+// ADR 0347: the base game scene's layer on the Spatial screen's plan: shapes and labels for each imported object, their
 // height spans, Fit framing them, and the banner (which scene is underneath, or that it is missing).
 import { describe, expect, it } from "vitest";
 import { baseBanner, baseFramePoints, basePlanItems } from "./baseLayer";

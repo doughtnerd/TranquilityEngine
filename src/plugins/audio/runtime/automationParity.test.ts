@@ -135,7 +135,7 @@ const volumeScenes: Scene[] = [
     actions: [act(2, 0, 5.5, 40)],
     quanta: 130,
   },
-  // ADR 0332: Bézier keys. Handles in and out of a key, a flat third-long handle into a plain key, control x clamped
+  // ADR 0346: Bézier keys. Handles in and out of a key, a flat third-long handle into a plain key, control x clamped
   // into the segment (a handle reaching past it) and an overshoot above both keys.
   {
     name: "volume, Bézier segments (handles both sides, a flat handle into a plain key), a seek from 0 to 1",

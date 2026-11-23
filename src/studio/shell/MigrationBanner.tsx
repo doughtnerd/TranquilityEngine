@@ -1,4 +1,4 @@
-// The banner over the Playlists screen while the open project's old audio events aren't migrated (ADR 0329): it says the
+// The banner over the Playlists screen while the open project's old audio events aren't migrated (ADR 0343): it says the
 // project is read-only and why, and Migrate now runs the migration (`audioMigration.ts`).
 import { migrationBanner, type PendingAudioMigration } from "./audioMigration";
 

@@ -1,4 +1,4 @@
-// The Samples screen's render worker (ADR 0328 "rendered offline in a worker"): runs the offline sample render
+// The Samples screen's render worker (ADR 0342 "rendered offline in a worker"): runs the offline sample render
 // (`renderSample`, the Rust kernels in `myco_audio_offline.wasm`) off the page and replies with the rendered PCM
 // (`sampleRenderClient.ts` is the client).
 import { renderSample } from "../../../engine/audio/sample/sampleRender";

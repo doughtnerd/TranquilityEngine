@@ -1,4 +1,4 @@
-// The Takes panel's view (ADR 0334; the prototype's takes tree): the project's takes by folder in the editor's
+// The Takes panel's view (ADR 0348; the prototype's takes tree): the project's takes by folder in the editor's
 // `TreeView` (or, while searching, the matches by path), a search field, Open take file… (copies files into the
 // project's takes folder), and per take Open, Rename (F2), Move to… and Delete (Del) through a context menu. The empty
 // state says how takes are recorded. A view over props: the panel wires the file actions.

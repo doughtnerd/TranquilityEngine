@@ -1,5 +1,5 @@
 /**
- * What the sample analysers find in a sample's audio (ADR 0328 "detection of what's missing"): its tempo
+ * What the sample analysers find in a sample's audio (ADR 0342 "detection of what's missing"): its tempo
  * (`tempo.ts`) and its root note (`pitch.ts`), each only when asked for. The Studio runs this on a worker; it is the one
  * entry point the worker calls.
  *

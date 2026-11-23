@@ -24,7 +24,7 @@ export { defineBuffer, defineComponent, f32, i32, u8, type BufferDef, type Colum
 export { defineSystem, type Phase, type Row, type SystemContext, type SystemDef } from "./core/systems";
 export type { Rows } from "./core/rows";
 export { defineWorldService, worldService, type WorldServiceKey } from "./core/worldServices";
-export type { ProjectSettings, ProjectSettingsInput, ScaleMode } from "./core/settings";
+export type { InputJoinPolicy, ProjectSettings, ProjectSettingsInput, ScaleMode } from "./core/settings";
 export type { AntialiasMode, GraphicsSettings, ParticleQuality, QualityTier, ShaderLevel, ShadowQuality } from "./core/graphics";
 export { Graphics } from "./render/Graphics";
 
@@ -48,8 +48,23 @@ export { CUBEMAP_FORMAT, parseCubemap, formatCubemap, type CubemapFaces, type Cu
 
 export type { NavAgentType, NavArea, NavigationSettings } from "./nav/settings";
 
-// Text localisation (ADR 0342 §6): string keys resolved through the language's fallback chain, ICU messages on `Intl`.
+// Text localisation (ADR 0356 §6): string keys resolved through the language's fallback chain, ICU messages on `Intl`.
 export { Locale, LocalText, type LocaleLanguage, type MessageArg, type MessageArgs } from "./localisation/Locale";
 
 export { Input } from "./input/Input";
+export { ActionEvents, ActionPhase, axis, axisOf, button, chordOf, defineActions, dpad, vec2, vec3, type ActionEvent, type ActionEventPhase, type ActionOptions, type ActionReader, type ActionSetDef, type ActionSetOptions, type ActionSetView, type ActionType, type BindingSpec } from "./input/actions";
+export { DEFAULT_CONTEXT, InputContext, defineInputContext, type InputContextSpec, type MappingSpec, type ModifierSpec, type TriggerSpec, type TriggerType } from "./input/contexts";
+export type { CustomTriggerSpec } from "./input/contextTypes";
+export { TriggerState, defineTrigger, type CustomTrigger, type TriggerFactory, type TriggerStateValue, type TriggerWorld } from "./input/triggers";
+export { ConnectionPlayer } from "./input/inputNet";
+export { GAMEPAD_AXES, GAMEPAD_BUTTONS, PEN_BUTTONS, TOUCH_SLOTS, type DeviceFamily } from "./input/controls";
+export { DeviceEvents, DeviceKind, GamepadState, InputDevice, PenState, TouchState, type DeviceEvent } from "./input/deviceEntities";
+export type { DeviceEventSink, GamepadInfo } from "./input/devices";
+export type { TriggerEffect } from "./input/triggerEffects";
+export { InputPlayers, PlayerInput } from "./input/facade";
+export { ControlledBy, InputPlayer, PlayerJoined, PlayerLeft, type PlayerChange } from "./input/players";
+export type { InputAccessibility, InputProfileData, InputProfileRemoval } from "./input/profiles";
+export type { InputPrompt } from "./input/prompts";
+export { InputGlyphs, type InputGlyph } from "./input/glyphs";
+export { RebindRequest, RebindResults, type RebindCancelReason, type RebindOptions, type RebindResult, type UnbindOptions } from "./input/rebind";
 export { Storage, MemoryStorage, type StorageBackend } from "./platform/Storage";

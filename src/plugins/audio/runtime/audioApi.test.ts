@@ -317,9 +317,9 @@ describe("Audio public surface (api-and-models §1)", () => {
     });
   });
 
-  // ADR 0330: the runtime runs audio.json's mix; game code starts and stops snapshots, which blend, and parameters drive
+  // ADR 0344: the runtime runs audio.json's mix; game code starts and stops snapshots, which blend, and parameters drive
   // conditions snapshots, all through the public API.
-  describe("snapshots of the audio.json mix (ADR 0330)", () => {
+  describe("snapshots of the audio.json mix (ADR 0344)", () => {
     const MIX = {
       format: "myco.audio@1",
       parameters: [{ name: "depth", min: 0, max: 10, default: 0 }],
@@ -429,7 +429,7 @@ describe("Audio public surface (api-and-models §1)", () => {
       const spy = vi.spyOn(r.backend, "debug");
       const info = Audio.debug();
       expect(spy).toHaveBeenCalledTimes(1);
-      // ADR 0337 §9: and the packages (none in this project); ADR 0340 §4, 0341 §5: the languages and the dialogue channels.
+      // ADR 0351 §9: and the packages (none in this project); ADR 0354 §4, 0355 §5: the languages and the dialogue channels.
       expect(info).toEqual({
         ...spy.mock.results[0]!.value, events: [], eventTotals: { lateStarts: 0 }, music: [], musicTotals: expect.objectContaining({ poolUsed: 0, groupsLate: 0, refusals: {} }), packages: [],
         language: { current: "en", subtitles: "en", pending: null, missing: [] },

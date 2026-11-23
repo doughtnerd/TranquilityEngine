@@ -1,6 +1,6 @@
 # Audio Studio: design plan
 
-Builds records [0327](../../decisions/0327-the-audio-studio-is-its-own-app-on-the-editors-frontend-and-replaces-the-editors-audio-panels.md)–[0335](../../decisions/0335-studio-screens-are-built-from-one-component-kit.md).
+Builds records [0341](../../decisions/0341-the-audio-studio-is-its-own-app-on-the-editors-frontend-and-replaces-the-editors-audio-panels.md)–[0349](../../decisions/0349-studio-screens-are-built-from-one-component-kit.md).
 Source: the owner's prototype canvas "Audio Design Studio – Prototype UI v2" (Studio page: Samples, Playlists with the
 Sequence view, Mixer, Spatial, Take, Profiler, Curves; Workflow Trials page: 11 journeys). Archived boards are
 superseded and not part of the spec.
@@ -22,17 +22,17 @@ superseded and not part of the spec.
 
 | Prototype | Engine today | Becomes | Record |
 | --- | --- | --- | --- |
-| Sample (markers, loops, tempo, root, trim, normalise, baked effects, forks) | clip + sidecar (`volume`, `stream`, loop points) | sidecar `sample` block; `*.sample.json` for derived samples | 0328 |
-| Playlists: Clip, Queue, Switch, Blend 1D/2D, Layer | event containers `clip random sequence switch blend layer sustain` | `*.playlist.json` | 0329 |
-| Sequence (timeline) | nothing (music `segment` is closest) | playlist `type: "sequence"` | 0329 |
-| Switch change rules (beat, bar, Exit marker, transition) | music transition rules | Switch `rules`, run by the music scheduler | 0329 |
-| Mixer: buses, returns, VCAs, inserts, sends, automation, ducking, snapshots | `project.json` `audio` section | `audio.json` | 0330 |
-| Effects at sample, clip, track/playlist, bus | four bus effect types | one catalogue, four levels | 0331 |
-| Curves window (time, parameter, distance) | `core/curve.ts` (parameter keys), `CurveEditor.tsx` | Bézier keys, time parameters, one curve editor | 0332 |
-| Spatial: attenuation curves, audio zones, test scenes | min/max + rolloff; no zones; Sound Lab sample | attenuation curves and presets, `AudioZone`, `*.audioscene.json` | 0333 |
-| Take | nothing (captures are telemetry) | `*.mycotake` (requests + profile in one file) + notes | 0334 |
-| Profiler | `.mycap` + Profiler panel | `.mycap` extended + Profiler screen | 0334 |
-| Shell, trees, faders, rows, history | editor dock, TreeView, UndoTree, controls | one kit | 0335 |
+| Sample (markers, loops, tempo, root, trim, normalise, baked effects, forks) | clip + sidecar (`volume`, `stream`, loop points) | sidecar `sample` block; `*.sample.json` for derived samples | 0342 |
+| Playlists: Clip, Queue, Switch, Blend 1D/2D, Layer | event containers `clip random sequence switch blend layer sustain` | `*.playlist.json` | 0343 |
+| Sequence (timeline) | nothing (music `segment` is closest) | playlist `type: "sequence"` | 0343 |
+| Switch change rules (beat, bar, Exit marker, transition) | music transition rules | Switch `rules`, run by the music scheduler | 0343 |
+| Mixer: buses, returns, VCAs, inserts, sends, automation, ducking, snapshots | `project.json` `audio` section | `audio.json` | 0344 |
+| Effects at sample, clip, track/playlist, bus | four bus effect types | one catalogue, four levels | 0345 |
+| Curves window (time, parameter, distance) | `core/curve.ts` (parameter keys), `CurveEditor.tsx` | Bézier keys, time parameters, one curve editor | 0346 |
+| Spatial: attenuation curves, audio zones, test scenes | min/max + rolloff; no zones; Sound Lab sample | attenuation curves and presets, `AudioZone`, `*.audioscene.json` | 0347 |
+| Take | nothing (captures are telemetry) | `*.mycotake` (requests + profile in one file) + notes | 0348 |
+| Profiler | `.mycap` + Profiler panel | `.mycap` extended + Profiler screen | 0348 |
+| Shell, trees, faders, rows, history | editor dock, TreeView, UndoTree, controls | one kit | 0349 |
 
 ## Gaps resolved toward the engine (minor; say if any is wrong)
 
@@ -53,11 +53,11 @@ superseded and not part of the spec.
 ## Owner answers to the plan's questions (2026-11-22)
 
 1. **Snapshots** hold level offsets plus overrides of any bus effect parameter; today's snapshot low-pass migrates into
-   a bus low-pass effect the snapshot overrides (0330).
-2. **Samples are files**: rename and delete act on the file, with reference rewriting, as for every asset (0328).
+   a bus low-pass effect the snapshot overrides (0344).
+2. **Samples are files**: rename and delete act on the file, with reference rewriting, as for every asset (0342).
 3. **v1 without a live link**: take replay stands in for the Game session; Mixer and Spatial changes are heard through
-   the Studio's runtime (0327).
-4. **macOS**: the Studio always uses the Rust core backend and says why if it can't start (0327).
+   the Studio's runtime (0341).
+4. **macOS**: the Studio always uses the Rust core backend and says why if it can't start (0341).
 
 ## Milestones
 
@@ -66,17 +66,17 @@ specs (`tests/e2e/studio-*.spec.ts`), and `implementation-status.md` rows.
 
 | # | Milestone | Contents | Records |
 | --- | --- | --- | --- |
-| M0 | Studio shell | `studio.html`, `src/studio/` boot over a project, headless audio runtime, shell (nav, docks with per-host layout store, device menu and calibration, player bar frame, status bar, router, keymap), generic kit parts, theme tokens, editor Window > Audio Studio and Open in Audio Studio (Tauri window + handoff), standalone Tauri config, project file watching and locks | 0327, 0335 |
-| M1 | Data model and migration | `audio.json` (move the section), playlist parse/write/references/lint, sample block and `*.sample.json`, attenuation format, Bézier curves (TS and Rust parity), migration of events, music and the mix | 0328–0330, 0332, 0333 |
-| M2 | Core | time parameters, loop modes, instance submixes, effect DSP catalogue, returns, VCA lane, mute, snapshot blending; wire and ABI versions, goldens, gates | 0328, 0330–0332 |
-| M3 | Samples screen | import with review, timeline, markers, loops and seam, trim, tempo and root, normalise, outline, inspector with file diff, changed-on-disk merge, source versions, forks and snippets, baked effects and offline render, Write to WAV | 0328 |
-| M4 | Playlists screen and runtime | playlist runtime (Clip, Queue, Switch, Blend, Layer), audition, Plays now and Voices, voice curves, effects, playback rules, output routing | 0329, 0331 |
-| M5 | Sequence and music | Sequence view and runtime (loops, hold points, sync and async clips, automation), musical clock from the scheduler, Switch rules at beat/bar/exit with transitions, stingers | 0329, 0332 |
-| M6 | Mixer screen | buses, returns, VCAs, inserts, sends, automation, ducking, snapshots with triggers, gain lanes, loudness, Compare, live board | 0330 |
-| M7 | Spatial | attenuation curves at runtime, `AudioZone` component (runtime, Inspector, gizmo), test scenes and the Spatial screen | 0333 |
-| M8 | Takes | recorder (requests plus the capture recorder into one file), format and reader, editor Record take, `Audio.take` and the export flag, replay driver, Take screen, annotations | 0334 |
-| M9 | Profiler | capture extensions (pick paths, loudness warnings, MIXOP), Profiler screen, capturing a take replay | 0334 |
-| M10 | Retire and document | remove the editor's audio panels, rewrite the audio guides, Journeys j1–j11 green end to end | 0327 |
+| M0 | Studio shell | `studio.html`, `src/studio/` boot over a project, headless audio runtime, shell (nav, docks with per-host layout store, device menu and calibration, player bar frame, status bar, router, keymap), generic kit parts, theme tokens, editor Window > Audio Studio and Open in Audio Studio (Tauri window + handoff), standalone Tauri config, project file watching and locks | 0341, 0349 |
+| M1 | Data model and migration | `audio.json` (move the section), playlist parse/write/references/lint, sample block and `*.sample.json`, attenuation format, Bézier curves (TS and Rust parity), migration of events, music and the mix | 0342–0344, 0346, 0347 |
+| M2 | Core | time parameters, loop modes, instance submixes, effect DSP catalogue, returns, VCA lane, mute, snapshot blending; wire and ABI versions, goldens, gates | 0342, 0344–0346 |
+| M3 | Samples screen | import with review, timeline, markers, loops and seam, trim, tempo and root, normalise, outline, inspector with file diff, changed-on-disk merge, source versions, forks and snippets, baked effects and offline render, Write to WAV | 0342 |
+| M4 | Playlists screen and runtime | playlist runtime (Clip, Queue, Switch, Blend, Layer), audition, Plays now and Voices, voice curves, effects, playback rules, output routing | 0343, 0345 |
+| M5 | Sequence and music | Sequence view and runtime (loops, hold points, sync and async clips, automation), musical clock from the scheduler, Switch rules at beat/bar/exit with transitions, stingers | 0343, 0346 |
+| M6 | Mixer screen | buses, returns, VCAs, inserts, sends, automation, ducking, snapshots with triggers, gain lanes, loudness, Compare, live board | 0344 |
+| M7 | Spatial | attenuation curves at runtime, `AudioZone` component (runtime, Inspector, gizmo), test scenes and the Spatial screen | 0347 |
+| M8 | Takes | recorder (requests plus the capture recorder into one file), format and reader, editor Record take, `Audio.take` and the export flag, replay driver, Take screen, annotations | 0348 |
+| M9 | Profiler | capture extensions (pick paths, loudness warnings, MIXOP), Profiler screen, capturing a take replay | 0348 |
+| M10 | Retire and document | remove the editor's audio panels, rewrite the audio guides, Journeys j1–j11 green end to end | 0341 |
 | Later | Live link | connect the Studio to a running game or editor (telemetry plus control) through the host seams | new record |
 
 M2 runs beside M1 and M3; M3 needs only part of M2 (offline render, loop modes) to finish.

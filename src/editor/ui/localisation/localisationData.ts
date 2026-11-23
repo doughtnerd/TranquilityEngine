@@ -1,5 +1,5 @@
-// The Localisation panel's view of the project (ADR 0342 §9): its string tables with their translations, as the
-// exchange modules read them (`ExchangeProject`), and who owns each table (0327, 0342 §9, 0343 §1): the editor owns
+// The Localisation panel's view of the project (ADR 0356 §9): its string tables with their translations, as the
+// exchange modules read them (`ExchangeProject`), and who owns each table (0341, 0356 §9, 0357 §1): the editor owns
 // string tables, except those audio data names — each line table's string table and `audio.json`'s captions table —
 // which the Studio owns. Each app writes the other's tables only while that app holds no lock on the project; until
 // then they show read-only with "Edit in the Studio".
@@ -46,7 +46,7 @@ export function exchangeProjectOf(languages: LanguageSettings, files: Iterable<r
   return { languages, tables: list };
 }
 
-/** The string tables audio data names (0343 §1, §4): each line table's string table and the captions table. */
+/** The string tables audio data names (0357 §1, §4): each line table's string table and the captions table. */
 export function studioOwnedTables(files: Iterable<readonly [string, unknown]>): Set<string> {
   const out = new Set<string>();
   let captions = DEFAULT_CAPTIONS_TABLE;
@@ -65,7 +65,7 @@ export type LockState = "held" | "none" | "unknown";
 export type TableAccess = { readonly editable: true } | { readonly editable: false; readonly reason: string; readonly editInStudio: boolean };
 
 /**
- * The ownership rule (0342 §9): the editor writes its own tables whenever the project can be saved, and the Studio's
+ * The ownership rule (0356 §9): the editor writes its own tables whenever the project can be saved, and the Studio's
  * (`studioOwned`) only while the Studio holds no lock; translations follow their table.
  */
 export function tableAccess(f: { readonly canSave: boolean; readonly studioOwned: boolean; readonly studioLock: LockState }): TableAccess {

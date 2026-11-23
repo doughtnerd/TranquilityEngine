@@ -1,6 +1,6 @@
 // The Scene toolbar's audio overlay popover (ADR 0142), a toolbar item the Audio plugin registers: whether the occlusion
 // overlay (`OcclusionOverlay.ts`) draws while the game plays. The Audio Debug panel held this checkbox until the editor's
-// audio panels moved to the Audio Studio (ADR 0327).
+// audio panels moved to the Audio Studio (ADR 0341).
 import { occlusionOverlayOn } from "./OcclusionOverlay";
 
 export function AudioOverlayForm() {

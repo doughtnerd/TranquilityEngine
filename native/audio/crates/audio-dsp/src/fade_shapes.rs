@@ -1,4 +1,4 @@
-//! The playlist fade-shape set (ADR 0336, `src/engine/audio/playlist/fadeShapes.ts`) as crossfade
+//! The playlist fade-shape set (ADR 0350, `src/engine/audio/playlist/fadeShapes.ts`) as crossfade
 //! gains, for the core's sample-loop seam and exit crossfades (ABI 4.9, the wire's `FADE_SHAPE_*`).
 //!
 //! A crossfade at phase `u` (0..1) reads the incoming side at [`fade_in`] and the outgoing side at

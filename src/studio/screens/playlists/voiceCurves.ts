@@ -1,4 +1,4 @@
-// An entry's voice curves in the shared curve editor (ADR 0329 entry `curves`, ADR 0332; the prototype's Voice curves):
+// An entry's voice curves in the shared curve editor (ADR 0343 entry `curves`, ADR 0346; the prototype's Voice curves):
 // a dialog of kind "time" with a lane per target (gain dB, pitch st, pan %, low-pass and high-pass Hz on a log scale),
 // each driven by voice time or by one of the playlist's parameters (local or global), and the dialog's result turned
 // back into the entry's `curves`: only lanes that changed are written, a lane left flat at its plain value and not

@@ -1,4 +1,4 @@
-// ADR 0336: blend regions and weight curves, fade shapes, post-exit and loop tails, bridge fades, pre-entry and
+// ADR 0350: blend regions and weight curves, fade shapes, post-exit and loop tails, bridge fades, pre-entry and
 // beat-quantised automation, through `Audio.play` on the fake backend's one heard clock. Gains are read from what the
 // backend was asked to do (voice volumes, stamped fades and gain ramps), evaluated on the audio clock.
 import { describe, expect, it } from "vitest";
@@ -89,7 +89,7 @@ describe("Blend regions (1D)", () => {
     expect(voiceOf("b.wav").volume).toBeCloseTo(0.25 * 0.25 * (3 - 0.5), 6);
   });
 
-  it("layer mode: a layer with a region ends; entries without one keep ADR 0329's weights", async () => {
+  it("layer mode: a layer with a region ends; entries without one keep ADR 0343's weights", async () => {
     await kit.boot({
       "b.playlist.json": BLEND([
         sample("a.wav", { x: 0 }),

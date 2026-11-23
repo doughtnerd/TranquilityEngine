@@ -1,5 +1,5 @@
 /**
- * Contract (ADR 0333): a spatial test scene, `*.audioscene.json` (`myco.audioscene@1`), a Studio asset. The Studio plays
+ * Contract (ADR 0347): a spatial test scene, `*.audioscene.json` (`myco.audioscene@1`), a Studio asset. The Studio plays
  * one by building a headless World from it with the engine's own audio components. Coordinates are metres in the
  * engine's world space (x right, y up, z forward; the Studio's top-down view shows x/z, height is y).
  *

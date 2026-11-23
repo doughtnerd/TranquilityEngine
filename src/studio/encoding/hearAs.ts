@@ -1,4 +1,4 @@
-// Hear as (ADR 0337 §6): the Studio's runtime plays what a platform would ship instead of the source. Choosing Web,
+// Hear as (ADR 0351 §6): the Studio's runtime plays what a platform would ship instead of the source. Choosing Web,
 // Desktop or Android converts each sound the Studio asks for (`prepare`, on demand, through the conversion service and its
 // cache) and serves the converted bytes under the sound's own project path through an asset source placed ahead of the
 // project's (`Assets.addSource`, the public seam every play resolves through), so auditions, playlists and take replay

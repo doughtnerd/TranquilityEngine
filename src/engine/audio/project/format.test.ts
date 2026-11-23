@@ -160,7 +160,7 @@ describe("parseAudioProject", () => {
     expect(problems).toHaveLength(5);
   });
 
-  it("parses effects by the catalogue at the bus level: ranges clamped, at most 8 per owner (ADR 0331), other levels' types kept with a problem", () => {
+  it("parses effects by the catalogue at the bus level: ranges clamped, at most 8 per owner (ADR 0345), other levels' types kept with a problem", () => {
     const { project, problems } = parseAudioProject({
       format: AUDIO_PROJECT_FORMAT,
       buses: [{ name: "Master", effects: [
@@ -206,7 +206,7 @@ describe("parseAudioProject", () => {
   });
 });
 
-describe("coreSectionOf (the backends' view, ADR 0330)", () => {
+describe("coreSectionOf (the backends' view, ADR 0344)", () => {
   const { project } = parseAudioProject(FULL);
 
   it("keeps each fader alone (the mixer runs VCAs as a lane) and warns only of what nothing in the runtime runs", () => {
@@ -215,7 +215,7 @@ describe("coreSectionOf (the backends' view, ADR 0330)", () => {
     expect(parseAudioSettings(settings).problems).toEqual([]);
     expect(settings.buses.find((b) => b.name === "SFX")!.volume).toBeCloseTo(Math.pow(10, -2 / 20), 9);
     const text = warnings.join("\n");
-    expect(text).not.toMatch(/eq effect "fx1"/); // ADR 0331 (ABI 4.6): the core's bus chain runs the eq
+    expect(text).not.toMatch(/eq effect "fx1"/); // ADR 0345 (ABI 4.6): the core's bus chain runs the eq
     expect(settings.buses.find((b) => b.name === "SFX")!.effects[0]).toEqual({ type: "fx", fx: "eq", params: { low: 3, mid: 0, high: 0 } });
     expect(text).not.toMatch(/on conditions/); // the mixer runs snapshots
     expect(text).not.toMatch(/send:Reverb/); // and send automation
@@ -230,13 +230,13 @@ describe("coreSectionOf: the old section shape's mapping", () => {
     const warnings: string[] = [];
     const settings = coreSectionOf(project, warnings);
     expect(parseAudioSettings(settings).problems).toEqual([]);
-    // ADR 0333: `bedBeyond` reaches the runtime as `bed.beyond` (the core backend's panner pick runs it), with no warning.
+    // ADR 0347: `bedBeyond` reaches the runtime as `bed.beyond` (the core backend's panner pick runs it), with no warning.
     expect(settings.bed.beyond).toBe(40);
     expect(parseAudioSettings(settings).settings.bed.beyond).toBe(40);
     expect(warnings.join("\n")).not.toMatch(/bedBeyond/);
   });
 
-  it("carries the instance submix pool to the runtime's voices (ADR 0331), and the runtime's parse keeps it", () => {
+  it("carries the instance submix pool to the runtime's voices (ADR 0345), and the runtime's parse keeps it", () => {
     expect(coreSectionOf({ ...project, settings: { ...project.settings, submixes: 32 } }).voices.submixes).toBeUndefined(); // the default
     const eight = coreSectionOf({ ...project, settings: { ...project.settings, submixes: 8 } });
     expect(eight.voices.submixes).toBe(8);
@@ -249,7 +249,7 @@ describe("coreSectionOf: the old section shape's mapping", () => {
     const settings = coreSectionOf(project);
     expect(settings.buses.map((b) => b.name)).toEqual(["Master", "Music", "SFX", "Vehicles", "Reverb"]);
     const sfx = settings.buses.find((b) => b.name === "SFX")!;
-    // The eq runs on the core as a catalogue effect (ADR 0331, ABI 4.6); no reverb send effect: a send.
+    // The eq runs on the core as a catalogue effect (ADR 0345, ABI 4.6); no reverb send effect: a send.
     expect(sfx.effects.map((e) => e.type)).toEqual(["fx"]);
     expect(sfx.effects[0]).toMatchObject({ type: "fx", fx: "eq" });
     expect(sfx.sends).toEqual([{ to: "Reverb", level: expect.closeTo(Math.pow(10, -12 / 20), 9) }]);

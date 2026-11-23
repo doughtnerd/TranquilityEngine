@@ -101,7 +101,7 @@ export interface MenuActions {
   /** Open the Add Panel dialog (ADR 0174). */
   addPanel(): void;
   resetLayout(): void;
-  /** Open the Audio Studio on the open project (ADR 0327): its window on the desktop, a tab in the browser. */
+  /** Open the Audio Studio on the open project (ADR 0341): its window on the desktop, a tab in the browser. */
   openAudioStudio(): void;
   applyLayout(file: string | null): void;
   saveLayout(): void;
@@ -215,7 +215,7 @@ function createMenu(s: MenuState): Menu {
 /**
  * One item per panel type, ticked when one is showing: picking it shows the panel, adding it back when it was
  * closed (ADR 0174). Then Add Panel… (any panels, a second copy included) and Reset Layout, then the Audio Studio,
- * its own app (ADR 0327).
+ * its own app (ADR 0341).
  */
 function windowMenu(s: MenuState, a: MenuActions): Menu {
   const panels: MenuEntry[] = [...s.panels.keys()].map((p) => {

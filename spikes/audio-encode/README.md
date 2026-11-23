@@ -1,6 +1,6 @@
-# ADR 0337 spike A0: encoder, Opus decoder size, ADPCM voice cost
+# ADR 0351 spike A0: encoder, Opus decoder size, ADPCM voice cost
 
-The results and recommendations are in [docs/design/audio-studio/spikes/0337-a0.md](../../docs/design/audio-studio/spikes/0337-a0.md). This folder holds the code and the raw results (`results/*.jsonl`). Nothing here is part of a shipped build, and it sits outside `native/audio/` so the audio core's source hash (every `*.rs` and `Cargo.toml` under `native/audio/`) is unchanged.
+The results and recommendations are in [docs/design/audio-studio/spikes/0351-a0.md](../../docs/design/audio-studio/spikes/0351-a0.md). This folder holds the code and the raw results (`results/*.jsonl`). Nothing here is part of a shipped build, and it sits outside `native/audio/` so the audio core's source hash (every `*.rs` and `Cargo.toml` under `native/audio/`) is unchanged.
 
 | Folder | What |
 |---|---|

@@ -1,5 +1,5 @@
 /**
- * Playlist lint (ADR 0329): non-fatal warnings the Studio shows beside a playlist. The parse (`format.ts`) already
+ * Playlist lint (ADR 0343): non-fatal warnings the Studio shows beside a playlist. The parse (`format.ts`) already
  * repaired what the runtime can't play; these are files that play, but not the way their author likely meant:
  *
  * - `noTempoSource`: a Switch change or a stinger waits for a beat or bar, but the playing entry has no tempo (no sequence
@@ -13,18 +13,18 @@
  * - `trackKindMismatch`: a sample clip on a playlist track or a playlist clip on an audio track;
  * - `danglingEffectTarget`: automation of an effect (or a parameter) its owner's chain doesn't have (a clip's, a
  *   track's, or a playlist's own instance-level automation against the playlist's `effects`);
- * - `quantizeIgnored` (ADR 0336): a quantised lane or entry voice curve keyed on time, or a lane of an effect parameter
+ * - `quantizeIgnored` (ADR 0350): a quantised lane or entry voice curve keyed on time, or a lane of an effect parameter
  *   the voice doesn't carry (only low-pass and high-pass cutoff and a gain effect's gain are; it follows its parameter);
- * - `quantizeNoTempo` (ADR 0336): a quantised lane or entry voice curve in a playlist with no tempo (it moves at once);
- * - `regionIgnored` (ADR 0336): a region on an entry of a 2D Blend (regions are 1D; 2D shapes by weight curves);
- * - `tailWithoutExit` (ADR 0336): a sequence loop with `tail` but no Exit marker after its end (it has nothing to ring);
- * - `generatorNeverEnds` (ADR 0346): a one-shot playlist plays an endless generator (an oscillator or synth with no
+ * - `quantizeNoTempo` (ADR 0350): a quantised lane or entry voice curve in a playlist with no tempo (it moves at once);
+ * - `regionIgnored` (ADR 0350): a region on an entry of a 2D Blend (regions are 1D; 2D shapes by weight curves);
+ * - `tailWithoutExit` (ADR 0350): a sequence loop with `tail` but no Exit marker after its end (it has nothing to ring);
+ * - `generatorNeverEnds` (ADR 0360): a one-shot playlist plays an endless generator (an oscillator or synth with no
  *   length) outside a sequence;
- * - `generatorClipNoLength` (ADR 0346): an endless generator in a sequence clip of length 0;
- * - `genTargetUnknown` (ADR 0346): a `gen:<param>` curve or lane its generator's kind doesn't have;
- * - `genTargetIgnored` (ADR 0346): a `gen:` lane on a playlist's own or a track's automation (they act on the
+ * - `generatorClipNoLength` (ADR 0360): an endless generator in a sequence clip of length 0;
+ * - `genTargetUnknown` (ADR 0360): a `gen:<param>` curve or lane its generator's kind doesn't have;
+ * - `genTargetIgnored` (ADR 0360): a `gen:` lane on a playlist's own or a track's automation (they act on the
  *   instance, not a voice), or a `gen:` curve on an entry or clip that plays no generator;
- * - `genCurveNotStep` (ADR 0346): a curve on a choice parameter (`waveform`) with a key that isn't a step.
+ * - `genCurveNotStep` (ADR 0360): a curve on a choice parameter (`waveform`) with a key that isn't a step.
  *
  * Embedded playlists are linted too, with their place in `where`. What the Studio knows about samples and linked
  * playlists comes in through `LintContext`; without it the rules that need it stay quiet rather than guess.
@@ -57,7 +57,7 @@ export interface LintContext {
   sampleTempo?(path: string): { bpm: number } | null | undefined;
   /** A linked playlist, parsed; null or undefined when it can't be read. */
   playlist?(path: string): PlaylistBody | null | undefined;
-  /** ADR 0346: a linked generator (`*.generator.json`), parsed; null or undefined when it can't be read. */
+  /** ADR 0360: a linked generator (`*.generator.json`), parsed; null or undefined when it can't be read. */
   generator?(path: string): GeneratorBody | null | undefined;
 }
 
@@ -77,8 +77,8 @@ export function lintPlaylist(body: PlaylistBody, ctx: LintContext = {}): Playlis
   const tempoOfEntry = (e: Entry, seen: Set<string>): Tri => {
     if (e.kind === "sample") return tempoOfSample(e.sample);
     if (e.kind === "embedded") return tempoOfBody(e.embedded, seen);
-    if (e.kind === "line") return "unknown"; // its file is chosen when it plays (ADR 0340 §5)
-    if (e.kind === "generator") return "no"; // a generator has no tempo (ADR 0346)
+    if (e.kind === "line") return "unknown"; // its file is chosen when it plays (ADR 0354 §5)
+    if (e.kind === "generator") return "no"; // a generator has no tempo (ADR 0360)
     if (seen.has(e.playlist)) return "unknown";
     const linked = ctx.playlist?.(e.playlist);
     return linked ? tempoOfBody(linked, new Set([...seen, e.playlist])) : "unknown";
@@ -232,7 +232,7 @@ export function lintPlaylist(body: PlaylistBody, ctx: LintContext = {}): Playlis
 }
 
 /**
- * ADR 0346 §4: the generator rules, over the same tree (embedded playlists, stingers, transitions, sequence clips).
+ * ADR 0360 §4: the generator rules, over the same tree (embedded playlists, stingers, transitions, sequence clips).
  * A linked generator's kind and parameters come from `LintContext.generator`; unknown, its rules stay quiet.
  */
 function lintGenerators(root: PlaylistBody, ctx: LintContext, add: (code: PlaylistLintCode, where: string, message: string) => void): void {

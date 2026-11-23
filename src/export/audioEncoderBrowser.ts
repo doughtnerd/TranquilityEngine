@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0337 §4–§6, 0345 §3): the audio encoder in the editor and the Studio — Web Workers
+ * Internal (ADR 0351 §4–§6, 0359 §3): the audio encoder in the editor and the Studio — Web Workers
  * (`audioEncoderBrowser.worker.ts`), spawned on demand, at most [`STUDIO_ENCODE_CONCURRENCY`] (2) encoding at once.
  */
 import { createEncoderPool, STUDIO_ENCODE_CONCURRENCY, type AudioEncoder, type EncoderThread, type ThreadReply } from "./audioEncoder";

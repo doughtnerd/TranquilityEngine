@@ -5,6 +5,7 @@
 import type { FileSystem } from "../engine/platform/FileSystem";
 import { hashText } from "./document/patch";
 import { joinPath } from "./projectPaths";
+import { SCRIPT_CHECK } from "../scriptCompiler.mjs";
 
 /** Where the engine's declarations go in a project, served to TypeScript as the `"myco"` package. */
 const TYPES_DIR = ".myco/types/myco";
@@ -13,14 +14,8 @@ const TYPES_DIR = ".myco/types/myco";
 function projectTsconfig(): string {
   const config = {
     compilerOptions: {
-      target: "ES2022",
-      module: "ESNext",
-      moduleResolution: "Bundler",
-      lib: ["ES2022", "DOM"],
-      strict: true,
+      ...SCRIPT_CHECK, // as the Code panel checks scripts and every host compiles them (ADR 0332)
       noEmit: true,
-      useDefineForClassFields: true,
-      resolveJsonModule: true,
       skipLibCheck: true,
       // "tranquility": the engine's former name (ADR 0037), for scripts written before the rename.
       // "myco/editor": the editor SDK, for plugins' editor halves (ADR 0139).

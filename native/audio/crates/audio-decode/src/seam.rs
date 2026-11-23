@@ -1,4 +1,4 @@
-//! A stream loop's seam crossfade (ADR 0328 loops on stream voices; ABI 1.4, `myco_decode_seam`).
+//! A stream loop's seam crossfade (ADR 0342 loops on stream voices; ABI 1.4, `myco_decode_seam`).
 //!
 //! A streamed loop wraps in the decoder worker: it reads up to the loop's end, seeks back to its
 //! start (sample-accurately) and reads on, so the core's ring holds one continuous signal. With a

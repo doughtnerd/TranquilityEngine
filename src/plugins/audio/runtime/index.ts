@@ -16,7 +16,7 @@ import { AUDIO_PACKAGES_SERVICE } from "./media/service";
 import { AudioSpeaker } from "./dialogue/AudioSpeaker";
 
 export { Audio, type OneShotOptions } from "./Audio";
-// ADR 0330: `Audio.snapshot(name)`'s handle.
+// ADR 0344: `Audio.snapshot(name)`'s handle.
 export type { AudioSnapshot } from "./Audio";
 // ADR 0166 §1 (Q2): the interactive music types (the engine's `musicTypes.ts`) and the `Calibration` namespace.
 export { Calibration } from "./music/calibration";
@@ -31,7 +31,7 @@ export type { EventOptions } from "./playlists/options";
 export { AudioSource, type Rolloff } from "./AudioSource";
 export { AudioOccluder } from "./AudioOccluder";
 export { AudioReverbZone, ZONE_PRESETS } from "./AudioReverbZone";
-// ADR 0333: audio zones.
+// ADR 0347: audio zones.
 export { AudioZone, AUDIO_ZONE_HEARD, type AudioZoneHeard } from "./AudioZone";
 export { AudioListener } from "./AudioListener";
 export type { Bus } from "../../../engine/audio/mixer";
@@ -39,11 +39,11 @@ export type { Bus } from "../../../engine/audio/mixer";
 export { createDecoderClient, type DecoderClient, type DecodedClip } from "./decoder/decoderClient";
 export { hintFromName } from "./decoder/protocol";
 
-// ADR 0337 §9: audio packages (`Audio.package(name)`) and the component that loads them with a scene.
+// ADR 0351 §9: audio packages (`Audio.package(name)`) and the component that loads them with a scene.
 export { AudioPackageLoader } from "./media/AudioPackageLoader";
 export type { AudioPackage } from "./media/packages";
 
-// ADR 0340, 0341, 0343: localised audio, voice-over lines, captions and dynamic dialogue.
+// ADR 0354, 0355, 0357: localised audio, voice-over lines, captions and dynamic dialogue.
 export type { AudioLanguage, SetLanguageOptions, AudioLanguageDebug } from "./localisation/languageState";
 export type { AudioLineHandle, AudioLineEvent, LineOptions, LineEnd } from "./localisation/lines";
 export type { AudioViseme } from "./localisation/viseme";

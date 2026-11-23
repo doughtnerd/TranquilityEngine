@@ -1,4 +1,4 @@
-// ADR 0340 L7, 0342 T7, 0343 S5: the Project panel's Languages and Subtitles models — `project.json`'s `languages` and
+// ADR 0354 L7, 0356 T7, 0357 S5: the Project panel's Languages and Subtitles models — `project.json`'s `languages` and
 // `subtitles` sections in the settings draft and their refused-or-next edits — driven through the models' interfaces.
 import { describe, expect, it } from "vitest";
 import { parseLanguages } from "../../../engine/localisation/languages";

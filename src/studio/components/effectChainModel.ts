@@ -1,4 +1,4 @@
-// An effect chain's edits (ADR 0335 `EffectChain`, ADR 0331): the "Add effect" menu for a level (the catalogue's types
+// An effect chain's edits (ADR 0349 `EffectChain`, ADR 0345): the "Add effect" menu for a level (the catalogue's types
 // that may run there, alphabetical), and each edit as a pure function from the chain to the next chain or a refusal
 // (`{ next } | { refused }`, the audio editor's `EditResult`, ADR 0307/0313), so the owner applies it as one undo step
 // through `applyEdit`. An edit that changes nothing returns the same list, which `applyEdit` skips. Removing an effect
@@ -114,7 +114,7 @@ export function levelWarning(effect: Effect, level: EffectLevel): string | null 
   return allowedAt(effect.type, level) ? null : `${effectSpec(effect.type).label} doesn't run on ${LEVEL_NAME[level]}; it won't play here`;
 }
 
-// --- plugin effects (ADR 0338 §9) ------------------------------------------------------------------------------------
+// --- plugin effects (ADR 0352 §9) ------------------------------------------------------------------------------------
 
 /** The "Add effect" menu in groups: the built-ins, then each plugin's effects under its title (plugins by title). */
 export interface EffectMenuGroups {

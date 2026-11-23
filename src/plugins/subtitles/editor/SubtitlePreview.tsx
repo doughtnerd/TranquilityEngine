@@ -1,4 +1,4 @@
-// A preview of the built-in subtitle display (ADR 0343 §5–§6) for tools without a renderer: the subtitle board's rows
+// A preview of the built-in subtitle display (ADR 0357 §5–§6) for tools without a renderer: the subtitle board's rows
 // (`runtime/board.ts`, the model `SubtitleDisplay` draws) drawn as DOM in the built-in look, on a 16:9 frame. The
 // editor's Play shows the real display; this one is for previews (stories, an Inspector sample row, a test bench).
 import { SUBTITLE_LOOK } from "../runtime/look";

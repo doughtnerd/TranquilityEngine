@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the value lane: a game parameter with its value at the cursor, a held (stepped) voice
+// Stories (ADR 0219, 0349) for the value lane: a game parameter with its value at the cursor, a held (stepped) voice
 // count against a voice limit line, a bus's gain on a fixed dB range, and a lane with no data.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, within } from "storybook/test";

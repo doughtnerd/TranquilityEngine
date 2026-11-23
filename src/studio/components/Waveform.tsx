@@ -1,4 +1,4 @@
-// The waveform (ADR 0335 `Waveform`): a sample's peaks drawn on a canvas for a view (`waveformModel.ts`), coloured
+// The waveform (ADR 0349 `Waveform`): a sample's peaks drawn on a canvas for a view (`waveformModel.ts`), coloured
 // bands over it (loops, the play scope, deleted snippets hatched), and children laid over it (playhead, cut lines).
 // Ctrl/⌘+wheel zooms at the pointer and a plain or Shift+wheel scrolls (`onView`); a press reports the time under
 // the pointer (`onPress`). Colours are theme tokens read when it draws, so it follows Settings > Appearance.

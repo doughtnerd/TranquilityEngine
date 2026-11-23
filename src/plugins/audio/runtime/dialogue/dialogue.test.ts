@@ -1,4 +1,4 @@
-// ADR 0341 §2–§5: dynamic dialogue through the public `Audio.say`, `Audio.dialogue` and `AudioSpeaker` on the fake
+// ADR 0355 §2–§5: dynamic dialogue through the public `Audio.say`, `Audio.dialogue` and `AudioSpeaker` on the fake
 // backend: best match, speaker channels and `maxVoices`, priority and interruption (with its fade and `onInterrupted`),
 // the queue (decided at start, `maxWait`, the cap), event cooldown and chance, line `once`, and the memory round trip.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

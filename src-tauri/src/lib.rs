@@ -1,3 +1,5 @@
+mod gamepad;
+
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use tauri::webview::{NewWindowResponse, WebviewWindowBuilder};
@@ -6,7 +8,7 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WindowEvent};
 /// The editor window's label (tauri.conf.json, the capabilities, `EDITOR_WINDOW` in editorWindowStart.ts).
 const EDITOR_WINDOW: &str = "main";
 
-/// The Audio Studio's window label (ADR 0327; tauri.conf.json, the capabilities, `create_studio_window`).
+/// The Audio Studio's window label (ADR 0341; tauri.conf.json, the capabilities, `create_studio_window`).
 const STUDIO_WINDOW: &str = "studio";
 
 /// Detached panel windows (ADR 0174) are labelled `panel-window-<n>`.
@@ -41,7 +43,7 @@ async fn create_editor_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Opens the Audio Studio's window (ADR 0327) from its tauri.conf.json entry (`create: false`), or shows,
+/// Opens the Audio Studio's window (ADR 0341) from its tauri.conf.json entry (`create: false`), or shows,
 /// unminimises and focuses it when it is open. The editor's Window > Audio Studio and Open in Audio
 /// Studio call this, then hand the Studio the project over Tauri events (`myco://studio-open`). The
 /// Studio is its own app: it stays open when the editor closes, and the app ends with its last window.
@@ -69,7 +71,7 @@ async fn create_studio_window(app: AppHandle) -> Result<bool, String> {
     Ok(true)
 }
 
-/// This process's id, for the project lock files (`.myco/locks/<app>.json`, ADR 0327).
+/// This process's id, for the project lock files (`.myco/locks/<app>.json`, ADR 0341).
 #[tauri::command]
 fn process_id() -> u32 {
     std::process::id()
@@ -166,7 +168,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             create_editor_window,
             create_studio_window,
-            process_id
+            process_id,
+            // Native gamepads (ADR 0335).
+            gamepad::myco_gamepad_listen,
+            gamepad::myco_gamepad_rumble,
+            gamepad::myco_gamepad_trigger_rumble,
+            gamepad::myco_gamepad_set_led,
+            gamepad::myco_gamepad_sensors,
+            gamepad::myco_gamepad_trigger_effect
         ])
         .on_window_event(|window, event| {
             let other = |label: &str| window.app_handle().get_webview_window(label);

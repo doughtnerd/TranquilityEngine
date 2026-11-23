@@ -1,5 +1,5 @@
 /**
- * The curve editor's model (ADR 0332): every rule of the one shared curve editor, with no DOM, so it is tested headless
+ * The curve editor's model (ADR 0346): every rule of the one shared curve editor, with no DOM, so it is tested headless
  * and the view (`CurveEditorDialog.tsx`) only draws and forwards pointer positions.
  *
  * - A dialog edits **lanes**, one curve per property (`CurveLane`), in the property's own units. Each lane is driven by
@@ -9,7 +9,7 @@
  *   draft in its own panel history (ADR 0145) and hands it back in units through `draftResult` on Apply.
  * - Keys are engine curve keys (`core/curve.ts`). Every curve has a key at each end of its domain; end keys move
  *   vertically only and can't be deleted. Pointer positions come in as x in the axis's units and y normalised to 0..1
- *   over the lane's range (log lanes in octaves, ADR 0331's `scale`), quantised to 1/200 of it.
+ *   over the lane's range (log lanes in octaves, ADR 0345's `scale`), quantised to 1/200 of it.
  * - Edits a user can get refused return `{ next } | { refused }` (ADR 0307, 0313); the view shows the reason.
  */
 import { curveKeyHandles, evalCurve, type Curve, type CurveHandles, type CurveKey, type CurveKeyInterp } from "../../../engine/core/curve";
@@ -262,7 +262,7 @@ export function normCurve(lane: CurveLane, curve: Curve): CurveKey[] {
   });
 }
 
-/** The lane's value at `x`: the engine evaluator, in octaves for a log lane (ADR 0332 "units in, units out"). */
+/** The lane's value at `x`: the engine evaluator, in octaves for a log lane (ADR 0346 "units in, units out"). */
 export function evalLane(lane: CurveLane, curve: Curve, x: number): number {
   if (!isLog(lane)) return evalCurve(curve, x);
   return fromNorm(lane, evalCurve(normCurve(lane, curve), x));

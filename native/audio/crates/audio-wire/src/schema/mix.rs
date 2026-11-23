@@ -46,9 +46,9 @@ pub const CONSTANTS: &[Const] = &[
     c!("BUS_RAMP_LP_MIN_HZ", 10, "BUS_RAMP lpHz lower bound; BUS_LP_OFF_HZ (24,000) is off"),
     c!("SHAPE_SEQUENCE_SHIFT", 3, "BUS_RAMP shape bits 3-15: sequenceId (0 = none, C27)"),
     c!("SHAPE_SEQUENCE_MASK", 0x1FFF, "BUS_RAMP shape sequenceId after the shift: 13 bits"),
-    c!("BUS_SLOT_MAX_EFFECTS", 8, "effects a slot keeps; a BUS_SLOT naming more keeps the first eight (ADR 0331, ABI 4.6)"),
-    c!("MAX_BUS_SENDS", 4, "sends a bus keeps (BUS_SENDS, ADR 0330, ABI 4.7); more are dropped"),
-    c!("BUS_SEND_MUTED", 0x1, "BUS_SENDS item flags bit 0: muted (the send ramps to 0 and keeps its level; ADR 0330 D29 #7)"),
+    c!("BUS_SLOT_MAX_EFFECTS", 8, "effects a slot keeps; a BUS_SLOT naming more keeps the first eight (ADR 0345, ABI 4.6)"),
+    c!("MAX_BUS_SENDS", 4, "sends a bus keeps (BUS_SENDS, ADR 0344, ABI 4.7); more are dropped"),
+    c!("BUS_SEND_MUTED", 0x1, "BUS_SENDS item flags bit 0: muted (the send ramps to 0 and keeps its level; ADR 0344 D29 #7)"),
     c!("DUCK_FLAG_LEVEL", 0x1, "BUS_DUCK rule flags bit 0: level mode (reads the trigger bus's buffer; adds a bus-order edge)"),
     c!("DUCK_FLAG_RMS", 0x2, "BUS_DUCK rule flags bit 1: the detector is RMS rather than peak"),
     c!("LOUD_FLAG_NEW_BLOCKS_MASK", 0x3F, "loudBuses flags bits 0-5: sub-blocks this meter added since the last take, 0..=32"),
@@ -167,7 +167,7 @@ const BUS_SENDS_ITEMS: Repeat = Repeat {
     max: 4,
 };
 
-/// 0x1E BUS_SENDS (ADR 0330, ABI 4.7), replace-all for one bus (`voiceId` = its slot), asap: the bus's
+/// 0x1E BUS_SENDS (ADR 0344, ABI 4.7), replace-all for one bus (`voiceId` = its slot), asap: the bus's
 /// post-fader sends into other buses (returns). A send keeps its level ramp across a BUS_SENDS that keeps
 /// its `to`; the receiving bus mixes after the sender (`bus_order::rerun`).
 pub const BUS_SENDS: Opcode = Opcode {
@@ -176,7 +176,7 @@ pub const BUS_SENDS: Opcode = Opcode {
     payload: Body::with_tail(&[Field::new("sendCount", Ty::U32).doc("at most MAX_BUS_SENDS are kept")], Tail::Repeat(&BUS_SENDS_ITEMS)),
     total_bytes: None,
     sent: true,
-    doc: "replace one bus's post-fader sends into returns (voiceId = bus slot); asap (ADR 0330)",
+    doc: "replace one bus's post-fader sends into returns (voiceId = bus slot); asap (ADR 0344)",
 };
 
 /// 0x1A BUS_PRESENCE, 16 B, stamped at the frame of the voice start or explicit stop.

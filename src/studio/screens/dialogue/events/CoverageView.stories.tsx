@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0341 §7) for the coverage report over the fixture event: gaps as compact patterns, the Sniper
+// Stories (ADR 0219, 0355 §7) for the coverage report over the fixture event: gaps as compact patterns, the Sniper
 // silence, combinations missing in French, an unused line and the CSV export.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

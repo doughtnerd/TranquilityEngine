@@ -1,5 +1,5 @@
 //! The blip: sfxr's synthesiser (DrPetter's sfxr, MIT; the same algorithm as bfxr and jsfxr), its parameters in sfxr's
-//! own units so settings port, rendered band-limited at any context rate (ADR 0346 §2, owner decision 2).
+//! own units so settings port, rendered band-limited at any context rate (ADR 0360 §2, owner decision 2).
 //!
 //! **What is sfxr's and what changed.** sfxr runs its control (repeat, arpeggio, frequency slide and limit, vibrato, duty
 //! sweep, the attack-sustain-punch-decay envelope, the phaser's sweep, the high-pass sweep) once per sample at 44.1 kHz

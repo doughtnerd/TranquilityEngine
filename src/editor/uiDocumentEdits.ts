@@ -305,7 +305,7 @@ export function setUIElementField(ref: UIElementRef, field: string, raw: string 
   return setUIElementAttributes(ref, { [field]: raw }, `${raw === null ? "Reset" : "Set"} ${kebab(field)}`);
 }
 
-// --- Localised text (ADR 0342 §4, §9) ---------------------------------------------------------------
+// --- Localised text (ADR 0356 §4, §9) ---------------------------------------------------------------
 
 /** The element a text field's markup belongs to: a button's label edits the button's text content. */
 const textHost = (el: UIDocumentElement): UIDocumentElement => (sourceOf(el).label ? el.parent! : el);
@@ -357,7 +357,7 @@ export function localiseUIElement(ref: UIElementRef, field: string, key: string 
 }
 
 /**
- * Extract to string table (ADR 0342 §9): write `tableText` (the table with the new key, `localiseModel.ts`'s
+ * Extract to string table (ADR 0356 §9): write `tableText` (the table with the new key, `localiseModel.ts`'s
  * `extractToTable`) to `tablePath` and bind the field to `key`, both files in one undo step.
  */
 export function extractUIElementText(ref: UIElementRef, field: string, key: string, tablePath: string, tableText: string): boolean {

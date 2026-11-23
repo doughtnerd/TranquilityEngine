@@ -1,4 +1,4 @@
-// The Packages screen (ADR 0337 §6; Wwise's SoundBank Manager, FMOD's Banks tab): the package list (left), the fixed
+// The Packages screen (ADR 0351 §6; Wwise's SoundBank Manager, FMOD's Banks tab): the package list (left), the fixed
 // panel with its Contents, Profiles and rules, and Report tabs, the package inspector (right) and History. Every edit is
 // a step of `audio.json`'s document history (`applyEdit` over `openMixDocument`); the panels carry `data-asset-document`
 // so Ctrl+Z and the History panel act on it. A package rename also rewrites `AudioPackageLoader` fields in scenes and

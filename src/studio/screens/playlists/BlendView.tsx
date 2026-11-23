@@ -1,4 +1,4 @@
-// A Blend's settings and views (the prototype's Blend view; ADR 0329 "Blend"): the axes (a numeric parameter or voice
+// A Blend's settings and views (the prototype's Blend view; ADR 0343 "Blend"): the axes (a numeric parameter or voice
 // time), 1D or 2D, fade (crossfade or layer), curve (linear or equal power), while playing (Follow with glide, or Hold),
 // then the 1D lane (each entry's weight polygon, its node with a ▲ handle to drag, ← → to nudge with Shift ×10) or the
 // 2D plane (grid, Delaunay edges, the active triangle, spokes from the input to the entries playing, draggable nodes)
@@ -32,7 +32,7 @@ export interface BlendViewProps {
   onSelect(i: number): void;
   /** Scrub a parameter's test value (dragging on the lane's background). */
   onTestValue(name: string, value: number): void;
-  /** ADR 0336: open an entry's weight curve in the shared curve editor. */
+  /** ADR 0350: open an entry's weight curve in the shared curve editor. */
   onEditWeightCurve?(i: number): void;
 }
 
@@ -135,7 +135,7 @@ export function BlendView(props: BlendViewProps) {
     onEdit(`Move ${entryName(e0, i)}`, (b) => setEntryUse(b, i, patch!));
   };
 
-  // --- ADR 0336: 1D regions (trapezoids with four handles) ---
+  // --- ADR 0350: 1D regions (trapezoids with four handles) ---
   const regionOf = (i: number) => shownRegion(body.entries, i, ranges[0]!, blend.fade);
   const setRegion = (i: number, r: BlendRegion | undefined, label: string, drag = false) => onEdit(label, (b) => setEntryUse(b, i, { region: r }), drag);
   const startHandle = (i: number, h: RegionHandle, e: PointerEvent) => {
@@ -271,7 +271,7 @@ export function BlendView(props: BlendViewProps) {
 }
 
 /**
- * ADR 0336: the selected entry's shaping: its 1D region (Automatic or Custom, the four widths, each fade's shape, Reset
+ * ADR 0350: the selected entry's shaping: its 1D region (Automatic or Custom, the four widths, each fade's shape, Reset
  * to automatic) and, secondary to the region, its weight curve (a preset, the full curve editor, Reset).
  */
 function EntryShaping(props: BlendViewProps & { twoD: boolean; regionOf(i: number): { region: BlendRegion; explicit: boolean }; setRegion(i: number, r: BlendRegion | undefined, label: string): void }) {

@@ -1,5 +1,5 @@
 /**
- * Playlists (ADR 0329): parse and write `*.playlist.json` (`myco.playlist@1`). The shapes are the contract in `types.ts`.
+ * Playlists (ADR 0343): parse and write `*.playlist.json` (`myco.playlist@1`). The shapes are the contract in `types.ts`.
  *
  * The parse is lenient (bad values fall back to defaults with one problem line; it never throws) and canonical: every
  * field the contract has is filled, ids are unique, and the rules the runtime relies on hold:
@@ -10,7 +10,7 @@
  *   prototype, with a problem; none is a problem);
  * - a Switch map points at entries that exist, or null;
  * - a sequence clip names exactly one of `sample` / `playlist` / `generator`;
- * - a generator entry (ADR 0346) follows the sample rule: only in a Clip, wrapped in an embedded Clip elsewhere; its
+ * - a generator entry (ADR 0360) follows the sample rule: only in a Clip, wrapped in an embedded Clip elsewhere; its
  *   embedded generator is parsed by `generators/format.ts`; `gen:<param>` curve and automation targets are kept (the
  *   lint says when one does nothing);
  * - the type's own block (`queue` for a Queue…) is always there (defaults when missing); another type's block is kept
@@ -42,7 +42,7 @@ import { isEventName } from "../dialogue/format";
 import { generatorBodyToJson, parseGeneratorBody } from "../generators/format";
 import type { GeneratorBody } from "../generators/types";
 
-/** Limits of a playlist, declared once (ADR 0306; the first five are ADR 0329's). */
+/** Limits of a playlist, declared once (ADR 0306; the first five are ADR 0343's). */
 export const PLAYLIST_LIMITS = Object.freeze({
   /** Entries of one playlist. */
   entries: 256,
@@ -66,7 +66,7 @@ export const PLAYLIST_LIMITS = Object.freeze({
   automation: 32,
   /** Effects of one chain. */
   effects: 16,
-  /** ADR 0343 §4: a caption's `minGap`, seconds. */
+  /** ADR 0357 §4: a caption's `minGap`, seconds. */
   captionGap: 60,
 });
 
@@ -78,7 +78,7 @@ const WHEN_FULL = ["stealOldest", "stealQuietest", "stealFarthest", "refuse"] as
 const METER = /^\d{1,2}\/\d{1,2}$/;
 const HEX_COLOUR = /^#[0-9a-fA-F]{6}$/;
 const FX_TARGET = /^fx:[^:]+:[^:]+$/;
-/** ADR 0346 §4: a generator parameter target, `gen:<param>`. */
+/** ADR 0360 §4: a generator parameter target, `gen:<param>`. */
 export const GEN_TARGET = /^gen:[A-Za-z][A-Za-z0-9]*$/;
 /** True for a `gen:<param>` curve or automation target. */
 export const isGenTarget = (target: string): target is `gen:${string}` => GEN_TARGET.test(target);
@@ -159,7 +159,7 @@ class PlaylistReader {
       if (entry) out.entries.push(entry);
     });
     if (type === "clip") {
-      // ADR 0340 §5, 0346 §1: line and generator entries sit beside sample entries in a Clip.
+      // ADR 0354 §5, 0360 §1: line and generator entries sit beside sample entries in a Clip.
       const kept = out.entries.filter((e) => e.kind === "sample" || e.kind === "line" || e.kind === "generator");
       if (kept.length < out.entries.length) r.problem(at("entries"), "a Clip plays a sample; its other entries are dropped.");
       out.entries = kept;
@@ -207,7 +207,7 @@ class PlaylistReader {
   }
 
   /**
-   * A sequence clip's chain (ADR 0331 levels, the audio core's ABI 4.9): it runs on a submix of the clip's own, so it
+   * A sequence clip's chain (ADR 0345 levels, the audio core's ABI 4.9): it runs on a submix of the clip's own, so it
    * takes the instance level's types (a delay or reverb rings past the clip), and a gain, which the catalogue lists at
    * the voice level only, runs there too (the core's submixes run it).
    */
@@ -263,14 +263,14 @@ class PlaylistReader {
     return out;
   }
 
-  /** ADR 0336: a fade shape, or `fallback` with a problem. */
+  /** ADR 0350: a fade shape, or `fallback` with a problem. */
   shape(raw: unknown, where: string, fallback: FadeShape = "equalPower"): FadeShape {
     if (isFadeShape(raw)) return raw;
     this.r.problem(where, `must be one of ${FADE_SHAPES.join(", ")}; using ${fallback}.`);
     return fallback;
   }
 
-  /** ADR 0336: `{ "ms": n }` or `{ "beats": n }`, or `fallback` with a problem. */
+  /** ADR 0350: `{ "ms": n }` or `{ "beats": n }`, or `fallback` with a problem. */
   timeLength(raw: unknown, where: string, fallback: TimeLength): TimeLength {
     const r = this.r;
     if (isRecord(raw) && raw.ms !== undefined && raw.beats === undefined) return { ms: r.num(raw.ms, `${where}.ms`, "ms" in fallback ? fallback.ms : 0, 0, 60000) };
@@ -279,7 +279,7 @@ class PlaylistReader {
     return fallback;
   }
 
-  /** ADR 0336: a fade `{ length, shape }`, or null (dropped with a problem). */
+  /** ADR 0350: a fade `{ length, shape }`, or null (dropped with a problem). */
   fade(raw: unknown, where: string): Fade | null {
     if (!isRecord(raw)) { this.r.problem(where, 'a fade must be { "length", "shape" }; using the rule\'s.'); return null; }
     return {
@@ -288,7 +288,7 @@ class PlaylistReader {
     };
   }
 
-  /** ADR 0336: a 1D Blend entry's region; null (dropped with a problem) when it isn't one. */
+  /** ADR 0350: a 1D Blend entry's region; null (dropped with a problem) when it isn't one. */
   region(raw: unknown, where: string): BlendRegion | null {
     const r = this.r;
     if (!isRecord(raw) || !isFiniteNumber(raw.start) || !isFiniteNumber(raw.end)) {
@@ -308,7 +308,7 @@ class PlaylistReader {
     return out;
   }
 
-  /** ADR 0336: an automation lane's `quantize`, or undefined (absent, null or bad). */
+  /** ADR 0350: an automation lane's `quantize`, or undefined (absent, null or bad). */
   quantize(raw: unknown, where: string): Quantize | undefined {
     if (raw === undefined || raw === null) return undefined;
     if (raw === "beat" || raw === "bar") return raw;
@@ -375,7 +375,7 @@ class PlaylistReader {
     const use = this.use(raw, where);
     const kind = kinds[0];
     if (kind === "generator") {
-      // ADR 0346 §1: a generator plays only in a Clip, wrapped like a sample.
+      // ADR 0360 §1: a generator plays only in a Clip, wrapped like a sample.
       const generator = this.generator(raw.generator, `${where}.generator`);
       if (generator === null) return null;
       if (inClip) return { kind: "generator", generator, ...use };
@@ -416,7 +416,7 @@ class PlaylistReader {
     return body ? { kind: "embedded", embedded: body, ...use } : null;
   }
 
-  /** ADR 0346: a generator source: a `*.generator.json` path or an embedded generator; null (with a problem) otherwise. */
+  /** ADR 0360: a generator source: a `*.generator.json` path or an embedded generator; null (with a problem) otherwise. */
   generator(raw: unknown, where: string): string | GeneratorBody | null {
     if (typeof raw === "string" && raw !== "") return raw;
     if (isRecord(raw)) return parseGeneratorBody(raw, where, this.problems);
@@ -432,7 +432,7 @@ class PlaylistReader {
     return this.body(raw, where, depth + 1);
   }
 
-  /** ADR 0343 §4: a caption `{ key, minGap }`; null when absent, or dropped with a problem when its key isn't a string key. */
+  /** ADR 0357 §4: a caption `{ key, minGap }`; null when absent, or dropped with a problem when its key isn't a string key. */
   caption(raw: unknown, where: string): PlaylistCaption | null {
     const r = this.r;
     if (raw === undefined || raw === null) return null;
@@ -488,7 +488,7 @@ class PlaylistReader {
       const t = this.looseEntry(o.transition, `${where}.transition`, depth);
       if (t) out.transition = t;
     }
-    // ADR 0336: shapes, the post-exit tail and the transition's own fades (absent = default, kept absent).
+    // ADR 0350: shapes, the post-exit tail and the transition's own fades (absent = default, kept absent).
     if (o.shapeOut !== undefined) { const s = this.shape(o.shapeOut, `${where}.shapeOut`); if (s !== "equalPower") out.shapeOut = s; }
     if (o.shapeIn !== undefined) { const s = this.shape(o.shapeIn, `${where}.shapeIn`); if (s !== "equalPower") out.shapeIn = s; }
     if (o.tail !== undefined && !r.bool(o.tail, `${where}.tail`, true)) out.tail = false;
@@ -667,7 +667,7 @@ class PlaylistReader {
     }
     let source: Pick<Clip, "sample" | "playlist" | "generator">;
     if (hasGenerator && !hasSample && !hasPlaylist) {
-      // ADR 0346 §1: a generator source (it belongs on an audio track; lint says so elsewhere).
+      // ADR 0360 §1: a generator source (it belongs on an audio track; lint says so elsewhere).
       const generator = this.generator(raw.generator, `${where}.generator`);
       if (generator === null) return null;
       source = { generator };
@@ -759,7 +759,7 @@ function useToJson(e: EntryUse, out: JsonRecord): void {
   if (e.y !== undefined) out.y = e.y;
   if (e.atZeroWeight !== "stop") out.atZeroWeight = e.atZeroWeight;
   const curves: JsonRecord = {};
-  // The voice targets in their fixed order, then the `gen:` targets (ADR 0346 §4) in the entry's order.
+  // The voice targets in their fixed order, then the `gen:` targets (ADR 0360 §4) in the entry's order.
   const genTargets = Object.keys(e.curves).filter(isGenTarget);
   for (const t of [...VOICE_CURVE_TARGETS, ...genTargets]) {
     const c = e.curves[t];
@@ -780,10 +780,10 @@ function useToJson(e: EntryUse, out: JsonRecord): void {
   if (e.weightCurve) out.weightCurve = curveToJson(e.weightCurve);
 }
 
-/** ADR 0346: a generator source as JSON: its path, or the embedded generator (no `format`). */
+/** ADR 0360: a generator source as JSON: its path, or the embedded generator (no `format`). */
 const generatorSourceToJson = (g: string | GeneratorBody): unknown => (typeof g === "string" ? g : generatorBodyToJson(g));
 
-/** ADR 0336: a fade as JSON. */
+/** ADR 0350: a fade as JSON. */
 const fadeToJson = (f: Fade): JsonRecord => ({ length: { ...f.length }, shape: f.shape });
 
 /** An entry as JSON: its reference first, then the per-use fields that differ from their defaults. */

@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the player bar's replay slot: a take paused and playing, and inside the player bar.
+// Stories (ADR 0219, 0349) for the player bar's replay slot: a take paused and playing, and inside the player bar.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, fn, userEvent, within } from "storybook/test";

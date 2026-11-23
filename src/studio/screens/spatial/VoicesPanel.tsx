@@ -1,4 +1,4 @@
-// The Voices panel (ADR 0333 "The Voices table reads the runtime's own debug rows"; the prototype's Voices table): each
+// The Voices panel (ADR 0347 "The Voices table reads the runtime's own debug rows"; the prototype's Voices table): each
 // emitter, audio zone and 2D sound of the scene with its distance from the listener, how it is rendered (HRTF, panned,
 // ambisonic bed, 2D), its occlusion and Doppler, read from the test scene player while the scene plays, then the base game
 // scene's own sounds (marked "base"; read-only, so a click doesn't select them). A click selects.

@@ -31,7 +31,7 @@ function base(): AudioSettings {
 
 const duck = { target: "SFX", trigger: "UI", mode: "level" as const, detector: "peak" as const, threshold: -40, amount: 0.2, attack: 0.2, release: 1 };
 const auto = { bus: "Music", parameter: "Intensity", target: "lowpass" as const, curve: [[0, 24000], [1, 500, "easeIn"]] as const };
-/** ADR 0332: a curve with Bézier keys (one free) round-trips through the byte form with its handles. */
+/** ADR 0346: a curve with Bézier keys (one free) round-trips through the byte form with its handles. */
 const bezierAuto = { bus: "Music", parameter: "Intensity", target: "volume" as const, curve: [[0, 1, "bezier", { in: [0, 0], out: [0.25, -0.5] }], [0.5, 0.4, "bezier", { in: [-0.1, 0.2], out: [0.2, 0], free: true }], [1, 0]] as const };
 /** ABI 4.8: an effect parameter's automation (by the effect's and the parameter's index, a log2 curve) and a send's. */
 const fxAuto = { bus: "Music", parameter: "Intensity", target: "fx" as const, effect: 0, param: 0, log: true, curve: [[0, 14], [1, 9]] as const };
@@ -99,7 +99,7 @@ function table(): MixOpNameTable & { name(id: number): string; bus(ref: number):
 
 describe("every op kind (Mo1, §6.2)", () => {
   it("covers every op name", () => {
-    // The mix model's own ops (ADR 0330) are `projectOps.test.ts`'s: the old section can't hold them.
+    // The mix model's own ops (ADR 0344) are `projectOps.test.ts`'s: the old section can't hold them.
     expect(new Set(CASES.map(([, op]) => op.op))).toEqual(new Set(MIX_OP_NAMES.filter((n) => !isProjectOp({ op: n }))));
   });
   it.each(CASES)("%s: applies, has its class, inverts, diffs back, and round-trips its byte form", (_label, op, cls) => {

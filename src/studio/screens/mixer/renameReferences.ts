@@ -1,4 +1,4 @@
-// What outside `audio.json` names a bus or return (ADR 0330 "Names are identities"; ADR 0262, 0302): playlists'
+// What outside `audio.json` names a bus or return (ADR 0344 "Names are identities"; ADR 0262, 0302): playlists'
 // `output` (the playlist itself, embedded entries, Sequence tracks), legacy audio events' bus references (the engine's
 // event reference module) and scenes' and prefabs' `AudioSource.output` and `AudioReverbZone.output` (component data
 // and prefab overrides). `busRenameEdit` turns a rename into the project-wide edit the editor's project file module

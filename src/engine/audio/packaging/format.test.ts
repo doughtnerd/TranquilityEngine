@@ -1,4 +1,4 @@
-// ADR 0337 §7: the .mycopak container — round trip, alignment, and refusals of malformed files.
+// ADR 0351 §7: the .mycopak container — round trip, alignment, and refusals of malformed files.
 import { describe, expect, it } from "vitest";
 import { PACK_ALIGN, readAudioPack, writeAudioPack, type PackInput } from "./format";
 

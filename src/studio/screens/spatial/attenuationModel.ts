@@ -1,9 +1,9 @@
-// "Edit attenuation…" (ADR 0333: attenuation curves live on playlists): who owns the attenuation an emitter is heard with,
+// "Edit attenuation…" (ADR 0347: attenuation curves live on playlists): who owns the attenuation an emitter is heard with,
 // and the shared curve editor's distance dialog over it. An emitter plays a playlist; the playlist's `spatial.attenuation`
 // is a preset path (`*.attenuation.json`, the preset document is edited), an inline object (the playlist document is
 // edited) or absent (the screen offers "Create preset" or "Inline"). A sample, or a playlist that plays flat (no spatial
 // block), has none to edit. The dialog's lanes are the format's four curves: volume (dB), low-pass (Hz, log), reverb send
-// (dB) and spread (degrees), with Min and Max (keys between them stretch, ADR 0332).
+// (dB) and spread (degrees), with Min and Max (keys between them stretch, ADR 0346).
 //
 // Pure: no DOM, no signals.
 import type { CurveEditorResult, CurveEditorSpec, CurveLane } from "../../../editor/ui/curves/curveEditorModel";

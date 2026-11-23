@@ -1,4 +1,4 @@
-//! The ADPCM voice reader (ADR 0337 §3 as 0345 §5 settles it; ABI 4.12): a mixed voice on a format 6 clip decodes its
+//! The ADPCM voice reader (ADR 0351 §3 as 0359 §5 settles it; ABI 4.12): a mixed voice on a format 6 clip decodes its
 //! IMA ADPCM blocks **incrementally, a little each quantum**, into a small window of int16 frames, and reads them with
 //! the voices' 4-point Lagrange kernel. No quantum decodes a whole block: the A0 spike measured that design's 9.4×
 //! worst quantum when voices cross a block together, against a flat +23k wasm instructions per voice here.
@@ -23,7 +23,7 @@
 //! (a voice promoted after keeping time virtually, a seek, a start offset) decodes from the block's start up to the
 //! frame once, at most 1,023 frames per channel.
 //!
-//! Clips of 1 or 2 channels only (the store refuses more). A voice with a loop program (ADR 0328) or flagged
+//! Clips of 1 or 2 channels only (the store refuses more). A voice with a loop program (ADR 0342) or flagged
 //! ambisonic plays an ADPCM clip straight (as an ambisonic voice plays a program straight): `voices.rs` decides.
 
 use audio_adpcm::{block_bytes, skip_run, State, BLOCK_FRAMES};

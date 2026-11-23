@@ -43,14 +43,14 @@ export interface ClipInfo {
    */
   readonly importGain?: number;
   /**
-   * ADR 0337 A4: 6 when the clip is held compressed as the core's clip format 6: its `clipChunk`s carry whole IMA ADPCM
+   * ADR 0351 A4: 6 when the clip is held compressed as the core's clip format 6: its `clipChunk`s carry whole IMA ADPCM
    * blocks (`ADPCM_BLOCK_FRAMES` frames, `ADPCM_CHANNEL_BYTES` per channel each; an even byte count, so `pcm` views them
    * as int16 words), not samples. Absent: the chunks are interleaved int16 samples.
    */
   readonly clipFormat?: 6;
 }
 
-/** ADR 0337 §7, A4: an entry of a package the worker holds (`packLoad`), by package id and the entry's project path. */
+/** ADR 0351 §7, A4: an entry of a package the worker holds (`packLoad`), by package id and the entry's project path. */
 export interface PackRef {
   readonly pack: number;
   readonly path: string;
@@ -75,7 +75,7 @@ export interface DecodeClipMessage {
   /** ADR 0162 §2.4 (K0; B1 sends it, B2's decoder applies it): the sidecar's convention, so FuMa is converted while decoding. */
   readonly convention?: AmbisonicConvention;
   /**
-   * ADR 0337 A4: decode this entry of a package the worker holds instead of `bytes` (which may then be empty); its codec
+   * ADR 0351 A4: decode this entry of a package the worker holds instead of `bytes` (which may then be empty); its codec
    * (TOC) picks the path: `adpcm` with load `compressed` comes back as format 6 blocks (`ClipInfo.clipFormat`), `adpcm`
    * otherwise decoded to int16, every other codec decoded as a file (`source` probed). An entry the worker doesn't hold
    * is an `error` with this `id`.
@@ -84,7 +84,7 @@ export interface DecodeClipMessage {
 }
 
 /**
- * ADR 0337 §7, A4: hold a `.mycopak` (`bytes` transferred) under `pack`, read with the A1 reader
+ * ADR 0351 §7, A4: hold a `.mycopak` (`bytes` transferred) under `pack`, read with the A1 reader
  * (`engine/audio/packaging/format.ts`). Its entries then decode (`decodeClip` with `pack`) and stream (`streamOpen` with
  * `pack`: a `compressed` Vorbis or Opus entry plays from these bytes through a stream ring). A second load under the same
  * id replaces the first. Answered with `packLoaded`, or `error` with `pack` set.
@@ -95,7 +95,7 @@ export interface PackLoadMessage {
   readonly bytes: ArrayBuffer;
 }
 
-/** ADR 0337: drop package `pack` (streams already open on it keep their copy). Unknown ids are ignored. */
+/** ADR 0351: drop package `pack` (streams already open on it keep their copy). Unknown ids are ignored. */
 export interface PackReleaseMessage {
   readonly type: "packRelease";
   readonly pack: number;
@@ -123,18 +123,18 @@ export interface StreamOpenMessage {
   /** ADR 0158 §4 (contract C2, filled by E4.4): with `loop`, wrap from `loopEndFrame` (exclusive; 0 = the end) back to `loopStartFrame`. */
   readonly loopStartFrame?: number;
   readonly loopEndFrame?: number;
-  /** ADR 0328: with `loop`, the region's seam crossfade, repeat count and the program's later loops (absent: endless, no crossfade). */
+  /** ADR 0342: with `loop`, the region's seam crossfade, repeat count and the program's later loops (absent: endless, no crossfade). */
   readonly program?: StreamLoopProgram;
   /**
    * ADR 0162 §2.4 (K0; filled by B4): the sidecar's convention, so FuMa is converted per chunk. With it, a stream may have
    * 4, 9 or 16 channels (the wire's STREAM_OPEN `channels` 1–16 and `convention`).
    */
   readonly convention?: AmbisonicConvention;
-  /** ADR 0337 A4: stream this entry of a package the worker holds instead of `bytes` (which may then be empty). */
+  /** ADR 0351 A4: stream this entry of a package the worker holds instead of `bytes` (which may then be empty). */
   readonly pack?: PackRef;
 }
 
-/** ADR 0328: one loop of a stream's program after its first, in file frames. */
+/** ADR 0342: one loop of a stream's program after its first, in file frames. */
 export interface StreamLoopStep {
   readonly startFrame: number;
   /** Exclusive. */
@@ -150,7 +150,7 @@ export interface StreamLoopStep {
 }
 
 /**
- * ADR 0328 (loops on stream voices): the rest of a looping stream's loop program beyond its region: the region's own
+ * ADR 0342 (loops on stream voices): the rest of a looping stream's loop program beyond its region: the region's own
  * seam crossfade, shape, count and held flag, and the loops that follow it in the file (each looped once the stream
  * reaches it, after the one before has played its count). The worker crossfades a seam with `myco_decode_seam`.
  */
@@ -172,7 +172,7 @@ export interface StreamLoopMessage {
   readonly looping: boolean;
   readonly loopStartFrame?: number;
   readonly loopEndFrame?: number;
-  /** ADR 0328: with `looping`, the region's crossfade, count and the program's later loops (absent: endless, no crossfade). */
+  /** ADR 0342: with `looping`, the region's crossfade, count and the program's later loops (absent: endless, no crossfade). */
   readonly program?: StreamLoopProgram;
   /**
    * E4.4: the stream frame the change lands on (the end of the voice's current pass, predicted on main from its playhead).
@@ -250,6 +250,21 @@ export interface ReleaseIrMessage {
 }
 
 export type IrRequest = PrepareIrMessage | GenerateIrMessage | ReleaseIrMessage;
+
+/** ADR 0331: the spatial assets the decoder prepares for a context rate: the HRIR table (clip format 2), the MagLS filters (format 4). */
+export type SpatialAssetKind = "hrir" | "magls";
+
+/**
+ * ADR 0331: prepare a spatial asset (`bytes`, transferred: the asset as fetched, at its own rate) for a context at `rate`
+ * with the decoder's `myco_hrir_prepare` / `myco_magls_prepare`. Answered by `spatialPrepared` or `spatialFailed`.
+ */
+export interface PrepareSpatialMessage {
+  readonly type: "prepareSpatial";
+  readonly id: number;
+  readonly kind: SpatialAssetKind;
+  readonly bytes: ArrayBuffer;
+  readonly rate: number;
+}
 
 // --- ADR 0166 interactive music (contract Q0; api-and-models §4.6, C8; D1a/D1b/D1c fill the worker side) -----------
 
@@ -348,7 +363,7 @@ export interface ComputePeaksMessage {
 }
 
 export type StreamRequest = StreamOpenMessage | StreamCreditMessage | StreamSeekMessage | StreamCloseMessage | StreamLoopMessage | ConnectWorkletMessage;
-export type DecoderRequest = InitMessage | DecodeClipMessage | CancelMessage | StreamRequest | IrRequest | MusicRequest | ComputePeaksMessage | PackRequest;
+export type DecoderRequest = InitMessage | DecodeClipMessage | CancelMessage | StreamRequest | IrRequest | MusicRequest | ComputePeaksMessage | PackRequest | PrepareSpatialMessage;
 
 // --- Worker to main ----------------------------------------------------------------------------
 
@@ -371,7 +386,7 @@ export interface ClipInfoMessage {
 
 /**
  * A piece of a clip, interleaved int16 (`pcm` transferred), `index` counting from 0. All chunks but the last hold
- * `CLIP_CHUNK_FRAMES` frames. ADR 0337 A4: for a clip whose info has `clipFormat` 6, the piece's whole ADPCM blocks.
+ * `CLIP_CHUNK_FRAMES` frames. ADR 0351 A4: for a clip whose info has `clipFormat` 6, the piece's whole ADPCM blocks.
  */
 export interface ClipChunkMessage {
   readonly type: "clipChunk";
@@ -429,11 +444,11 @@ export interface ErrorMessage {
   /** The decoder's negative `ERR_*` code, when the failure came from it. */
   readonly code?: number;
   readonly fatal?: boolean;
-  /** ADR 0337: the package a `packLoad` failed for. */
+  /** ADR 0351: the package a `packLoad` failed for. */
   readonly pack?: number;
 }
 
-/** ADR 0337: package `pack` is held: `entries` entries, `bytes` long. */
+/** ADR 0351: package `pack` is held: `entries` entries, `bytes` long. */
 export interface PackLoadedMessage {
   readonly type: "packLoaded";
   readonly pack: number;
@@ -510,8 +525,22 @@ export interface MusicWarnMessage {
 
 export type MusicReply = GroupOpenedMessage | NeedBytesMessage | MusicWarnMessage;
 
-export type DecoderReply = ReadyMessage | ClipInfoMessage | ClipChunkMessage | ClipDoneMessage | CancelledMessage | StreamOpenedMessage | StreamChunkMessage | StreamClosedMessage | ErrorMessage | IrPreparedMessage | IrFailedMessage | MusicReply | PeaksMessage | PackLoadedMessage;
+/** ADR 0331: request `id`'s blob (transferred): the format 2 table or the format 4 filters at the asked rate. */
+export interface SpatialPreparedMessage {
+  readonly type: "spatialPrepared";
+  readonly id: number;
+  readonly bytes: ArrayBuffer;
+}
 
+/** ADR 0331: request `id` failed. `code` is the decoder's `ERR_*`, or 0. */
+export interface SpatialFailedMessage {
+  readonly type: "spatialFailed";
+  readonly id: number;
+  readonly code: number;
+  readonly message: string;
+}
+
+export type DecoderReply = ReadyMessage | ClipInfoMessage | ClipChunkMessage | ClipDoneMessage | CancelledMessage | StreamOpenedMessage | StreamChunkMessage | StreamClosedMessage | ErrorMessage | IrPreparedMessage | IrFailedMessage | MusicReply | PeaksMessage | PackLoadedMessage | SpatialPreparedMessage | SpatialFailedMessage;
 
 /** Frames per `clipChunk`: 65,536 (1.5 s at 44.1 kHz), 128 KiB per channel, so a long clip is never one huge message. */
 export const CLIP_CHUNK_FRAMES = 65536;

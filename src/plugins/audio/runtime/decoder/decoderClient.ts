@@ -15,7 +15,10 @@
 // a stream like `openStream`'s: its `streamOpened`, `streamClosed` and errors reach `onStream`, and `closeStream` closes
 // it), `cancelGroup` closes a group's members, `protectMusic` and `releaseMusic` steer the worker's encoded cache, and
 // `onMusic` hears `groupOpened` (diagnostics only) and `needBytes` (Q0's miss rule: resend those members with `bytes`).
-import type { AmbisonicConvention, ClipInfo, PackRef, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, IrFailedMessage, IrPreparedMessage, IrRequest, MusicReply, PrimeGroupMessage, StreamClosedMessage, StreamLoopProgram, StreamOpenedMessage, StreamPortLike } from "./protocol";
+//
+// ADR 0331: `prepareSpatial` has the worker prepare the HRIR table or the MagLS filters for a context rate and resolves with
+// the blob. Like peaks, it is not posted again to a respawned worker: a crash rejects it and the loader reports the failure.
+import type { AmbisonicConvention, ClipInfo, PackRef, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, IrFailedMessage, IrPreparedMessage, IrRequest, MusicReply, PrimeGroupMessage, SpatialAssetKind, StreamClosedMessage, StreamLoopProgram, StreamOpenedMessage, StreamPortLike } from "./protocol";
 import type { StreamLoopAt } from "./streams";
 
 /** What the client needs of a worker (a `Worker`, or an in-process stand-in in tests). */
@@ -93,7 +96,7 @@ export interface DecodeClipOptions {
   /** Called with each chunk as it arrives, before the result resolves (a copy of nothing: the chunk is also part of the result). */
   readonly onChunk?: (pcm: Int16Array, index: number) => void;
   /**
-   * ADR 0337 A4: decode this entry of a package loaded with `loadPack` instead of `bytes` (pass an empty buffer). An ADPCM
+   * ADR 0351 A4: decode this entry of a package loaded with `loadPack` instead of `bytes` (pass an empty buffer). An ADPCM
    * entry with load `compressed` comes back as clip format 6 (`info.clipFormat` 6): each chunk then holds whole ADPCM blocks
    * viewed as int16 words, not samples, and the result's `pcm` is those words.
    */
@@ -131,11 +134,11 @@ export interface StreamOpenOptions {
   /** ADR 0158 §4 (contract C2, sent by E4.4): the loop region in frames (end exclusive, 0 = the end). */
   readonly loopStartFrame?: number;
   readonly loopEndFrame?: number;
-  /** ADR 0328: the region's crossfade, count and the program's later loops. */
+  /** ADR 0342: the region's crossfade, count and the program's later loops. */
   readonly program?: StreamLoopProgram;
   /** ADR 0162 B4: the sidecar's ambisonic convention, so the worker streams a 4, 9 or 16-channel file (FuMa converted). */
   readonly convention?: AmbisonicConvention;
-  /** ADR 0337 A4: stream this entry of a package loaded with `loadPack` instead of `bytes` (pass an empty buffer). */
+  /** ADR 0351 A4: stream this entry of a package loaded with `loadPack` instead of `bytes` (pass an empty buffer). */
   readonly pack?: PackRef;
 }
 
@@ -160,14 +163,14 @@ export interface DecoderClient {
    * ADR 0158 §4 (E4.4): changes a stream's loop region (`looping`; frames, end exclusive, 0/0 the whole file, both
    * omitted the file's own points) or releases it (`looping: false`), at stream frame `atStreamFrame` (the end of the
    * voice's current pass; omitted: where the worker is decoding). The caller reserves the stream's next epoch for it
-   * (the worker splices with it when that frame was sent already, `decoder/streams.ts`). ADR 0328: `program` adds the
+   * (the worker splices with it when that frame was sent already, `decoder/streams.ts`). ADR 0342: `program` adds the
    * region's crossfade, count and the program's later loops.
    */
   loopStream(streamId: number, looping: boolean, loopStartFrame?: number, loopEndFrame?: number, atStreamFrame?: number, program?: StreamLoopProgram): void;
   /** B3: closes a stream (the worker sends STREAM_CLOSE to the worklet). Unknown ids are answered too. */
   closeStream(streamId: number): void;
   /**
-   * ADR 0337 §7, A4: holds the `.mycopak` `bytes` in the worker as package `pack`, whose entries `decodeClip` and
+   * ADR 0351 §7, A4: holds the `.mycopak` `bytes` in the worker as package `pack`, whose entries `decodeClip` and
    * `openStream` then name with `pack` (a `compressed` Vorbis or Opus entry plays from the worker's copy through a stream
    * ring). Resolves with its entry count, rejects when the worker can't read it or can't run. A second load under the same
    * id replaces the first.
@@ -177,7 +180,7 @@ export interface DecoderClient {
    * (a package's memory isn't doubled on main for a rare crash). Without, a copy is kept here for the respawn.
    */
   loadPack(pack: number, bytes: ArrayBuffer, options?: { readonly refetch?: () => Promise<ArrayBuffer> }): Promise<{ readonly entries: number; readonly bytes: number }>;
-  /** ADR 0337: drops package `pack` here and in the worker (streams already open on it keep their copy). */
+  /** ADR 0351: drops package `pack` here and in the worker (streams already open on it keep their copy). */
   releasePack(pack: number): void;
   /**
    * ADR 0162 C2b: posts a zone IR request (`prepareIr`, `generateIr`, `releaseIr`) to the worker, which sends the kernel to
@@ -188,6 +191,13 @@ export interface DecoderClient {
   onIr(listener: (reply: IrPreparedMessage | IrFailedMessage) => void): () => void;
   /** B3: every stream reply; returns the unsubscribe. */
   onStream(listener: (reply: StreamReply) => void): () => void;
+  /**
+   * ADR 0331: the worker prepares a spatial asset (`asset` as fetched, at its own rate; copied, so the caller keeps it) for
+   * a context at `rate`: the HRIR table as clip format 2, or the MagLS filters as format 4. Resolves with the blob; rejects
+   * with `DecodeFailedError` (the decoder refused the rate or the layout) or `DecoderUnavailableError` (no worker could run,
+   * or it died).
+   */
+  prepareSpatial(kind: SpatialAssetKind, asset: ArrayBuffer, rate: number): Promise<ArrayBuffer>;
   /**
    * ADR 0166 (§4.6, C8): opens and primes a music group (breadth-first on the worker), or with `retarget` restarts its
    * open members at new start frames under new epochs. Each member is a stream: its replies reach `onStream`, and
@@ -258,11 +268,13 @@ class Client implements DecoderClient {
   private readonly memberGroup = new Map<number, number>();
   private readonly musicListeners = new Set<(reply: MusicReply) => void>();
   /**
-   * ADR 0337: the packages loaded, and how a respawned worker gets each back: its kept bytes, or (W12) a fetch of it again;
+   * ADR 0351: the packages loaded, and how a respawned worker gets each back: its kept bytes, or (W12) a fetch of it again;
    * and the loads awaiting their answer.
    */
   private readonly packs = new Map<number, { readonly kept: ArrayBuffer | null; readonly refetch?: () => Promise<ArrayBuffer> }>();
   private readonly packWaiters = new Map<number, { resolve(value: { entries: number; bytes: number }): void; reject(reason: unknown): void }[]>();
+  /** ADR 0331: spatial preparations awaiting their blob, by request id. */
+  private readonly spatialPending = new Map<number, { resolve(bytes: ArrayBuffer): void; reject(reason: unknown): void }>();
   generation = 0;
 
   constructor(
@@ -282,7 +294,7 @@ class Client implements DecoderClient {
     } else {
       raw.postMessage({ type: "init", wasmUrl: this.options.wasmUrl ?? decoderWasmUrl().href });
     }
-    // ADR 0337: a respawned worker gets the packages back before any request that names them: kept bytes at once; a
+    // ADR 0351: a respawned worker gets the packages back before any request that names them: kept bytes at once; a
     // package fetched again (W12) holds every later message back (`gatedWorker`) until it is in, in order.
     const fetches: Promise<void>[] = [];
     for (const [pack, held] of this.packs) {
@@ -416,6 +428,28 @@ class Client implements DecoderClient {
       this.pending.set(id, entry);
       worker.postMessage({ type: "computePeaks", id, asset: options?.asset, bytes: buffer, hint, binFrames }, [buffer]);
     });
+  }
+
+  prepareSpatial(kind: SpatialAssetKind, asset: ArrayBuffer, rate: number): Promise<ArrayBuffer> {
+    let worker: WorkerLike;
+    try {
+      worker = this.ensureWorker();
+    } catch (e) {
+      return Promise.reject(new DecoderUnavailableError(`audio decoder: no worker (${e instanceof Error ? e.message : String(e)})`));
+    }
+    const id = this.nextId++;
+    const bytes = asset.slice(0);
+    return new Promise<ArrayBuffer>((resolve, reject) => {
+      this.spatialPending.set(id, { resolve, reject });
+      worker.postMessage({ type: "prepareSpatial", id, kind, bytes, rate }, [bytes]);
+    });
+  }
+
+  /** The worker is gone: the spatial preparations it held fail (the loaders warn once and stay on their fallback). */
+  private failSpatial(message: string): void {
+    const pending = [...this.spatialPending.values()];
+    this.spatialPending.clear();
+    for (const p of pending) p.reject(new DecoderUnavailableError(message));
   }
 
   connectWorklet(port: MessagePort | StreamPortLike): void {
@@ -599,6 +633,15 @@ class Client implements DecoderClient {
       case "irFailed":
         if (this.irPending.delete(msg.token)) this.emitIr(msg);
         return;
+      case "spatialPrepared":
+      case "spatialFailed": {
+        const entry = this.spatialPending.get(msg.id);
+        if (!entry) return;
+        this.spatialPending.delete(msg.id);
+        if (msg.type === "spatialPrepared") entry.resolve(msg.bytes);
+        else entry.reject(new DecodeFailedError(msg.message, msg.code || undefined));
+        return;
+      }
       case "groupOpened":
       case "needBytes":
       case "musicWarn":
@@ -639,6 +682,7 @@ class Client implements DecoderClient {
     this.retire(worker);
     this.failStreams(`${message}; the stream stopped`);
     this.failIr(message);
+    this.failSpatial(message);
     if (entries.length === 0) return;
     let next: WorkerLike;
     try {
@@ -675,6 +719,7 @@ class Client implements DecoderClient {
     for (const id of [...this.pending.keys()]) this.settle(id)?.reject(error);
     this.failStreams(error.message);
     this.failIr(error.message);
+    this.failSpatial(error.message);
   }
 
   /** B3: the worker's streams are gone with it (its decoder state and its end of the worklet channel). */

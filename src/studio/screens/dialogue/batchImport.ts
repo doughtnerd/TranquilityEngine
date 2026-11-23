@@ -1,4 +1,4 @@
-// Batch import of a voice-over delivery (ADR 0340 §9 "Batch import", §8, 0343 §1): picked files are matched to line
+// Batch import of a voice-over delivery (ADR 0354 §9 "Batch import", §8, 0357 §1): picked files are matched to line
 // keys and languages by a naming pattern with the tokens `{lang}`, `{key}`, `{table}` and `{ignore}` (presets
 // `{lang}/{key}`, `{key}_{lang}`, `{lang}_{key}`: Wwise and FMOD deliveries use the first two), matched against each
 // file's path relative to what was picked, without its extension (leading folders allowed). The preview sorts every
@@ -7,7 +7,7 @@
 // (key and the reference text's hash) and `normalize` from `localisation.loudness`. Pure; the dialog reads the files,
 // copies them and writes the sidecars.
 //
-// Lip-sync (ADR 0340 §7): a Rhubarb Lip Sync output file (`.txt`/`.tsv` or `.json`) picked beside a line's audio with
+// Lip-sync (ADR 0354 §7): a Rhubarb Lip Sync output file (`.txt`/`.tsv` or `.json`) picked beside a line's audio with
 // the same name (`fr/intro_01.wav` + `fr/intro_01.txt`) rides along with it: it gets no row of its own, and applying
 // writes its keys into the copied file's sidecar `lipsync` block in the same step.
 import { isLipsyncFile } from "../../../engine/audio/localisation/lipsync";

@@ -1,4 +1,4 @@
-// ADR 0333: AudioZone through the public API on the fake backend — an edge zone heard from its nearest point (rotated
+// ADR 0347: AudioZone through the public API on the fake backend — an edge zone heard from its nearest point (rotated
 // boxes and heights too) and around the listener inside, an inside zone's feather, `zoneDepth`, samples, and stopping.
 import { describe, expect, it } from "vitest";
 import { Audio, AudioZone } from "./index";

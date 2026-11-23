@@ -1,5 +1,5 @@
-// The project's audio in the editor (ADR 0330): `audio.json` at the project root holds the mix, which the Audio Studio
-// edits (ADR 0327; the editor's legacy audio panels and their adapter, decision D2, are gone).
+// The project's audio in the editor (ADR 0344): `audio.json` at the project root holds the mix, which the Audio Studio
+// edits (ADR 0341; the editor's legacy audio panels and their adapter, decision D2, are gone).
 //
 // - `settingsWithAudio`: what `EditorProject.settings` serves: `project.json`'s values with `audio` set to `audio.json`'s
 //   runtime view (`projectWithAudio`), which Play and the audio Inspector sections read. Nothing in the editor writes it.
@@ -15,7 +15,7 @@ import type { FileSystem } from "../engine/platform/FileSystem";
 import { withMember } from "./jsonMember";
 import { PROJECT_FILE, joinPath } from "./projectPaths";
 
-/** `project.json`'s old audio section's key (ADR 0330 moved it to `audio.json`). */
+/** `project.json`'s old audio section's key (ADR 0344 moved it to `audio.json`). */
 const AUDIO_KEY = "audio";
 /** Where `migrateLegacyAudio` keeps the `project.json` it migrated. */
 export const MIGRATED_FOLDER = ".myco/migrated";
@@ -49,7 +49,7 @@ export function currentAudioProject(files: AudioFiles): AudioProject {
 }
 
 /**
- * `project.json`'s text migrated (ADR 0330): `audio.json`'s text from its `audio` section, and `project.json`'s text
+ * `project.json`'s text migrated (ADR 0344): `audio.json`'s text from its `audio` section, and `project.json`'s text
  * without it; null when it has no section (or isn't JSON). `problems` are the old section's parse problems.
  */
 export function migrateProjectText(projectText: string): { projectText: string; audioText: string; problems: string[] } | null {
@@ -85,7 +85,7 @@ export async function migrateLegacyAudio(fs: FileSystem, root: string, log: (lin
   if (!kept) await fs.writeText(audioPath, migrated.audioText);
   await fs.writeText(projectPath, migrated.projectText);
   log(
-    `[editor] ADR 0330: moved project.json's audio section ${kept ? `out (the project's ${AUDIO_PROJECT_FILE} already holds the mix)` : `to ${AUDIO_PROJECT_FILE}`}; the old project.json is in ${backup}.` +
+    `[editor] ADR 0344: moved project.json's audio section ${kept ? `out (the project's ${AUDIO_PROJECT_FILE} already holds the mix)` : `to ${AUDIO_PROJECT_FILE}`}; the old project.json is in ${backup}.` +
       (migrated.problems.length > 0 ? ` The old section had problems: ${migrated.problems.join(" ")}` : ""),
   );
   return true;

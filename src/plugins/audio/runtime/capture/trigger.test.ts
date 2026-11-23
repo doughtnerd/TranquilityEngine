@@ -173,7 +173,7 @@ describe("F9", () => {
   });
 });
 
-describe("F10: the take trigger (ADR 0334)", () => {
+describe("F10: the take trigger (ADR 0348)", () => {
   it("F10 starts a take and the next F10 stops and saves it; F9 and touches do nothing to it", async () => {
     const target = fakeTarget();
     const { cap, calls } = fakeCapture();

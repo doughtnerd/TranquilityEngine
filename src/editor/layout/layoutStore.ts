@@ -1,4 +1,4 @@
-// A dock layout as shared state for one host (ADR 0174, 0327): the scene editor's panels, or one Audio Studio screen.
+// A dock layout as shared state for one host (ADR 0174, 0341): the scene editor's panels, or one Audio Studio screen.
 // Each host has its own store key and its own panel catalog and default layout, and its layout is remembered per user
 // between sessions. It's a per-viewer convenience, so browser storage is fine; anything unreadable falls back to the
 // default layout. Nothing is written until the layout changes, so a page that only loads a store (the Studio loads

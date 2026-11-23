@@ -1,4 +1,4 @@
-// The Subtitles plugin's manifest (ADR 0133, 0343 §5): the optional built-in subtitle display (`SubtitleDisplay`) and the
+// The Subtitles plugin's manifest (ADR 0133, 0357 §5): the optional built-in subtitle display (`SubtitleDisplay`) and the
 // player's subtitle settings (`Subtitles`), built only on public API (`Audio.onLine`, `Audio.onCaption`, `Locale`,
 // `Storage` and a UI document), so a game can turn it off and build its own on the same events. On in new projects
 // (first-party plugins default on, ADR 0133); it needs the Audio and UI plugins.

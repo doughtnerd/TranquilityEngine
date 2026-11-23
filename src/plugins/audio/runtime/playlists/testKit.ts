@@ -1,4 +1,4 @@
-// @internal Shared setup for the playlist runtime tests on the fake backend (ADR 0329; first written for the audio event
+// @internal Shared setup for the playlist runtime tests on the fake backend (ADR 0343; first written for the audio event
 // runtime, ADR 0158 E3.5). Not shipped: only test files import it.
 //
 // Usage (top of a test file):
@@ -9,7 +9,7 @@ import { Assets, Engine, SceneManager } from "../../../../myco";
 import { setAudioBackend } from "../backend";
 import { makeFakeBackend, type FakeBackend, endAudioSession } from "../testing";
 
-/** ADR 0329: the playlist format tag. */
+/** ADR 0343: the playlist format tag. */
 export const PF = "myco.playlist@1";
 /** A sample entry: `sample("a.wav", { volume: -6 })`. */
 export const sample = (s: string, extra: Record<string, unknown> = {}) => ({ sample: s, ...extra });

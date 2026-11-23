@@ -1,4 +1,4 @@
-//! ADR 0338 §5 (ABI 5.0), amended by 0344 §3: plugin effects in the core's chains, through `scheduler::submit` and
+//! ADR 0352 §5 (ABI 5.0), amended by 0358 §3: plugin effects in the core's chains, through `scheduler::submit` and
 //! `Core::process`, with the native `myco_ext` registry (`audio_core::ext::install`) standing in for the worklet glue.
 //!
 //! - a plugin slot on a bus calls the import and processes; its 16 parameters reach the call;

@@ -1,4 +1,4 @@
-//! Delay lines on caller-owned memory (ADR 0331's `delay` and `chorus`, and the lines of the
+//! Delay lines on caller-owned memory (ADR 0345's `delay` and `chorus`, and the lines of the
 //! reverb and the pitch shifter).
 //!
 //! The core hands each effect a slice of its effect memory (`audio-core`'s `fxmem.rs`); an offline

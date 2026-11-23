@@ -1,4 +1,4 @@
-// The Take screen's timeline (ADR 0334 "The Take screen"; the prototype's Take, with its fixed 32 s replaced by the
+// The Take screen's timeline (ADR 0348 "The Take screen"; the prototype's Take, with its fixed 32 s replaced by the
 // take's real duration): a ruler over the whole take (press and drag to scrub), the picture lane (the take's FRAME
 // pictures, when it has them), one instance lane per playlist path (lifetimes, held parts up to the release; click
 // selects, Enter or a double-click opens the playlist), the parameter lanes (a line per parameter, labelled ones as

@@ -1,4 +1,4 @@
-// Live mixer moves are steps of `audio.json`'s history (ADR 0330 "Live mixing", ADR 0327 "the engine's undo tree"): the
+// Live mixer moves are steps of `audio.json`'s history (ADR 0344 "Live mixing", ADR 0341 "the engine's undo tree"): the
 // Mixer session over the real `audio.json` document (the editor's asset document, its persistent history tree), with
 // the Studio's runtime running. A fader drag is one undo step however many moves it makes; undo and redo of it reach the
 // running mixer at once, named `undo` and `redo` for a capture's MIXOP records (D22); the drag's own moves are `editor`.

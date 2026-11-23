@@ -1,5 +1,5 @@
 /**
- * `LocalizedText` (ADR 0342 §4, Unity's `LocalizeStringEvent`): localised text for hand-built scene UI. It writes the
+ * `LocalizedText` (ADR 0356 §4, Unity's `LocalizeStringEvent`): localised text for hand-built scene UI. It writes the
  * message of `key` in the current language into a text field of its node, when it starts, on every language change
  * (`Locale.epoch`) and when `key`, `field` or `args` change. Literal text fields keep working unchanged; add this
  * component to the ones that should follow the language.

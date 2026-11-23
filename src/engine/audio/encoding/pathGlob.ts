@@ -1,4 +1,4 @@
-// Internal (ADR 0337 §2, §7): project-path globs as in `.gitignore`, for encoding rules and package `include` lists.
+// Internal (ADR 0351 §2, §7): project-path globs as in `.gitignore`, for encoding rules and package `include` lists.
 // A generic matcher; nothing here knows about audio. (Line comments: the patterns below would close a block comment.)
 //
 // - `*` matches anything but `/`; `?` one character but `/`; `[abc]`, `[a-z]` and `[!abc]` one character of a set.

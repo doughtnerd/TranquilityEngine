@@ -1,4 +1,4 @@
-//! Instance submixes (ADR 0331 "Instance", ABI 4.5): the voices of one playing playlist, track or
+//! Instance submixes (ADR 0345 "Instance", ABI 4.5): the voices of one playing playlist, track or
 //! sequence mix into a submix of their own, which runs the instance's insert chain and then feeds
 //! the instance's output bus.
 //!
@@ -13,7 +13,7 @@
 //!   another group drops the old group's route; a group routed to another slot moves (the slot it
 //!   left keeps running, ungrouped, until main frees it). A slot whose group goes to 0 keeps its
 //!   chain's state: that is how main lets an ended instance's tails ring (it frees the slot later).
-//! - **Levels** (ABI 4.9, ADR 0331): a nested playlist's, a sequence track's or a clip's chain is a
+//! - **Levels** (ABI 4.9, ADR 0345): a nested playlist's, a sequence track's or a clip's chain is a
 //!   slot of its own, usually with group 0, whose `parent` is the slot of the level above it (on
 //!   the same bus). Its voices name it with **ROUTE** (0x0D, `automation::route`), which overrides
 //!   the group route. A slot's output goes into its parent's buffer (the parent's chain then runs
@@ -44,11 +44,11 @@
 //!   passes the signal through. An effect with its `on` flag clear passes the signal through and
 //!   keeps its state. An effect that keeps its kind in its slot keeps its state across a SUBMIX and
 //!   glides to the new parameters (an edit doesn't click).
-//! - **Plugin effects** (ABI 5.0, ADR 0338): a kind `PLUGIN_BASE + e` runs registered plugin effect
+//! - **Plugin effects** (ABI 5.0, ADR 0352): a kind `PLUGIN_BASE + e` runs registered plugin effect
 //!   `e` in its own module through the `myco_ext` import (`ext.rs`), at every level; a fault passes
-//!   the block dry, and every submix's plugin calls share one quantum's fuel (0344 §3).
+//!   the block dry, and every submix's plugin calls share one quantum's fuel (0358 §3).
 //!
-//! - **Automation** (SUBMIX_AUTOMATE, ABI 4.8; ADR 0331 instance automation): up to
+//! - **Automation** (SUBMIX_AUTOMATE, ABI 4.8; ADR 0345 instance automation): up to
 //!   [`automation::BUS_BINDINGS`] fx bindings per slot, each a parameter of its chain driven by a
 //!   curve of a global parameter, a local one of the slot's group, or the group's `sequenceTime`,
 //!   evaluated once a quantum before the chain runs (`automation::submix_bindings`; the effect
@@ -70,7 +70,7 @@ use crate::QUANTUM;
 pub const SUBMIXES: usize = wire::SUBMIXES_MAX as usize;
 /// Effects a submix's chain keeps (the wire's `SUBMIX_EFFECTS_MAX`).
 pub const SUBMIX_EFFECTS: usize = wire::SUBMIX_EFFECTS_MAX as usize;
-/// Parameters per effect on the wire (16 from ABI 5.0, ADR 0338).
+/// Parameters per effect on the wire (16 from ABI 5.0, ADR 0352).
 pub const PARAMS: usize = audio_dsp::fx::PARAMS;
 /// Instance groups 1..=GROUPS (as PLAY's `group`).
 pub const GROUPS: usize = crate::automation::GROUPS;
@@ -434,7 +434,7 @@ pub fn render(core: &mut Core) {
     let eval = automation::submix_eval(&mut regions.automation[..], frame);
     let deepest = v.slots.iter().filter(|s| s.used != 0).map(|s| s.depth).max().unwrap_or(0);
     let mut out = [0.0f32; 2 * QUANTUM];
-    // ABI 5.0 (ADR 0338, 0344 §3): the submixes' plugin effects, at every level, share one quantum's fuel.
+    // ABI 5.0 (ADR 0352, 0358 §3): the submixes' plugin effects, at every level, share one quantum's fuel.
     let mut fuel = crate::ext::Fuel::quantum(QUANTUM);
     for depth in (0..=deepest).rev() {
         for i in 0..SUBMIXES {
@@ -526,7 +526,7 @@ mod tests {
 
     #[test]
     fn the_region_holds_the_header_and_every_slot() {
-        // ABI 5.0 (ADR 0338): 16 parameters an effect made it ≈ 409 KB (≈ 360 KB before).
+        // ABI 5.0 (ADR 0352): 16 parameters an effect made it ≈ 409 KB (≈ 360 KB before).
         assert!(REGION_BYTES < 440 << 10, "{REGION_BYTES}");
         assert_eq!(route_code(None, 3, 5), 5);
         // SAFETY: all-zero is a valid Header.

@@ -1,4 +1,4 @@
-// ADR 0342 §6: the `Locale` runtime, through the public API: an Engine boots it from project.json's `languages` and the
+// ADR 0356 §6: the `Locale` runtime, through the public API: an Engine boots it from project.json's `languages` and the
 // project's string tables (asset sources), and scripts read, format and switch through `Locale`.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, Locale, LocalText, MemoryStorage, Storage, UIDocument } from "../../myco";

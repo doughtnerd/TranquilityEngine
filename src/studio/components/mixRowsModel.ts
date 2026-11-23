@@ -1,4 +1,4 @@
-// The mixer's send and ducking rows (ADR 0335 `SendRow`, `DuckRow`; ADR 0330 sends, ducking): what a collapsed row
+// The mixer's send and ducking rows (ADR 0349 `SendRow`, `DuckRow`; ADR 0344 sends, ducking): what a collapsed row
 // says, which buses a ducking rule may be triggered by, and each row's edits as `{ next } | { refused }`, held to the
 // limits `audio.json`'s parse declares (`MIX_LIMITS`), so the owner applies them as undo steps.
 import { MIX_LIMITS } from "../../engine/audio/project/format";

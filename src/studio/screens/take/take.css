@@ -1,4 +1,4 @@
-/* The Studio's Take screen (ADR 0334). Theme tokens only (src/editor/ui/editor.css lists them); a note's colour is the
+/* The Studio's Take screen (ADR 0348). Theme tokens only (src/editor/ui/editor.css lists them); a note's colour is the
    designer's data, passed as `--tk-note`. */
 
 .tk-doc { display: contents; }

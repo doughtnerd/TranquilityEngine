@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the gain lanes panel: a bus inside a VCA under two parents, a ducked bus in a snapshot
+// Stories (ADR 0219, 0349) for the gain lanes panel: a bus inside a VCA under two parents, a ducked bus in a snapshot
 // with automation, a bus silenced by another's solo, a muted parent, and nothing selected.
 import type { Decorator, Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, within } from "storybook/test";

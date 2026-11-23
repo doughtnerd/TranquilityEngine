@@ -4,23 +4,22 @@
 // the project, and the build writer (buildWriter.ts, ADR 0296) writes the result through their
 // build folders.
 //
-// Scripts compile with the editor's script compiler (scriptLoader.ts), so a build runs the same
-// JavaScript as play mode. Where the editor loads each module from a blob or data: URL, a build
-// writes it as a file and points its imports at files: `"myco"` (and `"tranquility"`) at the
-// engine module beside the player, other scripts at their compiled files, JSON files at modules
-// exporting their contents.
+// The project's code links through the project code linker (ADR 0329) into its build target, so a
+// build runs the same JavaScript as play mode: where the editor imports each module from a URL, a
+// build writes it as a file under `code/` (`projectCode/buildTarget.ts`).
 import type { ProjectSettingsInput } from "../engine";
 import { pickMainScene } from "../editor/projects";
-import { compileScript, ENGINE_MODULE, LEGACY_ENGINE_MODULE, isScriptPath, loadOrder, packageSpecifiers, resolveScript, rewriteImports, type ScriptProblem } from "../editor/scriptLoader";
-import { bundlePackages, isPackageSpecifier, type PackageSource } from "../editor/packages";
+import type { PackageSource } from "../editor/packages";
 import { isProjectFile, skipsFolder } from "../engine/scene/projectFiles";
 import { LEGACY_AUDIO_MESSAGE, hasLegacyAudio } from "../engine/audio/project/load";
 import { audioEventRefusal, isAudioEventPath } from "../engine/audio/retiredAudioEvent";
-import { projectScriptAssetRefs } from "../engine/scene/scriptAssetRefs";
+import { buildTarget } from "../projectCode/buildTarget";
+import type { ScriptProblem } from "../projectCode/compile";
+import { link } from "../projectCode/linker";
 import { planPluginCode, type BuiltPlugin } from "../plugins/thirdParty";
 import type { AudioReport } from "./audio";
 import { planAudioEffects, type PlannedAudioEffect } from "./audioEffects";
-import { ENGINE_FILE, MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, modulePath, relativeSpecifier, type GameManifest } from "./format";
+import { MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, modulePath, type GameManifest } from "./format";
 import { planLocalisation, type BuildLanguages } from "./strings";
 import { planLineIndex } from "./lines";
 import { LINE_INDEX_PATH } from "../engine/audio/localisation/lines/lineIndex";
@@ -46,13 +45,13 @@ export interface BuildOptions {
   readonly mainScene?: string;
   /** Write `audioCapture: true` into the manifest, so the player installs the capture trigger (default off). */
   readonly audioCapture?: boolean;
-  /** ADR 0334: write `audioTake: true` into the manifest, so the player installs the take trigger (F10; default off). */
+  /** ADR 0348: write `audioTake: true` into the manifest, so the player installs the take trigger (F10; default off). */
   readonly audioTake?: boolean;
-  /** ADR 0334: with `audioTake`, false writes `audioTakeFrames: false`: takes record no pictures of the game view (default: they do). */
+  /** ADR 0348: with `audioTake`, false writes `audioTakeFrames: false`: takes record no pictures of the game view (default: they do). */
   readonly audioTakeFrames?: boolean;
-  /** ADR 0340 §6, 0342 §11: `--languages`: ship only these of the project's shipped languages. Absent: every one. */
+  /** ADR 0354 §6, 0356 §11: `--languages`: ship only these of the project's shipped languages. Absent: every one. */
   readonly languages?: readonly string[];
-  /** ADR 0342 §9: `--pseudo`: add the pseudo-languages, for QA builds. */
+  /** ADR 0356 §9: `--pseudo`: add the pseudo-languages, for QA builds. */
   readonly pseudo?: boolean;
 }
 
@@ -66,19 +65,19 @@ export interface WebBuildPlan {
   /** Binary files written, by build path: models baked for the build (ADR 0090). */
   readonly binaries?: ReadonlyMap<string, Uint8Array>;
   /**
-   * ADR 0337 §5 step 7: project files in `copies` that aren't written (packaged sounds: their bytes are in a package),
+   * ADR 0351 §5 step 7: project files in `copies` that aren't written (packaged sounds: their bytes are in a package),
    * by project path. They stay in the manifest's `files`, so the game still knows them by path.
    */
   readonly omit?: ReadonlySet<string>;
-  /** ADR 0337 §5 step 6: what the audio step converted and packaged (`audio-report.json`); absent before it ran. */
+  /** ADR 0351 §5 step 6: what the audio step converted and packaged (`audio-report.json`); absent before it ran. */
   readonly audioReport?: AudioReport;
   /**
-   * ADR 0338 §8: the enabled plugins' audio modules the build ships (`audioEffects.ts`); the build writer hashes them
+   * ADR 0352 §8: the enabled plugins' audio modules the build ships (`audioEffects.ts`); the build writer hashes them
    * and writes `game.json`'s `audioEffects`. Absent: none.
    */
   readonly audioEffects?: readonly PlannedAudioEffect[];
   /**
-   * ADR 0342 §11, 0340 §6: the languages the build ships (`strings.ts`), which the audio step splits packages by and
+   * ADR 0356 §11, 0354 §6: the languages the build ships (`strings.ts`), which the audio step splits packages by and
    * writes the line index for. Absent: the audio step reads them from `project.json`.
    */
   readonly languages?: BuildLanguages;
@@ -105,75 +104,10 @@ const EDITOR_FILES = new Set(["tsconfig.json", "jsconfig.json", "sample.json"]);
  */
 const isExportedFile = (path: string) => isProjectFile(path) && !EDITOR_FILES.has(path) && !/\.(mts|cts)$/i.test(path);
 
-const isEngineModule = (specifier: string) => specifier === ENGINE_MODULE || specifier === LEGACY_ENGINE_MODULE;
-
-/** Where the bundled npm packages go in a build (ADR 0125): `code/deps/<chunk>.js`. */
-export const DEPS_DIR = "code/deps";
-
-/**
- * Compile every script and point its imports at build files; npm packages they import are bundled
- * into `code/deps/` (ADR 0125). Throws an `ExportError` listing every script that fails.
- */
-async function compileForBuild(
-  scripts: ReadonlyMap<string, string>,
-  json: ReadonlyMap<string, string>,
-  packages?: PackageSource,
-  extraPackages: readonly string[] = [],
-): Promise<{ order: string[]; files: Map<string, string>; packageEntries: Map<string, string> }> {
-  const problems: ScriptProblem[] = [];
-  const compiled = new Map<string, Exclude<Awaited<ReturnType<typeof compileScript>>, ScriptProblem>>();
-  for (const [path, source] of [...scripts].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
-    if (!isScriptPath(path)) continue;
-    const result = await compileScript(path, source, { sourceMap: false });
-    if ("code" in result) compiled.set(path, result);
-    else problems.push(result);
-  }
-  const parsed = new Map<string, unknown>();
-  for (const [path, text] of json) {
-    try {
-      parsed.set(path, JSON.parse(text));
-    } catch {
-      // reported against the scripts that import it
-    }
-  }
-  // npm plugins' runtime entries (ADR 0139) bundle with the packages the scripts import.
-  const specifiers = [...new Set([...packageSpecifiers(compiled.values()), ...extraPackages])].sort();
-  const files = new Map<string, string>();
-  const entryFiles = new Map<string, string>();
-  const packageProblems = new Map<string, string | undefined>();
-  if (specifiers.length > 0 && !packages) for (const s of specifiers) packageProblems.set(s, "npm packages need the project folder's node_modules");
-  else if (specifiers.length > 0 && packages) {
-    const bundle = await bundlePackages(specifiers, packages);
-    for (const [name, chunk] of bundle.chunks) {
-      const out = `${DEPS_DIR}/${name}`;
-      files.set(out, rewriteImports(chunk.code, chunk.imports, (spec) => (isEngineModule(spec) ? relativeSpecifier(out, ENGINE_FILE) : spec)));
-    }
-    for (const [spec, entry] of bundle.entries) entryFiles.set(spec, `${DEPS_DIR}/${entry}`);
-    for (const s of specifiers) packageProblems.set(s, entryFiles.has(s) ? undefined : (bundle.problems.get(s) ?? "it wasn't bundled"));
-  }
-  const plan = loadOrder(compiled, new Map([...json.keys()].map((p) => [p, parsed.has(p)])), packageProblems);
-  problems.push(...plan.problems);
-  for (const spec of extraPackages) if (packageProblems.get(spec) !== undefined) problems.push({ path: spec, message: `the plugin entry can't be bundled: ${packageProblems.get(spec)}` });
-  if (problems.length > 0) {
-    const list = problems.map((p) => `  - ${p.path}: ${p.message}`).join("\n");
-    throw new ExportError(`Some scripts can't be built:\n${list}`, problems);
-  }
-  const known = new Set([...compiled.keys(), ...json.keys()]);
-  for (const path of plan.order) {
-    const s = compiled.get(path)!;
-    const out = modulePath(path);
-    files.set(
-      out,
-      rewriteImports(s.code, s.imports, (spec) => {
-        if (isEngineModule(spec)) return relativeSpecifier(out, ENGINE_FILE);
-        if (isPackageSpecifier(spec)) return relativeSpecifier(out, entryFiles.get(spec)!);
-        const target = resolveScript(path, spec, known)!;
-        if (parsed.has(target)) files.set(modulePath(target), `export default ${JSON.stringify(parsed.get(target))};\n`);
-        return relativeSpecifier(out, modulePath(target));
-      }),
-    );
-  }
-  return { order: plan.order, files, packageEntries: entryFiles };
+/** Throw an `ExportError` listing `problems`, if there are any: a build runs no code that didn't link. */
+function stopOn(problems: readonly ScriptProblem[], what: string): void {
+  if (problems.length === 0) return;
+  throw new ExportError(`${what}:\n${problems.map((p) => `  - ${p.path}: ${p.message}`).join("\n")}`, problems);
 }
 
 /** A JSON file's value, or undefined when it has none or doesn't parse. */
@@ -189,9 +123,9 @@ function parsedJson(text: string | undefined): unknown {
 /** Plan a web build of `source`. Throws an `ExportError` if it can't be built. */
 export async function planWebBuild(source: BuildSource, options: BuildOptions = {}): Promise<WebBuildPlan> {
   if (!source.files.includes("project.json")) throw new ExportError("The project has no project.json.");
-  // ADR 0330: the mix ships in audio.json, copied with the other files; an unmigrated project.json audio section is refused.
+  // ADR 0344: the mix ships in audio.json, copied with the other files; an unmigrated project.json audio section is refused.
   if (hasLegacyAudio(parsedJson(source.json.get("project.json")))) throw new ExportError(LEGACY_AUDIO_MESSAGE);
-  // ADR 0329: the retired audio event format doesn't ship; the project migrates its events to playlists first.
+  // ADR 0343: the retired audio event format doesn't ship; the project migrates its events to playlists first.
   const events = source.files.filter((f) => isAudioEventPath(f) && isExportedFile(f));
   if (events.length > 0) {
     throw new ExportError(`${audioEventRefusal("Export", events[0]!)}${events.length > 1 ? ` (${events.length} audio event files in all)` : ""}`, events.map((path) => ({ path, message: audioEventRefusal("Export", path) })));
@@ -209,37 +143,40 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
     { json: source.json, code: source.scripts, packages: source.packages?.files, disabled: source.settings.plugins?.disabled, assets: source.files },
     { editor: false },
   );
-  if (pluginPlan.problems.length > 0) {
-    const list = pluginPlan.problems.map((p) => `  - ${p.where}: ${p.message}`).join("\n");
-    throw new ExportError(`Some plugins can't be built:\n${list}`, pluginPlan.problems.map((p) => ({ path: p.where, message: p.message })));
-  }
-  // ADR 0338 §8: the enabled plugins' audio modules ship (hashed into game.json by the build writer); a disabled one's don't.
+  stopOn(pluginPlan.problems.map((p) => ({ path: p.where, message: p.message })), "Some plugins can't be built");
+  // ADR 0352 §8: the enabled plugins' audio modules ship (hashed into game.json by the build writer); a disabled one's don't.
   const audioEffects = planAudioEffects(pluginPlan.plugins, pluginPlan.enabled);
   if (audioEffects.leaveOut.size > 0) copies = copies.filter((p) => !audioEffects.leaveOut.has(p));
-  // ADR 0342 §11, 0340 §6: the shipped languages' string files; string tables and other languages' variants stay out.
+  // ADR 0356 §11, 0354 §6: the shipped languages' string files; string tables and other languages' variants stay out.
   const localisation = planLocalisation(source.json, copies, { languages: options.languages, pseudo: options.pseudo }, copiedPath("project.json"));
   if (localisation.error) throw new ExportError(localisation.error);
   copies = [...localisation.copies];
-  // ADR 0340 §6: the line index the runtime finds line tables and dialogue files by, and the tables without their notes.
+  // ADR 0354 §6: the line index the runtime finds line tables and dialogue files by, and the tables without their notes.
   const lineFiles = planLineIndex(source.json, copies);
   const shippedFiles = lineFiles.size > 0 && !copies.includes(LINE_INDEX_PATH) ? [...copies, LINE_INDEX_PATH].sort() : copies;
-  const { order, files, packageEntries } = await compileForBuild(pluginPlan.code, source.json, source.packages, pluginPlan.npmEntries);
-  const plugins: BuiltPlugin[] = pluginPlan.runtime.map((p) => ({ manifest: p.manifest, module: p.source.kind === "project" ? modulePath(p.runtime!) : packageEntries.get(p.runtime!)! }));
+  // The selected code links into build files (ADR 0329); any problem, a plugin entry's included, stops the build.
+  const shipped = copies;
+  const linked = await link(
+    { code: pluginPlan.code, json: source.json, packages: source.packages, extraEntries: pluginPlan.npmEntries, isAsset: (p) => shipped.includes(p) },
+    buildTarget,
+  );
+  stopOn(linked.problems, "Some scripts can't be built");
+  const files = linked.output;
+  const plugins: BuiltPlugin[] = pluginPlan.runtime.map((p) => ({ manifest: p.manifest, module: p.source.kind === "project" ? modulePath(p.runtime!) : linked.entries.get(p.runtime!)! }));
   const name = typeof source.settings.name === "string" && source.settings.name ? source.settings.name : source.name;
   const manifest: GameManifest = {
     format: MANIFEST_FORMAT,
     name,
     mainScene,
     files: shippedFiles,
-    scripts: order.map((path) => ({ source: path, module: modulePath(path) })),
+    scripts: linked.loaded.map((path) => ({ source: path, module: modulePath(path) })),
     ...(plugins.length > 0 && { plugins }),
     ...(options.audioCapture === true && { audioCapture: true as const }),
     ...(options.audioTake === true && { audioTake: true as const }),
     ...(options.audioTake === true && options.audioTakeFrames === false && { audioTakeFrames: false as const }),
     ...(localisation.manifest && { localisation: localisation.manifest }),
+    ...(linked.assetRefs.length > 0 && { assetRefs: linked.assetRefs }),
   };
-  const assetRefs = projectScriptAssetRefs(source.scripts.values(), (p) => copies.includes(p));
-  if (assetRefs.length) (manifest as { assetRefs?: readonly string[] }).assetRefs = assetRefs;
   const generated = new Map([...files, ...localisation.generated, ...[...lineFiles].map(([p, t]) => [copiedPath(p), t] as const)]);
   generated.set(MANIFEST_FILE, `${JSON.stringify(manifest, null, 2)}\n`);
   generated.set("serve.mjs", SERVE_SCRIPT);

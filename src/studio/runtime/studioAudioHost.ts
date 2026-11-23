@@ -1,4 +1,4 @@
-// The Studio's own audio runtime (ADR 0327 "The Studio runs its own audio runtime", "A seam for the live link"):
+// The Studio's own audio runtime (ADR 0341 "The Studio runs its own audio runtime", "A seam for the live link"):
 // an Engine running only the audio plugin's runtime, the same `myco` audio code a game runs, so every audition, the
 // Mixer, Spatial test scenes and take replay play through the real engine. It always uses the Rust core backend,
 // on every platform (owner decision 2026-11-22): the project's `audio.backend` is overridden, and if the core can't

@@ -1,4 +1,4 @@
-// The gain lanes panel (ADR 0335 `GainLanes`, ADR 0330 "Gain"): for the selected bus or return, each lane of its level
+// The gain lanes panel (ADR 0349 `GainLanes`, ADR 0344 "Gain"): for the selected bus or return, each lane of its level
 // (fader, runtime, snapshot, VCA, monitor, dip, duck, automation) as a value and a bar, the levels added from above,
 // and what you hear (total dB and linear gain). The sums are `gainLanesModel.ts`'s.
 import { dbText, gainBreakdown, gainText, laneBar, laneText, type GainInputs } from "./gainLanesModel";

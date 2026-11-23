@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0338 §8): a project's whole set of plugin effects, applied at once. The hosts that plan a project's
+ * Internal (ADR 0352 §8): a project's whole set of plugin effects, applied at once. The hosts that plan a project's
  * plugins (the editor on every load and script reload, the Studio when it opens a project and when a plugin's files
  * change, the player from `game.json`) hand the usable plugins with an `audio` section here; each goes through
  * `loadEffectPlugin` (catalogue, validation, the backend's `effectPlugins` capability, offline renders), a plugin that

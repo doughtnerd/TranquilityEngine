@@ -1,4 +1,4 @@
-/* ADR 0334: Record take and Record capture on the Play toolbar. Theme tokens only. */
+/* ADR 0348: Record take and Record capture on the Play toolbar. Theme tokens only. */
 .record-toggle .record-dot {
   color: var(--muted);
 }

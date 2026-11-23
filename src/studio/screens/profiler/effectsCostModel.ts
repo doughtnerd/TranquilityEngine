@@ -1,4 +1,4 @@
-// The Profiler's effects-cost track (ADR 0334 "effects cost per level", ADR 0331). The core's STATUS doesn't report the
+// The Profiler's effects-cost track (ADR 0348 "effects cost per level", ADR 0345). The core's STATUS doesn't report the
 // cost of each effect yet; what a capture carries is the CPU meter's work units per section, from which the editor's CPU
 // track fits an estimated share of each quantum per section (`tracks/cpu.ts`, `cpu.sections`). The levels effects run at
 // fall in those sections: voice (and instance) effects in Voices, bus and return effects in Buses; Spatial, Music and

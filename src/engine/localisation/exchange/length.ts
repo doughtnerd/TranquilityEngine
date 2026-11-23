@@ -1,5 +1,5 @@
 /**
- * Message length for `maxLength` (ADR 0342 §1, §8): graphemes (user-perceived characters, through `Intl.Segmenter`, so
+ * Message length for `maxLength` (ADR 0356 §1, §8): graphemes (user-perceived characters, through `Intl.Segmenter`, so
  * `é` written as `e` + combining accent and a flag emoji count as one), measured on the longest text the message can
  * show. A plural or select counts its longest branch; an argument counts as its example value (the key's `examples`)
  * formatted as text, or as nothing when the key has no example for it, so `{count} coins` is held to the limit with

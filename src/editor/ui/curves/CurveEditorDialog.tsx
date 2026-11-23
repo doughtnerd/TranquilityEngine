@@ -1,4 +1,4 @@
-// The one shared curve editor (ADR 0332): a draggable window with the properties list and values readout on the left,
+// The one shared curve editor (ADR 0346): a draggable window with the properties list and values readout on the left,
 // the plot with its key fields, tangent toolbar and presets on the right, and a dope sheet under it for time curves.
 // Editing is a draft with its own panel history (ADR 0145: Ctrl+Z inside the window undoes the dialog's edits);
 // Apply returns the curves in units with each lane's input and bypass, Cancel (or Escape) drops the draft.

@@ -1,4 +1,4 @@
-// Project Settings > Subtitles (ADR 0343 §3, §5 S5): `project.json`'s `subtitles` section as part of the settings draft
+// Project Settings > Subtitles (ADR 0357 §3, §5 S5): `project.json`'s `subtitles` section as part of the settings draft
 // (its settings section handle, ADR 0253) and its edits, each refused or next (0313): the player settings' first-run
 // defaults, the reading speed and minimum display time, and speakers (a line table's speaker id with the string key of
 // its shown name and a colour). Speaker ids the project's line tables use are offered when adding one.

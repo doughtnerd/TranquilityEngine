@@ -1,4 +1,4 @@
-// ADR 0334: a take's pictures (`FRAME` records): a small JPEG of the game view about once a second, so the Take screen
+// ADR 0348: a take's pictures (`FRAME` records): a small JPEG of the game view about once a second, so the Take screen
 // shows what was on screen when each request was made. Off the hot path: a grab is offered once per audio frame and
 // taken at most once a second; the canvas is snapshotted after the frame has rendered (the audio system runs in late
 // update, before the render, so the snapshot waits for the end of the task), then scaled and encoded asynchronously

@@ -6,7 +6,7 @@ import {
 import { midiToNoteName, noteNameToMidi } from "./noteNames";
 import type { SampleEdits } from "./types";
 
-/** The ADR 0328 example block. */
+/** The ADR 0342 example block. */
 const ADR_BLOCK = {
   kind: "oneshot",
   trim: [0.02, 2.58],
@@ -27,7 +27,7 @@ const parse = (raw: unknown) => {
 };
 
 describe("parseSampleEdits", () => {
-  it("reads the ADR 0328 example without problems", () => {
+  it("reads the ADR 0342 example without problems", () => {
     const { edits, problems } = parse(ADR_BLOCK);
     expect(problems).toEqual([]);
     expect(edits.loops[0]).toMatchObject({ id: "l1", crossfadeMs: 35, active: "held", file: { chunk: "smpl", index: 0 } });
@@ -159,7 +159,7 @@ describe("sampleEditsToJson", () => {
   });
 });
 
-describe("Entry markers (ADR 0336 pre-entry)", () => {
+describe("Entry markers (ADR 0350 pre-entry)", () => {
   it("read, take the default name, refuse a range, and round-trip", () => {
     const problems: string[] = [];
     const e = parseSampleEdits({ markers: [{ id: "e", type: "entry", at: 0.5 }, { id: "x", type: "exit", at: 2 }] }, "s", problems);
@@ -269,7 +269,7 @@ describe("note names", () => {
   });
 });
 
-describe("ADR 0340: lip-sync and voice-over in the sample block", () => {
+describe("ADR 0354: lip-sync and voice-over in the sample block", () => {
   const raw = {
     lipsync: { set: "rhubarb", keys: [[0, "X"], [0.12, "B"], [0.31, "E"]] },
     vo: { key: "intro_01", textHash: "3fa1c29e0b7d44a1" },

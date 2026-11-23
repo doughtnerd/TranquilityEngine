@@ -1,4 +1,4 @@
-// Changing a playlist's type (the prototype's type segment and `modeInit`, PL:1040–1061; ADR 0329 "one kind keeps
+// Changing a playlist's type (the prototype's type segment and `modeInit`, PL:1040–1061; ADR 0343 "one kind keeps
 // change type a field edit"). The format keeps another type's block when the type changes, so switching back restores
 // its settings; a block that isn't there yet starts from the prototype's defaults:
 //
@@ -38,12 +38,12 @@ function clipEntries(b: PlaylistBody): EditResult<SampleEntry[]> {
 function wrapSamples(b: PlaylistBody, type: PlaylistType): Entry[] {
   const target = { ...b, type };
   return b.entries.map((e) => {
-    // ADR 0340 §5: a line plays only in a Clip, so it moves into an embedded Clip of its own (use settings on the wrapper).
+    // ADR 0354 §5: a line plays only in a Clip, so it moves into an embedded Clip of its own (use settings on the wrapper).
     if (e.kind === "line") {
       const { kind: _k, line, ...use } = e;
       return { kind: "embedded", embedded: { ...emptyPlaylistBody("clip"), entries: [{ kind: "line", line, ...defaultEntryUse() }] }, ...use } as Entry;
     }
-    // ADR 0346: a generator too (minimal until G4).
+    // ADR 0360: a generator too (minimal until G4).
     if (e.kind === "generator") {
       const { kind: _k, generator, ...use } = e;
       return { kind: "embedded", embedded: { ...emptyPlaylistBody("clip"), entries: [{ kind: "generator", generator, ...defaultEntryUse() }] }, ...use } as Entry;
@@ -64,9 +64,9 @@ function tracksFrom(entries: readonly Entry[]): Track[] {
       loops: {}, hiddenMarkers: [], effects: [], automation: [],
       ...(e.kind === "linked" ? { playlist: e.playlist }
         : e.kind === "embedded" ? { playlist: structuredClone(e.embedded) }
-        // ADR 0340 §5: a line becomes a playlist clip holding a Clip with that line.
+        // ADR 0354 §5: a line becomes a playlist clip holding a Clip with that line.
         : e.kind === "line" ? { playlist: { ...emptyPlaylistBody("clip"), entries: [{ kind: "line" as const, line: structuredClone(e.line), ...defaultEntryUse() }] } }
-        // ADR 0346: a generator becomes a generator clip on an audio track.
+        // ADR 0360: a generator becomes a generator clip on an audio track.
         : e.kind === "generator" ? { generator: structuredClone(e.generator) }
         : { sample: e.sample }),
     };

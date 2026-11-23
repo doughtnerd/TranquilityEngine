@@ -47,7 +47,7 @@ function settings(): AudioSettings {
   };
 }
 
-// ADR 0330: a snapshot fade is linear in dB; the lane (linear in gain) gets one record per segment of at most
+// ADR 0344: a snapshot fade is linear in dB; the lane (linear in gain) gets one record per segment of at most
 // SNAPSHOT_SEGMENT_MS (here 50 ms = 2400 frames), each heading for the blend at the segment's end; a migrated low-pass
 // blends from the open carrier (20 kHz) with the same weight.
 const dbAt = (gain: number, w: number) => Math.pow(10, (20 * Math.log10(gain) * w) / 20);
@@ -385,7 +385,7 @@ describe("LaneWriter.replayLanes (§4.2: after RESET and BUS_CONFIG)", () => {
     r.lanes.sync();
     r.take();
     r.heard.t += 0.5;
-    r.mixer.update(0); // the snapshot's segment at the replay (ADR 0330: segments of SNAPSHOT_SEGMENT_MS)
+    r.mixer.update(0); // the snapshot's segment at the replay (ADR 0344: segments of SNAPSHOT_SEGMENT_MS)
     const b = new ReplayBuilder();
     r.lanes.replayLanes(b);
     const rs = records(b);

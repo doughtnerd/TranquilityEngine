@@ -1,4 +1,4 @@
-// Project Settings > Languages (ADR 0340 §1 L7, 0342 §3 T7, 0343 §2 S5): the project's language list (code, name, own
+// Project Settings > Languages (ADR 0354 §1 L7, 0356 §3 T7, 0357 §2 S5): the project's language list (code, name, own
 // fallback chain, shipped, voice, direction, fonts), the reference and start languages, the project's fallback chain,
 // the start-language choices (system language, remembered choice) and whether voice follows the text language. Edits
 // go through the Project panel's undo history; a refused edit says why in the status bar.

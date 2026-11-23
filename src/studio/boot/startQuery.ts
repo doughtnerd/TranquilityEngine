@@ -1,4 +1,4 @@
-// What the Studio opens on start-up (ADR 0327): `?sample=<id>` a sample (read-only), `?project=<folder>` a project
+// What the Studio opens on start-up (ADR 0341): `?sample=<id>` a sample (read-only), `?project=<folder>` a project
 // folder, else the start screen. The screen and asset come from the hash (`route.ts`, which reads the editor's
 // `#/<screen>/<asset>` too). On the desktop the folder is a path; in a browser it is the path the editor's tab mounted
 // the folder at (`/<folder name>`, FsaFileSystem), which a new tab can't open by itself: it is found among the recent

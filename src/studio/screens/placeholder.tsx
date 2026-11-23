@@ -1,6 +1,6 @@
-// Panels a screen shows until its milestone fills them (ADR 0327 plan, M3–M9): the editor's panel frame around an
+// Panels a screen shows until its milestone fills them (ADR 0341 plan, M3–M9): the editor's panel frame around an
 // empty state saying what the panel is for. And the History panel every screen can add (the engine's history tree,
-// ADR 0327 "Undo and history are the engine's").
+// ADR 0341 "Undo and history are the engine's").
 import type { ComponentChildren } from "preact";
 import type { PanelDock } from "../../editor/sdk/contributions";
 import { EmptyState } from "../../editor/ui/EmptyState";

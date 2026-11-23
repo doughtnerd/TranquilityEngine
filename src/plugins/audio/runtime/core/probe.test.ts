@@ -163,7 +163,7 @@ describe("probeCoreSupport on a stubbed old engine", () => {
   });
 });
 
-describe("Audio.debug().coreUnavailable (ADR 0327)", () => {
+describe("Audio.debug().coreUnavailable (ADR 0341)", () => {
   beforeEach(() => {
     endAudioSession();
     setAudioBackend(makeFakeBackend());

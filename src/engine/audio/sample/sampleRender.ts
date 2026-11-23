@@ -1,10 +1,10 @@
 /**
- * The offline render of a sample (ADR 0328 "Baked effects are rendered offline", "Flatten"): the audio a flattened
+ * The offline render of a sample (ADR 0342 "Baked effects are rendered offline", "Flatten"): the audio a flattened
  * sample plays (`sample.source`), from its source PCM and its edits. **The render keeps the source file's timeline**:
  * the same start and length, plus any effect tail appended after the end, so the runtime still applies the trim and
  * loops and every loop and marker keeps its source seconds (the runtime's reading of `sample.source`). It bakes:
  *
- * 1. **The baked chain** (ADR 0331 level "sample"), each enabled effect in order, by the same Rust kernels the buses and
+ * 1. **The baked chain** (ADR 0345 level "sample"), each enabled effect in order, by the same Rust kernels the buses and
  *    submixes run (`myco_audio_offline.wasm`), with its automation lanes (`fx:<id>:<param>` over source seconds, read
  *    as the engine's curves are) and the tails a delay or reverb leaves (run until they fall below −90 dBFS, at most
  *    `TAIL_CAP_SECONDS` past the end). Fades and noise reduction are offline-only kinds; fades and `envelope` (a voice
@@ -12,11 +12,11 @@
  *    renders, even one the catalogue doesn't list at the sample level (the Studio flags it): baked, it costs nothing.
  *    **Reverse is left out** (with a warning): it would move every source second, and loops, markers and the trim are
  *    in source seconds.
- * 2. **Normalisation** (`normalize.gainDb`, after the effects, as ADR 0328 says); the runtime skips it for a render.
+ * 2. **Normalisation** (`normalize.gainDb`, after the effects, as ADR 0342 says); the runtime skips it for a render.
  *
  * Not baked (the runtime applies them, or they wait for core work): trim, razor cuts, deleted snippets, closed gaps.
  *
- * **Plugin effects** (ADR 0338 §7) render through the plugin glue the audio plugin installs as the offline host
+ * **Plugin effects** (ADR 0352 §7) render through the plugin glue the audio plugin installs as the offline host
  * (`offlinePlugins.ts`), the same calls and the same instrumented modules as live. A plugin effect with no host or
  * module here passes through with a warning, and such a render isn't cached (`renderCache.ts`).
  *
@@ -65,7 +65,7 @@ export const TAIL_CAP_SECONDS = 10;
 
 /** The kernels' parameters per effect (`audio_dsp::fx::PARAMS`, 16 since ABI 5.0: a plugin effect's most). */
 const PARAMS = 16;
-/** The spec's version (`spec.rs`): 2 since ADR 0338 B5 (16 parameters, plugin effects). */
+/** The spec's version (`spec.rs`): 2 since ADR 0352 B5 (16 parameters, plugin effects). */
 const SPEC_VERSION = 2;
 
 /**
@@ -98,7 +98,7 @@ function specOf(edits: SampleEdits, warnings: string[], plugins: OfflinePluginSe
     if (f.on && f.type === "reverse") warnings.push("Reverse isn't baked into a render: loops, markers and the trim are in source seconds, which it would move. It was left out.");
     let type = (EFFECT_TYPES as readonly string[]).indexOf(f.type);
     if (isPluginEffectType(f.type)) {
-      // ADR 0338 §7: plugin effect `e` of this render's session; -1 (passed through) when it has none.
+      // ADR 0352 §7: plugin effect `e` of this render's session; -1 (passed through) when it has none.
       const e = plugins ? plugins.indexOf(f.type) : -1;
       type = e >= 0 ? OFFLINE_PLUGIN_BASE + e : -1;
       if (e < 0 && on && !told.has(f.type)) {

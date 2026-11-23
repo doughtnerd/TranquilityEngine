@@ -1,17 +1,17 @@
 /**
- * Internal (ADR 0330): the mix as the old `audio` section shape (`AudioSettings`' mix keys).
+ * Internal (ADR 0344): the mix as the old `audio` section shape (`AudioSettings`' mix keys).
  *
  * **`coreSectionOf(project)`** is what the runtime's mixer hands its backends (`Mixer.audioSettings`): the bus tree
  *   the audio core's slots and the Web Audio fallback's nodes are built from. Levels are each bus's fader alone (the
- *   mixer runs VCAs as their own gain lane), the effects the backends' bus chains run (every type the audio core runs, `CORE_EFFECT_TYPES`, ADR 0331 ABI 4.6: legacy low-pass, high-pass and compressor when exact, else catalogue effects, `coreBusEffect`),
+ *   mixer runs VCAs as their own gain lane), the effects the backends' bus chains run (every type the audio core runs, `CORE_EFFECT_TYPES`, ADR 0345 ABI 4.6: legacy low-pass, high-pass and compressor when exact, else catalogue effects, `coreBusEffect`),
  *   each bus's sends (`BusSettings.sends`, linear levels), ducking and the automation the core runs (ABI 4.8: `volume`,
  *   any effect parameter of a chain the core runs, an automated effect being sent as the catalogue's, and send levels;
- *   a migrated low-pass carrier's cutoff as the old bus low-pass). **Returns are buses** of the section (ADR 0330, ABI 4.7: the core's bus-to-return sends): each after the
+ *   a migrated low-pass carrier's cutoff as the old bus low-pass). **Returns are buses** of the section (ADR 0344, ABI 4.7: the core's bus-to-return sends): each after the
  *   project's buses, under its own name (names are unique across buses, returns and VCAs), its `output` as the parent,
  *   its fader, mute and inserts; the sends into it are post-fader `sends` of the buses that feed it. The mixer itself
  *   runs everything else on the main thread from the `AudioProject` (snapshots, VCAs, effect-parameter overrides, send
  *   muting): `warnings` lists only what nothing runs yet.
- *   The Web Audio fallback runs no bus effects and no sends (ADR 0331's fallback rule), so it needs nothing folded: a
+ *   The Web Audio fallback runs no bus effects and no sends (ADR 0345's fallback rule), so it needs nothing folded: a
  *   return is a silent bus there.
  * `mergeLegacyIntoProject` (`legacy.ts`) writes an edit of it back. It carries the snapshots in the old shape
  * (multipliers and the carrier low-pass), so the old ops that name them by index (ADR 0171) still find them; the
@@ -60,14 +60,14 @@ export function reverbSendOf(project: Pick<AudioProject, "returns">, bus: Bus): 
 }
 
 /**
- * ADR 0331 (ABI 4.6): true when the audio core's bus chain runs `e` on `owner` (a bus or a return) in the backends'
+ * ADR 0345 (ABI 4.6): true when the audio core's bus chain runs `e` on `owner` (a bus or a return) in the backends'
  * view: switched on, a type the core runs (`CORE_EFFECT_TYPES`), and not a low-pass carrier (`isCarrier`: the old
  * snapshot and automation low-pass stand for it).
  */
 export const coreShown = (project: Pick<AudioProject, "snapshots" | "automation">, owner: string, e: Effect): boolean =>
   e.on && (coreRuns(e.type) || pluginRunsOnBus(e.type)) && !isCarrier(project, owner, e);
 
-/** ADR 0338 §4: a registered plugin effect whose plugin is on and that declares the bus level (returns are buses) runs in the core's bus chain. */
+/** ADR 0352 §4: a registered plugin effect whose plugin is on and that declares the bus level (returns are buses) runs in the core's bus chain. */
 const pluginRunsOnBus = (type: string): boolean => isPluginEffectType(type) && effectSpec(type).plugin?.state === "on" && allowedAt(type, "bus");
 
 /**
@@ -89,7 +89,7 @@ export function coreBusEffect(e: Effect, catalogue = false): BusEffect {
 export const sendLevelOf = (levelDb: number): number => clampGain(dbToGain(levelDb), MAX_SEND_LEVEL);
 
 /**
- * ADR 0330: the returns the section holds as buses, in the project's order: those that fit in the core's slots after the
+ * ADR 0344: the returns the section holds as buses, in the project's order: those that fit in the core's slots after the
  * buses (`MAX_BUSES`, slots shared with buses).
  */
 export function sectionReturnsOf(project: Pick<AudioProject, "buses" | "returns">): Return[] {
@@ -99,7 +99,7 @@ export function sectionReturnsOf(project: Pick<AudioProject, "buses" | "returns"
 const clampGain = (g: number, max: number) => Math.min(max, Math.max(0, g));
 const curveToGain = (curve: Curve): CurveKey[] => curve.map((k) => (k.length === 3 ? [k[0], dbToGain(k[1]), k[2]] : [k[0], dbToGain(k[1])]) as CurveKey);
 
-/** ADR 0330 (ABI 4.8): true when an automation of `owner` (not bypassed) drives a parameter of `e`, so the core runs it as the catalogue's. */
+/** ADR 0344 (ABI 4.8): true when an automation of `owner` (not bypassed) drives a parameter of `e`, so the core runs it as the catalogue's. */
 export const automatedEffect = (project: Pick<AudioProject, "automation">, owner: string, e: Effect): boolean =>
   project.automation.some((a) => !a.bypass && a.on === owner && a.target.startsWith(`fx:${e.id}:`));
 
@@ -107,14 +107,14 @@ export const automatedEffect = (project: Pick<AudioProject, "automation">, owner
 function sectionEffects(project: AudioProject, owner: { name: string; effects: Effect[] }, kind: "bus" | "return", warn: (line: string) => void): BusEffect[] {
   const out: BusEffect[] = [];
   for (const e of owner.effects) {
-    // Every type the core's bus chain runs (ADR 0331).
+    // Every type the core's bus chain runs (ADR 0345).
     if (coreShown(project, owner.name, e)) {
       out.push(coreBusEffect(e, automatedEffect(project, owner.name, e)));
       if (e.type === "sidechainCompressor" && !project.buses.some((b) => b.name === e.key) && !project.returns.some((r) => r.name === e.key)) warn(`${kind} "${owner.name}": the sidechain compressor "${e.id}" has no key bus; it doesn't compress until it has one.`);
     } else if (e.on && !isCarrier(project, owner.name, e)) {
-      // ADR 0338 §4: a plugin effect whose plugin is off or missing passes audio through, with this one warning.
+      // ADR 0352 §4: a plugin effect whose plugin is off or missing passes audio through, with this one warning.
       const note = pluginEffectNote(e.type);
-      warn(note ? `${kind} "${owner.name}": the effect "${e.id}" ${note}.` : `${kind} "${owner.name}": the ${e.type} effect "${e.id}" doesn't run on a ${kind} (ADR 0331); left out.`);
+      warn(note ? `${kind} "${owner.name}": the effect "${e.id}" ${note}.` : `${kind} "${owner.name}": the ${e.type} effect "${e.id}" doesn't run on a ${kind} (ADR 0345); left out.`);
     }
   }
   return out;
@@ -124,7 +124,7 @@ function sectionEffects(project: AudioProject, owner: { name: string; effects: E
 function sectionBus(project: AudioProject, bus: Bus, returns: ReadonlySet<string>, warn: (line: string) => void): BusSettings {
   const root = bus.parent === null;
   const out: BusSettings = { name: bus.name, ...(root ? {} : { parent: bus.parent! }), volume: clampGain(dbToGain(bus.volumeDb), 2), mute: bus.mute, effects: sectionEffects(project, bus, "bus", warn) };
-  // ADR 0330: post-fader sends at their authored level. Mutes (the bus's, a script's, a monitor's) are the mixer's to run
+  // ADR 0344: post-fader sends at their authored level. Mutes (the bus's, a script's, a monitor's) are the mixer's to run
   // (the core's `BUS_SEND_MUTED`), so the authored view stays an exact image of the file.
   const sends = bus.sends.filter((s) => returns.has(s.to)).map((s) => ({ to: s.to, level: sendLevelOf(s.levelDb) }));
   if (sends.length > 0) out.sends = sends;
@@ -145,7 +145,7 @@ function sectionBus(project: AudioProject, bus: Bus, returns: ReadonlySet<string
   return out;
 }
 
-/** ADR 0330: the section bus of return `r`: its output as the parent, its fader, mute and inserts; no voices, bed or meter of its own. */
+/** ADR 0344: the section bus of return `r`: its output as the parent, its fader, mute and inserts; no voices, bed or meter of its own. */
 function sectionReturn(project: AudioProject, r: Return, warn: (line: string) => void): BusSettings {
   return { name: r.name, parent: r.output, volume: clampGain(dbToGain(r.volumeDb), 2), mute: r.mute, effects: sectionEffects(project, r, "return", warn) };
 }
@@ -153,7 +153,7 @@ function sectionReturn(project: AudioProject, r: Return, warn: (line: string) =>
 /**
  * The section's entry for automation `a` (`coreSectionOf`'s `automation`), or null when the view leaves it out (bypassed,
  * its owner not in the section, a send the bus doesn't have, an effect the core doesn't run): `volume` (as a gain curve);
- * ADR 0330 (ABI 4.8) `send:<return>` (dB) and `fx:<id>:<param>` of an effect the core runs, by its index in the chain the
+ * ADR 0344 (ABI 4.8) `send:<return>` (dB) and `fx:<id>:<param>` of an effect the core runs, by its index in the chain the
  * view shows and the catalogue parameter's index (a log-scale parameter as a log2 curve); a migrated low-pass carrier's
  * cutoff as the old bus low-pass. What has no parameter the core runs goes to `warn`.
  */
@@ -242,16 +242,16 @@ function sectionOf(project: AudioProject, warnings: string[]): MixSection {
   return out;
 }
 
-/** The engine settings of `project` in the runtime's shape (`AudioSettings` minus the mix): `settings` with ADR 0331/0333's keys applied. */
+/** The engine settings of `project` in the runtime's shape (`AudioSettings` minus the mix): `settings` with ADR 0345/0347's keys applied. */
 export function engineSectionOf(project: AudioProject, warnings: string[] = []): Omit<AudioSettings, keyof MixSection | "mix"> {
-  // `dialogue` (ADR 0341) is read by the dialogue system from audio.json, not by the backends.
+  // `dialogue` (ADR 0355) is read by the dialogue system from audio.json, not by the backends.
   const { submixes, bedBeyond, dopplerAmount, dialogue: _dialogue, ...engine } = project.settings;
   void warnings;
   const out = structuredClone(engine);
-  // ADR 0333: voices farther than `bedBeyond` metres go to their bus's bed (the core backend's panner pick reads it).
+  // ADR 0347: voices farther than `bedBeyond` metres go to their bus's bed (the core backend's panner pick reads it).
   if (bedBeyond !== null) out.bed = { ...out.bed, beyond: bedBeyond };
-  if (submixes !== DEFAULT_SUBMIXES) out.voices = { ...out.voices, submixes }; // ADR 0331: the instance submix pool (absent: the default)
-  // ADR 0333: the global Doppler amount scales every voice's Doppler level (the Doppler pass reads it).
+  if (submixes !== DEFAULT_SUBMIXES) out.voices = { ...out.voices, submixes }; // ADR 0345: the instance submix pool (absent: the default)
+  // ADR 0347: the global Doppler amount scales every voice's Doppler level (the Doppler pass reads it).
   if (dopplerAmount !== 1) out.doppler = { ...out.doppler, amount: dopplerAmount };
   return out;
 }

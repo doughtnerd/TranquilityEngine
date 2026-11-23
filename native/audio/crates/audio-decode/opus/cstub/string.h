@@ -1,4 +1,4 @@
-/* Stub libc header for the decoder's libopus (ADR 0337 A7) for compiling libopus for wasm32-unknown-unknown (no libc): Rust's compiler_builtins provides these. */
+/* Stub libc header for the decoder's libopus (ADR 0351 A7) for compiling libopus for wasm32-unknown-unknown (no libc): Rust's compiler_builtins provides these. */
 #ifndef MYCO_OPUSDEC_STRING_H
 #define MYCO_OPUSDEC_STRING_H
 #include <stddef.h>

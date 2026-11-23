@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { defaultAudioSettings, type ZoneSettings } from "../../../../engine/audio/settings";
 import { instantiateCore, type CorePreset } from "../worklet/coreDriver";
-import { fixedRegionsHeadroomBytes, MEMORY_INITIAL_PAGES, memoryMaximumPages } from "../worklet/coreMemory";
+import { askCoreMemory, MEMORY_INITIAL_PAGES } from "../worklet/coreMemory";
 import { presetFromSettings } from "./context";
 import { spatialInitParams } from "./initParams";
 
@@ -17,6 +17,7 @@ const zoneInitParams = (s: Parameters<typeof spatialInitParams>[0]) => {
 };
 
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio.wasm", import.meta.url)));
+const MODULE = new WebAssembly.Module(WASM);
 const RATE = 48_000;
 
 const withZones = (zones: ZoneSettings) => {
@@ -44,12 +45,15 @@ describe("the zone memory flip (C5)", () => {
     expect(preset).toMatchObject({ maxZoneSlots: 3, zoneMaxSeconds: 4, maxWide: 2 });
     const core = instantiateCore(WASM, preset, RATE);
     const grown = core.memory.buffer.byteLength - MEMORY_INITIAL_PAGES * 65_536;
-    expect(grown - preset.arenaInitialBytes).toBeLessThanOrEqual(fixedRegionsHeadroomBytes(preset, RATE));
-    expect(core.memory.buffer.byteLength / 65_536).toBeLessThanOrEqual(memoryMaximumPages(preset, RATE));
+    // ADR 0327: init took the block the core answered, under the maximum it asked for.
+    const answer = askCoreMemory(MODULE, preset, RATE);
+    expect(grown).toBe(answer.parts.layout);
+    expect(core.memory.buffer.byteLength / 65_536).toBeLessThanOrEqual(answer.maximumPages);
     // The slots (3 × 6.07 MiB of state at 4 s) and their kernel budget are part of what init lays out and allows for.
     const without: CorePreset = { ...preset, maxZoneSlots: 0, zoneMaxSeconds: 0 };
     expect(core.memory.buffer.byteLength).toBeGreaterThan(instantiateCore(WASM, without, RATE).memory.buffer.byteLength);
-    expect(fixedRegionsHeadroomBytes(preset, RATE) - fixedRegionsHeadroomBytes(without, RATE)).toBeGreaterThanOrEqual(3 * 6 * (1 << 20));
+    const none = askCoreMemory(MODULE, without, RATE).parts;
+    expect(answer.parts.zones - none.zones + answer.parts.zoneKernels).toBeGreaterThanOrEqual(3 * 6 * (1 << 20));
   });
 
   it("the default (3 × 2 s) and low (1 × 1 s) presets init too, at 44.1 and 48 kHz", () => {
@@ -57,7 +61,7 @@ describe("the zone memory flip (C5)", () => {
       for (const rate of [44_100, 48_000]) {
         const preset = presetFromSettings(withZones(zones));
         const core = instantiateCore(WASM, preset, rate);
-        expect(core.memory.buffer.byteLength / 65_536).toBeLessThanOrEqual(memoryMaximumPages(preset, rate));
+        expect(core.memory.buffer.byteLength / 65_536).toBeLessThanOrEqual(askCoreMemory(MODULE, preset, rate).maximumPages);
       }
     }
   });

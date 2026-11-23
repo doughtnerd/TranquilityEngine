@@ -1,5 +1,5 @@
 /**
- * Samples (ADR 0328): the sidecar's `sample` block and derived samples (`*.sample.json`, `myco.sample@1`), parsed and
+ * Samples (ADR 0342): the sidecar's `sample` block and derived samples (`*.sample.json`, `myco.sample@1`), parsed and
  * written; the legacy `loopStart`/`loopEnd` read as one loop; and forks resolved against their parent (follow and pin).
  *
  * The parse is lenient (bad values fall back to defaults with one problem line; nothing throws) and canonical: loops are
@@ -43,13 +43,13 @@ export const SAMPLE_LIMITS = Object.freeze({
   cents: 50,
   /** Automation lanes of the baked chain. */
   automation: 32,
-  /** ADR 0340 §7: lip-sync keys of one file. */
+  /** ADR 0354 §7: lip-sync keys of one file. */
   lipsyncKeys: 20_000,
   /** Characters of a custom viseme name. */
   visemeName: 16,
 });
 
-/** ADR 0340 §7: the visemes of the `rhubarb` set (Rhubarb Lip Sync's Preston Blair shapes, X = rest). */
+/** ADR 0354 §7: the visemes of the `rhubarb` set (Rhubarb Lip Sync's Preston Blair shapes, X = rest). */
 export const RHUBARB_VISEMES: readonly string[] = ["A", "B", "C", "D", "E", "F", "G", "H", "X"];
 
 const FX_TARGET = /^fx:[^:]+:[^:]+$/;
@@ -365,7 +365,7 @@ export function parseSampleEdits(raw: unknown, where: string, problems: string[]
 }
 
 /**
- * ADR 0340 §7: a `lipsync` block, `{ set, keys: [[seconds, viseme], …] }`. Keys with a bad time or viseme are dropped,
+ * ADR 0354 §7: a `lipsync` block, `{ set, keys: [[seconds, viseme], …] }`. Keys with a bad time or viseme are dropped,
  * keys out of time order sorted, a key at the same time as the one before it dropped, each with a problem; null when
  * absent or nothing is left.
  */
@@ -437,7 +437,7 @@ function markerToJson(m: SampleMarker): JsonRecord {
   return out;
 }
 
-/** The `sample` block as JSON: fields in the ADR 0328 order, those equal to their defaults left out. */
+/** The `sample` block as JSON: fields in the ADR 0342 order, those equal to their defaults left out. */
 export function sampleEditsToJson(e: SampleEdits): JsonRecord {
   const out: JsonRecord = {};
   if (e.kind !== "oneshot") out.kind = e.kind;
@@ -511,7 +511,7 @@ export function parseDerivedSample(raw: unknown, path = "sample"): { sample: Der
   return { sample: { format: SAMPLE_FORMAT, source, range, lineage, sample }, problems };
 }
 
-/** `*.sample.json` content, in the ADR 0328 order. */
+/** `*.sample.json` content, in the ADR 0342 order. */
 export function derivedSampleToJson(a: DerivedSampleAsset): JsonRecord {
   const lineage: JsonRecord = { kind: a.lineage.kind, parent: a.lineage.parent, mode: a.lineage.mode };
   if (a.lineage.baseline) lineage.baseline = sampleEditsToJson(a.lineage.baseline);

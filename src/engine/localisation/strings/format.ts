@@ -1,5 +1,5 @@
 /**
- * String tables (ADR 0342 §1): `*.strings.json` (`myco.strings@1`), a table of keys with the reference language's text,
+ * String tables (ADR 0356 §1): `*.strings.json` (`myco.strings@1`), a table of keys with the reference language's text,
  * notes for translators, length limits, tags and example arguments. Translations sit beside it, one file per language
  * (`<stem>.<code>.strings.json`, `translation.ts`). Parsed leniently (never throws; one problem line per bad value) and
  * written back minimal, so `parseStringTable(stringTableToJson(x)).table` equals `x`.
@@ -15,7 +15,7 @@ import { MESSAGE_LIMITS } from "../message/parse";
 export const STRINGS_FORMAT = "myco.strings@1";
 export const STRINGS_SUFFIX = ".strings.json";
 
-/** Limits of a string table and its translations, declared once (ADR 0306, 0342 §1). */
+/** Limits of a string table and its translations, declared once (ADR 0306, 0356 §1). */
 export const STRINGS_LIMITS = Object.freeze({
   /** Keys of one table (and entries of one translation file). */
   keys: 20_000,
@@ -34,7 +34,7 @@ export const STRINGS_LIMITS = Object.freeze({
 const KEY = /^[A-Za-z0-9_.-]{1,128}$/;
 const STEM = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** True for a valid string key (`[A-Za-z0-9_.-]{1,128}`; line keys are valid string keys, 0343). */
+/** True for a valid string key (`[A-Za-z0-9_.-]{1,128}`; line keys are valid string keys, 0357). */
 export const isStringKey = (key: unknown): key is string => typeof key === "string" && KEY.test(key) && key !== "__proto__";
 
 /** One key of a table. */

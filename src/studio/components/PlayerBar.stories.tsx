@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the Studio's player bar, "Layout A": idle, a screen's transport and scrub filled in,
+// Stories (ADR 0219, 0349) for the Studio's player bar, "Layout A": idle, a screen's transport and scrub filled in,
 // and the right-hand slot reserved for a take's replay.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, within } from "storybook/test";

@@ -1,4 +1,4 @@
-// D20 (ADR 0329): a playlist's markers, beats and bars reach the components on the playing AudioSource's node
+// D20 (ADR 0343): a playlist's markers, beats and bars reach the components on the playing AudioSource's node
 // (`onAudioMarker`, `onMusicBeat`, `onMusicBar`) and `handle.onMusic` listeners. Through the public API on the fake
 // backend's single clock.
 import { describe, expect, it } from "vitest";

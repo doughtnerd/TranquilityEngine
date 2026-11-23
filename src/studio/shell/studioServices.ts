@@ -1,4 +1,4 @@
-// The Studio page's shared services (ADR 0327, 0335): one router, one audio runtime host, one toast queue, one keymap,
+// The Studio page's shared services (ADR 0341, 0349): one router, one audio runtime host, one toast queue, one keymap,
 // the per-user Studio preferences and the player bar's slots. `main.tsx` makes the router and the runtime when the
 // page starts; screens and panels reach them here.
 import { computed, signal } from "@preact/signals";
@@ -56,7 +56,7 @@ export function studioRouter(): StudioRouter {
 /** Go to a screen, on an asset, with something selected (`route.ts`). */
 export const openRoute = (request: RouteRequest): void => studioRouter().open(request);
 
-/** The audio host panels play through (ADR 0327 "A seam for the live link"). */
+/** The audio host panels play through (ADR 0341 "A seam for the live link"). */
 export function audioHost(): StudioAudioHost {
   if (!runtime) throw new Error("The Studio's audio runtime isn't set up (main.tsx).");
   return runtime;

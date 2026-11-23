@@ -29,7 +29,7 @@
 //   the prediction is exact while the voice neither starves nor changes pitch between the last STATUS and the end of the
 //   pass. A music group member's stream isn't registered here (musicOps opened it): its loop changes go to
 //   `music.setLoop` (ADR 0166 R4b), which keeps its own map with the same `applyLoopChange` and reads `playheadOf`.
-// - **Loop programs** (ADR 0328). A playlist voice's loop program (`CoreAutomation.setLoops`, a sample's sidecar loops)
+// - **Loop programs** (ADR 0342). A playlist voice's loop program (`CoreAutomation.setLoops`, a sample's sidecar loops)
 //   reaches the worker as its first region plus a `StreamLoopProgram` in frames (`programOf`): that region's seam
 //   crossfade, shape, repeat count and held flag, and the later loops. The worker wraps sample-accurately and crossfades
 //   each seam as the core's clip voices do; the map follows each loop's count (`extendProgram`).
@@ -134,13 +134,13 @@ export interface StreamManagerDeps {
   /** Fetches an asset's encoded bytes. */
   readonly fetchBytes: (path: string) => Promise<ArrayBuffer>;
   /**
-   * ADR 0337 §7, A4: where an asset is in a package the decoder worker holds (`DecoderClient.loadPack`), or null to fetch
+   * ADR 0351 §7, A4: where an asset is in a package the decoder worker holds (`DecoderClient.loadPack`), or null to fetch
    * its file. A `compressed` Vorbis or Opus entry then streams from the worker's copy, never fetched. Default: the package
    * registry's answer (`packMedia.ts` `streamPackRef`).
    */
   readonly packRef?: (path: string) => PackRef | null;
   /**
-   * ADR 0337 §7 (W12): the URL of an asset's media when it isn't its project file (a packaged `stream` sound's loose
+   * ADR 0351 §7 (W12): the URL of an asset's media when it isn't its project file (a packaged `stream` sound's loose
    * media), fetched with `fetchUrl` instead of `fetchBytes`; null to fetch the path. Default `packMedia.ts` `packedMediaUrl`.
    */
   readonly mediaUrl?: (path: string) => string | null;
@@ -350,9 +350,9 @@ export class StreamManager {
       return;
     }
     const hint: DecodeHint = hintFromName(e.asset);
-    // ADR 0337 A4: a held package entry streams from the worker's copy (no fetch, an empty buffer).
+    // ADR 0351 A4: a held package entry streams from the worker's copy (no fetch, an empty buffer).
     const pack = (this.deps.packRef ?? streamPackRef)(e.asset);
-    // ADR 0337 §7 (W12): a packaged `stream` sound's media ships loose under its own URL.
+    // ADR 0351 §7 (W12): a packaged `stream` sound's media ships loose under its own URL.
     const url = pack ? null : (this.deps.mediaUrl ?? packedMediaUrl)(e.asset);
     (pack ? Promise.resolve(new ArrayBuffer(0)) : url !== null ? (this.deps.fetchUrl ?? fetchUrlBytes)(url) : this.deps.fetchBytes(e.asset)).then(
       (bytes) => {
@@ -365,7 +365,7 @@ export class StreamManager {
         // until `streamOpened` sends it.
         const region = e.loop && e.record && facts ? regionOf(e.record, facts.rate, facts.frames) : null;
         e.sentRegion = region !== null;
-        // ADR 0328: the region's crossfade, count and later loops ride with it.
+        // ADR 0342: the region's crossfade, count and later loops ride with it.
         const program = region && facts ? programOf(e.record, facts.rate, facts.frames) : undefined;
         // B4: the sidecar's convention lets the worker stream an ambisonic file's channels (FuMa converted per chunk).
         const convention = this.ambisonicOf(e.asset)?.convention;
@@ -531,7 +531,7 @@ export class StreamManager {
     const before = e.segments.slice();
     const x = applyLoopChange(e.segments, p0, e.frames, region, rec.looping);
     const program = rec.looping ? programOf(rec, e.rate, e.frames) : undefined;
-    // ADR 0328: a change landing on the region's end is its seam (the worker counts the pass that led there).
+    // ADR 0342: a change landing on the region's end is its seam (the worker counts the pass that led there).
     if (x !== undefined) extendProgram(e.segments, program, e.frames, x > before[0]!.stream && fileAt(before, x - 1, e.frames) + 1 === region.end);
     e.loop = rec.looping;
     e.epoch = (e.epoch + 1) >>> 0;
@@ -621,7 +621,7 @@ export function regionOf(rec: LoopRecord | null, rate: number, frames: number): 
 }
 
 /**
- * ADR 0328: a loop record's program (`LoopRecord.crossfade`, `count`, `held`, `then`) in frames of a file at `rate` with
+ * ADR 0342: a loop record's program (`LoopRecord.crossfade`, `count`, `held`, `then`) in frames of a file at `rate` with
  * `frames` frames (0 unknown), for the worker; undefined for a plain region (endless, no crossfade). A crossfade is at
  * most its region long; later loops past the file's end or empty are left out.
  */
@@ -643,7 +643,7 @@ function programOf(rec: LoopRecord | null, rate: number, frames: number): Stream
 }
 
 /**
- * ADR 0328: the map `segs` after its newest segment (a loop just starting) follows `program`: once the loop has played
+ * ADR 0342: the map `segs` after its newest segment (a loop just starting) follows `program`: once the loop has played
  * its count the stream plays on from the region's end, into each later loop in turn (which loops from its start, after
  * its own pre-roll, for its count). An endless loop, or none, ends the map there. `seamDone`: the newest segment begins
  * at a seam the stream reached at the region's end (the pass that led there is the loop's first, as the worker counts).

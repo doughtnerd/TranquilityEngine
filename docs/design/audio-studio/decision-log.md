@@ -3,6 +3,39 @@
 For the owner. Decisions taken while building unattended (owner instruction 2026-11-22: "make any architecture changes
 or technical decisions… following industry standards"). Each entry: the question, the choice, why, how to revert.
 
+## ADR renumbering (merge with master, 2026-11-23)
+
+Master took 0327–0340 for its own records (core memory export, INIT wire record, linker, browser-spec rules, decoder
+HRIR/MagLS prep, script compiler settings, WebRTC transport, snapshot parts, input system, UI focus navigation). The
+Audio Studio's records were renumbered by +14, keeping their order. Every reference on the audio branch (records,
+code comments, tests, guides, this folder) was rewritten before master was merged, so in this tree 0327–0340 always
+mean master's records. Old numbers in commit messages before the merge mean the audio records below.
+
+| Old | New | Record |
+|---|---|---|
+| 0327 | 0341 | The Audio Studio is its own app and replaces the editor's audio panels |
+| 0328 | 0342 | Samples: an audio file plus non-destructive edits in its sidecar |
+| 0329 | 0343 | Playlists replace audio events and interactive music |
+| 0330 | 0344 | The mix moves to `audio.json` (returns, VCAs, blending snapshots) |
+| 0331 | 0345 | One effect catalogue runs at four levels |
+| 0332 | 0346 | One curve model (Bézier keys, time as a core parameter) |
+| 0333 | 0347 | Attenuation curves on playlists, audio zones and spatial test scenes |
+| 0334 | 0348 | Takes record what the game asked of audio; captures stay telemetry |
+| 0335 | 0349 | Studio screens are built from one component kit |
+| 0336 | 0350 | Playlists shape blends, fades, tails and quantised automation |
+| 0337 | 0351 | Audio is encoded per platform at export and shipped in packages |
+| 0338 | 0352 | Third-party audio effects are sandboxed wasm modules (DSP plugins) |
+| 0339 | 0353 | Quantise reaches pitch, pan, filters and entry voice curves |
+| 0340 | 0354 | Localised audio in per-language folders, voice-over from line tables |
+| 0341 | 0355 | Dynamic dialogue events |
+| 0342 | 0356 | Text localisation through keyed string tables |
+| 0343 | 0357 | Subtitles from string tables and a built-in display |
+| 0344 | 0358 | Plugin glue, fuel and worklet compile rules (B0 spike) |
+| 0345 | 0359 | Audio encoding follows the A0 spike |
+| 0346 | 0360 | Sound generators |
+
+The spike reports moved with them: `spikes/0337-a0.md` → `spikes/0351-a0.md`, `spikes/0338-b0.md` → `spikes/0352-b0.md`.
+
 ## Summary
 
 - Needs the owner: (none yet)
@@ -10,7 +43,7 @@ or technical decisions… following industry standards"). Each entry: the questi
 
 ## Entries
 
-**D1. Records 0327–0335 accepted.** Owner: "Any new ADRs that need to be approved, go ahead and implement them."
+**D1. Records 0341–0349 accepted.** Owner: "Any new ADRs that need to be approved, go ahead and implement them."
 Revert: set the records back to Proposed.
 
 **D2. `audio.json` and the editor's legacy audio panels during the transition.** Until the Studio replaces them (M10),
@@ -91,11 +124,11 @@ curves run on the main thread per frame until core time parameters land. Samples
 playlist loop their region as a held loop; `always` loops survive release (FMOD/Wwise key-off). Stop fades 120 ms.
 Only the root playlist's playback rules gate; nested playlists add delay. Weight 0 never plays; glide is a one-pole
 filter τ = glide/3. Equal-power crossfades. New public types `AudioMarkerEvent` and `AudioMarkerType` (the `onMarker`
-payload ADR 0329 names) and a debug field `Audio.debug().playlistTotals` — covered by ADR 0329's `onMarker` and debug
+payload ADR 0343 names) and a debug field `Audio.debug().playlistTotals` — covered by ADR 0343's `onMarker` and debug
 rules; flagged for review. Gaps warned once: voice pan, high-pass curves, non-filter playlist effects (need submixes),
 attenuation curves (M7), Sequences and musical timing (M5).
 
-**D15. Samples screen (W2-D, merged).** Edits stay in source time (ADR 0328) and the timeline draws edited time;
+**D15. Samples screen (W2-D, merged).** Edits stay in source time (ADR 0342) and the timeline draws edited time;
 sidecars are opened as documents through a Studio-registered sidecar kind with no file ending (the editor's handling of
 `.meta.json` is unchanged); derived samples use the plugin's `derivedSample` kind (coordinator removed a duplicate);
 a following fork stores only fields it changed; loop count = how many times the body plays; clips under 400 ms are
@@ -144,7 +177,7 @@ when they differ from the defaults (no new public flag); a spatial playlist with
 the reverb send stays independent of the dry curve (Wwise aux practice), capped by the send range; `zoneDepth` exists
 only on zone-played instances; four new reverb presets map onto the five generated reverbs (own reverb times need
 native presets). Gaps (core/native): per-voice spread, beds for zone interiors and `bedBeyond`. New public API
-`AudioZone`, `AudioReverbZone.levelDefault`, four preset names (ADR 0333).
+`AudioZone`, `AudioReverbZone.levelDefault`, four preset names (ADR 0347).
 
 **D22. Takes (W4-B1, merged).** Request records 0x10–0x19 (skippable by length, refused without the take flag);
 capture format 2 (format 1 refused); 256 MiB cap only with the take flag; requests live outside the ring with seqs
@@ -210,7 +243,7 @@ segments; the VCA lane rides the wire's authored lane (fader × VCA); returns li
 bus-to-bus sends) and reach the core through each bus's reverb send level; mute silences sends on main; insert cap 8
 (the core's 4-effect limit stays a warning rule); seven project live ops (upsert by name, `from` for renames).
 **Behaviour change:** `Audio.snapshot(name)` with one argument now returns an `AudioSnapshot` handle without starting
-it (ADR 0330); `Audio.snapshot(name, fade)` still starts it. Revert: make the one-argument form start with 0.5 s.
+it (ADR 0344); `Audio.snapshot(name, fade)` still starts it. Revert: make the one-argument form start with 0.5 s.
 Core features still needed (listed for a core task): bus-to-return sends with slots, a dB-linear ramp law, a VCA wire
 lane, 8 effects per bus and the catalogue's bus effects, smoothed effect parameters, automation of any effect parameter
 and send, core-side send muting, ducking with returns.
@@ -220,10 +253,10 @@ normalised so centre is unchanged (+3 dB hard-panned), stereo is balance; spatia
 practice); sends are unpanned; a high-pass floor ≤ 20 Hz is no floor (ABI 4.4). Start offsets ride the existing PLAY
 `startOffsetFrames` (sample-exact, no fade); `offset` applies to whatever an instance starts synchronously. **New public
 API:** `OneShotOptions.offset`, `EventOptions.offset` (needed by audition, sequence transport and take seek; covered by
-ADR 0329/0334's seek and audition requirements — flagged for review). Submixes: a fixed 64-slot core pool, one per
+ADR 0343/0348's seek and audition requirements — flagged for review). Submixes: a fixed 64-slot core pool, one per
 instance carrying the root playlist's/sequence's effects (track, clip and nested effects keep per-voice mapping),
 routing only for voices on the submix's bus, unknown effect kinds pass through (ABI 4.5). Mixer wasm 403,838 B; the
-tripwire was raised 400 KB → 512 KB (native/audio/build.mjs, reason: ADR 0331 submixes and the DSP catalogue to come).
+tripwire was raised 400 KB → 512 KB (native/audio/build.mjs, reason: ADR 0345 submixes and the DSP catalogue to come).
 Merge decision: pan/high-pass time lanes become core bindings per voice start (one conversion point). Known follow-ups:
 the core curve table (1024, never freed) can fill with per-voice shifted curves on long instances with time-keyed
 pan/high-pass lanes (fix: a time origin per binding); instance low-pass automation can't open above a submix's fixed
@@ -249,7 +282,7 @@ Not restored in the samples: the engine blend's overlapping fades (now neighbour
 playlist runtime bugs fixed (sequence loop wrap within float noise; an Exit marker exactly at a sequence's end). The
 `audioEvent` editor kind stays as a listing "Audio Event (old format: migrate)" with clip references, so a declined
 migration can't lose clips. `engine.AudioMusic` system removed; music node/rule types dropped from `myco` exports (ADR
-0329 deprecates them; handle and event types stay). `Audio.debug().music` kept as `[]` so public types hold. E2E specs
+0343 deprecates them; handle and event types stay). `Audio.debug().music` kept as `[]` so public types hold. E2E specs
 that used events or music players (`audio-music-*`, `audio-events`, `sound-lab-touch`, `projects`) need porting at the
 e2e phase.
 
@@ -276,14 +309,14 @@ decoded buffer is shared; a snippet's range intersects the block's trim; a follo
 parent's *resolved* block (ADR wording) — the Studio's `sampleSession.ts` reads one level only (to align).
 
 **D36. Owner decision (2026-11-22): restore the lost music/blend behaviours as format features.** "Yes, I want all
-4. The 5th sounds useful for rhythm games though." Task W9-D adds to playlists (new ADR 0336 amending 0329/0332):
+4. The 5th sounds useful for rhythm games though." Task W9-D adds to playlists (new ADR 0350 amending 0343/0346):
 blend overlap widths, music tails (post-exit), transition fade shapes, bridge fades, and beat-quantised automation
 (on the instance's musical clock, for rhythm games); the migration maps the old fields and the sample projects regain
 what D32 lists as not restored.
 
 **D37. Sample plan on every play; what a render contains (W9-C, merged).** A flattened render keeps the source's
 timeline and bakes only the effect chain, its automation and the normalisation gain; trim, cuts, closed gaps, loops
-and markers stay in source time and still apply (the reading where loops and markers keep working; ADR 0328 was not
+and markers stay in source time and still apply (the reading where loops and markers keep working; ADR 0342 was not
 explicit). `sample.source` is a project path, else a bare name beside the source. Clip voices (one-shots,
 AudioSource, zones) loop the first loop region forward and endlessly (held until `release()`); full loop programs stay
 playlist-only. One-shots never loop. The render task was told to match this.
@@ -309,17 +342,17 @@ overlaps, loop crossfades, bridges, tails, 1D regions. Unset = today's equal-pow
 
 **D41. Offline render (W9-B, merged).** Separate wasm (`audio-offline`, 136,571 B, own 256 KB tripwire) reusing
 `audio_dsp::fx` and the core's curve evaluator (`Curve::from_keys` added, ABI unchanged). Render = 32-bit float WAV on
-the source timeline (D37); normalize applied after the chain (ADR 0328 order); tails until −90 dBFS (cap 10 s).
+the source timeline (D37); normalize applied after the chain (ADR 0342 order); tails until −90 dBFS (cap 10 s).
 Choices to review: reverse left out of renders with a warning (would move every source time); every effect type
 bakes, even those not allowed at sample level; fades and the envelope span the whole file. Note for later native
 work: the shared source hash changed, so any branch touching `native/audio/**` must re-run `npm run build:audio`
 after merging. Float WAV playback relies on symphonia's `wav`+`pcm` (IEEE float supported).
 
-**D42. ADRs 0337 (per-platform encoding, packages) and 0338 (DSP plugins) accepted (W10-C).** Choices to review in
-0337: strict packages by default (Wwise/FMOD; `strict: false` = Unity-style on demand); unload fades voices 50 ms;
+**D42. ADRs 0351 (per-platform encoding, packages) and 0352 (DSP plugins) accepted (W10-C).** Choices to review in
+0351: strict packages by default (Wwise/FMOD; `strict: false` = Unity-style on demand); unload fades voices 50 ms;
 `auto` codec re-encodes WAV/FLAC to Vorbis (changes existing exports; `codec: "source"` restores); converted files keep
 path and extension; streamed media ships loose; Opus in the default decoder build; contributors rebuilding the
-encoder need wasi-sdk. In 0338: plugins are sandboxed wasm with no imports, called inside every chain; fuel metering
+encoder need wasi-sdk. In 0352: plugins are sandboxed wasm with no imports, called inside every chain; fuel metering
 always on (est. 20–50% on tight loops, to measure); ABI 5.0 widens effect records to 16 params; no latency
 compensation or custom UIs in v1; fault policy dry-pass, recreate, disable after 3 faults/s. Both start with spikes
 whose numbers may change the records.
@@ -330,13 +363,13 @@ throw); `AudioListener`, `RigidBody`, character controllers and 2D colliders are
 scene's listener hears); per-World filters dropped. The Studio now activates the physics + Rapier runtime halves
 (lazy-loaded). `core/zoneIr.test.ts` failed again under full-suite load (passes alone) — recurring, needs a task.
 
-**D44. W9 and W10 merged: returns on the core, playlist shaping (ADR 0336), takes and renames.** Full Vitest after:
+**D44. W9 and W10 merged: returns on the core, playlist shaping (ADR 0350), takes and renames.** Full Vitest after:
 804 files, 8926 passed, 0 failed. Choices to review:
 - *Returns (W9-A):* returns share the core's 32 slots after the buses (a non-reverb return that doesn't fit is left
   out with a warning); `Audio.buses` now lists returns too (behaviour change); a removed send fades out muted; the old
   `addEffect {type:"reverb"}` op is refused (use `setSend`); >4 sends is a warning; a presence duck keyed by a return
   never ducks (no voices; FMOD/Wwise use level). Babylon fallback plays returns silent.
-- *ADR 0336 (W9-D):* `ChangeHow.tail` on by default, so an existing cut at an Exit marker now rings its tail;
+- *ADR 0350 (W9-D):* `ChangeHow.tail` on by default, so an existing cut at an Exit marker now rings its tail;
   `SequenceLoop.tail` off; tails ring only on cuts (crossfades fade, as Wwise); quantise is per lane and gain-only
   (non-gain targets warn) — for rhythm games, quantising pitch/filter/effect params is a follow-up; log/exp shapes use
   exponents 1.41/2/3 as 12 stamped pieces; a beat-timed cut now fades exactly at the boundary (bug fix: it stopped
@@ -367,8 +400,8 @@ undo restores the old audio via `sample.sourceVersion`; exports render baked sam
 (normalize-only isn't rendered; non-WAV sources ship without effects, with a warning); Entry markers reuse the exit
 marker token, dotted. Measured: 60–179 BPM click tracks within ±0.26 BPM; 204 test tones, 0 wrong notes.
 
-**D48. W11-E merged (smaller items).** Quantise on pitch/pan/filters and entry curves is recorded as ADR 0339
-(amends 0336; quantum-accurate, not sample-accurate). An unstamped sequence whose clips are still loading now starts
+**D48. W11-E merged (smaller items).** Quantise on pitch/pan/filters and entry curves is recorded as ADR 0353
+(amends 0350; quantum-accurate, not sample-accurate). An unstamped sequence whose clips are still loading now starts
 as late as its data (was up to 588 frames ahead of its sound); picks are redrawn on each restart. "Create playlist
 from clips" lives in the Playlists Library (one sample → Clip, several → Queue of Clips; undo is a toast that deletes
 the file, since creating a file isn't a document step). An emptied number box now restores its value instead of
@@ -397,7 +430,7 @@ receiving slot; submix automation is dropped when its group changes (ringing tai
 flagged: `Audio.debug().mix.fxStarved`/`fxStarvedOwner` (public debug type), `AudioSubmixes.automate`/`SubmixLane`
 (backend seam, internal). Mixer wasm 472,160 B.
 
-**D52. ADRs 0340 (localised audio, voice-over) and 0341 (dynamic dialogue) accepted (W13 design).** The engine has
+**D52. ADRs 0354 (localised audio, voice-over) and 0355 (dynamic dialogue) accepted (W13 design).** The engine has
 no text localisation, so subtitle text lives in line tables keyed so a later text record can move it. **Owner
 questions, each proceeding on its default unless answered:** (1) UI text localisation now? default no; (2) which
 languages? default per project, new projects `en` only; (3) built-in subtitle widget? default no — text +
@@ -409,15 +442,15 @@ Studio edits only without an editor lock? default yes. Choices to review: per-la
 reference language's file; project-unique line keys and event names; subtitle-only playback for lines missing in
 every language; dialogue as its own asset (not a playlist type); take replay re-decides by default.
 
-**D53. Owner answers on localisation (2026-11-22).** (1) Text/UI localisation: "Yes, add it" — a new record (0342)
-designs string tables for UI text, and subtitles move into them (0343 amends 0340). (2) Subtitles: after comparing
+**D53. Owner answers on localisation (2026-11-22).** (1) Text/UI localisation: "Yes, add it" — a new record (0356)
+designs string tables for UI text, and subtitles move into them (0357 amends 0354). (2) Subtitles: after comparing
 engines (Unreal ships basic built-in subtitles; Unity, Godot, Wwise, FMOD give data and callbacks only;
 accessibility guidance expects adjustable size, a background box and speaker names), the owner chose "Optional
 built-in": text + `Audio.onLine` events as the base, plus a drop-in subtitle component built only on those public
 events, with a player on/off setting; games can replace it. (3) Language packs: all shipped languages in the build.
-(4) Lip-sync: import only (Rhubarb output). Other 0340/0341 questions proceed on their defaults (D52).
+(4) Lip-sync: import only (Rhubarb output). Other 0354/0355 questions proceed on their defaults (D52).
 
-**D54. ADRs 0342 (text localisation) and 0343 (subtitles) accepted.** Owner questions proceeding on defaults unless
+**D54. ADRs 0356 (text localisation) and 0357 (subtitles) accepted.** Owner questions proceeding on defaults unless
 answered: script API named `Locale` (`Text` is taken); no bundled CJK/Arabic fonts (guide points to Noto); subtitles
 on by default on first run, sound captions off; RTL layout mirroring deferred (RTL text works). Choices to review:
 an engine-owned ICU MessageFormat 1 (<4 KB est.) instead of `intl-messageformat` (9.8 KB) or Fluent; `t:<field>`
@@ -428,12 +461,12 @@ text language by default; 15 chars/s reading speed with per-language defaults; c
 **D55. Native spatial (W11-G, merged, ABI 4.11).** Spread = point part + decorrelated diffuse part (w = s/360; an
 amplitude-only spread can't decorrelate a mono source on two ears — Unreal/Resonance diffuse practice); zone spread wins
 over the playlist's; anything inside a zone (edge or inside kind, and an inside zone's feather) goes to the bed at 360°
-(ADR 0333's "plays non-spatially", rendered enveloping); bedBeyond and zone beds are decided on main in the panner pick
+(ADR 0347's "plays non-spatially", rendered enveloping); bedBeyond and zone beds are decided on main in the panner pick
 (ADR 0162's split); stream loops are forward only (ping-pong/backward play forward with a warning; FMOD/Wwise streams
 also loop forward); preset times from EAX families. Mixer 475,285 B; metered +0.07%. Wave 11 complete.
 
-**D56. W12 first round merged (0337 A1/A2, 0338 B1/B2).** Choices to review: encoding settings fall through a profile
-chain (nearest profile → rule's → default → built-in) rather than 0337's single profile; the encoder has its own
+**D56. W12 first round merged (0351 A1/A2, 0352 B1/B2).** Choices to review: encoding settings fall through a profile
+chain (nearest profile → rule's → default → built-in) rather than 0351's single profile; the encoder has its own
 source hash so core contributors never need wasi-sdk; Opus encodes mono/stereo only (ambisonic files fall back to
 Vorbis); loose ADPCM has no container (packages carry frames) — A3/A4 decide; no dither on 16-bit/ADPCM; plugin
 `maxInstances` cap 128 (default 16), ≤ 256 effects per plugin; plugin params arrive in declared units; fuel mode caps a
@@ -443,7 +476,7 @@ plugin's memory at `memoryMB`; start functions refused; SDK at `native/fx-sdk/`.
 per platform with the built-in defaults. Choices to review: loose ADPCM ships as Vorbis (ADPCM lives in packages, as in
 Unity/FMOD/Wwise banks); lenient packaging in a build skips the play and starts one load; `audio-report.json` sits at
 the build folder root (inside a plain web build); an unknown package name rejects `load()` with one warning; script
-loads are owned by the active World and dropped at Play stop. Public API added (0337 §9): `Audio.package`,
+loads are owned by the active World and dropped at Play stop. Public API added (0351 §9): `Audio.package`,
 `Audio.packages`, `AudioPackageLoader`, `AudioPackage`, reason `notLoaded`, `Audio.debug().packages`. Coordinator
 fixes found by the merge: `npm run build:player` failed the lazy-only rule (the take service from W4/W10 sat in the
 capture folder; now exempt with a reason), and the export CLI couldn't resolve vite's bin.
@@ -460,7 +493,7 @@ never connected — an integration task is wiring them. Mixer 497,970 B of the 5
 **D59. Plugins in the core and package playback wired (W12-B3/B4 and integration, merged).** Full Vitest
 (engine, audio, Studio, export) after: 630 files, 7205 passed. Plugin glue on the real core: 0.18–0.33 µs per call
 (matches the spike); 32 tremolos on 4 buses 163 µs per quantum. Mixer 501,602 B (tripwire 512 KB not raised). Choices
-to review: plugins are on wherever the core runs (no engine gate; 0344 §6 asked for one only if JSC/SpiderMonkey fail,
+to review: plugins are on wherever the core runs (no engine gate; 0358 §6 asked for one only if JSC/SpiderMonkey fail,
 still unmeasured); the fuel cap is per chain level; "disabled" is per effect type; `myco_ext` has five imports
 (describe and sweep added); package bytes are re-fetched on a decoder restart rather than kept twice; a load counts as
 complete once its copies are queued while output is locked (no gesture yet); the stream-head hand-over is two stamped
@@ -468,7 +501,7 @@ voices (no ABI change; pitch or pause during the head can shift the seam). Merge
 to `AudioBackend` at the same spot; kept both.
 
 **D60. W12 finished except docs/e2e; W13 formats merged.** Plugins: sets load in editor, Studio and player; exports
-ship modules; offline renders run plugin effects; Studio cards, health and Reset. **Engine gate on by default** (0344
+ship modules; offline renders run plugin effects; Studio cards, health and Reset. **Engine gate on by default** (0358
 §6, conservative): plugin modules run only on Chromium/V8 until JSC and SpiderMonkey are measured; override
 `project.json` `plugins.audioEffectEngines: "all"` — the owner may prefer them on everywhere. Encoding Studio: Packages
 is screen 7 in a new "Ship" group (Wwise/FMOD treat banks as a build stage); an all-platforms `load` override mirrors the
@@ -477,10 +510,10 @@ Open owner question: should derived samples get their own `encoding` block? W13 
 unexported; the playlist `line` entry waits on a side branch until the runtime/Studio switches handle it; ICU
 parse+format is 3.0 KB gzip; `@formatjs/icu-messageformat-parser` added as a devDependency (test oracle only).
 
-**D61. Locale runtime (W13 T2–T4, merged).** Public API added (0342 §6): `Locale`, `LocalText`, `LocaleLanguage`,
+**D61. Locale runtime (W13 T2–T4, merged).** Public API added (0356 §6): `Locale`, `LocalText`, `LocaleLanguage`,
 `MessageArg(s)` from `src/engine/index.ts`; `LocalizedText` from `myco`; `UITextAlign` gains `start`/`end` (default
 `start`, identical in LTR). Choices to review: `keep-all` keeps meaning "never wrap" (CSS meaning would change Latin
-wrapping, against 0342 §12); a superseded `setLanguage` resolves without switching (no unhandled rejections); system
+wrapping, against 0356 §12); a superseded `setLanguage` resolves without switching (no unhandled rejections); system
 language counts only for drawing runtimes; editor Play doesn't persist the language; `Locale` is a process global like
 `Graphics`; in RTL the input field aligns to its start edge.
 
@@ -492,7 +525,7 @@ missing from a CSV only on an opt-in; the preview chip is hidden for single-lang
 80/400 ms; coverage runs synchronously (capped) rather than in a worker. Auditions use the Studio's clip path until the
 audio runtime (L2/D2) merges.
 
-**D63. ADR 0346 (sound generators) accepted.** Owner questions, proceeding on defaults unless answered: (1) edited
+**D63. ADR 0360 (sound generators) accepted.** Owner questions, proceeding on defaults unless answered: (1) edited
 inside the Playlists screen; (2) blips band-limited (no "retro aliased" option); (3) the Babylon fallback renders
 generators through the offline module; (4) mono generator voices; (5) pool size derived from `max_mixed`; (6) no
 snapshot overrides of generator parameters in v1; (7) no automatic bake at export; (8) bakes are float32 mono 48 kHz.
@@ -502,7 +535,7 @@ Per-voice costs are estimates until G2 measures them.
 `setLanguage`, `pendingLanguage`, `subtitleLanguage`, `languages`, `line`, `onLine`, `onCaption`, `say`, `dialogue`;
 `EventOptions.line`; nine reasons; `AudioSpeaker` and line/dialogue types. Choices to review: SAY records carry the
 generator state so replay is exact anywhere in a take; arguments matching only `*` replay as defaults; the playlist
-`{event}` form updates dialogue memory but skips event cooldown, chance and channels (0341 §3); under `followText` the
+`{event}` form updates dialogue memory but skips event cooldown, chance and channels (0355 §3); under `followText` the
 voice ignores its own remembered language. Follow-ups: `settings.dialogue` must join the `audio.json` format
 (coordinator item), take keyframes don't hold lines.
 
@@ -519,12 +552,28 @@ data; Mutate advances the seed; blip `level` in dB; synth waves default to saw.
 **D66. Subtitles plugin and generator core merged.** Subtitles: public API `SubtitleDisplay`, `Subtitles`,
 `SubtitleSettings`; the overlay toggle lives in the plugin's editor half (import rules); paging uses a character
 estimate. Generator core (ABI 5.1): mixer +37.3 KB, tripwire 512 → 576 KB (record estimated 10–15 KB). **Raised with
-the owner:** the blip costs 2.38× a sample voice (0346's tripwire 1.5×, estimate 1.1×), and two-sample PolyBLEP leaves
+the owner:** the blip costs 2.38× a sample voice (0360's tripwire 1.5×, estimate 1.1×), and two-sample PolyBLEP leaves
 the worst alias at −25 dB at 3.5 kHz (estimate −40 to −60 dB). Other defaults built: blip parameters latch at trigger
 (only `level` glides, as sfxr); sfxr's ×0.05 master volume dropped for `level` in dB (−12 default); GEN seed 0 keeps the
 voice's seed. Coordinator fix: `LocalizedText` declared before `UIDocumentSync`.
 
 **D67. Owner (2026-11-23) on generator cost and aliasing.** Blip at 2.38×: "Optimise further" — a task works the blip
-kernel toward 0346's 1.5× tripwire without losing sfxr accuracy. Aliasing: "Make it a setting" — a per-generator
+kernel toward 0360's 1.5× tripwire without losing sfxr accuracy. Aliasing: "Make it a setting" — a per-generator
 quality parameter, standard (two-sample PolyBLEP, as built) or high (a higher-order band-limited method or
 oversampling for saw/square/pulse, more CPU), declared in the catalogue so it saves, automates and shows in the Studio.
+
+**D68. Merge with master (2026-11-23).** The Studio's records became 0341–0360 (table at the top). Calls made while
+joining master's 73 commits: (1) **core ABI 6.0**: master's 5.0 (INIT record, memory exports) and the Studio's 5.1
+(16-parameter effect records, `myco_ext`, generators) were both incompatible changes from 4.0, so the joined core is a
+new major; the version is generated from `schema.rs` (master's ADR 0328), which now carries the Studio's history.
+(2) **Decoder ABI 1.6**: both sides added different 1.4s (stream seams; HRIR/MagLS prep), so the union is 1.6.
+(3) Master's memory answer replaces the Studio's TypeScript headroom terms (FxMem, ADPCM cursors, the 18 MiB M2 share):
+the core's own layout already holds those regions; `openCore` binds the plugin glue (the throwaway instance gets a fresh
+`EffectGlue`). (4) One curve-size helper (master's generated `curveBytes`; the Studio's `coreCurveBytes` removed).
+(5) Capture format stays 2 (takes) with master's rule that `CAPTURE_ABI_VERSION` is the generated core ABI and the header
+stamps the running core's. (6) The decoder's 1,000 KB tripwire raised to 1,056 KB (master's `spatial.rs`, +17.5 KB,
+took it 411 B over). (7) Export links through master's linker; the Studio's audio-effect, localisation and line-index
+steps run before the link, and `DEPS_DIR` now comes from `projectCode/buildTarget.ts`. (8) The e2e fixture's
+`audioBackend` option answers the sample's `audio.json` (`settings.backend`), not `project.json`, since project.json
+holds no audio here. (9) E2E specs the Studio deleted stay deleted (master only converted them to `openEditor`).
+Revert: per item in the merge commit.

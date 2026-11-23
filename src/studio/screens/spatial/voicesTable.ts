@@ -1,4 +1,4 @@
-// The Voices panel and the plan's rays (ADR 0333 "The Voices table reads the runtime's own debug rows"; the prototype's
+// The Voices panel and the plan's rays (ADR 0347 "The Voices table reads the runtime's own debug rows"; the prototype's
 // Voices table, B.4): one row per emitter, audio zone and 2D sound with how it is heard, read from the test scene
 // player's `voices()` readout, never simulated; the base game scene's own emitters and audio zones follow the scene's
 // (decision log D43: they play underneath, so they are heard too), marked as the base's. A moving emitter's distance is

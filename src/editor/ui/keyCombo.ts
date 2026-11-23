@@ -1,4 +1,4 @@
-// Key combinations as text ("Mod+Shift+Z", "F6", "?", "Space") (ADR 0335): parsed once, matched against keyboard
+// Key combinations as text ("Mod+Shift+Z", "F6", "?", "Space") (ADR 0349): parsed once, matched against keyboard
 // events and shown the way each platform writes them ("Ctrl+Shift+Z" on Windows and Linux, "⇧⌘Z" on macOS). `Mod` is
 // Cmd on macOS and Ctrl elsewhere. The keyboard shortcuts dialog and the Audio Studio's keymap use it.
 

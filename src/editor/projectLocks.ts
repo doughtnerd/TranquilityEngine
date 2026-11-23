@@ -1,4 +1,4 @@
-// Which app has a project open, and the moves one app leaves for the other (ADR 0327, "One app owns each file;
+// Which app has a project open, and the moves one app leaves for the other (ADR 0341, "One app owns each file;
 // both watch"). App-agnostic: the editor and the Audio Studio both import it.
 //
 // - **Locks.** While an app has a project folder open it holds `.myco/locks/<app>.json` (`{app, pid, started}`),

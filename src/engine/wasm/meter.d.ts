@@ -1,4 +1,4 @@
-// Types for meter.js (ADR 0157 C1b, 0338 §6, 0344 §2): the meter pass, its fuel mode and its decoder. Internal: not part
+// Types for meter.js (ADR 0157 C1b, 0352 §6, 0358 §2): the meter pass, its fuel mode and its decoder. Internal: not part
 // of the `myco` API.
 
 /** The counter's export name (`count` mode): a mutable i64 global. */
@@ -22,7 +22,7 @@ export interface FuelStats extends MeterStats {
 }
 
 export interface MeterOptions {
-  /** "count" (the metered gate's, the default) or "fuel" (the plugin effects' budget, 0344 §2). */
+  /** "count" (the metered gate's, the default) or "fuel" (the plugin effects' budget, 0358 §2). */
   readonly mode?: "count" | "fuel";
   /** Fuel mode: the memory's maximum is capped at this many 64 KiB pages (default and largest 65,535). */
   readonly maxPages?: number;

@@ -82,6 +82,7 @@ const KIND_BODIES: Record<string, Codec> = {
   STREAM_CLOSE: { write: wire.writeStreamClose, read: wire.readStreamClose },
   TIME_PING: { write: wire.writeTimePing, read: wire.readTimePing },
   STREAM_CREDIT: { write: wire.writeStreamCredit, read: wire.readStreamCredit },
+  INIT: { write: wire.writeInit, read: wire.readInit },
 };
 
 const OPCODE_BY_CODE = new Map<number, Codec>(

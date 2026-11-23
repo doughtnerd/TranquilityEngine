@@ -1,5 +1,5 @@
 /**
- * Spatial test scenes (ADR 0333): parse and write `*.audioscene.json` (`myco.audioscene@1`), and the one list of the
+ * Spatial test scenes (ADR 0347): parse and write `*.audioscene.json` (`myco.audioscene@1`), and the one list of the
  * paths a scene names (its sounds and its base game scene) with the rewrite for moves.
  *
  * Lenient (ADR 0306): a bad value falls back to its default with one problem line, ids are made unique, a scene always has

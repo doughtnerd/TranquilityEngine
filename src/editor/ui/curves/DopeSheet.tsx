@@ -1,4 +1,4 @@
-// The curve editor's dope sheet (ADR 0332, time curves only): a ruler (drag to zoom the plot to a range, click to move
+// The curve editor's dope sheet (ADR 0346, time curves only): a ruler (drag to zoom the plot to a range, click to move
 // the playhead, double-click for the whole clip), one row per time-driven lane with its keys as diamonds (drag moves a
 // key in time; right-click opens the key menu) and "Add key at playhead".
 import { useRef, useState } from "preact/hooks";

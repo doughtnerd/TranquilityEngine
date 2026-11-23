@@ -33,10 +33,12 @@ const PSEUDO: ReadonlySet<string> = new Set<UIPseudo>(["hover", "pressed", "focu
 export const INHERITED_FIELDS: ReadonlySet<string> = new Set(["color", "fontSize", "fontWeight", "textAlign"]);
 /** String fields that hold a `UILength`. */
 const LENGTH_FIELDS: ReadonlySet<string> = new Set(["width", "height", "top", "right", "bottom", "left"]);
-/** Attributes that aren't fields (`translate="no"` marks text as deliberately unlocalised, ADR 0342 §4). */
+/** Attributes that aren't fields (`translate="no"` marks text as deliberately unlocalised, ADR 0356 §4). */
 const NOT_FIELDS: ReadonlySet<string> = new Set(["id", "class", "translate"]);
-/** The prefix of key attributes (`t:text="menu.start"`, ADR 0342 §4): the runtime writes the localised message. */
+/** The prefix of key attributes (`t:text="menu.start"`, ADR 0356 §4): the runtime writes the localised message. */
 const KEY_ATTRIBUTE_PREFIX = "t:";
+/** Node reference fields an attribute sets by naming another element's id (ADR 0340): the document resolves them after building. */
+const REFERENCE_FIELDS: ReadonlySet<string> = new Set(["navUp", "navDown", "navLeft", "navRight", "firstSelected"]);
 
 // --- Parsing ------------------------------------------------------------------------------------
 
@@ -141,7 +143,7 @@ function parseSelector(sel: CssSelector, report: (start: number, end: number, me
           compound();
         } else if (PSEUDO.has(n.name)) compound().pseudo.push(n.name as UIPseudo);
         else if (n.name === "lang") {
-          // `:lang(de)` (ADR 0342 §4): one language range, matched by BCP 47 prefix against the current text language.
+          // `:lang(de)` (ADR 0356 §4): one language range, matched by BCP 47 prefix against the current text language.
           const ranges = (n.children?.toArray() ?? []).map((c) => (c.type === "Identifier" ? c.name : c.type === "String" ? c.value : "")).filter((r) => /^[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*$/.test(r));
           if (ranges.length !== 1) {
             report(s, e, ":lang() takes one language code, such as :lang(de) or :lang(zh-Hant).");
@@ -194,7 +196,7 @@ function matchesSimple(s: SimpleSelector, t: StyleTarget): boolean {
   return true;
 }
 
-/** CSS `:lang()` matching (ADR 0342 §4): the language equals the range or starts with it and a hyphen (`de` matches `de-AT`). */
+/** CSS `:lang()` matching (ADR 0356 §4): the language equals the range or starts with it and a hyphen (`de` matches `de-AT`). */
 function langMatches(language: string | undefined, range: string): boolean {
   if (!language) return false;
   const l = language.toLowerCase();
@@ -223,7 +225,7 @@ export function usesPseudo(sheets: readonly { rules: readonly StyleRule[] }[]): 
   return sheets.some((s) => s.rules.some((r) => r.selectors.some((sel) => sel.parts.some((p) => p.selector.pseudo.length > 0))));
 }
 
-/** True when any rule of these sheets uses `:lang()` (so elements restyle when the language changes, ADR 0342 §4). */
+/** True when any rule of these sheets uses `:lang()` (so elements restyle when the language changes, ADR 0356 §4). */
 export function usesLang(sheets: readonly { rules: readonly StyleRule[] }[]): boolean {
   return sheets.some((s) => s.rules.some((r) => r.selectors.some((sel) => sel.parts.some((p) => p.selector.lang.length > 0))));
 }
@@ -282,7 +284,8 @@ export function convertValue(raw: string, info: FieldInfo, file: string): unknow
   const type = info.type;
   const v = raw.trim();
   if (type === Number) return parseNumber(v);
-  if (type === Boolean) return v === "true" ? true : v === "false" ? false : undefined;
+  // A bare attribute (`<Canvas auto-focus>`) is true, as in HTML.
+  if (type === Boolean) return v === "true" || v === "" ? true : v === "false" ? false : undefined;
   if (type === Color) return parseColor(v);
   if (type === Vector2) {
     const parts = v.split(/[\s,]+/).filter(Boolean).map(parseNumber);
@@ -395,7 +398,9 @@ function isKnownField(name: string): boolean {
  * `positionType`), or null for `id`, `class`, `translate` and key attributes (`t:text`, see `keyAttributeField`).
  */
 export function attributeField(attribute: MarkupAttribute): string | null {
-  return NOT_FIELDS.has(attribute.name) || attribute.name.startsWith(KEY_ATTRIBUTE_PREFIX) ? null : propertyField(attribute.name);
+  if (NOT_FIELDS.has(attribute.name) || attribute.name.startsWith(KEY_ATTRIBUTE_PREFIX)) return null;
+  const field = propertyField(attribute.name);
+  return REFERENCE_FIELDS.has(field) ? null : field;
 }
 
 /** The field a key attribute localises (`t:text` → `text`, `t:placeholder` → `placeholder`), or null for other attributes. */
@@ -408,6 +413,13 @@ export function keyAttributeField(attribute: MarkupAttribute): string | null {
 /** True for a field a key attribute may localise: a plain string (not a length, a choice or an asset). */
 export function isTextField(info: FieldInfo): boolean {
   return info.type === String && !LENGTH_FIELDS.has(info.name) && !Array.isArray(info.options?.choices);
+}
+
+/** The node reference field an attribute names by an element id (`nav-up="play"` → `navUp`, `first-selected` → `firstSelected`), or null. */
+export function referenceField(attribute: MarkupAttribute): string | null {
+  if (attribute.name.startsWith(KEY_ATTRIBUTE_PREFIX)) return null;
+  const field = propertyField(attribute.name);
+  return REFERENCE_FIELDS.has(field) ? field : null;
 }
 
 /** A variable's key in a resolved map: `--name` (variables inherit, like the text properties). */

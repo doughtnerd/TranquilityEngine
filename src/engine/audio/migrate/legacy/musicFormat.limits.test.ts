@@ -532,7 +532,7 @@ describe("musicFormat limits (L-F1aa)", () => {
       expect(errors[0]).toContain("pitch");
     });
 
-    it("L-F1aa: an unknown target, a missing parameter or a curve with no keys drops the binding; a curve over 64 keys (ADR 0332) is cut with a problem", () => {
+    it("L-F1aa: an unknown target, a missing parameter or a curve with no keys drops the binding; a curve over 64 keys (ADR 0346) is cut with a problem", () => {
       const unknown = kept({ tracks: [{ ...track, automation: [{ parameter: "P", target: "pan", curve: [[0, 0]] }] }] });
       expect(unknown.node.tracks[0].automation).toEqual([]);
       expect(unknown.problems).toContainEqual(problem("segment.tracks[0].automation[0]", "dropped"));

@@ -1,6 +1,6 @@
 /**
  * An in-place radix-2 complex FFT over split real and imaginary arrays, and the magnitude spectrum of a real frame.
- * The sample analysers (tempo's onset envelope, ADR 0328 "detection of what's missing") use it; it is generic.
+ * The sample analysers (tempo's onset envelope, ADR 0342 "detection of what's missing") use it; it is generic.
  *
  * Pure; no plugin, no DOM.
  */

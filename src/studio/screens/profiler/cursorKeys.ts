@@ -1,4 +1,4 @@
-// The Profiler's cursor keys (ADR 0334 "keys to step between markers"; the prototype promised them in the At cursor
+// The Profiler's cursor keys (ADR 0348 "keys to step between markers"; the prototype promised them in the At cursor
 // tooltip and never wired them): ← and → step one STATUS block, Shift+← and Shift+→ jump to the previous or next marker,
 // where markers are the capture's MARKER records and every warning and error the ruler shows. They move the editor
 // profiler's `CursorModel` (its stepping and jumps), which is given the merged marker times. Pure.

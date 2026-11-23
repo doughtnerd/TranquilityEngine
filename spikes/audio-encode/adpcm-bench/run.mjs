@@ -1,4 +1,4 @@
-// ADR 0337 spike A0/S3: meters adpcm_bench.wasm with the metered gate's instrumenter (tools/audio-bench/meter.mjs:
+// ADR 0351 spike A0/S3: meters adpcm_bench.wasm with the metered gate's instrumenter (tools/audio-bench/meter.mjs:
 // every wasm instruction counts 1) and prints wasm instructions per quantum for int16 vs IMA ADPCM voices.
 //   node spikes/audio-encode/adpcm-bench/run.mjs <adpcm_bench.wasm>
 import { readFileSync } from "node:fs";

@@ -1,4 +1,4 @@
-//! The Audio Studio wire (ADRs 0328, 0331, 0332): time parameters (ABI 4.2), sample loop programs
+//! The Audio Studio wire (ADRs 0342, 0345, 0346): time parameters (ABI 4.2), sample loop programs
 //! (LOOPS, ABI 4.3), instance submixes (SUBMIX, ABI 4.5) and the records later Studio milestones add. `batch.rs` lists the opcodes
 //! in id order; `schema.rs` merges the constants below into its output. Byte offsets in the comments
 //! count from the record's first
@@ -14,21 +14,21 @@ macro_rules! c {
 
 /// The Studio constants. A binding's `param` (AUTOMATE, BUS_AUTOMATE) is one of: bit 15 set, a global
 /// slot in the low bits; bit 15 clear and bit 14 set, a time parameter (`TIME_*` in the low two bits,
-/// ADR 0332); both clear, a local slot of the voice's group.
+/// ADR 0346); both clear, a local slot of the voice's group.
 pub const CONSTANTS: &[Const] = &[
     c!("PARAM_GLOBAL", 0x8000, "binding param bit 15: a global slot (low 15 bits)"),
-    c!("PARAM_TIME", 0x4000, "binding param bit 14 (bit 15 clear): a time parameter, TIME_* in bits 0-1 (ADR 0332; voices only)"),
+    c!("PARAM_TIME", 0x4000, "binding param bit 14 (bit 15 clear): a time parameter, TIME_* in bits 0-1 (ADR 0346; voices only)"),
     c!("PARAM_TIME_MASK", 0x3, "binding param bits 0-1 of a time parameter: which"),
     c!("TIME_VOICE", 0, "voiceTime: seconds since the voice started (its start frame; paused time counts)"),
     c!("TIME_CLIP", 1, "clipTime: the voice's playhead in the clip, in seconds of the clip"),
     c!("TIME_SEQUENCE", 2, "sequenceTime: the voice's group's sequence clock (TIME re-anchors it)"),
-    c!("VOICE_LOOPS_MAX", 4, "loops a voice's LOOPS program keeps (ADR 0328); extra ones are ignored"),
+    c!("VOICE_LOOPS_MAX", 4, "loops a voice's LOOPS program keeps (ADR 0342); extra ones are ignored"),
     c!("LOOP_DIRECTION_MASK", 0x3, "LOOPS item flags bits 0-1: 0 forward, 1 ping-pong, 2 backward"),
     c!("LOOP_ACTIVE_SHIFT", 2, "LOOPS item flags bits 2-3: 0 always, 1 held (until the key-off), 2 parameter"),
     c!("LOOP_EXIT_SHIFT", 4, "LOOPS item flags bits 4-5: 0 finish, 1 jump (through crossfadeFrames), 2 crossfade (exitFadeFrames)"),
     c!("LOOP_REENTER", 0x40, "LOOPS item flags bit 6: re-enter (clear: ignore)"),
     c!("LOOP_BELOW", 0x80, "LOOPS item flags bit 7: a parameter activation holds while the parameter is below threshold (clear: above)"),
-    c!("SUBMIXES_MAX", 64, "instance submix slots the core lays out (ADR 0331); SUBMIX voiceId 0..63"),
+    c!("SUBMIXES_MAX", 64, "instance submix slots the core lays out (ADR 0345); SUBMIX voiceId 0..63"),
     c!("SUBMIX_EFFECTS_MAX", 8, "effects a submix's chain keeps; extra ones are ignored"),
     c!("SUBMIX_FX_LOWPASS", 1, "SUBMIX effect type: the catalogue's lowpass; p cutoff Hz, resonance 0..1, drive %"),
     c!("SUBMIX_FX_HIGHPASS", 2, "SUBMIX effect type: the catalogue's highpass; p cutoff Hz, resonance 0..1, drive %"),
@@ -58,10 +58,10 @@ pub const CONSTANTS: &[Const] = &[
     c!("BUS_AUTOMATE_MAX_BINDINGS", 16, "bindings a bus or a submix keeps (BUS_AUTOMATE, SUBMIX_AUTOMATE; ABI 4.8, 8 before)"),
     c!("BUS_FX_HELD_SHIFT", 16, "bus effect type bits 16-31: bit i set holds catalogue parameter i at its sent value (a snapshot override); automation leaves it (ABI 4.8; 16 bits from 5.0)"),
     c!("BUS_FX_TYPE_MASK", 0xFFFF, "bus effect type bits 0-15: the type"),
-    c!("FX_PARAMS", 16, "parameters an effect record carries (BUS_CONFIG, BUS_SLOT, SUBMIX; ABI 5.0, ADR 0338; 7 and 8 before)"),
-    c!("FX_PLUGIN_BASE", 0x100, "an effect kind at FX_PLUGIN_BASE + e is registered plugin effect e (0..FX_PLUGINS_MAX-1), run through the myco_ext import (ABI 5.0, ADR 0338); on a bus, BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e"),
+    c!("FX_PARAMS", 16, "parameters an effect record carries (BUS_CONFIG, BUS_SLOT, SUBMIX; ABI 5.0, ADR 0352; 7 and 8 before)"),
+    c!("FX_PLUGIN_BASE", 0x100, "an effect kind at FX_PLUGIN_BASE + e is registered plugin effect e (0..FX_PLUGINS_MAX-1), run through the myco_ext import (ABI 5.0, ADR 0352); on a bus, BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e"),
     c!("FX_PLUGINS_MAX", 256, "plugin effects the host may register (e is 0..255)"),
-    c!("FX_PLUGIN_FUEL_PER_FRAME", 5000, "each chain level's (the buses', the instance submixes') shared fuel per frame and quantum, across every plugin instance (0344 section 3): a call whose budget doesn't fit what is left passes dry"),
+    c!("FX_PLUGIN_FUEL_PER_FRAME", 5000, "each chain level's (the buses', the instance submixes') shared fuel per frame and quantum, across every plugin instance (0358 section 3): a call whose budget doesn't fit what is left passes dry"),
     c!("FX_PLUGIN_FLAG_PARAMS", 1, "myco_ext.process flags bit 0: a parameter moved this block (or the block is the first)"),
     c!("FX_PLUGIN_FLAG_SILENT", 2, "myco_ext.process flags bit 1: the input block is silent"),
     c!("FX_PLUGIN_FLAG_RESET", 4, "myco_ext.process flags bit 2: the first block since the slot was configured or RESET: the glue resets the instance first"),
@@ -83,7 +83,7 @@ pub const CONSTANTS: &[Const] = &[
     c!("LOOP_EXIT_SHAPE_SHIFT", 4, "LOOPS item shapes bits 4-7: the exit crossfade's FADE_SHAPE_* (ABI 4.9)"),
 ];
 
-/// One effect of a SUBMIX chain: 72 B (ABI 5.0, ADR 0338: 16 parameters; 40 B before).
+/// One effect of a SUBMIX chain: 72 B (ABI 5.0, ADR 0352: 16 parameters; 40 B before).
 const SUBMIX_EFFECTS: Repeat = Repeat {
     name: "effects",
     count_field: "effectCount",
@@ -96,7 +96,7 @@ const SUBMIX_EFFECTS: Repeat = Repeat {
     max: 0,
 };
 
-/// 0x0C SUBMIX (ADR 0331, ABI 4.5; levels ABI 4.9): configures submix slot `voiceId`
+/// 0x0C SUBMIX (ADR 0345, ABI 4.5; levels ABI 4.9): configures submix slot `voiceId`
 /// (0..SUBMIXES_MAX-1): the voices of instance `group` on bus `bus` route into it (group 0: only
 /// the voices a ROUTE names), it runs its chain and feeds slot `parent - 1` (a nested playlist's, a
 /// track's or a clip's submix feeding its parent level's) or, with parent 0 or a free parent, bus
@@ -117,10 +117,10 @@ pub const SUBMIX: Opcode = Opcode {
     ),
     total_bytes: None,
     sent: true,
-    doc: "configure a submix's group, bus, parent and insert chain (ADR 0331); no effects frees it",
+    doc: "configure a submix's group, bus, parent and insert chain (ADR 0345); no effects frees it",
 };
 
-/// 0x0D ROUTE, 16 B (ADR 0331 levels, ABI 4.9): voice `voiceId` mixes into submix slot `submix - 1`
+/// 0x0D ROUTE, 16 B (ADR 0345 levels, ABI 4.9): voice `voiceId` mixes into submix slot `submix - 1`
 /// (its playlist level's) instead of its group's; 0 goes back to the group's route. Applies on
 /// arrival, like AUTOMATE, so main sends it right after the PLAY (and after a replayed PLAY). A free
 /// slot routes the voice to the slot's bus, as a group route does.
@@ -133,14 +133,14 @@ pub const ROUTE: Opcode = Opcode {
     ]),
     total_bytes: Some(16),
     sent: true,
-    doc: "route a voice into a submix slot (ADR 0331 levels)",
+    doc: "route a voice into a submix slot (ADR 0345 levels)",
 };
 
 /// SUBMIX_AUTOMATE bindings (AUTOMATE's items): AUTO_TARGET_FX targets only; params global, local to the submix's
 /// group, or its group's `sequenceTime`; at most BUS_AUTOMATE_MAX_BINDINGS kept.
 const SUBMIX_AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: super::batch::BINDING_ITEM, then: None, max: 0 };
 
-/// 0x1F SUBMIX_AUTOMATE (ADR 0331 instance automation, ABI 4.8): replaces instance submix slot `voiceId`'s
+/// 0x1F SUBMIX_AUTOMATE (ADR 0345 instance automation, ABI 4.8): replaces instance submix slot `voiceId`'s
 /// bindings (count 0 clears them; a SUBMIX that frees the slot or gives it another group clears them too). Each
 /// binding drives one parameter of the submix's chain (AUTO_TARGET_FX, the slot and parameter in the target's
 /// upper bits), evaluated once a quantum before the chain runs, from a global parameter, a local one of the
@@ -151,7 +151,7 @@ pub const SUBMIX_AUTOMATE: Opcode = Opcode {
     payload: Body::with_tail(&[Field::new("bindingCount", Ty::U32)], Tail::Repeat(&SUBMIX_AUTOMATE_BINDINGS)),
     total_bytes: None,
     sent: true,
-    doc: "replace an instance submix's effect-parameter automation (ADR 0331, ABI 4.8); count 0 clears it",
+    doc: "replace an instance submix's effect-parameter automation (ADR 0345, ABI 4.8); count 0 clears it",
 };
 
 /// One loop of a LOOPS program: 28 B.
@@ -173,7 +173,7 @@ const LOOPS_ITEMS: Repeat = Repeat {
     max: 0,
 };
 
-/// 0x0B LOOPS (ADR 0328): replaces a clip voice's loop program, at most `VOICE_LOOPS_MAX` loops
+/// 0x0B LOOPS (ADR 0342): replaces a clip voice's loop program, at most `VOICE_LOOPS_MAX` loops
 /// (count 0 clears it); applies on arrival, like AUTOMATE, so main sends it right after the PLAY. A
 /// SET_LOOP with `looping` clear is the program's key-off (held loops let go, stamped); one with
 /// `looping` set replaces the program with its single region. Stream and ambisonic voices ignore it.
@@ -183,10 +183,10 @@ pub const LOOPS: Opcode = Opcode {
     payload: Body::with_tail(&[Field::new("loopCount", Ty::U32)], Tail::Repeat(&LOOPS_ITEMS)),
     total_bytes: None,
     sent: true,
-    doc: "replace a clip voice's loop program (ADR 0328); count 0 clears it",
+    doc: "replace a clip voice's loop program (ADR 0342); count 0 clears it",
 };
 
-/// 0x1D TIME, 24 B (ADR 0332): re-anchors a group's clock at the record's frame (stamped like a
+/// 0x1D TIME, 24 B (ADR 0346): re-anchors a group's clock at the record's frame (stamped like a
 /// voice record; asap anchors at the next quantum's first frame). From there the clock reads
 /// `value + rate × (frame − anchor) / sampleRate`; rate 0 parks it (a hold point), 1 runs it in
 /// real time. `voiceId` is unused (0).
@@ -201,5 +201,5 @@ pub const TIME: Opcode = Opcode {
     ]),
     total_bytes: Some(24),
     sent: true,
-    doc: "re-anchor a group's sequence clock (ADR 0332); stamped",
+    doc: "re-anchor a group's sequence clock (ADR 0346); stamped",
 };

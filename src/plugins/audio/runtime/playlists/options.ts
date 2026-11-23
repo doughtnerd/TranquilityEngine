@@ -1,5 +1,5 @@
 /**
- * The options of `Audio.play` (ADR 0329; first named by ADR 0158 §5, hence `EventOptions`): what a script, an
+ * The options of `Audio.play` (ADR 0343; first named by ADR 0158 §5, hence `EventOptions`): what a script, an
  * `AudioSource` or the Studio passes when it plays a playlist or a sample.
  */
 import type { Curve } from "../../../../engine/core/curve";
@@ -21,7 +21,7 @@ export interface EventOptions {
   /** Start at this audio-clock time (seconds, `Audio.time`'s base). */
   at?: number;
   /**
-   * Start as if this many seconds had already played (ADR 0329, 0334: audition from a point, seek): a sequence starts
+   * Start as if this many seconds had already played (ADR 0343, 0348: audition from a point, seek): a sequence starts
    * its playhead there; the samples a playlist starts with begin that far into their sound (a looping one wraps). Later
    * starts (a queue's next entry, a stinger) are unaffected. 0 or omitted: from the start; negative or non-finite:
    * ignored with one warning.
@@ -38,14 +38,14 @@ export interface EventOptions {
   reverbSend?: number;
   reverbSendCurve?: Curve;
   /**
-   * ADR 0333: distance overrides for a spatial playlist, metres. Its attenuation curves stretch from their own distances
+   * ADR 0347: distance overrides for a spatial playlist, metres. Its attenuation curves stretch from their own distances
    * to these (`stretchAttenuation`); either omitted keeps the attenuation's own. `AudioSource.minDistance`/`maxDistance`
    * reach the playlist this way. Flat playlists ignore them.
    */
   minDistance?: number;
   maxDistance?: number;
   /**
-   * ADR 0340 §5: the line key a programmer line entry (`{ "line": null }`) plays (FMOD's programmer instrument); a
+   * ADR 0354 §5: the line key a programmer line entry (`{ "line": null }`) plays (FMOD's programmer instrument); a
    * playlist without one ignores it. A line table's template playlist gets each line's key this way.
    */
   line?: string;

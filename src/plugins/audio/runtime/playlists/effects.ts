@@ -1,5 +1,5 @@
 /**
- * A playlist's `effects` at runtime (ADR 0331: "once per playing instance, on its mixed output"), the one adapter:
+ * A playlist's `effects` at runtime (ADR 0345: "once per playing instance, on its mixed output"), the one adapter:
  *
  * - **The instance's own chain** (its root playlist or sequence) runs on the instance's submix when the backend has one
  *   free (`AudioSubmixes.open`, from `PlaylistInstance.start`): `instanceChain` is what it sends, and the root level's
@@ -33,7 +33,7 @@ export function playlistEffectProps(effects: readonly Effect[], where: string): 
       case "highpass": out.highpass = Math.max(out.highpass ?? 0, effectParamValue(e, "cutoff") ?? 20); break;
       case "gain": out.gainDb = (out.gainDb ?? 0) + (effectParamValue(e, "gain") ?? 0); break;
       default:
-        warnOnce(`playlist:effect:${e.type}`, `[myco] ${where}: playlist effect "${e.type}" runs on a submix (ADR 0331), and this one plays without one (no submix on this backend, no instance group, or the pool full); skipped. Low-pass, high-pass and gain apply per voice.`);
+        warnOnce(`playlist:effect:${e.type}`, `[myco] ${where}: playlist effect "${e.type}" runs on a submix (ADR 0345), and this one plays without one (no submix on this backend, no instance group, or the pool full); skipped. Low-pass, high-pass and gain apply per voice.`);
     }
   }
   cache.set(effects, out);
@@ -52,7 +52,7 @@ const NO_EFFECTS: readonly Effect[] = [];
 const chains = new WeakMap<readonly Effect[], readonly Effect[]>();
 
 /**
- * ADR 0331 levels: a level's chain below `parent` (the context above it): on a submix of its own when the host gives one
+ * ADR 0345 levels: a level's chain below `parent` (the context above it): on a submix of its own when the host gives one
  * (`submix`: the context's for the voices below, no `fx` to map), else mapped onto the voices (`fx`), the voices then
  * staying in the submix above when they play on its bus. `bus` is the level's output (undefined: inherited), `key` names
  * the level within its instance.

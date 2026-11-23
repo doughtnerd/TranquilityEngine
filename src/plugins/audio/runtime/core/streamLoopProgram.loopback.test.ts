@@ -1,4 +1,4 @@
-// ADR 0328 (loops on stream voices) end to end on the loopback host: a streamed sample's loop program (the playlist
+// ADR 0342 (loops on stream voices) end to end on the loopback host: a streamed sample's loop program (the playlist
 // runtime's `setLoops`, as a sample's sidecar loops reach a voice) plays through the real decoder worker and mixer wasm.
 // The worker wraps sample-accurately and crossfades each seam (`myco_decode_seam`, the clip voice's shapes), so a loop
 // whose region doesn't meet itself (a sine with a fractional number of cycles in it) wraps with no gap and no click;
@@ -66,7 +66,7 @@ function seamStep(out: readonly number[], seams: readonly number[], half = 600):
   return m;
 }
 
-describe("loops on stream voices (ADR 0328)", () => {
+describe("loops on stream voices (ADR 0342)", () => {
   it("a crossfaded loop wraps with no gap or click; without the crossfade the same seam clicks", async (ctx) => {
     // 12,037 frames: 110.34 cycles, so the region's end doesn't meet its start.
     const [a, b] = [12_000, 24_037];

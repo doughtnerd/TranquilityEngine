@@ -1,4 +1,4 @@
-// The Playlists panel's tree (the prototype's tree, PL:962–1033; ADR 0329): the project's `*.playlist.json` files by
+// The Playlists panel's tree (the prototype's tree, PL:962–1033; ADR 0343): the project's `*.playlist.json` files by
 // folder, each with its entries nested under it: embedded playlists (owned by the file, opened in place) and linked
 // ones (another file, drawn dashed with a link icon; not expanded, so a tree never loops). A file other playlists link
 // lists them ("linked in …"). Folders show when they hold playlists, or nothing at all (a new folder). Searching lists
@@ -47,8 +47,8 @@ export function entryNodes(file: string, body: PlaylistBody, prefix: readonly nu
   if (body.type === "clip") return [];
   const out: PlaylistNode[] = [];
   body.entries.forEach((e, i) => {
-    // Samples and lines (ADR 0340 §5) are a Clip's leaves, not rows.
-    if (e.kind === "sample" || e.kind === "line" || e.kind === "generator") return; // generators too (ADR 0346)
+    // Samples and lines (ADR 0354 §5) are a Clip's leaves, not rows.
+    if (e.kind === "sample" || e.kind === "line" || e.kind === "generator") return; // generators too (ADR 0360)
     const indices = [...prefix, i];
     if (e.kind === "embedded") {
       out.push({ kind: "entry", key: entryKey(file, indices), file, indices, name: entryName(e, i), link: null, children: entryNodes(file, e.embedded, indices), ...factsOf(e.embedded) });

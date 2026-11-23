@@ -1,4 +1,4 @@
-// ADR 0333: a spatial test scene over a base game scene, headless, as the Studio plays it: the base scene's walls (their
+// ADR 0347: a spatial test scene over a base game scene, headless, as the Studio plays it: the base scene's walls (their
 // colliders and occluders) load into the World underneath the test scene, run on the 3D physics plugin, and the engine's
 // own occlusion pass (the core backend's, on the recording host: no wasm) muffles a test emitter behind one. Measured
 // through the public readout: the player's Voices rows (the runtime's `Audio.debug()` voice rows) and `occlusionGain`.

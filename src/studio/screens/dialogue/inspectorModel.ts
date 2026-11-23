@@ -1,4 +1,4 @@
-// The Line inspector's model (ADR 0340 §9, §7, 0343 §6): per language, its status cell, its own subtitle text, the file
+// The Line inspector's model (ADR 0354 §9, §7, 0357 §6): per language, its status cell, its own subtitle text, the file
 // it plays (its own or by fallback) with its length and normalisation, lip-sync keys, and the subtitle strip timed
 // against that file. Pure.
 import type { LanguageDef } from "../../../engine/localisation/languages";

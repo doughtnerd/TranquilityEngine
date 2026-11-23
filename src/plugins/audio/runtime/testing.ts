@@ -46,9 +46,10 @@ import { mixer, Mixer, type ResolvedBus } from "../../../engine/audio/mixer";
 import type { Vec3Like } from "../../../engine/core/math";
 import { AudioHost as CoreAudioHost, CoreLink, presetFromSettings as presetOf, type AudioHost, type LinkPort, type WorldShare } from "./core/context";
 import type { HostClock } from "./core/hostClock";
-import { Kind, QUANTUM_FRAMES, readEnvelope, STATUS_BUFFER_BYTES, STATUS_FLAGS_READY, writeStatus, type StatusBlock } from "./wire.generated";
+import { CORE_ABI_VERSION, Kind, QUANTUM_FRAMES, readEnvelope, STATUS_BUFFER_BYTES, STATUS_FLAGS_READY, writeStatus, type StatusBlock } from "./wire.generated";
 import { DEFAULT_LIMITER_LOOKAHEAD_MS, defaultAudioSettings, type AudioSettings } from "../../../engine/audio/settings";
-import { CORE_ABI_MAJOR, CoreDriver, instantiateCore, type CoreInstance, type CorePreset } from "./worklet/coreDriver";
+import { CoreDriver, instantiateCore, type CoreInstance, type CorePreset } from "./worklet/coreDriver";
+import { loadCoreWasm } from "./core/loader";
 import { notifyEngineLifecycle } from "../../../engine/core/engineLifecycle";
 import { batchRecords, type PostedBatch } from "./core/batchRecords";
 import { batchRecorder, type BatchRecorder, type BatchWatch } from "./core/batchWatch";
@@ -62,8 +63,10 @@ import { makeStatusBlock } from "./core/statusFixtures";
 import { ListenerFrame } from "./core/spatial";
 import { runAudioFrame } from "./audioFrame";
 import type { World } from "../../../engine/core/World";
+import { DecoderWasm } from "./decoder/wasm";
+import type { SpatialPrepare } from "./core/hrir";
 
-/** ADR 0338: the plugin glue's control messages, which the loopback hands the shell as `processor.ts` does. */
+/** ADR 0352: the plugin glue's control messages, which the loopback hands the shell as `processor.ts` does. */
 const FX_CONTROLS: ReadonlySet<unknown> = new Set(["fxLoad", "fxUnload", "fxReset"]);
 
 /** The controls a test has over a fake clock. */
@@ -235,11 +238,11 @@ export interface FakeBackend extends AudioBackend, AudioClipCache, AudioClock, A
   /** The sink `setProfileSink` was given (null: none). */
   profileSink: ProfileSink | null;
 
-  // ADR 0338 §7: the fake records plugin effect registrations (set `effectPlugins` to undefined for a backend without them).
+  // ADR 0352 §7: the fake records plugin effect registrations (set `effectPlugins` to undefined for a backend without them).
   effectPlugins: FakeEffectPlugins | undefined;
 }
 
-/** ADR 0338 §7: the fake's plugin effect capability: it records each call and loads every module at once. */
+/** ADR 0352 §7: the fake's plugin effect capability: it records each call and loads every module at once. */
 export interface FakeEffectPlugins extends AudioEffectPlugins {
   /** Every module `register` was given, in order. */
   readonly registrations: EffectPluginModule[];
@@ -776,15 +779,36 @@ export const LOOPBACK_PRESET: CorePreset = { maxLogical: 256, maxMixed: 32, maxB
 export const LOOPBACK_RATE = 48_000;
 
 
+let decoderInProcess: Promise<DecoderWasm> | null = null;
+
+/**
+ * ADR 0331: the spatial assets' preparation in process, on the committed `myco_audio_decode.wasm` (Node only): what the
+ * decoder worker runs for `DecoderClient.prepareSpatial`, for loaders (`createHrirLoader`, `createMaglsLoader`) and rigs
+ * that have no worker.
+ */
+export function inProcessSpatialPrepare(): SpatialPrepare {
+  const load = (decoderInProcess ??= (async () => {
+    const nodeFs = "node:fs/promises";
+    const { readFile } = (await import(/* @vite-ignore */ nodeFs)) as { readFile(url: URL): Promise<Uint8Array> };
+    return DecoderWasm.load((await readFile(new URL("./wasm/myco_audio_decode.wasm", import.meta.url))) as Uint8Array<ArrayBuffer>);
+  })());
+  return async (kind, asset, rate) => {
+    const decoder = await load;
+    const bytes = new Uint8Array(asset);
+    return (kind === "hrir" ? decoder.prepareHrir(bytes, rate) : decoder.prepareMagls(bytes, rate)).buffer as ArrayBuffer;
+  };
+}
+
 /** Builds a loopback host on the committed wasm, with the given (or a new) fake clock and preset. */
 export async function createLoopbackHost(options: { clock?: FakeHostClock; preset?: CorePreset; keepStatuses?: boolean } = {}): Promise<LoopbackHost> {
   // A variable specifier: the engine's declaration build (tsconfig.engine.json) has no Node types, and this file only runs in Node tests.
   const nodeFs = "node:fs/promises";
   const { readFile } = (await import(/* @vite-ignore */ nodeFs)) as { readFile(url: URL): Promise<Uint8Array> };
-  const wasm = await readFile(new URL("./wasm/myco_audio.wasm", import.meta.url));
+  // Through the page's loader, as the host loads it (so what asks the loaded core, the debug memory row, finds it).
+  const readCore = (async (url: URL) => new Response((await readFile(url)) as Uint8Array<ArrayBuffer>)) as unknown as typeof fetch;
+  const { module } = await loadCoreWasm(readCore);
   const clock = options.clock ?? fakeHostClock();
   const preset = options.preset ?? LOOPBACK_PRESET;
-  const module = new WebAssembly.Module(wasm as Uint8Array<ArrayBuffer>);
 
   let rate = LOOPBACK_RATE;
   /** The open `watch`es: each gets every BATCH or REPLAY posted to the shell, decoded. */
@@ -873,7 +897,7 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
       for (const message of toWorklet.splice(0)) {
         if (message instanceof ArrayBuffer) driver.onMessage(message, frame, clock.dateNow());
         else if ((message as { type?: unknown }).type === "debugTone") driver.onControl(message as never);
-        // ADR 0338: plugin modules for the glue; a load compiles asynchronously, and what it posts reaches main when it has.
+        // ADR 0352: plugin modules for the glue; a load compiles asynchronously, and what it posts reaches main when it has.
         else if (FX_CONTROLS.has((message as { type?: unknown }).type)) void driver.onControl(message as never)?.then(flush);
         else if ((message as { type?: unknown }).type === "streamPort") connectStreams(current, (message as { port: LoopbackStreamPort }).port);
       }
@@ -1588,7 +1612,7 @@ function statusBuffer(fields: Partial<StatusBlock>): ArrayBuffer {
 }
 
 /** The first STATUS of a core that started: the ready flag and this ABI. */
-const readyStatus = (): ArrayBuffer => statusBuffer({ flags: STATUS_FLAGS_READY, abiVersion: CORE_ABI_MAJOR << 8 });
+const readyStatus = (): ArrayBuffer => statusBuffer({ flags: STATUS_FLAGS_READY, abiVersion: CORE_ABI_VERSION });
 
 /**
  * ADR 0234: the core backend as production assembles it (`assembleCore`) over a recording host: no wasm, no core, no

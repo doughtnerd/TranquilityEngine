@@ -1,5 +1,5 @@
 /**
- * Fade shapes (ADR 0336): the level of a fade in or out at phase `u` (0..1 through the fade), for every `FadeShape`, and
+ * Fade shapes (ADR 0350): the level of a fade in or out at phase `u` (0..1 through the fade), for every `FadeShape`, and
  * how a fade of one shape is played as stamped voice fades.
  *
  * - **Levels.** A fade in goes 0 → 1 as `shapeLevel(shape, u)`; a fade out goes 1 → 0 as `1 − shapeLevel(shape, u)`,

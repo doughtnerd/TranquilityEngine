@@ -1,11 +1,11 @@
-// ADR 0332: an entry's curves on voice, clip or sequence time become automation bindings on the core's time parameters
+// ADR 0346: an entry's curves on voice, clip or sequence time become automation bindings on the core's time parameters
 // (`curveParts`), like its parameter curves; nothing is left for main to evaluate per frame.
 import { describe, expect, it } from "vitest";
 import type { Curve } from "../../../../engine/core/curve";
 import { AutoTarget, TimeParam } from "../automation";
 import { anchorTimeCurves, coreTimeBindings, curveParts, staticPanBinding, toCoreCurve, type TimeCurve } from "./curves";
 
-describe("curveParts: time curves are bindings (ADR 0332)", () => {
+describe("curveParts: time curves are bindings (ADR 0346)", () => {
   it("binds gain, pitch and low-pass curves on each time input to its time parameter", () => {
     const ids = new Map<Curve, number>();
     const curveId = (c: Curve): number => { if (!ids.has(c)) ids.set(c, ids.size); return ids.get(c)!; };

@@ -27,11 +27,11 @@ export { zeroCounters } from "./debugTypes";
 export type Rolloff = "linear" | "inverse" | "exponential";
 
 /**
- * Why a sound isn't audible right now; null while it is (api-and-models §1). ADR 0337 §7: `notLoaded`, a refused play of a
+ * Why a sound isn't audible right now; null while it is (api-and-models §1). ADR 0351 §7: `notLoaded`, a refused play of a
  * packaged sound whose packages are all unloaded (strict packaging).
  *
- * ADR 0340 §3, §5: `missingLanguage`, a localised file no language of the chain has; `unknownLine`, a line key no line
- * table defines. ADR 0341 §5: refused says: `unknownEvent` (no dialogue event by that name), `busy` (the channel was busy
+ * ADR 0354 §3, §5: `missingLanguage`, a localised file no language of the chain has; `unknownLine`, a line key no line
+ * table defines. ADR 0355 §5: refused says: `unknownEvent` (no dialogue event by that name), `busy` (the channel was busy
  * and the say was dropped, or waited past its `maxWait`), `cooldown` and `chance` (the event's or line's), `silence` (an
  * explicit silence path), `noMatch` (no path matches) and `unavailable` (matches, but no line could play).
  */
@@ -225,15 +225,15 @@ export interface MusicBackend {
 }
 
 /**
- * ADR 0329: the sample markers a playlist handle reports as they pass (ADR 0328 marker types), and what `onMarker` and the
+ * ADR 0343: the sample markers a playlist handle reports as they pass (ADR 0342 marker types), and what `onMarker` and the
  * component hook `onAudioMarker` pass. Declared in the engine (`engine/audio/markerTypes.ts`) so `LifecycleHooks` can
  * name it; these are the same types.
  */
 export type { AudioMarkerEvent, AudioMarkerType } from "../../../engine/audio/markerTypes";
 
 /**
- * ADR 0329: a playing playlist (or sample), what `Audio.play` returns. ADR 0158 §5's members keep their meaning across all
- * of the instance's voices; ADR 0166 §1.2 adds `music`, `onMusic` and `trigger` (declared in `MusicEventHandle`); ADR 0329
+ * ADR 0343: a playing playlist (or sample), what `Audio.play` returns. ADR 0158 §5's members keep their meaning across all
+ * of the instance's voices; ADR 0166 §1.2 adds `music`, `onMusic` and `trigger` (declared in `MusicEventHandle`); ADR 0343
  * adds `onMarker`.
  */
 export interface AudioPlaylistHandle extends AudioHandle, MusicEventHandle {
@@ -258,7 +258,7 @@ export interface AudioPlaylistHandle extends AudioHandle, MusicEventHandle {
 
 /**
  * The handle's name before playlists (ADR 0158 §5).
- * @deprecated ADR 0329: use `AudioPlaylistHandle`; this alias stays for one release.
+ * @deprecated ADR 0343: use `AudioPlaylistHandle`; this alias stays for one release.
  */
 export type AudioEventHandle = AudioPlaylistHandle;
 
@@ -296,12 +296,12 @@ export interface PlayRequest {
   /** ADR 0158: the event instance this voice belongs to (1..1024; 0 or omitted: none). The core carries it in PLAY's `group`. */
   group?: number;
   /**
-   * ADR 0331 levels: the playlist level's submix the voice mixes into (`AudioSubmixes.openLevel`) instead of its
+   * ADR 0345 levels: the playlist level's submix the voice mixes into (`AudioSubmixes.openLevel`) instead of its
    * instance's (`group`'s). A backend without submixes ignores it.
    */
   submix?: SubmixLevel;
   /**
-   * Seconds into the source the voice starts at (ADR 0329 and 0334: audition from a point, seek). 0, negative,
+   * Seconds into the source the voice starts at (ADR 0343 and 0348: audition from a point, seek). 0, negative,
    * non-finite or omitted: the start. A looping voice wraps it into the clip; past the end of a non-looping clip it ends
    * at once. Clip voices start there sample-exactly; a stream voice seeks its stream before its first chunk.
    */
@@ -318,12 +318,12 @@ export interface PlayRequest {
   /** §1.2: the send against distance. Omitted: `DEFAULT_SEND_CURVE`. */
   reverbSendCurve?: SendCurve;
   /**
-   * ADR 0333: spatial voices only, degrees 0..360: the source is heard spread over an arc that wide around its direction
+   * ADR 0347: spatial voices only, degrees 0..360: the source is heard spread over an arc that wide around its direction
    * (0 a point, 360 all round). Omitted: 0. The Babylon fallback has no spread (a point source).
    */
   spread?: number;
   /**
-   * ADR 0333 (audio zone interiors): spatial voices only; the voice goes to its bus's ambisonic bed whatever its rank (as
+   * ADR 0347 (audio zone interiors): spatial voices only; the voice goes to its bus's ambisonic bed whatever its rank (as
    * a voice past `audio.bed.beyond` does), or pans as usual without a bed. Omitted: false.
    */
   bed?: boolean;
@@ -369,9 +369,9 @@ export interface VoiceSpatialOptions {
   reverbSendCurve?: SendCurve;
   /** Degrees, -180..180, positive to the right (ambisonic clips). */
   yaw?: number;
-  /** ADR 0333: degrees 0..360 (`PlayRequest.spread`). */
+  /** ADR 0347: degrees 0..360 (`PlayRequest.spread`). */
   spread?: number;
-  /** ADR 0333: heard in its bus's bed (`PlayRequest.bed`). */
+  /** ADR 0347: heard in its bus's bed (`PlayRequest.bed`). */
   bed?: boolean;
 }
 
@@ -618,7 +618,7 @@ export interface AudioOutputDevice {
 }
 
 /**
- * ADR 0337 A4, A7: the shipped codecs (`.mycopak` entries) the backend plays as the package holds them. The core has it:
+ * ADR 0351 A4, A7: the shipped codecs (`.mycopak` entries) the backend plays as the package holds them. The core has it:
  * IMA ADPCM held compressed in its arena and decoded per voice (clip format 6), and Ogg Opus in its decoder worker. The
  * Babylon fallback has none (absent): the runtime plays an ADPCM `compressed` sound decoded instead and warns once.
  */
@@ -673,30 +673,30 @@ export interface AudioBackend {
   /** ADR 0248: the output device. Absent (the pending backend, a fake): nothing is kept per device. */
   readonly device?: AudioOutputDevice;
   /**
-   * ADR 0331: instance submixes (the core's). Absent: instance effects map onto each voice (filters and gain) and the
+   * ADR 0345: instance submixes (the core's). Absent: instance effects map onto each voice (filters and gain) and the
    * other effect types are skipped with one warning.
    */
   readonly submixes?: AudioSubmixes;
   /**
-   * ADR 0337 A4, A7: the package codecs the backend plays as they are shipped. Absent: an ADPCM `compressed` sound plays
+   * ADR 0351 A4, A7: the package codecs the backend plays as they are shipped. Absent: an ADPCM `compressed` sound plays
    * decoded (the runtime warns once) and Opus isn't assumed.
    */
   readonly codecs?: AudioCodecs;
   /**
-   * ADR 0338 §7 (another capability, 0179): third-party effect modules the core calls inside its chains. The core has
+   * ADR 0352 §7 (another capability, 0179): third-party effect modules the core calls inside its chains. The core has
    * it; the Babylon fallback doesn't (plugin effects pass through there, one warning per type, as built-ins do); the
    * pending backend doesn't (the core's host registers when the core is ready); the fake records registrations.
    */
   readonly effectPlugins?: AudioEffectPlugins;
   /**
-   * ADR 0337 §7 (W12): packages held by the backend's decoder, whose sounds it commits to its clip memory at load. Absent
+   * ADR 0351 §7 (W12): packages held by the backend's decoder, whose sounds it commits to its clip memory at load. Absent
    * (the Babylon fallback): the runtime hands each packaged sound to `play` by an in-memory URL.
    */
   readonly packs?: AudioPacks;
 }
 
 /**
- * Internal (ADR 0338 §7, 0344): one plugin module to run: its bytes already validated and fuel-instrumented
+ * Internal (ADR 0352 §7, 0358): one plugin module to run: its bytes already validated and fuel-instrumented
  * (`effectPlugins/validate.ts`) and the effects it holds, as the manifest declared them (`parsePluginAudio`).
  */
 export interface EffectPluginModule {
@@ -709,13 +709,13 @@ export interface EffectPluginModule {
   readonly effects: readonly PluginEffectDecl[];
 }
 
-/** Internal (ADR 0338 §7): how a registration ended: each effect's core index, or why the module didn't load. */
+/** Internal (ADR 0352 §7): how a registration ended: each effect's core index, or why the module didn't load. */
 export type EffectPluginLoad =
   | { readonly ok: true; readonly effects: readonly { readonly type: string; readonly e: number }[] }
   | { readonly ok: false; readonly error: string };
 
 /**
- * Internal (ADR 0338 §7, 0344): the plugin effect capability. Registered effects run wherever a chain names their type
+ * Internal (ADR 0352 §7, 0358): the plugin effect capability. Registered effects run wherever a chain names their type
  * (bus, return, instance submix and its levels); an effect whose plugin isn't registered passes through.
  */
 export interface AudioEffectPlugins {
@@ -734,7 +734,7 @@ export interface AudioEffectPlugins {
 }
 
 /**
- * ADR 0337 §7 (W12): a backend's packages. The package registry (`media/packages.ts`) loads a package's bytes into the
+ * ADR 0351 §7 (W12): a backend's packages. The package registry (`media/packages.ts`) loads a package's bytes into the
  * decoder, holds its arena-resident sounds there while it is loaded, and releases both when it unloads. Which loaded
  * package holds a path the registry answers itself (`core/packMedia.ts`).
  */
@@ -768,7 +768,7 @@ export interface PackClipHold {
 
 
 /**
- * ADR 0331: the instance submix pool. A submix runs an instance's insert chain on the mix of its voices on one bus and
+ * ADR 0345: the instance submix pool. A submix runs an instance's insert chain on the mix of its voices on one bus and
  * feeds that bus.
  */
 export interface AudioSubmixes {
@@ -781,7 +781,7 @@ export interface AudioSubmixes {
   /** The level instance `group`'s own submix is (`open`), so a nested level can feed it; null when it has none. */
   levelOf(group: number): SubmixLevel | null;
   /**
-   * ADR 0331 levels: a submix of instance `group`'s own for one of its levels (a nested playlist, a sequence track or a
+   * ADR 0345 levels: a submix of instance `group`'s own for one of its levels (a nested playlist, a sequence track or a
    * clip; `key` names it within the instance, so a level played again reuses its submix and its state), feeding
    * `parent` (the level above it on the same bus; null: `bus`) and running `effects`. Voices name it in
    * `PlayRequest.submix`. Null when the pool is full (warned once): the level plays without its chain. Freed with the
@@ -794,7 +794,7 @@ export interface AudioSubmixes {
    */
   close(group: number): void;
   /**
-   * ADR 0331 instance automation (ABI 4.8): replaces instance `group`'s submix parameter automation (empty: none).
+   * ADR 0345 instance automation (ABI 4.8): replaces instance `group`'s submix parameter automation (empty: none).
    * Nothing when the instance holds no submix. Absent on a backend without the core's submix automation.
    */
   automate?(group: number, lanes: readonly SubmixLane[]): void;
@@ -814,7 +814,7 @@ export interface SubmixLane {
   curve: number;
 }
 
-/** ADR 0331 levels: a playlist level's submix (`AudioSubmixes.openLevel`), as a voice names it (`PlayRequest.submix`). */
+/** ADR 0345 levels: a playlist level's submix (`AudioSubmixes.openLevel`), as a voice names it (`PlayRequest.submix`). */
 export interface SubmixLevel {
   /** The backend's slot. */
   readonly slot: number;
@@ -852,7 +852,7 @@ export function noteCoreUnavailable(reason: string): void {
   settlePending();
 }
 
-/** @internal Why the core couldn't run here (the probe's refusal, or the load or start failure), or null when nothing said so yet. `Audio.debug().coreUnavailable` (ADR 0327). */
+/** @internal Why the core couldn't run here (the probe's refusal, or the load or start failure), or null when nothing said so yet. `Audio.debug().coreUnavailable` (ADR 0341). */
 export function coreUnavailable(): string | null {
   return coreUnavailableReason;
 }
@@ -935,7 +935,7 @@ function opTargetOf(b: AudioBackend): MixOpTarget | null {
     },
     sendOp(op, cls) {
       const r = inner.sendOp(op, cls);
-      for (const fn of opSentHooks) fn(op, cls); // ADR 0334: the class too (the capture writes MIXOP records)
+      for (const fn of opSentHooks) fn(op, cls); // ADR 0348: the class too (the capture writes MIXOP records)
       return r;
     },
     notSent: (r) => inner.notSent?.(r),

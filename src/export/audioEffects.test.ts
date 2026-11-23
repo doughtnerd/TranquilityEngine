@@ -1,4 +1,4 @@
-// ADR 0338 §8 (B5): plugin audio effects in a game build, from the tremolo sample (`samples/fx-tremolo`). The plan picks
+// ADR 0352 §8 (B5): plugin audio effects in a game build, from the tremolo sample (`samples/fx-tremolo`). The plan picks
 // the enabled plugin's module, the build writer copies it and writes `game.json`'s `audioEffects` (with the module's
 // hash), and the player's registration (`registerBuildAudioEffects`, what `player/main.ts` runs before the Engine) hands
 // it to the audio backend once one is installed; a module whose bytes changed after the build is refused. A disabled

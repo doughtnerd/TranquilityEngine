@@ -1,4 +1,4 @@
-// The Studio's shared audio parts (ADR 0335), through their models: faders and meters, parameter rows and the game
+// The Studio's shared audio parts (ADR 0349), through their models: faders and meters, parameter rows and the game
 // parameters panel, effect chain edits, send and ducking rows, the sound picker and type badges, time axes and lanes,
 // the gain breakdown, and the "Why it played" view.
 import { describe, expect, it } from "vitest";

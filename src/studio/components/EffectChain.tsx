@@ -1,4 +1,4 @@
-// An effect chain (ADR 0335 `EffectChain`, ADR 0331): the cards of one owner's effects (a sample, a clip, a playlist
+// An effect chain (ADR 0349 `EffectChain`, ADR 0345): the cards of one owner's effects (a sample, a clip, a playlist
 // or track, a bus or return), top to bottom in the order they run, and "+ Add effect" listing the catalogue's types for
 // the level, alphabetically. A new effect opens expanded. Every change is an edit from `effectChainModel.ts` handed to
 // `onEdit(result, label, drag)`; the owner applies it as one undo step (`applyEdit`; a drag coalesces until `drag` is
@@ -33,7 +33,7 @@ export interface EffectChainProps {
   /** Automate ◆ on a card. */
   onAutomate?(effectId: string): void;
   /**
-   * ADR 0338 §9: plugin effect health rows (`Audio.debug().plugins`). Absent: the chain reads the runtime's own while it
+   * ADR 0352 §9: plugin effect health rows (`Audio.debug().plugins`). Absent: the chain reads the runtime's own while it
    * holds a plugin effect (`EffectChainHealth.ts`).
    */
   readonly pluginHealth?: readonly AudioPluginDebug[];
@@ -41,7 +41,7 @@ export interface EffectChainProps {
   onResetPlugin?(type: string): void;
 }
 
-/** The Add effect menu's entries: the built-ins, then each plugin's effects under its title (ADR 0338 §9). */
+/** The Add effect menu's entries: the built-ins, then each plugin's effects under its title (ADR 0352 §9). */
 function menuEntries(level: EffectLevel, add: (item: EffectMenuItem) => void): MenuEntry[] {
   const groups = effectMenuGroups(level);
   const entries: MenuEntry[] = groups.builtins.map((item) => ({ id: item.type, label: item.label, run: () => add(item) }));

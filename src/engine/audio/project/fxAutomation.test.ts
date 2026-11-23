@@ -1,4 +1,4 @@
-// ADR 0330 / 0331 (ABI 4.8): an effect-parameter automation as the audio core evaluates it: the catalogue parameter's
+// ADR 0344 / 0345 (ABI 4.8): an effect-parameter automation as the audio core evaluates it: the catalogue parameter's
 // index and scale, and a log-scale parameter's curve as its log2 (and back), Bézier handles kept in shape.
 import { describe, expect, it } from "vitest";
 import { evalCurve, type Curve } from "../../core/curve";

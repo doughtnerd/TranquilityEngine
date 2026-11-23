@@ -1,4 +1,4 @@
-// ADR 0333's core half, end to end on the loopback host: spatial test scenes (`playAudioTestScene`, the engine's own
+// ADR 0347's core half, end to end on the loopback host: spatial test scenes (`playAudioTestScene`, the engine's own
 // components) in a headless World, the real core wasm and core backend, the shipped HRIR table and MagLS filters, and the
 // decoder wasm's generated reverbs for the zones, driven by `engine.step` (6 quanta a frame) as the Studio drives it.
 //
@@ -8,7 +8,7 @@
 //   bed even with an HRTF slot free; a near one keeps its HRTF slot (`Audio.debug()` voice rows).
 // - **Zone interiors.** Inside an audio zone heard `inside` its sound plays in its bus's bed, spread all round (debug
 //   rows; the output decorrelated).
-// - **Reverb presets.** ADR 0333's presets ring for their own declared times: the T20 of the zone's response to a click
+// - **Reverb presets.** ADR 0347's presets ring for their own declared times: the T20 of the zone's response to a click
 //   (mid band, Schroeder integration) is within 15% of the preset's reverberation time.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -23,7 +23,7 @@ import { createZoneIrService } from "../core/zoneIr";
 import { createDecoderHandler } from "../decoder/handler";
 import type { DecoderReply, IrFailedMessage, IrPreparedMessage, StreamPortLike } from "../decoder/protocol";
 import { pla, sample } from "../playlists/testKit";
-import { closeLoopbackAudio, endAudioSession, loopbackAudio, type LoopbackAudio, type LoopbackStreamPort } from "../testing";
+import { closeLoopbackAudio, endAudioSession, inProcessSpatialPrepare, loopbackAudio, type LoopbackAudio, type LoopbackStreamPort } from "../testing";
 import hash from "../wasm/hash.json";
 import { playAudioTestScene, type AudioTestScenePlayer } from "./player";
 
@@ -113,8 +113,8 @@ async function rig(audio: Record<string, unknown>, assets: Record<string, unknow
     decode: (path) => ({ channelData: [clip(path)] }),
     backend: (clips) => ({
       zoneIr,
-      hrir: createHrirLoader({ clips, sampleRate: RATE, warn: () => {}, fetchBytes: async () => HRIR.slice(0) }),
-      magls: createMaglsLoader({ clips, sampleRate: RATE, fetchBytes: async () => MAGLS.slice(0) }),
+      hrir: createHrirLoader({ clips, sampleRate: RATE, warn: () => {}, fetchBytes: async () => HRIR.slice(0), prepare: inProcessSpatialPrepare() }),
+      magls: createMaglsLoader({ clips, sampleRate: RATE, fetchBytes: async () => MAGLS.slice(0), prepare: inProcessSpatialPrepare() }),
     }),
   });
   if (!loop) return null;
@@ -156,7 +156,7 @@ function correlation(a: readonly number[], b: readonly number[], from: number): 
 /** Audio.debug()'s voice row of the voice playing `clip`. */
 const rowOf = (clipName: string) => Audio.debug().voices.find((v) => v.clip.endsWith(clipName));
 
-describe("ADR 0333 in the audio core, on the loopback (spread, bedBeyond, zone interiors, reverb presets)", () => {
+describe("ADR 0347 in the audio core, on the loopback (spread, bedBeyond, zone interiors, reverb presets)", () => {
   it("a playlist's spread widens its voice: interaural correlation falls as the spread grows", async (ctx) => {
     const measured: [number, number][] = [];
     for (const spread of [0, 90, 180, 360]) {

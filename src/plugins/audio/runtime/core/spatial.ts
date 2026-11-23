@@ -466,7 +466,7 @@ export const isSpatialPassHost = (b: unknown): b is SpatialPassHost =>
 export const isStagedFrameHost = (b: unknown): b is StagedFrameHost =>
   isSpatialPassHost(b) && typeof (b as Partial<StagedFrameHost>).frameAttenuate === "function";
 
-// --- ADR 0333: attenuation curves and upright boxes (Myco Engine's own code) ----------------------------------------
+// --- ADR 0347: attenuation curves and upright boxes (Myco Engine's own code) ----------------------------------------
 //
 // A playlist's attenuation (`engine/audio/attenuation`) is four curves over distance in metres: volume (dB), low-pass
 // (Hz), reverb send (dB) and spread (degrees). The playlist runtime evaluates them here per frame for each spatial plan
@@ -521,7 +521,7 @@ export function evalAttenuation(curves: AttenuationCurveSet, distance: number, o
 export const curveDbToGain = (db: number): number => (db <= -60 ? 0 : Math.pow(10, db / 20));
 
 /**
- * ADR 0333: an edge audio zone heard from outside spreads its sound by distance: `min(180°, 40° + 600°/max(3 m, d))`
+ * ADR 0347: an edge audio zone heard from outside spreads its sound by distance: `min(180°, 40° + 600°/max(3 m, d))`
  * (wide up close, narrowing to 40° far away).
  */
 export function audioZoneEdgeSpread(distance: number): number {
@@ -530,7 +530,7 @@ export function audioZoneEdgeSpread(distance: number): number {
 }
 
 /**
- * An upright box (ADR 0333 audio zones, test-scene obstacles): a rectangle turned by `yaw` about the vertical, with a
+ * An upright box (ADR 0347 audio zones, test-scene obstacles): a rectangle turned by `yaw` about the vertical, with a
  * vertical extent. World space (x right, y up, z forward); `yaw` turns the box's +z toward +x (clockwise seen from
  * above, as every turn, ADR 0164).
  */

@@ -57,31 +57,31 @@ export interface ProfileSink {
   gap(reason: ProfileGapReason): void;
   /** §5.3 MARKER: `text` cut to `CAPTURE_MARK_BYTES` by the recorder. */
   marker(text: string): void;
-  /** ADR 0334: one playlist decision of instance `pick.instance` (the "Why it played" chain); optional, the recorder's. */
+  /** ADR 0348: one playlist decision of instance `pick.instance` (the "Why it played" chain); optional, the recorder's. */
   pick?(pick: ProfilePick): void;
-  /** ADR 0334: metered bus `bus` (null: the output) moved against its loudness target to `state`; optional, the recorder's. */
+  /** ADR 0348: metered bus `bus` (null: the output) moved against its loudness target to `state`; optional, the recorder's. */
   loudnessWarning?(bus: string | null, state: ProfileLoudnessState): void;
   /**
-   * ADR 0337 §9: package `name` (`bytes` its download size) started loading, loaded, failed or was unloaded; optional, the
+   * ADR 0351 §9: package `name` (`bytes` its download size) started loading, loaded, failed or was unloaded; optional, the
    * recorder's. `memoryBytes` (loaded and unload): the memory it holds resident (clip arena and decoder bytes), for the
-   * Studio Profiler's memory track (ADR 0337 §6).
+   * Studio Profiler's memory track (ADR 0351 §6).
    */
   audioPackage?(name: string, event: ProfilePackageEvent, bytes: number, memoryBytes?: number): void;
-  /** ADR 0338 §6: plugin effect `type`'s instance `instance` faulted for `reason` (its block passed dry); optional, the recorder's. */
+  /** ADR 0352 §6: plugin effect `type`'s instance `instance` faulted for `reason` (its block passed dry); optional, the recorder's. */
   pluginFault?(type: string, reason: ProfilePluginFault, instance: number): void;
 }
 
-/** ADR 0338 §6: why a plugin effect faulted (the glue's reasons). */
+/** ADR 0352 §6: why a plugin effect faulted (the glue's reasons). */
 export type ProfilePluginFault = "trap" | "budget" | "grow" | "nonFinite" | "range";
 
-/** ADR 0337 §9: what happened to a package (`PKG` capture events). */
+/** ADR 0351 §9: what happened to a package (`PKG` capture events). */
 export type ProfilePackageEvent = "loadStart" | "loaded" | "failed" | "unload";
 
-/** ADR 0334: a loudness target state a warning names (`high` and `low` warn, `ok` clears). */
+/** ADR 0348: a loudness target state a warning names (`high` and `low` warn, `ok` clears). */
 export type ProfileLoudnessState = "high" | "low" | "ok";
 
 /**
- * ADR 0334: one decision of a playlist instance: at nesting `depth`, the playlist at `playlist` (a path) of `type` chose
+ * ADR 0348: one decision of a playlist instance: at nesting `depth`, the playlist at `playlist` (a path) of `type` chose
  * entry `choice` (-1 none) and why: a Switch's `label`, a Blend's two heaviest entries with their weights, a Queue's pick
  * (the choice itself), a Sequence's clip (the choice).
  */

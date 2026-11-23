@@ -1,5 +1,5 @@
 /**
- * Checks on messages (ADR 0342 §2), used by the editor, the export and the import preview:
+ * Checks on messages (ADR 0356 §2), used by the editor, the export and the import preview:
  *
  * - the message parses (its errors);
  * - a translation uses only argument names its reference message uses, each of a compatible kind: a choice can't

@@ -1,4 +1,4 @@
-// A segmented control's keys (ADR 0335): a radio group drawn as joined buttons ("By ear | By eye"). Left and Up
+// A segmented control's keys (ADR 0349): a radio group drawn as joined buttons ("By ear | By eye"). Left and Up
 // pick the previous enabled option, Right and Down the next (wrapping), Home and End the first and last.
 
 export interface SegmentOption<T extends string = string> {

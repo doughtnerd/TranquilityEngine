@@ -1,5 +1,5 @@
 /**
- * The number styles of ICU messages (ADR 0342 §2) as `Intl.NumberFormat` options: the styles `integer` and `percent`,
+ * The number styles of ICU messages (ADR 0356 §2) as `Intl.NumberFormat` options: the styles `integer` and `percent`,
  * and skeletons (`::…`) with the tokens `integer`, `percent`, `compact-short`, `compact-long`, `currency/XXX`,
  * `unit/xxx`, fraction digits (`.00`, `.0#`, `.##`), `group-off` and `sign-always`. Unknown tokens are returned for the
  * parse to lint, and ignored.

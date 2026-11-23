@@ -1,4 +1,4 @@
-// ADR 0337 §7: package definitions in audio.json, and what a package holds with its dependencies.
+// ADR 0351 §7: package definitions in audio.json, and what a package holds with its dependencies.
 import { describe, expect, it } from "vitest";
 import { audioProjectToJson, parseAudioProject } from "../project/format";
 import { audioDependencies, packageContents, packagesToJson, parsePackages, parsePackagingOptions, shipsOn, whyNotPackageName, type PackageDef } from "./definitions";

@@ -14,7 +14,7 @@
 //!    `src/engine/core/curve.ts` (in f32): flat before the first key and after the last, NaN reads
 //!    the first key, `step` holds until the next key, keys with the same x jump, and the shapes
 //!    smooth `u²(3−2u)`, easeIn `u²`, easeOut `1−(1−u)²`. An empty or undefined curve is 0.
-//!    A Bézier segment (interp 5, ADR 0332) is the cubic through the key's out handle and the next
+//!    A Bézier segment (interp 5, ADR 0346) is the cubic through the key's out handle and the next
 //!    key's in handle (a flat handle a third of the segment long when the next key isn't Bézier),
 //!    control x clamped into the segment; its control points are worked out once, at CURVES, and
 //!    the parameter at `x` is found by [`BEZIER_STEPS`] halvings.
@@ -30,7 +30,7 @@
 //!    voice, bit for bit as before. The first quantum after an AUTOMATE starts at the evaluated
 //!    values with no ramp. A local binding of a voice whose PLAY `group` is 0 or out of range reads
 //!    0. Voices with no bindings pay nothing here.
-//!    ABI 4.4 (ADR 0331 voice level, 0329 entry curves) adds two voice targets: **highpass** (3)
+//!    ABI 4.4 (ADR 0345 voice level, 0343 entry curves) adds two voice targets: **highpass** (3)
 //!    gives `hpAuto`, the highest of its curves (0 when none), passed to the voice's high-pass as a
 //!    floor (`audio_dsp::fxfilter`: it runs at `max(hpHz, hpAuto)`); **pan** (4) gives `panAuto`,
 //!    the sum of its curves clamped to −1..1, ramped across the quantum like `gainMul` and applied
@@ -38,7 +38,7 @@
 //!    identity; balance on a stereo one). Buses ignore both.
 //! 4. **Bus bindings** (BUS_AUTOMATE, global parameters only, up to [`BUS_BINDINGS`] per bus):
 //!    `gainMul` on top of the bus's main-written gain lanes (`lanes.rs`), ramped the same way, and
-//!    the snapshot low-pass at `min(snapshot lane lpHz, lpAuto)`. ABI 4.8 (ADR 0330 automation)
+//!    the snapshot low-pass at `min(snapshot lane lpHz, lpAuto)`. ABI 4.8 (ADR 0344 automation)
 //!    adds two kinds, their arguments in the target's upper bits (the wire's `AUTO_TARGET_*`):
 //!    **fx** (5): a catalogue parameter of an effect in the bus's chain takes the curve's value
 //!    (2^value with `AUTO_TARGET_LOG`, so frequencies interpolate in log scale), handed to the
@@ -49,14 +49,14 @@
 //!    `submix::render` from the submix's group).
 //! 5. **Loop regions** (SET_LOOP, clip voices): kept beside the bindings ([`VoiceAuto`]); the
 //!    render loop reads them. See [`set_loop`].
-//! 7. **Loop programs** (LOOPS, ADR 0328, ABI 4.3; clip voices): up to `VOICE_LOOPS_MAX` loops with
+//! 7. **Loop programs** (LOOPS, ADR 0342, ABI 4.3; clip voices): up to `VOICE_LOOPS_MAX` loops with
 //!    directions, counts, crossfades, hold points, activations, exits and re-entry, kept in a pool of
 //!    [`PROGRAMS`] entries linked from the voice's entry ([`VoiceAuto::prog`], `loop_on`
 //!    [`LOOP_PROGRAM`]; per voice slot they would cost ≈ 1.2 MB of the Memory's 16 MiB fixed-region
 //!    headroom on the largest preset). With the pool full, a LOOPS program falls back to its first
 //!    region as a SET_LOOP loop. `voice_loops.rs` runs them in the render loop. Here, once a quantum, every program's activations are worked out
 //!    (`Program::want`: always, held until the key-off, or a parameter against its threshold).
-//! 6. **Time parameters** (ADR 0332, ABI 4.2): a voice binding whose `param` has bit 14 set (bit 15
+//! 6. **Time parameters** (ADR 0346, ABI 4.2): a voice binding whose `param` has bit 14 set (bit 15
 //!    clear) reads a time in seconds instead of a parameter slot, at the quantum's first frame:
 //!    `voiceTime` (`TIME_VOICE`: the quantum's frame less the voice's start frame, 0 before it
 //!    starts; paused time counts, as main's clock does), `clipTime` (`TIME_CLIP`: the voice's
@@ -66,7 +66,7 @@
 //!    `value + rate × (frame − anchor) / sampleRate`, so a running clock costs nothing until a
 //!    binding reads it. A voice's start frame is taken while it is scheduled (its PLAY's stamp, or
 //!    the first quantum after an asap PLAY) by [`begin_quantum`].
-//! 8. **Generator parameters** (ADR 0346, ABI 5.1): a voice binding of target kind 5 (`AUTO_TARGET_GEN`, the
+//! 8. **Generator parameters** (ADR 0360, ABI 5.1): a voice binding of target kind 5 (`AUTO_TARGET_GEN`, the
 //!    parameter's index in bits 8-15, `AUTO_TARGET_LOG` for 2^value) hands its curve's value to the voice's generator
 //!    (`generator::automate`) once a quantum in [`begin_quantum`]; the parameter glides to it over the quantum (at once
 //!    for a binding just made or a voice not sounding yet). Buses read kind 5 as an effect parameter.
@@ -100,7 +100,7 @@ pub const LOCAL_PARAMS: usize = 16;
 pub const PARAMS: usize = GLOBAL_PARAMS + GROUPS * LOCAL_PARAMS;
 /// Curve ids 0..CURVES.
 pub const CURVES: usize = 1_024;
-/// Keys kept per curve (extra keys are ignored; ADR 0332 raised it from 32).
+/// Keys kept per curve (extra keys are ignored; ADR 0346 raised it from 32).
 pub const CURVE_KEYS: usize = 64;
 /// The Bézier interp code (CURVES `interp`).
 pub const INTERP_BEZIER: u8 = 5;
@@ -114,7 +114,7 @@ pub const BUS_BINDINGS: usize = wire::BUS_AUTOMATE_MAX_BINDINGS as usize;
 pub const SEND_AUTOS: usize = wire::MAX_BUS_SENDS as usize;
 /// Group clocks: the global one (group 0) and one per instance group.
 pub const CLOCKS: usize = GROUPS + 1;
-/// Loop programs in use at once (ADR 0328): voices playing a sample's own loops; more fall back to
+/// Loop programs in use at once (ADR 0342): voices playing a sample's own loops; more fall back to
 /// a plain region.
 pub const PROGRAMS: usize = 256;
 
@@ -129,7 +129,7 @@ pub struct ProgramEntry {
 
 /// `VoiceAuto::loop_on`: a SET_LOOP region loops.
 pub const LOOP_REGION: u8 = 1;
-/// `VoiceAuto::loop_on`: a LOOPS program runs (ADR 0328).
+/// `VoiceAuto::loop_on`: a LOOPS program runs (ADR 0342).
 pub const LOOP_PROGRAM: u8 = 2;
 /// A clock or start frame not known yet (an asap TIME, a voice not seen scheduled).
 pub const UNANCHORED: u64 = u64::MAX;
@@ -147,7 +147,7 @@ pub mod target {
     pub const PAN: u32 = 4;
     /// ABI 4.8: an effect parameter (buses and submixes): slot, parameter and log flag above.
     pub const FX: u32 = audio_wire::generated::AUTO_TARGET_FX;
-    /// ABI 5.1 (ADR 0346): a generator voice's parameter (voices; buses read kind 5 as `FX`): its index in bits 8-15,
+    /// ABI 5.1 (ADR 0360): a generator voice's parameter (voices; buses read kind 5 as `FX`): its index in bits 8-15,
     /// the log flag above.
     pub const GEN: u32 = audio_wire::generated::AUTO_TARGET_GEN;
     /// ABI 4.8: a send's dB (buses): the receiving slot above.
@@ -225,7 +225,7 @@ pub struct Curve {
     pub c2y: [f32; CURVE_KEYS],
 }
 
-/// A group's clock (`sequenceTime`, ADR 0332): `value` seconds at context frame `anchor`, moving at
+/// A group's clock (`sequenceTime`, ADR 0346): `value` seconds at context frame `anchor`, moving at
 /// `rate` seconds per second. All-zero is a parked clock at 0. `anchor` [`UNANCHORED`]: an asap
 /// TIME, anchored at the next quantum's first frame.
 #[repr(C)]
@@ -278,10 +278,10 @@ pub struct VoiceAuto {
     /// [`LOOP_REGION`] while a SET_LOOP region loops, [`LOOP_PROGRAM`] while a LOOPS program runs
     /// (clip voices); 0 none.
     pub loop_on: u8,
-    /// Non-zero when a binding reads a time parameter (ADR 0332).
+    /// Non-zero when a binding reads a time parameter (ADR 0346).
     pub time: u8,
     pub _pad: u8,
-    /// ADR 0328: its loop program's pool entry ([`ProgramEntry`]) plus 1; 0 none.
+    /// ADR 0342: its loop program's pool entry ([`ProgramEntry`]) plus 1; 0 none.
     pub prog: u16,
     /// ABI 4.9 (ROUTE): the submix slot the voice mixes into, plus 1 (its playlist level's); 0 its
     /// group's route. PLAY clears it.
@@ -565,7 +565,7 @@ fn param_index(group: u16, slot: u16) -> Option<usize> {
 }
 
 /// A binding's parameter value for a voice in `group` (0 for anything out of range); `times` holds
-/// its `voiceTime`, `clipTime` and `sequenceTime` (ADR 0332; zeros for a bus or a voice without
+/// its `voiceTime`, `clipTime` and `sequenceTime` (ADR 0346; zeros for a bus or a voice without
 /// time bindings).
 #[inline]
 fn binding_value(params: &[Param], param: u16, group: u16, times: &[f32; 3]) -> f32 {
@@ -576,7 +576,7 @@ fn binding_value(params: &[Param], param: u16, group: u16, times: &[f32; 3]) -> 
     index.map_or(0.0, |i| params[i].value)
 }
 
-/// TIME (ADR 0332): re-anchors `group`'s clock `which` at context frame `frame` (`None`: asap, at
+/// TIME (ADR 0346): re-anchors `group`'s clock `which` at context frame `frame` (`None`: asap, at
 /// the next quantum's first frame). Only `TIME_SEQUENCE` is a clock; a non-finite value or rate,
 /// another `which` or a group out of range is ignored.
 pub fn time(core: &mut Core, group: u16, which: u16, value: f32, rate: f32, frame: Option<u64>) {
@@ -763,7 +763,7 @@ impl Curve {
     /// A curve from keys `(x, y, interp, [inDx, inDy, outDx, outDy])` sorted by x, as CURVES
     /// builds one (its Bézier control points worked out the same way); keys past
     /// [`CURVE_KEYS`] are ignored. For callers outside the mixer, such as the offline sample
-    /// render (ADR 0328), so they evaluate curves exactly as the core does.
+    /// render (ADR 0342), so they evaluate curves exactly as the core does.
     pub fn from_keys(keys: &[(f32, f32, u8, [f32; 4])]) -> Curve {
         // SAFETY: integers and floats only; all-zero is an empty curve.
         let mut c: Curve = unsafe { core::mem::zeroed() };
@@ -974,7 +974,7 @@ pub fn loops_is_well_formed(msg: &[u8], off: usize, len: usize) -> bool {
     n.checked_mul(wire::LoopsLoops::FIXED_END).is_some_and(|bytes| wire::Loops::FIXED_END + bytes <= len)
 }
 
-/// LOOPS (ADR 0328) on slot `index` (voice `voice_id`, its playhead at `pos`): replaces its loop
+/// LOOPS (ADR 0342) on slot `index` (voice `voice_id`, its playhead at `pos`): replaces its loop
 /// program with the (well-formed) record's loops, at most `VOICE_LOOPS_MAX`; none clears it.
 pub fn loops(core: &mut Core, index: usize, voice_id: u32, msg: &[u8], off: usize, pos: f64) {
     let Some(v) = view(&mut core.regions_mut().automation[..]) else { return };
@@ -1196,7 +1196,7 @@ fn evaluate(params: &[Param], curves: &[Curve], bindings: &[Binding], offsets: &
 pub fn begin_quantum(core: &mut Core, frame: u64) {
     let regions: &mut Regions = core.regions_mut();
     let voices = crate::voices::slots_of(&regions.voices[..]);
-    // ADR 0346: generator-parameter bindings hand their values to the generator region.
+    // ADR 0360: generator-parameter bindings hand their values to the generator region.
     let gen_region: &mut [u8] = &mut regions.gen[..];
     let Some(mut v) = view(&mut regions.automation[..]) else { return };
     if v.header.seeking_len == 0 && v.header.active_len == 0 && v.header.buses_bound == 0 && v.header.clocks_asap == 0 {
@@ -1246,7 +1246,7 @@ pub fn begin_quantum(core: &mut Core, frame: u64) {
             }
             let Evaluated { g, p, lp, hp, pan } = evaluate(v.params, v.curves, &e.bindings[..e.count as usize], &e.offsets, e.group, &times);
             if e.targets & has::GEN != 0 {
-                // ADR 0346 (ABI 5.1): each generator binding's value replaces its parameter, glided over the
+                // ADR 0360 (ABI 5.1): each generator binding's value replaces its parameter, glided over the
                 // quantum (at once on a binding just made or a voice not sounding yet).
                 let jump = e.fresh != 0 || slot.is_some_and(|s| s.state == crate::voices::state::SCHEDULED || s.mix.value == 0.0);
                 for (i, b) in e.bindings[..e.count as usize].iter().enumerate() {
@@ -1390,7 +1390,7 @@ pub(crate) fn submix_bindings(e: &SubmixEval<'_>, bindings: &[Binding], group: u
     }
 }
 
-/// A voice's `voiceTime`, `clipTime` and `sequenceTime` at the quantum at `frame` (ADR 0332). While
+/// A voice's `voiceTime`, `clipTime` and `sequenceTime` at the quantum at `frame` (ADR 0346). While
 /// the voice is scheduled its start frame is taken from its slot (its PLAY's stamp, or this quantum
 /// for an asap PLAY); a voice first seen started counts from this quantum.
 fn voice_times(e: &mut VoiceAuto, s: &crate::voices::VoiceSlot, clocks: &[GroupClock], frame: u64, sample_rate: f32) -> [f32; 3] {
@@ -1414,7 +1414,7 @@ pub(crate) fn voice_entries(region: &mut [u8]) -> Option<&mut [VoiceAuto]> {
     (v.header.active_len != 0).then_some(v.voices)
 }
 
-/// Every voice slot's entry, whatever is bound (ADR 0331: the render loop reads a voice's PLAY
+/// Every voice slot's entry, whatever is bound (ADR 0345: the render loop reads a voice's PLAY
 /// `group` for its submix route).
 pub(crate) fn all_entries(region: &mut [u8]) -> Option<&mut [VoiceAuto]> {
     view(region).map(|v| v.voices)
@@ -1512,7 +1512,7 @@ mod tests {
         }
     }
 
-    // The Bézier cases of `curve.test.ts` (ADR 0332).
+    // The Bézier cases of `curve.test.ts` (ADR 0346).
 
     #[test]
     fn a_bezier_with_handles_on_the_line_is_linear() {
@@ -1566,7 +1566,7 @@ mod tests {
         let p = InitParams { sample_rate: 48_000.0, max_logical: 4_096, max_mixed: 128, max_buses: 32, arena_initial_bytes: 16 << 20, ..InitParams::default() };
         let n = region_bytes(&p);
         eprintln!("automation region: {n} B (VoiceAuto {} B, Curve {} B, BusAuto {} B)", core::mem::size_of::<VoiceAuto>(), core::mem::size_of::<Curve>(), core::mem::size_of::<BusAuto>());
-        // ≈ 2.4 MB since ADR 0332: 64 keys with Bézier control points make the curve table ≈ 1.6 MB;
+        // ≈ 2.4 MB since ADR 0346: 64 keys with Bézier control points make the curve table ≈ 1.6 MB;
         assert!(n < 3 << 20, "{n}");
     }
 }

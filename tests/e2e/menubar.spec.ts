@@ -1,17 +1,8 @@
-import { expect, openTestProject, type Page, test } from "./fixtures";
+import { expect, openEditor, test, type Hooks } from "./fixtures";
 import { closeMenus, menu, menubar, menuTitle, openMenu } from "./menus";
 
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
-
-type Hooks = { engine?: { world: { time: { frameCount: number } } }; openTestProject(extra?: Record<string, string>): Promise<void>; testFolder: { read(path: string): string | undefined } };
-
-async function openEditor(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-}
-
 test("the bar has File, Edit, Create, Window, Layouts and Help, Play in the middle and the project on the right; items show their shortcuts, and a disabled one says why", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await expect(menubar(page).getByRole("menuitem")).toHaveText(["File", "Edit", "Create", "Window", "Layouts", "Help"]);
   await expect(page.getByRole("button", { name: /Play/ })).toBeVisible();
   await expect(page.locator(".menubar-right .project-name")).toContainText("Flappy Bird");
@@ -32,7 +23,7 @@ test("the bar has File, Edit, Create, Window, Layouts and Help, Play in the midd
 });
 
 test("a menu opens on click, closes on a second click, Escape and a click outside; hovering switches", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const file = menuTitle(page, "File"), edit = menuTitle(page, "Edit");
   await expect(page.getByRole("menu")).toHaveCount(0);
   await file.click();
@@ -53,7 +44,7 @@ test("a menu opens on click, closes on a second click, Escape and a click outsid
 });
 
 test("the keyboard moves through the menus: Alt, arrows, Enter, Escape", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await page.keyboard.press("Alt");
   await expect(menuTitle(page, "File")).toBeFocused();
   await page.keyboard.press("ArrowRight");
@@ -94,7 +85,7 @@ test("the keyboard moves through the menus: Alt, arrows, Enter, Escape", async (
 });
 
 test("a submenu opens with ArrowRight and closes with ArrowLeft", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await page.keyboard.press("Alt");
   await page.keyboard.press("ArrowDown");
   await page.getByRole("menuitem", { name: "Open Recent" }).focus(); // disabled in a browser without folder access: skip then
@@ -107,7 +98,7 @@ test("a submenu opens with ArrowRight and closes with ArrowLeft", async ({ page 
 });
 
 test("Window lists a checkable item per panel, shows a panel, and resets the layout", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const window = await openMenu(page, "Window");
   const history = window.getByRole("menuitemcheckbox", { name: "History", exact: true });
   await expect(window.getByRole("menuitemcheckbox", { name: "Hierarchy", exact: true })).toHaveAttribute("aria-checked", "true");
@@ -122,7 +113,7 @@ test("Window lists a checkable item per panel, shows a panel, and resets the lay
 });
 
 test("Create adds a node like the Hierarchy's menu, as one undo step", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await menu(page, "Create", "Sprite");
   await expect(page.locator('.tree .row[data-key="sprite"]')).toHaveClass(/selected/);
   await expect(page.locator(".scene-name")).toContainText("•");
@@ -133,7 +124,7 @@ test("Create adds a node like the Hierarchy's menu, as one undo step", async ({ 
 });
 
 test("Help opens the log and About", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await menu(page, "Help", "Log");
   await expect(page.locator("#message-log")).toBeVisible();
   await menu(page, "Help", "About Myco Engine");
@@ -141,7 +132,7 @@ test("Help opens the log and About", async ({ page }) => {
 });
 
 test("File > Save writes the scene of a project folder and clears the unsaved mark", async ({ page }) => {
-  await openTestProject(page);
+  await openEditor(page, { files: {} });
   await expect(page.locator(".menubar-right .readonly-badge")).toHaveCount(0);
   await page.locator('.tree .row[data-key="bird"]').click();
   const y = page.getByRole("textbox", { name: "position y" });
@@ -157,7 +148,7 @@ test("File > Save writes the scene of a project folder and clears the unsaved ma
 });
 
 test("Alt used as a modifier (Alt+click in the scene view) doesn't move the focus to the menu bar", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const view = (await page.locator("#viewport canvas").first().boundingBox())!;
   await page.keyboard.down("Alt");
   await page.mouse.click(view.x + view.width / 2, view.y + view.height / 2);
@@ -170,7 +161,7 @@ test("Alt used as a modifier (Alt+click in the scene view) doesn't move the focu
 });
 
 test("the menu bar does nothing while a dialog is open", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await menu(page, "Edit", "Settings…");
   const dialog = page.getByRole("dialog", { name: /Settings/ });
   await expect(dialog).toBeVisible();
@@ -182,7 +173,7 @@ test("the menu bar does nothing while a dialog is open", async ({ page }) => {
 });
 
 test("closing a menu with Escape gives the focus back to where it was", async ({ page }) => {
-  await openEditor(page);
+  await openEditor(page, { sample: "flappy" });
   const search = page.getByPlaceholder(/Search/).first();
   await search.focus();
   await menuTitle(page, "Edit").click();

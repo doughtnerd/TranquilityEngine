@@ -6,7 +6,7 @@ import { playToolbarItems, type PlayToolbarItemContribution } from "../sdk/contr
 import { lazyComponent, type LazyComponent } from "./lazy";
 import "./playdebug.css";
 
-// One lazy wrapper per contribution (ADR 0334): the plugins' Play toolbar controls, loaded with the toolbar.
+// One lazy wrapper per contribution (ADR 0348): the plugins' Play toolbar controls, loaded with the toolbar.
 const itemViews = new WeakMap<PlayToolbarItemContribution, LazyComponent>();
 const lazyItem = (item: PlayToolbarItemContribution): LazyComponent => {
   let lazy = itemViews.get(item);
@@ -34,13 +34,13 @@ export function PlayControls() {
         Step
       </button>
       <PlayLanguage playing={playing} />
-      {/* The Subtitles overlay toggle (ADR 0343 §6) is the subtitles plugin's Play toolbar item, there while it is on. */}
+      {/* The Subtitles overlay toggle (ADR 0357 §6) is the subtitles plugin's Play toolbar item, there while it is on. */}
       {playToolbarItems.list().map((item) => <span key={item.id} class="play-toolbar-item">{lazyItem(item)()}</span>)}
     </div>
   );
 }
 
-/** The preview language menu (ADR 0340 §1, 0342 §9): shipped languages and pseudo-languages; a pick while playing switches the game. */
+/** The preview language menu (ADR 0354 §1, 0356 §9): shipped languages and pseudo-languages; a pick while playing switches the game. */
 function PlayLanguage(props: { playing: boolean }) {
   const project = currentProject.value;
   docVersion.value; // project.json's languages may change

@@ -1,4 +1,4 @@
-// The base game scene's layer on the Scene view's plan (ADR 0333: a test scene's `base` loads read-only underneath): what
+// The base game scene's layer on the Scene view's plan (ADR 0347: a test scene's `base` loads read-only underneath): what
 // the plan draws for each imported object (box colliders and box zones as turned boxes, spheres and upright capsules as
 // circles, mesh colliders and emitters as points), its label, its height span for the elevation slab, and the banner
 // that says which game scene is underneath, or that it is missing.

@@ -1,5 +1,5 @@
 // The Audio plugin's editor half (ADR 0097, 0157): the scene editor's audio parts that stay beside the Audio Studio
-// (ADR 0327): the audio components' Inspector sections and gizmos, the occlusion overlay, the Play toolbar's Record take
+// (ADR 0341): the audio components' Inspector sections and gizmos, the occlusion overlay, the Play toolbar's Record take
 // and Record capture, the Play Stats panel's audio underruns count, the audio asset kinds (the Studio edits them; the
 // editor lists and moves them, and opens them in the Studio) and Project Settings > Audio, which points at the Studio.
 import { editor, type EditorPlugin } from "../../../editor/sdk";
@@ -28,7 +28,7 @@ export const audioEditorPlugin: EditorPlugin = {
       const version = (project?.settings as { version?: unknown } | undefined)?.version;
       return { name: project?.name ?? "", version: typeof version === "string" ? version : "" };
     });
-    // Project settings > Audio, after Graphics as it has always been: the project's audio is `audio.json` (ADR 0330), which
+    // Project settings > Audio, after Graphics as it has always been: the project's audio is `audio.json` (ADR 0344), which
     // the Audio Studio edits, so the category only opens the Studio. It owns no keys.
     context.registerProjectSettingsSection({
       id: "audio",
@@ -41,9 +41,9 @@ export const audioEditorPlugin: EditorPlugin = {
     context.registerNameReferences(occlusionLayerReferences);
     // Play Stats: the audio thread's underruns since the page loaded, on every World's Nodes row (the audio core is shared).
     context.registerPlayStatsCounter({ id: "myco.audio.underruns", label: "audio underruns", count: () => Audio.debug().counters.underruns });
-    // ADR 0334: Record take and Record capture on the Play toolbar, saving into the project's takes/ and captures/ folders.
+    // ADR 0348: Record take and Record capture on the Play toolbar, saving into the project's takes/ and captures/ folders.
     context.registerPlayToolbarItem({ id: "myco.audio.record", view: () => import("./mix/RecordToggles").then((m) => m.RecordToggles) });
-    // The retired audio event asset (ADR 0158 §1, replaced by playlists, ADR 0329): listed as the old format to migrate,
+    // The retired audio event asset (ADR 0158 §1, replaced by playlists, ADR 0343): listed as the old format to migrate,
     // its clips still counted as used (ADR 0148). Nothing plays or edits it (no format, no field accepts it); opening one
     // opens the Audio Studio, which offers the migration, as the editor does when the project opens.
     context.registerAssetKind({
@@ -54,7 +54,7 @@ export const audioEditorPlugin: EditorPlugin = {
       folder: "audio",
       references: { ...audioEventReferences, extensions: [AUDIO_EVENT_SUFFIX] },
     });
-    // The Audio Studio's assets (ADR 0329, 0328, 0333): playlists, derived samples, attenuation presets. Listed, moved and
+    // The Audio Studio's assets (ADR 0343, 0342, 0347): playlists, derived samples, attenuation presets. Listed, moved and
     // their references followed here; the Studio edits them.
     registerStudioAssetKinds(context);
     // The reverb zone gizmo (E1): volume and blend shell in the scene view, face, radius and blend handles under Edit Zone (the toggle comes with the tool, ADR 0266).
@@ -72,7 +72,7 @@ export const audioEditorPlugin: EditorPlugin = {
       view: () => import("./AudioOverlayForm").then((m) => m.AudioOverlayForm),
     });
     context.registerInspectorSection("engine.AudioReverbZone", () => import("./ZoneInspector").then((m) => m.ZoneSection), { single: true });
-    // ADR 0333: the audio zone's outline in the scene view and its Inspector section.
+    // ADR 0347: the audio zone's outline in the scene view and its Inspector section.
     context.registerViewportTool(audioZoneTool);
     context.registerInspectorSection("engine.AudioZone", () => import("./AudioZoneInspector").then((m) => m.AudioZoneSection), { single: true });
     context.registerInspectorSection("engine.AudioOccluder", () => import("./OccluderInspector").then((m) => m.OccluderSection), { single: true });

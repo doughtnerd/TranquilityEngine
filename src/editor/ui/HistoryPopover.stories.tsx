@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for Undo, Redo and the History popover over the active history (ADR 0145): a panel that
+// Stories (ADR 0219, 0349) for Undo, Redo and the History popover over the active history (ADR 0145): a panel that
 // registers its history (`usePanelHistory`, as any panel does) with a branching tree; clicking into it makes it the
 // active one, the buttons name its steps and the popover draws its tree. Clicking in the cluster keeps it active.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

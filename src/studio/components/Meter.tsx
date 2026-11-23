@@ -1,4 +1,4 @@
-// A level meter (ADR 0335 `Meter`): a peak bar with an RMS bar inside it, a peak hold line, a clip light that stays lit
+// A level meter (ADR 0349 `Meter`): a peak bar with an RMS bar inside it, a peak hold line, a clip light that stays lit
 // until clicked, and an optional dB scale, horizontal or vertical, on the fader's scale so it lines up beside one. It
 // draws the values it is given (`peakDb`, `rmsDb`, dBFS) and never reads audio; the owner passes readings as they come.
 import { useRef, useState } from "preact/hooks";

@@ -41,7 +41,7 @@ export const FIELDS = {
   priority: { label: "Priority", unit: "", min: Math.max(1, L.priority[0]), max: L.priority[1], step: 1, digits: 0, whole: true },
   wet: { label: "Wet", unit: "dB", min: L.wet[0], max: L.wet[1], step: 0.5, digits: 1, slider: [-30, 6] },
   listenerYaw: { label: "Facing", unit: "°", min: -180, max: 180, step: 5, digits: 0 },
-  // audio.json settings shown on this screen (ADR 0333): `voices.hrtf` and `bedBeyond`, `dopplerAmount` in percent.
+  // audio.json settings shown on this screen (ADR 0347): `voices.hrtf` and `bedBeyond`, `dopplerAmount` in percent.
   hrtf: { label: "HRTF for the nearest", unit: "voices", min: 0, max: 32, step: 1, digits: 0, whole: true },
   bedBeyond: { label: "Ambisonic bed beyond", unit: "m", min: 1, max: 100000, step: 1, digits: 0, slider: [20, 80] },
   dopplerPercent: { label: "Doppler amount", unit: "%", min: 0, max: 200, step: 5, digits: 0 },

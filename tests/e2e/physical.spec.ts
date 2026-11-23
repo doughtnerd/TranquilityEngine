@@ -1,4 +1,4 @@
-import { expect, requireWebGPU, test, type Page } from "./fixtures";
+import { expect, requireWebGPU, test, type Page, waitForEditor } from "./fixtures";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 import { playgroundFiles, previewDraws, shaderGraphFile } from "./shaderPreview";
 
@@ -7,10 +7,6 @@ import { playgroundFiles, previewDraws, shaderGraphFile } from "./shaderPreview"
 // materialLibrary.test.ts); physical shader graphs compile with every feature on.
 
 test.describe.configure({ timeout: 60_000 });
-
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-};
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -26,7 +22,7 @@ test("a physical material's fields save to its file", async ({ page, browserName
   await page.goto("/editor.html");
   await nextFolder(page, "Playground");
   await page.getByRole("dialog", { name: "Start" }).getByRole("button", { name: "Open Project…" }).click();
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await waitForEditor(page);
 
   // metal.material.json draws the Robot's Body.
   await page.locator(".asset-folder", { hasText: /^materials$/ }).click();
@@ -60,7 +56,7 @@ test("a physical shader graph with every feature compiles and draws in the previ
   await page.goto("/editor.html");
   await nextFolder(page, "Playground");
   await page.getByRole("dialog", { name: "Start" }).getByRole("button", { name: "Open Project…" }).click();
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await waitForEditor(page);
   await page.locator(".asset-folder", { hasText: /^shaders$/ }).click();
   await page.locator(".asset-tile", { hasText: "physical.shadergraph.json" }).dblclick();
   await expect(page.locator('.sg-node[data-node="t"]')).toBeVisible();

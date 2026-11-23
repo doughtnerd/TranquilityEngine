@@ -1,4 +1,4 @@
-//! The sound generators' wire (ADR 0346 §3, ABI 5.1): a generator voice is a PLAY of a reserved clip id
+//! The sound generators' wire (ADR 0360 §3, ABI 5.1): a generator voice is a PLAY of a reserved clip id
 //! (`GEN_CLIP_ID_FIRST` + kind; never uploaded, no clip memory), its parameters come in GEN (0x21), and AUTOMATE binds a
 //! curve to one of them (target kind `AUTO_TARGET_GEN`). `batch.rs` lists the opcode in id order; `schema.rs` merges the
 //! constants below into its output. Byte offsets in the comments count from the record's first byte, head included.
@@ -14,7 +14,7 @@ macro_rules! c {
 /// The generator constants. The parameter order of each kind is the generator catalogue's
 /// (`src/engine/audio/generators/catalogue.ts`), which is the order GEN's mask and values and a target's index use.
 pub const CONSTANTS: &[Const] = &[
-    c!("GEN_CLIP_ID_FIRST", 0xFFFF_0300u32, "reserved clip ids of generator voices: GEN_CLIP_ID_FIRST + kind (ADR 0346; never uploaded)"),
+    c!("GEN_CLIP_ID_FIRST", 0xFFFF_0300u32, "reserved clip ids of generator voices: GEN_CLIP_ID_FIRST + kind (ADR 0360; never uploaded)"),
     c!("GEN_CLIP_ID_LAST", 0xFFFF_03FFu32, "the reserved generator range's last id"),
     c!("GEN_KIND_OSCILLATOR", 1, "generator kind: oscillator (10 parameters)"),
     c!("GEN_KIND_SYNTH", 2, "generator kind: two-oscillator synth (25 parameters)"),
@@ -34,7 +34,7 @@ const GEN_VALUES: &[PaddedArray] = &[PaddedArray {
     doc: "the masked parameters' values in bit order, each in its own units (Hz, ms, dB, %, sfxr's units, a choice's index); clamped by the core",
 }];
 
-/// 0x21 GEN, 28 + 4n B (ADR 0346 §3, ABI 5.1): generator voice `voiceId`'s parameters. Bit i of `mask` set: parameter i
+/// 0x21 GEN, 28 + 4n B (ADR 0360 §3, ABI 5.1): generator voice `voiceId`'s parameters. Bit i of `mask` set: parameter i
 /// takes the next value (`valueCount` is popcount(mask); a short list leaves the rest of the mask unset). Applies on
 /// arrival, like AUTOMATE and LOOPS (its values don't fit a stamped record), so main sends it right after the PLAY, in
 /// the same batch, with every parameter; then with a partial mask when a value changes. A voice that hasn't started
@@ -55,5 +55,5 @@ pub const GEN: Opcode = Opcode {
     ),
     total_bytes: None,
     sent: true,
-    doc: "a generator voice's parameters and noise seed (ADR 0346, ABI 5.1); applies on arrival",
+    doc: "a generator voice's parameters and noise seed (ADR 0360, ABI 5.1); applies on arrival",
 };

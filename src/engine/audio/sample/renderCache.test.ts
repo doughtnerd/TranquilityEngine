@@ -1,4 +1,4 @@
-// The render cache (ADR 0328): keys follow exactly what a render bakes, a second render of the same inputs is read
+// The render cache (ADR 0342): keys follow exactly what a render bakes, a second render of the same inputs is read
 // back from the store, and a store that can't write still renders.
 import { describe, expect, it } from "vitest";
 import { defaultEffect } from "../effects/catalogue";

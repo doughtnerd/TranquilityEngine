@@ -44,7 +44,7 @@ export interface PlaylistEditorProps extends EntryActions {
   onDropSample(path: string): void;
   onTestValue(name: string, value: number): void;
   onOpenSamples(sample: string): void;
-  /** ADR 0336: open a Blend entry's weight curve in the curve editor. */
+  /** ADR 0350: open a Blend entry's weight curve in the curve editor. */
   onEditWeightCurve?(index: number): void;
 }
 

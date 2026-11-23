@@ -21,7 +21,7 @@ pub const REGION_ALIGN: usize = 64;
 pub const PAGE_BYTES: usize = 65_536;
 
 /// Core scalars and per-quantum scratch (architecture §5.1: "core state, 64 KB"; 128 KB from ABI 5.0,
-/// whose 16-parameter effect records more than doubled the stamped configuration queue, ADR 0338).
+/// whose 16-parameter effect records more than doubled the stamped configuration queue, ADR 0352).
 pub const CORE_STATE_BYTES: usize = 128 * 1024;
 /// Scheduled records waiting for their frame (architecture §5.1: 8,192 pending × 48 B).
 pub const PENDING_CAPACITY: usize = 8_192;
@@ -101,16 +101,16 @@ pub enum RegionKind {
     /// 0171/0172 M5 (K1): the shared bus send scratch and the reverb run-out
     /// (`sends::REGION_BYTES`: 1,024 + 64 = 1,088 B on every preset).
     Sends,
-    /// ADR 0331 (ABI 4.5): the instance submix slots (`submix::REGION_BYTES`, ≈ 320 KB on every
+    /// ADR 0345 (ABI 4.5): the instance submix slots (`submix::REGION_BYTES`, ≈ 320 KB on every
     /// preset).
     Submixes,
-    /// ADR 0331 (ABI 4.6): the effect memory of bus chains and submixes (`fxmem::region_bytes`:
+    /// ADR 0345 (ABI 4.6): the effect memory of bus chains and submixes (`fxmem::region_bytes`:
     /// `FX_MEMORY_SECONDS` of stereo audio at the rate, 7.7 MB at 48 kHz).
     FxMem,
-    /// ADR 0337 A4 (ABI 4.12): the ADPCM voice cursors, one per mixed-voice pool entry
+    /// ADR 0351 A4 (ABI 4.12): the ADPCM voice cursors, one per mixed-voice pool entry
     /// (`adpcm_voice::region_bytes`: `max_mixed` × `CURSOR_BYTES`).
     AdpcmCursors,
-    /// ADR 0346 (ABI 5.1): the generator voices' slot records and pool (`generator::region_bytes`: max(16,
+    /// ADR 0360 (ABI 5.1): the generator voices' slot records and pool (`generator::region_bytes`: max(16,
     /// `max_mixed` / 4) entries of `generator::ENTRY_BYTES` and 8 B per voice slot).
     GenEntries,
     /// The clip arena's initial reserve. Always last.
@@ -268,6 +268,65 @@ impl Layout {
     }
 }
 
+// --- The Memory the core needs (ADR 0327) ------------------------------------------------------
+
+/// ADR 0327: the arena past its initial reserve, to hold `clip_ceiling_bytes` of clips (`audio.clipMemoryMB`, which main
+/// counts in raw bytes) in their size classes. A class wastes under 25% of a request of 4 KB or more and a smaller one
+/// takes 4 KB, so the clips take at most `5/4 x ceiling + CLIP_DIRECTORY_ENTRIES x 4 KB` (16 MiB): no fragmentation
+/// counted (the arena never splits or merges blocks, so a pattern of loads and unloads can still run it out).
+pub fn clip_growth_bytes(arena_initial_bytes: usize, clip_ceiling_bytes: usize) -> usize {
+    let classes = clip_ceiling_bytes.saturating_add(clip_ceiling_bytes / 4).saturating_add(CLIP_DIRECTORY_ENTRIES * crate::arena::size_class::MIN_CLASS_BYTES);
+    classes.saturating_sub(arena_initial_bytes)
+}
+
+/// ADR 0327: the arena blocks of the spatial data main sends outside `clipMemoryMB` (api-and-models §5): the largest
+/// HRIR table the core accepts (Chromium's grid at `MAX_IR_LENGTH`) and the HRTF bank built with it, at a rate HRTF runs
+/// at, and the MagLS filters at their high-rate length when a bed or a wide stream's private decoder is laid out.
+pub fn spatial_data_bytes(p: &InitParams) -> usize {
+    use audio_dsp::hrtf::database::{HEADER_BYTES, MAX_IR_LENGTH};
+    use audio_dsp::hrtf::elevation_index::{NUMBER_OF_RAW_AZIMUTHS, NUMBER_OF_RAW_ELEVATIONS};
+    use audio_wire::generated::{BED_CHANNELS, MAGLS_HEADER_BYTES, MAGLS_TAPS_HIGH_RATE};
+    let block = crate::zones::arena_block_bytes;
+    let hrtf = match crate::panner::HrtfBank::bytes_for(p.sample_rate) {
+        Some(bank) => {
+            let directions = NUMBER_OF_RAW_AZIMUTHS * NUMBER_OF_RAW_ELEVATIONS;
+            block(HEADER_BYTES + directions * 2 * 4 + directions * MAX_IR_LENGTH as usize * 2 * 2) + block(bank)
+        }
+        None => 0, // the core refuses an HRIR table at this rate (176.4 kHz and up)
+    };
+    let magls = if p.max_beds + p.max_wide > 0 { block(MAGLS_HEADER_BYTES as usize + BED_CHANNELS as usize * 2 * MAGLS_TAPS_HIGH_RATE as usize * 4) } else { 0 };
+    hrtf + magls
+}
+
+/// ADR 0327: bytes the core grows its Memory by over its life, past the module's own pages, for these parameters and
+/// `clip_ceiling_bytes`: the block `init` takes ([`Layout::total`], the arena's initial reserve included), the arena's
+/// growth to the clip ceiling ([`clip_growth_bytes`]), the zone kernel budget (`zones::kernel_budget_bytes`) and the
+/// spatial data ([`spatial_data_bytes`]). The shell's Memory `maximum` is its initial pages plus this. Saturates.
+pub fn memory_growth_bytes(p: &InitParams, clip_ceiling_bytes: usize) -> usize {
+    let layout = Layout::new(p);
+    layout
+        .total()
+        .saturating_add(clip_growth_bytes(layout.region(RegionKind::Arena).len, clip_ceiling_bytes))
+        .saturating_add(crate::zones::kernel_budget_bytes(p.max_zone_slots, p.zone_max_frames))
+        .saturating_add(spatial_data_bytes(p))
+}
+
+/// ADR 0327: one part of what the core takes, for the debug panel's memory row: a wire `MemoryPart` value, `None` for
+/// another.
+pub fn memory_part_bytes(p: &InitParams, part: u32) -> Option<usize> {
+    use audio_wire::generated::memory_part as mp;
+    let layout = Layout::new(p);
+    Some(match part {
+        mp::LAYOUT => layout.total(),
+        mp::BEDS => layout.region(RegionKind::Beds).len,
+        mp::ZONES => layout.region(RegionKind::Zones).len,
+        mp::WIDE => layout.region(RegionKind::Wide).len,
+        mp::ZONE_KERNELS => crate::zones::kernel_budget_bytes(p.max_zone_slots, p.zone_max_frames),
+        mp::SPATIAL_DATA => spatial_data_bytes(p),
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,17 +370,17 @@ mod tests {
         let streams = layout.region(RegionKind::Streams).len;
         assert_eq!(streams, 8 * crate::stream::RING_BYTES, "8 rings at the default preset (architecture §5.3)");
         let automation = layout.region(RegionKind::Automation).len;
-        // ≈ 2.4 MB since ADR 0332 (64-key curves with Bézier control points: the curve table is ≈ 1.6 MB of it).
-        assert!(automation < 3 << 20, "the automation region (ADR 0158 E2, 0332): {automation}");
-        // ADR 0331's effect memory (7.7 MB at 48 kHz) and submix slots are their own budget lines.
+        // ≈ 2.4 MB since ADR 0346 (64-key curves with Bézier control points: the curve table is ≈ 1.6 MB of it).
+        assert!(automation < 3 << 20, "the automation region (ADR 0158 E2, 0346): {automation}");
+        // ADR 0345's effect memory (7.7 MB at 48 kHz) and submix slots are their own budget lines.
         let fxmem = layout.region(RegionKind::FxMem).len;
         assert_eq!(fxmem, crate::fxmem::region_bytes(&preset(4_096, 128, 16)));
         let submixes = layout.region(RegionKind::Submixes).len;
-        // ADR 0337 A4: the ADPCM voice cursors (a 512-frame stereo window each), ≈ 264 KB at 128 mixed voices.
+        // ADR 0351 A4: the ADPCM voice cursors (a 512-frame stereo window each), ≈ 264 KB at 128 mixed voices.
         let adpcm = layout.region(RegionKind::AdpcmCursors).len;
         assert_eq!(adpcm, 128 * crate::adpcm_voice::CURSOR_BYTES);
         assert!(adpcm < 300 * 1024, "ADPCM cursors: {adpcm}");
-        // ADR 0346: the generator pool, 32 entries at 128 mixed voices (≈ 160 KB), and 8 B per voice slot.
+        // ADR 0360: the generator pool, 32 entries at 128 mixed voices (≈ 160 KB), and 8 B per voice slot.
         let gen = layout.region(RegionKind::GenEntries).len;
         assert_eq!(gen, crate::generator::region_bytes(&preset(4_096, 128, 16)));
         assert!(gen < 240 * 1024, "generator pool: {gen}");
@@ -337,7 +396,7 @@ mod tests {
             assert_eq!(m2.region(kind).len, 0, "{kind:?}");
         }
         assert_eq!(m2.region(RegionKind::Zones).len, 32 * 1024 + (64 + 32 * 512) + 64, "the aux accumulator and the sends area (32 buses) and the tail, without slots");
-        assert_eq!(m2.region(RegionKind::Fx).len, 128 * 560, "70 KB at 128 mixed (ADR 0333 spread; 56 KB before)");
+        assert_eq!(m2.region(RegionKind::Fx).len, 128 * 560, "70 KB at 128 mixed (ADR 0347 spread; 56 KB before)");
         assert_eq!(m2.region(RegionKind::Scratch).len, 8 * 1024);
         let p = InitParams { max_beds: 2, max_zone_slots: 3, zone_max_frames: 96_000, max_wide: 1, ..preset(4_096, 128, 16) };
         let m3 = Layout::new(&p);
@@ -379,14 +438,55 @@ mod tests {
     #[test]
     fn a_bus_stays_near_the_memory_table() {
         // architecture §5.1 budgets 3 KB per bus. The stereo quantum buffer (1 KB) and the bus's one
-        // compressor (2.4 KB, most of it the 6 ms pre-delay line) were most of a bus at 4 KB. ADR 0331
+        // compressor (2.4 KB, most of it the 6 ms pre-delay line) were most of a bus at 4 KB. ADR 0345
         // (ABI 4.6): eight slots, each with a catalogue effect's small state (≈ 600 B: three biquads,
         // smoothed parameters, kernel cursors; delay lines live in the effect memory), make it
         // ≈ 9.5 KB, 32 buses ≈ 305 KB (a compressor per slot inline would have made it 27 KB). ABI 5.0
-        // (ADR 0338): 16 parameters a slot (wire and glide) and a plugin slot's handle make it ≈ 10.3 KB.
+        // (ADR 0352): 16 parameters a slot (wire and glide) and a plugin slot's handle make it ≈ 10.3 KB.
         let (slot, fx) = (core::mem::size_of::<crate::bus::BusSlot>(), core::mem::size_of::<crate::fx::FxChain>());
         eprintln!("BusSlot {slot} B, BUS_BYTES {BUS_BYTES} B, FxChain {fx} B, FxSlot {} B", core::mem::size_of::<crate::fx::FxSlot>());
         assert!(BUS_BYTES <= 11 * 1024, "BUS_BYTES: {BUS_BYTES}");
         assert_eq!(Layout::new(&preset(4_096, 128, 16)).region(RegionKind::Buses).len, 32 * BUS_BYTES);
+    }
+
+    /// ADR 0327 (F-1): at 192 kHz with the voices the settings parser allows (8,192 logical, 512 mixed) and every M3
+    /// count at its high preset, the Memory the core asks for covers its block, a full arena and the kernel budget.
+    #[test]
+    fn the_memory_need_covers_the_largest_preset() {
+        let p = InitParams { sample_rate: 192_000.0, max_logical: 8_192, max_mixed: 512, max_buses: 32, arena_initial_bytes: 16 << 20, max_beds: 4, max_zone_slots: 3, zone_max_frames: 768_000, max_wide: 4, max_music_rings: 16 };
+        assert_eq!(p.validate(), Ok(()));
+        let ceiling = 1024 << 20;
+        let layout = Layout::new(&p);
+        let need = memory_growth_bytes(&p, ceiling);
+        let kernels = crate::zones::kernel_budget_bytes(3, 768_000);
+        assert!(need >= layout.total() + (ceiling - layout.region(RegionKind::Arena).len) + kernels, "{need}");
+        assert!(need < 4 << 30, "under wasm32's 4 GiB: {need}");
+        eprintln!("192 kHz, 8,192 voices: block {} B, need {need} B", layout.total());
+    }
+
+    #[test]
+    fn the_memory_parts_are_the_layouts_regions() {
+        use audio_wire::generated::memory_part as mp;
+        let p = InitParams { max_beds: 2, max_zone_slots: 3, zone_max_frames: 96_000, max_wide: 1, ..preset(4_096, 128, 16) };
+        let layout = Layout::new(&p);
+        assert_eq!(memory_part_bytes(&p, mp::LAYOUT), Some(layout.total()));
+        assert_eq!(memory_part_bytes(&p, mp::BEDS), Some(layout.region(RegionKind::Beds).len));
+        assert_eq!(memory_part_bytes(&p, mp::ZONES), Some(layout.region(RegionKind::Zones).len));
+        assert_eq!(memory_part_bytes(&p, mp::WIDE), Some(layout.region(RegionKind::Wide).len));
+        assert_eq!(memory_part_bytes(&p, mp::ZONE_KERNELS), Some(crate::zones::kernel_budget_bytes(3, 96_000)));
+        assert_eq!(memory_part_bytes(&p, 99), None);
+        // An M2 preset: no kernel budget, no MagLS; the HRIR table and bank are still allowed for.
+        let m2 = preset(4_096, 128, 16);
+        assert_eq!(memory_part_bytes(&m2, mp::ZONE_KERNELS), Some(0));
+        let spatial = memory_part_bytes(&m2, mp::SPATIAL_DATA).unwrap();
+        assert!(spatial > 985_040 && spatial < 4 << 20, "{spatial}");
+        assert_eq!(spatial_data_bytes(&InitParams { sample_rate: 192_000.0, ..m2 }), 0, "no HRTF at 192 kHz");
+    }
+
+    #[test]
+    fn clip_growth_allows_for_size_classes_past_the_initial_reserve() {
+        assert_eq!(clip_growth_bytes(0, 0), 16 << 20);
+        assert_eq!(clip_growth_bytes(0, 128 << 20), (160 << 20) + (16 << 20));
+        assert_eq!(clip_growth_bytes(1 << 30, 128 << 20), 0);
     }
 }

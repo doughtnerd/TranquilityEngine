@@ -1,4 +1,4 @@
-/* The Mixer screen (ADR 0330; the prototype's Mixer). Theme tokens only (src/editor/ui/editor.css lists them). */
+/* The Mixer screen (ADR 0344; the prototype's Mixer). Theme tokens only (src/editor/ui/editor.css lists them). */
 
 .mx-panel-body { display: flex; flex-direction: column; }
 .mx-frame { display: flex; flex-direction: column; gap: 6px; min-height: 0; padding: 6px 8px; outline: none; }

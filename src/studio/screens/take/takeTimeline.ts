@@ -1,4 +1,4 @@
-// The Take screen's timeline, read from a take (ADR 0334 "The Take screen"; the prototype's Take): the instances per
+// The Take screen's timeline, read from a take (ADR 0348 "The Take screen"; the prototype's Take): the instances per
 // playlist path (each a span from its PLAY to its STOP, or to the take's end, with the held part up to its RELEASE),
 // the parameter lanes (each global parameter, and each instance parameter per path, from the keyframes' values and the
 // PARAM records; labelled parameters as segments), the game's marks, the pictures, and "Playlists in this take" (each

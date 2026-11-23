@@ -1,4 +1,4 @@
-// The waveform's model (ADR 0335 `Waveform`): the visible span of a sample (zoom at a point, scroll, fit, clamp to the
+// The waveform's model (ADR 0349 `Waveform`): the visible span of a sample (zoom at a point, scroll, fit, clamp to the
 // sample with a 5 ms narrowest view), time ↔ pixel, and the min/max column per pixel drawn from the peaks pyramid
 // (`peaksMip.ts`: the level whose bins are about a pixel wide). Pure: no DOM, no canvas.
 import { binAt, binSpan, pickLevel, type PeakMips } from "../../plugins/audio/editor/music/peaksMip";

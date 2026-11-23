@@ -1,4 +1,4 @@
-// ADR 0340 §6 (L3): a build's package with language parts at runtime, on the fake backend, through the public `Audio`
+// ADR 0354 §6 (L3): a build's package with language parts at runtime, on the fake backend, through the public `Audio`
 // API and `Locale`: a load fetches the base part and the voice language's part, a localised sound whose part isn't
 // loaded is refused (`notLoaded`), and an audio language switch (`switchPackageLanguage`, and `Locale.setLanguage`
 // under `voice: "followText"`) loads the new part before it unloads the old one.
@@ -91,7 +91,7 @@ afterEach(() => {
   endAudioSession();
 });
 
-describe("package language parts (ADR 0340 §6)", () => {
+describe("package language parts (ADR 0354 §6)", () => {
   it("loads the base part and the voice language's part, and counts both", async () => {
     const { fetched, files } = await boot();
     const dialogue = Audio.package("Dialogue");
@@ -115,7 +115,7 @@ describe("package language parts (ADR 0340 §6)", () => {
     expect(Audio.playOneShot(EN_INTRO).reason).toBe("notLoaded"); // the audio language is still English
   });
 
-  it("Audio.setLanguage in separate mode loads the new language's parts before it commits (ADR 0340 §6)", async () => {
+  it("Audio.setLanguage in separate mode loads the new language's parts before it commits (ADR 0354 §6)", async () => {
     const { fetched } = await boot("separate");
     await Audio.package("Dialogue").load();
     fetched.length = 0;

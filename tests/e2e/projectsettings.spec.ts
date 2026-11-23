@@ -1,4 +1,4 @@
-import { expect, openTestProject, type Page, test } from "./fixtures";
+import { expect, openEditor, type Page, test, type Hooks } from "./fixtures";
 import { showTab } from "./tabs";
 import { menu } from "./menus";
 import { pickCategory } from "./projectCategory";
@@ -6,25 +6,13 @@ import { pickCategory } from "./projectCategory";
 // The Project panel (ADR 0038) on a writable in-memory copy of the Flappy sample: edits save into
 // project.json beside the Worlds panel's bootstrap, problems keep the file at its last valid
 // settings, and undo takes edits back.
-const EDITOR = "/editor.html?sample=flappy"; // relative to baseURL (E2E_PORT)
 
 // Each test opens the sample, then a copy of it; WebKit renders on the CPU, and with 8 workers
 // these take 20–30 s there.
 test.describe.configure({ timeout: 60_000 });
 
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  openTestProject(extra: Record<string, string>): Promise<void>;
-  testFolder: { read(path: string): string | undefined };
-};
-
-async function waitForEditor(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-}
-
 async function openProject(page: Page): Promise<void> {
-  await openTestProject(page);
+  await openEditor(page, { files: {} });
   await showTab(page, /^Project/);
 }
 
@@ -146,7 +134,7 @@ test("the Project and Worlds panels both save into project.json without losing e
 });
 
 test("a sample is read-only in the Project panel", async ({ page }) => {
-  await waitForEditor(page);
+  await openEditor(page, { sample: "flappy" });
   await showTab(page, /^Project/);
   await expect(status(page)).toHaveText("Read-only");
   await pickCategory(page, "Display");
@@ -164,7 +152,7 @@ test("the Project menu's Project Settings shows the panel", async ({ page }) => 
 });
 
 // Renaming an entry of a named list (ADR 0262) renames what names it, asking first: a physics layer the open scene's
-// colliders use. (Audio buses are renamed in the Audio Studio, ADR 0327.)
+// colliders use. (Audio buses are renamed in the Audio Studio, ADR 0341.)
 test("renaming a physics layer asks first and renames the colliders; cancelling keeps the old name", async ({ page }) => {
   await openProject(page);
   await pickCategory(page, "Physics");

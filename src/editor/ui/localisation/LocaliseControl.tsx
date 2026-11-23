@@ -1,4 +1,4 @@
-// The Inspector's Localise control for a UI document element's text field (ADR 0342 §9): shows the key the field is
+// The Inspector's Localise control for a UI document element's text field (ADR 0356 §9): shows the key the field is
 // bound to with its text in the preview language (Unlink removes the binding), or offers to pick a key (search keys and
 // text, each with its preview) or Extract to string table (a suggested key in a chosen table, the field's literal text
 // as its reference text). A view: matches and the suggestions come from `localiseModel.ts` through the Inspector.

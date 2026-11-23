@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0330, 0331; ABI 4.8): how an effect-parameter automation (`fx:<id>:<param>`) becomes a curve the audio
+ * Internal (ADR 0344, 0345; ABI 4.8): how an effect-parameter automation (`fx:<id>:<param>`) becomes a curve the audio
  * core evaluates. The core takes a catalogue parameter by its index in the type's parameters (the order it reads them
  * in), and evaluates a frequency parameter (the catalogue's `log` scale) on a curve of its log2, taking 2^value, so it
  * interpolates in log scale as the mixer and the Studio draw it. One place for the bus chains (`runtimeView.ts`) and the

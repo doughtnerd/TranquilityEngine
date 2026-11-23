@@ -109,7 +109,7 @@ describe("the File System Access file system", () => {
     expect(seen).toHaveLength(2);
   });
 
-  it("stamps a folder's files to compare later, skipping the folders it's told to (the project watch, ADR 0327)", async () => {
+  it("stamps a folder's files to compare later, skipping the folders it's told to (the project watch, ADR 0341)", async () => {
     const { fs } = await mounted();
     await fs.writeText("/game/.myco/x.json", "{}");
     const before = await fs.stamps("/game", (name) => name.startsWith("."));

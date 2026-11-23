@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the ducking row: while playing (switching to "Above level" shows the threshold; a
+// Stories (ADR 0219, 0349) for the ducking row: while playing (switching to "Above level" shows the threshold; a
 // trigger another rule already uses is disabled), above a level, and turned off.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

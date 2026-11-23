@@ -1,7 +1,7 @@
-// The Profiler's timeline (ADR 0334 "The Profiler screen"; the prototype's tracks): a ruler with the capture's markers
+// The Profiler's timeline (ADR 0348 "The Profiler screen"; the prototype's tracks): a ruler with the capture's markers
 // and every warning and error, then the tracks `planTracks` chose, in its order: Picture (a take's pictures, the kit's filmstrip;
 // none for a capture), Load (voices and CPU against the voice cap), Effects cost (the estimated DSP share per section, one line
-// each), Memory (the clip arena and the loaded packages, with package marks; ADR 0337 §6), a Bus track per bus (its
+// each), Memory (the clip arena and the loaded packages, with package marks; ADR 0351 §6), a Bus track per bus (its
 // effective gain, with the lane
 // breakdown floating at the cursor), Loudness (short-term against the target), the voice lanes (by bus or by clip, with
 // status colours; a click selects a voice and seeks to its start) and the game parameters. Clicking a track seeks. The
@@ -87,7 +87,7 @@ function TrackRow(props: TrackRowProps) {
   );
 }
 
-/** ADR 0334: a take's pictures of the game view, as the kit's filmstrip across the track's width. */
+/** ADR 0348: a take's pictures of the game view, as the kit's filmstrip across the track's width. */
 function PictureTrack({ data, track, cursor, onSeek }: { data: ProfilerData; track: PlannedTrack; cursor: number; onSeek(t: number): void }) {
   const ref = useRef<HTMLDivElement>(null);
   const width = useElementWidth(ref);
@@ -141,7 +141,7 @@ function EffectsTrack({ data, track, cursor, onSeek }: { data: ProfilerData; tra
   );
 }
 
-/** ADR 0337 §6: the clip arena and the loaded packages' memory, on one scale, with a mark at each package load and unload. */
+/** ADR 0351 §6: the clip arena and the loaded packages' memory, on one scale, with a mark at each package load and unload. */
 function MemoryTrack({ data, track, cursor, onSeek }: { data: ProfilerData; track: PlannedTrack; cursor: number; onSeek(t: number): void }) {
   const m = data.memory!;
   const top = Math.max(1, m.peakArena, m.peakPackages) * 1.15;

@@ -1,8 +1,8 @@
-// The Edits panel, "Sample effects" (ADR 0328, 0331 level "sample"): the chain as it renders: Source (read only), the
+// The Edits panel, "Sample effects" (ADR 0342, 0345 level "sample"): the chain as it renders: Source (read only), the
 // locked Trim and Closed gaps rows, the baked effects (add from the catalogue's sample-level types, remove, reorder,
 // bypass, parameters), then the locked Normalize row. A simple local list until the kit's EffectChain lands.
 //
-// Flatten (ADR 0328) renders the chain and the normalize gain into `<name>.flat<n>.wav` beside the source and points
+// Flatten (ADR 0342) renders the chain and the normalize gain into `<name>.flat<n>.wav` beside the source and points
 // the sample at it (`sample.source`, one undoable step); Unflatten points it back. The render keeps the source's
 // timeline, so trim and closed gaps stay live edits. "Automate…" on an effect opens the shared curve editor on its
 // parameters over sample time (`sampleAutomation.ts`, D23); the render bakes the lanes. Freeze and A/B are later tasks.

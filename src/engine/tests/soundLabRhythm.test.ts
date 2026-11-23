@@ -1,5 +1,5 @@
 // ADR 0166 task Rh3: the Sound Lab's rhythm page (samples/sound-lab/scenes/rhythm.scene.json, scripts/behaviors/RhythmLab.ts).
-// The scene data is valid (the two playlists, migrated from audio events (ADR 0329), parse and lint clean, the click clip is one bar with a click on every beat, the
+// The scene data is valid (the two playlists, migrated from audio events (ADR 0343), parse and lint clean, the click clip is one bar with a click on every beat, the
 // scene and the tour's link load), and the page's script is run headless on the fake backend with synthetic taps: a
 // calibration run feeds `Calibration.fromTaps` and sets `Audio.calibration`, the offset is stored and read back as after a
 // reload, an unsteady run is refused, and the tap game grades taps by `judged`. The browser run is E3's.
@@ -50,7 +50,7 @@ describe("the rhythm page's data", () => {
         expect([c.at, c.length, c.sync]).toEqual([0, seq.length, true]);
         expect(seconds(c.sample!)).toBeCloseTo(seq.length, 6);
       }
-      // Stems are sync clips on parallel tracks (ADR 0329 migration): the first drives the playhead, the others follow.
+      // Stems are sync clips on parallel tracks (ADR 0343 migration): the first drives the playhead, the others follow.
       expect(lintPlaylist(playlist).map((l) => l.code)).toEqual(stems.slice(1).map(() => "overlappingSyncLoops"));
     });
   }

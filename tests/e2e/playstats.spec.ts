@@ -1,19 +1,13 @@
-import { expect, type Page, play, test } from "./fixtures";
+import { expect, type Page, play, test, openEditor, type Hooks } from "./fixtures";
 import { captureView, pixelsChanged, steadyView, type ViewCapture } from "./viewCapture";
 
 // Play mode's play bar tools: the Stats overlay (frame rate, timings, render counters, nodes) and
 // the Gizmos toggle, which hides the editor's drawing on the play Worlds (overlays and the live
 // selection outline). What the game view draws is read from captures of it (viewCapture.ts); which
 // overlays each setting shows is unit-tested in src/editor/playStats.test.ts.
-const FLAPPY = "/editor.html?sample=flappy"; // relative to baseURL (E2E_PORT)
 
 // Play type-checks the scripts first (ADR 0125); in a full WebKit run (CPU rendering) that alone can take 20 s.
 test.describe.configure({ timeout: 60_000 });
-
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-  playEngine?: { world: { name: string } } | null;
-};
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -49,8 +43,7 @@ test.beforeEach(async ({ page }) => {
 
 test("Stats shows frame rate, timings and render counters over the play view", async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto(FLAPPY);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await openEditor(page, { sample: "flappy" });
   await page.getByRole("button", { name: "▶ Play" }).click();
   // Play starts once the scripts are checked ("Checking scripts…"), which takes longer while other tests load the CPU.
   await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: 20_000 });
@@ -89,8 +82,7 @@ test("Stats shows frame rate, timings and render counters over the play view", a
 
 test("Gizmos off hides every gizmo and debug drawing in the play view; the menu lists the kinds", async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto(FLAPPY);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await openEditor(page, { sample: "flappy" });
   await play(page);
   // A tap starts the game; untouched, the bird falls and the game is over, and the view holds still.
   await gameView(page).click();

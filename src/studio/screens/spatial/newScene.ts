@@ -1,7 +1,7 @@
-// New test scenes (ADR 0333; the prototype's New menu, S:1260): Blank (one listener, "Player 1"), From current test scene
+// New test scenes (ADR 0347; the prototype's New menu, S:1260): Blank (one listener, "Player 1"), From current test scene
 // (a copy), From open game scene (a blank scene whose `base` names the game scene: its audio components and colliders
 // load read-only underneath when it plays) and From take… (the listener and emitter positions at a moment of a take,
-// from its POSE requests, each emitter playing what the take last started on it, ADR 0334).
+// from its POSE requests, each emitter playing what the take last started on it, ADR 0348).
 //
 // Pure: no DOM, no signals.
 import { emptyAudioTestScene } from "../../../engine/audio/spatial/testScene";

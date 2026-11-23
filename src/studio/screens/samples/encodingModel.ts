@@ -1,11 +1,11 @@
-// The Samples Inspector's Encoding section (ADR 0337 §6): one row per encoding key for the chosen platform, showing the
+// The Samples Inspector's Encoding section (ADR 0351 §6): one row per encoding key for the chosen platform, showing the
 // effective value and where it came from (`originLabel`), whether this file overrides it there, and the edits: override a
 // key for one platform or for every platform, reset it (the nearest override of this file that supplies it), and choose
 // the file's profile. Edits return `{ next } | { refused }` over the sidecar's settings and apply as one undo step of
 // the sidecar document. Also the profile and folder-rule matches, and the per-platform readouts (shipped size and memory:
 // exact once converted, else estimated). Pure.
 //
-// The Studio writes only `load` (ADR 0337 "Deprecates"); an override of `load` for every platform also sets the legacy
+// The Studio writes only `load` (ADR 0351 "Deprecates"); an override of `load` for every platform also sets the legacy
 // `stream` flag to match, because the editor's Play and the Studio play sources by that flag, and a reset clears it.
 import { ENCODING_PLATFORMS } from "../../../engine/audio/encoding/defaults";
 import { compileGlob } from "../../../engine/audio/encoding/pathGlob";

@@ -1,4 +1,4 @@
-// The baked effect chain's edits (ADR 0328, 0331 level "sample"): add from the catalogue, remove, bypass, reorder,
+// The baked effect chain's edits (ADR 0342, 0345 level "sample"): add from the catalogue, remove, bypass, reorder,
 // set a parameter; one labelled step each ("Add EQ", "Bypass Fades", "Move EQ up", "EQ · Low 3 dB"). Pure.
 import { defaultEffect, effectSpec } from "../../../engine/audio/effects/catalogue";
 import type { EffectType } from "../../../engine/audio/effects/types";

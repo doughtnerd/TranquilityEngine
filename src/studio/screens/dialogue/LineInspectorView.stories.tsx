@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0340 §9, 0343 §6) for the Line inspector over the fixture project: per language status, file and
+// Stories (ADR 0219, 0354 §9, 0357 §6) for the Line inspector over the fixture project: per language status, file and
 // length, lip-sync, the subtitle strip with its reading-speed warning, audition per language, and the line's settings.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

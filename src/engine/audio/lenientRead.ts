@@ -8,7 +8,7 @@
  */
 import { parseCurve, type Curve } from "../core/curve";
 
-/** At most this many keys in one curve of the new audio formats (ADR 0329 "keys per curve ≤ 64"; declared once here). */
+/** At most this many keys in one curve of the new audio formats (ADR 0343 "keys per curve ≤ 64"; declared once here). */
 export const CURVE_KEY_LIMIT = 64;
 
 export type JsonRecord = Record<string, unknown>;

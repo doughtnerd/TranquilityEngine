@@ -11,7 +11,7 @@ import { uniqueName } from "../engine/core/uniqueName";
 /** The top-level keys the shell's own Project panel categories edit (the Worlds panel edits `bootstrap`). */
 const CORE_SETTINGS_KEYS = ["name", "display", "time", "render", "autoload", "graphics", "plugins", "build"] as const;
 
-/** Keys no settings section may own: `bootstrap` (the Worlds panel's) and `audio`, which moved to `audio.json` (ADR 0330; the Audio Studio edits it). */
+/** Keys no settings section may own: `bootstrap` (the Worlds panel's) and `audio`, which moved to `audio.json` (ADR 0344; the Audio Studio edits it). */
 const RESERVED_KEYS: readonly string[] = ["bootstrap", "audio"];
 
 /**
@@ -28,7 +28,7 @@ export function settingsKeys(): string[] {
 export function checkSettingsSectionKeys<T extends { readonly id: string; readonly keys: readonly string[] }>(section: T): T {
   for (const key of section.keys) {
     if ((CORE_SETTINGS_KEYS as readonly string[]).includes(key) || key === "bootstrap") throw new Error(`Project settings section "${section.id}" can't own "${key}": the editor owns that project.json key.`);
-    if (key === "audio") throw new Error(`Project settings section "${section.id}" can't own "audio": the project's audio is audio.json's (ADR 0330).`);
+    if (key === "audio") throw new Error(`Project settings section "${section.id}" can't own "audio": the project's audio is audio.json's (ADR 0344).`);
     const owner = projectSettingsSections.list().find((s) => s.id !== section.id && s.keys.includes(key));
     if (owner) throw new Error(`Project settings section "${section.id}" can't own "${key}": section "${owner.id}" owns it.`);
   }

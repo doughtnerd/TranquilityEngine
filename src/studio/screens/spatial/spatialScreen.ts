@@ -1,4 +1,4 @@
-// The Spatial screen's state and actions over the real page (ADR 0333, 0327, 0335): which test scene is open (mirrored in
+// The Spatial screen's state and actions over the real page (ADR 0347, 0341, 0349): which test scene is open (mirrored in
 // the route: the file as `asset`), the selection, the tool, the camera, the elevation slab, the clipboard, and the
 // audition (the test scene player in the Studio's runtime World). Scene edits go to the open scene's asset document as
 // one labelled undo step each (`applyEdit`; drags coalesce into one step); scene files are made, renamed, duplicated
@@ -45,7 +45,7 @@ import { isSamplePath } from "../playlists/libraryModel";
 
 // --- the scene asset kind --------------------------------------------------------------------------------------------
 
-/** The test scene document kind (ADR 0333 `*.audioscene.json`); the Studio registers it (no plugin does). */
+/** The test scene document kind (ADR 0347 `*.audioscene.json`); the Studio registers it (no plugin does). */
 export const SCENE_KIND = "audioScene";
 /** Where new scenes go when the project has the folder. */
 export const SCENE_FOLDER = "audio/scenes";
@@ -144,7 +144,7 @@ export const scene = computed<AudioTestScene | null>(() => openDoc.value?.value.
 export const readOnly = computed(() => !project()?.canSave || !!openDoc.value?.readOnly);
 
 /**
- * The open scene's base game scene as imported (ADR 0333: its audio components and colliders, read-only underneath), or
+ * The open scene's base game scene as imported (ADR 0347: its audio components and colliders, read-only underneath), or
  * null when it names none. Read from the project's files (the game scene's latest saved content). Tracks.
  */
 export const baseImport = computed<BaseSceneImport | null>(() => {
@@ -361,14 +361,14 @@ export const VOICES_POLL_MS = 250;
 /**
  * The Studio runtime's World, while the runtime can play: the Engine the Studio starts (`engineRuntime.ts`) is the page's
  * only one and keeps its World current (`World.active`), as the test scene player's own tests reach it.
- * TODO(ADR 0327): a `world` on the runtime host would make this a seam instead of the current-World lookup.
+ * TODO(ADR 0341): a `world` on the runtime host would make this a seam instead of the current-World lookup.
  */
 function studioWorld(): World | null {
   if (!audioHost().playable.peek()) return null;
   return World.active;
 }
 
-/** The base game scene loaded in the World under the audition (ADR 0333), by the path the scene names. */
+/** The base game scene loaded in the World under the audition (ADR 0347), by the path the scene names. */
 let loadedBase: { readonly path: string; readonly loaded: LoadedBaseScene } | null = null;
 /** Bumped by every start, base change and stop, so a base load that finishes after the audition moved on is dropped. */
 let auditionGen = 0;

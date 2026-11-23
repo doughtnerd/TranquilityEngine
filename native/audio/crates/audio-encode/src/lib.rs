@@ -1,16 +1,16 @@
-//! Myco's audio encoder (ADR 0337 §4, amended by 0345 §1–§3): turns PCM into what a platform ships.
+//! Myco's audio encoder (ADR 0351 §4, amended by 0359 §1–§3): turns PCM into what a platform ships.
 //!
 //! | Codec | Output | Notes |
 //! |---|---|---|
 //! | [`Codec::Pcm`] | 16-bit RIFF WAV | rounded, no dither |
 //! | [`Codec::Adpcm`] | raw IMA ADPCM blocks, [`adpcm`]'s layout | the frame count travels beside the bytes |
-//! | [`Codec::Vorbis`] | Ogg Vorbis (libvorbis 1.3.7, VBR) | `q = quality` on libvorbis's −0.1..1 scale (0337 §2: quality × 10 is `-q`) |
+//! | [`Codec::Vorbis`] | Ogg Vorbis (libvorbis 1.3.7, VBR) | `q = quality` on libvorbis's −0.1..1 scale (0351 §2: quality × 10 is `-q`) |
 //! | [`Codec::Opus`] | Ogg Opus (libopus 1.5.2, float, VBR, complexity 10, 20 ms frames) | always 48 kHz; 16 + 112 × quality kbps per stereo pair; mono or stereo; pre-skip = the encoder's look-ahead, end trimmed by the last granule |
 //!
 //! Before the codec: an optional **mono downmix** (the mean of the channels: (L+R)/2 for stereo) and a **rate
-//! ceiling** (never upsampled, except Opus, always 48 kHz), done by rubato's synchronous FFT resampler (0345 §2).
+//! ceiling** (never upsampled, except Opus, always 48 kHz), done by rubato's synchronous FFT resampler (0359 §2).
 //!
-//! # Host ABI (a WASI reactor; bytes cross through linear memory, never file descriptors: 0345 §1)
+//! # Host ABI (a WASI reactor; bytes cross through linear memory, never file descriptors: 0359 §1)
 //!
 //! The module is built for `wasm32-wasip1` as a reactor: the host calls `_initialize` once, then:
 //!

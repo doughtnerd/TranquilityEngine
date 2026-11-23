@@ -1,4 +1,4 @@
-// What the inline curve field (`CurveField.tsx`) opens the shared curve editor with (ADR 0332): one lane over the
+// What the inline curve field (`CurveField.tsx`) opens the shared curve editor with (ADR 0346): one lane over the
 // field's x range, its value range from the field's bounds (or the keys' fitted range, widened, when the field fits
 // them), linear keys only where the field has no shapes. Pure, so it is tested headless.
 import type { Curve } from "../../../engine/core/curve";

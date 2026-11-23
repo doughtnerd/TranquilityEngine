@@ -1,4 +1,4 @@
-/* The Audio Studio's shell (ADR 0327, 0335): header, screen dock, banner, start screen. Theme tokens only
+/* The Audio Studio's shell (ADR 0341, 0349): header, screen dock, banner, start screen. Theme tokens only
  * (src/editor/ui/editor.css lists them); the dock, dialogs and menus use the editor's own rules. */
 
 .studio { display: grid; height: 100%; grid-template-rows: auto auto 1fr auto auto; grid-template-areas: "header" "banner" "main" "player" "status"; }

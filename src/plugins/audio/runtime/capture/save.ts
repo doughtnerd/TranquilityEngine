@@ -19,7 +19,7 @@ import type { RingSpan } from "./ring";
 
 /** The file extension every capture carries. */
 export const CAPTURE_EXTENSION = ".mycap";
-/** ADR 0334: a take's (`TAKE_SUFFIX` of `engine/audio/take/types.ts`). */
+/** ADR 0348: a take's (`TAKE_SUFFIX` of `engine/audio/take/types.ts`). */
 export const TAKE_EXTENSION = ".mycotake";
 
 /** What is saved: a capture (`.mycap`, auto names `capture-…`) or a take (`.mycotake`, auto names `take-…`). */
@@ -54,14 +54,14 @@ export interface SaveTake {
   /** The first kept seq when the ring wrapped over the take's start, else 0. */
   truncatedFromSeq: number;
   /**
-   * ADR 0334: a take's request records (whole records, head and payload, in seq order; their seqs taken from the ring's
+   * ADR 0348: a take's request records (whole records, head and payload, in seq order; their seqs taken from the ring's
    * counter), merged into the span by seq. With it the file is a take (`header.take`).
    */
   requests?: { bytes: Uint8Array; recordCount: number };
 }
 
 /**
- * ADR 0334: the ring's span with a take's request records merged in by seq (both streams are in seq order and their seqs
+ * ADR 0348: the ring's span with a take's request records merged in by seq (both streams are in seq order and their seqs
  * come from one counter, so the merge keeps every record's order); the INDEX entries move with their keyframes.
  */
 export function mergeRequests(span: RingSpan, requests: { bytes: Uint8Array; recordCount: number }): RingSpan {

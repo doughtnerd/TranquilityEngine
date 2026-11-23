@@ -1,4 +1,4 @@
-// The meter pass (ADR 0157 task C1b; moved here and given a fuel mode by ADR 0338 §6 and 0344 §2): a post-link pass
+// The meter pass (ADR 0157 task C1b; moved here and given a fuel mode by ADR 0352 §6 and 0358 §2): a post-link pass
 // over a wasm binary that counts the instructions it executes, either up (the metered gate's `count` mode) or down
 // against a budget that traps (`fuel` mode, the plugin effects' instruction budget). Plain JavaScript with no
 // dependencies, so the audio build (`native/audio/build.mjs`, Node) and the engine (the plugin validator, in a browser)
@@ -11,7 +11,7 @@
 //
 // - `count` (the default; the metered gate's, unchanged from `tools/audio-bench/meter.mjs`): one new mutable i64 global,
 //   exported as `__metered_count`; each segment starts with `global.get c; i64.const n; i64.add; global.set c`.
-// - `fuel` (0344 §2): one new mutable i32 global, initial 0, exported as `__fuel`; each segment starts with
+// - `fuel` (0358 §2): one new mutable i32 global, initial 0, exported as `__fuel`; each segment starts with
 //   `global.get f; i32.const n; i32.sub; global.set f`, so the fuel left after a call is the grant minus the exact count
 //   the `count` mode reports. Function entries and loop headers then check, branch-free:
 //   `global.get f; i32.const 31; i32.shr_s; i32.load8_u 0; drop` loads a byte from address 0 while fuel is ≥ 0 and from

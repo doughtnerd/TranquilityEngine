@@ -1,4 +1,4 @@
-// ADR 0329: the playlist runtime's trigger gate and Queue picks, through `Audio.play` on the fake backend.
+// ADR 0343: the playlist runtime's trigger gate and Queue picks, through `Audio.play` on the fake backend.
 import { describe, expect, it, vi } from "vitest";
 import { Audio } from "../Audio";
 import { endAudioSession } from "../testing";

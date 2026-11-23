@@ -1,5 +1,5 @@
 // ADR 0162 A6b: the `stress` sample carries the high preset's numbers (HRTF 8, `maxBeds` 4, `maxClips` 2) and its mix
-// (`audio.json` since ADR 0330) parses without a problem.
+// (`audio.json` since ADR 0344) parses without a problem.
 import { describe, expect, it } from "vitest";
 import stress from "../../../samples/stress/audio.json";
 import { parseAudioProject } from "../audio/project/format";

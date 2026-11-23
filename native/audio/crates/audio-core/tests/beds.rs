@@ -674,7 +674,7 @@ fn an_hrtf_voice_holds_its_slot_through_the_crossfade_to_the_bed_and_comes_back_
     assert!(lo_to_bed > 0.1 && lo_back > 0.1, "no gap");
 }
 
-/// ADR 0333 (ABI 4.11): a bed voice's spread. A noise voice ahead, encoded into a root-hosted bed
+/// ADR 0347 (ABI 4.11): a bed voice's spread. A noise voice ahead, encoded into a root-hosted bed
 /// and decoded through the baked matrix, reads correlated ears as a point; with a full spread its
 /// point part (into the bed) is gone and its diffuse part decorrelates the ears, at the same power,
 /// while the bed still counts the voice.

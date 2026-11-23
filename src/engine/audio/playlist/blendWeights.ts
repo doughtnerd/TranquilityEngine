@@ -1,5 +1,5 @@
 /**
- * Blend weights (ADR 0329 "Blend"; the prototype's `levelGains`, PL:868–875, and its 2D triangulation, PL:706–721): how
+ * Blend weights (ADR 0343 "Blend"; the prototype's `levelGains`, PL:868–875, and its 2D triangulation, PL:706–721): how
  * much of each entry a Blend plays for an input position. The runtime applies these to the entries' voices; the Studio
  * draws the same numbers.
  *
@@ -15,7 +15,7 @@
  *   the input is projected onto the nearest hull edge (two weights). One point gets 1; with fewer than three points (or
  *   all points on a line) the nearest segment between two points is used.
  *
- * - **Explicit regions** (ADR 0336, 1D only): an entry with a region plays by it (`regionWeight`); the layer/crossfade
+ * - **Explicit regions** (ADR 0350, 1D only): an entry with a region plays by it (`regionWeight`); the layer/crossfade
  *   mode and equal power only shape the regions derived for entries without one, so old files keep their weights.
  *
  * Pure; no plugin, no DOM.
@@ -28,7 +28,7 @@ import { evalCurve, type Curve } from "../../core/curve";
 export interface BlendPoint { x: number; y: number }
 
 /**
- * ADR 0336: an entry's explicit region on a 1D axis, in the same normalised units as `xs` (the caller normalises
+ * ADR 0350: an entry's explicit region on a 1D axis, in the same normalised units as `xs` (the caller normalises
  * `BlendRegion`'s axis units). Shapes absent: the blend's `curve` (`linear` → linear, `equalPower` → equalPower).
  */
 export interface Region1D {
@@ -40,7 +40,7 @@ export interface Region1D {
   shapeOut?: FadeShape;
 }
 
-/** ADR 0336: the weight an explicit region gives at `x`: 0 outside [start, end], the fades' levels at their edges, else 1. */
+/** ADR 0350: the weight an explicit region gives at `x`: 0 outside [start, end], the fades' levels at their edges, else 1. */
 export function regionWeight(r: Region1D, x: number, curve: "linear" | "equalPower"): number {
   if (x < r.start || x > r.end) return 0;
   const def: FadeShape = curve === "equalPower" ? "equalPower" : "linear";
@@ -51,7 +51,7 @@ export function regionWeight(r: Region1D, x: number, curve: "linear" | "equalPow
 }
 
 /**
- * The region ADR 0329's rules give an entry with none (ADR 0336 "derived"), in normalised units: crossfade from the
+ * The region ADR 0343's rules give an entry with none (ADR 0350 "derived"), in normalised units: crossfade from the
  * previous entry's x to its own and out to the next one's (the outermost ones reach past the axis); layer from the
  * previous one's x to its own and never out (the lowest always plays). Its fades are linear; the weights the derived
  * regions give are `blendWeights1D`'s for entries without a region (with √ for equal power in crossfade mode).
@@ -72,7 +72,7 @@ export function derivedRegion(xs: readonly number[], index: number, fade: "cross
 
 /**
  * Weights for a 1D blend: `xs` are the entries' normalised positions in entry order; the result is in entry order.
- * ADR 0336: an entry with an explicit region (`regions[i]`) takes `regionWeight`; the others keep ADR 0329's weights.
+ * ADR 0350: an entry with an explicit region (`regions[i]`) takes `regionWeight`; the others keep ADR 0343's weights.
  */
 export function blendWeights1D(
   xs: readonly number[], x: number, fade: "crossfade" | "layer", curve: "linear" | "equalPower",
@@ -92,7 +92,7 @@ export function blendWeights1D(
   return w;
 }
 
-/** ADR 0336: a weight through an entry's weight curve, clamped to 0..1. */
+/** ADR 0350: a weight through an entry's weight curve, clamped to 0..1. */
 export function shapeWeight(c: Curve, w: number): number {
   return clamp01(evalCurve(c, clamp01(w)));
 }
@@ -133,7 +133,7 @@ function derivedWeights1D(xs: readonly number[], x: number, fade: "crossfade" | 
 export function blendWeights2D(points: readonly BlendPoint[], p: BlendPoint, curve: "linear" | "equalPower" = "linear", weightCurves?: readonly (Curve | undefined)[]): number[] {
   const w = rawWeights2D(points, p, weightCurves?.some((c) => c !== undefined) ? "linear" : curve);
   if (!weightCurves || !weightCurves.some((c) => c !== undefined)) return w;
-  // ADR 0336: each entry's raw weight through its curve (√ for one without, under equal power); under equal power the
+  // ADR 0350: each entry's raw weight through its curve (√ for one without, under equal power); under equal power the
   // shaped weights are normalised to constant power (a no-op when no entry has a curve: Σ(√w)² = Σw = 1).
   let power = 0;
   for (let i = 0; i < w.length; i++) {

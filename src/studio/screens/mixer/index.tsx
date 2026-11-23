@@ -1,4 +1,4 @@
-// The Mixer screen's panels (ADR 0330, 0327 "The shell"; the prototype's layout): Snapshots and Gain lanes (left),
+// The Mixer screen's panels (ADR 0344, 0341 "The shell"; the prototype's layout): Snapshots and Gain lanes (left),
 // Buses (the fixed panel), the Inspector, Game parameters (test values) and Global parameters (their definitions) on the
 // right, Loudness (bottom) and History on demand. They
 // share one session over `audio.json`'s document (`mixerScreen.ts`), made here for the open project with the real

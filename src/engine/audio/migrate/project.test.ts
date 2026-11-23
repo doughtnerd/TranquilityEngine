@@ -140,7 +140,7 @@ describe("migrateProjectAudio", () => {
   });
 });
 
-describe("migrateProjectAudio: looping clips' loops go into the samples' sidecars (ADR 0328)", () => {
+describe("migrateProjectAudio: looping clips' loops go into the samples' sidecars (ADR 0342)", () => {
   it("writes a new sidecar holding the loop region as an endless loop; the clip plays the sample's loop", async () => {
     const fs = small({ "a.audioevent.json": loopClip("hum.wav", { loopRegion: [0.25, 1.25] }) }, { "hum.wav": wav(2) });
     const report = await migrateProjectAudio(fs, ROOT);

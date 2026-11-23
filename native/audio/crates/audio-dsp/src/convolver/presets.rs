@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 //! The generated zone impulse responses (ADR 0162 R10, api-and-models §2.3): `room`, `corridor`,
-//! `hall`, `cave` and `open`, and ADR 0333's `smallStone`, `canyonHall`, `metalTunnel` and `forest`,
+//! `hall`, `cave` and `open`, and ADR 0347's `smallStone`, `canyonHall`, `metalTunnel` and `forest`,
 //! each `{ rt60 s, hfDamping, predelayMs }`. The decoder worker generates
 //! them (`myco_ir_generate`, task C2a) at the context rate and prepares them like any zone IR (trim,
 //! cut, the shared reverb's normalisation, partition), so main never holds a time-domain IR.
@@ -40,7 +40,7 @@ pub struct Preset {
 }
 
 /// The presets in code order (`myco_ir_generate`'s `preset` is the index): api-and-models §2.3,
-/// then ADR 0333's four named spaces (indices 5..=8), each with its own times, set from the I3DL2 /
+/// then ADR 0347's four named spaces (indices 5..=8), each with its own times, set from the I3DL2 /
 /// EAX environment families their names belong to (decay, HF ratio as `1 - hf_damping`, reverb
 /// delay as predelay), scaled to the space the name describes:
 /// - `smallStone`: a small stone chamber. EAX "Stone room" decays 2.31 s with HF ratio 0.64; a
@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn every_preset_decays_at_its_own_declared_time() {
-        // ADR 0333's four have their own times, none borrowed from the generated five.
+        // ADR 0347's four have their own times, none borrowed from the generated five.
         for name in ["smallStone", "canyonHall", "metalTunnel", "forest"] {
             let p = PRESETS[index_of(name).unwrap() as usize];
             let borrowed = PRESETS[..5].iter().any(|q| q.rt60 == p.rt60 && q.hf_damping == p.hf_damping && q.predelay_ms == p.predelay_ms);

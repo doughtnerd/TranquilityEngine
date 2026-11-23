@@ -1,5 +1,5 @@
 /**
- * ADR 0328: a clip voice played with its sample plan — the one place `Audio.playOneShot`, `AudioSource` and `AudioZone`
+ * ADR 0342: a clip voice played with its sample plan — the one place `Audio.playOneShot`, `AudioSource` and `AudioZone`
  * apply what the clip resolver's request (`clipRequest`: level, normalisation gain, trimmed start) can't carry, because
  * it acts on the playing voice. The playlist runtime does the same for its voices with its own scheduler and loop
  * adapter (`playlists/instance.ts` `playSample`), from the same `samplePlan` and `samplePass`.
@@ -83,7 +83,7 @@ export function playSampleVoice(path: string, req: PlayRequest, skip = 0): Audio
     if (plan.loop && !loop) req.loop = false;
   }
   const start = req.at ?? playlistHost().horizon() ?? playlistHost().clock();
-  // ADR 0337 §7: through the package registry (the strict rule; an unload stops the voice).
+  // ADR 0351 §7: through the package registry (the strict rule; an unload stops the voice).
   const voice = mediaPlay(req);
   if (!voice) return null;
   if (loop) {

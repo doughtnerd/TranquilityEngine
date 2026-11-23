@@ -1,4 +1,4 @@
-// ADR 0334 "Replay": the replay model, through its interface, over a fake clock and a target that records what it is
+// ADR 0348 "Replay": the replay model, through its interface, over a fake clock and a target that records what it is
 // asked: requests at their times and in order, seek reconstruction from the nearest keyframe, pose interpolation, the
 // loop range and Restart instances.
 import { describe, expect, it } from "vitest";
@@ -66,7 +66,7 @@ function setup(records: TakeRecord[], meta: TakeMeta = META, opts?: { seeds?: bo
   return { replay, clock, at, ...fake };
 }
 
-describe("TakeReplay (ADR 0334)", () => {
+describe("TakeReplay (ADR 0348)", () => {
   it("issues each request when the playhead passes it, in file order among equal times", () => {
     const { replay, log, at, handles } = setup([
       req({ kind: "param", t: 0, instance: null, name: "Speed", value: 10 }),
@@ -274,7 +274,7 @@ describe("TakeReplay (ADR 0334)", () => {
   });
 });
 
-describe("TakeReplay: lines, languages and dialogue says (ADR 0340 §10, 0341 §6)", () => {
+describe("TakeReplay: lines, languages and dialogue says (ADR 0354 §10, 0355 §6)", () => {
   /** A target whose `say` picks from a table (what the current project would pick), and plays lines by key. */
   function sayTarget(picks: Record<string, string | null>) {
     const fake = fakeTarget();

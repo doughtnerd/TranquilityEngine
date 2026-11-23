@@ -1,7 +1,7 @@
-// The inline curve field (ADR 0158 §7, ADR 0332): a small graph to edit a curve where it sits (an Inspector field, a
+// The inline curve field (ADR 0158 §7, ADR 0346): a small graph to edit a curve where it sits (an Inspector field, a
 // node's property), and a button that opens the shared curve editor dialog on it for the full tools (shapes, Bézier
 // handles, presets, numeric fields, undo inside the dialog). Its props are the old `CurveEditor` widget's, so the SDK
-// keeps that name as an alias for one release (ADR 0332 Deprecates).
+// keeps that name as an alias for one release (ADR 0346 Deprecates).
 import { useEffect, useRef, useState } from "preact/hooks";
 import { evalCurve, type Curve, type CurveInterp } from "../../../engine/core/curve";
 import { createDraft } from "./curveEditorModel";
@@ -87,7 +87,7 @@ function NumInput(props: { value: number; label: string; disabled?: boolean; onC
  * A curve as a small SVG graph (ADR 0057 for particles, ADR 0158 §7 for audio). Drag a key to move it, double-click
  * empty space to add one, double-click or right-click a key (or select it and press Delete) to remove it. With
  * `interpolation`, the selected key also picks the shape of the segment that follows it. "Edit…" opens the shared
- * curve editor dialog (ADR 0332) on the curve; Apply there is one change.
+ * curve editor dialog (ADR 0346) on the curve; Apply there is one change.
  */
 export function CurveField(props: CurveFieldProps) {
   const { curve, onChange, label, readOnly, xRange, interpolation } = props;

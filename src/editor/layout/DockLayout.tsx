@@ -46,7 +46,7 @@ const RESIZE_THRESHOLD = 3;
  * its own measured size and drag.
  */
 export interface DockScope {
-  /** Whose layout it is: the editor's, or an Audio Studio screen's (ADR 0327). */
+  /** Whose layout it is: the editor's, or an Audio Studio screen's (ADR 0341). */
   readonly host: DockHost;
   /** `MAIN_WINDOW`, or the detached window's id. */
   readonly windowId: string;
@@ -486,7 +486,7 @@ function openHeaderMenu(scope: DockScope, e: MouseEvent, group: string, panel?: 
 /**
  * Right-click on a tab or a group's header (ADR 0174): Add Panel… (into this group; or, for a host without an Add
  * Panel dialog, "Add <panel>" for each panel type not open), Close, then what the host offers: Detach and Move to
- * (detached windows) and Reset layout (ADR 0327).
+ * (detached windows) and Reset layout (ADR 0341).
  */
 function HeaderMenu() {
   const m = headerMenu.value!;

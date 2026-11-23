@@ -1,4 +1,4 @@
-//! Spike B0 (ADR 0338): a stand-in for the audio core. It owns planar stereo buffers and parameter blocks for up
+//! Spike B0 (ADR 0352): a stand-in for the audio core. It owns planar stereo buffers and parameter blocks for up
 //! to 32 effect slots in its own memory and calls each slot's plugin through the `myco_ext.process` import, as the
 //! core's chains would. It keeps a running state (a quantum counter, a fault counter and an FNV hash over every
 //! slot's output) so the spike can show that a plugin fault leaves the host's state exactly as a pass-through would.

@@ -1,9 +1,9 @@
 /**
- * Automation lanes as voice controls (ADR 0329 `Automation`): one mapping for sequence clips and tracks (`sequence.ts`)
+ * Automation lanes as voice controls (ADR 0343 `Automation`): one mapping for sequence clips and tracks (`sequence.ts`)
  * and a playlist's own instance-level lanes (`PlaylistBody.automation`, applied in `bodyCtx`).
  *
  * Targets: `volume`, `pitch`, `enabled` (a step on the gain), `pan` (ABI 4.4), and an effect parameter: on the
- * instance's own chain while it runs on the instance's submix (ABI 4.8, ADR 0331 instance automation), any catalogue
+ * instance's own chain while it runs on the instance's submix (ABI 4.8, ADR 0345 instance automation), any catalogue
  * parameter keyed on a parameter or `sequenceTime` drives the submix's effect in the core (`AudioSubmixes.automate`),
  * so a low-pass opens above its authored cutoff; otherwise the playlist effects adapter (`effects.ts`) maps it onto a
  * voice control where it can (a low-pass or high-pass `cutoff`, ABI 4.4, or a gain effect's `gain`), and any other
@@ -63,7 +63,7 @@ export function automationParts(host: NodeHost, list: readonly Automation[], eff
       else if (fx?.type === "highpass" && param === "cutoff") target = "highpass";
       else if (fx?.type === "gain" && param === "gain") target = "gain";
       else {
-        warnOnce(`playlist:auto-fx:${fx?.type ?? id}:${param}`, `[myco] ${where}: automation of "${a.target}" needs instance submixes (ADR 0331)${fx ? "" : " and names no effect of its level"}; skipped. Low-pass and high-pass cutoff and gain apply.`);
+        warnOnce(`playlist:auto-fx:${fx?.type ?? id}:${param}`, `[myco] ${where}: automation of "${a.target}" needs instance submixes (ADR 0345)${fx ? "" : " and names no effect of its level"}; skipped. Low-pass and high-pass cutoff and gain apply.`);
         continue;
       }
       if (target === "gain" && fx) {
@@ -78,7 +78,7 @@ export function automationParts(host: NodeHost, list: readonly Automation[], eff
       continue;
     }
     if (a.quantize !== undefined) {
-      // ADR 0336: a quantised lane moves on the musical clock: the voices' own gain ramp, or a stepped voice-time binding
+      // ADR 0350: a quantised lane moves on the musical clock: the voices' own gain ramp, or a stepped voice-time binding
       // for pitch, pan and the filters (`quantizedLanes.ts`).
       ctx = { ...ctx, quantized: [...(ctx.quantized ?? []), new QuantLane(a.input.parameter, curve, a.quantize, where, target)] };
       continue;

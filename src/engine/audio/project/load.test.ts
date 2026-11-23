@@ -12,9 +12,9 @@ describe("projectWithAudio", () => {
     expect(read.problems).toEqual([]);
     expect(read.warnings).toEqual([]);
     const settings = resolveSettings(read.project);
-    expect(settings.audio.doppler.amount).toBe(0.5); // ADR 0333: the Doppler pass scales every voice's level by it
+    expect(settings.audio.doppler.amount).toBe(0.5); // ADR 0347: the Doppler pass scales every voice's level by it
     expect(settings.name).toBe("Game");
-    // ADR 0330 (ABI 4.7): the return is a bus of the view, after the buses, its output as the parent.
+    // ADR 0344 (ABI 4.7): the return is a bus of the view, after the buses, its output as the parent.
     expect(settings.audio.buses.map((b) => [b.name, b.volume])).toEqual([["Master", 1], ["Music", expect.closeTo(Math.pow(10, -6 / 20), 9)], ["Echo", 1]]);
     expect(settings.audio.buses[2]!.parent).toBe("Master");
   });

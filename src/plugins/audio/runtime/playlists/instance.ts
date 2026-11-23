@@ -1,5 +1,5 @@
 /**
- * One playing playlist (ADR 0329): its tree of live nodes (`nodes.ts`), its voices, its local parameters and what its
+ * One playing playlist (ADR 0343): its tree of live nodes (`nodes.ts`), its voices, its local parameters and what its
  * handle does (`release`, `stop`, parameters, position).
  *
  * - **plays:** `oneShot` ends when its voices end; `untilStopped` stays alive until the game stops it, and its samples
@@ -52,7 +52,7 @@ import { dialogueEvent } from "../localisation/lineRegistry";
 import { resolveLine } from "../localisation/lineResolve";
 import { decideEvent, dialogueMemory } from "../dialogue/decideLine";
 
-/** ADR 0340 §5: the line a line entry played: its key, file and the language it is in. */
+/** ADR 0354 §5: the line a line entry played: its key, file and the language it is in. */
 export interface HeardLine {
   readonly key: string;
   readonly path: string;
@@ -63,16 +63,16 @@ export interface HeardLine {
 export interface PlaylistOptions extends EventOptions {
   /** @internal The node that plays it (debug rows' Source column, the test-scene readout). */
   owner?: string;
-  /** @internal ADR 0333: an `AudioZone` plays it, so it has the built-in local parameter `zoneDepth` (0..1). */
+  /** @internal ADR 0347: an `AudioZone` plays it, so it has the built-in local parameter `zoneDepth` (0..1). */
   zone?: boolean;
   /**
-   * @internal ADR 0333: an `AudioZone` heard `inside` plays it: a playlist with no spatial block is positioned all the
+   * @internal ADR 0347: an `AudioZone` heard `inside` plays it: a playlist with no spatial block is positioned all the
    * same (no distance loss), so the zone can place it around the listener in its bus's bed.
    */
   zoneInside?: boolean;
 }
 
-/** ADR 0333: the built-in local parameter an `AudioZone` sets on the instance it plays (0 at the edge, 1 at the centre). */
+/** ADR 0347: the built-in local parameter an `AudioZone` sets on the instance it plays (0 at the edge, 1 at the centre). */
 export const ZONE_DEPTH_PARAMETER = "zoneDepth";
 
 /** What an instance needs of its system. */
@@ -90,10 +90,10 @@ export interface InstanceSystem {
 /** What became of a stinger trigger: on its point, late (`ifLate`), skipped (`ifLate: "skip"`), dropped (a repeat or no point). */
 export type StingerOutcome = "played" | "late" | "skipped" | "dropped";
 
-/** The stop fade when the game names none (ADR 0329: "stop fades everything over 120 ms"). */
+/** The stop fade when the game names none (ADR 0343: "stop fades everything over 120 ms"). */
 export const STOP_FADE_SECONDS = 0.12;
 const HELD: LoopBehaviour = Object.freeze({ active: "held", exit: "finish", exitFadeMs: 40, reentry: "ignore" });
-/** ADR 0328: the loop programs of voices playing a sample's loops (the core runs them; `resend` sends them again). */
+/** ADR 0342: the loop programs of voices playing a sample's loops (the core runs them; `resend` sends them again). */
 const programs = new WeakMap<LoopRun, readonly VoiceLoop[]>();
 
 const dbToGain = (db: number): number => Math.pow(10, db / 20);
@@ -139,7 +139,7 @@ export class PlaylistInstance implements NodeHost {
   private fadeRamp: { from: number; to: number; t0: number; seconds: number } | null = null;
   private pitchOption: number;
   private readonly spatialRoot: boolean;
-  /** ADR 0333: each spatial block's plan (one per body), its evaluated curves, and the voices playing by one. */
+  /** ADR 0347: each spatial block's plan (one per body), its evaluated curves, and the voices playing by one. */
   private readonly planByBody = new Map<PlaylistBody, SpatialPlan>();
   private readonly curvePlans = new Map<SpatialPlan, CurvePlan>();
   private readonly curveVoices = new WeakMap<PVoice, CurveVoice>();
@@ -157,7 +157,7 @@ export class PlaylistInstance implements NodeHost {
     this.startedAt = startedAt;
     this.pitchOption = Math.max(0.0625, options.pitch ?? 1);
     this.localDefs = localDefsOf(asset, path);
-    // ADR 0333: a zone's instance has `zoneDepth` even when the playlist doesn't declare it (a declared one keeps its range).
+    // ADR 0347: a zone's instance has `zoneDepth` even when the playlist doesn't declare it (a declared one keeps its range).
     if (options.zone && !this.localDefs.has(ZONE_DEPTH_PARAMETER) && this.localDefs.size < MAX_LOCAL_SLOTS) {
       this.localDefs.set(ZONE_DEPTH_PARAMETER, { slot: this.localDefs.size, def: { name: ZONE_DEPTH_PARAMETER, min: 0, max: 1, default: 0, seekSpeed: 0 } });
     }
@@ -171,7 +171,7 @@ export class PlaylistInstance implements NodeHost {
         if (n !== null) this.locals[l.slot] = n;
       }
     }
-    // ADR 0333: an inside zone's playlist is positioned even without a spatial block, so its interior is heard in the bed.
+    // ADR 0347: an inside zone's playlist is positioned even without a spatial block, so its interior is heard in the bed.
     this.spatialRoot = hasSpatial(asset) || options.zoneInside === true;
     this.pos = options.position ? { x: options.position.x, y: options.position.y, z: options.position.z } : null;
   }
@@ -221,12 +221,12 @@ export class PlaylistInstance implements NodeHost {
   }
 
   /**
-   * ADR 0340 §3, §5: why the last sample or line it picked played nothing (`missingLanguage`, `unknownLine`, or a
+   * ADR 0354 §3, §5: why the last sample or line it picked played nothing (`missingLanguage`, `unknownLine`, or a
    * dialogue event's refusal); null when every pick played.
    */
   refusal: AudioReason | null = null;
 
-  /** ADR 0340 §5: the line its last line entry played (key, file and language), for the line handle; null before one. */
+  /** ADR 0354 §5: the line its last line entry played (key, file and language), for the line handle; null before one. */
   heardLine: HeardLine | null = null;
 
   get panner(): AudioPanner | null {
@@ -342,7 +342,7 @@ export class PlaylistInstance implements NodeHost {
     return this.stopped ? null : this.root?.musicalSource() ?? null;
   }
 
-  // --- stingers (ADR 0329 "Stingers") ----------------------------------------------------------------------------
+  // --- stingers (ADR 0343 "Stingers") ----------------------------------------------------------------------------
 
   private rootCtx: Ctx | null = null;
   private readonly stingers: { name: string; node: LiveNode; at: number }[] = [];
@@ -431,7 +431,7 @@ export class PlaylistInstance implements NodeHost {
       spatial: null,
       where: this.path,
     };
-    // ADR 0331: the instance's own effects run on a submix of its voices on its bus, when the backend has one free.
+    // ADR 0345: the instance's own effects run on a submix of its voices on its bus, when the backend has one free.
     this.submixedEffects = this.openSubmix(a);
     // ABI 4.9: nested levels' submixes on the same bus feed it.
     const root = this.submixedEffects ? audioBackend().submixes?.levelOf(this.group) ?? null : null;
@@ -453,14 +453,14 @@ export class PlaylistInstance implements NodeHost {
     return mixer.resolveOutput(bus);
   }
 
-  /** `NodeHost.levelSubmix` (ADR 0331 levels, ABI 4.9): a submix of this instance's own for one of its levels. */
+  /** `NodeHost.levelSubmix` (ADR 0345 levels, ABI 4.9): a submix of this instance's own for one of its levels. */
   levelSubmix(key: string, effects: readonly Effect[], bus: string, parent: SubmixLevel | null, where: string): SubmixLevel | null {
     if (this.group <= 0 || this.stopped || effects.length === 0) return null;
     return audioBackend().submixes?.openLevel(this.group, key, bus, effects, parent, where) ?? null;
   }
 
   /**
-   * ADR 0331: a submix for the root playlist's (or sequence's) enabled effects, feeding the bus its voices play on (the
+   * ADR 0345: a submix for the root playlist's (or sequence's) enabled effects, feeding the bus its voices play on (the
    * root's output, else the play's bus: what `clipRequest` resolves for them). The root's effects when it got one; null
    * when it has none to run, the backend has no submixes, or the pool is full (the voices then map them, `effects.ts`).
    * The playlist runtime frees it with the group.
@@ -555,7 +555,7 @@ export class PlaylistInstance implements NodeHost {
     this.quant.onParameter(name);
   }
 
-  /** ADR 0336: the instance's beat-quantised automation lanes (`quantizedLanes.ts`). */
+  /** ADR 0350: the instance's beat-quantised automation lanes (`quantizedLanes.ts`). */
   private readonly quant = new QuantizedLanes(this);
 
   /** Once per frame. */
@@ -635,7 +635,7 @@ export class PlaylistInstance implements NodeHost {
   noteLateStart(): void { this.sys.noteLateStart(this); }
 
   /**
-   * ADR 0333: a playlist's `spatial` block as a plan its voices play by. The attenuation (preset or inline) is stretched
+   * ADR 0347: a playlist's `spatial` block as a plan its voices play by. The attenuation (preset or inline) is stretched
    * to the playing source's `minDistance`/`maxDistance` when it gives them, and its curves are evaluated per frame
    * (`updateAttenuation`). A volume curve drives the voices' level, so they play with `CURVE_DRIVEN_ATTENUATION`; an
    * attenuation without one keeps the inverse law between its distances (ADR 0162's default), so a spatial playlist with
@@ -654,7 +654,7 @@ export class PlaylistInstance implements NodeHost {
       occlusion: s.occlusion,
       doppler: s.doppler,
     };
-    // ADR 0333: the block's own `spread` (degrees) wins over the attenuation's spread curve; both reach the voices (`spreadOf`).
+    // ADR 0347: the block's own `spread` (degrees) wins over the attenuation's spread curve; both reach the voices (`spreadOf`).
     const curved: CurvePlan = { curves: att.curves, volumeCurve, gain: { gain: 1 }, at: { volumeDb: 0, lowpassHz: LOWPASS_OFF_HZ, reverbSendDb: 0, spreadDeg: -1 }, spread: s.spread };
     this.evaluate(curved, this.listenerDistance());
     this.curvePlans.set(plan, curved);
@@ -663,7 +663,7 @@ export class PlaylistInstance implements NodeHost {
   }
 
   /**
-   * ADR 0333: the plan of an inside zone's playlist that has no spatial block: positioned (the zone places it around the
+   * ADR 0347: the plan of an inside zone's playlist that has no spatial block: positioned (the zone places it around the
    * listener), with no distance loss, no occlusion or Doppler, spread all round; the zone's spread and bed apply.
    */
   private zoneInsidePlan(body: PlaylistBody): SpatialPlan {
@@ -676,7 +676,7 @@ export class PlaylistInstance implements NodeHost {
   }
 
   /**
-   * ADR 0333: the spread a plan's voices play with, degrees: an audio zone's (`setZoneSpatial`), else the spatial block's
+   * ADR 0347: the spread a plan's voices play with, degrees: an audio zone's (`setZoneSpatial`), else the spatial block's
    * own `spread`, else its attenuation's spread curve at the listener's distance, else 0 (a point source).
    */
   private spreadOf(p: CurvePlan): number {
@@ -685,12 +685,12 @@ export class PlaylistInstance implements NodeHost {
     return p.at.spreadDeg >= 0 ? p.at.spreadDeg : 0;
   }
 
-  /** ADR 0333: an `AudioZone`'s spread for this instance's voices (degrees, null: the playlist's own) and whether they go to the bed. */
+  /** ADR 0347: an `AudioZone`'s spread for this instance's voices (degrees, null: the playlist's own) and whether they go to the bed. */
   private zoneSpread: number | null = null;
   private zoneBed = false;
 
   /**
-   * @internal ADR 0333: the `AudioZone` playing this instance, each frame: the spread its voices have (degrees; null gives
+   * @internal ADR 0347: the `AudioZone` playing this instance, each frame: the spread its voices have (degrees; null gives
    * the playlist's own back) and whether they are heard in their bus's bed (inside the zone). Applied with the frame's
    * attenuation update.
    */
@@ -735,7 +735,7 @@ export class PlaylistInstance implements NodeHost {
   }
 
   /**
-   * ADR 0333, once per frame: every plan's curves at the listener's distance; voices whose low-pass or send moved get
+   * ADR 0347, once per frame: every plan's curves at the listener's distance; voices whose low-pass or send moved get
    * them (the volume reaches them through the plan's gain factor, in `applyDynamics`).
    */
   private updateAttenuation(): void {
@@ -748,7 +748,7 @@ export class PlaylistInstance implements NodeHost {
       const send = this.sendLevel(cv.plan);
       const spread = this.spreadOf(cv.plan);
       const sendMoved = Math.abs(send - cv.appliedSend) > Math.max(1e-4, cv.appliedSend * 0.01);
-      // ADR 0333: spread and the zone's bed reach the voice through the same Play edit (the core takes them per voice).
+      // ADR 0347: spread and the zone's bed reach the voice through the same Play edit (the core takes them per voice).
       const spreadMoved = Math.abs(spread - cv.appliedSpread) > 0.5 || (spread === 0) !== (cv.appliedSpread === 0);
       const bedMoved = this.zoneBed !== cv.appliedBed;
       if (sendMoved || spreadMoved || bedMoved) {
@@ -762,7 +762,7 @@ export class PlaylistInstance implements NodeHost {
   }
 
   /**
-   * ADR 0333: the `zoneDepth` parameter an `AudioZone` sets each frame (0 at the edge, 1 at the centre), when the instance
+   * ADR 0347: the `zoneDepth` parameter an `AudioZone` sets each frame (0 at the edge, 1 at the centre), when the instance
    * has it (a zone's instance always does).
    */
   setZoneDepth(depth: number): void {
@@ -771,7 +771,7 @@ export class PlaylistInstance implements NodeHost {
   }
 
   /**
-   * `NodeHost.lineSample` (ADR 0340 §5, 0341 §3): the line a line entry plays now. Its key is the entry's own, else (a
+   * `NodeHost.lineSample` (ADR 0354 §5, 0355 §3): the line a line entry plays now. Its key is the entry's own, else (a
    * programmer entry, `line: null`) the play's `EventOptions.line`, else (`{ event }`) its dialogue event's decision with
    * arguments from this instance's labelled parameters of the same name (local, then global). The file is the key's in
    * the current audio language's chain. Nothing to play: null, with `refusal` saying why.
@@ -825,7 +825,7 @@ export class PlaylistInstance implements NodeHost {
   playSample(entry: SampleEntry, ctx: Ctx, loopOverride?: LoopRun | null): PVoice | null {
     if (this.stopped) return null;
     const path = entry.sample;
-    // ADR 0340 §2–§3: a localised sample plays its file in the current language's chain (the clip resolver swaps it);
+    // ADR 0354 §2–§3: a localised sample plays its file in the current language's chain (the clip resolver swaps it);
     // none in the chain: nothing plays, with reason `missingLanguage`.
     const local = localiseClip(path);
     if (local === null) {
@@ -851,7 +851,7 @@ export class PlaylistInstance implements NodeHost {
     const timed = coreTimeBindings(anchorTimeCurves(ctx.timeCurves, start), ctx.bindings, (curve) => this.curveId(curve), ctx.where);
     const timeCurves = timed.timeCurves;
     const t = evalTimeCurves(timeCurves, 0);
-    // ADR 0333: a positioned voice's plan adds its distance gain to the voice's dynamic gains.
+    // ADR 0347: a positioned voice's plan adds its distance gain to the voice's dynamic gains.
     const curved = ctx.spatial && this.pos && req.ambisonic !== true ? this.curvePlans.get(ctx.spatial) ?? null : null;
     const dynList: readonly DynGain[] = curved ? [...ctx.dyn, curved.gain] : ctx.dyn;
     const dyn = product(dynList) * t.gain;
@@ -861,7 +861,7 @@ export class PlaylistInstance implements NodeHost {
     req.priority = this.options.priority ?? this.asset.playback.priority;
     req.world = this.world;
     req.group = this.group;
-    // ADR 0331 levels (ABI 4.9): into its level's submix (the instance's own takes its voices by their group).
+    // ADR 0345 levels (ABI 4.9): into its level's submix (the instance's own takes its voices by their group).
     if (ctx.submix && !ctx.submix.root && ctx.submix.bus === req.bus) req.submix = ctx.submix.level;
     if (ctx.at !== null) req.at = ctx.at;
     if (this.options.owner) req.owner = this.options.owner;
@@ -879,10 +879,10 @@ export class PlaylistInstance implements NodeHost {
       if (this.options.reverbSend !== undefined) req.reverbSend = this.options.reverbSend;
       if (this.options.reverbSendCurve !== undefined) req.reverbSendCurve = this.options.reverbSendCurve;
       if (curved) {
-        // ADR 0333: the send follows the attenuation's `reverbSend` curve (and the volume curve's flat send curve).
+        // ADR 0347: the send follows the attenuation's `reverbSend` curve (and the volume curve's flat send curve).
         req.reverbSend = this.sendLevel(curved);
         if (curved.volumeCurve) req.reverbSendCurve = FLAT_SEND_CURVE;
-        // ADR 0333: the voice's spread and, inside an audio zone, its bus's bed.
+        // ADR 0347: the voice's spread and, inside an audio zone, its bus's bed.
         const spread = this.spreadOf(curved);
         if (spread > 0) req.spread = spread;
         if (this.zoneBed) req.bed = true;
@@ -894,12 +894,12 @@ export class PlaylistInstance implements NodeHost {
     const from = trim ? trim[0] : 0;
     const skip = this.startOffset > 0 ? this.offsetInto(this.startOffset, from, trim, loop, path) : 0;
     if (skip === null) return null;
-    // ADR 0328: the pass every play of a sample makes (`samplePass`): a trimmed start, sample-exact (a start offset, not a seek).
+    // ADR 0342: the pass every play of a sample makes (`samplePass`): a trimmed start, sample-exact (a start offset, not a seek).
     const pass = samplePass(path, trim, skip);
     if (pass.offset > 0) req.offset = pass.offset;
     else delete req.offset;
     let voice: AudioVoice | null;
-    // ADR 0337 §7: through the package registry (the strict rule; an unload stops the voice).
+    // ADR 0351 §7: through the package registry (the strict rule; an unload stops the voice).
     try { voice = mediaPlay(req); } catch { voice = null; }
     if (!voice) return null;
     if (local.language !== null) noteLocalisedVoice(voice, local.language);
@@ -961,7 +961,7 @@ export class PlaylistInstance implements NodeHost {
 
   /**
    * The loop a sample entry plays with. `on` loops the trimmed region (released by `release`); `off` none; `inherit` the
-   * sample's own loops as a core loop program (ADR 0328: directions, counts, crossfades, hold points, activations, exits
+   * sample's own loops as a core loop program (ADR 0342: directions, counts, crossfades, hold points, activations, exits
    * and re-entry run in the voice; `programs` keeps it), else (in an `untilStopped` playlist) the trimmed region until
    * released. A program's run is "held" when any of its loops is (so `release` sends its key-off); parameter loops are
    * the core's, read from their parameter's slot.
@@ -991,7 +991,7 @@ export class PlaylistInstance implements NodeHost {
           start: l.start, end: l.end, direction: l.direction, crossfade: l.crossfadeMs / 1000, count: l.count, active,
           ...(param && b ? { param, op: b.op, threshold: b.value } : {}),
           exit: l.exit, exitFade: l.exitFadeMs / 1000, reentry: l.reentry,
-          // ADR 0336 (ABI 4.9): the seam and exit crossfades take the loop's shapes (absent: equal power).
+          // ADR 0350 (ABI 4.9): the seam and exit crossfades take the loop's shapes (absent: equal power).
           ...(l.crossfadeShape ? { crossfadeShape: l.crossfadeShape } : {}), ...(l.exitShape ? { exitShape: l.exitShape } : {}),
         });
       }
@@ -1023,7 +1023,7 @@ export class PlaylistInstance implements NodeHost {
     const loop = v.loop;
     if (!loop || loop.looping === active || programs.has(loop)) return; // a program's parameter loops are the core's
     if (!active) { this.endLoop(v); return; }
-    // After a release, or with `reentry: "ignore"`, a loop that was left stays left. TODO(ADR 0328 loop modes): `reenter`
+    // After a release, or with `reentry: "ignore"`, a loop that was left stays left. TODO(ADR 0342 loop modes): `reenter`
     // jumps back into a region already passed; re-arming here only catches a voice still before the loop's end.
     if (this.released || loop.behaviour.reentry === "ignore") return;
     loop.looping = true;
@@ -1052,7 +1052,7 @@ export class PlaylistInstance implements NodeHost {
           if (pitchMoved) v.voice.setPitch(v.base.pitch);
         }
       }
-      // ADR 0333: a curve voice's cutoff is the lowest of its own, its voice-time curve's and its distance curve's.
+      // ADR 0347: a curve voice's cutoff is the lowest of its own, its voice-time curve's and its distance curve's.
       const cv = this.curveVoices.get(v);
       const lowpass = cv ? Math.min(cv.staticLowpass, t?.lowpass ?? LOWPASS_NONE, cv.plan.at.lowpassHz) : t ? t.lowpass : null;
       if (lowpass !== null && (v.appliedLowpass === null || Math.abs(lowpass - v.appliedLowpass) > v.appliedLowpass * 0.01)) {
@@ -1063,7 +1063,7 @@ export class PlaylistInstance implements NodeHost {
   }
 }
 
-/** ADR 0333: a spatial plan's attenuation curves, evaluated per frame. */
+/** ADR 0347: a spatial plan's attenuation curves, evaluated per frame. */
 interface CurvePlan {
   readonly curves: AttenuationCurveSet;
   /** The plan has a volume curve (its voices play with `CURVE_DRIVEN_ATTENUATION`). */
@@ -1076,13 +1076,13 @@ interface CurvePlan {
   readonly spread: number | null;
 }
 
-/** ADR 0333: what a curve voice was last given beyond its volume. */
+/** ADR 0347: what a curve voice was last given beyond its volume. */
 interface CurveVoice {
   readonly plan: CurvePlan;
   /** The voice's own cutoff (its playlists' effects), Hz. */
   readonly staticLowpass: number;
   appliedSend: number;
-  /** ADR 0333: the spread (degrees) and bed the voice was last given. */
+  /** ADR 0347: the spread (degrees) and bed the voice was last given. */
   appliedSpread: number;
   appliedBed: boolean;
 }
@@ -1132,7 +1132,7 @@ function findStinger(b: PlaylistBody, name: string, depth: number): Stinger | nu
   return null;
 }
 
-/** Seconds from the start of the first sample `entry` plays to its Hit marker (ADR 0328), 0 (one warning) without one. */
+/** Seconds from the start of the first sample `entry` plays to its Hit marker (ADR 0342), 0 (one warning) without one. */
 function hitOffset(entry: Entry, chain: readonly string[]): number {
   const sample = firstSample(entry, chain, 0);
   if (sample) {
@@ -1148,8 +1148,8 @@ function hitOffset(entry: Entry, chain: readonly string[]): number {
 function firstSample(entry: Entry, chain: readonly string[], depth: number): SampleEntry | null {
   if (depth > 16) return null;
   if (entry.kind === "sample") return entry;
-  if (entry.kind === "line") return null; // ADR 0340 §5: its file is known only when it is picked
-  if (entry.kind === "generator") return null; // TODO(G3, ADR 0346): a generator has no sample
+  if (entry.kind === "line") return null; // ADR 0354 §5: its file is known only when it is picked
+  if (entry.kind === "generator") return null; // TODO(G3, ADR 0360): a generator has no sample
   const body = entry.kind === "embedded" ? entry.embedded : linkedPlaylist(entry.playlist, chain);
   if (!body) return null;
   const next = entry.kind === "linked" ? [...chain, entry.playlist] : chain;

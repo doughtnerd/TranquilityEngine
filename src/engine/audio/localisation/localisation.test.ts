@@ -108,11 +108,11 @@ describe("line tables", () => {
     ]);
   });
 
-  it("keep 0340's retired text as read, with a problem, until it is moved", () => {
+  it("keep 0354's retired text as read, with a problem, until it is moved", () => {
     const raw = { format: "myco.lines@1", lines: [{ key: "intro_01", text: { en: "We're late.", fr: "On est en retard." } }] };
     const { table, problems } = parseLineTable(raw);
     expect(table.lines[0].text).toEqual({ en: "We're late.", fr: "On est en retard." });
-    expect(problems).toEqual(["lines.lines[0].text: subtitles live in the string table now (ADR 0343); kept until moved, and not shown."]);
+    expect(problems).toEqual(["lines.lines[0].text: subtitles live in the string table now (ADR 0357); kept until moved, and not shown."]);
     expect(lineTableToJson(table)).toEqual(raw);
   });
 

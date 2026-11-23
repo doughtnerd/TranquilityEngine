@@ -184,7 +184,7 @@ describe("why it played", () => {
   });
 });
 
-describe("the memory track (ADR 0337 §6)", () => {
+describe("the memory track (ADR 0351 §6)", () => {
   const pkgNames = namesFromStart({ parameters: [[1, "Core"], [2, "Boss"]] });
   const pkg = (seconds: number, name: number, event: "loadStart" | "loaded" | "failed" | "unload", memoryBytes: number | null) => at(seconds, { type: "audioPackage", name, event, bytes: 1000, memoryBytes });
 

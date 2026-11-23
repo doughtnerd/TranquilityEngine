@@ -1,4 +1,4 @@
-// A fader's rules (ADR 0335 `Fader`, ADR 0330 "Gain"): levels in dB from −60 (silence) to +6 in 0.5 dB steps, drawn
+// A fader's rules (ADR 0349 `Fader`, ADR 0344 "Gain"): levels in dB from −60 (silence) to +6 in 0.5 dB steps, drawn
 // linear in dB along the track as the prototype's mixer does (0 dB sits at 60/66 of the travel), the keys a slider
 // has, and how a level is written ("−∞" at the floor, a signed figure otherwise).
 import { MIN_DB } from "../../engine/audio/project/gain";
@@ -82,7 +82,7 @@ export function parseDb(text: string): number | null {
   return Number.isFinite(n) ? snapFaderDb(n) : null;
 }
 
-/** A second level a fader draws as a tick (ADR 0330): the level with VCAs, or the base level while a snapshot is edited. */
+/** A second level a fader draws as a tick (ADR 0344): the level with VCAs, or the base level while a snapshot is edited. */
 export interface FaderGhost {
   readonly db: number;
   /** What it is, as the tick's tooltip ("With VCAs: −6.0 dB"). */

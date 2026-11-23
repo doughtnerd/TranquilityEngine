@@ -1,4 +1,4 @@
-// ADR 0331 instance submixes on the loopback host (the real wasm): the voices of a group with a submix run its chain
+// ADR 0345 instance submixes on the loopback host (the real wasm): the voices of a group with a submix run its chain
 // (a 500 Hz low-pass removes a Nyquist tone), other groups don't; closing the submix gives the voices back their bus.
 import { afterEach, describe, expect, it } from "vitest";
 import type { Effect } from "../../../../engine/audio/effects/types";
@@ -20,7 +20,7 @@ async function rig() {
   return { backend: audio.backend, peak };
 }
 
-describe("instance submixes on the core (ADR 0331)", () => {
+describe("instance submixes on the core (ADR 0345)", () => {
   it("runs a group's chain on its voices; another group's voice plays straight; closing restores the bus", async (ctx) => {
     const r = await rig();
     if (!r) return ctx.skip();

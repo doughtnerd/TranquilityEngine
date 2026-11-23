@@ -1,7 +1,7 @@
-// The open take's replay, for the whole Studio (ADR 0334 "Replay"; owner decision 2026-11-22: take replay stands in for
+// The open take's replay, for the whole Studio (ADR 0348 "Replay"; owner decision 2026-11-22: take replay stands in for
 // the game session in v1). One take is open at a time; its replay (`runtime/takeReplay.ts`) keeps playing when the user
 // switches screens, and the player bar's replay slot shows it with play/pause and a scrub on every screen, so a Mixer or
-// Playlists edit is heard against the take. While a take is open, the curve editor's parameter histogram (ADR 0332) is
+// Playlists edit is heard against the take. While a take is open, the curve editor's parameter histogram (ADR 0346) is
 // computed from the values its PARAM records sent.
 //
 // The page's store is `replayStore()`, over the Studio's runtime; `ReplayStore` takes its seams, so it runs in tests on

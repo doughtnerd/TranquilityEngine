@@ -1,6 +1,6 @@
 // The Inspector panel's view (the prototype's right panel): the selected entry's use settings (volume, pitch, weight,
 // position, at weight 0, "Edit voice curves…"), then the open playlist's Playback rules, Output (its own bus or the one
-// it inherits, › to open it in the Mixer), Effects (the catalogue's chain, ADR 0331), Spatial (an attenuation preset or
+// it inherits, › to open it in the Mixer), Effects (the catalogue's chain, ADR 0345), Spatial (an attenuation preset or
 // inline distances; curves are M7's), local parameters, and Used by. A view over props: edits are labelled body edits.
 import type { ParameterDef } from "../../../engine/audio/parameters";
 import { isLabelled } from "../../../engine/audio/parameters";
@@ -32,13 +32,13 @@ export interface PlaylistInspectorProps {
   onEditCurves(index: number): void;
   onOpenBus(bus: string): void;
   onOpenPlaylist(path: string): void;
-  /** ADR 0343 §6: the captions table's keys (absent: no Caption field), and creating a key there. */
+  /** ADR 0357 §6: the captions table's keys (absent: no Caption field), and creating a key there. */
   readonly captionKeys?: readonly string[];
   readonly captionTable?: string;
   onCreateCaptionKey?(key: string): void;
 }
 
-/** ADR 0343 §4, §6: the Caption field: a key picked from the captions table (or created there) and the repeat gap. */
+/** ADR 0357 §4, §6: the Caption field: a key picked from the captions table (or created there) and the repeat gap. */
 function CaptionSection(props: { body: PlaylistBody; keys: readonly string[]; table: string; writable: boolean; onEdit: PlaylistInspectorProps["onEdit"]; onCreate?(key: string): void }) {
   const c = props.body.caption;
   const [key, setKey] = useState(c?.key ?? "");

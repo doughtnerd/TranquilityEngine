@@ -57,7 +57,7 @@ function rig(options: { mayQueue?: boolean; writer?: CoreAutomationDeps["writer"
 const vol = (slot: number, curve: number, global = false): Binding => ({ param: { global, slot }, curve, target: AutoTarget.Volume });
 const fullCurve = (seed: number): Curve => Array.from({ length: CORE_CURVE_KEYS }, (_, k) => [k, seed + k / 100] as const);
 
-describe("CoreAutomation: time parameters (ADR 0332)", () => {
+describe("CoreAutomation: time parameters (ADR 0346)", () => {
   it("sends a time binding as AUTOMATION_TIME | which and a sequence re-anchor as TIME, mirrored for a reset", () => {
     const { auto, calls, voice, state, table } = rig();
     auto.defineCurve(1, [[0, 0], [0.5, 1], [1, 0.25]]);

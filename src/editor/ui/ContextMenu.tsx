@@ -1,4 +1,4 @@
-// A context menu (ADR 0335): the editor's menu look (`.context-menu`), placed and dismissed by `usePopover` (a press
+// A context menu (ADR 0349): the editor's menu look (`.context-menu`), placed and dismissed by `usePopover` (a press
 // outside, Escape, the window losing focus), its first item focused, and the keys a menu has: Up and Down (wrapping,
 // skipping separators and disabled items), Home and End, a letter to jump to the next item starting with it, Enter
 // or Space to run. Running an item closes the menu first. The rules are `contextMenuModel.ts`'s.

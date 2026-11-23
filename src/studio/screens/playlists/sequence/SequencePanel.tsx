@@ -1,4 +1,4 @@
-// The Sequence view and Inspector wired to the Playlists screen (ADR 0329): the open file and path, the project's
+// The Sequence view and Inspector wired to the Playlists screen (ADR 0343): the open file and path, the project's
 // samples (`sequenceSources.ts`), linked playlists, buses and parameters, edits through the screen's `editOpen` path
 // (one labelled undo step on the playlist's document each), refusals as toasts. `PlaylistEditor`'s Sequence case and
 // the Inspector panel render these.

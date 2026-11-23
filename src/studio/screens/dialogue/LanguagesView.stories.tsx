@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0340 §1, §8) for the Languages tab: editing languages with no editor holding the project (add a
+// Stories (ADR 0219, 0354 §1, §8) for the Languages tab: editing languages with no editor holding the project (add a
 // regional language that falls back to its parent, change the chain), the read-only view while the editor holds the
 // lock, and "Duck Music under Voice" adding an ordinary ducking rule.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

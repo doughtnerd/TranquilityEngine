@@ -15,6 +15,15 @@
  * (as before 0067); once other paths share the port, "/" is just one more exact path. The HTTP
  * server closes when its last listener closes (when its World is destroyed). Port 0 always opens
  * a new server, which later listeners can then share by its real port.
+ *
+ * ## Datagram lanes (ADR 0333)
+ *
+ * A client whose URL asks with `myco-rtc=1` is offered a WebRTC data channel for its unreliable
+ * messages. Node has no WebRTC, so the peer connections are node-datachannel's (libdatachannel,
+ * native), loaded on the first connection that wants one; if it can't load, that's logged once and
+ * every connection stays on the socket. Connections this transport opens as a client get them too.
+ * The `webrtc` option: `false`, or `{ udpPort, publicIp, bindAddress, iceServers, maxDatagramBytes,
+ * connectTimeoutMs }` (`NodeWebRtcOptions`).
  */
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -22,7 +31,51 @@ import type { Duplex } from "node:stream";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import { parseListenAddress } from "../engine/net/listenTarget";
 import { registerTransport } from "../engine/net/Transport";
-import { WebSocketTransport } from "../engine/net/transport/websocket";
+import { hostCandidateRewriter, type PeerConnectionConstructor } from "../engine/net/transport/datagramLane";
+import { frameBytesLimit, RTC_QUERY, rtcSetupParts, WebSocketTransport, type RtcSetup, type WebRtcOptions } from "../engine/net/transport/websocket";
+
+/** The Node server's `webrtc` transport option (ADR 0333), when it isn't `false`. */
+export interface NodeWebRtcOptions extends WebRtcOptions {
+  /** Every connection's data channel on this one UDP port (ICE UDP mux). Default: an ephemeral port per connection. */
+  udpPort?: number;
+  /** The address put in this server's host candidates in place of its interfaces' (a host behind one-to-one NAT). */
+  publicIp?: string;
+  /** The local address the data channels bind. Default: every interface. */
+  bindAddress?: string;
+}
+
+let nodePeerConnection: Promise<PeerConnectionConstructor | null> | null = null;
+
+/** node-datachannel's `RTCPeerConnection`, loaded once; null (logged once) if it can't load here. */
+function loadNodePeerConnection(): Promise<PeerConnectionConstructor | null> {
+  return (nodePeerConnection ??= import("node-datachannel/polyfill").then(
+    (module) => module.RTCPeerConnection as unknown as PeerConnectionConstructor,
+    (error: Error) => {
+      console.warn(`[myco] WebRTC isn't available (node-datachannel didn't load: ${error.message}); unreliable messages stay on WebSocket.`);
+      return null;
+    },
+  ));
+}
+
+/** Check the Node-only keys of the `webrtc` option; throws for a bad one. */
+function checkNodeWebRtc(rtc: NodeWebRtcOptions): void {
+  if (rtc.udpPort !== undefined && !(Number.isInteger(rtc.udpPort) && rtc.udpPort >= 1 && rtc.udpPort <= 65535)) {
+    throw new Error(`webrtc.udpPort must be a port from 1 to 65535 (got ${JSON.stringify(rtc.udpPort)}).`);
+  }
+  for (const key of ["publicIp", "bindAddress"] as const) {
+    const value = rtc[key];
+    if (value !== undefined && !(typeof value === "string" && value.trim() !== "" && !/\s/.test(value))) throw new Error(`webrtc.${key} must be an address (got ${JSON.stringify(value)}).`);
+  }
+}
+
+/** Whether an upgrade request's URL asks for a datagram lane. */
+function wantsDatagramLane(request: IncomingMessage): boolean {
+  try {
+    return new URL(request.url ?? "/", "http://localhost").searchParams.get(RTC_QUERY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 /** Where a `NodeWebSocketTransport` is listening. */
 export interface ListenAddress {
@@ -131,6 +184,11 @@ class NodeWebSocketTransport extends WebSocketTransport {
   private bound: ListenAddress | null = null;
   private path = "/";
 
+  constructor(options: Record<string, unknown> = {}) {
+    super(options);
+    if (this.rtc) checkNodeWebRtc(this.rtc as NodeWebRtcOptions);
+  }
+
   /** Where it's listening, once `listen` resolves; null before that and after `close`. */
   get address(): ListenAddress | null {
     return this.bound;
@@ -150,7 +208,7 @@ class NodeWebSocketTransport extends WebSocketTransport {
     }
     shared ??= openServer(host, port);
     // maxPayload: ws rejects bigger frames before buffering them (its default is 100 MiB).
-    const wss = new WebSocketServer({ noServer: true, maxPayload: this.limits.maxMessageBytes + 1 });
+    const wss = new WebSocketServer({ noServer: true, maxPayload: frameBytesLimit(this.limits) });
     shared.routes.set(path, this);
     this.shared = shared;
     this.wss = wss;
@@ -168,7 +226,9 @@ class NodeWebSocketTransport extends WebSocketTransport {
     if (this.shared !== shared) return; // closed while binding
     const local = info.address === "0.0.0.0" || info.address === "::" ? "localhost" : info.family === "IPv6" ? `[${info.address}]` : info.address;
     this.bound = { host: info.address, port: info.port, path, url: `ws://${local}:${info.port}${path === "/" ? "" : encodeURI(path)}` };
-    wss.on("connection", (socket: WebSocket, request: IncomingMessage) => this.accept(socket, `${request.socket.remoteAddress}:${request.socket.remotePort}`));
+    wss.on("connection", (socket: WebSocket, request: IncomingMessage) =>
+      this.accept(socket, `${request.socket.remoteAddress}:${request.socket.remotePort}`, wantsDatagramLane(request) ? this.rtcSetup("offer") : null),
+    );
   }
 
   /** @internal The shared server routed an upgrade request here. */
@@ -191,15 +251,40 @@ class NodeWebSocketTransport extends WebSocketTransport {
     }
   }
 
-  private accept(socket: WebSocket, remote: string): void {
+  /**
+   * @internal Node's peer connections (node-datachannel) for both roles; an offering (server)
+   * connection also gets the server's UDP port, bind address and public address.
+   */
+  protected override rtcSetup(role: RtcSetup["role"]): RtcSetup | null {
+    if (!this.rtc) return null;
+    const rtc = this.rtc as NodeWebRtcOptions;
+    const config: Record<string, unknown> = { iceServers: rtc.iceServers ?? [] };
+    if (role === "offer") {
+      if (rtc.udpPort !== undefined) Object.assign(config, { portRangeBegin: rtc.udpPort, portRangeEnd: rtc.udpPort, enableIceUdpMux: true });
+      if (rtc.bindAddress) config.bindAddress = rtc.bindAddress;
+    }
+    return {
+      role,
+      load: loadNodePeerConnection,
+      config: config as RTCConfiguration,
+      ...rtcSetupParts(rtc),
+      ...(role === "offer" && rtc.publicIp ? { rewriteCandidate: hostCandidateRewriter(rtc.publicIp) } : {}),
+    };
+  }
+
+  private accept(socket: WebSocket, remote: string, rtc: RtcSetup | null): void {
     socket.binaryType = "arraybuffer";
-    const connection = this.addConnection(remote, {
-      send: (data) => socket.send(data),
-      close: (code, reason) => socket.close(code, reason),
-      get bufferedAmount() {
-        return socket.bufferedAmount; // for dropping stale unreliable data on a slow link
+    const connection = this.addConnection(
+      remote,
+      {
+        send: (data) => socket.send(data),
+        close: (code, reason) => socket.close(code, reason),
+        get bufferedAmount() {
+          return socket.bufferedAmount; // for dropping stale unreliable data on a slow link
+        },
       },
-    });
+      rtc,
+    );
     socket.on("message", (data: RawData, isBinary: boolean) => connection.handleMessage(isBinary ? data : String(data)));
     socket.on("error", (error) => connection.handleError(error.message));
     socket.on("close", (code, reason) => connection.handleClose(code, reason.toString()));

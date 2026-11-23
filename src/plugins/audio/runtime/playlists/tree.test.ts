@@ -1,4 +1,4 @@
-// ADR 0329: down-the-tree accumulation, playlist effects, linked playlists and Layer, through `Audio.play` on the fake backend.
+// ADR 0343: down-the-tree accumulation, playlist effects, linked playlists and Layer, through `Audio.play` on the fake backend.
 import { describe, expect, it } from "vitest";
 import { Audio } from "../Audio";
 import { embed, eventKit, link, pl, pla, sample } from "./testKit";
@@ -60,7 +60,7 @@ describe("down the tree", () => {
     expect(warns).toHaveLength(1);
   });
 
-  it("with instance submixes, the root's effects run on the instance's submix and a nested level's on its own (ADR 0331)", async () => {
+  it("with instance submixes, the root's effects run on the instance's submix and a nested level's on its own (ADR 0345)", async () => {
     const opened: [number, string, string[], string][] = [];
     const levels: [number, string, string[], number | null][] = [];
     const closed: number[] = [];

@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0338 §8): what happens when a project's plugin with an `audio` section is enabled (or reloaded, or
+ * Internal (ADR 0352 §8): what happens when a project's plugin with an `audio` section is enabled (or reloaded, or
  * turned off). One call per plugin: its effect specs join the catalogue (`registerPluginEffects`, so cards, menus,
  * parses and the runtime view know them), and each of its modules is read, validated and instrumented once per content
  * (`validate.ts`, cached in memory by hash) and registered with the active backend's `effectPlugins` capability. A
@@ -13,7 +13,7 @@
  * stand-in, a backend switch) gets their modules too.
  *
  * The same validated modules go to offline sample renders (`offline.ts`, keyed by each module file's hash). Every
- * module load passes the engine gate first (`engineGate.ts`, 0344 §6): off a Chromium-based engine, unless the project
+ * module load passes the engine gate first (`engineGate.ts`, 0358 §6): off a Chromium-based engine, unless the project
  * says otherwise, no module runs (live or offline) and one warning says why; the effects stay known and pass through.
  */
 import { registerPluginEffects, unregisterPluginEffects } from "../../../../engine/audio/effects/catalogue";
@@ -35,7 +35,7 @@ export interface EffectPluginPackage {
   readonly audio: PluginAudio;
   /** A module file's bytes by its path inside the plugin (`audio.modules[].wasm`); null when it is missing. */
   read(path: string): Promise<Uint8Array | null>;
-  /** `project.json` `plugins.audioEffectEngines` (0344 §6): "all" runs the modules on any engine; default Chromium's only. */
+  /** `project.json` `plugins.audioEffectEngines` (0358 §6): "all" runs the modules on any engine; default Chromium's only. */
   readonly engines?: EffectPluginEngines;
 }
 
@@ -152,7 +152,7 @@ async function registerModules(pkg: EffectPluginPackage, prepared: readonly Prep
     return { problems, modules: [] };
   }
   if (!plugins) {
-    for (const e of pkg.audio.effects) say(`plugin-backend:${backend?.name ?? "none"}:${e.spec.type}`, `audio: the plugin effect ${e.spec.type} (${pkg.plugin}) needs the audio core; on the ${backend?.name ?? "current"} audio backend it passes audio through (ADR 0338).`);
+    for (const e of pkg.audio.effects) say(`plugin-backend:${backend?.name ?? "none"}:${e.spec.type}`, `audio: the plugin effect ${e.spec.type} (${pkg.plugin}) needs the audio core; on the ${backend?.name ?? "current"} audio backend it passes audio through (ADR 0352).`);
     return { problems, modules: [] };
   }
   const modules: { module: string; load: EffectPluginLoad | null }[] = [];

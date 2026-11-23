@@ -1,4 +1,4 @@
-// The Profiler's Plugins panel (ADR 0338 §9): the running plugin effects' health, live from the runtime
+// The Profiler's Plugins panel (ADR 0352 §9): the running plugin effects' health, live from the runtime
 // (`pluginRowsModel.ts`), each with Reset plugin when it faulted or is off after faults.
 import type { AudioPluginDebug } from "../../../plugins/audio/runtime/debugTypes";
 import { NO_PLUGIN_ROWS, pluginRows } from "./pluginRowsModel";

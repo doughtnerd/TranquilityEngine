@@ -1,5 +1,5 @@
 /**
- * Attenuation (ADR 0333): parse and write `*.attenuation.json` (`myco.attenuation@1`) and the inline object of the same
+ * Attenuation (ADR 0347): parse and write `*.attenuation.json` (`myco.attenuation@1`) and the inline object of the same
  * shape in a playlist's `spatial.attenuation`; the presets that write curve keys (the old rolloff laws, ADR 0162); and the
  * Min/Max stretch the curve editor's handles apply.
  *

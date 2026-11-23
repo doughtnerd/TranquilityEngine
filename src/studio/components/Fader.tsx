@@ -1,4 +1,4 @@
-// A fader (ADR 0335 `Fader`, ADR 0330): a level in dB from −60 (silence, "−∞") to +6, horizontal (the mixer's list) or
+// A fader (ADR 0349 `Fader`, ADR 0344): a level in dB from −60 (silence, "−∞") to +6, horizontal (the mixer's list) or
 // vertical (its strips). Drag anywhere on the track (the pointer is captured, so the drag keeps going outside it);
 // double-click returns to 0 dB; the keys a slider has (arrows 0.5 dB, Shift or Page 3 dB, Home, End, 0 for unity). A
 // ghost tick shows a second level: fader plus VCA, or the base level while a snapshot is edited; `ghosts` draws both at

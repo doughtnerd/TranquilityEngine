@@ -96,6 +96,21 @@ describe("planFrame (ADR 0129)", () => {
     expect(v[0].post.toneMapping).toBe("none");
   });
 
+  it("in play, gives each canvas camera with post-processing its own effects: a corner minimap with bloom over the main view", () => {
+    const corner = { x: 0.7, y: 0.7, width: 0.3, height: 0.3 };
+    const main = cam("main", { post: post({ bloom: false, vignette: true }) });
+    const minimap = cam("minimap", { depth: 1, rect: corner, post: post({ bloom: true }) });
+    const v = planFrame(input([minimap, main]));
+    expect(names(v)).toEqual(["main", "minimap"]);
+    expect(v.map((x) => x.output.kind)).toEqual(["canvas", "canvas"]);
+    expect(v[1].output).toEqual({ kind: "canvas", rect: corner });
+    expect(v[1].clear).toBeNull(); // no background: drawn over the main view
+    expect(v[0].post.composer?.bloom ?? null).toBeNull();
+    expect(v[0].post.composer?.vignette).not.toBeNull();
+    expect(v[1].post.composer?.bloom).not.toBeNull();
+    expect(v.filter((x) => x.post.composer !== null)).toHaveLength(2); // one composer each
+  });
+
   it("shows a backdrop only on scene-view view 0 without background or post", () => {
     expect(planFrame(input([cam("a")], { sceneView: true }))[0].backdrop).toEqual(CLEAR);
     expect(planFrame(input([cam("a")]))[0].backdrop).toBeNull();

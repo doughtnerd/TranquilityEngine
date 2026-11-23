@@ -140,7 +140,7 @@ export interface AudioMixDebug {
   /** STATUS `sidechainLate`. */
   sidechainLate: number;
   /**
-   * ADR 0331 (ABI 4.8): STATUS `fxStarved`: effects that asked for the core's effect memory and got none, so they pass
+   * ADR 0345 (ABI 4.8): STATUS `fxStarved`: effects that asked for the core's effect memory and got none, so they pass
    * their signal through (cumulative). 0 on the Babylon fallback.
    */
   fxStarved: number;
@@ -204,22 +204,22 @@ export interface AudioDebugInfo {
   mix?: AudioMixDebug;
   /** ADR 0171 §1.3 (K0; Rc2): the shared capture ring, null while none runs. */
   recorder?: AudioRecorderDebug | null;
-  /** ADR 0338 §6: one row per registered plugin effect (the core's; absent on a backend without plugin effects). */
+  /** ADR 0352 §6: one row per registered plugin effect (the core's; absent on a backend without plugin effects). */
   plugins?: AudioPluginDebug[];
   /**
-   * ADR 0327: why the audio core couldn't run here (a missing AudioWorklet or WebAssembly simd128, a failed load or
+   * ADR 0341: why the audio core couldn't run here (a missing AudioWorklet or WebAssembly simd128, a failed load or
    * start), in the engine's words, once the engine has said so; absent while the core runs or is still loading.
    * `Audio.debug()` adds it; a backend leaves it out.
    */
   coreUnavailable?: string;
 }
 
-// --- ADR 0338: plugin effects ---------------------------------------------------------------------------------------
+// --- ADR 0352: plugin effects ---------------------------------------------------------------------------------------
 
-/** Why a plugin effect's call faulted (ADR 0338 §6): a trap, its instruction budget run out, memory grown in `process`, a non-finite or an out-of-range (beyond ±64) sample. */
+/** Why a plugin effect's call faulted (ADR 0352 §6): a trap, its instruction budget run out, memory grown in `process`, a non-finite or an out-of-range (beyond ±64) sample. */
 export type AudioPluginFaultReason = "trap" | "budget" | "grow" | "nonFinite" | "range";
 
-/** One registered plugin effect in `Audio.debug().plugins` (ADR 0338 §6). */
+/** One registered plugin effect in `Audio.debug().plugins` (ADR 0352 §6). */
 export interface AudioPluginDebug {
   /** The plugin's name and the effect type. */
   plugin: string;
@@ -229,7 +229,7 @@ export interface AudioPluginDebug {
   e: number;
   /** `loading` until the worklet compiled and warmed it up; `disabled` after three faults within a second (until reset); `failed` when it didn't load. */
   state: "loading" | "live" | "disabled" | "failed";
-  /** Warm-up calls made before the effect went live (one per effect, ADR 0344 §4). */
+  /** Warm-up calls made before the effect went live (one per effect, ADR 0358 §4). */
   warmUps: number;
   /** Instances pre-created, and in use by chain slots. */
   instances: number;

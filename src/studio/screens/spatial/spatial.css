@@ -1,4 +1,4 @@
-/* The Studio's Spatial screen (ADR 0333, 0335). Theme tokens only (src/editor/ui/editor.css lists them). */
+/* The Studio's Spatial screen (ADR 0347, 0349). Theme tokens only (src/editor/ui/editor.css lists them). */
 
 .sp-panel-body { padding: 0; display: flex; flex-direction: column; min-height: 0; }
 .sp-doc { display: flex; flex-direction: column; min-height: 100%; outline: none; }

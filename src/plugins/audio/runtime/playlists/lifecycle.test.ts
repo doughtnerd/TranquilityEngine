@@ -1,4 +1,4 @@
-// ADR 0329: instance lifecycle (oneShot, untilStopped, release vs stop), continuous Queues, voice curves, the handle,
+// ADR 0343: instance lifecycle (oneShot, untilStopped, release vs stop), continuous Queues, voice curves, the handle,
 // debug rows and profile taps, and AudioSource with a playlist — through the public API on the fake backend.
 import { describe, expect, it } from "vitest";
 import { Audio, AudioSource, type AudioEventHandle } from "../index";
@@ -235,7 +235,7 @@ describe("the handle, debug rows and taps", () => {
     }
   });
 
-  it("an AudioEventHandle (the deprecated alias, ADR 0329) still names the handle a playlist plays with", async () => {
+  it("an AudioEventHandle (the deprecated alias, ADR 0343) still names the handle a playlist plays with", async () => {
     await kit.boot({ "e.playlist.json": pla("clip", [sample("a.wav")]) });
     const h: AudioEventHandle = Audio.play("e.playlist.json");
     expect(h.playing).toBe(true);

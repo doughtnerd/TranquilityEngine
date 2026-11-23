@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the Samples screen's reviews: Write to file…, the changed-on-disk merge (a conflict, a
+// Stories (ADR 0219, 0349) for the Samples screen's reviews: Write to file…, the changed-on-disk merge (a conflict, a
 // new cue, a loop end that moved), Fork as new sample, and the import review with the metadata kinds found.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
@@ -108,7 +108,7 @@ export const ImportReviewStory: Story = {
   },
 };
 
-/** The import review's "Detect what's missing" is enabled and on by default (ADR 0328 detection). */
+/** The import review's "Detect what's missing" is enabled and on by default (ADR 0342 detection). */
 export const ImportDetect: Story = {
   name: "Import review · Detect what's missing",
   render: () => <Review />,

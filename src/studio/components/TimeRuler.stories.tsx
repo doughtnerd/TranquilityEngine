@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the time ruler in its three displays; dragging on it scrubs.
+// Stories (ADR 0219, 0349) for the time ruler in its three displays; dragging on it scrubs.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, within } from "storybook/test";

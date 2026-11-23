@@ -1,10 +1,10 @@
 /**
- * Where a playlist names another asset (ADR 0329 "References", ADR 0314): the one list of those references on a parsed
+ * Where a playlist names another asset (ADR 0343 "References", ADR 0314): the one list of those references on a parsed
  * playlist, the one rewrite for moves, and the cycle check the editor runs before adding a linked playlist ("it would
  * contain itself"). A new field that names a path is added here only.
  *
  * Names a playlist holds: linked playlists (entries, Switch transitions, stingers, sequence clips), samples (Clip
- * entries, sequence clips; an audio file or a `*.sample.json`), linked generators (ADR 0346: generator entries and
+ * entries, sequence clips; an audio file or a `*.sample.json`), linked generators (ADR 0360: generator entries and
  * sequence clips' generator sources, `*.generator.json`) and attenuation presets (`spatial.attenuation`), in embedded
  * playlists too. Paths are project paths, as written.
  *
@@ -38,7 +38,7 @@ export function playlistReferences(body: PlaylistBody): PlaylistReference[] {
     else if (e.kind === "sample") add("sample", e.sample, [...where, "sample"]);
     else if (e.kind === "embedded") visit(e.embedded, [...where, "embedded"]);
     else if (e.kind === "generator" && typeof e.generator === "string") add("generator", e.generator, [...where, "generator"]);
-    // A line entry (ADR 0340 §5) names a line key or a dialogue event, not an asset path.
+    // A line entry (ADR 0354 §5) names a line key or a dialogue event, not an asset path.
   };
   const visit = (b: PlaylistBody, where: PlaylistReferenceStep[]) => {
     if (typeof b.spatial?.attenuation === "string") add("attenuation", b.spatial.attenuation, [...where, "spatial", "attenuation"]);
@@ -111,7 +111,7 @@ export function rewritePlaylistReferences<T extends PlaylistBody>(asset: T, move
 // --- parameter references ------------------------------------------------------------------------------------------------
 
 /**
- * How a playlist reads a parameter (ADR 0329; the ADR 0299 pattern: one walker lists, the rename rewrites what it lists):
+ * How a playlist reads a parameter (ADR 0343; the ADR 0299 pattern: one walker lists, the rename rewrites what it lists):
  * a local parameter's `definition`, a Switch's `switch` parameter, a Blend `axis`, an entry's voice `curve` input, an
  * `automation` input (the instance's own, a Sequence track's or clip's), a loop's `binding` (a sequence loop or a clip's
  * loop override).
@@ -126,7 +126,7 @@ export interface PlaylistParameterReference {
   readonly where: readonly PlaylistReferenceStep[];
 }
 
-/** Curve inputs that are times, not parameters (ADR 0332). */
+/** Curve inputs that are times, not parameters (ADR 0346). */
 const TIME_INPUTS: readonly string[] = ["voiceTime", "clipTime", "sequenceTime"];
 /** How deep embedded playlists are walked (the runtime's local parameter walk stops there too). */
 const MAX_DEPTH = 16;

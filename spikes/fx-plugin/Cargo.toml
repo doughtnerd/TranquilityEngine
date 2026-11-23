@@ -1,7 +1,7 @@
-# Spike B0 for ADR 0338 (third-party audio effects as sandboxed wasm modules). Not a member of the
+# Spike B0 for ADR 0352 (third-party audio effects as sandboxed wasm modules). Not a member of the
 # native/audio workspace: this file is its own workspace root, so `cargo` never touches the shipped crates.
 # Built by `node tools/spikes/fx-plugin/build.mjs` (cargo +1.99.1, wasm32-unknown-unknown) into
-# tools/spikes/fx-plugin/wasm/. Report: docs/design/audio-studio/spikes/0338-b0.md.
+# tools/spikes/fx-plugin/wasm/. Report: docs/design/audio-studio/spikes/0352-b0.md.
 [workspace]
 resolver = "2"
 members = ["plugin", "host"]

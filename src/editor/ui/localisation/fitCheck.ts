@@ -1,4 +1,4 @@
-// The text fit check (ADR 0342 §8), best effort: every UI document element bound to a key (`t:text`, `t:placeholder`,
+// The text fit check (ADR 0356 §8), best effort: every UI document element bound to a key (`t:text`, `t:placeholder`,
 // `t:value`) whose box has a fixed size, laid out in each language and the pseudo-language with the engine's line
 // breaking and a text measurer (the editor passes the engine's canvas measuring, `render/babylon/ui.ts`
 // `measureText`; tests the UI core's estimate), and reported when its text doesn't fit: more lines than the box's

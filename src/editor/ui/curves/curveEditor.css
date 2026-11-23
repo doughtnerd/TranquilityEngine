@@ -1,4 +1,4 @@
-/* The shared curve editor dialog (ADR 0332, CurveEditorDialog.tsx). Theme tokens only; lane colours are the series
+/* The shared curve editor dialog (ADR 0346, CurveEditorDialog.tsx). Theme tokens only; lane colours are the series
    palette (--series-1 … --series-8), set inline from the model. */
 .ce-backdrop { position: fixed; inset: 0; z-index: 35; background: var(--backdrop); display: flex; align-items: center; justify-content: center; }
 .dialog.ce-window { position: relative; display: flex; flex-direction: column; box-sizing: border-box; width: min(920px, calc(100vw - 16px)); height: min(700px, calc(100vh - 32px)); padding: 0; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; font-size: calc(12px * var(--ui-scale)); }

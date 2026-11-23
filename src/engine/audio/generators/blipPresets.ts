@@ -1,5 +1,5 @@
 /**
- * Blip presets and the randomiser (ADR 0346 §2): sfxr's generator functions (DrPetter's sfxr, MIT; jsfxr) re-implemented
+ * Blip presets and the randomiser (ADR 0360 §2): sfxr's generator functions (DrPetter's sfxr, MIT; jsfxr) re-implemented
  * on the blip's parameters, drawing from **mulberry32 seeded by the generator's `seed`**, so the same preset, seed and
  * locks always give the same parameters on every machine. The resolved parameters are what the file stores; `seed` and
  * `preset` record how they were made.

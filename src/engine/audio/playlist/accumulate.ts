@@ -1,5 +1,5 @@
 /**
- * Down-the-tree accumulation (ADR 0329 "Down the tree"; the prototype's `resolve`, PL:909–913): what a voice inherits
+ * Down-the-tree accumulation (ADR 0343 "Down the tree"; the prototype's `resolve`, PL:909–913): what a voice inherits
  * from every playlist and entry above it.
  *
  * - gains add in dB, pitch adds in semitones;
@@ -16,7 +16,7 @@
 export const LOWPASS_NONE = 24000;
 export const HIGHPASS_NONE = 0;
 
-/** The playlist-effect part of a level, mapped onto voice controls until instance submixes run effect chains (ADR 0331). */
+/** The playlist-effect part of a level, mapped onto voice controls until instance submixes run effect chains (ADR 0345). */
 export interface EffectProps {
   gainDb: number;
   lowpass: number;

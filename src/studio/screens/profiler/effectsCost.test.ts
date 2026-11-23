@@ -1,4 +1,4 @@
-// The Profiler's effects-cost track (ADR 0334, 0331): the CPU meter's estimated share per section, read from a capture's
+// The Profiler's effects-cost track (ADR 0348, 0345): the CPU meter's estimated share per section, read from a capture's
 // STATUS records through the Profiler's data reader, planned after Load once fitted, and its value at the cursor.
 import { describe, expect, it } from "vitest";
 import { QUANTA_PER_STATUS, QUANTUM_MS, open, records, timeOf, type Fields } from "../../../plugins/audio/editor/mix/tracks/cpuCountersTestSupport";

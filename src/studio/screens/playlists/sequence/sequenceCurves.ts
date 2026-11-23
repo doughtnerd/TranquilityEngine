@@ -1,4 +1,4 @@
-// A clip's or a track's automation in the shared curve editor (ADR 0332, proto §4 "CurveDialog use": the Sequencer's
+// A clip's or a track's automation in the shared curve editor (ADR 0346, proto §4 "CurveDialog use": the Sequencer's
 // group mode). The dialog gets one lane per automatable target of the owner (its curve, or the plain value when not
 // automated), each driven by time ("Clip time" on a clip, "Timeline" on a track) or a scalar parameter; Apply writes
 // the lanes back as one edit: a changed lane's curve, input and bypass; a newly shaped lane becomes automation; a lane

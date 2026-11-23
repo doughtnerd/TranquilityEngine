@@ -13,7 +13,7 @@ import { canClosePanel } from "../../editor/layout/catalog";
 import { closePanel, instancesOf, openTypes } from "../../editor/layout/model";
 
 describe("screens", () => {
-  it("are eight in four groups; Dialogue (ADR 0340 §9) authors on Ctrl/⌘+8, the next free digit after Packages", () => {
+  it("are eight in four groups; Dialogue (ADR 0354 §9) authors on Ctrl/⌘+8, the next free digit after Packages", () => {
     expect(screenGroups().map((g) => [g.title, g.screens.map((s) => s.title)])).toEqual([
       ["Author", ["Samples", "Playlists", "Dialogue"]],
       ["Mix", ["Mixer", "Spatial"]],

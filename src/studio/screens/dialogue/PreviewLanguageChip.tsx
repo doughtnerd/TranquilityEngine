@@ -1,4 +1,4 @@
-// The Studio header's preview-language chip (ADR 0340 §1, §9): per user, the language every screen's auditions and
+// The Studio header's preview-language chip (ADR 0354 §1, §9): per user, the language every screen's auditions and
 // subtitle previews start in (remembered and system languages are ignored there). Hidden while the project has a single
 // language. A view over props; `ProjectPreviewChip` wires it to the open project and the stored preference.
 import { currentProject } from "../../../editor/state";

@@ -1,10 +1,10 @@
 /**
- * Line tables (ADR 0340 §5, amended by 0343 §1, extended by 0341 §4): parse and write `*.lines.json`
+ * Line tables (ADR 0354 §5, amended by 0357 §1, extended by 0355 §4): parse and write `*.lines.json`
  * (`myco.lines@1`). The shapes are the contract in `../types.ts`.
  *
  * The parse is lenient (bad values fall back to defaults with one problem line; it never throws) and canonical: keys
  * are valid and unique in the table, `textKey` equal to the key is dropped, limits (declared once in `LINE_LIMITS`)
- * drop what is over them. 0340's retired `text` is kept as read with a problem line (0343: "Move subtitles to the string
+ * drop what is over them. 0354's retired `text` is kept as read with a problem line (0357: "Move subtitles to the string
  * table"). `lineTableToJson` writes the canonical form in a stable key order, leaving out defaults, so
  * `parseLineTable(lineTableToJson(x)).table` deep-equals `x`.
  *
@@ -15,7 +15,7 @@ import { isStringKey, STRINGS_SUFFIX } from "../../../localisation/strings/forma
 import { isRecord, LenientReader, type JsonRecord } from "../../lenientRead";
 import { LINES_FORMAT, LINES_SUFFIX, type LineRow, type LineTable, type LineTableParse } from "../types";
 
-/** Limits of a line table, declared once (ADR 0306, 0340 §5). */
+/** Limits of a line table, declared once (ADR 0306, 0354 §5). */
 export const LINE_LIMITS = Object.freeze({
   lines: 20_000,
   tags: 64,
@@ -29,7 +29,7 @@ export const LINE_LIMITS = Object.freeze({
 
 const KEY = /^[A-Za-z0-9_.-]{1,64}$/;
 
-/** True for a valid line key (`[A-Za-z0-9_.-]{1,64}`; a line key is a valid string key, 0343). */
+/** True for a valid line key (`[A-Za-z0-9_.-]{1,64}`; a line key is a valid string key, 0357). */
 export const isLineKey = (key: unknown): key is string => typeof key === "string" && KEY.test(key) && key !== "__proto__";
 
 /** True for a line table path. */
@@ -40,10 +40,10 @@ export const emptyLineTable = (): LineTable => ({ format: LINES_FORMAT, root: nu
 /** A line with every optional field at its default. */
 export const lineRow = (key: string, speaker: string | null = null): LineRow => ({ key, speaker, file: null, files: {}, tags: [], cooldown: 0, once: false });
 
-/** The string key of a line's subtitle (0343 §1): its `textKey`, else its key; null when never subtitled. */
+/** The string key of a line's subtitle (0357 §1): its `textKey`, else its key; null when never subtitled. */
 export const subtitleKeyOf = (line: LineRow): string | null => (line.textKey === undefined ? line.key : line.textKey);
 
-/** The string table of the table at `path` (0343 §1): its `strings`, else `<stem>.strings.json` beside it. */
+/** The string table of the table at `path` (0357 §1): its `strings`, else `<stem>.strings.json` beside it. */
 export function stringTablePathOf(path: string, table: LineTable): string {
   if (table.strings !== null) return table.strings;
   const stem = isLineTablePath(path) ? path.slice(0, path.length - LINES_SUFFIX.length) : path.replace(/\.json$/i, "");
@@ -92,7 +92,7 @@ function parseLine(raw: unknown, where: string, r: LenientReader): LineRow | nul
     }
     if (Object.keys(kept).length) {
       out.text = kept;
-      r.problem(`${where}.text`, "subtitles live in the string table now (ADR 0343); kept until moved, and not shown.");
+      r.problem(`${where}.text`, "subtitles live in the string table now (ADR 0357); kept until moved, and not shown.");
     }
   }
   return out;

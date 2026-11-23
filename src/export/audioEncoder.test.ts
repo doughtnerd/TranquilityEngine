@@ -1,4 +1,4 @@
-// ADR 0337 A2 / 0345: the committed encoder wasm (size tripwire, source hash, imports), encodes through its wrapper
+// ADR 0351 A2 / 0359: the committed encoder wasm (size tripwire, source hash, imports), encodes through its wrapper
 // (Vorbis decoded back by the committed decoder; Opus by its pages; ADPCM and PCM by size and header), the pool
 // (concurrency cap, order, failures) and the Node `worker_threads` encoder. Speeds are logged, not asserted.
 import { readFileSync, statSync } from "node:fs";
@@ -14,7 +14,7 @@ import encodeInfo from "./wasm/encode.json";
 
 const WASM = new URL("./wasm/myco_audio_encode.wasm", import.meta.url);
 const DECODER = new URL("../plugins/audio/runtime/wasm/myco_audio_decode.wasm", import.meta.url);
-/** ADR 0345 §1's tripwire, as native/audio/build.mjs gates it. */
+/** ADR 0359 §1's tripwire, as native/audio/build.mjs gates it. */
 const ENCODER_LIMIT = 1792 * 1024;
 
 /** `seconds` of a stereo test signal at `rate`: tones plus a little noise, −1..1. */

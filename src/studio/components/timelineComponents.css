@@ -1,4 +1,4 @@
-/* The Studio's timeline components (ADR 0335): TimeRuler, Waveform, Playhead. Theme tokens only. */
+/* The Studio's timeline components (ADR 0349): TimeRuler, Waveform, Playhead. Theme tokens only. */
 
 .tl-ruler { position: relative; height: 22px; background: var(--bg-sunken); border-bottom: 1px solid var(--border); cursor: text; overflow: hidden; user-select: none; touch-action: none; }
 .tl-tick { position: absolute; bottom: 0; width: 1px; height: 5px; background: var(--faint); }

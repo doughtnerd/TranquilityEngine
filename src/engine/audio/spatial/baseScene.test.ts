@@ -1,4 +1,4 @@
-// ADR 0333: the base game scene of a spatial test scene: which nodes and components the Studio loads underneath, how
+// ADR 0347: the base game scene of a spatial test scene: which nodes and components the Studio loads underneath, how
 // their references resolve (prefab instances, a mesh collider's renderer mesh, node references), where they are on the
 // plan, and the warning for a base that isn't there.
 import { describe, expect, it } from "vitest";

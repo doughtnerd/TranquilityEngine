@@ -1,4 +1,4 @@
-// The Profiler timeline's drawing maths (ADR 0334): a line track's SVG path in a fixed box (`BOX_W` x `BOX_H`, stretched
+// The Profiler timeline's drawing maths (ADR 0348): a line track's SVG path in a fixed box (`BOX_W` x `BOX_H`, stretched
 // to the track by the view), reduced to at most one min/max pair per bucket through the editor profiler's
 // `downsampleMinMax`, so a ten-minute capture costs as much to draw as a ten-second one; a step path for a parameter
 // (held until its next change); and where a time sits as a share of the capture. Pure.

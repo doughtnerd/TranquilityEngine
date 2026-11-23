@@ -1,4 +1,4 @@
-//! Myco's offline sample render (ADR 0328 "Baked effects are rendered offline", ADR 0331 level
+//! Myco's offline sample render (ADR 0342 "Baked effects are rendered offline", ADR 0345 level
 //! "sample"): a sample's baked effect chain with its automation lanes, over the sample's edited
 //! PCM, with the tails delay and reverb leave. Built by `npm run build:audio`
 //! (`native/audio/build.mjs`) to `src/engine/audio/sample/wasm/myco_audio_offline.wasm`, which is
@@ -19,7 +19,7 @@
 //! What runs and how is in `render.rs`; the offline-only kinds are fades, the envelope, reverse
 //! and noise reduction (`nr.rs`).
 //!
-//! ABI 1.1 (ADR 0338 §7, B5): the module **imports** `myco_ext` (`audio_core::ext`'s five calls), which
+//! ABI 1.1 (ADR 0352 §7, B5): the module **imports** `myco_ext` (`audio_core::ext`'s five calls), which
 //! the caller binds to the plugin glue (`effectGlue.ts`) so plugin effects in a spec (version 2,
 //! 16 parameters per effect) run as they do in the core's chains. A caller with no plugins binds
 //! stubs (`acquire` 0): plugin effects then pass through with `render::warn::PLUGIN_DRY`.

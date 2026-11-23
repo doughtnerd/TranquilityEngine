@@ -1,4 +1,4 @@
-// Voice limits and ambisonic beds down the routing tree (ADR 0330 "Voice limits", "Beds"; the prototype's Voices and
+// Voice limits and ambisonic beds down the routing tree (ADR 0344 "Voice limits", "Beds"; the prototype's Voices and
 // Bed columns). A voice limit caps a bus and every bus below it; a bus without one shares the nearest ancestor's. A bus
 // may own a bed with a priority; Master always has one; the `settings.bed.maxBeds − 1` highest priorities get the
 // rest (equal priorities: the earlier bus in the list), and every other bus mixes into the nearest bed above it.

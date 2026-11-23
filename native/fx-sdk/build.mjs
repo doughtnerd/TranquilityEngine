@@ -1,4 +1,4 @@
-// Builds the audio effect plugins that ship in the repository (ADR 0338 B1), for wasm32, and copies them where they are
+// Builds the audio effect plugins that ship in the repository (ADR 0352 B1), for wasm32, and copies them where they are
 // committed: the SDK's test plugin to native/fx-sdk/wasm/test_fx.wasm (the engine's tests run it) and the tremolo
 // sample to samples/fx-tremolo/plugins/tremolo/dsp/tremolo.wasm. Each is checked with the engine's validator rules
 // before it is written: no imports, the ABI exports, the memory under its manifest's cap.

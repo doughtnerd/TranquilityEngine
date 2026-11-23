@@ -22,7 +22,7 @@ function nextColour(s: SequenceSettings): number {
   return typeof last === "number" ? (last % 8) + 1 : (s.tracks.length % 8) + 1;
 }
 
-/** The format's track limit (ADR 0329). */
+/** The format's track limit (ADR 0343). */
 export const MAX_TRACKS = 32;
 export const MAX_CLIPS = 512;
 

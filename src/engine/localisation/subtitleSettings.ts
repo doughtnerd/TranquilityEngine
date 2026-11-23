@@ -1,5 +1,5 @@
 /**
- * `project.json`'s `subtitles` section (ADR 0343 §3, §5): the player settings' first-run defaults, the reading speed
+ * `project.json`'s `subtitles` section (ADR 0357 §3, §5): the player settings' first-run defaults, the reading speed
  * and minimum display time, and speakers (a speaker id's display-name string key and colour). Editor-owned (Project
  * Settings > Subtitles), read by the subtitles plugin, the audio runtime (subtitle-only lines), the Studio and the
  * editor. Parsed leniently (never throws) and written back minimal.
@@ -20,7 +20,7 @@ export const SUBTITLE_LIMITS = Object.freeze({
 export const SUBTITLE_SIZES = ["small", "medium", "large", "extraLarge"] as const;
 export type SubtitleSize = (typeof SUBTITLE_SIZES)[number];
 
-/** The player's subtitle settings (`Subtitles.settings`, 0343 §5); the section holds their first-run values. */
+/** The player's subtitle settings (`Subtitles.settings`, 0357 §5); the section holds their first-run values. */
 export interface SubtitleSettings {
   /** Speech subtitles. */
   enabled: boolean;
@@ -43,7 +43,7 @@ export interface SubtitleSpeaker {
 /** The section. */
 export interface SubtitleProjectSettings {
   defaults: SubtitleSettings;
-  /** Characters per second for languages with no reading speed of their own or built in (0343 §3). */
+  /** Characters per second for languages with no reading speed of their own or built in (0357 §3). */
   readingSpeed: number;
   /** Seconds: the shortest a subtitle or page shows. */
   minDisplay: number;

@@ -1,6 +1,6 @@
 /**
  * SHA-256 of text, synchronously (FIPS 180-4 over the text's UTF-8 bytes), and the localisation `textHash` rule built on
- * it (ADR 0340 §9, 0342 §1): the first 16 hex digits of the reference text's SHA-256. Translations store it as their
+ * it (ADR 0354 §9, 0356 §1): the first 16 hex digits of the reference text's SHA-256. Translations store it as their
  * `source` and voice-over sidecars as `vo.textHash`; a different hash of the current reference text means the reference
  * changed since. Synchronous because the comparison runs inside pure models (a status cell, a parse); Web Crypto's
  * digest is asynchronous only.

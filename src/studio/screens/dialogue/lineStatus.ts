@@ -1,4 +1,4 @@
-// The Lines table's status cell per language (ADR 0340 §8–§9, 0343 §6): whether a line is recorded in a language, heard
+// The Lines table's status cell per language (ADR 0354 §8–§9, 0357 §6): whether a line is recorded in a language, heard
 // from another one through the fallback chain (named), or missing; and flags on it: a duration mismatch against the
 // reference language's file (both durations), a script change (the file's sidecar `vo.textHash` differs from the hash of
 // the reference text now), and the reading speed of the language's subtitle over the heard audio. Pure.

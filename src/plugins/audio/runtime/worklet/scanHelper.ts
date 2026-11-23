@@ -1,4 +1,4 @@
-// ADR 0344 §1 (amending 0338 §1): the trusted helper module that checks a plugin's output. One instance per plugin
+// ADR 0358 §1 (amending 0352 §1): the trusted helper module that checks a plugin's output. One instance per plugin
 // module instance: it imports that module's memory (`p.memory`) and exports `scan(l, r, frames) -> i32`, 1 when every
 // sample of `l[0..frames]` and `r[0..frames]` is finite and within ±64 (`|x| <= 64`, which is false for NaN), else 0.
 //
@@ -8,7 +8,7 @@
 // and the parameters follow it, so the rounded tail stays inside the block. Hand-assembled (no toolchain), 160-odd
 // bytes; ours, never the plugin's. Plain module with no DOM or Node APIs: it runs in the AudioWorkletGlobalScope.
 
-/** @internal The output limit (+36 dBFS): a sample beyond it is a fault (0338 §6). */
+/** @internal The output limit (+36 dBFS): a sample beyond it is a fault (0352 §6). */
 export const SAMPLE_LIMIT = 64;
 
 function uleb(n: number): number[] {

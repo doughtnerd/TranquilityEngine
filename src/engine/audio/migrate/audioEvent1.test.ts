@@ -1,5 +1,5 @@
 /**
- * One test per mapping rule of the `myco.audioevent@1` → `myco.playlist@1` migration (ADR 0329, 0333). Each builds an
+ * One test per mapping rule of the `myco.audioevent@1` → `myco.playlist@1` migration (ADR 0343, 0347). Each builds an
  * event the way callers do (`parseAudioEvent` of the JSON) and checks the playlist fields and notes.
  */
 import { describe, expect, it } from "vitest";
@@ -148,7 +148,7 @@ describe("containers (ADR 0158 nodes)", () => {
     hasNote(notes, `"Surface" is not a local parameter`);
   });
 
-  it("blend → Blend 1D: entries at range midpoints with explicit regions (ADR 0336): the old plateaus and fades exactly, overlaps included", () => {
+  it("blend → Blend 1D: entries at range midpoints with explicit regions (ADR 0350): the old plateaus and fades exactly, overlaps included", () => {
     const { playlist, notes } = mig({
       parameters: [{ name: "RPM", min: 0, max: 1 }],
       root: { type: "blend", parameter: "RPM", children: [clip("a.wav", { range: [0, 0.1], fade: 0.4 }), clip("b.wav", { range: [0.45, 0.55], fade: 0.4 }), clip("c.wav", { range: [0.9, 1], fade: 0.4 })] },
@@ -469,7 +469,7 @@ describe("interactive music", () => {
     expect(notes.some((n) => n.includes(".end:"))).toBe(false);
   });
 
-  it("stem automation → track automation (volume in dB; low-pass via an effect); a quantised volume binding is a quantised lane (ADR 0336)", () => {
+  it("stem automation → track automation (volume in dB; low-pass via an effect); a quantised volume binding is a quantised lane (ADR 0350)", () => {
     const { playlist, notes } = mig({
       root: segment({ tracks: [{ name: "a", clip: "m/a.wav", automation: [{ parameter: "I", target: "volume", curve: [[0, 0], [1, 1]], quantize: "beat" }, { parameter: "I", target: "lowpass", curve: [[0, 300]] }] }] }),
     }, lengths({ "m/a.wav": 2 }));
@@ -541,7 +541,7 @@ describe("interactive music", () => {
     hasNote(notes, `"every 2 bars" became "bar"`);
   });
 
-  it("ADR 0336: transition curves are shapes; a bridge's own fades are its transition fades; a region's tail rings to the segment's exit", () => {
+  it("ADR 0350: transition curves are shapes; a bridge's own fades are its transition fades; a region's tail rings to the segment's exit", () => {
     const { playlist, notes } = mig(world([
       { from: "explore", to: "combat", exit: "bar", fadeOut: { beats: 4, curve: "sCurve" }, fadeIn: { beats: 4, curve: "sCurve" }, bridge: { segment: "riser", fadeOut: { beats: 0 }, fadeIn: { seconds: 0.25, curve: "linear" } } },
     ]), lengths({ "m/a.wav": 4, "m/r.wav": 2 }));

@@ -1,4 +1,4 @@
-// A value lane's drawing (ADR 0335 `ValueLane`): a value over time (a game parameter in a take, voices and CPU, a bus's
+// A value lane's drawing (ADR 0349 `ValueLane`): a value over time (a game parameter in a take, voices and CPU, a bus's
 // gain, loudness in a capture) as a polyline, its value at the cursor for the header, a reference line (a voice limit,
 // a loudness target), and its vertical range. Points are sorted by time; between points the value is linear, or held
 // (`step`) for values that jump. Long series are thinned to a few points per pixel column.

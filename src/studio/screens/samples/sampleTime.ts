@@ -1,4 +1,4 @@
-// Source time and timeline time (ADR 0328): every time in a sample block is seconds in the source file, and closing
+// Source time and timeline time (ADR 0342): every time in a sample block is seconds in the source file, and closing
 // a gap (`closedGaps`, `[sourceStart, length]`) removes that span from what plays. The timeline shows the edited
 // sample, so it draws at `toView(source)` and turns a pointer back with `toSource(view)` (the prototype's `toSrc`).
 // Pure.

@@ -1,4 +1,4 @@
-// The rules of a context menu (ADR 0335): which item the arrow keys, Home, End and typing a letter move to, and how
+// The rules of a context menu (ADR 0349): which item the arrow keys, Home, End and typing a letter move to, and how
 // a menu built from conditional parts drops its stray separators. `ContextMenu.tsx` draws it.
 
 /** One action in a menu. */

@@ -1,5 +1,5 @@
 /**
- * `audio.json`'s `localisation` section (ADR 0340 §2, 0343 §4): parsed leniently (never throws; one problem line per
+ * `audio.json`'s `localisation` section (ADR 0354 §2, 0357 §4): parsed leniently (never throws; one problem line per
  * bad value) and written back minimal. `audio/project/format.ts` reads and writes it as part of the audio project.
  *
  * Pure; no plugin, no DOM.
@@ -64,7 +64,7 @@ export function audioLocalisationToJson(s: AudioLocalisation): JsonRecord | null
 }
 
 /**
- * Whether a language's file of `duration` seconds is off the reference's `reference` seconds (0340 §8):
+ * Whether a language's file of `duration` seconds is off the reference's `reference` seconds (0354 §8):
  * `|d − dRef| > max(0.5, tolerance × dRef)`.
  */
 export const durationMismatch = (duration: number, reference: number, tolerance: number): boolean =>

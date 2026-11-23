@@ -1,4 +1,4 @@
-// The Mixer screen's session (ADR 0330, 0327): the `audio.json` document every panel edits, the screen's UI state
+// The Mixer screen's session (ADR 0344, 0341): the `audio.json` document every panel edits, the screen's UI state
 // (selection, the snapshot being edited, the view, folds, test values, the live board's pins), and the actions that
 // need more than one pure edit (a confirm before a delete, a rename that also rewrites the playlists and scenes naming
 // a bus, an undo toast after a snapshot delete). Every edit is one labelled undo step of the document; a refused edit
@@ -21,7 +21,7 @@ export interface MixDocument {
   readonly readOnly: boolean;
   edit(next: AudioProject, options?: { label?: string; coalesce?: boolean }): void;
   /**
-   * The document's history tree (the engine's undo history, ADR 0327: the authority): where it stands and its states,
+   * The document's history tree (the engine's undo history, ADR 0341: the authority): where it stands and its states,
    * so a change the session didn't make is told apart as an undo or a redo. Absent (a story): such changes are edits.
    */
   readonly history?: { readonly current: number; readonly states: readonly unknown[] };

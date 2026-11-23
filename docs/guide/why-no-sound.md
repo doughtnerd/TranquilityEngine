@@ -6,7 +6,7 @@ Start with what the engine says about itself. In a script, or the browser consol
 console.log(Audio.debug());
 ```
 
-The editor's Audio Debug panel is gone (ADR 0327): read `Audio.debug()` from a script or the console, or record a capture (**Record capture** on the Play toolbar) and open it on the Audio Studio's Profiler screen. Either shows the status, the backend, the underrun count, every bus with its gain, peak level and voice count, and every sound with its state. Also read the console: the audio code warns once, in words, for most failures, and the warning is usually the answer.
+The editor's Audio Debug panel is gone (ADR 0341): read `Audio.debug()` from a script or the console, or record a capture (**Record capture** on the Play toolbar) and open it on the Audio Studio's Profiler screen. Either shows the status, the backend, the underrun count, every bus with its gain, peak level and voice count, and every sound with its state. Also read the console: the audio code warns once, in words, for most failures, and the warning is usually the answer.
 
 Look at three things, in this order.
 

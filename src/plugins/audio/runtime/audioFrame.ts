@@ -8,7 +8,7 @@
  * - **The core** (`StagedFrameHost`, `core/spatial.ts`): 1. attenuation (`frameAttenuate`: frame start, gain, direction,
  *   `audibility0`), then `collectSpatialVoices`, 2. Doppler, 3. zones, 4. occlusion (main's passes over `spatialVoices`),
  *   5. audibility × smoothed occlusion and selection (`frameSelect`), 6. panner pick, 7. fx staging, 8. listener,
- *   then the BATCH (`frameCommit`; ADR 0166's music plan step went with the music player, ADR 0329). The stage methods are this
+ *   then the BATCH (`frameCommit`; ADR 0166's music plan step went with the music player, ADR 0343). The stage methods are this
  *   module's contract with the core; nothing else calls them.
  * - **The Babylon fallback** (`SpatialPassHost` only, F1): the same passes (zones inert, F2), then the
  *   backend's own `update(dt)`, which pans and commits.
@@ -25,7 +25,7 @@ import { takeTap } from "./capture/takeTap";
 
 /** ADR 0270: runs one backend frame in the production order (see the header). Allocates nothing. */
 export function runAudioFrame(backend: AudioBackend, frame: ListenerFrame, dt: number, settings: AudioSettings): void {
-  // ADR 0334: a recording take reads the listener's and the emitters' poses once per frame (30 Hz, changes only).
+  // ADR 0348: a recording take reads the listener's and the emitters' poses once per frame (30 Hz, changes only).
   // and, when it takes pictures, the canvas the World renders into (none headless).
   if (takeTap.sink) takeTap.sink.frame(frame.node ? frame : null, frame.world?.render?.canvas ?? null);
   if (isStagedFrameHost(backend)) {

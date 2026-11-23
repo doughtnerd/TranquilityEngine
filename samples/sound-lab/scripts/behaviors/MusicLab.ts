@@ -3,7 +3,7 @@ import { MusicReadout } from "../musicReadout";
 import { TouchBar } from "../touchBar";
 
 /**
- * The music page (ADR 0329 playlists, migrated from ADR 0166 music events; the page's key is M on the main scene, B comes back). Every clip is a stem
+ * The music page (ADR 0343 playlists, migrated from ADR 0166 music events; the page's key is M on the main scene, B comes back). Every clip is a stem
  * synthesised by `tools/makeMusic.mjs` at one tempo (120 bpm, 4/4, a bar is 2 s), so any piece can follow any other on
  * the grid. Three music playlists, one playing at a time (starting one stops the one before it):
  *

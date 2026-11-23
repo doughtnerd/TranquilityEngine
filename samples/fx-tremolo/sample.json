@@ -1,4 +1,4 @@
 {
   "name": "Tremolo Plugin",
-  "description": "The reference audio effect plugin (ADR 0338): plugins/tremolo is a tremolo written in Rust on the myco-fx SDK, compiled to a sandboxed WebAssembly module and declared in plugin.json. Rebuild the module with npm run build:fx-examples."
+  "description": "The reference audio effect plugin (ADR 0352): plugins/tremolo is a tremolo written in Rust on the myco-fx SDK, compiled to a sandboxed WebAssembly module and declared in plugin.json. Rebuild the module with npm run build:fx-examples."
 }

@@ -1,4 +1,4 @@
-// Sample renders for the Samples screen (ADR 0328): `renderSample` on a worker of its own (`render.worker.ts`), so a
+// Sample renders for the Samples screen (ADR 0342): `renderSample` on a worker of its own (`render.worker.ts`), so a
 // long render never blocks the screen, and the project's render cache in `.myco/cache/samples/` (`renderCache.ts`), so
 // a render of unchanged edits is read back instead of made again. Where workers don't exist (Node: tests, the
 // exporter), the render runs here.

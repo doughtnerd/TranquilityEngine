@@ -65,7 +65,7 @@ const CONTRIBUTION_POINTS = {
   registerViewportTool: registryPoint(viewportTools, { also: (t, owner) => (t.editsComponents ? componentHeaderActions.register(componentEditToggle(t), owner) : null) }),
   /** A Scene toolbar button that opens a popover (ADR 0142). */
   registerSceneToolbarItem: registryPoint(sceneToolbarItems),
-  /** Controls on the Play toolbar after Pause and Step (ADR 0334: the Audio plugin's Record take and Record capture). */
+  /** Controls on the Play toolbar after Pause and Step (ADR 0348: the Audio plugin's Record take and Record capture). */
   registerPlayToolbarItem: registryPoint(playToolbarItems),
   /** A control in Inspector component cards' headers for some Component types (ADR 0142). */
   registerComponentHeaderAction: registryPoint(componentHeaderActions),

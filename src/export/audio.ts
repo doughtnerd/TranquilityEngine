@@ -1,4 +1,4 @@
-// Audio conversion and packages in game builds (ADR 0337 §5, §7, §8, amended by 0345). Beside `processImages` (ADR
+// Audio conversion and packages in game builds (ADR 0351 §5, §7, §8, amended by 0359). Beside `processImages` (ADR
 // 0119): the build writer (buildWriter.ts) runs `processAudio` after rendering baked samples and processing images.
 //
 // Two halves:
@@ -17,7 +17,7 @@
 // `files`, so sidecars, playlists and the sample resolver still find it; the media table says where its bytes are). A
 // packaged `stream` sound's media ships loose as `audio/stream/<hash>.<ext>` and each package holds only its prefetch
 // head (16-bit PCM). A sample with an offline render (`sample.source`, a Studio flatten or the export's own render,
-// ADR 0328) is converted from the render, at the render's path, with the sample's settings: the runtime plays the render.
+// ADR 0342) is converted from the render, at the render's path, with the sample's settings: the runtime plays the render.
 //
 // **Codec rules** beyond the settings: Opus takes mono and stereo only, so an ambisonic or multichannel file set to Opus
 // ships as Vorbis (D56); ADPCM has no loose container (D56, this module's choice): a loose sound set to ADPCM, or a
@@ -43,7 +43,7 @@ import { copiedPath, type WebBuildPlan } from "./webBuild";
 
 /** Audio files a build converts, by extension (the decoder's formats). */
 export const AUDIO_FILE = /\.(wav|wave|flac|aif|aiff|aifc|mp3|ogg|oga|opus|m4a|aac)$/i;
-/** Where converted sounds are cached, relative to the project folder (ADR 0337 §5). */
+/** Where converted sounds are cached, relative to the project folder (ADR 0351 §5). */
 export const AUDIO_CACHE_DIR = ".myco/cache/audio";
 /** Where packages go in the build. */
 export const PACKAGES_DIR = "audio/packages";
@@ -84,11 +84,11 @@ export interface AudioPlanInput {
   dependencies(path: string): readonly string[];
   /** False: `--no-audio-convert`, every sound ships as its source. */
   convert: boolean;
-  /** ADR 0340 §6: how packages split per language. Absent: no package has language parts. */
+  /** ADR 0354 §6: how packages split per language. Absent: no package has language parts. */
   localisation?: PackageLocalisation;
 }
 
-/** How a package's contents split into a base part and language parts (ADR 0340 §6). */
+/** How a package's contents split into a base part and language parts (ADR 0354 §6). */
 export interface PackageLocalisation {
   /** The build's shipped languages: a split package has one part per language. */
   codes: readonly string[];
@@ -115,7 +115,7 @@ export interface PlannedSound {
   ambisonic: boolean;
   /** Packages holding it (in a base or a language part), in `audio.json`'s order. */
   packages: string[];
-  /** The language parts holding it (ADR 0340 §6), in `audio.json`'s and the languages' order; empty or absent for a base sound. */
+  /** The language parts holding it (ADR 0354 §6), in `audio.json`'s and the languages' order; empty or absent for a base sound. */
   parts?: { package: string; language: string }[];
   /** Notes for the report: fallbacks and refused settings. */
   notes: string[];
@@ -125,7 +125,7 @@ export interface PlannedPackage {
   def: PackageDef;
   /** The audio files its base part holds (sorted). */
   sounds: string[];
-  /** ADR 0340 §6: language code → the audio files its part holds (sorted), when its contents reach localised files; else null. */
+  /** ADR 0354 §6: language code → the audio files its part holds (sorted), when its contents reach localised files; else null. */
   parts: Record<string, string[]> | null;
   /** Include entries that matched nothing, and dependencies missing from the project, as report lines. */
   problems: string[];
@@ -140,7 +140,7 @@ export interface AudioPlan {
   problems: string[];
 }
 
-/** What `codec` ships as given where the sound goes (ADR 0337 §4, D56): ADPCM only inside a package, never streamed. */
+/** What `codec` ships as given where the sound goes (ADR 0351 §4, D56): ADPCM only inside a package, never streamed. */
 function placeCodec(codec: ShippedCodec | "source", load: LoadMode, packaged: boolean, notes: string[]): ShippedCodec | "source" {
   if (codec !== "adpcm") return codec;
   if (!packaged) {
@@ -171,7 +171,7 @@ export function planAudio(input: AudioPlanInput): AudioPlan {
     const sounds = c.paths.filter((p) => AUDIO_FILE.test(p) && !(loc?.isLocalised(p) ?? false));
     let parts: Record<string, string[]> | null = null;
     if (loc) {
-      // ADR 0340 §6: what the contents bring into each language (a variant through the chain, a line table's files),
+      // ADR 0354 §6: what the contents bring into each language (a variant through the chain, a line table's files),
       // with those files' own dependencies, never into the base part.
       const known = new Set(input.files);
       for (const code of loc.codes) {
@@ -290,7 +290,7 @@ export interface ProcessAudioOptions {
   /** Sounds converted at once (decode and encode; the encoder's own pool decides how many encode in parallel). Default 4. */
   concurrency?: number;
   /**
-   * ADR 0340 §6: the build's languages (`planWebBuild`'s), which packages split by and the line index covers. Absent:
+   * ADR 0354 §6: the build's languages (`planWebBuild`'s), which packages split by and the line index covers. Absent:
    * every shipped language of the build's `project.json`.
    */
   languages?: BuildLanguages;
@@ -326,12 +326,12 @@ export interface AudioReportPackage {
   bytes: number;
   memoryBytes: number;
   sounds: string[];
-  /** ADR 0340 §6: per language, its part's size, memory and sounds; absent for a package without language parts. */
+  /** ADR 0354 §6: per language, its part's size, memory and sounds; absent for a package without language parts. */
   languages?: Record<string, { bytes: number; memoryBytes: number; sounds: string[] }>;
   problems: string[];
 }
 
-/** `audio-report.json` (ADR 0337 §5 step 6, §8). */
+/** `audio-report.json` (ADR 0351 §5 step 6, §8). */
 export interface AudioReport {
   format: typeof AUDIO_REPORT_FORMAT;
   platform: ImportPlatform;
@@ -343,7 +343,7 @@ export interface AudioReport {
     files: number;
     sourceBytes: number;
     shippedBytes: number;
-    /** The static memory bound (ADR 0337 §8): the preload packages plus the largest other package. */
+    /** The static memory bound (ADR 0351 §8): the preload packages plus the largest other package. */
     memoryBytes: number;
   };
   /** The platform's budgets and the warnings for those passed (tripwires: never a failure). */
@@ -388,7 +388,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 /** Interleaved PCM's first `frames` frames. */
 const headOf = (d: DecodedAudio, frames: number): DecodedAudio => ({ ...d, pcm: d.pcm.slice(0, frames * d.channels) });
 
-/** The runtime memory of a sound (ADR 0337 §3). */
+/** The runtime memory of a sound (ADR 0351 §3). */
 function memoryOf(load: LoadMode, codec: PackCodec, frames: number, channels: number, bytes: number, headFrames: number): number {
   if (load === "stream") return headFrames * channels * 2;
   if (load === "compressed" && codec !== "pcm" && codec !== "source") return bytes;
@@ -469,11 +469,11 @@ export async function processAudio(build: WebBuildPlan, options: ProcessAudioOpt
     }
   }
 
-  // ADR 0340 §6: the build's languages, the localised roots and the line tables: packages split per language, and a
+  // ADR 0354 §6: the build's languages, the localised roots and the line tables: packages split per language, and a
   // line table a package includes brings each language's files of its lines into that language's part.
   const languages = options.languages ?? buildLanguages(json.get("project.json")).languages;
   const roots = localisedRoots(languages.settings, audioJson);
-  // Line tables resolve under the audio roots only (a table without its own `root` uses the first, 0340 §5).
+  // Line tables resolve under the audio roots only (a table without its own `root` uses the first, 0354 §5).
   const voRoots = parsed?.project.localisation?.roots ?? [];
   const exists = (p: string) => fileSet.has(p);
   const lineTables = files.filter(isLineTablePath).map((path) => ({ path, table: parseLineTable(json.get(path), path).table }));
@@ -642,7 +642,7 @@ export async function processAudio(build: WebBuildPlan, options: ProcessAudioOpt
   const manifestPackages: AudioManifest["packages"][number][] = [];
   const reportPackages: AudioReportPackage[] = [];
   const inputsMemory = (inputs: readonly PackInput[]) => inputs.reduce((sum, i) => sum + memoryOf(i.entry.load, i.entry.codec, i.entry.frames, i.entry.channels, i.data.length, i.entry.prefetch?.frames ?? 0), 0);
-  /** A package's memory while loaded in its largest language (the base plus that part; ADR 0340 §6 counts the current language). */
+  /** A package's memory while loaded in its largest language (the base plus that part; ADR 0354 §6 counts the current language). */
   const loadedMemory = new Map<string, number>();
   for (const p of plan.packages) {
     const inputs = packInputs.get(p.def.name)!;
@@ -650,7 +650,7 @@ export async function processAudio(build: WebBuildPlan, options: ProcessAudioOpt
     const url = `${PACKAGES_DIR}/${p.def.name}${PACK_EXTENSION}`;
     binaries.set(url, bytes);
     const memoryBytes = inputsMemory(inputs);
-    // ADR 0340 §6: one part per shipped language, `<name>.<code>.mycopak`, beside the base part.
+    // ADR 0354 §6: one part per shipped language, `<name>.<code>.mycopak`, beside the base part.
     let partsManifest: Record<string, { url: string; bytes: number }> | undefined;
     let partsReport: AudioReportPackage["languages"];
     let largestPart = 0;

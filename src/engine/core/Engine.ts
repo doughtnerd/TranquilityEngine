@@ -33,7 +33,7 @@ export interface EngineOptions {
   container?: HTMLElement;
   headless?: boolean;
   /**
-   * @internal ADR 0327: an audio-only Engine (the Audio Studio's runtime): it draws nothing (as `headless`), but its
+   * @internal ADR 0341: an audio-only Engine (the Audio Studio's runtime): it draws nothing (as `headless`), but its
    * Worlds play sound as the World with the view does, so the audio plugin listens to and mixes them.
    */
   audioOnly?: boolean;

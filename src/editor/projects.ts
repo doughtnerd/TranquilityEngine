@@ -25,7 +25,7 @@ export interface EditorProject {
   readonly fileSystem: FileSystem | null;
   readonly canSave: boolean;
   /**
-   * The parsed `project.json` (empty if there's none), with `audio` set to `audio.json`'s runtime view (ADR 0330). Follows
+   * The parsed `project.json` (empty if there's none), with `audio` set to `audio.json`'s runtime view (ADR 0344). Follows
    * writes to both, so play mode uses the current bootstrap and mix.
    */
   readonly settings: ProjectSettingsInput;
@@ -67,14 +67,14 @@ export interface EditorProject {
   /** Delete a folder and everything in it from disk and from the project. */
   deleteFolder(path: string): Promise<void>;
   /**
-   * Files changed on disk by someone else (another app, a code editor, git; ADR 0327): read `paths` (project-relative
+   * Files changed on disk by someone else (another app, a code editor, git; ADR 0341): read `paths` (project-relative
    * files or folders) again and serve what they hold now, adding new files and dropping deleted ones, and tell
    * `Assets.onChanged` listeners. What this project wrote itself reads as unchanged. Does nothing for a project in
    * memory. Resolves to what changed.
    */
   rereadFiles(paths: readonly string[]): Promise<FileChanges>;
   /**
-   * `from` (a file or folder) was moved to `to` on disk by someone else (ADR 0327, pending moves): follow it as `move`
+   * `from` (a file or folder) was moved to `to` on disk by someone else (ADR 0341, pending moves): follow it as `move`
    * does after its rename (a file's sidecar along), then read what is at `to`. Doesn't touch the disk.
    */
   followMove(from: string, to: string): Promise<void>;
@@ -151,7 +151,7 @@ class MapProject implements EditorProject {
     private readonly namedBySettings = false,
   ) {
     this.mainScene = pickMainScene(this.files);
-    this.assets = { has: (p) => values.has(p), get: (p) => values.get(p), paths: () => values.keys() }; // listed: Locale finds string tables (ADR 0342)
+    this.assets = { has: (p) => values.has(p), get: (p) => values.get(p), paths: () => values.keys() }; // listed: Locale finds string tables (ADR 0356)
   }
 
   get name(): string {
@@ -168,7 +168,7 @@ class MapProject implements EditorProject {
 
   /**
    * Read from `project.json` each time, so it reflects edits saved since the project opened, with `audio` from
-   * `audio.json` (ADR 0330: its runtime view). The same object until either file changes.
+   * `audio.json` (ADR 0344: its runtime view). The same object until either file changes.
    */
   get settings(): ProjectSettingsInput {
     const project = this.values.get("project.json"), audio = this.values.get(AUDIO_PROJECT_FILE);
@@ -501,13 +501,13 @@ async function listFiles(fs: FileSystem, root: string, dir: string, accept: (pat
  * Open a project folder: it must contain `project.json`. Loads every project file up front as its
  * asset value (ADR 0254: JSON parsed, text files' text, the rest as object URLs), since scene
  * loading looks assets up synchronously. With `readOnly` nothing is written, not even a migration, and the project
- * can't be saved (the Audio Studio opens a project whose old audio events weren't migrated this way, ADR 0329).
+ * can't be saved (the Audio Studio opens a project whose old audio events weren't migrated this way, ADR 0343).
  */
 export async function openFolderProject(fs: FileSystem, root: string, options: { readOnly?: boolean } = {}): Promise<EditorProject> {
   if (!(await fs.exists(joinPath(root, "project.json")))) {
     throw new Error(`"${root}" isn't a Myco Engine project: it has no project.json.`);
   }
-  // ADR 0330: an `audio` section still in project.json moves to audio.json before anything reads the files.
+  // ADR 0344: an `audio` section still in project.json moves to audio.json before anything reads the files.
   if (!options.readOnly) await migrateLegacyAudio(fs, root);
   const folders = new Set<string>();
   const sizes = new Map<string, number>();

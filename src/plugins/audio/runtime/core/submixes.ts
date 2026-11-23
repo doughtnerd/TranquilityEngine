@@ -1,4 +1,4 @@
-// ADR 0331 (ABI 4.5; levels 4.9): submixes on the core backend. Main owns the pool: `settings.voices.submixes` slots
+// ADR 0345 (ABI 4.5; levels 4.9): submixes on the core backend. Main owns the pool: `settings.voices.submixes` slots
 // (default 32), clamped to the core's `SUBMIXES_MAX`.
 //
 // - **An instance's own chain** (its root playlist's or sequence's): `open` gives instance group `group` a slot and sends
@@ -42,7 +42,7 @@ import type { ReplayBuilder } from "./replay";
 import type { SendGate } from "./session";
 import type { SubmixLevel } from "../backend";
 
-/** The default pool when the settings name none (ADR 0331). */
+/** The default pool when the settings name none (ADR 0345). */
 export const DEFAULT_SUBMIXES = 32;
 
 /** The core's kind for each catalogue effect type it runs (`effectKinds.ts`; any other type is sent as passthrough, 0). */
@@ -125,7 +125,7 @@ function tailSeconds(effects: readonly Effect[]): number {
   return Math.min(TAIL_MAX, t);
 }
 
-/** ADR 0331: the core backend's submix pool (instances' and their levels'). */
+/** ADR 0345: the core backend's submix pool (instances' and their levels'). */
 export class CoreSubmixes {
   private readonly slots: (Slot | null)[] = new Array(SUBMIXES_MAX).fill(null);
   /** Instance group → the slot of its own chain. */
@@ -179,7 +179,7 @@ export class CoreSubmixes {
   }
 
   /**
-   * ADR 0331 instance automation (ABI 4.10): instance `group`'s own submix's parameter automation (SUBMIX_AUTOMATE,
+   * ADR 0345 instance automation (ABI 4.10): instance `group`'s own submix's parameter automation (SUBMIX_AUTOMATE,
    * replacing what it had). A lane naming an effect the chain doesn't hold, or a parameter past the wire's, is left out.
    */
   automate(group: number, lanes: readonly SubmixLane[]): void {
@@ -206,7 +206,7 @@ export class CoreSubmixes {
   }
 
   /**
-   * ADR 0331 levels: a submix of instance `group`'s own for its level `key` (a nested playlist, a sequence track, a clip),
+   * ADR 0345 levels: a submix of instance `group`'s own for its level `key` (a nested playlist, a sequence track, a clip),
    * feeding `parent` (null: `bus`) and running `effects`; the same key gets the same slot back (reconfigured). Null when
    * the pool is full (warned once).
    */
@@ -312,7 +312,7 @@ export class CoreSubmixes {
       return ringing;
     }
     this.refused++;
-    this.host.warnOnce("submix-full", `audio: "${where}" plays without its effects: every submix (settings.voices.submixes: ${cap}) is in use (ADR 0331). Raise the pool or use fewer playlist, track and clip effect chains at once; this is warned once.`);
+    this.host.warnOnce("submix-full", `audio: "${where}" plays without its effects: every submix (settings.voices.submixes: ${cap}) is in use (ADR 0345). Raise the pool or use fewer playlist, track and clip effect chains at once; this is warned once.`);
     const profile = this.host.profile();
     if (profile !== NULL_PROFILE_SINK) profile.marker(`submix refused: ${where} (pool of ${cap} full)`);
     return -1;

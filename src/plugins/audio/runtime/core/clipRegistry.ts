@@ -39,7 +39,7 @@ export interface ClipInfo {
   readonly frames: number;
   readonly channels: number;
   readonly sampleRate: number;
-  /** Wire `ClipFormat`: 0 f32, 1 i16, 2 HRIR, 4 MagLS filters (ADR 0162), 6 IMA ADPCM held compressed (ADR 0337 A4). */
+  /** Wire `ClipFormat`: 0 f32, 1 i16, 2 HRIR, 4 MagLS filters (ADR 0162), 6 IMA ADPCM held compressed (ADR 0351 A4). */
   readonly format: number;
   /** Bytes in the core's arena, for the `clipMemoryMB` ceiling. */
   readonly bytes: number;
@@ -119,11 +119,14 @@ export interface ClipRegistry {
    */
   acquireReserved(id: number, data: ReservedClipData): void;
   /**
-   * A3.4c, a rebuild into a context at another rate: replaces the kept blob of a reserved clip already held (`data` is
-   * the same table resampled for the new rate) without sending anything; the rebuild's `resend` then sends the new
-   * blob. Chunks of the old blob still queued are dropped. Ignored for an id not held. Optional so fakes satisfy K9.
+   * A3.4c, a rebuild into a context at another rate: replaces the kept blob of a reserved clip already held with `next`
+   * (the same table prepared for the new rate by the decoder worker, ADR 0331) without sending anything itself. Chunks of
+   * the old blob still queued are dropped at once. Until `next` lands the old blob is stale: a `resend` meanwhile sends
+   * nothing for the clip (it waits, `copying`), and the new blob begins as soon as it lands; one landing before the resend
+   * is kept for it. A later call supersedes an earlier one still pending. A `next` that rejects (or isn't a valid blob)
+   * marks the clip `failed`; the caller warns. Ignored for an id not held. Optional so fakes satisfy K9.
    */
-  updateReserved?(id: number, data: ReservedClipData): void;
+  updateReserved?(id: number, next: Promise<ReservedClipData>): void;
 }
 
 /** What `acquireReserved` takes. */
@@ -184,7 +187,7 @@ export interface ClipRegistryDeps {
    */
   warnOnce?: WarnOnce;
   /**
-   * ADR 0337 §7, A4: where a path's audio is in a package the decoder worker holds (`DecoderClient.loadPack`), or null to
+   * ADR 0351 §7, A4: where a path's audio is in a package the decoder worker holds (`DecoderClient.loadPack`), or null to
    * fetch the path's file as before. A held entry isn't fetched or kept in the encoded cache: the worker decodes it from
    * the package, and an ADPCM entry with load `compressed` arrives as whole blocks that go to the core as clip format 6
    * (the core decodes them per voice). Default: the package registry's answer (`packMedia.ts` `clipPackRef`), null while
@@ -193,7 +196,7 @@ export interface ClipRegistryDeps {
   packRef?: (path: string) => PackRef | null;
 }
 
-/** ADR 0337 A4: the bytes of a format 6 clip of `frames` frames of `channels` (whole blocks). */
+/** ADR 0351 A4: the bytes of a format 6 clip of `frames` frames of `channels` (whole blocks). */
 const adpcmBytes = (frames: number, channels: number): number => Math.ceil(frames / ADPCM_BLOCK_FRAMES) * channels * ADPCM_CHANNEL_BYTES;
 
 /** ADR 0162 §2.4 (B2): the import gain a FuMa clip's decode reported, by clip path (absent: 1). */
@@ -305,6 +308,10 @@ interface ReservedSlot {
   samples: number;
   /** True while CLIP_BEGIN has gone out and no CLIP_UNLOAD has. */
   begun: boolean;
+  /** Bumped by each `updateReserved`: only the newest pending blob lands. */
+  updates: number;
+  /** An `updateReserved` blob is pending: `data` is stale and is not sent again. */
+  held: boolean;
   readonly listeners: Set<ClipResidentListener>;
 }
 
@@ -328,7 +335,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
   const warn = deps.warn ?? ((m: string) => console.warn(m));
   const warnOnce = deps.warnOnce ?? createWarnOnce(warn);
   const aac = deps.aac === true;
-  // ADR 0337 §7 (W12): by default the package registry answers (`packMedia.ts`); nothing loaded, nothing packaged.
+  // ADR 0351 §7 (W12): by default the package registry answers (`packMedia.ts`); nothing loaded, nothing packaged.
   const packRef = deps.packRef ?? clipPackRef;
   const nextFrame = deps.nextFrame ?? defaultNextFrame;
   const nextQuantum = deps.nextQuantum ?? ((cb: () => void) => void setTimeout(cb, 0));
@@ -455,7 +462,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       const slot = byId.get(chunk.clipId);
       if (!slot || slot.dead) continue;
       if (slot.format === ClipFormat.AdpcmIma) {
-        // ADR 0337 A4: whole IMA ADPCM blocks, unchanged (an even byte count; padded to 4 on the wire).
+        // ADR 0351 A4: whole IMA ADPCM blocks, unchanged (an even byte count; padded to 4 on the wire).
         const blocks = slot.parts?.get(chunk.frameOffset);
         if (!blocks) continue;
         slot.parts!.delete(chunk.frameOffset);
@@ -495,7 +502,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     readonly channels: number;
     readonly sampleRate: number;
     readonly pieces: readonly Int16Array[];
-    /** ADR 0337 A4: the pieces are whole IMA ADPCM blocks (as int16 words) of a format 6 clip. */
+    /** ADR 0351 A4: the pieces are whole IMA ADPCM blocks (as int16 words) of a format 6 clip. */
     readonly adpcm?: boolean;
   }
 
@@ -526,7 +533,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
   };
 
   /**
-   * ADR 0337 A4: queues whole IMA ADPCM blocks (`words`, int16 words, starting at frame `offset`, a block start) as paced
+   * ADR 0351 A4: queues whole IMA ADPCM blocks (`words`, int16 words, starting at frame `offset`, a block start) as paced
    * chunks of a format 6 clip: whole blocks within the per-quantum copy budget, the last chunk ending at the clip's frames.
    * Returns the frames the blocks cover.
    */
@@ -592,7 +599,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     const kept: Int16Array[] = [];
     let keptFrames = 0;
     const ambisonic = Assets.importSettings(slot.path).ambisonic;
-    // ADR 0337 A4: a package entry the worker holds, and whether it arrives as format 6 blocks.
+    // ADR 0351 A4: a package entry the worker holds, and whether it arrives as format 6 blocks.
     const pack = packRef?.(slot.path) ?? null;
     let adpcm = false;
     try {
@@ -607,7 +614,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
           channels = info.channels;
           rate = info.rate;
           if (info.clipFormat === ClipFormat.AdpcmIma) {
-            // ADR 0337 A4: held compressed; the length is the package's, exact, so it uploads as it arrives.
+            // ADR 0351 A4: held compressed; the length is the package's, exact, so it uploads as it arrives.
             adpcm = true;
             if (span) {
               fail(slot, "refusedSpan", "an ADPCM sound held compressed has no span clips");
@@ -710,7 +717,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     try {
       slot.state = "fetching";
       const cached = cache.get(slot.path);
-      // ADR 0337 A4: an entry of a package the worker holds is decoded there, not fetched.
+      // ADR 0351 A4: an entry of a package the worker holds is decoded there, not fetched.
       if (packRef?.(slot.path)) encoded = new ArrayBuffer(0);
       else if (cached) encoded = cached;
       else {
@@ -952,24 +959,49 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     acquireReserved(id, data) {
       checkReserved(id, data);
       if (reserved.has(id)) return;
-      const res: ReservedSlot = { id, state: "copying", data, samples: data.bytes.byteLength / reservedWordBytes(data.format), begun: false, listeners: new Set() };
+      const res: ReservedSlot = { id, state: "copying", data, samples: data.bytes.byteLength / reservedWordBytes(data.format), begun: false, updates: 0, held: false, listeners: new Set() };
       reserved.set(id, res);
       beginReserved(res);
     },
-    updateReserved(id, data) {
+    updateReserved(id, next) {
       const res = reserved.get(id);
       if (!res) return;
-      checkReserved(id, data);
+      const token = ++res.updates;
+      res.held = true;
       pacer.cancel(id);
-      res.data = data;
-      res.samples = data.bytes.byteLength / reservedWordBytes(data.format);
+      const current = () => reserved.get(id) === res && res.updates === token;
+      next.then(
+        (data) => {
+          if (!current()) return;
+          res.held = false;
+          try {
+            checkReserved(id, data);
+          } catch {
+            res.state = "failed";
+            return;
+          }
+          res.data = data;
+          res.samples = data.bytes.byteLength / reservedWordBytes(data.format);
+          // The resend came while it was pending (the core has nothing for it): send it now. Otherwise the resend will.
+          if (!res.begun) {
+            res.state = "copying";
+            beginReserved(res);
+          }
+        },
+        () => {
+          if (!current()) return;
+          res.held = false;
+          res.state = "failed";
+        },
+      );
     },
     resend(order) {
       for (const res of reserved.values()) {
         if (!res.begun || res.state === "failed") continue;
         pacer.cancel(res.id);
         res.state = "copying";
-        beginReserved(res);
+        if (res.held) res.begun = false; // stale: the new core gets the pending blob when it lands
+        else beginReserved(res);
       }
       const slots: Slot[] = [];
       const seen = new Set<Slot>();

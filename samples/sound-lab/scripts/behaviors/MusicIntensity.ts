@@ -1,7 +1,7 @@
 import { Audio, AudioSource, GameBehavior, Input, Text, Time, behavior, field } from "myco";
 
 /**
- * Music intensity (ADR 0329 playlists). This node's AudioSource plays `music-intensity.playlist.json`: three layers in
+ * Music intensity (ADR 0343 playlists). This node's AudioSource plays `music-intensity.playlist.json`: three layers in
  * one looping Sequence (pad, pulse, lead tracks). The global parameter "Intensity" (0..1, seekSpeed 0.5, so a change glides over about two
  * seconds) fades the pulse and then the lead in with automation on their tracks, and the project's `audio.automation` also
  * drives the Music bus: louder and brighter (its low-pass opens from 900 Hz to 18 kHz) as intensity rises. N and M

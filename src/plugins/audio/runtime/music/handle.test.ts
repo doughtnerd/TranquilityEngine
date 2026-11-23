@@ -1,5 +1,5 @@
 // ADR 0166 api-and-models §1.3 (P7): the `Audio` clock members `Audio.horizon` and `Audio.timeAt`, through `Audio` on
-// the fake backend (kept from the M4a rows when the music player was retired, ADR 0329).
+// the fake backend (kept from the M4a rows when the music player was retired, ADR 0343).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Audio } from "../Audio";
 import { setAudioBackend } from "../backend";

@@ -1,4 +1,4 @@
-// The Samples screen's player bar slots (ADR 0335 `PlayerBar`, the prototype's transport): the play-mode menu
+// The Samples screen's player bar slots (ADR 0349 `PlayerBar`, the prototype's transport): the play-mode menu
 // (Selection; Whole, Loop, Through loops; To next marker, To the end; Pre-roll, Return to start, Follow), Play /
 // Pause (Release while a held loop plays), Stop, and the scrub row (time, track, end).
 import { effect } from "@preact/signals";

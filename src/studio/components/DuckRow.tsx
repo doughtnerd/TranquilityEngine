@@ -1,4 +1,4 @@
-// A ducking row (ADR 0335 `DuckRow`, ADR 0330 ducking): one rule lowering a bus while another plays, collapsible like
+// A ducking row (ADR 0349 `DuckRow`, ADR 0344 ducking): one rule lowering a bus while another plays, collapsible like
 // an effect card: caret, the trigger's name and "−6 dB · while playing" while closed, On/Off and × remove; open, Ducked
 // by, When (While playing | Above level), the threshold (level only), Duck by, Attack and Release. Edits come back as
 // `{ next } | { refused }` for the owner to apply as undo steps.

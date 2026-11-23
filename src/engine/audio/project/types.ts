@@ -1,6 +1,6 @@
 /**
- * Contract (ADR 0330): the project's audio file, `audio.json` (`myco.audio@1`) at the project root, replacing the
- * `audio` section of `project.json`. The Studio owns it (ADR 0327).
+ * Contract (ADR 0344): the project's audio file, `audio.json` (`myco.audio@1`) at the project root, replacing the
+ * `audio` section of `project.json`. The Studio owns it (ADR 0341).
  *
  * `settings` holds today's engine budgets and options unchanged; the mix (buses, returns, VCAs, automation, ducking,
  * snapshots) is the prototype's model. Gains are dB. Names are identities, unique across buses, returns and VCAs.
@@ -26,13 +26,13 @@ export type AudioEngineSettings = Omit<
   AudioSettings,
   "buses" | "snapshots" | "ducking" | "parameters" | "automation" | "loudnessTargets" | "loudnessResetOnPlay"
 > & {
-  /** ADR 0331: instance submix pool. */
+  /** ADR 0345: instance submix pool. */
   submixes: number;
-  /** ADR 0333: sounds farther than this (m) go to their bus's bed; null = beds by priority only (today). */
+  /** ADR 0347: sounds farther than this (m) go to their bus's bed; null = beds by priority only (today). */
   bedBeyond: number | null;
-  /** ADR 0333: global Doppler multiplier 0..2, default 1. */
+  /** ADR 0347: global Doppler multiplier 0..2, default 1. */
   dopplerAmount: number;
-  /** ADR 0341 §4: dialogue lines speaking at once (0: no limit) and the fade of an interrupted line, ms. */
+  /** ADR 0355 §4: dialogue lines speaking at once (0: no limit) and the fade of an interrupted line, ms. */
   dialogue: { maxVoices: number; interruptFadeMs: number };
 };
 
@@ -132,16 +132,16 @@ export interface AudioProject {
   snapshots: Snapshot[];
   loudness: { targets: LoudnessTarget[]; resetOnPlay: boolean };
   /**
-   * ADR 0337 §2: encoding profiles, folder rules and budgets (`encoding/format.ts`). Absent when the file has none (every
+   * ADR 0351 §2: encoding profiles, folder rules and budgets (`encoding/format.ts`). Absent when the file has none (every
    * file takes the built-in defaults; read it as `defaultEncodingConfig()`).
    */
   encoding?: EncodingConfig;
-  /** ADR 0337 §7: package definitions (`packaging/definitions.ts`). Absent when there are none (no packages). */
+  /** ADR 0351 §7: package definitions (`packaging/definitions.ts`). Absent when there are none (no packages). */
   packages?: PackageDef[];
-  /** ADR 0337 §7: package rules. Absent at the default (`strict: true`). */
+  /** ADR 0351 §7: package rules. Absent at the default (`strict: true`). */
   packaging?: PackagingOptions;
   /**
-   * ADR 0340 §2: localised roots, loudness for batch import, the duration check, missing lines, the captions table
+   * ADR 0354 §2: localised roots, loudness for batch import, the duration check, missing lines, the captions table
    * (`localisation/format.ts`). Absent at the defaults (no localised roots: nothing is localised).
    */
   localisation?: AudioLocalisation;

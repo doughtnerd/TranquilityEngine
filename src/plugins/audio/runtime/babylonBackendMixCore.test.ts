@@ -1,4 +1,4 @@
-// ADR 0330 ("one warning per feature", ADR 0179's rule): on the Babylon fallback, returns, bus sends and bus effects
+// ADR 0344 ("one warning per feature", ADR 0179's rule): on the Babylon fallback, returns, bus sends and bus effects
 // need the audio core; the fallback says so once, whatever the mix and however often its buses are configured.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mixer } from "../../../engine/audio/mixer";
@@ -28,7 +28,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("Babylon fallback: returns, sends and bus effects need the audio core (ADR 0330)", () => {
+describe("Babylon fallback: returns, sends and bus effects need the audio core (ADR 0344)", () => {
   it("says nothing for a mix of plain buses", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     mixer.configure(parseAudioSettings({ buses: [{ name: "Master" }, { name: "Music", parent: "Master" }] }).settings);

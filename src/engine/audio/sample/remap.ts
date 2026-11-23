@@ -1,5 +1,5 @@
 /**
- * A sample's edits carried onto a new version of its audio file (ADR 0328 "Source versions": re-import keeps the edits).
+ * A sample's edits carried onto a new version of its audio file (ADR 0342 "Source versions": re-import keeps the edits).
  * Every time in a sample block is seconds in the source file, so a new file of another length needs a rule:
  *
  * - **Keep seconds** (`"seconds"`, the default): every time stays where it was. Right for a re-render with a longer or

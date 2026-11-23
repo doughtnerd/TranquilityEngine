@@ -1,4 +1,4 @@
-/* The Studio's shared components (ADR 0335): player bar, status bar, output-device menu, latency calibration.
+/* The Studio's shared components (ADR 0349): player bar, status bar, output-device menu, latency calibration.
  * Theme tokens only (src/editor/ui/editor.css lists them). */
 
 /* Player bar, Layout A */
@@ -14,7 +14,7 @@
 .studio-player-scrub { width: 100%; display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .studio-player-right { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
 .studio-player-status { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* ADR 0337 §6: Hear as. */
+/* ADR 0351 §6: Hear as. */
 .studio-hear-as { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .studio-hear-as-label { color: var(--muted); }
 .studio-hear-as-ab { padding: 0 6px; }

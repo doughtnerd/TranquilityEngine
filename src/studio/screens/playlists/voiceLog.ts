@@ -1,4 +1,4 @@
-// What an audition plays, read from the runtime's public `Audio.debug()` (ADR 0329, 0327 "the Studio plays through
+// What an audition plays, read from the runtime's public `Audio.debug()` (ADR 0343, 0341 "the Studio plays through
 // the real engine"; the prototype's Plays now and Voices panels, PL:1239–1325): the voices of the open playlist's
 // instances now, and a log of every voice seen while auditioning (start, end, status, gain, instance) with the triggers
 // the playback rules refused. The panels poll a snapshot; this folds each snapshot into the log. Pure.
@@ -112,8 +112,8 @@ export function canRelease(body: PlaylistBody, load: (path: string) => PlaylistB
   if (body.playback.plays === "untilStopped" || body.queue?.continuous || (body.type === "blend" && body.blend && body.blend.envelope.mode !== "off")) return true;
   return body.entries.some((e) => {
     if (e.kind === "sample") return body.type === "clip" && e.loop === "on";
-    if (e.kind === "line") return false; // ADR 0340 §5: a line plays its file once
-    if (e.kind === "generator") return false; // TODO(G4, ADR 0346): an endless generator releases; display only for now
+    if (e.kind === "line") return false; // ADR 0354 §5: a line plays its file once
+    if (e.kind === "generator") return false; // TODO(G4, ADR 0360): an endless generator releases; display only for now
     if (e.kind === "embedded") return canRelease(e.embedded, load, seen);
     if (seen.has(e.playlist)) return false;
     const linked = load(e.playlist);

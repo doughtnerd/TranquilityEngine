@@ -1,4 +1,4 @@
-// ADR 0337 A4, A7: the decoder worker's packages (`packs.ts`) and its new codecs, through the handler and the client on the
+// ADR 0351 A4, A7: the decoder worker's packages (`packs.ts`) and its new codecs, through the handler and the client on the
 // real myco_audio_decode.wasm (decoder ABI 1.5): a `.mycopak` loads (and a bad one is refused); an ADPCM entry with load
 // `compressed` comes back as clip format 6, its blocks unchanged, and one with load `decode` as the int16 its blocks decode
 // to; a Vorbis entry decodes from the held package; an Opus file decodes (libopus, pre-skip and end trimming) to its
@@ -53,7 +53,7 @@ const pack = () =>
     { entry: entry("amb/wind.wav", "vorbis", "compressed", 48_000, 2, 48_000), data: new Uint8Array(decoderFixture("tone-48000-stereo.ogg")) },
   ]);
 
-describe("the decoder's packages and codecs (ADR 0337 A4, A7)", () => {
+describe("the decoder's packages and codecs (ADR 0351 A4, A7)", () => {
   it("the store reads a package, finds its entries and refuses what isn't one", () => {
     const store = new PackStore();
     expect(store.load(1, pack())).toEqual({ entries: 3, bytes: pack().byteLength });

@@ -1,4 +1,4 @@
-//! ADR 0333 per-voice spread (SET_VOICE_FX `spread`, ABI 4.11) through the real render path: a
+//! ADR 0347 per-voice spread (SET_VOICE_FX `spread`, ABI 4.11) through the real render path: a
 //! positioned noise voice's interaural correlation falls from 1 towards 0 as its spread grows, its
 //! power stays, a spread of 0 is the panner bit for bit, a stereo voice keeps its image, a spread
 //! change ramps without a click, and a non-spatial voice ignores it.

@@ -1,4 +1,4 @@
-// Spike B0 (ADR 0338): the worklet glue that sits between the core's `myco_ext.process` import and a plugin
+// Spike B0 (ADR 0352): the worklet glue that sits between the core's `myco_ext.process` import and a plugin
 // module's `myco_fx_process`. Plain ES module with no Node or DOM APIs, so it runs in Node, on a page and inside an
 // AudioWorkletGlobalScope alike.
 //

@@ -4,6 +4,15 @@ import type { AudioMarkerEvent } from "../audio/markerTypes";
 import type { MusicEvent } from "../audio/musicTypes";
 import type { TimeState, World } from "./World";
 import type { WorldHandle } from "./worlds";
+import type { PlayerInput } from "../input/facade";
+
+/** Builds a behavior's `input` (set by `input/facade.ts`, which core can't import). */
+let inputFacade: ((behavior: GameBehavior) => PlayerInput) | null = null;
+
+/** @internal The input module registers how a behavior's `input` is made. */
+export function _setInputFacade(make: (behavior: GameBehavior) => PlayerInput): void {
+  inputFacade = make;
+}
 
 /**
  * Base class for everything attached to a node: built-in engine components and user
@@ -167,7 +176,7 @@ export interface LifecycleHooks {
   /**
    * A beat of the playlist an `AudioSource` on this node plays, when its playing entry has a tempo (a Sequence with a
    * tempo, or a sample with one): delivered by the audio system (late update) on the first frame whose heard clock has
-   * passed it. After a gap of more than one beat the beats coalesce into one call with `e.missed` set (ADR 0166, 0329).
+   * passed it. After a gap of more than one beat the beats coalesce into one call with `e.missed` set (ADR 0166, 0343).
    * Defining the hook is the subscription. `e` is reused: read it during the call, don't keep it.
    */
   onMusicBeat?(e: MusicEvent): void;
@@ -175,11 +184,11 @@ export interface LifecycleHooks {
   onMusicBar?(e: MusicEvent): void;
   /**
    * A cue of ADR 0166's music events. Playlists report cues as markers (`onAudioMarker`), so it isn't called for them
-   * (ADR 0329); kept so old scripts still compile.
+   * (ADR 0343); kept so old scripts still compile.
    */
   onMusicCue?(e: MusicEvent): void;
   /**
-   * A marker passing in the playlist an `AudioSource` on this node plays (ADR 0329): the Cue, Exit and Hit markers of its
+   * A marker passing in the playlist an `AudioSource` on this node plays (ADR 0343): the Cue, Exit and Hit markers of its
    * samples and its sequences' `cue` and `exit` markers, every type (`e.type` says which), delivered by the audio system
    * (late update) on the first frame whose heard clock has passed it (`e.time` is exact). A playlist's beats and bars
    * reach `onMusicBeat`/`onMusicBar` from there too. Defining the hook is the subscription; the handle's
@@ -222,6 +231,16 @@ export abstract class GameBehavior extends Component {
   /** Engine-scheduled waits that respect pause and time scale, cancelled on disable/destroy (ADR 0018). */
   get wait(): Waits {
     return (this._wait ??= new Waits(this));
+  }
+
+  /**
+   * The input of the player controlling this behavior's node (ADR 0336, 0337): the pawn's actions
+   * (the nearest node up with `ControlledBy` or an action set), else player 0's.
+   * `this.input.vector2("move")`, `this.input.performed("jump")`, `this.input.on("heavy", "performed", fn)`.
+   */
+  get input(): PlayerInput {
+    if (!inputFacade) throw new Error("input: the input module isn't loaded.");
+    return inputFacade(this);
   }
 
   /** Aborted when this behavior is disabled or destroyed. Use it for fetch and other non-engine async work. */

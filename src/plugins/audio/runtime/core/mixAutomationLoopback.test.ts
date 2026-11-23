@@ -1,4 +1,4 @@
-// ADR 0330 / 0331 (ABI 4.8) on the real wasm (the loopback host, the page's mixer and the playlist runtime binding the
+// ADR 0344 / 0345 (ABI 4.8) on the real wasm (the loopback host, the page's mixer and the playlist runtime binding the
 // mix's automation): every mixer automation target runs in the core, keyed on its parameter's smoothed value as the
 // volume lanes are. A parameter that seeks (its `seekSpeed`) is heard moving an EQ band and a send part-way through its
 // seek, and main never re-sends the bus chain or the sends for it (on the old main-thread path the value jumped to the
@@ -73,7 +73,7 @@ async function rig(m: Record<string, unknown> = mix()) {
   return { audio, backend: audio.backend, mixer: audio.mixer, step, posted: audio.watched! };
 }
 
-describe("mixer automation runs in the core (ADR 0330, ABI 4.8)", () => {
+describe("mixer automation runs in the core (ADR 0344, ABI 4.8)", () => {
   it("an EQ band's automation follows its seeking parameter in the core, with no bus chain re-sent", { timeout: 30_000 }, async (ctx) => {
     const r = await rig(mix({ buses: [{ name: "Master" }, { name: "SFX", parent: "Master", effects: [{ id: "fx1", type: "eq", params: { low: 0, mid: 0, high: 0 } }] }] , returns: [], automation: [{ on: "SFX", target: "fx:fx1:low", parameter: "tone", curve: [[0, 0], [1, -12]] }] }));
     if (!r) return ctx.skip();
@@ -141,7 +141,7 @@ describe("mixer automation runs in the core (ADR 0330, ABI 4.8)", () => {
   });
 });
 
-describe("instance submix parameter automation (ADR 0331, ABI 4.8)", () => {
+describe("instance submix parameter automation (ADR 0345, ABI 4.8)", () => {
   it("a submix's low-pass automation opens it above its authored cutoff", { timeout: 30_000 }, async (ctx) => {
     const sine = Float32Array.from({ length: 48_000 }, (_, k) => 0.25 * Math.sin((2 * Math.PI * 4000 * k) / 48_000));
     const audio = await loopbackAudio({ mixer: "own", preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0 }, decode: () => ({ channelData: [sine] }), dt: 0.003 });

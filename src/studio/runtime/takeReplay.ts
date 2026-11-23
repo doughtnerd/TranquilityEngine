@@ -1,4 +1,4 @@
-// Take replay (ADR 0334 "Replay"): re-issue what a game asked of audio, at the times it asked, against the *current*
+// Take replay (ADR 0348 "Replay"): re-issue what a game asked of audio, at the times it asked, against the *current*
 // project, so edits are heard in context. Two parts:
 //
 // - `TakeReplay`, the scheduling model: a clock-driven playhead over a `Take` (play, pause, seek, a loop range, rate 1)
@@ -63,7 +63,7 @@ export interface ReplaySayOptions extends ReplayPlayOptions {
   readonly whenBusy?: "queue" | "interrupt" | "drop";
 }
 
-/** ADR 0341 §6: a say whose replay picked differently from the recording ("picked X, recorded Y"). */
+/** ADR 0355 §6: a say whose replay picked differently from the recording ("picked X, recorded Y"). */
 export interface PickDifference {
   /** The take's instance id. */
   readonly instance: number;
@@ -91,11 +91,11 @@ export interface ReplayTarget {
   listener(pose: ReplayPose): void;
   /** Start the picks' generator from `seed`; false when the runtime can't (replay then says so). */
   seed(seed: number): boolean;
-  /** ADR 0340 §10: play a voice-over line by key against the current tables (`Audio.line`); null when it can't. */
+  /** ADR 0354 §10: play a voice-over line by key against the current tables (`Audio.line`); null when it can't. */
   line?(key: string, options: ReplayPlayOptions): ReplayLineHandle | null;
-  /** ADR 0341 §6: say a dialogue event with the recorded arguments (`Audio.say`): it decides again against the current data. */
+  /** ADR 0355 §6: say a dialogue event with the recorded arguments (`Audio.say`): it decides again against the current data. */
   say?(event: string, options: ReplaySayOptions): ReplayLineHandle | null;
-  /** ADR 0340 §10: the recorded audio and subtitle languages. */
+  /** ADR 0354 §10: the recorded audio and subtitle languages. */
   language?(audio: string, subtitles: string | null): void;
   /** The replay closed: let go of what it made (the listener entity). */
   dispose?(): void;
@@ -174,11 +174,11 @@ export class TakeReplay {
   /** What the replay can't do faithfully right now (an unseeded runtime), or null. */
   readonly note = signal<string | null>(null);
   /**
-   * ADR 0341 §6, the Take toolbar's **Replay recorded picks**: false (default) re-decides each say against the current
+   * ADR 0355 §6, the Take toolbar's **Replay recorded picks**: false (default) re-decides each say against the current
    * project, with the generator restarted from its recorded state; true plays the recorded lines by key instead.
    */
   readonly replayRecordedPicks = signal(false);
-  /** ADR 0341 §6: the says whose replay picked differently from the recording, by take instance. */
+  /** ADR 0355 §6: the says whose replay picked differently from the recording, by take instance. */
   readonly pickDifferences = signal<ReadonlyMap<number, PickDifference>>(new Map());
   /** Lines and says replay started, by take instance (their stops and state changes reach them here). */
   private readonly lines = new Map<number, { handle: ReplayLineHandle | null; event: string | null }>();
@@ -458,7 +458,7 @@ export class TakeReplay {
   }
 
   /**
-   * ADR 0341 §6: a say as the game asked it. By default it is said again with its recorded arguments (every argument's
+   * ADR 0355 §6: a say as the game asked it. By default it is said again with its recorded arguments (every argument's
    * resolved value), the generator restarted from the state it had then, so unchanged data picks the same line; a pick
    * that differs is noted ("picked X, recorded Y"). With **Replay recorded picks** the recorded line plays by key.
    */

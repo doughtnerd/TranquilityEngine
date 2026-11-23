@@ -1,8 +1,8 @@
-// The script CSV (ADR 0340 §9, 0343 §1): keys, table, speaker, notes and one text column per language, the format
+// The script CSV (ADR 0354 §9, 0357 §1): keys, table, speaker, notes and one text column per language, the format
 // translators and recording studios exchange. Export writes every line; import reads one back as a diff — keys added,
 // changed (which fields) and removed — and turns it into document edits (line tables, string tables, translations),
 // each applied as one undo step of its document. Text goes through the string tables like the Text column
-// (`textEdit`). ADR 0342 T6's CSV adds string-table columns later; this keeps to the line columns. Pure.
+// (`textEdit`). ADR 0356 T6's CSV adds string-table columns later; this keeps to the line columns. Pure.
 import { isLineKey, lineRow, subtitleKeyOf } from "../../../engine/audio/localisation/lines/format";
 import type { LineRow, LineTable } from "../../../engine/audio/localisation/types";
 import { canonicalLanguageCode, languageOf } from "../../../engine/localisation/languages";
@@ -123,11 +123,11 @@ function overlay(data: DialogueData, edits: Map<string, DocEdit>): DialogueData 
   };
 }
 
-/** Lines still holding 0340's retired `text` (0343 §1: "Move subtitles to the string table" moves them). */
+/** Lines still holding 0354's retired `text` (0357 §1: "Move subtitles to the string table" moves them). */
 export const linesWithOldText = (data: DialogueData): LineRef[] => allLines(data).filter((r) => r.line.text !== undefined);
 
 /**
- * 0343 §1's fix: every retired `text` moved into the string tables (the reference language's into the table, others
+ * 0357 §1's fix: every retired `text` moved into the string tables (the reference language's into the table, others
  * into translations, a string already there kept) and removed from the line tables. One edit per document.
  */
 export function moveSubtitles(data: DialogueData): { edits: DocEdit[]; problems: string[] } {

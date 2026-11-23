@@ -1,5 +1,5 @@
 /**
- * Deciding a dialogue event's line (ADR 0341 §2), pure:
+ * Deciding a dialogue event's line (ADR 0355 §2), pure:
  *
  * 1. **Values.** Each argument's value is `args[name]`; else, for a parameter argument, the global's current label;
  *    else the argument's default. A value that isn't one of its labels warns and matches only `*`.
@@ -43,7 +43,7 @@ export interface DecideContext {
 /** Why a candidate was passed over, or that it was taken. */
 export type CandidateOutcome = "picked" | "probability" | "unavailable" | "silence";
 
-/** The profiler's "Why it played" (0334): the values, then each candidate tried in order. */
+/** The profiler's "Why it played" (0348): the values, then each candidate tried in order. */
 export interface PickTrace {
   /** Argument name → the value matched (null: matches only `*`). */
   values: Record<string, string | null>;

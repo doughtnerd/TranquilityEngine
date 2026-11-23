@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0337 §6, §7) for the Packages screen's package inspector over the story project, edited through
+// Stories (ADR 0219, 0351 §6, §7) for the Packages screen's package inspector over the story project, edited through
 // the screen's model: Preload, the platforms it ships on (the last one can't go), the project's Strict rule, its size for
 // the platform, and a script naming a package that doesn't exist.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

@@ -38,20 +38,20 @@ export interface ExportOptions {
   tauriBuild?: boolean;
   /** Ship the built-in audio capture trigger (F9, a three-finger hold): the game can record its audio mix for the Profiler (default off). */
   audioCapture?: boolean;
-  /** ADR 0334: ship the take trigger (F10): the game can record takes for the Studio (default off). */
+  /** ADR 0348: ship the take trigger (F10): the game can record takes for the Studio (default off). */
   audioTake?: boolean;
-  /** ADR 0334: with `audioTake`, false keeps pictures of the game view out of takes (default: takes record them). */
+  /** ADR 0348: with `audioTake`, false keeps pictures of the game view out of takes (default: takes record them). */
   audioTakeFrames?: boolean;
   /**
-   * ADR 0337 §1: the platform images and audio are converted for (default: the target's; `android` converts a web build
+   * ADR 0351 §1: the platform images and audio are converted for (default: the target's; `android` converts a web build
    * for Android until its exporter lands, ADR 0155).
    */
   platform?: ImportPlatform;
-  /** ADR 0337 §5: `--no-audio-convert`: audio ships as its sources (packages are still built), and the report says so. */
+  /** ADR 0351 §5: `--no-audio-convert`: audio ships as its sources (packages are still built), and the report says so. */
   audioConvert?: boolean;
-  /** ADR 0340 §6, 0342 §11: `--languages`: ship only these of the project's shipped languages (default: every one). */
+  /** ADR 0354 §6, 0356 §11: `--languages`: ship only these of the project's shipped languages (default: every one). */
   languages?: string[];
-  /** ADR 0342 §9: `--pseudo`: add the pseudo-languages, for QA builds. */
+  /** ADR 0356 §9: `--pseudo`: add the pseudo-languages, for QA builds. */
   pseudo?: boolean;
   /** Audio encoder threads (default: cores − 1). */
   audioWorkers?: number;
@@ -115,7 +115,8 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   if (!desktop) return { out, web, plan };
 
   const settings = project.settings as typeof project.settings & { build?: BuildSettings };
-  const files = desktopProjectFiles({ name: plan.manifest.name, settings });
+  const gamepadModule = await readFile(join(REPO, "src-tauri", "src", "gamepad.rs"), "utf8");
+  const files = desktopProjectFiles({ name: plan.manifest.name, settings, gamepadModule });
   const tauriDir = join(out, "src-tauri");
   for (const [path, text] of files) await folder.writeText(`src-tauri/${path}`, text);
   await makeIcons(project.root, settings.build?.icon, folder, tauriDir, log);
@@ -128,6 +129,8 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
     log("Running tauri build (the first build compiles Tauri, which takes a few minutes)…");
     built = (await run(process.execPath, [tauriCli(), "build"], out)) === 0;
     if (!built) throw new ExportError(`tauri build failed (its output is above). The Tauri project is in ${tauriDir}; README.txt says how to build it.`);
+  } else if (options.tauriBuild === false) {
+    log("The app wasn't built (--no-build). README.txt in the output folder says how to build it.");
   } else {
     log("Rust (cargo) isn't installed, so the app wasn't built. README.txt in the output folder says how to build it.");
   }
@@ -141,8 +144,10 @@ const basename = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? 
 async function ensurePlayer(log: (line: string) => void): Promise<string> {
   if (existsSync(join(DEFAULT_PLAYER, PLAYER_FILE_LIST))) return DEFAULT_PLAYER;
   log("The player isn't built yet: building it (npm run build:player)…");
-  // `vite/bin/vite.js` isn't in vite's package exports; its package.json is, and the bin sits beside it.
-  const vite = join(dirname(createRequire(join(REPO, "package.json")).resolve("vite/package.json")), "bin", "vite.js");
+  // Vite's package exports don't include its bin script; find it through its package.json's `bin`.
+  const vitePackage = createRequire(join(REPO, "package.json")).resolve("vite/package.json");
+  const { bin } = JSON.parse(await readFile(vitePackage, "utf8")) as { bin: string | Record<string, string> };
+  const vite = join(dirname(vitePackage), typeof bin === "string" ? bin : bin.vite);
   const code = await run(process.execPath, [vite, "build", "--config", "vite.player.config.ts", "--logLevel", "warn"], REPO);
   if (code !== 0 || !existsSync(join(DEFAULT_PLAYER, PLAYER_FILE_LIST))) throw new ExportError("Couldn't build the player (npm run build:player).");
   return DEFAULT_PLAYER;
@@ -155,7 +160,7 @@ function nodeFiles(root: string): FileSource {
   return { read: async (path) => new Uint8Array(await readFile(under(root, path))) };
 }
 
-/** The audio cache (ADR 0337 §5) in the project folder's `.myco/cache/audio/` (paths relative to the project). */
+/** The audio cache (ADR 0351 §5) in the project folder's `.myco/cache/audio/` (paths relative to the project). */
 function nodeCache(root: string): AudioCacheStore {
   return {
     read: (path) => readFile(under(root, path)).then((b) => new Uint8Array(b), () => null),

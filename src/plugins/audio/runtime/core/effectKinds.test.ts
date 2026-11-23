@@ -5,7 +5,7 @@ import { BUS_FX_CATALOGUE, BUS_SLOT_MAX_EFFECTS, SUBMIX_EFFECTS_MAX, SUBMIX_FX_G
 import { FX_KINDS, busFxType, fxKind, fxParams } from "./effectKinds";
 import { wireEffect } from "./busIndex";
 
-describe("effect kinds (ADR 0331, ABI 4.6)", () => {
+describe("effect kinds (ADR 0345, ABI 4.6)", () => {
   it("maps exactly the types the rule module says the core runs, each to its own kind", () => {
     expect(Object.keys(FX_KINDS).sort()).toEqual([...CORE_EFFECT_TYPES].sort());
     const kinds = Object.values(FX_KINDS);
@@ -31,7 +31,7 @@ describe("effect kinds (ADR 0331, ABI 4.6)", () => {
     expect(sc.p.slice(0, 4)).toEqual([-24, 3, 300, 3]);
     expect(wireEffect({ type: "fx", fx: "sidechainCompressor", params: {}, key: "Nope" }, (n) => slots[n] ?? -1).p[3]).toBe(-1);
     expect(wireEffect({ type: "lowpass", frequency: 800, q: 1 })).toEqual({ type: 0, p: [800, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
-    // ABI 5.0 (ADR 0338): every record carries 16 parameters.
+    // ABI 5.0 (ADR 0352): every record carries 16 parameters.
     expect(wireEffect({ type: "reverb", send: 0.5 }).p).toHaveLength(16);
   });
 });

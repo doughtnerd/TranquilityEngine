@@ -42,6 +42,7 @@ import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComp
 import type { ICanvasRenderingContext } from "@babylonjs/core/Engines/ICanvas.js";
 import { Locale } from "../../localisation/Locale";
 import { fontEpoch, onFontLoaded, withLanguageFonts } from "../../ui/fonts";
+import { uiInteractions } from "../../ui/interactions";
 import { wrapLine, wrapText, type LineBreakMode } from "../../ui/text/lineBreak";
 import type { TextMeasureRequest, UICoreLike, UILaidOutCanvas, UILaidOutElement, UITextRun, UITextWrap } from "../../ui/uiCoreTypes";
 import { Text, type Anchor } from "../components";
@@ -106,12 +107,12 @@ interface TextEntry {
 }
 
 /**
- * A text block in the language's direction, wrapping lines by the engine's line breaking (ADR 0342 §5): the context's
+ * A text block in the language's direction, wrapping lines by the engine's line breaking (ADR 0356 §5): the context's
  * base direction is the language's, and lines break where `lineBreak.ts` allows (spaces, between CJK characters with
  * the kinsoku rules, Thai words), measured as `textSize` measures them for layout.
  */
 class LocalisedTextBlock extends TextBlock {
-  /** The base direction (ADR 0342 §5): the canvas context's `direction`, so the browser orders mixed runs within a line. */
+  /** The base direction (ADR 0356 §5): the canvas context's `direction`, so the browser orders mixed runs within a line. */
   direction: "ltr" | "rtl" = "ltr";
   /** Where lines may break: `ui/text/lineBreak.ts`'s rules, the same ones `textSize` measured with. */
   breakMode: LineBreakMode = "normal";
@@ -449,17 +450,21 @@ export class BabylonUI {
   private syncPanel(e: ElementEntry, c: UIPanel): void {
     const r = e.control as Rectangle;
     let background = c.backgroundColor;
+    let border = c.borderColor;
+    // Focus colours (ADR 0340) show while the last UI input was navigation: a button's fill, a field's border.
+    const showsFocus = (c instanceof UIButton || c instanceof UIInputField) && uiInteractions(c._world).showsFocus(c);
     if (c instanceof UIButton && c.interactable) {
       // Pressed needs hovered too (a press dragged off the button shows it unpressed).
       if (c.pressed && c.hovered) background = c.pressedColor;
       else if (c.hovered) background = c.hoverColor;
-    }
+      else if (showsFocus) background = c.focusColor;
+    } else if (c instanceof UIInputField && showsFocus) border = c.focusColor;
     const bk = background ? colorKey(background) : -1;
     if (put(r, "bg", bk)) r.background = background ? background.toCss() : "";
     if (put(r, "radius", c.borderRadius)) r.cornerRadius = c.borderRadius;
     if (put(r, "border", c.borderWidth)) r.thickness = c.borderWidth;
-    const ck = colorKey(c.borderColor);
-    if (put(r, "color", ck)) r.color = c.borderColor.toCss();
+    const ck = colorKey(border);
+    if (put(r, "color", ck)) r.color = border.toCss();
   }
 
   /** A UIText: the core's text run (exactly what it measured), with the component's colour and alignment. */
@@ -469,7 +474,7 @@ export class BabylonUI {
     this.setFont(t, run);
     const ck = colorKey(c.color);
     if (put(t, "color", ck)) t.color = c.color.toCss();
-    // `start`/`end` already resolved for the language's direction (ADR 0342 §5); justify draws from the left, as before.
+    // `start`/`end` already resolved for the language's direction (ADR 0356 §5); justify draws from the left, as before.
     const align = run.align === "center" ? Control.HORIZONTAL_ALIGNMENT_CENTER : run.align === "right" ? Control.HORIZONTAL_ALIGNMENT_RIGHT : Control.HORIZONTAL_ALIGNMENT_LEFT;
     if (put(t, "align", align)) t.textHorizontalAlignment = align;
     if (put(t, "dir", run.direction)) t.direction = run.direction;
@@ -530,7 +535,7 @@ export class BabylonUI {
     const run = el.text!; // the value, or the placeholder while it's empty, as the core measured it
     if (put(label, "text", run.text)) label.text = run.text;
     this.setFont(label, run);
-    // From the language's start edge, in its direction (ADR 0342 §5).
+    // From the language's start edge, in its direction (ADR 0356 §5).
     const rtl = run.direction === "rtl";
     if (put(label, "dir", run.direction)) {
       (label as LocalisedTextBlock).direction = run.direction;
@@ -544,7 +549,7 @@ export class BabylonUI {
     const lh = Math.max(0, el.height - 2 * inset);
     if (put(label, "h", lh)) label.heightInPixels = lh;
 
-    const index = c.focused ? (extra.caretOf?.(c) ?? null) : null;
+    const index = c.typing ? (extra.caretOf?.(c) ?? null) : null;
     if (index === null) {
       caret.isVisible = false;
       return;
@@ -554,7 +559,7 @@ export class BabylonUI {
     caret.isVisible = true;
     const ch = run.fontSize * run.lineHeight;
     // Right to left: the text ends at the right edge, so the caret sits that far in from it. Approximate for text that
-    // mixes directions (a known limit, ADR 0342 §5).
+    // mixes directions (a known limit, ADR 0356 §5).
     const full = rtl && c.value ? textSize(run.text, run.fontSize, run.fontWeight, run.fontFamily, run.lineHeight).width : 0;
     const x = rtl ? c.padding + Math.max(lw, full) - pw : c.padding + pw;
     if (put(caret, "left", x)) caret.leftInPixels = x;
@@ -613,7 +618,7 @@ export class BabylonUI {
     const outline = t.outlineColor && t.outlineWidth > 0 ? t.outlineWidth : 0;
     if (put(ctl, "text", t.text)) ctl.text = t.text;
     const weight = t.fontWeight;
-    // The current language's fonts after its own, in the language's direction (ADR 0342 §5).
+    // The current language's fonts after its own, in the language's direction (ADR 0356 §5).
     const family = withLanguageFonts(t.fontFamily);
     this.setFont(ctl, { fontSize: t.fontSize, fontWeight: weight, fontFamily: family, lineHeight: t.lineHeight });
     const direction = Locale.direction;

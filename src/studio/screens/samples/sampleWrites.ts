@@ -1,4 +1,4 @@
-// What the Samples screen writes besides the sidecar (ADR 0328): "Write to file…" (the WAV's chunks, a backup of the
+// What the Samples screen writes besides the sidecar (ADR 0342): "Write to file…" (the WAV's chunks, a backup of the
 // file first in `.myco/sample-versions/<path>/v<n>.<ext>`, then every `file` snapshot refreshed as one step), and
 // derived samples (`*.sample.json`: forks that follow or pin, duplicates, snippets).
 import { defaultSampleEdits, derivedSampleToJson, forkSample, parseSampleEdits, sampleEditsToJson } from "../../../engine/audio/sample/format";
@@ -11,7 +11,7 @@ import { docVersion } from "../../../editor/state";
 import { folderOf, nameOf } from "./sampleLibrary";
 import { bytesOf, forgetAudio, type SampleSession } from "./sampleSession";
 
-/** Where a file's source versions are kept, per machine (ADR 0328). */
+/** Where a file's source versions are kept, per machine (ADR 0342). */
 export const versionsFolder = (path: string): string => `.myco/sample-versions/${path}`;
 
 /** Keep a copy of `path`'s current bytes as the next `v<n>`; returns its project-relative path. */

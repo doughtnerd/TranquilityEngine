@@ -1,5 +1,5 @@
 /**
- * Contract (ADR 0341 §1): dialogue events, `*.dialogue.json` (`myco.dialogue@1`). One file holds any number of events
+ * Contract (ADR 0355 §1): dialogue events, `*.dialogue.json` (`myco.dialogue@1`). One file holds any number of events
  * (Wwise work units); each has ordered labelled arguments and a path table (argument values → weighted line keys, with
  * `*` wildcards), resolved by `decide.ts`. These are the parsed (canonical) shapes `format.ts` produces and writes.
  *
@@ -28,7 +28,7 @@ export type DialogueArgument = LocalArgument | ParameterArgument;
 
 /** One weighted line of a path. */
 export interface DialogueLine {
-  /** A line key (0340). */
+  /** A line key (0354). */
   key: string;
   /** 0..100; 0 = never. */
   weight: number;

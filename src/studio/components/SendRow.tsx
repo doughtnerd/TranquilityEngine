@@ -1,4 +1,4 @@
-// A send row (ADR 0335 `SendRow`, ADR 0330 returns): one post-fader send from a bus to a return, collapsible like an
+// A send row (ADR 0349 `SendRow`, ADR 0344 returns): one post-fader send from a bus to a return, collapsible like an
 // effect card: caret, "→ Reverb" with its level while closed, Automate ◆ and × remove; open, the level as a row
 // (−60..+6 dB, 0.5 dB steps). Edits come back as `{ next } | { refused }` for the owner to apply as undo steps.
 import type { Send } from "../../engine/audio/project/types";

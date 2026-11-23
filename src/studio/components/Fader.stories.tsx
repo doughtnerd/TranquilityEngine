@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the fader: horizontal and vertical, with a meter in its track, a VCA ghost tick, the
+// Stories (ADR 0219, 0349) for the fader: horizontal and vertical, with a meter in its track, a VCA ghost tick, the
 // keys (arrows 0.5 dB, 0 for unity), both ticks at once in snapshot mode (VCA and base level) and disabled while
 // automated.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

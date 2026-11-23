@@ -230,7 +230,7 @@ describe("M5 STATUS sections at the caps and at zero (L-Wa1b)", () => {
     expect(dv.getUint16(246, true)).toBe(7);
     expect(dv.getUint16(248, true)).toBe(8);
     expect(dv.getUint16(250, true)).toBe(9);
-    // ABI 5.1 (ADR 0346): the last header word holds `genStarved` (252) and `reserved2` (254).
+    // ABI 5.1 (ADR 0360): the last header word holds `genStarved` (252) and `reserved2` (254).
     expect(dv.getUint16(252, true)).toBe(0x0a0b);
     expect(dv.getUint16(254, true)).toBe(0xbeef);
   });

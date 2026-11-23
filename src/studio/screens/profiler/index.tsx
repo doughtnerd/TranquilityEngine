@@ -1,4 +1,4 @@
-// The Profiler screen's panels (ADR 0334 "The Profiler screen", ADR 0327 "The shell"; the prototype's layout): Captures
+// The Profiler screen's panels (ADR 0348 "The Profiler screen", ADR 0341 "The shell"; the prototype's layout): Captures
 // (left), the Timeline (the fixed panel), At cursor, Voice and Why it played (right), Messages (bottom). The panels read
 // the screen's store (`profilerScreen.ts`); the Timeline panel also owns what the screen does while it shows: opening
 // the capture the route names, the cursor keys (← → step, Shift+← → markers) and the player bar's slots (the capture
@@ -194,7 +194,7 @@ function MessagesPanel() {
   );
 }
 
-/** ADR 0338 §9: the running plugin effects' health, live from the runtime, with Reset plugin. */
+/** ADR 0352 §9: the running plugin effects' health, live from the runtime, with Reset plugin. */
 function PluginsPanel() {
   const rows = usePluginHealth(true);
   return (

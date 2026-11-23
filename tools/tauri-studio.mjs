@@ -1,4 +1,4 @@
-// Run the Tauri CLI on the standalone Audio Studio app, src-studio-tauri/ (ADR 0327), rather than the editor's
+// Run the Tauri CLI on the standalone Audio Studio app, src-studio-tauri/ (ADR 0341), rather than the editor's
 // src-tauri/: `node tools/tauri-studio.mjs dev|build [args…]` (npm run tauri:studio:dev / tauri:studio:build).
 // The CLI finds its app folder from TAURI_APP_PATH; setting it here keeps the npm scripts the same on every OS.
 import { spawn } from "node:child_process";

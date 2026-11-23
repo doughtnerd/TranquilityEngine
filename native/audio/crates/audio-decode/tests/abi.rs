@@ -48,7 +48,7 @@ fn info(h: i32) -> InfoRec {
 
 #[test]
 fn the_abi() {
-    assert_eq!(myco_decode_abi_version(), 0x105); // 1.5: Ogg Opus and myco_decode_adpcm (ADR 0337 A4, A7); 1.4: myco_decode_seam (ADR 0328 stream loop seams)
+    assert_eq!(myco_decode_abi_version(), 0x106); // 1.6: both lines joined (1.4 spatial prep on master); 1.5: Ogg Opus and myco_decode_adpcm (ADR 0351 A4, A7); 1.4: myco_decode_seam (ADR 0342 stream loop seams)
     assert!(!myco_decode_source_hash().is_null());
     assert!(myco_decode_alloc(0).is_null());
 

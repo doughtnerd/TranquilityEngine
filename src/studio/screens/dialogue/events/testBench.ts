@@ -1,4 +1,4 @@
-// The Events tab's test bench (ADR 0341 §7, §2): argument values (or "from global"), the language from the header
+// The Events tab's test bench (ADR 0355 §7, §2): argument values (or "from global"), the language from the header
 // chip; it shows which path best match takes and the fallbacks after it in order, each with its reason, plus the paths
 // that don't match and why; Say decides once and Roll ×50 shows the pick distribution. Decisions are `decide.ts`'s, over
 // a seeded generator, so a seed and the same data give the same line. Pure.
@@ -78,7 +78,7 @@ export function candidateRanks(e: DialogueEvent, picked: Readonly<Record<string,
   return candidateOrder(e, values, seededRandom(ctx.seed));
 }
 
-// --- the bench's memory (0341 §4: event history, line cooldowns and once-lines) -----------------------------------------
+// --- the bench's memory (0355 §4: event history, line cooldowns and once-lines) -----------------------------------------
 
 export interface BenchMemory {
   /** Event name → its spoken lines, newest last. */

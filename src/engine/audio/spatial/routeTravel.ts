@@ -1,5 +1,5 @@
 /**
- * How a moving emitter of a spatial test scene travels its route over time (ADR 0333): by arc length at its speed, at
+ * How a moving emitter of a spatial test scene travels its route over time (ADR 0347): by arc length at its speed, at
  * its height. A route that doesn't loop stops at its last point. A looping route starts over from its first point, and
  * how it gets there decides what Doppler hears:
  *

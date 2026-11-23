@@ -1,4 +1,4 @@
-// The Localisation panel's Strings tab (ADR 0342 §9): the grid's rows — key, reference text, a cell per language with
+// The Localisation panel's Strings tab (ADR 0356 §9): the grid's rows — key, reference text, a cell per language with
 // its status (translated, needs review, missing), over-length and check results, notes and max length, and a status
 // summary per row — found by search and filters ("missing in fr", "needs review in de", "over length", "check
 // failed"), and the edits behind it, each refused or next (0313): add, duplicate, rename and delete a key (unique

@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0337 §7, A5): a build's media table (`game.json`'s `audio`, written by the export): which sounds were
+ * Internal (ADR 0351 §7, A5): a build's media table (`game.json`'s `audio`, written by the export): which sounds were
  * converted or packaged, what they ship as, and the build's packages. The player installs it before the game starts
  * (`installAudioMedia`); the clip resolver and the package registry (`packages.ts`) read it. Without one (editor Play, a
  * build with no converted audio) every lookup answers "nothing": sounds play from their project files, and packages come

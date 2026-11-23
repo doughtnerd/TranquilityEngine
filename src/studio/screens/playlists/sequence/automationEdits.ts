@@ -1,4 +1,4 @@
-// Automation on clips and tracks (ADR 0329, 0332; proto §3.4 "Envelope drawing", "Write automation"). A clip's curves
+// Automation on clips and tracks (ADR 0343, 0346; proto §3.4 "Envelope drawing", "Write automation"). A clip's curves
 // read clip time (or a parameter), a track's read sequence time; targets are volume, pitch, pan, enabled and effect
 // parameters (`fx:<id>:<param>`). Point edits (add, drag clamped between neighbours, delete, shape), "Add volume
 // envelope", the curve editor's result, and touch-mode writing: samples recorded while a control is held during
@@ -15,7 +15,7 @@ type R = EditResult<SequenceSettings>;
 /** Whose automation: a clip's or a track's. */
 export type AutomationOwner = { readonly clip: string } | { readonly track: string };
 
-/** The format's lane limit (ADR 0329). */
+/** The format's lane limit (ADR 0343). */
 export const MAX_AUTOMATION = 32;
 export const MAX_KEYS = 64;
 
@@ -200,13 +200,13 @@ export function setAutomation(s: SequenceSettings, o: AutomationOwner, id: strin
   if (patch.curve && patch.curve.length === 0) return removeAutomation(s, o, id);
   return mapAutomation(s, o, id, (a) => {
     const next = { ...a, ...patch };
-    // ADR 0336: quantize patched to undefined goes back to continuous (absent).
+    // ADR 0350: quantize patched to undefined goes back to continuous (absent).
     if ("quantize" in patch && patch.quantize === undefined) delete next.quantize;
     return next;
   });
 }
 
-/** ADR 0336: the quantize choices a lane offers (its menu), and the value of each. */
+/** ADR 0350: the quantize choices a lane offers (its menu), and the value of each. */
 export const QUANTIZE_CHOICES: readonly { readonly value: string; readonly label: string; readonly quantize: Automation["quantize"] }[] = [
   { value: "off", label: "Continuous", quantize: undefined },
   { value: "beat", label: "Next beat", quantize: "beat" },

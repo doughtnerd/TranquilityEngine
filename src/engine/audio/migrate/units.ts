@@ -1,5 +1,5 @@
 /**
- * Unit conversions the `myco.audioevent@1` → `myco.playlist@1` migration (ADR 0329) needs: the old format stored
+ * Unit conversions the `myco.audioevent@1` → `myco.playlist@1` migration (ADR 0343) needs: the old format stored
  * gains as linear multipliers, pitch as rate ratios and the reverb send against a normalised distance; playlists store
  * dB, semitones and metres. Pure and generic, so the migration's tests target these through their own interface.
  */

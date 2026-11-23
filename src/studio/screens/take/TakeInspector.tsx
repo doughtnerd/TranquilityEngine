@@ -1,4 +1,4 @@
-// The Take screen's Inspector (ADR 0334; the prototype's Inspector): the selected instance (its playlist, time range,
+// The Take screen's Inspector (ADR 0348; the prototype's Inspector): the selected instance (its playlist, time range,
 // emitter, and its parameters at the playhead as recorded beside the replaying instance's live values), or the selected
 // note (its text, colour and time, editable; Delete), or with nothing selected the global parameters at the playhead.
 // And the Mixer strip: each bus's authored and live level with its meter while the take replays. Views over props.

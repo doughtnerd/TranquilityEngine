@@ -1,4 +1,4 @@
-// ADR 0343 §5: the subtitle board the built-in display draws, driven through its interface with scripted `onLine` and
+// ADR 0357 §5: the subtitle board the built-in display draws, driven through its interface with scripted `onLine` and
 // `onCaption` events on the heard clock: paging, `sub` marker timing, stacking and the drop order, speaker-name modes,
 // size presets, fades and a live language change.
 import { describe, expect, it } from "vitest";

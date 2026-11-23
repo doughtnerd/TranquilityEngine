@@ -1,4 +1,4 @@
-// The Packages screen's package list (ADR 0337 §6): each package with how many assets it holds, Preload, a note when it
+// The Packages screen's package list (ADR 0351 §6): each package with how many assets it holds, Preload, a note when it
 // doesn't ship on the chosen platform and its problems; New package; Rename (F2, double-click or the menu) and Delete;
 // a sound dragged from the screen's tables onto a package is added to it. A view over props.
 import { useState } from "preact/hooks";

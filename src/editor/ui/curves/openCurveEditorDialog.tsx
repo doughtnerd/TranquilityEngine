@@ -1,4 +1,4 @@
-// Open the shared curve editor (ADR 0332) on its own, outside the component that asked for it: the dialog renders into
+// Open the shared curve editor (ADR 0346) on its own, outside the component that asked for it: the dialog renders into
 // a host at the end of `doc`'s body and lives until Apply or Cancel, so it survives the asker closing (an inline field
 // in a popover that a press in the dialog dismisses) and isn't caught in a transformed parent (a graph canvas).
 import { render } from "preact";

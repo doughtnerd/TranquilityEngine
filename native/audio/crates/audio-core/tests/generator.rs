@@ -1,4 +1,4 @@
-//! Generator voices through the core (ADR 0346 §3, ABI 5.1): a PLAY of a reserved clip id sounds with no clip
+//! Generator voices through the core (ADR 0360 §3, ABI 5.1): a PLAY of a reserved clip id sounds with no clip
 //! uploaded; GEN sets its parameters (at once before it starts, gliding after); pitch multiplies its frequencies;
 //! SET_LOOP's release keys it off and it ends after its release; `length` keys it off in the core; the loop flag makes
 //! it endless; a virtual voice advances its envelopes; AUTOMATE target 5 drives a parameter; the pool's exhaustion

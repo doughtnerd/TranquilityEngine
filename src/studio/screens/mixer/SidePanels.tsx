@@ -1,4 +1,4 @@
-// The Mixer's smaller panels (ADR 0330 "Gain", ADR 0171 loudness; the prototype's Gain lanes, Game parameters and
+// The Mixer's smaller panels (ADR 0344 "Gain", ADR 0171 loudness; the prototype's Gain lanes, Game parameters and
 // Loudness): where the selected bus's level comes from (authored values, with the runtime's lanes while it runs), the
 // test values of the game parameters (they drive snapshot conditions, automation display and the Studio's runtime),
 // and Master's loudness against a platform target ("—" until the Studio's audio plays).

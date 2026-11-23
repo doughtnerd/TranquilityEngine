@@ -22,7 +22,7 @@
 //!   ramp is settled off. That is M2's automation low-pass exactly (`audio-core`'s
 //!   `voices::auto_filter` before D1), so a voice with a lowpass binding and no `lpHz` renders bit
 //!   for bit as it did. The capped low-pass is never primed (M2 started it from zeroed history).
-//! - **The floor** (automation's `hpAuto`, ADR 0331 voice level, ABI 4.4): with `floor = Some(f)`
+//! - **The floor** (automation's `hpAuto`, ADR 0345 voice level, ABI 4.4): with `floor = Some(f)`
 //!   and `f` above [`HP_BOTTOM`] the high-pass runs at `max(base, f)`, `base` being the high-pass
 //!   ramp's cut-off ("highest wins", the mirror of the cap). A floor at or below [`HP_BOTTOM`] is
 //!   no floor, so a binding at 0 leaves the voice untouched; switching on primes as the ramp does.
@@ -33,7 +33,7 @@
 //!   ramp settles at its off end point.
 //! - **Running state** is the biquad's own `last[0]` (its kind: 0 none, 1 lowpass, 2 highpass,
 //!   `Biquad`'s documented contract): a filter not running has `last == [0.0; 3]`. So [`FxFilter`]
-//!   is exactly two biquads and two ramps, 272 B, inside the mixed-voice pool entry (560 B since ADR 0333, 448 before;
+//!   is exactly two biquads and two ramps, 272 B, inside the mixed-voice pool entry (560 B since ADR 0347, 448 before;
 //!   `audio-core`'s `fxpool.rs`).
 //!
 //! Q is [`Q_DB`] (1 dB, the bus snapshot low-pass's `SNAPSHOT_Q_DB`) for both filters.

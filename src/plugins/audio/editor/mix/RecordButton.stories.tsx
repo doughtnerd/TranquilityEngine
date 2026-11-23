@@ -1,4 +1,4 @@
-// Stories (ADR 0219) for the Play toolbar's record toggles (ADR 0334): idle outside Play (disabled), idle while playing,
+// Stories (ADR 0219) for the Play toolbar's record toggles (ADR 0348): idle outside Play (disabled), idle while playing,
 // recording, saved and failed, each through a real `RecordToggle` over stub seams. The play presses the toggle and
 // checks it records, then saves into `takes/`.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

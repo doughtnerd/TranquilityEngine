@@ -1,7 +1,7 @@
-// What the Studio's screens hand the shared curve editor (ADR 0332, `src/editor/ui/curves/`) about game parameters: a
+// What the Studio's screens hand the shared curve editor (ADR 0346, `src/editor/ui/curves/`) about game parameters: a
 // lane driven by a parameter names the dialog input `param:<name>` (so a parameter called "time" can't be taken for the
 // dialog's time axis), the parameters as dialog inputs with their test value as "now", the histogram of the values the
-// game sent (from an open take, ADR 0334; takes aren't built yet, so the hook is empty until they register a source),
+// game sent (from an open take, ADR 0348; takes aren't built yet, so the hook is empty until they register a source),
 // and the undo label an Apply commits.
 // Pure, apart from the histogram source a take registers.
 import { isLabelled, parameterRange, type ParameterDef } from "../../engine/audio/parameters";
@@ -29,7 +29,7 @@ export function parameterInputs(defs: readonly ParameterDef[], values: Readonly<
 
 /**
  * How often the game sent each value of `parameter`, in bins over `range` (the dialog's parameter backdrop), or null
- * when nothing is known. Registered by an open take (ADR 0334).
+ * when nothing is known. Registered by an open take (ADR 0348).
  */
 export type ParameterHistogramSource = (parameter: string, range: readonly [number, number]) => readonly number[] | null;
 

@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0334) for the Captures panel's view: captures by folder (editor and game-build captures and a
+// Stories (ADR 0219, 0348) for the Captures panel's view: captures by folder (editor and game-build captures and a
 // take), the open one selected, a click opening another, search by path, the context menu's Move to… dialog, F2
 // renaming in place, Delete, and the empty state saying where captures come from.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

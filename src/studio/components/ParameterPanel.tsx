@@ -1,4 +1,4 @@
-// The game parameters panel (ADR 0335 `ParameterPanel`): test values for the game parameters a screen listens to, a
+// The game parameters panel (ADR 0349 `ParameterPanel`): test values for the game parameters a screen listens to, a
 // slider row for a numeric parameter and a select for a labelled one, each with a reset to its default. Test values are
 // the Studio's (the owner keeps them, by name; a label as its index) and never saved into the project.
 import type { ParameterDef } from "../../engine/audio/parameters";

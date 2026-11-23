@@ -157,7 +157,7 @@ const HEADER_REFUSALS: readonly [name: string, edit: (v: DataView) => void, code
   ["magic", (v) => v.setUint8(0, 0), "badMagic"],
   ["format above this build's", (v) => v.setUint16(8, 3, true), "newerFormat"],
   ["format below this build's", (v) => v.setUint16(8, 0, true), "olderFormat"],
-  ["format 1 (before ADR 0334's records)", (v) => v.setUint16(8, 1, true), "olderFormat"],
+  ["format 1 (before ADR 0348's records)", (v) => v.setUint16(8, 1, true), "olderFormat"],
   ["flags, an unknown bit", (v) => v.setUint16(10, v.getUint16(10, true) | 0x20, true), "badHeader"],
   ["schemaHash", (v) => v.setUint8(12, v.getUint8(12) ^ 0xff), "wireMismatch"],
   ["abiVersion", (v) => v.setUint32(28, 0x300, true), "badHeader"],
@@ -443,7 +443,7 @@ describe("capture decode fuzz (L-Rc1a)", () => {
     wrap[at] = { type: RecordType.WRAP, epoch: 0, seq: wrap[at]!.seq, frame: 1400, payload: new Uint8Array(0) } as CaptureRecordInit;
     expect(await outcome(assembleCapture(SAMPLE_HEADER, SAMPLE_META, wrap))).toBe("badRecord");
 
-    // ADR 0334: a request record type (0x10..0x1d; ADR 0340/0341 added 0x1a..0x1d) in a capture that isn't a take is refused, not skipped.
+    // ADR 0348: a request record type (0x10..0x1d; ADR 0354/0355 added 0x1a..0x1d) in a capture that isn't a take is refused, not skipped.
     for (const type of [0x10, 0x19, 0x1a, 0x1d]) {
       const recs = sampleRecords();
       recs[at] = { type, epoch: 0, seq: recs[at]!.seq, frame: 1400, payload: new Uint8Array([1, 2, 3]) } as CaptureRecordInit;

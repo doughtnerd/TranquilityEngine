@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the effect chain: a bus chain (add from the alphabetical menu, the new card opens;
+// Stories (ADR 0219, 0349) for the effect chain: a bus chain (add from the alphabetical menu, the new card opens;
 // bypass, reorder, remove), a sidechain keyed on Dialogue, an automated parameter, a full chain, a clip (voice) chain
 // and a refusal reported by the owner.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
@@ -77,7 +77,7 @@ export const WrongLevel: StoryObj = { render: () => <Demo level="bus" start={[de
 
 export const Empty: StoryObj = { render: () => <Demo level="instance" start={[]} /> };
 
-// ADR 0338 §9 (B6): plugin effects in Add effect, after the built-ins, under their plugin's title; a plugin card gets
+// ADR 0352 §9 (B6): plugin effects in Add effect, after the built-ins, under their plugin's title; a plugin card gets
 // its health from the rows the owner passes (else the runtime's own) and its Reset plugin.
 registerPluginEffects({
   plugin: "example.tremolo", title: "Tremolo", version: "1.0.0", enabled: true,

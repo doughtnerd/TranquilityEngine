@@ -1,5 +1,5 @@
 /**
- * The line registry (ADR 0340 §5–§6, 0341 §1): every line key and dialogue event name of the project, from the line
+ * The line registry (ADR 0354 §5–§6, 0355 §1): every line key and dialogue event name of the project, from the line
  * index (`audio/lines/index.json`, `lineIndex.ts`) and the line tables and dialogue files it names, read through the
  * asset sources. Keys and names are unique across the project: the first table (or file) in path order wins and the
  * rest are warned once. Rebuilt when the index or any file it names changes (a new object from the asset source after

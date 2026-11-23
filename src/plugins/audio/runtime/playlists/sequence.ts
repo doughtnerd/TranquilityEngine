@@ -1,5 +1,5 @@
 /**
- * Sequence playlists at runtime (ADR 0329 "Sequence"): a timeline of audio and playlist tracks with clips, loops, hold
+ * Sequence playlists at runtime (ADR 0343 "Sequence"): a timeline of audio and playlist tracks with clips, loops, hold
  * points and markers, played by a playhead (`sequencePlayhead.ts`) planned a little ahead of the heard clock so every
  * clip voice starts stamped at its exact heard time.
  *
@@ -133,7 +133,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   private endAt = Number.NaN;
   private readonly scratch: number[] = [];
 
-  /** ADR 0331 levels: where this sequence's tracks' and clips' submixes are keyed in the instance. */
+  /** ADR 0345 levels: where this sequence's tracks' and clips' submixes are keyed in the instance. */
   private get levelKey(): string {
     return `${this.ctx.chain.join(">")}|${this.key}`;
   }
@@ -235,7 +235,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   private trackCtx(track: Track): { ctx: Ctx; time: TimeAuto[] } {
     const override = track.output !== null;
     const bus = override ? track.output! : this.ctx.bus;
-    // ADR 0331 levels (ABI 4.9): the track's chain on a submix of its own, else mapped onto its voices.
+    // ADR 0345 levels (ABI 4.9): the track's chain on a submix of its own, else mapped onto its voices.
     const { fx, submix } = levelEffects(this.host, this.ctx, track.effects, bus, `${this.levelKey}/track:${track.id}`, `${this.ctx.where} track "${track.name}"`);
     let ctx: Ctx = {
       ...this.ctx,
@@ -251,7 +251,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   private clipRt(clip: Clip, index: number, track: Track, level: { ctx: Ctx; time: TimeAuto[] }, audible: boolean): ClipRt | null {
     const where = `${this.ctx.where} clip "${clip.id}"`;
     if (clip.reverse) warnOnce(`playlist:reverse:${this.ctx.where}:${clip.id}`, `[myco] ${where}: reverse playback isn't supported by the audio core yet; it plays forward.`);
-    // ADR 0331 levels (ABI 4.9): the clip's chain on a submix of its own (its delay or reverb rings on after the clip's
+    // ADR 0345 levels (ABI 4.9): the clip's chain on a submix of its own (its delay or reverb rings on after the clip's
     // voice ends), feeding its track's (or the sequence's); else mapped onto its voice.
     const { fx, submix } = levelEffects(this.host, level.ctx, clip.effects, level.ctx.bus, `${this.levelKey}/clip:${clip.id}`, where);
     let ctx: Ctx = { ...level.ctx, props: accumulate(level.ctx.props, { gainDb: clip.gain, pitchSt: clip.pitch, pan: clip.pan, ...(fx ? { fx } : {}) }), submix };
@@ -341,7 +341,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     }
   }
 
-  /** ADR 0336: a sequence ringing out its post-exit tail (`ringOut`) has every loop inactive, so each is left by its exit. */
+  /** ADR 0350: a sequence ringing out its post-exit tail (`ringOut`) has every loop inactive, so each is left by its exit. */
   private readonly isActive = (i: number): boolean => !this.ringing && this.active(this.loops[i]!.behaviour);
 
   // --- planning ----------------------------------------------------------------------------------------------------
@@ -442,7 +442,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
 
   private onJump(from: number, to: number, at: number, fade: number, loop = -1, why = "seek"): void {
     const f = fade > 0 ? fade : SPLICE_FADE;
-    // ADR 0336: a sequence loop's crossfade exit in its shape, and a wrap's tail: the audio from the loop's end to the
+    // ADR 0350: a sequence loop's crossfade exit in its shape, and a wrap's tail: the audio from the loop's end to the
     // next Exit marker after it rings on over the next pass.
     const own = loop >= 0 && loop < this.settings.loops.length ? this.settings.loops[loop]! : null;
     const shape = own?.exitShape ?? "equalPower";
@@ -463,7 +463,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     }
   }
 
-  /** ADR 0336: seconds from sequence time `s` to the first `exit` marker after it, 0 with none (no tail). */
+  /** ADR 0350: seconds from sequence time `s` to the first `exit` marker after it, 0 with none (no tail). */
   private tailAfter(s: number): number {
     let best = Number.POSITIVE_INFINITY;
     for (const m of this.settings.markers) if (m.type === "exit" && m.at > s + EPS && m.at < best) best = m.at;
@@ -471,7 +471,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   }
 
   /**
-   * ADR 0336: clip `c`, playing at sequence time `s` (a loop's end) at heard `at`, rings on `seconds` past it instead of
+   * ADR 0350: clip `c`, playing at sequence time `s` (a loop's end) at heard `at`, rings on `seconds` past it instead of
    * being cut: its voice plays on when its piece runs past `s`, else a tail voice plays the audio after `s`; a playlist
    * clip's node keeps playing. Each ends with a short fade at `at + seconds` (or at its own end, if sooner).
    */
@@ -502,7 +502,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   private onEnd(at: number, position: number): void {
     this.endAt = at;
     for (const c of this.clips) {
-      // ADR 0336: a sequence ringing out its post-exit tail lets clips that run past its end play to their own end.
+      // ADR 0350: a sequence ringing out its post-exit tail lets clips that run past its end play to their own end.
       if (c.inside && c.sync && this.ringing && c.end > position + EPS) this.ringClip(c, position, at, c.end - position);
       else if (c.inside && c.sync) this.endClip(c, at, CUT_FADE);
       c.inside = false;
@@ -553,7 +553,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     c.voice = null;
     if (c.clip.sample === undefined) {
       if (!c.audible) return;
-      if (c.clip.generator !== undefined) return; // TODO(G3, ADR 0346 §5): generator clips; not playable yet
+      if (c.clip.generator !== undefined) return; // TODO(G3, ADR 0360 §5): generator clips; not playable yet
       c.node = this.resolveClipPlaylist(c, u, at, fadeIn, fadeInShape);
       if (c.node) this.children.push(c.node);
       return;
@@ -585,7 +585,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   private resolveClipPlaylist(c: ClipRt, u: number, at: number, fadeIn: number, fadeInShape: FadeShape): LiveNode | null {
     const src = c.clip.playlist!;
     const ctx: Ctx = { ...c.ctx, at, fadeIn, fadeInShape, timeCurves: this.timeCurves(c, u), depth: this.ctx.depth + 1 };
-    // ADR 0334 (D22): the clip is this sequence's pick, recorded before the picks of the playlist it resolves.
+    // ADR 0348 (D22): the clip is this sequence's pick, recorded before the picks of the playlist it resolves.
     if (typeof src === "string") {
       const body = linkedPlaylist(src, ctx.chain);
       if (!body) return null;
@@ -596,7 +596,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     return resolveBody(this.host, src, ctx, `${this.key}/clip:${c.clip.id}`, this.ctx.where);
   }
 
-  /** Ends clip `c`'s current voice at heard `at` over `fade` seconds (`crossfade`: in `shape`, ADR 0336; else linear). */
+  /** Ends clip `c`'s current voice at heard `at` over `fade` seconds (`crossfade`: in `shape`, ADR 0350; else linear). */
   private endVoice(c: ClipRt, at: number, fade: number, crossfade: boolean, shape: FadeShape = "equalPower"): void {
     const v = c.voice;
     c.voice = null;
@@ -724,7 +724,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   // --- the musical clock -------------------------------------------------------------------------------------------
 
   get label(): string { return this.ctx.where; }
-  /** A tempo: the sequence's own, else a sync clip's sample tempo (ADR 0329: "its sequence's tempo, else its sync sample's"). */
+  /** A tempo: the sequence's own, else a sync clip's sample tempo (ADR 0343: "its sequence's tempo, else its sync sample's"). */
   get hasGrid(): boolean { return this.grid !== null || this.clips.some((c) => c.sync && c.facts?.grid); }
 
   /** The sync clip with a sample tempo holding sequence time `s` (the higher track first), else the next one after `s`. */

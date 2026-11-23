@@ -1,4 +1,4 @@
-// ADR 0334: a take's pictures. The grabber takes one about once a second, scaled to 320 px wide, after the frame renders,
+// ADR 0348: a take's pictures. The grabber takes one about once a second, scaled to 320 px wide, after the frame renders,
 // skips (never queues) while one encodes, and gives up on an encoder that keeps failing; the recorder writes each as a
 // FRAME record and says in META whether it has any. Headless (no canvas): no pictures and no errors.
 import { describe, expect, it } from "vitest";
@@ -20,7 +20,7 @@ function manualEncoder() {
 
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
-describe("TakeFrameGrabber (ADR 0334)", () => {
+describe("TakeFrameGrabber (ADR 0348)", () => {
   it("takes a picture about once a second, 320 px wide with the view's aspect", async () => {
     const frames: TakeFrame[] = [];
     const g = new TakeFrameGrabber((f) => frames.push(f), { encode: async () => JPEG, defer: (fn) => fn() });
@@ -109,7 +109,7 @@ function framesOf(bytes: Uint8Array): TakeFrame[] {
   return out;
 }
 
-describe("the take recorder's pictures (ADR 0334)", () => {
+describe("the take recorder's pictures (ADR 0348)", () => {
   it("writes each picture as a FRAME record and says so in META", async () => {
     let ms = 0;
     const rec = new TakeRecorder(new FakeRing(), { now: () => ms, frames: { encode: async () => JPEG, defer: (fn) => fn() } });

@@ -1,4 +1,4 @@
-//! Per-voice spread (ADR 0333; SET_VOICE_FX `spread`, ABI 4.11): a positioned voice heard as an
+//! Per-voice spread (ADR 0347; SET_VOICE_FX `spread`, ABI 4.11): a positioned voice heard as an
 //! arc of sound rather than a point. 0° is a point source (the panner alone, M3's path bit for bit),
 //! 360° surrounds the listener.
 //!

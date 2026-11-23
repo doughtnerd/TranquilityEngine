@@ -1,5 +1,5 @@
 /**
- * What a generator plays when it is triggered (ADR 0346 §5, §7), pure given a draw function (the runtime passes the
+ * What a generator plays when it is triggered (ADR 0360 §5, §7), pure given a draw function (the runtime passes the
  * World's seeded generator, so a take replays the same noise, variations and silences):
  *
  * - `varyGeneratorParams`: `vary` (0..1) moves each numeric parameter by up to `vary` × 5 % of its range, uniformly
@@ -10,7 +10,7 @@
  *   `seed` is null, then `vary` (no draws when it is 0), then a silence's `length` ± `lengthRandom` (its resolved
  *   length replaces `length`, and `lengthRandom` is sent as 0).
  * - `generatorPatchText`: the resolved patch as canonical text (kind, wire-order values, seed), what the bake's
- *   `generated.hash` hashes (ADR 0346 §6) so "out of date" compares patches, not file formatting.
+ *   `generated.hash` hashes (ADR 0360 §6) so "out of date" compares patches, not file formatting.
  *
  * Pure; no plugin, no DOM.
  */

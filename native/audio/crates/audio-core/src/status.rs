@@ -117,7 +117,7 @@ pub mod off {
     pub const LOUD_SHED: usize = 246;
     pub const BUS_RECORDS_EARLY: usize = 248;
     pub const SIDECHAIN_LATE: usize = 250;
-    /// ABI 5.1 (ADR 0346): `genStarved`.
+    /// ABI 5.1 (ADR 0360): `genStarved`.
     pub const GEN_STARVED: usize = 252;
     /// The header's last u16 (`reserved2`), 0.
     pub const M5_RESERVED: usize = 254;
@@ -224,7 +224,7 @@ pub fn take(core: &mut Core, out: &mut [u8], abi_version: u32) -> usize {
     let area = area_mut(core);
     area.counters.mix.fx_starved = starved.min(u16::MAX as u32) as u16;
     area.counters.mix.fx_starved_owner = if starved == 0 { audio_wire::generated::FX_STARVED_NONE as u16 } else { owner };
-    // ABI 5.1 (ADR 0346): generator voices that found the pool full.
+    // ABI 5.1 (ADR 0360): generator voices that found the pool full.
     let gen_starved = crate::generator::starved(core.regions_mut());
     let area = area_mut(core);
     area.counters.mix.gen_starved = gen_starved.min(u16::MAX as u32) as u16;

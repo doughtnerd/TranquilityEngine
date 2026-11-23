@@ -79,7 +79,7 @@ describe("exportProjectBuild", () => {
     const manifest = JSON.parse(file("game.json") as string) as GameManifest;
     expect(manifest).toEqual(plan.manifest);
     expect(manifest).toMatchObject({ name: "flappy", mainScene: "scenes/main.scene.json", scripts: [{ source: "scripts/Hello.ts", module: "code/scripts/Hello.js" }] });
-    // ADR 0337, 0345 §6: the notices are a generated file; the audio report (the project has a sound) is one more.
+    // ADR 0351, 0359 §6: the notices are a generated file; the audio report (the project has a sound) is one more.
     expect(plan.generated.has("THIRD_PARTY_NOTICES.md")).toBe(true);
     expect(progress.at(-1)).toBe(3 + plan.copies.length + plan.generated.size + (plan.audioReport ? 1 : 0));
 

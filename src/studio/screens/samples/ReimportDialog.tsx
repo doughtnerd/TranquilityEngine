@@ -1,4 +1,4 @@
-// Re-import (ADR 0328 "Source versions"): pick a new file for the sample's audio, choose how its edits follow a new
+// Re-import (ADR 0342 "Source versions"): pick a new file for the sample's audio, choose how its edits follow a new
 // length (Keep seconds, or Scale to the new length), and see the source versions this machine keeps, each with
 // Restore. Re-import is one undo step; the WAV's own changed cues and loops then open the merge review.
 // `ReimportReview` is a pure view over its props; `ReimportDialog` wires it to the open sample (`sampleVersions.ts`).

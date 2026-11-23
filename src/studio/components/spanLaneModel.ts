@@ -1,4 +1,4 @@
-// A span lane's layout (ADR 0335 `SpanLane`): playing instances or voices as spans over time, each with an optional
+// A span lane's layout (ADR 0349 `SpanLane`): playing instances or voices as spans over time, each with an optional
 // held part (a sustain or a held loop), a status that picks its colour, rows so overlapping spans don't cover each other,
 // dimming for a "problems only" filter, and keyboard movement between spans.
 import type { TimeToX } from "./timeAxis";

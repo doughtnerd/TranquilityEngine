@@ -47,11 +47,11 @@ pub fn compute_with(slots: &[BusSlot], rules: &[Rule], out: &mut [u8]) -> u32 {
     compute_full(slots, &[], rules, out)
 }
 
-/// Most extra edges (ADR 0331: sidechain keys; ADR 0330: sends into returns).
+/// Most extra edges (ADR 0345: sidechain keys; ADR 0344: sends into returns).
 pub const MAX_EXTRA: usize = 128;
 
-/// [`compute_with`] with `extra` mandatory `(from, to)` edges first (ADR 0331's sidechain keys and
-/// ADR 0330's sends: `from` mixes before `to`), in order, each dropped when it would close a
+/// [`compute_with`] with `extra` mandatory `(from, to)` edges first (ADR 0345's sidechain keys and
+/// ADR 0344's sends: `from` mixes before `to`), in order, each dropped when it would close a
 /// cycle (that reader then reads `from`'s previous quantum), then the level rules' edges.
 pub fn compute_full(slots: &[BusSlot], extra: &[(u8, u8)], rules: &[Rule], out: &mut [u8]) -> u32 {
     let n = slots.len().min(out.len()).min(MAX_NODES);
@@ -185,7 +185,7 @@ pub fn rerun(core: &mut Core) {
     let (inert, dropped) = {
         let v = bus::view(regions);
         let count = (v.area.count as usize).clamp(1, v.slots.len()).min(v.area.order.len());
-        // ADR 0331: each sidechain compressor's key mixes before its bus (an edge key → bus), and
+        // ADR 0345: each sidechain compressor's key mixes before its bus (an edge key → bus), and
         // the key buses measure their pre-fader level.
         let mut extra = [(0u8, 0u8); MAX_EXTRA];
         let mut ne = 0usize;
@@ -206,7 +206,7 @@ pub fn rerun(core: &mut Core) {
                 v.area.key_env[b] = Default::default();
             }
         }
-        // ADR 0330: each send orders its return after the sender.
+        // ADR 0344: each send orders its return after the sender.
         ne += crate::bus_sends::edges(&v.slots[..count], &mut extra[ne..]);
         let extra = &extra[..ne];
         match duck::area(&mut *duck_bytes) {

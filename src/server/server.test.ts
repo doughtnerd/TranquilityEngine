@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createSocket } from "node:dgram";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { Connection, ConnectionState, Engine, Input, Replicated, defineSystem, i32, type DataComponentDef, type GameObject, type RpcDef } from "../engine";
 import { World } from "../engine/core/World";
-import { loadedScriptModule } from "../editor/scriptLoader";
+import { scriptExports } from "./project";
 import { parseArgs } from "./main";
 import { ServerError, startServer, type RunningServer, type ServerOptions } from "./run";
 import { DomInput } from "../engine/tests/domInput";
@@ -88,7 +89,7 @@ describe("myco-server (T14)", () => {
 
   it("answers an RPC from a client", async () => {
     const server = await start();
-    const { Ping, Pong } = (await loadedScriptModule("scripts/game.ts")) as Record<"Ping" | "Pong", RpcDef<{ n: typeof i32 }>>;
+    const { Ping, Pong } = (await scriptExports("scripts/game.ts")) as Record<"Ping" | "Pong", RpcDef<{ n: typeof i32 }>>;
     const got: number[] = [];
     defineSystem({ name: "test.server.readPong", phase: "update", worlds: ["client"], run: () => got.push(...[...Pong.read()].map((m) => m.n)) });
     const player = await client(server.listeners[0].url);
@@ -96,6 +97,27 @@ describe("myco-server (T14)", () => {
     World._runIn(player, () => Ping.send({ n: 21 }));
     await until(() => got.length > 0);
     expect(got).toEqual([42]);
+  });
+
+  it("offers clients WebRTC (on one UDP port with --udp-port) and counts them in its stats; --no-webrtc keeps them on WebSocket (ADR 0333)", async () => {
+    const socket = createSocket("udp4");
+    await new Promise<void>((resolve) => socket.bind(0, "127.0.0.1", resolve));
+    const udpPort = socket.address().port;
+    await new Promise<void>((resolve) => socket.close(() => resolve()));
+
+    const lines: string[] = [];
+    const server = await start({ webrtc: { udpPort, publicIp: "127.0.0.1" }, statsIntervalMs: 100 }, lines);
+    const player = await client(server.listeners[0].url);
+    await until(() => connectionStates(player)[0] === ConnectionState.open && ghost(player) !== null);
+    await until(() => lines.some((l) => /World "Server" \d+ ticks\/s, 1 connection \(1 on WebRTC\)/.test(l)), 6000);
+
+    const offLines: string[] = [];
+    const off = await start({ webrtc: false, statsIntervalMs: 100 }, offLines);
+    const other = await client(off.listeners[0].url);
+    await until(() => connectionStates(other)[0] === ConnectionState.open && ghost(other) !== null);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await until(() => offLines.some((l) => /1 connection \(0 on WebRTC\)/.test(l)));
+    expect(offLines.some((l) => /1 on WebRTC/.test(l))).toBe(false);
   });
 
   it("skips Worlds that aren't tagged server", async () => {
@@ -402,7 +424,7 @@ describe("the arena sample on myco-server (T16)", () => {
   /** Start the server on the arena; resolves with it and the sample's `Player` component (its scripts are loaded then). */
   async function startArena(lines: string[] = []): Promise<{ server: RunningServer; Player: DataComponentDef }> {
     const server = await start({ projectDir: ARENA }, lines);
-    const { Player } = (await loadedScriptModule("scripts/data.ts")) as { Player: DataComponentDef };
+    const { Player } = (await scriptExports("scripts/data.ts")) as { Player: DataComponentDef };
     return { server, Player };
   }
 
@@ -501,6 +523,10 @@ describe("myco-server's command line", () => {
       maxConnections: 8,
       tickRate: 20,
     });
+    expect(parseArgs(["proj", "--udp-port", "7778", "--public-ip=203.0.113.7"])).toEqual({ projectDir: "proj", webrtc: { udpPort: 7778, publicIp: "203.0.113.7" } });
+    expect(parseArgs(["proj", "--no-webrtc"])).toEqual({ projectDir: "proj", webrtc: false });
+    expect(() => parseArgs(["proj", "--no-webrtc", "--udp-port", "7778"])).toThrow(/--udp-port can't be used with --no-webrtc/);
+    expect(() => parseArgs(["proj", "--udp-port", "0"])).toThrow(/--udp-port needs a port from 1 to 65535/);
     expect(parseArgs(["--help"])).toBe("help");
     expect(() => parseArgs([])).toThrow(/project folder/);
     expect(() => parseArgs(["proj", "--port", "70000"])).toThrow(/--port needs a port/);

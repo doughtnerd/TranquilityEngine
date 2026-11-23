@@ -1,4 +1,4 @@
-// How the desktop editor hands a project (and an asset) to the Audio Studio's window (ADR 0327), with the same
+// How the desktop editor hands a project (and an asset) to the Audio Studio's window (ADR 0341), with the same
 // ready / ack pattern as the Projects window's handoff (launcher/handoff.ts, ADR 0059). The editor asks Rust to
 // create or focus the `studio` window, then asks the Studio whether it is ready, sends `myco://studio-open
 // {id, request}` and waits for the Studio's answer. App-agnostic: the editor uses `linkToStudio`, the Studio page

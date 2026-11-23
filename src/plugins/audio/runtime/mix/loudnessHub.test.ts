@@ -576,7 +576,7 @@ describe("the profiler's taps (ProfileSink.ladder, ProfileSink.loudnessControl)"
     expect(rec.of("ladder")).toEqual([[1, true], [2, true], [2, false], [1, false]]);
   });
 
-  it("ADR 0334: a loudness warning when a bus goes high or low against its target, and when it is back to ok", () => {
+  it("ADR 0348: a loudness warning when a bus goes high or low against its target, and when it is back to ok", () => {
     const rec = recordingSink();
     taps.sink = rec.sink;
     const hub = makeHub();

@@ -1,5 +1,5 @@
 /**
- * The playlist runtime (ADR 0329): plays `*.playlist.json` assets, and samples as one-sample Clip playlists, as instances
+ * The playlist runtime (ADR 0343): plays `*.playlist.json` assets, and samples as one-sample Clip playlists, as instances
  * of ordinary voices. Hosted by `host.ts` (`PlaylistHost`), whose automation sink, curve table, global parameters,
  * instance groups, per-World generators and frame it uses. An audio event (`*.audioevent.json`, the format the playlists
  * replaced) is refused with a message naming the migration.
@@ -111,7 +111,7 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
       if (!this.refusedEvents.has(path)) { this.refusedEvents.add(path); console.warn(`[myco] ${audioEventRefusal("Audio.play", path)}`); }
       return this.refuse(path, world, "unsupported");
     }
-    // `given`: a playlist the runtime made (ADR 0340 §5: a line's implicit Clip), played under `path` for the rows.
+    // `given`: a playlist the runtime made (ADR 0354 §5: a line's implicit Clip), played under `path` for the rows.
     const asset = given ?? (isPlaylistPath(path) ? loadPlaylist(path) : samplePlaylist(path));
     if (!asset) return this.refuse(path, world, "missing");
     const key = `${world}:${sourceKey ?? path}`;
@@ -135,7 +135,7 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
     this.live.add(instance);
     if (taps.sink !== NULL_PROFILE_SINK) taps.sink.eventStart(group, path);
     instance.start();
-    // ADR 0343 §4: a playlist with a caption reports its instances' start and end (`Audio.onCaption`).
+    // ADR 0357 §4: a playlist with a caption reports its instances' start and end (`Audio.onCaption`).
     if (asset.caption) watchCaption(instance, asset.caption);
     return instance;
   }

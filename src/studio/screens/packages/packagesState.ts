@@ -1,4 +1,4 @@
-// The Packages screen's state (ADR 0337 §6): the package and profile selected, the platform the sizes are for, the tab,
+// The Packages screen's state (ADR 0351 §6): the package and profile selected, the platform the sizes are for, the tab,
 // Convert now's progress and the exact reports it answered (per platform, until `audio.json` or a sound changes).
 import { signal } from "@preact/signals";
 import { persisted } from "../../../editor/preferences";

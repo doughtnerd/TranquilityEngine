@@ -1,5 +1,5 @@
 /**
- * Test kit: the structural checks the migration's tests hold every migrated playlist to (ADR 0329): a Clip has exactly
+ * Test kit: the structural checks the migration's tests hold every migrated playlist to (ADR 0343): a Clip has exactly
  * one sample entry and samples sit only in Clips; Switch maps point at real entries; a sequence clip has exactly one of
  * `sample` / `playlist`; Blend entries have a position; Queue and Switch blocks match the type. Returns problems.
  */

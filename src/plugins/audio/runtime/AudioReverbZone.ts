@@ -2,8 +2,8 @@
  * A reverb zone (ADR 0162 M3, api-and-models §1.5, R10, R17): a box or sphere volume with its own reverb. Spatial
  * sources inside it (or within `blendDistance` of it) send to its reverb, weighted per source as Wwise rooms are; the
  * zone's wet signal returns into its `output` bus before that bus's effects. The reverb is a built-in preset (`room`,
- * `corridor`, `hall`, `cave`, `open`, and ADR 0333's `smallStone`, `canyonHall`, `metalTunnel`, `forest`) unless an
- * impulse response asset is set. A `levelDefault` zone (ADR 0333) applies everywhere no higher-priority zone holds the
+ * `corridor`, `hall`, `cave`, `open`, and ADR 0347's `smallStone`, `canyonHall`, `metalTunnel`, `forest`) unless an
+ * impulse response asset is set. A `levelDefault` zone (ADR 0347) applies everywhere no higher-priority zone holds the
  * source, whatever its own volume: the level's ambient reverb. It exists in the editor World and in play; the audio
  * plugin's zone manager (`core/zones.ts`) plans it in the World that has the listener. `enabled = false` skips the zone.
  * On the Babylon fallback zones are inert.
@@ -31,7 +31,7 @@ export class AudioReverbZone extends Component {
 }
 
 /**
- * @internal ADR 0333: a point's weights in the first `n` zones with the level-default zones filled in, in place, before
+ * @internal ADR 0347: a point's weights in the first `n` zones with the level-default zones filled in, in place, before
  * the weights are normalised. A default zone's weight is `1 −` the largest weight of a zone that is not a default and has
  * a higher priority, so it holds the point fully outside them and fades out over their blend edges. No allocation.
  */

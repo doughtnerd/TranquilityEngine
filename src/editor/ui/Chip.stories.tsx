@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for chips: kind badges in each tone, a filter chip that toggles, and a removable chip.
+// Stories (ADR 0219, 0349) for chips: kind badges in each tone, a filter chip that toggles, and a removable chip.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, userEvent, within } from "storybook/test";

@@ -100,7 +100,7 @@ export class DopplerPass {
   run(frame: ListenerFrame, view: SpatialVoiceView, settings: Pick<AudioSettings, "doppler" | "speedOfSound">): void {
     const dt = frame.dt;
     const maxSpeed = settings.doppler.maxSpeed;
-    // ADR 0333: the project's global Doppler amount scales every voice's dopplerLevel (0..2; absent 1).
+    // ADR 0347: the project's global Doppler amount scales every voice's dopplerLevel (0..2; absent 1).
     const amountRaw = settings.doppler.amount;
     const amount = amountRaw !== undefined && Number.isFinite(amountRaw) ? Math.min(2, Math.max(0, amountRaw)) : 1;
     const c = settings.speedOfSound;

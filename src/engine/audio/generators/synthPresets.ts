@@ -1,5 +1,5 @@
 /**
- * Synth presets (ADR 0346 §2): Beep, Click, Pluck, Bass, Lead, Pad, Drone and Whoosh (noise through a swept band-pass).
+ * Synth presets (ADR 0360 §2): Beep, Click, Pluck, Bass, Lead, Pad, Drone and Whoosh (noise through a swept band-pass).
  * Each is a fixed set of overrides on the synth's defaults; choosing one writes every parameter (the file stores the
  * resolved parameters, `preset` records which it was made from). Locked parameters keep their values; `level` is kept.
  *

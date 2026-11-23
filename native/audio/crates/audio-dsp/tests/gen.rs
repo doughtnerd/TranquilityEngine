@@ -1,4 +1,4 @@
-//! The generator kernels (ADR 0346 §3, `audio_dsp::gen`): oscillator aliasing against naive waveforms, the noise colours'
+//! The generator kernels (ADR 0360 §3, `audio_dsp::gen`): oscillator aliasing against naive waveforms, the noise colours'
 //! spectral slopes and levels, the state-variable filter's cut-off, the envelopes' times, the voice's pitch and glides,
 //! determinism, and the blip against a direct port of sfxr's own synthesiser (44.1 kHz, 8× supersampled) for the
 //! presets' key parameters.
@@ -58,7 +58,7 @@ const BINS: [usize; 3] = [21, 105, 301];
 #[test]
 fn polyblep_saw_and_pulse_alias_far_less_than_naive_ones() {
     // The two-sample residual's measured bound at each fundamental (the worst alias against the fundamental, dB): a
-    // tripwire on the kernel, about 2 dB under what it measures. ADR 0346 §3 estimated -40 to -60 dB under 4 kHz; the
+    // tripwire on the kernel, about 2 dB under what it measures. ADR 0360 §3 estimated -40 to -60 dB under 4 kHz; the
     // measurement is -45 to -48, -34 and -25 dB at 0.25, 1.2 and 3.5 kHz (the record's table takes these numbers).
     let worst_bound = [-44.0, -33.0, -24.0];
     for (b, bin) in BINS.into_iter().enumerate() {

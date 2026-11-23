@@ -1,6 +1,6 @@
 /**
- * The public handle over a playlist instance (ADR 0329 `AudioPlaylistHandle`): the event handle's members across the
- * instance's voices, plus `onMarker`. `stop()` without a fade fades over 120 ms (ADR 0329); `trigger` fires a stinger;
+ * The public handle over a playlist instance (ADR 0343 `AudioPlaylistHandle`): the event handle's members across the
+ * instance's voices, plus `onMarker`. `stop()` without a fade fades over 120 ms (ADR 0343); `trigger` fires a stinger;
  * `music` reads the musical clock of the playing entry (a Sequence with a tempo, or a Clip whose sample has one) and is
  * undefined without one; `onMusic("beat" | "bar")` hears that clock's beats and bars (`beatCallbacks.ts`; `cue` is silent:
  * a playlist's cues are markers).

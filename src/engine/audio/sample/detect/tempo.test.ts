@@ -1,4 +1,4 @@
-// Tempo detection (ADR 0328) on synthetic signals: click tracks at known tempos, their half and double candidates, a
+// Tempo detection (ADR 0342) on synthetic signals: click tracks at known tempos, their half and double candidates, a
 // tempo change, and noise and a lone hit with low confidence.
 import { describe, expect, it } from "vitest";
 import { detectTempo, TEMPO_CONFIDENCE_FLOOR } from "./tempo";

@@ -11,6 +11,7 @@ import { LowpassBy } from "./core/voiceFx";
 import { setAudioBackend, DEFAULT_SEND_CURVE, type AudioPanner, type SendCurve } from "./backend";
 import { closeRecordingAudio, makeFakeBackend, endAudioSession, makeFakeClipRegistry, recordingAudio } from "./testing";
 import type { CorePreset } from "./worklet/coreDriver";
+import { loadCoreWasm } from "./core/loader";
 import { Audio, AudioListener, AudioOccluder, AudioReverbZone, AudioSource } from "./index";
 
 // --- The core rig ----------------------------------------------------------------------------------------------
@@ -315,8 +316,8 @@ describe("§1.5 components", () => {
     expect(getComponentClass("engine.AudioOccluder")).toBe(AudioOccluder);
   });
 
-  it("AudioReverbZone has the ten §1.5 fields, ADR 0333 levelDefault, and defaults", () => {
-    expect(getFields(AudioReverbZone).map((f) => f.name)).toEqual(["shape", "center", "size", "radius", "preset", "ir", "wet", "blendDistance", "priority", "output", "levelDefault"]); // + ADR 0333
+  it("AudioReverbZone has the ten §1.5 fields, ADR 0347 levelDefault, and defaults", () => {
+    expect(getFields(AudioReverbZone).map((f) => f.name)).toEqual(["shape", "center", "size", "radius", "preset", "ir", "wet", "blendDistance", "priority", "output", "levelDefault"]); // + ADR 0347
     const z = GameObject.create("z").addBehavior(AudioReverbZone);
     expect([z.shape, z.radius, z.preset, z.ir, z.wet, z.blendDistance, z.priority, z.output]).toEqual(["box", 5, "hall", "", 0.5, 2, 0, ""]);
     expect([z.size.x, z.size.y, z.size.z]).toEqual([10, 4, 10]);
@@ -394,7 +395,10 @@ describe("§1.6 AudioDebugInfo additions (core backend)", () => {
     expect(Object.keys(o).sort()).toEqual(["budgetRays", "enabled", "note", "oldestAgeFrames", "rayCostUs", "rays"]);
   });
 
-  it("memory: beds, zones, kernels, kernelBudget and wideRings in bytes from the preset", () => {
+  it("memory: beds, zones, kernels, kernelBudget and wideRings in bytes, the core's own answers for the preset (ADR 0327)", async () => {
+    // The row asks the core the page loaded; the recording host has none, so load it as the host does.
+    const { readFile } = await import("node:fs/promises");
+    await loadCoreWasm((async (url: URL) => new Response((await readFile(url)) as Uint8Array<ArrayBuffer>)) as unknown as typeof fetch);
     const r = useCore();
     r.status({ zoneUsedKB: 100 });
     const m = r.backend.debug().memory!;

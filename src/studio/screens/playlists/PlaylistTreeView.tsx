@@ -1,4 +1,4 @@
-// The Playlists panel's view (the prototype's tree, ADR 0335 kit): the project's playlists by folder in the editor's
+// The Playlists panel's view (the prototype's tree, ADR 0349 kit): the project's playlists by folder in the editor's
 // `TreeView`, embedded playlists nested under their parent and linked ones dashed with a link mark, type badges, the
 // output-override marker, search (matches with their paths), folder rows with counts, context menus, Move to…, a
 // multi-select bar, and drag to move or nest (before / into / after, checked by `treeDrop.ts` while dragging). The empty

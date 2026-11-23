@@ -1,5 +1,5 @@
 /**
- * `Subtitles` (ADR 0343 §5): the player's subtitle settings, the hook a game's options menu uses, read by the built-in
+ * `Subtitles` (ADR 0357 §5): the player's subtitle settings, the hook a game's options menu uses, read by the built-in
  * `SubtitleDisplay` and by any replacement display, so one menu serves both.
  *
  * - **Values.** The player's own values once they changed something, else the project's first-run values
@@ -61,7 +61,7 @@ const warn = (problems: readonly string[]): void => {
   for (const p of problems) console.warn(`[myco] ${p}`);
 };
 
-/** The player's subtitle settings (ADR 0343 §5). */
+/** The player's subtitle settings (ADR 0357 §5). */
 export const Subtitles = {
   /** The settings now: the player's, else the project's first-run values. */
   get settings(): Readonly<SubtitleSettings> {

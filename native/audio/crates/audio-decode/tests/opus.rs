@@ -1,4 +1,4 @@
-//! Ogg Opus through libopus (ADR 0337 A7, 0345 §4; ABI 1.5), against the shipped encoder's own output: the frame
+//! Ogg Opus through libopus (ADR 0351 A7, 0359 §4; ABI 1.5), against the shipped encoder's own output: the frame
 //! count is the encoder's input (the OpusHead pre-skip dropped, the end trimmed by the last granule position), the
 //! decode lines up with the source at lag 0 and matches it closely, mono and stereo, at 48 kHz and from a 44.1 kHz
 //! source (resampled to 48 kHz by the encoder); seeks are sample-accurate (a seek reads what a straight decode read);

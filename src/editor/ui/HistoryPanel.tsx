@@ -4,7 +4,7 @@ import { Panel } from "./panel/Panel";
 import { UndoTree } from "./undoTree/UndoTree";
 import "./history.css";
 
-/** What the History panel says that depends on its host: the scene editor's words, or the Audio Studio's (ADR 0327). */
+/** What the History panel says that depends on its host: the scene editor's words, or the Audio Studio's (ADR 0341). */
 export interface HistoryPanelWording {
   /** Shown when no history is active (default "No scene open"; the Studio: no document focused). */
   readonly none?: string;
@@ -21,7 +21,7 @@ export function HistoryPanel() {
   return <HistoryView />;
 }
 
-/** The History panel with its host's `wording` (the scene editor's when left out): the Audio Studio's (ADR 0327). */
+/** The History panel with its host's `wording` (the scene editor's when left out): the Audio Studio's (ADR 0341). */
 export function HistoryView(props: { readonly wording?: HistoryPanelWording }) {
   docVersion.value; // re-render on every history change
   const active = activeHistory.value;

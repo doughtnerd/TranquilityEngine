@@ -1,5 +1,5 @@
 // Which files the audio core decodes, and the warnings for those it doesn't (B4; ADR 0157, api-and-models §2
-// `codecs.aac`, architecture §7 "Unknown codec"). The decoder worker reads WAV, FLAC, MP3, Ogg Vorbis and (ADR 0337 A7) Ogg Opus always,
+// `codecs.aac`, architecture §7 "Unknown codec"). The decoder worker reads WAV, FLAC, MP3, Ogg Vorbis and (ADR 0351 A7) Ogg Opus always,
 // and AAC (`.m4a`, `.mp4`, `.aac`) only when the project sets `audio.codecs.aac`, which makes the worker load the
 // larger AAC build of the decoder. With the setting off an AAC asset is refused before it is fetched; a file the
 // decoder can't open at all fails with a warning naming its format and the supported list. Each warns once per asset

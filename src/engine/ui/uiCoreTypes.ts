@@ -35,7 +35,7 @@ export interface UITextRun {
   /** Line height as a multiple of the font size. */
   readonly lineHeight: number;
   readonly wrap: UITextWrap;
-  /** The base direction it is drawn in: the current language's (ADR 0342 §5). */
+  /** The base direction it is drawn in: the current language's (ADR 0356 §5). */
   readonly direction: "ltr" | "rtl";
   /** Its alignment as an edge, `start`/`end` resolved for `direction`. */
   readonly align: "left" | "center" | "right" | "justify";

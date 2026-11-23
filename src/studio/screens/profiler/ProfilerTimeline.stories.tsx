@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0334) for the Profiler's timeline over the fixture capture, opened through the real capture reader
+// Stories (ADR 0219, 0348) for the Profiler's timeline over the fixture capture, opened through the real capture reader
 // and Worker by a `ProfilerStore` (as the screen opens a project file): the tracks in the prototype's order, voice lanes
 // by bus with status colours, a click on a stolen voice selecting it and moving the cursor to its start, "Problems only"
 // dimming played voices, lanes by sound, and the ruler's markers and warnings.
@@ -65,7 +65,7 @@ export const Fixture: Story = {
   },
 };
 
-/** ADR 0337 §6: the clip arena and the Forest package (loaded 1.2 s to 9 s), with a mark at its load and unload. */
+/** ADR 0351 §6: the clip arena and the Forest package (loaded 1.2 s to 9 s), with a mark at its load and unload. */
 export const Memory: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);

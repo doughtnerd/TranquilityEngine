@@ -1,4 +1,4 @@
-// ADR 0331 levels (the audio core's ABI 4.9): a sequence clip's effect chain runs on a submix of the clip's own, so the
+// ADR 0345 levels (the audio core's ABI 4.9): a sequence clip's effect chain runs on a submix of the clip's own, so the
 // parse takes the instance level's types (a delay, a reverb) and a gain without a problem; a type no submix runs (the
 // ADSR envelope) still gets one.
 import { describe, expect, it } from "vitest";
@@ -9,7 +9,7 @@ const seq = (effects: unknown[]) => ({
   sequence: { length: 1, tracks: [{ id: "t", kind: "audio", clips: [{ id: "c", sample: "a.wav", at: 0, length: 0, effects }] }] },
 });
 
-describe("a sequence clip's effects (ADR 0331 levels)", () => {
+describe("a sequence clip's effects (ADR 0345 levels)", () => {
   it("a delay, a reverb and a gain on a clip parse without a problem", () => {
     const { playlist, problems } = parsePlaylist(seq([{ id: "d", type: "delay" }, { id: "r", type: "reverb" }, { id: "g", type: "gain", params: { gain: -3 } }]));
     expect(problems).toEqual([]);

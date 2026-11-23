@@ -1,12 +1,12 @@
-// Project Settings > Languages (ADR 0340 §1 L7, extended by 0342 §3 T7 and 0343 §2 S5): `project.json`'s `languages`
+// Project Settings > Languages (ADR 0354 §1 L7, extended by 0356 §3 T7 and 0357 §2 S5): `project.json`'s `languages`
 // section as part of the settings draft, through its settings section handle (ADR 0253), and the section's edits, each
 // refused or next (0313): add, remove, move and rename languages (a regional code pre-fills its parent as fallback), a
 // language's code, own fallback chain, `ship`, `direction`, fonts and `voice: false`; the project's reference, start
 // language, fallback chain, `useSystemLanguage`, `remember` and `voice` mode (followText or separate).
 //
-// The editor owns `project.json`; the Studio edits this section only while no editor holds the project (0340 §1), so
+// The editor owns `project.json`; the Studio edits this section only while no editor holds the project (0354 §1), so
 // the editor never has to wait for it. Changing the reference language is refused while the project has string tables:
-// their text is written in it, and swapping it is the Localisation panel's command (0342 §1).
+// their text is written in it, and swapping it is the Localisation panel's command (0356 §1).
 //
 // Pure.
 import {
@@ -135,7 +135,7 @@ export function setShip(draft: SettingsDraft, code: string, ship: boolean): Edit
 export const setDirection = (draft: SettingsDraft, code: string, direction: TextDirection): EditResult<SettingsDraft> =>
   onDraft(draft, (s) => row(s, code, (l) => ({ ...l, direction })));
 
-/** A language's voice-over (0343 §2): false when it is translated but not recorded, so voice follows its chain instead. */
+/** A language's voice-over (0357 §2): false when it is translated but not recorded, so voice follows its chain instead. */
 export const setLanguageVoice = (draft: SettingsDraft, code: string, voice: boolean): EditResult<SettingsDraft> =>
   onDraft(draft, (s) => row(s, code, (l) => ({ ...l, voice })));
 
@@ -212,7 +212,7 @@ export function setDefault(draft: SettingsDraft, code: string): EditResult<Setti
 
 export const setUseSystemLanguage = (draft: SettingsDraft, on: boolean): EditResult<SettingsDraft> => onDraft(draft, (s) => accept({ ...s, useSystemLanguage: on }));
 export const setRemember = (draft: SettingsDraft, on: boolean): EditResult<SettingsDraft> => onDraft(draft, (s) => accept({ ...s, remember: on }));
-/** Voice follows the text language (`followText`), or the two switch separately (0343 §2). */
+/** Voice follows the text language (`followText`), or the two switch separately (0357 §2). */
 export const setVoiceMode = (draft: SettingsDraft, voice: VoiceMode): EditResult<SettingsDraft> => onDraft(draft, (s) => accept({ ...s, voice }));
 
 /** The project's font files, for a language's font picker. */

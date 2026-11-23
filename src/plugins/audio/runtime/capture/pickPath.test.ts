@@ -1,4 +1,4 @@
-// ADR 0334: the "Why it played" chain. While a recorder's sink is installed, each playlist decision reaches it as a
+// ADR 0348: the "Why it played" chain. While a recorder's sink is installed, each playlist decision reaches it as a
 // `pick` (after the instance's `eventStart`): a Switch's label and entry, a Blend's two heaviest entries, a Queue's pick,
 // each with its nesting depth and playlist. Driven through `Audio.play` on the fake backend.
 import { afterEach, describe, expect, it } from "vitest";
@@ -16,7 +16,7 @@ afterEach(() => {
   taps.sink = NULL_PROFILE_SINK;
 });
 
-describe("pick paths (ADR 0334)", () => {
+describe("pick paths (ADR 0348)", () => {
   it("a Switch inside a Queue: the queue's pick, then the switch's label and entry, one level deeper", async () => {
     await kit.boot({
       "q.playlist.json": pla("queue", [{ embedded: { type: "switch", entries: [sample("a.wav"), sample("b.wav")], switch: { parameter: "Surface", map: { Grass: 0, Stone: 1 } } } }], { parameters: SURFACE }),

@@ -118,7 +118,7 @@ describe("stylesheets", () => {
     expect(matchSelector(hover, target("Button", { state: { hover: true } }))).toBe(true);
   });
 
-  it("matches :lang() against the element's language by BCP 47 prefix, counted like a class (ADR 0342 §4)", () => {
+  it("matches :lang() against the element's language by BCP 47 prefix, counted like a class (ADR 0356 §4)", () => {
     const sheet = parseStylesheet(`Text:lang(de) {} :lang(zh-Hant) {} Text:lang(de, fr) {}`, "s");
     const [de, hant] = sheet.rules.map((r) => r.selectors[0]);
     expect(de.specificity).toEqual([0, 1, 1]);

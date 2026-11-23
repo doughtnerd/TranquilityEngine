@@ -1,4 +1,4 @@
-// ADR 0337 §2: the encoding resolver — every inheritance level, each key on its own, and where each value came from.
+// ADR 0351 §2: the encoding resolver — every inheritance level, each key on its own, and where each value came from.
 import { describe, expect, it } from "vitest";
 import { parseEncodingConfig } from "./format";
 import { originLabel, resolveEncoding, withEncodingKey, type EncodingSubject } from "./resolve";

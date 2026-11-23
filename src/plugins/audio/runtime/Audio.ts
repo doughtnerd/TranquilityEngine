@@ -43,15 +43,15 @@ import { audioDialogue, dialogueSystem, type AudioDialogue, type AudioDialogueDe
  * hold the playing instances'), and on a backend with music the `music` rows and `musicTotals`.
  */
 export type AudioDebugState = Omit<AudioDebugInfo, "events" | "music" | "musicTotals"> & AudioDebugRows & {
-  /** ADR 0337 §9: every package with its state, references, download bytes and memory. */
+  /** ADR 0351 §9: every package with its state, references, download bytes and memory. */
   packages: AudioPackageDebug[];
-  /** ADR 0340 §4: the audio and subtitle languages, a pending switch, and the last 32 files missing in a language. */
+  /** ADR 0354 §4: the audio and subtitle languages, a pending switch, and the last 32 files missing in a language. */
   language: AudioLanguageDebug;
-  /** ADR 0341 §5: the speaker channels (speaking line, priority, queue) and the session's refused says by reason. */
+  /** ADR 0355 §5: the speaker channels (speaking line, priority, queue) and the session's refused says by reason. */
   dialogue: AudioDialogueDebug;
 };
 
-// ADR 0340 §10: language changes go into a recording take.
+// ADR 0354 §10: language changes go into a recording take.
 onAudioLanguageChange((audio, subtitles) => takeTap.sink?.language(audio, subtitles));
 
 /** Options for `Audio.playOneShot` (ADR 0074, api-and-models §1). */
@@ -72,7 +72,7 @@ export interface OneShotOptions {
   priority?: number;
   /** Start at this audio-clock time (seconds, the base of `Audio.time`). Past or omitted: as soon as possible. Ignored while `Audio.status` is "locked". Non-finite: warns, plays now. */
   at?: number;
-  /** Start this many seconds into the clip (ADR 0329, 0334: audition from a point; a trimmed sample: into its trimmed sound, ADR 0328). 0 or omitted: the start; past the end it ends at once. Negative or non-finite: warns, plays from the start. */
+  /** Start this many seconds into the clip (ADR 0343, 0348: audition from a point; a trimmed sample: into its trimmed sound, ADR 0342). 0 or omitted: the start; past the end it ends at once. Negative or non-finite: warns, plays from the start. */
   offset?: number;
   // ADR 0162 §1.3. A flat one-shot (no `position`) has no occlusion, reverb send or Doppler; `lowpass` and `highpass` still apply.
   /** With a position: walls between the sound and the listener muffle it. Default true. */
@@ -117,16 +117,16 @@ const INERT_EVENT: AudioPlaylistHandle = Object.freeze({
   music: undefined, onMusic: () => () => {}, trigger: () => false,
 });
 
-// ADR 0337 §7: refused plays of packaged sounds (`notLoaded`) and of media the backend can't decode yet (`failed`).
+// ADR 0351 §7: refused plays of packaged sounds (`notLoaded`) and of media the backend can't decode yet (`failed`).
 const NOT_LOADED: AudioHandle = Object.freeze({ ...INERT, reason: "notLoaded" as const });
-// ADR 0340 §3: a localised clip no language of the chain has.
+// ADR 0354 §3: a localised clip no language of the chain has.
 const MISSING_LANGUAGE: AudioHandle = Object.freeze({ ...INERT, reason: "missingLanguage" as const });
 const FAILED: AudioHandle = Object.freeze({ ...INERT, reason: "failed" as const });
 const NOT_LOADED_EVENT: AudioPlaylistHandle = Object.freeze({ ...INERT_EVENT, reason: "notLoaded" as const });
 const FAILED_EVENT: AudioPlaylistHandle = Object.freeze({ ...INERT_EVENT, reason: "failed" as const });
 
 /**
- * ADR 0334: the public handle over a playlist instance, with the take's hooks on the requests a replay re-issues (stop,
+ * ADR 0348: the public handle over a playlist instance, with the take's hooks on the requests a replay re-issues (stop,
  * release, trigger; parameters reach the take through the profile taps). One per instance, whether or not a take records.
  */
 class TakePlaylistHandle implements AudioPlaylistHandle {
@@ -148,7 +148,7 @@ class TakePlaylistHandle implements AudioPlaylistHandle {
   trigger(name: string): boolean { takeTap.sink?.trigger(this.instance, String(name)); return this.h.trigger(name); }
 }
 
-/** A playlist's stop without a fade fades over 120 ms (ADR 0329); the take records the fade the replay must use. */
+/** A playlist's stop without a fade fades over 120 ms (ADR 0343); the take records the fade the replay must use. */
 const PLAYLIST_STOP_FADE = 0.12;
 const playlistHandles = new WeakMap<PlaylistInstance, TakePlaylistHandle>();
 function takePlaylistHandleOf(instance: PlaylistInstance): AudioPlaylistHandle {
@@ -157,18 +157,18 @@ function takePlaylistHandleOf(instance: PlaylistInstance): AudioPlaylistHandle {
   return h;
 }
 
-/** ADR 0334: a script-placed play's emitter: the instance itself, wherever its handle's `position` puts it. */
+/** ADR 0348: a script-placed play's emitter: the instance itself, wherever its handle's `position` puts it. */
 function placedEmitter(instance: { readonly position: Vec3Like | null }, path: string): TakeEmitter {
   return { key: instance, name: path, position: () => instance.position };
 }
 
-/** ADR 0334: a one-shot's emitter, fixed where it was played. */
+/** ADR 0348: a one-shot's emitter, fixed where it was played. */
 function fixedEmitter(key: object, path: string, p: Vec3Like): TakeEmitter {
   const at = { x: p.x, y: p.y, z: p.z };
   return { key, name: path, position: () => at };
 }
 
-/** ADR 0334: a bus whose script volume and fades the take records. `Audio.bus` hands these out, so a bus kept from before a take records too. */
+/** ADR 0348: a bus whose script volume and fades the take records. `Audio.bus` hands these out, so a bus kept from before a take records too. */
 class TakeBus extends Bus {
   override get volume(): number { return super.volume; }
   override set volume(v: number) {
@@ -181,7 +181,7 @@ class TakeBus extends Bus {
   }
 }
 
-/** @internal ADR 0329: a playlist (`*.playlist.json`) or a sample through the playlist runtime (`AudioSource` plays through it too). */
+/** @internal ADR 0343: a playlist (`*.playlist.json`) or a sample through the playlist runtime (`AudioSource` plays through it too). */
 export function _playPlaylist(path: string, options: EventOptions, world: World | null, sourceKey?: string): PlaylistInstance | null {
   if (!worldPlays(world)) return null;
   return playlists().play(path, options, worldKeyOf(world), sourceKey);
@@ -204,7 +204,7 @@ function clampWarn(name: string, value: number, min: number, max: number): numbe
   return Math.min(max, Math.max(min, value));
 }
 
-/** ADR 0330: a snapshot of the project's mix, as game code reaches it (`Audio.snapshot(name)`). */
+/** ADR 0344: a snapshot of the project's mix, as game code reaches it (`Audio.snapshot(name)`). */
 export interface AudioSnapshot {
   readonly name: string;
   /** The project has a snapshot by this name. */
@@ -255,10 +255,10 @@ export const Audio = {
       if (!worldPlays(World.active)) return INERT;
       const o: OneShotOptions = typeof options === "number" ? { volume: options } : options !== null && typeof options === "object" ? options : {};
       const path = String(clip).replace(/^asset:/, "");
-      // ADR 0340 §2–§3: a localised clip plays its file in the current language's chain (the clip resolver swaps it).
+      // ADR 0354 §2–§3: a localised clip plays its file in the current language's chain (the clip resolver swaps it).
       const local = localiseClip(path);
       if (local === null) { noteMissingLanguage(path, audioLanguage()); return MISSING_LANGUAGE; }
-      // ADR 0337 §7: a packaged sound whose packages are unloaded (strict), or media the backend can't play yet.
+      // ADR 0351 §7: a packaged sound whose packages are unloaded (strict), or media the backend can't play yet.
       const refused = mediaRefusal(clipSource(path));
       if (refused) return refused === "notLoaded" ? NOT_LOADED : FAILED;
       const req = clipRequest(path, false, o.bus);
@@ -296,7 +296,7 @@ export const Audio = {
         if (o.highpass !== undefined) req.filter.highpass = clampWarn("highpass", finiteOr("highpass", o.highpass, 10), 10, 24000);
       }
       if (o.yaw !== undefined) req.yaw = clampWarn("yaw", finiteOr("yaw", o.yaw, 0), -180, 180);
-      // ADR 0328: the sample's trim (start and end) and its normalisation gain, as every play of it.
+      // ADR 0342: the sample's trim (start and end) and its normalisation gain, as every play of it.
       const v = playSampleVoice(path, req, offset);
       if (v && local.language !== null) noteLocalisedVoice(v, local.language);
       if (v && takeTap.sink) takeTap.sink.play(v, path, req.position ? fixedEmitter(v, path, req.position) : null, takePlayOptions(o));
@@ -308,7 +308,7 @@ export const Audio = {
   },
 
   /**
-   * Play a playlist (`*.playlist.json`, ADR 0329) or a sample (as a one-sample Clip playlist). Always returns a handle (an
+   * Play a playlist (`*.playlist.json`, ADR 0343) or a sample (as a one-sample Clip playlist). Always returns a handle (an
    * inert one when nothing played: no World with the view, a missing asset, a trigger the playback rules refused, or an
    * old audio event file, which is refused with a message naming the migration; `Audio.debug().playlistTotals` says
    * why); never throws.
@@ -317,7 +317,7 @@ export const Audio = {
     try {
       const o = options !== null && typeof options === "object" ? options : {};
       const asset = String(pathOrSample).replace(/^asset:/, "");
-      // ADR 0337 §7: the strict rule for a packaged playlist or sample (`playlistRefusal` for a playlist).
+      // ADR 0351 §7: the strict rule for a packaged playlist or sample (`playlistRefusal` for a playlist).
       if (worldPlays(World.active)) {
         const refused = isPlaylistPath(asset) ? playlistRefusal(asset, clipSource) : Assets.has(asset) ? mediaRefusal(clipSource(asset)) : null;
         if (refused) return refused === "notLoaded" ? NOT_LOADED_EVENT : FAILED_EVENT;
@@ -331,7 +331,7 @@ export const Audio = {
     }
   },
 
-  /** Set a global audio parameter (the Studio's Parameters; labelled ones by label). Snapshots started by conditions on it follow (ADR 0330). */
+  /** Set a global audio parameter (the Studio's Parameters; labelled ones by label). Snapshots started by conditions on it follow (ADR 0344). */
   setParameter(name: string, value: number | string): void {
     try { playlistHost().setGlobal(String(name), value); } catch (e) { warnOnce("setParameter:threw", `Audio.setParameter failed (${e instanceof Error ? e.message : String(e)}).`); }
     mixer.setParameter(String(name), value);
@@ -354,7 +354,7 @@ export const Audio = {
   },
 
   /**
-   * A snapshot of the project's mix by name (ADR 0330): `Audio.snapshot("Underwater").start()` and `.stop()` fade it in
+   * A snapshot of the project's mix by name (ADR 0344): `Audio.snapshot("Underwater").start()` and `.stop()` fade it in
    * and out over its own times, blending with the other snapshots on (priority, Override or Add). With `fadeSeconds`,
    * the shorthand: fade to it over that time, fading out the other snapshots game code started.
    */
@@ -455,7 +455,7 @@ export const Audio = {
   },
 
   /**
-   * ADR 0334: record a take of the game run for the audio designer: what the game asked of audio and the engine's profile,
+   * ADR 0348: record a take of the game run for the audio designer: what the game asked of audio and the engine's profile,
    * in one `*.mycotake` file. `await Audio.take.start()`, `Audio.take.mark("boss")`, then `Audio.take.save()`. The recorder
    * loads on the first `start()`; a game that never calls it loads nothing.
    */
@@ -475,7 +475,7 @@ export const Audio = {
   debug(): AudioDebugState {
     const backend = audioBackend();
     const info = backend.debug();
-    // Rc4: the shared capture ring (null while none runs). ADR 0327: why the core couldn't run, once known.
+    // Rc4: the shared capture ring (null while none runs). ADR 0341: why the core couldn't run, once known.
     const why = coreUnavailable();
     return {
       ...info, ...debugRows(info, backend), recorder: captureDebug(), packages: packagesDebug(), language: languageDebug(), dialogue: dialogueSystem().debug(),
@@ -483,7 +483,7 @@ export const Audio = {
     };
   },
 
-  // ADR 0340 §4, 0343 §2: the audio language (`localisation/languageState.ts`).
+  // ADR 0354 §4, 0357 §2: the audio language (`localisation/languageState.ts`).
 
   /** The current audio language (a shipped voice language's code). Setting it is `void Audio.setLanguage(code)`. */
   get language(): string {
@@ -522,7 +522,7 @@ export const Audio = {
   },
 
   /**
-   * ADR 0340 §5: play a voice-over line by key (keys are unique across the project's line tables), through its table's
+   * ADR 0354 §5: play a voice-over line by key (keys are unique across the project's line tables), through its table's
    * template or as a one-shot Clip on its table's output, in the current language's file (falling back through its
    * chain). A line no language has runs subtitle-only for its reading time (`localisation.missing: "subtitleOnly"`). An
    * unknown key gives an inert handle with reason "unknownLine". Plays now (no queueing: `Audio.say` has channels).
@@ -537,18 +537,18 @@ export const Audio = {
     }
   },
 
-  /** ADR 0340 §5: hear every line's `start`, `end` and Cue `marker` events, with its subtitle. Returns the unsubscribe. */
+  /** ADR 0354 §5: hear every line's `start`, `end` and Cue `marker` events, with its subtitle. Returns the unsubscribe. */
   onLine(fn: (e: AudioLineEvent) => void): () => void {
     return typeof fn === "function" ? onLine(fn) : () => {};
   },
 
-  /** ADR 0343 §4: hear the captions of playlists that have one, as their instances start sounding and end. Returns the unsubscribe. */
+  /** ADR 0357 §4: hear the captions of playlists that have one, as their instances start sounding and end. Returns the unsubscribe. */
   onCaption(fn: (e: AudioCaptionEvent) => void): () => void {
     return typeof fn === "function" ? onCaption(fn) : () => {};
   },
 
   /**
-   * ADR 0341 §5: say a dialogue event: it picks a line by best match over its arguments (`options.args`, else the
+   * ADR 0355 §5: say a dialogue event: it picks a line by best match over its arguments (`options.args`, else the
    * global parameters, else the defaults) and speaks it on a speaker channel, with priority, interruption, queueing,
    * cooldowns and memory. An unknown event gives an inert handle with reason "unknownEvent". Never throws.
    */
@@ -561,13 +561,13 @@ export const Audio = {
     }
   },
 
-  /** ADR 0341 §5: the speaker channels and the dialogue memory. */
+  /** ADR 0355 §5: the speaker channels and the dialogue memory. */
   get dialogue(): AudioDialogue {
     return audioDialogue;
   },
 
   /**
-   * ADR 0337 §9: a package of sounds from `audio.json` (Wwise's SoundBanks, FMOD's banks): `await Audio.package("Forest").load()`
+   * ADR 0351 §9: a package of sounds from `audio.json` (Wwise's SoundBanks, FMOD's banks): `await Audio.package("Forest").load()`
    * before playing its sounds, `unload()` when they're done. Loads are reference-counted; an unknown name gives a handle
    * whose `load()` rejects, with one warning. With strict packaging (the default) a packaged sound whose packages are all
    * unloaded doesn't play: its handle's `reason` is "notLoaded".
@@ -576,7 +576,7 @@ export const Audio = {
     return audioPackage(name);
   },
 
-  /** ADR 0337 §9: every package this game has for its platform, in `audio.json`'s order. */
+  /** ADR 0351 §9: every package this game has for its platform, in `audio.json`'s order. */
   get packages(): readonly AudioPackage[] {
     return audioPackages();
   },

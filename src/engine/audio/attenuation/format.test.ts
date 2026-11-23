@@ -12,7 +12,7 @@ const ADR_EXAMPLE = {
 };
 
 describe("parseAttenuationAsset", () => {
-  it("reads the ADR 0333 example without problems and writes it back unchanged", () => {
+  it("reads the ADR 0347 example without problems and writes it back unchanged", () => {
     const { attenuation, problems } = parseAttenuationAsset(ADR_EXAMPLE);
     expect(problems).toEqual([]);
     expect(attenuation.minDistance).toBe(2);

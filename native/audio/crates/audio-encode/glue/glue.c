@@ -1,4 +1,4 @@
-/* audio-encode's C side (ADR 0337 §4, 0345): whole-clip encode loops for libvorbis (Ogg Vorbis) and libopus (Ogg Opus,
+/* audio-encode's C side (ADR 0351 §4, 0359): whole-clip encode loops for libvorbis (Ogg Vorbis) and libopus (Ogg Opus,
  * RFC 7845: OpusHead with the encoder's look-ahead as pre-skip, the end trimmed by the last page's granule position),
  * writing into a growable buffer that Rust frees with myco_buf_free. From the A0 spike's glue (spikes/audio-encode). */
 #include <stdlib.h>
@@ -46,7 +46,7 @@ static void put_page(myco_buf *b, ogg_page *og) {
 /* The Ogg stream serial both encoders write ("myco"). */
 #define MYCO_SERIAL 0x6d79636f
 
-/* q: libvorbis VBR quality, -0.1..1.0 (ADR 0337 §2: quality x 10 is the familiar -q scale).
+/* q: libvorbis VBR quality, -0.1..1.0 (ADR 0351 §2: quality x 10 is the familiar -q scale).
  * Returns 0, -1 when libvorbis refuses the rate/channels/quality, -3 when out of memory. */
 int myco_vorbis_encode(const float *interleaved, int ch, long frames, long rate, float q, const char *vendor,
                        myco_buf *out) {

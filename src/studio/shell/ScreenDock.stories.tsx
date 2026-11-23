@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0327) for a Studio screen's dock: the engine's dock layout over the screen's own layout store,
+// Stories (ADR 0219, 0341) for a Studio screen's dock: the engine's dock layout over the screen's own layout store,
 // the fixed panel in the middle (no ×), side panels with their empty states, and the panel menu's "Add <panel>",
 // Close and Reset layout.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

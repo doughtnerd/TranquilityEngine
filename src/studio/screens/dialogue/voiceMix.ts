@@ -1,4 +1,4 @@
-// Loudness and ducking for voice-over (ADR 0340 §8): "Normalise language" writes each recorded file's sidecar
+// Loudness and ducking for voice-over (ADR 0354 §8): "Normalise language" writes each recorded file's sidecar
 // `normalize` from `localisation.loudness` (gain measured as the Samples screen does); "Duck Music under Voice" is
 // offered when a line table plays on a bus no ducking rule is triggered by, and adds an ordinary presence rule to
 // `audio.json` (one undo step). Nothing new in the mixer. Pure.
@@ -8,7 +8,7 @@ import { busOf, masterOf } from "../mixer/busTree";
 import { addDucking } from "../mixer/mixEdits";
 import { allLines, fileIn, type DialogueData } from "./dialogueData";
 
-/** 0340 §8's rule: Music ducked by 6 dB while Voice plays, 80 ms attack, 400 ms release. */
+/** 0354 §8's rule: Music ducked by 6 dB while Voice plays, 80 ms attack, 400 ms release. */
 export const VOICE_DUCK = { amountDb: -6, attackMs: 80, releaseMs: 400 } as const;
 
 /** The bus a line table plays on: its `output`, else Voice when it exists, else Master. */

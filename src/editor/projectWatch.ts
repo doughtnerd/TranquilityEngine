@@ -1,4 +1,4 @@
-// Following changes other apps make to an open project folder (ADR 0327, "One app owns each file; both watch"): the
+// Following changes other apps make to an open project folder (ADR 0341, "One app owns each file; both watch"): the
 // Audio Studio saving `audio.json` while the editor is open, the editor saving a scene while the Studio is, a code
 // editor, `git pull`. App-agnostic: the editor and the Studio each wire it to their own documents
 // (editorProjectWatch.ts is the editor's).

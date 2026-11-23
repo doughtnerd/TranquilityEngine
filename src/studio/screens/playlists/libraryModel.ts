@@ -1,5 +1,5 @@
 // The Playlists screen's Library (the prototype's library, PL:1353–1355, 1767–1781): the project's samples, which are
-// audio files and derived samples (`*.sample.json`, ADR 0328), grouped by folder and searched by path. Dragging one onto
+// audio files and derived samples (`*.sample.json`, ADR 0342), grouped by folder and searched by path. Dragging one onto
 // the open playlist adds it as an entry. Pure.
 import { sampleTitle } from "./playlistPaths";
 

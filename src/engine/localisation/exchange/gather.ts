@@ -1,5 +1,5 @@
 /**
- * Key gathering (ADR 0342 §7, Unreal's text gathering run as a report): where each string key is used in a project,
+ * Key gathering (ADR 0356 §7, Unreal's text gathering run as a report): where each string key is used in a project,
  * and the report lists built from it.
  *
  * **Uses** come from:
@@ -9,8 +9,8 @@
  *   in prefab instances' overrides;
  * - scripts (`.ts`, `.js`, …): literal first arguments of `Locale.t(…)`, `Locale.text(…)` and `Locale.has(…)`, found by
  *   a text search (best effort: a key built at runtime isn't seen);
- * - line tables (`*.lines.json`, 0343 §1): each line's subtitle key (its `textKey`, else its key; `null`: none);
- * - playlists (`*.playlist.json`, 0343 §4): the caption's key.
+ * - line tables (`*.lines.json`, 0357 §1): each line's subtitle key (its `textKey`, else its key; `null`: none);
+ * - playlists (`*.playlist.json`, 0357 §4): the caption's key.
  *
  * **Lists:** keys used but defined in no table (`undefinedKeys`), keys defined but never used (`unused`), translations
  * missing per key in the shipped languages (`missing`, with whether the key is used) and needing review

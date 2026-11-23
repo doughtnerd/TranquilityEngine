@@ -1,5 +1,5 @@
 /**
- * `Audio.debug().music` rows from playlist instances (ADR 0329 retired ADR 0166's music players, whose rows these were;
+ * `Audio.debug().music` rows from playlist instances (ADR 0343 retired ADR 0166's music players, whose rows these were;
  * decision log D32 kept the section empty until now). One row per playing instance whose playing entry has a musical
  * clock with a tempo (a Sequence with one, or a Clip whose sample has one), in the row type the players filled:
  *

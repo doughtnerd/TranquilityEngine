@@ -1,4 +1,4 @@
-// Languages in game builds (ADR 0342 §10, §11; 0340 §6; amended by 0343 §1): which languages a build ships, the
+// Languages in game builds (ADR 0356 §10, §11; 0354 §6; amended by 0357 §1): which languages a build ships, the
 // string files it writes and the project files it leaves out. `planWebBuild` (webBuild.ts) runs `planLocalisation`;
 // the audio step (audio.ts) reads the same `BuildLanguages` to split packages per language and write the line index.
 //
@@ -33,7 +33,7 @@ export const STRINGS_DIR = "strings";
 /** The string file of language `code` in a build. */
 export const stringsFileOf = (code: string): string => `${STRINGS_DIR}/${code}.json`;
 
-/** The languages a build ships (ADR 0342 §11, 0340 §6). */
+/** The languages a build ships (ADR 0356 §11, 0354 §6). */
 export interface BuildLanguages {
   /** `project.json`'s `languages`, parsed. */
   readonly settings: LanguageSettings;
@@ -94,7 +94,7 @@ export function shipsVariant(path: string, roots: readonly string[], languages: 
 }
 
 /**
- * `messages` with the checks applied (ADR 0342 §11): a translation that fails `checkTranslation` against the reference
+ * `messages` with the checks applied (ADR 0356 §11): a translation that fails `checkTranslation` against the reference
  * language's message reads as missing, so `buildStringsFile` takes its fallback; `failed` collects each one.
  */
 function checkedSource(settings: LanguageSettings, messages: ProjectStrings, failed: { key: string; code: string; why: string }[]): BuildStringsSource {

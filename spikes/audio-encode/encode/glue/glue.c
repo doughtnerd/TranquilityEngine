@@ -1,4 +1,4 @@
-/* ADR 0337 spike A0/S1: the C side of the encoder. Whole-clip encode loops for libvorbis (Ogg Vorbis) and libopus
+/* ADR 0351 spike A0/S1: the C side of the encoder. Whole-clip encode loops for libvorbis (Ogg Vorbis) and libopus
  * (Ogg Opus, RFC 7845: OpusHead with pre-skip, end trimming by the last granule position), writing into a growable
  * buffer that Rust frees with spike_buf_free. */
 #include <stdlib.h>
@@ -37,7 +37,7 @@ static void put_page(spike_buf *b, ogg_page *og) {
 #ifdef SPIKE_VORBIS
 #include <vorbis/vorbisenc.h>
 
-/* q: libvorbis VBR quality, -0.1..1.0 (ADR 0337: quality x 10 is the familiar -q scale). */
+/* q: libvorbis VBR quality, -0.1..1.0 (ADR 0351: quality x 10 is the familiar -q scale). */
 int spike_vorbis_encode(const float *interleaved, int ch, long frames, long rate, float q, spike_buf *out) {
   vorbis_info vi;
   vorbis_comment vc;

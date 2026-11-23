@@ -2,7 +2,7 @@
  * How long an audio file plays, in seconds, read from its headers without decoding: WAV (`fmt ` and `data`, through
  * `readWavMetadata`), FLAC (STREAMINFO), Ogg Vorbis and Ogg Opus (the last page's granule position) and MP3 (a Xing,
  * Info or VBRI frame count, else the constant bitrate over the audio bytes). Undefined when the file isn't one of those
- * or its headers don't say; never throws. The migration uses it for the samples' lengths (ADR 0329 §"Migration").
+ * or its headers don't say; never throws. The migration uses it for the samples' lengths (ADR 0343 §"Migration").
  *
  * Pure; no plugin, no DOM.
  */

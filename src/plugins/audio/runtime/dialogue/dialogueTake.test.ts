@@ -1,4 +1,4 @@
-// ADR 0341 §6, 0340 §10: takes record says (resolved arguments, options, pick and the generator's state), lines and
+// ADR 0355 §6, 0354 §10: takes record says (resolved arguments, options, pick and the generator's state), lines and
 // language changes through the public `Audio.take`; replaying the recorded says against the same data, the World
 // generator restarted from each say's recorded state (as the Studio's replay does), picks the same lines, and after a
 // weight change only the says that picked the changed line differ.
@@ -105,7 +105,7 @@ function replay(says: readonly Say[]): (string | null)[] {
   });
 }
 
-describe("takes record says, lines and languages; replay re-decides deterministically (ADR 0341 §6)", () => {
+describe("takes record says, lines and languages; replay re-decides deterministically (ADR 0355 §6)", () => {
   it("records a scripted run and replays it to the same picks; a weight change marks only the says it changes", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { downloads, feed } = await rig(files());

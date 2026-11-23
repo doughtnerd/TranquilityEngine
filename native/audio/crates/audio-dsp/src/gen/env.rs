@@ -1,4 +1,4 @@
-//! ADSR envelopes (ADR 0346 §3): a linear attack, then an exponential decay to the sustain level and an exponential
+//! ADSR envelopes (ADR 0360 §3): a linear attack, then an exponential decay to the sustain level and an exponential
 //! release, each reaching 1 % of its span at its set time. The envelope is done once a release falls below [`END_LEVEL`].
 //! [`Adsr::advance`] moves it `n` samples in O(1) (a virtual voice keeps its envelopes' time without rendering).
 

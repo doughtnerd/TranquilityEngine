@@ -1,10 +1,10 @@
 // The build writer (ADR 0296): writes a planned web build (webBuild.ts) into a build folder, for
 // the Node exporter (node.ts) and the editor's Build / Export (src/editor/exportBuild.ts) alike.
 // It owns the order: check the player and the folder before anything is touched, bake models
-// (ADR 0090), render baked samples (ADR 0328, sampleRenders.ts), process images (ADR 0119) and
-// convert and package audio (ADR 0337, audio.ts) through the project's files, clear an earlier
+// (ADR 0090), render baked samples (ADR 0342, sampleRenders.ts), process images (ADR 0119) and
+// convert and package audio (ADR 0351, audio.ts) through the project's files, clear an earlier
 // build, then write each file once (a processed image or a converted sound in place of its
-// original; a packaged sound not at all) with progress, the game's third-party notices (ADR 0345
+// original; a packaged sound not at all) with progress, the game's third-party notices (ADR 0359
 // §6) and, beside the web build, the audio report.
 //
 // Files come in through `FileSource`s (the project, the player) and go out through a
@@ -60,12 +60,12 @@ export interface WriteBuildOptions {
   /** Baking one model (ADR 0090). */
   readonly bake: BakeModel;
   /**
-   * ADR 0337: audio conversion and packages for `platform`. Absent: the build ships its audio as it is (no conversion,
+   * ADR 0351: audio conversion and packages for `platform`. Absent: the build ships its audio as it is (no conversion,
    * no packages, no media table). `encoder: null` is `--no-audio-convert`: packages are built from the sources.
    */
   readonly audio?: { readonly encoder: AudioEncoder | null; readonly decode: DecodeAudio; readonly cache?: AudioCacheStore };
   /**
-   * ADR 0345 §6: the third-party notices every game ships (the repository's `THIRD_PARTY_NOTICES.md`), written as
+   * ADR 0359 §6: the third-party notices every game ships (the repository's `THIRD_PARTY_NOTICES.md`), written as
    * `THIRD_PARTY_NOTICES.md` at the web build's root. Absent: none written.
    */
   readonly notices?: string;
@@ -78,7 +78,7 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const bytesOf = (v: string | Uint8Array) => (typeof v === "string" ? encoder.encode(v) : v);
 const textOf = (v: string | Uint8Array) => (typeof v === "string" ? v : decoder.decode(v));
-/** The third-party notices' file name in a build (ADR 0345 §6). */
+/** The third-party notices' file name in a build (ADR 0359 §6). */
 export const NOTICES_FILE = "THIRD_PARTY_NOTICES.md";
 const join = (dir: string, path: string) => (dir ? `${dir}/${path}` : path);
 
@@ -100,7 +100,7 @@ export async function writeWebBuild(plan: WebBuildPlan, options: WriteBuildOptio
   }
 
   plan = await withBakedModels(plan, options.bake, log);
-  // ADR 0338 §8: the plugins' audio modules hashed into game.json; their offline host renders baked plugin effects.
+  // ADR 0352 §8: the plugins' audio modules hashed into game.json; their offline host renders baked plugin effects.
   const effects = await withAudioEffects(plan, (path) => project.read(path), log);
   plan = effects.plan;
   plan = await withRenderedSamples(plan, (path) => project.read(path), log, effects.renders);

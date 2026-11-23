@@ -1,4 +1,4 @@
-// The Mixer's routing tree and the edits that change its shape (ADR 0330; the prototype's Buses panel): the buses in
+// The Mixer's routing tree and the edits that change its shape (ADR 0344; the prototype's Buses panel): the buses in
 // routing order with their display paths, re-routing with its refusals (Master, onto itself, under a bus below it,
 // onto its current parent), new buses, returns and VCAs, renaming (names are identities, unique across buses, returns
 // and VCAs; every reference inside `audio.json` follows) and deleting with a plan of what goes, applied in the same
@@ -59,7 +59,7 @@ export function descendantsOf(p: Pick<AudioProject, "buses">, name: string): str
   return out;
 }
 
-/** A bus's display path, "SFX › Vehicles" (Master is "Master"; the path is display only, ADR 0330). */
+/** A bus's display path, "SFX › Vehicles" (Master is "Master"; the path is display only, ADR 0344). */
 export function busPath(p: Pick<AudioProject, "buses">, name: string): string {
   const master = masterOf(p);
   if (name === master) return name;

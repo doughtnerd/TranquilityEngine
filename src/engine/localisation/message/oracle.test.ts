@@ -1,5 +1,5 @@
 /**
- * Differential test (ADR 0342 §2): the engine's ICU MessageFormat 1 parser against `@formatjs/icu-messageformat-parser`,
+ * Differential test (ADR 0356 §2): the engine's ICU MessageFormat 1 parser against `@formatjs/icu-messageformat-parser`,
  * a dev dependency used only here. Well-formed messages must give the same tree; malformed ones must be refused by both.
  * Skipped, with a message saying why, when the package isn't installed.
  */
@@ -161,5 +161,5 @@ describe.skipIf(!oracle)(`parser against ${ORACLE}: generated messages`, () => {
 });
 
 describe.runIf(!oracle)(`parser against ${ORACLE}`, () => {
-  it.skip(`skipped: ${ORACLE} isn't installed (a dev dependency, ADR 0342 §2)`, () => {});
+  it.skip(`skipped: ${ORACLE} isn't installed (a dev dependency, ADR 0356 §2)`, () => {});
 });

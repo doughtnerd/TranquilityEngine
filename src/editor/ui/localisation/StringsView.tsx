@@ -1,4 +1,4 @@
-// The Localisation panel's Strings tab (ADR 0342 §9): a table list, search and filters, and the grid — key, reference
+// The Localisation panel's Strings tab (ADR 0356 §9): a table list, search and filters, and the grid — key, reference
 // text, a cell per language (its text with a status chip: translated, needs review, missing, over length, check
 // failed), notes, max length and a status column. Cells edit in place (Enter or leaving the cell commits, Escape
 // reverts); check errors show under the cell. A read-only table (the Studio's while it runs, a read-only project)

@@ -1,4 +1,4 @@
-// The Playlists screen's state and actions over the real page (ADR 0329, 0327, 0335): which playlist is open (its path,
+// The Playlists screen's state and actions over the real page (ADR 0343, 0341, 0349): which playlist is open (its path,
 // mirrored in the route: the file as `asset`, the embedded entry's indices as `select`), the selected entry, the test
 // parameter values, the audition and its voice log. Edits go to the open file's asset document as one labelled undo
 // step each (`applyEdit`; drags coalesce); refusals go to the status bar. File actions (new, rename, duplicate, move,

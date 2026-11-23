@@ -1,4 +1,4 @@
-// The Profiler screen's state (ADR 0334 "The Profiler screen"): the open capture (a project file, or the Studio's own
+// The Profiler screen's state (ADR 0348 "The Profiler screen"): the open capture (a project file, or the Studio's own
 // runtime recorded live), what is read from it (`ProfilerDataReader`), the cursor (the editor profiler's `CursorModel`:
 // its STATUS steps and jumps), the state at the cursor (`seekAtCursor`), the selected voice, and the timeline's filter
 // and grouping. Every panel of the screen reads these signals; nothing here touches the DOM. Opening is injected
@@ -30,7 +30,7 @@ export type OpenState =
       readonly origin: "file" | "live";
       readonly path: string | null;
       readonly title: string;
-      /** ADR 0334: the take this capture recorded the Studio replaying (META `replayOf`), or null. */
+      /** ADR 0348: the take this capture recorded the Studio replaying (META `replayOf`), or null. */
       readonly replayOf: CaptureReplayOf | null;
     }
   | { readonly kind: "failed"; readonly path: string; readonly message: string };

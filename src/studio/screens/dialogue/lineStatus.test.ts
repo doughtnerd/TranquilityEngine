@@ -1,4 +1,4 @@
-// ADR 0340 §8–§9, 0343 §6: the Lines table's status per language — recorded, fallback (named), missing — and its flags:
+// ADR 0354 §8–§9, 0357 §6: the Lines table's status per language — recorded, fallback (named), missing — and its flags:
 // duration mismatch, script changed (sidecar `vo.textHash` against the reference text now), reading speed.
 import { describe, expect, it } from "vitest";
 import { textHash } from "../../../engine/localisation/textHash";

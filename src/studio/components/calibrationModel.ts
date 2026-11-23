@@ -1,4 +1,4 @@
-// Latency calibration by tapping on the beat (ADR 0327, 0335; the prototype's output-device menu): a beat every
+// Latency calibration by tapping on the beat (ADR 0341, 0349; the prototype's output-device menu): a beat every
 // 500 ms, heard (clicks) or seen (flashing boxes). Each tap's signed error from the nearest beat is folded into
 // ±250 ms, the last 16 taps are kept, and their average is the offset to use once there are at least 4. Offsets are
 // kept within ±300 ms.

@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the Spatial screen's Scene view on the fixture scene ("Canyon run"): the plan with its
+// Stories (ADR 0219, 0349) for the Spatial screen's Scene view on the fixture scene ("Canyon run"): the plan with its
 // boxes, route, listeners and emitters, the rays and render colours from a voices readout, a selected box with its
 // handles and floating toolbar, a moving emitter travelling its route while playing, path editing, the side view, and the tool palette placing an object. The host is local
 // state standing in for the screen (`sceneHost.ts`), so edits apply to the story's scene.

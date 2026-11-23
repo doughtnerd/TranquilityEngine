@@ -1,4 +1,4 @@
-// Toasts with an Undo (ADR 0335): "Deleted Engine loop · Undo", for 10 seconds. A queue of toasts, newest last; each
+// Toasts with an Undo (ADR 0349): "Deleted Engine loop · Undo", for 10 seconds. A queue of toasts, newest last; each
 // leaves when its time is up, when it is dismissed, or once its Undo has run (which runs at most once, and never after
 // the toast has gone). Pausing (the pointer over a toast, or focus in it) holds every toast's time, as a reader needs
 // (WCAG 2.2.1). Time comes from the caller's clock, so `UndoToast.tsx` drives it with timers and tests drive it by hand.

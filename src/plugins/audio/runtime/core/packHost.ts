@@ -1,4 +1,4 @@
-// ADR 0337 §7 (W12 package integration): the core backend's `AudioPacks` capability. A package's bytes go to the decoder
+// ADR 0351 §7 (W12 package integration): the core backend's `AudioPacks` capability. A package's bytes go to the decoder
 // worker (`DecoderClient.loadPack`, with the build URL's re-fetch for a restarted worker), and its arena-resident sounds
 // are committed to the clip arena at load: a hold is a clip registry reference (the whole clip, or a `stream` sound's
 // prefetch head as the span `[0, frames)`), so the clip stays loaded while the package holds it, whatever voices do, and

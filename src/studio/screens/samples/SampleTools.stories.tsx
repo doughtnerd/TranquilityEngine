@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the Samples toolbar's popovers over a live sample block: Tempo with Tap tempo, Root
+// Stories (ADR 0219, 0349) for the Samples toolbar's popovers over a live sample block: Tempo with Tap tempo, Root
 // note with validation, Normalize with the clip warning, Snap and the Time display.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

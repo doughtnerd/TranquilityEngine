@@ -1,6 +1,6 @@
 /**
  * Internal (ADR 0175, building on 0097 and 0151): the settings draft's `audio` section, parsed once and written back in
- * one place. Since ADR 0330 the section is `audio.json`'s legacy view (`project/runtimeView.ts`), which the editor's
+ * one place. Since ADR 0344 the section is `audio.json`'s legacy view (`project/runtimeView.ts`), which the editor's
  * project section saves back into `audio.json` (decision D2); its shape here is unchanged. The runtime settings' `mix`
  * (`audio.json`'s whole mix, which the mixer runs) is not part of the section: the legacy panels neither show nor edit
  * it, so it never makes two sections differ, and the mixer writes a section the panels edited back into it.

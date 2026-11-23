@@ -1,4 +1,4 @@
-// ADR 0337 §5 step 5 (A3/A5): a converted loose sound plays. A tone encoded to Ogg Vorbis by the real encoder ships under
+// ADR 0351 §5 step 5 (A3/A5): a converted loose sound plays. A tone encoded to Ogg Vorbis by the real encoder ships under
 // its `.wav` name (as the export places it), the build's media table lists it, the game's decoder reads it whatever the
 // extension says (symphonia probes the content), and the real core on the loopback renders it, through `Audio.playOneShot`.
 import { afterEach, describe, expect, it, vi } from "vitest";

@@ -1,4 +1,4 @@
-// ADR 0336 (beat-quantised automation) end to end on the real wasm core (the loopback host): a sequence at 120 bpm with
+// ADR 0350 (beat-quantised automation) end to end on the real wasm core (the loopback host): a sequence at 120 bpm with
 // a volume lane on a parameter quantised to the beat; the parameter changes early in the first beat and the rendered
 // output keeps its old level up to the beat's sample, then ramps to the new one over the 20 ms stamped ramp.
 import { afterEach, expect, it, vi } from "vitest";

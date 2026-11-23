@@ -165,7 +165,7 @@ describe("menu bar", () => {
     expect(w.items.at(-1)!.label).toBe("Audio Studio");
   });
 
-  it("Window > Audio Studio opens the Studio, on the project when one is open (ADR 0327)", () => {
+  it("Window > Audio Studio opens the Studio, on the project when one is open (ADR 0341)", () => {
     const a = actions();
     const m = buildMenus(state({ project }), a);
     const studio = item(m, "window", "Audio Studio");

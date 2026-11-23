@@ -1,5 +1,5 @@
 /**
- * The line index (ADR 0340 §6, 0341 §1): where the runtime finds a project's line tables (`*.lines.json`) and dialogue
+ * The line index (ADR 0354 §6, 0355 §1): where the runtime finds a project's line tables (`*.lines.json`) and dialogue
  * files (`*.dialogue.json`). Lines and events are played by key and name (no path), and asset sources can't be listed,
  * so the runtime reads this one file at a fixed path, `audio/lines/index.json` (`myco.lineindex@1`), then the files it
  * names through the asset sources:
@@ -8,7 +8,7 @@
  * { "format": "myco.lineindex@1", "tables": ["audio/vo/ch1.lines.json"], "dialogue": ["audio/barks.dialogue.json"] }
  * ```
  *
- * An export writes it (0340 L3) beside the files it names; the editor's Play and the Studio serve the same file from their
+ * An export writes it (0354 L3) beside the files it names; the editor's Play and the Studio serve the same file from their
  * project tree (an asset source holding it). Parsed leniently (never throws; one problem line per bad value).
  *
  * Pure; no plugin, no DOM.

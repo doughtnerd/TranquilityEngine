@@ -23,12 +23,11 @@
 
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { resampleHrir, resampleMagls } from "./core/hrirResample";
 import { HRIR_CLIP_ID_FIRST as HRIR_CLIP_ID } from "./wire.generated";
 import { DecoderWasm } from "./decoder/wasm";
 import { maxStep } from "./golden/maxStep";
 import { goldenNames, levelDigest, matchLevelGolden, readLevelGolden, UPDATE_GOLDENS } from "./golden/replay";
-import { createLoopbackHost, LOOPBACK_PRESET, LOOPBACK_RATE, type LoopbackHost } from "./testing";
+import { createLoopbackHost, inProcessSpatialPrepare, LOOPBACK_PRESET, LOOPBACK_RATE, type LoopbackHost } from "./testing";
 import type { CorePreset } from "./worklet/coreDriver";
 import {
   ASAP,
@@ -154,7 +153,7 @@ const master = (volume: number, muted: boolean, rampFrames: number): Writer => (
 // ADR 0158 E2: automation records.
 /**
  * CURVES from `first`: each curve `[x, y, interp]` keys (interp 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut), or
- * `[x, y, 5, inDx, inDy, outDx, outDy]` for a Bézier key (ADR 0332).
+ * `[x, y, 5, inDx, inDy, outDx, outDy]` for a Bézier key (ADR 0346).
  */
 const curves = (first: number, list: ([number, number, number] | [number, number, number, number, number, number, number])[][]): Writer => (view, off) =>
   writeCurves(view, off, { voiceId: 0, frameOffset: ASAP, firstCurve: first, curves: list.map((keys) => ({ reserved: 0, keys: keys.map(([x, y, interp, inDx = 0, inDy = 0, outDx = 0, outDy = 0]) => ({ x, y, interp, inDx, inDy, outDx, outDy })) })) });
@@ -166,17 +165,17 @@ const automate = (voiceId: number, bindings: [number, number, number][]): Writer
   writeAutomate(view, off, { voiceId, frameOffset: ASAP, bindings: bindings.map(([param, curve, target]) => ({ param, curve, target, offset: 0 })) });
 const busAutomate = (bus: number, bindings: [number, number, number][]): Writer => (view, off) =>
   writeBusAutomate(view, off, { voiceId: bus, frameOffset: ASAP, bindings: bindings.map(([param, curve, target]) => ({ param, curve, target })) });
-/** ADR 0331: SUBMIX `slot` for `group` on `bus`: `[type, on, ...params]` effects. */
+/** ADR 0345: SUBMIX `slot` for `group` on `bus`: `[type, on, ...params]` effects. */
 const submix = (slot: number, group: number, bus: number, effects: [number, boolean, ...number[]][]): Writer => (view, off) =>
   writeSubmix(view, off, { voiceId: slot, frameOffset: ASAP, group, bus, parent: 0, reserved: 0, effects: effects.map(([type, on, ...p]) => ({ type, flags: on ? 1 : 0, p: [...p, 0, 0, 0, 0, 0, 0, 0, 0].slice(0, 8) })) });
 /** SET_LOOP `voiceId`, `frameOffset` frames into the batch (ASAP for at once). */
-/** ADR 0328: a loop program: `[start, end, crossfade, exitFade, count, flags]` per loop (no parameter). */
+/** ADR 0342: a loop program: `[start, end, crossfade, exitFade, count, flags]` per loop (no parameter). */
 const loops = (voiceId: number, list: [number, number, number, number, number, number][]): Writer => (view, off) =>
   writeLoops(view, off, { voiceId, frameOffset: ASAP, loops: list.map(([startFrame, endFrame, crossfadeFrames, exitFadeFrames, count, flags]) => ({ startFrame, endFrame, crossfadeFrames, exitFadeFrames, count, flags, param: 0, shapes: 0, threshold: 0 })) });
 const setLoop = (voiceId: number, frameOffset: number, start: number, end: number, looping: boolean): Writer => (view, off) =>
   writeSetLoop(view, off, { voiceId, frameOffset, loopStartFrame: start, loopEndFrame: end, flags: looping ? 1 : 0 });
 const GLOBAL = 0x8000;
-/** ADR 0332: a sequence clock re-anchor, asap or stamped `frameOffset` frames after the batch's first frame. */
+/** ADR 0346: a sequence clock re-anchor, asap or stamped `frameOffset` frames after the batch's first frame. */
 const time = (group: number, value: number, rate: number, frameOffset = ASAP): Writer => (view, off) =>
   writeTime(view, off, { voiceId: 0, frameOffset, group, which: TIME_SEQUENCE, value, rate });
 
@@ -233,13 +232,13 @@ class Stage {
   }
 
   /**
-   * Loads the HRIR table (H3's format 2 clip under the reserved id), resampled to the loopback rate as `hrir.ts` does at
-   * runtime, then renders `warmQuanta` quanta that are not part of the output: the core copies the table and builds its
+   * Loads the HRIR table (H3's format 2 clip under the reserved id), prepared for the loopback rate by the decoder as
+   * `hrir.ts` has it prepared at runtime (ADR 0331), then renders `warmQuanta` quanta that are not part of the output: the core copies the table and builds its
    * panner bank over them.
    */
   async loadHrir(warmQuanta = 40): Promise<void> {
     const bytes = await readFile(new URL("./wasm/myco_hrir.bin", import.meta.url));
-    const blob = resampleHrir(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, LOOPBACK_RATE);
+    const blob = await inProcessSpatialPrepare()("hrir", bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, LOOPBACK_RATE);
     const words = blob.byteLength / 2;
     const begin = new ArrayBuffer(16 + 20);
     const beginView = new DataView(begin);
@@ -260,12 +259,12 @@ class Stage {
   }
 
   /**
-   * ADR 0162 A7: loads the MagLS bed filters (H3-style: the committed asset resampled to the loopback rate as `hrir.ts`
-   * does at runtime, format 4 under `MAGLS_CLIP_ID`), then renders `warmQuanta` quanta that are not part of the output.
+   * ADR 0162 A7: loads the MagLS bed filters (H3-style: the committed asset prepared for the loopback rate by the decoder
+   * as at runtime, format 4 under `MAGLS_CLIP_ID`), then renders `warmQuanta` quanta that are not part of the output.
    */
   async loadMagls(warmQuanta = 8): Promise<void> {
     const bytes = await readFile(new URL("../../../engine/audio/magls-o3.bin", import.meta.url));
-    const blob = resampleMagls(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, LOOPBACK_RATE);
+    const blob = await inProcessSpatialPrepare()("magls", bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, LOOPBACK_RATE);
     const words = blob.byteLength / 4;
     const begin = new ArrayBuffer(16 + 20);
     const beginView = new DataView(begin);
@@ -499,7 +498,7 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
     s.send(param(0, 0, 0.3, 0), param(7, 2, 0.2, 0));
     s.run(20);
   },
-  // ADR 0331 (ABI 4.5): two voices of group 4 through its submix (a 1.2 kHz low-pass with resonance, then a compressor
+  // ADR 0345 (ABI 4.5): two voices of group 4 through its submix (a 1.2 kHz low-pass with resonance, then a compressor
   // with 6 dB makeup), a third voice outside it; the submix is reconfigured mid-way (the low-pass bypassed) and freed.
   "submix-chain"(s) {
     s.send(
@@ -528,7 +527,7 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
     s.send(param(0, 3, 1, 1.2), param(5, 1, 1, 1));
     s.run(90);
   },
-  // ADR 0332: Bézier keys. A volume curve of two Bézier segments (an overshooting rise into a key whose in handle
+  // ADR 0346: Bézier keys. A volume curve of two Bézier segments (an overshooting rise into a key whose in handle
   // shapes it, then a fall into a plain key, so its flat third-long handle) and a pitch curve of one Bézier segment,
   // swept by a seeking global parameter.
   "automation-bezier"(s) {
@@ -545,7 +544,7 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
     s.send(param(0, 1, 1, 1.5));
     s.run(90);
   },
-  // ADR 0328: a loop program on one voice: a forward loop with a crossfaded seam played three times, a ping-pong loop,
+  // ADR 0342: a loop program on one voice: a forward loop with a crossfaded seam played three times, a ping-pong loop,
   // a held backward loop let go by crossfade at a stamped key-off, then a hold point parked until a second key-off.
   "loop-program"(s) {
     s.send(
@@ -563,7 +562,7 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
     s.send(setLoop(voice(1), 32, 0, 0, false));
     s.run(30);
   },
-  // ADR 0332: time parameters. A volume fade-in on voice time, a pitch curve on clip time and a low-pass on its group's
+  // ADR 0346: time parameters. A volume fade-in on voice time, a pitch curve on clip time and a low-pass on its group's
   // sequence clock, which runs, wraps back (a stamped TIME) and parks at a hold point.
   "automation-time"(s) {
     s.send(

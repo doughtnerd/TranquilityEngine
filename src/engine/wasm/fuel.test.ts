@@ -1,4 +1,4 @@
-// ADR 0344 §2: fuel on real plugin kernels, through the meter's interface and the modules' own ABI exports. The
+// ADR 0358 §2: fuel on real plugin kernels, through the meter's interface and the modules' own ABI exports. The
 // tremolo (samples/fx-tremolo) is the kernel the B0 spike found a +157% cliff on when the check branched; it stays here
 // as the guard. The structural check (no control flow added) is what keeps the check branch-free; the timings are
 // reported, not asserted (a shared machine's wall time isn't a test).

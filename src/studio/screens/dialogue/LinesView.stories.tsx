@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0340 §9, 0343 §6) for the Dialogue screen's Lines tab over the fixture project: status cells per
+// Stories (ADR 0219, 0354 §9, 0357 §6) for the Dialogue screen's Lines tab over the fixture project: status cells per
 // language (recorded, heard in another language, mismatch, script changed, reading speed), search and the column filter,
 // a refused key rename, and a text edit that lands in the string table.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

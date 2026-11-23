@@ -1,4 +1,4 @@
-// ADR 0342 §8: the translator exchange — CSV, XLIFF 1.2 and gettext PO written from the project and read back, and the
+// ADR 0356 §8: the translator exchange — CSV, XLIFF 1.2 and gettext PO written from the project and read back, and the
 // import preview: new and changed translations, status changes, unknown keys and languages skipped, ICU check
 // failures skipped with the reason, maxLength enforced, and translations made against older reference text imported
 // as needing review. Driven through the exchange modules' own interfaces.

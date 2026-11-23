@@ -101,6 +101,8 @@ pub enum Dir {
     WorkerToWorklet,
     WorkletToMain,
     WorkletToWorker,
+    /// Written by the worklet shell into the core's inbox for an export to read; never posted on a port (ADR 0328: INIT).
+    ShellToCore,
 }
 
 /// A repeated group after a body's fixed fields: `count_field` (a field of the fixed part or of the

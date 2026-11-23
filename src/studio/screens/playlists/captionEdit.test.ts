@@ -1,4 +1,4 @@
-// ADR 0343 §4, §6: the Playlists inspector's Caption field — set, change the gap, remove, refuse a bad key or gap, and
+// ADR 0357 §4, §6: the Playlists inspector's Caption field — set, change the gap, remove, refuse a bad key or gap, and
 // the bracketed text a created key starts with; the result round-trips through the playlist writer.
 import { describe, expect, it } from "vitest";
 import { parsePlaylist, playlistToJson } from "../../../engine/audio/playlist/format";

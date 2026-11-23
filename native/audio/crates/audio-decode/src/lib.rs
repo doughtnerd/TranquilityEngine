@@ -1,6 +1,6 @@
 //! Myco's audio decoder (ADR 0157, M1b; api-and-models §5): symphonia 0.6.1 behind a plain C ABI,
 //! compiled to `myco_audio_decode.wasm` and run in the decoder worker (architecture §1). WAV (with IMA and
-//! Microsoft ADPCM, ADR 0345 §5), FLAC, MP3, Ogg Vorbis and Ogg Opus (libopus, fixed point, ADR 0337 A7: [`opus`]) are
+//! Microsoft ADPCM, ADR 0359 §5), FLAC, MP3, Ogg Vorbis and Ogg Opus (libopus, fixed point, ADR 0351 A7: [`opus`]) are
 //! always in; AAC in MP4/M4A or ADTS only with the `aac` feature.
 //!
 //! # Memory
@@ -37,12 +37,20 @@
 //!    `ERR_*` code; the kernel is then at `myco_ir_blob_ptr()` for `myco_ir_blob_len()` bytes, and
 //!    `myco_ir_truncated()` says whether it was cut at `max_frames`, all valid until the next
 //!    `myco_ir_*` call (a failed call leaves no blob: length 0). Independent of the decoders.
-//! 7. **Stream loop seams** (ABI 1.4, ADR 0328, [`seam`]): `myco_decode_seam(out, tail, frames,
+//! 7. **Stream loop seams** (ABI 1.4, ADR 0342, [`seam`]): `myco_decode_seam(out, tail, frames,
 //!    channels, phase, length, shape)` crossfades a looping stream's seam in place: the tail read
 //!    past the loop's end into the frames read from its start, in the clip voice's shapes.
-//! 8. **The engine's IMA ADPCM** (ABI 1.5, ADR 0337 A4): `myco_decode_adpcm(src, len, channels, frames, out)`
+//! 8. **The engine's IMA ADPCM** (ABI 1.5, ADR 0351 A4): `myco_decode_adpcm(src, len, channels, frames, out)`
 //!    decodes `frames` frames of a `.mycopak` ADPCM entry (`audio_adpcm`'s block layout, which isn't WAV IMA) into
 //!    interleaved int16 at `out`. ABI 1.5 also opens Ogg Opus (`info.codec` 6) in the default build.
+//! 9. **Spatial assets** (master's ABI 1.4, ADR 0331, [`spatial`]; 1.6 with the above): `bytes = myco_hrir_prepare(p, len, rate)`
+//!    takes the HRIR asset from `myco_decode_alloc` (owned from then on, as `open`) and prepares
+//!    its clip-format-2 table for a context at `rate`; `myco_magls_prepare(p, len, rate)` does the
+//!    same for the MagLS asset (clip format 4). Each returns the blob's byte length (> 0) or an
+//!    `ERR_*` code (`ERR_ARG` for a rate that isn't finite and positive, `ERR_FORMAT` for an asset
+//!    that isn't the documented layout); the blob is then at `myco_spatial_blob_ptr()` for
+//!    `myco_spatial_blob_len()` bytes, valid until the next `myco_*_prepare` of either kind (a
+//!    failed call leaves no blob: length 0). Independent of the decoders and the zone kernels.
 //!
 //! Negative `i32` (or `f64`) results are the `ERR_*` codes; `myco_decode_error_ptr/len` give the
 //! last failure's message (UTF-8). No export panics on bad input: arguments are checked and
@@ -55,6 +63,7 @@ pub mod ir;
 mod loop_points;
 pub mod opus;
 pub mod seam;
+pub mod spatial;
 #[cfg(feature = "aac")]
 mod mp4_gapless;
 
@@ -66,12 +75,13 @@ use std::alloc::{alloc, dealloc, Layout};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// `(major << 8) | minor` of this ABI.
-pub const ABI_VERSION: u32 = 0x105;
+pub const ABI_VERSION: u32 = 0x106;
 /// Open decoders at once.
 pub const MAX_DECODERS: usize = 64;
 /// Bytes of the record `myco_decode_info` writes: `u32 sampleRate; u32 channels; f64 frames (-1
 /// unknown); f64 framesEstimate (-1 unknown); u32 codec (0 other, 1 PCM, 2 FLAC, 3 MP3, 4 Vorbis,
-/// 5 AAC, 6 Opus); u32 flags (bit0: frames is exact)`.
+/// 5 AAC, 6 Opus); u32 flags (bit0: frames is exact; bit1: the file states a loop); u32 loopStart @32;
+/// u32 loopEnd @36` (loop frames, the end exclusive; both 0 without a loop; ABI 1.1).
 pub const INFO_BYTES: usize = 40;
 /// Alignment of every `myco_decode_alloc` block (enough for f32, i16 and f64 views).
 pub const ALLOC_ALIGN: usize = 16;
@@ -147,9 +157,11 @@ struct Table {
     error: String,
     /// The last `myco_ir_*` call's kernel.
     ir: Option<ir::Prepared>,
+    /// The last `myco_hrir_prepare` / `myco_magls_prepare` call's blob.
+    spatial: Option<Vec<u8>>,
 }
 
-static TABLE: Mutex<Table> = Mutex::new(Table { slots: Vec::new(), error: String::new(), ir: None });
+static TABLE: Mutex<Table> = Mutex::new(Table { slots: Vec::new(), error: String::new(), ir: None, spatial: None });
 
 fn table() -> MutexGuard<'static, Table> {
     // panic = "abort": a poisoned lock can't be observed in release; tests recover it.
@@ -228,9 +240,10 @@ fn valid_range(ptr: usize, bytes: usize, align: usize) -> bool {
 
 // --- Exports -----------------------------------------------------------------------------------
 
-/// `(major << 8) | minor`: 1.5 (1.1 added the loop fields to the info record, 1.2
-/// `myco_decode_set_convention`, 1.3 the `myco_ir_*` exports, 1.4 `myco_decode_seam`, 1.5 Ogg Opus and
-/// `myco_decode_adpcm`).
+/// `(major << 8) | minor`: 1.6 (1.1 added the loop fields to the info record, 1.2
+/// `myco_decode_set_convention`, 1.3 the `myco_ir_*` exports; then two lines built apart from 1.3: the Audio
+/// Studio's 1.4 `myco_decode_seam` and 1.5 Ogg Opus and `myco_decode_adpcm`, master's 1.4 `myco_hrir_prepare`,
+/// `myco_magls_prepare` and `myco_spatial_blob_*`; 1.6 joins both export sets, all additions).
 #[no_mangle]
 pub extern "C" fn myco_decode_abi_version() -> u32 {
     ABI_VERSION
@@ -340,7 +353,7 @@ pub unsafe extern "C" fn myco_decode_read_f32(handle: i32, out: *mut f32, frames
     read(handle, out, frames, |d, s| d.read_f32(s))
 }
 
-/// ADR 0328 (ABI 1.4): a stream loop's seam crossfade ([`seam::crossfade`]) on `frames`
+/// ADR 0342 (ABI 1.4): a stream loop's seam crossfade ([`seam::crossfade`]) on `frames`
 /// interleaved f32 frames of `channels` at `out`, mixing in the tail at `tail`, from seam frame
 /// `phase` of a `length`-frame crossfade in fade shape `shape`. Returns the frames mixed, or
 /// `ERR_ARG` for a null pointer.
@@ -359,7 +372,7 @@ pub unsafe extern "C" fn myco_decode_seam(out: *mut f32, tail: *const f32, frame
     seam::crossfade(o, t, frames as usize, channels as usize, phase, length, shape.min(255) as u8) as i32
 }
 
-/// ADR 0337 A4 (ABI 1.5): decodes the first `frames` frames of the IMA ADPCM blocks at `src` (`len` bytes in
+/// ADR 0351 A4 (ABI 1.5): decodes the first `frames` frames of the IMA ADPCM blocks at `src` (`len` bytes in
 /// `audio_adpcm`'s layout, `channels` 1 or 2) into interleaved int16 at `out` (`frames * channels * 2` bytes,
 /// 2-aligned). Returns `frames`, or `ERR_ARG` (a bad pointer or channel count) or `ERR_DECODE` (fewer bytes than the
 /// frames need).
@@ -528,4 +541,58 @@ pub extern "C" fn myco_ir_blob_len() -> u32 {
 #[no_mangle]
 pub extern "C" fn myco_ir_truncated() -> u32 {
     table().ir.as_ref().map_or(0, |p| u32::from(p.truncated))
+}
+
+// --- Spatial assets (ABI 1.4 on master, 1.6 here; ADR 0331) -----------------------------------------------------------
+
+/// Runs `prepare` on the asset at `ptr` (`len` bytes from `myco_decode_alloc(len)`, owned from now
+/// on and freed before returning) and keeps the blob.
+unsafe fn prepare_spatial(ptr: *mut u8, len: u32, rate: f64, what: &str, prepare: fn(&[u8], f64) -> Result<Vec<u8>, ir::IrError>) -> i32 {
+    let mut t = table();
+    t.spatial = None;
+    if !valid_range(ptr as usize, len as usize, ALLOC_ALIGN) || len == 0 {
+        return t.fail(ERR_ARG, &format!("{what}: null or invalid buffer"));
+    }
+    let block = OwnedBlock { ptr, len: len as usize };
+    match prepare(block.as_ref(), rate) {
+        Ok(blob) => {
+            let n = blob.len().min(i32::MAX as usize) as i32;
+            t.spatial = Some(blob);
+            n
+        }
+        Err(e) => t.fail(e.code, &e.message),
+    }
+}
+
+/// Prepares the HRIR asset at `ptr` (`len` bytes from `myco_decode_alloc(len)`, which this call
+/// owns from now on) as the clip-format-2 table for a context at `rate` ([`spatial::prepare_hrir`]).
+/// Returns the blob's byte length (> 0) or an `ERR_*` code; the blob is at `myco_spatial_blob_ptr`
+/// until the next `myco_*_prepare` call.
+///
+/// # Safety
+/// `ptr` must come from `myco_decode_alloc(len)` and not be freed or opened already.
+#[no_mangle]
+pub unsafe extern "C" fn myco_hrir_prepare(ptr: *mut u8, len: u32, rate: f64) -> i32 {
+    prepare_spatial(ptr, len, rate, "hrir_prepare", spatial::prepare_hrir)
+}
+
+/// As `myco_hrir_prepare`, for the MagLS asset as the clip-format-4 filters ([`spatial::prepare_magls`]).
+///
+/// # Safety
+/// `ptr` must come from `myco_decode_alloc(len)` and not be freed or opened already.
+#[no_mangle]
+pub unsafe extern "C" fn myco_magls_prepare(ptr: *mut u8, len: u32, rate: f64) -> i32 {
+    prepare_spatial(ptr, len, rate, "magls_prepare", spatial::prepare_magls)
+}
+
+/// The last prepared spatial blob's address (null when the last `myco_*_prepare` call failed).
+#[no_mangle]
+pub extern "C" fn myco_spatial_blob_ptr() -> *const u8 {
+    table().spatial.as_ref().map_or(std::ptr::null(), |b| b.as_ptr())
+}
+
+/// The last prepared spatial blob's length in bytes (0 when the last `myco_*_prepare` call failed).
+#[no_mangle]
+pub extern "C" fn myco_spatial_blob_len() -> u32 {
+    table().spatial.as_ref().map_or(0, |b| b.len() as u32)
 }

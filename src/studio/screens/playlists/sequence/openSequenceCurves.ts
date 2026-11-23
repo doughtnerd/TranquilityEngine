@@ -1,4 +1,4 @@
-// Open the shared curve editor (ADR 0332) on a clip's or a track's automation: the spec and the Apply mapping are
+// Open the shared curve editor (ADR 0346) on a clip's or a track's automation: the spec and the Apply mapping are
 // `sequenceCurves.ts`'s; Apply commits one edit labelled "Edit <name> curves". Used by the timeline's menus and lanes
 // and by the Inspector's automation list.
 import type { ParameterDef } from "../../../../engine/audio/parameters";

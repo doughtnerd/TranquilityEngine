@@ -83,7 +83,7 @@ describe("fromLegacySection (the migration)", () => {
     expect(back.project).toEqual(project);
   });
 
-  it("plays as the old section did, its reverb send now a send into the Reverb return (a bus of the view, ADR 0330)", () => {
+  it("plays as the old section did, its reverb send now a send into the Reverb return (a bus of the view, ADR 0344)", () => {
     const warnings: string[] = [];
     const reverb = { name: "Reverb", parent: "Master", volume: 1, mute: false, effects: [{ type: "fx", fx: "reverb", params: { size: 0.5, decay: 1.8, mix: 100 } }] };
     const expected = {
@@ -141,7 +141,7 @@ describe("mergeLegacyIntoProject (a live op of the old shape, lifted into the mi
 
   it("updates a shown effect in place, keeping its id, its unmapped params and the hidden effects", () => {
     const v = view(RICH);
-    // The view shows what the core runs (ADR 0331): the eq as a catalogue effect, then the low-pass in its legacy shape.
+    // The view shows what the core runs (ADR 0345): the eq as a catalogue effect, then the low-pass in its legacy shape.
     const [eq, lp] = v.buses.find((b) => b.name === "Music")!.effects;
     expect(eq.type).toBe("fx");
     expect(lp.type).toBe("lowpass");
@@ -168,7 +168,7 @@ describe("mergeLegacyIntoProject (a live op of the old shape, lifted into the mi
     const v = view(RICH);
     v.buses.find((b) => b.name === "Music")!.effects = [{ type: "compressor", threshold: -10, knee: 5, ratio: 2, attack: 0.01, release: 0.2 }];
     const music = busOf(mergeLegacyIntoProject(RICH, v), "Music");
-    // The eq is shown too now (the core runs it, ADR 0331), so replacing the list removes it; the bypassed high-pass stays.
+    // The eq is shown too now (the core runs it, ADR 0345), so replacing the list removes it; the bypassed high-pass stays.
     expect(music.effects.map((e) => [e.id, e.type])).toEqual([["fx1", "compressor"], ["off", "highpass"]]);
   });
 

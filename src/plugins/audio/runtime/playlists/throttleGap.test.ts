@@ -1,6 +1,6 @@
 // ADR 0158 M2 bug report: on the Sound Lab events page, the blended engine (E, `engine.playlist.json`) has a gap of
 // silence when the throttle changes ("E, press & release Right, then Up": RPM 0 -> 0.5 -> 0 -> 1 -> 0). The single-clip
-// engine (T) is smooth. This plays the sample's real playlists (migrated from its events, ADR 0329; the loop regions are the
+// engine (T) is smooth. This plays the sample's real playlists (migrated from its events, ADR 0343; the loop regions are the
 // clips' sidecar loops) and clips through the real playlist runtime and the real
 // `CoreBackend` on the loopback host (the committed wasm), with `setParameter` on frames as key presses would, and
 // measures the output per quantum (128 frames) and each voice's state in `Audio.debug()`.

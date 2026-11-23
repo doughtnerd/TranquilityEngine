@@ -1,4 +1,4 @@
-//! The synth's LFO (ADR 0346 §2): sine, triangle, square, saw and sample-and-hold at 0.05–20 Hz, read once per control
+//! The synth's LFO (ADR 0360 §2): sine, triangle, square, saw and sample-and-hold at 0.05–20 Hz, read once per control
 //! block (it moves slower than a block is long, so it needs no band-limiting). Output −1..1.
 
 pub const SINE: u8 = 0;

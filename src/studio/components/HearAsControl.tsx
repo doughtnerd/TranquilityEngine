@@ -1,4 +1,4 @@
-// Hear as (ADR 0337 §6) in the player bar: Source · Web · Desktop · Android, an A/B button flipping between Source and
+// Hear as (ADR 0351 §6) in the player bar: Source · Web · Desktop · Android, an A/B button flipping between Source and
 // the last platform (also the H key), and a progress chip while sounds convert ("Converting for Android…"). A view over
 // props; the shell feeds it the page's Hear as service (`encoding/hearAs.ts`).
 import { Chip } from "../../editor/ui/Chip";

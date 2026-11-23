@@ -161,7 +161,7 @@ fn aac_refused_without_the_feature() {
     }
 }
 
-/// ADR 0337 A7 (ABI 1.5): Ogg Opus (ffmpeg's libopus, 64 kb/s) now decodes, through libopus in the default build, to
+/// ADR 0351 A7 (ABI 1.5): Ogg Opus (ffmpeg's libopus, 64 kb/s) now decodes, through libopus in the default build, to
 /// its source's length (the pre-skip and the end trimming honoured) and close to it; garbage is still a format error.
 #[test]
 fn opus_decodes_and_garbage_is_refused() {

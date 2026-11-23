@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0337 §2, A1): the shapes of audio encoding settings, where they live (a sidecar's `encoding` block,
+ * Internal (ADR 0351 §2, A1): the shapes of audio encoding settings, where they live (a sidecar's `encoding` block,
  * `audio.json`'s `encoding` section) and what the resolver answers. Pure types; no runtime code but the key lists.
  */
 import type { ImportPlatform } from "../../scene/importSettings";
@@ -13,7 +13,7 @@ export type ShippedCodec = "pcm" | "adpcm" | "vorbis" | "opus";
 export type EncodingCodec = "auto" | "source" | ShippedCodec;
 export const ENCODING_CODECS: readonly EncodingCodec[] = ["auto", "source", "pcm", "adpcm", "vorbis", "opus"];
 
-/** Where a sound lives at runtime (ADR 0337 §3). */
+/** Where a sound lives at runtime (ADR 0351 §3). */
 export type LoadMode = "decode" | "compressed" | "stream";
 export const LOAD_MODES: readonly LoadMode[] = ["decode", "compressed", "stream"];
 
@@ -63,7 +63,7 @@ export interface EncodingRule {
   profile: string;
 }
 
-/** A platform's tripwires (ADR 0337 §8): warnings, never failures. */
+/** A platform's tripwires (ADR 0351 §8): warnings, never failures. */
 export interface AudioBudget {
   /** All audio in the build, MB. */
   downloadMB?: number;

@@ -1,4 +1,4 @@
-// What every Dialogue screen model reads (ADR 0340 §9, 0343 §1, 0341 §7): the project's languages, `audio.json`'s
+// What every Dialogue screen model reads (ADR 0354 §9, 0357 §1, 0355 §7): the project's languages, `audio.json`'s
 // `localisation`, the line tables, their string tables and translations, and per audio file its existence, its length
 // and the sidecar's `vo`, `normalize` and markers. The screen builds it from the open project (`dialogueProject.ts`);
 // tests and stories build it from plain values. Pure.
@@ -22,7 +22,7 @@ export interface FileFacts {
   readonly vo: SampleVo | null;
   readonly normalize: SampleNormalize | null;
   readonly markers: readonly SampleMarker[];
-  /** Lip-sync keys imported (0340 §7), or null with none. */
+  /** Lip-sync keys imported (0354 §7), or null with none. */
   readonly lipsync: number | null;
 }
 

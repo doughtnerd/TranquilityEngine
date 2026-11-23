@@ -1,4 +1,4 @@
-// ADR 0334: the take reader orders requests by time (file order among equal times) and answers spans, keyframes,
+// ADR 0348: the take reader orders requests by time (file order among equal times) and answers spans, keyframes,
 // pictures and seeks; `readTakeMeta` refuses a missing or malformed META take section.
 import { describe, expect, it } from "vitest";
 import { Take, readTakeMeta } from "./reader";
@@ -8,7 +8,7 @@ import type { TakeMeta, TakeRequest } from "./types";
 const META: TakeMeta = { project: "P", engine: "myco", audioHash: "abcd", seed: 7, device: "ua", started: new Date(0).toISOString(), duration: 10, emitters: { 0: "Listener" }, frames: false };
 const req = (q: TakeRequest): TakeRecord => ({ type: "request", requests: [q] });
 
-describe("Take (ADR 0334)", () => {
+describe("Take (ADR 0348)", () => {
   const records: TakeRecord[] = [
     { type: "keyframe", keyframe: { t: 0, instances: [], globals: { G: 0 } } },
     req({ kind: "play", t: 0.5, instance: 1, path: "a", emitter: null, options: {} }),

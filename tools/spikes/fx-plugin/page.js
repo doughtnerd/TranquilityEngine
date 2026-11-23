@@ -1,4 +1,4 @@
-// Spike B0 (ADR 0338): the scratch page. Runs the benches on the main thread, then inside an AudioWorklet
+// Spike B0 (ADR 0352): the scratch page. Runs the benches on the main thread, then inside an AudioWorklet
 // (processor.js), and leaves everything in window.spikeResults for run.mjs.
 import { glueCost, fuelOverhead, compileTimes, faultIsolation, hasMultiMemory } from "./bench.js";
 

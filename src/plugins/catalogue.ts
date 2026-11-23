@@ -39,7 +39,7 @@ export const FIRST_PARTY = {
   environment: environmentManifest,
   "post-processing": postProcessingManifest,
   audio: audioManifest,
-  // After audio and UI, which it needs (ADR 0343 §5).
+  // After audio and UI, which it needs (ADR 0357 §5).
   subtitles: subtitlesManifest,
 } as const satisfies Readonly<Record<string, PluginManifest>>;
 

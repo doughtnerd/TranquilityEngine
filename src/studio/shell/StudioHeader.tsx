@@ -1,5 +1,5 @@
-// The Studio's header (ADR 0327 "The shell"): the app's name and project, the screens in their groups (Author, Mix,
-// Run, Ship; Ctrl/⌘+1…8), the preview-language chip (ADR 0340 §1), Undo, Redo and History over the active history, the
+// The Studio's header (ADR 0341 "The shell"): the app's name and project, the screens in their groups (Author, Mix,
+// Run, Ship; Ctrl/⌘+1…8), the preview-language chip (ADR 0354 §1), Undo, Redo and History over the active history, the
 // shortcut list, and the output-device menu.
 import { HistoryPopover } from "../../editor/ui/HistoryPopover";
 import { formatKeys, isMacPlatform } from "../../editor/ui/keyCombo";

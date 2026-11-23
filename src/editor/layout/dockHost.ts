@@ -1,4 +1,4 @@
-// What a dock layout draws and edits (ADR 0174, 0327): the host's layout store, plus what the host offers beyond
+// What a dock layout draws and edits (ADR 0174, 0341): the host's layout store, plus what the host offers beyond
 // moving, resizing and closing panels. The scene editor's host (`editorDockHost.ts`) has the Add Panel dialog and
 // detached windows; an Audio Studio screen's host has an "Add <panel>" menu and Reset layout. `DockLayout` takes its
 // host as a prop or from `DockHostContext`, and defaults to the editor's.

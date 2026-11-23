@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0338 §7): plugin effects in offline sample renders. The render (`sampleRender.ts`) runs the chain in
+ * Internal (ADR 0352 §7): plugin effects in offline sample renders. The render (`sampleRender.ts`) runs the chain in
  * `myco_audio_offline.wasm`, which calls plugin effects through its `myco_ext` import, the same five calls the core's
  * chains make. What answers them is a host the audio plugin installs (`effectPlugins/offline.ts`: the worklet's glue,
  * `effectGlue.ts`, over the validated and instrumented modules of the enabled plugins), so a plugin effect renders

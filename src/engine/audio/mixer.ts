@@ -1,14 +1,14 @@
 /**
- * The mixer's model (ADR 0097, amended by 0171, 0172 and 0330): a bus tree with returns and VCAs, volume, mute and
+ * The mixer's model (ADR 0097, amended by 0171, 0172 and 0344): a bus tree with returns and VCAs, volume, mute and
  * solo, blending snapshots and ducking. It is pure state plus per-frame maths; a backend (ADR 0098) turns the resolved
  * state into sound (Babylon audio buses, or the core's mix graph). Game code reaches it through `Audio.bus(name)` and
  * `Audio.snapshot(name)`.
  *
- * **The model (ADR 0330).** The mixer runs the `AudioProject` mix (`audio.json`): the runtime settings carry it whole
+ * **The model (ADR 0344).** The mixer runs the `AudioProject` mix (`audio.json`): the runtime settings carry it whole
  * under `mix` (`projectWithAudio`); settings without one (the old section shape) are migrated on the fly
  * (`fromLegacySection`). What the backends build their bus graph from is the project's backends' view
  * (`coreSectionOf`, `audioSettings`): the bus tree, each bus's fader, its effects the backends run and its post-fader
- * sends. **Returns are buses** there (ADR 0330, ABI 4.7): each holds a core slot after the buses, with the same lanes as
+ * sends. **Returns are buses** there (ADR 0344, ABI 4.7): each holds a core slot after the buses, with the same lanes as
  * a bus (fader, script volume, snapshot, monitor, dip, duck, automation), fed by the sends into it. Everything else runs
  * here, on the main thread: VCAs (a gain lane), send muting, blending snapshots (`SnapshotPlayer`: start kinds, fades,
  * hold, priority, Override and Add, effect-parameter overrides) and the automation the core doesn't run (send levels,
@@ -17,8 +17,8 @@
  * change. Send levels (with their automation) and send mutes (a muted bus silences its sends, keeping their levels)
  * reach them as each bus's live sends (`_busSends`); the core writes a `BUS_SENDS` when they change.
  *
- * **Gain lanes (ADR 0172 §1.3, 0330; design `architecture.md` §4.5).** A bus's gain is the product of eight lanes:
- * `authored` (the fader x authored mute), `vca` (the VCAs on the bus, ADR 0330), `runtime` (the script `volume`, its
+ * **Gain lanes (ADR 0172 §1.3, 0344; design `architecture.md` §4.5).** A bus's gain is the product of eight lanes:
+ * `authored` (the fader x authored mute), `vca` (the VCAs on the bus, ADR 0344), `runtime` (the script `volume`, its
  * fade, x script mute), `snapshot` (the blend's offset), `monitor` (monitor mute x the solo gate), `dip` (the structural
  * dip), all written here on main, and `duck` and `automation`, owned by the core. The wire has no VCA lane: the core's
  * `authored` lane carries fader x VCA (`BusLanes.authored`). Main keeps one `Ramp` record per lane it writes and
@@ -75,7 +75,7 @@ export const DRAG_RAMP_MS = 10;
 export const SNAPSHOT_EDIT_MS = 20;
 
 /**
- * ADR 0330: how often the blend is re-planned while a snapshot fades: the gain lane is one ramp linear in dB to the
+ * ADR 0344: how often the blend is re-planned while a snapshot fades: the gain lane is one ramp linear in dB to the
  * fade's next break (ABI 4.8's `Decibel` law), and the carrier low-pass and the effect overrides follow the blend in
  * steps of at most this long.
  */
@@ -84,13 +84,13 @@ export const SNAPSHOT_SEGMENT_MS = 50;
 const BREAK_EPSILON = 1e-9;
 
 /**
- * Lane ids: the wire's `LANE_*` constants (api-and-models §4.1), and `vca` (ADR 0330), a main-side lane the wire
+ * Lane ids: the wire's `LANE_*` constants (api-and-models §4.1), and `vca` (ADR 0344), a main-side lane the wire
  * carries inside `authored`.
  */
 export const Lane = { authored: 0, runtime: 1, snapshot: 2, monitor: 3, dip: 4, duck: 5, automation: 6, vca: 7 } as const;
 export type LaneId = (typeof Lane)[keyof typeof Lane];
 
-/** How a ramp moves: linear in gain, or linear in dB (ADR 0330 snapshot fades; a ramp to or from 0 is linear). */
+/** How a ramp moves: linear in gain, or linear in dB (ADR 0344 snapshot fades; a ramp to or from 0 is linear). */
 export type RampLaw = "linear" | "db";
 
 /**
@@ -135,7 +135,7 @@ export interface BusLanes {
   readonly runtimeMute: boolean;
   readonly runtimeSolo: boolean;
   readonly snapshot: Readonly<Ramp>;
-  /** The snapshot's low-pass cutoff, Hz (`OFF_HZ`: none), ramped with it: an override of a low-pass carrier's cutoff (ADR 0330 migration). */
+  /** The snapshot's low-pass cutoff, Hz (`OFF_HZ`: none), ramped with it: an override of a low-pass carrier's cutoff (ADR 0344 migration). */
   readonly snapshotLowpass: Readonly<Ramp>;
   readonly monitorMute: boolean;
   readonly monitorSolo: boolean;
@@ -145,7 +145,7 @@ export interface BusLanes {
 }
 
 /**
- * @internal ADR 0330 (ABI 4.7): one post-fader send of a bus as it runs now (`Mixer._busSends`): into bus `to` (a return),
+ * @internal ADR 0344 (ABI 4.7): one post-fader send of a bus as it runs now (`Mixer._busSends`): into bus `to` (a return),
  * at linear `level` (the authored send and its automation, 0..`MAX_SEND_LEVEL`), `muted` while the sending bus is muted
  * (the project, a script or a monitor control): the send goes silent and keeps its level.
  */
@@ -161,9 +161,9 @@ interface BusState {
   /** The backends' view of the bus (`audioSettings`); a return's is a bus of the view too (its output as the parent). */
   settings: BusSettings;
   slot: number;
-  /** ADR 0330: the fader alone (`authoredVolume`). */
+  /** ADR 0344: the fader alone (`authoredVolume`). */
   fader: Ramp;
-  /** ADR 0330: the VCAs on the bus (gain). */
+  /** ADR 0344: the VCAs on the bus (gain). */
   vca: Ramp;
   /** The wire's `authored` lane: fader x VCA. */
   authored: Ramp;
@@ -187,7 +187,7 @@ interface BusState {
   viewGain: number;
   /** The live effects (`ResolvedBus.effects`): `settings.effects` with the main thread's values in. */
   effects: BusEffect[];
-  /** ADR 0330: the live sends (`_busSends`); an unchanged list keeps its object. */
+  /** ADR 0344: the live sends (`_busSends`); an unchanged list keeps its object. */
   sends: readonly LiveBusSend[];
   /** §1.1: allocated once per bus, a view over the registered loudness source. */
   loudness: BusLoudness;
@@ -278,7 +278,7 @@ export class Bus {
   get loudness(): BusLoudness { return this.s?.loudness ?? EMPTY_BUS_LOUDNESS; }
 }
 
-/** A curve's value at `x`, interpolated in log scale (frequency parameters, ADR 0330). */
+/** A curve's value at `x`, interpolated in log scale (frequency parameters, ADR 0344). */
 function evalLogCurve(curve: Curve, x: number): number {
   if (curve.some((k) => !(k[1] > 0))) return evalCurve(curve, x);
   return Math.exp(evalCurve(curve.map((k) => [k[0], Math.log(k[1]), ...k.slice(2)] as unknown as CurveKey) as Curve, x));
@@ -287,10 +287,10 @@ function evalLogCurve(curve: Curve, x: number): number {
 export class Mixer {
   private buses = new Map<string, BusState>();
   private order: string[] = [];
-  /** ADR 0330: the returns' names (buses of the view, fed by sends only; no sound plays on one). */
+  /** ADR 0344: the returns' names (buses of the view, fed by sends only; no sound plays on one). */
   private returnSet = new Set<string>();
   private settings: AudioSettings = defaultAudioSettings();
-  /** ADR 0330: the mix model the mixer runs. */
+  /** ADR 0344: the mix model the mixer runs. */
   private project: AudioProject = fromLegacySection(this.settings);
   private readonly player = new SnapshotPlayer();
   /** The heard time the snapshot lanes' current segment ends (Infinity: settled). */
@@ -352,7 +352,7 @@ export class Mixer {
     } else {
       project = fromLegacySection(settings);
       // The old keys as given. With a reverb send, the bus tree is the migrated model's view, as for `audio.json`'s (ADR
-      // 0330: the send became a send into a "Reverb" return, a bus of the view), so a live op's bus edit is an edit of
+      // 0344: the send became a send into a "Reverb" return, a bus of the view), so a live op's bus edit is an edit of
       // `coreSectionOf(project)` (`mergeLegacyIntoProject`); without one the two trees are the same.
       this.settings = project.returns.length > 0 ? { ...settings, buses: coreSectionOf(project).buses } : settings;
     }
@@ -394,10 +394,10 @@ export class Mixer {
 
   /** The backends' view of the mix (`coreSectionOf`), with the engine settings (the backend selector, K3, reads `backend` from it). */
   get audioSettings(): AudioSettings { return this.settings; }
-  /** ADR 0330: the mix model the mixer runs (`audio.json`'s, with the live edits made since the last configure). */
+  /** ADR 0344: the mix model the mixer runs (`audio.json`'s, with the live edits made since the last configure). */
   get audioProject(): AudioProject { return this.project; }
   get busNames(): readonly string[] { return this.order; }
-  /** ADR 0330: the returns' names (buses of the view after the project's buses, so `busNames` lists them too; `Audio.bus(name)` reaches them). */
+  /** ADR 0344: the returns' names (buses of the view after the project's buses, so `busNames` lists them too; `Audio.bus(name)` reaches them). */
   get returnNames(): readonly string[] { return this.order.filter((n) => this.returnSet.has(n)); }
   /** @internal Any bus or return muted by the project (authored) or a script (runtime); allocation-free (the loudness target is suspended while one is). */
   anyMuted(): boolean {
@@ -474,7 +474,7 @@ export class Mixer {
    * moved (Ma1, `core/liveMix.ts`). A sent op the target can't run (`unsupportedAnswer`: a level ducking rule on the
    * fallback) is kept in the model and answers its reason.
    *
-   * ADR 0330: a project op (`projectOps.ts`: returns, VCAs, mute, sends, snapshot edits) changes the mix model here; what
+   * ADR 0344: a project op (`projectOps.ts`: returns, VCAs, mute, sends, snapshot edits) changes the mix model here; what
    * it changes of the backends' view goes to the target as the old ops (`diffOps`), each through the steps above; what
    * runs on main (VCA and return lanes, snapshots, live effects) follows at once. It answers the first refusal or
    * next-Play answer of those ops, else `{ ok: true }` with the strongest class sent (`direct` when none was).
@@ -489,7 +489,7 @@ export class Mixer {
   private applyOld(target: MixOpTarget, op: MixOp): ApplyResult {
     const before = this.settings;
     if (opRefusal(before, op) !== null) return this.notSent(target, { ok: false, class: "none" });
-    // ADR 0330/0331: the old shared-reverb send effect is retired; a bus sends into a return (`setSend`).
+    // ADR 0344/0345: the old shared-reverb send effect is retired; a bus sends into a return (`setSend`).
     if (op.op === "addEffect" && op.effect?.type === "reverb") return this.notSent(target, { ok: false, class: "none" });
     const cls = opClass(op, before);
     if (cls === "none") return { ok: true, class: "none" };
@@ -548,7 +548,7 @@ export class Mixer {
    * path's structural dip, §3.3) their state is held by slot until the slot recycles (`_tombstoneLanes`). Authored
    * volume ramps over `DRAG_RAMP_MS`, asap; authored mute toggles; an edit of an active snapshot retargets its lane
    * over `SNAPSHOT_EDIT_MS`; a rename keeps the bus's state and aliases the old name. Every runtime value (script volume, fades, mutes, solo, monitor controls, the snapshots in force) stays.
-   * The mix model follows (ADR 0330): the op is written into it (`mergeLegacyIntoProject` over the backends' view).
+   * The mix model follows (ADR 0344): the op is written into it (`mergeLegacyIntoProject` over the backends' view).
    * Returns false when the op is refused or changes nothing.
    */
   _applyLive(op: MixOp, slot = -1, keepTombstones = false): boolean {
@@ -613,13 +613,13 @@ export class Mixer {
     return from !== undefined && to !== undefined ? new Map([[from, to]]) : undefined;
   }
 
-  /** ADR 0330: the mix model after an old op changed the backends' view to `next`. A fader or a mute is written directly; the rest merges the view back. */
+  /** ADR 0344: the mix model after an old op changed the backends' view to `next`. A fader or a mute is written directly; the rest merges the view back. */
   private lift(op: MixOp, next: AudioSettings): AudioProject {
     const p = this.project;
     if (op.op === "setBus" && (op.key === "volume" || op.key === "mute")) {
       const bus = next.buses.find((b) => b.name === op.bus);
       const value = bus && (op.key === "volume" ? { volumeDb: levelDbOf(bus.volume) } : { mute: bus.mute });
-      // A return is a bus of the view (ADR 0330): its fader and mute are the return's.
+      // A return is a bus of the view (ADR 0344): its fader and mute are the return's.
       if (value && this.returnSet.has(op.bus)) return { ...p, returns: p.returns.map((r) => (r.name === op.bus ? { ...r, ...value } : r)) };
       if (value) return { ...p, buses: p.buses.map((b) => (b.name === op.bus ? { ...b, ...value } : b)) };
     }
@@ -633,7 +633,7 @@ export class Mixer {
   }
 
   /**
-   * ADR 0330: the mix model became `next` (a live op): the VCA lanes, authored mutes, the view's sends, snapshots and
+   * ADR 0344: the mix model became `next` (a live op): the VCA lanes, authored mutes, the view's sends, snapshots and
    * the main thread's automation follow, keeping every runtime value (a return's level, output and inserts are its
    * bus's in the view, which the old ops moved). A changed snapshot definition retargets its lanes over `SNAPSHOT_EDIT_MS`.
    */
@@ -819,13 +819,13 @@ export class Mixer {
   }
   /** @internal A2.3: the core backend resets a bus's live-voice count to the core mirror's (after a bus remap, which reconfigures the mixer and zeroes counts). */
   _setVoiceCount(name: string, n: number): void { const s = this.buses.get(name); if (s) s.voices = Math.max(0, n | 0); }
-  /** @internal ADR 0330: bus `name`'s live effects (`ResolvedBus.effects`), for the core's `BUS_SLOT`; undefined for an unknown bus. */
+  /** @internal ADR 0344: bus `name`'s live effects (`ResolvedBus.effects`), for the core's `BUS_SLOT`; undefined for an unknown bus. */
   _busEffects(name: string): readonly BusEffect[] | undefined {
     this.refreshEffects();
     return this.buses.get(name)?.effects;
   }
   /**
-   * @internal ADR 0330 (ABI 4.7): bus `name`'s live sends, for the core's `BUS_SENDS`: each send into a return the view
+   * @internal ADR 0344 (ABI 4.7): bus `name`'s live sends, for the core's `BUS_SENDS`: each send into a return the view
    * holds, at its level plus its automation, muted while the bus is muted. An unchanged list keeps its object; empty for a
    * bus without sends, undefined for an unknown bus.
    */
@@ -860,7 +860,7 @@ export class Mixer {
   /** @internal Voices that have ended (or left a bus) since the page began, whichever backend counted them: the event runtime retires instances when this moves, instead of scanning every frame (ADR 0158 §6). */
   voicesEnded = 0;
 
-  // --- snapshots (ADR 0330) ------------------------------------------------------------------------------------------
+  // --- snapshots (ADR 0344) ------------------------------------------------------------------------------------------
 
   private knownSnapshot(name: string): boolean {
     if (this.project.snapshots.some((s) => s.name === name)) return true;
@@ -911,7 +911,7 @@ export class Mixer {
   snapshotActive(name: string): boolean { return this.player.isActive(name, this.time); }
 
   /**
-   * ADR 0330: a global parameter changed (`Audio.setParameter`; labels by name or index): the conditions snapshots that
+   * ADR 0344: a global parameter changed (`Audio.setParameter`; labels by name or index): the conditions snapshots that
    * read it start or stop, and the automation the main thread runs (send levels, effect parameters, a return's level)
    * follows.
    */
@@ -936,7 +936,7 @@ export class Mixer {
    * The snapshot lanes from the blend: each bus's and return's lane heads for the blend's value at the end of the
    * current segment (the next break of a weight ramp, at most `SNAPSHOT_SEGMENT_MS` away), linear in gain over it, so
    * the fade is linear in dB to within a segment. `minSeconds` stretches a step (a definition edit's `SNAPSHOT_EDIT_MS`).
-   * Carrier low-pass overrides ride the lane's low-pass (the migration's carriers, ADR 0330); other effect overrides go
+   * Carrier low-pass overrides ride the lane's low-pass (the migration's carriers, ADR 0344); other effect overrides go
    * to the live effects.
    */
   private planSnapshots(now: number, minSeconds: number, force: boolean, fromBlend = false): void {
@@ -1006,7 +1006,7 @@ export class Mixer {
     return e ? effectParam(e, p) : undefined;
   }
 
-  // --- main's estimate of the effect automation (ADR 0330) ----------------------------------------------------------
+  // --- main's estimate of the effect automation (ADR 0344) ----------------------------------------------------------
 
   /**
    * Main's estimate of each `fx:<id>:<param>` automation at the current parameter values (frequency parameters in log
@@ -1033,13 +1033,13 @@ export class Mixer {
     }
   }
 
-  // --- live effects and sends (ADR 0330) -----------------------------------------------------------------------------
+  // --- live effects and sends (ADR 0344) -----------------------------------------------------------------------------
 
   /**
    * Each bus's (and return's) live effects: `audioSettings`' effects with, for an effect of the bus, the blend's
    * overrides (a catalogue effect also names them in `held`, so the core's automation of those parameters waits while the
    * override is in force, ABI 4.8); and its live sends (`_busSends`): each send of the view at its level, muted while the
-   * bus is muted by the project, a script or a monitor control (a muted bus silences its sends, ADR 0330; the core ramps a
+   * bus is muted by the project, a script or a monitor control (a muted bus silences its sends, ADR 0344; the core ramps a
    * muted send to 0 and keeps its level; its automation runs in the core). An unchanged effect keeps its object, and an
    * unchanged send list its list, so a backend can compare by identity.
    */
@@ -1191,7 +1191,7 @@ export class Mixer {
     return out;
   }
   private soloed(n: string): boolean { const s = this.buses.get(n); return !!s && (s.solo || s.monitorSolo); }
-  /** Whether solo state (script or monitor) lets `name` through (it's soloed, under a soloed bus, on the way to one, or a return: ADR 0330 keeps returns audible). */
+  /** Whether solo state (script or monitor) lets `name` through (it's soloed, under a soloed bus, on the way to one, or a return: ADR 0344 keeps returns audible). */
   private audibleUnderSolo(name: string): boolean {
     if (this.returnSet.has(name)) return true;
     if (this.chain(name).some((n) => this.soloed(n))) return true;

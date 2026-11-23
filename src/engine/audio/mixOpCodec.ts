@@ -54,7 +54,7 @@ class Writer {
   effect(e: BusEffect): void {
     this.code(EFFECT_TYPES, e.type);
     if (e.type === "fx") {
-      // ADR 0331: the catalogue type, its parameters in the catalogue's order, then the key bus (a nullable name).
+      // ADR 0345: the catalogue type, its parameters in the catalogue's order, then the key bus (a nullable name).
       this.code(CORE_EFFECT_TYPES, e.fx);
       for (const q of effectSpec(e.fx).params) this.f(e.params[q.name] ?? q.default);
       this.value(e.key ?? null);
@@ -113,7 +113,7 @@ class Reader {
  * index, hasName[, name] · setSnapshot index, bus, key, value · setDucking index, flags[, target, trigger, mode, detector,
  * hasThreshold[, threshold], amount, attack, release] · setAutomation index, flags[, bus, parameter, target, keys, (x, y,
  * interp[, f64 inDx, inDy, outDx, outDy, u32 free when interp is 6, bezier])…] · setTarget index, flags[, name, integrated, tolerance, truePeak] · setOption key, value.
- * The mix model's own ops (ADR 0330: setMute, setReturn, setSend, setVca, setSnapshotDef, setSnapshotLevel,
+ * The mix model's own ops (ADR 0344: setMute, setReturn, setSend, setVca, setSnapshotDef, setSnapshotLevel,
  * setSnapshotEffect; `projectOps.ts`) are one word: the op as JSON, interned like a name (returns and VCAs have no bus
  * slot, so no `busRef` applies; JSON keeps their nested definitions exact).
  */

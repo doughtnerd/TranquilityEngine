@@ -1,5 +1,5 @@
 /**
- * The musical clock of the playlist runtime (ADR 0329 "Runtime structure"): where Switch rules timed to `beat`, `bar` or
+ * The musical clock of the playlist runtime (ADR 0343 "Runtime structure"): where Switch rules timed to `beat`, `bar` or
  * `exit`, stingers and `handle.music` ask for musical boundaries and positions.
  *
  * The clock is the **playing entry's**: a Sequence with a tempo answers on its playhead (`sequence.ts`), a Clip whose

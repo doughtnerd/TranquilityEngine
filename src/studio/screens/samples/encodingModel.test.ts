@@ -1,4 +1,4 @@
-// ADR 0337 §6, A6: the Samples Inspector's Encoding section through its model — where each value comes from (the
+// ADR 0351 §6, A6: the Samples Inspector's Encoding section through its model — where each value comes from (the
 // inheritance display), overrides per key for one platform or every platform and their resets, the profile choice, the
 // profile and folder-rule matches, and the readouts (estimated until converted, exact after).
 import { describe, expect, it } from "vitest";

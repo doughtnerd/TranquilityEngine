@@ -1,4 +1,4 @@
-// Spike B0 (ADR 0338): synthetic modules for the compile-time measurements. Plain ES module (no Node APIs).
+// Spike B0 (ADR 0352): synthetic modules for the compile-time measurements. Plain ES module (no Node APIs).
 //
 // `largeModule(targetBytes, seed)` emits a module with no imports, one memory, and as many functions as it takes to
 // reach about `targetBytes`: each function runs a loop over a block of f32 multiply-adds and loads/stores (the shape

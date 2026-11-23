@@ -1,4 +1,4 @@
-// ADR 0336: the fade shape picker's model: the shapes in menu order with their names, the glyph a shape draws (an SVG
+// ADR 0350: the fade shape picker's model: the shapes in menu order with their names, the glyph a shape draws (an SVG
 // path of its fade in or out, from the engine's one shape function), and the weight-curve presets that match the shapes
 // (2D blend entries and 1D overrides, so a user rarely needs the full curve editor). Pure.
 import type { Curve, CurveKey } from "../../engine/core/curve";

@@ -1,4 +1,4 @@
-// The Sequence view (ADR 0329; the prototype's Sequencer timeline, proto §1.5, §2.6, §3.3–3.5, §4): the toolbar
+// The Sequence view (ADR 0343; the prototype's Sequencer timeline, proto §1.5, §2.6, §3.3–3.5, §4): the toolbar
 // (+ track, + Loop, + Hold, razor, Write, back to the parent playlist, waveforms, the time display, snap, tempo, zoom),
 // the Loops and Markers rows and the ruler above the tracks, the track headers and clip lanes with their automation
 // lanes, the scrollbar that zooms, and every gesture of the prototype: drops from the Library and the Playlists tree,

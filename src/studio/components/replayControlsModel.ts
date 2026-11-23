@@ -1,4 +1,4 @@
-// The replay slot's words (ADR 0334): take time as a clock, "m:ss.s" (one decimal: the slot is small, the Take screen's
+// The replay slot's words (ADR 0348): take time as a clock, "m:ss.s" (one decimal: the slot is small, the Take screen's
 // ruler has the detail). Pure.
 
 /** Seconds as "m:ss.s" (negative reads as 0). */

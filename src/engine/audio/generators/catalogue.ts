@@ -1,7 +1,7 @@
 /**
- * The generator catalogue (ADR 0346 §2): the one place that names every generator kind and its parameters, declared
+ * The generator catalogue (ADR 0360 §2): the one place that names every generator kind and its parameters, declared
  * with the effect catalogue's `EffectParamSpec` (ranges, steps, units, defaults, `scale: "log"`, `choices`, `smooth`),
- * so curves interpolate log parameters in log space (ADR 0332), choices step, the Studio draws generated rows and the
+ * so curves interpolate log parameters in log space (ADR 0346), choices step, the Studio draws generated rows and the
  * parse clamps (ADR 0306).
  *
  * **The catalogue's order is the wire order**: the core reads parameter `i` of a GEN record as `params[i]` here
@@ -152,7 +152,7 @@ export const generatorParamSpec = (kind: GeneratorKind, name: string): Generator
 /** The wire index of parameter `name` of `kind` (the GEN mask bit and the AUTOMATE target-5 index), or -1. */
 export const generatorParamIndex = (kind: GeneratorKind, name: string): number => GENERATOR_CATALOGUE[kind].params.findIndex((q) => q.name === name);
 
-/** The kind's number after `GEN_CLIP_ID_FIRST` (ADR 0346 §3): 1 oscillator, 2 synth, 3 blip, 4 silence. */
+/** The kind's number after `GEN_CLIP_ID_FIRST` (ADR 0360 §3): 1 oscillator, 2 synth, 3 blip, 4 silence. */
 export const generatorKindIndex = (kind: GeneratorKind): number => GENERATOR_KINDS.indexOf(kind) + 1;
 
 /** Every parameter of `kind` at its default, by name. */

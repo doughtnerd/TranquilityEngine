@@ -1,4 +1,4 @@
-//! Sample loop programs in the core voice (ADR 0328; LOOPS, ABI 4.3).
+//! Sample loop programs in the core voice (ADR 0342; LOOPS, ABI 4.3).
 //!
 //! A clip voice may carry a **program** of up to [`MAX_LOOPS`] loops (`VOICE_LOOPS_MAX` on the wire,
 //! declared once there), sorted by start, held in its automation entry ([`crate::automation::VoiceAuto`],
@@ -30,7 +30,7 @@
 //! neighbours at a forward loop's seam as `resample::lagrange_region`), a virtual one keeps time
 //! through [`advance`]. Activations are worked out once a quantum (`automation::begin_quantum` sets
 //! [`Program::want`]); a change is applied at the quantum's start ([`settle`]), a key-off at its own
-//! sample (`voices::set_loop`). Stream voices loop in the decoder worker instead (ADR 0328: the
+//! sample (`voices::set_loop`). Stream voices loop in the decoder worker instead (ADR 0342: the
 //! program's regions forward, in order, with their counts and seam crossfades in the same shapes,
 //! `audio-decode`'s `seam.rs`), so their ring holds one continuous signal; ambisonic voices play a
 //! program straight through (neither reads frame by frame here).

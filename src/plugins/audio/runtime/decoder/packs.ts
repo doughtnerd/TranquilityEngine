@@ -1,4 +1,4 @@
-// ADR 0337 §7, A4: the `.mycopak` packages the decoder worker holds. Main loads a package once (`packLoad`, its bytes
+// ADR 0351 §7, A4: the `.mycopak` packages the decoder worker holds. Main loads a package once (`packLoad`, its bytes
 // transferred); the worker reads it with the A1 reader (`engine/audio/packaging/format.ts`) and keeps it, so each entry is
 // a view into it, never a copy, until it is used:
 // - a `decode` entry, or any entry `decodeClip` names with `pack`, decodes to the core's int16 clip (`clips.ts`);
@@ -76,7 +76,7 @@ export function adpcmInfo(entry: PackEntry, compressed: boolean): ClipInfo {
 }
 
 /**
- * ADR 0337 A4: an ADPCM entry cut into pieces of whole blocks for `clipChunk`s: each of at most `maxFrames` frames (a whole
+ * ADR 0351 A4: an ADPCM entry cut into pieces of whole blocks for `clipChunk`s: each of at most `maxFrames` frames (a whole
  * number of blocks), the last ending at the entry's frames. Throws when the entry holds fewer blocks than its frames need or
  * has a channel count the core's format 6 refuses (only 1 or 2).
  */

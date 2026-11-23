@@ -1,4 +1,4 @@
-// The Localisation panel's Exchange tab (ADR 0342 §8): export the chosen tables and languages (or only what needs work)
+// The Localisation panel's Exchange tab (ADR 0356 §8): export the chosen tables and languages (or only what needs work)
 // as CSV, XLIFF 1.2 (one file per language) or gettext PO (one per language, plus the `.pot` template), and import a
 // translator's file with a preview — what changes, what is skipped and why — before writing, one undo step per
 // translation file. Which format a file is comes from its extension.

@@ -5,5 +5,5 @@ import { registerBuiltinPanels } from "./ui/panels.builtin";
 import { registerBuiltinSettingsSections } from "./ui/settings/builtinSections";
 
 registerBuiltinPanels();
-// Project Settings > Languages and Subtitles (ADR 0340 L7, 0343 S5): built-in categories that own core keys.
+// Project Settings > Languages and Subtitles (ADR 0354 L7, 0357 S5): built-in categories that own core keys.
 registerBuiltinSettingsSections();

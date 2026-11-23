@@ -1,5 +1,5 @@
 /**
- * Where the migration puts a looping clip's loop (ADR 0328, 0329): in the audio file's sidecar (`<file>.meta.json`,
+ * Where the migration puts a looping clip's loop (ADR 0342, 0343): in the audio file's sidecar (`<file>.meta.json`,
  * `sample.loops`), the way the samples were fixed by hand. The old events looped in the voice; a playlist clip plays its
  * sample's loops, so each `SampleLoopRequest` from `audioEvent1.ts` becomes one loop there.
  *
@@ -13,7 +13,7 @@
  *   `l2`…, `file: null`) and the sample's kind becomes `loop`.
  * - Anything else (the sidecar holds a different loop, two events want different loops on one file, a sidecar that
  *   isn't valid JSON) makes a **derived sample** beside the file, `<name>.loop<n>.sample.json` (`myco.sample@1`,
- *   lineage `duplicate` in `follow` mode, ADR 0328), whose block is the sample's with that one loop; the clip names it.
+ *   lineage `duplicate` in `follow` mode, ADR 0342), whose block is the sample's with that one loop; the clip names it.
  *   An equal derived sample made earlier in the run is reused.
  *
  * A changed sidecar keeps every other field as it was; only its `sample` block is written (`sampleEditsToJson`).

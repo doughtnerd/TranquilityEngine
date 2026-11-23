@@ -1,4 +1,4 @@
-// ADR 0340 §1, §8–§9, 0343 §1: the Dialogue screen through its models — rows, search and column filters, row edits with
+// ADR 0354 §1, §8–§9, 0357 §1: the Dialogue screen through its models — rows, search and column filters, row edits with
 // project-unique keys, the Text column writing the string table, the report, CSV round trips (quotes, commas, line
 // breaks, BOM), the script CSV diff and apply, batch import pattern matching and preview, loudness and the voice ducking
 // rule, the Languages edits and the lock rule, and the preview language.
@@ -157,7 +157,7 @@ describe("CSV", () => {
   });
 });
 
-describe("moving retired subtitles (ADR 0343 §1)", () => {
+describe("moving retired subtitles (ADR 0357 §1)", () => {
   it("moves line-table text into the string table and translations, keeping strings already there", () => {
     const table = fixtureTable();
     table.lines[1].text = { en: "Old English.", fr: "Vieux français." }; // intro_02: en in the table already
@@ -269,7 +269,7 @@ describe("loudness and ducking", () => {
 });
 
 describe("languages", () => {
-  it("are editable only with a writable project and no editor holding it (ADR 0340 §1)", () => {
+  it("are editable only with a writable project and no editor holding it (ADR 0354 §1)", () => {
     expect(languagesAccess({ canSave: true, editorLock: "none" })).toEqual({ editable: true });
     expect(languagesAccess({ canSave: true, editorLock: "held" })).toMatchObject({ editable: false, editInEditor: true });
     expect(languagesAccess({ canSave: true, editorLock: "unknown" })).toMatchObject({ editable: false, editInEditor: false });

@@ -1,10 +1,10 @@
-// Live mixing in the Studio (ADR 0330 "Live mixing", ADR 0171/0172): while the Studio's runtime runs, every edit of
+// Live mixing in the Studio (ADR 0344 "Live mixing", ADR 0171/0172): while the Studio's runtime runs, every edit of
 // `audio.json` (and every undo and redo) reaches the running mixer as `MixOp`s through `Mixer.apply`, and is kept (the
-// file is already saved). The ops are `diffProjectMix` of the mix before and after (ADR 0330): the old ops for the bus
+// file is already saved). The ops are `diffProjectMix` of the mix before and after (ADR 0344): the old ops for the bus
 // tree, levels, effects, ducking, automation and loudness (`diffOps` over the backends' view), and the mix model's own
 // ops for returns, VCAs, sends and snapshots, so the running mixer follows the whole model; engine settings wait for the
 // next start.
-// Each change names who made it, so a running capture labels its MIXOP records (ADR 0334, D22): an edit is the editor's,
+// Each change names who made it, so a running capture labels its MIXOP records (ADR 0348, D22): an edit is the editor's,
 // an undo or redo of the document's history (the engine's undo tree, the authority on the mix's history) is `undo` or
 // `redo` (`withMixOpOrigin` around `Mixer.apply`).
 // Compare A/B (0172) swaps the mix the session started from in for the edited one without touching the file (the

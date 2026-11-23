@@ -1,4 +1,4 @@
-// Time ↔ x for the Studio's lanes (ADR 0335 `ValueLane`, `SpanLane`, `GainLanes`): one shape every lane takes, a
+// Time ↔ x for the Studio's lanes (ADR 0349 `ValueLane`, `SpanLane`, `GainLanes`): one shape every lane takes, a
 // function from time (seconds) to x (pixels in the lane), so lanes line up under whatever ruler draws the time (the
 // Samples screen's `TimeRuler`, the Take and Profiler timelines). This module builds a linear axis for owners that
 // don't have one yet and the small helpers lanes share; it draws nothing.

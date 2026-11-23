@@ -1,5 +1,5 @@
 /**
- * Note names and MIDI note numbers, for a sample's root note (ADR 0328). Scientific pitch notation: MIDI 60 is `C4`
+ * Note names and MIDI note numbers, for a sample's root note (ADR 0342). Scientific pitch notation: MIDI 60 is `C4`
  * (middle C), 69 is `A4`. Names are a letter, an optional `#` or `b` (`♯` and `♭` are read too), and an octave from -1
  * to 9 (MIDI 0 is `C-1`, 127 is `G9`).
  *

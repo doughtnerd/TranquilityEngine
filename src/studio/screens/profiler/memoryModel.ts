@@ -1,4 +1,4 @@
-// The Profiler's memory track (ADR 0337 §6, §8: "the Profiler's measured peak memory from a take or capture is the real
+// The Profiler's memory track (ADR 0351 §6, §8: "the Profiler's measured peak memory from a take or capture is the real
 // number"): the clip arena over time from the STATUS records (`arenaUsedKB`, every capture of the core has it) and the
 // memory the loaded packages hold from the `PKG` events (each `loaded` adds what the package holds, its `unload` takes
 // it away; captures from before the events carried memory show the marks without the line), with a mark at each load,

@@ -1,5 +1,5 @@
 //! A topology-preserving state-variable filter (Zavalishin, *The Art of VA Filter Design*; Simper's form): low-, high-
-//! and band-pass from one structure, stable under per-sample coefficient changes (ADR 0346 §3), and the one-pole TPT
+//! and band-pass from one structure, stable under per-sample coefficient changes (ADR 0360 §3), and the one-pole TPT
 //! high-pass the blip's sfxr filter maps onto.
 
 /// Highest cut-off a filter takes, as a fraction of the rate (`tan` grows without bound towards 0.5).

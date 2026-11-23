@@ -1,8 +1,8 @@
 //! audio-encode's build script:
 //!
-//! 1. Compiles the vendored C libraries (ADR 0345 §6: `native/audio/third_party/{libogg,libvorbis,opus}`, see each
+//! 1. Compiles the vendored C libraries (ADR 0359 §6: `native/audio/third_party/{libogg,libvorbis,opus}`, see each
 //!    folder's `PROVENANCE.md`) and `glue/glue.c`. For `wasm32-wasip1` the C compiler is wasi-sdk's clang
-//!    (`CC_wasm32_wasip1`, which `build.mjs` sets; else `$WASI_SDK_PATH/bin/clang`), with `-msimd128` (0345 §1).
+//!    (`CC_wasm32_wasip1`, which `build.mjs` sets; else `$WASI_SDK_PATH/bin/clang`), with `-msimd128` (0359 §1).
 //!    Natively (`cargo test`) it is the system's C compiler.
 //! 2. Embeds the encoder's **own** source hash as `$OUT_DIR/encode_hash.bin` (16 bytes). It is not the audio core's
 //!    hash: the encoder is rebuilt only when its own sources change (it needs wasi-sdk, which the core doesn't). The
@@ -167,7 +167,7 @@ fn main() {
     }
     b.compile("mycovorbis");
 
-    // libopus, the float build without DNN (the decoder's fixed-point build is ADR 0337 A7's).
+    // libopus, the float build without DNN (the decoder's fixed-point build is ADR 0351 A7's).
     let mut b = base();
     for d in ["include", "celt", "silk", "silk/float", "src"] {
         b.include(op.join(d));

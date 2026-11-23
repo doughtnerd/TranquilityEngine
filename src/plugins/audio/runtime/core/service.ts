@@ -78,7 +78,7 @@ export const AUDIO_SERVICE: WorldServiceDef<AudioCoreModule, AudioWorldService> 
   neededBy: { components: ["engine.AudioSource", "engine.AudioListener"] },
   // FU3: a World with a view runs the service whatever the backend, so Play stop reaches the capture on the Babylon fallback
   // too (`load` answers "no host" there; the service then holds nothing but the Play-stop signal).
-  // ADR 0327: an audio-only World (no view, still mixed) runs it too.
+  // ADR 0341: an audio-only World (no view, still mixed) runs it too.
   runsIn: (world) => !!world.render || world._audioOnly === true,
   variant: () => (mixer.audioSettings.backend === "core" ? "core" : "babylon"),
   /**

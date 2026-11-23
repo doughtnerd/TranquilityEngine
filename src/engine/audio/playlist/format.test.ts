@@ -186,7 +186,7 @@ describe("parsePlaylist: the rules the runtime needs", () => {
 });
 
 describe("parsePlaylist: limits", () => {
-  it("declares the ADR 0329 limits", () => {
+  it("declares the ADR 0343 limits", () => {
     expect(PLAYLIST_LIMITS).toMatchObject({ entries: 256, nesting: 16, tracks: 32, clips: 512, curveKeys: 64 });
   });
 
@@ -297,7 +297,7 @@ describe("sequence markers", () => {
   });
 });
 
-describe("ADR 0343 §4: captions; ADR 0340 §5: line entries", () => {
+describe("ADR 0357 §4: captions; ADR 0354 §5: line entries", () => {
   it("reads, writes and round-trips a caption", () => {
     const { playlist, problems } = parsePlaylist({ format: "myco.playlist@1", type: "queue", caption: { key: "cc.door_slams", minGap: 2 }, entries: [] });
     expect(problems).toEqual([]);

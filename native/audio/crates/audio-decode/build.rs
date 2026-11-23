@@ -5,7 +5,7 @@
 //! symphonia's panic locations. Memory stays exported (the linker's default): the decoder runs
 //! alone in a worker (see `src/lib.rs`).
 //!
-//! ADR 0337 A7 (0345 §4): it also compiles the vendored libopus (`native/audio/third_party/opus`, see its
+//! ADR 0351 A7 (0359 §4): it also compiles the vendored libopus (`native/audio/third_party/opus`, see its
 //! `PROVENANCE.md`) **fixed point** for `src/opus.rs`: CELT, SILK and `src/` (the link keeps what the decoder
 //! reaches), every external symbol renamed by the force-included `opus/rename.h`. On wasm32 the C compiler is clang
 //! for `wasm32-unknown-unknown` (`CC_wasm32_unknown_unknown`, else `clang`), freestanding against `opus/cstub/` (no

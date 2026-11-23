@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the fade shape picker (ADR 0336): a fade in and a fade out, each drawing its glyph.
+// Stories (ADR 0219, 0349) for the fade shape picker (ADR 0350): a fade in and a fade out, each drawing its glyph.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, userEvent, within } from "storybook/test";

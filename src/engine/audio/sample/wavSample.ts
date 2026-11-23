@@ -1,5 +1,5 @@
 /**
- * A WAV file's metadata (`wavChunks.ts`) as sample edits and back (ADR 0328): what the Studio's import copies into the
+ * A WAV file's metadata (`wavChunks.ts`) as sample edits and back (ADR 0342): what the Studio's import copies into the
  * sidecar, what "Write to file…" writes into the WAV, and the `file` snapshots refreshed after a write.
  *
  * - Cue points import as **note** markers, regions (`ltxt`) as note ranges, `smpl` loops as loops, `acid` as the tempo,

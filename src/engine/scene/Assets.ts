@@ -20,13 +20,15 @@ export interface AssetSource {
   /** The asset value for `path` by its kind (ADR 0254): parsed JSON for `.json` files, the text of text files, a URL otherwise. */
   get(path: string): unknown;
   /**
-   * Every path the source holds, when it can list them (ADR 0342: string tables are found by name). A source without
+   * Every path the source holds, when it can list them (ADR 0356: string tables are found by name). A source without
    * it still serves lookups; what it holds just isn't discovered.
    */
   paths?(): Iterable<string>;
 }
 
 const sources: AssetSource[] = [];
+/** Files the engine provides (the input glyphs, ADR 0337): looked up after the game's sources, and kept by `clearSources`. */
+const builtinSources: AssetSource[] = [];
 
 /** Strip the `asset:` prefix and leading `./` or `/`. */
 export function normalizeAssetPath(path: string): string {
@@ -40,7 +42,7 @@ const parsedSidecars = new WeakMap<object, ImportSettings>();
 const resolvedSidecars = new WeakMap<ImportSettings, Partial<Record<ImportPlatform, ImportSettings>>>();
 let platformOverride: ImportPlatform | null = null;
 /**
- * Under Tauri: "android" on Tauri mobile's Android webview (its user agent names Android, ADR 0337 §1), else "desktop";
+ * Under Tauri: "android" on Tauri mobile's Android webview (its user agent names Android, ADR 0351 §1), else "desktop";
  * in a browser: "web".
  */
 const detectPlatform = (): ImportPlatform => {
@@ -63,7 +65,7 @@ export function sidecarValue(path: string): object | undefined {
 }
 
 /**
- * Localised textures and fonts (ADR 0342 §10): under a `languages.assetRoots` folder the first folder is a language
+ * Localised textures and fonts (ADR 0356 §10): under a `languages.assetRoots` folder the first folder is a language
  * code, a reference names the reference language's file, and `Assets.url` serves the variant the current language's
  * fallback chain finds (`variantPath`). The localisation runtime sets the roots and the chain on every language change
  * (`setAssetLanguage`); references resolved so far are remembered so a switch can preload and announce theirs.
@@ -73,7 +75,7 @@ let assetLanguage: { roots: readonly string[]; chain: readonly string[] } | null
 const localisedRefs = new Set<string>();
 
 /**
- * @internal The localisation runtime (ADR 0342 §10): the asset roots and the current language's fallback chain textures
+ * @internal The localisation runtime (ADR 0356 §10): the asset roots and the current language's fallback chain textures
  * and fonts resolve through (empty roots: nothing is localised).
  */
 export function setAssetLanguage(roots: readonly string[], chain: readonly string[]): void {
@@ -130,9 +132,14 @@ export const Assets = {
     sources.length = 0;
   },
 
+  /** @internal Add files the engine itself provides (`@myco/…` paths): looked up after the game's sources, and never cleared. */
+  addBuiltinSource(source: AssetSource): void {
+    if (!builtinSources.includes(source)) builtinSources.push(source);
+  },
+
   has(path: string): boolean {
     const p = normalizeAssetPath(path);
-    return sources.some((s) => s.has(p));
+    return sources.some((s) => s.has(p)) || builtinSources.some((s) => s.has(p));
   },
 
   /** @internal Every path the registered sources list (`AssetSource.paths`), each once, in source order. */
@@ -149,6 +156,7 @@ export const Assets = {
   get(path: string): unknown {
     const p = normalizeAssetPath(path);
     for (const s of sources) if (s.has(p)) return s.get(p);
+    for (const s of builtinSources) if (s.has(p)) return s.get(p);
     throw new Error(`Asset not found: "${p}". Is it inside the asset root registered with Assets.addSource?`);
   },
 
@@ -160,7 +168,7 @@ export const Assets = {
     const p = normalizeAssetPath(path);
     const kind = projectFileKind(p);
     if (kind !== "url") throw new Error(`Asset "${p}" is a ${kind === "json" ? "JSON" : "text"} file, which loads as its contents, not a URL: read it with Assets.${kind}().`);
-    // ADR 0342 §10: a texture or font under an asset root serves the current language's variant.
+    // ADR 0356 §10: a texture or font under an asset root serves the current language's variant.
     const v = Assets.get(localisedPath(p));
     if (typeof v !== "string") throw new Error(`Asset "${p}" has no URL.`);
     return v;
@@ -173,7 +181,7 @@ export const Assets = {
 
   /**
    * The platform per-platform import overrides resolve for (ADR 0115): "android" under Tauri mobile on Android, "desktop"
-   * under Tauri elsewhere, else "web" (ADR 0337 §1); settable (null = detect).
+   * under Tauri elsewhere, else "web" (ADR 0351 §1); settable (null = detect).
    */
   get platform(): ImportPlatform {
     return platformOverride ?? detectPlatform();

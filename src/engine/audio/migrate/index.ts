@@ -1,5 +1,5 @@
 /**
- * Project-wide migration of audio events to playlists (ADR 0329 §"Migration"): every `*.audioevent.json` becomes a
+ * Project-wide migration of audio events to playlists (ADR 0343 §"Migration"): every `*.audioevent.json` becomes a
  * `*.playlist.json` beside it with the same base name. Pure: it takes the project's text files and returns what to
  * write, what to delete (callers move the old file to `.myco/migrated/`) and the path moves, so callers rewrite the
  * references (scenes' `AudioSource.clip`, scripts, other assets) themselves; `project.ts` (`migrateProjectAudio`) does all
@@ -35,7 +35,7 @@ export interface ProjectMigration {
   /** Lint lines: parse problems of the old files and the migration's approximations, each starting with a path. */
   notes: string[];
   /**
-   * The sample files the looping clips need (also in `writes`, ADR 0328): sidecars that are new, existing sidecars
+   * The sample files the looping clips need (also in `writes`, ADR 0342): sidecars that are new, existing sidecars
    * whose `sample` block now holds a loop, and derived samples (`*.sample.json`). Their notes are in `notes`.
    */
   samples: { newSidecars: string[]; changedSidecars: string[]; derived: string[] };

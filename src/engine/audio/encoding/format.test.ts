@@ -1,4 +1,4 @@
-// ADR 0337 §2: encoding settings read and written — the sidecar block (through importSettings' interface), audio.json's
+// ADR 0351 §2: encoding settings read and written — the sidecar block (through importSettings' interface), audio.json's
 // section (through the project format's), round trips and problems.
 import { describe, expect, it } from "vitest";
 import { formatImportSettings, IMPORT_PLATFORMS, parseImportSettings } from "../../scene/importSettings";
@@ -122,7 +122,7 @@ describe("platforms and codecs", () => {
   it("lists android beside web and desktop, in one order everywhere", () => {
     expect(IMPORT_PLATFORMS).toEqual(["web", "desktop", "android"]);
     expect([...ENCODING_PLATFORMS]).toEqual([...IMPORT_PLATFORMS]);
-    // Image overrides take android too (ADR 0337 §1).
+    // Image overrides take android too (ADR 0351 §1).
     const s = parseImportSettings({ format: "myco.import@1", platforms: { android: { maxSize: 256 } } });
     expect(s.problems).toEqual([]);
     expect(s.settings.platforms.android).toEqual({ maxSize: 256 });

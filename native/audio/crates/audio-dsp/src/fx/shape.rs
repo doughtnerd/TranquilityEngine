@@ -1,4 +1,4 @@
-//! Waveshapers and the bit-crusher (ADR 0331's `saturation`, `distortion`, `bitcrush`, and the
+//! Waveshapers and the bit-crusher (ADR 0345's `saturation`, `distortion`, `bitcrush`, and the
 //! `drive` of the catalogue's filters).
 //!
 //! - **Saturation** (`amount` 0..100 %): `tanh(g·x) / g` with `g = 1 + 4·amount`: unity gain for

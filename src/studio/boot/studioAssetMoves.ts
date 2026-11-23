@@ -1,4 +1,4 @@
-// Moving and renaming assets in the Studio (ADR 0327, "One app owns each file; both watch"). A move changes what
+// Moving and renaming assets in the Studio (ADR 0341, "One app owns each file; both watch"). A move changes what
 // scenes, prefabs and project.json name, files the editor owns, so who rewrites them depends on whether the editor
 // has the project open (its lock, `.myco/locks/editor.json`):
 //

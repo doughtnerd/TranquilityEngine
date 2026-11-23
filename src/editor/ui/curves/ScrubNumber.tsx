@@ -1,4 +1,4 @@
-// A number field with a scrub label (the curve editor's key fields, ADR 0332): dragging the label left or right changes
+// A number field with a scrub label (the curve editor's key fields, ADR 0346): dragging the label left or right changes
 // the value (Shift 10× faster, Alt 10× slower) as one edit, Escape during the drag puts it back; typing commits on
 // Enter or blur, Escape restores the shown value.
 import { useEffect, useRef, useState } from "preact/hooks";

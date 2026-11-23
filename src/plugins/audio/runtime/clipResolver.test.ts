@@ -45,7 +45,7 @@ describe("the clip resolver (ADR 0293)", () => {
   });
 });
 
-describe("derived samples through the clip resolver (ADR 0328)", () => {
+describe("derived samples through the clip resolver (ADR 0342)", () => {
   const SAMPLE = "myco.sample@1";
   const LOOP = { id: "l1", start: 0.5, end: 1.5 };
 

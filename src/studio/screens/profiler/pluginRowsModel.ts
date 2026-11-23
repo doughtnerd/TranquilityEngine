@@ -1,4 +1,4 @@
-// The Profiler's Plugins panel (ADR 0338 §9, §6): one row per registered plugin effect from the runtime's
+// The Profiler's Plugins panel (ADR 0352 §9, §6): one row per registered plugin effect from the runtime's
 // `Audio.debug().plugins`, live (not from a capture): its state, instructions per frame against its declared budget,
 // memory and faults, as the effect cards show them (`effectChainModel.ts` `pluginHealthView`), sorted with the rows
 // that need attention first. Pure.

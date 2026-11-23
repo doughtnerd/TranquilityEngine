@@ -1,4 +1,4 @@
-// A project's plugin audio effects in the editor and the Studio (ADR 0338 §8): from the plan of the project's plugins
+// A project's plugin audio effects in the editor and the Studio (ADR 0352 §8): from the plan of the project's plugins
 // (`planPluginCode`, the one plan every host runs, with the project's files so a missing module is a problem), each usable
 // plugin with an `audio` section goes to the audio plugin's effect set (`effectPlugins/projectSet.ts`): its effects join
 // the catalogue and its modules the core's chains and offline renders, or leave them when the plugin is turned off or

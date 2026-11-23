@@ -25,7 +25,7 @@ describe("the generator catalogue", () => {
     }
   });
 
-  it("has exactly ADR 0346's parameters, in its order (the wire order)", () => {
+  it("has exactly ADR 0360's parameters, in its order (the wire order)", () => {
     const names = (k: (typeof GENERATOR_KINDS)[number]) => GENERATOR_CATALOGUE[k].params.map((q) => q.name);
     expect(names("oscillator")).toEqual(["waveform", "noiseColour", "frequency", "pulseWidth", "level", "attack", "decay", "sustain", "release", "length"]);
     expect(names("synth")).toEqual([

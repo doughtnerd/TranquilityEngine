@@ -1,4 +1,4 @@
-// Snapshot triggers and blending (ADR 0330 "Snapshots blend"; the prototype's Trigger dialog and its clash list).
+// Snapshot triggers and blending (ADR 0344 "Snapshots blend"; the prototype's Trigger dialog and its clash list).
 //
 // - Conditions: `lt le eq ne ge gt between` on numeric parameters, `is not` on labelled ones (a boolean is labelled
 //   ["Off", "On"]), evaluated against test values (a labelled parameter's value is its label's index). A snapshot whose
@@ -15,7 +15,7 @@ import { isLabelled, type ParameterDef } from "../../../engine/audio/parameters"
 import { startHolds } from "../../../engine/audio/project/snapshots";
 import type { ConditionOp, Snapshot, SnapshotCondition, SnapshotStart } from "../../../engine/audio/project/types";
 
-// The model itself (conditions and resolution) is the engine's, shared with the runtime's mixer (ADR 0330).
+// The model itself (conditions and resolution) is the engine's, shared with the runtime's mixer (ADR 0344).
 export {
   conditionHolds, resolveSnapshots, startHolds, testValueOf,
   type ActiveSnapshot, type ResolvedMix, type TestValues,
@@ -88,7 +88,7 @@ export interface Overlap {
 }
 
 /**
- * The snapshots `name` overlaps with (sharing a bus offset or an overridden parameter), with the outcome per ADR 0330:
+ * The snapshots `name` overlaps with (sharing a bus offset or an overridden parameter), with the outcome per ADR 0344:
  * both Add → their offsets add up; one Add → its offsets add on top of the other; both Override → the higher priority
  * wins, equal → the one started last wins. `draft` stands in for the snapshot being edited (the dialog's unsaved state).
  */

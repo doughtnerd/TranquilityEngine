@@ -1,4 +1,4 @@
-// The real `RuntimeStarter` (ADR 0327): an audio-only Engine with one empty World and only the audio plugin's runtime
+// The real `RuntimeStarter` (ADR 0341): an audio-only Engine with one empty World and only the audio plugin's runtime
 // active (`studioPlugins.ts`), started so the audio system runs every frame. No scene loads and nothing is drawn: the
 // Engine's `audioOnly` option makes its World play sound with no view (listened to and mixed as the World with the
 // view is). `Engine.create`, `engine.start`, `engine.dispose`, and the internal `audioOnly` option.

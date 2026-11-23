@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "sdk": "^1.0.0",
   "title": "Tremolo",
-  "description": "The reference audio effect plugin: a tremolo written in Rust on the myco-fx SDK (ADR 0338).",
+  "description": "The reference audio effect plugin: a tremolo written in Rust on the myco-fx SDK (ADR 0352).",
   "audio": {
     "abi": 1,
     "modules": { "dsp": { "wasm": "dsp/tremolo.wasm", "memoryMB": 1 } },

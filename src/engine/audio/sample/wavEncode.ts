@@ -1,7 +1,7 @@
 /**
  * A WAV file from interleaved float PCM: IEEE float, 32 bits (format tag 3), with the `fact` chunk the format asks for.
  * Float keeps a render's level past full scale (a chain may peak above 0 dBFS before the mix) and costs no precision.
- * The offline sample render (ADR 0328 "Flatten") writes its result with it.
+ * The offline sample render (ADR 0342 "Flatten") writes its result with it.
  *
  * Pure; no plugin, no DOM.
  */

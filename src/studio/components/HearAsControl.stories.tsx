@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0337 §6) for Hear as in the player bar: Source by default with no chip; choosing Android shows the
+// Stories (ADR 0219, 0351 §6) for Hear as in the player bar: Source by default with no chip; choosing Android shows the
 // converting chip while a fake conversion runs and "Hearing Android" after; A/B flips back to Source and to Android again.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

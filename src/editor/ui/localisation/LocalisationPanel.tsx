@@ -1,8 +1,8 @@
-// The Localisation panel (ADR 0342 §9, T7): Strings, Report and Exchange tabs over the open project's string tables.
+// The Localisation panel (ADR 0356 §9, T7): Strings, Report and Exchange tabs over the open project's string tables.
 // It connects the pure models (`stringsModel.ts`, `reportModel.ts`, `fitCheck.ts`, `exchangeModel.ts`) to the project:
 // every write goes through the files' asset documents (the `strings` kind), so each edit is one undo step in that
 // file's history and Ctrl+Z in the panel undoes the chosen table's last edit. Tables audio data names are the Studio's
-// (0343 §1): while the Studio holds the project they show read-only with "Edit in the Studio".
+// (0357 §1): while the Studio holds the project they show read-only with "Edit in the Studio".
 import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { gatherKeys } from "../../../engine/localisation/exchange/gather";
@@ -43,7 +43,7 @@ const TABS: readonly { id: Tab; label: string }[] = [
   { id: "exchange", label: "Exchange" },
 ];
 
-/** The Studio's lock on the open project, as last read (0327). */
+/** The Studio's lock on the open project, as last read (0341). */
 const studioLock = signal<LockState>("unknown");
 /** Dismissed unkeyed text (`.myco/localisation-ignore.json`), as last read. */
 const ignored = signal<readonly string[]>([]);

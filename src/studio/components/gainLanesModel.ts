@@ -1,4 +1,4 @@
-// The mixer's gain breakdown (ADR 0335 `GainLanes`, ADR 0330 "Gain"): where the level you hear from a bus or return
+// The mixer's gain breakdown (ADR 0349 `GainLanes`, ADR 0344 "Gain"): where the level you hear from a bus or return
 // comes from. A bus's level in dB is the sum of its lanes (authored fader, runtime, snapshot, VCA, monitor, dip, duck,
 // automation) and every level above it is added on top, so the linear gain is the product down the tree.
 //
@@ -103,7 +103,7 @@ function ancestorsOf(nodes: ReadonlyMap<string, Node>, name: string): string[] {
   return out;
 }
 
-/** Whether `name` stays audible on its monitor lane while `solo` is soloed (ADR 0330's solo rule). */
+/** Whether `name` stays audible on its monitor lane while `solo` is soloed (ADR 0344's solo rule). */
 export function audibleUnderSolo(inputs: GainInputs, name: string, solo: string | null | undefined): boolean {
   if (!solo) return true;
   const nodes = nodesOf(inputs);

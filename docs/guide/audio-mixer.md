@@ -1,10 +1,10 @@
 # Audio mixer (ADR 0097)
 
-> **Where the mix is edited now.** The buses, returns, VCAs, snapshots and ducking live in `audio.json` and are edited in the **Audio Studio** (in the editor: Window > Audio Studio, or **Open in Audio Studio** on a file; ADR 0327). The editor's Mixer panel and Project Settings > Audio are gone (Project Settings > Audio only opens the Studio). Where this page still names them, use the Studio's Mixer screen; the audio guides are being rewritten for the Studio.
+> **Where the mix is edited now.** The buses, returns, VCAs, snapshots and ducking live in `audio.json` and are edited in the **Audio Studio** (in the editor: Window > Audio Studio, or **Open in Audio Studio** on a file; ADR 0341). The editor's Mixer panel and Project Settings > Audio are gone (Project Settings > Audio only opens the Studio). Where this page still names them, use the Studio's Mixer screen; the audio guides are being rewritten for the Studio.
 
 How to play sounds is in [Playing sound](playing-sound.md); if a bus is silent, see [Why is there no sound?](why-no-sound.md#4-a-sounds-reason). Mixing while the game plays, the Mixer panel and the two ducking modes are in [Live mixing and ducking](audio-mixing.md); loudness meters and targets in [Loudness](audio-loudness.md); recording what the mix did in the [Audio profiler](audio-profiler.md); every M5 script member in the [API reference](audio-mix-api.md).
 
-Sound plays on **buses**: a tree that starts at `Master` (default children `Music`, `SFX`, `UI`, `Voice`). Edit it on the Audio Studio's **Mixer** screen, or in `audio.json` (ADR 0330). The example below is the older `audio` section of `project.json`, which the editor moves to `audio.json` when the project opens:
+Sound plays on **buses**: a tree that starts at `Master` (default children `Music`, `SFX`, `UI`, `Voice`). Edit it on the Audio Studio's **Mixer** screen, or in `audio.json` (ADR 0344). The example below is the older `audio` section of `project.json`, which the editor moves to `audio.json` when the project opens:
 
 ```jsonc
 "audio": {

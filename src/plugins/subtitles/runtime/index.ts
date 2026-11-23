@@ -1,4 +1,4 @@
-// The Subtitles plugin's runtime half (ADR 0343 §5): the `SubtitleDisplay` component, the `Subtitles` player settings
+// The Subtitles plugin's runtime half (ADR 0357 §5): the `SubtitleDisplay` component, the `Subtitles` player settings
 // and the World service that loads the saved settings before a runtime World's first scene. `myco` (`src/myco.ts`)
 // exports the public parts from here. Built only on public API (the audio and UI plugins' exports, `Locale`,
 // `Storage`); runtime code: never imports from `src/editor/`.

@@ -1,4 +1,4 @@
-// The time ruler's model (ADR 0335 `TimeRuler`): the three time displays of the prototype's Samples screen
+// The time ruler's model (ADR 0349 `TimeRuler`): the three time displays of the prototype's Samples screen
 // (timecode `m:ss.mmm`, samples, bars `bbb:b:ttt` at 960 ticks per beat), typed times parsed back, and the ticks a
 // ruler draws for a view so labelled ticks are at least ~70 px apart. Pure: no DOM.
 //

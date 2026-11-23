@@ -1,4 +1,4 @@
-// The retired audio event asset (`*.audioevent.json`, ADR 0158 §1, replaced by playlists, ADR 0329): the editor lists an
+// The retired audio event asset (`*.audioevent.json`, ADR 0158 §1, replaced by playlists, ADR 0343): the editor lists an
 // old file as "old format: migrate" and keeps its clips counted as used (ADR 0148), so deleting a clip an unmigrated event
 // still names warns. Nothing reads it to play or edit; the parse is the migration's (`engine/audio/migrate/legacy/`).
 import type { AssetReferences } from "../../../editor/sdk";

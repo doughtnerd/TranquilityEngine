@@ -141,7 +141,7 @@ class Meter implements BusLoudness {
     else if (r.deviation > r.tolerance) r.state = "high";
     else if (r.deviation < -r.tolerance) r.state = "low";
     else r.state = "ok";
-    // ADR 0334: a loudness warning record when the bus goes high or low against its target, and when it is back to ok.
+    // ADR 0348: a loudness warning record when the bus goes high or low against its target, and when it is back to ok.
     const s = r.state;
     if ((s === "high" || s === "low" || (s === "ok" && this.warned !== null && this.warned !== "ok")) && s !== this.warned) {
       this.warned = s;
@@ -149,7 +149,7 @@ class Meter implements BusLoudness {
       if (sink !== NULL_PROFILE_SINK) sink.loudnessWarning?.(this.name, s);
     }
   }
-  /** ADR 0334: the target state the last loudness warning named (null before the first). */
+  /** ADR 0348: the target state the last loudness warning named (null before the first). */
   private warned: "high" | "low" | "ok" | null = null;
 }
 

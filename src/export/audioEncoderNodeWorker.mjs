@@ -1,4 +1,4 @@
-// An encoder thread in Node (ADR 0337 §4): the `worker_threads` entry `audioEncoderNode.ts` spawns. Plain JavaScript,
+// An encoder thread in Node (ADR 0351 §4): the `worker_threads` entry `audioEncoderNode.ts` spawns. Plain JavaScript,
 // since it registers the hooks that let Node load the engine's TypeScript (src/server/tsLoader.mjs, as cli.mjs does),
 // then serves requests with audioEncoderThread.ts. The wasm comes compiled from the parent (`workerData.module`).
 import * as nodeModule from "node:module";

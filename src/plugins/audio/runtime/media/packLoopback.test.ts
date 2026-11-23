@@ -1,4 +1,4 @@
-// W12 (ADR 0337 §7, §9): package playback end to end. A small project is exported by the real export (the real encoder,
+// W12 (ADR 0351 §7, §9): package playback end to end. A small project is exported by the real export (the real encoder,
 // in worker threads) into a temp folder; the build's media table is installed as the player installs it, and the game's
 // side runs on the loopback host: the core as production assembles it, the real decoder handler in process and the real
 // mixer, reached through the public `Audio` API only (`Audio.package(name).load()`, `Audio.playOneShot`, `Audio.debug()`).

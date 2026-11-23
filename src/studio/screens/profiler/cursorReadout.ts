@@ -1,4 +1,4 @@
-// The Profiler's "At cursor" panel and the bus tracks' lane breakdown (ADR 0334; the prototype's `cursorRows` and the
+// The Profiler's "At cursor" panel and the bus tracks' lane breakdown (ADR 0348; the prototype's `cursorRows` and the
 // floating "Music −16.0 dB / authored −10.0 / duck −6.0" at the playhead): what each bus gives at the cursor, from the
 // keyframe in force (`busFactors`, the editor profiler's model), with the reasons it is not at its authored level in
 // words ("ducked", "dip", "snapshot", "muted", "script", "automation", "monitor"). Pure.

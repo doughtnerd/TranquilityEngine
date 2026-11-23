@@ -1,4 +1,4 @@
-// ADR 0344 §6 (the conservative reading): plugin effect modules run on V8 only unless the project says "all". The
+// ADR 0358 §6 (the conservative reading): plugin effect modules run on V8 only unless the project says "all". The
 // engine detection over real user agent strings and runtimes, the gate's decision table, the project setting's read,
 // and `loadEffectPlugin` on a closed gate: one warning, the effects known but no module registered.
 import { afterEach, describe, expect, it, vi } from "vitest";

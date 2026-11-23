@@ -62,7 +62,7 @@ describe("IR preparer", () => {
   it("generates every preset and truncates at maxFrames", async () => {
     const { handler, irReplies } = await harness();
     let token = 1;
-    // ADR 0333's named presets play the generated five's responses.
+    // ADR 0347's named presets play the generated five's responses.
     for (const preset of ["room", "corridor", "hall", "cave", "open", "smallStone", "canyonHall", "metalTunnel", "forest"]) {
       await handler.handle({ type: "generateIr", token, kernelId: ID + token, preset, contextRate: 44100, maxFrames: 4410 });
       token++;

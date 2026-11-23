@@ -1,4 +1,4 @@
-// ADR 0338 §1, §6, §8 as amended by 0344: the worklet glue between the core's `myco_ext` import (`audio-core`'s `ext.rs`)
+// ADR 0352 §1, §6, §8 as amended by 0358: the worklet glue between the core's `myco_ext` import (`audio-core`'s `ext.rs`)
 // and the plugin effect modules. Plain module with no DOM or Node APIs (it runs in the AudioWorkletGlobalScope and in
 // Node's loopback alike); `coreDriver.ts` builds one per core instance and binds its imports at instantiation.
 //
@@ -13,7 +13,7 @@
 //   `myco_fx_process` inside `try`, checks the plugin memory's buffer identity (growth), scans the output with the
 //   module's SIMD helper (`scanHelper.ts`) and copies it back. On any fault it returns a negative status without copying,
 //   so the core's block still holds the dry input. A good call returns `used << 1 | silent`.
-// - **Faults** (0338 §6, 0344 §5): a trap (fuel exhaustion included) or memory growth is a module fault: the module is
+// - **Faults** (0352 §6, 0358 §5): a trap (fuel exhaustion included) or memory growth is a module fault: the module is
 //   re-instantiated from the kept `Module` before the next quantum and every instance of it re-created (their handles
 //   stay); a non-finite or out-of-range sample re-creates that instance. Meanwhile the slots pass dry. Three faults of
 //   one effect within a second of audio disable that effect (dry) until `reset`. Each fault posts `pluginFault`.
@@ -248,7 +248,7 @@ export class EffectGlue {
     let warmUps = 0;
     try {
       mod.instantiate();
-      // 0344 §4: one create, process and destroy on silence per effect before any instance goes live.
+      // 0358 §4: one create, process and destroy on silence per effect before any instance goes live.
       for (const entry of m.effects) {
         this.warmUp(mod, entry);
         warmUps++;
@@ -367,7 +367,7 @@ export class EffectGlue {
     if (++this.sinceStats >= STATS_EVERY_QUANTA) this.postStats();
   }
 
-  /** 0338 §6: broken modules are re-instantiated from the kept Module (their instances re-created, handles kept); bad instances re-created. */
+  /** 0352 §6: broken modules are re-instantiated from the kept Module (their instances re-created, handles kept); bad instances re-created. */
   private recover(): void {
     for (const item of this.pending) {
       if (item instanceof Mod) {

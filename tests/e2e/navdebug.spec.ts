@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Page, waitForEditor } from "./fixtures";
 import { installFakeFolders, nextFolder } from "./fakeFolders";
 import { captureView, pixelsChanged, type ViewCapture } from "./viewCapture";
 
@@ -10,11 +10,6 @@ import { captureView, pixelsChanged, type ViewCapture } from "./viewCapture";
 
 test.describe.configure({ timeout: 90_000 });
 
-type Hooks = {
-  engine?: { world: { time: { frameCount: number } } };
-};
-
-const waitForEngine = (page: Page) => page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
 const sceneView = (page: Page) => captureView(page.locator(".panel.scene #viewport canvas"));
 /** How many of the scene view's pixels changed since `before`. */
 const changedSince = async (page: Page, before: ViewCapture) => pixelsChanged(before, await sceneView(page));
@@ -42,7 +37,7 @@ test("Baking a NavChunk and toggling Navmesh draws its polygon outlines in the s
   await page.goto("/editor.html");
   await nextFolder(page, "NavTest");
   await page.getByRole("dialog", { name: "Start" }).getByRole("button", { name: "Open Project…" }).click();
-  await waitForEngine(page);
+  await waitForEditor(page);
 
   // Select the chunk and bake it.
   await page.locator(".tree .row", { hasText: "Nav Chunk" }).first().click();
