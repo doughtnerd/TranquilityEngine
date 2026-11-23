@@ -4,7 +4,7 @@
  * ```sh
  * npm run export -- <projectDir> [--out <dir>] [--target web|desktop] [--platform web|desktop|android]
  *                   [--no-audio-convert] [--scene <path>] [--audio-capture] [--languages <codes>] [--pseudo]
- *                   [--debug-link <address>]
+ *                   [--debug-link <address>] [--debug-listen] [--debug-lan] [--debug-port N]
  * ```
  *
  * - `--target web` (default) writes a static web build: the prebuilt player (dist/player/, built
@@ -49,6 +49,12 @@ Options:
   --debug-link A   Debugging on: the game connects to the editor's debug link at A (ws://host:port, host:port, or
                    a port on this machine, such as 7790) so its live debuggers can inspect it. A desktop app also
                    takes --debug-link <address> when launched. Builds without it hold none of the link's code
+  --debug-listen   Debugging on, and the game listens for tools (game.json debug.listen) as well as connecting out. A
+                   desktop app gets the native listener, built into it by tauri build; a web build can't listen, so
+                   there the key is harmless. A desktop app also takes --debug-code <code> when launched
+  --debug-lan      Debugging on; a listening game accepts tools from other machines on its network (debug.lan: binds
+                   0.0.0.0, each tool paired by code) instead of this machine only. Off by default
+  --debug-port N   Debugging on; the first port a listening game tries (debug.port, default 7790; it tries the next nine)
   --build          Desktop: run tauri build (default when Rust is installed)
   --no-build       Desktop: only write the Tauri project
   -h, --help       Show this help`;
@@ -91,6 +97,16 @@ const EXPORT_COMMAND: Command<ExportOptions> = {
       set: (o, v) => {
         if (!debugLinkAddress(v)) throw new UsageError(`--debug-link is a WebSocket address: ws://host:port, host:port or a port (got ${JSON.stringify(v)}).`);
         o.debugLink = v;
+      },
+    },
+    "--debug-listen": { set: (o) => void (o.debugListen = true) },
+    "--debug-lan": { set: (o) => void (o.debugLan = true) },
+    "--debug-port": {
+      takes: "a port",
+      set: (o, v) => {
+        const port = /^\d+$/.test(v) ? Number(v) : NaN;
+        if (!(port >= 1 && port <= 65526)) throw new UsageError(`--debug-port is a whole number from 1 to 65526 (got ${JSON.stringify(v)}).`);
+        o.debugPort = port;
       },
     },
     "--build": { set: (o) => void (o.tauriBuild = true) },

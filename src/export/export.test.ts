@@ -214,6 +214,56 @@ describe("the debug link option (ADR 0376)", () => {
   });
 });
 
+describe("the debug link's listening flags (ADR 0380)", () => {
+  it("--debug-listen, --debug-lan and --debug-port parse, imply debugging on, and the help says so", () => {
+    expect(parseArgs(["proj", "--debug-listen"])).toEqual({ projectDir: "proj", debugListen: true });
+    expect(parseArgs(["proj", "--debug-listen", "--debug-lan", "--debug-port", "7800"])).toEqual({ projectDir: "proj", debugListen: true, debugLan: true, debugPort: 7800 });
+    expect(() => parseArgs(["proj", "--debug-port", "0"])).toThrow(/whole number/);
+    expect(() => parseArgs(["proj", "--debug-port", "x"])).toThrow(/whole number/);
+    expect(USAGE).toMatch(/--debug-listen[\s\S]*--debug-code[\s\S]*--debug-lan[\s\S]*--debug-port/);
+  });
+
+  it("game.json gets debug.listen, debug.lan and debug.port, with the default link when no address is given", async () => {
+    const debug = async (o: object) => JSON.parse((await planWebBuild(source(), o)).generated.get("game.json")!).debug;
+    expect(await debug({ debugListen: true })).toEqual({ link: "ws://localhost:7790/myco-debug", listen: true });
+    expect(await debug({ debugListen: true, debugLan: true, debugPort: 7800 })).toEqual({ link: "ws://localhost:7790/myco-debug", listen: true, lan: true, port: 7800 });
+    expect(await debug({ debugLan: true })).toEqual({ link: "ws://localhost:7790/myco-debug", lan: true });
+    expect(await debug({ debugLink: "192.168.1.4:7790", debugListen: true })).toEqual({ link: "ws://192.168.1.4:7790/myco-debug", listen: true });
+    expect(await debug({})).toBeUndefined();
+    await expect(planWebBuild(source(), { debugPort: 70000 })).rejects.toThrow(/debug port/);
+  });
+
+  const crates = new Map([
+    ["ws-listener/Cargo.toml", "# ws\n"],
+    ["ws-listener/src/lib.rs", "// ws\n"],
+    ["debug-link-tauri/Cargo.toml", "# tauri\n"],
+    ["debug-link-tauri/src/lib.rs", "// tauri\n"],
+  ]);
+
+  it("a debug desktop package vendors the listener crates, depends on them, manages the listeners and registers the commands", () => {
+    const files = desktopProjectFiles({ name: "x", settings: {}, gamepadModule: "", debug: true, debugListener: crates });
+    for (const [path, text] of crates) expect(files.get(`vendor/${path}`)).toBe(text);
+    expect(files.get("Cargo.toml")).toMatch(/^\[dependencies\][\s\S]*^myco-debug-link-tauri = \{ path = "vendor\/debug-link-tauri" \}$[\s\S]*^\[dev-dependencies\]/m);
+    const lib = files.get("src/lib.rs")!;
+    expect(lib).toContain("builder = builder.manage(debug_link_tauri::DebugLinkListeners::default());");
+    for (const c of ["listen_range", "listen", "send", "close"]) expect(lib).toContain(`debug_link_tauri::commands::myco_debuglink_${c},`);
+    expect(lib).toContain("gamepad::myco_gamepad_listen,");
+    expect(lib).toContain('a == "--debug-code"');
+    expect(lib).toContain("globalThis.__mycoDebugCode = {literal};");
+  });
+
+  it("a release package, and a debug one given no crates, have none of it", () => {
+    for (const o of [{}, { debugListener: crates }, { debug: true }]) {
+      const files = desktopProjectFiles({ name: "x", settings: {}, gamepadModule: "", ...o });
+      expect([...files.keys()].filter((k) => k.startsWith("vendor/"))).toEqual([]);
+      expect(files.get("Cargo.toml")).not.toContain("myco-debug-link-tauri");
+      expect(files.get("src/lib.rs")).not.toContain("DebugLinkListeners");
+      expect(files.get("src/lib.rs")).not.toContain("myco_debuglink");
+    }
+    expect(desktopProjectFiles({ name: "x", settings: {}, gamepadModule: "" }).get("src/lib.rs")).not.toContain("debug-code");
+  });
+});
+
 describe("desktop project", () => {
   it("names the app after the project and points the window at the web build", () => {
     const files = desktopProjectFiles({ name: "Flappy Bird", settings: { display: { width: 720, height: 680 } }, gamepadModule: "// gamepads\n" });
