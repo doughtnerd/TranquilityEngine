@@ -25,6 +25,7 @@ import { openCurveEditor, openWeightCurveEditor } from "./curveEditorAdapter";
 import { LibraryList } from "./LibraryList";
 import { isSamplePath } from "./libraryModel";
 import { DeleteDialog, FolderDeleteDialog } from "./PlaylistDialogs";
+import { PlaylistHistoryScope } from "./PlaylistHistoryScope";
 import { PlaylistEditor } from "./PlaylistEditor";
 import { PlaylistInspector } from "./PlaylistInspector";
 import { addEntries, duplicateEntry, removeEntry, setEntryUse, sampleEntry } from "./playlistEdits";
@@ -126,8 +127,10 @@ function TreePanel() {
   const nestInto = open && open.type !== "clip" && open.type !== "sequence" ? lastCrumbName() : null;
   return (
     <Panel bodyClass="pl-panel-body">
+      <PlaylistHistoryScope doc={openDoc.value}>
       <PlaylistTreeView nodes={nodes} folders={project?.folders ?? []} openKey={openKey()} writable={writable()} hasSamples={files.some(isSamplePath)} nestInto={nestInto} actions={treeActions} />
       {deletingFolder.value && <FolderDeleteDialog folder={deletingFolder.value} onCancel={() => (deletingFolder.value = null)} onConfirm={() => void deleteFolderKeepingContents(deletingFolder.value!.path)} />}
+      </PlaylistHistoryScope>
     </Panel>
   );
 }
@@ -162,7 +165,9 @@ function LibraryPanel() {
   const addTo = body && body.type !== "sequence" ? lastCrumbName() : null;
   return (
     <Panel bodyClass="pl-panel-body">
+      <PlaylistHistoryScope doc={openDoc.value}>
       <LibraryList files={currentProject.value?.files ?? []} addTo={addTo} previewing={previewing.value?.path ?? null} onPreview={preview} onAdd={addSample} onOpenSamples={() => openRoute({ screen: "samples" })} onCreatePlaylist={(paths) => void newPlaylistFromSamples(paths)} writable={writable()} extra={(query) => <GeneratorLibraryPanel query={query} />} />
+      </PlaylistHistoryScope>
     </Panel>
   );
 }
@@ -290,6 +295,7 @@ function EditorPanel() {
   const title = crumbs[crumbs.length - 1]?.name ?? "";
   return (
     <Panel bodyClass="pl-panel-body">
+      <PlaylistHistoryScope doc={openDoc.value}>
       <div class="pl-doc" data-asset-document={doc.path} tabIndex={-1}>
         <PlaylistEditor
           body={body}
@@ -340,6 +346,7 @@ function EditorPanel() {
         />
       )}
       {deleting.value && <DeleteDialog plan={deleting.value} onCancel={() => (deleting.value = null)} onConfirm={(c, l) => void confirmDelete(deleting.value!, c, l)} />}
+      </PlaylistHistoryScope>
     </Panel>
   );
 }
@@ -381,6 +388,7 @@ function InspectorPanel() {
   );
   return (
     <Panel bodyClass="pl-panel-body">
+      <PlaylistHistoryScope doc={openDoc.value}>
       <div class="pl-doc" data-asset-document={doc.path} tabIndex={-1}>
         {body.type === "sequence" ? (
           <SequenceInspectorPanel body={body} writable={writable() && !doc.readOnly} lints={openLints.value} where={whereOf(t.indices)} title={lastCrumbName()} onEdit={(label, edit) => editOpen(label, edit)}>
@@ -390,6 +398,7 @@ function InspectorPanel() {
           inspector
         )}
       </div>
+      </PlaylistHistoryScope>
     </Panel>
   );
 }
@@ -399,6 +408,7 @@ function VoicesPanel() {
   const state = host.state.value;
   return (
     <Panel bodyClass="pl-panel-body">
+      <PlaylistHistoryScope doc={openDoc.value}>
       <VoicesView
         now={playingNow.value}
         log={voiceLog.value}
@@ -408,6 +418,7 @@ function VoicesPanel() {
         onClear={clearLog}
         onSeek={(t) => (logCursor.value = t)}
       />
+      </PlaylistHistoryScope>
     </Panel>
   );
 }
@@ -416,7 +427,9 @@ function ParametersPanel() {
   void openFile.value;
   return (
     <Panel bodyClass="pl-panel-body">
+      <PlaylistHistoryScope doc={openDoc.value}>
       <ParameterPanel parameters={allParameters.value} values={testValues.value} empty="No game parameters yet: add global ones in the Global parameters panel, or local ones in the Inspector." onValue={(name, v) => setTestValue(name, v)} />
+      </PlaylistHistoryScope>
     </Panel>
   );
 }

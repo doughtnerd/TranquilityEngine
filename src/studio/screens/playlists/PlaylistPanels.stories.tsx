@@ -3,7 +3,11 @@
 // Library, Plays now / Voices with a log, and the delete confirmation with its choices.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fn, userEvent, within } from "storybook/test";
+import { signal } from "@preact/signals";
+import type { AssetDocument } from "../../../editor/assetDocuments";
+import { HistoryPopover } from "../../../editor/ui/HistoryPopover";
 import { AddDialog } from "./AddDialog";
+import { PlaylistHistoryScope } from "./PlaylistHistoryScope";
 import { addItems } from "./addDialogModel";
 import { LibraryList } from "./LibraryList";
 import { DeleteDialog } from "./PlaylistDialogs";
@@ -92,6 +96,41 @@ export const Voices: Story = {
       />
     </div>
   ),
+};
+
+/** H3: a click anywhere in a Playlists panel (here a tree row) makes Undo, Redo and History act on the open playlist. */
+const openDoc = {
+  path: "audio/footsteps/dirt.playlist.json",
+  readOnly: false,
+  value: signal({}),
+  problems: signal([]),
+  canUndo: signal(true),
+  canRedo: signal(false),
+  undoLabel: signal<string | null>("Add entry"),
+  redoLabel: signal<string | null>(null),
+  edit: fn(),
+  undo: fn(),
+  redo: fn(),
+  flush: async () => {},
+  history: { version: signal(0), states: [], current: 0, saved: -1, jumpTo: fn(), back: fn(), forward: fn() },
+} as unknown as AssetDocument<unknown>;
+export const HistoryFollowsOpenPlaylist: Story = {
+  render: () => (
+    <div>
+      <HistoryPopover none="Click into a document to undo its edits" />
+      <PlaylistHistoryScope doc={openDoc}>
+        <button type="button">dirt (a tree row)</button>
+      </PlaylistHistoryScope>
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await userEvent.click(c.getByRole("button", { name: "dirt (a tree row)" }));
+    await expect(c.getByRole("button", { name: "Undo" })).toBeEnabled();
+    await expect(c.getByRole("button", { name: "Undo" }).title).toMatch(/^Undo Add entry/);
+    await userEvent.click(c.getByRole("button", { name: "Undo" }));
+    await expect(openDoc.undo).toHaveBeenCalled();
+  },
 };
 
 export const DeleteWithChoices: Story = {
