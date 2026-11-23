@@ -121,6 +121,8 @@ export const ANIMATION_ASSET_KINDS: readonly AssetKindContribution[] = [
     // `Skeleton.profile`.
     referencedAs: ["skelprofile"],
     references: { extensions: [SKELETON_PROFILE_SUFFIX], read: () => [] },
+    // The chain editor (T54, `skeleton/ProfileEditor.tsx`).
+    inspector: () => import("../skeleton/ProfileEditor").then((m) => m.ProfileEditor),
   },
   {
     id: "posedb", extensions: [POSE_DATABASE_SUFFIX], label: "Pose Database", icon: POSEDB_ICON, format: poseDatabaseFormat, folder: "animation",

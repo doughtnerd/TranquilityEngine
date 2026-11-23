@@ -7,7 +7,7 @@ import type { ImportedSkeleton } from "../../../../engine/animation/import/skele
 import { emptySkeletonProfile, encodeSkeletonProfile, type SkeletonProfile } from "../../../../engine/animation/skeletonProfile";
 import type { AnimationCompiler, ClipReport, RetargetSideInput } from "../compile/compiler";
 import { humanoidProfile } from "./humanoidProfile";
-import { bakeRetargetedClip, bakedClipPath, boneMapIndices, profileCompatible, sideProblem, sourceClipRef, type RetargetEnv, type RetargetModel } from "./retargetLogic";
+import { bakeRetargetedClip, bakedClipPath, boneMapIndices, profileCompatible, sideProblem, sourceClipRef, type RetargetEnv, type RetargetModel, type RetargetRequest } from "./retargetLogic";
 
 const profile = humanoidProfile();
 const rest = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } as const;
@@ -46,7 +46,7 @@ function fakeEnv(models: Record<string, RetargetModel>, files: string[] = [], pr
   return { env, calls };
 }
 
-const request = { source: "models/robot.glb", clip: "Run", target: { model: "models/hero.glb", profile: null, boneMap: model("hero:").boneMap } };
+const request: RetargetRequest = { source: "models/robot.glb", clip: "Run", target: { model: "models/hero.glb", profile: null, boneMap: model("hero:").boneMap } };
 
 describe("the bone map as the core's input", () => {
   it("is one bone index per role of the profile, 0xFFFF where unmapped", () => {
