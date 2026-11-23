@@ -544,6 +544,30 @@ fn the_same_seed_and_parameters_give_the_same_samples() {
 }
 
 #[test]
+fn reseeding_re_derives_the_sample_and_hold_value() {
+    // The core starts a voice seeded by its voice id, then its GEN re-seeds it: a synth whose LFO is a sample-and-hold
+    // must then play what a voice started with the GEN's seed plays, whatever the voice id was, from the first block
+    // (the held value before the LFO's first wrap included).
+    let p = [(synth_p::LFO_WAVE, 4.0), (synth_p::LFO_RATE, 3.0), (synth_p::LFO_DEPTH, 80.0), (synth_p::LFO_TARGET, 1.0)];
+    let started = |start_seed: u32, gen_seed: Option<u32>| {
+        let mut v = GenVoice::default();
+        v.start(gen::SYNTH, RATE, start_seed);
+        for &(i, x) in &p {
+            v.set(i, x, 0);
+        }
+        if let Some(s) = gen_seed {
+            v.reseed(s);
+        }
+        run(&mut v, 1.0, 48_000)
+    };
+    let direct = started(1734, None);
+    assert_eq!(started(7, Some(1734)), direct, "re-seeded from voice 7");
+    assert_eq!(started(0xFFFF_0001, Some(1734)), direct, "re-seeded from another voice id");
+    // The seed matters: another one holds other values.
+    assert_ne!(started(7, Some(1735)), direct);
+}
+
+#[test]
 fn every_kind_declares_its_catalogue_parameters() {
     assert_eq!(gen::params(gen::OSCILLATOR).len(), 11);
     assert_eq!(gen::params(gen::SYNTH).len(), 26);
