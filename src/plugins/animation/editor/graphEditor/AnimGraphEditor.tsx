@@ -4,7 +4,8 @@
 // selected state's transition list, and the parameters, layers (masks) and rig stack beside the canvas. The compiler's
 // problems (T30) show on the nodes, fields, states and transitions their paths name. Every edit goes through the file's
 // asset document (ADR 0134, 0233) as one labelled undo step (`applyToDocument`, ADR 0307, 0313), so Ctrl+Z, the frame's
-// Undo and the History act on it.
+// Undo and the History act on it. While the game runs, the live debugger (T52, `../debugger/`) overlays the debugged
+// Animator's frame on the canvases (through its `LiveOverlay` context), shows its live parameters and its recorder.
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { AnimGraph } from "../../../../engine/animation/animGraph";
 import { compileAnimGraph } from "../../../../engine/animation/graphCompile";
@@ -23,6 +24,11 @@ import { indexProblems, transitionKey, type PlacedProblem } from "./problemLogic
 import { RigEntries } from "./RigEntries";
 import { pickedRigEntry } from "./rigGizmo";
 import { TransitionList } from "./TransitionList";
+import { DebugBar } from "../debugger/DebugBar";
+import { LiveParameters } from "../debugger/LiveParameters";
+import { LiveOverlay } from "../debugger/overlayContext";
+import { useLiveDebug } from "../debugger/useLiveDebug";
+import "../debugger/debugger.css";
 import "../../../../editor/graph/graph.css";
 import "./animGraphEditor.css";
 
@@ -50,6 +56,7 @@ export function AnimGraphEditor(props: { project: EditorProject; path: string })
   const apply = (result: EditResult<AnimGraph>, label: string) => void applyToDocument(doc, result, label);
   const compiled = useMemo(() => compileAnimGraph(graph), [graph]);
   const problems = useMemo(() => indexProblems(graph, compiled.problems), [graph, compiled]);
+  const live = useLiveDebug(path, graph);
 
   // A view whose machine or state went away (an undo, a rename) falls back to its parent.
   const machineNode = view.kind !== "graph" ? nodeById(graph, view.machine) : undefined;
@@ -99,6 +106,7 @@ export function AnimGraphEditor(props: { project: EditorProject; path: string })
 
   return (
     <AssetDocumentFrame doc={doc} kind="Animation Graph" class="ag-editor">
+      <LiveOverlay.Provider value={live.target ? live.overlay : null}>
       <div class="ag-root" ref={root} tabIndex={-1}>
         <div class="sg-toolbar ag-toolbar">
           <nav class="ag-crumbs" aria-label="Graph path">
@@ -125,6 +133,7 @@ export function AnimGraphEditor(props: { project: EditorProject; path: string })
             )}
           </span>
         </div>
+        {live.live && <DebugBar debug={{ ...live, paused: live.source?.paused ?? false }} />}
         <div class="ag-body">
           <aside class="ag-sidebar" aria-label="Graph panels">
             <div class="ag-tabs" role="tablist">
@@ -133,6 +142,7 @@ export function AnimGraphEditor(props: { project: EditorProject; path: string })
               ))}
             </div>
             <div class="ag-tab-body" role="tabpanel">
+              {tab === "parameters" && live.target && <LiveParameters rows={live.rows} onSet={live.set} requests={live.overlay?.requests} past={live.scrub !== null} />}
               {tab === "parameters" && <GraphParameters graph={graph} apply={apply} readOnly={readOnly} problems={(n) => problems.byParameter.get(n) ?? []} />}
               {tab === "layers" && <LayersPanel graph={graph} apply={apply} readOnly={readOnly} problems={(n) => problems.byLayer.get(n) ?? []} />}
               {tab === "rig" && (
@@ -220,6 +230,7 @@ export function AnimGraphEditor(props: { project: EditorProject; path: string })
           </aside>
         </div>
       </div>
+      </LiveOverlay.Provider>
     </AssetDocumentFrame>
   );
 }

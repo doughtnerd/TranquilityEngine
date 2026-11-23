@@ -13,6 +13,8 @@ import {
   FAMILY_LABELS, OUT, addNode, catalogueEntries, connect, disconnect, inPin, inputPins, kindLabel, moveNodes, nodeById, nodeTitle, pinIndex, removeNodes, whyNotConnect, type Added,
 } from "./graphEditLogic";
 import { worst, type ProblemIndex } from "./problemLogic";
+import { useLiveOverlay } from "../debugger/overlayContext";
+import type { LiveNode } from "../debugger/overlayLogic";
 
 export const NODE_W = 180;
 const HEAD = 28;
@@ -48,6 +50,8 @@ interface PoseSearchItem extends SearchItem { family: GraphFamily; kind: string 
 function NodeView(props: {
   node: GraphNode; at: Point; selected: boolean; output: boolean; flowId: string; readOnly: boolean; problem: "error" | "warning" | null; problemCount: number;
   drag: GraphDragHooks; onDown(e: PointerEvent): void; onPortDown(e: MouseEvent, node: string, port: string, side: "input" | "output"): void; onOpen(): void; detached: string | null;
+  /** The live debugger's state of the node (T52): active, with its weight and phase; undefined when inactive or not debugging. */
+  live?: LiveNode | undefined;
 }) {
   const { node } = props;
   const el = useRef<HTMLDivElement>(null);
@@ -56,7 +60,7 @@ function NodeView(props: {
   return (
     <div
       ref={el}
-      class={`ag-node ag-family-${node.family}${props.selected ? " selected" : ""}${props.problem ? ` ${props.problem}` : ""}`}
+      class={`ag-node ag-family-${node.family}${props.selected ? " selected" : ""}${props.problem ? ` ${props.problem}` : ""}${props.live ? " live-active" : ""}`}
       style={{ left: px(props.at.x), top: px(props.at.y), width: px(NODE_W) }}
       data-node={node.id}
       onPointerDown={(e) => props.onDown(e as unknown as PointerEvent)}
@@ -66,6 +70,7 @@ function NodeView(props: {
       <div class="ag-node-head">
         <span class="ag-node-title">{nodeTitle(node)}</span>
         {props.output && <span class="ag-badge" title="The graph's output">out</span>}
+        {props.live && <span class="ag-badge dbg-live-badge" title={`Weight ${props.live.weight.toFixed(2)}, phase ${props.live.normalized.toFixed(2)} (${props.live.time.toFixed(2)} s)`}>{Math.round(props.live.weight * 100)}%</span>}
         {props.problemCount > 0 && <span class={`ag-badge ${props.problem}`} title={`${props.problemCount} problem${props.problemCount === 1 ? "" : "s"}`}>{props.problemCount}</span>}
         <span {...handleProps(props.flowId, node.id, OUT, "output")} class={`${handleProps(props.flowId, node.id, OUT, "output").class} ag-pin ag-pin-out`} title="Pose" onMouseDown={(e) => props.onPortDown(e, node.id, OUT, "output")} />
       </div>
@@ -80,12 +85,19 @@ function NodeView(props: {
           </div>
         );
       })}
+      {props.live && (
+        <span class="dbg-weight" aria-label={`${nodeTitle(node)} weight ${props.live.weight.toFixed(2)}, phase ${props.live.normalized.toFixed(2)}`}>
+          <span class="dbg-weight-fill" style={{ width: `${Math.min(1, Math.max(0, props.live.weight)) * 100}%` }} />
+          <span class="dbg-phase-mark" style={{ left: `${(props.live.normalized - Math.floor(props.live.normalized)) * 100}%` }} />
+        </span>
+      )}
     </div>
   );
 }
 
 export function PoseCanvas(props: PoseCanvasProps) {
   const { graph, visible, selection, readOnly } = props;
+  const overlay = useLiveOverlay();
   const [dragging, setDragging] = useState<ReadonlyMap<string, Point> | null>(null);
   const [box, setBox] = useState<{ a: Point; b: Point } | null>(null);
   const shown = graph.nodes.map((n, i) => ({ n, i })).filter(({ n }) => !visible || visible.has(n.id));
@@ -237,7 +249,7 @@ export function PoseCanvas(props: PoseCanvasProps) {
           return (
             <NodeView key={n.id} node={n} at={pos(n, i)} selected={selection.has(n.id)} output={graph.output === n.id} flowId={wiring.flowId} readOnly={readOnly}
               problem={worst(ps)} problemCount={ps?.length ?? 0} drag={drag} onDown={(e) => onItemDown(e, n.id)} onPortDown={wiring.onPortDown}
-              onOpen={() => props.onOpenMachine(n.id)} detached={wiring.detached} />
+              onOpen={() => props.onOpenMachine(n.id)} detached={wiring.detached} live={overlay?.nodes.get(n.id)} />
           );
         })}
         <WireRefusal draft={wiring.draft} hint={wiring.hint} />

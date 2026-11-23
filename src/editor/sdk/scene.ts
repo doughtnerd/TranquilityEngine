@@ -53,6 +53,11 @@ export interface SelectionSurface {
   /** The selected bone in the open scene (ADR 0373), or null. Tracks. */
   readonly bone: SelectedBone | null;
   /**
+   * While playing with a live World shown in the Hierarchy and Inspector (ADR 0257): its selected node, or null. Tracks.
+   * Internal tier, like `playWorlds`: a live World's node is engine internals.
+   */
+  live(): GameObject | null;
+  /**
    * Select the bone `bone` of the Skeleton on the node at `path` in the open scene, listed by the `registerSkeletonBones`
    * contribution `provider`: the Inspector shows it (ADR 0242's bone target); the nodes, Assets panel entries and UI
    * element are cleared, and selecting any of them clears the bone.
@@ -81,6 +86,10 @@ export interface SceneSurface {
   readonly playWorlds: readonly World[];
   /** `playWorlds` without tracking. */
   peekPlayWorlds(): readonly World[];
+  /** True while the play session is paused (the play bar's Pause, or a Step); false while running or editing. Tracks. */
+  readonly playPaused: boolean;
+  /** Draws the play session's Worlds again without stepping them (after showing something on them while paused). */
+  redrawPlay(): void;
   readonly selection: SelectionSurface;
   /**
    * Why `target` (the open scene when absent) can't be edited now, or null when it can: no scene, or play mode (the
@@ -155,6 +164,10 @@ export const scene: SceneSurface = {
     return playWorlds.value;
   },
   peekPlayWorlds: () => playWorlds.peek(),
+  get playPaused() {
+    return playing.value?.paused ?? false;
+  },
+  redrawPlay: () => playing.peek()?.redraw(),
   selection: {
     get keys() {
       return selectedKeys.value;
@@ -171,6 +184,10 @@ export const scene: SceneSurface = {
     get bone() {
       const t = inspectorTarget.value;
       return t.kind === "bone" && t.scene === openScene.value ? { path: t.path, bone: t.bone, provider: t.provider } : null;
+    },
+    live() {
+      const t = inspectorTarget.value;
+      return t.kind === "live" ? t.node : null;
     },
     setBone(path, bone, provider) {
       const open = openScene.peek();

@@ -264,6 +264,35 @@ describe("compileAnimGraph", () => {
     expect(out.bindings.map((b) => b.asset)).toEqual(["clip", "posedb", "retargetMap", "graph"]);
   });
 
+  it("names each transition and condition term by its source path, in table order (the debugger's tables, T52)", () => {
+    const m = node("m", "stateMachine", {
+      machine: {
+        entry: "A",
+        states: [
+          state("A", "c", [tr("B", { if: { all: [{ param: "go", op: "==", value: true }, { operand: "stateTime", op: ">", value: 1 }] } }), tr("Nowhere"), tr("B")]),
+          state("B", "c", [tr("A", { if: { request: "Back", op: "==", value: true } })]),
+        ],
+        anyState: [tr("A", { if: { param: "go", op: "!=", value: true } })],
+      },
+    });
+    const out = compileAnimGraph(graphOf([node("c", "clipPlayer", { params: { clip: "asset:a.anim" } }), m], "m", { parameters: [param("go", "bool")] }));
+    // Any-state first, then each state's list; the transition to an unknown state is dropped (and has no index).
+    expect(out.transitions).toEqual([
+      "nodes[1].machine.anyState[0]",
+      "nodes[1].machine.states[0].transitions[0]",
+      "nodes[1].machine.states[0].transitions[2]",
+      "nodes[1].machine.states[1].transitions[0]",
+    ]);
+    // Programs in state order then any-state, prefix order inside each.
+    expect(out.conditions).toEqual([
+      "nodes[1].machine.states[0].transitions[0].if",
+      "nodes[1].machine.states[0].transitions[0].if.all[0]",
+      "nodes[1].machine.states[0].transitions[0].if.all[1]",
+      "nodes[1].machine.states[1].transitions[0].if",
+      "nodes[1].machine.anyState[0].if",
+    ]);
+  });
+
   it("maps D53's fade shapes onto audio's curves", () => {
     // The core's shapes (logic.rs): 0 linear, 1 smooth 3x² − 2x³, 2 ease in x², 3 ease out 1 − (1 − x)².
     const core = [(x: number) => x, (x: number) => 3 * x * x - 2 * x * x * x, (x: number) => x * x, (x: number) => 1 - (1 - x) * (1 - x)];
