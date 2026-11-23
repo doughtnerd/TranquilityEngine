@@ -805,6 +805,37 @@ export function writeWorldInput(engine: Engine, worldName: string, streamId: str
   return _writeSyntheticInput(world, streamId, values);
 }
 
+// --- Input debugger and context assets (ADR 0336, 0337) -------------------------------------------
+
+export {
+  canonicalControlPath,
+  inputActionSets,
+  inputContextNames,
+  inputContextProblems,
+  inputControlPaths,
+  inputState,
+  parseInputRecording,
+  phaseNames,
+  recordInput,
+  watchInput,
+  watchRawPresses,
+  RECORDING_FORMAT,
+  RECORDING_VERSION,
+  type InputRecorder,
+  type InputRecording,
+  type RawPress,
+  type InputActionRow,
+  type InputActionSetInfo,
+  type InputContextRow,
+  type InputDeviceRow,
+  type InputLog,
+  type InputLogEntry,
+  type InputPlayerRow,
+  type InputSourceRow,
+  type InputWorldState,
+  type PendingRebind,
+} from "./inputDebug";
+
 // --- Worlds panel: live connections (ADR 0062) -----------------------------------------------------
 
 /** A live client-to-server connection between two Worlds of one Engine, as the Worlds panel draws it in play. */

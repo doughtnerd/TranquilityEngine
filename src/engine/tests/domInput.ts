@@ -55,7 +55,7 @@ function event(type: string, props: Record<string, unknown>): Event {
 }
 
 /**
- * Keyboard, mouse and wheel through `Input`'s DOM adapter. `DomInput.attach()` attaches `Input` to a
+ * Keyboard, mouse, wheel, fingers and pen through `Input`'s DOM adapter. `DomInput.attach()` attaches `Input` to a
  * stand-in canvas and window, and detaches it when the test finishes. The
  * pointer is in canvas pixels; it starts at (0, 0).
  */
@@ -158,6 +158,60 @@ export class DomInput {
     const e = event("wheel", { deltaX: dx, deltaY: dy, deltaMode });
     this.canvas.dispatchEvent(e);
     return e;
+  }
+
+  private readonly fingers = new Map<number, { x: number; y: number; primary: boolean }>();
+
+  /** A finger touches the canvas at canvas pixels, as pointer `id`; the first finger down while none is down is primary. */
+  touchStart(id: number, x: number, y: number): void {
+    const primary = this.fingers.size === 0;
+    this.fingers.set(id, { x, y, primary });
+    if (primary) this.at(x, y);
+    this.canvas.dispatchEvent(this.touchEvent("pointerdown", id, x, y, primary, 0, 0, 1));
+  }
+
+  /** Finger `id` moves to canvas pixels. */
+  touchMove(id: number, x: number, y: number): void {
+    const f = this.fingers.get(id)!;
+    const [dx, dy] = [x - f.x, y - f.y];
+    f.x = x;
+    f.y = y;
+    if (f.primary) this.at(x, y);
+    this.canvas.dispatchEvent(this.touchEvent("pointermove", id, x, y, f.primary, dx, dy, 1));
+  }
+
+  /** Finger `id` lifts (the window hears it), or the browser cancels it (`pointercancel`). */
+  touchEnd(id: number, cancel = false): void {
+    const f = this.fingers.get(id)!;
+    this.fingers.delete(id);
+    this.window.dispatchEvent(this.touchEvent(cancel ? "pointercancel" : "pointerup", id, f.x, f.y, f.primary, 0, 0, 0));
+  }
+
+  /**
+   * The pen at canvas pixels: `type` `pointermove` (hovering, or dragging with `buttons`),
+   * `pointerdown` (the tip touches) or `pointerup` (the window hears it). `buttons` as
+   * `PointerEvent.buttons` (1 tip, 2 barrel, 32 eraser); tilt and twist in degrees.
+   */
+  pen(type: "pointermove" | "pointerdown" | "pointerup", x: number, y: number, o: { buttons?: number; pressure?: number; tiltX?: number; tiltY?: number; twist?: number } = {}): void {
+    const dx = x - this.x;
+    const dy = y - this.y;
+    this.at(x, y);
+    const buttons = o.buttons ?? (type === "pointerdown" ? 1 : 0);
+    const e = event(type, {
+      pointerType: "pen", pointerId: 9, isPrimary: true, button: type === "pointermove" ? -1 : 0, buttons,
+      clientX: x + this.canvas.left, clientY: y + this.canvas.top, movementX: dx, movementY: dy,
+      pressure: o.pressure ?? (buttons ? 0.5 : 0), tiltX: o.tiltX ?? 0, tiltY: o.tiltY ?? 0, twist: o.twist ?? 0,
+    });
+    (type === "pointerup" ? this.window : this.canvas).dispatchEvent(e);
+  }
+
+  /** The pen leaves the range the canvas senses it in. */
+  penLeave(): void {
+    this.canvas.dispatchEvent(event("pointerleave", { pointerType: "pen", pointerId: 9, isPrimary: true }));
+  }
+
+  private touchEvent(type: string, id: number, x: number, y: number, isPrimary: boolean, dx: number, dy: number, buttons: number): Event {
+    return event(type, { pointerType: "touch", pointerId: id, isPrimary, button: type === "pointermove" ? -1 : 0, buttons, clientX: x + this.canvas.left, clientY: y + this.canvas.top, movementX: dx, movementY: dy, pressure: buttons ? 0.5 : 0 });
   }
 
   /** The window loses focus. */

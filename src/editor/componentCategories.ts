@@ -11,6 +11,7 @@ const ENGINE_CATEGORIES = ["Rendering", "Physics 2D", "Physics 3D", "Navigation"
 /** The category of each built-in component, by its short name (`engine.` stripped). Navigation is by the `Nav` prefix. */
 const BY_NAME: Readonly<Record<string, string>> = {
   Camera: "Rendering",
+  InputContext: "Input",
   MeshRenderer: "Rendering",
   SpriteRenderer: "Rendering",
   Light: "Rendering",
@@ -59,6 +60,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   UIButton: "UI",
   UIInputField: "UI",
   UIDocument: "UI",
+  UIControlMapper: "UI",
 };
 
 /** The category of an engine component id, or null when the table doesn't know it (it lands in Other). */

@@ -1,0 +1,55 @@
+/* The input overlay over the game view (ADR 0336, 0337): top left, opposite Stats. Theme tokens only. */
+.input-overlay {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  max-width: min(340px, calc(100% - 12px));
+  max-height: calc(100% - 52px);
+  overflow: hidden;
+  padding: 4px 22px 4px 8px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: calc(11px * var(--ui-scale));
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  pointer-events: none;
+}
+.input-overlay-close {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  padding: 0 5px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: calc(13px * var(--ui-scale));
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.input-overlay-close:hover { color: var(--text); }
+.input-overlay-world { color: var(--muted); }
+.input-overlay-note { color: var(--muted); font-style: italic; }
+.input-overlay-player { padding-top: 4px; }
+.input-overlay-player + .input-overlay-player { margin-top: 4px; border-top: 1px solid var(--border); }
+.input-overlay-head { display: flex; align-items: baseline; gap: 6px; }
+.input-overlay-name { font-weight: 600; }
+.input-overlay-family { color: var(--muted); }
+.input-overlay-rebind { color: var(--accent); }
+.input-overlay-contexts { display: flex; flex-wrap: wrap; gap: 2px 8px; margin: 1px 0 2px; }
+.input-overlay-context { display: inline-flex; align-items: baseline; gap: 3px; }
+.input-overlay-priority { min-width: 16px; padding: 0 3px; border-radius: 3px; background: var(--active); text-align: center; }
+.input-overlay-actions { border-collapse: collapse; }
+.input-overlay-actions th { padding: 0 6px 0 0; font-weight: normal; text-align: left; white-space: nowrap; }
+.input-overlay-actions td { padding: 0 6px 0 0; white-space: nowrap; }
+.input-overlay-actions tr:not(.active) { color: var(--muted); }
+.input-overlay-track { display: inline-block; width: 36px; height: 5px; border-radius: 3px; background: var(--bg-sunken); overflow: hidden; vertical-align: middle; }
+.input-overlay-fill { display: block; height: 100%; background: var(--accent); }
+.input-overlay-value { text-align: right; }
+.input-overlay-phases { display: flex; gap: 2px; }
+.input-overlay-badge { padding: 0 3px; border-radius: 5px; font-size: calc(9px * var(--ui-scale)); line-height: 13px; }
+.input-overlay-badge.level { background: var(--badge); color: var(--badge-text); }
+.input-overlay-badge.edge { background: var(--accent2-soft); color: var(--text); }
+.input-overlay-presses { color: var(--muted); font-family: var(--font-code); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

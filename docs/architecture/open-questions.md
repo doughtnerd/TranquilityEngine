@@ -14,7 +14,7 @@ All decision records 0001–0024 are Accepted as of 2026-10-31.
 | O4 | Buffer read timing: same frame only, or double-buffered | Same frame by default; opt-in double buffering | [0017](../decisions/0017-user-systems-and-data-components.md) |
 | O5 | Data component field types beyond numbers (strings, node refs, enums) | Allow, stored as references, serialized per 0013 | [0017](../decisions/0017-user-systems-and-data-components.md) |
 | O6 | Cancel one async flow without disabling the behavior | `this.run(async …)` returning a cancellable task | [0018](../decisions/0018-promise-based-waits.md) |
-| O7 | UI theming/styling model; gamepad/keyboard UI navigation | — | [0020](../decisions/0020-in-canvas-ui-with-uikit.md) |
+| O7 | UI theming/styling model; ~~gamepad/keyboard UI navigation~~ (navigation: [0340](../decisions/0340-game-ui-has-keyboard-and-gamepad-focus-navigation-driven-by-ui-actions.md)) | — | [0020](../decisions/0020-in-canvas-ui-with-uikit.md) |
 | O8 | Per-scene physics overrides (gravity, timestep) or World-only | World-only for v1 | [0016](../decisions/0016-world-root-and-scenes-as-nodes.md) |
 | O9 | Whether `addChildBehavior` is the default for colliders in docs/templates | — | [0009](../decisions/0009-components-attached-or-as-child-nodes.md) |
 | O10 | 2D games: stereo panning by x position by default | — | [0006](../decisions/0006-audio-howler-and-three.md) |

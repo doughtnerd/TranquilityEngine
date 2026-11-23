@@ -10,7 +10,7 @@ const fields = (input: Record<string, unknown>) => settingsIssues(input).problem
 
 describe("runtime settings sections", () => {
   it("declare every key the engine reads, with a default that is what an absent section parses to", () => {
-    expect(Object.keys(RUNTIME_SETTINGS)).toEqual(["name", "display", "time", "physics", "render", "graphics", "navigation", "audio", "autoload", "plugins"]);
+    expect(Object.keys(RUNTIME_SETTINGS)).toEqual(["name", "display", "time", "physics", "render", "graphics", "navigation", "audio", "input", "autoload", "plugins"]);
     for (const section of Object.values(RUNTIME_SETTINGS)) {
       expect(section.parse(undefined)).toEqual({ value: section.default, problems: [], warnings: [] });
     }

@@ -1,0 +1,10 @@
+[package]
+name = "input-map"
+description = "Gamepad families, browser gamepad ids and the SDL controller database for Myco's input (ADR 0335)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+# db/gamecontrollerdb.txt is SDL_GameControllerDB's (zlib licence, db/LICENSE.txt); ../../update-db.mjs refreshes it.
+
+[dependencies]

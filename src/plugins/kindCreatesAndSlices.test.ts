@@ -20,6 +20,7 @@ describe("the New… menu's file entries (ADR 0149)", () => {
     expect(kindCreators().map((c) => [c.kind, c.label])).toEqual([
       ["scene", "New Scene"],
       ["rendertexture", "New Render Texture"],
+      ["inputContext", "New Input Context"],
     ]);
   });
 

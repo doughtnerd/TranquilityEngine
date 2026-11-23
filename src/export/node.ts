@@ -89,7 +89,8 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   if (!desktop) return { out, web, plan };
 
   const settings = project.settings as typeof project.settings & { build?: BuildSettings };
-  const files = desktopProjectFiles({ name: plan.manifest.name, settings });
+  const gamepadModule = await readFile(join(REPO, "src-tauri", "src", "gamepad.rs"), "utf8");
+  const files = desktopProjectFiles({ name: plan.manifest.name, settings, gamepadModule });
   const tauriDir = join(out, "src-tauri");
   for (const [path, text] of files) await folder.writeText(`src-tauri/${path}`, text);
   await makeIcons(project.root, settings.build?.icon, folder, tauriDir, log);
@@ -102,6 +103,8 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
     log("Running tauri build (the first build compiles Tauri, which takes a few minutes)…");
     built = (await run(process.execPath, [tauriCli(), "build"], out)) === 0;
     if (!built) throw new ExportError(`tauri build failed (its output is above). The Tauri project is in ${tauriDir}; README.txt says how to build it.`);
+  } else if (options.tauriBuild === false) {
+    log("The app wasn't built (--no-build). README.txt in the output folder says how to build it.");
   } else {
     log("Rust (cargo) isn't installed, so the app wasn't built. README.txt in the output folder says how to build it.");
   }
@@ -115,7 +118,10 @@ const basename = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? 
 async function ensurePlayer(log: (line: string) => void): Promise<string> {
   if (existsSync(join(DEFAULT_PLAYER, PLAYER_FILE_LIST))) return DEFAULT_PLAYER;
   log("The player isn't built yet: building it (npm run build:player)…");
-  const vite = createRequire(join(REPO, "package.json")).resolve("vite/bin/vite.js");
+  // Vite's package exports don't include its bin script; find it through its package.json's `bin`.
+  const vitePackage = createRequire(join(REPO, "package.json")).resolve("vite/package.json");
+  const { bin } = JSON.parse(await readFile(vitePackage, "utf8")) as { bin: string | Record<string, string> };
+  const vite = join(dirname(vitePackage), typeof bin === "string" ? bin : bin.vite);
   const code = await run(process.execPath, [vite, "build", "--config", "vite.player.config.ts", "--logLevel", "warn"], REPO);
   if (code !== 0 || !existsSync(join(DEFAULT_PLAYER, PLAYER_FILE_LIST))) throw new ExportError("Couldn't build the player (npm run build:player).");
   return DEFAULT_PLAYER;
