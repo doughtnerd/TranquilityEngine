@@ -42,7 +42,7 @@ import { PlaylistHistoryScope } from "./PlaylistHistoryScope";
 import { PlaylistEditor } from "./PlaylistEditor";
 import { PlaylistInspector } from "./PlaylistInspector";
 import { addEntries, duplicateEntry, removeEntry, setAutomation, setEntryUse, sampleEntry } from "./playlistEdits";
-import { breadcrumb, childPath, editAt, effectiveOutput, entryName, filePath, pathTarget, playlistTitle, whereOf, type PlaylistPath } from "./playlistPaths";
+import { breadcrumb, childPath, editAt, effectiveOutput, entryName, filePath, pathTarget, playlistTitle, sampleTitle, whereOf, type PlaylistPath } from "./playlistPaths";
 import {
   adding, allParameters, askDelete, askDeleteFolder, deleteFolderKeepingContents, deletingFolder, audioNow, auditioning, busNames, confirmDelete, deleting, docFor, duplicatePlaylistFiles, editContext, editFile, editOpen, followRoute,
   linkedBy, loadPlaylist, logCursor, makeShared, moveToFolder, newPlaylist, newPlaylistFolder, newPlaylistFromSamples, newSequence, openBody, openDoc, openFile, openLints, openPath, openPlaylist,
@@ -182,12 +182,18 @@ function addSample(path: string): void {
 
 function LibraryPanel() {
   void docVersion.value;
+  const files = currentProject.value?.files ?? [];
+  const sources = projectSources();
   const body = openBody.value;
   const addTo = body && body.type !== "sequence" ? lastCrumbName() : null;
   return (
     <Panel bodyClass="pl-panel-body">
       <PlaylistHistoryScope doc={openDoc.value}>
-      <LibraryList files={currentProject.value?.files ?? []} addTo={addTo} previewing={previewing.value?.path ?? null} onPreview={preview} onAdd={addSample} onOpenSamples={() => openRoute({ screen: "samples" })} onCreatePlaylist={(paths) => void newPlaylistFromSamples(paths)} writable={writable()} extra={(query) => <GeneratorLibraryPanel query={query} />} />
+      <LibraryList files={files} addTo={addTo} previewing={previewing.value?.path ?? null} onPreview={preview} onAdd={addSample} onOpenSamples={(sample) => openRoute({ screen: "samples", ...(sample ? { asset: sample } : {}) })}
+        onCreatePlaylist={(paths) => void newPlaylistFromSamples(paths)} writable={writable()} extra={(query) => <GeneratorLibraryPanel query={query} />}
+        playlists={files.filter((f) => { const b = isPlaylistPath(f) ? loadPlaylist(f) : null; return !!b && b.type !== "sequence" && b.type !== "clip"; })}
+        onAddTo={(playlist, sample) => editFile(playlist, `Add ${sampleTitle(sample)}`, (r) => editAt(r, [], (b) => addEntries(b, [sampleEntry(b, sample)], editContext.peek())))}
+        factsOf={(path) => { const f = sources({ sample: path } as never); return { peaks: projectPeaks(path), length: f?.length ?? null, loops: (f?.loops.length ?? 0) > 0 }; }} />
       </PlaylistHistoryScope>
     </Panel>
   );

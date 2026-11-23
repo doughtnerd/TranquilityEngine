@@ -120,6 +120,20 @@
 .pl-lib-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-play { display: inline-grid; place-items: center; flex: none; background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 50%; width: 20px; height: 20px; padding: 0; font-size: calc(9px * var(--ui-scale)); }
 .pl-play.on, .pl-play:hover { color: var(--accent); border-color: var(--accent); }
+/* Folder rows (`.lfold`) and sample rows with a 72 × 36 waveform thumbnail (`.lwv`) that previews (B1, B2). */
+.pl-lfold { display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 8px; border: 0; background: none; color: var(--text); font: inherit; font-size: calc(12px * var(--ui-scale)); text-align: left; cursor: pointer; }
+.pl-lfold:hover { background: var(--hover); }
+.pl-lfold .studio-glyph { color: var(--muted); flex: none; }
+.pl-library .pl-lib-row { padding: 3px 8px 3px 24px; gap: 8px; }
+.pl-lwv { position: relative; flex: none; width: 72px; height: 36px; padding: 0; border: 0; border-radius: 3px; background: var(--bg); overflow: hidden; cursor: pointer; }
+.pl-lwv svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.pl-lwv path { fill: var(--badge-text); opacity: 0.6; }
+.pl-lpi { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-strong); opacity: 0.55; filter: drop-shadow(0 0 2px var(--bg)); }
+.pl-lwv:hover .pl-lpi, .pl-lwv.on .pl-lpi { opacity: 1; }
+.pl-lph { position: absolute; top: 0; bottom: 0; left: 0; width: 1.5px; background: var(--accent); box-shadow: 0 0 4px var(--accent); animation: pl-lph 2s linear forwards; }
+@keyframes pl-lph { from { left: 0; } to { left: 100%; } }
+.pl-lsn { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 16px; }
+.pl-lsn .pl-u { font-variant-numeric: tabular-nums; }
 
 /* Nothing open (T15): the spec's card. */
 .pl-nothing { max-width: 440px; margin: 64px auto; padding: 0 16px; display: flex; flex-direction: column; gap: 8px; font-size: calc(12px * var(--ui-scale)); color: var(--muted); }
