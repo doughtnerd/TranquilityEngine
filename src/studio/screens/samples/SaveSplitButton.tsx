@@ -29,8 +29,8 @@ export function SaveSplitButton(props: SaveSplitButtonProps) {
     f();
   };
   return (
-    <span class="smp-split" role="group" aria-label="Save">
-      <button class="smp-tool smp-tool-icon smp-split-main" disabled={!props.canSave} title={`Save the sample's edits now (${props.saveKeys}); they also save on their own. The audio file isn't changed.`} aria-keyshortcuts="Control+S" onClick={props.onSave}>
+    <span class="smp-split" role="group" aria-label="Saving">
+      <button class="smp-tool smp-tool-icon smp-split-main" aria-label="Save" disabled={!props.canSave} title={`Save the sample's edits now (${props.saveKeys}); they also save on their own. The audio file isn't changed.`} aria-keyshortcuts="Control+S" onClick={props.onSave}>
         <Icon name="check" />
         <span class="smp-hide-narrow">Save</span>
       </button>
