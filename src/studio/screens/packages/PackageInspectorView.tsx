@@ -2,6 +2,7 @@
 // its size and memory for the chosen platform against the budgets, the project's Strict rule, and the scripts naming
 // packages that don't exist (the lint of `Audio.package("…")`). A view over props.
 import { EmptyState } from "../../../editor/ui/EmptyState";
+import { Icon } from "../../components/Icon";
 import { ENCODING_PLATFORMS } from "../../../engine/audio/encoding/defaults";
 import type { PackageDef } from "../../../engine/audio/packaging/definitions";
 import type { ImportPlatform } from "../../../engine/scene/importSettings";
@@ -31,7 +32,7 @@ export function PackageInspectorView(props: PackageInspectorViewProps) {
   return (
     <div class="pk-inspector">
       {!d ? (
-        <EmptyState compact title="No package selected" body="A package's preload, platforms and totals." />
+        <EmptyState compact title="No package selected" icon={<Icon name="packages" size={28} />} body="A package's preload, platforms and totals." />
       ) : (
         <section aria-label={`${d.name} settings`}>
           <h3 class="smp-insp-title">{d.name}</h3>

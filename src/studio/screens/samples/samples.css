@@ -171,4 +171,66 @@
 .enc-readouts th, .enc-readouts td { text-align: left; padding: 2px 4px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .enc-readouts thead th { color: var(--muted); font-weight: normal; }
 .enc-readouts tr.current { background: var(--hover); }
-.enc-foot { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.enc-foot { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* ADR 0361: icons, touch, small widths and focus. */
+.smp-tool-icon { display: inline-flex; align-items: center; gap: 4px; }
+.smp-icon-button { display: inline-flex; align-items: center; justify-content: center; min-width: calc(26px * var(--ui-scale)); padding: 2px 4px; }
+.smp-ellipsis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.smp-menu-check { display: inline-flex; align-items: center; justify-content: center; }
+.smp-toplevel { display: flex; align-items: center; gap: 6px; }
+.smp-banner { flex-wrap: wrap; }
+.smp-banner span { min-width: 12em; }
+.smp-marker-label { display: inline-flex; align-items: center; gap: 2px; }
+.smp-zoom-pct { min-width: 3.5em; text-align: right; font-variant-numeric: tabular-nums; }
+.smp-range:focus-visible, .smp-outline-group li:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.smp-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; border-radius: 2px; }
+.smp-outline-group li > .smp-ellipsis { flex: 1; }
+
+/* Toolbars follow their own width: the text of a button that has an icon goes first (its name stays). */
+.smp-timeline > .panel-toolbar, .smp-library > .panel-toolbar { container-type: inline-size; min-width: 0; }
+.smp-toolbar > *, .smp-library-bar > * { min-width: 0; }
+.smp-tool .smp-ellipsis { max-width: 14ch; }
+@container (max-width: 560px) {
+  .smp-toolbar .smp-hide-narrow { display: none; }
+  .smp-file { max-width: 100%; flex: 1 1 100%; }
+}
+@container (max-width: 240px) {
+  .smp-library-bar .smp-hide-narrow { display: none; }
+}
+
+/* Panels from about 280px wide up. */
+.smp-seam-head > b { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.smp-fx-head { flex-wrap: wrap; min-width: 0; }
+.smp-fx-head .smp-check { min-width: 0; }
+.smp-fx-head .smp-check b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.smp-fx-param { grid-template-columns: minmax(0, 90px) minmax(0, 1fr) minmax(0, 70px); }
+.smp-flatten, .smp-edits-bar, .smp-add-fx, .smp-insp-head, .smp-source-head, .smp-kinds-bar { flex-wrap: wrap; }
+.smp-add-fx select { min-width: 0; max-width: 100%; }
+.smp-diff { grid-template-columns: minmax(0, 70px) minmax(0, 1fr) auto; }
+.smp-insp-body .fld > *, .smp-dialog .fld > * { min-width: 0; }
+.smp-insp-body .fld :is(input:not([type="checkbox"]), select, textarea) { max-width: 100%; box-sizing: border-box; }
+.enc-section { min-width: 0; }
+.enc-readouts { display: block; overflow-x: auto; }
+.smp-merge li, .smp-versions li { flex-wrap: wrap; }
+.smp-write { display: block; overflow-x: auto; }
+
+/* Popovers and dialogs stay inside a phone's screen. */
+.smp-popover { max-width: min(340px, calc(100vw - 16px)); min-width: min(240px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); overflow-y: auto; box-sizing: border-box; }
+.smp-dialog { width: min(520px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); box-sizing: border-box; }
+.smp-form label, .smp-form-row, .smp-tap { flex-wrap: wrap; }
+.smp-form :is(input:not([type="checkbox"]), select) { min-width: 0; max-width: 100%; }
+
+@media (pointer: coarse) {
+  .smp-icon-button { min-width: 36px; }
+  .smp-swatch { width: 28px; height: 28px; }
+  .smp-looprow, .smp-trimrow { height: 32px; }
+  .smp-region-label { line-height: 26px; }
+  .smp-range { height: 20px; border-radius: 10px; }
+  .smp-range-thumb { border-radius: 10px; min-width: 28px; }
+  .smp-menu button { min-height: 40px; align-items: center; }
+  /* The handles' hit areas reach past their thin marks. */
+  .smp-trim-handle { position: relative; }
+  .smp-trim-handle::before, .smp-marker-end::before { content: ""; position: absolute; inset: -6px -10px; }
+  .smp-marker::before { content: ""; position: absolute; left: -10px; width: 20px; top: 0; bottom: 0; }
+}
