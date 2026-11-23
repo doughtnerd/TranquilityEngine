@@ -3,6 +3,8 @@
 // the Snap split button, through each module's own interface.
 import { describe, expect, it } from "vitest";
 import { adsrShape, adsrTip, clipAdsr, dragAdsr } from "./adsrModel";
+import { pasteCurves, setDrivenBy } from "./automationEdits";
+import { moveEffectToTrack, sharedClipEffect } from "./sequenceEdits";
 import { sequenceReadout } from "./readoutModel";
 import { fixtureSequence, fixtureSource } from "./sequenceFixture";
 import { keepTaps, snapLabel, snapPresets, tapTempo, toggleSnap, DEFAULT_SNAP } from "./sequenceGrid";
@@ -93,6 +95,35 @@ describe("the Parameters panel's uses", () => {
     expect([...parameterUses(seq, fixtureSource)]).toEqual([["brake", ["Skid · brake_skid"]]]);
     expect(useChip(["Skid · brake_skid", "Loop 2"])).toEqual({ text: "2 uses", title: "Used by Skid · brake_skid, Loop 2", used: true });
     expect(useChip(undefined).text).toBe("unused");
+  });
+});
+
+describe("curves and effects from the Inspector", () => {
+  it("pastes copied curves onto another owner, reading its own time; skips targets it can't automate", () => {
+    const lane = c("c1").automation[0]!;
+    const r = pasteCurves(seq, { clip: "c2" }, [lane, { ...lane, id: "x", target: "fx:fx1:cutoff" }]);
+    expect("next" in r && findClip(r.next, "c2")!.clip.automation.map((a) => [a.target, a.input, a.curve.length])).toEqual([["volume", "clipTime", 4]]);
+    expect("refused" in pasteCurves(seq, { clip: "c2" }, [{ ...lane, target: "fx:fx1:cutoff" }])).toBe(true);
+  });
+
+  it("reseeds a lane flat over its new axis when what drives it changes", () => {
+    const r = setDrivenBy(seq, { track: "t1" }, "a1", { parameter: "brake" }, 0, 1);
+    expect("next" in r && r.next.tracks[0]!.automation[0]).toMatchObject({ input: { parameter: "brake" }, curve: [[0, 0], [1, 0]] });
+    const back = setDrivenBy(seq, { track: "t1" }, "a1", "voiceTime", 0, 6);
+    expect("next" in back && back.next.tracks[0]!.automation[0]!.input).toBe("sequenceTime");
+  });
+
+  it("finds the effect every clip on a track has and moves it to the track, with its curves", () => {
+    const fx = { id: "fx1", type: "lowpass", on: true, params: { cutoff: 900 } };
+    const t = { ...seq.tracks[1]!, clips: [{ ...c("c2"), effects: [fx], automation: [{ id: "a", target: "fx:fx1:cutoff" as const, input: "clipTime" as const, curve: [[0, 1]] as [number, number][], bypass: false }] }, { ...c("c2"), id: "c9", effects: [{ ...fx, params: { cutoff: 300 } }] }] };
+    expect(sharedClipEffect(t)).toBe("lowpass");
+    expect(sharedClipEffect({ ...t, clips: [t.clips[0]!, { ...c("c2"), id: "c8" }] })).toBeNull();
+    const s2 = { ...seq, tracks: [seq.tracks[0]!, t] };
+    const r = moveEffectToTrack(s2, "t2", "lowpass");
+    if (!("next" in r)) throw new Error(r.refused);
+    const moved = r.next.tracks[1]!;
+    expect(moved.effects.map((e) => [e.type, e.params.cutoff])).toEqual([["lowpass", 900]]);
+    expect(moved.clips.every((x) => x.effects.length === 0 && x.automation.length === 0)).toBe(true);
   });
 });
 

@@ -8,8 +8,8 @@ import { allClips, clipLength, type SourceOf } from "./sequenceModel";
 
 /** Track header width, px (proto: 168). */
 export const HEADER_WIDTH = 168;
-export const TRACK_HEIGHT = 58;
-export const LANE_HEIGHT = 34;
+export const TRACK_HEIGHT = 68;
+export const LANE_HEIGHT = 54;
 /** Pointer travel before a press becomes a drag (proto: 3 px). */
 export const DRAG_THRESHOLD = 3;
 
@@ -125,4 +125,41 @@ export function snapEdges(s: SequenceSettings, sourceOf: SourceOf, length: numbe
 export function zoomToSpan(a: number, b: number, limit: number): TimeSpan {
   const pad = Math.max(0.05, (b - a) * 0.08);
   return clampTimeline({ start: a - pad, end: b + pad }, limit);
+}
+
+/** The zoom readout under the tracks: the share of the fitted view now shown ("100%", "400%"). */
+export const zoomPercent = (view: TimeSpan, length: number): number => Math.round(((fitTimeline(length).end - fitTimeline(length).start) / Math.max(1e-9, view.end - view.start)) * 100);
+
+const SECOND_STEPS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
+const SAMPLE_STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000];
+const BAR_STEPS = [1, 2, 4, 8, 16, 32, 64];
+
+/**
+ * The ruler's labelled ticks (proto A2 `.ruler`: short labels at a nice step, about one per 90 px): "0", "600 ms" under a
+ * tenth of a second, "1.2 s"; sample counts ("48,000"); bar numbers in the bars display ("1", "2"…, never beats).
+ */
+export function rulerMarks(view: TimeSpan, width: number, format: "timecode" | "samples" | "bars", ctx: { readonly rate: number; readonly bpm: number | null; readonly meter: string | null }): { readonly t: number; readonly label: string }[] {
+  const span = view.end - view.start;
+  if (!(span > 0) || width <= 0) return [];
+  const want = Math.max(2, Math.floor(width / 90));
+  const pick = (steps: readonly number[], unit: number) => steps.find((s) => span / (s * unit) <= want) ?? steps[steps.length - 1]!;
+  const out: { t: number; label: string }[] = [];
+  if (format === "bars" && ctx.bpm) {
+    const bar = (60 / ctx.bpm) * (Number((ctx.meter ?? "4/4").split("/")[0]) || 4);
+    const step = pick(BAR_STEPS, bar);
+    for (let b = Math.ceil(view.start / (bar * step)) * step; b * bar <= view.end + 1e-9; b += step) out.push({ t: b * bar, label: String(b + 1) });
+    return out;
+  }
+  if (format === "samples") {
+    const step = pick(SAMPLE_STEPS, 1 / ctx.rate);
+    for (let n = Math.ceil((view.start * ctx.rate) / step) * step; n / ctx.rate <= view.end + 1e-9; n += step) out.push({ t: n / ctx.rate, label: n.toLocaleString("en-US") });
+    return out;
+  }
+  const step = pick(SECOND_STEPS, 1);
+  const decimals = step >= 1 ? 0 : step === 0.25 || step < 0.1 ? (step < 0.01 ? 3 : 2) : 1;
+  for (let i = Math.ceil(view.start / step - 1e-9); i * step <= view.end + 1e-9; i++) {
+    const t = Math.round(i * step * 1e6) / 1e6;
+    out.push({ t, label: t === 0 ? "0" : step < 0.1 && t < 1 ? `${Math.round(t * 1000)} ms` : `${t.toFixed(decimals)} s` });
+  }
+  return out;
 }

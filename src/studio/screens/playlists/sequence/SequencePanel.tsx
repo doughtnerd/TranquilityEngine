@@ -7,11 +7,12 @@ import type { PlaylistLint } from "../../../../engine/audio/playlist/lint";
 import type { PlaylistBody } from "../../../../engine/audio/playlist/types";
 import { openRoute, toasts } from "../../../shell/studioServices";
 import type { Crumb, PlaylistPath } from "../playlistPaths";
-import { allParameters, busNames, loadPlaylist, target } from "../playlistsScreen";
+import { allParameters, busNames, loadPlaylist, setTestValue, target, testValues } from "../playlistsScreen";
 import { newPlaylistParameter } from "../newParameter";
 import { SequenceInspector } from "./SequenceInspector";
 import type { BodyEdit } from "./sequenceModel";
-import { projectPeaks, projectSources } from "./sequenceSources";
+import { SequenceParameters } from "./SequenceParameters";
+import { projectPcm, projectPeaks, projectSources } from "./sequenceSources";
 import { SequenceView } from "./SequenceView";
 
 const notify = (text: string) => void toasts.show({ text, kind: text.startsWith("Can't") ? "error" : "info" });
@@ -43,13 +44,31 @@ export function SequencePanel(props: SequencePanelProps) {
       lints={props.lints}
       sourceOf={projectSources()}
       peaksOf={projectPeaks}
+      pcmOf={projectPcm}
       loadPlaylist={loadPlaylist}
       parameters={allParameters.value}
+      parameterValues={testValues.value}
       onNewParameter={newPlaylistParameter}
       buses={busNames.value}
       back={parent ? { name: parent.name, open: () => props.onCrumb(parent.path) } : undefined}
+      onOpenSample={(sample) => openRoute({ screen: "samples", asset: sample })}
+      onOpenPlaylist={(path) => openRoute({ screen: "playlists", asset: path })}
       onEdit={props.onEdit}
       onNotify={notify}
+    />
+  );
+}
+
+/** The Parameters panel while a sequence is open: the parameters it uses, their test values, and Held. */
+export function SequenceParametersPanel(props: { readonly body: PlaylistBody; readonly writable: boolean }) {
+  return (
+    <SequenceParameters
+      seq={props.body.sequence!}
+      sourceOf={projectSources()}
+      parameters={allParameters.value}
+      values={testValues.value}
+      onValue={(name, v) => setTestValue(name, v)}
+      onNewParameter={props.writable ? () => void newPlaylistParameter() : undefined}
     />
   );
 }
