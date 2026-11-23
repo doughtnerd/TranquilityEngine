@@ -34,7 +34,7 @@
 .pf-title-meta { color: var(--muted); font-size: calc(12px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
 
 /* Timeline */
-.pf-timeline { --pf-head: 150px; --run-head: var(--pf-head); display: flex; flex-direction: column; min-width: 0; padding-bottom: 8px; }
+.pf-timeline { --pf-head: 168px; --run-head: var(--pf-head); display: flex; flex-direction: column; min-width: 0; padding-bottom: 8px; }
 .pf-tracks { position: relative; }
 .pf-track { display: grid; grid-template-columns: var(--pf-head) 1fr; border-bottom: 1px solid var(--border); min-height: 22px; }
 .pf-track-head { display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 2px 8px; background: var(--panel); border-right: 1px solid var(--border); min-width: 0; }
@@ -189,8 +189,8 @@ button.pf-wn:focus-visible { outline: 2px solid var(--focus-ring); outline-offse
 
 /* Record: the player bar's transport button, its dot in the danger colour while it can record */
 .pf-record { display: contents; }
-.pf-record .studio-transport-button:not(:disabled) .studio-glyph { color: var(--danger); }
-.pf-record.on .studio-transport-button { background: var(--danger-soft); border-color: var(--danger); }
+.pf-record .studio-transport-button:disabled { opacity: 0.35; }
+.pf-record.on .studio-transport-button, .pf-record.on .studio-transport-button .studio-glyph { color: var(--danger); }
 
 /* Narrow (a phone's single panel, a side dock): the track names take less room, the effects legend goes (each line
    keeps its colour and the track's value names them) and messages tighten (ADR 0361). */
