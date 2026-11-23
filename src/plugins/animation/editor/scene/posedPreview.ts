@@ -22,6 +22,8 @@ import { normalizedTimeAt, type PlayRange } from "./posedPreviewLogic";
 /** Versions kept in the served source (older ones are dropped; an Animator holding one keeps its loaded copy). */
 const KEPT = 8;
 const ROOT = ".clip-preview";
+/** Every served version of every preview gets its own number: an Animator that outlives a preview's files never meets a path again. */
+let versions = 0;
 
 /** A clip ready to play on the preview: where it is served, how long it is, and the part of it the playhead spans. */
 export interface PreviewClip {
@@ -36,12 +38,11 @@ export class PreviewClipFiles {
   private readonly files = new Map<string, unknown>();
   private readonly byContent = new Map<string, string>();
   private readonly source: AssetSource = { has: (p) => this.files.has(p), get: (p) => this.files.get(p), paths: () => this.files.keys() };
-  private version = 0;
 
   private serve(content: string, name: string, value: unknown): string {
     const known = this.byContent.get(content);
     if (known !== undefined && this.files.has(known)) return known;
-    const path = `${ROOT}/${++this.version}/${name}`;
+    const path = `${ROOT}/${++versions}/${name}`;
     this.files.set(path, value);
     this.byContent.set(content, path);
     while (this.files.size > KEPT) {

@@ -261,6 +261,33 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
       stop();
     });
 
+    it("posed preview (T18b): steps a World of the plugin's nodes every frame until it stops, and draws what the World holds", async () => {
+      vi.useFakeTimers();
+      try {
+        const worlds = new Set<unknown>();
+        const frame = vi.fn((world: unknown) => void worlds.add(world));
+        const scene = { format: "myco.scene@5", nodes: [{ id: "a", name: "Cube", components: [{ type: "engine.Transform", data: {} }, { type: "engine.MeshRenderer", data: { mesh: "builtin:cube" } }] }] };
+        const preview = renderer.previewPosed({ key: "cube", scene, frame }, target(300, 200));
+        await vi.advanceTimersByTimeAsync(100);
+        expect(await preview.ready).toBe(true);
+        await vi.advanceTimersByTimeAsync(200);
+        expect(frame.mock.calls.length).toBeGreaterThan(2); // asked before each frame's step
+        expect(worlds.size).toBe(1); // one World, the preview's
+        preview.orbit(0.5, 0.1);
+        preview.stop();
+        const calls = frame.mock.calls.length;
+        await vi.advanceTimersByTimeAsync(300);
+        expect(frame.mock.calls.length).toBe(calls); // stopped: nothing steps any more
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("reports a posed preview with nothing to draw as not ready", async () => {
+      const scene = { format: "myco.scene@5", nodes: [{ id: "a", name: "A", components: [] }] };
+      expect(await renderer.previewPosed({ key: "empty", scene }, target()).ready).toBe(false);
+    });
+
     it("reports a preview that can't be drawn as not ready", async () => {
       expect(await renderer.preview("prefab", "empty.prefab.json", target()).ready).toBe(false);
     });

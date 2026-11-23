@@ -3,16 +3,16 @@
 // retargeted clip" retargets the clip onto this model with the draft's profile and bone map (so a map set above is used
 // before it is applied) and writes it beside the model as a compiled clip (`retargetLogic.ts`).
 //
-// Not yet: posing the previews. The live preview renders models in the thumbnail renderer's own scene, which has no World,
-// so nothing evaluates a clip there (T18 found the same for the clip preview): both rigs show at rest, and the bake is the
-// way to see the result (play the written clip on an Animator).
+// The side-by-side preview poses both models at one playhead (T18b, `RetargetPreview.tsx`): the source plays its clip, the
+// target the clip retargeted onto it, before anything is baked.
 import { useState } from "preact/hooks";
-import { LargePreview, editor, AssetPicker, type ImportSettingsViewProps } from "../../../../editor/sdk";
+import { editor, AssetPicker, type ImportSettingsViewProps } from "../../../../editor/sdk";
 import { describeReport } from "../clipImport/clipImportLogic";
 import { animationOf, workingBoneMap } from "./animationDraft";
 import { readProfile, useModelAnimation } from "./modelAnimation";
 import { bakeRetargetedClip, sideProblem, type BakeOutcome } from "./retargetLogic";
 import { projectRetargetEnv } from "./retargetEnv";
+import { RetargetPreview } from "./RetargetPreview";
 import "./skeleton.css";
 
 /** The source model and clip last chosen for a model, this session. */
@@ -42,16 +42,16 @@ export function RetargetPanel(props: ImportSettingsViewProps) {
   const clip = sourceClips.includes(pick.clip) ? pick.clip : (sourceClips[0] ?? "");
   const sourceProfile = src?.skeleton ? readProfile(src.skeleton.profile) : null;
 
-  // Why the bake can't run yet, shown on the button.
-  let why: string | null = null;
-  if (readOnly) why = readOnly;
-  else if (!pick.source) why = "Choose the model whose clip to retarget.";
-  else if (source.state === "loading") why = "Loading the source model…";
-  else if (!src?.skeleton) why = `${editor.assets.fileName(pick.source)} has no skeleton.`;
-  else if (clip === "") why = `${editor.assets.fileName(pick.source)} has no clips.`;
-  else if (!targetProfile) why = `The skeleton profile ${anim.profile} can't be read.`;
-  else if (!sourceProfile) why = `The source's skeleton profile ${src.skeleton.profile} can't be read.`;
-  else why = sideProblem("source", sourceProfile, src.boneMap, src.skeleton.bones.map((b) => b.name)) ?? sideProblem("target", targetProfile, map, target.bones.map((b) => b.name));
+  // Why the retarget can't run yet (the preview and the bake), shown on the button.
+  let problem: string | null = null;
+  if (!pick.source) problem = "Choose the model whose clip to retarget.";
+  else if (source.state === "loading") problem = "Loading the source model…";
+  else if (!src?.skeleton) problem = `${editor.assets.fileName(pick.source)} has no skeleton.`;
+  else if (clip === "") problem = `${editor.assets.fileName(pick.source)} has no clips.`;
+  else if (!targetProfile) problem = `The skeleton profile ${anim.profile} can't be read.`;
+  else if (!sourceProfile) problem = `The source's skeleton profile ${src.skeleton.profile} can't be read.`;
+  else problem = sideProblem("source", sourceProfile, src.boneMap, src.skeleton.bones.map((b) => b.name)) ?? sideProblem("target", targetProfile, map, target.bones.map((b) => b.name));
+  const why = readOnly || problem;
 
   const bake = async () => {
     setBusy(true);
@@ -85,17 +85,7 @@ export function RetargetPanel(props: ImportSettingsViewProps) {
           ))}
         </select>
       </label>
-      <div class="retarget-previews" aria-label="Retarget preview">
-        <div class="retarget-side">
-          <span class="retarget-side-title">Source{pick.source ? `: ${editor.assets.fileName(pick.source)}` : ""}</span>
-          {pick.source ? <LargePreview path={pick.source} /> : <div class="retarget-empty">Choose a source model</div>}
-        </div>
-        <div class="retarget-side">
-          <span class="retarget-side-title">Target: {editor.assets.fileName(path)}</span>
-          <LargePreview path={path} />
-        </div>
-      </div>
-      <p class="skeleton-note">Both rigs show at rest: the preview doesn't pose a model with a clip yet. Bake the clip and play it on an Animator to see it.</p>
+      <RetargetPreview project={project} path={path} source={pick.source && src?.skeleton && clip ? { model: pick.source, clip } : null} profile={anim.profile} boneMap={map} problem={problem} />
       <div class="skeleton-actions">
         <button class="primary" disabled={busy || why !== null} title={why ?? "Retarget the clip onto this model and write it beside it as a compiled clip"} onClick={() => void bake()}>
           Bake retargeted clip
