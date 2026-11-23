@@ -25,18 +25,20 @@ import { AudioListener, listenerPose } from "../AudioListener";
 import { CURVE_DRIVEN_ATTENUATION, curveDbToGain, evalAttenuation, FLAT_SEND_CURVE, LOWPASS_OFF_HZ, type AttenuationAt, type AttenuationCurveSet } from "../core/spatial";
 import { isLabelled, parameterDefault, type ParameterDef } from "../../../../engine/audio/parameters";
 import { mediaPlay } from "../media/packages";
-import { audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest, type SubmixLevel, type VoiceSpatialOptions } from "../backend";
+import { generatorsNeedTheCore, isPendingCoreBackend, audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest, type SubmixLevel, type VoiceSpatialOptions } from "../backend";
 import { clipRequest, SAMPLE_END_FADE, sampleEdits, samplePass, samplePlan } from "../clipResolver";
 import { warnOnce } from "../core/handle";
 import { playlistHost } from "./host";
 import { startOffsetOf, type EventOptions } from "./options";
 import { MAX_BINDINGS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type Binding, type ParamRef, type VoiceLoop } from "../automation";
-import { anchorTimeCurves, coreTimeBindings, evalTimeCurves, staticPanBinding } from "./curves";
+import { anchorTimeCurves, coreTimeBindings, evalTimeCurves, staticPanBinding, type TimeCurve } from "./curves";
+import { generatorBindings, resolveGeneratorPlay } from "./generatorVoice";
+import type { GeneratorPlay } from "./liveNode";
 import { PlaylistBeats, type PlaylistBeatKind } from "./beatCallbacks";
 import { instanceChain } from "./effects";
 import type { Effect } from "../../../../engine/audio/effects/types";
 import { mixer } from "../../../../engine/audio/mixer";
-import { linkedPlaylist, loadAttenuation } from "./loader";
+import { linkedPlaylist, loadAttenuation, loadGenerator } from "./loader";
 import { clockOver, MUSICAL_FALLBACK_NOTE, type MusicalClock, type MusicalSource } from "./musical";
 import { sampleFacts, type SampleFacts } from "./sampleFacts";
 import { VoiceClock, VoiceMarkers } from "./voiceMusical";
@@ -837,13 +839,90 @@ export class PlaylistInstance implements NodeHost {
     const trim = entry.trim ?? plan.trim;
     const loop = loopOverride !== undefined ? loopOverride : this.loopFor(entry, plan, trim);
     const looping = loop !== null && loop.looping;
-    const c = voiceControls(ctx.props);
     let req: PlayRequest;
     try { req = clipRequest(path, looping, ctx.bus); } catch (e) {
       warnOnce(`playlist:sample:${path}`, `[myco] ${ctx.where}: the sample "${path}" can't play (${e instanceof Error ? e.message : String(e)}).`);
       return null;
     }
-    const staticVolume = req.volume! * dbToGain(c.gainDb) * Math.max(0, this.options.volume ?? 1);
+    const d = this.dress(req, ctx);
+    // `EventOptions.offset` (only while the instance starts): begin that far into the (trimmed) sound, wrapped into the
+    // loop when it loops; a one-pass sample it would already have finished doesn't play.
+    const from = trim ? trim[0] : 0;
+    const skip = this.startOffset > 0 ? this.offsetInto(this.startOffset, from, trim, loop, path) : 0;
+    if (skip === null) return null;
+    // ADR 0342: the pass every play of a sample makes (`samplePass`): a trimmed start, sample-exact (a start offset, not a seek).
+    const pass = samplePass(path, trim, skip);
+    if (pass.offset > 0) req.offset = pass.offset;
+    else delete req.offset;
+    let voice: AudioVoice | null;
+    // ADR 0351 §7: through the package registry (the strict rule; an unload stops the voice).
+    try { voice = mediaPlay(req); } catch { voice = null; }
+    if (!voice) return null;
+    if (local.language !== null) noteLocalisedVoice(voice, local.language);
+    const bindings = this.bindStarted(voice, ctx, d, d.timed.bindings);
+    const sink = playlistHost().automation;
+    const program = loop ? programs.get(loop) : undefined;
+    if (program) sink.setLoops(voice, this.group, program);
+    else if (loop && (loop.start > 0 || loop.end > 0 || !looping)) sink.setLoop(voice, loop.start, loop.end, looping);
+    const length = pass.length !== null ? pass.length / d.base.pitch : null;
+    const v = this.adopt(voice, req, ctx, d, path, bindings, loop, length);
+    // A trim that ends before the file does: stop there (after a release, a held loop plays out to it too).
+    if (pass.early && length !== null && !looping) {
+      const end = d.start + length;
+      this.schedule(end, () => { if (!v.leaving && !v.loop?.looping) { v.leaving = true; voice!.stop(SAMPLE_END_FADE); } });
+    }
+    return v;
+  }
+
+  /**
+   * ADR 0360 §5 (G3): plays one generator voice below `ctx`. The patch (a linked `*.generator.json` read now, or the
+   * embedded one) is resolved for this trigger from the World's seeded generator, in pick order (the noise seed when it
+   * has none, `vary`, a silence's length), so a take replays it. The voice takes the tree's levels as a sample does
+   * (pitch transposes every frequency; voice curves, time parameters, spatial, buses and submixes apply), its `gen:`
+   * curves become AUTOMATE target-5 bindings, and it ends by its envelope, its `length` (a sequence clip's end folded in)
+   * or, when it is endless or the playlist plays `untilStopped` (the PLAY loop flag), at the instance's release.
+   */
+  playGenerator(play: GeneratorPlay, ctx: Ctx): PVoice | null {
+    if (this.stopped) return null;
+    const linked = typeof play.generator === "string" ? play.generator : null;
+    const body = typeof play.generator === "string" ? loadGenerator(play.generator) : play.generator;
+    if (!body) return null;
+    // A backend that can't play generators (the Babylon fallback until G5's offline render) plays nothing, one warning
+    // per kind. The pending backend forwards the play to the core at the hand-over.
+    const backend = audioBackend();
+    if (!backend.generators && !isPendingCoreBackend(backend)) {
+      warnOnce(`generators:${body.kind}`, generatorsNeedTheCore(body.kind));
+      return null;
+    }
+    const plan = resolveGeneratorPlay(body, () => this.random(), play.keyOffAfter);
+    // PLAY's loop flag: endless until key-off (a blip re-triggers), as an `untilStopped` playlist's samples loop until
+    // released. A sequence clip ends at its own time instead.
+    const looping = this.untilStopped && play.keyOffAfter === undefined;
+    const loop: LoopRun | null = looping || plan.endless ? { start: 0, end: 0, behaviour: HELD, looping: true } : null;
+    const path = linked ?? `${ctx.where}#${body.kind}`;
+    const req: PlayRequest = { path, url: "", loop: looping, stream: false, bus: mixer.resolveOutput(ctx.bus), volume: 1, generator: plan.source };
+    const d = this.dress(req, ctx);
+    let voice: AudioVoice | null;
+    try { voice = backend.play(req); } catch { voice = null; }
+    if (!voice) return null;
+    const own = generatorBindings(body.kind, ctx.genCurves ?? [], d.timed.bindings, (n) => this.paramRef(n), (c) => this.curveId(c), ctx.where);
+    const bindings = this.bindStarted(voice, ctx, d, own);
+    return this.adopt(voice, req, ctx, d, path, bindings, loop, looping ? null : plan.seconds);
+  }
+
+  /** ADR 0360 §5: a playing generator voice's parameters change (hot reload), through the backend's `generators`. */
+  setGeneratorParams(v: PVoice, params: ReadonlyMap<number, number>, seconds: number): void {
+    if (this.stopped || v.leaving) return;
+    audioBackend().generators?.setParams(v.voice, params, seconds);
+  }
+
+  /**
+   * The tree's levels on a request about to play (`req.volume` holds the source's own gain): volume, pitch, priority,
+   * World, group, submix, stamp, owner, filters, spatial and the fade-in's start; what the voice's dynamics start from.
+   */
+  private dress(req: PlayRequest, ctx: Ctx): Dressed {
+    const c = voiceControls(ctx.props);
+    const staticVolume = (req.volume ?? 1) * dbToGain(c.gainDb) * Math.max(0, this.options.volume ?? 1);
     const staticPitch = clampPitch(stToRatio(c.pitchSt) * this.pitchOption);
     // When it starts: its stamp, else the earliest exact start, else now (heard; voice time and end estimates count from it).
     const start = ctx.at ?? playlistHost().horizon() ?? this.clock();
@@ -889,31 +968,23 @@ export class PlaylistInstance implements NodeHost {
       }
     }
     if (ctx.fadeIn > 0) req.fadeZero = true;
-    // `EventOptions.offset` (only while the instance starts): begin that far into the (trimmed) sound, wrapped into the
-    // loop when it loops; a one-pass sample it would already have finished doesn't play.
-    const from = trim ? trim[0] : 0;
-    const skip = this.startOffset > 0 ? this.offsetInto(this.startOffset, from, trim, loop, path) : 0;
-    if (skip === null) return null;
-    // ADR 0342: the pass every play of a sample makes (`samplePass`): a trimmed start, sample-exact (a start offset, not a seek).
-    const pass = samplePass(path, trim, skip);
-    if (pass.offset > 0) req.offset = pass.offset;
-    else delete req.offset;
-    let voice: AudioVoice | null;
-    // ADR 0351 §7: through the package registry (the strict rule; an unload stops the voice).
-    try { voice = mediaPlay(req); } catch { voice = null; }
-    if (!voice) return null;
-    if (local.language !== null) noteLocalisedVoice(voice, local.language);
-    const sink = playlistHost().automation;
-    const bindings = this.quant.bindings(this.withStaticPan(timed.bindings, c.pan, ctx.where), ctx.quantized, start);
-    if (bindings.length > 0) sink.bindVoice(voice, this.group, bindings, base, ctx.at ?? undefined);
+    return { c, staticVolume, staticPitch, start, timed, timeCurves, t, curved, dynList, dyn, base, lowpass };
+  }
+
+  /** A started voice's bindings (`bindings`, its static pan and quantised lanes) and fade-in; returns the bindings it got. */
+  private bindStarted(voice: AudioVoice, ctx: Ctx, d: Dressed, bindings: readonly Binding[]): readonly Binding[] {
+    const all = this.quant.bindings(this.withStaticPan(bindings, d.c.pan, ctx.where), ctx.quantized, d.start);
+    if (all.length > 0) playlistHost().automation.bindVoice(voice, this.group, all, d.base, ctx.at ?? undefined);
     if (ctx.fadeIn > 0) {
       voice.fade(0, 0);
-      shapedFade(voice, ctx.fadeInShape ?? "equalPower", ctx.fadeIn, 0, 1, ctx.at, () => start);
+      shapedFade(voice, ctx.fadeInShape ?? "equalPower", ctx.fadeIn, 0, 1, ctx.at, () => d.start);
     }
-    const program = loop ? programs.get(loop) : undefined;
-    if (program) sink.setLoops(voice, this.group, program);
-    else if (loop && (loop.start > 0 || loop.end > 0 || !looping)) sink.setLoop(voice, loop.start, loop.end, looping);
-    const length = pass.length !== null ? pass.length / base.pitch : null;
+    return all;
+  }
+
+  /** The instance's record of a started voice: its dynamics, loop and length, quantised lanes and distance curves. */
+  private adopt(voice: AudioVoice, req: PlayRequest, ctx: Ctx, d: Dressed, path: string, bindings: readonly Binding[], loop: LoopRun | null, length: number | null): PVoice {
+    const { base, staticVolume, staticPitch, dynList, timeCurves, start, dyn, t, curved, lowpass, c } = d;
     const v: PVoice = {
       voice, path, base, staticVolume, staticPitch, bindings, dyn: dynList, timeCurves,
       start, length, loop, leaving: false, appliedGain: dyn, appliedPitch: t.pitch, appliedLowpass: curved ? lowpass : t.lowpass, positioned: req.position !== undefined,
@@ -923,11 +994,6 @@ export class PlaylistInstance implements NodeHost {
     if (curved) {
       this.curveVoices.set(v, { plan: curved, staticLowpass: c.lowpass, appliedSend: req.reverbSend ?? 1, appliedSpread: req.spread ?? 0, appliedBed: req.bed === true });
       this.hasCurveVoices = true;
-    }
-    // A trim that ends before the file does: stop there (after a release, a held loop plays out to it too).
-    if (pass.early && length !== null && !looping) {
-      const end = (start ?? this.clock()) + length;
-      this.schedule(end, () => { if (!v.leaving && !v.loop?.looping) { v.leaving = true; voice!.stop(SAMPLE_END_FADE); } });
     }
     return v;
   }
@@ -1076,6 +1142,23 @@ interface CurvePlan {
   readonly spread: number | null;
 }
 
+/** A request dressed in the tree's levels (`PlaylistInstance.dress`): what the voice's record and dynamics start from. */
+interface Dressed {
+  readonly c: ReturnType<typeof voiceControls>;
+  readonly staticVolume: number;
+  readonly staticPitch: number;
+  /** Heard time it starts at. */
+  readonly start: number;
+  readonly timed: { timeCurves: readonly TimeCurve[]; bindings: readonly Binding[] };
+  readonly timeCurves: readonly TimeCurve[];
+  readonly t: { gain: number; pitch: number; lowpass: number | null };
+  readonly curved: CurvePlan | null;
+  readonly dynList: readonly DynGain[];
+  readonly dyn: number;
+  readonly base: { volume: number; pitch: number };
+  readonly lowpass: number;
+}
+
 /** ADR 0347: what a curve voice was last given beyond its volume. */
 interface CurveVoice {
   readonly plan: CurvePlan;
@@ -1149,7 +1232,7 @@ function firstSample(entry: Entry, chain: readonly string[], depth: number): Sam
   if (depth > 16) return null;
   if (entry.kind === "sample") return entry;
   if (entry.kind === "line") return null; // ADR 0354 §5: its file is known only when it is picked
-  if (entry.kind === "generator") return null; // TODO(G3, ADR 0360): a generator has no sample
+  if (entry.kind === "generator") return null; // ADR 0360: a generator has no sample (nor a Hit marker)
   const body = entry.kind === "embedded" ? entry.embedded : linkedPlaylist(entry.playlist, chain);
   if (!body) return null;
   const next = entry.kind === "linked" ? [...chain, entry.playlist] : chain;

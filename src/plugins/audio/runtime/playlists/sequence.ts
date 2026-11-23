@@ -435,7 +435,8 @@ export class SequenceNode extends LiveNode implements MusicalSource {
       }
       if (leaves) {
         c.inside = false;
-        if (c.sync) this.endClip(c, h(c.end), CUT_FADE);
+        // ADR 0360: a generator clip keyed itself off at its end (its `length`); its release rings on.
+        if (c.sync && c.clip.generator === undefined) this.endClip(c, h(c.end), CUT_FADE);
       }
     }
   }
@@ -553,7 +554,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     c.voice = null;
     if (c.clip.sample === undefined) {
       if (!c.audible) return;
-      if (c.clip.generator !== undefined) return; // TODO(G3, ADR 0360 §5): generator clips; not playable yet
+      if (c.clip.generator !== undefined) { this.startGenerator(c, u, at, fadeIn, fadeInShape); return; }
       c.node = this.resolveClipPlaylist(c, u, at, fadeIn, fadeInShape);
       if (c.node) this.children.push(c.node);
       return;
@@ -580,6 +581,33 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     c.voice = v;
     this.voices.push(v);
     if (!c.sync && c.markers.length > 0) this.host.trackMarkers(v, { ...facts, markers: c.markers }, s);
+  }
+
+  /**
+   * ADR 0360 §3 "Release", §4: generator clip `c` keys on at clip time `u` (heard `at`) and off at the clip's end: the
+   * clip's remaining length becomes the generator's `length` (the core keys off there, sample-exactly), and its release
+   * rings past the clip like a note (the playhead leaving doesn't cut it). Its `gen:` lanes go to the voice, time-keyed
+   * ones read from where the voice starts (clip and sequence time shifted as the other lanes are).
+   */
+  private startGenerator(c: ClipRt, u: number, at: number, fadeIn: number, fadeInShape: FadeShape): void {
+    const remaining = Number.isFinite(c.end) ? c.end - c.start - u : undefined;
+    if (remaining !== undefined && remaining <= EPS) return;
+    let genCurves = c.ctx.genCurves;
+    for (const a of c.clip.automation) {
+      if (a.bypass || a.curve.length === 0 || !a.target.startsWith("gen:")) continue;
+      const param = a.target.slice(4);
+      const quantize = a.quantize !== undefined ? { quantize: a.quantize } : {};
+      if (typeof a.input !== "string") genCurves = [...(genCurves ?? []), { param, input: a.input, curve: a.curve, ...quantize }];
+      else {
+        const offset = a.input === "clipTime" ? u : a.input === "sequenceTime" ? c.start + u : 0;
+        genCurves = [...(genCurves ?? []), { param, input: "voiceTime", curve: a.curve, ...(offset !== 0 ? { offset } : {}) }];
+      }
+    }
+    const ctx: Ctx = { ...c.ctx, at, fadeIn, fadeInShape, timeCurves: this.timeCurves(c, u), ...(genCurves ? { genCurves } : {}) };
+    const v = this.host.playGenerator?.({ generator: c.clip.generator!, ...(remaining !== undefined ? { keyOffAfter: remaining } : {}) }, ctx) ?? null;
+    if (!v) return;
+    c.voice = v;
+    this.voices.push(v);
   }
 
   private resolveClipPlaylist(c: ClipRt, u: number, at: number, fadeIn: number, fadeInShape: FadeShape): LiveNode | null {

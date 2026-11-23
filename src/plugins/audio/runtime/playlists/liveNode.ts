@@ -6,7 +6,8 @@ import type { Curve } from "../../../../engine/core/curve";
 import type { Effect } from "../../../../engine/audio/effects/types";
 import type { VoiceProps } from "../../../../engine/audio/playlist/accumulate";
 import type { PickState } from "../../../../engine/audio/playlist/picks";
-import type { ChangeHow, LineEntry, LoopBehaviour, PlaylistBody, SampleEntry } from "../../../../engine/audio/playlist/types";
+import type { ChangeHow, CurveInput, LineEntry, LoopBehaviour, PlaylistBody, Quantize, SampleEntry } from "../../../../engine/audio/playlist/types";
+import type { GeneratorBody } from "../../../../engine/audio/generators/types";
 import type { ParameterDef } from "../../../../engine/audio/parameters";
 import type { AudioMarkerEvent, AudioVoice, Attenuation, SubmixLevel } from "../backend";
 import type { Binding, ParamRef } from "../automation";
@@ -126,6 +127,35 @@ export interface Ctx {
    * null: none (or the voices below are on another bus).
    */
   submix?: CtxSubmix | null;
+  /**
+   * ADR 0360 §4: the `gen:<param>` curves of the entries above (an entry's voice curves reach the generator it plays,
+   * directly or wrapped in an embedded Clip). Only a generator voice reads them; absent: none.
+   */
+  genCurves?: readonly GenCurve[];
+}
+
+/** ADR 0360 §4: one `gen:<param>` curve or lane, still named by parameter (the generator's kind resolves it). */
+export interface GenCurve {
+  /** The generator catalogue's parameter name. */
+  readonly param: string;
+  readonly input: CurveInput;
+  /** In the parameter's own units (Hz, ms, dB, …). */
+  readonly curve: Curve;
+  /** A time-keyed lane read this many seconds ahead of the voice's time (a sequence clip's clip or sequence time). */
+  readonly offset?: number;
+  /** ADR 0353: a parameter-keyed curve moving only on this boundary (not followed yet for generators; one warning). */
+  readonly quantize?: Quantize;
+}
+
+/** ADR 0360 §5: one generator voice to play: its source, and how a sequence clip ends it. */
+export interface GeneratorPlay {
+  /** A `*.generator.json` path or an embedded generator. */
+  readonly generator: string | GeneratorBody;
+  /**
+   * Seconds after its start at which an oscillator, synth or silence keys itself off (a sequence clip's remaining
+   * length: the core's `length`, sample-exact); absent: the generator's own `length`.
+   */
+  readonly keyOffAfter?: number;
 }
 
 /** ADR 0345 levels: a level's submix as the context carries it down. */
@@ -167,6 +197,14 @@ export interface NodeHost {
    * settings. Null when nothing plays (the host keeps why for the handle's reason). Absent: line entries play nothing.
    */
   lineSample?(entry: LineEntry, ctx: Ctx): SampleEntry | null;
+  /**
+   * ADR 0360 §5: plays one generator voice below `ctx` (its `gen:` curves are `ctx.genCurves`): the patch resolved now,
+   * drawing from the World's generator in pick order. Null when nothing plays (a missing asset, a backend without
+   * generators). Absent: generators play nothing.
+   */
+  playGenerator?(play: GeneratorPlay, ctx: Ctx): PVoice | null;
+  /** ADR 0360 §5: a playing generator voice's parameters (by catalogue index) change, gliding over `seconds` (hot reload). */
+  setGeneratorParams?(v: PVoice, params: ReadonlyMap<number, number>, seconds: number): void;
   /** A marker passes at heard `e.time`: the handle's `onMarker` listeners hear it once the heard clock reaches it. */
   emitMarker(e: AudioMarkerEvent): void;
   /** Report the Cue, Exit and Hit markers of `facts` as voice `v` (playing from file seconds `from`) passes them. */

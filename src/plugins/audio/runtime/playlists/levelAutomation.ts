@@ -46,6 +46,9 @@ export function automationParts(host: NodeHost, list: readonly Automation[], eff
   const lanes: SubmixLane[] = [];
   for (const a of list) {
     if (a.bypass || a.curve.length === 0) continue;
+    // ADR 0360 §4: a `gen:` lane drives a generator clip's voice (`sequence.ts` reads it there); on a playlist's own or a
+    // track's automation it does nothing (the lint's `genTargetIgnored`).
+    if (a.target.startsWith("gen:")) continue;
     if (submix?.automate && a.target.startsWith("fx:") && a.quantize === undefined && (typeof a.input !== "string" || a.input === "sequenceTime")) {
       const lane = submixLane(host, a, effects, where);
       if (lane) { lanes.push(lane); continue; }

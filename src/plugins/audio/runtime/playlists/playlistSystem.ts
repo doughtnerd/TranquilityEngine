@@ -17,10 +17,11 @@ import type { Vec3Like } from "../../../../engine/core/math";
 import { AudioListener, listenerPose } from "../AudioListener";
 import { audioEventRefusal, isAudioEventPath } from "../../../../engine/audio/retiredAudioEvent";
 import { isPlaylistPath } from "../../../../engine/audio/playlist/format";
+import { isGeneratorPath } from "../../../../engine/audio/generators/format";
 import { playlistHost, type HostedRuntime } from "./host";
 import { taps } from "../mix/profileTaps";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
-import { loadPlaylist, samplePlaylist } from "./loader";
+import { generatorPlaylist, loadPlaylist, samplePlaylist } from "./loader";
 import { PlaylistInstance, type InstanceSystem, type PlaylistOptions, type StingerOutcome } from "./instance";
 import { musicRowOf } from "./musicRows";
 import type { PlaylistAsset } from "../../../../engine/audio/playlist/types";
@@ -112,7 +113,8 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
       return this.refuse(path, world, "unsupported");
     }
     // `given`: a playlist the runtime made (ADR 0354 §5: a line's implicit Clip), played under `path` for the rows.
-    const asset = given ?? (isPlaylistPath(path) ? loadPlaylist(path) : samplePlaylist(path));
+    // ADR 0360 §1: a generator plays as a one-generator Clip playlist, as a sample does.
+    const asset = given ?? (isPlaylistPath(path) ? loadPlaylist(path) : isGeneratorPath(path) ? generatorPlaylist(path) : samplePlaylist(path));
     if (!asset) return this.refuse(path, world, "missing");
     const key = `${world}:${sourceKey ?? path}`;
     const now = host.now();

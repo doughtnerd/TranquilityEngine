@@ -17,6 +17,7 @@ import type { AudioMarkerEvent, AudioMarkerType } from "../../../engine/audio/ma
 import type { ProfileSink } from "./mix/profileSink";
 import type { KeyframePayload } from "./capture/format";
 import type { AudioDebugInfo, AudioMixCaps, AudioPluginDebug, MusicBackendDebug } from "./debugTypes";
+import type { GeneratorKind } from "../../../engine/audio/generators/types";
 import { PendingCoreBackend } from "./pendingBackend";
 import { onAudioSessionReleased } from "./audioSession";
 
@@ -344,6 +345,26 @@ export interface PlayRequest {
    * own clip (a loop tail). Decoded clips only; a backend without span clips (`holdSpan` absent) ignores it.
    */
   span?: { startFrame: number; endFrame: number };
+
+  // ADR 0360 (G3). Optional; only a backend with `generators` plays it (the pending backend forwards it to the core).
+  /**
+   * The voice is a generator, not a clip: the core plays it as a PLAY of the kind's reserved clip id followed by a GEN
+   * with every value (`url`, `stream`, `offset` and `span` are ignored; `path` names it in debug rows and captures). A
+   * backend without `generators` plays nothing for it.
+   */
+  generator?: GeneratorSource;
+}
+
+/**
+ * ADR 0360 §3, §5: what one trigger of a generator plays, resolved on main (`resolveGenerator`, drawing from the World's
+ * seeded generator in pick order): the kind, every parameter in the generator catalogue's (wire) order, and the noise seed.
+ */
+export interface GeneratorSource {
+  readonly kind: GeneratorKind;
+  /** Every parameter of the kind, in the generator catalogue's order. */
+  readonly values: readonly number[];
+  /** The noise seed (0..2³²−1; the core reads 0 as "keep", so the core backend sends a non-zero one). */
+  readonly seed: number;
 }
 
 /**
@@ -693,6 +714,26 @@ export interface AudioBackend {
    * (the Babylon fallback): the runtime hands each packaged sound to `play` by an in-memory URL.
    */
   readonly packs?: AudioPacks;
+  /**
+   * ADR 0360 (G3, another capability, 0179): generator voices (`PlayRequest.generator`). The core has it; the Babylon
+   * fallback doesn't until the offline render (G5), so a generator plays nothing there, with one warning per kind; the
+   * pending backend forwards a generator play to the core at the hand-over.
+   */
+  readonly generators?: AudioGenerators;
+}
+
+/**
+ * ADR 0360 §3, §5 (G3): changes to a playing generator voice's parameters (a GEN with a partial mask), for a hot reload
+ * of its `*.generator.json`. Smooth parameters glide over `seconds`; choices step. A voice that isn't a generator ignores it.
+ */
+export interface AudioGenerators {
+  /** Parameters by catalogue index (wire order) to their new values. */
+  setParams(voice: AudioVoice, params: ReadonlyMap<number, number>, seconds: number): void;
+}
+
+/** ADR 0360 (G3): the one warning per generator kind a backend without `generators` gives when asked to play one. */
+export function generatorsNeedTheCore(kind: GeneratorKind): string {
+  return `[myco] audio: generators need the audio core; a ${kind} generator plays nothing on this backend (ADR 0360).`;
 }
 
 /**
