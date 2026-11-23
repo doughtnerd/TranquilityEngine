@@ -5,7 +5,6 @@
 // bar's slots (Trigger / Stop / Release, previous and next voice event, the voice log's scrub).
 import { effect, signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
-import { folderEntry } from "../../../editor/assetEntry";
 import { deleteAssets } from "../../../editor/assetDelete";
 import { currentProject, docVersion } from "../../../editor/state";
 import { EmptyState } from "../../../editor/ui/EmptyState";
@@ -26,13 +25,13 @@ import { addItems, addLabel, entriesFor } from "./addDialogModel";
 import { openCurveEditor, openWeightCurveEditor } from "./curveEditorAdapter";
 import { LibraryList } from "./LibraryList";
 import { isSamplePath } from "./libraryModel";
-import { DeleteDialog } from "./PlaylistDialogs";
+import { DeleteDialog, FolderDeleteDialog } from "./PlaylistDialogs";
 import { PlaylistEditor } from "./PlaylistEditor";
 import { PlaylistInspector } from "./PlaylistInspector";
 import { addEntries, duplicateEntry, removeEntry, setEntryUse, sampleEntry } from "./playlistEdits";
 import { breadcrumb, childPath, editAt, effectiveOutput, entryName, filePath, pathTarget, playlistTitle, whereOf, type PlaylistPath } from "./playlistPaths";
 import {
-  adding, allParameters, askDelete, audioNow, auditioning, busNames, confirmDelete, deleting, docFor, duplicatePlaylistFiles, editContext, editFile, editOpen, followRoute,
+  adding, allParameters, askDelete, askDeleteFolder, deleteFolderKeepingContents, deletingFolder, audioNow, auditioning, busNames, confirmDelete, deleting, docFor, duplicatePlaylistFiles, editContext, editFile, editOpen, followRoute,
   linkedBy, loadPlaylist, logCursor, makeShared, moveToFolder, newPlaylist, newPlaylistFolder, newPlaylistFromSamples, newSequence, openBody, openDoc, openFile, openLints, openPath, openPlaylist,
   playingNow, releaseAudition, renameFolder, renamePlaylistFile, removeLinkEntry, runDrop, selectedEntry, setTestValue, stopAudition, target, testValues, trigger, unlink, voiceLog, clearLog,
 } from "./playlistsScreen";
@@ -98,10 +97,15 @@ const treeActions: TreeActions = {
       if (n.link) removeLinkEntry(n.file, parent, i);
       else editFile(n.file, `Delete ${n.name}`, (r) => editAt(r, parent, (b) => removeEntry(b, i)));
     }
-    const files = nodes.filter((n) => n.kind === "file" || n.kind === "folder").map((n) => (n.kind === "folder" ? folderEntry(n.path) : (n as { path: string }).path));
-    if (files.length) void deleteAssets(files);
+    // Files are deleted; a folder keeps what's inside, which moves up a level (W2.14), each with its Undo.
+    const files = nodes.filter((n) => n.kind === "file").map((n) => (n as { path: string }).path);
+    const folders = nodes.filter((n) => n.kind === "folder").map((n) => n.path).sort((a, b) => b.length - a.length); // inner ones first
+    void (async () => {
+      if (files.length && !(await deleteAssets(files))) return;
+      for (const f of folders) await deleteFolderKeepingContents(f);
+    })();
   },
-  deleteFolder: (path) => void deleteAssets([folderEntry(path)]),
+  deleteFolder: (path) => askDeleteFolder(path),
   unlink: (n) => n.kind === "entry" && unlink(n.file, n.indices.slice(0, -1), n.indices[n.indices.length - 1]!),
   makeShared: (n) => void (n.kind === "entry" && makeShared(n.file, n.indices.slice(0, -1), n.indices[n.indices.length - 1]!)),
   moveTo: (paths, folder) => void moveToFolder(paths, folder),
@@ -123,6 +127,7 @@ function TreePanel() {
   return (
     <Panel bodyClass="pl-panel-body">
       <PlaylistTreeView nodes={nodes} folders={project?.folders ?? []} openKey={openKey()} writable={writable()} hasSamples={files.some(isSamplePath)} nestInto={nestInto} actions={treeActions} />
+      {deletingFolder.value && <FolderDeleteDialog folder={deletingFolder.value} onCancel={() => (deletingFolder.value = null)} onConfirm={() => void deleteFolderKeepingContents(deletingFolder.value!.path)} />}
     </Panel>
   );
 }
