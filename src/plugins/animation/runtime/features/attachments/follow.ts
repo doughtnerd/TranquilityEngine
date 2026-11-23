@@ -5,7 +5,8 @@
 //   world = skeleton node's world matrix × the bone's model-space matrix × offset (position, rotation)
 //
 // where the bone's model-space matrix is this frame's skinning matrix × the bind matrix (model × inverse bind × bind),
-// or the rest pose while no Animator animates the skeleton. `follow` picks what it copies: `both` (position and
+// or the rest pose while no Animator animates the skeleton; with bone overrides this frame (`Animator.bone`, T32), the
+// overridden matrices, applied first. `follow` picks what it copies: `both` (position and
 // rotation), `position` (keeps the node's own rotation) or `rotation` (keeps its position). The World propagates again
 // after the hook, so the attachment's children and render sync see the new pose. Attachments are processed in
 // activation order; an attachment that follows a bone of a skeleton carried by another attachment reads that one's
@@ -16,6 +17,7 @@ import type { GameObject } from "../../../../../engine/scene/GameObject";
 import { multiply34, toMat4 } from "../../affine";
 import type { BoneAttachment } from "../../components/BoneAttachment";
 import { HANDLE_INDEX_MASK, MATRIX_FLOATS } from "../../wasm/wire/core";
+import { applyBoneOverrides, posedMatrices } from "../bones";
 import { skeletonOnNode, type SkeletonRuntime } from "../instances";
 
 interface FollowList {
@@ -76,6 +78,12 @@ function boneModelMatrix(s: SkeletonRuntime, bone: number, out: Float32Array): b
   const info = s.info;
   if (!info || bone < 0 || bone >= info.bones) return false;
   const rt = s.animator;
+  const posed = rt ? posedMatrices(rt) : null;
+  if (posed) {
+    // This frame's bone overrides (`../bones.ts`, T32).
+    multiply34(out, 0, posed, bone * 12, info.bind, bone * 12);
+    return true;
+  }
   if (rt && rt.instance && rt.evaluated && rt.ns?.open) {
     const core = rt.ns.core;
     const at = core.matrixOffset(rt.instance) + bone * MATRIX_FLOATS;
@@ -91,6 +99,7 @@ const warnedBones = new Set<string>();
 function follow(world: World): void {
   const list = lists.get(world);
   if (!list) return;
+  applyBoneOverrides(world); // overrides written this frame first, whichever hook was registered first (T32)
   for (const a of list.attachments) {
     const t = a.node.transform;
     const s = skeletonFor(world, a);

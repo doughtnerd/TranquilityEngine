@@ -86,8 +86,11 @@ export interface AnimatorPlayOptions extends AnimatorMusicTiming {
   readonly layer?: AnimatorLayer;
   /** Seconds to fade in over what is playing (default 0: a cut, inertialized). */
   readonly fade?: number;
-  /** A section (a `cue` marker) of the clip to start at; the play ends at the next section unless the clip says otherwise. */
-  readonly section?: string;
+  /**
+   * With `slot`: the part of the clip to play. A name is a section of the clip (its `cue` marker of that name, up to the
+   * next cue or the clip's end); `{ start, end }` are clip seconds (`end` left out: the clip's end).
+   */
+  readonly section?: string | { readonly start: number; readonly end?: number };
   /** Playback speed (default 1; negative plays backward). */
   readonly speed?: number;
   /** Loop the clip (default: the clip's own setting). A looping play's promise resolves only when stopped or interrupted. */
@@ -128,6 +131,16 @@ export interface AnimatorRequestOptions extends AnimatorMusicTiming {
 export interface AnimatorTravelOptions extends AnimatorMusicTiming {
   /** The layer whose state machine travels (default 0). */
   readonly layer?: AnimatorLayer;
+}
+
+/** What the promise of `Animator.travel` resolves with: it never rejects, and never hangs. */
+export interface AnimatorTravelResult {
+  /**
+   * `arrived`: the machine entered the state (at once when it was already there); `unreachable`: no path leads there
+   * (or the graph has no such state or layer), with a warning; `interrupted`: another `travel` or `jump` on the machine,
+   * or the Animator losing its instance, came first.
+   */
+  readonly reason: "arrived" | "unreachable" | "interrupted";
 }
 
 /** Options of `Animator.jump`. */

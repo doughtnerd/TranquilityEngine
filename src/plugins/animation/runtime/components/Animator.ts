@@ -31,6 +31,7 @@ import type {
   AnimatorStateInfo,
   AnimatorStopOptions,
   AnimatorTravelOptions,
+  AnimatorTravelResult,
   AnimatorUpdateMode,
   AnimatorWarpTarget,
 } from "../types";
@@ -130,9 +131,13 @@ export class Animator extends Component {
     graph.request(this, name, options);
   }
 
-  /** Go to `state` by the shortest path through the layer's state machine (Godot's `travel`), using each hop's timing and blend. */
-  travel(state: string, options: AnimatorTravelOptions = {}): void {
-    graph.travel(this, state, options);
+  /**
+   * Go to `state` by the shortest path through the layer's state machine (Godot's `travel`), using each hop's timing and
+   * blend. The promise resolves when the machine gets there (`arrived`), when no path leads there (`unreachable`, with a
+   * warning), or when another travel or jump comes first (`interrupted`).
+   */
+  travel(state: string, options: AnimatorTravelOptions = {}): Promise<AnimatorTravelResult> {
+    return graph.travel(this, state, options);
   }
 
   /** Cut straight to `state`, with no path and no blend (inertialized). */

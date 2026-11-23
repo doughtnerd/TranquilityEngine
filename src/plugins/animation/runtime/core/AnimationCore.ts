@@ -374,6 +374,19 @@ export class AnimationCore {
     return getRecord(this.views().data, this.wasm.graph_changes_ptr() + i * GRAPH_CHANGE.stride, GRAPH_CHANGE, out);
   }
 
+  /**
+   * Writes the debug report of an instance flagged with the `graph` family's `DEBUG` command (the `debug` family's
+   * records, as of its last evaluate) into the debug buffer. Returns the bytes written (0: not flagged, or stale).
+   */
+  debugWrite(handle: number): number {
+    return this.wasm.debug_write(handle);
+  }
+
+  /** The debug buffer's byte offset in memory (`debug.DEBUG_BYTES` long). */
+  debugPtr(): number {
+    return this.wasm.debug_ptr();
+  }
+
   /** The core's memory now (a load can replace it: re-read after any call). */
   buffer(): ArrayBuffer {
     return this.memory();
