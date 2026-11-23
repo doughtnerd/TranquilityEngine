@@ -37,6 +37,10 @@ export type { CurveEditorKind, CurveEditorResult, CurveEditorSpec, CurveInput, C
 export type { WaveformFn as CurveWaveform } from "../ui/curves/CurvePlot";
 export { CurveField, CurvePreview, type CurveFieldProps } from "../ui/curves/CurveField";
 export { addKey as addCurveKey, moveKey as moveCurveKey, removeKey as removeCurveKey, setKeyInterp as setCurveKeyInterp, type Key as CurveEditKey } from "../ui/curves/keyList";
+// ADR 0373: the dope sheet's grid (ruler, rows of keys, box select) and the key-list edits of several keys at once, shared
+// by the curve editor's dope sheet and the Animation window.
+export { DopeSheetGrid, type DopeKey, type DopeRow, type DopeSelectMode, type DopeSheetGridProps, type DopeSpan } from "../ui/curves/DopeSheetGrid";
+export { copyKeysAt, pasteKeys, removeKeys, rippleKeys, scaleKeys, shiftKeys, SAME_X, type CopiedKeys, type KeysEdit } from "../ui/curves/keyList";
 /** @deprecated ADR 0346: use `CurveField` (the inline field) or `CurveEditorDialog`. Kept for one release. */
 export { CurveField as CurveEditor, type CurveFieldProps as CurveEditorProps } from "../ui/curves/CurveField";
 // Menus and floating panels (ADR 0180): placed, dismissed and focused in the window they're in (ADR 0174).

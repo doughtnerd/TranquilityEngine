@@ -1,6 +1,7 @@
 // The curve editor's dope sheet (ADR 0346, time curves only): a ruler (drag to zoom the plot to a range, click to move
 // the playhead, double-click for the whole clip), one row per time-driven lane with its keys as diamonds (drag moves a
-// key in time; right-click opens the key menu) and "Add key at playhead".
+// key in time; right-click opens the key menu) and "Add key at playhead". The ruler and rows are the shared grid
+// (`DopeSheetGrid.tsx`, which the Animation window's dope sheet draws through too); one key is selected here.
 import { useRef, useState } from "preact/hooks";
 import { curveKeyHandles, type CurveKey } from "../../../engine/core/curve";
 import { ContextMenu, SEPARATOR, type MenuEntry } from "../ContextMenu";
@@ -15,8 +16,6 @@ import {
   laneColor,
   laneContext,
   laneOf,
-  playheadAt,
-  rulerRange,
   setKeyFree,
   setKeyShape,
   setKeyX,
@@ -25,11 +24,11 @@ import {
   SHAPE_LABELS,
   TIME_INPUT,
   withLane,
-  xTicks,
   type CurveDraft,
   type CurveEditorSpec,
 } from "./curveEditorModel";
 import { Icon, type DraftEditor } from "./CurvePlot";
+import { DopeSheetGrid, type DopeRow } from "./DopeSheetGrid";
 
 export interface DopeSheetProps {
   readonly spec: CurveEditorSpec;
@@ -47,6 +46,13 @@ export interface DopeSheetProps {
   onMenu(open: boolean): void;
 }
 
+/** A key's id on the grid: its lane and index. */
+const keyId = (lane: string, index: number) => `${index}:${lane}`;
+const parseKeyId = (id: string): { lane: string; index: number } | null => {
+  const at = id.indexOf(":");
+  return at > 0 ? { lane: id.slice(at + 1), index: Number(id.slice(0, at)) } : null;
+};
+
 const ADD_AT_PLAYHEAD = "M10 3l7 7-7 7-7-7zM19 15v6M16 18h6";
 const WHOLE = "M3 12h18M3 12l4-4M3 12l4 4M21 12l-4-4M21 12l-4 4";
 
@@ -54,13 +60,9 @@ export function DopeSheet(props: DopeSheetProps) {
   const { spec, draft, editor, playhead, range } = props;
   const axis = axisOf(spec, TIME_INPUT);
   const len = axis.max;
-  const pc = (x: number) => `${((x / len) * 100).toFixed(3)}%`;
   const rows = dopeLanes(spec, draft);
   const [menu, setMenu] = useState<{ lane: string; index: number; x: number; y: number } | null>(null);
-  const ruler = useRef<{ rect: DOMRect; x0: number; px: number; dragged: boolean } | null>(null);
-  const dia = useRef<{ lane: string; index: number; rect: DOMRect; moved: boolean } | null>(null);
-  const timeAt = (clientX: number, rect: DOMRect) => ((clientX - rect.left) / (rect.width || 1)) * len;
-  const ticks = xTicks(axis, [0, len]);
+  const dia = useRef<{ lane: string; index: number; x0: number; moved: boolean } | null>(null);
 
   const editKeys = (label: string, laneId: string, r: { next: readonly CurveKey[] } | { refused: string }) => {
     if ("refused" in r) editor.refused(label, r.refused);
@@ -128,110 +130,67 @@ export function DopeSheet(props: DopeSheetProps) {
           <Icon d={ADD_AT_PLAYHEAD} />
         </button>
       </div>
-      <div class="ce-dope-grid">
-        <span class="ce-muted ce-dope-name">{axis.name}</span>
-        <div
-          class="ce-ruler"
-          title="Drag to choose what the curve editor shows · click to move the playhead · double-click to show the whole length"
-          onPointerDown={(e) => {
-            if (e.button !== 0) return;
-            e.preventDefault();
-            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-            (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-            ruler.current = { rect, x0: timeAt(e.clientX, rect), px: e.clientX, dragged: false };
-          }}
-          onPointerMove={(e) => {
-            const r = ruler.current;
-            if (!r) return;
-            if (!r.dragged && Math.abs(e.clientX - r.px) < 4) return;
-            r.dragged = true;
-            const picked = rulerRange(r.x0, timeAt(e.clientX, r.rect), len);
-            if (picked) props.onRange(picked);
-          }}
-          onPointerUp={(e) => {
-            const r = ruler.current;
-            ruler.current = null;
-            if (r && !r.dragged) props.onPlayhead(playheadAt(timeAt(e.clientX, r.rect), len));
-          }}
-          onPointerCancel={() => (ruler.current = null)}
-          onDblClick={() => props.onRange(null)}
-        >
-          {range && <div class="ce-range" style={{ left: pc(range[0]), width: pc(range[1] - range[0]) }} />}
-          {ticks.map((t, i) => (
-            <span key={i} class="ce-tick" style={{ left: pc(t), transform: `translateX(${i === 0 ? "3px" : i === ticks.length - 1 ? "calc(-100% - 3px)" : "-50%"})` }}>
-              {t.toFixed(2)}
-            </span>
-          ))}
-          <div class="ce-playhead-flag" style={{ left: pc(playhead) }} />
-        </div>
-        {rows.map((id) => {
-          const found = laneOf(spec, draft, id)!;
-          const { lane, state, index: li } = found;
-          const color = laneColor(lane, li);
-          const on = id === props.activeId;
+      <DopeSheetGrid
+        length={len}
+        axisName={axis.name}
+        rows={rows.map((id): DopeRow => {
+          const { lane, state, index: li } = laneOf(spec, draft, id)!;
           const hidden = props.hidden.has(id);
-          return [
-            <button key={`${id}-n`} type="button" class={`ce-dl${on ? " on" : ""}${hidden ? " off" : ""}`} aria-pressed={on} onClick={() => props.onPick(id)}>
-              <span class="ce-swatch" style={{ background: color }} aria-hidden="true" />
-              {lane.name}
-            </button>,
-            <div key={`${id}-r`} class="ce-drow" onPointerDown={(e) => e.target === e.currentTarget && props.onPick(id)}>
-              {range && <div class="ce-range-faint" style={{ left: pc(range[0]), width: pc(range[1] - range[0]) }} />}
-              <div class="ce-drow-playhead" style={{ left: pc(playhead) }} />
-              {!hidden &&
-                state.curve.map((k, i) => {
-                  const s = props.selected?.lane === id && props.selected.index === i;
-                  return (
-                    <button
-                      key={i}
-                      type="button"
-                      class={`ce-dia${s ? " on" : ""}`}
-                      style={{ left: pc(k[0]), borderColor: color, ...(s ? { background: color } : {}) }}
-                      aria-label={`${lane.name} key at ${formatX(axis, k[0])}, ${formatValue(lane, k[1])}`}
-                      title={`${lane.name} key at ${formatX(axis, k[0])}, ${formatValue(lane, k[1])}`}
-                      onPointerDown={(e) => {
-                        if (e.button !== 0) return;
-                        e.stopPropagation();
-                        e.preventDefault();
-                        props.onSelect(id, i);
-                        const row = (e.currentTarget as HTMLElement).parentElement!.getBoundingClientRect();
-                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                        dia.current = { lane: id, index: i, rect: row, moved: false };
-                      }}
-                      onPointerMove={(e) => {
-                        const d = dia.current;
-                        if (!d) return;
-                        const live = editor.live();
-                        const ctx = laneContext(spec, live, d.lane)!;
-                        const curve = laneOf(spec, live, d.lane)!.state.curve;
-                        const r = setKeyX(ctx, curve, d.index, timeAt(e.clientX, d.rect), { snap: !e.altKey });
-                        if ("refused" in r) return; // an end key: stays
-                        d.moved = true;
-                        editor.preview(withLane(live, d.lane, { curve: r.next }));
-                      }}
-                      onPointerUp={() => {
-                        const d = dia.current;
-                        dia.current = null;
-                        if (d?.moved) editor.commit("Move key");
-                      }}
-                      onPointerCancel={() => {
-                        dia.current = null;
-                        editor.cancel();
-                      }}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        props.onSelect(id, i);
-                        setMenu({ lane: id, index: i, x: e.clientX, y: e.clientY });
-                        props.onMenu(true);
-                      }}
-                    />
-                  );
-                })}
-            </div>,
-          ];
+          return {
+            id,
+            label: lane.name,
+            color: laneColor(lane, li),
+            muted: hidden,
+            keys: hidden ? [] : state.curve.map((k, i) => ({ id: keyId(id, i), x: k[0], label: `${lane.name} key at ${formatX(axis, k[0])}, ${formatValue(lane, k[1])}` })),
+          };
         })}
-      </div>
+        selected={new Set(props.selected ? [keyId(props.selected.lane, props.selected.index)] : [])}
+        activeRow={props.activeId}
+        playhead={playhead}
+        range={range}
+        onPlayhead={props.onPlayhead}
+        onRange={props.onRange}
+        onRow={props.onPick}
+        onSelect={(ids) => {
+          const k = ids.length ? parseKeyId(ids[ids.length - 1]) : null;
+          if (k) props.onSelect(k.lane, k.index);
+          else if (props.selected) props.onSelect(props.selected.lane, null);
+        }}
+        onDrag={(phase, dx, alt, key) => {
+          if (phase === "start") {
+            const sel = parseKeyId(key);
+            const k = sel && laneOf(spec, editor.live(), sel.lane)?.state.curve[sel.index];
+            dia.current = sel && k ? { lane: sel.lane, index: sel.index, x0: k[0], moved: false } : null;
+            return;
+          }
+          const d = dia.current;
+          if (!d) return;
+          if (phase === "cancel") {
+            dia.current = null;
+            if (d.moved) editor.cancel();
+            return;
+          }
+          if (phase === "end") {
+            dia.current = null;
+            if (d.moved) editor.commit("Move key");
+            return;
+          }
+          const live = editor.live();
+          const ctx = laneContext(spec, live, d.lane)!;
+          const curve = laneOf(spec, live, d.lane)!.state.curve;
+          const r = setKeyX(ctx, curve, d.index, d.x0 + dx, { snap: !alt });
+          if ("refused" in r) return; // an end key: stays
+          d.moved = true;
+          editor.preview(withLane(live, d.lane, { curve: r.next }));
+        }}
+        onKeyMenu={(id, at) => {
+          const k = parseKeyId(id);
+          if (!k) return;
+          props.onSelect(k.lane, k.index);
+          setMenu({ lane: k.lane, index: k.index, x: at.x, y: at.y });
+          props.onMenu(true);
+        }}
+      />
       {menu && <ContextMenu label="Key menu" at={{ x: menu.x, y: menu.y }} entries={menuEntries(menu)} onClose={closeMenu} />}
     </section>
   );

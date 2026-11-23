@@ -4,7 +4,7 @@
 import type { PluginManifest } from "../../plugins/manifest";
 import { orderPlugins } from "../../plugins/order";
 import type { PluginsView } from "../../plugins/pluginSet";
-import { assetActions, assetKinds, componentHeaderActions, componentNotes, componentWireframes, fieldChoices, hierarchyCreateEntries, idlePrefetches, nameReferences, nodeAssetDrops, assetNodesAugments, panelExtensions, panels, playStatsCounters, playToolbarItems, projectSettingsSections, sceneOpenMigrations, sceneToolbarItems, skeletonBones, viewportTools } from "./contributions";
+import { assetActions, assetKinds, componentHeaderActions, componentNotes, componentWireframes, fieldAdornments, fieldChoices, fieldWriteInterceptors, hierarchyCreateEntries, idlePrefetches, nameReferences, nodeAssetDrops, assetNodesAugments, panelExtensions, panels, playStatsCounters, playToolbarItems, projectSettingsSections, sceneOpenMigrations, sceneToolbarItems, skeletonBones, viewportTools } from "./contributions";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
 import { componentEditToggle } from "../componentEditToggle";
 import type { LoadComponent } from "./contributions";
@@ -92,6 +92,10 @@ const CONTRIBUTION_POINTS = {
   registerNodeAssetDrop: registryPoint(nodeAssetDrops),
   /** A change to what adding files of an asset kind to a scene makes (ADR 0373: the Animation plugin's skinned models). */
   registerAssetNodesAugment: registryPoint(assetNodesAugments),
+  /** A control after a field's name in the scene Inspector (ADR 0373: the Animation window's key buttons). */
+  registerFieldAdornment: registryPoint(fieldAdornments),
+  /** Takes component field writes to scene documents instead of the document (ADR 0373: the Animation window's record mode). */
+  registerFieldWriteInterceptor: registryPoint(fieldWriteInterceptors),
 };
 
 type ContextOf<P> = { [K in keyof P]: P[K] extends ContributionPoint<infer F> ? F : never };
