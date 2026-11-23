@@ -753,14 +753,14 @@ export function editAttenuation(id: string, doc: Document = document): void {
   const open = (att: Attenuation, target: string, apply: (next: Attenuation) => void) => {
     openCurveEditorDialog(doc, {
       ...attenuationDialog(att, distanceNow(id)),
-      title: "Attenuation",
       target,
-      context: name ? `Heard by ${name}` : undefined,
+      // "Distance curves · footstep · Campfire · Attenuation · metres from the listening player" (the prototype's title).
+      context: `${name ? `${name} · ` : ""}Attenuation · metres from the listening player`,
       onCancel: () => {},
       onApply: (result) => apply(attenuationFromResult(att, result)),
     });
   };
-  const fileName = (p: string) => p.slice(p.lastIndexOf("/") + 1);
+  const fileName = (p: string) => p.slice(p.lastIndexOf("/") + 1).replace(/\.(playlist|attenuation)\.json$/i, "");
   if (owner.kind === "preset" && owner.attenuation) {
     const preset = owner.preset;
     open(owner.attenuation, fileName(preset), (next) => {

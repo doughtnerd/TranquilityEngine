@@ -22,7 +22,8 @@ export interface SettingsPanelProps {
 /** The HRTF slider's range (the prototype's 1–6); the field takes the format's whole range. */
 const HRTF_SLIDER: readonly [number, number] = [1, 6];
 /** Rays the occlusion pass casts per voice (the runtime's: one; the nearest few get more on the high preset). */
-const RAYS_TEXT = "1 (3 for the nearest 4 on the high preset)";
+const RAYS_TEXT = "1";
+const RAYS_TIP = "One ray per voice; on the high quality preset the nearest 4 get 3 rays each";
 
 export function SettingsPanel(props: SettingsPanelProps) {
   const { mix, readOnly: ro, onEdit } = props;
@@ -54,7 +55,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
       </Section>
       <Section title="Occlusion" hint="Obstacles block sound with their material: losses of several on one ray add up. Rays hit colliders on the physics layers below.">
         <dl class="sp-kv">
-          <dt>Rays per voice</dt>
+          <dt title={RAYS_TIP}>Rays per voice</dt>
           <dd>{RAYS_TEXT}</dd>
           <dt title={`Through one obstacle of the default material (${occ.defaultMaterial})`}>Fully blocked</dt>
           <dd>{def ? materialText(def) : "—"}</dd>

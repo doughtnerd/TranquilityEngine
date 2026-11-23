@@ -11,7 +11,7 @@ import type { Take } from "../../engine/audio/take/reader";
 import { currentProject } from "../../editor/state";
 import { performanceClock, studioReplayTarget, TakeReplay, type ReplayClock, type ReplayTarget } from "../runtime/takeReplay";
 import { studioReplayWorld } from "../runtime/takeWorld";
-import { setParameterHistogramSource } from "../screens/curveInputs";
+import { setParameterHistogramSource, setParameterNowSource } from "../screens/curveInputs";
 import { audioHost } from "./studioServices";
 
 export interface OpenTake {
@@ -57,6 +57,8 @@ export class ReplayStore {
     let stopFrames: (() => void) | null = null;
     this.stops = [
       setParameterHistogramSource((name, range) => parameterHistogram(take, name, range)),
+      // The curve editor's "Game now": the last value the take sent for the parameter at its playhead.
+      setParameterNowSource((name) => parameterAt(take, name, replay.time.peek())),
       effect(() => {
         const playing = replay.playing.value;
         if (playing && !stopFrames) stopFrames = this.seams.frame(() => replay.tick());
@@ -113,6 +115,17 @@ function parameterHistogram(take: Take, name: string, range: readonly [number, n
     else if (q.kind === "play" && q.options.parameters && name in q.options.parameters) add(q.options.parameters[name]!);
   }
   return any ? bins : null;
+}
+
+/** The last value `take` sent for parameter `name` (globally or to an instance) at or before `t`, or null when none yet. */
+function parameterAt(take: Take, name: string, t: number): number | null {
+  let value: number | null = null;
+  for (const q of take.requests) {
+    if (q.t > t) break;
+    if (q.kind === "param" && q.name === name) value = q.value;
+    else if (q.kind === "play" && q.options.parameters && name in q.options.parameters) value = q.options.parameters[name]!;
+  }
+  return value;
 }
 
 let store: ReplayStore | null = null;

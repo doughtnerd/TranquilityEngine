@@ -14,6 +14,7 @@
  */
 import { curveKeyHandles, evalCurve, type Curve, type CurveHandles, type CurveKey, type CurveKeyInterp } from "../../../engine/core/curve";
 import { axisTicks } from "./keyList";
+import type { LaneBy, SecondInput } from "./andByModel";
 
 // --- types -----------------------------------------------------------------------------------------------------------
 
@@ -58,6 +59,8 @@ export interface CurveLane {
   readonly input?: string;
   /** Keeps the keys but uses the plain value. */
   readonly bypass?: boolean;
+  /** Its second input ("And by") when it follows one. */
+  readonly by?: LaneBy;
 }
 
 /** A parameter a lane may be driven by. */
@@ -69,6 +72,10 @@ export interface CurveInput {
   readonly unit?: string;
   /** The game's value now (the "now" marker and the readout). */
   readonly now?: number;
+  /** The game's value as it changes (a take replaying): read while the window is open; wins over `now` when it says. */
+  readonly live?: () => number | undefined;
+  /** How often the game sends each value, in bins over min..max (the plot's backdrop while this input drives X). */
+  readonly histogram?: readonly number[];
 }
 
 /** What a dialog edits and over what. */
@@ -91,6 +98,8 @@ export interface CurveEditorSpec {
   readonly parameter?: { readonly name: string; readonly min: number; readonly max: number; readonly unit?: string };
   /** Keys are linear only (a particle curve): no shape tools, only presets made of linear keys. */
   readonly linearOnly?: boolean;
+  /** Game parameters a lane may also follow ("And by": Morph, Scale, Rate, per label); none: the bar doesn't show. */
+  readonly secondInputs?: readonly SecondInput[];
 }
 
 /** One lane's edited state. */
@@ -99,6 +108,8 @@ export interface DraftLane {
   readonly curve: readonly CurveKey[];
   readonly input: string;
   readonly bypass: boolean;
+  /** Its second input ("And by", `andByModel.ts`), when it follows one. */
+  readonly by?: LaneBy;
 }
 
 /** Everything Apply returns; what the dialog's history holds. */
@@ -111,7 +122,7 @@ export interface CurveDraft {
 /** Apply's payload: curves in units with each lane's input and bypass; Min/Max for distance. */
 export interface CurveEditorResult {
   readonly kind: CurveEditorKind;
-  readonly lanes: readonly { readonly id: string; readonly curve: CurveKey[]; readonly input: string; readonly bypass: boolean }[];
+  readonly lanes: readonly { readonly id: string; readonly curve: CurveKey[]; readonly input: string; readonly bypass: boolean; readonly by?: LaneBy }[];
   readonly minDistance?: number;
   readonly maxDistance?: number;
 }
@@ -343,7 +354,8 @@ export function createDraft(spec: CurveEditorSpec): CurveDraft {
   const lanes = spec.lanes.map((l): DraftLane => {
     const input = l.input && inputChoices(spec).some((c) => c.id === l.input) ? l.input : defaultInput(spec);
     const [a, b] = domainOf(spec, input);
-    return { id: l.id, curve: withEnds(l.curve, a, b, l), input, bypass: !!l.bypass };
+    const by = l.by && spec.secondInputs?.some((s) => s.id === l.by!.input && s.id !== input) ? { by: l.by } : {};
+    return { id: l.id, curve: withEnds(l.curve, a, b, l), input, bypass: !!l.bypass, ...by };
   });
   const minDistance = Math.max(0, spec.minDistance ?? 2);
   const maxDistance = Math.max(minDistance + 1, spec.maxDistance ?? 40);
@@ -369,7 +381,7 @@ export function draftChanged(a: CurveDraft, b: CurveDraft): boolean {
 
 /** What Apply returns: fresh curves in units. */
 export function draftResult(spec: CurveEditorSpec, draft: CurveDraft): CurveEditorResult {
-  const lanes = draft.lanes.map((l) => ({ id: l.id, curve: l.curve.map((k) => at(k, k[0], k[1])), input: l.input, bypass: l.bypass }));
+  const lanes = draft.lanes.map((l) => ({ id: l.id, curve: l.curve.map((k) => at(k, k[0], k[1])), input: l.input, bypass: l.bypass, ...(l.by ? { by: l.by } : {}) }));
   return spec.kind === "distance" ? { kind: spec.kind, lanes, minDistance: draft.minDistance, maxDistance: draft.maxDistance } : { kind: spec.kind, lanes };
 }
 
@@ -559,7 +571,8 @@ export function setLaneInput(spec: CurveEditorSpec, draft: CurveDraft, id: strin
     if (!h) return at(k, x, k[1]);
     return [x, k[1], "bezier", { in: [tidy(h.in[0] * r), h.in[1]], out: [tidy(h.out[0] * r), h.out[1]], ...(h.free ? { free: true } : {}) }];
   });
-  return accept(withLane(draft, id, { input, curve: withEnds(curve, t0, t1, found.lane) }));
+  // Its "And by" layer was drawn over the old input: it goes with it.
+  return accept(withLane(draft, id, { input, curve: withEnds(curve, t0, t1, found.lane), by: undefined }));
 }
 
 /** Lane `id` cleared: flat at its plain value across its domain, and on again. */
@@ -587,6 +600,18 @@ export function readout(spec: CurveEditorSpec, draft: CurveDraft, playhead: numb
     const probe = axis.kind === "time" ? playhead : axis.now ?? (axis.min + axis.max) / 2;
     return { id: lane.id, name: lane.name, text: formatValue(lane, evalLane(lane, state.curve, probe)) };
   });
+}
+
+/** `spec` with each input's `now` read from its `live` source (when it says); the same spec when none has one. */
+export function withLiveInputs(spec: CurveEditorSpec): CurveEditorSpec {
+  if (!spec.inputs?.some((i) => i.live)) return spec;
+  return {
+    ...spec,
+    inputs: spec.inputs.map((i) => {
+      const v = i.live?.();
+      return v === undefined || !Number.isFinite(v) ? i : { ...i, now: v };
+    }),
+  };
 }
 
 /** Where the readout reads: "At the playhead, 0.60 s". */

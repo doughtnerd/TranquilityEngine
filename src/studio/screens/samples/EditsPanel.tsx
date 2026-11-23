@@ -18,10 +18,11 @@ import { effectEdits } from "./sampleEffects";
 import { hasRenderableEdits } from "../../../engine/audio/sample/sampleRender";
 import { flattenSample, renderPathOf, unflattenSample } from "./sampleFlatten";
 import { nameOf } from "./sampleLibrary";
-import { bytesOf, lengthOf, pcmOf, type SampleSession } from "./sampleSession";
+import { bytesOf, lengthOf, pcmOf, peaksOf, type SampleSession } from "./sampleSession";
 import { applyAutomationResult, automatedCount, automationDialog } from "./sampleAutomation";
 import type { SampleEdit } from "./sampleEditing";
 import { openCurveEditorDialog } from "../../../editor/ui/curves/openCurveEditorDialog";
+import { levelLanes, waveformFromPeaks } from "../../../editor/ui/curves/waveBackdrop";
 import { toasts } from "../../shell/studioServices";
 import { openSession } from "./samplesState";
 import { removedSeconds } from "./sampleTime";
@@ -31,8 +32,11 @@ function automate(session: SampleSession, f: Effect, commit: (r: SampleEdit) => 
   const e = session.edits.peek();
   const spec = automationDialog(e, f.id, lengthOf(session.project, session.source.peek()) ?? 1);
   if (!spec) return;
+  // The sample's waveform behind the curves; the brighter shape follows the effect's level lanes (UI pass CU3).
+  const peaks = peaksOf(session.project, session.source.peek());
   openCurveEditorDialog(document, {
     ...spec,
+    waveform: peaks ? waveformFromPeaks(peaks, { levelLanes: levelLanes(spec.lanes) }) : undefined,
     title: "Sample automation",
     target: effectSpec(f.type).label,
     context: `${nameOf(session.path)} · baked into the render`,

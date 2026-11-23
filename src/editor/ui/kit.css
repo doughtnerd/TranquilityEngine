@@ -93,9 +93,9 @@ button.kit-chip { cursor: pointer; }
 .panel :is(.dialog, [role="dialog"], [role="alertdialog"]) h2 { margin: 0 0 8px; padding: 0; border: none; color: var(--text-strong); font-size: calc(15px * var(--ui-scale)); font-weight: 600; letter-spacing: 0; text-transform: none; }
 
 /* Move to… */
-.dialog.kit-move-dialog { width: min(420px, calc(100vw - 32px)); }
+.dialog.kit-move-dialog { width: min(300px, calc(100vw - 32px)); }
 .kit-move-search { width: 100%; box-sizing: border-box; padding: 3px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; }
-.kit-move-list { height: min(320px, 50vh); overflow: auto; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-sunken); padding: 2px 0; }
+.kit-move-list { min-height: 96px; max-height: min(320px, 50vh); overflow: auto; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-sunken); padding: 2px 0; }
 .kit-move-list .kit-move-disabled, .kit-move-list .kit-move-disabled * { color: var(--faint); }
 .kit-move-list [data-move-path]:not(.kit-move-disabled) { cursor: pointer; }
 .kit-move-matches { list-style: none; margin: 0; padding: 0; }
