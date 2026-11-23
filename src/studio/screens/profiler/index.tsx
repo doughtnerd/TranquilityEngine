@@ -21,6 +21,7 @@ import { deleteCapture, importCaptures, moveCapture, openCapture, profilerRecord
 import { ProfilerTimeline } from "./ProfilerTimeline";
 import { PluginHealth } from "./PluginHealth";
 import { resetPluginEffect, usePluginHealth } from "../../components/EffectChainHealth";
+import { Icon } from "../../components/Icon";
 import { RecordButton, whyNotRecord } from "./RecordButton";
 import { clockText, valueAt } from "./timelineGeometry";
 import type { GroupBy } from "./voiceModel";
@@ -110,15 +111,15 @@ function TimelinePanel() {
   const toolbar = (
     <div class="pf-toolbar">
       <button type="button" class={`pf-toggle${store.problemsOnly.value ? " on" : ""}`} aria-pressed={store.problemsOnly.value} onClick={() => (store.problemsOnly.value = !store.problemsOnly.value)} title="Show only voice lanes with a stolen, blocked, missing or refused voice">
-        Problems only
+        <Icon name="filter" size={14} /> Problems only
       </button>
       <SegmentedControl<GroupBy> size="small" label="Group voices" options={GROUPS} value={store.groupBy.value} onChange={(v) => (store.groupBy.value = v)} />
       {s.kind === "open" && s.replayOf && <ReplayOrigin take={s.replayOf} onOpenTake={(path) => openRoute({ screen: "take", asset: path })} />}
-      {data && <span class="pf-counts">{countsText(data.messages)}</span>}
+      {data && <span class="pf-counts" role="status">{countsText(data.messages)}</span>}
     </div>
   );
   let body;
-  if (s.kind === "none") body = <EmptyState title="Profiler" icon="▤" body={<p>Engine performance captures: voices, CPU, buses and loudness over time, and why each sound played. Open a capture from the Captures panel. {NO_CAPTURES.replace(/^No captures yet — /, "Captures come from: ")}</p>} />;
+  if (s.kind === "none") body = <EmptyState title="Profiler" icon={<Icon name="profiler" size={28} />} body={<p>Engine performance captures: voices, CPU, buses and loudness over time, and why each sound played. Open a capture from the Captures panel. {NO_CAPTURES.replace(/^No captures yet — /, "Captures come from: ")}</p>} />;
   else if (s.kind === "opening") body = <p class="pf-note" role="status">Opening {s.path}…</p>;
   else if (s.kind === "failed") body = <p class="pf-error" role="alert">Can't open {s.path}: {s.message}</p>;
   else if (!data || data.tracks.length === 0) body = <EmptyState compact title="Nothing to draw" body="This capture holds no voices, buses, loudness or STATUS samples." />;

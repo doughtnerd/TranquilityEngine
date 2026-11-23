@@ -7,16 +7,17 @@
 .mx-faint { color: var(--faint); }
 .mx-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .mx-spacer { flex: 1; }
-.mx-tool { padding: 2px 8px; }
+.mx-tool { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; }
 .mx-link { background: none; border: none; color: var(--link); padding: 0 2px; cursor: pointer; text-decoration: underline; }
 .mx-link:disabled { color: var(--faint); cursor: default; }
 
 /* Toolbar */
 .mx-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
-.mx-chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--button); color: var(--text); white-space: nowrap; }
+.mx-chip { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--button); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
+.mx-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .mx-chip.editing { border-color: var(--accent); background: var(--accent-faint); }
 .mx-chip.warn, .kit-chip.warn { border-color: var(--warning); color: var(--warning); }
-.mx-chip-button { background: none; border: none; color: var(--link); padding: 0; cursor: pointer; }
+.mx-chip-button { flex: none; background: none; border: none; color: var(--link); padding: 0; cursor: pointer; }
 .mx-status { color: var(--muted); }
 .mx-status.live { color: var(--success); font-weight: 600; }
 .mx-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--faint); flex: none; }
@@ -26,7 +27,9 @@
 
 /* List view */
 .mx-buses-inner { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.mx-list { display: flex; flex-direction: column; min-width: 0; }
+/* The list follows its own width (ADR 0361): Voices and Bed go first, then the dB field (the fader and the Inspector
+ * still set the level), so the rows fit a side dock or a phone; anything still too wide scrolls inside the list. */
+.mx-list { display: flex; flex-direction: column; min-width: 0; container-type: inline-size; overflow-x: auto; }
 .mx-head, .mx-row { display: grid; grid-template-columns: minmax(150px, 1.2fr) minmax(120px, 2fr) 60px 56px minmax(90px, 0.8fr) 56px; align-items: center; gap: 8px; }
 .mx-head { color: var(--faint); font-size: calc(10px * var(--ui-scale)); text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 4px; }
 .mx-row { position: relative; padding: 1px 4px; border-radius: 4px; min-height: 28px; outline: none; }
@@ -36,7 +39,8 @@
 .mx-row.drop-into { box-shadow: inset 0 0 0 2px var(--accent); }
 .mx-row.drop-refused { box-shadow: inset 0 0 0 2px var(--warning); }
 .mx-routing { display: flex; align-items: center; gap: 4px; min-width: 0; }
-.mx-caret { background: none; border: none; color: var(--muted); width: 16px; padding: 0; cursor: pointer; }
+.mx-caret { display: inline-grid; place-items: center; background: none; border: none; color: var(--muted); width: 16px; padding: 0; cursor: pointer; flex: none; }
+.mx-grip { display: none; flex: none; place-items: center; width: 24px; align-self: stretch; color: var(--faint); touch-action: none; cursor: grab; }
 .mx-caret-space { width: 16px; flex: none; }
 .mx-stripe { width: 3px; height: 16px; border-radius: 2px; background: var(--border); flex: none; }
 .mx-row[data-branch]:not([data-branch=""]) .mx-stripe { background: var(--series-1); }
@@ -66,7 +70,7 @@
 .mx-strip.compact .mx-strip-fader { min-height: 100px; }
 .mx-strip-db { font-variant-numeric: tabular-nums; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .mx-board { border-top: 1px solid var(--border); padding-top: 4px; }
-.mx-board-head { background: none; border: none; color: var(--text); padding: 2px 0; cursor: pointer; font-weight: 600; }
+.mx-board-head { display: inline-flex; align-items: center; gap: 4px; background: none; border: none; color: var(--text); padding: 2px 0; cursor: pointer; font-weight: 600; }
 
 /* Snapshots */
 .mx-snap-tools { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -78,14 +82,14 @@
 .mx-ilabel { color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .mx-ivalue { min-width: 0; }
 .mx-iname { width: 100%; }
-.mx-ilevel { display: flex; align-items: center; gap: 6px; }
-.mx-ilevel .studio-fader { flex: 1; }
+.mx-ilevel { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.mx-ilevel .studio-fader { flex: 1; min-width: 0; }
 .mx-inote { margin: 2px 0 0; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .mx-ivoices, .mx-ibed { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .mx-ivoices input, .mx-ibed input { width: 64px; }
 .mx-inline { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
 .mx-isection { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--border); }
-.mx-ihead { display: flex; align-items: center; gap: 8px; margin: 0; font-size: calc(12px * var(--ui-scale)); color: var(--text); }
+.mx-ihead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; font-size: calc(12px * var(--ui-scale)); color: var(--text); }
 .mx-ihead .mx-tool { margin-left: auto; }
 .mx-pick { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
 .mx-snapnote { margin: 0; padding: 4px 6px; border-left: 3px solid var(--accent); background: var(--accent-faint); font-size: calc(11px * var(--ui-scale)); }
@@ -95,9 +99,12 @@
 .mx-auto.set { color: var(--accent); }
 .mx-members-list { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); border-radius: 4px; }
 .mx-delete { margin-top: 12px; }
+.mx-delete button { display: inline-flex; align-items: center; gap: 4px; }
 
 /* Loudness */
 .mx-loud-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mx-loud-tools .mx-inline { flex-wrap: wrap; min-width: 0; max-width: 100%; }
+.mx-loud-tools select { min-width: 0; max-width: 100%; }
 .mx-loud { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; margin: 4px 0; }
 .mx-loud-cell { padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
 .mx-loud-cell.warn { border-color: var(--warning); }
@@ -107,7 +114,7 @@
 
 /* Dialogs (Trigger) */
 .mx-modal-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: var(--backdrop); }
-.mx-modal { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 12px 32px var(--shadow); }
+.mx-modal { width: min(640px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); box-sizing: border-box; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 12px 32px var(--shadow); }
 .mx-modal-title { margin: 0; font-size: calc(14px * var(--ui-scale)); color: var(--text-strong); }
 .mx-modal-buttons { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 .mx-status-line { margin-right: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
@@ -119,6 +126,25 @@
 .mx-conds { display: flex; flex-direction: column; gap: 4px; }
 .mx-cond { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .mx-cond input[type="number"] { width: 72px; }
+.mx-cond select { min-width: 0; max-width: 100%; }
 .mx-overlaps { margin: 4px 0 0; padding-left: 0; list-style: none; width: 100%; }
 .mx-overlaps li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 2px 0; }
 .mx-overlaps li.warn { color: var(--warning); }
+
+@container (max-width: 600px) {
+  .mx-head, .mx-row { grid-template-columns: minmax(100px, 1fr) minmax(80px, 1.4fr) 56px auto; }
+  .mx-head .mx-voices, .mx-head .mx-bed, .mx-row .mx-voices, .mx-row .mx-bed { display: none; }
+  .mx-members { grid-column: auto; }
+}
+@container (max-width: 380px) {
+  .mx-head, .mx-row { grid-template-columns: minmax(84px, 1fr) minmax(64px, 1.2fr) auto; gap: 6px; }
+  .mx-head .mx-col-db, .mx-row .mx-db { display: none; }
+}
+
+/* Touch (ADR 0361): the re-route grip shows, the caret and M/S get finger-sized. */
+@media (pointer: coarse) {
+  .mx-grip { display: grid; }
+  .mx-caret { width: 28px; align-self: stretch; }
+  .mx-caret-space { width: 28px; }
+  .mx-toggle { min-width: 36px; }
+}

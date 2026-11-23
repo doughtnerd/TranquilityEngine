@@ -4,6 +4,7 @@
 import { HistoryPopover } from "../../editor/ui/HistoryPopover";
 import { formatKeys, isMacPlatform } from "../../editor/ui/keyCombo";
 import { AudioDeviceMenu } from "../components/AudioDeviceMenu";
+import { Icon } from "../components/Icon";
 import { ProjectPreviewChip } from "../screens/dialogue/PreviewLanguageChip";
 import { isCalibrated, offsetsFor, withOffset } from "../components/deviceOffsets";
 import { outputDevice } from "./outputDevice";
@@ -35,12 +36,17 @@ export function StudioHeader(props: StudioHeaderProps) {
     <header class="studio-header">
       <div class="studio-brand">
         <span class="studio-logo" aria-hidden="true">
-          ∿
+          <Icon name="samples" size={16} />
         </span>
         <span class="studio-app-name">Audio Studio</span>
-        <button class="studio-project" title={`${props.projectName}${props.readOnly ? " (read-only)" : ""} · Close the project`} onClick={props.onCloseProject}>
-          {props.projectName}
-          {props.readOnly && <span class="studio-readonly"> · read-only</span>}
+        <button class="studio-project" aria-label={`${props.projectName}${props.readOnly ? ", read-only" : ""}: close the project`} title={`${props.projectName}${props.readOnly ? " (read-only)" : ""} · Close the project`} onClick={props.onCloseProject}>
+          <span class="studio-project-name">{props.projectName}</span>
+          {props.readOnly && (
+            <span class="studio-readonly">
+              <Icon name="lock" size={12} />
+              <span class="studio-readonly-text">read-only</span>
+            </span>
+          )}
         </button>
       </div>
       <nav class="studio-nav" aria-label="Studio screens">
@@ -49,6 +55,7 @@ export function StudioHeader(props: StudioHeaderProps) {
             <span class="studio-nav-group-title" aria-hidden="true">
               {g.title}
             </span>
+            <span class="studio-nav-sep" aria-hidden="true" />
             {g.screens.map((s) => (
               <a
                 key={s.id}
@@ -56,12 +63,14 @@ export function StudioHeader(props: StudioHeaderProps) {
                 class={`studio-tab${s.id === props.screen ? " on" : ""}`}
                 aria-current={s.id === props.screen ? "page" : undefined}
                 title={`${s.title} (${formatKeys(`Mod+${s.digit}`, mac)}): ${s.purpose}`}
+                aria-keyshortcuts={`${mac ? "Meta" : "Control"}+${s.digit}`}
                 onClick={(e) => {
                   e.preventDefault();
                   props.onScreen(s.id);
                 }}
               >
-                {s.title}
+                <Icon name={s.icon} />
+                <span class="studio-tab-label">{s.title}</span>
               </a>
             ))}
           </div>
@@ -70,8 +79,8 @@ export function StudioHeader(props: StudioHeaderProps) {
       <div class="studio-header-tools">
         <ProjectPreviewChip />
         <HistoryPopover none="Click into a document to undo its edits" />
-        <button class="kit-icon-button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => (shortcutsOpen.value = true)}>
-          ?
+        <button class="kit-icon-button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" aria-keyshortcuts="?" onClick={() => (shortcutsOpen.value = true)}>
+          <Icon name="keyboard" />
         </button>
         <AudioDeviceMenu
           deviceName={device.name}

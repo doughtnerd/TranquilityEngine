@@ -11,6 +11,8 @@ import { emptyTakeNotes } from "../../../engine/audio/take/notes";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import { currentProject, docVersion } from "../../../editor/state";
+import { Icon } from "../../components/Icon";
+import { TransportButton } from "../../components/PlayerBar";
 import { formatClock } from "../../components/replayControlsModel";
 import { replayStore } from "../../shell/replay";
 import type { StudioPanel } from "../../shell/studioPanels";
@@ -120,16 +122,10 @@ function TakeTransport() {
   const loop = r.loop.value;
   return (
     <>
-      <button type="button" aria-label="Go to start" title="Go to start (Home)" onClick={goToStart}>⏮</button>
-      <button type="button" class="primary" aria-label={playing ? "Pause" : "Replay"} title={playing ? "Pause (Space)" : "Replay the take against your current audio (Space)"} aria-pressed={playing} onClick={() => r.toggle()}>
-        {playing ? "❚❚" : "▶"}
-      </button>
-      <button type="button" aria-pressed={!!loop} class={loop ? "on" : undefined} title={loop ? `Looping ${formatClock(loop.from)}–${formatClock(loop.to)}: click to stop` : "Loop the selected region, or the whole take"} onClick={toggleLoop}>
-        ⟲ Loop
-      </button>
-      <button type="button" title="Restart the playing instances so they use your latest edits" disabled={!playing} onClick={() => r.restartInstances()}>
-        Restart instances
-      </button>
+      <TransportButton icon="skipBack" label="Go to start" title="Go to start (Home)" onClick={goToStart} />
+      <TransportButton icon={playing ? "pause" : "play"} label={playing ? "Pause" : "Replay"} title={playing ? "Pause (Space)" : "Replay the take against your current audio (Space)"} primary pressed={playing} onClick={() => r.toggle()} />
+      <TransportButton icon="loop" label="Loop" pressed={!!loop} title={loop ? `Looping ${formatClock(loop.from)}–${formatClock(loop.to)}: click to stop` : "Loop the selected region, or the whole take"} onClick={toggleLoop} />
+      <TransportButton icon="redo" label="Restart instances" title="Restart the playing instances so they use your latest edits" disabled={!playing} onClick={() => r.restartInstances()} />
     </>
   );
 }
@@ -141,7 +137,7 @@ function TakeScrub() {
   return (
     <>
       <span>{formatClock(t)}</span>
-      <input type="range" aria-label="Take position" min={0} max={Math.max(0.001, open.take.duration)} step={0.01} value={t} style={{ flex: 1 }} onInput={(e) => open.replay.seek(Number((e.currentTarget as HTMLInputElement).value))} />
+      <input type="range" aria-label="Take position" aria-valuetext={`${formatClock(t)} of ${formatClock(open.take.duration)}`} min={0} max={Math.max(0.001, open.take.duration)} step={0.01} value={t} style={{ flex: 1 }} onInput={(e) => open.replay.seek(Number((e.currentTarget as HTMLInputElement).value))} />
       <span>{formatClock(open.take.duration)}</span>
     </>
   );
@@ -209,23 +205,31 @@ function TimelinePanel() {
       {instance ? (
         <>
           <strong class="tk-toolbar-title" title={instance.path}>{instance.path}</strong>
-          <button type="button" onClick={() => open.replay.seek(instance.start)}>Go to start</button>
+          <button type="button" class="tk-tool" onClick={() => open.replay.seek(instance.start)}>
+            <Icon name="skipBack" size={14} /> Go to start
+          </button>
           <button type="button" class="tk-link" onClick={() => openSource(instance.path)}>Open playlist ›</button>
         </>
       ) : (
         <strong class="tk-toolbar-title">{open.title}</strong>
       )}
       <span class="tk-toolbar-gap" />
-      <button type="button" disabled={!writable} title="Add a note marker at the playhead (M)" onClick={() => addMarkerAt(open.replay.time.peek())}>+ Marker</button>
-      <button type="button" disabled={!writable} title="Add a note region from the playhead" onClick={() => store.commitNotes(addRegion(notesOf(), open.replay.time.peek(), open.replay.time.peek(), open.take.duration), { select: true })}>+ Region</button>
-      <button type="button" title="Record the Studio's runtime in the Profiler while this take replays" onClick={() => store.profileReplay()}>Profile this replay</button>
+      <button type="button" class="tk-tool" disabled={!writable} aria-label="Add marker" title="Add a note marker at the playhead (M)" onClick={() => addMarkerAt(open.replay.time.peek())}>
+        <Icon name="plus" size={14} /> Marker
+      </button>
+      <button type="button" class="tk-tool" disabled={!writable} aria-label="Add region" title="Add a note region from the playhead" onClick={() => store.commitNotes(addRegion(notesOf(), open.replay.time.peek(), open.replay.time.peek(), open.take.duration), { select: true })}>
+        <Icon name="plus" size={14} /> Region
+      </button>
+      <button type="button" class="tk-tool" title="Record the Studio's runtime in the Profiler while this take replays" onClick={() => store.profileReplay()}>
+        <Icon name="profiler" size={14} /> Profile this replay
+      </button>
     </div>
   ) : undefined;
   let body;
   if (s.kind === "opening") body = <p class="tk-note" role="status">Opening {s.path}…</p>;
   else if (s.kind === "failed") body = <p class="tk-error" role="alert">Can't open {s.path}: {s.message}</p>;
   else if (!open || !timeline)
-    body = <EmptyState title="Take" icon="◉" body={<p>Recordings of what a game asked of audio, replayed against your current audio so edits are heard in context, and annotated. Open a take from the Takes panel.</p>} />;
+    body = <EmptyState title="Take" icon={<Icon name="take" size={28} />} body={<p>Recordings of what a game asked of audio, replayed against your current audio so edits are heard in context, and annotated. Open a take from the Takes panel.</p>} />;
   else
     body = (
       <>

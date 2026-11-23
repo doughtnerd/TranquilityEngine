@@ -9,6 +9,7 @@ import { ContextMenu, SEPARATOR, tidyEntries, type MenuEntry } from "../../../ed
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { HistoryPopover } from "../../../editor/ui/HistoryPopover";
 import { Panel } from "../../../editor/ui/panel/Panel";
+import { Icon } from "../../components/Icon";
 import { Playhead } from "../../components/Playhead";
 import { TimeRuler } from "../../components/TimeRuler";
 import { formatTime, type TimeContext } from "../../components/timeRulerModel";
@@ -35,21 +36,36 @@ import { nameOf } from "./sampleLibrary";
 
 const ROW_PX = 18;
 
-/** Drag along a lane: `move` gets the timeline time under the pointer; `done` on release. */
+/** How near an edge (px) a press grabs it rather than the body: wider for a finger. */
+const edgePx = (e: PointerEvent, mouse: number) => (e.pointerType === "touch" || e.pointerType === "pen" ? Math.max(mouse, 14) : mouse);
+
+/**
+ * Drag along a lane: `move` gets the timeline time under the pointer; `done` on release. The pressed element captures
+ * the pointer (so a finger or pen keeps the drag when it leaves it), and a cancelled pointer ends the drag too.
+ */
 function drag(e: PointerEvent, lane: HTMLElement, view: { start: number; end: number }, move: (v: number, done: boolean) => void): void {
   if (e.button !== 0) return;
   e.preventDefault();
   e.stopPropagation();
+  const grabbed = e.currentTarget instanceof Element ? e.currentTarget : null;
+  try {
+    grabbed?.setPointerCapture(e.pointerId);
+  } catch {
+    // The pointer is already gone (a synthetic or ended press): the window listeners still follow it.
+  }
   const r = lane.getBoundingClientRect();
   const at = (ev: PointerEvent) => xToTime(ev.clientX - r.left, view, r.width);
-  const onMove = (ev: PointerEvent) => move(at(ev), false);
+  const onMove = (ev: PointerEvent) => ev.pointerId === e.pointerId && move(at(ev), false);
   const onUp = (ev: PointerEvent) => {
+    if (ev.pointerId !== e.pointerId) return;
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
     move(at(ev), true);
   };
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
 }
 
 export function TimelinePanel() {
@@ -58,7 +74,7 @@ export function TimelinePanel() {
   if (!session || !project) {
     return (
       <Panel bodyClass="studio-panel-body">
-        <EmptyState title="Samples" icon="∿" body={<p>Pick a sample in the Samples panel to edit its markers, loops, trim, tempo and loudness. Edits are kept beside the file; the audio isn't changed.</p>} />
+        <EmptyState title="Samples" icon={<Icon name="samples" size={28} />} body={<p>Pick a sample in the Samples panel to edit its markers, loops, trim, tempo and loudness. Edits are kept beside the file; the audio isn't changed.</p>} />
       </Panel>
     );
   }
@@ -178,16 +194,31 @@ function Timeline(props: { session: SampleSession }) {
           <span class="history-panel">
             <HistoryPopover none="No edits yet" />
           </span>
-          <button class="smp-tool" title="Write markers, loops, tempo and root into the WAV (a backup is kept)" disabled={session.readOnly || !/\.wave?$/i.test(source)} onClick={() => (dialog.value = { kind: "write" })}>Write to file…</button>
-          <button class="smp-tool" title="Replace the audio with a new file, keeping the edits (the current audio is kept as a version)" disabled={session.readOnly || session.derived.value !== null} onClick={() => (dialog.value = { kind: "reimport" })}>Re-import…</button>
-          <button class="smp-tool" title="Fork as new sample (Ctrl+Shift+S)" disabled={session.readOnly} onClick={() => (dialog.value = { kind: "fork", mode: "fork" })}>Fork…</button>
-          <span class="smp-sep" />
+          <button class="smp-tool smp-tool-icon" aria-label="Write to file…" title="Write markers, loops, tempo and root into the WAV (a backup is kept)" disabled={session.readOnly || !/\.wave?$/i.test(source)} onClick={() => (dialog.value = { kind: "write" })}>
+            <Icon name="export" />
+            <span class="smp-hide-narrow">Write to file…</span>
+          </button>
+          <button class="smp-tool smp-tool-icon" aria-label="Re-import…" title="Replace the audio with a new file, keeping the edits (the current audio is kept as a version)" disabled={session.readOnly || session.derived.value !== null} onClick={() => (dialog.value = { kind: "reimport" })}>
+            <Icon name="import" />
+            <span class="smp-hide-narrow">Re-import…</span>
+          </button>
+          <button class="smp-tool smp-tool-icon" aria-label="Fork…" title="Fork as new sample (Ctrl+Shift+S)" disabled={session.readOnly} onClick={() => (dialog.value = { kind: "fork", mode: "fork" })}>
+            <Icon name="copy" />
+            <span class="smp-hide-narrow">Fork…</span>
+          </button>
+          <span class="smp-sep" aria-hidden="true" />
           <TempoPopover edits={e} commit={(r) => commit(r)} detect={detect} disabled={session.readOnly} />
           <RootPopover edits={e} commit={(r) => commit(r)} detect={detect} disabled={session.readOnly} />
           <NormalizePopover edits={e} measured={loudnessOf(project, source)} bextLoudness={wav?.bext?.loudnessValue ?? null} commit={(r) => commit(r)} disabled={session.readOnly} />
-          <span class="smp-sep" />
-          <button class="smp-tool" title="Add marker at the playhead (M)" disabled={session.readOnly} onClick={act.addMarkerAtPlayhead}>+ Marker</button>
-          <button class="smp-tool" title="Add loop in the largest free gap (L adds one at the playhead)" disabled={session.readOnly} onClick={() => commit(addLoop(e, length))}>+ Loop</button>
+          <span class="smp-sep" aria-hidden="true" />
+          <button class="smp-tool smp-tool-icon" title="Add marker at the playhead (M)" disabled={session.readOnly} onClick={act.addMarkerAtPlayhead}>
+            <Icon name="plus" />
+            Marker
+          </button>
+          <button class="smp-tool smp-tool-icon" title="Add loop in the largest free gap (L adds one at the playhead)" disabled={session.readOnly} onClick={() => commit(addLoop(e, length))}>
+            <Icon name="plus" />
+            Loop
+          </button>
           <button class={`smp-tool${razorOn.value ? " on" : ""}`} aria-pressed={razorOn.value} title="Razor (C): click the waveform to snip; S snips at the playhead" disabled={session.readOnly} onClick={act.toggleRazor}>Razor</button>
           <SnapPopover snap={snapSetting.value} zero={e.snapToZero} onSnap={(s) => (snapSetting.value = s)} onZero={(on) => commit(setSnapToZero(e, on))} />
           <TimeFormatPopover value={fmt} hasTempo={!!e.tempo} onChange={(f) => (timeFormat.value = f)} />
@@ -198,6 +229,7 @@ function Timeline(props: { session: SampleSession }) {
         {disk && (
           <div class="smp-banner" role="status">
             <span>{nameOf(source)} changed on disk. {disk.summary}</span>
+            <Icon name="warning" />
             <button onClick={() => (dialog.value = { kind: "merge" })}>Review changes…</button>
             <button onClick={() => (diskChange.value = null)}>Ignore</button>
           </div>
@@ -255,7 +287,7 @@ function Timeline(props: { session: SampleSession }) {
                   >
                     <span class="smp-marker-label">
                       {m.type === "cue" ? "↯ " : ""}
-                      {outside ? "⚠ " : ""}
+                      {outside && <Icon name="warning" size={11} />}
                       {hasFixedName(m.type) ? MARKER_TYPE_NAMES[m.type] : m.name}
                     </span>
                     {m.end !== undefined && <span class="smp-marker-end" aria-hidden="true" />}
@@ -288,7 +320,8 @@ function Timeline(props: { session: SampleSession }) {
                     if (r.kind !== "loop" || !r.loop || session.readOnly) return;
                     const l = r.loop;
                     const lx = ev.clientX - (ev.currentTarget as HTMLElement).getBoundingClientRect().left;
-                    const edge = lx < 6 ? "start" : lx > rw - 6 ? "end" : "body";
+                    const near = Math.min(edgePx(ev, 6), rw / 3);
+                    const edge = lx < near ? "start" : lx > rw - near ? "end" : "body";
                     const grab = xToTime(ev.clientX - lanes.current!.getBoundingClientRect().left, view, width) - v(l.start);
                     drag(ev, lanes.current!, view, (vt) => {
                       const now = session.edits.peek();
@@ -330,7 +363,8 @@ function Timeline(props: { session: SampleSession }) {
                 const el = ev.currentTarget as HTMLElement;
                 const lx = ev.clientX - el.getBoundingClientRect().left;
                 const w = el.getBoundingClientRect().width;
-                const edge = lx < 8 ? "start" : lx > w - 8 ? "end" : "body";
+                const near = Math.min(edgePx(ev, 8), w / 3);
+                const edge = lx < near ? "start" : lx > w - near ? "end" : "body";
                 const grab = xToTime(ev.clientX - lanes.current!.getBoundingClientRect().left, view, width) - v(ta);
                 drag(ev, lanes.current!, view, (vt) => {
                   const now = session.edits.peek();
@@ -376,10 +410,10 @@ function Timeline(props: { session: SampleSession }) {
           </div>
 
           <div class="smp-zoombar">
-            <button class="smp-tool" aria-label="Zoom out" title="Zoom out (−)" onClick={() => act.zoom(1 / 1.5)}>−</button>
-            <button class="smp-tool" aria-label="Zoom in" title="Zoom in (=)" onClick={() => act.zoom(1.5)}>+</button>
-            <button class="smp-tool" title="Fit (0)" onClick={act.zoomFit}>Fit</button>
-            <span class="smp-muted">{Math.round((len / (view.end - view.start)) * 100)}%</span>
+            <button class="smp-tool smp-icon-button" aria-label="Zoom out" title="Zoom out (−)" onClick={() => act.zoom(1 / 1.5)}><Icon name="zoomOut" /></button>
+            <button class="smp-tool smp-icon-button" aria-label="Zoom in" title="Zoom in (=)" onClick={() => act.zoom(1.5)}><Icon name="zoomIn" /></button>
+            <button class="smp-tool smp-icon-button" aria-label="Fit" title="Fit the whole sample (0)" onClick={act.zoomFit}><Icon name="fit" /></button>
+            <span class="smp-muted smp-zoom-pct">{Math.round((len / (view.end - view.start)) * 100)}%</span>
             <RangeBar view={view} length={len} onView={(nv) => (viewSpan.value = nv)} />
           </div>
         </div>
@@ -396,7 +430,8 @@ function Timeline(props: { session: SampleSession }) {
           <div class="smp-warnings" role="status">
             {warnings.map((w) => (
               <div key={w.id} class="smp-warning-row">
-                <span>⚠ {w.text}</span>
+                <Icon name="warning" />
+                <span>{w.text}</span>
                 {w.actions.includes("select") && w.select && <button onClick={() => select(w.select!)}>Select</button>}
                 {w.actions.includes("extendTrim") && <button onClick={() => commit({ next: { ...e, trim: trimHoldingMarkers(e, length) }, label: "Trim" })}>Extend trim</button>}
                 {w.actions.includes("deleteOutside") && <button onClick={() => commit({ next: { ...e, markers: e.markers.filter((m) => !w.ids?.includes(m.id)) }, label: `Delete ${w.ids?.length} markers` })}>Delete</button>}
@@ -412,21 +447,36 @@ function Timeline(props: { session: SampleSession }) {
   );
 }
 
-/** The range scrollbar: the visible span over the whole length; drag the body to scroll, an end to zoom; double-click fits. */
+/**
+ * The range scrollbar: the visible span over the whole length; drag the body to scroll, an end to zoom; double-click
+ * fits. From the keyboard, the arrows scroll a tenth of the span (Page Up/Down a whole span), Home and End go to the ends.
+ */
 function RangeBar(props: { view: { start: number; end: number }; length: number; onView(v: { start: number; end: number }): void }) {
   const ref = useRef<HTMLDivElement>(null);
   const { view, length } = props;
   const pct = (t: number) => `${(t / length) * 100}%`;
+  const span = view.end - view.start;
+  const scrollTo = (start: number) => props.onView(clampView({ start, end: start + span }, length));
+  const onKeyDown = (ev: KeyboardEvent) => {
+    const to = ({ ArrowLeft: view.start - span / 10, ArrowRight: view.start + span / 10, PageUp: view.start - span, PageDown: view.start + span, Home: 0, End: length - span } as Record<string, number>)[ev.key];
+    if (to === undefined) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    scrollTo(to);
+  };
   return (
     <div
       ref={ref}
       class="smp-range"
       role="scrollbar"
+      tabIndex={0}
       aria-orientation="horizontal"
       aria-valuemin={0}
       aria-valuemax={length}
       aria-valuenow={view.start}
+      aria-valuetext={`${view.start.toFixed(2)} s to ${view.end.toFixed(2)} s of ${length.toFixed(2)} s`}
       aria-label="Visible range"
+      onKeyDown={onKeyDown}
       onDblClick={() => props.onView(fitView(length))}
     >
       <div
@@ -437,7 +487,8 @@ function RangeBar(props: { view: { start: number; end: number }; length: number;
           const full = { start: 0, end: length };
           const lx = ev.clientX - (ev.currentTarget as HTMLElement).getBoundingClientRect().left;
           const w = (ev.currentTarget as HTMLElement).getBoundingClientRect().width;
-          const edge = lx < 6 ? "start" : lx > w - 6 ? "end" : "body";
+          const near = Math.min(edgePx(ev, 6), w / 3);
+          const edge = lx < near ? "start" : lx > w - near ? "end" : "body";
           const grab = xToTime(ev.clientX - r.left, full, r.width) - view.start;
           drag(ev, ref.current!, full, (t) => {
             if (edge === "body") props.onView(clampView({ start: t - grab, end: t - grab + (view.end - view.start) }, length));

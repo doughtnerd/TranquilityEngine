@@ -74,7 +74,7 @@ export const Brake: Story = {
     await expect(c.getByRole("toolbar", { name: "Sequence tools" })).toBeVisible();
     await expect(c.getByRole("button", { name: "Clip brake_skid" })).toBeVisible();
     await expect(c.getByText("P brake > 0.10")).toBeVisible();
-    await expect(c.getByText("⚠ follows")).toBeVisible();
+    await expect(c.getByText("follows")).toBeVisible();
     await expect(c.getByRole("button", { name: "Marker Drop" })).toBeVisible();
     await expect(c.getByRole("button", { name: /Hold point at 1\.60/ })).toBeVisible();
   },
@@ -83,10 +83,10 @@ export const Brake: Story = {
 export const AddTrackAndLoop: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await userEvent.click(c.getByRole("button", { name: "+ Track ▾" }));
+    await userEvent.click(c.getByRole("button", { name: "Add track" }));
     await userEvent.click(within(canvasElement.ownerDocument.body).getByRole("menuitem", { name: /Playlist track/ }));
     await expect(c.getByText("Playlist 2")).toBeVisible();
-    await userEvent.click(c.getByRole("button", { name: "+ Loop" }));
+    await userEvent.click(c.getByRole("button", { name: "Add loop" }));
     await expect(c.getByRole("button", { name: /Loop 0\.00–2\.00 s/ })).toBeVisible();
   },
 };
@@ -127,6 +127,6 @@ export const NoTempo: Story = {
 export const ReadOnly: Story = {
   args: { writable: false },
   play: async ({ canvasElement }) => {
-    await expect(within(canvasElement).getByRole("button", { name: "+ Loop" })).toBeDisabled();
+    await expect(within(canvasElement).getByRole("button", { name: "Add loop" })).toBeDisabled();
   },
 };

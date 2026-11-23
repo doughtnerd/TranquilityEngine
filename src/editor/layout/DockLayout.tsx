@@ -29,6 +29,7 @@ import {
   type Side,
 } from "./model";
 import { canClosePanel, canDetach, panelTitle } from "./catalog";
+import { foldCandidate, foldView, unfoldEdit } from "./narrowFold";
 import { DockHostContext, type DockHost } from "./dockHost";
 import { editorDockHost } from "./editorDockHost";
 import { PanelHeader } from "./PanelHeader";
@@ -63,12 +64,40 @@ export interface DockScope {
 /** The scope for `windowId`'s dock layout in `host`'s layout. */
 function dockScope(host: DockHost, windowId: string): DockScope {
   const layout = host.store.layout;
+  const size = signal({ w: 0, h: 0 });
+  const below = windowId === MAIN_WINDOW ? host.foldBelow : undefined;
+  if (below === undefined) {
+    return {
+      host,
+      windowId,
+      get: () => (windowId === MAIN_WINDOW ? layout.value : (windowView(layout.value, windowId) ?? { ...layout.value, docks: [], windows: [] })),
+      set: (next) => (layout.value = fromWindowView(next, windowId, layout.peek())),
+      size,
+      drag: signal(null),
+    };
+  }
+  // ADR 0361: the main window folds its left dock on a narrow screen. `opened` holds the folded dock the user opened
+  // while narrow; it's forgotten once the layout is wide again.
+  const opened = signal<string | null>(null);
   return {
     host,
     windowId,
-    get: () => (windowId === MAIN_WINDOW ? layout.value : (windowView(layout.value, windowId) ?? { ...layout.value, docks: [], windows: [] })),
-    set: (next) => (layout.value = fromWindowView(next, windowId, layout.peek())),
-    size: signal({ w: 0, h: 0 }),
+    get: () => {
+      const stored = layout.value;
+      const candidate = foldCandidate(stored, size.value.w, below);
+      if (candidate === null) {
+        if (opened.peek() !== null && size.value.w >= below) queueMicrotask(() => (opened.value = null));
+        return stored;
+      }
+      return opened.value === candidate ? stored : foldView(stored, candidate);
+    },
+    set: (next) => {
+      const candidate = foldCandidate(layout.peek(), size.peek().w, below);
+      const r = unfoldEdit(next, candidate);
+      if (r.open !== undefined) opened.value = r.open ? candidate : null;
+      layout.value = r.layout;
+    },
+    size,
     drag: signal(null),
   };
 }

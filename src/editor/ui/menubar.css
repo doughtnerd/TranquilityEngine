@@ -1,11 +1,13 @@
 /* The menu bar row (File Edit Create Window Help, Play controls, project) and its drop-downs, which use the .context-menu look. */
-/* The menus keep their width (the Play controls move right when the row is narrow, never under the menus: at 1280 px the
-   Play toolbar's items, Record take and capture, Preview language and Subtitles, overlapped Layouts and Play); the project
-   name shrinks instead. */
-.toolbar.menubar-row { display: grid; grid-template-columns: minmax(max-content, 1fr) auto minmax(0, 1fr); gap: 12px; padding: 3px 8px; flex-wrap: nowrap; }
-.menubar-left, .menubar-centre, .menubar-right { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.menubar-centre { justify-self: center; }
-.menubar-right { justify-self: end; gap: 8px; }
+/* A wrapping flex row rather than a grid: the menus and the Play controls keep their full width and never
+   overlap. The two sides share the spare room equally (flex-basis 0), so the Play controls stay centred while
+   there is room; the menus never shrink below their content, the project name gives way first (it ellipsizes),
+   and a window too narrow for menus and Play controls side by side moves the Play controls onto a second line. */
+.toolbar.menubar-row { display: flex; flex-wrap: wrap; column-gap: 12px; row-gap: 3px; padding: 3px 8px; }
+.menubar-left, .menubar-centre, .menubar-right { display: flex; align-items: center; gap: 6px; }
+.menubar-left { flex: 1 1 0; min-width: max-content; }
+.menubar-centre { flex: 0 1 auto; flex-wrap: wrap; justify-content: center; min-width: 0; }
+.menubar-right { flex: 1 1 0; min-width: 0; justify-content: flex-end; gap: 8px; }
 .menubar-row .brand { margin-right: 4px; }
 
 .menubar { display: flex; align-items: center; gap: 0; }

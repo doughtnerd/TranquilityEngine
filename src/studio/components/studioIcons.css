@@ -1,0 +1,4 @@
+/* The Studio's icons (Icon.tsx, ADR 0361): stroke icons in the text colour, sized with the UI scale. */
+.studio-glyph { flex: none; width: calc(var(--icon-size, 16px) * var(--ui-scale, 1)); height: calc(var(--icon-size, 16px) * var(--ui-scale, 1)); fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; pointer-events: none; }
+.studio-glyph.filled { fill: currentColor; stroke: none; }
+.studio-glyph.dots { stroke-width: 3.2; }

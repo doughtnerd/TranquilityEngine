@@ -1,12 +1,16 @@
 // The waveform (ADR 0349 `Waveform`): a sample's peaks drawn on a canvas for a view (`waveformModel.ts`), coloured
 // bands over it (loops, the play scope, deleted snippets hatched), and children laid over it (playhead, cut lines).
 // Ctrl/⌘+wheel zooms at the pointer and a plain or Shift+wheel scrolls (`onView`); a press reports the time under
-// the pointer (`onPress`). Colours are theme tokens read when it draws, so it follows Settings > Appearance.
+// the pointer (`onPress`). With `zoomButtons` it also draws Zoom in, Zoom out and Fit over its top-right corner, so touch
+// and keyboard users can zoom (ADR 0361); a screen whose toolbar has its own zoom buttons leaves it off. Colours are
+// theme tokens read when it draws, so it follows Settings > Appearance.
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
+import { Icon } from "./Icon";
 import { useElementWidth } from "./useElementWidth";
 import type { TimeSpan } from "./timeRulerModel";
 import { bandRect, scrollBy, waveColumns, xToTime, zoomAt, type PeakMips, type WaveBand } from "./waveformModel";
+import "./audioParts.css";
 import "./timelineComponents.css";
 
 export interface WaveformProps {
@@ -26,6 +30,8 @@ export interface WaveformProps {
   onPress?(t: number, e: PointerEvent): void;
   onDoubleClick?(t: number, e: MouseEvent): void;
   onHover?(t: number | null): void;
+  /** Draw Zoom in / Zoom out / Fit buttons over the corner (needs `onView`). */
+  readonly zoomButtons?: boolean;
   readonly children?: ComponentChildren;
 }
 
@@ -77,7 +83,7 @@ export function Waveform(props: WaveformProps) {
       ref={box}
       class="tl-wave"
       style={props.height ? { height: `${props.height}px` } : undefined}
-      role="img"
+      role={props.zoomButtons ? "group" : "img"}
       aria-label={props.label ?? "Waveform"}
       onWheel={onWheel}
       onPointerDown={(e) => props.onPress?.(timeAt(e.clientX), e)}
@@ -97,6 +103,27 @@ export function Waveform(props: WaveformProps) {
       })}
       {!props.mips && <div class="tl-wave-placeholder">{props.placeholder ?? "Reading the waveform…"}</div>}
       {props.children}
+      {props.zoomButtons && props.onView && <ZoomButtons view={props.view} length={props.length} onView={props.onView} />}
+    </div>
+  );
+}
+
+/** Zoom about the view's middle, or fit the whole sample. */
+function ZoomButtons(props: { view: TimeSpan; length: number; onView(view: TimeSpan): void }) {
+  const { view, length } = props;
+  const mid = (view.start + view.end) / 2;
+  const whole = view.start <= 0 && view.end >= length;
+  return (
+    <div class="tl-wave-zoom" role="toolbar" aria-label="Zoom" onPointerDown={(e) => e.stopPropagation()} onDblClick={(e) => e.stopPropagation()}>
+      <button type="button" class="studio-icon-button" aria-label="Zoom out" title="Zoom out (Ctrl+wheel)" disabled={whole} onClick={() => props.onView(zoomAt(view, 1 / 1.5, mid, length))}>
+        <Icon name="zoomOut" size={14} />
+      </button>
+      <button type="button" class="studio-icon-button" aria-label="Zoom in" title="Zoom in (Ctrl+wheel)" onClick={() => props.onView(zoomAt(view, 1.5, mid, length))}>
+        <Icon name="zoomIn" size={14} />
+      </button>
+      <button type="button" class="studio-icon-button" aria-label="Fit" title="Show the whole sample" disabled={whole} onClick={() => props.onView({ start: 0, end: length })}>
+        <Icon name="fit" size={14} />
+      </button>
     </div>
   );
 }

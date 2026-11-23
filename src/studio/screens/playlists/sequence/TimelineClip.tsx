@@ -4,6 +4,7 @@
 // with draggable keys. A view over props: the timeline handles presses.
 import type { Clip, Track } from "../../../../engine/audio/playlist/types";
 import type { PeakMips } from "../../../../plugins/audio/editor/music/peaksMip";
+import { Icon } from "../../../components/Icon";
 import { Waveform } from "../../../components/Waveform";
 import { sampleTitle, playlistTitle } from "../playlistPaths";
 import type { TargetSpec } from "./automationEdits";
@@ -34,6 +35,18 @@ export interface TimelineClipProps {
   onPointPress(index: number, e: PointerEvent): void;
   onPointDoubleClick(index: number): void;
   onPointMenu(index: number, e: MouseEvent): void;
+  /** Enter or Space on the focused clip selects it (Ctrl/⌘ or Shift adds it); the timeline's keys then move it. */
+  onKeySelect?(add: boolean): void;
+}
+
+/** Opens a menu from the keyboard (the context-menu key or Shift+F10) under the element, as a right-click would. */
+export function keyboardMenu(e: KeyboardEvent, open: (m: MouseEvent) => void): boolean {
+  if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  open(new MouseEvent("contextmenu", { clientX: r.left + Math.min(24, r.width / 2), clientY: r.bottom }));
+  return true;
 }
 
 export const clipName = (c: Clip): string => (c.sample !== undefined ? sampleTitle(c.sample) : typeof c.playlist === "string" ? playlistTitle(c.playlist) : "Embedded playlist");
@@ -55,7 +68,16 @@ export function TimelineClip(props: TimelineClipProps) {
       role="button"
       aria-label={`Clip ${name}`}
       aria-pressed={props.selected}
+      tabIndex={0}
       data-clip={c.id}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget || keyboardMenu(e, props.onMenu)) return;
+        if ((e.key === "Enter" || e.key === " ") && props.onKeySelect) {
+          e.preventDefault();
+          e.stopPropagation();
+          props.onKeySelect(e.ctrlKey || e.metaKey || e.shiftKey);
+        }
+      }}
       onPointerDown={(e) => props.onPress(e, "body")}
       onDblClick={(e) => props.onDoubleClick(e)}
       onContextMenu={(e) => {
@@ -82,7 +104,11 @@ export function TimelineClip(props: TimelineClipProps) {
       <span class="sq-clip-name">{name}</span>
       {chips.length > 0 && (
         <span class="sq-chips">
-          {chips.map((ch, i) => <span key={i} class={`sq-chip ${ch.kind}`} title={ch.title}>{ch.text}</span>)}
+          {chips.map((ch, i) => (
+            <span key={i} class={`sq-chip ${ch.kind}`} title={ch.title}>
+              {ch.text.startsWith("⚠ ") ? <><Icon name="warning" size={10} label="Warning" /> {ch.text.slice(2)}</> : ch.text}
+            </span>
+          ))}
         </span>
       )}
       {props.curve && (
