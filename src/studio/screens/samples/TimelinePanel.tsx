@@ -2,6 +2,7 @@
 // ruler, loop row (Pickup / Loop / Link / Tail), trim row, waveform with loop bands, the play band, snippets, cut lines
 // and the playhead, zoom and the range scrollbar, the readout and the warnings stack. Everything is drawn in timeline
 // time (closed gaps removed, `sampleTime.ts`); edits store source time. Drags are one coalesced step each.
+import { Fragment } from "preact";
 import { useRef, useState } from "preact/hooks";
 import type { SampleEdits, SampleMarker } from "../../../engine/audio/sample/types";
 import { currentProject } from "../../../editor/state";
@@ -20,14 +21,14 @@ import { useElementWidth } from "../../components/useElementWidth";
 import * as act from "./sampleActions";
 import {
   addLoop, addMarker, convertMarker, deleteMarker, hasFixedName, isHold, MARKER_TOKENS, MARKER_TYPE_NAMES, MARKER_TYPE_ORDER, moveLoop, moveMarker, removeLoop, resetTrim, setSnapToZero, setTrim,
-  slideLoop, snippets, sourceTime, updateLoop, updateMarker, viewTime, type SampleEdit,
+  closeGap, refusalOf, slideLoop, snippets, sourceTime, tapeSnippet, toggleSnippet, updateLoop, updateMarker, viewTime, type SampleEdit,
 } from "./sampleEditing";
 import { detachMarker, fileOrigin, markerDiff, revertLoop, revertMarker } from "./sampleFile";
 import { lengthOf, loudnessOf, pcmNow, pcmOf, peaksFailure, peaksOf, wavMetadataOf, type SampleSession } from "./sampleSession";
 import type { DetectKind } from "../../../engine/audio/sample/detect/detect";
 import { detectInto } from "./sampleDetect";
 import { editedLength, trimOf } from "./sampleTime";
-import { estimateLabelWidth, liveSelection, loopRegions, MARKER_ROWS_SHOWN, musicalSpans,nextMarker, packMarkerRows, regionAt, sampleWarnings, selectionSpan, snapTime, trimHoldingMarkers, fitToSource } from "./sampleView";
+import { estimateLabelWidth, liveSelection, loopRegions, MARKER_ROWS_SHOWN, musicalSpans,nextMarker, packMarkerRows, regionAt, sampleWarnings, selectionSpan, snapTime, snippetMenu, snippetUnder, trimHoldingMarkers, fitToSource, type SnippetAction } from "./sampleView";
 import { nearestZeroCrossing, seamJump } from "./seam";
 import { NormalizePopover, RootPopover, SnapPopover, TempoPopover, TimeFormatPopover } from "./SampleTools";
 import { dialog, hoverTime, openSession, playheadTime, razorOn, select, selection, snapSetting, timeFormat, viewSpan } from "./samplesState";
@@ -179,6 +180,26 @@ function Timeline(props: { session: SampleSession }) {
         { id: "remove", label: "Remove loop", danger: true, run: () => commit(removeLoop(e, id)) },
       ]),
     });
+  };
+
+  const cutSnippets = snippets(e, length);
+  const snippetMenuAt = (index: number, at: { x: number; y: number }) => {
+    const run: Record<SnippetAction, () => void> = {
+      save: () => (dialog.value = { kind: "snippet", index }),
+      tapeLeft: () => commit(tapeSnippet(e, index, "left", length)),
+      tapeRight: () => commit(tapeSnippet(e, index, "right", length)),
+      toggle: () => commit(toggleSnippet(e, index, length)),
+      closeGap: () => act.closeSnippetGap(index),
+    };
+    const items: MenuEntry[] = snippetMenu(e, length, index).map((item) => ({
+      id: item.id,
+      label: item.label,
+      disabled: session.readOnly || item.refused !== null,
+      title: item.refused ?? undefined,
+      danger: item.danger,
+      run: run[item.id],
+    }));
+    setMenu({ ...at, label: `Snippet ${index} menu`, entries: tidyEntries([items[0], SEPARATOR, items[1], items[2], SEPARATOR, items[3], items[4]]) });
   };
 
   const onKeyDown = (ev: KeyboardEvent) => {
@@ -387,7 +408,18 @@ function Timeline(props: { session: SampleSession }) {
             </div>
           </div>
 
-          <div class="smp-wave-wrap">
+          <div
+            class="smp-wave-wrap"
+            onContextMenu={(ev) => {
+              if (e.cuts.length === 0 || razorOn.value) return;
+              const r = lanes.current!.getBoundingClientRect();
+              const s = snippetUnder(e, length, sourceTime(e, xToTime(ev.clientX - r.left, view, r.width)));
+              if (!s) return;
+              ev.preventDefault();
+              select({ kind: "snippet", index: s.index });
+              snippetMenuAt(s.index, { x: ev.clientX, y: ev.clientY });
+            }}
+          >
             <Waveform
               mips={mips}
               view={view}
@@ -399,14 +431,44 @@ function Timeline(props: { session: SampleSession }) {
               onHover={(t) => (hoverTime.value = t)}
               onPress={(vt, ev) => {
                 if (ev.button !== 0) return;
-                if (razorOn.value) act.snipAtPlayhead(toSrc(vt, true));
-                else act.movePlayhead(sourceTime(e, vt));
+                if (razorOn.value) return void act.snipAtPlayhead(toSrc(vt, true));
+                const t = sourceTime(e, vt);
+                act.movePlayhead(t);
+                // Between razor cuts a click also selects the snippet under it (the Inspector shows its bar).
+                const s = snippetUnder(e, length, t);
+                if (s) select({ kind: "snippet", index: s.index });
               }}
               onDoubleClick={(vt) => !razorOn.value && act.addLoopHere(sourceTime(e, vt))}
             >
               {e.cuts.map((c) => (
                 <div key={c} class="smp-cut" style={{ left: `${x(c)}px` }} title={`Cut at ${formatTime(v(c), fmt, ctx)}`} />
               ))}
+              {cutSnippets.map((s) => {
+                const sx = x(s.start), sw = x(s.end) - sx;
+                if (sx + sw < 0 || sx > width) return null;
+                const on = sel.kind === "snippet" && sel.index === s.index;
+                const tape = s.index > 1 ? refusalOf(tapeSnippet(e, s.index, "left", length)) : null;
+                const gap = s.deleted ? refusalOf(closeGap(e, s.index, length)) : null;
+                const keep = (ev: Event) => ev.stopPropagation();
+                return (
+                  <Fragment key={s.start}>
+                    {on && <div class="smp-snippet-on" style={{ left: `${sx}px`, width: `${sw}px` }} aria-hidden="true" />}
+                    <span class={`smp-segl${on ? " on" : ""}`} style={{ left: `${sx}px`, maxWidth: `${Math.max(0, sw)}px` }} aria-hidden="true">{s.deleted ? `${s.name} (deleted)` : s.name}</span>
+                    {s.index > 1 && !session.readOnly && (
+                      <button class="smp-tape" style={{ left: `${sx}px` }} disabled={tape !== null} title={tape ?? `Tape Snippet ${s.index - 1} and ${s.name} back together (remove the cut)`} aria-label={`Tape Snippet ${s.index - 1} to ${s.name}`}
+                        onPointerDown={keep} onDblClick={keep} onClick={() => commit(tapeSnippet(e, s.index, "left", length))}>
+                        Tape
+                      </button>
+                    )}
+                    {s.deleted && !session.readOnly && sw > 60 && (
+                      <button class="smp-gapb" style={{ left: `${sx + sw / 2}px` }} disabled={gap !== null} title={gap ?? `Close the gap: ${s.name}'s audio is removed and what follows moves up`} aria-label={`Close ${s.name}'s gap`}
+                        onPointerDown={keep} onDblClick={keep} onClick={() => act.closeSnippetGap(s.index)}>
+                        ⇤ Close gap
+                      </button>
+                    )}
+                  </Fragment>
+                );
+              })}
               {razorOn.value && hoverTime.value !== null && <div class="smp-cut ghost" style={{ left: `${timeToX(hoverTime.value, view, width)}px` }} aria-hidden="true" />}
               <Playhead t={v(playT)} view={view} playing={!!play} />
             </Waveform>

@@ -15,7 +15,7 @@ import { allSamples, cleanFolderName, fileChip, libraryTree, metaLine, moveUpPla
 import { editedLength, inClosedGap, toSource, toView } from "./sampleTime";
 import {
   fitToSource, landmarks, liveSelection, loopRegions, musicalSpans, outlineGroups, packMarkerRows, parseSelection, parseSnapStep, regionAt, sampleWarnings, selectionKey, selectionSpan,
-  snapTime, trimHoldingMarkers,
+  snapTime, snippetMenu, snippetUnder, trimHoldingMarkers,
 } from "./sampleView";
 import { nearestZeroCrossing, seamJump, seamStrip, seamWindow } from "./seam";
 import { addTap, tapResult } from "./tapTempo";
@@ -164,6 +164,31 @@ describe("razor and closed gaps", () => {
     expect(snippets(e, 2).map((s) => [s.start, s.end])).toEqual([[0, 1], [1, 1.5], [1.5, 2]]);
     expect(refusalOf(snip(e, 1.001, 2))).toBe("Already snipped at 1.000 s");
     expect(refusalOf(snip(e, 0.002, 2))).toMatch(/too close/);
+  });
+
+  it("finds the snippet under a click and builds its menu", () => {
+    const e = next(snip(next(snip(defaultSampleEdits(), 1, 2)), 1.5, 2));
+    expect(snippetUnder(defaultSampleEdits(), 2, 0.5)).toBeNull(); // no cuts: no snippets
+    expect(snippetUnder(e, 2, 0.5)?.index).toBe(1);
+    expect(snippetUnder(e, 2, 1.2)?.index).toBe(2);
+    expect(snippetUnder(e, 2, 2)?.index).toBe(3); // the very end belongs to the last
+    const menu = (x: SampleEdits, i: number) => snippetMenu(x, 2, i).map((m) => [m.label, m.refused]);
+    expect(menu(e, 1)).toEqual([
+      ["Save as sample…", null],
+      ["Tape to the left", "there's no snippet on that side"],
+      ["Tape to the right", null],
+      ["Delete", null],
+      ["Delete and close gap", null],
+    ]);
+    const deleted = next(toggleSnippet(e, 2, 2));
+    expect(menu(deleted, 2)).toEqual([
+      ["Save as sample…", null],
+      ["Tape to the left", "Restore the deleted snippet before taping it"],
+      ["Tape to the right", "Restore the deleted snippet before taping it"],
+      ["Restore", null],
+      ["Close gap", null],
+    ]);
+    expect(snippetMenu(e, 2, 9)).toEqual([]);
   });
 
   it("deletes, restores and tapes snippets; a cut in a deleted one keeps both halves deleted", () => {
