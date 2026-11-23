@@ -2,7 +2,7 @@
 // zones, the Async voice cursor), the Amp envelope's handles, the spectrogram's bands, the Parameters panel's uses and
 // the Snap split button, through each module's own interface.
 import { describe, expect, it } from "vitest";
-import { adsrShape, adsrTip, clipAdsr, dragAdsr } from "./adsrModel";
+import { adsrHandleSpots, adsrShape, adsrTip, clipAdsr, dragAdsr, HOLD_HANDLE_GAP } from "./adsrModel";
 import { pasteCurves, setDrivenBy } from "./automationEdits";
 import { moveEffectToTrack, sharedClipEffect } from "./sequenceEdits";
 import { sequenceReadout } from "./readoutModel";
@@ -87,6 +87,15 @@ describe("the Amp envelope's handles", () => {
     expect(dragAdsr(a, "hold", 5, 1, 2)).toEqual({ hold: 1400 }); // never past the decay and release
     expect(dragAdsr(a, "decaySustain", 0.75, 0.5, 2)).toEqual({ decay: 500, sustain: 50 });
     expect(adsrTip(a, "hold")).toBe("Hold 150 ms · drag");
+  });
+
+  it("draws the Hold handle clear of Attack's at Hold 0, and on the plateau's end once the hold is wider than the gap", () => {
+    const a = { attack: 100, hold: 0, decay: 200, sustain: 50, release: 300 };
+    const spots = adsrHandleSpots(a, 2, 200); // 100 px a second
+    expect(spots.attack).toEqual([10, 1]);
+    expect(spots.hold).toEqual([10 + HOLD_HANDLE_GAP, 1]);
+    expect(spots.release).toEqual([170, 0.5]);
+    expect(adsrHandleSpots({ ...a, hold: 150 }, 2, 200).hold).toEqual([25, 1]);
   });
 
   it("ADR 0362: a clip shorter than the stages squeezes them as the voices play them (the release first)", () => {

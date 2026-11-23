@@ -15,7 +15,7 @@ import { TypeBadge } from "../../../components/TypeBadge";
 import { Waveform } from "../../../components/Waveform";
 import type { Pcm } from "../../samples/seam";
 import { sampleTitle, playlistTitle } from "../playlistPaths";
-import { ADSR_HANDLES, adsrShape, adsrTip, clipAdsr, type AdsrHandle } from "./adsrModel";
+import { ADSR_HANDLES, adsrHandleSpots, adsrShape, adsrTip, clipAdsr, type AdsrHandle } from "./adsrModel";
 import type { TargetSpec } from "./automationEdits";
 import { clipChips, clipMarkers, clipPlan, loopBand, wavePieces, type WavePiece } from "./clipGeometry";
 import { CurveOverlay } from "./CurveOverlay";
@@ -133,6 +133,7 @@ export function TimelineClip(props: TimelineClipProps) {
   const pieces = c.sample !== undefined ? wavePieces(plan) : [];
   const env = clipAdsr(c.effects);
   const adsr = env && c.sample !== undefined ? adsrShape(env.adsr, plan.length) : null;
+  const spots = env && adsr ? adsrHandleSpots(env.adsr, plan.length, Math.max(3, width)) : null;
   const disabled = !(c.enabled && props.track.enabled);
   const shownName_ = props.curve ? props.curve.spec.name : null;
   const fromSample = c.sample !== undefined ? "" : typeof c.playlist === "string" ? " · playlist clip · double-click to open the playlist" : " · embedded playlist clip";
@@ -213,7 +214,7 @@ export function TimelineClip(props: TimelineClipProps) {
         </svg>
       )}
       {adsr && env!.effect.on && !props.razor && ADSR_HANDLES.map((h) => (
-        <span key={h} class="sq-adsr-handle" style={{ left: `${at(adsr.handles[h][0])}px`, top: `${levelY(adsr.handles[h][1])}px` }} title={adsrTip(env!.adsr, h)}
+        <span key={h} class="sq-adsr-handle" style={{ left: `${spots![h][0]}px`, top: `${levelY(spots![h][1])}px` }} title={adsrTip(env!.adsr, h)}
           onPointerDown={(e) => { e.stopPropagation(); props.onAdsrPress?.(h, e, { width: Math.max(3, width), height }); }} />
       ))}
       {props.curve && (
