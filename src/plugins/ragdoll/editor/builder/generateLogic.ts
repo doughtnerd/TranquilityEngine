@@ -1,7 +1,7 @@
 // Generate a ragdoll from a skeleton (ADR 0373 "Ragdoll builder: generate bodies and joints from a skeleton (capsules by bone
 // length, limits from the profile's joint ranges)"; T55). The animation core's builder (`ragdoll_build`) says which bones
-// get bodies and with what limits and drives: from the skeleton file's own joint ranges, else the Humanoid profile's roles'
-// defaults (profile 0). The Ragdoll plugin's generator (`runtime/generate.ts`, `generateRagdollBones`) turns that and the
+// get bodies and with what limits and drives: from the skeleton file's own joint ranges, else the roles' defaults of the
+// Skeleton's `profile` (T70; the built-in Humanoid when it names none). The Ragdoll plugin's generator (`runtime/generate.ts`, `generateRagdollBones`) turns that and the
 // skeleton's rest pose into shapes (a capsule by bone length for a one-child bone, a box for a branching one, a sphere for a
 // leaf) and masses. Together they are what a Ragdoll with an empty `bones` list uses at run time; the builder writes the
 // result into `bones` so the table and the gizmos can edit it.
@@ -24,11 +24,14 @@ export interface GeneratedRagdoll {
   readonly front: RagdollDescription["front"];
 }
 
-/** The ragdoll for the skeleton file `skeleton` (`myco.skel@1` bytes), or why not. */
-export async function generateRagdoll(skeleton: Uint8Array): Promise<GeneratedRagdoll | { readonly error: string }> {
+/**
+ * The ragdoll for the skeleton file `skeleton` (`myco.skel@1` bytes) through the Skeleton's `profile` (a `*.skelprofile.json`;
+ * "" for the Humanoid), or why not.
+ */
+export async function generateRagdoll(skeleton: Uint8Array, profile = ""): Promise<GeneratedRagdoll | { readonly error: string }> {
   const info = readSkeletonInfo(skeleton);
   if (!info) return { error: "the skeleton file can't be read." };
-  const description = await defaultRagdollDescription(skeleton);
+  const description = await defaultRagdollDescription(skeleton, profile);
   if ("error" in description) return description;
   const bones = generateRagdollBones(rigOf(info), description);
   if (bones.length === 0) return { error: "no bone of the skeleton gets a body: its joint ranges and profile roles name none." };

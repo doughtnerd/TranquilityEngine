@@ -45,7 +45,7 @@ export function RagdollBuilderSection({ scene, paths, info }: InspectorSectionPr
     setError(null);
     try {
       const bytes = await loadSkeletonBytes(skeletonRef);
-      const made = bytes ? await generateRagdoll(bytes) : { error: `the skeleton "${skeletonRef}" can't be read.` };
+      const made = bytes ? await generateRagdoll(bytes, rig?.skeleton.profile ?? "") : { error: `the skeleton "${skeletonRef}" can't be read.` };
       if ("error" in made) return setError(made.error);
       editor.scene.edit("Generate the ragdoll", () => {
         editor.scene.writeField(place, "bones", made.bones);

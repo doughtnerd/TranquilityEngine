@@ -12,7 +12,7 @@ const NO_PARENT = 0xffff;
 const SKEL_MAGIC = "MYCOSKEL";
 const CLIP_MAGIC = "MYCOANIM";
 /** `myco.skel@1` sections. */
-const SKEL_STRINGS = 1, SKEL_BONES = 3;
+const SKEL_STRINGS = 1, SKEL_INFO = 2, SKEL_BONES = 3;
 const BONE_LEN = 96;
 /** `myco.anim@1` sections and flags. */
 const CLIP_INFO = 2, CLIP_ROOT_CURVE = 6;
@@ -33,6 +33,8 @@ export interface SkeletonInfo {
   readonly restModel: Float32Array;
   /** The largest distance of a rest-pose joint from the model origin (culling and screen-size bounds). */
   readonly radius: number;
+  /** The mirror plane's normal axis (0 x, 1 y, 2 z; the `INFO` section's, x without one). */
+  readonly mirrorAxis: number;
   /** A bone's index by name, or -1. */
   indexOf(name: string): number;
 }
@@ -124,7 +126,9 @@ export function readSkeletonInfo(bytes: Uint8Array): SkeletonInfo | null {
     else multiply34(restModel, b * 12, restModel, parents[b]! * 12, local, 0);
     radius = Math.max(radius, Math.hypot(restModel[b * 12 + 3]!, restModel[b * 12 + 7]!, restModel[b * 12 + 11]!));
   }
-  return { bones: n, names, parents, rest, inverseBind, bind, restModel, radius, indexOf: (name) => index.get(name) ?? -1 };
+  const info = byKind.get(SKEL_INFO);
+  const axis = info && info.length >= 12 ? view.getUint32(info.offset + 8, true) : 0;
+  return { bones: n, names, parents, rest, inverseBind, bind, restModel, radius, mirrorAxis: axis <= 2 ? axis : 0, indexOf: (name) => index.get(name) ?? -1 };
 }
 
 /** @internal Reads a `myco.anim@1` file's header and root curve; null when it doesn't parse. */

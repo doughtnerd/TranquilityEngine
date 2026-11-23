@@ -90,8 +90,8 @@ async function profileBytes(path: string): Promise<Uint8Array | null> {
   return null;
 }
 
-/** The Humanoid bone map from a model's import `boneMap` (role → bone name), or null when it maps nothing. */
-async function modelBoneMap(skeletonRef: string, info: SkeletonInfo): Promise<Uint16Array | null> {
+/** @internal The Humanoid bone map from a model's import `boneMap` (role → bone name), or null when it maps nothing. */
+export async function modelBoneMap(skeletonRef: string, info: SkeletonInfo): Promise<Uint16Array | null> {
   const model = modelSkeletonOf(skeletonRef);
   if (!model) return null;
   try {

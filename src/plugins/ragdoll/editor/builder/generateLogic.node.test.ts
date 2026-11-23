@@ -4,7 +4,11 @@
 // leaves), positive sizes and masses, and limits inside the rules the builder's table enforces.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { Assets } from "../../../../engine/scene/Assets";
 import { readSkeletonInfo } from "../../../animation/runtime/assetInfo";
+import { HUMANOID_ROLES } from "../../../animation/runtime/core/boneMap";
+import { loadAnimationCompiler } from "../../../animation/editor/compile/compiler";
+import type { RagdollBone } from "../../runtime/Ragdoll";
 import { boneProblem } from "./ragdollLogic";
 import { generateRagdoll, type GeneratedRagdoll } from "./generateLogic";
 
@@ -51,5 +55,26 @@ describe("generateRagdoll", () => {
 
   it("explains a file that isn't a skeleton", async () => {
     expect(await generateRagdoll(new Uint8Array(8))).toEqual({ error: "the skeleton file can't be read." });
+  });
+
+  // T70: the Skeleton's `profile` gives the roles' joint ranges. The humanoid fixture (bones named bone0…) gets a role per
+  // bone, written by the editor module's skeleton compile as an import writes its map (bone i: Humanoid role i); the custom
+  // profile has the Humanoid's roles with every range 12° of swing and ±7° of twist, where profile 0 (the Humanoid's
+  // defaults) has others.
+  it("takes the joint ranges of the Skeleton's profile", async () => {
+    const raw = fixture("humanoid.skel");
+    const roles = Uint16Array.from({ length: readSkeletonInfo(raw)!.bones }, (_, b) => (b < HUMANOID_ROLES.length ? b : 0xffff));
+    const compiled = (await loadAnimationCompiler()).compileSkeleton(raw, roles, "Humanoid");
+    if (!("bytes" in compiled)) throw new Error(compiled.error);
+    const range = { swingY: 12, swingZ: 12, twistMin: -7, twistMax: 7 };
+    Assets.addSource(Assets.fromObject({ "rig/tight.skelprofile.json": { format: "myco.skelprofile@1", name: "Tight", roles: HUMANOID_ROLES.map((name) => ({ name, range })), root: "Root", hips: "Hips" } }));
+    const plain = await generateRagdoll(compiled.bytes);
+    const out = await generateRagdoll(compiled.bytes, "rig/tight.skelprofile.json");
+    if ("error" in out || "error" in plain) throw new Error("generate failed");
+    const key = (b: RagdollBone) => [b.swing.y, b.swing.z, b.twist.min, b.twist.max].map((v) => Math.round(v * 1e3) / 1e3);
+    const tight = out.bones.filter((b) => key(b).join() === "12,12,-7,7");
+    expect(tight.length).toBeGreaterThan(2);
+    expect(plain.bones.filter((b) => key(b).join() === "12,12,-7,7")).toEqual([]);
+    expect(await generateRagdoll(compiled.bytes, "rig/missing.skelprofile.json")).toEqual({ error: 'the skeleton profile "rig/missing.skelprofile.json" can\'t be read.' });
   });
 });

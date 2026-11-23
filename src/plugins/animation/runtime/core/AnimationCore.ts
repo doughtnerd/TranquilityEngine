@@ -31,6 +31,7 @@ import { RAY_ROW_STRIDE, RIG_INPUT_STRIDE } from "../wasm/wire/rig";
 import { TIMELINE_BLOCK, TIMELINE_CHANGE, TIMELINE_CONTROL, TIMELINE_CREATE, TIMELINE_INFO } from "../wasm/wire/timeline";
 import { TWEEN_CHANGE, TWEEN_CONTROL, TWEEN_CREATE } from "../wasm/wire/tween";
 import type * as AnimWasm from "../wasm/myco_anim.js";
+import { readSkeletonInfo } from "../assetInfo";
 import { encodeRecord, getRecord, recordOpcode, type RecordFields, type RecordValues } from "./records";
 
 /** @internal The glue module (`../wasm/myco_anim.js`) once instantiated. */
@@ -280,6 +281,19 @@ export class AnimationCore {
     const roles = w.guess_bone_map(skeleton, handle, bones, new Float32Array(GUESS_CAPACITY));
     if (handle) w.release(handle);
     return roles === 0 ? null : bones.slice(0, roles);
+  }
+
+  /**
+   * The graph `MIRROR` node's word per bone (partner and flip) for a `myco.skel@1` skeleton, its profile (0: Humanoid, else
+   * a profile handle) and its bone map (one bone per role), from the profile's mirror roles (`retarget_mirror_table`), or
+   * null when the core refused (`lastStatus` says why). T70: the pose database bake's mirror table.
+   */
+  mirrorTable(skeleton: Uint8Array, profile: number, map: Uint16Array): Uint32Array | null {
+    const bones = readSkeletonInfo(skeleton)?.bones ?? 0;
+    if (!bones) return null;
+    const out = new Uint32Array(bones);
+    const n = this.wasm.retarget_mirror_table(skeleton, profile, map, out);
+    return n === bones ? out : null;
   }
 
   /** Drops one reference to an asset; with none left it is idle. Returns false for a handle this core doesn't hold. */
