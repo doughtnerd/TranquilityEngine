@@ -315,17 +315,19 @@ function SoundField(props: { value: string; disabled: boolean; sounds(): readonl
   const item = props.value ? props.sounds().find((s) => s.path === props.value) : undefined;
   return (
     <FieldRow label="Sound">
-      <button ref={ref} type="button" class="sp-sound" disabled={props.disabled} aria-haspopup="dialog" title={props.value || "Pick a playlist or sample"} onClick={() => setOpen(true)}>
-        {item ? <TypeBadge code={item.badge} /> : null}
-        <span>{props.value ? soundName(item ?? { path: props.value, kind: "sample", badge: "SMP" }) : "Pick a sound…"}</span>
-        {props.value && !item && <span class="sp-warn" title="Not in the project">missing</span>}
-      </button>
-      {props.value.toLowerCase().endsWith(".playlist.json") && (
-        <button type="button" class="sp-icon" aria-label="Open in Playlists" title="Open in Playlists" onClick={() => props.onOpen(props.value)}><Icon name="chevronRight" size={14} /></button>
-      )}
-      {props.value && !props.disabled && (
-        <button type="button" class="sp-icon" aria-label="Clear the sound" title="Play nothing" onClick={() => props.onPick("")}><Icon name="close" size={14} /></button>
-      )}
+      <span class="sp-sound-row">
+        <button ref={ref} type="button" class="sp-sound" disabled={props.disabled} aria-haspopup="dialog" title={props.value || "Pick a playlist or sample"} onClick={() => setOpen(true)}>
+          {item ? <TypeBadge code={item.badge} /> : null}
+          <span class="sp-sound-name">{props.value ? soundName(item ?? { path: props.value, kind: "sample", badge: "SMP" }) : "Pick a sound…"}</span>
+          {props.value && !item && <span class="sp-warn" title="Not in the project">missing</span>}
+        </button>
+        {props.value.toLowerCase().endsWith(".playlist.json") && (
+          <button type="button" class="sp-icon" aria-label="Open in Playlists" title="Open in Playlists" onClick={() => props.onOpen(props.value)}><Icon name="chevronRight" size={14} /></button>
+        )}
+        {props.value && !props.disabled && (
+          <button type="button" class="sp-icon" aria-label="Clear the sound" title="Play nothing" onClick={() => props.onPick("")}><Icon name="close" size={14} /></button>
+        )}
+      </span>
       {open && ref.current && <SoundPicker at={ref.current} list={props.sounds} title="Pick a sound" onPick={props.onPick} onClose={() => setOpen(false)} />}
     </FieldRow>
   );

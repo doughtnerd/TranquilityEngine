@@ -108,6 +108,26 @@ export const InspectorEmitter: Story = {
   },
 };
 
+/** UI pass IN2: in the default 300px dock the sound chip, › and × stay on one line; a long name gives way with an ellipsis. */
+export const InspectorSoundNarrow: Story = {
+  render: () => {
+    const long = "audio/ambience/waterfall_distant_canyon_loop_with_birds.playlist.json";
+    const scene = fixtureScene();
+    const s = { ...scene, emitters: scene.emitters.map((e) => (e.id === "emitter1" ? { ...e, sound: long } : e)) };
+    return frame(300, 720, <InspectorPanel {...inspector("emitter1")} scene={s} sounds={() => [{ path: long, kind: "playlist", badge: "QUE" }]} />);
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const chip = c.getByRole("button", { name: /waterfall_distant/ });
+    const open = c.getByRole("button", { name: "Open in Playlists" });
+    const clear = c.getByRole("button", { name: "Clear the sound" });
+    const mid = (el: Element) => { const r = el.getBoundingClientRect(); return r.top + r.height / 2; };
+    await expect(Math.abs(mid(open) - mid(chip))).toBeLessThan(2);
+    await expect(Math.abs(mid(clear) - mid(chip))).toBeLessThan(2);
+    await expect(clear.getBoundingClientRect().right).toBeLessThanOrEqual((canvasElement.firstElementChild as HTMLElement).getBoundingClientRect().right);
+  },
+};
+
 export const InspectorMovingEmitter: Story = { render: () => frame(320, 720, <InspectorPanel {...inspector("emitter4")} />) };
 export const InspectorAudioZone: Story = {
   render: () => frame(320, 720, <InspectorPanel {...inspector("zone1")} />),
@@ -130,6 +150,21 @@ export const Settings: Story = {
     const c = within(canvasElement);
     await userEvent.click(c.getByRole("button", { name: "Material" }));
     await expect(c.getByRole("textbox", { name: "Material name" })).toHaveValue("Material");
+  },
+};
+
+/** UI pass SS3: in the default 300px dock the materials table fits: no column is cut off (Wet cut included). */
+export const SettingsNarrow: Story = {
+  render: () => frame(300, 640, <SettingsPanel mix={mixerFixture()} readOnly={false} onEdit={() => true} onEndDrag={fn()} />),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const table = canvasElement.querySelector<HTMLTableElement>(".sp-materials")!;
+    const box = table.parentElement!.getBoundingClientRect();
+    await expect(table.scrollWidth).toBeLessThanOrEqual(table.parentElement!.clientWidth);
+    for (const name of ["Wet cut", "Low-pass Hz", "Loss dB"]) {
+      const th = c.getByRole("columnheader", { name });
+      await expect(th.getBoundingClientRect().right).toBeLessThanOrEqual(box.right + 0.5);
+    }
   },
 };
 
