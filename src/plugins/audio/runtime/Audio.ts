@@ -9,6 +9,7 @@ import { World } from "../../../engine/core/World";
 import { worldKeyOf, worldPlays } from "./AudioSource";
 import { clipRequest, clipSource } from "./clipResolver";
 import { isPlaylistPath } from "../../../engine/audio/playlist/format";
+import { isGeneratorPath } from "../../../engine/audio/generators/format";
 import { Assets } from "../../../engine/scene/Assets";
 import { audioPackage, audioPackages, mediaRefusal, packagesDebug, playlistRefusal, type AudioPackage, type AudioPackageDebug } from "./media/packages";
 import { playSampleVoice } from "./sampleVoice";
@@ -319,7 +320,8 @@ export const Audio = {
       const asset = String(pathOrSample).replace(/^asset:/, "");
       // ADR 0337 §7: the strict rule for a packaged playlist or sample (`playlistRefusal` for a playlist).
       if (worldPlays(World.active)) {
-        const refused = isPlaylistPath(asset) ? playlistRefusal(asset, clipSource) : Assets.has(asset) ? mediaRefusal(clipSource(asset)) : null;
+        // ADR 0346: a generator (`*.generator.json`) is JSON, never packaged media: nothing to refuse.
+        const refused = isPlaylistPath(asset) ? playlistRefusal(asset, clipSource) : isGeneratorPath(asset) ? null : Assets.has(asset) ? mediaRefusal(clipSource(asset)) : null;
         if (refused) return refused === "notLoaded" ? NOT_LOADED_EVENT : FAILED_EVENT;
       }
       const p = _playPlaylist(asset, o, World.active);

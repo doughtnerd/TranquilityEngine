@@ -51,21 +51,29 @@ describe("generator entries (ADR 0346 §5)", () => {
     }
   });
 
-  it("draws the noise seed from the World's seeded generator, the same for the same project seed", async () => {
-    const assets = { "n.playlist.json": pla("clip", [gen({ kind: "oscillator", params: { waveform: "noise" } })]) };
-    const run = async (seed: number): Promise<number[]> => {
-      await kit.boot(assets, { seed });
+  it("draws the noise seed from the World's seeded generator: the same state gives the same seeds, in pick order", async () => {
+    const noise = gen({ kind: "oscillator", params: { waveform: "noise" } });
+    await kit.boot({
+      "n.playlist.json": pla("clip", [noise]),
+      "l.playlist.json": pla("layer", [embed(pl("clip", [noise])), embed(pl("clip", [gen({ kind: "synth", params: {} })]))]),
+    });
+    const run = (state: number): number[] => {
+      reseedActiveWorld(state);
       const from = kit.fake.plays.length;
-      for (let i = 0; i < 4; i++) Audio.play("n.playlist.json");
+      for (let i = 0; i < 3; i++) { Audio.play("n.playlist.json"); Audio.play("l.playlist.json"); }
       return genPlays(from).map((p) => p.generator.seed);
     };
-    const a = await run(7);
-    const b = await run(7);
-    const c = await run(8);
-    expect(a).toEqual(b);
-    expect(new Set(a).size).toBe(4);
-    expect(c).not.toEqual(a);
+    const a = run(1234);
+    expect(a).toHaveLength(9);
+    expect(new Set(a).size).toBe(9);
     for (const s of a) expect(s).not.toBe(0);
+    expect(run(1234)).toEqual(a);
+    expect(run(4321)).not.toEqual(a);
+    // A generator with its own seed plays it every time.
+    await kit.boot({ "f.playlist.json": pla("clip", [gen({ kind: "oscillator", params: { waveform: "noise" }, seed: 77 })]) });
+    Audio.play("f.playlist.json");
+    Audio.play("f.playlist.json");
+    expect(genPlays().slice(-2).map((p) => p.generator.seed)).toEqual([77, 77]);
   });
 
   it("applies vary within ±vary × 5 % of each numeric parameter's range, leaving choices", async () => {
@@ -133,9 +141,9 @@ describe("generator entries (ADR 0346 §5)", () => {
   });
 
   it("a continuous Queue of blips starts the next one where the blip's envelope ends", async () => {
-    // sfxr: each stage lasts p² × 100,000 + 1 ticks at 44.1 kHz.
+    // sfxr: each stage lasts p² × 100,000 + 1 ticks at 44.1 kHz (1,000, 4,000 and 9,000 ticks here).
     const params = { attack: 0.1, sustain: 0.2, decay: 0.3 };
-    const seconds = (0.1 ** 2 * 1e5 + 1 + Math.floor(0.2 ** 2 * 1e5) + 1 + Math.floor(0.3 ** 2 * 1e5) + 1) / 44_100;
+    const seconds = (1_001 + 4_001 + 9_001) / 44_100;
     await kit.boot({ "q.playlist.json": pla("queue", [embed(pl("clip", [gen({ kind: "blip", params, seed: 1 })]))], { queue: { pick: "sequential", continuous: { gapMs: 0 } } }) });
     kit.fake.lookahead = 0.05;
     Audio.play("q.playlist.json");

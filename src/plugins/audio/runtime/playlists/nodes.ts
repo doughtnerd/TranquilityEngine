@@ -14,12 +14,12 @@ import { defaultBlend, defaultQueue, defaultSwitch } from "../../../../engine/au
 import { pickEntry } from "../../../../engine/audio/playlist/picks";
 import { changeFor } from "../../../../engine/audio/playlist/switchRules";
 import type {
-  Adsr, BlendAxis, ChangeHow, ChangeRule, Entry, EntryUse, FadeShape, LineEntry, PlaylistBody, PlaylistType, SampleEntry, SwitchSettings, TimeLength,
+  Adsr, BlendAxis, ChangeHow, ChangeRule, Entry, EntryUse, FadeShape, GeneratorEntry, LineEntry, PlaylistBody, PlaylistType, SampleEntry, SwitchSettings, TimeLength,
 } from "../../../../engine/audio/playlist/types";
 import type { Region1D } from "../../../../engine/audio/playlist/blendWeights";
 import { isLabelled, parameterRange } from "../../../../engine/audio/parameters";
 import { warnOnce } from "../core/handle";
-import { curveParts } from "./curves";
+import { curveParts, genCurvesOf } from "./curves";
 import { levelEffects, playlistEffectProps } from "./effects";
 import { automationParts, type TimeAuto } from "./levelAutomation";
 import { EmptyNode, LiveNode, type Ctx, type DynGain, type NodeHost, type PendingSwitchChange, type PVoice, type SpatialPlan } from "./liveNode";
@@ -50,13 +50,18 @@ const lerp = ([lo, hi]: readonly [number, number], t: number): number => (lo ===
 
 // --- context down the tree -------------------------------------------------------------------------------------------
 
-/** An entry's per-use settings below `ctx`: gain and pitch add, its curves add bindings or voice-time curves. */
+/**
+ * An entry's per-use settings below `ctx`: gain and pitch add, its curves add bindings or voice-time curves, and its
+ * `gen:` curves (ADR 0346 §4) go down to the generator it plays.
+ */
 export function useCtx(host: NodeHost, ctx: Ctx, use: EntryUse): Ctx {
   const hasCurves = Object.keys(use.curves).length > 0;
   if (use.volume === 0 && use.pitch === 0 && !hasCurves) return ctx;
   const parts = hasCurves ? curveParts(use.curves, ctx, (n) => host.paramRef(n), (c) => host.curveId(c), ctx.where) : ctx;
   const quantized = "quantized" in parts && parts.quantized ? { quantized: parts.quantized } : {};
-  return { ...ctx, props: accumulate(ctx.props, { gainDb: use.volume, pitchSt: use.pitch }), bindings: parts.bindings, timeCurves: parts.timeCurves, ...quantized };
+  const genCurves = hasCurves ? genCurvesOf(use.curves, ctx.genCurves) : ctx.genCurves;
+  const gen = genCurves !== ctx.genCurves && genCurves ? { genCurves } : {};
+  return { ...ctx, props: accumulate(ctx.props, { gainDb: use.volume, pitchSt: use.pitch }), bindings: parts.bindings, timeCurves: parts.timeCurves, ...quantized, ...gen };
 }
 
 /** A playlist's own level below `ctx`: volume and pitch with their random ranges (drawn per trigger), effects, output, spatial, delay. */
@@ -134,8 +139,8 @@ export function resolveEntry(host: NodeHost, entry: Entry, parent: Ctx, key: str
       // ADR 0340 §5: the line's file in the current language, resolved now (the moment the entry is picked).
       return new ClipNode(host, ctx, `${key}/${index}`, lineSampleOf(host, entry, ctx));
     case "generator":
-      // TODO(G3, ADR 0346 §5): generator voices (PLAY reserved id + GEN). Not playable yet: plays nothing.
-      return null;
+      // ADR 0346 §5: the parse wraps generators outside a Clip; one reached here plays as a one-entry Clip (its use is in `ctx`).
+      return new GeneratorNode(host, ctx, `${key}/${index}`, entry.generator);
   }
 }
 
@@ -192,10 +197,26 @@ class ClipNode extends LiveNode {
 }
 
 const resolveClip: Resolver = (host, body, ctx, key) => {
-  // ADR 0340 §5: a Clip plays its first sample or line entry.
-  const first = body.entries.find((e): e is SampleEntry | LineEntry => e.kind === "sample" || e.kind === "line") ?? null;
+  // ADR 0340 §5, 0346 §1: a Clip plays its first sample, line or generator entry.
+  const first = body.entries.find((e): e is SampleEntry | LineEntry | GeneratorEntry => e.kind === "sample" || e.kind === "line" || e.kind === "generator") ?? null;
+  if (first?.kind === "generator") return new GeneratorNode(host, useCtx(host, ctx, first), key, first.generator);
   return new ClipNode(host, ctx, key, first?.kind === "line" ? lineSampleOf(host, first, ctx) : first);
 };
+
+// --- Generator -------------------------------------------------------------------------------------------------------
+
+/**
+ * ADR 0346 §5: one generator voice, resolved when the entry is picked (`NodeHost.playGenerator`). Its key-off is the
+ * instance's release (an endless or looping generator holds a "held" loop, `LiveNode.release`); its end, when known, is
+ * its envelope's.
+ */
+class GeneratorNode extends LiveNode {
+  constructor(host: NodeHost, ctx: Ctx, key: string, generator: GeneratorEntry["generator"]) {
+    super(host, ctx, key);
+    const v = host.playGenerator?.({ generator }, ctx) ?? null;
+    if (v) this.voices.push(v);
+  }
+}
 
 // --- Layer -----------------------------------------------------------------------------------------------------------
 

@@ -17,10 +17,11 @@
  * - On the Babylon fallback pan and high-pass curves are ignored (`TsAutomation` warns once).
  */
 import { evalCurve, type Curve, type CurveKey } from "../../../../engine/core/curve";
-import type { CurveInput, VoiceCurve, VoiceCurveTarget } from "../../../../engine/audio/playlist/types";
+import type { CurveInput, GenTarget, VoiceCurve, VoiceCurveTarget } from "../../../../engine/audio/playlist/types";
 import { warnOnce } from "../core/handle";
 import { AutoTarget, MAX_BINDINGS, TimeParam, timeParam, type Binding, type ParamRef } from "../automation";
 import { QuantLane } from "./quantizedLanes";
+import type { GenCurve } from "./liveNode";
 
 /** The core target of each voice curve target. */
 const TARGETS: Record<VoiceCurveTarget, AutoTarget> = {
@@ -107,7 +108,7 @@ export interface CurveParts {
  * unknown, already warned); `curveId` gives a curve's id on the backend (null: the table is full).
  */
 export function curveParts(
-  curves: Partial<Record<VoiceCurveTarget, VoiceCurve>>,
+  curves: Partial<Record<VoiceCurveTarget | GenTarget, VoiceCurve>>,
   parent: { readonly bindings: readonly Binding[]; readonly timeCurves: readonly TimeCurve[]; readonly quantized?: readonly QuantLane[] },
   paramRef: (name: string) => ParamRef | null,
   curveId: (curve: Curve) => number | null,
@@ -116,7 +117,10 @@ export function curveParts(
   let bindings = parent.bindings as Binding[];
   const timeCurves = parent.timeCurves as TimeCurve[];
   let quantized: QuantLane[] | undefined;
-  for (const target of Object.keys(curves) as VoiceCurveTarget[]) {
+  for (const key of Object.keys(curves) as (VoiceCurveTarget | GenTarget)[]) {
+    // ADR 0346 §4: a `gen:` curve drives the generator voice's parameter (`genCurvesOf`), not a voice control.
+    if (isGenTarget(key)) continue;
+    const target: VoiceCurveTarget = key;
     const vc = curves[target];
     if (!vc || vc.bypass || vc.curve.length === 0) continue;
     const input: CurveInput = vc.input;
@@ -140,6 +144,25 @@ export function curveParts(
     bindings.push({ param: p, curve: id, target: TARGETS[target] });
   }
   return quantized ? { bindings, timeCurves, quantized } : { bindings, timeCurves };
+}
+
+/** ADR 0346 §4: a `gen:<param>` target. */
+export const isGenTarget = (target: string): target is GenTarget => target.startsWith("gen:");
+
+/**
+ * ADR 0346 §4: the `gen:<param>` curves of an entry's `curves` (not bypassed, with keys), after `parent`'s; `parent` itself
+ * when there are none.
+ */
+export function genCurvesOf(curves: Partial<Record<VoiceCurveTarget | GenTarget, VoiceCurve>>, parent: readonly GenCurve[] | undefined): readonly GenCurve[] | undefined {
+  let out = parent;
+  for (const key of Object.keys(curves)) {
+    if (!isGenTarget(key)) continue;
+    const vc = curves[key];
+    if (!vc || vc.bypass || vc.curve.length === 0) continue;
+    const c: GenCurve = { param: key.slice(4), input: vc.input, curve: vc.curve, ...(vc.quantize !== undefined ? { quantize: vc.quantize } : {}) };
+    out = out === parent ? [...(parent ?? []), c] : [...out!, c];
+  }
+  return out;
 }
 
 /**
