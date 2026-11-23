@@ -6,7 +6,7 @@ import { createTransport, type Transport } from "../net/Transport";
 import "../net/transport/loopback";
 import { DebugLinkListener, type DebugLinkPeer } from "./client";
 import type { LinkRecord } from "./records";
-import { DebugLinkSession } from "./session";
+import { DebugLinkSession, RELIABLE_SAMPLES_PER_FRAME } from "./session";
 import type { DebugTopic } from "./topics";
 
 let address = 0;
@@ -46,7 +46,7 @@ function testTopic(log: string[], rate = 10): DebugTopic & { samples: number } {
   return topic;
 }
 
-async function link(topic: DebugTopic) {
+async function link(topic: DebugTopic, buildConditions: { loss?: number } = {}) {
   let t = 0;
   const now = () => t;
   const tool: Transport = createTransport("loopback", { now });
@@ -55,7 +55,7 @@ async function link(topic: DebugTopic) {
   const listener = new DebugLinkListener(tool, { onPeer: (p) => peers.push(p), onClose: (p) => closed.push(p) });
   const at = `debug-session-${++address}`;
   await listener.listen(at);
-  const build: Transport = createTransport("loopback", { now });
+  const build: Transport = createTransport("loopback", { now, random: () => 0.5, ...buildConditions });
   const logged: string[] = [];
   const session = new DebugLinkSession({ transport: build, connection: build.connect(at), hello: { name: "Game", platform: "web", topics: ["test"] }, topics: new Map([["test", topic]]), log: (l) => logged.push(l) });
   open.push(listener, build);
@@ -200,5 +200,59 @@ describe("the build's session and the tool's peer", () => {
     frame();
     expect(peers[0]!.state).toBe("closed");
     expect(logged).toEqual([]);
+  });
+});
+
+describe("a topic's channel", () => {
+  /** A topic whose subscription has `chunks` records to send, one per sample call (as the take upload's chunks). */
+  function queueTopic(chunks: number, channel?: "reliable" | "unreliable"): DebugTopic {
+    return {
+      rate: 60,
+      channel,
+      subscribe: () => {
+        let next = 0;
+        return {
+          sample: (out, frame) => {
+            if (next < chunks) out.write(0x42, next, frame, new Uint8Array([next++]));
+          },
+          close: () => {},
+        };
+      },
+    };
+  }
+
+  async function subscribed(topic: DebugTopic, loss: number) {
+    const l = await link(topic, { loss });
+    l.frame();
+    l.peers[0]!.accept();
+    l.frame();
+    const perFrame: number[][] = [];
+    l.peers[0]!.subscribe("test", null, (records) => perFrame[perFrame.length - 1]!.push(...records.map((r) => r.seq)));
+    const frame = () => {
+      perFrame.push([]);
+      l.frame();
+    };
+    return { frame, perFrame };
+  }
+
+  it("sends a reliable topic's samples on the reliable channel, several messages a due frame up to the bound, in order", async () => {
+    // Every unreliable message is lost on this link; reliable ones still arrive.
+    const { frame, perFrame } = await subscribed(queueTopic(20, "reliable"), 1);
+    frame(); // the subscribe reaches the build; its first due frame samples
+    frame();
+    frame();
+    frame();
+    const sent = perFrame.flat();
+    expect(sent).toEqual(Array.from({ length: 20 }, (_, i) => i));
+    expect(Math.max(...perFrame.map((f) => f.length))).toBe(RELIABLE_SAMPLES_PER_FRAME);
+  });
+
+  it("sends an unreliable topic's samples once a due frame, on the unreliable channel (the default)", async () => {
+    const kept = await subscribed(queueTopic(20), 0);
+    for (let i = 0; i < 4; i++) kept.frame();
+    expect(kept.perFrame.map((f) => f.length)).toEqual([1, 1, 1, 1]);
+    const lost = await subscribed(queueTopic(20), 1);
+    for (let i = 0; i < 4; i++) lost.frame();
+    expect(lost.perFrame.flat()).toEqual([]);
   });
 });
