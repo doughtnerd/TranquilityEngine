@@ -176,6 +176,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
 | T17 | **ECS integration** (see below) | S | 2.5 | T13t |
 | T20t | **Property tracks on the ECS** (see below) | S | 2 | T17, T20r |
 | T18 | **Editor M1** (see below) | M | 2.5 | T17, T07 |
+| T17b | **Animators without a Skeleton** (see below) | S | 1 | T20t |
 | T21 | **Sprites** (see below) | M | 2 | T20t, T16 |
 | T22t | **Tweens and timelines on the ECS** (see below) | M | 2.5 | T20t, T22r |
 | T24 | **Live texture transforms** (see below) | M | 1.5 | T14, T20t |
@@ -266,6 +267,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
   - one warning per clip and node for missing targets;
   - `World._sendMessage` widened to named methods for animation events (internal tier), plus the `AnimationEvents` buffer;
   - `audio` track plays through audio's public API when audio is active.
+- **T17b, Animators without a Skeleton:** the core accepts an instance with no skeleton (zero bones: tracks, notifies, root curve and graph logic only), and the Animator creates one when no Skeleton is found, so clips can animate lights, materials and other fields alone (T20t gap).
 - **T18, editor M1:**
   - drop behaviour: a contribution point in `plugins/meshes/editor/modelNodes.ts` that the animation editor fills (`Skeleton`, `SkinnedMeshRenderer`s, an `Animator` playing the first clip);
   - dropping a clip on an Animator adds it or offers a state;
