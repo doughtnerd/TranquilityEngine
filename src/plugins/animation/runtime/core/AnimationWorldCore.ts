@@ -6,6 +6,9 @@
 import type { World } from "../../../../engine/core/World";
 import { Assets, fetchAssetBytes } from "../../../../engine/scene/Assets";
 import { PASS_FIXED, PASS_NORMAL, STATUS_STALE_HANDLE } from "../wasm/wire/core";
+import { OP_KILL as TIMELINE_KILL, type TIMELINE_CREATE } from "../wasm/wire/timeline";
+import { OP_KILL as TWEEN_KILL, type TWEEN_CREATE } from "../wasm/wire/tween";
+import type { RecordValues } from "./records";
 import type { AnimationFrame } from "../stages/frame";
 import type { AnimationAssetKind, AnimationAssetSource, AnimationCore } from "./AnimationCore";
 import { CommandWriter, type CommandSink } from "./commands";
@@ -23,6 +26,9 @@ export class AnimationWorldCore {
   /** Commands the gather sub-steps queue for this World's next evaluate. */
   readonly commands = new CommandWriter();
   private readonly instances = new Set<number>();
+  /** Tween and timeline handles created in this World and not known to have ended (killed at teardown). */
+  private readonly tweens = new Set<number>();
+  private readonly timelines = new Set<number>();
   /** Asset handle → references this World holds. */
   private readonly refs = new Map<number, number>();
   private readonly sink: CommandSink;
@@ -134,6 +140,42 @@ export class AnimationWorldCore {
     return this.instances.size;
   }
 
+  // --- Tweens and timelines ----------------------------------------------------------------------------------------
+
+  /** Creates a tween in this World (`world` filled in). Returns its handle, or 0 (`core.lastStatus()`). */
+  createTween(values: Omit<RecordValues<typeof TWEEN_CREATE>, "world">): number {
+    if (this.closed) return 0;
+    const h = this.core.tweenCreate({ ...values, world: this.id });
+    if (h !== 0) this.tweens.add(h);
+    return h;
+  }
+
+  /** Creates a timeline instance of a clip in this World. Returns its handle, or 0. */
+  createTimeline(values: Omit<RecordValues<typeof TIMELINE_CREATE>, "world">): number {
+    if (this.closed) return 0;
+    const h = this.core.timelineCreate({ ...values, world: this.id });
+    if (h !== 0) this.timelines.add(h);
+    return h;
+  }
+
+  /** Creates a sequence in this World from `SEQ_CREATE` + `SEQ_MEMBER` bytes whose `world` is this World's id. Returns its handle, or 0. */
+  createSequence(bytes: Uint8Array): number {
+    if (this.closed) return 0;
+    const h = this.core.timelineCreateSequence(bytes);
+    if (h !== 0) this.timelines.add(h);
+    return h;
+  }
+
+  /** Forgets a tween or timeline handle that has ended (its change record was read). */
+  forgetTween(handle: number): void {
+    this.tweens.delete(handle);
+  }
+
+  /** Forgets a timeline handle that has ended or was killed. */
+  forgetTimeline(handle: number): void {
+    this.timelines.delete(handle);
+  }
+
   // --- The frame --------------------------------------------------------------------------------------------------
 
   /**
@@ -152,6 +194,10 @@ export class AnimationWorldCore {
     this.closed = true;
     for (const h of this.instances) this.core.destroyInstance(h);
     this.instances.clear();
+    for (const h of this.tweens) this.core.tweenControl(h, TWEEN_KILL);
+    this.tweens.clear();
+    for (const h of this.timelines) this.core.timelineControl(h, TIMELINE_KILL);
+    this.timelines.clear();
     for (const [handle, n] of this.refs) for (let i = 0; i < n; i++) this.core.release(handle);
     this.refs.clear();
     this.commands.clear();

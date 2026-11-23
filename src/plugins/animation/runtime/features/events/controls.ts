@@ -1,15 +1,20 @@
 // `control` track keys (ADR 0371: a particle effect's play and stop, a camera cut, a nested Animator's slot play) as
-// the host reads them from the core's `CONTROL` records, and the one place they are dispatched. The handlers are T22t's
-// (tweens and timelines on the ECS: particles, camera cuts, nested slots); until a handler is set for an action, its
-// keys are skipped with one warning per action.
+// the host reads them from the core's `CONTROL` records (an Animator's clips and TimelineDirectors' timelines), and the
+// one place they are dispatched. The handlers are set by the timeline feature at activation
+// (`../timeline/controls.ts`: particles, camera cuts, nested slots); an action with no handler has its keys skipped
+// with one warning per action.
 import type { ControlAction } from "../../../../../engine/animation/tracks";
 import type { GameObject } from "../../../../../engine/scene/GameObject";
 import type { Animator } from "../../components/Animator";
+import type { TimelineDirector } from "../../components/TimelineDirector";
 
 /** @internal One control key crossed this frame. */
 export interface AnimationControl {
-  readonly animator: Animator;
-  /** The Animator's node (the key's `target` is a path or name relative to it, as the handler reads it). */
+  /** The Animator whose clip has the key, or null for a timeline's key (`director`). */
+  readonly animator: Animator | null;
+  /** The TimelineDirector whose timeline has the key, when it came from one. */
+  readonly director?: TimelineDirector;
+  /** The Animator's (or director's) node (the key's `target` is a path or name relative to it, as the handler reads it). */
   readonly node: GameObject;
   readonly action: ControlAction;
   /** The key's target string, or null. */

@@ -1,7 +1,12 @@
-// Registration seam: timeline (T22t). Registers timeline playback state, control tracks (particles, camera cuts, nested slots) and playlist audio tracks (when `on.audio`).
-// `activate()` (`../../index.ts`) calls it once per activation; empty until T22t.
+// Registration seam: timeline (T22t). Sets the `control` track actions (particles, camera cuts, nested slots) on the events
+// feature's dispatch point (`../timeline/controls.ts`). Timeline playback state lives per director
+// (`../timeline.ts`); a timeline's `audio` keys play through the events feature's audio path, active while `on.audio`
+// (set by `../events/register.ts`). `activate()` (`../../index.ts`) calls it once per activation.
 import type { RuntimePluginContext } from "../../../../runtimeContext";
 import type { AnimationIntegrations } from "../../registration";
+import { registerControlHandlers } from "./controls";
 
 /** @internal */
-export function registerTimeline(_context: RuntimePluginContext, _on: AnimationIntegrations): void {}
+export function registerTimeline(_context: RuntimePluginContext, _on: AnimationIntegrations): void {
+  registerControlHandlers();
+}

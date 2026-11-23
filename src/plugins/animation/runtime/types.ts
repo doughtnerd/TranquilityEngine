@@ -224,8 +224,12 @@ export type TweenTarget = Transform | Component;
 /** A field value a tween can drive: numbers, booleans and the engine's vector, quaternion and colour types (or their numbers). */
 export type TweenValue = number | boolean | Vector2 | Vector3 | Quaternion | Color | readonly number[];
 
-/** The fields of `T` a tween can drive (animatable fields of a component; position, rotation and scale fields of a Transform). */
-export type TweenField<T> = { [K in keyof T]: T[K] extends number | boolean | Vector2 | Vector3 | Quaternion | Color ? K : never }[keyof T] & string;
+/**
+ * The fields of `T` a tween can drive (animatable fields of a component; position, rotation and scale fields of a
+ * Transform), or a dotted path: a sub-path of a plain-object field (`"drive.targetRotation"`) or a MeshRenderer's
+ * material property (`"material.color"`, a per-renderer override).
+ */
+export type TweenField<T> = ({ [K in keyof T]: T[K] extends number | boolean | Vector2 | Vector3 | Quaternion | Color ? K : never }[keyof T] & string) | `${string}.${string}`;
 
 /** Options of `tween()` (ADR 0371). */
 export interface TweenOptions {

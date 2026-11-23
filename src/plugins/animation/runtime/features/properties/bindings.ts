@@ -194,7 +194,12 @@ function resolveTrack(r: Resolution, root: GameObject, track: ClipTrack, kind: n
   if (!type) return `no component type "${id}" is registered`;
   const c = componentOn(r, node, type as abstract new () => Component);
   if (!c) return "no such component on the node";
-  if (c instanceof MeshRenderer && field.startsWith("material.")) return materialWrite(c, field.slice(9), kind, track.subtype, strings);
+  return componentWrite(r.world, c, type, field, kind, width, track.subtype, strings);
+}
+
+/** The write for `field` (a path) of the component `c` of class `type`, or why it can't bind. */
+function componentWrite(world: World, c: Component, type: ComponentClass<Component>, field: string, kind: number, width: number, subtype: number, strings: ClipTracks): Write | string {
+  if (c instanceof MeshRenderer && field.startsWith("material.")) return materialWrite(c, field.slice(9), kind, subtype, strings);
   if (!isFieldAnimatable(type, field)) return "not an animatable field";
   const dot = field.indexOf(".");
   const head = dot < 0 ? field : field.slice(0, dot);
@@ -202,8 +207,28 @@ function resolveTrack(r: Resolution, root: GameObject, track: ClipTrack, kind: n
   let info: FieldInfo | undefined;
   for (let i = fields.length - 1; i >= 0 && !info; i--) if (fields[i]!.name === head) info = fields[i];
   if (!info) return "not an animatable field";
-  if (dot >= 0) return info.type === PlainObject ? subPathWrite(c, head, field.slice(dot + 1).split("."), kind, track.subtype, strings) : "not an animatable field";
-  return fieldWrite(r.world, c, info, kind, width, track.subtype, strings);
+  if (dot >= 0) return info.type === PlainObject ? subPathWrite(c, head, field.slice(dot + 1).split("."), kind, subtype, strings) : "not an animatable field";
+  return fieldWrite(world, c, info, kind, width, subtype, strings);
+}
+
+/** @internal A column write: the column's words start at `at` in `f` (f32) and `u` (u32), two views of one buffer. */
+export type FieldWrite = Write;
+
+const NO_STRINGS: ClipTracks = { tracks: [], strings: [], string: () => null };
+
+/**
+ * @internal The write of one value into field path `field` of the component `c` (tweens): the same write a property
+ * track binds to (material properties, sub-paths, the animatable check), for a `kind` column of `width` words
+ * (`anim-format`'s `TrackKind` ids). Discrete asset values have no string table here. Returns why it can't bind, as a
+ * string, instead.
+ */
+export function componentFieldWrite(world: World, c: Component, field: string, kind: number, width: number, subtype = 0): FieldWrite | string {
+  return componentWrite(world, c, c.constructor as ComponentClass<Component>, field, kind, width, subtype, NO_STRINGS);
+}
+
+/** @internal The write of `engine.Transform`'s local `position`, `rotation` or `scale` of `node` as a `kind` column, or why not. */
+export function transformFieldWrite(node: GameObject, field: string, kind: number): FieldWrite | string {
+  return transformWrite(node, field, kind);
 }
 
 const mismatch = (kind: number, what: string) => `a ${KIND_NAMES[kind] ?? `kind ${kind}`} track can't drive ${what}`;

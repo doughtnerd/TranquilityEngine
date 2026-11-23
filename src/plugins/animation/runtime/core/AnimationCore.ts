@@ -25,8 +25,10 @@ import {
   TRACK_STRIDE,
 } from "../wasm/wire/core";
 import { BLACKBOARD_STRIDE, GRAPH_CHANGE } from "../wasm/wire/graph";
+import { TIMELINE_BLOCK, TIMELINE_CHANGE, TIMELINE_CONTROL, TIMELINE_CREATE, TIMELINE_INFO } from "../wasm/wire/timeline";
+import { TWEEN_CHANGE, TWEEN_CONTROL, TWEEN_CREATE } from "../wasm/wire/tween";
 import type * as AnimWasm from "../wasm/myco_anim.js";
-import { encodeRecord, getRecord, type RecordFields } from "./records";
+import { encodeRecord, getRecord, type RecordFields, type RecordValues } from "./records";
 
 /** @internal The glue module (`../wasm/myco_anim.js`) once instantiated. */
 export type AnimationWasm = typeof AnimWasm;
@@ -328,6 +330,101 @@ export class AnimationCore {
   /** Restores a snapshot into an instance of the same graph and skeleton. Returns a status. */
   restore(handle: number, bytes: Uint8Array): number {
     return this.wasm.restore(handle, bytes);
+  }
+
+  // --- Tweens and timelines (D44: direct exports, one record each; their outputs are cleared by `writeInputs`) ------
+
+  /** Creates a tween (`TWEEN_CREATE`). Returns its handle, or 0 (`lastStatus`). */
+  tweenCreate(values: RecordValues<typeof TWEEN_CREATE>): number {
+    return this.wasm.tween_create(encodeRecord(TWEEN_CREATE, values));
+  }
+
+  /** Pauses, resumes, kills or marks destroyed a tween (`TWEEN_CONTROL`'s `op`). Returns a status. */
+  tweenControl(handle: number, op: number): number {
+    return this.wasm.tween_control(encodeRecord(TWEEN_CONTROL, { handle, op }));
+  }
+
+  /** This frame's tween rows: row `i` is column `columns[i]` and the four floats at `values[4i]` (valid until the next call). */
+  tweenRows(): { readonly count: number; readonly columns: Uint32Array; readonly values: Float32Array } {
+    const n = this.wasm.tween_values_count();
+    const buffer = this.memory();
+    return { count: n, columns: new Uint32Array(buffer, this.wasm.tween_columns_ptr(), n), values: new Float32Array(buffer, this.wasm.tween_values_ptr(), n * 4) };
+  }
+
+  /** Tween state-change records waiting since the last `writeInputs`. */
+  tweenChangeCount(): number {
+    return this.wasm.tween_changes_count();
+  }
+
+  /** Tween state-change record `i` (`tween.TWEEN_CHANGE`). */
+  tweenChange(i: number, out?: RecordFields<typeof TWEEN_CHANGE>): RecordFields<typeof TWEEN_CHANGE> {
+    return getRecord(this.views().data, this.wasm.tween_changes_ptr() + i * TWEEN_CHANGE.stride, TWEEN_CHANGE, out);
+  }
+
+  /** Creates an instance of a clip used as a timeline (`TIMELINE_CREATE`). Returns its handle, or 0 (`lastStatus`). */
+  timelineCreate(values: RecordValues<typeof TIMELINE_CREATE>): number {
+    return this.wasm.timeline_create(encodeRecord(TIMELINE_CREATE, values));
+  }
+
+  /** Creates a sequence (`SEQ_CREATE` followed by its `SEQ_MEMBER` records). Returns its handle, or 0 (`lastStatus`). */
+  timelineCreateSequence(bytes: Uint8Array): number {
+    return this.wasm.timeline_create_sequence(bytes);
+  }
+
+  /** Controls a timeline instance (`TIMELINE_CONTROL`). Returns a status. */
+  timelineControl(handle: number, op: number, value = 0): number {
+    return this.wasm.timeline_control(encodeRecord(TIMELINE_CONTROL, { handle, op, value }));
+  }
+
+  /** Binds a timeline's subclip string id (of the clip `owner`'s string table) to a clip handle. Returns a status. */
+  timelineBind(instance: number, owner: number, stringId: number, asset: number): number {
+    return this.wasm.timeline_bind(instance, owner, stringId, asset);
+  }
+
+  /** Where an instance's outputs sit (`TIMELINE_INFO`), or null for a stale handle. Read again after a bind. */
+  timelineInfo(instance: number): RecordFields<typeof TIMELINE_INFO> | null {
+    const out = new Uint8Array(TIMELINE_INFO.stride);
+    if (this.wasm.timeline_info(instance, out) !== TIMELINE_INFO.stride) return null;
+    return getRecord(new DataView(out.buffer), 0, TIMELINE_INFO);
+  }
+
+  /** An instance's block table (`TIMELINE_BLOCK` records); empty for a stale handle. */
+  timelineBlocks(instance: number): RecordFields<typeof TIMELINE_BLOCK>[] {
+    const out = new Uint8Array(this.wasm.timeline_block_bytes(instance));
+    const n = this.wasm.timeline_blocks(instance, out);
+    const view = new DataView(out.buffer);
+    const blocks: RecordFields<typeof TIMELINE_BLOCK>[] = [];
+    for (let at = 0; at + TIMELINE_BLOCK.stride <= n; at += TIMELINE_BLOCK.stride) blocks.push(getRecord(view, at, TIMELINE_BLOCK));
+    return blocks;
+  }
+
+  /** The handles of the timeline instances evaluated since the last `writeInputs` (a copy). */
+  timelineActive(): Uint32Array {
+    return new Uint32Array(this.memory(), this.wasm.timeline_active_ptr(), this.wasm.timeline_active_count()).slice();
+  }
+
+  /** Word views from the timeline value region's start, and the block weights (valid until the next call). */
+  timelineOutputs(): { readonly f32: Float32Array; readonly u32: Uint32Array; readonly weights: Float32Array } {
+    const buffer = this.memory();
+    const v = this.wasm.timeline_values_ptr();
+    const n = (buffer.byteLength - v) >> 2;
+    const w = this.wasm.timeline_weights_ptr();
+    return { f32: new Float32Array(buffer, v, n), u32: new Uint32Array(buffer, v, n), weights: new Float32Array(buffer, w, (buffer.byteLength - w) >> 2) };
+  }
+
+  /** The `tracks` family records the timelines wrote since the last `writeInputs`: a byte range of `views().data`. */
+  timelineRecords(): { readonly at: number; readonly bytes: number; readonly count: number } {
+    return { at: this.wasm.timeline_records_ptr(), bytes: this.wasm.timeline_records_len(), count: this.wasm.timeline_records_count() };
+  }
+
+  /** Timeline state-change records waiting since the last `writeInputs`. */
+  timelineChangeCount(): number {
+    return this.wasm.timeline_changes_count();
+  }
+
+  /** Timeline state-change record `i` (`timeline.TIMELINE_CHANGE`). */
+  timelineChange(i: number, out?: RecordFields<typeof TIMELINE_CHANGE>): RecordFields<typeof TIMELINE_CHANGE> {
+    return getRecord(this.views().data, this.wasm.timeline_changes_ptr() + i * TIMELINE_CHANGE.stride, TIMELINE_CHANGE, out);
   }
 
   // --- The frame --------------------------------------------------------------------------------------------------

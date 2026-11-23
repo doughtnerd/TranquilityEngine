@@ -1,5 +1,6 @@
-// Registration seam: tweens (T22t). Registers the per-World tween table and its promises.
-// `activate()` (`../../index.ts`) calls it once per activation; empty until T22t.
+// Registration seam: tweens (T22t). The per-World tween tables and their promises are made on first use by `tween()`,
+// `sequence()` and `parallel()` (`../tweens.ts`), which start the World's core lazily; nothing is registered at
+// activation. `activate()` (`../../index.ts`) calls it once per activation.
 import type { RuntimePluginContext } from "../../../../runtimeContext";
 import type { AnimationIntegrations } from "../../registration";
 

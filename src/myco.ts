@@ -288,6 +288,8 @@ export {
   type TweenOptions,
   type Tween,
 } from "./plugins/animation/runtime";
+// The engine curve (ADR 0158, 0346), which a tween's `ease` may be (D95): `[[x, y], [x, y, "smooth"], …]` over 0–1.
+export type { Curve } from "./engine/core/curve";
 
 // The Materials plugin's public types (`Material`, `MaterialSettings`) are core exports: material
 // resolution is a shared render service (ADR 0133).
