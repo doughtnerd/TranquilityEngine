@@ -528,6 +528,20 @@ export function release(handle) {
 }
 
 /**
+ * Replaces a clip's file in place (T70; the handle and its plays stay); returns a status.
+ * @param {number} handle
+ * @param {Uint8Array | number[]} bytes
+ * @returns {number}
+ */
+export function replace_clip(handle, bytes) {
+    const val2 = +handle;
+    const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.replace_clip(val2, ptr0, len0);
+    return ret >>> 0;
+}
+
+/**
  * Restores an instance from a snapshot; returns a status.
  * @param {number} handle
  * @param {Uint8Array | number[]} bytes
@@ -665,6 +679,18 @@ export function rig_rays_ptr() {
  */
 export function roots_ptr() {
     const ret = wasm.roots_ptr();
+    return ret >>> 0;
+}
+
+/**
+ * Limits an instance's bone matrices to a mask's bones and their ancestors (T70; mask 0: every
+ * bone); returns a status.
+ * @param {number} instance
+ * @param {number} mask
+ * @returns {number}
+ */
+export function set_eval_mask(instance, mask) {
+    const ret = wasm.set_eval_mask(instance, mask);
     return ret >>> 0;
 }
 

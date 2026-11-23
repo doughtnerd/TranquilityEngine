@@ -241,6 +241,11 @@ export function ragdoll_create(skeleton: number, bytes: Uint8Array | number[]): 
 export function release(handle: number): number;
 
 /**
+ * Replaces a clip's file in place (T70; the handle and its plays stay); returns a status.
+ */
+export function replace_clip(handle: number, bytes: Uint8Array | number[]): number;
+
+/**
  * Restores an instance from a snapshot; returns a status.
  */
 export function restore(handle: number, bytes: Uint8Array | number[]): number;
@@ -281,6 +286,12 @@ export function rig_rays_ptr(): number;
  * The root-motion view's byte offset in memory.
  */
 export function roots_ptr(): number;
+
+/**
+ * Limits an instance's bone matrices to a mask's bones and their ancestors (T70; mask 0: every
+ * bone); returns a status.
+ */
+export function set_eval_mask(instance: number, mask: number): number;
 
 /**
  * Writes an instance's snapshot into `out`; returns a status.
@@ -499,6 +510,7 @@ export interface InitOutput {
     readonly ragdoll_build: (a: number, b: number, c: number) => [number, number];
     readonly ragdoll_create: (a: number, b: number, c: number) => number;
     readonly release: (a: number) => number;
+    readonly replace_clip: (a: number, b: number, c: number) => number;
     readonly restore: (a: number, b: number, c: number) => number;
     readonly retarget_bake: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly retarget_goal_count: (a: number) => number;
@@ -507,6 +519,7 @@ export interface InitOutput {
     readonly rig_inputs_ptr: () => number;
     readonly rig_rays_ptr: () => number;
     readonly roots_ptr: () => number;
+    readonly set_eval_mask: (a: number, b: number) => number;
     readonly snapshot: (a: number, b: number, c: number, d: any) => number;
     readonly snapshot_bytes: (a: number) => number;
     readonly source_hash: () => [number, number];

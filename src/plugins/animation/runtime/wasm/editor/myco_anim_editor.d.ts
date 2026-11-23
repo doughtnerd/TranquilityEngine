@@ -32,9 +32,10 @@ export function meter_node_module(bytes: Uint8Array | number[]): Uint8Array;
 export function meter_version(): number;
 
 /**
- * [`compile_posedb`]: the database file, or empty (`last_error`).
+ * [`compile_posedb`]: the database file, or empty (`last_error`). `clip_flags`, `mirror`,
+ * `custom` and `custom_names` are [`PosedbExtras`]'s fields (T70; empty for none).
  */
-export function posedb_bake(skeleton: Uint8Array | number[], skeleton_name: string, clips: Uint8Array | number[], clip_lengths: Uint32Array | number[], assets: string, ranges: Float32Array | number[], tags: string, schema: Float32Array | number[], settings: Float32Array | number[]): Uint8Array;
+export function posedb_bake(skeleton: Uint8Array | number[], skeleton_name: string, clips: Uint8Array | number[], clip_lengths: Uint32Array | number[], assets: string, ranges: Float32Array | number[], tags: string, schema: Float32Array | number[], settings: Float32Array | number[], clip_flags: Uint32Array | number[], mirror: Uint32Array | number[], custom: Float32Array | number[], custom_names: string): Uint8Array;
 
 /**
  * [`compile_retarget`]: the compressed target clip, or empty (`last_error`); the report in `last_report`.
@@ -61,7 +62,7 @@ export interface InitOutput {
     readonly last_report: () => [number, number];
     readonly meter_node_module: (a: number, b: number) => [number, number];
     readonly meter_version: () => number;
-    readonly posedb_bake: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number) => [number, number];
+    readonly posedb_bake: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number, s: number, t: number, u: number, v: number, w: number, x: number, y: number, z: number) => [number, number];
     readonly retarget_bake_compressed: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number, s: number, t: number) => [number, number];
     readonly skeleton_compile: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly source_hash: () => [number, number];

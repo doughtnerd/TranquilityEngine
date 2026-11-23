@@ -17,6 +17,12 @@ export const MATCH_SWITCHED = 1;
 /** `MATCH_NODE.flags`: the last update searched. */
 export const MATCH_SEARCHED = 2;
 
+/** `MATCH_SAMPLE.kind`: the predicted trajectory. */
+export const SAMPLE_PREDICTED = 0;
+
+/** `MATCH_SAMPLE.kind`: the playing frame's trajectory. */
+export const SAMPLE_MATCHED = 1;
+
 /** The head of a match report. */
 export const MATCH_HEADER = {
   opcode: 0x0501,
@@ -56,5 +62,30 @@ export const MATCH_NODE = {
     lastSearch: { offset: 32, type: "u32" },
     /** `MATCH_*` flags of the last update. */
     flags: { offset: 36, type: "u32" },
+  },
+} as const;
+
+/**
+ * T70: a trajectory sample of a `POSE_DATABASE` node, after its `MatchNode`: in the
+ * character's frame (`x` right, `z` ahead, metres; D60), one per trajectory offset of the
+ * database, predicted ones first.
+ */
+export const MATCH_SAMPLE = {
+  opcode: 0x0503,
+  version: 1,
+  stride: 32,
+  fields: {
+    /** The node index. */
+    node: { offset: 4, type: "u32" },
+    /** `SAMPLE_PREDICTED` or `SAMPLE_MATCHED`. */
+    kind: { offset: 8, type: "u32" },
+    /** Seconds from now (past < 0). */
+    time: { offset: 12, type: "f32" },
+    /** Ground position. */
+    x: { offset: 16, type: "f32" },
+    z: { offset: 20, type: "f32" },
+    /** Unit facing. */
+    dx: { offset: 24, type: "f32" },
+    dz: { offset: 28, type: "f32" },
   },
 } as const;

@@ -89,7 +89,8 @@ export function meter_version() {
 }
 
 /**
- * [`compile_posedb`]: the database file, or empty (`last_error`).
+ * [`compile_posedb`]: the database file, or empty (`last_error`). `clip_flags`, `mirror`,
+ * `custom` and `custom_names` are [`PosedbExtras`]'s fields (T70; empty for none).
  * @param {Uint8Array | number[]} skeleton
  * @param {string} skeleton_name
  * @param {Uint8Array | number[]} clips
@@ -99,10 +100,14 @@ export function meter_version() {
  * @param {string} tags
  * @param {Float32Array | number[]} schema
  * @param {Float32Array | number[]} settings
+ * @param {Uint32Array | number[]} clip_flags
+ * @param {Uint32Array | number[]} mirror
+ * @param {Float32Array | number[]} custom
+ * @param {string} custom_names
  * @returns {Uint8Array}
  */
-export function posedb_bake(skeleton, skeleton_name, clips, clip_lengths, assets, ranges, tags, schema, settings) {
-    let ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6, ptr7, len7, ptr8, len8;
+export function posedb_bake(skeleton, skeleton_name, clips, clip_lengths, assets, ranges, tags, schema, settings, clip_flags, mirror, custom, custom_names) {
+    let ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6, ptr7, len7, ptr8, len8, ptr9, len9, ptr10, len10, ptr11, len11, ptr12, len12;
     try {
         ptr0 = passArray8ToWasm0(skeleton, wasm.__wbindgen_malloc);
         len0 = WASM_VECTOR_LEN;
@@ -122,7 +127,19 @@ export function posedb_bake(skeleton, skeleton_name, clips, clip_lengths, assets
         len7 = WASM_VECTOR_LEN;
         ptr8 = passArrayF32ToWasm0(settings, wasm.__wbindgen_malloc);
         len8 = WASM_VECTOR_LEN;
+        ptr9 = passArray32ToWasm0(clip_flags, wasm.__wbindgen_malloc);
+        len9 = WASM_VECTOR_LEN;
+        ptr10 = passArray32ToWasm0(mirror, wasm.__wbindgen_malloc);
+        len10 = WASM_VECTOR_LEN;
+        ptr11 = passArrayF32ToWasm0(custom, wasm.__wbindgen_malloc);
+        len11 = WASM_VECTOR_LEN;
+        ptr12 = passStringToWasm0(custom_names, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        len12 = WASM_VECTOR_LEN;
     } catch (e) {
+        if (ptr12) { wasm.__wbindgen_free(ptr12, len12 * 1, 1); }
+        if (ptr11) { wasm.__wbindgen_free(ptr11, len11 * 4, 4); }
+        if (ptr10) { wasm.__wbindgen_free(ptr10, len10 * 4, 4); }
+        if (ptr9) { wasm.__wbindgen_free(ptr9, len9 * 4, 4); }
         if (ptr8) { wasm.__wbindgen_free(ptr8, len8 * 4, 4); }
         if (ptr7) { wasm.__wbindgen_free(ptr7, len7 * 4, 4); }
         if (ptr6) { wasm.__wbindgen_free(ptr6, len6 * 1, 1); }
@@ -134,10 +151,10 @@ export function posedb_bake(skeleton, skeleton_name, clips, clip_lengths, assets
         if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
         throw e;
     }
-    const ret = wasm.posedb_bake(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6, ptr7, len7, ptr8, len8);
-    var v10 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    const ret = wasm.posedb_bake(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6, ptr7, len7, ptr8, len8, ptr9, len9, ptr10, len10, ptr11, len11, ptr12, len12);
+    var v14 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-    return v10;
+    return v14;
 }
 
 /**
