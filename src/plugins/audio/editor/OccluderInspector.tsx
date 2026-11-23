@@ -5,7 +5,7 @@
 import { editor, useFieldDrag, type InspectorSectionProps } from "../../../editor/sdk";
 import type { AudioOccluder } from "../runtime/AudioOccluder";
 import { analyzeOccluder, describeCost, materialLabel, materialTint, occluderCost, physics3dAvailable } from "./audioInspectorModel";
-import { audioSettings } from "./audioDraft";
+import { projectAudio } from "./projectAudio";
 import "./audioInspectors.css";
 
 const swatch = (color: number) => `#${color.toString(16).padStart(6, "0")}`;
@@ -23,7 +23,7 @@ export function OccluderSection({ scene, paths, info }: InspectorSectionProps) {
   const drag = useFieldDrag(place, "Drag openness");
   const occluder = info.component as AudioOccluder | null;
   if (!occluder) return null;
-  const audio = audioSettings.read(editor.project.current?.settings);
+  const audio = projectAudio(editor.project.current?.settings);
   const report = analyzeOccluder(occluder, { physics3d: physics3dAvailable(), audio });
   const cost = occluderCost(occluder, audio);
   const closed = occluderCost(occluder, audio, 0);

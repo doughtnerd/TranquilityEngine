@@ -18,6 +18,7 @@
     "export": "node src/export/cli.mjs",
     "nav:bake": "node src/nav-cli/cli.mjs",
     "rewrite": "node src/rewrite-cli/cli.mjs",
+    "audio:migrate": "node src/migrate-cli/cli.mjs",
     "test": "vitest run",
     "test:tools": "node --test tools/*.test.mjs",
     "test:stories": "vitest run --config vitest.stories.config.mts",
@@ -43,9 +44,12 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "tauri:studio:dev": "node tools/tauri-studio.mjs dev",
+    "tauri:studio:build": "node tools/tauri-studio.mjs build",
     "postinstall": "patch-package",
     "bench:particles": "node bench/particles/run.mjs",
-    "check:filenames": "node tools/check-filename-case.mjs"
+    "check:filenames": "node tools/check-filename-case.mjs",
+    "build:fx-examples": "node native/fx-sdk/build.mjs"
   },
   "author": "",
   "license": "MIT",
@@ -74,6 +78,7 @@
     "yoga-layout": "3.2.1"
   },
   "devDependencies": {
+    "@formatjs/icu-messageformat-parser": "^3.5.23",
     "@playwright/test": "^1.64.1",
     "@storybook/addon-vitest": "10.6.7",
     "@storybook/preact-vite": "10.6.7",

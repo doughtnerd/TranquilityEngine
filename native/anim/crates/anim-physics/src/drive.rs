@@ -3,7 +3,7 @@
 //! For a body `b` with parent body `p`, the **target rotation** is `B_p⁻¹ · B_b`: the rotation of
 //! `b`'s body frame relative to `p`'s, from the animated pose's body frames (so with identity
 //! joint frames and a body on every bone it is the animated local rotation). The ragdoll plugin
-//! turns it into the joint's `drive.targetRotation` with the joint's rest frames (ADR 0355). A
+//! turns it into the joint's `drive.targetRotation` with the joint's rest frames (ADR 0375). A
 //! root body's target is its animated body rotation in model space, and its animated body pose
 //! is its **pin target**.
 //!

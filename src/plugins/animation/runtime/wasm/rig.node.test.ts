@@ -1,4 +1,4 @@
-// ADR 0352 (T40): one IK target through the committed wasm in Node. Loads the rig test skeleton and a graph with a
+// ADR 0372 (T40): one IK target through the committed wasm in Node. Loads the rig test skeleton and a graph with a
 // two-bone IK node on the left leg (written by native/anim/crates/anim-wasm/tests/rig_fixtures.rs), writes the
 // character's transform and a world-space target into the `rig` family's input view, and compares the bone matrices
 // with what the native core showed for the same rows. The core is deterministic (no FMA, no relaxed SIMD), so the

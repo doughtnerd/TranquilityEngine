@@ -1,4 +1,4 @@
-//! The implicit graph (ADR 0352, decision D5): what an instance without a graph asset runs, so
+//! The implicit graph (ADR 0372, decision D5): what an instance without a graph asset runs, so
 //! code-first `play`, `crossfade`, `stop` and layer weights go through the same interpreter as
 //! authored graphs.
 //!

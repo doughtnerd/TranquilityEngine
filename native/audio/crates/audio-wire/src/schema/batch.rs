@@ -49,13 +49,13 @@ const SET_PARAMS_MASK: &[Bits] = &[
 /// FADE `flags`.
 const FADE_FLAGS: &[Bits] = &[Bits::bit("stopAtEnd", 0, "stop the voice at the end of the fade")];
 
-/// One effect of a BUS_CONFIG bus: `u32 type; f32 p[7]`.
+/// One effect of a BUS_CONFIG bus: `u32 type; f32 p[16]` (ABI 5.0, ADR 0352: 16 parameters, `p[7]` before).
 pub(super) const EFFECTS: Repeat = Repeat {
     name: "effects",
     count_field: "effectCount",
     item: &[
-        Field::new("type", Ty::U32).doc("0 lowpass, 1 highpass, 2 compressor, 3 reverb send"),
-        Field::new("p", Ty::F32).array(7).doc("parameters; q in dB; unused p = 0"),
+        Field::new("type", Ty::U32).doc("bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e registered plugin effect e (ABI 5.0); bits 16-31: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8; 16 bits from 5.0)"),
+        Field::new("p", Ty::F32).array(16).doc("parameters; q in dB; unused p = 0 (16 from ABI 5.0)"),
     ],
     then: None,
     max: 0,
@@ -77,32 +77,45 @@ const BUS_CONFIG_BUSES: Repeat = Repeat {
 const SET_LOOP_FLAGS: &[Bits] = &[Bits::bit("looping", 0, "loop the region; clear is a release (play on to the clip's end)")];
 
 /// One automation binding of AUTOMATE and BUS_AUTOMATE (ADR 0158 §3): `u16 param; u16 curve; u32 target`.
-const BINDING_ITEM: &[Field] = &[
-    Field::new("param", Ty::U16).doc("bit15 set: global slot (low 15 bits); clear: local slot of the voice's group"),
+pub(super) const BINDING_ITEM: &[Field] = &[
+    Field::new("param", Ty::U16).doc("bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0346); both clear: local slot of the voice's group"),
     Field::new("curve", Ty::U16).doc("curve id (CURVES)"),
-    Field::new("target", Ty::U32).doc("0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz)"),
+    Field::new("target", Ty::U32).doc("bits 0-7: 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4), AUTO_TARGET_FX and AUTO_TARGET_SEND (buses and submixes, ABI 4.8; their slot, parameter and log flag in the upper bits)"),
+];
+
+/// One AUTOMATE binding (ABI 4.9, ADR 0346 "time origin"): BUS_AUTOMATE's item plus `f32 offset`.
+const VOICE_BINDING_ITEM: &[Field] = &[
+    Field::new("param", Ty::U16).doc("bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0346); both clear: local slot of the voice's group"),
+    Field::new("curve", Ty::U16).doc("curve id (CURVES)"),
+    Field::new("target", Ty::U32).doc("0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4), AUTO_TARGET_GEN a generator voice's parameter (its index in bits 8-15, AUTO_TARGET_LOG for a log2 curve; ABI 5.1)"),
+    Field::new("offset", Ty::F32).doc("ABI 4.9: seconds added to a time parameter before the curve reads it (the binding's time origin: a lane keyed on its playlist's start, read by a voice that started later, is `start - origin`); ignored for other params"),
 ];
 
 /// AUTOMATE bindings: at most 8 per voice are kept.
-const AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: BINDING_ITEM, then: None, max: 0 };
+const AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: VOICE_BINDING_ITEM, then: None, max: 0 };
 
-/// BUS_AUTOMATE bindings: global parameters only; target 0 volume or 2 lowpass; at most 8 per bus.
+/// BUS_AUTOMATE bindings: global parameters only; target 0 volume, 2 lowpass, AUTO_TARGET_FX or AUTO_TARGET_SEND; at most
+/// BUS_AUTOMATE_MAX_BINDINGS per bus (ABI 4.8; 8 before).
 const BUS_AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: BINDING_ITEM, then: None, max: 0 };
 
-/// One CURVES key: `f32 x; f32 y; u32 interp`.
+/// One CURVES key: `f32 x; f32 y; u32 interp; f32 inDx, inDy, outDx, outDy` (ADR 0346 adds the handles).
 const CURVE_KEYS: Repeat = Repeat {
     name: "keys",
     count_field: "keyCount",
     item: &[
         Field::new("x", Ty::F32),
         Field::new("y", Ty::F32),
-        Field::new("interp", Ty::U32).doc("shape to the next key: 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut"),
+        Field::new("interp", Ty::U32).doc("shape to the next key: 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut, 5 bezier"),
+        Field::new("inDx", Ty::F32).doc("bezier: the in handle's offset from the key (x); 0 otherwise"),
+        Field::new("inDy", Ty::F32).doc("bezier: the in handle's offset from the key (y); 0 otherwise"),
+        Field::new("outDx", Ty::F32).doc("bezier: the out handle's offset from the key (x); 0 otherwise"),
+        Field::new("outDy", Ty::F32).doc("bezier: the out handle's offset from the key (y); 0 otherwise"),
     ],
     then: None,
     max: 0,
 };
 
-/// CURVES curves: `u16 keyCount; u16 reserved`, then the keys (sorted by x; at most 32 kept).
+/// CURVES curves: `u16 keyCount; u16 reserved`, then the keys (sorted by x; at most 64 kept).
 const CURVES_CURVES: Repeat = Repeat {
     name: "curves",
     count_field: "curveCount",
@@ -256,6 +269,9 @@ pub const OPCODES: &[Opcode] = &[
         doc: "replace a voice's automation bindings (ADR 0158 §3); count 0 clears them",
     },
     super::spatial::SET_VOICE_FX,
+    super::studio::LOOPS,
+    super::studio::SUBMIX,
+    super::studio::ROUTE,
     Opcode {
         id: 0x10,
         name: "BUS_CONFIG",
@@ -289,7 +305,7 @@ pub const OPCODES: &[Opcode] = &[
         ),
         total_bytes: None,
         sent: true,
-        doc: "define or overwrite curves firstCurve.. (ADR 0158 §3); 1024 curves of at most 32 keys",
+        doc: "define or overwrite curves firstCurve.. (ADR 0158 §3, 0346); 1024 curves of at most 64 keys",
     },
     Opcode {
         id: 0x14,
@@ -319,7 +335,11 @@ pub const OPCODES: &[Opcode] = &[
     super::mix::BUS_PRESENCE,
     super::mix::LOUD_CONFIG,
     super::mix::BUS_SLOT,
+    super::studio::TIME,
+    super::mix::BUS_SENDS,
+    super::studio::SUBMIX_AUTOMATE,
     super::spatial::LISTENER,
+    super::generator::GEN,
     Opcode {
         id: 0x30,
         name: "RESET",
@@ -374,14 +394,14 @@ mod tests {
     fn opcode_ids_are_unique_and_sorted() {
         let ids: Vec<u16> = OPCODES.iter().map(|o| o.id).collect();
         assert!(ids.windows(2).all(|w| w[0] < w[1]), "ids not strictly increasing: {ids:?}");
-        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x10, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x20, 0x30]);
+        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x10, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0x30]);
         assert!(OPCODES.iter().all(|o| o.sent));
         assert!(OPCODES.iter().all(|o| o.id != 0x11), "0x11 stays reserved (BUS_MIX, retired)");
     }
 
     #[test]
     fn fixed_totals_match_the_spec_column() {
-        let expected: [(u16, u32); 15] = [
+        let expected: [(u16, u32); 16] = [
             (0x01, 56),
             (0x02, 24),
             (0x03, 60),
@@ -395,6 +415,7 @@ mod tests {
             (0x14, 24),
             (0x18, 32),
             (0x1A, 16),
+            (0x1D, 24),
             (0x20, 36),
             (0x30, 16),
         ];
@@ -404,11 +425,14 @@ mod tests {
             assert_eq!(size(RECORD_HEAD) + size(o.payload.fields), total, "{}", o.name);
             assert!(matches!(o.payload.tail, Tail::None), "{}", o.name);
         }
-        for id in [0x09, 0x10, 0x13, 0x15, 0x17, 0x19, 0x1B, 0x1C] {
+        for id in [0x09, 0x0B, 0x0C, 0x10, 0x13, 0x15, 0x17, 0x19, 0x1B, 0x1C, 0x1F] {
             let o = op(id);
             assert_eq!(o.total_bytes, None, "{}", o.name);
             assert!(matches!(o.payload.tail, Tail::Repeat(_)), "{}", o.name);
         }
+        // ABI 5.1: GEN, 28 B and its padded f32 values.
+        assert_eq!(size(RECORD_HEAD) + size(op(0x21).payload.fields), 28);
+        assert!(matches!(op(0x21).payload.tail, Tail::Arrays(_)));
         assert_eq!(op(0x16).total_bytes, None);
         assert!(matches!(op(0x16).payload.tail, Tail::Arrays(_)));
     }

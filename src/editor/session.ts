@@ -6,16 +6,16 @@ import { errorStatus } from "./messages";
 import { Engine, GameObject } from "../engine";
 import { viewport } from "../engine/editor";
 import { pathKey } from "./document";
-import { FsaFileSystem } from "./fsaFileSystem";
 import type { OpenRequest } from "./launcher/handoff";
 import { NO_FOLDERS_NOTE, projectFileSystem } from "./projectFs";
 import { projectOpening, type LocationOutcome, type OpenIntent, type OpenOutcome, type OpenResult, type ProjectSource } from "./projectOpening";
-import { recentProjects } from "./recentProjects";
+import { recentProjects, rememberProject } from "./recentProjects";
 import { confirmDiscard } from "./dialogs";
 import { copySample, findSample, openSampleProject } from "./samples";
 import { editorPlatform, projectStorage } from "./projectPlace";
 import { historyLocation } from "./preferences";
 import { confirmInEditor } from "./ui/ConfirmDialog";
+import { migrationSummary, offerAudioEventMigration } from "./audioEventMigration";
 import { installSceneView } from "./cameraPreview";
 import { installThumbnails } from "./thumbnails";
 import { installPlayGizmos } from "./playGizmos";
@@ -38,6 +38,7 @@ import { isScriptPath, replaceScripts } from "./scriptLoader";
 import { checkBeforePlay, syncPackageTypes } from "./scriptCheck";
 import { viewportElements } from "./ui/ScenePanel";
 import { watchScripts, writeScriptingFiles } from "./scriptingSetup";
+import { startProjectWatch, stopProjectWatch, syncProjectFiles } from "./editorProjectWatch";
 import { installViewportSelection } from "./viewportSelection";
 import { installViewportTools } from "./viewportTools";
 import { installUIElementOutline } from "./uiOutline";
@@ -52,7 +53,8 @@ export { playing };
 // Play mode and the work deferred to Stop (ADR 0237), in this session's Editor World and the viewport's game view.
 const play = createPlaySession({
   editor: () => session?.engine ?? null,
-  checkBeforePlay,
+  // Outside changes first (in the browser the folder is looked at only now and on focus; ADR 0341), then the script check.
+  checkBeforePlay: async (project) => (await syncProjectFiles(), checkBeforePlay(project)),
   gameView: () => ({ container: viewportElements().gameView, mountTools: mountPlayTools }),
 });
 
@@ -143,6 +145,7 @@ async function loadProject(project: EditorProject): Promise<{ problem: boolean }
     },
   };
   currentProject.value = project;
+  void startProjectWatch(project); // share the folder with the Audio Studio and other apps: the lock, outside changes, pending moves (ADR 0341)
   engine.start();
   // Debug and end-to-end test hooks.
   Object.assign(window, { engine, orbit, overlayHandles: () => viewport(engine.world).overlayHandles(), nodeRect });
@@ -216,28 +219,21 @@ export function closeScenes(scenes: readonly OpenScene[]): Promise<number> {
 }
 
 
-/** Add an opened folder project to the recent projects list (a browser folder by its handle). */
-async function rememberProject(project: EditorProject): Promise<void> {
-  const fs = project.fileSystem, root = project.root;
-  if (!fs || !root) return;
-  try {
-    if (fs instanceof FsaFileSystem) {
-      const handle = await fs.directoryHandle(root);
-      await recentProjects().add({ name: project.name, path: handle.name, handle });
-    } else {
-      await recentProjects().add({ name: project.name, path: root });
-    }
-  } catch (err) {
-    console.warn(`[editor] couldn't add ${root} to the recent projects: ${message(err)}`);
-  }
-}
-
-/** Open `source` in this window (a folder project is remembered in the recent projects). Throws if it can't be read. */
+/**
+ * Open `source` in this window (a folder project is remembered in the recent projects). Throws if it can't be read. A
+ * folder with old audio events is offered their migration first (ADR 0343, `audioEventMigration.ts`); declined, it
+ * opens as it is (the editor no longer edits audio; the Audio Studio opens it read-only).
+ */
 async function openHere(source: ProjectSource): Promise<OpenResult> {
+  const migration = source.kind === "folder" ? await offerAudioEventMigration(source.fs, source.root, (q) => confirmInEditor(q).then((r) => r.ok)) : null;
   const project = source.kind === "folder" ? await openFolderProject(source.fs, source.root) : await openSampleProject(source.sample);
   const { problem } = await loadProject(project);
   void rememberProject(project);
-  return { kind: "opened", name: project.name, problem };
+  // What the migration did stays in the status line (the opened note doesn't replace it) unless loading reported a problem.
+  if (!problem && migration?.kind === "migrated") status.value = { kind: "info", text: migrationSummary(migration.report) };
+  if (!problem && migration?.kind === "failed") status.value = errorStatus("Couldn't migrate the project's audio events", migration.error);
+  const reported = migration?.kind === "migrated" || migration?.kind === "failed";
+  return { kind: "opened", name: project.name, problem: problem || reported };
 }
 
 // The editor window's project opening (ADR 0318): what the start screen or the File menu asks for is resolved by the
@@ -308,6 +304,7 @@ export async function closeProject(): Promise<void> {
   closeAllScripts();
   resetAssetBrowser();
   currentProject.value = null;
+  void stopProjectWatch();
   unloadThirdPartyPlugins();
   const scripts = await replaceScripts(new Map(), new Map());
   scriptProblems.value = scripts.problems;

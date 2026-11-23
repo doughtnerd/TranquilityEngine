@@ -1,6 +1,6 @@
 [package]
 name = "anim-rig"
-description = "Myco animation core (ADR 0350): the post-process rig stack (IK, look-at and aim, grounder, spring bones, constraints, warping)."
+description = "Myco animation core (ADR 0370): the post-process rig stack (IK, look-at and aim, grounder, spring bones, constraints, warping)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

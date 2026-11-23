@@ -3,9 +3,10 @@
 // `liveMixLoopback.test.ts`.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DRAG_RAMP_MS } from "../../../../engine/audio/mixer";
-import { MIX_OP_NAMES, opClass, type MixOp } from "../../../../engine/audio/mixOps";
+import { MIX_OP_NAMES, isProjectOp, opClass, type MixOp } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
-import { BUS_SLOT_FLAGS_STRUCTURAL, DRAG_RAMP_MS as WIRE_DRAG_RAMP_MS, FADER_COALESCE_MS, Op, readBusSlot } from "../wire.generated";
+import { mixJsonOf, parseAudioProject } from "../../../../engine/audio/project/format";
+import { BUS_SEND_MUTED, BUS_SLOT_FLAGS_FRESH, BUS_SLOT_FLAGS_STRUCTURAL, DRAG_RAMP_MS as WIRE_DRAG_RAMP_MS, FADER_COALESCE_MS, LANE_AUTHORED, Op, readBusRamp, readBusSends, readBusSlot } from "../wire.generated";
 import { closeRecordingAudio, recordingAudio } from "../testing";
 import { DeferredAdds } from "./deferredAdds";
 import { LiveMix, type LiveMixHost } from "./liveMix";
@@ -56,7 +57,8 @@ afterEach(closeRecordingAudio);
 
 describe("liveMix (Ma1)", () => {
   it("covers every op name, and the wire's DRAG_RAMP_MS is the mixer's", () => {
-    expect(new Set(OPS.map(([o]) => o.op))).toEqual(new Set(MIX_OP_NAMES));
+    // The mix model's own ops (ADR 0344) reach the core as the old ops they change (`mixer.apply`; `projectOps.test.ts`).
+    expect(new Set(OPS.map(([o]) => o.op))).toEqual(new Set(MIX_OP_NAMES.filter((n) => !isProjectOp({ op: n }))));
     expect(DRAG_RAMP_MS).toBe(WIRE_DRAG_RAMP_MS);
     const settings = parseAudioSettings(PROJECT).settings;
     for (const [op, cls] of OPS) expect(opClass(op, settings), op.op).toBe(cls);
@@ -79,6 +81,72 @@ describe("liveMix (Ma1)", () => {
       }
       backend.dispose();
     }
+  });
+
+  // ADR 0344: what the main thread moves of a bus's effects (a snapshot's override) reaches the core as one BUS_SLOT for
+  // that bus; the mix model's own ops send the old ops they change of the bus view: a return is a bus of it (ABI 4.7), so
+  // its level is its own authored lane, and the sends into it are BUS_SENDS of the buses that feed it.
+  it("the mixer's live effects reach the core: a snapshot override is a BUS_SLOT, a return's level its own lane, a send BUS_SENDS", () => {
+    const project = parseAudioProject({
+      format: "myco.audio@1",
+      buses: [
+        { name: "Master", parent: null },
+        { name: "Music", parent: "Master", effects: [{ id: "fx1", type: "lowpass", params: { cutoff: 12000 } }] },
+        { name: "SFX", parent: "Master", sends: [{ to: "Reverb", levelDb: -6 }] },
+      ],
+      returns: [{ name: "Reverb", output: "Master", effects: [{ id: "fx1", type: "reverb", params: { mix: 100 } }] }],
+      snapshots: [{ name: "Under", fadeInMs: 0, effects: { Music: { fx1: { cutoff: 900 } } } }],
+    }).project;
+    const r = recordingAudio({ mixer: "own", settings: { ...parseAudioSettings({}).settings, mix: mixJsonOf(project) }, preset: { maxLogical: 16 } });
+    const slots = () => r.posted.takeOps(Op.BUS_SLOT).map((x) => readBusSlot(x.view, x.off));
+    r.tick(0.016);
+    r.posted.take();
+    r.mixer.startSnapshot("Under");
+    r.mixer.update(0.016); // the rig's tick runs the backend's frame only
+    r.tick(0.016);
+    const music = slots().filter((x) => x.slot === 1);
+    expect(music.at(-1)!.effects.map((e) => [e.type, e.p[0]])).toEqual([[0, 900]]);
+    r.posted.take();
+    r.mixer.apply({ op: "setReturn", name: "Reverb", ret: { name: "Reverb", output: "Master", volumeDb: -6, mute: false, effects: project.returns[0]!.effects } });
+    r.mixer.update(0.016);
+    r.tick(0.016);
+    expect(r.backend.buses.slotOf("Reverb")).toBe(3);
+    const ramps = r.posted.takeOps(Op.BUS_RAMP).map((x) => readBusRamp(x.view, x.off)).filter((x) => x.voiceId === 3 && x.lane === LANE_AUTHORED);
+    expect(ramps.at(-1)!.gain).toBeCloseTo(Math.pow(10, -6 / 20), 6);
+    expect(slots().filter((x) => x.slot === 2), "SFX's chain is untouched").toEqual([]);
+    // A send's level: BUS_SENDS for SFX into the return's slot.
+    r.mixer.apply({ op: "setSend", bus: "SFX", to: "Reverb", levelDb: -12 });
+    r.mixer.update(0.016);
+    r.tick(0.016);
+    const sends = r.posted.takeOps(Op.BUS_SENDS).map((x) => readBusSends(x.view, x.off));
+    expect(sends.map((x) => [x.voiceId, x.sends.map((y) => [y.to, y.flags])])).toEqual([[2, [[3, 0]]]]);
+    expect(sends[0]!.sends[0]!.level).toBeCloseTo(Math.pow(10, -12 / 20), 6);
+    r.backend.dispose();
+  });
+
+  // ADR 0344: a return added live takes a fresh slot (an appended BUS_SLOT, as a bus added live); a send into it is a
+  // BUS_SENDS of the sending bus naming that slot; a send removed is kept muted (it ramps out, no cut), its level kept.
+  it("a return added live gets a slot, a send into it a BUS_SENDS; a removed send fades out muted", () => {
+    const project = parseAudioProject({ format: "myco.audio@1", buses: [{ name: "Master", parent: null }, { name: "SFX", parent: "Master" }] }).project;
+    const r = recordingAudio({ mixer: "own", settings: { ...parseAudioSettings({}).settings, mix: mixJsonOf(project) }, preset: { maxLogical: 16 } });
+    const frame = () => (r.mixer.update(0.016), r.tick(0.016));
+    frame();
+    r.posted.take();
+    expect(r.mixer.apply({ op: "setReturn", name: "Echo", ret: { name: "Echo", output: "Master", volumeDb: 0, mute: false, effects: [{ id: "fx1", type: "delay", on: true, params: { time: 100, feedback: 0, mix: 100 } }] } }).ok).toBe(true);
+    frame();
+    const echo = r.backend.buses.slotOf("Echo");
+    expect(echo).toBe(2);
+    expect(r.posted.takeOps(Op.BUS_SLOT).map((x) => readBusSlot(x.view, x.off)).some((x) => x.slot === echo && (x.flags & BUS_SLOT_FLAGS_FRESH) !== 0)).toBe(true);
+    expect(r.mixer.apply({ op: "setSend", bus: "SFX", to: "Echo", levelDb: -6 })).toEqual({ ok: true, class: "direct" });
+    frame();
+    const sends = () => r.posted.takeOps(Op.BUS_SENDS).map((x) => readBusSends(x.view, x.off)).map((x) => [x.voiceId, x.sends.map((y) => [y.to, y.flags, Number(y.level.toFixed(4))])]);
+    expect(sends()).toEqual([[1, [[echo, 0, 0.5012]]]]);
+    frame();
+    expect(sends(), "nothing moved: nothing sent").toEqual([]);
+    r.mixer.apply({ op: "setSend", bus: "SFX", to: "Echo", levelDb: null });
+    frame();
+    expect(sends()).toEqual([[1, [[echo, BUS_SEND_MUTED, 0.5012]]]]);
+    r.backend.dispose();
   });
 
   it("a structural op with no dip bound is kept for the next Play and changes nothing (a backend with no live path)", () => {

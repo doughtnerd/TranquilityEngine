@@ -36,6 +36,7 @@
 // `paramsShaped`) and `seek` are recorded as events, as asked. Whether ramps are sample-exact is the fake's
 // `music.caps.stampedFades`.
 
+import type { AudioEffectPlugins, EffectPluginModule } from "./backend";
 import type { AudioBackend, AudioCaptureSource, AudioClipCache, AudioClock, AudioLiveMix, AudioMixCaps, AudioPanner, Attenuation, AudioVoice, FadeLaw, ListenerPose, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, MusicLifecycleEvent, AudioOutputDevice, BackendKeyframe, MusicBackendDebug, PlayRequest, RecorderTap, VoiceSpatialOptions, ZoneIrService } from "./backend";
 import type { AudioLatency } from "../../../engine/audio/musicTypes";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
@@ -61,10 +62,12 @@ import { setAudioBackend as registerBackend } from "./backend";
 import { makeStatusBlock } from "./core/statusFixtures";
 import { ListenerFrame } from "./core/spatial";
 import { runAudioFrame } from "./audioFrame";
-import { musicEarlyStep, musicPlanStep, type MusicFrame } from "./music/musicSystem";
 import type { World } from "../../../engine/core/World";
 import { DecoderWasm } from "./decoder/wasm";
 import type { SpatialPrepare } from "./core/hrir";
+
+/** ADR 0352: the plugin glue's control messages, which the loopback hands the shell as `processor.ts` does. */
+const FX_CONTROLS: ReadonlySet<unknown> = new Set(["fxLoad", "fxUnload", "fxReset"]);
 
 /** The controls a test has over a fake clock. */
 export interface FakeHostClock extends HostClock {
@@ -234,6 +237,45 @@ export interface FakeBackend extends AudioBackend, AudioClipCache, AudioClock, A
   recorderTap: RecorderTap | null;
   /** The sink `setProfileSink` was given (null: none). */
   profileSink: ProfileSink | null;
+
+  // ADR 0352 §7: the fake records plugin effect registrations (set `effectPlugins` to undefined for a backend without them).
+  effectPlugins: FakeEffectPlugins | undefined;
+}
+
+/** ADR 0352 §7: the fake's plugin effect capability: it records each call and loads every module at once. */
+export interface FakeEffectPlugins extends AudioEffectPlugins {
+  /** Every module `register` was given, in order. */
+  readonly registrations: EffectPluginModule[];
+  /** Every `unregister` and `reset` argument, in order. */
+  readonly unregistered: string[];
+  readonly resets: string[];
+}
+
+function makeFakeEffectPlugins(): FakeEffectPlugins {
+  const registrations: EffectPluginModule[] = [];
+  const unregistered: string[] = [];
+  const resets: string[] = [];
+  const indices = new Map<string, number>();
+  return {
+    registrations,
+    unregistered,
+    resets,
+    register(module) {
+      registrations.push(module);
+      const effects = module.effects.map((d) => {
+        if (!indices.has(d.spec.type)) indices.set(d.spec.type, indices.size);
+        return { type: d.spec.type, e: indices.get(d.spec.type)! };
+      });
+      return Promise.resolve({ ok: true, effects });
+    },
+    unregister(plugin) {
+      unregistered.push(plugin);
+    },
+    reset(type) {
+      resets.push(type);
+    },
+    health: () => [],
+  };
 }
 
 /** A group the fake music backend holds: the latest request for its id and which members are primed. */
@@ -439,6 +481,7 @@ export function makeFakeBackend(): FakeBackend {
     mixCaps: { loudness: true, levelDucking: true, cpu: true, cpuReason: null, stampedBusRamps: true, capture: "full" },
     recorderTap: null,
     profileSink: null,
+    effectPlugins: makeFakeEffectPlugins(),
     mixOpTarget: { liveCaps: CORE_LIVE_CAPS, sendOp(op: MixOp) { backend.ops.push(op); return { ...backend.applyResult }; } },
     flushNow() { backend.flushes++; },
     setProfileSink(sink: ProfileSink | null) { backend.profileSink = sink; },
@@ -479,27 +522,6 @@ export function makeFakeBackend(): FakeBackend {
   backend.capture = backend;
   backend.music = makeFakeMusicBackend(backend);
   return backend;
-}
-
-/**
- * ADR 0286: the frame the music plan step hands a player, with the fake's clock moved to heard `now` first (default: where
- * it is). For a test of one music module's own step (the planner's `planTick`, `requestStart`) on the fake; a test of the
- * tick order steps `musicPlanStep(backend, dt)` itself.
- */
-export function musicFrameAt(backend: FakeBackend, now = backend.time, dt = 1 / 60): MusicFrame {
-  backend.advanceTo(now);
-  return { backend, music: backend.music ?? null, now, dt, hidden: false };
-}
-
-/**
- * ADR 0286: the fake's clock moved to heard `now`, then one frame of the music as the audio systems run it: step 0
- * (`musicEarlyStep`: the backend's frame, the beat dispatch) and step 9 (`musicPlanStep`: every player's tick in its
- * order). A call between two of these is one from outside the frame, as in production (F-25).
- */
-export function musicFrameStep(backend: FakeBackend, now: number, dt = 1 / 60): void {
-  backend.advanceTo(now);
-  musicEarlyStep(backend, dt);
-  musicPlanStep(backend, dt);
 }
 
 let nextFakeVoiceId = 1;
@@ -669,7 +691,7 @@ export function makeFakeZoneIrService(): FakeZoneIrService {
 
 /**
  * Ends the audio session as a game's exit does (ADR 0218): the Engines' lifecycle reports a game Engine disposed, so every
- * listener of the release forgets the project's audio state (the event runtime's instances and groups, the music players,
+ * listener of the release forgets the project's audio state (the playlist runtime's instances and groups, the music players,
  * the files' loop points, the warn-once keys, the core fallback's warning, the capture). Call it between tests instead of
  * resetting modules by hand. Nothing else about an Engine happens (no mixer reconfigure), so a rig may call it at any point.
  */
@@ -804,7 +826,7 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
       return render(frameLo, frameHi);
     };
     const exports = Object.create(real.exports, { myco_audio_process: { value: myco_audio_process } }) as CoreInstance["exports"];
-    return { exports, memory: real.memory, sampleRate: real.sampleRate };
+    return { exports, memory: real.memory, sampleRate: real.sampleRate, plugins: real.plugins };
   };
   /** One core with its shell and both message queues (a respawn makes another; the old one is dropped). */
   const spawn = () => {
@@ -875,6 +897,8 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
       for (const message of toWorklet.splice(0)) {
         if (message instanceof ArrayBuffer) driver.onMessage(message, frame, clock.dateNow());
         else if ((message as { type?: unknown }).type === "debugTone") driver.onControl(message as never);
+        // ADR 0352: plugin modules for the glue; a load compiles asynchronously, and what it posts reaches main when it has.
+        else if (FX_CONTROLS.has((message as { type?: unknown }).type)) void driver.onControl(message as never)?.then(flush);
         else if ((message as { type?: unknown }).type === "streamPort") connectStreams(current, (message as { port: LoopbackStreamPort }).port);
       }
     }
@@ -1038,7 +1062,7 @@ export interface LoopbackAudioOptions {
   /** Decodes a clip by path (default: one second of 0.5, mono at 48 kHz). The registry "fetches" the path's own bytes. */
   readonly decode?: (path: string) => LoopbackClip | Promise<LoopbackClip>;
   /** Parts of the rig's clip registry to replace instead (a real decoder client and its fetch, a warning spy). */
-  readonly clipRegistry?: Partial<Pick<ClipRegistryDeps, "fetchBytes" | "decodeWorker" | "warn" | "nextQuantum">>;
+  readonly clipRegistry?: Partial<Pick<ClipRegistryDeps, "fetchBytes" | "decodeWorker" | "warn" | "nextQuantum" | "packRef">>;
   /**
    * The backend's other dependencies (`createCoreBackend`'s: `hrir`, `magls`, `streams`, `zoneIr`, `warnOnce`, or `clips` to
    * replace the registry), or a function of the rig's clip registry that gives them (an HRIR loader on it).
@@ -1098,7 +1122,7 @@ export interface LoopbackAudio {
    */
   tick(dt?: number): void;
   /**
-   * `frames` main-thread frames (default 1), each `mixer.update`, `tick` and, on the page mixer, the event runtime's
+   * `frames` main-thread frames (default 1), each `mixer.update`, `tick` and, on the page mixer, the playlist runtime's
    * `update`, then `quantaPerFrame` quanta and a few microtask turns. Returns what all of them rendered.
    */
   step(frames?: number): Promise<LoopbackOutput>;
@@ -1210,7 +1234,7 @@ const defaultClip = (): LoopbackClip => ({ channelData: [new Float32Array(LOOPBA
  * the STATUS blocks received) with no backend.
  */
 export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise<LoopbackAudio | null> {
-  const [{ assembleCore }, { AudioHost, presetFromSettings }, { Unlock }, { createClipRegistry }, { fakeDecoder }, { rebuildHost }, { setAudioBackend }, { Audio }, { events }] = await Promise.all([
+  const [{ assembleCore }, { AudioHost, presetFromSettings }, { Unlock }, { createClipRegistry }, { fakeDecoder }, { rebuildHost }, { setAudioBackend }, { Audio }, { playlistHost }] = await Promise.all([
     import("./core/assembly"),
     import("./core/context"),
     import("./core/unlock"),
@@ -1219,7 +1243,7 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
     import("./core/recovery"),
     import("./backend"),
     import("./Audio"),
-    import("./events/eventRuntime"),
+    import("./playlists/host"),
   ]);
   const own = options.mixer === "own";
   // On the page's mixer without `settings`, whatever configured it (an Engine's create) stands.
@@ -1369,7 +1393,7 @@ export async function loopbackAudio(options: LoopbackAudioOptions = {}): Promise
         const dt = dtOf();
         rigMixer.update(dt);
         tick(dt);
-        if (!own) events().update(dt);
+        if (!own) playlistHost().update(dt);
         const out = renderQuanta(quantaPerFrame);
         left.set(out.left, f * out.left.length);
         right.set(out.right, f * out.right.length);

@@ -14,6 +14,7 @@ import { FIRST_PARTY_MANIFESTS } from "./catalogue";
 import { applyEditorPlugins, type EditorSetPlugin } from "./editorPlugins";
 import type { PluginManifest } from "./manifest";
 import type { PluginSetProblem } from "./pluginSet";
+import { applyProjectAudioEffects, clearProjectAudioEffects } from "./projectAudioEffects";
 import { activateOf, planPluginCode, toRuntimePlugin, type FoundPlugin, type PluginProblem, type ThirdPartyManifest } from "./thirdParty";
 
 // What `import … from "myco/editor"` gives a plugin's editor half (the script loader's shim reads it).
@@ -93,7 +94,9 @@ export async function loadProjectCode(project: EditorProject, options: { runtime
   const json = jsonFiles(project);
   const packages = packageSourceFor(project);
   const disabled = project.settings.plugins?.disabled;
-  const plan = await planPluginCode({ json, code: project.scripts, packages: packages?.files, disabled }, { editor: true });
+  const plan = await planPluginCode({ json, code: project.scripts, packages: packages?.files, disabled, assets: project.files }, { editor: true });
+  // ADR 0352 §8: the plugins' audio effects (catalogue, core, offline renders), before Play can start on this code.
+  await applyProjectAudioEffects(project, plan);
   const result = await replaceScripts(plan.code, json, packages, plan.npmEntries);
   const applied = applyEditorPlugins(disabled, { thirdParty: await toSetPlugins(plan.loaded), keepRuntime: !runtime });
   const whereOf = (problem: PluginSetProblem) => plan.plugins.find((p) => p.manifest.name === problem.plugin)?.where ?? `plugins (${problem.plugin})`;
@@ -106,5 +109,6 @@ export async function loadProjectCode(project: EditorProject, options: { runtime
 /** The project closed: deactivate every third-party half (the first-party ones go back to all enabled). */
 export function unloadThirdPartyPlugins(): void {
   applyEditorPlugins(undefined, { thirdParty: [] });
+  void clearProjectAudioEffects();
   projectPlugins.value = EMPTY;
 }

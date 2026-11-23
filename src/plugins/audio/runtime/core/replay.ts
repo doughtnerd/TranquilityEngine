@@ -61,6 +61,7 @@ import {
   writeSetPaused,
   writeStop,
   type BusConfigBuses,
+  BUS_CONFIG_BUSES_EFFECTS_FIXED_END,
 } from "../wire.generated";
 import type { ClipInfo, ClipRegistry } from "./clipRegistry";
 import type { ClockMap } from "./clock";
@@ -315,7 +316,7 @@ export interface ReplayAutomation {
 /** @internal BUS_CONFIG with `buses` (root first), asap: the header's record after RESET (the bus index's `replayHeader`). */
 export function replayBusConfig(b: ReplayBuilder, buses: BusConfigBuses[]): void {
   let size = 16;
-  for (const bus of buses) size += 4 + 32 * bus.effects.length;
+  for (const bus of buses) size += 4 + BUS_CONFIG_BUSES_EFFECTS_FIXED_END * bus.effects.length;
   b.record(size, (view, off) => writeBusConfig(view, off, { voiceId: 0, frameOffset: ASAP, buses }));
 }
 

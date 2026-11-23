@@ -14,6 +14,8 @@
 // open ends with `cancelled`. `seek` and `range` are synchronous and short (one keyframe interval, or the span asked).
 // `events` (ADR 0227) answers the typed EVENTs after a record cursor in one pass, so the Profiler's event tracks read the
 // capture once (and a live view only what was appended) instead of sweeping it with seeks.
+// `frames` (ADR 0348) answers a take's pictures (its FRAME records, kept as the open reads them; a capture has none), so
+// the Profiler draws a take's Picture track; the other request records are passed over as before.
 import {
   CaptureError, EpochReason, RecordType, decodeKeyframe, readKeyframeMetered,
   type CaptureErrorInfo, type CaptureLoudnessColumns, type CaptureWorkerRequest, type CaptureWorkerResponse,
@@ -25,14 +27,17 @@ import {
   type CaptureContents, type CaptureDecoder, type CaptureEventsPage, type CaptureOpenSummary, type CaptureRangeColumns, type CaptureSeekState,
 } from "./reader";
 import { LoudnessTrackModel, type LoudnessControl } from "../mix/loudnessTrackModel";
+import type { TakeFrame } from "../../../../engine/audio/take/types";
 import { LOUD_OUTPUT_TAP, readStatus } from "../wire.generated";
 
 /** `range` with Rc5's bucket count (H3's request has none yet; omitted, the answer is one sample per STATUS). */
 export type CaptureRangeRequest = Extract<CaptureWorkerRequest, { type: "range" }> & { buckets?: number };
 /** ADR 0227: the typed EVENTs from record cursor `from` on (`eventsCapture`), only `types` when given. */
 export type CaptureEventsRequest = { type: "events"; id: number; from: number; types?: readonly CaptureEventType[] };
-/** Every request the Worker takes (H3's, with `range`'s buckets, and `events`). */
-export type CaptureRequest = Exclude<CaptureWorkerRequest, { type: "range" }> | CaptureRangeRequest | CaptureEventsRequest;
+/** ADR 0348: a take's pictures (its FRAME records, take seconds; none for a capture). */
+export type CaptureFramesRequest = { type: "frames"; id: number };
+/** Every request the Worker takes (H3's, with `range`'s buckets, `events` and `frames`). */
+export type CaptureRequest = Exclude<CaptureWorkerRequest, { type: "range" }> | CaptureRangeRequest | CaptureEventsRequest | CaptureFramesRequest;
 
 /** H3's responses with Rc5's fuller payloads (each a subtype of H3's, so H3's `CaptureWorkerResponse` still describes them). */
 export type CaptureResponse =
@@ -41,7 +46,8 @@ export type CaptureResponse =
   | { type: "appended"; id: number; summary: CaptureOpenSummary }
   | { type: "snapshot"; id: number; snapshot: CaptureSeekState }
   | { type: "range"; id: number; t0: number; t1: number; columns: CaptureRangeColumns }
-  | ({ type: "events"; id: number } & CaptureEventsPage);
+  | ({ type: "events"; id: number } & CaptureEventsPage)
+  | { type: "frames"; id: number; frames: TakeFrame[] };
 
 /** The longest the open runs between yields to the Worker's event loop. */
 export const PAUSE_SLICE_MS = 8;
@@ -66,6 +72,8 @@ interface Session {
   live: CaptureDecoder | null;
   /** The loudness series, built on the first loudness request and extended from `next` as a live view grows. */
   loud: LoudnessBuild | null;
+  /** ADR 0348: a take file's pictures, in time order (empty for a capture or a live view). */
+  frames: TakeFrame[];
 }
 
 /** Pf6: the loudness model and how far through the records it has read. */
@@ -202,10 +210,13 @@ export function createCaptureWorkerHandler(opts: CaptureWorkerHandlerOptions): C
       const index = new CaptureTimeIndex();
       let contents: CaptureContents;
       let live: CaptureDecoder | null = null;
+      const frames: TakeFrame[] = [];
       if (source === "file") {
         contents = await openCapture(new Uint8Array(bytes), {
           signal: mine.signal, pause,
           onProgress: (phase, done, total) => post({ type: "progress", id, phase, done, total }),
+          // A take's pictures; its other request records are the replay's, not the Profiler's.
+          onRequestRecord: (r) => { if (r.type === "frame") frames.push(r.frame); },
         });
       } else {
         live = openLiveCapture(new Uint8Array(bytes));
@@ -214,7 +225,8 @@ export function createCaptureWorkerHandler(opts: CaptureWorkerHandlerOptions): C
       if (mine.signal.aborted) throw new CaptureError("cancelled", -1, "the open was cancelled");
       index.extend(contents);
       if (opening !== mine) return;
-      session = { contents, index, live, loud: null };
+      frames.sort((a, b) => a.t - b.t);
+      session = { contents, index, live, loud: null, frames };
       post({ type: "opened", id, summary: summarizeCapture(contents, index) });
     } catch (e) {
       if (e instanceof CaptureError && e.code === "cancelled") post({ type: "cancelled", id });
@@ -250,6 +262,16 @@ export function createCaptureWorkerHandler(opts: CaptureWorkerHandlerOptions): C
           try {
             const s = need(req.id);
             post({ type: "snapshot", id: req.id, snapshot: seekCapture(s.contents, s.index, req.seconds) });
+          } catch (e) {
+            fail(req.id, e);
+          }
+          return;
+        case "frames":
+          try {
+            const s = need(req.id);
+            // Copies, transferred: the session keeps its own for the next ask.
+            const out = s.frames.map((f) => ({ t: f.t, width: f.width, height: f.height, jpeg: f.jpeg.slice() }));
+            post({ type: "frames", id: req.id, frames: out }, out.map((f) => f.jpeg.buffer as ArrayBuffer));
           } catch (e) {
             fail(req.id, e);
           }

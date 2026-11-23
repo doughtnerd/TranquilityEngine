@@ -1,4 +1,4 @@
-//! `anim-rig` (ADR 0350, 0352): the post-process rig stack.
+//! `anim-rig` (ADR 0370, 0372): the post-process rig stack.
 //!
 //! Internal to the animation core: nothing here is engine public API (ADR 0010). The graph's
 //! `rig` node family (`anim-graph::rig`) calls these solvers; each node is one rig-stack entry.
@@ -7,7 +7,7 @@
 //!   [`full_body`](full_body::full_body) (a FABRIK-based solver over a tree of chains with
 //!   effectors and a centre-of-mass pull);
 //! - [`look_at`](aim::look_at) and [`aim`](aim::aim), with limits and weight distribution;
-//! - the foot [`grounder`] (ray requests out, the host's hits back in a frame later, ADR 0350);
+//! - the foot [`grounder`] (ray requests out, the host's hits back in a frame later, ADR 0370);
 //! - [`spring`] bones (Verlet, sphere and capsule colliders bound to bones);
 //! - copy, limit and damp [`constraints`];
 //! - distance, stride, orientation and motion [`warp`]ing.

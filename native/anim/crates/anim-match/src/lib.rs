@@ -1,4 +1,4 @@
-//! `anim-match` (ADR 0350, 0352): motion matching. Feature extraction and normalisation, a
+//! `anim-match` (ADR 0370, 0372): motion matching. Feature extraction and normalisation, a
 //! KD-tree plus brute-force SIMD search over the pose database, trajectory prediction, the
 //! matching controller, and the database bake.
 //!

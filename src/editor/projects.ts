@@ -11,6 +11,8 @@ import { isSidecarPath, sidecarPath } from "../engine/scene/importSettings";
 import { isProjectFile, loadProjectFiles, projectFileKind, skipsFolder, textFileValue } from "../engine/scene/projectFiles";
 import { isScriptPath, isTextAsset, joinPath } from "./projectPaths";
 import { readOnlyMessage } from "./readOnly";
+import { migrateLegacyAudio, settingsWithAudio } from "./audioProjectFile";
+import { AUDIO_PROJECT_FILE } from "../engine/audio/project/types";
 
 export { isTextAsset, joinPath };
 
@@ -22,7 +24,10 @@ export interface EditorProject {
   /** The folder's file system (for watching scripts and opening files externally), or null for a project in memory. */
   readonly fileSystem: FileSystem | null;
   readonly canSave: boolean;
-  /** The parsed `project.json` (empty if there's none). Follows writes to it, so play mode uses the current bootstrap. */
+  /**
+   * The parsed `project.json` (empty if there's none), with `audio` set to `audio.json`'s runtime view (ADR 0344). Follows
+   * writes to both, so play mode uses the current bootstrap and mix.
+   */
   readonly settings: ProjectSettingsInput;
   /** Every project file by path relative to the project root, as its asset value (ADR 0254): parsed JSON, a text file's text, a URL otherwise. */
   readonly assets: AssetSource;
@@ -61,6 +66,32 @@ export interface EditorProject {
   copyFile(from: string, to: string): Promise<void>;
   /** Delete a folder and everything in it from disk and from the project. */
   deleteFolder(path: string): Promise<void>;
+  /**
+   * Files changed on disk by someone else (another app, a code editor, git; ADR 0341): read `paths` (project-relative
+   * files or folders) again and serve what they hold now, adding new files and dropping deleted ones, and tell
+   * `Assets.onChanged` listeners. What this project wrote itself reads as unchanged. Does nothing for a project in
+   * memory. Resolves to what changed.
+   */
+  rereadFiles(paths: readonly string[]): Promise<FileChanges>;
+  /**
+   * `from` (a file or folder) was moved to `to` on disk by someone else (ADR 0341, pending moves): follow it as `move`
+   * does after its rename (a file's sidecar along), then read what is at `to`. Doesn't touch the disk.
+   */
+  followMove(from: string, to: string): Promise<void>;
+}
+
+/** What `rereadFiles` found: project-relative files whose content changed, that appeared, and that are gone. */
+export interface FileChanges {
+  readonly changed: readonly string[];
+  readonly added: readonly string[];
+  readonly removed: readonly string[];
+}
+
+/** A cheap fingerprint of a binary file's bytes (FNV-1a and the length), to tell a file this project wrote from a changed one. */
+function bytesStamp(bytes: Uint8Array): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) h = Math.imul(h ^ bytes[i], 0x01000193);
+  return `${bytes.length}:${(h >>> 0).toString(36)}`;
 }
 
 /** True if `path` is `folder` or inside it. */
@@ -102,6 +133,8 @@ class MapProject implements EditorProject {
   readonly mainScene: string | null;
   readonly assets: AssetSource;
   private sortedFiles: string[] | null = null;
+  /** The bytes this project last wrote or re-read for a binary file (`bytesStamp`), so `rereadFiles` knows them. */
+  private readonly binaryStamps = new Map<string, string>();
 
   constructor(
     private readonly baseName: string,
@@ -118,7 +151,7 @@ class MapProject implements EditorProject {
     private readonly namedBySettings = false,
   ) {
     this.mainScene = pickMainScene(this.files);
-    this.assets = { has: (p) => values.has(p), get: (p) => values.get(p) };
+    this.assets = { has: (p) => values.has(p), get: (p) => values.get(p), paths: () => values.keys() }; // listed: Locale finds string tables (ADR 0356)
   }
 
   get name(): string {
@@ -131,9 +164,19 @@ class MapProject implements EditorProject {
     return (this.sortedFiles ??= [...this.values.keys()].sort());
   }
 
-  /** Read from `project.json` each time, so it reflects edits saved since the project opened. */
+  private settingsView: { project: unknown; audio: unknown; view: ProjectSettingsInput } | null = null;
+
+  /**
+   * Read from `project.json` each time, so it reflects edits saved since the project opened, with `audio` from
+   * `audio.json` (ADR 0344: its runtime view). The same object until either file changes.
+   */
   get settings(): ProjectSettingsInput {
-    return (this.values.get("project.json") ?? {}) as ProjectSettingsInput;
+    const project = this.values.get("project.json"), audio = this.values.get(AUDIO_PROJECT_FILE);
+    const cached = this.settingsView;
+    if (cached && cached.project === project && cached.audio === audio) return cached.view;
+    const view = settingsWithAudio(project, audio);
+    this.settingsView = { project, audio, view };
+    return view;
   }
 
   get canSave(): boolean {
@@ -199,7 +242,103 @@ class MapProject implements EditorProject {
     this.texts.delete(path);
     this.values.set(path, blobUrl(path, bytes));
     this.sizes.set(path, bytes.length);
+    this.binaryStamps.set(path, bytesStamp(bytes));
     Assets.notifyChanged(path);
+  }
+
+  async rereadFiles(paths: readonly string[]): Promise<FileChanges> {
+    const out = { changed: [] as string[], added: [] as string[], removed: [] as string[] };
+    if (!this.write || !this.fileSystem || !this.root) return out;
+    const fs = this.fileSystem, root = this.root;
+    const files = new Set<string>();
+    for (const path of paths) {
+      if (path === "" || !isProjectFile(path)) continue;
+      if (!(await fs.exists(joinPath(root, path)).catch(() => false))) {
+        for (const known of [...this.values.keys()]) {
+          if (!isWithin(known, path)) continue;
+          this.forget(known);
+          out.removed.push(known);
+          Assets.notifyChanged(known);
+        }
+        for (const f of [...this.folderSet]) if (isWithin(f, path)) this.folderSet.delete(f);
+        continue;
+      }
+      if (this.values.has(path)) {
+        files.add(path);
+        continue;
+      }
+      // Not a file this project knows: a folder (read everything in it) or a new file (listing a file fails).
+      let folder = this.folders.includes(path);
+      if (!folder) folder = await fs.list(joinPath(root, path)).then(() => true, () => false);
+      if (!folder) {
+        files.add(path);
+        continue;
+      }
+      const found = new Set<string>();
+      const inside = await listFiles(fs, root, path, isProjectFile, found).catch(() => [] as string[]);
+      for (const f of [path, ...found]) this.folderSet.add(f);
+      for (const f of inside) files.add(f);
+    }
+    for (const path of files) {
+      const known = this.values.has(path);
+      const changed = await this.reread(fs, root, path).catch((err: unknown) => {
+        console.warn(`[editor] couldn't read ${path} again: ${err instanceof Error ? err.message : String(err)}`);
+        return false;
+      });
+      if (!changed) continue;
+      if (!known) this.sortedFiles = null;
+      (known ? out.changed : out.added).push(path);
+      Assets.notifyChanged(path);
+    }
+    return out;
+  }
+
+  /** Read one file again; true if what the project serves for it changed. */
+  private async reread(fs: FileSystem, root: string, path: string): Promise<boolean> {
+    const kind = projectFileKind(path);
+    if (kind === "url") {
+      const bytes = await fs.readBinary(joinPath(root, path));
+      const stamp = bytesStamp(bytes);
+      if (this.values.has(path) && this.binaryStamps.get(path) === stamp) return false;
+      const old = this.values.get(path);
+      if (typeof old === "string" && old.startsWith("blob:")) URL.revokeObjectURL(old);
+      this.texts.delete(path);
+      this.values.set(path, blobUrl(path, bytes));
+      this.sizes.set(path, bytes.length);
+      this.binaryStamps.set(path, stamp);
+      return true;
+    }
+    const before = this.texts.get(path);
+    const text = await fs.readText(joinPath(root, path));
+    // This project wrote the file meanwhile: that write is what it holds (its own event follows).
+    if (this.texts.get(path) !== before) return false;
+    if (text === before && this.values.has(path)) return false;
+    let value: unknown;
+    if (kind === "json") {
+      try {
+        value = JSON.parse(text);
+      } catch (err) {
+        // Half-written, or broken by hand: keep serving what it held, as opening the project skips it.
+        console.warn(`[editor] ${path} changed on disk but isn't valid JSON (${err instanceof Error ? err.message : String(err)}); keeping what it held`);
+        return false;
+      }
+    } else value = textFileValue(path, text);
+    this.texts.set(path, text);
+    this.values.set(path, value);
+    return true;
+  }
+
+  async followMove(from: string, to: string): Promise<void> {
+    if (!this.write || from === to) return;
+    const known = this.values.has(from) || this.scriptMap.has(from) || this.folders.includes(from);
+    if (known) {
+      const meta = sidecarPath(from), toMeta = sidecarPath(to);
+      const isFile = this.values.has(from);
+      this.rekeyMoved(from, to);
+      // A file's sidecar went with it (the other app moved it as `move` does).
+      if (isFile && !isSidecarPath(from) && this.values.has(meta)) this.rekeyMoved(meta, toMeta);
+    }
+    await this.rereadFiles([to]);
   }
 
   async deleteFile(path: string): Promise<void> {
@@ -264,6 +403,7 @@ class MapProject implements EditorProject {
     rekey(this.values);
     rekey(this.texts);
     rekey(this.sizes);
+    rekey(this.binaryStamps);
     const scripts = new Map(this.scriptMap);
     rekey(scripts);
     this.scriptMap = scripts;
@@ -296,6 +436,7 @@ class MapProject implements EditorProject {
     await fs.writeBinary(joinPath(root, to), bytes);
     this.values.set(to, blobUrl(to, bytes));
     this.sizes.set(to, bytes.length);
+    this.binaryStamps.set(to, bytesStamp(bytes));
     this.sortedFiles = null;
   }
 
@@ -319,6 +460,7 @@ class MapProject implements EditorProject {
     if (this.values.delete(path)) this.sortedFiles = null;
     this.texts.delete(path);
     this.sizes.delete(path);
+    this.binaryStamps.delete(path);
     if (this.scriptMap.has(path)) {
       this.scriptMap = new Map(this.scriptMap);
       this.scriptMap.delete(path);
@@ -358,12 +500,15 @@ async function listFiles(fs: FileSystem, root: string, dir: string, accept: (pat
 /**
  * Open a project folder: it must contain `project.json`. Loads every project file up front as its
  * asset value (ADR 0254: JSON parsed, text files' text, the rest as object URLs), since scene
- * loading looks assets up synchronously.
+ * loading looks assets up synchronously. With `readOnly` nothing is written, not even a migration, and the project
+ * can't be saved (the Audio Studio opens a project whose old audio events weren't migrated this way, ADR 0343).
  */
-export async function openFolderProject(fs: FileSystem, root: string): Promise<EditorProject> {
+export async function openFolderProject(fs: FileSystem, root: string, options: { readOnly?: boolean } = {}): Promise<EditorProject> {
   if (!(await fs.exists(joinPath(root, "project.json")))) {
     throw new Error(`"${root}" isn't a Myco Engine project: it has no project.json.`);
   }
+  // ADR 0344: an `audio` section still in project.json moves to audio.json before anything reads the files.
+  if (!options.readOnly) await migrateLegacyAudio(fs, root);
   const folders = new Set<string>();
   const sizes = new Map<string, number>();
   const { values, texts, problems } = await loadProjectFiles(await listFiles(fs, root, "", isProjectFile, folders), {
@@ -385,8 +530,8 @@ export async function openFolderProject(fs: FileSystem, root: string): Promise<E
     return scripts;
   };
   const folder = root.split(/[\\/]/).filter(Boolean).pop() ?? root;
-  const write = (path: string, text: string) => fs.writeText(joinPath(root, path), text);
-  return new MapProject(folder, root, values, texts, write, { read: readScripts }, fs, await readScripts(), folders, sizes, true);
+  const write = options.readOnly ? null : (path: string, text: string) => fs.writeText(joinPath(root, path), text);
+  return new MapProject(folder, root, values, texts, write, { read: readScripts }, options.readOnly ? null : fs, await readScripts(), folders, sizes, true);
 }
 
 /** Settings for the Editor World: the project's, minus autoloads, with the editor's background. */

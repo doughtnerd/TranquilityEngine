@@ -3,9 +3,13 @@
 // `myco_audio_memory_pages` and `myco_audio_memory_part_bytes` read it there. The core alone knows its layout, so the
 // Memory's `maximum` and the debug panel's memory row are its answers, asked of a throwaway instance on a Memory of
 // `MEMORY_INITIAL_PAGES` pages that never grows: no region size is mirrored here. (`zoneKernelBlobBytes` sizes a wire blob
-// main builds, from the schema's generated constants.)
+// main builds, from the schema's generated constants; `clipChunkBytes` sizes a CLIP_CHUNK's payload.) Since ABI 6.0 the
+// core also imports `myco_ext`, the plugin effect glue (ADR 0352): every instance, the throwaway one included, binds it.
 import type { CoreExports, CorePreset } from "./coreDriver";
+import { EffectGlue, type MycoExtImports } from "./effectGlue";
 import {
+  ADPCM_BLOCK_FRAMES,
+  ADPCM_CHANNEL_BYTES,
   ClipFormat,
   CORE_ABI_MAJOR,
   ErrorCode,
@@ -47,13 +51,14 @@ function hex(bytes: Uint8Array): string {
 }
 
 /**
- * @internal Instantiates `module` over `memory` and checks its ABI major, then its schema hash (both static, so before
- * anything reads the inbox: a core of another ABI reads another INIT, or none). Throws `CoreLoadError`.
+ * @internal Instantiates `module` over `memory`, binding `ext` as its `myco_ext` import (ADR 0352: the plugin effect glue
+ * the core calls inside its chains), and checks its ABI major, then its schema hash (both static, so before anything reads
+ * the inbox: a core of another ABI reads another INIT, or none). Throws `CoreLoadError`.
  */
-export function openCore(module: WebAssembly.Module, memory: WebAssembly.Memory, expected: CoreExpectations = EXPECTED): CoreExports {
+export function openCore(module: WebAssembly.Module, memory: WebAssembly.Memory, ext: MycoExtImports, expected: CoreExpectations = EXPECTED): CoreExports {
   let exports: CoreExports;
   try {
-    exports = new WebAssembly.Instance(module, { env: { memory } }).exports as unknown as CoreExports;
+    exports = new WebAssembly.Instance(module, { env: { memory }, myco_ext: { ...ext } }).exports as unknown as CoreExports;
   } catch (error) {
     throw new CoreLoadError(`audio core: instantiating myco_audio.wasm failed: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -133,7 +138,8 @@ const MAX_PAGES = 65_536;
  */
 export function askCoreMemory(module: WebAssembly.Module, preset: CorePreset, sampleRate: number, expected: CoreExpectations = EXPECTED): CoreMemory {
   const memory = new WebAssembly.Memory({ initial: MEMORY_INITIAL_PAGES, maximum: MEMORY_INITIAL_PAGES });
-  const exports = openCore(module, memory, expected);
+  // The throwaway instance never processes, so its glue is never called; it only satisfies the import.
+  const exports = openCore(module, memory, new EffectGlue(sampleRate).imports, expected);
   const record = initRecord(preset, sampleRate);
   writeInitRecord(exports, memory, record);
   const answer = (n: number): number => {
@@ -155,7 +161,17 @@ export function askCoreMemory(module: WebAssembly.Module, preset: CorePreset, sa
   };
 }
 
-/** @internal Bytes per sample of a CLIP_BEGIN format (0 for a format the shell doesn't know): ADR 0162 C6 adds 3-5, all f32. */
+/**
+ * @internal The bytes a CLIP_CHUNK of `frames` frames carries for a clip of `channels` in `format`: its samples, or (ADR 0351
+ * A4, format 6) its whole IMA ADPCM blocks (`ADPCM_CHANNEL_BYTES` per channel per `ADPCM_BLOCK_FRAMES`, the last block
+ * padded). 0 for a format the shell doesn't know.
+ */
+export function clipChunkBytes(format: number, channels: number, frames: number): number {
+  if (format === ClipFormat.AdpcmIma) return Math.ceil(frames / ADPCM_BLOCK_FRAMES) * channels * ADPCM_CHANNEL_BYTES;
+  return frames * channels * clipSampleBytes(format);
+}
+
+/** @internal Bytes per sample of a CLIP_BEGIN format (0 for a format the shell doesn't know, and for ADPCM: `clipChunkBytes`): ADR 0162 C6 adds 3-5, all f32. */
 export function clipSampleBytes(format: number): number {
   switch (format) {
     case ClipFormat.F32:

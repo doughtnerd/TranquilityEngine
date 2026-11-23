@@ -97,7 +97,7 @@ export class GameManager extends GameBehavior {
     this.setMessage(`Game over\nScore ${this.score}  ·  Best ${this.best}\n\nPress Space to play again`);
   }
 
-  /** The music readout: M (or the touch button) toggles it; it shows `Audio.debug().music` four times a second. */
+  /** The music readout: M (or the touch button) toggles it; it shows the music playlist's row of `Audio.debug().events` four times a second. */
   private showMusic(): void {
     if (Input.getKeyDown(this.musicKey) || this.touchPressed) this.readout.toggle();
     this.touchPressed = false;

@@ -187,6 +187,8 @@ class BabylonVoice implements AudioVoice {
     this.looping = req.loop;
     this.occlusionOn = req.occlusion !== false;
     this.dopplerLevel = req.dopplerLevel ?? 0;
+    // `PlayRequest.offset`: where playback starts in the file (a loop wraps it once the buffer's length is known, `seek`).
+    if (req.offset !== undefined && Number.isFinite(req.offset) && req.offset > 0) this.startOffset = req.offset;
     if (music?.fadeZero) {
       this.gain = 0;
       this.appliedGain = 0;
@@ -1041,6 +1043,11 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
 
   configureBuses(m: Mixer): void {
     this.mixerRef = m;
+    // ADR 0344 ("one warning per feature", 0179's rule): returns, bus sends and bus effects run only on the audio core.
+    const buses = m.audioSettings.buses;
+    if (m.returnNames.length > 0 || buses.some((b) => b.effects.length > 0 || (b.sends?.length ?? 0) > 0)) {
+      warnOnce("babylon-mix-core", "returns, bus sends and bus effects need the audio core: on the Babylon audio fallback returns are silent, sends feed nothing and bus effects are skipped (ADR 0344, 0345).");
+    }
     const chain = this.chain;
     if (!chain) return; // before the first play: the buses are built with the engine
     this.chain = chain.then(async (live) => {

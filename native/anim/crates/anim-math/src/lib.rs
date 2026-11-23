@@ -1,4 +1,4 @@
-//! `anim-math` (ADR 0350): SoA quaternion, vector and transform maths for the pose pipeline, with
+//! `anim-math` (ADR 0370): SoA quaternion, vector and transform maths for the pose pipeline, with
 //! `core::arch::wasm32` `simd128` (4 lanes) on the web and glam types at the AoS boundary.
 //!
 //! Internal to the animation core: nothing here is engine public API (ADR 0010).
@@ -20,7 +20,7 @@
 //! # Determinism rules
 //!
 //! The same inputs give the same bits on every target (wasm in V8, JavaScriptCore and
-//! SpiderMonkey, and native x86-64/aarch64), so client and server agree on root motion (ADR 0350).
+//! SpiderMonkey, and native x86-64/aarch64), so client and server agree on root motion (ADR 0370).
 //!
 //! 1. Only correctly rounded IEEE-754 binary32 operations (`+ − × ÷ √`) and exact ones (negate,
 //!    abs, floor, round-to-even, compare, bitwise select, u32→f32 below 2^24).

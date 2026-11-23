@@ -1,4 +1,4 @@
-//! `anim-bench` (ADR 0350, "Budgets"): criterion benchmarks for the core's budgets, run with
+//! `anim-bench` (ADR 0370, "Budgets"): criterion benchmarks for the core's budgets, run with
 //! `cargo bench -p anim-bench`. The budgets are tripwires, logged, never acceptance criteria:
 //!
 //! - 100 characters, 80 bones, a state machine with a 2D blend space, an upper-body slot, two-bone

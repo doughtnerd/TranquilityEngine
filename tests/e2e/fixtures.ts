@@ -194,7 +194,7 @@ export type OpenEditor = ({ sample: string; files?: never } | { files: ProjectFi
   BootOptions & {
     /** The page's viewport size, set before the editor loads (the Project and Mixer panels want room). */
     viewport?: { width: number; height: number };
-    /** A sample's audio backend in place of the one its project.json names (the page gets project.json with it). */
+    /** A sample's audio backend in place of the one its audio.json names (the page gets audio.json with it, ADR 0344). */
     audioBackend?: "core" | "babylon";
   };
 
@@ -210,10 +210,11 @@ export async function openEditor(page: Page, o: OpenEditor): Promise<void> {
   if (o.sample !== undefined) {
     if (o.audioBackend) {
       const backend = o.audioBackend;
-      await page.route(`**/samples/${o.sample}/project.json`, async (route) => {
+      // The backend is an engine setting of the sample's `audio.json` (ADR 0344; `project.json` holds no audio).
+      await page.route(`**/samples/${o.sample}/audio.json`, async (route) => {
         const res = await route.fetch();
         const json = await res.json();
-        json.audio = { ...(json.audio ?? {}), backend };
+        json.settings = { ...(json.settings ?? {}), backend };
         await route.fulfill({ response: res, json });
       });
     }

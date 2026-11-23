@@ -69,7 +69,7 @@ from the start screen rather than after booting the read-only sample.
   Sound Lab. `openEditor(page, { files })` opens the writable test project: the Flappy sample in memory
   with `files` (project path → text, or a `Uint8Array` for a clip or model) written over it; what the
   editor writes is read back through `window.testFolder`. Options: `viewport` (set before the editor
-  loads), `audioBackend` (a sample's project.json answered with another audio backend), and the boot
+  loads), `audioBackend` (a sample's audio.json answered with another audio backend), and the boot
   options below.
 - Both wait for boot: the edit World has stepped more than 10 frames (`frames` changes it, `timeout`
   how long to wait). After a reload, or a project opened from the start screen (`installFakeFolders`,

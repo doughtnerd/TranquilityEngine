@@ -16,6 +16,8 @@ import {
   KEYFRAME_VOICE_STATE_MAX, KeyframeBusFlag, KeyframeMeteredFlag, NO_NAME, type CaptureMusicState, type CaptureVoiceState,
 } from "./keyframeLayout";
 import { voiceRowReason, type CaptureVoiceReason } from "./reasons";
+import { isTakeRecordType, TakeRecordError, TakeRecordType, decodeTakeRecord, type TakeRecord } from "../../../../engine/audio/take/records";
+import type { TakeMetaSection } from "../../../../engine/audio/take/reader";
 import { CORE_ABI_VERSION, Kind, MAGIC, QUANTUM_FRAMES, SCHEMA_HASH, STATUS_BUFFER_BYTES, STATUS_EVERY_QUANTA, STATUS_HEADER_BYTES, STATUS_HEADER_COLUMNS, VERSION_MAJOR, VERSION_MINOR } from "../wire.generated";
 export {
   KEYFRAME_AUDIBILITY_ONE, KEYFRAME_BUS_LANES, KEYFRAME_MAX_BUSES, KEYFRAME_MAX_EVENTS, KEYFRAME_MAX_METERED,
@@ -29,12 +31,20 @@ export {
 export const CAPTURE_MAGIC: readonly number[] = [0x4d, 0x59, 0x43, 0x41, 0x50, 0x00, 0x01, 0x1a];
 /** The plain header's size. */
 export const CAPTURE_HEADER_BYTES = 96;
-/** `format` this build writes and reads. */
-export const CAPTURE_FORMAT = 1;
+/**
+ * `format` this build writes and reads. 2 (ADR 0348): EVENT kinds `pick` and `loudnessWarning`, MIXOP written, the
+ * `take` header flag, META's `take` section and the request records; format 1 files are refused (not migrated).
+ */
+export const CAPTURE_FORMAT = 2;
 /** The core ABI this build reads captures of: the generated `CORE_ABI_VERSION`, beside the schema hash (ADR 0328). */
 export const CAPTURE_ABI_VERSION = CORE_ABI_VERSION;
 /** R16: the uncompressed payload's cap, from the header before inflate and while inflating (64 MiB). */
 export const CAPTURE_MAX_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
+/**
+ * ADR 0348: a take's uncompressed payload cap (256 MiB): the profile ring (at most 32 MiB) plus the requests, which are never
+ * dropped (the recorder stops with a message before a take would pass it). Applies to files whose header sets `take`.
+ */
+export const TAKE_MAX_UNCOMPRESSED_BYTES = 256 * 1024 * 1024;
 /** The META chunk's cap (1 MiB). */
 export const CAPTURE_META_MAX_BYTES = 1024 * 1024;
 /** Every record but STATUS (whose cap is the header's `statusBytesMax`): 256 KB. */
@@ -43,6 +53,8 @@ export const CAPTURE_RECORD_MAX_BYTES = 262_144;
 export const CAPTURE_RECORD_HEAD_BYTES = 20;
 /** A name (META or NAMES), UTF-8 bytes. META names are cut to it; a NAMES record past it is refused. */
 export const CAPTURE_NAME_MAX_BYTES = 256;
+/** ADR 0348: META `replayOf.path`, UTF-8 bytes (cut to it). */
+export const CAPTURE_PATH_MAX_BYTES = 1024;
 /** Names in all tables together, META and NAMES records. */
 export const CAPTURE_MAX_NAMES = 65_536;
 /** MARKER text, UTF-8 bytes (also `CAPTURE_MARK_BYTES` in `capture.ts`). */
@@ -59,7 +71,7 @@ export const CAPTURE_TRIGGER_MAX_FILES = 16;
 export const CAPTURE_MIN_SAMPLE_RATE = 8_000;
 export const CAPTURE_MAX_SAMPLE_RATE = 384_000;
 /** The highest `u8 op` code of a MIXOP (`MIX_OP_NAMES.length` in `src/engine/audio/mixOps.ts`; a test keeps them equal). */
-export const CAPTURE_MIXOP_CODES = 17;
+export const CAPTURE_MIXOP_CODES = 24;
 /** `u8 class` codes of a MIXOP (`OP_CLASSES.length`). */
 export const CAPTURE_MIXOP_CLASSES = 5;
 
@@ -69,7 +81,9 @@ export const CAPTURE_FLAG_TRUNCATED = 1 << 0;
 export const CAPTURE_FLAG_MAIN_SIDE_ONLY = 1 << 1;
 export const CAPTURE_FLAG_HAS_INDEX = 1 << 2;
 export const CAPTURE_FLAG_COMPRESSED = 1 << 3;
-const CAPTURE_FLAGS_KNOWN = 0xf;
+/** ADR 0348: a take (`*.mycotake`): request records may follow, META carries a `take` section, the cap is the take's. */
+export const CAPTURE_FLAG_TAKE = 1 << 4;
+const CAPTURE_FLAGS_KNOWN = 0x1f;
 
 /** Record head `flags` bit 0 (§5.3): the frame is F_now and the real stamp (f64) leads the payload. */
 export const RECORD_FLAG_DEFERRED = 1 << 0;
@@ -89,6 +103,8 @@ export const RecordType = {
   WRAP: 0x09,
   INDEX: 0x7f,
 } as const;
+/** ADR 0348: a take's request record codes (0x10..0x1d, `engine/audio/take/records.ts`): only in a file with the `take` flag. */
+export { TakeRecordType, isTakeRecordType };
 export type RecordTypeCode = (typeof RecordType)[keyof typeof RecordType];
 /** The first required (never skipped) unknown type. */
 export const RECORD_TYPE_REQUIRED_FIRST = 0x80;
@@ -111,8 +127,19 @@ export const EventKind = {
   voiceStart: 1, voiceStop: 2, voiceSteal: 3, voiceVirtual: 4, voiceReal: 5, voiceRefused: 6, voiceQueued: 7,
   eventStart: 8, eventStop: 9, parameter: 10, snapshot: 11, stateChange: 12, musicTransition: 13, busRamp: 14,
   monitor: 15, loudnessControl: 16, ladder: 17, masterChange: 18, hiddenTab: 19,
+  /** ADR 0348: one playlist decision of an instance (the "Why it played" chain), written after its `eventStart`. */
+  pick: 20,
+  /** ADR 0348: a metered bus's loudness against its target changed state (reason 1 high, 2 low, 3 ok). */
+  loudnessWarning: 21,
+  /**
+   * ADR 0351 §9 (`PKG`): a package started loading (reason 1), loaded (2), failed (3) or was unloaded (4). Added within
+   * format 2: older captures read as before; an older build refuses a capture holding one (an unknown kind).
+   */
+  audioPackage: 22,
+  /** ADR 0352 §6: a plugin effect faulted and passed its block dry (reason 1 trap, 2 budget, 3 grow, 4 nonFinite, 5 range). */
+  pluginFault: 23,
 } as const;
-export const EVENT_KIND_MAX = 19;
+export const EVENT_KIND_MAX = 23;
 /** Kinds whose payload ends in one `f32` (§5.6: voiceStart gain, snapshot seconds, busRamp target, masterChange volume). */
 export const EVENT_KINDS_WITH_F32: ReadonlySet<number> = new Set([1, 11, 14, 18]);
 /**
@@ -121,7 +148,7 @@ export const EVENT_KINDS_WITH_F32: ReadonlySet<number> = new Set([1, 11, 14, 18]
  * 3 restored) are Rc1's reading of §5.6's parentheses.
  */
 export const EVENT_REASON_MAX: ReadonlyMap<number, number> = new Map([
-  [2, 5], [3, 3], [4, 4], [5, 2], [6, 5], [7, 2], [16, 4], [17, 3],
+  [2, 5], [3, 3], [4, 4], [5, 2], [6, 5], [7, 2], [16, 4], [17, 3], [21, 3], [22, 4], [23, 5],
 ]);
 
 // The KEYFRAME section caps and `KEYFRAME_BUS_LANES` are `keyframeLayout.ts`'s (ADR 0230), re-exported at the top.
@@ -253,6 +280,8 @@ export interface CaptureHeader {
 export type CaptureHeaderInit = Pick<CaptureHeader, "sampleRate" | "preset" | "startDateMs" | "ringBytes" | "firstFrame"> & {
   truncated?: boolean;
   mainSideOnly?: boolean;
+  /** ADR 0348: the file is a take (sets `CAPTURE_FLAG_TAKE`). */
+  take?: boolean;
   /** The running core's ABI, from its first STATUS (`Audio.debug().core.abiVersion`); absent (Babylon, or before it): `CAPTURE_ABI_VERSION`. */
   abiVersion?: number;
 };
@@ -307,7 +336,8 @@ export function readCaptureHeader(bytes: Uint8Array): CaptureHeader {
     throw new CaptureError("wireMismatch", 12, `recorded with audio ABI ${abiText(abiVersion)} (wire ${schemaHash}); this build is ABI ${abiText(CAPTURE_ABI_VERSION)} (wire ${SCHEMA_HASH}): re-record with this build`);
   }
   const uncompressedBytes = v.getUint32(68, true);
-  if (uncompressedBytes > CAPTURE_MAX_UNCOMPRESSED_BYTES) throw new CaptureError("tooLarge", 68, `${uncompressedBytes} B uncompressed is past the ${CAPTURE_MAX_UNCOMPRESSED_BYTES} B cap`);
+  const cap = (v.getUint16(10, true) & CAPTURE_FLAG_TAKE) !== 0 ? TAKE_MAX_UNCOMPRESSED_BYTES : CAPTURE_MAX_UNCOMPRESSED_BYTES;
+  if (uncompressedBytes > cap) throw new CaptureError("tooLarge", 68, `${uncompressedBytes} B uncompressed is past the ${cap} B cap`);
   const h: CaptureHeader = {
     format, flags: v.getUint16(10, true), schemaHash, abiVersion,
     envelopeMajor: v.getUint16(32, true), envelopeMinor: v.getUint16(34, true), statusBytesMax: v.getUint32(36, true),
@@ -350,11 +380,26 @@ export interface CaptureMeta {
   project: { name: string; version: string };
   engine: string;
   device: { preset: number; sampleRate: number; deviceMemory?: number; userAgent: string };
-  /** The project's audio section at the take's start, as parsed JSON (data; the profiler names tombstoned buses from it). */
+  /**
+   * The mix the runtime played at the take's start, as parsed JSON (data; the profiler names tombstoned buses from it):
+   * the runtime's settings shape, which since ADR 0344 is `audio.json`'s runtime view (`toRuntimeSettings`).
+   */
   audio: unknown;
   /** The `loudnessTarget` in force, as parsed JSON. */
   target: unknown;
   names: Record<NameTable, Map<number, string>>;
+  /** ADR 0348: a take's section (seed, audio hash, emitter names), as parsed JSON; null in a capture. The take reader checks it. */
+  take: unknown;
+  /** ADR 0348: the take a replay capture recorded the Studio playing (its project path and `audio.json` hash); null otherwise. */
+  replayOf: CaptureReplayOf | null;
+}
+
+/** ADR 0348: the take a capture of the Studio's replay names in META (`replayOf`). */
+export interface CaptureReplayOf {
+  /** The take file's project path. */
+  path: string;
+  /** META `take.audioHash` of that take: which `audio.json` it was recorded against. */
+  audioHash: string;
 }
 
 /** What a writer supplies: names as `{ [id]: name }` objects or `Map`s. */
@@ -365,6 +410,10 @@ export interface CaptureMetaInit {
   audio: unknown;
   target: unknown;
   names: Partial<Record<NameTable, ReadonlyMap<number, string> | Readonly<Record<number, string>>>>;
+  /** ADR 0348: a take's META section; absent in a capture. */
+  take?: TakeMetaSection;
+  /** ADR 0348: the take a capture of the Studio's replay recorded; absent otherwise. */
+  replayOf?: CaptureReplayOf;
 }
 
 const utf8Encoder = new TextEncoder();
@@ -401,7 +450,18 @@ export function encodeCaptureMeta(meta: CaptureMetaInit): Uint8Array {
     names[t] = out;
   }
   const device = { ...meta.device, userAgent: cutUtf8(meta.device.userAgent, CAPTURE_USER_AGENT_MAX_BYTES) };
-  return utf8Encoder.encode(JSON.stringify({ project: meta.project, engine: meta.engine, device, audio: meta.audio, target: meta.target, names }));
+  return utf8Encoder.encode(JSON.stringify({ project: meta.project, engine: meta.engine, device, audio: meta.audio, target: meta.target, names, ...(meta.take ? { take: meta.take } : {}), ...(meta.replayOf ? { replayOf: replayOfJson(meta.replayOf) } : {}) }));
+}
+
+/** A replay capture's `replayOf`, its strings cut as the reader would. */
+function replayOfJson(r: CaptureReplayOf): CaptureReplayOf {
+  return { path: cutUtf8(String(r.path), CAPTURE_PATH_MAX_BYTES), audioHash: cutUtf8(String(r.audioHash), CAPTURE_NAME_MAX_BYTES) };
+}
+
+/** META `replayOf` as read: both strings, cut; anything else (absent, malformed) is null, never a refusal. */
+function readReplayOf(v: unknown): CaptureReplayOf | null {
+  if (!isObject(v) || typeof v.path !== "string" || typeof v.audioHash !== "string" || v.path === "") return null;
+  return replayOfJson({ path: v.path, audioHash: v.audioHash });
 }
 
 /**
@@ -452,6 +512,8 @@ export function decodeCaptureMeta(bytes: Uint8Array, offset = 0): CaptureMeta {
     audio: m.audio ?? null,
     target: m.target ?? null,
     names,
+    take: m.take ?? null,
+    replayOf: readReplayOf(m.replayOf),
   };
   if (device.deviceMemory !== undefined) out.device.deviceMemory = num(device.deviceMemory, "META.device.deviceMemory");
   return out;
@@ -755,6 +817,20 @@ export function decodeMixOpRecord(view: DataView, off: number, len: number, base
   const words = new Uint32Array(argc);
   for (let i = 0; i < argc; i++) words[i] = view.getUint32(off + 4 + 4 * i, true);
   return { op, class: cls, words, perfMs, origin };
+}
+
+/**
+ * ADR 0348: a take's request record (PLAY .. take KEYFRAME, `engine/audio/take/records.ts`) from its payload, its
+ * refusals as `CaptureError`s of the same code. The capture reader checks every request record this way and passes over
+ * it; the take reader keeps what it answers.
+ */
+export function decodeRequestRecord(type: number, view: DataView, off: number, len: number, base = 0): TakeRecord {
+  try {
+    return decodeTakeRecord(type, view, off, len, base);
+  } catch (e) {
+    if (e instanceof TakeRecordError) throw new CaptureError(e.code, e.offset, e.message.replace(/^\w+ at \d+: /, ""));
+    throw e;
+  }
 }
 
 export function indexBytes(p: Pick<IndexPayload, "entries">): number {
@@ -1368,7 +1444,7 @@ export function assembleCapture(init: CaptureHeaderInit, meta: CaptureMetaInit |
     indexLen = CAPTURE_RECORD_HEAD_BYTES + recordPayloadBytes(rec);
   }
   const body = encodeRecords(all);
-  const flags = (init.truncated ? CAPTURE_FLAG_TRUNCATED : 0) | (init.mainSideOnly ? CAPTURE_FLAG_MAIN_SIDE_ONLY : 0) | (opts.index ? CAPTURE_FLAG_HAS_INDEX : 0);
+  const flags = (init.truncated ? CAPTURE_FLAG_TRUNCATED : 0) | (init.mainSideOnly ? CAPTURE_FLAG_MAIN_SIDE_ONLY : 0) | (opts.index ? CAPTURE_FLAG_HAS_INDEX : 0) | (init.take ? CAPTURE_FLAG_TAKE : 0);
   const out = new Uint8Array(CAPTURE_HEADER_BYTES + metaBytes.byteLength + body.byteLength);
   writeCaptureHeader(new DataView(out.buffer), {
     format: CAPTURE_FORMAT, flags, schemaHash: SCHEMA_HASH, abiVersion: init.abiVersion ?? CAPTURE_ABI_VERSION,

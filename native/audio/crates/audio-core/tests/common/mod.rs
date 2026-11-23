@@ -142,7 +142,7 @@ pub fn config_fx(buses: &[(u16, Vec<(u32, f32, f32)>)]) -> Rec {
             .iter()
             .map(|(parent, fx)| wire::BusConfigBuses {
                 parent: *parent,
-                effects: fx.iter().map(|&(t, p0, p1)| wire::BusConfigBusesEffects { type_: t, p: [p0, p1, 0.0, 0.0, 0.0, 0.0, 0.0] }).collect(),
+                effects: fx.iter().map(|&(t, p0, p1)| wire::BusConfigBusesEffects { type_: t, p: [p0, p1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] }).collect(),
             })
             .collect(),
     })

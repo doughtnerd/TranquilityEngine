@@ -2,7 +2,7 @@
 //! [`SpringChainState`](crate::spring::SpringChainState), [`DampState`](crate::constraints::DampState)):
 //! each writes itself as `u32` words (f32 bits, flags as 0/1) and reads itself back bit for bit, so
 //! a caller can keep the state in a plain word blob that snapshots by copying (the graph's rig
-//! nodes, ADR 0350's prediction rollback). Never allocates.
+//! nodes, ADR 0370's prediction rollback). Never allocates.
 
 use anim_math::{AosQuat, AosVec3};
 

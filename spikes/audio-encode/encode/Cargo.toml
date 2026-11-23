@@ -1,0 +1,36 @@
+[package]
+name = "audio-encode-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "ADR 0351 spike A0/S1: libvorbis + libogg, libopus, rubato and an IMA ADPCM encoder in one wasm32-wasip1 command."
+
+# Standalone: not a member of native/audio's workspace (and outside native/audio, so the core's source hash is untouched).
+[workspace]
+
+[lib]
+name = "audio_encode_spike"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "audio_encode"
+path = "src/main.rs"
+
+[features]
+default = ["vorbis", "opus"]
+vorbis = []
+opus = []
+
+[dependencies]
+rubato = { version = "=5.1.0", default-features = true }
+
+[build-dependencies]
+cc = "1.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
+strip = true

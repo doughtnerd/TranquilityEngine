@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Measures tweens and timelines on the committed wasm in Node (ADR 0350's budgets are tripwires: 1,000 tweens <= 0.2 ms
+// Measures tweens and timelines on the committed wasm in Node (ADR 0370's budgets are tripwires: 1,000 tweens <= 0.2 ms
 // per frame): (a) 1,000 endless float tweens (linear), (b) 1,000 endless float tweens over every easing id, (c) 1,000
 // endless vec3 and quaternion tweens, (d) a sequence timeline with 20 bindings (members), (e) the fixture clip timeline
 // with a nested subclip. Each figure is `write_inputs(0)` plus `evaluate` per frame, the mean over 2,000 frames after a

@@ -109,7 +109,7 @@ fn block(bytes: &[u8]) -> *mut u8 {
 
 #[test]
 fn the_abi_keeps_the_blob_until_the_next_prepare() {
-    assert_eq!(myco_decode_abi_version(), 0x104);
+    assert_eq!(myco_decode_abi_version(), 0x106);
     let asset = hrir_asset();
     let n = unsafe { myco_hrir_prepare(block(&asset), asset.len() as u32, 48000.0) };
     let want = prepare_hrir(&asset, 48000.0).unwrap();

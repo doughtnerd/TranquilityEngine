@@ -39,6 +39,23 @@ describe("file selection", () => {
     expect(copies).toContain("levels/sample.json"); // only the root sample.json is the editor's
   });
 
+  it("ships a derived sample a playlist names, with its source audio file and that file's sidecar (ADR 0342)", async () => {
+    const derived = { format: "myco.sample@1", source: "audio/skid.wav", range: [0.8, 1.6], lineage: { kind: "snippet", parent: "audio/skid.wav", mode: "pin" } };
+    const playlist = { format: "myco.playlist@1", type: "clip", entries: [{ sample: "audio/snips/skid.brake.sample.json" }] };
+    const { copies, manifest } = await planWebBuild(source({
+      files: ["audio/skid.wav"],
+      jsonFiles: {
+        "audio/skid.wav.meta.json": JSON.stringify({ format: "myco.import@1", sample: { trim: [0, 2] } }),
+        "audio/snips/skid.brake.sample.json": JSON.stringify(derived),
+        "audio/brake.playlist.json": JSON.stringify(playlist),
+      },
+    }));
+    for (const path of ["audio/brake.playlist.json", "audio/snips/skid.brake.sample.json", "audio/skid.wav", "audio/skid.wav.meta.json"]) {
+      expect(copies, path).toContain(path);
+      expect(manifest.files, path).toContain(path);
+    }
+  });
+
   it("refuses an output folder inside the project, except in its hidden and build folders", () => {
     expect(isOutputInsideProject("C:\\games\\flappy", "C:\\games\\flappy\\build")).toBe(true);
     expect(isOutputInsideProject("C:\\games\\flappy", "c:/games/flappy")).toBe(true);
@@ -100,6 +117,23 @@ describe("planWebBuild", () => {
     expect((err as Error).message).toContain("scripts/b.ts: can't find");
   });
 
+  it("ships audio.json with the project's files and refuses a project.json that still has an audio section (ADR 0344)", async () => {
+    const plan = await planWebBuild(source({ jsonFiles: { "audio.json": '{ "format": "myco.audio@1" }' } }));
+    expect(plan.copies).toContain("audio.json");
+    const legacy = source({ jsonFiles: { "project.json": '{ "name": "Old", "audio": { "buses": [{ "name": "Master" }] } }' } });
+    const err = await planWebBuild(legacy).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ExportError);
+    expect((err as Error).message).toMatch(/still has an "audio" section, which moved to audio\.json/);
+  });
+
+  it("refuses a project that still has audio event files, naming the migration (ADR 0343)", async () => {
+    const old = source({ jsonFiles: { "audio/step.audioevent.json": '{ "format": "myco.audioevent@1" }', "audio/hit.audioevent.json": "{}" } });
+    const err = await planWebBuild(old).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ExportError);
+    expect((err as Error).message).toMatch(/is an audio event \(myco\.audioevent@1\).*npm run audio:migrate.*\(2 audio event files in all\)/);
+    expect((err as ExportError).problems.map((p) => p.path).sort()).toEqual(["audio/hit.audioevent.json", "audio/step.audioevent.json"]);
+  });
+
   it("checks the bootstrap script and the main scene", async () => {
     await expect(planWebBuild(source({ settings: { bootstrap: "scripts/Boot.ts" } }))).rejects.toThrow(/bootstrap is the script "scripts\/Boot.ts"/);
     await expect(planWebBuild(source(), { mainScene: "scenes/nope.scene.json" })).rejects.toThrow(/no scene/);
@@ -124,6 +158,27 @@ describe("the audio capture option", () => {
     expect(parseArgs(["proj", "--audio-capture"])).toEqual({ projectDir: "proj", audioCapture: true });
     expect(parseArgs(["--audio-capture", "proj", "--target", "desktop", "--no-build"])).toMatchObject({ projectDir: "proj", audioCapture: true, target: "desktop", tauriBuild: false });
     expect(USAGE).toMatch(/--audio-capture[\s\S]*F9/);
+  });
+});
+
+describe("the audio take option (ADR 0348)", () => {
+  it("planWebBuild writes audioTake only when asked; --audio-take sets it", async () => {
+    expect((await planWebBuild(source())).manifest).not.toHaveProperty("audioTake");
+    const plan = await planWebBuild(source(), { audioTake: true });
+    expect(JSON.parse(plan.generated.get("game.json")!)).toMatchObject({ audioTake: true });
+    expect(plan.manifest).not.toHaveProperty("audioCapture");
+    expect(parseArgs(["proj", "--audio-take"])).toEqual({ projectDir: "proj", audioTake: true });
+    expect(USAGE).toMatch(/--audio-take[\s\S]*F10/);
+  });
+
+  it("takes record pictures unless asked not to: audioTakeFrames false (with audioTake), --no-take-pictures", async () => {
+    expect((await planWebBuild(source(), { audioTake: true })).manifest).not.toHaveProperty("audioTakeFrames");
+    const off = await planWebBuild(source(), { audioTake: true, audioTakeFrames: false });
+    expect(JSON.parse(off.generated.get("game.json")!)).toMatchObject({ audioTake: true, audioTakeFrames: false });
+    expect((await planWebBuild(source(), { audioTakeFrames: false })).manifest).not.toHaveProperty("audioTakeFrames"); // no takes, nothing to say
+    expect(parseArgs(["proj", "--audio-take", "--no-take-pictures"])).toEqual({ projectDir: "proj", audioTake: true, audioTakeFrames: false });
+    expect(() => parseArgs(["proj", "--no-take-pictures"])).toThrow(/--audio-take/);
+    expect(USAGE).toMatch(/--no-take-pictures/);
   });
 });
 

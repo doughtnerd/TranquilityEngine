@@ -22,6 +22,10 @@
 //!   ramp is settled off. That is M2's automation low-pass exactly (`audio-core`'s
 //!   `voices::auto_filter` before D1), so a voice with a lowpass binding and no `lpHz` renders bit
 //!   for bit as it did. The capped low-pass is never primed (M2 started it from zeroed history).
+//! - **The floor** (automation's `hpAuto`, ADR 0345 voice level, ABI 4.4): with `floor = Some(f)`
+//!   and `f` above [`HP_BOTTOM`] the high-pass runs at `max(base, f)`, `base` being the high-pass
+//!   ramp's cut-off ("highest wins", the mirror of the cap). A floor at or below [`HP_BOTTOM`] is
+//!   no floor, so a binding at 0 leaves the voice untouched; switching on primes as the ramp does.
 //! - **Switching on** without a cap: a filter that wasn't running is primed as if it had been
 //!   passing its input through: each channel's history is set to that channel's first sample of the
 //!   block (`x1 = x2 = y1 = y2 = x0`). At the off end points (20 kHz low-pass, 20 Hz high-pass) the
@@ -29,7 +33,7 @@
 //!   ramp settles at its off end point.
 //! - **Running state** is the biquad's own `last[0]` (its kind: 0 none, 1 lowpass, 2 highpass,
 //!   `Biquad`'s documented contract): a filter not running has `last == [0.0; 3]`. So [`FxFilter`]
-//!   is exactly two biquads and two ramps, 272 B, inside the mixed-voice pool entry (448 B,
+//!   is exactly two biquads and two ramps, 272 B, inside the mixed-voice pool entry (560 B since ADR 0347, 448 before;
 //!   `audio-core`'s `fxpool.rs`).
 //!
 //! Q is [`Q_DB`] (1 dB, the bus snapshot low-pass's `SNAPSHOT_Q_DB`) for both filters.
@@ -228,7 +232,8 @@ impl FxFilter {
 
     /// Filters a block in place: `left` (mono, `right == None`: channel-0 history only) or `left`
     /// and `right` (same length). `cap` is automation's `lpAuto` while the voice has a lowpass
-    /// binding. Returns [`FxFilter::running`] afterwards.
+    /// binding, `floor` its `hpAuto` while it has a highpass binding. Returns
+    /// [`FxFilter::running`] afterwards.
     ///
     /// The block is cut into segments: one segment of the whole block when both ramps are settled,
     /// otherwise segments of [`UPDATE_FRAMES`] (the last shorter). Per segment of `k` frames:
@@ -242,10 +247,11 @@ impl FxFilter {
     ///    `lp.set_lowpass(sample_rate, cutoff, Q_DB)` and process (mono: `kernel::process` on
     ///    `lp.history[0]`; stereo: `lp.process`). If it shouldn't run and is running: stop it
     ///    (`lp.last = [0.0; 3]`), samples untouched;
-    /// 3. **high-pass**, after the low-pass: it should run while the high-pass ramp isn't settled at
-    ///    [`HP_BOTTOM`]; the same priming (never capped), `hp.set_highpass(sample_rate,
-    ///    hp_ramp.hz(), Q_DB)`, process or stop.
-    pub fn process(&mut self, sample_rate: f32, cap: Option<f32>, left: &mut [f32], mut right: Option<&mut [f32]>) -> bool {
+    /// 3. **high-pass**, after the low-pass: it should run when `floor` is `Some` or the high-pass
+    ///    ramp isn't settled at [`HP_BOTTOM`] (a floor at or below it is none). Cut-off:
+    ///    `max(hp_ramp.hz(), f)` lowered to [`LP_TOP`]; the same priming;
+    ///    `hp.set_highpass(sample_rate, cutoff, Q_DB)`, process or stop.
+    pub fn process(&mut self, sample_rate: f32, cap: Option<f32>, floor: Option<f32>, left: &mut [f32], mut right: Option<&mut [f32]>) -> bool {
         let n = left.len();
         if let Some(r) = right.as_deref() {
             debug_assert_eq!(r.len(), n, "stereo channels have equal lengths");
@@ -258,7 +264,7 @@ impl FxFilter {
             let frames = (end - start) as u32;
             let l = &mut left[start..end];
             let r = right.as_deref_mut().map(|r| &mut r[start..end]);
-            self.segment(sample_rate, cap, frames, l, r);
+            self.segment(sample_rate, cap, floor, frames, l, r);
             start = end;
         }
         self.running()
@@ -266,7 +272,7 @@ impl FxFilter {
 
     /// One segment of [`FxFilter::process`]: the ramps advance, then the low-pass, then the
     /// high-pass. `frames >= 1`.
-    fn segment(&mut self, sample_rate: f32, cap: Option<f32>, frames: u32, left: &mut [f32], mut right: Option<&mut [f32]>) {
+    fn segment(&mut self, sample_rate: f32, cap: Option<f32>, floor: Option<f32>, frames: u32, left: &mut [f32], mut right: Option<&mut [f32]>) {
         self.lp_ramp.advance(frames);
         self.hp_ramp.advance(frames);
 
@@ -286,11 +292,16 @@ impl FxFilter {
         }
 
         let hp_off = self.hp_ramp.is_settled() && self.hp_ramp.target == HP_BOTTOM;
-        if !hp_off {
+        let floor = floor.filter(|f| *f > HP_BOTTOM);
+        if floor.is_some() || !hp_off {
+            let hz = match floor {
+                Some(f) => self.hp_ramp.hz().max(f).min(LP_TOP),
+                None => self.hp_ramp.hz(),
+            };
             if !self.highpass_running() {
                 prime(&mut self.hp, left[0], right.as_deref().map(|r| r[0]));
             }
-            self.hp.set_highpass(sample_rate, self.hp_ramp.hz(), Q_DB);
+            self.hp.set_highpass(sample_rate, hz, Q_DB);
             run(&mut self.hp, left, right);
         } else {
             self.hp.last = [0.0; 3];
@@ -383,7 +394,7 @@ mod tests {
             f.set_lowpass(hz, 0);
             let mut l = tone(0, 200);
             let before = l.clone();
-            f.process(SR, None, &mut l, None);
+            f.process(SR, None, None, &mut l, None);
             assert!(!f.lowpass_running(), "{hz}");
             assert_eq!(l, before, "{hz}");
         }
@@ -396,7 +407,7 @@ mod tests {
             f.set_highpass(hz, 0);
             let mut l = tone(0, 200);
             let before = l.clone();
-            f.process(SR, None, &mut l, None);
+            f.process(SR, None, None, &mut l, None);
             assert!(!f.highpass_running(), "{hz}");
             assert_eq!(l, before, "{hz}");
         }
@@ -409,13 +420,13 @@ mod tests {
         // Warm up: the first block primes the filter, so the next one is a settled, running filter.
         let (mut wl, mut wr) = (tone(0, 256), tone(0, 256));
         wr.iter_mut().for_each(|x| *x *= 0.5);
-        f.process(SR, None, &mut wl, Some(&mut wr[..]));
+        f.process(SR, None, None, &mut wl, Some(&mut wr[..]));
 
         let mut reference = f.lp;
         let mut l = tone(256, 300);
         let mut r: Vec<f32> = l.iter().map(|x| -0.5 * x).collect();
         let (mut rl, mut rr) = (l.clone(), r.clone());
-        f.process(SR, None, &mut l, Some(&mut r[..]));
+        f.process(SR, None, None, &mut l, Some(&mut r[..]));
         reference.set_lowpass(SR, 1_000.0, Q_DB);
         reference.process(&mut rl, &mut rr);
         assert_eq!((l, r), (rl, rr));
@@ -433,8 +444,8 @@ mod tests {
             let input: Vec<f32> = tone(0, 1_000).iter().map(|x| 0.8 * x + 0.1).collect();
             let mut left_m = input.clone();
             let (mut left_s, mut right_s) = (input.clone(), input.clone());
-            m.process(SR, cap, &mut left_m, None);
-            s.process(SR, cap, &mut left_s, Some(&mut right_s[..]));
+            m.process(SR, cap, None, &mut left_m, None);
+            s.process(SR, cap, None, &mut left_s, Some(&mut right_s[..]));
             assert_eq!(left_m, left_s, "cap {cap:?}");
             assert_eq!(left_s, right_s, "cap {cap:?}");
             assert_eq!(m.lp.history[0], s.lp.history[0]);
@@ -448,7 +459,7 @@ mod tests {
         for c in [1_000.0f32, 30_000.0] {
             let mut f = FxFilter::off();
             let (mut l, mut r) = ([1.0f32; 300], [1.0f32; 300]);
-            f.process(SR, Some(c), &mut l, Some(&mut r[..]));
+            f.process(SR, Some(c), None, &mut l, Some(&mut r[..]));
 
             let mut b = Biquad::default();
             b.set_lowpass(SR, c.min(LP_OFF_HZ), Q_DB);
@@ -467,7 +478,7 @@ mod tests {
         let mut prev = f.lp.coefficients;
         for _ in 0..4 {
             let mut l = [1.0f32; UPDATE_FRAMES];
-            f.process(SR, None, &mut l, None);
+            f.process(SR, None, None, &mut l, None);
             let mut expect = Biquad::default();
             expect.set_lowpass(SR, f.lp_ramp.hz(), Q_DB);
             assert_eq!(f.lp.coefficients, expect.coefficients);
@@ -481,10 +492,10 @@ mod tests {
         one.set_lowpass(200.0, 128);
         many.set_lowpass(200.0, 128);
         let mut whole = input.clone();
-        one.process(SR, None, &mut whole, None);
+        one.process(SR, None, None, &mut whole, None);
         let mut parts = input.clone();
         for chunk in parts.chunks_mut(UPDATE_FRAMES) {
-            many.process(SR, None, chunk, None);
+            many.process(SR, None, None, chunk, None);
         }
         assert_eq!(whole, parts);
         assert_eq!(one, many);
@@ -498,14 +509,14 @@ mod tests {
         let mut lp = FxFilter::off();
         lp.set_lowpass(100.0, MIN_RAMP_FRAMES);
         let mut out = input.clone();
-        lp.process(SR, None, &mut out, None);
+        lp.process(SR, None, None, &mut out, None);
         let lp_step = max_step(&out);
         assert!(lp_step <= 2.0 * in_step, "low-pass: output step {lp_step} vs input step {in_step}");
 
         let mut hp = FxFilter::off();
         hp.set_highpass(5_000.0, MIN_RAMP_FRAMES);
         let mut out = input.clone();
-        hp.process(SR, None, &mut out, None);
+        hp.process(SR, None, None, &mut out, None);
         let hp_step = max_step(&out);
         eprintln!("click bound: low-pass {:.3}x, high-pass {:.3}x of the input step", lp_step / in_step, hp_step / in_step);
         assert!(hp_step <= 2.0 * in_step, "high-pass: output step {hp_step} vs input step {in_step}");
@@ -517,7 +528,7 @@ mod tests {
         let mut f = FxFilter::off();
         f.set_lowpass(19_000.0, 0);
         let (mut l, mut r) = ([1.0f32; 512], [1.0f32; 512]);
-        f.process(SR, None, &mut l, Some(&mut r[..]));
+        f.process(SR, None, None, &mut l, Some(&mut r[..]));
         assert!(f.lowpass_running());
         for (i, (a, b)) in l.iter().zip(r.iter()).enumerate() {
             assert!((a - 1.0).abs() < 0.01 && (b - 1.0).abs() < 0.01, "frame {i}: {a} {b}");
@@ -529,20 +540,20 @@ mod tests {
         let mut f = FxFilter::off();
         f.set_lowpass(1_000.0, 0);
         let mut warm = tone(0, 256);
-        f.process(SR, None, &mut warm, None);
+        f.process(SR, None, None, &mut warm, None);
         assert!(f.lowpass_running());
 
         // Ramp back up to LP_TOP over 256 frames (8 segments): it settles and stops.
         f.set_lowpass(LP_TOP, 256);
         let mut ramp = tone(256, 512);
-        f.process(SR, None, &mut ramp, None);
+        f.process(SR, None, None, &mut ramp, None);
         assert!(f.lp_ramp.is_settled());
         assert!(!f.lowpass_running());
 
         // From then on the samples pass untouched.
         let input = tone(768, 300);
         let mut out = input.clone();
-        assert!(!f.process(SR, None, &mut out, None));
+        assert!(!f.process(SR, None, None, &mut out, None));
         assert_eq!(out, input);
     }
 
@@ -551,7 +562,7 @@ mod tests {
         let mut f = FxFilter::off();
         f.set_lowpass(1_000.0, 0);
         let mut l = tone(0, 64);
-        f.process(SR, None, &mut l, None);
+        f.process(SR, None, None, &mut l, None);
         assert_ne!(f.lp.history, [[0.0; 4]; 2]);
 
         // Running: left alone, history and all.
@@ -562,10 +573,45 @@ mod tests {
         // Stopped (with history left behind): starts again from a default biquad.
         f.set_lowpass(LP_TOP, 0);
         let mut l = tone(64, 64);
-        f.process(SR, None, &mut l, None);
+        f.process(SR, None, None, &mut l, None);
         assert!(!f.lowpass_running());
         assert_ne!(f.lp.history, [[0.0; 4]; 2]);
         f.lowpass_bound();
         assert_eq!(f.lp, Biquad::default());
+    }
+
+    #[test]
+    fn the_floor_runs_the_highpass_at_the_highest_of_ramp_and_floor() {
+        // A floor alone runs the high-pass exactly as a ramp settled at it would.
+        let (mut f, mut g) = (FxFilter::off(), FxFilter::off());
+        g.set_highpass(2_000.0, 0);
+        let (mut a, mut b) = (tone(0, 256), tone(0, 256));
+        f.process(SR, None, Some(2_000.0), &mut a, None);
+        g.process(SR, None, None, &mut b, None);
+        assert_eq!(a, b);
+        assert!(f.highpass_running());
+
+        // Highest wins: a static high-pass above the floor sets the cut-off, and a floor above it does.
+        let (mut f, mut g) = (FxFilter::off(), FxFilter::off());
+        f.set_highpass(5_000.0, 0);
+        g.set_highpass(5_000.0, 0);
+        let (mut a, mut b) = (tone(0, 128), tone(0, 128));
+        f.process(SR, None, Some(100.0), &mut a, None);
+        g.process(SR, None, None, &mut b, None);
+        assert_eq!(a, b);
+        let (mut f, mut g) = (FxFilter::off(), FxFilter::off());
+        f.set_highpass(100.0, 0);
+        g.set_highpass(5_000.0, 0);
+        let (mut a, mut b) = (tone(0, 128), tone(0, 128));
+        f.process(SR, None, Some(5_000.0), &mut a, None);
+        g.process(SR, None, None, &mut b, None);
+        assert_eq!(a, b);
+
+        // A floor at or below the off end point is none: the samples pass untouched.
+        let mut off = FxFilter::off();
+        let input = tone(0, 64);
+        let mut out = input.clone();
+        assert!(!off.process(SR, None, Some(0.0), &mut out, None));
+        assert_eq!(out, input);
     }
 }

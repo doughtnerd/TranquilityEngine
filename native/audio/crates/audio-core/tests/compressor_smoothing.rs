@@ -43,12 +43,12 @@ fn tones(spec: &[(f32, f32)]) -> Vec<f32> {
 }
 
 fn compressor(threshold: f32) -> wire::BusConfigBusesEffects {
-    wire::BusConfigBusesEffects { type_: kind::COMPRESSOR, p: [threshold, KNEE, RATIO, ATTACK, RELEASE, 0.0, 0.0] }
+    wire::BusConfigBusesEffects { type_: kind::COMPRESSOR, p: [threshold, KNEE, RATIO, ATTACK, RELEASE, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] }
 }
 
 /// S4's live tree: Master, Music (low-pass 8 kHz), SFX (the compressor at -24 dB).
 fn tree() -> Rec {
-    let lp = wire::BusConfigBusesEffects { type_: kind::LOWPASS, p: [8_000.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0] };
+    let lp = wire::BusConfigBusesEffects { type_: kind::LOWPASS, p: [8_000.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] };
     Rec::Config(wire::BusConfig {
         voice_id: 0,
         frame_offset: wire::ASAP,
@@ -72,7 +72,7 @@ fn edit(threshold: f32) -> Rec {
         reserved: 0,
         reserved2: 0,
         parent: 0,
-        effects: vec![wire::BusSlotEffects { type_: kind::COMPRESSOR, p: [threshold, KNEE, RATIO, ATTACK, RELEASE, 0.0, 0.0] }],
+        effects: vec![wire::BusSlotEffects { type_: kind::COMPRESSOR, p: [threshold, KNEE, RATIO, ATTACK, RELEASE, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] }],
     };
     let mut b = vec![0u8; wire::BusSlot::FIXED_END + wire::BusSlotEffects::FIXED_END];
     r.write(&mut b, 0).unwrap();
@@ -125,7 +125,7 @@ fn a_threshold_step_glides_and_the_unsmoothed_control_clicks() {
         })
         .collect();
     let t0 = (0.2 * RATE) as usize / Q * Q;
-    let fx = |thr: f32| (kind::COMPRESSOR, [thr, KNEE, RATIO, ATTACK, RELEASE, 0.0, 0.0]);
+    let fx = |thr: f32| (kind::COMPRESSOR, [thr, KNEE, RATIO, ATTACK, RELEASE, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
     let chain = |to: Option<f32>| -> Vec<f32> {
         let mut c = FxChain::default();
         c.configure([fx(-24.0)], RATE);

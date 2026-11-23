@@ -1,4 +1,4 @@
-//! `anim-retarget` (ADR 0350, 0351, 0352): skeleton profiles, chain mapping, rest-pose
+//! `anim-retarget` (ADR 0370, 0371, 0372): skeleton profiles, chain mapping, rest-pose
 //! compensation, runtime and offline retargeting.
 //!
 //! Internal to the animation core: nothing here is engine public API (ADR 0010). The graph's

@@ -17,6 +17,9 @@ import type { AssetSource, ProjectSettingsInput } from "../engine";
 import { setScriptAssetRefs, withScriptRegistrations } from "../engine/editor";
 import { isProjectFile, loadProjectFiles, projectFileKind, skipsFolder } from "../engine/scene/projectFiles";
 import { nodePackageSource } from "./packages";
+import { LEGACY_AUDIO_MESSAGE, projectWithAudio } from "../engine/audio/project/load";
+import { AUDIO_PROJECT_FILE } from "../engine/audio/project/types";
+import { audioEventRefusal, isAudioEventPath } from "../engine/audio/retiredAudioEvent";
 import * as engine from "../myco";
 import { isScriptPath } from "../editor/projectPaths";
 import type { ScriptProblem } from "../projectCode/compile";
@@ -36,7 +39,7 @@ export class ServerError extends Error {
 export interface ServerProject {
   /** The folder, absolute. */
   readonly root: string;
-  /** `project.json`, parsed. */
+  /** `project.json`, parsed, with `audio` set to `audio.json`'s runtime view (ADR 0344). */
   readonly settings: ProjectSettingsInput;
   /**
    * Every project file by project-relative path, as its asset value (ADR 0254): parsed JSON, a
@@ -62,6 +65,9 @@ export async function readProject(dir: string): Promise<ServerProject> {
 
   const files = await listFiles(root);
   if (!files.includes("project.json")) throw new ServerError(`"${root}" isn't a project folder: it has no project.json.`);
+  // ADR 0343: the retired audio event format isn't read; the project migrates its events to playlists first.
+  const event = files.find(isAudioEventPath);
+  if (event !== undefined) throw new ServerError(audioEventRefusal(join(root, ...event.split("/")), event));
 
   const fullPath = (path: string) => join(root, ...path.split("/"));
   const scripts = new Map<string, string>();
@@ -76,9 +82,12 @@ export async function readProject(dir: string): Promise<ServerProject> {
   const json = new Map([...texts].filter(([path]) => projectFileKind(path) === "json"));
   const settings = values.get("project.json");
   if (typeof settings !== "object" || settings === null || Array.isArray(settings)) throw new ServerError(`${join(root, "project.json")} must hold an object of project settings.`);
+  // The mix lives in audio.json (ADR 0344); an old project.json audio section is refused, not read.
+  const withAudio = projectWithAudio(settings, values.get(AUDIO_PROJECT_FILE));
+  if (withAudio.legacyAudio) throw new ServerError(`${join(root, "project.json")}: ${LEGACY_AUDIO_MESSAGE}`);
   return {
     root,
-    settings: settings as ProjectSettingsInput,
+    settings: withAudio.project, // a headless server plays no sound: audio.json's warnings aren't its to report
     assets: { has: (p) => values.has(p), get: (p) => values.get(p) },
     json,
     scripts,
@@ -114,7 +123,7 @@ const target = new MemoryTarget(engine);
  */
 export async function loadProjectCode(project: ServerProject): Promise<{ loaded: readonly string[]; plugins: RuntimePlugin[] }> {
   const packages = nodePackageSource(project.root, "production");
-  const plan = await planPluginCode({ json: project.json, code: project.scripts, packages: packages.files, disabled: project.settings.plugins?.disabled }, { editor: false, server: true });
+  const plan = await planPluginCode({ json: project.json, code: project.scripts, packages: packages.files, disabled: project.settings.plugins?.disabled, assets: project.files }, { editor: false, server: true });
   if (plan.problems.length > 0) throw new ServerError(`Some plugins in "${project.root}" can't load:\n${describeProblems(plan.problems.map((p) => ({ path: p.where, message: p.message })))}`);
   let linked: Linked<void> | undefined;
   await withScriptRegistrations(async () => {

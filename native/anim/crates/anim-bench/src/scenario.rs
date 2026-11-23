@@ -1,4 +1,4 @@
-//! The budget scenarios (ADR 0350), built once and stepped per frame through the core's calls, as a
+//! The budget scenarios (ADR 0370), built once and stepped per frame through the core's calls, as a
 //! host would: commands into the command buffer, rig hits into the rig input view, `write_inputs`,
 //! `evaluate`. The Node benchmark (`anim-wasm/bench_budgets.mjs`) runs the same scenarios on the
 //! built wasm from the files [`write_fixtures`] writes.
@@ -140,7 +140,7 @@ pub enum Crowd {
     Crossfade,
     /// The locomotion graph.
     Loco,
-    /// The locomotion graph, grounder and look-at: ADR 0350's character budget scenario.
+    /// The locomotion graph, grounder and look-at: ADR 0370's character budget scenario.
     LocoRig,
     /// The reference pose under the grounder and look-at.
     RigOnly,

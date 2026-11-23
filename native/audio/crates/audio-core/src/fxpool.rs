@@ -1,5 +1,5 @@
 //! The mixed-voice effect pool (ADR 0162, api-and-models §3.1, §4.2 SET_VOICE_FX, architecture
-//! §4.1, contract C17): one entry per mixed voice (448 B each, the `Fx` region, sized from
+//! §4.1, contract C17): one entry per mixed voice (560 B each since ADR 0347 added spread, 448 before; the `Fx` region, sized from
 //! `max_mixed`), holding the voice's low-pass and high-pass with their log-Hz ramps
 //! (`audio_dsp::fxfilter`), its zone send and aux ramps, yaw, bed gains and bed share ramp.
 //!
@@ -39,8 +39,9 @@ use crate::layout::REGION_ALIGN;
 use crate::params::InitParams;
 
 /// One pool entry (architecture §4.1's table: two biquads with their ramps, 16 bed gains, five
-/// send ramps, yaw and the bed share ramp), as `VOICE_SLOT_BYTES` is for the voices.
-pub const FX_ENTRY_BYTES: usize = 448;
+/// send ramps, yaw and the bed share ramp; ADR 0347 (ABI 4.11) adds the spread ramp, its last
+/// gains and the decorrelator, `spread.rs`), as `VOICE_SLOT_BYTES` is for the voices.
+pub const FX_ENTRY_BYTES: usize = 560;
 
 // S20: the filter's thresholds are the wire's constants.
 const _: () = assert!(audio_dsp::fxfilter::LP_TOP as u32 == wire::LP_TOP && audio_dsp::fxfilter::HP_BOTTOM as u32 == wire::HP_BOTTOM);
@@ -71,6 +72,13 @@ pub struct FxEntry {
     /// The yaw an ambisonic voice's rotation ended the last quantum on (B3: the next quantum ramps
     /// from it); NaN in a fresh entry (the first quantum starts at `yaw`).
     pub yaw_last: f32,
+    /// ADR 0347 (ABI 4.11): SET_VOICE_FX `spread`, degrees 0..360, ramped (`spread.rs`).
+    pub spread: Ramp,
+    /// The spread's point, diffuse-left and diffuse-right gains the last rendered range ended on
+    /// (`spread.rs` ramps from them); `[1, 0, 0]` is a point source.
+    pub spread_gains: [f32; 3],
+    /// The spread's decorrelator (`audio_dsp::decorrelate`).
+    pub decor: audio_dsp::decorrelate::Decorrelator,
 }
 
 const _: () = assert!(core::mem::size_of::<FxEntry>() == FX_ENTRY_BYTES, "an entry is FX_ENTRY_BYTES");
@@ -90,6 +98,9 @@ impl FxEntry {
             aux_bus: wire::AUX_BUS_NONE as u16,
             yaw: 0.0,
             yaw_last: f32::NAN,
+            spread: Ramp::at(0.0),
+            spread_gains: [1.0, 0.0, 0.0],
+            decor: audio_dsp::decorrelate::Decorrelator::default(),
         }
     }
 
@@ -122,6 +133,10 @@ impl FxEntry {
         if fx.mask & wire::SET_VOICE_FX_MASK_AUX != 0 {
             self.aux.set_target(finite_or_zero(fx.aux_level), frames);
             self.aux_bus = fx.aux_bus;
+        }
+        if fx.mask & wire::SET_VOICE_FX_MASK_SPREAD != 0 {
+            // ADR 0347: hundredths of a degree on the wire, 0..360 degrees here.
+            self.spread.set_target((fx.spread as f32 / 100.0).min(360.0), frames);
         }
         let sending = self.sending();
         if sending != was_sending {
@@ -160,8 +175,8 @@ fn finite_or_zero(x: f32) -> f32 {
     }
 }
 
-/// The `Fx` region's size: `max_mixed × FX_ENTRY_BYTES`, rounded to a region alignment (28 / 56 /
-/// 112 KB at 64 / 128 / 256 mixed).
+/// The `Fx` region's size: `max_mixed × FX_ENTRY_BYTES`, rounded to a region alignment (35 / 70 /
+/// 140 KB at 64 / 128 / 256 mixed).
 pub const fn region_bytes(p: &InitParams) -> usize {
     (p.max_mixed as usize * FX_ENTRY_BYTES).div_ceil(REGION_ALIGN) * REGION_ALIGN
 }

@@ -21,7 +21,7 @@
 //! size in the [`Phase::Layout`] phase as *fixed words plus words per bone group* (a group is four
 //! bones, `anim_math::layout`), so one program serves skeletons of any size and a node's offset is
 //! `a + b · groups`. The blob is plain words, so snapshot and restore are a copy (prediction, ADR
-//! 0350), and evaluation is deterministic.
+//! 0370), and evaluation is deterministic.
 //!
 //! # Phases
 //!
@@ -169,7 +169,7 @@ pub struct ClipRef<'a> {
     /// Its `curve` tracks: ([`name_hash`] of the curve name, track index).
     pub curves: &'a [(u32, u32)],
     /// Its `cue` markers sorted by time, ids as [`name_hash`] (T40: motion-warp windows named in
-    /// the clip, ADR 0352).
+    /// the clip, ADR 0372).
     pub cues: &'a [SyncMarker],
     /// Its root curve's cumulative ground travel per frame (`anim_rig::warp::cumulative_distance`
     /// over the curve's positions, up +Y; empty without a curve). T40: distance matching.

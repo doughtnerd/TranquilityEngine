@@ -1,0 +1,155 @@
+/* The shared curve editor dialog (ADR 0346, CurveEditorDialog.tsx). Theme tokens only; lane colours are the series
+   palette (--series-1 … --series-8), set inline from the model. */
+.ce-backdrop { position: fixed; inset: 0; z-index: 35; background: var(--backdrop); display: flex; align-items: center; justify-content: center; }
+.dialog.ce-window { position: relative; display: flex; flex-direction: column; box-sizing: border-box; width: min(920px, calc(100vw - 16px)); height: min(700px, calc(100vh - 32px)); padding: 0; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; font-size: calc(12px * var(--ui-scale)); }
+.dialog.ce-window[data-kind="parameter"], .dialog.ce-window[data-kind="distance"] { height: min(580px, calc(100vh - 32px)); }
+.ce-window:focus { outline: none; }
+.ce-window *, .ce-window *::before { box-sizing: border-box; }
+.ce-icon { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ce-titlebar { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 12px; background: var(--surface); border-bottom: 1px solid var(--border); cursor: move; flex: none; user-select: none; touch-action: none; }
+.ce-titlebar > .ce-icon { color: var(--accent); }
+.ce-title { font-weight: 600; color: var(--text-strong); white-space: nowrap; }
+.ce-target { color: var(--text); }
+.ce-context { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ce-faint { color: var(--faint); }
+.ce-muted { color: var(--muted); white-space: nowrap; }
+.ce-spacer { flex: 1; }
+.ce-num { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
+.ce-x, .ce-ib, .ce-eye { display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid transparent; border-radius: 4px; background: none; color: var(--muted); cursor: pointer; flex: none; }
+.ce-x { width: 26px; height: 26px; }
+.ce-ib { width: 26px; height: 24px; color: var(--text); }
+.ce-x:hover, .ce-ib:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.ce-ib:disabled { color: var(--faint); cursor: default; }
+.ce-x:focus-visible, .ce-ib:focus-visible, .ce-eye:focus-visible, .ce-pn:focus-visible, .ce-tb:focus-visible, .ce-key:focus-visible, .ce-dia:focus-visible, .ce-pt:focus-visible, .ce-handle:focus-visible, .ce-minmax:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+
+.ce-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(176px, 220px) minmax(0, 1fr); }
+.ce-side { border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+.ce-editor { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow-y: auto; }
+.ce-ph { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); flex: none; }
+.ce-ph-top { border-top: 1px solid var(--border); }
+.ce-cap { font-size: calc(11px * var(--ui-scale)); line-height: 14px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.ce-bar { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 4px 10px; border-bottom: 1px solid var(--border); flex: none; flex-wrap: wrap; row-gap: 4px; }
+.ce-vsep { width: 1px; height: 16px; background: var(--border); }
+.ce-drv { display: inline-flex; align-items: center; gap: 6px; }
+.ce-sel { max-width: 160px; }
+.ce-field { display: inline-flex; align-items: center; gap: 4px; }
+.ce-field-label { color: var(--muted); white-space: nowrap; user-select: none; }
+.ce-field-label.scrub { cursor: ew-resize; }
+.ce-field-label.scrub:hover { color: var(--text); }
+.ce-in { width: 72px; font-variant-numeric: tabular-nums; }
+.ce-unit { color: var(--muted); }
+
+/* Properties */
+.ce-props { list-style: none; margin: 0; padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.ce-prow { display: flex; align-items: center; border-radius: 3px; border: 1px solid transparent; }
+.ce-prow:hover { background: var(--hover); }
+.ce-prow.on { background: var(--selection); border-color: var(--accent); }
+.ce-pn { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 5px 6px; border: 0; background: none; color: var(--text); text-align: left; cursor: pointer; }
+.ce-prow.on .ce-pn { color: var(--selection-text); }
+.ce-pnt { display: flex; flex-direction: column; min-width: 0; }
+.ce-pnn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ce-kc { font-size: calc(10px * var(--ui-scale)); color: var(--muted); font-variant-numeric: tabular-nums; }
+.ce-prow.byp .ce-pnn { color: var(--muted); text-decoration: line-through; }
+.ce-prow.off .ce-pnn { color: var(--faint); }
+.ce-swatch { width: 12px; height: 3px; border-radius: 2px; flex: none; }
+.ce-eye { width: 24px; height: 22px; }
+.ce-eye:hover { color: var(--text); }
+.ce-eye[aria-pressed="false"] { color: var(--faint); }
+.ce-pwr { color: var(--accent2); }
+.ce-pwr.is-off { color: var(--faint); }
+.ce-clr { display: none; }
+.ce-prow:hover .ce-clr, .ce-prow:focus-within .ce-clr { display: inline-flex; }
+.ce-readhead { padding: 6px 10px 0; color: var(--muted); }
+.ce-readout { margin: 0; padding: 6px 10px 10px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; }
+.ce-readout dt { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ce-readout dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+
+/* Plot */
+.ce-plot { flex: 1 0 200px; min-height: 200px; display: grid; grid-template-columns: 58px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 20px; padding: 10px 12px 0 0; user-select: none; }
+.ce-ylabels, .ce-xlabels { position: relative; }
+.ce-ylabels span { position: absolute; right: 6px; font-size: calc(10px * var(--ui-scale)); line-height: 12px; color: var(--muted); white-space: nowrap; }
+.ce-xlabels span { position: absolute; top: 4px; font-size: calc(10px * var(--ui-scale)); line-height: 12px; color: var(--muted); white-space: nowrap; }
+.ce-plot-box { position: relative; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 3px; cursor: crosshair; touch-action: none; }
+.ce-plot-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
+.ce-plot-area { position: absolute; inset: 0; }
+.ce-grid { stroke: var(--border); stroke-width: 1; }
+.ce-hbar { fill: var(--border-strong); opacity: 0.55; }
+.ce-wave-before { fill: var(--badge-text); opacity: 0.14; }
+.ce-wave-after { fill: var(--badge-text); opacity: 0.32; }
+.ce-density { fill: var(--accent2-soft); stroke: var(--accent2); stroke-width: 1; opacity: 0.7; }
+.ce-other { fill: none; stroke-width: 1.5; opacity: 0.45; }
+.ce-other.bypassed { stroke-dasharray: 5 4; }
+.ce-active { fill: none; stroke-width: 2.25; }
+.ce-active.bypassed { stroke: var(--muted); stroke-dasharray: 6 5; }
+.ce-active.hidden { opacity: 0.2; }
+.ce-handle-line { stroke: var(--text); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.8; }
+.ce-shade-band, .ce-shade-inside { fill: var(--accent-faint); }
+.ce-shade-beyond { fill: var(--warning-soft); }
+.ce-mark-playhead { stroke: var(--accent); stroke-width: 1; }
+.ce-mark-band { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 3; }
+.ce-mark-now { stroke: var(--accent2); stroke-width: 2; }
+.ce-mark-listener { stroke: var(--accent2); stroke-width: 2; stroke-dasharray: 5 3; }
+.ce-mark-minmax { stroke: var(--warning); stroke-width: 1.5; }
+.ce-mark-label { position: absolute; bottom: 4px; font-size: calc(10px * var(--ui-scale)); line-height: 13px; padding: 0 4px; border-radius: 3px; background: var(--panel); white-space: nowrap; pointer-events: none; }
+.ce-label-now { color: var(--accent2); }
+.ce-minmax { position: absolute; top: 0; transform: translateX(-50%); font-size: calc(10px * var(--ui-scale)); line-height: 14px; padding: 1px 6px; border-radius: 0 0 3px 3px; border: 1px solid var(--warning); border-top: 0; background: var(--panel); color: var(--warning); cursor: ew-resize; touch-action: none; z-index: 4; white-space: nowrap; }
+.ce-kw { position: absolute; width: 0; height: 0; z-index: 3; }
+.ce-key { position: absolute; left: -6px; top: -6px; width: 12px; height: 12px; padding: 0; transform: rotate(45deg); background: var(--panel); border: 2px solid var(--accent); border-radius: 0; cursor: move; touch-action: none; }
+.ce-key.on { box-shadow: 0 0 0 3px var(--accent-soft); }
+.ce-handle { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; padding: 0; border-radius: 50%; background: var(--panel); border: 2px solid var(--text); cursor: grab; touch-action: none; z-index: 4; }
+.ce-ktb { position: absolute; bottom: 12px; left: 0; transform: translateX(-50%); display: flex; gap: 2px; padding: 2px; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 4px; box-shadow: 0 6px 18px var(--shadow); white-space: nowrap; z-index: 5; }
+.ce-ktb.below { bottom: auto; top: 12px; }
+.ce-ktb.r { transform: translateX(calc(-100% + 14px)); }
+.ce-ktb.l { transform: translateX(-14px); }
+.ce-tb { width: 24px; height: 22px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid transparent; border-radius: 3px; background: var(--button); color: var(--text); cursor: pointer; }
+.ce-tb:hover:not(:disabled) { background: var(--button-hover); }
+.ce-tb[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.ce-tb:disabled { opacity: 0.35; cursor: default; }
+.ce-tb.del:hover:not(:disabled) { color: var(--danger); }
+
+/* Presets */
+.ce-presets { display: flex; align-items: center; gap: 6px; padding: 8px 12px 8px 58px; flex: none; flex-wrap: wrap; }
+.ce-pt { padding: 2px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-sunken); cursor: pointer; line-height: 0; }
+.ce-pt:hover { border-color: var(--accent); background: var(--accent-faint); }
+.ce-pt svg path { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.ce-up { position: relative; display: inline-flex; }
+.ce-up .ce-pt svg path { stroke: var(--accent2); }
+.ce-upx { position: absolute; top: -6px; right: -6px; width: 14px; height: 14px; border-radius: 7px; border: 1px solid var(--border); background: var(--bg-sunken); color: var(--muted); font-size: 10px; line-height: 12px; padding: 0; cursor: pointer; display: none; }
+.ce-up:hover .ce-upx, .ce-upx:focus-visible { display: block; }
+
+/* Dope sheet */
+.ce-dope { border-top: 1px solid var(--border); flex: none; }
+.ce-dope-grid { display: grid; grid-template-columns: 120px minmax(0, 1fr); padding: 6px 12px 10px 0; user-select: none; }
+.ce-dope-name { padding-left: 10px; align-self: center; }
+.ce-ruler { position: relative; height: 22px; background: var(--surface); border: 1px solid var(--border); border-radius: 3px 3px 0 0; cursor: text; touch-action: none; }
+.ce-range { position: absolute; top: 0; bottom: 0; background: var(--accent-soft); border-left: 1px solid var(--accent); border-right: 1px solid var(--accent); pointer-events: none; }
+.ce-range-faint { position: absolute; top: 0; bottom: 0; background: var(--accent-faint); pointer-events: none; }
+.ce-tick { position: absolute; top: 3px; font-size: calc(10px * var(--ui-scale)); line-height: 12px; color: var(--muted); pointer-events: none; }
+.ce-playhead-flag { position: absolute; bottom: 0; width: 0; height: 0; margin-left: -6px; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 9px solid var(--accent); pointer-events: none; }
+.ce-dl { display: flex; align-items: center; gap: 6px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: 0 6px 0 10px; height: 24px; background: none; color: var(--text); text-align: left; cursor: pointer; }
+.ce-dl.on { background: var(--selection); color: var(--selection-text); }
+.ce-dl.off { color: var(--faint); }
+.ce-dl .ce-swatch { width: 10px; }
+.ce-drow { position: relative; height: 24px; border: 1px solid var(--border); border-top: 0; background: var(--bg-sunken); }
+.ce-drow-playhead { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--accent); pointer-events: none; }
+.ce-dia { position: absolute; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; padding: 0; transform: rotate(45deg); border: 2px solid; border-radius: 0; background: var(--panel); cursor: ew-resize; touch-action: none; z-index: 2; }
+
+/* Footer */
+.ce-footer { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); background: var(--surface); }
+.ce-status { color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ce-status.dirty { color: var(--warning); }
+.ce-status.notice { color: var(--danger); }
+
+/* Narrow windows (under 640 px: the window is the viewport less 16 px there) stack the properties above the plot.
+   A media query, not a container query: containment on the window would trap its fixed-position menus. */
+@media (max-width: 656px) {
+  .ce-main { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .ce-side { border-right: 0; border-bottom: 1px solid var(--border); max-height: 40%; }
+  .ce-presets { padding-left: 12px; }
+}
+/* Touch: bigger keys and diamonds. */
+@media (pointer: coarse) {
+  .ce-key { left: -9px; top: -9px; width: 18px; height: 18px; }
+  .ce-dia { width: 14px; height: 14px; margin: -7px 0 0 -7px; }
+  .ce-handle { width: 16px; height: 16px; margin: -8px 0 0 -8px; }
+}

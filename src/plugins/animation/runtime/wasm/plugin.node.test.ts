@@ -1,4 +1,4 @@
-// ADR 0350 (T45 core half): a third-party graph node through the committed wasm in Node. The host is implemented here
+// ADR 0370 (T45 core half): a third-party graph node through the committed wasm in Node. The host is implemented here
 // the way the Phase B loader will be: it instantiates plugin-sample's metered module (fixtures/plugin_sample.wasm,
 // built and metered by native/anim/crates/anim-wasm/tests/plugin_fixtures.rs) with no imports, reads its descriptor
 // from the module's memory and registers it with `plugin_register`, then answers the core's

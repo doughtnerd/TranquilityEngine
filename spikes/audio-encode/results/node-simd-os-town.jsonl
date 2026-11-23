@@ -1,0 +1,13 @@
+{"host":"node","node":"v22.23.5","wasmBytes":1215164,"compileMs":2.3}
+{"codec":"adpcm","quality":0.5,"inRate":44100,"outRate":44100,"channels":2,"seconds":82.338,"ms":394.2,"resampleMs":0,"xRealtime":208.9,"bytes":3659472,"kbps":355.6,"snrDb":36.68,"wallMs":441.6,"memoryMB":102.1}
+{"codec":"vorbis","quality":0.4,"inRate":44100,"outRate":44100,"channels":2,"seconds":82.338,"ms":1337.6,"resampleMs":0,"xRealtime":61.6,"bytes":1043509,"kbps":101.4,"wallMs":1372.5,"memoryMB":73.3}
+{"codec":"opus-fft","quality":0.3,"inRate":44100,"outRate":48000,"channels":2,"seconds":82.338,"ms":1132.9,"resampleMs":298,"xRealtime":72.7,"bytes":522290,"kbps":50.7,"preSkip":312,"targetKbps":49.6,"complexity":10,"wallMs":1166.5,"memoryMB":131.3}
+{"codec":"sinc","quality":0,"inRate":44100,"outRate":32000,"channels":2,"seconds":82.338,"ms":3390.1,"resampleMs":3300.2,"xRealtime":24.3,"bytes":10539304,"kbps":1024,"wallMs":3429.9,"memoryMB":111.9}
+{"codec":"adpcm","quality":0.5,"inRate":44100,"outRate":44100,"channels":2,"seconds":82.338,"ms":316.2,"resampleMs":0,"xRealtime":260.4,"bytes":3659472,"kbps":355.6,"snrDb":36.68,"wallMs":352.7,"memoryMB":102.1}
+{"codec":"vorbis","quality":0.4,"inRate":44100,"outRate":44100,"channels":2,"seconds":82.338,"ms":1319.2,"resampleMs":0,"xRealtime":62.4,"bytes":1043509,"kbps":101.4,"wallMs":1366.9,"memoryMB":73.3}
+{"codec":"opus-fft","quality":0.3,"inRate":44100,"outRate":48000,"channels":2,"seconds":82.338,"ms":1025.2,"resampleMs":297.6,"xRealtime":80.3,"bytes":522290,"kbps":50.7,"preSkip":312,"targetKbps":49.6,"complexity":10,"wallMs":1059.4,"memoryMB":131.3}
+{"codec":"sinc","quality":0,"inRate":44100,"outRate":32000,"channels":2,"seconds":82.338,"ms":3142.9,"resampleMs":3052.7,"xRealtime":26.2,"bytes":10539304,"kbps":1024,"wallMs":3182.4,"memoryMB":111.9}
+{"codec":"adpcm","quality":0.5,"inRate":44100,"outRate":44100,"channels":2,"seconds":82.338,"ms":251.5,"resampleMs":0,"xRealtime":327.4,"bytes":3659472,"kbps":355.6,"snrDb":36.68,"wallMs":287.8,"memoryMB":102.1}
+{"codec":"vorbis","quality":0.4,"inRate":44100,"outRate":44100,"channels":2,"seconds":82.338,"ms":1229.2,"resampleMs":0,"xRealtime":67,"bytes":1043509,"kbps":101.4,"wallMs":1264,"memoryMB":73.3}
+{"codec":"opus-fft","quality":0.3,"inRate":44100,"outRate":48000,"channels":2,"seconds":82.338,"ms":1049.1,"resampleMs":316.1,"xRealtime":78.5,"bytes":522290,"kbps":50.7,"preSkip":312,"targetKbps":49.6,"complexity":10,"wallMs":1084.7,"memoryMB":131.3}
+{"codec":"sinc","quality":0,"inRate":44100,"outRate":32000,"channels":2,"seconds":82.338,"ms":3168.1,"resampleMs":3082.9,"xRealtime":26,"bytes":10539304,"kbps":1024,"wallMs":3208.6,"memoryMB":111.9}

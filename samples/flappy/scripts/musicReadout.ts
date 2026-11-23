@@ -1,10 +1,9 @@
 import { Audio } from "myco";
 
 /**
- * The town music's health readout (the phone prime lead, P1 of the M4 listening pass): per playing music instance
- * `Audio.debug().music`'s `leadMs` (how far ahead of the audio clock the player plans a start), `primeEmaMs` (the smoothed
- * time the decoder takes to ready the streamed stem, with the last one) and `lateGroups` and `groupsHeld` (both should stay 0).
- * `Audio.debug()` allocates, so the text is rebuilt four times a second at most, and only while the readout is on.
+ * The town music's readout: per playing music playlist (`Audio.debug().events`, the playlist instances under `music/`)
+ * its voices and the entries it started late (should stay 0), and the audio clock. `Audio.debug()` allocates, so the text
+ * is rebuilt four times a second at most, and only while the readout is on.
  */
 export class MusicReadout {
   on = false;
@@ -22,14 +21,13 @@ export class MusicReadout {
     if (!this.on) return "";
     if (now - this.at < 250) return this.text;
     this.at = now;
-    const rows = Audio.debug().music ?? [];
+    const rows = Audio.debug().events.filter((r) => r.asset.startsWith("music/"));
     if (rows.length === 0) {
       this.text = "music: none playing";
       return this.text;
     }
-    const f = (x: number) => (Number.isFinite(x) ? x.toFixed(1) : "-");
     this.text = rows
-      .map((r) => `music ${r.asset.replace(/^.*\//, "").replace(/\.audioevent\.json$/, "")}\nlead ${f(r.leadMs)} ms\nprime ${f(r.primeEmaMs)} ms (last ${f(r.primeLastMs)})\nlate ${r.lateGroups}, held ${r.groupsHeld}`)
+      .map((r) => `music ${r.asset.replace(/^.*\//, "").replace(/\.playlist\.json$/, "")}\nvoices ${r.voices}, late ${r.lateStarts}\nclock ${Audio.time.toFixed(2)} s`)
       .join("\n");
     return this.text;
   }

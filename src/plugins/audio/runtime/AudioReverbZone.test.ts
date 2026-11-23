@@ -13,18 +13,19 @@ beforeEach(async () => {
 });
 
 describe("AudioReverbZone", () => {
-  it("has the ten §1.5 fields with defaults and descriptions", () => {
+  it("has the ten §1.5 fields and ADR 0347's levelDefault, with defaults and descriptions", () => {
     const fields = getFields(AudioReverbZone);
-    expect(fields.map((f) => f.name)).toEqual(["shape", "center", "size", "radius", "preset", "ir", "wet", "blendDistance", "priority", "output"]);
+    expect(fields.map((f) => f.name)).toEqual(["shape", "center", "size", "radius", "preset", "ir", "wet", "blendDistance", "priority", "output", "levelDefault"]);
     for (const f of fields) expect(JSON.stringify(f), f.name).toMatch(/"description":"\S/);
     const z = GameObject.create("zone").addBehavior(AudioReverbZone);
-    expect([z.shape, z.radius, z.preset, z.ir, z.wet, z.blendDistance, z.priority, z.output]).toEqual(["box", 5, "hall", "", 0.5, 2, 0, ""]);
+    expect([z.shape, z.radius, z.preset, z.ir, z.wet, z.blendDistance, z.priority, z.output, z.levelDefault]).toEqual(["box", 5, "hall", "", 0.5, 2, 0, "", false]);
     expect(z.center).toEqual(new Vector3(0, 0, 0));
     expect(z.size).toEqual(new Vector3(10, 4, 10));
   });
 
   it("offers the R10 presets, the two shapes, and the project's buses for output (empty is Master, R17)", () => {
-    expect([...ZONE_PRESETS]).toEqual(["room", "corridor", "hall", "cave", "open"]);
+    // ADR 0347 adds the prototype's four named spaces.
+    expect([...ZONE_PRESETS]).toEqual(["room", "corridor", "hall", "cave", "open", "smallStone", "canyonHall", "metalTunnel", "forest"]);
     const byName = new Map(getFields(AudioReverbZone).map((f) => [f.name, f]));
     const values = (name: string) => resolveChoices(byName.get(name)!.options?.choices, defaultSettings)!.map((c) => c.value);
     expect(values("preset")).toEqual([...ZONE_PRESETS]);

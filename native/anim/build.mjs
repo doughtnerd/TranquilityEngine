@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `npm run build:anim` (ADR 0350): compiles native/anim to WebAssembly with simd128 and writes the module, its
+// `npm run build:anim` (ADR 0370): compiles native/anim to WebAssembly with simd128 and writes the module, its
 // wasm-bindgen glue (setup calls only) and hash.json to src/plugins/animation/runtime/wasm/, which is committed, so
 // the engine builds without Rust. Also regenerates the wire constants (wasm/wire/<family>.ts) and their vectors.
 // Modelled on native/nav/build.mjs (wasm-bindgen pin) and native/audio/build.mjs (wire generator, source hash, size gate).
@@ -14,7 +14,7 @@ const out = fileURLToPath(new URL("../../src/plugins/animation/runtime/wasm/", i
 const TARGET = "wasm32-unknown-unknown";
 const OUT_NAME = "myco_anim";
 /**
- * The wasm's size tripwire (ADR 0350): a guard against accidental growth, not a design limit (CLAUDE.md). Set from the
+ * The wasm's size tripwire (ADR 0370): a guard against accidental growth, not a design limit (CLAUDE.md). Set from the
  * first full build plus 20%, rounded: T02 (2026-11-22) built 25,206 bytes (stubs, init and source_hash), + 20% = 30,247 B -> 30 KB.
  * Raised by T13r (2026-11-22): the first build with a real core (the four format readers, compressed sampling with T20r's
  * binding tables and track windows, the graph interpreter, pose maths, inertialization) measured 292,316 bytes

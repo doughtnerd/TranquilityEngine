@@ -21,7 +21,7 @@
 //! words, bone groups, history count, frames since evaluation, history step, time since
 //! evaluation, stale flag, reserved), the state blob, then the two poses. Restoring it into an
 //! instance of the same graph and skeleton makes every later evaluation identical to the
-//! original's (prediction rollback, ADR 0350).
+//! original's (prediction rollback, ADR 0370).
 
 pub mod implicit;
 

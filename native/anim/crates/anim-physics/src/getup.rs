@@ -1,4 +1,4 @@
-//! Get-up (ADR 0355): which way the fallen pelvis faces, and the get-up state that picks.
+//! Get-up (ADR 0375): which way the fallen pelvis faces, and the get-up state that picks.
 //!
 //! The pelvis's front axis (out of the belly, [`FrontAxis`]) turned by the simulated pelvis
 //! rotation, against model-space up (+Y): pointing up means the character lies on its back

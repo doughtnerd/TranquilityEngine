@@ -1,12 +1,12 @@
 # Animation build: ground rules for every task
 
-Every brief in this build points here. Read it, then `CLAUDE.md`, then the records your brief names (0350–0357 in `docs/decisions/`) and [plan.md](plan.md).
+Every brief in this build points here. Read it, then `CLAUDE.md`, then the records your brief names (0370–0377 in `docs/decisions/`) and [plan.md](plan.md).
 
 ## Owner rules (standing, 2026-11-22)
 
 - **The records are the requirements.** The owner decided:
   - a Rust/wasm `simd128` core with no TypeScript evaluator;
-  - everything in 0350–0356 gets built (0357, the BioPak rename, is withdrawn);
+  - everything in 0370–0376 gets built (0377, the BioPak rename, is withdrawn);
   - every TypeScript part with behaviour, data or systems is built on the ECS (`@component` classes, data components, buffers, built-in systems through the plugin runtime context);
   - one skinning model (KSL, two backends);
   - computed parameters, not script functions inside transitions;
@@ -30,7 +30,7 @@ Every brief in this build points here. Read it, then `CLAUDE.md`, then the recor
 - **File names:** no two files in one folder whose names differ only in case (`npm run check:filenames`). Name a view's logic `fooLogic.ts`.
 - **Vite configs:** every Vite/Vitest config uses `typescriptTranspile()` with `oxc: false`.
 - **Rust:** deterministic maths in `native/anim/`: no `mul_add`, no relaxed SIMD, no libm trig in hot paths; `evaluate` never allocates.
-- **Public names:** new public API beyond what 0350–0357 name needs a record. Mark anything else internal and report it.
+- **Public names:** new public API beyond what 0370–0377 name needs a record. Mark anything else internal and report it.
 
 ## Working in a worktree
 

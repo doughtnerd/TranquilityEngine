@@ -9,7 +9,7 @@ use anim_math::{AosQuat, AosVec3};
 pub const NO_BONE: u16 = 0xFFFF;
 
 /// Default motor stiffness (N·m per radian) of the builder: a firm human joint for a body of a
-/// few kilograms. The ragdoll builder (ADR 0353) scales it by the bodies' masses.
+/// few kilograms. The ragdoll builder (ADR 0373) scales it by the bodies' masses.
 pub const DEFAULT_STIFFNESS: f32 = 400.0;
 /// Default motor damping (N·m·s per radian).
 pub const DEFAULT_DAMPING: f32 = 40.0;
@@ -34,7 +34,7 @@ pub struct BoneDesc {
     /// The ball joint's limits relative to the rest pose, degrees (`anim-format`'s
     /// `JOINT_RANGES` layout: swing about Y, swing about Z, twist min and max about X).
     pub range: JointRange,
-    /// The rotation drive (ADR 0355's `drive`): stiffness, damping, maximum force.
+    /// The rotation drive (ADR 0375's `drive`): stiffness, damping, maximum force.
     pub stiffness: f32,
     pub damping: f32,
     pub max_force: f32,
@@ -155,7 +155,7 @@ impl RagdollDesc {
     /// bodies pinned (pin 1). `pelvis` (when in range) always gets a body, even without a range
     /// (profiles give the hips none: it is the root body), and is the pelvis; without one the
     /// pelvis is the first root body. Its front axis is +Z (the model's forward, decision D60).
-    /// The editor's ragdoll builder (ADR 0353) refines it.
+    /// The editor's ragdoll builder (ADR 0373) refines it.
     pub fn from_skeleton(parents: &[u16], ranges: &[Option<JointRange>], pelvis: u16) -> Self {
         let n = parents.len();
         let any = ranges.iter().any(Option::is_some);

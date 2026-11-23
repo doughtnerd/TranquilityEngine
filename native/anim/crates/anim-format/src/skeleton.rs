@@ -1,4 +1,4 @@
-//! `myco.skel@1`: a skeleton (ADR 0351), in the [container] layout.
+//! `myco.skel@1`: a skeleton (ADR 0371), in the [container] layout.
 //!
 //! Magic `"MYCOSKEL"`, version [`FORMAT_VERSION`], no header flags (0).
 //!

@@ -1,15 +1,13 @@
 /**
- * Internal (ADR 0171 amended by 0172; api-and-models §6.2): live mix operations. An edit in Project Settings > Audio or
- * the Mixer panel is one `MixOp` (not a diff: a rename is `renameBus`, so a bus's voices, slot and held handles survive),
- * applied to the settings draft by `applyOpToDraft` and to the running mixer by `mixer.apply(op)`.
+ * Internal (ADR 0171 amended by 0172; api-and-models §6.2): live mix operations. A mix edit is one `MixOp` (not a diff:
+ * a rename is `renameBus`, so a bus's voices, slot and held handles survive), applied to the settings draft by
+ * `applyOpToDraft` and to the running mixer by `mixer.apply(op)`.
  *
  * Pure: no plugin, no DOM. Contract K0 declared the shapes; task Mo1 filled the functions.
  *
- * **One edit path.** The engine may not import the editor plugin, so the edit itself lives here, in
- * `applyOpToSettings`, and the model functions of `src/plugins/audio/editor/audioSettingsModel.ts` (`addBus`,
- * `removeBus`, `renameBus`, `setBusParent`, `setBusValue`, the effect, snapshot, ducking, automation, meter and target
- * functions) build an op and call `applyOpToDraft`: an op and the Project Settings UI edit the same way (§6.2's
- * "`applyOpToDraft` calls the model functions", read with the engine-imports-no-plugin rule).
+ * **One edit path.** The edit itself lives here, in `applyOpToSettings`: whoever edits the mix (the Audio Studio,
+ * ADR 0341, through its project ops, and the runtime it auditions with) builds an op and applies it, so every editor
+ * edits the same way.
  *
  * **Canonical form.** `applyOpToSettings` writes optional keys the way the parse and the model functions do: a bus's
  * `maxVoices`, `bed`, `bedPriority` and `meter` are absent when unset or at their default; `loudnessTargets` is absent
@@ -19,7 +17,12 @@
  * **Refusals.** An op the parse would drop (an unknown bus, a duplicate name, a ninth metered bus, a rule whose target is
  * its trigger…) is refused: `opRefusal` says why and `applyOpToSettings` returns its input unchanged (the same object).
  */
-import { ruleRefusal, type ApplyReason } from "./busCapability";
+import { CORE_EFFECT_TYPES, coreRuns, ruleRefusal, type ApplyReason } from "./busCapability";
+import { effectParamSpec, effectSpec } from "./effects/catalogue";
+import { PROJECT_OP_NAMES, diffProjectOps, isProjectOp, type ProjectMixOp } from "./projectOps";
+import { audioProjectToJson, parseAudioProject } from "./project/format";
+import { coreSectionOf } from "./project/runtimeView";
+import type { AudioProject } from "./project/types";
 import { LIVE_KEYS, audioSection, withLiveKeys } from "./audioSection";
 import { deepEqual } from "./deepEqual";
 import { uniqueName } from "../core/uniqueName";
@@ -53,7 +56,7 @@ export const OP_CLASSES: readonly OpClass[] = ["direct", "smoothed", "dip", "con
 export type MixOp =
   | { op: "setBus"; bus: string; key: "volume" | "mute" | "maxVoices" | "bed" | "bedPriority" | "meter"; value: number | boolean | string | null }
   | { op: "addBus"; name: string; parent: string; index?: number }
-  /** The bus and its descendants (`audioSettingsModel.ts` `removeBus`). */
+  /** The bus and its descendants (what `removeBus` takes with it). */
   | { op: "removeBus"; bus: string }
   | { op: "renameBus"; from: string; to: string }
   | { op: "moveBus"; bus: string; parent: string }
@@ -66,12 +69,17 @@ export type MixOp =
   | { op: "setDucking"; index: number; rule: DuckingRule | null; insert?: boolean }
   | { op: "setAutomation"; index: number; rule: BusAutomation | null; insert?: boolean }
   | { op: "setTarget"; index: number; target: LoudnessTarget | null; insert?: boolean }
-  | { op: "setOption"; key: "loudnessResetOnPlay"; value: boolean };
+  | { op: "setOption"; key: "loudnessResetOnPlay"; value: boolean }
+  /** ADR 0344: the mix model's own ops (returns, VCAs, mute, sends, snapshot edits), `projectOps.ts`. */
+  | ProjectMixOp;
+
+export { isProjectOp, type ProjectMixOp };
 
 /** The `op` names, in the byte form's `u8 op` order (index = code). Append only: a capture stores the code. */
 export const MIX_OP_NAMES = [
   "setBus", "addBus", "removeBus", "renameBus", "moveBus", "addEffect", "removeEffect", "moveEffect", "setEffect",
   "addSnapshot", "removeSnapshot", "renameSnapshot", "setSnapshot", "setDucking", "setAutomation", "setTarget", "setOption",
+  ...PROJECT_OP_NAMES,
 ] as const satisfies readonly MixOp["op"][];
 
 /** What `audioEdit` registers for one undo step: the ops that made it and the ops that undo it (§6.4). */
@@ -133,14 +141,41 @@ export function loudnessTargetsOf(a: Pick<AudioSettings, "loudnessTargets">): Lo
 
 const resetOnPlay = (a: AudioSettings): boolean => a.loudnessResetOnPlay ?? true;
 
-/** The number fields of each effect type, in the byte form's order. */
+/** The number fields of each effect type, in the byte form's order (`fx`: its catalogue type's, `effectKeys`). */
 export const EFFECT_KEYS: Record<BusEffect["type"], readonly string[]> = {
   lowpass: ["frequency", "q"], highpass: ["frequency", "q"],
-  compressor: ["threshold", "knee", "ratio", "attack", "release"], reverb: ["send"],
+  compressor: ["threshold", "knee", "ratio", "attack", "release"], reverb: ["send"], fx: [],
 };
+
+/** The number fields of `e`, in the byte form's order: its type's, or for a catalogue effect (`fx`) its parameters in the catalogue's order (ADR 0345). */
+export function effectKeys(e: BusEffect): readonly string[] {
+  return e.type === "fx" ? effectSpec(e.fx).params.map((q) => q.name) : EFFECT_KEYS[e.type];
+}
+
+/** Number field `key` of `e` (a catalogue effect's parameter, its default when unset). */
+export function effectValue(e: BusEffect, key: string): number {
+  if (e.type === "fx") return e.params[key] ?? effectParamSpec(e.fx, key)?.default ?? Number.NaN;
+  return (e as unknown as Record<string, number>)[key];
+}
+
+/** `e` with number field `key` set to `value`. */
+export function withEffectValue(e: BusEffect, key: string, value: number): BusEffect {
+  return e.type === "fx" ? { ...e, params: { ...e.params, [key]: value } } : ({ ...e, [key]: value } as BusEffect);
+}
+
+/** True when `b` edits `a` in place (`setEffect`): the same type, and for catalogue effects the same catalogue type and key bus. */
+export function sameEffectKind(a: BusEffect, b: BusEffect): boolean {
+  if (a.type !== b.type) return false;
+  return a.type !== "fx" || b.type !== "fx" || (a.fx === b.fx && (a.key ?? "") === (b.key ?? ""));
+}
 
 function effectRefusal(effect: unknown): string | null {
   if (!isObj(effect) || !(EFFECT_TYPES as readonly unknown[]).includes(effect.type)) return `An effect's type must be one of ${EFFECT_TYPES.join(", ")}.`;
+  if (effect.type === "fx") {
+    if (typeof effect.fx !== "string" || !coreRuns(effect.fx)) return `A catalogue effect's fx must be one of ${CORE_EFFECT_TYPES.join(", ")}.`;
+    if (!isObj(effect.params) || Object.values(effect.params).some((v) => !finite(v))) return `A ${effect.fx} effect needs numbers for its parameters.`;
+    return null;
+  }
   for (const k of EFFECT_KEYS[effect.type as BusEffect["type"]]) if (!finite(effect[k])) return `A ${effect.type as string} effect needs a number for ${k}.`;
   return null;
 }
@@ -174,6 +209,7 @@ function listRefusal(len: number, index: number, item: unknown, insert: boolean 
  * metered"), or null when it applies. An op that applies may still change nothing (a value set to what it is).
  */
 export function opRefusal(a: AudioSettings, op: MixOp): string | null {
+  if (isProjectOp(op)) return "This edit needs the mix in audio.json; the old audio section can't hold it.";
   const noBus = (name: string) => `No bus named "${name}".`;
   switch (op.op) {
     case "setBus": {
@@ -220,7 +256,7 @@ export function opRefusal(a: AudioSettings, op: MixOp): string | null {
     case "addEffect":
       if (!busOf(a, op.bus)) return noBus(op.bus);
       if (!Number.isInteger(op.index)) return "An effect index must be a whole number.";
-      return effectRefusal(op.effect);
+      return effectRefusal(op.effect) ?? ruleRefusal(a, op); // ADR 0345: the insert cap
     case "removeEffect": {
       const b = busOf(a, op.bus);
       if (!b) return noBus(op.bus);
@@ -236,7 +272,7 @@ export function opRefusal(a: AudioSettings, op: MixOp): string | null {
       if (!b) return noBus(op.bus);
       const fx = b.effects[op.index];
       if (!isIndex(op.index, b.effects.length) || !fx) return `${op.bus} has no effect ${op.index}.`;
-      if (!EFFECT_KEYS[fx.type].includes(op.key)) return `A ${fx.type} effect has no ${op.key}.`;
+      if (!effectKeys(fx).includes(op.key)) return `A ${fx.type === "fx" ? fx.fx : fx.type} effect has no ${op.key}.`;
       return finite(op.value) ? null : "An effect value must be a number.";
     }
     case "addSnapshot": {
@@ -303,6 +339,7 @@ function editList<T>(list: readonly T[], index: number, item: T | null, insert: 
 
 /** `a` after `op`, in canonical form; `a` itself (the same object) when the op is refused or changes nothing. */
 export function applyOpToSettings(a: AudioSettings, op: MixOp): AudioSettings {
+  if (isProjectOp(op)) return a; // the old section can't hold it (`opRefusal`); the mixer applies it to its project
   if (opRefusal(a, op) !== null) return a;
   const mapBus = (name: string, f: (b: BusSettings) => BusSettings): AudioSettings => ({ ...a, buses: a.buses.map((b) => (b.name === name ? f(b) : b)) });
   switch (op.op) {
@@ -320,12 +357,19 @@ export function applyOpToSettings(a: AudioSettings, op: MixOp): AudioSettings {
     case "removeBus": {
       const gone = new Set([op.bus, ...descendantsOf(a, op.bus)]);
       const scrub = (r: Record<string, number>) => Object.fromEntries(Object.entries(r).filter(([k]) => !gone.has(k)));
+      // ADR 0344: the sends into a removed bus (a return) go with it.
+      const unsent = (b: BusSettings): BusSettings => {
+        if (!b.sends?.some((s) => gone.has(s.to))) return b;
+        const { sends, ...rest } = b;
+        const kept = sends.filter((s) => !gone.has(s.to));
+        return kept.length > 0 ? { ...rest, sends: kept } : rest;
+      };
       return {
         ...a,
-        buses: a.buses.filter((b) => !gone.has(b.name)),
+        buses: a.buses.filter((b) => !gone.has(b.name)).map(unsent),
         snapshots: a.snapshots.map((s) => ({ ...s, volumes: scrub(s.volumes), lowpass: scrub(s.lowpass) })),
         ducking: a.ducking.filter((r) => !gone.has(r.target) && !gone.has(r.trigger)),
-        automation: a.automation.filter((r) => !gone.has(r.bus)),
+        automation: a.automation.filter((r) => !gone.has(r.bus) && !(r.to !== undefined && gone.has(r.to))),
       };
     }
     case "renameBus": {
@@ -335,10 +379,10 @@ export function applyOpToSettings(a: AudioSettings, op: MixOp): AudioSettings {
       const re = (r: Record<string, number>) => Object.fromEntries(Object.entries(r).map(([k, v]) => [fix(k), v]));
       return {
         ...a,
-        buses: a.buses.map((b) => ({ ...b, name: fix(b.name), ...(b.parent !== undefined ? { parent: fix(b.parent) } : {}) })),
+        buses: a.buses.map((b) => ({ ...b, name: fix(b.name), ...(b.parent !== undefined ? { parent: fix(b.parent) } : {}), ...(b.sends ? { sends: b.sends.map((s) => ({ ...s, to: fix(s.to) })) } : {}) })),
         snapshots: a.snapshots.map((s) => ({ ...s, volumes: re(s.volumes), lowpass: re(s.lowpass) })),
         ducking: a.ducking.map((r) => ({ ...r, target: fix(r.target), trigger: fix(r.trigger) })),
-        automation: a.automation.map((r) => ({ ...r, bus: fix(r.bus) })),
+        automation: a.automation.map((r) => ({ ...r, bus: fix(r.bus), ...(r.to !== undefined ? { to: fix(r.to) } : {}) })),
       };
     }
     case "moveBus":
@@ -357,9 +401,9 @@ export function applyOpToSettings(a: AudioSettings, op: MixOp): AudioSettings {
       });
     }
     case "setEffect": {
-      const fx = busOf(a, op.bus)!.effects[op.index] as unknown as Record<string, number>;
-      if (fx[op.key] === op.value) return a;
-      return mapBus(op.bus, (b) => ({ ...b, effects: b.effects.map((e, i) => (i === op.index ? ({ ...e, [op.key]: op.value } as BusEffect) : e)) }));
+      const fx = busOf(a, op.bus)!.effects[op.index]!;
+      if (effectValue(fx, op.key) === op.value) return a;
+      return mapBus(op.bus, (b) => ({ ...b, effects: b.effects.map((e, i) => (i === op.index ? withEffectValue(e, op.key, op.value) : e)) }));
     }
     case "addSnapshot": {
       const name = op.name?.trim() ?? uniqueName("Snapshot", a.snapshots.map((s) => s.name));
@@ -421,14 +465,15 @@ export function applyOpToDraft<D extends MixDraft>(d: D, op: MixOp): D {
  * `none` (refused, or changes nothing).
  */
 export function opClass(op: MixOp, settings: AudioSettings): OpClass {
-  if (applyOpToSettings(settings, op) === settings) return "none";
+  if (isProjectOp(op) || applyOpToSettings(settings, op) === settings) return "none";
   switch (op.op) {
     case "setBus": return op.key === "bed" || op.key === "bedPriority" ? "config" : "direct";
     case "addBus": return "direct";
     case "removeBus": case "moveBus": case "removeEffect": case "moveEffect": return "dip";
     case "renameBus": return "config";
     case "addEffect": return op.index >= busOf(settings, op.bus)!.effects.length ? "direct" : "dip";
-    case "setEffect": return busOf(settings, op.bus)!.effects[op.index].type === "compressor" ? "smoothed" : "direct";
+    // The core glides a compressor's and every catalogue effect's parameters (ADR 0345).
+    case "setEffect": { const t = busOf(settings, op.bus)!.effects[op.index].type; return t === "compressor" || t === "fx" ? "smoothed" : "direct"; }
     case "addSnapshot": case "removeSnapshot": case "renameSnapshot": case "setSnapshot":
     case "setDucking": case "setAutomation": case "setTarget":
       return "direct";
@@ -457,7 +502,7 @@ function restoreBuses(before: AudioSettings, gone: Set<string>): MixOp[] {
     for (const [bus, value] of Object.entries(s.lowpass)) if (gone.has(bus)) ops.push({ op: "setSnapshot", index, bus, key: "lowpass", value });
   });
   before.ducking.forEach((rule, index) => { if (gone.has(rule.target) || gone.has(rule.trigger)) ops.push({ op: "setDucking", index, rule: clone(rule), insert: true }); });
-  before.automation.forEach((rule, index) => { if (gone.has(rule.bus)) ops.push({ op: "setAutomation", index, rule: clone(rule), insert: true }); });
+  before.automation.forEach((rule, index) => { if (gone.has(rule.bus) || (rule.to !== undefined && gone.has(rule.to))) ops.push({ op: "setAutomation", index, rule: clone(rule), insert: true }); });
   return ops;
 }
 
@@ -474,7 +519,7 @@ function invertList<T>(list: readonly T[], index: number, item: T | null, insert
  * snapshot entries, ducking rules and automation; undoing `removeSnapshot` re-adds its entries.
  */
 export function invert(op: MixOp, before: AudioSettings): MixOp[] {
-  if (applyOpToSettings(before, op) === before) return [];
+  if (isProjectOp(op) || applyOpToSettings(before, op) === before) return [];
   switch (op.op) {
     case "setBus": return [{ op: "setBus", bus: op.bus, key: op.key, value: busValue(busOf(before, op.bus)!, op.key) }];
     case "addBus": return [{ op: "removeBus", bus: op.name.trim() }];
@@ -488,8 +533,8 @@ export function invert(op: MixOp, before: AudioSettings): MixOp[] {
     case "removeEffect": return [{ op: "addEffect", bus: op.bus, index: op.index, effect: clone(busOf(before, op.bus)!.effects[op.index]) }];
     case "moveEffect": return [{ op: "moveEffect", bus: op.bus, from: op.to, to: op.from }];
     case "setEffect": {
-      const fx = busOf(before, op.bus)!.effects[op.index] as unknown as Record<string, number>;
-      return [{ op: "setEffect", bus: op.bus, index: op.index, key: op.key, value: fx[op.key] }];
+      const fx = busOf(before, op.bus)!.effects[op.index]!;
+      return [{ op: "setEffect", bus: op.bus, index: op.index, key: op.key, value: effectValue(fx, op.key) }];
     }
     case "addSnapshot": return [{ op: "removeSnapshot", index: Math.min(before.snapshots.length, Math.max(0, op.index)) }];
     case "removeSnapshot": {
@@ -597,12 +642,12 @@ export function diffOps(before: AudioSettings, after: AudioSettings): { ops: Mix
   for (const b of after.buses) {
     const have = busOf(cur, b.name)!.effects;
     let p = 0;
-    while (p < have.length && p < b.effects.length && have[p].type === b.effects[p].type) p++;
+    while (p < have.length && p < b.effects.length && sameEffectKind(have[p]!, b.effects[p]!)) p++;
     for (let i = have.length - 1; i >= p; i--) push({ op: "removeEffect", bus: b.name, index: i });
     for (let i = p; i < b.effects.length; i++) push({ op: "addEffect", bus: b.name, index: i, effect: clone(b.effects[i]) });
     for (let i = 0; i < p; i++) {
-      const fx = busOf(cur, b.name)!.effects[i] as unknown as Record<string, number>, want = b.effects[i] as unknown as Record<string, number>;
-      for (const key of EFFECT_KEYS[b.effects[i].type]) if (fx[key] !== want[key]) push({ op: "setEffect", bus: b.name, index: i, key, value: want[key] });
+      const fx = busOf(cur, b.name)!.effects[i]!, want = b.effects[i]!;
+      for (const key of effectKeys(want)) if (effectValue(fx, key) !== effectValue(want, key)) push({ op: "setEffect", bus: b.name, index: i, key, value: effectValue(want, key) });
     }
   }
 
@@ -658,4 +703,21 @@ export function diffOps(before: AudioSettings, after: AudioSettings): { ops: Mix
   const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
   const restartRequired = [...keys].filter((k) => !live.has(k) && !deepEqual((before as unknown as Record<string, unknown>)[k], (after as unknown as Record<string, unknown>)[k]));
   return { ops, restartRequired };
+}
+
+/**
+ * ADR 0344: the ops that move a running mix from `before` to `after` (the Studio's edits of `audio.json`). First the old
+ * ops over the backends' view (`coreSectionOf`: the bus tree, bus levels and mutes, effects, ducking, automation,
+ * loudness), with returns, VCAs, sends and snapshots held at `before`'s; then the mix model's own ops (`diffProjectOps`)
+ * for those. `restartRequired` lists the engine settings that wait for the next start.
+ */
+export function diffProjectMix(before: AudioProject, after: AudioProject): { ops: MixOp[]; restartRequired: string[] } {
+  if (before === after) return { ops: [], restartRequired: [] };
+  const held = (name: string) => before.buses.find((b) => b.name === name)?.sends ?? [];
+  const mid = parseAudioProject(audioProjectToJson({
+    ...after, returns: before.returns, vcas: before.vcas, snapshots: before.snapshots,
+    buses: after.buses.map((b) => ({ ...b, sends: held(b.name) })),
+  })).project;
+  const old = diffOps(coreSectionOf(before), coreSectionOf(mid));
+  return { ops: [...old.ops, ...diffProjectOps(mid, after)], restartRequired: old.restartRequired };
 }

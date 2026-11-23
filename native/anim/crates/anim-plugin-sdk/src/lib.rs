@@ -1,9 +1,9 @@
-//! `anim-plugin-sdk` (ADR 0350, "Third-party graph and rig nodes"): the small C ABI a plugin's node
+//! `anim-plugin-sdk` (ADR 0370, "Third-party graph and rig nodes"): the small C ABI a plugin's node
 //! module implements (pose in, parameters in, pose out) and the Rust SDK for writing one.
 //!
 //! A node module is a wasm module with its own memory and no imports, declared in the plugin's
 //! `plugin.json`. The core calls it inside graph evaluation (`anim-graph::plugin`) through the host;
-//! faults pass the input pose through and report once (audio 0338's model). The loader meters it
+//! faults pass the input pose through and report once (audio 0352's model). The loader meters it
 //! first (`anim-meter`).
 //!
 //! - [`abi`]: the ABI, **version 1**: exports, signatures, the batch's buffer layouts, limits,

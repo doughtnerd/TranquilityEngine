@@ -1,4 +1,4 @@
-//! Graph debug state for the editor's graph debugger (ADR 0352, 0353): node weights and phases,
+//! Graph debug state for the editor's graph debugger (ADR 0372, 0373): node weights and phases,
 //! state machines with their transition blockers, and request lifetimes, written to the `debug`
 //! wire family by `anim-wasm` for instances flagged for debugging.
 //!

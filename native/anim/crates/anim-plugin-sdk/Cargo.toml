@@ -1,6 +1,6 @@
 [package]
 name = "anim-plugin-sdk"
-description = "Myco animation core (ADR 0350): the C ABI and Rust SDK for third-party graph and rig nodes (sandboxed wasm modules)."
+description = "Myco animation core (ADR 0370): the C ABI and Rust SDK for third-party graph and rig nodes (sandboxed wasm modules)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -6,7 +6,7 @@
 import { signal } from "@preact/signals";
 import { fileName } from "./assetBrowser";
 import { isSliceEntry, splitSliceEntry } from "./assetEntry";
-import { assetKind, opensInCodePanel, registeredKind } from "./assetKindLookup";
+import { assetKind, opensInCodePanel, opensWithAudioStudio, registeredKind } from "./assetKindLookup";
 import { freePath } from "./freePath";
 import { showPanel } from "./layout/store";
 import type { EditorProject } from "./projects";
@@ -117,7 +117,7 @@ export function openIn(panel: string): string | null {
   return open && open.project === currentProject.value ? open.path : null;
 }
 
-/** Open the file at `path` as its kind says (a slice opens its file): its `open`, its panel, or the Code panel. False when its kind doesn't open. */
+/** Open the file at `path` as its kind says (a slice opens its file): its `open`, its panel, the Code panel, or the Audio Studio. False when it doesn't open. */
 export function openAsset(path: string): boolean {
   const kind = assetKind(path);
   const file = isSliceEntry(path) ? splitSliceEntry(path).image : path;
@@ -133,6 +133,11 @@ export function openAsset(path: string): boolean {
   }
   if (kind !== "sprite" && opensInCodePanel(kind)) {
     void import("./code/codeBuffers").then((m) => m.openScript(file));
+    return true;
+  }
+  // ADR 0341: the Studio's files (playlists, samples, legacy audio events, ...) open there.
+  if (opensWithAudioStudio(path)) {
+    void import("./studioLaunch").then((m) => m.openAudioStudio(m.studioRequest(currentProject.peek(), { asset: file })));
     return true;
   }
   return false;

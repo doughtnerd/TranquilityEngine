@@ -1,4 +1,4 @@
-//! Family `tracks`: what a playing clip's tracks produce each frame (ADR 0351, 0352): a column
+//! Family `tracks`: what a playing clip's tracks produce each frame (ADR 0371, 0372): a column
 //! block of value words per clip binding, described once by [`Column`] records, and per-frame
 //! records for crossed keys and states.
 //!
@@ -363,7 +363,7 @@ pub const FAMILY: FamilyDesc = FamilyDesc {
     name: "tracks",
     id: ID,
     version: VERSION,
-    doc: "Wire family `tracks`: track outputs (ADR 0351, 0352): per bound clip a column block of value words described by COLUMN records; per frame an OUTPUT_HEADER, then EVENT, NOTIFY_STATE, ACTIVATION_EDGE, CONTROL, AUDIO, MARKER and SUBCLIP_STATE records packed back to back.",
+    doc: "Wire family `tracks`: track outputs (ADR 0371, 0372): per bound clip a column block of value words described by COLUMN records; per frame an OUTPUT_HEADER, then EVENT, NOTIFY_STATE, ACTIVATION_EDGE, CONTROL, AUDIO, MARKER and SUBCLIP_STATE records packed back to back.",
     records: &[
         OutputHeader::DESC,
         Column::DESC,

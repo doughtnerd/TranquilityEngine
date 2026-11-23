@@ -20,6 +20,8 @@ publish = false
 audio-dsp = { path = "crates/audio-dsp" }
 audio-core = { path = "crates/audio-core" }
 audio-wire = { path = "crates/audio-wire" }
+# ADR 0351 A4: the IMA ADPCM block reader the core (clip format 6) and the decoder share.
+audio-adpcm = { path = "crates/audio-adpcm" }
 # Real FFTs of 256 and 4,096 points and the complex 4,096 inverse (convolver, HRTF).
 microfft = { version = "0.6", default-features = false, features = ["size-4096"] }
 # Transcendentals, so native and wasm results are bit-identical.

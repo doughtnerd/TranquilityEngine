@@ -673,3 +673,60 @@ fn an_hrtf_voice_holds_its_slot_through_the_crossfade_to_the_bed_and_comes_back_
     eprintln!("HRTF <-> bed: lowest quantum RMS {lo_to_bed:.4} (to the bed), {lo_back:.4} (back)");
     assert!(lo_to_bed > 0.1 && lo_back > 0.1, "no gap");
 }
+
+/// ADR 0347 (ABI 4.11): a bed voice's spread. A noise voice ahead, encoded into a root-hosted bed
+/// and decoded through the baked matrix, reads correlated ears as a point; with a full spread its
+/// point part (into the bed) is gone and its diffuse part decorrelates the ears, at the same power,
+/// while the bed still counts the voice.
+#[test]
+fn a_bed_voice_with_a_full_spread_is_decorrelated_at_the_same_power() {
+    const NOISE: u32 = 9;
+    let run = |deg: f32| {
+        let mut core = new_core(48_000.0, 2, 64, 32);
+        let mut seed = 5u32;
+        let noise: Vec<f32> = (0..48_000)
+            .map(|_| {
+                seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                0.25 * ((seed as f64 / 4_294_967_296.0) * 2.0 - 1.0) as f32
+            })
+            .collect();
+        core.clips_mut().reserve(NOISE, noise.len() as u32, 1, 48_000.0, ClipFormat::F32).unwrap();
+        core.clips_mut().write(NOISE, 0, &noise.iter().flat_map(|s| s.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+        let mut frame = 0u64;
+        let play_noise = rec(|b| {
+            wire::Play {
+                voice_id: 0x0001_0001,
+                frame_offset: wire::ASAP,
+                clip: NOISE,
+                bus: ROOT,
+                flags: wire::PLAY_FLAGS_MIXED | wire::PLAY_FLAGS_LOOP | wire::PLAY_FLAGS_SPATIAL | (BED_KIND << wire::PLAY_FLAGS_PANNER_SHIFT),
+                gain: 1.0,
+                pitch: 1.0,
+                dir_z: -1.0,
+                lp_hz: OFF,
+                ..Default::default()
+            }
+            .write(b, 0)
+        });
+        let spread = rec(|b| wire::SetVoiceFx { voice_id: 0x0001_0001, frame_offset: wire::ASAP, mask: wire::SET_VOICE_FX_MASK_SPREAD, spread: (deg * 100.0) as u16, aux_bus: wire::AUX_BUS_NONE as u16, ..Default::default() }.write(b, 0));
+        let recs = [vec![buses(&[ROOT])], mix(0, &[1.0]), vec![bed_config(&[0], &[0]), play_noise, spread]].concat();
+        assert_eq!(submit(&mut core, frame, &recs), 0);
+        let (mut l, mut r) = (Vec::new(), Vec::new());
+        for q in 0..200 {
+            let (a, b) = render(&mut core, &mut frame);
+            if q >= 40 {
+                l.extend(a);
+                r.extend(b);
+            }
+        }
+        assert_eq!(status::counters(&core).spatial.bed_voices, 1, "the bed counts the voice");
+        let dot = |x: &[f32], y: &[f32]| x.iter().zip(y).map(|(a, b)| *a as f64 * *b as f64).sum::<f64>();
+        (dot(&l, &r) / (dot(&l, &l) * dot(&r, &r)).sqrt(), dot(&l, &l) + dot(&r, &r))
+    };
+    let (point, p0) = run(0.0);
+    let (full, p1) = run(360.0);
+    eprintln!("bed voice spread: correlation {point:.3} as a point, {full:.3} at 360 degrees; power ratio {:.3}", p1 / p0);
+    assert!(point > 0.9, "{point}");
+    assert!(full.abs() < 0.1, "{full}");
+    assert!((p1 / p0 - 1.0).abs() < 0.25, "power ratio {}", p1 / p0);
+}

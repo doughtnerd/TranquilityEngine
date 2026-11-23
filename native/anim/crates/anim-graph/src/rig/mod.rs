@@ -1,4 +1,4 @@
-//! Node family `rig`: the rig stack's nodes (ADR 0352), each one rig-stack entry calling an
+//! Node family `rig`: the rig stack's nodes (ADR 0372), each one rig-stack entry calling an
 //! `anim-rig` solver: IK (two-bone, CCD, FABRIK, full-body), look-at and aim, the foot grounder,
 //! spring chains, copy, limit and damp constraints, stride, orientation and motion warping, and
 //! distance matching.
@@ -17,7 +17,7 @@
 //! (position, rotation, position and rotation weights, model or world space; `anim.ik(name)` maps
 //! a name to a slot index the graph compiler assigns) and [`view::MAX_RAYS`] ray hits (model
 //! space, decision D41). Grounders write their ray requests (model space) into the instance's row
-//! of the ray output view; the host casts them and passes the hits back next frame (ADR 0350: a
+//! of the ray output view; the host casts them and passes the hits back next frame (ADR 0370: a
 //! one-frame-old hit). Joint limits come from the skeleton's `JOINT_RANGES` at load
 //! (`JointLimit::from_range` against the rest rotation; free where a bone has none); roles from
 //! its `ROLES` (role → bone).

@@ -143,10 +143,10 @@ describe("the live-edit path on the loopback host (Ma1)", () => {
     recs = await applied({ op: "setEffect", bus: "SFX", index: 1, key: "threshold", value: -18 }, "smoothed");
     slots = of(recs, Op.BUS_SLOT).map((x) => readBusSlot(x.view, x.off));
     expect(slots.map((s) => [s.slot, s.effects[1]!.p[0]])).toEqual([[SLOT.SFX, -18]]);
-    // direct: an effect appended (a send on Music).
-    recs = await applied({ op: "addEffect", bus: "Music", index: 0, effect: { type: "reverb", send: 0.3 } }, "direct");
+    // direct: an effect appended (a high-pass on Music).
+    recs = await applied({ op: "addEffect", bus: "Music", index: 0, effect: { type: "highpass", frequency: 80, q: 0.7 } }, "direct");
     slots = of(recs, Op.BUS_SLOT).map((x) => readBusSlot(x.view, x.off));
-    expect(slots.map((s) => [s.slot, s.effects.map((e) => e.type)])).toEqual([[SLOT.Music, [3]]]);
+    expect(slots.map((s) => [s.slot, s.effects.map((e) => e.type)])).toEqual([[SLOT.Music, [1]]]);
     // direct: a bus added mid-list takes the next slot (4), appended with BUS_SLOT (fresh, under Music), then its lanes.
     recs = await applied({ op: "addBus", name: "Amb", parent: "Music", index: 1 }, "direct");
     slots = of(recs, Op.BUS_SLOT).map((x) => readBusSlot(x.view, x.off));

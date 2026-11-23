@@ -1,4 +1,4 @@
-//! `anim-pose` (ADR 0350, 0352): blend, additive, masked layered blend, mirror, local to model
+//! `anim-pose` (ADR 0370, 0372): blend, additive, masked layered blend, mirror, local to model
 //! space with skinning matrices, root motion, sync-marker phase maths and inertialization.
 //!
 //! Internal to the animation core: nothing here is engine public API (ADR 0010).

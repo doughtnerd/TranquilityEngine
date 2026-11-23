@@ -72,6 +72,13 @@ import {
   writeCurves,
   writeMaster,
   writeParam,
+  writeTime,
+  writeLoops,
+  writeSubmix,
+  PARAM_TIME,
+  TIME_CLIP,
+  TIME_SEQUENCE,
+  TIME_VOICE,
   writePlay,
   writeSetLoop,
   writeSetParams,
@@ -144,21 +151,33 @@ const master = (volume: number, muted: boolean, rampFrames: number): Writer => (
   writeMaster(view, off, { voiceId: 0, frameOffset: ASAP, volume, muted: muted ? 1 : 0, rampFrames });
 
 // ADR 0158 E2: automation records.
-/** CURVES from `first`: each curve `[x, y, interp]` keys (interp 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut). */
-const curves = (first: number, list: [number, number, number][][]): Writer => (view, off) =>
-  writeCurves(view, off, { voiceId: 0, frameOffset: ASAP, firstCurve: first, curves: list.map((keys) => ({ reserved: 0, keys: keys.map(([x, y, interp]) => ({ x, y, interp })) })) });
+/**
+ * CURVES from `first`: each curve `[x, y, interp]` keys (interp 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut), or
+ * `[x, y, 5, inDx, inDy, outDx, outDy]` for a Bézier key (ADR 0346).
+ */
+const curves = (first: number, list: ([number, number, number] | [number, number, number, number, number, number, number])[][]): Writer => (view, off) =>
+  writeCurves(view, off, { voiceId: 0, frameOffset: ASAP, firstCurve: first, curves: list.map((keys) => ({ reserved: 0, keys: keys.map(([x, y, interp, inDx = 0, inDy = 0, outDx = 0, outDy = 0]) => ({ x, y, interp, inDx, inDy, outDx, outDy })) })) });
 /** PARAM: `group` 0 global, else an instance group. */
 const param = (group: number, slot: number, value: number, seekPerSecond: number): Writer => (view, off) =>
   writeParam(view, off, { voiceId: 0, frameOffset: ASAP, group, slot, value, seekPerSecond });
 /** AUTOMATE `voiceId` with `[param, curve, target]` bindings (param bit15 = global; target 0 volume, 1 pitch, 2 lowpass). */
 const automate = (voiceId: number, bindings: [number, number, number][]): Writer => (view, off) =>
-  writeAutomate(view, off, { voiceId, frameOffset: ASAP, bindings: bindings.map(([param, curve, target]) => ({ param, curve, target })) });
+  writeAutomate(view, off, { voiceId, frameOffset: ASAP, bindings: bindings.map(([param, curve, target]) => ({ param, curve, target, offset: 0 })) });
 const busAutomate = (bus: number, bindings: [number, number, number][]): Writer => (view, off) =>
   writeBusAutomate(view, off, { voiceId: bus, frameOffset: ASAP, bindings: bindings.map(([param, curve, target]) => ({ param, curve, target })) });
+/** ADR 0345: SUBMIX `slot` for `group` on `bus`: `[type, on, ...params]` effects. */
+const submix = (slot: number, group: number, bus: number, effects: [number, boolean, ...number[]][]): Writer => (view, off) =>
+  writeSubmix(view, off, { voiceId: slot, frameOffset: ASAP, group, bus, parent: 0, reserved: 0, effects: effects.map(([type, on, ...p]) => ({ type, flags: on ? 1 : 0, p: [...p, 0, 0, 0, 0, 0, 0, 0, 0].slice(0, 8) })) });
 /** SET_LOOP `voiceId`, `frameOffset` frames into the batch (ASAP for at once). */
+/** ADR 0342: a loop program: `[start, end, crossfade, exitFade, count, flags]` per loop (no parameter). */
+const loops = (voiceId: number, list: [number, number, number, number, number, number][]): Writer => (view, off) =>
+  writeLoops(view, off, { voiceId, frameOffset: ASAP, loops: list.map(([startFrame, endFrame, crossfadeFrames, exitFadeFrames, count, flags]) => ({ startFrame, endFrame, crossfadeFrames, exitFadeFrames, count, flags, param: 0, shapes: 0, threshold: 0 })) });
 const setLoop = (voiceId: number, frameOffset: number, start: number, end: number, looping: boolean): Writer => (view, off) =>
   writeSetLoop(view, off, { voiceId, frameOffset, loopStartFrame: start, loopEndFrame: end, flags: looping ? 1 : 0 });
 const GLOBAL = 0x8000;
+/** ADR 0346: a sequence clock re-anchor, asap or stamped `frameOffset` frames after the batch's first frame. */
+const time = (group: number, value: number, rate: number, frameOffset = ASAP): Writer => (view, off) =>
+  writeTime(view, off, { voiceId: 0, frameOffset, group, which: TIME_SEQUENCE, value, rate });
 
 /** A scene's stage: a loopback host with clip loading, batch sending and a collected render. */
 class Stage {
@@ -479,6 +498,85 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
     s.send(param(0, 0, 0.3, 0), param(7, 2, 0.2, 0));
     s.run(20);
   },
+  // ADR 0345 (ABI 4.5): two voices of group 4 through its submix (a 1.2 kHz low-pass with resonance, then a compressor
+  // with 6 dB makeup), a third voice outside it; the submix is reconfigured mid-way (the low-pass bypassed) and freed.
+  "submix-chain"(s) {
+    s.send(
+      submix(2, 4, 0, [[1, true, 1200, 0.4, 0], [3, true, -24, 4, 5, 80, 6, 6]]),
+      play(voice(1), CLIP, { flags: MIXED | LOOP, group: 4 }),
+      play(voice(2), CLIP, { flags: MIXED | LOOP, group: 4, pitch: 1.5, gain: 0.5 }),
+      play(voice(3), CLIP, { flags: MIXED | LOOP, group: 0, gain: 0.3 }),
+    );
+    s.run(40);
+    s.send(submix(2, 4, 0, [[1, false, 1200, 0.4, 0], [3, true, -24, 4, 5, 80, 6, 6]]));
+    s.run(30);
+    s.send(submix(2, 0, 0, []));
+    s.run(20);
+  },
+  // ABI 4.4: a pan curve swept left to right by a seeking global parameter, summed with a constant offset, and a
+  // high-pass floor curve on a local parameter rising from off to 3 kHz (highest of two floors wins).
+  "automation-pan-highpass"(s) {
+    s.send(
+      curves(0, [[[0, -1, 2], [1, 1, 0]], [[0, 0.2, 0]], [[0, 0, 0], [1, 3000, 3]], [[0, 400, 0]]]),
+      param(0, 3, 0, 0),
+      param(5, 1, 0, 0),
+      play(voice(1), CLIP, { flags: MIXED | LOOP, group: 5 }),
+      automate(voice(1), [[GLOBAL | 3, 0, 4], [GLOBAL | 3, 1, 4], [1, 2, 3], [1, 3, 3]]),
+    );
+    s.run(10);
+    s.send(param(0, 3, 1, 1.2), param(5, 1, 1, 1));
+    s.run(90);
+  },
+  // ADR 0346: Bézier keys. A volume curve of two Bézier segments (an overshooting rise into a key whose in handle
+  // shapes it, then a fall into a plain key, so its flat third-long handle) and a pitch curve of one Bézier segment,
+  // swept by a seeking global parameter.
+  "automation-bezier"(s) {
+    s.send(
+      curves(0, [
+        [[0, 0.1, 5, 0, 0, 0.3, 0.9], [0.6, 0.8, 5, -0.2, 0.3, 0.1, -0.2], [1, 0.3, 0]],
+        [[0, 0.8, 5, 0, 0, 0.5, 0], [1, 1.25, 5, -0.5, 0, 0, 0]],
+      ]),
+      param(0, 1, 0, 0),
+      play(voice(1), CLIP, { flags: MIXED | LOOP }),
+      automate(voice(1), [[GLOBAL | 1, 0, 0], [GLOBAL | 1, 1, 1]]),
+    );
+    s.run(10);
+    s.send(param(0, 1, 1, 1.5));
+    s.run(90);
+  },
+  // ADR 0342: a loop program on one voice: a forward loop with a crossfaded seam played three times, a ping-pong loop,
+  // a held backward loop let go by crossfade at a stamped key-off, then a hold point parked until a second key-off.
+  "loop-program"(s) {
+    s.send(
+      play(voice(1), CLIP, { flags: MIXED }),
+      loops(voice(1), [
+        [600, 1800, 240, 0, 3, 0],
+        [2400, 3000, 0, 0, 2, 1],
+        [3600, 4800, 120, 480, 0, 2 | (1 << 2) | (2 << 4)],
+        [6000, 6000, 240, 0, 0, 1 << 2],
+      ]),
+    );
+    s.run(70);
+    s.send(setLoop(voice(1), 64, 0, 0, false));
+    s.run(30);
+    s.send(setLoop(voice(1), 32, 0, 0, false));
+    s.run(30);
+  },
+  // ADR 0346: time parameters. A volume fade-in on voice time, a pitch curve on clip time and a low-pass on its group's
+  // sequence clock, which runs, wraps back (a stamped TIME) and parks at a hold point.
+  "automation-time"(s) {
+    s.send(
+      curves(0, [[[0, 0, 2], [0.5, 1, 0]], [[0, 0.8, 0], [1, 1.25, 0]], [[0, 600, 4], [1, 16_000, 0]]]),
+      time(9, 0, 1),
+      play(voice(1), CLIP, { flags: MIXED | LOOP, group: 9 }),
+      automate(voice(1), [[PARAM_TIME | TIME_VOICE, 0, 0], [PARAM_TIME | TIME_CLIP, 1, 1], [PARAM_TIME | TIME_SEQUENCE, 2, 2]]),
+    );
+    s.run(60);
+    s.send(time(9, 0.25, 1, 64));
+    s.run(40);
+    s.send(time(9, 0.75, 0));
+    s.run(20);
+  },
   // ADR 0158 E2: bus volume automation on a global parameter (a step then a linear segment), seeking, over BUS_RAMP (the runtime lane).
   "automation-bus"(s) {
     s.send(
@@ -593,7 +691,7 @@ const SCENES: Record<string, (s: Stage) => void | Promise<void>> = {
       play(voice(2), AMBI_O1, { flags: MIXED | LOOP | AMBISONIC, gain: 0.5, bus: 0, pitch: 1.25, startOffsetFrames: 3_000 }),
       play(voice(3), AMBI_O3, { flags: MIXED | LOOP | AMBISONIC, gain: 0.5, bus: 1, pitch: 0.8, startOffsetFrames: 5_000 }),
     );
-    s.send((view, off) => writeSetVoiceFx(view, off, { voiceId: voice(2), frameOffset: ASAP, mask: SET_VOICE_FX_MASK_YAW, rampFrames: 0, hpHz: 0, send: [0, 0, 0, 0], yaw: Math.PI / 6, auxLevel: 0, auxBus: 0xffff, reserved: 0 }));
+    s.send((view, off) => writeSetVoiceFx(view, off, { voiceId: voice(2), frameOffset: ASAP, mask: SET_VOICE_FX_MASK_YAW, rampFrames: 0, hpHz: 0, send: [0, 0, 0, 0], yaw: Math.PI / 6, auxLevel: 0, auxBus: 0xffff, spread: 0 }));
     s.run(24);
     for (let step = 1; step <= 6; step++) {
       const yaw = (step * Math.PI) / 12; // 15 degrees a step, 90 in all
@@ -657,7 +755,7 @@ function filtersFor(n: number, ramp: number, lp: (k: number) => number, hp: (k: 
   const out: Writer[] = [];
   for (let k = 0; k < n; k++) {
     out.push((view, off) => writeSetParams(view, off, { voiceId: voice(k + 1), frameOffset: ASAP, mask: SET_PARAMS_MASK_LP_HZ, gain: 0, pitch: 0, dirX: 0, dirY: 0, dirZ: 0, lpHz: lp(k), score: 0, bus: 0, rampFrames: ramp, flags: 0 }));
-    out.push((view, off) => writeSetVoiceFx(view, off, { voiceId: voice(k + 1), frameOffset: ASAP, mask: SET_VOICE_FX_MASK_HP_HZ, rampFrames: ramp, hpHz: hp(k), send: [0, 0, 0, 0], yaw: 0, auxLevel: 0, auxBus: 0xffff, reserved: 0 }));
+    out.push((view, off) => writeSetVoiceFx(view, off, { voiceId: voice(k + 1), frameOffset: ASAP, mask: SET_VOICE_FX_MASK_HP_HZ, rampFrames: ramp, hpHz: hp(k), send: [0, 0, 0, 0], yaw: 0, auxLevel: 0, auxBus: 0xffff, spread: 0 }));
   }
   return out;
 }

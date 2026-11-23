@@ -17,11 +17,13 @@
 //! B2), `duck` (the duck lane; B3, Dp1, Sc1), `loudness` (meters; Ld2, Ld7). `bus.rs` calls them as
 //! stage hooks; `scheduler.rs` dispatches the M5 opcodes to them. This module list is final for M5.
 
+pub mod adpcm_voice;
 pub mod arena;
 pub mod automation;
 pub mod bed;
 pub mod bus;
 pub mod bus_order;
+pub mod bus_sends;
 pub mod bus_slots;
 pub mod cap;
 pub mod cap_controller;
@@ -32,8 +34,11 @@ pub mod counters;
 pub mod curves;
 pub mod duck;
 pub mod due;
+pub mod ext;
 pub mod fx;
+pub mod fxmem;
 pub mod fxpool;
+pub mod generator;
 pub mod group_hold;
 pub mod group_rebase;
 pub mod groups;
@@ -46,8 +51,11 @@ pub mod panner;
 pub mod params;
 pub mod scheduler;
 pub mod sends;
+pub mod spread;
 pub mod status;
 pub mod stream;
+pub mod submix;
+pub mod voice_loops;
 pub mod voice_split;
 pub mod voices;
 mod wire_read;

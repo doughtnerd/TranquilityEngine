@@ -1,6 +1,6 @@
 # Animation build: plan
 
-Builds accepted records [0350](../../decisions/0350-animation-evaluates-on-an-engine-owned-rust-wasm-simd-core.md)–[0357](../../decisions/0357-audio-packages-are-named-biopak.md).
+Builds accepted records [0370](../../decisions/0370-animation-evaluates-on-an-engine-owned-rust-wasm-simd-core.md)–[0377](../../decisions/0377-audio-packages-are-named-biopak.md).
 
 - **The records own the requirements.** This plan owns the order, the task IDs, file ownership and the gates. If a task and a record disagree, the record wins and the plan gets fixed.
 - **Before working:** every agent reads [ground-rules.md](ground-rules.md).
@@ -18,7 +18,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
 ## State at planning (checked 2026-11-22)
 
 - **Branch:** `ccr-d1d28632-2asa2r`, with `origin/master` merged at `1773b414`. That brings in 0333 (WebRTC transport) and 0334 (snapshot parts).
-- **Records:** 0350–0357 are Accepted. 0355's context was corrected: `BallJoint` already has `useLimits`, `twistLimits` and a scalar `swingLimit` (`physics/runtime/Joint.ts:180-197`), so 0355 is a migration to elliptical swing plus a new drive.
+- **Records:** 0370–0377 are Accepted. 0375's context was corrected: `BallJoint` already has `useLimits`, `twistLimits` and a scalar `swingLimit` (`physics/runtime/Joint.ts:180-197`), so 0375 is a migration to elliptical swing plus a new drive.
 - **Animation code:** none exists. glTF skins, animations and morphs are dropped with a warning.
 - **Audio branch, as of planning** (per its implementation status):
   - 0332 (curves) is built;
@@ -46,7 +46,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
 - **Migrations:**
   - **BallJoint `swingLimit` → `swing`** (T43), a component field migration with a test on a saved scene;
   - **moving `editResult.ts` and `parameterList.ts` into the editor SDK** (T07), with every audio import updated in the same commit.
-- **Budgets are tripwires** (CLAUDE.md, 0350): the wasm size gate, per-frame budgets and pose-database size. They are never acceptance criteria or gates. Agents report a reason when one is passed, and the coordinator copies it into the build log.
+- **Budgets are tripwires** (CLAUDE.md, 0370): the wasm size gate, per-frame budgets and pose-database size. They are never acceptance criteria or gates. Agents report a reason when one is passed, and the coordinator copies it into the build log.
 
 ## Gates
 
@@ -69,11 +69,11 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
 | T41 | **`anim-retarget`** (see below). Split like T40: solvers first, node family after T31 | S | 3 | T31 (node half) |
 | T42 | **`anim-match`** (see below). Split like T40: search and bake first, database node after T31 | S | 4 | T31 (node half) |
 | T44r | **`anim-physics`** (see below) | M | 1.5 | T31 |
-| T45 | **Third-party nodes, Rust side (0350)** (see below) | S | 3 | T31 |
+| T45 | **Third-party nodes, Rust side (0370)** (see below) | S | 3 | T31 |
 | T82r | **`anim-bench`** (see below) | M | 1 | T40, T42 |
 
 - **T02, workspace and boundary:**
-  - `native/anim/` workspace with `rust-toolchain.toml` (1.99.1) and every crate from 0350 as a stub with its own `Cargo.toml`;
+  - `native/anim/` workspace with `rust-toolchain.toml` (1.99.1) and every crate from 0370 as a stub with its own `Cargo.toml`;
   - workspace dependencies: `glam`, `wasm-bindgen =0.2.130`;
   - `build.mjs` (run as `node native/anim/build.mjs`; the coordinator adds `build:anim` to `package.json`);
   - the embedded source hash with a Vitest staleness test in the new `src/plugins/animation/runtime/wasm/`, and the size gate (first build plus 20%);
@@ -110,7 +110,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
   - the asset arena (load and release; growth only in load calls);
   - the instance table (index plus generation);
   - `write_inputs`, `evaluate` and outputs (3×4 bone matrices, root deltas);
-  - **the minimal `anim-graph` interpreter** (clip player, crossfade, layer), so `play()` without a graph asset is an implicit single-layer graph from day one (0352), not a separate path;
+  - **the minimal `anim-graph` interpreter** (clip player, crossfade, layer), so `play()` without a graph asset is an implicit single-layer graph from day one (0372), not a separate path;
   - instance state snapshot and restore;
   - LOD fields (update every N frames with interpolation; rig off past a distance);
   - `cargo test` plus a Node test through the generated wire.
@@ -124,7 +124,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
   - sync groups and markers; notify weights;
   - computed-parameter slots;
   - **debug state** (`anim-graph/src/debug.rs` plus the `debug` wire family): transition blockers, request lifetimes, node weights, for T52;
-  - leaf **L31a**: Delaunay, barycentric weights and hull projection in `sources/triangulate.rs`, to audio Blend's rule (0352).
+  - leaf **L31a**: Delaunay, barycentric weights and hull projection in `sources/triangulate.rs`, to audio Blend's rule (0372).
 - **T22r, tweens and timelines in the core:** the tween table (Penner easings by name, loops, time scales, a destroyed flag) and timeline sampling (multi-binding tracks, `subclip`/`control`/`activation`/`audio`, wrap modes). `sequence`/`parallel` compile to a timeline program.
 - **T40, `anim-rig`:**
   - two-bone (leaf **L40a**), FABRIK, CCD (leaf **L40b**), full-body IK;
@@ -144,14 +144,14 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
   - the core's calls through an imported host function;
   - fault passthrough with a report;
   - `anim-meter`: an instruction-budget (fuel) pass that rewrites a module at load. It is compiled into the editor's loader wasm in Phase B.
-- **T82r, `anim-bench`:** criterion benches for the 0350 budgets. Results are logged as tripwires.
+- **T82r, `anim-bench`:** criterion benches for the 0370 budgets. Results are logged as tripwires.
 
 ## Phase B: after gate A
 
 | ID | Task | Lead | Est. | Depends |
 |---|---|---|---|---|
 | B0 | Reconcile: merge, re-check the "State" facts and every file named below against the merged tree, update this plan | Coordinator | 0.5 | A |
-| T04 | **Optional dependencies (0354)** (see below) | M | 1 | B0 |
+| T04 | **Optional dependencies (0374)** (see below) | M | 1 | B0 |
 | T05 | **`@field` `animatable`** (see below) | M | 0.5 | B0 |
 | T07 | **Editor SDK moves** (see below) | M | 1 | B0 |
 | T15 | **`render/gpuKernels/` executor** (see below) | S | 2 | B0 |
@@ -174,7 +174,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
 | T40t | **Rig on the ECS** (see below) | M | 1.5 | T32, T40 |
 | T41t | **Retarget on the ECS** (see below) | M | 1 | T32, T41, T14 |
 | T42t | **Matching on the ECS** (see below) | M | 1.5 | T32, T42 |
-| T43 | **Ball joints (0355)** (see below) | M | 2 | B0, T05 |
+| T43 | **Ball joints (0375)** (see below) | M | 2 | B0, T05 |
 | T44 | **`myco.ragdoll` runtime** (see below) | S | 3 | T43, T32, T44r |
 | T45t | **Third-party nodes, TS side** (see below) | S | 2 | T30, T45 |
 | T50 | **Animation window** (see below) | S | 4 | T20t, T05, T07 |
@@ -184,7 +184,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
 | T54 | **Skeleton, retarget and clip import tools** (see below) | M | 3 | T41t, T19 |
 | T55 | **Pose database tool and ragdoll builder** (see below) | M | 3 | T42t, T44 |
 | T56 | **2D tools** (see below) | M | 3 | T21 |
-| T60 | **Debug link (0356)** (see below) | S | 3 | B0, T52 |
+| T60 | **Debug link (0376)** (see below) | S | 3 | B0, T52 |
 | T72 | **Musical timing** (see below) | M | 1.5 | T04, T32 |
 | T73 | **Takes** (see below) | S | 2.5 | T32, T52 |
 | T70 | **`myco-curve` and the Bézier evaluator** (see below) | S | 2 | B0, T20t, T22t |
@@ -192,7 +192,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
 | T81 | **e2e specs** (see below) | Coordinator | 2 | all |
 | T82 | **Benches through the shipped player** (see below) | M | 1 | all |
 
-- **T04, optional dependencies (0354):**
+- **T04, optional dependencies (0374):**
   - `optionalDependencies` in the manifest; `order.ts`, `pluginSet.ts` and `enabled.ts`; editor halves; `thirdParty.ts`;
   - `ctx.plugins.isActive`; re-activation on toggle;
   - the Plugins-category message; one warning for a version out of range;
@@ -229,7 +229,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
   - a per-material "animated texture transform" flag;
   - baked models carry skins and morphs;
   - CC0 fixtures.
-- **T19, clip compile pipeline (0350, 0351):**
+- **T19, clip compile pipeline (0370, 0371):**
   - compression in a Web Worker with its own instance;
   - compiled clips content-keyed in `.myco/anim/`;
   - settings inheritance: project profile → folder rule → sidecar → platform;
@@ -243,7 +243,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
   - JS output tested against `anim-offline`.
 - **T17, ECS integration:**
   - `Skeleton`, `SkinnedMeshRenderer`, `Animator` code-first (`play`, `crossfade`, `state`, `layerWeight`, promises) and `BoneAttachment`;
-  - the stages in 0350's order;
+  - the stages in 0370's order;
   - root motion modes (`characterController` and `rigidBody` only when physics is active);
   - an internal post-propagation hook in `World.ts` for BoneAttachment, recorded in the decision log;
   - server mode; culling and LOD;
@@ -277,7 +277,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
 - **T40t, rig on the ECS:** `Animator.ik()` and `warp()`; grounder rays through the public physics ray API (physics active); rig LOD by distance; the rig node family file.
 - **T41t, retarget on the ECS:** retarget node family; profile assets at runtime.
 - **T42t, matching on the ECS:** the pose database node family; the bake worker; trajectory input from `CharacterController`.
-- **T43, ball joints (0355):**
+- **T43, ball joints (0375):**
   - `swingLimit` → `swing {y, z}` with the field migration;
   - the drive;
   - the backend interface and Rapier mapping (confirm per-axis motors at `rapier3d.ts:143` first);
@@ -307,15 +307,15 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
   - live preview on any profile-compatible character.
 - **T55, pose database tool and ragdoll builder:** the pose database tool; the ragdoll builder (`src/plugins/ragdoll/editor/`).
 - **T56, 2D tools:** flipbooks from slices; the 2D bone editor with weights on the Sprite Editor's history.
-- **T60, debug link (0356):**
+- **T60, debug link (0376):**
   - `src/engine/debugLink/` over `net/transport/` (WebSocket, WebRTC);
   - pulled topics; commands at next frame start;
-  - take-record encoding (audio 0334);
+  - take-record encoding (audio 0348);
   - `src/editor/debugLink/` with the accept prompt, connected-builds menu and LAN toggle in Preferences;
   - `game.json` `debug`, `--debug-link`; stripped from release exports (test);
   - the animation topic for T52.
   
-  The Studio may reuse it; that isn't required by 0356.
+  The Studio may reuse it; that isn't required by 0376.
 - **T72, musical timing:** `at: beat | bar | exit` and `align: hit` against `AudioPlaylistHandle` (audio active).
 - **T73, takes:** `ANIM_*` records in the take recorder and reader; editor replay against the current project.
 - **T70, `myco-curve` and the Bézier evaluator:**
@@ -455,7 +455,7 @@ An independent review of revision 1 found 50 items. They are answered by:
   - T60 comes after T52 and gate A (2.6);
   - curve runtime is noted as T70's change (2.7);
   - raw-clip form in T03r (2.8);
-  - the ball-joint migration made explicit, and 0355 corrected (2.9).
+  - the ball-joint migration made explicit, and 0375 corrected (2.9).
 - **Ordering:**
   - every dependency now sits in an earlier wave (3.1–3.5);
   - optional dependencies on physics and audio declared in T01 after T04 (3.6, 3.7);
@@ -471,12 +471,12 @@ An independent review of revision 1 found 50 items. They are answered by:
   - slot sections and sidecar fields (4.6);
   - drop behaviour (4.7);
   - clip import items (4.8);
-  - 0356 items, with Studio reuse marked optional (4.9);
-  - 0350 items in T13r and T13t (4.10);
-  - 0354 items (4.11);
-  - 0355 springs and profile joint ranges (4.12);
-  - 0351 warnings, rewriting and shared 2D skeletons (4.13);
-  - T74 (BioPak) later dropped: 0357 withdrawn by the owner (2026-11-23).
+  - 0376 items, with Studio reuse marked optional (4.9);
+  - 0370 items in T13r and T13t (4.10);
+  - 0374 items (4.11);
+  - 0375 springs and profile joint ranges (4.12);
+  - 0371 warnings, rewriting and shared 2D skeletons (4.13);
+  - T74 (BioPak) later dropped: 0377 withdrawn by the owner (2026-11-23).
 - **Facts:** the audio and master state (5.2, 5.4), `_sendMessage` (5.5), the profiler (5.6), the critical path recomputed (5.7), and the inconsistencies (5.8, 5.9).
 - **Cadence:**
   - status rows at each wave (6.1);

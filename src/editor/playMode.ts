@@ -17,6 +17,7 @@ import { signal } from "@preact/signals";
 import type { AssetSource, Bootstrap, Engine } from "../engine";
 import { redrawEngine, resumeEditorWorld, stepEngineWorld } from "../engine/editor";
 import { launchGame, type LaunchedGame } from "../engine/launch";
+import { applyPlayLanguage, previewLanguage, projectLanguages } from "./playLanguage";
 import { projectStorage } from "./projectPlace";
 import { STEP_SECONDS, createGameView, type GameView } from "./gameView";
 import { applyNetConditions, conditionsOff, createThinInput, playBootstrap, withConditions, type NetConditionValues, type NetPlayBootstrap, type NetPlayOptions, type ThinInput, type ThinInputMode } from "./netPlay";
@@ -136,6 +137,8 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
       reportShaderVariants: true, // log shader variants compiled mid-game, naming their prefab (ADR 0080)
     });
     runtime = game.engine;
+    // The preview language (ADR 0354 §1, 0356 §9): the game starts in the Play toolbar's language, not the player's.
+    await applyPlayLanguage(previewLanguage.peek(), projectLanguages(project.settings));
     if (netPlay && netPlay.thin.length > 0) thin = createThinInput(runtime, netPlay.thin, netOptions?.thinInput ?? "random");
     view?.attach(runtime, { thin: netPlay?.thin ?? [] });
     if (container) runtime.start(); // headless (tests): the caller steps the Engine

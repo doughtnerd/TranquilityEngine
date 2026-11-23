@@ -1,0 +1,209 @@
+{
+  "format": "myco.playlist@1",
+  "type": "sequence",
+  "output": "Music",
+  "playback": {
+    "maxInstances": 1,
+    "priority": 200
+  },
+  "entries": [],
+  "sequence": {
+    "length": 12,
+    "tempo": {
+      "bpm": 120,
+      "meter": "4/4"
+    },
+    "tracks": [
+      {
+        "id": "t1",
+        "name": "sections",
+        "kind": "playlist",
+        "color": 1,
+        "clips": [
+          {
+            "id": "c1",
+            "playlist": {
+              "type": "sequence",
+              "entries": [],
+              "sequence": {
+                "length": 4,
+                "tempo": {
+                  "bpm": 120,
+                  "meter": "4/4"
+                },
+                "tracks": [
+                  {
+                    "id": "t1",
+                    "name": "pad",
+                    "kind": "audio",
+                    "color": 1,
+                    "volume": -10.458,
+                    "clips": [
+                      {
+                        "id": "t1c1",
+                        "sample": "audio/events/music-pad.wav",
+                        "at": 0,
+                        "length": 4,
+                        "sync": true
+                      }
+                    ]
+                  },
+                  {
+                    "id": "t2",
+                    "name": "pulse",
+                    "kind": "audio",
+                    "color": 2,
+                    "volume": -10.458,
+                    "clips": [
+                      {
+                        "id": "t2c1",
+                        "sample": "audio/events/music-pulse.wav",
+                        "at": 0,
+                        "length": 4,
+                        "sync": true
+                      }
+                    ]
+                  }
+                ],
+                "markers": [
+                  {
+                    "id": "m1",
+                    "name": "exit",
+                    "at": 4,
+                    "type": "exit"
+                  }
+                ]
+              }
+            },
+            "at": 0,
+            "length": 4
+          },
+          {
+            "id": "c2",
+            "playlist": {
+              "type": "sequence",
+              "entries": [],
+              "sequence": {
+                "length": 4,
+                "tempo": {
+                  "bpm": 120,
+                  "meter": "4/4"
+                },
+                "tracks": [
+                  {
+                    "id": "t1",
+                    "name": "lead",
+                    "kind": "audio",
+                    "color": 1,
+                    "volume": -10.458,
+                    "clips": [
+                      {
+                        "id": "t1c1",
+                        "sample": "audio/events/music-lead.wav",
+                        "at": 0,
+                        "length": 4,
+                        "sync": true
+                      }
+                    ]
+                  },
+                  {
+                    "id": "t2",
+                    "name": "pulse",
+                    "kind": "audio",
+                    "color": 2,
+                    "volume": -10.458,
+                    "clips": [
+                      {
+                        "id": "t2c1",
+                        "sample": "audio/events/music-pulse.wav",
+                        "at": 0,
+                        "length": 4,
+                        "sync": true
+                      }
+                    ]
+                  }
+                ],
+                "markers": [
+                  {
+                    "id": "m1",
+                    "name": "exit",
+                    "at": 4,
+                    "type": "exit"
+                  }
+                ]
+              }
+            },
+            "at": 4,
+            "length": 4
+          },
+          {
+            "id": "c3",
+            "playlist": {
+              "type": "sequence",
+              "entries": [],
+              "sequence": {
+                "length": 4,
+                "tempo": {
+                  "bpm": 120,
+                  "meter": "4/4"
+                },
+                "tracks": [
+                  {
+                    "id": "t1",
+                    "name": "melody",
+                    "kind": "audio",
+                    "color": 1,
+                    "volume": -10.458,
+                    "clips": [
+                      {
+                        "id": "t1c1",
+                        "sample": "audio/melody-loop.wav",
+                        "at": 0,
+                        "length": 4,
+                        "sync": true
+                      }
+                    ]
+                  },
+                  {
+                    "id": "t2",
+                    "name": "pad",
+                    "kind": "audio",
+                    "color": 2,
+                    "volume": -10.458,
+                    "clips": [
+                      {
+                        "id": "t2c1",
+                        "sample": "audio/events/music-pad.wav",
+                        "at": 0,
+                        "length": 4,
+                        "sync": true
+                      }
+                    ]
+                  }
+                ],
+                "markers": [
+                  {
+                    "id": "m1",
+                    "name": "exit",
+                    "at": 4,
+                    "type": "exit"
+                  }
+                ]
+              }
+            },
+            "at": 8,
+            "length": 4
+          }
+        ]
+      }
+    ],
+    "markers": [
+      {
+        "id": "m1",
+        "name": "exit",
+        "at": 12,
+        "type": "exit"
+      }
+    ]
+  }
+}

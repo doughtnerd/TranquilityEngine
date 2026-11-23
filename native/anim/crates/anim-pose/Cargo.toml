@@ -1,6 +1,6 @@
 [package]
 name = "anim-pose"
-description = "Myco animation core (ADR 0350): blend, additive, masked layers, local to model space, root motion and sync-marker phase maths."
+description = "Myco animation core (ADR 0370): blend, additive, masked layers, local to model space, root motion and sync-marker phase maths."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

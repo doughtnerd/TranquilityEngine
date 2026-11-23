@@ -2,7 +2,7 @@
 
 ## Where things are
 
-- **Records:** `docs/decisions/0350`–`0357` (Accepted).
+- **Records:** `docs/decisions/0370`–`0377` (Accepted).
 - **Build documents:** `docs/design/animation/`. [plan.md](plan.md) is the source for order and ownership, [ground-rules.md](ground-rules.md) holds every task's rules, and [decision-log.md](decision-log.md) and [build-log.md](build-log.md) record what happened.
 - **Branch:** `ccr-d1d28632-2asa2r`.
 - **Audio branch (gate A):** `origin/ccr-8460d665-umr8or`.
@@ -10,7 +10,7 @@
 ## Reading order
 
 1. `CLAUDE.md`.
-2. Records 0350, 0351, 0352, 0353 (then 0354–0357 as a task needs them).
+2. Records 0370, 0371, 0372, 0373 (then 0374–0377 as a task needs them).
 3. `plan.md`.
 4. `ground-rules.md`.
 5. The latest entries of `build-log.md` and `decision-log.md`.

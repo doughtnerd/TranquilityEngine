@@ -127,7 +127,7 @@ const snapshot = (settings: unknown, keys: readonly string[]) => new Map(keys.ma
 class Session<D, P> implements ProjectSectionSession<D, P> {
   /** `project.json`'s text when the section last read or wrote it. */
   fileText: string | undefined;
-  /** The text a write in progress is writing: until it's done, the project may already hold it. */
+  /** The text a write in progress writes: until it's done, the project may hold it or the text before. */
   writingText: string | undefined;
   /** The owned keys when last read or written, with their values (JSON). */
   saved: Map<string, string>;
@@ -262,11 +262,14 @@ class Session<D, P> implements ProjectSectionSession<D, P> {
       const settings = this.project.settings as Record<string, unknown>;
       const changed = keys.filter((k) => json(out[k]) !== json(settings[k]));
       if (changed.length === 0) return;
-      let text = this.project.textOf(PROJECT_FILE) ?? "{}\n";
+      const oldText = this.project.textOf(PROJECT_FILE);
+      let text = oldText ?? "{}\n";
       for (const key of changed) text = withMember(text, key, out[key]);
+      if (text === oldText) return;
       const before = spec.read(pick(settings, keys));
       this.saving = true;
-      this.writingText = text; // a render mid-save sees either text, and mustn't take its own save for an outside change
+      // A render mid-save sees the file before or after the write, and mustn't take its own save for an outside change.
+      this.writingText = text;
       this.owner.bump();
       try {
         await this.project.writeText(PROJECT_FILE, text);

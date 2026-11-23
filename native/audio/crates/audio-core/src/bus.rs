@@ -114,6 +114,8 @@ pub struct BusSlot {
     pub snapshot: Biquad,
     /// The effect chain (`fx.rs`, K5).
     pub fx: FxChain,
+    /// ADR 0344 (ABI 4.7): post-fader sends into returns (`bus_sends.rs`).
+    pub sends: crate::bus_sends::Sends,
 }
 
 /// The bus tree's scalars and the shared reverb's input. All-zero is valid; [`init`] fills it.
@@ -148,6 +150,14 @@ pub struct BusArea {
     pub limiter_lookahead_ms: f32,
     /// Non-zero once `mixdown` has run: the look-ahead can't change after that.
     pub rendered: u32,
+    /// ADR 0345: non-zero for a bus some sidechain compressor keys on (`bus_order::rerun` sets it).
+    pub is_key: [u8; InitParams::MAX_BUSES as usize],
+    /// ADR 0345: a key bus's pre-fader level this quantum, dB (peak, 10 ms release; NaN when the
+    /// bus is no key), read by the sidechain compressors of the buses mixed after it.
+    pub key_db: [f32; InitParams::MAX_BUSES as usize],
+    /// The key detectors' state.
+    pub key_env: [audio_dsp::sidechain::DetectorState; InitParams::MAX_BUSES as usize],
+    pub key_coeffs: audio_dsp::sidechain::DetectorCoeffs,
 }
 
 /// Offset of [`BusArea`] in the core-state region (after the scheduler's area).
@@ -226,6 +236,8 @@ pub fn init(core: &mut Core) {
     v.area.limiter = Limiter::new(sample_rate, limiter::DEFAULT_LOOKAHEAD_MS);
     v.area.limited = 0;
     v.area.rendered = 0;
+    v.area.key_coeffs = audio_dsp::sidechain::DetectorCoeffs::new(sample_rate);
+    v.area.key_db = [f32::NAN; InitParams::MAX_BUSES as usize];
     if let Some(first) = v.slots.first_mut() {
         *first = fresh(ROOT);
         v.area.order[0] = 0;
@@ -290,6 +302,8 @@ pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
     let end = off + head.words as usize * 4;
     let wanted = u32_at(msg, off + 12) as usize;
     let regions = core.regions_mut();
+    // The effect memory is borrowed apart from the bus view (distinct regions); put back below.
+    let fxmem = core::mem::take(&mut regions.fxmem);
     let v = view(regions);
     let max = max.min(v.slots.len()).min(InitParams::MAX_BUSES as usize);
     let old_count = v.area.count as usize;
@@ -307,7 +321,8 @@ pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
         let start = cur;
         let list = (0..effects).filter_map(|e| BusConfigBusesEffects::read(&msg[..end], start + e * BusConfigBusesEffects::FIXED_END).ok()).map(|(fx, _)| (fx.type_, fx.p));
         // M5 (K1): the per-slot apply, shared with B2's `BUS_SLOT`.
-        let (d, reverb) = crate::bus_slots::apply(&mut v.slots[i], i >= old_count, parent, list, sample_rate);
+        crate::fxmem::set_owner(&mut *fxmem, i as u16);
+        let (d, reverb) = crate::bus_slots::apply(&mut v.slots[i], i >= old_count, parent, list, sample_rate, &mut *fxmem);
         dropped += d;
         has_reverb |= reverb;
         cur += effects * BusConfigBusesEffects::FIXED_END;
@@ -329,6 +344,9 @@ pub fn configure(core: &mut Core, msg: &[u8], off: usize) {
     v.area.count = count as u32;
     v.area.has_reverb = has_reverb as u32;
     v.area.dropped = v.area.dropped.wrapping_add(dropped);
+    let regions = core.regions_mut();
+    regions.fxmem = fxmem;
+    crate::fxmem::rebuild(regions);
     crate::bus_order::rerun(core);
     let c = status::counters_mut(core);
     c.set_bus_count(count);
@@ -408,9 +426,13 @@ pub fn reset(core: &mut Core) {
     convolver::reset(&mut regions.reverb[..]);
     // M5 (K1): the lane entries, a region of their own (distinct from the buses and core state).
     let lanes: *mut [u8] = &mut regions.lanes[..];
+    let fxmem: *mut [u8] = &mut regions.fxmem[..];
     let v = view(regions);
     // SAFETY: the lanes region is distinct from every region `v` views (Layout).
     let lanes = crate::lanes::entries(unsafe { &mut *lanes });
+    // SAFETY: as the lanes: the effect memory is a region of its own.
+    let mut no_fx: [f32; 0] = [];
+    let fxdata: &mut [f32] = crate::fxmem::split(unsafe { &mut *fxmem }).map_or(&mut no_fx[..], |(_, d)| d);
     let (bus_lanes, master_lanes) = match lanes.split_last_mut() {
         Some((m, b)) => (b, Some(m)),
         None => (&mut [][..], None),
@@ -422,8 +444,10 @@ pub fn reset(core: &mut Core) {
         crate::lanes::settle(bus_lanes.get_mut(i).unwrap_or(&mut spare), slot);
         slot.meter.reset();
         slot.snapshot = Biquad::default();
-        slot.fx.reset();
+        slot.fx.reset_with(fxdata);
+        crate::bus_sends::settle(slot);
     }
+    v.area.key_env = [Default::default(); InitParams::MAX_BUSES as usize];
     crate::lanes::settle_master(master_lanes.unwrap_or(&mut spare), &mut v.area.master);
     v.area.limiter.reset();
     v.area.reverb_in = [0.0; 2 * QUANTUM];
@@ -437,22 +461,49 @@ pub fn reset(core: &mut Core) {
 
 /// The buses' input buffers, for the voices' render loop: a raw view, so the voices' slots can be
 /// borrowed at the same time (they are another region).
+/// Calls `f` with every catalogue effect of the configured buses (the effect memory's sweep).
+pub(crate) fn for_each_effect(regions: &mut Regions, f: &mut impl FnMut(&audio_dsp::fx::Effect)) {
+    let v = view(regions);
+    let count = (v.area.count as usize).min(v.slots.len());
+    for slot in &v.slots[..count] {
+        slot.fx.for_each_effect(f);
+    }
+}
+
 pub(crate) struct Inputs {
     base: *mut BusSlot,
     count: usize,
+    /// ADR 0345: the instance submixes' buffers, when one is in use.
+    submixes: Option<crate::submix::Buffers>,
 }
 
 impl Inputs {
-    /// The buffers of the configured buses in `regions`.
+    /// The buffers of the configured buses (and the submixes in use) in `regions`.
     pub(crate) fn of(regions: &mut Regions) -> Inputs {
+        let submixes = crate::submix::Buffers::of(regions);
         let v = view(regions);
         let count = (v.area.count as usize).clamp(1, v.slots.len().max(1)).min(v.slots.len());
-        Inputs { base: v.slots.as_mut_ptr(), count }
+        Inputs { base: v.slots.as_mut_ptr(), count, submixes }
     }
 
-    /// Bus `bus`'s left and right input (a bus not configured routes to bus 0, the root), or
-    /// `None` when the core has no bus slot at all.
+    /// Route `bus`'s left and right input: a bus (a bus not configured routes to bus 0, the root),
+    /// or with [`crate::submix::ROUTE_SUBMIX`] set an instance submix (a free one routes to its
+    /// last bus, or bus 0). `None` when the core has no bus slot at all.
     pub(crate) fn get(&mut self, bus: u16) -> Option<(&mut [f32], &mut [f32])> {
+        if bus & crate::submix::ROUTE_SUBMIX != 0 {
+            let s = (bus & !crate::submix::ROUTE_SUBMIX) as usize;
+            let live = self.submixes.as_ref().is_some_and(|b| b.live(s));
+            if live {
+                return self.submixes.as_mut().and_then(|b| b.get(s));
+            }
+            let to = self.submixes.as_ref().map_or(0, |b| b.bus_of(s));
+            return self.bus(to);
+        }
+        self.bus(bus)
+    }
+
+    /// Bus `bus`'s left and right input (see [`Inputs::get`]).
+    fn bus(&mut self, bus: u16) -> Option<(&mut [f32], &mut [f32])> {
         if self.count == 0 {
             return None;
         }
@@ -493,7 +544,11 @@ pub fn mixdown(core: &mut Core) {
     let duck: *mut [u8] = &mut regions.duck[..];
     let loudness: *mut [u8] = &mut regions.loudness[..];
     let sends: *mut [u8] = &mut regions.sends[..];
+    let fxmem: *mut [u8] = &mut regions.fxmem[..];
     let v = view(regions);
+    // SAFETY: the effect memory is a region of its own, distinct from every region `v` views.
+    let mut no_fx: [f32; 0] = [];
+    let fxdata: &mut [f32] = crate::fxmem::split(unsafe { &mut *fxmem }).map_or(&mut no_fx[..], |(_, d)| d);
     // SAFETY: the output and reverb regions are distinct from the buses and core-state regions
     // `v` views (Layout), so these views don't alias it.
     let (out_l, out_r) = unsafe { &mut *output }[..2 * QUANTUM].split_at_mut(QUANTUM);
@@ -528,6 +583,8 @@ pub fn mixdown(core: &mut Core) {
     let Some(send) = crate::sends::area(sends) else { return };
     let mut gain_curve = [0.0f32; QUANTUM];
     let mut duck_curve = [0.0f32; QUANTUM];
+    // ABI 5.0 (ADR 0352, 0358 §3): the buses' plugin effects share one quantum's fuel.
+    let mut fuel = crate::ext::Fuel::quantum(QUANTUM);
     for k in 0..count {
         let b = v.area.order[k] as usize;
         let slot = &mut v.slots[b];
@@ -539,7 +596,11 @@ pub fn mixdown(core: &mut Core) {
             crate::bed::decode_into(beds, b, l, r);
             crate::zones::add_returns(zones, b, l, r);
             crate::sends::add_aux(zones, b, l, r);
-            let fed = slot.fx.process(l, r, &mut send.l, &mut send.r);
+            // ABI 4.8 (ADR 0344): automated effect parameters reach the chain before it runs.
+            if let Some(a) = auto {
+                a.for_each_fx(|s, p, value| slot.fx.automate(s, p, value));
+            }
+            let fed = slot.fx.process_with(l, r, &mut send.l, &mut send.r, fxdata, &v.area.key_db[..count], &mut fuel);
             sent |= fed;
             let lp = match auto {
                 Some(a) if a.targets & crate::automation::has::LOWPASS != 0 => slot.lp.value.min(a.lp),
@@ -549,6 +610,12 @@ pub fn mixdown(core: &mut Core) {
             slot.lp.advance(QUANTUM as u32);
             // M5 (K1): the pre-fader tap (sidechain detectors, Sc1), then the gain lanes.
             crate::duck::detect(duck, b, l, r);
+            if v.area.is_key[b] != 0 {
+                // ADR 0345: a sidechain key's pre-fader level, for the buses mixed after it.
+                if let (Ok(kl), Ok(kr)) = (<&[f32; QUANTUM]>::try_from(&*l), <&[f32; QUANTUM]>::try_from(&*r)) {
+                    v.area.key_db[b] = audio_dsp::sidechain::detect_peak(&mut v.area.key_env[b], &v.area.key_coeffs, kl, kr);
+                }
+            }
             let ducked = if crate::duck::gain(duck, b, &mut duck_curve) { Some(&duck_curve) } else { None };
             let gain = crate::lanes::apply(bus_lanes.get_mut(b).unwrap_or(&mut spare_lanes), &mut slot.gain, auto, ducked, l, r, &mut gain_curve);
             if fed {
@@ -560,6 +627,10 @@ pub fn mixdown(core: &mut Core) {
         block.copy_from_slice(&slot.buf);
         slot.buf = [0.0; 2 * QUANTUM];
         let parent = slot.parent;
+        // ADR 0344 (ABI 4.7): post-fader sends into the returns (mixed after this bus).
+        if slot.sends.count != 0 {
+            crate::bus_sends::feed(&mut v.slots[..count], b, &block, auto);
+        }
         let (dst_l, dst_r): (&mut [f32], &mut [f32]) = if parent == ROOT || parent as usize >= count {
             (&mut out_l[..], &mut out_r[..])
         } else {

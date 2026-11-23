@@ -11,19 +11,27 @@
 // the newest 16 of those through `rotateCaptures` (`Storage.list`, `delete`). The trigger saves unnamed and does not copy it.
 // A browser cannot delete a download, so the web trigger stops at `CAPTURE_TRIGGER_MAX_FILES` saves per page session and says
 // so (R16, `webSaveCount`).
+//
+// **Takes (ADR 0348).** `installTakeTrigger()` is the same trigger for `Audio.take` on **F10** (game.json `audioTake`): a
+// take records what the game asked of audio beside the profile, and saves a `*.mycotake`. It has no touch gesture (three
+// fingers are the capture's; more fingers collide with the platforms' own gestures).
 import { isTauri } from "../../../../engine/platform/FileSystem";
 import { audioCapture, type AudioCapture } from "./capture";
+import { audioTake } from "./take";
 
 /** How long exactly three fingers stay down before the touch trigger fires, ms (owner decision 7). */
 const TRIGGER_HOLD_MS = 1000;
 /** The key. */
 export const TRIGGER_KEY = "F9";
+/** ADR 0348: the take trigger's key. */
+export const TAKE_TRIGGER_KEY = "F10";
 /** Fingers of the touch hold. */
 export const TRIGGER_FINGERS = 3;
 /** How long a toast stays, ms. */
 export const TOAST_MS = 3000;
 
 const TOAST_RECORDING = "Recording audio…";
+const TOAST_RECORDING_TAKE = "Recording a take…";
 const toastSaved = (name: string): string => `Saved ${name}`;
 const toastCap = (max: number): string => `Capture limit reached: this page has saved ${max} captures, and a browser can't delete downloads. Reload the page to record more.`;
 
@@ -101,10 +109,29 @@ const timerSchedule: TriggerEnv["schedule"] = (fn, ms) => {
  * triggers; the player calls it once.
  */
 export function installCaptureTrigger(env: Partial<TriggerEnv> = {}): () => void {
+  return installTrigger(env, { key: TRIGGER_KEY, recording: TOAST_RECORDING, touch: true, capture: audioCapture });
+}
+
+/**
+ * ADR 0348: installs the take trigger (F10 starts `Audio.take`, the next F10 stops and saves it) and returns what removes it.
+ * The player calls it once when game.json says `audioTake`. `env.capture` stands for the take (tests).
+ */
+export function installTakeTrigger(env: Partial<TriggerEnv> = {}): () => void {
+  return installTrigger(env, { key: TAKE_TRIGGER_KEY, recording: TOAST_RECORDING_TAKE, touch: false, capture: audioTake });
+}
+
+interface TriggerSpec {
+  key: string;
+  recording: string;
+  touch: boolean;
+  capture: TriggerEnv["capture"];
+}
+
+function installTrigger(env: Partial<TriggerEnv>, spec: TriggerSpec): () => void {
   const schedule = env.schedule ?? timerSchedule;
   const dom = env.toast ? null : domToast(schedule);
   const toast = env.toast ?? ((text: string) => dom!.show(text));
-  const capture = env.capture ?? audioCapture;
+  const capture = env.capture ?? spec.capture;
   const target = env.target ?? (globalThis as unknown as { window: EventTarget }).window;
   const tauri = env.tauri ?? isTauri();
   const webSaves =
@@ -138,7 +165,7 @@ export function installCaptureTrigger(env: Partial<TriggerEnv> = {}): () => void
           return;
         }
       }
-      toast(TOAST_RECORDING);
+      toast(spec.recording);
       try {
         await capture.start();
       } catch (err) {
@@ -151,7 +178,7 @@ export function installCaptureTrigger(env: Partial<TriggerEnv> = {}): () => void
 
   const onKey = (e: Event): void => {
     const k = e as KeyboardEvent;
-    if (k.key !== TRIGGER_KEY || k.repeat) return;
+    if (k.key !== spec.key || k.repeat) return;
     if (k.ctrlKey || k.altKey || k.metaKey || k.shiftKey) return;
     k.preventDefault();
     void toggle();
@@ -175,11 +202,12 @@ export function installCaptureTrigger(env: Partial<TriggerEnv> = {}): () => void
   };
 
   const capturing = { capture: true } as const;
+  const touches = spec.touch ? ["touchstart", "touchend", "touchcancel"] : [];
   target.addEventListener("keydown", onKey, capturing);
-  for (const type of ["touchstart", "touchend", "touchcancel"]) target.addEventListener(type, onTouch, { capture: true, passive: true });
+  for (const type of touches) target.addEventListener(type, onTouch, { capture: true, passive: true });
   return () => {
     target.removeEventListener("keydown", onKey, capturing);
-    for (const type of ["touchstart", "touchend", "touchcancel"]) target.removeEventListener(type, onTouch, { capture: true });
+    for (const type of touches) target.removeEventListener(type, onTouch, { capture: true });
     cancelHold?.();
     cancelHold = null;
     dom?.dispose();

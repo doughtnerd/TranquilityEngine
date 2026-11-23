@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Measures the committed animation core on wasm in Node (ADR 0350's budgets are tripwires): `evaluate` for 100
+// Measures the committed animation core on wasm in Node (ADR 0370's budgets are tripwires): `evaluate` for 100
 // instances of the 60-bone fixture humanoid, (a) all playing one clip, (b) all mid-crossfade between two clips,
 // (c) T31: all running the locomotion graph (fixtures/loco.animgraph: a state machine with a 2D blend space of three
 // clips, synced and speed-scaled, under an upper-body slot playing a one-shot, under an inertialization node), (d) T40:
 // the same graph with a two-foot grounder (hits fed each frame from last frame's rays, the host's round trip) and a
-// look-at on the neck and head (fixtures/loco_rig.animgraph; ADR 0350's budget scenario shape), plus the wasm's size. Prints the numbers; asserts nothing (wall-clock). Run: node native/anim/crates/anim-wasm/bench.mjs
+// look-at on the neck and head (fixtures/loco_rig.animgraph; ADR 0370's budget scenario shape), plus the wasm's size. Prints the numbers; asserts nothing (wall-clock). Run: node native/anim/crates/anim-wasm/bench.mjs
 import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 

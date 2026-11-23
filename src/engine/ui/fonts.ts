@@ -8,10 +8,17 @@
  * - **Project fonts**: a `font` field names a font file asset (`.ttf`, `.otf`, `.woff`, `.woff2`). It
  *   loads on first use under a generated family name, with Inter after it.
  *
+ * - **Language fonts** (ADR 0356 §5): the current language's `fonts` come after a text's own font and before
+ *   Inter, and its `fontReplace` swaps a text's font for another, so the font follows the language (Han
+ *   unification: Japanese and Chinese share code points, not glyph shapes). They load as a language
+ *   participant: `Locale.setLanguage` (and the start language at boot) waits for them, at most 3 s.
+ *
  * Text measured before a font arrives uses the fallback; each arrival bumps `fontEpoch()` and calls
  * the `onFontLoaded` listeners, so the UI core measures its text again and the drawing layer redraws.
  * Without the FontFace API (Node, tests) nothing loads, and the family names are still returned.
  */
+import { Locale, localeFonts } from "../localisation/Locale";
+import { registerLanguageParticipant } from "../localisation/runtime/participants";
 import { Assets, normalizeAssetPath } from "../scene/Assets";
 
 /** The bundled font's CSS family name. */
@@ -81,6 +88,8 @@ export function loadBundledFont(): Promise<void> {
 
 interface ProjectFont {
   readonly family: string;
+  /** Settles once the face loaded (true) or failed (false); resolved at once without the FontFace API. */
+  ready: Promise<boolean>;
 }
 
 const projectFonts = new Map<string, ProjectFont>();
@@ -90,43 +99,97 @@ function familyFor(path: string): string {
   return `myco-font-${path.replace(/[^A-Za-z0-9_-]/g, "-")}`;
 }
 
-/**
- * The CSS family list for a `font` field: empty is the bundled Inter; a font file asset is its own
- * family (loaded on first use) followed by Inter. Anything else warns once and uses Inter.
- */
-export function fontFamilyOf(font: string | null | undefined): string {
-  const path = font ? normalizeAssetPath(font.trim()) : "";
-  if (!path) return UI_FONT_FAMILY;
+/** The font entry of a file path (loading it on first use), or null when the path isn't a font file (warned once). */
+function projectFont(path: string, what: string): ProjectFont | null {
   let entry = projectFonts.get(path);
   if (!entry) {
     if (!FONT_FILE.test(path)) {
-      warnOnce(`ext|${path}`, `UI font "${path}" isn't a font file (.ttf, .otf, .woff or .woff2); the text uses Inter.`);
-      return UI_FONT_FAMILY;
+      warnOnce(`ext|${path}`, `${what} "${path}" isn't a font file (.ttf, .otf, .woff or .woff2); the text uses Inter.`);
+      return null;
     }
-    entry = { family: familyFor(path) };
+    const family = familyFor(path);
+    entry = { family, ready: loadProjectFont(path, family) };
     projectFonts.set(path, entry);
-    loadProjectFont(path, entry.family);
   }
-  return `${entry.family}, ${UI_FONT_FAMILY}`;
+  return entry;
 }
 
-function loadProjectFont(path: string, family: string): void {
+/** The current language's font families, then Inter and the system font, cached until the language changes. */
+let languageStack: { epoch: number; families: string } | null = null;
+function languageFamilies(): string {
+  const epoch = Locale.epoch;
+  if (languageStack?.epoch !== epoch) {
+    const own = localeFonts().fonts.map((f) => projectFont(normalizeAssetPath(f.trim()), "Language font")?.family).filter((f): f is string => !!f);
+    languageStack = { epoch, families: [...own, UI_FONT_FAMILY].join(", ") };
+  }
+  return languageStack.families;
+}
+
+/**
+ * The CSS family list for a `font` field (ADR 0356 §5): the font (or the current language's replacement for it),
+ * the language's fonts, then Inter and the system font. Empty is no font of its own; a font file asset is its own
+ * family (loaded on first use). Anything else warns once and is left out.
+ */
+export function fontFamilyOf(font: string | null | undefined): string {
+  let path = font ? normalizeAssetPath(font.trim()) : "";
+  if (path) {
+    const replace = localeFonts().fontReplace;
+    const swapped = replace[path] ?? replace[`asset:${path}`];
+    if (swapped) path = normalizeAssetPath(swapped.trim());
+  }
+  const rest = languageFamilies();
+  if (!path) return rest;
+  const entry = projectFont(path, "UI font");
+  return entry ? `${entry.family}, ${rest}` : rest;
+}
+
+/** A CSS family list (the `Text` component's `fontFamily`) followed by the current language's fonts (ADR 0356 §5). */
+export function withLanguageFonts(family: string): string {
+  const own = languageFamilies().slice(0, -UI_FONT_FAMILY.length).replace(/, $/, "");
+  return own ? `${family}, ${own}` : family;
+}
+
+function loadProjectFont(path: string, family: string): Promise<boolean> {
   const fonts = fontSet();
-  if (!fonts) return;
+  if (!fonts) return Promise.resolve(true);
   let url: string;
   try {
     url = Assets.url(path);
   } catch (err) {
     warnOnce(`url|${path}`, `UI font "${path}" couldn't be found: ${(err as Error).message} The text uses Inter.`);
-    return;
+    return Promise.resolve(false);
   }
   const face = new FontFace(family, `url(${JSON.stringify(url)})`, { display: "swap" });
   fonts.add(face);
-  face
-    .load()
-    .then(loaded)
-    .catch((err: unknown) => {
+  return face.load().then(
+    () => {
+      loaded();
+      return true;
+    },
+    (err: unknown) => {
       fonts.delete(face);
       warnOnce(`load|${path}`, `UI font "${path}" couldn't load (${(err as Error)?.message ?? err}); the text uses Inter.`);
-    });
+      return false;
+    },
+  );
 }
+
+/** How long a language switch waits for its fonts before switching with the fallback (ADR 0356 §5). */
+const LANGUAGE_FONT_TIMEOUT_MS = 3000;
+
+/** Load a language's font files; resolves once all settled, or after `LANGUAGE_FONT_TIMEOUT_MS` with a warning. */
+function loadLanguageFonts(code: string): Promise<void> {
+  const ready = localeFonts(code).fonts.map((f) => projectFont(normalizeAssetPath(f.trim()), "Language font")?.ready ?? Promise.resolve(false));
+  if (ready.length === 0) return Promise.resolve();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      warnOnce(`slow|${code}`, `The fonts of "${code}" took longer than ${LANGUAGE_FONT_TIMEOUT_MS / 1000} s to load; switching with the fallback font.`);
+      resolve();
+    }, LANGUAGE_FONT_TIMEOUT_MS);
+  });
+  return Promise.race([Promise.all(ready).then(() => undefined), timeout]).finally(() => clearTimeout(timer));
+}
+
+// Language switches wait for the language's fonts (ADR 0356 §5): registered with the UI, which is what draws text.
+registerLanguageParticipant({ name: "fonts", prepare: loadLanguageFonts });

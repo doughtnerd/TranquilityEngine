@@ -70,7 +70,7 @@
 //! # `MIRROR` (kind 8)
 //!
 //! Input `[child]`: the child's pose reflected across the plane with normal `axis` through the
-//! left/right map (the profile's, written by the compiler; ADR 0352, decision D18's local-frame
+//! left/right map (the profile's, written by the compiler; ADR 0372, decision D18's local-frame
 //! assumption). Words: 0 `u32` axis (0 X, 1 Y, 2 Z), 1 `u32` a bool parameter that switches it
 //! on, or `NONE` (always on), then one `u32` per bone: the bone whose motion it takes (itself for
 //! a centre bone; missing or out of range: itself). Root motion is mirrored too.

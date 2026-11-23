@@ -1,4 +1,4 @@
-//! Family `match`: motion matching (ADR 0350, 0352): the live debugger's records of the graph's
+//! Family `match`: motion matching (ADR 0370, 0372): the live debugger's records of the graph's
 //! pose-database nodes.
 //!
 //! Pose databases load with `posedb_load(bytes)` (a `myco.posedb@1` file; an asset handle, or 0
@@ -105,7 +105,7 @@ pub const FAMILY: FamilyDesc = FamilyDesc {
     name: "match",
     id: ID,
     version: VERSION,
-    doc: "Wire family `match`: motion matching (ADR 0350, 0352): the live debugger's records of the graph's pose-database\nnodes (native/anim/crates/anim-wire/src/match.rs).",
+    doc: "Wire family `match`: motion matching (ADR 0370, 0372): the live debugger's records of the graph's pose-database\nnodes (native/anim/crates/anim-wire/src/match.rs).",
     records: &[MatchHeader::DESC, MatchNode::DESC],
     consts: consts![
         MATCH_DEBUG_BYTES: "The match buffer's size in bytes.",

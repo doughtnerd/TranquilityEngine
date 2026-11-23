@@ -54,7 +54,8 @@ describe("capture header (§5.1)", () => {
     expect(codeOf(() => readCaptureHeader(file.subarray(0, 95)))).toBe("badMagic");
     const v = (f: (d: DataView) => void) => { const c = file.slice(); f(new DataView(c.buffer)); return c; };
     expect(codeOf(() => readCaptureHeader(v((d) => d.setUint8(0, 0))))).toBe("badMagic");
-    expect(codeOf(() => readCaptureHeader(v((d) => d.setUint16(8, 2, true))))).toBe("newerFormat");
+    expect(codeOf(() => readCaptureHeader(v((d) => d.setUint16(8, 3, true))))).toBe("newerFormat");
+    expect(codeOf(() => readCaptureHeader(v((d) => d.setUint16(8, 1, true))))).toBe("olderFormat"); // ADR 0348: format 1 is refused
     expect(codeOf(() => readCaptureHeader(v((d) => d.setUint16(8, 0, true))))).toBe("olderFormat");
     // Every later field is bad too: the first step still wins.
     const all = v((d) => { d.setUint8(12, d.getUint8(12) ^ 1); d.setUint32(68, 0xffffffff, true); });
@@ -73,7 +74,7 @@ describe("capture header (§5.1)", () => {
   it("names both ABI versions on a wire mismatch", () => {
     const c = sampleCapture().slice();
     c[12] ^= 0xff;
-    expect(() => readCaptureHeader(c)).toThrow(/ABI 5\.0.*re-record with this build/);
+    expect(() => readCaptureHeader(c)).toThrow(new RegExp(`ABI ${CORE_ABI_VERSION >> 8}\\.${CORE_ABI_VERSION & 0xff}.*re-record with this build`));
   });
 });
 
@@ -143,6 +144,16 @@ describe("META (§5.2)", () => {
     const cut = m.names.clips.get(0)!;
     expect(new TextEncoder().encode(cut).byteLength).toBe(256);
     expect(cut).toBe(cutUtf8(long, 256));
+  });
+  it("ADR 0348: a replay capture's replayOf round-trips; absent or malformed it reads as null, never a refusal", () => {
+    expect(decodeCaptureMeta(encodeCaptureMeta(SAMPLE_META)).replayOf).toBeNull();
+    const replayOf = { path: "takes/canyon_run_01.mycotake", audioHash: "5f3a90c1" };
+    expect(decodeCaptureMeta(encodeCaptureMeta({ ...SAMPLE_META, replayOf })).replayOf).toEqual(replayOf);
+    const base = { project: {}, device: { preset: 1, sampleRate: 48000 }, names: {} };
+    const read = (v: unknown) => decodeCaptureMeta(new TextEncoder().encode(JSON.stringify({ ...base, replayOf: v }))).replayOf;
+    expect(read({ path: 3, audioHash: "x" })).toBeNull();
+    expect(read("takes/a.mycotake")).toBeNull();
+    expect(read({ path: "a".repeat(2000), audioHash: "h" })!.path).toHaveLength(1024);
   });
   it("refuses what isn't the shape", () => {
     const enc = (s: string) => new TextEncoder().encode(s);

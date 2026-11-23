@@ -1,4 +1,4 @@
-//! `anim-graph` (ADR 0350, 0352): runs compiled graph programs (`myco.animgraph@1`). State machines
+//! `anim-graph` (ADR 0370, 0372): runs compiled graph programs (`myco.animgraph@1`). State machines
 //! (transitions, requests, `travel` pathfinding), blend spaces 1D and 2D (triangulated), slots,
 //! linked graphs, sync groups, notify windows, chooser tables.
 //!

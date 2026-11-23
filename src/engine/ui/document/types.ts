@@ -25,6 +25,7 @@ export interface SourceProblem {
 export type UITag = "Canvas" | "Panel" | "Text" | "Image" | "Button" | "InputField";
 
 export interface MarkupAttribute {
+  /** As written: a field (`fontSize`), `id`, `class`, `translate`, or a key binding `t:<field>` (ADR 0356 §4). */
   readonly name: string;
   /** The raw value, with `{name}` bindings left in. */
   readonly value: string;
@@ -85,12 +86,14 @@ export type ParseBindings = (value: string) => readonly BindingPart[];
 
 // --- Stylesheets (`*.ui.css`) -------------------------------------------------------------------
 
-/** A simple selector: a tag, an id, classes, and pseudo-classes, all of which must match. */
+/** A simple selector: a tag, an id, classes, pseudo-classes and `:lang()` ranges, all of which must match. */
 export interface SimpleSelector {
   readonly tag: UITag | null;
   readonly id: string | null;
   readonly classes: readonly string[];
   readonly pseudo: readonly UIPseudo[];
+  /** `:lang(de)` (ADR 0356 §4): language ranges the current text language must match by BCP 47 prefix. */
+  readonly lang: readonly string[];
 }
 
 export type UIPseudo = "hover" | "pressed" | "focus" | "disabled";
@@ -138,6 +141,8 @@ export interface StyleTarget {
   readonly classes: readonly string[];
   readonly state: Readonly<Record<UIPseudo, boolean>>;
   readonly parent: StyleTarget | null;
+  /** The current text language (ADR 0356 §4), for `:lang()`; absent: no `:lang()` rule matches. */
+  readonly lang?: string;
 }
 
 /** Where an element's field value comes from (the Inspector shows this in wave B). */

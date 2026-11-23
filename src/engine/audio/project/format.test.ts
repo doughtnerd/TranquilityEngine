@@ -1,0 +1,371 @@
+import { describe, expect, it } from "vitest";
+import { parseAudioSettings } from "../settings";
+import { audioProjectToJson, defaultAudioProject, parseAudioProject } from "./format";
+import { coreSectionOf } from "./runtimeView";
+import { MAX_DB } from "./gain";
+import { AUDIO_PROJECT_FORMAT } from "./types";
+
+/** A project file exercising every part of the format, written as the writer writes it (effects name only parameters off their catalogue default). */
+const FULL = {
+  format: AUDIO_PROJECT_FORMAT,
+  settings: { voices: { mixed: 64, logical: 1024, hrtf: 4 }, speedOfSound: 340, submixes: 16, bedBeyond: 40, dopplerAmount: 0.5 },
+  parameters: [{ name: "threat", min: 0, max: 1, default: 0, seekSpeed: 0 }, { name: "depth", min: 0, max: 100, default: 0, seekSpeed: 0 }, { name: "Area", labels: ["Outdoor", "Cave"], default: "Outdoor" }],
+  buses: [
+    { name: "Master", parent: null, volumeDb: 0, mute: false, voiceLimit: null, bed: { own: true, priority: 255 }, meter: true, effects: [], sends: [] },
+    { name: "Music", parent: "Master", volumeDb: -3, mute: false, voiceLimit: 8, bed: null, meter: true, effects: [{ id: "fx1", type: "lowpass", on: true, params: { resonance: 0 } }], sends: [] },
+    { name: "SFX", parent: "Master", volumeDb: -2, mute: false, voiceLimit: 48, bed: { own: true, priority: 80 }, meter: false, effects: [{ id: "fx1", type: "eq", on: true, params: { low: 3 } }], sends: [{ to: "Reverb", levelDb: -12 }] },
+    { name: "Vehicles", parent: "SFX", volumeDb: 0, mute: true, voiceLimit: null, bed: null, meter: false, effects: [], sends: [] },
+  ],
+  returns: [{ name: "Reverb", output: "Master", volumeDb: -3, mute: false, effects: [{ id: "fx1", type: "reverb", on: true, params: { mix: 100 } }] }],
+  vcas: [{ name: "Gameplay SFX", volumeDb: -6, members: ["SFX", "Vehicles"] }],
+  automation: [
+    { on: "Music", target: "volume", parameter: "threat", curve: [[0, 0], [1, -6, "easeOut"]], bypass: false },
+    { on: "SFX", target: "send:Reverb", parameter: "depth", curve: [[0, -12], [100, 0]], bypass: false },
+  ],
+  ducking: [{ target: "Music", trigger: "SFX", mode: "presence", detector: "rms", thresholdDb: -30, amountDb: -6, attackMs: 80, releaseMs: 400, enabled: true }],
+  snapshots: [{
+    name: "Underwater", folder: "States", start: { kind: "conditions", match: "all", conditions: [{ parameter: "depth", op: "gt", value: 0 }, { parameter: "depth", op: "between", value: 1, value2: 9 }] },
+    fadeInMs: 300, fadeOutMs: 500, holdMs: 0, priority: 20, combine: "override", buses: { Music: -6, Reverb: -3 }, effects: { Music: { fx1: { cutoff: 800 } } },
+  }],
+  loudness: { targets: [{ name: "pc", integrated: -16, tolerance: 1, truePeak: -1 }], resetOnPlay: false },
+};
+
+describe("parseAudioProject", () => {
+  it("reads a full file without problems and writes it back unchanged", () => {
+    const { project, problems } = parseAudioProject(FULL);
+    expect(problems).toEqual([]);
+    expect(project.settings.voices).toEqual({ mixed: 64, logical: 1024, hrtf: 4 });
+    expect(project.settings).toMatchObject({ submixes: 16, bedBeyond: 40, dopplerAmount: 0.5, speedOfSound: 340 });
+    expect(project.buses.map((b) => b.name)).toEqual(["Master", "Music", "SFX", "Vehicles"]);
+    expect(project.snapshots[0].start).toEqual(FULL.snapshots[0].start);
+    const written = audioProjectToJson(project);
+    expect(parseAudioProject(written).project).toEqual(project);
+    expect(written).toEqual(FULL);
+  });
+
+  it("gives the default mix for nothing, and a problem for a non-object", () => {
+    expect(parseAudioProject(undefined)).toEqual({ project: defaultAudioProject(), problems: [], warnings: [] });
+    const bad = parseAudioProject(3);
+    expect(bad.project).toEqual(defaultAudioProject());
+    expect(bad.problems).toHaveLength(1);
+    expect(defaultAudioProject().buses.map((b) => b.name)).toEqual(["Master", "Music", "SFX", "UI", "Voice"]);
+  });
+
+  it("writes only engine settings that differ from the defaults", () => {
+    const json = audioProjectToJson(parseAudioProject({ format: AUDIO_PROJECT_FORMAT, settings: { rhythmMode: true } }).project);
+    expect(json.settings).toEqual({ rhythmMode: true });
+    expect(audioProjectToJson(defaultAudioProject()).settings).toEqual({});
+  });
+
+  it("parses engine settings by the audio section's rules, limits included", () => {
+    const { project, problems } = parseAudioProject({ format: AUDIO_PROJECT_FORMAT, settings: { voices: { mixed: 9999 }, music: { rings: 40 }, buses: [], submixes: -4, dopplerAmount: "x" } });
+    expect(project.settings.voices.mixed).toBe(512);
+    expect(project.settings.music.rings).toBe(16);
+    expect(project.settings.submixes).toBe(0);
+    expect(project.settings.dopplerAmount).toBe(1);
+    expect(problems.some((p) => p.startsWith("settings.voices.mixed"))).toBe(true);
+    expect(problems.some((p) => p.startsWith("settings.music.rings"))).toBe(true);
+    expect(problems.some((p) => p.startsWith("settings.buses"))).toBe(true);
+    expect(problems).toHaveLength(5);
+  });
+
+  it("puts Master first with no parent and hangs buses with a missing parent or a loop under it", () => {
+    const { project, problems } = parseAudioProject({
+      format: AUDIO_PROJECT_FORMAT,
+      buses: [
+        { name: "A", parent: "B" }, { name: "Master", parent: "A" }, { name: "B", parent: "A" }, { name: "C", parent: "Nope" }, { name: "D" },
+      ],
+    });
+    expect(project.buses.map((b) => [b.name, b.parent])).toEqual([["Master", null], ["A", "Master"], ["B", "A"], ["C", "Master"], ["D", "Master"]]);
+    expect(problems.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("takes the first bus as the master bus when none is named Master (as the old section did), and adds one to an empty list", () => {
+    const { project, problems } = parseAudioProject({ format: AUDIO_PROJECT_FORMAT, buses: [{ name: "main" }, { name: "sfx", parent: "main" }], returns: [{ name: "R" }] });
+    expect(project.buses.map((b) => [b.name, b.parent])).toEqual([["main", null], ["sfx", "main"]]);
+    expect(project.buses[0].bed).toEqual({ own: true, priority: 255 });
+    expect(project.returns[0].output).toBe("main");
+    expect(problems).toEqual([]);
+    const empty = parseAudioProject({ format: AUDIO_PROJECT_FORMAT, buses: [] });
+    expect(empty.project.buses.map((b) => b.name)).toEqual(["Master"]);
+    expect(empty.problems).toHaveLength(1);
+  });
+
+  it("keeps names unique across buses, returns and VCAs", () => {
+    const { project, problems } = parseAudioProject({
+      format: AUDIO_PROJECT_FORMAT,
+      buses: [{ name: "Master" }, { name: "Music", parent: "Master" }, { name: "Music", parent: "Master" }],
+      returns: [{ name: "Music" }, { name: "Echo" }],
+      vcas: [{ name: "Echo", members: [] }, { name: "All", members: ["Music", "Nope", "Music"] }],
+    });
+    expect(project.buses.map((b) => b.name)).toEqual(["Master", "Music"]);
+    expect(project.returns.map((r) => r.name)).toEqual(["Echo"]);
+    expect(project.vcas).toEqual([{ name: "All", volumeDb: 0, members: ["Music"] }]);
+    expect(problems).toHaveLength(4);
+  });
+
+  it("sends only to returns, never from Master, once per return", () => {
+    const { project, problems } = parseAudioProject({
+      format: AUDIO_PROJECT_FORMAT,
+      buses: [{ name: "Master", sends: [{ to: "Rev", levelDb: 0 }] }, { name: "SFX", parent: "Master", sends: [{ to: "Rev", levelDb: -6 }, { to: "Rev", levelDb: -3 }, { to: "Master", levelDb: 0 }] }],
+      returns: [{ name: "Rev", output: "Nope" }],
+    });
+    expect(project.buses[0].sends).toEqual([]);
+    expect(project.buses[1].sends).toEqual([{ to: "Rev", levelDb: -6 }]);
+    expect(project.returns[0].output).toBe("Master");
+    expect(problems).toHaveLength(4);
+  });
+
+  it("drops a ducking rule whose trigger is its target or above it", () => {
+    const { project, problems } = parseAudioProject({
+      format: AUDIO_PROJECT_FORMAT,
+      buses: [{ name: "Master" }, { name: "SFX", parent: "Master" }, { name: "Cars", parent: "SFX" }, { name: "Music", parent: "Master" }],
+      ducking: [
+        { target: "Cars", trigger: "SFX", mode: "presence" },
+        { target: "Music", trigger: "Music", mode: "presence" },
+        { target: "Music", trigger: "Cars", mode: "level", amountDb: 5, attackMs: -1 },
+      ],
+    });
+    expect(project.ducking).toEqual([{ target: "Music", trigger: "Cars", mode: "level", detector: "rms", thresholdDb: -30, amountDb: 0, attackMs: 0, releaseMs: 500, enabled: true }]);
+    expect(problems).toHaveLength(4);
+  });
+
+  it("clamps snapshot fields and drops references to unknown buses, effects and parameters", () => {
+    const { project, problems } = parseAudioProject({
+      format: AUDIO_PROJECT_FORMAT,
+      parameters: [{ name: "p", min: 0, max: 1 }],
+      buses: [{ name: "Master" }, { name: "Music", parent: "Master", effects: [{ id: "lp", type: "lowpass", params: { cutoff: 900 } }] }],
+      snapshots: [
+        { name: "S", fadeInMs: -5, fadeOutMs: 1e9, holdMs: 10, priority: 500.4, combine: "blend", buses: { Music: -100, Nope: 0 }, effects: { Music: { lp: { cutoff: 400 }, gone: { cutoff: 1 } } }, start: { kind: "conditions", conditions: [{ parameter: "q", op: "gt", value: 1 }, { parameter: "p", op: "between", value: 0 }] } },
+        { name: "S" },
+      ],
+    });
+    expect(project.snapshots).toEqual([{
+      name: "S", folder: "", start: { kind: "conditions", match: "all", conditions: [] }, fadeInMs: 0, fadeOutMs: 60000, holdMs: 10, priority: 100,
+      combine: "override", buses: { Music: -60 }, effects: { Music: { lp: { cutoff: 400 } } },
+    }]);
+    expect(problems.length).toBe(10);
+  });
+
+  it("drops unknown effect types and gives missing or taken ids new ones", () => {
+    const { project, problems } = parseAudioProject({
+      format: AUDIO_PROJECT_FORMAT,
+      buses: [{ name: "Master", effects: [{ type: "wobble" }, { type: "lowpass" }, { id: "fx1", type: "highpass", on: "yes", params: { cutoff: 100, bad: "x" } }] }],
+    });
+    expect(project.buses[0].effects).toEqual([
+      { id: "fx1", type: "lowpass", on: true, params: { cutoff: 20000, resonance: 0.1, drive: 0 } },
+      { id: "fx2", type: "highpass", on: true, params: { cutoff: 100, resonance: 0.1, drive: 0 } },
+    ]);
+    // wobble; the low-pass's missing id; "yes"; the unknown "bad" parameter; the taken id.
+    expect(problems).toHaveLength(5);
+  });
+
+  it("parses effects by the catalogue at the bus level: ranges clamped, at most 8 per owner (ADR 0345), other levels' types kept with a problem", () => {
+    const { project, problems } = parseAudioProject({
+      format: AUDIO_PROJECT_FORMAT,
+      buses: [{ name: "Master", effects: [
+        { id: "c", type: "compressor", params: { threshold: -90, knee: 6 } },
+        { id: "g", type: "gain", params: { gain: 3 } },
+        ...Array.from({ length: 7 }, (_, i) => ({ id: `e${i}`, type: "eq" })),
+      ] }],
+    });
+    const fx = project.buses[0].effects;
+    expect(fx).toHaveLength(8);
+    expect(fx[0].params).toMatchObject({ threshold: -60, knee: 6, ratio: 3 });
+    expect(fx[1]).toMatchObject({ type: "gain", params: { gain: 3 } });
+    expect(problems).toEqual([
+      "buses[0].effects[0].params.threshold: -90 is outside -60..0; using -60.",
+      "buses[0].effects[1]: Gain can't run at the bus level (it runs at sample, voice, instance); kept but it won't play there.",
+      "buses[0].effects[8]: at most 8 effects here; dropped.",
+    ]);
+  });
+
+  it("checks automation targets against the owner's sends and effects", () => {
+    const { project, problems } = parseAudioProject({
+      format: AUDIO_PROJECT_FORMAT,
+      parameters: [{ name: "p", min: 0, max: 1 }],
+      buses: [{ name: "Master" }, { name: "SFX", parent: "Master", sends: [{ to: "R", levelDb: 0 }], effects: [{ id: "fx1", type: "lowpass" }] }],
+      returns: [{ name: "R" }],
+      automation: [
+        { on: "SFX", target: "send:R", parameter: "p", curve: [[0, 0]] },
+        { on: "SFX", target: "fx:fx1:cutoff", parameter: "p", curve: [[0, 100]], bypass: true },
+        { on: "SFX", target: "send:Other", parameter: "p", curve: [[0, 0]] },
+        { on: "SFX", target: "fx:nope:cutoff", parameter: "p", curve: [[0, 0]] },
+        { on: "SFX", target: "volume", parameter: "nope", curve: [[0, 0]] },
+        { on: "R", target: "pan", parameter: "p", curve: [[0, 0]] },
+      ],
+    });
+    expect(project.automation.map((a) => [a.target, a.bypass])).toEqual([["send:R", false], ["fx:fx1:cutoff", true]]);
+    expect(problems).toHaveLength(4);
+  });
+
+  it("never throws on junk", () => {
+    for (const junk of [null, [], "x", { buses: 3, returns: {}, vcas: "x", ducking: 1, snapshots: [1, null], automation: [{}], loudness: [], settings: 4 }]) {
+      expect(() => parseAudioProject(junk)).not.toThrow();
+    }
+  });
+});
+
+describe("coreSectionOf (the backends' view, ADR 0344)", () => {
+  const { project } = parseAudioProject(FULL);
+
+  it("keeps each fader alone (the mixer runs VCAs as a lane) and warns only of what nothing in the runtime runs", () => {
+    const warnings: string[] = [];
+    const settings = coreSectionOf(project, warnings);
+    expect(parseAudioSettings(settings).problems).toEqual([]);
+    expect(settings.buses.find((b) => b.name === "SFX")!.volume).toBeCloseTo(Math.pow(10, -2 / 20), 9);
+    const text = warnings.join("\n");
+    expect(text).not.toMatch(/eq effect "fx1"/); // ADR 0345 (ABI 4.6): the core's bus chain runs the eq
+    expect(settings.buses.find((b) => b.name === "SFX")!.effects[0]).toEqual({ type: "fx", fx: "eq", params: { low: 3, mid: 0, high: 0 } });
+    expect(text).not.toMatch(/on conditions/); // the mixer runs snapshots
+    expect(text).not.toMatch(/send:Reverb/); // and send automation
+    expect(text).not.toMatch(/offset on "Reverb"/); // and returns' lanes
+  });
+});
+
+describe("coreSectionOf: the old section shape's mapping", () => {
+  const { project } = parseAudioProject(FULL);
+
+  it("gives a section the runtime's parse reads without problems", () => {
+    const warnings: string[] = [];
+    const settings = coreSectionOf(project, warnings);
+    expect(parseAudioSettings(settings).problems).toEqual([]);
+    // ADR 0347: `bedBeyond` reaches the runtime as `bed.beyond` (the core backend's panner pick runs it), with no warning.
+    expect(settings.bed.beyond).toBe(40);
+    expect(parseAudioSettings(settings).settings.bed.beyond).toBe(40);
+    expect(warnings.join("\n")).not.toMatch(/bedBeyond/);
+  });
+
+  it("carries the instance submix pool to the runtime's voices (ADR 0345), and the runtime's parse keeps it", () => {
+    expect(coreSectionOf({ ...project, settings: { ...project.settings, submixes: 32 } }).voices.submixes).toBeUndefined(); // the default
+    const eight = coreSectionOf({ ...project, settings: { ...project.settings, submixes: 8 } });
+    expect(eight.voices.submixes).toBe(8);
+    const parsed = parseAudioSettings(eight);
+    expect(parsed.problems).toEqual([]);
+    expect(parsed.settings.voices.submixes).toBe(8);
+  });
+
+  it("holds each return as a bus after the buses (ABI 4.7), and a bus's sends into returns at their own level", () => {
+    const settings = coreSectionOf(project);
+    expect(settings.buses.map((b) => b.name)).toEqual(["Master", "Music", "SFX", "Vehicles", "Reverb"]);
+    const sfx = settings.buses.find((b) => b.name === "SFX")!;
+    // The eq runs on the core as a catalogue effect (ADR 0345, ABI 4.6); no reverb send effect: a send.
+    expect(sfx.effects.map((e) => e.type)).toEqual(["fx"]);
+    expect(sfx.effects[0]).toMatchObject({ type: "fx", fx: "eq" });
+    expect(sfx.sends).toEqual([{ to: "Reverb", level: expect.closeTo(Math.pow(10, -12 / 20), 9) }]);
+    // The return: its output as the parent, its fader, mute and inserts; no bed, voices or meter of its own.
+    expect(settings.buses.find((b) => b.name === "Reverb")).toEqual({
+      name: "Reverb", parent: "Master", volume: expect.closeTo(Math.pow(10, -3 / 20), 9), mute: false,
+      effects: [{ type: "fx", fx: "reverb", params: { size: 0.5, decay: 1.8, mix: 100 } }],
+    });
+    expect(settings.buses.find((b) => b.name === "Music")!.sends).toBeUndefined();
+  });
+
+  it("leaves out a return past the core's bus slots, with the sends into it, and warns", () => {
+    const buses = [{ name: "Master" }, ...Array.from({ length: 30 },(_, i) => ({ name: `B${i}`, parent: "Master", sends: i === 0 ? [{ to: "R1", levelDb: 0 }, { to: "R2", levelDb: 0 }] : [] }))];
+    const p = parseAudioProject({ format: AUDIO_PROJECT_FORMAT, buses, returns: [{ name: "R1" }, { name: "R2" }] }).project;
+    const warnings: string[] = [];
+    const s = coreSectionOf(p, warnings);
+    expect(s.buses).toHaveLength(32);
+    expect(s.buses.at(-1)!.name).toBe("R1");
+    expect(s.buses[1]!.sends).toEqual([{ to: "R1", level: 1 }]);
+    expect(warnings).toEqual(['return "R2": the audio core has 32 bus slots, buses and returns together; left out with the sends into it.']);
+    expect(parseAudioSettings(s).problems).toEqual([]);
+  });
+
+  it("runs a reverb return past the core's bus slots as the core's shared reverb send, quietly (as the old model did)", () => {
+    const buses = [{ name: "Master" }, ...Array.from({ length: 31 }, (_, i) => ({ name: `B${i}`, parent: "Master", sends: i === 0 ? [{ to: "Reverb", levelDb: -6 }] : [] }))];
+    const p = parseAudioProject({ format: AUDIO_PROJECT_FORMAT, buses, returns: [{ name: "Reverb", volumeDb: -3, effects: [{ id: "fx1", type: "reverb" }] }] }).project;
+    const warnings: string[] = [];
+    const s = coreSectionOf(p, warnings);
+    expect(s.buses).toHaveLength(32);
+    expect(s.buses[1]!.sends).toBeUndefined();
+    expect(s.buses[1]!.effects).toEqual([{ type: "reverb", send: expect.closeTo(Math.pow(10, -9 / 20), 9) }]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("warns of sends past the core's four a bus (kept as authored), and of a presence rule a return triggers", () => {
+    const returns = ["R1", "R2", "R3", "R4", "R5"].map((name) => ({ name }));
+    const p = parseAudioProject({
+      format: AUDIO_PROJECT_FORMAT,
+      buses: [{ name: "Master" }, { name: "A", parent: "Master", sends: returns.map((r) => ({ to: r.name, levelDb: -6 })) }],
+      returns,
+      ducking: [{ target: "A", trigger: "R1", mode: "presence" }, { target: "A", trigger: "R2", mode: "level" }],
+    }).project;
+    const warnings: string[] = [];
+    const s = coreSectionOf(p, warnings);
+    expect(s.buses[1]!.sends).toHaveLength(5);
+    expect(warnings).toEqual([
+      'bus "A": a bus runs at most 4 sends; the edit is saved and applies at the next Play, where only the first 4 sends of the list run.',
+      'ducking: "R1" is a return, which plays no sounds of its own, so its presence rule on "A" never ducks; use a level rule.',
+    ]);
+    // Both rules reach the core: the core's ducking runs per bus slot, returns included.
+    expect(s.ducking.map((d) => [d.trigger, d.mode])).toEqual([["R1", "presence"], ["R2", "level"]]);
+    expect(parseAudioSettings(s).warnings).toEqual(['audio.buses[1]: a bus runs at most 4 sends; the edit is saved and applies at the next Play, where only the first 4 sends of the list run.']);
+  });
+
+  it("maps snapshots, ducking, automation and the open low-pass carrier", () => {
+    const settings = coreSectionOf(project);
+    expect(settings.snapshots).toEqual([{ name: "Underwater", volumes: { Music: expect.closeTo(Math.pow(10, -6 / 20), 9), Reverb: expect.closeTo(Math.pow(10, -3 / 20), 9) }, lowpass: { Music: 800 } }]);
+    expect(settings.buses.find((b) => b.name === "Music")!.effects).toEqual([]); // the carrier is neutral and hidden
+    expect(settings.ducking).toEqual([{ target: "Music", trigger: "SFX", mode: "presence", amount: expect.closeTo(Math.pow(10, -6 / 20), 9), attack: 0.08, release: 0.4 }]);
+    expect(settings.automation).toEqual([
+      { bus: "Music", parameter: "threat", target: "volume", curve: [[0, 1], [1, expect.closeTo(Math.pow(10, -6 / 20), 9), "easeOut"]] },
+      // ABI 4.8: the core runs send automation (dB, added to the send).
+      { bus: "SFX", parameter: "depth", target: "send", to: "Reverb", curve: [[0, -12], [100, 0]] },
+    ]);
+    expect(settings.loudnessTargets).toEqual(FULL.loudness.targets);
+    expect(settings.loudnessResetOnPlay).toBe(false);
+    expect(settings.buses.find((b) => b.name === "Music")!.maxVoices).toBe(8);
+    expect(settings.buses.find((b) => b.name === "SFX")).toMatchObject({ bed: "own", bedPriority: 80 });
+    expect(settings.buses.find((b) => b.name === "Music")!.meter).toBe("loudness");
+  });
+
+  it("ABI 4.8: hands the core any effect parameter's automation by index (an automated effect as the catalogue's), and a send's", () => {
+    const { project: p } = parseAudioProject({
+      format: AUDIO_PROJECT_FORMAT,
+      parameters: [{ name: "x", min: 0, max: 1, default: 0 }],
+      buses: [
+        { name: "Master" },
+        { name: "SFX", parent: "Master", effects: [{ id: "hp", type: "highpass", params: { cutoff: 80 } }, { id: "lp", type: "lowpass", params: { cutoff: 5000 } }, { id: "d", type: "delay" }], sends: [{ to: "Verb", levelDb: -6 }] },
+      ],
+      returns: [{ name: "Verb", effects: [{ id: "r", type: "reverb" }] }],
+      automation: [
+        { on: "SFX", target: "fx:lp:cutoff", parameter: "x", curve: [[0, 5000], [1, 500]] },
+        { on: "SFX", target: "fx:d:feedback", parameter: "x", curve: [[0, 0], [1, 60]] },
+        { on: "SFX", target: "send:Verb", parameter: "x", curve: [[0, 0], [1, -12]] },
+        { on: "Verb", target: "fx:r:mix", parameter: "x", curve: [[0, 100], [1, 50]] },
+      ],
+    });
+    const warnings: string[] = [];
+    const s = coreSectionOf(p, warnings);
+    expect(parseAudioSettings(s).problems).toEqual([]);
+    // The high-pass stays the exact legacy shape; the automated low-pass goes as the catalogue's.
+    expect(s.buses.find((b) => b.name === "SFX")!.effects.map((e) => (e.type === "fx" ? `fx:${e.fx}` : e.type))).toEqual(["highpass", "fx:lowpass", "fx:delay"]);
+    expect(s.automation).toEqual([
+      { bus: "SFX", parameter: "x", target: "fx", effect: 1, param: 0, log: true, curve: [[0, Math.log2(5000)], [1, Math.log2(500)]] },
+      { bus: "SFX", parameter: "x", target: "fx", effect: 2, param: 1, curve: [[0, 0], [1, 60]] },
+      { bus: "SFX", parameter: "x", target: "send", to: "Verb", curve: [[0, 0], [1, -12]] },
+      { bus: "Verb", parameter: "x", target: "fx", effect: 0, param: 2, curve: [[0, 100], [1, 50]] },
+    ]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("silences a level at the fader floor and caps it at the old model's top", () => {
+    const p = parseAudioProject({ format: AUDIO_PROJECT_FORMAT, buses: [{ name: "Master", volumeDb: MAX_DB }, { name: "A", parent: "Master", volumeDb: -60 }] }).project;
+    expect(coreSectionOf(p).buses.map((b) => b.volume)).toEqual([2, 0]);
+  });
+
+  it("leaves out disabled rules and bypassed automation without a warning", () => {
+    const p = parseAudioProject({
+      format: AUDIO_PROJECT_FORMAT,
+      parameters: [{ name: "p", min: 0, max: 1 }],
+      buses: [{ name: "Master" }, { name: "A", parent: "Master" }, { name: "B", parent: "Master" }],
+      ducking: [{ target: "A", trigger: "B", mode: "presence", enabled: false }],
+      automation: [{ on: "A", target: "volume", parameter: "p", curve: [[0, 0]], bypass: true }],
+    }).project;
+    const warnings: string[] = [];
+    const s = coreSectionOf(p, warnings);
+    expect([s.ducking, s.automation, warnings]).toEqual([[], [], []]);
+  });
+});

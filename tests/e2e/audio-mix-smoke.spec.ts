@@ -2,9 +2,6 @@ import { readFileSync } from "node:fs";
 import { inflateRawSync } from "node:zlib";
 import { expect, test, openEditor, playWithAudio, LAB } from "./fixtures";
 import { installFrameClock, mixDebug, sampleBusGain, type MixDebug } from "./audioMix";
-import { MARKER_TEXT, exportAndServe, expectTablesAt, openCaptureFile, openProfilerTab, press, recordScene, rulerAt, stopServed } from "./audioExport";
-import { panelOf } from "./audioProfiler";
-import { TONE_PEAK, fader, openLiveMix, openMixer, savedProject, stopPlay } from "./audioMixLive";
 
 // M5 smoke (ADR 0171 amended by 0172, plan task S0, H6): the milestone path in the real editor app, through the Sound Lab
 // sample, one case per milestone, grown by later waves (each owning task un-fixmes its case in its own wave).
@@ -450,95 +447,4 @@ test("M5b smoke: master's momentary loudness reads a number, steadily, and is em
     expect(after.shortTerm, "short-term needs 3 s").toBe(-Infinity);
   });
   expect(errors).toEqual([]);
-});
-
-// M5c (E3, un-fixme'd in W9): live edit. The Sound Lab opens read-only (a sample), where an edit neither reaches the mixer nor is saved,
-// so the case runs on the editor's in-memory test project with a small audio section and a looping reference tone on one bus
-// (`audioMixLive.ts`; the cases are `audio-mix-c.spec.ts`). In Play, a key on the Mixer panel's fader edits the bus's volume: its
-// effective gain (`Audio.debug()` row) and its meter's peak follow, on the audio clock; Stop keeps the edit in project.json; Play again
-// starts the bus at the edited value.
-test("M5c smoke: a live edit in Play is heard and kept after Stop", async ({ page }) => {
-  const errors: string[] = [];
-  page.on("pageerror", (err) => errors.push(err.message));
-  page.on("console", (msg) => {
-    if (msg.type() === "error") errors.push(msg.text());
-  });
-  type Row = { name: string; effectiveGain: number; peakL: number };
-  const row = (bus: string) => page.evaluate((b) => ((globalThis as unknown as { __myco: { Audio: { debug(): { buses: Row[] } } } }).__myco.Audio.debug().buses.find((r) => r.name === b))!, bus);
-  const peakOver = (bus: string, seconds: number) =>
-    page.evaluate(
-      async ([b, s]) => {
-        const A = (globalThis as unknown as { __myco: { Audio: { time: number; debug(): { buses: Row[] } } } }).__myco.Audio;
-        const t0 = A.time;
-        let max = 0;
-        while (A.time < t0 + (s as number)) {
-          max = Math.max(max, A.debug().buses.find((r) => r.name === b)!.peakL);
-          await new Promise((r) => setTimeout(r, 8));
-        }
-        return max;
-      },
-      [bus, seconds] as const,
-    );
-  await openLiveMix(page, { tones: [{ bus: "Aux" }] });
-  await playWithAudio(page);
-  await openMixer(page);
-
-  await test.step("the tone is on Aux at its authored volume", async () => {
-    await expect.poll(async () => (await row("Aux")).peakL, { timeout: 30_000 }).toBeCloseTo(TONE_PEAK, 3);
-    expect((await row("Aux")).effectiveGain).toBe(1);
-  });
-  let edited = 1;
-  await test.step("a key on the Mixer's fader edits the volume: the effective gain and the meter follow", async () => {
-    await fader(page, "Aux").focus();
-    await page.keyboard.press("PageDown");
-    await expect.poll(async () => (await savedProject(page)).audio!.buses!.find((b) => b.name === "Aux")!.volume, { timeout: 10_000 }).toBeLessThan(1);
-    edited = (await savedProject(page)).audio!.buses!.find((b) => b.name === "Aux")!.volume;
-    await expect.poll(async () => (await row("Aux")).effectiveGain, { timeout: 20_000 }).toBeCloseTo(edited, 3);
-    // The meter falls with its own release: let the audio clock run, then read its peak.
-    const t0 = await page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { time: number } } }).__myco.Audio.time);
-    await page.waitForFunction((t) => (globalThis as unknown as { __myco: { Audio: { time: number } } }).__myco.Audio.time > (t as number) + 1, t0, { timeout: 30_000 });
-    expect(await peakOver("Aux", 0.3)).toBeCloseTo(TONE_PEAK * edited, 2);
-  });
-  await test.step("Stop keeps the edit in project.json; Play again starts the bus at the edited value", async () => {
-    await stopPlay(page);
-    expect((await savedProject(page)).audio!.buses!.find((b) => b.name === "Aux")!.volume).toBeCloseTo(edited, 9);
-    await playWithAudio(page);
-    await expect.poll(async () => (await row("Aux")).effectiveGain, { timeout: 20_000 }).toBeCloseTo(edited, 3);
-  });
-  expect(errors).toEqual([]);
-});
-
-// M5d (X3, un-fixme'd in W10): the shipped form of the capture. The Sound Lab exported with --audio-capture is played by its keys
-// in its own page, F9 records and F9 saves a .mycap, and the editor's Audio Profiler opens that file with the Open button: at the
-// marker and at the end the voice table and the bus factors read what the exported game's `Audio.debug()` said it was playing.
-// Tagged @slow because it exports (the whole round trip at five positions, and the release export, are `audio-mix-d.spec.ts`).
-test("M5d smoke: a game exported with the capture option records, and the editor's Profiler shows what it played", { tag: "@slow" }, async ({ page, context }) => {
-  const served = await exportAndServe("sound-lab", ["--audio-capture"]);
-  try {
-    const errors: string[] = [];
-    const game = await context.newPage();
-    game.on("pageerror", (err) => errors.push(err.message));
-    const scene = await recordScene(game, served.url);
-    expect(scene.parsed.markers.map((m) => m.text)).toEqual([MARKER_TEXT]);
-    page.on("pageerror", (err) => errors.push(err.message));
-    await openProfilerTab(page);
-    await openCaptureFile(page, scene.file, scene.fileName);
-    // The marker, by its key (the keys act once the file's targets are loaded; a second press has nowhere to go).
-    await panelOf(page).focus();
-    await expect
-      .poll(async () => {
-        await page.keyboard.press("Shift+M");
-        return (await page.locator("section.profiler .ptable[data-table=voices] .pgrid-row").allInnerTexts()).some((t) => t.includes("noise-loop"));
-      }, { timeout: 20_000 })
-      .toBe(true);
-    await expectTablesAt(page, "marker", scene.truths.marker);
-    // The end: the right edge of the timeline, then Right to the last block.
-    const at = await rulerAt(page, 1);
-    await page.mouse.click(at.x, at.y);
-    await press(page, "ArrowRight", 40);
-    await expectTablesAt(page, "end", scene.truths.end);
-    expect(errors).toEqual([]);
-  } finally {
-    stopServed(served);
-  }
 });

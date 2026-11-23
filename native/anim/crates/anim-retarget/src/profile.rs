@@ -1,4 +1,4 @@
-//! Skeleton profiles (ADR 0351's `*.skelprofile.json`): named roles, chains of roles, per-role
+//! Skeleton profiles (ADR 0371's `*.skelprofile.json`): named roles, chains of roles, per-role
 //! joint-range defaults, per-role mirror flips and left/right role pairs, plus the built-in
 //! **Humanoid** profile ([`Profile::humanoid`]) and the per-skeleton [`BoneMap`].
 //!

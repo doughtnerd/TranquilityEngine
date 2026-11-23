@@ -1,4 +1,4 @@
-// ADR 0350: the committed animation core, end to end in Node. Loads myco_anim_bg.wasm through its glue (`initSync`),
+// ADR 0370: the committed animation core, end to end in Node. Loads myco_anim_bg.wasm through its glue (`initSync`),
 // loads the fixture skeleton and clips (written by native/anim/crates/anim-wasm/tests/fixtures.rs with anim-format and
 // anim-compress), plays and crossfades through the commands and views laid out by the generated wire constants, and
 // compares the bone matrices with the values anim-offline (f64) computed for the same playback. This runs the wasm

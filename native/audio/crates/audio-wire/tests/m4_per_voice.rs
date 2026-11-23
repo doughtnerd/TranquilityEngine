@@ -280,7 +280,8 @@ fn status_header_is_256_bytes_with_every_m4_field_at_its_offset() {
         max_slip_frames: 0x0102_0304,
         split_quanta: 0x1122_3344,
         voice_splits: 0x5566_7788,
-        reserved: 0x99aa_bbcc,
+        fx_starved: 0xbbcc,
+        fx_starved_owner: 0x99aa,
         ended: vec![0xcafe],
         ..Default::default()
     };
@@ -302,7 +303,7 @@ fn status_header_is_256_bytes_with_every_m4_field_at_its_offset() {
     assert_eq!(&buf[160..164], &[0x04, 0x03, 0x02, 0x01], "160 maxSlipFrames 0x01020304");
     assert_eq!(&buf[164..168], &[0x44, 0x33, 0x22, 0x11], "164 splitQuanta 0x11223344");
     assert_eq!(&buf[168..172], &[0x88, 0x77, 0x66, 0x55], "168 voiceSplits 0x55667788");
-    assert_eq!(&buf[172..176], &[0xcc, 0xbb, 0xaa, 0x99], "172 reserved");
+    assert_eq!(&buf[172..176], &[0xcc, 0xbb, 0xaa, 0x99], "172 fxStarved, 174 fxStarvedOwner (ABI 4.8)");
     assert_eq!(&buf[256..260], &[0xfe, 0xca, 0, 0], "the first section starts at 256");
 
     let (back, used) = StatusBlock::read(&buf[..n], 0).unwrap();

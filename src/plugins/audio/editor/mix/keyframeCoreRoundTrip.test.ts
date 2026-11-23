@@ -1,7 +1,7 @@
 // ADR 0171/0172 (M5, task G7b; api-and-models §5.5, §7): a capture recorded through the real recorder on the core backend
 // (the real wasm core on the loopback host, assembled as production assembles it: ADR 0221's `loopbackAudio`), with the backend's own keyframe source wired the way `capture.ts` wires it. The
 // keyframe in the ring carries the voice table and the mixer's bus lanes; opened as a live capture through the Worker handler,
-// the profiler's `reconstructVoices` at the keyframe gives the rows the table has, and the seek's keyframe reads by name
+// a seek at the keyframe gives the voices the table has, and the seek's keyframe reads by name
 // (ADR 0227's follow-up): state names, pitch and audibility as numbers, each bus flag as the mixer holds it, the snapshot
 // by id. Time is the loopback's rendered frames.
 import { afterEach, describe, expect, it } from "vitest";
@@ -17,7 +17,6 @@ import { KeyframeRows } from "../../runtime/audioRows";
 import { CaptureSource } from "./profilerSource";
 import { inProcessWorker } from "./voiceSceneSupport";
 import { captureNames } from "../../runtime/capture/reader";
-import { reconstructVoices } from "./voiceTableModel";
 
 const MiB = 1024 * 1024;
 const RATE = 48_000;
@@ -40,7 +39,7 @@ async function rig(settings: AudioSettings) {
 afterEach(closeLoopbackAudio);
 
 describe("a capture recorded on the core backend carries the real keyframe", () => {
-  it("voice rows equal the voice table and bus lanes equal the mixer's; reconstructVoices at the keyframe equals the table", async (ctx) => {
+  it("voice rows equal the voice table and bus lanes equal the mixer's; a seek at the keyframe has the table's voices", async (ctx) => {
     const settings = defaultAudioSettings();
     settings.snapshots = [{ name: "Hush", volumes: { Music: 0.3 }, lowpass: {} }];
     const r = await rig(settings);
@@ -99,17 +98,14 @@ describe("a capture recorded on the core backend carries the real keyframe", () 
     }
     expect(opened.names.snapshots.get(kf.mix.snapshotName)).toBe("Hush");
 
-    // (2) The profiler's replay at the keyframe: the table's rows, named through the NAMES records and META's bus slots.
+    // (2) A seek at the keyframe: the table's voices.
     const source = await CaptureSource.openLive(headBytes.slice().buffer, { worker: inProcessWorker() });
     await source.appendSegment(rec.takeSpan().bytes.slice().buffer);
     const state = await source.seek(frame / RATE);
     expect(state.keyframe).not.toBeNull();
-    const replay = reconstructVoices(state, captureNames(source.summary));
-    expect(replay.fromKeyframe).toBe(true);
-    const rows = replay.rows.map((x) => ({ id: x.id, clip: x.clipName, bus: x.busName, state: x.state, priority: x.priority, gain: x.gain })).sort((p, q) => p.id - q.id);
-    const table = debug.voices.map((v) => ({ id: v.id, clip: v.clip, bus: v.bus, state: v.state, priority: v.priority, gain: Math.fround(v.gain) })).sort((p, q) => p.id - q.id);
-    expect(rows).toEqual(table);
-    expect(rows.map((x) => x.id)).toEqual([a.id, b.id, c.id].sort((p, q) => p - q));
+    const ids = state.keyframe!.voices.map((v) => v.id).sort((p, q) => p - q);
+    expect(ids).toEqual(debug.voices.map((v) => v.id).sort((p, q) => p - q));
+    expect(ids).toEqual([a.id, b.id, c.id].sort((p, q) => p - q));
     source.close();
     rec.detach();
     backend.dispose();

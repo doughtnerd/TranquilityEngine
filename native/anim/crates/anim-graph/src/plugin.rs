@@ -1,5 +1,5 @@
 //! Node family `plugin`: third-party nodes, calling a plugin's sandboxed wasm module through
-//! `anim-plugin-sdk`'s ABI (ADR 0350, "Third-party graph and rig nodes"). Filled by T45 (core
+//! `anim-plugin-sdk`'s ABI (ADR 0370, "Third-party graph and rig nodes"). Filled by T45 (core
 //! half). Declare the family's kinds in [`kind`] (append-only `u16`s, stored in
 //! `myco.animgraph@1`) and match on them in [`evaluate`].
 //!

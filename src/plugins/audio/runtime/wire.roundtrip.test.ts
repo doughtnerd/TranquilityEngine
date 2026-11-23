@@ -55,8 +55,15 @@ const OPCODES: Record<string, Codec> = {
   BUS_PRESENCE: { write: wire.writeBusPresence, read: wire.readBusPresence },
   LOUD_CONFIG: { write: wire.writeLoudConfig, read: wire.readLoudConfig },
   BUS_SLOT: { write: wire.writeBusSlot, read: wire.readBusSlot },
+  TIME: { write: wire.writeTime, read: wire.readTime },
+  LOOPS: { write: wire.writeLoops, read: wire.readLoops },
+  SUBMIX: { write: wire.writeSubmix, read: wire.readSubmix },
+  BUS_SENDS: { write: wire.writeBusSends, read: wire.readBusSends },
+  ROUTE: { write: wire.writeRoute, read: wire.readRoute },
+  SUBMIX_AUTOMATE: { write: wire.writeSubmixAutomate, read: wire.readSubmixAutomate },
   ZONE_CONFIG: { write: wire.writeZoneConfig, read: wire.readZoneConfig },
   LISTENER: { write: wire.writeListener, read: wire.readListener },
+  GEN: { write: wire.writeGen, read: wire.readGen },
 };
 
 /** ADR 0162's blob headers (formats 3 and 4). */
@@ -450,8 +457,8 @@ describe("wire round trip", () => {
             {
               parent: wire.BUS_ROOT,
               effects: [
-                { type: wire.EffectType.Lowpass, p: [1000, 0.5, 0, 0, 0, 0, 0] },
-                { type: wire.EffectType.Compressor, p: [-12, 4, 2, 0.5, 0.25, 0, 0] },
+                { type: wire.EffectType.Lowpass, p: [1000, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+                { type: wire.EffectType.Compressor, p: [-12, 4, 2, 0.5, 0.25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
               ],
             },
             { parent: 0, effects: [] },
@@ -544,7 +551,8 @@ describe("wire round trip", () => {
       maxSlipFrames: 4000000002,
       splitQuanta: 4000000003,
       voiceSplits: 4000000004,
-      reserved: 0,
+      fxStarved: 3,
+      fxStarvedOwner: 0x8001,
       busyMsTotal: 123456.5,
       quantaTotal: 9007199254740991,
       wuVoices: 1e9,
@@ -558,6 +566,7 @@ describe("wire round trip", () => {
       loudShed: 1,
       busRecordsEarly: 21,
       sidechainLate: 22,
+      genStarved: 23,
       reserved2: 0,
       ended: [1, 2, 9],
       demoted: [4],
@@ -814,7 +823,8 @@ function handStatus(s: wire.StatusBlock, seq: number): Uint8Array {
   view.setUint32(160, s.maxSlipFrames, true);
   view.setUint32(164, s.splitQuanta, true);
   view.setUint32(168, s.voiceSplits, true);
-  view.setUint32(172, s.reserved, true);
+  view.setUint16(172, s.fxStarved, true);
+  view.setUint16(174, s.fxStarvedOwner, true);
   view.setFloat64(176, s.busyMsTotal, true);
   view.setFloat64(184, s.quantaTotal, true);
   view.setFloat64(192, s.wuVoices, true);
@@ -831,7 +841,8 @@ function handStatus(s: wire.StatusBlock, seq: number): Uint8Array {
   view.setUint16(246, s.loudShed, true);
   view.setUint16(248, s.busRecordsEarly, true);
   view.setUint16(250, s.sidechainLate, true);
-  view.setUint32(252, s.reserved2, true);
+  view.setUint16(252, s.genStarved, true);
+  view.setUint16(254, s.reserved2, true);
 
   let cur = 256;
   for (const v of [...s.ended, ...s.demoted, ...s.starved]) {

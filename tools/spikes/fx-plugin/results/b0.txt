@@ -1,0 +1,269 @@
+{"date":"2026-11-22T18:05:05.527Z","cpu":"Intel(R) Xeon(R) Processor @ 2.10GHz","cores":4,"loadavg":[2.94,2.75,2.89],"node":"v22.23.5","v8":"12.4.254.21-node.57"}
+{"segment32":{"bytes":9797,"functions":12,"segments":273,"checks":273,"instructions":2615},"loop32":{"bytes":7565,"functions":12,"segments":273,"checks":25,"instructions":2615},"plain":{"bytes":5412},"large":{"bytes":99707,"segBytes":103689},"coreFuelSegment":{"bytes":472160,"instrumentedBytes":850883,"functions":515,"segments":23650,"checks":23650,"instructions":202987}}
+
+=== node  
+{"test":"js→wasm empty call","nsPerCall":3.198959972010647}
+{"test":"wasm→js empty import (host_calls, per call)","n1":9.82265716455353,"n8":8.424063440386506,"n32":7.540573876818257}
+variant    kind     strategy     n   perCall  importNop  direct   glue  us/quantum
+plain      null     loop         1     1085        10       4   1071      1.1
+plain      null     loop         8     1140         8       4   1127      9.1
+plain      null     loop        32     1148         8       4   1137     36.7
+plain      null     set          1     1014        10       6    999      1.0
+plain      null     set          8     1024         8       6   1009      8.2
+plain      null     set         32      734         8       6    721     23.5
+plain      null     cached       1      552        10       9    533      0.6
+plain      null     cached       8      586         8       9    568      4.7
+plain      null     cached      32      626         8       9    610     20.0
+plain      null     wasmscan     1      184        10       9    165      0.2
+plain      null     wasmscan     8      182         8       9    165      1.5
+plain      null     wasmscan    32      265         8       9    248      8.5
+plain      null     multimemory  1      191        10       8    173      0.2
+plain      null     multimemory  8      242         8       8    225      1.9
+plain      null     multimemory 32      187         8       8    172      6.0
+segment32  null     cached       1      848        10      30    808      0.8
+segment32  null     cached       8      816         8      30    777      6.5
+segment32  null     cached      32      562         8      30    524     18.0
+plain      gain     cached       1      643        10     146    486      0.6
+plain      gain     cached       8      639         8     146    485      5.1
+plain      gain     cached      32      652         8     146    498     20.9
+segment32  gain     cached       1      715        10     202    503      0.7
+segment32  gain     cached       8      718         8     202    507      5.7
+segment32  gain     cached      32      726         8     202    516     23.2
+plain      tremolo  cached       1     2879        10    1256   1613      2.9
+plain      tremolo  cached       8     2857         8    1256   1592     22.9
+plain      tremolo  cached      32     1756         8    1256    492     56.2
+segment32  tremolo  cached       1     4156        10    3277    869      4.2
+segment32  tremolo  cached       8     3935         8    3277    650     31.5
+segment32  tremolo  cached      32     3774         8    3277    490    120.8
+segment32  null     wasmscan     1      232        10      14    207      0.2
+segment32  null     wasmscan     8      199         8      14    176      1.6
+segment32  null     wasmscan    32      220         8      14    198      7.0
+plain      gain     wasmscan     1      336        10     188    138      0.3
+plain      gain     wasmscan     8      320         8     188    124      2.6
+plain      gain     wasmscan    32      333         8     188    138     10.7
+segment32  gain     wasmscan     1      418        10     199    209      0.4
+segment32  gain     wasmscan     8      465         8     199    257      3.7
+segment32  gain     wasmscan    32      399         8     199    193     12.8
+plain      tremolo  wasmscan     1     1510        10    1314    186      1.5
+plain      tremolo  wasmscan     8     1548         8    1314    226     12.4
+plain      tremolo  wasmscan    32     1471         8    1314    149     47.1
+segment32  tremolo  wasmscan     1     3481        10    3232    238      3.5
+segment32  tremolo  wasmscan     8     3504         8    3232    263     28.0
+segment32  tremolo  wasmscan    32     3916         8    3232    676    125.3
+segment32  null     multimemory  1      298        10      25    263      0.3
+segment32  null     multimemory  8      310         8      25    276      2.5
+segment32  null     multimemory 32      223         8      25    190      7.1
+plain      gain     multimemory  1      344        10     160    174      0.3
+plain      gain     multimemory  8      382         8     160    214      3.1
+plain      gain     multimemory 32      435         8     160    268     13.9
+segment32  gain     multimemory  1      397        10     201    187      0.4
+segment32  gain     multimemory  8      373         8     201    164      3.0
+segment32  gain     multimemory 32      442         8     201    234     14.1
+plain      tremolo  multimemory  1     2042        10    2047    -14      2.0
+plain      tremolo  multimemory  8     1574         8    2047   -481     12.6
+plain      tremolo  multimemory 32     1473         8    2047   -581     47.1
+segment32  tremolo  multimemory  1     3480        10    3277    193      3.5
+segment32  tremolo  multimemory  8     3482         8    3277    196     27.9
+segment32  tremolo  multimemory 32     3478         8    3277    194    111.3
+segment64  null     wasmscan     1      231        10      15    206      0.2
+segment64  null     wasmscan     8      224         8      15    201      1.8
+segment64  null     wasmscan    32      242         8      15    220      7.8
+kind     instr/frame  plain ns    count32    loop32 segment32    loop64 segment64loopload32 segload32
+gain            30.1       155        -1%      +17%      +30%      +29%      +45%      +11%      +27%
+tremolo        111.1      1267        -1%     +157%     +158%     +158%     +158%       -1%       -1%
+biquad8        501.5      7287        +1%       -0%       +1%       +1%       +2%       +1%       +0%
+delay          186.4      1467        +1%       +5%       +8%       +6%      +16%       +1%       +4%
+compile plugin 5 KB                                    5412 B  compile 0.118 ms  inst 0.036  first 0.243  (n=200)
+compile plugin 5 KB + fuel                             9797 B  compile 0.140 ms  inst 0.033  first 0.231  (n=200)
+compile synthetic 100 KB                              99707 B  compile 0.380 ms  inst 0.039  first 1.315  (n=168)
+compile synthetic 100 KB + fuel                      103689 B  compile 0.505 ms  inst 0.040  first 1.094  (n=179)
+compile audio core 472 KB (compile only)             472160 B  compile 1.821 ms  inst 0.000  first 0.000  (n=146)
+compile audio decoder 1129 KB (compile only)        1128625 B  compile 3.933 ms  inst 0.000  first 0.000  (n=55)
+compile synthetic 100 KB, identical bytes again       99718 B  compile 0.009 ms  inst undefined  first undefined  (n=11064)
+faults [loop] ref 3ea7c32d
+   {"mode":"unreachable","reason":"trap","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0.22543399999995017,"msRecover":0.19436100000166334,"msFirstQuantumAfter":0.1429470000002766,"pluginPagesBefore":3}
+   {"mode":"NaN output","reason":"nonFinite","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":1,"msFaultQuantum":0.30519900000217604,"msRecover":0.03376700000080746,"msFirstQuantumAfter":0.12127499999769498,"pluginPagesBefore":3}
+   {"mode":"memory.grow in process","reason":"grow","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0.08689800000138348,"msRecover":0.0838549999971292,"msFirstQuantumAfter":0.11751599999843165,"pluginPagesBefore":3}
+   {"mode":"endless loop (fuel)","reason":"trap","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0.14296299999841722,"msRecover":0.08889199999975972,"msFirstQuantumAfter":0.09474699999555014,"pluginPagesBefore":3}
+   {"mode":"sample of 1000","reason":"range","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":1,"msFaultQuantum":0.04857300000003306,"msRecover":0.004977999997208826,"msFirstQuantumAfter":0.01806399999622954,"pluginPagesBefore":3}
+   uncaught {"thrown":"RuntimeError: unreachable","hostQuantaAfter":10,"expectedIfCompleted":11,"note":"host_quantum aborted between its process loop and its bookkeeping"}
+   runaway [{"budgetPerFrame":1000,"instructions":128000,"msPerRunawayCall":0.09795130000056815,"faults":10},{"budgetPerFrame":20000,"instructions":2560000,"msPerRunawayCall":0.680676400000084,"faults":10}]
+   recovery {"reps":40,"msReinstantiateModuleAnd5Instances":0.035788849999880766,"msFirstQuantumAfterReinstantiate":0.0212599999998929,"msResetOneInstance":0.0026154249999308377,"faults":{"trap":40,"nonFinite":40,"range":0,"grow":0}}
+faults [wasmscan] ref 3ea7c32d
+   {"mode":"unreachable","reason":"trap","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0.04180400000041118,"msRecover":0.07327800000348361,"msFirstQuantumAfter":0.014896000000589993,"pluginPagesBefore":3}
+   {"mode":"NaN output","reason":"nonFinite","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":1,"msFaultQuantum":0.013274999997520354,"msRecover":0.004076000004715752,"msFirstQuantumAfter":0.011609000001044478,"pluginPagesBefore":3}
+   {"mode":"memory.grow in process","reason":"grow","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0.016477999997732695,"msRecover":0.05108299999847077,"msFirstQuantumAfter":0.01351299999805633,"pluginPagesBefore":3}
+   {"mode":"endless loop (fuel)","reason":"trap","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0.04920500000298489,"msRecover":0.0443299999969895,"msFirstQuantumAfter":0.012884000003396068,"pluginPagesBefore":3}
+   {"mode":"sample of 1000","reason":"range","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":1,"msFaultQuantum":0.01627300000109244,"msRecover":0.006061999993107747,"msFirstQuantumAfter":0.011967999998887535,"pluginPagesBefore":3}
+   uncaught {"thrown":"RuntimeError: unreachable","hostQuantaAfter":10,"expectedIfCompleted":11,"note":"host_quantum aborted between its process loop and its bookkeeping"}
+   runaway [{"budgetPerFrame":1000,"instructions":128000,"msPerRunawayCall":0.042000700000062355,"faults":10},{"budgetPerFrame":20000,"instructions":2560000,"msPerRunawayCall":0.23358460000235937,"faults":10}]
+   recovery {"reps":40,"msReinstantiateModuleAnd5Instances":0.0392414000005374,"msFirstQuantumAfterReinstantiate":0.01292855000065174,"msResetOneInstance":0.002478624999821477,"faults":{"trap":40,"nonFinite":40,"range":0,"grow":0}}
+faults [multimemory] ref 3ea7c32d
+   {"mode":"unreachable","reason":"trap","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0.036486999997578096,"msRecover":0.04806700000335695,"msFirstQuantumAfter":0.014626000003772788,"pluginPagesBefore":3}
+   {"mode":"NaN output","reason":"nonFinite","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":1,"msFaultQuantum":0.017690000000584405,"msRecover":0.003673999999591615,"msFirstQuantumAfter":0.012946000002557412,"pluginPagesBefore":3}
+   {"mode":"memory.grow in process","reason":"grow","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0.01732099999935599,"msRecover":0.03869200000190176,"msFirstQuantumAfter":0.013772999998764135,"pluginPagesBefore":3}
+   {"mode":"endless loop (fuel)","reason":"trap","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0.04275500000221655,"msRecover":0.051780000001599547,"msFirstQuantumAfter":0.014830000000074506,"pluginPagesBefore":3}
+   {"mode":"sample of 1000","reason":"range","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":1,"msFaultQuantum":0.015605000000505242,"msRecover":0.003077000001212582,"msFirstQuantumAfter":0.012286999997741077,"pluginPagesBefore":3}
+   uncaught {"thrown":"RuntimeError: unreachable","hostQuantaAfter":10,"expectedIfCompleted":11,"note":"host_quantum aborted between its process loop and its bookkeeping"}
+   runaway [{"budgetPerFrame":1000,"instructions":128000,"msPerRunawayCall":0.04216980000201147,"faults":10},{"budgetPerFrame":20000,"instructions":2560000,"msPerRunawayCall":0.2351431999988563,"faults":10}]
+   recovery {"reps":40,"msReinstantiateModuleAnd5Instances":0.09170204999918496,"msFirstQuantumAfterReinstantiate":0.014479075000053854,"msResetOneInstance":0.0023664249998546437,"faults":{"trap":40,"nonFinite":40,"range":0,"grow":0}}
+
+=== chromium 153.0.8010.12 
+env {"userAgent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36","multiMemory":true,"crossOriginIsolated":false,"mainSyncCompile9MB":"refused: WebAssembly.Compile is disallowed on the main thread, if the buffer size is larger than 8MB. Use WebAssembly.compile, compile on a worker thread, or use the flag `--enable-features=WebAssemblyUnlimitedSyncCompilation`."}
+{"test":"js→wasm empty call","nsPerCall":4.856109404712052}
+{"test":"wasm→js empty import (host_calls, per call)","n1":12.52174257978578,"n8":10.486212151318014,"n32":9.886788057673584}
+variant    kind     strategy     n   perCall  importNop  direct   glue  us/quantum
+plain      null     loop         1      840        13       7    820      0.8
+plain      null     loop         8     1138        10       7   1120      9.1
+plain      null     loop        32      908        10       7    891     29.1
+plain      null     set          1      616        13      13    591      0.6
+plain      null     set          8      607        10      13    584      4.9
+plain      null     set         32      621        10      13    599     19.9
+plain      null     cached       1      499        13      13    474      0.5
+plain      null     cached       8      465        10      13    441      3.7
+plain      null     cached      32      456        10      13    433     14.6
+plain      null     wasmscan     1      211        13      12    186      0.2
+plain      null     wasmscan     8      200        10      12    177      1.6
+plain      null     wasmscan    32      210        10      12    188      6.7
+plain      null     multimemory  1      133        13      13    108      0.1
+plain      null     multimemory  8      160        10      13    136      1.3
+plain      null     multimemory 32      175        10      13    152      5.6
+segment32  null     cached       1      478        13      15    450      0.5
+segment32  null     cached       8      465        10      15    439      3.7
+segment32  null     cached      32      474        10      15    449     15.2
+plain      gain     cached       1      815        13     197    605      0.8
+plain      gain     cached       8      624        10     197    416      5.0
+plain      gain     cached      32      610        10     197    402     19.5
+segment32  gain     cached       1      737        13     180    544      0.7
+segment32  gain     cached       8      646        10     180    455      5.2
+segment32  gain     cached      32      645        10     180    455     20.6
+plain      tremolo  cached       1     1874        13    1379    483      1.9
+plain      tremolo  cached       8     1824        10    1379    435     14.6
+plain      tremolo  cached      32     2526        10    1379   1137     80.8
+segment32  tremolo  cached       1     1816        13    2268   -465      1.8
+segment32  tremolo  cached       8     1803        10    2268   -475     14.4
+segment32  tremolo  cached      32     1811        10    2268   -467     57.9
+segment32  null     wasmscan     1      235        13      15    207      0.2
+segment32  null     wasmscan     8      231        10      15    206      1.8
+segment32  null     wasmscan    32      232        10      15    207      7.4
+plain      gain     wasmscan     1      355        13     155    187      0.4
+plain      gain     wasmscan     8      340        10     155    175      2.7
+plain      gain     wasmscan    32      348        10     155    183     11.1
+segment32  gain     wasmscan     1      399        13     179    208      0.4
+segment32  gain     wasmscan     8      378        10     179    188      3.0
+segment32  gain     wasmscan    32      401        10     179    212     12.8
+plain      tremolo  wasmscan     1     1652        13    1413    226      1.7
+plain      tremolo  wasmscan     8     2178        10    1413    755     17.4
+plain      tremolo  wasmscan    32     1583        10    1413    160     50.6
+segment32  tremolo  wasmscan     1     2318        13    1404    901      2.3
+segment32  tremolo  wasmscan     8     1816        10    1404    401     14.5
+segment32  tremolo  wasmscan    32     2058        10    1404    644     65.9
+segment32  null     multimemory  1      233        13      12    208      0.2
+segment32  null     multimemory  8      200        10      12    177      1.6
+segment32  null     multimemory 32      221        10      12    199      7.1
+plain      gain     multimemory  1      355        13     158    185      0.4
+plain      gain     multimemory  8      338        10     158    170      2.7
+plain      gain     multimemory 32      341        10     158    173     10.9
+segment32  gain     multimemory  1      396        13     182    202      0.4
+segment32  gain     multimemory  8      366        10     182    173      2.9
+segment32  gain     multimemory 32      380        10     182    188     12.2
+plain      tremolo  multimemory  1     1595        13    1383    199      1.6
+plain      tremolo  multimemory  8     1829        10    1383    435     14.6
+plain      tremolo  multimemory 32     1576        10    1383    183     50.4
+segment32  tremolo  multimemory  1     1650        13    1351    287      1.6
+segment32  tremolo  multimemory  8     1582        10    1351    221     12.7
+segment32  tremolo  multimemory 32     1629        10    1351    268     52.1
+segment64  null     wasmscan     1      252        13      30    210      0.3
+segment64  null     wasmscan     8      252        10      30    212      2.0
+segment64  null     wasmscan    32      264        10      30    225      8.5
+kind     instr/frame  plain ns    count32    loop32 segment32    loop64 segment64loopload32 segload32
+gain            30.1       160        +8%      +22%      +17%      +14%      +13%      +14%      +16%
+tremolo        111.1      1414        -1%       -1%       -3%       -2%       -0%       +2%       +1%
+biquad8        501.5      7497        -3%       -2%       -1%       -3%       -2%       -2%       -2%
+delay          186.4      1572        -1%       +4%       +1%       +5%       +2%       +3%       +2%
+compile plugin 5 KB                                    5412 B  compile 0.175 ms  inst 0.100  first 0.180  (n=200)
+compile plugin 5 KB + fuel                             9797 B  compile 0.192 ms  inst 0.059  first 0.274  (n=200)
+compile synthetic 100 KB                              99707 B  compile 0.513 ms  inst 0.137  first 1.147  (n=159)
+compile synthetic 100 KB + fuel                      103689 B  compile 0.577 ms  inst 0.212  first 1.242  (n=140)
+compile audio core 472 KB (compile only)             472160 B  compile 3.296 ms  inst 0.000  first 0.000  (n=80)
+compile audio decoder 1129 KB (compile only)        1128625 B  compile 8.453 ms  inst 0.000  first 0.000  (n=32)
+compile synthetic 100 KB, identical bytes again       99718 B  compile 0.289 ms  inst undefined  first undefined  (n=346)
+faults [wasmscan] ref 3ea7c32d
+   {"mode":"unreachable","reason":"trap","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0.30000000447034836,"msRecover":0.29999999701976776,"msFirstQuantumAfter":0,"pluginPagesBefore":3}
+   {"mode":"NaN output","reason":"nonFinite","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":1,"msFaultQuantum":0.19999999552965164,"msRecover":0,"msFirstQuantumAfter":0.10000000149011612,"pluginPagesBefore":3}
+   {"mode":"memory.grow in process","reason":"grow","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0.10000000149011612,"msRecover":0.19999999552965164,"msFirstQuantumAfter":0,"pluginPagesBefore":3}
+   {"mode":"endless loop (fuel)","reason":"trap","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0.20000000298023224,"msRecover":0.10000000149011612,"msFirstQuantumAfter":0,"pluginPagesBefore":3}
+   {"mode":"sample of 1000","reason":"range","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":1,"msFaultQuantum":0.20000000298023224,"msRecover":0,"msFirstQuantumAfter":0,"pluginPagesBefore":3}
+   uncaught {"thrown":"RuntimeError: unreachable","hostQuantaAfter":10,"expectedIfCompleted":11,"note":"host_quantum aborted between its process loop and its bookkeeping"}
+   runaway [{"budgetPerFrame":1000,"instructions":128000,"msPerRunawayCall":0.2099999986588955,"faults":10},{"budgetPerFrame":20000,"instructions":2560000,"msPerRunawayCall":1.1100000001490116,"faults":10}]
+   recovery {"reps":40,"msReinstantiateModuleAnd5Instances":0.07749999966472387,"msFirstQuantumAfterReinstantiate":0.027500000037252902,"msResetOneInstance":0.002500000037252903,"faults":{"trap":40,"nonFinite":40,"range":0,"grow":0}}
+faults [multimemory] ref 3ea7c32d
+   {"mode":"unreachable","reason":"trap","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0.09999999403953552,"msRecover":24.200000002980232,"msFirstQuantumAfter":0,"pluginPagesBefore":3}
+   {"mode":"NaN output","reason":"nonFinite","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":1,"msFaultQuantum":0,"msRecover":0,"msFirstQuantumAfter":0,"pluginPagesBefore":3}
+   {"mode":"memory.grow in process","reason":"grow","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0,"msRecover":0,"msFirstQuantumAfter":0.10000000149011612,"pluginPagesBefore":3}
+   {"mode":"endless loop (fuel)","reason":"trap","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0.09999999403953552,"msRecover":0.10000000149011612,"msFirstQuantumAfter":0,"pluginPagesBefore":3}
+   {"mode":"sample of 1000","reason":"range","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":1,"msFaultQuantum":0,"msRecover":0,"msFirstQuantumAfter":0.10000000149011612,"pluginPagesBefore":3}
+   uncaught {"thrown":"RuntimeError: unreachable","hostQuantaAfter":10,"expectedIfCompleted":11,"note":"host_quantum aborted between its process loop and its bookkeeping"}
+   runaway [{"budgetPerFrame":1000,"instructions":128000,"msPerRunawayCall":0.1,"faults":10},{"budgetPerFrame":20000,"instructions":2560000,"msPerRunawayCall":1.0600000023841858,"faults":10}]
+   recovery {"reps":40,"msReinstantiateModuleAnd5Instances":0.0625,"msFirstQuantumAfterReinstantiate":0.0074999997392296795,"msResetOneInstance":0.007500000111758709,"faults":{"trap":40,"nonFinite":40,"range":0,"grow":0}}
+
+=== chromium / AudioWorkletGlobalScope  
+env {"state0":"running","moduleViaProcessorOptions":"ok (abi 0x100)","state1":"running","hasPerformance":"undefined","hasWebAssembly":"object","hasCompileStreaming":"function","multiMemory":true,"sampleRate":44100,"syncCompile plugin":"ok 0 ms + instance 0 ms","syncCompile plugin+fuel":"ok 1 ms + instance 0 ms","syncCompile 100 KB":"ok 0 ms + instance 0 ms","syncCompile core 472 KB":"ok 2 ms","syncCompile decoder 1.1 MB":"ok 4 ms + instance 0 ms","syncCompile 9 MB":"ok 18 ms + instance 0 ms","asyncCompile":"ok 4 ms (true, abi 0x100)","asyncCompile9MB":"call 5 ms, resolved after 23 ms","postedModule":"messageerror: the posted message could not be deserialized here"}
+{"test":"js→wasm empty call","nsPerCall":3.9025146980580745}
+{"test":"wasm→js empty import (host_calls, per call)","n1":12.811024820823354,"n8":17.156593098483384,"n32":9.62414152657583}
+variant    kind     strategy     n   perCall  importNop  direct   glue  us/quantum
+plain      null     loop         1      835        13       9    813      0.8
+plain      null     loop         8     1439        17       9   1413     11.5
+plain      null     loop        32     1435        10       9   1417     45.9
+plain      null     cached       1      626        13      28    585      0.6
+plain      null     cached       8      525        17      28    479      4.2
+plain      null     cached      32      466        10      28    428     14.9
+plain      null     wasmscan     1      233        13       3    217      0.2
+plain      null     wasmscan     8      344        17       3    323      2.7
+plain      null     wasmscan    32      254        10       3    242      8.1
+plain      null     multimemory  1      229        13      37    180      0.2
+plain      null     multimemory  8      169        17      37    115      1.4
+plain      null     multimemory 32      199        10      37    153      6.4
+segment32  null     wasmscan     1      249        13      15    221      0.2
+segment32  null     wasmscan     8      307        17      15    274      2.5
+segment32  null     wasmscan    32      402        10      15    378     12.9
+plain      tremolo  wasmscan     1     1574        13    1410    152      1.6
+plain      tremolo  wasmscan     8     2951        17    1410   1524     23.6
+plain      tremolo  wasmscan    32     1816        10    1410    397     58.1
+segment32  tremolo  wasmscan     1     1786        13    1455    318      1.8
+segment32  tremolo  wasmscan     8     2173        17    1455    700     17.4
+segment32  tremolo  wasmscan    32     1593        10    1455    128     51.0
+kind     instr/frame  plain ns    count32    loop32 segment32    loop64 segment64loopload32 segload32
+gain            30.1       161        +9%      +20%      +13%      +13%      +13%      +14%      +18%
+tremolo        111.1      1593        +4%      +22%       -9%       -8%      -13%       +0%      -11%
+biquad8        501.5      7394        -1%       -2%       +1%       +3%       -1%       -2%       -1%
+delay          186.4      1581        +3%       +4%      +16%       +1%       +4%       +1%       +4%
+compile plugin 5 KB                                    5412 B  compile 0.175 ms  inst 0.140  first 0.150  (n=200)
+compile plugin 5 KB + fuel                             9797 B  compile 0.150 ms  inst 0.075  first 0.230  (n=200)
+compile synthetic 100 KB                              99707 B  compile 0.480 ms  inst 0.135  first 1.130  (n=200)
+compile synthetic 100 KB + fuel                      103689 B  compile 0.470 ms  inst 0.125  first 1.170  (n=200)
+compile audio core 472 KB (compile only)             472160 B  compile 3.494 ms  inst 0.000  first 0.000  (n=154)
+compile audio decoder 1129 KB (compile only)        1128625 B  compile 7.158 ms  inst 0.000  first 0.000  (n=76)
+compile synthetic 100 KB, identical bytes again       99718 B  compile 0.202 ms  inst undefined  first undefined  (n=988)
+faults [wasmscan] ref 3ea7c32d
+   {"mode":"unreachable","reason":"trap","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0,"msRecover":2,"msFirstQuantumAfter":0,"pluginPagesBefore":3}
+   {"mode":"NaN output","reason":"nonFinite","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":1,"msFaultQuantum":0,"msRecover":1,"msFirstQuantumAfter":0,"pluginPagesBefore":3}
+   {"mode":"memory.grow in process","reason":"grow","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0,"msRecover":0,"msFirstQuantumAfter":0,"pluginPagesBefore":3}
+   {"mode":"endless loop (fuel)","reason":"trap","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0,"msRecover":0,"msFirstQuantumAfter":0,"pluginPagesBefore":3}
+   {"mode":"sample of 1000","reason":"range","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":1,"msFaultQuantum":0,"msRecover":0,"msFirstQuantumAfter":0,"pluginPagesBefore":3}
+   uncaught {"thrown":"RuntimeError: unreachable","hostQuantaAfter":10,"expectedIfCompleted":11,"note":"host_quantum aborted between its process loop and its bookkeeping"}
+   runaway [{"budgetPerFrame":1000,"instructions":128000,"msPerRunawayCall":0.13,"faults":100},{"budgetPerFrame":20000,"instructions":2560000,"msPerRunawayCall":0.88,"faults":100}]
+   recovery {"reps":400,"msReinstantiateModuleAnd5Instances":0.145,"msFirstQuantumAfterReinstantiate":0.015,"msResetOneInstance":0.0075,"faults":{"trap":400,"nonFinite":400,"range":0,"grow":0}}
+faults [multimemory] ref 3ea7c32d
+   {"mode":"unreachable","reason":"trap","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0,"msRecover":0,"msFirstQuantumAfter":0,"pluginPagesBefore":3}
+   {"mode":"NaN output","reason":"nonFinite","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":1,"msFaultQuantum":0,"msRecover":0,"msFirstQuantumAfter":0,"pluginPagesBefore":3}
+   {"mode":"memory.grow in process","reason":"grow","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":0,"msRecover":0,"msFirstQuantumAfter":0,"pluginPagesBefore":3}
+   {"mode":"endless loop (fuel)","reason":"trap","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":5,"msFaultQuantum":1,"msRecover":0,"msFirstQuantumAfter":0,"pluginPagesBefore":3}
+   {"mode":"sample of 1000","reason":"range","hostFaults":1,"hostQuanta":50,"hashMatchesReference":true,"instancesRecreated":1,"msFaultQuantum":0,"msRecover":0,"msFirstQuantumAfter":0,"pluginPagesBefore":3}
+   uncaught {"thrown":"RuntimeError: unreachable","hostQuantaAfter":10,"expectedIfCompleted":11,"note":"host_quantum aborted between its process loop and its bookkeeping"}
+   runaway [{"budgetPerFrame":1000,"instructions":128000,"msPerRunawayCall":0.07,"faults":100},{"budgetPerFrame":20000,"instructions":2560000,"msPerRunawayCall":0.87,"faults":100}]
+   recovery {"reps":400,"msReinstantiateModuleAnd5Instances":0.1575,"msFirstQuantumAfterReinstantiate":0.01,"msResetOneInstance":0.01,"faults":{"trap":400,"nonFinite":400,"range":0,"grow":0}}
+
+=== webkit  ERROR launch: browserType.launch: Executable doesn't exist at /opt/pw-browsers/webkit-2370/pw_run.sh
+
+=== firefox  ERROR launch: browserType.launch: Executable doesn't exist at /opt/pw-browsers/firefox-1555/firefox/firefox

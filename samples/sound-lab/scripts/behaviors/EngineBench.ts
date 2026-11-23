@@ -1,22 +1,22 @@
-import { Audio, GameBehavior, Input, Text, behavior, field, type AudioEventHandle } from "myco";
+import { Audio, GameBehavior, Input, Text, behavior, field, type AudioPlaylistHandle } from "myco";
 
 /**
- * An engine two ways (ADR 0158 §1, §4). E starts and key-offs `engine.audioevent.json`: a `sustain` container whose
- * start clip runs into a loop that is a `blend` of idle, mid and high RPM clips (each looping its authored region), and
- * whose end clip is the engine-off tail. T does the same with `engine-single.audioevent.json`, one clip with its own
- * run-up, a sustained loop region and a spin-down tail. Hold the Up arrow for full throttle, the Right arrow for half:
+ * An engine two ways (ADR 0343 playlists). E starts and key-offs `engine.playlist.json`: a Sequence whose start clip runs
+ * into a held loop over a Blend of idle, mid and high RPM clips (each sample looping its region, from its sidecar), and
+ * whose end clip is the engine-off tail. T does the same with `engine-single.playlist.json`, one sample with its own
+ * run-up, a held loop region (its sidecar) and a spin-down tail. Hold the Up arrow for full throttle, the Right arrow for half:
  * the local parameter "RPM" is set once when the throttle changes and the core smooths it (seekSpeed), moving the blend
  * and the pitch. Releasing the engine (E or T again) is `handle.release()`: the loop ends and the tail plays.
  */
 @behavior("lab.EngineBench")
 export class EngineBench extends GameBehavior {
-  @field(String) blendEvent = "audio/events/engine.audioevent.json";
-  @field(String) singleEvent = "audio/events/engine-single.audioevent.json";
+  @field(String) blendEvent = "audio/events/engine.playlist.json";
+  @field(String) singleEvent = "audio/events/engine-single.playlist.json";
   @field(String) blendKey = "e";
   @field(String) singleKey = "t";
   @field(String) fullKey = "arrowup";
   @field(String) halfKey = "arrowright";
-  private handle: AudioEventHandle | null = null;
+  private handle: AudioPlaylistHandle | null = null;
   private which = "";
   private released = false;
   private throttle = 0;

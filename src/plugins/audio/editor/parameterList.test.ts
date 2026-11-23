@@ -1,25 +1,10 @@
-// ADR 0304: the one parameter list, its rules run once per holder (an event's own parameters, the project's global
-// ones), each checked against the parse that reads the list back; then what each holder's rename and remove carry along.
+// ADR 0304: the one parameter list, its rules run at the local and the global limit, each checked against the parse
+// that reads the list back; then that a rename and a remove carry along what the holder says (the Studio's holders: the
+// global parameters in `audio.json`, `src/studio/screens/mixer/globalParameters.ts`, and a playlist's own).
 import { describe, expect, it } from "vitest";
-import {
-  MAX_LOCAL_PARAMETERS,
-  MAX_PARAMETERS,
-  emptyAudioEvent,
-  formatAudioEvent,
-  parseAudioEvent,
-  parseParameters,
-  type AudioEventAsset,
-  type ParameterDef,
-  type SwitchNode,
-} from "../../../engine/audio/eventFormat";
-import type { SettingsDraft } from "../../../editor/sdk";
-import { readDraft } from "../../../editor/testing";
-import { audioSettings } from "./audioDraft";
-import { globalParameterList } from "./audioSettingsModel";
+import { MAX_LOCAL_PARAMETERS, MAX_PARAMETERS, parseParameters, type ParameterDef } from "../../../engine/audio/parameters";
 import type { EditResult } from "./editResult";
-import { eventParameterList } from "./event/eventParameters";
-import { newNode } from "./event/eventTreeModel";
-import type { ParameterList } from "./parameterList";
+import { parameterList, type ParameterList } from "./parameterList";
 
 const nextOf = <T,>(r: EditResult<T>): T => {
   if ("refused" in r) throw new Error(r.refused);
@@ -35,8 +20,17 @@ interface Holder<H> {
   limit: number;
   of(parameters: ParameterDef[]): H;
 }
-const eventHolder: Holder<AudioEventAsset> = { name: "an event's own parameters", list: eventParameterList, limit: MAX_LOCAL_PARAMETERS, of: (parameters) => ({ ...emptyAudioEvent(), parameters }) };
-const globalHolder: Holder<SettingsDraft> = { name: "the global parameters", list: globalParameterList, limit: MAX_PARAMETERS, of: (parameters) => readDraft({ audio: { parameters } }) };
+/** A holder whose list is the whole value, and whose rename and remove carry along a list of uses (`uses`), as a holder's references would. */
+interface Owned { parameters: ParameterDef[]; uses: string[] }
+const ownedList = (limit: number): ParameterList<Owned> => parameterList<Owned>({
+  read: (h) => h.parameters,
+  write: (h, parameters) => ({ ...h, parameters }),
+  limit,
+  rename: (h, from, to) => ({ parameters: h.parameters.map((p) => (p.name === from ? { ...p, name: to } : p)), uses: h.uses.map((u) => (u === from ? to : u)) }),
+  remove: (h, name) => ({ parameters: h.parameters.filter((p) => p.name !== name), uses: h.uses.filter((u) => u !== name) }),
+});
+const localHolder: Holder<Owned> = { name: "a holder at the local limit", list: ownedList(MAX_LOCAL_PARAMETERS), limit: MAX_LOCAL_PARAMETERS, of: (parameters) => ({ parameters, uses: [] }) };
+const globalHolder: Holder<Owned> = { name: "a holder at the global limit", list: ownedList(MAX_PARAMETERS), limit: MAX_PARAMETERS, of: (parameters) => ({ parameters, uses: [] }) };
 
 function suite<H>(h: Holder<H>) {
   const { list } = h;
@@ -128,36 +122,18 @@ function suite<H>(h: Holder<H>) {
   });
 }
 
-suite(eventHolder);
+suite(localHolder);
 suite(globalHolder);
 
-describe("what each holder carries along", () => {
-  it("an event: a rename follows every use; a remove keeps the uses (they read a global parameter)", () => {
-    const sw: SwitchNode = { ...(newNode("switch") as SwitchNode), parameter: "Surface" };
-    const e: AudioEventAsset = { ...emptyAudioEvent(), parameters: [speed, surface], root: sw };
-    const renamed = nextOf(eventParameterList.rename(e, "Surface", "Ground"));
+describe("what a holder carries along", () => {
+  it("a rename and a remove go through the holder's own rename and remove", () => {
+    const list = ownedList(MAX_PARAMETERS);
+    const h: Owned = { parameters: [speed, surface], uses: ["Surface", "Speed"] };
+    const renamed = nextOf(list.rename(h, "Surface", "Ground"));
     expect(renamed.parameters[1]!.name).toBe("Ground");
-    expect((renamed.root as SwitchNode).parameter).toBe("Ground");
-    const removed = nextOf(eventParameterList.remove(e, "Surface"));
+    expect(renamed.uses).toEqual(["Ground", "Speed"]);
+    const removed = nextOf(list.remove(h, "Surface"));
     expect(removed.parameters).toEqual([speed]);
-    expect((removed.root as SwitchNode).parameter).toBe("Surface");
-    // What it writes reads back unchanged.
-    expect(parseAudioEvent(JSON.parse(formatAudioEvent(renamed))).value.parameters).toEqual(renamed.parameters);
-  });
-
-  it("the settings: a rename renames the automation that reads it; a remove drops that automation", () => {
-    const d = readDraft({ audio: {
-      parameters: [{ name: "A", min: 0, max: 1, default: 0, seekSpeed: 0 }, { name: "B", labels: ["x", "y"], default: "x" }],
-      automation: [
-        { bus: "Music", parameter: "A", target: "volume", curve: [[0, 1], [1, 0]] },
-        { bus: "SFX", parameter: "B", target: "lowpass", curve: [[0, 24000], [1, 800]] },
-      ],
-    } });
-    const renamed = audioSettings.read(nextOf(globalParameterList.rename(d, "A", "Intensity")));
-    expect(renamed.parameters.map((p) => p.name)).toEqual(["Intensity", "B"]);
-    expect(renamed.automation.map((r) => r.parameter)).toEqual(["Intensity", "B"]);
-    const removed = audioSettings.read(nextOf(globalParameterList.remove(d, "A")));
-    expect(removed.parameters.map((p) => p.name)).toEqual(["B"]);
-    expect(removed.automation.map((r) => r.parameter)).toEqual(["B"]);
+    expect(removed.uses).toEqual(["Speed"]);
   });
 });

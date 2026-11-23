@@ -1,4 +1,4 @@
-//! ADR 0350's budget scenarios end to end, natively (`cargo bench -p anim-bench --bench budgets`).
+//! ADR 0370's budget scenarios end to end, natively (`cargo bench -p anim-bench --bench budgets`).
 //! One iteration is one frame of the whole crowd. Tripwires: the character crowd (100 × 80 bones,
 //! `locomotion + rig`) ≤ 1.5 ms, 20 matching characters ≤ 0.6 ms, 1,000 tweens ≤ 0.2 ms.
 

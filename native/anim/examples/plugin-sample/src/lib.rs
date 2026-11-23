@@ -1,4 +1,4 @@
-//! A sample third-party node module (ADR 0350, T45), built with `anim-plugin-sdk`:
+//! A sample third-party node module (ADR 0370, T45), built with `anim-plugin-sdk`:
 //!
 //! - **`sway`** (kind 1): a procedural additive layer. Bones from `first_bone` on rotate about
 //!   `axis` by `amplitude · sin(2π · phase) · falloff^k` (`k` = bones past `first_bone`), applied

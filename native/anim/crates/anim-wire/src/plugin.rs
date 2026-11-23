@@ -1,4 +1,4 @@
-//! Family `plugin`: third-party nodes (ADR 0350, "Third-party graph and rig nodes"): the host call
+//! Family `plugin`: third-party nodes (ADR 0370, "Third-party graph and rig nodes"): the host call
 //! and fault reports.
 //!
 //! # Modules
@@ -145,7 +145,7 @@ pub const FAMILY: FamilyDesc = FamilyDesc {
     name: "plugin",
     id: ID,
     version: VERSION,
-    doc: "Wire family `plugin`: third-party nodes (ADR 0350): the host call `mycoAnimPluginHost.call(record)` and fault\nreports (native/anim/crates/anim-wire/src/plugin.rs).",
+    doc: "Wire family `plugin`: third-party nodes (ADR 0370): the host call `mycoAnimPluginHost.call(record)` and fault\nreports (native/anim/crates/anim-wire/src/plugin.rs).",
     records: &[PluginCall::DESC, PluginFault::DESC],
     consts: consts![
         PLUGIN_FAULT_CAPACITY: "Fault reports the buffer holds.",

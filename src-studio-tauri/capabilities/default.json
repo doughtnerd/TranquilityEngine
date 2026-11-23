@@ -1,0 +1,27 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions for the standalone Audio Studio's window (\"studio\", ADR 0341). Storage (ADR 0024) reads and writes the app data folder. The Studio reads and writes the project folders the user picks, as the editor does (ADR 0026): fs:read-all and fs:write-all enable the commands without fixed paths, and the dialog plugin adds each picked folder to the fs scope (kept across restarts by the persisted-scope plugin). fs:allow-watch / fs:allow-unwatch let it follow changes the editor, a code editor or git make to the project. opener:allow-reveal-item-in-dir shows a file in the file manager and opener:allow-open-url opens the guide. core:window:allow-destroy lets an unsaved-changes guard close the window after asking.",
+  "windows": [
+    "studio"
+  ],
+  "permissions": [
+    "core:default",
+    "fs:default",
+    "fs:allow-appdata-read-recursive",
+    "fs:allow-appdata-write-recursive",
+    "fs:read-all",
+    "fs:write-all",
+    "dialog:default",
+    "fs:allow-watch",
+    "fs:allow-unwatch",
+    "opener:allow-reveal-item-in-dir",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://github.com/doughtnerd/tranquilityengine/**" }]
+    },
+    "core:window:allow-destroy",
+    "core:window:allow-close",
+    "core:window:allow-set-focus"
+  ]
+}

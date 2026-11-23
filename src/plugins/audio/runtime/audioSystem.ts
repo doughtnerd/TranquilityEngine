@@ -3,17 +3,13 @@
  * runs in every World and is listed with the engine's systems.
  *
  * ADR 0162 (K4): the frame runs main's M3 passes in one order for both backends (api-and-models §6, architecture §1).
- * ADR 0166 (Q2) adds step 0, a system of its own, and step 9:
+ * (ADR 0166's early music step, `engine.AudioMusic`, went with the music player, ADR 0343: a playlist's beats, bars and
+ * markers arrive in late update.)
  *
- * 0. **`engine.AudioMusic`** (update phase, after `engine.Lobby` and `engine.PredictionSmooth`, before
- *    `engine.UpdateScripts`; only in the World that has the view): `music/musicSystem.ts` `musicEarlyStep`: the backend's
- *    idempotent `beginFrame` and the beat, bar and cue dispatch, so scripts read this frame's `Audio.time` and music
- *    callbacks arrive before `update`. With no music playing it returns at once (no `beginFrame`, no allocation).
- *
- * Then `engine.Audio` (lateUpdate): the listener (an enabled `AudioListener`, else the main camera) into the backend and
+ * `engine.Audio` (lateUpdate): the listener (an enabled `AudioListener`, else the main camera) into the backend and
  * the frame's `ListenerFrame`, `mixer.update`, the occlusion pass's source bindings, then the backend frame
- * (`audioFrame.ts`, ADR 0270: attenuation, Doppler, zones, occlusion, selection, panner pick, fx, listener, music plan,
- * commit; the Babylon fallback and plain backends take the parts they have), then the event runtime and the sources' sync.
+ * (`audioFrame.ts`, ADR 0270: attenuation, Doppler, zones, occlusion, selection, panner pick, fx, listener, commit; the
+ * Babylon fallback and plain backends take the parts they have), then the playlist runtime and the sources' sync.
  * Nothing in this file changes for a feature: each fills its own file.
  */
 import { mixer } from "../../../engine/audio/mixer";
@@ -28,9 +24,8 @@ import type { OcclusionPass } from "./core/occlusion";
 import { runAudioFrame } from "./audioFrame";
 import { AudioSource, worldKeyOf, worldPlays } from "./AudioSource";
 import { audioBackend, hasAudioBackend, isPendingCoreBackend } from "./backend";
-import { events } from "./events/eventRuntime";
+import { playlistHost } from "./playlists/host";
 import { AUDIO, type AudioWorldService } from "./core/service";
-import { musicActive, musicEarlyStep } from "./music/musicSystem";
 
 /** Worlds whose audio system already asked for the core's World service. */
 const askedCore = new WeakSet<World>();
@@ -59,8 +54,8 @@ function reportView(world: World): void {
   liveKeys.clear();
   service.core.host.forEachWorld(reportOne);
   reportTo = null;
-  // A World the host no longer lists is gone: its random generator and sequence positions go with it (ADR 0158 §6).
-  events().keepWorlds(liveKeys);
+  // A World the host no longer lists is gone: its random generator and pick state go with it (ADR 0158 §6).
+  playlistHost().keepWorlds(liveKeys);
 }
 
 let reportTo: WorldAudibleSink | null = null;
@@ -100,7 +95,7 @@ export const AUDIO_SYSTEMS: readonly BuiltinSystem[] = [
     run(world: World, dt: number): void {
       reportView(world);
       if (!worldPlays(world)) return;
-      events().noteWorld(worldKeyOf(world), world); // a key now held by another World drops the old one's event state
+      playlistHost().noteWorld(worldKeyOf(world), world); // a key now held by another World drops the old one's playlist state
       // "core" with no AudioSource or AudioListener to start the service (a script's one-shots only): start it here,
       // once per World, so the pending backend's locked voices don't wait for a load nobody began (§2.1).
       if (isPendingCoreBackend(audioBackend()) && !askedCore.has(world) && !_worldServiceOf(world, AUDIO) && _worldServiceIds().includes(AUDIO)) {
@@ -131,19 +126,8 @@ export const AUDIO_SYSTEMS: readonly BuiltinSystem[] = [
       if (isSpatialPassHost(backend)) bindOcclusionSources(world, backend.occlusion);
       runAudioFrame(backend, frame, dt, mixer.audioSettings); // ADR 0270: the frame order, in one module
       listenerComponent?._noteVelocity(frame.velX, frame.velY, frame.velZ);
-      events().update(dt); // ADR 0158: due continuous-container timers; the fallback's automation
+      playlistHost().update(dt); // ADR 0343: the playlist instances' frame; the fallback's automation
       for (const s of world._componentsOfType(AudioSource)) s._sync();
-    },
-  },
-  {
-    // ADR 0166 step 0 (R17, ADR 0167 §2): see the header. `engine.Audio` stays first in this list (tests index it).
-    name: "engine.AudioMusic",
-    phase: "update",
-    after: ["engine.Lobby", "engine.PredictionSmooth"],
-    before: ["engine.UpdateScripts"],
-    run(world: World, dt: number): void {
-      if (!musicActive() || !worldPlays(world) || !hasAudioBackend()) return;
-      musicEarlyStep(audioBackend(), dt);
     },
   },
 ];

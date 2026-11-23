@@ -1,6 +1,6 @@
 //! The foot grounder: feet onto uneven ground from ray hits, with a pelvis offset.
 //!
-//! # Frame flow (ADR 0350)
+//! # Frame flow (ADR 0370)
 //!
 //! The core never casts rays. Each frame:
 //!

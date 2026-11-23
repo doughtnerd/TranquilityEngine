@@ -1,6 +1,7 @@
 // Mo1 (api-and-models §6.2, architecture §4.7): one case per op kind, each with its class; the byte form round trip;
 // refusals; applyOpToDraft's write. The invert and diffOps property tests are L-Mo1a's (mixOps.test.ts); the per-op
 // table here also checks both on each case.
+import { isProjectOp } from "./projectOps";
 import { describe, expect, it } from "vitest";
 import {
   applyOpToSettings, diffOps, invert, MAX_LOUDNESS_BUSES, MIX_OP_NAMES, opClass, opRefusal,
@@ -30,6 +31,11 @@ function base(): AudioSettings {
 
 const duck = { target: "SFX", trigger: "UI", mode: "level" as const, detector: "peak" as const, threshold: -40, amount: 0.2, attack: 0.2, release: 1 };
 const auto = { bus: "Music", parameter: "Intensity", target: "lowpass" as const, curve: [[0, 24000], [1, 500, "easeIn"]] as const };
+/** ADR 0346: a curve with Bézier keys (one free) round-trips through the byte form with its handles. */
+const bezierAuto = { bus: "Music", parameter: "Intensity", target: "volume" as const, curve: [[0, 1, "bezier", { in: [0, 0], out: [0.25, -0.5] }], [0.5, 0.4, "bezier", { in: [-0.1, 0.2], out: [0.2, 0], free: true }], [1, 0]] as const };
+/** ABI 4.8: an effect parameter's automation (by the effect's and the parameter's index, a log2 curve) and a send's. */
+const fxAuto = { bus: "Music", parameter: "Intensity", target: "fx" as const, effect: 0, param: 0, log: true, curve: [[0, 14], [1, 9]] as const };
+const sendAuto = { bus: "Stems", parameter: "Intensity", target: "send" as const, to: "SFX", curve: [[0, 0], [1, -12]] as const };
 const tgt = { name: "radio", integrated: -23, tolerance: 1, truePeak: -2 };
 
 /** Every op kind (and each variant that changes its class), with the class it has against `base()`. */
@@ -69,7 +75,10 @@ const CASES: [string, MixOp, OpClass][] = [
   ["setDucking remove", { op: "setDucking", index: 1, rule: null }, "direct"],
   ["setAutomation insert", { op: "setAutomation", index: 0, rule: auto, insert: true }, "direct"],
   ["setAutomation replace", { op: "setAutomation", index: 0, rule: auto }, "direct"],
+  ["setAutomation replace, Bézier keys", { op: "setAutomation", index: 0, rule: bezierAuto }, "direct"],
   ["setAutomation remove", { op: "setAutomation", index: 0, rule: null }, "direct"],
+  ["setAutomation insert, an effect parameter", { op: "setAutomation", index: 1, rule: fxAuto, insert: true }, "direct"],
+  ["setAutomation replace, a send", { op: "setAutomation", index: 0, rule: sendAuto }, "direct"],
   ["setTarget insert", { op: "setTarget", index: 2, target: tgt, insert: true }, "direct"],
   ["setTarget replace", { op: "setTarget", index: 1, target: tgt }, "direct"],
   ["setTarget remove", { op: "setTarget", index: 1, target: null }, "direct"],
@@ -90,7 +99,8 @@ function table(): MixOpNameTable & { name(id: number): string; bus(ref: number):
 
 describe("every op kind (Mo1, §6.2)", () => {
   it("covers every op name", () => {
-    expect(new Set(CASES.map(([, op]) => op.op))).toEqual(new Set(MIX_OP_NAMES));
+    // The mix model's own ops (ADR 0344) are `projectOps.test.ts`'s: the old section can't hold them.
+    expect(new Set(CASES.map(([, op]) => op.op))).toEqual(new Set(MIX_OP_NAMES.filter((n) => !isProjectOp({ op: n }))));
   });
   it.each(CASES)("%s: applies, has its class, inverts, diffs back, and round-trips its byte form", (_label, op, cls) => {
     const a = base();

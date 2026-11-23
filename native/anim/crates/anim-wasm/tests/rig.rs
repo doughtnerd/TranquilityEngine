@@ -1,4 +1,4 @@
-//! The rig node family through the core (T40, ADR 0352): each node in a small graph over the
+//! The rig node family through the core (T40, ADR 0372): each node in a small graph over the
 //! rig test skeleton (identity inverse binds, so bone matrices are model transforms), driven by
 //! the `rig` family's views and commands: IK reaches its targets at weight 1, stays at the input
 //! at weight 0 and lands between at partial weights (from a parameter), LOD skips nodes, the

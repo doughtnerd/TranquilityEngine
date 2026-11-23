@@ -112,6 +112,29 @@ export async function moveAssets(moves: readonly (readonly [string, string])[], 
     docVersion.value++;
     return false;
   }
+  await followMoves(project, done, movedScripts, verb);
+  return true;
+}
+
+/**
+ * Follow moves another app already made on disk (ADR 0341: the Audio Studio's `pending-moves.json`, applied while
+ * this editor holds the project): the project follows them without touching the disk, then they're followed as
+ * `moveAssets` follows its own: open asset documents and their histories, Code panel buffers, and references in
+ * scenes, prefabs, project.json and other JSON files (the open scene's change one undo step). Resolves to whether
+ * anything moved.
+ */
+export async function followMovedAssets(moves: readonly (readonly [string, string])[], by = "Another app"): Promise<boolean> {
+  const project = currentProject.value;
+  moves = moves.filter(([from, to]) => from !== to);
+  if (!project || moves.length === 0) return false;
+  const movedScripts = moves.some(([from]) => [...project.scripts.keys()].some((s) => isWithin(s, from)));
+  for (const [from, to] of moves) await project.followMove(from, to);
+  await followMoves(project, moves, movedScripts, `${by} moved`);
+  return true;
+}
+
+/** What follows moves made on disk: documents, buffers and references follow, then the status bar says what happened. */
+async function followMoves(project: EditorProject, done: readonly (readonly [string, string])[], movedScripts: boolean, verb: string): Promise<void> {
   const histories = assetDocumentsMoved(done); // open asset documents and their undo follow their files
   codeBuffersMoved(done); // so do Code panel tabs and unsaved text, before references are rewritten in them
   const { updated: cleaned, notRewritten } = await updateReferences(project, done);
@@ -131,7 +154,6 @@ export async function moveAssets(moves: readonly (readonly [string, string])[], 
       : {}),
   };
   await histories;
-  return true;
 }
 
 /**

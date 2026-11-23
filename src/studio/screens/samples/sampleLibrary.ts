@@ -1,0 +1,146 @@
+// The Samples panel's model (ADR 0342 "Samples are assets"): the project's audio files and derived samples
+// (`*.sample.json`) by folder, the search's flat list with paths, the meta line and the file chip of a row, deleting a
+// folder by moving what's in it up, and the playlists that use a sample ("Used by", the Delete prompt). Pure: the view
+// passes the project's paths and parsed files.
+import { isDerivedSamplePath } from "../../../engine/audio/sample/format";
+import type { DerivedSampleAsset, SampleEdits, SampleKind } from "../../../engine/audio/sample/types";
+import { parsePlaylist } from "../../../engine/audio/playlist/format";
+import { referencedPaths } from "../../../engine/audio/playlist/references";
+import { isSidecarPath } from "../../../engine/scene/importSettings";
+import { isAudioPath } from "./importPlan";
+
+/** True for a file the Samples panel lists: an audio file or a derived sample. */
+export const isSamplePath = (p: string): boolean => !isSidecarPath(p.toLowerCase()) && (isAudioPath(p) || isDerivedSamplePath(p));
+
+export const folderOf = (p: string): string => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
+export const nameOf = (p: string): string => p.slice(p.lastIndexOf("/") + 1);
+const join = (a: string, b: string) => (a ? `${a}/${b}` : b);
+
+export interface LibraryFolder {
+  readonly path: string;
+  readonly name: string;
+  readonly folders: LibraryFolder[];
+  readonly samples: string[];
+}
+
+/**
+ * The tree: folders holding a sample somewhere inside, and empty folders (a folder just made, before anything moves
+ * in), sorted by name; samples sorted naturally.
+ */
+export function libraryTree(files: readonly string[], folders: readonly string[]): LibraryFolder {
+  const natural = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+  const samples = files.filter(isSamplePath);
+  const nonEmpty = new Set(files.map(folderOf));
+  const keep = new Set<string>();
+  for (const s of samples) for (let f = folderOf(s); f !== ""; f = folderOf(f)) keep.add(f);
+  for (const f of folders) {
+    if (!nonEmpty.has(f) && !folders.some((g) => g !== f && folderOf(g) === f) && !f.startsWith(".") && !f.includes("/.")) {
+      for (let g = f; g !== ""; g = folderOf(g)) keep.add(g);
+    }
+  }
+  const make = (path: string): LibraryFolder => ({
+    path,
+    name: path === "" ? "" : nameOf(path),
+    folders: [...keep].filter((f) => folderOf(f) === path).sort(natural.compare).map(make),
+    samples: samples.filter((s) => folderOf(s) === path).sort((a, b) => natural.compare(nameOf(a), nameOf(b))),
+  });
+  return make("");
+}
+
+/** Every sample in the tree, depth first (the tree's keyboard order and the "Search N samples" count). */
+export const allSamples = (root: LibraryFolder): string[] => [...root.samples, ...root.folders.flatMap(allSamples)];
+
+/** Search: samples whose name holds `query` (case-insensitive), as a flat list with their folders. */
+export function searchSamples(files: readonly string[], query: string): string[] {
+  const q = query.trim().toLowerCase();
+  if (q === "") return [];
+  return files.filter((f) => isSamplePath(f) && nameOf(f).toLowerCase().includes(q)).sort();
+}
+
+const KIND_NAMES: Readonly<Record<SampleKind, string>> = { oneshot: "One-shot", loop: "Loop", sustain: "Loop · while held", music: "Music" };
+
+/** Seconds as a short length: "340 ms", "2.6 s", "1:12". */
+export function shortLength(seconds: number): string {
+  if (seconds < 1) return `${Math.round(seconds * 1000)} ms`;
+  if (seconds < 60) return `${Math.round(seconds * 10) / 10} s`;
+  const m = Math.floor(seconds / 60);
+  return `${m}:${String(Math.round(seconds - m * 60)).padStart(2, "0")}`;
+}
+
+/** A row's meta line: "One-shot · 0.34 s", "Music · 12 bars", "Snippet · 0.8 s", "Fork of brake_skid.wav". */
+export function metaLine(path: string, edits: SampleEdits | null, length: number | null, derived?: DerivedSampleAsset | null): string {
+  if (derived) {
+    const { lineage, range } = derived;
+    if (lineage.kind === "snippet" && range) return `Snippet · ${shortLength(range[1] - range[0])}`;
+    return `${lineage.kind === "fork" ? `Fork (${lineage.mode === "follow" ? "follows" : "pinned"})` : "Duplicate"} of ${nameOf(lineage.parent)}`;
+  }
+  const kind = edits?.kind ?? "oneshot";
+  const parts = [KIND_NAMES[kind]];
+  if (length !== null) {
+    if (kind === "music" && edits?.tempo) {
+      const beats = Number(edits.tempo.meter.split("/")[0]) || 4;
+      parts.push(`${Math.round((length * edits.tempo.bpm) / 60 / beats)} bars`);
+    } else parts.push(shortLength(length));
+  }
+  return parts.join(" · ");
+}
+
+/** The file chip of a row: what the WAV gave ("2 cues · 1 loop · tempo"), or null when nothing came from it. */
+export function fileChip(edits: SampleEdits | null): string | null {
+  if (!edits) return null;
+  const cues = edits.markers.filter((m) => m.file?.chunk === "cue").length;
+  const regions = edits.markers.filter((m) => m.file?.chunk === "ltxt").length;
+  const loops = edits.loops.filter((l) => l.file).length;
+  const parts: string[] = [];
+  if (cues) parts.push(`${cues} cue${cues === 1 ? "" : "s"}`);
+  if (regions) parts.push(`${regions} region${regions === 1 ? "" : "s"}`);
+  if (loops) parts.push(`${loops} loop${loops === 1 ? "" : "s"}`);
+  if (edits.tempo?.source === "file") parts.push("tempo");
+  if (edits.root?.source === "file") parts.push("root");
+  return parts.length ? parts.join(" · ") : null;
+}
+
+/** The moves that empty `folder` into its parent: each child file or folder, renamed "name 2" where taken. */
+export function moveUpPlan(folder: string, files: readonly string[], folders: readonly string[]): [string, string][] {
+  const parent = folderOf(folder);
+  const taken = new Set([...files, ...folders].filter((p) => folderOf(p) === parent).map(nameOf));
+  taken.delete(nameOf(folder));
+  const children = [...folders.filter((f) => folderOf(f) === folder), ...files.filter((f) => folderOf(f) === folder && !isSidecarPath(f.toLowerCase()))];
+  const out: [string, string][] = [];
+  for (const c of children) {
+    const name = nameOf(c);
+    let target = name;
+    const dot = name.lastIndexOf(".");
+    const [base, ext] = dot > 0 && !folders.includes(c) ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+    for (let n = 2; taken.has(target); n++) target = `${base} ${n}${ext}`;
+    taken.add(target);
+    out.push([c, join(parent, target)]);
+  }
+  return out;
+}
+
+/** A folder name typed by the user, made safe: "/" becomes "-" (the prototype's rule). */
+export const cleanFolderName = (name: string): string => name.trim().replace(/[/\\]/g, "-");
+
+export interface Use {
+  /** The playlist's path. */
+  readonly path: string;
+  /** How many times it names the sample. */
+  readonly count: number;
+}
+
+/** The playlists naming `sample` (directly, as a Clip entry or a sequence clip), and the derived samples made from it. */
+export function usesOf(sample: string, files: readonly string[], read: (path: string) => unknown): Use[] {
+  const out: Use[] = [];
+  for (const f of files) {
+    if (f.toLowerCase().endsWith(".playlist.json")) {
+      const { playlist } = parsePlaylist(read(f), f);
+      const n = referencedPaths(playlist, "sample").filter((p) => p === sample).length;
+      if (n) out.push({ path: f, count: n });
+    } else if (isDerivedSamplePath(f) && f !== sample) {
+      const raw = read(f) as { source?: unknown; lineage?: { parent?: unknown } } | undefined;
+      if (raw && (raw.source === sample || raw.lineage?.parent === sample)) out.push({ path: f, count: 1 });
+    }
+  }
+  return out;
+}

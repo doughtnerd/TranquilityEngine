@@ -3,9 +3,9 @@
 use anim_format::clip::{Clip, RotationFormat};
 use anim_format::FormatError;
 
-/// The default object-space error bound for bone tracks: 0.1 mm (ADR 0351's `compression.error`).
+/// The default object-space error bound for bone tracks: 0.1 mm (ADR 0371's `compression.error`).
 pub const DEFAULT_ERROR: f32 = 1e-4;
-/// The default absolute error for property tracks without a field `quantize` (ADR 0351).
+/// The default absolute error for property tracks without a field `quantize` (ADR 0371).
 pub const DEFAULT_PROPERTY_ERROR: f32 = 1e-4;
 /// The smallest shell distance: 3 cm (ACL's default).
 pub const DEFAULT_SHELL_DISTANCE: f32 = 0.03;
@@ -21,7 +21,7 @@ pub const ROOT_YAW: u8 = 8;
 /// Every root curve axis.
 pub const ROOT_ALL: u8 = ROOT_X | ROOT_Y | ROOT_Z | ROOT_YAW;
 
-/// Root-curve extraction (ADR 0350's prediction curve, `rootMotion: { bone, axes }` in 0351).
+/// Root-curve extraction (ADR 0370's prediction curve, `rootMotion: { bone, axes }` in 0371).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RootMotion {
     /// The root-motion bone.

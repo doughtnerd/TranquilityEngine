@@ -1,4 +1,4 @@
-//! `anim-wasm` (ADR 0350): the animation core's WebAssembly boundary. One module instance per page,
+//! `anim-wasm` (ADR 0370): the animation core's WebAssembly boundary. One module instance per page,
 //! shared by every World; TypeScript makes a fixed number of calls per frame, never one per
 //! character. wasm-bindgen glue is for setup calls only; per-frame data moves through views on
 //! wasm memory laid out by `anim-wire`.

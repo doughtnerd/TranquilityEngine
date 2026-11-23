@@ -190,6 +190,33 @@ describe("zone weights and sends", () => {
     expect(r.fx.send(0, 0)).toBe(0);
   });
 
+  it("ADR 0347: a level-default zone holds every voice no higher-priority zone holds, fading over their blend edges", () => {
+    const r = rig({ slots: 3, maxActive: 2, standby: 1 });
+    r.zone("Cave", 0, { priority: 2 }); // a 10-unit box at the origin, blend 2
+    const level = r.zone("Level", 500, { priority: 1, preset: "canyonHall" });
+    level.levelDefault = true;
+    r.place(0, 100); // far from both volumes
+    r.step(12);
+    const levelSlot = stateOf(r, "Level").slot;
+    expect(levelSlot).toBeGreaterThanOrEqual(0);
+    expect(r.fx.send(0, levelSlot)).toBeCloseTo(0.5, 5); // d 100 → curve 0.5, weight 1
+    r.place(0, 0); // inside the Cave: the default yields
+    r.listenAt(0);
+    r.step(12);
+    const caveSlot = stateOf(r, "Cave").slot;
+    expect(r.fx.send(0, caveSlot)).toBeCloseTo(1, 5);
+    if (levelSlot !== caveSlot) expect(r.fx.send(0, levelSlot)).toBe(0);
+    r.place(0, 6); // half way out of the Cave's blend edge: 0.5 each (their norm stays under 1)
+    r.step(12);
+    expect(r.fx.send(0, stateOf(r, "Cave").slot)).toBeCloseTo(0.5 * 0.75, 5);
+    expect(r.fx.send(0, stateOf(r, "Level").slot)).toBeCloseTo(0.5 * 0.75, 5);
+    // A zone that isn't higher in priority doesn't push the default out: both hold the voice, normalised.
+    level.priority = 5;
+    r.place(0, 0);
+    r.step(12);
+    expect(r.fx.send(0, stateOf(r, "Level").slot)).toBeCloseTo(Math.SQRT1_2, 5);
+  });
+
   it("the shared reverb's return is 1 minus the listener's weight in active zones", () => {
     const r = rig({ slots: 3, maxActive: 2, standby: 1 });
     r.zone("A", 0);

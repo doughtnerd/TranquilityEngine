@@ -1,8 +1,11 @@
 // The build writer (ADR 0296): writes a planned web build (webBuild.ts) into a build folder, for
 // the Node exporter (node.ts) and the editor's Build / Export (src/editor/exportBuild.ts) alike.
 // It owns the order: check the player and the folder before anything is touched, bake models
-// (ADR 0090) and process images (ADR 0119) through the project's files, clear an earlier build,
-// then write each file once (a processed image in place of its original) with progress.
+// (ADR 0090), render baked samples (ADR 0342, sampleRenders.ts), process images (ADR 0119) and
+// convert and package audio (ADR 0351, audio.ts) through the project's files, clear an earlier
+// build, then write each file once (a processed image or a converted sound in place of its
+// original; a packaged sound not at all) with progress, the game's third-party notices (ADR 0359
+// §6) and, beside the web build, the audio report.
 //
 // Files come in through `FileSource`s (the project, the player) and go out through a
 // `BuildFolder`: Node's fs (node.ts) and the platform FileSystem (`fileSystemFolder` here) are the
@@ -11,7 +14,11 @@ import type { DirEntry, FileSystem } from "../engine/platform/FileSystem";
 import type { ImportPlatform } from "../engine/scene/importSettings";
 import { joinPath } from "../editor/projectPaths";
 import { ENGINE_FILE, MANIFEST_FILE, PLAYER_FILE_LIST, PLAYER_PAGE } from "./format";
+import { AUDIO_REPORT_FILE, processAudio, type AudioCacheStore, type DecodeAudio } from "./audio";
+import type { AudioEncoder } from "./audioEncoder";
+import { withAudioEffects } from "./audioEffects";
 import { processImages, type ImageTranscoder } from "./images";
+import { withRenderedSamples } from "./sampleRenders";
 import { ExportError, copiedPath, withBakedModels, type BakeModel, type WebBuildPlan } from "./webBuild";
 
 /** Read access to a folder of files (a project, a built player), by "/"-separated relative path. */
@@ -52,6 +59,16 @@ export interface WriteBuildOptions {
   readonly transcode: ImageTranscoder;
   /** Baking one model (ADR 0090). */
   readonly bake: BakeModel;
+  /**
+   * ADR 0351: audio conversion and packages for `platform`. Absent: the build ships its audio as it is (no conversion,
+   * no packages, no media table). `encoder: null` is `--no-audio-convert`: packages are built from the sources.
+   */
+  readonly audio?: { readonly encoder: AudioEncoder | null; readonly decode: DecodeAudio; readonly cache?: AudioCacheStore };
+  /**
+   * ADR 0359 §6: the third-party notices every game ships (the repository's `THIRD_PARTY_NOTICES.md`), written as
+   * `THIRD_PARTY_NOTICES.md` at the web build's root. Absent: none written.
+   */
+  readonly notices?: string;
   readonly log?: (line: string) => void;
   /** Hears how many files are written out of how many. */
   readonly progress?: (done: number, total: number) => void;
@@ -61,6 +78,8 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const bytesOf = (v: string | Uint8Array) => (typeof v === "string" ? encoder.encode(v) : v);
 const textOf = (v: string | Uint8Array) => (typeof v === "string" ? v : decoder.decode(v));
+/** The third-party notices' file name in a build (ADR 0359 §6). */
+export const NOTICES_FILE = "THIRD_PARTY_NOTICES.md";
 const join = (dir: string, path: string) => (dir ? `${dir}/${path}` : path);
 
 /**
@@ -74,12 +93,17 @@ export async function writeWebBuild(plan: WebBuildPlan, options: WriteBuildOptio
   const web = options.web ?? "";
   const log = options.log ?? (() => {});
   const player = await playerFiles(options.player, options.playerWhere);
+  for (const w of plan.warnings ?? []) log(`warning: ${w}`);
   const entries = (await folder.exists("")) ? await folder.list("") : [];
   if (entries.length > 0 && !(await folder.exists(join(web, MANIFEST_FILE)))) {
     throw new ExportError(`"${folder.where}" isn't empty and doesn't hold an earlier ${options.kind ? `${options.kind} ` : ""}build. Choose an empty folder.`);
   }
 
   plan = await withBakedModels(plan, options.bake, log);
+  // ADR 0352 §8: the plugins' audio modules hashed into game.json; their offline host renders baked plugin effects.
+  const effects = await withAudioEffects(plan, (path) => project.read(path), log);
+  plan = effects.plan;
+  plan = await withRenderedSamples(plan, (path) => project.read(path), log, effects.renders);
   plan = await processImages(plan, {
     platform: options.platform,
     readText: (path) => project.read(path).then(textOf, () => undefined),
@@ -87,12 +111,20 @@ export async function writeWebBuild(plan: WebBuildPlan, options: WriteBuildOptio
     transcode: options.transcode,
     log,
   });
+  if (options.audio) {
+    const audio = await processAudio(plan, { platform: options.platform, read: (path) => project.read(path), encoder: options.audio.encoder, decode: options.audio.decode, cache: options.audio.cache, languages: plan.languages, log });
+    plan = audio.report ? { ...audio.plan, audioReport: audio.report } : audio.plan;
+  }
+  if (options.notices !== undefined) plan = { ...plan, generated: new Map([...plan.generated, [NOTICES_FILE, options.notices]]) };
+  const generated = plan.generated;
 
   await clear(folder, "", entries, options.keep ?? []);
   const binaries = plan.binaries ?? new Map<string, Uint8Array>();
-  // A processed image (or its sidecar) is written instead of its copy, never over it.
-  const copies = plan.copies.filter((path) => !binaries.has(copiedPath(path)) && !plan.generated.has(copiedPath(path)));
-  const total = player.length + copies.length + plan.generated.size + binaries.size;
+  const omit = plan.omit ?? new Set<string>();
+  // A processed image (or its sidecar) or a converted sound is written instead of its copy, never over it; a packaged sound not at all.
+  const copies = plan.copies.filter((path) => !omit.has(path) && !binaries.has(copiedPath(path)) && !generated.has(copiedPath(path)));
+  const report = plan.audioReport ? `${JSON.stringify(plan.audioReport, null, 2)}\n` : null;
+  const total = player.length + copies.length + generated.size + binaries.size + (report ? 1 : 0);
   let done = 0;
   const step = () => options.progress?.(++done, total);
   const write = async (to: string, contents: string | Uint8Array) => {
@@ -111,8 +143,13 @@ export async function writeWebBuild(plan: WebBuildPlan, options: WriteBuildOptio
     }
     await write(copiedPath(path), contents);
   }
-  for (const [path, text] of plan.generated) await write(path, text);
+  for (const [path, text] of generated) await write(path, text);
   for (const [path, bytes] of binaries) await write(path, bytes);
+  // Beside the web build (a desktop package's root), or at a web build's root, where nothing loads it.
+  if (report) {
+    await folder.writeText(AUDIO_REPORT_FILE, report);
+    step();
+  }
   return plan;
 }
 

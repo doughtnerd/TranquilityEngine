@@ -1,4 +1,4 @@
-//! `anim-format` (ADR 0350, 0351, 0352): binary layouts for `myco.anim@1` clips
+//! `anim-format` (ADR 0370, 0371, 0372): binary layouts for `myco.anim@1` clips
 //! ([`clip`]), `myco.skel@1` skeletons ([`skeleton`]), `myco.animgraph@1` compiled graphs
 //! ([`graph`]) and `myco.posedb@1` pose databases ([`posedb`]).
 //!

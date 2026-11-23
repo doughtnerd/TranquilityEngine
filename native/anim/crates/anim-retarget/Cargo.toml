@@ -1,6 +1,6 @@
 [package]
 name = "anim-retarget"
-description = "Myco animation core (ADR 0350): skeleton profiles, chain mapping, rest-pose compensation, runtime and offline retargeting."
+description = "Myco animation core (ADR 0370): skeleton profiles, chain mapping, rest-pose compensation, runtime and offline retargeting."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

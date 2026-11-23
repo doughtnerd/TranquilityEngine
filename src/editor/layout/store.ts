@@ -1,34 +1,19 @@
-// The editor's panel layout as shared state, remembered per user between sessions. It's a
-// per-viewer convenience, so browser storage is fine; anything unreadable falls back to the
-// default layout. The layout model's rules get the editor's panel catalog: the panel registry, where the
-// built-in panels and plugins' are registered (ADR 0182).
-import { effect, signal } from "@preact/signals";
-import { activatePanel, addPanel, defaultLayout, parseLayout, type Layout, type PanelId } from "./model";
+// The editor's panel layout as shared state, remembered per user between sessions under `myco.editor.layout`
+// (a layout store, `layoutStore.ts`; the Audio Studio has one per screen, ADR 0341). The layout model's rules get
+// the editor's panel catalog: the panel registry, where the built-in panels and plugins' are registered (ADR 0182).
+import { signal } from "@preact/signals";
+import type { PanelId } from "./model";
+import { createLayoutStore } from "./layoutStore";
 import { registeredPanels } from "./registeredPanels";
-import { retainInstances } from "./instanceState";
 
-const STORAGE_KEY = "myco.editor.layout";
+/** The editor's layout store. */
+export const editorLayoutStore = createLayoutStore({
+  key: "myco.editor.layout",
+  legacyKeys: ["tranquility.editor.layout"], // the former name's (ADR 0037)
+  catalog: registeredPanels,
+});
 
-function readSaved(): string | null {
-  try {
-    return globalThis.localStorage?.getItem(STORAGE_KEY) ?? globalThis.localStorage?.getItem("tranquility.editor.layout") ?? null; // the former name's (ADR 0037)
-  } catch {
-    return null;
-  }
-}
-
-/** The saved layout as it was when the editor started, before anything here wrote over it. */
-const saved = readSaved();
-
-function load(): Layout {
-  try {
-    return (saved && parseLayout(JSON.parse(saved), registeredPanels())) || defaultLayout(registeredPanels());
-  } catch {
-    return defaultLayout(registeredPanels());
-  }
-}
-
-export const layout = signal<Layout>(load());
+export const layout = editorLayoutStore.layout;
 
 /**
  * Read the saved layout again, now that plugins have registered their panels (ADR 0134). A plugin
@@ -39,31 +24,17 @@ export const layout = signal<Layout>(load());
  * layout instead, `applyProjectPlugins`).
  */
 export function reloadLayout(): void {
-  layout.value = load();
+  editorLayoutStore.reload();
 }
-
-effect(() => {
-  const value = layout.value;
-  try {
-    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(value));
-  } catch {
-    // Storage blocked (private window, previews): the layout just isn't remembered.
-  }
-});
-
-// An instance's view state goes when it leaves the layout (closed, or another layout applied; ADR 0174).
-effect(() => retainInstances(Object.keys(layout.value.instances)));
 
 /** Show a panel: an instance id, or a type (its first instance, or a new one when none is open). */
 export function showPanel(panel: PanelId): void {
-  layout.value = activatePanel(layout.value, panel, registeredPanels());
+  editorLayoutStore.show(panel);
 }
 
 /** Open a new instance of each of `types` (in `group` when given), the last one showing (ADR 0174). */
 export function addPanels(types: readonly PanelId[], group?: string): void {
-  let next = layout.value;
-  for (const type of types) next = addPanel(next, type, registeredPanels(), group).layout;
-  layout.value = next;
+  editorLayoutStore.add(types, group);
 }
 
 /** The Add Panel dialog's request: open (with the group to add to, and the detached window it's in, if any) or null. */
@@ -75,6 +46,5 @@ export function requestAddPanel(group?: string, window?: string): void {
 }
 
 export function resetLayout(): void {
-  layout.value = defaultLayout(registeredPanels());
-
+  editorLayoutStore.reset();
 }

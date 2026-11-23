@@ -1,10 +1,10 @@
 import { expect, type Page, play, test, type Hooks } from "./fixtures";
 import { inspector, openSpatial, SPATIAL_SCENE } from "./audioSpatial";
-import { showTab } from "./tabs";
 import { captureView, pixelsChanged, type ViewCapture } from "./viewCapture";
 
-// The M3 editor work that needs a running game (ADR 0162 E4, E7, E9), on the spatial scene of audioSpatial.ts: the Audio
-// Debug panel's Beds, Zones, Occlusion and Memory sections and the occlusion overlay in the game view, and live tuning
+// The M3 editor work that needs a running game (ADR 0162 E4, E7, E9), on the spatial scene of audioSpatial.ts: the
+// occlusion overlay in the game view (toggled from the Scene toolbar's Audio popover since the Audio Debug panel moved to
+// the Audio Studio, ADR 0341), a zone's kernel, and live tuning
 // (a field edited on a live node in the Inspector shows in `Audio.debug()` a few frames later). Headless Chromium has no
 // sound output; `Audio.debug()` stands in for ears, as in audio-events.spec.ts.
 test.describe.configure({ timeout: 120_000 });
@@ -25,7 +25,6 @@ async function stepped(page: Page): Promise<ViewCapture> {
   await step.click();
   return captureView(page.locator("#game-view canvas").first());
 }
-const panel = (page: Page) => page.locator(".audio-debug");
 
 /** Start Play and wait until the emitter's voice has an occlusion result for the wall (physics is up and a ray has hit). */
 async function playUntilOccluded(page: Page): Promise<void> {
@@ -34,60 +33,28 @@ async function playUntilOccluded(page: Page): Promise<void> {
   await expect.poll(async () => (await emitter(page))?.occlusion?.hits, { timeout: 20_000 }).toBe(1);
 }
 
-test("the Audio Debug panel is empty while editing and shows the Beds, Zones, Occlusion and Memory sections in Play", async ({ page }) => {
-  await openSpatial(page);
-  await showTab(page, /^Audio Debug/);
-  await expect(panel(page)).toContainText("Not playing");
-  await expect(panel(page).getByRole("heading", { name: "Zones" })).toHaveCount(0);
-
-  await play(page);
-  await expect.poll(async () => (await emitter(page))?.occlusion?.hits, { timeout: 20_000 }).toBe(1);
-  for (const title of ["Spatial counters", "Load shedding", "Beds", "Zones", "Occlusion", "Memory"]) {
-    await expect(panel(page).getByRole("heading", { name: title, exact: true })).toBeVisible();
-  }
-
-  // Zones: one row for the scene's zone, with the preset it plays.
-  const zones = panel(page).getByRole("table", { name: "Zones" });
-  await expect(zones.locator("tbody tr")).toHaveCount(1);
-  await expect(zones.locator("tbody tr").first()).toContainText("Zone");
-  await expect(zones.locator("tbody tr").first()).toContainText("hall");
-
-  // Occlusion: on, with the ray budget and cost; Memory: the fixed M3 figures.
-  const occlusion = panel(page).getByRole("table", { name: "Occlusion" });
-  await expect(occlusion).toContainText("on");
-  await expect(occlusion).toContainText("per frame");
-  const memory = panel(page).getByRole("table", { name: "Memory" });
-  for (const label of ["Beds", "Zones", "Kernels", "Wide rings"]) await expect(memory).toContainText(label);
-
-  // The voices table has the M3 columns, and the emitter's occlusion cell names what the wall does (not "open").
-  const voices = panel(page).getByRole("table", { name: "Voices" });
-  for (const column of ["Source", "Panner", "Doppler", "Occlusion", "Low-pass", "Sends"]) await expect(voices.getByRole("columnheader", { name: column })).toBeVisible();
-  const row = voices.locator("tbody tr", { hasText: "music/foo.mp3" });
-  await expect(row.locator("td").nth(0)).toHaveText("Emitter"); // Source: the node playing it
-  await expect(row).toContainText("hrtf");
-  await expect(row).toContainText("(occlusion)"); // the low-pass reads "800 Hz (occlusion)"-like
-  await expect(row.locator("td").nth(8)).not.toHaveText("open"); // Source, Clip, Bus, State, Priority, Gain, Panner, Doppler, Occlusion
-});
-
-test("the occlusion overlay draws rays in the game view while the panel's toggle is on", async ({ page }) => {
+test("the occlusion overlay draws rays in the game view while the Audio popover's toggle is on", async ({ page }) => {
   await playUntilOccluded(page);
-  await showTab(page, /^Audio Debug/);
-  const toggle = panel(page).getByRole("checkbox", { name: /Show occlusion rays/ });
-  await expect(toggle).not.toBeChecked();
+  const toggle = page.getByRole("checkbox", { name: "Occlusion rays" });
+  /** Set the toggle in the Scene toolbar's Audio popover (a step closes it). */
+  const setRays = async (on: boolean) => {
+    if (!(await toggle.isVisible())) await page.getByRole("button", { name: "Audio overlay" }).click();
+    await toggle.setChecked(on);
+  };
   // The game is paused and stepped, and the game view captured: the ray and its hit marker are the only change the
   // toggle makes (the occlusion keeps being worked out while paused frames step).
   await page.getByRole("button", { name: "❚❚ Pause", exact: true }).click();
   const off = await stepped(page);
   expect(pixelsChanged(off, await stepped(page)), "the paused scene holds still").toBeLessThan(20);
 
-  await toggle.check();
+  await setRays(true);
   await expect.poll(async () => pixelsChanged(off, await stepped(page)), { message: "the ray and its hit marker draw" }).toBeGreaterThan(40);
 
-  await toggle.uncheck();
+  await setRays(false);
   await expect.poll(async () => pixelsChanged(off, await stepped(page))).toBeLessThan(20);
 
   // The choice is remembered across a reload of the editor.
-  await toggle.check();
+  await setRays(true);
   await expect.poll(async () => page.evaluate(() => localStorage.getItem("myco.editor.audioOcclusionOverlay"))).toBe("true");
 });
 

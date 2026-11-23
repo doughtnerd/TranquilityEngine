@@ -1,4 +1,4 @@
-//! `anim-offline` (ADR 0350): an f64 scalar reference for sampling, blending, IK, retargeting and
+//! `anim-offline` (ADR 0370): an f64 scalar reference for sampling, blending, IK, retargeting and
 //! matching. The SIMD crates' tests compare against it with stated tolerances, as `audio-offline`
 //! does for the mixer.
 //!

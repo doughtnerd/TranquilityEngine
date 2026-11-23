@@ -1,5 +1,5 @@
 //! Family `timeline`: timeline instances: create and control commands, state changes, and the
-//! layout of their outputs (ADR 0351, 0352).
+//! layout of their outputs (ADR 0371, 0372).
 //!
 //! # What a timeline is
 //!
@@ -403,7 +403,7 @@ pub const FAMILY: FamilyDesc = FamilyDesc {
     name: "timeline",
     id: ID,
     version: VERSION,
-    doc: "Wire family `timeline`: timeline instances: create and control commands, state changes and the layout of their outputs (ADR 0351, 0352).\nnative/anim/crates/anim-wire/src/timeline.rs documents what a timeline is, its wrap modes, its views and its blocks.",
+    doc: "Wire family `timeline`: timeline instances: create and control commands, state changes and the layout of their outputs (ADR 0371, 0372).\nnative/anim/crates/anim-wire/src/timeline.rs documents what a timeline is, its wrap modes, its views and its blocks.",
     records: &[
         TimelineCreate::DESC,
         SeqCreate::DESC,

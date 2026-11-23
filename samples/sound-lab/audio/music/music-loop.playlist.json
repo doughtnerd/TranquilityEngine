@@ -1,0 +1,76 @@
+{
+  "format": "myco.playlist@1",
+  "type": "sequence",
+  "output": "Music",
+  "playback": {
+    "maxInstances": 1,
+    "priority": 200
+  },
+  "parameters": [
+    {
+      "name": "Loop",
+      "labels": [
+        "hold",
+        "release"
+      ],
+      "default": "hold"
+    }
+  ],
+  "entries": [],
+  "sequence": {
+    "length": 6,
+    "tempo": {
+      "bpm": 120,
+      "meter": "4/4"
+    },
+    "tracks": [
+      {
+        "id": "t1",
+        "name": "body",
+        "kind": "audio",
+        "color": 1,
+        "volume": -0.915,
+        "clips": [
+          {
+            "id": "t1c1",
+            "sample": "audio/music/loop-body.wav",
+            "at": 0,
+            "length": 6,
+            "sync": true
+          }
+        ]
+      }
+    ],
+    "loops": [
+      {
+        "id": "body",
+        "start": 0,
+        "end": 4,
+        "active": "parameter",
+        "binding": {
+          "parameter": "Loop",
+          "op": "<",
+          "value": 0.5
+        },
+        "exit": "finish",
+        "exitFadeMs": 0,
+        "reentry": "ignore",
+        "tail": true
+      }
+    ],
+    "markers": [
+      {
+        "id": "m1",
+        "name": "entry",
+        "at": 0,
+        "type": "exit"
+      },
+      {
+        "id": "m2",
+        "name": "exit",
+        "at": 6,
+        "type": "exit"
+      }
+    ]
+  }
+}

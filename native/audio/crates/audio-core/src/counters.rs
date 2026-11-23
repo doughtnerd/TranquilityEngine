@@ -346,6 +346,15 @@ pub struct MixCounters {
     /// a cycle dropped its edge (cumulative, saturating; core: B3, Sc1, through
     /// `note_sidechain_late`; R5).
     pub sidechain_late: u16,
+    /// `genStarved` (252, ABI 5.1, ADR 0360): generator PLAYs that found the generator pool full and play silent
+    /// (cumulative, saturating; `generator.rs`, copied in at each STATUS take).
+    pub gen_starved: u16,
+    /// `fxStarved` (172, ABI 4.8): effects that asked for effect memory and got none (cumulative,
+    /// saturating; `fxmem.rs`, copied in at each STATUS take).
+    pub fx_starved: u16,
+    /// `fxStarvedOwner` (174, ABI 4.8): the last starved effect's owner (a bus slot, or
+    /// `FX_STARVED_SUBMIX | slot`), `FX_STARVED_NONE` before any.
+    pub fx_starved_owner: u16,
     /// Core only: `BUS_SLOT` records the core couldn't place (a slot past `max_buses`) or a fifth
     /// effect, which main keeps and applies at the next Play (R10; main's own `liveDeferred` is
     /// debug-only) (cumulative, wrapping; core: B2, through `note_live_deferred`).

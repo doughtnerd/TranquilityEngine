@@ -1,6 +1,6 @@
 [package]
 name = "anim-format"
-description = "Myco animation core (ADR 0350): flat little-endian binary layouts for clips, skeletons, compiled graphs and pose databases."
+description = "Myco animation core (ADR 0370): flat little-endian binary layouts for clips, skeletons, compiled graphs and pose databases."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

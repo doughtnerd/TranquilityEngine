@@ -16,7 +16,9 @@ import {
   LANE_MONITOR,
   LANE_RUNTIME,
   LANE_SNAPSHOT,
+  FadeLaw,
   Op,
+  shapeLaw,
   readBusRamp,
 } from "../wire.generated";
 import { LaneWriter, type LaneWriterHost } from "./laneWriter";
@@ -45,6 +47,12 @@ function settings(): AudioSettings {
   };
 }
 
+// ADR 0344: a snapshot fade is linear in dB; the lane (linear in gain) gets one record per segment of at most
+// SNAPSHOT_SEGMENT_MS (here 50 ms = 2400 frames), each heading for the blend at the segment's end; a migrated low-pass
+// blends from the open carrier (20 kHz) with the same weight.
+const dbAt = (gain: number, w: number) => Math.pow(10, (20 * Math.log10(gain) * w) / 20);
+const lpAt = (hz: number, w: number) => 20000 + (hz - 20000) * w;
+
 function rig() {
   const mixer = new Mixer(settings());
   const heard = { t: 2 };
@@ -54,7 +62,7 @@ function rig() {
   const clock = { framesNow: NOW_FRAME };
   const host: LaneWriterHost = {
     mixer,
-    writer: { busRampFrames: (bus, lane, mask, gain, lpHz, frames, seq = 0, at) => void calls.push({ bus, lane, mask, gain, lpHz, frames, seq, at }) },
+    writer: { busRampFrames: (bus, lane, mask, gain, lpHz, frames, seq = 0, at, law = FadeLaw.Linear) => void calls.push({ bus, lane, mask, gain, lpHz, frames, seq, at, ...(law !== FadeLaw.Linear ? { law } : {}) }) },
     clockMap: {
       rampFrames: () => RAMP,
       framesNow: () => clock.framesNow,
@@ -188,14 +196,28 @@ describe("LaneWriter.sync: one BUS_RAMP per lane that moved", () => {
     expect(r.take()).toMatchObject([{ bus: 1, lane: LANE_MONITOR, gain: 1, frames: RAMP, at: undefined }]);
   });
 
-  it("snapshot: gain and low-pass on the snapshot lane in one record, stamped for the transition's length; a 0 s one asap", () => {
+  it("snapshot: the gain as one ramp of the dB law to the fade's end, the low-pass per segment, stamped; a 0 s one asap", () => {
     const r = rig();
     r.mixer.snapshot("Under", 0.25);
     r.lanes.sync();
     const calls = r.take();
-    expect(calls).toContainEqual({ bus: 1, lane: LANE_SNAPSHOT, mask: BUS_RAMP_MASK_GAIN | BUS_RAMP_MASK_LP_HZ, gain: 0.5, lpHz: 800, frames: 12_000, seq: 0, at: NOW_FRAME + LOOKAHEAD });
+    const at = NOW_FRAME + LOOKAHEAD;
+    // ABI 4.8: the gain lane runs the whole fade in dB in the core; the carrier low-pass follows the blend in segments.
+    expect(calls).toMatchObject([
+      { bus: 1, lane: LANE_SNAPSHOT, mask: BUS_RAMP_MASK_GAIN, frames: 12_000, seq: 0, at, law: FadeLaw.Decibel },
+      { bus: 1, lane: LANE_SNAPSHOT, mask: BUS_RAMP_MASK_LP_HZ, frames: 2400, seq: 0, at },
+    ]);
+    expect(calls[0]!.gain).toBeCloseTo(0.5, 6);
+    expect(calls[1]!.lpHz).toBeCloseTo(lpAt(800, 0.2), 3);
     // Buses the snapshot leaves at 1 were already at 1: nothing for them.
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
+    // The low-pass's next segment goes out when the first ends; the gain lane is already heading for its end.
+    r.heard.t += 0.05;
+    r.mixer.update(0.05);
+    r.lanes.sync();
+    const next = r.take();
+    expect(next).toMatchObject([{ bus: 1, lane: LANE_SNAPSHOT, mask: BUS_RAMP_MASK_LP_HZ, frames: 2400 }]);
+    expect(next[0]!.lpHz).toBeCloseTo(lpAt(800, 0.4), 3);
     r.heard.t += 1;
     r.mixer.clearSnapshot(0);
     r.lanes.sync();
@@ -207,10 +229,15 @@ describe("LaneWriter.sync: one BUS_RAMP per lane that moved", () => {
     r.mixer.snapshot("Both", 0.5);
     r.lanes.sync();
     const at = NOW_FRAME + LOOKAHEAD;
-    expect(r.take()).toEqual([
-      { bus: 1, lane: LANE_SNAPSHOT, mask: BUS_RAMP_MASK_GAIN | BUS_RAMP_MASK_LP_HZ, gain: 0.5, lpHz: 800, frames: 24_000, seq: 0, at },
-      { bus: 2, lane: LANE_SNAPSHOT, mask: BUS_RAMP_MASK_LP_HZ, gain: 1, lpHz: 1500, frames: 24_000, seq: 0, at },
+    const calls = r.take();
+    expect(calls).toMatchObject([
+      { bus: 1, lane: LANE_SNAPSHOT, mask: BUS_RAMP_MASK_GAIN, frames: 24_000, seq: 0, at, law: FadeLaw.Decibel },
+      { bus: 1, lane: LANE_SNAPSHOT, mask: BUS_RAMP_MASK_LP_HZ, frames: 2400, seq: 0, at },
+      { bus: 2, lane: LANE_SNAPSHOT, mask: BUS_RAMP_MASK_LP_HZ, gain: 1, frames: 2400, seq: 0, at },
     ]);
+    expect(calls[0]!.gain).toBeCloseTo(0.5, 6);
+    expect(calls[1]!.lpHz).toBeCloseTo(lpAt(800, 0.1), 3);
+    expect(calls[2]!.lpHz).toBeCloseTo(lpAt(1500, 0.1), 3);
     expect([r.lanes.lastRampStartFrame(1), r.lanes.lastRampStartFrame(2)]).toEqual([at, at]);
   });
 
@@ -358,9 +385,21 @@ describe("LaneWriter.replayLanes (§4.2: after RESET and BUS_CONFIG)", () => {
     r.lanes.sync();
     r.take();
     r.heard.t += 0.5;
+    r.mixer.update(0); // the snapshot's segment at the replay (ADR 0344: segments of SNAPSHOT_SEGMENT_MS)
     const b = new ReplayBuilder();
     r.lanes.replayLanes(b);
-    const recs = records(b).map((x) => [x.voiceId, x.lane, x.mask, x.gain, x.lpHz, x.frames, x.frameOffset]);
+    const rs = records(b);
+    const all = rs.map((x) => [x.voiceId, x.lane, x.mask, x.gain, x.lpHz, x.frames, x.frameOffset]);
+    // The snapshot lane half-way through its fade: a step at the blend now (linear in dB), then the gain's remaining
+    // ramp (the dB law, to the fade's end) and the low-pass segment's.
+    const snap = all.filter((x) => x[0] === 1 && x[1] === LANE_SNAPSHOT);
+    expect(snap.map((x) => [x[2], x[5], x[6]])).toEqual([[BUS_RAMP_MASK_GAIN | BUS_RAMP_MASK_LP_HZ, 0, ASAP], [BUS_RAMP_MASK_GAIN, 24_000, ASAP], [BUS_RAMP_MASK_LP_HZ, 2400, ASAP]]);
+    expect(snap[0]![3] as number).toBeCloseTo(dbAt(0.5, 0.5), 6);
+    expect(snap[0]![4] as number).toBeCloseTo(lpAt(800, 0.5), 2);
+    expect(snap[1]![3] as number).toBeCloseTo(0.5, 6);
+    expect(shapeLaw(rs.filter((x) => x.voiceId === 1 && x.lane === LANE_SNAPSHOT)[1]!.shape)).toBe(FadeLaw.Decibel);
+    expect(snap[2]![4] as number).toBeCloseTo(lpAt(800, 0.55), 2);
+    const recs = all.filter((x) => !(x[0] === 1 && x[1] === LANE_SNAPSHOT));
     const G = BUS_RAMP_MASK_GAIN;
     const GL = BUS_RAMP_MASK_GAIN | BUS_RAMP_MASK_LP_HZ;
     expect(recs).toEqual([
@@ -372,8 +411,6 @@ describe("LaneWriter.replayLanes (§4.2: after RESET and BUS_CONFIG)", () => {
       [1, LANE_AUTHORED, G, Math.fround(0.6), BUS_LP_OFF_HZ, 0, ASAP],
       [1, LANE_RUNTIME, G, 0.75, BUS_LP_OFF_HZ, 0, ASAP],
       [1, LANE_RUNTIME, G, 0, BUS_LP_OFF_HZ, 72_000, ASAP],
-      [1, LANE_SNAPSHOT, GL, 0.75, 12_400, 0, ASAP],
-      [1, LANE_SNAPSHOT, GL, 0.5, 800, 24_000, ASAP],
       [1, LANE_MONITOR, G, 1, BUS_LP_OFF_HZ, 0, ASAP],
       [1, LANE_DIP, G, 1, BUS_LP_OFF_HZ, 0, ASAP],
       [2, LANE_AUTHORED, G, 1, BUS_LP_OFF_HZ, 0, ASAP],

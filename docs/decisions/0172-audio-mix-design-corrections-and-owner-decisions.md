@@ -1,6 +1,6 @@
 # 0172. Audio M5: correct 0171 from the technical design (seven gain lanes, raw capture sizes, the sort's real benefit, the hook's name) and record the owner's design decisions
 
-- **Status:** Accepted (2026-11-13)
+- **Status:** Accepted (2026-11-13), amended by 0344 (where the audio settings live, returns, VCAs, blending snapshots) and 0348 (capture extensions)
 - **Date:** 2026-11-13
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

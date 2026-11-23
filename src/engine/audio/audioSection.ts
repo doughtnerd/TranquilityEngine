@@ -1,5 +1,9 @@
 /**
- * Internal (ADR 0175, building on 0097 and 0151): the project's `audio` section, parsed once and written back in one place.
+ * Internal (ADR 0175, building on 0097 and 0151): the settings draft's `audio` section, parsed once and written back in
+ * one place. Since ADR 0344 the section is `audio.json`'s legacy view (`project/runtimeView.ts`), which the editor's
+ * project section saves back into `audio.json` (decision D2); its shape here is unchanged. The runtime settings' `mix`
+ * (`audio.json`'s whole mix, which the mixer runs) is not part of the section: the legacy panels neither show nor edit
+ * it, so it never makes two sections differ, and the mixer writes a section the panels edited back into it.
  *
  * - **Parse once.** `audioSection(raw)` is `parseAudioSettings(raw)` — settings, problems and warnings together —
  *   memoised on the identity of `raw` (the draft's `audio` object: a draft edit that leaves the section alone keeps it, an
@@ -43,13 +47,20 @@ function deepFreeze<T>(v: T): T {
 const cache = new WeakMap<object, AudioSection>();
 let absent: AudioSection | null = null;
 
+/** `parseAudioSettings` without the runtime's `mix` (see the header). */
+function parseSection(raw: unknown): AudioSection {
+  const parsed = parseAudioSettings(raw);
+  delete parsed.settings.mix;
+  return parsed;
+}
+
 /** The section `raw` (a draft's `audio`) parses to, memoised on `raw`'s identity. Frozen: copy to change. */
 export function audioSection(raw: unknown): AudioSection {
-  if (raw === undefined) return (absent ??= deepFreeze(parseAudioSettings(undefined)));
-  if (typeof raw !== "object" || raw === null) return deepFreeze(parseAudioSettings(raw));
+  if (raw === undefined) return (absent ??= deepFreeze(parseSection(undefined)));
+  if (typeof raw !== "object" || raw === null) return deepFreeze(parseSection(raw));
   let s = cache.get(raw);
   if (!s) {
-    s = deepFreeze(parseAudioSettings(raw));
+    s = deepFreeze(parseSection(raw));
     cache.set(raw, s);
   }
   return s;

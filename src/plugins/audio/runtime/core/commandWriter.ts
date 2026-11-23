@@ -23,9 +23,24 @@
 // ADR 0166 M4 (Z4, leaf L-Z4b; api-and-models §4.1, §4.2, §3.2): PLAY's `gate` (`playGated`, `PlayArgs.gate`) and bit 8
 // `fadeZero` (`PlayArgs.fadeZero`); the `shape` word on FADE, SET_PARAMS and STOP, which makes them 28, 60 and 24 B
 // (`fadeShaped`, `stopShaped`, `setParams`' `shape`), each stampable; and a gate group's records stay in one BATCH.
+//
+// ADR 0360 (ABI 5.1) adds `gen` (GEN, a generator voice's parameters, from a preallocated value buffer) and
+// `generatorTarget` (AUTOMATE target kind 5); a generator voice is a `play` of `GEN_CLIP_ID_FIRST + kind`. The playlist
+// runtime (G3) decides when to send them.
 import {
   ASAP,
+  BUS_AUTOMATE_MAX_BINDINGS,
+  SUBMIX_AUTOMATE_BINDINGS_FIXED_END,
+  writeSubmixAutomate,
+  type SubmixAutomate,
+  PARAM_GLOBAL,
+  PARAM_TIME,
+  TIME_SEQUENCE,
   AUTOMATE_BINDINGS_FIXED_END,
+  BUS_AUTOMATE_BINDINGS_FIXED_END,
+  ROUTE_FIXED_END,
+  writeRoute,
+  type Route,
   CURVES_CURVES_FIXED_END,
   CURVES_CURVES_KEYS_FIXED_END,
   CURVES_FIXED_END,
@@ -42,6 +57,8 @@ import {
   packRampShape,
   WireError,
   writeBusDuck,
+  writeBusSends,
+  MAX_BUS_SENDS,
   writeBusPresence,
   writeBusRamp,
   writeBusSlot,
@@ -71,6 +88,19 @@ import {
   writeListener,
   writeMaster,
   writeParam,
+  writeTime,
+  writeLoops,
+  writeGen,
+  GEN_FIXED_END,
+  GEN_PARAMS_MAX,
+  AUTO_TARGET_GEN,
+  AUTO_TARGET_GEN_PARAM_SHIFT,
+  AUTO_TARGET_LOG,
+  type Gen,
+  LOOPS_LOOPS_FIXED_END,
+  writeSubmix,
+  SUBMIX_EFFECTS_FIXED_END,
+  SUBMIX_FIXED_END,
   writePlay,
   writeReset,
   writeSeek,
@@ -86,6 +116,7 @@ import {
   type BusAutomate,
   type BusDuck,
   type BusDuckRules,
+  type BusSendsSends,
   type BusPresence,
   type BusRamp,
   type BusSlot,
@@ -96,6 +127,11 @@ import {
   type Fade,
   type Master,
   type Param,
+  type Time,
+  type Loops,
+  type LoopsLoops,
+  type Submix,
+  type SubmixEffects,
   type Play,
   type Reset,
   type Seek,
@@ -109,8 +145,12 @@ import {
   type SetVoiceFx,
   type ZoneConfig,
   type ZoneConfigSlots,
+  type CurvesCurvesKeys,
+  BUS_CONFIG_BUSES_EFFECTS_FIXED_END,
+  BUS_SLOT_EFFECTS_FIXED_END,
+  FX_PARAMS,
 } from "../wire.generated";
-import { CURVE_INTERPS, type Curve } from "../../../../engine/core/curve";
+import { curveKeyHandles, curveKeyInterpCode, type Curve, type CurveKey } from "../../../../engine/core/curve";
 import type { BufferPool } from "./bufferPool";
 import type { VoiceCommandSink } from "./voiceTable";
 
@@ -120,7 +160,7 @@ export interface BusSlotArgs {
   slot: number;
   /** Parent slot; `BUS_ROOT` (0xFFFF) for a root. */
   parent: number;
-  /** In wire form (`type`, 7 parameters: a shorter `p` is zero-padded); at most `BUS_SLOT_MAX_EFFECTS` are written. */
+  /** In wire form (`type`, `FX_PARAMS` (16, ABI 5.0) parameters: a shorter `p` is zero-padded); at most `BUS_SLOT_MAX_EFFECTS` are written. */
   effects: readonly { type: number; p: readonly number[] }[];
   /** `BUS_SLOT_FLAGS_STRUCTURAL`: applies at quantum granularity under the gate (a dip's middle record). */
   structural?: boolean;
@@ -175,12 +215,32 @@ export interface PlayArgs {
  * from `curves`,. `target`: volume 0, pitch 1, lowpass 2.
  */
 export type AutomationBinding = AutomateBindings;
+/** A BUS_AUTOMATE or SUBMIX_AUTOMATE binding (no time offset: ABI 4.9 gives that to voices only). */
+export type BusAutomationBinding = Omit<AutomateBindings, "offset">;
 
 /** `AutomationBinding.param` bit for a global parameter slot (0..63); without it the slot is the instance's local one (0..15). */
-export const AUTOMATION_GLOBAL = 0x8000;
+export const AUTOMATION_GLOBAL = PARAM_GLOBAL;
+/** ADR 0346: `AutomationBinding.param` bit (bit 15 clear) for a time parameter, `TIME_VOICE`, `TIME_CLIP` or `TIME_SEQUENCE` in bits 0-1. */
+export const AUTOMATION_TIME = PARAM_TIME;
+/**
+ * ADR 0360 (ABI 5.1): an `AutomationBinding.target` that drives generator parameter `param` (the generator catalogue's
+ * index): the curve's value replaces it each quantum, or with `log` 2 to the curve's value (frequencies and rates
+ * interpolate in log scale, as their curves are keyed in log2).
+ */
+export const generatorTarget = (param: number, log: boolean): number =>
+  (AUTO_TARGET_GEN | ((param & 0xff) << AUTO_TARGET_GEN_PARAM_SHIFT) | (log ? AUTO_TARGET_LOG : 0)) >>> 0;
+/** All of GEN's mask bits: every parameter a kind has (bits past its count are dropped by `gen` with `params`' length). */
+export const GEN_MASK_ALL = 0xffffffff;
 /** The core keeps at most this many bindings per voice and per bus, curves of at most `CORE_CURVE_KEYS` keys. */
 const CORE_BINDINGS = 8;
-export const CORE_CURVE_KEYS = 32;
+/** The core's curve table keeps this many keys (`automation.rs` `CURVE_KEYS`; ADR 0346's limit, `MAX_CURVE_KEYS`). */
+export const CORE_CURVE_KEYS = 64;
+
+/** One key as a CURVES record carries it: its interp code and, for a Bézier key, its handles (0 otherwise). */
+export function wireCurveKey(key: CurveKey): CurvesCurvesKeys {
+  const h = curveKeyHandles(key);
+  return { x: key[0], y: key[1], interp: curveKeyInterpCode(key), inDx: h ? h.in[0] : 0, inDy: h ? h.in[1] : 0, outDx: h ? h.out[0] : 0, outDy: h ? h.out[1] : 0 };
+}
 /** Most bytes of curves in one CURVES record: larger uploads are split into several records (each fits a batch). */
 export const CURVES_RECORD_BUDGET = 32 * 1024;
 /** Bytes `curve` takes in a CURVES record (its key count, then at most `CORE_CURVE_KEYS` keys); a record adds `CURVES_FIXED_END`. */
@@ -207,10 +267,13 @@ const NO_ZONE_SLOTS: ZoneSlotArgs[] = [];
 /** Pads a byte count to a multiple of 4 (the record and list padding of the M3 records). */
 const pad4 = (n: number): number => Math.ceil(n / 4) * 4;
 /** A ramp's start phase, 0..1, as the u0.16 the shape word carries (clamped). */
+/** @internal ADR 0347 (ABI 4.11): a spread in degrees as SET_VOICE_FX carries it, hundredths of a degree 0..36000. */
+export const spreadCentidegrees = (deg: number): number => (Number.isFinite(deg) ? Math.round(Math.min(360, Math.max(0, deg)) * 100) : 0);
+
 const phase16 = (p: number): number => Math.min(65535, Math.max(0, Math.round(p * 65536)));
 
 /**
- * ADR 0162 C3: SET_VOICE_FX, minus the head. `mask` is `SET_VOICE_FX_MASK_*` (hpHz, sends, yaw, aux); fields outside
+ * ADR 0162 C3: SET_VOICE_FX, minus the head. `mask` is `SET_VOICE_FX_MASK_*` (hpHz, sends, yaw, aux, spread); fields outside
  * the mask are written as given and ignored by the core.
  */
 export interface VoiceFxArgs {
@@ -227,6 +290,8 @@ export interface VoiceFxArgs {
   auxLevel: number;
   /** The aux send's bus; `AUX_BUS_NONE` (0xFFFF) is none. */
   auxBus: number;
+  /** ADR 0347 (ABI 4.11, `SET_VOICE_FX_MASK_SPREAD`): a spatial voice's spread, degrees 0..360 (sent in hundredths). Omitted: 0. */
+  spread?: number;
 }
 
 /** ADR 0162 C5: one ZONE_CONFIG slot, as on the wire (`kernelId` 0 is off; `state` is `ZoneSlotState`). */
@@ -279,7 +344,7 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly rampRec: BusRamp = { voiceId: 0, frameOffset: ASAP, lane: 0, mask: 0, gain: 1, lpHz: 0, frames: 0, shape: 0 };
   private readonly slotRec: BusSlot = { voiceId: 0, frameOffset: ASAP, slot: 0, flags: 0, sequenceId: 0, reserved: 0, reserved2: 0, parent: 0xffff, effects: [] };
   /** `BUS_SLOT`'s effect scratch: `BUS_SLOT_MAX_EFFECTS` records with 7-entry parameter arrays, reused by every record. */
-  private readonly slotEffects: BusSlotEffects[] = Array.from({ length: BUS_SLOT_MAX_EFFECTS }, () => ({ type: 0, p: [0, 0, 0, 0, 0, 0, 0] }));
+  private readonly slotEffects: BusSlotEffects[] = Array.from({ length: BUS_SLOT_MAX_EFFECTS }, () => ({ type: 0, p: new Array<number>(FX_PARAMS).fill(0) }));
   /** `slotEffects` cut to each length 0..4, made once, so a record sets its list without slicing. */
   private readonly slotEffectViews: BusSlotEffects[][] = Array.from({ length: BUS_SLOT_MAX_EFFECTS + 1 }, (_, n) => this.slotEffects.slice(0, n));
   private readonly duckRec: BusDuck = { voiceId: 0, frameOffset: ASAP, rules: [] };
@@ -292,9 +357,18 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly resetRec: Reset = { voiceId: 0, frameOffset: ASAP, keepClips: 0 } as Reset;
   private readonly loopRec: SetLoop = { voiceId: 0, frameOffset: ASAP, loopStartFrame: 0, loopEndFrame: 0, flags: 0 };
   private readonly paramRec: Param = { voiceId: 0, frameOffset: ASAP, group: 0, slot: 0, value: 0, seekPerSecond: 0 };
+  private readonly loopsRec: Loops = { voiceId: 0, frameOffset: ASAP, loops: [] };
+  private readonly genRec: Gen = { voiceId: 0, frameOffset: ASAP, mask: 0, seed: 0, rampFrames: 0, values: NO_NUMBERS };
+  /** GEN's packed values, and a view of each length 0..GEN_PARAMS_MAX over them (made once: a record allocates nothing). */
+  private readonly genValues = new Float32Array(GEN_PARAMS_MAX);
+  private readonly genViews: readonly Float32Array[] = Array.from({ length: GEN_PARAMS_MAX + 1 }, (_, n) => this.genValues.subarray(0, n));
+  private readonly submixRec: Submix = { voiceId: 0, frameOffset: ASAP, group: 0, bus: 0, parent: 0, reserved: 0, effects: [] };
+  private readonly routeRec: Route = { voiceId: 0, frameOffset: ASAP, submix: 0, reserved: 0 };
+  private readonly timeRec: Time = { voiceId: 0, frameOffset: ASAP, group: 0, which: TIME_SEQUENCE, value: 0, rate: 0 };
   private readonly automateRec: Automate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
   private readonly busAutomateRec: BusAutomate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
-  private readonly voiceFxRec: SetVoiceFx = { voiceId: 0, frameOffset: ASAP, mask: 0, rampFrames: 0, hpHz: 0, send: [0, 0, 0, 0], yaw: 0, auxLevel: 0, auxBus: 0xffff, reserved: 0 };
+  private readonly submixAutomateRec: SubmixAutomate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
+  private readonly voiceFxRec: SetVoiceFx = { voiceId: 0, frameOffset: ASAP, mask: 0, rampFrames: 0, hpHz: 0, send: [0, 0, 0, 0], yaw: 0, auxLevel: 0, auxBus: 0xffff, spread: 0 };
   private readonly bedConfigRec: BedConfig = { voiceId: 0, frameOffset: ASAP, bedSlot: [], hostBus: [] };
   private readonly zoneConfigRec: ZoneConfig = { voiceId: 0, frameOffset: ASAP, sharedReturnGain: 1, rampFrames: 0, slots: [] };
   private readonly listenerRec: Listener = { voiceId: 0, frameOffset: ASAP, qx: 0, qy: 0, qz: 0, qw: 1, rampFrames: 0, flags: 0 };
@@ -506,7 +580,7 @@ export class CommandWriter implements VoiceCommandSink {
   /** BUS_CONFIG: the whole tree, root first (`parent` 0xFFFF for the root). */
   busConfig(buses: readonly BusConfigBuses[]): void {
     let size = 16;
-    for (const b of buses) size += 4 + 32 * b.effects.length;
+    for (const b of buses) size += 4 + BUS_CONFIG_BUSES_EFFECTS_FIXED_END * b.effects.length;
     const at = this.begin(size);
     if (at < 0) return;
     this.end(at, writeBusConfig(this.view, at, { voiceId: 0, frameOffset: ASAP, buses: buses as BusConfigBuses[] }));
@@ -522,8 +596,11 @@ export class CommandWriter implements VoiceCommandSink {
     this.busRampFrames(bus, lane, mask, gain, lpHz, this.frames(seconds), sequenceId, atFrame);
   }
 
-  /** `busRamp` with the length already in frames (the lane writer's `ClockMap.rampFrames()`; replay's 0). */
-  busRampFrames(bus: number, lane: number, mask: number, gain: number, lpHz: number, frames: number, sequenceId = 0, atFrame?: number): void {
+  /**
+   * `busRamp` with the length already in frames (the lane writer's `ClockMap.rampFrames()`; replay's 0). `law`
+   * `FadeLaw.Decibel` (ABI 4.8) ramps the gain linearly in dB (a snapshot's fade, ADR 0344); the low-pass stays linear.
+   */
+  busRampFrames(bus: number, lane: number, mask: number, gain: number, lpHz: number, frames: number, sequenceId = 0, atFrame?: number, law: number = FadeLaw.Linear): void {
     const r = this.rampRec;
     r.voiceId = bus;
     r.lane = lane;
@@ -531,7 +608,7 @@ export class CommandWriter implements VoiceCommandSink {
     r.gain = gain;
     r.lpHz = lpHz;
     r.frames = frames;
-    r.shape = packRampShape(FadeLaw.Linear, sequenceId, 0);
+    r.shape = packRampShape(law, sequenceId, 0);
     const at = this.begin(32);
     if (at < 0) return;
     this.end(at, writeBusRamp(this.view, at, r), atFrame);
@@ -539,7 +616,7 @@ export class CommandWriter implements VoiceCommandSink {
 
   /**
    * ADR 0171 §4.2 BUS_SLOT: one slot's configuration (R7), stamped at `atFrame` or asap. A tombstone is a silent root
-   * (R9). The record's size is 28 B + 32 B per effect (at most `BUS_SLOT_MAX_EFFECTS`; more are not written). The wire
+   * (R9). The record's size is 28 B + 68 B per effect (ABI 5.0) (at most `BUS_SLOT_MAX_EFFECTS`; more are not written). The wire
    * guard only: whether a fifth effect is a warning, kept for the next Play or refused is `busCapability.ts`'s rule
    * (ADR 0175; `busCapability.table.test.ts` holds its limit equal to this one).
    */
@@ -550,14 +627,14 @@ export class CommandWriter implements VoiceCommandSink {
       const src = args.effects[i]!;
       const dst = this.slotEffects[i]!;
       dst.type = src.type;
-      for (let k = 0; k < 7; k++) dst.p[k] = src.p[k] ?? 0;
+      for (let k = 0; k < FX_PARAMS; k++) dst.p[k] = src.p[k] ?? 0;
     }
     r.slot = args.slot;
     r.parent = args.parent;
     r.flags = (args.structural ? BUS_SLOT_FLAGS_STRUCTURAL : 0) | (args.fresh ? BUS_SLOT_FLAGS_FRESH : 0);
     r.sequenceId = (args.sequenceId ?? 0) & 0x1fff;
     r.effects = this.slotEffectViews[n]!;
-    const at = this.begin(28 + 32 * n);
+    const at = this.begin(28 + BUS_SLOT_EFFECTS_FIXED_END * n);
     if (at >= 0) this.end(at, writeBusSlot(this.view, at, r), atFrame);
     r.effects = NO_SLOT_EFFECTS;
   }
@@ -573,6 +650,16 @@ export class CommandWriter implements VoiceCommandSink {
     const at = this.begin(16 + 24 * rules.length);
     if (at >= 0) this.end(at, writeBusDuck(this.view, at, r));
     r.rules = NO_DUCK_RULES; // drops the caller's list without a new array per record
+  }
+
+  /**
+   * ADR 0344 (ABI 4.7) BUS_SENDS: bus `slot`'s post-fader sends into returns (replace-all, asap; at most
+   * `MAX_BUS_SENDS` are written): each `to` a bus slot, `level` linear, `flags` `BUS_SEND_MUTED`, ramped over `frames`.
+   */
+  busSends(slot: number, sends: readonly BusSendsSends[]): void {
+    const n = Math.min(sends.length, MAX_BUS_SENDS);
+    const at = this.begin(16 + 12 * n);
+    if (at >= 0) this.end(at, writeBusSends(this.view, at, { voiceId: slot >>> 0, frameOffset: ASAP, sends: sends.slice(0, n) as BusSendsSends[] }));
   }
 
   /**
@@ -661,9 +748,96 @@ export class CommandWriter implements VoiceCommandSink {
   }
 
   /**
+   * LOOPS (ADR 0342): replaces clip voice `voiceId`'s loop program (an empty list clears it; past `VOICE_LOOPS_MAX` loops
+   * the core ignores the rest). Send it right after the voice's PLAY with the same `atFrame` (omitted = asap), so it
+   * stays after the PLAY in the batch; the core applies it on arrival.
+   */
+  loops(voiceId: number, atFrame: number | undefined, loops: readonly LoopsLoops[]): void {
+    const r = this.loopsRec;
+    r.voiceId = voiceId;
+    r.loops = loops as LoopsLoops[];
+    const at = this.begin(16 + LOOPS_LOOPS_FIXED_END * loops.length);
+    if (at >= 0) this.end(at, writeLoops(this.view, at, r), atFrame);
+    r.loops = [];
+  }
+
+  /**
+   * GEN (ADR 0360, ABI 5.1): generator voice `voiceId`'s parameters. `params[i]` is parameter i in the generator
+   * catalogue's order (the wire order); the parameters whose bit is set in `mask` are sent, in that order (bits past
+   * `GEN_PARAMS_MAX` and past `params` are dropped). `seed` (non-zero) re-seeds the voice's noise; 0 keeps it. A started
+   * voice glides the changed smooth parameters over `rampFrames`; one not started takes them at once. Send the first
+   * right after the voice's PLAY with the same `atFrame` (omitted = asap), with every parameter, so it stays after the
+   * PLAY in the batch; the core applies it on arrival.
+   */
+  gen(voiceId: number, atFrame: number | undefined, mask: number, params: ArrayLike<number>, seed = 0, rampFrames = 0): void {
+    const r = this.genRec;
+    let sent = 0;
+    let n = 0;
+    for (let i = 0; i < GEN_PARAMS_MAX && i < params.length; i++) {
+      if (((mask >>> i) & 1) === 0) continue;
+      this.genValues[n++] = params[i]!;
+      sent |= 1 << i;
+    }
+    r.voiceId = voiceId;
+    r.mask = sent >>> 0;
+    r.seed = seed >>> 0;
+    r.rampFrames = Math.max(0, Math.round(rampFrames)) >>> 0;
+    r.values = this.genViews[n]!;
+    const at = this.begin(GEN_FIXED_END + 4 * n);
+    if (at >= 0) this.end(at, writeGen(this.view, at, r), atFrame);
+    r.values = NO_NUMBERS;
+  }
+
+  /**
+   * SUBMIX (ADR 0345, ABI 4.5; levels 4.9): configures submix `slot`: the voices of instance `group` (0: none, only
+   * the voices a ROUTE names; a slot whose group goes to 0 keeps ringing) on bus index `bus` route into it, it runs
+   * `effects` and feeds slot `parent` (null: the bus); no effects frees it. Applies on arrival (asap).
+   */
+  submix(slot: number, group: number, bus: number, effects: readonly SubmixEffects[], parent: number | null = null): void {
+    const r = this.submixRec;
+    r.voiceId = slot;
+    r.group = effects.length > 0 ? group : 0;
+    r.bus = bus;
+    r.parent = parent === null || effects.length === 0 ? 0 : parent + 1;
+    r.effects = effects as SubmixEffects[];
+    const at = this.begin(SUBMIX_FIXED_END + SUBMIX_EFFECTS_FIXED_END * effects.length);
+    if (at >= 0) this.end(at, writeSubmix(this.view, at, r), undefined);
+    r.effects = [];
+  }
+
+  /**
+   * ROUTE (ADR 0345 levels, ABI 4.9): voice `voiceId` mixes into submix `slot` (its playlist level's; null: back to its
+   * group's route). Applies on arrival: send it right after the voice's PLAY with the same `atFrame` (omitted = asap),
+   * so it stays after the PLAY in the batch (the batch is sent in frame order, and an asap record written after a
+   * stamped PLAY would go ahead of it: the PLAY then takes the voice's automation entry over and clears the route).
+   */
+  route(voiceId: number, slot: number | null, atFrame?: number): void {
+    const r = this.routeRec;
+    r.voiceId = voiceId;
+    r.submix = slot === null ? 0 : slot + 1;
+    const at = this.begin(ROUTE_FIXED_END);
+    if (at >= 0) this.end(at, writeRoute(this.view, at, r), atFrame);
+  }
+
+  /**
+   * TIME (ADR 0346): re-anchors `group`'s sequence clock (0 the global one, else an instance group 1..1024) at
+   * `atFrame` (absolute, stamped) or asap (omitted, at the next quantum): from there it reads `value` seconds moving at
+   * `rate` seconds per second (0 parks it).
+   */
+  time(group: number, value: number, rate: number, atFrame?: number): void {
+    const r = this.timeRec;
+    r.group = group;
+    r.value = value;
+    r.rate = rate;
+    const at = this.begin(24);
+    if (at < 0) return;
+    this.end(at, writeTime(this.view, at, r), atFrame);
+  }
+
+  /**
    * CURVES (ADR 0158 §3): defines curve ids `first`, `first + 1`, … from `curves` (the engine's `Curve`, keys sorted by
    * x; past `CORE_CURVE_KEYS` keys are not sent). A large upload goes as several records of at most 32 KB. Asap. Upload
-   * per event asset: like any record, what doesn't fit the staging area (256 KB, about 660 full curves) is dropped.
+   * per event asset: like any record, what doesn't fit the staging area (256 KB, about 145 full 64-key curves) is dropped.
    */
   curves(first: number, curves: readonly Curve[]): void {
     let i = 0;
@@ -695,11 +869,15 @@ export class CommandWriter implements VoiceCommandSink {
         off += 4;
         for (let k = 0; k < n; k++) {
           const key = keys[k]!;
+          const h = curveKeyHandles(key);
           v.setFloat32(off, key[0], true);
           v.setFloat32(off + 4, key[1], true);
-          const interp = key.length > 2 ? CURVE_INTERPS.indexOf(key[2]!) : 0;
-          v.setUint32(off + 8, interp < 0 ? 0 : interp, true);
-          off += 12;
+          v.setUint32(off + 8, curveKeyInterpCode(key), true);
+          v.setFloat32(off + 12, h ? h.in[0] : 0, true);
+          v.setFloat32(off + 16, h ? h.in[1] : 0, true);
+          v.setFloat32(off + 20, h ? h.out[0] : 0, true);
+          v.setFloat32(off + 24, h ? h.out[1] : 0, true);
+          off += CURVES_CURVES_KEYS_FIXED_END;
         }
       }
       this.end(at, bytes);
@@ -708,12 +886,25 @@ export class CommandWriter implements VoiceCommandSink {
   }
 
   /** BUS_AUTOMATE `bus` (ADR 0158 §3): replaces the bus's bindings (global parameters; volume and lowpass). Asap. */
-  busAutomate(bus: number, bindings: readonly AutomationBinding[]): void {
+  busAutomate(bus: number, bindings: readonly BusAutomationBinding[]): void {
     const r = this.busAutomateRec;
     r.voiceId = bus;
-    r.bindings = (bindings.length > CORE_BINDINGS ? bindings.slice(0, CORE_BINDINGS) : bindings) as AutomateBindings[];
-    const at = this.begin(16 + AUTOMATE_BINDINGS_FIXED_END * r.bindings.length);
+    r.bindings = (bindings.length > BUS_AUTOMATE_MAX_BINDINGS ? bindings.slice(0, BUS_AUTOMATE_MAX_BINDINGS) : bindings) as BusAutomate["bindings"];
+    const at = this.begin(16 + BUS_AUTOMATE_BINDINGS_FIXED_END * r.bindings.length);
     if (at >= 0) this.end(at, writeBusAutomate(this.view, at, r));
+    r.bindings = [];
+  }
+
+  /**
+   * SUBMIX_AUTOMATE (ADR 0345, ABI 4.8): replaces instance submix slot `slot`'s effect-parameter bindings (an empty list
+   * clears them; past `BUS_AUTOMATE_MAX_BINDINGS` dropped), asap. Send it after the slot's SUBMIX.
+   */
+  submixAutomate(slot: number, bindings: readonly BusAutomationBinding[]): void {
+    const r = this.submixAutomateRec;
+    r.voiceId = slot;
+    r.bindings = (bindings.length > BUS_AUTOMATE_MAX_BINDINGS ? bindings.slice(0, BUS_AUTOMATE_MAX_BINDINGS) : bindings) as SubmixAutomate["bindings"];
+    const at = this.begin(16 + SUBMIX_AUTOMATE_BINDINGS_FIXED_END * r.bindings.length);
+    if (at >= 0) this.end(at, writeSubmixAutomate(this.view, at, r));
     r.bindings = [];
   }
 
@@ -732,6 +923,7 @@ export class CommandWriter implements VoiceCommandSink {
     r.yaw = args.yaw;
     r.auxLevel = args.auxLevel;
     r.auxBus = args.auxBus;
+    r.spread = spreadCentidegrees(args.spread ?? 0);
     const at = this.begin(SET_VOICE_FX_FIXED_END);
     if (at < 0) return;
     this.end(at, writeSetVoiceFx(this.view, at, r), atFrame);

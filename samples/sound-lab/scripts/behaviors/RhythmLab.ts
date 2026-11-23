@@ -1,4 +1,4 @@
-import { Audio, Calibration, GameBehavior, Input, SceneManager, Text, behavior, field, type AudioEventHandle, type CalibrationResult, type MusicEvent } from "myco";
+import { Audio, Calibration, GameBehavior, Input, SceneManager, Text, behavior, field, type AudioPlaylistHandle, type CalibrationResult, type MusicEvent } from "myco";
 import { MusicReadout } from "../musicReadout";
 import { PointerTaps, TouchBar } from "../touchBar";
 
@@ -64,12 +64,12 @@ export interface RhythmState {
  *
  * Touch (a phone has no keys): a press on the game view is a tap, exactly like SPACE, timed from the `pointerdown` event's own
  * time stamp (a mouse click does the same). A row of buttons along the bottom stands in for C, G, X, O, D and B; a press on a
- * button is not a tap. D shows or hides the music health readout (prime lead and late groups, `Audio.debug().music`).
+ * button is not a tap. D shows or hides the music readout (each music playlist's voices and late starts, `Audio.debug().events`).
  */
 @behavior("lab.RhythmLab")
 export class RhythmLab extends GameBehavior {
-  @field(String) clickEvent = "audio/music/rhythm-click.audioevent.json";
-  @field(String) gameEvent = "audio/music/rhythm-game.audioevent.json";
+  @field(String) clickEvent = "audio/music/rhythm-click.playlist.json";
+  @field(String) gameEvent = "audio/music/rhythm-game.playlist.json";
   @field(String) tapKey = "space";
   @field(String) calibrateKey = "c";
   @field(String) gameKey = "g";
@@ -83,7 +83,7 @@ export class RhythmLab extends GameBehavior {
   @field(Number) perfectWindow = 0.03;
   @field(Number) goodWindow = 0.08;
 
-  private handle: AudioEventHandle | null = null;
+  private handle: AudioPlaylistHandle | null = null;
   private unsubscribe: (() => void) | null = null;
   private mode: "" | "calibrate" | "game" = "";
   private offsets: number[] = [];

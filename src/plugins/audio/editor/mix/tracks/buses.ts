@@ -47,8 +47,8 @@ export interface BusSample {
   factors: readonly BusFactors[] | null;
 }
 
-/** The seek samples of one capture; both tracks share it. */
-class BusSampler {
+/** The seek samples of one capture; both tracks share it (and the Studio's Profiler reads them per bus). */
+export class BusSampler {
   private readonly cache = new Map<number, BusSample>();
   private readonly byKeyframe = new Map<number, readonly BusFactors[] | null>();
   private list: readonly BusSample[] = [];

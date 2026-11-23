@@ -1,0 +1,2992 @@
+{
+ "machine": {
+  "date": "2026-11-22T18:05:05.527Z",
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+  "cores": 4,
+  "loadavg": [
+   2.94,
+   2.75,
+   2.89
+  ],
+  "node": "v22.23.5",
+  "v8": "12.4.254.21-node.57"
+ },
+ "static": {
+  "segment32": {
+   "bytes": 9797,
+   "functions": 12,
+   "segments": 273,
+   "checks": 273,
+   "instructions": 2615
+  },
+  "loop32": {
+   "bytes": 7565,
+   "functions": 12,
+   "segments": 273,
+   "checks": 25,
+   "instructions": 2615
+  },
+  "plain": {
+   "bytes": 5412
+  },
+  "large": {
+   "bytes": 99707,
+   "segBytes": 103689
+  },
+  "coreFuelSegment": {
+   "bytes": 472160,
+   "instrumentedBytes": 850883,
+   "functions": 515,
+   "segments": 23650,
+   "checks": 23650,
+   "instructions": 202987
+  }
+ },
+ "node": {
+  "glue": [
+   {
+    "test": "js→wasm empty call",
+    "nsPerCall": 3.198959972010647
+   },
+   {
+    "test": "wasm→js empty import (host_calls, per call)",
+    "n1": 9.82265716455353,
+    "n8": 8.424063440386506,
+    "n32": 7.540573876818257
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "null",
+    "strategy": "loop",
+    "instances": 1,
+    "nsPerCall": 1084.6432033487595,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 4.203693007562926,
+    "nsGlue": 1070.616853176643,
+    "usPerQuantum": 1.0846432033487596
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "null",
+    "strategy": "loop",
+    "instances": 8,
+    "nsPerCall": 1139.9580622676613,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 4.203693007562926,
+    "nsGlue": 1127.3303058197118,
+    "usPerQuantum": 9.11966449814129
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "null",
+    "strategy": "loop",
+    "instances": 32,
+    "nsPerCall": 1148.3728974654332,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 4.203693007562926,
+    "nsGlue": 1136.628630581052,
+    "usPerQuantum": 36.747932718893864
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "null",
+    "strategy": "set",
+    "instances": 1,
+    "nsPerCall": 1014.4364361850642,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 5.717607290591278,
+    "nsGlue": 998.8961717299195,
+    "usPerQuantum": 1.0144364361850642
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "null",
+    "strategy": "set",
+    "instances": 8,
+    "nsPerCall": 1023.5923410404622,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 5.717607290591278,
+    "nsGlue": 1009.4506703094845,
+    "usPerQuantum": 8.188738728323697
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "null",
+    "strategy": "set",
+    "instances": 32,
+    "nsPerCall": 733.8764185298135,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 5.717607290591278,
+    "nsGlue": 720.6182373624039,
+    "usPerQuantum": 23.48404539295403
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "null",
+    "strategy": "cached",
+    "instances": 1,
+    "nsPerCall": 551.8577121957301,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 8.955501135827802,
+    "nsGlue": 533.0795538953487,
+    "usPerQuantum": 0.55185771219573
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "null",
+    "strategy": "cached",
+    "instances": 8,
+    "nsPerCall": 585.6783244530101,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 8.955501135827802,
+    "nsGlue": 568.2987598767958,
+    "usPerQuantum": 4.68542659562408
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "null",
+    "strategy": "cached",
+    "instances": 32,
+    "nsPerCall": 626.2056188925064,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 8.955501135827802,
+    "nsGlue": 609.7095438798605,
+    "usPerQuantum": 20.038579804560204
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "null",
+    "strategy": "wasmscan",
+    "instances": 1,
+    "nsPerCall": 184.3420075770243,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 9.031391080751416,
+    "nsGlue": 165.48795933171934,
+    "usPerQuantum": 0.1843420075770243
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "null",
+    "strategy": "wasmscan",
+    "instances": 8,
+    "nsPerCall": 182.07979420515946,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 9.031391080751416,
+    "nsGlue": 164.62433968402152,
+    "usPerQuantum": 1.4566383536412755
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "null",
+    "strategy": "wasmscan",
+    "instances": 32,
+    "nsPerCall": 264.98521730462596,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 9.031391080751416,
+    "nsGlue": 248.41325234705633,
+    "usPerQuantum": 8.479526953748032
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "null",
+    "strategy": "multimemory",
+    "instances": 1,
+    "nsPerCall": 191.37775127187624,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 8.099049060569474,
+    "nsGlue": 173.45604504675325,
+    "usPerQuantum": 0.19137775127187626
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "null",
+    "strategy": "multimemory",
+    "instances": 8,
+    "nsPerCall": 241.65767442420156,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 8.099049060569474,
+    "nsGlue": 225.1345619232456,
+    "usPerQuantum": 1.9332613953936124
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "null",
+    "strategy": "multimemory",
+    "instances": 32,
+    "nsPerCall": 187.30796156303106,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 8.099049060569474,
+    "nsGlue": 171.66833862564332,
+    "usPerQuantum": 5.993854770016994
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "null",
+    "strategy": "cached",
+    "instances": 1,
+    "nsPerCall": 848.0648413847638,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 30.37725073298663,
+    "nsGlue": 807.8649334872237,
+    "usPerQuantum": 0.8480648413847638
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "null",
+    "strategy": "cached",
+    "instances": 8,
+    "nsPerCall": 815.9967700258527,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 30.37725073298663,
+    "nsGlue": 777.1954558524795,
+    "usPerQuantum": 6.527974160206822
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "null",
+    "strategy": "cached",
+    "instances": 32,
+    "nsPerCall": 561.9329372160715,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 30.37725073298663,
+    "nsGlue": 524.0151126062666,
+    "usPerQuantum": 17.98185399091429
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "gain",
+    "strategy": "cached",
+    "instances": 1,
+    "nsPerCall": 642.6194889256426,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 146.36465320839994,
+    "nsGlue": 486.43217855268904,
+    "usPerQuantum": 0.6426194889256426
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "gain",
+    "strategy": "cached",
+    "instances": 8,
+    "nsPerCall": 639.4884593464978,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 146.36465320839994,
+    "nsGlue": 484.6997426977113,
+    "usPerQuantum": 5.115907674771982
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "gain",
+    "strategy": "cached",
+    "instances": 32,
+    "nsPerCall": 651.9426644736744,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 146.36465320839994,
+    "nsGlue": 498.03743738845617,
+    "usPerQuantum": 20.862165263157582
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "gain",
+    "strategy": "cached",
+    "instances": 1,
+    "nsPerCall": 715.0365095286,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 202.1271640856988,
+    "nsGlue": 503.0866882783477,
+    "usPerQuantum": 0.7150365095286
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "gain",
+    "strategy": "cached",
+    "instances": 8,
+    "nsPerCall": 717.5393455534683,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 202.1271640856988,
+    "nsGlue": 506.98811802738294,
+    "usPerQuantum": 5.740314764427747
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "gain",
+    "strategy": "cached",
+    "instances": 32,
+    "nsPerCall": 725.6450683019826,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 202.1271640856988,
+    "nsGlue": 515.9773303394655,
+    "usPerQuantum": 23.220642185663444
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "tremolo",
+    "strategy": "cached",
+    "instances": 1,
+    "nsPerCall": 2878.536218004496,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 1256.1998921128666,
+    "nsGlue": 1612.5136687270763,
+    "usPerQuantum": 2.8785362180044958
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "tremolo",
+    "strategy": "cached",
+    "instances": 8,
+    "nsPerCall": 2856.7220537261287,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 1256.1998921128666,
+    "nsGlue": 1592.0980981728758,
+    "usPerQuantum": 22.85377642980903
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "tremolo",
+    "strategy": "cached",
+    "instances": 32,
+    "nsPerCall": 1755.646426537585,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 1256.1998921128666,
+    "nsGlue": 491.9059605479004,
+    "usPerQuantum": 56.18068564920272
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "tremolo",
+    "strategy": "cached",
+    "instances": 1,
+    "nsPerCall": 4156.032563813838,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 3276.778538511485,
+    "nsGlue": 869.4313681378,
+    "usPerQuantum": 4.156032563813839
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "tremolo",
+    "strategy": "cached",
+    "instances": 8,
+    "nsPerCall": 3935.0308257919064,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 3276.778538511485,
+    "nsGlue": 649.8282238400349,
+    "usPerQuantum": 31.48024660633525
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "tremolo",
+    "strategy": "cached",
+    "instances": 32,
+    "nsPerCall": 3774.1056099397574,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 3276.778538511485,
+    "nsGlue": 489.78649755145443,
+    "usPerQuantum": 120.77137951807224
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "null",
+    "strategy": "wasmscan",
+    "instances": 1,
+    "nsPerCall": 231.52028131804374,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 14.474694071571278,
+    "nsGlue": 207.22293008191895,
+    "usPerQuantum": 0.23152028131804375
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "null",
+    "strategy": "wasmscan",
+    "instances": 8,
+    "nsPerCall": 199.39273363357236,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 14.474694071571278,
+    "nsGlue": 176.4939761216146,
+    "usPerQuantum": 1.5951418690685788
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "null",
+    "strategy": "wasmscan",
+    "instances": 32,
+    "nsPerCall": 220.08869635193022,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 14.474694071571278,
+    "nsGlue": 198.07342840354067,
+    "usPerQuantum": 7.042838283261767
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "gain",
+    "strategy": "wasmscan",
+    "instances": 1,
+    "nsPerCall": 336.1348272147037,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 187.8229258121041,
+    "nsGlue": 138.48924423804607,
+    "usPerQuantum": 0.3361348272147037
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "gain",
+    "strategy": "wasmscan",
+    "instances": 8,
+    "nsPerCall": 320.4182287279621,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 187.8229258121041,
+    "nsGlue": 124.17123947547152,
+    "usPerQuantum": 2.563345829823697
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "gain",
+    "strategy": "wasmscan",
+    "instances": 32,
+    "nsPerCall": 333.4753711318584,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 187.8229258121041,
+    "nsGlue": 138.11187144293604,
+    "usPerQuantum": 10.671211876219468
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "gain",
+    "strategy": "wasmscan",
+    "instances": 1,
+    "nsPerCall": 417.6926660670614,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 198.9151155021708,
+    "nsGlue": 208.95489340033706,
+    "usPerQuantum": 0.4176926660670614
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "gain",
+    "strategy": "wasmscan",
+    "instances": 8,
+    "nsPerCall": 464.5944634449385,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 198.9151155021708,
+    "nsGlue": 257.25528450238124,
+    "usPerQuantum": 3.716755707559508
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "gain",
+    "strategy": "wasmscan",
+    "instances": 32,
+    "nsPerCall": 399.36411236700474,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 198.9151155021708,
+    "nsGlue": 192.90842298801567,
+    "usPerQuantum": 12.779651595744152
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "tremolo",
+    "strategy": "wasmscan",
+    "instances": 1,
+    "nsPerCall": 1510.1902987969884,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 1314.0762996582812,
+    "nsGlue": 186.2913419741538,
+    "usPerQuantum": 1.5101902987969884
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "tremolo",
+    "strategy": "wasmscan",
+    "instances": 8,
+    "nsPerCall": 1548.405891016272,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 1314.0762996582812,
+    "nsGlue": 225.90552791760442,
+    "usPerQuantum": 12.387247128130177
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "tremolo",
+    "strategy": "wasmscan",
+    "instances": 32,
+    "nsPerCall": 1470.6325779445783,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 1314.0762996582812,
+    "nsGlue": 149.01570440947899,
+    "usPerQuantum": 47.06024249422651
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "tremolo",
+    "strategy": "wasmscan",
+    "instances": 1,
+    "nsPerCall": 3480.690863471061,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 3232.4864620408366,
+    "nsGlue": 238.38174426567141,
+    "usPerQuantum": 3.4806908634710614
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "tremolo",
+    "strategy": "wasmscan",
+    "instances": 8,
+    "nsPerCall": 3504.294649061861,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 3232.4864620408366,
+    "nsGlue": 263.3841235806381,
+    "usPerQuantum": 28.034357192494888
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "tremolo",
+    "strategy": "wasmscan",
+    "instances": 32,
+    "nsPerCall": 3915.994468167516,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 3232.4864620408366,
+    "nsGlue": 675.9674322498615,
+    "usPerQuantum": 125.31182298136052
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "null",
+    "strategy": "multimemory",
+    "instances": 1,
+    "nsPerCall": 297.78425975307454,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 25.204982789389643,
+    "nsGlue": 262.75661979913133,
+    "usPerQuantum": 0.29778425975307454
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "null",
+    "strategy": "multimemory",
+    "instances": 8,
+    "nsPerCall": 309.5785731111163,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 25.204982789389643,
+    "nsGlue": 275.94952688134015,
+    "usPerQuantum": 2.4766285848889305
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "null",
+    "strategy": "multimemory",
+    "instances": 32,
+    "nsPerCall": 223.19750750135356,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 25.204982789389643,
+    "nsGlue": 190.45195083514565,
+    "usPerQuantum": 7.142320240043314
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "gain",
+    "strategy": "multimemory",
+    "instances": 1,
+    "nsPerCall": 343.7479799611974,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 159.66522650754413,
+    "nsGlue": 174.26009628909972,
+    "usPerQuantum": 0.3437479799611974
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "gain",
+    "strategy": "multimemory",
+    "instances": 8,
+    "nsPerCall": 382.42590835686383,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 159.66522650754413,
+    "nsGlue": 214.33661840893316,
+    "usPerQuantum": 3.0594072668549104
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "gain",
+    "strategy": "multimemory",
+    "instances": 32,
+    "nsPerCall": 434.77003647475203,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 159.66522650754413,
+    "nsGlue": 267.5642360903896,
+    "usPerQuantum": 13.912641167192064
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "gain",
+    "strategy": "multimemory",
+    "instances": 1,
+    "nsPerCall": 397.3992368186412,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 200.6994552659212,
+    "nsGlue": 186.8771243881665,
+    "usPerQuantum": 0.39739923681864125
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "gain",
+    "strategy": "multimemory",
+    "instances": 8,
+    "nsPerCall": 372.85308738877956,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 200.6994552659212,
+    "nsGlue": 163.72956868247184,
+    "usPerQuantum": 2.9828246991102363
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "gain",
+    "strategy": "multimemory",
+    "instances": 32,
+    "nsPerCall": 441.9689607417876,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 200.6994552659212,
+    "nsGlue": 233.7289315990481,
+    "usPerQuantum": 14.143006743737203
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "tremolo",
+    "strategy": "multimemory",
+    "instances": 1,
+    "nsPerCall": 2042.21915261004,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 2046.8142147205906,
+    "nsGlue": -14.417719275103838,
+    "usPerQuantum": 2.04221915261004
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "tremolo",
+    "strategy": "multimemory",
+    "instances": 8,
+    "nsPerCall": 1573.9746349821291,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 2046.8142147205906,
+    "nsGlue": -481.26364317884793,
+    "usPerQuantum": 12.591797079857033
+   },
+   {
+    "test": "glue",
+    "variant": "plain",
+    "kind": "tremolo",
+    "strategy": "multimemory",
+    "instances": 32,
+    "nsPerCall": 1473.0329451651064,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 2046.8142147205906,
+    "nsGlue": -581.3218434323023,
+    "usPerQuantum": 47.13705424528341
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "tremolo",
+    "strategy": "multimemory",
+    "instances": 1,
+    "nsPerCall": 3480.0346780517416,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 3276.783718738706,
+    "nsGlue": 193.428302148482,
+    "usPerQuantum": 3.4800346780517413
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "tremolo",
+    "strategy": "multimemory",
+    "instances": 8,
+    "nsPerCall": 3481.669599303144,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 3276.783718738706,
+    "nsGlue": 196.4618171240518,
+    "usPerQuantum": 27.853356794425153
+   },
+   {
+    "test": "glue",
+    "variant": "segment32",
+    "kind": "tremolo",
+    "strategy": "multimemory",
+    "instances": 32,
+    "nsPerCall": 3477.9033846704983,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 3276.783718738706,
+    "nsGlue": 193.57909205497424,
+    "usPerQuantum": 111.29290830945595
+   },
+   {
+    "test": "glue",
+    "variant": "segment64",
+    "kind": "null",
+    "strategy": "wasmscan",
+    "instances": 1,
+    "nsPerCall": 230.56946076005735,
+    "nsImportNop": 9.82265716455353,
+    "nsPluginDirect": 14.900505376310775,
+    "nsGlue": 205.84629821919305,
+    "usPerQuantum": 0.23056946076005735
+   },
+   {
+    "test": "glue",
+    "variant": "segment64",
+    "kind": "null",
+    "strategy": "wasmscan",
+    "instances": 8,
+    "nsPerCall": 224.4937517087323,
+    "nsImportNop": 8.424063440386506,
+    "nsPluginDirect": 14.900505376310775,
+    "nsGlue": 201.16918289203502,
+    "usPerQuantum": 1.7959500136698585
+   },
+   {
+    "test": "glue",
+    "variant": "segment64",
+    "kind": "null",
+    "strategy": "wasmscan",
+    "instances": 32,
+    "nsPerCall": 242.38045506568713,
+    "nsImportNop": 7.540573876818257,
+    "nsPluginDirect": 14.900505376310775,
+    "nsGlue": 219.93937581255807,
+    "usPerQuantum": 7.756174562101988
+   }
+  ],
+  "fuel": [
+   {
+    "kind": "gain",
+    "instructionsPerCall": 3857,
+    "instructionsPerFrame": 30.1328125,
+    "ns_plain": 154.77782137295856,
+    "ns_count32": 153.08366083118807,
+    "ns_loop32": 181.5481801150826,
+    "ns_segment32": 201.46124394497036,
+    "ns_loop64": 199.99393839601916,
+    "ns_segment64": 224.74811329296952,
+    "ns_loopload32": 172.18136408600756,
+    "ns_segload32": 197.08264416604814,
+    "slowdown_count32": -0.010945757775515985,
+    "slowdown_loop32": 0.1729599144415992,
+    "slowdown_segment32": 0.3016157105579207,
+    "slowdown_loop64": 0.29213563430451783,
+    "slowdown_segment64": 0.4520692389861716,
+    "slowdown_loopload32": 0.11244209641065273,
+    "slowdown_segload32": 0.27332612914320764
+   },
+   {
+    "kind": "tremolo",
+    "instructionsPerCall": 14223,
+    "instructionsPerFrame": 111.1171875,
+    "ns_plain": 1267.256910917976,
+    "ns_count32": 1256.4988624118719,
+    "ns_loop32": 3261.299034264404,
+    "ns_segment32": 3264.121408405353,
+    "ns_loop64": 3263.290371075605,
+    "ns_segment64": 3269.4538951555037,
+    "ns_loopload32": 1258.2595389021444,
+    "ns_segload32": 1256.2099280720518,
+    "slowdown_count32": -0.00848924035325338,
+    "slowdown_loop32": 1.5735105535167158,
+    "slowdown_segment32": 1.5757377058144333,
+    "slowdown_loop64": 1.575081929292255,
+    "slowdown_segment64": 1.5799456029694685,
+    "slowdown_loopload32": -0.007099880015106086,
+    "slowdown_segload32": -0.008717240167127605
+   },
+   {
+    "kind": "biquad8",
+    "instructionsPerCall": 64192,
+    "instructionsPerFrame": 501.5,
+    "ns_plain": 7287.308468428469,
+    "ns_count32": 7350.247182015436,
+    "ns_loop32": 7284.145527833009,
+    "ns_segment32": 7369.86498754236,
+    "ns_loop64": 7359.1036309930605,
+    "ns_segment64": 7417.955966986414,
+    "ns_loopload32": 7362.517528609585,
+    "ns_segload32": 7317.274684353362,
+    "slowdown_count32": 0.008636757159332875,
+    "slowdown_loop32": -0.000434034130593397,
+    "slowdown_segment32": 0.011328808087589515,
+    "slowdown_loop64": 0.009852082270928486,
+    "slowdown_segment64": 0.017928086772223573,
+    "slowdown_loopload32": 0.010320553947585909,
+    "slowdown_segload32": 0.004112110260560353
+   },
+   {
+    "kind": "delay",
+    "instructionsPerCall": 23861,
+    "instructionsPerFrame": 186.4140625,
+    "ns_plain": 1466.502475926164,
+    "ns_count32": 1485.6368263069096,
+    "ns_loop32": 1532.7585213194998,
+    "ns_segment32": 1578.8611696536304,
+    "ns_loop64": 1547.4193954624504,
+    "ns_segment64": 1694.3470411554001,
+    "ns_loopload32": 1488.0216399120236,
+    "ns_segload32": 1519.2302190313608,
+    "slowdown_count32": 0.013047608643593556,
+    "slowdown_loop32": 0.04517963418472393,
+    "slowdown_segment32": 0.07661677738150896,
+    "slowdown_loop64": 0.055176803902212024,
+    "slowdown_segment64": 0.15536596014632842,
+    "slowdown_loopload32": 0.014673799969051826,
+    "slowdown_segload32": 0.035954759007070125
+   }
+  ],
+  "compile": [
+   {
+    "module": "plugin 5 KB",
+    "bytes": 5412,
+    "reps": 200,
+    "msCompile": 0.11848569500012672,
+    "msInstantiate": 0.036455299999906855,
+    "msFirstCall": 0.2428789050000705
+   },
+   {
+    "module": "plugin 5 KB + fuel",
+    "bytes": 9797,
+    "reps": 200,
+    "msCompile": 0.1401502699998673,
+    "msInstantiate": 0.033487644999841,
+    "msFirstCall": 0.23120282500047323
+   },
+   {
+    "module": "synthetic 100 KB",
+    "bytes": 99707,
+    "reps": 168,
+    "msCompile": 0.3802689285712404,
+    "msInstantiate": 0.03878354761906978,
+    "msFirstCall": 1.314601434523519
+   },
+   {
+    "module": "synthetic 100 KB + fuel",
+    "bytes": 103689,
+    "reps": 179,
+    "msCompile": 0.5047390446927452,
+    "msInstantiate": 0.040274122905089554,
+    "msFirstCall": 1.0935036703910794
+   },
+   {
+    "module": "audio core 472 KB (compile only)",
+    "bytes": 472160,
+    "reps": 146,
+    "msCompile": 1.8210717808222099,
+    "msInstantiate": 0,
+    "msFirstCall": 0
+   },
+   {
+    "module": "audio decoder 1129 KB (compile only)",
+    "bytes": 1128625,
+    "reps": 55,
+    "msCompile": 3.9329781818179814,
+    "msInstantiate": 0,
+    "msFirstCall": 0
+   },
+   {
+    "module": "synthetic 100 KB, identical bytes again",
+    "bytes": 99718,
+    "reps": 11064,
+    "msCompile": 0.009042319866232692
+   }
+  ],
+  "faults": [
+   {
+    "strategy": "loop",
+    "referenceHash": "3ea7c32d",
+    "modes": [
+     {
+      "mode": "unreachable",
+      "reason": "trap",
+      "hostFaults": 1,
+      "hostQuanta": 50,
+      "hashMatchesReference": true,
+      "instancesRecreated": 5,
+      "msFaultQuantum": 0.22543399999995017,
+      "msRecover": 0.19436100000166334,
+      "msFirstQuantumAfter": 0.1429470000002766,
+      "pluginPagesBefore": 3
+     },
+     {
+      "mode": "NaN output",
+      "reason": "nonFinite",
+      "hostFaults": 1,
+      "hostQuanta": 50,
+      "hashMatchesReference": true,
+      "instancesRecreated": 1,
+      "msFaultQuantum": 0.30519900000217604,
+      "msRecover": 0.03376700000080746,
+      "msFirstQuantumAfter": 0.12127499999769498,
+      "pluginPagesBefore": 3
+     },
+     {
+      "mode": "memory.grow in process",
+      "reason": "grow",
+      "hostFaults": 1,
+      "hostQuanta": 50,
+      "hashMatchesReference": true,
+      "instancesRecreated": 5,
+      "msFaultQuantum": 0.08689800000138348,
+      "msRecover": 0.0838549999971292,
+      "msFirstQuantumAfter": 0.11751599999843165,
+      "pluginPagesBefore": 3
+     },
+     {
+      "mode": "endless loop (fuel)",
+      "reason": "trap",
+      "hostFaults": 1,
+      "hostQuanta": 50,
+      "hashMatchesReference": true,
+      "instancesRecreated": 5,
+      "msFaultQuantum": 0.14296299999841722,
+      "msRecover": 0.08889199999975972,
+      "msFirstQuantumAfter": 0.09474699999555014,
+      "pluginPagesBefore": 3
+     },
+     {
+      "mode": "sample of 1000",
+      "reason": "range",
+      "hostFaults": 1,
+      "hostQuanta": 50,
+      "hashMatchesReference": true,
+      "instancesRecreated": 1,
+      "msFaultQuantum": 0.04857300000003306,
+      "msRecover": 0.004977999997208826,
+      "msFirstQuantumAfter": 0.01806399999622954,
+      "pluginPagesBefore": 3
+     }
+    ],
+    "uncaught": {
+     "thrown": "RuntimeError: unreachable",
+     "hostQuantaAfter": 10,
+     "expectedIfCompleted": 11,
+     "note": "host_quantum aborted between its process loop and its bookkeeping"
+    },
+    "runaway": [
+     {
+      "budgetPerFrame": 1000,
+      "instructions": 128000,
+      "msPerRunawayCall": 0.09795130000056815,
+      "faults": 10
+     },
+     {
+      "budgetPerFrame": 20000,
+      "instructions": 2560000,
+      "msPerRunawayCall": 0.680676400000084,
+      "faults": 10
+     }
+    ],
+    "recovery": {
+     "reps": 40,
+     "msReinstantiateModuleAnd5Instances": 0.035788849999880766,
+     "msFirstQuantumAfterReinstantiate": 0.0212599999998929,
+     "msResetOneInstance": 0.0026154249999308377,
+     "faults": {
+      "trap": 40,
+      "nonFinite": 40,
+      "range": 0,
+      "grow": 0
+     }
+    }
+   },
+   {
+    "strategy": "wasmscan",
+    "referenceHash": "3ea7c32d",
+    "modes": [
+     {
+      "mode": "unreachable",
+      "reason": "trap",
+      "hostFaults": 1,
+      "hostQuanta": 50,
+      "hashMatchesReference": true,
+      "instancesRecreated": 5,
+      "msFaultQuantum": 0.04180400000041118,
+      "msRecover": 0.07327800000348361,
+      "msFirstQuantumAfter": 0.014896000000589993,
+      "pluginPagesBefore": 3
+     },
+     {
+      "mode": "NaN output",
+      "reason": "nonFinite",
+      "hostFaults": 1,
+      "hostQuanta": 50,
+      "hashMatchesReference": true,
+      "instancesRecreated": 1,
+      "msFaultQuantum": 0.013274999997520354,
+      "msRecover": 0.004076000004715752,
+      "msFirstQuantumAfter": 0.011609000001044478,
+      "pluginPagesBefore": 3
+     },
+     {
+      "mode": "memory.grow in process",
+      "reason": "grow",
+      "hostFaults": 1,
+      "hostQuanta": 50,
+      "hashMatchesReference": true,
+      "instancesRecreated": 5,
+      "msFaultQuantum": 0.016477999997732695,
+      "msRecover": 0.05108299999847077,
+      "msFirstQuantumAfter": 0.01351299999805633,
+      "pluginPagesBefore": 3
+     },
+     {
+      "mode": "endless loop (fuel)",
+      "reason": "trap",
+      "hostFaults": 1,
+      "hostQuanta": 50,
+      "hashMatchesReference": true,
+      "instancesRecreated": 5,
+      "msFaultQuantum": 0.04920500000298489,
+      "msRecover": 0.0443299999969895,
+      "msFirstQuantumAfter": 0.012884000003396068,
+      "pluginPagesBefore": 3
+     },
+     {
+      "mode": "sample of 1000",
+      "reason": "range",
+      "hostFaults": 1,
+      "hostQuanta": 50,
+      "hashMatchesReference": true,
+      "instancesRecreated": 1,
+      "msFaultQuantum": 0.01627300000109244,
+      "msRecover": 0.006061999993107747,
+      "msFirstQuantumAfter": 0.011967999998887535,
+      "pluginPagesBefore": 3
+     }
+    ],
+    "uncaught": {
+     "thrown": "RuntimeError: unreachable",
+     "hostQuantaAfter": 10,
+     "expectedIfCompleted": 11,
+     "note": "host_quantum aborted between its process loop and its bookkeeping"
+    },
+    "runaway": [
+     {
+      "budgetPerFrame": 1000,
+      "instructions": 128000,
+      "msPerRunawayCall": 0.042000700000062355,
+      "faults": 10
+     },
+     {
+      "budgetPerFrame": 20000,
+      "instructions": 2560000,
+      "msPerRunawayCall": 0.23358460000235937,
+      "faults": 10
+     }
+    ],
+    "recovery": {
+     "reps": 40,
+     "msReinstantiateModuleAnd5Instances": 0.0392414000005374,
+     "msFirstQuantumAfterReinstantiate": 0.01292855000065174,
+     "msResetOneInstance": 0.002478624999821477,
+     "faults": {
+      "trap": 40,
+      "nonFinite": 40,
+      "range": 0,
+      "grow": 0
+     }
+    }
+   },
+   {
+    "strategy": "multimemory",
+    "referenceHash": "3ea7c32d",
+    "modes": [
+     {
+      "mode": "unreachable",
+      "reason": "trap",
+      "hostFaults": 1,
+      "hostQuanta": 50,
+      "hashMatchesReference": true,
+      "instancesRecreated": 5,
+      "msFaultQuantum": 0.036486999997578096,
+      "msRecover": 0.04806700000335695,
+      "msFirstQuantumAfter": 0.014626000003772788,
+      "pluginPagesBefore": 3
+     },
+     {
+      "mode": "NaN output",
+      "reason": "nonFinite",
+      "hostFaults": 1,
+      "hostQuanta": 50,
+      "hashMatchesReference": true,
+      "instancesRecreated": 1,
+      "msFaultQuantum": 0.017690000000584405,
+      "msRecover": 0.003673999999591615,
+      "msFirstQuantumAfter": 0.012946000002557412,
+      "pluginPagesBefore": 3
+     },
+     {
+      "mode": "memory.grow in process",
+      "reason": "grow",
+      "hostFaults": 1,
+      "hostQuanta": 50,
+      "hashMatchesReference": true,
+      "instancesRecreated": 5,
+      "msFaultQuantum": 0.01732099999935599,
+      "msRecover": 0.03869200000190176,
+      "msFirstQuantumAfter": 0.013772999998764135,
+      "pluginPagesBefore": 3
+     },
+     {
+      "mode": "endless loop (fuel)",
+      "reason": "trap",
+      "hostFaults": 1,
+      "hostQuanta": 50,
+      "hashMatchesReference": true,
+      "instancesRecreated": 5,
+      "msFaultQuantum": 0.04275500000221655,
+      "msRecover": 0.051780000001599547,
+      "msFirstQuantumAfter": 0.014830000000074506,
+      "pluginPagesBefore": 3
+     },
+     {
+      "mode": "sample of 1000",
+      "reason": "range",
+      "hostFaults": 1,
+      "hostQuanta": 50,
+      "hashMatchesReference": true,
+      "instancesRecreated": 1,
+      "msFaultQuantum": 0.015605000000505242,
+      "msRecover": 0.003077000001212582,
+      "msFirstQuantumAfter": 0.012286999997741077,
+      "pluginPagesBefore": 3
+     }
+    ],
+    "uncaught": {
+     "thrown": "RuntimeError: unreachable",
+     "hostQuantaAfter": 10,
+     "expectedIfCompleted": 11,
+     "note": "host_quantum aborted between its process loop and its bookkeeping"
+    },
+    "runaway": [
+     {
+      "budgetPerFrame": 1000,
+      "instructions": 128000,
+      "msPerRunawayCall": 0.04216980000201147,
+      "faults": 10
+     },
+     {
+      "budgetPerFrame": 20000,
+      "instructions": 2560000,
+      "msPerRunawayCall": 0.2351431999988563,
+      "faults": 10
+     }
+    ],
+    "recovery": {
+     "reps": 40,
+     "msReinstantiateModuleAnd5Instances": 0.09170204999918496,
+     "msFirstQuantumAfterReinstantiate": 0.014479075000053854,
+     "msResetOneInstance": 0.0023664249998546437,
+     "faults": {
+      "trap": 40,
+      "nonFinite": 40,
+      "range": 0,
+      "grow": 0
+     }
+    }
+   }
+  ]
+ },
+ "browsers": {
+  "chromium": {
+   "version": "153.0.8010.12",
+   "done": true,
+   "env": {
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+    "multiMemory": true,
+    "crossOriginIsolated": false,
+    "mainSyncCompile9MB": "refused: WebAssembly.Compile is disallowed on the main thread, if the buffer size is larger than 8MB. Use WebAssembly.compile, compile on a worker thread, or use the flag `--enable-features=WebAssemblyUnlimitedSyncCompilation`."
+   },
+   "glue": [
+    {
+     "test": "js→wasm empty call",
+     "nsPerCall": 4.856109404712052
+    },
+    {
+     "test": "wasm→js empty import (host_calls, per call)",
+     "n1": 12.52174257978578,
+     "n8": 10.486212151318014,
+     "n32": 9.886788057673584
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "null",
+     "strategy": "loop",
+     "instances": 1,
+     "nsPerCall": 840.1768793116422,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 7.437468243576145,
+     "nsGlue": 820.2176684882802,
+     "usPerQuantum": 0.8401768793116422
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "null",
+     "strategy": "loop",
+     "instances": 8,
+     "nsPerCall": 1137.6618430364567,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 7.437468243576145,
+     "nsGlue": 1119.7381626415627,
+     "usPerQuantum": 9.101294744291655
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "null",
+     "strategy": "loop",
+     "instances": 32,
+     "nsPerCall": 907.9088952654233,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 7.437468243576145,
+     "nsGlue": 890.5846389641736,
+     "usPerQuantum": 29.053084648493545
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "null",
+     "strategy": "set",
+     "instances": 1,
+     "nsPerCall": 615.769973425093,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 12.552724722081507,
+     "nsGlue": 590.6955061232258,
+     "usPerQuantum": 0.615769973425093
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "null",
+     "strategy": "set",
+     "instances": 8,
+     "nsPerCall": 606.549032946431,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 12.552724722081507,
+     "nsGlue": 583.5100960730315,
+     "usPerQuantum": 4.852392263571448
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "null",
+     "strategy": "set",
+     "instances": 32,
+     "nsPerCall": 620.9536852357738,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 12.552724722081507,
+     "nsGlue": 598.5141724560187,
+     "usPerQuantum": 19.870517927544764
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "null",
+     "strategy": "cached",
+     "instances": 1,
+     "nsPerCall": 499.13712988237796,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 12.960905201369995,
+     "nsGlue": 473.6544821012222,
+     "usPerQuantum": 0.49913712988237796
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "null",
+     "strategy": "cached",
+     "instances": 8,
+     "nsPerCall": 464.7110077337993,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 12.960905201369995,
+     "nsGlue": 441.2638903811113,
+     "usPerQuantum": 3.7176880618703945
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "null",
+     "strategy": "cached",
+     "instances": 32,
+     "nsPerCall": 455.8270677216911,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 12.960905201369995,
+     "nsGlue": 432.97937446264757,
+     "usPerQuantum": 14.586466167094116
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "null",
+     "strategy": "wasmscan",
+     "instances": 1,
+     "nsPerCall": 211.1503175639231,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 12.423989522445263,
+     "nsGlue": 186.2045854616921,
+     "usPerQuantum": 0.2111503175639231
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "null",
+     "strategy": "wasmscan",
+     "instances": 8,
+     "nsPerCall": 200.15468876453002,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 12.423989522445263,
+     "nsGlue": 177.24448709076674,
+     "usPerQuantum": 1.6012375101162402
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "null",
+     "strategy": "wasmscan",
+     "instances": 32,
+     "nsPerCall": 210.07525081275946,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 12.423989522445263,
+     "nsGlue": 187.76447323264063,
+     "usPerQuantum": 6.722408026008303
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "null",
+     "strategy": "multimemory",
+     "instances": 1,
+     "nsPerCall": 133.1327466616964,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 12.87555258931009,
+     "nsGlue": 107.73545149260052,
+     "usPerQuantum": 0.1331327466616964
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "null",
+     "strategy": "multimemory",
+     "instances": 8,
+     "nsPerCall": 159.6647041461284,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 12.87555258931009,
+     "nsGlue": 136.3029394055003,
+     "usPerQuantum": 1.2773176331690272
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "null",
+     "strategy": "multimemory",
+     "instances": 32,
+     "nsPerCall": 174.70300489168415,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 12.87555258931009,
+     "nsGlue": 151.94066424470046,
+     "usPerQuantum": 5.590496156533892
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "null",
+     "strategy": "cached",
+     "instances": 1,
+     "nsPerCall": 477.56076654625605,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 15.22159283284619,
+     "nsGlue": 449.8174311336241,
+     "usPerQuantum": 0.47756076654625607
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "null",
+     "strategy": "cached",
+     "instances": 8,
+     "nsPerCall": 464.61594801668633,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 15.22159283284619,
+     "nsGlue": 438.90814303252216,
+     "usPerQuantum": 3.7169275841334906
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "null",
+     "strategy": "cached",
+     "instances": 32,
+     "nsPerCall": 474.129776786442,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 15.22159283284619,
+     "nsGlue": 449.02139589592224,
+     "usPerQuantum": 15.172152857166143
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "gain",
+     "strategy": "cached",
+     "instances": 1,
+     "nsPerCall": 814.968814968815,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 197.25159025100325,
+     "nsGlue": 605.195482138026,
+     "usPerQuantum": 0.814968814968815
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "gain",
+     "strategy": "cached",
+     "instances": 8,
+     "nsPerCall": 624.0799804186125,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 197.25159025100325,
+     "nsGlue": 416.34217801629137,
+     "usPerQuantum": 4.9926398433489005
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "gain",
+     "strategy": "cached",
+     "instances": 32,
+     "nsPerCall": 609.6338856226616,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 197.25159025100325,
+     "nsGlue": 402.49550731398483,
+     "usPerQuantum": 19.508284339925172
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "gain",
+     "strategy": "cached",
+     "instances": 1,
+     "nsPerCall": 736.9920896182381,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 180.44035468730155,
+     "nsGlue": 544.0299923511508,
+     "usPerQuantum": 0.7369920896182381
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "gain",
+     "strategy": "cached",
+     "instances": 8,
+     "nsPerCall": 645.8138811659709,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 180.44035468730155,
+     "nsGlue": 454.88731432735136,
+     "usPerQuantum": 5.1665110493277675
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "gain",
+     "strategy": "cached",
+     "instances": 32,
+     "nsPerCall": 645.2581032133457,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 180.44035468730155,
+     "nsGlue": 454.93096046837064,
+     "usPerQuantum": 20.648259302827064
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "tremolo",
+     "strategy": "cached",
+     "instances": 1,
+     "nsPerCall": 1874.3507519985549,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 1378.5751944863555,
+     "nsGlue": 483.2538149324135,
+     "usPerQuantum": 1.8743507519985547
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "tremolo",
+     "strategy": "cached",
+     "instances": 8,
+     "nsPerCall": 1824.4219652506272,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 1378.5751944863555,
+     "nsGlue": 435.36055861295347,
+     "usPerQuantum": 14.595375722005016
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "tremolo",
+     "strategy": "cached",
+     "instances": 32,
+     "nsPerCall": 2525.6849315777263,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 1378.5751944863555,
+     "nsGlue": 1137.2229490336972,
+     "usPerQuantum": 80.82191781048724
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "tremolo",
+     "strategy": "cached",
+     "instances": 1,
+     "nsPerCall": 1815.672888372431,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 2267.68461499253,
+     "nsGlue": -464.53346919988485,
+     "usPerQuantum": 1.8156728883724311
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "tremolo",
+     "strategy": "cached",
+     "instances": 8,
+     "nsPerCall": 1803.013993675109,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 2267.68461499253,
+     "nsGlue": -475.1568334687391,
+     "usPerQuantum": 14.424111949400872
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "tremolo",
+     "strategy": "cached",
+     "instances": 32,
+     "nsPerCall": 1810.8742775239396,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 2267.68461499253,
+     "nsGlue": -466.6971255262643,
+     "usPerQuantum": 57.94797688076606
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "null",
+     "strategy": "wasmscan",
+     "instances": 1,
+     "nsPerCall": 234.62669839105413,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 14.683714813631655,
+     "nsGlue": 207.42124099763672,
+     "usPerQuantum": 0.23462669839105413
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "null",
+     "strategy": "wasmscan",
+     "instances": 8,
+     "nsPerCall": 230.70838460186326,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 14.683714813631655,
+     "nsGlue": 205.53845763691356,
+     "usPerQuantum": 1.845667076814906
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "null",
+     "strategy": "wasmscan",
+     "instances": 32,
+     "nsPerCall": 231.5241430322765,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 14.683714813631655,
+     "nsGlue": 206.95364016097125,
+     "usPerQuantum": 7.408772577032848
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "gain",
+     "strategy": "wasmscan",
+     "instances": 1,
+     "nsPerCall": 354.63829558977403,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 154.89706551245726,
+     "nsGlue": 187.21948749753096,
+     "usPerQuantum": 0.354638295589774
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "gain",
+     "strategy": "wasmscan",
+     "instances": 8,
+     "nsPerCall": 340.42409053401053,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 154.89706551245726,
+     "nsGlue": 175.04081287023527,
+     "usPerQuantum": 2.723392724272084
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "gain",
+     "strategy": "wasmscan",
+     "instances": 32,
+     "nsPerCall": 347.8324545987112,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 154.89706551245726,
+     "nsGlue": 183.04860102858035,
+     "usPerQuantum": 11.130638547158757
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "gain",
+     "strategy": "wasmscan",
+     "instances": 1,
+     "nsPerCall": 399.258519921984,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 179.19712049059373,
+     "nsGlue": 207.5396568516045,
+     "usPerQuantum": 0.399258519921984
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "gain",
+     "strategy": "wasmscan",
+     "instances": 8,
+     "nsPerCall": 377.8853313615983,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 179.19712049059373,
+     "nsGlue": 188.20199871968654,
+     "usPerQuantum": 3.023082650892786
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "gain",
+     "strategy": "wasmscan",
+     "instances": 32,
+     "nsPerCall": 400.7435241594391,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 179.19712049059373,
+     "nsGlue": 211.65961561117183,
+     "usPerQuantum": 12.823792773102053
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "tremolo",
+     "strategy": "wasmscan",
+     "instances": 1,
+     "nsPerCall": 1651.5609264853979,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 1412.5532922308116,
+     "nsGlue": 226.48589167480048,
+     "usPerQuantum": 1.6515609264853979
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "tremolo",
+     "strategy": "wasmscan",
+     "instances": 8,
+     "nsPerCall": 2177.619342666214,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 1412.5532922308116,
+     "nsGlue": 754.5798382840845,
+     "usPerQuantum": 17.420954741329712
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "tremolo",
+     "strategy": "wasmscan",
+     "instances": 32,
+     "nsPerCall": 1582.6353091583348,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 1412.5532922308116,
+     "nsGlue": 160.1952288698495,
+     "usPerQuantum": 50.64432989306671
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "tremolo",
+     "strategy": "wasmscan",
+     "instances": 1,
+     "nsPerCall": 2317.6239790601653,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 1403.7953302531832,
+     "nsGlue": 901.3069062271965,
+     "usPerQuantum": 2.3176239790601656
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "tremolo",
+     "strategy": "wasmscan",
+     "instances": 8,
+     "nsPerCall": 1815.7206870103566,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 1403.7953302531832,
+     "nsGlue": 401.43914460585535,
+     "usPerQuantum": 14.525765496082853
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "tremolo",
+     "strategy": "wasmscan",
+     "instances": 32,
+     "nsPerCall": 2057.926829646879,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 1403.7953302531832,
+     "nsGlue": 644.2447113360222,
+     "usPerQuantum": 65.85365854870012
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "null",
+     "strategy": "multimemory",
+     "instances": 1,
+     "nsPerCall": 232.87192045120244,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 12.376756690478542,
+     "nsGlue": 207.97342118093812,
+     "usPerQuantum": 0.23287192045120242
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "null",
+     "strategy": "multimemory",
+     "instances": 8,
+     "nsPerCall": 199.5156875053163,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 12.376756690478542,
+     "nsGlue": 176.65271866351972,
+     "usPerQuantum": 1.5961255000425303
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "null",
+     "strategy": "multimemory",
+     "instances": 32,
+     "nsPerCall": 220.80260677296044,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 12.376756690478542,
+     "nsGlue": 198.53906202480832,
+     "usPerQuantum": 7.065683416734734
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "gain",
+     "strategy": "multimemory",
+     "instances": 1,
+     "nsPerCall": 355.22352529154665,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 158.1071277927662,
+     "nsGlue": 184.59465491899473,
+     "usPerQuantum": 0.35522352529154666
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "gain",
+     "strategy": "multimemory",
+     "instances": 8,
+     "nsPerCall": 338.13145027851556,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 158.1071277927662,
+     "nsGlue": 169.53811033443137,
+     "usPerQuantum": 2.7050516022281244
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "gain",
+     "strategy": "multimemory",
+     "instances": 32,
+     "nsPerCall": 341.20157136463496,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 158.1071277927662,
+     "nsGlue": 173.20765551419524,
+     "usPerQuantum": 10.918450283668319
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "gain",
+     "strategy": "multimemory",
+     "instances": 1,
+     "nsPerCall": 396.260416740706,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 182.08541714469484,
+     "nsGlue": 201.65325701622535,
+     "usPerQuantum": 0.39626041674070595
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "gain",
+     "strategy": "multimemory",
+     "instances": 8,
+     "nsPerCall": 365.7951547282533,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 182.08541714469484,
+     "nsGlue": 173.22352543224048,
+     "usPerQuantum": 2.9263612378260264
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "gain",
+     "strategy": "multimemory",
+     "instances": 32,
+     "nsPerCall": 380.2209442676458,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 182.08541714469484,
+     "nsGlue": 188.24873906527736,
+     "usPerQuantum": 12.167070216564664
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "tremolo",
+     "strategy": "multimemory",
+     "instances": 1,
+     "nsPerCall": 1594.795096718381,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 1383.0676216695817,
+     "nsGlue": 199.20573246901355,
+     "usPerQuantum": 1.594795096718381
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "tremolo",
+     "strategy": "multimemory",
+     "instances": 8,
+     "nsPerCall": 1828.7845129121754,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 1383.0676216695817,
+     "nsGlue": 435.23067909127553,
+     "usPerQuantum": 14.630276103297403
+    },
+    {
+     "test": "glue",
+     "variant": "plain",
+     "kind": "tremolo",
+     "strategy": "multimemory",
+     "instances": 32,
+     "nsPerCall": 1576.05328359393,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 1383.0676216695817,
+     "nsGlue": 183.0988738666746,
+     "usPerQuantum": 50.43370507500576
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "tremolo",
+     "strategy": "multimemory",
+     "instances": 1,
+     "nsPerCall": 1649.7412551460989,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 1350.6622404782815,
+     "nsGlue": 286.55727208803165,
+     "usPerQuantum": 1.6497412551460988
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "tremolo",
+     "strategy": "multimemory",
+     "instances": 8,
+     "nsPerCall": 1582.4337584040584,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 1350.6622404782815,
+     "nsGlue": 221.2853057744588,
+     "usPerQuantum": 12.659470067232467
+    },
+    {
+     "test": "glue",
+     "variant": "segment32",
+     "kind": "tremolo",
+     "strategy": "multimemory",
+     "instances": 32,
+     "nsPerCall": 1628.9062501164153,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 1350.6622404782815,
+     "nsGlue": 268.35722158046025,
+     "usPerQuantum": 52.12500000372529
+    },
+    {
+     "test": "glue",
+     "variant": "segment64",
+     "kind": "null",
+     "strategy": "wasmscan",
+     "instances": 1,
+     "nsPerCall": 252.49935917688072,
+     "nsImportNop": 12.52174257978578,
+     "nsPluginDirect": 29.51335276164535,
+     "nsGlue": 210.4642638354496,
+     "usPerQuantum": 0.2524993591768807
+    },
+    {
+     "test": "glue",
+     "variant": "segment64",
+     "kind": "null",
+     "strategy": "wasmscan",
+     "instances": 8,
+     "nsPerCall": 252.1060075360508,
+     "nsImportNop": 10.486212151318014,
+     "nsPluginDirect": 29.51335276164535,
+     "nsGlue": 212.10644262308747,
+     "usPerQuantum": 2.0168480602884062
+    },
+    {
+     "test": "glue",
+     "variant": "segment64",
+     "kind": "null",
+     "strategy": "wasmscan",
+     "instances": 32,
+     "nsPerCall": 264.4031857578473,
+     "nsImportNop": 9.886788057673584,
+     "nsPluginDirect": 29.51335276164535,
+     "nsGlue": 225.00304493852843,
+     "usPerQuantum": 8.460901944251114
+    }
+   ],
+   "fuel": [
+    {
+     "kind": "gain",
+     "instructionsPerCall": 3857,
+     "instructionsPerFrame": 30.1328125,
+     "ns_plain": 159.74803040637283,
+     "ns_count32": 172.47372228260525,
+     "ns_loop32": 194.57822381812673,
+     "ns_segment32": 186.45021281537487,
+     "ns_loop64": 181.54698300116445,
+     "ns_segment64": 180.50892968135494,
+     "ns_loopload32": 181.83203399653993,
+     "ns_segload32": 185.41743877925697,
+     "slowdown_count32": 0.07966102520237861,
+     "slowdown_loop32": 0.21803206789562024,
+     "slowdown_segment32": 0.1671518724899208,
+     "slowdown_loop64": 0.13645834968568105,
+     "slowdown_segment64": 0.12996028321707498,
+     "slowdown_loopload32": 0.1382427284642509,
+     "slowdown_segload32": 0.1606868535880246
+    },
+    {
+     "kind": "tremolo",
+     "instructionsPerCall": 14223,
+     "instructionsPerFrame": 111.1171875,
+     "ns_plain": 1413.8538357973837,
+     "ns_count32": 1404.6172406128987,
+     "ns_loop32": 1400.1279357762562,
+     "ns_segment32": 1373.2461534339006,
+     "ns_loop64": 1378.5858092348442,
+     "ns_segment64": 1407.5344399898904,
+     "ns_loopload32": 1441.8650908102504,
+     "ns_segload32": 1427.9646824755002,
+     "slowdown_count32": -0.006532920837093226,
+     "slowdown_loop32": -0.009708146396466999,
+     "slowdown_segment32": -0.02872127325706275,
+     "slowdown_loop64": -0.024944605778608686,
+     "slowdown_segment64": -0.004469624544979456,
+     "slowdown_loopload32": 0.019811987847434764,
+     "slowdown_segload32": 0.00998041404340655
+    },
+    {
+     "kind": "biquad8",
+     "instructionsPerCall": 64192,
+     "instructionsPerFrame": 501.5,
+     "ns_plain": 7496.526126984228,
+     "ns_count32": 7281.733200134618,
+     "ns_loop32": 7379.389451589809,
+     "ns_segment32": 7450.6001914494855,
+     "ns_loop64": 7239.037517737752,
+     "ns_segment64": 7312.631996568359,
+     "ns_loopload32": 7351.72017888898,
+     "ns_segload32": 7357.520929618643,
+     "slowdown_count32": -0.028652328186578147,
+     "slowdown_loop32": -0.015625460834822857,
+     "slowdown_segment32": -0.006126295667726489,
+     "slowdown_loop64": -0.03434772385033502,
+     "slowdown_segment64": -0.024530579537891617,
+     "slowdown_loopload32": -0.019316406778602357,
+     "slowdown_segload32": -0.01854261494070253
+    },
+    {
+     "kind": "delay",
+     "instructionsPerCall": 23861,
+     "instructionsPerFrame": 186.4140625,
+     "ns_plain": 1572.4887351871905,
+     "ns_count32": 1560.2793333669238,
+     "ns_loop32": 1635.7295166266094,
+     "ns_segment32": 1593.0054287858843,
+     "ns_loop64": 1651.6121522751434,
+     "ns_segment64": 1608.7426366854097,
+     "ns_loopload32": 1613.872234465695,
+     "ns_segload32": 1596.2936152907337,
+     "slowdown_count32": -0.007764381103062878,
+     "slowdown_loop32": 0.04021700125685834,
+     "slowdown_segment32": 0.013047275404648007,
+     "slowdown_loop64": 0.05031731885731694,
+     "slowdown_segment64": 0.023055110467232298,
+     "slowdown_loopload32": 0.026317199196710384,
+     "slowdown_segload32": 0.015138346985175355
+    }
+   ],
+   "compile": [
+    {
+     "module": "plugin 5 KB",
+     "bytes": 5412,
+     "reps": 200,
+     "msCompile": 0.17500000044703484,
+     "msInstantiate": 0.10049999997019768,
+     "msFirstCall": 0.18049999963492155
+    },
+    {
+     "module": "plugin 5 KB + fuel",
+     "bytes": 9797,
+     "reps": 200,
+     "msCompile": 0.19200000010430812,
+     "msInstantiate": 0.05850000020116568,
+     "msFirstCall": 0.2739999996498227
+    },
+    {
+     "module": "synthetic 100 KB",
+     "bytes": 99707,
+     "reps": 159,
+     "msCompile": 0.5132075470854651,
+     "msInstantiate": 0.1371069183608271,
+     "msFirstCall": 1.146540880484401
+    },
+    {
+     "module": "synthetic 100 KB + fuel",
+     "bytes": 103689,
+     "reps": 140,
+     "msCompile": 0.5771428570151329,
+     "msInstantiate": 0.2121428570044892,
+     "msFirstCall": 1.2421428571854318
+    },
+    {
+     "module": "audio core 472 KB (compile only)",
+     "bytes": 472160,
+     "reps": 80,
+     "msCompile": 3.2962500003166495,
+     "msInstantiate": 0,
+     "msFirstCall": 0
+    },
+    {
+     "module": "audio decoder 1129 KB (compile only)",
+     "bytes": 1128625,
+     "reps": 32,
+     "msCompile": 8.45312499976717,
+     "msInstantiate": 0,
+     "msFirstCall": 0
+    },
+    {
+     "module": "synthetic 100 KB, identical bytes again",
+     "bytes": 99718,
+     "reps": 346,
+     "msCompile": 0.28901734104046245
+    }
+   ],
+   "faults": [
+    {
+     "strategy": "wasmscan",
+     "referenceHash": "3ea7c32d",
+     "modes": [
+      {
+       "mode": "unreachable",
+       "reason": "trap",
+       "hostFaults": 1,
+       "hostQuanta": 50,
+       "hashMatchesReference": true,
+       "instancesRecreated": 5,
+       "msFaultQuantum": 0.30000000447034836,
+       "msRecover": 0.29999999701976776,
+       "msFirstQuantumAfter": 0,
+       "pluginPagesBefore": 3
+      },
+      {
+       "mode": "NaN output",
+       "reason": "nonFinite",
+       "hostFaults": 1,
+       "hostQuanta": 50,
+       "hashMatchesReference": true,
+       "instancesRecreated": 1,
+       "msFaultQuantum": 0.19999999552965164,
+       "msRecover": 0,
+       "msFirstQuantumAfter": 0.10000000149011612,
+       "pluginPagesBefore": 3
+      },
+      {
+       "mode": "memory.grow in process",
+       "reason": "grow",
+       "hostFaults": 1,
+       "hostQuanta": 50,
+       "hashMatchesReference": true,
+       "instancesRecreated": 5,
+       "msFaultQuantum": 0.10000000149011612,
+       "msRecover": 0.19999999552965164,
+       "msFirstQuantumAfter": 0,
+       "pluginPagesBefore": 3
+      },
+      {
+       "mode": "endless loop (fuel)",
+       "reason": "trap",
+       "hostFaults": 1,
+       "hostQuanta": 50,
+       "hashMatchesReference": true,
+       "instancesRecreated": 5,
+       "msFaultQuantum": 0.20000000298023224,
+       "msRecover": 0.10000000149011612,
+       "msFirstQuantumAfter": 0,
+       "pluginPagesBefore": 3
+      },
+      {
+       "mode": "sample of 1000",
+       "reason": "range",
+       "hostFaults": 1,
+       "hostQuanta": 50,
+       "hashMatchesReference": true,
+       "instancesRecreated": 1,
+       "msFaultQuantum": 0.20000000298023224,
+       "msRecover": 0,
+       "msFirstQuantumAfter": 0,
+       "pluginPagesBefore": 3
+      }
+     ],
+     "uncaught": {
+      "thrown": "RuntimeError: unreachable",
+      "hostQuantaAfter": 10,
+      "expectedIfCompleted": 11,
+      "note": "host_quantum aborted between its process loop and its bookkeeping"
+     },
+     "runaway": [
+      {
+       "budgetPerFrame": 1000,
+       "instructions": 128000,
+       "msPerRunawayCall": 0.2099999986588955,
+       "faults": 10
+      },
+      {
+       "budgetPerFrame": 20000,
+       "instructions": 2560000,
+       "msPerRunawayCall": 1.1100000001490116,
+       "faults": 10
+      }
+     ],
+     "recovery": {
+      "reps": 40,
+      "msReinstantiateModuleAnd5Instances": 0.07749999966472387,
+      "msFirstQuantumAfterReinstantiate": 0.027500000037252902,
+      "msResetOneInstance": 0.002500000037252903,
+      "faults": {
+       "trap": 40,
+       "nonFinite": 40,
+       "range": 0,
+       "grow": 0
+      }
+     }
+    },
+    {
+     "strategy": "multimemory",
+     "referenceHash": "3ea7c32d",
+     "modes": [
+      {
+       "mode": "unreachable",
+       "reason": "trap",
+       "hostFaults": 1,
+       "hostQuanta": 50,
+       "hashMatchesReference": true,
+       "instancesRecreated": 5,
+       "msFaultQuantum": 0.09999999403953552,
+       "msRecover": 24.200000002980232,
+       "msFirstQuantumAfter": 0,
+       "pluginPagesBefore": 3
+      },
+      {
+       "mode": "NaN output",
+       "reason": "nonFinite",
+       "hostFaults": 1,
+       "hostQuanta": 50,
+       "hashMatchesReference": true,
+       "instancesRecreated": 1,
+       "msFaultQuantum": 0,
+       "msRecover": 0,
+       "msFirstQuantumAfter": 0,
+       "pluginPagesBefore": 3
+      },
+      {
+       "mode": "memory.grow in process",
+       "reason": "grow",
+       "hostFaults": 1,
+       "hostQuanta": 50,
+       "hashMatchesReference": true,
+       "instancesRecreated": 5,
+       "msFaultQuantum": 0,
+       "msRecover": 0,
+       "msFirstQuantumAfter": 0.10000000149011612,
+       "pluginPagesBefore": 3
+      },
+      {
+       "mode": "endless loop (fuel)",
+       "reason": "trap",
+       "hostFaults": 1,
+       "hostQuanta": 50,
+       "hashMatchesReference": true,
+       "instancesRecreated": 5,
+       "msFaultQuantum": 0.09999999403953552,
+       "msRecover": 0.10000000149011612,
+       "msFirstQuantumAfter": 0,
+       "pluginPagesBefore": 3
+      },
+      {
+       "mode": "sample of 1000",
+       "reason": "range",
+       "hostFaults": 1,
+       "hostQuanta": 50,
+       "hashMatchesReference": true,
+       "instancesRecreated": 1,
+       "msFaultQuantum": 0,
+       "msRecover": 0,
+       "msFirstQuantumAfter": 0.10000000149011612,
+       "pluginPagesBefore": 3
+      }
+     ],
+     "uncaught": {
+      "thrown": "RuntimeError: unreachable",
+      "hostQuantaAfter": 10,
+      "expectedIfCompleted": 11,
+      "note": "host_quantum aborted between its process loop and its bookkeeping"
+     },
+     "runaway": [
+      {
+       "budgetPerFrame": 1000,
+       "instructions": 128000,
+       "msPerRunawayCall": 0.1,
+       "faults": 10
+      },
+      {
+       "budgetPerFrame": 20000,
+       "instructions": 2560000,
+       "msPerRunawayCall": 1.0600000023841858,
+       "faults": 10
+      }
+     ],
+     "recovery": {
+      "reps": 40,
+      "msReinstantiateModuleAnd5Instances": 0.0625,
+      "msFirstQuantumAfterReinstantiate": 0.0074999997392296795,
+      "msResetOneInstance": 0.007500000111758709,
+      "faults": {
+       "trap": 40,
+       "nonFinite": 40,
+       "range": 0,
+       "grow": 0
+      }
+     }
+    }
+   ],
+   "worklet": {
+    "env": {
+     "state0": "running",
+     "moduleViaProcessorOptions": "ok (abi 0x100)",
+     "state1": "running",
+     "hasPerformance": "undefined",
+     "hasWebAssembly": "object",
+     "hasCompileStreaming": "function",
+     "multiMemory": true,
+     "sampleRate": 44100,
+     "syncCompile plugin": "ok 0 ms + instance 0 ms",
+     "syncCompile plugin+fuel": "ok 1 ms + instance 0 ms",
+     "syncCompile 100 KB": "ok 0 ms + instance 0 ms",
+     "syncCompile core 472 KB": "ok 2 ms",
+     "syncCompile decoder 1.1 MB": "ok 4 ms + instance 0 ms",
+     "syncCompile 9 MB": "ok 18 ms + instance 0 ms",
+     "asyncCompile": "ok 4 ms (true, abi 0x100)",
+     "asyncCompile9MB": "call 5 ms, resolved after 23 ms",
+     "postedModule": "messageerror: the posted message could not be deserialized here"
+    },
+    "glue": [
+     {
+      "test": "js→wasm empty call",
+      "nsPerCall": 3.9025146980580745
+     },
+     {
+      "test": "wasm→js empty import (host_calls, per call)",
+      "n1": 12.811024820823354,
+      "n8": 17.156593098483384,
+      "n32": 9.62414152657583
+     },
+     {
+      "test": "glue",
+      "variant": "plain",
+      "kind": "null",
+      "strategy": "loop",
+      "instances": 1,
+      "nsPerCall": 834.958389409212,
+      "nsImportNop": 12.811024820823354,
+      "nsPluginDirect": 8.950232959045955,
+      "nsGlue": 813.1971316293426,
+      "usPerQuantum": 0.834958389409212
+     },
+     {
+      "test": "glue",
+      "variant": "plain",
+      "kind": "null",
+      "strategy": "loop",
+      "instances": 8,
+      "nsPerCall": 1439.4772594940805,
+      "nsImportNop": 17.156593098483384,
+      "nsPluginDirect": 8.950232959045955,
+      "nsGlue": 1413.370433436551,
+      "usPerQuantum": 11.515818075952643
+     },
+     {
+      "test": "glue",
+      "variant": "plain",
+      "kind": "null",
+      "strategy": "loop",
+      "instances": 32,
+      "nsPerCall": 1435.1222826086957,
+      "nsImportNop": 9.62414152657583,
+      "nsPluginDirect": 8.950232959045955,
+      "nsGlue": 1416.547908123074,
+      "usPerQuantum": 45.923913043478265
+     },
+     {
+      "test": "glue",
+      "variant": "plain",
+      "kind": "null",
+      "strategy": "cached",
+      "instances": 1,
+      "nsPerCall": 626.2176454216532,
+      "nsImportNop": 12.811024820823354,
+      "nsPluginDirect": 28.371805501593496,
+      "nsGlue": 585.0348150992363,
+      "usPerQuantum": 0.6262176454216531
+     },
+     {
+      "test": "glue",
+      "variant": "plain",
+      "kind": "null",
+      "strategy": "cached",
+      "instances": 8,
+      "nsPerCall": 524.90234375,
+      "nsImportNop": 17.156593098483384,
+      "nsPluginDirect": 28.371805501593496,
+      "nsGlue": 479.3739451499232,
+      "usPerQuantum": 4.19921875
+     },
+     {
+      "test": "glue",
+      "variant": "plain",
+      "kind": "null",
+      "strategy": "cached",
+      "instances": 32,
+      "nsPerCall": 465.8250519990756,
+      "nsImportNop": 9.62414152657583,
+      "nsPluginDirect": 28.371805501593496,
+      "nsGlue": 427.8291049709063,
+      "usPerQuantum": 14.906401663970419
+     },
+     {
+      "test": "glue",
+      "variant": "plain",
+      "kind": "null",
+      "strategy": "wasmscan",
+      "instances": 1,
+      "nsPerCall": 233.38305407093975,
+      "nsImportNop": 12.811024820823354,
+      "nsPluginDirect": 3.1916277540509608,
+      "nsGlue": 217.38040149606545,
+      "usPerQuantum": 0.23338305407093976
+     },
+     {
+      "test": "glue",
+      "variant": "plain",
+      "kind": "null",
+      "strategy": "wasmscan",
+      "instances": 8,
+      "nsPerCall": 343.70352436620203,
+      "nsImportNop": 17.156593098483384,
+      "nsPluginDirect": 3.1916277540509608,
+      "nsGlue": 323.35530351366776,
+      "usPerQuantum": 2.7496281949296164
+     },
+     {
+      "test": "glue",
+      "variant": "plain",
+      "kind": "null",
+      "strategy": "wasmscan",
+      "instances": 32,
+      "nsPerCall": 254.40555969223132,
+      "nsImportNop": 9.62414152657583,
+      "nsPluginDirect": 3.1916277540509608,
+      "nsGlue": 241.58979041160455,
+      "usPerQuantum": 8.140977910151403
+     },
+     {
+      "test": "glue",
+      "variant": "plain",
+      "kind": "null",
+      "strategy": "multimemory",
+      "instances": 1,
+      "nsPerCall": 228.8818359375,
+      "nsImportNop": 12.811024820823354,
+      "nsPluginDirect": 36.524125638172286,
+      "nsGlue": 179.54668547850434,
+      "usPerQuantum": 0.2288818359375
+     },
+     {
+      "test": "glue",
+      "variant": "plain",
+      "kind": "null",
+      "strategy": "multimemory",
+      "instances": 8,
+      "nsPerCall": 169.11618103620154,
+      "nsImportNop": 17.156593098483384,
+      "nsPluginDirect": 36.524125638172286,
+      "nsGlue": 115.43546229954586,
+      "usPerQuantum": 1.3529294482896124
+     },
+     {
+      "test": "glue",
+      "variant": "plain",
+      "kind": "null",
+      "strategy": "multimemory",
+      "instances": 32,
+      "nsPerCall": 199.3484542827545,
+      "nsImportNop": 9.62414152657583,
+      "nsPluginDirect": 36.524125638172286,
+      "nsGlue": 153.20018711800637,
+      "usPerQuantum": 6.379150537048144
+     },
+     {
+      "test": "glue",
+      "variant": "segment32",
+      "kind": "null",
+      "strategy": "wasmscan",
+      "instances": 1,
+      "nsPerCall": 249.02313351668272,
+      "nsImportNop": 12.811024820823354,
+      "nsPluginDirect": 14.909106924662778,
+      "nsGlue": 221.3030017711966,
+      "usPerQuantum": 0.2490231335166827
+     },
+     {
+      "test": "glue",
+      "variant": "segment32",
+      "kind": "null",
+      "strategy": "wasmscan",
+      "instances": 8,
+      "nsPerCall": 306.54888516303396,
+      "nsImportNop": 17.156593098483384,
+      "nsPluginDirect": 14.909106924662778,
+      "nsGlue": 274.48318513988784,
+      "usPerQuantum": 2.4523910813042717
+     },
+     {
+      "test": "glue",
+      "variant": "segment32",
+      "kind": "null",
+      "strategy": "wasmscan",
+      "instances": 32,
+      "nsPerCall": 402.1029383522182,
+      "nsImportNop": 9.62414152657583,
+      "nsPluginDirect": 14.909106924662778,
+      "nsGlue": 377.5696899009796,
+      "usPerQuantum": 12.867294027270983
+     },
+     {
+      "test": "glue",
+      "variant": "plain",
+      "kind": "tremolo",
+      "strategy": "wasmscan",
+      "instances": 1,
+      "nsPerCall": 1574.2937243907697,
+      "nsImportNop": 12.811024820823354,
+      "nsPluginDirect": 1409.707052521137,
+      "nsGlue": 151.77564704880947,
+      "usPerQuantum": 1.5742937243907698
+     },
+     {
+      "test": "glue",
+      "variant": "plain",
+      "kind": "tremolo",
+      "strategy": "wasmscan",
+      "instances": 8,
+      "nsPerCall": 2950.6926722566536,
+      "nsImportNop": 17.156593098483384,
+      "nsPluginDirect": 1409.707052521137,
+      "nsGlue": 1523.8290266370334,
+      "usPerQuantum": 23.60554137805323
+     },
+     {
+      "test": "glue",
+      "variant": "plain",
+      "kind": "tremolo",
+      "strategy": "wasmscan",
+      "instances": 32,
+      "nsPerCall": 1815.9806295399515,
+      "nsImportNop": 9.62414152657583,
+      "nsPluginDirect": 1409.707052521137,
+      "nsGlue": 396.6494354922386,
+      "usPerQuantum": 58.111380145278446
+     },
+     {
+      "test": "glue",
+      "variant": "segment32",
+      "kind": "tremolo",
+      "strategy": "wasmscan",
+      "instances": 1,
+      "nsPerCall": 1785.879951758048,
+      "nsImportNop": 12.811024820823354,
+      "nsPluginDirect": 1455.3025121268483,
+      "nsGlue": 317.76641481037643,
+      "usPerQuantum": 1.7858799517580481
+     },
+     {
+      "test": "glue",
+      "variant": "segment32",
+      "kind": "tremolo",
+      "strategy": "wasmscan",
+      "instances": 8,
+      "nsPerCall": 2172.5561743806416,
+      "nsImportNop": 17.156593098483384,
+      "nsPluginDirect": 1455.3025121268483,
+      "nsGlue": 700.09706915531,
+      "usPerQuantum": 17.380449395045133
+     },
+     {
+      "test": "glue",
+      "variant": "segment32",
+      "kind": "tremolo",
+      "strategy": "wasmscan",
+      "instances": 32,
+      "nsPerCall": 1592.7065026362038,
+      "nsImportNop": 9.62414152657583,
+      "nsPluginDirect": 1455.3025121268483,
+      "nsGlue": 127.77984898277954,
+      "usPerQuantum": 50.96660808435852
+     }
+    ],
+    "fuel": [
+     {
+      "kind": "gain",
+      "instructionsPerCall": 3857,
+      "instructionsPerFrame": 30.1328125,
+      "ns_plain": 161.07864593317882,
+      "ns_count32": 175.16763327231337,
+      "ns_loop32": 193.37647861231866,
+      "ns_segment32": 181.6269119405943,
+      "ns_loop64": 181.6269119405943,
+      "ns_segment64": 181.6269119405943,
+      "ns_loopload32": 183.00050521631445,
+      "ns_segload32": 189.56146772448875,
+      "slowdown_count32": 0.08746651213457035,
+      "slowdown_loop32": 0.20050971059527112,
+      "slowdown_segment32": 0.12756666712941978,
+      "slowdown_loop64": 0.12756666712941978,
+      "slowdown_segment64": 0.12756666712941978,
+      "slowdown_loopload32": 0.13609413684933513,
+      "slowdown_segload32": 0.17682556012499395
+     },
+     {
+      "kind": "tremolo",
+      "instructionsPerCall": 14223,
+      "instructionsPerFrame": 111.1171875,
+      "ns_plain": 1592.5831712827019,
+      "ns_count32": 1654.4433151103226,
+      "ns_loop32": 1936.0351595096283,
+      "ns_segment32": 1442.8461469317185,
+      "ns_loop64": 1461.5632749755914,
+      "ns_segment64": 1386.6947628000996,
+      "ns_loopload32": 1594.225171594491,
+      "ns_segload32": 1424.1290188878454,
+      "slowdown_count32": 0.03884264567344209,
+      "slowdown_loop32": 0.21565717534884077,
+      "slowdown_segment32": -0.09402147847034059,
+      "slowdown_loop64": -0.08226879366154805,
+      "slowdown_segment64": -0.12927953289671845,
+      "slowdown_loopload32": 0.0010310295508564327,
+      "slowdown_segload32": -0.10577416327913336
+     },
+     {
+      "kind": "biquad8",
+      "instructionsPerCall": 64192,
+      "instructionsPerFrame": 501.5,
+      "ns_plain": 7393.685414937873,
+      "ns_count32": 7286.416673933398,
+      "ns_loop32": 7273.966474730211,
+      "ns_segment32": 7482.299808063543,
+      "ns_loop64": 7599.487308063543,
+      "ns_segment64": 7286.416673933398,
+      "ns_loopload32": 7247.688304531757,
+      "ns_segload32": 7286.416673933398,
+      "slowdown_count32": -0.014508155944497503,
+      "slowdown_loop32": -0.01619205220251696,
+      "slowdown_segment32": 0.011985145181675927,
+      "slowdown_loop64": 0.02783481871028437,
+      "slowdown_segment64": -0.014508155944497503,
+      "slowdown_loopload32": -0.019746189107687773,
+      "slowdown_segload32": -0.014508155944497503
+     },
+     {
+      "kind": "delay",
+      "instructionsPerCall": 23861,
+      "instructionsPerFrame": 186.4140625,
+      "ns_plain": 1581.1606919128167,
+      "ns_count32": 1625.1051461226955,
+      "ns_loop32": 1647.1018343766525,
+      "ns_segment32": 1828.5652530169766,
+      "ns_loop64": 1604.7922799189107,
+      "ns_segment64": 1637.3443632522437,
+      "ns_loopload32": 1604.7922799189107,
+      "ns_segload32": 1647.0773732276348,
+      "slowdown_count32": 0.027792528890100865,
+      "slowdown_loop32": 0.041704263710264255,
+      "slowdown_segment32": 0.15647021986415632,
+      "slowdown_loop64": 0.014945721916161281,
+      "slowdown_segment64": 0.03553318244425774,
+      "slowdown_loopload32": 0.014945721916161281,
+      "slowdown_segload32": 0.0416887933351513
+     }
+    ],
+    "compile": [
+     {
+      "module": "plugin 5 KB",
+      "bytes": 5412,
+      "reps": 200,
+      "msCompile": 0.175,
+      "msInstantiate": 0.14,
+      "msFirstCall": 0.15
+     },
+     {
+      "module": "plugin 5 KB + fuel",
+      "bytes": 9797,
+      "reps": 200,
+      "msCompile": 0.15,
+      "msInstantiate": 0.075,
+      "msFirstCall": 0.23
+     },
+     {
+      "module": "synthetic 100 KB",
+      "bytes": 99707,
+      "reps": 200,
+      "msCompile": 0.48,
+      "msInstantiate": 0.135,
+      "msFirstCall": 1.13
+     },
+     {
+      "module": "synthetic 100 KB + fuel",
+      "bytes": 103689,
+      "reps": 200,
+      "msCompile": 0.47,
+      "msInstantiate": 0.125,
+      "msFirstCall": 1.17
+     },
+     {
+      "module": "audio core 472 KB (compile only)",
+      "bytes": 472160,
+      "reps": 154,
+      "msCompile": 3.4935064935064934,
+      "msInstantiate": 0,
+      "msFirstCall": 0
+     },
+     {
+      "module": "audio decoder 1129 KB (compile only)",
+      "bytes": 1128625,
+      "reps": 76,
+      "msCompile": 7.157894736842105,
+      "msInstantiate": 0,
+      "msFirstCall": 0
+     },
+     {
+      "module": "synthetic 100 KB, identical bytes again",
+      "bytes": 99718,
+      "reps": 988,
+      "msCompile": 0.20242914979757085
+     }
+    ],
+    "faults": [
+     {
+      "strategy": "wasmscan",
+      "referenceHash": "3ea7c32d",
+      "modes": [
+       {
+        "mode": "unreachable",
+        "reason": "trap",
+        "hostFaults": 1,
+        "hostQuanta": 50,
+        "hashMatchesReference": true,
+        "instancesRecreated": 5,
+        "msFaultQuantum": 0,
+        "msRecover": 2,
+        "msFirstQuantumAfter": 0,
+        "pluginPagesBefore": 3
+       },
+       {
+        "mode": "NaN output",
+        "reason": "nonFinite",
+        "hostFaults": 1,
+        "hostQuanta": 50,
+        "hashMatchesReference": true,
+        "instancesRecreated": 1,
+        "msFaultQuantum": 0,
+        "msRecover": 1,
+        "msFirstQuantumAfter": 0,
+        "pluginPagesBefore": 3
+       },
+       {
+        "mode": "memory.grow in process",
+        "reason": "grow",
+        "hostFaults": 1,
+        "hostQuanta": 50,
+        "hashMatchesReference": true,
+        "instancesRecreated": 5,
+        "msFaultQuantum": 0,
+        "msRecover": 0,
+        "msFirstQuantumAfter": 0,
+        "pluginPagesBefore": 3
+       },
+       {
+        "mode": "endless loop (fuel)",
+        "reason": "trap",
+        "hostFaults": 1,
+        "hostQuanta": 50,
+        "hashMatchesReference": true,
+        "instancesRecreated": 5,
+        "msFaultQuantum": 0,
+        "msRecover": 0,
+        "msFirstQuantumAfter": 0,
+        "pluginPagesBefore": 3
+       },
+       {
+        "mode": "sample of 1000",
+        "reason": "range",
+        "hostFaults": 1,
+        "hostQuanta": 50,
+        "hashMatchesReference": true,
+        "instancesRecreated": 1,
+        "msFaultQuantum": 0,
+        "msRecover": 0,
+        "msFirstQuantumAfter": 0,
+        "pluginPagesBefore": 3
+       }
+      ],
+      "uncaught": {
+       "thrown": "RuntimeError: unreachable",
+       "hostQuantaAfter": 10,
+       "expectedIfCompleted": 11,
+       "note": "host_quantum aborted between its process loop and its bookkeeping"
+      },
+      "runaway": [
+       {
+        "budgetPerFrame": 1000,
+        "instructions": 128000,
+        "msPerRunawayCall": 0.13,
+        "faults": 100
+       },
+       {
+        "budgetPerFrame": 20000,
+        "instructions": 2560000,
+        "msPerRunawayCall": 0.88,
+        "faults": 100
+       }
+      ],
+      "recovery": {
+       "reps": 400,
+       "msReinstantiateModuleAnd5Instances": 0.145,
+       "msFirstQuantumAfterReinstantiate": 0.015,
+       "msResetOneInstance": 0.0075,
+       "faults": {
+        "trap": 400,
+        "nonFinite": 400,
+        "range": 0,
+        "grow": 0
+       }
+      }
+     },
+     {
+      "strategy": "multimemory",
+      "referenceHash": "3ea7c32d",
+      "modes": [
+       {
+        "mode": "unreachable",
+        "reason": "trap",
+        "hostFaults": 1,
+        "hostQuanta": 50,
+        "hashMatchesReference": true,
+        "instancesRecreated": 5,
+        "msFaultQuantum": 0,
+        "msRecover": 0,
+        "msFirstQuantumAfter": 0,
+        "pluginPagesBefore": 3
+       },
+       {
+        "mode": "NaN output",
+        "reason": "nonFinite",
+        "hostFaults": 1,
+        "hostQuanta": 50,
+        "hashMatchesReference": true,
+        "instancesRecreated": 1,
+        "msFaultQuantum": 0,
+        "msRecover": 0,
+        "msFirstQuantumAfter": 0,
+        "pluginPagesBefore": 3
+       },
+       {
+        "mode": "memory.grow in process",
+        "reason": "grow",
+        "hostFaults": 1,
+        "hostQuanta": 50,
+        "hashMatchesReference": true,
+        "instancesRecreated": 5,
+        "msFaultQuantum": 0,
+        "msRecover": 0,
+        "msFirstQuantumAfter": 0,
+        "pluginPagesBefore": 3
+       },
+       {
+        "mode": "endless loop (fuel)",
+        "reason": "trap",
+        "hostFaults": 1,
+        "hostQuanta": 50,
+        "hashMatchesReference": true,
+        "instancesRecreated": 5,
+        "msFaultQuantum": 1,
+        "msRecover": 0,
+        "msFirstQuantumAfter": 0,
+        "pluginPagesBefore": 3
+       },
+       {
+        "mode": "sample of 1000",
+        "reason": "range",
+        "hostFaults": 1,
+        "hostQuanta": 50,
+        "hashMatchesReference": true,
+        "instancesRecreated": 1,
+        "msFaultQuantum": 0,
+        "msRecover": 0,
+        "msFirstQuantumAfter": 0,
+        "pluginPagesBefore": 3
+       }
+      ],
+      "uncaught": {
+       "thrown": "RuntimeError: unreachable",
+       "hostQuantaAfter": 10,
+       "expectedIfCompleted": 11,
+       "note": "host_quantum aborted between its process loop and its bookkeeping"
+      },
+      "runaway": [
+       {
+        "budgetPerFrame": 1000,
+        "instructions": 128000,
+        "msPerRunawayCall": 0.07,
+        "faults": 100
+       },
+       {
+        "budgetPerFrame": 20000,
+        "instructions": 2560000,
+        "msPerRunawayCall": 0.87,
+        "faults": 100
+       }
+      ],
+      "recovery": {
+       "reps": 400,
+       "msReinstantiateModuleAnd5Instances": 0.1575,
+       "msFirstQuantumAfterReinstantiate": 0.01,
+       "msResetOneInstance": 0.01,
+       "faults": {
+        "trap": 400,
+        "nonFinite": 400,
+        "range": 0,
+        "grow": 0
+       }
+      }
+     }
+    ]
+   }
+  },
+  "webkit": {
+   "error": "launch: browserType.launch: Executable doesn't exist at /opt/pw-browsers/webkit-2370/pw_run.sh"
+  },
+  "firefox": {
+   "error": "launch: browserType.launch: Executable doesn't exist at /opt/pw-browsers/firefox-1555/firefox/firefox"
+  }
+ }
+}

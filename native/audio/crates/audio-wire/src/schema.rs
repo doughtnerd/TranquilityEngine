@@ -4,7 +4,7 @@
 //! This file (lead-owned) holds the constants, enums and **error codes** (section 5), and assembles
 //! the transcribed tables: `envelope` (4.1), `batch` (4.2), `status` (4.3), ADR 0162's `spatial` and
 //! ADR 0166's `music` (the M4 constants and enums; the M4 fields are in `batch` and `status`) and ADR 0171's
-//! `mix` (the M5 constants, opcodes and STATUS items).
+//! `mix` (the M5 constants, opcodes and STATUS items) and the Audio Studio's `studio` (ADRs 0342, 0346).
 //!
 //! **Schema hash.** First 16 bytes of SHA-256 over `SCHEMA_SOURCES` (see `schema_hash`). The generated
 //! TypeScript embeds it, the wasm exports `myco_audio_schema_hash()`, and `wire.schemaHash.test.ts`
@@ -13,10 +13,12 @@
 
 pub mod batch;
 pub mod envelope;
+pub mod generator;
 pub mod mix;
 pub mod music;
 pub mod spatial;
 pub mod status;
+pub mod studio;
 
 use crate::model::{Const, Enum, ErrorCode, Schema};
 
@@ -26,10 +28,12 @@ pub const SCHEMA_SOURCES: &[(&str, &str)] = &[
     ("src/schema.rs", include_str!("schema.rs")),
     ("src/schema/batch.rs", include_str!("schema/batch.rs")),
     ("src/schema/envelope.rs", include_str!("schema/envelope.rs")),
+    ("src/schema/generator.rs", include_str!("schema/generator.rs")),
     ("src/schema/mix.rs", include_str!("schema/mix.rs")),
     ("src/schema/music.rs", include_str!("schema/music.rs")),
     ("src/schema/spatial.rs", include_str!("schema/spatial.rs")),
     ("src/schema/status.rs", include_str!("schema/status.rs")),
+    ("src/schema/studio.rs", include_str!("schema/studio.rs")),
 ];
 
 /// `SHA-256( for each file in SCHEMA_SOURCES: path, 0x00, contents with CRLF turned into LF, 0x00 )`,
@@ -65,7 +69,24 @@ macro_rules! c {
 /// `max_music_rings`; 4.0 (ADR 0171/0172 M5): the 256 B STATUS header and the M5 opcodes; 5.0 (ADR 0327, 0328):
 /// `myco_audio_init` reads the INIT record from the inbox, `myco_audio_memory_pages` and `myco_audio_memory_part_bytes`
 /// replace `myco_audio_layout_bytes` and `myco_audio_zone_kernel_budget_bytes`, and a refusal names its field.
-const CORE_ABI: (u64, u64) = (5, 0);
+///
+/// The Audio Studio's line, built on its own branch from 4.0 beside master's 5.0, so its numbers below were never
+/// shipped together with master's: 4.1 (ADR 0346): CURVES keys carry Bézier handles (interp 5), 64 keys a curve;
+/// 4.2 (ADR 0346): time parameters (binding `param` bit 14) and TIME (0x1D); 4.3 (ADR 0342): LOOPS (0x0B) loop
+/// programs; 4.4 (ADR 0345, 0343): AUTOMATE targets 3 (highpass floor) and 4 (pan); 4.5 (ADR 0345): SUBMIX (0x0C);
+/// 4.6 (ADR 0345 DSP): the catalogue's effect kinds on submixes and bus chains, eight effects a bus, the `FxMem` region;
+/// 4.7 (ADR 0344): BUS_SENDS (0x1E); 4.9 (ADR 0345, 0346, 0350): SUBMIX `parent`, ROUTE (0x0D), AUTOMATE time
+/// `offset`, LOOPS `shapes`; 4.10 (ADR 0344, 0345): BUS_AUTOMATE fx and send targets, SUBMIX_AUTOMATE (0x1F), held
+/// parameters, the BUS_RAMP `Decibel` law, STATUS `fxStarved`; 4.11 (ADR 0347): SET_VOICE_FX `spread`; 4.12 (ADR 0351
+/// A4, 0359 §5): CLIP_BEGIN format 6 (IMA ADPCM) and the `AdpcmCursors` region; 5.0 (ADR 0352, 0358): effect records
+/// carry 16 parameters, plugin effect kinds `FX_PLUGIN_BASE + e` through the `myco_ext` import the shell supplies at
+/// instantiation, plugin fuel per chain level, a 128 KB core-state region; 5.1 (ADR 0360): sound generators (reserved
+/// `GEN_CLIP_ID_FIRST` clip ids, GEN (0x21), AUTOMATE target kind 5, STATUS `genStarved`, the `GenEntries` region).
+///
+/// 6.0 (the merge of both lines, 2026-11-23): master's 5.0 (the INIT record, the memory exports) with the Studio's 5.1
+/// (the `myco_ext` import, 16-parameter effect records and the records above). Both 5.0s changed the ABI
+/// incompatibly, so the joined core is a new major.
+const CORE_ABI: (u64, u64) = (6, 0);
 
 /// Constants from section 4 and 5 that code on both sides needs.
 pub const CONSTANTS: &[Const] = &[
@@ -132,6 +153,8 @@ pub const CONSTANTS: &[Const] = &[
     c!("MAX_PLAYHEADS_PER_BLOCK", 256, "STATUS playheads section cap, round-robin"),
     c!("MAX_CLIP_EVENTS_PER_BLOCK", 64, "STATUS clipEvents cap"),
     c!("MAX_STREAM_EVENTS_PER_BLOCK", 64, "STATUS streamEvents cap"),
+    c!("ADPCM_BLOCK_FRAMES", 1024, "frames per channel in one block of a format 6 (IMA ADPCM) clip (ADR 0351 §3, 0359 §5)"),
+    c!("ADPCM_CHANNEL_BYTES", 516, "bytes per channel per block of a format 6 clip: a 4-byte header, then 512 bytes of codes"),
     c!("ERR_OK", 0, "i32 result: ok"),
 ];
 
@@ -150,6 +173,7 @@ pub const ENUMS: &[Enum] = &[
         ("ZoneKernel", 3, "prepared zone kernel: ZoneKernelHeader then packed spectra; channels 1, frames = bytes / 4"),
         ("MagLS", 4, "MagLS filters: MaglsHeader then f32 [16][2][taps]; id 0xFFFF0100"),
         ("ZoneIrPcm", 5, "zone IR PCM: interleaved stereo f32 at the context rate; the core prepares it"),
+        ("AdpcmIma", 6, "IMA ADPCM blocks (ADR 0351 §3, 0359 §5): channels 1 or 2, ADPCM_BLOCK_FRAMES frames of ADPCM_CHANNEL_BYTES per channel per block; chunks start on a block and carry whole blocks; decoded per voice"),
     ]),
     en!("ClipEvent", "STATUS clipEvents code", [
         ("Resident", 1, "the last range was committed"),
@@ -250,10 +274,10 @@ pub const ERRORS: &[ErrorCode] = &[
     er!("INIT_MAX_MUSIC_RINGS", -25, "INIT maxMusicRings is above MAX_MUSIC_RINGS"),
 ];
 
-/// `CONSTANTS` followed by `music::CONSTANTS` and `mix::CONSTANTS`.
+/// `CONSTANTS` followed by `music::CONSTANTS`, `mix::CONSTANTS`, `studio::CONSTANTS` and `generator::CONSTANTS`.
 fn all_constants() -> &'static [Const] {
     static ALL: std::sync::OnceLock<Vec<Const>> = std::sync::OnceLock::new();
-    ALL.get_or_init(|| CONSTANTS.iter().chain(music::CONSTANTS).chain(mix::CONSTANTS).copied().collect())
+    ALL.get_or_init(|| CONSTANTS.iter().chain(music::CONSTANTS).chain(mix::CONSTANTS).chain(studio::CONSTANTS).chain(generator::CONSTANTS).copied().collect())
 }
 
 /// `ENUMS` followed by `music::ENUMS`.

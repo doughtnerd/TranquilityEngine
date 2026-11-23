@@ -1,4 +1,4 @@
-//! Node family `physics`: the physical-pose graph input and its blend (ADR 0352, 0355; T44r),
+//! Node family `physics`: the physical-pose graph input and its blend (ADR 0372, 0375; T44r),
 //! calling `anim-physics`. The drive targets themselves are computed by the host after the fixed
 //! evaluation (`anim-wasm`'s `physics_drive`) from the first `PHYSICS_BLEND` node's animated input.
 //!
@@ -18,7 +18,7 @@
 //! # `PHYSICS_BLEND` (kind 1)
 //!
 //! Inputs: `[animated, physical]`. `lerp(animated, physical, w)` per bone, `w` the blend weight
-//! times the bone's mask weight (PuppetMaster's `pinWeight`/blend, ADR 0355's `blend`). Words: 0
+//! times the bone's mask weight (PuppetMaster's `pinWeight`/blend, ADR 0375's `blend`). Words: 0
 //! `f32` weight (1 when absent), 1 `u32` a float parameter giving it instead, or `NONE`, 2 `u32` a
 //! mask: a string id bound to a mask asset, or `NONE` (every bone). Root motion is the animated
 //! input's scaled by `1 − w` (a ragdoll doesn't walk); timing is the animated input's; the

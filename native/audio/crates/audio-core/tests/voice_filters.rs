@@ -44,7 +44,7 @@ fn set_gain(voice: u32, gain: f32) -> Rec {
 
 fn voice_fx(voice: u32, mask: u32, hp_hz: f32, send: [f32; 4], ramp_frames: u32) -> Rec {
     let mut b = vec![0u8; wire::SetVoiceFx::FIXED_END];
-    wire::SetVoiceFx { voice_id: voice, frame_offset: wire::ASAP, mask, ramp_frames, hp_hz, send, yaw: 0.0, aux_level: 0.0, aux_bus: wire::AUX_BUS_NONE as u16, reserved: 0 }.write(&mut b, 0).unwrap();
+    wire::SetVoiceFx { voice_id: voice, frame_offset: wire::ASAP, mask, ramp_frames, hp_hz, send, yaw: 0.0, aux_level: 0.0, aux_bus: wire::AUX_BUS_NONE as u16, spread: 0 }.write(&mut b, 0).unwrap();
     Rec::Raw(b)
 }
 

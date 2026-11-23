@@ -1,4 +1,4 @@
-//! `myco.anim@1`: a compiled clip (ADR 0351), in the [container] layout.
+//! `myco.anim@1`: a compiled clip (ADR 0371), in the [container] layout.
 //!
 //! Magic `"MYCOANIM"`, version [`FORMAT_VERSION`]. Header flags: [`CLIP_LOOP`] (1),
 //! [`CLIP_ADDITIVE`] (2), [`CLIP_SLERP`] (4: bone rotations slerp instead of nlerp).
@@ -88,7 +88,7 @@
 //! ## `ROOT_CURVE` (16 bytes per frame; count = frame count)
 //!
 //! Translation xyz (model space, relative to frame 0) and yaw (radians about +Y, unwrapped),
-//! at the clip's sample rate. Read by predicted root motion (ADR 0350).
+//! at the clip's sample rate. Read by predicted root motion (ADR 0370).
 //!
 //! ## Compressed form (ACL-style uniform sampling)
 //!
@@ -286,7 +286,7 @@ const COMP_GROUP: [u32; 8] = [
 ];
 
 u8_enum! {
-    /// A track's kind (ADR 0351). The id is stored; append-only.
+    /// A track's kind (ADR 0371). The id is stored; append-only.
     pub enum TrackKind {
         /// Bone translation, rotation, scale.
         Bone = 0,
@@ -368,7 +368,7 @@ u8_enum! {
 }
 
 u8_enum! {
-    /// A marker key's vocabulary (audio 0328's sample markers).
+    /// A marker key's vocabulary (audio 0342's sample markers).
     pub enum MarkerKind {
         /// Named phase-sync point.
         Sync = 0,

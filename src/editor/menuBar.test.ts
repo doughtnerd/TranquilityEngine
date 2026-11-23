@@ -152,15 +152,28 @@ describe("menu bar", () => {
     expect(open.items.map((i) => i.label)).toEqual(["Empty"]);
   });
 
-  it("Window has a checked item per panel, then Add Panel… and Reset Layout", () => {
+  it("Window has a checked item per panel, then Add Panel… and Reset Layout, then the Audio Studio", () => {
     const visible = new Set(PANELS.filter((p) => p !== "history"));
     const w = menu(buildMenus(state({ visiblePanels: visible }), actions()), "window");
     const panels = w.items.filter((i) => i.checked !== undefined);
     expect(panels).toHaveLength(PANELS.length);
     expect(panels.find((i) => i.label === "History")!.checked).toBe(false);
     expect(panels.find((i) => i.label === "Hierarchy")!.checked).toBe(true);
-    expect(w.items.at(-2)!.label).toBe("Add Panel…");
-    expect(w.items.at(-1)!.label).toBe("Reset Layout");
+    expect(w.items.at(-4)!.label).toBe("Add Panel…");
+    expect(w.items.at(-3)!.label).toBe("Reset Layout");
+    expect(w.items.at(-2)!.separator).toBe(true);
+    expect(w.items.at(-1)!.label).toBe("Audio Studio");
+  });
+
+  it("Window > Audio Studio opens the Studio, on the project when one is open (ADR 0341)", () => {
+    const a = actions();
+    const m = buildMenus(state({ project }), a);
+    const studio = item(m, "window", "Audio Studio");
+    expect(studio.disabled).toBeFalsy();
+    expect(studio.title).toMatch(/Open Game in the Audio Studio/);
+    studio.run!();
+    expect(a.openAudioStudio).toHaveBeenCalled();
+    expect(item(buildMenus(state(), a), "window", "Audio Studio").disabled).toBeFalsy(); // no project: its start screen
   });
 
   it("Layouts lists Default and the saved layouts, ticks the active one, marks it changed, and saves (ADR 0174)", () => {

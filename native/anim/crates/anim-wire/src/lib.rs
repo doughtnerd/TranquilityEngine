@@ -1,4 +1,4 @@
-//! `anim-wire` (ADR 0350): the animation core's boundary records, defined once.
+//! `anim-wire` (ADR 0370): the animation core's boundary records, defined once.
 //!
 //! The record mechanism ([`record`]: fixed-stride, little-endian, versioned rows, declared with
 //! [`wire_record!`]) is shared; each **family** has its own module and its own version, so the

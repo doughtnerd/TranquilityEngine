@@ -222,14 +222,14 @@ fn effects_are_stored_per_bus_and_unknown_types_dropped() {
         (ROOT, vec![(kind::COMPRESSOR, -24.0, 30.0)]),
         // Send 0: the shared reverb (A2.2b) runs but adds no wet signal to the check below.
         (0, vec![(kind::LOWPASS, 800.0, 1.0), (kind::REVERB_SEND, 0.0, 0.0), (77, 0.0, 0.0)]),
-        (0, vec![(kind::HIGHPASS, 120.0, 0.0); 6]),
+        (0, vec![(kind::HIGHPASS, 120.0, 0.0); 10]),
     ])]);
     let s = bus::slots(&m.core);
     assert_eq!(s[0].fx.kinds().collect::<Vec<_>>(), vec![kind::COMPRESSOR]);
     assert_eq!(s[1].fx.kinds().collect::<Vec<_>>(), vec![kind::LOWPASS, kind::REVERB_SEND, kind::NONE]);
     assert_eq!(s[2].fx.kinds().count(), audio_core::fx::MAX_EFFECTS);
     let a = bus::area(&m.core);
-    assert_eq!(a.dropped, 1 + 2, "one unknown type, two past the limit");
+    assert_eq!(a.dropped, 1 + 2, "one unknown type, two past the limit of eight (ADR 0345)");
     assert_eq!(a.has_reverb, 1);
     // The effects run (A2.2a): the root's compressor delays the mix by its 6 ms look-ahead (288
     // frames at 48 kHz), so a voice on bus 1 (through its 800 Hz low-pass) arrives at frame 288.
@@ -243,22 +243,23 @@ fn effects_are_stored_per_bus_and_unknown_types_dropped() {
 }
 
 #[test]
-fn a_second_compressor_on_a_bus_is_dropped_and_counted() {
+fn a_second_compressor_on_a_bus_runs_as_the_catalogues() {
     let mut m = Mixer::new(8);
     m.submit(&[config_fx(&[
         (ROOT, vec![(kind::COMPRESSOR, -24.0, 30.0), (kind::COMPRESSOR, -12.0, 6.0), (kind::LOWPASS, 800.0, 1.0)]),
         (0, vec![(kind::COMPRESSOR, -12.0, 6.0)]),
     ])]);
     let s = bus::slots(&m.core);
-    assert_eq!(s[0].fx.kinds().collect::<Vec<_>>(), vec![kind::COMPRESSOR, kind::NONE, kind::LOWPASS]);
-    assert_eq!(s[1].fx.kinds().collect::<Vec<_>>(), vec![kind::COMPRESSOR], "one compressor per bus, not per tree");
-    assert_eq!(bus::area(&m.core).dropped, 1);
-    // One compressor's look-ahead on the root, not two.
+    let cat = kind::CATALOGUE + audio_dsp::fx::kind::COMPRESSOR;
+    assert_eq!(s[0].fx.kinds().collect::<Vec<_>>(), vec![kind::COMPRESSOR, cat, kind::LOWPASS], "ADR 0345: no one-compressor limit");
+    assert_eq!(s[1].fx.kinds().collect::<Vec<_>>(), vec![kind::COMPRESSOR]);
+    assert_eq!(bus::area(&m.core).dropped, 0);
+    // Two compressors' look-aheads on the root, in series.
     m.submit(&[dc(V1, 0, 0.0)]);
-    let (l, _) = m.render_n(3);
+    let (l, _) = m.render_n(6);
     let d = m.latency();
-    check(&l[..288 + d], TOL, "the compressor's pre-delay and the limiter's", |_| 0.0);
-    assert!(l[288 + d..].iter().all(|&x| x > 0.0), "the signal arrives after one pre-delay");
+    check(&l[..2 * 288 + d], TOL, "two pre-delays and the limiter's", |_| 0.0);
+    assert!(l[2 * 288 + d..].iter().all(|&x| x > 0.0), "the signal arrives after both pre-delays");
 }
 
 #[test]

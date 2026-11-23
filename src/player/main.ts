@@ -16,6 +16,10 @@ import { loadProjectFiles } from "../engine/scene/projectFiles";
 import { toRuntimePlugin } from "../plugins/thirdParty";
 import type { RuntimePlugin } from "../plugins/runtimeContext";
 import { MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, type GameManifest } from "../export/format";
+import { LEGACY_AUDIO_MESSAGE, projectWithAudio } from "../engine/audio/project/load";
+import { AUDIO_PROJECT_FILE } from "../engine/audio/project/types";
+import { installAudioMedia } from "../plugins/audio/runtime/media/mediaTable";
+import { installBuildStrings } from "../engine/localisation/runtime/boot";
 
 /** A build file's URL, from its "/"-separated path. */
 const urlOf = (path: string) => new URL(path.split("/").map(encodeURIComponent).join("/"), document.baseURI).href;
@@ -41,7 +45,27 @@ async function boot(): Promise<void> {
     url: (path) => urlOf(`${PROJECT_DIR}/${path}`),
   });
   if (problems.length > 0) throw new Error(`Some of the game's JSON files don't parse: ${problems.map((p) => `${p.path} (${p.message})`).join(", ")}`);
-  const settings = (values.get("project.json") ?? {}) as ProjectSettingsInput;
+  // The mix is audio.json's (ADR 0344): project.json's settings with its runtime view as `audio`. A project.json that
+  // still has the old section is refused: the editor migrates it.
+  const read = projectWithAudio(values.get("project.json") ?? {}, values.get(AUDIO_PROJECT_FILE));
+  if (read.legacyAudio) throw new Error(LEGACY_AUDIO_MESSAGE);
+  for (const line of [...read.problems, ...read.warnings]) console.warn(`[myco] ${AUDIO_PROJECT_FILE}: ${line}`);
+  const settings: ProjectSettingsInput = read.project;
+  // ADR 0351 §7: the build's converted audio (packages and the media table), before any scene: its first scene's load
+  // waits for the preload packages (the packages World service), as it waits for its other assets.
+  installAudioMedia(manifest.audio ?? null, urlOf);
+  // ADR 0356 §11: the build's string files (`strings/<code>.json`), one loaded per language switch; the start language's
+  // loads with the Engine, before the first scene. A build without them reads the string tables among its files.
+  installBuildStrings((manifest as { localisation?: unknown }).localisation, urlOf);
+  // ADR 0352 §8: the build's plugin audio effects, before the Engine (the core registers their modules once it is up).
+  if (manifest.audioEffects?.length) {
+    const { registerBuildAudioEffects } = await import("./audioEffects");
+    const { effectPluginEnginesOf } = await import("../plugins/audio/runtime/effectPlugins/engineGate");
+    await registerBuildAudioEffects(manifest.audioEffects, async (path) => {
+      const res = await fetch(urlOf(path)).catch(() => null);
+      return res?.ok ? new Uint8Array(await res.arrayBuffer()) : null;
+    }, effectPluginEnginesOf(settings.plugins));
+  }
   const thirdParty: RuntimePlugin[] = [];
   const moduleOf = (path: string) => manifest.scripts.find((s) => s.source === path.replace(/^\.?\//, ""))?.module;
   document.body.style.background = settings.display?.backgroundColor ?? "#000";
@@ -50,7 +74,7 @@ async function boot(): Promise<void> {
   // bootstrap config names no scenes load the manifest's main scene. The page never stops the game, so
   // nothing disposes the launch here (a failed launch undoes itself).
   const { engine: runtime } = await launchGame({
-    assets: { has: (p) => values.has(p), get: (p) => values.get(p) },
+    assets: { has: (p) => values.has(p), get: (p) => values.get(p), paths: () => values.keys() },
     scriptAssetRefs: manifest.assetRefs ?? [], // warmed up with every scene (ADR 0080)
     async loadScripts() {
       for (const script of manifest.scripts) await import(/* @vite-ignore */ urlOf(script.module));
@@ -78,6 +102,12 @@ async function boot(): Promise<void> {
   // The Export option "audio capture" (ADR 0172): F9 and the three-finger hold record the audio mix. Without it nothing is
   // imported or installed, so the build holds no listener and loads no part of the recorder.
   if (manifest.audioCapture) (await import("../plugins/audio/runtime/capture/trigger")).installCaptureTrigger();
+  // The Export option "audio takes" (ADR 0348): F10 records a take. Without it nothing is imported or installed.
+  if (manifest.audioTake) {
+    // `audioTakeFrames: false` keeps pictures of the game view out of takes (on by default).
+    if (manifest.audioTakeFrames === false) (await import("../plugins/audio/runtime/capture/take")).setTakeFrames(false);
+    (await import("../plugins/audio/runtime/capture/trigger")).installTakeTrigger();
+  }
 }
 
 boot().catch((err: unknown) => {

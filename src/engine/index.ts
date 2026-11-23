@@ -48,6 +48,9 @@ export { CUBEMAP_FORMAT, parseCubemap, formatCubemap, type CubemapFaces, type Cu
 
 export type { NavAgentType, NavArea, NavigationSettings } from "./nav/settings";
 
+// Text localisation (ADR 0356 §6): string keys resolved through the language's fallback chain, ICU messages on `Intl`.
+export { Locale, LocalText, type LocaleLanguage, type MessageArg, type MessageArgs } from "./localisation/Locale";
+
 export { Input } from "./input/Input";
 export { ActionEvents, ActionPhase, axis, axisOf, button, chordOf, defineActions, dpad, vec2, vec3, type ActionEvent, type ActionEventPhase, type ActionOptions, type ActionReader, type ActionSetDef, type ActionSetOptions, type ActionSetView, type ActionType, type BindingSpec } from "./input/actions";
 export { DEFAULT_CONTEXT, InputContext, defineInputContext, type InputContextSpec, type MappingSpec, type ModifierSpec, type TriggerSpec, type TriggerType } from "./input/contexts";

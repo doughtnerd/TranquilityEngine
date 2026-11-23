@@ -89,7 +89,28 @@ export interface ThemeTokens {
   viewportGridCenter: string;
   viewportOutline: string;
   viewportGizmo: string;
+  // Audio Studio colours (ADR 0349): marker types, reserved ranges of a sample's timeline and a series palette for
+  // curve and value lanes. Derived from the preset like the rest, kept legible on the panels.
+  markerExit: string;
+  markerHit: string;
+  markerCue: string;
+  markerNote: string;
+  rangeTrim: string;
+  rangeLoop: string;
+  rangePickup: string;
+  rangeTail: string;
+  "series-1": string;
+  "series-2": string;
+  "series-3": string;
+  "series-4": string;
+  "series-5": string;
+  "series-6": string;
+  "series-7": string;
+  "series-8": string;
 }
+
+/** The hues the Audio Studio's colours start from beside the preset's own (blue notes, pink cues, salmon hits and pickups, violet tails, magenta). */
+const STUDIO_HUES = { blue: "#6aa8ff", pink: "#f07ab4", salmon: "#e8907a", violet: "#b48cf0", magenta: "#e879c6" } as const;
 
 export type ThemeKind = "dark" | "light" | "high-contrast";
 
@@ -186,6 +207,9 @@ function resolveTheme(preset: ThemePreset, overrides?: Partial<Record<string, un
   const warning = statusOn(preset.warning);
   const success = statusOn(preset.success);
   const dangerStrong = light ? mix(danger, black, 0.05) : mix(danger, black, 0.45);
+  // Studio hues kept legible against the panels (as graphics: 3:1, high contrast 4.5:1), so a light theme darkens them.
+  const hue = (c: string) => ensureContrast(hc ? mix(c, white, 0.3) : c, panel, hc ? 4.5 : 3, text);
+  const blue = hue(STUDIO_HUES.blue), pink = hue(STUDIO_HUES.pink), salmon = hue(STUDIO_HUES.salmon), violet = hue(STUDIO_HUES.violet), magenta = hue(STUDIO_HUES.magenta);
   const successStrong = light ? mix(accent2, black, 0.1) : mix(accent2, black, 0.35);
 
   const tokens: ThemeTokens = {
@@ -239,6 +263,22 @@ function resolveTheme(preset: ThemePreset, overrides?: Partial<Record<string, un
     viewportGridCenter: light ? mix(bg, black, 0.3) : mix(bg, text, 0.26),
     viewportOutline: accent,
     viewportGizmo: mix(text, bg, 0.2),
+    markerExit: accent2,
+    markerHit: salmon,
+    markerCue: pink,
+    markerNote: blue,
+    rangeTrim: warning,
+    rangeLoop: accent,
+    rangePickup: salmon,
+    rangeTail: violet,
+    "series-1": accent,
+    "series-2": accent2,
+    "series-3": warning,
+    "series-4": blue,
+    "series-5": magenta,
+    "series-6": violet,
+    "series-7": salmon,
+    "series-8": ensureContrast(mix(text, panel, 0.3), panel, hc ? 4.5 : 3, text),
   };
   if (hc) Object.assign(tokens, { buttonHover: mix(panel, accent, 0.3), glow: `0 0 0 2px ${accent}` });
   return { ...tokens, ...preset.tokens };

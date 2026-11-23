@@ -1,5 +1,5 @@
 //! Determinism: a fixed run of every solver gives the same bits on every target (native and
-//! wasm `simd128`, ADR 0350's rules), checked against one FNV-1a hash of the resulting local
+//! wasm `simd128`, ADR 0370's rules), checked against one FNV-1a hash of the resulting local
 //! pose. A change to any solver's arithmetic changes the hash; update it deliberately.
 
 mod common;

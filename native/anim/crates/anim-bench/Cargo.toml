@@ -1,6 +1,6 @@
 [package]
 name = "anim-bench"
-description = "Myco animation core (ADR 0350): criterion benchmarks for the core's budgets (tripwires)."
+description = "Myco animation core (ADR 0370): criterion benchmarks for the core's budgets (tripwires)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

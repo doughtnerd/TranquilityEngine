@@ -18,6 +18,10 @@
 //   carries (`replay.ts`); a freed slot is forgotten (`forget`), so a new voice in the slot starts equal-power.
 // - A limit of 0 (`voices.hrtf: 0` or `audio.spatial: "equalPower"`, beds kept) flags no HRTF voice; `clear` puts every
 //   voice back to equal-power.
+// - **Bed-only voices (ADR 0347):** `PannerLimits.bedOnly[i]` 1 marks a voice that goes to its bus's bed whatever its
+//   rank: one farther than `audio.bed.beyond` (Wwise's and Unreal's distance-based switch from object panning to the
+//   ambisonic bed for distant sources) or inside an audio zone (its sound surrounds the listener). It is never an HRTF
+//   candidate, so it leaves HRTF (after the dwell) and takes the bed where its bus has one, else equal-power.
 //
 // The ordering is A3.1's `rankTop` (quickselect, O(n), no sort). Nothing here allocates after construction.
 import type { AudioPanner } from "../backend";
@@ -52,6 +56,8 @@ export interface PannerLimits {
   readonly bedSlot: ArrayLike<number>;
   /** Game time now, milliseconds (the 500 ms kind dwell, R13). */
   readonly nowMs: number;
+  /** ADR 0347: per slot, 1 for a voice that goes to its bus's bed whatever its rank (see the header). Absent: none. */
+  readonly bedOnly?: ArrayLike<number>;
 }
 
 /**
@@ -157,13 +163,14 @@ export class PannerPick {
     const picked = this.picked;
     const cap0 = t.capacity;
     const target = (i: number): PannerKindCode => ((bedSlot[bus[i]!] ?? NO_BED) !== NO_BED ? BD : EQ);
+    const bedOnly = limits.bedOnly;
 
     let count = 0;
     for (let i = 0; i < cap0; i++) {
       if (this.tag[i] !== 0 && this.tag[i] !== gen[i]! + 1) this.drop(i);
       if (cap === 0 || state[i] !== S_PLAYING || (flags[i]! & F_SPATIAL) === 0 || (flags[i]! & F_PAUSED) !== 0) continue;
       const a = audibility[i]!;
-      if (!(a >= MIN_AUDIBILITY)) continue;
+      if (!(a >= MIN_AUDIBILITY) || (bedOnly !== undefined && bedOnly[i] === 1)) continue;
       keys[count] = kind[i] === HR ? a * HYSTERESIS : a;
       items[count] = i;
       count++;

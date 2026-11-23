@@ -1,5 +1,5 @@
 //! Family `physics`: physical animation: joint drive targets and strengths per bone, and the
-//! physical-pose blend input (ADR 0350, 0352, 0355). T44r.
+//! physical-pose blend input (ADR 0370, 0372, 0375). T44r.
 //!
 //! # Ragdoll descriptions (setup)
 //!
@@ -289,7 +289,7 @@ pub const FAMILY: FamilyDesc = FamilyDesc {
     name: "physics",
     id: ID,
     version: VERSION,
-    doc: "Wire family `physics`: physical animation (ADR 0350, 0352, 0355): ragdoll descriptions, the per-row input view\n(simulated bodies, strengths) and output view (drive targets, get-up facing)\n(native/anim/crates/anim-wire/src/physics.rs documents them).",
+    doc: "Wire family `physics`: physical animation (ADR 0370, 0372, 0375): ragdoll descriptions, the per-row input view\n(simulated bodies, strengths) and output view (drive targets, get-up facing)\n(native/anim/crates/anim-wire/src/physics.rs documents them).",
     records: &[
         RagdollInfo::DESC,
         RagdollBone::DESC,

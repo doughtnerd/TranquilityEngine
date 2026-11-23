@@ -16,6 +16,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { mixer } from "../../../../engine/audio/mixer";
+import { parseAudioProject } from "../../../../engine/audio/project/format";
+import { coreSectionOf as toRuntimeSettings } from "../../../../engine/audio/project/runtimeView";
 import { abrupt, closeRigs, liveRig, sendRaw, SMOOTH } from "../mix/clickHarness";
 import { BUS_LP_OFF_HZ, BUS_MASTER_OUT, BUS_RAMP_MASK_GAIN, LANE_RUNTIME } from "../wire.generated";
 import { maxStep } from "./maxStep";
@@ -139,7 +141,8 @@ interface MixerSceneProject {
   readonly ducking: readonly DuckRule[];
 }
 
-const SOUND_LAB_AUDIO = (JSON.parse(readFileSync(fileURLToPath(new URL("../../../../../samples/sound-lab/project.json", import.meta.url)), "utf8")) as { audio: MixerSceneProject }).audio;
+// The sound lab's mix (ADR 0344: `audio.json`), as the runtime plays it.
+const SOUND_LAB_AUDIO = toRuntimeSettings(parseAudioProject(JSON.parse(readFileSync(fileURLToPath(new URL("../../../../../samples/sound-lab/audio.json", import.meta.url)), "utf8"))).project) as unknown as MixerSceneProject;
 const MIXER_SCENE = { ...SOUND_LAB_AUDIO, buses: SOUND_LAB_AUDIO.buses.map((b) => (b.name === "Master" ? { ...b, volume: 0.5 } : b)) };
 
 describe("DSd: the Mixer scene (Sa2) on the real core", () => {
@@ -187,7 +190,7 @@ describe("DSd: the Mixer scene (Sa2) on the real core", () => {
     ["Music volume 0.6 -> 0.3", () => mixer.apply({ op: "setBus", bus: "Music", key: "volume", value: 0.3 })],
     ["Voice volume 1 -> 0.5", () => mixer.apply({ op: "setBus", bus: "Voice", key: "volume", value: 0.5 })],
     ["Voice high-pass 100 -> 300 Hz", () => mixer.apply({ op: "setEffect", bus: "Voice", index: 0, key: "frequency", value: 300 })],
-    ["Ambience reverb send 0.5 -> 0.2", () => mixer.apply({ op: "setEffect", bus: "Ambience", index: 0, key: "send", value: 0.2 })],
+    ["Ambience send into the Reverb return 0.5 -> 0.2", () => mixer.apply({ op: "setSend", bus: "Ambience", to: "Reverb", levelDb: 20 * Math.log10(0.2) })],
     ["Voice -> Music amount 0.35 -> 0.2", () => mixer.apply({ op: "setDucking", index: 1, rule: { ...SOUND_LAB_AUDIO.ducking[1]!, amount: 0.2 } as never })],
     ["Voice -> Music threshold -30 -> -16 dBFS (over the voice, so the duck releases)", () => mixer.apply({ op: "setDucking", index: 1, rule: { ...SOUND_LAB_AUDIO.ducking[1]!, amount: 0.2, threshold: -16 } as never })],
     ["SFX tone starts (the presence duck engages)", (r) => void r.play("SFX", "toneB.wav")],

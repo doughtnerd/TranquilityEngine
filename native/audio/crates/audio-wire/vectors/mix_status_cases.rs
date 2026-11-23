@@ -34,10 +34,10 @@ const FIELDS: &[(&str, usize, char)] = &[
     ("bedsRefused", 126, 'h'), ("m3Shed", 130, 'h'), ("zoneUsedKB", 132, 'w'), ("workBed", 136, 'w'), ("workZones", 140, 'w'),
     ("musicRingsOpen", 148, 'h'), ("streamStartsLate", 150, 'h'), ("groupsLate", 152, 'h'), ("groupsHeld", 154, 'h'),
     ("groupsAbandoned", 156, 'h'), ("curvePoolFull", 158, 'h'), ("maxSlipFrames", 160, 'w'), ("splitQuanta", 164, 'w'),
-    ("voiceSplits", 168, 'w'), ("busyMsTotal", 176, 'd'), ("quantaTotal", 184, 'd'), ("wuVoices", 192, 'd'), ("wuBuses", 200, 'd'),
+    ("voiceSplits", 168, 'w'), ("fxStarved", 172, 'h'), ("fxStarvedOwner", 174, 'h'), ("busyMsTotal", 176, 'd'), ("quantaTotal", 184, 'd'), ("wuVoices", 192, 'd'), ("wuBuses", 200, 'd'),
     ("wuSpatial", 208, 'd'), ("wuMusic", 216, 'd'), ("wuLoudness", 224, 'd'), ("clockStepMs", 238, 'h'),
     ("loudSubBlockFrames", 240, 'w'), ("clockSteps", 244, 'h'), ("loudShed", 246, 'h'), ("busRecordsEarly", 248, 'h'),
-    ("sidechainLate", 250, 'h'), ("reserved2", 252, 'w'),
+    ("sidechainLate", 250, 'h'), ("genStarved", 252, 'h'), ("reserved2", 254, 'h'),
 ];
 
 /// Section counts at the caps: (count offset, count).

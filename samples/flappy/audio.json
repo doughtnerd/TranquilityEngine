@@ -1,0 +1,87 @@
+{
+  "format": "myco.audio@1",
+  "settings": {},
+  "parameters": [],
+  "buses": [
+    {
+      "name": "Master",
+      "parent": null,
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": {
+        "own": true,
+        "priority": 255
+      },
+      "meter": true,
+      "effects": [],
+      "sends": []
+    },
+    {
+      "name": "Music",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [],
+      "sends": []
+    },
+    {
+      "name": "SFX",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [],
+      "sends": []
+    },
+    {
+      "name": "UI",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [],
+      "sends": []
+    },
+    {
+      "name": "Voice",
+      "parent": "Master",
+      "volumeDb": 0,
+      "mute": false,
+      "voiceLimit": null,
+      "bed": null,
+      "meter": false,
+      "effects": [],
+      "sends": []
+    }
+  ],
+  "returns": [],
+  "vcas": [],
+  "automation": [],
+  "ducking": [],
+  "snapshots": [],
+  "loudness": {
+    "targets": [
+      {
+        "name": "console",
+        "integrated": -24,
+        "tolerance": 2,
+        "truePeak": -1
+      },
+      {
+        "name": "mobile",
+        "integrated": -18,
+        "tolerance": 2,
+        "truePeak": -1
+      }
+    ],
+    "resetOnPlay": true
+  }
+}

@@ -1,8 +1,8 @@
-# Myco's animation core (ADR 0350): Rust compiled to WebAssembly with simd128, one module instance per
+# Myco's animation core (ADR 0370): Rust compiled to WebAssembly with simd128, one module instance per
 # page. Built by `npm run build:anim` (native/anim/build.mjs) into src/plugins/animation/runtime/wasm/,
 # which is committed, so the engine builds without Rust.
 #
-# Crates (ADR 0350, in dependency order; each crate's Cargo.toml declares its edges):
+# Crates (ADR 0370, in dependency order; each crate's Cargo.toml declares its edges):
 #   anim-wire (boundary records, TS generator) . anim-math (SoA maths on glam + simd128)
 #   anim-format (binary layouts) -> anim-offline (f64 reference) -> anim-compress, anim-sample
 #   anim-pose -> anim-rig, anim-retarget, anim-match, anim-physics -> anim-graph -> anim-wasm (boundary)
@@ -36,7 +36,7 @@ anim-physics = { path = "crates/anim-physics" }
 anim-offline = { path = "crates/anim-offline" }
 anim-plugin-sdk = { path = "crates/anim-plugin-sdk" }
 anim-meter = { path = "crates/anim-meter" }
-# Maths. No `fast-math` (ADR 0350's deterministic rules); simd128 comes from the target feature.
+# Maths. No `fast-math` (ADR 0370's deterministic rules); simd128 comes from the target feature.
 glam = { version = "0.34", default-features = false, features = ["std"] }
 # The boundary's glue for setup calls; build.mjs checks wasm-bindgen-cli against this pin.
 wasm-bindgen = "=0.2.130"

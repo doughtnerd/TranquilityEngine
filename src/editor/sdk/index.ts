@@ -29,9 +29,16 @@ export { LargePreview } from "../ui/AssetPreview";
 export { AssetDocumentFrame, type AssetDocumentFrameProps } from "../ui/AssetDocumentFrame";
 export { NameList, NumberField, ProblemList, Row, TextField } from "../ui/settingsControls";
 export { useDraftText, type DraftText, type DraftInputProps } from "../ui/draftText";
-// ADR 0158 §7: the shared curve widget (particles, audio events, later animation) and its pure key helpers.
-export { CurveEditor, CurvePreview, type CurveEditorProps } from "../ui/CurveEditor";
-export { addKey as addCurveKey, moveKey as moveCurveKey, removeKey as removeCurveKey, setKeyInterp as setCurveKeyInterp, type Key as CurveEditKey } from "../ui/curveEdit";
+// ADR 0346: the one shared curve editor (a dialog over lanes, curves in units) and the inline curve field that opens
+// it (particles, audio, the Studio); ADR 0158 §7's generic key-list helpers (curves, gradients).
+export { CurveEditorDialog, type CurveEditorDialogProps } from "../ui/curves/CurveEditorDialog";
+export { openCurveEditorDialog, type OpenCurveEditor } from "../ui/curves/openCurveEditorDialog";
+export type { CurveEditorKind, CurveEditorResult, CurveEditorSpec, CurveInput, CurveLane, KeyShape } from "../ui/curves/curveEditorModel";
+export type { WaveformFn as CurveWaveform } from "../ui/curves/CurvePlot";
+export { CurveField, CurvePreview, type CurveFieldProps } from "../ui/curves/CurveField";
+export { addKey as addCurveKey, moveKey as moveCurveKey, removeKey as removeCurveKey, setKeyInterp as setCurveKeyInterp, type Key as CurveEditKey } from "../ui/curves/keyList";
+/** @deprecated ADR 0346: use `CurveField` (the inline field) or `CurveEditorDialog`. Kept for one release. */
+export { CurveField as CurveEditor, type CurveFieldProps as CurveEditorProps } from "../ui/curves/CurveField";
 // Menus and floating panels (ADR 0180): placed, dismissed and focused in the window they're in (ADR 0174).
 export { openPopover, usePopover, type DismissReason, type Popover, type PopoverOptions, type PopoverPoint } from "../ui/popover";
 export { setValue, type SettingsDraft, type SettingsProblem } from "../projectSettingsModel";
@@ -54,6 +61,16 @@ export { registerAssetDropTarget, draggedAssets, type AssetDropTargetSpec, type 
 // prefix, built-ins, the missing state), and a slider and a colour field that report drags by one commit rule.
 export { AssetPicker, type AssetPickerProps } from "../ui/AssetPicker";
 export { ColorField, SliderField, type ColorFieldProps, type SliderFieldProps, type ValueReport } from "../ui/valueControls";
+// The generic kit (ADR 0349), shared by the scene editor and the Audio Studio: empty states, undo toasts, context menus,
+// the Move to… folder picker, segmented controls, chips, the History popover and the keyboard shortcuts dialog.
+export { EmptyState, type EmptyStateProps } from "../ui/EmptyState";
+export { UndoToasts, createToastQueue, UNDO_TOAST_MS, type Toast, type ToastQueue, type ToastRequest } from "../ui/UndoToast";
+export { ContextMenu, SEPARATOR, tidyEntries, type ContextMenuProps, type MenuEntry, type MenuItem } from "../ui/ContextMenu";
+export { MoveToDialog, type MoveToDialogProps, type MovingItem } from "../ui/MoveToDialog";
+export { SegmentedControl, type SegmentedControlProps, type SegmentOption } from "../ui/SegmentedControl";
+export { Chip, type ChipProps, type ChipTone } from "../ui/Chip";
+export { HistoryPopover, type HistoryPopoverProps } from "../ui/HistoryPopover";
+export { KeyboardShortcutsDialog, type KeyboardShortcutsDialogProps, type ShortcutEntry, type ShortcutGroup } from "../ui/KeyboardShortcutsDialog";
 // The 3D shape kit (ADR 0295): pose maths, wireframes, the face, radius and blend-shell handle rules and the axis drag
 // that 3D handle gizmos build their shape tables from.
 export * as shapeKit3d from "../shapeKit3d";

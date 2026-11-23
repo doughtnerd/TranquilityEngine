@@ -14,10 +14,11 @@ use crate::ambisonic::{Convention, FumaToAmbix};
 use crate::loop_points::{comment_loop_points, wav_loop_points};
 
 use symphonia::core::codecs::audio::well_known::{
-    CODEC_ID_AAC, CODEC_ID_FLAC, CODEC_ID_MP1, CODEC_ID_MP2, CODEC_ID_MP3, CODEC_ID_PCM_S32LE,
+    CODEC_ID_AAC, CODEC_ID_FLAC, CODEC_ID_MP1, CODEC_ID_MP2, CODEC_ID_MP3, CODEC_ID_OPUS, CODEC_ID_PCM_S32LE,
     CODEC_ID_VORBIS,
 };
 use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
+use symphonia::core::codecs::registry::CodecRegistry;
 use symphonia::core::errors::Error as SymError;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
@@ -56,7 +57,25 @@ pub enum Codec {
     Mp3 = 3,
     Vorbis = 4,
     Aac = 5,
+    /// ADR 0351 A7 (ABI 1.5): Ogg Opus, through libopus (`opus.rs`).
+    Opus = 6,
 }
+
+/// ADR 0351 A7: symphonia's codecs this build enables, plus libopus for Opus (`opus.rs`).
+fn codecs() -> &'static CodecRegistry {
+    static REGISTRY: std::sync::OnceLock<CodecRegistry> = std::sync::OnceLock::new();
+    REGISTRY.get_or_init(|| {
+        let mut r = CodecRegistry::new();
+        symphonia::default::register_enabled_codecs(&mut r);
+        r.register_audio_decoder::<crate::opus::OpusDecoder>();
+        r
+    })
+}
+
+/// Opus frames decoded before a seek target so libopus has converged: RFC 7845 §4.6 asks at least 80 ms, but CELT's
+/// energy prediction converges slowly (measured on the encoder's output: 80 ms leaves errors of 0.13, 200 ms 0.006,
+/// 500 ms one LSB), so a seek, a region loop's wrap included, decodes 0.5 s first (≈ 1.5 ms of worker time).
+const OPUS_PRE_ROLL: u64 = 24_000;
 
 /// A container hint (the file extension's meaning); `Hint::None` lets the probe decide alone.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -186,8 +205,11 @@ fn classify(codec: symphonia::core::codecs::audio::AudioCodecId) -> Codec {
         Codec::Vorbis
     } else if codec == CODEC_ID_AAC {
         Codec::Aac
+    } else if codec == CODEC_ID_OPUS {
+        Codec::Opus
     } else if codec >= CODEC_ID_PCM_S32LE && codec < CODEC_ID_VORBIS {
-        // 0x100..0x1000: the PCM family (and ADPCM, which this build doesn't include).
+        // 0x100..0x1000: the PCM family, and IMA and Microsoft ADPCM in WAV (symphonia's `adpcm`, ADR 0359 §5: imported
+        // WAV IMA sources; the engine's own ADPCM layout is read by `audio_adpcm`, never symphonia).
         Codec::Pcm
     } else {
         Codec::Other
@@ -213,12 +235,15 @@ fn open_reader(bytes: &Bytes, hint: FormatHint) -> Result<(Opened, Info), Decode
         .and_then(|p| p.audio())
         .ok_or_else(|| DecodeError::Codec("the audio track has no codec parameters".into()))?;
     let codec = classify(params.codec);
-    let decoder = symphonia::default::get_codecs()
+    let decoder = codecs()
         .make_audio_decoder(params, &AudioDecoderOptions::default())
         .map_err(|e| {
             let feature = if codec == Codec::Aac { " (AAC needs the decoder's `aac` build)" } else { "" };
             DecodeError::Codec(format!("unsupported codec {}{feature}: {e}", params.codec))
         })?;
+    // ADR 0351 A7: symphonia's Ogg reader counts an Opus stream's frames from its granule positions, the OpusHead
+    // pre-skip included, and trims only the end: the pre-skip is dropped here, as AAC's priming is (`lead`).
+    let opus_pre_skip = if codec == Codec::Opus { params.extra_data.as_deref().and_then(crate::opus::OpusHead::parse).map(|h| u64::from(h.pre_skip)) } else { None };
     let sample_rate = params.sample_rate.unwrap_or(0);
     let channels = params.channels.as_ref().map_or(0, |c| c.count()) as u32;
     let mut frames = track.num_frames;
@@ -258,8 +283,14 @@ fn open_reader(bytes: &Bytes, hint: FormatHint) -> Result<(Opened, Info), Decode
             }
         }
     }
+    if let Some(pre_skip) = opus_pre_skip {
+        opened.lead = pre_skip;
+        info.frames = info.frames.map(|f| f.saturating_sub(pre_skip));
+        info.frames_estimate = info.frames_estimate.map(|f| f.saturating_sub(pre_skip));
+    }
     Ok((opened, info))
 }
+
 
 /// `LOOPSTART`/`LOOPLENGTH` from the Vorbis comment header, as symphonia's Ogg reader exposes it.
 fn vorbis_loop_points(format: &mut Box<dyn FormatReader>) -> Option<(u32, u32)> {
@@ -561,8 +592,12 @@ impl Decoder {
         let rate = u64::from(self.info.sample_rate);
         // The container's frames include the priming the output drops.
         let raw = target + self.lead;
-        let secs = raw / rate;
-        let nanos = ((raw % rate) * 1_000_000_000 / rate) as u32;
+        // ADR 0351 A7: Opus seeks `OPUS_PRE_ROLL` early so libopus converges before the target (the frames between are
+        // dropped).
+        let from = if self.info.codec == Codec::Opus { raw.saturating_sub(OPUS_PRE_ROLL) } else { raw };
+        let secs = from / rate;
+        let nanos = ((from % rate) * 1_000_000_000 / rate) as u32;
+
         let time = Time::try_new(secs as i64, nanos).ok_or_else(|| DecodeError::Seek("seek target out of range".into()))?;
         let seeked = self.format.seek(SeekMode::Accurate, SeekTo::Time { time, track_id: Some(self.track_id) });
         if let Err(e) = seeked {

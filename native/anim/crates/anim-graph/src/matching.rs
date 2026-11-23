@@ -4,7 +4,7 @@
 //!
 //! # `POSE_DATABASE` (kind 0)
 //!
-//! Plays whatever the database search picks (ADR 0352's motion matching). Inputs: none, or one: a
+//! Plays whatever the database search picks (ADR 0372's motion matching). Inputs: none, or one: a
 //! `logic` `CHOOSER` whose rows pick [`kind::MATCH_TAGS`] nodes (a chooser table gating the search
 //! by tags; any other input is ignored). To pick a *database* with a chooser, put
 //! `POSE_DATABASE` nodes in its rows instead.
@@ -27,7 +27,7 @@
 //! | 12 | u32 | graph parameter: its controller's world ground velocity (vec2/vec3), or `NONE` |
 //! | 13 | u32 | graph parameter: the desired world ground velocity (vec2/vec3), or `NONE` (= velocity) |
 //! | 14 | u32 | graph parameter: the desired yaw (float), or `NONE` (= yaw) |
-//! | 15 | u32 | graph parameter: the LOD multiplier (int or float ≥ 1; the search runs every word-2 × it updates, ADR 0350's "search drops to every N frames"), or `NONE` (1) |
+//! | 15 | u32 | graph parameter: the LOD multiplier (int or float ≥ 1; the search runs every word-2 × it updates, ADR 0370's "search drops to every N frames"), or `NONE` (1) |
 //! | 16–27 | u32 | tag masks: `required`, `excluded`, `any` (four words each: tag `t` is bit `t % 32` of word `t / 32`) |
 //! | 28–39 | u32 | graph parameters (int) whose value ORs into the mask word at the same position (12 of them, `NONE` for none) |
 //!

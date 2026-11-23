@@ -25,7 +25,8 @@ import {
   type StatusBlock,
 } from "../wire.generated";
 import { CLIP_BYTES_PER_QUANTUM, CoreDriver, CORE_ABI_MAJOR, instantiateCore, type CoreExports, type CoreInstance, type CorePreset } from "./coreDriver";
-import { askCoreMemory, clipSampleBytes, MEMORY_INITIAL_PAGES, openCore, zoneKernelBlobBytes } from "./coreMemory";
+import { askCoreMemory, clipChunkBytes, clipSampleBytes, MEMORY_INITIAL_PAGES, openCore, zoneKernelBlobBytes } from "./coreMemory";
+import { EffectGlue } from "./effectGlue";
 import { UnderrunProbe } from "./underrunProbe";
 
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio.wasm", import.meta.url)));
@@ -433,13 +434,16 @@ describe("the core's memory answer (ADR 0327) and its INIT record (ADR 0328)", (
 
   it("init reads only an INIT record: an inbox without one is refused and nothing is laid out", () => {
     const memory = new WebAssembly.Memory({ initial: MEMORY_INITIAL_PAGES, maximum: MEMORY_INITIAL_PAGES * 2 });
-    const exports = openCore(MODULE, memory);
+    const exports = openCore(MODULE, memory, new EffectGlue(RATE).imports);
     expect(exports.myco_audio_init()).toBe(ErrorCode.BAD_MAGIC);
     expect(memory.buffer.byteLength).toBe(MEMORY_INITIAL_PAGES * 65_536);
   });
 
   it("clip frames are sized for formats 0-5 (3-5 are f32), and a format 3 kernel blob from the wire's constants", () => {
     expect([0, 1, 2, 3, 4, 5, 6].map(clipSampleBytes)).toEqual([4, 2, 2, 4, 4, 4, 0]);
+    // ADR 0351 A4: a format 6 chunk carries whole IMA ADPCM blocks (516 B a channel per 1,024 frames, the last padded).
+    expect(clipChunkBytes(6, 2, 1_500)).toBe(2 * 2 * 516);
+    expect(clipChunkBytes(1, 2, 1_500)).toBe(1_500 * 2 * 2);
     expect(zoneKernelBlobBytes(96_000) / 1e6).toBeCloseTo(1.54, 2); // §4.5: 1.5 MB at 2 s
   });
 });

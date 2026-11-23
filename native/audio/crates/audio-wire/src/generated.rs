@@ -2,33 +2,33 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: 84e4c67c396510a12124af7d38bfb46f).
+/// First 16 bytes of the schema's SHA-256 (hex: 0241a5815250233e5345489f0e3a1f7b).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0x84,
-    0xe4,
-    0xc6,
-    0x7c,
-    0x39,
-    0x65,
-    0x10,
-    0xa1,
-    0x21,
-    0x24,
-    0xaf,
-    0x7d,
-    0x38,
-    0xbf,
-    0xb4,
-    0x6f,
+    0x02,
+    0x41,
+    0xa5,
+    0x81,
+    0x52,
+    0x50,
+    0x23,
+    0x3e,
+    0x53,
+    0x45,
+    0x48,
+    0x9f,
+    0x0e,
+    0x3a,
+    0x1f,
+    0x7b,
 ];
-pub const SCHEMA_HASH_HEX: &str = "84e4c67c396510a12124af7d38bfb46f";
+pub const SCHEMA_HASH_HEX: &str = "0241a5815250233e5345489f0e3a1f7b";
 
 /// the core's C ABI major (`myco_audio_abi_version() >> 8`); a shell refuses a different one
-pub const CORE_ABI_MAJOR: u32 = 0x5;
+pub const CORE_ABI_MAJOR: u32 = 0x6;
 /// the core's C ABI minor (an added export)
 pub const CORE_ABI_MINOR: u32 = 0x0;
 /// `(CORE_ABI_MAJOR << 8) | CORE_ABI_MINOR`: `myco_audio_abi_version()`, STATUS `abiVersion` and the capture header
-pub const CORE_ABI_VERSION: u32 = 0x500;
+pub const CORE_ABI_VERSION: u32 = 0x600;
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
 /// a core refuses a different major
@@ -149,6 +149,10 @@ pub const MAX_PLAYHEADS_PER_BLOCK: u32 = 0x100;
 pub const MAX_CLIP_EVENTS_PER_BLOCK: u32 = 0x40;
 /// STATUS streamEvents cap
 pub const MAX_STREAM_EVENTS_PER_BLOCK: u32 = 0x40;
+/// frames per channel in one block of a format 6 (IMA ADPCM) clip (ADR 0351 §3, 0359 §5)
+pub const ADPCM_BLOCK_FRAMES: u32 = 0x400;
+/// bytes per channel per block of a format 6 clip: a 4-byte header, then 512 bytes of codes
+pub const ADPCM_CHANNEL_BYTES: u32 = 0x204;
 /// i32 result: ok
 pub const ERR_OK: i32 = 0;
 /// the STATUS header with the M5 fields, envelope included (STATUS_HEADER_BYTES); sections start here
@@ -253,8 +257,12 @@ pub const BUS_RAMP_LP_MIN_HZ: u32 = 0xa;
 pub const SHAPE_SEQUENCE_SHIFT: u32 = 0x3;
 /// BUS_RAMP shape sequenceId after the shift: 13 bits
 pub const SHAPE_SEQUENCE_MASK: u32 = 0x1fff;
-/// effects a slot keeps; a BUS_SLOT naming more keeps the first four
-pub const BUS_SLOT_MAX_EFFECTS: u32 = 0x4;
+/// effects a slot keeps; a BUS_SLOT naming more keeps the first eight (ADR 0345, ABI 4.6)
+pub const BUS_SLOT_MAX_EFFECTS: u32 = 0x8;
+/// sends a bus keeps (BUS_SENDS, ADR 0344, ABI 4.7); more are dropped
+pub const MAX_BUS_SENDS: u32 = 0x4;
+/// BUS_SENDS item flags bit 0: muted (the send ramps to 0 and keeps its level; ADR 0344 D29 #7)
+pub const BUS_SEND_MUTED: u32 = 0x1;
 /// BUS_DUCK rule flags bit 0: level mode (reads the trigger bus's buffer; adds a bus-order edge)
 pub const DUCK_FLAG_LEVEL: u32 = 0x1;
 /// BUS_DUCK rule flags bit 1: the detector is RMS rather than peak
@@ -271,6 +279,154 @@ pub const LOUD_FLAG_LOST: u32 = 0x100;
 pub const LOUD_FLAG_GATED: u32 = 0x200;
 /// loudBuses flags bit 10: the true-peak gate is in force
 pub const LOUD_FLAG_TP_GATE_ACTIVE: u32 = 0x400;
+/// binding param bit 15: a global slot (low 15 bits)
+pub const PARAM_GLOBAL: u32 = 0x8000;
+/// binding param bit 14 (bit 15 clear): a time parameter, TIME_* in bits 0-1 (ADR 0346; voices only)
+pub const PARAM_TIME: u32 = 0x4000;
+/// binding param bits 0-1 of a time parameter: which
+pub const PARAM_TIME_MASK: u32 = 0x3;
+/// voiceTime: seconds since the voice started (its start frame; paused time counts)
+pub const TIME_VOICE: u32 = 0x0;
+/// clipTime: the voice's playhead in the clip, in seconds of the clip
+pub const TIME_CLIP: u32 = 0x1;
+/// sequenceTime: the voice's group's sequence clock (TIME re-anchors it)
+pub const TIME_SEQUENCE: u32 = 0x2;
+/// loops a voice's LOOPS program keeps (ADR 0342); extra ones are ignored
+pub const VOICE_LOOPS_MAX: u32 = 0x4;
+/// LOOPS item flags bits 0-1: 0 forward, 1 ping-pong, 2 backward
+pub const LOOP_DIRECTION_MASK: u32 = 0x3;
+/// LOOPS item flags bits 2-3: 0 always, 1 held (until the key-off), 2 parameter
+pub const LOOP_ACTIVE_SHIFT: u32 = 0x2;
+/// LOOPS item flags bits 4-5: 0 finish, 1 jump (through crossfadeFrames), 2 crossfade (exitFadeFrames)
+pub const LOOP_EXIT_SHIFT: u32 = 0x4;
+/// LOOPS item flags bit 6: re-enter (clear: ignore)
+pub const LOOP_REENTER: u32 = 0x40;
+/// LOOPS item flags bit 7: a parameter activation holds while the parameter is below threshold (clear: above)
+pub const LOOP_BELOW: u32 = 0x80;
+/// instance submix slots the core lays out (ADR 0345); SUBMIX voiceId 0..63
+pub const SUBMIXES_MAX: u32 = 0x40;
+/// effects a submix's chain keeps; extra ones are ignored
+pub const SUBMIX_EFFECTS_MAX: u32 = 0x8;
+/// SUBMIX effect type: the catalogue's lowpass; p cutoff Hz, resonance 0..1, drive %
+pub const SUBMIX_FX_LOWPASS: u32 = 0x1;
+/// SUBMIX effect type: the catalogue's highpass; p cutoff Hz, resonance 0..1, drive %
+pub const SUBMIX_FX_HIGHPASS: u32 = 0x2;
+/// SUBMIX effect type: the catalogue's compressor; p threshold dB, ratio, attack ms, release ms, makeup dB, knee dB
+pub const SUBMIX_FX_COMPRESSOR: u32 = 0x3;
+/// effect type: the catalogue's eq; p low, mid, high dB (shelf 250 Hz, peak 1 kHz Q 0.7, shelf 4 kHz; ABI 4.6)
+pub const SUBMIX_FX_EQ: u32 = 0x4;
+/// effect type: the catalogue's bandpass; p centre Hz, resonance 0..1 (Q 0.5..10), drive %
+pub const SUBMIX_FX_BANDPASS: u32 = 0x5;
+/// effect type: the catalogue's saturation; p amount %
+pub const SUBMIX_FX_SATURATION: u32 = 0x6;
+/// effect type: the catalogue's distortion; p drive 0..1, mix %
+pub const SUBMIX_FX_DISTORTION: u32 = 0x7;
+/// effect type: the catalogue's bitcrush; p bits, downsample, mix %
+pub const SUBMIX_FX_BITCRUSH: u32 = 0x8;
+/// effect type: the catalogue's chorus; p rate Hz, depth %, mix %
+pub const SUBMIX_FX_CHORUS: u32 = 0x9;
+/// effect type: the catalogue's delay; p time ms, feedback %, mix %
+pub const SUBMIX_FX_DELAY: u32 = 0xa;
+/// effect type: the catalogue's reverb (an FDN); p size 0..1, decay s, mix %
+pub const SUBMIX_FX_REVERB: u32 = 0xb;
+/// effect type: the catalogue's formantShift; p shift st
+pub const SUBMIX_FX_FORMANT: u32 = 0xc;
+/// effect type: the catalogue's pitchShift (granular); p semitones, cents
+pub const SUBMIX_FX_PITCH: u32 = 0xd;
+/// effect type: the catalogue's limiter (no look-ahead); p ceiling dB, release ms
+pub const SUBMIX_FX_LIMITER: u32 = 0xe;
+/// effect type: the catalogue's sidechainCompressor (buses only); p threshold dB, ratio, release ms, key bus slot
+pub const SUBMIX_FX_SIDECHAIN: u32 = 0xf;
+/// effect type: the catalogue's gain; p gain dB
+pub const SUBMIX_FX_GAIN: u32 = 0x10;
+/// a bus effect type at or above this is a catalogue effect: SUBMIX_FX_* plus 16, p the catalogue's parameters in its order (ABI 4.6)
+pub const BUS_FX_CATALOGUE: u32 = 0x10;
+/// the effect memory region holds this many seconds of stereo audio at the context rate (delay lines, reverbs; ABI 4.6)
+pub const FX_MEMORY_SECONDS: u32 = 0x14;
+/// SUBMIX effect flags bit 0: the effect runs (clear: bypassed, its state kept)
+pub const SUBMIX_FX_ON: u32 = 0x1;
+/// binding target bits 0-7: the kind (0 volume .. 4 pan, AUTO_TARGET_FX, AUTO_TARGET_SEND)
+pub const AUTO_TARGET_KIND_MASK: u32 = 0xff;
+/// binding target kind: an effect parameter of the bus's (BUS_AUTOMATE) or submix's (SUBMIX_AUTOMATE) chain, replaced by the curve's value (ABI 4.8)
+pub const AUTO_TARGET_FX: u32 = 0x5;
+/// binding target kind: a bus's send, the curve's dB added to its level (BUS_AUTOMATE only; ABI 4.8)
+pub const AUTO_TARGET_SEND: u32 = 0x6;
+/// binding target bits 8-15: the effect's slot in the chain (FX), or the receiving bus slot of the send (SEND)
+pub const AUTO_TARGET_SLOT_SHIFT: u32 = 0x8;
+/// binding target bits 16-23: the catalogue parameter's index (FX)
+pub const AUTO_TARGET_PARAM_SHIFT: u32 = 0x10;
+/// binding target bit 24: the curve's value is log2 of the parameter (frequencies interpolate in log scale); the core takes 2^value (FX)
+pub const AUTO_TARGET_LOG: u32 = 0x1000000;
+/// bindings a bus or a submix keeps (BUS_AUTOMATE, SUBMIX_AUTOMATE; ABI 4.8, 8 before)
+pub const BUS_AUTOMATE_MAX_BINDINGS: u32 = 0x10;
+/// bus effect type bits 16-31: bit i set holds catalogue parameter i at its sent value (a snapshot override); automation leaves it (ABI 4.8; 16 bits from 5.0)
+pub const BUS_FX_HELD_SHIFT: u32 = 0x10;
+/// bus effect type bits 0-15: the type
+pub const BUS_FX_TYPE_MASK: u32 = 0xffff;
+/// parameters an effect record carries (BUS_CONFIG, BUS_SLOT, SUBMIX; ABI 5.0, ADR 0352; 7 and 8 before)
+pub const FX_PARAMS: u32 = 0x10;
+/// an effect kind at FX_PLUGIN_BASE + e is registered plugin effect e (0..FX_PLUGINS_MAX-1), run through the myco_ext import (ABI 5.0, ADR 0352); on a bus, BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e
+pub const FX_PLUGIN_BASE: u32 = 0x100;
+/// plugin effects the host may register (e is 0..255)
+pub const FX_PLUGINS_MAX: u32 = 0x100;
+/// each chain level's (the buses', the instance submixes') shared fuel per frame and quantum, across every plugin instance (0358 section 3): a call whose budget doesn't fit what is left passes dry
+pub const FX_PLUGIN_FUEL_PER_FRAME: u32 = 0x1388;
+/// myco_ext.process flags bit 0: a parameter moved this block (or the block is the first)
+pub const FX_PLUGIN_FLAG_PARAMS: u32 = 0x1;
+/// myco_ext.process flags bit 1: the input block is silent
+pub const FX_PLUGIN_FLAG_SILENT: u32 = 0x2;
+/// myco_ext.process flags bit 2: the first block since the slot was configured or RESET: the glue resets the instance first
+pub const FX_PLUGIN_FLAG_RESET: u32 = 0x4;
+/// STATUS fxStarvedOwner bit 15: the owner is a submix slot (low bits), else a bus slot
+pub const FX_STARVED_SUBMIX: u32 = 0x8000;
+/// STATUS fxStarvedOwner: no effect has starved
+pub const FX_STARVED_NONE: u32 = 0xffff;
+/// SUBMIX parent: the slot feeds its bus (else parent - 1 is the slot it feeds; ABI 4.9)
+pub const SUBMIX_PARENT_NONE: u32 = 0x0;
+/// submix levels a chain of parents keeps (ABI 4.9); a slot deeper than this feeds its bus
+pub const SUBMIX_DEPTH_MAX: u32 = 0x8;
+/// LOOPS shapes nibble: equal power (sin in, cos out; the default, ABI 4.9)
+pub const FADE_SHAPE_EQUAL_POWER: u32 = 0x0;
+/// LOOPS shapes nibble: linear
+pub const FADE_SHAPE_LINEAR: u32 = 0x1;
+/// LOOPS shapes nibble: s-curve u^2(3 - 2u)
+pub const FADE_SHAPE_S_CURVE: u32 = 0x2;
+/// LOOPS shapes nibble: inverse s-curve 2u - u^2(3 - 2u)
+pub const FADE_SHAPE_INV_S_CURVE: u32 = 0x3;
+/// LOOPS shapes nibble: log 1 - (1 - u)^1.41
+pub const FADE_SHAPE_LOG1: u32 = 0x4;
+/// LOOPS shapes nibble: log 1 - (1 - u)^2
+pub const FADE_SHAPE_LOG2: u32 = 0x5;
+/// LOOPS shapes nibble: log 1 - (1 - u)^3
+pub const FADE_SHAPE_LOG3: u32 = 0x6;
+/// LOOPS shapes nibble: exp u^1.41
+pub const FADE_SHAPE_EXP1: u32 = 0x7;
+/// LOOPS shapes nibble: exp u^2
+pub const FADE_SHAPE_EXP2: u32 = 0x8;
+/// LOOPS shapes nibble: exp u^3
+pub const FADE_SHAPE_EXP3: u32 = 0x9;
+/// LOOPS item shapes bits 0-3: the seam crossfade's FADE_SHAPE_* (ABI 4.9)
+pub const LOOP_SEAM_SHAPE_SHIFT: u32 = 0x0;
+/// LOOPS item shapes bits 4-7: the exit crossfade's FADE_SHAPE_* (ABI 4.9)
+pub const LOOP_EXIT_SHAPE_SHIFT: u32 = 0x4;
+/// reserved clip ids of generator voices: GEN_CLIP_ID_FIRST + kind (ADR 0360; never uploaded)
+pub const GEN_CLIP_ID_FIRST: u32 = 0xffff0300;
+/// the reserved generator range's last id
+pub const GEN_CLIP_ID_LAST: u32 = 0xffff03ff;
+/// generator kind: oscillator (10 parameters)
+pub const GEN_KIND_OSCILLATOR: u32 = 0x1;
+/// generator kind: two-oscillator synth (25 parameters)
+pub const GEN_KIND_SYNTH: u32 = 0x2;
+/// generator kind: sfxr blip in sfxr's units (24 parameters)
+pub const GEN_KIND_BLIP: u32 = 0x3;
+/// generator kind: silence (2 parameters), always virtual
+pub const GEN_KIND_SILENCE: u32 = 0x4;
+/// parameters a generator kind has at most (GEN mask bits 0-31)
+pub const GEN_PARAMS_MAX: u32 = 0x20;
+/// voice binding target kind (AUTOMATE): a generator parameter, its index in bits 8-15, AUTO_TARGET_LOG for a log2 curve; the curve's value replaces it, glided over the quantum (ABI 5.1; buses read kind 5 as AUTO_TARGET_FX)
+pub const AUTO_TARGET_GEN: u32 = 0x5;
+/// binding target bits 8-15 of an AUTO_TARGET_GEN binding: the parameter's index
+pub const AUTO_TARGET_GEN_PARAM_SHIFT: u32 = 0x8;
 
 /// K2 stub: the export exists but does nothing yet
 pub const ERR_NOT_IMPLEMENTED: i32 = -1;
@@ -350,6 +506,9 @@ pub mod op {
     pub const SET_LOOP: u16 = 0x08;
     pub const AUTOMATE: u16 = 0x09;
     pub const SET_VOICE_FX: u16 = 0x0a;
+    pub const LOOPS: u16 = 0x0b;
+    pub const SUBMIX: u16 = 0x0c;
+    pub const ROUTE: u16 = 0x0d;
     pub const BUS_CONFIG: u16 = 0x10;
     pub const MASTER: u16 = 0x12;
     pub const CURVES: u16 = 0x13;
@@ -362,7 +521,11 @@ pub mod op {
     pub const BUS_PRESENCE: u16 = 0x1a;
     pub const LOUD_CONFIG: u16 = 0x1b;
     pub const BUS_SLOT: u16 = 0x1c;
+    pub const TIME: u16 = 0x1d;
+    pub const BUS_SENDS: u16 = 0x1e;
+    pub const SUBMIX_AUTOMATE: u16 = 0x1f;
     pub const LISTENER: u16 = 0x20;
+    pub const GEN: u16 = 0x21;
     pub const RESET: u16 = 0x30;
 }
 
@@ -380,6 +543,8 @@ pub mod clip_format {
     pub const MAG_LS: u32 = 4;
     /// zone IR PCM: interleaved stereo f32 at the context rate; the core prepares it
     pub const ZONE_IR_PCM: u32 = 5;
+    /// IMA ADPCM blocks (ADR 0351 §3, 0359 §5): channels 1 or 2, ADPCM_BLOCK_FRAMES frames of ADPCM_CHANNEL_BYTES per channel per block; chunks start on a block and carry whole blocks; decoded per voice
+    pub const ADPCM_IMA: u32 = 6;
 }
 
 /// STATUS clipEvents code
@@ -512,6 +677,8 @@ pub mod fade_law {
     pub const EQUAL_POWER_IN: u32 = 2;
     /// equal power, falling
     pub const EQUAL_POWER_OUT: u32 = 3;
+    /// linear in dB (geometric in gain): BUS_RAMP only, ABI 4.8; a ramp to or from 0 is linear; FADE, SET_PARAMS and STOP read it as linear
+    pub const DECIBEL: u32 = 4;
 }
 
 #[inline]
@@ -926,7 +1093,7 @@ pub struct ClipBegin {
     pub channels: u32,
     /// Sample rate in Hz.
     pub sample_rate: f32,
-    /// ClipFormat: 0 f32, 1 i16 (1, 2, 4, 9 or 16 channels), 2 HRIR, 3 prepared zone kernel, 4 MagLS filters, 5 zone IR PCM (formats 3-5: ADR 0162 C6).
+    /// ClipFormat: 0 f32, 1 i16 (1, 2, 4, 9 or 16 channels), 2 HRIR, 3 prepared zone kernel, 4 MagLS filters, 5 zone IR PCM (formats 3-5: ADR 0162 C6), 6 IMA ADPCM blocks (1 or 2 channels; ADR 0351).
     pub format: u32,
 }
 
@@ -975,7 +1142,7 @@ pub struct ClipChunk {
     pub clip_id: u32,
     /// First frame of this chunk within the clip.
     pub frame_offset: u32,
-    /// Sample frames in this chunk.
+    /// Sample frames in this chunk (format 6: whole blocks of ADPCM_BLOCK_FRAMES from a block start, the last chunk ending at the clip's frames).
     pub frames: u32,
     /// Reserved; 0.
     pub reserved: u32,
@@ -2075,16 +2242,18 @@ impl SetLoop {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AutomateBindings {
-    /// bit15 set: global slot (low 15 bits); clear: local slot of the voice's group
+    /// bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0346); both clear: local slot of the voice's group
     pub param: u16,
     /// curve id (CURVES)
     pub curve: u16,
-    /// 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz)
+    /// 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4), AUTO_TARGET_GEN a generator voice's parameter (its index in bits 8-15, AUTO_TARGET_LOG for a log2 curve; ABI 5.1)
     pub target: u32,
+    /// ABI 4.9: seconds added to a time parameter before the curve reads it (the binding's time origin: a lane keyed on its playlist's start, read by a voice that started later, is `start - origin`); ignored for other params
+    pub offset: f32,
 }
 
 impl AutomateBindings {
-    pub const FIXED_END: usize = 8;
+    pub const FIXED_END: usize = 12;
     pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
         if base + Self::FIXED_END > out.len() {
             return Err(ERR_OVERSIZE);
@@ -2092,6 +2261,7 @@ impl AutomateBindings {
         put_u16(out, base + 0, self.param);
         put_u16(out, base + 2, self.curve);
         put_u32(out, base + 4, self.target);
+        put_f32(out, base + 8, self.offset);
         let mut cur = base + Self::FIXED_END;
         Ok(cur - base)
     }
@@ -2106,11 +2276,13 @@ impl AutomateBindings {
         let param = get_u16(buf, base + 0);
         let curve = get_u16(buf, base + 2);
         let target = get_u32(buf, base + 4);
+        let offset = get_f32(buf, base + 8);
         let mut cur = base + Self::FIXED_END;
         Ok((Self {
             param,
             curve,
             target,
+            offset,
         }, cur - base))
     }
 }
@@ -2164,7 +2336,7 @@ impl Automate {
         let binding_count = get_u32(buf, base + 12);
         let mut cur = base + Self::FIXED_END;
         let count = binding_count as usize;
-        if count.checked_mul(8).map_or(true, |n| n > limit - cur) {
+        if count.checked_mul(12).map_or(true, |n| n > limit - cur) {
             return Err(ERR_TRUNCATED);
         }
         let mut bindings = Vec::with_capacity(count);
@@ -2193,7 +2365,9 @@ pub const SET_VOICE_FX_MASK_SENDS: u32 = 0x2;
 pub const SET_VOICE_FX_MASK_YAW: u32 = 0x4;
 /// auxLevel and auxBus
 pub const SET_VOICE_FX_MASK_AUX: u32 = 0x8;
-/// a mixed voice's high-pass, zone sends, ambisonic yaw and aux send (ADR 0162 C3); stamped like SET_PARAMS
+/// spread (ADR 0347, ABI 4.11)
+pub const SET_VOICE_FX_MASK_SPREAD: u32 = 0x10;
+/// a mixed voice's high-pass, zone sends, ambisonic yaw, aux send and spread (ADR 0162 C3, ADR 0347); stamped like SET_PARAMS
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SetVoiceFx {
     pub voice_id: u32,
@@ -2210,7 +2384,8 @@ pub struct SetVoiceFx {
     pub aux_level: f32,
     /// aux send's bus; 0xFFFF (AUX_BUS_NONE) is none
     pub aux_bus: u16,
-    pub reserved: u16,
+    /// ADR 0347 (ABI 4.11): a spatial voice's spread in hundredths of a degree, 0..36000 (0 a point source, 36000 all round); ramped over rampFrames
+    pub spread: u16,
 }
 
 impl SetVoiceFx {
@@ -2227,7 +2402,7 @@ impl SetVoiceFx {
         put_f32(out, base + 40, self.yaw);
         put_f32(out, base + 44, self.aux_level);
         put_u16(out, base + 48, self.aux_bus);
-        put_u16(out, base + 50, self.reserved);
+        put_u16(out, base + 50, self.spread);
         let mut cur = base + Self::FIXED_END;
         let total = cur - base;
         if total % 4 != 0 || total / 4 > u16::MAX as usize {
@@ -2262,7 +2437,7 @@ impl SetVoiceFx {
         let yaw = get_f32(buf, base + 40);
         let aux_level = get_f32(buf, base + 44);
         let aux_bus = get_u16(buf, base + 48);
-        let reserved = get_u16(buf, base + 50);
+        let spread = get_u16(buf, base + 50);
         let mut cur = base + Self::FIXED_END;
         if cur > limit {
             return Err(ERR_MALFORMED);
@@ -2278,27 +2453,172 @@ impl SetVoiceFx {
             yaw,
             aux_level,
             aux_bus,
-            reserved,
+            spread,
         }, cur - base))
     }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct BusConfigBusesEffects {
-    /// 0 lowpass, 1 highpass, 2 compressor, 3 reverb send
-    pub type_: u32,
-    /// parameters; q in dB; unused p = 0
-    pub p: [f32; 7],
+pub struct LoopsLoops {
+    /// clip frames
+    pub start_frame: u32,
+    /// clip frames; equal to startFrame: a hold point
+    pub end_frame: u32,
+    /// the seam's crossfade (and a hold point's fades), clip frames; shaped by `shapes` bits 0-3
+    pub crossfade_frames: u32,
+    /// exit crossfade's length, clip frames; shaped by `shapes` bits 4-7
+    pub exit_fade_frames: u32,
+    /// 0 endless; else passes in all, the first included
+    pub count: u16,
+    /// LOOP_* direction, activation, exit, re-entry and comparison
+    pub flags: u16,
+    /// activation parameter: a binding param (PARAM_GLOBAL | slot, or a local slot)
+    pub param: u16,
+    /// ABI 4.9: FADE_SHAPE_* of the seam (bits 0-3) and exit (bits 4-7) crossfades; 0 equal power
+    pub shapes: u16,
+    /// activation threshold
+    pub threshold: f32,
 }
 
-impl BusConfigBusesEffects {
-    pub const FIXED_END: usize = 32;
+impl LoopsLoops {
+    pub const FIXED_END: usize = 28;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 0, self.start_frame);
+        put_u32(out, base + 4, self.end_frame);
+        put_u32(out, base + 8, self.crossfade_frames);
+        put_u32(out, base + 12, self.exit_fade_frames);
+        put_u16(out, base + 16, self.count);
+        put_u16(out, base + 18, self.flags);
+        put_u16(out, base + 20, self.param);
+        put_u16(out, base + 22, self.shapes);
+        put_f32(out, base + 24, self.threshold);
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let start_frame = get_u32(buf, base + 0);
+        let end_frame = get_u32(buf, base + 4);
+        let crossfade_frames = get_u32(buf, base + 8);
+        let exit_fade_frames = get_u32(buf, base + 12);
+        let count = get_u16(buf, base + 16);
+        let flags = get_u16(buf, base + 18);
+        let param = get_u16(buf, base + 20);
+        let shapes = get_u16(buf, base + 22);
+        let threshold = get_f32(buf, base + 24);
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            start_frame,
+            end_frame,
+            crossfade_frames,
+            exit_fade_frames,
+            count,
+            flags,
+            param,
+            shapes,
+            threshold,
+        }, cur - base))
+    }
+}
+
+/// replace a clip voice's loop program (ADR 0342); count 0 clears it
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Loops {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    pub loops: Vec<LoopsLoops>,
+}
+
+impl Loops {
+    pub const FIXED_END: usize = 16;
+    pub const OPCODE: u16 = 11; // LOOPS
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 12, u32::try_from(self.loops.len()).map_err(|_| ERR_OVERSIZE)?);
+        let mut cur = base + Self::FIXED_END;
+        for item in &self.loops {
+            cur += item.write(out, cur)?;
+        }
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let loop_count = get_u32(buf, base + 12);
+        let mut cur = base + Self::FIXED_END;
+        let count = loop_count as usize;
+        if count.checked_mul(28).map_or(true, |n| n > limit - cur) {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut loops = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (item, n) = LoopsLoops::read_to(buf, cur, limit)?;
+            cur += n;
+            loops.push(item);
+        }
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            loops,
+        }, cur - base))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SubmixEffects {
+    /// SUBMIX_FX_*, or FX_PLUGIN_BASE + e for registered plugin effect e (ABI 5.0); a type the core doesn't know passes the signal through
+    pub type_: u32,
+    /// SUBMIX_FX_ON
+    pub flags: u32,
+    /// the catalogue's (or the plugin's declared) parameters in order; unused p = 0 (16 from ABI 5.0)
+    pub p: [f32; 16],
+}
+
+impl SubmixEffects {
+    pub const FIXED_END: usize = 72;
     pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
         if base + Self::FIXED_END > out.len() {
             return Err(ERR_OVERSIZE);
         }
         put_u32(out, base + 0, self.type_);
-        for i in 0..7 { put_f32(out, base + 4 + i * 4, self.p[i]); }
+        put_u32(out, base + 4, self.flags);
+        for i in 0..16 { put_f32(out, base + 8 + i * 4, self.p[i]); }
         let mut cur = base + Self::FIXED_END;
         Ok(cur - base)
     }
@@ -2311,7 +2631,197 @@ impl BusConfigBusesEffects {
             return Err(ERR_TRUNCATED);
         }
         let type_ = get_u32(buf, base + 0);
-        let p = { let mut a = [0 as f32; 7]; for i in 0..7 { a[i] = get_f32(buf, base + 4 + i * 4); } a };
+        let flags = get_u32(buf, base + 4);
+        let p = { let mut a = [0 as f32; 16]; for i in 0..16 { a[i] = get_f32(buf, base + 8 + i * 4); } a };
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            type_,
+            flags,
+            p,
+        }, cur - base))
+    }
+}
+
+/// configure a submix's group, bus, parent and insert chain (ADR 0345); no effects frees it
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Submix {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    /// the instance group 1..=1024 whose voices on `bus` route here; 0 none (ROUTE only)
+    pub group: u16,
+    /// the output bus index
+    pub bus: u16,
+    /// ABI 4.9: the slot this one feeds, plus 1; SUBMIX_PARENT_NONE (0) the bus
+    pub parent: u16,
+    pub reserved: u16,
+    pub effects: Vec<SubmixEffects>,
+}
+
+impl Submix {
+    pub const FIXED_END: usize = 24;
+    pub const OPCODE: u16 = 12; // SUBMIX
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 12, self.group);
+        put_u16(out, base + 14, self.bus);
+        put_u32(out, base + 16, u32::try_from(self.effects.len()).map_err(|_| ERR_OVERSIZE)?);
+        put_u16(out, base + 20, self.parent);
+        put_u16(out, base + 22, self.reserved);
+        let mut cur = base + Self::FIXED_END;
+        for item in &self.effects {
+            cur += item.write(out, cur)?;
+        }
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let group = get_u16(buf, base + 12);
+        let bus = get_u16(buf, base + 14);
+        let effect_count = get_u32(buf, base + 16);
+        let parent = get_u16(buf, base + 20);
+        let reserved = get_u16(buf, base + 22);
+        let mut cur = base + Self::FIXED_END;
+        let count = effect_count as usize;
+        if count.checked_mul(72).map_or(true, |n| n > limit - cur) {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut effects = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (item, n) = SubmixEffects::read_to(buf, cur, limit)?;
+            cur += n;
+            effects.push(item);
+        }
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            group,
+            bus,
+            parent,
+            reserved,
+            effects,
+        }, cur - base))
+    }
+}
+
+/// route a voice into a submix slot (ADR 0345 levels)
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Route {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    /// the submix slot plus 1; 0 the group's route
+    pub submix: u16,
+    pub reserved: u16,
+}
+
+impl Route {
+    pub const FIXED_END: usize = 16;
+    pub const OPCODE: u16 = 13; // ROUTE
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 12, self.submix);
+        put_u16(out, base + 14, self.reserved);
+        let mut cur = base + Self::FIXED_END;
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let submix = get_u16(buf, base + 12);
+        let reserved = get_u16(buf, base + 14);
+        let mut cur = base + Self::FIXED_END;
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            submix,
+            reserved,
+        }, cur - base))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BusConfigBusesEffects {
+    /// bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e registered plugin effect e (ABI 5.0); bits 16-31: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8; 16 bits from 5.0)
+    pub type_: u32,
+    /// parameters; q in dB; unused p = 0 (16 from ABI 5.0)
+    pub p: [f32; 16],
+}
+
+impl BusConfigBusesEffects {
+    pub const FIXED_END: usize = 68;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 0, self.type_);
+        for i in 0..16 { put_f32(out, base + 4 + i * 4, self.p[i]); }
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let type_ = get_u32(buf, base + 0);
+        let p = { let mut a = [0 as f32; 16]; for i in 0..16 { a[i] = get_f32(buf, base + 4 + i * 4); } a };
         let mut cur = base + Self::FIXED_END;
         Ok((Self {
             type_,
@@ -2353,7 +2863,7 @@ impl BusConfigBuses {
         let effect_count = get_u16(buf, base + 2);
         let mut cur = base + Self::FIXED_END;
         let count = effect_count as usize;
-        if count.checked_mul(32).map_or(true, |n| n > limit - cur) {
+        if count.checked_mul(68).map_or(true, |n| n > limit - cur) {
             return Err(ERR_TRUNCATED);
         }
         let mut effects = Vec::with_capacity(count);
@@ -2508,12 +3018,20 @@ impl Master {
 pub struct CurvesCurvesKeys {
     pub x: f32,
     pub y: f32,
-    /// shape to the next key: 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut
+    /// shape to the next key: 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut, 5 bezier
     pub interp: u32,
+    /// bezier: the in handle's offset from the key (x); 0 otherwise
+    pub in_dx: f32,
+    /// bezier: the in handle's offset from the key (y); 0 otherwise
+    pub in_dy: f32,
+    /// bezier: the out handle's offset from the key (x); 0 otherwise
+    pub out_dx: f32,
+    /// bezier: the out handle's offset from the key (y); 0 otherwise
+    pub out_dy: f32,
 }
 
 impl CurvesCurvesKeys {
-    pub const FIXED_END: usize = 12;
+    pub const FIXED_END: usize = 28;
     pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
         if base + Self::FIXED_END > out.len() {
             return Err(ERR_OVERSIZE);
@@ -2521,6 +3039,10 @@ impl CurvesCurvesKeys {
         put_f32(out, base + 0, self.x);
         put_f32(out, base + 4, self.y);
         put_u32(out, base + 8, self.interp);
+        put_f32(out, base + 12, self.in_dx);
+        put_f32(out, base + 16, self.in_dy);
+        put_f32(out, base + 20, self.out_dx);
+        put_f32(out, base + 24, self.out_dy);
         let mut cur = base + Self::FIXED_END;
         Ok(cur - base)
     }
@@ -2535,11 +3057,19 @@ impl CurvesCurvesKeys {
         let x = get_f32(buf, base + 0);
         let y = get_f32(buf, base + 4);
         let interp = get_u32(buf, base + 8);
+        let in_dx = get_f32(buf, base + 12);
+        let in_dy = get_f32(buf, base + 16);
+        let out_dx = get_f32(buf, base + 20);
+        let out_dy = get_f32(buf, base + 24);
         let mut cur = base + Self::FIXED_END;
         Ok((Self {
             x,
             y,
             interp,
+            in_dx,
+            in_dy,
+            out_dx,
+            out_dy,
         }, cur - base))
     }
 }
@@ -2576,7 +3106,7 @@ impl CurvesCurves {
         let reserved = get_u16(buf, base + 2);
         let mut cur = base + Self::FIXED_END;
         let count = key_count as usize;
-        if count.checked_mul(12).map_or(true, |n| n > limit - cur) {
+        if count.checked_mul(28).map_or(true, |n| n > limit - cur) {
             return Err(ERR_TRUNCATED);
         }
         let mut keys = Vec::with_capacity(count);
@@ -2592,7 +3122,7 @@ impl CurvesCurves {
     }
 }
 
-/// define or overwrite curves firstCurve.. (ADR 0158 §3); 1024 curves of at most 32 keys
+/// define or overwrite curves firstCurve.. (ADR 0158 §3, 0346); 1024 curves of at most 64 keys
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Curves {
     pub voice_id: u32,
@@ -2740,11 +3270,11 @@ impl Param {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BusAutomateBindings {
-    /// bit15 set: global slot (low 15 bits); clear: local slot of the voice's group
+    /// bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0346); both clear: local slot of the voice's group
     pub param: u16,
     /// curve id (CURVES)
     pub curve: u16,
-    /// 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz)
+    /// bits 0-7: 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4), AUTO_TARGET_FX and AUTO_TARGET_SEND (buses and submixes, ABI 4.8; their slot, parameter and log flag in the upper bits)
     pub target: u32,
 }
 
@@ -3100,7 +3630,7 @@ impl ZoneConfig {
 pub const BUS_RAMP_MASK_GAIN: u16 = 0x1;
 /// the lpHz target (lane 2 only: the snapshot low-pass)
 pub const BUS_RAMP_MASK_LP_HZ: u16 = 0x2;
-/// 0 linear (FadeLaw); only linear in M5
+/// 0 linear, 4 decibel (FadeLaw; ABI 4.8: linear in dB, a ramp to or from 0 linear); other laws read as linear
 pub const BUS_RAMP_SHAPE_LAW_SHIFT: u32 = 0;
 pub const BUS_RAMP_SHAPE_LAW_MASK: u32 = 0x7;
 /// the structural sequence this record belongs to; 0 = none (C27)
@@ -3505,20 +4035,20 @@ pub const BUS_SLOT_FLAGS_STRUCTURAL: u16 = 0x1;
 pub const BUS_SLOT_FLAGS_FRESH: u16 = 0x2;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BusSlotEffects {
-    /// 0 lowpass, 1 highpass, 2 compressor, 3 reverb send
+    /// bits 0-15: 0 lowpass, 1 highpass, 2 compressor, 3 reverb send; BUS_FX_CATALOGUE + SUBMIX_FX_* a catalogue effect (ABI 4.6); BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e registered plugin effect e (ABI 5.0); bits 16-31: BUS_FX_HELD_SHIFT, the catalogue parameters automation leaves alone (ABI 4.8; 16 bits from 5.0)
     pub type_: u32,
-    /// parameters; q in dB; unused p = 0
-    pub p: [f32; 7],
+    /// parameters; q in dB; unused p = 0 (16 from ABI 5.0)
+    pub p: [f32; 16],
 }
 
 impl BusSlotEffects {
-    pub const FIXED_END: usize = 32;
+    pub const FIXED_END: usize = 68;
     pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
         if base + Self::FIXED_END > out.len() {
             return Err(ERR_OVERSIZE);
         }
         put_u32(out, base + 0, self.type_);
-        for i in 0..7 { put_f32(out, base + 4 + i * 4, self.p[i]); }
+        for i in 0..16 { put_f32(out, base + 4 + i * 4, self.p[i]); }
         let mut cur = base + Self::FIXED_END;
         Ok(cur - base)
     }
@@ -3531,7 +4061,7 @@ impl BusSlotEffects {
             return Err(ERR_TRUNCATED);
         }
         let type_ = get_u32(buf, base + 0);
-        let p = { let mut a = [0 as f32; 7]; for i in 0..7 { a[i] = get_f32(buf, base + 4 + i * 4); } a };
+        let p = { let mut a = [0 as f32; 16]; for i in 0..16 { a[i] = get_f32(buf, base + 4 + i * 4); } a };
         let mut cur = base + Self::FIXED_END;
         Ok((Self {
             type_,
@@ -3611,7 +4141,7 @@ impl BusSlot {
         let effect_count = get_u16(buf, base + 26);
         let mut cur = base + Self::FIXED_END;
         let count = effect_count as usize;
-        if count.checked_mul(32).map_or(true, |n| n > limit - cur) {
+        if count.checked_mul(68).map_or(true, |n| n > limit - cur) {
             return Err(ERR_TRUNCATED);
         }
         let mut effects = Vec::with_capacity(count);
@@ -3634,6 +4164,314 @@ impl BusSlot {
             reserved2,
             parent,
             effects,
+        }, cur - base))
+    }
+}
+
+/// re-anchor a group's sequence clock (ADR 0346); stamped
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Time {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    /// 0 the global clock, else the instance group 1..=1024
+    pub group: u16,
+    /// the clock: TIME_SEQUENCE (2); any other value is ignored (reserved)
+    pub which: u16,
+    /// seconds at the anchor
+    pub value: f32,
+    /// seconds per second from the anchor; 0 parks
+    pub rate: f32,
+}
+
+impl Time {
+    pub const FIXED_END: usize = 24;
+    pub const OPCODE: u16 = 29; // TIME
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 12, self.group);
+        put_u16(out, base + 14, self.which);
+        put_f32(out, base + 16, self.value);
+        put_f32(out, base + 20, self.rate);
+        let mut cur = base + Self::FIXED_END;
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let group = get_u16(buf, base + 12);
+        let which = get_u16(buf, base + 14);
+        let value = get_f32(buf, base + 16);
+        let rate = get_f32(buf, base + 20);
+        let mut cur = base + Self::FIXED_END;
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            group,
+            which,
+            value,
+            rate,
+        }, cur - base))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BusSendsSends {
+    /// the receiving bus slot (a return)
+    pub to: u16,
+    /// BUS_SEND_MUTED
+    pub flags: u16,
+    /// linear gain, 0..4; a non-finite value is 0
+    pub level: f32,
+    /// ramp to the level (or to 0 when muted) over this many frames; 0 a step
+    pub frames: u32,
+}
+
+impl BusSendsSends {
+    pub const FIXED_END: usize = 12;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 0, self.to);
+        put_u16(out, base + 2, self.flags);
+        put_f32(out, base + 4, self.level);
+        put_u32(out, base + 8, self.frames);
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let to = get_u16(buf, base + 0);
+        let flags = get_u16(buf, base + 2);
+        let level = get_f32(buf, base + 4);
+        let frames = get_u32(buf, base + 8);
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            to,
+            flags,
+            level,
+            frames,
+        }, cur - base))
+    }
+}
+
+/// replace one bus's post-fader sends into returns (voiceId = bus slot); asap (ADR 0344)
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BusSends {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    pub sends: Vec<BusSendsSends>,
+}
+
+impl BusSends {
+    pub const FIXED_END: usize = 16;
+    pub const OPCODE: u16 = 30; // BUS_SENDS
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        if self.sends.len() > 4 {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 12, u32::try_from(self.sends.len()).map_err(|_| ERR_OVERSIZE)?);
+        let mut cur = base + Self::FIXED_END;
+        for item in &self.sends {
+            cur += item.write(out, cur)?;
+        }
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let send_count = get_u32(buf, base + 12);
+        let mut cur = base + Self::FIXED_END;
+        if send_count as usize > 4 {
+            return Err(ERR_MALFORMED);
+        }
+        let count = send_count as usize;
+        if count.checked_mul(12).map_or(true, |n| n > limit - cur) {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut sends = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (item, n) = BusSendsSends::read_to(buf, cur, limit)?;
+            cur += n;
+            sends.push(item);
+        }
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            sends,
+        }, cur - base))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SubmixAutomateBindings {
+    /// bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0346); both clear: local slot of the voice's group
+    pub param: u16,
+    /// curve id (CURVES)
+    pub curve: u16,
+    /// bits 0-7: 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4), AUTO_TARGET_FX and AUTO_TARGET_SEND (buses and submixes, ABI 4.8; their slot, parameter and log flag in the upper bits)
+    pub target: u32,
+}
+
+impl SubmixAutomateBindings {
+    pub const FIXED_END: usize = 8;
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + 0, self.param);
+        put_u16(out, base + 2, self.curve);
+        put_u32(out, base + 4, self.target);
+        let mut cur = base + Self::FIXED_END;
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let limit = buf.len();
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let param = get_u16(buf, base + 0);
+        let curve = get_u16(buf, base + 2);
+        let target = get_u32(buf, base + 4);
+        let mut cur = base + Self::FIXED_END;
+        Ok((Self {
+            param,
+            curve,
+            target,
+        }, cur - base))
+    }
+}
+
+/// replace an instance submix's effect-parameter automation (ADR 0345, ABI 4.8); count 0 clears it
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SubmixAutomate {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    pub bindings: Vec<SubmixAutomateBindings>,
+}
+
+impl SubmixAutomate {
+    pub const FIXED_END: usize = 16;
+    pub const OPCODE: u16 = 31; // SUBMIX_AUTOMATE
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 12, u32::try_from(self.bindings.len()).map_err(|_| ERR_OVERSIZE)?);
+        let mut cur = base + Self::FIXED_END;
+        for item in &self.bindings {
+            cur += item.write(out, cur)?;
+        }
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let binding_count = get_u32(buf, base + 12);
+        let mut cur = base + Self::FIXED_END;
+        let count = binding_count as usize;
+        if count.checked_mul(8).map_or(true, |n| n > limit - cur) {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut bindings = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (item, n) = SubmixAutomateBindings::read_to(buf, cur, limit)?;
+            cur += n;
+            bindings.push(item);
+        }
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            bindings,
         }, cur - base))
     }
 }
@@ -3715,6 +4553,103 @@ impl Listener {
             qw,
             ramp_frames,
             flags,
+        }, cur - base))
+    }
+}
+
+/// a generator voice's parameters and noise seed (ADR 0360, ABI 5.1); applies on arrival
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Gen {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    /// bit i: parameter i is in `values`
+    pub mask: u32,
+    /// the noise generator's seed (xorshift32, also the synth LFO's sample-and-hold); 0 keeps the voice's seed
+    pub seed: u32,
+    /// glide of the changed smooth parameters; 0 steps
+    pub ramp_frames: u32,
+    /// the masked parameters' values in bit order, each in its own units (Hz, ms, dB, %, sfxr's units, a choice's index); clamped by the core
+    pub values: Vec<f32>,
+}
+
+impl Gen {
+    pub const FIXED_END: usize = 28;
+    pub const OPCODE: u16 = 33; // GEN
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 12, self.mask);
+        put_u32(out, base + 16, self.seed);
+        put_u32(out, base + 20, self.ramp_frames);
+        if self.values.len() > 32 {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 24, u32::try_from(self.values.len()).map_err(|_| ERR_OVERSIZE)?);
+        let mut cur = base + Self::FIXED_END;
+        let padded = (self.values.len() * 4 + 3) & !3;
+        if cur + padded > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        for (i, v) in self.values.iter().enumerate() {
+            put_f32(out, cur + i * 4, *v);
+        }
+        out[cur + self.values.len() * 4..cur + padded].fill(0);
+        cur += padded;
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let mask = get_u32(buf, base + 12);
+        let seed = get_u32(buf, base + 16);
+        let ramp_frames = get_u32(buf, base + 20);
+        let value_count = get_u32(buf, base + 24);
+        let mut cur = base + Self::FIXED_END;
+        if value_count as usize > 32 {
+            return Err(ERR_MALFORMED);
+        }
+        let padded = (value_count as usize).checked_mul(4).and_then(|n| n.checked_add(3)).map(|n| n & !3).ok_or(ERR_TRUNCATED)?;
+        if padded > limit - cur {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut values = Vec::with_capacity(value_count as usize);
+        for i in 0..value_count as usize {
+            values.push(get_f32(buf, cur + i * 4));
+        }
+        cur += padded;
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            mask,
+            seed,
+            ramp_frames,
+            values,
         }, cur - base))
     }
 }
@@ -4312,8 +5247,10 @@ pub struct StatusBlock {
     pub split_quanta: u32,
     /// voice-local splits (cumulative; R3)
     pub voice_splits: u32,
-    /// reserved, 0
-    pub reserved: u32,
+    /// effects that asked for effect memory and got none, so pass their signal through (cumulative, saturating; ABI 4.8)
+    pub fx_starved: u16,
+    /// the owner of the last starved effect: a bus slot, or FX_STARVED_SUBMIX | a submix slot; FX_STARVED_NONE before any (ABI 4.8)
+    pub fx_starved_owner: u16,
     /// sum of Date.now() deltas around process(), ms, since the driver started (shell)
     pub busy_ms_total: f64,
     /// quanta processed since the driver started (shell)
@@ -4340,8 +5277,10 @@ pub struct StatusBlock {
     pub bus_records_early: u16,
     /// late sidechain detections (cumulative, saturating)
     pub sidechain_late: u16,
+    /// generator voices that found the generator pool full and play silent (cumulative, saturating; ADR 0360, ABI 5.1)
+    pub gen_starved: u16,
     /// reserved, 0
-    pub reserved2: u32,
+    pub reserved2: u16,
     /// voices that ended in this block
     /// At most 1024 per block.
     pub ended: Vec<u32>,
@@ -4484,7 +5423,8 @@ impl StatusBlock {
         put_u32(out, base + 160, self.max_slip_frames);
         put_u32(out, base + 164, self.split_quanta);
         put_u32(out, base + 168, self.voice_splits);
-        put_u32(out, base + 172, self.reserved);
+        put_u16(out, base + 172, self.fx_starved);
+        put_u16(out, base + 174, self.fx_starved_owner);
         put_f64(out, base + 176, self.busy_ms_total);
         put_f64(out, base + 184, self.quanta_total);
         put_f64(out, base + 192, self.wu_voices);
@@ -4510,7 +5450,8 @@ impl StatusBlock {
         put_u16(out, base + 246, self.loud_shed);
         put_u16(out, base + 248, self.bus_records_early);
         put_u16(out, base + 250, self.sidechain_late);
-        put_u32(out, base + 252, self.reserved2);
+        put_u16(out, base + 252, self.gen_starved);
+        put_u16(out, base + 254, self.reserved2);
         let mut cur = base + 256;
         if cur + self.ended.len() * 4 > out.len() {
             return Err(ERR_OVERSIZE);
@@ -4689,7 +5630,8 @@ impl StatusBlock {
         let max_slip_frames = get_u32(buf, base + 160);
         let split_quanta = get_u32(buf, base + 164);
         let voice_splits = get_u32(buf, base + 168);
-        let reserved = get_u32(buf, base + 172);
+        let fx_starved = get_u16(buf, base + 172);
+        let fx_starved_owner = get_u16(buf, base + 174);
         let busy_ms_total = get_f64(buf, base + 176);
         let quanta_total = get_f64(buf, base + 184);
         let wu_voices = get_f64(buf, base + 192);
@@ -4706,7 +5648,8 @@ impl StatusBlock {
         let loud_shed = get_u16(buf, base + 246);
         let bus_records_early = get_u16(buf, base + 248);
         let sidechain_late = get_u16(buf, base + 250);
-        let reserved2 = get_u32(buf, base + 252);
+        let gen_starved = get_u16(buf, base + 252);
+        let reserved2 = get_u16(buf, base + 254);
         let mut cur = base + 256;
         if ended_count as usize > 1024 || (ended_count as usize) * 4 > limit - cur {
             return Err(ERR_OVERSIZE);
@@ -4881,7 +5824,8 @@ impl StatusBlock {
             max_slip_frames,
             split_quanta,
             voice_splits,
-            reserved,
+            fx_starved,
+            fx_starved_owner,
             busy_ms_total,
             quanta_total,
             wu_voices,
@@ -4895,6 +5839,7 @@ impl StatusBlock {
             loud_shed,
             bus_records_early,
             sidechain_late,
+            gen_starved,
             reserved2,
             ended,
             demoted,

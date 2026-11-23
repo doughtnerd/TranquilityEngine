@@ -1,6 +1,6 @@
 [package]
 name = "anim-compress"
-description = "Myco animation core (ADR 0350, 0351): the clip compressor (uniform sampling, range reduction, per-track bit rates against an error bound)."
+description = "Myco animation core (ADR 0370, 0371): the clip compressor (uniform sampling, range reduction, per-track bit rates against an error bound)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
