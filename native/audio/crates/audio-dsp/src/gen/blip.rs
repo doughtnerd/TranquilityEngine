@@ -157,13 +157,13 @@ fn whole_period(rfperiod: f64) -> f64 {
     (rfperiod as i64).max(8) as f64
 }
 
-/// A block's second pass: `o[i] = (x[i] + y[i]) × e[i] × (g0 + dg × (base + i + 1))`, where `e[i]` is the envelope and
+/// A block's second pass, in place: `x[i] ← (x[i] + y[i]) × e[i] × (g0 + dg × (base + i + 1))`, where `e[i]` is the envelope and
 /// `y[i]` the phaser's delayed sample `d[i] + (d[i + 1] − d[i]) × frac` or, with no phaser, `x[i]` (sfxr's doubling). Four
 /// lanes at a time on wasm with simd128 (lane for lane the same IEEE arithmetic as the scalar form, so both give the same
 /// samples).
 #[inline(always)]
-fn finish(o: &mut [f32], x: &[f32], e: &[f32], phaser: Option<(&[f32], f32)>, g0: f32, dg: f32, base: usize) {
-    let k = o.len().min(x.len()).min(e.len());
+fn finish(x: &mut [f32], e: &[f32], phaser: Option<(&[f32], f32)>, g0: f32, dg: f32, base: usize) {
+    let k = x.len().min(e.len());
     let k = match phaser {
         Some((d, _)) => k.min(d.len().saturating_sub(1)),
         None => k,
@@ -187,7 +187,7 @@ fn finish(o: &mut [f32], x: &[f32], e: &[f32], phaser: Option<(&[f32], f32)>, g0
                 None => xv,
             };
             let g = f32x4_add(g0v, f32x4_mul(dgv, f32x4_convert_u32x4(u32x4_add(u32x4_splat((base + i) as u32), one))));
-            unsafe { v128_store(o.as_mut_ptr().add(i) as *mut v128, f32x4_mul(f32x4_mul(f32x4_add(xv, y), lanes(e, i)), g)) };
+            unsafe { v128_store(x.as_mut_ptr().add(i) as *mut v128, f32x4_mul(f32x4_mul(f32x4_add(xv, y), lanes(e, i)), g)) };
             i += 4;
         }
     }
@@ -195,12 +195,12 @@ fn finish(o: &mut [f32], x: &[f32], e: &[f32], phaser: Option<(&[f32], f32)>, g0
     match phaser {
         Some((d, frac)) => {
             for i in i..k {
-                o[i] = (x[i] + (d[i] + (d[i + 1] - d[i]) * frac)) * e[i] * g(i);
+                x[i] = (x[i] + (d[i] + (d[i + 1] - d[i]) * frac)) * e[i] * g(i);
             }
         }
         None => {
             for i in i..k {
-                o[i] = (x[i] + x[i]) * e[i] * g(i);
+                x[i] = (x[i] + x[i]) * e[i] * g(i);
             }
         }
     }
@@ -383,9 +383,17 @@ impl Blip {
     }
 
     /// The tick on which the countdown ran out: the counters catch up, then this tick's repeat, arpeggio, frequency limit
-    /// (when no slide checks it every tick) and envelope stage, in sfxr's order. `t.env_time` is already this tick's.
+    /// (when no slide checks it every tick) and envelope stage, in sfxr's order. `t.env_time` is already this tick's. Out
+    /// of line and by value (rare, and the hot loop keeps its copy of the state in locals).
+    #[cold]
+    #[inline(never)]
+    fn events(&self, mut t: Ticks, mut playing: u8) -> (Ticks, u8) {
+        self.events_in(&mut t, &mut playing);
+        (t, playing)
+    }
+
     #[inline(always)]
-    fn events(&self, t: &mut Ticks, playing: &mut u8) {
+    fn events_in(&self, t: &mut Ticks, playing: &mut u8) {
         let quiet = t.span - 1;
         t.rep_time += quiet;
         t.arp_time += quiet;
@@ -426,7 +434,7 @@ impl Blip {
         t.left -= 1;
         if t.left == 0 {
             core::hint::cold_path();
-            self.events(t, playing);
+            (*t, *playing) = self.events(*t, *playing);
         }
         if self.moving != 0 {
             t.fslide += self.fdslide;
@@ -515,12 +523,12 @@ impl Blip {
         }
     }
 
-    /// Samples `from..n` of waveform `W` into `out` (gain `g0` ramping by `dg` a sample): the ticks, the oscillator, the
-    /// filters, the phaser and the envelope, fused. No ticks before sample `from` when `fresh` (a re-trigger just reset
-    /// the clock there). Stops at a sample whose ticks ended the blip: returns it and `true`.
+    /// Samples `from..n` of waveform `W` (with the low-pass when `LP`): the ticks, the oscillator and the filters, fused,
+    /// into `out` (before the phaser), and the envelope's level into `eb`. No ticks before sample `from` when `fresh` (a
+    /// re-trigger just reset the clock there). Stops at a sample whose ticks ended the blip: returns it and `true`.
     #[allow(clippy::too_many_arguments)]
     #[inline(always)]
-    fn run<const W: u8, const LP: bool>(&mut self, from: usize, n: usize, steps: &[f32], out: &mut [f32], g0: f32, dg: f32, rate: f32, fresh: bool, noise: &mut u32) -> (usize, bool) {
+    fn run<const W: u8, const LP: bool>(&mut self, from: usize, n: usize, steps: &[f32], out: &mut [f32], eb: &mut [f32; BLOCK], rate: f32, fresh: bool, noise: &mut u32) -> (usize, bool) {
         self.coefficients(rate);
         let step = SFXR_RATE / rate as f64;
         let adv0 = SFXR_SUPER / rate as f64;
@@ -533,15 +541,7 @@ impl Blip {
             // A low-pass at 0 passes nothing: an all-zero filter outputs exactly 0.
             lp = Svf::default();
         }
-        let phaser = self.phaser_on != 0;
-        // The phaser's delay for the block, `whole + 1 - frac` samples back: read `a` one further back than `b` and take
-        // `a + (b - a) × frac` (frac 1 reads `b`, the delay a whole number of samples).
-        let iphase = ((self.fphase as i32).unsigned_abs()).min(PHASER_STEPS as u32 - 1);
-        let delay = iphase as f32 * (rate / SFXR_SUPER as f32);
-        let whole = delay as i32 as f32;
-        let (back, frac) = (whole as usize % LINE, 1.0 - (delay - whole));
-        // The samples before the phaser and the envelope's level, for the second pass.
-        let (mut xb, mut eb) = ([0.0f32; BLOCK], [0.0f32; BLOCK]);
+        let n = n.min(out.len());
         let mut env = t.envelope();
         let acc0 = t.acc;
         let mut j = from;
@@ -595,7 +595,7 @@ impl Blip {
             if LP {
                 x = lp.lowpass(x);
             }
-            xb[j] = hp.highpass(x);
+            out[j] = hp.highpass(x);
             eb[j] = env;
             j += 1;
         }
@@ -605,13 +605,35 @@ impl Blip {
             let stepped = (j - from).saturating_sub(fresh as usize) as f64;
             t.swept += (acc0 + stepped * step - t.acc + 0.5) as u32;
         }
-        // The second pass, four lanes at a time where the build has simd128: the phaser (or sfxr's doubling without it),
-        // the envelope and the gain. The phaser reads only samples at or before its own (its delay is at least 0), so the
-        // block goes into the line first and its delayed window is read out of it in a line.
-        let (m, w0) = (j, self.write as usize % LINE);
+        self.t = t;
+        self.playing = playing;
+        self.phase = phase;
+        self.held = held;
+        self.lp = lp;
+        self.hp = hp;
+        (j, ended)
+    }
+
+    /// The second pass over samples `from..m` of `out` (the blip before its phaser), four lanes at a time where the build
+    /// has simd128: the phaser (or sfxr's doubling without it), the envelope `eb` and the gain `g0` ramping by `dg` a
+    /// sample. The phaser reads only samples at or before its own (its delay is at least 0), so the block goes into the
+    /// line first and its delayed window is read out of it in a line.
+    #[allow(clippy::too_many_arguments)]
+    fn finish_block(&mut self, from: usize, m: usize, out: &mut [f32], eb: &[f32; BLOCK], g0: f32, dg: f32, rate: f32) {
+        let m = m.min(out.len());
+        if m <= from {
+            return;
+        }
         let k = m - from;
-        let (o, x, e) = (&mut out[from..m], &xb[from..m], &eb[from..m]);
-        if phaser && k > 0 {
+        let (x, e) = (&mut out[from..m], &eb[from..m]);
+        if self.phaser_on != 0 {
+            // The phaser's delay for the block, `whole + 1 - frac` samples back: `a` one further back than `b`, and
+            // `a + (b - a) × frac` (frac 1 reads `b`, the delay a whole number of samples).
+            let iphase = ((self.fphase as i32).unsigned_abs()).min(PHASER_STEPS as u32 - 1);
+            let delay = iphase as f32 * (rate / SFXR_SUPER as f32);
+            let whole = delay as i32 as f32;
+            let (back, frac) = (whole as usize % LINE, 1.0 - (delay - whole));
+            let w0 = self.write as usize % LINE;
             let first = (LINE - w0).min(k);
             self.line[w0..w0 + first].copy_from_slice(&x[..first]);
             self.line[..k - first].copy_from_slice(&x[first..]);
@@ -621,19 +643,11 @@ impl Blip {
             let first = (LINE - s0).min(k + 1);
             d[..first].copy_from_slice(&self.line[s0..s0 + first]);
             d[first..k + 1].copy_from_slice(&self.line[..k + 1 - first]);
-            finish(o, x, e, Some((&d[..k + 1], frac)), g0, dg, from);
+            finish(x, e, Some((&d[..k + 1], frac)), g0, dg, from);
+            self.write = ((w0 + k) % LINE) as u32;
         } else {
-            finish(o, x, e, None, g0, dg, from);
+            finish(x, e, None, g0, dg, from);
         }
-        let w = if phaser { (w0 + k) % LINE } else { w0 };
-        self.t = t;
-        self.playing = playing;
-        self.phase = phase;
-        self.held = held;
-        self.lp = lp;
-        self.hp = hp;
-        self.write = w as u32;
-        (j, ended)
     }
 
     /// Renders `out.len()` samples (at most [`BLOCK`]) with per-sample pitch `steps`, times gain `g0` ramping to `g1`;
@@ -643,13 +657,14 @@ impl Blip {
         let n = out.len().min(BLOCK);
         let dg = (g1 - g0) / n as f32;
         let (mut from, mut fresh) = (0, false);
+        let mut eb = [0.0f32; BLOCK];
         loop {
             macro_rules! run {
                 ($w:expr) => {
                     if self.lp_on != 0 {
-                        self.run::<{ $w }, true>(from, n, steps, out, g0, dg, rate, fresh, noise)
+                        self.run::<{ $w }, true>(from, n, steps, out, &mut eb, rate, fresh, noise)
                     } else {
-                        self.run::<{ $w }, false>(from, n, steps, out, g0, dg, rate, fresh, noise)
+                        self.run::<{ $w }, false>(from, n, steps, out, &mut eb, rate, fresh, noise)
                     }
                 };
             }
@@ -660,6 +675,7 @@ impl Blip {
                 wave::TRIANGLE => run!(wave::TRIANGLE),
                 _ => run!(wave::SQUARE),
             };
+            self.finish_block(from, m, out, &eb, g0, dg, rate);
             if !ended {
                 break;
             }
