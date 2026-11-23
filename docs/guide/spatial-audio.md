@@ -74,6 +74,17 @@ These are starting points; they are edited in the project's table, and you can a
 
 Setting the material to `none` makes the colliders see-through to sound. Each occluder also has three numbers for the one wall: `transmissionTrimDb` (more loss, negative numbers muffle more), `cutoffScale` (below 1 duller) and `openness` (0 closed, 1 open: how much of the wall's effect is gone). Occlusion changes take a moment (100 ms by default, `audio.occlusion.smoothingMs`) so a source stepping behind a pillar doesn't click.
 
+### Occlusion curves
+
+The materials decide how much each wall blocks; **occlusion curves** (optional, [ADR 0362](../decisions/0362-the-ui-fidelity-pass-adds-playback-pause-clip-envelopes-reverse-second-input-curves-occlusion-curves-and-studio-format-fields.md)) decide what that sounds like. They map how **blocked** the path is, from 0 (clear) to 1 (fully blocked), to a **volume** in dB and a **low-pass** cutoff in Hz. Blocked is the ray's combined loss over the -60 dB floor (averaged over a source's rays), so one concrete wall (-30 dB) is 0.5 and two are 1. Each curve you set replaces what the materials give for that property; a curve you leave out keeps the materials' value, and with no curves at all occlusion works as above.
+
+```jsonc
+// audio.json "settings"
+"occlusion": { "curves": { "volume": [[0, 0], [1, -9]], "lowpass": [[0, 20000], [1, 1200, "easeOut"]] } }
+```
+
+In the Audio Studio's Spatial screen, **Scene settings > Occlusion > Curves** opens the Curves window in its Occlusion mode (X is Blocked) and **Fully blocked** shows the curves' values at 1. Apply saves the project's curves and a playing test scene hears them at once. Tick **Scene's own** to give the open test scene its own curves (saved in its `*.audioscene.json` under `settings.occlusion.curves`), heard while it plays instead of the project's; untick it to go back.
+
 On a source, `occlusion` (default on) turns it off for that one sound, and `occlusionGain` reads how much of the dry sound is getting through (1 is clear). A one-shot has `occlusion` in its options; its handle has `occlusion`. When a wall brings a sound below audibility, its `reason` is `"occluded"` ([Why is there no sound?](why-no-sound.md#4-a-sounds-reason)).
 
 The engine has a ray budget (`audio.occlusion.budgetMs`, 0.06 ms on low, 0.25 default, 0.5 high), spent on the loudest sources first, so a scene with a thousand sources sees the most audible ones updated within a few frames and the rest within about a third of a second. The **Occlusion** section of the Audio Debug panel shows the rays and their age, and the viewport can draw them (the occlusion overlay).

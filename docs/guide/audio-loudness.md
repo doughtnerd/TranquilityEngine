@@ -92,6 +92,11 @@ A monitor mute of a bus also **taints** that bus, its ancestors and Master; a mo
 - **Play** resets every meter when it starts (`audio.loudnessResetOnPlay`, default true; untick **Reset loudness meters on Play** to keep readings across runs). An exported game's integrated measure starts when the engine starts.
 - **Audio Profiler**: the Loudness and Loudness target tracks, with a line at the target and ticks where the mix went over or under it. A reopened capture and the live meter agree because both use the same statistics. See [Loudness in the profiler](audio-profiler.md#loudness). A game exported with the Audio capture option records the same tracks on a tester's machine or phone: [Capturing from a game script](audio-profiler.md#capturing-from-a-game-script), [Captures on Android](audio-profiler.md#captures-on-android).
 
+## In the Audio Studio
+
+- **Mixer > Loudness**: the gear beside **Platform target** opens **Project settings · Loudness targets**, the project's own list (saved in `audio.json`'s `loudness.targets`): a name, the integrated level, the tolerance and the true-peak ceiling of each, which one is the default, **+ Target** (up to 8) and **Defaults**.
+- **Whole take**: with a take open, replay it from its start and the panel measures the Master's integrated loudness over the whole take (the meters reset as the replay starts). When it reaches the end it shows the reading and whether it is within the chosen target's tolerance. A seek or a jump breaks the run; replay from the start to measure again.
+
 ## Under load
 
 When the machine is overloaded, the core's shedding ladder pauses the loudness meters of every metered bus **first**, before it gives up anything you would hear, and restores them last. **Master is never paused.** A paused meter reads `pausedBy: "ladder"` and `incomplete` once it resumes. With only Master metered the step is skipped.

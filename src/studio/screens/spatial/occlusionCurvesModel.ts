@@ -35,7 +35,7 @@ export function occlusionDialog(curves: OcclusionCurves | undefined): CurveEdito
     const c = from[id];
     return { id, ...l, curve: c && c.length > 0 ? (c.map((k) => [...k]) as unknown as Curve) : [[0, l.base], [1, l.base]] };
   });
-  return { kind: "parameter", lanes, parameter: { name: "Blocked", min: 0, max: 1 } };
+  return { kind: "parameter", lanes, parameter: { name: "Blocked", min: 0, max: 1 }, now: 0 };
 }
 
 const isFlatAt = (curve: Curve, base: number) => curve.every((k) => Math.abs(k[1] - base) < 1e-9);
