@@ -16,6 +16,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   Skeleton2D: "Animation",
   SkinnedMeshRenderer: "Rendering",
   TimelineDirector: "Animation",
+  Ragdoll: "Animation", // ADR 0375
   Camera: "Rendering",
   InputContext: "Input",
   MeshRenderer: "Rendering",

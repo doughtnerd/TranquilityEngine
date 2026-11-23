@@ -427,6 +427,49 @@ export class AnimationCore {
     return getRecord(this.views().data, this.wasm.timeline_changes_ptr() + i * TIMELINE_CHANGE.stride, TIMELINE_CHANGE, out);
   }
 
+  // --- Physical animation (T44: the `physics` wire family; `features/physical.ts` is the only caller) ---------------
+
+  /** The default ragdoll description of a `myco.skel@1` file (profile 0: Humanoid): `RAGDOLL_INFO` + `RAGDOLL_BONE` bytes, empty when refused (`lastStatus`). */
+  ragdollBuild(skeleton: Uint8Array, profile = 0): Uint8Array {
+    return this.wasm.ragdoll_build(skeleton, profile);
+  }
+
+  /** Sizes the physics rows and views (drops every row). Returns a status. */
+  physicsConfigure(maxRows: number): number {
+    return this.wasm.physics_configure(maxRows);
+  }
+
+  /** Gives an instance a physics row driven by a ragdoll asset: the row index, or `NONE` (`lastStatus`). */
+  physicsAttach(instance: number, ragdoll: number): number {
+    return this.wasm.physics_attach(instance, ragdoll);
+  }
+
+  /** Frees an instance's physics row. Returns a status. */
+  physicsDetach(instance: number): number {
+    return this.wasm.physics_detach(instance);
+  }
+
+  /** After the physics step: World `world`'s input rows into its instances' physical-pose nodes. Returns the rows applied. */
+  physicsRead(world: number): number {
+    return this.wasm.physics_read(world);
+  }
+
+  /** After the fixed evaluate: World `world`'s drive targets and get-up facing into the output rows. Returns the rows written. */
+  physicsDrive(world: number): number {
+    return this.wasm.physics_drive(world);
+  }
+
+  /** Get-up: an instance's physical-pose node into its pose-snapshot node (graph node indices). Returns a status. */
+  physicsCapture(instance: number, physicalNode: number, snapshotNode: number): number {
+    return this.wasm.physics_capture(instance, physicalNode, snapshotNode);
+  }
+
+  /** Where the physics views sit now (byte offsets in `views().data`, bytes per row): re-read after any call. */
+  physicsViews(): { readonly input: number; readonly output: number; readonly inRowBytes: number; readonly outRowBytes: number } {
+    const w = this.wasm;
+    return { input: w.physics_in_ptr(), output: w.physics_out_ptr(), inRowBytes: w.physics_in_row_bytes(), outRowBytes: w.physics_out_row_bytes() };
+  }
+
   // --- The frame --------------------------------------------------------------------------------------------------
 
   /** The command buffer's byte offset in memory (`COMMAND_BYTES` long). */
