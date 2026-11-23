@@ -22,6 +22,7 @@ import { addMarker, addRegion, deleteNote, editNote, moveNote, setRegionSpan } f
 import { InstanceDetails, MixerStrip, NoteDetails, PlayheadValues } from "./TakeInspector";
 import { busStrip, instanceParametersAt, parameterRows, type BusStrip } from "./takeInspectorModel";
 import { isTakePath } from "./takeFiles";
+import { PlaylistsInTake } from "./PlaylistsInTake";
 import { TakeList } from "./TakeList";
 import { deleteTake, importTakes, moveTake, openSource, openTake, renameTake, takeScreen } from "./takeScreen";
 import { findInstance, parameterText, playlistsInTake } from "./takeTimeline";
@@ -61,23 +62,9 @@ function TakesPanel() {
 
 function PlaylistsPanel() {
   const timeline = takeScreen().timeline.value;
-  if (!timeline) return <Panel bodyClass="tk-panel-body"><EmptyState compact title="No take open" body="The playlists, events and samples a take plays show here, each with its instance count." /></Panel>;
-  const rows = playlistsInTake(timeline);
   return (
     <Panel bodyClass="tk-panel-body">
-      {rows.length === 0 ? (
-        <p class="tk-note">This take plays nothing.</p>
-      ) : (
-        <ul class="tk-playlists" aria-label="Playlists in this take">
-          {rows.map((r) => (
-            <li key={r.path}>
-              <span class="tk-pl-name" title={r.path}>{r.label}</span>
-              <span class="tk-pl-count">{r.count === 1 ? "1 instance" : `${r.count} instances`}</span>
-              <button type="button" class="tk-link" title={`Open ${r.path}`} onClick={() => openSource(r.path)}>Open in Playlists</button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <PlaylistsInTake rows={timeline ? playlistsInTake(timeline) : null} onOpen={openSource} />
     </Panel>
   );
 }
@@ -348,7 +335,8 @@ const inDoc = (body: () => ComponentChildren) => () => <DocScope>{body()}</DocSc
 /** The screen's panels, in the prototype's places. */
 export const TAKE_PANELS: readonly StudioPanel[] = [
   { id: "take-list", title: "Takes", dock: "left", view: () => <TakesPanel /> },
-  { id: "take-playlists", title: "Playlists in this take", dock: "left", view: () => <PlaylistsPanel /> },
+  // "In this take": short enough that both tabs of the left dock show at its default width (the full name is too long).
+  { id: "take-playlists", title: "In this take", dock: "left", view: () => <PlaylistsPanel /> },
   { id: "take-timeline", title: "Timeline", dock: "fill", fixed: true, view: inDoc(() => <TimelinePanel />) },
   { id: "take-inspector", title: "Inspector", dock: "right", view: inDoc(() => <InspectorPanel />) },
   { id: "take-mixer", title: "Mixer", dock: "bottom", view: () => <MixerPanel /> },
