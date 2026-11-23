@@ -21,7 +21,7 @@ export interface RigidBodyConstraints {
  */
 @component("engine.RigidBody")
 export class RigidBody extends Component {
-  @field(String, { choices: ["dynamic", "kinematic", "static"] }) bodyType: BodyType = "dynamic";
+  @field(String, { choices: ["dynamic", "kinematic", "static"], animatable: false }) bodyType: BodyType = "dynamic";
   @field(Number) mass = 1;
   @field(Boolean) useGravity = true;
   @field(Number) gravityScale = 1;

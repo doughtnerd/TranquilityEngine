@@ -7,6 +7,8 @@
  * the editor inspector (ADR 0022).
  */
 
+import { Color, Quaternion, Vector2, Vector3 } from "./math";
+
 // Decorator metadata needs Symbol.metadata to exist before any decorated class is evaluated.
 // Every decorated class imports this module, so the polyfill always runs first.
 (Symbol as { metadata?: symbol }).metadata ??= Symbol.for("Symbol.metadata");
@@ -137,6 +139,14 @@ export interface FieldOptions {
    * field's description applies to the list, not to each item.
    */
   description?: string;
+  /**
+   * Whether an animation clip, timeline or tween may drive this field (ADR 0371, completing 0159); the Inspector
+   * offers key buttons only on animatable fields. Default: true for `Number`, `Vector2`, `Vector3`, `Quaternion`,
+   * `Color`, `Boolean`, a field with `choices`, and `AssetRef`; false for strings without `choices`, lists, plain
+   * objects and other types. Set `false` where animating would break an invariant, such as a physics body's
+   * `bodyType`, or `true` to opt a field in that the default leaves out.
+   */
+  animatable?: boolean;
   /** For a `Quaternion` field: how the Inspector shows it (ADR 0165; default: the editor's preference). Editor-only. */
   view?: "radians" | "degrees" | "quaternion";
 }
@@ -289,6 +299,23 @@ export function field(type: FieldType, options?: FieldOptions) {
 export function getFields(type: ComponentClass): readonly FieldInfo[] {
   const meta = (type as unknown as Record<symbol, Record<symbol, FieldInfo[]> | undefined>)[Symbol.metadata as symbol];
   return meta?.[FIELDS] ?? [];
+}
+
+/**
+ * @internal Whether a clip, timeline or tween may animate the declared field `name` of a component class (ADR 0371):
+ * its `animatable` option, else the default for its type (see `FieldOptions.animatable`). Inherited fields count.
+ * False for a name the class doesn't declare. `name` is a top-level field; paths into plain objects aren't animatable.
+ */
+export function isFieldAnimatable(type: ComponentClass, name: string): boolean {
+  const fields = getFields(type);
+  let info: FieldInfo | undefined;
+  for (let i = fields.length - 1; i >= 0 && !info; i--) if (fields[i]!.name === name) info = fields[i]; // a subclass's redeclaration wins
+  if (!info) return false;
+  if (info.options?.animatable !== undefined) return info.options.animatable;
+  const t = info.type;
+  if (isListType(t)) return false;
+  if (info.options?.choices !== undefined) return true;
+  return t === Number || t === Boolean || t === AssetRef || t === Vector2 || t === Vector3 || t === Quaternion || t === Color;
 }
 
 export function getComponentClass(id: string): ComponentClass | undefined {

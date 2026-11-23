@@ -71,7 +71,7 @@ export type CapsuleDirection = "x" | "y" | "z";
 export class CapsuleCollider extends Collider {
   @field(Number) radius = 0.5;
   @field(Number) height = 2;
-  @field(String, { choices: ["x", "y", "z"] }) direction: CapsuleDirection = "y";
+  @field(String, { choices: ["x", "y", "z"], animatable: false }) direction: CapsuleDirection = "y";
 
   override _shapeFields(): ShapeFields3D {
     return { kind: "capsule", radius: this.radius, height: this.height, axis: AXIS_INDEX[this.direction] ?? 1 };
@@ -86,8 +86,8 @@ export class CapsuleCollider extends Collider {
  */
 @component("engine.MeshCollider")
 export class MeshCollider extends Collider {
-  @field(AssetRef, { kind: "mesh" }) mesh = "";
-  @field(Boolean) convex = false;
+  @field(AssetRef, { kind: "mesh", animatable: false }) mesh = "";
+  @field(Boolean, { animatable: false }) convex = false;
 
   override _shapeFields(): ShapeFields3D {
     return { kind: "mesh", mesh: this.mesh, convex: this.convex };
