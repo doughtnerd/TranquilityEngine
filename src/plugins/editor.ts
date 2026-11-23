@@ -8,6 +8,7 @@ import { navigationEditorPlugin } from "./navigation/editor";
 import { physicsEditorPlugin } from "./physics/editor";
 import { particlesEditorPlugin } from "./particles/editor";
 import { skyEditorPlugin } from "./sky/editor";
+import { subtitlesEditorPlugin } from "./subtitles/editor";
 import { tilemapsEditorPlugin } from "./tilemaps/editor";
 import { meshesEditorPlugin } from "./meshes/editor";
 import { environmentEditorPlugin } from "./environment/editor";
@@ -30,6 +31,7 @@ const EDITOR_HALVES: { readonly [K in FirstPartyPlugin]?: EditorPlugin } = {
   environment: environmentEditorPlugin,
   "post-processing": postProcessingEditorPlugin,
   ui: uiEditorPlugin,
+  subtitles: subtitlesEditorPlugin,
 };
 
 /** The first-party editor halves, in registration order (panels, settings categories). */

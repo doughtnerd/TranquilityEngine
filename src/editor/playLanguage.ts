@@ -5,7 +5,8 @@
 // language menu makes. The menu also offers the two pseudo-languages (`qps-ploc`, `qps-plocm`), which exist only in the
 // editor and in `--pseudo` QA builds.
 //
-// The Play toolbar's Subtitles overlay toggle (ADR 0343 §6) is a per-user preference here too.
+// The Play toolbar's Subtitles overlay toggle (ADR 0343 §6) and its preference are the subtitles plugin's
+// (`plugins/subtitles/editor`), there only while the plugin is on.
 import { Locale } from "../engine/localisation/Locale";
 import { fallbackChain, parseLanguages, shippedLanguages, type LanguageSettings } from "../engine/localisation/languages";
 import { isPseudoLanguage, PSEUDO_LANGUAGE, PSEUDO_MIRRORED_LANGUAGE } from "../engine/localisation/pseudo";
@@ -13,9 +14,6 @@ import { persisted } from "./preferences";
 
 /** Per user: the language editor Play starts in; null: the project's start language (`languages.default`). */
 export const previewLanguage = persisted<string | null>("myco.audio.previewLanguage", null);
-
-/** Per user: show the subtitle overlay in editor Play for scenes without a subtitle display (ADR 0343 §6). */
-export const subtitlesOverlay = persisted<boolean>("myco.editor.subtitlesOverlay", false);
 
 /** One entry of the Play toolbar's Language menu. */
 export interface PlayLanguageChoice {
