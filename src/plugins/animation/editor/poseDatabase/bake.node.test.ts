@@ -1,16 +1,18 @@
 // T55 (ADR 0371, 0372, 0373, D124): the pose database tool's bake through the real editor compile module in Node: a source over
 // the fixture skeleton and clips bakes to a `myco.posedb@1` file whose header (read by `readPoseDbSummary`, the same reader
 // the tool shows) matches what was asked for: the frames of the tagged ranges at the source's rate, the features of its
-// schema, the clips listed, the tags with the frames that carry them. The bake runs the way the worker runs it (`bakeWith`
+// schema, the clips listed, the tags with the frames that carry them; a mirrored clip as a second entry of the same clip and
+// a custom feature (T70, the skeleton's mirror table from the real core). The bake runs the way the worker runs it (`bakeWith`
 // over the loaded module); the worker's message passing itself needs a browser.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { emptyPoseDatabase, type PoseDatabaseSource } from "../../../../engine/animation/poseDatabase";
 import { readClipInfo } from "../../runtime/assetInfo";
+import { profileMirrorTable } from "../../runtime/authoring";
 import { loadAnimationCompiler } from "../compile/compiler";
 import { bakePoseDatabaseSource, type PoseDbBakeEnv } from "./bakeLogic";
 import { inThreadBakeRunner } from "./bakeRunner";
-import { addBoneFeature, addClip, addRange, removeBoneFeature, setRate, setTrajectoryTimes } from "./poseDbLogic";
+import { addBoneFeature, addClip, addCustomFeature, addRange, removeBoneFeature, setMirror, setRate, setTrajectoryTimes } from "./poseDbLogic";
 import { readPoseDbSummary } from "./summaryLogic";
 
 const fixture = (name: string) => new Uint8Array(readFileSync(new URL(`../../runtime/wasm/fixtures/${name}`, import.meta.url)));
@@ -30,6 +32,7 @@ function env(written: Map<string, Uint8Array>): PoseDbBakeEnv {
       const bytes = FILES[ref.replace(/^asset:/, "")];
       return bytes ? { bytes } : { error: `${ref}: the clip can't be read.` };
     },
+    mirrorTable: (ref, skeleton) => profileMirrorTable(skeleton, ref),
     run: inThreadBakeRunner,
     writeBytes: async (path, bytes) => void written.set(path, bytes),
   };
@@ -81,6 +84,20 @@ describe("the pose database bake", () => {
     expect(tag("walk")).toBe(summary.clips[0]!.frames); // both walk ranges carry it
     expect(tag("late")).toBeLessThan(tag("walk"));
     expect(tag("run")).toBe(summary.clips[1]!.frames);
+  });
+
+  it("bakes a mirrored copy as a second entry of the clip, and a custom feature (T70)", async () => {
+    const written = new Map<string, Uint8Array>();
+    let db = ok(setMirror(source(), 0, true));
+    db = ok(addCustomFeature(db, "speed"));
+    const out = await bakePoseDatabaseSource(env(written), "loco.posedb.json", db);
+    if (!out.ok) throw new Error(out.error);
+    expect(out.warnings).toEqual([]);
+    const summary = out.summary!;
+    expect(summary.clips.map((c) => c.asset)).toEqual(["asset:clips/walk.anim", "asset:clips/walk.anim", "asset:clips/run.anim"]);
+    expect(summary.clips[1]!.frames).toBe(summary.clips[0]!.frames);
+    expect(summary.features.at(-1)).toEqual({ kind: "custom", count: 1 });
+    expect(summary.dims).toBe(2 * 6 + 2 * 4 + 1);
   });
 
   it("bakes at the source's rate", async () => {
