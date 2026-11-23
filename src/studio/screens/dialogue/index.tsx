@@ -14,6 +14,7 @@ import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import { emptyDialogue } from "../../../engine/audio/dialogue/format";
 import type { DialogueAsset } from "../../../engine/audio/dialogue/types";
+import { parseRhubarb } from "../../../engine/audio/localisation/lipsync";
 import { subtitleKeyOf } from "../../../engine/audio/localisation/lines/format";
 import type { LineTable } from "../../../engine/audio/localisation/types";
 import { measureLoudness } from "../../../engine/audio/loudness/integrated";
@@ -226,9 +227,13 @@ async function applyBatch(s: Screen): Promise<void> {
         docVersion.value++;
       }
       const measured = measureLoudness(await decodeAudio(s.project, bytes, dest));
+      // ADR 0340 §7: Rhubarb output picked beside the file goes into its sidecar in the same step.
+      const rider = r.lipsync ? byRel.get(r.lipsync) : undefined;
+      const lipsync = rider ? parseRhubarb(await rider.text(), rider.name) : null;
+      if (lipsync && !lipsync.lipsync) failed.push(`${r.lipsync}: ${lipsync.problems[0] ?? "no mouth cues"}`);
       const session = sampleSession(s.project, dest);
       const data = dialogueData(s.project);
-      session.commit({ next: importedBlock(session.edits.peek(), voBlock(data, r.key!), data.localisation.loudness, measured), label: `Voice-over ${r.key} (${r.lang})` });
+      session.commit({ next: importedBlock(session.edits.peek(), voBlock(data, r.key!), data.localisation.loudness, measured, lipsync?.lipsync ?? null), label: `Voice-over ${r.key} (${r.lang})` });
     } catch (err) {
       failed.push(`${r.rel}: ${err instanceof Error ? err.message : String(err)}`);
     }

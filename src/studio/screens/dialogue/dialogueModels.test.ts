@@ -9,8 +9,9 @@ import { defaultSampleEdits } from "../../../engine/audio/sample/format";
 import { parseLanguages } from "../../../engine/localisation/languages";
 import { textHash } from "../../../engine/localisation/textHash";
 import {
-  batchCounts, compilePattern, copiedRows, importedBlock, matchFile, PATTERN_PRESETS, previewBatch, rowsToCreate, voBlock,
+  batchCounts, compilePattern, copiedRows, importedBlock, lipsyncCompanions, matchFile, PATTERN_PRESETS, previewBatch, rowsToCreate, voBlock,
 } from "./batchImport";
+import { parseRhubarb } from "../../../engine/audio/localisation/lipsync";
 import { csvRecords, formatCsv, parseCsv } from "./csv";
 import { findLine } from "./dialogueData";
 import { FIXTURE_LANGUAGES, fixtureData, fixtureStrings, fixtureTable, FR_PATH, INTRO_01_TEXT, STRINGS_PATH, TABLE_PATH } from "./dialogueFixture";
@@ -213,6 +214,25 @@ describe("batch import", () => {
     // Without {lang}, the chosen language.
     const plain = previewBatch(data, ["intro_02.wav"], "{key}", { language: "de", createIn: null });
     expect("rows" in plain && plain.rows[0].dest).toBe("audio/vo/de/ch1/intro_02.wav");
+  });
+
+  it("carries a Rhubarb lip-sync file picked beside a line's audio, and writes its keys into the sidecar", () => {
+    const data = fixtureData();
+    const files = ["fr/intro_02.wav", "fr/intro_02.txt", "fr/intro_01.json", "fr/intro_01.wav", "notes.txt", "fr/guard_01.tsv"];
+    expect([...lipsyncCompanions(files)]).toEqual([["fr/intro_02", "fr/intro_02.txt"], ["fr/intro_01", "fr/intro_01.json"]]);
+    const p = previewBatch(data, files, "{lang}/{key}", { language: "en", createIn: null });
+    if ("refused" in p) throw new Error(p.refused);
+    // The riders get no rows; a lip-sync file without its audio stays an unmatched row.
+    expect(p.rows.map((r) => [r.rel, r.status, r.lipsync ?? null])).toEqual([
+      ["fr/intro_02.wav", "matched", "fr/intro_02.txt"],
+      ["fr/intro_01.wav", "replace", "fr/intro_01.json"],
+      ["notes.txt", "unmatched", null],
+      ["fr/guard_01.tsv", "unmatched", null],
+    ]);
+    const lipsync = parseRhubarb("0.00\tX\n0.10\tB\n", "fr/intro_02.txt").lipsync;
+    const block = importedBlock(defaultSampleEdits(), voBlock(data, "intro_02"), data.localisation.loudness, null, lipsync);
+    expect(block.lipsync).toEqual({ set: "rhubarb", keys: [[0, "X"], [0.1, "B"]] });
+    expect(importedBlock(defaultSampleEdits(), null, data.localisation.loudness, null).lipsync).toBeUndefined();
   });
 
   it("writes the sidecar's vo hash and normalisation from the loudness setting", () => {
