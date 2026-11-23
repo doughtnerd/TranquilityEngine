@@ -101,7 +101,7 @@ export const SAMPLES_PANELS: readonly StudioPanel[] = [
     )),
   },
   { id: "samples-inspector", title: "Inspector", dock: "right", view: docView(() => <InspectorPanel />) },
-  { id: "samples-edits", title: "Sample effects", dock: "bottom", view: docView(() => <EditsPanel />) },
+  { id: "samples-edits", title: "Edits", dock: "bottom", view: docView(() => <EditsPanel />) },
   { id: "samples-seam", title: "Loop seam", dock: "bottom", view: docView(() => <SeamPanel />) },
   historyPanel("samples"),
 ];

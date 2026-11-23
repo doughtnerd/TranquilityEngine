@@ -730,7 +730,7 @@ function Timeline(props: { session: SampleSession }) {
                 {hiddenRows > 0 && <span class="smp-mrl-more">{rowCount} rows · scroll</span>}
               </div>
               <div class="smp-phrow" style={{ height: `${RULER_PX}px` }}>
-                <span class="smp-ph" title="Playhead">{formatTime(v(playT), fmt, ctx)}</span>
+                <span class="smp-phread" title="Playhead">{formatTime(v(playT), fmt, ctx)}</span>
                 <TimeDisplayCaret value={fmt} at={v(playT)} ctx={ctx} onChange={(f) => (timeFormat.value = f)} />
               </div>
               <div class="smp-temporow" style={{ height: `${2 * RESERVED_ROW_PX}px` }}>
