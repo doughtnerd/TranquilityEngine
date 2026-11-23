@@ -1,7 +1,7 @@
 // The Sequence timeline's track, clip and sequence edits (proto §3.3–3.4; labels from the Sequencer's history list,
 // proto §3.1). Each is a pure `SeqEdit`: the next `sequence` block, or why it was refused (nothing changes). The view
 // applies one per gesture through the screen's `applyEdit` path, so every edit is one labelled undo step. Pure.
-import type { Effect } from "../../../../engine/audio/effects/types";
+import type { Effect, EffectType } from "../../../../engine/audio/effects/types";
 import { wouldContain } from "../../../../engine/audio/playlist/references";
 import type { Automation, Clip, PlaylistBody, SequenceSettings, Track } from "../../../../engine/audio/playlist/types";
 import { accept, refuse, type EditResult } from "../../../../plugins/audio/editor/editResult";
@@ -341,7 +341,7 @@ export const makeAsync = (s: SequenceSettings, id: string): R => setClip(s, id, 
  * The effect type every clip on a track has (proto A9b "Move to track" hint: it then runs once on the track's mix
  * instead of on each voice), or null: a track with no clips, or clips without one in common. The first in chain order.
  */
-export function sharedClipEffect(t: Pick<Track, "clips" | "effects">): string | null {
+export function sharedClipEffect(t: Pick<Track, "clips" | "effects">): EffectType | null {
   if (!t.clips.length) return null;
   for (const e of t.clips[0]!.effects) {
     if (t.clips.every((c) => c.effects.some((x) => x.type === e.type)) && !t.effects.some((x) => x.type === e.type)) return e.type;
@@ -350,7 +350,7 @@ export function sharedClipEffect(t: Pick<Track, "clips" | "effects">): string | 
 }
 
 /** "Move to track": take `type` off every clip of the track (and its curves) and add the first clip's to the track's chain. */
-export function moveEffectToTrack(s: SequenceSettings, trackId: string, type: string): R {
+export function moveEffectToTrack(s: SequenceSettings, trackId: string, type: EffectType): R {
   const t = s.tracks[trackIndex(s, trackId)];
   if (!t) return refuse("that track isn't there any more");
   if (sharedClipEffect(t) !== type && !t.clips.every((c) => c.effects.some((e) => e.type === type))) return refuse("not every clip on the track has it");

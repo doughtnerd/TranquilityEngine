@@ -96,6 +96,7 @@ export function SequenceInspectorPanel(props: SequenceInspectorPanelProps) {
       sourceOf={projectSources()}
       buses={busNames.value}
       parameters={allParameters.value}
+      parameterValues={testValues.value}
       onNewParameter={newPlaylistParameter}
       onEdit={props.onEdit}
       onNotify={notify}

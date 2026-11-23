@@ -114,7 +114,7 @@ describe("curves and effects from the Inspector", () => {
   });
 
   it("finds the effect every clip on a track has and moves it to the track, with its curves", () => {
-    const fx = { id: "fx1", type: "lowpass", on: true, params: { cutoff: 900 } };
+    const fx = { id: "fx1", type: "lowpass" as const, on: true, params: { cutoff: 900 } };
     const t = { ...seq.tracks[1]!, clips: [{ ...c("c2"), effects: [fx], automation: [{ id: "a", target: "fx:fx1:cutoff" as const, input: "clipTime" as const, curve: [[0, 1]] as [number, number][], bypass: false }] }, { ...c("c2"), id: "c9", effects: [{ ...fx, params: { cutoff: 300 } }] }] };
     expect(sharedClipEffect(t)).toBe("lowpass");
     expect(sharedClipEffect({ ...t, clips: [t.clips[0]!, { ...c("c2"), id: "c8" }] })).toBeNull();
