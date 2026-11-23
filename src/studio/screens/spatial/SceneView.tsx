@@ -22,6 +22,7 @@ import type { SceneHost } from "./sceneHost";
 import { BASE_CLASS, baseBanner, basePlanItems } from "./baseLayer";
 import { modeOf, predictModes, type RenderMode } from "./renderModes";
 import { activeListener, allObjects, boxOf, findObject, insertRoutePoint, moveObjectTo, positionOf, removeRoutePoint, renameObject, setBoxHeights, setHeight, type ObjectKind, type SceneObject } from "./sceneEdits";
+import { labelRect, placeToolbar, spreadLabels, unionRect, type PlanLabel, type Rect } from "./planLayout";
 import { pickTool, placesByClick, TOOLS, type Tool } from "./tools";
 import { LEGEND, rayEnd, raysOf } from "./voicesTable";
 import { gridStep, panBy, pinch, toPlan, toScreen, visibleBounds, zoomAt, zoomPercent, ZOOM_STEP, type Px, type Size, type View } from "./viewTransform";
@@ -331,6 +332,7 @@ function Viewport(props: { host: SceneHost; slab: [number, number] }) {
 
   const sel = host.selected ? findObject(s, host.selected) : null;
   const predicted = predictModes(s, host.listening ?? { hrtf: 2, bedBeyond: null });
+  const words = planWords(host, S, predicted);
   const audition = auditionText(host);
   const pathOf = host.tools.pathEdit ? findObject(s, host.tools.pathEdit) : null;
   return (
@@ -354,11 +356,11 @@ function Viewport(props: { host: SceneHost; slab: [number, number] }) {
         <svg class="sp-plan" width={size.width} height={size.height} role="img" aria-label={`Plan of the scene, ${allObjects(s).length} objects`}>
           <Grid view={v} size={size} />
           {host.base && <BaseLayer host={host} S={S} slab={slab} />}
-          <PlanObjects host={host} S={S} visible={visible} predicted={predicted} />
+          <PlanObjects host={host} S={S} visible={visible} predicted={predicted} dy={words.dy} />
           {sel && <Selection host={host} o={sel} S={S} />}
         </svg>
       )}
-      {sel && size.width > 0 && <NodeToolbar host={host} o={sel} S={S} size={size} />}
+      {sel && size.width > 0 && <NodeToolbar host={host} o={sel} S={S} size={size} words={words} />}
       {host.renaming && size.width > 0 && <RenameField host={host} S={S} />}
       <div class="sp-zoombar" role="toolbar" aria-label="Zoom" onPointerDown={(e) => e.stopPropagation()}>
         <button type="button" aria-label="Zoom out" title="Zoom out (−)" onClick={() => host.setView(zoomAt(v, size, { x: size.width / 2, y: size.height / 2 }, 1 / ZOOM_STEP))}><Icon name="minus" size={14} /></button>
@@ -447,8 +449,86 @@ function BaseLayer(props: { host: SceneHost; S: (p: P2) => Px; slab: [number, nu
   );
 }
 
-function PlanObjects(props: { host: SceneHost; S: (p: P2) => Px; visible: (o: SceneObject) => boolean; predicted: ReadonlyMap<string, RenderMode> }) {
+/** A box's label: "Wall · concrete", "Cave · Large hall (priority 1)", "Market · inside". */
+function boxText(host: SceneHost, o: SceneObject): string {
+  const muted = o.kind === "audioZone" && host.silenced(o.obj.id) && host.solo === null;
+  return o.kind === "obstacle" ? `${o.obj.name} · ${o.obj.material}`
+    : o.kind === "reverbZone" ? `${o.obj.name} · ${presetText(o.obj.preset)} (priority ${o.obj.priority}${o.obj.levelDefault ? ", default" : ""})`
+    : o.kind === "audioZone" ? `${o.obj.name} · ${o.obj.heard === "inside" ? "inside" : "from its edge"}${muted ? " · muted" : ""}`
+    : o.obj.name;
+}
+
+/** An emitter label's parts: its name, a moving one's speed, its height against the listener's, and playing or muted. */
+function emitterParts(host: SceneHost, o: SceneObject, predicted: ReadonlyMap<string, RenderMode>): { name: string; speed: string; rel: string; status: string } {
+  const listener = activeListener(host.scene);
+  const live = host.playing ? livePlace(o, host.motion ?? []) : null;
+  const p = live?.position ?? positionOf(o)!;
+  const moving = o.kind === "emitter" && o.obj.kind === "moving" ? o.obj : null;
+  const heard = heardOf(host, o.obj.id, predicted);
+  const rel = relativeHeight(p.y, listener.position.y);
+  return {
+    name: o.obj.name,
+    speed: moving ? ` · ${Math.round(moving.speed * 10) / 10} m/s` : "",
+    rel: rel ? ` ${rel}` : "",
+    status: heard.playing ? " · ▸ playing" : heard.muted ? " · muted" : "",
+  };
+}
+
+/** A listener label's parts: its name ("· listening" for the one the scene is heard from) and its height. */
+function listenerParts(host: SceneHost, o: SceneObject): { name: string; rel: string } {
+  const listener = activeListener(host.scene);
+  const l = o.obj as typeof listener;
+  const rel = relativeHeight(l.position.y, listener.position.y);
+  return { name: l.id === listener.id ? `${l.name} · listening` : l.name, rel: rel ? ` ${rel}` : "" };
+}
+
+/** Where a point object is drawn now (a moving emitter where it travels while playing). */
+const pointAt = (host: SceneHost, o: SceneObject): Vec3 | null => (o.kind === "emitter" && host.playing ? (livePlace(o, host.motion ?? [])?.position ?? positionOf(o)) : positionOf(o));
+
+/** The plan's labels and marks in screen px, the labels spread apart (V11), for the objects and the selection's toolbar. */
+interface PlanWords {
+  readonly labels: readonly PlanLabel[];
+  /** Each label's offset down (absent: 0). */
+  readonly dy: ReadonlyMap<string, number>;
+  /** Each point object's mark (its dot and ring). */
+  readonly marks: ReadonlyMap<string, Rect>;
+}
+
+function planWords(host: SceneHost, S: (p: P2) => Px, predicted: ReadonlyMap<string, RenderMode>): PlanWords {
+  const s = host.scene;
+  const objects = allObjects(s).filter((o) => shownInPlan(s, o));
+  const listener = activeListener(s);
+  const labels: PlanLabel[] = [];
+  const marks = new Map<string, Rect>();
+  const points = objects.filter((o) => o.kind === "emitter" || o.kind === "listener");
+  // The most important keep their places: the selection, the listener the scene is heard from, then emitters.
+  const rank = (o: SceneObject) => (o.obj.id === host.selected ? 0 : o.obj.id === listener.id ? 1 : o.kind === "emitter" ? 2 : 3);
+  for (const o of [...points].sort((a, b) => rank(a) - rank(b))) {
+    const p = pointAt(host, o);
+    if (!p) continue;
+    const at = S(p);
+    const r = o.kind === "listener" ? 13 : 11;
+    marks.set(o.obj.id, { x: at.x - r, y: at.y - r, w: 2 * r, h: 2 * r });
+    if (o.kind === "emitter") {
+      const t = emitterParts(host, o, predicted);
+      labels.push({ id: o.obj.id, x: at.x, y: at.y + 21, size: 11, text: t.name + t.speed + t.rel + t.status });
+    } else {
+      const t = listenerParts(host, o);
+      labels.push({ id: o.obj.id, x: at.x, y: at.y + 22, size: 11, text: t.name + t.rel });
+    }
+  }
+  for (const o of objects) {
+    const b = boxOf(o);
+    if (!b) continue;
+    const c = boxCorners(b).map(S);
+    labels.push({ id: o.obj.id, x: c.reduce((sum, q) => sum + q.x, 0) / 4, y: c.reduce((sum, q) => sum + q.y, 0) / 4 + 3, size: 10, text: boxText(host, o) });
+  }
+  return { labels, dy: spreadLabels(labels, marks), marks };
+}
+
+function PlanObjects(props: { host: SceneHost; S: (p: P2) => Px; visible: (o: SceneObject) => boolean; predicted: ReadonlyMap<string, RenderMode>; dy: ReadonlyMap<string, number> }) {
   const { host, S, visible, predicted } = props;
+  const dyOf = (id: string) => props.dy.get(id) ?? 0;
   const s = host.scene;
   const listener = activeListener(s);
   const objects = allObjects(s).filter((o) => shownInPlan(s, o));
@@ -472,16 +552,11 @@ function PlanObjects(props: { host: SceneHost; S: (p: P2) => Px; visible: (o: Sc
         const inside = o.kind === "audioZone" && boxContains(b, listener.position);
         const cls = o.kind === "obstacle" ? `sp-obstacle${materialClass(o.obj.material)}` : o.kind === "reverbZone" ? "sp-reverb" : `sp-azone${inside ? " inside" : ""}`;
         const muted = o.kind === "audioZone" && host.silenced(o.obj.id) && host.solo === null;
-        const text =
-          o.kind === "obstacle" ? `${o.obj.name} · ${o.obj.material}`
-          : o.kind === "reverbZone" ? `${o.obj.name} · ${presetText(o.obj.preset)} (priority ${o.obj.priority}${o.obj.levelDefault ? ", default" : ""})`
-          : o.kind === "audioZone" ? `${o.obj.name} · ${o.obj.heard === "inside" ? "inside" : "from its edge"}${muted ? " · muted" : ""}`
-          : o.obj.name;
         return (
           <g key={o.obj.id} class={`${dim(o)}${hover(o)}${muted ? " muted" : ""}`} data-id={o.obj.id}>
             {o.kind === "audioZone" && o.obj.heard === "inside" && o.obj.feather > 0 && <polygon class="sp-zone-edge" points={pts(boxCorners(growBox(b, o.obj.feather)).map(S))} />}
             <polygon class={cls} points={pts(corners)} />
-            <text class="sp-label box" x={corners.reduce((sum, c) => sum + c.x, 0) / 4} y={corners.reduce((sum, c) => sum + c.y, 0) / 4 + 3} text-anchor="middle">{text}</text>
+            <text class="sp-label box" x={corners.reduce((sum, c) => sum + c.x, 0) / 4} y={corners.reduce((sum, c) => sum + c.y, 0) / 4 + 3 + dyOf(o.obj.id)} text-anchor="middle">{boxText(host, o)}</text>
           </g>
         );
       })}
@@ -514,10 +589,9 @@ function PlanObjects(props: { host: SceneHost; S: (p: P2) => Px; visible: (o: Sc
         const live = host.playing ? livePlace(o, host.motion ?? []) : null;
         const p = live?.position ?? start;
         const at = S(p);
-        const moving = o.kind === "emitter" && o.obj.kind === "moving" ? o.obj : null;
         const from = S(start);
         const heard = heardOf(host, o.obj.id, predicted);
-        const rel = relativeHeight(p.y, listener.position.y);
+        const words = emitterParts(host, o, predicted);
         // While it travels: its start stays marked (drag it to move the start), and an arrow shows where it's heading.
         const arrow = live?.direction ? { x: at.x + live.direction.x * 18, y: at.y - live.direction.z * 18 } : null;
         return (
@@ -527,11 +601,11 @@ function PlanObjects(props: { host: SceneHost; S: (p: P2) => Px; visible: (o: Sc
             {arrow && <line class="sp-heading" x1={at.x} y1={at.y} x2={arrow.x} y2={arrow.y} />}
             {heard.playing && <circle class="sp-playing-ring" cx={at.x} cy={at.y} r={10.5} />}
             <circle class="sp-dot" cx={at.x} cy={at.y} r={7} />
-            <text class="sp-label" x={at.x} y={at.y + 21} text-anchor="middle">
-              {o.obj.name}
-              {moving ? <tspan class="sp-speed">{` · ${Math.round(moving.speed * 10) / 10} m/s`}</tspan> : null}
-              {rel ? <tspan class="sp-rel">{` ${rel}`}</tspan> : null}
-              {heard.playing ? <tspan class="sp-status">{" · ▸ playing"}</tspan> : heard.muted ? <tspan class="sp-status">{" · muted"}</tspan> : null}
+            <text class="sp-label" x={at.x} y={at.y + 21 + dyOf(o.obj.id)} text-anchor="middle">
+              {words.name}
+              {words.speed ? <tspan class="sp-speed">{words.speed}</tspan> : null}
+              {words.rel ? <tspan class="sp-rel">{words.rel}</tspan> : null}
+              {words.status ? <tspan class="sp-status">{words.status}</tspan> : null}
             </text>
           </g>
         );
@@ -542,15 +616,15 @@ function PlanObjects(props: { host: SceneHost; S: (p: P2) => Px; visible: (o: Sc
         const r = (l.yaw * Math.PI) / 180;
         const tip = { x: at.x + Math.sin(r) * 15, y: at.y - Math.cos(r) * 15 };
         const active = l.id === listener.id;
-        const rel = relativeHeight(l.position.y, listener.position.y);
+        const words = listenerParts(host, o);
         return (
           <g key={l.id} class={`sp-listener${active ? " active" : ""}${dim(o)}${hover(o)}${host.playing && active ? " playing" : ""}`} data-id={l.id}>
             {active && host.playing && <circle class="sp-listener-ring" cx={at.x} cy={at.y} r={13} />}
             <line class="sp-facing" x1={at.x} y1={at.y} x2={tip.x} y2={tip.y} />
             <circle class="sp-dot" cx={at.x} cy={at.y} r={8} />
-            <text class={`sp-label${active ? " strong" : ""}`} x={at.x} y={at.y + 22} text-anchor="middle">
-              {active ? `${l.name} · listening` : l.name}
-              {rel ? <tspan class="sp-rel">{` ${rel}`}</tspan> : null}
+            <text class={`sp-label${active ? " strong" : ""}`} x={at.x} y={at.y + 22 + dyOf(l.id)} text-anchor="middle">
+              {words.name}
+              {words.rel ? <tspan class="sp-rel">{words.rel}</tspan> : null}
             </text>
           </g>
         );
@@ -605,8 +679,8 @@ function Selection(props: { host: SceneHost; o: SceneObject; S: (p: P2) => Px })
   return <g>{out}</g>;
 }
 
-function NodeToolbar(props: { host: SceneHost; o: SceneObject; S: (p: P2) => Px; size: Size }) {
-  const { host, o, S, size } = props;
+function NodeToolbar(props: { host: SceneHost; o: SceneObject; S: (p: P2) => Px; size: Size; words: PlanWords }) {
+  const { host, o, S, size, words } = props;
   const bar = useRef<HTMLDivElement>(null);
   // Its own size keeps it inside the view (it wraps when the view is narrower than it).
   const [box, setBox] = useState({ width: 120, height: 30 });
@@ -618,13 +692,22 @@ function NodeToolbar(props: { host: SceneHost; o: SceneObject; S: (p: P2) => Px;
   const b = boxOf(o);
   const p = b ? null : placeNow(o, host.playing ? (host.motion ?? []) : []);
   if (!b && !p) return null;
-  // A point's toolbar sits above it; a shape's under it (the prototype's).
-  const corners = b ? boxCorners(b).map(S) : [];
-  const anchor = b ? { x: corners.reduce((sum, c) => sum + c.x, 0) / 4, y: Math.max(...corners.map((c) => c.y)) + 10 } : S(p!);
-  const x = Math.max(8, Math.min(size.width - box.width - 8, anchor.x - box.width / 2));
-  const want = b ? anchor.y : anchor.y - box.height - 16;
-  const y = Math.max(4, Math.min(size.height - box.height - 4, want));
+  // A point's toolbar sits above it, a shape's under it (the prototype's), unless that covers another label or mark:
+  // then the other sides (V11). Its own label counts as part of it, so the toolbar never covers that either.
   const id = o.obj.id;
+  const corners = b ? boxCorners(b).map(S) : [];
+  const xs = corners.map((c) => c.x), ys = corners.map((c) => c.y);
+  const at = p ? S(p) : null;
+  const shape: Rect = b ? { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) } : { x: at!.x - 12, y: at!.y - 12, w: 24, h: 24 };
+  const own = words.labels.find((l) => l.id === id);
+  const ownRect = own ? labelRect(own, words.dy.get(id) ?? 0) : null;
+  const target = ownRect && !b ? unionRect(shape, ownRect) : shape;
+  const avoid = [
+    ...words.labels.filter((l) => l.id !== id).map((l) => labelRect(l, words.dy.get(l.id) ?? 0)),
+    ...[...words.marks].filter(([k]) => k !== id).map(([, r]) => r),
+    ...(ownRect && b ? [ownRect] : []),
+  ];
+  const { x, y } = placeToolbar({ target, bar: { w: box.width, h: box.height }, view: size, avoid, prefer: b ? "below" : "above" });
   const ro = host.readOnly;
   const playable = o.kind === "emitter" || o.kind === "audioZone" || o.kind === "sound2d";
   const soloed = host.solo === id;
