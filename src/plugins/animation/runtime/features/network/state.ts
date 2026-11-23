@@ -6,23 +6,27 @@
 //   re-simulating). Servers replicate their tracks; the owner's predicted ghost keeps its own, which
 //   `animation.PredictedRootMotion` samples and `client.ts` reconciles with the server's. A re-simulated tick asking
 //   again for a play it already made gets that play back (its promise), not a second play.
-// - **Stops and links** are stamped the same way as they're asked for; servers replicate them.
-// - While the network feature itself plays, stops or links (applying replicated state), the hooks stand aside.
+// - **A server's interpolated ghost** replicates the tick the core started a play on instead (`slotPlayStarted`), and
+//   stops and links are stamped with the tick they reach the core on, so clients do each in step with the server.
+// - While the network feature itself queues a replicated play, the hooks stand aside.
 import { netSession } from "../../../../../engine/net/session";
 import type { Animator } from "../../components/Animator";
 import type { AnimationPlayResult } from "../../types";
 import type { SlotPlayAdmission, SlotPlayRecord, SlotSection } from "../graph/runtime";
 import { slotPlaySection } from "../graph/runtime";
 import { animatorRuntime, clipEntry, type AnimatorRuntime } from "../instances";
-import { roleOf, sessionOf } from "./ghosts";
+import { replicatedOf, roleOf, sessionOf } from "./ghosts";
 import type { NetLink, NetParameters, NetSlot, NetState } from "./wire";
 
 /** @internal A slot play the network feature follows: this World's own, or a replicated one it started (`remote`). */
 export interface SlotTrack {
   readonly slot: string;
   readonly clip: string;
-  /** The tick it was asked for on (the server's tick for a replicated play). */
-  readonly tick: number;
+  /**
+   * Its start tick (the server's for a replicated play): the tick it was asked for on, or, for a server's
+   * interpolated ghost, the tick the core started it on (`slotPlayStarted`), so clients start it in step.
+   */
+  tick: number;
   readonly speed: number;
   readonly loop: boolean;
   readonly fade: number;
@@ -209,16 +213,34 @@ export function slotPlayQueued(animator: Animator, play: SlotPlayRecord): void {
   });
 }
 
-/** @internal `slotNetHooks.stopped`. */
-export function slotStopped(animator: Animator, slot: string | null, fade: number): void {
+/**
+ * @internal `slotNetHooks.started`: a server's interpolated ghost replicates the tick the core started a play on (a
+ * play asked for between frames, or in update with fixed-mode evaluation, starts a tick later than it was asked for).
+ * Predicted ghosts keep the tick it was asked for on, which the owner predicted with.
+ */
+export function slotPlayStarted(animator: Animator, play: SlotPlayRecord): void {
   if (applying) return;
+  const rt = animatorRuntime(animator);
+  const session = rt ? sessionOf(rt.world) : null;
+  const track = rt ? animators.get(rt)?.slots.get(play.slot) : undefined;
+  if (!rt || !session?.isServer || track?.play !== play || replicatedOf(rt)?.mode === "predicted") return;
+  track.tick = session.simulatedTick;
+}
+
+/**
+ * @internal `slotNetHooks.stopped`: a stop sent to the core ends the plays it reaches (those the core has started; a
+ * play queued after the stop comes after it) at this tick.
+ */
+export function slotStopped(animator: Animator, slot: string | null, fade: number): void {
   const rt = animatorRuntime(animator);
   const session = rt ? sessionOf(rt.world) : null;
   const na = rt ? animators.get(rt) : undefined;
   if (!rt || !session || !na) return;
+  const role = roleOf(rt, session);
+  if (role !== "server" && role !== "predicted") return;
   const tick = session.simulatedTick;
   for (const t of na.slots.values()) {
-    if ((slot === null || t.slot === slot) && t.stopTick < 0 && t.tick <= tick) {
+    if ((slot === null || t.slot === slot) && t.stopTick < 0 && t.tick <= tick && (!t.play || t.play.id !== 0)) {
       t.stopTick = tick;
       t.stopFade = fade;
     }
@@ -227,7 +249,6 @@ export function slotStopped(animator: Animator, slot: string | null, fade: numbe
 
 /** @internal `slotNetHooks.linked`: servers replicate run-time link choices. */
 export function linkChosen(animator: Animator, node: string, path: string | null): void {
-  if (applying) return;
   const rt = animatorRuntime(animator);
   const session = rt ? netSession(rt.world) : null;
   if (!rt || !session?.isServer || roleOf(rt, session) !== "server") return;

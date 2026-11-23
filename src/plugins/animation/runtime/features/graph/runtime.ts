@@ -90,11 +90,13 @@ export type SlotPlayAdmission = { readonly tick: number; readonly offset: number
 /**
  * @internal What the network feature hears from graph Animators (ADR 0370 "Networking"; T33 fills these from
  * `network/register.ts`): slot plays are stamped with the tick they're asked for on (and a re-simulated tick's repeat
- * of a play answered with the first one's promise), and slot stops and links are reported as they're asked for.
+ * of a play answered with the first one's promise), told when the core starts one, and slot stops and links are
+ * reported as they're sent to the core.
  */
 export const slotNetHooks: {
   admit?(animator: Animator, slot: string, clip: string, explicit: { readonly tick: number; readonly offset: number } | undefined, speed: number): SlotPlayAdmission;
   queued?(animator: Animator, play: SlotPlayRecord): void;
+  started?(animator: Animator, play: SlotPlayRecord): void;
   stopped?(animator: Animator, slot: string | null, fade: number): void;
   linked?(animator: Animator, node: string, path: string | null): void;
 } = {};
@@ -407,7 +409,7 @@ export function queueJump(animator: Animator, state: string, layer: AnimatorLaye
 /** @internal `Animator.link`. */
 export function queueLink(animator: Animator, node: string, path: string | null): void {
   const p = path ? path.replace(/^asset:/, "") : null;
-  if (queue(animator, { kind: "link", node, path: p }, "link()")) slotNetHooks.linked?.(animator, node, p);
+  queue(animator, { kind: "link", node, path: p }, "link()");
 }
 
 /** @internal `Animator.layerWeight` on a graph Animator. */
@@ -460,7 +462,7 @@ export function queueSlotPlay(
 
 /** @internal `Animator.stop` on a graph Animator: one slot, or every slot. */
 export function queueSlotStop(animator: Animator, slot: string | null, fade: number): void {
-  if (queue(animator, { kind: "stop", slot, fade }, "stop()")) slotNetHooks.stopped?.(animator, slot, fade);
+  queue(animator, { kind: "stop", slot, fade }, "stop()");
 }
 
 /** @internal The latest slot play's promise, or null. */
@@ -610,16 +612,21 @@ function flushIntent(frame: AnimationFrame, g: GraphRuntime, intent: Intent): bo
       nextSlotPlayId = nextSlotPlayId >= 0xffffffff ? 1 : nextSlotPlayId + 1;
       g.plays.set(p.id, p);
       cmds.put(SLOT_PLAY, { instance, slot, clip: p.clip.handle, playId: p.id, blendIn: p.fade, blendOut: p.fade, speed: p.speed, start: section.start, end: section.end, flags: p.loop ? SECTION_LOOP : 0 });
+      slotNetHooks.started?.(g.rt.animator, p);
       return true;
     }
     case "stop": {
       if (intent.slot === null) {
         meta.compiled.slots.forEach((_, slot) => cmds.put(SLOT_STOP, { instance, slot, playId: 0, fade: intent.fade }));
+        slotNetHooks.stopped?.(g.rt.animator, null, intent.fade);
         return true;
       }
       const slot = meta.compiled.slots.indexOf(intent.slot);
       if (slot < 0) warnOnce(`slot:${g.graph.path}:${intent.slot}`, `[myco] ${who}: the graph "${g.graph.path}" has no slot "${intent.slot}"; stop ignored.`);
-      else cmds.put(SLOT_STOP, { instance, slot, playId: 0, fade: intent.fade });
+      else {
+        cmds.put(SLOT_STOP, { instance, slot, playId: 0, fade: intent.fade });
+        slotNetHooks.stopped?.(g.rt.animator, intent.slot, intent.fade);
+      }
       return true;
     }
     case "link": {
@@ -654,6 +661,7 @@ function flushIntent(frame: AnimationFrame, g: GraphRuntime, intent: Intent): bo
       else g.links.delete(index);
       if (old) releaseGraph(g.ns, old);
       cmds.put(LINK, { instance, linked: index, graph: handle });
+      slotNetHooks.linked?.(g.rt.animator, intent.node, intent.path);
       return true;
     }
     case "weight": {

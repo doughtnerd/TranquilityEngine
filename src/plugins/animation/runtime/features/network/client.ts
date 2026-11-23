@@ -123,9 +123,10 @@ function applySlots(na: NetAnimator, rt: AnimatorRuntime, now: number, dt: numbe
     const key = slotKey(e.slot, e.clip, e.tick);
     if (!na.started.has(key)) {
       if (e.tick > now) continue;
+      // A clip seen for the first time starts loading; the play starts once it has, that much further in.
+      if (clipEntry(rt, e.clip).handle === undefined) continue;
       na.started.add(key);
       if (e.stopTick >= 0 && e.stopTick <= now) continue; // stopped before it showed here
-      clipEntry(rt, e.clip); // starts loading a clip seen for the first time
       const track = startRemote(rt, e, (now - e.tick) * dt);
       if (track) na.slots.set(e.slot, track);
       continue;
@@ -160,7 +161,7 @@ function reconcileSlots(na: NetAnimator, rt: AnimatorRuntime, session: NetSessio
       continue;
     }
     if (local && local.tick > e.tick) continue; // a newer prediction: it waits for its own confirmation
-    clipEntry(rt, e.clip);
+    if (clipEntry(rt, e.clip).handle === undefined) continue; // loading: adopted once it has loaded
     const stopped = e.stopTick >= 0 && e.stopTick <= present;
     const track = stopped ? null : startRemote(rt, e, (present - e.tick) * dt);
     na.slots.set(e.slot, track ?? { slot: e.slot, clip: e.clip, tick: e.tick, speed: e.speed, loop: e.loop, fade: e.fade, section: { start: e.start, end: e.end }, normalizedTime: 0, start: e.start, end: e.end, resolved: 1, stopTick: e.stopTick, stopFade: e.stopFade, play: null, remote: true });
