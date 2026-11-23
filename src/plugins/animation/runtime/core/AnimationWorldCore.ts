@@ -19,6 +19,20 @@ export type AnimationFileKind = "skeleton" | "clip" | "graph" | "posedb" | "prof
 /** File fetches in flight, by URL, shared by every World. */
 const fetching = new Map<string, Promise<Uint8Array | null>>();
 
+/**
+ * @internal What watches a World's evaluates (`AnimationWorldCore.taps`): the live debugger's recorder (T52), which
+ * keeps an Animator's inputs to re-evaluate past frames.
+ */
+export interface EvaluateTap {
+  /**
+   * The World's commands are in the core's command buffer (its first `len` bytes) and the input, blackboard and rig
+   * views are written for the evaluate of `pass`; nothing is applied yet. A tap may read the views and snapshot instances; it never writes them.
+   */
+  applying(ns: AnimationWorldCore, len: number, pass: number, dtScaled: number, dtUnscaled: number): void;
+  /** The evaluate of `pass` ran (its outputs are in the views; the state-change records are unread). */
+  evaluated(ns: AnimationWorldCore, pass: number): void;
+}
+
 /** @internal A World's animation namespace. */
 export class AnimationWorldCore {
   /** The World id the core knows this World by. */
@@ -34,13 +48,27 @@ export class AnimationWorldCore {
   private readonly sink: CommandSink;
   private readonly frame: { world: World; core: AnimationWorldCore; dt: number; unscaledDt: number; fixed: boolean; pass: number };
   private closed = false;
+  /** What watches this World's evaluates (the live debugger's recorder, T52). */
+  readonly taps = new Set<EvaluateTap>();
+  /** The evaluate in progress (for the taps). */
+  private evaluating = { pass: PASS_NORMAL, dtScaled: 0, dtUnscaled: 0 };
 
   constructor(
     readonly world: World,
     readonly core: AnimationCore,
   ) {
     this.id = core.openWorld();
-    this.sink = { memory: () => core.buffer(), commandsPtr: () => core.commandsPtr(), writeInputs: (len) => core.writeInputs(len) };
+    this.sink = {
+      memory: () => core.buffer(),
+      commandsPtr: () => core.commandsPtr(),
+      writeInputs: (len) => {
+        if (this.taps.size) {
+          const e = this.evaluating;
+          for (const t of this.taps) t.applying(this, len, e.pass, e.dtScaled, e.dtUnscaled);
+        }
+        return core.writeInputs(len);
+      },
+    };
     this.frame = { world, core: this, dt: 0, unscaledDt: 0, fixed: false, pass: PASS_NORMAL };
   }
 
@@ -184,14 +212,18 @@ export class AnimationWorldCore {
    */
   evaluate(pass: number, dtScaled: number, dtUnscaled: number): number {
     if (this.closed) return 0;
+    this.evaluating = { pass, dtScaled, dtUnscaled };
     this.commands.flush(this.sink);
-    return this.core.evaluate(this.id, pass, dtScaled, dtUnscaled);
+    const changes = this.core.evaluate(this.id, pass, dtScaled, dtUnscaled);
+    for (const t of this.taps) t.evaluated(this, pass);
+    return changes;
   }
 
   /** @internal World teardown: destroys the instances, drops the asset references and gives the World id back. */
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.taps.clear();
     for (const h of this.instances) this.core.destroyInstance(h);
     this.instances.clear();
     for (const h of this.tweens) this.core.tweenControl(h, TWEEN_KILL);

@@ -17,11 +17,10 @@
 import type { Animator } from "../../components/Animator";
 import { AnimatorStateChanges } from "../../buffers";
 import type { AnimationWorldCore } from "../../core/AnimationWorldCore";
-import { getRecord, recordOpcode, type RecordFields } from "../../core/records";
+import type { RecordFields } from "../../core/records";
 import type { AnimationFrame } from "../../stages/frame";
 import type { AnimationPlayEndReason, AnimationPlayResult, AnimatorLayer, AnimatorParameterValue, AnimatorStateInfo, AnimatorTravelResult } from "../../types";
 import { CHANGE_REFUSED, HANDLE_INDEX_MASK, MAX_LAYERS, STATE_CHANGE, STATUS_TOO_LARGE } from "../../wasm/wire/core";
-import { DEBUG_HEADER, DEBUG_MACHINE, DEBUG_NODE, DEBUG_REQUEST, DEBUG_TRANSITION } from "../../wasm/wire/debug";
 import {
   BLACKBOARD_DIRTY,
   BLACKBOARD_PARAMS,
@@ -45,6 +44,7 @@ import {
   TRAVEL,
 } from "../../wasm/wire/graph";
 import { animatorRuntime, animatorsOf, clipEntry, skeletonProfileOf, type AnimatorRuntime, type ClipEntry, type SkeletonRuntime } from "../instances";
+import { readDebugReport, reportMachine, reportNode, type DebugReport } from "../debug/report";
 import { acquireGraph, releaseGraph, type GraphMeta, type LoadedGraph } from "./asset";
 import { readClipCues, sectionRange } from "./clipCues";
 import { decodeParameter, encodeParameter, PARAM_TYPE_IDS } from "./parameters";
@@ -127,12 +127,6 @@ interface MachineClock {
   previousTime: number;
 }
 
-interface DebugView {
-  readonly machines: Map<number, RecordFields<typeof DEBUG_MACHINE>>;
-  /** Node index → its timing clip's normalised time. */
-  readonly nodes: Map<number, number>;
-}
-
 /** @internal A graph instance's host state. */
 interface GraphRuntime {
   readonly rt: AnimatorRuntime;
@@ -153,7 +147,8 @@ interface GraphRuntime {
   readonly travels: TravelWait[];
   /** Graphs linked at run time, by linked-graph slot. */
   readonly links: Map<number, LoadedGraph>;
-  debug: DebugView | null;
+  /** This frame's debug report, once read. */
+  debug: DebugReport | null;
 }
 
 /** Per Animator, across its instances: what waits for an instance, computed parameters, the latest slot play. */
@@ -842,40 +837,27 @@ function refusal(g: GraphRuntime, c: RecordFields<typeof STATE_CHANGE>): void {
 
 // ------------------------------------------------------------------------------------------------ state()
 
-function debugView(g: GraphRuntime): DebugView | null {
+function debugView(g: GraphRuntime): DebugReport | null {
   if (g.debug) return g.debug;
   const core = g.ns.core;
   if (!g.ns.open || core.debugWrite(g.instance) === 0) return null;
-  const data = core.views().data;
-  const base = core.debugPtr();
-  const header = getRecord(data, base, DEBUG_HEADER);
-  const view: DebugView = { machines: new Map(), nodes: new Map() };
-  let at = base + DEBUG_HEADER.stride;
-  const end = at + header.recordBytes;
-  const strides = new Map<number, number>([
-    [DEBUG_NODE.opcode, DEBUG_NODE.stride],
-    [DEBUG_MACHINE.opcode, DEBUG_MACHINE.stride],
-  ]);
-  while (at < end) {
-    const op = recordOpcode(data, at);
-    if (op === DEBUG_NODE.opcode) {
-      const r = getRecord(data, at, DEBUG_NODE);
-      view.nodes.set(r.node, r.normalized);
-    } else if (op === DEBUG_MACHINE.opcode) {
-      const r = getRecord(data, at, DEBUG_MACHINE);
-      view.machines.set(r.machine, r);
-    }
-    const stride = strides.get(op) ?? debugStride(op);
-    if (!stride) break;
-    at += stride;
-  }
-  g.debug = view;
-  return view;
+  g.debug = readDebugReport(core.views().data, core.debugPtr());
+  return g.debug;
 }
 
-/** Strides of the debug records `state()` doesn't read. */
-function debugStride(op: number): number {
-  return op === DEBUG_TRANSITION.opcode ? DEBUG_TRANSITION.stride : op === DEBUG_REQUEST.opcode ? DEBUG_REQUEST.stride : 0;
+/**
+ * @internal The debug report of `animator`'s graph instance as of its last evaluate (read once per frame and shared
+ * with `state()`), or null: no graph instance, still loading, or the core not open.
+ */
+export function graphDebugReport(animator: Animator): DebugReport | null {
+  const g = animatorGraphs.get(animator)?.runtime;
+  return g ? debugView(g) : null;
+}
+
+/** @internal `animator`'s live graph instance: its handle, the loaded graph's handle and tables; null without one. */
+export function graphInstanceOf(animator: Animator): { readonly instance: number; readonly graph: number; readonly meta: GraphMeta; readonly path: string } | null {
+  const g = animatorGraphs.get(animator)?.runtime;
+  return g ? { instance: g.instance, graph: g.graph.handle, meta: g.graph.meta, path: g.graph.path } : null;
 }
 
 const EMPTY_STATE: AnimatorStateInfo = Object.freeze({ name: "", time: 0, normalizedTime: 0, weight: 0, transitioningTo: null });
@@ -890,14 +872,14 @@ export function graphState(animator: Animator, layer: AnimatorLayer): AnimatorSt
   const mm = meta.machines[m];
   if (!clock || !mm || clock.current < 0) return EMPTY_STATE;
   const dbg = debugView(g);
-  const rec = dbg?.machines.get(m);
+  const rec = dbg ? reportMachine(dbg, m) : undefined;
   const blending = rec !== undefined && rec.active !== NONE && rec.duration > 0 && rec.elapsed < rec.duration && clock.previous >= 0;
   if (blending) {
     const root = mm.roots[clock.previous] ?? -1;
     return {
       name: mm.states[clock.previous] ?? "",
       time: clock.previousTime + rec.elapsed,
-      normalizedTime: dbg!.nodes.get(root) ?? 0,
+      normalizedTime: reportNode(dbg!, root)?.normalized ?? 0,
       weight: 1 - rec.elapsed / rec.duration,
       transitioningTo: mm.states[clock.current] ?? null,
     };
