@@ -2,8 +2,20 @@
  * ducking rows, the game parameters panel, the sound picker, type badges, span and value lanes, gain lanes and the
  * "Why it played" chain. Theme tokens only (src/editor/ui/editor.css lists them). */
 
-/* Type badges: one series colour per kind */
-.studio-badge { flex: none; display: inline-block; min-width: 26px; padding: 0 4px; border-radius: 3px; border: 1px solid currentColor; font-size: calc(9px * var(--ui-scale)); font-weight: 700; letter-spacing: 0.04em; line-height: 14px; text-align: center; font-variant-numeric: tabular-nums; }
+@import "./formControls.css";
+
+/* Type badges (prototype `.mb`, ui-pass decisions): 9 px bold code in a 1 px outline, one colour per kind — CLP violet,
+ * QUE pink, SW amber, 1D teal, 2D green, SEQ blue, LAY neutral; a sample and the empty "—" placeholder are neutral. */
+.studio-badge { flex: none; display: inline-block; box-sizing: border-box; min-width: 28px; padding: 0 3px; border-radius: 3px; border: 1px solid var(--badge-tone, var(--border-strong)); color: var(--badge-tone, var(--muted)); font-size: calc(9px * var(--ui-scale)); font-weight: 700; letter-spacing: 0.03em; line-height: 14px; text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.studio-tone-clip { --badge-tone: var(--series-6); }
+.studio-tone-queue { --badge-tone: var(--marker-cue); }
+.studio-tone-switch { --badge-tone: var(--warning); }
+.studio-tone-blend1 { --badge-tone: var(--accent); }
+.studio-tone-blend2 { --badge-tone: var(--accent2); }
+.studio-tone-sequence { --badge-tone: var(--series-4); }
+.studio-tone-layer, .studio-tone-sample { --badge-tone: initial; }
+.studio-badge.studio-tone-none { --badge-tone: initial; border-style: dashed; color: var(--faint); }
+/* Series colours for lanes (ValueLane). */
 .studio-series-1 { color: var(--series-1); --series: var(--series-1); }
 .studio-series-2 { color: var(--series-2); --series: var(--series-2); }
 .studio-series-3 { color: var(--series-3); --series: var(--series-3); }
@@ -13,44 +25,57 @@
 .studio-series-7 { color: var(--series-7); --series: var(--series-7); }
 .studio-series-8 { color: var(--series-8); --series: var(--series-8); }
 
-/* Fader */
-.studio-fader { position: relative; touch-action: none; user-select: none; outline: none; }
+/* Fader (prototype Mixer `.hf` / `.vfd`): a 2 px track, a dashed 0 dB tick, ghost ticks, a slim thumb; the meter sits
+ * in its own thin lane (under the track, or beside it when vertical). No fill: the thumb shows the level. */
+.studio-fader { position: relative; flex: none; touch-action: none; user-select: none; outline: none; }
 .studio-fader.horizontal { height: 24px; min-width: 80px; cursor: ew-resize; }
 .studio-fader.vertical { width: 26px; min-height: 120px; height: 100%; cursor: ns-resize; }
-.studio-fader:focus-visible { box-shadow: 0 0 0 2px var(--focus-ring); border-radius: 3px; }
+.studio-fader.vertical.has-meter { width: 40px; }
+.studio-fader:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
 .studio-fader.disabled { cursor: default; opacity: 0.55; }
-.studio-fader-track { position: absolute; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
-.studio-fader.horizontal .studio-fader-track { left: 0; right: 0; top: 7px; height: 10px; }
-.studio-fader.vertical .studio-fader-track { top: 0; bottom: 0; left: 8px; width: 10px; }
-.studio-fader-fill { position: absolute; left: 0; bottom: 0; background: var(--accent-soft); }
-.studio-fader.horizontal .studio-fader-fill { top: 0; }
-.studio-fader.vertical .studio-fader-fill { right: 0; }
-.studio-fader-unity, .studio-fader-ghost { position: absolute; background: var(--border-strong); }
-.studio-fader.horizontal .studio-fader-unity { top: 0; bottom: 0; width: 1px; }
-.studio-fader.vertical .studio-fader-unity { left: 0; right: 0; height: 1px; }
-.studio-fader-ghost { background: var(--accent2); }
+.studio-fader-track { position: absolute; background: var(--border-strong); pointer-events: none; }
+.studio-fader.horizontal .studio-fader-track { left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; }
+.studio-fader.vertical .studio-fader-track { top: 0; bottom: 0; left: 12px; width: 2px; }
+.studio-fader.vertical.has-meter .studio-fader-track { left: 26px; }
+.studio-fader-unity { position: absolute; pointer-events: none; }
+.studio-fader.horizontal .studio-fader-unity { top: 3px; bottom: 3px; width: 0; border-left: 1px dashed var(--faint); }
+.studio-fader.vertical .studio-fader-unity { left: -2px; width: 30px; height: 0; border-top: 1px dashed var(--faint); }
+.studio-fader.vertical.has-meter .studio-fader-unity { left: 12px; }
+.studio-fader-ghost { position: absolute; border-radius: 1px; background: var(--series-6); }
 .studio-fader-ghost.base { background: var(--text); }
-.studio-fader.horizontal .studio-fader-ghost { top: 0; bottom: 0; width: 2px; margin-left: -1px; }
-.studio-fader.vertical .studio-fader-ghost { left: 0; right: 0; height: 2px; margin-bottom: -1px; }
-.studio-fader-thumb { position: absolute; background: var(--button); border: 1px solid var(--border-strong); border-radius: 3px; box-shadow: 0 1px 3px var(--shadow); pointer-events: none; }
-.studio-fader.horizontal .studio-fader-thumb { top: 2px; width: 10px; height: 20px; margin-left: -5px; }
-.studio-fader.vertical .studio-fader-thumb { left: 1px; width: 24px; height: 10px; margin-bottom: -5px; }
-.studio-fader:hover:not(.disabled) .studio-fader-thumb, .studio-fader:focus-visible .studio-fader-thumb { background: var(--button-hover); border-color: var(--accent); }
-/* A meter inside a fader's track */
-.studio-fader-track > .studio-meter { position: absolute; inset: 0; }
+.studio-fader.horizontal .studio-fader-ghost { top: 50%; width: 2px; height: 20px; margin: -10px 0 0 -1px; }
+.studio-fader.vertical .studio-fader-ghost { left: -3px; width: 32px; height: 2px; margin-bottom: -1px; }
+.studio-fader.vertical.has-meter .studio-fader-ghost { left: 11px; }
+.studio-fader-thumb { position: absolute; box-sizing: border-box; background: var(--button); border: 1px solid var(--border-strong); border-radius: 3px; pointer-events: none; }
+.studio-fader.horizontal .studio-fader-thumb { top: 50%; width: 10px; height: 16px; margin: -8px 0 0 -5px; }
+.studio-fader.vertical .studio-fader-thumb { left: 0; width: 26px; height: 14px; margin-bottom: -7px; }
+.studio-fader.vertical.has-meter .studio-fader-thumb { left: 14px; }
+.studio-fader.selected .studio-fader-thumb,
+.studio-fader:hover:not(.disabled) .studio-fader-thumb,
+.studio-fader:focus-visible .studio-fader-thumb { border-color: var(--accent); }
+/* The meter lane: a 3 px bar under the track (horizontal), an 8 px bar beside it (vertical). */
+.studio-fader-meter { position: absolute; pointer-events: none; }
+.studio-fader.horizontal .studio-fader-meter { left: 0; right: 0; bottom: 1px; height: 3px; }
+.studio-fader.vertical .studio-fader-meter { left: 0; top: 0; bottom: 0; width: 8px; }
+.studio-fader-meter > .studio-meter { position: absolute; inset: 0; width: auto; height: auto; min-width: 0; min-height: 0; gap: 0; }
+.studio-fader-meter .studio-meter-clip, .studio-fader-meter .studio-meter-rms, .studio-fader-meter .studio-meter-scale { display: none; }
+.studio-fader-meter .studio-meter-peak { opacity: 1; }
+.studio-fader.horizontal .studio-fader-meter .studio-meter-bar { background: none; border-radius: 2px; }
+.studio-fader.horizontal .studio-fader-meter .studio-meter-peak { border-radius: 2px; }
 
-/* Meter */
+/* Meter (prototype Mixer: an 8 px `--border` well, the level in `--accent2` from the bottom): peak bar, RMS inside it,
+ * hold line, clip light. */
 .studio-meter { position: relative; display: flex; gap: 3px; }
-.studio-meter.vertical { flex-direction: column-reverse; width: 10px; min-height: 60px; height: 100%; }
-.studio-meter.horizontal { flex-direction: row; height: 8px; min-width: 60px; width: 100%; }
-.studio-meter-bar { position: relative; flex: 1; background: var(--bg-sunken); border-radius: 2px; overflow: hidden; }
+.studio-meter.vertical { flex-direction: column-reverse; width: 8px; min-height: 60px; height: 100%; }
+.studio-meter.horizontal { flex-direction: row; height: 6px; min-width: 60px; width: 100%; }
+.studio-meter-bar { position: relative; flex: 1; background: var(--border); border-radius: 2px; overflow: hidden; }
 .studio-meter-peak, .studio-meter-rms { position: absolute; left: 0; bottom: 0; }
 .studio-meter.vertical .studio-meter-peak, .studio-meter.vertical .studio-meter-rms { right: 0; }
 .studio-meter.horizontal .studio-meter-peak, .studio-meter.horizontal .studio-meter-rms { top: 0; }
-.studio-meter-peak { background: var(--success); opacity: 0.55; }
+.studio-meter-peak { background: var(--accent2); opacity: 0.55; }
 .studio-meter-peak.hot { background: var(--warning); }
 .studio-meter-peak.clip { background: var(--danger); }
-.studio-meter-rms { background: var(--success); }
+.studio-meter-rms { background: var(--accent2); }
 .studio-meter.vertical .studio-meter-rms { left: 25%; right: 25%; }
 .studio-meter.horizontal .studio-meter-rms { top: 25%; bottom: 25%; }
 .studio-meter-hold { position: absolute; background: var(--text); }
@@ -69,19 +94,14 @@
 .studio-meter.horizontal .studio-meter-scale { top: 100%; left: 0; right: 9px; height: 12px; }
 .studio-meter.horizontal .studio-meter-scale span { position: absolute; transform: translateX(-50%); }
 
-/* Parameter row: label | slider | number + unit */
-.studio-param { display: grid; grid-template-columns: minmax(70px, 110px) minmax(60px, 1fr) minmax(44px, 96px); gap: 6px; align-items: center; font-size: calc(12px * var(--ui-scale)); min-width: 0; }
-.studio-param > label, .studio-param > span:first-child { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.studio-param > label.scrub { cursor: ew-resize; user-select: none; touch-action: none; }
-.studio-param > label.scrub:hover { color: var(--text); }
-.studio-param input[type="range"] { min-width: 0; width: 100%; accent-color: var(--accent); }
-.studio-param select { min-width: 0; grid-column: 2 / 4; }
+/* Parameter rows are `SliderField`s (formControls.css `.studio-slider`); `.studio-param` also lays out a label | select
+ * row (a choice parameter, a ducking trigger, a labelled game parameter). */
+.studio-param { display: grid; grid-template-columns: minmax(70px, 110px) minmax(60px, 1fr) auto; gap: 6px; align-items: center; font-size: calc(12px * var(--ui-scale)); min-width: 0; }
+.studio-param > label, .studio-param > span:first-child { color: var(--muted); font-size: calc(11px * var(--ui-scale)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.studio-param select { min-width: 0; grid-column: 2 / 4; justify-self: start; max-width: 100%; }
 .studio-param > .kit-segmented { grid-column: 2 / 4; justify-self: start; }
-.studio-param-value { display: flex; align-items: center; gap: 3px; min-width: 0; }
-.studio-param-box { width: 100%; min-width: 0; text-align: right; font-variant-numeric: tabular-nums; }
-.studio-param-unit { flex: none; color: var(--muted); font-size: calc(11px * var(--ui-scale)); white-space: nowrap; }
 .studio-param-note { flex: 1; min-width: 0; color: var(--accent); font-size: calc(11px * var(--ui-scale)); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.studio-param.disabled > label { color: var(--faint); }
+
 
 /* Collapsible rows: effect cards, sends, ducking */
 .studio-row { border: 1px solid var(--border); border-radius: 4px; background: var(--surface); padding: 3px 6px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -127,9 +147,11 @@
 .studio-fx-health.over { color: var(--danger); }
 
 /* Game parameters panel */
-.studio-params { display: flex; flex-direction: column; gap: 4px; }
-.studio-params-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
-.studio-params-row > .studio-param { flex: 1; }
+/* One row per parameter: the slider row (or label | select) and its reset, in a grid so every field lines up in a
+ * column, no wider than a readable row; the fields are the Studio's (formControls.css), so screens need no CSS. */
+.studio-params { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; align-items: center; max-width: 560px; min-width: 0; }
+.studio-params-row { display: contents; }
+.studio-params-row > .studio-param { min-width: 0; }
 
 /* Sound picker */
 .studio-picker { position: fixed; z-index: 60; width: min(360px, calc(100vw - 16px)); max-height: min(420px, calc(100vh - 16px)); display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 8px 24px var(--shadow); }
@@ -155,7 +177,7 @@
 .studio-span.selected { box-shadow: 0 0 0 2px var(--focus-ring); z-index: 1; }
 .studio-span.dim { opacity: 0.25; }
 .studio-span.live { border-right-style: dotted; }
-.studio-span-held { position: absolute; top: 0; bottom: 0; background: var(--accent-faint); border-left: 1px dotted var(--accent); }
+.studio-span-held { position: absolute; top: 0; bottom: 0; background: var(--accent2-soft); border-left: none; }
 .studio-span-label { position: relative; padding: 0 4px; color: var(--text); font-size: calc(10px * var(--ui-scale)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 
 /* Value lane */

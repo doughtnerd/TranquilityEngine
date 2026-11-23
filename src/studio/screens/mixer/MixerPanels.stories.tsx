@@ -88,9 +88,8 @@ export const BusMenuMoveTo: Story = {
     const menu = await body.findByRole("menu", { name: "Music menu" });
     await expect(within(menu).getByRole("menuitem", { name: /^Undo/ })).toBeTruthy();
     await userEvent.click(within(menu).getByRole("menuitem", { name: "Move to…" }));
-    const dialog = await body.findByRole("dialog", { name: "Move Music to…" });
-    await userEvent.click(within(dialog).getByText("UI"));
-    await userEvent.click(within(dialog).getByRole("button", { name: "Move" }));
+    const dialog = await body.findByRole("dialog", { name: "Move “Music” to" });
+    await userEvent.click(within(dialog).getByText("UI")); // one click on an allowed folder moves
     const list = c.getByRole("listbox", { name: "Buses" });
     const order = within(list).getAllByRole("option").map((o) => o.getAttribute("data-bus-row"));
     await expect(order.slice(order.indexOf("UI"), order.indexOf("UI") + 2)).toEqual(["UI", "Music"]);

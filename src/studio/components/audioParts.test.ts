@@ -16,7 +16,7 @@ import { formatParam, paramKey, paramToFraction, paramToSlider, parseParam, scru
 import { flatItems, soundFolder, soundName, soundSections, stepActive, type SoundItem } from "./soundPickerModel";
 import { isDimmed, packSpans, spanAt, spanBoxes, stepSpan, type Span } from "./spanLaneModel";
 import { formatTime, linearTimeAxis, spanBox, zoomTimeAxis } from "./timeAxis";
-import { playlistBadge, sampleBadge } from "./typeBadgeModel";
+import { placeholderBadge, playlistBadge, sampleBadge } from "./typeBadgeModel";
 import { formatValue, lanePolyline, valueAt, valueRange, valueToY } from "./valueLaneModel";
 
 const next = <T>(r: EditResult<T>): T => {
@@ -322,7 +322,12 @@ describe("sound picker and badges", () => {
     expect(playlistBadge("blend").code).toBe("1D");
     expect(playlistBadge("blend", 2)).toMatchObject({ code: "2D", name: "Blend playlist, two axes" });
     expect(sampleBadge().code).toBe("SMP");
-    expect(new Set([...["queue", "switch", "layer", "clip", "sequence"].map((t) => playlistBadge(t as "queue").series), playlistBadge("blend").series, playlistBadge("blend", 2).series, sampleBadge().series]).size).toBe(8);
+    expect(new Set([...["queue", "switch", "layer", "clip", "sequence"].map((t) => playlistBadge(t as "queue").tone), playlistBadge("blend").tone, playlistBadge("blend", 2).tone, sampleBadge().tone]).size).toBe(8);
+  });
+  it("colours the badges as the ui-pass decisions say, and has a placeholder for an empty chip", () => {
+    const tone = (t: Parameters<typeof playlistBadge>[0], axes?: 1 | 2) => playlistBadge(t, axes).tone;
+    expect([tone("clip"), tone("queue"), tone("switch"), tone("blend"), tone("blend", 2), tone("sequence"), tone("layer")]).toEqual(["clip", "queue", "switch", "blend1", "blend2", "sequence", "layer"]);
+    expect(placeholderBadge()).toMatchObject({ code: "—", name: "No sound", tone: "none" });
   });
 });
 

@@ -442,7 +442,7 @@ function VoicesPanel() {
   );
 }
 
-/** The test values of the open playlist's parameters, inside the panel's gutter with token-styled fields (I3). */
+/** The test values of the open playlist's parameters, inside the panel's gutter (I3). */
 function TestValues() {
   return (
     <div class="pl-test-values">

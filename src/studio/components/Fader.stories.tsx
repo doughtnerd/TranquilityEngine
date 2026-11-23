@@ -78,3 +78,18 @@ export const DoubleClickForUnity: StoryObj = {
 };
 
 export const Automated: StoryObj = { render: () => <Demo disabled /> };
+
+/** The prototype Mixer's look: a 2 px track (no filled bar), a slim thumb, and the meter in its own lane under the track. */
+export const ThinTrackAndMeterLane: StoryObj = {
+  render: () => <Demo meter start={-3} />,
+  play: async ({ canvasElement }) => {
+    const fader = canvasElement.querySelector(".studio-fader")!;
+    await expect(getComputedStyle(fader.querySelector(".studio-fader-track")!).height).toBe("2px");
+    await expect(fader.querySelector(".studio-fader-fill")).toBeNull();
+    const thumb = fader.querySelector(".studio-fader-thumb")!.getBoundingClientRect();
+    await expect([thumb.width, thumb.height]).toEqual([10, 16]);
+    const lane = fader.querySelector(".studio-fader-meter")!.getBoundingClientRect();
+    await expect(lane.height).toBe(3);
+    await expect(lane.bottom).toBeGreaterThan(fader.querySelector(".studio-fader-track")!.getBoundingClientRect().bottom);
+  },
+};

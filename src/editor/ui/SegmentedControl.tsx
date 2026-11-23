@@ -1,5 +1,6 @@
 // A segmented control (ADR 0349): one choice of a few, drawn as joined buttons, with the ARIA radio group pattern
-// (one tab stop on the chosen option; arrows move and pick, `segmentedModel.ts`).
+// (one tab stop on the chosen option; arrows move and pick, `segmentedModel.ts`). As wide as its options (never
+// stretched across its row), wrapping onto another line rather than clipping an option in a narrow panel.
 import { useRef } from "preact/hooks";
 import { segmentForKey, type SegmentOption } from "./segmentedModel";
 import "./kit.css";
@@ -12,6 +13,11 @@ export interface SegmentedControlProps<T extends string> {
   /** The group's accessible name. */
   readonly label: string;
   readonly size?: "small" | "normal";
+  /**
+   * Its look (owner's prototype): "underline" (default, `.sg`: the chosen segment on --active with a 2 px accent
+   * underline) or "fill" (`.seg`: the chosen segment filled with the accent).
+   */
+  readonly look?: "underline" | "fill";
   onChange(value: NoInfer<T>): void;
 }
 
@@ -21,7 +27,7 @@ export function SegmentedControl<T extends string>(props: SegmentedControlProps<
   return (
     <div
       ref={ref}
-      class={`kit-segmented${props.size === "small" ? " small" : ""}`}
+      class={`kit-segmented${props.size === "small" ? " small" : ""}${props.look === "fill" ? " fill" : ""}`}
       role="radiogroup"
       aria-label={props.label}
       onKeyDown={(e) => {

@@ -26,6 +26,8 @@ import { createStudioAudioHost } from "./runtime/studioAudioHost";
 import { installCalibration } from "./shell/applyCalibration";
 import { installStudioKeys } from "./shell/installKeys";
 import { installLongPress } from "./shell/longPress";
+import { installLabelScrub } from "./components/labelScrub";
+import "./components/formControls.css";
 import { createRouter, windowHash } from "./shell/route";
 import { StudioApp } from "./shell/StudioApp";
 import { provideStudio } from "./shell/studioServices";
@@ -53,6 +55,10 @@ async function main(): Promise<void> {
   setStartActions({ open: projects.open, pickProjectLocation: projects.pickLocation });
   installStudioKeys();
   installLongPress(window);
+  // The Studio's form controls everywhere on the page, dialogs and popovers included, and every number field's label
+  // scrubs (spec §1.3, the owner's prototype).
+  document.documentElement.classList.add("studio-forms");
+  installLabelScrub(document);
   installCalibration(runtime);
 
   render(<StudioApp onCloseProject={projects.close} />, document.getElementById("app")!);

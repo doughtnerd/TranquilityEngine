@@ -14,6 +14,12 @@ export interface MenuItem {
   readonly hint?: string;
   /** Destructive (Delete): drawn in the danger colour. */
   readonly danger?: boolean;
+  /** The current choice of a set (a play mode): ✓ in the check column, which the menu keeps when any item says it. */
+  readonly checked?: boolean;
+  /** A muted note in the right column instead of a shortcut ("no loops", why it can't run). */
+  readonly note?: string;
+  /** Its own menu, opened beside it (hover, →, Enter or Space); `run` is then not called. */
+  readonly submenu?: readonly MenuEntry[];
   run(): void;
 }
 
@@ -21,24 +27,40 @@ export interface MenuSeparator {
   readonly kind: "separator";
 }
 
-export type MenuEntry = MenuItem | MenuSeparator;
+/** A caps heading over a group of items ("Play mode"); not focusable. */
+export interface MenuGroup {
+  readonly kind: "group";
+  readonly label: string;
+}
+
+export type MenuEntry = MenuItem | MenuSeparator | MenuGroup;
 
 export const SEPARATOR: MenuSeparator = { kind: "separator" };
 
-export const isItem = (e: MenuEntry): e is MenuItem => e.kind !== "separator";
+export const isItem = (e: MenuEntry): e is MenuItem => e.kind !== "separator" && e.kind !== "group";
+/** A group heading. */
+export const isGroup = (e: MenuEntry): e is MenuGroup => e.kind === "group";
 const usable = (e: MenuEntry | undefined): boolean => !!e && isItem(e) && !e.disabled;
 
-/** `entries` without separators at the start, the end, or next to another separator. */
+/**
+ * `entries` without separators at the start, the end, or next to another separator, and without a group heading that
+ * has no items under it.
+ */
 export function tidyEntries(entries: readonly (MenuEntry | null | false | undefined)[]): MenuEntry[] {
   const out: MenuEntry[] = [];
+  const last = () => out[out.length - 1];
   for (const e of entries) {
     if (!e) continue;
-    if (!isItem(e) && (out.length === 0 || !isItem(out[out.length - 1]))) continue;
+    if (!isItem(e)) while (out.length > 0 && isGroup(last()!)) out.pop();
+    if (e.kind === "separator" && (out.length === 0 || !isItem(last()!))) continue;
     out.push(e);
   }
-  while (out.length > 0 && !isItem(out[out.length - 1])) out.pop();
+  while (out.length > 0 && !isItem(last()!)) out.pop();
   return out;
 }
+
+/** The menu draws a check column: one of its items has `checked` set (true or false). */
+export const hasCheckColumn = (entries: readonly MenuEntry[]): boolean => entries.some((e) => isItem(e) && e.checked !== undefined);
 
 /** The next usable item from `from` in direction `step` (wrapping), or -1 when none is usable. From -1, the first (or last). */
 export function stepIndex(entries: readonly MenuEntry[], from: number, step: 1 | -1): number {
