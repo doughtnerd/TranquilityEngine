@@ -277,6 +277,7 @@
 .sp-sound { flex: 1 1 auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; overflow: hidden; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; cursor: pointer; text-align: left; }
 .sp-sound:disabled { cursor: default; opacity: 0.7; }
 .sp-sound > * { flex: none; }
+.sp-sound .sp-sound-chev { color: var(--muted); }
 .sp-sound .sp-sound-name { flex: 1 1 0; width: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Settings */

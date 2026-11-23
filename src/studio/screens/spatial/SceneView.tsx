@@ -218,6 +218,15 @@ function Viewport(props: { host: SceneHost; slab: [number, number] }) {
   const onKeyUp = (e: KeyboardEvent) => {
     if (e.key === " ") endSpace();
   };
+  // Releasing Space ends panning wherever the key-up lands (the page's keymap may take it before the plan does).
+  useEffect(() => {
+    if (!panning) return;
+    const up = (e: KeyboardEvent) => {
+      if (e.key === " " || e.code === "Space") endSpace();
+    };
+    window.addEventListener("keyup", up, true);
+    return () => window.removeEventListener("keyup", up, true);
+  }, [panning]);
   // The pointer over the plan brings the keyboard with it (D27): Space pans, +/−/0 zoom, the arrows pan.
   const onPointerEnter = (e: PointerEvent) => {
     const el = ref.current;

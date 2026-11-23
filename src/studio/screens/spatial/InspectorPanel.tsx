@@ -257,10 +257,14 @@ function ObjectInspector(props: InspectorProps & { o: SceneObject }) {
 
       {o.kind === "audioZone" && (
         <Section title="Zone">
-          <FieldRow label="Heard" title={o.obj.heard === "edge" ? "Outside, it plays from the nearest point of the box, wider the closer you are; inside, it surrounds you." : "Inside, it plays around you; outside, it fades out over the feather."}>
-            <SegmentedControl label="Heard" look="fill" size="small" value={o.obj.heard} options={[{ value: "edge", label: "From its edge" }, { value: "inside", label: "Inside only" }]}
-              onChange={(h) => !ro && props.onEdit("Edit audio zone", (s) => patchAudioZone(s, id, { heard: h }))} />
-          </FieldRow>
+          {/* A row like FieldRow's, but not a <label>: a label would name the first segment "Heard". */}
+          <div class="kit-field" title={o.obj.heard === "edge" ? "Outside, it plays from the nearest point of the box, wider the closer you are; inside, it surrounds you." : "Inside, it plays around you; outside, it fades out over the feather."}>
+            <span class="kit-field-label">Heard</span>
+            <span class="kit-field-control">
+              <SegmentedControl label="Heard" look="fill" size="small" value={o.obj.heard} options={[{ value: "edge", label: "From its edge", disabled: ro }, { value: "inside", label: "Inside only", disabled: ro }]}
+                onChange={(h) => props.onEdit("Edit audio zone", (s) => patchAudioZone(s, id, { heard: h }))} />
+            </span>
+          </div>
           {slider("feather", o.obj.feather, (s, v) => patchAudioZone(s, id, { feather: v }))}
           <div class="sp-state">
             <div>{zoneState(o.obj, listener.position)}</div>
@@ -336,13 +340,15 @@ function SoundField(props: { value: string; disabled: boolean; sounds(): readonl
   const ref = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const item = props.value ? props.sounds().find((s) => s.path === props.value) : undefined;
+  const name = props.value ? soundName(item ?? { path: props.value, kind: "sample", badge: "SMP" }) : "Pick a sound…";
   return (
     <FieldRow label="Sound">
       <span class="sp-sound-row">
-        <button ref={ref} type="button" class="sp-sound" disabled={props.disabled} aria-haspopup="dialog" title={props.value || "Pick a playlist or sample"} onClick={() => setOpen(true)}>
-          {item ? <TypeBadge code={item.badge} /> : null}
-          <span class="sp-sound-name">{props.value ? soundName(item ?? { path: props.value, kind: "sample", badge: "SMP" }) : "Pick a sound…"}</span>
+        <button ref={ref} type="button" class="sp-sound" disabled={props.disabled} aria-haspopup="dialog" aria-label={`Sound: ${name}`} title={props.value || "Pick a playlist or a sample for this test scene"} onClick={() => setOpen(true)}>
+          {item ? <TypeBadge code={item.badge} /> : <TypeBadge placeholder />}
+          <span class="sp-sound-name">{name}</span>
           {props.value && !item && <span class="sp-warn" title="Not in the project">missing</span>}
+          <Icon name="chevronDown" size={12} class="sp-sound-chev" />
         </button>
         {props.value.toLowerCase().endsWith(".playlist.json") && (
           <button type="button" class="sp-icon" aria-label="Open in Playlists" title="Open in Playlists" onClick={() => props.onOpen(props.value)}><Icon name="chevronRight" size={14} /></button>
