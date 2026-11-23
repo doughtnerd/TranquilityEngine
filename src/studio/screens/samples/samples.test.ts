@@ -11,7 +11,7 @@ import {
   setRoot, setTempo, setTrim, slideLoop, snip, snippets, tapeSnippet, toggleSnippet, updateLoop, updateMarker, type SampleEdit,
 } from "./sampleEditing";
 import { applyMerge, changedCount, detachAll, loopDiff, markerDiff, mergeRows, revertLoop, revertMarker, summarizeMerge, writeSummary } from "./sampleFile";
-import { allSamples, cleanFolderName, fileChip, libraryTree, metaLine, moveUpPlan, searchSamples, shortLength, usesOf } from "./sampleLibrary";
+import { allSamples, audioFolders, cleanFolderName, cleanPath, fileChip, folderChoices, libraryTree, metaLine, moveUpPlan, searchSamples, shortLength, usesOf } from "./sampleLibrary";
 import { editedLength, inClosedGap, toSource, toView } from "./sampleTime";
 import {
   colourCss, colourValue, fitToSource, landmarks, liveSelection, loopLabel, loopRegions, MARKER_PRESETS, markerColour, shortSeconds, musicalSpans, outlineGroups, packMarkerRows, parseSelection, parseSnapStep, regionAt, sampleWarnings, selectionKey, selectionSpan,
@@ -19,7 +19,7 @@ import {
 } from "./sampleView";
 import { nearestZeroCrossing, seamJump, seamStrip, seamWindow } from "./seam";
 import { addTap, tapDots, tapResult } from "./tapTempo";
-import { effectEdits } from "./sampleEffects";
+import { effectCategories, effectEdits, effectSummary, freezeEdit, searchEffects } from "./sampleEffects";
 import { planPlay, planSeam, PLAY_MODES, playModeInfo, playModeRefusal, showsMusicModes } from "./sampleTransport";
 
 const LEN = 2.6;
@@ -320,9 +320,20 @@ describe("timeline structure", () => {
 
   it("groups the outline and filters it", () => {
     const g = outlineGroups(skid(), LEN);
-    expect(g.map((x) => x.title)).toEqual(["Cues", "Entries", "Exits", "Hit points", "Loops", "Notes", "Ranges", "Snippets"]);
+    // Spec §4.1.4: markers by type, Loops with the pickup, links and tail, Snippets, and the Trim.
+    expect(g.map((x) => x.title)).toEqual(["Cues", "Entries", "Exits", "Hit points", "Loops", "Notes", "Snippets", "Trim"]);
     expect(g.find((x) => x.id === "notes")!.items.map((i) => i.name)).toEqual(["Lock-up", "Release"]);
-    expect(outlineGroups(skid(), LEN, "rel").find((x) => x.id === "notes")!.items.map((i) => i.name)).toEqual(["Release"]);
+    expect(g.find((x) => x.id === "loops")!.items.map((i) => [i.name, i.at, i.end])).toEqual([["Pickup", 0, 0.45], ["Loop 1", 0.45, 1.55], ["Tail", 1.55, LEN]]);
+    expect(g.find((x) => x.id === "loops")!.items[1]).toMatchObject({ fromFile: true, active: "held", color: "var(--range-loop)" });
+    expect(g.find((x) => x.id === "cues")!.items[0]).toMatchObject({ name: "brake_lockup", at: 0.3, color: "var(--marker-cue)", outside: false });
+    expect(g.find((x) => x.id === "trim")!.items[0]).toMatchObject({ at: 0, end: LEN });
+    const filtered = outlineGroups(skid(), LEN, "rel").find((x) => x.id === "notes")!;
+    expect(filtered.items.map((i) => i.name)).toEqual(["Release"]);
+    expect(filtered.total).toBe(2);
+    // Outside the trim is flagged.
+    const trimmed = outlineGroups({ ...skid(), trim: [0.3, 2] }, LEN).find((x) => x.id === "notes")!;
+    expect(trimmed.items.map((i) => i.outside)).toEqual([false, false]);
+    expect(outlineGroups({ ...skid(), trim: [0.4, 1.6] }, LEN).find((x) => x.id === "notes")!.items.map((i) => [i.name, i.outside])).toEqual([["Lock-up", true], ["Release", true]]);
   });
 
   it("makes a marker an Entry (fixed name), and shades the post-exit tail and the pre-entry inside the trim", () => {
@@ -449,6 +460,23 @@ describe("library", () => {
     expect(searchSamples(files, "DOOR")).toEqual(["audio/sfx/door.wav", "audio/sfx/door_fork.sample.json"]);
   });
 
+  it("leaves flattened renders out (they are source versions) and the game's own folders out of the pickers", () => {
+    const withRender = [...files, "audio/sfx/door.flat1.wav"];
+    expect(allSamples(libraryTree(withRender, folders))).not.toContain("audio/sfx/door.flat1.wav");
+    expect(searchSamples(withRender, "door")).not.toContain("audio/sfx/door.flat1.wav");
+    expect(audioFolders(["audio", "audio/sfx", "scenes", "scripts", ".myco", "mine"], ["audio/sfx/door.wav", "scenes/a.scene.json"])).toEqual(["audio", "audio/sfx", "mine"]);
+    expect(audioFolders(["scripts", "scripts/vo"], ["scripts/vo/line.wav"])).toEqual(["scripts", "scripts/vo"]);
+  });
+
+  it("lists folders for the folder combo, filtered by path, with a new folder to make", () => {
+    const fs = ["Vehicles", "Vehicles/HoverBike", "Props"];
+    expect(folderChoices(fs, "")).toEqual({ folders: ["", "Props", "Vehicles", "Vehicles/HoverBike"], create: null });
+    expect(folderChoices(fs, "hover")).toEqual({ folders: ["Vehicles/HoverBike"], create: "hover" });
+    expect(folderChoices(fs, "Vehicles › Hover")).toEqual({ folders: ["Vehicles/HoverBike"], create: "Vehicles/Hover" });
+    expect(folderChoices(fs, "props")).toEqual({ folders: ["Props"], create: null });
+    expect(cleanPath(" Props / Doors /")).toBe("Props/Doors");
+  });
+
   it("writes meta lines and the file chip", () => {
     expect(metaLine("a.wav", null, 0.34, null)).toBe("One-shot · 340 ms");
     expect(metaLine("a.wav", skid(), 2.6, null)).toBe("Loop · while held · 2.6 s");
@@ -487,6 +515,23 @@ describe("baked effects chain", () => {
     expect("refused" in effectEdits.move(e, "fx1", -1)).toBe(true);
     expect(effectEdits.param(e, "fx1", "low", 3).label).toBe("EQ · Low 3 dB");
     expect(effectEdits.remove(e, "fx1").next.effects).toHaveLength(1);
+  });
+});
+
+describe("effects menu, summaries and Freeze", () => {
+  it("groups the sample-level effects by category, searches them, and summarises a row", () => {
+    const cats = effectCategories(["eq", "compressor", "fades", "noiseReduction", "reverse", "gain"]);
+    expect(cats.map((c) => [c.name, c.types])).toEqual([["Dynamics", ["compressor", "gain"]], ["EQ & filter", ["eq"]], ["Envelope", ["fades"]], ["Pitch & time", ["reverse"]], ["Restoration", ["noiseReduction"]]]);
+    expect(effectCategories(["eq", "chorus"]).map((c) => c.name)).toEqual(["EQ & filter", "Other"]);
+    expect(searchEffects(["eq", "compressor", "noiseReduction"], "re")).toEqual([{ type: "compressor", category: "Dynamics" }, { type: "noiseReduction", category: "Restoration" }]);
+    expect(effectSummary({ type: "compressor", params: { threshold: -18, ratio: 3, attack: 10 } })).toBe("Threshold −18 dB · Ratio 3:1 · Attack 10 ms");
+    expect(effectSummary({ type: "reverse", params: {} })).toBe("whole sample");
+  });
+
+  it("freezes and unfreezes the chain, one step each", () => {
+    const f = freezeEdit(defaultSampleEdits());
+    expect(f).toMatchObject({ label: "Freeze", next: { frozen: true } });
+    expect(freezeEdit(f.next)).toMatchObject({ label: "Unfreeze", next: { frozen: false } });
   });
 });
 

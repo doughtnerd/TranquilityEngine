@@ -3,6 +3,8 @@
 // Per-user view choices (time display, snap, play options) are preferences; the view span, playhead and razor are
 // per page.
 import { computed, signal, untracked } from "@preact/signals";
+import type { EffectType } from "../../../engine/audio/effects/types";
+import type { IncomingFile } from "../../../editor/assetImportFiles";
 import { persisted } from "../../../editor/preferences";
 import { currentProject, docVersion } from "../../../editor/state";
 import type { TimeFormat, TimeSpan } from "../../components/timeRulerModel";
@@ -63,6 +65,8 @@ export const savedColours = persisted<string[]>("myco.studio.samples.savedColour
  */
 export const abSource = signal(false);
 export const fxFocus = signal<string | null>(null);
+/** An effect type hovered in Add effect: the waveform previews it, added at its defaults (spec §4.1.7). */
+export const fxPreview = signal<EffectType | null>(null);
 
 /** Per page: the timeline's view (timeline seconds; null: fit), the playhead (source seconds), the razor, the hovered time (timeline seconds). */
 export const viewSpan = signal<TimeSpan | null>(null);
@@ -70,4 +74,4 @@ export const playheadTime = signal(0);
 export const razorOn = signal(false);
 export const hoverTime = signal<number | null>(null);
 /** The Import dialog, Write dialog, merge review, fork dialog. */
-export const dialog = signal<null | { kind: "import" } | { kind: "reimport" } | { kind: "write" } | { kind: "merge" } | { kind: "fork"; mode: "fork" | "duplicate" } | { kind: "snippet"; index: number }>(null);
+export const dialog = signal<null | { kind: "import"; dropped?: readonly IncomingFile[]; into?: string } | { kind: "reimport" } | { kind: "write" } | { kind: "merge" } | { kind: "fork"; mode: "fork" | "duplicate" } | { kind: "snippet"; index: number }>(null);

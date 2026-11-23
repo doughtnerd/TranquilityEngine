@@ -9,7 +9,7 @@ import { editedLength, trimOf } from "./sampleTime";
 import { landmarks, liveSelection, selectionSpan, SAMPLE_SELECTED, type SampleSelection } from "./sampleView";
 import { lengthOf } from "./sampleSession";
 import { renderPathOf } from "./sampleFlatten";
-import { followPlayhead, playMode, playheadTime, preRoll, razorOn, returnToStart, seamRepeat, select, selection, openSession, viewSpan, snapSetting, timeFormat } from "./samplesState";
+import { abSource, followPlayhead, playMode, playheadTime, preRoll, razorOn, returnToStart, seamRepeat, select, selection, openSession, viewSpan, snapSetting, timeFormat } from "./samplesState";
 import { planPlay, planSeam, playing, releasePlay, SEAM_SCOPE, startPlay, stopPlay } from "./sampleTransport";
 import { formatTime } from "../../components/timeRulerModel";
 import { snapSeconds } from "./sampleView";
@@ -174,7 +174,8 @@ export function togglePlay(sel?: SampleSelection): boolean {
   }
   const back = playheadTime.peek();
   // A flattened sample plays its render, which keeps the source's timeline: the plan's source seconds hold.
-  const audio = renderPathOf(c.s.project.files, c.s.source.peek(), c.e) ?? c.s.source.peek();
+  // A/B (spec §4.1.5): the source, every edit bypassed; else a flattened sample plays its render.
+  const audio = (abSource.peek() ? null : renderPathOf(c.s.project.files, c.s.source.peek(), c.e)) ?? c.s.source.peek();
   const begin = () => {
     const why = startPlay(host, c.s.path, audio, plan, preRoll.peek() ? 1 : 0, (t) => movePlayhead(t, followPlayhead.peek()), () => {
       if (returnToStart.peek()) playheadTime.value = back;

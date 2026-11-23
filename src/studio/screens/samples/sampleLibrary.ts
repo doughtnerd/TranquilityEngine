@@ -158,3 +158,20 @@ export function usesOf(sample: string, files: readonly string[], read: (path: st
   }
   return out;
 }
+
+const folderCrumbs = (path: string) => (path ? path.split("/").join(" › ") : "Top level");
+
+/** A typed folder path cleaned: trimmed parts, no empty ones, "›" read as "/". */
+export const cleanPath = (text: string): string => text.replace(/\s*›\s*/g, "/").split("/").map((p) => p.trim()).filter(Boolean).join("/");
+
+/**
+ * What the folder combo lists for `query`: with none, Top level ("") and every folder; typing, the folders whose path
+ * holds it ("hover", "Vehicles › Hover"), and a new folder to make when none is the typed path.
+ */
+export function folderChoices(folders: readonly string[], query: string): { folders: string[]; create: string | null } {
+  const q = query.trim().toLowerCase();
+  if (!q) return { folders: ["", ...[...folders].sort()], create: null };
+  const typed = cleanPath(query);
+  const hits = [...folders].sort().filter((f) => f.toLowerCase().includes(q) || folderCrumbs(f).toLowerCase().includes(q));
+  return { folders: hits, create: typed && !folders.some((f) => f.toLowerCase() === typed.toLowerCase()) ? typed : null };
+}

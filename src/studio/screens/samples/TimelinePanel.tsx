@@ -40,7 +40,7 @@ import {
 } from "./sampleView";
 import { nearestZeroCrossing, seamJump } from "./seam";
 import { NormalizePopover, RootPopover, SnapSplit, TempoPopover, TimeDisplayCaret } from "./SampleTools";
-import { abSource, dialog, fxFocus, hoverTime, openSession, playheadTime, razorOn, savedColours, select, selection, snapSetting, timeFormat, viewSpan, waveViews } from "./samplesState";
+import { abSource, dialog, fxFocus, fxPreview, hoverTime, openSession, playheadTime, razorOn, savedColours, select, selection, snapSetting, timeFormat, viewSpan, waveViews } from "./samplesState";
 import { playing } from "./sampleTransport";
 import { diskChange } from "./sampleDisk";
 import { nameOf, shortLength } from "./sampleLibrary";
@@ -48,6 +48,7 @@ import { SaveSplitButton } from "./SaveSplitButton";
 import { SampleIcon, type SampleIconName } from "./sampleIcons";
 import { VersionMenu } from "./VersionMenu";
 import { previewOf } from "./samplePreview";
+import { effectEdits } from "./sampleEffects";
 import { ClipTicks, clipRuns, effectChip, FxChips, SpectrogramView, WaveOutline, type FxChip } from "./WaveOverlays";
 
 /** A marker row's height, px (the prototype's `.mrow`). */
@@ -194,7 +195,9 @@ function Timeline(props: { session: SampleSession }) {
   const disk = diskChange.value?.path === source ? diskChange.value : null;
   const wav = wavMetadataOf(project, source);
   const ab = abSource.value;
-  const preview = previewOf(session, e, fxFocus.value, ab);
+  // An effect hovered in Add effect previews at its defaults, on top of the chain (spec §4.1.7).
+  const trying = fxPreview.value;
+  const preview = previewOf(session, trying ? effectEdits.add(e, trying).next : e, trying ? null : fxFocus.value, ab);
   // What the lane shows: the render (the source as the outline), or under A/B the source (the render as the outline).
   const shown = ab ? sourceMips : preview.mips ?? sourceMips;
   const outline = ab ? previewOf(session, e, null, false).mips : preview.mips ? sourceMips : null;

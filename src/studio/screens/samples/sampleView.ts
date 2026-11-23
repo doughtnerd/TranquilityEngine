@@ -233,38 +233,72 @@ export interface OutlineItem {
   readonly key: string;
   readonly name: string;
   readonly at: number;
+  /** A range's end (ranges, loops, pickup, links, tail, the trim, snippets); a point has none. */
+  readonly end?: number;
   readonly selection: SampleSelection;
   readonly fromFile: boolean;
+  /** The swatch's colour (CSS): round for a point, square for a range. */
+  readonly color: string;
+  /** A loop's Active setting (its icon). */
+  readonly active?: SampleLoop["active"];
+  /** Outside the trim: it won't play. */
+  readonly outside: boolean;
+  /** A deleted snippet (drawn faint). */
+  readonly deleted?: boolean;
 }
 
 export interface OutlineGroup {
-  readonly id: "cues" | "exits" | "entries" | "hits" | "loops" | "notes" | "ranges" | "snippets";
+  readonly id: "cues" | "exits" | "entries" | "hits" | "loops" | "notes" | "snippets" | "trim";
   readonly title: string;
   readonly empty: string;
   readonly items: OutlineItem[];
+  /** Items before the filter ("2 of 3"). */
+  readonly total: number;
 }
 
 const natural = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+/** Glyphs are left out when sorting names ("▪ Loop 2" before "Loop 10"). */
+const sortName = (s: string) => s.replace(/^[^\p{L}\p{N}]+/u, "");
 
-/** The Outline: groups sorted by title, items naturally by name, filtered by `query` (case-insensitive substring). */
+/**
+ * The Outline (spec §4.1.4): markers by type (Cues, Entries, Exits, Hit points, Notes with their ranges), Loops (Pickup,
+ * Loop N, Links, Tail), Snippets and the Trim, groups sorted by title, items naturally by name (Pickup first and Tail
+ * last in Loops), filtered by `query` (case-insensitive substring).
+ */
 export function outlineGroups(e: SampleEdits, sourceLength: number, query = ""): OutlineGroup[] {
   const q = query.trim().toLowerCase();
+  const [ta, tb] = trimOf(e, sourceLength);
+  const out = (a: number, b = a) => b < ta - 1e-9 || a > tb + 1e-9;
   const m = (pred: (x: SampleMarker) => boolean): OutlineItem[] =>
-    e.markers.filter(pred).map((x) => ({ key: `m:${x.id}`, name: x.name, at: x.at, selection: { kind: "marker", id: x.id }, fromFile: x.file !== null }));
-  const groups: OutlineGroup[] = [
+    e.markers.filter(pred).map((x) => ({
+      key: `m:${x.id}`, name: hasFixedNameType(x.type) ? MARKER_TYPE_NAMES[x.type] : x.name, at: x.at, end: x.end, selection: { kind: "marker", id: x.id }, fromFile: x.file !== null, color: markerColour(x), outside: out(x.at, x.end ?? x.at),
+    }));
+  const loopItems: OutlineItem[] = loopRegions(e, sourceLength).map((r) =>
+    r.kind === "loop" && r.loop
+      ? { key: `l:${r.loop.id}`, name: loopName(e, r.loop.id), at: r.start, end: r.end, selection: r.selection, fromFile: r.loop.file !== null, color: `var(${r.token})`, active: r.loop.active, outside: false }
+      : { key: `${r.kind}:${r.start}`, name: r.kind === "link" ? `Link ${e.loops.findIndex((l) => r.selection.kind === "link" && l.id === r.selection.after) + 1}` : r.label, at: r.start, end: r.end, selection: r.selection, fromFile: false, color: `var(${r.kind === "link" ? "--range-pickup" : r.token})`, outside: false },
+  );
+  const order = (i: OutlineItem) => (i.selection.kind === "pickup" ? 0 : i.selection.kind === "tail" ? 2 : 1);
+  const groups: Omit<OutlineGroup, "total">[] = [
     { id: "cues", title: "Cues", empty: "None · set a marker's Type to Cue", items: m((x) => x.type === "cue") },
     { id: "exits", title: "Exits", empty: "None · set a marker's Type to Exit", items: m((x) => x.type === "exit") },
     { id: "entries", title: "Entries", empty: "None · set a marker's Type to Entry", items: m((x) => x.type === "entry") },
     { id: "hits", title: "Hit points", empty: "None · set a marker's Type to Hit point", items: m((x) => x.type === "hit") },
-    { id: "loops", title: "Loops", empty: "None · Add loop, or L at the playhead", items: e.loops.map((l) => ({ key: `l:${l.id}`, name: loopName(e, l.id), at: l.start, selection: { kind: "loop", id: l.id }, fromFile: l.file !== null })) },
-    { id: "notes", title: "Notes", empty: "None · double-click a marker row", items: m((x) => x.type === "note" && x.end === undefined) },
-    { id: "ranges", title: "Ranges", empty: "None · convert a note to a range", items: m((x) => x.type === "note" && x.end !== undefined) },
-    { id: "snippets", title: "Snippets", empty: "None · snip with the razor (C)", items: snippets(e, sourceLength).map((s: Snippet) => ({ key: `s:${s.index}`, name: s.deleted ? `${s.name} (deleted)` : s.name, at: s.start, selection: { kind: "snippet", index: s.index }, fromFile: false })) },
+    { id: "loops", title: "Loops", empty: "No loops · Add loop, or L at the playhead", items: loopItems },
+    { id: "notes", title: "Notes", empty: "None · double-click a marker row to add one", items: m((x) => x.type === "note") },
+    { id: "snippets", title: "Snippets", empty: "None · snip with the razor (C)", items: snippets(e, sourceLength).map((s: Snippet) => ({ key: `s:${s.index}`, name: s.deleted ? `${s.name} · deleted` : s.name, at: s.start, end: s.end, selection: { kind: "snippet", index: s.index }, fromFile: false, color: "var(--text-strong)", outside: out(s.start, s.end), deleted: s.deleted })) },
+    { id: "trim", title: "Trim", empty: "", items: [{ key: "trim", name: "Trim", at: ta, end: tb, selection: { kind: "trim" }, fromFile: false, color: "var(--range-trim)", outside: false }] },
   ];
   return groups
-    .map((g) => ({ ...g, items: g.items.filter((i) => q === "" || i.name.toLowerCase().includes(q)).sort((a, b) => natural.compare(a.name, b.name)) }))
+    .map((g) => ({
+      ...g,
+      total: g.items.length,
+      items: g.items.filter((i) => q === "" || i.name.toLowerCase().includes(q)).sort((a, b) => (g.id === "loops" ? order(a) - order(b) : 0) || natural.compare(sortName(a.name), sortName(b.name))),
+    }))
     .sort((a, b) => natural.compare(a.title, b.title));
 }
+
+const hasFixedNameType = (t: SampleMarker["type"]) => t === "exit" || t === "hit" || t === "entry";
 
 /** The name of a marker type with its article-free UI name, for menus. */
 export const markerTypeName = (m: SampleMarker): string => MARKER_TYPE_NAMES[m.type];
