@@ -23,7 +23,7 @@ import { useElementWidth } from "../../../components/useElementWidth";
 import { sampleFromDrag } from "../libraryModel";
 import { playlistTitle } from "../playlistPaths";
 import {
-  addAutomation, addPoint, addVolumeEnvelope, deletePoints, isTimeInput, movePoints, ownerOf, setAutomation, setPointShape, SHAPES, targetSpec, targetSpecs, writeAutomation, type AutomationOwner,
+  addAutomation, addPoint, addVolumeEnvelope, deletePoints, isTimeInput, movePoints, ownerOf, parameterLaneRange, setAutomation, setPointShape, SHAPES, targetSpec, targetSpecs, writeAutomation, type AutomationOwner,
 } from "./automationEdits";
 import { clipFollows } from "./clipGeometry";
 import { CurveOverlay, yToValue } from "./CurveOverlay";
@@ -903,6 +903,7 @@ export function SequenceView(props: SequenceViewProps) {
                   const a = t.automation.find((x) => x.id === lane.automation)!;
                   const spec = targetSpec(a.target, t.effects);
                   const time = isTimeInput(a.input);
+                  const range = parameterLaneRange(a.input, a.curve, props.parameters);
                   return (
                     <div key={lane.automation} class="sq-row sq-auto-row" style={{ height: `${lane.h}px` }}>
                       <div class="sq-auto-head" style={{ height: `${lane.h}px` }}>
@@ -919,6 +920,14 @@ export function SequenceView(props: SequenceViewProps) {
                             onPointPress={(i, e) => pressPoint(e, { track: t.id }, a.id, i, lane.h)}
                             onPointDoubleClick={(i) => runSeq("Delete automation point", (q) => deletePoints(q, { track: t.id }, a.id, [i]))}
                             onPointMenu={(i, e) => pointMenu(e, { track: t.id }, a.id, i, t.name, length)} />
+                        ) : spec && range ? (
+                          <>
+                            {/* Over the parameter's range, min at the left: drawn here, edited in the curve editor (the edit button). */}
+                            <CurveOverlay curve={a.curve} spec={spec} width={width} height={lane.h} toX={(v) => ((v - range.min) / (range.max - range.min)) * width} fromX={(px) => range.min + (px / Math.max(1, width)) * (range.max - range.min)} muted={a.bypass}
+                              label={`${t.name} ${spec.name} by ${range.name}, from ${range.min} to ${range.max}`} />
+                            <span class="sq-param-end min" title={`${range.name} at its minimum`}>{range.name} {range.min}</span>
+                            <span class="sq-param-end max" title={`${range.name} at its maximum`}>{range.max}</span>
+                          </>
                         ) : (
                           <span class="sq-faint sq-driven">Driven by {(a.input as { parameter: string }).parameter}: edit it in the curve editor (the edit button).</span>
                         )}
