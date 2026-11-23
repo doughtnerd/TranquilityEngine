@@ -1,5 +1,5 @@
 // What a press in the Scene view grabs and what dragging it does (the prototype's select/move, S:873-895, 1525-1546): the
-// selected box's rotate knob and corners first, then the path being edited (its waypoints and "+" midpoints), then
+// selected box's rotate knob and edge handles first, then the path being edited (its waypoints and "+" midpoints), then
 // listeners and emitters near the pointer, then the smallest box under it. A drag keeps the grab offset (the object
 // doesn't jump to the pointer); locked objects select but don't move; a moving emitter dragged slides along its path.
 // Each drag edit carries its undo label (the prototype's: "Move listener", "Edit emitter", "Edit obstacle", …); the
@@ -7,7 +7,7 @@
 //
 // Pure: no DOM, no signals.
 import type { AudioTestScene, SceneBox } from "../../../engine/audio/spatial/testSceneTypes";
-import { boxContains, boxCorners, planDistance, resizeFromCorner, rotateKnob, rotateToward, routeMidpoints, type P2 } from "./geometry";
+import { boxContains, boxEdges, planDistance, resizeFromEdge, rotateKnob, rotateToward, routeMidpoints, type P2 } from "./geometry";
 import { shownInPlan } from "./outline";
 import { allObjects, boxOf, findObject, moveObjectTo, moveRoutePoint, positionOf, setBox, type EditResult, type ObjectKind, type SceneObject } from "./sceneEdits";
 
@@ -18,7 +18,7 @@ export const GRAB_PX = 10;
 
 export type Hit =
   | { readonly kind: "knob"; readonly id: string }
-  | { readonly kind: "corner"; readonly id: string; readonly index: number }
+  | { readonly kind: "edge"; readonly id: string; readonly index: number }
   | { readonly kind: "waypoint"; readonly id: string; readonly index: number }
   | { readonly kind: "midpoint"; readonly id: string; readonly index: number }
   | { readonly kind: "object"; readonly id: string }
@@ -41,8 +41,8 @@ export function hitTest(scene: AudioTestScene, p: P2, ctx: HitContext): Hit {
   const selBox = sel && boxOf(sel);
   if (sel && selBox && !sel.obj.locked) {
     if (near(rotateKnob(selBox, KNOB_PX * ctx.mpp))) return { kind: "knob", id: sel.obj.id };
-    const corner = boxCorners(selBox).findIndex(near);
-    if (corner >= 0) return { kind: "corner", id: sel.obj.id, index: corner };
+    const edge = boxEdges(selBox).findIndex(near);
+    if (edge >= 0) return { kind: "edge", id: sel.obj.id, index: edge };
   }
   if (ctx.pathEdit) {
     const e = findObject(scene, ctx.pathEdit);
@@ -73,7 +73,7 @@ export function hitTest(scene: AudioTestScene, p: P2, ctx: HitContext): Hit {
 /** A drag in progress. */
 export type Drag =
   | { readonly kind: "move"; readonly id: string; /** The object's anchor minus the press point. */ readonly offset: P2 }
-  | { readonly kind: "corner"; readonly id: string }
+  | { readonly kind: "edge"; readonly id: string; readonly index: number }
   | { readonly kind: "knob"; readonly id: string }
   | { readonly kind: "waypoint"; readonly id: string; readonly index: number };
 
@@ -83,7 +83,7 @@ export function beginDrag(scene: AudioTestScene, hit: Hit, p: P2): Drag | null {
   const o = findObject(scene, hit.id);
   if (!o || o.obj.locked) return null;
   if (hit.kind === "knob") return { kind: "knob", id: hit.id };
-  if (hit.kind === "corner") return { kind: "corner", id: hit.id };
+  if (hit.kind === "edge") return { kind: "edge", id: hit.id, index: hit.index };
   if (hit.kind === "waypoint") return { kind: "waypoint", id: hit.id, index: hit.index };
   // A moving emitter slides along its path: it follows the pointer itself (projected), no offset.
   if (o.kind === "emitter" && o.obj.kind === "moving") return { kind: "move", id: hit.id, offset: { x: 0, z: 0 } };
@@ -117,11 +117,11 @@ export function dragTo(scene: AudioTestScene, drag: Drag, p: P2): { result: Edit
   switch (drag.kind) {
     case "move":
       return { result: moveObjectTo(scene, drag.id, { x: p.x + drag.offset.x, z: p.z + drag.offset.z }), label: editLabel(o.kind, true) };
-    case "corner":
+    case "edge":
     case "knob": {
       const b = boxOf(o);
       if (!b) return { result: { refused: "it has no box" }, label: editLabel(o.kind) };
-      return { result: setBox(scene, drag.id, drag.kind === "corner" ? resizeFromCorner(b, p) : rotateToward(b, p)), label: editLabel(o.kind) };
+      return { result: setBox(scene, drag.id, drag.kind === "edge" ? resizeFromEdge(b, drag.index, p) : rotateToward(b, p)), label: editLabel(o.kind) };
     }
     case "waypoint":
       return { result: moveRoutePoint(scene, drag.id, drag.index, p), label: "Edit path" };

@@ -45,6 +45,13 @@
 .context-menu.kit-menu .context-sep { margin: 4px -4px; }
 .kit-menu-group { padding: 6px 8px 2px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; line-height: 14px; }
 .kit-menu button.kit-menu-danger:not(:disabled) { color: var(--danger); }
+/* Two-line items (`detail`): a 12px title over an 11px muted line; the menu is 280px wide. */
+.context-menu.kit-menu:has(> .kit-menu-two) { width: 280px; }
+.context-menu.kit-menu > button.kit-menu-two { align-items: flex-start; padding: 6px 8px; }
+.kit-menu-two .kit-menu-label { display: flex; flex-direction: column; gap: 1px; white-space: normal; }
+.kit-menu-title { font-weight: 500; color: var(--text); }
+.kit-menu-detail { color: var(--muted); font-size: calc(11px * var(--ui-scale)); line-height: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kit-menu-icon { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 10px; }
 
 /* Segmented control (prototype `.sg`, and `.seg` for the filled look): as wide as its options, wrapping rather than
  * clipping one. The 1 px gap shows the border colour between segments and rows. */

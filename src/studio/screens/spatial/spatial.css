@@ -26,125 +26,185 @@
 .sp-scene-icon { color: var(--accent); }
 
 /* Scene view */
-.sp-scene { display: flex; flex-direction: column; flex: 1; min-height: 0; outline: none; }
-.sp-toolbar { display: flex; align-items: center; gap: 10px; padding: 3px 6px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-.sp-toolbar-status { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
-.sp-legend { display: flex; gap: 10px; list-style: none; margin: 0; padding: 0; flex-wrap: wrap; font-size: calc(11px * var(--ui-scale)); color: var(--muted); }
-.sp-legend li { display: inline-flex; align-items: center; gap: 4px; }
-.sp-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--faint); margin-right: 4px; vertical-align: middle; }
-.sp-swatch.hrtf { background: var(--series-1); }
-.sp-swatch.panned { background: var(--series-2); }
-.sp-swatch.bed { background: var(--series-5); }
-.sp-swatch.zone { border-radius: 2px; background: var(--series-3); opacity: 0.6; }
-.sp-swatch.edge { border-radius: 2px; background: transparent; border: 1px dashed var(--series-3); }
-.sp-swatch.occluded { border-radius: 0; height: 0; width: 14px; background: transparent; border-top: 2px dashed var(--danger); }
-.sp-swatch.none { background: var(--border-strong); }
-.sp-body { display: flex; flex: 1; min-height: 0; }
-.sp-palette { display: flex; flex-direction: column; gap: 2px; padding: 4px; border-right: 1px solid var(--border); background: var(--panel); }
-.sp-tool { width: 30px; height: 30px; border: 1px solid transparent; border-radius: 4px; background: none; color: var(--text); cursor: pointer; font-size: 15px; }
-.sp-tool:hover:not(:disabled) { background: var(--hover); }
-.sp-tool.on { background: var(--accent-soft); border-color: var(--accent); }
+.sp-scene { display: flex; flex-direction: column; flex: 1; min-height: 0; outline: none; --sp-pal-w: 60px; --sp-elev-w: clamp(64px, 5.5vw, 96px); }
+.sp-toolbar { display: flex; align-items: center; gap: 10px; padding: 4px 8px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.sp-toolbar-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+/* The legend (the prototype's, right-aligned): rings for how emitters are heard, the zone's rectangle and edge, occluded. */
+.sp-legend { display: flex; gap: 4px 14px; list-style: none; margin: 0 0 0 auto; padding: 0; flex-wrap: wrap; justify-content: flex-end; font-size: calc(12px * var(--ui-scale)); color: var(--text); }
+.sp-legend li { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.sp-swatch { display: inline-block; box-sizing: border-box; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--border-strong); background: transparent; flex: none; vertical-align: middle; }
+.sp-swatch.hrtf { border-color: var(--accent); background: var(--accent-soft); }
+.sp-swatch.panned { border-color: var(--warning); background: var(--warning-soft); }
+.sp-swatch.bed { border-style: dashed; border-color: var(--muted); background: var(--badge); }
+.sp-swatch.zone { width: 12px; border-radius: 1px; border-width: 1px; border-color: var(--accent); background: var(--accent-faint); }
+.sp-swatch.edge { width: 14px; height: 0; border-radius: 0; border-width: 2px 0 0; border-style: dotted; border-color: var(--accent); }
+.sp-swatch.occluded { width: 14px; height: 0; border-radius: 0; border-width: 2px 0 0; border-style: dashed; border-color: var(--danger); }
+.sp-legend li:last-child { color: var(--danger); }
+.sp-swatch.none { border-color: var(--border-strong); }
+.sp-body { display: flex; flex: 1; min-height: 0; gap: 6px; padding: 6px; }
+/* The tool rail: 52px buttons, an icon over a 9px caption; the tool in use is solid accent. */
+.sp-palette { display: flex; flex-direction: column; gap: 2px; padding: 3px; align-self: flex-start; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; }
+.sp-tool { width: 52px; min-height: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 4px 2px; border: 0; border-radius: 3px; background: none; color: var(--muted); cursor: pointer; }
+.sp-tool:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.sp-tool.on, .sp-tool.on:hover { background: var(--accent); color: var(--accent-text); }
 .sp-tool:disabled { opacity: 0.4; cursor: default; }
-.sp-viewport { position: relative; flex: 1; min-width: 0; overflow: hidden; background: var(--bg-sunken); outline: none; touch-action: none; cursor: default; }
+.sp-tool-label { font-size: 9px; line-height: 10px; text-align: center; }
+.sp-viewport { position: relative; flex: 1; min-width: 0; overflow: hidden; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 3px; outline: none; touch-action: none; cursor: default; }
 .sp-viewport.placing { cursor: crosshair; }
+.sp-viewport.panning { cursor: grab; }
 .sp-viewport:focus-visible { box-shadow: inset 0 0 0 1px var(--focus-ring); }
 .sp-plan { display: block; user-select: none; }
 .sp-grid { stroke: var(--border); stroke-width: 1; opacity: 0.5; }
 .sp-grid.axis { stroke: var(--border-strong); opacity: 1; }
 .sp-grid-label { fill: var(--faint); font-size: 10px; }
 .sp-label { fill: var(--text); font-size: 11px; paint-order: stroke; stroke: var(--bg-sunken); stroke-width: 3px; pointer-events: none; }
-.sp-label.box { fill: var(--muted); }
+.sp-label.strong { font-weight: 600; }
+.sp-label.box { fill: var(--text); font-size: 10px; }
 .sp-rel { fill: var(--muted); }
-.sp-obstacle { fill: var(--border-strong); stroke: var(--muted); stroke-width: 1; }
+.sp-speed { fill: var(--warning); }
+.sp-status { fill: var(--accent2); }
+/* Obstacles by material: rock (the default), wood, metal. */
+.sp-obstacle { fill: var(--border-strong); fill-opacity: 0.85; stroke: var(--muted); stroke-width: 1; }
+.sp-obstacle.wood { fill: var(--badge); }
+.sp-obstacle.metal { fill: var(--active); }
 .sp-reverb { fill: var(--accent2-soft); stroke: var(--accent2); stroke-width: 1; stroke-dasharray: 5 3; }
-.sp-azone { fill: var(--series-3); fill-opacity: 0.18; stroke: var(--series-3); stroke-width: 1.5; }
-.sp-azone.bed { fill: var(--series-5); }
-.sp-zone-edge { fill: none; stroke: var(--series-3); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.7; }
-.sp-route { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 6 4; }
-.sp-route.editing { stroke: var(--accent); stroke-dasharray: none; }
-.sp-ray { stroke: var(--accent); stroke-width: 1.2; opacity: 0.8; }
+/* Audio zones: accent outline on a faint fill (stronger with the listener inside); inside-only zones show their feather. */
+.sp-azone { fill: var(--accent-faint); stroke: var(--accent); stroke-width: 1; }
+.sp-azone.inside { fill: var(--accent-soft); }
+.sp-zone-edge { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 5 4; opacity: 0.5; }
+.sp-plan .muted { opacity: 0.4; }
+.sp-bed-circle { fill: none; stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 4; opacity: 0.7; pointer-events: none; }
+/* The selected emitter's attenuation: Min solid, Max dashed. */
+.sp-att circle { fill: none; stroke: var(--accent); stroke-width: 1; pointer-events: none; }
+.sp-att-min { opacity: 0.55; }
+.sp-att-max { stroke-dasharray: 6 4; opacity: 0.4; }
+/* A moving emitter's route: faint dashed; near when selected or hovered; solid while its path is edited. */
+.sp-route { fill: none; stroke: var(--warning); stroke-width: 1.5; stroke-dasharray: 6 5; opacity: 0.4; }
+.sp-route.near { opacity: 0.7; }
+.sp-route.editing { stroke-dasharray: none; opacity: 0.9; }
+.sp-ray { stroke: var(--accent); stroke-width: 1.5; opacity: 0.8; pointer-events: none; }
+.sp-ray.zone { stroke-dasharray: 2 4; }
 .sp-ray.occluded { stroke: var(--danger); stroke-dasharray: 5 4; }
-.sp-emitter circle, .sp-emitter rect { fill: var(--surface); stroke: var(--text); stroke-width: 1.5; }
-.sp-emitter.hrtf circle, .sp-emitter.hrtf rect { fill: var(--series-1); }
-.sp-emitter.panned circle, .sp-emitter.panned rect { fill: var(--series-2); }
-.sp-emitter.bed circle, .sp-emitter.bed rect { fill: var(--series-5); }
-.sp-emitter.silenced circle, .sp-emitter.silenced rect { fill: var(--surface); stroke: var(--faint); }
-.sp-emitter.locked circle, .sp-emitter.locked rect { stroke-dasharray: 2 2; }
+/* Emitters: a 14px ring coloured by how they are heard (HRTF, panned, ambisonic bed), neutral when unknown. */
+.sp-emitter .sp-dot { fill: var(--badge); stroke: var(--muted); stroke-width: 2; }
+.sp-emitter.hrtf .sp-dot { fill: var(--accent-soft); stroke: var(--accent); }
+.sp-emitter.panned .sp-dot { fill: var(--warning-soft); stroke: var(--warning); }
+.sp-emitter.bed .sp-dot { fill: var(--badge); stroke: var(--muted); stroke-dasharray: 3 2; }
+.sp-emitter .sp-playing-ring { fill: none; stroke: var(--accent2); stroke-width: 2; }
+.sp-emitter.muted { opacity: 0.4; }
+.sp-emitter.locked .sp-dot { stroke-dasharray: 2 2; }
 /* A moving emitter while playing: its start on the path stays marked, and a short line shows where it's heading. */
 .sp-emitter circle.sp-start { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 2 2; }
-.sp-emitter .sp-heading { stroke: var(--accent); stroke-width: 2; stroke-linecap: round; }
-.sp-listener circle { fill: var(--accent); stroke: var(--accent-text); stroke-width: 1.5; }
-.sp-listener:not(.active) circle { fill: var(--surface); stroke: var(--accent); }
-.sp-listener .sp-listener-ring { fill: none; stroke: var(--accent); stroke-width: 1.5; opacity: 0.6; }
-.sp-listener.playing .sp-listener-ring { stroke-width: 3; }
-.sp-facing { stroke: var(--accent); stroke-width: 2; }
-.sp-plan .dim { opacity: 0.3; }
+.sp-emitter .sp-heading { stroke: var(--warning); stroke-width: 2; stroke-linecap: round; }
+.sp-listener .sp-dot { fill: var(--muted); stroke: var(--bg-sunken); stroke-width: 1.5; }
+.sp-listener.active .sp-dot { fill: var(--accent); filter: drop-shadow(0 0 5px var(--accent-soft)); }
+.sp-listener .sp-listener-ring { fill: none; stroke: var(--accent2); stroke-width: 2; }
+.sp-facing { stroke: var(--muted); stroke-width: 2; stroke-linecap: round; }
+.sp-listener.active .sp-facing { stroke: var(--accent); }
+.sp-plan .dim { opacity: 0.25; }
 /* The base game scene underneath (read-only): hatched outlines, never hit by the pointer */
 .sp-base { pointer-events: none; }
 .sp-base polygon, .sp-base circle, .sp-base rect { fill: none; stroke: var(--faint); stroke-width: 1; stroke-dasharray: 2 3; }
 .sp-base-collider polygon, .sp-base-collider circle, .sp-base-collider rect { fill: var(--border); fill-opacity: 0.6; stroke: var(--muted); }
 .sp-base-reverb polygon, .sp-base-reverb circle { stroke: var(--accent2); }
-.sp-base-azone polygon { stroke: var(--series-3); }
+.sp-base-azone polygon { stroke: var(--accent); }
 .sp-base-emitter circle { fill: var(--bg-sunken); stroke: var(--muted); stroke-dasharray: none; }
 .sp-base .off { opacity: 0.4; }
 .sp-base-label { fill: var(--faint); font-size: 10px; font-style: italic; paint-order: stroke; stroke: var(--bg-sunken); stroke-width: 3px; }
 .sp-base-banner { color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-style: italic; }
 .sp-base-banner.warning { color: var(--danger); font-style: normal; }
-.sp-plan .hover polygon, .sp-plan .hover circle, .sp-plan .hover rect { stroke: var(--focus-ring); stroke-width: 2.5; }
-.sp-sel { fill: none; stroke: var(--focus-ring); stroke-width: 2; stroke-dasharray: 4 2; pointer-events: none; }
-.sp-handle { fill: var(--surface); stroke: var(--focus-ring); stroke-width: 1.5; }
-.sp-handle.knob { fill: var(--focus-ring); }
-.sp-handle-stem { stroke: var(--focus-ring); stroke-width: 1; }
-.sp-waypoint { fill: var(--accent); stroke: var(--accent-text); stroke-width: 1.5; cursor: grab; }
-.sp-midpoint circle { fill: var(--surface); stroke: var(--accent); stroke-width: 1; }
-.sp-midpoint text { fill: var(--accent); font-size: 12px; font-weight: 600; pointer-events: none; }
-.sp-nodebar { position: absolute; display: flex; flex-wrap: wrap; max-width: calc(100% - 16px); box-sizing: border-box; gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: var(--shadow); z-index: 2; white-space: nowrap; }
-.sp-nodebar button { display: inline-flex; align-items: center; gap: 4px; background: none; border: 1px solid transparent; color: var(--text); border-radius: 4px; padding: 2px 7px; font-size: calc(11px * var(--ui-scale)); cursor: pointer; }
-.sp-nodebar button:hover:not(:disabled) { background: var(--hover); }
-.sp-nodebar button.on { background: var(--accent-soft); border-color: var(--accent); }
-.sp-nodebar button.danger { color: var(--danger); }
+/* Hovered from the outline or the height strip's menu: a dashed accent outline. */
+.sp-plan .hover polygon, .sp-plan .hover .sp-dot { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 3; }
+/* The selection: a solid 2px accent outline; a point gets a panel-coloured gap, then the accent ring. */
+.sp-sel { fill: none; stroke: var(--accent); stroke-width: 2; pointer-events: none; }
+.sp-sel-halo { fill: none; stroke: var(--panel); stroke-width: 2; pointer-events: none; }
+.sp-handle { fill: var(--panel); stroke: var(--accent); stroke-width: 2; }
+.sp-handle.knob { fill: var(--accent); stroke: var(--panel); stroke-width: 1.5; cursor: grab; }
+.sp-handle-stem { stroke: var(--accent); stroke-width: 1.5; }
+/* Path editing: square waypoints and round "+" buttons in the warning colour. */
+.sp-waypoint { fill: var(--panel); stroke: var(--warning); stroke-width: 2; cursor: move; }
+.sp-midpoint { cursor: copy; opacity: 0.8; }
+.sp-midpoint:hover { opacity: 1; }
+.sp-midpoint circle { fill: var(--warning); stroke: var(--bg-sunken); stroke-width: 1; }
+.sp-midpoint text { fill: var(--accent-text); font-size: 13px; font-weight: 700; pointer-events: none; }
+/* The selected object's toolbar: 22px icon buttons; play pressed in accent2, muted in the warning colour. */
+.sp-nodebar { position: absolute; display: flex; flex-wrap: wrap; max-width: calc(100% - 16px); box-sizing: border-box; gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 4px; box-shadow: 0 6px 18px var(--shadow); z-index: 2; white-space: nowrap; }
+.sp-nodebar button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 24px; height: 22px; padding: 0 4px; background: var(--button); border: 1px solid transparent; color: var(--text); border-radius: 3px; font-size: calc(11px * var(--ui-scale)); cursor: pointer; }
+.sp-nodebar button.text { padding: 0 8px; }
+.sp-nodebar button:hover:not(:disabled) { background: var(--button-hover); }
+.sp-nodebar button.on { background: var(--accent2-soft); border-color: var(--accent2); }
+.sp-nodebar button.warn { color: var(--warning); }
+.sp-nodebar button.danger:hover:not(:disabled) { color: var(--danger); }
 .sp-nodebar button:disabled { opacity: 0.45; cursor: default; }
-.sp-rename { position: absolute; width: 140px; z-index: 3; background: var(--input-bg); color: var(--text); border: 1px solid var(--focus-ring); border-radius: 3px; padding: 2px 4px; }
-.sp-zoombar { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 2px; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 2px; }
-.sp-zoombar button { display: inline-grid; place-items: center; background: none; border: 1px solid transparent; color: var(--text); border-radius: 3px; padding: 1px 7px; cursor: pointer; font-size: calc(11px * var(--ui-scale)); }
-.sp-zoombar button:hover { background: var(--hover); }
+.sp-rename { position: absolute; width: 120px; z-index: 3; background: var(--input-bg); color: var(--text); border: 1px solid var(--accent); border-radius: 3px; padding: 1px 4px; font-size: calc(11px * var(--ui-scale)); }
+.sp-zoombar { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 2px; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 2px; }
+.sp-zoombar button { display: inline-grid; place-items: center; min-width: 24px; height: 22px; background: var(--button); border: 1px solid transparent; color: var(--text); border-radius: 3px; padding: 0 7px; cursor: pointer; font-size: calc(12px * var(--ui-scale)); }
+.sp-zoombar button:hover { background: var(--button-hover); }
 .sp-zoombar button.on { background: var(--accent-soft); border-color: var(--accent); }
-.sp-zoom-readout { min-width: 40px; text-align: center; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
-.sp-pathbar { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); max-width: calc(100% - 16px); box-sizing: border-box; flex-wrap: wrap; display: flex; gap: 8px; align-items: center; background: var(--surface); border: 1px solid var(--accent); border-radius: 5px; padding: 4px 8px; font-size: calc(12px * var(--ui-scale)); }
-.sp-pathbar .primary { background: var(--accent); color: var(--accent-text); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 10px; cursor: pointer; }
-.sp-panhint { position: absolute; left: 8px; top: 8px; max-width: calc(100% - 16px); overflow: hidden; text-overflow: ellipsis; pointer-events: none; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 3px 8px; font-size: calc(12px * var(--ui-scale)); white-space: nowrap; }
+.sp-zoom-readout { min-width: 42px; text-align: center; color: var(--text); font-size: calc(12px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+.sp-pathbar { position: absolute; left: 0; right: 0; top: 8px; margin-inline: auto; width: max-content; max-width: calc(100% - 16px); box-sizing: border-box; display: flex; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--warning); border-radius: 4px; padding: 4px 6px 4px 10px; font-size: calc(12px * var(--ui-scale)); }
+.sp-pathbar span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-pathbar button { flex: none; height: 22px; background: var(--button); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 0 10px; cursor: pointer; }
+.sp-pathbar button:hover { background: var(--button-hover); }
+.sp-panhint { position: absolute; left: 8px; top: 8px; max-width: calc(100% - 16px); overflow: hidden; text-overflow: ellipsis; pointer-events: none; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; font-size: calc(12px * var(--ui-scale)); white-space: nowrap; }
+.sp-audition { position: absolute; right: 8px; top: 8px; max-width: calc(100% - 16px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; color: var(--accent2); font-size: calc(12px * var(--ui-scale)); font-weight: 600; text-shadow: 0 0 3px var(--bg-sunken); }
 
-/* Elevation strip */
-.sp-elevation { width: 58px; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--panel); }
-.sp-elev-tools { display: flex; flex-direction: column; gap: 2px; padding: 3px; }
-.sp-elev-tools button { display: grid; place-items: center; background: var(--button); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 1px 0; font-size: calc(10px * var(--ui-scale)); cursor: pointer; }
-.sp-elev-tools button.on { background: var(--accent-soft); border-color: var(--accent); }
-.sp-elev-tools button:disabled { opacity: 0.5; }
+/* Height strip: caps title, a track ticked every 5 m with the slab, then Follow, ▲ ▼ and the range under it. */
+.sp-elevation { width: var(--sp-elev-w); flex: none; display: flex; flex-direction: column; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.sp-elev-cap { padding: 6px 0 2px; text-align: center; font-size: calc(11px * var(--ui-scale)); line-height: 14px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .sp-elev-track { flex: 1; min-height: 60px; position: relative; touch-action: none; cursor: ns-resize; outline: none; }
 .sp-elev-track:focus-visible { box-shadow: inset 0 0 0 2px var(--focus-ring); }
-.sp-elev-readout { text-align: center; color: var(--muted); font-size: calc(10px * var(--ui-scale)); padding: 2px 0 4px; }
+.sp-elev-grid { stroke: var(--border); stroke-width: 1; opacity: 0.6; }
+.sp-elev-tick { fill: var(--muted); font-size: 10px; }
+.sp-elev-tools { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 6px; }
+.sp-elev-tools button { height: 22px; display: grid; place-items: center; background: var(--button); color: var(--text); border: 1px solid transparent; border-radius: 3px; padding: 0; font-size: calc(11px * var(--ui-scale)); cursor: pointer; }
+.sp-elev-tools button:hover:not(:disabled) { background: var(--button-hover); }
+.sp-elev-tools button.on { background: var(--accent2-soft); border-color: var(--accent2); }
+.sp-elev-tools button:disabled { opacity: 0.5; cursor: default; }
+.sp-elev-steps { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.sp-elev-steps button { font-size: 9px; }
+.sp-elev-readout { text-align: center; color: var(--muted); font-size: calc(10px * var(--ui-scale)); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sp-slab { fill: var(--accent-faint); stroke: none; }
 .sp-slab.side { fill: var(--accent-faint); }
 .sp-slab-edge { stroke: var(--accent); stroke-width: 2; }
-.sp-elev-tick { fill: var(--faint); font-size: 9px; }
-.sp-mark.bar { fill: var(--border-strong); }
-.sp-mark.bar.reverbZone { fill: var(--accent2); opacity: 0.6; }
-.sp-mark.bar.audioZone { fill: var(--series-3); opacity: 0.7; }
-.sp-mark.point { fill: var(--text); }
-.sp-mark.point.listener { fill: var(--accent); }
-.sp-mark.selected { stroke: var(--focus-ring); stroke-width: 2; }
+.sp-mark.bar { fill: var(--muted); }
+.sp-mark.bar.reverbZone { fill: var(--accent2); }
+.sp-mark.bar.audioZone { fill: var(--accent); }
+.sp-mark.out { opacity: 0.35; }
+.sp-mark.point { fill: var(--badge-text); stroke: var(--bg-sunken); stroke-width: 1; }
+.sp-mark.point.hrtf { fill: var(--accent); }
+.sp-mark.point.panned { fill: var(--warning); }
+.sp-mark.point.bed { fill: var(--muted); }
+.sp-mark.tri { fill: var(--muted); }
+.sp-mark.tri.active { fill: var(--accent); }
+.sp-mark.selected { stroke: var(--text-strong); stroke-width: 2; }
+.sp-mark.hover { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 3 2; }
+/* The In range menu's swatches: round for points, square for shapes, in the kind's colour. */
+.sp-kind-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 1px; background: var(--muted); }
+.sp-kind-swatch.point { border-radius: 50%; background: var(--badge-text); }
+.sp-kind-swatch.listener { background: var(--muted); }
+.sp-kind-swatch.listener.active { background: var(--accent); }
+.sp-kind-swatch.reverbZone { background: var(--accent2); }
+.sp-kind-swatch.audioZone { background: var(--accent); }
 
-/* Side view */
-.sp-side { height: 160px; border-top: 1px solid var(--border); background: var(--bg-sunken); position: relative; touch-action: none; }
-.sp-side-box { fill: var(--border-strong); stroke: var(--muted); stroke-width: 1; cursor: grab; }
+/* Side view: under the plan, lined up with it (spacers as wide as the tool rail and the height strip). */
+.sp-side-row { display: flex; gap: 6px; padding: 0 6px 6px; height: clamp(110px, 22%, 220px); flex: none; }
+.sp-side-spacer.start { width: calc(var(--sp-pal-w) - 2px); flex: none; }
+.sp-side-spacer.end { width: var(--sp-elev-w); flex: none; }
+.sp-side { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-sunken); position: relative; touch-action: none; overflow: hidden; }
+.sp-side-box { fill: var(--border-strong); fill-opacity: 0.85; stroke: var(--muted); stroke-width: 1; cursor: grab; }
 .sp-side-box.reverbZone { fill: var(--accent2-soft); stroke: var(--accent2); stroke-dasharray: 5 3; }
-.sp-side-box.audioZone { fill: var(--series-3); fill-opacity: 0.2; stroke: var(--series-3); }
-.sp-side-box.selected, .sp-side-dot.selected { stroke: var(--focus-ring); stroke-width: 2; }
-.sp-side-dot { fill: var(--surface); stroke: var(--text); stroke-width: 1.5; cursor: grab; }
-.sp-side-dot.listener { fill: var(--accent); }
-.sp-side-dot.hrtf { fill: var(--series-1); }
-.sp-side-dot.panned { fill: var(--series-2); }
-.sp-side-dot.bed { fill: var(--series-5); }
+.sp-side-box.audioZone { fill: var(--accent-faint); stroke: var(--accent); }
+.sp-side-box.selected, .sp-side-pt.selected .sp-side-dot { stroke: var(--accent); stroke-width: 2; }
+.sp-side-box.hover { stroke: var(--accent); stroke-dasharray: 3 2; }
+.sp-side-pt { cursor: grab; }
+.sp-side-dot { fill: var(--badge); stroke: var(--muted); stroke-width: 2; }
+.sp-side-pt.hrtf .sp-side-dot { fill: var(--accent-soft); stroke: var(--accent); }
+.sp-side-pt.panned .sp-side-dot { fill: var(--warning-soft); stroke: var(--warning); }
+.sp-side-pt.bed .sp-side-dot { stroke-dasharray: 3 2; }
+.sp-side-pt.listener .sp-side-dot { fill: var(--muted); stroke: var(--bg-sunken); }
+.sp-side-pt.listener.active .sp-side-dot { fill: var(--accent); }
+.sp-side-label { fill: var(--text); font-size: 10px; paint-order: stroke; stroke: var(--bg-sunken); stroke-width: 3px; pointer-events: none; }
 
 /* Outline */
 .sp-outline { display: flex; flex-direction: column; min-height: 0; }
@@ -226,12 +286,14 @@
 .sp-scene { container-type: inline-size; }
 @container (max-width: 480px) {
   .sp-legend { display: none; }
-  .sp-elevation { width: 46px; }
+  .sp-body, .sp-side-row { --sp-elev-w: 52px; --sp-pal-w: 44px; }
+  .sp-tool { width: 36px; }
+  .sp-tool-label { display: none; }
 }
 
 @media (pointer: coarse) {
-  .sp-tool { width: 40px; height: 40px; }
-  .sp-nodebar button { padding: 6px 10px; }
+  .sp-tool { min-height: 44px; }
+  .sp-nodebar button { min-width: 36px; height: 32px; }
   .sp-zoombar button { min-width: 36px; }
   .sp-oic, .sp-icon { min-width: 36px; }
   .sp-outline-row { min-height: 40px; }

@@ -1,5 +1,6 @@
 // The rules of a context menu (ADR 0349): which item the arrow keys, Home, End and typing a letter move to, and how
 // a menu built from conditional parts drops its stray separators. `ContextMenu.tsx` draws it.
+import type { ComponentChildren } from "preact";
 
 /** One action in a menu. */
 export interface MenuItem {
@@ -20,6 +21,12 @@ export interface MenuItem {
   readonly note?: string;
   /** Its own menu, opened beside it (hover, →, Enter or Space); `run` is then not called. */
   readonly submenu?: readonly MenuEntry[];
+  /** A muted second line under the label ("One listener, nothing else"): the menu then draws two-line items. */
+  readonly detail?: string;
+  /** Drawn before the label (a colour swatch, an icon). */
+  readonly icon?: ComponentChildren;
+  /** The pointer or the keyboard is on it (true) or left it (false): a menu that previews what an item names. */
+  hover?(on: boolean): void;
   run(): void;
 }
 

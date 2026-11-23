@@ -132,7 +132,19 @@ function sceneHost(): SceneHost | null {
     },
     playAll: playAllFrom,
     listenHere,
+    listening: listeningSettings(),
+    attenuationRange: (id) => {
+      const owner = ownerOf(id);
+      const a = owner ? ownedAttenuation(owner) : null;
+      return a ? { min: a.minDistance, max: a.maxDistance } : null;
+    },
   };
+}
+
+/** The project's Listening settings (audio.json): HRTF for the nearest N, the ambisonic bed distance. */
+function listeningSettings(): { hrtf: number; bedBeyond: number | null } | undefined {
+  const m = mix.value;
+  return m ? { hrtf: m.settings.voices.hrtf, bedBeyond: m.settings.bedBeyond } : undefined;
 }
 
 function runSceneAction(a: SceneAction): boolean | void {

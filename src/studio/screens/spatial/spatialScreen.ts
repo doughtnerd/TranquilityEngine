@@ -344,7 +344,8 @@ export function escapeKey(): void {
 /** Frame the open scene. */
 export function fit(): void {
   const s = scene.peek();
-  const b = s ? boundsOf([...framePoints(s), ...baseFramePoints(baseImport.peek())], 20) : null;
+  // At least 60 m across: a new scene (one listener) opens framed like a scene, not zoomed onto the listener.
+  const b = s ? boundsOf([...framePoints(s), ...baseFramePoints(baseImport.peek())], 60) : null;
   view.value = b ? fitView(b, viewportSize.peek()) : DEFAULT_VIEW;
 }
 

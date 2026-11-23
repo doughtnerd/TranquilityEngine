@@ -3,7 +3,7 @@ import { audioProjectToJson, parseAudioProject } from "../../../engine/audio/pro
 import type { AudioProject } from "../../../engine/audio/project/types";
 import type { MovingEmitter, SceneBox } from "../../../engine/audio/spatial/testSceneTypes";
 import { emptyMix } from "../mixer/mixerFixture";
-import { boxCorners, rotateKnob } from "./geometry";
+import { boxCorners, boxEdges, rotateKnob } from "./geometry";
 import { KNOB_PX, beginDrag, dragTo, hitTest, hoverTakesFocus, type HitContext } from "./pointerModel";
 import { findObject, positionOf, type EditResult } from "./sceneEdits";
 import { addMaterial, dopplerPercent, editMaterial, materialText, removeMaterial, setBedBeyond, setDefaultMaterial, setDopplerPercent, setHrtfVoices } from "./settingsEdits";
@@ -31,11 +31,13 @@ describe("hit testing", () => {
     expect(hitTest(scene, { x: 42, z: 50 }, ctx())).not.toEqual({ kind: "object", id: "obstacle3" });
   });
 
-  it("grabs the selected box's knob and corners first (not when locked)", () => {
+  it("grabs the selected box's knob and edge handles first (not when locked)", () => {
     const b = boxOfId("obstacle2");
     expect(hitTest(scene, rotateKnob(b, KNOB_PX * 0.1), ctx({ selected: "obstacle2" }))).toEqual({ kind: "knob", id: "obstacle2" });
-    expect(hitTest(scene, boxCorners(b)[2]!, ctx({ selected: "obstacle2" }))).toEqual({ kind: "corner", id: "obstacle2", index: 2 });
-    expect(hitTest(scene, boxCorners(b)[2]!, ctx())).toEqual({ kind: "object", id: "obstacle2" });
+    expect(hitTest(scene, boxEdges(b)[1]!, ctx({ selected: "obstacle2" }))).toEqual({ kind: "edge", id: "obstacle2", index: 1 });
+    expect(hitTest(scene, boxEdges(b)[1]!, ctx())).toEqual({ kind: "object", id: "obstacle2" });
+    // Corners aren't handles (the spec's edge handles): a press there picks the box.
+    expect(hitTest(scene, boxCorners(b)[2]!, ctx({ selected: "obstacle2" }))).toEqual({ kind: "object", id: "obstacle2" });
   });
 
   it("grabs waypoints and midpoints of the path being edited", () => {
@@ -67,10 +69,11 @@ describe("dragging", () => {
     expect((findObject(next, "emitter4")!.obj as MovingEmitter).start).toBe(1);
   });
 
-  it("resizes from a corner and turns from the knob, with each kind's label", () => {
-    const r = dragTo(scene, { kind: "corner", id: "reverb1" }, { x: 105, z: 75 });
+  it("resizes from an edge and turns from the knob, with each kind's label", () => {
+    const before = (findObject(scene, "reverb1")!.obj as { box: SceneBox }).box;
+    const r = dragTo(scene, { kind: "edge", id: "reverb1", index: 1 }, { x: before.center.x + before.width / 2 + 5, z: before.center.z });
     expect(r.label).toBe("Edit reverb zone");
-    expect((findObject(ok(r.result), "reverb1")!.obj as { box: SceneBox }).box).toMatchObject({ width: 50, depth: 55 });
+    expect((findObject(ok(r.result), "reverb1")!.obj as { box: SceneBox }).box).toMatchObject({ width: before.width + 5, depth: before.depth });
     const k = dragTo(scene, { kind: "knob", id: "zone1" }, { x: 40, z: 12 });
     expect(k.label).toBe("Edit audio zone");
     expect((findObject(ok(k.result), "zone1")!.obj as { box: SceneBox }).box.yaw).toBe(90);
