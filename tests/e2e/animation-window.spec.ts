@@ -1,5 +1,6 @@
 import { afterFrames, expect, type Hooks, openEditor, type Page, test } from "./fixtures";
 import { node, scene, stage } from "./animationAssets";
+import { dockBelow, rulerClick } from "./animationWindows";
 import { menu } from "./menus";
 import { captureView, pixelsChanged, steadyView } from "./viewCapture";
 
@@ -49,30 +50,13 @@ async function openWindow(page: Page): Promise<void> {
   await menu(page, "Window", "Animation");
   await expect(toolbar(page)).toBeVisible();
   await dockBelow(page, "Animation");
-}
-
-/** Moves panel `name` (a dock tab) into the bottom dock beside Assets: on-demand panels open beside the Inspector. */
-async function dockBelow(page: Page, name: string): Promise<void> {
-  const tab = (n: string) => page.locator(".dock-tab").and(page.getByRole("tab", { name: new RegExp(`^${n}`) }));
-  const from = (await tab(name).boundingBox())!;
-  const to = (await tab("Assets").boundingBox())!;
-  await page.mouse.move(from.x + 20, from.y + from.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(from.x + 40, from.y + 30, { steps: 3 });
-  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 8 });
-  await page.mouse.up();
-  await expect(page.locator(".dock-group", { has: tab("Assets") }).locator(".dock-tab", { hasText: name })).toBeVisible();
-  await tab(name).click();
   await expect(toolbar(page)).toBeVisible();
 }
 
 /** Moves the playhead with a click on the ruler at `fraction` of the clip (0 … 1; 0 is the To start button). */
 async function scrub(page: Page, fraction: number): Promise<void> {
   if (fraction === 0) return void (await toolbar(page).getByRole("button", { name: "To start" }).click());
-  const ruler = page.locator(".aw-root .ce-ruler");
-  const box = (await ruler.boundingBox())!;
-  // A press on the ruler itself (the playhead's flag may sit over the point; it passes the press through).
-  await page.mouse.click(box.x + Math.min(box.width - 0.5, box.width * fraction), box.y + box.height / 2);
+  await rulerClick(page, page.locator(".aw-root .ce-ruler"), fraction);
 }
 
 test("selecting a node under an Animator binds the window to its clip; Preview scrubs the scene view and stopping puts it back", async ({ page }) => {
