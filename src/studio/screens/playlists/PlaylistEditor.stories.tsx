@@ -61,8 +61,8 @@ export const Queue: Story = {
     const c = within(canvasElement);
     await expect(c.getByRole("heading", { name: "dirt" })).toBeVisible();
     const weight = c.getByRole("textbox", { name: "Weight of dirt_03" });
-    await userEvent.clear(weight);
-    await userEvent.type(weight, "5{Enter}");
+    await userEvent.tripleClick(weight); // select the old weight and type over it
+    await userEvent.keyboard("5{Enter}");
     await expect(c.getByRole("textbox", { name: "Weight of dirt_03" })).toHaveValue("5");
   },
 };
@@ -87,7 +87,7 @@ export const Blend1DRegion: Story = {
   args: { path: "audio/vehicles/engine.playlist.json", values: { rpm: 4000 } },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await userEvent.click(c.getByText("engine_mid"));
+    await userEvent.click(c.getAllByText("engine_mid")[0]!); // its entry (the blend view names it too)
     await expect(c.getByText("Automatic (from its neighbours)")).toBeVisible();
     const start = c.getByRole("slider", { name: "engine_mid region start" });
     start.focus();
@@ -105,7 +105,7 @@ export const Blend2DWeightCurve: Story = {
   args: { path: "audio/ambience/wind.playlist.json" },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await userEvent.click(c.getByText("wind_gust"));
+    await userEvent.click(c.getAllByText("wind_gust")[0]!); // its entry (the blend view names it too)
     await userEvent.selectOptions(c.getByRole("combobox", { name: "wind_gust weight curve" }), "narrow40");
     await expect(c.getByRole("combobox", { name: "wind_gust weight curve" })).toHaveValue("narrow40");
     await expect(c.getByRole("button", { name: "Reset" })).toBeEnabled();
@@ -130,7 +130,8 @@ export const ClipPlaylist: Story = {
   args: { path: "audio/ui/boom.playlist.json" },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await expect(c.getByText("boom")).toBeVisible();
+    await expect(c.getByRole("heading", { name: "boom" })).toBeVisible();
+    await expect(c.getByTitle("audio/ui/boom.wav")).toBeVisible();
     await expect(c.getByRole("button", { name: "Replace sample…" })).toBeVisible();
   },
 };

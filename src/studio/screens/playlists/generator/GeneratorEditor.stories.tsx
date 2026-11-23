@@ -92,9 +92,11 @@ export const Blip: Story = {
     await expect(blipEdits).toHaveBeenLastCalledWith("Mutate");
     // The keyboard gates a note while held.
     const key = c.getByRole("button", { name: /^G \(\+7 st/ });
-    await userEvent.pointer({ keys: "[MouseLeft>]", target: key });
+    // One session for the press and the release (each direct userEvent call starts a new one, with no button held).
+    const user = userEvent.setup();
+    await user.pointer({ keys: "[MouseLeft>]", target: key });
     await expect(blipGate).toHaveBeenLastCalledWith("press note:7 7");
-    await userEvent.pointer({ keys: "[/MouseLeft]", target: key });
+    await user.pointer({ keys: "[/MouseLeft]", target: key });
     await expect(blipGate).toHaveBeenLastCalledWith("release note:7");
     await expect(c.getByRole("button", { name: "Bake…" })).toBeDisabled();
     await expect(c.getByRole("button", { name: "Bake…" })).toHaveAttribute("title", BAKE_PENDING);
@@ -135,6 +137,6 @@ export const EmbeddedOscillator: Story = {
     await expect(c.queryByRole("button", { name: "Randomise" })).toBeNull();
     await expect(c.queryByRole("button", { name: /^Lock / })).toBeNull();
     await expect(c.getByRole("combobox", { name: "Waveform" })).toHaveValue("0");
-    await expect(c.getByText(/key-off at 0\.40 s/)).toBeVisible();
+    await expect(await c.findByText(/key-off at 0\.40 s/, {}, { timeout: 10_000 })).toBeVisible(); // once the offline render is in
   },
 };

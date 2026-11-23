@@ -22,7 +22,8 @@ export const ByFolder: Story = {
   play: async ({ canvasElement, args }) => {
     const c = within(canvasElement);
     const tree = c.getByRole("tree", { name: "Captures" });
-    await expect(within(tree).getAllByRole("treeitem").map((r) => r.textContent?.trim())).toEqual(expect.arrayContaining(["Test PC", "slot 07.mycap", "canyon_run_03.mycotake"]));
+    // Each item's own row (an open folder's item holds the rows under it too).
+    await expect(within(tree).getAllByRole("treeitem").map((r) => r.querySelector(".row")?.textContent?.trim())).toEqual(expect.arrayContaining(["Test PC", "slot 07.mycap", "canyon_run_03.mycotake"]));
     await expect(within(tree).queryByText("boom.wav")).toBeNull();
     await expect(c.getByRole("treeitem", { name: /canyon_run_03.mycap/ })).toHaveAttribute("aria-selected", "true");
     await userEvent.click(c.getByText("boss_mix_check.mycap"));
@@ -59,7 +60,7 @@ export const MoveTo: Story = {
   play: async ({ canvasElement, args }) => {
     const c = within(canvasElement);
     const row = c.getByRole("treeitem", { name: /slot 07/ });
-    row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 80 }));
+    row.querySelector(".row")!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 80 }));
     const body = within(canvasElement.ownerDocument.body);
     await userEvent.click(await body.findByRole("menuitem", { name: "Move to…" }));
     const dialog = await body.findByRole("dialog");

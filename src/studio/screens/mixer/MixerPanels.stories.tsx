@@ -81,7 +81,8 @@ export const EditingASnapshot: Story = {
   args: { which: "buses", setup: (s) => s.editSnapshot("Underwater") },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await expect(c.getByRole("slider", { name: "Music level" })).toHaveAttribute("aria-valuenow", "-16");
+    // Every Music fader (the row's and the board's) shows the level in the snapshot.
+    for (const fader of c.getAllByRole("slider", { name: "Music level" })) await expect(fader).toHaveAttribute("aria-valuenow", "-16");
   },
 };
 
@@ -154,7 +155,7 @@ export const Trigger: Story = {
   args: { which: "trigger", setup: (s) => s.setTestValue("depth", 2) },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement.ownerDocument.body);
-    await expect(c.getByRole("status")).toHaveTextContent("True now with the test values");
+    await expect(c.getByText(/True now with the test values/)).toBeVisible();
     await expect(c.getByRole("list", { name: "Overlapping snapshots" })).toHaveTextContent("Pause menu wins (priority 40 over 20).");
   },
 };

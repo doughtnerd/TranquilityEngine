@@ -25,15 +25,16 @@ export const Mixer: StoryObj = {
   play: async ({ canvasElement }) => {
     dockOf("mixer").store.reset();
     const c = within(canvasElement);
-    await expect(await c.findByRole("note", { name: "Mixer" })).toBeVisible();
-    await userEvent.pointer({ keys: "[MouseRight]", target: c.getByText("Snapshots") });
+    await expect(await c.findByRole("main", { name: "Mixer screen" })).toBeVisible();
+    await c.findByRole("tab", { name: "Snapshots" });
+    await userEvent.pointer({ keys: "[MouseRight]", target: c.getByRole("tab", { name: "Snapshots" }) });
     const menu = await c.findByRole("menu", { name: "Panel menu" });
     await userEvent.click(within(menu).getByRole("menuitem", { name: "Close Snapshots" }));
-    await waitFor(() => expect(c.queryByText("Snapshots")).toBeNull());
-    await userEvent.pointer({ keys: "[MouseRight]", target: c.getByText("Inspector") });
+    await waitFor(() => expect(c.queryByRole("tab", { name: "Snapshots" })).toBeNull());
+    await userEvent.pointer({ keys: "[MouseRight]", target: c.getByRole("tab", { name: "Inspector" }) });
     await userEvent.click(within(await c.findByRole("menu", { name: "Panel menu" })).getByRole("menuitem", { name: "Reset layout" }));
-    await expect(await c.findByText("Snapshots")).toBeVisible();
+    await expect(await c.findByRole("tab", { name: "Snapshots" })).toBeVisible();
   },
 };
 
-export const Profiler: StoryObj = { render: () => <ScreenDock screen="profiler" /> };
+// (A Profiler dock needs the Studio's router and recorder, which only the app provides: its panels have their own stories.)

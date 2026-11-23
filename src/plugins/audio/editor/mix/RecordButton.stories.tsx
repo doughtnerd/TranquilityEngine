@@ -40,8 +40,11 @@ export const OutsidePlay: Story = {
   },
 };
 
+/** Each story with a play has its own toggle (rendered directly, not through args). */
+const recordAndSave = model("take");
 export const RecordAndSave: Story = {
   args: { model: model("take"), playing: true, label: "Record take" },
+  render: () => <RecordButton model={recordAndSave} playing label="Record take" />,
   play: async ({ canvasElement }) => {
     const b = within(canvasElement).getByRole("button", { name: /Record take/ });
     await userEvent.click(b);
@@ -55,8 +58,10 @@ export const Capture: Story = {
   args: { model: model("capture"), playing: true, label: "Record capture" },
 };
 
+const startFails = model("take", { fail: true });
 export const StartFails: Story = {
   args: { model: model("take", { fail: true }), playing: true, label: "Record take" },
+  render: () => <RecordButton model={startFails} playing label="Record take" />,
   play: async ({ canvasElement }) => {
     const b = within(canvasElement).getByRole("button", { name: /Record take/ });
     await userEvent.click(b);

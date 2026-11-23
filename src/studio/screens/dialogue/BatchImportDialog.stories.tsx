@@ -50,7 +50,7 @@ export const BatchImport: StoryObj = {
     await waitFor(() => expect(c.getByRole("button", { name: "Import 3 files" })).toBeEnabled());
     await expect(within(preview()).getByRole("row", { name: /fr\/nobody.wav/ })).toHaveTextContent("new row in ch1");
 
-    const pattern = c.getByRole("textbox", { name: "Naming pattern" });
+    const pattern = c.getByRole("combobox", { name: "Naming pattern" });
     await userEvent.clear(pattern);
     await userEvent.type(pattern, "{{lang}");
     await expect(c.getByRole("alert")).toHaveTextContent("a pattern needs {key}");

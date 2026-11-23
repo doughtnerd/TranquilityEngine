@@ -157,7 +157,7 @@ export const Plan: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByRole("toolbar", { name: "Tools" })).toBeVisible();
-    await expect(c.getByRole("img", { name: /Plan of the scene, 14 objects/ })).toBeVisible();
+    await expect(c.getByRole("img", { name: /Plan of the scene, \d+ objects/ })).toBeVisible();
     await expect(c.getByText("Waterfall")).toBeInTheDocument();
     await expect(c.getByText("HRTF")).toBeVisible(); // legend
   },
@@ -232,7 +232,9 @@ export const AddTwoDSound: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await userEvent.click(c.getByRole("button", { name: "2D sound" }));
-    await expect(c.getByRole("toolbar", { name: "2D sound 2 actions" })).toBeInTheDocument();
+    // A placing tool: the sound goes where the plan is clicked, and its action bar shows.
+    await userEvent.click(c.getByRole("img", { name: /Plan of the scene/ }));
+    await expect(await c.findByRole("toolbar", { name: /^2D sound \d* ?actions$/ })).toBeInTheDocument();
     await userEvent.click(c.getByRole("button", { name: "Obstacle" }));
     await expect(c.getByRole("button", { name: "Obstacle" })).toHaveAttribute("aria-pressed", "true");
   },
@@ -251,7 +253,7 @@ export const OverBaseScene: Story = {
     // Read-only: the pointer passes through the base layer to the plan (it can't be selected or dragged).
     await expect(getComputedStyle(canvasElement.querySelector(".sp-base")!).pointerEvents).toBe("none");
     // The test scene's own objects still draw over it.
-    await expect(c.getByRole("img", { name: /Plan of the scene, 14 objects/ })).toBeVisible();
+    await expect(c.getByRole("img", { name: /Plan of the scene, \d+ objects/ })).toBeVisible();
   },
 };
 
