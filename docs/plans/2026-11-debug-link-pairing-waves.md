@@ -281,8 +281,8 @@ M1 exit: §4.
 
 **Owner items:**
 - **O1** The Studio on Android: no Android build of the Studio exists, and 0341 doesn't cover one. Android games are
-  in scope (D3); the three Android Studio pairs wait for a record of their own. Recommendation: record it when wanted;
-  nothing in this plan blocks on it. Deadline: none.
+  in scope (D3); the three Android Studio pairs wait for a record of their own. **Decided (owner, 2026-11-23): later,
+  outside this plan.**
 - **O2** How a debug game app gets the listener. A desktop export already writes a Tauri project and compiles it with
   the *developer's* cargo (`tauri build`, `node.ts`; without cargo it writes the project only), copying
   `src-tauri/src/gamepad.rs` in as text (0335). Players get a compiled installer and never need Rust. The listener
@@ -291,7 +291,8 @@ M1 exit: §4.
   generated `Cargo.toml` names a version), or a prebuilt debug shell binary per platform (removes the developer's
   Rust need for debug builds, but is a new record and CI). **Decided (owner, 2026-11-23): write the sources in, as
   with `gamepad.rs`.**
-- **O3** Who hosts a public rendezvous (0380 open question). R3 ships the deployable service only. Deadline: none.
+- **O3** Who hosts a public rendezvous (0380 open question). **Decided (owner, 2026-11-23): no public rendezvous.** R3
+  ships the deployable service for anyone who runs their own; https pages pair only through one.
   The owner confirmed (2026-11-23) that M2 stays as planned: without a rendezvous, browser ↔ browser pairs and
   https pages could only exchange takes as files.
 - **O4** Hardware. **Decided (owner, 2026-11-23): desktop, laptop, Android phone.**

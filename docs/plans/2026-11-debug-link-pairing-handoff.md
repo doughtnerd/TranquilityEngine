@@ -27,9 +27,9 @@
 
 | Item | Recommendation | Deadline |
 |---|---|---|
-| O1 The Studio on Android (no build, no record); Android games are in scope (D3) | a separate ADR when wanted | none |
+| O1 The Studio on Android (no build, no record); Android games are in scope (D3) | **decided 2026-11-23: later, outside this plan** | — |
 | O2 Debug desktop exports write the two crates' sources into the generated Tauri project, compiled by the developer's `tauri build` like `gamepad.rs`; players get only the compiled app | **decided 2026-11-23: write the sources in** | — |
-| O3 A public hosted rendezvous | ship the deployable service only (M2 itself confirmed 2026-11-23) | none |
+| O3 A public hosted rendezvous | **decided 2026-11-23: none; R3 ships the deployable service only** | — |
 | O4 Hardware for OP1–OP3 | **decided 2026-11-23: desktop, laptop, Android phone** | — |
 | O5 64 KiB bulk messages | **decided 2026-11-23: the WebRTC lane's existing ceiling** | — |
 | O6 Build-side code entry by `--debug-code` / `?debug-code=` only | **decided 2026-11-23: accepted** | — |
