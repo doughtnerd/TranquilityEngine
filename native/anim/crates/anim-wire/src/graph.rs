@@ -37,7 +37,7 @@ use crate::wire_record;
 /// The family id (the opcodes' high byte).
 pub const ID: u8 = 3;
 /// The family version. Bump it when a record's layout changes.
-pub const VERSION: u16 = 1;
+pub const VERSION: u16 = 2;
 
 /// Status: the target state can't be reached from the current one (`TRAVEL`).
 pub const STATUS_UNREACHABLE: u32 = 0x0301;
@@ -124,7 +124,11 @@ wire_record! {
 }
 
 wire_record! {
-    /// Command: cut to a state at the next update, no path (`jump`).
+    /// Command: cut to a state at the next update, no path (`jump`), entering it
+    /// `normalized_time` cycles plus `time` seconds in (Unity's `Play(state, layer,
+    /// normalizedTime)` and `PlayInFixedTime`): its clip players start that far into their clips
+    /// (a looping clip wraps, a one-shot clamps at its end), and its state time and normalised
+    /// time begin there. Version 2 of the family added both offsets.
     pub struct Jump: family(ID, VERSION), kind(4) {
         /// The instance handle.
         instance: u32,
@@ -132,6 +136,10 @@ wire_record! {
         machine: u32,
         /// The target state (local index).
         state: u32,
+        /// Cycles of each clip player's clip (0: the start; not finite or negative counts as 0).
+        normalized_time: f32,
+        /// Seconds, added after `normalized_time` (not finite or negative counts as 0).
+        time: f32,
     }
 }
 
@@ -302,6 +310,8 @@ fn vectors() -> Vec<Vector> {
                 instance: 0x0001_0000,
                 machine: 0,
                 state: 2,
+                normalized_time: 0.5,
+                time: 0.25,
             },
         ),
         Vector::of(
