@@ -71,7 +71,7 @@ import { clipGeometry, clipTimesOf, pieceAt, type ClipGeometry } from "./clipMap
 import type { TimeCurve } from "./curves";
 import { levelEffects } from "./effects";
 import { automationParts, type TimeAuto } from "./levelAutomation";
-import { LiveNode, shapedFade, type Ctx, type LoopRun, type NodeHost, type PVoice } from "./liveNode";
+import { LiveNode, shapedFade, waitsForClipData, type Ctx, type LoopRun, type NodeHost, type PVoice } from "./liveNode";
 import type { FadeShape } from "../../../../engine/audio/playlist/types";
 import { linkedPlaylist, loadPlaylist } from "./loader";
 import type { MusicalBoundary, MusicalPosition, MusicalSource } from "./musical";
@@ -178,7 +178,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   private awaitingData = false;
 
   private anyWaiting(): boolean {
-    for (const v of this.voices) if (!v.leaving && v.voice.reason === "waitingForData") return true;
+    for (const v of this.voices) if (waitsForClipData(v)) return true;
     for (const c of this.children) if (!c.stopped && c.waitingForData()) return true;
     return false;
   }

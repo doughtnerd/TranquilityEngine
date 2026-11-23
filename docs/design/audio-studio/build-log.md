@@ -182,3 +182,43 @@ the 4 audio failures above (product follow-ups); stories 365/367. Typecheck clea
 - 2026-11-23 (UI pass wave 6): journey defects fixed (w6-a, w6-b). Capture/take readers accept another minor of the
   core ABI major (6.0 files open in 6.1); refuse only a major mismatch or an unversioned schema change. Full Vitest on
   the merge: 981 files, 10,460 passed.
+
+## UI pass final verification
+
+2026-11-23, branch `ui/final-e2e` from `ccr-8460d665-umr8or` (d921646f), 4-core container, `E2E_PORT=3200`.
+
+- **Regular e2e, first run:** 254 tests, 244 passed, 5 failed, 5 skipped (10.8 min).
+  - Mixer (`studio.spec`): stale. A new bus opens in a rename field, and the Inspector's field is now named "Level in dB".
+  - Take (`studio-editor.spec`): stale. Two buttons are named "Open take file…" (the tree's + and the empty card).
+  - `sound-lab-touch` (3 tests): **a product bug, fixed.** An unstamped Sequence of a streamed sample restarted every
+    frame and never sounded. D44's wait-for-data (87df3a49, on origin/master) counted a stream voice's
+    `waitingForData`, but a stream voice reads that by design until its first chunk. This hit Flappy's town music and
+    the Sound Lab's eight stems (melody-loop streams). Now only voices waiting for clip data count
+    (`waitsForClipData`). Unit tests in `sequence.test.ts`: the stream case failed before (19 plays in 19 frames)
+    and plays once now. The D44 case is kept. The spec was also stale against the ADR 0343 music rows (no
+    stems or primed groups, `segment` is the clock's playlist path). It now reads the instance's voices, A/B/C by
+    bar, and the rhythm row by asset.
+- **audio-mix-smoke M5-0 presence duck:** the test was timing-sensitive, not the product. The core frame runs about
+  0.15 s ahead of the heard clock. Under four workers, main-thread stalls of 0.15–0.3 s made the stamped presence
+  arrive late, or left no read before a stamp only 0.3 s ahead. 6 of 12 runs failed. With the voice stamped 1 s
+  ahead, 8 of 8 pass.
+- **Slow (`studio-export export`):** F-35 was stale (segment `music/town.playlist.json`). Export capture raced: F9
+  right after the click rejects while the core is still loading (the designed `Audio.capture.start` contract), so
+  the spec now waits for the audio to run. Second run: 11 of 12 passed. **Left failing:** M5b, "reference tone reads
+  -22.99 LUFS". Master holds a steady -22.93 (tolerance ±0.05) with only `loudness-reference.wav` playing (checked
+  in `Audio.debug()`). This container's context runs at 44.1 kHz and the reference is 48 kHz. Not touched by the UI
+  pass; needs a look at the 44.1 kHz path.
+- **Stories, first run:** 105 files, 447 passed, 5 failed.
+  - Particle Color Pick, Particle System Overrides, Tileset Tile Size and Parameter Own Parameters: **a product
+    bug, fixed.** The UI pass's `FloatingPortal` imported `createPortal` from `preact/compat`. Compat's options hook
+    turns every input's `onChange` into an input listener for the whole page, so fields committed on every step.
+    `createPortal` now comes from Preact 11's core in all four places, and `src/editor/preactCompat.test.ts` keeps
+    compat out of shipped sources.
+  - "History Follows Open Playlist" and "HistoryPopover > Tree": not a cross-file leak. Each story file runs in its
+    own iframe. The cause was timing: `usePanelHistory` registered in a plain effect, which waits for a frame (frames
+    are throttled in a background iframe), so the play's click found no active history. It failed every time with
+    the two files run together. It now registers in a layout effect.
+  - Stories after the fixes: 105 files, 452 of 452 pass. The two-file combination passed 2 of 2.
+- **Final:** `npm run typecheck` clean. Full Vitest: 982 files, 10,463 passed, 6 skipped, 1 todo. By the owner's
+  call there was no second full e2e run. Specs covering the product files changed after the first run (`studio`,
+  `studio-editor`, `history`, `inspector-fields`, `particles`, `childwindow`, `sound-lab-touch`): 26 of 26 passed.

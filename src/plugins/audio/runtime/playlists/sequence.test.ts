@@ -513,6 +513,50 @@ describe("Sequence: musical clock, positions and hot reload", () => {
     expect(lastFade(0)).toMatchObject({ to: 0, at: 2.6, stopAtEnd: true });
   });
 
+  /** Plays through the fake with each new voice reading `waitingForData` while `waits(request)` says so, as the core's do. */
+  const waitingVoices = (waits: (r: { path: string; stream: boolean }) => boolean): (() => void) => {
+    const real = fake.play;
+    fake.play = (r) => {
+      const v = real(r);
+      if (v && waits(r)) (v as { reason: string | null }).reason = "waitingForData";
+      return v;
+    };
+    return () => { fake.play = real; };
+  };
+
+  it("D44: an unstamped sequence whose clip is still loading starts again each frame until the data is there, then plans", async () => {
+    await kit.boot({ "s.playlist.json": tempoSeq() });
+    fake.durations.set("a.wav", 16);
+    let loading = true;
+    const restore = waitingVoices(() => loading);
+    try {
+      const h = Audio.play("s.playlist.json");
+      at(0.1);
+      at(0.2);
+      expect(fake.plays.length, "a new voice each frame while the clip loads").toBe(3);
+      loading = false;
+      at(0.3); // this frame's new voice is not waiting: the sequence plans from it
+      at(0.4);
+      at(0.5);
+      expect(fake.plays.length).toBe(4);
+      expect(h.music?.bar).toBe(1);
+    } finally { restore(); }
+  });
+
+  it("an unstamped sequence of a streamed clip starts once: a stream voice waits for its data by design and isn't restarted (Flappy's town music)", async () => {
+    await kit.boot({ "a.wav.meta.json": { format: "myco.import@1", stream: true }, "s.playlist.json": tempoSeq() });
+    fake.durations.set("a.wav", 16);
+    const restore = waitingVoices((r) => r.stream); // a stream voice reads waitingForData from its play until it sounds
+    try {
+      const h = Audio.play("s.playlist.json");
+      for (let t = 0.1; t < 2; t += 0.1) at(t);
+      expect(fake.plays.map((p) => [p.path, p.stream]), "one play of the stream, not one a frame").toEqual([["a.wav", true]]);
+      expect(fake.voices[0]!.events.some((e) => e.kind === "fadeShaped" && e.to === 0), "never stopped for a new start").toBe(false);
+      expect(h.music, "its musical clock runs (the music rows read it)").not.toBeUndefined();
+      expect(h.music!.bar).toBe(1);
+    } finally { restore(); }
+  });
+
   it("an edited sequence swaps at the next bar, at the same time when the tempo is unchanged", async () => {
     await kit.boot({ "s.playlist.json": tempoSeq() });
     fake.durations.set("a.wav", 16);

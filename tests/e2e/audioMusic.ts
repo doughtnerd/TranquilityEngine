@@ -34,7 +34,9 @@ export type Debug = {
   status: string;
   counters: { underruns: number };
   voices: Voice[];
-  core: Record<string, number | string | boolean>;
+  /** One row per playing playlist instance: its id (the voices' `event`), asset and how many voices it has. */
+  events: { id: number; asset: string; voices: number }[];
+  core:Record<string, number | string | boolean>;
   music?: Row[];
   musicTotals?: Totals;
 };

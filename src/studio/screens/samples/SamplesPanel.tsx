@@ -11,7 +11,7 @@ import { openMixDocument } from "../mixer/mixerDocument";
 import { applyEdit } from "../../../plugins/audio/editor/editResult";
 import { FOLDER_COLOURS, folderColour, folderColourCss, moveFolderColours, setFolderColour } from "./folderColours";
 import { useRef, useState } from "preact/hooks";
-import { createPortal } from "preact/compat";
+import { createPortal } from "preact";
 import { signal } from "@preact/signals";
 import { isDerivedSamplePath, sampleEditsFromSidecar } from "../../../engine/audio/sample/format";
 import { parseImportSettings, sidecarPath } from "../../../engine/scene/importSettings";
