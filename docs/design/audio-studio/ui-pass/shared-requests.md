@@ -59,3 +59,9 @@
 - Format additions needing an ADR: audio.json `snapshotFolders`, `Bus.colour`, parameter `type: bool|text`, condition
   ops `contains`/`starts`.
 - Dev note: Vite's watcher misses edits with several servers (inotify); use CHOKIDAR_USEPOLLING=1.
+
+## Follow-ups from wave 4 (pause)
+- Pause latency: a pause lands up to ~0.35 s after the click (after anything already scheduled). A Studio/audition
+  pause should feel immediate: pause at the earliest schedulable frame and retract/reschedule commands already sent
+  that fall after it. Resume is heard from the main-thread promote (≤1 frame + 5 ms fade) — a core-side resume would
+  remove it. Sequence playhead in the Studio is wall-clock estimated (drifts by the pause lead).
