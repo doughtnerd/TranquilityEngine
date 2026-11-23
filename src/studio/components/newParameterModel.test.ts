@@ -34,4 +34,15 @@ describe("+ New parameter…", () => {
     expect(parseParameters([rpm, surface], "parameters", problems)).toEqual([rpm, surface]);
     expect(problems).toEqual([]);
   });
+
+  it("makes a true / false or a text definition the parse keeps as it is", () => {
+    const combat = parameterFromDraft({ ...newDraft([], "bool"), name: "In combat" });
+    expect(combat).toEqual({ name: "In combat", labels: ["false", "true"], default: "false", type: "bool" });
+    const area = parameterFromDraft({ ...newDraft([], "text"), name: "Area", labels: "Cave, Forest" });
+    expect(area).toEqual({ name: "Area", labels: ["Cave", "Forest"], default: "Cave", type: "text" });
+    expect(whyNotCreate({ ...newDraft([], "text"), labels: "" }, [])).toBeNull();
+    const problems: string[] = [];
+    expect(parseParameters([combat, area], "parameters", problems)).toEqual([combat, area]);
+    expect(problems).toEqual([]);
+  });
 });

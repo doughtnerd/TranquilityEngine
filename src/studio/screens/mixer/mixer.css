@@ -42,7 +42,10 @@
 .mx-sntr.quiet { cursor: default; color: var(--muted); background: transparent; }
 .mx-sntr .studio-glyph { flex: none; color: var(--muted); }
 .mx-sntr-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mx-status { color: var(--muted); font-size: calc(12px * var(--ui-scale)); white-space: nowrap; }
+/* The live text and the drag hint take the toolbar's free room and shorten, so a drag never re-wraps the toolbar. */
+.mx-status { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: calc(12px * var(--ui-scale)); white-space: nowrap; }
+.mx-toolbar > :not(.mx-status):not(.mx-spacer) { flex: none; }
+.mx-toolbar > .mx-snc { flex: 0 1 auto; }
 .mx-status.live { color: var(--text-strong); font-weight: 600; }
 .mx-status.hint { color: var(--text); }
 .mx-status.warn { color: var(--warning); }
@@ -123,7 +126,7 @@
 .mx-split button:hover:not(:disabled) { background: var(--button-hover); }
 .mx-split-more { border-left: 1px solid var(--border) !important; padding: 0 3px !important; }
 .mx-snapshots .tree-view .row { min-height: 26px; box-sizing: border-box; gap: 2px; }
-.mx-snapshots .tree-view .row .name { flex: 0 1 auto; min-width: 36px; white-space: nowrap; }
+.mx-snapshots .tree-view .row .name { flex: 0 1 auto; min-width: min(max-content, 60%); white-space: nowrap; }
 .mx-snapshots .tree-view .row.mx-snap-row .name { font-weight: 600; }
 .mx-snapshots .tree-view .row.mx-snap-row.selected { box-shadow: inset 2px 0 0 var(--accent); }
 .mx-snap-glyph { flex: none; color: var(--badge-text); margin-right: 2px; }
