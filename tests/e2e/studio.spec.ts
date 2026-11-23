@@ -107,7 +107,7 @@ test("Mixer: a new bus and a snapshot offset are saved to audio.json and reopen"
   const errors = trackErrors(page);
   await openStudioFolder(page, "Game", MINIMAL_PROJECT);
   await studioScreen(page, "Mixer");
-  await page.getByRole("button", { name: "+ New bus" }).click();
+  await page.getByRole("toolbar", { name: "Mixer" }).getByRole("button", { name: "New bus", exact: true }).click();
   await expect(page.getByRole("listbox", { name: "Buses" }).getByText("New bus", { exact: true })).toBeVisible();
   // A snapshot: new (it opens for editing), then the bus's level in it is an offset on the base level.
   await page.getByRole("button", { name: "New snapshot" }).first().click();
