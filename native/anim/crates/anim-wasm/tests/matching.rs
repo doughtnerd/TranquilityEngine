@@ -319,6 +319,69 @@ fn the_database_loads_and_binds_its_clips() {
     assert_eq!(core.last_status(), anim_wire::core::STATUS_BAD_ASSET);
 }
 
+/// T70: each node's report carries the trajectory it predicted (one sample per database offset)
+/// and the playing frame's trajectory features, de-normalised; within 1e-5 of the baked values
+/// (the core keeps rows times √weight in f32, so dividing back costs an ulp or two).
+#[test]
+fn the_report_carries_the_predicted_and_matched_trajectories() {
+    use anim_wire::r#match::{MatchSample, SAMPLE_MATCHED, SAMPLE_PREDICTED};
+    let fx = fixture();
+    let mut sim = Sim::new(&fx, Options::default());
+    let mut last = sim.step([0.0; 2], &[]);
+    for _ in 0..40 {
+        last = sim.step([0.0, 1.4], &[]);
+    }
+    let n = sim.core.match_debug_write(sim.h) as usize;
+    let bytes = sim.core.match_debug()[..n].to_vec();
+    let header = MatchHeader::decode(&bytes).unwrap();
+    assert_eq!((header.nodes, header.dropped), (1, 0));
+    let mut at = (MatchHeader::STRIDE + MatchNode::STRIDE) as usize;
+    let mut samples = Vec::new();
+    while at < n {
+        samples.push(MatchSample::decode(&bytes[at..]).unwrap());
+        at += MatchSample::STRIDE as usize;
+    }
+    let view = PoseDbView::parse(&fx.db).unwrap();
+    let mut offsets: Vec<f32> = (0..view.feature_count())
+        .filter_map(|i| view.feature(i))
+        .filter(|f| f.bone == NONE)
+        .map(|f| f.time_offset)
+        .collect();
+    offsets.sort_by(f32::total_cmp);
+    offsets.dedup();
+    let predicted: Vec<_> = samples.iter().filter(|s| s.kind == SAMPLE_PREDICTED).collect();
+    let matched: Vec<_> = samples.iter().filter(|s| s.kind == SAMPLE_MATCHED).collect();
+    assert_eq!(predicted.len(), offsets.len());
+    assert_eq!(matched.len(), offsets.len());
+    assert!(samples.iter().all(|s| s.node == sim.node));
+    // Walking ahead (+Z, facing +Z): the future samples lie ahead, further for later times.
+    let future: Vec<_> = predicted.iter().filter(|s| s.time > 0.0).collect();
+    assert!(!future.is_empty());
+    assert!(future.windows(2).all(|w| w[1].z > w[0].z && w[0].z > 0.0));
+    assert!(future.iter().all(|s| (s.dx.hypot(s.dz) - 1.0).abs() < 1e-4));
+    // The matched samples are the playing frame's baked features.
+    let (mean, std, matrix) = (view.mean(), view.std(), view.matrix());
+    let stride = view.row_stride();
+    for i in 0..view.feature_count() {
+        let f = view.feature(i).unwrap();
+        if f.bone != NONE {
+            continue;
+        }
+        let s = matched.iter().find(|s| s.time == f.time_offset).unwrap();
+        let got = if f.kind == anim_format::posedb::FeatureKind::TrajectoryPosition {
+            [s.x, s.z]
+        } else {
+            [s.dx, s.dz]
+        };
+        for k in 0..2 {
+            let d = f.first_dim as usize + k;
+            let raw = matrix.get(last.frame as usize * stride + d).unwrap() * std.get(d).unwrap()
+                + mean.get(d).unwrap();
+            assert!((got[k] - raw).abs() < 1e-5, "{} vs {raw}", got[k]);
+        }
+    }
+}
+
 #[test]
 fn idle_then_walk_switches_through_inertialization() {
     let fx = fixture();

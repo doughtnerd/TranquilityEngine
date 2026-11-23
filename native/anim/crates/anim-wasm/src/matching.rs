@@ -25,7 +25,10 @@ use anim_wire::core::{
     Init, STATUS_BAD_ASSET, STATUS_MISMATCH, STATUS_NOT_INITIALIZED, STATUS_OK, STATUS_TOO_LARGE,
     STATUS_WRONG_KIND,
 };
-use anim_wire::r#match::{MatchHeader, MatchNode, MATCH_DEBUG_BYTES};
+use anim_match::Trajectory;
+use anim_wire::r#match::{
+    MatchHeader, MatchNode, MatchSample, MATCH_DEBUG_BYTES, SAMPLE_MATCHED, SAMPLE_PREDICTED,
+};
 use anim_wire::WireRecord;
 use wasm_bindgen::prelude::wasm_bindgen;
 
@@ -201,6 +204,34 @@ impl Core {
                     header.nodes += 1;
                 } else {
                     header.dropped += 1;
+                }
+                // T70: the predicted trajectory, then the playing frame's.
+                let Some(m) = match_ref(&self.arena, v.database) else {
+                    continue;
+                };
+                let mut t = Trajectory::default();
+                let mut put = |kind: u32, t: &Trajectory, header: &mut MatchHeader| {
+                    for i in 0..t.count {
+                        let s = MatchSample {
+                            node: n,
+                            kind,
+                            time: t.offsets[i],
+                            x: t.positions[i][0],
+                            z: t.positions[i][1],
+                            dx: t.directions[i][0],
+                            dz: t.directions[i][1],
+                        };
+                        if !w.put(&s) {
+                            header.dropped += 1;
+                        }
+                    }
+                };
+                if matching::predicted_trajectory(program, &mut inst.state, groups, n, m.db, &mut t)
+                {
+                    put(SAMPLE_PREDICTED, &t, &mut header);
+                }
+                if v.frame != anim_format::NONE && m.db.frame_trajectory(v.frame as usize, &mut t) {
+                    put(SAMPLE_MATCHED, &t, &mut header);
                 }
             }
         }

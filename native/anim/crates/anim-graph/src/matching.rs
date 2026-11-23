@@ -292,12 +292,13 @@ fn database(cx: &mut EvalContext<'_>, node: &NodeData<'_>) {
     }
 }
 
-/// The ground `x z` of a vec2 (`x y`) or vec3 (`x y z`) parameter, `None` for `NONE`.
-fn ground(cx: &EvalContext<'_>, param: u32) -> Option<[f32; 2]> {
-    if param == NONE || param as usize >= cx.program().param_count() {
+/// The ground `x z` of a vec2 (`x y`) or vec3 (`x y z`) parameter, `None` for `NONE`. `words`
+/// reads a parameter's four words.
+fn ground(program: &Program, words: &dyn Fn(u32) -> [u32; 4], param: u32) -> Option<[f32; 2]> {
+    if param == NONE || param as usize >= program.param_count() {
         return None;
     }
-    let w = cx.param_words(param);
+    let w = words(param);
     let f = |i: usize| {
         let v = f32::from_bits(w[i]);
         if v.is_finite() {
@@ -306,27 +307,109 @@ fn ground(cx: &EvalContext<'_>, param: u32) -> Option<[f32; 2]> {
             0.0
         }
     };
-    Some(match cx.program().param_type(param as usize) {
+    Some(match program.param_type(param as usize) {
         Some(anim_format::graph::ParamType::Vec3) => [f(0), f(2)],
         _ => [f(0), f(1)],
     })
 }
 
-fn trajectory_input(cx: &EvalContext<'_>, node: &NodeData<'_>) -> TrajectoryInput {
-    let scalar = |i: usize| match node.word_or_none(i) {
+/// A float parameter's value from its words (ints and bools as their value; not finite: 0), as
+/// `EvalContext::param_f32` reads it.
+fn scalar_of(program: &Program, index: u32, w: [u32; 4]) -> f32 {
+    if index as usize >= program.param_count() {
+        return 0.0;
+    }
+    match program.param_type(index as usize) {
+        Some(anim_format::graph::ParamType::Int) => w[0] as i32 as f32,
+        Some(anim_format::graph::ParamType::Bool) => (w[0] != 0) as u32 as f32,
+        _ => {
+            let v = f32::from_bits(w[0]);
+            if v.is_finite() {
+                v
+            } else {
+                0.0
+            }
+        }
+    }
+}
+
+/// The trajectory input of a node with parameter words `params`; `words` reads a graph
+/// parameter's four words.
+fn trajectory_input_from(
+    program: &Program,
+    params: &[u32],
+    words: &dyn Fn(u32) -> [u32; 4],
+) -> TrajectoryInput {
+    let at = |i: usize| params.get(i).copied().unwrap_or(NONE);
+    let scalar = |i: usize| match at(i) {
         NONE => None,
-        p => Some(cx.param_f32(p)),
+        p => Some(scalar_of(program, p, words(p))),
     };
-    let position = ground(cx, node.word_or_none(word::POSITION)).unwrap_or([0.0; 2]);
-    let velocity = ground(cx, node.word_or_none(word::VELOCITY)).unwrap_or([0.0; 2]);
+    let position = ground(program, words, at(word::POSITION)).unwrap_or([0.0; 2]);
+    let velocity = ground(program, words, at(word::VELOCITY)).unwrap_or([0.0; 2]);
     let yaw = scalar(word::YAW).unwrap_or(0.0);
     TrajectoryInput {
         position,
         yaw,
         velocity,
-        desired_velocity: ground(cx, node.word_or_none(word::DESIRED_VELOCITY)).unwrap_or(velocity),
+        desired_velocity: ground(program, words, at(word::DESIRED_VELOCITY)).unwrap_or(velocity),
         desired_yaw: scalar(word::DESIRED_YAW).unwrap_or(yaw),
     }
+}
+
+fn trajectory_input(cx: &EvalContext<'_>, node: &NodeData<'_>) -> TrajectoryInput {
+    trajectory_input_from(cx.program(), node.params, &|p| cx.param_words(p))
+}
+
+fn trajectory_settings(params: &[u32]) -> TrajectorySettings {
+    let f = |i: usize, d: f32| match params.get(i) {
+        Some(w) if f32::from_bits(*w).is_finite() => f32::from_bits(*w),
+        _ => d,
+    };
+    TrajectorySettings {
+        velocity_half_life: f(word::VELOCITY_HALF_LIFE, 0.3),
+        facing_half_life: f(word::FACING_HALF_LIFE, 0.2),
+    }
+}
+
+/// T70, the live debugger: the trajectory top-level `POSE_DATABASE` node `node` of an instance
+/// predicted at its last update, at `db`'s offsets, in the character's frame (`state` the
+/// instance's blob, `groups` its bone groups). The prediction is a pure function of the node's
+/// predictor words and the parameters that update read, both still in the blob until the next
+/// `write_inputs`. `false` when the node isn't a pose-database node. Never allocates.
+pub fn predicted_trajectory(
+    program: &Program,
+    state: &mut [u32],
+    groups: usize,
+    node: u32,
+    db: &MatchDb,
+    out: &mut Trajectory,
+) -> bool {
+    if program.node_kind(node) != Some((Family::Matching, kind::POSE_DATABASE)) {
+        return false;
+    }
+    let params = program.node_params(node).unwrap_or(&[]);
+    let input = {
+        let blob: &[u32] = state;
+        let words = |p: u32| {
+            let at = 4 * p as usize;
+            blob.get(at..at + 4)
+                .map_or([0; 4], |w| [w[0], w[1], w[2], w[3]])
+        };
+        trajectory_input_from(program, params, &words)
+    };
+    let s = program.node_state(state, groups, node);
+    if s.len() < state::WORDS {
+        return false;
+    }
+    let predictor = TrajectoryPredictor::read_words(&s[state::PREDICTOR..]);
+    predictor.predict(
+        &input,
+        &trajectory_settings(params),
+        db.trajectory_offsets(),
+        out,
+    );
+    true
 }
 
 /// ORs three masks of four words (required, excluded, any) from `words` into `f`.
@@ -496,10 +579,7 @@ fn update(cx: &mut EvalContext<'_>, node: &NodeData<'_>) {
     let db = m.db;
     let lanes = db.lanes();
     let input = trajectory_input(cx, node);
-    let ts = TrajectorySettings {
-        velocity_half_life: node.f32_or(word::VELOCITY_HALF_LIFE, 0.3),
-        facing_half_life: node.f32_or(word::FACING_HALF_LIFE, 0.2),
-    };
+    let ts = trajectory_settings(node.params);
     let mut predictor = TrajectoryPredictor::read_words(&cx.state()[state::PREDICTOR..]);
     predictor.update(dt, &input, &ts);
     let mut trajectory = Trajectory::default();
