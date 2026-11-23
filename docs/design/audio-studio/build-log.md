@@ -167,3 +167,8 @@ click doesn't place in the story); both need a closer look at the view's pointer
 
 **Handoff status**: Studio core workflows have e2e coverage (8 tests in 4 specs, all passing); the regular suite is green except
 the 4 audio failures above (product follow-ups); stories 365/367. Typecheck clean; unit tests of every touched module pass.
+
+- 2026-11-23 (coordinator): merged `studio/final-e2e` after master (45638071). Full Vitest on the merge: 10,142 passed,
+  1 failed under full-suite load (`encoding.test.ts` "encode a planned sound once per content and settings"), 3/3 alone:
+  recorded as a load-sensitive test. Next: the UI fidelity and bug pass against the owner's prototype and spec
+  (`owner-spec.md`); audit gaps files cover Samples, Playlists, Sequence, Mixer, Spatial/Curves, Take/Profiler, shell.
