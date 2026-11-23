@@ -143,13 +143,16 @@ function SwitchSettings({ body, ctx, writable, onEdit, playlists }: ModeToolbarP
       <span class="pl-tl" title="What happens when the label changes while the Switch plays, unless a change rule below says otherwise">When it changes</span>
       <IconSegments label="When it changes: when" value={c.when} options={WHENS} disabled={!writable} onChange={(v) => set({ when: v })} />
       <IconSegments label="When it changes: how" value={c.how} options={HOWS} disabled={!writable} onChange={(v) => set({ how: v })} />
-      {c.how !== "cut" && (
-        <label class="pl-tl">
-          <NumberBox class="pl-n56" label="Change length" value={lengthOf(c)} min={0} max={9999} step={unitOf(c) === "ms" ? 10 : 0.25} digits={unitOf(c) === "ms" ? 0 : 2} disabled={!writable} onValue={(v) => set({ length: changeLength(c, v) })} />
-          {unitOf(c)}
-        </label>
-      )}
-      <ChangeExtras change={c} writable={writable} playlists={playlists} name="Default change" set={set} />
+      {/* The length and the fades button wrap together: alone on a second row the ··· looked stray (V8). */}
+      <span class="pl-tl">
+        {c.how !== "cut" && (
+          <>
+            <NumberBox class="pl-n56" label="Change length" value={lengthOf(c)} min={0} max={9999} step={unitOf(c) === "ms" ? 10 : 0.25} digits={unitOf(c) === "ms" ? 0 : 2} disabled={!writable} onValue={(v) => set({ length: changeLength(c, v) })} />
+            {unitOf(c)}
+          </>
+        )}
+        <ChangeExtras change={c} writable={writable} playlists={playlists} name="Default change" set={set} />
+      </span>
     </>
   );
 }

@@ -120,13 +120,14 @@ button.sq-tci:hover:not(:disabled) { background: var(--hover); }
 .sq-track-block.dragging { opacity: 0.6; }
 .sq-track-block.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
 .sq-track-block.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
-.sq-track-head { width: var(--sq-head); flex: none; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 4px 10px; border-right: 1px solid var(--border); background: var(--panel); cursor: pointer; min-width: 0; }
+.sq-track-head { width: var(--sq-head); flex: none; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 4px 8px; border-right: 1px solid var(--border); background: var(--panel); cursor: pointer; min-width: 0; }
 .sq-track-head.selected { background: var(--selection); }
 .sq-track-head.disabled .sq-track-name { color: var(--muted); text-decoration: line-through; }
 .sq-head-line { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .sq-swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--clip); flex: none; }
 .sq-track-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); font-weight: 600; font-size: calc(12px * var(--ui-scale)); }
 .sq-head-badge { flex: none; background: var(--badge); color: var(--badge-text); border-radius: 3px; padding: 0 4px; font-size: calc(10px * var(--ui-scale)); line-height: 14px; }
+.sq-head-badge.kind { display: inline-grid; place-items: center; padding: 0 3px; height: 14px; }
 .sq-head-badge.fx { background: none; border: 1px solid var(--border-strong); color: var(--muted); }
 .sq-ms { flex: none; width: 18px; height: 18px; padding: 0; font: inherit; font-size: calc(10px * var(--ui-scale)); font-weight: 700; line-height: 16px; border: 1px solid var(--border); border-radius: 3px; background: var(--button); color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .sq-ms:disabled { opacity: 0.45; cursor: default; }
@@ -135,7 +136,7 @@ button.sq-tci:hover:not(:disabled) { background: var(--hover); }
 .sq-ms.pw[aria-pressed="true"] { color: var(--accent2); border-color: var(--accent2); background: var(--accent2-soft); }
 .sq-ms.tr:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
 .sq-head-vol { display: inline-flex; align-items: center; }
-.sq-head-vol .studio-num { width: 52px; padding: 0 4px; font-size: calc(11px * var(--ui-scale)); }
+.sq-head-vol .studio-num { width: 44px; padding: 0 4px; font-size: calc(11px * var(--ui-scale)); }
 .sq-head-out { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .sq-lane { position: relative; flex: 1 1 auto; min-width: 0; overflow: hidden; background: var(--bg); }
 .sq-lane.disabled { opacity: 0.55; }
@@ -331,6 +332,10 @@ button.sq-tci:hover:not(:disabled) { background: var(--hover); }
 .sq-params-row:not(.param) { grid-template-columns: 96px minmax(0, 1fr) auto; }
 .sq-params-control { min-width: 0; }
 .sq-params-control .studio-params { padding: 0; }
+/* Beside the use chip the row is narrow: a shorter name column, and the typed box keeps room for five digits (V13:
+   "100(" for 1000). */
+.sq-params-control :is(.studio-slider, .studio-param) { grid-template-columns: minmax(32px, 64px) minmax(48px, 1fr) auto; }
+.sq-params-control .studio-num { min-width: 52px; }
 .sq-param-name { font-family: var(--font-code); font-size: calc(11px * var(--ui-scale)); color: var(--text-strong); }
 .sq-params .sq-sbtn { justify-self: start; border-radius: 4px; }
 .sq-use-chip { font-size: calc(10px * var(--ui-scale)); line-height: 14px; padding: 0 5px; border-radius: 7px; border: 1px solid var(--border-strong); color: var(--muted); white-space: nowrap; justify-self: end; }

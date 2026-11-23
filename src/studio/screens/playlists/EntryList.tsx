@@ -126,7 +126,7 @@ export function EntryList(props: EntryListProps) {
         <span>#</span>
         <span />
         <span>Entry</span>
-        {colA && <span>{showWeight ? "Weight" : showAtZero ? "At weight 0" : ""}</span>}
+        {colA && <span title={showAtZero ? "What an entry does when its weight reaches 0: stop, or play on silently (so it comes back in step)" : undefined}>{showWeight ? "Weight" : showAtZero ? "When silent" : ""}</span>}
         <span title="Gain, pitch, pan and filters for each entry: values or curves over voice time. Gain is relative to the level prepared in Samples (0 dB = unchanged); gains add up along the playlists that contain this one, and the Mixer bus comes after.">Voice</span>
         <span class="pl-right">Now</span>
         <span />

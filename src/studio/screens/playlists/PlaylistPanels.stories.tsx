@@ -31,6 +31,7 @@ export const Inspector: Story = {
         writable
         ctx={{ parameters: FIXTURE_PARAMETERS }}
         buses={["Master", "SFX", "Vehicles", "Music"]}
+        busPath={(b) => (b === "Vehicles" ? "SFX › Vehicles" : b)}
         output={{ bus: "Vehicles", own: false, from: "car" }}
         presets={["audio/attenuation/near.attenuation.json"]}
         usedBy={["audio/vehicles/car.playlist.json"]}
@@ -54,6 +55,13 @@ export const Inspector: Story = {
     await expect(c.getByRole("combobox", { name: "Output bus" })).not.toBeVisible();
     await userEvent.click(c.getByText("Playback"));
     await expect(c.getByRole("combobox", { name: "Output bus" })).toHaveValue("");
+    // J8.2: the buses by their routing paths, in tree order (Master, then each branch).
+    const output = c.getByRole("combobox", { name: "Output bus" }) as HTMLSelectElement;
+    await expect([...output.options].map((o) => o.textContent)).toEqual(["Inherit · SFX › Vehicles", "Master", "Music", "SFX", "SFX › Vehicles"]);
+    // V9: Priority and When full line up with the slider rows (Cooldown).
+    const left = (name: string) => c.getByText(name, { selector: ".kit-field-label, .studio-field-label" }).getBoundingClientRect().left;
+    await expect(left("Priority")).toBe(left("Cooldown"));
+    await expect(left("When full")).toBe(left("Cooldown"));
     // The effects chain keeps the 8px gutter every field row has (I6): its caption doesn't touch the panel's edge.
     const chain = c.getByRole("region", { name: "Playlist effects" });
     const panel = canvasElement.querySelector(".pl-inspector")!;
@@ -112,6 +120,22 @@ export const Library: Story = {
       <LibraryList files={FIXTURE_FILES} addTo="dirt" previewing="audio/footsteps/dirt_02.wav" onPreview={fn()} onAdd={fn()} onOpenSamples={fn()} onCreatePlaylist={fn()} writable />
     </div>
   ),
+};
+
+/** J6.2: a search result is named by its name; its folder sits on the meta line, not before the name. */
+export const LibrarySearch: Story = {
+  render: () => (
+    <div style={{ width: "280px", height: "420px" }}>
+      <LibraryList files={FIXTURE_FILES} addTo="dirt" previewing={null} onPreview={fn()} onAdd={fn()} onOpenSamples={fn()} onCreatePlaylist={fn()} writable />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await userEvent.type(c.getByRole("searchbox", { name: "Search samples" }), "dirt_0");
+    const names = [...canvasElement.querySelectorAll(".pl-lib-name")].map((n) => n.textContent);
+    await expect(names).toEqual(["dirt_01", "dirt_02", "dirt_03"]);
+    await expect(canvasElement.querySelector(".pl-lib-meta")!.textContent).toMatch(/^audio\/footsteps/);
+  },
 };
 
 const t0 = 10;

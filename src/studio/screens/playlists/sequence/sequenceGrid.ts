@@ -153,7 +153,10 @@ export function customUnit(format: Display, tempo: SequenceSettings["tempo"]): {
   return { unit: "ms", seconds: 0.001 };
 }
 
-/** What the Snap button reads: its step ("100 ms", "1 beat", "1,000 smp", a custom "250 ms"), even while off. */
+/**
+ * What the Snap button reads: its step ("100 ms", "1 beat", "1,000 smp", a custom "250 ms"), even while off; a musical
+ * step without a tempo in time ("500 ms" for a beat).
+ */
 export function snapLabel(snap: SnapSetting, format: Display, tempo: SequenceSettings["tempo"]): string {
   const mode = snap.mode === "off" ? (snap.last ?? "off") : snap.mode;
   if (mode === "off") return "Off";
@@ -161,6 +164,11 @@ export function snapLabel(snap: SnapSetting, format: Display, tempo: SequenceSet
     const u = customUnit(format, tempo);
     const n = Math.round((snap.custom / u.seconds) * 100) / 100;
     return `${n.toLocaleString("en-US")} ${u.unit}`;
+  }
+  // Without a tempo a beat is only the 0.5 s default: the button says the step in time, not "1 beat" beside "No tempo".
+  if (!tempo && (mode === "quarter" || mode === "beat" || mode === "bar")) {
+    const sec = snapStep({ ...snap, mode }, tempo);
+    return sec >= 1 ? `${Math.round(sec * 100) / 100} s` : `${Math.round(sec * 1000)} ms`;
   }
   return thousands(SNAP_MENU.find((o) => o.mode === mode)?.label ?? "Off");
 }

@@ -171,9 +171,9 @@ export function DopeSheet(props: DopeSheetProps) {
           const on = id === props.activeId;
           const hidden = props.hidden.has(id);
           return [
-            <button key={`${id}-n`} type="button" class={`ce-dl${on ? " on" : ""}${hidden ? " off" : ""}`} aria-pressed={on} onClick={() => props.onPick(id)}>
+            <button key={`${id}-n`} type="button" class={`ce-dl${on ? " on" : ""}${hidden ? " off" : ""}`} aria-pressed={on} title={lane.name} onClick={() => props.onPick(id)}>
               <span class="ce-swatch" style={{ background: color }} aria-hidden="true" />
-              {lane.name}
+              <span class="ce-dl-name">{lane.name}</span>
             </button>,
             <div key={`${id}-r`} class="ce-drow" onPointerDown={(e) => e.target === e.currentTarget && props.onPick(id)}>
               {range && <div class="ce-range-faint" style={{ left: pc(range[0]), width: pc(range[1] - range[0]) }} />}

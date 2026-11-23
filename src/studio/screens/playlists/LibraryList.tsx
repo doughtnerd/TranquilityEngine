@@ -158,8 +158,9 @@ export function LibraryList(props: LibraryListProps) {
                         }}
                       >
                         <span class="pl-lsn">
-                          <span class="pl-lib-name">{searching && g.folder ? <span class="pl-u">{g.folder}/</span> : null}{s.name}</span>
-                          <span class="pl-u">{f?.length ? secondsText(f.length).replace(/(\.\d)\d s$/, "$1 s") : s.derived ? "sample" : ""}{f?.loops ? " ∞" : ""}</span>
+                          <span class="pl-lib-name">{s.name}</span>
+                          {/* A search result names its folder on the meta line, not before the name (J6.2: "GameSFX/HoverBike/Brak…"). */}
+                          <span class="pl-u pl-lib-meta">{[searching && g.folder ? g.folder : "", `${f?.length ? secondsText(f.length).replace(/(\.\d)\d s$/, "$1 s") : s.derived ? "sample" : ""}${f?.loops ? " ∞" : ""}`].filter(Boolean).join(" · ")}</span>
                         </span>
                       </button>
                     </div>

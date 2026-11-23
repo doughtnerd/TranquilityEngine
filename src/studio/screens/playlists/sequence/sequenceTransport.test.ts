@@ -108,6 +108,7 @@ describe("Pause in the sequence transport (ADR 0362 §1)", () => {
     transportButtons().get("Pause")!.onClick();
     expect(handle.pause).toHaveBeenCalledTimes(1);
     expect(sequencePlayerSlots("music", "Sequence").status).toMatch(/^Paused music/);
+    expect(sequencePlayerSlots("music", "Sequence").nowPlaying?.art).toBe("SEQ"); // the tree's badge (V13: it said "SQ")
     vi.advanceTimersByTime(3_000);
     expect(seqPlayhead.value).toBe(at);
     expect(playback.value).not.toBeNull();

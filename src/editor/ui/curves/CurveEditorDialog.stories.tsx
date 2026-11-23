@@ -150,7 +150,7 @@ export const NewParameterInput: StoryObj = {
   ),
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    const driven = c.getByRole("combobox", { name: /Driven by/ }) as HTMLSelectElement;
+    const driven = c.getByRole("combobox", { name: "Driven by" }) as HTMLSelectElement;
     await expect([...driven.options].map((o) => o.textContent)).toEqual(["Clip time", "+ New parameter…"]);
     await userEvent.selectOptions(driven, "+ New parameter…");
     await expect(driven).toHaveDisplayValue("speed");

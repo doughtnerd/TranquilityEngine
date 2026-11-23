@@ -33,6 +33,7 @@ export const ByFolder: Story = {
     await expect(within(tree).getAllByText("dirt").length).toBeGreaterThan(1); // the file, and its link in footsteps
     // T5: an output of its own is a "→" whose tooltip names the bus.
     await expect(within(tree).getByLabelText("Plays into SFX")).toHaveAttribute("title", expect.stringMatching(/plays into SFX/));
+    await expect(within(tree).getByLabelText("Plays into SFX")).toHaveTextContent("→ SFX"); // named, not a bare arrow (J8.2)
     await userEvent.click(within(tree).getByText("engine"));
     await expect(args.actions.open).toHaveBeenCalled();
   },

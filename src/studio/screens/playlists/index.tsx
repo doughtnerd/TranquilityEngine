@@ -44,7 +44,7 @@ import { PlaylistInspector } from "./PlaylistInspector";
 import { addEntries, duplicateEntry, removeEntry, setAutomation, setEntryUse, sampleEntry } from "./playlistEdits";
 import { breadcrumb, childPath, editAt, effectiveOutput, entryName, filePath, pathTarget, playlistTitle, sampleTitle, whereOf, type PlaylistPath } from "./playlistPaths";
 import {
-  adding, allParameters, askDelete, askDeleteFolder, deleteFolderKeepingContents, deletingFolder, audioNow, auditioning, busNames, confirmDelete, deleting, docFor, duplicatePlaylistFiles, editContext, editFile, editOpen, followRoute,
+  adding, allParameters, askDelete, busPaths, askDeleteFolder, deleteFolderKeepingContents, deletingFolder, audioNow, auditioning, busNames, confirmDelete, deleting, docFor, duplicatePlaylistFiles, editContext, editFile, editOpen, followRoute,
   linkedBy, loadPlaylist, logCursor, makeShared, moveToFolder, newPlaylist, newPlaylistFolder, newPlaylistFromSamples, newSequence, openBody, openDoc, openFile, openLints, openPath, openPlaylist,
   playingNow, releaseAudition, renameFolder, renamePlaylistFile, removeLinkEntry, runDrop, selectedEntry, setTestValue, stopAudition, target, testValues, trigger, triggerOffReason, unlink, voiceLog, clearLog,
   frozen, lastChange, pauseAudition, renamingOpen, resumeAudition,
@@ -546,6 +546,7 @@ function InspectorPanel() {
           writable={writable() && !doc.readOnly}
           ctx={editContext.value}
           buses={busNames.value}
+          busPath={(b) => busPaths.value.get(b) ?? b}
           output={effectiveOutput(path, loadPlaylist)}
           presets={(project?.files ?? []).filter((f) => f.toLowerCase().endsWith(".attenuation.json"))}
           usedBy={usedBy}

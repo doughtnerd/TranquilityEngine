@@ -186,7 +186,7 @@ export function PlaylistTreeView(props: PlaylistTreeViewProps) {
           {meta && <span class="pl-row-meta">{meta}</span>}
           {linked && <span class="pl-link-mark" title="Linked copy"><Icon name="link" size={12} label="Linked copy" /></span>}
           {n.kind === "file" && n.linkedBy.length > 0 && <span class="pl-link-mark pl-original" title={`Linked in ${n.linkedBy.length} playlist${n.linkedBy.length === 1 ? "" : "s"}`} ><Icon name="link" size={12} label="Linked elsewhere" /></span>}
-          {n.output && <span class="pl-out-mark" title={`Overridden: plays into ${n.output} (its own output, not its parent's)`} aria-label={`Plays into ${n.output}`}>→</span>}
+          {n.output && <span class="pl-out-mark" title={`Overridden: plays into ${n.output} (its own output, not its parent's)`} aria-label={`Plays into ${n.output}`}>→ {n.output}</span>}
         </span>
       ),
       children: n.children.map((c) => row(c)),

@@ -94,7 +94,7 @@ export function SwitchView(props: SwitchViewProps) {
   return (
     <div class="pl-switch">
       <div class="pl-lh pl-srow" aria-hidden="true">
-        <span>{s.parameter || "Label"}</span>
+        <span title={s.parameter || undefined}>{s.parameter || "Label"}</span>
         <span>Plays</span>
         <span title="The label's gain, and the voice curves of the entry it plays. Gain is relative to the level prepared in Samples (0 dB = unchanged).">Voice</span>
         <span class="pl-right">Now</span>
@@ -109,7 +109,7 @@ export function SwitchView(props: SwitchViewProps) {
           const gain = s.labelGain[l] ?? 0;
           return (
             <div key={l} role="row" class={`pl-srow${hot ? " hot" : ""}`} aria-current={hot ? "true" : undefined} title={hot ? "The test value: this label plays now" : undefined}>
-              <span role="cell" class="pl-lbl">{l}</span>
+              <span role="cell" class="pl-lbl" title={l}>{l}</span>
               <span role="cell" class="pl-cell">
                 <button type="button" class={`pl-chip swc${e ? "" : " none"}`} aria-haspopup="menu" aria-expanded={plays?.label === l} aria-label={`${l} plays ${e ? entryName(e, i!) : "nothing"}`} title={`What ${l} plays`} disabled={!writable && !e}
                   onClick={(ev) => setPlays({ label: l, at: ev.currentTarget as Element })}>

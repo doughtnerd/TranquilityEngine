@@ -30,6 +30,17 @@ import { axisRange } from "./blendPlacement";
 import { editAt, entryName, playlistTitle, sampleTitle } from "./playlistPaths";
 import { setEffects, setEntryUse, setLevels, setOutput, setParameters, setPlayback, setSpatial, USE_LIMITS, type EditContext } from "./playlistEdits";
 
+/**
+ * The Output select's options: Inherit (naming the bus it inherits), then every bus by its routing path, in tree order
+ * (Master first, then each top-level bus followed by those under it: "SFX", "SFX › Vehicles").
+ */
+function outputOptions(buses: readonly string[], path: (name: string) => string, inherited: string): { value: string; label: string }[] {
+  const rows = buses.map((b) => ({ value: b, label: path(b) }));
+  const top = rows.filter((r) => !r.label.includes(" › ") && buses.indexOf(r.value) === 0);
+  const rest = rows.filter((r) => !top.includes(r)).sort((a, b) => a.label.localeCompare(b.label));
+  return [{ value: "", label: `Inherit · ${path(inherited)}` }, ...top, ...rest];
+}
+
 export interface PlaylistInspectorProps {
   readonly body: PlaylistBody;
   /** The open playlist's name. */
@@ -38,6 +49,8 @@ export interface PlaylistInspectorProps {
   readonly writable: boolean;
   readonly ctx: EditContext;
   readonly buses: readonly string[];
+  /** A bus's routing path ("SFX › Vehicles") for the Output select; its name when absent. */
+  readonly busPath?: (name: string) => string;
   /** The bus it plays on and whether it is its own (else inherited from `from`). */
   readonly output: { readonly bus: string; readonly own: boolean; readonly from: string | null };
   /** Attenuation preset files. */
@@ -204,7 +217,7 @@ export function PlaylistInspector(props: PlaylistInspectorProps) {
           <span class="pl-inline">
             <SelectBox label="Output bus" value={body.output ?? ""} disabled={!writable}
               title={body.output ? `Overridden: plays into ${body.output}. An output of its own takes its audio out of its parent's mix: the parent's playlist effects don't apply to it.` : `Inherits ${props.output.bus}${props.output.from ? ` from ${props.output.from}` : ""}`}
-              options={[{ value: "", label: `Inherit · ${props.output.own ? "Master" : props.output.bus}` }, ...props.buses.map((b) => ({ value: b, label: b }))]}
+              options={outputOptions(props.buses, props.busPath ?? ((b) => b), props.output.own ? "Master" : props.output.bus)}
               onValue={(v) => onEdit(`Output: ${v || "inherit"}`, (b) => setOutput(b, v || null, props.buses))} />
             <button type="button" class="pl-ib" aria-label={`Open ${props.output.bus} in the Mixer`} title="Open the bus in the Mixer" onClick={() => props.onOpenBus(props.output.bus)}><Icon name="chevronRight" size={12} /></button>
           </span>
