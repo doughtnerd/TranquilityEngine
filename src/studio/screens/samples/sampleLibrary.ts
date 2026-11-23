@@ -28,6 +28,8 @@ export const audioFolders = (folders: readonly string[], files: readonly string[
 
 export const folderOf = (p: string): string => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
 export const nameOf = (p: string): string => p.slice(p.lastIndexOf("/") + 1);
+/** A sample as the tree names it: its file name, a derived sample's without `.sample.json` ("brake_skid_fork"). */
+export const sampleName = (p: string): string => nameOf(p).replace(/\.sample\.json$/i, "");
 const join = (a: string, b: string) => (a ? `${a}/${b}` : b);
 
 export interface LibraryFolder {
@@ -43,6 +45,8 @@ export interface LibraryFolder {
  */
 export function libraryTree(files: readonly string[], folders: readonly string[]): LibraryFolder {
   const natural = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+  // By name without the extension, so a fork ("door_fork") sorts after what it came from ("door.wav").
+  const stem = (p: string) => (isDerivedSamplePath(p) ? sampleName(p) : nameOf(p).replace(/\.[^.]+$/, ""));
   const samples = files.filter(isSamplePath);
   const nonEmpty = new Set(files.map(folderOf));
   const keep = new Set<string>();
@@ -56,7 +60,7 @@ export function libraryTree(files: readonly string[], folders: readonly string[]
     path,
     name: path === "" ? "" : nameOf(path),
     folders: [...keep].filter((f) => folderOf(f) === path).sort(natural.compare).map(make),
-    samples: samples.filter((s) => folderOf(s) === path).sort((a, b) => natural.compare(nameOf(a), nameOf(b))),
+    samples: samples.filter((s) => folderOf(s) === path).sort((a, b) => natural.compare(stem(a), stem(b)) || natural.compare(nameOf(a), nameOf(b))),
   });
   return make("");
 }

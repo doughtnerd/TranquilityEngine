@@ -11,7 +11,7 @@ import {
   setRoot, setTempo, setTrim, slideLoop, snip, snippets, tapeSnippet, toggleSnippet, updateLoop, updateMarker, type SampleEdit,
 } from "./sampleEditing";
 import { applyMerge, changedCount, detachAll, loopDiff, markerDiff, mergeRows, revertLoop, revertMarker, summarizeMerge, writeSummary, wroteText } from "./sampleFile";
-import { allSamples, audioFolders, cleanFolderName, cleanPath, fileChip, folderChoices, libraryTree, metaLine, moveUpPlan, searchSamples, shortLength, usesOf } from "./sampleLibrary";
+import { allSamples, audioFolders, cleanFolderName, cleanPath, fileChip, folderChoices, libraryTree, metaLine, moveUpPlan, sampleName, searchSamples, shortLength, usesOf } from "./sampleLibrary";
 import { editedLength, inClosedGap, toSource, toView } from "./sampleTime";
 import {
   colourCss, colourValue, fitToSource, landmarks, liveSelection, loopLabel, loopRegions, MARKER_PRESETS, markerColour, shortSeconds, musicalSpans, outlineGroups, packMarkerRows, parseSelection, parseSnapStep, regionAt, sampleWarnings, selectionKey, selectionSpan,
@@ -466,7 +466,9 @@ describe("library", () => {
     expect(t.samples).toEqual(["a.wav"]);
     expect(t.folders.map((f) => f.name)).toEqual(["audio", "empty"]);
     expect(t.folders[0].folders.map((f) => f.name)).toEqual(["music", "sfx"]);
-    expect(t.folders[0].folders[1].samples).toEqual(["audio/sfx/door_fork.sample.json", "audio/sfx/door.wav"]); // natural order ignores punctuation
+    // By name without the extension: a fork after what it came from (journeys walk 2, J11.3), named without `.sample.json`.
+    expect(t.folders[0].folders[1].samples).toEqual(["audio/sfx/door.wav", "audio/sfx/door_fork.sample.json"]);
+    expect(t.folders[0].folders[1].samples.map(sampleName)).toEqual(["door.wav", "door_fork"]);
     expect(allSamples(t)).toHaveLength(4);
     expect(searchSamples(files, "DOOR")).toEqual(["audio/sfx/door.wav", "audio/sfx/door_fork.sample.json"]);
   });
