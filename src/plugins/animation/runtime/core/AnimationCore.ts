@@ -1,0 +1,378 @@
+// The animation core's host (ADR 0370, "Memory and the boundary"): typed wrappers over the wasm exports, with plain
+// numbers, typed arrays and the wire's record layouts at its edges (no wasm types leave this folder). One per page,
+// shared by every World (`loader.ts`); each World is a namespace in it (`AnimationWorldCore`, its World id).
+//
+// - **Assets** are reference-counted by key over every World: the first `acquire` of a key copies the bytes into the
+//   core's arena, later ones share the handle. When the last reference goes the asset is *idle*: kept, so a scene that
+//   loads it again reuses it, until `releaseIdle`, which runs when an Engine is disposed (an editor play session ends,
+//   a project closes, a game exits).
+// - **Instances** are index-plus-generation handles; a handle's index is its row in every view.
+// - **Views** (`views()`) are typed arrays over the core's memory. A load, an instance creation or a restore can grow the
+//   memory, which detaches every view, so call `views()` again after any call and never keep one across calls; it
+//   rebuilds them only when the memory has moved.
+// - **The frame:** `writeInputs` (through a World's command writer), then `evaluate(world, pass, dtScaled, dtUnscaled)`,
+//   then read the output views and the state-change records before the next `writeInputs` (which clears them).
+import {
+  INIT,
+  INPUT_STRIDE,
+  MATRIX_FLOATS,
+  MEMORY_NEEDED,
+  ROOT_STRIDE,
+  STATE_CHANGE,
+  STATUS_OK,
+  STATUS_STALE_HANDLE,
+  TRACK_STRIDE,
+} from "../wasm/wire/core";
+import { BLACKBOARD_STRIDE, GRAPH_CHANGE } from "../wasm/wire/graph";
+import type * as AnimWasm from "../wasm/myco_anim.js";
+import { encodeRecord, getRecord, type RecordFields } from "./records";
+
+/** @internal The glue module (`../wasm/myco_anim.js`) once instantiated. */
+export type AnimationWasm = typeof AnimWasm;
+
+/** @internal The `INIT` record's limits: fixed for the page's core (every World shares them). */
+export interface AnimationCoreLimits {
+  /** Animator instances alive at once over every World (at most 65,535). */
+  readonly maxInstances: number;
+  /** Bones in one skeleton (at most 65,535); a skeleton with more is refused (`STATUS_TOO_LARGE`). */
+  readonly maxBones: number;
+  /** The asset arena's first size in bytes; it grows in load calls. */
+  readonly arenaInitialBytes: number;
+}
+
+/** @internal The limits a page's core starts with when a project names none. */
+export const DEFAULT_CORE_LIMITS: AnimationCoreLimits = { maxInstances: 512, maxBones: 256, arenaInitialBytes: 4 << 20 };
+
+/** @internal What an asset is made from: a file's bytes, or the arguments of the export that builds it. */
+export type AnimationAssetSource =
+  | { readonly kind: "skeleton" | "clip" | "graph" | "posedb" | "profile" | "plugin"; readonly bytes: Uint8Array }
+  | { readonly kind: "mask"; readonly weights: Float32Array }
+  | { readonly kind: "ragdoll"; readonly skeleton: number; readonly bytes: Uint8Array }
+  | {
+      readonly kind: "retargetMap";
+      readonly source: RetargetSide;
+      readonly target: RetargetSide;
+      readonly flags: number;
+    };
+
+/** @internal One side of a retarget map: a skeleton handle, a profile (0: humanoid, else a profile handle) and its bone map. */
+export interface RetargetSide {
+  readonly skeleton: number;
+  readonly profile: number;
+  readonly map: Uint16Array;
+}
+
+/** @internal An asset kind. */
+export type AnimationAssetKind = AnimationAssetSource["kind"];
+
+/** @internal Typed arrays over the core's memory; valid until the next call into the core (see the file header). */
+export interface AnimationViews {
+  readonly buffer: ArrayBuffer;
+  /** The whole memory. */
+  readonly data: DataView;
+  /** Input rows, `INPUT_STRIDE` bytes per instance index (`INPUT_*` offsets). */
+  readonly inputs: DataView;
+  /** Graph parameter rows (blackboard), `BLACKBOARD_STRIDE` bytes per instance index. */
+  readonly blackboard: DataView;
+  /** Model-space bone matrices, 3×4 row-major: `maxBones × MATRIX_FLOATS` floats per instance index. */
+  readonly matrices: Float32Array;
+  /** Root-motion deltas: `ROOT_STRIDE / 4` floats per instance index (translation xyz, rotation xyzw). */
+  readonly roots: Float32Array;
+  /** Track regions, `TRACK_STRIDE` bytes per instance index (`TRACK_*` offsets, the `tracks` family's records). */
+  readonly tracks: DataView;
+}
+
+/** @internal Counts for the profiler and the debug views. */
+export interface AnimationCoreStats {
+  /** Assets loaded (in use or idle). */
+  readonly assets: number;
+  /** Of those, assets no World references (released by `releaseIdle`). */
+  readonly idleAssets: number;
+  /** Instances alive over every World. */
+  readonly instances: number;
+  /** The core's memory now, in bytes. */
+  readonly memoryBytes: number;
+  /** What the core said its limits need (`MEMORY_NEEDED.bytes`). */
+  readonly neededBytes: number;
+}
+
+interface AssetEntry {
+  readonly key: string;
+  readonly handle: number;
+  refs: number;
+}
+
+/** The handle's row in every view. */
+export const instanceRow = (handle: number): number => handle & 0xffff;
+
+/** @internal Thrown by {@link AnimationCore.start} when the core refuses its limits and the defaults alike. */
+export class AnimationCoreInitError extends Error {}
+
+/** @internal The page's animation core. */
+export class AnimationCore {
+  /**
+   * Starts `wasm` with `limits` (one `INIT` record), honouring the `MEMORY_NEEDED` reply: limits the core refuses
+   * (`STATUS_TOO_LARGE`, a bad record) fall back to the defaults with `warn`; when it refuses those too this throws.
+   */
+  static start(wasm: AnimationWasm, memory: () => ArrayBuffer, limits: AnimationCoreLimits, warn: (message: string) => void): AnimationCore {
+    const ask = (l: AnimationCoreLimits) => getRecord(new DataView(wasm.init(encodeRecord(INIT, l)).buffer), 0, MEMORY_NEEDED);
+    let reply = ask(limits);
+    let used = limits;
+    if (reply.status !== STATUS_OK && limits !== DEFAULT_CORE_LIMITS) {
+      warn(`[myco] animation: the core refused its limits (${JSON.stringify(limits)}, status ${reply.status}); using the defaults.`);
+      used = DEFAULT_CORE_LIMITS;
+      reply = ask(used);
+    }
+    if (reply.status !== STATUS_OK) throw new AnimationCoreInitError(`animation core: init refused (status ${reply.status})`);
+    return new AnimationCore(wasm, memory, used, reply.bytes);
+  }
+
+  private readonly byKey = new Map<string, AssetEntry>();
+  private readonly byHandle = new Map<number, AssetEntry>();
+  private readonly instances = new Set<number>();
+  private readonly freeWorlds: number[] = [];
+  private nextWorld = 0;
+  private cached: AnimationViews | null = null;
+  private changeCount = 0;
+
+  private constructor(
+    private readonly wasm: AnimationWasm,
+    private readonly memory: () => ArrayBuffer,
+    readonly limits: AnimationCoreLimits,
+    private readonly neededBytes: number,
+  ) {}
+
+  /** Why the last call that returned a handle (or 0) did so: a `STATUS_*`. */
+  lastStatus(): number {
+    return this.wasm.last_status();
+  }
+
+  // --- Worlds ---------------------------------------------------------------------------------------------------
+
+  /** @internal A free World id (a namespace: instances are created in it and `evaluate` runs one). */
+  openWorld(): number {
+    return this.freeWorlds.pop() ?? this.nextWorld++;
+  }
+
+  /** @internal Gives a World id back once its instances are destroyed. */
+  closeWorld(id: number): void {
+    this.freeWorlds.push(id);
+  }
+
+  // --- Assets ---------------------------------------------------------------------------------------------------
+
+  /**
+   * One reference to the asset `key` of `source`'s kind: loads it on the first reference (or reuses it while idle).
+   * Returns its handle, or 0 when the core refused it (`lastStatus` says why). `source` may be a function, called only
+   * when the asset isn't loaded. Handles an asset is built from (a ragdoll's skeleton, a retarget map's) stay the
+   * caller's to hold.
+   */
+  acquire(key: string, kind: AnimationAssetKind, source: AnimationAssetSource | (() => AnimationAssetSource)): number {
+    const full = `${kind}\u0000${key}`;
+    const known = this.byKey.get(full);
+    if (known) {
+      known.refs++;
+      return known.handle;
+    }
+    const s = typeof source === "function" ? source() : source;
+    if (s.kind !== kind) return 0;
+    const handle = this.load(s);
+    if (handle === 0) return 0;
+    const entry: AssetEntry = { key: full, handle, refs: 1 };
+    this.byKey.set(full, entry);
+    this.byHandle.set(handle, entry);
+    return handle;
+  }
+
+  /** One more reference to the asset `key` when it is loaded (in use or idle): its handle; else 0, taking none. */
+  acquireLoaded(key: string, kind: AnimationAssetKind): number {
+    const known = this.byKey.get(`${kind}\u0000${key}`);
+    if (!known) return 0;
+    known.refs++;
+    return known.handle;
+  }
+
+  private load(s: AnimationAssetSource): number {
+    const w = this.wasm;
+    switch (s.kind) {
+      case "skeleton":
+        return w.load_skeleton(s.bytes);
+      case "clip":
+        return w.load_clip(s.bytes);
+      case "graph":
+        return w.load_graph(s.bytes);
+      case "posedb":
+        return w.posedb_load(s.bytes);
+      case "profile":
+        return w.profile_decode(s.bytes);
+      case "plugin":
+        return w.plugin_register(s.bytes);
+      case "mask":
+        return w.load_mask(s.weights);
+      case "ragdoll":
+        return w.ragdoll_create(s.skeleton, s.bytes);
+      case "retargetMap":
+        return w.retarget_map_create(s.source.skeleton, s.source.profile, s.source.map, s.target.skeleton, s.target.profile, s.target.map, s.flags);
+    }
+  }
+
+  /** Drops one reference to an asset; with none left it is idle. Returns false for a handle this core doesn't hold. */
+  release(handle: number): boolean {
+    const entry = this.byHandle.get(handle);
+    if (!entry || entry.refs === 0) return false;
+    entry.refs--;
+    return true;
+  }
+
+  /** Releases every idle asset from the core (its handle goes stale). Returns how many. */
+  releaseIdle(): number {
+    let n = 0;
+    for (const entry of [...this.byHandle.values()]) {
+      if (entry.refs > 0) continue;
+      this.wasm.release(entry.handle);
+      this.byHandle.delete(entry.handle);
+      this.byKey.delete(entry.key);
+      n++;
+    }
+    return n;
+  }
+
+  /** References held to an asset over every World (0 when idle or unknown). */
+  references(handle: number): number {
+    return this.byHandle.get(handle)?.refs ?? 0;
+  }
+
+  /** Binds a graph's string id to a clip, mask or graph handle (0 unbinds). Returns a status. */
+  bindGraph(graph: number, stringId: number, asset: number): number {
+    return this.wasm.graph_bind(graph, stringId, asset);
+  }
+
+  /** Binds a pose database's clip `index` to a clip handle (0 unbinds). Returns a status. */
+  bindPoseDb(db: number, index: number, clip: number): number {
+    return this.wasm.posedb_bind(db, index, clip);
+  }
+
+  /** A pose database clip's asset reference ("" for none). */
+  poseDbClip(db: number, index: number): string {
+    return this.wasm.posedb_clip(db, index);
+  }
+
+  /** A clip's `COLUMN` records (the `tracks` family), for binding its property tracks. */
+  clipColumns(clip: number): Uint8Array {
+    const out = new Uint8Array(this.wasm.clip_column_bytes(clip));
+    const written = this.wasm.clip_columns(clip, out);
+    return written === out.length ? out : out.subarray(0, written);
+  }
+
+  /** The IK goals of a retarget map. */
+  retargetGoalCount(map: number): number {
+    return this.wasm.retarget_goal_count(map);
+  }
+
+  // --- Instances --------------------------------------------------------------------------------------------------
+
+  /** Creates an instance in World `world` (graph 0: the implicit graph). Returns its handle, or 0 (`lastStatus`). */
+  createInstance(world: number, skeleton: number, graph = 0): number {
+    const h = this.wasm.create_instance(world, skeleton, graph);
+    if (h !== 0) this.instances.add(h);
+    return h;
+  }
+
+  /** Destroys an instance. Returns a status (`STATUS_STALE_HANDLE` for one already gone). */
+  destroyInstance(handle: number): number {
+    if (!this.instances.delete(handle)) return STATUS_STALE_HANDLE;
+    return this.wasm.destroy_instance(handle);
+  }
+
+  /** An instance's state (graph state, playheads, fades, poses; not its input row) as bytes, or null for a stale handle. */
+  snapshot(handle: number): Uint8Array | null {
+    const n = this.wasm.snapshot_bytes(handle);
+    if (n === 0) return null;
+    const out = new Uint8Array(n);
+    return this.wasm.snapshot(handle, out) === STATUS_OK ? out : null;
+  }
+
+  /** Restores a snapshot into an instance of the same graph and skeleton. Returns a status. */
+  restore(handle: number, bytes: Uint8Array): number {
+    return this.wasm.restore(handle, bytes);
+  }
+
+  // --- The frame --------------------------------------------------------------------------------------------------
+
+  /** The command buffer's byte offset in memory (`COMMAND_BYTES` long). */
+  commandsPtr(): number {
+    return this.wasm.commands_ptr();
+  }
+
+  /** Applies the first `len` bytes of the command buffer (and the blackboard rows); clears the change records. */
+  writeInputs(len: number): number {
+    this.changeCount = 0;
+    return this.wasm.write_inputs(len);
+  }
+
+  /** Evaluates World `world`'s instances of `pass` (`PASS_NORMAL`, `PASS_FIXED`). Returns the state-change records waiting. */
+  evaluate(world: number, pass: number, dtScaled: number, dtUnscaled: number): number {
+    this.changeCount = this.wasm.evaluate(world, pass, dtScaled, dtUnscaled);
+    return this.changeCount;
+  }
+
+  /** State-change records waiting since the last `writeInputs` (as the last `evaluate` counted them). */
+  stateChangeCount(): number {
+    return this.changeCount;
+  }
+
+  /** State-change record `i` (`core.STATE_CHANGE`), into `out` when given. */
+  stateChange(i: number, out?: RecordFields<typeof STATE_CHANGE>): RecordFields<typeof STATE_CHANGE> {
+    return getRecord(this.views().data, this.wasm.changes_ptr() + i * STATE_CHANGE.stride, STATE_CHANGE, out);
+  }
+
+  /** State changes dropped this frame because the buffer was full. */
+  stateChangesDropped(): number {
+    return this.wasm.changes_dropped();
+  }
+
+  /** Graph state-change records waiting since the last `writeInputs`. */
+  graphChangeCount(): number {
+    return this.wasm.graph_change_count();
+  }
+
+  /** Graph state-change record `i` (`graph.GRAPH_CHANGE`), into `out` when given. */
+  graphChange(i: number, out?: RecordFields<typeof GRAPH_CHANGE>): RecordFields<typeof GRAPH_CHANGE> {
+    return getRecord(this.views().data, this.wasm.graph_changes_ptr() + i * GRAPH_CHANGE.stride, GRAPH_CHANGE, out);
+  }
+
+  /** The core's memory now (a load can replace it: re-read after any call). */
+  buffer(): ArrayBuffer {
+    return this.memory();
+  }
+
+  /** The views over the core's memory, rebuilt when it has moved (see the file header). */
+  views(): AnimationViews {
+    const buffer = this.memory();
+    if (this.cached?.buffer === buffer) return this.cached;
+    const w = this.wasm;
+    const n = this.limits.maxInstances;
+    this.cached = {
+      buffer,
+      data: new DataView(buffer),
+      inputs: new DataView(buffer, w.inputs_ptr(), n * INPUT_STRIDE),
+      blackboard: new DataView(buffer, w.blackboard_ptr(), n * BLACKBOARD_STRIDE),
+      matrices: new Float32Array(buffer, w.matrices_ptr(), n * this.limits.maxBones * MATRIX_FLOATS),
+      roots: new Float32Array(buffer, w.roots_ptr(), (n * ROOT_STRIDE) / 4),
+      tracks: new DataView(buffer, w.tracks_ptr(), n * TRACK_STRIDE),
+    };
+    return this.cached;
+  }
+
+  /** The float offset of instance `handle`'s first bone matrix in `views().matrices`. */
+  matrixOffset(handle: number): number {
+    return instanceRow(handle) * this.limits.maxBones * MATRIX_FLOATS;
+  }
+
+  stats(): AnimationCoreStats {
+    let idle = 0;
+    for (const e of this.byHandle.values()) if (e.refs === 0) idle++;
+    return { assets: this.byHandle.size, idleAssets: idle, instances: this.instances.size, memoryBytes: this.memory().byteLength, neededBytes: this.neededBytes };
+  }
+}
+
