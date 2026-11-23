@@ -8,6 +8,8 @@
 // - `compileSkeleton`: a `myco.skel@1` file re-written canonically, with roles and a profile when given.
 // - `retargetCompressed`, `bakePoseDatabase`: the compressed retarget bake and the pose-database bake, for the
 //   skeleton and pose-database tools (T54, T55).
+// - `meterNodeModule`: a third-party node module validated and metered by `anim-meter` (T45t), for the node loader in
+//   the editor (`runtime/features/nodes/loader.ts`) and the export step (`src/export/animationNodes.ts`).
 //
 // Internal to the Animation plugin.
 import type * as EditorWasm from "../../runtime/wasm/editor/myco_anim_editor.js";
@@ -68,6 +70,8 @@ export interface AnimationCompiler {
   compileSkeleton(skeleton: Uint8Array, roles?: Uint16Array, profile?: string): { readonly bytes: Uint8Array } | { readonly error: string };
   retargetCompressed(source: RetargetSideInput, target: RetargetSideInput, options: { readonly alignChains: boolean; readonly rootAxes: number; readonly ikWeights: Float32Array; readonly record: Float32Array }, clip: Uint8Array): CompileOutcome;
   bakePoseDatabase(skeleton: Uint8Array, clips: readonly PoseDbClipInput[], schema: readonly PoseDbFeatureInput[], settings: { readonly skeletonName?: string; readonly values?: readonly number[] }): { readonly bytes: Uint8Array } | { readonly error: string };
+  /** A node module metered (fuel counter and checks, `anim-meter`), or why it was refused. */
+  meterNodeModule(bytes: Uint8Array): { readonly bytes: Uint8Array } | { readonly error: string };
 }
 
 /** @internal The report record (`anim-editor-wasm`'s `report` table) as a `ClipReport`. */
@@ -87,6 +91,7 @@ function compilerOver(glue: typeof EditorWasm): AnimationCompiler {
     sourceHash: glue.source_hash(),
     compressClip: (raw, skeleton, record) => outcome(glue.compress_clip(raw, skeleton, record)),
     compileSkeleton: (skeleton, roles = new Uint16Array(0), profile = "") => plain(glue.skeleton_compile(skeleton, roles, profile)),
+    meterNodeModule: (bytes) => plain(glue.meter_node_module(bytes)),
     retargetCompressed: (s, t, o, clip) => outcome(glue.retarget_bake_compressed(s.skeleton, s.profile, s.map, t.skeleton, t.profile, t.map, o.alignChains ? 1 : 0, clip, o.rootAxes, o.ikWeights, o.record)),
     bakePoseDatabase(skeleton, clips, schema, settings) {
       const total = clips.reduce((n, c) => n + c.bytes.length, 0);
