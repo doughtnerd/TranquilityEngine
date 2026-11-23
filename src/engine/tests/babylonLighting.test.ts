@@ -151,6 +151,33 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     expect(byName("light:light ambient")!.getClassName()).toBe("HemisphericLight");
   });
 
+  it("follows every animatable field of a Light each frame, without making lights (ADR 0371, T24)", () => {
+    const point = light({ type: "point", intensity: 1, range: 4 });
+    const spot = light({ type: "spot", spotAngle: 40, spotSoftness: 0 });
+    sync();
+    const p = byName("light:light point") as PointLight;
+    const s = byName("light:light spot") as SpotLight;
+    const lights = scene.lights.length;
+    for (let i = 1; i <= 5; i++) {
+      point.intensity = i;
+      point.range = 4 + i;
+      point.color = new Color(i / 5, 0.5, 0, 1);
+      spot.intensity = 10 * i;
+      spot.range = 2 * i;
+      spot.spotAngle = 40 + 10 * i;
+      spot.spotSoftness = i / 10;
+      sync();
+      expect(p.intensity).toBe(i);
+      expect(p.range).toBeCloseTo(4 + i);
+      expect(p.diffuse.r).toBeCloseTo(new Color(i / 5, 0.5, 0, 1).r ** 2.2, 5); // sRGB to linear, as Babylon's gamma
+      expect(s.intensity).toBe(10 * i);
+      expect(s.range).toBeCloseTo(2 * i);
+      expect(s.angle).toBeCloseTo(((40 + 10 * i) * Math.PI) / 180);
+      expect(s.innerAngle).toBeCloseTo(s.angle * (1 - i / 10));
+    }
+    expect(scene.lights.length).toBe(lights); // set in place: no new Babylon lights
+  });
+
   it("fades point and spot lights to nothing at their range, with the spot's edge from spotSoftness (glTF falloff)", () => {
     // Babylon's default physical falloff ignores both the range and the inner angle (every spot drew alike).
     expect(pbr("m", scene).useGLTFLightFalloff).toBe(true);

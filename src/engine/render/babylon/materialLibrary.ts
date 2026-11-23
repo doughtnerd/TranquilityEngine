@@ -20,12 +20,12 @@ import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Assets } from "../../scene/Assets";
 import type { MaterialInstancing, MaterialSettings } from "../../scene/material";
-import { materialSlots, type MaterialSlot, type ModelMesh } from "../../scene/models";
+import { DEFAULT_SLOT, materialSlots, type MaterialSlot, type ModelMesh } from "../../scene/models";
 import type { GraphValue } from "../../scene/shaderGraph";
 import { isRenderTexturePath } from "../renderTexture";
 import { Graphics } from "../Graphics";
 import { Material as EngineMaterial } from "../Material";
-import type { MeshRenderer } from "../components";
+import type { MaterialPropertyValue, MeshRenderer } from "../components";
 import {
   graphValues,
   instancingFor,
@@ -50,7 +50,7 @@ import {
   type TextureUse,
 } from "../materialResolution";
 import { createGraphMaterial, type BabylonGraphMaterial, type GraphShared } from "./graphMaterial";
-import { applyBuiltinOverrides, applyBuiltinSettings, builtinTextureSlots, modelBaseMaterial, modelSubMeshes, pbr, tiledTexture } from "./materials";
+import { applyBuiltinOverrides, applyBuiltinSettings, applySlotOverrides, builtinTextureSlots, hasLiveTextureTransform, modelBaseMaterial, modelSubMeshes, pbr, tiledTexture, type SlotAdjust } from "./materials";
 import { MycoProbeBlendPlugin } from "./probeBlend";
 import type { ProbeHit } from "./probes";
 import { WARM_PREFIX } from "./warmUp";
@@ -113,6 +113,15 @@ interface RendererEntry {
   stamp: number;
 }
 
+/** One overridden material slot's own copy of the material it draws (ADR 0371, T24). */
+interface SlotEntry {
+  base: BabylonMaterial;
+  material: BabylonMaterial;
+  graph?: BabylonGraphMaterial;
+  version: number;
+  stamp: number;
+}
+
 /** Babylon's sampling mode for a sampling. */
 function samplingMode(s: Sampling): number {
   if (s.mipmaps === "none") return s.filter === "nearest" ? Texture.NEAREST_SAMPLINGMODE : Texture.BILINEAR_SAMPLINGMODE;
@@ -136,6 +145,8 @@ export class BabylonMaterialLibrary {
   private readonly stamps = new WeakMap<BabylonMaterial, number>();
   private readonly instances = new Map<EngineMaterial, InstanceEntry>();
   private readonly renderers = new Map<MeshRenderer, RendererEntry>();
+  /** The slot copies of a renderer's slot overrides, and the multi-materials made of them. */
+  private readonly slotEntries = new Map<MeshRenderer, { slots: Map<number, SlotEntry>; multis: Map<object, Map<string, MultiMaterial>> }>();
   /** The image each built-in copy's `texture` value asks for (null: the base's). */
   private readonly wantedTextures = new WeakMap<PBRMaterial, string | null>();
   private readonly modelMaterials = new WeakMap<object, BabylonMaterial>();
@@ -191,7 +202,11 @@ export class BabylonMaterialLibrary {
     const slot0 = r.materials[0] ? null : r._drawMaterial(0);
     const material = this.rendererMaterial(r, slot0?.isInstance ? this.instanceMaterial(slot0) : this.material(r.material));
     const pick = this.slotPicker(r, slots, (slot) => this.slotMaterial(r, slot), material);
-    return { material, of: (src) => modelBaseMaterial(this.scene, this.modelMaterials, src, pick, this.slotMultis, variant) ?? this.defaultMaterial };
+    const adjust = this.slotAdjust(r, slots);
+    return {
+      material,
+      of: (src) => modelBaseMaterial(this.scene, this.modelMaterials, src, pick, this.slotMultis, variant, adjust) ?? (adjust ? adjust.material(DEFAULT_SLOT, this.defaultMaterial) : this.defaultMaterial),
+    };
   }
 
   /**
@@ -218,13 +233,99 @@ export class BabylonMaterialLibrary {
     for (const [m, e] of this.instances) if (!e.seen) this.disposeInstance(m);
   }
 
-  /** A renderer went: free its override copy. */
+  /** A renderer went: free its override copies. */
   release(r: MeshRenderer): void {
+    this.releaseOverrides(r);
+    this.releaseSlots(r);
+  }
+
+  /** A renderer's renderer-wide override copy. */
+  private releaseOverrides(r: MeshRenderer): void {
     const e = this.renderers.get(r);
     if (!e) return;
     if (e.graph) e.graph.dispose();
     else if (e.material !== e.base) e.material.dispose();
     this.renderers.delete(r);
+  }
+
+  private disposeSlotEntry(e: SlotEntry): void {
+    if (e.graph) e.graph.dispose();
+    else e.material.dispose(false, true); // its own clones of the textures too
+  }
+
+  /** Every slot copy a renderer holds, and the multi-materials of them. */
+  private releaseSlots(r: MeshRenderer): void {
+    const held = this.slotEntries.get(r);
+    if (!held) return;
+    for (const m of held.multis.values()) for (const multi of m.values()) multi.dispose();
+    for (const e of held.slots.values()) this.disposeSlotEntry(e);
+    this.slotEntries.delete(r);
+  }
+
+  /**
+   * The renderer's slot overrides (`setMaterialProperty(name, value, slot)`, ADR 0371's `materials[slot].<name>`
+   * tracks) as what `modelBaseMaterial` swaps in, or undefined without any: each overridden slot draws its own copy
+   * of the material it would draw, set in place when the overrides change (animating them every frame changes
+   * uniforms only), freed with the renderer or when its overrides are cleared.
+   */
+  private slotAdjust(r: MeshRenderer, slots: readonly MaterialSlot[]): SlotAdjust | undefined {
+    const overrides = r._slotMaterialProperties;
+    let held = this.slotEntries.get(r);
+    if (overrides.size === 0) {
+      if (held) this.releaseSlots(r);
+      return undefined;
+    }
+    if (!held) this.slotEntries.set(r, (held = { slots: new Map(), multis: new Map() }));
+    for (const [i, e] of held.slots) {
+      if (overrides.has(i)) continue;
+      this.disposeSlotEntry(e);
+      held.slots.delete(i);
+    }
+    const own = held;
+    return {
+      multis: own.multis,
+      material: (surface, m) => {
+        const i = slots.findIndex((s) => s.surface === surface);
+        const values = i < 0 ? undefined : overrides.get(i);
+        return values ? this.slotCopy(r, own.slots, i, m, values) : m;
+      },
+    };
+  }
+
+  /** Slot `slot`'s copy of `base` with `values` applied (made on first use), or `base` for a material that can't be copied. */
+  private slotCopy(r: MeshRenderer, copies: Map<number, SlotEntry>, slot: number, base: BabylonMaterial, values: ReadonlyMap<string, MaterialPropertyValue>): BabylonMaterial {
+    let e = copies.get(slot);
+    if (e && e.base !== base) {
+      this.disposeSlotEntry(e);
+      copies.delete(slot);
+      e = undefined;
+    }
+    const stamp = this.stamps.get(base) ?? 0;
+    if (e && e.version === r._slotMaterialPropertiesVersion && e.stamp === stamp) return e.material;
+    const baseGraph = this.graphs.get(base);
+    const name = `${base.name}:${r.node.name}:${slot}`;
+    if (!e) {
+      if (baseGraph) {
+        const g = this.graphCopy(baseGraph, name);
+        this.graphs.set(g.material, g);
+        e = { base, material: g.material, graph: g, version: -1, stamp };
+      } else if (base instanceof PBRMaterial) e = { base, material: base.clone(name), version: -1, stamp };
+      else return base;
+      if (this.noFog.has(base)) this.noFog.add(e.material);
+      copies.set(slot, e);
+    }
+    e.version = r._slotMaterialPropertiesVersion;
+    e.stamp = stamp;
+    if (e.graph && baseGraph) {
+      e.graph.setProperties({ ...baseGraph.properties, ...graphValues(values) });
+      e.graph.setKeywords(baseGraph.keywords);
+    } else if (e.material instanceof PBRMaterial && base instanceof PBRMaterial) {
+      applySlotOverrides(e.material, base, values);
+      if (!hasLiveTextureTransform(base) && [...values.keys()].some((k) => k.startsWith("textureTransform."))) {
+        this.warn({ key: `slotTransform|${base.name}`, message: `"${r.node.name}" animates the texture transform of slot ${slot}, but its material keeps none live (only a glTF material whose transform an animation drives does); the animation is ignored.` });
+      }
+    }
+    return e.material;
   }
 
   /**
@@ -379,7 +480,7 @@ export class BabylonMaterialLibrary {
 
   /** Free everything it built (its scene's other materials and textures are left alone). */
   dispose(): void {
-    for (const r of [...this.renderers.keys()]) this.release(r);
+    for (const r of [...this.renderers.keys(), ...this.slotEntries.keys()]) this.release(r);
     for (const m of [...this.instances.keys()]) this.disposeInstance(m);
     for (const e of this.assets.values()) this.disposeAsset(e);
     this.assets.clear();
@@ -560,11 +661,11 @@ export class BabylonMaterialLibrary {
     const overrides = r._materialProperties;
     let entry = this.renderers.get(r);
     if (!base || overrides.size === 0) {
-      if (entry) this.release(r);
+      if (entry) this.releaseOverrides(r);
       return base;
     }
     if (entry && entry.base !== base) {
-      this.release(r);
+      this.releaseOverrides(r);
       entry = undefined;
     }
     const stamp = this.stamps.get(base) ?? 0;

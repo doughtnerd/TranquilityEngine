@@ -18,7 +18,7 @@
  * `emission`, `metalness`, `roughness`, the physical layers'); the others take the glTF name (`alphaCutoff`,
  * `normalScale`, `occlusionStrength`, `clearcoatNormalScale`, `dispersion`). `emission` is the emissive colour times
  * its strength, as `SurfaceInfo.emissive` (so an animated factor or strength keys the product, the other part held at
- * its static value). Colours stay linear, as surfaces hold them (`SurfaceInfo`). The render sync that applies material, light and camera fields is T24's.
+ * its static value). Colours stay linear, as surfaces hold them (`SurfaceInfo`). The render sync applies them (T24: `MeshRenderer.setMaterialProperty(name, value, slot)`, the Light and Camera components).
  *
  * Pure. Internal: not public API.
  */
