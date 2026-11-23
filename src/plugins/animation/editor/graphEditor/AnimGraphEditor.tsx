@@ -25,6 +25,7 @@ import { RigEntries } from "./RigEntries";
 import { pickedRigEntry } from "./rigGizmo";
 import { TransitionList } from "./TransitionList";
 import { DebugBar } from "../debugger/DebugBar";
+import { TakeMenu } from "../debugger/TakeMenu";
 import { LiveParameters } from "../debugger/LiveParameters";
 import { LiveOverlay } from "../debugger/overlayContext";
 import { useLiveDebug } from "../debugger/useLiveDebug";
@@ -118,6 +119,7 @@ export function AnimGraphEditor(props: { project: EditorProject; path: string })
             ))}
           </nav>
           <span class="sg-spacer" />
+          <TakeMenu />
           <span class="ag-problems-anchor">
             <button class={`ag-problem-count${compiled.problems.length ? (errors ? " error" : " warning") : ""}`} aria-label="Problems" aria-expanded={problemsOpen} disabled={compiled.problems.length === 0} onClick={() => setProblemsOpen(!problemsOpen)}>
               {compiled.problems.length === 0 ? "No problems" : `${compiled.problems.length} problem${compiled.problems.length === 1 ? "" : "s"}`}
@@ -142,7 +144,7 @@ export function AnimGraphEditor(props: { project: EditorProject; path: string })
               ))}
             </div>
             <div class="ag-tab-body" role="tabpanel">
-              {tab === "parameters" && live.target && <LiveParameters rows={live.rows} onSet={live.set} requests={live.overlay?.requests} past={live.scrub !== null} />}
+              {tab === "parameters" && live.target && <LiveParameters rows={live.rows} onSet={live.set} requests={live.overlay?.requests} past={live.scrub !== null || live.readOnly} />}
               {tab === "parameters" && <GraphParameters graph={graph} apply={apply} readOnly={readOnly} problems={(n) => problems.byParameter.get(n) ?? []} />}
               {tab === "layers" && <LayersPanel graph={graph} apply={apply} readOnly={readOnly} problems={(n) => problems.byLayer.get(n) ?? []} />}
               {tab === "rig" && (

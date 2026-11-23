@@ -55,3 +55,10 @@
 .ag-arrow.live-condition .ag-priority-badge circle { stroke: var(--danger); }
 .ag-arrow.live-shadowed .ag-priority-badge circle, .ag-arrow.live-interrupt .ag-priority-badge circle { stroke: var(--warning); }
 .ag-arrow.live-when .ag-priority-badge circle { stroke: var(--accent2); }
+
+/* Takes (ADR 0348; T73): the take menu in the graph editor's toolbar and the notes under the debugger bar. */
+.dbg-take { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.dbg-take-pick { display: flex; align-items: center; gap: 4px; }
+.dbg-take-name { color: var(--text-strong); max-width: 18ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbg-notes { flex-basis: 100%; margin: 0; padding: 0 0 0 16px; font-size: 11px; color: var(--warning); }
+.dbg-notes li { margin: 1px 0; }

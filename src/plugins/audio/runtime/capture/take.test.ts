@@ -121,6 +121,35 @@ describe("a take file (ADR 0348)", () => {
     expect(asCapture.records.count).toBe(p.records.count);
   });
 
+  it("keeps a plugin's records (0x40..0x7e) in order with the requests; the take reader hands them over and the Profiler's open passes over them", async () => {
+    clock = 0;
+    const ring = new FakeRing();
+    const prof = profile(ring, [768]);
+    const rec = new TakeRecorder(ring, { now });
+    expect(rec.writeExtension(0x40, new Uint8Array([1, 2, 3]))).toBe(true);
+    rec.mark("between");
+    expect(rec.writeExtension(0x43, new Uint8Array(0))).toBe(true);
+    // Types outside the plugins' range (audio's own, the INDEX) and payloads past a record's cap aren't kept.
+    expect(rec.writeExtension(TakeRecordType.PLAY, new Uint8Array(1))).toBe(false);
+    expect(rec.writeExtension(0x7f, new Uint8Array(1))).toBe(false);
+    expect(rec.writeExtension(0x41, new Uint8Array(300_000))).toBe(false);
+    const { requests, section } = rec.finish({ seed: 0, seeded: false, audioHash: "" });
+    expect(rec.writeExtension(0x40, new Uint8Array(1))).toBe(false); // finished
+    const take: SaveTake = { header: SAMPLE_HEADER, meta: { ...SAMPLE_META, take: section }, span: spanOf(prof), truncatedFromSeq: 0, requests };
+    const file = assembleTakeFile(take);
+    const seen: number[] = [];
+    const { take: t, extensions } = await openTakeFile(file, { onExtensionRecord: (r) => void seen.push(r.type) });
+    expect(extensions.map((e) => e.type)).toEqual([0x40, 0x43]);
+    expect(seen).toEqual([0x40, 0x43]);
+    expect(Array.from(extensions[0]!.payload)).toEqual([1, 2, 3]);
+    expect(extensions[0]!.seq).toBeLessThan(extensions[1]!.seq);
+    expect(t.requests.map((q) => q.kind)).toEqual(["mark"]);
+    // Between the two: the mark's seq (one stream, one order).
+    expect(t.requests[0]).toMatchObject({ kind: "mark", text: "between" });
+    const asCapture = await openCapture(file);
+    expect(asCapture.records.count).toBe(readCaptureHeader(file).recordCount);
+  });
+
   it("the listener's pose is recorded when it moves, at most 30 times a second", () => {
     clock = 0;
     const ring = new FakeRing();

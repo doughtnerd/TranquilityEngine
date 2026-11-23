@@ -54,6 +54,13 @@ export interface AnimationDebugSource {
   set(target: string, parameter: string, value: DebugParamValue): boolean;
   /** Draws the game again (after showing a recorded pose while paused). */
   redraw(): void;
+  /** True for a source that can't be written to (a take): parameter edits are off. Absent: false. */
+  readonly readOnly?: boolean;
+  /**
+   * What to tell the person about `target` (T73: the project changed since a take recorded it; some of the take didn't
+   * read), one sentence each. Absent: nothing.
+   */
+  notes?(target: string): readonly string[];
 }
 
 /** @internal The source the graph editor's debugger reads (null: none, the overlay stays off). */

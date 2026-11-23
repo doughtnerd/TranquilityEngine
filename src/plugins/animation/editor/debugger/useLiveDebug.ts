@@ -10,6 +10,8 @@ import { overlayModel, type GraphOverlay } from "./overlayLogic";
 import { liveDebugSource, type AnimationDebugSource, type DebugRecording, type DebugTarget } from "./source";
 import { debugStatus, pickTarget } from "./targetLogic";
 
+const NO_NOTES: readonly string[] = [];
+
 /** @internal What the graph editor shows of a running Animator. */
 export interface LiveDebug {
   readonly source: AnimationDebugSource | null;
@@ -31,6 +33,10 @@ export interface LiveDebug {
   setScrub(index: number | null): void;
   /** Whether the scrubbed frame's pose shows on the character. */
   readonly poseShown: boolean;
+  /** The source can't be written to (a take): parameter edits are off. */
+  readonly readOnly: boolean;
+  /** What to tell about the shown Animator (T73: the project changed since a take recorded it), one sentence each. */
+  readonly notes: readonly string[];
   /** Sends a parameter edit (`Animator.set`); returns why it was refused, or null. */
   set(name: string, input: string | boolean | readonly number[]): string | null;
 }
@@ -97,8 +103,11 @@ export function useLiveDebug(path: string, graph: AnimGraph): LiveDebug {
     scrub: shownScrub,
     setScrub,
     poseShown: poseShown && shownScrub !== null && recording?.showing === shownScrub,
+    readOnly: source?.readOnly ?? false,
+    notes: (target && source?.notes?.(target.id)) || NO_NOTES,
     set(name, input) {
       if (!source || !target) return "the game isn't running";
+      if (source.readOnly) return "a take can't be edited";
       const row = rows.find((r) => r.name === name);
       if (!row) return `there's no parameter named "${name}"`;
       const r = editValue(row.type, input);

@@ -11,6 +11,7 @@ import { RecordType } from "./format";
 import { openCapture } from "./reader";
 import { defaultSaveEnv, type SaveEnv } from "./save";
 import { openTakeFile } from "./takeFile";
+import { registerTakeSource } from "../../../../engine/audio/take/extensions";
 import { keyframeCodecForTests, statusBytes, type CaptureChunkControl } from "./testSupport";
 
 const chunk = vi.hoisted((): CaptureChunkControl => ({ options: {}, recorders: [], saveEnv: null }));
@@ -105,6 +106,42 @@ describe("Audio.take (ADR 0348)", () => {
     expect(Array.from(profile.records.type.subarray(0, profile.records.count))).toContain(RecordType.MARKER);
     const asCapture = await openCapture(file);
     expect(asCapture.take).toBe(true);
+  });
+
+  it("starts the plugins' take sources on the Engine with the take, and stops them with it (ADR 0348 extensions)", async () => {
+    const { downloads, feed } = await rig();
+    const events: string[] = [];
+    let host: { write(type: number, payload: Uint8Array): boolean; seconds: number; engine: unknown } | null = null;
+    const undo = registerTakeSource("test", async () => ({
+      start(h) {
+        events.push("start");
+        host = h;
+        h.write(0x50, new Uint8Array([7, 8]));
+        return { stop: () => void events.push("stop") };
+      },
+    }));
+    const undoBroken = registerTakeSource("broken", async () => {
+      throw new Error("no such chunk");
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await Audio.take.start();
+      expect(events).toEqual(["start"]);
+      expect(typeof (host!.engine as { worlds?: unknown }).worlds).toBe("function"); // the World's Engine
+      feed(5);
+      host!.write(0x51, new Uint8Array([9]));
+      Audio.take.stop();
+      expect(events).toEqual(["start", "stop"]);
+      expect(host!.write(0x52, new Uint8Array([1]))).toBe(false); // stopped: dropped
+      expect(warn.mock.calls.some((c) => String(c[0]).includes('"broken" source'))).toBe(true);
+      await Audio.take.save("sources");
+      const { extensions } = await openTakeFile(downloads[0]!.bytes);
+      expect(extensions.map((e) => [e.type, Array.from(e.payload)])).toEqual([[0x50, [7, 8]], [0x51, [9]]]);
+    } finally {
+      undo();
+      undoBroken();
+      warn.mockRestore();
+    }
   });
 
 });

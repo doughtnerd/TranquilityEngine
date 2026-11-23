@@ -14,7 +14,16 @@ import { MATRIX_FLOATS } from "../../wasm/wire/core";
 import { graphInstanceOf } from "../graph/runtime";
 import { animatorRuntime, type AnimatorRuntime } from "../instances";
 import { replayRows } from "./recorder";
+import type { CurrentGraph } from "./takeCompat";
+import { graphHash } from "./takeRecords";
 import type { AnimationTakeTarget } from "./takeRead";
+
+/** The graph `animator` runs now, as `compareGraph` reads it (null while its graph isn't loaded). */
+export function currentGraphOf(animator: Animator): CurrentGraph | null {
+  const gi = graphInstanceOf(animator);
+  if (!gi) return null;
+  return { graphHash: graphHash(gi.meta.compiled.bytes), tables: gi.meta.compiled, bones: animatorRuntime(animator)?.skeleton?.info?.bones ?? 0 };
+}
 
 export class TakeReplayer {
   private readonly position = new Map<number, number>();
