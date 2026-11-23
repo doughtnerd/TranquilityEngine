@@ -1,12 +1,15 @@
 // The editor's debug link (ADR 0376) over loopback: builds from this machine are accepted at once and the first becomes
 // the one the debuggers read; a build from another machine waits for the accept prompt, and a refused one isn't asked
 // about again; choosing and disconnecting builds; listening off, unavailable, or refused by a taken address.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Engine } from "../../myco";
+import { ToolConnector } from "../../engine/debugLink/client";
 import { createTransport, type Transport, type TransportConnection } from "../../engine/net/Transport";
 import "../../engine/net/transport/loopback";
 import { DebugLinkSession } from "../../engine/debugLink/session";
 import { listenAddress, type DebugLinkPreferences } from "./debugLinkLogic";
 import { EditorDebugLink } from "./editorLink";
+import type { PlayBuild } from "./playBuild";
 
 let port = 9100;
 const stops: (() => void)[] = [];
@@ -131,5 +134,56 @@ describe("the editor's debug link", () => {
     expect(link.active.value).toBeNull();
     pump();
     expect(a.state).toBe("closed");
+  });
+});
+
+describe("the editor's Play on its link (servePlay)", () => {
+  /** A link that serves Play over loopback, its play Engine, and a tool connecting from this machine. */
+  async function playing(prefs: DebugLinkPreferences) {
+    const link = new EditorDebugLink({ transport: () => createTransport("loopback"), autoPoll: false, playTransport: "loopback", playOptions: { log: () => {} } });
+    stops.push(() => link.stop());
+    await link.apply(prefs);
+    const engine = await Engine.create({ headless: true });
+    stops.push(() => engine.dispose());
+    const tool = new ToolConnector(createTransport("loopback"), { kind: "native", name: "Audio Studio" });
+    stops.push(() => tool.close());
+    return { link, engine, tool };
+  }
+  const listening = async (build: PlayBuild) => {
+    await vi.waitFor(() => expect(build.state.value.kind).toBe("serving"));
+    return (build.state.value as { address: string }).address;
+  };
+
+  it("serves Play from the editor's port + 1 while it plays; a tool on this machine pairs with no code; stop closes it", async () => {
+    const { link, engine, tool } = await playing({ listen: true, lan: false, port: 9600 });
+    expect(link.play.value).toBeNull();
+    const play = link.servePlay(engine, "Game (editor Play)");
+    expect(link.play.value).not.toBeNull();
+    expect(await listening(play)).toBe("ws://127.0.0.1:9601/myco-debug");
+    const attempt = tool.connect("ws://127.0.0.1:9601/myco-debug");
+    for (let i = 0; i < 3; i++) {
+      tool.poll();
+      engine.step(1 / 60);
+      tool.poll();
+    }
+    expect(attempt.state).toBe("paired");
+    expect(play.tools.value.map((t) => t.name)).toEqual(["Audio Studio"]);
+    expect(link.builds.value).toEqual([]); // a tool paired with Play isn't a build of the editor's
+    play.stop();
+    tool.poll();
+    expect(attempt.peer!.state).toBe("closed");
+    expect(link.play.value).toBeNull();
+    expect(play.state.value).toEqual({ kind: "stopped" });
+  });
+
+  it("follows the preferences: off says so, on again listens again, on the LAN by the new ones", async () => {
+    const { link, engine } = await playing({ listen: false, lan: false, port: 9610 });
+    const play = link.servePlay(engine, "Game (editor Play)");
+    expect(play.state.value).toEqual({ kind: "unavailable", why: expect.stringContaining("debug link is off") });
+    await link.apply({ listen: true, lan: true, port: 9620 });
+    expect(await listening(play)).toBe("ws://0.0.0.0:9621/myco-debug");
+    link.stop();
+    expect(link.play.value).toBeNull();
+    expect(play.state.value).toEqual({ kind: "stopped" });
   });
 });

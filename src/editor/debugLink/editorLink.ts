@@ -4,13 +4,14 @@
 // through the SDK (`editorDebugLink()`) and talk to a build through its `DebugLinkPeer` (subscriptions, requests,
 // commands). The listening transport is given, so a headless test listens over loopback; in the editor it is the
 // WebSocket transport where this host can listen.
-import { batch, signal, type ReadonlySignal } from "@preact/signals";
+import { batch, computed, signal, type ReadonlySignal } from "@preact/signals";
 import type { Engine } from "../../engine/core/Engine";
 import { createTransport, type Transport } from "../../engine/net/Transport";
 import { DebugLinkListener, ToolConnector, type DebugLinkPeer } from "../../engine/debugLink/client";
 import type { EndpointKind } from "../../engine/debugLink/protocol";
+import { DEFAULT_DEBUG_LINK_PORT } from "../../engine/debugLink/config";
 import { connectToBuild, type ConnectTarget } from "./connectFlow";
-import { servePlayBuild, type PlayBuild } from "./playBuild";
+import { servePlayBuild, type PlayBuild, type PlayBuildOptions, type PlayBuildState } from "./playBuild";
 import { isLocalRemote, listenAddress, remoteHost, type BuildEntry, type DebugLinkPreferences } from "./debugLinkLogic";
 
 /** A build that said hello. */
@@ -33,6 +34,13 @@ export interface EditorDebugLinkOptions {
   readonly pollMs?: number;
   /** This tool's name in a build's list when it connects out ("Audio Studio on DESKTOP-1"; default "Myco editor"). */
   readonly name?: string;
+  /**
+   * The listening transport Play serves tools on (`servePlay`, a transport name: default `websocket`), or null when this
+   * host can't listen. Tests pass `loopback`.
+   */
+  readonly playTransport?: string | null;
+  /** Everything else about how Play listens (tests: the loopback's clock, the gate's clock, this machine's addresses). */
+  readonly playOptions?: Omit<PlayBuildOptions, "transport" | "lan" | "port">;
 }
 
 /** @internal The editor's debug link. */
@@ -66,9 +74,16 @@ export class EditorDebugLink {
     return this.stateSignal;
   }
 
-  /** Listens as `prefs` say, closing an earlier listener (and its builds) first. */
+  /** Play served as a build while the editor plays (`servePlay`), or null; the builds menu's slot reads it. */
+  get play(): ReadonlySignal<PlayBuild | null> {
+    return this.playSignal;
+  }
+
+  /** Listens as `prefs` say, closing an earlier listener (and its builds) first. A served Play listens again by them. */
   async apply(prefs: DebugLinkPreferences): Promise<void> {
-    this.stop();
+    this.closeListening();
+    this.prefs = prefs;
+    this.restartPlay();
     const generation = ++this.generation;
     if (!prefs.listen) return;
     const transport = this.options.transport();
@@ -120,10 +135,54 @@ export class EditorDebugLink {
 
   /**
    * Serves the play Engine as a build on this link while the editor plays (ADR 0380, U3), so a tool can pair with
-   * Play. C7: U3 fills `playBuild.ts` and decides how the listener hands it tool-role peers.
+   * Play: on a listener of its own from the editor's port + 1, on the LAN when the preferences listen there, not at all
+   * while they turn the link off (`playBuild.ts` says why it is a listener of its own). A later call replaces an earlier
+   * one; the returned build's `stop` (Play stopped) ends it. Its signals follow the build across preference changes.
    */
   servePlay(engine: Engine, name: string): PlayBuild {
-    return servePlayBuild(engine, name);
+    this.endPlay();
+    const served = { engine, name };
+    this.served = served;
+    this.restartPlay();
+    const current = this.playSignal;
+    return {
+      code: computed(() => current.value?.code.value ?? null),
+      tools: computed(() => current.value?.tools.value ?? []),
+      state: computed((): PlayBuildState => (this.served === served ? (current.value?.state.value ?? { kind: "stopped" }) : { kind: "stopped" })),
+      stop: () => {
+        if (this.served === served) this.endPlay();
+      },
+    };
+  }
+
+  private readonly playSignal = signal<PlayBuild | null>(null);
+  private prefs: DebugLinkPreferences | null = null;
+  /** The play Engine `servePlay` was given, while it serves. */
+  private served: { readonly engine: Engine; readonly name: string } | null = null;
+
+  /** (Re)starts serving the remembered play Engine by the current preferences. */
+  private restartPlay(): void {
+    this.playSignal.peek()?.stop();
+    const served = this.served;
+    if (!served) {
+      this.playSignal.value = null;
+      return;
+    }
+    const prefs = this.prefs ?? { listen: true, lan: false, port: DEFAULT_DEBUG_LINK_PORT };
+    this.playSignal.value = prefs.listen
+      ? servePlayBuild(served.engine, served.name, {
+          ...this.options.playOptions,
+          transport: this.options.playTransport === undefined ? "websocket" : this.options.playTransport,
+          lan: prefs.lan,
+          port: prefs.port + 1,
+        })
+      : offBuild();
+  }
+
+  private endPlay(): void {
+    this.served = null;
+    this.playSignal.peek()?.stop();
+    this.playSignal.value = null;
   }
 
   private connector: ToolConnector | null = null;
@@ -189,8 +248,13 @@ export class EditorDebugLink {
     this.left(b.peer);
   }
 
-  /** Stops listening; every build is disconnected. */
+  /** Stops listening; every build is disconnected, and a served Play's tools too. */
   stop(): void {
+    this.endPlay();
+    this.closeListening();
+  }
+
+  private closeListening(): void {
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = null;
     this.listener?.close();
@@ -233,4 +297,14 @@ export class EditorDebugLink {
   }
 }
 
-const refusalKey = (b: Pick<BuildEntry, "remote" | "name">) => `${remoteHost(b.remote)}\n${b.name}`;
+/** Play while the preferences turn the link off: nothing listens. */
+function offBuild(): PlayBuild {
+  return {
+    code: signal(null),
+    tools: signal([]),
+    state: signal<PlayBuildState>({ kind: "unavailable", why: "The debug link is off, so tools can't pair with Play. Turn it on in Settings." }),
+    stop() {},
+  };
+}
+
+const refusalKey =(b: Pick<BuildEntry, "remote" | "name">) => `${remoteHost(b.remote)}\n${b.name}`;
