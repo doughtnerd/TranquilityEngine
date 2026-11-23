@@ -293,7 +293,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
   - `swingLimit` → `swing {y, z}` with the field migration;
   - the drive;
   - the backend interface and Rapier mapping (confirm per-axis motors at `rapier3d.ts:143` first);
-  - hinge and slider `spring.targetPosition` animatable;
+  - hinge and slider `spring.targetPosition` animatable, via sub-path animatability in `registry.ts` (`animatable: ["targetPosition"]` on the `spring` field; D86);
   - the gizmo cone and twist arc.
 - **T44, `myco.ragdoll` runtime:** `src/plugins/ragdoll/runtime/`: the component, fixed-step systems, generation, the drive through the contribution point, pose readback, get-up. The coordinator adds the plugin's three registration entries.
 - **T45t, third-party nodes, TS side:** `plugin.json` node declarations; loading, fuel pass and instantiation; host glue; node family cards generated from the schema; tests with a sample node module.
