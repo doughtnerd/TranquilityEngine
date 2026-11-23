@@ -73,6 +73,22 @@ describe("myco.generator@1", () => {
     expect(generatorToJson(g).params).toEqual({ filterType: "bandpass", lfoTarget: "pulseWidth" });
   });
 
+  it("saves `quality` by name, reads it by name or index, and leaves it out at standard (D67)", () => {
+    for (const kind of ["oscillator", "synth", "blip"] as const) {
+      const high = parseGenerator({ format: GENERATOR_FORMAT, kind, params: { quality: "High" } }).generator;
+      expect(high.params.quality).toBe(1);
+      expect(generatorToJson(high).params).toEqual({ quality: "high" });
+      expect(parseGenerator(generatorToJson(high)).generator).toEqual(high);
+      expect(parseGenerator({ format: GENERATOR_FORMAT, kind, params: { quality: 1 } }).generator.params.quality).toBe(1);
+      const standard = parseGenerator({ format: GENERATOR_FORMAT, kind, params: {} }).generator;
+      expect(standard.params.quality).toBe(0);
+      expect(generatorToJson(standard).params ?? {}).toEqual({});
+    }
+    const bad = parseGenerator({ format: GENERATOR_FORMAT, kind: "blip", params: { quality: "ultra" } });
+    expect(bad.generator.params.quality).toBe(0);
+    expect(bad.problems.length).toBeGreaterThan(0);
+  });
+
   it("names generator paths", () => {
     expect(isGeneratorPath("audio/ui/Coin.Generator.json")).toBe(true);
     expect(isGeneratorPath("audio/ui/coin.playlist.json")).toBe(false);

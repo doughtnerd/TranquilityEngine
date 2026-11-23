@@ -48,6 +48,9 @@ const OSC_WAVES = [["sine", "Sine"], ["square", "Square"], ["saw", "Saw"], ["tri
 const BLIP_WAVES = [["square", "Square"], ["saw", "Saw"], ["sine", "Sine"], ["noise", "Noise"], ["triangle", "Triangle"]] as const;
 
 const level = () => p("level", "Level", -60, 0, 0.1, "dB", -12);
+/** Band-limiting (ADR 0360, owner decision D67): `standard` is two-sample PolyBLEP; `high` a 16-tap minBLEP (aliases far
+ *  less, flat to 14 kHz, more CPU, two samples later). Always a kind's last parameter (appended: the wire order). */
+const quality = () => choice("quality", "Quality", [["standard", "Standard"], ["high", "High"]]);
 const length = (def: number) => p("length", "Length", 0, 60, 0.01, "s", def);
 const ms = (name: string, label: string, max: number, def: number) => p(name, label, 0, max, 1, "ms", def);
 const pct = (name: string, label: string, def: number, min = 0, max = 100) => p(name, label, min, max, 1, "%", def);
@@ -71,6 +74,7 @@ export const GENERATOR_CATALOGUE: Readonly<Record<GeneratorKind, GeneratorSpec>>
     pct("sustain", "Sustain", 100),
     ms("release", "Release", 10000, 10),
     length(0),
+    quality(),
   ]),
   // A two-oscillator subtractive voice (Synth One's shape).
   synth: spec("synth", "Synth", [
@@ -100,6 +104,7 @@ export const GENERATOR_CATALOGUE: Readonly<Record<GeneratorKind, GeneratorSpec>>
     choice("lfoTarget", "LFO target", [["pitch", "Pitch"], ["cutoff", "Cutoff"], ["amp", "Amp"], ["pulseWidth", "Pulse width"]]),
     level(),
     length(0),
+    quality(),
   ]),
   // sfxr, in sfxr's units.
   blip: spec("blip", "Blip", [
@@ -127,6 +132,7 @@ export const GENERATOR_CATALOGUE: Readonly<Record<GeneratorKind, GeneratorSpec>>
     sfxr("highpassCutoff", "High-pass cutoff", 0),
     sfxr("highpassSweep", "High-pass sweep", 0, true),
     level(),
+    quality(),
   ]),
   // Wwise Silence: a placeholder and spacer that still counts as a play.
   silence: spec("silence", "Silence", [
