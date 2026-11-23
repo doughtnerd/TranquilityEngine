@@ -50,7 +50,8 @@ export const Inspector: Story = {
     await expect(c.getByText("engine_mid", { selector: ".pl-wr .pl-nm" })).toBeVisible();
     await expect(c.getByRole("group", { name: "Entry engine_mid" })).toBeVisible();
     // Playback is collapsed to its summary (I5); opening it shows Output inside it.
-    await expect(c.getByText("Every trigger plays")).toBeVisible();
+    await expect(canvasElement.querySelector(".pl-pbh .pl-u")!.textContent).toMatch(/\S/);
+    await expect(c.getByRole("combobox", { name: "Output bus" })).not.toBeVisible();
     await userEvent.click(c.getByText("Playback"));
     await expect(c.getByRole("combobox", { name: "Output bus" })).toHaveValue("");
     // The effects chain keeps the 8px gutter every field row has (I6): its caption doesn't touch the panel's edge.

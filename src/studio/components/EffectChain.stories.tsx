@@ -10,7 +10,7 @@ import type { Effect, EffectLevel } from "../../engine/audio/effects/types";
 import type { AudioPluginDebug } from "../../plugins/audio/runtime/debugTypes";
 import { EffectChain } from "./EffectChain";
 
-function Demo(props: { level: EffectLevel; start: Effect[]; limit?: number; automated?: Record<string, Record<string, string>> }) {
+function Demo(props: { level: EffectLevel; start: Effect[]; limit?: number; automated?: Record<string, Record<string, string>>; exclude?: readonly string[] }) {
   const [effects, setEffects] = useState<Effect[]>(props.start);
   const [log, setLog] = useState<string[]>([]);
   return (
@@ -24,7 +24,9 @@ function Demo(props: { level: EffectLevel; start: Effect[]; limit?: number; auto
         ownBus="Music"
         keyBuses={["SFX", "Dialogue", "Ambience"]}
         automated={props.automated}
+        exclude={props.exclude}
         onAutomate={(id) => setLog((l) => [...l, `automate ${id}`])}
+        onAutomateMenu={(id) => setLog((l) => [...l, `automation menu ${id}`])}
         onEdit={(result, label, drag) => {
           if ("refused" in result) return setLog((l) => [...l, `Can't ${label.toLowerCase()}: ${result.refused}`]);
           setEffects(result.next);
@@ -73,7 +75,23 @@ export const Full: StoryObj = { render: () => <Demo level="bus" start={busChain(
 
 export const ClipChain: StoryObj = { render: () => <Demo level="voice" start={[defaultEffect("envelope", "fx1"), defaultEffect("pitchShift", "fx2")]} /> };
 
-export const WrongLevel: StoryObj = { render: () => <Demo level="bus" start={[defaultEffect("gain", "fx1")]} /> };
+/** A Playlists Clip's chain (instance level, decisions.md): no Delay or Reverb offered; Automate's right-click is the owner's menu. */
+export const ClipPlaylistChain: StoryObj = {
+  render: () => <Demo level="instance" start={[defaultEffect("lowpass", "fx1")]} exclude={["delay", "reverb"]} />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await userEvent.click(c.getByRole("button", { name: "Add effect" }));
+    const menu = within(document.body).getByRole("menu", { name: "Add effect" });
+    await expect(within(menu).queryByRole("menuitem", { name: /^Delay/ })).toBeNull();
+    await expect(within(menu).queryByRole("menuitem", { name: /^Reverb/ })).toBeNull();
+    await expect(within(menu).getByRole("menuitem", { name: /^Chorus/ })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await userEvent.pointer({ keys: "[MouseRight]", target: c.getByRole("button", { name: "Automate Low-pass" }) });
+    await expect(c.getByTestId("log")).toHaveTextContent("automation menu fx1");
+  },
+};
+
+export const WrongLevel: StoryObj ={ render: () => <Demo level="bus" start={[defaultEffect("gain", "fx1")]} /> };
 
 export const Empty: StoryObj = { render: () => <Demo level="instance" start={[]} /> };
 

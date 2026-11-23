@@ -177,7 +177,7 @@ export function BlendView(props: BlendViewProps) {
                   const at = handleAt(selRegion.region, h.id);
                   const top = h.id === "fadeIn" || h.id === "fadeOut";
                   return (
-                    <rect key={h.id} class="pl-region-handle" x={lx(at) - 5} y={top ? TOP - 6 : H1 - 12} width="10" height="12" tabIndex={writable ? 0 : -1} role="slider"
+                    <rect key={h.id} class="pl-region-handle" x={lx(at) - 5} y={top ? TOP - 6 : H1 - 12} width="10" height="12" tabindex={writable ? 0 : -1} role="slider"
                       aria-label={`${entryName(body.entries[sel]!, sel)} ${h.label}`} aria-valuenow={at}
                       onPointerDown={(e) => startHandle(sel, h.id, e)} onKeyDown={(e) => handleKeys(sel, h.id, e)} />
                   );
@@ -259,7 +259,7 @@ export function BlendView(props: BlendViewProps) {
                 const left = Math.max(2, Math.min(W - width - 2, x - width / 2));
                 const top = Math.max(2, Math.min(W - 46, y - 22));
                 return (
-                  <g key={i} class={`pl-node ${series(i)}${props.selected === i ? " selected" : ""}${hovered === i ? " hv" : ""}${w > 0 ? " hot" : " dim"}`} tabIndex={writable ? 0 : -1} role="slider" aria-label={`${name} position`}
+                  <g key={i} class={`pl-node ${series(i)}${props.selected === i ? " selected" : ""}${hovered === i ? " hv" : ""}${w > 0 ? " hot" : " dim"}`} tabindex={writable ? 0 : -1} role="slider" aria-label={`${name} position`}
                     aria-valuenow={body.entries[i]!.x ?? 0} onPointerDown={(e) => startNode(i, e)} onKeyDown={(e) => nodeKeys(i, e)} onFocus={() => props.onSelect(i)}>
                     <rect class="pl-nd" x={left} y={top} width={width} height={44} rx={22} />
                     <circle class="pl-nd-dot" cx={left + 24} cy={top + 22} r={8} />

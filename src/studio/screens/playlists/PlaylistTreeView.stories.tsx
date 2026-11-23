@@ -30,7 +30,8 @@ export const ByFolder: Story = {
     const tree = c.getByRole("tree", { name: "Playlists" });
     await expect(within(tree).getByRole("treeitem", { name: /^Switch playlist footsteps/ })).toHaveAttribute("aria-selected", "true");
     await expect(within(tree).getAllByText("dirt").length).toBeGreaterThan(1); // the file, and its link in footsteps
-    await expect(within(tree).getByText("→ SFX")).toBeVisible();
+    // T5: an output of its own is a "→" whose tooltip names the bus.
+    await expect(within(tree).getByLabelText("Plays into SFX")).toHaveAttribute("title", expect.stringMatching(/plays into SFX/));
     await userEvent.click(within(tree).getByText("engine"));
     await expect(args.actions.open).toHaveBeenCalled();
   },
@@ -67,9 +68,10 @@ export const Empty: Story = {
   args: { nodes: [], hasSamples: false, openKey: null },
   play: async ({ canvasElement, args }) => {
     const c = within(canvasElement);
-    await expect(c.getByText("No playlists yet")).toBeVisible();
-    await userEvent.click(c.getByRole("button", { name: "Import some in Samples" }));
-    await expect(args.actions.openSamples).toHaveBeenCalled();
+    // T15: one muted line; + makes a playlist straight away, ▾ has the rest.
+    await expect(c.getByText(/No playlists or folders yet/)).toBeVisible();
+    await userEvent.click(c.getByRole("button", { name: "New playlist" }));
+    await expect(args.actions.newPlaylist).toHaveBeenCalled();
   },
 };
 
