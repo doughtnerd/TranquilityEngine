@@ -118,7 +118,8 @@ export function LatencyCalibrationDialog(props: LatencyCalibrationDialogProps) {
           {summary.count === 0 ? "No taps yet." : `${summary.count} tap${summary.count === 1 ? "" : "s"} · average ${formatOffset(summary.average!)} · spread ±${summary.spread} ms${summary.usable ? "" : ` · ${MIN_TAPS - summary.count} more to use it`}`}
         </p>
         <div class="dialog-buttons">
-          <button type="button" disabled={taps.length === 0} onClick={() => setTaps([])}>
+          {/* Start over disables itself: focus goes back to Tap, so the keys (Space, Escape) stay in the dialog. */}
+          <button type="button" disabled={taps.length === 0} onClick={() => (setTaps([]), tapButton.current?.focus())}>
             Start over
           </button>
           <button type="button" onClick={props.onCancel}>Cancel</button>

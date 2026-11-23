@@ -4,6 +4,8 @@
 // plugins (ADR 0135), so activation is a function the host passes.
 import { Engine, type EngineOptions } from "./core/Engine";
 import { acquireProjectContext } from "./core/projectContext";
+import { World } from "./core/World";
+import { SceneManager } from "./scene/SceneManager";
 import type { AssetSource } from "./scene/Assets";
 import { _setScriptAssetRefs } from "./scene/warmUp";
 
@@ -73,9 +75,16 @@ export async function launchGame(options: GameLaunchOptions): Promise<LaunchedGa
       headless: options.headless ?? !options.container,
       ...(options.quality ? { quality: options.quality } : {}),
       ...(options.storage ? { storage: options.storage } : {}),
+      // The autoloads start with the entry scene, after its preparation (preload audio packages, ADR 0351 §9).
+      autoloadsWithFirstScene: options.entryScene !== null,
     });
     if (options.reportShaderVariants) engine._setVariantReport(true);
     if (options.entryScene !== null) await fillEmptyWorlds(engine, options.entryScene);
+    // A default World the entry scene didn't fill (a code bootstrap's own nodes): its autoloads now.
+    for (const handle of engine.worlds()) {
+      const world = engine._world(handle.name);
+      if (world?._autoloadsPending) World._runIn(world, () => SceneManager.loadAutoloads(world));
+    }
   } catch (err) {
     dispose();
     throw err;

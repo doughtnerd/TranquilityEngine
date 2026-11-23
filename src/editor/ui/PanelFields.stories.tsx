@@ -2,7 +2,7 @@
 // steps) and a select.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { FieldRow, NumberBox, Section, SelectBox } from "./PanelFields";
 
 function Panel() {
@@ -32,10 +32,10 @@ export const Rows: StoryObj = {
     const box = c.getByRole("textbox", { name: "Volume" }) as HTMLInputElement;
     await userEvent.click(box);
     await userEvent.keyboard("{ArrowUp}");
-    await expect(box.value).toBe("-5.5");
+    await waitFor(() => expect(box).toHaveValue("-5.5")); // the box shows the value after the re-render
     await userEvent.clear(box);
     await userEvent.type(box, "40{Enter}");
-    await expect(box.value).toBe("12"); // clamped to the range
+    await waitFor(() => expect(box).toHaveValue("12")); // clamped to the range
     await userEvent.selectOptions(c.getByRole("combobox", { name: "Plays" }), "loop");
     await expect((c.getByRole("combobox", { name: "Plays" }) as HTMLSelectElement).value).toBe("loop");
   },

@@ -43,9 +43,11 @@ export const Keyboard: Story = {
     await expect(c.getAllByRole("button")).toHaveLength(13);
     await expect(c.getByRole("button", { name: /^E \(\+4 st/ })).toHaveAttribute("aria-pressed", "true");
     const top = c.getByRole("button", { name: "C′ (+12 st · 880 Hz)" });
-    await userEvent.pointer({ keys: "[MouseLeft>]", target: top });
+    // One session for the press and the release (each direct userEvent call starts a new one, with no button held).
+    const user = userEvent.setup();
+    await user.pointer({ keys: "[MouseLeft>]", target: top });
     await expect(press).toHaveBeenCalledWith("note:12", 12);
-    await userEvent.pointer({ keys: "[/MouseLeft]", target: top });
+    await user.pointer({ keys: "[/MouseLeft]", target: top });
     await expect(release).toHaveBeenCalledWith("note:12");
   },
 };
@@ -125,7 +127,8 @@ export const Library: Story = {
   ),
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await expect(c.getByText("coin").closest("[role=listitem]")).toHaveAttribute("aria-current", "true");
+    // The row names the generator (its preset is named too).
+    await expect(c.getAllByText("coin")[0]!.closest("[role=listitem]")).toHaveAttribute("aria-current", "true");
     await userEvent.click(c.getByText("hum"));
     await expect(openGen).toHaveBeenCalledWith("audio/ambience/hum.generator.json");
     await userEvent.click(c.getByRole("button", { name: "New generator" }));

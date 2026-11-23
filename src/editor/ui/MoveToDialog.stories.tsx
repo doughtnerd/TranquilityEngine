@@ -25,9 +25,9 @@ export const MoveAFile: StoryObj = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     const dialog = await c.findByRole("dialog", { name: "Move horn.wav to…" });
-    await userEvent.click(within(dialog).getByRole("treeitem", { name: "sfx" }));
+    await userEvent.click(within(within(dialog).getByRole("treeitem", { name: "sfx" })).getByText("sfx"));
     await expect(within(dialog).getByRole("button", { name: "Move" })).toBeDisabled();
-    await userEvent.click(within(dialog).getByRole("treeitem", { name: "music" }));
+    await userEvent.click(within(within(dialog).getByRole("treeitem", { name: "music" })).getByText("music"));
     await userEvent.click(within(dialog).getByRole("button", { name: "Move" }));
     await expect(c.getByLabelText("Result")).toHaveTextContent("moved to audio/music");
   },

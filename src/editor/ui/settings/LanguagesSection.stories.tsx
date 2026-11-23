@@ -55,7 +55,7 @@ export const Subtitles: StoryObj = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await userEvent.selectOptions(c.getByRole("combobox", { name: "Size" }), "large");
-    await userEvent.type(c.getByRole("textbox", { name: "New speaker id" }), "Ava{Enter}");
+    await userEvent.type(c.getByRole("combobox", { name: "New speaker id" }), "Ava{Enter}");
     await expect(c.getByRole("table", { name: "Speakers" })).toHaveTextContent("Ava");
     await expect(c.getByLabelText("Written")).toHaveTextContent('{"defaults":{"size":"large"},"speakers":{"Ava":{}}}');
   },

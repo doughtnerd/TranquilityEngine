@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, type AssetSource, type Bootstrap, type BootstrapConfig } from "../index";
 import { _scriptAssetRefs, _setScriptAssetRefs } from "../scene/warmUp";
 import { launchGame, type GameLaunchOptions, type LaunchedGame } from "../launch";
+import { _registerWorldService } from "../core/worldServices";
 
 const ENTRY = "scenes/main.scene.json";
 const HUD = "scenes/hud.scene.json";
@@ -72,6 +73,32 @@ describe("launchGame", () => {
       },
     });
     expect(scenesByWorld(running.engine)).toEqual({ Menu: ["hud"], Game: ["main"] });
+  });
+
+  it("starts the project's autoloads with the entry scene, after its preparation (a preload audio package before a music prefab)", async () => {
+    const seen: string[][] = [];
+    const remove = _registerWorldService({
+      id: "test.launch.prepare",
+      neededBy: { scene: (p) => p === ENTRY },
+      load: async () => null,
+      create: () => ({}),
+      dispose: () => {},
+      prepareScene: async (world) => void seen.push(world.root.children.map((c) => c.name)),
+    });
+    try {
+      const assets = Assets.fromObject({ ...Object.fromEntries([[ENTRY, { format: "myco.scene@1", nodes: [] }]]), "prefabs/music.prefab.json": { format: "myco.scene@1", nodes: [{ id: "m", name: "Music", transform: false }] } });
+      running = await launch({ assets, project: { autoload: ["prefabs/music.prefab.json"] } });
+      expect(seen).toEqual([[]]);
+      expect(running.engine.world.root.children.map((c) => c.name)).toEqual(["Music", "main"]);
+    } finally {
+      remove();
+    }
+  });
+
+  it("starts the autoloads at once without an entry scene", async () => {
+    const assets = Assets.fromObject({ "prefabs/music.prefab.json": { format: "myco.scene@1", nodes: [{ id: "m", name: "Music", transform: false }] } });
+    running = await launch({ assets, entryScene: null, project: { autoload: ["prefabs/music.prefab.json"] } });
+    expect(running.engine.world.root.children.map((c) => c.name)).toEqual(["Music"]);
   });
 
   it("fills nothing without an entry scene (the dedicated server)", async () => {

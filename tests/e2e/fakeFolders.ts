@@ -17,6 +17,8 @@ export interface FakeFolders {
   next(name: string | null): void;
   /** A file's text, by `folder/path`, or undefined. */
   read(path: string): string | undefined;
+  /** A file's bytes in base64, by `folder/path`, or undefined (a take, a capture, a WAV). */
+  readBase64(path: string): string | undefined;
   /** Every file path under a folder (sorted), including hidden ones. */
   list(folder: string): string[];
   /** Delete a file or folder by `folder/path`. */
@@ -137,6 +139,14 @@ export async function installFakeFolders(page: Page, seed: FolderSeed = {}): Pro
         const f = at?.dir.entries.get(at.name);
         return f instanceof FileHandle ? new TextDecoder().decode(f.data) : undefined;
       },
+      readBase64(path: string) {
+        const at = walk(path, false);
+        const f = at?.dir.entries.get(at.name);
+        if (!(f instanceof FileHandle)) return undefined;
+        let s = "";
+        for (let i = 0; i < f.data.length; i += 0x8000) s += String.fromCharCode(...f.data.subarray(i, i + 0x8000));
+        return btoa(s);
+      },
       list(folder: string) {
         const out: string[] = [];
         const go = (dir: DirHandle, at: string) => {
@@ -190,6 +200,11 @@ type Win = { fakeFolders: FakeFolders };
 export const nextFolder = (page: Page, name: string | null) => page.evaluate((n) => (window as unknown as Win).fakeFolders.next(n), name);
 /** A file's text by `folder/path`. */
 export const readFile = (page: Page, path: string) => page.evaluate((p) => (window as unknown as Win).fakeFolders.read(p), path);
+/** A binary file's bytes by `folder/path` (undefined when there's none). */
+export const readFileBytes = async (page: Page, path: string): Promise<Uint8Array | undefined> => {
+  const b64 = await page.evaluate((p) => (window as unknown as Win).fakeFolders.readBase64(p), path);
+  return b64 === undefined ? undefined : new Uint8Array(Buffer.from(b64, "base64"));
+};
 /** Every file under a folder. */
 export const listFolder = (page: Page, folder: string) => page.evaluate((f) => (window as unknown as Win).fakeFolders.list(f), folder);
 /** Delete a file or folder by `folder/path`, as if outside the editor. */

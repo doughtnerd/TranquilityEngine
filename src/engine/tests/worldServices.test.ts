@@ -92,6 +92,23 @@ describe("World services (ADR 0135)", () => {
     expect(log).toEqual(["create t.prefab A", "create t.setting B"]);
   });
 
+  it("a World's first scene is prepared before the project's autoloads start (a preload package before a music prefab)", async () => {
+    Assets.addSource(Assets.fromObject({ "persistent.prefab.json": { format: "myco.scene@1", nodes: [{ id: "p", name: "Persistent", transform: false }] } }));
+    const seen: string[][] = [];
+    register({
+      ...fakeService("t.prepare", { scene: (p) => p === "empty.json" }, log).def,
+      load: async () => "L",
+      prepareScene: async (world) => void seen.push(world.root.children.map((c) => c.name)),
+    });
+    const game = await Engine.create({ headless: true, project: { autoload: ["persistent.prefab.json"] }, bootstrap: { worlds: [{ name: "Game", scenes: ["empty.json"] }] } });
+    try {
+      expect(seen).toEqual([[]]); // not yet there while the scene was prepared
+      expect(game.world.root.children.map((c) => c.name)).toEqual(["Persistent", "empty"]);
+    } finally {
+      game.dispose();
+    }
+  });
+
   it("doesn't start for a scene that doesn't need it", async () => {
     const { def, loads } = fakeService("t.none", { components: ["test.ws.Needy"] }, log);
     register(def);

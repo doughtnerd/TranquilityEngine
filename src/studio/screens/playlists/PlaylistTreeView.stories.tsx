@@ -28,7 +28,7 @@ export const ByFolder: Story = {
   play: async ({ canvasElement, args }) => {
     const c = within(canvasElement);
     const tree = c.getByRole("tree", { name: "Playlists" });
-    await expect(within(tree).getByRole("treeitem", { name: /footsteps.*SW|SW.*footsteps/ })).toHaveAttribute("aria-selected", "true");
+    await expect(within(tree).getByRole("treeitem", { name: /^Switch playlist footsteps/ })).toHaveAttribute("aria-selected", "true");
     await expect(within(tree).getAllByText("dirt").length).toBeGreaterThan(1); // the file, and its link in footsteps
     await expect(within(tree).getByText("→ SFX")).toBeVisible();
     await userEvent.click(within(tree).getByText("engine"));
@@ -49,16 +49,16 @@ export const Search: Story = {
 export const MenuAndRename: Story = {
   play: async ({ canvasElement, args }) => {
     const c = within(canvasElement);
-    const row = c.getByRole("treeitem", { name: /^.*engine/ });
+    const row = c.getByRole("treeitem", { name: /playlist, one axis engine$/ });
     row.focus();
     await userEvent.keyboard("{F2}");
     const field = await waitFor(() => c.getByRole("textbox", { name: "Playlist name" }));
     await userEvent.clear(field);
     await userEvent.type(field, "motor{Enter}");
     await expect(args.actions.renameFile).toHaveBeenCalledWith("audio/vehicles/engine.playlist.json", "motor");
-    c.getByRole("treeitem", { name: /wind/ }).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 80 }));
+    within(c.getByRole("treeitem", { name: /two axes wind$/ })).getAllByText("wind")[0]!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 80 }));
     const body = within(canvasElement.ownerDocument.body);
-    await userEvent.click(await body.findByRole("menuitem", { name: "Delete…" }));
+    await userEvent.click(await body.findByRole("menuitem", { name: /^Delete…/ }));
     await expect(args.actions.remove).toHaveBeenCalled();
   },
 };

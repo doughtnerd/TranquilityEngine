@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { inflateRawSync } from "node:zlib";
 import { expect, test, openEditor, playWithAudio, LAB } from "./fixtures";
 import { installFrameClock, mixDebug, sampleBusGain, type MixDebug } from "./audioMix";
+import { CAPTURE_FORMAT } from "../../src/plugins/audio/runtime/capture/format";
 
 // M5 smoke (ADR 0171 amended by 0172, plan task S0, H6): the milestone path in the real editor app, through the Sound Lab
 // sample, one case per milestone, grown by later waves (each owning task un-fixmes its case in its own wave).
@@ -345,7 +346,7 @@ test("M5a smoke: a capture starts, stops, is saved and is non-empty", async ({ p
     expect(bytes.byteLength, "non-empty").toBeGreaterThan(96 + 1000);
     // The 96 B plain header (§5.1).
     expect([...bytes.subarray(0, 8)]).toEqual([0x4d, 0x59, 0x43, 0x41, 0x50, 0x00, 0x01, 0x1a]);
-    expect(bytes.readUInt16LE(8), "format").toBe(1);
+    expect(bytes.readUInt16LE(8), "format").toBe(CAPTURE_FORMAT);
     const flags = bytes.readUInt16LE(10);
     expect(flags & 0b1000, "compressed (deflate-raw)").toBeTruthy();
     expect(flags & 0b0100, "hasIndex").toBeTruthy();

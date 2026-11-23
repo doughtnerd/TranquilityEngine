@@ -130,11 +130,18 @@ export interface TreeViewProps {
   readonly owner?: object;
 }
 
+/** Each tree's id prefix for its rows' label ids. */
+let treeViewIds = 0;
+
 export function TreeView(props: TreeViewProps) {
   const { rows, indent = 14 } = props;
   const ownView = useRef({}).current;
   const view = props.owner ?? ownView;
   const elements = useRef(new Map<string, HTMLElement>()).current;
+  // Each item is named by its own row (`aria-labelledby`), not by its content: an open folder's name would hold every row
+  // under it (the ARIA name of a treeitem comes from all its text, its group's included).
+  const idBase = useRef(`tree-${++treeViewIds}`).current;
+  let rowIndex = 0;
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const renaming = renamingIn(props.tree);
   const current = renaming.value;
@@ -197,10 +204,12 @@ export function TreeView(props: TreeViewProps) {
     const endRename = () => {
       if (renaming.peek()?.key === row.key) renaming.value = null;
     };
+    const labelId = `${idBase}-${rowIndex++}`;
     return (
       <li
         key={row.key}
         role="treeitem"
+        aria-labelledby={labelId}
         aria-level={depth + 1}
         aria-selected={row.selected}
         aria-expanded={row.expandable ? row.open : undefined}
@@ -214,6 +223,7 @@ export function TreeView(props: TreeViewProps) {
         }}
       >
         <div
+          id={labelId}
           class={classes}
           {...row.attrs}
           style={{ paddingLeft: `${depth * indent + 4}px` }}

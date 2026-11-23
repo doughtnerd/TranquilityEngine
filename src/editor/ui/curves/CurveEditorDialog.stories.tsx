@@ -114,7 +114,8 @@ export const BezierEditing: StoryObj = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     const dialog = await c.findByRole("dialog");
-    await userEvent.click(within(dialog).getByRole("button", { name: /Gain key at 1\.20 s/ }));
+    // The plot's key (the dope sheet below has a diamond of the same name).
+    await userEvent.click(within(dialog).getAllByRole("button", { name: /Gain key at 1\.20 s/ })[0]!);
     await expect(within(dialog).getByRole("button", { name: "Out handle" })).toBeVisible();
     await expect(within(dialog).getByRole("button", { name: "In handle" })).toBeVisible();
   },

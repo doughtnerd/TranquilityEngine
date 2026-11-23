@@ -50,7 +50,7 @@ export const PickAndUnlink: StoryObj = {
     await userEvent.click(within(keys).getByRole("button"));
     await expect(c.getByText("fr: Quitter")).toBeInTheDocument();
     await userEvent.click(c.getByRole("button", { name: "Unlink" }));
-    await expect(c.getByRole("button", { name: "Localise…" })).toBeInTheDocument();
+    await expect(await c.findByRole("button", { name: "Localise…" })).toBeInTheDocument();
   },
 };
 
@@ -60,7 +60,7 @@ export const Extract: StoryObj = {
     const c = within(canvasElement);
     await userEvent.click(c.getByRole("button", { name: "Extract to string table…" }));
     await expect(c.getByRole("textbox", { name: "New key" })).toHaveValue("menu.hint");
-    await expect(c.getByRole("textbox", { name: "String table" })).toHaveValue("strings/menu.strings.json");
+    await expect(c.getByRole("combobox", { name: "String table" }) /* an input with a list of tables */).toHaveValue("strings/menu.strings.json");
     await userEvent.click(c.getByRole("button", { name: "Extract" }));
     await expect(c.getByLabelText("Said")).toHaveTextContent("menu.hint in strings/menu.strings.json");
   },
