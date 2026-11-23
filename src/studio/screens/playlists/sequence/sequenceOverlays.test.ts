@@ -2,7 +2,7 @@
 // zones, the Async voice cursor), the Amp envelope's handles, the spectrogram's bands, the Parameters panel's uses and
 // the Snap split button, through each module's own interface.
 import { describe, expect, it } from "vitest";
-import { adsrHandleSpots, adsrShape, adsrTip, clipAdsr, dragAdsr, HOLD_HANDLE_GAP } from "./adsrModel";
+import { adsrHandleSpots, adsrShape, adsrTip, clipAdsr, dragAdsr, ADSR_HANDLE_GAP } from "./adsrModel";
 import { clipPlan, drawnLoopBand } from "./clipGeometry";
 import { pasteCurves, setDrivenBy } from "./automationEdits";
 import { moveEffectToTrack, sharedClipEffect } from "./sequenceEdits";
@@ -108,9 +108,15 @@ describe("the Amp envelope's handles", () => {
     const a = { attack: 100, hold: 0, decay: 200, sustain: 50, release: 300 };
     const spots = adsrHandleSpots(a, 2, 200); // 100 px a second
     expect(spots.attack).toEqual([10, 1]);
-    expect(spots.hold).toEqual([10 + HOLD_HANDLE_GAP, 1]);
+    expect(spots.hold).toEqual([10 + ADSR_HANDLE_GAP, 1]);
     expect(spots.release).toEqual([170, 0.5]);
     expect(adsrHandleSpots({ ...a, hold: 150 }, 2, 200).hold).toEqual([25, 1]);
+    // The effect's defaults: a 5 ms attack, Hold 0, a 100 ms decay to a full sustain: three corners within a few px.
+    const d = adsrHandleSpots({ attack: 5, hold: 0, decay: 100, sustain: 100, release: 200 }, 6, 600);
+    expect(d.hold[0] - d.attack[0]).toBe(ADSR_HANDLE_GAP);
+    expect(d.decaySustain[0] - d.hold[0]).toBeGreaterThanOrEqual(ADSR_HANDLE_GAP);
+    // Release stays inside the clip, even when the stages crowd its end.
+    expect(adsrHandleSpots({ attack: 5, hold: 0, decay: 100, sustain: 100, release: 0 }, 0.1, 12).release[0]).toBeLessThanOrEqual(12);
   });
 
   it("ADR 0362: a clip shorter than the stages squeezes them as the voices play them (the release first)", () => {

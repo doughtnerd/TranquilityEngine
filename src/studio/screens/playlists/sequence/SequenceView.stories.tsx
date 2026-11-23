@@ -177,11 +177,11 @@ export const ClipMenu: Story = {
   },
 };
 
-/** ADR 0362: an Amp envelope at Hold 0 keeps the Hold handle beside Attack's, so each one can be grabbed. */
+/** ADR 0362: the Amp envelope's defaults (Hold 0, a short decay to a full sustain) keep Attack, Hold and Decay apart, so each can be grabbed. */
 const withEnvelope = (() => {
   const s = fixtureSequence();
   const [skid, ...rest] = s.tracks;
-  const clips = skid!.clips.map((c, i) => (i === 0 ? { ...c, effects: [...c.effects, { id: "env1", type: "envelope" as const, on: true, params: { attack: 100, hold: 0, decay: 200, sustain: 60, release: 300 } }] } : c));
+  const clips = skid!.clips.map((c, i) => (i === 0 ? { ...c, effects: [...c.effects, { id: "env1", type: "envelope" as const, on: true, params: { attack: 5, hold: 0, decay: 100, sustain: 100, release: 200 } }] } : c));
   return fixtureBody({ ...s, tracks: [{ ...skid!, clips }, ...rest] });
 })();
 
@@ -189,7 +189,7 @@ export const EnvelopeHoldAtZero: Story = {
   args: { body: withEnvelope },
   play: async ({ canvasElement }) => {
     const handle = (name: string) => [...canvasElement.querySelectorAll<HTMLElement>(".sq-adsr-handle")].find((h) => h.title.startsWith(name))!;
-    for (const name of ["Attack", "Hold"]) {
+    for (const name of ["Attack", "Hold", "Decay"]) {
       const box = handle(name).getBoundingClientRect();
       // What a press at the handle's centre lands on: the handle itself.
       await expect(canvasElement.ownerDocument.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)).toBe(handle(name));

@@ -44,20 +44,23 @@ export function adsrShape(a: Adsr, length: number): { readonly points: readonly 
 }
 
 /** How far right of Attack the Hold handle is drawn at least, px: at Hold 0 they'd sit on one spot and only one could be grabbed. */
-export const HOLD_HANDLE_GAP = 9;
+export const ADSR_HANDLE_GAP = 9;
 
 /**
- * Where each handle is drawn on a clip `width` px wide: (px across, level 0..1). As the shape, except Hold, kept
- * `HOLD_HANDLE_GAP` px right of Attack (at Hold 0 both would sit on the same corner); a drag starts from where the handle
+ * Where each handle is drawn on a clip `width` px wide: (px across, level 0..1). As the shape, except that each handle
+ * after Attack is kept `ADSR_HANDLE_GAP` px right of the one before (at Hold 0 Hold would sit on Attack's corner, and a
+ * short decay to a full sustain puts Decay there too); Release stays inside the clip. A drag starts from where the handle
  * is drawn, so once dragged past the gap it follows the pointer.
  */
 export function adsrHandleSpots(a: Adsr, length: number, width: number): Readonly<Record<AdsrHandle, readonly [number, number]>> {
   const { handles } = adsrShape(a, length);
   const px = width / Math.max(1e-6, length);
-  const spot = (h: AdsrHandle): [number, number] => [handles[h][0] * px, handles[h][1]];
+  const spot = (h: AdsrHandle, after?: readonly [number, number]): [number, number] => [after ? Math.max(handles[h][0] * px, after[0] + ADSR_HANDLE_GAP) : handles[h][0] * px, handles[h][1]];
   const attack = spot("attack");
-  const hold = spot("hold");
-  return { attack, hold: [Math.max(hold[0], attack[0] + HOLD_HANDLE_GAP), hold[1]], decaySustain: spot("decaySustain"), release: spot("release") };
+  const hold = spot("hold", attack);
+  const decaySustain = spot("decaySustain", hold);
+  const release = spot("release", decaySustain);
+  return { attack, hold, decaySustain, release: [Math.min(release[0], Math.max(handles.release[0] * px, width)), release[1]] };
 }
 
 const range = (name: keyof Adsr) => effectSpec("envelope").params.find((p) => p.name === name)!;
