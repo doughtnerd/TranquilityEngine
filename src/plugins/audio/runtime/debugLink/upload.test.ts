@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { RecordWriter, readRecords } from "../../../../engine/debugLink/records";
-import { createTakeReceiver } from "../../editor/debugLink/takeReceiver";
 import { AUDIO_SAMPLE_BYTES, decodeTakeChunk, TAKE_CHUNK_BYTES } from "./schema";
 import { createTakeUploads } from "./upload";
 
@@ -26,17 +25,18 @@ describe("createTakeUploads", () => {
       expect(reply.chunks).toBe(Math.max(1, Math.ceil(size / TAKE_CHUNK_BYTES)));
       const sub = up.subscribe(reply.upload);
       if ("refused" in sub) throw new Error(sub.refused);
-      const rx = createTakeReceiver(reply);
-      let result;
+      // The tool's reassembly is tested on the editor side (editor/debugLink/takeRoundTrip.test.ts); runtime code never
+      // imports the editor (plugins.test.ts), so here the chunks are checked and joined directly.
+      const parts: Uint8Array[] = [];
       for (let i = 0; i < reply.chunks; i++) {
         const got = pull(sub);
         expect(got.length).toBe(1);
         const chunk = got[0];
         if ("refused" in chunk) throw new Error(chunk.refused);
-        result = rx.push(chunk);
+        expect(chunk).toMatchObject({ upload: reply.upload, index: i, total: reply.chunks });
+        parts.push(chunk.bytes);
       }
-      expect(result?.status).toBe("done");
-      expect(result?.status === "done" && Buffer.compare(result.bytes, src)).toBe(0);
+      expect(Buffer.compare(Buffer.concat(parts), src)).toBe(0);
       expect(pull(sub)).toEqual([]);
     });
   }
