@@ -38,6 +38,8 @@
 //
 // Nothing here allocates after construction (architecture §6.4).
 import { MAX_BUSES } from "../../../../engine/audio/settings";
+import { generatorParamIndex, generatorParamSpec } from "../../../../engine/audio/generators/catalogue";
+import type { GeneratorKind } from "../../../../engine/audio/generators/types";
 import type { WorldKey } from "./context";
 import { selectTopK } from "./quickselect";
 import { VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
@@ -62,10 +64,29 @@ const S_FREE = VoiceState.FREE;
 const S_PLAYING = VoiceState.PLAYING;
 const S_VIRTUAL = VoiceState.VIRTUAL;
 const F_PAUSED = VoiceFlag.PAUSED;
+/** Paused, or (ADR 0346) a silence generator: forced virtual whatever the room. */
+const F_FORCED = VoiceFlag.PAUSED | VoiceFlag.VIRTUAL_ONLY;
 const R_NONE = VoiceReason.NONE;
 const R_VIRTUAL = VoiceReason.VIRTUAL;
 const R_BUS_MUTED = VoiceReason.BUS_MUTED;
 const R_WAITING = VoiceReason.WAITING_FOR_DATA;
+
+/**
+ * @internal ADR 0346 (G3): what a mixed generator voice costs against a sample voice, per kind (and the oscillator's
+ * noise waveform), as G2 measured them on the metered gate (decision log D66: each kind's scene against its sample twin).
+ * Selection weighs a generator voice by it against the mixed cap, so a scene of synths or blips sheds voices before it
+ * runs late. The one table: G2b's measurements update it here. A silence is always virtual (its figure is its virtual
+ * cost, kept for completeness).
+ */
+export const GENERATOR_VOICE_COST = { oscillator: 0.67, noise: 0.76, synth: 1.43, blip: 2.38, silence: 0.64 } as const;
+
+/** @internal ADR 0346: the cap weight of a generator of `kind` playing wire-order `values` (`GENERATOR_VOICE_COST`). */
+export function generatorVoiceCost(kind: GeneratorKind, values: ArrayLike<number>): number {
+  if (kind !== "oscillator") return GENERATOR_VOICE_COST[kind];
+  const q = generatorParamSpec(kind, "waveform");
+  const wave = q ? q.choiceIds?.[values[generatorParamIndex(kind, "waveform")] ?? q.default] : undefined;
+  return wave === "noise" ? GENERATOR_VOICE_COST.noise : GENERATOR_VOICE_COST.oscillator;
+}
 
 /** `priorityWeight` for each priority 0..255, so the hot loop reads instead of dividing. */
 const PRIORITY_WEIGHTS = Float32Array.from({ length: 256 }, (_, p) => priorityWeight(p));
@@ -256,7 +277,7 @@ export class Selection {
    */
   audibilityOf(i: number): number {
     const t = this.table;
-    const forced = this.worldAudible[t.world[i]!] === 0 || (t.flags[i]! & VoiceFlag.PAUSED) !== 0;
+    const forced = this.worldAudible[t.world[i]!] === 0 || (t.flags[i]! & F_FORCED) !== 0;
     const a0 = forced ? 0 : t.gain[i]! * t.fadeGain[i]! * t.autoGain[i]! * t.stemGain[i]! * this.busGain[t.bus[i]!]! * PRIORITY_WEIGHTS[t.priority[i]!]!;
     t.audibility0[i] = a0;
     // ADR 0162 C20: audibility = audibility0 × occGain (1 without occlusion, so M2's values are unchanged).
@@ -272,8 +293,10 @@ export class Selection {
    */
   admit(i: number, cap: number): boolean {
     const a = this.audibilityOf(i);
-    const mixed = a >= MIN_AUDIBILITY && this.mixedCount < cap;
-    if (mixed) this.mixedCount++;
+    // ADR 0346: a generator voice weighs its kind's cost against the cap (1 for every other voice, as a count).
+    const w = this.table.capWeight[i]!;
+    const mixed = a >= MIN_AUDIBILITY && this.mixedCount + w <= cap;
+    if (mixed) this.mixedCount += w;
     this.seen[i] = (this.table.gen[i]! << 1) | (mixed ? 1 : 0);
     this.dwell[i] = DWELL_FRAMES;
     // Rc3 (§5.6): the PLAY is sent now, with every field filled in, so this is `voiceStart`; a voice admitted virtual says why.
@@ -335,7 +358,7 @@ export class Selection {
       const s = state[i]!;
       if (s === S_FREE) continue;
       // `audibilityOf`, inlined (the hot loop: 4,096 voices per frame).
-      const forced = worldAudible[world[i]!] === 0 || (flags[i]! & F_PAUSED) !== 0;
+      const forced = worldAudible[world[i]!] === 0 || (flags[i]! & F_FORCED) !== 0;
       const a0 = forced ? 0 : gain[i]! * fadeGain[i]! * autoGain[i]! * stemGain[i]! * busGain[bus[i]!]! * weight[priority[i]!]!;
       audibility0[i] = a0;
       const a = a0 * occGain[i]!; // ADR 0162 C20
@@ -417,13 +440,17 @@ export class Selection {
       if (key < cutoff) cutoff = key;
     }
     this.threshold = top === cap && cutoff > 0 && cutoff < DWELL_KEY ? cutoff * THRESHOLD_MARGIN : Number.NEGATIVE_INFINITY;
+    // ADR 0346: with generator voices live, the top `cap` by count is cut again by weight (each kind's cost).
+    const kept = t.genLive > 0 ? this.weighTop(keys, items, top, cap) : top;
     // Outranked mixed voices first, so a batch never asks the core to mix more than the cap at once.
-    for (let j = top; j < count; j++) {
+    for (let j = kept; j < count; j++) {
       const i = items[j]!;
       if (state[i] === S_PLAYING) this.change(i, false, sink);
     }
     let mixedNow = 0;
-    for (let j = 0; j < top; j++) {
+    let weightNow = 0;
+    const capWeight = t.capWeight;
+    for (let j = 0; j < kept; j++) {
       const i = items[j]!;
       const key = keys[j]!;
       if (state[i] === S_PLAYING) {
@@ -431,16 +458,45 @@ export class Selection {
           this.change(i, false, sink); // forced, or silent and settled (not worth a mixed voice)
         } else {
           mixedNow++;
+          weightNow += capWeight[i]!;
           if (reason[i] !== R_WAITING) reason[i] = R_NONE;
         }
       } else if (key >= 0) {
         this.change(i, true, sink);
         mixedNow++;
+        weightNow += capWeight[i]!;
       }
     }
-    this.mixedCount = mixedNow;
+    this.mixedCount = weightNow;
     stats.mixed = mixedNow;
     return stats;
+  }
+
+  /**
+   * ADR 0346: of the ranked `top` (keys and items, unordered), how many fit `cap` by weight: they are put in key order
+   * (best first) and kept while the weights of those that would be mixed (key ≥ 0) add up to `cap` at most. Runs only
+   * while generator voices are live (an insertion sort over at most `cap` items).
+   */
+  private weighTop(keys: Float32Array, items: Uint16Array, top: number, cap: number): number {
+    for (let j = 1; j < top; j++) {
+      const k = keys[j]!, it = items[j]!;
+      let m = j - 1;
+      while (m >= 0 && keys[m]! < k) {
+        keys[m + 1] = keys[m]!;
+        items[m + 1] = items[m]!;
+        m--;
+      }
+      keys[m + 1] = k;
+      items[m + 1] = it;
+    }
+    const w = this.table.capWeight;
+    let sum = 0;
+    for (let j = 0; j < top; j++) {
+      if (keys[j]! < 0) continue;
+      sum += w[items[j]!]!;
+      if (sum > cap + 1e-6) return j;
+    }
+    return top;
   }
 
   /** Slot `i` changes state; the table follows and `sink` is told. */

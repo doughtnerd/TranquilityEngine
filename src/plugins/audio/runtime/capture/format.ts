@@ -36,8 +36,11 @@ export const CAPTURE_HEADER_BYTES = 96;
  * `take` header flag, META's `take` section and the request records; format 1 files are refused (not migrated).
  */
 export const CAPTURE_FORMAT = 2;
-/** The core ABI the header names (4.0, `worklet/coreDriver.ts` `CORE_ABI_MAJOR` << 8; a test keeps them equal). */
-export const CAPTURE_ABI_VERSION = 0x500;
+/**
+ * The core ABI the header names (major << 8 | minor; the major is `worklet/coreDriver.ts` `CORE_ABI_MAJOR`, a test keeps
+ * them equal). 5.1 (ADR 0346): generator voices, a PLAY of a reserved clip id with GEN records and target-5 bindings.
+ */
+export const CAPTURE_ABI_VERSION = 0x501;
 /** R16: the uncompressed payload's cap, from the header before inflate and while inflating (64 MiB). */
 export const CAPTURE_MAX_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
 /**

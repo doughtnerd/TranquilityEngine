@@ -26,7 +26,9 @@
 import type { Vec3Like } from "../../../../engine/core/math";
 import type { Mixer } from "../../../../engine/audio/mixer";
 import type { Attenuation, AudioPanner, FadeLaw, ListenerPose, PlayRequest, ShapedFade, VoiceSpatialOptions } from "../backend";
-import { BUS_LP_OFF_HZ, PLAY_FLAGS_AMBISONIC, PLAY_FLAGS_LOOP, PLAY_FLAGS_MIXED, PLAY_FLAGS_SPATIAL, PLAY_FLAGS_STREAM, PLAY_FLAGS_WANTS_PLAYHEAD, SET_PARAMS_MASK_BUS, SET_PARAMS_MASK_DIR, SET_PARAMS_MASK_GAIN, SET_PARAMS_MASK_PITCH } from "../wire.generated";
+import { generatorKindIndex } from "../../../../engine/audio/generators/catalogue";
+import { GEN_MASK_ALL } from "./commandWriter";
+import { BUS_LP_OFF_HZ, GEN_CLIP_ID_FIRST, PLAY_FLAGS_AMBISONIC, PLAY_FLAGS_LOOP, PLAY_FLAGS_MIXED, PLAY_FLAGS_SPATIAL, PLAY_FLAGS_STREAM, PLAY_FLAGS_WANTS_PLAYHEAD, SET_PARAMS_MASK_BUS, SET_PARAMS_MASK_DIR, SET_PARAMS_MASK_GAIN, SET_PARAMS_MASK_PITCH } from "../wire.generated";
 import type { ClockMap } from "./clock";
 import type { CommandWriter, PlayArgs } from "./commandWriter";
 import { ambisonicImportGain, type ClipInfo, type ClipRegistry } from "./clipRegistry";
@@ -40,7 +42,7 @@ import type { CoreMusicOps } from "./musicOps";
 import { pannerName, type PannerPick } from "./pannerPick";
 import type { Presence } from "./presence";
 import type { PlayheadTracker } from "./replay";
-import { ListenerBasis, type Selection, type SelectionSink } from "./selection";
+import { generatorVoiceCost, ListenerBasis, type Selection, type SelectionSink } from "./selection";
 import { DistanceEffect, type SendCurveTable } from "./spatial";
 import { STREAM_ERROR_FADE_SECONDS, type StreamManager } from "./streams";
 import type { StructuralDip } from "./structuralDip";
@@ -243,18 +245,21 @@ export class CoreVoices {
     const group = req.group !== undefined && Number.isInteger(req.group) && req.group >= 1 && req.group <= MAX_GROUPS ? req.group : 0;
     // B5: `audio.ambisonic.maxClips` caps concurrent ambisonic voices; main steals the lowest priority first (the core's steal is a backstop).
     if (req.ambisonic === true && !this.admitAmbisonic(req.path, req.priority ?? 128, req.bus)) return 0;
+    // ADR 0346 (G3): a generator voice plays its kind's reserved clip id (never uploaded: no registry reference).
+    const gen = req.generator;
+    const genKind = gen ? generatorKindIndex(gen.kind) : 0;
     // B3: a stream voice takes a stream id where a clip voice takes a registry clip (no clip load).
-    const stream = req.stream === true;
+    const stream = !gen && req.stream === true;
     // ADR 0166 (Q2): a streamed group member plays the stream musicOps allocated and primed (P1).
     const member = req.music;
-    const clip = stream ? (member?.stream ?? host.streams.allocate()) : this.acquireClip(req, world);
+    const clip = gen ? GEN_CLIP_ID_FIRST + genKind : stream ? (member?.stream ?? host.streams.allocate()) : this.acquireClip(req, world);
     const bus = this.busIndex(req.bus);
     const priority = req.priority ?? 128;
     // A stream voice has no registry clip to name, so a refused stream play is named by its asset path.
     const t = this.t;
     const id = t.allocate(bus, priority, world, running ? VoiceState.WAITING_FOR_DATA : VoiceState.LOCKED, stream ? 0 : clip, stream ? req.path : undefined);
     if (id === 0) {
-      if (!stream) host.clips.release(clip);
+      if (!stream && !gen) host.clips.release(clip);
       return 0;
     }
     const i = id & 0xffff;
@@ -267,7 +272,12 @@ export class CoreVoices {
     this.gainApplied[i] = req.ambisonic === true && !stream ? ambisonicImportGain(req.path) : 1;
     t.pitch[i] = req.pitch !== undefined && Number.isFinite(req.pitch) ? clamp(req.pitch, MIN_PITCH, MAX_PITCH) : 1;
     t.flags[i] = (req.loop ? VoiceFlag.LOOP : 0) | (req.oneShot ? VoiceFlag.ONE_SHOT : 0) | (stream ? VoiceFlag.STREAM | VoiceFlag.WANTS_PLAYHEAD : 0);
-    this.startOffset[i] = req.offset !== undefined && Number.isFinite(req.offset) && req.offset > 0 ? req.offset : 0;
+    this.startOffset[i] = !gen && req.offset !== undefined && Number.isFinite(req.offset) && req.offset > 0 ? req.offset : 0;
+    if (gen) {
+      // ADR 0346: its parameters and seed for the GEN behind its PLAY (and a REPLAY); a silence is never mixed.
+      t.setGenerator(i, genKind, gen.values, gen.seed, req.path, generatorVoiceCost(gen.kind, gen.values));
+      if (gen.kind === "silence") t.flags[i] = t.flags[i]! | VoiceFlag.VIRTUAL_ONLY;
+    }
     this.streamStart[i] = stream && req.streamStartFrame !== undefined && Number.isInteger(req.streamStartFrame) && req.streamStartFrame > 0 ? req.streamStartFrame : 0;
     if (member) host.musicOps.adoptMember(id, i, member);
     else if (stream) host.streams.register(clip, id, req.path, req.loop === true);
@@ -367,6 +377,14 @@ export class CoreVoices {
     const t = this.t;
     const host = this.host;
     const i = id & 0xffff;
+    if (t.genKind[i] !== 0) {
+      // ADR 0346: a generator has no data to wait for: it starts at once, mixed or virtual (a silence always virtual).
+      const mixed = host.selection.admit(i, host.mixedCap());
+      t.state[i] = mixed ? VoiceState.PLAYING : VoiceState.VIRTUAL;
+      t.reason[i] = mixed ? VoiceReason.NONE : VoiceReason.VIRTUAL;
+      this.sendPlay(id, i, 0);
+      return;
+    }
     if ((t.flags[i]! & VoiceFlag.STREAM) !== 0) {
       // B4: AAC while `audio.codecs.aac` is off: never sent to the core, one warning per asset.
       const asset = host.streams.assetOf(t.clip[i]!) ?? "";
@@ -561,7 +579,10 @@ export class CoreVoices {
     // A3.2: stamped at its frame while that is ahead of F_now; past (or asap) goes asap (§1 `at`, `lookahead.ts`).
     const stamp = clockMap.stampFor(start);
     host.writer.play(a, stamp);
-    this.flatPlayId[i] = (a.flags & (PLAY_FLAGS_SPATIAL | PLAY_FLAGS_AMBISONIC)) === 0 ? id : 0;
+    // ADR 0346: a generator's GEN with every parameter and its (non-zero) seed, at its PLAY's frame, right behind it.
+    const genParams = t.genKind[i] !== 0 ? t.genParams[i] : null;
+    if (genParams) host.writer.gen(id, stamp, GEN_MASK_ALL, genParams, t.genSeed[i]!, 0);
+    this.flatPlayId[i] =(a.flags & (PLAY_FLAGS_SPATIAL | PLAY_FLAGS_AMBISONIC)) === 0 ? id : 0;
     host.playheads.start(i, stamp ?? clockMap.framesNow(), a.startOffsetFrames);
     // ADR 0158: the voice's bindings and loop, right behind its PLAY.
     host.automation.onPlaySent(id, i, stamp);
@@ -577,6 +598,25 @@ export class CoreVoices {
   }
 
   // --- The setters (by id; each does nothing for a stale id) ---
+
+  /**
+   * ADR 0346: generator voice `id`'s parameters (by catalogue index) change, a hot reload: kept for a REPLAY, and on the
+   * core a GEN with just those bits, the smooth ones gliding over `seconds`. Not a generator: nothing.
+   */
+  setGeneratorParams(id: number, params: ReadonlyMap<number, number>, seconds: number): void {
+    const i = this.slot(id);
+    const values = i >= 0 ? this.t.genParams[i] : null;
+    if (!values) return;
+    let mask = 0;
+    for (const [k, v] of params) {
+      if (!Number.isInteger(k) || k < 0 || k >= values.length || !Number.isFinite(v)) continue;
+      values[k] = v;
+      mask |= 1 << k;
+    }
+    if (mask === 0 || !this.onCore(i)) return;
+    const rate = this.host.clockMap.sampleRate;
+    this.host.writer.gen(id, undefined, mask >>> 0, values, 0, Math.max(0, seconds) * (rate > 0 ? rate : 0));
+  }
 
   setVolume(id: number, v: number): void {
     const i = this.slot(id);
@@ -691,7 +731,7 @@ export class CoreVoices {
       if (frame !== null) this.reanchorSeek(id, frame);
       return;
     }
-    if (!this.onCore(i)) return;
+    if (!this.onCore(i) || t.genKind[i] !== 0) return; // ADR 0346: a generator has no position to seek to
     const info = host.clips.info(t.clip[i]!);
     if (!info || info.sampleRate <= 0) return;
     let frame = Math.round(time * info.sampleRate);
@@ -1053,7 +1093,7 @@ export class CoreVoices {
     if (member) host.musicOps.memberFreed(id, i);
     if ((t.flags[i]! & VoiceFlag.STREAM) !== 0) {
       if (!member) host.streams.close(t.clip[i]!);
-    } else host.clips.release(t.clip[i]!);
+    } else if (t.genKind[i] === 0) host.clips.release(t.clip[i]!); // ADR 0346: a generator holds no clip
     host.panners.forget(i);
     host.automation.forget(i);
     // ADR 0162 (K4): the M3 per-slot state goes with the voice.

@@ -73,6 +73,23 @@ const PLANAR_SCRATCH_BYTES = 16 * QUANTUM * 4;
  * decoder and seam state, one per mixed voice in the `AdpcmCursors` region after `FxMem`.
  */
 const ADPCM_CURSOR_BYTES = 2_176;
+/**
+ * ADR 0346 (ABI 5.1): a `GenEntries` pool entry's bound, `generator::ENTRY_BYTES` (the native test keeps it under 6 KiB:
+ * parameters and their glides, oscillator, filter, envelope, LFO and noise state, a blip's 1,024-sample phaser line).
+ * A headroom bound, not the exact layout: a larger entry (a higher-quality oscillator's state) raises it here.
+ */
+const GEN_ENTRY_BYTES = 6 * 1_024;
+/** `generator::SlotGen`: 8 B per logical voice slot (kind, key-off and length), after the region's header. */
+const GEN_SLOT_BYTES = 8;
+
+/**
+ * @internal ADR 0346 (ABI 5.1): `generator::region_bytes`, the `GenEntries` region: a header, a slot record per logical
+ * voice and max(16, `max_mixed` / 4) pool entries (64 on the high preset), each aligned as `layout.rs` aligns it.
+ */
+export function genEntriesRegionBytes(preset: CorePreset): number {
+  const entries = Math.max(16, Math.floor(preset.maxMixed / 4));
+  return REGION_ALIGN + alignUp(preset.maxLogical * GEN_SLOT_BYTES, REGION_ALIGN) + entries * GEN_ENTRY_BYTES;
+}
 
 const alignUp = (n: number, to: number): number => Math.ceil(n / to) * to;
 const headParts = (frames: number): number => Math.min(Math.ceil(frames / QUANTUM), ZONE_KERNEL_MAX_HEAD_PARTS);
@@ -141,7 +158,8 @@ export function spatialRegionsBytes(preset: CorePreset, sampleRate: number): num
 
 /**
  * @internal The Memory's headroom past the arena for these parameters (replaces M2's constant): M2's regions, ADR 0162's
- * regions (`spatialRegionsBytes`) and the zone kernel budget (kernels are arena clips outside `clipMemoryMB`, C8).
+ * regions (`spatialRegionsBytes`), ADR 0346's generator pool (`genEntriesRegionBytes`) and the zone kernel budget
+ * (kernels are arena clips outside `clipMemoryMB`, C8).
  */
 export function fixedRegionsHeadroomBytes(preset: CorePreset, sampleRate: number): number {
   return (
@@ -150,6 +168,7 @@ export function fixedRegionsHeadroomBytes(preset: CorePreset, sampleRate: number
     m4FixedRegionsBytes() +
     fxMemRegionBytes(sampleRate) +
     musicRingsBytes(preset) +
+    genEntriesRegionBytes(preset) +
     zoneKernelBudgetBytes(preset.maxZoneSlots, zoneMaxFrames(preset, sampleRate))
   );
 }

@@ -54,6 +54,9 @@ import {
   writeBusConfig,
   writeEnvelope,
   writeFade,
+  writeGen,
+  GEN_FIXED_END,
+  GEN_PARAMS_MAX,
   writeMaster,
   writePlay,
   writeReset,
@@ -470,6 +473,11 @@ export class Replayer {
         streams.push(this.idOf(i));
         continue;
       }
+      // ADR 0346: a generator has no clip to wait for: it goes back with the first voices.
+      if (t.genKind[i] !== 0) {
+        this.back.push(this.idOf(i));
+        continue;
+      }
       const clip = t.clip[i]!;
       const ids = this.waiting.get(clip);
       if (ids) ids.push(this.idOf(i));
@@ -561,9 +569,11 @@ export class Replayer {
       // ADR 0158: a SET_LOOP region (looping, or released) decides instead of PLAY's whole-clip flag.
       const region = this.src.automation?.loopOf(i) ?? null;
       const loop = region ? region.looping : (flags & VoiceFlag.LOOP) !== 0;
-      let pos = playheads.positionNow(i, frame);
+      // ADR 0346: a generator starts again from its parameters (no clip, no position: its envelope restarts).
+      const genParams = t.genKind[i] !== 0 ? t.genParams[i] : null;
+      let pos = genParams ? 0 : playheads.positionNow(i, frame);
       const shortOneShot = (flags & VoiceFlag.ONE_SHOT) !== 0 && frames / clipRate < REPLAY_SHORT_ONE_SHOT_SECONDS;
-      if ((!loop && pos >= frames) || (shortOneShot && !loop && waited > REPLAY_SHORT_ONE_SHOT_MAX_WAIT_SECONDS)) {
+      if (!genParams && ((!loop && pos >= frames) || (shortOneShot && !loop && waited > REPLAY_SHORT_ONE_SHOT_MAX_WAIT_SECONDS))) {
         t.free(id, VoiceReason.NONE);
         this.stats.dropped++;
         continue;
@@ -574,7 +584,8 @@ export class Replayer {
         this.stats.dropped++;
         continue;
       }
-      if (region && loop) pos = wrapPosition(pos, region.start, region.end, frames);
+      if (genParams) pos = 0;
+      else if (region && loop) pos = wrapPosition(pos, region.start, region.end, frames);
       else if (loop && frames > 0) pos %= frames;
       playheads.start(i, frame, pos);
       const spatial = (flags & VoiceFlag.SPATIAL) !== 0;
@@ -600,6 +611,13 @@ export class Replayer {
           startOffsetFrames: Math.floor(pos),
         }),
       );
+      // ADR 0346: a generator's GEN with every parameter at its current value and its seed, right behind its PLAY.
+      if (genParams) {
+        const n = Math.min(genParams.length, GEN_PARAMS_MAX);
+        const mask = n >= 32 ? 0xffffffff : 2 ** n - 1;
+        const seed = t.genSeed[i]! || 1;
+        b.record(GEN_FIXED_END + 4 * n, (view, off) => writeGen(view, off, { voiceId: id, frameOffset: 0, mask, seed, rampFrames: 0, values: genParams.subarray(0, n) }));
+      }
       // ADR 0178: what follows the PLAY is the session's `replayVoice` phase (AUTOMATE and SET_LOOP, SET_VOICE_FX, the
       // voice table's FADE, stamped ramps and SET_PAUSED, in `PHASE_ORDER.replayVoice`'s order).
       const v = this.voice;

@@ -23,7 +23,7 @@ import {
   type StatusBlock,
 } from "../wire.generated";
 import { CLIP_BYTES_PER_QUANTUM, CoreDriver, CORE_ABI_MAJOR, instantiateCore, type CoreExports, type CoreInstance, type CorePreset } from "./coreDriver";
-import { clipSampleBytes, fixedRegionsHeadroomBytes, fxMemRegionBytes, m4FixedRegionsBytes, musicRingsBytes, M2_REGIONS_HEADROOM_BYTES, MEMORY_INITIAL_PAGES, memoryMaximumPages, spatialRegionsBytes, zoneKernelBlobBytes, zoneKernelBudgetBytes, zoneMaxFrames } from "./coreMemory";
+import { clipSampleBytes, fixedRegionsHeadroomBytes, fxMemRegionBytes, genEntriesRegionBytes, m4FixedRegionsBytes, musicRingsBytes, M2_REGIONS_HEADROOM_BYTES, MEMORY_INITIAL_PAGES, memoryMaximumPages, spatialRegionsBytes, zoneKernelBlobBytes, zoneKernelBudgetBytes, zoneMaxFrames } from "./coreMemory";
 import { UnderrunProbe } from "./underrunProbe";
 
 const WASM = readFileSync(fileURLToPath(new URL("../wasm/myco_audio.wasm", import.meta.url)));
@@ -101,7 +101,7 @@ describe("coreDriver with the real wasm", () => {
     const addresses = (c: CoreInstance) => [c.exports.myco_audio_inbox_ptr(), c.exports.myco_audio_status_ptr(), c.exports.myco_audio_process(0, 0), c.memory.buffer.byteLength];
     expect(addresses(a)).toEqual(addresses(b));
     expect(a.exports.myco_audio_process(0, 0)).toBeGreaterThanOrEqual(MEMORY_INITIAL_PAGES * 65_536);
-    expect(memoryMaximumPages(PRESET, RATE)).toBe(64 + Math.ceil((M2_REGIONS_HEADROOM_BYTES + spatialRegionsBytes(PRESET, RATE) + m4FixedRegionsBytes() + fxMemRegionBytes(RATE) + (16 << 20)) / 65_536));
+    expect(memoryMaximumPages(PRESET, RATE)).toBe(64 + Math.ceil((M2_REGIONS_HEADROOM_BYTES + spatialRegionsBytes(PRESET, RATE) + m4FixedRegionsBytes() + fxMemRegionBytes(RATE) + genEntriesRegionBytes(PRESET) + (16 << 20)) / 65_536));
   });
 
   it("refuses a schema hash or ABI major mismatch with CoreLoadError", () => {
@@ -407,7 +407,10 @@ describe("ABI 2.0 init and the layout mirror (ADR 0162 C8)", () => {
     expect(musicRingsBytes({ ...PRESET, maxMusicRings: 0 })).toBe(0);
     expect(musicRingsBytes({ ...PRESET, maxMusicRings: 16 })).toBe(16 * 307_200);
     const base = fixedRegionsHeadroomBytes(PRESET, RATE);
-    expect(base).toBe(M2_REGIONS_HEADROOM_BYTES + spatialRegionsBytes(PRESET, RATE) + m4FixedRegionsBytes() + fxMemRegionBytes(RATE) + zoneKernelBudgetBytes(0, 0));
+    expect(base).toBe(M2_REGIONS_HEADROOM_BYTES + spatialRegionsBytes(PRESET, RATE) + m4FixedRegionsBytes() + fxMemRegionBytes(RATE) + genEntriesRegionBytes(PRESET) + zoneKernelBudgetBytes(0, 0));
+    // ADR 0346 (ABI 5.1): the generator pool, max(16, max_mixed / 4) entries of at most 6 KiB and 8 B per logical slot.
+    expect(genEntriesRegionBytes({ ...PRESET, maxMixed: 256, maxLogical: 4_096 })).toBe(64 + 4_096 * 8 + 64 * 6_144);
+    expect(genEntriesRegionBytes({ ...PRESET, maxMixed: 32 })).toBe(64 + Math.ceil((PRESET.maxLogical * 8) / 64) * 64 + 16 * 6_144);
     // ADR 0331: 469 blocks of 16 KB at 48 kHz, plus the header (`fxmem.rs`).
     expect(fxMemRegionBytes(48_000)).toBe(2_112 + 469 * 16_384);
     expect(fixedRegionsHeadroomBytes({ ...PRESET, maxMusicRings: 12 }, RATE) - base).toBe(12 * 307_200);

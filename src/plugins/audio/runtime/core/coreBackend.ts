@@ -58,7 +58,7 @@
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../../engine/audio/mixer";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioCodecs, AudioOutputDevice, AudioPacks, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, ShapedParams, VoiceSpatialOptions, ZoneIrService } from "../backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioCodecs, AudioGenerators, AudioOutputDevice, AudioPacks, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, ShapedParams, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
 import { BUS_LP_OFF_HZ, FX_MEMORY_SECONDS, readStatus, type BusConfigBuses } from "../wire.generated";
 import { AudioHandle, type AudioReason } from "./handle";
@@ -239,6 +239,14 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     return (this.packHost ??= createPackHost({ decoder: () => this.decoderOf(), clips: this.clips, locked: () => this.status === "locked" }));
   }
   private packHost: AudioPacks | null = null;
+
+  /**
+   * ADR 0346 (G3): generator voices. A play with `generator` is a PLAY of the kind's reserved clip id and a GEN with every
+   * value at the same frame (`voices.ts`); `setParams` sends a partial GEN to a playing one (a hot reload).
+   */
+  readonly generators: AudioGenerators = {
+    setParams: (voice, params, seconds) => this.voices.setGeneratorParams(voice.id, params, seconds),
+  };
 
   /** ADR 0338 §7: plugin effects (the core runs them inside its chains; `effectPlugins/host.ts`). */
   get effectPlugins(): EffectPluginHost {

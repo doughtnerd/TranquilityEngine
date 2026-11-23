@@ -35,7 +35,7 @@ import { NULL_PROFILE_SINK, type ProfileSink, type ProfileStopReason } from "./m
 import { mixerTapFor, taps } from "./mix/profileTaps";
 import type { KeyframeBus, KeyframeVoice } from "./capture/format";
 import { KEYFRAME_BUS_LANES, KEYFRAME_MAX_BUSES, KEYFRAME_MAX_VOICES, NO_NAME, keyframeAudibility, keyframePitch } from "./capture/keyframeLayout";
-import { mixer, registerDefaultBackend, resolveBackendKind, zeroCounters, type AudioBackend, type AudioBackground, type AudioCaptureSource, type AudioClipCache, type AudioDebugInfo, type AudioLiveMix, type AudioM3Counters, type AudioMixCaps, type ClipSpanHold, type RecorderTap, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicLifecycleEvent, type MusicGroupRequest, type AudioOutputDevice, type BackendKeyframe, type MusicBackendDebug, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type ShapedParams, type VoiceSpatialOptions } from "./backend";
+import { generatorsNeedTheCore, mixer, registerDefaultBackend, resolveBackendKind, zeroCounters, type AudioBackend, type AudioBackground, type AudioCaptureSource, type AudioClipCache, type AudioDebugInfo, type AudioLiveMix, type AudioM3Counters, type AudioMixCaps, type ClipSpanHold, type RecorderTap, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicLifecycleEvent, type MusicGroupRequest, type AudioOutputDevice, type BackendKeyframe, type MusicBackendDebug, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type ShapedParams, type VoiceSpatialOptions } from "./backend";
 import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, webAudioVector, type BusPlan } from "./babylonMapping";
 import { DistanceEffect, SendCurveTable, SpatialViewFlag, type ListenerFrame, type SpatialPassHost, type SpatialVoiceView, type ZonePass } from "./core/spatial";
 import { DopplerPass } from "./core/doppler";
@@ -1274,6 +1274,12 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
   }
 
   play(req: PlayRequest): AudioVoice | null {
+    // ADR 0346 (G3): no `generators` capability until the offline render (G5); a generator play that reaches here (handed
+    // over by the pending backend) plays nothing, with the runtime's one warning per kind.
+    if (req.generator) {
+      warnOnce(`generators:${req.generator.kind}`, generatorsNeedTheCore(req.generator.kind));
+      return null;
+    }
     return this._playVoice(req);
   }
 
