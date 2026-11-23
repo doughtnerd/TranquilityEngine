@@ -255,6 +255,17 @@ export interface AudioPlaylistHandle extends AudioHandle, MusicEventHandle {
    * the first frame whose heard clock has passed them (`e.time` is the exact heard time).
    */
   onMarker(type: AudioMarkerType, fn: (e: AudioMarkerEvent) => void): () => void;
+  /**
+   * ADR 0362 §1: hold the playback where it is: its voices, timers, sequence clock and pending picks wait, and `resume()`
+   * continues it from that same position (the musical clock, markers and beat callbacks hold too). Pausing a paused
+   * playback, or resuming one that isn't paused, does nothing; `stop()` stops a paused one. Changes to its parameters
+   * while paused take effect when it resumes.
+   */
+  pause(): void;
+  /** ADR 0362 §1: continue a paused playback from where it held. A no-op when it isn't paused. */
+  resume(): void;
+  /** ADR 0362 §1: true from `pause()` until `resume()` or `stop()`. */
+  readonly paused: boolean;
 }
 
 /**
@@ -442,8 +453,13 @@ export interface AudioVoice {
   setPosition(p: Vec3Like): void;
   /** Move to another bus while playing. */
   setBus(bus: string): void;
-  pause(): void;
-  resume(): void;
+  /**
+   * Hold the voice (it stops rendering and advancing; its position and ramps hold) and continue it from there. `at`
+   * (ADR 0362 §1, heard time) stamps it, so every voice of a playback holds at the same instant and continues at the same
+   * instant; omitted or past, as soon as possible. The core honours the stamp; the Babylon fallback pauses at once.
+   */
+  pause(at?: number): void;
+  resume(at?: number): void;
   /** Stop now, or fade to silence over `fadeSeconds` (default 0) and stop. */
   stop(fadeSeconds?: number): void;
 

@@ -1561,12 +1561,12 @@ class Voice extends AudioHandle implements CoreVoice {
     this.voices.setPriority(this.id, priority);
   }
 
-  pause(): void {
-    this.voices.setPaused(this.id, true);
+  pause(at?: number): void {
+    this.voices.setPaused(this.id, true, at);
   }
 
-  resume(): void {
-    this.voices.setPaused(this.id, false);
+  resume(at?: number): void {
+    this.voices.setPaused(this.id, false, at);
   }
 
   seek(seconds: number): void {

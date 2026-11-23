@@ -112,7 +112,7 @@ class VoiceHandle implements AudioHandle {
 
 /** A handle for a playlist that didn't play. */
 const INERT_EVENT: AudioPlaylistHandle = Object.freeze({
-  playing: false, reason: null, position: null, panner: null, occlusion: 1,
+  playing: false, reason: null, position: null, panner: null, occlusion: 1, paused: false, pause() {}, resume() {},
   stop() {}, fade() {}, setParameter() {}, getParameter: () => undefined, release() {}, onMarker: () => () => {},
   // ADR 0166 §1.2 (Q0): a playlist that didn't play has no music.
   music: undefined, onMusic: () => () => {}, trigger: () => false,
@@ -147,6 +147,9 @@ class TakePlaylistHandle implements AudioPlaylistHandle {
   get music(): MusicHandle | undefined { return this.h.music; }
   onMusic(kind: MusicKind, fn: (e: MusicEvent) => void): () => void { return this.h.onMusic(kind, fn); }
   trigger(name: string): boolean { takeTap.sink?.trigger(this.instance, String(name)); return this.h.trigger(name); }
+  pause(): void { this.h.pause(); }
+  resume(): void { this.h.resume(); }
+  get paused(): boolean { return this.h.paused; }
 }
 
 /** A playlist's stop without a fade fades over 120 ms (ADR 0343); the take records the fade the replay must use. */

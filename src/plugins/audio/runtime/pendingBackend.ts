@@ -170,12 +170,12 @@ class PendingVoice implements AudioVoice {
     if (this.inner) this.inner.setSpatialOptions(o);
     else this.spatialOptions = { ...this.spatialOptions, ...o };
   }
-  pause(): void {
-    if (this.inner) this.inner.pause();
+  pause(at?: number): void {
+    if (this.inner) this.inner.pause(at);
     else this.paused = true;
   }
-  resume(): void {
-    if (this.inner) this.inner.resume();
+  resume(at?: number): void {
+    if (this.inner) this.inner.resume(at);
     else this.paused = false;
   }
   stop(fadeSeconds?: number): void {

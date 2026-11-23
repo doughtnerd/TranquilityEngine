@@ -75,6 +75,8 @@ export interface QuantHost {
   readonly stopped: boolean;
   clock(): number;
   startOf(at: number | null): number;
+  /** ADR 0362 §1: the heard time a stamp at instance time `t` goes with. */
+  heard(t: number): number;
   param(name: string): { value: number; def: ParameterDef } | null;
   musicalSource(): MusicalSource | null;
   schedule(at: number, run: () => void): void;
@@ -142,7 +144,7 @@ export class QuantizedLanes {
       this.lanes.add(l);
     }
     this.byVoice.set(v, lanes);
-    if (lanes.some((l) => l.target === "gain")) v.voice.paramsShaped({ gain: this.gainOf(v), seconds: 0, at: start });
+    if (lanes.some((l) => l.target === "gain")) v.voice.paramsShaped({ gain: this.gainOf(v), seconds: 0, at: this.host.heard(start) });
   }
 
   /** A parameter changed: every lane on it moves at its next boundary. */
@@ -211,7 +213,7 @@ export class QuantizedLanes {
     for (const v of [...l.voices]) {
       if (!(v.voice.alive ?? v.voice.playing)) { l.voices.delete(v); continue; }
       if (v.leaving) continue;
-      v.voice.paramsShaped({ gain: this.gainOf(v), seconds: QUANTIZED_RAMP_SECONDS, ...(at !== null ? { at } : {}) });
+      v.voice.paramsShaped({ gain: this.gainOf(v), seconds: QUANTIZED_RAMP_SECONDS, ...(at !== null ? { at: this.host.heard(at) } : {}) });
     }
   }
 
