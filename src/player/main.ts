@@ -96,13 +96,30 @@ async function boot(): Promise<void> {
     entryScene: manifest.mainScene || null,
     container,
   });
-  // ADR 0376: a build exported with debugging on (`game.json` `debug`) connects to the editor or the Studio. Its address
-  // can be overridden at launch: a desktop build's `--debug-link <address>` (its shell sets `__mycoDebugLink`), a web
-  // build's `?debug-link=`. Without `debug` nothing is imported, and a release export holds none of the link's files.
+  // ADR 0376 / 0380: a build exported with debugging on (`game.json` `debug`) connects out to the editor or the Studio
+  // (`debug.link`, or an address given at launch), listens for tools (`debug.listen`), or both. Launch flags: a desktop
+  // build's `--debug-link <address>` and `--debug-code <code>` (its shell sets `__mycoDebugLink` / `__mycoDebugCode`), a
+  // web build's `?debug-link=` and `?debug-code=` (the tool's pairing code; plan decision O6, no entry field). Without
+  // `debug` nothing is imported, and a release export holds none of the link's files or the pairing overlay.
   if (manifest.debug) {
-    const override = new URLSearchParams(location.search).get("debug-link") ?? (globalThis as { __mycoDebugLink?: string }).__mycoDebugLink ?? null;
-    const { startDebugLink } = await import("../engine/debugLink/host");
-    await startDebugLink(runtime, { debug: manifest.debug, override, name: manifest.name, platform: "__TAURI_INTERNALS__" in window ? "desktop" : "web" });
+    const query = new URLSearchParams(location.search);
+    const flags = globalThis as { __mycoDebugLink?: string; __mycoDebugCode?: string };
+    const override = query.get("debug-link") ?? flags.__mycoDebugLink ?? null;
+    const code = query.get("debug-code") ?? flags.__mycoDebugCode ?? null;
+    const desktop = "__TAURI_INTERNALS__" in window;
+    const platform = desktop ? "desktop" : "web";
+    // A desktop game can listen: the native WebSocket server stands in for the transport a page lacks.
+    if (desktop) (await import("../engine/debugLink/tauriListener")).registerTauriWebSocketTransport();
+    const { startDebugLink, startBuildListener } = await import("../engine/debugLink/host");
+    const d = manifest.debug as Partial<typeof manifest.debug>;
+    // A listening-only build (`listen` without a `link`) doesn't also dial the default address.
+    if (d.listen !== true || d.link !== undefined || override !== null) {
+      await startDebugLink(runtime, { debug: manifest.debug, override, name: manifest.name, platform, code });
+    }
+    if (d.listen === true) {
+      const listener = await startBuildListener(runtime, { debug: manifest.debug, name: manifest.name, platform });
+      if (listener) (await import("./debugOverlay")).installDebugOverlay(listener);
+    }
   }
   runtime.start();
   (window as { engine?: Engine }).engine = runtime;
