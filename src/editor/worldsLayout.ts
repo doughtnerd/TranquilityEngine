@@ -1,7 +1,8 @@
 // The Worlds panel's graph layout (ADR 0032, 0062): start-up and Spawnable Worlds as one layered
 // graph, with orthogonal link arrows routed through the gaps between columns and a label pill per
-// link. Pure (nodes and links in, positions, paths and label boxes out), so it's unit-tested;
-// WorldsPanel.tsx draws the result.
+// link. Pure (nodes and links in, positions, paths and label boxes out), so it's unit-tested.
+// The Worlds panel's node graph (ADR 0381) uses it to place the Worlds the user hasn't moved; it
+// draws its own arrows between the nodes, so the routes and label boxes here are not drawn.
 //
 // Columns follow link depth: a link's `from` (the client) sits left of its `to` (the server), so a
 // Spawnable World lands in the column after the deepest World linking to it; Spawnable Worlds with

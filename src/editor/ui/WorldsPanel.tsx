@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { signal } from "@preact/signals";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { LinkConfig, WorldTag } from "../../engine";
 import { listSystemCatalog, type SystemCatalogEntry } from "../../engine/core/systems";
 import { listTransports } from "../../engine/net/Transport";
@@ -48,7 +49,26 @@ import {
   withReplicationSetting,
 } from "../worldsConfig";
 import { PROJECT_FILE } from "../projectPaths";
-import { DEFAULT_LAYOUT, layoutGraph, type LayoutLinkIn, type LayoutNodeIn } from "../worldsLayout";
+import { DEFAULT_LAYOUT, layoutGraph } from "../worldsLayout";
+import { placeNodes, positionKey, readWorldsGraph, renameNode, writeWorldsGraph, type NodePositions } from "../worldsGraphPositions";
+import {
+  NO_PAN,
+  WireRefusal,
+  handleProps,
+  isFieldTarget,
+  px,
+  startPointerDrag,
+  useGraphCanvas,
+  useGraphWiring,
+  useNodeDrag,
+  wirePath,
+  type CanvasNode,
+  type GraphDragHooks,
+  type Point,
+  type PortSide,
+} from "../graph";
+import { KEY_OWNER } from "../graph/keyOwner";
+import "../graph/graph.css";
 import "./worlds.css";
 import { usePanelState } from "./panel/Panel";
 import { ProjectSectionToolbar } from "./ProjectSectionToolbar";
@@ -147,7 +167,7 @@ export function WorldsPanel() {
         </button>
       </ProjectSectionToolbar>
       <div class="worlds-body">
-        <Graph model={model} problems={problems} selected={selected} onSelect={s.select} defaultRate={defaultTickRate(project)} />
+        <GraphSection s={s} model={model} problems={problems} selected={selected} project={project} defaultRate={defaultTickRate(project)} />
         {problems.general.length > 0 && <Problems list={problems.general} />}
         <fieldset class="worlds-fields" disabled={!editable}>
           {selected && <Details s={s} model={model} target={selected} problems={problems} catalog={catalog} project={project} />}
@@ -174,8 +194,10 @@ function Problems(props: { list: readonly string[] }) {
 
 // --- graph --------------------------------------------------------------------------------------
 
-const { nodeW: NODE_W, nodeH: NODE_H } = DEFAULT_LAYOUT;
+const { nodeW: NODE_W, nodeH: NODE_H, labelH: LABEL_H, labelPadX: LABEL_PAD, charW: CHAR_W } = DEFAULT_LAYOUT;
 const SPAWNABLE_HINT = "Created by game code when needed, not at start-up";
+/** The space between arrows that join the same two Worlds, where they meet the nodes. */
+const FAN = 10;
 
 /**
  * The live connections between the play session's Worlds, refreshed a few times a second while
@@ -216,70 +238,336 @@ function mergeLiveLinks(links: readonly LiveLink[], sources: ReadonlyMap<string,
   return [...byPair.values()];
 }
 
+/** Each project's stored node positions (ADR 0381), read once per project and shared by every panel copy. */
+const positionCache = new WeakMap<EditorProject, NodePositions>();
+const positionsVersion = signal(0);
+
+/** The project's stored node positions, or null while they're being read. */
+function useNodePositions(project: EditorProject): NodePositions | null {
+  positionsVersion.value;
+  useEffect(() => {
+    if (positionCache.has(project)) return;
+    void readWorldsGraph(project).then((read) => {
+      if (positionCache.has(project)) return;
+      positionCache.set(project, read);
+      positionsVersion.value++;
+    });
+  }, [project]);
+  return positionCache.get(project) ?? null;
+}
+
+/** Keep new node positions: for this session, and in `.myco/worlds-graph.json` when the project can be saved. */
+function storeNodePositions(project: EditorProject, next: NodePositions): void {
+  positionCache.set(project, next);
+  positionsVersion.value++;
+  if (project.canSave) void writeWorldsGraph(project, next).catch((e) => console.warn(`Couldn't save the Worlds graph layout: ${e}`));
+}
+
+/** A stored position follows a World's rename (ADR 0381). */
+function renameNodePosition(project: EditorProject, kind: WorldRef["kind"], from: string, to: string): void {
+  const before = positionCache.get(project);
+  if (!before) return;
+  const after = renameNode(before, kind, from, to);
+  if (after !== before) storeNodePositions(project, after);
+}
+
+/** The graph once the project's node positions are read (an empty pane until then, so it opens framed on where they are). */
+function GraphSection(props: Omit<GraphProps, "positions">) {
+  const positions = useNodePositions(props.project);
+  if (!positions) return <div class="sg-pane worlds-graph" aria-busy="true" />;
+  return <Graph {...props} positions={positions} />;
+}
+
+interface GraphProps {
+  s: PanelState;
+  model: WorldsModel;
+  problems: GroupedProblems;
+  selected: WorldRef | null;
+  project: EditorProject;
+  positions: NodePositions;
+  defaultRate: number;
+}
+
+/** A World or Spawnable World on the canvas. */
+interface WorldNode {
+  /** Its canvas id (`w0`, `t0`), which its ports are named by. */
+  id: string;
+  ref: WorldRef;
+  /** Where its position is stored (`worldsGraphPositions.ts`). */
+  key: string;
+  /** The World name links use. */
+  name: string;
+}
+
+/** One arrow: a link in project.json, a link the lobby makes, or a live connection. */
+interface Arrow {
+  key: string;
+  from: string;
+  to: string;
+  label: string;
+  cls: string;
+  /** The attribute naming it by its ends (`data-link-arrow`, `data-lobby-link`, `data-live-link`). */
+  attr: string;
+  live: boolean;
+  /** Its index in `links`, for a link in project.json (which can be picked and removed). */
+  link?: number;
+}
+
+const splitRef = (ref: string) => {
+  const i = ref.lastIndexOf(".");
+  return { node: ref.slice(0, i), port: ref.slice(i + 1) };
+};
+
+/** The World name a port reference (`w0.out`, `t1.in`) stands for in `model`. */
+function endName(model: WorldsModel, ref: string): string | undefined {
+  const id = splitRef(ref).node;
+  const i = Number(id.slice(1));
+  if (id[0] === "w") return model.worlds[i]?.name;
+  const t = model.templates[i];
+  return t && spawnableName(t);
+}
+
+/** Why `from` can't link to `to` (port references), or null. */
+function whyNotLink(model: WorldsModel, from: string, to: string): string | null {
+  const a = endName(model, from), b = endName(model, to);
+  if (a === undefined || b === undefined) return "That World is gone";
+  if (a === b) return "A World can't link to itself";
+  if (model.links.some((l) => l.from === a && l.to === b)) return `${a} already links to ${b}`;
+  return null;
+}
+
 /**
- * Start-up and Spawnable Worlds as one graph (worldsLayout.ts): columns by link depth, clients left
- * of their servers, arrows routed between the nodes with a label pill each. Spawnable Worlds are
- * dashed and tagged, as are links naming them (they apply when game code creates the World).
- * While playing, the live connections between the session's Worlds are drawn too.
+ * Start-up and Spawnable Worlds as a node graph on the shared graph canvas (ADR 0381, over ADR 0046's
+ * xyflow layer): pan with a drag on the empty canvas (or the middle or right button), zoom with the
+ * wheel, F frames every World. Click a node to edit that World; drag it to move it (positions are
+ * the editor's, in `.myco/worlds-graph.json`; a World never moved sits where the auto layout,
+ * `worldsLayout.ts`, puts it). Drag from a World's right edge to another World to link them
+ * (client → server, over loopback); click a link and press Delete to remove it. Spawnable Worlds are
+ * dashed and tagged, as are links naming them (they apply when game code creates the World). While
+ * playing, the live connections between the session's Worlds are drawn too.
  */
-function Graph(props: { model: WorldsModel; problems: GroupedProblems; selected: WorldRef | null; onSelect: (ref: WorldRef) => void; defaultRate: number }) {
-  const { model, problems, selected, onSelect, defaultRate } = props;
+function Graph(props: GraphProps) {
+  const { s, model, problems, selected, project, positions, defaultRate } = props;
+  const editable = project.canSave;
   const live = useLiveLinks();
-  const nodes: LayoutNodeIn[] = [
-    ...model.worlds.map((w, i) => ({ key: `w${i}`, name: w.name, spawnable: false })),
-    ...model.templates.map((t, i) => ({ key: `t${i}`, name: spawnableName(t), spawnable: true })),
-  ];
-  const liveLabel = (l: LiveLink & { count: number }) =>
-    (l.state === "open" ? "connected" : l.state === "handshake" ? "connecting…" : "closed") + (l.count > 1 ? ` ×${l.count}` : "");
+  const [dragging, setDragging] = useState<ReadonlyMap<string, Point> | null>(null);
+  /** The picked link (its index in `links`), or null. */
+  const [picked, setPicked] = useState<number | null>(null);
   const implied = lobbyLinks(model);
   const roles = serverRoles(model);
-  const links: LayoutLinkIn[] = [
-    ...model.links.map((l) => ({ from: l.from, to: l.to, label: l.transport })),
-    ...implied.map((l) => ({ from: l.from, to: l.to, label: l.label })),
-    ...live.map((l) => ({ from: l.from, to: l.to, label: liveLabel(l) })),
+
+  const nodes: WorldNode[] = [
+    ...model.worlds.map((w, i) => ({ id: `w${i}`, ref: { kind: "world", index: i } as WorldRef, key: positionKey("world", w.name), name: w.name })),
+    ...model.templates.map((t, i) => ({ id: `t${i}`, ref: { kind: "template", index: i } as WorldRef, key: positionKey("template", t.key), name: spawnableName(t) })),
   ];
-  const layout = layoutGraph(nodes, links);
-  const routes = layout.links.map((route, i) => {
-    if (!route) return null;
-    if (i < model.links.length) {
-      const l = model.links[i];
-      const spawnable = isSpawnableName(model, l.from) || isSpawnableName(model, l.to);
-      return { route, label: l.transport, key: `l${i}`, cls: `worlds-link${spawnable ? " spawnable" : ""}${problems.links.has(i) ? " invalid" : ""}`, data: { "data-link-arrow": `${l.from}>${l.to}` }, marker: "worlds-arrow" };
-    }
-    if (i < model.links.length + implied.length) {
-      const l = implied[i - model.links.length];
-      return { route, label: l.label, key: `lobby:${l.from}>${l.to}`, cls: "worlds-link spawnable implied", data: { "data-lobby-link": `${l.from}>${l.to}` }, marker: "worlds-arrow" };
-    }
-    const l = live[i - model.links.length - implied.length];
-    return { route, label: links[i].label, key: `live:${l.from}>${l.to}`, cls: `worlds-link live ${l.state}`, data: { "data-live-link": `${l.from}>${l.to}` }, marker: "worlds-arrow-live" };
+  const auto = layoutGraph(
+    nodes.map((n) => ({ key: n.id, name: n.name, spawnable: n.ref.kind === "template" })),
+    [...model.links.map((l) => ({ from: l.from, to: l.to, label: l.transport })), ...implied.map((l) => ({ from: l.from, to: l.to, label: l.label }))],
+  );
+  const places: Point[] = nodes.map((n, i) => {
+    const moving = dragging?.get(n.id);
+    if (moving) return moving;
+    const stored = positions.get(n.key);
+    return stored ? { x: stored[0], y: stored[1] } : { x: auto.nodes[i].x, y: auto.nodes[i].y };
   });
   const isSelected = (ref: WorldRef) => selected?.kind === ref.kind && selected.index === ref.index;
-  const node = (key: string) => layout.nodes.find((p) => p.key === key)!;
+  const canvasNodes: CanvasNode[] = nodes.map((n, i) => ({
+    id: n.id,
+    x: places[i].x,
+    y: places[i].y,
+    width: NODE_W,
+    height: NODE_H,
+    selected: isSelected(n.ref),
+    inputs: [{ id: "in", x: 0, y: NODE_H / 2 }],
+    outputs: [{ id: "out", x: NODE_W, y: NODE_H / 2 }],
+  }));
+  const latest = useRef({ model, nodes, canvasNodes, positions });
+  latest.current = { model, nodes, canvasNodes, positions };
+  const linkLabel = useRef("Link Worlds");
+
+  const canvas = useGraphCanvas({ viewKey: `worlds:${project.root ?? project.name}`, nodes: canvasNodes, onContextMenu: () => undefined });
+  const wiring = useGraphWiring<WorldsModel>({
+    flowPrefix: "wg",
+    edits: {
+      sourceOf: () => null, // a World takes any number of links
+      whyNot: whyNotLink,
+      connect: (g, from, to) => {
+        if (whyNotLink(g, from, to)) return g;
+        const a = endName(g, from)!, b = endName(g, to)!;
+        linkLabel.current = `Link ${a} to ${b}`;
+        return addLink(g, { from: a, to: b, transport: "loopback" });
+      },
+      disconnect: (g) => g,
+      split: splitRef,
+    },
+    graph: () => latest.current.model,
+    commit: (next) => {
+      if (next === latest.current.model) return;
+      pinAll(new Map());
+      edit(s, linkLabel.current, next);
+    },
+    readOnly: !editable,
+    root: canvas.pane,
+    canvas: () => canvas,
+    nodes: () => latest.current.canvasNodes,
+    onDropInSpace: () => undefined,
+  });
+  /**
+   * Store every World where it's drawn now, `moved` ones where they were dragged to: once the user arranges
+   * the graph (or draws a link), the auto layout no longer moves the Worlds it placed.
+   */
+  const pinAll = (moved: ReadonlyMap<string, Point>) => {
+    const now = latest.current;
+    const at = now.nodes.map((n, i) => [n.key, moved.get(n.id) ?? now.canvasNodes[i]] as const);
+    storeNodePositions(project, placeNodes(now.positions, at.map(([key, p]) => [key, [p.x, p.y]] as const), now.nodes.map((n) => n.key)));
+  };
+  // A pane hidden when the graph opened (a background tab) is framed when it's first shown.
+  const hiddenAtOpen = useRef(false);
+  useLayoutEffect(() => {
+    hiddenAtOpen.current = (canvas.pane.current?.clientWidth ?? 0) === 0;
+  }, []);
+  useEffect(() => {
+    if (!hiddenAtOpen.current || (canvas.pane.current?.clientWidth ?? 0) === 0) return;
+    hiddenAtOpen.current = false;
+    canvas.frameAll();
+  }, [canvas.paneSize]);
+  // Moving a World changes only the editor's layout, so a read-only project can be arranged too (it isn't written).
+  const drag: GraphDragHooks = {
+    pane: () => canvas.pane.current!,
+    nodes: () => latest.current.canvasNodes,
+    view: () => canvas.viewRef.current,
+    panBy: canvas.panBy,
+    onMove: (m) => setDragging(new Map(m)),
+    onEnd: (m) => {
+      setDragging(null);
+      if (m.size) pinAll(m);
+    },
+  };
+
+  const byName = new Map<string, number>();
+  nodes.forEach((n, i) => byName.has(n.name) || byName.set(n.name, i));
+  const liveLabel = (l: LiveLink & { count: number }) =>
+    (l.state === "open" ? "connected" : l.state === "handshake" ? "connecting…" : "closed") + (l.count > 1 ? ` ×${l.count}` : "");
+  const arrows: Arrow[] = [
+    ...model.links.map((l, i): Arrow => {
+      const spawnable = isSpawnableName(model, l.from) || isSpawnableName(model, l.to);
+      return { key: `l${i}`, from: l.from, to: l.to, label: l.transport, cls: `worlds-link${spawnable ? " spawnable" : ""}${problems.links.has(i) ? " invalid" : ""}${picked === i ? " selected" : ""}`, attr: "data-link-arrow", live: false, link: i };
+    }),
+    ...implied.map((l): Arrow => ({ key: `lobby:${l.from}>${l.to}`, from: l.from, to: l.to, label: l.label, cls: "worlds-link spawnable implied", attr: "data-lobby-link", live: false })),
+    ...live.map((l): Arrow => ({ key: `live:${l.from}>${l.to}`, from: l.from, to: l.to, label: liveLabel(l), cls: `worlds-link live ${l.state}`, attr: "data-live-link", live: true })),
+  ];
+  // Arrows joining the same two Worlds fan out side by side.
+  const ends = arrows.map((a) => {
+    const i = byName.get(a.from), j = byName.get(a.to);
+    return i === undefined || j === undefined || i === j ? null : { i, j };
+  });
+  const perPair = new Map<string, number>();
+  for (const e of ends) if (e) perPair.set(`${e.i}>${e.j}`, (perPair.get(`${e.i}>${e.j}`) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  const drawn = arrows.map((a, k) => {
+    const e = ends[k];
+    if (!e) return null;
+    const pair = `${e.i}>${e.j}`;
+    const nth = seen.get(pair) ?? 0;
+    seen.set(pair, nth + 1);
+    const off = (nth - (perPair.get(pair)! - 1) / 2) * FAN;
+    const from = { x: places[e.i].x + NODE_W, y: places[e.i].y + NODE_H / 2 + off };
+    const to = { x: places[e.j].x - 1, y: places[e.j].y + NODE_H / 2 + off };
+    const w = a.label.length * CHAR_W + LABEL_PAD * 2;
+    const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+    return { ...a, ends: `${a.from}>${a.to}`, d: wirePath(from, to), pill: { x: mid.x - w / 2, y: mid.y - LABEL_H / 2, w, h: LABEL_H } };
+  });
+
+  const arrowId = `${wiring.flowId}-arrow`, liveArrowId = `${wiring.flowId}-arrow-live`;
+  const focusPane = () => canvas.pane.current?.focus({ preventScroll: true });
+  const pick = (e: PointerEvent, link: number) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    focusPane();
+    setPicked(link);
+  };
+  const removePicked = (): boolean => {
+    const l = picked === null ? undefined : model.links[picked];
+    if (!l || !editable) return false;
+    setPicked(null);
+    edit(s, `Remove link ${l.from} → ${l.to}`, removeLink(model, picked!));
+    return true;
+  };
+  const panFrom = (e: PointerEvent) => {
+    const v0 = canvas.viewRef.current;
+    startPointerDrag(e, {
+      zoom: () => 1,
+      onMove: (dx, dy) => {
+        const v = { x: v0.x + dx, y: v0.y + dy, zoom: v0.zoom };
+        canvas.paneApi.current?.setView(v);
+        canvas.setView(v);
+      },
+      onEnd: () => undefined,
+    });
+  };
 
   return (
     <>
-      <div class="worlds-graph">
-        <div class="worlds-canvas" style={{ width: `${layout.width}px`, height: `${layout.height}px` }}>
-          <svg class="worlds-links" width={layout.width} height={layout.height} aria-hidden="true">
+      <div
+        class="sg-pane worlds-graph"
+        ref={canvas.pane}
+        tabIndex={-1}
+        aria-label="Worlds graph"
+        {...{ [KEY_OWNER]: "" }}
+        onPointerMove={canvas.onPointerMove}
+        onContextMenu={(e) => e.preventDefault()}
+        onPointerDown={(e) => {
+          if (e.button !== 0 || (e.target as Element).closest(".worlds-node, .worlds-link-hit, .worlds-link-label.pickable, .worlds-graph-tools")) return;
+          focusPane();
+          setPicked(null);
+          panFrom(e as unknown as PointerEvent);
+        }}
+        onKeyDown={(e) => {
+          if (isFieldTarget(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
+          const key = (e.key ?? "").toLowerCase();
+          let handled = true;
+          if (key === "delete" || key === "backspace") handled = removePicked();
+          else if (key === "f") canvas.frameAll();
+          else if (key === "escape" && picked !== null) setPicked(null);
+          else handled = false;
+          if (handled) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }}
+      >
+        <div class="sg-viewport" style={{ transform: `translate(${canvas.view.x}px, ${canvas.view.y}px) scale(${canvas.view.zoom})` }}>
+          <svg class="sg-wires worlds-links" aria-hidden="true">
             <defs>
-              <marker id="worlds-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <marker id={arrowId} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                 <path d="M0,0 L10,5 L0,10 z" class="worlds-arrowhead" />
               </marker>
-              <marker id="worlds-arrow-live" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <marker id={liveArrowId} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                 <path d="M0,0 L10,5 L0,10 z" class="worlds-arrowhead live" />
               </marker>
             </defs>
             {/* Arrows first, then every label, so a pill never hides under another link's arrow. */}
-            {routes.map((r) => r && (
-              <g key={r.key} class={r.cls} {...r.data}>
-                <path d={r.route.d} marker-end={`url(#${r.marker})`} />
+            {drawn.map((r) => r && (
+              <g key={r.key} class={r.cls} {...{ [r.attr]: r.ends }}>
+                <path class="worlds-link-line" d={r.d} marker-end={`url(#${r.live ? liveArrowId : arrowId})`} />
+                {r.link !== undefined && (
+                  <path class="worlds-link-hit" d={r.d} onPointerDown={(e) => pick(e as unknown as PointerEvent, r.link!)}>
+                    <title>{`${r.ends.replace(">", " → ")} over ${r.label}: click, then Delete removes it`}</title>
+                  </path>
+                )}
               </g>
             ))}
-            {routes.map((r) => {
+            {drawn.map((r) => {
               if (!r) return null;
-              const { x, y, w, h } = r.route.label;
+              const { x, y, w, h } = r.pill;
+              const pickable = r.link !== undefined;
               return (
-                <g key={`${r.key}:label`} class={`${r.cls} worlds-link-label`} data-label-for={Object.values(r.data)[0]}>
+                <g
+                  key={`${r.key}:label`}
+                  class={`${r.cls} worlds-link-label${pickable ? " pickable" : ""}`}
+                  data-label-for={r.ends}
+                  onPointerDown={pickable ? (e) => pick(e as unknown as PointerEvent, r.link!) : undefined}
+                >
                   <rect x={x} y={y} width={w} height={h} rx={h / 2} />
                   <text x={x + w / 2} y={y + h / 2} text-anchor="middle" dominant-baseline="central">
                     {r.label}
@@ -287,47 +575,58 @@ function Graph(props: { model: WorldsModel; problems: GroupedProblems; selected:
                 </g>
               );
             })}
+            {wiring.draft && <path class={`sg-draft${wiring.draft.valid ? " valid" : ""}`} d={wirePath(wiring.draft.from, wiring.draft.to)} />}
           </svg>
-          {model.worlds.map((w, i) => {
-            const ref: WorldRef = { kind: "world", index: i };
-            const renders = w.renders ?? i === 0;
-            const at = node(`w${i}`);
+          {nodes.map((n, i) => {
+            const common = {
+              id: n.id,
+              at: places[i],
+              role: n.ref.kind === "world" ? roles.worlds[n.ref.index] : roles.templates[n.ref.index],
+              selected: isSelected(n.ref),
+              editable,
+              flowId: wiring.flowId,
+              drag,
+              onPortDown: wiring.onPortDown,
+              onSelect: () => {
+                setPicked(null);
+                s.select(n.ref);
+              },
+            };
+            if (n.ref.kind === "world") {
+              const w = model.worlds[n.ref.index];
+              const renders = w.renders ?? n.ref.index === 0;
+              return (
+                <GraphNode
+                  key={n.id}
+                  {...common}
+                  name={w.name}
+                  tags={tagsOf(w)}
+                  rate={w.tickRate ?? defaultRate}
+                  badges={[renders ? "renders" : null, w.input ?? renders ? "input" : null]}
+                  invalid={problems.worlds.has(n.ref.index)}
+                />
+              );
+            }
+            const t = model.templates[n.ref.index];
             return (
               <GraphNode
-                key={`w${i}`}
-                x={at.x}
-                y={at.y}
-                name={w.name}
-                tags={tagsOf(w)}
-                rate={w.tickRate ?? defaultRate}
-                badges={[renders ? "renders" : null, w.input ?? renders ? "input" : null]}
-                role={roles.worlds[i]}
-                selected={isSelected(ref)}
-                invalid={problems.worlds.has(i)}
-                onSelect={() => onSelect(ref)}
-              />
-            );
-          })}
-          {model.templates.map((t, i) => {
-            const ref: WorldRef = { kind: "template", index: i };
-            const at = node(`t${i}`);
-            return (
-              <GraphNode
-                key={`t${i}`}
+                key={n.id}
+                {...common}
                 template
-                x={at.x}
-                y={at.y}
                 name={t.key}
                 tags={tagsOf(t.config)}
                 rate={t.config.tickRate ?? defaultRate}
                 badges={[t.config.renders ? "renders" : null, t.config.input ?? t.config.renders ? "input" : null]}
-                role={roles.templates[i]}
-                selected={isSelected(ref)}
                 invalid={problems.templates.has(t.key)}
-                onSelect={() => onSelect(ref)}
               />
             );
           })}
+          <WireRefusal draft={wiring.draft} hint={wiring.hint} />
+        </div>
+        <div class={`worlds-graph-tools ${NO_PAN}`}>
+          <button title="Fit every World in the view (F)" onClick={() => canvas.frameAll()}>
+            Frame all
+          </button>
         </div>
       </div>
       <div class="worlds-legend">
@@ -342,14 +641,15 @@ function Graph(props: { model: WorldsModel; problems: GroupedProblems; selected:
             <span class="worlds-legend-line implied" aria-hidden="true" /> lobby <span class="worlds-hint">connected by the lobby at runtime</span>
           </span>
         )}
+        {editable && <span class="worlds-legend-item worlds-hint">Drag from a World's right edge to another World to link them</span>}
       </div>
     </>
   );
 }
 
 function GraphNode(props: {
-  x: number;
-  y: number;
+  id: string;
+  at: Point;
   name: string;
   tags: readonly WorldTag[];
   rate: number;
@@ -359,22 +659,38 @@ function GraphNode(props: {
   template?: boolean;
   selected: boolean;
   invalid: boolean;
+  /** Whether it shows ports to draw links from and to. */
+  editable: boolean;
+  flowId: string;
+  drag: GraphDragHooks;
+  onPortDown(e: MouseEvent, node: string, port: string, side: PortSide): void;
   onSelect: () => void;
 }) {
-  const { x, y, name, tags, rate, badges, role, template, selected, invalid, onSelect } = props;
+  const { id, at, name, tags, rate, badges, role, template, selected, invalid, editable, flowId, onPortDown, onSelect } = props;
+  const el = useRef<HTMLDivElement>(null);
+  useNodeDrag(el, id, false, props.drag);
+  const out = handleProps(flowId, id, "out", "output");
+  const inp = handleProps(flowId, id, "in", "input");
   return (
     <div
+      ref={el}
       class={`worlds-node${template ? " template" : ""}${selected ? " selected" : ""}${invalid ? " invalid" : ""}`}
-      style={{ left: `${x}px`, top: `${y}px`, width: `${NODE_W}px`, height: `${NODE_H}px` }}
+      style={{ left: px(at.x), top: px(at.y), width: px(NODE_W), height: px(NODE_H) }}
       role="button"
       tabIndex={0}
       aria-pressed={selected}
       data-world={template ? undefined : name}
       data-template={template ? name : undefined}
-      title={`${template ? "Spawnable World" : "Start-up World"} ${name}: click to edit`}
+      title={`${template ? "Spawnable World" : "Start-up World"} ${name}: click to edit, drag to move`}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        el.current?.focus({ preventScroll: true });
+        onSelect();
+      }}
       onClick={onSelect}
-      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onSelect())}
+      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), e.stopPropagation(), onSelect())}
     >
+      {editable && <span {...inp} class={`${inp.class} worlds-port in`} title="Drop a link here: this World is its server" onMouseDown={(e) => onPortDown(e, id, "in", "input")} />}
       <div class="worlds-node-head">
         <span class="worlds-node-name">{name || "(unnamed)"}</span>
         <span class="worlds-node-rate">{rate} Hz</span>
@@ -400,6 +716,7 @@ function GraphNode(props: {
         )}
         <span>{badges.filter(Boolean).join(" · ")}</span>
       </div>
+      {editable && <span {...out} class={`${out.class} worlds-port out`} title="Drag to another World to link them: this World connects to it as a client" onMouseDown={(e) => onPortDown(e, id, "out", "output")} />}
     </div>
   );
 }
@@ -424,7 +741,11 @@ function Details(props: { s: PanelState; model: WorldsModel; target: WorldRef; p
     <section class="worlds-details" aria-label={`${kind} ${name}`}>
       <div class="worlds-details-head">
         <span class="worlds-kind">{target.kind === "world" ? "World" : "Spawnable World"}</span>
-        <TextField value={name} label={`${kind} name`} class="worlds-name" onCommit={(v) => edit(s, `Rename ${name} to ${v}`, rename(model, target, v))} />
+        <TextField value={name} label={`${kind} name`} class="worlds-name" onCommit={(v) => {
+          if (!project.canSave) return;
+          renameNodePosition(project, target.kind, name, v);
+          edit(s, `Rename ${name} to ${v}`, rename(model, target, v));
+        }} />
         <button
           title={`Remove this ${kind}${target.kind === "world" ? " and its links" : ""}`}
           disabled={target.kind === "world" && model.worlds.length === 1}

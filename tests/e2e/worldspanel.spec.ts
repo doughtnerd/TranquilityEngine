@@ -125,3 +125,38 @@ test("Arena's Spawnable Worlds show how they're created, and links to them draw 
   await expect(p.locator(".worlds-spawn")).toContainText("scripts/data.ts");
   await expect(p.getByRole("region", { name: "Links" })).toContainText("Applies when game code creates Server");
 });
+
+test("the graph draws and deletes links, and keeps where Worlds are moved out of project.json (ADR 0381)", async ({ page }) => {
+  await openProject(page);
+  const p = panel(page);
+  await p.getByRole("button", { name: "+ World" }).click();
+  await p.getByRole("textbox", { name: "World name" }).fill("Server");
+  await p.getByRole("textbox", { name: "World name" }).press("Enter");
+  await expect(p.locator('.worlds-node[data-world="Server"]')).toBeVisible();
+  await p.getByRole("button", { name: "Frame all" }).click();
+
+  // Drag from Default's out port (right edge) to Server's in port (left edge): Default → Server over loopback.
+  const from = (await p.locator('.worlds-node[data-world="Default"] .worlds-port.out').boundingBox())!;
+  const to = (await p.locator('.worlds-node[data-world="Server"] .worlds-port.in').boundingBox())!;
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => (await bootstrap(page)).links).toEqual([{ from: "Default", to: "Server", transport: "loopback" }]);
+  await expect(p.locator('[data-label-for="Default>Server"] text')).toHaveText("loopback");
+
+  // Pick the link by its label and delete it.
+  await p.locator('[data-label-for="Default>Server"] rect').click();
+  await expect(p.locator('.worlds-link.selected[data-link-arrow="Default>Server"]')).toHaveCount(1);
+  await page.keyboard.press("Delete");
+  await expect.poll(async () => (await bootstrap(page)).links ?? []).toEqual([]);
+
+  // Move Server: where it's drawn is the editor's (.myco/worlds-graph.json), not the bootstrap's.
+  const node = (await p.locator('.worlds-node[data-world="Server"]').boundingBox())!;
+  await page.mouse.move(node.x + 30, node.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(node.x + 90, node.y + 50, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => JSON.parse((await read(page, ".myco/worlds-graph.json")) ?? "{}").positions?.["world:Server"]).toBeTruthy();
+  expect(JSON.stringify(await bootstrap(page))).not.toMatch(/position/);
+});
