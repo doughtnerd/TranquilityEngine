@@ -6,7 +6,7 @@ import { useState } from "preact/hooks";
 import { formatDb } from "../../components/faderModel";
 import { GainLanes } from "../../components/GainLanes";
 import { ParameterPanel } from "../../components/ParameterPanel";
-import { gainInputs, loudnessRows } from "./boardModel";
+import { gainInputs, loudnessRows, targetOptionText } from "./boardModel";
 import { kindOf, masterOf } from "./busTree";
 import type { MixerSession } from "./mixerScreen";
 import { MixFrame } from "./mixerViewParts";
@@ -63,7 +63,7 @@ export function LoudnessPanel(props: { session: MixerSession }) {
         <label class="mx-inline">
           Platform target
           <select value={target} onChange={(e) => { const v = (e.target as HTMLSelectElement).value; setTarget(v); session.deps.setLoudnessTarget?.(v); }} aria-label="Platform target">
-            {targets.map((t) => <option key={t.name} value={t.name}>{t.name} · {t.integrated} LUFS / {t.truePeak} dBTP</option>)}
+            {targets.map((t) => <option key={t.name} value={t.name}>{targetOptionText(t)}</option>)}
           </select>
         </label>
         {reading?.tainted && <span class="mx-chip warn" title="A solo or Compare changed what the meters heard since the last reset">Monitor changed the reading</span>}

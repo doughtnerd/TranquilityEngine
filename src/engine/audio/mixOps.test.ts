@@ -47,7 +47,8 @@ const TARGET_LIMIT = 8;
 const TARGET_NAME_LIMIT = 32;
 const DEFAULT_TARGETS: LoudnessTarget[] = [
   { name: "console", integrated: -24, tolerance: 2, truePeak: -1 },
-  { name: "mobile", integrated: -18, tolerance: 2, truePeak: -1 },
+  { name: "pc-web", integrated: -18, tolerance: 2, truePeak: -1 },
+  { name: "mobile", integrated: -16, tolerance: 2, truePeak: -1 },
 ];
 const ROOT_NAMES = ["Master", "Main", "Output"] as const;
 const CHILD_NAMES = ["Music", "SFX", "UI", "Voice", "Ambience", "Lead", "Pad", "Crowd", "Foley", "Dialog"] as const;

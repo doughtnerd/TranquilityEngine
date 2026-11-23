@@ -222,7 +222,7 @@ export interface AudioSettings {
   rhythmMode: boolean;
   /**
    * ADR 0171 §2.1 (types from K0; parse Ld5): the loudness targets, 1..8 entries, the first the default. Absent: the
-   * owner's two defaults (`console`, `mobile`).
+   * defaults (`console`, `pc-web`, `mobile`; `DEFAULT_LOUDNESS_TARGETS`).
    */
   loudnessTargets?: LoudnessTarget[];
   /** ADR 0171 §2.1 (types from K0; parse Ld5): reset the loudness meters at the editor's Play. Absent: true. */
@@ -338,10 +338,15 @@ export const LOUDNESS_TARGET_LIMITS = { integrated: [-70, 0], tolerance: [0, 12]
 /** §2.1: a target's `tolerance` and `truePeak` when absent from an authored entry. */
 export const DEFAULT_TARGET_TOLERANCE = 2;
 export const DEFAULT_TARGET_TRUE_PEAK = -1;
-/** §2.1 (owner decision 4): `loudnessTargets` when absent; the first is the default target. */
+/**
+ * §2.1 (owner decision 4, updated by the Studio UI pass's decisions, 2026-11-23, after the owner's spec §4.3.6):
+ * `loudnessTargets` when absent; the first is the default target. Console −24, PC / web −18, mobile −16 LUFS, each
+ * ±2 LU under a −1 dBTP ceiling. A project that wrote its own list keeps it.
+ */
 export const DEFAULT_LOUDNESS_TARGETS: readonly Readonly<LoudnessTarget>[] = [
   { name: "console", integrated: -24, tolerance: 2, truePeak: -1 },
-  { name: "mobile", integrated: -18, tolerance: 2, truePeak: -1 },
+  { name: "pc-web", integrated: -18, tolerance: 2, truePeak: -1 },
+  { name: "mobile", integrated: -16, tolerance: 2, truePeak: -1 },
 ];
 
 export const defaultBuses = (): BusSettings[] =>

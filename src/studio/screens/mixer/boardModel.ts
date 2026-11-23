@@ -143,6 +143,15 @@ export function loudnessRows(r: LoudnessReading | null, target: { integrated: nu
   ];
 }
 
+/** The default targets' names as the spec words them (§4.3.6); a project's own target shows its name. */
+const TARGET_LABELS: Readonly<Record<string, string>> = { console: "Console", "pc-web": "PC / web", mobile: "Mobile" };
+const signed = (v: number) => `${v < 0 ? "−" : ""}${Math.abs(v)}`;
+
+/** A loudness target as the Platform target picker lists it: "Console · −24 LUFS, −1 dBTP". */
+export function targetOptionText(t: { name: string; integrated: number; truePeak: number }): string {
+  return `${TARGET_LABELS[t.name] ?? t.name} · ${signed(t.integrated)} LUFS, ${signed(t.truePeak)} dBTP`;
+}
+
 // --- live board pins -----------------------------------------------------------------------------------------------------
 
 /** At most this many pinned buses (ADR 0344). */

@@ -162,10 +162,16 @@ describe("audio.loudnessTargets parse (ADR 0171 §2.1)", () => {
   it("a list equal to the defaults is not written, even with tolerance and truePeak left out", () => {
     const explicit = DEFAULT_LOUDNESS_TARGETS.map((t) => ({ ...t }));
     expect(parseTargets(explicit).settings).not.toHaveProperty("loudnessTargets");
-    const implicit = [{ name: "console", integrated: -24 }, { name: "mobile", integrated: -18 }];
+    const implicit = [{ name: "console", integrated: -24 }, { name: "pc-web", integrated: -18 }, { name: "mobile", integrated: -16 }];
     const parsed = parseTargets(implicit);
     expect(parsed.settings).not.toHaveProperty("loudnessTargets");
     expect(parsed.problems).toEqual([]);
+  });
+
+  it("the defaults are console −24, PC / web −18 and mobile −16 LUFS, each ±2 LU under −1 dBTP (spec §4.3.6)", () => {
+    expect(DEFAULT_LOUDNESS_TARGETS.map((t) => [t.name, t.integrated, t.tolerance, t.truePeak])).toEqual([["console", -24, 2, -1], ["pc-web", -18, 2, -1], ["mobile", -16, 2, -1]]);
+    const older = parseTargets([{ name: "console", integrated: -24 }, { name: "mobile", integrated: -18 }]);
+    expect(older.settings.loudnessTargets?.map((t) => [t.name, t.integrated]), "a project that wrote the older two keeps them").toEqual([["console", -24], ["mobile", -18]]);
   });
 
   it("a changed list is written in order, and so is a prefix of the defaults", () => {

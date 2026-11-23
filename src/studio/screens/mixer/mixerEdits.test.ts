@@ -4,11 +4,11 @@ import type { AudioProject } from "../../../engine/audio/project/types";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import { setEffectOn, setEffectParam, removeEffect } from "../../components/effectChainModel";
 import { editSendLevel } from "../../components/mixRowsModel";
-import { automatedParams, gainInputs, levelAutomationDb, livePins, loudnessRows, snapshotLane, togglePin } from "./boardModel";
+import { automatedParams, gainInputs, levelAutomationDb, livePins, loudnessRows, snapshotLane, targetOptionText, togglePin } from "./boardModel";
 import type { EditResult } from "./busTree";
 import { createLiveMix, liveOps } from "./liveMix";
 import { addDucking, addSend, baseGhost, clearOffset, clearOverride, doubleDucks, editEffects, editSend, levelGhosts, levelLabel, overridesOn, removeSend, setAutomation, setLevel, setMute, setTrigger, shownEffects, shownLevel } from "./mixEdits";
-import { mixerFixture } from "./mixerFixture";
+import { emptyMix, mixerFixture } from "./mixerFixture";
 import { busRenameEdit, busUsers, renameBusInPlaylist, renameBusInScene } from "./renameReferences";
 import { gainBreakdown } from "../../components/gainLanesModel";
 
@@ -219,6 +219,11 @@ describe("board", () => {
     expect(rows.map((r) => r.text)).toEqual(["-14.2 LUFS", "-15.8 LUFS", "-16.4 LUFS", "7.2 LU", "-0.6 dBTP"]);
     expect(rows[2]!.warn).toMatch(/Over the -24 LUFS target by 7.6 LU/);
     expect(rows[4]!.warn).toBe("Over -1 dBTP");
+  });
+  it("a new project's platform targets are the spec's three, listed as the spec words them (§4.3.6)", () => {
+    const targets = emptyMix().loudness.targets;
+    expect(targets.map(targetOptionText)).toEqual(["Console · −24 LUFS, −1 dBTP", "PC / web · −18 LUFS, −1 dBTP", "Mobile · −16 LUFS, −1 dBTP"]);
+    expect(targetOptionText({ name: "Handheld", integrated: -14.5, truePeak: 0 })).toBe("Handheld · −14.5 LUFS, 0 dBTP");
   });
   it("pins: at most 8, pruned to what the mix has", () => {
     const p = mixerFixture();

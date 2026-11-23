@@ -119,7 +119,7 @@ describe("snapshot tree", () => {
     expect(kept.project).toBe(p);
     expect(kept.extra).toEqual(["Combat", "Combat/Deep"]);
     expect(kept.path).toBe("Combat");
-    expect(snapshotTree(p, kept.extra).filter((n) => n.kind === "folder").map((n) => n.name)).toEqual(["Combat", "Cutscenes", "States"]);
+    expect(snapshotTree(p.snapshots, kept.extra).filter((n) => n.kind === "folder").map((n) => n.name)).toEqual(["Combat", "Cutscenes", "States"]);
     expect(refused(renameFolderIn(p, ["New folder"], "New folder", "States"))).toMatch(/already/);
     expect(refused(renameFolderIn(p, ["New folder"], "New folder", "a/b"))).toMatch(/can't/);
     const full = ok(renameFolderIn(p, ["States/Deep"], "States", " Game states "));
