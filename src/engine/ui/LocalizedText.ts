@@ -86,4 +86,4 @@ function inWorld(world: World): LocalizedText[] {
 }
 
 // After behaviors' lateUpdate (args set in update show this frame), before render sync.
-defineBuiltinSystem({ name: "engine.LocalizedText", phase: "lateUpdate", after: ["engine.LateUpdateScripts"], run: (w) => inWorld(w).forEach((c) => c._sync()) });
+defineBuiltinSystem({ name: "engine.LocalizedText", phase: "lateUpdate", after: ["engine.LateUpdateScripts"], before: ["engine.UIDocumentSync"], run: (w) => inWorld(w).forEach((c) => c._sync()) });
