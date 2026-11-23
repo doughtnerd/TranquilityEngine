@@ -55,7 +55,7 @@ function WindowControls({ window }: { window: Window }) {
   );
 }
 
-/** Fits the window to the monitor's work area once (a small screen), and drags it by the brand column; a double-click there maximises. */
+/** Fits the window to the monitor's work area once (a small screen), and drags it by the brand column (and the title-bar row over the projects list); a double-click there maximises. */
 function useLauncherWindow(window: Window): void {
   useEffect(() => {
     void (async () => {
@@ -67,7 +67,7 @@ function useLauncherWindow(window: Window): void {
       await window.setSize(new LogicalSize(fitted.size.width, fitted.size.height));
       await window.setPosition(new PhysicalPosition(fitted.position.x, fitted.position.y));
     })().catch(console.error);
-    const onBrand = (e: MouseEvent) => e.target instanceof Element && !!e.target.closest(".ff-brand, .ap-brand") && !e.target.closest("button");
+    const onBrand = (e: MouseEvent) => e.target instanceof Element && !!e.target.closest(".ff-brand, .ap-brand, .ap-titlebar") && !e.target.closest("button");
     const drag = (e: MouseEvent) => {
       if (e.button !== 0 || !onBrand(e)) return;
       if (e.detail === 2) void window.toggleMaximize();

@@ -3,7 +3,7 @@
 .ap-root {
   position: relative;
   height: 100vh;
-  overflow-y: auto;
+  overflow: hidden;
   box-sizing: border-box;
   display: grid;
   grid-template-columns: minmax(340px, 34%) minmax(0, 1fr);
@@ -21,19 +21,26 @@
 .ap-back { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; margin-left: -10px; padding: 0 10px; border: 0; border-radius: 4px; background: transparent; color: var(--brand-text); font: inherit; cursor: pointer; }
 .ap-back:hover { background: var(--brand-hover); color: var(--brand-text-strong); }
 .ap-credit { color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
-.ap-main { grid-area: main; min-width: 0; display: flex; flex-direction: column; background: var(--panel); }
+.ap-main { grid-area: main; min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--panel); }
+/* The row under the borderless window's controls (launcher.css: 32px tall), so nothing sits beneath them; it drags the window like the brand column. */
+.ap-titlebar { flex: 0 0 32px; }
 .ap-status { min-width: 0; overflow-wrap: anywhere; }
 .ap-status.error { color: var(--danger); }
-.ap-footer { margin-top: auto; display: flex; justify-content: space-between; gap: 12px; padding: 6px 10px; border-top: 1px solid var(--border); color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
-.ap-pad { padding-left: 24px; padding-right: 24px; }
+.ap-footer { flex: 0 0 auto; display: flex; justify-content: space-between; gap: 12px; padding: 6px 10px; border-top: 1px solid var(--border); color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
+.ap-pad { --ap-pad: 24px; padding-left: var(--ap-pad); padding-right: var(--ap-pad); }
 
 /* Tabs */
-.ap-tabs { display: flex; align-items: flex-end; gap: 4px; padding-top: 16px; border-bottom: 1px solid var(--border); }
+.ap-tabs { flex: 0 0 auto; display: flex; align-items: flex-end; gap: 4px; padding-top: 16px; border-bottom: 1px solid var(--border); }
 .ap-tab { display: inline-flex; align-items: center; min-height: 36px; padding: 8px 14px; border: 0; border-radius: 4px 4px 0 0; background: transparent; color: var(--muted); font: inherit; font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer; }
 .ap-tab:hover { background: var(--hover); }
 .ap-tab[aria-selected="true"] { background: var(--active); color: var(--text-strong); box-shadow: inset 0 -2px 0 var(--accent); }
 .ap-badge { margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--badge); color: var(--badge-text); font-size: calc(11px * var(--ui-scale)); line-height: 16px; letter-spacing: 0; }
-.ap-panel { box-sizing: border-box; width: 100%; max-width: 1200px; padding-top: 24px; padding-bottom: 24px; }
+.ap-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.ap-panel-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; box-sizing: border-box; width: 100%; max-width: 1200px; padding-top: 24px; }
+.ap-panel-body > * { flex: 1 1 auto; min-height: 0; }
+.ap-panel-body > .ap-note { flex: 0 0 auto; }
+/* A tab's toolbar and intro stay put; its lists scroll. Reaching out over the side padding puts the scrollbar at the column's edge and leaves room for focus rings and shadows. */
+.ap-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 24px; margin: 0 calc(-1 * var(--ap-pad)); padding: 0 var(--ap-pad) 24px; }
 
 /* Content */
 .ap-stack { display: flex; flex-direction: column; gap: 24px; }
@@ -96,7 +103,10 @@
 .ap-sample-actions .ap-button { min-height: 30px; padding: 3px 12px; }
 
 @media (max-width: 900px) {
-  .ap-root { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; grid-template-areas: "brand" "main" "info"; }
+  .ap-root { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; grid-template-areas: "brand" "main" "info"; }
+  /* The window controls sit over the brand row here, so it makes the room and the main column needs no title bar. */
+  .ap-titlebar { display: none; }
+  .ap-root.has-chrome .ap-brand { padding-top: 32px; }
   .ap-brand { flex-direction: row; justify-content: center; gap: 20px; padding: 12px 24px 16px; border-right: 0; border-bottom: 1px solid var(--border); }
   .ap-logo { width: min(40%, 220px); }
   .ap-tagline { max-width: 220px; text-align: left; }
@@ -104,10 +114,11 @@
 }
 @media (max-width: 560px) {
   .ap-brand { flex-direction: column; gap: 8px; padding: 8px 16px 12px; }
+  .ap-root.has-chrome .ap-brand { padding-top: 32px; }
   .ap-logo { width: min(70%, 200px); }
   .ap-tagline { max-width: none; text-align: center; }
   .ap-info { padding: 12px 16px; }
-  .ap-pad { padding-left: 16px; padding-right: 16px; }
+  .ap-pad { --ap-pad: 16px; }
   .ap-toolbar > button { flex: 1 1 140px; }
   .ap-searchwrap { flex-basis: 100%; }
   .ap-search { max-width: none; }
@@ -116,7 +127,7 @@
 }
 @media (min-width: 1800px) {
   .ap-logo { width: min(100%, 520px); }
-  .ap-pad { padding-left: 40px; padding-right: 40px; }
+  .ap-pad { --ap-pad: 40px; }
 }
 @media (pointer: coarse) {
   .ap-primary, .ap-button, .ap-tab, .ap-more { min-height: 44px; }

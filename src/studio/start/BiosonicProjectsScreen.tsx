@@ -67,63 +67,65 @@ function TakesTab(props: { readonly onOpenTake?: (take: RecentTake) => void }) {
           <input class="ap-search" type="search" placeholder="Search takes" aria-label="Search takes" value={query} disabled={!list || list.length === 0} onInput={(e) => setQuery(e.currentTarget.value)} />
         </div>
       </div>
-      {!canOpenFolders() ? (
-        <p class="ap-note">Takes are listed from project folders, which this browser can't open.</p>
-      ) : list === null ? (
-        <p class="ap-note">Looking for takes…</p>
-      ) : list.length === 0 ? (
-        <p class="ap-note">No takes yet. Record one from the editor's Play toolbar (Record take), and it shows here.</p>
-      ) : (
-        <>
-          {!searching && latest && (
-            <section class="ap-section" aria-labelledby="bs-latest-heading">
-              <h2 id="bs-latest-heading" class="ap-heading">
-                Latest take
-              </h2>
-              <div class="ap-hero">
-                <div class="ap-hero-text">
-                  <p class="ap-hero-name">{latest.name}</p>
-                  <p class="ap-meta">From {latest.project.name}</p>
-                  <p class="ap-meta">
-                    <span class="ap-mono">{formatTakeLength(latest.seconds)}</span> · Recorded {recorded(latest)}
-                  </p>
-                </div>
-                {openButton(latest, "ap-primary ap-big")}
-              </div>
-            </section>
-          )}
-          {(listed.length > 0 || searching) && (
-            <section class="ap-section" aria-labelledby="bs-takes-heading">
-              <div class="ap-heading-row">
-                <h2 id="bs-takes-heading" class="ap-heading">
-                  {searching ? "Matching takes" : "All takes"}
+      <div class="ap-scroll">
+        {!canOpenFolders() ? (
+          <p class="ap-note">Takes are listed from project folders, which this browser can't open.</p>
+        ) : list === null ? (
+          <p class="ap-note">Looking for takes…</p>
+        ) : list.length === 0 ? (
+          <p class="ap-note">No takes yet. Record one from the editor's Play toolbar (Record take), and it shows here.</p>
+        ) : (
+          <>
+            {!searching && latest && (
+              <section class="ap-section" aria-labelledby="bs-latest-heading">
+                <h2 id="bs-latest-heading" class="ap-heading">
+                  Latest take
                 </h2>
-                <span class="ap-meta">{searching ? `${listed.length} found` : "Most recent first"}</span>
-              </div>
-              {listed.length === 0 ? (
-                <p class="ap-note">No take matches “{query.trim()}”.</p>
-              ) : (
-                <ul class="ap-rows" aria-label="Recorded takes">
-                  {listed.map((t) => (
-                    <li key={t.project.id + t.path} class="ap-row">
-                      <div class="ap-row-text">
-                        <span class="ap-row-name">{t.name}</span>
-                        <span class="ap-meta ap-ellipsis" title={t.path}>
-                          {t.project.name}
+                <div class="ap-hero">
+                  <div class="ap-hero-text">
+                    <p class="ap-hero-name">{latest.name}</p>
+                    <p class="ap-meta">From {latest.project.name}</p>
+                    <p class="ap-meta">
+                      <span class="ap-mono">{formatTakeLength(latest.seconds)}</span> · Recorded {recorded(latest)}
+                    </p>
+                  </div>
+                  {openButton(latest, "ap-primary ap-big")}
+                </div>
+              </section>
+            )}
+            {(listed.length > 0 || searching) && (
+              <section class="ap-section" aria-labelledby="bs-takes-heading">
+                <div class="ap-heading-row">
+                  <h2 id="bs-takes-heading" class="ap-heading">
+                    {searching ? "Matching takes" : "All takes"}
+                  </h2>
+                  <span class="ap-meta">{searching ? `${listed.length} found` : "Most recent first"}</span>
+                </div>
+                {listed.length === 0 ? (
+                  <p class="ap-note">No take matches “{query.trim()}”.</p>
+                ) : (
+                  <ul class="ap-rows" aria-label="Recorded takes">
+                    {listed.map((t) => (
+                      <li key={t.project.id + t.path} class="ap-row">
+                        <div class="ap-row-text">
+                          <span class="ap-row-name">{t.name}</span>
+                          <span class="ap-meta ap-ellipsis" title={t.path}>
+                            {t.project.name}
+                          </span>
+                        </div>
+                        <span class="ap-row-meta">
+                          <span class="ap-mono">{formatTakeLength(t.seconds)}</span> · {recorded(t)}
                         </span>
-                      </div>
-                      <span class="ap-row-meta">
-                        <span class="ap-mono">{formatTakeLength(t.seconds)}</span> · {recorded(t)}
-                      </span>
-                      {openButton(t, "ap-button")}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          )}
-        </>
-      )}
+                        {openButton(t, "ap-button")}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

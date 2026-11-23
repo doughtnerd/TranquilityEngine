@@ -42,29 +42,31 @@ function SamplesTab() {
   return (
     <div class="ap-stack ap-tight">
       <p class="ap-note">Open a sample to explore it, or make a copy to change it freely.</p>
-      <ul class="ap-samples" aria-label="Samples">
-        {list.map((s) => (
-          <li key={s.id} class="ap-sample">
-            <div class="ap-sample-head">
-              <h3 class="ap-sample-name">{s.name}</h3>
-              <span class="ap-meta">
-                {s.files.length} files · {sizeOf(s)}
-              </span>
-            </div>
-            {s.description && <p class="ap-clamp ap-muted">{s.description}</p>}
-            <div class="ap-sample-actions">
-              <button type="button" class="ap-button" disabled={busy.value !== null} title={`Open ${s.name} read-only`} onClick={() => void run(s.id, () => startActions().open({ kind: "sample", sample: s }))}>
-                {busy.value === s.id ? "Opening…" : "Open"}
-              </button>
-              {desktop && (
-                <button type="button" class="ap-button" disabled={busy.value !== null} title={`Copy ${s.name} into a folder and open the copy to edit it`} onClick={() => void run(s.id, () => startActions().open({ kind: "copy-sample", sample: s }))}>
-                  Make a Copy…
+      <div class="ap-scroll">
+        <ul class="ap-samples" aria-label="Samples">
+          {list.map((s) => (
+            <li key={s.id} class="ap-sample">
+              <div class="ap-sample-head">
+                <h3 class="ap-sample-name">{s.name}</h3>
+                <span class="ap-meta">
+                  {s.files.length} files · {sizeOf(s)}
+                </span>
+              </div>
+              {s.description && <p class="ap-clamp ap-muted">{s.description}</p>}
+              <div class="ap-sample-actions">
+                <button type="button" class="ap-button" disabled={busy.value !== null} title={`Open ${s.name} read-only`} onClick={() => void run(s.id, () => startActions().open({ kind: "sample", sample: s }))}>
+                  {busy.value === s.id ? "Opening…" : "Open"}
                 </button>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
+                {desktop && (
+                  <button type="button" class="ap-button" disabled={busy.value !== null} title={`Copy ${s.name} into a folder and open the copy to edit it`} onClick={() => void run(s.id, () => startActions().open({ kind: "copy-sample", sample: s }))}>
+                    Make a Copy…
+                  </button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

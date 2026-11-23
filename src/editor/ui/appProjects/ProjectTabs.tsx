@@ -51,11 +51,11 @@ export function ProjectTabs<T extends string>(props: ProjectTabsProps<T>) {
   );
 }
 
-/** The panel of tab `id`, labelled by its tab. */
+/** The panel of tab `id`, labelled by its tab: the part of the screen that scrolls. */
 export function TabPanel(props: { readonly idPrefix: string; readonly id: string; readonly children: ComponentChildren }) {
   return (
-    <div class="ap-panel ap-pad" role="tabpanel" id={`${props.idPrefix}-${props.id}-panel`} aria-labelledby={`${props.idPrefix}-${props.id}-tab`}>
-      {props.children}
+    <div class="ap-panel" role="tabpanel" id={`${props.idPrefix}-${props.id}-panel`} aria-labelledby={`${props.idPrefix}-${props.id}-tab`}>
+      <div class="ap-panel-body ap-pad">{props.children}</div>
     </div>
   );
 }
