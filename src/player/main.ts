@@ -119,10 +119,13 @@ async function boot(): Promise<void> {
     }
     const { startDebugLink, startBuildListener } = await import("../engine/debugLink/host");
     const d = manifest.debug as Partial<typeof manifest.debug>;
-    // A listening-only build (`listen` without a `link`) doesn't also dial the default address.
-    if (d.listen !== true || d.link !== undefined || override !== null) {
-      await startDebugLink(runtime, { debug: manifest.debug, override, name: manifest.name, platform, code });
+    // A listening-only build (`listen` without a `link`) doesn't also dial the default address, unless it was given a
+    // tool's code: a room code (ADR 0381) joins the tool's rendezvous room over WebRTC (a browser Studio offers one).
+    if (d.listen !== true || d.link !== undefined || override !== null || code !== null) {
+      await startDebugLink(runtime, { debug: manifest.debug, override, name: manifest.name, platform, code, interfaces: () => interfaces });
     }
+    // A desktop game listens on its native WebSocket; a page can't, so it offers a rendezvous room on its own server
+    // (or the hosted rendezvous) and the overlay shows the room code (`host.ts`, `rooms.ts`).
     if (d.listen === true) {
       const listener = await startBuildListener(runtime, { debug: manifest.debug, name: manifest.name, platform, interfaces: () => interfaces });
       if (listener) (await import("./debugOverlay")).installDebugOverlay(listener);

@@ -6,6 +6,9 @@
 //
 // ADR 0380 adds the other direction: a native build with `debug.listen` listens (`startBuildListener`, a
 // `BuildListener`) and tools connect to it, pairing with the code the build shows. Both directions run the same session.
+// ADR 0381 adds rooms (`rooms.ts`, loaded by `import()`): a page with `debug.listen`, which can't listen, offers a
+// rendezvous room and shows its room code; a build given a tool's room code (`?debug-code=`) joins the tool's room. Both
+// connect over the `webrtc` transport; which path a build takes is `choosePath`'s (0380's pair table).
 //
 // **Connecting out (version 2).** Every connection's first messages are `pair` (role build, the build's kind, the token
 // of the tool's code given at launch, its name) and `hello`, sent together (`DebugLinkSession`'s `pair`). A token is
@@ -20,10 +23,12 @@
 import type { Engine } from "../core/Engine";
 import { createTransport, type Transport, type TransportConnection, type TransportEvent } from "../net/Transport";
 import "../net/transport/websocket";
-import { DEBUG_LINK_PATH, DEFAULT_DEBUG_LINK_PORT, readDebugManifest } from "./config";
-import { isPrivateIpv4, type NetworkInterfaceAddress } from "./pairing/address";
-import { PAIR_BASE_PORT, PAIR_PORT_OFFSETS, PAIR_TOKEN_BITS, decodePairCode, encodePairCode, type PairOctets } from "./pairing/code";
+import { DEBUG_LINK_PATH, DEFAULT_DEBUG_LINK_PORT, readDebugManifest, type DebugManifest } from "./config";
+import { isPrivateIpv4, type AddressContext, type NetworkInterfaceAddress } from "./pairing/address";
+import { PAIR_BASE_PORT, PAIR_PORT_OFFSETS, PAIR_TOKEN_BITS, decodePairCode, encodePairCode, type PairOctets, type RoomPairCode } from "./pairing/code";
 import { TokenGate, type IssuedToken } from "./pairing/gate";
+import { choosePath } from "./pairing/path";
+import type { PageLocation, RoomJoinTransport, RoomWebRtcOptions } from "./rooms";
 import {
   EnvelopeKind,
   decodeEnvelope,
@@ -33,6 +38,7 @@ import {
   pairRefusalMessage,
   readJsonPayload,
   readPair,
+  type DebugHello,
   type DebugPair,
   type DebugPairReply,
   type EndpointKind,
@@ -69,11 +75,20 @@ export interface DebugLinkOptions {
   readonly code?: string | null;
   /** The build's endpoint kind, sent in `pair` (default `native` under Tauri, else `page-http` or `page-https` by the page's scheme). */
   readonly kind?: EndpointKind;
+  /**
+   * For a room code (ADR 0381: the tool waits in a rendezvous room and the build joins it over `webrtc`): the page's own
+   * location, whose host completes a LAN room code's address (default the global `location`; null for none).
+   */
+  readonly page?: PageLocation | null;
+  /** For a room code in a native build: this machine's addresses, which complete the code's address. */
+  readonly interfaces?: () => readonly NetworkInterfaceAddress[];
+  /** For a room code: the `webrtc` transport's options (`debug.iceServers` is added to them). */
+  readonly webrtc?: RoomWebRtcOptions;
 }
 
 /** A running link. */
 export interface DebugLinkHandle {
-  /** The link's address. */
+  /** The link's address (with a room code, the rendezvous it tries now). */
   readonly address: string;
   /** The current session's state ("closed" between attempts, and for good after a refusal). */
   readonly state: BuildSessionState;
@@ -114,32 +129,81 @@ export async function startDebugLink(engine: Engine, options: DebugLinkOptions):
   if (!config) return null;
 
   let token: number | undefined;
+  let room: RoomPairCode | null = null;
   if (typeof options.code === "string" && options.code.trim()) {
     const read = decodePairCode(options.code);
-    if ("code" in read) token = read.code.token;
-    else log(`[myco] debug link: the debug code "${options.code}" isn't a pairing code (${read.refused}); connecting without it.`);
+    if ("code" in read) {
+      token = read.code.token;
+      if (read.code.kind === "room") room = read.code;
+    } else log(`[myco] debug link: the debug code "${options.code}" isn't a pairing code (${read.refused}); connecting without it.`);
   }
   const kind = options.kind ?? ownKind();
+
+  // A room code (ADR 0381): the tool waits in a rendezvous room; the build joins it and connects over `webrtc`, trying
+  // the code's rendezvous candidates in turn. Anything else connects to the tool's listener (`debug.link`).
+  let addresses = [config.link];
+  let shown = [config.link];
+  let joiner: RoomJoinTransport | null = null;
+  if (room) {
+    const rooms = await import("./rooms");
+    const hosted = config.rendezvous ?? null;
+    const webrtc = { ...options.webrtc, ...(config.iceServers ? { iceServers: config.iceServers } : {}) };
+    const path = rooms.joinPath(kind, room, hosted, rooms.hasWebRtc(webrtc));
+    if (path.path !== "webrtc") {
+      log(`[myco] debug link: can't join the tool's room: ${rooms.joinRefusalMessage(path.path === "unreachable" ? path.reason : "needs-rendezvous", room, "build")}`);
+      return null;
+    }
+    const page = options.page === undefined ? rooms.currentPage() : options.page;
+    const context: AddressContext = page ? { kind: "page", host: page.hostname } : { kind: "native", interfaces: options.interfaces?.() ?? [] };
+    const { room: number, token: roomToken } = room;
+    shown = rooms.joinCandidates(room, context, hosted);
+    addresses = shown.map((url) => rooms.roomAddress(url, number, roomToken));
+    joiner = new rooms.RoomJoinTransport({ kind, signalTransport: () => createTransport(options.transport ?? "websocket", { ...options.transportOptions }), webrtc });
+  }
 
   const topics = await loadTopics(engine, log);
   const transportOptions: Record<string, unknown> = { ...options.transportOptions };
   if (config.webrtc !== undefined) transportOptions.webrtc = config.webrtc;
-  const transport: Transport = createTransport(options.transport ?? "websocket", transportOptions);
+  const transport: Transport = joiner ?? createTransport(options.transport ?? "websocket", transportOptions);
   const hello = { name: options.name, platform: options.platform ?? "web", topics: [...topics.keys()] };
 
   let session: DebugLinkSession | null = null;
   let wait = 0;
   let stopped = false;
   let refused = false;
+  /** Which of `addresses` the current attempt uses (a room code's candidates are tried in turn). */
+  let cursor = 0;
+  /** A room's pairing was accepted: the room is gone once its session ends. */
+  let roomUsed = false;
+  /** The ended room attempt already judged by `roomOver`. */
+  let judged: DebugLinkSession | null = null;
   const connect = () => {
     const pair: DebugPair = token === undefined ? { role: "build", kind, name: options.name } : { role: "build", kind, token, name: options.name };
+    const at = addresses[cursor % addresses.length]!;
     try {
-      session = new DebugLinkSession({ transport, connection: transport.connect(config.link), hello, topics, log, pair });
+      session = new DebugLinkSession({ transport, connection: transport.connect(at), hello, topics, log, pair });
     } catch (err) {
       session = null;
-      log(`[myco] debug link: couldn't connect to ${config.link} (${(err as Error)?.message ?? err}).`);
+      log(`[myco] debug link: couldn't connect to ${shown[cursor % shown.length]} (${(err as Error)?.message ?? err}).`);
     }
   };
+  /** After a room attempt ended: whether to stop for good (the room is used, gone, or refused the token). */
+  const roomOver = (): boolean => {
+    const at = addresses[cursor % addresses.length]!;
+    const why = joiner!.refusal(at);
+    if (roomUsed) log("[myco] debug link: the tool's room is used up; relaunch the build with the room code the tool shows now to pair again.");
+    else if (why === "bad-token" || why === "no-room" || why === "locked" || why === "expired") {
+      log(`[myco] debug link: the tool's room at ${shown[cursor % shown.length]} refused the code (${why}); relaunch the build with the code the tool shows now.`);
+    } else {
+      cursor++;
+      return false;
+    }
+    return true;
+  };
+  if (addresses.length === 0) {
+    log("[myco] debug link: the room code names no rendezvous this build can reach.");
+    return null;
+  }
   connect();
 
   const stop = () => {
@@ -157,6 +221,7 @@ export async function startDebugLink(engine: Engine, options: DebugLinkOptions):
       s.frameStart();
       const reply = s.paired;
       if (reply?.accepted && reply.via === "token") token = undefined; // spent: the tool shows its next code
+      if (reply?.accepted && joiner) roomUsed = true;
       if (s.refusal && !refused) {
         refused = true;
         log("[myco] debug link: not trying again; relaunch the build with the code the tool shows now.");
@@ -168,6 +233,13 @@ export async function startDebugLink(engine: Engine, options: DebugLinkOptions):
         session.frameEnd(dt);
         return;
       }
+      if (joiner && session && judged !== session) {
+        judged = session;
+        if (roomOver()) {
+          refused = true;
+          return;
+        }
+      }
       wait += Math.max(0, dt);
       if (wait < RECONNECT_SECONDS) return;
       wait = 0;
@@ -177,7 +249,9 @@ export async function startDebugLink(engine: Engine, options: DebugLinkOptions):
   });
 
   return {
-    address: config.link,
+    get address() {
+      return shown[cursor % shown.length]!;
+    },
     get state() {
       return (session as DebugLinkSession | null)?.state ?? "closed";
     },
@@ -236,10 +310,19 @@ export interface BuildListenerOptions {
   readonly prompt?: (tool: ToolAtTheDoor) => Promise<boolean>;
   /** The token gate's clock, ms (default `performance.now`). */
   readonly now?: () => number;
-  /** The token gate's random source (default `crypto.getRandomValues`). */
+  /** The token gate's random source (default `crypto.getRandomValues`); a page's room numbers come from it too. */
   readonly randomToken?: (bits: number) => number;
   /** Where the listener's messages go (default `console.warn`). */
   readonly log?: (line: string) => void;
+  /**
+   * The build's endpoint kind (default: `native` under Tauri, else `page-http` or `page-https` by the page's scheme). A
+   * native build listens on a WebSocket; a page offers a rendezvous room (ADR 0381).
+   */
+  readonly kind?: EndpointKind;
+  /** A page's own location, for where its rooms open (`rooms.ts` `roomPlace`); default the global `location`, null for none. */
+  readonly page?: PageLocation | null;
+  /** The `webrtc` transport's options for a page's rooms (`debug.iceServers` is added to them). */
+  readonly webrtc?: RoomWebRtcOptions;
 }
 
 /**
@@ -269,6 +352,11 @@ export interface BuildListener {
   readonly lockedUntil: number | null;
   /** The tools connected now. */
   readonly tools: readonly ConnectedTool[];
+  /**
+   * A sentence for the overlay beside or instead of the code, or null: a page's room that is still opening, can't open
+   * (and why), or reaches only this machine (opened from `localhost`). Always null on a native listener.
+   */
+  readonly notice: string | null;
   /** Stops listening and closes every tool's session. */
   close(): void;
 }
@@ -299,12 +387,22 @@ function privateOctets(interfaces: readonly NetworkInterfaceAddress[]): PairOcte
  * Starts `engine`'s listening debug link as `options.debug` says; null when it doesn't ask to listen (`listen` absent
  * or false) or nothing could listen (every port of the range taken: logged). Topics load as in `startDebugLink`. The
  * listener closes with the Engine.
+ *
+ * Which way tools reach it is `choosePath`'s (0380's pair table): a native build listens on a WebSocket; a page, which
+ * can't listen, offers a rendezvous room instead (ADR 0381, `rooms.ts`): its code is a room code, tools join the room
+ * and connect over `webrtc`, and the same tool door (`pair` through the gate, then the session) runs on that
+ * connection. `options.transport` is then the transport the room's rendezvous connections use. A page that can make no
+ * room (on https with no hosted rendezvous, say) still gets a listener, with no code and `notice` saying why, so its
+ * overlay can tell the person.
  */
 export async function startBuildListener(engine: Engine, options: BuildListenerOptions): Promise<BuildListener | null> {
   const log = options.log ?? ((line: string) => console.warn(line));
   const { config, problems } = readDebugManifest(options.debug);
   for (const p of problems) log(`[myco] debug link: ${p}`);
   if (!config?.listen) return null;
+  const kind = options.kind ?? ownKind();
+  const path = choosePath(kind, "page-http", { canListen: { local: true, remote: false }, lanRendezvous: true, hostedRendezvous: true });
+  if (path.path !== "websocket") return startRoomListener(engine, options, config, kind, log);
   const lan = config.lan === true;
   const base = config.port ?? DEFAULT_DEBUG_LINK_PORT;
 
@@ -330,10 +428,8 @@ export async function startBuildListener(engine: Engine, options: BuildListenerO
   }
 
   const topics = await loadTopics(engine, log);
-  const hello = { name: options.name, platform: options.platform ?? "desktop", topics: [...topics.keys()] };
   const interfaces = options.interfaces?.() ?? [];
   const own = interfaces.map((i) => i.address);
-  const sameMachine = options.sameMachine ?? ((remote: string) => sameMachineRemote(remote, own));
   const now = options.now ?? (() => performance.now());
   const gate = new TokenGate({ now, randomToken: options.randomToken ?? defaultRandomToken, tokenBits: PAIR_TOKEN_BITS });
   const octets = lan ? privateOctets(interfaces) : null;
@@ -343,6 +439,126 @@ export async function startBuildListener(engine: Engine, options: BuildListenerO
   else if (lan && !codeable) log(`[myco] debug link: a pairing code names ports ${PAIR_BASE_PORT}..${PAIR_BASE_PORT + PAIR_PORT_OFFSETS - 1}; this listener is on ${port}, so type the full address in the tool.`);
   let shown: { serial: number; code: string } | null = null;
 
+  const door = serveTools(engine, {
+    transport,
+    topics,
+    hello: { name: options.name, platform: options.platform ?? "desktop", topics: [...topics.keys()] },
+    sameMachine: options.sameMachine ?? ((remote: string) => sameMachineRemote(remote, own)),
+    gate,
+    prompt: options.prompt,
+    log,
+  });
+
+  return {
+    address,
+    port,
+    lan,
+    get code() {
+      if (!codeable) return null;
+      const t = gate.current();
+      if (shown?.serial !== t.serial) shown = { serial: t.serial, code: encodePairCode({ kind: "address", octets: octets!, portOffset, token: t.token }) };
+      return shown.code;
+    },
+    get token() {
+      return codeable ? gate.current() : null;
+    },
+    get lockedUntil() {
+      return gate.lockedUntil();
+    },
+    get tools() {
+      return door.tools();
+    },
+    notice: null,
+    close: door.close,
+  };
+}
+
+/** A page's listener: a room offer (`rooms.ts`) with the tool door on its connections. */
+async function startRoomListener(
+  engine: Engine,
+  options: BuildListenerOptions,
+  config: DebugManifest,
+  kind: EndpointKind,
+  log: (line: string) => void,
+): Promise<BuildListener> {
+  const rooms = await import("./rooms");
+  const webrtc = { ...options.webrtc, ...(config.iceServers ? { iceServers: config.iceServers } : {}) };
+  const page = options.page === undefined ? rooms.currentPage() : options.page;
+  const place = rooms.roomPlace(kind, page, config.rendezvous ?? null, rooms.hasWebRtc(webrtc));
+  if (place.kind === "none") {
+    log(`[myco] debug link: no pairing room: ${place.message}`);
+    return { address: "", port: 0, lan: false, code: null, token: null, lockedUntil: null, tools: [], notice: place.message, close() {} };
+  }
+  if (place.notice) log(`[myco] debug link: ${place.notice}`);
+  const now = options.now ?? (() => performance.now());
+  const random = options.randomToken ?? defaultRandomToken;
+  const gate = new TokenGate({ now, randomToken: random, tokenBits: rooms.roomTokenBits(place) });
+  const offer = new rooms.RoomOffer({
+    place,
+    gate,
+    kind,
+    signalTransport: () => createTransport(options.transport ?? "websocket", { ...options.transportOptions }),
+    webrtc,
+    now,
+    randomRoom: random,
+  });
+  await offer.listen();
+  const topics = await loadTopics(engine, log);
+  const door = serveTools(engine, {
+    transport: offer,
+    topics,
+    hello: { name: options.name, platform: options.platform ?? "web", topics: [...topics.keys()] },
+    // A joined room's peer is never "this machine" by its address: every tool pairs with the room's token.
+    sameMachine: () => false,
+    gate,
+    prompt: options.prompt,
+    log,
+  });
+  const port = Number(new URL(place.url).port) || (place.url.startsWith("wss:") ? 443 : 80);
+  return {
+    address: place.url,
+    port,
+    lan: place.kind === "lan",
+    get code() {
+      return offer.code;
+    },
+    get token() {
+      return offer.code ? gate.current() : null;
+    },
+    get lockedUntil() {
+      return gate.lockedUntil();
+    },
+    get tools() {
+      return door.tools();
+    },
+    get notice() {
+      const state = offer.state;
+      const waiting = state.kind === "retrying" ? `Can't open a pairing room at ${place.url} (${state.why}); trying again.` : state.kind === "waiting" ? null : "Opening a pairing room…";
+      return [waiting, place.notice].filter((s): s is string => !!s).join("\n") || null;
+    },
+    close: door.close,
+  };
+}
+
+/** What the tool door needs (`serveTools`). */
+interface ToolDoorOptions {
+  /** The transport tools connect on (polled by the door each frame; closed with it). */
+  readonly transport: Transport;
+  readonly topics: Map<string, DebugTopic>;
+  readonly hello: DebugHello;
+  readonly sameMachine: (remote: string) => boolean;
+  readonly gate: TokenGate;
+  readonly prompt?: (tool: ToolAtTheDoor) => Promise<boolean>;
+  readonly log: (line: string) => void;
+}
+
+/**
+ * Accepts tools on `transport`, on the Engine's frame: each one's first message is `pair` (role `tool`), answered by the
+ * gate (a same-machine tool needs no token; a tokenless one from another machine goes to `prompt`, or is refused with
+ * `no-token`); then the build says `hello` and serves its topics. Closes with the Engine, or by `close`.
+ */
+function serveTools(engine: Engine, o: ToolDoorOptions): { tools(): ConnectedTool[]; close(): void } {
+  const { transport, topics, hello, log, gate } = o;
   const visitors = new Map<TransportConnection, Visitor>();
 
   const send = (c: TransportConnection, reply: DebugPairReply) => {
@@ -373,11 +589,11 @@ export async function startBuildListener(engine: Engine, options: BuildListenerO
     if ("refused" in made) return fail(c, made.refused);
     const pair = made.pair;
     if (pair.role !== "tool") return refuse(c, "role");
-    const local = sameMachine(c.remote);
+    const local = o.sameMachine(c.remote);
     const verdict = gate.check(pair.token, { sameMachine: local });
     if (verdict.verdict === "admit") return admit(c, pair, verdict.via);
     if (verdict.verdict === "refuse") return refuse(c, verdict.reason);
-    const prompt = options.prompt;
+    const prompt = o.prompt;
     if (!prompt) return refuse(c, "no-token");
     const asking: Visitor = { stage: "asking", pair };
     visitors.set(c, asking);
@@ -450,22 +666,7 @@ export async function startBuildListener(engine: Engine, options: BuildListenerO
   });
 
   return {
-    address,
-    port,
-    lan,
-    get code() {
-      if (!codeable) return null;
-      const t = gate.current();
-      if (shown?.serial !== t.serial) shown = { serial: t.serial, code: encodePairCode({ kind: "address", octets: octets!, portOffset, token: t.token }) };
-      return shown.code;
-    },
-    get token() {
-      return codeable ? gate.current() : null;
-    },
-    get lockedUntil() {
-      return gate.lockedUntil();
-    },
-    get tools() {
+    tools() {
       const out: ConnectedTool[] = [];
       for (const [c, v] of visitors) if (v.stage === "session" && v.session.state !== "closed") out.push({ name: v.pair.name ?? "A tool", kind: v.pair.kind, remote: c.remote });
       return out;

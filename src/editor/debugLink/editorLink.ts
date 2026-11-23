@@ -4,7 +4,7 @@
 // through the SDK (`editorDebugLink()`) and talk to a build through its `DebugLinkPeer` (subscriptions, requests,
 // commands). The listening transport is given, so a headless test listens over loopback; in the editor it is the
 // WebSocket transport where this host can listen.
-import { batch, computed, signal, type ReadonlySignal } from "@preact/signals";
+import { batch, computed, signal, type ReadonlySignal, type Signal } from "@preact/signals";
 import type { Engine } from "../../engine/core/Engine";
 import { createTransport, type Transport } from "../../engine/net/Transport";
 import { DebugLinkListener, ToolConnector, type DebugLinkPeer } from "../../engine/debugLink/client";
@@ -12,6 +12,18 @@ import type { EndpointKind } from "../../engine/debugLink/protocol";
 import { DEFAULT_DEBUG_LINK_PORT } from "../../engine/debugLink/config";
 import type { NetworkInterfaceAddress } from "../../engine/debugLink/pairing/address";
 import { nativeInterfaces } from "../../engine/debugLink/tauriListener";
+import { TokenGate } from "../../engine/debugLink/pairing/gate";
+import {
+  RoomJoinTransport,
+  RoomOffer,
+  currentPage,
+  hasWebRtc,
+  roomPlace,
+  roomTokenBits,
+  type PageLocation,
+  type RoomOfferState,
+  type RoomWebRtcOptions,
+} from "../../engine/debugLink/rooms";
 import { connectToBuild, type ConnectTarget } from "./connectFlow";
 import { servePlayBuild, type PlayBuild, type PlayBuildOptions, type PlayBuildState } from "./playBuild";
 import { isLocalRemote, listenAddress, remoteHost, type BuildEntry, type DebugLinkPreferences } from "./debugLinkLogic";
@@ -45,6 +57,39 @@ export interface EditorDebugLinkOptions {
   readonly interfaces?: () => Promise<readonly NetworkInterfaceAddress[]>;
   /** Everything else about how Play listens (tests: the loopback's clock, the gate's clock, this machine's addresses). */
   readonly playOptions?: Omit<PlayBuildOptions, "transport" | "lan" | "port">;
+  /** How room codes travel (ADR 0381): joining a build's room by its code, and offering a room (`offerRoom`). */
+  readonly rooms?: EditorRoomOptions;
+}
+
+/** How the link's rooms are reached (defaults: a page's WebSocket and `RTCPeerConnection`, the page's own location). */
+export interface EditorRoomOptions {
+  /** The transport each rendezvous connection uses (default `websocket`; tests pass `loopback`). */
+  readonly signalTransport?: string;
+  /** Its options (the loopback's clock in tests). */
+  readonly signalOptions?: Readonly<Record<string, unknown>>;
+  /** The `webrtc` transport's options (the Preferences' ICE servers are added to them). */
+  readonly webrtc?: RoomWebRtcOptions;
+  /** Where this page was loaded from, for where its rooms open (default the global `location`; null for none). */
+  readonly page?: PageLocation | null;
+  /** The offered room's gate clock, ms (default `performance.now`). */
+  readonly now?: () => number;
+  /** The offered room's token and room number source (default `crypto.getRandomValues`). */
+  readonly randomToken?: (bits: number) => number;
+}
+
+/** A room this tool offers (`offerRoom`): a build given its code (`?debug-code=`) joins it. */
+export interface OfferedRoom {
+  /** The room code to show (it changes after each pairing and expiry), or null while none is open. */
+  readonly code: ReadonlySignal<string | null>;
+  /**
+   * Where the offer stands: opening a room, waiting with a code, a build joining, retrying after the rendezvous failed,
+   * or unavailable (no rendezvous this tool can use: `why`).
+   */
+  readonly state: ReadonlySignal<RoomOfferState | { readonly kind: "unavailable"; readonly why: string }>;
+  /** A sentence to show beside the code (a page opened from `localhost` pairs only with builds on this machine), or null. */
+  readonly notice: string | null;
+  /** Stops offering (builds already paired stay connected). */
+  stop(): void;
 }
 
 /** @internal The editor's debug link. */
@@ -122,6 +167,103 @@ export class EditorDebugLink {
   poll(): void {
     this.listener?.poll();
     this.connector?.poll();
+    this.roomJoin?.connector.poll();
+    const offered = this.offered;
+    if (offered) {
+      offered.listener.poll();
+      if (this.offered !== offered) return;
+      const state = offered.offer.state;
+      const was = offered.state.peek();
+      if (state.kind !== was.kind || ("code" in state && "code" in was && state.code !== was.code) || ("why" in state && "why" in was && state.why !== was.why)) {
+        batch(() => {
+          offered.state.value = state;
+          offered.code.value = offered.offer.code;
+        });
+      }
+    }
+  }
+
+  /**
+   * Offers a rendezvous room (ADR 0381, the reverse direction): where this tool can't be reached by a build (a browser
+   * Studio or editor), it opens a room on its own server's rendezvous, or the hosted one in Settings, and shows the room
+   * code; a build launched with it (`?debug-code=`, `--debug-code`) joins the room and connects over WebRTC, and joins
+   * `builds` without a prompt once its token passes this room's gate (the rendezvous checked it too). A later call
+   * replaces an earlier offer; `stop` ends it (and the builds that paired through it), as `stop()` and `apply()` do.
+   */
+  offerRoom(): OfferedRoom {
+    this.endOffer();
+    const kind = this.ownKind();
+    const rooms = this.options.rooms;
+    const webrtc = this.webrtcOptions();
+    const page = rooms?.page === undefined ? currentPage() : rooms.page;
+    const place = roomPlace(kind, page, this.prefs?.rendezvous || null, hasWebRtc(webrtc));
+    const code = signal<string | null>(null);
+    if (place.kind === "none") return { code, state: signal({ kind: "unavailable", why: place.message }), notice: null, stop() {} };
+    const now = rooms?.now ?? (() => performance.now());
+    const random = rooms?.randomToken ?? defaultRandomToken;
+    const gate = new TokenGate({ now, randomToken: random, tokenBits: roomTokenBits(place) });
+    const offer = new RoomOffer({ place, gate, kind, signalTransport: () => this.signalTransport(), webrtc, now, randomRoom: random });
+    const listener = new DebugLinkListener(offer, { onPeer: (peer) => this.arrived(peer), onClose: (peer) => this.left(peer) }, { gate, sameMachine: () => false });
+    const offered: Offered = { listener, offer, code, state: signal<OfferedRoom["state"]["value"]>({ kind: "opening" }) };
+    this.offered = offered;
+    void listener.listen(place.url);
+    this.startTimer();
+    return {
+      code,
+      state: offered.state,
+      notice: place.notice,
+      stop: () => {
+        if (this.offered === offered) this.endOffer();
+      },
+    };
+  }
+
+  private offered: Offered | null = null;
+
+  private endOffer(why = "The room offer stopped."): void {
+    const offered = this.offered;
+    if (!offered) return;
+    this.offered = null;
+    offered.listener.close();
+    batch(() => {
+      offered.code.value = null;
+      offered.state.value = { kind: "unavailable", why };
+    });
+  }
+
+  private ownKind(): EndpointKind {
+    return "__TAURI_INTERNALS__" in globalThis ? "native" : typeof location !== "undefined" && location.protocol === "https:" ? "page-https" : "page-http";
+  }
+
+  /** The `webrtc` options rooms use: the given ones plus the Preferences' ICE servers. */
+  private webrtcOptions(): RoomWebRtcOptions {
+    const ice = this.prefs?.iceServers ?? [];
+    return { ...this.options.rooms?.webrtc, ...(ice.length > 0 ? { iceServers: ice.map((urls) => ({ urls })) } : {}) };
+  }
+
+  private signalTransport(): Transport {
+    return createTransport(this.options.rooms?.signalTransport ?? "websocket", { ...this.options.rooms?.signalOptions });
+  }
+
+  private roomJoin: { readonly transport: RoomJoinTransport; readonly connector: ToolConnector } | null = null;
+
+  /** The connector that joins builds' rooms (made on the first room code: it needs WebRTC). */
+  private ensureRoomJoin(): { readonly transport: RoomJoinTransport; readonly connector: ToolConnector } {
+    if (this.roomJoin) return this.roomJoin;
+    const kind = this.ownKind();
+    const transport = new RoomJoinTransport({ kind, signalTransport: () => this.signalTransport(), webrtc: this.webrtcOptions() });
+    const connector = new ToolConnector(transport, {
+      kind,
+      name: this.options.name ?? "Myco editor",
+      events: { onPeer: (peer) => this.joined(peer), onClose: (peer) => this.left(peer) },
+    });
+    this.roomJoin = { transport, connector };
+    this.startTimer();
+    return this.roomJoin;
+  }
+
+  private startTimer(): void {
+    if (this.options.autoPoll !== false && this.timer === null) this.timer = setInterval(() => this.poll(), this.options.pollMs ?? 33);
   }
 
   /**
@@ -132,11 +274,22 @@ export class EditorDebugLink {
   async connect(target: ConnectTarget): Promise<void> {
     const connector = this.ensureConnector();
     const interfaces = await this.machineInterfaces();
+    const page = this.options.rooms?.page === undefined ? currentPage() : this.options.rooms.page;
+    const link = this;
     return connectToBuild(target, {
       connector,
       interfaces: () => interfaces,
-      pageHost: typeof location !== "undefined" && !("__TAURI_INTERNALS__" in globalThis) ? location.hostname : null,
+      pageHost: page?.hostname ?? null,
       waitFor: (done, timeoutMs) => this.waitFor(done, timeoutMs),
+      rooms: {
+        get connector() {
+          return link.ensureRoomJoin().connector;
+        },
+        kind: this.ownKind(),
+        hosted: this.prefs?.rendezvous || null,
+        webrtc: hasWebRtc(this.webrtcOptions()),
+        refusal: (address) => this.roomJoin?.transport.refusal(address) ?? null,
+      },
     });
   }
 
@@ -222,14 +375,12 @@ export class EditorDebugLink {
 
   private ensureConnector(): ToolConnector {
     if (this.connector) return this.connector;
-    const kind: EndpointKind =
-      "__TAURI_INTERNALS__" in globalThis ? "native" : typeof location !== "undefined" && location.protocol === "https:" ? "page-https" : "page-http";
     this.connector = new ToolConnector(createTransport("websocket"), {
-      kind,
+      kind: this.ownKind(),
       name: this.options.name ?? "Myco editor",
       events: { onPeer: (peer) => this.joined(peer), onClose: (peer) => this.left(peer) },
     });
-    if (this.options.autoPoll !== false && this.timer === null) this.timer = setInterval(() => this.poll(), this.options.pollMs ?? 33);
+    this.startTimer();
     return this.connector;
   }
 
@@ -294,6 +445,9 @@ export class EditorDebugLink {
     this.listener = null;
     this.connector?.close();
     this.connector = null;
+    this.roomJoin?.connector.close();
+    this.roomJoin = null;
+    this.endOffer("The debug link restarted; offer a room again.");
     batch(() => {
       this.buildsSignal.value = [];
       this.pendingSignal.value = [];
@@ -304,7 +458,8 @@ export class EditorDebugLink {
 
   private arrived(peer: DebugLinkPeer): void {
     const b: ConnectedBuild = { id: this.nextId++, name: peer.hello.name, platform: peer.hello.platform, remote: peer.remote, peer };
-    if (isLocalRemote(peer.remote)) return this.admit(b);
+    // A build whose pair carried the shown code's token (a room's, `offerRoom`) needs no prompt: the person gave it the code.
+    if (peer.admission === "token" || isLocalRemote(peer.remote)) return this.admit(b);
     if (this.refused.has(refusalKey(b))) {
       peer.close("The editor refused the connection.");
       return;
@@ -328,6 +483,20 @@ export class EditorDebugLink {
       if (this.activeSignal.peek()?.peer === peer) this.activeSignal.value = builds[0] ?? null;
     });
   }
+}
+
+/** An offered room as the link keeps it. */
+interface Offered {
+  readonly listener: DebugLinkListener;
+  readonly offer: RoomOffer;
+  readonly code: Signal<string | null>;
+  readonly state: Signal<OfferedRoom["state"]["value"]>;
+}
+
+function defaultRandomToken(bits: number): number {
+  const a = new Uint32Array(1);
+  crypto.getRandomValues(a);
+  return a[0]! % 2 ** bits;
 }
 
 /** Play while the preferences turn the link off: nothing listens. */

@@ -47,6 +47,19 @@ describe("the pairing overlay", () => {
     expect(box.textContent).toContain("type the address: ws://127.0.0.1:7790/myco-debug");
   });
 
+  it("shows a page's notice under its room code, or in its place while there is no code", () => {
+    const { box, source, overlay } = setup("RA1B2-C3D4E");
+    const withNotice = source as typeof source & { notice: string | null };
+    withNotice.notice = "Open this page by its network address (not localhost) to pair from another machine.";
+    overlay.update();
+    expect(box.textContent).toBe("Debug pairing code: RA1B2-C3D4E\nOpen this page by its network address (not localhost) to pair from another machine.\n(F8 hides this)");
+    source.code = null;
+    withNotice.notice = "Opening a pairing room…";
+    overlay.update();
+    expect(box.textContent).toBe("Debug link: Opening a pairing room…\n(F8 hides this)");
+    expect(box.textContent).not.toContain("type the address");
+  });
+
   it("hides once a tool pairs and shows again when the last one leaves", () => {
     const { box, source, overlay } = setup();
     source.tools = [{}, {}];

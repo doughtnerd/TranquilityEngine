@@ -12,6 +12,9 @@ import { EditorDebugLink } from "./editorLink";
 import { decodePairCode, encodePairCode } from "../../engine/debugLink/pairing/code";
 import "../../engine/net/transport/websocket";
 import type { PlayBuild } from "./playBuild";
+import { startDebugLink } from "../../engine/debugLink/host";
+import { FakeNet, fakePeers, flushPeers } from "../../engine/debugLink/fakePeers.testSupport";
+import { RendezvousServer } from "../../engine/debugLink/rendezvous/server";
 
 let port = 9100;
 const stops: (() => void)[] = [];
@@ -251,5 +254,88 @@ describe("the editor's own network addresses (the desktop shell's interface list
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// Rooms (ADR 0381, R5) through the editor's link: the reverse direction (the link offers a room, a build given its code
+// joins and is admitted without a prompt), and room codes typed into connect.
+describe("the editor link's rooms", () => {
+  const PAGE = { protocol: "http:", hostname: "192.168.1.20", port: "3000" };
+
+  async function roomWorld(page: typeof PAGE | null = PAGE) {
+    let t = 1000;
+    let seed = 0;
+    const now = () => t;
+    const randomToken = (bits: number) => (++seed * 104_729) % 2 ** bits;
+    const server = new RendezvousServer({ transport: createTransport("loopback", { now }), now });
+    await server.listen("ws://192.168.1.20:3000/myco-rendezvous");
+    stops.push(() => server.close());
+    const PeerConnection = fakePeers(new FakeNet());
+    const link = new EditorDebugLink({
+      transport: () => null,
+      autoPoll: false,
+      interfaces: async () => [],
+      rooms: { signalTransport: "loopback", signalOptions: { now }, webrtc: { PeerConnection }, page, now, randomToken },
+    });
+    stops.push(() => link.stop());
+    await link.apply({ listen: true, lan: false, port: port++ });
+    const engine = await Engine.create({ headless: true });
+    stops.push(() => engine.dispose());
+    const pump = async (done: () => boolean) => {
+      for (let i = 0; i < 300; i++) {
+        server.poll();
+        link.poll();
+        engine.step(1 / 60);
+        await flushPeers();
+        if (done()) return true;
+        t += 10;
+      }
+      return false;
+    };
+    return { link, engine, pump, now, PeerConnection };
+  }
+
+  it("offers a room; a build given its code joins and is admitted without a prompt", async () => {
+    const { link, engine, pump, now, PeerConnection } = await roomWorld();
+    const offered = link.offerRoom();
+    expect(offered.state.value).toEqual({ kind: "opening" });
+    expect(await pump(() => offered.code.value !== null)).toBe(true);
+    expect(offered.state.value).toEqual({ kind: "waiting", code: offered.code.value });
+    expect(decodePairCode(offered.code.value!)).toMatchObject({ code: { kind: "room", rendezvous: { octets: [1, 20], port: 3000 } } });
+
+    const handle = (await startDebugLink(engine, {
+      debug: {},
+      name: "Joining game",
+      code: offered.code.value,
+      kind: "page-http",
+      page: { protocol: "http:", hostname: "192.168.1.30", port: "8080" },
+      transport: "loopback",
+      transportOptions: { now },
+      webrtc: { PeerConnection },
+      log: () => {},
+    }))!;
+    stops.push(() => handle.close());
+    expect(await pump(() => link.builds.value.length === 1)).toBe(true);
+    expect(link.builds.value[0]!.name).toBe("Joining game");
+    expect(link.pending.value).toEqual([]);
+
+    offered.stop();
+    expect(offered.state.value.kind).toBe("unavailable");
+    expect(offered.code.value).toBeNull();
+  });
+
+  it("says why it can't offer a room (a page on https with no hosted rendezvous)", async () => {
+    const { link } = await roomWorld({ protocol: "https:", hostname: "studio.example", port: "" });
+    const offered = link.offerRoom();
+    expect(offered.state.value.kind).toBe("unavailable");
+    expect((offered.state.value as { why: string }).why).toContain("hosted rendezvous");
+  });
+
+  it("connect refuses a hosted room code until a hosted rendezvous is set", async () => {
+    const { link } = await roomWorld();
+    const code = encodePairCode({ kind: "room", rendezvous: null, room: 3, token: 4 });
+    const err = await link.connect({ code }).then(() => null, (e: Error) => e);
+    expect((err?.cause as { kind: string }).kind).toBe("needs-rendezvous");
+    expect(err?.message).toContain("Settings > Debug link");
   });
 });

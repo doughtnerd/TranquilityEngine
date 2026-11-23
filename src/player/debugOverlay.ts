@@ -1,6 +1,8 @@
 // The pairing overlay of a build with debugging on (ADR 0380 "Pairing code"): a small corner box showing the listener's
 // current code (or the address to type when it has none) while no tool is connected, hidden once one pairs, shown again
-// when the last one leaves; F8 toggles it at any time. The player imports this module only by `import()` and only when
+// when the last one leaves; F8 toggles it at any time. A page's code is a room code (ADR 0381), with the listener's
+// notice under it or in its place (opening the room, why it can't, or that a page opened from `localhost` pairs only on
+// this machine). The player imports this module only by `import()` and only when
 // `game.json` has `debug` (vite.shared.ts `DEBUG_LINK` matches it), so a release export holds none of it.
 //
 // It is a game overlay, not editor chrome, so it uses neutral fixed styling (a dark translucent box, light monospace
@@ -11,6 +13,11 @@ export interface OverlaySource {
   readonly code: string | null;
   readonly address: string;
   readonly tools: readonly unknown[];
+  /**
+   * A sentence beside the code, or in place of it when there is none (a page's room: "Opening a pairing room…", why it
+   * can't open one, or "open this page by its network address…" from `localhost`); null or absent: none.
+   */
+  readonly notice?: string | null;
 }
 
 export interface OverlayElement {
@@ -59,9 +66,12 @@ const STYLE =
   "background:rgba(20,20,20,0.82);color:#f2f2f2;font:13px/1.3 ui-monospace,Consolas,monospace;" +
   "pointer-events:none;user-select:none;white-space:pre";
 
-/** The box's text: the code to type into the tool, or the address when there is no code. */
+/** The box's text: the code to type into the tool (with the notice under it), else the notice, else the address. */
 function overlayText(source: OverlaySource): string {
-  return source.code ? `Debug pairing code: ${source.code}\n(F8 hides this)` : `Debug link: type the address: ${source.address}\n(F8 hides this)`;
+  const notice = source.notice || null;
+  if (source.code) return `Debug pairing code: ${source.code}\n${notice ? `${notice}\n` : ""}(F8 hides this)`;
+  if (notice) return `Debug link: ${notice}\n(F8 hides this)`;
+  return `Debug link: type the address: ${source.address}\n(F8 hides this)`;
 }
 
 function frameLoop(tick: () => void): () => void {
