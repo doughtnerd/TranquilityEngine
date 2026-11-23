@@ -24,8 +24,8 @@ import { automate, DbField, MixFrame } from "./mixerViewParts";
 import { allocateBeds, bedModeOf, bedText, seedVoiceLimit, setBed, setVoiceLimit, voiceLimitOf, voiceLimitRange, type BedMode } from "./voicesAndBeds";
 
 const Diamond = (props: { set: boolean; label: string; onClick(): void; disabled?: boolean }) => (
-  <button class={`studio-icon mx-auto${props.set ? " set" : ""}`} aria-label={props.label} title={props.label} disabled={props.disabled} onClick={props.onClick}>
-    <span aria-hidden="true">◆</span>
+  <button class={`studio-icon-button mx-auto${props.set ? " set" : ""}`} aria-label={props.label} title={props.label} disabled={props.disabled} onClick={props.onClick}>
+    <Icon name="automate" size={14} />
   </button>
 );
 

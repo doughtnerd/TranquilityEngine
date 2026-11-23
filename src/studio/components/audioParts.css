@@ -97,13 +97,12 @@
 .studio-row-body { display: flex; flex-direction: column; gap: 4px; padding: 2px 0 4px 24px; }
 .studio-row-empty { margin: 4px 0; color: var(--faint); font-size: calc(12px * var(--ui-scale)); }
 .studio-row-empty.error { color: var(--danger); }
-/* An icon-only button (ADR 0361: its name is its aria-label, its tooltip the title). `.studio-icon` is the old name, kept
- * for the screens that still use it. */
-:is(.studio-icon-button, .studio-icon) { flex: none; width: 22px; height: 20px; padding: 0; border: 1px solid transparent; border-radius: 3px; background: none; color: var(--muted); line-height: 18px; display: inline-grid; place-items: center; }
-:is(.studio-icon-button, .studio-icon):hover:not(:disabled) { background: var(--hover); color: var(--text); }
-:is(.studio-icon-button, .studio-icon):disabled { opacity: 0.35; cursor: default; }
-:is(.studio-icon-button, .studio-icon).set { color: var(--accent); }
-:is(.studio-icon-button, .studio-icon, .studio-row-caret, .studio-onoff, .studio-chain-add, .studio-chainview-zoom, .studio-chainview-name.link, .studio-fx-reset):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+/* An icon-only button (ADR 0361: its name is its aria-label, its tooltip the title). */
+.studio-icon-button { flex: none; width: 22px; height: 20px; padding: 0; border: 1px solid transparent; border-radius: 3px; background: none; color: var(--muted); line-height: 18px; display: inline-grid; place-items: center; }
+.studio-icon-button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.studio-icon-button:disabled { opacity: 0.35; cursor: default; }
+.studio-icon-button.set { color: var(--accent); }
+:is(.studio-icon-button, .studio-row-caret, .studio-onoff, .studio-chain-add, .studio-chainview-zoom, .studio-chainview-name.link, .studio-fx-reset):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .studio-onoff { flex: none; padding: 0 6px; border-radius: 3px; border: 1px solid var(--accent2); color: var(--accent2); background: none; font-size: calc(10px * var(--ui-scale)); font-weight: 700; line-height: 16px; }
 .studio-onoff.off { border-color: var(--border-strong); color: var(--muted); }
 .studio-onoff:disabled { opacity: 0.5; }
@@ -216,7 +215,7 @@
 .studio-chainview-step.warning .studio-chainview-why { color: var(--warning); }
 
 @media (pointer: coarse) {
-  :is(.studio-icon-button, .studio-icon, .studio-row-caret) { min-width: 36px; min-height: 36px; }
+  :is(.studio-icon-button, .studio-row-caret) { min-width: 36px; min-height: 36px; }
   .studio-onoff { line-height: 26px; padding: 0 10px; }
   /* Faders: the hit area reaches past the thin track. */
   .studio-fader::before { content: ""; position: absolute; }

@@ -41,9 +41,7 @@ export interface EffectCardProps {
 
 function CurveIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M3 19C8 19 9 5 14 5S19 12 21 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-    </svg>
+    <Icon name="automate" size={14} />
   );
 }
 

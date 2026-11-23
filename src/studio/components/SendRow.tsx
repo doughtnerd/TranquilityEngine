@@ -40,9 +40,7 @@ export function SendRow(props: SendRowProps) {
         <span class="studio-row-tools">
           {props.onAutomate && (
             <button type="button" class={`studio-icon-button${props.automated !== undefined ? " set" : ""}`} aria-label={`Automate send to ${send.to}`} title={`Automate the send to ${send.to} by a game parameter`} disabled={props.readOnly} onClick={props.onAutomate}>
-              <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M3 19C8 19 9 5 14 5S19 12 21 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </svg>
+              <Icon name="automate" size={14} />
             </button>
           )}
           <button type="button" class="studio-icon-button" aria-label={`Remove send to ${send.to}`} title={`Remove the send to ${send.to} (its automation goes too)`} disabled={props.readOnly} onClick={props.onRemove}>

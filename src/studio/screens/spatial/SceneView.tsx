@@ -115,7 +115,7 @@ function Palette(props: { host: SceneHost }) {
           disabled={host.readOnly && t.id !== "select"}
           onClick={() => pick(t.id)}
         >
-          <span aria-hidden="true">{t.glyph}</span>
+          <Icon name={t.icon} />
         </button>
       ))}
     </div>

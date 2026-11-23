@@ -66,6 +66,16 @@ const PATHS = {
   keyboard: "M3 6h18v12H3zM7 10h.01M11 10h.01M15 10h.01M7 14h10",
   volume: "M4 9h4l5-4v14l-5-4H4zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12",
   mute: "M4 9h4l5-4v14l-5-4H4zM16 9l5 6M21 9l-5 6",
+  automate: "M3 19C8 19 9 5 14 5S19 12 21 12",
+  // Spatial scene objects (the tool palette)
+  pointer: "M5 3l14 8-6 1.5L10 19z",
+  emitter: "M12 12m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0M12 12m-7 0a7 7 0 1 0 14 0a7 7 0 1 0-14 0",
+  moving: "M6 18m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0M8.5 16C12 14 11 9 15 7M15 4h5v5M20 4l-5 5",
+  listener: "M12 8m-4 0a4 4 0 1 0 8 0a4 4 0 1 0-8 0M5 21a7 7 0 0 1 14 0",
+  obstacle: "M8 3h8v18H8zM8 9h8M8 15h8",
+  reverbZone: "M4 4h16v16H4zM8 8h8v8H8z",
+  audioZone: "M3 9c3-3 6 3 9 0s6-3 9 0M3 15c3-3 6 3 9 0s6-3 9 0",
+  note: "M9 18V5l11-2v13M9 18m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0M20 16m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0",
 } as const;
 
 export type IconName = keyof typeof PATHS;

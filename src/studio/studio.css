@@ -93,24 +93,27 @@
 
 @media (pointer: coarse) {
   .studio { -webkit-tap-highlight-color: transparent; }
-  .studio :is(button, select, a, input, label, summary, [role="button"], [role="tab"], [role="treeitem"], [role="option"]) { touch-action: manipulation; }
+  .studio :is(button, select, a, input, label, summary, [role="button"], [role="tab"], [role="treeitem"]) { touch-action: manipulation; }
   .studio :is(button, [role="button"], [role="tab"], [role="treeitem"], .dock-tab) { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
   /* Targets: buttons and fields at least 36px tall, icon buttons 36px square, rows 36px tall. */
   .studio :is(button, select, input[type="text"], input[type="number"], input[type="search"], input:not([type])) { min-height: 36px; }
   .studio :is(.kit-icon-button, .dock-collapse, .dock-more) { min-width: 36px; min-height: 36px; }
   .studio input[type="range"] { min-height: 32px; }
   .studio input:is([type="checkbox"], [type="radio"]) { width: 20px; height: 20px; }
-  .studio .tree-view .row, .studio [role="treeitem"], .studio [role="option"], .studio .context-menu [role="menuitem"] { min-height: 40px; }
+  /* Not every [role="option"]: timeline listboxes draw their options at fixed heights. */
+  .studio .tree-view .row, .studio [role="treeitem"], .studio :is(.context-menu, [role="menu"]) [role="menuitem"], .studio :is(select, .refine-list) [role="option"] { min-height: 40px; }
   .studio .tree-view .caret { width: 28px; align-self: stretch; display: grid; place-items: center; }
   .studio .dock-header { height: 40px; }
   .studio .dock-tab-close { min-width: 28px; min-height: 28px; }
+  .studio .kit-chip-remove { position: relative; min-height: 0; }
+  .studio .kit-chip-remove::after { content: ""; position: absolute; inset: -12px -8px; }
   .studio .studio-tab { min-height: 40px; }
   .studio .studio-transport-button { min-width: 44px; height: 40px; }
   .studio .studio-transport-button.primary { width: 52px; height: 44px; border-radius: 22px; }
   /* A resize handle's hit area reaches past its thin line. */
   .studio .resize-handle::before { content: ""; position: absolute; inset: -10px; }
   /* Menus and popovers stay inside the visible area, scrolling when long. */
-  .studio :is(.context-menu, [role="menu"], [role="dialog"], [role="alertdialog"], [role="listbox"]) { max-height: calc(100dvh - 16px); overflow-y: auto; }
+  .studio :is(.context-menu, [role="menu"], [role="dialog"], [role="alertdialog"]) { max-height: calc(100dvh - 16px); overflow-y: auto; }
 }
 
 @media (max-width: 700px) {

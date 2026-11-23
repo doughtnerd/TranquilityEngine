@@ -8,27 +8,28 @@ import type { AudioTestScene, MovingEmitter, SceneBox, StaticEmitter, Test2dSoun
 import { uniqueName } from "../../../engine/core/uniqueName";
 import { snap, snapPoint, type P2 } from "./geometry";
 import { activeListener, addObject, freshId, ID_PREFIX, type EditResult, type SceneObject } from "./sceneEdits";
+import type { IconName } from "../../components/Icon";
 
 export type Tool = "select" | "emitter" | "moving" | "listener" | "obstacle" | "reverbZone" | "audioZone" | "sound2d";
 
 export interface ToolInfo {
   readonly id: Tool;
   readonly label: string;
-  /** A short glyph for the palette button. */
-  readonly glyph: string;
+  /** The palette button's icon (ADR 0361). */
+  readonly icon: IconName;
   readonly hint: string;
 }
 
 /** The palette, top to bottom. */
 export const TOOLS: readonly ToolInfo[] = [
-  { id: "select", label: "Select", glyph: "↖", hint: "Select and move (Esc)" },
-  { id: "emitter", label: "Emitter", glyph: "◉", hint: "Click in the scene to place an emitter" },
-  { id: "moving", label: "Moving emitter", glyph: "⤳", hint: "Click to place an emitter that travels a path" },
-  { id: "listener", label: "Listener", glyph: "☺", hint: "Click to place a listener" },
-  { id: "obstacle", label: "Obstacle", glyph: "▮", hint: "Click to place an obstacle that blocks sound" },
-  { id: "reverbZone", label: "Reverb zone", glyph: "▢", hint: "Click to place a reverb zone" },
-  { id: "audioZone", label: "Audio zone", glyph: "≋", hint: "Click to place an area that plays a sound" },
-  { id: "sound2d", label: "2D sound", glyph: "♪", hint: "Add a sound heard without a place (music, a bed)" },
+  { id: "select", label: "Select", icon: "pointer", hint: "Select and move (Esc)" },
+  { id: "emitter", label: "Emitter", icon: "emitter", hint: "Click in the scene to place an emitter" },
+  { id: "moving", label: "Moving emitter", icon: "moving", hint: "Click to place an emitter that travels a path" },
+  { id: "listener", label: "Listener", icon: "listener", hint: "Click to place a listener" },
+  { id: "obstacle", label: "Obstacle", icon: "obstacle", hint: "Click to place an obstacle that blocks sound" },
+  { id: "reverbZone", label: "Reverb zone", icon: "reverbZone", hint: "Click to place a reverb zone" },
+  { id: "audioZone", label: "Audio zone", icon: "audioZone", hint: "Click to place an area that plays a sound" },
+  { id: "sound2d", label: "2D sound", icon: "note", hint: "Add a sound heard without a place (music, a bed)" },
 ];
 
 export interface ToolState {
