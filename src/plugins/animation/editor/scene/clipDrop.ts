@@ -12,6 +12,8 @@ import type { NodePath } from "../../../../editor/document";
 import { accept, applyEdit, refuse, refusalOf, type EditResult } from "../../../../editor/sdk/editResult";
 import type { OpenScene } from "../../../../editor/state";
 import { ANIM_SOURCE_SUFFIX } from "../../../../engine/animation/animSource";
+import { normalizeAssetPath } from "../../../../engine/scene/Assets";
+import { editStep } from "../../../../editor/editGate";
 import { Animator } from "../../runtime/components/Animator";
 
 /** The Assets panel entry is a clip: an authored clip, a compiled one, or a model's clip (`model.glb#Anim/<name>`). */
@@ -43,7 +45,7 @@ interface AnimatorClips {
  */
 function clipDropEdit(animator: AnimatorClips, clip: string): EditResult<string> {
   if (animator.graph) return refuse("it runs an animation graph, so the clip goes in as a state; add it in the graph (the Animation Graph editor isn't built yet)");
-  if (animator.defaultClip === clip) return refuse("it already plays that clip on start");
+  if (normalizeAssetPath(animator.defaultClip) === normalizeAssetPath(clip)) return refuse("it already plays that clip on start");
   return accept(clip);
 }
 
@@ -78,7 +80,7 @@ export function dropClipOnAnimator(scene: OpenScene, path: NodePath, entry: stri
   const label = "refused" in result ? `Add ${clipName(entry)} to ${animator.node.name}` : labelFor(animator, entry);
   let written = false;
   const accepted = applyEdit(result, label, (next) => {
-    const why = writeComponentField({ scene, path, type: "engine.Animator" }, "defaultClip", next);
+    const why = editStep({ kind: "scene", scene }, label, () => writeComponentField({ scene, path, type: "engine.Animator" }, "defaultClip", next));
     written = why === null;
   });
   return accepted && written;

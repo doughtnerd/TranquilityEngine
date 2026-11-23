@@ -4,7 +4,7 @@
 // `skeletonInfoIfLoaded` render again when one arrives. A reference that isn't a `myco.skel@1` file answers null: model
 // sub-assets (`model.glb#Skeleton`) are read once the importer (T14) makes them files the asset sources serve.
 import { signal } from "@preact/signals";
-import { Assets, fetchAssetBytes } from "../../../../engine/scene/Assets";
+import { Assets, fetchAssetBytes, normalizeAssetPath } from "../../../../engine/scene/Assets";
 import { readSkeletonInfo, type SkeletonInfo } from "../../runtime/assetInfo";
 
 interface Entry {
@@ -17,7 +17,8 @@ const cache = new Map<string, Entry>();
 const version = signal(0);
 
 /** The entry for `ref`, its load started on first ask; null when the asset sources don't have it. */
-function entryFor(ref: string): Entry | null {
+function entryFor(reference: string): Entry | null {
+  const ref = normalizeAssetPath(reference); // fields hold project paths, scene files `asset:` references
   let url: string;
   try {
     if (!ref || !Assets.has(ref)) return null;
