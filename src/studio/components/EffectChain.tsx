@@ -7,6 +7,7 @@ import { useRef, useState } from "preact/hooks";
 import { effectSpec } from "../../engine/audio/effects/catalogue";
 import type { Effect, EffectLevel } from "../../engine/audio/effects/types";
 import { ContextMenu } from "../../editor/ui/ContextMenu";
+import { InfoTip } from "../../editor/ui/InfoTip";
 import { SEPARATOR, type MenuEntry } from "../../editor/ui/contextMenuModel";
 import type { AudioPluginDebug } from "../../plugins/audio/runtime/debugTypes";
 import { addEffect, effectMenuGroups, moveEffect, nextEffectId, removeEffect, setEffectKey, setEffectOn, setEffectParam, type EditResult, type EffectMenuItem } from "./effectChainModel";
@@ -27,7 +28,7 @@ export interface EffectChainProps {
   /** Automated parameters: effect id → parameter → current value text. */
   readonly automated?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   readonly readOnly?: boolean;
-  /** The heading ("Bus effects"); its note says where the chain runs. */
+  /** The heading ("Bus effects"); its note says where the chain runs (an ⓘ tooltip beside it, spec §1.3). */
   readonly title?: string;
   readonly note?: string;
   onEdit(result: EditResult<Effect[]>, label: string, drag?: boolean): void;
@@ -72,9 +73,10 @@ export function EffectChain(props: EffectChainProps) {
   return (
     <section class="studio-chain" aria-label={props.title ?? "Effects"}>
       <header class="studio-chain-head">
-        <span class="studio-chain-title" title={props.note}>
+        <span class="studio-chain-title">
           {props.title ?? "Effects"}
           {props.limit !== undefined && <span class="studio-chain-count"> {effects.length} / {props.limit}</span>}
+          {props.note && <InfoTip text={props.note} label={`About ${props.title ?? "Effects"}`} />}
         </span>
         <button
           ref={addButton}
@@ -89,7 +91,6 @@ export function EffectChain(props: EffectChainProps) {
           <Icon name="plus" size={14} /> Add effect
         </button>
       </header>
-      {props.note && <p class="studio-chain-note">{props.note}</p>}
       {effects.length === 0 && <p class="studio-row-empty">No effects. Effects run top to bottom.</p>}
       {effects.map((effect, i) => {
         const label = effectSpec(effect.type).label;

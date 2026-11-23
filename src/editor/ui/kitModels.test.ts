@@ -1,10 +1,10 @@
 // The component kit's pure models (ADR 0349): context menu keys, toasts with an Undo, segmented control keys, the
 // Move to… rules, key combos, the shortcuts list and the History popover's words.
 import { describe, expect, it, vi } from "vitest";
-import { SEPARATOR, edgeIndex, stepIndex, tidyEntries, typeaheadIndex, type MenuEntry } from "./contextMenuModel";
+import { SEPARATOR, edgeIndex, hasCheckColumn, stepIndex, tidyEntries, typeaheadIndex, type MenuEntry } from "./contextMenuModel";
 import { historyPopoverText } from "./historyPopoverModel";
 import { formatCombo, formatKeys, isSingleKey, matchesCombo, parseCombo, type KeyEventLike } from "./keyCombo";
-import { allFolders, folderTree, parentFolder, searchFolders, whyNotMoveTo } from "./moveToModel";
+import { allFolders, folderTree, isCurrentFolder, parentFolder, searchFolders, whyNotMoveTo } from "./moveToModel";
 import { segmentForKey } from "./segmentedModel";
 import { numberBoxCommit, numberBoxStep, numberBoxText } from "./panelFieldsModel";
 import { shownShortcuts } from "./shortcutListModel";
@@ -36,6 +36,17 @@ describe("context menu", () => {
   it("drops stray separators and left-out parts", () => {
     const tidy = tidyEntries([SEPARATOR, item("a"), null, SEPARATOR, SEPARATOR, false, item("b"), SEPARATOR]);
     expect(tidy.map((e) => ("id" in e ? e.id : "-"))).toEqual(["a", "-", "b"]);
+  });
+
+  it("skips group headings, drops one with nothing under it, and draws a check column only when an item can be checked", () => {
+    const group = (label: string): MenuEntry => ({ kind: "group", label });
+    const menu: MenuEntry[] = [group("Play mode"), item("Whole"), item("Loop")];
+    expect(stepIndex(menu, -1, 1)).toBe(1);
+    expect(stepIndex(menu, 1, -1)).toBe(2);
+    const tidy = tidyEntries([group("Empty"), SEPARATOR, item("a"), group("Also empty"), group("Kept"), item("b"), group("Trailing")]);
+    expect(tidy.map((e) => ("id" in e ? e.id : "label" in e ? e.label : "-"))).toEqual(["a", "Kept", "b"]);
+    expect(hasCheckColumn(menu)).toBe(false);
+    expect(hasCheckColumn([...menu, { id: "c", label: "Cycle", checked: false, run() {} }])).toBe(true);
   });
 });
 
@@ -122,10 +133,14 @@ describe("Move to…", () => {
     const mixed = [{ path: "takes/a.mycotake", folder: false }, { path: "b.mycotake", folder: false }];
     expect(whyNotMoveTo("takes", mixed)).toBeNull(); // one of them moves
     expect(whyNotMoveTo("x", [])).not.toBeNull();
+    expect(isCurrentFolder("audio/sfx", file)).toBe(true);
+    expect(isCurrentFolder("audio", file)).toBe(false);
+    expect(isCurrentFolder("takes", mixed)).toBe(false);
   });
 
-  it("searches folders by path", () => {
-    expect(searchFolders(folders, "SFX")).toEqual(["audio/sfx", "audio/sfx/cars"]);
+  it("searches folders by path, always listing the top level first", () => {
+    expect(searchFolders(folders, "SFX")).toEqual(["", "audio/sfx", "audio/sfx/cars"]);
+    expect(searchFolders(folders, "nothing like it")).toEqual([""]);
     expect(searchFolders(folders, "  ")).toHaveLength(6);
   });
 });

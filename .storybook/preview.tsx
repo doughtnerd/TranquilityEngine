@@ -17,7 +17,8 @@ const withEditorTheme: Decorator = (Story, context) => {
     document.body.style.color = "var(--text)";
   }, []);
   return (
-    <div class="myco-story" style={{ fontFamily: "var(--font-ui)", fontSize: "var(--font-size-ui)", padding: "8px" }}>
+    // Studio stories get the Studio's form controls (src/studio/components/formControls.css), as the Studio page does.
+    <div class={`myco-story${context.title.startsWith("Studio") ? " studio-forms" : ""}`} style={{ fontFamily: "var(--font-ui)", fontSize: "var(--font-size-ui)", padding: "8px" }}>
       <Story />
     </div>
   );

@@ -2,10 +2,8 @@
 
 .pl-panel-body { padding: 0; display: flex; flex-direction: column; container-type: inline-size; }
 .pl-history-scope { display: contents; }
-/* Parameter test values (I3): inside the panel's gutter, sliders no wider than a readable row, fields token-styled. */
-.pl-test-values { padding: 6px 10px; max-width: 560px; box-sizing: border-box; }
-.pl-test-values :is(select, input[type="number"], input[type="text"]) { box-sizing: border-box; height: 24px; padding: 2px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); color: var(--text); background: var(--input-bg); border: 1px solid var(--border); border-radius: 3px; }
-.pl-test-values :is(select, input):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
+/* Parameter test values (I3): inside the panel's gutter (the kit's ParameterPanel lays out and styles the rows). */
+.pl-test-values { padding: 6px 10px; box-sizing: border-box; }
 .pl-doc { display: flex; flex-direction: column; min-height: 100%; outline: none; }
 .pl-note { color: var(--muted); margin: 6px 8px; font-size: calc(12px * var(--ui-scale)); }
 .pl-faint { color: var(--faint); }

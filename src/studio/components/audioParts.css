@@ -147,9 +147,11 @@
 .studio-fx-health.over { color: var(--danger); }
 
 /* Game parameters panel */
-.studio-params { display: flex; flex-direction: column; gap: 4px; }
-.studio-params-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
-.studio-params-row > .studio-param { flex: 1; }
+/* One row per parameter: the slider row (or label | select) and its reset, in a grid so every field lines up in a
+ * column, no wider than a readable row; the fields are the Studio's (formControls.css), so screens need no CSS. */
+.studio-params { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; align-items: center; max-width: 560px; min-width: 0; }
+.studio-params-row { display: contents; }
+.studio-params-row > .studio-param { min-width: 0; }
 
 /* Sound picker */
 .studio-picker { position: fixed; z-index: 60; width: min(360px, calc(100vw - 16px)); max-height: min(420px, calc(100vh - 16px)); display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 8px 24px var(--shadow); }

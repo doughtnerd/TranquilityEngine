@@ -1,5 +1,8 @@
+// The confirm dialog (ADR 0349 kit): a question in `KitDialog` (header band with × close, footer with Cancel then the
+// confirm button), an optional list and checkbox.
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { KitDialog } from "./KitDialog";
 
 export interface ConfirmOptions {
   title: string;
@@ -47,57 +50,48 @@ export function ConfirmDialog() {
     p.resolve({ ok, option: ok && option });
   };
   return (
-    <div class="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && close(false)}>
-      <div
-        class="dialog"
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="confirm-title"
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            e.preventDefault();
-            e.stopPropagation();
-            close(false);
-          }
-        }}
-      >
-        <h2 id="confirm-title">{p.title}</h2>
-        <p>{p.message}</p>
-        {p.items && p.items.length > 0 && (
-          <ul class="dialog-items">
-            {p.items.map((item, i) => (
-              <li key={item}>
-                {p.onItem ? (
-                  <button
-                    class="dialog-item-link"
-                    onClick={() => {
-                      pending.value = null;
-                      p.resolve({ ok: false, option });
-                      p.onItem!(i);
-                    }}
-                  >
-                    {item}
-                  </button>
-                ) : (
-                  item
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-        {p.optionLabel && (
-          <label class="dialog-option">
-            <input type="checkbox" checked={option} onChange={(e) => setOption((e.currentTarget as HTMLInputElement).checked)} />
-            {p.optionLabel}
-          </label>
-        )}
-        <div class="dialog-buttons">
+    <KitDialog
+      role="alertdialog"
+      title={p.title}
+      onClose={() => close(false)}
+      buttons={
+        <>
           <button onClick={() => close(false)}>{p.cancelLabel ?? "Cancel"}</button>
           <button ref={confirm} class={p.danger === false ? "primary" : "danger"} onClick={() => close(true)}>
             {p.confirmLabel}
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <p class="kit-dialog-message">{p.message}</p>
+      {p.items && p.items.length > 0 && (
+        <ul class="dialog-items">
+          {p.items.map((item, i) => (
+            <li key={item}>
+              {p.onItem ? (
+                <button
+                  class="dialog-item-link"
+                  onClick={() => {
+                    pending.value = null;
+                    p.resolve({ ok: false, option });
+                    p.onItem!(i);
+                  }}
+                >
+                  {item}
+                </button>
+              ) : (
+                item
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {p.optionLabel && (
+        <label class="dialog-option">
+          <input type="checkbox" checked={option} onChange={(e) => setOption((e.currentTarget as HTMLInputElement).checked)} />
+          {p.optionLabel}
+        </label>
+      )}
+    </KitDialog>
   );
 }
