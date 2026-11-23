@@ -1,0 +1,14 @@
+# The desktop editor's WebSocket listener for the debug link (ADR 0376, 0378). Plain std threads and
+# tungstenite, no Tauri: src-tauri/src/debug_link.rs wraps it in commands, and `cargo test` here runs
+# without Tauri's system libraries.
+[package]
+name = "myco-ws-listener"
+description = "A small WebSocket server that hands binary messages to a page (Myco's desktop debug link, ADR 0378)."
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+publish = false
+
+[dependencies]
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
