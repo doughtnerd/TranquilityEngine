@@ -4,6 +4,7 @@
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fn, userEvent, within } from "storybook/test";
 import { namesFromStart } from "../../../plugins/audio/runtime/capture/testSupport";
+import { GEN_CLIP_ID_FIRST } from "../../../plugins/audio/runtime/wire.generated";
 import { buildMessages } from "./messagesModel";
 import { AtCursor, MessageList, ReplayOrigin, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
 import { RecordButton } from "./RecordButton";
@@ -64,6 +65,26 @@ export const StolenVoice: Story = {
 };
 
 export const MissingFile: Story = { render: () => <VoiceDetails voice={missing} /> };
+
+/** ADR 0360: a generator voice (its clip is the blip's reserved id) shows its kind. */
+const blipClip = GEN_CLIP_ID_FIRST + 3;
+const blipVoice = buildVoices(
+  [{ seq: 1, seconds: 1, event: { perfMs: 0, type: "voiceStart", voice: 9, clip: blipClip, slot: 1, busGen: 0, flags: 0, atFrameLo: 0, gain: 0.5 } }],
+  namesFromStart({ clips: [[blipClip, "audio/ui/coin.generator.json"]], buses: [[1, "UI"]] }),
+  { start: 0, duration: 2 },
+)[0]!;
+export const GeneratorVoice: Story = {
+  render: () => (
+    <div style={{ width: "320px" }}>
+      <VoiceDetails voice={blipVoice} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByRole("img", { name: "Blip generator" })).toHaveTextContent("BLP");
+    await expect(c.getByText("audio/ui/coin.generator.json", { exact: false })).toBeVisible();
+  },
+};
 export const NoVoice: Story = { render: () => <VoiceDetails voice={null} /> };
 
 const openStep = fn();

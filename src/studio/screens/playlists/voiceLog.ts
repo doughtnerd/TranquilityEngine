@@ -3,6 +3,7 @@
 // instances now, and a log of every voice seen while auditioning (start, end, status, gain, instance) with the triggers
 // the playback rules refused. The panels poll a snapshot; this folds each snapshot into the log. Pure.
 import type { PlaylistBody } from "../../../engine/audio/playlist/types";
+import { generatorIsEndless } from "../../../engine/audio/generators/catalogue";
 
 /** The part of `Audio.debug()` the log reads. */
 export interface DebugSnapshot {
@@ -113,7 +114,8 @@ export function canRelease(body: PlaylistBody, load: (path: string) => PlaylistB
   return body.entries.some((e) => {
     if (e.kind === "sample") return body.type === "clip" && e.loop === "on";
     if (e.kind === "line") return false; // ADR 0354 §5: a line plays its file once
-    if (e.kind === "generator") return false; // TODO(G4, ADR 0360): an endless generator releases; display only for now
+    // ADR 0360: an endless generator releases (a linked one may be: Release is harmless when it ends by itself).
+    if (e.kind === "generator") return typeof e.generator === "string" || generatorIsEndless(e.generator.kind, e.generator.params);
     if (e.kind === "embedded") return canRelease(e.embedded, load, seen);
     if (seen.has(e.playlist)) return false;
     const linked = load(e.playlist);

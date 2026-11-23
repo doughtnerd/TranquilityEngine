@@ -151,7 +151,7 @@ describe("add dialog", () => {
   });
 
   it("filters with counts and picks one or several", () => {
-    expect(filterCounts(items, "")).toEqual({ all: 6, samples: 3, playlists: 3, sequences: 0 });
+    expect(filterCounts(items, "")).toEqual({ all: 6, samples: 3, playlists: 3, sequences: 0, generators: 0 });
     expect(filterItems(items, "sub", "samples").map((i) => i.path)).toEqual(["audio/sub/x.sample.json"]);
     const a = items[0]!, b = items[1]!, self = items[2]!;
     expect(togglePick([], a, false, false)).toEqual([a.path]);

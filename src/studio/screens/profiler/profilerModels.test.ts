@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { CursorModel } from "../../../plugins/audio/editor/mix/cursorModel";
 import type { CaptureEvent, CaptureEventAt, CaptureKeyframeBus } from "../../../plugins/audio/runtime/capture/reader";
 import { namesFromStart } from "../../../plugins/audio/runtime/capture/testSupport";
+import { GEN_CLIP_ID_FIRST } from "../../../plugins/audio/runtime/wire.generated";
 import { captureTitle, captureTree, nextCapturePath, searchCaptures, treeFolders, whyNotCaptureFile } from "./captureTree";
 import { CURSOR_KEYS, profilerTargets, runCursorKey } from "./cursorKeys";
 import { breakdownText, busReadouts, reasonsText } from "./cursorReadout";
@@ -39,6 +40,13 @@ function scene(): VoiceBlock[] {
 }
 
 describe("voices from typed events", () => {
+  it("names a generator voice's kind from its reserved clip id (ADR 0360)", () => {
+    const blip = GEN_CLIP_ID_FIRST + 3;
+    const genNames = namesFromStart({ clips: [[1, "engine.ogg"], [blip, "ui/coin.generator.json"]], buses: [[1, "UI"]] });
+    const v = buildVoices([start(1, 20, blip, 1), start(1, 21, 1, 1)], genNames, { start: 0, duration: 2 });
+    expect(v.map((b) => [b.clipName, b.generator])).toEqual([["ui/coin.generator.json", "blip"], ["engine.ogg", null]]);
+  });
+
   it("makes one block per voice and refusal, with the prototype's statuses, by start time", () => {
     const v = scene();
     expect(v.map((b) => [b.clipName, b.busName, b.start, b.end, b.status, b.open])).toEqual([

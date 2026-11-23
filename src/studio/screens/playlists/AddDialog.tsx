@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { TypeBadge } from "../../components/TypeBadge";
 import { filterCounts, filterItems, togglePick, type AddFilter, type AddItem } from "./addDialogModel";
+import { GeneratorBadge } from "./generator/GeneratorParts";
 
 export interface AddDialogProps {
   readonly items: readonly AddItem[];
@@ -44,7 +45,12 @@ export function AddDialog(props: AddDialogProps) {
               { value: "samples", label: `Samples ${counts.samples}` },
               { value: "playlists", label: `Playlists ${counts.playlists}` },
               { value: "sequences", label: `Sequences ${counts.sequences}` },
+              ...(props.items.some((i) => i.kind === "generator") ? [{ value: "generators" as const, label: `Generators ${counts.generators}` }] : []),
             ]} />
+        )}
+        {props.single && props.items.some((i) => i.kind === "generator") && (
+          <SegmentedControl<AddFilter> size="small" label="Show" value={filter} onChange={setFilter}
+            options={[{ value: "samples", label: `Samples ${counts.samples}` }, { value: "generators", label: `Generators ${counts.generators}` }]} />
         )}
         <div class="pl-add-list" role="listbox" aria-multiselectable={!props.single} aria-label="Samples and playlists">
           {shown.length === 0 && <p class="pl-note">Nothing matches.</p>}
@@ -54,7 +60,7 @@ export function AddDialog(props: AddDialogProps) {
               onClick={(e) => setPicked(togglePick(picked, i, e.ctrlKey || e.metaKey, props.single))}
               onDblClick={() => !i.disabled && add([i.path])}>
               {!props.single && <input type="checkbox" tabIndex={-1} aria-hidden="true" checked={picked.includes(i.path)} disabled={!!i.disabled} onClick={(e) => { e.stopPropagation(); setPicked(togglePick(picked, i, true, false)); }} />}
-              {i.kind === "sample" ? <TypeBadge sample /> : <TypeBadge code={i.badge} />}
+              {i.kind === "sample" ? <TypeBadge sample /> : i.kind === "generator" ? <GeneratorBadge kind={i.generatorKind ?? null} /> : <TypeBadge code={i.badge} />}
               <span class="pl-add-name">{i.name}</span>
               <span class="pl-row-meta">{i.disabled ?? i.folder}</span>
             </div>

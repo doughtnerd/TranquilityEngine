@@ -12,6 +12,7 @@ import { KIND_TEXT, type ProfilerMessage } from "./messagesModel";
 import { clockText } from "./timelineGeometry";
 import { reasonWords, STATUS_SEVERITY, STATUS_TEXT, type VoiceBlock } from "./voiceModel";
 import { whyChain } from "./whyModel";
+import { GeneratorBadge } from "../playlists/generator/GeneratorParts";
 
 // ---- Replay of a take -------------------------------------------------------------------------------------------------
 
@@ -93,7 +94,9 @@ export function VoiceDetails(props: { readonly voice: VoiceBlock | null }) {
         <dt>Played</dt>
         <dd>{v.fromKeyframe ? `before the capture – ${v.open ? "end of capture" : clockText(v.end)}` : played}</dd>
         <dt>Sound</dt>
-        <dd>{v.clipName}</dd>
+        <dd>
+          {v.generator && <GeneratorBadge kind={v.generator} />} {v.clipName}
+        </dd>
         <dt>Playlist</dt>
         <dd class="pf-missing">Not in this capture</dd>
         <dt>Bus</dt>

@@ -39,6 +39,9 @@ import { entryKey, factsOf, fileKey, playlistTree, type PlaylistNode } from "./p
 import { dropLabel, planDrop } from "./treeDrop";
 import { canRelease, eventTimes, logSpan, stepEvent } from "./voiceLog";
 import { VoicesView } from "./VoicesView";
+import { isGeneratorPath } from "../../../engine/audio/generators/format";
+import { GeneratorLibraryPanel, GeneratorPanel } from "./generator/GeneratorPanel";
+import { addGeneratorToOpen, followGeneratorRoute, generatorSpace, generatorTarget, loadGenerator } from "./generator/generatorScreen";
 import { SequenceInspectorPanel } from "./sequence/SequencePanel";
 import { sequenceSpace, stopSequence } from "./sequence/sequenceState";
 import { sequencePlayerSlots } from "./sequence/SequenceTransport";
@@ -152,7 +155,7 @@ function LibraryPanel() {
   const addTo = body && body.type !== "sequence" ? lastCrumbName() : null;
   return (
     <Panel bodyClass="pl-panel-body">
-      <LibraryList files={currentProject.value?.files ?? []} addTo={addTo} previewing={previewing.value?.path ?? null} onPreview={preview} onAdd={addSample} onOpenSamples={() => openRoute({ screen: "samples" })} onCreatePlaylist={(paths) => void newPlaylistFromSamples(paths)} writable={writable()} />
+      <LibraryList files={currentProject.value?.files ?? []} addTo={addTo} previewing={previewing.value?.path ?? null} onPreview={preview} onAdd={addSample} onOpenSamples={() => openRoute({ screen: "samples" })} onCreatePlaylist={(paths) => void newPlaylistFromSamples(paths)} writable={writable()} extra={(query) => <GeneratorLibraryPanel query={query} />} />
     </Panel>
   );
 }
@@ -214,9 +217,11 @@ function useScreen(): void {
   useEffect(() => {
     const stops = [
       followRoute(studioRouter().route),
+      followGeneratorRoute(studioRouter().route),
       keymap.register({
         id: "playlists.trigger", keys: ["Space"], label: "Trigger / stop (release a held loop)", scope: { screen: "playlists" },
         run: () => {
+          if (generatorTarget.peek()) return generatorSpace(); // ADR 0360: held Space gates the open generator
           if (!openBody.peek()) return false;
           if (openBody.peek()!.type === "sequence") return sequenceSpace();
           if (auditioning.peek()) {
@@ -271,6 +276,14 @@ function EditorPanel() {
   const t = target.value;
   const doc = openDoc.value;
   const ctx = editContext.value;
+  // ADR 0360 §9: a generator (a `*.generator.json`, or the one a Clip plays) opens the Generator editor here.
+  if (generatorTarget.value) {
+    return (
+      <Panel bodyClass="pl-panel-body">
+        <GeneratorPanel />
+      </Panel>
+    );
+  }
   if (!path || !t || !body || !doc) {
     return (
       <Panel bodyClass="pl-panel-body">
@@ -319,13 +332,15 @@ function EditorPanel() {
       </div>
       {adding.value && (
         <AddDialog
-          items={addItems(files, t.file, body.type, loadPlaylist)}
+          items={addItems(files, t.file, body.type, loadPlaylist, loadGenerator)}
           single={body.type === "clip"}
           title={body.type === "clip" ? (body.entries.length ? "Replace sample…" : "Choose sample…") : `Add to ${title}`}
           onClose={() => (adding.value = false)}
           onAdd={(paths, mode) => {
             adding.value = false;
-            const items = addItems(files, t.file, body.type, loadPlaylist);
+            // ADR 0360: a Clip plays a picked generator as its source.
+            if (body.type === "clip" && paths[0] && isGeneratorPath(paths[0])) return void addGeneratorToOpen(paths[0], body.entries.length ? "Replace with generator" : "Choose generator");
+            const items = addItems(files, t.file, body.type, loadPlaylist, loadGenerator);
             const entries = entriesFor(paths, items, mode, loadPlaylist);
             editOpen(body.type === "clip" ? (body.entries.length ? "Replace sample" : "Choose sample") : addLabel(entries.length), (b) => addEntries(b, entries, editContext.peek()));
           }}
