@@ -15,7 +15,15 @@ import { axisRange, place1D, place2D } from "./blendPlacement";
 /** What the edits need to know beyond the body: the parameters it can use (global and local). */
 export interface EditContext {
   readonly parameters: readonly ParameterDef[];
+  /**
+   * "+ New parameter…" in a parameter select (UI pass J4.1/J5.1): make a global parameter (`kind`: only that kind) and
+   * resolve with it, null when cancelled. Absent: the selects don't offer it. Edits never call it.
+   */
+  readonly newParameter?: (kind?: "numeric" | "labelled") => Promise<ParameterDef | null>;
 }
+
+/** `ctx` with parameter `def` added (just made by "+ New parameter…", before the screen's signals have it). */
+export const withParameter = (ctx: EditContext, def: ParameterDef): EditContext => ({ ...ctx, parameters: [...ctx.parameters.filter((p) => p.name !== def.name), def] });
 
 const clamp = (v: number, lo: number, hi: number): number => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo);
 const round = (v: number, step: number): number => Math.round(v / step) * step;

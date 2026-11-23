@@ -8,6 +8,7 @@
 import type { ComponentChildren } from "preact";
 import type { ParameterDef } from "../../../../engine/audio/parameters";
 import { isLabelled } from "../../../../engine/audio/parameters";
+import { isNewParameter, NEW_PARAMETER, NEW_PARAMETER_LABEL } from "../../../components/newParameterModel";
 import type { PlaylistLint } from "../../../../engine/audio/playlist/lint";
 import type { Automation, LoopBehaviour, PlaylistBody, SequenceSettings } from "../../../../engine/audio/playlist/types";
 import { SegmentedControl } from "../../../../editor/ui/SegmentedControl";
@@ -37,6 +38,8 @@ export interface SequenceInspectorProps {
   readonly sourceOf: SourceOf;
   readonly buses: readonly string[];
   readonly parameters: readonly ParameterDef[];
+  /** "+ New parameter…" in its parameter selects and the curves' Driven by (J6.5): make a game parameter. */
+  onNewParameter?(kind?: "numeric" | "labelled"): Promise<ParameterDef | null>;
   onEdit(label: string, edit: BodyEdit): void;
   onNotify(text: string): void;
   onOpenSamples?(sample: string): void;
@@ -78,7 +81,7 @@ export function SequenceInspector(props: SequenceInspectorProps) {
   const runSeq = (label: string, edit: SeqEdit) => run(label, edit, (x) => x);
 
   const curves = (owner: AutomationOwner, length: number, name: string, lane?: string) =>
-    openSequenceCurves({ doc: document, seq: s, owner, length, name, context: props.title, parameters: props.parameters, lane, playhead: seqPlayhead.peek(), commit: runSeq });
+    openSequenceCurves({ doc: document, seq: s, owner, length, name, context: props.title, parameters: props.parameters, lane, playhead: seqPlayhead.peek(), commit: runSeq, newParameter: props.onNewParameter });
 
   const automationList = (owner: AutomationOwner, list: readonly Automation[], effects: Parameters<typeof targetSpecs>[0], length: number, name: string, clipId?: string) => {
     const specs = targetSpecs(effects);
@@ -140,8 +143,13 @@ export function SequenceInspector(props: SequenceInspectorProps) {
         </div>
         {b.active === "parameter" && (
           <FieldRow label="While" title="The loop is active while this holds">
-            <SelectBox label="Bind parameter" value={b.binding?.parameter ?? ""} disabled={!writable} options={[{ value: "", label: "⚠ none" }, ...props.parameters.map((p) => ({ value: p.name, label: p.name }))]}
-              onValue={(v) => set("Bind parameter", { binding: v ? { parameter: v, op: b.binding?.op ?? ">", value: b.binding?.value ?? 0 } : undefined })} />
+            <SelectBox label="Bind parameter" value={b.binding?.parameter ?? ""} disabled={!writable}
+              options={[{ value: "", label: "⚠ none" }, ...props.parameters.map((p) => ({ value: p.name, label: p.name })), ...(props.onNewParameter ? [{ value: NEW_PARAMETER, label: NEW_PARAMETER_LABEL }] : [])]}
+              onValue={(v) => {
+                const bind = (name: string) => set("Bind parameter", { binding: name ? { parameter: name, op: b.binding?.op ?? ">", value: b.binding?.value ?? 0 } : undefined });
+                if (!isNewParameter(v)) return bind(v);
+                void props.onNewParameter?.("numeric").then((d) => d && bind(d.name));
+              }} />
             <SelectBox<">" | "<"> label="Parameter condition" value={b.binding?.op ?? ">"} disabled={!writable || !b.binding} options={[{ value: ">", label: ">" }, { value: "<", label: "<" }]}
               onValue={(v) => b.binding && set("Parameter condition", { binding: { ...b.binding, op: v } })} />
             <NumberBox label="Threshold" value={b.binding?.value ?? 0} step={0.01} digits={3} disabled={!writable || !b.binding} onValue={(v) => b.binding && set("Threshold", { binding: { ...b.binding, value: v } })} />

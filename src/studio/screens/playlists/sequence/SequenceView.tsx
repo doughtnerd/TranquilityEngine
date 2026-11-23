@@ -63,6 +63,8 @@ export interface SequenceViewProps {
   peaksOf(path: string): PeakMips | null;
   loadPlaylist(path: string): PlaylistBody | null;
   readonly parameters: readonly ParameterDef[];
+  /** "+ New parameter…" in the curves' Driven by (J6.5): make a game parameter. */
+  onNewParameter?(kind?: "numeric" | "labelled"): Promise<ParameterDef | null>;
   readonly buses: readonly string[];
   /** The parent playlist, when the sequence is nested (the toolbar's link back). */
   readonly back?: { readonly name: string; open(): void };
@@ -295,7 +297,7 @@ export function SequenceView(props: SequenceViewProps) {
 
   const openCurves = (owner: AutomationOwner, curveLength: number, title: string, lane?: string) =>
     openSequenceCurves({
-      doc: rootRef.current?.ownerDocument ?? document, seq: docSeq, owner, length: curveLength, name: title, context: props.title, parameters: props.parameters, lane,
+      doc: rootRef.current?.ownerDocument ?? document, seq: docSeq, owner, length: curveLength, name: title, context: props.title, parameters: props.parameters, newParameter: props.onNewParameter, lane,
       playhead: "clip" in owner ? Math.max(0, playhead - (findClip(docSeq, owner.clip)?.clip.at ?? 0)) : playhead,
       commit: (label, edit) => runSeq(label, edit),
     });

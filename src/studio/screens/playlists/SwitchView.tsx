@@ -8,7 +8,8 @@ import { isLabelled, type ParameterDef } from "../../../engine/audio/parameters"
 import { defaultEntryUse } from "../../../engine/audio/playlist/format";
 import { NumberBox, SelectBox, Section } from "../../../editor/ui/PanelFields";
 import type { BodyEdit } from "./EntryList";
-import { addRule, changeLength, removeRule, setLabelEntry, setLabelGain, setOnChange, setRule, setSwitchParameter, type EditContext } from "./playlistEdits";
+import { addRule, changeLength, removeRule, setLabelEntry, setLabelGain, setOnChange, setRule, setSwitchParameter, withParameter, type EditContext } from "./playlistEdits";
+import { isNewParameter, NEW_PARAMETER, NEW_PARAMETER_LABEL } from "../../components/newParameterModel";
 import { entryName, playlistTitle } from "./playlistPaths";
 import { FadeShapeSelect } from "../../components/FadeShapeSelect";
 import { Fragment } from "preact";
@@ -121,10 +122,19 @@ export function SwitchView(props: SwitchViewProps) {
           <SelectBox
             label="Switch parameter"
             value={s.parameter}
-            disabled={!writable || labelled.length === 0}
-            title={labelled.length === 0 ? "No labelled parameters yet: add one in the Inspector's Local parameters, or in audio.json" : undefined}
-            options={[...(s.parameter && !def ? [{ value: s.parameter, label: `${s.parameter} (missing)` }] : []), ...(s.parameter ? [] : [{ value: "", label: "Choose a parameter…" }]), ...labelled.map((p) => ({ value: p.name, label: p.name }))]}
-            onValue={(v) => onEdit("Change setting", (b) => setSwitchParameter(b, v, props.ctx))}
+            disabled={!writable || (labelled.length === 0 && !props.ctx.newParameter)}
+            title={labelled.length === 0 ? "No labelled parameters yet: make one with + New parameter…, or a local one in the Inspector" : undefined}
+            options={[
+              ...(s.parameter && !def ? [{ value: s.parameter, label: `${s.parameter} (missing)` }] : []),
+              ...(s.parameter ? [] : [{ value: "", label: "Choose a parameter…" }]),
+              ...labelled.map((p) => ({ value: p.name, label: p.name })),
+              ...(props.ctx.newParameter ? [{ value: NEW_PARAMETER, label: NEW_PARAMETER_LABEL }] : []),
+            ]}
+            onValue={(v) => {
+              if (!isNewParameter(v)) return onEdit("Change setting", (b) => setSwitchParameter(b, v, props.ctx));
+              // "+ New parameter…" (J5.1): a labelled global parameter (Wood, Metal, Water), then the Switch follows it.
+              void props.ctx.newParameter?.("labelled").then((d) => d && onEdit("Change setting", (b) => setSwitchParameter(b, d.name, withParameter(props.ctx, d))));
+            }}
           />
         </div>
         <div class="pl-table pl-labels" role="table" aria-label="Labels">

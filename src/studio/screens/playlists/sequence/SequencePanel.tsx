@@ -8,6 +8,7 @@ import type { PlaylistBody } from "../../../../engine/audio/playlist/types";
 import { openRoute, toasts } from "../../../shell/studioServices";
 import type { Crumb, PlaylistPath } from "../playlistPaths";
 import { allParameters, busNames, loadPlaylist, target } from "../playlistsScreen";
+import { newPlaylistParameter } from "../newParameter";
 import { SequenceInspector } from "./SequenceInspector";
 import type { BodyEdit } from "./sequenceModel";
 import { projectPeaks, projectSources } from "./sequenceSources";
@@ -44,6 +45,7 @@ export function SequencePanel(props: SequencePanelProps) {
       peaksOf={projectPeaks}
       loadPlaylist={loadPlaylist}
       parameters={allParameters.value}
+      onNewParameter={newPlaylistParameter}
       buses={busNames.value}
       back={parent ? { name: parent.name, open: () => props.onCrumb(parent.path) } : undefined}
       onEdit={props.onEdit}
@@ -75,6 +77,7 @@ export function SequenceInspectorPanel(props: SequenceInspectorPanelProps) {
       sourceOf={projectSources()}
       buses={busNames.value}
       parameters={allParameters.value}
+      onNewParameter={newPlaylistParameter}
       onEdit={props.onEdit}
       onNotify={notify}
       onOpenSamples={(sample) => openRoute({ screen: "samples", asset: sample })}

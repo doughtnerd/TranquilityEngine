@@ -19,7 +19,8 @@ import type { Curve } from "../../../engine/core/curve";
 import type { BlendRegion } from "../../../engine/audio/playlist/types";
 import { FadeShapeSelect } from "../../components/FadeShapeSelect";
 import { FADE_SHAPE_OPTIONS, narrowWeightCurve, weightCurvePreset } from "../../components/fadeShapeModel";
-import { ADSR_LIMITS, setAdsr, setAxis, setBlend, setDimensions, setEntryUse, setEnvelopeMode, voiceTimeAxis, type EditContext } from "./playlistEdits";
+import { ADSR_LIMITS, setAdsr, setAxis, setBlend, setDimensions, setEntryUse, setEnvelopeMode, voiceTimeAxis, withParameter, type EditContext } from "./playlistEdits";
+import { isNewParameter, withNewParameter } from "../../components/newParameterModel";
 import { entryName } from "./playlistPaths";
 
 export interface BlendViewProps {
@@ -93,9 +94,15 @@ export function BlendView(props: BlendViewProps) {
   const input = blend.axes.map((a, k) => normalise(axisInput(a, ctx.parameters, props.values, voiceTime), ranges[k]!));
   const twoD = blend.axes.length === 2;
 
-  const axisOptions = [...numeric.map((p) => ({ value: p.name, label: p.name })), { value: VOICE_TIME, label: "Voice time" }];
+  const base = [...numeric.map((p) => ({ value: p.name, label: p.name })), { value: VOICE_TIME, label: "Voice time" }];
+  const axisOptions = ctx.newParameter && writable ? withNewParameter(base) : base;
   const axisValue = (a: BlendAxis) => ("voiceTime" in a ? VOICE_TIME : a.parameter);
-  const pickAxis = (k: 0 | 1, v: string) => onEdit("Change setting", (b) => setAxis(b, k, v === VOICE_TIME ? voiceTimeAxis("voiceTime" in blend.axes[k]! ? (blend.axes[k] as { voiceTime: number }).voiceTime : 2) : { parameter: v }, ctx));
+  const pickAxis = (k: 0 | 1, v: string) => {
+    if (!isNewParameter(v)) return pickExisting(k, v);
+    // "+ New parameter…" (J4.1): a numeric global parameter, then the axis follows it.
+    void ctx.newParameter?.("numeric").then((def) => def && onEdit("Change setting", (b) => setAxis(b, k, { parameter: def.name }, withParameter(ctx, def))));
+  };
+  const pickExisting = (k: 0 | 1, v: string) => onEdit("Change setting", (b) => setAxis(b, k, v === VOICE_TIME ? voiceTimeAxis("voiceTime" in blend.axes[k]! ? (blend.axes[k] as { voiceTime: number }).voiceTime : 2) : { parameter: v }, ctx));
   const axisRow = (k: 0 | 1) => {
     const a = blend.axes[k]!;
     return (
