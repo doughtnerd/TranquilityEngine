@@ -6,7 +6,7 @@
 // deterministic: the same instructions on the same inputs give the same bits; the margin only covers reading back).
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { Animator, AnimatorStateChanges, Assets, BoneAttachment, Engine, GameBehavior, GameObject, Quaternion, Skeleton, Vector3, animatorParams, type AnimatorStateChange } from "../../../../myco";
+import { Animator, AnimatorStateChanges, Assets, BoneAttachment, Engine, GameBehavior, GameObject, Light, Quaternion, Skeleton, Vector3, animatorParams, type AnimatorStateChange } from "../../../../myco";
 import type { World } from "../../../../engine/core/World";
 import { ByteWriter, encodeStringTable, writeContainer } from "../../../../engine/animation/binaryWriter";
 import { invert34, multiply34, toMat4 } from "../affine";
@@ -209,6 +209,9 @@ beforeAll(async () => {
       "idle.animgraph.json": single("idle"),
       "graphs/sword.animgraph.json": single("walk"),
       "graphs/axe.animgraph.json": single("run"),
+      // An authored clip (a source, built at run time as an Animator's plays build it) keying a light: 0 → 10 over 1 s.
+      "clips/glow.anim.json": { format: "myco.anim-source@1", duration: 1, tracks: [{ kind: "float", target: { nodePath: "", component: "engine.Light", field: "intensity" }, curves: [[[0, 0], [1, 10]]] }] },
+      "glow.animgraph.json": single("clips/glow.anim.json"),
     }),
   );
   engine = await Engine.create({ headless: true });
@@ -273,6 +276,21 @@ describe("graph instances and parameters", () => {
       warn.mockRestore();
       destroyAll();
     }
+  });
+
+  it("plays an authored clip (*.anim.json) from a graph's clip player, as an Animator's own plays do", async () => {
+    const node = GameObject.create("Glow");
+    const light = node.addComponent(Light, { type: "point", intensity: 99 });
+    node.addComponent(Animator, { graph: "glow.animgraph.json", parameters: {}, linkedGraphNodes: [], linkedGraphs: [], defaultClip: "" });
+    await vi.waitFor(() => {
+      engine.step(0);
+      expect(light.intensity).not.toBe(99);
+    });
+    steps(15); // half the clip
+    expect(light.intensity).toBeGreaterThan(3);
+    expect(light.intensity).toBeLessThan(7);
+    GameObject.destroy(node);
+    destroyAll();
   });
 
   it("runs a graph's logic on an Animator without a Skeleton (zero bones)", async () => {

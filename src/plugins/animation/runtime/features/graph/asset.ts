@@ -18,6 +18,7 @@
 import { parseAnimGraph, type AnimGraph, type Condition, type GraphNode, type GraphParamType } from "../../../../../engine/animation/animGraph";
 import { compileAnimGraph, type CompiledAnimGraph } from "../../../../../engine/animation/graphCompile";
 import type { AnimationWorldCore } from "../../core/AnimationWorldCore";
+import { resolveClip } from "../clipSources";
 import { matchingInputs, type MatchingInputs } from "../matching/inputs";
 import { acquirePoseDatabase } from "../matching/posedb";
 import { acquireNodeModule, loadGraphNodeModules } from "../nodes/loader";
@@ -25,6 +26,7 @@ import { acquireRetargetMap, retargetNodes, type RetargetBinding } from "../reta
 import { warpWindows } from "../warp/windows";
 import { readJsonAsset } from "./jsonAsset";
 import { acquireMask, type MaskRig } from "./masks";
+import { subAssetClip } from "../subAssetClips";
 
 /** @internal A state machine of a graph, as the host names it. */
 export interface MachineMeta {
@@ -297,6 +299,19 @@ async function retargetMaps(ns: AnimationWorldCore, meta: GraphMeta, rig: GraphR
   return out;
 }
 
+/**
+ * One reference to a graph's clip, resolved as an Animator's plays resolve theirs (ADR 0371, T19): a flipbook, a model's
+ * clip (`model.glb#Anim/Run`) or an authored `*.anim.json` built for the rig's skeleton, else a compiled file. 0 when it
+ * can't load.
+ */
+async function acquireGraphClip(ns: AnimationWorldCore, path: string, rig: GraphRig): Promise<number> {
+  const made = subAssetClip(path);
+  if (made !== undefined) return made ? ns.acquire(made.key, "clip", { kind: "clip", bytes: made.bytes }) : 0;
+  const resolved = await resolveClip(path, rig ? { ref: rig.path, bones: rig.info } : null);
+  if (!resolved || !ns.open) return 0;
+  return "path" in resolved ? ns.acquireFile(resolved.path, "clip") : ns.acquire(resolved.key, "clip", { kind: "clip", bytes: resolved.bytes });
+}
+
 /** Loads and binds one graph's assets; the handles it took go to `held`. */
 async function bindAssets(ns: AnimationWorldCore, handle: number, meta: GraphMeta, rig: GraphRig, depth: number, held: number[], linked: LoadedGraph[], graphHandles: Map<string, number>): Promise<void> {
   const maps = await retargetMaps(ns, meta, rig, held);
@@ -316,7 +331,7 @@ async function bindAssets(ns: AnimationWorldCore, handle: number, meta: GraphMet
           if (asset) held.push(asset);
           break;
         case "clip":
-          asset = await ns.acquireFile(path, b.asset);
+          asset = await acquireGraphClip(ns, path, rig);
           if (asset) held.push(asset);
           else warnOnce(`bind:${path}`, `[myco] animation: couldn't load "${path}" for a graph; it plays as nothing.`);
           break;
