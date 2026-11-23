@@ -2,6 +2,7 @@
 // recording, disabled outside Play unless a recording is still running, its tooltip the model's state in words.
 import { useEffect, useState } from "preact/hooks";
 import { recordToggleTitle, type RecordToggle } from "./recordToggleModel";
+import { RecordIcon } from "../../../../editor/ui/toolIcons";
 import "./recordToggles.css";
 
 /** A toggle's button, given its model and whether the editor plays. */
@@ -28,13 +29,14 @@ export function RecordButton(props: { model: RecordToggle; playing: boolean; lab
   const busy = s.kind === "starting" || s.kind === "saving";
   return (
     <button
-      class={`record-toggle record-${model.kind}${model.recording ? " active" : ""}`}
+      class={`icon-button record-toggle record-${model.kind}${model.recording ? " active" : ""}`}
+      aria-label={props.label}
       aria-pressed={model.recording}
       disabled={busy || (!playing && !model.recording)}
       title={recordToggleTitle(model.kind, s, model.seconds, playing)}
       onClick={() => void model.toggle()}
     >
-      <span class="record-dot" aria-hidden="true">●</span> {props.label}
+      <span class="record-dot"><RecordIcon /></span>
     </button>
   );
 }

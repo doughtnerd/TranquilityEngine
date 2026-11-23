@@ -104,7 +104,7 @@ test("multiplayer play: 2 clients + 1 thin client, live stats, latency raises th
 
   // Stop returns to editing; the panel explains itself again, and the slider keeps its value.
   await page.getByRole("button", { name: /Stop/ }).click();
-  await expect(page.getByRole("button", { name: "▶ Play" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
   await expect(tiles).toHaveCount(0);
   await expect(panel.locator(".network-empty")).toContainText("Play to see");
   await expect(panel.getByRole("slider", { name: "Latency" })).toHaveValue("150");

@@ -43,7 +43,7 @@ test("the occlusion overlay draws rays in the game view while the Audio popover'
   };
   // The game is paused and stepped, and the game view captured: the ray and its hit marker are the only change the
   // toggle makes (the occlusion keeps being worked out while paused frames step).
-  await page.getByRole("button", { name: "❚❚ Pause", exact: true }).click();
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
   const off = await stepped(page);
   expect(pixelsChanged(off, await stepped(page)), "the paused scene holds still").toBeLessThan(20);
 

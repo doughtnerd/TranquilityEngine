@@ -112,6 +112,6 @@ test("New Scene in the Assets panel writes a scene with a camera in scenes/ (the
 test("Play plays the active tab", async ({ page }) => {
   await openEditor(page, { sample: "flappy" });
   await openPipePair(page);
-  await page.getByRole("button", { name: "▶ Play" }).click();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
   await expect(page.locator(".status-bar")).toContainText("Playing prefabs/pipe-pair.prefab.json", { timeout: PLAY_START });
 });

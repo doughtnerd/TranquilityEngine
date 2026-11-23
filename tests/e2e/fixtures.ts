@@ -129,7 +129,7 @@ export const PLAY_START = 20_000;
 
 /** Press Play and wait until the game runs (the Stop button shows). */
 export async function play(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "▶ Play" }).click();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
   await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: PLAY_START });
 }
 
@@ -248,7 +248,7 @@ export const readAudioDebug = <T extends AudioDebug = AudioDebug>(page: Page): P
  * project with many scripts to type-check in a cold worker.
  */
 export async function playWithAudio(page: Page, o: { backend?: "core" | "babylon"; startTimeout?: number } = {}): Promise<void> {
-  await page.getByRole("button", { name: "▶ Play" }).click();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
   await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: o.startTimeout ?? PLAY_START });
   await page.mouse.click(480, 250);
   await expect.poll(async () => (await readAudioDebug(page))?.status, { timeout: 30_000 }).toBe("running");

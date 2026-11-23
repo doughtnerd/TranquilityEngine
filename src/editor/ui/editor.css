@@ -362,7 +362,7 @@ button:disabled:hover { background: var(--button); }
 .world-item .world-note { color: var(--muted); }
 .world-item.paused .world-name { color: var(--muted); }
 .world-item button { padding: 1px 8px; font-size: calc(12px * var(--ui-scale)); }
-.play-button { min-width: 78px; font-weight: 600; }
+.play-button { min-width: 44px; }
 .play-button.active { background: var(--success-strong); border-color: var(--success-strong); color: var(--success-text); box-shadow: 0 0 10px var(--accent2-soft); }
 .editor.playing .toolbar { background: var(--playing-bar); }
 .editor.playing .viewport-hint { display: none; }

@@ -1,0 +1,3 @@
+/* Icon buttons (toolIcons.tsx): a square button holding one currentColor SVG, so it follows the theme and the button's state. */
+button.icon-button { display: inline-flex; align-items: center; justify-content: center; min-width: 0; padding: 3px 7px; line-height: 0; }
+button.icon-button .tool-icon { width: calc(16px * var(--ui-scale)); height: calc(16px * var(--ui-scale)); flex: none; }

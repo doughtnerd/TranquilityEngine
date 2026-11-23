@@ -151,7 +151,7 @@ test("the campfire opens in the Particle Graph as three systems with a live prev
 test("the 3D Playground's campfire plays its three systems in Play mode", async ({ page }) => {
   const errors = trackErrors(page);
   await openEditor(page, { sample: "playground3d" });
-  await page.getByRole("button", { name: "▶ Play" }).click();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
   await page.waitForFunction(() => ((window as unknown as Hooks).playEngine?.world.time.frameCount ?? 0) > 10);
   // The campfire's effect plays its three systems (flames, smoke, sparks: the Particle Graph test above shows them).
   await expect.poll(async () => (await playParticles(page)).playing, { timeout: 15_000 }).toBeGreaterThan(0);

@@ -14,6 +14,7 @@ import { addPanelRequest } from "../layout/store";
 import { manageLayoutsOpen, saveLayoutAsOpen } from "../layout/layoutDialogs";
 import { StatusBar } from "./StatusBar";
 import { PlayControls } from "./PlayControls";
+import { PlayIcon, StopIcon } from "./toolIcons";
 import { NewScriptDialog } from "./NewScriptDialog";
 import { RefineList } from "./RefineList";
 import { StartScreen } from "./StartScreen";
@@ -95,13 +96,14 @@ function PlayButton() {
   const canPlay = !!openScene.value;
   return (
     <button
-      class={`play-button${state !== "edit" ? " active" : ""}`}
+      class={`icon-button play-button${state !== "edit" ? " active" : ""}`}
       disabled={state === "starting" || (state === "edit" && !canPlay)}
+      aria-label={state === "edit" ? "Play" : state === "starting" ? "Starting…" : "Stop"}
       aria-pressed={state !== "edit"}
-      title={state === "edit" ? "Play the open scene (Ctrl+P)" : "Stop playing (Ctrl+P)"}
+      title={state === "edit" ? "Play the open scene (Ctrl+P)" : state === "starting" ? "Starting the game…" : "Stop playing (Ctrl+P)"}
       onClick={togglePlaying}
     >
-      {state === "edit" ? "▶ Play" : state === "starting" ? "Starting…" : "■ Stop"}
+      {state === "edit" || state === "starting" ? <PlayIcon /> : <StopIcon />}
     </button>
   );
 }

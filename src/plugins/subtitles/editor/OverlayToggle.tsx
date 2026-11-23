@@ -3,6 +3,7 @@
 // the overlay display.
 import { useEffect } from "preact/hooks";
 import { editor, persisted } from "../../../editor/sdk";
+import { SubtitlesIcon } from "../../../editor/ui/toolIcons";
 import { syncSubtitlesOverlay } from "./playOverlay";
 
 /** Per user: show the subtitle overlay in editor Play for scenes without a subtitle display. */
@@ -15,12 +16,13 @@ export function OverlayToggle() {
   return (
     <button
       type="button"
-      class={`play-subtitles${on ? " active" : ""}`}
+      class={`icon-button play-subtitles${on ? " active" : ""}`}
+      aria-label="Subtitles"
       aria-pressed={on}
       title={on ? "Hide the subtitle overlay" : "Show subtitles over Play for scenes without a subtitle display (editor only, never saved)"}
       onClick={() => (subtitlesOverlay.value = !on)}
     >
-      Subtitles
+      <SubtitlesIcon />
     </button>
   );
 }

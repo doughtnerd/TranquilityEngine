@@ -196,7 +196,7 @@ test("Play runs the scene in a game view, Stop returns to the unchanged editor",
   });
 
   await page.keyboard.press("ControlOrMeta+p"); // stop
-  await expect(page.getByRole("button", { name: "▶ Play" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
   await expect(game).toHaveCount(0);
   await expect(page.getByRole("textbox", { name: "position y" })).toHaveValue("1"); // the edited scene is untouched
   expect(errors).toEqual([]);

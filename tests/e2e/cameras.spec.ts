@@ -62,7 +62,7 @@ test("the selected camera's inset shows its effects", async ({ page }) => {
 test("in play, a second camera in a corner viewport gets its own composer, drawn over the main view", async ({ page }) => {
   const errors = trackErrors(page);
   await openPlayground(page);
-  await page.getByRole("button", { name: "▶ Play" }).click();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
   await page.waitForFunction(() => ((window as unknown as Hooks).playEngine?.world.time.frameCount ?? 0) > 10);
   const before = await steadyCorner(page);
 

@@ -89,7 +89,7 @@ test("the live debugger follows the Animator picked in the live Hierarchy, edits
   await expect.poll(async () => pixelsChanged(rest, await captureView(gameView(page))), { timeout: 15_000, message: "pixels the bend changes in the game view" }).toBeGreaterThan(150);
 
   // Paused, the recorder's oldest frames are the rest pose: scrubbing back shows it in the game view; Live shows the game's again.
-  await page.getByRole("button", { name: "❚❚ Pause", exact: true }).click();
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
   const paused = await steadyView(gameView(page));
   expect(pixelsChanged(rest, paused), "the game is paused mid-bend").toBeGreaterThan(150);
   const scrubber = debuggerBar.getByRole("slider", { name: "Recorded frame" });

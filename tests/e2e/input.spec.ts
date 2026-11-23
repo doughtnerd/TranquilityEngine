@@ -66,7 +66,7 @@ test("the Input Debugger shows a playing World's action values, flags, source an
   await expect(log).not.toContainText("fire");
 
   await page.getByRole("button", { name: /Stop/ }).click();
-  await expect(page.getByRole("button", { name: "▶ Play" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
   await expect(panel.locator(".input-debugger-empty")).toContainText("Play to see a World's input here");
   expect(errors).toEqual([]);
 });

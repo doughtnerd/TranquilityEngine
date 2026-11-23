@@ -1,6 +1,7 @@
 // The Play toolbar's Language menu (ADR 0354 §1, 0356 §9) and Subtitles overlay toggle (ADR 0357 §6). Views only: the
 // choices, the preview language and what a pick does come from `playLanguage.ts`; PlayControls connects them.
 import type { PlayLanguageChoice } from "../playLanguage";
+import { SubtitlesIcon } from "./toolIcons";
 
 export interface PlayLanguageMenuProps {
   readonly choices: readonly PlayLanguageChoice[];
@@ -51,12 +52,13 @@ export function SubtitlesOverlayToggle(props: SubtitlesOverlayToggleProps) {
   return (
     <button
       type="button"
-      class={`play-subtitles${props.on ? " active" : ""}`}
+      class={`icon-button play-subtitles${props.on ? " active" : ""}`}
+      aria-label="Subtitles"
       aria-pressed={props.on}
       title={props.unavailable ?? (props.on ? "Hide the subtitle overlay" : "Show subtitles over Play for scenes without a subtitle display (editor only, never saved)")}
       onClick={() => props.onToggle(!props.on)}
     >
-      Subtitles
+      <SubtitlesIcon />
     </button>
   );
 }
