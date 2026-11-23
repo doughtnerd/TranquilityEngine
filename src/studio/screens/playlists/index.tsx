@@ -9,6 +9,7 @@ import { deleteAssets } from "../../../editor/assetDelete";
 import { currentProject, docVersion } from "../../../editor/state";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
+import { Section } from "../../../editor/ui/PanelFields";
 import type { Entry } from "../../../engine/audio/playlist/types";
 import { Icon } from "../../components/Icon";
 import { ParameterPanel } from "../../components/ParameterPanel";
@@ -386,6 +387,12 @@ function InspectorPanel() {
           onCreateCaptionKey={(key) => project && createCaptionKey(project, key, captionPlaceholder(key))}
         />
   );
+  // Spec 4.2.7: the parameters' test values are an Inspector section too (the bottom Parameters tab stays for a wide view).
+  const parameters = (
+    <Section title="Parameters" open={allParameters.value.length > 0}>
+      <TestValues />
+    </Section>
+  );
   return (
     <Panel bodyClass="pl-panel-body">
       <PlaylistHistoryScope doc={openDoc.value}>
@@ -393,9 +400,13 @@ function InspectorPanel() {
         {body.type === "sequence" ? (
           <SequenceInspectorPanel body={body} writable={writable() && !doc.readOnly} lints={openLints.value} where={whereOf(t.indices)} title={lastCrumbName()} onEdit={(label, edit) => editOpen(label, edit)}>
             {inspector}
+            {parameters}
           </SequenceInspectorPanel>
         ) : (
-          inspector
+          <>
+            {inspector}
+            {parameters}
+          </>
         )}
       </div>
       </PlaylistHistoryScope>
@@ -423,12 +434,21 @@ function VoicesPanel() {
   );
 }
 
+/** The test values of the open playlist's parameters, inside the panel's gutter with token-styled fields (I3). */
+function TestValues() {
+  return (
+    <div class="pl-test-values">
+      <ParameterPanel parameters={allParameters.value} values={testValues.value} empty="No game parameters yet: add global ones in the Global parameters panel, or local ones in the Inspector." onValue={(name, v) => setTestValue(name, v)} />
+    </div>
+  );
+}
+
 function ParametersPanel() {
   void openFile.value;
   return (
     <Panel bodyClass="pl-panel-body">
       <PlaylistHistoryScope doc={openDoc.value}>
-      <ParameterPanel parameters={allParameters.value} values={testValues.value} empty="No game parameters yet: add global ones in the Global parameters panel, or local ones in the Inspector." onValue={(name, v) => setTestValue(name, v)} />
+      <TestValues />
       </PlaylistHistoryScope>
     </Panel>
   );
