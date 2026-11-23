@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../myco";
 import { beginFieldDrag, storedFieldValue, writeComponentField } from "./componentField";
 import { OrbitCamera } from "./OrbitCamera";
+import { fieldWriteInterceptors, type InterceptedFieldWrite } from "./sdk/contributions";
 import { openSceneFile } from "./project";
 import { openScene, playState, sceneCamera, status } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
@@ -93,5 +94,42 @@ describe("on a live node", () => {
     expect(live.transform!.position.toArray()).toEqual([0, 0, 0]);
     expect(writeComponentField({ node: live, type: "engine.Nothing" }, "x", 1)).toBe("Nothing has no field x");
     GameObject.destroy(live);
+  });
+});
+
+describe("field write interceptors (ADR 0373)", () => {
+  it("take document writes instead of the document, grouped by the undo step they are part of", () => {
+    const taken: InterceptedFieldWrite[] = [];
+    const ended: [number, boolean][] = [];
+    const remove = fieldWriteInterceptors.register({
+      id: "test.record",
+      take: (w) => w.field === "position" && (taken.push(w), true),
+      gestureEnded: (g, cancelled) => ended.push([g, cancelled]),
+    });
+    try {
+      const before = scene().doc.fieldValue("bird", TRANSFORM, "position");
+      // A single write outside any step: no gesture.
+      expect(writeComponentField(at(["bird"]), "position", [1, 2, 3])).toBeNull();
+      expect(scene().doc.fieldValue("bird", TRANSFORM, "position")).toEqual(before);
+      expect(taken[0]).toMatchObject({ path: ["bird"], type: TRANSFORM, index: 0, field: "position", value: [1, 2, 3], stored: before, gesture: null });
+      // A drag: every write shares the drag's gesture, which ends once.
+      const drag = beginFieldDrag(at(["bird"]), "Drag position")!;
+      writeComponentField(at(["bird"]), "position", [2, 2, 2]);
+      writeComponentField(at(["bird"]), "position", [3, 3, 3]);
+      drag.end();
+      const g = taken[1]!.gesture;
+      expect(g).not.toBeNull();
+      expect(taken[2]!.gesture).toBe(g);
+      expect(ended).toEqual([[g, false]]);
+      // A write the interceptor leaves (another field) reaches the document; a cancelled step says so.
+      const step = beginFieldDrag(at(["bird"]), "Drag scale")!;
+      expect(writeComponentField(at(["bird"]), "scale", [2, 2, 2])).toBeNull();
+      expect(scene().doc.fieldValue("bird", TRANSFORM, "scale")).toEqual([2, 2, 2]);
+      step.cancel();
+      expect(ended[1]![1]).toBe(true);
+      expect(scene().doc.fieldValue("bird", TRANSFORM, "position")).toEqual(before);
+    } finally {
+      remove();
+    }
   });
 });

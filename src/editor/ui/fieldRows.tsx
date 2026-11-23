@@ -13,11 +13,11 @@ import { rotationViewOf } from "../fieldEdits";
 import { fieldChoicesFor, listedChoices, loadFieldChoices } from "../fieldChoices";
 import type { FieldDrag, FieldTarget, NodeRefs } from "../fieldTarget";
 import { choicesFor, fieldTitle, itemField } from "../fieldValues";
-import { FIELD_KINDS, fieldKind, type FieldKind, type FieldKindName } from "../fields/kinds";
+import { FIELD_KINDS, fieldKind, noNodeRefs, type FieldKind, type FieldKindName } from "../fields/kinds";
 import { MIXED, NumberInput } from "../fields/NumberInput";
 import { hexWithAlpha } from "../colorMath";
 import { RotationField } from "../fields/RotationField";
-import type { FieldChoicesContribution } from "../sdk/contributions";
+import { fieldAdornments, type FieldChoicesContribution } from "../sdk/contributions";
 import { currentProject, status } from "../state";
 import { AssetPicker } from "./AssetPicker";
 import { useDraftText } from "./draftText";
@@ -70,6 +70,7 @@ function FieldRow(props: { target: FieldTarget; field: FieldValue; readOnly?: bo
             ↺
           </button>
         )}
+        {target.place && !props.readOnly && <FieldAdornments place={target.place} field={field} kind={kind} />}
       </div>
       <div class="value">
         {choices !== undefined ? (
@@ -89,6 +90,26 @@ function FieldRow(props: { target: FieldTarget; field: FieldValue; readOnly?: bo
           />
         )}
       </div>
+    </>
+  );
+}
+
+/** The plugins' controls after a document field's name (ADR 0373: key buttons), given the value in scene-file JSON. */
+function FieldAdornments(props: { place: NonNullable<FieldTarget["place"]>; field: FieldValue; kind: FieldKind }) {
+  fieldAdornments.version.value; // follow registrations
+  const list = fieldAdornments.list();
+  if (!list.length) return null;
+  let value: unknown;
+  try {
+    value = props.field.value === undefined ? undefined : props.kind.toJSON(props.field.value, noNodeRefs);
+  } catch {
+    value = undefined;
+  }
+  return (
+    <>
+      {list.map((a) => (
+        <a.view key={a.id} {...props.place} field={props.field.name} value={value} />
+      ))}
     </>
   );
 }

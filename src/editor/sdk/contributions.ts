@@ -725,7 +725,65 @@ export interface ImportSettingsSectionContribution {
   readonly view: LoadComponent<ImportSettingsViewProps>;
 }
 
+/** A component field of a scene document, as the field adornments and field write interceptors see it (ADR 0373). */
+export interface DocumentField {
+  readonly scene: OpenScene;
+  /** The node (`[id]`, or `[instanceId, innerId…]` inside a prefab instance). */
+  readonly path: NodePath;
+  /** The Component type id, e.g. "engine.Transform". */
+  readonly type: string;
+  /** Which component of its type on the node. */
+  readonly index: number;
+  /** The field's name (a whole field: a plain object's sub-paths are inside its value). */
+  readonly field: string;
+}
+
+/** What a field adornment is given: the field of the Inspector's active node, and its value in scene-file JSON. */
+export interface FieldAdornmentProps extends DocumentField {
+  /** The value the row shows on the active node, as the scene file would hold it (undefined when it can't be). */
+  readonly value: unknown;
+}
+
+/**
+ * A small control after a field's name in the Inspector of a scene document (ADR 0373: the Animation window's key
+ * buttons on animatable fields). Rendered on every field row of the active node; the view returns null where it has
+ * nothing to show. Not shown in the live Inspector of a running game.
+ */
+export interface FieldAdornmentContribution {
+  readonly id: string;
+  readonly view: FunctionComponent<FieldAdornmentProps>;
+}
+
+/** A component field write to a scene document, as an interceptor is asked about it. */
+export interface InterceptedFieldWrite extends DocumentField {
+  /** The value to write, in scene-file JSON. */
+  readonly value: unknown;
+  /** What the document holds there now (undefined when unset). */
+  readonly stored: unknown;
+  /**
+   * The open undo step the write is part of (a gizmo drag, an Inspector scrub, a multi-node edit), as a number shared
+   * by every write inside it; null for a write outside any step. `gestureEnded` hears when it closes.
+   */
+  readonly gesture: number | null;
+}
+
+/**
+ * Takes component field writes to scene documents instead of the document (ADR 0373: the Animation window's record
+ * mode, where changing an animatable field in the Inspector or with a gizmo writes a key into the clip). Asked before
+ * every document write from the Inspector, gizmos and plugin tools (they all go through the one component field write,
+ * ADR 0257), after the edit gate; the first that takes a write keeps the scene document unchanged.
+ */
+export interface FieldWriteInterceptorContribution {
+  readonly id: string;
+  /** Take `write` (true: the scene document isn't changed) or leave it to the document (false). Must not throw. */
+  take(write: InterceptedFieldWrite): boolean;
+  /** The undo step numbered `gesture` closed (`cancelled`: put back), after writes inside it were asked about. */
+  gestureEnded?(gesture: number, cancelled: boolean): void;
+}
+
 export const componentNotes = createRegistry<ComponentNoteContribution>("Component note");
+export const fieldAdornments = createRegistry<FieldAdornmentContribution>("Field adornment");
+export const fieldWriteInterceptors = createRegistry<FieldWriteInterceptorContribution>("Field write interceptor");
 export const assetKinds = createRegistry<AssetKindContribution>("Asset kind");
 export const panels = createRegistry<PanelContribution>("Panel");
 export const projectSettingsSections = createRegistry<ProjectSettingsSectionContribution>("Project settings section");

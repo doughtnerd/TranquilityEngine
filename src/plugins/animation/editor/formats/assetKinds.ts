@@ -21,6 +21,7 @@ import { SKELETON_PROFILE_SUFFIX, emptySkeletonProfile, formatSkeletonProfile, p
 import { POSE_DATABASE_SUFFIX, emptyPoseDatabase, formatPoseDatabase, parsePoseDatabase, poseDatabaseReferences, type PoseDatabaseSource } from "../../../../engine/animation/poseDatabase";
 import type { FormatParse } from "../../../../engine/animation/shared";
 import { ANIM_GRAPH_PANEL } from "../graphEditor/panelId";
+import { ANIMATION_WINDOW_PANEL } from "../animationWindow/panelId";
 
 /** A play triangle over a key line: a clip. */
 const CLIP_ICON = "M4 18h16M7 15V9M12 15V6M17 15v-4M9 4l6 3.5L9 11z";
@@ -94,6 +95,8 @@ export const ANIMATION_ASSET_KINDS: readonly AssetKindContribution[] = [
     references: reader(ANIM_SOURCE_SUFFIX, parseAnimSource, animSourceReferences),
     // The clip preview (T18, `scene/ClipPreview.tsx`).
     inspector: () => import("../scene/ClipPreview").then((m) => m.ClipPreview),
+    // Opening one edits it in the Animation window (T50).
+    panel: ANIMATION_WINDOW_PANEL,
   },
   {
     id: "animgraph", extensions: [ANIM_GRAPH_SUFFIX], label: "Animation Graph", icon: GRAPH_ICON, format: animGraphFormat, folder: "animation",
