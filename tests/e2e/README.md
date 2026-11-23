@@ -21,10 +21,15 @@ Concurrent runs (another checkout, a master worktree) need their own `E2E_PORT`.
 
 ## What's tagged `@slow`
 
-Specs that take long and whose code rarely changes: the game exports (`export.spec.ts`), asset
-thumbnails and live previews (`thumbnails.spec.ts`), the Navigation sample's Play session, the lobby
-view, the sky bake and the HDR environment. Tag a test with `{ tag: "@slow" }` after its title (or on
-a `test.describe`). Run `test:e2e:slow` before merging changes to what they cover.
+Specs that take long and whose code rarely changes: the game exports (`export.spec.ts`,
+`animation-export.spec.ts`), asset thumbnails and live previews (`thumbnails.spec.ts`), the Navigation
+sample's Play session, the lobby view, the sky bake and the HDR environment. Tag a test with
+`{ tag: "@slow" }` after its title (or on a `test.describe`). Run `test:e2e:slow` before merging changes
+to what they cover.
+
+`@webkit` marks the smoke a WebKit run should cover first (the animation runtime,
+`animation-runtime.spec.ts`): `npm run test:e2e:webkit` runs every untagged and `@webkit` spec anyway;
+`npm run test:e2e:webkit -- --grep @webkit` runs just those.
 
 ## Software GL
 
