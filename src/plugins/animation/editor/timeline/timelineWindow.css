@@ -1,0 +1,20 @@
+/* The Timeline window (ADR 0373). Theme tokens only. It shares the Animation window's toolbar and row-editor styles
+   (`../animationWindow/animationWindow.css`, `.aw-*`) and the dope sheet grid's (`src/editor/ui/curves/curveEditor.css`,
+   `.ce-*`, bars and blend regions included); this file adds what only the timeline has. */
+
+.tw-crumbs { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.tw-crumb { display: inline-flex; align-items: center; gap: 4px; }
+.tw-crumb b { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.tw-grid { min-height: 0; overflow: auto; }
+
+.tw-binding { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.tw-binding select, .tw-binding input { max-width: 150px; }
+.tw-bad { border-color: var(--danger); color: var(--danger); }
+.tw-use { flex: none; width: 20px; height: 20px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--panel); color: var(--muted); cursor: pointer; }
+.tw-use:hover { color: var(--text); }
+.tw-use:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.tw-warn { flex: none; width: 14px; height: 14px; border-radius: 50%; background: var(--danger); color: var(--accent-text); font-size: calc(10px * var(--ui-scale)); font-weight: 700; line-height: 14px; text-align: center; }
+
+.tw-add { display: inline-flex; align-items: center; gap: 4px; }
+.tw-add-pick { max-width: 200px; }
