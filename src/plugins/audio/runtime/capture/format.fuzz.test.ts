@@ -210,7 +210,7 @@ const PAYLOAD_REFUSALS: readonly [name: string, type: number, nth: number, write
   [`MIXOP op ${CAPTURE_MIXOP_CODES}`, RecordType.MIXOP, 0, (v, p) => v.setUint8(p, CAPTURE_MIXOP_CODES), "badValue"],
   ["MIXOP class 5", RecordType.MIXOP, 0, (v, p) => v.setUint8(p + 1, 5), "badValue"],
   ["MIXOP argc one short of its len", RecordType.MIXOP, 0, (v, p) => v.setUint16(p + 2, 4, true), "badLength"],
-  ["MIXOP origin 5", RecordType.MIXOP, 0, (v, p) => v.setUint8(p + 32, 5), "badValue"],
+  ["MIXOP origin 6", RecordType.MIXOP, 0, (v, p) => v.setUint8(p + 32, 6), "badValue"],
   ["INDEX count one past its len", RecordType.INDEX, 0, (v, p) => v.setUint32(p, 3, true), "badLength"],
   ["INDEX count zero", RecordType.INDEX, 0, (v, p) => v.setUint32(p, 0, true), "badLength"],
   ["INDEX count 4 GB", RecordType.INDEX, 0, (v, p) => v.setUint32(p, 0xffff_ffff, true), "badLength"],

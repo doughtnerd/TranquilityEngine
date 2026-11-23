@@ -4,6 +4,7 @@ import { CORE_LIVE_CAPS } from "../../../../engine/audio/busCapability";
 import { Mixer } from "../../../../engine/audio/mixer";
 import type { MixOp } from "../../../../engine/audio/mixOps";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
+import { currentMixOpOrigin } from "../capture/mixOpOrigin";
 import { applyMixOpCommand } from "./mixCommands";
 import { mixOpCommand } from "./schema";
 
@@ -33,6 +34,14 @@ describe("mix.op command", () => {
     expect(applyMixOpCommand(mixOpCommand(busVolume("Music", 0.25)), m).ok).toBe(true);
     expect(sent).toEqual([busVolume("Music", 0.25)]);
     expect(volume(m, "Music")).toBe(0.25);
+  });
+
+  it("applies the op as the debug link's, so a capture's MIXOP record names a tool (origin debugLink), not the editor", () => {
+    const { m } = rig();
+    let origin = "";
+    applyMixOpCommand(mixOpCommand(busVolume("Music", 0.5)), { apply: (op) => ((origin = currentMixOpOrigin()), m.apply(op)) });
+    expect(origin).toBe("debugLink");
+    expect(currentMixOpOrigin()).toBe("editor"); // restored after
   });
 
   it("refuses an unknown bus with a message naming it", () => {

@@ -8,12 +8,12 @@
 // backend) all throw with the message, which the session sends the tool as an error. `ok: true` (including one that
 // applies later this session, `waitsForSlot`) returns the mixer's answer.
 //
-// Origin: the MIXOP record's `origin` enum (`capture/format.ts`, a byte code) has no debug-link value, so the op is
-// recorded with the default origin (`editor`). Adding `debugLink: 5` there and wrapping the apply in
-// `withMixOpOrigin("debugLink", ...)` is the one-line follow-up.
+// Origin: the op is applied inside `withMixOpOrigin("debugLink", ...)`, so a running capture's MIXOP record says a tool
+// sent it over the link (`MixOpOrigin.debugLink`, 5), not the editor.
 import { reasonMessage } from "../../../../engine/audio/busCapability";
 import { isProjectOp, opRefusal, type ApplyResult, type MixOp } from "../../../../engine/audio/mixOps";
 import type { AudioSettings } from "../../../../engine/audio/settings";
+import { withMixOpOrigin } from "../capture/mixOpOrigin";
 import { readMixOpCommand } from "./schema";
 
 /** What `mix.op` applies ops to: the live `mixer` (its `audioSettings` give the refusal's reason); a stand-in in tests. */
@@ -28,7 +28,7 @@ export function applyMixOpCommand(params: unknown, target: MixOpTarget): ApplyRe
   const read = readMixOpCommand(params);
   if ("refused" in read) throw new Error(read.refused);
   const { op } = read;
-  const result = target.apply(op);
+  const result = withMixOpOrigin("debugLink", () => target.apply(op));
   if (result.ok) return result;
   if (result.reason !== undefined) throw new Error(`mix.op ${op.op} not applied: ${reasonMessage(result.reason)}`);
   const why = target.audioSettings && !isProjectOp(op) ? opRefusal(target.audioSettings, op) : null;
