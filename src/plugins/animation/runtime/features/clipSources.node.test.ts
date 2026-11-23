@@ -36,6 +36,7 @@ const WAVE = "anim/wave.anim.json";
 const WAVE_RAW = "anim/wave-raw.anim";
 const BUILT = "anim/built.anim.json";
 const LAMP = "anim/lamp.anim.json";
+const WALK = "anim/walk.anim";
 
 let engine: Engine;
 let world: World;
@@ -79,6 +80,7 @@ beforeAll(async () => {
       [BUILT]: animSourceToJson(wave()),
       [compiledClipPath(BUILT, SKEL)]: fixtureUrl("walk.anim").href,
       [LAMP]: animSourceToJson(lamp()),
+      [WALK]: fixtureUrl("walk.anim").href,
     }),
   );
   engine = await Engine.create({ headless: true });
@@ -119,6 +121,28 @@ describe("clip sources (T19)", () => {
     const b = await hero();
     await play([a.anim, WAVE], [b.anim, WAVE_RAW]);
     expect(skinningMatrices(world, a.node)!.slice()).toEqual(skinningMatrices(world, b.node)!.slice());
+  });
+
+  // T70: a raw clip whose compile finishes switches to the compiled bytes in place: the play goes on from where it is (its
+  // time keeps counting, no state change), and from then on it samples the compiled clip (told apart by serving the walk
+  // fixture's bytes as the "compiled" form): the same pose as an Animator that played the walk file from the same frame.
+  it("switch a playing raw clip to its compiled form in place when the compile finishes", async () => {
+    let finish: ((bytes: Uint8Array) => void) | undefined;
+    setCompiledClipSource({ compiled: async (_r, onCompiled) => ((finish = onCompiled), null) });
+    const a = await hero();
+    const b = await hero();
+    const c = await hero();
+    await play([a.anim, WAVE], [b.anim, WALK], [c.anim, WAVE_RAW]);
+    expect(a.anim.state().time).toBe(b.anim.state().time);
+    expect(skinningMatrices(world, a.node)!.slice()).toEqual(skinningMatrices(world, c.node)!.slice()); // still raw
+    const before = a.anim.state().time;
+    finish!(fixture("walk.anim"));
+    await Promise.resolve();
+    steps(5);
+    expect(a.anim.state()).toMatchObject({ name: WAVE });
+    expect(a.anim.state().time).toBeCloseTo(before + 5 * dt, 5);
+    expect(skinningMatrices(world, a.node)!.slice()).toEqual(skinningMatrices(world, b.node)!.slice());
+    expect(maxDiff(skinningMatrices(world, a.node), Array.from(skinningMatrices(world, c.node)!))).toBeGreaterThan(0.01);
   });
 
   it("prefer a build's compiled file beside the source over everything else", async () => {
