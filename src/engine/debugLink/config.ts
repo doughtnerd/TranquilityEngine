@@ -21,6 +21,41 @@ export interface DebugManifest {
    * transport's default.
    */
   readonly webrtc?: false | Readonly<Record<string, unknown>>;
+  /**
+   * `debug.listen` (ADR 0380 "Roles"): the build listens for tools as well as (or instead of) connecting out, on a native
+   * build only (a page can't listen). Written by an export with `--debug-listen`. Omitted: false (connect out only).
+   */
+  readonly listen?: boolean;
+  /**
+   * `debug.lan` (ADR 0380, 0376 "Security"): a listening build accepts connections from other machines on its network
+   * (binds `0.0.0.0`), each paired by code; without it, it binds loopback and only same-machine tools connect. Written by
+   * `--debug-lan` (the export dialog's Debugging section, off by default). Omitted: false.
+   */
+  readonly lan?: boolean;
+  /**
+   * `debug.port`: the first port a listening build tries; when it's taken it tries the next nine (7790..7799 by default,
+   * so the editor, the Studio and a game share a machine). A whole number 1..65526. Omitted: `DEFAULT_DEBUG_LINK_PORT`.
+   */
+  readonly port?: number;
+  /**
+   * `debug.rendezvous`: the hosted rendezvous's WebSocket URL (`ws://` or `wss://`, path `/myco-rendezvous`), which a
+   * room code without a LAN rendezvous falls back to (ADR 0380 "Rendezvous" 3; plan O7). Omitted: none configured (no
+   * public rendezvous exists, plan O3).
+   */
+  readonly rendezvous?: string;
+  /**
+   * `debug.iceServers`: STUN/TURN servers for the `webrtc` transport beyond one network (ADR 0380 "Transports": host
+   * candidates only on one network, ICE servers a setting for later). Omitted: none.
+   */
+  readonly iceServers?: readonly DebugIceServer[];
+}
+
+/** One `debug.iceServers` entry: `RTCIceServer`'s fields, declared here so the exporter needs no DOM types. */
+export interface DebugIceServer {
+  /** `stun:`, `turn:` or `turns:` URLs. */
+  readonly urls: string | readonly string[];
+  readonly username?: string;
+  readonly credential?: string;
 }
 
 /**
@@ -71,5 +106,6 @@ export function readDebugManifest(debug: unknown, override?: string | null): { c
   if (d.webrtc === false) webrtc = false;
   else if (d.webrtc && typeof d.webrtc === "object" && !Array.isArray(d.webrtc)) webrtc = d.webrtc as Record<string, unknown>;
   else if (d.webrtc !== undefined) problems.push("game.json's debug.webrtc should be false or the WebSocket transport's webrtc options; ignored.");
+  // L6: parse debug.listen, debug.lan, debug.port, debug.rendezvous and debug.iceServers here (a problem line per bad value).
   return { config: webrtc === undefined ? { link } : { link, webrtc }, problems };
 }
