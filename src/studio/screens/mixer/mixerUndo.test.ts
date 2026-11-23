@@ -16,6 +16,9 @@ import { levelLabel, setLevel } from "./mixEdits";
 import { mixerFixture } from "./mixerFixture";
 import { openMixDocument } from "./mixerDocument";
 import { createMixerSession, type MixerSession } from "./mixerScreen";
+import { applyAutomationResult, automationDialog } from "./automationCurves";
+import { createDraft, draftResult } from "../../../editor/ui/curves/curveEditorModel";
+import { setBy, writeLayer } from "../../../editor/ui/curves/andByModel";
 
 useCoreAssetKinds();
 
@@ -23,9 +26,10 @@ let project: EditorProject;
 let doc: AssetDocument<AudioProject>;
 let session: MixerSession;
 let applied: { op: MixOp; origin: string }[];
+let fs: MemoryFileSystem;
 
 beforeEach(async () => {
-  const fs = new MemoryFileSystem();
+  fs = new MemoryFileSystem();
   fs.files.set(joinPath(ROOT, "project.json"), "{}");
   fs.files.set(joinPath(ROOT, AUDIO_PROJECT_FILE), audioProjectText(mixerFixture()));
   project = await openFolderProject(fs, ROOT);
@@ -88,5 +92,36 @@ describe("live mixer moves in the document's history", () => {
     doc.redo();
     expect(musicDb()).toBe(-24);
     expect(volumes().map((a) => a.origin)).toEqual(["redo"]);
+  });
+});
+
+describe("And by in the document's history (ADR 0362 §5)", () => {
+  it("an Apply that adds a second input is one step: saved in audio.json, sent to the running mixer, undone and redone live", async () => {
+    const steps = doc.history.states.length;
+    const p = session.project.peek();
+    const d = automationDialog(p, "Music", "volume");
+    if ("refused" in d) throw new Error(d.refused);
+    let draft = setBy(d.next.spec, createDraft(d.next.spec), "volume", "param:health");
+    draft = writeLayer(draft, "volume", "high", [[0, -12], [1, 0]]);
+    const r = applyAutomationResult(p, d.next, draftResult(d.next.spec, draft));
+    if ("refused" in r || !r.next) throw new Error("nothing applied");
+    applied = [];
+    session.commit({ next: r.next.project }, r.next.label);
+    await doc.flush();
+    expect(doc.history.states.length).toBe(steps + 1);
+    expect(doc.undoLabel.peek()).toBe("Automate Level · Music");
+    const saved = JSON.parse(fs.files.get(joinPath(ROOT, AUDIO_PROJECT_FILE))!) as { automation: { on: string; target: string; by?: unknown }[] };
+    expect(saved.automation.find((a) => a.on === "Music" && a.target === "volume")!.by).toEqual({ input: "health", mode: "morph", curve: [[0, -12], [1, 0]] });
+    const sent = () => applied.filter((a) => a.op.op === "setAutomation").map((a) => [a.origin, (a.op as { rule: { by?: { input: string } } | null }).rule?.by?.input ?? null]);
+    expect(sent()).toEqual([["editor", "health"]]);
+
+    applied = [];
+    doc.undo();
+    expect(session.project.peek().automation.find((a) => a.on === "Music")!.by).toBeUndefined();
+    expect(sent()).toEqual([["undo", null]]);
+    applied = [];
+    doc.redo();
+    expect(session.project.peek().automation.find((a) => a.on === "Music")!.by?.input).toBe("health");
+    expect(sent()).toEqual([["redo", "health"]]);
   });
 });

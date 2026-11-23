@@ -11,11 +11,13 @@
  *
  * The layers are edited in the same plot as the lane: the dialog asks `layerView` for a lane and a curve to show, and
  * writes the edit back with `writeLayer`. A host offers second inputs with `CurveEditorSpec.secondInputs` and reads each
- * lane's `by` from Apply's result (a host that doesn't, offers none: the bar doesn't show).
+ * lane's `by` from Apply's result (a host that doesn't, offers none: the bar doesn't show). The preview evaluates a lane
+ * with the engine's own evaluator (`engine/audio/curveBy.ts`), so what the plot shows is what the runtime plays.
  *
  * Pure: no DOM.
  */
-import { evalCurve, type Curve, type CurveKey } from "../../../engine/core/curve";
+import type { Curve, CurveKey } from "../../../engine/core/curve";
+import { evalCurveBy } from "../../../engine/audio/curveBy";
 import { axisOf, evalLane, laneOf, withEnds, withLane, type CurveDraft, type CurveEditorSpec, type CurveInput, type CurveLane, type DraftLane } from "./curveEditorModel";
 
 /** A game parameter a lane may also follow; `labels` makes it discrete (one curve per label). */
@@ -144,12 +146,6 @@ export function writeLayer(draft: CurveDraft, id: string, layer: ByLayer, curve:
   return withLane(draft, id, { by: { ...by, curve } });
 }
 
-/** Where `at` sits on a second input, 0..1. */
-const share = (i: SecondInput, at: number) => {
-  const [a, b] = domain(i);
-  return Math.min(1, Math.max(0, (at - a) / (b - a)));
-};
-
 /**
  * The lane's value at `x` with the second input at `at` (the plot's dashed "Preview at" line): Morph's blend of Low and
  * High, Scale's product, Rate's clock run at the rate (x × rate, held at the end), a label's curve. Null when the lane
@@ -161,20 +157,8 @@ export function previewValue(spec: CurveEditorSpec, draft: CurveDraft, id: strin
   const si = by && secondInput(spec, by.input);
   if (!found || !by || !si) return null;
   const { lane, state } = found;
-  const main = (t: number) => evalLane(lane, state.curve, t);
-  if (by.mode === "morph") {
-    const w = share(si, at);
-    return main(x) * (1 - w) + evalLane(lane, by.curve ?? state.curve, x) * w;
-  }
-  if (by.mode === "scale") return main(x) * evalCurve(by.curve ?? flat(si.min, si.max, 1), at);
-  if (by.mode === "rate") {
-    const ax = axisOf(spec, state.input);
-    return main(Math.min(ax.max, ax.min + (x - ax.min) * evalCurve(by.curve ?? flat(si.min, si.max, 1), at)));
-  }
-  const labels = si.labels ?? [];
-  const label = labels[Math.round(Math.min(labels.length - 1, Math.max(0, at)))];
-  const curve = label && label !== labels[0] ? by.labels?.[label] : undefined;
-  return evalLane(lane, curve ?? state.curve, x);
+  const [min, max] = domain(si);
+  return evalCurveBy(state.curve, by, x, { value: at, min, max, ...(si.labels ? { labels: si.labels } : {}) }, (c, t) => evalLane(lane, c, t));
 }
 
 /** One row of the Table (a labelled second input): the label, and its value when its curve is flat, else its key count. */

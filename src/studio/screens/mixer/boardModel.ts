@@ -200,7 +200,7 @@ export interface AutomatableLane {
   readonly step: number;
   readonly scale: "linear" | "log";
   readonly plain: number;
-  readonly current: { readonly parameter: string; readonly curve: MixAutomation["curve"]; readonly bypass: boolean } | null;
+  readonly current: { readonly parameter: string; readonly curve: MixAutomation["curve"]; readonly bypass: boolean; readonly by?: MixAutomation["by"] } | null;
 }
 
 /**
@@ -213,7 +213,7 @@ export function automatableLanes(p: AudioProject, name: string, only?: string): 
   if (!owner) return [];
   const current = (target: string) => {
     const a = p.automation.find((x) => x.on === name && x.target === target);
-    return a ? { parameter: a.parameter, curve: a.curve, bypass: a.bypass } : null;
+    return a ? { parameter: a.parameter, curve: a.curve, bypass: a.bypass, ...(a.by ? { by: a.by } : {}) } : null;
   };
   const out: AutomatableLane[] = [{ target: "volume", label: "Level", min: -60, max: 6, unit: "dB", step: 0.5, scale: "linear", plain: 0, current: current("volume") }];
   for (const s of bus?.sends ?? []) out.push({ target: `send:${s.to}`, label: `Send to ${s.to}`, min: -60, max: 6, unit: "dB", step: 0.5, scale: "linear", plain: 0, current: current(`send:${s.to}`) });

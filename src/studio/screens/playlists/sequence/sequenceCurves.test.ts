@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ParameterDef } from "../../../../engine/audio/parameters";
-import { TIME_INPUT } from "../../../../editor/ui/curves/curveEditorModel";
+import { createDraft, draftResult, TIME_INPUT } from "../../../../editor/ui/curves/curveEditorModel";
+import { setBy, setByMode, writeLayer } from "../../../../editor/ui/curves/andByModel";
 import { applyCurveResult, curveSpec } from "./sequenceCurves";
 import { fixtureSequence } from "./sequenceFixture";
 import { findClip } from "./sequenceModel";
@@ -38,5 +39,29 @@ describe("sequence curves in the shared curve editor", () => {
     if ("refused" in t) throw new Error(t.refused);
     expect(t.next.tracks[0]!.automation[0]).toMatchObject({ input: "sequenceTime", bypass: true, curve: [[0, -1], [2, 1]] });
     expect("refused" in applyCurveResult(seq, { clip: "nope" }, { kind: "time", lanes: [] })).toBe(true);
+  });
+});
+
+describe("And by on sequence automation (ADR 0362 §5)", () => {
+  it("offers every parameter as a second input by its bare name, and writes the lane's by on Apply", () => {
+    const spec = curveSpec(seq, { clip: "c1" }, 3, PARAMS)!;
+    expect(spec.secondInputs!.map((s) => [s.id, s.labels ?? null])).toEqual([["brake", null], ["surface", ["a", "b"]]]);
+    let draft = setBy(spec, createDraft(spec), "volume", "surface");
+    draft = writeLayer(draft, "volume", "label:b", [[0, -30], [3, -30]]);
+    const r = applyCurveResult(seq, { clip: "c1" }, draftResult(spec, draft));
+    if ("refused" in r) throw new Error(r.refused);
+    const lane = findClip(r.next, "c1")!.clip.automation.find((a) => a.target === "volume")!;
+    expect(lane.by).toEqual({ input: "surface", mode: "labels", labels: { b: [[0, -30], [3, -30]] } });
+    const again = curveSpec(r.next, { clip: "c1" }, 3, PARAMS)!;
+    expect(again.lanes.find((l) => l.id === "volume")!.by).toEqual({ input: "surface", mode: "labels", labels: { b: [[0, -30], [3, -30]] } });
+  });
+
+  it("a flat lane with a second input becomes automation instead of collapsing to its plain value", () => {
+    const spec = curveSpec(seq, { clip: "c1" }, 3, PARAMS)!;
+    let draft = setByMode(spec, setBy(spec, createDraft(spec), "pitch", "brake"), "pitch", "scale");
+    draft = writeLayer(draft, "pitch", "scale", [[0, 1], [1, 2]]);
+    const r = applyCurveResult(seq, { clip: "c1" }, draftResult(spec, draft));
+    if ("refused" in r) throw new Error(r.refused);
+    expect(findClip(r.next, "c1")!.clip.automation.find((a) => a.target === "pitch")).toMatchObject({ input: "clipTime", by: { input: "brake", mode: "scale", curve: [[0, 1], [1, 2]] } });
   });
 });

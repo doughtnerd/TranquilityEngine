@@ -2,6 +2,7 @@
 // automatable property, each driven by a game parameter; log for Hz) and its result written back as one edit.
 import { describe, expect, it } from "vitest";
 import { createDraft, draftResult, withLane, type CurveEditorResult } from "../../../editor/ui/curves/curveEditorModel";
+import { setBy, setByMode, writeLayer } from "../../../editor/ui/curves/andByModel";
 import { audioProjectToJson, parseAudioProject } from "../../../engine/audio/project/format";
 import type { AudioProject } from "../../../engine/audio/project/types";
 import { setParameterHistogramSource } from "../curveInputs";
@@ -106,5 +107,44 @@ describe("Mixer automation in the curve editor", () => {
       stop();
     }
     expect(ok(automationDialog(p, "Music", "volume")).histogram).toBeUndefined();
+  });
+});
+
+describe("And by: a lane's second global parameter (ADR 0362 §5)", () => {
+  it("offers the global parameters as second inputs, labelled ones with their labels", () => {
+    const d = ok(automationDialog(mixerFixture(), "Music", "volume", { health: 40 }));
+    const seconds = d.spec.secondInputs!;
+    expect(seconds.map((s) => s.id)).toContain("param:health");
+    expect(seconds.find((s) => s.id === "param:health")).toMatchObject({ min: 0, max: 100, now: 40 });
+    expect(seconds.find((s) => s.id === "param:gameState")!.labels).toEqual(["Playing", "Paused", "Cutscene", "Loading"]);
+  });
+
+  it("Apply writes the lane's second input as one edit; it reopens with it and an untouched Apply changes nothing", () => {
+    const p = mixerFixture();
+    const d = ok(automationDialog(p, "Music", "volume"));
+    let draft = setBy(d.spec, createDraft(d.spec), "volume", "param:gameState");
+    draft = writeLayer(draft, "volume", "label:Paused", [[0, -20], [1, -20]]);
+    const r = ok(applyAutomationResult(p, d, draftResult(d.spec, draft)))!;
+    expect(r.label).toBe("Automate Level · Music");
+    const lane = r.project.automation.find((a) => a.on === "Music" && a.target === "volume")!;
+    expect(lane).toMatchObject({ parameter: "threat", curve: [[0, 0], [1, -3, "easeOut"]], by: { input: "gameState", mode: "labels", labels: { Paused: [[0, -20], [1, -20]] } } });
+    valid(r.project);
+    const again = ok(automationDialog(r.project, "Music", "volume"));
+    expect(again.spec.lanes.find((l) => l.id === "volume")!.by).toEqual({ input: "param:gameState", mode: "labels", labels: { Paused: [[0, -20], [1, -20]] } });
+    expect(ok(applyAutomationResult(r.project, again, untouched(again)))).toBeNull();
+    // "Nothing" takes it off again.
+    const off = setBy(again.spec, createDraft(again.spec), "volume", null);
+    expect(ok(applyAutomationResult(r.project, again, draftResult(again.spec, off)))!.project.automation.find((a) => a.on === "Music")!.by).toBeUndefined();
+  });
+
+  it("a flat lane that follows a second parameter is kept (its High curve isn't flat)", () => {
+    const p = mixerFixture();
+    const d = ok(automationDialog(p, "Music", "volume"));
+    let draft = withLane(createDraft(d.spec), "volume", { curve: [[0, -3], [1, -3]] });
+    draft = setByMode(d.spec, setBy(d.spec, draft, "volume", "param:health"), "volume", "morph");
+    draft = writeLayer(draft, "volume", "high", [[0, -12], [1, 0]]);
+    const r = ok(applyAutomationResult(p, d, draftResult(d.spec, draft)))!;
+    expect(r.project.automation.find((a) => a.on === "Music")).toMatchObject({ curve: [[0, -3], [1, -3]], by: { input: "health", mode: "morph", curve: [[0, -12], [1, 0]] } });
+    valid(r.project);
   });
 });
