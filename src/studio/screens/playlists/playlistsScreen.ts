@@ -25,7 +25,8 @@ import { applyEdit, type EditResult } from "../../../plugins/audio/editor/editRe
 import type { AudioEventHandle, AudioHandle } from "../../../plugins/audio/runtime";
 import { audioHost, openRoute, toasts } from "../../shell/studioServices";
 import { linkEntry, unlinkEntry, type EditContext } from "./playlistEdits";
-import { bodyAt, canonical, editAt, entryName, filePath, indicesToSelect, pathTarget, playlistTitle, whereOf, type PlaylistPath } from "./playlistPaths";
+import { bodyAt, canonical, editAt, effectiveOutput, entryName, filePath, indicesToSelect, pathTarget, playlistTitle, whereOf, type PlaylistPath } from "./playlistPaths";
+import { auditionAsset, auditionPathOf, serveAudition } from "./auditionSource";
 import { linkedByIndex } from "./playlistTree";
 import { clipsPlaylist } from "./clipsPlaylist";
 import { childrenToKeep, deleteEntry, folderContentsUp, moveAcrossFiles, moveWithinFile, insertEntries, planDelete, replaceLinks, takeEntry, type ChildrenChoice, type DeletePlan, type DeleteTarget, type LinksChoice } from "./structureEdits";
@@ -503,16 +504,34 @@ let logAsset: string | null = null;
 /** Something the audition started still plays. */
 export const auditioning = signal(false);
 
-/** What Trigger plays for the open playlist: the file (an embedded Clip plays its sample directly). */
-export function auditionTarget(): { kind: "file"; path: string } | { kind: "sample"; path: string } | null {
+/** What Trigger plays: a playlist by path (with the value to serve there, for a nested one), or a sample. */
+export type AuditionTarget = { readonly kind: "file"; readonly path: string; readonly nested?: PlaylistAsset } | { readonly kind: "sample"; readonly path: string };
+
+/**
+ * What Trigger plays for the open playlist (UI pass Q7, PB4): the file, or the open nested playlist itself (served
+ * under its audition path, `auditionSource.ts`), an embedded Clip its sample directly. Null when there's nothing to
+ * play: a playlist with no entries yet, or a generator Clip (it auditions in the Generator editor, ADR 0360).
+ */
+export function auditionTarget(): AuditionTarget | null {
   const t = target.peek();
   const b = openBody.peek();
-  if (!t || !b) return null;
+  const path = openPath.peek();
+  if (!t || !b || !path) return null;
+  if (b.type !== "sequence" && b.entries.length === 0) return null;
   if (t.indices.length && b.type === "clip") {
     const s = b.entries[0];
-    return s?.kind === "sample" ? { kind: "sample", path: s.sample } : null; // a generator Clip auditions in the Generator editor (ADR 0360)
+    return s?.kind === "sample" ? { kind: "sample", path: s.sample } : null;
   }
-  return { kind: "file", path: t.file };
+  if (t.indices.length === 0) return { kind: "file", path: t.file };
+  const out = effectiveOutput(path, loadPlaylist);
+  return { kind: "file", path: auditionPathOf(t.file, t.indices), nested: auditionAsset(b, out.bus, localParameters.peek()) };
+}
+
+/** Why Trigger is off for the open playlist, or null when it plays (the player bar's tooltip). */
+export function triggerOffReason(): string | null {
+  const b = openBody.peek();
+  if (!b || auditionTarget()) return null;
+  return b.type === "clip" && b.entries.length ? "This Clip plays a generator: audition it in the Generator editor" : b.type === "clip" ? "Choose a sample for this Clip to trigger it" : "Add entries to this playlist to trigger it";
 }
 
 /** Labelled test values as labels (the runtime takes labels by name). */
@@ -533,6 +552,7 @@ export function trigger(): void {
   if (!what) return;
   // Global test values go to the runtime first, so the trigger picks with them.
   for (const [name, value] of Object.entries(parameterOptions(globalParameters.peek()))) host.audio.setParameter(name, value);
+  if (what.kind === "file" && what.nested) serveAudition(what.path, what.nested);
   const h = what.kind === "file" ? host.audition(what.path, { parameters: parameterOptions(localParameters.peek()) }) : host.playClip(what.path);
   if (!h) {
     status.value = { kind: "info", text: host.state.peek().kind === "failed" ? "The audio core isn't running, so nothing plays." : `Nothing played: ${what.path} was refused (Plays now says why).` };

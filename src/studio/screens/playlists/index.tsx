@@ -12,7 +12,6 @@ import { Panel } from "../../../editor/ui/panel/Panel";
 import type { Entry } from "../../../engine/audio/playlist/types";
 import { Icon } from "../../components/Icon";
 import { ParameterPanel } from "../../components/ParameterPanel";
-import { TransportButton } from "../../components/PlayerBar";
 import type { StudioPanel } from "../../shell/studioPanels";
 import { audioHost, keymap, openRoute, setPlayerSlots, studioRouter, toasts } from "../../shell/studioServices";
 import { historyPanel } from "../placeholder";
@@ -33,12 +32,13 @@ import { breadcrumb, childPath, editAt, effectiveOutput, entryName, filePath, pa
 import {
   adding, allParameters, askDelete, askDeleteFolder, deleteFolderKeepingContents, deletingFolder, audioNow, auditioning, busNames, confirmDelete, deleting, docFor, duplicatePlaylistFiles, editContext, editFile, editOpen, followRoute,
   linkedBy, loadPlaylist, logCursor, makeShared, moveToFolder, newPlaylist, newPlaylistFolder, newPlaylistFromSamples, newSequence, openBody, openDoc, openFile, openLints, openPath, openPlaylist,
-  playingNow, releaseAudition, renameFolder, renamePlaylistFile, removeLinkEntry, runDrop, selectedEntry, setTestValue, stopAudition, target, testValues, trigger, unlink, voiceLog, clearLog,
+  playingNow, releaseAudition, renameFolder, renamePlaylistFile, removeLinkEntry, runDrop, selectedEntry, setTestValue, stopAudition, target, testValues, trigger, triggerOffReason, unlink, voiceLog, clearLog,
 } from "./playlistsScreen";
 import { PlaylistTreeView, type TreeActions } from "./PlaylistTreeView";
 import { entryKey, factsOf, fileKey, playlistTree, type PlaylistNode } from "./playlistTree";
 import { dropLabel, planDrop } from "./treeDrop";
-import { canRelease, eventTimes, logSpan, stepEvent } from "./voiceLog";
+import { canRelease } from "./voiceLog";
+import { playlistPlayerSlots } from "./playlistPlayer";
 import { VoicesView } from "./VoicesView";
 import { isGeneratorPath } from "../../../engine/audio/generators/format";
 import { GeneratorLibraryPanel, GeneratorPanel } from "./generator/GeneratorPanel";
@@ -248,24 +248,10 @@ function useScreen(): void {
         if (!body || !path) return setPlayerSlots("playlists", null);
         const t = pathTarget(path);
         if (body.type === "sequence") return setPlayerSlots("playlists", sequencePlayerSlots(lastCrumbName(), `Sequence · ${t.file}`));
-        const release = canRelease(body, loadPlaylist);
-        const times = eventTimes(log);
-        const span = logSpan(log, now);
-        setPlayerSlots("playlists", {
-          nowPlaying: { art: "PL", title: lastCrumbName(), subtitle: `${body.type === "clip" ? "Clip" : body.type.charAt(0).toUpperCase() + body.type.slice(1)} · ${t.file}` },
-          transport: (
-            <>
-              <TransportButton icon="skipBack" label="Previous voice event" title="Previous voice start or end" disabled={times.length === 0} onClick={() => (logCursor.value = stepEvent(times, logCursor.peek(), -1) ?? logCursor.peek())} />
-              <TransportButton icon={busy ? "stop" : "play"} primary label={busy ? "Stop" : "Trigger"} title={busy ? "Stop (Shift+Space)" : "Trigger (Space)"} onClick={() => (busy ? stopAudition() : trigger())} />
-              {release && <TransportButton icon="release" text label="Release" title="Release: held loops end by their exit settings" disabled={!busy} onClick={releaseAudition} />}
-              <TransportButton icon="skipForward" label="Next voice event" title="Next voice start or end" disabled={times.length === 0} onClick={() => (logCursor.value = stepEvent(times, logCursor.peek(), 1) ?? logCursor.peek())} />
-            </>
-          ),
-          scrub: span ? (
-            <input type="range" class="pl-scrub" aria-label="Scrub the voice log" min={span[0]} max={span[1]} step={0.01} value={cursor ?? span[1]} onInput={(e) => (logCursor.value = Number((e.currentTarget as HTMLInputElement).value))} />
-          ) : undefined,
-          status: busy ? `Auditioning ${lastCrumbName()}` : cursor !== null && span ? `Voice log at ${(cursor - span[0]).toFixed(2)} s` : undefined,
-        });
+        setPlayerSlots("playlists", playlistPlayerSlots(
+          { title: lastCrumbName(), subtitle: `${body.type === "clip" ? "Clip" : body.type.charAt(0).toUpperCase() + body.type.slice(1)} · ${t.file}`, busy, release: canRelease(body, loadPlaylist), triggerOff: triggerOffReason(), log, cursor, now },
+          { trigger, stop: stopAudition, release: releaseAudition, seek: (at) => (logCursor.value = at) },
+        ));
       }),
     ];
     return () => {
