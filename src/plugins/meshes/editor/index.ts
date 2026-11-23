@@ -4,7 +4,7 @@
 // up axis, normals, pivots, material slots), which the shell's import Inspector shows (ADR 0040, 0143);
 // and the choices of MeshRenderer's `variant` field (ADR 0118, 0152).
 // Both the model kind and the `.mtl` kind name the files they use in their own formats (ADR 0148).
-import { loadModel } from "../../../engine/scene/models";
+import { loadModel, modelSubAssetKinds, modelSubAssetsIfLoaded } from "../../../engine/scene/models";
 import { materialLibraryReferences, modelReferences } from "./modelReferences";
 import { disabledCamerasNote, modelNodeTemplates } from "./modelNodes";
 import { LargePreview, type EditorPlugin } from "../../../editor/sdk";
@@ -36,6 +36,8 @@ export const meshesEditorPlugin: EditorPlugin = {
         view: () => import("./ModelImportSettings").then((m) => m.ModelImportSettings),
       },
       references: modelReferences,
+      // ADR 0371: a model's skeleton and clips (`#Skeleton`, `#Anim/<name>`) are what `skeleton` and `animclip` fields take.
+      subAssets: { list: modelSubAssetsFor, referencedAs: modelSubAssetKinds },
     });
     // MeshRenderer.variant (ADR 0118, 0152): a dropdown of the model's material variants, hidden when it has none.
     context.registerFieldChoices({
@@ -55,6 +57,27 @@ export const meshesEditorPlugin: EditorPlugin = {
     context.registerAssetKind({ id: "mtl", extensions: [".mtl"], label: "Material Library", icon: MTL_ICON, references: materialLibraryReferences });
   },
 };
+
+/** Field kinds a model's sub-assets satisfy. */
+const SUB_ASSET_KINDS = ["skeleton", "animclip"];
+
+/**
+ * A model's sub-assets for a field of `kinds` (ADR 0371): none unless the field takes skeletons or clips; once the model
+ * has loaded, its `Skeleton` and `Anim/<clip>` names. Asking starts the load, so a later render lists them.
+ */
+function modelSubAssetsFor(path: string, kinds: readonly string[]): readonly string[] {
+  if (!kinds.some((k) => SUB_ASSET_KINDS.includes(k))) return [];
+  const subs = modelSubAssetsIfLoaded(path);
+  if (subs === null) {
+    // A model that fails to load (or that the asset layer doesn't have yet) offers nothing; the loader warns.
+    try {
+      loadModel(path).catch(() => {});
+    } catch {
+      // not an asset yet
+    }
+  }
+  return subs ?? [];
+}
 
 /** The model a MeshRenderer draws (an asset reference, a `builtin:` mesh, or ""). */
 const meshOf = (info: ComponentInfo) => String(info.fields.find((f) => f.name === "mesh")?.value ?? "");

@@ -23,6 +23,16 @@ import { BUILTIN_MESHES, builtinMeshData, type BuiltinMesh } from "./builtinMesh
 import { Mat4 } from "../core/math";
 import { uniqueName } from "../core/uniqueName";
 import { splitSpriteRef, type ImportSettings } from "./importSettings";
+import type { GltfAnimationSource } from "./gltf";
+import { parentsFirstSkeleton, rolesFromBoneMap, type ImportedBone, type ImportedSkeleton, type MeshSkin, type MorphTargetData } from "../animation/import/skeleton";
+import { buildTake, type ChannelTarget, type ImportChannel, type ImportedTake, type TrsPath } from "../animation/import/channels";
+import { clipsFromTakes, defaultModelAnimationSettings, type ImportedClip } from "../animation/import/clips";
+import { identity, inverse, mapRotation, mapScale, mapTranslation, mul, toRowMajor3x4, trsSpace, type TrsSpace } from "../animation/import/space";
+import { limitInfluences, type InfluenceSet, type SkinInfluences } from "../animation/import/skinWeights";
+import { parsePointer, unmappedPointerWarning } from "../animation/import/pointer";
+import { encodeSkeleton } from "../animation/import/skeletonBinary";
+import { boneMapGuesser } from "../animation/import/boneMapGuess";
+import { parseSkeletonProfile, type SkeletonProfile } from "../animation/skeletonProfile";
 
 let three: typeof import("three") | null = null;
 /** three.js, once `parseModel` has loaded it. */
@@ -137,6 +147,11 @@ export interface SurfaceInfo {
   readonly layerMaps?: Partial<Record<LayerMapKey, TextureInfo>>;
   /** Clearcoat normal map strength. */
   readonly clearcoatNormalScale?: number;
+  /**
+   * The material's texture transform (KHR_texture_transform) is animated (ADR 0371): it is kept here as a live value
+   * instead of baked into the UVs, and the render sync applies it (T24). Absent for every other material.
+   */
+  readonly animatedTextureTransform?: { readonly offset: readonly [number, number]; readonly scale: readonly [number, number]; readonly rotation: number };
 }
 
 /** @internal The physical layers' texture slots (ADR 0118), each read with glTF's channel convention. */
@@ -212,6 +227,8 @@ export interface ModelNode {
   readonly pose: NodePose;
   readonly light?: ModelLight;
   readonly camera?: ModelCamera;
+  /** Hidden in the file (`KHR_node_visibility`, ADR 0371); absent: visible. */
+  readonly hidden?: true;
 }
 
 /** @internal One mesh of a model, in model space. */
@@ -238,6 +255,15 @@ export interface ModelMesh {
    * its full surface list (index for index with `surfaces`; unmapped slots keep the default).
    */
   readonly variantSurfaces?: Readonly<Record<string, readonly SurfaceInfo[]>>;
+  /** Hidden in the file (`KHR_node_visibility`, ADR 0371); absent: visible. */
+  readonly hidden?: true;
+  // Skinning (ADR 0371; the fields T16's `render/skinning/skinData.ts` `SkinnedModelFields` reads):
+  /** Its skin: joint indices into the model's skeleton (`ModelData.animation.skeleton`) and weights; absent: not skinned. */
+  readonly skin?: MeshSkin | null;
+  /** Its morph targets (deltas in the baked mesh's space); absent: none. */
+  readonly morphTargets?: readonly MorphTargetData[];
+  /** x, y, z, w per vertex (the file's tangents, baked like the normals); absent or null: none. */
+  readonly tangents?: Float32Array | null;
 }
 
 /** A float attribute as a tightly packed array (copied only when interleaved or not float). */
@@ -324,6 +350,7 @@ function surfaceOf(source: Material): SurfaceInfo {
     surface.alphaCutoff = source.alphaTest;
   } else if (source.userData?.mycoGltf) surface.alphaMode = source.transparent ? "blend" : "opaque";
   if (source.userData?.mycoUnlit) surface.unlit = true;
+  if (source.userData?.mycoAnimatedTextureTransform) surface.animatedTextureTransform = source.userData.mycoAnimatedTextureTransform as SurfaceInfo["animatedTextureTransform"];
   if (m.vertexColors) surface.vertexColors = true;
   if (m.isMeshPhysicalMaterial) {
     const p = source as Material & Record<string, number> & { sheenColor: ThreeColor; specularColor: ThreeColor };
@@ -451,6 +478,22 @@ export interface ModelData {
   readonly nodes?: readonly ModelNode[];
   /** The file's material variant names (KHR_materials_variants, ADR 0118), in file order. */
   readonly variants?: readonly string[];
+  /** Its skeleton, takes and clips (ADR 0371); absent for a model with neither. */
+  readonly animation?: ModelAnimation;
+}
+
+/** @internal A model's animation (ADR 0371): what `model.glb#Skeleton` and `model.glb#Anim/<name>` name. */
+export interface ModelAnimation {
+  /** The skeleton every skinned mesh's joints index (one per model), or null. */
+  readonly skeleton: ImportedSkeleton | null;
+  /** The file's animations, whole. */
+  readonly takes: readonly ImportedTake[];
+  /** The clips cut from them by the sidecar (`animation.clips`), each a 0371 track model for the compile (T19). */
+  readonly clips: readonly ImportedClip[];
+  /** Profile role → bone: the sidecar's `boneMap`, else the core's guess, else empty. */
+  readonly boneMap: Readonly<Record<string, string>>;
+  /** Where `boneMap` came from. */
+  readonly boneMapSource: "sidecar" | "guessed" | "none";
 }
 
 interface CacheEntry {
@@ -751,9 +794,9 @@ async function parseModel(path: string, url: string, settings: ImportSettings, u
       throw new Error(`${path}: ${(err as Error)?.message ?? err}`);
     });
     if (gltf.ignored.length) warnOnce(`${path}: not imported yet: ${gltf.ignored.join(", ")}.`);
-    const data = bakeMeshes(gltf.root, settings, { flipV: true });
+    const data = bakeMeshes(gltf.root, settings, { flipV: true, gltf: gltf.animation, warn: (m) => warnOnce(`${path}: ${m}`) });
     if (!data.meshes.length) warnOnce(`${path} has no meshes.`);
-    return data;
+    return finishAnimation(path, data, settings);
   }
   const loading = manager(path);
   let root: Object3D;
@@ -780,9 +823,9 @@ async function parseModel(path: string, url: string, settings: ImportSettings, u
     root = loader.parse(text);
   }
   await loading.settled();
-  const data = bakeMeshes(root, settings);
+  const data = bakeMeshes(root, settings, { warn: (m) => warnOnce(`${path}: ${m}`) });
   if (!data.meshes.length) warnOnce(`${path} has no meshes.`);
-  return data;
+  return finishAnimation(path, data, settings);
 }
 
 /**
@@ -805,6 +848,10 @@ export async function bakeModelFile(ref: string): Promise<{ bytes: Uint8Array; d
 export interface BakeOptions {
   /** Flip V in the UVs (glTF puts v = 0 at the image's top; the engine's meshes put it at the bottom). */
   readonly flipV?: boolean;
+  /** A glTF's animations (ADR 0371); without it, the root's three.js `animations` (FBX) are read. */
+  readonly gltf?: GltfAnimationSource;
+  /** Where import warnings go (once each). */
+  readonly warn?: (message: string) => void;
 }
 
 /**
@@ -816,7 +863,7 @@ export interface BakeOptions {
  * both sides of the node's matrix, so they stay proper rotations: positions mirrored, quaternions
  * (x, -y, -z, w) for x, (-x, -y, z, w) for z.
  */
-export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale" | "upAxis" | "normals"> & Partial<Pick<ImportSettings, "facing">>, options: BakeOptions = {}): ModelData {
+export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale" | "upAxis" | "normals"> & Partial<Pick<ImportSettings, "facing" | "animation">>, options: BakeOptions = {}): ModelData {
   const { Matrix4 } = lib();
   root.updateMatrixWorld(true);
   const back = settings.facing === "back";
@@ -850,7 +897,7 @@ export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale
       const key = [...path, safeName(g.name)].join("/");
       if (groupKeys.has(key)) return;
       groupKeys.add(key);
-      nodes.push({ name: safeName(g.name), path, pose: poseOf(g) });
+      nodes.push({ name: safeName(g.name), path, pose: poseOf(g), ...(g.userData.mycoHidden ? { hidden: true as const } : {}) });
     });
   };
   const variantNames = (root.userData.mycoVariants as string[] | undefined) ?? [];
@@ -869,9 +916,13 @@ export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale
       const k = settings.scale;
       const light = special.mycoLight && { ...special.mycoLight, range: special.mycoLight.range * k };
       const camera = special.mycoCamera && { ...special.mycoCamera, near: special.mycoCamera.near * k, far: special.mycoCamera.far * k, orthographicSize: special.mycoCamera.orthographicSize * k };
-      nodes.push({ name: safeName(o.name) || (light ? "Light" : "Camera"), path: ancestry(o, root), pose: poseOf(o, true), ...(light ? { light } : {}), ...(camera ? { camera } : {}) });
+      nodes.push({ name: safeName(o.name) || (light ? "Light" : "Camera"), path: ancestry(o, root), pose: poseOf(o, true), ...(light ? { light } : {}), ...(camera ? { camera } : {}), ...(o.userData.mycoHidden ? { hidden: true as const } : {}) });
     }
   });
+  // ADR 0371: the skeleton (every skin's joints, parents first) and the materials whose texture transform is animated.
+  const rig = importSkeleton(root, importMatrix);
+  if (options.gltf) markAnimatedTextureTransforms(root, options.gltf);
+  const meshObjects = new Map<Object3D, string>();
   root.traverse((o) => {
     const mesh = o as Mesh & { isInstancedMesh?: boolean; count?: number; getMatrixAt?(i: number, m: Matrix4): void };
     if (!mesh.isMesh || !mesh.geometry?.getAttribute("position")) return;
@@ -879,10 +930,12 @@ export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale
     const variantSources = mesh.userData.mycoVariantMaterials as Record<string, (Material | null)[]> | undefined;
     const allSources = variantSources ? [...sources, ...Object.values(variantSources).flatMap((list) => list.filter((m): m is Material => !!m))] : sources;
     // UV transforms (KHR_texture_transform) are baked into the copy's UVs, in the file's UV space.
-    const uvTransforms = options.flipV ? uvTransformsOf(allSources, mesh.name) : null;
+    const uvTransforms = options.flipV ? uvTransformsOf(allSources.filter((m) => !m.userData.mycoAnimatedTextureTransform), mesh.name) : null;
     // EXT_mesh_gpu_instancing: every instance baked into one geometry.
     const copies = mesh.isInstancedMesh && mesh.getMatrixAt ? Array.from({ length: mesh.count ?? 0 }, (_, i) => (mesh.getMatrixAt!(i, instance), instance.clone())) : [null];
     const calculate = settings.normals === "calculate" || !mesh.geometry.getAttribute("normal");
+    let flipped = false;
+    let linear: Matrix4 | null = null;
     const parts = copies.map((at) => {
       const geometry = floatCopy(mesh.geometry);
       // Normals from the file's winding, before the mirror (whose triangles keep their order).
@@ -894,7 +947,11 @@ export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale
       if (at) matrix.multiply(at);
       geometry.applyMatrix4(matrix);
       // The handedness mirror keeps index order; a node mirrored in the file (det < 0) rewinds.
-      if (matrix.determinant() > 0) flipWinding(geometry);
+      if (matrix.determinant() > 0) {
+        flipWinding(geometry);
+        flipped = true;
+      }
+      linear ??= matrix.clone();
       return geometry;
     });
     let geometry = parts[0];
@@ -916,17 +973,30 @@ export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale
       }
     }
     addGroups(mesh);
+    // ADR 0371: skin, morph targets and tangents (instanced meshes have none of these).
+    const single = parts.length === 1 && linear !== null;
+    const skin = single && rig ? meshSkin(mesh, geometry, rig, importMatrix, settings.animation?.influences ?? 4) : null;
+    const morphTargets = single ? meshMorphs(mesh, linear!, flipped && !geometry.getIndex()) : [];
+    const tangents = single ? meshTangents(geometry, linear!) : null;
+    const name = meshName(mesh.name || mesh.parent?.name || "mesh", used);
+    meshObjects.set(mesh, name);
     meshes.push({
-      name: meshName(mesh.name || mesh.parent?.name || "mesh", used),
+      name,
       geometry,
       materials,
       ...neutral,
       path: ancestry(mesh, root),
       pose: poseOf(mesh),
       ...(variantSurfaces ? { variantSurfaces } : {}),
+      ...(mesh.userData.mycoHidden ? { hidden: true as const } : {}),
+      ...(skin ? { skin } : {}),
+      ...(morphTargets.length ? { morphTargets } : {}),
+      ...(tangents ? { tangents } : {}),
     });
   });
-  return { meshes, ...(nodes.length ? { nodes } : {}), ...(variantNames.length ? { variants: [...variantNames] } : {}) };
+  const takes = importTakes(root, { meshes, nodes, meshObjects, rig, importMatrix, mirror, scale: settings.scale, gltf: options.gltf, warn: options.warn });
+  const animation: ModelAnimation | undefined = rig || takes.length ? { skeleton: rig?.skeleton ?? null, takes, clips: [], boneMap: {}, boneMapSource: "none" } : undefined;
+  return { meshes, ...(nodes.length ? { nodes } : {}), ...(variantNames.length ? { variants: [...variantNames] } : {}), ...(animation ? { animation } : {}) };
 }
 
 /** A node name as the engine keeps it in paths (no `#`, `/`, `\` or quotes). */
@@ -1076,6 +1146,419 @@ function standardMaterial(source: Material): Material {
   });
   source.dispose();
   return out;
+}
+
+// --- animation (ADR 0371) -------------------------------------------------------------------------
+
+/** A model's skeleton as the bake builds it: the skeleton, each bone object's index and each bone's space. */
+interface Rig {
+  readonly skeleton: ImportedSkeleton;
+  readonly boneIndex: ReadonlyMap<Object3D, number>;
+  readonly spaces: readonly TrsSpace[];
+}
+
+type SkinnedObject = Mesh & { isSkinnedMesh?: boolean; skeleton?: { bones: (Object3D | null)[]; boneInverses: Matrix4[] }; bindMatrix?: Matrix4; morphTargetDictionary?: Record<string, number> };
+
+const f64 = (m: Matrix4): Float64Array => Float64Array.from(m.elements);
+
+/** A bone's name as the file wrote it (three sanitises names for its property bindings), made safe for paths. */
+const boneName = (o: Object3D): string => safeName(String(o.userData.name ?? o.userData.originalName ?? o.name ?? "")) || "Bone";
+
+/** A skinned mesh's inverse bind matrix for its palette entry `j`, engine space: `M · boneInverse · bind · meshWorld⁻¹ · M⁻¹`. */
+function engineInverseBind(mesh: SkinnedObject, j: number, m: Float64Array, mInv: Float64Array): Float64Array {
+  const boneInverse = f64(mesh.skeleton!.boneInverses[j]);
+  const bind = mesh.bindMatrix ? f64(mesh.bindMatrix) : identity();
+  return mul(mul(mul(mul(m, boneInverse), bind), inverse(f64(mesh.matrixWorld))), mInv);
+}
+
+/**
+ * The skeleton of every skinned mesh's joints (ADR 0371): bones in parents-first order, each bone's parent the nearest
+ * ancestor that is a bone (static nodes between fold into its rest and tracks, `space.ts`), rest poses and inverse
+ * binds in engine space. Null when nothing is skinned.
+ */
+function importSkeleton(root: Object3D, importMatrix: Matrix4): Rig | null {
+  const skinned: SkinnedObject[] = [];
+  root.traverse((o) => {
+    const s = o as SkinnedObject;
+    if (s.isSkinnedMesh && s.skeleton) skinned.push(s);
+  });
+  const objects: Object3D[] = [];
+  const seen = new Set<Object3D>();
+  for (const s of skinned) for (const b of s.skeleton!.bones) if (b && !seen.has(b)) (seen.add(b), objects.push(b));
+  if (!objects.length) return null;
+  const m = f64(importMatrix), mInv = inverse(m);
+  const bindOf = new Map<Object3D, Float64Array>();
+  for (const s of skinned) s.skeleton!.bones.forEach((b, j) => b && !bindOf.has(b) && bindOf.set(b, engineInverseBind(s, j, m, mInv)));
+  const used = new Set<string>();
+  const index = new Map(objects.map((o, i) => [o, i]));
+  const spaces: TrsSpace[] = [];
+  const bones: ImportedBone[] = objects.map((o) => {
+    let parentBone: Object3D | null = null;
+    for (let p = o.parent; p; p = p.parent) if (seen.has(p)) { parentBone = p; break; }
+    const parentWorld = o.parent ? f64(o.parent.matrixWorld) : identity();
+    const fold = parentBone ? mul(inverse(f64(parentBone.matrixWorld)), parentWorld) : parentWorld;
+    const space = trsSpace(mul(m, fold), mInv);
+    spaces.push(space);
+    const q = mapRotation(space, o.quaternion.toArray());
+    const len = Math.hypot(...q) || 1;
+    const name = uniqueName(boneName(o), used, { format: (stem, n) => `${stem}_${n}`, first: 2 });
+    used.add(name);
+    return {
+      name,
+      parent: parentBone ? index.get(parentBone)! : -1,
+      rest: { position: mapTranslation(space, o.position.toArray()), rotation: q.map((v) => v / len) as [number, number, number, number], scale: mapScale(space, o.scale.toArray()) },
+    };
+  });
+  const binds = new Float32Array(objects.length * 12);
+  objects.forEach((o, i) => toRowMajor3x4(bindOf.get(o) ?? inverse(mul(m, f64(o.matrixWorld))), binds, i * 12));
+  const ordered = parentsFirstSkeleton(bones, binds);
+  const boneIndex = new Map(objects.map((o, i) => [o, ordered.remap[i]]));
+  const orderedSpaces: TrsSpace[] = [];
+  objects.forEach((_, i) => (orderedSpaces[ordered.remap[i]] = spaces[i]));
+  return { skeleton: { bones: ordered.bones, inverseBinds: ordered.inverseBinds, roles: ordered.bones.map(() => null), profile: null }, boneIndex, spaces: orderedSpaces };
+}
+
+/** A skinned mesh's skin (ADR 0371): its influences limited and normalised, joint indices into the skeleton's bones. */
+function meshSkin(mesh: SkinnedObject, geometry: BufferGeometry, rig: Rig, importMatrix: Matrix4, influences: SkinInfluences): MeshSkin | null {
+  if (!mesh.isSkinnedMesh || !mesh.skeleton) return null;
+  const sets: InfluenceSet[] = [];
+  for (const [j, w] of [["skinIndex", "skinWeight"], ["joints_1", "weights_1"]]) {
+    const joints = geometry.getAttribute(j) as BufferAttribute | undefined;
+    const weights = geometry.getAttribute(w) as BufferAttribute | undefined;
+    if (joints && weights && joints.itemSize === weights.itemSize) sets.push({ size: joints.itemSize, joints: joints.array as ArrayLike<number>, weights: weights.array as ArrayLike<number> });
+  }
+  if (!sets.length) return null;
+  const count = geometry.getAttribute("position").count;
+  const limited = limitInfluences(count, sets, influences);
+  const palette = mesh.skeleton.bones.map((b) => (b ? rig.boneIndex.get(b) ?? 0 : 0));
+  const joints = limited.joints.map((j, i) => (limited.weights[i] > 0 ? palette[j] ?? 0 : 0));
+  // Its own inverse binds only when they differ from the skeleton's for a bone it uses.
+  const m = f64(importMatrix), mInv = inverse(m);
+  let own: Float32Array | null = null;
+  const scratch = new Float32Array(12);
+  mesh.skeleton.bones.forEach((b, j) => {
+    if (!b) return;
+    toRowMajor3x4(engineInverseBind(mesh, j, m, mInv), scratch, 0);
+    const at = palette[j] * 12;
+    if (scratch.some((v, k) => Math.abs(v - rig.skeleton.inverseBinds[at + k]) > 1e-4)) {
+      own ??= Float32Array.from(rig.skeleton.inverseBinds);
+      own.set(scratch, at);
+    }
+  });
+  return { influences, joints, weights: limited.weights, ...(own ? { inverseBinds: own } : {}) };
+}
+
+/** Swaps the second and third vertex of every triangle of a non-indexed per-vertex array (as `flipWinding` does). */
+function swapTriangles(a: Float32Array, size: number): void {
+  for (let i = 0; i + 2 < a.length / size; i += 3) {
+    for (let k = 0; k < size; k++) [a[(i + 1) * size + k], a[(i + 2) * size + k]] = [a[(i + 2) * size + k], a[(i + 1) * size + k]];
+  }
+}
+
+/** A mesh's morph targets (ADR 0371): deltas through the bake's matrix (positions and tangents its linear part, normals its normal matrix). */
+function meshMorphs(mesh: SkinnedObject, matrix: Matrix4, swap: boolean): MorphTargetData[] {
+  const g = mesh.geometry;
+  const positions = g.morphAttributes.position ?? [];
+  if (!positions.length) return [];
+  const { Matrix3, Vector3 } = lib();
+  const linear = new Matrix3().setFromMatrix4(matrix);
+  const normalMatrix = new Matrix3().getNormalMatrix(matrix);
+  const base = g.getAttribute("position") as BufferAttribute;
+  const v = new Vector3();
+  const names = new Map(Object.entries(mesh.morphTargetDictionary ?? {}).map(([name, i]) => [i, name]));
+  const used = new Set<string>();
+  const deltas = (attr: BufferAttribute | undefined, m: InstanceType<typeof Matrix3>, absolute: BufferAttribute | null): Float32Array | null => {
+    if (!attr) return null;
+    const out = new Float32Array(attr.count * 3);
+    for (let i = 0; i < attr.count; i++) {
+      v.set(attr.getX(i), attr.getY(i), attr.getZ(i));
+      if (absolute) v.sub(new Vector3(absolute.getX(i), absolute.getY(i), absolute.getZ(i)));
+      v.applyMatrix3(m);
+      out.set([v.x, v.y, v.z], i * 3);
+    }
+    if (swap) swapTriangles(out, 3);
+    return out;
+  };
+  const relative = g.morphTargetsRelative;
+  return positions.map((p, t) => {
+    const name = uniqueName(safeName(names.get(t) ?? "") || `Morph ${t + 1}`, used, { format: (stem, n) => `${stem}_${n}`, first: 2 });
+    used.add(name);
+    const tangents = deltas((g.morphAttributes as unknown as Record<string, BufferAttribute[] | undefined>).tangent?.[t] as BufferAttribute | undefined, linear, null);
+    return {
+      name,
+      positions: deltas(p as BufferAttribute, linear, relative ? null : base),
+      normals: deltas(g.morphAttributes.normal?.[t] as BufferAttribute | undefined, normalMatrix, relative ? null : (g.getAttribute("normal") as BufferAttribute | null) ?? null),
+      ...(tangents ? { tangents } : {}),
+    };
+  });
+}
+
+/** The baked geometry's tangents (x, y, z, w), w flipped when the bake mirrors (ADR 0164), or null. */
+function meshTangents(geometry: BufferGeometry, matrix: Matrix4): Float32Array | null {
+  const t = geometry.getAttribute("tangent") as BufferAttribute | undefined;
+  if (!t || t.itemSize !== 4) return null;
+  const out = Float32Array.from(t.array as ArrayLike<number>);
+  if (matrix.determinant() < 0) for (let i = 3; i < out.length; i += 4) out[i] = -out[i];
+  return out;
+}
+
+/** Flags glTF materials whose `KHR_texture_transform` a pointer animates (ADR 0371): they keep the transform live. */
+function markAnimatedTextureTransforms(root: Object3D, gltf: GltfAnimationSource): void {
+  const animated = new Set<number>();
+  for (const a of gltf.animations) for (const c of a.channels) {
+    const target = c.pointer ? parsePointer(c.pointer) : null;
+    if (target?.type === "material" && target.textureTransform) animated.add(target.material);
+  }
+  if (!animated.size) return;
+  root.traverse((o) => {
+    const mesh = o as Mesh;
+    if (!mesh.isMesh) return;
+    for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      const i = gltf.materialIndex(m);
+      if (i === undefined || !animated.has(i) || m.userData.mycoAnimatedTextureTransform) continue;
+      const t = ["map", "normalMap", "emissiveMap", "roughnessMap", "metalnessMap", "aoMap"].map((k) => (m as unknown as Record<string, Texture | null | undefined>)[k]).find((x) => x);
+      m.userData.mycoAnimatedTextureTransform = t ? { offset: [t.offset.x, t.offset.y], scale: [t.repeat.x, t.repeat.y], rotation: t.rotation } : { offset: [0, 0], scale: [1, 1], rotation: 0 };
+    }
+  });
+}
+
+/** What turning a file's animations into takes needs from the bake. */
+interface TakeContext {
+  readonly meshes: readonly ModelMesh[];
+  readonly nodes: readonly ModelNode[];
+  readonly meshObjects: ReadonlyMap<Object3D, string>;
+  readonly rig: Rig | null;
+  readonly importMatrix: Matrix4;
+  readonly mirror: Matrix4;
+  readonly scale: number;
+  readonly gltf?: GltfAnimationSource;
+  readonly warn?: (message: string) => void;
+}
+
+const MESH_RENDERER = "engine.MeshRenderer";
+const srgb = (c: number) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055);
+
+/**
+ * The file's animations as takes (ADR 0371; `animation/import/channels.ts` makes the tracks). Node paths are the ones
+ * the editor's drop gives the model's nodes (ADR 0118: the file's named nodes, less the levels every node shares; a
+ * model of one mesh and nothing else is one node, path ""), and node values are the local poses it gives them, so
+ * tracks bind to a dropped model as it is.
+ */
+function importTakes(root: Object3D, cx: TakeContext): ImportedTake[] {
+  const extras = cx.nodes.filter((n) => n.light || n.camera);
+  const allPaths = [...cx.meshes.map((mm) => mm.path ?? []), ...extras.map((n) => n.path)];
+  const oneNode = cx.meshes.length <= 1 && !extras.length;
+  let shared = allPaths[0]?.length ?? 0;
+  for (const p of allPaths) {
+    let i = 0;
+    while (i < shared && i < p.length && p[i] === allPaths[0][i]) i++;
+    shared = i;
+  }
+  const m = f64(cx.importMatrix), mirror = f64(cx.mirror);
+  const objectName = (o: Object3D) => cx.meshObjects.get(o) ?? (safeName(o.name) || ((o.userData as { mycoLight?: unknown }).mycoLight ? "Light" : (o.userData as { mycoCamera?: unknown }).mycoCamera ? "Camera" : ""));
+  const nodePath = (o: Object3D): string => (oneNode && cx.meshObjects.has(o) ? "" : [...ancestry(o, root), objectName(o)].slice(shared).join("/"));
+  /** The engine node above `o`: its nearest named ancestor the drop keeps. */
+  const engineParent = (o: Object3D): Object3D | null => {
+    if (oneNode) return null;
+    for (let p = o.parent; p && p !== root; p = p.parent) if (p.name && ancestry(p, root).length >= shared) return p;
+    return null;
+  };
+  const nodeSpace = (o: Object3D): TrsSpace => {
+    const parentWorld = o.parent ? f64(o.parent.matrixWorld) : identity();
+    const p = engineParent(o);
+    const a = p ? mul(inverse(mul(mul(m, f64(p.matrixWorld)), mirror)), mul(m, parentWorld)) : mul(m, parentWorld);
+    return trsSpace(a, mirror);
+  };
+  const trsTarget = (o: Object3D, path: TrsPath): ChannelTarget => {
+    const bone = cx.rig?.boneIndex.get(o);
+    if (bone !== undefined) return { kind: "bone", bone: cx.rig!.skeleton.bones[bone].name, path, space: cx.rig!.spaces[bone] };
+    return { kind: "node", nodePath: nodePath(o), path, space: nodeSpace(o) };
+  };
+  const byName = new Map(cx.meshes.map((mm) => [mm.name, mm]));
+  /** The model meshes a node object draws: itself, or its child meshes (a glTF mesh node holding lights or cameras). */
+  const meshesOf = (o: Object3D): Object3D[] => [o, ...o.children].filter((c) => cx.meshObjects.has(c));
+  const morphTargetsOf = (o: Object3D): ChannelTarget[] =>
+    meshesOf(o).flatMap((mo) => {
+      const names = byName.get(cx.meshObjects.get(mo)!)?.morphTargets?.map((t) => t.name) ?? [];
+      return names.length ? [{ kind: "morph" as const, nodePath: nodePath(mo), names }] : [];
+    });
+  const takes: ImportedTake[] = [];
+  if (cx.gltf) {
+    const g = cx.gltf;
+    const json = g.json;
+    const unmapped: string[] = [];
+    const nodeObject = (i: number) => g.nodes.get(i);
+    const special = (o: Object3D | undefined, key: "mycoLight" | "mycoCamera") => (o ? [o, ...o.children].find((c) => c.userData[key]) : undefined);
+    const meshEntries = [...cx.meshObjects].map(([o, name]) => ({ o, mesh: byName.get(name)! }));
+    for (const anim of g.animations) {
+      const channels: ImportChannel[] = [];
+      for (const c of anim.channels) {
+        const add = (target: ChannelTarget) => channels.push({ target, sampler: c.sampler });
+        const pointed = c.pointer !== null ? parsePointer(c.pointer) : null;
+        const node = c.pointer === null ? c.node : pointed?.type === "node" ? pointed.node : null;
+        const path = c.pointer === null ? c.path : pointed?.type === "node" ? pointed.path : null;
+        let mapped = false;
+        if (node !== null && path !== null) {
+          const o = nodeObject(node);
+          if (o && (path === "translation" || path === "rotation" || path === "scale")) (add(trsTarget(o, path)), (mapped = true));
+          else if (o && path === "weights") for (const t of morphTargetsOf(o)) (add(t), (mapped = true));
+          else if (o && path === "visible") (add({ kind: "activation", nodePath: nodePath(o) }), (mapped = true));
+        } else if (pointed?.type === "mesh") {
+          (json.nodes ?? []).forEach((n, i) => {
+            const o = n.mesh === pointed.mesh ? nodeObject(i) : undefined;
+            if (o) for (const t of morphTargetsOf(o)) (add(t), (mapped = true));
+          });
+        } else if (pointed?.type === "material" && c.sampler.width === pointed.value.width) {
+          const def = json.materials?.[pointed.material];
+          const strength = def?.extensions?.KHR_materials_emissive_strength?.emissiveStrength ?? 1;
+          const factor = def?.emissiveFactor ?? [0, 0, 0];
+          const isStrength = pointed.field === "emission" && pointed.value.width === 1;
+          const map = pointed.field === "emission" ? (isStrength ? (v: readonly number[]) => factor.map((f) => f * v[0]) : (v: readonly number[]) => v.map((x) => x * strength)) : undefined;
+          for (const { o, mesh } of meshEntries) {
+            mesh.materials.forEach((mat, slot) => {
+              if (g.materialIndex(mat) !== pointed.material) return;
+              add({ kind: "property", track: isStrength ? "vec3" : pointed.value.track, binding: { nodePath: nodePath(o), component: MESH_RENDERER, field: `materials[${slot}].${pointed.field}` }, ...(map ? { map } : {}) });
+              mapped = true;
+            });
+          }
+        } else if (pointed?.type === "light") {
+          const def = json.extensions?.KHR_lights_punctual?.lights?.[pointed.light];
+          const outer = def?.spot?.outerConeAngle ?? Math.PI / 4;
+          const want = pointed.property === "color" ? 3 : 1;
+          (json.nodes ?? []).forEach((n, i) => {
+            const o = n.extensions?.KHR_lights_punctual?.light === pointed.light ? special(nodeObject(i), "mycoLight") : undefined;
+            if (!o || c.sampler.width !== want) return;
+            const binding = (field: string) => ({ nodePath: nodePath(o), component: "engine.Light", field });
+            if (pointed.property === "color") add({ kind: "property", track: "color", binding: binding("color"), map: (v) => [srgb(v[0]), srgb(v[1]), srgb(v[2]), 1], linear: false });
+            else if (pointed.property === "intensity") add({ kind: "property", track: "float", binding: binding("intensity") });
+            else if (pointed.property === "range") add({ kind: "property", track: "float", binding: binding("range"), map: (v) => [v[0] * cx.scale] });
+            else if (pointed.property === "outerConeAngle") add({ kind: "property", track: "float", binding: binding("spotAngle"), map: (v) => [(2 * v[0] * 180) / Math.PI] });
+            else add({ kind: "property", track: "float", binding: binding("spotSoftness"), map: (v) => [outer > 0 ? Math.min(1, Math.max(0, 1 - v[0] / outer)) : 0], linear: false });
+            mapped = true;
+          });
+        } else if (pointed?.type === "camera" && c.sampler.width === 1) {
+          (json.nodes ?? []).forEach((n, i) => {
+            const o = n.camera === pointed.camera ? special(nodeObject(i), "mycoCamera") : undefined;
+            if (!o) return;
+            const field = { yfov: "fieldOfView", znear: "near", zfar: "far", ymag: "orthographicSize" }[pointed.property];
+            const k = pointed.property === "yfov" ? 180 / Math.PI : cx.scale;
+            add({ kind: "property", track: "float", binding: { nodePath: nodePath(o), component: "engine.Camera", field }, map: (v) => [v[0] * k] });
+            mapped = true;
+          });
+        }
+        if (!mapped && c.pointer !== null) unmapped.push(c.pointer || "(no pointer)");
+      }
+      takes.push(buildTake(anim.name, channels));
+    }
+    const warning = unmappedPointerWarning(unmapped);
+    if (warning) cx.warn?.(warning);
+    return takes;
+  }
+  // FBX (and any three.js loader): the root's keyframe tracks, `<object>.<property>`.
+  const clips = (root as Object3D & { animations?: { name: string; tracks: { name: string; times: ArrayLike<number>; values: ArrayLike<number>; getValueSize(): number; getInterpolation(): number }[] }[] }).animations ?? [];
+  const byObjectName = new Map<string, Object3D>();
+  root.traverse((o) => {
+    if (o.name && !byObjectName.has(o.name)) byObjectName.set(o.name, o);
+  });
+  const PATHS: Record<string, TrsPath> = { position: "translation", quaternion: "rotation", scale: "scale" };
+  clips.forEach((clip, ci) => {
+    const channels: ImportChannel[] = [];
+    for (const track of clip.tracks) {
+      const parsed = /^(.*)\.(position|quaternion|scale|morphTargetInfluences)(?:\[(\d+)\])?$/.exec(track.name);
+      const o = parsed ? byObjectName.get(parsed[1]) : undefined;
+      if (!parsed || !o) continue;
+      const sampler = { times: track.times, values: track.values, width: track.getValueSize(), interpolation: track.getInterpolation() === 2300 ? ("STEP" as const) : ("LINEAR" as const) };
+      if (parsed[2] !== "morphTargetInfluences") channels.push({ target: trsTarget(o, PATHS[parsed[2]]), sampler });
+      else if (parsed[3] !== undefined) {
+        for (const t of morphTargetsOf(o)) if (t.kind === "morph" && t.names[Number(parsed[3])]) channels.push({ target: { ...t, names: [t.names[Number(parsed[3])]] }, sampler });
+      }
+    }
+    takes.push(buildTake(clip.name || `Take ${ci + 1}`, channels));
+  });
+  return takes;
+}
+
+/**
+ * A baked model's animation finished (ADR 0371): clips cut from the takes by the sidecar, and the bone map (the
+ * sidecar's, else guessed by the animation core when the Animation plugin installed its guesser) giving the skeleton
+ * its roles. Problems warn once each.
+ */
+async function finishAnimation(path: string, data: ModelData, settings: ImportSettings): Promise<ModelData> {
+  const a = data.animation;
+  if (!a) return data;
+  const sidecar = settings.animation ?? defaultModelAnimationSettings();
+  const problems: string[] = [];
+  const clips = clipsFromTakes(a.takes, sidecar, problems);
+  for (const p of problems) warnOnce(`${path}: ${p}`);
+  let boneMap: Record<string, string> = { ...sidecar.boneMap };
+  let source: ModelAnimation["boneMapSource"] = Object.keys(boneMap).length ? "sidecar" : "none";
+  let skeleton = a.skeleton;
+  if (skeleton && source === "none") {
+    const guesser = boneMapGuesser();
+    let guessed: Record<string, string> | null = null;
+    if (guesser) {
+      let profile: SkeletonProfile | null = null;
+      if (sidecar.profile) {
+        try {
+          const profilePath = splitSpriteRef(normalizeAssetPath(sidecar.profile)).path;
+          profile = parseSkeletonProfile(JSON.parse(new TextDecoder().decode(await fetchAssetBytes(Assets.url(profilePath))))).value;
+        } catch (err) {
+          warnOnce(`${path}: couldn't read the skeleton profile ${sidecar.profile} (${(err as Error).message}); guessing the bone map for the built-in Humanoid.`);
+        }
+      }
+      guessed = await guesser(encodeSkeleton(skeleton), skeleton.bones.map((b) => b.name), profile).catch(() => null);
+    }
+    if (guessed) {
+      boneMap = guessed;
+      source = "guessed";
+    } else warnOnce(`${path}: its bone map wasn't guessed (${guesser ? "the animation core can't run here" : "the Animation plugin isn't active"}); set animation.boneMap in its import settings to give its bones profile roles.`);
+  }
+  if (skeleton) {
+    const { roles, missing } = rolesFromBoneMap(skeleton.bones, boneMap);
+    if (missing.length && source === "sidecar") warnOnce(`${path}: animation.boneMap names bones the skeleton lacks (roles ${missing.join(", ")}); those roles are unmapped.`);
+    skeleton = { ...skeleton, roles, profile: sidecar.profile };
+  }
+  return { ...data, animation: { ...a, skeleton, clips, boneMap, boneMapSource: source } };
+}
+
+/** @internal A model's skeleton sub-asset name (`model.glb#Skeleton`, ADR 0371). */
+export const SKELETON_SUB_ASSET = "Skeleton";
+/** @internal The prefix of a model's clip sub-assets (`model.glb#Anim/Run`, ADR 0371). */
+export const CLIP_SUB_ASSET_PREFIX = "Anim/";
+
+/** @internal The asset field kinds a model sub-asset satisfies by its name: `Skeleton` a `skeleton` field, `Anim/…` an `animclip` field. */
+export function modelSubAssetKinds(sub: string): readonly string[] {
+  if (sub === SKELETON_SUB_ASSET) return ["skeleton"];
+  if (sub.startsWith(CLIP_SUB_ASSET_PREFIX) && sub.length > CLIP_SUB_ASSET_PREFIX.length) return ["animclip"];
+  return [];
+}
+
+/** @internal A loaded model's animation sub-assets: `Skeleton` when it has one, then `Anim/<clip>` per clip. */
+export function modelSubAssets(data: ModelData): string[] {
+  const a = data.animation;
+  if (!a) return [];
+  return [...(a.skeleton ? [SKELETON_SUB_ASSET] : []), ...a.clips.map((c) => `${CLIP_SUB_ASSET_PREFIX}${c.name}`)];
+}
+
+/** @internal The animation sub-assets of the model at `path` once it has loaded (null while it loads or failed; the load isn't started). */
+export function modelSubAssetsIfLoaded(path: string): readonly string[] | null {
+  const data = cache.get(splitSpriteRef(normalizeAssetPath(path)).path)?.data;
+  return data ? modelSubAssets(data) : null;
+}
+
+/** @internal What a model sub-asset reference resolves to (ADR 0371): `asset:hero.glb#Skeleton` or `asset:hero.glb#Anim/Run`. */
+export type ModelSubAsset = { readonly kind: "skeleton"; readonly skeleton: ImportedSkeleton } | { readonly kind: "clip"; readonly clip: ImportedClip };
+
+/** @internal The skeleton or clip a model sub-asset reference names, loading the model; null when the model has no such sub-asset. */
+export async function loadModelSubAsset(ref: string): Promise<ModelSubAsset | null> {
+  const { path, slice } = splitSpriteRef(normalizeAssetPath(ref));
+  if (slice === null) return null;
+  const a = (await loadModel(path)).animation;
+  if (!a) return null;
+  if (slice === SKELETON_SUB_ASSET) return a.skeleton ? { kind: "skeleton", skeleton: a.skeleton } : null;
+  if (!slice.startsWith(CLIP_SUB_ASSET_PREFIX)) return null;
+  const clip = a.clips.find((c) => c.name === slice.slice(CLIP_SUB_ASSET_PREFIX.length));
+  return clip ? { kind: "clip", clip } : null;
 }
 
 function disposeModel(data: ModelData): void {

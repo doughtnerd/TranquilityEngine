@@ -35,7 +35,9 @@
  *   "pivots": "model",            // models: parts turn about their own "node" (default) or the "model" origin (ADR 0118)
  *   "materials": {                // models: a material asset for each of the model's own materials, by name (ADR 0089)
  *     "Paint": "asset:materials/car-paint.material.json"
- *   }
+ *   },
+ *   "animation": { "influences": 8, "clips": { "Take 001": [{ "name": "Walk", "to": 1.2, "loop": true }] } }
+ *                                 // models: skins, bone map and clip settings (ADR 0371), `animation/import/clips.ts`
  * }
  * ```
  *
@@ -64,6 +66,7 @@ import type { SidecarEncoding } from "../audio/encoding/types";
 import { generatedProvenanceToJson, parseGeneratedProvenance, type GeneratedProvenance } from "../audio/generators/provenance";
 import { parseSampleEdits, sampleEditsToJson } from "../audio/sample/format";
 import type { SampleEdits } from "../audio/sample/types";
+import { modelAnimationToJson, parseModelAnimation, type ModelAnimationSettings } from "../animation/import/clips";
 
 export const IMPORT_FORMAT = "myco.import@1";
 export const SIDECAR_SUFFIX = ".meta.json";
@@ -167,6 +170,11 @@ export interface ImportSettings {
   pivots: ModelPivots;
   /** Models (ADR 0089): a material asset (`asset:` path) drawn in place of each of the model's own materials, by the material's name. */
   materials: Record<string, string>;
+  /**
+   * Models (ADR 0371): skin influences, the bone map and its profile, the retarget source pose and the clips cut from
+   * each take, parsed by `animation/import/clips.ts`; null (absent) when every value is the default.
+   */
+  animation: ModelAnimationSettings | null;
 }
 
 const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<ImportSettings>({
@@ -194,6 +202,7 @@ const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<ImportSe
   facing: "forward",
   pivots: "node",
   materials: Object.freeze({}) as Record<string, string>,
+  animation: null,
 });
 
 /** A copy of the defaults (safe to change). */
@@ -373,6 +382,10 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
       }
     }
   }
+  if (raw.animation !== undefined && raw.animation !== null) {
+    const animation = parseModelAnimation(raw.animation, `${where}: animation`, problems);
+    settings.animation = modelAnimationToJson(animation) ? animation : null;
+  }
   if (raw.sprites !== undefined) {
     if (!Array.isArray(raw.sprites)) bad("sprites", "a list");
     else {
@@ -499,6 +512,8 @@ function importSettingsJSON(settings: ImportSettings): Record<string, unknown> {
   if (settings.pivots !== d.pivots) out.pivots = settings.pivots;
   const materials = Object.entries(settings.materials ?? {}).filter(([, v]) => v);
   if (materials.length) out.materials = Object.fromEntries(materials);
+  const animation = modelAnimationToJson(settings.animation);
+  if (animation) out.animation = animation;
   if (settings.sprites.length > 0) {
     out.sprites = settings.sprites.map((s) => ({ name: s.name, rect: [...s.rect], pivot: [...s.pivot], ...(s.border && s.border.some((b) => b !== 0) ? { border: [...s.border] } : {}), ...(s.fill === "tile" ? { fill: "tile" } : {}) }));
   }

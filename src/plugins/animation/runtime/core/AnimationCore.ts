@@ -41,6 +41,9 @@ export interface AnimationCoreLimits {
   readonly arenaInitialBytes: number;
 }
 
+/** The most roles a profile has (`anim-retarget`'s `MAX_ROLES`): the bone map buffers' size. */
+const GUESS_CAPACITY = 1024;
+
 /** @internal The limits a page's core starts with when a project names none. */
 export const DEFAULT_CORE_LIMITS: AnimationCoreLimits = { maxInstances: 512, maxBones: 256, arenaInitialBytes: 4 << 20 };
 
@@ -214,6 +217,21 @@ export class AnimationCore {
       case "retargetMap":
         return w.retarget_map_create(s.source.skeleton, s.source.profile, s.source.map, s.target.skeleton, s.target.profile, s.target.map, s.flags);
     }
+  }
+
+  /**
+   * Guesses a skeleton profile's bone map for a `myco.skel@1` skeleton (ADR 0371 import, T41g's `guess_bone_map`):
+   * the profile's `encodeSkeletonProfile` bytes, or null for the built-in Humanoid. Returns each role's bone index
+   * (`0xFFFF` for none) in the profile's role order, or null when the core refused (`lastStatus` says why).
+   */
+  guessBoneMap(skeleton: Uint8Array, profile: Uint8Array | null): Uint16Array | null {
+    const w = this.wasm;
+    const handle = profile ? w.profile_decode(profile) : 0;
+    if (profile && handle === 0) return null;
+    const bones = new Uint16Array(GUESS_CAPACITY);
+    const roles = w.guess_bone_map(skeleton, handle, bones, new Float32Array(GUESS_CAPACITY));
+    if (handle) w.release(handle);
+    return roles === 0 ? null : bones.slice(0, roles);
   }
 
   /** Drops one reference to an asset; with none left it is idle. Returns false for a handle this core doesn't hold. */

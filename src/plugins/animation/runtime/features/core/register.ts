@@ -3,9 +3,14 @@
 // between editor play sessions (`../../core/loader.ts`). `activate()` (`../../index.ts`) calls it once per activation.
 import type { RuntimePluginContext } from "../../../../runtimeContext";
 import { ANIMATION_CORE_SERVICE } from "../../core/service";
+import { setBoneMapGuesser } from "../../../../../engine/animation/import/boneMapGuess";
+import { createBoneMapGuesser } from "../../core/boneMap";
+import { loadAnimationCore } from "../../core/loader";
 import type { AnimationIntegrations } from "../../registration";
 
 /** @internal */
 export function registerCore(context: RuntimePluginContext, _on: AnimationIntegrations): void {
   context.registerWorldService(ANIMATION_CORE_SERVICE);
+  // T14: models imported while the plugin is active get their bone map guessed by the core (ADR 0371).
+  setBoneMapGuesser(createBoneMapGuesser(loadAnimationCore));
 }

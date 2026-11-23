@@ -69,6 +69,13 @@ export interface AssetKindContribution<T = any> {
    * file itself as its thumbnail and lists its slices under it, and Open is "Sprite Editor…".
    */
   readonly slices?: boolean;
+  /**
+   * Capability (ADR 0371): files of this kind hold sub-assets (`model.glb#Skeleton`, `model.glb#Anim/Run`) that asset
+   * fields take on their own. `list` names the ones a file holds right now that may suit a field of `kinds`
+   * (synchronously; empty until known, so a kind may start loading the file and list them on a later render), and
+   * `referencedAs` the field kinds a sub-asset of that name satisfies. Asset fields offer `path#sub` entries for them.
+   */
+  readonly subAssets?: { list(path: string, kinds: readonly string[]): readonly string[]; referencedAs(sub: string): readonly string[] };
   /** Policy: the field asset kinds (0131 `@field(AssetRef, { kind })`) that accept files of this kind, e.g. sky → ["environment"] (ADR 0143: any name, so a plugin's Components can reference its own kind). */
   readonly referencedAs?: readonly string[];
   /** Which built-in thumbnail renderer draws its preview (internal tier: renderers stay first-party, ADR 0133). */

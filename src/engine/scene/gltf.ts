@@ -20,14 +20,21 @@
  *   `KHR_materials_variants` materials are loaded beside the defaults (`userData.mycoVariantMaterials`
  *   per mesh, by variant name, one entry per material slot; the root's `userData.mycoVariants` lists the names).
  *
- * Ignored (for the animation design to pick up, ADR 0088): skins (skinned meshes bake in their bind
- * pose), animations, morph targets (the base shape is used), and scenes other than the default one.
+ * - **Animation** (ADR 0371): skins, joints and morph targets come through three's objects (skinned
+ *   meshes, bones, morph attributes; glTF `TANGENT` morph targets, which three skips, are added here as
+ *   `morphAttributes.tangent`); animations are read from the file itself (`animation`: every channel's
+ *   keyframes as stored, `CUBICSPLINE` tangents and `KHR_animation_pointer` pointers included), and
+ *   `models.ts` turns them into 0371 tracks. `KHR_node_visibility`: a hidden node's object carries
+ *   `userData.mycoHidden`.
+ *
+ * Ignored: scenes other than the default one.
  */
 // Types only: three.js is imported with the first glTF parse (`parseGltf`), never at start-up
 // (ADR 0082, 0088). The helpers below take three's classes from `lib()`.
-import type { BufferGeometry, Group, Material, Mesh, Object3D, Texture, Wrapping } from "three";
+import type { BufferAttribute, BufferGeometry, Group, Material, Mesh, Object3D, Texture, Wrapping } from "three";
 import { Assets } from "./Assets";
 import type { ModelCamera, ModelLight } from "./models";
+import type { Sampler } from "../animation/import/channels";
 
 /** What a texture's image is, kept on its three.js texture (`userData.mycoSource`) for the bake. */
 export interface GltfImageSource {
@@ -44,8 +51,32 @@ export interface GltfImageSource {
 /** The parse's result: the default scene and what it couldn't keep. */
 export interface GltfResult {
   readonly root: Object3D;
-  /** One line per kind of data that was ignored (skins, animations…), for one warning. */
+  /** One line per kind of data that was ignored (extra scenes), for one warning. */
   readonly ignored: string[];
+  /** The file's animations and what their channels point at (ADR 0371). */
+  readonly animation: GltfAnimationSource;
+}
+
+/** @internal One channel of a glTF animation, as stored: a node path or a `KHR_animation_pointer` pointer, and its keyframes. */
+export interface GltfChannel {
+  /** The target node (null for a pointer channel). */
+  readonly node: number | null;
+  /** `translation`, `rotation`, `scale`, `weights` or `pointer`. */
+  readonly path: string;
+  /** The JSON pointer of a `KHR_animation_pointer` channel, else null. */
+  readonly pointer: string | null;
+  readonly sampler: Sampler;
+}
+
+/** @internal What the model bake needs to turn a glTF's animations into tracks (ADR 0371). */
+export interface GltfAnimationSource {
+  readonly animations: readonly { readonly name: string; readonly channels: readonly GltfChannel[] }[];
+  /** Each glTF node's three.js object. */
+  readonly nodes: ReadonlyMap<number, Object3D>;
+  /** The glTF material index a three.js material came from. */
+  materialIndex(material: Material): number | undefined;
+  /** The glTF JSON (static values the pointer maps hold fixed: lights, cameras, materials, meshes). */
+  readonly json: GltfJson;
 }
 
 /** How the parse finds files: a project path's URL, or null when the project lacks it. */
@@ -69,29 +100,33 @@ function lib(): typeof import("three") {
 const WRAPS: Record<number, Wrapping> = { 33071: 1001 as Wrapping, 33648: 1002 as Wrapping, 10497: 1000 as Wrapping };
 const REPEAT = 1000 as Wrapping;
 
-interface GltfJson {
+/** @internal The parts of a glTF's JSON the import reads. */
+export interface GltfJson {
   textures?: { source?: number; sampler?: number; name?: string; extensions?: Record<string, { source?: number }> }[];
   images?: { uri?: string; bufferView?: number; mimeType?: string; name?: string }[];
   samplers?: { wrapS?: number; wrapT?: number }[];
   buffers?: { uri?: string; byteLength: number }[];
   skins?: unknown[];
-  animations?: unknown[];
+  animations?: { name?: string; channels: { sampler: number; target: { node?: number; path: string; extensions?: { KHR_animation_pointer?: { pointer?: string } } } }[]; samplers: { input: number; output: number; interpolation?: string }[] }[];
   cameras?: GltfCamera[];
   scenes?: unknown[];
-  nodes?: { camera?: number; extensions?: { KHR_lights_punctual?: { light?: number } } }[];
-  meshes?: { primitives: { targets?: unknown[]; material?: number; extensions?: { KHR_materials_variants?: { mappings?: { material: number; variants: number[] }[] } } }[] }[];
+  nodes?: { name?: string; mesh?: number; camera?: number; extensions?: { KHR_lights_punctual?: { light?: number }; KHR_node_visibility?: { visible?: boolean } } }[];
+  meshes?: { extras?: { targetNames?: string[] }; primitives: { targets?: Record<string, number>[]; material?: number; extensions?: { KHR_materials_variants?: { mappings?: { material: number; variants: number[] }[] } } }[] }[];
+  accessors?: { bufferView?: number; byteOffset?: number; componentType: number; count: number; type: string; sparse?: unknown }[];
+  bufferViews?: { buffer: number; byteOffset?: number; byteStride?: number }[];
+  materials?: { emissiveFactor?: number[]; extensions?: { KHR_materials_emissive_strength?: { emissiveStrength?: number } } }[];
   extensions?: { KHR_lights_punctual?: { lights?: GltfLight[] }; KHR_materials_variants?: { variants?: { name?: string }[] } };
   extensionsUsed?: string[];
   extensionsRequired?: string[];
 }
 
-interface GltfCamera {
+export interface GltfCamera {
   type: "perspective" | "orthographic";
   perspective?: { yfov: number; znear: number; zfar?: number };
   orthographic?: { xmag: number; ymag: number; znear: number; zfar: number };
 }
 
-interface GltfLight {
+export interface GltfLight {
   type: "directional" | "point" | "spot";
   color?: [number, number, number];
   intensity?: number;
@@ -102,8 +137,9 @@ interface GltfLight {
 /** The minimum of three's GLTFParser this module reaches into. */
 interface Parser {
   json: GltfJson;
-  associations: Map<object, { meshes?: number; primitives?: number; textures?: number; nodes?: number }>;
+  associations: Map<object, { meshes?: number; primitives?: number; textures?: number; nodes?: number; materials?: number }>;
   getDependency(type: "bufferView", index: number): Promise<ArrayBuffer>;
+  getDependency(type: "accessor", index: number): Promise<BufferAttribute>;
   getDependency(type: "material", index: number): Promise<Material>;
   loadBuffer(index: number): Promise<ArrayBuffer>;
 }
@@ -130,6 +166,8 @@ const SUPPORTED_EXTENSIONS = new Set([
   "EXT_texture_avif",
   "KHR_lights_punctual",
   "KHR_materials_variants",
+  "KHR_animation_pointer",
+  "KHR_node_visibility",
 ]);
 
 /** Parse a `.gltf` (JSON) or `.glb` file's bytes into three.js objects (internal to the model bake). */
@@ -155,11 +193,14 @@ export async function parseGltf(bytes: ArrayBuffer, files: GltfFiles): Promise<G
     loader.parse(bytes, "", (g) => resolve(g as never), (err) => reject(err instanceof Error ? err : new Error(String(err))));
   });
   notePrimitives(gltf.scene, gltf.parser);
+  await addMorphTangents(gltf.scene, gltf.parser);
+  await restoreSkinWeights(gltf.scene, gltf.parser);
   mergePrimitives(gltf.scene, gltf.parser);
   tagLightsAndCameras(gltf.scene, gltf.parser);
   await loadVariants(gltf.scene, gltf.parser);
   markMaterials(gltf.scene);
-  return { root: gltf.scene, ignored: ignoredData(json) };
+  const animation = await readAnimations(gltf.scene, gltf.parser);
+  return { root: gltf.scene, ignored: ignoredData(json), animation };
 }
 
 /** The glTF JSON of a `.gltf` or `.glb` file (for the checks made before three parses it). */
@@ -181,9 +222,6 @@ function readJson(bytes: ArrayBuffer): GltfJson {
 function ignoredData(json: GltfJson): string[] {
   const out: string[] = [];
   const n = (a: unknown[] | undefined) => a?.length ?? 0;
-  if (n(json.skins)) out.push(`${n(json.skins)} skin(s) (skinned meshes show their bind pose)`);
-  if (n(json.animations)) out.push(`${n(json.animations)} animation(s)`);
-  if (json.meshes?.some((m) => m.primitives.some((p) => p.targets?.length))) out.push("morph targets (the base shape is used)");
   if (n(json.scenes) > 1) out.push(`${n(json.scenes) - 1} scene(s) besides the default one`);
   return out;
 }
@@ -268,6 +306,11 @@ function mergePrimitives(root: Object3D, parser: Parser): void {
     const mesh = new (lib().Mesh)(merged, parts.map((p) => p.material as Material));
     mesh.name = group.name || parts[0].name;
     mesh.userData.mycoPrimitives = parts.flatMap((p) => (p.userData.mycoPrimitives as PrimitiveRef[] | undefined) ?? []);
+    if (parts[0].morphTargetDictionary) {
+      mesh.morphTargetDictionary = { ...parts[0].morphTargetDictionary };
+      mesh.morphTargetInfluences = [...(parts[0].morphTargetInfluences ?? [])];
+    }
+    parser.associations.set(mesh, { meshes: parser.associations.get(group)?.meshes });
     for (const p of parts) {
       group.remove(p);
       p.geometry.dispose();
@@ -283,6 +326,7 @@ function mergePrimitives(root: Object3D, parser: Parser): void {
       parent.remove(group);
       parent.children.splice(at, 0, mesh);
       mesh.parent = parent;
+      parser.associations.set(mesh, { ...parser.associations.get(group) });
     }
   }
 }
@@ -402,12 +446,22 @@ async function loadVariants(root: Object3D, parser: Parser): Promise<void> {
  * Primitives' geometries as one, with a group per primitive (material index = primitive index).
  * Null if their attributes differ. Indices become 32-bit; non-indexed primitives get indices.
  */
+/** A geometry's morph attributes by name (three types only position, normal and colour; tangents are added here). */
+const morphs = (g: BufferGeometry) => g.morphAttributes as unknown as Record<string, BufferAttribute[]>;
+
 export function mergeGeometries(geometries: readonly BufferGeometry[]): BufferGeometry | null {
   const names = Object.keys(geometries[0].attributes).sort();
   for (const g of geometries) {
     const own = Object.keys(g.attributes).sort();
     if (own.length !== names.length || own.some((n, i) => n !== names[i])) return null;
     for (const n of names) if (g.getAttribute(n).itemSize !== geometries[0].getAttribute(n).itemSize) return null;
+  }
+  // Morph targets (ADR 0371) merge only when every primitive has the same ones.
+  const morphKeys = Object.keys(geometries[0].morphAttributes).sort();
+  for (const g of geometries) {
+    const own = Object.keys(g.morphAttributes).sort();
+    if (own.length !== morphKeys.length || own.some((k, i) => k !== morphKeys[i])) return null;
+    for (const k of morphKeys) if (morphs(g)[k].length !== morphs(geometries[0])[k].length) return null;
   }
   const { BufferAttribute, BufferGeometry } = lib();
   const out = new BufferGeometry();
@@ -439,6 +493,19 @@ export function mergeGeometries(geometries: readonly BufferGeometry[]): BufferGe
     base += g.getAttribute("position").count;
   });
   out.setIndex(new BufferAttribute(index, 1));
+  for (const k of morphKeys) {
+    morphs(out)[k] = morphs(geometries[0])[k].map((_, t) => {
+      const size = morphs(geometries[0])[k][t].itemSize;
+      const array = new Float32Array(vertexCount * size);
+      let at = 0;
+      for (const g of geometries) {
+        const attr = morphs(g)[k][t];
+        for (let i = 0; i < attr.count; i++, at++) for (let c = 0; c < size; c++) array[at * size + c] = attr.getComponent(i, c);
+      }
+      return new BufferAttribute(array, size);
+    });
+  }
+  out.morphTargetsRelative = geometries[0].morphTargetsRelative;
   return out;
 }
 
@@ -456,6 +523,109 @@ function markMaterials(root: Object3D): void {
       if ((m as Material & { isMeshBasicMaterial?: boolean }).isMeshBasicMaterial) m.userData.mycoUnlit = true;
     }
   });
+}
+
+// --- Animation (ADR 0371) ----------------------------------------------------------------------------
+
+/** An accessor's values as floats (normalised integers read as three reads them), `itemSize` per element. */
+function floats(attr: BufferAttribute): { values: Float32Array; size: number; count: number } {
+  const size = attr.itemSize, count = attr.count;
+  const values = new Float32Array(size * count);
+  for (let i = 0; i < count; i++) for (let k = 0; k < size; k++) values[i * size + k] = attr.getComponent(i, k);
+  return { values, size, count };
+}
+
+/** glTF `TANGENT` morph targets, which three's loader skips, as each primitive's `morphAttributes.tangent` (all targets or none). */
+async function addMorphTangents(root: Object3D, parser: Parser): Promise<void> {
+  const meshes: Mesh[] = [];
+  root.traverse((o) => {
+    if ((o as Mesh).isMesh && o.userData.mycoPrimitives) meshes.push(o as Mesh);
+  });
+  const { BufferAttribute } = lib();
+  for (const mesh of meshes) {
+    const [ref] = mesh.userData.mycoPrimitives as PrimitiveRef[];
+    const targets = parser.json.meshes?.[ref.mesh]?.primitives[ref.primitive]?.targets ?? [];
+    if (!targets.length || !targets.every((t) => t.TANGENT !== undefined) || !mesh.geometry.morphAttributes.position) continue;
+    const list = await Promise.all(targets.map((t) => parser.getDependency("accessor", t.TANGENT!)));
+    morphs(mesh.geometry).tangent = list.map((a) => {
+      const f = floats(a);
+      return new BufferAttribute(f.values, f.size);
+    });
+  }
+}
+
+const COMPONENTS: Record<number, { bytes: number; read: (v: DataView, at: number) => number }> = {
+  5126: { bytes: 4, read: (v, at) => v.getFloat32(at, true) },
+  5121: { bytes: 1, read: (v, at) => v.getUint8(at) / 255 },
+  5123: { bytes: 2, read: (v, at) => v.getUint16(at, true) / 65535 },
+};
+
+/**
+ * A VEC4 weight accessor's values read from its buffer (three's attribute, and the buffer view it is a view of, may have
+ * been normalised in place by the loader); null for a sparse or view-less accessor.
+ */
+async function rawAccessor(parser: Parser, index: number): Promise<Float32Array | null> {
+  const def = parser.json.accessors?.[index];
+  const kind = def && COMPONENTS[def.componentType];
+  if (!def || !kind || def.bufferView === undefined || def.sparse || def.type !== "VEC4") return null;
+  // The buffer itself: the loader's buffer view (a copy) holds the attribute three normalised in place.
+  const bv = parser.json.bufferViews?.[def.bufferView];
+  if (!bv) return null;
+  const view = new DataView(await parser.loadBuffer(bv.buffer));
+  const stride = bv.byteStride ?? kind.bytes * 4;
+  const base = (bv.byteOffset ?? 0) + (def.byteOffset ?? 0);
+  const out = new Float32Array(def.count * 4);
+  for (let i = 0; i < def.count; i++) for (let k = 0; k < 4; k++) out[i * 4 + k] = kind.read(view, base + i * stride + k * kind.bytes);
+  return out;
+}
+
+/**
+ * Skinned primitives' `WEIGHTS_0` as the file has them: three normalises them alone, which skews a vertex whose
+ * influences continue in `WEIGHTS_1`; the import normalises all of them together (ADR 0371).
+ */
+async function restoreSkinWeights(root: Object3D, parser: Parser): Promise<void> {
+  const meshes: Mesh[] = [];
+  root.traverse((o) => {
+    if ((o as { isSkinnedMesh?: boolean }).isSkinnedMesh && o.userData.mycoPrimitives) meshes.push(o as Mesh);
+  });
+  const { BufferAttribute } = lib();
+  for (const mesh of meshes) {
+    const [ref] = mesh.userData.mycoPrimitives as PrimitiveRef[];
+    const attributes = (parser.json.meshes?.[ref.mesh]?.primitives[ref.primitive] as { attributes?: Record<string, number> } | undefined)?.attributes;
+    if (attributes?.WEIGHTS_0 === undefined || attributes.WEIGHTS_1 === undefined) continue;
+    const raw = await rawAccessor(parser, attributes.WEIGHTS_0);
+    if (raw) mesh.geometry.setAttribute("skinWeight", new BufferAttribute(raw, 4));
+  }
+}
+
+/** Each glTF node's object (after merging), hidden nodes (`KHR_node_visibility`) tagged, and every animation's channels as stored. */
+async function readAnimations(root: Object3D, parser: Parser): Promise<GltfAnimationSource> {
+  const json = parser.json;
+  const nodes = new Map<number, Object3D>();
+  root.traverse((o) => {
+    const i = parser.associations.get(o)?.nodes;
+    if (i !== undefined && !nodes.has(i)) nodes.set(i, o);
+  });
+  for (const [i, o] of nodes) if (json.nodes?.[i]?.extensions?.KHR_node_visibility?.visible === false) o.userData.mycoHidden = true;
+  const animations = await Promise.all(
+    (json.animations ?? []).map(async (a, ai) => {
+      const channels: GltfChannel[] = [];
+      for (const c of a.channels ?? []) {
+        const def = a.samplers?.[c.sampler];
+        if (!def) continue;
+        const [input, output] = await Promise.all([parser.getDependency("accessor", def.input), parser.getDependency("accessor", def.output)]);
+        const times = floats(input).values;
+        const out = floats(output);
+        const interpolation = def.interpolation === "STEP" || def.interpolation === "CUBICSPLINE" ? def.interpolation : "LINEAR";
+        const keys = times.length * (interpolation === "CUBICSPLINE" ? 3 : 1);
+        const width = keys ? Math.round(out.values.length / keys) : out.size;
+        const pointer = c.target.path === "pointer" ? c.target.extensions?.KHR_animation_pointer?.pointer ?? "" : null;
+        channels.push({ node: c.target.node ?? null, path: c.target.path, pointer, sampler: { times, values: out.values, width, interpolation } });
+      }
+      return { name: a.name || `Animation ${ai + 1}`, channels };
+    }),
+  );
+  return { animations, nodes, materialIndex: (m) => parser.associations.get(m)?.materials, json };
 }
 
 // --- Draco -----------------------------------------------------------------------------------------

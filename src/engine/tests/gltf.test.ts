@@ -175,13 +175,17 @@ describe("glTF models (ADR 0088)", () => {
     }
   });
 
-  it("warns once about skins and animations it ignores", async () => {
+  it("imports animations (ADR 0371 deprecates the 0088 warning) and still warns once about extra scenes", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { json } = triangleGltf("embedded");
     json.animations = [{ channels: [], samplers: [] }];
+    json.scenes = [{ nodes: [0] }, { nodes: [] }];
     useAssets({ "models/anim.gltf": dataUrl(new TextEncoder().encode(JSON.stringify(json))) });
-    await loadMeshes("asset:models/anim.gltf");
-    expect(warn.mock.calls.flat().join("\n")).toMatch(/models\/anim\.gltf: not imported yet: 1 animation/);
+    const model = await loadModel("models/anim.gltf");
+    expect(model.animation?.takes.map((t) => [t.name, t.tracks.length])).toEqual([["Animation 1", 0]]);
+    const said = warn.mock.calls.flat().join("\n");
+    expect(said).toMatch(/models\/anim\.gltf: not imported yet: 1 scene/);
+    expect(said).not.toMatch(/animation\(s\)/);
   });
 
   it("refuses a file requiring an unsupported extension", async () => {
