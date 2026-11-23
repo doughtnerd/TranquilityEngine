@@ -46,7 +46,8 @@ export const snapSetting = persisted<SnapSetting>("myco.studio.samples.snap", { 
 export const followPlayhead = persisted<boolean>("myco.studio.samples.follow", true);
 export const preRoll = persisted<boolean>("myco.studio.samples.preRoll", false);
 export const returnToStart = persisted<boolean>("myco.studio.samples.returnToStart", false);
-export type PlayMode = "selection" | "whole" | "loop" | "through" | "toNextMarker" | "toEnd";
+/** Spec §4.1.10's play modes ("loop" is Cycle loop; "through" is a Whole stored by an older Studio). */
+export type PlayMode = "selection" | "whole" | "loop" | "through" | "pickupLoop" | "heldLoop" | "loopExit" | "toNextMarker" | "toNextExit" | "toEnd";
 export const playMode = persisted<PlayMode>("myco.studio.samples.playMode", "selection");
 /** The Loop seam panel's Repeat: Play across the seam keeps cycling through it until stopped. */
 export const seamRepeat = persisted<boolean>("myco.studio.samples.seamRepeat", true);

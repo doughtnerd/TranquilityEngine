@@ -15,6 +15,7 @@ import { toasts } from "../../shell/studioServices";
 import type { SampleDetection } from "../../../engine/audio/sample/detect/detect";
 import { destinationFolder, detectionFor, importedMessage, isAudioPath, isWavPath, kindOn, kindsFound, METADATA_KINDS, sampleBlockFor, type KindToggles, type MetadataKind, type PickedFile } from "./importPlan";
 import { detectInBackground } from "./sampleDetect";
+import { audioFolders } from "./sampleLibrary";
 import { decodeAudio } from "./sampleSession";
 import { dialog, openSample } from "./samplesState";
 
@@ -244,7 +245,7 @@ export function ImportDialog() {
   return (
     <ImportReview
       files={files}
-      folders={project.folders}
+      folders={audioFolders(project.folders, project.files)}
       toggles={toggles}
       into={into}
       keep={keep}

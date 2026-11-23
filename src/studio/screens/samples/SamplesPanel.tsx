@@ -23,7 +23,7 @@ import { confirmInEditor } from "../../../editor/ui/ConfirmDialog";
 import { parseDerivedSample } from "../../../engine/audio/sample/format";
 import { Icon } from "../../components/Icon";
 import { toasts } from "../../shell/studioServices";
-import { allSamples, cleanFolderName, fileChip, folderOf, libraryTree, metaLine, moveUpPlan, nameOf, searchSamples, usesOf, type LibraryFolder } from "./sampleLibrary";
+import { allSamples, audioFolders, cleanFolderName, fileChip, folderOf, libraryTree, metaLine, moveUpPlan, nameOf, searchSamples, usesOf, type LibraryFolder } from "./sampleLibrary";
 import { lengthOf, peaksOf } from "./sampleSession";
 import { dialog, openSample, openSamplePath } from "./samplesState";
 import { waveColumns } from "../../components/waveformModel";
@@ -82,7 +82,8 @@ export function SamplesPanel() {
   const [dragging, setDragging] = useState<string | null>(null);
   const [dropOn, setDropOn] = useState<string | null>(null);
   if (!project) return null;
-  const tree = libraryTree(project.files, project.folders);
+  const folders = audioFolders(project.folders, project.files);
+  const tree = libraryTree(project.files, folders);
   const count = allSamples(tree).length;
   const open = openSamplePath.value;
   const readOnly = !project.canSave;
@@ -321,7 +322,7 @@ export function SamplesPanel() {
       {moving && (
         <MoveToDialog
           items={moving.map((p) => ({ path: p, folder: project.folders.includes(p) }))}
-          folders={project.folders}
+          folders={folders}
           noun="sample"
           rootName={project.name}
           onCancel={() => setMoving(null)}

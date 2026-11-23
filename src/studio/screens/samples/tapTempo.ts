@@ -1,9 +1,9 @@
 // Tap tempo (the prototype's Tempo popover): taps' times in ms; the tempo is the mean of the last 8 intervals; a pause
-// over 2 s starts a new run; steadiness from the intervals' spread (steady under 4 %, a bit uneven under 10 %,
+// over 2.5 s (spec §4.1.5; decisions.md) starts a new run; steadiness from the intervals' spread (steady under 4 %, a bit uneven under 10 %,
 // else uneven). "Use" needs 20–400 BPM. Pure.
 
 export const TAP_INTERVALS = 8;
-export const TAP_RESET_MS = 2000;
+export const TAP_RESET_MS = 2500;
 
 export type Steadiness = "steady" | "a bit uneven" | "uneven";
 

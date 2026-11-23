@@ -35,8 +35,9 @@ function start(): void {
     ["play", ["Space"], "Play the selection, stop, or release a held loop", () => act.togglePlay()],
     ["marker", ["M"], "Add a marker at the playhead", act.addMarkerAtPlayhead],
     ["loop", ["L"], "Add a loop at the playhead", () => act.addLoopHere(undefined)],
-    ["trimStart", ["I"], "Trim start at the playhead", () => act.trimAtPlayhead("start")],
-    ["trimEnd", ["O"], "Trim end at the playhead", () => act.trimAtPlayhead("end")],
+    // Spec §4.1.11: [ and ] set the trim start and end to the playhead; I and O stay (decisions.md).
+    ["trimStart", ["[", "I"], "Trim start to the playhead", () => act.trimAtPlayhead("start")],
+    ["trimEnd", ["]", "O"], "Trim end to the playhead", () => act.trimAtPlayhead("end")],
     ["snip", ["S"], "Snip at the playhead", () => act.snipAtPlayhead()],
     ["razor", ["C"], "Razor on or off", act.toggleRazor],
     ["delete", ["Delete", "Backspace"], "Delete the selected marker, loop or snippet", act.deleteSelected],

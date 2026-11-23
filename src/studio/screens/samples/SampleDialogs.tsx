@@ -10,7 +10,7 @@ import { ReimportDialog } from "./ReimportDialog";
 import { applyMerge, writeSummary, type MergeChoice, type MergeRow, type WriteSummaryRow } from "./sampleFile";
 import { diskChange } from "./sampleDisk";
 import { snippets } from "./sampleEditing";
-import { folderOf, nameOf } from "./sampleLibrary";
+import { audioFolders, folderOf, nameOf } from "./sampleLibrary";
 import { lengthOf } from "./sampleSession";
 import { deriveSample, freeSamplePath, stemOf, writeDerived, writeToFile, type DeriveKind } from "./sampleWrites";
 import { dialog, openSample, openSession } from "./samplesState";
@@ -138,7 +138,7 @@ function DeriveDialog(props: { kind: DeriveKind; snippet?: number }) {
   const count = e.markers.length + e.loops.length + e.effects.length + (e.trim ? 1 : 0);
   return (
     <DeriveForm
-      kind={props.kind} parentName={nameOf(session.path)} name={name} folder={folder} folders={project.folders} mode={mode} edits={count}
+      kind={props.kind} parentName={nameOf(session.path)} name={name} folder={folder} folders={audioFolders(project.folders, project.files)} mode={mode} edits={count}
       onName={setName} onFolder={setFolder} onMode={setMode} onCancel={close}
       onCreate={async () => {
         const length = lengthOf(project, session.source.peek()) ?? 0;

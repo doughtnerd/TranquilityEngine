@@ -225,12 +225,28 @@ export function playSeam(loopId: string): boolean {
 // --- save ------------------------------------------------------------------------------------------------------------
 
 /**
+ * Ctrl+S pressed while typing in a field: the field's draft is committed first (its change runs as on leaving it),
+ * then focus goes back to it, so what was typed is in what's saved.
+ */
+function commitTyping(): void {
+  const el = typeof document === "undefined" ? null : document.activeElement;
+  if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return;
+  const at = el instanceof HTMLSelectElement ? null : [el.selectionStart, el.selectionEnd] as const;
+  el.blur();
+  if (!el.isConnected) return;
+  el.focus({ preventScroll: true });
+  if (at && at[0] !== null && el instanceof HTMLInputElement && el.type !== "number") el.setSelectionRange(at[0], at[1]);
+  else if (at && at[0] !== null && el instanceof HTMLTextAreaElement) el.setSelectionRange(at[0], at[1]);
+}
+
+/**
  * Save (Ctrl+S, the Save split button; owner decision 3): the open sample's project data, its sidecar or derived-sample
- * file, written now. The audio file isn't touched: that is Write to file….
+ * file, written now. The audio file isn't touched: that is Write to file…. A field being typed in commits first.
  */
 export function save(): boolean {
   const s = openSession.peek();
   if (!s) return false;
+  commitTyping();
   if (s.readOnly) {
     status.value = { kind: "info", text: `Can't save ${nameOf(s.path)}: the project is read-only.` };
     return true;

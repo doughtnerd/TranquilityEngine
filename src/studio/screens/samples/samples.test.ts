@@ -20,7 +20,7 @@ import {
 import { nearestZeroCrossing, seamJump, seamStrip, seamWindow } from "./seam";
 import { addTap, tapResult } from "./tapTempo";
 import { effectEdits } from "./sampleEffects";
-import { planPlay, planSeam } from "./sampleTransport";
+import { planPlay, planSeam, PLAY_MODES, playModeInfo, playModeRefusal, showsMusicModes } from "./sampleTransport";
 
 const LEN = 2.6;
 const next = (r: SampleEdit): SampleEdits => {
@@ -350,12 +350,13 @@ describe("timeline structure", () => {
 });
 
 describe("tap tempo", () => {
-  it("averages the last 8 intervals and resets after a 2 s pause", () => {
+  it("averages the last 8 intervals and resets after a pause over 2.5 s (spec §4.1.5)", () => {
     let taps: number[] = [];
     for (let i = 0; i < 12; i++) taps = addTap(taps, i * 500);
     expect(taps).toHaveLength(9);
     expect(tapResult(taps)).toEqual({ bpm: 120, steadiness: "steady", taps: 9, usable: true });
-    expect(addTap(taps, 5500 + 2500)).toEqual([8000]);
+    expect(addTap(taps, 5500 + 2400)).toHaveLength(9);
+    expect(addTap(taps, 5500 + 2600)).toEqual([8100]);
     expect(tapResult([0])).toBeNull();
     expect(tapResult([0, 500, 1100, 1500])!.steadiness).toBe("uneven");
   });
@@ -464,13 +465,31 @@ describe("baked effects chain", () => {
 describe("play plans", () => {
   it("plays the selection by its kind and the whole-sample modes", () => {
     const e = skid();
-    expect(planPlay(e, LEN, { kind: "loop", id: "l1" }, "selection", 0)).toMatchObject({ from: 0.45, to: 1.55, loop: { count: 0, crossfadeMs: 35 }, scope: "Loop" });
-    expect(planPlay(e, LEN, { kind: "marker", id: "m1" }, "selection", 0)).toMatchObject({ from: 0.3, to: LEN, loop: null });
-    expect(planPlay(e, LEN, { kind: "sample" }, "whole", 1)).toMatchObject({ from: 0, to: LEN, scope: "Whole sample" });
+    expect(planPlay(e, LEN, { kind: "loop", id: "l1" }, "selection", 0)).toMatchObject({ from: 0.45, to: 1.55, loop: { count: 0, crossfadeMs: 35 }, scope: "Loop 1" });
+    expect(planPlay(e, LEN, { kind: "marker", id: "m1" }, "selection", 0)).toMatchObject({ from: 0.3, to: LEN, loop: null, scope: "brake_lockup → end" });
+    expect(planPlay({ ...e, loops: [] }, LEN, { kind: "sample" }, "whole", 1)).toMatchObject({ from: 0, to: LEN, scope: "Whole" });
+    expect(planPlay(e, LEN, { kind: "sample" }, "whole", 0)).toMatchObject({ from: 0, to: LEN, held: true, loop: { start: 0.45 }, scope: "Whole" });
     expect(planPlay(e, LEN, { kind: "sample" }, "through", 0)).toMatchObject({ from: 0, to: LEN, held: true, loop: { start: 0.45 } });
     expect(planPlay(e, LEN, { kind: "sample" }, "toNextMarker", 0.31)).toMatchObject({ from: 0.31, to: 0.32, scope: "To Lock-up" });
     expect(planPlay(e, LEN, { kind: "sample" }, "selection", 1)).toMatchObject({ from: 1, scope: "From the playhead" });
     expect(planPlay(e, LEN, { kind: "tail" }, "selection", 0)).toMatchObject({ from: 1.55, to: LEN });
+  });
+
+  it("names the modes as the spec does and plays the music modes, to next exit and from the selection", () => {
+    const e = { ...skid(), markers: [marker("m1", 0.3), { ...marker("x", 2, { type: "exit" as const }) }] };
+    expect(PLAY_MODES.map((m) => m.label)).toEqual(["Selection", "Whole", "Cycle loop", "Pickup → loop", "Loop", "Loop → exit", "To next marker", "To next exit", "To trim end"]);
+    expect(playModeInfo("through").label).toBe("Whole");
+    expect(planPlay(e, LEN, { kind: "sample" }, "loop", 0)).toMatchObject({ from: 0.45, to: 1.55, held: false, scope: "Cycle loop" });
+    expect(planPlay(e, LEN, { kind: "sample" }, "pickupLoop", 0)).toMatchObject({ from: 0, to: 1.55, loop: null, scope: "Pickup → loop" });
+    expect(planPlay(e, LEN, { kind: "sample" }, "heldLoop", 0)).toMatchObject({ from: 0.45, to: 1.55, held: true, scope: "Loop" });
+    expect(planPlay(e, LEN, { kind: "sample" }, "loopExit", 0)).toMatchObject({ from: 0.45, to: LEN, held: true, scope: "Loop → exit" });
+    expect(planPlay(e, LEN, { kind: "marker", id: "m1" }, "toNextExit", 0)).toMatchObject({ from: 0.3, to: 2, scope: "To next exit" });
+    expect(planPlay(e, LEN, { kind: "marker", id: "m1" }, "toEnd", 0)).toMatchObject({ from: 0.3, to: LEN, scope: "To trim end" });
+    expect(playModeRefusal(skid(), "toNextExit")).toBe("no exits");
+    expect(playModeRefusal({ ...skid(), loops: [] }, "loop")).toBe("no loops");
+    expect(playModeRefusal(e, "toNextExit")).toBeNull();
+    expect(showsMusicModes(skid())).toBe(false);
+    expect(showsMusicModes({ ...skid(), kind: "music" })).toBe(true);
   });
 
   it("plays across a seam: the window before the loop's end, then the window after its start, and no more", () => {

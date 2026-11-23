@@ -7,10 +7,18 @@ import type { DerivedSampleAsset, SampleEdits, SampleKind } from "../../../engin
 import { parsePlaylist } from "../../../engine/audio/playlist/format";
 import { referencedPaths } from "../../../engine/audio/playlist/references";
 import { isSidecarPath } from "../../../engine/scene/importSettings";
+import { contentFolders } from "../../components/projectFolders";
 import { isAudioPath } from "./importPlan";
 
 /** True for a file the Samples panel lists: an audio file or a derived sample. */
 export const isSamplePath = (p: string): boolean => !isSidecarPath(p.toLowerCase()) && (isAudioPath(p) || isDerivedSamplePath(p));
+
+/**
+ * The folders the Samples tree and its folder pickers (Move to…, Import's Into folder, Fork's and Save snippet's
+ * Folder) offer: the project's folders without the game's own content folders (scenes, scripts, plugins) and hidden
+ * ones, unless a sample is in them (UI pass T5, `contentFolders`).
+ */
+export const audioFolders = (folders: readonly string[], files: readonly string[]): string[] => contentFolders(folders, files, isSamplePath);
 
 export const folderOf = (p: string): string => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
 export const nameOf = (p: string): string => p.slice(p.lastIndexOf("/") + 1);
