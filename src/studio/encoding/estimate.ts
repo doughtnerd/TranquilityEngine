@@ -1,4 +1,4 @@
-// What a sound ships as and takes at runtime for one platform before it is converted (ADR 0337 §6: "exact once cached,
+// What a sound ships as and takes at runtime for one platform before it is converted (ADR 0351 §6: "exact once cached,
 // else an estimate from bitrate × length, marked ≈"), and the runtime memory rule of its load mode (§3), which the
 // export's report uses too. Pure.
 //
@@ -56,7 +56,7 @@ export function opusKbps(quality: number, channels: number): number {
 }
 
 /**
- * The runtime memory of a sound (ADR 0337 §3): `decode` holds int16 PCM in the clip arena; `compressed` holds its
+ * The runtime memory of a sound (ADR 0351 §3): `decode` holds int16 PCM in the clip arena; `compressed` holds its
  * shipped bytes (PCM: its samples); `stream` holds its prefetch head (`prefetchFrames` of int16).
  */
 export function runtimeMemory(load: LoadMode, codec: PackCodec, frames: number, channels: number, bytes: number, prefetchFrames: number): number {

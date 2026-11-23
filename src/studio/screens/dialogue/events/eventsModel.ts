@@ -1,4 +1,4 @@
-// The Events tab's model (ADR 0341 §7): the event list over every `*.dialogue.json`, the event edits (add, duplicate,
+// The Events tab's model (ADR 0355 §7): the event list over every `*.dialogue.json`, the event edits (add, duplicate,
 // rename with its `onInterrupted` references, delete, settings), the path table (one column per argument, weighted line
 // chips, probability and weight), argument edits with the paths they affect shown before applying, the tree grouping
 // (Wwise's view of the same table), and the inline lints: unknown labels and keys, and paths reached only as a
@@ -83,7 +83,7 @@ export function renameEvent(a: DialogueAsset, name: string, to: string, used: Re
   return { next: { ...a, events: a.events.map((e) => ({ ...e, name: e.name === name ? to : e.name, onInterrupted: e.onInterrupted === name ? to : e.onInterrupted })) } };
 }
 
-/** A renamed line key rewritten in every path of a file (0340 §5: a key rename follows its references); null when none names it. */
+/** A renamed line key rewritten in every path of a file (0354 §5: a key rename follows its references); null when none names it. */
 export function renameLineInDialogue(a: DialogueAsset, from: string, to: string): DialogueAsset | null {
   if (!a.events.some((e) => e.paths.some((p) => p.lines.some((l) => l.key === from)))) return null;
   return { ...a, events: a.events.map((e) => ({ ...e, paths: e.paths.map((p) => ({ ...p, lines: p.lines.map((l) => (l.key === from ? { ...l, key: to } : l)) })) })) };

@@ -1,4 +1,4 @@
-// Playlist type badges (ADR 0335 `TypeBadge`, ADR 0329 playlist types): the short code a tree row or the sound picker
+// Playlist type badges (ADR 0349 `TypeBadge`, ADR 0343 playlist types): the short code a tree row or the sound picker
 // shows for a playlist's type (a Blend by its axis count) or a sample, its full name for the tooltip, and the series
 // colour each kind is drawn in (`--series-1..8`, so Appearance themes them).
 import type { PlaylistType } from "../../engine/audio/playlist/types";

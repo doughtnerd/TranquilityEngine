@@ -1,4 +1,4 @@
-// The Sequence view's screen state (ADR 0329, 0335): what the timeline and the Inspector share while a sequence is open
+// The Sequence view's screen state (ADR 0343, 0349): what the timeline and the Inspector share while a sequence is open
 // (the selection, the playhead, the snap, time display, Write and razor modes, the clipboard, open lanes, which curve a
 // clip shows), and the transport: Play through the Studio's audio host (`audioHost().audition`, the real `Audio.play`),
 // the playhead estimated from the clock until the runtime reports positions, Stop, Release and Space. The rules are
@@ -126,7 +126,7 @@ function finish(reached: number): void {
   if (p) seqPlayhead.value = restingPlayhead(p.range, seqTransport.peek(), reached);
 }
 
-/** Stop (a 120 ms fade, ADR 0329). */
+/** Stop (a 120 ms fade, ADR 0343). */
 export function stopSequence(): void {
   finish(seqPlayhead.peek());
 }

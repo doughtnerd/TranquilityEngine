@@ -1,5 +1,5 @@
 /**
- * ADR 0346 §6 (amending 0328 and 0040): the sidecar's optional `generated` block, written beside a sample baked from a
+ * ADR 0360 §6 (amending 0342 and 0040): the sidecar's optional `generated` block, written beside a sample baked from a
  * generator, so the Samples screen can say "Baked from coin.generator.json" and "out of date" when the patch changed.
  *
  * ```jsonc

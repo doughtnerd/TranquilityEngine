@@ -1,5 +1,5 @@
 /**
- * XLIFF 1.2 (OASIS; ADR 0342 §8), the version every CAT tool reads and Unity's default: one `<file>` per table and
+ * XLIFF 1.2 (OASIS; ADR 0356 §8), the version every CAT tool reads and Unity's default: one `<file>` per table and
  * target language (`original` = the table's path), a `<trans-unit id resname>` per key with `<source>`, `<target
  * state>` and `<note>` from the key's notes, and `maxwidth` with `size-unit="char"` from `maxLength`. ICU messages
  * travel as text; translation platforms detect and validate them.

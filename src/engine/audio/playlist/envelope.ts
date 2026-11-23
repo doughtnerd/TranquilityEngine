@@ -1,5 +1,5 @@
 /**
- * A Blend's voice envelope (ADR 0329 "Envelope (Blend)"; the prototype's PL:1150–1184): ADSR in milliseconds.
+ * A Blend's voice envelope (ADR 0343 "Envelope (Blend)"; the prototype's PL:1150–1184): ADSR in milliseconds.
  *
  * - Attack ramps 0 → 1 linearly, decay 1 → sustain linearly, the sustain level holds until release, and release ramps
  *   linearly from the level held at release to 0.

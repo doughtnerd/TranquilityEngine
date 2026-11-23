@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0337 §4, 0345 §1): one instance of `myco_audio_encode.wasm`, a WASI reactor, driven through its C ABI
+ * Internal (ADR 0351 §4, 0359 §1): one instance of `myco_audio_encode.wasm`, a WASI reactor, driven through its C ABI
  * (the header of `native/audio/crates/audio-encode/src/lib.rs`). Bytes cross through linear memory, never WASI file
  * descriptors, so no WASI runtime is needed: the shim below answers the six imports the module may call (Node's
  * `node:wasi` isn't used, which also avoids its crash on large reads in Node 22). Runs in a browser Worker, a

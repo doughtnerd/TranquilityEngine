@@ -260,7 +260,7 @@ export class CoreVoices {
     const i = id & 0xffff;
     t.clip[i] = clip;
     t.group[i] = group;
-    // ADR 0331 levels (ABI 4.9): the voice's playlist level's submix, named by a ROUTE right after its PLAY.
+    // ADR 0345 levels (ABI 4.9): the voice's playlist level's submix, named by a ROUTE right after its PLAY.
     t.submix[i] = req.submix && Number.isInteger(req.submix.slot) && req.submix.slot >= 0 && req.submix.slot < 255 ? req.submix.slot + 1 : 0;
     this.owners[i] = req.owner ?? null;
     t.volume[i] = req.volume !== undefined && Number.isFinite(req.volume) ? Math.max(0, req.volume) : 1;
@@ -565,7 +565,7 @@ export class CoreVoices {
     host.playheads.start(i, stamp ?? clockMap.framesNow(), a.startOffsetFrames);
     // ADR 0158: the voice's bindings and loop, right behind its PLAY.
     host.automation.onPlaySent(id, i, stamp);
-    // ADR 0331 levels (ABI 4.9): into its playlist level's submix (applies on arrival, like the bindings), stamped as
+    // ADR 0345 levels (ABI 4.9): into its playlist level's submix (applies on arrival, like the bindings), stamped as
     // its PLAY so the frame-ordered batch keeps it after the PLAY (which would otherwise clear it).
     if (t.submix[i]! > 0) host.writer.route(id, t.submix[i]! - 1, stamp);
     // ADR 0162 (C3): its SET_VOICE_FX at the same frame, when mixed and non-default.
@@ -837,7 +837,7 @@ export class CoreVoices {
     }
   }
 
-  /** ADR 0333: slot `i`'s distance from the listener, world units (0 for a voice that isn't positioned). */
+  /** ADR 0347: slot `i`'s distance from the listener, world units (0 for a voice that isn't positioned). */
   distanceOf(i: number): number {
     const t = this.t;
     if ((t.flags[i]! & VoiceFlag.SPATIAL) === 0) return 0;

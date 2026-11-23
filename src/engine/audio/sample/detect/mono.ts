@@ -1,5 +1,5 @@
 /**
- * Interleaved PCM to one mono float channel (the mean of the channels), for the sample analysers (ADR 0328 detection).
+ * Interleaved PCM to one mono float channel (the mean of the channels), for the sample analysers (ADR 0342 detection).
  * int16 is scaled by 1/32768.
  *
  * Pure; no plugin, no DOM.

@@ -1,5 +1,5 @@
 /**
- * Generators (ADR 0346 §1): parse and write `*.generator.json` (`myco.generator@1`) and embedded generators (the same
+ * Generators (ADR 0360 §1): parse and write `*.generator.json` (`myco.generator@1`) and embedded generators (the same
  * object without `format`). The shapes are the contract in `types.ts`; the parameters are the catalogue's.
  *
  * The parse is lenient (ADR 0306: bad values fall back to defaults with one problem line; it never throws) and

@@ -1,5 +1,5 @@
 /**
- * A sample's source versions (ADR 0328 "Source versions"): re-import copies the new file over the asset's path and
+ * A sample's source versions (ADR 0342 "Source versions"): re-import copies the new file over the asset's path and
  * keeps every version's audio in `.myco/sample-versions/<path>/v<n>.<ext>` (per machine, like asset history). This is
  * the list of them, `versions.json` in that folder (`myco.sampleVersions@1`): which `v<n>` files are versions (the
  * folder also holds "Write to file" backups), their original names, when they came in, their length, and which one the

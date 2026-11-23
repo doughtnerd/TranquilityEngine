@@ -1,9 +1,9 @@
 /**
- * Internal (ADR 0330, 0331): how the mix's effects map onto the runtime's current bus effects (`BusEffect`: low-pass,
+ * Internal (ADR 0344, 0345): how the mix's effects map onto the runtime's current bus effects (`BusEffect`: low-pass,
  * high-pass, compressor and the reverb send) and back. The runtime's views (`runtimeView.ts`) map one way, the migration and the legacy
  * panels' adapter (`legacy.ts`) the other. One place, so the two directions can't drift apart.
  *
- * Parameter names, ranges and defaults are the catalogue's (`effects/catalogue.ts`, ADR 0331); `RUNTIME_FIELDS` is the
+ * Parameter names, ranges and defaults are the catalogue's (`effects/catalogue.ts`, ADR 0345); `RUNTIME_FIELDS` is the
  * one table that says which runtime field each catalogue parameter is and how its unit converts (`frequency` and
  * `cutoff`, `q` and `resonance` linearly over `Q_RANGE`, seconds and milliseconds). Every direction below reads it.
  *

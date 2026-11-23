@@ -1,4 +1,4 @@
-// Spike B0 (ADR 0338): a fuel mode for the metered gate's pass. A fork of the decoder and segmenting in
+// Spike B0 (ADR 0352): a fuel mode for the metered gate's pass. A fork of the decoder and segmenting in
 // tools/audio-bench/meter.mjs (which exports only `meter`), with the increment replaced by a fuel decrement.
 //
 // `fuel(bytes, { mode, width })` returns `{ bytes, stats }`: the module with one new mutable global (i32 or i64,

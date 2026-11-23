@@ -1,4 +1,4 @@
-// ADR 0337 spike A0/S1: runs the wasm32-wasip1 encoder reactor under Node's built-in WASI (node:wasi).
+// ADR 0351 spike A0/S1: runs the wasm32-wasip1 encoder reactor under Node's built-in WASI (node:wasi).
 //
 //   node spikes/audio-encode/run-node.mjs <encoder.wasm> <in.wav> <outDir|-> <job>... [--workers=N] [--repeat=R]
 //   job = codec[:quality[:rate[:complexity]]], codec one of pcm adpcm vorbis opus sinc fft opus-fft

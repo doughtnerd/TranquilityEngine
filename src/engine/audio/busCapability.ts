@@ -11,14 +11,14 @@
  * | `effectsPerBus`     | 8     | warning  | kept; applies at the next Play            | the audio core  |
 | `sendsPerBus`       | 4     | warning  | kept; applies at the next Play            | the audio core  |
  *
- * `insertsPerBus` is the mix model's declared cap (ADR 0331: a bus's or a return's insert chain holds at most 8
+ * `insertsPerBus` is the mix model's declared cap (ADR 0345: a bus's or a return's insert chain holds at most 8
  * effects; `audio.json`'s parse reads it from here, `MIX_LIMITS.effectsPerOwner`). The two core rules are the audio
  * core's real limits (`audio-core/src/fx.rs`; the wire's `BUS_SLOT_MAX_EFFECTS`, which a plugin-side test holds equal to
- * `MAX_CORE_BUS_EFFECTS`). Since ABI 4.6 (ADR 0331) the core runs eight effects a bus, any number of them compressors,
+ * `MAX_CORE_BUS_EFFECTS`). Since ABI 4.6 (ADR 0345) the core runs eight effects a bus, any number of them compressors,
  * so both equal the insert cap and the insert cap's refusal comes first: they stay as rules (a warning is a note on a
  * valid section: the edit is kept as authored and saved, R10) for a core that runs fewer. The Web Audio fallback runs
  * every effect it has, so the core-only rules don't apply to it live. `sendsPerBus` is the core's post-fader sends a bus
- * (ADR 0330, ABI 4.7: `MAX_BUS_SENDS` on the wire; the core drops the rest): a bus may send to every return the mix
+ * (ADR 0344, ABI 4.7: `MAX_BUS_SENDS` on the wire; the core drops the rest): a bus may send to every return the mix
  * model holds, so more are kept as authored (a warning) and only the first four run. The fallback runs no sends.
  *
  * **What the core runs** (`CORE_EFFECT_TYPES`): the catalogue types the core's shared effect DSP runs at the bus and
@@ -35,17 +35,17 @@ import type { ApplyResult, MixOp, OpClass } from "./mixOps";
 
 /** Buses per project: the core's slot count (`MAX_BUS` in the wire; tombstones count, `slotTable.ts`). */
 export const MAX_BUSES = 32;
-/** ADR 0331: effects per bus or return the mix model holds (the insert chain's cap, on every backend). */
+/** ADR 0345: effects per bus or return the mix model holds (the insert chain's cap, on every backend). */
 export const MAX_BUS_INSERTS = 8;
 /** Effects per bus the audio core runs (`MAX_EFFECTS` in `audio-core/src/fx.rs`, `BUS_SLOT_MAX_EFFECTS` on the wire; ABI 4.6). */
 export const MAX_CORE_BUS_EFFECTS = 8;
-/** Compressors per bus the audio core runs (ADR 0331: no one-compressor limit since ABI 4.6; the insert cap bounds it). */
+/** Compressors per bus the audio core runs (ADR 0345: no one-compressor limit since ABI 4.6; the insert cap bounds it). */
 export const MAX_CORE_BUS_COMPRESSORS = 8;
-/** ADR 0330 (ABI 4.7): post-fader sends a bus the audio core runs (`MAX_BUS_SENDS` on the wire, `bus_sends::MAX_SENDS`). */
+/** ADR 0344 (ABI 4.7): post-fader sends a bus the audio core runs (`MAX_BUS_SENDS` on the wire, `bus_sends::MAX_SENDS`). */
 export const MAX_CORE_BUS_SENDS = 4;
 
 /**
- * ADR 0331 (ABI 4.6): the catalogue types the audio core runs on bus chains and instance submixes (`audio_dsp::fx`).
+ * ADR 0345 (ABI 4.6): the catalogue types the audio core runs on bus chains and instance submixes (`audio_dsp::fx`).
  * The others (`envelope`, `fades`, `noiseReduction`, `reverse`) belong to the voice and sample levels.
  */
 export const CORE_EFFECT_TYPES = [

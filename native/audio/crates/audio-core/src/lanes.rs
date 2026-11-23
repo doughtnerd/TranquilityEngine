@@ -88,7 +88,7 @@ pub struct BusLanes {
     pub staged: u32,
     /// The quantum (its first frame / 128, truncated) the staged stamps belong to.
     pub staged_quantum: u32,
-    /// ABI 4.8 (ADR 0330): bit `k` set while lane `k`'s ramp is linear in dB (`BUS_RAMP` law
+    /// ABI 4.8 (ADR 0344): bit `k` set while lane `k`'s ramp is linear in dB (`BUS_RAMP` law
     /// `Decibel`: its `step` is a per-frame ratio, advanced by `Ramp::next_db`); clear, linear in
     /// gain. Bit 1 is the runtime lane's (the slot's or MASTER's ramp). Read only while the lane
     /// moves; a ramp to or from 0 is always linear (the bit stays clear).
@@ -674,7 +674,7 @@ fn apply_ramp(core: &mut Core, rec: &wire::BusRamp, stage_at: Option<(u16, u32)>
         return true;
     };
     let lp_hz = lp_hz.filter(|_| lp.is_some());
-    // ABI 4.8: law `Decibel` ramps the gain linearly in dB (a snapshot's fade, ADR 0330).
+    // ABI 4.8: law `Decibel` ramps the gain linearly in dB (a snapshot's fade, ADR 0344).
     let db = wire::shape_law(rec.shape) == wire::fade_law::DECIBEL;
     let mut staged = true;
     let gain_now = match (gain, stage_at) {

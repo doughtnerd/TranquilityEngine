@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the Move to… dialog: moving a file (its folder disabled), moving a folder (itself and
+// Stories (ADR 0219, 0349) for the Move to… dialog: moving a file (its folder disabled), moving a folder (itself and
 // its subfolders disabled), and searching folders by path.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

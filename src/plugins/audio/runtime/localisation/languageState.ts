@@ -1,5 +1,5 @@
 /**
- * The audio language at runtime (ADR 0340 §4, amended by 0343 §2): `Audio.language`, `setLanguage`, `pendingLanguage`,
+ * The audio language at runtime (ADR 0354 §4, amended by 0357 §2): `Audio.language`, `setLanguage`, `pendingLanguage`,
  * `subtitleLanguage` and `languages`, the start selector, and the project data the localisation runtime reads.
  *
  * - **Project data.** The language list is `project.json`'s `languages` (the active World's settings); the localised
@@ -10,12 +10,12 @@
  *   `prepareStartLanguage`), else the best system match (`navigator.languages`, BCP 47 lookup, when
  *   `useSystemLanguage`), else `default`. Only shipped voice languages count. Under `languages.voice: "followText"` a
  *   started text language decides it instead (its voice language, `voiceLanguageFor`).
- * - **A switch is atomic.** The new language's parts load first (package parts arrive with 0340 L3; with none the switch
+ * - **A switch is atomic.** The new language's parts load first (package parts arrive with 0354 L3; with none the switch
  *   completes at once), then `Audio.language` changes in one step, then it is remembered. `playing: "finish"` (default)
  *   lets voices that resolved a localised file finish in the old language; `"stop"` stops them with a 50 ms fade. An
  *   unknown or unshipped code rejects with one warning and changes nothing; a second switch supersedes a pending one.
- * - **Voice follows text** (0343 §2): with `followText` the audio language takes part in `Locale.setLanguage`'s atomic
- *   switch through 0342's participant seam (`runtime/participants.ts`) and changes with it; the start language is then
+ * - **Voice follows text** (0357 §2): with `followText` the audio language takes part in `Locale.setLanguage`'s atomic
+ *   switch through 0356's participant seam (`runtime/participants.ts`) and changes with it; the start language is then
  *   the text language's voice language. With `"separate"` the two start and switch independently.
  * - **Subtitle language**: `subtitleLanguage` when set, else the text language (`Locale.language`); subtitle text is
  *   `Locale.t(textKey)` (`subtitleText`).
@@ -80,12 +80,12 @@ export function audioLocalisation(): AudioLocalisation {
   return value;
 }
 
-/** The reading rule of `code` (0343 §3): its reading speed and the project's minimum display time. */
+/** The reading rule of `code` (0357 §3): its reading speed and the project's minimum display time. */
 export function readingRuleOf(code: string): ReadingRule {
   return readingRule(code, projectLanguages(), World.active?.settings.subtitles ?? null);
 }
 
-/** The shipped voice languages (0343 §2: a row with `voice: false` isn't one). */
+/** The shipped voice languages (0357 §2: a row with `voice: false` isn't one). */
 function voiceLanguages(s: LanguageSettings) {
   return shippedLanguages(s).filter((l) => l.voice);
 }
@@ -150,7 +150,7 @@ export function effectiveSubtitleLanguage(): string {
 const asts = new Map<string, ReturnType<typeof parseMessage>["ast"] | null>();
 
 /**
- * The text of string key `key` in the subtitle language (0343 §1): `Locale.t(key)` when subtitles follow the text
+ * The text of string key `key` in the subtitle language (0357 §1): `Locale.t(key)` when subtitles follow the text
  * language (the default), else the key through the explicit subtitle language's chain in `Locale`'s strings. Null when
  * no language of the chain has it.
  */
@@ -242,7 +242,7 @@ export function setAudioLanguage(code: string, options?: SetLanguageOptions): Pr
   const playing = options?.playing === "stop" ? "stop" : "finish";
   const mine = ++serial;
   pending = { code: target, serial: mine };
-  // 0340 L3: every loaded package's part in the new language loads first; a later call supersedes this one.
+  // 0354 L3: every loaded package's part in the new language loads first; a later call supersedes this one.
   const done = () => {
     if (pending?.serial === mine) {
       pending = null;
@@ -309,17 +309,17 @@ export function languageDebug(): AudioLanguageDebug {
   return { current: audioLanguage(), subtitles: effectiveSubtitleLanguage(), pending: pendingAudioLanguage(), missing: missing.map((m) => ({ ...m })) };
 }
 
-// --- voice follows text (0343 §2) -------------------------------------------------------------------------------------------
+// --- voice follows text (0357 §2) -------------------------------------------------------------------------------------------
 
-// The voice language takes part in `Locale.setLanguage`'s atomic switch (0342's participant seam): `prepare` runs before
-// the text switch commits (0340 L3 loads the voice language's package parts there; none yet), and the voice changes in
+// The voice language takes part in `Locale.setLanguage`'s atomic switch (0356's participant seam): `prepare` runs before
+// the text switch commits (0354 L3 loads the voice language's package parts there; none yet), and the voice changes in
 // the same step as the text, from `Locale.onChange`, which the switch calls as it commits.
 registerLanguageParticipant({
   name: "voice",
   prepare(text) {
     const s = projectLanguages();
     if (s.voice !== "followText") return;
-    // 0340 L3: every loaded package's part in the voice language loads before the switch commits.
+    // 0354 L3: every loaded package's part in the voice language loads before the switch commits.
     const voice = voiceLanguageFor(s, text);
     if (voice !== null) return switchPackageLanguage(voice);
   },

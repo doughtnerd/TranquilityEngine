@@ -209,9 +209,9 @@ const mixerOwners = new WeakMap<Mixer, CoreBackend>();
  */
 class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLiveMix, AudioCaptureSource, AudioOutputDevice, AudioCodecs, StagedFrameHost {
   readonly name = "core";
-  /** ADR 0337 A4 (`AudioCodecs`): IMA ADPCM clips held compressed in the arena, decoded per voice (clip format 6, ABI 4.12). */
+  /** ADR 0351 A4 (`AudioCodecs`): IMA ADPCM clips held compressed in the arena, decoded per voice (clip format 6, ABI 4.12). */
   readonly adpcmCompressed = true;
-  /** ADR 0337 A7 (`AudioCodecs`): Ogg Opus in the decoder worker (libopus, decoder ABI 1.5). */
+  /** ADR 0351 A7 (`AudioCodecs`): Ogg Opus in the decoder worker (libopus, decoder ABI 1.5). */
   readonly opus = true;
 
   // ADR 0179: the core has every capability, and each is the backend itself (its own members are the capability's: no
@@ -234,13 +234,13 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   get codecs(): AudioCodecs {
     return this;
   }
-  /** ADR 0337 §7 (W12): packages in the decoder, their sounds committed to the arena at load (`packHost.ts`). */
+  /** ADR 0351 §7 (W12): packages in the decoder, their sounds committed to the arena at load (`packHost.ts`). */
   get packs(): AudioPacks {
     return (this.packHost ??= createPackHost({ decoder: () => this.decoderOf(), clips: this.clips, locked: () => this.status === "locked" }));
   }
   private packHost: AudioPacks | null = null;
 
-  /** ADR 0338 §7: plugin effects (the core runs them inside its chains; `effectPlugins/host.ts`). */
+  /** ADR 0352 §7: plugin effects (the core runs them inside its chains; `effectPlugins/host.ts`). */
   get effectPlugins(): EffectPluginHost {
     return this.plugins;
   }
@@ -296,9 +296,9 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   private readonly decoderOf: () => StreamDecoderLike;
   /** ADR 0158 (E3.1): the event runtime's automation sink on the core, and its mirror for a rebuild (`coreAutomation.ts`). */
   readonly automation: CoreAutomation;
-  /** ADR 0331: the instance submix pool (`submixes.ts`). */
+  /** ADR 0345: the instance submix pool (`submixes.ts`). */
   readonly submixes: CoreSubmixes;
-  /** ADR 0338: the plugin effect registry and its worklet messages. */
+  /** ADR 0352: the plugin effect registry and its worklet messages. */
   private readonly plugins: EffectPluginHost;
   /** ADR 0166 (Q2): the music group operations (`music`); P1 and P9 fill them in `musicOps.ts`. */
   readonly musicOps: CoreMusicOps;
@@ -450,7 +450,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     const fetchBytes =
       streamDeps.fetchBytes ??
       (async (path: string) => {
-        // ADR 0337 §7 (W12): a packaged `stream` sound's loose media (music stems read it through here).
+        // ADR 0351 §7 (W12): a packaged `stream` sound's loose media (music stems read it through here).
         const response = await fetch(packedMediaUrl(path) ?? Assets.url(path));
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.arrayBuffer();
@@ -461,7 +461,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
       connectWorklet: () => {},
       worklet,
       fetchBytes,
-      // ADR 0337 A4: entries of packages the worker holds stream from its copy.
+      // ADR 0351 A4: entries of packages the worker holds stream from its copy.
       ...(streamDeps.packRef ? { packRef: streamDeps.packRef } : {}),
       onError: (id, asset, message, code) => this.voices.streamFailed(id, asset, message, code),
       sendSeek: (id, frame, epoch) => this.writer.seek(id, frame, epoch),
@@ -765,7 +765,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   private fxStarvedSeen = 0;
 
   /**
-   * ADR 0331 (ABI 4.8): the core's effect memory ran out for an effect (it passes its signal through): one warning per
+   * ADR 0345 (ABI 4.8): the core's effect memory ran out for an effect (it passes its signal through): one warning per
    * owner (a bus, a return, an instance submix), and `Audio.debug().mix.fxStarved` counts them.
    */
   private noteFxStarved(): void {
@@ -775,7 +775,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     this.fxStarvedSeen = h.fxStarved;
     if (!grew) return;
     const who = fxStarvedOwnerName(h.fxStarvedOwner, this.names) ?? "an effect chain";
-    this.warnOnce(`fx-starved:${who}`, `[myco] audio: an effect of ${who} got no effect memory (the audio core holds ${FX_MEMORY_SECONDS} s of stereo for delays, reverbs, chorus and pitch shifters) and passes its signal through; shorten delay times or run fewer of those effects (ADR 0331).`);
+    this.warnOnce(`fx-starved:${who}`, `[myco] audio: an effect of ${who} got no effect memory (the audio core holds ${FX_MEMORY_SECONDS} s of stereo for delays, reverbs, chorus and pitch shifters) and passes its signal through; shorten delay times or run fewer of those effects (ADR 0345).`);
   }
 
   /** The bus names by index (root first), as last configured. */
@@ -797,7 +797,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   }
 
   /**
-   * ADR 0337 §3 (W12): the resident prefetch head a stream play of a packaged `stream` sound starts on (frames and rate),
+   * ADR 0351 §3 (W12): the resident prefetch head a stream play of a packaged `stream` sound starts on (frames and rate),
    * or null to stream as usual: no head, not resident, a stamp can't be exact (locked, a rebuild, no clock yet), or the
    * play asks for what a head can't give (a start offset, a span, a music member).
    */
@@ -980,7 +980,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     s.join("deferredAdds", { reconfigure: clearAdds, recoveryFailed: clearAdds, dispose: clearAdds });
     s.join("buses", {
       reconfigure: (mixer) => this.buses.configureBuses(mixer),
-      // ADR 0330: the sends into returns after the tree (they name bus slots).
+      // ADR 0344: the sends into returns after the tree (they name bus slots).
       replayHeader: (b) => {
         replayBusConfig(b, this.busConfigWire());
         this.buses.replaySends(b);
@@ -1119,7 +1119,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     info.cpu = this.cpu();
     info.mix = this.mixDebug();
     info.recorder = null;
-    // ADR 0338 §6: the registered plugin effects (none: no section).
+    // ADR 0352 §6: the registered plugin effects (none: no section).
     const plugins = this.plugins.health();
     if (plugins.length > 0) info.plugins = plugins.map((p) => ({ ...p, faults: { ...p.faults } }));
     return info;
@@ -1453,11 +1453,11 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   }
   /** ADR 0162 (K4): the panner pick's inputs, reused (`bedSlot` is the bed planner's live map). */
   private readonly pannerLimits: { hrtf: number; nowMs: number; bedSlot: ArrayLike<number>; bedOnly: ArrayLike<number> | undefined } = { hrtf: 0, nowMs: 0, bedSlot: new Uint8Array(0), bedOnly: undefined };
-  /** ADR 0333: per slot, 1 for a voice the pick sends to its bus's bed whatever its rank (reused). */
+  /** ADR 0347: per slot, 1 for a voice the pick sends to its bus's bed whatever its rank (reused). */
   private bedOnly = new Uint8Array(0);
 
   /**
-   * ADR 0333: marks the spatial voices that go to their bus's bed whatever their rank: those asking for it (an audio
+   * ADR 0347: marks the spatial voices that go to their bus's bed whatever their rank: those asking for it (an audio
    * zone's interior, `PlayRequest.bed`) and those farther from the listener than `beyond` metres (`audio.bed.beyond`,
    * the project's `settings.bedBeyond`; absent or 0: none by distance).
    */

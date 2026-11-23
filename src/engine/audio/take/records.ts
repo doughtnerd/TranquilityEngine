@@ -1,5 +1,5 @@
 /**
- * ADR 0334: the byte form of a take's request records (`*.mycotake`). A take is a capture file (ADR 0171/0172 framing: a
+ * ADR 0348: the byte form of a take's request records (`*.mycotake`). A take is a capture file (ADR 0171/0172 framing: a
  * plain header, a JSON META block, typed records with a 20 B head, an INDEX, deflate) whose stream carries, beside the
  * profile records, the requests the game made of audio. This module is the request records' payload codecs, pure and
  * shared by the writer (the runtime's take recorder) and the readers (the capture reader passes over them, the take reader
@@ -26,13 +26,13 @@ export const TakeRecordType = {
   FRAME: 0x18,
   /** A take KEYFRAME (what is alive, for seeking); the profile's KEYFRAME is the capture's 0x04. */
   KEYFRAME: 0x19,
-  /** ADR 0340 §10: a line played by key. */
+  /** ADR 0354 §10: a line played by key. */
   LINE: 0x1a,
-  /** ADR 0340 §10: the audio and subtitle languages changed. */
+  /** ADR 0354 §10: the audio and subtitle languages changed. */
   LANGUAGE: 0x1b,
-  /** ADR 0341 §6: an `Audio.say` as asked, with its resolved arguments and pick. */
+  /** ADR 0355 §6: an `Audio.say` as asked, with its resolved arguments and pick. */
   SAY: 0x1c,
-  /** ADR 0341 §6: a queued say started or was dropped. */
+  /** ADR 0355 §6: a queued say started or was dropped. */
   SAYSTATE: 0x1d,
 } as const;
 export type TakeRecordTypeCode = (typeof TakeRecordType)[keyof typeof TakeRecordType];
@@ -71,7 +71,7 @@ export const TAKE_SAY_WHEN_BUSY = ["queue", "interrupt", "drop"] as const;
 /** SAYSTATE `state` codes. */
 export const TAKE_SAY_STATE_CHANGES = ["playing", "dropped"] as const;
 /**
- * The take format's minor version: 1 adds LINE, LANGUAGE, SAY and SAYSTATE (ADR 0340 §10, 0341 §6). They sit in the
+ * The take format's minor version: 1 adds LINE, LANGUAGE, SAY and SAYSTATE (ADR 0354 §10, 0355 §6). They sit in the
  * skippable range, so a reader of minor 0 passes over them by length.
  */
 export const TAKE_FORMAT_MINOR = 1;
@@ -326,7 +326,7 @@ export function encodeTakeRecord(view: DataView, off: number, r: TakeRecordInit)
   return o.bytes;
 }
 
-// --- LINE, LANGUAGE, SAY, SAYSTATE (ADR 0340 §10, 0341 §6) ----------------------------------------------------------------
+// --- LINE, LANGUAGE, SAY, SAYSTATE (ADR 0354 §10, 0355 §6) ----------------------------------------------------------------
 
 /** LINE flags past the play options': the language is set (else nothing was heard). */
 const LINE_LANGUAGE = 0x10;

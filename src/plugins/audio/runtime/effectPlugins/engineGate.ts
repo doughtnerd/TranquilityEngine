@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0344 §6, the conservative reading): plugin effect modules run only where the B0 spike measured them,
+ * Internal (ADR 0358 §6, the conservative reading): plugin effect modules run only where the B0 spike measured them,
  * V8 (Chromium-based browsers and webviews, Node), until the spike runs on JavaScriptCore and SpiderMonkey. Elsewhere
  * the `effectPlugins` capability stays off: their effects pass through (data kept) with one warning. A project turns
  * the gate off with `project.json` `plugins.audioEffectEngines: "all"`.
@@ -52,14 +52,14 @@ const ENGINE_NAME: Readonly<Record<Exclude<ScriptEngine, "v8">, string>> = {
   unknown: "an engine Myco can't identify",
 };
 
-/** The decision (ADR 0344 §6): open on V8, or anywhere with `engines` "all"; closed elsewhere, with why and how to override. */
+/** The decision (ADR 0358 §6): open on V8, or anywhere with `engines` "all"; closed elsewhere, with why and how to override. */
 export function effectPluginGate(engine: ScriptEngine, engines: EffectPluginEngines = "chromium"): EngineGate {
   if (engine === "v8" || engines === "all") return { open: true };
   return {
     open: false,
     warning:
       `audio: plugin effects are off on ${ENGINE_NAME[engine]}: their sandbox has only been measured on Chromium's engine so far ` +
-      `(ADR 0344 §6), so they pass audio through here. Set "audioEffectEngines": "all" in project.json's plugins section to run them anyway.`,
+      `(ADR 0358 §6), so they pass audio through here. Set "audioEffectEngines": "all" in project.json's plugins section to run them anyway.`,
   };
 }
 

@@ -1,4 +1,4 @@
-// ADR 0338 §3–4: a plugin's `audio` section (parsePluginAudio) and plugin effects in the one catalogue
+// ADR 0352 §3–4: a plugin's `audio` section (parsePluginAudio) and plugin effects in the one catalogue
 // (registerPluginEffects, effectSpec, parseEffect, effectToJson, pluginEffectNote), through their module interfaces.
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
@@ -53,7 +53,7 @@ describe("parsePluginAudio", () => {
     expect(audio.effects[0]!.spec.params[1]).toMatchObject({ bool: true, smooth: false, min: 0, max: 1 });
   });
 
-  it("caps the budget at 5,000 instructions per frame (0344 §3) and the memory at 64 MB", () => {
+  it("caps the budget at 5,000 instructions per frame (0358 §3) and the memory at 64 MB", () => {
     expect(parse(section({ budget: { instructionsPerFrame: 5000 } })).problems).toEqual([]);
     expect(parse(section({ budget: { instructionsPerFrame: 5001 } })).problems).toEqual(["audio.effects[0].budget.instructionsPerFrame: must be a whole number from 1 to 5000"]);
     expect(parse(section({}, { modules: { dsp: { wasm: "dsp/fx.wasm", memoryMB: 65 } } })).problems).toEqual(["audio.modules.dsp.memoryMB: must be a whole number from 1 to 64"]);
@@ -141,7 +141,7 @@ describe("plugin effects in the catalogue", () => {
     expect(effectSpec("example.tremolo")).toMatchObject({ label: "example.tremolo", params: [], plugin: { name: null, state: "missing" } });
     expect(effectTypesAt("bus")).not.toContain("example.tremolo");
     expect(pluginEffectNote("example.tremolo")).toBe("(example.tremolo) passes audio through: no installed plugin declares that effect type");
-    // An unknown type without a dot is still dropped (ADR 0331).
+    // An unknown type without a dot is still dropped (ADR 0345).
     expect(parseEffect({ type: "wobble" }, "bus", "fx", problems)).toBeNull();
   });
 

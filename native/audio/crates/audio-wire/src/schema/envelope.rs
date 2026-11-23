@@ -56,7 +56,7 @@ pub const KINDS: &[Kind] = &[
             CHANNELS,
             SAMPLE_RATE,
             Field::new("format", Ty::U32).doc(
-                "ClipFormat: 0 f32, 1 i16 (1, 2, 4, 9 or 16 channels), 2 HRIR, 3 prepared zone kernel, 4 MagLS filters, 5 zone IR PCM (formats 3-5: ADR 0162 C6), 6 IMA ADPCM blocks (1 or 2 channels; ADR 0337).",
+                "ClipFormat: 0 f32, 1 i16 (1, 2, 4, 9 or 16 channels), 2 HRIR, 3 prepared zone kernel, 4 MagLS filters, 5 zone IR PCM (formats 3-5: ADR 0162 C6), 6 IMA ADPCM blocks (1 or 2 channels; ADR 0351).",
             ),
         ]),
         doc: "Starts a clip load (main in M1a, worker in M1b).",

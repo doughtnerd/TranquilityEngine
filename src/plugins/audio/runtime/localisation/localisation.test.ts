@@ -1,4 +1,4 @@
-// ADR 0340 (localised audio, voice-over lines), 0343 (subtitles from string tables, captions): the audio localisation
+// ADR 0354 (localised audio, voice-over lines), 0357 (subtitles from string tables, captions): the audio localisation
 // runtime through the public `Audio` API on the fake backend: language state and the atomic switch, fallback chains,
 // `missingLanguage`, `Audio.line` (template, output, subtitle-only lines, markers, live text), `Audio.onLine`, playlist
 // line entries, voice following the text language, captions, the start language and `Audio.debug().language`.
@@ -343,7 +343,7 @@ describe("Audio.line", () => {
   });
 });
 
-describe("playlist line entries (ADR 0340 §5)", () => {
+describe("playlist line entries (ADR 0354 §5)", () => {
   it("plays a fixed line entry and a programmer one with EventOptions.line, in the current language", async () => {
     await boot(files({
       "fixed.playlist.json": { format: "myco.playlist@1", type: "clip", entries: [{ line: "intro_01" }] },
@@ -361,7 +361,7 @@ describe("playlist line entries (ADR 0340 §5)", () => {
   });
 });
 
-describe("voice follows the text language (0343 §2)", () => {
+describe("voice follows the text language (0357 §2)", () => {
   it("followText: a text language switch switches the voice language in the same step; subtitles follow the text language", async () => {
     await boot();
     const h = Audio.line("intro_01");
@@ -385,7 +385,7 @@ describe("voice follows the text language (0343 §2)", () => {
   });
 });
 
-describe("Audio.onCaption (0343 §4)", () => {
+describe("Audio.onCaption (0357 §4)", () => {
   const captions = (extra: Record<string, unknown> = {}) => files({
     "strings/captions.strings.json": { format: "myco.strings@1", language: "en", strings: [{ key: "cc.door", text: "[door slams]" }] },
     "strings/captions.fr.strings.json": { format: "myco.translation@1", language: "fr", strings: { "cc.door": { text: "[porte claquée]", status: "translated" } } },

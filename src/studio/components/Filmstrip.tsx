@@ -1,4 +1,4 @@
-// A take's pictures on a time axis (ADR 0334: the Take screen's picture lane and the Profiler's Picture track): a row
+// A take's pictures on a time axis (ADR 0348: the Take screen's picture lane and the Profiler's Picture track): a row
 // of thumbnails spaced so none overlap, the one on screen at the playhead marked and always shown; a click seeks there.
 // The JPEGs become object URLs once per set of pictures and are revoked when it changes or the view goes. A view over
 // props (`filmstripModel.ts` decides what shows).

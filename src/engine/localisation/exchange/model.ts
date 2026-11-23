@@ -1,5 +1,5 @@
 /**
- * The translator exchange's shared model (ADR 0342 §8): the project's string tables and translations as the exchange
+ * The translator exchange's shared model (ADR 0356 §8): the project's string tables and translations as the exchange
  * formats read them (`ExchangeProject`), what an export holds (`exportUnits`: one unit per table, key and target
  * language, chosen by tables, languages and "only missing and needs review"), and what an import reads from a file
  * (`ImportedEntry`), before `importPreview.ts` checks it against the project.

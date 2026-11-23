@@ -1,4 +1,4 @@
-// ADR 0328: what a sample path plays, through `resolveSample` with a reader over an in-memory project.
+// ADR 0342: what a sample path plays, through `resolveSample` with a reader over an in-memory project.
 import { describe, expect, it } from "vitest";
 import { derivedSampleToJson, forkSample, parseSampleEdits } from "./format";
 import { resolveSample, type SampleReader } from "./resolve";
@@ -21,7 +21,7 @@ function reader(files: Record<string, unknown>): SampleReader {
 const derived = (source: string, extra: Record<string, unknown> = {}) => ({ format: "myco.sample@1", source, range: null, lineage: { kind: "duplicate", parent: source, mode: "pin" }, ...extra });
 const LOOP = { id: "l1", start: 0.5, end: 1.5 };
 
-describe("resolveSample (ADR 0328)", () => {
+describe("resolveSample (ADR 0342)", () => {
   it("an audio file plays itself with its sidecar block (null without one)", () => {
     const files = { "a.wav": "data:", "a.wav.meta.json": { sample: { trim: [0.1, 2] } }, "b.wav": "data:" };
     expect(resolveSample("a.wav", reader(files))).toMatchObject({ source: "a.wav", derived: false, edits: { trim: [0.1, 2] }, problems: [] });

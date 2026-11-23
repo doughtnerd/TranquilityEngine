@@ -1,4 +1,4 @@
-// Slicing an engine curve (ADR 0158 §3, 0332) by its x: a key moved along x, and the part of a curve over a range
+// Slicing an engine curve (ADR 0158 §3, 0346) by its x: a key moved along x, and the part of a curve over a range
 // moved to start at 0 with keys at both cuts holding the curve's value there (so a split clip's halves sound the same
 // as the whole). Generic: any curve keyed on time. Pure.
 import { evalCurve, type Curve, type CurveKey } from "../../../../engine/core/curve";

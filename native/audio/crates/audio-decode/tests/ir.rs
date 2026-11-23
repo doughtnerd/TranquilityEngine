@@ -181,7 +181,7 @@ fn a_resampled_file_is_prepared_at_the_target_rate() {
 fn presets_are_prepared_as_files_are() {
     for (i, preset) in presets::PRESETS.iter().enumerate() {
         let n = presets::frames(i as u32, 48_000.0);
-        let p = ir::generate(i as u32, 48_000.0, 240_000).unwrap(); // canyonHall (ADR 0333) is 4.87 s
+        let p = ir::generate(i as u32, 48_000.0, 240_000).unwrap(); // canyonHall (ADR 0347) is 4.87 s
         assert!(p.frames <= n && p.frames > n * 9 / 10, "{}: {} of {n}", preset.name, p.frames);
         assert!(!p.truncated, "{}", preset.name);
         let (mut l, mut r) = (vec![0.0; n], vec![0.0; n]);

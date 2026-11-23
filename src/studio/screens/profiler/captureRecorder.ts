@@ -1,4 +1,4 @@
-// Recording the Studio's own runtime (ADR 0334 "Profiling a take as it plays"; the prototype's Record in the player
+// Recording the Studio's own runtime (ADR 0348 "Profiling a take as it plays"; the prototype's Record in the player
 // bar): Record starts a capture (`Audio.capture.start()`, the public API) and follows the recorder's live ring through the
 // editor profiler's `LiveFollow` (the `LiveHost` seam), so the timeline grows while it records; Stop ends the capture,
 // takes the take's file bytes (the capture module's internal `captureFileBytes`, the same file `Audio.capture.save()`
@@ -34,9 +34,9 @@ export interface RecorderSeams {
   write(path: string, bytes: Uint8Array): Promise<string>;
   /** `LiveFollow` options (tests: the scheduler and the source's Worker). */
   readonly liveOptions?: Partial<Omit<LiveFollowOptions, "host" | "onUpdate">>;
-  /** ADR 0334: the take the Studio is replaying now (its path and `audio.json` hash), or null; read when Record starts. */
+  /** ADR 0348: the take the Studio is replaying now (its path and `audio.json` hash), or null; read when Record starts. */
   replaying?(): CaptureReplayOf | null;
-  /** ADR 0334: name `take` in the META of the capture about to start (null: none); the capture module's `setCaptureReplayOf`. */
+  /** ADR 0348: name `take` in the META of the capture about to start (null: none); the capture module's `setCaptureReplayOf`. */
   nameReplay?(take: CaptureReplayOf | null): void;
 }
 
@@ -68,7 +68,7 @@ export class CaptureRecorder {
     return this.replay;
   }
 
-  /** Record: start the capture and follow it live. While a take replays, the capture names it (ADR 0334). */
+  /** Record: start the capture and follow it live. While a take replays, the capture names it (ADR 0348). */
   async start(): Promise<void> {
     if (this.recording || this.state.peek().kind === "saving") return;
     this.state.value = { kind: "starting" };

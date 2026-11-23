@@ -1,4 +1,4 @@
-// The Captures panel's view (ADR 0334; the prototype's captures tree): the project's capture files by folder in the
+// The Captures panel's view (ADR 0348; the prototype's captures tree): the project's capture files by folder in the
 // editor's `TreeView` (or, while searching, the matches by path), a search field, Open capture file… (copies files
 // into the project's captures folder), and per capture Open, Rename (F2), Move to… and Delete (Del) through a context
 // menu. The empty state says where captures come from. A view over props: the panel wires the engine's asset actions.

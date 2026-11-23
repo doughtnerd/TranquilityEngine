@@ -1,4 +1,4 @@
-// The Samples panel (ADR 0328 "Samples are assets"; the prototype's library): the project's audio files and derived
+// The Samples panel (ADR 0342 "Samples are assets"; the prototype's library): the project's audio files and derived
 // samples by folder in the editor's TreeView, a search that flattens the matches with their folders, folder
 // operations (new, rename, move, delete moving the contents up), drag to move, context menus, Move to… (the kit's
 // MoveToDialog), and the empty state with Import samples…. Rename, move and delete are the engine's asset operations,
@@ -53,7 +53,7 @@ function MiniWave(props: { project: EditorProject; path: string }) {
   );
 }
 
-/** The engine's asset moves, then the moved samples' source versions with them (ADR 0328, per machine). */
+/** The engine's asset moves, then the moved samples' source versions with them (ADR 0342, per machine). */
 async function moveSamples(moves: readonly (readonly [string, string])[], verb?: string): Promise<boolean> {
   const ok = await moveAssets(moves, verb);
   const project = currentProject.peek();

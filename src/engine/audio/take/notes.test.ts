@@ -1,4 +1,4 @@
-// ADR 0334 "Annotations": a take's notes file parses leniently into canonical notes and writes back unchanged.
+// ADR 0348 "Annotations": a take's notes file parses leniently into canonical notes and writes back unchanged.
 import { describe, expect, it } from "vitest";
 import { TAKE_NOTES_LIMITS, emptyTakeNotes, formatTakeNotes, freeNoteId, isTakeNotesPath, parseTakeNotes, takeNotesPath } from "./notes";
 import { TAKE_NOTES_FORMAT, type TakeNotes } from "./types";
@@ -12,7 +12,7 @@ const NOTES: TakeNotes = {
   regions: [{ id: "r1", from: 4, to: 8.25, text: "boost sounds thin", color: 0x56ccf2 }],
 };
 
-describe("take notes (ADR 0334)", () => {
+describe("take notes (ADR 0348)", () => {
   it("round-trips: parsing what the writer writes gives the same notes", () => {
     const text = formatTakeNotes(NOTES);
     const back = parseTakeNotes(JSON.parse(text));

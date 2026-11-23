@@ -1,4 +1,4 @@
-// ADR 0336: a Blend entry's weight curve in the shared curve editor (ADR 0332): a dialog of kind "parameter" over the
+// ADR 0350: a Blend entry's weight curve in the shared curve editor (ADR 0346): a dialog of kind "parameter" over the
 // entry's raw blend weight (0..1) with one Gain lane (0..1), and the dialog's result turned back into the entry's
 // `weightCurve` (the identity, or a flat lane, clears it: the default). Pure.
 import type { CurveEditorResult, CurveEditorSpec } from "../../../editor/ui/curves/curveEditorModel";

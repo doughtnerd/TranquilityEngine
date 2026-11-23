@@ -1,4 +1,4 @@
-// ADR 0337 §7, §9 (A5): audio packages at runtime on the fake backend, through the public `Audio` API, scene loading and
+// ADR 0351 §7, §9 (A5): audio packages at runtime on the fake backend, through the public `Audio` API, scene loading and
 // the `AudioPackageLoader` component: the strict rule (`notLoaded`) and the lenient one, reference counts (per package
 // and per clip across packages), unload's fade and `finish`, preload packages before the first scene, a build's package
 // fetched with progress, the media table's URLs, codecs the backend can't play yet, `Audio.debug().packages` and the PKG

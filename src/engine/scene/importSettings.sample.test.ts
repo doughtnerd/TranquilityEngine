@@ -1,4 +1,4 @@
-// The sidecar's optional `sample` block (ADR 0328) through the sidecar parse and writer.
+// The sidecar's optional `sample` block (ADR 0342) through the sidecar parse and writer.
 import { describe, expect, it } from "vitest";
 import { defaultImportSettings, formatImportSettings, parseImportSettings } from "./importSettings";
 

@@ -1,4 +1,4 @@
-// Re-import and source versions (ADR 0328): the new audio replaces the file, the old and new audio are kept as
+// Re-import and source versions (ADR 0342): the new audio replaces the file, the old and new audio are kept as
 // versions, the edits are carried over as one step that names the version, the file's changed cues open the merge
 // review, edits past a shorter file are flagged; undo puts the old audio back, Restore brings a version back, and
 // versions move with their sample.

@@ -1,4 +1,4 @@
-// The editor's side of sharing a project folder with the Audio Studio and other apps (ADR 0327): while a project
+// The editor's side of sharing a project folder with the Audio Studio and other apps (ADR 0341): while a project
 // folder is open the editor holds `.myco/locks/editor.json`, follows outside changes to the project's files
 // (projectWatch.ts: live on the desktop; in the browser on window focus and before Play), and applies the moves the
 // Studio leaves in `.myco/locks/pending-moves.json`. Changed files are read again into the project
@@ -51,7 +51,7 @@ export async function applyProjectChanges(project: EditorProject, changes: Pick<
   return result;
 }
 
-/** Take the moves waiting in `pending-moves.json` (the Studio's, ADR 0327) and follow them. Resolves to whether any moved. */
+/** Take the moves waiting in `pending-moves.json` (the Studio's, ADR 0341) and follow them. Resolves to whether any moved. */
 export async function applyPendingMoves(project: EditorProject): Promise<boolean> {
   const fs = project.fileSystem, root = project.root;
   if (!fs || !root || !project.canSave || currentProject.peek() !== project) return false;

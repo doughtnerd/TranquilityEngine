@@ -1,4 +1,4 @@
-// ADR 0341 §7: the Events tab through its models — coverage as compact patterns (gaps, intended silence, per language,
+// ADR 0355 §7: the Events tab through its models — coverage as compact patterns (gaps, intended silence, per language,
 // unused lines, CSV), the test bench's highlighting with reasons and Roll ×50 over a seeded generator, the path table
 // and argument edits with their impact, tree grouping and lints.
 import { describe, expect, it } from "vitest";

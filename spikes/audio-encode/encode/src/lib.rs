@@ -1,8 +1,8 @@
-//! ADR 0337 spike A0/S1: the encoder as a wasm32-wasip1 reactor (the `spike_*` exports below, driven by
+//! ADR 0351 spike A0/S1: the encoder as a wasm32-wasip1 reactor (the `spike_*` exports below, driven by
 //! `run-node.mjs` under node:wasi and by `browser/worker.js` under a 50-line WASI shim) and a native command
 //! (`src/main.rs`) for the native reference numbers.
 //!
-//! codec: `pcm` (16-bit WAV), `adpcm` (ADR 0337 §3's IMA block layout, raw), `vorbis` (Ogg Vorbis, libvorbis q =
+//! codec: `pcm` (16-bit WAV), `adpcm` (ADR 0351 §3's IMA block layout, raw), `vorbis` (Ogg Vorbis, libvorbis q =
 //! quality), `opus` (Ogg Opus, 16 + 112 × quality kbps per stereo pair, resampled to 48 kHz first), `sinc` / `fft`
 //! (rubato resampling only, to `rate`, output a 16-bit WAV). `rate` is a ceiling as in §2 (never upsampled; Opus is
 //! always 48 kHz). Times come from the WASI clock (`clock_time_get`) inside the module, so they exclude instantiation
@@ -213,7 +213,7 @@ pub fn encode(input: &[u8], codec: &str, quality: f32, ceiling: Option<u32>, com
     (bytes, stats)
 }
 
-// The reactor ABI the JS hosts use (ADR 0337's production shape: bytes cross through linear memory, never through
+// The reactor ABI the JS hosts use (ADR 0351's production shape: bytes cross through linear memory, never through
 // WASI file descriptors; Node 22.23's node:wasi crashes in a GC inside its fd_read fast call on multi-MB reads).
 // spike_alloc(n) -> ptr; spike_encode(ptr, n, codec, quality, rate, complexity) -> 0 | -1; then spike_out_ptr/len and
 // spike_stats_ptr/len. codec: 0 pcm, 1 adpcm, 2 vorbis, 3 opus, 4 sinc, 5 fft, 6 opus-fft

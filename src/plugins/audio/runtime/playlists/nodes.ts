@@ -1,5 +1,5 @@
 /**
- * The playlist tree at runtime (ADR 0329 "Runtime semantics"): a trigger resolves the playlist into a tree of live
+ * The playlist tree at runtime (ADR 0343 "Runtime semantics"): a trigger resolves the playlist into a tree of live
  * nodes, one resolver per playlist type (`RESOLVERS`), whose leaves are ordinary voices. Picks are made here, once per
  * trigger, on main (ADR 0157); what changes afterwards is event-driven (a parameter change re-picks a Switch, a timer
  * starts a continuous Queue's next entry) or a per-frame read of a dynamic gain (Blend weights, the Blend envelope,
@@ -66,7 +66,7 @@ export function bodyCtx(host: NodeHost, ctx: Ctx, body: PlaylistBody, where: str
   const pitchSt = body.pitch + lerp(body.pitchRandom, host.random());
   const override = body.output !== null;
   const bus = override ? body.output! : ctx.bus;
-  // ADR 0331: the instance's own chain runs on its submix when it has one (`NodeHost.submixedEffects`); a nested level's
+  // ADR 0345: the instance's own chain runs on its submix when it has one (`NodeHost.submixedEffects`); a nested level's
   // on a submix of its own (ABI 4.9, `levelEffects`), else mapped onto its voices.
   let fx: Partial<EffectProps> | undefined;
   let submix = ctx.submix ?? null;
@@ -94,7 +94,7 @@ function instanceAutomation(host: NodeHost, ctx: Ctx, body: PlaylistBody, where:
 }
 
 /**
- * ADR 0334: one decision, for the capture's "Why it played" chain (a `pick` EVENT after the instance's `eventStart`):
+ * ADR 0348: one decision, for the capture's "Why it played" chain (a `pick` EVENT after the instance's `eventStart`):
  * nothing while no recorder runs, or for an instance without a group.
  */
 export function notePick(host: NodeHost, ctx: Ctx, type: ProfilePick["type"], choice: number, label: string | null = null, weights: ProfilePick["weights"] = null): void {
@@ -131,16 +131,16 @@ export function resolveEntry(host: NodeHost, entry: Entry, parent: Ctx, key: str
       return node;
     }
     case "line":
-      // ADR 0340 §5: the line's file in the current language, resolved now (the moment the entry is picked).
+      // ADR 0354 §5: the line's file in the current language, resolved now (the moment the entry is picked).
       return new ClipNode(host, ctx, `${key}/${index}`, lineSampleOf(host, entry, ctx));
     case "generator":
-      // TODO(G3, ADR 0346 §5): generator voices (PLAY reserved id + GEN). Not playable yet: plays nothing.
+      // TODO(G3, ADR 0360 §5): generator voices (PLAY reserved id + GEN). Not playable yet: plays nothing.
       return null;
   }
 }
 
 /**
- * ADR 0340 §5, 0341 §3: the sample a line entry plays: its key (fixed, the play's `line` option, or its dialogue event's
+ * ADR 0354 §5, 0355 §3: the sample a line entry plays: its key (fixed, the play's `line` option, or its dialogue event's
  * decision) in the current language's chain (`NodeHost.lineSample`). Null when nothing plays (the host notes why).
  */
 function lineSampleOf(host: NodeHost, entry: LineEntry, ctx: Ctx): SampleEntry | null {
@@ -167,7 +167,7 @@ class ClipNode extends LiveNode {
     if (v.loop) this.musical = new VoiceMusical(new VoiceClock(v, facts, from), () => this.host.clock());
   }
 
-  /** Its musical clock: the sample's tempo, Exit markers and loop (ADR 0329 "the playing entry's sync sample"), made when first asked. */
+  /** Its musical clock: the sample's tempo, Exit markers and loop (ADR 0343 "the playing entry's sync sample"), made when first asked. */
   override musicalSource(): MusicalSource | null {
     if (!this.clockArgs || !this.sounding) return null;
     if (!this.musical) {
@@ -192,7 +192,7 @@ class ClipNode extends LiveNode {
 }
 
 const resolveClip: Resolver = (host, body, ctx, key) => {
-  // ADR 0340 §5: a Clip plays its first sample or line entry.
+  // ADR 0354 §5: a Clip plays its first sample or line entry.
   const first = body.entries.find((e): e is SampleEntry | LineEntry => e.kind === "sample" || e.kind === "line") ?? null;
   return new ClipNode(host, ctx, key, first?.kind === "line" ? lineSampleOf(host, first, ctx) : first);
 };
@@ -251,7 +251,7 @@ class RunnerNode extends LiveNode {
     if (i < 0) { this.running = false; return; }
     const prev = this.current;
     const overlap = this.gap < 0 && prev ? -this.gap : 0;
-    // ADR 0336: the overlap's crossfade in its shape (absent: equal power).
+    // ADR 0350: the overlap's crossfade in its shape (absent: equal power).
     const shape = this.body.queue?.continuous?.shape ?? "equalPower";
     const child = resolveEntry(this.host, this.body.entries[i]!, { ...this.ctx, at, fadeIn: overlap, fadeInShape: shape }, this.key, i);
     if (prev && overlap > 0) prev.leave(overlap, at, shape);
@@ -358,7 +358,7 @@ class SwitchNode extends LiveNode {
     return this.waiting ?? super.pendingChange();
   }
 
-  /** The musical clock of the entry playing now (ADR 0329: Switch timing waits on the playing entry). */
+  /** The musical clock of the entry playing now (ADR 0343: Switch timing waits on the playing entry). */
   private clock(): MusicalSource | null {
     return this.current && !this.current.stopped ? this.current.musicalSource() : null;
   }
@@ -375,7 +375,7 @@ class SwitchNode extends LiveNode {
       const at = this.clock()?.nextBoundary(how.when, this.host.startOf(null)) ?? null;
       if (at === null) warnOnce(`playlist:switch-when:${this.ctx.where}:${how.when}`, `[myco] ${this.ctx.where}: a Switch change at the next ${how.when} ${MUSICAL_FALLBACK_NOTE}.`);
       else {
-        // ADR 0336 (pre-entry): an incoming sequence with an Entry marker starts that much early, so its timer is too.
+        // ADR 0350 (pre-entry): an incoming sequence with an Entry marker starts that much early, so its timer is too.
         const lead = how.how === "transition" ? 0 : this.preEntry(this.label);
         this.waiting = pendingOf(this.s, how, from, this.label, at, this.ctx.where);
         this.host.schedule(at - lead - LOOKAHEAD, () => {
@@ -389,7 +389,7 @@ class SwitchNode extends LiveNode {
     this.apply(how, null);
   }
 
-  /** ADR 0336: seconds of pre-entry of the entry `label` plays (a sequence's first `entry` marker), 0 without one. */
+  /** ADR 0350: seconds of pre-entry of the entry `label` plays (a sequence's first `entry` marker), 0 without one. */
   private preEntry(label: string | null): number {
     const index = label === null ? undefined : this.s.map[label];
     const e = index === null || index === undefined ? undefined : this.body.entries[index];
@@ -403,7 +403,7 @@ class SwitchNode extends LiveNode {
   }
 
   /**
-   * The outgoing entry leaves at heard `at` (ADR 0336): a crossfade fades it out over `fade` in `shape`; a cut (or no
+   * The outgoing entry leaves at heard `at` (ADR 0350): a crossfade fades it out over `fade` in `shape`; a cut (or no
    * fade) at its Exit marker lets its post-exit tail ring (`ringOut`) unless the rule's `tail` is false, else stops it
    * with a click-free cut there.
    */
@@ -423,9 +423,9 @@ class SwitchNode extends LiveNode {
 
   /**
    * The change at heard `at` (null: now). `crossfade` and `cut` swap the entries there; `transition` plays as the
-   * engine's bridge (ADR 0329): the old entry leaves at the boundary, the transition plays from it, and the new entry
+   * engine's bridge (ADR 0343): the old entry leaves at the boundary, the transition plays from it, and the new entry
    * enters at the transition's Exit marker (its musical clock's next `exit`: a marker, else its loop's end, else its
-   * end). ADR 0336: each side fades in its rule's shape (`shapeOut`, `shapeIn`), the transition by its own `transitionIn`
+   * end). ADR 0350: each side fades in its rule's shape (`shapeOut`, `shapeIn`), the transition by its own `transitionIn`
    * and `transitionOut` when set (else the rule's length and shapes), and an incoming sequence with an Entry marker
    * starts its pre-entry early so the marker lands on the boundary. A transition that can't play crossfades straight
    * to the new entry.
@@ -478,7 +478,7 @@ function pendingOf(s: SwitchSettings, how: ChangeHow, from: string | null, to: s
 
 /**
  * A click-free cut of `node` at heard `at` (null: now). A timed change runs a lookahead ahead of its boundary, so the
- * cut is a stamped 5 ms fade that stops the voices there, not a stop now (ADR 0336 fixed a cut landing early).
+ * cut is a stamped 5 ms fade that stops the voices there, not a stop now (ADR 0350 fixed a cut landing early).
  */
 function cutAt(node: LiveNode, at: number | null): void {
   if (at === null) node.stop(CUT_FADE);
@@ -486,8 +486,8 @@ function cutAt(node: LiveNode, at: number | null): void {
 }
 
 /**
- * ADR 0336: seconds before an entry's first `entry` marker (its pre-entry): a sequence's, or a Clip playlist's sample's
- * (its Entry marker, ADR 0328, past where the clip starts playing: its trim's start), 0 for anything else.
+ * ADR 0350: seconds before an entry's first `entry` marker (its pre-entry): a sequence's, or a Clip playlist's sample's
+ * (its Entry marker, ADR 0342, past where the clip starts playing: its trim's start), 0 for anything else.
  */
 export function preEntryOf(entry: Entry, chain: readonly string[]): number {
   const body = entry.kind === "embedded" ? entry.embedded : entry.kind === "linked" ? linkedPlaylist(entry.playlist, chain) : null;
@@ -598,7 +598,7 @@ class BlendNode extends LiveNode {
     return blendWeights1D(this.slots.map((s) => s.x), x, this.b.fade, this.b.curve, this.regions, curves);
   }
 
-  /** ADR 0336: the entries' explicit 1D regions, normalised like their x (undefined when none has one). */
+  /** ADR 0350: the entries' explicit 1D regions, normalised like their x (undefined when none has one). */
   private regions: (Region1D | undefined)[] | undefined;
 
   private normaliseRegions(): void {

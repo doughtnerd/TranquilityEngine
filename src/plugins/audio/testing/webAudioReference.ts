@@ -91,7 +91,7 @@ export class BusGraph {
   private addEffect(fx: BusEffect, from: AudioNode): AudioNode {
     const { ctx } = this;
     switch (fx.type) {
-      // ADR 0331: catalogue effects have no Web Audio reference node; the reference passes them through.
+      // ADR 0345: catalogue effects have no Web Audio reference node; the reference passes them through.
       case "fx":
         return from;
       case "lowpass":

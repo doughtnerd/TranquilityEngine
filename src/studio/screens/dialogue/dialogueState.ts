@@ -1,4 +1,4 @@
-// The Dialogue screen's state (ADR 0340 §1, §9, 0341 §7): the per-user preview language (`myco.audio.previewLanguage`,
+// The Dialogue screen's state (ADR 0354 §1, §9, 0355 §7): the per-user preview language (`myco.audio.previewLanguage`,
 // local storage; the header chip sets it for every screen), the tab, the Lines query and selection, the audition
 // playing, whether the editor holds the project lock, the batch import and script import in progress, and the Events
 // tab's selection, search, bench values, seed, memory and roll.
@@ -10,7 +10,7 @@ import { EMPTY_MEMORY } from "./events/testBench";
 import { ALL_LINES, type LinesQuery } from "./linesModel";
 import type { ScriptDiff } from "./scriptCsv";
 
-/** Per user (0340 §1): the language the Studio's auditions and previews start in; null: the project's start language. */
+/** Per user (0354 §1): the language the Studio's auditions and previews start in; null: the project's start language. */
 export const previewLanguage = persisted<string | null>("myco.audio.previewLanguage", null);
 
 export type DialogueTab = "lines" | "languages" | "report" | "events";

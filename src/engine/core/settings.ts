@@ -59,7 +59,7 @@ export interface ProjectSettings {
   graphics: GraphicsSettings;
   /** Built-in navigation (ADR 0065): agent types, areas, voxel sizes, runtime budgets. Omitted: one person-sized walker. */
   navigation: NavigationSettings;
-  /** Audio mixer buses, snapshots, ducking and the backend (ADR 0097, 0098): `audio.json`'s runtime view (ADR 0330), never a `project.json` section. Omitted: Master with Music, SFX, UI and Voice. */
+  /** Audio mixer buses, snapshots, ducking and the backend (ADR 0097, 0098): `audio.json`'s runtime view (ADR 0344), never a `project.json` section. Omitted: Master with Music, SFX, UI and Voice. */
   audio: AudioSettings;
   /** Scene/prefab files instanced under the World root at startup; they persist across scene loads (ADR 0016). */
   autoload: string[];
@@ -71,11 +71,11 @@ export interface ProjectSettings {
    */
   plugins?: PluginSettings;
   /**
-   * The game's languages for text and audio (ADR 0340 §1, 0342 §3, 0343 §2): codes, reference, default, fallbacks,
+   * The game's languages for text and audio (ADR 0354 §1, 0356 §3, 0357 §2): codes, reference, default, fallbacks,
    * shipping, fonts, direction, voice. Omitted: English only (`localisation/languages.ts`).
    */
   languages: LanguageSettings;
-  /** Subtitles (ADR 0343 §5): player defaults, reading speed, speakers. Omitted: the defaults (`localisation/subtitleSettings.ts`). */
+  /** Subtitles (ADR 0357 §5): player defaults, reading speed, speakers. Omitted: the defaults (`localisation/subtitleSettings.ts`). */
   subtitles: SubtitleProjectSettings;
 }
 
@@ -83,7 +83,7 @@ export interface ProjectSettings {
 export interface PluginSettings {
   disabled?: string[];
   /**
-   * ADR 0344 §6: where plugin audio effects' wasm modules run. "chromium" (absent) runs them on Chromium's engine only
+   * ADR 0358 §6: where plugin audio effects' wasm modules run. "chromium" (absent) runs them on Chromium's engine only
    * (the only one measured so far); "all" runs them everywhere. Read by the audio plugin.
    */
   audioEffectEngines?: "chromium" | "all";
@@ -121,7 +121,7 @@ export type ProjectSettingsInput = {
       ? Partial<ProjectSettings[K]>
       : ProjectSettings[K];
 } & {
-  /** The runtime's audio settings: `audio.json`'s runtime view, which hosts set with `projectWithAudio` (ADR 0330; a `project.json` `audio` section is refused there). Read leniently by `parseAudioSettings`; bad entries are reported, not fatal. */
+  /** The runtime's audio settings: `audio.json`'s runtime view, which hosts set with `projectWithAudio` (ADR 0344; a `project.json` `audio` section is refused there). Read leniently by `parseAudioSettings`; bad entries are reported, not fatal. */
   audio?: Record<string, unknown>;
 };
 

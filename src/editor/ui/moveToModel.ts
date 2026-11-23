@@ -1,4 +1,4 @@
-// The Move to… dialog's rules (ADR 0335): the project's folders as a tree (the project root at the top), a search
+// The Move to… dialog's rules (ADR 0349): the project's folders as a tree (the project root at the top), a search
 // that lists matching folders by path, and which folders can't take what is being moved: the folder each item is
 // already in (nothing would move), and a moved folder itself and everything inside it. Paths are project-relative
 // with `/`; the root is "".

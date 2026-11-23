@@ -1,4 +1,4 @@
-// The audio zone gizmo (ADR 0333), the Audio plugin's viewport tool `myco.audio.audioZones`: every `AudioZone` in the
+// The audio zone gizmo (ADR 0347), the Audio plugin's viewport tool `myco.audio.audioZones`: every `AudioZone` in the
 // edited scene is drawn as its upright box (bottom and top rectangles turned by the zone's yaw, and the vertical edges)
 // and, for an inside zone, its feather ring, selected zones bright and the others dim. The box is the zone's own world
 // box (`AudioZone._worldBox`), the one the runtime places the sound by. Resizing is through the Inspector's fields.

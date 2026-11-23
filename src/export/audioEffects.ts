@@ -1,4 +1,4 @@
-// Plugin audio effects in a build (ADR 0338 §8). The plan (`planWebBuild`) picks each enabled plugin's audio modules
+// Plugin audio effects in a build (ADR 0352 §8). The plan (`planWebBuild`) picks each enabled plugin's audio modules
 // (`planAudioEffects`): a project plugin's module file is a project file the build copies (`project/plugins/...`); an
 // npm plugin's is written to `code/deps/plugins/<name>/...`. A disabled plugin's module files aren't shipped (its effects
 // pass through, data kept). The build writer then reads each module's bytes (`withAudioEffects`), hashes them and writes
@@ -52,7 +52,7 @@ const encoder = new TextEncoder();
  * The plan with `game.json`'s `audioEffects` written: each planned module's bytes read through `read` (any project path,
  * `node_modules/` included) and hashed; an npm plugin's module written into the build. A module that can't be read is
  * left out with a line through `log` (its effects pass through in the game). `renders` is the offline host over the
- * same modules, for the build's sample renders (ADR 0338 §7: a baked plugin effect renders as it plays); null when the
+ * same modules, for the build's sample renders (ADR 0352 §7: a baked plugin effect renders as it plays); null when the
  * build ships none.
  */
 export async function withAudioEffects(

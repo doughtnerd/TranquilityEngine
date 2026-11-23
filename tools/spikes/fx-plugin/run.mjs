@@ -1,4 +1,4 @@
-// Spike B0 (ADR 0338): drives every measurement. Node (V8) first, then a scratch page in each Playwright browser
+// Spike B0 (ADR 0352): drives every measurement. Node (V8) first, then a scratch page in each Playwright browser
 // that is installed (main thread and inside an AudioWorkletGlobalScope), served from memory on E2E_PORT (default
 // 4391; no COOP/COEP). Never touches the e2e suite.
 // Usage (from the repository root): node tools/spikes/fx-plugin/run.mjs [--node-only] [--only glue,fuel,compile,faults] [--out FILE]

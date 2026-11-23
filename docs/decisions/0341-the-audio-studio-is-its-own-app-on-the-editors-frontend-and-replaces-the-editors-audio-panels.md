@@ -1,10 +1,10 @@
-# 0327. The Audio Studio is its own app on the editor's frontend and replaces the editor's audio panels
+# 0341. The Audio Studio is its own app on the editor's frontend and replaces the editor's audio panels
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (retires the editor-side panels of 0158, 0166/0167, 0171/0172, 0220; see Deprecates)
-- **Related:** 0003, 0022, 0025, 0027, 0059, 0082, 0083, 0141, 0145, 0157, 0171, 0174, 0219, 0267, 0278, 0316, 0328–0335
+- **Related:** 0003, 0022, 0025, 0027, 0059, 0082, 0083, 0141, 0145, 0157, 0171, 0174, 0219, 0267, 0278, 0316, 0342–0349
 
 ## Context
 
@@ -24,8 +24,8 @@ shared Curves window, and a Journeys list of 11 user journeys). It is meant to:
   UX (the prototype's history is a stand-in).
 
 Owner decisions on 2026-11-22: the Studio **replaces** the editor's audio authoring panels; the prototype's data model
-wins and existing data is migrated (0329); sample edits live in sidecars (0328); Take and Profiler are separate,
-related recordings (0334).
+wins and existing data is migrated (0343); sample edits live in sidecars (0342); Take and Profiler are separate,
+related recordings (0348).
 
 Three findings shape the structure:
 
@@ -61,7 +61,7 @@ for the editor.
 
 **The Studio runs its own audio runtime.** It starts a headless Engine with only the audio plugin's runtime (no
 renderer, no scene), the same `myco` audio code a game runs, so every audition, the Mixer, Spatial test scenes and take
-replay (0334) play through the real engine. It never boots the scene editor. It always uses the Rust core backend,
+replay (0348) play through the real engine. It never boots the scene editor. It always uses the Rust core backend,
 on every platform including macOS desktop (where games still default to the Babylon fallback until 0157's gate
 passes); if the core can't start, the Studio says why instead of running degraded (owner decision 2026-11-22).
 
@@ -69,7 +69,7 @@ passes); if the core can't start, the Studio says why instead of running degrade
 (Mixer, Spatial), Run (Take, Profiler), switched from the header and with Ctrl/⌘+1…6. Each screen is a dock of panels
 using the engine's `DockLayout`, with one fixed panel per screen and Reset layout. The output-device menu with latency
 calibration, the player bar ("Layout A", a slot per screen), the status bar and toasts are shell components used by
-every screen (0335).
+every screen (0349).
 
 **Undo and history are the engine's.** Every Studio document is an `AssetDocument` (`openAssetDocument`) with its
 persistent text-patch history tree (0141, 0267, 0316), so histories land in the same `.myco/asset-history/` files the
@@ -84,7 +84,7 @@ refused-or-next result and apply through `applyEdit` (0307, 0313).
   (not through the `document/index.ts` barrel, which pulls in the scene loader).
 
 **One app owns each file; both watch.** The Studio owns the audio files (`audio.json`, samples' sidecars,
-`*.playlist.json`, `*.audioscene.json`, takes and captures; 0328–0334). The editor stops writing them: its remaining
+`*.playlist.json`, `*.audioscene.json`, takes and captures; 0342–0348). The editor stops writing them: its remaining
 audio UI (AudioSource, Listener, ReverbZone, Occluder and AudioZone Inspector sections and gizmos) only picks assets.
 Both apps watch the project folder (Tauri `fs.watch`; in the browser, a re-read on window focus and before Play) and
 feed outside changes to open documents through the existing amend path (0141), so the editor's next Play uses what the
@@ -97,7 +97,7 @@ editor applies to its documents and deletes (one file channel that works for bot
 today (`AuditionHost`, `MixerPanelDeps`, `LiveHost`, `ProfileSource`). v1 implements them over the Studio's own
 runtime. The live link (later record) implements them over a connection to a game or editor, carrying the 0171
 "live link on paper" telemetry framing plus a control channel. Until then the player bar's Game session pill is
-replaced by the replay of the open take (0334), the "Linked to game" badge is not shown, and Mixer and Spatial
+replaced by the replay of the open take (0348), the "Linked to game" badge is not shown, and Mixer and Spatial
 changes are heard through the Studio's runtime (auditions, test scenes, take replay) (owner decision 2026-11-22).
 
 ## Alternatives considered
@@ -124,7 +124,7 @@ changes are heard through the Studio's runtime (auditions, test scenes, take rep
   re-reads on focus).
 - Until the live link exists, live mixing hears the Studio's runtime replaying a take, not the running game.
 - The editor's audio panels, heavily tested and recent (0292, 0307, 0313, 0326), are removed; their pure models are
-  reused where they fit (0329–0334 name them).
+  reused where they fit (0343–0348 name them).
 
 ## Deprecates
 
@@ -133,7 +133,7 @@ changes are heard through the Studio's runtime (auditions, test scenes, take rep
   once the Studio screen that replaces each is built (the plan's milestones say which). Their pure models
   (`mixerPanelModel.ts`, `faderModel.ts`, `meterModel.ts`, `profilerSource.ts`, the track and table kits, `peaks*.ts`,
   `audition/audition.ts`, `parameterList.ts`, `editResult.ts`) move to the Studio or stay shared.
-- The `audioEvent` asset kind's editor panel; the kind itself is replaced by `playlist` (0329).
+- The `audioEvent` asset kind's editor panel; the kind itself is replaced by `playlist` (0343).
 - Kept in the editor: AudioSource, AudioListener, AudioReverbZone, AudioOccluder and AudioZone Inspector sections and
   gizmos, audio import settings, the asset picker.
 

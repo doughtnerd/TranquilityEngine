@@ -3,13 +3,13 @@ import type { PlaylistBody } from "../playlist/types";
 import { parseDerivedSample } from "../sample/format";
 import { parseImportSettings } from "../../scene/importSettings";
 /**
- * Every audio event the repo had migrates without throwing and gives a structurally valid playlist (ADR 0329): exactly
+ * Every audio event the repo had migrates without throwing and gives a structurally valid playlist (ADR 0343): exactly
  * one sample per Clip, Switch maps pointing at real entries, sequence clips with exactly one source. The samples' own
  * events were migrated (their playlists are in `samples/`); the originals are kept here as the migration's fixtures
  * (`__fixtures__/<sample>/...`, read-only).
  *
  * The Sound Lab's engines were fixed by hand after the first migration (their loop regions became held loops in the
- * samples' sidecars, ADR 0328); the migration now writes what that fix wrote, checked here against the sample's files.
+ * samples' sidecars, ADR 0342); the migration now writes what that fix wrote, checked here against the sample's files.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -110,7 +110,7 @@ describe("the Sound Lab's engines migrate to what they were fixed to by hand", (
   });
 });
 
-describe("ADR 0336: the Sound Lab's music migrates with what the first mapping lost", () => {
+describe("ADR 0350: the Sound Lab's music migrates with what the first mapping lost", () => {
   const lab = new Map([...texts].filter(([p]) => p.startsWith("sound-lab/")).map(([p, t]) => [p.slice("sound-lab/".length), t]));
   const seconds = (p: string): number | undefined => {
     const file = join(SAMPLES, "sound-lab", p);

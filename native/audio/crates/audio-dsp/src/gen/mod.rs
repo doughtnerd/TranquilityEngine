@@ -1,4 +1,4 @@
-//! Sound generators (ADR 0346 §2, §3): the kernels the core's generator voice runs and the offline render shares. No
+//! Sound generators (ADR 0360 §2, §3): the kernels the core's generator voice runs and the offline render shares. No
 //! allocation, `libm` maths, deterministic (the same kind, parameters, seed and pitch give the same samples on every
 //! build). Output is **mono**.
 //!

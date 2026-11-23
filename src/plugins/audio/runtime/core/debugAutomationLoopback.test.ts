@@ -1,4 +1,4 @@
-// ADR 0158 §5 (E3.9) on the real wasm (the loopback host), with playlists (ADR 0329): `Audio.debug()` on the core shows
+// ADR 0158 §5 (E3.9) on the real wasm (the loopback host), with playlists (ADR 0343): `Audio.debug()` on the core shows
 // automation. A playlist voice's `gain` and `pitch` carry main's estimate of its automated gain and pitch (following the parameter's seek), it
 // has a `playheadSeconds` (the tracker's estimate, moving at the automated pitch), a bus's `gain`/`effectiveGain`
 // carry the bus automation a global parameter drives, and an instance's `events` row goes with its last listed voice,

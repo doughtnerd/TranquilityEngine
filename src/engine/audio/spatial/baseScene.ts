@@ -1,5 +1,5 @@
 /**
- * The base game scene of a spatial test scene (ADR 0333 "Optionally `base` names a game scene whose audio components and
+ * The base game scene of a spatial test scene (ADR 0347 "Optionally `base` names a game scene whose audio components and
  * colliders load read-only underneath"): which of the scene's nodes and components the Studio loads, and where they
  * are, from the engine's resolved scene view (`resolveScene`: prefab instances expanded, every override applied), so the
  * Studio sees what the game instantiates.
@@ -319,7 +319,7 @@ function placeObject(type: string, data: Record<string, unknown>, pose: Pose, ba
 }
 
 /**
- * The `replace` keys (ADR 0333) a test scene names that match no imported `AudioSource` or `AudioZone`, each with why
+ * The `replace` keys (ADR 0347) a test scene names that match no imported `AudioSource` or `AudioZone`, each with why
  * (one problem line each); the runtime skips them.
  */
 export function unmatchedReplaceKeys(base: BaseSceneImport, replace: Readonly<Record<string, string>>): string[] {

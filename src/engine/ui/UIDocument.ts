@@ -4,7 +4,7 @@
  * web-like API over them: `query`, `queryAll`, `data` for `{name}` bindings, `list()` for repeated
  * rows, and element handlers (`on("click", …)`) over the polled state and the `UIEvents` buffer.
  *
- * Localised text (ADR 0342 §4): `t:<field>="key"` sets a text field to the key's message in the
+ * Localised text (ADR 0356 §4): `t:<field>="key"` sets a text field to the key's message in the
  * current language, its arguments read like `{name}` bindings (the row's item, then `data`) and the key
  * itself may hold bindings (`t:text="weapon.{id}.name"`); `translate="no"` marks text as deliberately
  * unlocalised; stylesheets match the language with `:lang()`. All of it follows `Locale.epoch`.
@@ -137,7 +137,7 @@ interface Binding {
   readonly field: string;
   readonly info: FieldInfo;
   readonly parts: readonly BindingPart[];
-  /** A key attribute (`t:text="weapon.{id}.name"`, ADR 0342 §4): the key, with `{name}` bindings picking it per row. */
+  /** A key attribute (`t:text="weapon.{id}.name"`, ADR 0356 §4): the key, with `{name}` bindings picking it per row. */
   readonly key?: readonly BindingPart[];
   /** A key binding's text content: shown while the key resolves nowhere. */
   fallback?: readonly BindingPart[] | null;
@@ -401,7 +401,7 @@ export class UIDocument extends Component {
   private rootElement: UIDocumentElement | null = null;
   private sheets: UIStylesheet[] = [];
   private pseudo = false;
-  /** The sheets use `:lang()`: a language change restyles the tree (ADR 0342 §4). */
+  /** The sheets use `:lang()`: a language change restyles the tree (ADR 0356 §4). */
   private langRules = false;
   /** `Locale.epoch` the tree was last brought up to date with. */
   private localeEpoch = -1;
@@ -696,7 +696,7 @@ export class UIDocument extends Component {
     el._path = scope || parent?._path === null ? null : path; // list rows and what's inside them have none
     elementByComponent.set(el._comp, el);
 
-    // Bindings: key attributes (`t:text`, ADR 0342 §4), bound attributes, and the text content (a Text's text, an
+    // Bindings: key attributes (`t:text`, ADR 0356 §4), bound attributes, and the text content (a Text's text, an
     // InputField's value). A button's `t:text` is its label's.
     const fields = P.fieldsOf(type);
     el._bindings = [];
@@ -822,7 +822,7 @@ export class UIDocument extends Component {
   }
 
   /**
-   * A key attribute's value (ADR 0342 §4): the message of the key (its `{name}` parts filled from the row, then `data`)
+   * A key attribute's value (ADR 0356 §4): the message of the key (its `{name}` parts filled from the row, then `data`)
    * in the current language, with the arguments the message uses looked up in the same scope; the element's text
    * content while the key resolves nowhere. Formatted again only when `Locale.epoch`, the key or an argument changed.
    */
@@ -938,7 +938,7 @@ export class UIDocument extends Component {
     }
     const root = this.rootElement;
     if (!root) return;
-    // A language change (ADR 0342 §4): `:lang()` rules match again; key bindings format again below.
+    // A language change (ADR 0356 §4): `:lang()` rules match again; key bindings format again below.
     if (this.localeEpoch !== Locale.epoch) {
       this.localeEpoch = Locale.epoch;
       const language = Locale.language;

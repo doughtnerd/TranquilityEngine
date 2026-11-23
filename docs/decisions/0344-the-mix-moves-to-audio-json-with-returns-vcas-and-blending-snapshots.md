@@ -1,10 +1,10 @@
-# 0330. The mix moves to `audio.json`, with returns, VCAs and blending snapshots
+# 0344. The mix moves to `audio.json`, with returns, VCAs and blending snapshots
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0097, 0171, 0172, 0173: where the audio settings live and what the mix holds)
-- **Related:** 0097, 0162, 0171, 0172, 0173, 0175, 0262, 0292, 0304, 0306, 0327, 0329, 0331, 0332
+- **Related:** 0097, 0162, 0171, 0172, 0173, 0175, 0262, 0292, 0304, 0306, 0341, 0343, 0345, 0346
 
 ## Context
 
@@ -17,7 +17,7 @@ rings, backend). The editor's Project Settings > Audio and the Mixer panel edit 
 history (0173); live edits during Play go through `MixOp`s and `Mixer.apply` (0171/0172).
 
 The prototype's Mixer adds: faders in dB (−60..+6, 0.5 dB steps); **returns** with their own inserts, fed by post-fader
-sends; **VCAs** that offset member buses and everything under them; a 14-type insert chain per bus and return (0331);
+sends; **VCAs** that offset member buses and everything under them; a 14-type insert chain per bus and return (0345);
 automation of level, sends and any effect parameter by a game parameter; **snapshots** in folders with triggers
 (base mix, from game code, never, or conditions all/any on parameters), fade in, fade out, minimum hold, a priority
 and Override or Add; voice limits that inherit down the tree; bed ownership with priority; a gain-lanes breakdown;
@@ -25,7 +25,7 @@ Compare A/B; a live board of pinned buses. Its known gaps: snapshot levels can't
 snapshot writes the base level and double counts), snapshots don't blend, mute has no handler, the live board has no
 UI, ducking rules and a sidechain compressor duck the same bus twice.
 
-0327 makes the Studio the only writer of audio data, and the editor's Project Settings > Audio goes away.
+0341 makes the Studio the only writer of audio data, and the editor's Project Settings > Audio goes away.
 
 ## Decision
 
@@ -61,7 +61,7 @@ and extend the mix to the prototype's model.
   (playlists' `output`, sends, automation, ducking, snapshots, VCA members, scenes' `AudioSource.output`) through the
   named-list module (0262). The prototype's display paths ("SFX › Vehicles") are display only.
 - **Automation targets:** `volume` (adds dB), `send:<return>` (adds dB), `fx:<effectId>:<param>` (replaces the value).
-  Curves are the engine curve (0332), keyed on the parameter's value; frequency parameters interpolate in log scale.
+  Curves are the engine curve (0346), keyed on the parameter's value; frequency parameters interpolate in log scale.
 
 **Gain.** A bus's level in dB is the sum of its lanes, and its parent's level is added on top, so the linear gain is
 the product down the tree, as the engine's lanes are today (0172): authored fader, runtime (scripts), snapshot, **VCA**
@@ -83,7 +83,7 @@ in dB and stays at least `holdMs`. Start kinds: `base` (always on), `code` (`Aud
 labels). **Editing a snapshot:** with a non-base snapshot selected, faders edit that snapshot's offset for the bus and
 the base level shows as a ghost tick; with the base selected they edit the base level.
 
-**Ducking** is the post-fader duck lane, as today; a Sidechain compressor is a pre-fader insert (0331). The Studio lints
+**Ducking** is the post-fader duck lane, as today; a Sidechain compressor is a pre-fader insert (0345). The Studio lints
 a bus that is ducked by both from the same trigger.
 
 **Voice limits** cap a bus and every bus below it; a bus without one shares the nearest ancestor's. Stealing and
@@ -91,12 +91,12 @@ virtual voices follow the engine's priority-based selection (0157). **Beds:** a 
 Master always has one; the `settings.bed.maxBeds − 1` highest priorities get the rest; others share the nearest bed
 above them (the engine's rule, now with the priority shown).
 
-**Live mixing.** Edits made while the Studio's runtime plays (an audition or a take replay, 0334) go through `MixOp`s
+**Live mixing.** Edits made while the Studio's runtime plays (an audition or a take replay, 0348) go through `MixOp`s
 and `Mixer.apply` and are kept, as Play-mode edits are today; Compare A/B, monitor controls and meter taint keep their
 rules (0172). `mixOps.ts` gains ops for returns, VCAs, mute and snapshot edits. The live board's pins (up to 8) are a
 per-user Studio preference, not project data.
 
-**Migration** (with 0329's, same confirmation): the `audio` section moves out of `project.json` into `audio.json`;
+**Migration** (with 0343's, same confirmation): the `audio` section moves out of `project.json` into `audio.json`;
 volumes convert to dB; a `reverb` effect becomes a send to a created "Reverb" return; snapshot multipliers convert to dB
 offsets and a snapshot `lowpass` becomes an override of a low-pass effect created on that bus (bypass-neutral at
 20 kHz outside the snapshot); bus automation keeps its curves with target `volume` (or `fx:` on that low-pass effect

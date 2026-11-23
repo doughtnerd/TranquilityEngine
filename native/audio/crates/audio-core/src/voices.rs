@@ -27,7 +27,7 @@
 //! encodes into the bed instead (`panner.rs`, `bed.rs`), through its pool entry's bed share and
 //! last encode gains; `bed::begin_quantum` runs once a quantum before the voices.
 //!
-//! ADR 0346 (ABI 5.1): a PLAY of a reserved generator clip id starts a **generator voice** (`generator.rs`), rendered by
+//! ADR 0360 (ABI 5.1): a PLAY of a reserved generator clip id starts a **generator voice** (`generator.rs`), rendered by
 //! [`render_gen_voice`] from its pool entry's `audio_dsp::gen` voice instead of a clip, through the same chain. A
 //! silence generator is always virtual (PLAY's mixed flag and a promote are refused); SET_LOOP's release is a
 //! generator's key-off; SEEK does nothing to one.
@@ -479,18 +479,18 @@ fn render_voices<const LIST: bool>(core: &mut Core, frame: u64, from: usize, to:
     // ADR 0158 E2: the voices' automation and loop entries, or `None` when no voice has any (then
     // every voice takes exactly the M1 path below). Another region than the ones `v` views.
     let autos: Option<*mut [VoiceAuto]> = automation::voice_entries(&mut regions.automation[..]).map(|a| a as *mut _);
-    // ADR 0328: the loop programs' pool, in the same region (read only through an entry that links one).
+    // ADR 0342: the loop programs' pool, in the same region (read only through an entry that links one).
     let progs: Option<*mut [automation::ProgramEntry]> = if autos.is_some() { automation::program_entries(&mut regions.automation[..]).map(|p| p as *mut _) } else { None };
     // ADR 0162 K3: the zone slot inputs the send tap writes (`sends::tap`), another region again.
     let zones: *mut [u8] = &mut regions.zones[..];
-    // ADR 0337 A4: the ADPCM voice cursors, another region again.
+    // ADR 0351 A4: the ADPCM voice cursors, another region again.
     let adpcm_region: *mut [u8] = &mut regions.adpcm[..];
-    // ADR 0346: the generator voices' state, another region again.
+    // ADR 0360: the generator voices' state, another region again.
     let gen_region: *mut [u8] = &mut regions.gen[..];
     // ADR 0162 A4: the beds kind-2 voices encode into, another region again (`None` without beds).
     // SAFETY: the `Beds` region is distinct from every region borrowed here.
     let mut beds = crate::bed::view(unsafe { &mut *(&mut regions.beds[..] as *mut [u8]) });
-    // ADR 0331: the instance groups' submix routes, or `None` when no submix is in use (every voice
+    // ADR 0345: the instance groups' submix routes, or `None` when no submix is in use (every voice
     // then pans with its bus, as before), with every slot's automation entry (its PLAY's `group`).
     let routes = crate::submix::routes(regions);
     let groups: Option<*const [VoiceAuto]> = if routes.is_some() { automation::all_entries(&mut regions.automation[..]).map(|a| a as *const _) } else { None };
@@ -601,11 +601,11 @@ fn render_voices<const LIST: bool>(core: &mut Core, frame: u64, from: usize, to:
         let prog = auto.as_deref().filter(|a| a.loop_on == automation::LOOP_PROGRAM && a.prog != 0).and_then(|a| progs.and_then(|p| unsafe { (&mut *p).get_mut(a.prog as usize - 1) })).map(|e| &mut e.prog);
         // SAFETY: `zones` views the `Zones` region, distinct from every region borrowed here; one
         // voice holds it at a time.
-        // ADR 0337 A4: the ADPCM cursor at the same pool index (another region again; one voice at a time).
+        // ADR 0351 A4: the ADPCM cursor at the same pool index (another region again; one voice at a time).
         // SAFETY: `adpcm` views the `AdpcmCursors` region, distinct from every region borrowed here.
         let adpcm = if slot.fx != 0 { crate::adpcm_voice::cursor(crate::adpcm_voice::cursors(unsafe { &mut *adpcm_region }), slot.fx) } else { None };
         let fx = VoiceFx { entry: crate::fxpool::owned(v.pool, slot.fx, index), zones: unsafe { &mut *zones }, beds: beds.as_mut(), due, route, adpcm };
-        // ADR 0346: a generator voice (a reserved clip id, never a stream) renders its kernel instead of a clip.
+        // ADR 0360: a generator voice (a reserved clip id, never a stream) renders its kernel instead of a clip.
         if slot.flags & flag::STREAM == 0 && crate::generator::kind_of(slot.clip).is_some() {
             // SAFETY: `gen_region` views the `GenEntries` region, distinct from every region borrowed here; one voice
             // holds it at a time.
@@ -968,7 +968,7 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
         }
         return;
     }
-    // ADR 0337 A4: a PCM clip, or an ADPCM one (format 6), which a mixed voice decodes as it reads.
+    // ADR 0351 A4: a PCM clip, or an ADPCM one (format 6), which a mixed voice decodes as it reads.
     let pcm = clips.frames(slot.clip);
     let adpcm = if pcm.is_none() { clips.adpcm(slot.clip) } else { None };
     let clip_frames = match (&pcm, &adpcm) {
@@ -1018,9 +1018,9 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
     }
     // ADR 0158 §4: a SET_LOOP region (the slot's whole-clip loop flag is clear while it loops).
     let region = auto.as_deref().and_then(|a| loop_region(a, clip_frames));
-    // ADR 0328: a loop program (not for an ambisonic voice, which plays it straight); this
+    // ADR 0342: a loop program (not for an ambisonic voice, which plays it straight); this
     // quantum's activations apply at its start.
-    // ADR 0337 A4: an ADPCM clip plays a program straight too (its reader moves forward only).
+    // ADR 0351 A4: an ADPCM clip plays a program straight too (its reader moves forward only).
     let program = AUTO && slot.flags2 & flag2::AMBISONIC == 0 && pcm.is_some() && prog.as_deref().is_some_and(|p| p.n != 0);
     if program {
         if let Some(p) = prog.as_deref_mut() {
@@ -1056,7 +1056,7 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
         let mut l = [0.0f32; QUANTUM];
         let mut r = [0.0f32; QUANTUM];
         if let Some(a) = &adpcm {
-            // ADR 0337 A4: decoded as it is read (`adpcm_voice.rs`), bit for bit as the int16 reads below would
+            // ADR 0351 A4: decoded as it is read (`adpcm_voice.rs`), bit for bit as the int16 reads below would
             // give for the clip decoded whole. Without a pool entry (the pool was full) it keeps time silently.
             let mode = match region {
                 Some((start, end)) => crate::adpcm_voice::Mode::Region { start, end },
@@ -1130,7 +1130,7 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
     }
 }
 
-/// ADR 0346 (ABI 5.1): renders one playing **generator** voice over frames `from..to` (mixed) or keeps its time
+/// ADR 0360 (ABI 5.1): renders one playing **generator** voice over frames `from..to` (mixed) or keeps its time
 /// (virtual). The third source beside clips and streams: a mixed voice fills its block from its pool entry's
 /// `audio_dsp::gen` voice (mono, copied to both channels) instead of the resampler, then runs the clip voice's chain
 /// (gain, fade and mix ramps, automation, filters, sends, spread, the panner); a virtual one advances only its
@@ -1594,7 +1594,7 @@ fn auto_pitch(a: &VoiceAuto, steps: &mut [f32], from: usize) -> f32 {
     max
 }
 
-/// ADR 0333: a spatial voice's spread (`spread.rs`) on a rendered range, just before its panner: the
+/// ADR 0347: a spatial voice's spread (`spread.rs`) on a rendered range, just before its panner: the
 /// diffuse part into `out_l`/`out_r`, `l`/`r` left as the point part. A voice without a pool entry
 /// plays as a point source.
 #[inline]
@@ -1614,10 +1614,10 @@ struct VoiceFx<'a> {
     /// 0166 M4-0 (H1): the class G record the gain loop applies in this range (sample relative to
     /// the range's first frame), or `DueGain::NONE`: then every gain loop runs exactly as before.
     due: &'a DueGain,
-    /// ADR 0331: where the voice's panner mixes: its bus, or its instance's submix
+    /// ADR 0345: where the voice's panner mixes: its bus, or its instance's submix
     /// (`submix::route_code`; then it pans without the bed).
     route: u16,
-    /// ADR 0337 A4: the ADPCM cursor at the voice's pool entry (`adpcm_voice.rs`), `None` without an entry.
+    /// ADR 0351 A4: the ADPCM cursor at the voice's pool entry (`adpcm_voice.rs`), `None` without an entry.
     adpcm: Option<&'a mut crate::adpcm_voice::Cursor>,
 }
 
@@ -1627,7 +1627,7 @@ impl VoiceFx<'_> {
     }
 
     /// ADR 0162 A4: the panner's kind-2 context, when the core has beds and the voice an entry (and
-    /// pans with its own bus: a voice routed into a submix has none, ADR 0331).
+    /// pans with its own bus: a voice routed into a submix has none, ADR 0345).
     fn bed(&mut self, bus: u16) -> Option<crate::panner::BedCtx<'_>> {
         if self.route != bus {
             return None;
@@ -2152,7 +2152,7 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         // branch sets the rate and the panner's channels when the voice binds to its ring.
         core.streams().get(play.clip).map_or((2, sample_rate), |r| (r.channels, r.rate))
     } else {
-        // ADR 0337 A4: a PCM or an ADPCM clip.
+        // ADR 0351 A4: a PCM or an ADPCM clip.
         core.clips().shape(play.clip).unwrap_or((1, sample_rate))
 
     };
@@ -2170,7 +2170,7 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         if play.flags & wire::PLAY_FLAGS_LOOP != 0 {
             flags |= flag::LOOP;
         }
-        // ADR 0346: a silence generator is always virtual (the core may demote; it never mixes one).
+        // ADR 0360: a silence generator is always virtual (the core may demote; it never mixes one).
         if play.flags & wire::PLAY_FLAGS_MIXED != 0 && crate::generator::kind_of(play.clip) != Some(audio_dsp::gen::SILENCE) {
             flags |= flag::MIXED;
         }
@@ -2213,7 +2213,7 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
     };
     // ADR 0158 E2: the slot's automation entry now belongs to this voice and its group.
     automation::on_play(core, index, play.voice_id, play.group, start_frame);
-    // ADR 0346: a generator voice's slot record and pool entry (another region than the voices').
+    // ADR 0360: a generator voice's slot record and pool entry (another region than the voices').
     if crate::generator::kind_of(play.clip).is_some() {
         let regions = core.regions_mut();
         crate::generator::on_play(&mut regions.gen[..], slots_of(&regions.voices[..]), index, play.voice_id, play.clip);
@@ -2404,14 +2404,14 @@ pub fn set_loop(core: &mut Core, voice_id: u32, start: u32, end: u32, looping: b
         (index, generator)
     };
     if generator {
-        // ADR 0346: a generator voice has no region; a release is its key-off (and ends a looping blip's repeats).
+        // ADR 0360: a generator voice has no region; a release is its key-off (and ends a looping blip's repeats).
         if !looping {
             crate::generator::key_off(&mut core.regions_mut().gen[..], index, voice_id);
         }
         return;
     }
     if !looping {
-        // ADR 0328: a voice with a loop program takes it as its key-off, at this sample.
+        // ADR 0342: a voice with a loop program takes it as its key-off, at this sample.
         let mut pos = view(core.regions_mut()).slots[index].position;
         if automation::release_program(core, index, voice_id, &mut pos) {
             view(core.regions_mut()).slots[index].position = pos;
@@ -2421,7 +2421,7 @@ pub fn set_loop(core: &mut Core, voice_id: u32, start: u32, end: u32, looping: b
     automation::set_loop(core, index, voice_id, start, end, looping);
 }
 
-/// LOOPS (ADR 0328): replaces clip voice `voiceId`'s loop program (`automation::loops`), placed at
+/// LOOPS (ADR 0342): replaces clip voice `voiceId`'s loop program (`automation::loops`), placed at
 /// its playhead; PLAY's whole-clip loop flag no longer applies. A stale id and stream voices are
 /// ignored (their loops go through the decoder worker).
 pub fn loops(core: &mut Core, msg: &[u8], off: usize) {
@@ -2457,7 +2457,7 @@ pub fn seek(core: &mut Core, voice_id: u32, frame: u32, epoch: u32) {
         return;
     }
     if crate::generator::kind_of(s.clip).is_some() {
-        return; // ADR 0346: a generator voice has nothing to seek in
+        return; // ADR 0360: a generator voice has nothing to seek in
     }
     if s.state == state::SCHEDULED {
         s.position = frame as f64; // not started: it starts there
@@ -2539,7 +2539,7 @@ pub fn set_mixed(core: &mut Core, m: &wire::SetMixed) {
     let s = &mut v.slots[index];
     if m.mixed != 0 {
         if crate::generator::kind_of(s.clip) == Some(audio_dsp::gen::SILENCE) {
-            // ADR 0346: a silence generator is never mixed.
+            // ADR 0360: a silence generator is never mixed.
             return;
         }
         promote_slot(s, m.gain, [m.dir_x, m.dir_y, m.dir_z], frames);

@@ -18,7 +18,7 @@
 // the new Play's start. Stop drops the snapshot (`end`), and Compare with it.
 //
 // The mix is the editor's `audio` section (`AudioSettings`, diffed by `diffOps`) by default; the Studio hands it the
-// `AudioProject` and `diffProjectMix` (ADR 0330), so returns, VCAs, sends and snapshots swap too. Taint marks follow the meters' rule: they stay
+// `AudioProject` and `diffProjectMix` (ADR 0344), so returns, VCAs, sends and snapshots swap too. Taint marks follow the meters' rule: they stay
 // until a reset (`noteReset`; the mixer session, ADR 0292, also sends one for a Play that resets the meters).
 import { diffOps, type ApplyResult, type MixOp } from "../../../../engine/audio/mixOps";
 import type { AudioSettings } from "../../../../engine/audio/settings";
@@ -97,7 +97,7 @@ export function createCompareModel<M = AudioSettings>(options: CompareOptions<M>
     const { ops, restartRequired } = diff(from, to);
     if (on) host.setCompare?.(true);
     const results: ApplyResult[] = [];
-    // ADR 0334: the capture labels these MIXOP records `compare` (the mixer itself takes no origin).
+    // ADR 0348: the capture labels these MIXOP records `compare` (the mixer itself takes no origin).
     for (const op of ops) results.push(withMixOpOrigin("compare", () => host.apply(op, "compare")));
     host.flushNow?.();
     host.marker?.(text);

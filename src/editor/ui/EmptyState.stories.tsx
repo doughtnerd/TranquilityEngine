@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the kit's empty state: a screen's "nothing yet" with what it is for and how to start,
+// Stories (ADR 0219, 0349) for the kit's empty state: a screen's "nothing yet" with what it is for and how to start,
 // with and without an action, and the compact form a narrow panel uses.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fn, userEvent, within } from "storybook/test";

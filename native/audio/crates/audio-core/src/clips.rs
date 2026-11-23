@@ -77,7 +77,7 @@ pub enum ClipFormat {
     /// ADR 0162 A4: the MagLS bed filters (format 4, id `MAGLS_CLIP_ID`): f32 words, the
     /// `MaglsHeader` then `[16][2][taps]`; transformed into `bed.rs` at commit; never a voice's source.
     MagLs,
-    /// ADR 0337 §3, 0345 §5 (ABI 4.12): IMA ADPCM blocks (format 6, `audio_adpcm`'s layout), 1 or 2 channels, held
+    /// ADR 0351 §3, 0359 §5 (ABI 4.12): IMA ADPCM blocks (format 6, `audio_adpcm`'s layout), 1 or 2 channels, held
     /// compressed and decoded per voice a little each quantum (`adpcm_voice.rs`). Chunks start on a block and carry
     /// whole blocks.
     Adpcm,
@@ -329,7 +329,7 @@ impl ClipStore {
             return Err(wire::ERR_BAD_ARG);
         }
         if format == ClipFormat::Adpcm && channels > 2 {
-            // ADR 0337: ADPCM clips are mono or stereo (the voice's reader decodes at most two channels).
+            // ADR 0351: ADPCM clips are mono or stereo (the voice's reader decodes at most two channels).
             return Err(wire::ERR_BAD_ARG);
         }
         let bank_bytes = if hrir {

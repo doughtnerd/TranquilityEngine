@@ -1,4 +1,4 @@
-// The Samples screen's state (ADR 0335 "Navigation between screens"): which sample is open and what in it is selected
+// The Samples screen's state (ADR 0349 "Navigation between screens"): which sample is open and what in it is selected
 // are the route's (`#/samples?asset=…&select=marker:m2`), so a reload, the editor's hand-off or Back returns there.
 // Per-user view choices (time display, snap, play options) are preferences; the view span, playhead and razor are
 // per page.

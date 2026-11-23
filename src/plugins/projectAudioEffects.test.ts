@@ -1,4 +1,4 @@
-// ADR 0338 §8 (B5): the editor's plugin loading is a call site of the plugin effects. Opening the tremolo sample's
+// ADR 0352 §8 (B5): the editor's plugin loading is a call site of the plugin effects. Opening the tremolo sample's
 // folder and loading its code (`loadProjectCode`, what Play and every script reload run) registers the plugin's effects
 // with the catalogue, its module with the audio backend's `effectPlugins` capability and with offline renders; a reload
 // with nothing changed leaves the module alone, a rebuilt module re-registers, a plugin turned off leaves the backend

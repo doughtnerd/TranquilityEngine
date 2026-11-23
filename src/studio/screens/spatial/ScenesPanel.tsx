@@ -1,4 +1,4 @@
-// The Scenes panel (ADR 0333 test scenes in folders; the prototype's scene tree, B.3): the project's test scenes under the
+// The Scenes panel (ADR 0347 test scenes in folders; the prototype's scene tree, B.3): the project's test scenes under the
 // folders their `folder` fields name, a search, New (Blank scene, From current test scene, From open game scene…, From
 // take…, New folder), and per row a menu with Rename (F2), Duplicate, Move to…, Move to top level and Delete (Del; an
 // undo toast brings it back). Folder edits change the scenes' `folder` fields; files go through the asset operations.

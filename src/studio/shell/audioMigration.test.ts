@@ -1,4 +1,4 @@
-// ADR 0329: what the Playlists screen's banner says while a read-only project's old audio events wait for migration.
+// ADR 0343: what the Playlists screen's banner says while a read-only project's old audio events wait for migration.
 import { describe, expect, it } from "vitest";
 import { migrationBanner, type PendingAudioMigration } from "./audioMigration";
 

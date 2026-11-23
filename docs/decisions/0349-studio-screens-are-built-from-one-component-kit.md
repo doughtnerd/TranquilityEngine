@@ -1,10 +1,10 @@
-# 0335. Studio screens are built from one component kit: generic parts in the editor UI, audio parts in `src/studio/components/`
+# 0349. Studio screens are built from one component kit: generic parts in the editor UI, audio parts in `src/studio/components/`
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0025, 0116, 0145, 0174, 0219, 0235, 0278, 0327, 0332
+- **Related:** 0025, 0116, 0145, 0174, 0219, 0235, 0278, 0341, 0346
 
 ## Context
 
@@ -26,15 +26,15 @@ reusable components and no duplication across screens.
 We will build every Studio screen from one kit, putting each part where its users are.
 
 **Generic parts go in the editor's UI** (`src/editor/ui/`, exported from the SDK where plugins may want them), used by
-the scene editor and the Studio alike: the dock (`DockLayout`, with 0327's per-host store), `TreeView` (every Studio
-tree: samples, playlists, snapshots, scenes, takes, captures), the curve editor (0332), `UndoTree` and a
+the scene editor and the Studio alike: the dock (`DockLayout`, with 0341's per-host store), `TreeView` (every Studio
+tree: samples, playlists, snapshots, scenes, takes, captures), the curve editor (0346), `UndoTree` and a
 `HistoryPopover` over `activeHistory`, `EmptyState`, `UndoToast`, `ContextMenu`, `MoveToDialog` (folder picker that
 disables the current folder and its descendants), `SegmentedControl`, `Chip`, number fields with label scrubbing
 (`fieldDrag.ts`, gaining timecode and Alt-fine steps), `ConfirmDialog`, `ColorField`, `KeyboardShortcutsDialog`.
 
 **Audio parts go in `src/studio/components/`**, used by several Studio screens: `PlayerBar` (the "Layout A" frame
 with slots), `AudioDeviceMenu` and `LatencyCalibrationDialog`, `StudioStatusBar`, `Fader` (horizontal and vertical,
-with VCA tick), `Meter`, `EffectChain` and `EffectCard` (from the catalogue, 0331), `SendRow`, `DuckRow`,
+with VCA tick), `Meter`, `EffectChain` and `EffectCard` (from the catalogue, 0345), `SendRow`, `DuckRow`,
 `ParameterRow` and `ParameterPanel` (test values), `SoundPicker` (playlists and samples with type badges), `Waveform`
 (peaks from the shared decoder worker), `TimeRuler` with `Playhead`, `ValueLane`, `SpanLane` (instances and voices),
 `GainLanes`, `CausalChain`. A component used by one screen stays in that screen's folder until a second screen needs
@@ -44,7 +44,7 @@ it.
 a `*.stories.tsx` beside it (0219), and is tested through its model's interface.
 
 **Navigation between screens** is a Studio router (`src/studio/shell/route.ts`): `open({ screen, asset, select })`,
-reflected in the URL hash so the editor's handoff (0327) and a second window can open a screen on an asset. It replaces
+reflected in the URL hash so the editor's handoff (0341) and a second window can open a screen on an asset. It replaces
 the prototype's `myco.nav` hand-off.
 
 **Theme.** Studio CSS uses the engine's tokens only. The colours the prototype hard-codes become tokens in
@@ -75,7 +75,7 @@ editor's `shortcuts.ts` routing.
 
 ## Deprecates
 
-- Nothing directly; the editor audio panels' views are removed by 0327.
+- Nothing directly; the editor audio panels' views are removed by 0341.
 
 ## Open questions
 

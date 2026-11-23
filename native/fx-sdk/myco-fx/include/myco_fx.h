@@ -1,5 +1,5 @@
 /*
- * Myco audio effect plugins: the DSP ABI 1.0 (ADR 0338 §2, amended by 0344) for C, C++ and Zig authors.
+ * Myco audio effect plugins: the DSP ABI 1.0 (ADR 0352 §2, amended by 0358) for C, C++ and Zig authors.
  *
  * Build for wasm32 with no imports (e.g. `clang --target=wasm32 -nostdlib -O3 -Wl,--no-entry -Wl,--export-dynamic
  * -Wl,-z,stack-size=65536 -Wl,--max-memory=<memoryMB * 1048576>`), export these functions and the module's own

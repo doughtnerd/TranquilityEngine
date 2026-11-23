@@ -1,4 +1,4 @@
-// ADR 0328, 0329: an old looping clip, migrated in memory (`migrateProjectAudioEvents`), keeps sounding past one pass of
+// ADR 0342, 0343: an old looping clip, migrated in memory (`migrateProjectAudioEvents`), keeps sounding past one pass of
 // its sample on the real audio core. The first mapping made a looping clip an async clip in a looping Sequence; an async
 // clip plays its sample once on the core, so a migrated engine went silent after one pass until the playhead re-entered
 // the clip (gaps of about 750 ms in the Sound Lab). The migration now puts the loop in the sample's sidecar and the clip
@@ -124,7 +124,7 @@ afterEach(() => {
 });
 afterEach(closeLoopbackAudio);
 
-describe("migrated looping clips keep sounding on the audio core (ADR 0328, 0329)", () => {
+describe("migrated looping clips keep sounding on the audio core (ADR 0342, 0343)", () => {
   it("a looping clip with a loop region sounds without a gap for three passes of its sample", { timeout: 60_000 }, async (ctx) => {
     const assets = migrated({ "audio/hum.audioevent.json": { type: "clip", clip: IDLE, loop: true, loopRegion: [0.15, 1.15] } });
     const rms = await render(assets, "audio/hum.playlist.json", framesFor(4));

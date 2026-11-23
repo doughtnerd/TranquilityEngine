@@ -1,4 +1,4 @@
-// Where an open playlist sits (ADR 0329; the prototype's breadcrumb `path`): a shared playlist is a file, an embedded
+// Where an open playlist sits (ADR 0343; the prototype's breadcrumb `path`): a shared playlist is a file, an embedded
 // one an entry inside its parent's body. A path starts at a file and steps down through embedded entries (by index) and
 // through linked entries (into the linked file), so the breadcrumb shows how the designer got there and the output
 // inheritance follows it. Edits go to the last file on the path, at the entry indices after it. Pure.
@@ -95,13 +95,13 @@ export function sampleTitle(path: string): string {
   return dot > 0 ? name.slice(0, dot) : name;
 }
 
-/** ADR 0340 §5, 0341 §3: a line entry's display name: its key, "Line (from play)" for a programmer line, or its dialogue event. */
+/** ADR 0354 §5, 0355 §3: a line entry's display name: its key, "Line (from play)" for a programmer line, or its dialogue event. */
 export function lineTitle(line: string | null | { event: string }): string {
   if (line === null) return "Line (from play)";
   return typeof line === "string" ? `Line ${line}` : `Event ${line.event}`;
 }
 
-/** ADR 0346 (display only until G4): a generator entry's name: its file's name, or "Generator · <kind>" when embedded. */
+/** ADR 0360 (display only until G4): a generator entry's name: its file's name, or "Generator · <kind>" when embedded. */
 function generatorTitle(g: string | { kind: string }): string {
   if (typeof g !== "string") return `Generator · ${g.kind}`;
   const file = g.split("/").pop() ?? g;
@@ -121,7 +121,7 @@ export function entryName(e: Entry, index: number): string {
   if (e.kind === "linked") return playlistTitle(e.playlist);
   if (e.kind === "sample") return sampleTitle(e.sample);
   if (e.kind === "line") return lineTitle(e.line);
-  if (e.kind === "generator") return generatorTitle(e.generator); // display only until G4 (ADR 0346 §9)
+  if (e.kind === "generator") return generatorTitle(e.generator); // display only until G4 (ADR 0360 §9)
   const b = e.embedded;
   if (b.type === "clip") {
     const s = b.entries[0];

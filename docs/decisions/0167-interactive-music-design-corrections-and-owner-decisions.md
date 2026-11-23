@@ -1,6 +1,6 @@
 # 0167. Interactive music (M4): correct 0166 from the technical design (a stamped PLAY doesn't split the quantum, the prime lead, the allowances) and record the owner's design decisions
 
-- **Status:** Accepted (2026-11-11), partly superseded by 0329 (the music node format is replaced by playlists)
+- **Status:** Accepted (2026-11-11), partly superseded by 0343 (the music node format is replaced by playlists)
 - **Date:** 2026-11-11
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

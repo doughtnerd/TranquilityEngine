@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0340 §8–§9) for the Report tab over the fixture project: per-language counts, the French
+// Stories (ADR 0219, 0354 §8–§9) for the Report tab over the fixture project: per-language counts, the French
 // mismatch and script change, the CSV exports, and a script CSV import shown as a diff before Apply.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
@@ -62,7 +62,7 @@ export const Report: StoryObj = {
     await waitFor(() => expect(c.queryByRole("region", { name: "Script import" })).toBeNull());
     await expect(c.getByRole("status")).toHaveTextContent("applied");
 
-    // 0343 §1: subtitles left in a line table are moved into the string table.
+    // 0357 §1: subtitles left in a line table are moved into the string table.
     await expect(c.getByRole("note", { name: "Subtitles in line tables" })).toHaveTextContent("2 lines keep their subtitles");
     await userEvent.click(c.getByRole("button", { name: "Move subtitles to the string table" }));
     await waitFor(() => expect(c.queryByRole("note", { name: "Subtitles in line tables" })).toBeNull());

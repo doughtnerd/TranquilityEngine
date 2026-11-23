@@ -19,9 +19,9 @@
 //! - ADR 0158 E2: CURVES, PARAM, AUTOMATE and BUS_AUTOMATE (`automation.rs`) apply at once, in
 //!   arrival order, whatever their `frameOffset` (AUTOMATE finds its voice because PLAY writes the
 //!   slot at once); SET_LOOP is scheduled like STOP (a release lands on its exact frame).
-//! - ADR 0328: LOOPS (a clip voice's loop program) applies at once, like AUTOMATE (`voices::loops`).
-//! - ADR 0346 (ABI 5.1): GEN (a generator voice's parameters) applies at once, like AUTOMATE (`generator::apply`).
-//! - ADR 0332: TIME (a group clock's re-anchor) is scheduled like STOP; when its quantum comes it
+//! - ADR 0342: LOOPS (a clip voice's loop program) applies at once, like AUTOMATE (`voices::loops`).
+//! - ADR 0360 (ABI 5.1): GEN (a generator voice's parameters) applies at once, like AUTOMATE (`generator::apply`).
+//! - ADR 0346: TIME (a group clock's re-anchor) is scheduled like STOP; when its quantum comes it
 //!   applies with its own frame (`due::route`, `Route::Clock`), never splitting. Asap anchors at
 //!   the next quantum's first frame.
 //! - RESET (A1.3b) applies at once, in arrival order, whatever its `frameOffset`: every voice and
@@ -235,7 +235,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::LOUD_CONFIG => wire::LoudConfig::FIXED_END,
             wire::op::BUS_SLOT => wire::BusSlot::FIXED_END,
             wire::op::BUS_SENDS => wire::BusSends::FIXED_END,
-            // ADR 0346 (ABI 5.1).
+            // ADR 0360 (ABI 5.1).
             wire::op::GEN => wire::Gen::FIXED_END,
             _ => RecordHead::FIXED_END,
         };
@@ -376,7 +376,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             }
             wire::op::AUTOMATE => automation::automate(core, msg, off),
             wire::op::LOOPS => voices::loops(core, msg, off),
-            // ADR 0346 (ABI 5.1): a generator voice's parameters, on arrival like AUTOMATE (they don't fit a pending record).
+            // ADR 0360 (ABI 5.1): a generator voice's parameters, on arrival like AUTOMATE (they don't fit a pending record).
             wire::op::GEN => crate::generator::apply(core, msg, off),
             wire::op::SUBMIX => crate::submix::configure(core, msg, off),
             wire::op::SUBMIX_AUTOMATE => crate::submix::automate(core, msg, off),
@@ -419,7 +419,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
                 }
             },
             wire::op::BUS_DUCK => duck::on_rules(core, msg, off),
-            // ADR 0330 (ABI 4.7): asap only, like BUS_DUCK.
+            // ADR 0344 (ABI 4.7): asap only, like BUS_DUCK.
             wire::op::BUS_SENDS => crate::bus_sends::on_sends(core, msg, off),
             wire::op::BUS_PRESENCE => match at {
                 None => duck::on_presence(core, msg, off, None),
@@ -484,9 +484,9 @@ pub fn reset(core: &mut Core, keep_clips: bool) {
     bus::reset(core);
     // ADR 0158 E2: curves, parameters, bindings and loop regions.
     automation::reset(core);
-    // ADR 0346: every generator slot record and pool entry (main replays its voices and their GENs).
+    // ADR 0360: every generator slot record and pool entry (main replays its voices and their GENs).
     crate::generator::reset(core);
-    // ADR 0331: every submix slot and route (main replays the ones in use).
+    // ADR 0345: every submix slot and route (main replays the ones in use).
     crate::submix::reset(core);
     if !keep_clips {
         crate::clips::reset(core);
@@ -665,7 +665,7 @@ pub fn apply(core: &mut Core, record: &PendingRecord) {
         wire::op::SET_PAUSED => voices::set_paused(core, record.voice_id, record.flags & 1 != 0),
         wire::op::SEEK => voices::seek(core, record.voice_id, record.frames, record.values[0].to_bits()),
         wire::op::SET_LOOP => voices::set_loop(core, record.voice_id, record.frames, record.values[0].to_bits(), record.flags & 1 != 0),
-        // ADR 0332: `frames` the group, `mask` which, `flags` bit0 stamped (then `frame` is its anchor).
+        // ADR 0346: `frames` the group, `mask` which, `flags` bit0 stamped (then `frame` is its anchor).
         wire::op::TIME => automation::time(core, record.frames.min(u16::MAX as u32) as u16, record.mask as u16, record.values[0], record.values[1], (record.flags & 1 != 0).then_some(record.frame)),
         // B1b: class B never splits (`due::route`); applied now, at its frame's quantum start.
         wire::op::BUS_RAMP => lanes::on_due(core, record, record.frame),
@@ -717,7 +717,7 @@ pub fn pending_len(core: &mut Core) -> usize {
 /// pending queue does).
 pub const CONFIG_PENDING: usize = 64;
 /// Bytes of one queued record's copy: a `BUS_SLOT` with the 8 effects it keeps is 28 + 8 × 68 =
-/// 572 B (ABI 5.0, ADR 0338's 16 parameters; 284 B with `p[7]`, 156 B with four effects before ABI
+/// 572 B (ABI 5.0, ADR 0352's 16 parameters; 284 B with `p[7]`, 156 B with four effects before ABI
 /// 4.6); `BUS_PRESENCE` is 16 B.
 pub const CONFIG_RECORD_BYTES: usize = 576;
 

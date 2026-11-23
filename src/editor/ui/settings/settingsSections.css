@@ -1,4 +1,4 @@
-/* Project Settings > Languages and Subtitles (ADR 0340 L7, 0342 T7, 0343 S5). Theme tokens only. */
+/* Project Settings > Languages and Subtitles (ADR 0354 L7, 0356 T7, 0357 S5). Theme tokens only. */
 .settings-languages, .settings-subtitles { display: flex; flex-direction: column; gap: 8px; }
 .settings-table { border-collapse: collapse; width: 100%; font-size: 12px; }
 .settings-table th { text-align: left; font-weight: 600; color: var(--muted); padding: 2px 4px; border-bottom: 1px solid var(--border); white-space: nowrap; }

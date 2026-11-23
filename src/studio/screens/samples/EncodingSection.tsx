@@ -1,4 +1,4 @@
-// The Samples Inspector's Encoding section (ADR 0337 §6): a platform switch (Web · Desktop · Android), the profile the
+// The Samples Inspector's Encoding section (ADR 0351 §6): a platform switch (Web · Desktop · Android), the profile the
 // file uses, one row per key with its effective value, where it came from and an override control (for this platform
 // or every platform) with Reset, the profile and folder-rule matches, and the readouts per platform: what it ships as,
 // shipped size (exact once converted, else "≈"), the ratio to the source, runtime memory by load mode and the packages

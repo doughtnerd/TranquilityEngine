@@ -1,4 +1,4 @@
-// ADR 0334: the take's hook points. The runtime's entry points above the backend seam (`Audio.play` and `playOneShot`,
+// ADR 0348: the take's hook points. The runtime's entry points above the backend seam (`Audio.play` and `playOneShot`,
 // the handles' stop, release and trigger, buses, snapshots, master volume, `AudioSource`, and the audio frame's pose read)
 // call `takeTap.sink` when it is set; while no take records it is null and a hook costs one comparison. Parameters reach
 // the take through the profile taps instead (`capture.ts` `CaptureTee`: every effective change passes there once).
@@ -8,7 +8,7 @@ import type { Vec3Like } from "../../../../engine/core/math";
 import type { TakeMixOp } from "../../../../engine/audio/take/records";
 import type { TakePlayOptions, TakeSayOptions, TakeSayPick, TakeSayState } from "../../../../engine/audio/take/types";
 
-/** What a say record holds beyond its time and instance (ADR 0341 §6). */
+/** What a say record holds beyond its time and instance (ADR 0355 §6). */
 export interface TakeSayInit {
   event: string;
   /** The resolved value of every argument. */
@@ -53,13 +53,13 @@ export interface TakeRequestSink {
   release(instance: object): void;
   trigger(instance: object, name: string): void;
   mix(op: TakeMixOp, target: string, value: number, seconds: number): void;
-  /** ADR 0340 §10: `Audio.line(key)` played in `language` (null: nothing heard). `instance` is the line's handle. */
+  /** ADR 0354 §10: `Audio.line(key)` played in `language` (null: nothing heard). `instance` is the line's handle. */
   line(instance: object, key: string, language: string | null, emitter: TakeEmitter | null, options: TakePlayOptions): void;
-  /** ADR 0340 §10, 0343 §2: the audio or subtitle language changed. */
+  /** ADR 0354 §10, 0357 §2: the audio or subtitle language changed. */
   language(audio: string, subtitles: string | null): void;
-  /** ADR 0341 §6: `Audio.say` as asked. `instance` is the say's handle. */
+  /** ADR 0355 §6: `Audio.say` as asked. `instance` is the say's handle. */
   say(instance: object, say: TakeSayInit): void;
-  /** ADR 0341 §6: a queued say started (with its pick) or was dropped. */
+  /** ADR 0355 §6: a queued say started (with its pick) or was dropped. */
   sayState(instance: object, state: "playing" | "dropped", picked: TakeSayPick | null, random: number | null): void;
   /**
    * Once per audio frame, before the backend's frame (`audioFrame.ts`): poses at 30 Hz, changes only, the take keyframe

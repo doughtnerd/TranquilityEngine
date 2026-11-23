@@ -1,5 +1,5 @@
 //! IMA ADPCM: encode through the crate's interface, decode with a reader written here from the layout in `adpcm.rs`'s
-//! documentation (the core's reader is ADR 0337 A4's), and check the round trip, block independence and the layout.
+//! documentation (the core's reader is ADR 0351 A4's), and check the round trip, block independence and the layout.
 
 mod common;
 

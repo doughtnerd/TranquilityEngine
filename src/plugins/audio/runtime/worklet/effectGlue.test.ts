@@ -1,4 +1,4 @@
-// ADR 0338 §1, §6 and 0344 §1, §4, §5: the worklet glue through the interface the core and the shell use (the
+// ADR 0352 §1, §6 and 0358 §1, §4, §5: the worklet glue through the interface the core and the shell use (the
 // `myco_ext` import object, `onControl`, `beginQuantum` and the posted events), over a memory standing in for the core's
 // and the SDK's real test plugin (`native/fx-sdk/wasm/test_fx.wasm`, validated and instrumented as main does).
 import { readFileSync } from "node:fs";
@@ -46,7 +46,7 @@ async function rig() {
   return { glue, events, load, call, sweep };
 }
 
-describe("the plugin effect glue (ADR 0338, 0344)", () => {
+describe("the plugin effect glue (ADR 0352, 0358)", () => {
   it("compiles, warms each effect up and pre-creates its instances before any goes live", async () => {
     const { glue, events, load } = await rig();
     const loading = load([GAIN, TRAP]);

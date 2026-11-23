@@ -1,4 +1,4 @@
-// The keyboard shortcuts dialog's list (ADR 0335): shortcuts in groups ("Everywhere", "Mixer", "Fader"), each with
+// The keyboard shortcuts dialog's list (ADR 0349): shortcuts in groups ("Everywhere", "Mixer", "Fader"), each with
 // its keys written the platform's way, filtered by a search over what they do and their keys. Groups left empty by
 // the search go.
 import { formatKeys } from "./keyCombo";

@@ -1,4 +1,4 @@
-// ADR 0337 spike A0/S1: the browser's WASI shim for the encoder reactor (no dependency). It covers exactly the six
+// ADR 0351 spike A0/S1: the browser's WASI shim for the encoder reactor (no dependency). It covers exactly the six
 // imports the wasm32-wasip1 build asks for: fd_write (stdout/stderr to the console), random_get, clock_time_get,
 // environ_get/environ_sizes_get (empty environment) and proc_exit. Anything else would fail at instantiation.
 export function wasiShim() {

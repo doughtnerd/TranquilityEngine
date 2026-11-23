@@ -13,11 +13,11 @@ const VOICE_FX_MASK: &[Bits] = &[
     Bits::bit("sends", 1, "send[0..3]"),
     Bits::bit("yaw", 2, "yaw (ambisonic voices)"),
     Bits::bit("aux", 3, "auxLevel and auxBus"),
-    Bits::bit("spread", 4, "spread (ADR 0333, ABI 4.11)"),
+    Bits::bit("spread", 4, "spread (ADR 0347, ABI 4.11)"),
 ];
 
 /// 0x0A SET_VOICE_FX, 52 B (C3, §4.2): a mixed voice's high-pass, zone sends, ambisonic yaw, aux
-/// send and (ABI 4.11, ADR 0333, in what was `reserved`) spread. Stamped like SET_PARAMS. The state lives in the core's mixed-voice pool; virtual voices hold
+/// send and (ABI 4.11, ADR 0347, in what was `reserved`) spread. Stamped like SET_PARAMS. The state lives in the core's mixed-voice pool; virtual voices hold
 /// none, so main re-sends it with SET_MIXED on promotion.
 pub const SET_VOICE_FX: Opcode = Opcode {
     id: 0x0A,
@@ -33,11 +33,11 @@ pub const SET_VOICE_FX: Opcode = Opcode {
         Field::new("auxLevel", Ty::F32).doc("linear level of the one aux send"), // 44
         Field::new("auxBus", Ty::U16).doc("aux send's bus; 0xFFFF (AUX_BUS_NONE) is none"), // 48
         Field::new("spread", Ty::U16)
-            .doc("ADR 0333 (ABI 4.11): a spatial voice's spread in hundredths of a degree, 0..36000 (0 a point source, 36000 all round); ramped over rampFrames"), // 50
+            .doc("ADR 0347 (ABI 4.11): a spatial voice's spread in hundredths of a degree, 0..36000 (0 a point source, 36000 all round); ramped over rampFrames"), // 50
     ]),
     total_bytes: Some(52),
     sent: true,
-    doc: "a mixed voice's high-pass, zone sends, ambisonic yaw, aux send and spread (ADR 0162 C3, ADR 0333); stamped like SET_PARAMS",
+    doc: "a mixed voice's high-pass, zone sends, ambisonic yaw, aux send and spread (ADR 0162 C3, ADR 0347); stamped like SET_PARAMS",
 };
 
 /// BED_CONFIG's two arrays (C2, §4.2): `u8 bedSlot[busCount]` from offset 20, padded to 4 B, then

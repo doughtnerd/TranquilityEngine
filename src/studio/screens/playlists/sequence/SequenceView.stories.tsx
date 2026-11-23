@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the Sequence view: the fixture Brake sequence (a skid with a parameter-bound loop
+// Stories (ADR 0219, 0349) for the Sequence view: the fixture Brake sequence (a skid with a parameter-bound loop
 // override and a volume envelope, a hold point, overlapping sync music clips with the "follows" warning, a playlist
 // track, markers of each type), an empty sequence, one without a tempo, and the Inspector beside the timeline. Each
 // story applies its edits locally so every gesture works.

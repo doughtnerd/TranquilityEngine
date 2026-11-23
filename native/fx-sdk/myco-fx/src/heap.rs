@@ -1,4 +1,4 @@
-//! An allocator that frees (ADR 0344 §5): the host destroys and re-creates instances in place after a fault or a
+//! An allocator that frees (ADR 0358 §5): the host destroys and re-creates instances in place after a fault or a
 //! reload, so memory a destroyed instance held must come back, or every reset would leak until the module's
 //! `memoryMB` runs out. (The B0 spike's bump allocator leaked on every reset.)
 //!

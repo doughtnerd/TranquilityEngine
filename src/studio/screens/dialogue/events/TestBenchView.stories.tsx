@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0341 §7, 0343 §6) for the test bench over the fixture event, with the path table highlighting the
+// Stories (ADR 0219, 0355 §7, 0357 §6) for the test bench over the fixture event, with the path table highlighting the
 // pick: Guard·Clear·Near says a weighted line with its subtitle; Say remembers it (avoid-repeat); Roll ×50 shows the
 // distribution; Captain has no path; Sniper is an explicit silence.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

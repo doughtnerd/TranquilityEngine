@@ -1,4 +1,4 @@
-// Every Studio screen's panels (ADR 0327 "The shell"): each screen's panel list comes from its own folder,
+// Every Studio screen's panels (ADR 0341 "The shell"): each screen's panel list comes from its own folder,
 // `src/studio/screens/<screen>/`.
 import type { StudioPanel } from "../shell/studioPanels";
 import type { ScreenId } from "../shell/screens";

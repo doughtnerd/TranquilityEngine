@@ -1,11 +1,11 @@
-// Opening a project in the Studio (ADR 0327, 0318): the start screen's intents go through the editor's project-opening
+// Opening a project in the Studio (ADR 0341, 0318): the start screen's intents go through the editor's project-opening
 // module, and the project opens here: read with `openFolderProject` (or a sample, read-only), its assets made the
 // page's asset source (`useProjectAssets`), made the current project, remembered in the recent projects (shared with
 // the editor), shared with other apps (the Studio's lock and the folder watch, studioProjectWatch.ts) and the Studio's
 // audio runtime started on its settings. The editor's hand-off (`myco://studio-open`, studioHandoff.ts) and the
 // page's `?project=` come through `openRequest` and `handOff`; a browser folder is found among the recent projects'
 // stored handles (`recentForMount`). A folder with old audio events (`*.audioevent.json`) is offered their migration
-// first (ADR 0329, `audioEventMigration.ts`); declined, it opens read-only and the Playlists screen's banner offers
+// first (ADR 0343, `audioEventMigration.ts`); declined, it opens read-only and the Playlists screen's banner offers
 // Migrate now (`pendingAudioMigration`), which migrates and opens it again.
 import { FsaFileSystem } from "../../editor/fsaFileSystem";
 import { errorStatus } from "../../editor/messages";
@@ -58,7 +58,7 @@ export function studioProjects({ runtime, openRoute, confirm = (q) => confirmInE
     useProjectAssets(project);
     currentProject.value = project;
     void runtime.open(editorSettings(project));
-    // ADR 0338 §8: the project's plugin audio effects (catalogue, the core's chains, offline renders).
+    // ADR 0352 §8: the project's plugin audio effects (catalogue, the core's chains, offline renders).
     void applyProjectAudioEffects(project);
     void rememberProject(project, "studio");
     if (!readOnly) void startStudioProjectWatch(project);

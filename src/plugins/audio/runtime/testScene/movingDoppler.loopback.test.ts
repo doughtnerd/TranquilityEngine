@@ -1,4 +1,4 @@
-// ADR 0333, 0162: a moving emitter of a spatial test scene is heard with its Doppler shift, on the real core wasm and the
+// ADR 0347, 0162: a moving emitter of a spatial test scene is heard with its Doppler shift, on the real core wasm and the
 // core backend (the loopback host), driven by `engine.step` as the Studio's Engine drives its World each animation
 // frame. The emitter plays a 500 Hz sine and flies a straight route past the listener at 20 m/s; the rendered output's
 // frequency, measured from its zero crossings, is c / (c - L v cos) on approach and c / (c + L v cos) on recession, with
@@ -120,7 +120,7 @@ function meanCos(x0: number, x1: number): number {
 const approach = (level: number, cos: number) => C / (C - level * SPEED * cos);
 const recession = (level: number, cos: number) => C / (C + level * SPEED * cos);
 
-describe("a moving emitter of a test scene on the loopback core (ADR 0333, 0162)", () => {
+describe("a moving emitter of a test scene on the loopback core (ADR 0347, 0162)", () => {
   it("is heard higher on approach and lower on recession, by c / (c ∓ v)", async (ctx) => {
     const r = await rig();
     if (!r) return ctx.skip();

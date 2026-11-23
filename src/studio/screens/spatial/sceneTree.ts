@@ -1,4 +1,4 @@
-// The Scenes panel's tree (ADR 0333: test scenes carry `folder` paths for the Scenes tree; the prototype's scene file
+// The Scenes panel's tree (ADR 0347: test scenes carry `folder` paths for the Scenes tree; the prototype's scene file
 // system): the project's `*.audioscene.json` files under the folders their `folder` names, search by name and folder,
 // and the folder edits, which change scenes' `folder` fields (a folder exists while a scene is in it; one made in this
 // session stays in the panel until something moves in, `extra`). The files themselves are renamed, duplicated and

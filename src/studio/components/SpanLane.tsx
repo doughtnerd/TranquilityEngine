@@ -1,4 +1,4 @@
-// A span lane (ADR 0335 `SpanLane`): one lane of instances or voices over time (a take's playlist instances, a
+// A span lane (ADR 0349 `SpanLane`): one lane of instances or voices over time (a take's playlist instances, a
 // capture's voices), each a bar coloured by status with its held part (sustain, held loop) drawn inside, overlapping
 // bars stacked in rows. Click a bar to select it; with the lane focused, Left and Right move the selection, Home and
 // End jump to the ends, Enter opens it. A "problems only" filter dims the ones that played fine. The lane takes a

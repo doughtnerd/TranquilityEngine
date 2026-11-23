@@ -1,5 +1,5 @@
 /**
- * The project's languages (ADR 0340 §1, extended by 0342 §3 and 0343 §2–§3): `project.json`'s `languages` section,
+ * The project's languages (ADR 0354 §1, extended by 0356 §3 and 0357 §2–§3): `project.json`'s `languages` section,
  * the one language list for text and audio. Parsed leniently (never throws; one problem line per bad value) and
  * written back minimal; plus the pure rules on it: fallback chains, BCP 47 lookup, default text direction, the voice
  * language a text language follows.
@@ -38,17 +38,17 @@ export interface LanguageDef {
   fallback: string[];
   /** False: work in progress, left out of exports and the runtime's language lists. */
   ship: boolean;
-  /** Base text direction (0342 §5); absent in the file: `defaultDirection(code)`. */
+  /** Base text direction (0356 §5); absent in the file: `defaultDirection(code)`. */
   direction: TextDirection;
-  /** Font files tried after a text's own font and before Inter (0342 §5). */
+  /** Font files tried after a text's own font and before Inter (0356 §5). */
   fonts: string[];
   /** A text whose font is the key draws in the value in this language. */
   fontReplace: Record<string, string>;
   /** The BCP 47 tag `Intl` formats with; null: the code. */
   intl: string | null;
-  /** False: translated but not recorded (0343 §2): not a voice language. */
+  /** False: translated but not recorded (0357 §2): not a voice language. */
   voice: boolean;
-  /** Subtitle reading speed, characters per second (0343 §3); null: the built-in default for the language. */
+  /** Subtitle reading speed, characters per second (0357 §3); null: the built-in default for the language. */
   readingSpeed: number | null;
 }
 
@@ -63,9 +63,9 @@ export interface LanguageSettings {
   fallback: string[];
   useSystemLanguage: boolean;
   remember: boolean;
-  /** Folders whose first sub-folder is a language code (0342 §10). */
+  /** Folders whose first sub-folder is a language code (0356 §10). */
   assetRoots: string[];
-  /** Voice follows the text language, or the two switch separately (0343 §2). */
+  /** Voice follows the text language, or the two switch separately (0357 §2). */
   voice: VoiceMode;
 }
 
@@ -106,7 +106,7 @@ export function canonicalLanguageCode(tag: string): string | null {
 
 const RTL_LANGUAGES = new Set(["ar", "he", "fa", "ur", "ps", "sd", "yi", "dv", "ckb"]);
 
-/** The text direction a language has when its row sets none (0342 §3). */
+/** The text direction a language has when its row sets none (0356 §3). */
 export function defaultDirection(code: string): TextDirection {
   const parts = code.split("-");
   if (RTL_LANGUAGES.has(parts[0].toLowerCase())) return "rtl";
@@ -309,7 +309,7 @@ export function languageOf(s: LanguageSettings, code: string): LanguageDef | und
 }
 
 /**
- * The fallback chain of `code` (0340 §1): the language itself, its own `fallback` list in order, then the project's
+ * The fallback chain of `code` (0354 §1): the language itself, its own `fallback` list in order, then the project's
  * `fallback`, duplicates removed. An unlisted code gives itself then the project's chain.
  */
 export function fallbackChain(s: LanguageSettings, code: string): string[] {
@@ -321,7 +321,7 @@ export function fallbackChain(s: LanguageSettings, code: string): string[] {
 export const shippedLanguages = (s: LanguageSettings): LanguageDef[] => s.list.filter((l) => l.ship);
 
 /**
- * The voice language a text language plays in under `voice: "followText"` (0343 §2): the text language when it is a
+ * The voice language a text language plays in under `voice: "followText"` (0357 §2): the text language when it is a
  * voice language, else the first language of its chain that is (shipped and `voice` not false); null when none is.
  */
 export function voiceLanguageFor(s: LanguageSettings, code: string): string | null {

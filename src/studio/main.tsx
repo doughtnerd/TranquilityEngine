@@ -1,4 +1,4 @@
-// Audio Studio entry (ADR 0327 "One frontend, a new entry"): `studio.html` on the editor's frontend. It boots what
+// Audio Studio entry (ADR 0341 "One frontend, a new entry"): `studio.html` on the editor's frontend. It boots what
 // the editor's story harness boots, made real: the core asset kinds, the audio plugin (its asset kinds, and its
 // runtime for the Studio's own Engine), the theme, the start screen over the editor's project opening, the router,
 // the audio runtime host and the keymap. `?sample=<id>` opens a sample and `?project=<folder>` a project folder (a path
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
   await projects.openRequest(startRequest(location.search));
 }
 
-/** The desktop app: answer the editor's hand-off over Tauri events (ADR 0327). The page serves it while it lives. */
+/** The desktop app: answer the editor's hand-off over Tauri events (ADR 0341). The page serves it while it lives. */
 async function serveHandoff(open: (request: StudioOpenRequest) => Promise<void>): Promise<void> {
   try {
     const [{ tauriBus }, { serveStudioOpen }] = await Promise.all([import("../editor/launcher/handoff"), import("../editor/studioHandoff")]);

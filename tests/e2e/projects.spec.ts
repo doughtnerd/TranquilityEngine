@@ -118,7 +118,7 @@ test("Make a Copy writes a sample into a folder and opens the copy for editing",
   const sample = start(page).locator(".sample", { hasText: "Flappy Bird" });
   await nextFolder(page, "MyFlappy");
   await sample.getByRole("button", { name: "Make a Copy…" }).click();
-  // The sample still has an old audio event (ADR 0329): opening the copy offers its migration once.
+  // The sample still has an old audio event (ADR 0343): opening the copy offers its migration once.
   const migrate = page.getByRole("alertdialog");
   await expect(migrate).toContainText("migrate 1 file to playlists");
   await migrate.getByRole("button", { name: "Migrate" }).click();

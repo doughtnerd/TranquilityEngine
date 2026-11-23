@@ -1,4 +1,4 @@
-// ADR 0330 (ABI 4.7): a bus's `sends` in the backends' view (`BusSettings.sends`), read leniently like the rest of the
+// ADR 0344 (ABI 4.7): a bus's `sends` in the backends' view (`BusSettings.sends`), read leniently like the rest of the
 // section: each into another bus of the list, once, at a linear level clamped to 0..MAX_SEND_LEVEL; more than the core's
 // four a bus are kept as authored with one warning (`busCapability.ts`' `sendsPerBus`). Through `parseAudioSettings` and
 // the ops that rename and remove buses (`applyOpToSettings`).
@@ -13,7 +13,7 @@ const buses = (sends: unknown) => [
   { name: "Hall", parent: "Master" },
 ];
 
-describe("audio.buses[].sends parse (ADR 0330)", () => {
+describe("audio.buses[].sends parse (ADR 0344)", () => {
   it("reads sends into other buses at their linear level; absent or empty is none (never written)", () => {
     const { settings, problems, warnings } = parseAudioSettings({ buses: buses([{ to: "Echo", level: 0.5 }, { to: "Hall" }]) });
     expect([problems, warnings]).toEqual([[], []]);

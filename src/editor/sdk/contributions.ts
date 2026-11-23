@@ -506,7 +506,7 @@ export interface SceneToolbarItemContribution {
 }
 
 /**
- * Controls on the Play toolbar, after Pause and Step, in registration order (ADR 0334): the Audio plugin's Record take
+ * Controls on the Play toolbar, after Pause and Step, in registration order (ADR 0348): the Audio plugin's Record take
  * and Record capture toggles. The view loads with the toolbar and decides itself when it is enabled (while playing).
  */
 export interface PlayToolbarItemContribution {

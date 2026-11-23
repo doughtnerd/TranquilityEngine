@@ -1,4 +1,4 @@
-// ADR 0285, kept for playlist voices by ADR 0329: the pass walk of a looping voice's anchor (`anchors.ts`), through its
+// ADR 0285, kept for playlist voices by ADR 0343: the pass walk of a looping voice's anchor (`anchors.ts`), through its
 // own interface: the position heard at a time across loop passes (a forever loop in closed form, a counted loop played
 // out), the next grid point heard in the pass it is heard in, and a point the loop wraps before. Ported from the music
 // segment anchor tests when the music player was retired.

@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the Playlist panel: one per type, over the fixture playlists, each applying its edits
+// Stories (ADR 0219, 0349) for the Playlist panel: one per type, over the fixture playlists, each applying its edits
 // locally so the controls work: a random Queue with weights, a Switch with labels, rules and the no-tempo lint, a 1D
 // Blend with its lane and envelope, a 2D Blend's plane, a Clip, and a Sequence's timeline.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
@@ -82,7 +82,7 @@ export const Blend1D: Story = { args: { path: "audio/vehicles/engine.playlist.js
 
 export const Blend2D: Story = { args: { path: "audio/ambience/wind.playlist.json" } };
 
-/** ADR 0336: a 1D entry's region: select it, nudge its start handle (making the region custom), shape a fade, reset. */
+/** ADR 0350: a 1D entry's region: select it, nudge its start handle (making the region custom), shape a fade, reset. */
 export const Blend1DRegion: Story = {
   args: { path: "audio/vehicles/engine.playlist.json", values: { rpm: 4000 } },
   play: async ({ canvasElement }) => {
@@ -100,7 +100,7 @@ export const Blend1DRegion: Story = {
   },
 };
 
-/** ADR 0336: a 2D entry's weight curve preset (the plane tints each entry's influence). */
+/** ADR 0350: a 2D entry's weight curve preset (the plane tints each entry's influence). */
 export const Blend2DWeightCurve: Story = {
   args: { path: "audio/ambience/wind.playlist.json" },
   play: async ({ canvasElement }) => {
@@ -112,7 +112,7 @@ export const Blend2DWeightCurve: Story = {
   },
 };
 
-/** ADR 0336: a Switch rule's fade shapes and its tail toggle. */
+/** ADR 0350: a Switch rule's fade shapes and its tail toggle. */
 export const SwitchFades: Story = {
   args: { path: "audio/footsteps/footsteps.playlist.json" },
   play: async ({ canvasElement }) => {

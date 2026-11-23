@@ -1,4 +1,4 @@
-// The Packages screen's Profiles and rules tab (ADR 0337 §2, §6, §8): `audio.json`'s `encoding` section edited — profiles
+// The Packages screen's Profiles and rules tab (ADR 0351 §2, §6, §8): `audio.json`'s `encoding` section edited — profiles
 // (Wwise's Conversion Settings ShareSets) with their keys for every platform or one, the default profile, the folder rules
 // (first match wins) with a preview of which files each catches, and the budgets per platform. Every edit returns
 // `{ next } | { refused }` over `audio.json`'s value; the screen applies it as one undo step of the document. A profile

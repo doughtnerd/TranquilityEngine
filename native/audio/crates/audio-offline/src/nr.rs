@@ -1,4 +1,4 @@
-//! Offline noise reduction (ADR 0331 `noiseReduction`, `amount` 0..100 %): a spectral gate over
+//! Offline noise reduction (ADR 0345 `noiseReduction`, `amount` 0..100 %): a spectral gate over
 //! the whole signal, one channel at a time.
 //!
 //! 1. **Noise print.** The signal's short-time spectrum (periodic Hann, [`size`] points, hop a

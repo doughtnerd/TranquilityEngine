@@ -1,4 +1,4 @@
-// Spike B0 (ADR 0338): prints a results file from run.mjs as compact tables.
+// Spike B0 (ADR 0352): prints a results file from run.mjs as compact tables.
 // Usage: node tools/spikes/fx-plugin/summarize.mjs FILE
 import { readFileSync } from "node:fs";
 

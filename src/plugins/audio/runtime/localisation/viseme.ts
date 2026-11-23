@@ -1,5 +1,5 @@
 /**
- * Lip-sync at runtime (ADR 0340 §7): the viseme a line's file shows at a heard time, from its sidecar's `lipsync` keys
+ * Lip-sync at runtime (ADR 0354 §7): the viseme a line's file shows at a heard time, from its sidecar's `lipsync` keys
  * (`[seconds, viseme]`, imported from Rhubarb Lip Sync or written by hand). `blend` rises 0..1 toward `next` over the
  * last 60 ms before it, so an animation can cross-fade mouth shapes.
  */

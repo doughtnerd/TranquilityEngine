@@ -1,4 +1,4 @@
-// ADR 0333: the AudioZone gizmo's outline and the Inspector section's lines.
+// ADR 0347: the AudioZone gizmo's outline and the Inspector section's lines.
 import { describe, expect, it } from "vitest";
 import { UprightBox } from "../runtime/core/spatial";
 import { audioZoneHeardLine, audioZoneNotices, audioZoneOutline } from "./audioZoneGizmoModel";

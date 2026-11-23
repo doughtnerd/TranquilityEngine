@@ -1,4 +1,4 @@
-// The World-side pieces of take replay (ADR 0334 "Replay": "builds a headless World with the listener and emitters"):
+// The World-side pieces of take replay (ADR 0348 "Replay": "builds a headless World with the listener and emitters"):
 // a listener entity in the Studio's audio-only World, made through the public API (`GameObject.create`, an
 // `AudioListener`, its `Transform`), placed at the recorded listener pose each frame. Emitters need no entities: replay
 // plays them as positioned instances (`Audio.play(path, { position })`) and moves their handles' `position`.

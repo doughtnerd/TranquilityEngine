@@ -1,4 +1,4 @@
-//! Filter designs the catalogue needs beyond Blink's low-pass and high-pass (ADR 0331): the
+//! Filter designs the catalogue needs beyond Blink's low-pass and high-pass (ADR 0345): the
 //! three-band EQ's shelves and peak, and the band-pass. Robert Bristow-Johnson's "Audio EQ
 //! Cookbook" formulas, in `f64` like `biquad::coeffs`, normalised by `a0`, through `libm`.
 //!

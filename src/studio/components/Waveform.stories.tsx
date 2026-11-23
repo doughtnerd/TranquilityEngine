@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the waveform: a sample with loop bands, a deleted snippet, the playhead, and the
+// Stories (ADR 0219, 0349) for the waveform: a sample with loop bands, a deleted snippet, the playhead, and the
 // placeholder while peaks load. Ctrl+wheel zooms, wheel scrolls.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

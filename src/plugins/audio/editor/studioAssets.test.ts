@@ -101,7 +101,7 @@ describe("the Studio's asset kinds", () => {
     expect(JSON.parse(read("audio/step.sample.json"))).toMatchObject({ source: "sfx/step.wav", lineage: { parent: "audio/base.sample.json" } });
   });
 
-  describe("generators (ADR 0346)", () => {
+  describe("generators (ADR 0360)", () => {
     const COIN = formatGenerator(applyBlipPreset(emptyGenerator("blip"), "coin", 1734));
     function usesCoin(): PlaylistAsset {
       const p = emptyPlaylist("clip");

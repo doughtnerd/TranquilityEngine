@@ -1,5 +1,5 @@
 /**
- * Loads audio packages with its node (ADR 0337 §9; Wwise's `AkBank`). A scene's load waits for the packages its
+ * Loads audio packages with its node (ADR 0351 §9; Wwise's `AkBank`). A scene's load waits for the packages its
  * `AudioPackageLoader`s name (the packages World service's `prepareScene`), so the scene doesn't start before its sound;
  * the loader then holds a reference on each, and drops them when it is destroyed (`unloadOnDestroy`, default true).
  * A loader added at runtime loads its packages as it activates (`Audio.package(name).state` says when they are in).

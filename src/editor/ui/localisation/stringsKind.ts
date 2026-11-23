@@ -1,4 +1,4 @@
-// The `strings` asset kind (ADR 0342 §1, §9): string tables (`<stem>.strings.json`, `myco.strings@1`) and their
+// The `strings` asset kind (ADR 0356 §1, §9): string tables (`<stem>.strings.json`, `myco.strings@1`) and their
 // translations (`<stem>.<code>.strings.json`, `myco.translation@1`) as asset documents, so the Localisation panel's
 // edits are undo steps in each file's own history (ADR 0027, 0233) and project-wide changes reach them through their
 // owner (ADR 0302). Opening one opens the Localisation panel. The path says which of the two a file is; a translation
@@ -37,5 +37,5 @@ export const STRINGS_ASSET_KIND: AssetKindContribution<StringsFile> = {
   panel: "localisation",
   format: stringsFormat,
   folder: "strings",
-  create: { label: "New String Table", name: "new-table", what: "string tables" }, // a stem without spaces or dots (0342 §1)
+  create: { label: "New String Table", name: "new-table", what: "string tables" }, // a stem without spaces or dots (0356 §1)
 };

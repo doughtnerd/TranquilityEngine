@@ -1,4 +1,4 @@
-// The Localisation panel's Exchange tab (ADR 0342 §8): Export (format, tables, languages, only what needs work) and
+// The Localisation panel's Exchange tab (ADR 0356 §8): Export (format, tables, languages, only what needs work) and
 // Import (pick CSV, XLIFF or PO files, see what would change and what is skipped and why, then apply: one undo step per
 // translation file). A view: the export files, the preview and the writes come from `exchangeModel.ts` through the panel.
 import type { ImportPreview } from "../../../engine/localisation/exchange/importPreview";

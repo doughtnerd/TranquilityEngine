@@ -1,5 +1,5 @@
 /**
- * Contract (ADR 0333): distance attenuation as curves. Used inline in a playlist's `spatial.attenuation` or as a shared
+ * Contract (ADR 0347): distance attenuation as curves. Used inline in a playlist's `spatial.attenuation` or as a shared
  * preset asset `*.attenuation.json` (`myco.attenuation@1`).
  *
  * Pure; no plugin, no DOM.
@@ -32,5 +32,5 @@ export interface AttenuationAsset extends Attenuation {
   format: typeof ATTENUATION_FORMAT;
 }
 
-/** Presets that write curve keys (ADR 0333: the old rolloff laws become presets). */
+/** Presets that write curve keys (ADR 0347: the old rolloff laws become presets). */
 export type AttenuationPreset = "linear" | "inverse" | "exponential" | "inverseSquare";

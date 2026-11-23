@@ -1,4 +1,4 @@
-//! ADR 0328: loop programs (LOOPS) through `scheduler::submit` and `Core::process`, on a ramp clip
+//! ADR 0342: loop programs (LOOPS) through `scheduler::submit` and `Core::process`, on a ramp clip
 //! (sample `k` is `k / 1000`), so the output tells the playhead: a forward loop with a count, a
 //! ping-pong loop, a held loop released by a stamped SET_LOOP on its exact frame, a hold point, a
 //! parameter loop leaving by crossfade, the seam's equal-power crossfade, virtual voices keeping

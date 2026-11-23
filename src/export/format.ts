@@ -59,31 +59,31 @@ export interface GameManifest {
    */
   readonly audioCapture?: true;
   /**
-   * The Export option "audio takes" (ADR 0334): the player installs the take trigger (F10), so the game can record a take
+   * The Export option "audio takes" (ADR 0348): the player installs the take trigger (F10), so the game can record a take
    * (what it asked of audio and the engine's profile, `*.mycotake`). Omitted when off.
    */
   readonly audioTake?: true;
-  /** ADR 0334: `false` keeps takes from recording pictures of the game view (a small JPEG about once a second). Omitted: they do. */
+  /** ADR 0348: `false` keeps takes from recording pictures of the game view (a small JPEG about once a second). Omitted: they do. */
   readonly audioTakeFrames?: false;
   /**
-   * ADR 0337 §7: the build's converted audio — its packages and the media table the clip resolver consults before
+   * ADR 0351 §7: the build's converted audio — its packages and the media table the clip resolver consults before
    * `Assets`. Omitted when nothing was converted or packaged (every sound ships loose, as before).
    */
   readonly audio?: AudioManifest;
   /**
-   * ADR 0338 §8: the enabled plugins' audio effect modules, one entry per module, which the player registers before
+   * ADR 0352 §8: the enabled plugins' audio effect modules, one entry per module, which the player registers before
    * `Engine.create` (so the first scene's chains find them). Omitted when no enabled plugin has an `audio` section.
    */
   readonly audioEffects?: readonly AudioEffectsEntry[];
   /**
-   * ADR 0342 §11: the build's string files (`strings/<code>.json`, one per shipped language) and each language's fonts,
+   * ADR 0356 §11: the build's string files (`strings/<code>.json`, one per shipped language) and each language's fonts,
    * which the player loads with a language switch (`installBuildStrings`). Omitted when the project has neither a
    * `languages` section nor string tables.
    */
   readonly localisation?: LocalisationManifest;
 }
 
-/** `game.json`'s `localisation` (ADR 0342 §11), as `readBuildLocalisation` reads it. */
+/** `game.json`'s `localisation` (ADR 0356 §11), as `readBuildLocalisation` reads it. */
 export interface LocalisationManifest {
   /** Language code → its string file (relative to the build's root) and size. */
   readonly strings: Readonly<Record<string, { readonly url: string; readonly bytes: number }>>;
@@ -93,7 +93,7 @@ export interface LocalisationManifest {
   readonly pseudo?: true;
 }
 
-/** One plugin audio module in a build (`game.json`'s `audioEffects`, ADR 0338 §8). */
+/** One plugin audio module in a build (`game.json`'s `audioEffects`, ADR 0352 §8). */
 export interface AudioEffectsEntry {
   readonly plugin: string;
   readonly title?: string;
@@ -109,7 +109,7 @@ export interface AudioEffectsEntry {
   readonly effects: readonly PluginEffectDecl[];
 }
 
-/** `game.json`'s `audio` (ADR 0337 §7). */
+/** `game.json`'s `audio` (ADR 0351 §7). */
 export interface AudioManifest {
   /** The platform the build's audio was converted for. */
   readonly platform: ImportPlatform;
@@ -127,7 +127,7 @@ export interface AudioManifestPackage {
   /** Loaded at engine start, before the first scene. */
   readonly preload: boolean;
   /**
-   * ADR 0340 §6: its language parts (`audio/packages/<name>.<code>.mycopak`), one per shipped language, when its contents
+   * ADR 0354 §6: its language parts (`audio/packages/<name>.<code>.mycopak`), one per shipped language, when its contents
    * reach localised files. Omitted for a package without any.
    */
   readonly languages?: Readonly<Record<string, { readonly url: string; readonly bytes: number }>>;
@@ -144,7 +144,7 @@ export interface AudioMediaEntry {
   /** Every package holding it, when there are several (A3): its bytes are in each, and loading any one makes it playable. */
   readonly packages?: readonly string[];
   /**
-   * ADR 0340 §6: a localised file's language part, in its package(s): the first shipped language whose part holds it
+   * ADR 0354 §6: a localised file's language part, in its package(s): the first shipped language whose part holds it
    * (its own language, or one that falls back to it). Omitted for a sound in a base part or loose.
    */
   readonly language?: string;

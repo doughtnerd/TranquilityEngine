@@ -101,7 +101,7 @@ impl Ramp {
         self.remaining == 0 && self.value == 1.0
     }
 
-    /// ABI 4.8 (ADR 0330: snapshots fade in dB): starts a ramp from `value` to `target` over
+    /// ABI 4.8 (ADR 0344: snapshots fade in dB): starts a ramp from `value` to `target` over
     /// `frames` that is **linear in dB** (geometric in gain): `step` becomes the per-frame ratio
     /// `(target / value)^(1 / frames)` and [`Ramp::next_db`] multiplies by it, the last frame landing
     /// exactly on `target`. A ramp to or from 0 (or a non-positive or non-finite end) can't be

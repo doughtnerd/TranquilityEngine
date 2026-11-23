@@ -1,5 +1,5 @@
 /**
- * The content-hash cache of sample renders (ADR 0328 "Baked effects are rendered offline": "the render cached by content
+ * The content-hash cache of sample renders (ADR 0342 "Baked effects are rendered offline": "the render cached by content
  * hash in `.myco/cache/samples/`"). A render is keyed by what it is made of: the source file's bytes and the edits the
  * render bakes (the chain, its automation and the normalisation gain; `renderSample`), plus the render's own version.
  * Equal inputs give the same key, so Re-flatten of unchanged edits, the export and the Studio's audition read one file
@@ -32,7 +32,7 @@ export interface RenderStore {
 export type SampleRenderer = (pcm: SamplePcm, edits: SampleEdits) => Promise<RenderedSample>;
 
 /**
- * The edits a render depends on, as canonical JSON (what `renderSample` reads, nothing else). ADR 0338 §7: each enabled
+ * The edits a render depends on, as canonical JSON (what `renderSample` reads, nothing else). ADR 0352 §7: each enabled
  * plugin effect type adds its plugin's name, version and module hash as `plugins` knows them (default: the installed
  * offline host), or `null` when none holds it, so a plugin update or install renders again.
  */

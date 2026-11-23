@@ -1,4 +1,4 @@
-// Audio and visual offsets per output device, per user (ADR 0327, 0335). The audio offset is what the engine's
+// Audio and visual offsets per output device, per user (ADR 0341, 0349). The audio offset is what the engine's
 // `Audio.calibration` holds (seconds, applied to input judging); the visual offset shifts drawn playheads and beats
 // to match what is heard. Both are kept per device under the user's preferences, so every screen and every project
 // shares them, and the audio offset is handed to the Studio's runtime while it runs.

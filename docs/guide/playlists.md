@@ -1,6 +1,6 @@
 # Playlists
 
-A **playlist** (`*.playlist.json`, ADR 0329) is how a sound is authored as data: variations, layers, a parameter that picks or blends what plays, held loops, timelines and music. You build playlists in the **Audio Studio** (Playlists screen; the Sequencer for sequences) and play them from a script or an `AudioSource`. A plain audio file plays the same way.
+A **playlist** (`*.playlist.json`, ADR 0343) is how a sound is authored as data: variations, layers, a parameter that picks or blends what plays, held loops, timelines and music. You build playlists in the **Audio Studio** (Playlists screen; the Sequencer for sequences) and play them from a script or an `AudioSource`. A plain audio file plays the same way.
 
 Playlists replace the old audio events (`*.audioevent.json`, ADR 0158) and music events (ADR 0166). Opening a project that still has old event files in the editor or the Audio Studio offers to migrate them once; `npm run audio:migrate -- <project folder>` does it from the command line. The engine, exports and the dedicated server refuse an old event file with a message naming the migration. Music on playlists is in [Interactive music](interactive-music.md).
 
@@ -72,7 +72,7 @@ Entries are always playlists: an **embedded** one belongs to its parent, a **lin
 | **Layer** | Plays every entry together. |
 | **Sequence** | A timeline of audio and playlist tracks with clips, loops, hold points, markers and automation (the Sequencer). |
 
-**Blend regions and weight curves** (ADR 0336). By default a 1D entry is full only at its `x` and crossfades out to its
+**Blend regions and weight curves** (ADR 0350). By default a 1D entry is full only at its `x` and crossfades out to its
 neighbours' positions (`layer`: it ramps in from the previous one and stays). Like an FMOD instrument on a parameter
 sheet or a Wwise blend-track range, an entry can instead say where it plays:
 

@@ -164,7 +164,7 @@ test("the Project menu's Project Settings shows the panel", async ({ page }) => 
 });
 
 // Renaming an entry of a named list (ADR 0262) renames what names it, asking first: a physics layer the open scene's
-// colliders use. (Audio buses are renamed in the Audio Studio, ADR 0327.)
+// colliders use. (Audio buses are renamed in the Audio Studio, ADR 0341.)
 test("renaming a physics layer asks first and renames the colliders; cancelling keeps the old name", async ({ page }) => {
   await openProject(page);
   await pickCategory(page, "Physics");

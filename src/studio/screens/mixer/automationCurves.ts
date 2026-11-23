@@ -1,4 +1,4 @@
-// The Mixer's automation in the shared curve editor (ADR 0330 automation, ADR 0332; the prototype's Bus curves): a
+// The Mixer's automation in the shared curve editor (ADR 0344 automation, ADR 0346; the prototype's Bus curves): a
 // dialog of kind "parameter" with one lane per automatable property of a bus or return (its level, each send, each
 // effect parameter; log for Hz), each lane driven by its own global parameter, and the dialog's result turned back into
 // automation edits: only lanes that changed are written, a flat lane that isn't bypassed removes the automation (the

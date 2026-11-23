@@ -2,7 +2,7 @@
 // project (`plugins/<folder>/plugin.json`) and in its npm packages (`"myco": { "plugin": … }` in a
 // package's package.json), the checks that run before any plugin code does, and which project code a
 // host loads, as one plan (`planPluginCode`, ADR 0275). No file access and no editor imports (from
-// the engine only the pure parse of a manifest's `audio` section, ADR 0338): the editor, the exporter
+// the engine only the pure parse of a manifest's `audio` section, ADR 0352): the editor, the exporter
 // and the dedicated server each pass what they read and run the same plan against the same
 // first-party catalogue, so all three agree on what loads.
 import { parsePluginAudio } from "../engine/audio/effects/pluginEffects";
@@ -38,7 +38,7 @@ export interface ThirdPartyManifest extends PluginManifest {
   readonly editor?: string;
   readonly assetKinds?: readonly PluginAssetKind[];
   /**
-   * ADR 0338 §3: DSP effects as sandboxed wasm modules, read without running plugin code. With it, `runtime` and
+   * ADR 0352 §3: DSP effects as sandboxed wasm modules, read without running plugin code. With it, `runtime` and
    * `editor` are optional: a DSP-only plugin runs no JavaScript.
    */
   readonly audio?: PluginAudio;
@@ -214,7 +214,7 @@ function parsePluginManifest(raw: unknown): { manifest: ThirdPartyManifest | nul
   const runtime = entry("runtime");
   const editor = entry("editor");
   if (r.runtime === undefined && r.editor === undefined && r.audio === undefined) problems.push(`a plugin needs a "runtime" or an "editor" entry, or an "audio" section`);
-  // ADR 0338 §3: the `audio` section, once the name and version it is stamped with are known to be good.
+  // ADR 0352 §3: the `audio` section, once the name and version it is stamped with are known to be good.
   let audio: PluginAudio | undefined;
   if (r.audio !== undefined && name !== undefined && NAME_RE.test(name)) audio = parsePluginAudio(r.audio, { name, version: version ?? "", ...(title !== undefined && { title }) }, problems);
   let dependencies: Record<string, string> | undefined;
@@ -286,7 +286,7 @@ interface DiscoverInput {
 export const pluginFolderOf = (path: string): string | null => /^(plugins\/[^/]+)\//.exec(path)?.[1] ?? null;
 
 /**
- * ADR 0338 §8: where a plugin's audio module file (`audio.modules[].wasm`, relative to the plugin) is, project-relative:
+ * ADR 0352 §8: where a plugin's audio module file (`audio.modules[].wasm`, relative to the plugin) is, project-relative:
  * `plugins/<folder>/<wasm>` for a project plugin, `node_modules/<package>/<wasm>` for an npm one.
  */
 export function pluginModulePath(plugin: Pick<FoundPlugin, "source">, wasm: string): string {
@@ -433,7 +433,7 @@ function checkPlugins(found: readonly FoundPlugin[], builtIn: readonly PluginMan
     else if (byName.has(name)) problems.push({ plugin: name, where: p.where, message: `another plugin named ${name} was found first, at ${byName.get(name)!.where}` });
     else byName.set(name, p);
   }
-  // ADR 0338 §3: an audio effect type is unique across the project (the first plugin to declare it keeps it).
+  // ADR 0352 §3: an audio effect type is unique across the project (the first plugin to declare it keeps it).
   const effectOwners = new Map<string, string>();
   for (const p of byName.values()) {
     const taken = (p.manifest.audio?.effects ?? []).map((e) => e.spec.type).find((t) => effectOwners.has(t));

@@ -1,4 +1,4 @@
-// ADR 0343 §5: the built-in subtitle display and the player settings through the public `myco` API in a headless engine:
+// ADR 0357 §5: the built-in subtitle display and the player settings through the public `myco` API in a headless engine:
 // `Audio.line` on the fake audio backend shows and hides the row on the heard clock (not wall clock), speaker names and
 // colours from `project.json`, the settings turning rows off, a live language change, and the settings' first-run
 // defaults and persistence under `settings/myco.subtitles`.

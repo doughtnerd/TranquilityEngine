@@ -1,4 +1,4 @@
-// ADR 0337 A4, A7 on the loopback host: the core backend as production assembles it, the real decoder handler in process
+// ADR 0351 A4, A7 on the loopback host: the core backend as production assembles it, the real decoder handler in process
 // (myco_audio_decode.wasm, ABI 1.5) and the real mixer (ABI 4.12).
 //
 // - an ADPCM sound held compressed in a `.mycopak` goes to the core as clip format 6 and plays with an SNR above 30 dB
@@ -59,7 +59,7 @@ async function playClip(r: NonNullable<Awaited<ReturnType<typeof packRig>>>, pat
 
 afterEach(closeLoopbackAudio);
 
-describe("ADPCM, Opus and packages on the core (ADR 0337 A4, A7)", () => {
+describe("ADPCM, Opus and packages on the core (ADR 0351 A4, A7)", () => {
   it("an ADPCM sound held compressed plays above 30 dB SNR, bit for bit as its blocks decoded, in a quarter of the arena", async (ctx) => {
     const src = source();
     const blocks = encodeAdpcm(src, 2);
@@ -99,7 +99,7 @@ describe("ADPCM, Opus and packages on the core (ADR 0337 A4, A7)", () => {
     expect(adpcm!.max / adpcm!.perQuantum).toBeLessThan(1.25);
     expect(pitch4!.max / pitch4!.perQuantum).toBeLessThan(1.25);
     expect(preset!.max / preset!.perQuantum).toBeLessThan(1.25);
-    // About 23k instructions per voice per quantum over int16 at pitch 1 (0345 §5).
+    // About 23k instructions per voice per quantum over int16 at pitch 1 (0359 §5).
     const perVoice = (adpcm!.perQuantum - int16!.perQuantum) / 256;
     console.log(`ADPCM: ${Math.round(perVoice)} instructions per voice per quantum over int16; worst quantum ${(adpcm!.max / adpcm!.perQuantum).toFixed(3)}× the mean`);
     expect(perVoice).toBeLessThan(30_000);

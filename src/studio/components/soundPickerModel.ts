@@ -1,6 +1,6 @@
-// The sound picker's list (ADR 0335 `SoundPicker`): the project's playlists and samples, searched by name and folder,
+// The sound picker's list (ADR 0349 `SoundPicker`): the project's playlists and samples, searched by name and folder,
 // in two sections (Playlists, then Samples), each sorted by path, and the keyboard's walk through the flat list of
-// what is shown. The picker returns a project path; the owner wraps a sample in a Clip where it must (ADR 0329).
+// what is shown. The picker returns a project path; the owner wraps a sample in a Clip where it must (ADR 0343).
 import type { BadgeCode } from "./typeBadgeModel";
 
 /** One sound the picker can offer. */

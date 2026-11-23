@@ -135,7 +135,7 @@ export function openAsset(path: string): boolean {
     void import("./code/codeBuffers").then((m) => m.openScript(file));
     return true;
   }
-  // ADR 0327: the Studio's files (playlists, samples, legacy audio events, ...) open there.
+  // ADR 0341: the Studio's files (playlists, samples, legacy audio events, ...) open there.
   if (opensWithAudioStudio(path)) {
     void import("./studioLaunch").then((m) => m.openAudioStudio(m.studioRequest(currentProject.peek(), { asset: file })));
     return true;

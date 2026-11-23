@@ -1,5 +1,5 @@
 /**
- * Offline loudness of a whole clip (ADR 0328 "normalize"): ITU-R BS.1770-4 / EBU R 128 gated integrated loudness and
+ * Offline loudness of a whole clip (ADR 0342 "normalize"): ITU-R BS.1770-4 / EBU R 128 gated integrated loudness and
  * sample peak, measured from decoded PCM. The Studio's Normalize computes `gainDb = target − measured` from these.
  *
  * - K-weighting: the two biquads of BS.1770 (a high shelf then a high-pass), with coefficients derived for the clip's

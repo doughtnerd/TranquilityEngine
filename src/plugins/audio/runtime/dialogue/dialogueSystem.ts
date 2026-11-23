@@ -1,5 +1,5 @@
 /**
- * Speaker channels (ADR 0341 §4–§5): `Audio.say` and `Audio.dialogue`. One system per page's audio session.
+ * Speaker channels (ADR 0355 §4–§5): `Audio.say` and `Audio.dialogue`. One system per page's audio session.
  *
  * - **Deciding.** An event's `cooldown` (since it last spoke) and `chance` are checked first, then `decide` picks a line
  *   (`decideLine.ts`: best match or weighted, availability, the event's avoid-repeat memory). Every refusal finishes the
@@ -36,7 +36,7 @@ import { decideEvent, dialogueMemory } from "./decideLine";
 import type { DialogueMemory } from "./memory";
 import { nearestSpeaker } from "./AudioSpeaker";
 
-/** Options for `Audio.say` (ADR 0341 §5). */
+/** Options for `Audio.say` (ADR 0355 §5). */
 export interface SayOptions extends LineOptions {
   /** A value per argument name (labels); arguments not given read their global parameter, else their default. */
   args?: Record<string, string>;
@@ -48,7 +48,7 @@ export interface SayOptions extends LineOptions {
   whenBusy?: "queue" | "interrupt" | "drop";
 }
 
-/** `Audio.dialogue` (ADR 0341 §5). */
+/** `Audio.dialogue` (ADR 0355 §5). */
 export interface AudioDialogue {
   /** Whether a line speaks on `channel` now. */
   speaking(channel: string): boolean;
@@ -68,7 +68,7 @@ export interface AudioDialogueDebug {
 
 export type DialogueRefusal = "busy" | "cooldown" | "chance" | "silence" | "noMatch" | "unavailable";
 
-/** `audio.json` `settings.dialogue` (ADR 0341 §4). */
+/** `audio.json` `settings.dialogue` (ADR 0355 §4). */
 export interface DialogueSettings {
   /** Lines speaking at once across channels; 0: no limit. */
   maxVoices: number;

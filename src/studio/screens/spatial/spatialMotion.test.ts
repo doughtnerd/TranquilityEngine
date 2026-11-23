@@ -1,4 +1,4 @@
-// ADR 0333 (owner: a moving emitter "I do want that to actually work"): while the Spatial screen plays, the Studio's
+// ADR 0347 (owner: a moving emitter "I do want that to actually work"): while the Spatial screen plays, the Studio's
 // World steps every animation frame and the screen's frame loop reads where each emitter is, so a moving emitter travels
 // its route and the plan and readout follow it; Stop takes it back to its start. Driven through the screen's own
 // actions (`openScene`, `playScene`, `stopAudition`, `editScene`) over a project in memory, a headless Engine on the

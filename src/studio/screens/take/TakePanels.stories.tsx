@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0334, 0335) for the Take screen's views over the fixture take (built through the take record
+// Stories (ADR 0219, 0348, 0349) for the Take screen's views over the fixture take (built through the take record
 // writers): the timeline replayed by a real `TakeReplay` on a silent target (play, scrub, select an instance, add and
 // drag notes with the notes edits), the Takes tree and its empty state, the Inspector's instance and note details and
 // the Mixer strip.

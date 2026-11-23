@@ -1,4 +1,4 @@
-// The Packages screen's Profiles and rules tab (ADR 0337 §2, §6): the profiles (Wwise's Conversion Settings ShareSets)
+// The Packages screen's Profiles and rules tab (ADR 0351 §2, §6): the profiles (Wwise's Conversion Settings ShareSets)
 // with the default marked, the selected profile's keys for every platform or for one (each a value or "Inherit", which
 // leaves it to the next layer: a platform's own value falls back to the profile's, the profile's to the next profile or
 // the built-in default), and the folder rules in order (first match wins) with what each catches. A view over props.

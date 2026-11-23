@@ -1,4 +1,4 @@
-// ADR 0158 §8, migrated to playlists (ADR 0329): the Sound Lab sample's events and music pages (samples/sound-lab) loaded
+// ADR 0158 §8, migrated to playlists (ADR 0343): the Sound Lab sample's events and music pages (samples/sound-lab) loaded
 // headless from disk on the fake backend (the TypeScript automation evaluator runs): the scenes load, the playlists the
 // migration wrote play what the old events played, a global parameter drives track automation, and nothing warns.
 import { fileURLToPath } from "node:url";
@@ -74,7 +74,7 @@ afterEach(() => {
   setAudioBackend(null);
 });
 
-describe("the Sound Lab's events page on playlists (ADR 0329)", () => {
+describe("the Sound Lab's events page on playlists (ADR 0343)", () => {
   it("loads the tour scene and the events scene without a warning", async () => {
     await boot("scenes/main.scene.json");
     await SceneManager.load("scenes/events.scene.json");
@@ -97,7 +97,7 @@ describe("the Sound Lab's events page on playlists (ADR 0329)", () => {
     expect(rows).toHaveLength(1);
     // At Intensity 0 the pulse and the lead are silent (their tracks' automation), the pad is not.
     advance(0.5);
-    // ADR 0336: the upper stems' lanes are beat-quantised: their level is the voice's stamped gain ramp (its last one).
+    // ADR 0350: the upper stems' lanes are beat-quantised: their level is the voice's stamped gain ramp (its last one).
     const ramps = (v: (typeof fake.voices)[number]) => v.events.filter((e): e is Extract<typeof e, { kind: "paramsShaped" }> => e.kind === "paramsShaped");
     const level = (re: RegExp) => { const v = voicesOf(re).at(-1)!; return v.volume * (ramps(v).at(-1)?.gain ?? 1); };
     expect(level(/music-pad/)).toBeGreaterThan(0.5);
@@ -177,7 +177,7 @@ describe("the Sound Lab's events page on playlists (ADR 0329)", () => {
   });
 });
 
-describe("the Sound Lab's music page on playlists (ADR 0329)", () => {
+describe("the Sound Lab's music page on playlists (ADR 0343)", () => {
   it("loads without a warning and starts the world Switch on its explore entry", async () => {
     await boot("scenes/music.scene.json");
     advance(0.5);

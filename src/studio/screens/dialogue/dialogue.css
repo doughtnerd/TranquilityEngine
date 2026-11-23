@@ -1,4 +1,4 @@
-/* The Dialogue screen (ADR 0340 §9, 0341 §7, 0343 §6): theme tokens only. */
+/* The Dialogue screen (ADR 0354 §9, 0355 §7, 0357 §6): theme tokens only. */
 .dl-doc { display: contents; }
 .dl-main { display: flex; flex-direction: column; min-height: 0; }
 .dl-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); padding: 0 6px; }

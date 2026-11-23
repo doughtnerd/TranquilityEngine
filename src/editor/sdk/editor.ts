@@ -22,7 +22,7 @@ export interface EditorSurface {
   /** Bring a panel to the front of its dock, opening it where it was last: a shell panel's id or a plugin panel's `id`. */
   showPanel(id: string): void;
   /**
-   * @internal ADR 0327: open the Audio Studio on the open project, at a screen or an asset (the audio plugin's Project
+   * @internal ADR 0341: open the Audio Studio on the open project, at a screen or an asset (the audio plugin's Project
    * Settings > Audio). Failures go to the status bar.
    */
   openAudioStudio(target?: { readonly asset?: string; readonly screen?: StudioScreen }): void;

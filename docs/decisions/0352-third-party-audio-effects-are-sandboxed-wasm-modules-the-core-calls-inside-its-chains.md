@@ -1,18 +1,18 @@
-# 0338. Third-party audio effects are sandboxed WebAssembly modules that the core calls inside its chains
+# 0352. Third-party audio effects are sandboxed WebAssembly modules that the core calls inside its chains
 
-- **Status:** Accepted, amended by [0344](0344-plugin-glue-fuel-and-worklet-compile-rules-follow-the-b0-spike.md) (glue, fuel, budgets and worklet compile rules from the B0 spike)
+- **Status:** Accepted, amended by [0358](0358-plugin-glue-fuel-and-worklet-compile-rules-follow-the-b0-spike.md) (glue, fuel, budgets and worklet compile rules from the B0 spike)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0010, 0041, 0133, 0139, 0157, 0158, 0171, 0178, 0179 (extended: a seventh capability), 0328, 0329, 0330, 0331, 0332, 0334, 0335, 0337
+- **Related:** 0010, 0041, 0133, 0139, 0157, 0158, 0171, 0178, 0179 (extended: a seventh capability), 0342, 0343, 0344, 0345, 0346, 0348, 0349, 0351
 
 ## Context
 
 The owner's follow-on scope (plan "Follow-on scope", 2026-11-22) asks for third-party DSP plugins, second in order
-after per-platform encoding (0337), following Wwise and FMOD.
+after per-platform encoding (0351), following Wwise and FMOD.
 
 **What exists today.**
-- **One effect catalogue** (0331): `src/engine/audio/effects/catalogue.ts` declares each type's parameters, levels
+- **One effect catalogue** (0345): `src/engine/audio/effects/catalogue.ts` declares each type's parameters, levels
   (`sample`, `voice`, `instance`, `bus`; returns are buses), version and cost class; `EffectType` is a closed union, and
   a file's effect of an unknown type is dropped with one problem line. The Studio's `EffectCard` and `EffectChain` draw
   every card from the catalogue (`effectSpec`), so a declared type gets its UI for free.
@@ -47,7 +47,7 @@ after per-platform encoding (0337), following Wwise and FMOD.
 We will let a plugin ship **DSP effects as WebAssembly modules with a small C ABI**, run in the AudioWorklet beside the
 core, **each module in its own memory, with no imports**, instrumented at load with an **instruction budget** that
 traps, and **called by the core from inside its effect chains** through an import the worklet shell binds. Effects are
-declared in `plugin.json`, so they join the one catalogue (0331) at the levels they declare, and the Studio draws their
+declared in `plugin.json`, so they join the one catalogue (0345) at the levels they declare, and the Studio draws their
 cards from the declaration.
 
 ### 1. Where a plugin effect runs (the choice)
@@ -141,7 +141,7 @@ Studio, the exporter and the player agree before anything loads:
 - `levels` is a subset of the catalogue's levels. `voice` costs an instance per voice and is allowed only when
   declared; when `maxInstances` is reached, further voices play without the effect and the profiler says why
   (`pluginInstances`).
-- `params` use the catalogue's `EffectParamSpec` (0331), plus two optional keys the catalogue gains for everyone:
+- `params` use the catalogue's `EffectParamSpec` (0345), plus two optional keys the catalogue gains for everyone:
   `choices` (labels; the value is the index; the card shows a menu) and `smooth` (default true; false for `bool` and
   `choices`).
 - Validation (`thirdParty.ts` and `effects/pluginEffects.ts`, before code runs): names, unique types, `kind` within
@@ -154,11 +154,11 @@ Studio, the exporter and the player agree before anything loads:
   `catalogue.ts` stays pure; `effectSpec(type)` answers from the built-ins, then from specs registered by
   `registerPluginEffects(specs)` (the audio plugin calls it from the manifests it is given; the player from
   `game.json`).
-- Effects in files keep the 0331 shape: `{ "id": "fx4", "type": "example.tremolo", "on": true, "params": { "rate": 6 } }`.
+- Effects in files keep the 0345 shape: `{ "id": "fx4", "type": "example.tremolo", "on": true, "params": { "rate": 6 } }`.
   **A plugin type whose plugin is off or missing is kept**, not dropped: it round-trips untouched, passes signal through
   at runtime with one warning, and the Studio shows a greyed card "Tremolo (plugin example.tremolo is off)". Unknown
-  non-namespaced types are still dropped (0331's rule).
-- Parameters are addressed by name everywhere (automation `fx:<id>:<param>`, 0330; snapshot overrides; 0332 curves);
+  non-namespaced types are still dropped (0345's rule).
+- Parameters are addressed by name everywhere (automation `fx:<id>:<param>`, 0344; snapshot overrides; 0346 curves);
   the TypeScript side maps a name to its index. A param a newer plugin version removed is ignored; a new one takes its
   default. Authors keep names stable across versions; the guide says so.
 
@@ -201,7 +201,7 @@ Studio, the exporter and the player agree before anything loads:
   disable the instance until its configuration changes or the Studio's **Reset plugin** is pressed.
 - **Reporting.** The glue posts rate-limited shell events (`pluginFault { plugin, type, instance, reason }`) on the
   worklet's port, never STATUS bytes. Main turns them into one warning per plugin and reason, `Audio.debug().plugins`
-  (per effect: instances, faults by reason, instructions per quantum, memory), and capture events (0334).
+  (per effect: instances, faults by reason, instructions per quantum, memory), and capture events (0348).
 - **The core never sees a plugin trap**: the glue catches it before it unwinds into the core's frames, so the hard
   rebuild (0157) stays for core faults only.
 - **Trust.** Plugins remain trusted code (0139: no sandbox for the JavaScript halves, and the guide says so). The DSP
@@ -209,15 +209,15 @@ Studio, the exporter and the player agree before anything loads:
   what it can do to the mix. A DSP-only plugin therefore carries no code with host access. Turning a plugin off in
   Project Settings > Plugins removes its effects everywhere (they pass through, data kept).
 - **Determinism.** The same inputs give the same bits on every engine (wasm floats; NaN payloads aside, which the fault
-  rule removes), so take replays (0334), golden tests and the offline render cache hold for plugin effects.
+  rule removes), so take replays (0348), golden tests and the offline render cache hold for plugin effects.
 
 ### 7. Levels, offline render and the backend seam
 
 - **Bus and return inserts, instance submixes, voice chains**: the core's chains call plugin slots in order with the
   built-ins.
-- **Sample (offline)**: the offline renderer (0328/0331, W9-B) imports the same `myco_ext` functions; its worker loads
+- **Sample (offline)**: the offline renderer (0342/0345, W9-B) imports the same `myco_ext` functions; its worker loads
   the same instrumented modules through the same glue, with `max_frames` 4,096. A runaway plugin there is caught by
-  fuel too; the worker also has a 10 s watchdog. The render cache key (0328) adds each plugin's name, version and wasm
+  fuel too; the worker also has a 10 s watchdog. The render cache key (0342) adds each plugin's name, version and wasm
   hash, so a plugin update re-renders.
 - **Capability** (0179): `effectPlugins: AudioEffectPlugins` — `register(module: EffectPluginModule):
   Promise<EffectPluginLoad>` (bytes already validated and instrumented, specs, `e` indices), `unregister(name)`,
@@ -245,7 +245,7 @@ Studio, the exporter and the player agree before anything loads:
 - **EffectCard** draws plugin cards like built-ins (from the spec) with a plugin chip (title and version), a menu for
   `choices` params, and a status line when the instance isn't healthy (`faulted: over budget`, `pass-through: plugin
   off`, `no free instance`) with **Reset plugin**.
-- **Profiler**: the effects-cost track (0331) gets a row per plugin effect from the exact instruction counts, plus
+- **Profiler**: the effects-cost track (0345) gets a row per plugin effect from the exact instruction counts, plus
   fault marks.
 - **Project Settings > Plugins** shows each plugin's effects, modules, memory and budget.
 
@@ -315,7 +315,7 @@ Studio, the exporter and the player agree before anything loads:
 
 ## Build plan
 
-**Spike first (B0, ≤ 3 days, results in `docs/design/0338-audio-effect-plugins/spikes.md`):** a tremolo and a
+**Spike first (B0, ≤ 3 days, results in `docs/design/0352-audio-effect-plugins/spikes.md`):** a tremolo and a
 biquad-heavy test effect, measured in V8, JavaScriptCore and SpiderMonkey: the glue's per-call cost, fuel overhead
 (segment checks against loop-header checks), synchronous module compile inside the worklet scope, and a trap caught in
 the glue leaving the core running.
@@ -330,5 +330,5 @@ the glue leaving the core running.
 | B6 | Studio | Plugins group in Add effect, plugin chip, choices menu, status and Reset plugin on `EffectCard`, Profiler rows, Plugins settings details; stories with `play` tests | `src/studio/components/EffectCard.tsx`, `EffectChain.tsx`, `effectChainModel.ts`, `src/studio/screens/profiler/**`, `src/editor/ui/` Plugins settings view |
 | B7 | Docs and e2e | `docs/guide/audio-effect-plugins.md`, `plugins.md` section; `@slow` spec: the tremolo sample exported for web plays with the tremolo's modulation visible in a capture's bus meter; a Studio spec adding the tremolo to a bus | `docs/guide/**`, `tests/e2e/audio-plugins.spec.ts` |
 
-B1 and B2 run in parallel; B3 after 0337's wire change in the same wave (the wire and `audio-wasm/src/lib.rs` have one
+B1 and B2 run in parallel; B3 after 0351's wire change in the same wave (the wire and `audio-wasm/src/lib.rs` have one
 writer per wave); B4 needs B1 and B3; B5 and B6 need B2 and B4.

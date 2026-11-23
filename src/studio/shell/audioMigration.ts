@@ -1,4 +1,4 @@
-// The open project's old audio events, while they aren't migrated (ADR 0329 "Migration", D11): the Studio asks when a
+// The open project's old audio events, while they aren't migrated (ADR 0343 "Migration", D11): the Studio asks when a
 // project with `*.audioevent.json` files opens (`studioProject.ts`, through `audioEventMigration.ts`); declined, the
 // project opens read-only and this holds what the Playlists screen's banner says and its Migrate now action. Cleared
 // when the project closes or the migration ran.

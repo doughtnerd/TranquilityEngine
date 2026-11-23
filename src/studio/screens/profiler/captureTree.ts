@@ -1,4 +1,4 @@
-// The Captures panel's tree (ADR 0334 "The Profiler screen"; the prototype's captures file system): the project's
+// The Captures panel's tree (ADR 0348 "The Profiler screen"; the prototype's captures file system): the project's
 // capture files (`*.mycap`, and takes, `*.mycotake`, whose profile the Profiler reads too) by folder, wherever they are,
 // or while searching the matches by path. Saved and imported captures go to `captures/`. Pure.
 

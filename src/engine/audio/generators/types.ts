@@ -1,5 +1,5 @@
 /**
- * Contract (ADR 0346 §1): the generator asset, `*.generator.json` (`myco.generator@1`). One generator per file; an
+ * Contract (ADR 0360 §1): the generator asset, `*.generator.json` (`myco.generator@1`). One generator per file; an
  * embedded generator (a playlist's generator entry, a sequence clip's generator source) is the same object without
  * `format`. These are the parsed (canonical) shapes the parse (`format.ts`) produces and the writer writes.
  *
@@ -24,7 +24,7 @@
 export const GENERATOR_FORMAT = "myco.generator@1";
 export const GENERATOR_SUFFIX = ".generator.json";
 
-/** The generator kinds, in the order of their reserved clip ids (ADR 0346 §3: `GEN_CLIP_ID_FIRST` + 1, + 2, …). */
+/** The generator kinds, in the order of their reserved clip ids (ADR 0360 §3: `GEN_CLIP_ID_FIRST` + 1, + 2, …). */
 export const GENERATOR_KINDS = ["oscillator", "synth", "blip", "silence"] as const;
 export type GeneratorKind = (typeof GENERATOR_KINDS)[number];
 

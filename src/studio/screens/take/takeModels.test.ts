@@ -1,4 +1,4 @@
-// ADR 0334 "The Take screen": the screen's pure models, through their interfaces: the timeline read from a take
+// ADR 0348 "The Take screen": the screen's pure models, through their interfaces: the timeline read from a take
 // (instances per path with held parts, parameter lanes and labelled segments, marks), Playlists in this take, the
 // notes edits (one labelled step each, refusals), the takes' files (tree, moves and deletes that carry the notes), the
 // inspector's authored-versus-live rows and bus strips, and the replay slot's clock.

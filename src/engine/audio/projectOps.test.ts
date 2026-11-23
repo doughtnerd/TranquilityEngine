@@ -1,4 +1,4 @@
-// ADR 0330 "Live mixing": the mix model's own live ops (returns, VCAs, mute, sends, snapshot edits) through their
+// ADR 0344 "Live mixing": the mix model's own live ops (returns, VCAs, mute, sends, snapshot edits) through their
 // interface — refusals, application, inverses, the byte form — and `diffProjectMix`, the Studio's live diff.
 import { describe, expect, it } from "vitest";
 import { MIX_OP_NAMES, applyOpToSettings, diffProjectMix, opClass, opRefusal, type MixOp } from "./mixOps";
@@ -55,7 +55,7 @@ const table = (): MixOpNameTable & { name(id: number): string; bus(ref: number):
   return { nameId: id, busRef: id, name: (i) => names[i]!, bus: (i) => names[i]! };
 };
 
-describe("project ops (ADR 0330)", () => {
+describe("project ops (ADR 0344)", () => {
   it("are appended to the op names, and the old section refuses them", () => {
     expect(MIX_OP_NAMES.slice(-PROJECT_OP_NAMES.length)).toEqual([...PROJECT_OP_NAMES]);
     const a = defaultAudioSettings();

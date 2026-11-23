@@ -141,7 +141,7 @@ interface MixerSceneProject {
   readonly ducking: readonly DuckRule[];
 }
 
-// The sound lab's mix (ADR 0330: `audio.json`), as the runtime plays it.
+// The sound lab's mix (ADR 0344: `audio.json`), as the runtime plays it.
 const SOUND_LAB_AUDIO = toRuntimeSettings(parseAudioProject(JSON.parse(readFileSync(fileURLToPath(new URL("../../../../../samples/sound-lab/audio.json", import.meta.url)), "utf8"))).project) as unknown as MixerSceneProject;
 const MIXER_SCENE = { ...SOUND_LAB_AUDIO, buses: SOUND_LAB_AUDIO.buses.map((b) => (b.name === "Master" ? { ...b, volume: 0.5 } : b)) };
 

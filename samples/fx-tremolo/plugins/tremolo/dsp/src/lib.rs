@@ -1,4 +1,4 @@
-//! A tremolo (ADR 0338 §10): the reference audio effect plugin, on the `myco-fx` SDK.
+//! A tremolo (ADR 0352 §10): the reference audio effect plugin, on the `myco-fx` SDK.
 //!
 //! Parameters, in `plugin.json`'s order: `rate` (Hz, glided), `depth` (%, glided), `shape` (0 sine, 1 triangle,
 //! 2 square; a stepped choice). The gain is `1 - depth × (1 - lfo) / 2`, so depth 0 is unity (the input's exact bits)

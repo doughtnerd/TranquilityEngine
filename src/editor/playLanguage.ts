@@ -1,11 +1,11 @@
-// The editor's preview language (ADR 0340 §1, 0342 §9): a per-user preference, not project data, kept under the same
+// The editor's preview language (ADR 0354 §1, 0356 §9): a per-user preference, not project data, kept under the same
 // local-storage key as the Audio Studio's language chip (`myco.audio.previewLanguage`), so both apps preview in the
 // language last chosen. The Play toolbar's Language menu sets it; editor Play starts in it (remembered and system
 // languages are ignored there) and follows a change while playing, through `Locale.setLanguage`, the same call a game's
 // language menu makes. The menu also offers the two pseudo-languages (`qps-ploc`, `qps-plocm`), which exist only in the
 // editor and in `--pseudo` QA builds.
 //
-// The Play toolbar's Subtitles overlay toggle (ADR 0343 §6) and its preference are the subtitles plugin's
+// The Play toolbar's Subtitles overlay toggle (ADR 0357 §6) and its preference are the subtitles plugin's
 // (`plugins/subtitles/editor`), there only while the plugin is on.
 import { Locale } from "../engine/localisation/Locale";
 import { fallbackChain, parseLanguages, shippedLanguages, type LanguageSettings } from "../engine/localisation/languages";

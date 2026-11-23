@@ -1,5 +1,5 @@
 /**
- * Queue picks (ADR 0329 "Picks are made once per trigger"; the prototype's PL:877–881): which entry a Queue plays.
+ * Queue picks (ADR 0343 "Picks are made once per trigger"; the prototype's PL:877–881): which entry a Queue plays.
  *
  * - **Random:** a weighted draw that excludes the last `min(avoidRepeat, n − 1)` picks. Weight 0 (or below) means never;
  *   when avoid-repeat leaves only weight-0 entries the ban gives way, and with no positive weight nothing plays.

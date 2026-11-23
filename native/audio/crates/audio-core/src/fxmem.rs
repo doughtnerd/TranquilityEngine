@@ -1,4 +1,4 @@
-//! The effect memory (ADR 0331, ABI 4.6): the `FxMem` region, where the catalogue's effects that
+//! The effect memory (ADR 0345, ABI 4.6): the `FxMem` region, where the catalogue's effects that
 //! need more than a few bytes (delay lines, the reverb's network, the pitch shifter's grains, the
 //! compressor's look-ahead) keep their state, for bus chains and instance submixes alike.
 //!
@@ -143,7 +143,7 @@ pub fn slice<'a>(data: &'a mut [f32], e: &Effect) -> &'a mut [f32] {
 /// needs: a new kind takes fresh zeroed memory; the same kind keeps its memory unless it needs
 /// more. A slot not `in_use` before starts from an empty effect.
 pub fn configure(region: &mut [u8], e: &mut Effect, in_use: bool, kind: u32, on: bool, p: &[f32; audio_dsp::fx::PARAMS], sample_rate: f32) {
-    // ABI 5.0 (ADR 0338): a plugin kind's instance comes from the host, not from this memory; the
+    // ABI 5.0 (ADR 0352): a plugin kind's instance comes from the host, not from this memory; the
     // slot's old one goes back when the slot takes another kind (the sweep catches every other path).
     let (old_kind, old_handle) = (e.kind, e.handle);
     if !in_use {
@@ -200,7 +200,7 @@ pub fn rebuild(regions: &mut Regions) {
     };
     crate::bus::for_each_effect(regions, &mut mark);
     crate::submix::for_each_effect(regions, &mut mark);
-    // ABI 5.0 (ADR 0338): the plugin instances still held go to the host, which releases the rest.
+    // ABI 5.0 (ADR 0352): the plugin instances still held go to the host, which releases the rest.
     crate::ext::sweep(|f| {
         crate::bus::for_each_effect(regions, &mut |e| f(e));
         crate::submix::for_each_effect(regions, &mut |e| f(e));

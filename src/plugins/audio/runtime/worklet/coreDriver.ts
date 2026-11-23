@@ -55,7 +55,7 @@ import { EffectGlue, type FxControlMessage, type FxShellEvent } from "./effectGl
 /** @internal The name `processor.ts` registers and the host creates its node with. */
 export const PROCESSOR_NAME = "myco-audio-core";
 
-/** @internal The C ABI's major version this shell speaks (`myco_audio_abi_version() >> 8`, api-and-models §5; 2 since ADR 0162 R6, 3 since ADR 0166 W1: `max_music_rings`; 4 since ADR 0171 M5: the 256-B STATUS header and `BUS_RAMP`; 5 since ADR 0338: 16-parameter effect records and the `myco_ext` import). */
+/** @internal The C ABI's major version this shell speaks (`myco_audio_abi_version() >> 8`, api-and-models §5; 2 since ADR 0162 R6, 3 since ADR 0166 W1: `max_music_rings`; 4 since ADR 0171 M5: the 256-B STATUS header and `BUS_RAMP`; 5 since ADR 0352: 16-parameter effect records and the `myco_ext` import). */
 export const CORE_ABI_MAJOR = 5;
 
 /** @internal `myco_audio_init`'s parameters, less the rate (the worklet's `sampleRate`), plus the clip ceiling. */
@@ -86,7 +86,7 @@ export type CoreControlMessage =
   | { readonly type: "retire" }
   /** B3: the worklet's end of the channel to the decoder worker (transferred); a later one replaces it. */
   | { readonly type: "streamPort"; readonly port: MessagePort }
-  /** ADR 0338 (B4): plugin effect modules for the glue (`effectGlue.ts`). */
+  /** ADR 0352 (B4): plugin effect modules for the glue (`effectGlue.ts`). */
   | FxControlMessage;
 
 /** @internal What the shell posts that isn't a wire buffer. */
@@ -150,7 +150,7 @@ export interface CoreInstance {
   readonly exports: CoreExports;
   readonly memory: WebAssembly.Memory;
   readonly sampleRate: number;
-  /** ADR 0338 (ABI 5.0): the plugin effect glue bound to the core's `myco_ext` import. */
+  /** ADR 0352 (ABI 5.0): the plugin effect glue bound to the core's `myco_ext` import. */
   readonly plugins: EffectGlue;
 }
 
@@ -181,7 +181,7 @@ function hex(bytes: Uint8Array): string {
  */
 export function instantiateCore(wasm: BufferSource | WebAssembly.Module, preset: CorePreset, sampleRate: number, expected: CoreExpectations = EXPECTED): CoreInstance {
   const memory = new WebAssembly.Memory({ initial: MEMORY_INITIAL_PAGES, maximum: memoryMaximumPages(preset, sampleRate) });
-  // ABI 5.0 (ADR 0338): the core calls plugin effects through `myco_ext`, which the glue answers (pass-through until a
+  // ABI 5.0 (ADR 0352): the core calls plugin effects through `myco_ext`, which the glue answers (pass-through until a
   // module is loaded).
   const plugins = new EffectGlue(sampleRate);
   let exports: CoreExports;
@@ -445,7 +445,7 @@ export class CoreDriver {
     this.views();
     // A refusal is reported by the core as a STATUS clip event (refusedCeiling / refusedGrow).
     // ADR 0162 C6: formats 3-5 are f32 (a format 3 kernel is `channels` 1, `frames` = bytes / 4).
-    // ADR 0337 A4: format 6 chunks carry whole IMA ADPCM blocks.
+    // ADR 0351 A4: format 6 chunks carry whole IMA ADPCM blocks.
     if (code === 0) this.clips.set(begin.clipId, { format: begin.format, channels: begin.channels });
   }
 
@@ -638,7 +638,7 @@ export class CoreDriver {
   }
 
   /**
-   * A control message: the dev-only `debugTone`, or ADR 0338's plugin effect modules (`fxLoad`, `fxUnload`, `fxReset`),
+   * A control message: the dev-only `debugTone`, or ADR 0352's plugin effect modules (`fxLoad`, `fxUnload`, `fxReset`),
    * which go to the glue; an `fxLoad` compiles asynchronously and the returned promise settles once it has.
    */
   onControl(message: CoreControlMessage): Promise<void> | void {
@@ -697,7 +697,7 @@ export class CoreDriver {
     }
     this.clipBudget = CLIP_BYTES_PER_QUANTUM;
     if (this.clipQueue.length > 0) this.drainClips();
-    // ADR 0338: plugin recoveries run here, never inside the core's call; nothing before a module is loaded.
+    // ADR 0352: plugin recoveries run here, never inside the core's call; nothing before a module is loaded.
     if (this.core.plugins.active) this.core.plugins.beginQuantum(currentFrame);
     let ptr = 0;
     try {

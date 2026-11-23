@@ -1,4 +1,4 @@
-// The Snapshots panel's tree (ADR 0330 snapshots `folder`; the prototype's snapshot file system): snapshots by folder,
+// The Snapshots panel's tree (ADR 0344 snapshots `folder`; the prototype's snapshot file system): snapshots by folder,
 // search by name and trigger text, and the edits: new, rename, duplicate, move, delete, and folders (new, rename,
 // delete moving their contents up). A folder exists while a snapshot is in it; a folder made empty in this session is
 // kept by the panel (`extraFolders`) until something moves in, as `audio.json` stores folders only on snapshots.

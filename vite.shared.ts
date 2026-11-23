@@ -317,7 +317,7 @@ export function lazyOnly(rules: readonly LazyOnlyRule[]): Plugin {
 
 /**
  * The audio capture codec (ADR 0171, 0172, 0230): everything in `capture/` but the service a game always has
- * (`capture.ts`, and ADR 0334's take service beside it: `take.ts`, the request tap `takeTap.ts`, the generator seam
+ * (`capture.ts`, and ADR 0348's take service beside it: `take.ts`, the request tap `takeTap.ts`, the generator seam
  * `takeSeed.ts` and the mix-op origin `mixOpOrigin.ts`, all small and without the codec) and the keyframe row layout the
  * writers share (`keyframeLayout.ts`). The player loads it on the first `Audio.capture.start()` or take.
  */
@@ -372,7 +372,7 @@ export const MYCO_ALIASES: Record<string, string> = {
  * Folders the dev servers (`npm run dev`, Storybook) never watch. Vite's watcher walks everything under the root that
  * isn't ignored as the server starts, competing with the dependency optimizer for the disk and the event loop, so big
  * trees of non-source files kept start-up on "optimizing dependencies" for minutes: Rust build output (`src-tauri/target`,
- * the standalone Audio Studio's `src-studio-tauri/target` (ADR 0327) and the crates' `target` folders under `native/`,
+ * the standalone Audio Studio's `src-studio-tauri/target` (ADR 0341) and the crates' `target` folders under `native/`,
  * hundreds of thousands of files once built) and agent worktrees in
  * `.claude/worktrees/`, each a full checkout with its own build output. Vite already skips `.git`, `node_modules`,
  * `test-results` and the build's outDir.

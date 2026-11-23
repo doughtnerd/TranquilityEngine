@@ -1,4 +1,4 @@
-// The output-device menu (ADR 0335 `AudioDeviceMenu`), the same on every screen: a header button naming the output
+// The output-device menu (ADR 0349 `AudioDeviceMenu`), the same on every screen: a header button naming the output
 // and its audio offset (or "Not calibrated"), opening a popover with the output's latency and the audio and visual
 // offsets (−300…300 ms), each with Calibrate… (`LatencyCalibrationDialog`). Offsets are kept per device per user.
 // The Studio plays through the system's output device: the engine has no public way to pick another yet, so the

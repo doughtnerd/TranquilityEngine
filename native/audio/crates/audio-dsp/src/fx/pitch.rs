@@ -1,4 +1,4 @@
-//! The pitch shifter (ADR 0331's `pitchShift`: −24..24 semitones, −50..50 cents): granular, as the
+//! The pitch shifter (ADR 0345's `pitchShift`: −24..24 semitones, −50..50 cents): granular, as the
 //! record asks first ("a phase vocoder later if needed").
 //!
 //! Two read heads sweep a delay line of [`WINDOW_MS`] at `1 − ratio` frames per frame, half a

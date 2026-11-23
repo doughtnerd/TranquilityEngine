@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the Spatial screen's side panels on fixture data: the Scenes tree (folders, search, the
+// Stories (ADR 0219, 0349) for the Spatial screen's side panels on fixture data: the Scenes tree (folders, search, the
 // New menu, the empty state), the Outline (groups, counts, filter, eye and lock), the Inspector per kind of object, Scene
 // settings over a mix, the Voices table from a readout, and the From take / From game scene / attenuation dialogs.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

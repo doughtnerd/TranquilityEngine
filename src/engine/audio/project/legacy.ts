@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0330): the old `audio` section of `project.json` and `audio.json`.
+ * Internal (ADR 0344): the old `audio` section of `project.json` and `audio.json`.
  *
  * - `fromLegacySection(section)` is the migration: volumes to dB, the `reverb` send effect to sends into a created
  *   "Reverb" return, snapshot multipliers to dB offsets, a snapshot low-pass to an override of a low-pass created on that
@@ -80,7 +80,7 @@ export function fromLegacySection(section: unknown, problems: string[] = []): Au
   project.parameters = structuredClone(a.parameters);
   const reverbName = uniqueName(REVERB_RETURN, a.buses.map((b) => b.name));
   let usesReverb = false;
-  // ADR 0330: a section with `sends` (a backends' view handed back, `coreSectionOf`): each bus a send names, with no bus
+  // ADR 0344: a section with `sends` (a backends' view handed back, `coreSectionOf`): each bus a send names, with no bus
   // under it, is a return again (its parent the output).
   const targets = new Set(a.buses.flatMap((b) => (b.sends ?? []).map((s) => s.to)));
   const asReturn = new Set(a.buses.filter((b, i) => i > 0 && targets.has(b.name) && !a.buses.some((o) => o.parent === b.name)).map((b) => b.name));
@@ -125,7 +125,7 @@ export function fromLegacySection(section: unknown, problems: string[] = []): Au
     return snap;
   });
   project.automation = a.automation.flatMap((x): MixAutomation[] => {
-    // ADR 0330 (ABI 4.8): a backends' view handed back carries effect and send automation (its effects are the owner's, in order).
+    // ADR 0344 (ABI 4.8): a backends' view handed back carries effect and send automation (its effects are the owner's, in order).
     if (x.target === "fx" || x.target === "send") {
       const owner = project.buses.find((b) => b.name === x.bus) ?? project.returns.find((r) => r.name === x.bus);
       const m = owner ? mixAutomationOf(x, owner.effects) : null;
@@ -164,7 +164,7 @@ function renamed(project: AudioProject, renames: ReadonlyMap<string, string>): A
 const sectionNames = (p: AudioProject): string[] => [...p.buses.map((b) => b.name), ...sectionReturnsOf(p).map((r) => r.name)];
 
 /**
- * Renames the old section's edit made: an old bus (or return, ADR 0330: returns are buses of the section) missing at the
+ * Renames the old section's edit made: an old bus (or return, ADR 0344: returns are buses of the section) missing at the
  * same index as a new bus that wasn't there (the list kept its length).
  */
 function renamesOf(project: AudioProject, next: AudioSettings): Map<string, string> {
@@ -189,7 +189,7 @@ const showsRule = (p: AudioProject, d: DuckingRule) => d.enabled && sectionOwner
 const showsAutomation = (p: AudioProject, a: MixAutomation): boolean => sectionAutomationOf(p, a) !== null;
 
 /**
- * ADR 0330 (ABI 4.8): a section's `fx` or `send` automation entry `n` as the mix's, its effect found among `shown` (the
+ * ADR 0344 (ABI 4.8): a section's `fx` or `send` automation entry `n` as the mix's, its effect found among `shown` (the
  * owner's effects the section shows, in order) and its parameter by the catalogue's index (a log2 curve back in the
  * parameter's units); null when it names nothing.
  */
@@ -211,7 +211,7 @@ function mixAutomationOf(n: BusAutomation, shown: readonly Effect[]): MixAutomat
 const kindOf = (b: BusEffect): string => (b.type === "fx" ? b.fx : b.type);
 
 function mergeEffects(project: AudioProject, owner: string, old: readonly Effect[], before: readonly BusEffect[], after: readonly BusEffect[]): Effect[] {
-  // The view (`coreSectionOf`) shows what the core runs, each as `coreBusEffect` (ADR 0331): legacy shapes or catalogue `fx`.
+  // The view (`coreSectionOf`) shows what the core runs, each as `coreBusEffect` (ADR 0345): legacy shapes or catalogue `fx`.
   const shown = old.filter((e) => coreShown(project, owner, e));
   const beforeOf = (e: Effect) => before[shown.indexOf(e)] ?? coreBusEffect(e);
   if (shown.length === after.length && shown.every((e, i) => e.type === kindOf(after[i]))) {
@@ -275,7 +275,7 @@ export function mergeLegacyIntoProject(original: AudioProject, section: unknown)
     }
     return ret;
   };
-  // ADR 0330: the returns the section holds as buses (`sectionReturnsOf`) are written back to the returns: output, mute,
+  // ADR 0344: the returns the section holds as buses (`sectionReturnsOf`) are written back to the returns: output, mute,
   // inserts and level; one the section no longer lists is removed with the sends into it. Those that didn't fit stay.
   const shownReturns = new Set(sectionReturnsOf(project).map((r) => r.name));
   const returnVolumes: { ret: Return; nb: BusSettings; changed: boolean }[] = [];
@@ -310,14 +310,14 @@ export function mergeLegacyIntoProject(original: AudioProject, section: unknown)
       const index = old ? bus.sends.findIndex((s) => s.to === old.send.to) : bus.sends.length;
       const sends = bus.sends.filter((s) => s.to !== old?.send.to);
       if (nRev?.type === "reverb" && root) {
-        // Master can't send (ADR 0330): the old section's reverb on the root has nowhere to go.
+        // Master can't send (ADR 0344): the old section's reverb on the root has nowhere to go.
       } else if (nRev?.type === "reverb") {
         const ret = old ? out.returns.find((r) => r.name === old.ret.name)! : reverbReturn();
         sends.splice(Math.max(0, index), 0, { to: ret.name, levelDb: levelDbOf(nRev.send, ret.volumeDb) });
       }
       bus.sends = sends;
     }
-    // ADR 0330: the section's sends (linear levels) into returns; an unchanged level keeps its exact dB.
+    // ADR 0344: the section's sends (linear levels) into returns; an unchanged level keeps its exact dB.
     if (!eb || !same(nb.sends ?? [], eb.sends ?? [])) {
       const was = new Map((eb?.sends ?? []).map((s) => [s.to, s.level]));
       const fromSection = (nb.sends ?? []).filter((s) => isReturn(s.to)).map((s) => {

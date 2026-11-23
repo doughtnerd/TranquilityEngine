@@ -1,4 +1,4 @@
-// ADR 0338 §3: a third-party plugin's `audio` section, through the one plan every host runs (`planPluginCode`): a
+// ADR 0352 §3: a third-party plugin's `audio` section, through the one plan every host runs (`planPluginCode`): a
 // DSP-only plugin needs no runtime or editor entry, its effects are read without running code, a bad effect refuses
 // the plugin, the module file must exist, and an effect type is unique across the project.
 import { readFileSync } from "node:fs";

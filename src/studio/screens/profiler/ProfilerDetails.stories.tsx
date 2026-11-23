@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0334) for the Profiler's side panels and its Record button: At cursor over the fixture capture's
+// Stories (ADR 0219, 0348) for the Profiler's side panels and its Record button: At cursor over the fixture capture's
 // keyframe (Music ducked), the Voice panel for a stolen and a missing voice, Why it played with its note, Messages in
 // time order with a click picking a row, the empty states, and Record offered, blocked and recording.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

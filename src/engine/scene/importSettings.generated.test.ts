@@ -1,4 +1,4 @@
-// The sidecar's optional `generated` block (ADR 0346 §6) through the sidecar parse and writer.
+// The sidecar's optional `generated` block (ADR 0360 §6) through the sidecar parse and writer.
 import { describe, expect, it } from "vitest";
 import { defaultImportSettings, formatImportSettings, parseImportSettings } from "./importSettings";
 

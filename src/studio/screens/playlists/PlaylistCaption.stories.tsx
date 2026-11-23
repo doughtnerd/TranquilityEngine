@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0343 §4, §6) for the Playlists inspector's Caption field: pick a key from the captions table, set
+// Stories (ADR 0219, 0357 §4, §6) for the Playlists inspector's Caption field: pick a key from the captions table, set
 // the repeat gap, and create a key the table doesn't have yet.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

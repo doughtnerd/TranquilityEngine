@@ -1,4 +1,4 @@
-// ADR 0329 (M5): Sequence playlists through the public API on the fake backend's single clock (ADR 0286): stamped clip
+// ADR 0343 (M5): Sequence playlists through the public API on the fake backend's single clock (ADR 0286): stamped clip
 // starts, sync and async clips, the clip map, sequence loops and hold points, release vs stop, tracks, automation,
 // markers, positions and hot reload.
 import { describe, expect, it } from "vitest";

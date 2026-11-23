@@ -1,5 +1,5 @@
 /**
- * Importing translations (ADR 0342 §8): what an exchange file would change, shown before anything is written
+ * Importing translations (ADR 0356 §8): what an exchange file would change, shown before anything is written
  * (`previewImport`), then the changed translation files (`applyImport`), one per affected table and language, which
  * the editor writes as one undo step per document.
  *

@@ -1,4 +1,4 @@
-// The Studio's keymap (ADR 0335 "Keyboard"): one registry of shortcuts in three scopes. Global keys work on every
+// The Studio's keymap (ADR 0349 "Keyboard"): one registry of shortcuts in three scopes. Global keys work on every
 // screen (Ctrl/⌘+1…6, F6, ?, Undo and Redo); screen keys while their screen shows; panel keys while focus is inside
 // an element marked `data-keyscope="<panel>"`. The innermost panel wins, then the screen, then global. Shortcuts
 // without a modifier ("single-key shortcuts": Space, M, ?) follow a per-user preference and never fire while typing;

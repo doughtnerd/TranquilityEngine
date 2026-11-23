@@ -11,7 +11,7 @@
 //
 // Classes (§4.7): direct and smoothed edits must read <= 0.23 at every phase; a structural edit must arrive as one dip
 // sequence and read <= 0.23 (under S4's click threshold); a rename, an add at the end with nothing on it and a meter
-// change are silent (bit-identical), and a rename posts no bus record at all. The send cases (ADR 0330, ABI 4.7: the old
+// change are silent (bit-identical), and a rename posts no bus record at all. The send cases (ADR 0344, ABI 4.7: the old
 // section's reverb send is migrated to a send into a "Reverb" return, a core bus): a send's level ramps (`BUS_SENDS`), a
 // new send ramps in, a removed one ramps out (kept muted), a bus with a send dips (the post-fader send follows the dip
 // lane), and the return rings its tail out after the last send into it is removed.
@@ -200,7 +200,7 @@ describe("Ck1: every structural edit dips under the click threshold at eight pha
 });
 
 describe("Ck1: the send run-out and a sound's bus", () => {
-  it("the last send into a return removed: the return rings its tail out and decays (ADR 0330, as Rv1 had the shared reverb)", T, async (ctx) => {
+  it("the last send into a return removed: the return rings its tail out and decays (ADR 0344, as Rv1 had the shared reverb)", T, async (ctx) => {
     // The dry twin: the same tree with the send at 0 (it feeds the return nothing), the same op; the difference between
     // the two runs is the return's wet signal alone.
     const dryProject = { ...PROJECT, buses: PROJECT.buses.map((b) => (b.name === "SFX" ? { ...b, effects: [COMP, { type: "reverb", send: 0 }] } : b)) };

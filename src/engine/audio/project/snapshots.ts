@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0330 "Snapshots blend"): the one snapshot model the runtime's mixer and the Studio share.
+ * Internal (ADR 0344 "Snapshots blend"): the one snapshot model the runtime's mixer and the Studio share.
  *
  * - **Conditions:** `lt le eq ne ge gt between` on numeric parameters, `is not` on labelled ones (a boolean is labelled
  *   ["Off", "On"]), evaluated against parameter values (a labelled parameter's value is its label's index). A snapshot
@@ -99,7 +99,7 @@ export interface ResolvedMix {
 const stackOrder = <T extends { priority: number; order: number }>(a: T, b: T): number => a.priority - b.priority || a.order - b.order;
 
 /**
- * The mix the active snapshots make (ADR 0330's rules). `base` maps a bus's effect parameter to its base value, so a
+ * The mix the active snapshots make (ADR 0344's rules). `base` maps a bus's effect parameter to its base value, so a
  * fading override blends from it (absent: the override's value is used as is).
  *
  * At full weight the winning Override snapshot's value is the value. While snapshots fade, each Override crossfades from

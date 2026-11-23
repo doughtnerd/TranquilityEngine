@@ -6,7 +6,7 @@
  * Pure: no plugin, no DOM. Contract K0 declared the shapes; task Mo1 filled the functions.
  *
  * **One edit path.** The edit itself lives here, in `applyOpToSettings`: whoever edits the mix (the Audio Studio,
- * ADR 0327, through its project ops, and the runtime it auditions with) builds an op and applies it, so every editor
+ * ADR 0341, through its project ops, and the runtime it auditions with) builds an op and applies it, so every editor
  * edits the same way.
  *
  * **Canonical form.** `applyOpToSettings` writes optional keys the way the parse and the model functions do: a bus's
@@ -70,7 +70,7 @@ export type MixOp =
   | { op: "setAutomation"; index: number; rule: BusAutomation | null; insert?: boolean }
   | { op: "setTarget"; index: number; target: LoudnessTarget | null; insert?: boolean }
   | { op: "setOption"; key: "loudnessResetOnPlay"; value: boolean }
-  /** ADR 0330: the mix model's own ops (returns, VCAs, mute, sends, snapshot edits), `projectOps.ts`. */
+  /** ADR 0344: the mix model's own ops (returns, VCAs, mute, sends, snapshot edits), `projectOps.ts`. */
   | ProjectMixOp;
 
 export { isProjectOp, type ProjectMixOp };
@@ -147,7 +147,7 @@ export const EFFECT_KEYS: Record<BusEffect["type"], readonly string[]> = {
   compressor: ["threshold", "knee", "ratio", "attack", "release"], reverb: ["send"], fx: [],
 };
 
-/** The number fields of `e`, in the byte form's order: its type's, or for a catalogue effect (`fx`) its parameters in the catalogue's order (ADR 0331). */
+/** The number fields of `e`, in the byte form's order: its type's, or for a catalogue effect (`fx`) its parameters in the catalogue's order (ADR 0345). */
 export function effectKeys(e: BusEffect): readonly string[] {
   return e.type === "fx" ? effectSpec(e.fx).params.map((q) => q.name) : EFFECT_KEYS[e.type];
 }
@@ -256,7 +256,7 @@ export function opRefusal(a: AudioSettings, op: MixOp): string | null {
     case "addEffect":
       if (!busOf(a, op.bus)) return noBus(op.bus);
       if (!Number.isInteger(op.index)) return "An effect index must be a whole number.";
-      return effectRefusal(op.effect) ?? ruleRefusal(a, op); // ADR 0331: the insert cap
+      return effectRefusal(op.effect) ?? ruleRefusal(a, op); // ADR 0345: the insert cap
     case "removeEffect": {
       const b = busOf(a, op.bus);
       if (!b) return noBus(op.bus);
@@ -357,7 +357,7 @@ export function applyOpToSettings(a: AudioSettings, op: MixOp): AudioSettings {
     case "removeBus": {
       const gone = new Set([op.bus, ...descendantsOf(a, op.bus)]);
       const scrub = (r: Record<string, number>) => Object.fromEntries(Object.entries(r).filter(([k]) => !gone.has(k)));
-      // ADR 0330: the sends into a removed bus (a return) go with it.
+      // ADR 0344: the sends into a removed bus (a return) go with it.
       const unsent = (b: BusSettings): BusSettings => {
         if (!b.sends?.some((s) => gone.has(s.to))) return b;
         const { sends, ...rest } = b;
@@ -472,7 +472,7 @@ export function opClass(op: MixOp, settings: AudioSettings): OpClass {
     case "removeBus": case "moveBus": case "removeEffect": case "moveEffect": return "dip";
     case "renameBus": return "config";
     case "addEffect": return op.index >= busOf(settings, op.bus)!.effects.length ? "direct" : "dip";
-    // The core glides a compressor's and every catalogue effect's parameters (ADR 0331).
+    // The core glides a compressor's and every catalogue effect's parameters (ADR 0345).
     case "setEffect": { const t = busOf(settings, op.bus)!.effects[op.index].type; return t === "compressor" || t === "fx" ? "smoothed" : "direct"; }
     case "addSnapshot": case "removeSnapshot": case "renameSnapshot": case "setSnapshot":
     case "setDucking": case "setAutomation": case "setTarget":
@@ -706,7 +706,7 @@ export function diffOps(before: AudioSettings, after: AudioSettings): { ops: Mix
 }
 
 /**
- * ADR 0330: the ops that move a running mix from `before` to `after` (the Studio's edits of `audio.json`). First the old
+ * ADR 0344: the ops that move a running mix from `before` to `after` (the Studio's edits of `audio.json`). First the old
  * ops over the backends' view (`coreSectionOf`: the bus tree, bus levels and mutes, effects, ducking, automation,
  * loudness), with returns, VCAs, sends and snapshots held at `before`'s; then the mix model's own ops (`diffProjectOps`)
  * for those. `restartRequired` lists the engine settings that wait for the next start.

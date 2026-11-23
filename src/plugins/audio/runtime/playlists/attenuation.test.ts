@@ -1,4 +1,4 @@
-// ADR 0333: a playlist's attenuation curves at runtime — volume, low-pass and reverb send per voice by listener distance,
+// ADR 0347: a playlist's attenuation curves at runtime — volume, low-pass and reverb send per voice by listener distance,
 // AudioSource distance overrides that stretch the curves, and the inverse law kept without a volume curve. Through the
 // public API on the fake backend.
 import { describe, expect, it } from "vitest";

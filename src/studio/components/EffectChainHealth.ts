@@ -1,4 +1,4 @@
-// Plugin effect health for the Studio's effect cards and the Profiler's Plugins panel (ADR 0338 §9): the rows of the
+// Plugin effect health for the Studio's effect cards and the Profiler's Plugins panel (ADR 0352 §9): the rows of the
 // runtime's public `Audio.debug().plugins`, read twice a second while a view that shows them is mounted, and the Reset
 // plugin action, which goes to the audio backend's `effectPlugins` capability (`reset`: the effect's faults and its
 // off-after-faults state cleared, its instances re-created). Where the runtime has no rows (no core, no plugin loaded)

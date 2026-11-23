@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0340 §9) for batch import over the fixture project: a French delivery matched by `{lang}/{key}`,
+// Stories (ADR 0219, 0354 §9) for batch import over the fixture project: a French delivery matched by `{lang}/{key}`,
 // then by `{key}_{lang}`; an unknown key skipped, then created as a row; a bad pattern refused.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

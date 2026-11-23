@@ -1,4 +1,4 @@
-// ADR 0340 §2, §5 on the real wasm core (loopback): a localised line plays the current language's file. The English
+// ADR 0354 §2, §5 on the real wasm core (loopback): a localised line plays the current language's file. The English
 // recording decodes to silence and the French one to a steady level, so what the core renders says which file it played.
 import { afterEach, expect, it, vi } from "vitest";
 import { Assets, Audio, Engine, SceneManager } from "../../../../myco";

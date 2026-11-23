@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0330 "Live mixing"): the live ops of the mix model that the old section shape can't express — returns,
+ * Internal (ADR 0344 "Live mixing"): the live ops of the mix model that the old section shape can't express — returns,
  * VCAs, mute of a bus or a return, sends, and snapshot edits — applied to an `AudioProject`. They are `MixOp`s (the
  * union in `mixOps.ts`), so they travel the same path as the others: `mixer.apply(op)` checks them here
  * (`projectOpRefusal`), applies them to its model (`applyOpToProject`) and sends what changed of the backends' view

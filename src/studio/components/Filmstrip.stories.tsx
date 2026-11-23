@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the filmstrip (ADR 0334): a take's pictures across a 480 px axis of 12 s, thinned so
+// Stories (ADR 0219, 0349) for the filmstrip (ADR 0348): a take's pictures across a 480 px axis of 12 s, thinned so
 // none overlap, the one at the playhead marked; a click seeks there.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

@@ -1,10 +1,10 @@
-# 0346. Sound generators are a playlist entry played by a generator voice in the core, and are baked to samples on demand
+# 0360. Sound generators are a playlist entry played by a generator voice in the core, and are baked to samples on demand
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
-- **Supersedes:** — (amends 0328: the sidecar gains a `generated` block; amends 0329: Clip playlists and sequence clips gain a generator source)
-- **Related:** 0010, 0040, 0157, 0179, 0293, 0304, 0306, 0328, 0329, 0331, 0332, 0333, 0334, 0335, 0336, 0337, 0338, 0344
+- **Supersedes:** — (amends 0342: the sidecar gains a `generated` block; amends 0343: Clip playlists and sequence clips gain a generator source)
+- **Related:** 0010, 0040, 0157, 0179, 0293, 0304, 0306, 0342, 0343, 0345, 0346, 0347, 0348, 0349, 0350, 0351, 0352, 0358
 
 ## Context
 
@@ -12,21 +12,21 @@ The owner asked for built-in sound generators (tone, noise, simple synths) as fo
 prototyping, in the order "2 & 4, then 1 & 3, then 5".
 
 **What exists today.**
-- Every sound starts from an audio file. A playlist's Clip entry is a `sample` (0329); a sequence clip is a `sample` or
+- Every sound starts from an audio file. A playlist's Clip entry is a `sample` (0343); a sequence clip is a `sample` or
   a `playlist`. `Audio.play(path)` plays a playlist or a sample.
 - The core's voice (`audio-core/src/voices.rs`) reads a clip through the 4-point resampler, then gain, fade and mix
   ramps, the voice filters, sends and the panner (equal power, HRTF or a bed). The per-sample read is chosen by the
   clip's format: PCM, or since ABI 4.12 IMA ADPCM decoded as it is read, with per-voice state in its own region
   (`AdpcmCursors`, `max_mixed` entries). Pitch is a per-sample step array (`slot.pitch` × `rate_ratio` × the pitch
-  binding). SET_LOOP release is the voice's key-off (ABI 4.3). Time parameters (0332) and AUTOMATE bindings (volume,
+  binding). SET_LOOP release is the voice's key-off (ABI 4.3). Time parameters (0346) and AUTOMATE bindings (volume,
   pitch, low-pass, high-pass, pan) run per quantum.
-- `audio_dsp::fx` (0331) holds the catalogue's kernels with no allocation and `libm` maths, shared by the core and the
+- `audio_dsp::fx` (0345) holds the catalogue's kernels with no allocation and `libm` maths, shared by the core and the
   offline render (`audio-offline`, ABI 1.1, 139,009 B, fetched by the Studio and the export only). It has no
   oscillator, no ADSR in the core (the catalogue's `envelope` is offline-only) and no random source.
-- The catalogue's `EffectParamSpec` (name, label, range, step, unit, default, `scale`, and from 0338 `choices` and
-  `smooth`) drives the Studio's generated cards, curves (0332) and parse limits (0306).
+- The catalogue's `EffectParamSpec` (name, label, range, step, unit, default, `scale`, and from 0352 `choices` and
+  `smooth`) drives the Studio's generated cards, curves (0346) and parse limits (0306).
 - Randomness is the World's seeded generator (mulberry32 from `audio.seed` and the World key,
-  `runtime/playlists/host.ts`), drawn on the main thread at trigger; takes (0334) record the seed and replay it.
+  `runtime/playlists/host.ts`), drawn on the main thread at trigger; takes (0348) record the seed and replay it.
 - **Cost reference** (metered gate, `tools/audio-bench/metered/baseline.json`): `automation-base`, 256 looping mixed
   sample voices, is 10,078,557 instructions a quantum, **≈ 39.4k per voice** (≈ 3 µs at the container's 0.075 µs per
   1k instructions). ADPCM decode adds ≈ 19.7k per voice (`adpcm` against its twin).
@@ -95,7 +95,7 @@ parameters and curves (Wwise's RTPCs), not new handle members. The playlist pars
 
 Parameters are declared in **one generator catalogue** (`src/engine/audio/generators/catalogue.ts`) with the effect
 catalogue's `EffectParamSpec` (choices, `scale: "log"`, `smooth`), so curves interpolate log parameters in log space
-(0332), choices step, the Studio draws generated rows, and the parse clamps. **The catalogue's order is the wire
+(0346), choices step, the Studio draws generated rows, and the parse clamps. **The catalogue's order is the wire
 order** (the core reads `p[i]`); at most 32 parameters a kind. Times in ms, levels in dB.
 
 - **Oscillator** (Wwise Tone Generator, FMOD oscillator): `waveform` (sine, square, saw, triangle, noise),
@@ -139,18 +139,18 @@ SET_PARAMS, ROUTE, SET_VOICE_FX, groups and REPLAY need nothing new. Its paramet
 - **GEN (`0x21`)**, stamped like any record: `voiceId`, `mask: u32` (parameter i present), `seed: u32`, `rampFrames:
   u32`, then the masked values as `f32` (popcount of the mask). The runtime sends GEN with every parameter set in the
   same batch and frame as the PLAY (as LOOPS rides beside a clip PLAY), and again with a partial mask when a value
-  changes. A later GEN glides changed smooth parameters over `rampFrames` (frequencies in log2, as 0331's effects);
+  changes. A later GEN glides changed smooth parameters over `rampFrames` (frequencies in log2, as 0345's effects);
   choices and `smooth: false` parameters step. A GEN for a voice that isn't a generator is ignored. A generator PLAY
   with no GEN plays its kind's defaults.
 - **AUTOMATE target 5, "generator parameter"**: `target` bits 8–15 hold the parameter index; the curve's value
-  replaces the parameter (as 0331's effect-parameter bindings do), per quantum, glided like a GEN change. Time
-  parameters (0332) key them like any binding: a sweep over `voiceTime`, a cutoff on a game parameter.
+  replaces the parameter (as 0345's effect-parameter bindings do), per quantum, glided like a GEN change. Time
+  parameters (0346) key them like any binding: a sweep over `voiceTime`, a cutoff on a game parameter.
 - **State** lives in a new `GenEntries` region, **max(16, `max_mixed` / 4) entries** (64 on the high preset), derived
   from the existing init parameters so `myco_audio_init` is unchanged. An entry (≈ 0.5 KB; 4.6 KB for a blip, whose
   phaser keeps sfxr's 1,024-sample line) holds the parameters, their glides, the oscillator phases, the filter and
   envelope states, the LFO and the noise generator. A generator PLAY takes an entry for the voice's life (mixed or
   virtual); with none free the voice plays silent, keeps time and ends by its envelope, counted in STATUS
-  (`genStarved`) and shown in the profiler with the reason "generator pool full", as 0331's submix pool does.
+  (`genStarved`) and shown in the profiler with the reason "generator pool full", as 0345's submix pool does.
 - **ABI 5.1** (minor: a reserved clip-id range, an opcode, a binding target, a region carved from existing
   parameters; no existing record changes layout). The wire schema (`schema/generator.rs`), its hash, the vectors and
   `wire.generated.ts` are regenerated.
@@ -173,7 +173,7 @@ SET_PARAMS, ROUTE, SET_VOICE_FX, groups and REPLAY need nothing new. Its paramet
 **How it plays.**
 - **Pitch** multiplies every frequency: the render passes the voice's per-sample step array (the PLAY pitch ×
   SET_PARAMS pitch × the pitch binding; `rate_ratio` is 1) to the oscillators, so the playlist's `pitch`,
-  `pitchRandom`, entry pitch curves, quantised pitch lanes (0339) and Doppler transpose a generator as they do a
+  `pitchRandom`, entry pitch curves, quantised pitch lanes (0353) and Doppler transpose a generator as they do a
   sample. The blip's slide and arpeggio are relative to it.
 - **The render branch** is a third source beside PCM and ADPCM in `render_voice`: a mixed generator voice fills its
   `l` buffer from `gen::render` instead of the resampler, then runs the same chain (gain, fade, mix, filters, sends,
@@ -217,13 +217,13 @@ build-log line, not traded for quality.
 
 ### 4. Parameters, curves and automation
 
-- `EntryUse.curves["gen:<param>"]`: a voice curve over voice time or a parameter (0332), sent as an AUTOMATE target 5
+- `EntryUse.curves["gen:<param>"]`: a voice curve over voice time or a parameter (0346), sent as an AUTOMATE target 5
   binding. Log parameters interpolate in log space; a choice parameter takes step keys only (linted
-  `genCurveNotStep`). `quantize` (0339) works on them as on any voice curve.
+  `genCurveNotStep`). `quantize` (0353) works on them as on any voice curve.
 - Sequence clips with a generator source take `gen:<param>` automation over clip or sequence time.
 - Instance-level automation (`PlaylistBody.automation`) doesn't take `gen:` targets (it acts on the instance, not a
   voice; linted `genTargetIgnored`).
-- **Snapshots** override bus and return effects (0330), so they reach a generator through its bus; they don't set a
+- **Snapshots** override bus and return effects (0344), so they reach a generator through its bus; they don't set a
   generator's own parameters in v1 (a parameter-driven curve does that).
 - Lints: `generatorNeverEnds` (a one-shot playlist playing an endless generator with no length), `genTargetUnknown`
   (a target its kind doesn't have), `generatorClipNoLength` (an endless generator in a sequence clip of length 0).
@@ -241,13 +241,13 @@ captures. REPLAY after a hard rebuild re-sends GEN with every parameter at its c
 
 - `audio-offline` gains `myco_offline_generate(spec, specLen)` (its **ABI 1.2**): a generator spec (kind, resolved
   parameters, seed, context rate, key-off time, total length, time-keyed parameter and pitch lanes) rendered by the
-  same `audio_dsp::gen` kernels, then, when the spec carries effects, through the existing baked-effect render (0328,
-  0331). At pitch 1 with no automation the offline output is **bit-identical** to the core voice's mono signal before
+  same `audio_dsp::gen` kernels, then, when the spec carries effects, through the existing baked-effect render (0342,
+  0345). At pitch 1 with no automation the offline output is **bit-identical** to the core voice's mono signal before
   its gain (a golden test on both builds).
 - **Bake** writes `<name>.baked.wav` beside the generator (32-bit float, mono, 48 kHz; `<name>.baked2.wav` if taken)
   and its sidecar with a `sample` block (kind `oneshot`; root note from the frequency; an endless generator baked
   with a chosen length gets kind `loop` and one loop crossfaded over its last 50 ms) and a new **`generated`** block,
-  optional, in `myco.import@1` (amending 0328 and 0040):
+  optional, in `myco.import@1` (amending 0342 and 0040):
   `"generated": { "generator": "audio/ui/coin.generator.json", "hash": "<sha256 of the resolved patch>", "seed": 1734,
   "variation": 0 }`. The Samples screen shows "Baked from coin.generator.json" and "out of date" when the patch's hash
   differs, with **Rebake**.
@@ -255,14 +255,14 @@ captures. REPLAY after a hard rebuild re-sends GEN with every parameter at its c
   other kinds) and optionally a Queue playlist (random, avoid-repeat 1) over them, the classic sfxr variety workflow.
 - **Replace uses** (an option in the Bake dialog) points the playlist entries that use the generator at the baked
   sample, one undo step per file.
-- Generators aren't converted at export (they are JSON); baked samples are samples and follow 0337's encoding.
+- Generators aren't converted at export (they are JSON); baked samples are samples and follow 0351's encoding.
 
 ### 7. Determinism: seeds and takes
 
 - The **blip randomiser** draws from mulberry32 seeded by the generator's `seed`: authoring is repeatable and the file
   stores the result.
 - **Per-trigger draws** (the noise seed when `seed` is null, `vary`, silence's `lengthRandom`) come from the World's
-  seeded generator on the main thread at pick time, in pick order, like Queue picks (0329). A take (0334) records the
+  seeded generator on the main thread at pick time, in pick order, like Queue picks (0343). A take (0348) records the
   World's seed and the triggers, so a replay plays the same noise, variations and silences. A generator with a fixed
   `seed` plays the same noise every time.
 - The core's noise is xorshift32 from the GEN seed; the same seed and parameters give the same samples in the core,
@@ -283,7 +283,7 @@ FMOD a plug-in instrument in the event, not on a screen of their own: a generato
 - The **library** lists `*.generator.json` beside playlists (a generator icon and kind badge); **New > Generator**
   (Oscillator, Synth, Blip, Silence), **Add > Generator** in Clip playlists and sequence clips, and drag from the
   library. Selecting a generator, or an embedded generator entry, opens the **Generator editor** in the main area.
-- **Generator editor** (0335 kit, theme tokens): the parameters as generated rows from the generator catalogue, grouped
+- **Generator editor** (0349 kit, theme tokens): the parameters as generated rows from the generator catalogue, grouped
   (Oscillators, Filter, Envelopes, LFO; for blips sfxr's groups) with real-unit readouts; a **waveform preview** of the
   first 2 s (or to the end) from the offline render in a worker, redrawn after edits with the amp envelope overlaid;
   the **preset** menu; for blips **Randomise**, **Mutate**, a **seed** field, per-parameter locks and the `vary`
@@ -291,7 +291,7 @@ FMOD a plug-in instrument in the event, not on a screen of their own: a generato
   runtime so buses and effects apply; a one-octave keyboard for oscillator and synth that transposes from
   `frequency`; and **Bake…** (length for endless ones, variations, folder, Queue, Replace uses). Every edit is one undo
   step; Randomise and Mutate are one step each.
-- Voice curves on `gen:` targets use the shared curve editor (0332) with the parameter's unit and scale.
+- Voice curves on `gen:` targets use the shared curve editor (0346) with the parameter's unit and scale.
 - The Profiler's voice rows and the effects-cost track show generator voices by kind.
 
 ## Alternatives considered
@@ -307,7 +307,7 @@ FMOD a plug-in instrument in the event, not on a screen of their own: a generato
 - **Generator state in the voice slot** — the 192-byte slot is full; a pool keeps 4,096 logical slots unchanged.
 - **minBLEP** — cleaner at high fundamentals, but needs a table and a per-oscillator ring; PolyBLEP is table-free and
   enough under 4 kHz. **Oversampling** (sfxr's 8× supersampling) costs ≈ 8× per oscillator.
-- **Generators as plugins** (0338's ABI with no input; Unity's `OnAudioFilterRead`) — user-written sources are a
+- **Generators as plugins** (0352's ABI with no input; Unity's `OnAudioFilterRead`) — user-written sources are a
   later record; built-ins must work with no plugin, on the core's own budget.
 - **A JS `AudioWorkletNode` or main-thread synthesis into a stream** — outside the core: no buses, sends, spatial or
   submixes, GC on the audio thread, engine-dependent maths.
@@ -342,7 +342,7 @@ Nothing.
 - Stereo generators (detune spread, a stereo noise bed) and an `audio.json` setting for the pool size (needs an init
   parameter, a major ABI change).
 - Hard sync, FM and wavetables for the synth; a MetaSounds-style graph.
-- Generator plugins on 0338's ABI.
+- Generator plugins on 0352's ABI.
 - Snapshot overrides of generator parameters.
 
 ## References

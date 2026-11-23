@@ -1,4 +1,4 @@
-// The Take screen's panels (ADR 0334 "The Take screen", ADR 0327 "The shell"; the prototype's Take): Takes and
+// The Take screen's panels (ADR 0348 "The Take screen", ADR 0341 "The shell"; the prototype's Take): Takes and
 // Playlists in this take (left), the Timeline (the fixed panel), the Inspector (right), the Mixer strip (bottom) and
 // History (on demand: the notes' undo tree). The panels read the screen's store (`takeScreen.ts`) and the Studio's
 // replay (`shell/replay.ts`); the Timeline panel also owns what the screen does while it shows: opening the take the

@@ -24,7 +24,7 @@
 // `fadeZero` (`PlayArgs.fadeZero`); the `shape` word on FADE, SET_PARAMS and STOP, which makes them 28, 60 and 24 B
 // (`fadeShaped`, `stopShaped`, `setParams`' `shape`), each stampable; and a gate group's records stay in one BATCH.
 //
-// ADR 0346 (ABI 5.1) adds `gen` (GEN, a generator voice's parameters, from a preallocated value buffer) and
+// ADR 0360 (ABI 5.1) adds `gen` (GEN, a generator voice's parameters, from a preallocated value buffer) and
 // `generatorTarget` (AUTOMATE target kind 5); a generator voice is a `play` of `GEN_CLIP_ID_FIRST + kind`. The playlist
 // runtime (G3) decides when to send them.
 import {
@@ -216,10 +216,10 @@ export type BusAutomationBinding = Omit<AutomateBindings, "offset">;
 
 /** `AutomationBinding.param` bit for a global parameter slot (0..63); without it the slot is the instance's local one (0..15). */
 export const AUTOMATION_GLOBAL = PARAM_GLOBAL;
-/** ADR 0332: `AutomationBinding.param` bit (bit 15 clear) for a time parameter, `TIME_VOICE`, `TIME_CLIP` or `TIME_SEQUENCE` in bits 0-1. */
+/** ADR 0346: `AutomationBinding.param` bit (bit 15 clear) for a time parameter, `TIME_VOICE`, `TIME_CLIP` or `TIME_SEQUENCE` in bits 0-1. */
 export const AUTOMATION_TIME = PARAM_TIME;
 /**
- * ADR 0346 (ABI 5.1): an `AutomationBinding.target` that drives generator parameter `param` (the generator catalogue's
+ * ADR 0360 (ABI 5.1): an `AutomationBinding.target` that drives generator parameter `param` (the generator catalogue's
  * index): the curve's value replaces it each quantum, or with `log` 2 to the curve's value (frequencies and rates
  * interpolate in log scale, as their curves are keyed in log2).
  */
@@ -229,9 +229,9 @@ export const generatorTarget = (param: number, log: boolean): number =>
 export const GEN_MASK_ALL = 0xffffffff;
 /** The core keeps at most this many bindings per voice and per bus, curves of at most `CORE_CURVE_KEYS` keys. */
 const CORE_BINDINGS = 8;
-/** The core's curve table keeps this many keys (`automation.rs` `CURVE_KEYS`; ADR 0332's limit, `MAX_CURVE_KEYS`). */
+/** The core's curve table keeps this many keys (`automation.rs` `CURVE_KEYS`; ADR 0346's limit, `MAX_CURVE_KEYS`). */
 export const CORE_CURVE_KEYS = 64;
-/** Bytes of one CURVES key: x, y, interp, then the Bézier handles (ADR 0332). */
+/** Bytes of one CURVES key: x, y, interp, then the Bézier handles (ADR 0346). */
 const CURVE_KEY_BYTES = 28;
 /** Bytes one curve takes in a CURVES record: its key count word and its keys (at most `CORE_CURVE_KEYS`). */
 export const coreCurveBytes = (c: Curve): number => 4 + CURVE_KEY_BYTES * Math.min(c.length, CORE_CURVE_KEYS);
@@ -265,7 +265,7 @@ const NO_ZONE_SLOTS: ZoneSlotArgs[] = [];
 /** Pads a byte count to a multiple of 4 (the record and list padding of the M3 records). */
 const pad4 = (n: number): number => Math.ceil(n / 4) * 4;
 /** A ramp's start phase, 0..1, as the u0.16 the shape word carries (clamped). */
-/** @internal ADR 0333 (ABI 4.11): a spread in degrees as SET_VOICE_FX carries it, hundredths of a degree 0..36000. */
+/** @internal ADR 0347 (ABI 4.11): a spread in degrees as SET_VOICE_FX carries it, hundredths of a degree 0..36000. */
 export const spreadCentidegrees = (deg: number): number => (Number.isFinite(deg) ? Math.round(Math.min(360, Math.max(0, deg)) * 100) : 0);
 
 const phase16 = (p: number): number => Math.min(65535, Math.max(0, Math.round(p * 65536)));
@@ -288,7 +288,7 @@ export interface VoiceFxArgs {
   auxLevel: number;
   /** The aux send's bus; `AUX_BUS_NONE` (0xFFFF) is none. */
   auxBus: number;
-  /** ADR 0333 (ABI 4.11, `SET_VOICE_FX_MASK_SPREAD`): a spatial voice's spread, degrees 0..360 (sent in hundredths). Omitted: 0. */
+  /** ADR 0347 (ABI 4.11, `SET_VOICE_FX_MASK_SPREAD`): a spatial voice's spread, degrees 0..360 (sent in hundredths). Omitted: 0. */
   spread?: number;
 }
 
@@ -596,7 +596,7 @@ export class CommandWriter implements VoiceCommandSink {
 
   /**
    * `busRamp` with the length already in frames (the lane writer's `ClockMap.rampFrames()`; replay's 0). `law`
-   * `FadeLaw.Decibel` (ABI 4.8) ramps the gain linearly in dB (a snapshot's fade, ADR 0330); the low-pass stays linear.
+   * `FadeLaw.Decibel` (ABI 4.8) ramps the gain linearly in dB (a snapshot's fade, ADR 0344); the low-pass stays linear.
    */
   busRampFrames(bus: number, lane: number, mask: number, gain: number, lpHz: number, frames: number, sequenceId = 0, atFrame?: number, law: number = FadeLaw.Linear): void {
     const r = this.rampRec;
@@ -651,7 +651,7 @@ export class CommandWriter implements VoiceCommandSink {
   }
 
   /**
-   * ADR 0330 (ABI 4.7) BUS_SENDS: bus `slot`'s post-fader sends into returns (replace-all, asap; at most
+   * ADR 0344 (ABI 4.7) BUS_SENDS: bus `slot`'s post-fader sends into returns (replace-all, asap; at most
    * `MAX_BUS_SENDS` are written): each `to` a bus slot, `level` linear, `flags` `BUS_SEND_MUTED`, ramped over `frames`.
    */
   busSends(slot: number, sends: readonly BusSendsSends[]): void {
@@ -746,7 +746,7 @@ export class CommandWriter implements VoiceCommandSink {
   }
 
   /**
-   * LOOPS (ADR 0328): replaces clip voice `voiceId`'s loop program (an empty list clears it; past `VOICE_LOOPS_MAX` loops
+   * LOOPS (ADR 0342): replaces clip voice `voiceId`'s loop program (an empty list clears it; past `VOICE_LOOPS_MAX` loops
    * the core ignores the rest). Send it right after the voice's PLAY with the same `atFrame` (omitted = asap), so it
    * stays after the PLAY in the batch; the core applies it on arrival.
    */
@@ -760,7 +760,7 @@ export class CommandWriter implements VoiceCommandSink {
   }
 
   /**
-   * GEN (ADR 0346, ABI 5.1): generator voice `voiceId`'s parameters. `params[i]` is parameter i in the generator
+   * GEN (ADR 0360, ABI 5.1): generator voice `voiceId`'s parameters. `params[i]` is parameter i in the generator
    * catalogue's order (the wire order); the parameters whose bit is set in `mask` are sent, in that order (bits past
    * `GEN_PARAMS_MAX` and past `params` are dropped). `seed` (non-zero) re-seeds the voice's noise; 0 keeps it. A started
    * voice glides the changed smooth parameters over `rampFrames`; one not started takes them at once. Send the first
@@ -787,7 +787,7 @@ export class CommandWriter implements VoiceCommandSink {
   }
 
   /**
-   * SUBMIX (ADR 0331, ABI 4.5; levels 4.9): configures submix `slot`: the voices of instance `group` (0: none, only
+   * SUBMIX (ADR 0345, ABI 4.5; levels 4.9): configures submix `slot`: the voices of instance `group` (0: none, only
    * the voices a ROUTE names; a slot whose group goes to 0 keeps ringing) on bus index `bus` route into it, it runs
    * `effects` and feeds slot `parent` (null: the bus); no effects frees it. Applies on arrival (asap).
    */
@@ -804,7 +804,7 @@ export class CommandWriter implements VoiceCommandSink {
   }
 
   /**
-   * ROUTE (ADR 0331 levels, ABI 4.9): voice `voiceId` mixes into submix `slot` (its playlist level's; null: back to its
+   * ROUTE (ADR 0345 levels, ABI 4.9): voice `voiceId` mixes into submix `slot` (its playlist level's; null: back to its
    * group's route). Applies on arrival: send it right after the voice's PLAY with the same `atFrame` (omitted = asap),
    * so it stays after the PLAY in the batch (the batch is sent in frame order, and an asap record written after a
    * stamped PLAY would go ahead of it: the PLAY then takes the voice's automation entry over and clears the route).
@@ -818,7 +818,7 @@ export class CommandWriter implements VoiceCommandSink {
   }
 
   /**
-   * TIME (ADR 0332): re-anchors `group`'s sequence clock (0 the global one, else an instance group 1..1024) at
+   * TIME (ADR 0346): re-anchors `group`'s sequence clock (0 the global one, else an instance group 1..1024) at
    * `atFrame` (absolute, stamped) or asap (omitted, at the next quantum): from there it reads `value` seconds moving at
    * `rate` seconds per second (0 parks it).
    */
@@ -894,7 +894,7 @@ export class CommandWriter implements VoiceCommandSink {
   }
 
   /**
-   * SUBMIX_AUTOMATE (ADR 0331, ABI 4.8): replaces instance submix slot `slot`'s effect-parameter bindings (an empty list
+   * SUBMIX_AUTOMATE (ADR 0345, ABI 4.8): replaces instance submix slot `slot`'s effect-parameter bindings (an empty list
    * clears them; past `BUS_AUTOMATE_MAX_BINDINGS` dropped), asap. Send it after the slot's SUBMIX.
    */
   submixAutomate(slot: number, bindings: readonly BusAutomationBinding[]): void {

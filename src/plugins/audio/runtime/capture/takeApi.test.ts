@@ -1,4 +1,4 @@
-// ADR 0334: `Audio.take` through the public API on a fake core backend: start joins the capture ring, the hook points
+// ADR 0348: `Audio.take` through the public API on a fake core backend: start joins the capture ring, the hook points
 // record what the script asks (a one-shot with its position, its stop, bus volume and fades, snapshots, master volume,
 // marks), stop copies the profile, save writes one `*.mycotake` that the take reader and the capture reader both open.
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -65,7 +65,7 @@ afterEach(() => {
   setAudioBackend(null);
 });
 
-describe("Audio.take (ADR 0334)", () => {
+describe("Audio.take (ADR 0348)", () => {
   // First: the take is kept for a save until the next start, so a later case would find the first one's.
   it("refuses to save with nothing recorded", async () => {
     await rig();

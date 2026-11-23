@@ -1,4 +1,4 @@
-//! IMA ADPCM in Myco's block layout (ADR 0337 §3 as 0345 §5 settles it): the one reader the audio core (clip format 6,
+//! IMA ADPCM in Myco's block layout (ADR 0351 §3 as 0359 §5 settles it): the one reader the audio core (clip format 6,
 //! decoded per voice, a little each quantum) and the decoder worker (a `.mycopak` entry decoded whole) both use, so
 //! the encoder's layout, the core and the worker agree by construction.
 //!
@@ -11,7 +11,7 @@
 //! `step >> 2` if bit 0; bit 3 negates `diff`; `predictor = clamp(predictor ± diff, -32768, 32767)` is the sample;
 //! `index = clamp(index + INDEX_ADJUST[n], 0, 88)`. A short last block is padded; the frame count travels outside.
 //!
-//! [`State::step`] is that update without a branch or a bounds check (0345 §5: the incremental decoder the A0 spike
+//! [`State::step`] is that update without a branch or a bounds check (0359 §5: the incremental decoder the A0 spike
 //! measured at +23k wasm instructions per voice per quantum). A header's step index above 88 (corrupt data) is
 //! clamped, so no input can read outside the tables.
 //!

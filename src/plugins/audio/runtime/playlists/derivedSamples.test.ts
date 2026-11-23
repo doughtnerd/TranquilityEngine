@@ -1,4 +1,4 @@
-// ADR 0328, 0329: a playlist entry, a one-shot and an `AudioSource` naming a derived sample (`*.sample.json`) play its
+// ADR 0342, 0343: a playlist entry, a one-shot and an `AudioSource` naming a derived sample (`*.sample.json`) play its
 // source audio file with its resolved edits: a snippet's range as the trim, a following fork's loops read from its
 // parent's sidecar, the migration's derived loop samples. Through the public API on the fake backend, then heard on the
 // real audio core (the loopback host with the committed wasm) with a Sound Lab WAV.
@@ -24,7 +24,7 @@ const LOOP = { id: "l1", start: 0.5, end: 1.5, active: "held", exit: "jump" };
 const snippet = (source: string, range: [number, number], sampleBlock: Record<string, unknown> = {}) =>
   ({ format: SAMPLE, source, range, lineage: { kind: "snippet", parent: source, mode: "pin" }, sample: sampleBlock });
 
-describe("a playlist entry naming a derived sample (ADR 0328)", () => {
+describe("a playlist entry naming a derived sample (ADR 0342)", () => {
   it("a snippet plays its source file from its range's start and stops at its end", async () => {
     await kit.boot({
       "audio/skid.wav": "data:skid", "audio/skid.wav.meta.json": { format: IMPORT, volume: 0.5 },
@@ -95,7 +95,7 @@ describe("a playlist entry naming a derived sample (ADR 0328)", () => {
   });
 });
 
-describe("one-shots and sources naming a derived sample (ADR 0328)", () => {
+describe("one-shots and sources naming a derived sample (ADR 0342)", () => {
   it("Audio.playOneShot and AudioSource play the source file", async () => {
     await kit.boot({ "x.sample.json": snippet("b.wav", [0.2, 0.4]) });
     Audio.playOneShot("x.sample.json");
@@ -207,7 +207,7 @@ function expectSnippetLength(rms: readonly number[]): void {
   expect(lastHeard - firstHeard).toBeGreaterThan(quantaAt(0.4));
 }
 
-describe("a derived sample heard on the audio core (ADR 0328)", () => {
+describe("a derived sample heard on the audio core (ADR 0342)", () => {
   const SNIPPET = { "audio/idle.part.sample.json": snippet(IDLE, [0.2, 0.7]) };
 
   it("the WAV is longer than its snippet", () => {

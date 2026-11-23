@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the playhead: playing and parked, over a lane.
+// Stories (ADR 0219, 0349) for the playhead: playing and parked, over a lane.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect } from "storybook/test";
 import { Playhead } from "./Playhead";

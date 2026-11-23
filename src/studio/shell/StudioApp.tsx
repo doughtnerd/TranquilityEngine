@@ -1,7 +1,7 @@
-// The Studio's page (ADR 0327 "The shell"): the start screen with no project open, else the shell: header, the
+// The Studio's page (ADR 0341 "The shell"): the start screen with no project open, else the shell: header, the
 // screen's dock (the engine's `DockLayout` over the screen's own layout store), the player bar with the screen's
-// slots and the Hear as control (ADR 0337 §6), the status bar, toasts and the shortcut list. A banner says why when the audio core can't run, and one over
-// the Playlists screen offers to migrate a read-only project's old audio events (ADR 0329).
+// slots and the Hear as control (ADR 0351 §6), the status bar, toasts and the shortcut list. A banner says why when the audio core can't run, and one over
+// the Playlists screen offers to migrate a read-only project's old audio events (ADR 0343).
 import { ConfirmDialog } from "../../editor/ui/ConfirmDialog";
 import { KeyboardShortcutsDialog } from "../../editor/ui/KeyboardShortcutsDialog";
 import { UndoToasts } from "../../editor/ui/UndoToast";

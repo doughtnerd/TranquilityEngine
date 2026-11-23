@@ -1,4 +1,4 @@
-// ADR 0338 §6 / 0344: the plugin effect module validator, through `validateEffectModule` alone. Hand-assembled modules
+// ADR 0352 §6 / 0358: the plugin effect module validator, through `validateEffectModule` alone. Hand-assembled modules
 // cover each refusal; the SDK's own test plugin (native/fx-sdk, built by `npm run build:fx-examples`) and the tremolo
 // sample cover the round trip: a Rust plugin built on myco-fx validates, instruments and runs through the ABI.
 import { readFileSync } from "node:fs";
@@ -186,7 +186,7 @@ describe("the SDK round trip (myco-fx)", () => {
     m.call("myco_fx_destroy", 1e6, 0, h);
   });
 
-  it("its allocator frees: destroying and re-creating an instance doesn't grow memory (0344 §5)", async () => {
+  it("its allocator frees: destroying and re-creating an instance doesn't grow memory (0358 §5)", async () => {
     const r = await validateEffectModule(read("native/fx-sdk/wasm/test_fx.wasm"));
     if (!r.ok) throw new Error(r.problems.join("; "));
     const m = await load(r.bytes);

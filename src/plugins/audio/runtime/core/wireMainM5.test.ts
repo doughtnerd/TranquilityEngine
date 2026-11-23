@@ -101,7 +101,7 @@ describe("CommandWriter, the M5 records", () => {
     expect(readBusRamp(view, recs[0]!.off).frames).toBe(123);
   });
 
-  it("busSlot: 28 B plus 68 B per effect (ABI 5.0), zero-padded parameters, flags and sequence tag; at most eight effects (ADR 0331)", () => {
+  it("busSlot: 28 B plus 68 B per effect (ABI 5.0), zero-padded parameters, flags and sequence tag; at most eight effects (ADR 0345)", () => {
     const { writer, posted } = writerRig();
     const fx = (type: number, ...p: number[]) => ({ type, p });
     writer.busSlot({ slot: 4, parent: BUS_ROOT, effects: [fx(0, 1500, 6), fx(3, 0.5)], structural: true, sequenceId: 9 }, 5000);
@@ -126,7 +126,7 @@ describe("CommandWriter, the M5 records", () => {
     expect(readBusSlot(r2.view, r2.records[1]!.off).effects[0]!.p).toEqual(new Array(16).fill(0));
   });
 
-  it("busSends (ADR 0330, ABI 4.7): 16 B plus 12 B per send, at most MAX_BUS_SENDS", () => {
+  it("busSends (ADR 0344, ABI 4.7): 16 B plus 12 B per send, at most MAX_BUS_SENDS", () => {
     const { writer, posted } = writerRig();
     const send = (to: number, level: number, flags = 0, frames = 0) => ({ to, flags, level, frames });
     writer.busSends(3, [send(1, 0.5), send(2, 1, BUS_SEND_MUTED, 480), send(4, 1), send(5, 1), send(6, 1)]);

@@ -32,7 +32,7 @@ export const CAPTURE_MAGIC: readonly number[] = [0x4d, 0x59, 0x43, 0x41, 0x50, 0
 /** The plain header's size. */
 export const CAPTURE_HEADER_BYTES = 96;
 /**
- * `format` this build writes and reads. 2 (ADR 0334): EVENT kinds `pick` and `loudnessWarning`, MIXOP written, the
+ * `format` this build writes and reads. 2 (ADR 0348): EVENT kinds `pick` and `loudnessWarning`, MIXOP written, the
  * `take` header flag, META's `take` section and the request records; format 1 files are refused (not migrated).
  */
 export const CAPTURE_FORMAT = 2;
@@ -41,7 +41,7 @@ export const CAPTURE_ABI_VERSION = 0x500;
 /** R16: the uncompressed payload's cap, from the header before inflate and while inflating (64 MiB). */
 export const CAPTURE_MAX_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
 /**
- * ADR 0334: a take's uncompressed payload cap (256 MiB): the profile ring (at most 32 MiB) plus the requests, which are never
+ * ADR 0348: a take's uncompressed payload cap (256 MiB): the profile ring (at most 32 MiB) plus the requests, which are never
  * dropped (the recorder stops with a message before a take would pass it). Applies to files whose header sets `take`.
  */
 export const TAKE_MAX_UNCOMPRESSED_BYTES = 256 * 1024 * 1024;
@@ -53,7 +53,7 @@ export const CAPTURE_RECORD_MAX_BYTES = 262_144;
 export const CAPTURE_RECORD_HEAD_BYTES = 20;
 /** A name (META or NAMES), UTF-8 bytes. META names are cut to it; a NAMES record past it is refused. */
 export const CAPTURE_NAME_MAX_BYTES = 256;
-/** ADR 0334: META `replayOf.path`, UTF-8 bytes (cut to it). */
+/** ADR 0348: META `replayOf.path`, UTF-8 bytes (cut to it). */
 export const CAPTURE_PATH_MAX_BYTES = 1024;
 /** Names in all tables together, META and NAMES records. */
 export const CAPTURE_MAX_NAMES = 65_536;
@@ -81,7 +81,7 @@ export const CAPTURE_FLAG_TRUNCATED = 1 << 0;
 export const CAPTURE_FLAG_MAIN_SIDE_ONLY = 1 << 1;
 export const CAPTURE_FLAG_HAS_INDEX = 1 << 2;
 export const CAPTURE_FLAG_COMPRESSED = 1 << 3;
-/** ADR 0334: a take (`*.mycotake`): request records may follow, META carries a `take` section, the cap is the take's. */
+/** ADR 0348: a take (`*.mycotake`): request records may follow, META carries a `take` section, the cap is the take's. */
 export const CAPTURE_FLAG_TAKE = 1 << 4;
 const CAPTURE_FLAGS_KNOWN = 0x1f;
 
@@ -103,7 +103,7 @@ export const RecordType = {
   WRAP: 0x09,
   INDEX: 0x7f,
 } as const;
-/** ADR 0334: a take's request record codes (0x10..0x1d, `engine/audio/take/records.ts`): only in a file with the `take` flag. */
+/** ADR 0348: a take's request record codes (0x10..0x1d, `engine/audio/take/records.ts`): only in a file with the `take` flag. */
 export { TakeRecordType, isTakeRecordType };
 export type RecordTypeCode = (typeof RecordType)[keyof typeof RecordType];
 /** The first required (never skipped) unknown type. */
@@ -127,16 +127,16 @@ export const EventKind = {
   voiceStart: 1, voiceStop: 2, voiceSteal: 3, voiceVirtual: 4, voiceReal: 5, voiceRefused: 6, voiceQueued: 7,
   eventStart: 8, eventStop: 9, parameter: 10, snapshot: 11, stateChange: 12, musicTransition: 13, busRamp: 14,
   monitor: 15, loudnessControl: 16, ladder: 17, masterChange: 18, hiddenTab: 19,
-  /** ADR 0334: one playlist decision of an instance (the "Why it played" chain), written after its `eventStart`. */
+  /** ADR 0348: one playlist decision of an instance (the "Why it played" chain), written after its `eventStart`. */
   pick: 20,
-  /** ADR 0334: a metered bus's loudness against its target changed state (reason 1 high, 2 low, 3 ok). */
+  /** ADR 0348: a metered bus's loudness against its target changed state (reason 1 high, 2 low, 3 ok). */
   loudnessWarning: 21,
   /**
-   * ADR 0337 §9 (`PKG`): a package started loading (reason 1), loaded (2), failed (3) or was unloaded (4). Added within
+   * ADR 0351 §9 (`PKG`): a package started loading (reason 1), loaded (2), failed (3) or was unloaded (4). Added within
    * format 2: older captures read as before; an older build refuses a capture holding one (an unknown kind).
    */
   audioPackage: 22,
-  /** ADR 0338 §6: a plugin effect faulted and passed its block dry (reason 1 trap, 2 budget, 3 grow, 4 nonFinite, 5 range). */
+  /** ADR 0352 §6: a plugin effect faulted and passed its block dry (reason 1 trap, 2 budget, 3 grow, 4 nonFinite, 5 range). */
   pluginFault: 23,
 } as const;
 export const EVENT_KIND_MAX = 23;
@@ -280,7 +280,7 @@ export interface CaptureHeader {
 export type CaptureHeaderInit = Pick<CaptureHeader, "sampleRate" | "preset" | "startDateMs" | "ringBytes" | "firstFrame"> & {
   truncated?: boolean;
   mainSideOnly?: boolean;
-  /** ADR 0334: the file is a take (sets `CAPTURE_FLAG_TAKE`). */
+  /** ADR 0348: the file is a take (sets `CAPTURE_FLAG_TAKE`). */
   take?: boolean;
 };
 
@@ -380,19 +380,19 @@ export interface CaptureMeta {
   device: { preset: number; sampleRate: number; deviceMemory?: number; userAgent: string };
   /**
    * The mix the runtime played at the take's start, as parsed JSON (data; the profiler names tombstoned buses from it):
-   * the runtime's settings shape, which since ADR 0330 is `audio.json`'s runtime view (`toRuntimeSettings`).
+   * the runtime's settings shape, which since ADR 0344 is `audio.json`'s runtime view (`toRuntimeSettings`).
    */
   audio: unknown;
   /** The `loudnessTarget` in force, as parsed JSON. */
   target: unknown;
   names: Record<NameTable, Map<number, string>>;
-  /** ADR 0334: a take's section (seed, audio hash, emitter names), as parsed JSON; null in a capture. The take reader checks it. */
+  /** ADR 0348: a take's section (seed, audio hash, emitter names), as parsed JSON; null in a capture. The take reader checks it. */
   take: unknown;
-  /** ADR 0334: the take a replay capture recorded the Studio playing (its project path and `audio.json` hash); null otherwise. */
+  /** ADR 0348: the take a replay capture recorded the Studio playing (its project path and `audio.json` hash); null otherwise. */
   replayOf: CaptureReplayOf | null;
 }
 
-/** ADR 0334: the take a capture of the Studio's replay names in META (`replayOf`). */
+/** ADR 0348: the take a capture of the Studio's replay names in META (`replayOf`). */
 export interface CaptureReplayOf {
   /** The take file's project path. */
   path: string;
@@ -408,9 +408,9 @@ export interface CaptureMetaInit {
   audio: unknown;
   target: unknown;
   names: Partial<Record<NameTable, ReadonlyMap<number, string> | Readonly<Record<number, string>>>>;
-  /** ADR 0334: a take's META section; absent in a capture. */
+  /** ADR 0348: a take's META section; absent in a capture. */
   take?: TakeMetaSection;
-  /** ADR 0334: the take a capture of the Studio's replay recorded; absent otherwise. */
+  /** ADR 0348: the take a capture of the Studio's replay recorded; absent otherwise. */
   replayOf?: CaptureReplayOf;
 }
 
@@ -818,7 +818,7 @@ export function decodeMixOpRecord(view: DataView, off: number, len: number, base
 }
 
 /**
- * ADR 0334: a take's request record (PLAY .. take KEYFRAME, `engine/audio/take/records.ts`) from its payload, its
+ * ADR 0348: a take's request record (PLAY .. take KEYFRAME, `engine/audio/take/records.ts`) from its payload, its
  * refusals as `CaptureError`s of the same code. The capture reader checks every request record this way and passes over
  * it; the take reader keeps what it answers.
  */

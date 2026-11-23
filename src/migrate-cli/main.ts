@@ -1,5 +1,5 @@
 /**
- * `npm run audio:migrate`: migrate a project's audio events to playlists (ADR 0329 §"Migration").
+ * `npm run audio:migrate`: migrate a project's audio events to playlists (ADR 0343 §"Migration").
  *
  * ```sh
  * npm run audio:migrate -- <projectDir> [--dry-run]

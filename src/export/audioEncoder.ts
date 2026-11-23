@@ -1,10 +1,10 @@
 /**
- * Internal (ADR 0337 §4–§5, amended by 0345 §1–§3): the audio encoder as the export and the Studio see it. One request
+ * Internal (ADR 0351 §4–§5, amended by 0359 §1–§3): the audio encoder as the export and the Studio see it. One request
  * encodes one sound's PCM to a shipped codec; an `AudioEncoder` runs requests on a pool of threads, each holding one
  * instance of `myco_audio_encode.wasm` (`audioEncoderWasm.ts`):
  *
  * - `audioEncoderNode.ts`: `worker_threads`, cores − 1 by default (the export CLI);
- * - `audioEncoderBrowser.ts`: Web Workers, at most [`STUDIO_ENCODE_CONCURRENCY`] (2) at once (0345 §3: an 82 s clip
+ * - `audioEncoderBrowser.ts`: Web Workers, at most [`STUDIO_ENCODE_CONCURRENCY`] (2) at once (0359 §3: an 82 s clip
  *   holds 73–132 MB of a module's memory).
  *
  * This module holds the shared pieces: the request and result types, the thread protocol and the pool. It imports no
@@ -13,9 +13,9 @@
 import type { ShippedCodec } from "../engine/audio/encoding/types";
 import encodeInfo from "./wasm/encode.json" with { type: "json" };
 
-/** The encoder's version for cache keys (ADR 0337 §5): the hash of its sources, which the wasm embeds. */
+/** The encoder's version for cache keys (ADR 0351 §5): the hash of its sources, which the wasm embeds. */
 export const ENCODER_VERSION: string = encodeInfo.sourceHash;
-/** The Studio's cap on concurrent encodes (ADR 0345 §3). */
+/** The Studio's cap on concurrent encodes (ADR 0359 §3). */
 export const STUDIO_ENCODE_CONCURRENCY = 2;
 
 /** One encode. */

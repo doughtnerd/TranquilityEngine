@@ -17,11 +17,11 @@
 
 use audio_dsp::fx::{kind, PARAMS};
 
-/// The spec's version (its first value). 2 since ADR 0338 B5: 16 parameters per effect and plugin effects.
+/// The spec's version (its first value). 2 since ADR 0352 B5: 16 parameters per effect and plugin effects.
 pub const VERSION: f64 = 2.0;
 /// Values in the header.
 pub const HEADER: usize = 5;
-/// Parameters per effect in a spec: the core's records' 16 (`PARAMS`, ABI 5.0, ADR 0338), a plugin effect's most.
+/// Parameters per effect in a spec: the core's records' 16 (`PARAMS`, ABI 5.0, ADR 0352), a plugin effect's most.
 pub const SPEC_PARAMS: usize = PARAMS;
 /// Values per effect.
 pub const EFFECT_STRIDE: usize = 2 + SPEC_PARAMS;
@@ -45,7 +45,7 @@ pub enum Op {
     NoiseReduction,
     /// Offline only: `reverse`.
     Reverse,
-    /// ADR 0338 §7: plugin effect `e` (its kind `PLUGIN_BASE + e`), run block by block through the
+    /// ADR 0352 §7: plugin effect `e` (its kind `PLUGIN_BASE + e`), run block by block through the
     /// `myco_ext` import (`audio_core::ext`) as the core's chains run it.
     Plugin(u32),
     /// A type index this build doesn't know: passed through, with a warning.

@@ -1,4 +1,4 @@
-// Re-import mapping (ADR 0328 "Source versions"): edits kept in seconds or scaled to a new length (snapshots, tempo
+// Re-import mapping (ADR 0342 "Source versions"): edits kept in seconds or scaled to a new length (snapshots, tempo
 // and automation with them), the tempo and root from the new file where they came from the file, and items past a
 // shorter file flagged, never dropped.
 import { describe, expect, it } from "vitest";

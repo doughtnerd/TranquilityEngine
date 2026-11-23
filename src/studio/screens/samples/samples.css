@@ -1,4 +1,4 @@
-/* The Samples screen (ADR 0328). Theme tokens only: markers use --marker-*, reserved ranges --range-*, note colours --series-*. */
+/* The Samples screen (ADR 0342). Theme tokens only: markers use --marker-*, reserved ranges --range-*, note colours --series-*. */
 
 .smp-doc { display: contents; }
 .smp-muted { color: var(--muted); }
@@ -154,7 +154,7 @@
 .smp-play { min-width: 64px; }
 .smp-scrub { flex: 1; }
 
-/* ADR 0337 §6: the Inspector's Encoding section. */
+/* ADR 0351 §6: the Inspector's Encoding section. */
 .enc-section { display: flex; flex-direction: column; gap: 6px; }
 .enc-head { display: flex; gap: 6px; align-items: center; }
 .enc-rows { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 4px 6px; align-items: center; }

@@ -1,4 +1,4 @@
-// The Takes panel's files (ADR 0334 "The Take screen"; the prototype's takes file system): the project's take files
+// The Takes panel's files (ADR 0348 "The Take screen"; the prototype's takes file system): the project's take files
 // (`*.mycotake`) by folder, through the Profiler's capture tree (a take is a capture file with requests), their notes
 // files (`<take>.notes.json`), which move and go with them, and where imported takes go. Pure.
 import { takeNotesPath } from "../../../engine/audio/take/notes";

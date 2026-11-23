@@ -1,4 +1,4 @@
-// ADR 0334: the record toggles' model: start, stop and write into takes/ or captures/ under the first free name; a
+// ADR 0348: the record toggles' model: start, stop and write into takes/ or captures/ under the first free name; a
 // failed start, a failed save and a read-only project say so; Play stopping (stop with the recorder already stopped)
 // still saves.
 import { describe, expect, it } from "vitest";
@@ -35,7 +35,7 @@ function rig(kind: RecordKind, opts: { files?: string[]; startFails?: boolean; b
   return { toggle, writes, stops: () => stops };
 }
 
-describe("RecordToggle (ADR 0334)", () => {
+describe("RecordToggle (ADR 0348)", () => {
   it("names files take_NN.mycotake and capture_NN.mycap, the first free one", () => {
     expect(nextRecordPath("take", [])).toBe("takes/take_01.mycotake");
     expect(nextRecordPath("take", ["takes/take_01.mycotake", "takes/TAKE_02.mycotake"])).toBe("takes/take_03.mycotake");

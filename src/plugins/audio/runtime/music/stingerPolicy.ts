@@ -1,7 +1,7 @@
 /**
  * The stinger decision table, pure (ADR 0166 api-and-models §2.5: `ifTooLate`, `dontRepeat`, at most 4 at once).
  *
- * No engine state: numbers in, a decision out. The playlist runtime decides its stingers with it (ADR 0329).
+ * No engine state: numbers in, a decision out. The playlist runtime decides its stingers with it (ADR 0343).
  */
 /** At most this many stingers sound at once per instance; a fifth steals the oldest. */
 export const MAX_CONCURRENT_STINGERS = 4;

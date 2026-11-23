@@ -3,7 +3,7 @@
  * `installTheme` sets the chosen theme's values on :root, so a preset or a colour override in
  * Settings > Appearance changes every rule that uses them. New CSS should use these variables
  * rather than colours: --bg, --panel, --surface (dialogs, menus), --border, --text, --muted,
- * --accent, --button and --button-hover are the common ones. The Audio Studio's (ADR 0335) add
+ * --accent, --button and --button-hover are the common ones. The Audio Studio's (ADR 0349) add
  * marker types (--marker-exit, --marker-hit, --marker-cue, --marker-note), reserved ranges
  * (--range-trim, --range-loop, --range-pickup, --range-tail) and a series palette for lanes
  * (--series-1 … --series-8).
@@ -60,7 +60,7 @@
   /* depth */
   --shadow: rgb(0 0 0 / 0.55);
   --backdrop: rgb(0 0 0 / 0.55);
-  /* Audio Studio (ADR 0335): marker types, reserved ranges, lane series */
+  /* Audio Studio (ADR 0349): marker types, reserved ranges, lane series */
   --marker-exit: #8bd12a;
   --marker-hit: #e8907a;
   --marker-cue: #f07ab4;

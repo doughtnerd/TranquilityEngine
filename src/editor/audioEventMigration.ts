@@ -1,4 +1,4 @@
-// Migrating a project's old audio events when it opens (ADR 0329 "Migration", decision D11): the editor and the Audio
+// Migrating a project's old audio events when it opens (ADR 0343 "Migration", decision D11): the editor and the Audio
 // Studio both ask once, when the project they open still has `*.audioevent.json` files, and on yes run the engine's
 // migration (`migrateProjectAudio`: each event becomes a `*.playlist.json` beside it, the files naming it are rewritten,
 // the old file moves to `.myco/migrated/`) through the app's own file system, before the project's files are read, so
@@ -57,7 +57,7 @@ export async function runAudioEventMigration(fs: FileSystem, root: string, log: 
     files = await findAudioEvents(fs, root);
     if (files.length === 0) return { kind: "none" };
     const report = await migrateProjectAudio(fs, root);
-    log(`[audio] ADR 0329: ${migrationSummary(report)}`);
+    log(`[audio] ADR 0343: ${migrationSummary(report)}`);
     for (const note of report.notes) log(`[audio] ${note}`);
     return { kind: "migrated", report };
   } catch (err) {

@@ -1,10 +1,10 @@
 /**
- * The project migration driver (ADR 0329 §"Migration"): over a project folder, every `*.audioevent.json` becomes a
+ * The project migration driver (ADR 0343 §"Migration"): over a project folder, every `*.audioevent.json` becomes a
  * `*.playlist.json` beside it (`migrateProjectAudioEvents`, with each sample's length read from its audio file's
  * headers), every JSON file that names a migrated event is rewritten to name its playlist (scenes' and prefabs'
  * `AudioSource.clip`, playlists, sample sidecars, project.json: any reference string, `rewriteJsonReferences`), and the
  * old files move to `.myco/migrated/` under their project paths. A looping clip's loop goes into its audio file's sidecar
- * (`sample.loops`, ADR 0328) or, when that sidecar already has a different loop, a derived sample beside it
+ * (`sample.loops`, ADR 0342) or, when that sidecar already has a different loop, a derived sample beside it
  * (`sampleLoops.ts`); a WAV's own `smpl` loops are read for clips that looped the file's loop points. `npm run audio:migrate` runs it over the disk; the
  * editor and the Studio run it over their own file system when they open a project with old files, after asking
  * (`src/editor/audioEventMigration.ts`).
@@ -53,7 +53,7 @@ export interface AudioMigrationReport {
   notes: string[];
 }
 
-/** Where the migration keeps the old files (the same folder as `audio.json`'s migration, ADR 0330). */
+/** Where the migration keeps the old files (the same folder as `audio.json`'s migration, ADR 0344). */
 export const MIGRATED_FOLDER = ".myco/migrated";
 
 const SKIPPED_FOLDERS = new Set(["node_modules", "dist", "target"]);

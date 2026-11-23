@@ -12,7 +12,7 @@
 // A browser cannot delete a download, so the web trigger stops at `CAPTURE_TRIGGER_MAX_FILES` saves per page session and says
 // so (R16, `webSaveCount`).
 //
-// **Takes (ADR 0334).** `installTakeTrigger()` is the same trigger for `Audio.take` on **F10** (game.json `audioTake`): a
+// **Takes (ADR 0348).** `installTakeTrigger()` is the same trigger for `Audio.take` on **F10** (game.json `audioTake`): a
 // take records what the game asked of audio beside the profile, and saves a `*.mycotake`. It has no touch gesture (three
 // fingers are the capture's; more fingers collide with the platforms' own gestures).
 import { isTauri } from "../../../../engine/platform/FileSystem";
@@ -23,7 +23,7 @@ import { audioTake } from "./take";
 const TRIGGER_HOLD_MS = 1000;
 /** The key. */
 export const TRIGGER_KEY = "F9";
-/** ADR 0334: the take trigger's key. */
+/** ADR 0348: the take trigger's key. */
 export const TAKE_TRIGGER_KEY = "F10";
 /** Fingers of the touch hold. */
 export const TRIGGER_FINGERS = 3;
@@ -113,7 +113,7 @@ export function installCaptureTrigger(env: Partial<TriggerEnv> = {}): () => void
 }
 
 /**
- * ADR 0334: installs the take trigger (F10 starts `Audio.take`, the next F10 stops and saves it) and returns what removes it.
+ * ADR 0348: installs the take trigger (F10 starts `Audio.take`, the next F10 stops and saves it) and returns what removes it.
  * The player calls it once when game.json says `audioTake`. `env.capture` stands for the take (tests).
  */
 export function installTakeTrigger(env: Partial<TriggerEnv> = {}): () => void {

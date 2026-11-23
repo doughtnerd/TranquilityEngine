@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for toasts with an Undo: a delete with Undo (10 s), a plain note, an error, and the
+// Stories (ADR 0219, 0349) for toasts with an Undo: a delete with Undo (10 s), a plain note, an error, and the
 // Undo running once and removing its toast.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useMemo, useState } from "preact/hooks";

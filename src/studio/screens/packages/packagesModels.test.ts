@@ -1,4 +1,4 @@
-// ADR 0337 §6–§8, A6: the Packages screen through its models — package contents with dependencies (and why each sound
+// ADR 0351 §6–§8, A6: the Packages screen through its models — package contents with dependencies (and why each sound
 // is in), sounds in several packages and in none, the package edits with their refusals, the rename's rewrite of
 // `AudioPackageLoader` fields in scenes and prefabs, the script lint, the profiles and rules tab, and the report
 // (estimated from the plan, exact from a Convert now) with its budget warnings.

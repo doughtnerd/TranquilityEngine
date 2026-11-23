@@ -1,4 +1,4 @@
-// The Dialogue screen's documents (ADR 0340 §9, 0341 §7, 0343 §1; ADR 0327 "the engine's undo tree"): line tables,
+// The Dialogue screen's documents (ADR 0354 §9, 0355 §7, 0357 §1; ADR 0341 "the engine's undo tree"): line tables,
 // string tables, translations, dialogue files and `project.json` open as asset documents (the editor's machinery over
 // the engine's lenient parses and writers), so every edit is a labelled step of the file's persistent history, Ctrl+Z
 // and the History panel follow it, and outside changes are followed. The kinds are registered by id with no file
@@ -67,7 +67,7 @@ export function registerDialogueKinds(): void {
     parse: (raw, path) => (raw === undefined ? { value: emptyDialogue(), problems: [] } : ((r) => ({ value: r.dialogue, problems: problems(r.problems) }))(parseDialogue(raw, path))),
     format: formatDialogue, empty: emptyDialogue, writeDelay: 300,
   });
-  // project.json as a whole: the Studio writes only `languages` into it (and only without an editor lock, 0340 §1).
+  // project.json as a whole: the Studio writes only `languages` into it (and only without an editor lock, 0354 §1).
   register<Json>(PROJECT_FILE_KIND, "Project settings", {
     parse: (raw) => ({ value: raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Json) : {}, problems: [] }),
     format: (v) => `${JSON.stringify(v, null, 2)}\n`, empty: () => ({}), writeDelay: 300,
@@ -110,7 +110,7 @@ export const dialoguePaths = (project: EditorProject): string[] => project.files
 /** The dialogue files as the Events tab reads them. */
 export const dialogueDocs = (project: EditorProject): DialogueDoc[] => dialoguePaths(project).map((path) => ({ path, asset: readDoc<DialogueAsset>(project, path, DIALOGUE_KIND) }));
 
-/** ADR 0343 §4: the captions string table (`localisation.captions`) and its keys, for the Playlists Caption field. */
+/** ADR 0357 §4: the captions string table (`localisation.captions`) and its keys, for the Playlists Caption field. */
 export function captionTable(project: EditorProject): { path: string; keys: string[] } {
   const path = openMixDocument(project)?.value.value.localisation?.captions ?? DEFAULT_CAPTIONS_TABLE;
   const keys = project.assets.has(path) || project.files.includes(path) ? readDoc<StringTable>(project, path, STRINGS_KIND).strings.map((s) => s.key) : [];

@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the keyboard shortcuts dialog: groups, keys written the platform's way, the search,
+// Stories (ADR 0219, 0349) for the keyboard shortcuts dialog: groups, keys written the platform's way, the search,
 // and the single-key shortcuts switch marking those shortcuts off.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

@@ -1,4 +1,4 @@
-// A playlist type badge (ADR 0335 `TypeBadge`): QUE, SW, 1D, 2D, LAY, CLP, SEQ or SMP in its kind's series colour,
+// A playlist type badge (ADR 0349 `TypeBadge`): QUE, SW, 1D, 2D, LAY, CLP, SEQ or SMP in its kind's series colour,
 // named in full for its tooltip and screen readers. Shared by the sound picker and the Studio's trees.
 import type { PlaylistType } from "../../engine/audio/playlist/types";
 import { badgeFor, playlistBadge, sampleBadge, type BadgeCode, type BadgeInfo } from "./typeBadgeModel";

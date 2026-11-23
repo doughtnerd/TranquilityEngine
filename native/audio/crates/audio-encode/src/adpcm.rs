@@ -1,7 +1,7 @@
-//! IMA ADPCM encoding (the public IMA/DVI algorithm) in the block layout of ADR 0337 §3 as 0345 §5 settles it: blocks
+//! IMA ADPCM encoding (the public IMA/DVI algorithm) in the block layout of ADR 0351 §3 as 0359 §5 settles it: blocks
 //! of [`BLOCK_FRAMES`] (1,024) frames per channel, each channel's part starting with its own header so any block decodes
 //! alone. This layout isn't WAV IMA ADPCM (which interleaves 4-byte groups in blocks of 1 + 8k frames): the core's block
-//! reader (ADR 0337 A4) and the decoder worker read it, never symphonia.
+//! reader (ADR 0351 A4) and the decoder worker read it, never symphonia.
 //!
 //! **Block layout** (planar, little-endian; block bytes = `channels × 516`):
 //! - for each channel `c` in order, a 4-byte header: `i16 predictor`, `u8 step_index` (0..88), `u8 0`;

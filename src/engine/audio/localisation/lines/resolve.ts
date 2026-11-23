@@ -1,5 +1,5 @@
 /**
- * Which file a line plays in a language (ADR 0340 §5), and the project's line keys across tables.
+ * Which file a line plays in a language (ADR 0354 §5), and the project's line keys across tables.
  *
  * - `lineFile`: for each language `c` of the chain, the line's `files[c]` when given and present, else
  *   `<root>/<c>/<folder>/<file ?? key>.<ext>` for the first extension of `LINE_EXTENSIONS` that exists. A line is

@@ -1,4 +1,4 @@
-// ADR 0328: a voice's loop program on the real core (the loopback host), through the core backend's automation sink:
+// ADR 0342: a voice's loop program on the real core (the loopback host), through the core backend's automation sink:
 // `setLoops` goes out as LOOPS behind the voice's PLAY, the core plays the loops (a ping-pong loop here, then a held
 // forward loop), and `setLoop(…, false)` is the program's key-off. The clip is a ramp (frame k reads k / 4096), so the
 // output tells the playhead.
@@ -18,7 +18,7 @@ const loop = (l: Partial<VoiceLoop> & { start: number; end: number }): VoiceLoop
   direction: "forward", crossfade: 0, count: 0, active: "always", exit: "finish", exitFade: 0, reentry: "ignore", ...l,
 });
 
-describe("loop programs on the core (ADR 0328)", () => {
+describe("loop programs on the core (ADR 0342)", () => {
   it("plays a ping-pong loop for its count, parks nowhere, and lets a held loop go at the key-off", async () => {
     const loop0 = await loopbackAudio({ mixer: "own", preset: { maxLogical: 16, maxMixed: 8, limiterLookaheadMs: 0 }, decode: () => ({ channelData: [ramp] }) });
     if (!loop0) return; // the wasm isn't built here

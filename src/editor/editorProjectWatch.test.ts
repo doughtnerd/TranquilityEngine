@@ -1,4 +1,4 @@
-// The editor following outside changes to its project folder (ADR 0327): driven through the module's own interface
+// The editor following outside changes to its project folder (ADR 0341): driven through the module's own interface
 // (applyProjectChanges, startProjectWatch) over in-memory folders, with open asset documents as callers hold them.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets } from "../engine/scene/Assets";

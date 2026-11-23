@@ -1,4 +1,4 @@
-// The sound picker (ADR 0335 `SoundPicker`): a popover with a search box and the project's sounds in two sections,
+// The sound picker (ADR 0349 `SoundPicker`): a popover with a search box and the project's sounds in two sections,
 // Playlists and Samples, each with its type badge and folder. Up and Down move through what is shown (skipping sounds
 // that can't be picked here), Enter or a click picks, Escape or a click outside closes. The list comes from a provider
 // the owner passes (the project's asset index); the picker returns a project path.

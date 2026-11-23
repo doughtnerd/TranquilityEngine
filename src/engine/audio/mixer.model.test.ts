@@ -1,4 +1,4 @@
-// ADR 0330: the mixer runs the `audio.json` mix natively — the VCA lane, mute silencing a bus and its sends, returns as
+// ADR 0344: the mixer runs the `audio.json` mix natively — the VCA lane, mute silencing a bus and its sends, returns as
 // send-fed buses with their own lanes, blending snapshots (priority, Add, fades, hold, conditions), effect-parameter
 // overrides on the live effects, main-thread automation, the mix model's live ops through `apply`, and the editor's
 // legacy view written back at configure (decision D2). Through the mixer's interface (`Bus`, `resolve`, `laneGain`,
@@ -55,7 +55,7 @@ const db = (g: number) => 20 * Math.log10(g);
 const reverbSend = (m: Mixer, bus: string) => m._busSends(bus)?.find((s) => s.to === "Reverb");
 const lowpass = (m: Mixer, bus: string) => (m.resolve(bus)!.effects.find((e) => e.type === "lowpass") as Extract<BusEffect, { type: "lowpass" }> | undefined)?.frequency;
 
-describe("the mixer runs the audio.json model (ADR 0330)", () => {
+describe("the mixer runs the audio.json model (ADR 0344)", () => {
   it("hands its backends the bus view: faders without VCAs, returns as buses after the buses, sends at their level", () => {
     const { m } = rig();
     expect(m.busNames).toEqual(["Master", "Music", "SFX", "Steps", "Reverb"]);

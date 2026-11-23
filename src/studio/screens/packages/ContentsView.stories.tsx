@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0337 §6) for the Packages screen's Contents tab over the story project, edited through the screen's
+// Stories (ADR 0219, 0351 §6) for the Packages screen's Contents tab over the story project, edited through the screen's
 // model: Forest's contents with dependencies ("needed by" the playlist and the derived sample), Core's click also in
 // Boss, estimated sizes per platform, a glob-caught sound that can't be removed alone, adding a loose sound to the
 // package and removing an include entry.

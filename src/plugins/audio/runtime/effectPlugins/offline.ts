@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0338 §7): plugin effects in offline sample renders. The enabled plugins' modules, validated and
+ * Internal (ADR 0352 §7): plugin effects in offline sample renders. The enabled plugins' modules, validated and
  * instrumented once (`load.ts`), are kept here with their content hash; this is the engine's offline host
  * (`engine/audio/sample/offlinePlugins.ts`), installed the first time a plugin loads. Each render opens a session: a
  * fresh `EffectGlue` (the worklet's own glue, so the calls, the copies, the fuel, the output scan and the fault rules

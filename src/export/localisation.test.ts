@@ -1,4 +1,4 @@
-// ADR 0342 §10–§11 (T5, T8) and 0340 §6 (L3, amended by 0343 §1): an export of a project with two shipped languages
+// ADR 0356 §10–§11 (T5, T8) and 0354 §6 (L3, amended by 0357 §1): an export of a project with two shipped languages
 // (and one `ship: false`), string tables with a translation, a localised texture, a language font and localised voice
 // lines in a package, planned (`planWebBuild`) and written (`writeWebBuild`) the way the exporter and the editor do:
 // the string files with fallbacks resolved and the warnings for keys that fell back, `game.json`'s `localisation`,
@@ -131,7 +131,7 @@ async function exportBuild(files: Record<string, string | Uint8Array>, options: 
   return { plan: written, file, json: json2, bytes, lines, manifest: json2("game.json") as GameManifest };
 }
 
-describe("string files (ADR 0342 §11, T8)", () => {
+describe("string files (ADR 0356 §11, T8)", () => {
   it("writes one complete strings/<code>.json per shipped language with fallbacks resolved, and warns about keys that fell back", async () => {
     const { json, file, lines } = await exportBuild(project());
     const en = parseBuildStrings(json("strings/en.json"));
@@ -177,7 +177,7 @@ describe("string files (ADR 0342 §11, T8)", () => {
   });
 });
 
-describe("localised files and languages (ADR 0342 §10, 0340 §6)", () => {
+describe("localised files and languages (ADR 0356 §10, 0354 §6)", () => {
   it("ships the shipped languages' variants under asset and audio roots, and leaves out a ship: false language's", async () => {
     const { manifest, bytes, file } = await exportBuild(project());
     expect(bytes("project/images/loc/en/logo.png")).toEqual(new Uint8Array([1, 1, 1]));
@@ -210,7 +210,7 @@ describe("localised files and languages (ADR 0342 §10, 0340 §6)", () => {
   });
 });
 
-describe("per-language packages and the line index (ADR 0340 §6 L3, 0343 §1)", () => {
+describe("per-language packages and the line index (ADR 0354 §6 L3, 0357 §1)", () => {
   it("splits a package reaching localised files into a base part and a part per shipped language", async () => {
     const { manifest, bytes, file } = await exportBuild(project());
     const pkg = manifest.audio!.packages.find((p) => p.name === "Dialogue")!;

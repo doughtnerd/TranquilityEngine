@@ -1,4 +1,4 @@
-// Flatten (ADR 0328): render the sample's baked chain with its automation and the normalize gain (`renderSample`; the
+// Flatten (ADR 0342): render the sample's baked chain with its automation and the normalize gain (`renderSample`; the
 // render keeps the source's timeline, so trim, loops and markers still apply to it) into a new file beside its source,
 // `<name>.flat<n>.wav`, and point the sample at it (`sample.source`) as one undoable step. Unflatten points it back at
 // the source, also one step. The render file stays on disk either way (the original is never touched), so undo and

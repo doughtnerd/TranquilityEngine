@@ -49,7 +49,7 @@ const SET_PARAMS_MASK: &[Bits] = &[
 /// FADE `flags`.
 const FADE_FLAGS: &[Bits] = &[Bits::bit("stopAtEnd", 0, "stop the voice at the end of the fade")];
 
-/// One effect of a BUS_CONFIG bus: `u32 type; f32 p[16]` (ABI 5.0, ADR 0338: 16 parameters, `p[7]` before).
+/// One effect of a BUS_CONFIG bus: `u32 type; f32 p[16]` (ABI 5.0, ADR 0352: 16 parameters, `p[7]` before).
 pub(super) const EFFECTS: Repeat = Repeat {
     name: "effects",
     count_field: "effectCount",
@@ -78,14 +78,14 @@ const SET_LOOP_FLAGS: &[Bits] = &[Bits::bit("looping", 0, "loop the region; clea
 
 /// One automation binding of AUTOMATE and BUS_AUTOMATE (ADR 0158 §3): `u16 param; u16 curve; u32 target`.
 pub(super) const BINDING_ITEM: &[Field] = &[
-    Field::new("param", Ty::U16).doc("bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group"),
+    Field::new("param", Ty::U16).doc("bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0346); both clear: local slot of the voice's group"),
     Field::new("curve", Ty::U16).doc("curve id (CURVES)"),
     Field::new("target", Ty::U32).doc("bits 0-7: 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4), AUTO_TARGET_FX and AUTO_TARGET_SEND (buses and submixes, ABI 4.8; their slot, parameter and log flag in the upper bits)"),
 ];
 
-/// One AUTOMATE binding (ABI 4.9, ADR 0332 "time origin"): BUS_AUTOMATE's item plus `f32 offset`.
+/// One AUTOMATE binding (ABI 4.9, ADR 0346 "time origin"): BUS_AUTOMATE's item plus `f32 offset`.
 const VOICE_BINDING_ITEM: &[Field] = &[
-    Field::new("param", Ty::U16).doc("bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group"),
+    Field::new("param", Ty::U16).doc("bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0346); both clear: local slot of the voice's group"),
     Field::new("curve", Ty::U16).doc("curve id (CURVES)"),
     Field::new("target", Ty::U32).doc("0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4), AUTO_TARGET_GEN a generator voice's parameter (its index in bits 8-15, AUTO_TARGET_LOG for a log2 curve; ABI 5.1)"),
     Field::new("offset", Ty::F32).doc("ABI 4.9: seconds added to a time parameter before the curve reads it (the binding's time origin: a lane keyed on its playlist's start, read by a voice that started later, is `start - origin`); ignored for other params"),
@@ -98,7 +98,7 @@ const AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindi
 /// BUS_AUTOMATE_MAX_BINDINGS per bus (ABI 4.8; 8 before).
 const BUS_AUTOMATE_BINDINGS: Repeat = Repeat { name: "bindings", count_field: "bindingCount", item: BINDING_ITEM, then: None, max: 0 };
 
-/// One CURVES key: `f32 x; f32 y; u32 interp; f32 inDx, inDy, outDx, outDy` (ADR 0332 adds the handles).
+/// One CURVES key: `f32 x; f32 y; u32 interp; f32 inDx, inDy, outDx, outDy` (ADR 0346 adds the handles).
 const CURVE_KEYS: Repeat = Repeat {
     name: "keys",
     count_field: "keyCount",
@@ -305,7 +305,7 @@ pub const OPCODES: &[Opcode] = &[
         ),
         total_bytes: None,
         sent: true,
-        doc: "define or overwrite curves firstCurve.. (ADR 0158 §3, 0332); 1024 curves of at most 64 keys",
+        doc: "define or overwrite curves firstCurve.. (ADR 0158 §3, 0346); 1024 curves of at most 64 keys",
     },
     Opcode {
         id: 0x14,

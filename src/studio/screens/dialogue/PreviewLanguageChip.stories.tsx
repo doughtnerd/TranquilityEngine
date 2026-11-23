@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0340 §1) for the header's preview-language chip: choosing a language, and no chip for a project
+// Stories (ADR 0219, 0354 §1) for the header's preview-language chip: choosing a language, and no chip for a project
 // with one language.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

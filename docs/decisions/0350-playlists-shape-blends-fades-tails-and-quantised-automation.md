@@ -1,14 +1,14 @@
-# 0336. Playlists shape their blends, fades and tails, and quantise automation to the beat
+# 0350. Playlists shape their blends, fades and tails, and quantise automation to the beat
 
-- **Status:** Accepted, amended by [0339](0339-quantise-reaches-pitch-pan-filters-and-entry-voice-curves.md) (quantise on pitch, pan, filters and entry voice curves)
+- **Status:** Accepted, amended by [0353](0353-quantise-reaches-pitch-pan-filters-and-entry-voice-curves.md) (quantise on pitch, pan, filters and entry voice curves)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
-- **Supersedes:** — (amends 0329 and 0332)
-- **Related:** 0158, 0166, 0167, 0328, 0329, 0332, 0335
+- **Supersedes:** — (amends 0343 and 0346)
+- **Related:** 0158, 0166, 0167, 0342, 0343, 0346, 0349
 
 ## Context
 
-When the audio events and music events migrated to playlists (0329; decision log D32), five behaviours were lost because
+When the audio events and music events migrated to playlists (0343; decision log D32), five behaviours were lost because
 the playlist format couldn't say them, and the Sound Lab samples were left with approximations:
 
 1. **Blend overlaps.** An old blend child was full across a `range` and faded over a width either side (equal power),
@@ -51,10 +51,10 @@ is `equalPower`, today's crossfade. A `TimeLength` is `{ ms } | { beats }` and a
   outside `[start, end]`, ramps up over `fadeIn` from `start` and down over `fadeOut` to `end`, 1 between. Shapes
   default to the blend's `curve` (`linear` → linear, `equalPower` → equalPower). `x` stays the entry's anchor and the
   shorthand.
-- An entry without a region keeps ADR 0329's weights exactly ("derived" regions: crossfade from the previous point to
+- An entry without a region keeps ADR 0343's weights exactly ("derived" regions: crossfade from the previous point to
   its own and out to the next, √ for equal power; layer from the previous point, never ending). Explicit regions win;
   `crossfade`/`layer` and equal power change only how unset regions are derived. In layer mode a layer can now end.
-- `EntryUse.weightCurve?: Curve` (0332's curve): the entry's raw weight (0..1: in 2D the barycentric or edge weight, in
+- `EntryUse.weightCurve?: Curve` (0346's curve): the entry's raw weight (0..1: in 2D the barycentric or edge weight, in
   1D after its region) in, its gain out. Absent: today's (the weight, √ under equal power). In 2D under `equalPower`,
   when any entry has a curve, the shaped weights are normalised to constant power (a no-op without curves, since
   Σ(√w)² = 1); otherwise shaped values stand as they are (a curve that stays 0 until 0.4 narrows the overlap and leaves
@@ -63,7 +63,7 @@ is `equalPower`, today's crossfade. A `TimeLength` is `{ ms } | { beats }` and a
   weightCurves)`); the runtime and the Studio both read it.
 
 **2. Tails (post-exit) and pre-entry,** from Exit markers, as Wwise's exit cue:
-- A section's **Exit marker** (a sequence `exit` marker, or a sample's Exit marker, 0328) is its musical exit; the audio
+- A section's **Exit marker** (a sequence `exit` marker, or a sample's Exit marker, 0342) is its musical exit; the audio
   after it is its tail. When a Switch change **cuts** at that Exit point (`when: "exit"`, or a beat or bar that lands
   on it), the old entry *rings out*: its loops are let go by their exit settings and its voices play on to their
   natural end (the trim end; a sequence plays its playhead on with every loop inactive, and at its end lets clips that
@@ -81,7 +81,7 @@ is `equalPower`, today's crossfade. A `TimeLength` is `{ ms } | { beats }` and a
 - **Pre-entry:** `SequenceMarker.type` gains `entry`. A sequence entering by a Switch change at a boundary starts its
   first `entry` marker's time early, so the marker lands on the boundary (its timer is scheduled that much earlier);
   the old entry still leaves at the boundary. Played on its own, a sequence starts at 0. (Samples get no Entry marker
-  type here: the sample format is 0328's.)
+  type here: the sample format is 0342's.)
 
 **3. Transition fade shapes:** `ChangeHow.shapeOut?`, `shapeIn?` (Switch `onChange` and rules) shape the outgoing and
 incoming fades over `length`. The same set shapes `QueueSettings.continuous.shape?` (a negative gap's overlap),
@@ -94,7 +94,7 @@ read an absent bridge fade). The sections still fade by the rule.
 
 **5. Beat-quantised automation:** `Automation.quantize?: "beat" | "bar" | { beats: n }` (1..64, counted from the bar,
 the musical grid's `every n beats`) on a parameter-keyed lane. A quantised lane isn't a core binding (the core follows
-its parameter continuously; this amends 0332's "automation keyed on a parameter is evaluated in the core" for these
+its parameter continuously; this amends 0346's "automation keyed on a parameter is evaluated in the core" for these
 lanes). Its level is the voice's own stamped gain ramp (`AudioVoice.paramsShaped({ gain, at })`, the stem level the old
 music runtime used, which multiplies the voice's volume, so other gains and bindings are untouched): on a parameter
 change the lane asks the instance's musical clock for the next boundary (`MusicalSource.nextGrid`, the same clock Switch
@@ -116,7 +116,7 @@ another marker rings that far, noted; none: one is added at the tail's end, note
 `shapeIn`; a bridge's own fades → `transitionIn`/`transitionOut`; a stem's quantised volume → `quantize`. Still not kept
 (noted): fade offsets, different fade-out and fade-in lengths, quantised low-pass, quantise on entry voice curves.
 
-**Studio** (Playlists screen, 0335 kit, theme tokens): a fade-shape picker with a glyph of the curve; Switch rows gain
+**Studio** (Playlists screen, 0349 kit, theme tokens): a fade-shape picker with a glyph of the curve; Switch rows gain
 fade-out/in shapes, "Let the tail ring" and a transition's bridge fades; a continuous Queue's overlap shape; the 1D lane
 draws regions as trapezoids with four draggable, keyboard-nudged handles (each drag one undo step; "Reset to automatic"
 clears); a weight-curve preset menu (the shapes, narrow overlaps) beside "Edit curve…" in the shared curve editor (kind
@@ -146,7 +146,7 @@ No public `myco` API changes.
 
 **Positive**
 - The Sound Lab's engine blend, music-loop's tail, music-world's linear and S-curve transitions and its riser's cut-in,
-  and the intensity stems' beat steps play as they did before 0329; the migration writes them.
+  and the intensity stems' beat steps play as they did before 0343; the migration writes them.
 - One shape set and one weight model across crossfades, transitions, bridges, regions, loops and queues.
 - Rhythm games can move stems on the beat, sample-exactly, from the same musical clock as Switch timing.
 
@@ -163,7 +163,7 @@ Nothing.
 
 ## Open questions
 
-- An Entry marker type on samples (pre-entry for sample sections) belongs with 0328's sample format.
+- An Entry marker type on samples (pre-entry for sample sections) belongs with 0342's sample format.
 - A sequence playing out in a continuous Queue (no Switch) doesn't ring its post-exit over the next entry yet.
 - Separate fade-out and fade-in lengths and fade offsets on change rules (the old format had them).
 

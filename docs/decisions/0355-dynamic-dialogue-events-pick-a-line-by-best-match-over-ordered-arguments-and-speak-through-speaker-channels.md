@@ -1,21 +1,21 @@
-# 0341. Dynamic dialogue events pick a line by best match over ordered arguments, and speak through speaker channels
+# 0355. Dynamic dialogue events pick a line by best match over ordered arguments, and speak through speaker channels
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0010, 0262, 0304, 0306, 0313, 0314, 0327, 0329 (extended: a `line` entry may name a dialogue event), 0334 (extended: `say` request records), 0335, 0340
+- **Related:** 0010, 0262, 0304, 0306, 0313, 0314, 0341, 0343 (extended: a `line` entry may name a dialogue event), 0348 (extended: `say` request records), 0349, 0354
 
 ## Context
 
 The owner's follow-on scope (plan "Follow-on scope", 2026-11-22) asks for dynamic dialogue (feature 3), built in W13
-after localisation and voice-over (0340), with Wwise's dynamic dialogue as the reference.
+after localisation and voice-over (0354), with Wwise's dynamic dialogue as the reference.
 
-**What exists.** 0340 gives voice-over lines as keyed rows in line tables (`*.lines.json`), each with a speaker,
+**What exists.** 0354 gives voice-over lines as keyed rows in line tables (`*.lines.json`), each with a speaker,
 subtitle text per language and a file per language, played by `Audio.line(key)` or a playlist `line` entry. Playlists
-(0329) pick by Queue (weights, avoid-repeat, the World's seeded generator, `playlist/picks.ts`) and by Switch (one
+(0343) pick by Queue (weights, avoid-repeat, the World's seeded generator, `playlist/picks.ts`) and by Switch (one
 labelled parameter, label → entry). Labelled parameters (0304) are the engine's switch and state groups: global ones in
-`audio.json` `parameters`, local ones per playlist. Takes (0334) record requests and replay them against the current
+`audio.json` `parameters`, local ones per playlist. Takes (0348) record requests and replay them against the current
 project with the recorded pick-generator state. Nothing chooses a line from several game facts at once, and nothing
 stops two lines of one character overlapping.
 
@@ -36,7 +36,7 @@ stops two lines of one character overlapping.
 We will add **dialogue events** in a new asset kind, `*.dialogue.json`: each event has ordered labelled arguments and
 a path table (`argument values → weighted line keys`, with wildcards), resolved by Wwise's best match or weighted mode
 with fallbacks; `Audio.say` plays the picked line through **speaker channels** with priority, interruption, queueing,
-cooldowns and no-repeat memory; the Studio's Dialogue screen (0340) gains an Events tab with a test bench, audition and
+cooldowns and no-repeat memory; the Studio's Dialogue screen (0354) gains an Events tab with a test bench, audition and
 coverage report; takes record each `say` with its arguments and pick.
 
 ### 1. The asset: `*.dialogue.json` (`myco.dialogue@1`)
@@ -64,7 +64,7 @@ paths per event, 64 lines per path).
       { "path": ["*", "*", "*"],         "lines": [{ "key": "generic_spot_01" }, { "key": "generic_spot_02" }],
         "weight": 1 }
     ],
-    "priority": 60,                                // 0..100; absent: the picked line's table priority (0340)
+    "priority": 60,                                // 0..100; absent: the picked line's table priority (0354)
     "whenBusy": "queue",                           // queue | interrupt | drop (§4)
     "interrupt": "lower",                          // never | lower | always: what this event may cut off
     "maxWait": 2.5,                                // seconds a queued say may wait before it is dropped
@@ -81,7 +81,7 @@ paths per event, 64 lines per path).
   optional `default`, else the first); a `parameter` argument uses a global labelled parameter (0304) and its labels.
   Numeric game facts are bucketed by the game ("Near"/"Far"). A deleted or numeric global parameter is a lint, and the
   argument then only matches `*`.
-- **Paths** have one entry per argument: a label or `"*"`. Each line has `key` (a 0340 line key) and `weight` (0..100,
+- **Paths** have one entry per argument: a label or `"*"`. Each line has `key` (a 0354 line key) and `weight` (0..100,
   default 1; 0 = never). A path has `probability` (0..1, default 1) and `weight` (weighted mode only, default 1).
 - **Identities.** Event names match `[A-Za-z0-9_.-]{1,64}` and are unique across the project (the Studio refuses a
   duplicate; the runtime takes the first by path order and warns). Renaming an event, an argument label or a line key
@@ -92,7 +92,7 @@ paths per event, 64 lines per path).
 ### 2. Deciding a line
 
 `decide(event, args, ctx)` in `src/engine/audio/dialogue/decide.ts`, pure; `ctx` gives `rng` (the World's seeded
-generator), `available(key)` (0340: the line exists and, with `skipMissing`, has a file in the current language's
+generator), `available(key)` (0354: the line exists and, with `skipMissing`, has a file in the current language's
 chain, and isn't held by a line cooldown, §4) and the event's memory.
 
 1. **Values.** Each argument's value is `args[name]` from the call; else, for a `parameter` argument, the global's
@@ -108,18 +108,18 @@ chain, and isn't held by a line cooldown, §4) and the event's memory.
    history grows from 5 to 8). No available line: **fall back** to the next candidate. No candidate left: nothing
    (reason `noMatch`, or `unavailable` when matches existed but no line was available).
 5. The result is `{ key, path, pathIndex }` or `{ none: reason }`, plus a **pick path** for the profiler's "Why it
-   played" (0334): the values, the candidates tried and why each was passed over.
+   played" (0348): the values, the candidates tried and why each was passed over.
 
 Every random draw (weighted path, probability, line) comes from the World's seeded generator in that order, so a seed
 and the same data give the same line.
 
 ### 3. Composition with lines, languages and playlists
 
-- **Lines and languages.** Leaves are language-neutral line keys; the language is applied when the line plays (0340
+- **Lines and languages.** Leaves are language-neutral line keys; the language is applied when the line plays (0354
   §2–§5): its table's template, bus, speaker, subtitle and lip-sync come with it. With `skipMissing` a line not recorded
   anywhere in the chain is passed over in favour of one that is, so a partly translated event still speaks; with
-  `skipMissing: false` it plays as 0340 §3 says (subtitle-only by default).
-- **Playlists.** 0340's playlist `line` entry gains an event form: `{ "line": { "event": "enemy_spotted" } }` (`LineEntry.line: string | null | { event: string }`).
+  `skipMissing: false` it plays as 0354 §3 says (subtitle-only by default).
+- **Playlists.** 0354's playlist `line` entry gains an event form: `{ "line": { "event": "enemy_spotted" } }` (`LineEntry.line: string | null | { event: string }`).
   When picked it decides with arguments taken from the playlist instance's labelled parameters of the same name
   (local, then global), so a playlist with a Switch on `distance` can voice its own bark. A playlist entry plays as a
   voice of its playlist: it does not go through speaker channels (§4).
@@ -127,7 +127,7 @@ and the same data give the same line.
   best-match, line availability by language, cooldown memory and speaker queueing into the playlist runtime, whose
   picks are per trigger over entries and whose Switch reads one parameter. Nested Switch playlists can't express
   wildcards with best match, and their coverage can't be reported. Dialogue events produce a line key and hand it to
-  0340's line playback; the line entry is the bridge both ways.
+  0354's line playback; the line entry is the bridge both ways.
 
 ### 4. Speaker channels, priority and interruption
 
@@ -136,7 +136,7 @@ and the same data give the same line.
 - **Channels.** A `say` plays on a channel: `options.channel`, else the picked line's speaker, else the event name. A
   channel speaks one line at a time (a character never talks over itself). `audio.json` `settings.dialogue` gains
   `maxVoices` (lines speaking at once across channels, default 3, 0 = no limit) and `interruptFadeMs` (default 150).
-- **Priority** 0..100: `options.priority`, else the event's, else the line's table priority (0340, default 50).
+- **Priority** 0..100: `options.priority`, else the event's, else the line's table priority (0354, default 50).
 - **When the channel is busy** (or `maxVoices` is reached, compared with the lowest-priority speaking line):
   - **interrupt:** allowed when the event's `interrupt` permits it (`lower`: the speaking line's priority is lower;
     `always`; `never`) and `whenBusy` isn't `drop`: the speaking line fades out over `interruptFadeMs`, its handle
@@ -147,7 +147,7 @@ and the same data give the same line.
     **when the say starts**, not when it was asked, so cooldowns and the language are current.
   - else **drop**: the handle finishes `refused` with reason `busy`.
 - **Cooldowns and memory** (`DialogueMemory`, per World): event `cooldown` (since it last spoke), event `chance`, the
-  event's avoid-repeat history, and per line `cooldown` in its line table row (0340 gains an optional per-line
+  event's avoid-repeat history, and per line `cooldown` in its line table row (0354 gains an optional per-line
   `cooldown`, seconds, default 0, and `once: true`: never again this session). A say refused by cooldown or chance
   finishes `refused` with reason `cooldown` or `chance`. Memory is kept for the World's life and can be saved by the
   game (§5).
@@ -159,8 +159,8 @@ and the same data give the same line.
 ### 5. Public API
 
 ```ts
-Audio.say(event: string, options?: SayOptions): AudioLineHandle      // 0340's handle
-interface SayOptions extends LineOptions {          // position, node, volume, bus… (0340)
+Audio.say(event: string, options?: SayOptions): AudioLineHandle      // 0354's handle
+interface SayOptions extends LineOptions {          // position, node, volume, bus… (0354)
   args?: Record<string, string>;
   channel?: string;
   priority?: number;                                // 0..100
@@ -180,19 +180,19 @@ class AudioSpeaker extends Component { speaker: string; say(event: string, optio
 
 - `Audio.say` never throws; an unknown event returns an inert handle with reason `unknownEvent`. `AudioReason` gains
   `unknownEvent`, `busy`, `cooldown`, `chance`, `silence`, `noMatch`, `unavailable`. `finished` resolves `refused` for
-  every refusal and `interrupted` for a cut-off line. `Audio.onLine` (0340) fires for said lines as for played ones,
+  every refusal and `interrupted` for a cut-off line. `Audio.onLine` (0354) fires for said lines as for played ones,
   with `event` added to `AudioLineEvent`.
 - `Audio.debug()` gains `dialogue: { channels: [{ channel, speaking: key | null, priority, queue: [{ event, waited }] }], refusals: { busy, cooldown, chance, silence, noMatch, unavailable } }`.
 - Engine-native types only (0010).
 
-### 6. Determinism and takes (0334)
+### 6. Determinism and takes (0348)
 
 - A new request record **`say`**: `{ t, instance, event, args, options, picked: { key, pathIndex } | { none: reason } }`
   where `args` holds the resolved value of every argument (including those read from globals and defaults), so replay
   doesn't depend on the order globals changed in. Queued says are recorded when asked (`state: queued`) and again when
   they start or are dropped (a `sayState` record), and interruptions as `stop` with reason.
 - **Replay** re-decides each `say` from its recorded args against the current project, with the World generator
-  restored from the recorded state (0334 keyframes), so unchanged data picks the same line. When the current data picks
+  restored from the recorded state (0348 keyframes), so unchanged data picks the same line. When the current data picks
   differently, the Take screen marks the instance "picked X, recorded Y" and the inspector shows both pick paths. A Take
   toolbar toggle **Replay recorded picks** plays the recorded keys instead (for reviewing the run as it was).
 - Unit test: record a scripted run on the fake backend, replay it against the same data: identical keys, states and
@@ -200,7 +200,7 @@ class AudioSpeaker extends Component { speaker: string; say(event: string, optio
 
 ### 7. The Studio: Events tab of the Dialogue screen
 
-0340's Dialogue screen gains an **Events** tab (`src/studio/screens/dialogue/events/`), from the kit (0335):
+0354's Dialogue screen gains an **Events** tab (`src/studio/screens/dialogue/events/`), from the kit (0349):
 
 - **Event list** (by file, search), add, duplicate, rename, delete (refused-or-next edits, 0313).
 - **Path table editor:** one column per argument (header: name, local labels or the linked global parameter, drag to
@@ -235,7 +235,7 @@ class AudioSpeaker extends Component { speaker: string; say(event: string, optio
 - **Deciding when asked rather than when a queued say starts** — the line could be stale (a cooldown or language
   changed while waiting); deciding at start matches what is heard.
 - **Replaying recorded keys by default** — hides the effect of edits, which is what replay against the current
-  project is for (0334); kept as a toggle.
+  project is for (0348); kept as a toggle.
 - **Leaving queueing to the game (Wwise)** — every game re-implements speaker serialisation and cooldowns; shipped bark
   systems all have them.
 
@@ -268,7 +268,7 @@ Nothing.
 - Wwise: Dynamic Dialogue, Dialogue Events, arguments, Best Match and Weighted modes, path probability. FMOD:
   programmer instruments. Unreal: Dialogue Waves and contexts, sound concurrency. Elan Ruskin, "AI-driven Dynamic
   Dialog through Fuzzy Pattern Matching" (GDC 2012, Left 4 Dead response rules).
-- ADR 0340; `src/engine/audio/playlist/picks.ts`, `parameters.ts`, `take/types.ts`; `src/plugins/audio/runtime/Audio.ts`,
+- ADR 0354; `src/engine/audio/playlist/picks.ts`, `parameters.ts`, `take/types.ts`; `src/plugins/audio/runtime/Audio.ts`,
   `playlists/`; `src/plugins/audio/editor/studioAssets.ts`.
 
 ## Build plan
@@ -278,8 +278,8 @@ Nothing.
 | D1 | Format and decision | `myco.dialogue@1` types, parse, writer, limits; `decide` (values, candidates, best-match order, weighted, probability, silence, fallback, avoid-repeat via `picks.ts` with history 8); pick paths; references and renames (keys, labels, events); lint; coverage patterns; line table `cooldown`/`once`; `LineEntry` event form; asset kind; unit tests (best-match ordering table, wildcard positions, weighted distribution over a seeded generator, fallback past missing languages, explicit silence, coverage patterns on a 3×3×2 event, rename rewrite) | `src/engine/audio/dialogue/**`, `src/engine/audio/localisation/lines/format.ts`, `src/engine/audio/playlist/types.ts` + `format.ts`, `src/plugins/audio/editor/studioAssets.ts` |
 | D2 | Runtime | dialogue system per World (channels, `maxVoices`, priority, interrupt with fade and `onInterrupted`, queue with `maxWait`, cooldowns, chance, memory); `Audio.say`, `Audio.dialogue`, `AudioSpeaker`; playlist event entries with args from parameters; reasons; `settings.dialogue`; debug rows; `src/myco.ts` exports; tests on the fake backend with a fake clock (interrupt lower/never, queue expiry, decide at start, `maxVoices`, memory round trip) | `src/plugins/audio/runtime/dialogue/**`, `AudioSpeaker.ts`, `Audio.ts`, `backend.ts` (reasons), `playlists/nodes.ts`, `src/engine/audio/project/types.ts` + `format.ts` (settings), `src/myco.ts` |
 | D3 | Takes | `say` and `sayState` records (writer, reader, minor version), recorder in `takeTap.ts`, replay re-decides with restored generator, "picked differently" marks, Replay recorded picks toggle; the determinism test of §6 | `src/engine/audio/take/**`, `src/plugins/audio/runtime/capture/takeTap.ts`, `src/studio/shell/replay.ts`, `src/studio/screens/take/**` |
-| D4 | Studio Events tab | event list, path table with tree grouping, argument editing with impact preview, test bench with Say and Roll ×50, coverage report and CSV; stories with `play` tests | `src/studio/screens/dialogue/events/**` (+ the tab hook in the screen, single writer with 0340 L5) |
+| D4 | Studio Events tab | event list, path table with tree grouping, argument editing with impact preview, test bench with Say and Roll ×50, coverage report and CSV; stories with `play` tests | `src/studio/screens/dialogue/events/**` (+ the tab hook in the screen, single writer with 0354 L5) |
 | D5 | Docs and e2e | `docs/guide/dynamic-dialogue.md`; e2e: in the Studio, a test-bench pick highlights the expected path and coverage lists a gap | `docs/guide/**`, `tests/e2e/studio-dialogue-events.spec.ts` |
 
-D1 needs 0340's L1 (line table format and `LineEntry`); D2 needs 0340's L2; D3 after D2; D4 after 0340's L5 and D1;
-D5 last. Shared single-writer files with 0340 are listed in 0340's build plan.
+D1 needs 0354's L1 (line table format and `LineEntry`); D2 needs 0354's L2; D3 after D2; D4 after 0354's L5 and D1;
+D5 last. Shared single-writer files with 0354 are listed in 0354's build plan.

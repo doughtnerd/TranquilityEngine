@@ -54,7 +54,7 @@ describe("the mixer's setter taps (§5.6 kinds 11, 14, 15)", () => {
     expect(stub.calls.every((c) => c[0] === "busRamp" && c[2] === "runtime" && c[3] === Math.round((BUS_MIN_RAMP_MS / 1000) * RATE))).toBe(true);
   });
 
-  // ADR 0330 (ABI 4.8): a snapshot fade is linear in dB, and its lane is one ramp of the core's dB law to the fade's end.
+  // ADR 0344 (ABI 4.8): a snapshot fade is linear in dB, and its lane is one ramp of the core's dB law to the fade's end.
   it("a snapshot taps one snapshot record and one snapshot-lane ramp per bus that moves; clearing it is the empty name", () => {
     const { mixer, stub } = rig();
     mixer.snapshot("Paused", 0.5);

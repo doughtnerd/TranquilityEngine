@@ -1,4 +1,4 @@
-// ADR 0334: Record take and Record capture on the Play toolbar (the Audio plugin's `registerPlayToolbarItem`). Each is
+// ADR 0348: Record take and Record capture on the Play toolbar (the Audio plugin's `registerPlayToolbarItem`). Each is
 // a toggle over `RecordToggle` (`recordToggleModel.ts`): enabled while playing, it records through `Audio.take` or
 // `Audio.capture` and writes the file into the project's `takes/` or `captures/` folder when pressed again or when Play
 // stops.

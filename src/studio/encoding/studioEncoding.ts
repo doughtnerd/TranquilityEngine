@@ -1,4 +1,4 @@
-// The Studio's real encoding services (ADR 0337 §6, 0345 §3): one browser encoder pool for the page (Web Workers, at
+// The Studio's real encoding services (ADR 0351 §6, 0359 §3): one browser encoder pool for the page (Web Workers, at
 // most two encoding at once), the game's decoder for sources, the project's `.myco/cache/audio/` as the cache, the plan
 // over the open project, the conversion service, Hear as over the page's `Assets`, and Convert now (the export's
 // `processAudio` run for one platform into the cache, with progress, answering its report).
@@ -136,7 +136,7 @@ export interface ConvertNowProgress {
 }
 
 /**
- * Convert now (ADR 0337 §6): the export's audio step for `platform` over the open project, encoding misses into
+ * Convert now (ADR 0351 §6): the export's audio step for `platform` over the open project, encoding misses into
  * `.myco/cache/audio/` (so the next export is fast) and answering its report (`audio-report.json`'s view), without
  * writing a build. `audio.json` is read from its document; offline renders the export makes itself aren't (a sample
  * with unflattened baked effects converts its source).

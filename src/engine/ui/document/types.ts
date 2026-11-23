@@ -25,7 +25,7 @@ export interface SourceProblem {
 export type UITag = "Canvas" | "Panel" | "Text" | "Image" | "Button" | "InputField";
 
 export interface MarkupAttribute {
-  /** As written: a field (`fontSize`), `id`, `class`, `translate`, or a key binding `t:<field>` (ADR 0342 §4). */
+  /** As written: a field (`fontSize`), `id`, `class`, `translate`, or a key binding `t:<field>` (ADR 0356 §4). */
   readonly name: string;
   /** The raw value, with `{name}` bindings left in. */
   readonly value: string;
@@ -92,7 +92,7 @@ export interface SimpleSelector {
   readonly id: string | null;
   readonly classes: readonly string[];
   readonly pseudo: readonly UIPseudo[];
-  /** `:lang(de)` (ADR 0342 §4): language ranges the current text language must match by BCP 47 prefix. */
+  /** `:lang(de)` (ADR 0356 §4): language ranges the current text language must match by BCP 47 prefix. */
   readonly lang: readonly string[];
 }
 
@@ -141,7 +141,7 @@ export interface StyleTarget {
   readonly classes: readonly string[];
   readonly state: Readonly<Record<UIPseudo, boolean>>;
   readonly parent: StyleTarget | null;
-  /** The current text language (ADR 0342 §4), for `:lang()`; absent: no `:lang()` rule matches. */
+  /** The current text language (ADR 0356 §4), for `:lang()`; absent: no `:lang()` rule matches. */
   readonly lang?: string;
 }
 

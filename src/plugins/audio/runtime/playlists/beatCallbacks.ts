@@ -1,5 +1,5 @@
 /**
- * Beat and bar callbacks of a playing playlist (D20 gap; ADR 0329 "Components keep onMusicBeat/onMusicBar"): the
+ * Beat and bar callbacks of a playing playlist (D20 gap; ADR 0343 "Components keep onMusicBeat/onMusicBar"): the
  * music runtime's dispatch rule (ADR 0166 architecture §4.5) over the playlist's musical clock (`MusicalSource`: a
  * Sequence with a tempo, or a Clip whose sample has one) instead of a music player's runs.
  *

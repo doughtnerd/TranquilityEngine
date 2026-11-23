@@ -1,6 +1,6 @@
 /**
  * Internal (ADR 0097): the runtime's mix model, a tree of mixer buses with per-bus volume, mute and effects, plus
- * snapshots and ducking rules. It was the `audio` section of `project.json`; since ADR 0330 the project's mix lives in
+ * snapshots and ducking rules. It was the `audio` section of `project.json`; since ADR 0344 the project's mix lives in
  * `audio.json` (`project/format.ts`). The runtime's settings carry it whole under `mix` (`projectWithAudio`), and the
  * mixer runs that model (`mixer.ts`); the old mix keys beside it are the editor's legacy panels' view (decision D2) and
  * the shape the mixer hands its backends (`project/runtimeView.ts`). The old section is read only by the migration
@@ -38,15 +38,15 @@ export type BusEffect =
   /** Sends the bus's output to the shared reverb return, `send` (0..1) of its level. */
   | { type: "reverb"; send: number }
   /**
-   * ADR 0331 (ABI 4.6): any other catalogue effect the audio core's bus chain runs (`fx`), its parameters by the
+   * ADR 0345 (ABI 4.6): any other catalogue effect the audio core's bus chain runs (`fx`), its parameters by the
    * catalogue's names and units (`effects/catalogue.ts`; missing ones take the default); `key` names a sidechain
-   * compressor's key bus. The Web Audio fallback runs none of them. ADR 0338: `fx` may also name a registered plugin
+   * compressor's key bus. The Web Audio fallback runs none of them. ADR 0352: `fx` may also name a registered plugin
    * effect type whose plugin is on (the core runs it through its plugin host; elsewhere it passes through).
    */
   | {
       type: "fx"; fx: CoreEffectType | PluginEffectType; params: Record<string, number>; key?: string;
       /**
-       * ADR 0330 (ABI 4.8): parameters the running mixer holds at their value against automation while a snapshot
+       * ADR 0344 (ABI 4.8): parameters the running mixer holds at their value against automation while a snapshot
        * override is in force (the mixer's live effects only; never in a project's view).
        */
       held?: string[];
@@ -65,7 +65,7 @@ export interface BusSettings {
   mute: boolean;
   effects: BusEffect[];
   /**
-   * ADR 0330 (ABI 4.7): post-fader sends into other buses of the list (a return is a bus fed only by sends), each `to` a
+   * ADR 0344 (ABI 4.7): post-fader sends into other buses of the list (a return is a bus fed only by sends), each `to` a
    * bus name and `level` a linear gain 0..`MAX_SEND_LEVEL`. Absent (never written when empty): none. The audio core runs
    * the first `MAX_BUS_SENDS` (`busCapability.ts`' `sendsPerBus`); the Web Audio fallback runs none.
    */
@@ -83,13 +83,13 @@ export interface BusSettings {
   meter?: BusMeter;
 }
 
-/** ADR 0330: one post-fader send of a bus (`BusSettings.sends`): into bus `to`, at linear `level`. */
+/** ADR 0344: one post-fader send of a bus (`BusSettings.sends`): into bus `to`, at linear `level`. */
 export interface BusSend {
   to: string;
   level: number;
 }
 
-/** ADR 0330: a send's highest linear level (+12 dB, the audio core's `bus_sends::MAX_LEVEL`). */
+/** ADR 0344: a send's highest linear level (+12 dB, the audio core's `bus_sends::MAX_LEVEL`). */
 export const MAX_SEND_LEVEL = 4;
 
 /** ADR 0171 §2.1: a bus's `meter` value. */
@@ -151,7 +151,7 @@ export interface LoudnessTarget {
 
 /**
  * ADR 0158 §3: a bus property driven by a global parameter through a curve. Multiplies with snapshots and ducking
- * (volume) or takes the lowest cutoff (lowpass). ADR 0330 (ABI 4.8) adds `fx` (a catalogue parameter of one of the bus's
+ * (volume) or takes the lowest cutoff (lowpass). ADR 0344 (ABI 4.8) adds `fx` (a catalogue parameter of one of the bus's
  * effects: `effect` is its index in the bus's `effects`, `param` the catalogue parameter's index; with `log` the curve
  * holds log2 of the value, so frequencies interpolate in log scale) and `send` (the curve's dB added to the bus's send
  * into `to`). The audio core runs all four; the Web Audio fallback runs none of the bus effects or sends.
@@ -228,7 +228,7 @@ export interface AudioSettings {
   /** ADR 0171 §2.1 (types from K0; parse Ld5): reset the loudness meters at the editor's Play. Absent: true. */
   loudnessResetOnPlay?: boolean;
   /**
-   * ADR 0330: `audio.json`'s mix (its top-level keys but `format` and `settings`), as written. When present the mixer runs
+   * ADR 0344: `audio.json`'s mix (its top-level keys but `format` and `settings`), as written. When present the mixer runs
    * it (parsed by `project/format.ts`) and the old mix keys above are only a view of it (`project/runtimeView.ts`); a
    * view the editor's legacy panels edited is written back into it first (decision D2). Absent: the old keys are the mix
    * (migrated on the fly, `fromLegacySection`).
@@ -247,7 +247,7 @@ const DEFAULT_MUSIC_RINGS = 12;
 export const MUSIC_RINGS_PRESETS = { low: 8, default: 12, high: 16 } as const;
 
 /**
- * `audio.bed`: integer `maxBeds` 0..4, default 2 (0: no beds). `beyond` (ADR 0333, the runtime view's
+ * `audio.bed`: integer `maxBeds` 0..4, default 2 (0: no beds). `beyond` (ADR 0347, the runtime view's
  * `settings.bedBeyond`): metres above 0; a spatial voice farther from the listener than this goes to its bus's bed
  * instead of an HRTF slot. Absent: beds go by HRTF rank only.
  */
@@ -277,7 +277,7 @@ export interface ZoneSettings {
   maxIrSeconds: number;
 }
 /**
- * `audio.doppler`: `maxSpeed` in world units per second, above 0, default 150. `amount` (ADR 0333) is the project's global
+ * `audio.doppler`: `maxSpeed` in world units per second, above 0, default 150. `amount` (ADR 0347) is the project's global
  * Doppler multiplier 0..2 (`audio.json` `settings.dopplerAmount`), which the runtime's views (`project/runtimeView.ts`) write
  * here; absent is 1.
  */
@@ -304,7 +304,7 @@ export interface VoiceSettings {
   /** Integer 0..32, default 8 (low preset 4; ADR 0162: the voices past it go to the bed, where the bus has one). 0 behaves as `spatial: "equalPower"`. */
   hrtf: number;
   /**
-   * ADR 0331: the instance submix pool (`audio.json` `settings.submixes`, 0..256, default 32; the core lays out 64 and
+   * ADR 0345: the instance submix pool (`audio.json` `settings.submixes`, 0..256, default 32; the core lays out 64 and
    * clamps to them). Absent: the default.
    */
   submixes?: number;
@@ -459,7 +459,7 @@ function parseEffect(raw: unknown, where: string, problems: string[]): BusEffect
       };
     case "reverb": return { type: "reverb", send: num(raw.send, 0.2, 0, 1) };
     case "fx": {
-      // ADR 0338: a registered plugin effect whose plugin is on runs in the core's bus chain too.
+      // ADR 0352: a registered plugin effect whose plugin is on runs in the core's bus chain too.
       const plugin = isPluginEffectType(raw.fx) && effectSpec(raw.fx).plugin?.state === "on";
       if (typeof raw.fx !== "string" || (!coreRuns(raw.fx) && !plugin)) {
         problems.push(`${where}: fx must be a catalogue effect the audio core runs.`);
@@ -472,7 +472,7 @@ function parseEffect(raw: unknown, where: string, problems: string[]): BusEffect
   }
 }
 
-/** ADR 0330: a bus's `sends`, read leniently: each `to` another bus of `buses`, once, at a linear `level` (default 1). */
+/** ADR 0344: a bus's `sends`, read leniently: each `to` another bus of `buses`, once, at a linear `level` (default 1). */
 function parseSends(raw: unknown, bus: BusSettings, buses: readonly BusSettings[], where: string, problems: string[]): BusSend[] {
   if (!Array.isArray(raw)) return void problems.push(`${where}: must be a list; ignored.`), [];
   const out: BusSend[] = [];
@@ -539,7 +539,7 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
         }
       }
       settings.buses = buses.slice(0, MAX_BUSES);
-      // ADR 0330: sends name buses of the list, so they are read once every bus is known.
+      // ADR 0344: sends name buses of the list, so they are read once every bus is known.
       settings.buses.forEach((b) => {
         if (!rawSends.has(b)) return;
         const sends = parseSends(rawSends.get(b), b, settings.buses, `audio.buses[${rawIndex[buses.indexOf(b)]}].sends`, problems);
@@ -550,7 +550,7 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
     for (const f of busRuleFindings(buses)) {
       const text = findingText(f.rule, f.bus < 0 ? "audio.buses" : `audio.buses[${rawIndex[f.bus]}]`);
       (BUS_RULES[f.rule].parse === "problem" ? problems : warnings).push(text);
-      // A problem drops the rest (ADR 0331: a bus keeps its first `insertsPerBus` effects).
+      // A problem drops the rest (ADR 0345: a bus keeps its first `insertsPerBus` effects).
       if (f.rule === "insertsPerBus") buses[f.bus]!.effects.length = BUS_RULES.insertsPerBus.limit;
     }
   }
@@ -575,7 +575,7 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
   parseEventKeys(input, settings, problems);
   parseMusicKeys(input, settings, problems);
   parseMeteringKeys(input, settings, problems);
-  // ADR 0330: the mix as `audio.json` holds it; the mixer parses it (`project/format.ts`), so it is kept as written here.
+  // ADR 0344: the mix as `audio.json` holds it; the mixer parses it (`project/format.ts`), so it is kept as written here.
   if (input.mix !== undefined) {
     if (isRecord(input.mix)) settings.mix = structuredClone(input.mix);
     else problems.push("audio.mix: must be an object (audio.json's mix); ignored.");
@@ -716,7 +716,7 @@ function parseCoreKeys(input: Record<string, unknown>, settings: AudioSettings, 
       const mixed = wholeNumber(v.mixed, "audio.voices.mixed", ...range("voices.mixed"), problems) ?? DEFAULT_VOICES.mixed;
       const logical = wholeNumber(v.logical, "audio.voices.logical", Math.max(mixed, range("voices.logical")[0]), range("voices.logical")[1], problems) ?? DEFAULT_VOICES.logical;
       const hrtf = wholeNumber(v.hrtf, "audio.voices.hrtf", ...range("voices.hrtf"), problems) ?? DEFAULT_VOICES.hrtf;
-      // ADR 0331: the instance submix pool (`audio.json` `settings.submixes`, which `engineSectionOf` in `project/runtimeView.ts` carries here).
+      // ADR 0345: the instance submix pool (`audio.json` `settings.submixes`, which `engineSectionOf` in `project/runtimeView.ts` carries here).
       const submixes = v.submixes === undefined ? null : wholeNumber(v.submixes, "audio.voices.submixes", 0, 256, problems);
       settings.voices = submixes == null ? { mixed, logical, hrtf } : { mixed, logical, hrtf, submixes };
     }
@@ -800,7 +800,7 @@ function section(raw: unknown, key: string, problems: string[]): Record<string, 
 function parseSpatialKeys(input: Record<string, unknown>, settings: AudioSettings, problems: string[], options: AudioParseOptions): void {
   const bed = section(input.bed, "audio.bed", problems);
   if (bed) settings.bed.maxBeds = wholeNumber(bed.maxBeds, "audio.bed.maxBeds", ...range("bed.maxBeds"), problems) ?? DEFAULT_BED_MAX_BEDS;
-  // ADR 0333: the distance past which voices go to their bus's bed (`audio.json` `settings.bedBeyond`); absent is none.
+  // ADR 0347: the distance past which voices go to their bus's bed (`audio.json` `settings.bedBeyond`); absent is none.
   if (bed && bed.beyond !== undefined && bed.beyond !== null) {
     if (typeof bed.beyond === "number" && Number.isFinite(bed.beyond) && bed.beyond > 0) settings.bed.beyond = bed.beyond;
     else problems.push("audio.bed.beyond: must be a distance above 0; beds go by HRTF rank only.");
@@ -834,7 +834,7 @@ function parseSpatialKeys(input: Record<string, unknown>, settings: AudioSetting
     if (typeof v === "number" && Number.isFinite(v) && v > above) settings.doppler.maxSpeed = v;
     else problems.push(`audio.doppler.maxSpeed: must be a number above ${above}; using ${DEFAULT_DOPPLER_MAX_SPEED}.`);
   }
-  // ADR 0333: the runtime view's global Doppler amount (`audio.json` `settings.dopplerAmount`), 0..2; absent is 1.
+  // ADR 0347: the runtime view's global Doppler amount (`audio.json` `settings.dopplerAmount`), 0..2; absent is 1.
   if (doppler && doppler.amount !== undefined) {
     const amount = rangedNumber(doppler.amount, "audio.doppler.amount", 0, 2, 1, problems);
     if (amount !== 1) settings.doppler.amount = amount;
@@ -947,7 +947,7 @@ function parseEventKeys(input: Record<string, unknown>, settings: AudioSettings,
       if (typeof raw.bus !== "string" || !settings.buses.some((b) => b.name === raw.bus)) return void problems.push(`${where}: bus must name a bus; dropped.`);
       if (typeof raw.parameter !== "string" || !settings.parameters.some((p) => p.name === raw.parameter)) return void problems.push(`${where}: parameter must name a global parameter; dropped.`);
       if (raw.target !== "volume" && raw.target !== "lowpass" && raw.target !== "fx" && raw.target !== "send") return void problems.push(`${where}: target must be "volume", "lowpass", "fx" or "send"; dropped.`);
-      // ADR 0330 (ABI 4.8): an effect parameter by its effect's index and the catalogue parameter's index, or a send.
+      // ADR 0344 (ABI 4.8): an effect parameter by its effect's index and the catalogue parameter's index, or a send.
       const index = (v: unknown) => typeof v === "number" && Number.isInteger(v) && v >= 0 && v < 256;
       const bus = settings.buses.find((b) => b.name === raw.bus)!;
       if (raw.target === "fx" && (!index(raw.effect) || !index(raw.param) || (raw.effect as number) >= bus.effects.length)) return void problems.push(`${where}: an fx automation needs effect (one of the bus's effects, by index) and param (an index); dropped.`);

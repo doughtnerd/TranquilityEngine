@@ -1,4 +1,4 @@
-// ADR 0334: a take file. The recorder's request records and the ring's profile records merge by seq into one file in
+// ADR 0348: a take file. The recorder's request records and the ring's profile records merge by seq into one file in
 // the capture framing; the take reader reads the requests and the capture reader reads the profile unchanged (passing
 // over the requests). Refusals: a cut file, another format, an unknown required record, a malformed request, a take
 // without its META section, a capture opened as a take. The recorder: ids, emitters, poses at 30 Hz changes only,
@@ -90,7 +90,7 @@ function recordTake(): { file: Uint8Array; take: SaveTake; ring: FakeRing } {
   return { file: assembleTakeFile(take), take, ring };
 }
 
-describe("a take file (ADR 0334)", () => {
+describe("a take file (ADR 0348)", () => {
   it("merges the requests into the profile by seq; the take reader and the capture reader both open it", async () => {
     const { file, take } = recordTake();
     const header = readCaptureHeader(file);

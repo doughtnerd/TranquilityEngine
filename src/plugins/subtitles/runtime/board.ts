@@ -1,5 +1,5 @@
 /**
- * The subtitle board (ADR 0343 §5): what the built-in `SubtitleDisplay` shows, driven by the public audio events and the
+ * The subtitle board (ADR 0357 §5): what the built-in `SubtitleDisplay` shows, driven by the public audio events and the
  * heard clock. Pure: no World, no UI document, no `Audio`; the display feeds it events and asks for rows each frame.
  *
  * - **Rows.** A line's `start` (with text) or a caption's `start` adds a row; a new line from a speaker replaces that
@@ -99,7 +99,7 @@ interface Row extends SubtitleRow {
   pages: PageTime[];
 }
 
-/** The size presets (ADR 0343 §5), % of the canvas reference height. */
+/** The size presets (ADR 0357 §5), % of the canvas reference height. */
 export const SIZE_PRESETS: Readonly<Record<SubtitleSize, number>> = Object.freeze({ small: 3.2, medium: 4, large: 5, extraLarge: 6.4 });
 
 /** The font size in UI pixels of a size setting on a canvas `referenceHeight` UI pixels high, times `sizeScale`. */
@@ -126,7 +126,7 @@ export function characterFit(width: number, fontSize: number, maxLines: number, 
 export type SpeakerNameMode = "always" | "whenSeveral" | "never";
 
 /**
- * Whether speech rows show their speaker's name (ADR 0343 §5): never while the player turned names off or the display
+ * Whether speech rows show their speaker's name (ADR 0357 §5): never while the player turned names off or the display
  * says `never`; with `whenSeveral` only while two or more different speakers are shown.
  */
 export function showSpeakerNames(rows: readonly Pick<BoardRow, "kind" | "speaker">[], mode: SpeakerNameMode, playerSetting: boolean): boolean {

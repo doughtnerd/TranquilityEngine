@@ -1,4 +1,4 @@
-// The encoder's own source hash (ADR 0337 A2), the rule in this crate's build.rs, which embeds it in the wasm.
+// The encoder's own source hash (ADR 0351 A2), the rule in this crate's build.rs, which embeds it in the wasm.
 // `native/audio/build.mjs` uses it to tell whether the committed myco_audio_encode.wasm is older than its sources when
 // wasi-sdk isn't installed; `src/export/audioEncoder.test.ts` checks the committed wasm against it.
 import { createHash } from "node:crypto";

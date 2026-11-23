@@ -1,4 +1,4 @@
-// The keyboard shortcuts dialog (ADR 0335, "?"): every shortcut in its groups, the keys as the platform writes them,
+// The keyboard shortcuts dialog (ADR 0349, "?"): every shortcut in its groups, the keys as the platform writes them,
 // a search, and (when the host has one) the single-key shortcuts switch. Escape, Close or a click outside closes it.
 import { useState } from "preact/hooks";
 import { isMacPlatform } from "./keyCombo";

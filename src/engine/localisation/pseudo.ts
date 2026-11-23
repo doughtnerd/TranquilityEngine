@@ -1,5 +1,5 @@
 /**
- * Pseudo-localisation (ADR 0342 §9): Microsoft's pseudo-languages for QA. `qps-ploc` shows every keyed message
+ * Pseudo-localisation (ADR 0356 §9): Microsoft's pseudo-languages for QA. `qps-ploc` shows every keyed message
  * accented and expanded inside `[!! … !!]` (`Start game` → `[!! Šţàŕţ ĝàɱé ~~ !!]`), so untranslated literal text
  * stands out plain and truncation cuts off the brackets; `qps-plocm` is the same, mirrored right to left.
  *

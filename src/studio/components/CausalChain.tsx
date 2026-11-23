@@ -1,4 +1,4 @@
-// "Why it played" (ADR 0335 `CausalChain`): the steps from the game's request to the bus a voice played on, as cards
+// "Why it played" (ADR 0349 `CausalChain`): the steps from the game's request to the bus a voice played on, as cards
 // joined by arrows on a dot grid. Drag or the wheel pans, Ctrl/⌘+wheel zooms about the pointer; focused, the arrows pan,
 // + and − zoom, 0 fits and 1 is 100 %. It fits itself when the chain changes and the panel resizes (until the user pans
 // or zooms), and stacks top to bottom when the panel is too narrow to read it left to right. Clicking a step's name

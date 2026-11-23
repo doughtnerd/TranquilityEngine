@@ -1,4 +1,4 @@
-// The Dialogue screen's Report tab (ADR 0340 §8–§9): per language, recorded / heard from another language / missing
+// The Dialogue screen's Report tab (ADR 0354 §8–§9): per language, recorded / heard from another language / missing
 // counts and the keys, duration mismatches with both durations, script changes, reading-speed flags, files not
 // normalised to the setting and duplicate keys; Export CSV of the report; and the script CSV (export, and import shown
 // as a diff — added, changed, removed — before it is applied, one undo step per document). A view over props.
@@ -17,7 +17,7 @@ export interface ReportViewProps {
   onImportScript(text: string, name: string): void;
   onApplyScript(remove: boolean): void;
   onCancelScript(): void;
-  /** Lines still holding 0340's retired `text` (0343 §1), and moving them into the string tables. */
+  /** Lines still holding 0354's retired `text` (0357 §1), and moving them into the string tables. */
   readonly oldText?: number;
   onMoveSubtitles?(): void;
 }
@@ -81,7 +81,7 @@ export function ReportView(props: ReportViewProps) {
       </div>
       {!!props.oldText && (
         <div class="dl-banner" role="note" aria-label="Subtitles in line tables">
-          <span>{props.oldText} line{props.oldText === 1 ? " keeps its" : "s keep their"} subtitles in the line table, where they aren't shown (ADR 0343).</span>
+          <span>{props.oldText} line{props.oldText === 1 ? " keeps its" : "s keep their"} subtitles in the line table, where they aren't shown (ADR 0357).</span>
           {props.onMoveSubtitles && <button disabled={props.readOnly} onClick={props.onMoveSubtitles}>Move subtitles to the string table</button>}
         </div>
       )}

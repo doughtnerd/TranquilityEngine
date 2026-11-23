@@ -342,7 +342,7 @@ function decodeMarker_(c: CaptureContents, i: number): string {
   return rec.kind === "marker" ? rec.payload.text : "";
 }
 
-describe("captureFileBytes: the take's file for the Audio Studio (ADR 0334, D13)", () => {
+describe("captureFileBytes: the take's file for the Audio Studio (ADR 0348, D13)", () => {
   it("hands back the bytes save would write, compressed, without downloading or storing anything", async () => {
     const r = rig();
     await Audio.capture.start();
@@ -772,7 +772,7 @@ describe("ADR 0260: a bus added or renamed during the take is named from then on
     mixer.configure(parseAudioSettings({}).settings);
   });
 
-  it("ADR 0334: an op the live mix sends is written as a MIXOP record (origin editor), the bus as its slot", async () => {
+  it("ADR 0348: an op the live mix sends is written as a MIXOP record (origin editor), the bus as its slot", async () => {
     const r = rig();
     mixer.configure(parseAudioSettings({ buses: [{ name: "Master" }, { name: "Music", parent: "Master" }] }).settings);
     withSlots(r, [{ slot: 0, name: "Master", state: "live" }, { slot: 1, name: "Music", state: "live" }]);

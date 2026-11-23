@@ -1,6 +1,6 @@
 //! Myco's audio decoder (ADR 0157, M1b; api-and-models §5): symphonia 0.6.1 behind a plain C ABI,
 //! compiled to `myco_audio_decode.wasm` and run in the decoder worker (architecture §1). WAV (with IMA and
-//! Microsoft ADPCM, ADR 0345 §5), FLAC, MP3, Ogg Vorbis and Ogg Opus (libopus, fixed point, ADR 0337 A7: [`opus`]) are
+//! Microsoft ADPCM, ADR 0359 §5), FLAC, MP3, Ogg Vorbis and Ogg Opus (libopus, fixed point, ADR 0351 A7: [`opus`]) are
 //! always in; AAC in MP4/M4A or ADTS only with the `aac` feature.
 //!
 //! # Memory
@@ -37,10 +37,10 @@
 //!    `ERR_*` code; the kernel is then at `myco_ir_blob_ptr()` for `myco_ir_blob_len()` bytes, and
 //!    `myco_ir_truncated()` says whether it was cut at `max_frames`, all valid until the next
 //!    `myco_ir_*` call (a failed call leaves no blob: length 0). Independent of the decoders.
-//! 7. **Stream loop seams** (ABI 1.4, ADR 0328, [`seam`]): `myco_decode_seam(out, tail, frames,
+//! 7. **Stream loop seams** (ABI 1.4, ADR 0342, [`seam`]): `myco_decode_seam(out, tail, frames,
 //!    channels, phase, length, shape)` crossfades a looping stream's seam in place: the tail read
 //!    past the loop's end into the frames read from its start, in the clip voice's shapes.
-//! 8. **The engine's IMA ADPCM** (ABI 1.5, ADR 0337 A4): `myco_decode_adpcm(src, len, channels, frames, out)`
+//! 8. **The engine's IMA ADPCM** (ABI 1.5, ADR 0351 A4): `myco_decode_adpcm(src, len, channels, frames, out)`
 //!    decodes `frames` frames of a `.mycopak` ADPCM entry (`audio_adpcm`'s block layout, which isn't WAV IMA) into
 //!    interleaved int16 at `out`. ABI 1.5 also opens Ogg Opus (`info.codec` 6) in the default build.
 //!
@@ -340,7 +340,7 @@ pub unsafe extern "C" fn myco_decode_read_f32(handle: i32, out: *mut f32, frames
     read(handle, out, frames, |d, s| d.read_f32(s))
 }
 
-/// ADR 0328 (ABI 1.4): a stream loop's seam crossfade ([`seam::crossfade`]) on `frames`
+/// ADR 0342 (ABI 1.4): a stream loop's seam crossfade ([`seam::crossfade`]) on `frames`
 /// interleaved f32 frames of `channels` at `out`, mixing in the tail at `tail`, from seam frame
 /// `phase` of a `length`-frame crossfade in fade shape `shape`. Returns the frames mixed, or
 /// `ERR_ARG` for a null pointer.
@@ -359,7 +359,7 @@ pub unsafe extern "C" fn myco_decode_seam(out: *mut f32, tail: *const f32, frame
     seam::crossfade(o, t, frames as usize, channels as usize, phase, length, shape.min(255) as u8) as i32
 }
 
-/// ADR 0337 A4 (ABI 1.5): decodes the first `frames` frames of the IMA ADPCM blocks at `src` (`len` bytes in
+/// ADR 0351 A4 (ABI 1.5): decodes the first `frames` frames of the IMA ADPCM blocks at `src` (`len` bytes in
 /// `audio_adpcm`'s layout, `channels` 1 or 2) into interleaved int16 at `out` (`frames * channels * 2` bytes,
 /// 2-aligned). Returns `frames`, or `ERR_ARG` (a bad pointer or channel count) or `ERR_DECODE` (fewer bytes than the
 /// frames need).

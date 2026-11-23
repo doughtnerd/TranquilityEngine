@@ -33,7 +33,7 @@ function roundTrip<T>(bytes: number, enc: (v: DataView, off: number) => number, 
 describe("capture format constants", () => {
   it("names this build's ABI and the mix-op code counts", () => {
     expect(CAPTURE_ABI_VERSION >>> 8).toBe(CORE_ABI_MAJOR);
-    expect(CAPTURE_ABI_VERSION).toBe(0x500); // 5.0 16-parameter effect records and plugin effects (ADR 0338); 4.12 clip format 6 (IMA ADPCM); 4.11 per-voice spread (SET_VOICE_FX spread); 4.10 mixer automation (effect and send automation, submix automation, dB ramps); 4.9 submix levels, ROUTE, binding time origins, shaped loop crossfades (4.8 mixer automation); 4.7 bus sends; 4.6 the effect catalogue DSP; 4.5 instance submixes; 4.4 voice pan and high-pass automation; 4.3 since ADR 0328 (loop programs; 4.2 time parameters, 4.1 Bézier keys); the core's `myco_audio_abi_version`
+    expect(CAPTURE_ABI_VERSION).toBe(0x500); // 5.0 16-parameter effect records and plugin effects (ADR 0352); 4.12 clip format 6 (IMA ADPCM); 4.11 per-voice spread (SET_VOICE_FX spread); 4.10 mixer automation (effect and send automation, submix automation, dB ramps); 4.9 submix levels, ROUTE, binding time origins, shaped loop crossfades (4.8 mixer automation); 4.7 bus sends; 4.6 the effect catalogue DSP; 4.5 instance submixes; 4.4 voice pan and high-pass automation; 4.3 since ADR 0342 (loop programs; 4.2 time parameters, 4.1 Bézier keys); the core's `myco_audio_abi_version`
     expect(CAPTURE_MIXOP_CODES).toBe(MIX_OP_NAMES.length);
     expect(CAPTURE_MIXOP_CLASSES).toBe(OP_CLASSES.length);
   });
@@ -55,7 +55,7 @@ describe("capture header (§5.1)", () => {
     const v = (f: (d: DataView) => void) => { const c = file.slice(); f(new DataView(c.buffer)); return c; };
     expect(codeOf(() => readCaptureHeader(v((d) => d.setUint8(0, 0))))).toBe("badMagic");
     expect(codeOf(() => readCaptureHeader(v((d) => d.setUint16(8, 3, true))))).toBe("newerFormat");
-    expect(codeOf(() => readCaptureHeader(v((d) => d.setUint16(8, 1, true))))).toBe("olderFormat"); // ADR 0334: format 1 is refused
+    expect(codeOf(() => readCaptureHeader(v((d) => d.setUint16(8, 1, true))))).toBe("olderFormat"); // ADR 0348: format 1 is refused
     expect(codeOf(() => readCaptureHeader(v((d) => d.setUint16(8, 0, true))))).toBe("olderFormat");
     // Every later field is bad too: the first step still wins.
     const all = v((d) => { d.setUint8(12, d.getUint8(12) ^ 1); d.setUint32(68, 0xffffffff, true); });
@@ -138,7 +138,7 @@ describe("META (§5.2)", () => {
     expect(new TextEncoder().encode(cut).byteLength).toBe(256);
     expect(cut).toBe(cutUtf8(long, 256));
   });
-  it("ADR 0334: a replay capture's replayOf round-trips; absent or malformed it reads as null, never a refusal", () => {
+  it("ADR 0348: a replay capture's replayOf round-trips; absent or malformed it reads as null, never a refusal", () => {
     expect(decodeCaptureMeta(encodeCaptureMeta(SAMPLE_META)).replayOf).toBeNull();
     const replayOf = { path: "takes/canyon_run_01.mycotake", audioHash: "5f3a90c1" };
     expect(decodeCaptureMeta(encodeCaptureMeta({ ...SAMPLE_META, replayOf })).replayOf).toEqual(replayOf);

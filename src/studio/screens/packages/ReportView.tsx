@@ -1,4 +1,4 @@
-// The Packages screen's Report tab (ADR 0337 §5 step 6, §6, §8): for the chosen platform, the download and the static
+// The Packages screen's Report tab (ADR 0351 §5 step 6, §6, §8): for the chosen platform, the download and the static
 // memory bound against the budgets (a bar in `var(--danger)` past one: a tripwire, never a failure), the budgets
 // themselves, each package's size and memory, the sounds by size, warnings and problems, and Convert now: the export's
 // audio step for the platform into `.myco/cache/audio/`, with progress, after which the figures are exact. A view over props.

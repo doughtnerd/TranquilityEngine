@@ -1,4 +1,4 @@
-// ADR 0338 §9 (B6): the Profiler's Plugins panel rows from `Audio.debug().plugins`: the card's health view per row,
+// ADR 0352 §9 (B6): the Profiler's Plugins panel rows from `Audio.debug().plugins`: the card's health view per row,
 // the rows that need attention (off after faults, failed, faulted, over budget) first, then by type.
 import { describe, expect, it } from "vitest";
 import type { AudioPluginDebug } from "../../../plugins/audio/runtime/debugTypes";

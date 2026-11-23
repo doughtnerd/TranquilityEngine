@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for one effect card: closed with its summary, open with its parameters, bypassed, and an
+// Stories (ADR 0219, 0349) for one effect card: closed with its summary, open with its parameters, bypassed, and an
 // effect at a level it can't run at (kept with a warning so it can be moved).
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
@@ -63,7 +63,7 @@ export const Bypassed: StoryObj = { render: () => <Demo effect={{ ...defaultEffe
 
 export const WrongLevel: StoryObj = { render: () => <Demo effect={defaultEffect("pitchShift", "fx1")} level="bus" open /> };
 
-// ADR 0338 B2: a plugin effect's card comes out of the catalogue like a built-in's, from its plugin.json declaration
+// ADR 0352 B2: a plugin effect's card comes out of the catalogue like a built-in's, from its plugin.json declaration
 // (here the tremolo sample's, inline: stories never import samples).
 const TREMOLO_AUDIO = {
   modules: { dsp: { wasm: "dsp/tremolo.wasm", memoryMB: 1 } },
@@ -91,7 +91,7 @@ export const PluginEffect: StoryObj = {
   },
 };
 
-// ADR 0338 §9 (B6): a `choices` parameter is a menu, not a slider; its value is the option's index.
+// ADR 0352 §9 (B6): a `choices` parameter is a menu, not a slider; its value is the option's index.
 export const ChoicesMenu: StoryObj = {
   render: () => <Demo effect={defaultEffect("example.tremolo", "fx1")} open />,
   play: async ({ canvasElement }) => {

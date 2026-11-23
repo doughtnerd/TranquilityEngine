@@ -1,4 +1,4 @@
-// The export's audio plan (ADR 0337 §5, `planAudio` in `src/export/audio.ts`) over what the Studio holds of a project:
+// The export's audio plan (ADR 0351 §5, `planAudio` in `src/export/audio.ts`) over what the Studio holds of a project:
 // its files, `audio.json` as its document holds it (edits not yet written included) and each file's JSON (sidecars,
 // derived samples, playlists). So the Samples Inspector, Hear as and the Packages screen decide what a sound ships as
 // exactly as a build would: the codec after the placement rules (ADPCM only in packages, Opus mono and stereo), the

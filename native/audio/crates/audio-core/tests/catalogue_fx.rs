@@ -1,4 +1,4 @@
-//! ADR 0331's DSP in the core (ABI 4.6), through `scheduler::submit` and `Core::process`:
+//! ADR 0345's DSP in the core (ABI 4.6), through `scheduler::submit` and `Core::process`:
 //!
 //! - catalogue effects on a bus chain (`BUS_FX_CATALOGUE + kind`) run, with up to eight effects a bus;
 //! - a submix runs the heavy kinds on effect memory, which the sweep gives back when the slot goes free;

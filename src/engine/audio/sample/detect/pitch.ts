@@ -1,5 +1,5 @@
 /**
- * Root note detection for a sample (ADR 0328 "detection of what's missing"; the Samples screen's Detect and the import's
+ * Root note detection for a sample (ADR 0342 "detection of what's missing"; the Samples screen's Detect and the import's
  * "Detect what's missing"): YIN pitch tracking (de Cheveigné and Kawahara, 2002) over the sustained part of the sound.
  *
  * 1. The mono signal is low-passed and decimated to about 11 kHz (plenty for the 2 kHz top a root note is looked for

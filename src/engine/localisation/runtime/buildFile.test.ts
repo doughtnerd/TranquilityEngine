@@ -1,4 +1,4 @@
-// ADR 0342 §11: a build's string files (`strings/<code>.json`, `myco.strings.build@1`): the writer the export uses,
+// ADR 0356 §11: a build's string files (`strings/<code>.json`, `myco.strings.build@1`): the writer the export uses,
 // the reader, and the player loading one file per language switch.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Engine, Locale, MemoryStorage, type ProjectSettingsInput } from "../../index";

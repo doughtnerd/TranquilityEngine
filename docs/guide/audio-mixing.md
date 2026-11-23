@@ -1,6 +1,6 @@
 # Live mixing and ducking (ADR 0171, amended by 0172 and 0173)
 
-> **The Mixer panel moved to the Audio Studio.** Live mixing, Compare and the monitor controls are on the Studio's Mixer screen (the **Audio Studio** (in the editor: Window > Audio Studio, or **Open in Audio Studio** on a file; ADR 0327)); edits are saved to `audio.json`, not `project.json`, and undone in the Studio's history. The editor no longer has a Mixer panel or Project Settings > Audio. The sections below describe the editor panel this replaced; the behaviour (what applies live, ducking, the restart banner) carries over.
+> **The Mixer panel moved to the Audio Studio.** Live mixing, Compare and the monitor controls are on the Studio's Mixer screen (the **Audio Studio** (in the editor: Window > Audio Studio, or **Open in Audio Studio** on a file; ADR 0341)); edits are saved to `audio.json`, not `project.json`, and undone in the Studio's history. The editor no longer has a Mixer panel or Project Settings > Audio. The sections below describe the editor panel this replaced; the behaviour (what applies live, ducking, the restart banner) carries over.
 
 You can mix while the game plays. Open the Audio Studio's **Mixer** screen while its runtime plays, and move a fader, mute a bus or edit a ducking rule: you hear it at once, with no restart. This chapter covers what applies at once, what is kept when you press Stop, how undo works, the Mixer panel, Compare, the monitor controls, the two ducking modes, and the few edits that wait for the next Play.
 

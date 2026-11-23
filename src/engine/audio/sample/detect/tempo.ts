@@ -1,5 +1,5 @@
 /**
- * Tempo detection for a sample (ADR 0328 "detection of what's missing"; the Samples screen's Detect and the import's
+ * Tempo detection for a sample (ADR 0342 "detection of what's missing"; the Samples screen's Detect and the import's
  * "Detect what's missing").
  *
  * 1. **Onset strength.** The mono signal's log-compressed magnitude spectrum (Hann frames of ~23 ms, a ~6 ms hop); the

@@ -1,4 +1,4 @@
-// ADR 0337 §6, A6: converting in the Studio through the conversion service and Hear as, with a fake encoder pool and a
+// ADR 0351 §6, A6: converting in the Studio through the conversion service and Hear as, with a fake encoder pool and a
 // fake decoder — a conversion is keyed by content and settings, cached in memory and in the export's cache layout (a new
 // session hits the disk cache without encoding), and Hear as serves the encoded bytes under the sound's own path so an
 // audition plays them; ADPCM goes through the WAV path; Source and A/B serve the project's files again.

@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the panel fields: a section of labelled rows with a number box (unit, range, arrow
+// Stories (ADR 0219, 0349) for the panel fields: a section of labelled rows with a number box (unit, range, arrow
 // steps) and a select.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

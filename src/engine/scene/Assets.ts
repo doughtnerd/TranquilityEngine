@@ -20,7 +20,7 @@ export interface AssetSource {
   /** The asset value for `path` by its kind (ADR 0254): parsed JSON for `.json` files, the text of text files, a URL otherwise. */
   get(path: string): unknown;
   /**
-   * Every path the source holds, when it can list them (ADR 0342: string tables are found by name). A source without
+   * Every path the source holds, when it can list them (ADR 0356: string tables are found by name). A source without
    * it still serves lookups; what it holds just isn't discovered.
    */
   paths?(): Iterable<string>;
@@ -40,7 +40,7 @@ const parsedSidecars = new WeakMap<object, ImportSettings>();
 const resolvedSidecars = new WeakMap<ImportSettings, Partial<Record<ImportPlatform, ImportSettings>>>();
 let platformOverride: ImportPlatform | null = null;
 /**
- * Under Tauri: "android" on Tauri mobile's Android webview (its user agent names Android, ADR 0337 §1), else "desktop";
+ * Under Tauri: "android" on Tauri mobile's Android webview (its user agent names Android, ADR 0351 §1), else "desktop";
  * in a browser: "web".
  */
 const detectPlatform = (): ImportPlatform => {
@@ -63,7 +63,7 @@ export function sidecarValue(path: string): object | undefined {
 }
 
 /**
- * Localised textures and fonts (ADR 0342 §10): under a `languages.assetRoots` folder the first folder is a language
+ * Localised textures and fonts (ADR 0356 §10): under a `languages.assetRoots` folder the first folder is a language
  * code, a reference names the reference language's file, and `Assets.url` serves the variant the current language's
  * fallback chain finds (`variantPath`). The localisation runtime sets the roots and the chain on every language change
  * (`setAssetLanguage`); references resolved so far are remembered so a switch can preload and announce theirs.
@@ -73,7 +73,7 @@ let assetLanguage: { roots: readonly string[]; chain: readonly string[] } | null
 const localisedRefs = new Set<string>();
 
 /**
- * @internal The localisation runtime (ADR 0342 §10): the asset roots and the current language's fallback chain textures
+ * @internal The localisation runtime (ADR 0356 §10): the asset roots and the current language's fallback chain textures
  * and fonts resolve through (empty roots: nothing is localised).
  */
 export function setAssetLanguage(roots: readonly string[], chain: readonly string[]): void {
@@ -160,7 +160,7 @@ export const Assets = {
     const p = normalizeAssetPath(path);
     const kind = projectFileKind(p);
     if (kind !== "url") throw new Error(`Asset "${p}" is a ${kind === "json" ? "JSON" : "text"} file, which loads as its contents, not a URL: read it with Assets.${kind}().`);
-    // ADR 0342 §10: a texture or font under an asset root serves the current language's variant.
+    // ADR 0356 §10: a texture or font under an asset root serves the current language's variant.
     const v = Assets.get(localisedPath(p));
     if (typeof v !== "string") throw new Error(`Asset "${p}" has no URL.`);
     return v;
@@ -173,7 +173,7 @@ export const Assets = {
 
   /**
    * The platform per-platform import overrides resolve for (ADR 0115): "android" under Tauri mobile on Android, "desktop"
-   * under Tauri elsewhere, else "web" (ADR 0337 §1); settable (null = detect).
+   * under Tauri elsewhere, else "web" (ADR 0351 §1); settable (null = detect).
    */
   get platform(): ImportPlatform {
     return platformOverride ?? detectPlatform();

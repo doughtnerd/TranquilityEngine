@@ -81,7 +81,7 @@ export const VoiceFlag2 = {
   AMBISONIC: 1 << 1,
   SENDS: 1 << 2,
   AUX: 1 << 3,
-  /** ADR 0333: the voice asks for its bus's bed whatever its rank (an audio zone's interior, `PlayRequest.bed`). */
+  /** ADR 0347: the voice asks for its bus's bed whatever its rank (an audio zone's interior, `PlayRequest.bed`). */
   BED: 1 << 4,
 } as const;
 
@@ -160,7 +160,7 @@ export class VoiceTable implements VoiceTableHandleApi {
   readonly bus: Uint8Array;
   readonly world: Uint8Array;
   readonly group: Uint16Array;
-  /** ADR 0331 levels (ABI 4.9): the submix slot the voice mixes into (its playlist level's, ROUTE), plus 1; 0 its group's route. */
+  /** ADR 0345 levels (ABI 4.9): the submix slot the voice mixes into (its playlist level's, ROUTE), plus 1; 0 its group's route. */
   readonly submix: Uint8Array;
   readonly clip: Uint32Array;
   readonly priority: Uint8Array;

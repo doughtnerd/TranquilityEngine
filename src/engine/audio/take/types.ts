@@ -1,5 +1,5 @@
 /**
- * Contract (ADR 0334): a take, `*.mycotake`. One file per recorded run in the capture file's framing: the engine profile
+ * Contract (ADR 0348): a take, `*.mycotake`. One file per recorded run in the capture file's framing: the engine profile
  * (every capture record) plus the requests the game made of audio. These are the decoded shapes of the request records;
  * the profile records keep the capture reader's types (`plugins/audio/runtime/capture/`).
  *
@@ -29,17 +29,17 @@ export type TakeRequest =
   | { kind: "mix"; t: number; op: "busVolume" | "busFade" | "snapshotStart" | "snapshotStop" | "masterVolume"; target: string; value: number; seconds: number }
   | { kind: "trigger"; t: number; instance: number; name: string }
   | { kind: "mark"; t: number; text: string }
-  /** ADR 0340 §10: a line played by key (`Audio.line`), in the language it was heard in (null: nothing played). */
+  /** ADR 0354 §10: a line played by key (`Audio.line`), in the language it was heard in (null: nothing played). */
   | { kind: "line"; t: number; instance: number; key: string; language: string | null; options: TakePlayOptions }
-  /** ADR 0340 §10, 0343 §2: the audio and subtitle languages changed (subtitles null: following the text language). */
+  /** ADR 0354 §10, 0357 §2: the audio and subtitle languages changed (subtitles null: following the text language). */
   | { kind: "language"; t: number; audio: string; subtitles: string | null }
   /**
-   * ADR 0341 §6: `Audio.say` as asked: the resolved value of every argument (globals and defaults included, so replay
+   * ADR 0355 §6: `Audio.say` as asked: the resolved value of every argument (globals and defaults included, so replay
    * doesn't depend on the order globals changed in), its options, what it did (`state`), the pick (null while queued:
    * a queued say decides when it starts) and the World generator's state just before it decided (absent: unseeded).
    */
   | { kind: "say"; t: number; instance: number; event: string; args: Record<string, string>; options: TakeSayOptions; state: TakeSayState; picked: TakeSayPick | null; random?: number }
-  /** ADR 0341 §6: a queued say started (with its pick, decided then) or was dropped. */
+  /** ADR 0355 §6: a queued say started (with its pick, decided then) or was dropped. */
   | { kind: "sayState"; t: number; instance: number; state: "playing" | "dropped"; picked: TakeSayPick | null; random?: number };
 
 /** What a say did when asked: started, waits in its channel's queue, or was refused (`picked.none` says why). */
@@ -78,7 +78,7 @@ export interface TakeMeta {
   /**
    * The pick generator's state of the World the game played in, a u32, when the take began (the first keyframe's
    * `random`): replay restarts the Studio World's generator from it, so random picks match the recording. (Takes
-   * recorded before ADR 0334's reseed carry `audio.seed` here.)
+   * recorded before ADR 0348's reseed carry `audio.seed` here.)
    */
   seed: number;
   /** False when the project had no `audio.seed` (picks were unseeded; `seed` is then 0). Absent: true. */

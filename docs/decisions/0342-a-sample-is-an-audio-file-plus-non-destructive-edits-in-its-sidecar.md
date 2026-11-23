@@ -1,10 +1,10 @@
-# 0328. A sample is an audio file plus non-destructive edits in its sidecar
+# 0342. A sample is an audio file plus non-destructive edits in its sidecar
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0040 (amended: the sidecar gains a `sample` block), 0085, 0119, 0141, 0157, 0166, 0293, 0327, 0329, 0331, 0332
+- **Related:** 0040 (amended: the sidecar gains a `sample` block), 0085, 0119, 0141, 0157, 0166, 0293, 0341, 0343, 0345, 0346
 
 ## Context
 
@@ -18,7 +18,7 @@ crossfade, repeat count, activation, exit and re-entry; a zero-length loop is a 
 (note, Exit, Hit point, Cue), tempo and meter, root note, loudness normalisation, a baked effect chain, razor cuts with
 closed gaps, source versions on re-import, a file-versus-project diff with per-field revert, a changed-on-disk merge,
 "Write to WAV", and derived samples (snippets, forks that follow or pin their parent, duplicates). Playlists and
-sequences use a sample's loops and markers (0329). The owner chose sidecars over rewriting the WAV (2026-11-22).
+sequences use a sample's loops and markers (0343). The owner chose sidecars over rewriting the WAV (2026-11-22).
 
 ## Decision
 
@@ -27,7 +27,7 @@ let derived samples be small asset files that name their source.
 
 **A `sample` block in the sidecar** (`<file>.meta.json`, still `myco.import@1`: the block is optional, so old sidecars
 and old readers keep working). Times are seconds in the source file. Every loop and marker has a stable `id` so clip
-overrides (0329) survive reordering.
+overrides (0343) survive reordering.
 
 ```jsonc
 "sample": {
@@ -36,7 +36,7 @@ overrides (0329) survive reordering.
   "loops": [{ "id": "l1", "start": 0.45, "end": 1.55,   // start == end: a hold point
     "direction": "forward",     // forward | pingPong | backward (smpl types 0/1/2)
     "crossfadeMs": 35, "count": 0,                      // 0 = endless
-    "active": "held",           // always | held | parameter (the binding lives on the clip, 0329)
+    "active": "held",           // always | held | parameter (the binding lives on the clip, 0343)
     "exit": "finish", "exitFadeMs": 40, "reentry": "ignore",
     "file": { "chunk": "smpl", "index": 0, "start": 0.45, "end": 1.55, "direction": "forward", "count": 0 } }],
   "markers": [{ "id": "m1", "type": "cue", "name": "brake_lockup", "at": 0.30,
@@ -44,7 +44,7 @@ overrides (0329) survive reordering.
   "tempo": { "bpm": 120, "meter": "4/4", "map": [], "source": "file" },  // file | detected | set
   "root": { "note": "C3", "cents": 0, "source": "file" },
   "normalize": { "mode": "loudness", "target": -16, "gainDb": 3.5 },     // off | loudness | peak
-  "effects": [ /* baked chain, 0331 */ ], "frozen": false,
+  "effects": [ /* baked chain, 0345 */ ], "frozen": false,
   "cuts": [1.2], "deleted": [1.2], "closedGaps": [[0.8, 0.4]],
   "stinger": false, "snapToZero": true
 }
@@ -54,7 +54,7 @@ overrides (0329) survive reordering.
   revert, Detach and the changed-on-disk merge compare against it. `null` means project-only.
 - Legacy `loopStart`/`loopEnd` read as one loop when there is no `sample` block; the Studio writes only `loops`.
 - Marker types: **note** (annotation; the only type that can be a range), **exit** ("music may leave here"; Switch
-  change rules and sync clips use it, 0329), **hit** (a stinger's landing beat), **cue** (the game is told when playback
+  change rules and sync clips use it, 0343), **hit** (a stinger's landing beat), **cue** (the game is told when playback
   passes it). WAV cue points import as notes. The UI names the types Note, Exit, Hit point and Cue.
 - `normalize.gainDb` is computed when the setting is changed (target minus measured integrated LUFS, or target minus
   sample peak) and applied after the baked effects; a warning shows when the peak would pass −0.1 dBFS. Measured values
@@ -87,7 +87,7 @@ effects into a new file beside the source (`brake_skid.flat1.wav`) and points th
 refreshes every `file` snapshot. The audio data is not changed. The sidecar stays authoritative: marker types the WAV
 cannot carry are kept in the sidecar.
 
-**Baked effects are rendered offline.** The Rust DSP that plays effects (0331) renders the chain, trim, closed gaps and
+**Baked effects are rendered offline.** The Rust DSP that plays effects (0345) renders the chain, trim, closed gaps and
 normalisation offline in a worker: the Studio and the editor's Play use the render cached by content hash in
 `.myco/cache/samples/`; `npm run export` renders and ships the result. The clip resolver (0293) picks the render, so the
 runtime and the backend seam see an ordinary clip.
@@ -101,7 +101,7 @@ asset operations with reference rewriting (0314), not display names.
 
 **Runtime.** Loops play in the core voice with crossfade, ping-pong and backward direction, repeat counts and the three
 activation modes, so a held loop releases by its exit setting. Passing a **cue** marker reports to the game through the
-playing handle (`onMarker`, 0329). These are core and wire changes.
+playing handle (`onMarker`, 0343). These are core and wire changes.
 
 ## Alternatives considered
 
@@ -130,7 +130,7 @@ playing handle (`onMarker`, 0329). These are core and wire changes.
 
 ## Open questions
 
-- Which offline-only effects (noise reduction, reverse) are worth building first; the catalogue (0331) marks them.
+- Which offline-only effects (noise reduction, reverse) are worth building first; the catalogue (0345) marks them.
 
 ## References
 

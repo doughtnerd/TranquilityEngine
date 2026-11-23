@@ -1,4 +1,4 @@
-//! ADR 0331 instance submixes (ABI 4.5), through `scheduler::submit` and `Core::process`:
+//! ADR 0345 instance submixes (ABI 4.5), through `scheduler::submit` and `Core::process`:
 //!
 //! - the voices of a group with a submix mix into it, its chain runs, and it feeds its bus;
 //! - voices of other groups (and of group 0) are untouched;

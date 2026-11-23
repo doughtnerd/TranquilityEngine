@@ -1,4 +1,4 @@
-// A sample against its WAV file (ADR 0328): the Inspector's Source block (what differs from the file, per field, with
+// A sample against its WAV file (ADR 0342): the Inspector's Source block (what differs from the file, per field, with
 // a revert each), Detach, what "Write to file…" writes, and the changed-on-disk merge review (per changed cue, region
 // or loop: Keep project / Use file; new ones Add / Skip; conflicts where the project edited the item). Pure.
 import type { LoopDirection, SampleEdits, SampleLoop, SampleMarker } from "../../../engine/audio/sample/types";

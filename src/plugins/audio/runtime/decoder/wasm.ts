@@ -46,9 +46,9 @@ interface Exports {
   myco_ir_blob_ptr(): number;
   myco_ir_blob_len(): number;
   myco_ir_truncated(): number;
-  /** ABI 1.4 (ADR 0328): a stream loop's seam crossfade. */
+  /** ABI 1.4 (ADR 0342): a stream loop's seam crossfade. */
   myco_decode_seam(out: number, tail: number, frames: number, channels: number, phase: number, length: number, shape: number): number;
-  /** ABI 1.5 (ADR 0337 A4): the engine's IMA ADPCM blocks to int16. */
+  /** ABI 1.5 (ADR 0351 A4): the engine's IMA ADPCM blocks to int16. */
   myco_decode_adpcm(src: number, len: number, channels: number, frames: number, out: number): number;
 }
 
@@ -68,8 +68,8 @@ export interface PreparedIr {
 /** The ABI major this code speaks. */
 export const DECODER_ABI_MAJOR = 1;
 /**
- * The lowest ABI minor this code needs (1.5: Ogg Opus and `myco_decode_adpcm`, ADR 0337 A4, A7; 1.4: `myco_decode_seam`,
- * ADR 0328; 1.3: the `myco_ir_*` exports, ADR 0162 C2a).
+ * The lowest ABI minor this code needs (1.5: Ogg Opus and `myco_decode_adpcm`, ADR 0351 A4, A7; 1.4: `myco_decode_seam`,
+ * ADR 0342; 1.3: the `myco_ir_*` exports, ADR 0162 C2a).
  */
 export const DECODER_ABI_MINOR = 5;
 /** Size of the info record `myco_decode_info` writes (ABI 1.1; 1.0 wrote 32 bytes without the loop fields). */
@@ -216,7 +216,7 @@ export class DecoderWasm {
 
   /** As `prepareIr`, for a generated preset (`IR_PRESETS`); an unknown name throws `ERR_ARG` (-2). */
   generateIr(preset: string, targetRate: number, maxFrames: number): PreparedIr {
-    // ADR 0333: the named presets (`smallStone`, …) have their own generated responses (`reverbPresets.ts`).
+    // ADR 0347: the named presets (`smallStone`, …) have their own generated responses (`reverbPresets.ts`).
     const index = (IR_PRESETS as readonly string[]).indexOf(preset);
     return this.preparedIr(this.x.myco_ir_generate(index < 0 ? 0xffffffff : index, targetRate, maxFrames));
   }
@@ -239,7 +239,7 @@ export class DecoderWasm {
   }
 
   /**
-   * ADR 0328 (decoder ABI 1.4): a looping stream's seam crossfade, in place: mixes the tail (`frames` interleaved frames of
+   * ADR 0342 (decoder ABI 1.4): a looping stream's seam crossfade, in place: mixes the tail (`frames` interleaved frames of
    * `channels` at `tailPtr`, read past the loop's end) into the frames at `outPtr` (read from the loop's start), from
    * seam frame `phase` of a `length`-frame crossfade in fade shape `shape` (`FADE_SHAPE_*`), as the core's clip voices
    * cross a loop's seam. Returns the frames mixed.
@@ -249,7 +249,7 @@ export class DecoderWasm {
   }
 
   /**
-   * ADR 0337 A4 (decoder ABI 1.5): decodes the first `frames` frames of the engine's IMA ADPCM blocks (a `.mycopak` entry,
+   * ADR 0351 A4 (decoder ABI 1.5): decodes the first `frames` frames of the engine's IMA ADPCM blocks (a `.mycopak` entry,
    * `audio-adpcm`'s layout, `channels` 1 or 2) to interleaved int16 (a copy the caller owns). Throws a `DecoderError`
    * (`ERR_DECODE`, -5, for fewer blocks than the frames need).
    */

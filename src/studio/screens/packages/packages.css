@@ -1,4 +1,4 @@
-/* The Packages screen (ADR 0337 §6): theme tokens only. */
+/* The Packages screen (ADR 0351 §6): theme tokens only. */
 .pk-doc { display: contents; }
 .pk-main { display: flex; flex-direction: column; min-height: 0; }
 .pk-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); padding: 0 6px; }

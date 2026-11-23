@@ -1,4 +1,4 @@
-// What a detection changes in a sample block (ADR 0328 "detection of what's missing"): the detected tempo (its map
+// What a detection changes in a sample block (ADR 0342 "detection of what's missing"): the detected tempo (its map
 // too) and root note, with `source: "detected"`. At import ("Detect what's missing") only a missing or earlier
 // detected value is filled, and only from a confident result: a value from the file or set by the user is never
 // overwritten. On demand (Detect in the popovers) the user asked, so any value is replaced, unless the result is too

@@ -1,4 +1,4 @@
-// ADR 0342 §5: where UI text may break a line, and greedy wrapping, shared by measuring and drawing.
+// ADR 0356 §5: where UI text may break a line, and greedy wrapping, shared by measuring and drawing.
 import { describe, expect, it } from "vitest";
 import { lineSegments, wrapLine, wrapText } from "./lineBreak";
 

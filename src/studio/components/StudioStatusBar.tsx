@@ -1,4 +1,4 @@
-// The Studio's status bar (ADR 0335 `StudioStatusBar`): the editor's last status message on the left, the audio
+// The Studio's status bar (ADR 0349 `StudioStatusBar`): the editor's last status message on the left, the audio
 // runtime's state and figures (`statusBarModel.ts`, from the runtime's public debug info) on the right.
 import type { StudioAudioStats } from "../runtime/audioStats";
 import type { StudioAudioState } from "../runtime/studioAudioHost";

@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the Studio's status bar: running on the core with its figures, waiting for a click,
+// Stories (ADR 0219, 0349) for the Studio's status bar: running on the core with its figures, waiting for a click,
 // trouble (underruns, a full voice cap, effect memory full), and the core unavailable with why.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, within } from "storybook/test";
@@ -24,7 +24,7 @@ export const Locked: Story = { args: { state: { kind: "locked" }, stats: null } 
 
 export const Trouble: Story = { args: { state: { kind: "running" }, stats: { ...stats, voices: 64, underruns: 3, cpuPercent: 91 } } };
 
-/** ADR 0331 (ABI 4.8): effects got no effect memory: a warning naming the last owner in its tooltip. */
+/** ADR 0345 (ABI 4.8): effects got no effect memory: a warning naming the last owner in its tooltip. */
 export const EffectMemoryFull: Story = {
   args: { state: { kind: "running" }, stats: { ...stats, fxStarved: 2, fxStarvedOwner: "Ambience" } },
   play: async ({ canvasElement }) => {

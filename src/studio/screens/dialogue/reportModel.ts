@@ -1,4 +1,4 @@
-// The Dialogue screen's Report tab (ADR 0340 §8–§9): per language, how many lines are recorded, heard from another
+// The Dialogue screen's Report tab (ADR 0354 §8–§9): per language, how many lines are recorded, heard from another
 // language and missing, with the missing keys; duration mismatches with both durations; script changes; files whose
 // sidecar normalisation target differs from `localisation.loudness`; and the report as CSV. Pure.
 import { allLines, type DialogueData } from "./dialogueData";
@@ -24,7 +24,7 @@ export interface LanguageReport {
 export interface DialogueReport {
   readonly lines: number;
   readonly languages: readonly LanguageReport[];
-  /** Recorded files whose normalisation isn't the project's setting (0340 §8). */
+  /** Recorded files whose normalisation isn't the project's setting (0354 §8). */
   readonly loudness: readonly { readonly path: string; readonly mode: string; readonly target: number | null }[];
   /** Keys defined in more than one table. */
   readonly duplicates: readonly { readonly key: string; readonly paths: readonly string[] }[];

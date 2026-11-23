@@ -1,4 +1,4 @@
-// ADR 0334: the Studio's open take, through the replay store's interface over fake seams: one take open at a time, the
+// ADR 0348: the Studio's open take, through the replay store's interface over fake seams: one take open at a time, the
 // frame loop runs only while it plays, the curve editor's histogram comes from its PARAM values, and closing undoes it.
 import { describe, expect, it } from "vitest";
 import { Take } from "../../engine/audio/take/reader";
@@ -40,7 +40,7 @@ function setup() {
 
 const speedInput = [{ id: "param:Speed", name: "Speed", min: 0, max: 200 }];
 
-describe("ReplayStore (ADR 0334)", () => {
+describe("ReplayStore (ADR 0348)", () => {
   it("opens one take at a time, titled by its file name", () => {
     const { store, disposed } = setup();
     store.openTake("takes/canyon_run_03.mycotake", take);

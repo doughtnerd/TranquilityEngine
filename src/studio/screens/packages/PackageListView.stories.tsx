@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0337 §6) for the Packages screen's package list over the story project, edited through the
+// Stories (ADR 0219, 0351 §6) for the Packages screen's package list over the story project, edited through the
 // screen's model: New package, rename with F2 (a duplicate name refused), delete from the menu, a package that doesn't
 // ship on Android dimmed.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

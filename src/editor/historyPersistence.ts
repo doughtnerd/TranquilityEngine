@@ -11,7 +11,7 @@
 import { effect, type ReadonlySignal } from "@preact/signals";
 import type { CommandStack } from "./document/CommandStack";
 import type { AgeOptions, HistoryFile } from "./document/HistoryTree";
-import { hashText } from "./document/patch"; // by leaf path: the barrel pulls in the scene loader (ADR 0327)
+import { hashText } from "./document/patch"; // by leaf path: the barrel pulls in the scene loader (ADR 0341)
 import { HistoryStore, projectSlots, type SlotBackend } from "./historyStore";
 import { historyLocation, historyPruneDays } from "./preferences";
 import { editorPlatform, projectFolder, projectKey, type EditorPlatform } from "./projectPlace";

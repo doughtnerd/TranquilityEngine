@@ -1,4 +1,4 @@
-// The Mixer's one door to the shared curve editor (ADR 0332 "one curve editor"; the prototype's Bus curves): Automate ◆
+// The Mixer's one door to the shared curve editor (ADR 0346 "one curve editor"; the prototype's Bus curves): Automate ◆
 // on a level, a send or an effect opens the dialog on every automatable property of that bus or return
 // (`automationCurves.ts`), with the asked-for lane selected; Apply is one labelled undo step of `audio.json`.
 import { openCurveEditorDialog } from "../../../editor/ui/curves/openCurveEditorDialog";

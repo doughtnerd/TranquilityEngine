@@ -4,9 +4,9 @@
 // - `defineCurve` → CURVES, `setParam` → PARAM, `bindVoice` → AUTOMATE (after the voice's PLAY, with the PLAY's stamp
 //   so it stays behind it in the batch), `bindBus` → BUS_AUTOMATE (by bus name; re-sent when the bus tree is
 //   reconfigured), `setLoop` → SET_LOOP (stamped behind the voice's PLAY while that is still ahead, else asap, like the
-//   other voice commands), `setLoops` → LOOPS (ADR 0328: a clip voice's loop program, behind its PLAY like AUTOMATE; a
-//   later `setLoop(…, false)` is its key-off), `setSequenceTime` → TIME (ADR 0332: stamped at its heard time, or asap).
-// - **Time parameters** (ADR 0332): a binding on `TimeParam.Voice`, `Clip` or `Sequence` goes out as `AUTOMATION_TIME |
+//   other voice commands), `setLoops` → LOOPS (ADR 0342: a clip voice's loop program, behind its PLAY like AUTOMATE; a
+//   later `setLoop(…, false)` is its key-off), `setSequenceTime` → TIME (ADR 0346: stamped at its heard time, or asap).
+// - **Time parameters** (ADR 0346): a binding on `TimeParam.Voice`, `Clip` or `Sequence` goes out as `AUTOMATION_TIME |
 //   which`; the core advances the times itself. Main can't follow them without a per-frame cost, so selection sees a
 //   time-bound volume curve at its loudest key (a voice fading in by voice time is never culled as silent) and a
 //   time-bound pitch curve at its first key; the playhead estimate is re-anchored by STATUS as usual.
@@ -118,7 +118,7 @@ export interface LoopRecord {
   readonly end: number;
   readonly looping: boolean;
   /**
-   * ADR 0328 (loops on stream voices): a stream voice's loop program beyond the region, seconds. `crossfade` the seam's
+   * ADR 0342 (loops on stream voices): a stream voice's loop program beyond the region, seconds. `crossfade` the seam's
    * crossfade (0 none) in `shape` (`FADE_SHAPE_*`, equal power by default), `count` the passes in all (0 endless; then
    * the stream plays on), `held` whether a key-off (`looping: false`) ends it, `then` the program's later loops in
    * order, each looped once the stream reaches it. Absent: an endless region with no crossfade (ADR 0158 §4).
@@ -130,7 +130,7 @@ export interface LoopRecord {
   readonly then?: readonly StreamLoopPart[];
 }
 
-/** @internal ADR 0328: one later loop of a stream voice's program (`LoopRecord.then`), seconds. */
+/** @internal ADR 0342: one later loop of a stream voice's program (`LoopRecord.then`), seconds. */
 export interface StreamLoopPart {
   readonly start: number;
   readonly end: number;
@@ -161,7 +161,7 @@ export function wrapPosition(pos: number, loopStart: number, loopEnd: number, le
 export interface CoreAutomationDeps {
   readonly table: VoiceTable;
   readonly writer: Pick<CommandWriter, "automate" | "param" | "curves" | "busAutomate" | "setLoop"> & Partial<Pick<CommandWriter, "time" | "loops">>;
-  /** `frameOfTime` and `stampFor` turn a heard time into a stamp (TIME, ADR 0332); without them TIME goes asap. */
+  /** `frameOfTime` and `stampFor` turn a heard time into a stamp (TIME, ADR 0346); without them TIME goes asap. */
   readonly clockMap: Pick<ClockMap, "framesNow" | "lookaheadFrames"> & Partial<Pick<ClockMap, "sampleRate" | "frameOfTime" | "stampFor">>;
   readonly playheads: Pick<PlayheadTracker, "positionNow" | "start" | "retime">;
   /** A voice's clip (a stream voice's stream) info: frames and rate, null while unknown. */
@@ -195,7 +195,7 @@ interface VoiceEntry {
   n: number;
   /** Per binding: the parameter's index in the core's table for this voice (`paramKey`), or -1 (reads 0). */
   readonly keys: Int32Array;
-  /** Per binding: the `TimeParam` it reads (ADR 0332), or -1 for a parameter slot. */
+  /** Per binding: the `TimeParam` it reads (ADR 0346), or -1 for a parameter slot. */
   readonly times: Int8Array;
   readonly curveIds: Int32Array;
   readonly targets: Uint8Array;
@@ -203,7 +203,7 @@ interface VoiceEntry {
   readonly wire: AutomationBinding[];
   readonly wirePool: AutomationBinding[];
   loop: LoopRecord | null;
-  /** ADR 0328: its loop program (`loop`, when set beside it, is the program's key-off). */
+  /** ADR 0342: its loop program (`loop`, when set beside it, is the program's key-off). */
   program: readonly VoiceLoop[] | null;
 }
 
@@ -229,7 +229,7 @@ export interface CoreAutomationStats {
   automates: number;
   busAutomates: number;
   loops: number;
-  /** ADR 0332: TIME records (sequence clock re-anchors). */
+  /** ADR 0346: TIME records (sequence clock re-anchors). */
   times: number;
   /** Hard rebuilds and idle resets whose state was restored. */
   replays: number;
@@ -297,7 +297,7 @@ export class CoreAutomation implements AutomationSink {
   private readonly busIds = new Int32Array(MAX_BINDINGS);
   private readonly busTargets = new Uint8Array(MAX_BINDINGS);
   private readonly busAuto: AutoResult = { gain: 1, pitch: 1, lowpass: 0, highpass: 0, pan: 0 };
-  /** ADR 0332: each group's sequence clock as last sent: `value` seconds at context frame `frame`, moving at `rate`. */
+  /** ADR 0346: each group's sequence clock as last sent: `value` seconds at context frame `frame`, moving at `rate`. */
   private readonly clocks = new Map<number, { value: number; rate: number; frame: number }>();
   private readonly dirtyClocks = new Set<number>();
   private budget = RESYNC_BYTES_PER_FRAME;
@@ -432,7 +432,7 @@ export class CoreAutomation implements AutomationSink {
     e.loop = null;
     e.program = loops.length > 0 ? loops.slice(0, MAX_VOICE_LOOPS) : null;
     if ((this.deps.table.flags[i]! & VoiceFlag.STREAM) !== 0) {
-      // ADR 0328: streams loop through the decoder worker (`decoder/streams.ts`): the program's regions forward, in
+      // ADR 0342: streams loop through the decoder worker (`decoder/streams.ts`): the program's regions forward, in
       // order, each with its seam crossfade (in its shape) and repeat count; held loops end at the key-off.
       const record = streamLoopRecord(loops);
       if (record) {
@@ -681,7 +681,7 @@ export class CoreAutomation implements AutomationSink {
 
   /** A hard rebuild replayed slot `i`'s PLAY (voice `id`) into `b`: its bindings and loop follow it (asap, after it). */
   replayVoice(b: ReplayBuilder, id: number, i: number): void {
-    // ADR 0331 levels (ABI 4.9): its playlist level's submix route (the slots themselves replay in the header).
+    // ADR 0345 levels (ABI 4.9): its playlist level's submix route (the slots themselves replay in the header).
     const submix = this.deps.table.submix[i]!;
     if (submix > 0) b.record(ROUTE_FIXED_END, (view, off) => writeRoute(view, off, { voiceId: id, frameOffset: ASAP, submix, reserved: 0 }));
     const e = this.voices[i];
@@ -875,7 +875,7 @@ export class CoreAutomation implements AutomationSink {
 
   /**
    * `e`'s bindings evaluated at the parameters' targets, or (`smoothed`) at the core's smoothed values now. A time-bound
-   * binding (ADR 0332) reads its curve's loudest key (volume) or its first key (pitch, low-pass).
+   * binding (ADR 0346) reads its curve's loudest key (volume) or its first key (pitch, low-pass).
    */
   private evaluateEntry(e: VoiceEntry, smoothed: boolean, out: AutoResult): AutoResult {
     const xs = this.xs;
@@ -1147,7 +1147,7 @@ function paramKey(group: number, slot: number): number {
   return MAX_GLOBAL_SLOTS + (group - 1) * MAX_LOCAL_SLOTS + slot;
 }
 
-/** The x of `curve`'s loudest key (ADR 0332: selection's view of a time-bound volume curve); 0 for an empty one. */
+/** The x of `curve`'s loudest key (ADR 0346: selection's view of a time-bound volume curve); 0 for an empty one. */
 function loudestX(curve: Curve | undefined): number {
   if (!curve || curve.length === 0) return 0;
   let best = 0;
@@ -1161,13 +1161,13 @@ const BUS_TARGETS: ReadonlySet<AutoTarget> = new Set([AutoTarget.Volume, AutoTar
 
 /** A comparable form of bindings as written. */
 const wireKey = (wire: readonly BusAutomationBinding[]): string => wire.map((b) => `${b.param}:${b.curve}:${b.target}`).join(",");
-/** ADR 0336 (ABI 4.9): a fade shape's LOOPS `shapes` nibble (absent: equal power, the core's default). */
+/** ADR 0350 (ABI 4.9): a fade shape's LOOPS `shapes` nibble (absent: equal power, the core's default). */
 const LOOP_SHAPES: Readonly<Record<FadeShape, number>> = {
   equalPower: FADE_SHAPE_EQUAL_POWER, linear: FADE_SHAPE_LINEAR, sCurve: FADE_SHAPE_S_CURVE, invSCurve: FADE_SHAPE_INV_S_CURVE,
   log1: FADE_SHAPE_LOG1, log2: FADE_SHAPE_LOG2, log3: FADE_SHAPE_LOG3, exp1: FADE_SHAPE_EXP1, exp2: FADE_SHAPE_EXP2, exp3: FADE_SHAPE_EXP3,
 };
 /**
- * @internal ADR 0328: a voice loop program as a stream voice plays it (`LoopRecord` with `then`): its regions (hold points
+ * @internal ADR 0342: a voice loop program as a stream voice plays it (`LoopRecord` with `then`): its regions (hold points
  * and empty regions left out) forward, in order of start. A stream is read forward by the decoder worker, so ping-pong
  * and backward loops play forward (warned once); a parameter activation reads as always (the worker can't follow a
  * parameter; FMOD and Wwise streams loop forward between points too). Null without a region.

@@ -1,4 +1,4 @@
-// The game's global parameters (`audio.json` `parameters`, ADR 0330; decision log D19: their authoring home in the
+// The game's global parameters (`audio.json` `parameters`, ADR 0344; decision log D19: their authoring home in the
 // Studio): the ADR 0304 parameter list over the mix, with what a rename and a remove carry along.
 //
 // - In `audio.json` (one undo step with the list edit): a rename renames the automation lanes and snapshot conditions

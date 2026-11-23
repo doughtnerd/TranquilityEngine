@@ -1,10 +1,10 @@
-# 0333. Attenuation curves live on playlists; audio zones are a component; spatial test scenes are Studio assets
+# 0347. Attenuation curves live on playlists; audio zones are a component; spatial test scenes are Studio assets
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0162: attenuation is a set of curves, not a rolloff model)
-- **Related:** 0074, 0157, 0162, 0170, 0327, 0329, 0330, 0332, 0334
+- **Related:** 0074, 0157, 0162, 0170, 0341, 0343, 0344, 0346, 0348
 
 ## Context
 
@@ -29,7 +29,7 @@ each sound is heard (HRTF, panned, bed), its distance, occlusion and Doppler.
 We will put attenuation on the playlist as curves, add an `AudioZone` component, and make test scenes Studio assets the
 Studio plays through the engine's real components.
 
-**Attenuation** is part of a playlist's `spatial` block (0329), inline or as a reference to a shared preset asset
+**Attenuation** is part of a playlist's `spatial` block (0343), inline or as a reference to a shared preset asset
 `*.attenuation.json` (`myco.attenuation@1`):
 
 ```jsonc
@@ -41,10 +41,10 @@ Studio plays through the engine's real components.
               "reverbSend": [[0, 0], [40, -6]], "spread": [[0, 180], [40, 20]] } }
 ```
 
-- Curves are engine curves (0332) keyed on distance in metres, in the target's units; moving Min or Max in the editor
+- Curves are engine curves (0346) keyed on distance in metres, in the target's units; moving Min or Max in the editor
   stretches the keys between them. Beyond the last key the value holds.
 - The rolloff laws become presets (Linear, Inverse, Exponential, Inverse square) that write curve keys; the migration
-  (0329) turns each event's `rolloff` and `reverbSendCurve` into curves.
+  (0343) turns each event's `rolloff` and `reverbSendCurve` into curves.
 - `AudioSource` and one-shot options keep `minDistance`/`maxDistance` as optional overrides that stretch the playlist's
   curves; `rolloff` is migrated.
 - The spatial code (`runtime/core/spatial.ts`) evaluates the volume and spread curves on the main thread per voice per
@@ -56,7 +56,7 @@ spread `min(180°, 40° + 600°/max(3 m, distance))`, traced for occlusion; insi
 zone plays non-spatially at a level that falls linearly over the feather. Its depth (0 at the edge, 1 at the centre)
 is the playlist instance's built-in local parameter `zoneDepth`. Editor Inspector section and gizmo as for reverb zones.
 
-**Settings the Spatial screen shows** are the project's (`audio.json` `settings`, 0330): HRTF voice count (existing
+**Settings the Spatial screen shows** are the project's (`audio.json` `settings`, 0344): HRTF voice count (existing
 `voices.hrtf`), a new `bed.beyond` distance (sounds farther than this go to their bus's bed), a global Doppler amount
 multiplier `doppler.amount` (0..2, default 1), occlusion materials. Where the prototype differs from the engine on a
 detail, the engine's behaviour stays: occlusion losses of several obstacles add (the prototype takes the worst),
@@ -72,14 +72,14 @@ for A/B replacement. The Studio plays a test scene by building a headless World 
 components (`AudioListener`, `AudioSource`, `AudioOccluder` with a box collider on the occlusion layer, `AudioReverbZone`,
 `AudioZone`) and the 3D physics plugin, and moves moving emitters along their routes. The Voices table reads the
 runtime's own debug rows (how each voice is rendered, distance, occlusion, Doppler), not a simulation. "From take"
-copies the listener and emitter positions at the take's playhead (0334).
+copies the listener and emitter positions at the take's playhead (0348).
 
 ## Alternatives considered
 
 - **Attenuation on the emitter (the prototype's stand-in)** — attenuation is a property of how a sound behaves, needed
   wherever it plays; per-emitter would repeat it in every scene.
 - **Test scenes as ordinary game scenes** — reuses the scene format, but the Studio would edit scene files the editor
-  owns (0327) and need the scene document machinery; a small Studio format that spawns engine components keeps the
+  owns (0341) and need the scene document machinery; a small Studio format that spawns engine components keeps the
   runtime real without that.
 - **The prototype's spatial maths in the Studio** — would drift from what the game does; the Studio runs the engine.
 

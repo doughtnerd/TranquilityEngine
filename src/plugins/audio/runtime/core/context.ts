@@ -108,7 +108,7 @@ export interface LinkPort {
   onmessage: ((event: { data: unknown }) => void) | null;
 }
 
-/** The shell's event types: its own, and ADR 0338's plugin glue's (`effectGlue.ts`). */
+/** The shell's event types: its own, and ADR 0352's plugin glue's (`effectGlue.ts`). */
 const SHELL_EVENTS: ReadonlySet<unknown> = new Set(["error", "trap", "fxLoaded", "pluginFault", "fxStats"]);
 const isShellEvent = (data: unknown): data is CoreShellEvent => typeof data === "object" && data !== null && SHELL_EVENTS.has((data as { type?: unknown }).type);
 
@@ -230,7 +230,7 @@ export class CoreLink {
     this.port.postMessage(message, [port as unknown as Transferable]);
   }
 
-  /** ADR 0338 (B4): a plugin effect control message for the current node's glue (`fxLoad` transfers its bytes). */
+  /** ADR 0352 (B4): a plugin effect control message for the current node's glue (`fxLoad` transfers its bytes). */
   postControl(message: CoreControlMessage, transfer: Transferable[] = []): void {
     this.port.postMessage(message, transfer);
   }

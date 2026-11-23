@@ -1,4 +1,4 @@
-//! The effect catalogue's DSP (ADR 0331 "DSP to write"): one implementation of every runtime
+//! The effect catalogue's DSP (ADR 0345 "DSP to write"): one implementation of every runtime
 //! effect type, shared by the bus chains, the instance submixes and (later) the offline sample
 //! render. [`Effect`] is one effect slot: its kind, its parameters (the catalogue's, in the
 //! catalogue's order, `effects/catalogue.ts`), their smoothed values and its small DSP state;
@@ -30,7 +30,7 @@
 //! | `LIMITER` | ceiling dB, release ms | — |
 //! | `SIDECHAIN` | threshold dB, ratio, release ms, key (the owner's: a bus index) | — |
 //! | `GAIN` | gain dB | — |
-//! | `PLUGIN_BASE + e` (ABI 5.0, ADR 0338) | the plugin's declared parameters (up to 16) | its own module's |
+//! | `PLUGIN_BASE + e` (ABI 5.0, ADR 0352) | the plugin's declared parameters (up to 16) | its own module's |
 //!
 //! A plugin kind passes through here: its owner calls the plugin (`audio-core`'s `ext.rs`) with the
 //! block-start and block-end values [`Effect::plugin_block`] gives, glided as a built-in's (log2 or
@@ -60,7 +60,7 @@ use crate::compressor::{db_to_linear, Compressor};
 
 /// The block the effects are written for (the core's quantum); shorter blocks work too.
 pub const BLOCK: usize = 128;
-/// Parameters per effect (the wire's `p` array; 16 from ABI 5.0, ADR 0338, so a plugin effect can declare 16).
+/// Parameters per effect (the wire's `p` array; 16 from ABI 5.0, ADR 0352, so a plugin effect can declare 16).
 pub const PARAMS: usize = 16;
 /// The parameter glide, ms.
 pub const SMOOTH_MS: f32 = 20.0;
@@ -88,7 +88,7 @@ pub mod kind {
     pub const GAIN: u32 = 16;
     /// One past the last kind.
     pub const COUNT: u32 = 17;
-    /// ABI 5.0 (ADR 0338): `PLUGIN_BASE + e` is registered plugin effect `e` (0..[`PLUGINS`]). This
+    /// ABI 5.0 (ADR 0352): `PLUGIN_BASE + e` is registered plugin effect `e` (0..[`PLUGINS`]). This
     /// module passes it through: its DSP runs in the plugin's own module, which the core calls
     /// (`audio-core`'s `ext.rs`); the slot keeps its parameters and glide here as a built-in's.
     pub const PLUGIN_BASE: u32 = 0x100;
@@ -147,7 +147,7 @@ pub struct Effect {
     /// The owner's: the floats its memory slice holds (0: none).
     pub mem_len: u32,
     /// ABI 4.8: bit `i` set holds parameter `i` at its configured value: [`Effect::automate`]
-    /// leaves it (a snapshot override in force, ADR 0330). Kept across a `configure`.
+    /// leaves it (a snapshot override in force, ADR 0344). Kept across a `configure`.
     pub held: u32,
     /// ABI 5.0, a plugin kind only: the instance handle the host gave (`myco_ext.acquire`; 0 none).
     /// The owner acquires and releases it (`audio-core`'s `fxmem.rs`, `ext.rs`).
@@ -277,7 +277,7 @@ impl Effect {
         fresh
     }
 
-    /// ABI 4.8 (ADR 0330/0331 automation): parameter `i` follows an automation value `v`, set once
+    /// ABI 4.8 (ADR 0344/0345 automation): parameter `i` follows an automation value `v`, set once
     /// per block by its owner before [`Effect::process`]. A running effect reaches it over the next
     /// block (filters re-designed once, ramped parameters moving per sample across it), or with a
     /// glide already in flight by that glide's end; an effect that hasn't run takes it at once. A
@@ -316,7 +316,7 @@ impl Effect {
         self.running = 0;
     }
 
-    /// ABI 5.0 (ADR 0338), a plugin kind's block: the glide steps over `n` frames as a built-in's
+    /// ABI 5.0 (ADR 0352), a plugin kind's block: the glide steps over `n` frames as a built-in's
     /// would, `p0` gets the parameters at the block's start (`cur` holds those at its end), and the
     /// result is the call's flags: `FLAG_PARAMS` when they moved (a stepped one set included) or the block is the slot's first,
     /// `FLAG_RESET` on its first block since it was made or reset. A stepped parameter has the same

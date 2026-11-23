@@ -1,4 +1,4 @@
-// The Localisation panel's Report tab (ADR 0342 §7–§9): per-language progress, then each list — missing translations,
+// The Localisation panel's Report tab (ADR 0356 §7–§9): per-language progress, then each list — missing translations,
 // keys defined nowhere, unused keys, unkeyed text (with Dismiss), keys in two tables and, once run, the text fit
 // check's overflows. Each row opens its file. A view: the report comes from `reportModel.ts` through the panel.
 import { EmptyState } from "../EmptyState";

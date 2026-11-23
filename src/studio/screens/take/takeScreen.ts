@@ -1,4 +1,4 @@
-// The Take screen's services over the real page (ADR 0334 "The Take screen"): opening a take file into the Studio's
+// The Take screen's services over the real page (ADR 0348 "The Take screen"): opening a take file into the Studio's
 // replay (`shell/replay.ts`, which keeps it open across screens), the timeline read from it, the selection, the take's
 // notes as an asset document (the engine's undo tree; `<take>.notes.json`, a Studio-registered kind with no file
 // ending, as the samples sidecar is), the takes' file actions (import into `takes/`; rename, move and delete through the
@@ -142,7 +142,7 @@ class TakeScreen {
     return true;
   }
 
-  /** "Profile this replay": the Profiler records the Studio's runtime while the take replays (ADR 0334). */
+  /** "Profile this replay": the Profiler records the Studio's runtime while the take replays (ADR 0348). */
   profileReplay(): void {
     const open = replayStore().open.peek();
     if (open && !open.replay.playing.peek()) open.replay.play();

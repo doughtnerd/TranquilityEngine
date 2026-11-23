@@ -1,4 +1,4 @@
-// Stories (ADR 0219) for the Playlists screen's migration banner (ADR 0329): a read-only project with old audio events,
+// Stories (ADR 0219) for the Playlists screen's migration banner (ADR 0343): a read-only project with old audio events,
 // the migration running, and a failed try. The play presses Migrate now and checks the action ran.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fn, userEvent, within } from "storybook/test";

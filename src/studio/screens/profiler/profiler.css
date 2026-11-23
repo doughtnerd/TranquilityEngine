@@ -1,4 +1,4 @@
-/* The Studio's Profiler screen (ADR 0334). Theme tokens only (src/editor/ui/editor.css lists them). */
+/* The Studio's Profiler screen (ADR 0348). Theme tokens only (src/editor/ui/editor.css lists them). */
 
 .pf-panel-body { padding: 0; }
 .pf-note { color: var(--muted); margin: 8px; font-size: calc(12px * var(--ui-scale)); }
@@ -6,7 +6,7 @@
 .pf-hint { color: var(--faint); font-weight: normal; margin-left: 6px; }
 .pf-missing { color: var(--faint); }
 
-/* Plugins (ADR 0338 §9): live plugin effect health */
+/* Plugins (ADR 0352 §9): live plugin effect health */
 .pf-plugins { width: 100%; border-collapse: collapse; font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
 .pf-plugins th, .pf-plugins td { padding: 3px 6px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .pf-plugins thead th { color: var(--muted); font-weight: 600; }
@@ -55,7 +55,7 @@
 .pf-bus { stroke: var(--series-2); }
 .pf-loud { stroke: var(--series-4); }
 .pf-param { stroke: var(--series-3); }
-/* ADR 0337 §6: memory — the clip arena, the loaded packages, and a mark per package load, unload and failure */
+/* ADR 0351 §6: memory — the clip arena, the loaded packages, and a mark per package load, unload and failure */
 .pf-mem-arena { stroke: var(--series-5); }
 .pf-mem-packages { stroke: var(--series-6); stroke-dasharray: 3 2; }
 .pf-mem-mark { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px solid var(--series-6); pointer-events: auto; }

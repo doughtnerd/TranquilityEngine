@@ -1,5 +1,5 @@
 /**
- * The one-way migration `myco.audioevent@1` → `myco.playlist@1` (ADR 0329 §"Migration"; attenuation per ADR 0333).
+ * The one-way migration `myco.audioevent@1` → `myco.playlist@1` (ADR 0343 §"Migration"; attenuation per ADR 0347).
  * Pure: it takes the existing parse output (`parseAudioEvent(...).value`) and returns the playlist, any extra assets it
  * chose to write beside it, the sample loops its looping clips need (as data: `loops`; the project migration writes them
  * into the samples' sidecars, `sampleLoops.ts`), and lint notes naming every approximation. It never throws.
@@ -45,7 +45,7 @@ import {
 import { combineCurves, gainToDb, mapCurve, ratioToSemitones, SILENT_DB, tidy } from "./units";
 
 /**
- * A loop a looping clip needs in its sample (ADR 0328: a loop in the audio file's sidecar `sample.loops`). The old event
+ * A loop a looping clip needs in its sample (ADR 0342: a loop in the audio file's sidecar `sample.loops`). The old event
  * looped in the voice; a playlist clip plays its sample's loops, so the migration asks for one and the caller places it
  * (`placeLoop`): in the sample's sidecar, or in a derived sample when the sidecar already has a different loop.
  */
@@ -101,7 +101,7 @@ export interface MigratedAudioEvent {
   notes: string[];
 }
 
-// --- limits of the new format (ADR 0329 §"Playback"; types.ts) ------------------------------------------------------
+// --- limits of the new format (ADR 0343 §"Playback"; types.ts) ------------------------------------------------------
 
 const MAX_INSTANCES = 32;
 const MAX_COOLDOWN = 5;
@@ -135,7 +135,7 @@ const CURVE_TARGETS: Record<EventAutomation["target"], { target: VoiceCurveTarge
   lowpass: { target: "lowpass", map: (y) => y, resample: false },
 };
 
-/** How two curves on one target combine down the tree (ADR 0329 "Down the tree"). */
+/** How two curves on one target combine down the tree (ADR 0343 "Down the tree"). */
 const COMBINE: Record<VoiceCurveTarget, (a: number, b: number) => number> = {
   gain: (a, b) => a + b, pitch: (a, b) => a + b, pan: (a, b) => (b !== 0 ? b : a), lowpass: Math.min, highpass: Math.max,
 };
@@ -197,7 +197,7 @@ class Migrator {
   automation(bindings: readonly Binding[], effects: Effect[], idPrefix: string): Automation[] {
     return bindings.map((b, i): Automation => {
       const base = { id: `${idPrefix}a${i + 1}`, input: { parameter: b.parameter }, curve: b.curve, bypass: false };
-      // ADR 0336: a stem's quantised binding is a quantised lane (volume, pitch and the filters' cutoffs all quantise).
+      // ADR 0350: a stem's quantised binding is a quantised lane (volume, pitch and the filters' cutoffs all quantise).
       const q = b.quantize ? { quantize: b.quantize } : {};
       if (b.target === "gain") return { ...base, target: "volume", ...q };
       if (b.target === "pitch") return { ...base, target: "pitch", ...q };
@@ -416,7 +416,7 @@ class Migrator {
   }
 
   /**
-   * A blend: Blend 1D on the parameter, each child anchored at its range's midpoint with an explicit region (ADR 0336):
+   * A blend: Blend 1D on the parameter, each child anchored at its range's midpoint with an explicit region (ADR 0350):
    * full level across the old `range`, fading in over `fade` below it and out over `fade` above it, equal power (the old
    * runtime's sin/cos edges), so the weights are the old ones exactly, overlaps included. A child with no range (it
    * played at every value) has no region and is placed at x = its index.
@@ -641,7 +641,7 @@ class Migrator {
    *
    * Without the stems' length the sequence and its clips are 0 s long, "to the end" (D5), and two things that sit at
    * `"end"` survive another way: an exit at the end needs no marker (an Exit wait with no Exit marker falls back to the
-   * loop end, which for a sequence that plays through is its end, ADR 0329), and a region over the whole segment that
+   * loop end, which for a sequence that plays through is its end, ADR 0343), and a region over the whole segment that
    * isn't bound to a parameter becomes a continuous Queue replaying the sequence back to back.
    */
   segment(seg: SegmentNode, where: string): PlaylistBody {
@@ -656,7 +656,7 @@ class Migrator {
     seg.tracks.forEach((t, i) => this.stem(seq, t, length ?? 0, `${where}.tracks[${i}]`));
     // Markers: every cue by name; the exit point (named cue or the end) as `exit` when no cue has that name.
     const markers: SequenceMarker[] = [];
-    // ADR 0329: the entry and exit points are Exit markers, other cues Cue markers.
+    // ADR 0343: the entry and exit points are Exit markers, other cues Cue markers.
     const exitNames = new Set([seg.entry ?? "entry", seg.exit ?? "exit"]);
     const addMarker = (name: string, text: string, w: string): void => {
       const s = this.at(text, seg, length);
@@ -698,7 +698,7 @@ class Migrator {
   }
 
   /**
-   * ADR 0336: a region's `tailBeats` as the loop's tail, which rings the audio from the loop's end to the next Exit
+   * ADR 0350: a region's `tailBeats` as the loop's tail, which rings the audio from the loop's end to the next Exit
    * marker after it. Exact when that marker is `tailBeats` after the loop's end (music-loop's shape: the tail runs to the
    * segment's exit at its end); a marker elsewhere rings that far instead (noted); with none after the loop, one is
    * added at the tail's end when nothing else uses Exit markers there (noted), else the tail is dropped (noted).
@@ -784,7 +784,7 @@ class Migrator {
     if (out.offset !== 0 || inn.offset !== 0) this.note(where, "fade offsets are not kept.");
     if (rule.enter !== "entryCue") this.note(where, `enter ${typeof rule.enter === "string" ? `"${rule.enter}"` : `at cue "${rule.enter.cue}"`} is not kept; the new entry starts from its start.`);
     const how: ChangeHow = { when, how: longer.amount > 0 ? "crossfade" : "cut", length: this.fadeLength(longer) };
-    // ADR 0336: the fade curves are the shapes (linear, sCurve and equalPower are all in the new set).
+    // ADR 0350: the fade curves are the shapes (linear, sCurve and equalPower are all in the new set).
     if (out.curve !== "equalPower") how.shapeOut = out.curve;
     if (inn.curve !== "equalPower") how.shapeIn = inn.curve;
     if (rule.bridge) {
@@ -793,7 +793,7 @@ class Migrator {
       else {
         how.how = "transition";
         how.transition = this.entry(seg, `${where}.bridge`);
-        // ADR 0336: the bridge's own fades (absent: the rule's, as the old runtime read them).
+        // ADR 0350: the bridge's own fades (absent: the rule's, as the old runtime read them).
         if (rule.bridge.fadeIn) how.transitionIn = this.fade(rule.bridge.fadeIn, `${where}.bridge.fadeIn`);
         if (rule.bridge.fadeOut) how.transitionOut = this.fade(rule.bridge.fadeOut, `${where}.bridge.fadeOut`);
       }
@@ -801,7 +801,7 @@ class Migrator {
     return how;
   }
 
-  /** ADR 0336: an old transition fade as a fade (its offset is not kept). */
+  /** ADR 0350: an old transition fade as a fade (its offset is not kept). */
   fade(f: TransitionFade, where: string): Fade {
     if (f.offset !== 0) this.note(where, "the fade offset is not kept.");
     return { length: this.fadeLength(f), shape: f.curve };
@@ -906,7 +906,7 @@ class Migrator {
       if (key === REVERB_SEND_KEY) {
         if (ev.spatial) reverbDb = gainToDb(level);
         else if (level !== 1) this.note("sends.reverb", `a reverb send of ${level} on a flat event has no playlist equivalent (route the output bus to a reverb return); dropped.`);
-      } else this.note(`sends.${key}`, `the aux send to "${key}" (${level}) has no playlist equivalent (send from the output bus instead, ADR 0330); dropped.`);
+      } else this.note(`sends.${key}`, `the aux send to "${key}" (${level}) has no playlist equivalent (send from the output bus instead, ADR 0344); dropped.`);
     }
     if (ev.spatial) {
       body.spatial = {
@@ -918,7 +918,7 @@ class Migrator {
   }
 }
 
-/** Migrate one parsed audio event to a playlist (ADR 0329). `path` names the event in the notes. Never throws. */
+/** Migrate one parsed audio event to a playlist (ADR 0343). `path` names the event in the notes. Never throws. */
 export function migrateAudioEvent(parsed: AudioEventAsset, path: string, options: MigrateOptions = {}): MigratedAudioEvent {
   const m = new Migrator(path, parsed, options);
   const playlist = m.run();

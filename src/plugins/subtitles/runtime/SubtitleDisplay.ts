@@ -1,5 +1,5 @@
 /**
- * `SubtitleDisplay` (ADR 0343 §5): the optional built-in subtitle and caption display. Add it to any node (a persistent
+ * `SubtitleDisplay` (ADR 0357 §5): the optional built-in subtitle and caption display. Add it to any node (a persistent
  * scene or a HUD prefab); it builds its UI document under its own `UICanvas` child (screen mode, `sortOrder` 1000), or
  * under the node's own canvas when the node has one, and shows what `Audio.onLine` and `Audio.onCaption` report, timed
  * on the heard clock (`Audio.time`), obeying the player's `Subtitles` settings.
@@ -57,7 +57,7 @@ export class SubtitleDisplay extends GameBehavior {
   /** Shows captions when the player's setting allows. */
   @field(Boolean) captions = true;
 
-  /** @internal The editor's Play overlay (ADR 0343 §6): stands aside while the game has a display of its own. */
+  /** @internal The editor's Play overlay (ADR 0357 §6): stands aside while the game has a display of its own. */
   _overlay = false;
 
   private board: SubtitleBoard | null = null;

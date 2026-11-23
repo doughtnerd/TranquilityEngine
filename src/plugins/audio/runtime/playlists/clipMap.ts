@@ -1,5 +1,5 @@
 /**
- * A sequence clip's time → sample time (ADR 0329 "Sequence"; the prototype's `geo`/`mapU`, SQ:1076–1083): the clip
+ * A sequence clip's time → sample time (ADR 0343 "Sequence"; the prototype's `geo`/`mapU`, SQ:1076–1083): the clip
  * plays its sample's **pickup** (from the offset to the first loop's start), the **first pass** (to the loop's end),
  * **further passes of the first loop** filling the clip's length, then the **tail** (from the loop's end to the sample's
  * end). So the clip's length sets the number of passes and the tail always ends the clip; a remainder too short for a

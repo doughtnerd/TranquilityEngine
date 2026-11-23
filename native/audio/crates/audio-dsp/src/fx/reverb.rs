@@ -1,4 +1,4 @@
-//! The algorithmic reverb (ADR 0331's `reverb`: `size` 0..1, `decay` 0.1..20 s, `mix` 0..100 %):
+//! The algorithmic reverb (ADR 0345's `reverb`: `size` 0..1, `decay` 0.1..20 s, `mix` 0..100 %):
 //! an eight-line feedback delay network. The convolver stays for reverb zones' impulse responses.
 //!
 //! - **Input diffusion:** each channel passes two Schroeder all-passes (gain 0.6), so a transient

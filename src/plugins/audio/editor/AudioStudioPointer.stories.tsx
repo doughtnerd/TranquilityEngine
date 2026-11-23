@@ -1,4 +1,4 @@
-// Stories (ADR 0219) for Project Settings > Audio since the audio panels moved to the Audio Studio (ADR 0327): what the
+// Stories (ADR 0219) for Project Settings > Audio since the audio panels moved to the Audio Studio (ADR 0341): what the
 // category says and its Open in Audio Studio button.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, within } from "storybook/test";

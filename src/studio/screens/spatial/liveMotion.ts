@@ -1,4 +1,4 @@
-// Moving emitters while the Spatial screen plays (ADR 0333; owner: "an emitter follow a path … I do want that to
+// Moving emitters while the Spatial screen plays (ADR 0347; owner: "an emitter follow a path … I do want that to
 // actually work"). The Studio's Engine steps its World every animation frame (`engineRuntime.ts`: `engine.start()`), so
 // the test scene player's route movers advance with real `dt` and the runtime's Doppler pass hears the motion. This
 // module is the screen's side: a frame loop tied to Play and Stop that reads where each emitter is now

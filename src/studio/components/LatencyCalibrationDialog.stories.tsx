@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for latency calibration: by ear (silent clicks here) and by eye (the flashing boxes);
+// Stories (ADR 0219, 0349) for latency calibration: by ear (silent clicks here) and by eye (the flashing boxes);
 // four taps make "Use" available, Start over clears them, Escape cancels.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

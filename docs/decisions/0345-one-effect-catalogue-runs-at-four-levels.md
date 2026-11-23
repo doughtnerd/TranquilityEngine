@@ -1,10 +1,10 @@
-# 0331. One effect catalogue runs at four levels: baked into a sample, per voice, per playing instance, per bus
+# 0345. One effect catalogue runs at four levels: baked into a sample, per voice, per playing instance, per bus
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0097, 0157, 0172, 0175, 0179, 0306, 0328, 0329, 0330, 0332
+- **Related:** 0097, 0157, 0172, 0175, 0179, 0306, 0342, 0343, 0344, 0346
 
 ## Context
 
@@ -54,14 +54,14 @@ the levels it may run at, a version, and a cost class for the profiler.
 | `noiseReduction`, `reverse` | amount / — | sample |
 
 An effect in any file is `{ "id": "fx1", "type": "lowpass", "on": true, "params": { "cutoff": 800 } }`; automation
-lives with its owner and names `fx:<id>:<param>` (0329, 0330). Missing params take their defaults; unknown types are
+lives with its owner and names `fx:<id>:<param>` (0343, 0344). Missing params take their defaults; unknown types are
 dropped with one problem line (the engine's lenient parse).
 
 **The four levels.**
 - **Sample:** rendered offline in a worker by the same Rust DSP compiled for offline use, cached by content hash
-  (0328). No runtime cost; game parameters can't drive it (time automation over the sample can).
+  (0342). No runtime cost; game parameters can't drive it (time automation over the sample can).
 - **Voice:** runs in the voice in the core (as low-pass and high-pass do today), automatable over clip time, voice time
-  or parameters (0332).
+  or parameters (0346).
 - **Instance:** the core gains **instance submixes**: a pool of submix slots (`settings.voices.submixes`, default 32).
   The voices of one playing playlist, track or sequence route into its submix, which runs the chain and feeds the
   output bus. When the pool is empty an instance plays without its chain and the profiler records the reason.
@@ -99,7 +99,7 @@ because they are baked.
 
 ## Deprecates
 
-- The `reverb` send effect type (replaced by returns, 0330) and the four-effect, one-compressor per-bus limits.
+- The `reverb` send effect type (replaced by returns, 0344) and the four-effect, one-compressor per-bus limits.
 
 ## Open questions
 

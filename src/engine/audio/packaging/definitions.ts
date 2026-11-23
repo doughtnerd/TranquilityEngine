@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0337 §7, A1): package definitions in `audio.json` (`packages`, `packaging`), read and written, and what
+ * Internal (ADR 0351 §7, A1): package definitions in `audio.json` (`packages`, `packaging`), read and written, and what
  * a package holds once its dependencies are added.
  *
  * ```jsonc

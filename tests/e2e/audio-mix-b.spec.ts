@@ -9,7 +9,7 @@ import { bootMix } from "./audioMix";
 // Cases: a tone reads -22.99 LUFS in Play; the target verdict for every target and a hot signal (high, low, ok, waiting,
 // peak over); every reset option; pause and resume (by the F key and the API); a script mute suspending the check. (The
 // monitor mute, solo and Compare taint rules were clicked in the editor's Mixer panel, which moved to the Audio Studio,
-// ADR 0327; the loudness hub's unit tests keep them.)
+// ADR 0341; the loudness hub's unit tests keep them.)
 //
 // **Timing is on the audio clock**: a reading waits on the meter's own `elapsed` (seconds of metered audio since its last reset,
 // counted in the core's rendered sub-blocks) or on `Audio.time`, never on a wall-clock span; the polls only pace the reads.

@@ -1,4 +1,4 @@
-//! The render: a sample's baked chain over its edited PCM (ADR 0328 "Baked effects are rendered
+//! The render: a sample's baked chain over its edited PCM (ADR 0342 "Baked effects are rendered
 //! offline").
 //!
 //! The chain runs in **stages**. Consecutive streaming effects (the runtime kernels, fades and the
@@ -23,7 +23,7 @@
 //!   out ending on its last; the envelope's attack, decay and sustain from the first frame and its
 //!   release ending on the last. Both are silent after the input's end (a tail from an earlier
 //!   effect in the same stage is cut there).
-//! - **Plugin effects** (ADR 0338 §7) stream like the kernels, through the `myco_ext` import the
+//! - **Plugin effects** (ADR 0352 §7) stream like the kernels, through the `myco_ext` import the
 //!   caller binds (`audio_core::ext`, the same calls the core's chains make: an instance per channel
 //!   pair, the glide, the flags and the budget). Each control block grants a quantum's shared fuel
 //!   for its frames. A block the plugin can't run (not loaded, no free instance, a fault, the fuel)

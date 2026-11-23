@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0340 §7) for the Samples Inspector's Lip-sync row: none yet, importing Rhubarb Lip Sync's TSV
+// Stories (ADR 0219, 0354 §7) for the Samples Inspector's Lip-sync row: none yet, importing Rhubarb Lip Sync's TSV
 // output (the keys counted), a file with a bad row (imported, the skip reported), and Clear.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

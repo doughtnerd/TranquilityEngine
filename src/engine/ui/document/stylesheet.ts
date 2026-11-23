@@ -33,9 +33,9 @@ const PSEUDO: ReadonlySet<string> = new Set<UIPseudo>(["hover", "pressed", "focu
 export const INHERITED_FIELDS: ReadonlySet<string> = new Set(["color", "fontSize", "fontWeight", "textAlign"]);
 /** String fields that hold a `UILength`. */
 const LENGTH_FIELDS: ReadonlySet<string> = new Set(["width", "height", "top", "right", "bottom", "left"]);
-/** Attributes that aren't fields (`translate="no"` marks text as deliberately unlocalised, ADR 0342 §4). */
+/** Attributes that aren't fields (`translate="no"` marks text as deliberately unlocalised, ADR 0356 §4). */
 const NOT_FIELDS: ReadonlySet<string> = new Set(["id", "class", "translate"]);
-/** The prefix of key attributes (`t:text="menu.start"`, ADR 0342 §4): the runtime writes the localised message. */
+/** The prefix of key attributes (`t:text="menu.start"`, ADR 0356 §4): the runtime writes the localised message. */
 const KEY_ATTRIBUTE_PREFIX = "t:";
 
 // --- Parsing ------------------------------------------------------------------------------------
@@ -141,7 +141,7 @@ function parseSelector(sel: CssSelector, report: (start: number, end: number, me
           compound();
         } else if (PSEUDO.has(n.name)) compound().pseudo.push(n.name as UIPseudo);
         else if (n.name === "lang") {
-          // `:lang(de)` (ADR 0342 §4): one language range, matched by BCP 47 prefix against the current text language.
+          // `:lang(de)` (ADR 0356 §4): one language range, matched by BCP 47 prefix against the current text language.
           const ranges = (n.children?.toArray() ?? []).map((c) => (c.type === "Identifier" ? c.name : c.type === "String" ? c.value : "")).filter((r) => /^[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*$/.test(r));
           if (ranges.length !== 1) {
             report(s, e, ":lang() takes one language code, such as :lang(de) or :lang(zh-Hant).");
@@ -194,7 +194,7 @@ function matchesSimple(s: SimpleSelector, t: StyleTarget): boolean {
   return true;
 }
 
-/** CSS `:lang()` matching (ADR 0342 §4): the language equals the range or starts with it and a hyphen (`de` matches `de-AT`). */
+/** CSS `:lang()` matching (ADR 0356 §4): the language equals the range or starts with it and a hyphen (`de` matches `de-AT`). */
 function langMatches(language: string | undefined, range: string): boolean {
   if (!language) return false;
   const l = language.toLowerCase();
@@ -223,7 +223,7 @@ export function usesPseudo(sheets: readonly { rules: readonly StyleRule[] }[]): 
   return sheets.some((s) => s.rules.some((r) => r.selectors.some((sel) => sel.parts.some((p) => p.selector.pseudo.length > 0))));
 }
 
-/** True when any rule of these sheets uses `:lang()` (so elements restyle when the language changes, ADR 0342 §4). */
+/** True when any rule of these sheets uses `:lang()` (so elements restyle when the language changes, ADR 0356 §4). */
 export function usesLang(sheets: readonly { rules: readonly StyleRule[] }[]): boolean {
   return sheets.some((s) => s.rules.some((r) => r.selectors.some((sel) => sel.parts.some((p) => p.selector.lang.length > 0))));
 }

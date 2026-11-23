@@ -40,14 +40,14 @@ import type { MixOp, OpClass } from "../../../../engine/audio/mixOps";
 import { currentMixOpOrigin } from "./mixOpOrigin";
 
 /**
- * ADR 0334: what a take reads of the profile taps beside the capture's records: every effective parameter change (global
+ * ADR 0348: what a take reads of the profile taps beside the capture's records: every effective parameter change (global
  * or instance, events and playlists, a label as its index), the one place they all pass.
  */
 export interface CaptureTee {
   parameter(name: string, value: number, instance: number | null): void;
 }
 
-/** ADR 0334: a take's hold on the ring (`captureTakeRing`). */
+/** ADR 0348: a take's hold on the ring (`captureTakeRing`). */
 export interface CaptureTakeRing {
   /** The next record's seq (taken from the ring's counter, so a take's requests merge with the ring's records by seq), its epoch and the frame "now". Null while the ring doesn't record. */
   stamp(): { seq: number; epoch: number; frame: number } | null;
@@ -109,11 +109,11 @@ export function setCaptureProject(info: () => { name: string; version: string })
   projectInfo = info;
 }
 
-/** ADR 0334: the take the Studio is replaying while it records itself, named in the META of captures started meanwhile. */
+/** ADR 0348: the take the Studio is replaying while it records itself, named in the META of captures started meanwhile. */
 let replayOf: CaptureReplayOf | null = null;
 
 /**
- * @internal ADR 0334 "Profiling a take as it plays": the Studio says which take it replays (its path and `audio.json` hash)
+ * @internal ADR 0348 "Profiling a take as it plays": the Studio says which take it replays (its path and `audio.json` hash)
  * before it starts a capture of its own runtime, and null when it stops; a capture started meanwhile names it in META
  * `replayOf`, so the Profiler shows which take the replay capture came from.
  */
@@ -195,7 +195,7 @@ class Capture implements AudioCapture {
   private keptAcrossStop = false;
   /** The frame the next EPOCH names (a start, or a core made while Held); null: 0, a rebuilt core's first frame. */
   private epochFrame: number | null = null;
-  /** ADR 0334: the take's reader of the taps (a tee around the event sink while set). */
+  /** ADR 0348: the take's reader of the taps (a tee around the event sink while set). */
   private tee: CaptureTee | null = null;
 
   // --- the public surface ---------------------------------------------------------------------------------------------
@@ -326,7 +326,7 @@ class Capture implements AudioCapture {
    * unless a take exists that hasn't yet outlived a Play stop: that one is Held, so a `save()` after Stop still works.
    */
   playStopped(): void {
-    for (const fn of playStopHooks) fn(); // ADR 0334: a running take stops and copies its span before the ring goes
+    for (const fn of playStopHooks) fn(); // ADR 0348: a running take stops and copies its span before the ring goes
     const rec = this.rec;
     if (!rec) {
       this.startToken++; // a start still loading is abandoned
@@ -519,7 +519,7 @@ class Capture implements AudioCapture {
     };
   }
 
-  // --- ADR 0334: a take's hold --------------------------------------------------------------------------------------
+  // --- ADR 0348: a take's hold --------------------------------------------------------------------------------------
 
   /** A take joins the ring as an owner (a panel's kind of hold), with `tee` reading the taps while it holds. */
   async takeRing(tee: CaptureTee): Promise<CaptureTakeRing> {
@@ -649,7 +649,7 @@ class Capture implements AudioCapture {
   }
 
   /**
-   * ADR 0334: the live mix sent an op: a MIXOP record, with the origin its caller named (`withMixOpOrigin`: the op log's
+   * ADR 0348: the live mix sent an op: a MIXOP record, with the origin its caller named (`withMixOpOrigin`: the op log's
    * undo and redo, Compare), else `editor`.
    */
   mixOpSent(op: MixOp, cls: OpClass): void {
@@ -694,7 +694,7 @@ class Capture implements AudioCapture {
 
   /**
    * META (§5.2): the project, the engine, the device, the mix as it stands (the mixer's settings: `audio.json`'s runtime
-   * view since ADR 0330), the target in force and the names known now.
+   * view since ADR 0344), the target in force and the names known now.
    */
   private buildMeta(backend: AudioBackend, ringBytes: number): CaptureMetaInit {
     const d = backend.debug();
@@ -733,7 +733,7 @@ class Capture implements AudioCapture {
 
 const playStopHooks: (() => void)[] = [];
 
-/** @internal ADR 0334: `fn` runs when Play stops, before the ring is freed (`take.ts` stops a running take there). */
+/** @internal ADR 0348: `fn` runs when Play stops, before the ring is freed (`take.ts` stops a running take there). */
 export function onCapturePlayStopped(fn: () => void): void {
   playStopHooks.push(fn);
 }
@@ -741,7 +741,7 @@ export function onCapturePlayStopped(fn: () => void): void {
 const capture = new Capture();
 
 /**
- * ADR 0260: a bus added, removed or renamed while recording is named in the capture from that instant. ADR 0334: the op
+ * ADR 0260: a bus added, removed or renamed while recording is named in the capture from that instant. ADR 0348: the op
  * itself is written as a MIXOP record.
  */
 onMixOpSent((op, cls) => {
@@ -773,7 +773,7 @@ export const audioCapture: AudioCapture = {
 export const captureLiveHost: CaptureLiveHost = { join: () => capture.join() };
 
 /**
- * @internal ADR 0334 (decision log D13): the latest take as a `.mycap` file's bytes, compressed as `Audio.capture.save()`
+ * @internal ADR 0348 (decision log D13): the latest take as a `.mycap` file's bytes, compressed as `Audio.capture.save()`
  * writes them, for the Audio Studio to write into its project's `captures/` on every platform (`save()` downloads in a
  * browser). Rejects as `save()` does when nothing was recorded. Not part of `Audio.capture`'s public type.
  */
@@ -799,12 +799,12 @@ export function releaseCapture(): void {
  */
 onAudioSessionReleased(releaseCapture);
 
-/** @internal ADR 0334: the editor's Record capture toggle: the capture's file bytes, to write into the project's `captures/` folder itself. */
+/** @internal ADR 0348: the editor's Record capture toggle: the capture's file bytes, to write into the project's `captures/` folder itself. */
 export function captureFileBytesNow(): Promise<Uint8Array> {
   return capture.fileBytes();
 }
 
-/** @internal ADR 0334: a take's hold on the shared ring (`capture/take.ts`), with its reader of the parameter taps. */
+/** @internal ADR 0348: a take's hold on the shared ring (`capture/take.ts`), with its reader of the parameter taps. */
 export function captureTakeRing(tee: CaptureTee): Promise<CaptureTakeRing> {
   return capture.takeRing(tee);
 }

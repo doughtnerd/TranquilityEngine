@@ -119,7 +119,7 @@ function Timeline(props: { session: SampleSession }) {
     ...(scope && sel.kind !== "sample" ? [{ start: v(scope.start), end: v(scope.end), color: "--accent" }] : []),
   ];
   if (e.trim) bands.push({ start: 0, end: v(ta), color: "--faint", hatched: true }, { start: v(tb), end: len, color: "--faint", hatched: true });
-  // ADR 0336: the post-exit tail and the pre-entry, shaded under the waveform.
+  // ADR 0350: the post-exit tail and the pre-entry, shaded under the waveform.
   const spans = musicalSpans(e, length);
   if (spans.tail) bands.push({ start: v(spans.tail[0]), end: v(spans.tail[1]), color: "--marker-exit", hatched: true, label: "Tail" });
   if (spans.preEntry) bands.push({ start: v(spans.preEntry[0]), end: v(spans.preEntry[1]), color: "--marker-exit", label: "Pre-entry" });

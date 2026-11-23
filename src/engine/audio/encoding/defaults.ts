@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0337 §2, A1): the engine's built-in encoding defaults per platform, the limits of the encoding numbers
+ * Internal (ADR 0351 §2, A1): the engine's built-in encoding defaults per platform, the limits of the encoding numbers
  * (declared once, here; the parse applies them, ADR 0306) and the source-type rule `codec: "auto"` follows.
  */
 import type { ImportPlatform } from "../../scene/importSettings";

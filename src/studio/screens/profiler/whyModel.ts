@@ -1,5 +1,5 @@
-// "Why it played" (ADR 0334; the prototype's causal chain): the decision path from the game's request through every
-// playlist level to the sample and the bus. Captures gain pick paths on `eventStart` in a later task (0334's first
+// "Why it played" (ADR 0348; the prototype's causal chain): the decision path from the game's request through every
+// playlist level to the sample and the bus. Captures gain pick paths on `eventStart` in a later task (0348's first
 // extension); until then a capture knows only a voice's clip and bus, so the chain is those two steps and a note saying
 // what is missing. The step kinds and their screens are the prototype's, so the full chain drops in. Pure.
 import type { ScreenId } from "../../shell/screens";

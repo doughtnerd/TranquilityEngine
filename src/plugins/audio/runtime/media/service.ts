@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0337 §7, §9; A5): the `myco.audioPackages` World service. Every scene a sound-playing runtime World loads
+ * Internal (ADR 0351 §7, §9; A5): the `myco.audioPackages` World service. Every scene a sound-playing runtime World loads
  * waits, before it starts, for the preload packages (the first scene in that World) and for the packages the scene's
  * `AudioPackageLoader`s name (`prepareScene`). The World's teardown drops every package reference it owned. The editor's
  * own World, servers and headless Worlds never run it, so they never load packages.
@@ -43,7 +43,7 @@ export const AUDIO_PACKAGES_SERVICE: WorldServiceDef<null, PackagesService> = {
   // Every scene: the first one brings the preload packages.
   neededBy: { scene: () => true },
   runsIn: (world) => world.kind === "runtime" && worldPlays(world),
-  // ADR 0340 §4: the start language (the remembered one) is decided before the preload packages load.
+  // ADR 0354 §4: the start language (the remembered one) is decided before the preload packages load.
   prepareScene: async (world, path) => {
     await prepareStartLanguage();
     await preparePackages(world, scenePackages(path));

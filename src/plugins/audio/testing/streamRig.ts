@@ -75,7 +75,7 @@ export interface RigOptions {
   readonly zones?: { readonly maxZoneSlots: number; readonly zoneMaxSeconds: number };
   /** ADR 0166 (R4b): the music ring pool (`audio.music.rings`) for the core (default 0: none). */
   readonly musicRings?: number;
-  /** ADR 0337 A4: which paths are entries of a package the rig's decoder holds (`decoder.loadPack`), for clips and streams alike. */
+  /** ADR 0351 A4: which paths are entries of a package the rig's decoder holds (`decoder.loadPack`), for clips and streams alike. */
   readonly packRef?: (path: string) => PackRef | null;
   /**
    * W12: run on the page's mixer with the backend registered (`loopbackAudio`'s `mixer: "page"`), so the public `Audio`

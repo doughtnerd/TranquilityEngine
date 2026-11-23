@@ -1,4 +1,4 @@
-// The offline sample render (ADR 0328): the edit, the baked chain with its automation and tails, normalisation, through
+// The offline sample render (ADR 0342): the edit, the baked chain with its automation and tails, normalisation, through
 // `renderSample` and the committed `myco_audio_offline.wasm`.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";

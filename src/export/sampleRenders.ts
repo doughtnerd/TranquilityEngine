@@ -1,4 +1,4 @@
-// Baked samples in a build (ADR 0328: "`npm run export` renders and ships the result"). A sample whose edits hold an
+// Baked samples in a build (ADR 0342: "`npm run export` renders and ships the result"). A sample whose edits hold an
 // effect chain plays its effects only through a render (the runtime applies trim, loops and normalisation live, never
 // the chain), so a build renders every sample with enabled baked effects that has no render in the project (no
 // `sample.source`, or one that names a missing file) and ships the render: `<stem>.render-<hash>.wav` beside the source
@@ -34,7 +34,7 @@ export async function withRenderedSamples(
   plan: WebBuildPlan,
   read: ReadProjectFile,
   log: (line: string) => void = () => {},
-  /** ADR 0338 §7: where plugin effects render, the build's own modules (`withAudioEffects`); null: they pass through. */
+  /** ADR 0352 §7: where plugin effects render, the build's own modules (`withAudioEffects`); null: they pass through. */
   plugins: OfflineEffectHost | null = null,
 ): Promise<WebBuildPlan> {
   const files = new Set(plan.copies);

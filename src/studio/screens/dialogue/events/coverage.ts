@@ -1,4 +1,4 @@
-// The Events tab's coverage report (ADR 0341 §7): the argument combinations an event has no line for, as compact
+// The Events tab's coverage report (ADR 0355 §7): the argument combinations an event has no line for, as compact
 // patterns rather than an enumerated product. Walk the arguments in order; at each level split by label (a `*` path
 // belongs to every branch; when every candidate has `*` there, the level stays one `*` branch); a prefix with no
 // candidates is a gap (`Captain · * · *`); a branch whose first candidate is an explicit silence is intended silence.

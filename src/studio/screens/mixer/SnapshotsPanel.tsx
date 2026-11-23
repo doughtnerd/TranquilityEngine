@@ -1,4 +1,4 @@
-// The Snapshots panel (ADR 0330; the prototype's snapshot tree): the base mix, then the snapshots by folder, a search
+// The Snapshots panel (ADR 0344; the prototype's snapshot tree): the base mix, then the snapshots by folder, a search
 // by name and trigger text, + New snapshot (in the selected folder), New folder, Collapse all, and per row a menu with
 // Edit trigger…, Rename (F2), Duplicate, Move to…, Move to top level and Delete (Del; an undo toast brings it back).
 // Picking a snapshot makes it the mix you edit ("Editing"): faders then edit its offsets and effect parameters its

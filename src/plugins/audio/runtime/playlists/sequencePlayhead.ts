@@ -1,5 +1,5 @@
 /**
- * The sequence playhead (ADR 0329 "Sequence"; the prototype's state machine, SQ:1283–1353), made exact: instead of
+ * The sequence playhead (ADR 0343 "Sequence"; the prototype's state machine, SQ:1283–1353), made exact: instead of
  * stepping by frames it moves from event to event (a loop's end, a loop's or hold point's start, an exit point, the
  * sequence's end), so a wrap lands on the loop's end to the sample and its heard time is known ahead.
  *

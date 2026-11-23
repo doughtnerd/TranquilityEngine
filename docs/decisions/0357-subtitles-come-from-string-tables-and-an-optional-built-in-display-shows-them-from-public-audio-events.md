@@ -1,17 +1,17 @@
-# 0343. Subtitles come from string tables, and an optional built-in display shows them from public audio events
+# 0357. Subtitles come from string tables, and an optional built-in display shows them from public audio events
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0024, 0077, 0133, 0262, 0304, 0314, 0317, 0327, 0328, 0329 (extended: a playlist `caption`), 0334, 0335, 0340 (amended: subtitle text, subtitle language, reading time), 0341, 0342
+- **Related:** 0024, 0077, 0133, 0262, 0304, 0314, 0317, 0341, 0342, 0343 (extended: a playlist `caption`), 0348, 0349, 0354 (amended: subtitle text, subtitle language, reading time), 0355, 0356
 
 ## Context
 
-0340 keeps subtitle text in line tables (`*.lines.json`, `text: { "<code>": "…" }` per line) "because the engine has
+0354 keeps subtitle text in line tables (`*.lines.json`, `text: { "<code>": "…" }` per line) "because the engine has
 no text localisation", leaves display to the game (`Audio.onLine` and a guide recipe), and plays a line missing in
-every language as subtitle-only for `max(1.5, words / 2.5)` seconds. 0342 adds string tables, ICU messages and the
-`Locale` text language. Neither 0340 nor 0341 is built yet (implementation status: "Not started").
+every language as subtitle-only for `max(1.5, words / 2.5)` seconds. 0356 adds string tables, ICU messages and the
+`Locale` text language. Neither 0354 nor 0355 is built yet (implementation status: "Not started").
 
 **Owner decisions** (decision log D53, 2026-11-22): subtitles move into string tables; subtitles are **"Optional
 built-in"**: text and `Audio.onLine` events stay the base, plus a drop-in subtitle component built only on those public
@@ -30,13 +30,13 @@ all shipped languages go in the build; lip-sync stays import-only.
 
 ## Decision
 
-We will move subtitle text into 0342's string tables (line tables name keys, the line key by default) and remove 0340's
+We will move subtitle text into 0356's string tables (line tables name keys, the line key by default) and remove 0354's
 `text` field before it is built; resolve subtitles in the text language, with the voice language following it by
 default; time every subtitle with one reading-speed rule; add opt-in **captions** for playlists with a new public
 `Audio.onCaption` event; and ship an optional **`myco.subtitles`** plugin whose `SubtitleDisplay` component and
 `Subtitles` player settings are built only on `Audio.onLine`, `Audio.onCaption`, `Locale` and a UI document.
 
-### 1. Subtitle text moves into string tables (amends 0340 §5, §6, §9)
+### 1. Subtitle text moves into string tables (amends 0354 §5, §6, §9)
 
 - **Line tables name string keys.** `myco.lines@1` loses the line's `text` field and gains:
 
@@ -54,46 +54,46 @@ default; time every subtitle with one reading-speed rule; add opt-in **captions*
 
 - **`text` is removed, not kept as a second store.** Nothing has been built on it, and a convenience field that
   mirrors a string table would be two sources of truth with an ordering problem on every import. The convenience stays
-  in the tools: the Studio's Dialogue screen keeps its Text column and inline edits (0340 §9), which write the line's
+  in the tools: the Studio's Dialogue screen keeps its Text column and inline edits (0354 §9), which write the line's
   string in its string table (the reference text, or the preview language's translation). A hand-written table that
   still has `text` parses with a lint, **Move subtitles to the string table** (one undo step over both documents);
   the runtime ignores it.
-- **Ownership.** A line table's string table is a Studio file (0342 §9's rule for tables audio data names); creating
+- **Ownership.** A line table's string table is a Studio file (0356 §9's rule for tables audio data names); creating
   a line table creates it. The editor's Localisation panel lists it with every other table (read-only while the Studio
-  holds its lock), and translators' exchange (0342 §8) covers it like any table.
+  holds its lock), and translators' exchange (0356 §8) covers it like any table.
 - **Resolution.** A line's subtitle is `Locale.t(textKey)` in the **subtitle language** through its chain; no key in
   the chain gives `null`. `AudioLineHandle.text` is read live (it follows a language change mid-line);
   `AudioLineEvent` gains `textKey: string | null` so a display can re-resolve on `Locale.onChange`.
-- **0340's script CSV** becomes 0342's CSV with the line columns (`table`, `speaker`, `notes`) added for keys that are
+- **0354's script CSV** becomes 0356's CSV with the line columns (`table`, `speaker`, `notes`) added for keys that are
   line subtitles; batch import's `vo.textHash` hashes the reference text from the string table.
-- **Build.** 0340 §6's `audio/lines/text.<code>.json` files are dropped: subtitle strings ship in 0342's
+- **Build.** 0354 §6's `audio/lines/text.<code>.json` files are dropped: subtitle strings ship in 0356's
   `strings/<code>.json`. The line index keeps `textKey` per line when it differs from the key (or is `null`).
 
-### 2. Text language and voice language (amends 0340 §4)
+### 2. Text language and voice language (amends 0354 §4)
 
 - `Audio.subtitleLanguage` keeps its shape; `null` (default) now follows **`Locale.language`** instead of
   `Audio.language`. Subtitles are text: they are in the language the player reads.
 - `project.json` `languages.voice`: `"followText"` (default) or `"separate"`. With `followText`,
   `Locale.setLanguage(code)` also switches `Audio.language` in the **same atomic switch**: both load (strings and fonts,
-  audio package parts), then both change in one frame, through 0342's internal language-participant seam (not public
-  API). With `"separate"` the two start and switch independently (a game with Voice and Text menus); 0340's start
-  selector and `myco.audio.language` apply to voice, 0342's and `myco.locale.language` to text.
+  audio package parts), then both change in one frame, through 0356's internal language-participant seam (not public
+  API). With `"separate"` the two start and switch independently (a game with Voice and Text menus); 0354's start
+  selector and `myco.audio.language` apply to voice, 0356's and `myco.locale.language` to text.
 - A language row may set `"voice": false` (translated but not recorded): it isn't offered in `Audio.languages`, and
   following it switches voice to the first language of its chain that is a voice language.
 - `Audio.setLanguage` stays: in `followText` mode it sets voice until the next text switch (documented).
 
-### 3. One reading-speed rule (amends 0340 §3)
+### 3. One reading-speed rule (amends 0354 §3)
 
 - `readingSpeed(language)` in characters per second (graphemes including spaces, speaker name excluded): the
   language's `readingSpeed` in `project.json`, else built-in defaults from the Netflix timed-text guides (`ja` 4,
   `zh*` 9, `ko` 12), else `subtitles.readingSpeed` (default 15). `subtitles.minDisplay` (default 1.5 s).
-- **Reading time** of a text: `max(minDisplay, characters / readingSpeed)`. It replaces 0340 §3's
+- **Reading time** of a text: `max(minDisplay, characters / readingSpeed)`. It replaces 0354 §3's
   `max(1.5, words / 2.5)` (and its characters / 12 special case) for subtitle-only lines, and is the minimum display
   time of every subtitle page (§5).
 - Pure, in `src/engine/localisation/subtitles.ts` with the paging and stacking model (§5), shared by the runtime, the
   Studio and the editor.
 
-### 4. Captions for sound effects (v1, opt-in per playlist; extends 0329)
+### 4. Captions for sound effects (v1, opt-in per playlist; extends 0343)
 
 - A playlist may have `"caption": { "key": "cc.door_slams", "minGap": 2 }`: a string key and the seconds within which
   the same caption isn't repeated (footsteps, gunfire). Only playlists with a caption produce captions; most have none.
@@ -111,7 +111,7 @@ interface AudioCaptionEvent {
 }
 ```
 
-  `start` fires when an instance starts sounding (not when it is refused, virtual or culled by voice limits, 0329),
+  `start` fires when an instance starts sounding (not when it is refused, virtual or culled by voice limits, 0343),
   `end` when it stops. Caption text lives in a captions string table, `audio.json` `localisation.captions` (default
   `strings/captions.strings.json`, a Studio file). Bracket style (`[door slams]`) is part of the string, so each
   language writes its own convention.
@@ -136,20 +136,20 @@ child (screen mode, `sortOrder` 1000) unless the node already has one. Fields:
 | `margin` | `8` | % of the canvas height from the edge (title-safe) |
 | `maxWidth` | `70` | % of the canvas width |
 | `maxLines` | `2` | lines per page before paging |
-| `maxStack` | `3` | rows on screen at once (0341's default `maxVoices`) |
+| `maxStack` | `3` | rows on screen at once (0355's default `maxVoices`) |
 | `sizeScale` | `1` | multiplies the size presets |
 | `speakerNames` | `always` | `always`, `whenSeveral` (only while two or more speakers are shown) or `never` |
 | `fadeIn` / `fadeOut` | `0.12` / `0.2` | seconds |
 | `captions` | `true` | shows captions when the player's setting allows |
 
 **Look.** The built-in `subtitles.ui.xml` and `subtitles.ui.css` ship with the plugin. Text uses the current
-language's font stack and direction (0342 §5). Variables: `--subtitle-font`, `--subtitle-color`,
+language's font stack and direction (0356 §5). Variables: `--subtitle-font`, `--subtitle-color`,
 `--subtitle-background` (colour; its opacity comes from the player setting), `--subtitle-speaker-color`,
 `--subtitle-caption-color`, `--subtitle-padding`, `--subtitle-radius`. **Size presets** in % of the canvas reference
 height: small 3.2, medium 4, large 5, extra large 6.4 (35, 43, 54 and 69 px at 1080p; medium near the commonly
 recommended 46 px), times `sizeScale`.
 
-**Speakers.** `project.json` `subtitles.speakers` maps a speaker id (0340's `speaker`) to `{ name?: <string key>,
+**Speakers.** `project.json` `subtitles.speakers` maps a speaker id (0354's `speaker`) to `{ name?: <string key>,
 color?: "#RRGGBB" }`; the shown name is that string (else the id as written), formatted with the string
 `subtitles.speaker` when a project defines it (default `"{name}:"`; French writes `"{name} :"`), in the speaker's colour
 or `--subtitle-speaker-color`. `Subtitles.speaker(id)` exposes the same lookup to replacement displays.
@@ -160,7 +160,7 @@ or `--subtitle-speaker-color`. `Subtitles.speaker(id)` exposes the same lookup t
   `maxStack`; when full, a caption is dropped before speech, then the oldest row.
 - **Paging.** Text that needs more than `maxLines` at `maxWidth` (measured by the UI core, so wrapping and fonts are the
   real ones) is split into pages at sentence ends, then clause punctuation (`, ; : 、 ，`), then words, balancing page
-  lengths. A blank line in the message forces a page break. Cue markers named `sub` in the line's file (0340 §7, per
+  lengths. A blank line in the message forces a page break. Cue markers named `sub` in the line's file (0354 §7, per
   language) time the page changes; without them pages share the line's duration in proportion to their characters.
 - **Timing.** A row shows from `start` until the later of the audio's `end` and `start` + the reading time (§3),
   each page at least its reading time (the last page lingers after the audio when the text is long). An `interrupted`
@@ -197,13 +197,13 @@ declare const Subtitles: {
 
 ### 6. Studio and editor previews
 
-- **Studio, Dialogue screen** (0340 §9): the Line inspector gains a **Subtitle** strip under each language's waveform:
+- **Studio, Dialogue screen** (0354 §9): the Line inspector gains a **Subtitle** strip under each language's waveform:
   the pages over time with speaker name and colour, characters per second per page, and warnings (reading speed over
   the language's limit, more than `maxLines`, more than 42 characters on a line at the built-in medium size at
   1920×1080). Auditions show the subtitle in sync in the player bar. The Lines table gains a **reading speed** flag per
   language cell ("21 cps, max 15") and a filter. The Studio has no renderer, so the strip draws the pure model's pages
   with the kit and canvas text measuring in the built-in style; it is a timing and length preview, and the editor's
-  Play is the exact one. The Events tab's test bench (0341) shows the picked line's subtitle.
+  Play is the exact one. The Events tab's test bench (0355) shows the picked line's subtitle.
 - **Studio, Playlists screen:** a **Caption** field in the playlist inspector (key picker into string tables, create a
   key in the captions table, `minGap`); auditions show the caption.
 - **Editor's Play view** runs the real `SubtitleDisplay` in the preview language. The Play toolbar gains a
@@ -218,11 +218,11 @@ declare const Subtitles: {
   without a second store.
 - **Leave subtitles in line tables and only UI text in string tables** — translators would receive two systems and
   two exchange formats; one table kind serves both.
-- **Subtitle language follows the voice language (0340 as written)** — wrong for "Japanese voice, English
+- **Subtitle language follows the voice language (0354 as written)** — wrong for "Japanese voice, English
   subtitles"; subtitles are text, so they follow the text language.
 - **Text and voice always switched separately** — two menus for every game; most games tie them, and `"separate"`
   covers the rest.
-- **No built-in display (0340's default)** — the owner chose "Optional built-in"; every game would rebuild the same
+- **No built-in display (0354's default)** — the owner chose "Optional built-in"; every game would rebuild the same
   accessibility features.
 - **A built-in display inside the audio plugin, reading internals** — couldn't be replaced on equal terms; a separate
   plugin on public events proves the events are enough.
@@ -251,10 +251,10 @@ declare const Subtitles: {
 
 ## Deprecates
 
-- 0340's line-table `text` field (removed before it is built; a lint migrates hand-written ones).
-- 0340 §3's reading-time rule (replaced by §3 here).
-- 0340 §6's `audio/lines/text.<code>.json` build files (subtitles ship in 0342's `strings/<code>.json`).
-- 0340's "subtitle display is the game's" (the built-in display is optional; the events stay public).
+- 0354's line-table `text` field (removed before it is built; a lint migrates hand-written ones).
+- 0354 §3's reading-time rule (replaced by §3 here).
+- 0354 §6's `audio/lines/text.<code>.json` build files (subtitles ship in 0356's `strings/<code>.json`).
+- 0354's "subtitle display is the game's" (the built-in display is optional; the events stay public).
 
 ## Open questions
 
@@ -267,7 +267,7 @@ declare const Subtitles: {
 - Game Accessibility Guidelines (subtitles, captions); Xbox Accessibility Guideline 104; BBC Subtitle Guidelines;
   Netflix Timed Text Style Guides (English, Japanese, Chinese, Korean: line length, reading speed, minimum duration);
   Unreal subtitles (Dialogue Waves, subtitle cues).
-- ADR 0340 §3–§7 and §9, ADR 0341 §4–§5, ADR 0342 §1, §4, §6, §9.
+- ADR 0354 §3–§7 and §9, ADR 0355 §4–§5, ADR 0356 §1, §4, §6, §9.
 - `src/engine/ui/UIDocument.ts`, `components.ts`; `src/engine/audio/markerTypes.ts`; `src/engine/platform/Storage.ts`;
   `src/plugins/manifest.ts`.
 
@@ -276,27 +276,27 @@ declare const Subtitles: {
 | # | Milestone | Contents | Files (owner) |
 |---|---|---|---|
 | S1 | Formats and model | `project.json` `subtitles` section and `languages.voice` / per-language `voice` and `readingSpeed`; playlist `caption` (types, parse, writer, references to string keys, lint); `audio.json` `localisation.captions`; `subtitles.ts` (reading time, paging, stacking, page timing with `sub` markers); unit tests (reading-time table per language, paging at sentence and clause marks, forced breaks, stack overflow order, page timing with and without markers) | `src/engine/localisation/subtitles.ts`, `subtitleSettings.ts`, `src/engine/localisation/languages.ts` (single writer), `src/engine/audio/playlist/types.ts` + `format.ts` + `references.ts` + `lint.ts` (single writer), `src/engine/audio/project/format.ts` + `types.ts` |
-| S2 | Audio runtime | line text from `Locale` in the subtitle language (live `handle.text`, `textKey` on events); subtitle language follows `Locale.language`; voice follows text through 0342's participant seam; subtitle-only duration by the reading rule; `Audio.onCaption` with `minGap` and `pan`; exports; tests on the fake backend (switch follows text, separate mode, caption gap, caption skipped for virtual voices, live text after a switch) | `src/plugins/audio/runtime/localisation/**`, `Audio.ts`, `playlists/nodes.ts`, `src/myco.ts` |
+| S2 | Audio runtime | line text from `Locale` in the subtitle language (live `handle.text`, `textKey` on events); subtitle language follows `Locale.language`; voice follows text through 0356's participant seam; subtitle-only duration by the reading rule; `Audio.onCaption` with `minGap` and `pan`; exports; tests on the fake backend (switch follows text, separate mode, caption gap, caption skipped for virtual voices, live text after a switch) | `src/plugins/audio/runtime/localisation/**`, `Audio.ts`, `playlists/nodes.ts`, `src/myco.ts` |
 | S3 | Subtitles plugin | manifest and registration; `SubtitleDisplay`, built-in document and stylesheet, `Subtitles` settings with storage and defaults, speaker lookup; tests through the UI core headless with scripted `onLine`/`onCaption` events (rows, replace per speaker, paging, fades, settings off, size presets, language change) | `src/plugins/subtitles/**`, `src/plugins/catalogue.ts` (registration), `src/myco.ts` |
-| S4 | Studio | Dialogue Text column writes the string table; Subtitle strip and reading-speed flags; caption field and audition in Playlists; test-bench subtitle; "Move subtitles to the string table" fix; stories with `play` tests | `src/studio/screens/dialogue/**` (single writer with 0340 L5 and 0341 D4), `src/studio/screens/playlists/**` (inspector) |
-| S5 | Editor | Project Settings > Subtitles; Play toolbar Subtitles overlay toggle; `SubtitleDisplay` Inspector sample row | `src/editor/ui/settings/**` (Subtitles section), the Play toolbar file (single writer with 0340 L7 and 0342 T7), `src/plugins/subtitles/editor/**` |
-| S6 | Docs and e2e | `docs/guide/subtitles.md` (built-in display, theming, player settings, replacing it, captions); 0340's guide's subtitle recipe points to it; e2e: editor Play with the overlay shows a French subtitle with the speaker name, and turning `Subtitles.set({ enabled: false })` hides it | `docs/guide/**`, `tests/e2e/subtitles.spec.ts` |
+| S4 | Studio | Dialogue Text column writes the string table; Subtitle strip and reading-speed flags; caption field and audition in Playlists; test-bench subtitle; "Move subtitles to the string table" fix; stories with `play` tests | `src/studio/screens/dialogue/**` (single writer with 0354 L5 and 0355 D4), `src/studio/screens/playlists/**` (inspector) |
+| S5 | Editor | Project Settings > Subtitles; Play toolbar Subtitles overlay toggle; `SubtitleDisplay` Inspector sample row | `src/editor/ui/settings/**` (Subtitles section), the Play toolbar file (single writer with 0354 L7 and 0356 T7), `src/plugins/subtitles/editor/**` |
+| S6 | Docs and e2e | `docs/guide/subtitles.md` (built-in display, theming, player settings, replacing it, captions); 0354's guide's subtitle recipe points to it; e2e: editor Play with the overlay shows a French subtitle with the speaker name, and turning `Subtitles.set({ enabled: false })` hides it | `docs/guide/**`, `tests/e2e/subtitles.spec.ts` |
 
-**Changes to 0340's plan (L1–L8).**
+**Changes to 0354's plan (L1–L8).**
 - **L1** builds `myco.lines@1` without `text`, with `strings` and `textKey` (§1); drops the reading-time rule (S1's
-  `subtitles.ts` provides it); writes `variantPath` in `src/engine/localisation/variants.ts` (0342 §10); the script
-  CSV is 0342 T6's CSV with line columns, so L1 drops its own CSV reader and writer.
+  `subtitles.ts` provides it); writes `variantPath` in `src/engine/localisation/variants.ts` (0356 §10); the script
+  CSV is 0356 T6's CSV with line columns, so L1 drops its own CSV reader and writer.
 - **L2** builds the line runtime with `text` `null` until S2 lands (S2 adds the string lookup); subtitle-only timing
   comes from S1.
 - **L3** writes no `audio/lines/text.<code>.json`; the line index gains `textKey`.
 - **L5**'s Text column, Report text status and script CSV go through string tables (finished in S4).
 - **L6**'s `vo.textHash` hashes the string table's reference text.
-- **L7**'s Languages section gains 0342's text fields (T7) and `voice` (S5).
+- **L7**'s Languages section gains 0356's text fields (T7) and `voice` (S5).
 - **L8**'s subtitle recipe becomes a pointer to `docs/guide/subtitles.md` (S6).
 
-**Changes to 0341's plan (D1–D5).** D1 reads the line-table format without `text`; D4's test bench shows the
+**Changes to 0355's plan (D1–D5).** D1 reads the line-table format without `text`; D4's test bench shows the
 subtitle through S4. D2, D3 and D5 are unchanged; said lines reach the built-in display through `Audio.onLine` as
-0341 §5 already specifies.
+0355 §5 already specifies.
 
-**Order.** S1 after 0340 L1 and 0342 T1; S2 after 0340 L2 and 0342 T2; S3 after S1, S2 and 0342 T3/T4; S4 after 0340
-L5 and S1; S5 after S3 and 0342 T7; S6 last.
+**Order.** S1 after 0354 L1 and 0356 T1; S2 after 0354 L2 and 0356 T2; S3 after S1, S2 and 0356 T3/T4; S4 after 0354
+L5 and S1; S5 after S3 and 0356 T7; S6 last.

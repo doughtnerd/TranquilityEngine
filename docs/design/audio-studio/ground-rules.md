@@ -1,6 +1,6 @@
 # Audio Studio build: ground rules for every task
 
-Every brief in this build points here. Read it, then `CLAUDE.md`, then the records your brief names (0327–0335 in
+Every brief in this build points here. Read it, then `CLAUDE.md`, then the records your brief names (0341–0349 in
 `docs/decisions/`) and `plan.md`.
 
 ## Owner rules (standing, 2026-11-22)
@@ -33,7 +33,7 @@ Every brief in this build points here. Read it, then `CLAUDE.md`, then the recor
 - Editor and Studio CSS use theme tokens only (`var(--panel)`, …), never hard-coded colours.
 - No two files in one folder whose names differ only in case (`npm run check:filenames`).
 - Every Vite/Vitest config uses `typescriptTranspile()` with `oxc: false`.
-- New public API (`myco` exports) needs a decision record: the accepted records 0327–0335 cover what they name; anything
+- New public API (`myco` exports) needs a decision record: the accepted records 0341–0349 cover what they name; anything
   else, mark it internal and report it.
 - Changing `native/audio/`: rebuild with `npm run build:audio` and commit the regenerated wasm, `hash.json`, generated
   wire files and metered wasm with the source (the source-hash test fails otherwise). Run `cargo test` for the crates you

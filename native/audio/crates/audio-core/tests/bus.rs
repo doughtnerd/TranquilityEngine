@@ -229,7 +229,7 @@ fn effects_are_stored_per_bus_and_unknown_types_dropped() {
     assert_eq!(s[1].fx.kinds().collect::<Vec<_>>(), vec![kind::LOWPASS, kind::REVERB_SEND, kind::NONE]);
     assert_eq!(s[2].fx.kinds().count(), audio_core::fx::MAX_EFFECTS);
     let a = bus::area(&m.core);
-    assert_eq!(a.dropped, 1 + 2, "one unknown type, two past the limit of eight (ADR 0331)");
+    assert_eq!(a.dropped, 1 + 2, "one unknown type, two past the limit of eight (ADR 0345)");
     assert_eq!(a.has_reverb, 1);
     // The effects run (A2.2a): the root's compressor delays the mix by its 6 ms look-ahead (288
     // frames at 48 kHz), so a voice on bus 1 (through its 800 Hz low-pass) arrives at frame 288.
@@ -251,7 +251,7 @@ fn a_second_compressor_on_a_bus_runs_as_the_catalogues() {
     ])]);
     let s = bus::slots(&m.core);
     let cat = kind::CATALOGUE + audio_dsp::fx::kind::COMPRESSOR;
-    assert_eq!(s[0].fx.kinds().collect::<Vec<_>>(), vec![kind::COMPRESSOR, cat, kind::LOWPASS], "ADR 0331: no one-compressor limit");
+    assert_eq!(s[0].fx.kinds().collect::<Vec<_>>(), vec![kind::COMPRESSOR, cat, kind::LOWPASS], "ADR 0345: no one-compressor limit");
     assert_eq!(s[1].fx.kinds().collect::<Vec<_>>(), vec![kind::COMPRESSOR]);
     assert_eq!(bus::area(&m.core).dropped, 0);
     // Two compressors' look-aheads on the root, in series.

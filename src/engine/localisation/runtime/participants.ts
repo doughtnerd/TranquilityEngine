@@ -1,5 +1,5 @@
 /**
- * Language participants (ADR 0342 §6, the internal seam 0343 uses): systems that must have a language ready before a
+ * Language participants (ADR 0356 §6, the internal seam 0357 uses): systems that must have a language ready before a
  * switch to it completes. `Locale.setLanguage(code)` (and the start language at boot) runs every participant's
  * `prepare(code)` beside loading the language's strings, and changes the language only once all of them settled, so
  * the switch is atomic: UI fonts (`ui/fonts.ts`) load the language's font files; the audio runtime can load the voice

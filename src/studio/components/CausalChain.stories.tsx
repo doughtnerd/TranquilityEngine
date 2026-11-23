@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for "Why it played": a voice that played (steps open their screens), a voice stolen by a
+// Stories (ADR 0219, 0349) for "Why it played": a voice that played (steps open their screens), a voice stolen by a
 // limit, a missing file, a narrow panel where the chain stacks, and no voice selected. Arrows pan, + − zoom, 0 fits.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

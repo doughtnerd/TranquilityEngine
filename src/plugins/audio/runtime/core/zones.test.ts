@@ -190,7 +190,7 @@ describe("zone weights and sends", () => {
     expect(r.fx.send(0, 0)).toBe(0);
   });
 
-  it("ADR 0333: a level-default zone holds every voice no higher-priority zone holds, fading over their blend edges", () => {
+  it("ADR 0347: a level-default zone holds every voice no higher-priority zone holds, fading over their blend edges", () => {
     const r = rig({ slots: 3, maxActive: 2, standby: 1 });
     r.zone("Cave", 0, { priority: 2 }); // a 10-unit box at the origin, blend 2
     const level = r.zone("Level", 500, { priority: 1, preset: "canyonHall" });

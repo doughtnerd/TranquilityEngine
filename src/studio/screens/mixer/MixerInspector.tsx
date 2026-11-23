@@ -1,4 +1,4 @@
-// The Mixer's Inspector (ADR 0330; the prototype's Inspector): for the selected bus its name, parent, level (with
+// The Mixer's Inspector (ADR 0344; the prototype's Inspector): for the selected bus its name, parent, level (with
 // Automate ◆), voice limit, bed and VCAs, then its effects (the catalogue's bus level; a sidechain's key), its sends to
 // returns and its ducking rules; for a return its output, level and effects; for a VCA its level and members. While a
 // snapshot is edited, the level and effect parameters write that snapshot (its overrides are listed with Clear).

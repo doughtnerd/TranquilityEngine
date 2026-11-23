@@ -1,4 +1,4 @@
-// The Packages screen's package inspector (ADR 0337 §6, §7): the selected package's Preload, the platforms it ships on,
+// The Packages screen's package inspector (ADR 0351 §6, §7): the selected package's Preload, the platforms it ships on,
 // its size and memory for the chosen platform against the budgets, the project's Strict rule, and the scripts naming
 // packages that don't exist (the lint of `Audio.package("…")`). A view over props.
 import { EmptyState } from "../../../editor/ui/EmptyState";

@@ -1,4 +1,4 @@
-// ADR 0334: the take recorder. It is the `TakeRequestSink` the hooks call (`takeTap.ts`) and the `CaptureTee` the profile
+// ADR 0348: the take recorder. It is the `TakeRequestSink` the hooks call (`takeTap.ts`) and the `CaptureTee` the profile
 // taps hand parameter changes to; it turns each request into a request record (`engine/audio/take/records.ts`) in its own
 // log, never in the profile ring: the profile keeps the ring's bounded budget (its oldest data dropped behind GAP records),
 // the requests are never dropped. Each record takes its seq from the ring's counter, its epoch and frame from the

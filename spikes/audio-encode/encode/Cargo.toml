@@ -3,7 +3,7 @@ name = "audio-encode-spike"
 version = "0.0.0"
 edition = "2021"
 publish = false
-description = "ADR 0337 spike A0/S1: libvorbis + libogg, libopus, rubato and an IMA ADPCM encoder in one wasm32-wasip1 command."
+description = "ADR 0351 spike A0/S1: libvorbis + libogg, libopus, rubato and an IMA ADPCM encoder in one wasm32-wasip1 command."
 
 # Standalone: not a member of native/audio's workspace (and outside native/audio, so the core's source hash is untouched).
 [workspace]

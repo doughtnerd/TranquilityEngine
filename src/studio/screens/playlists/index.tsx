@@ -1,4 +1,4 @@
-// The Playlists screen's panels (ADR 0329, 0327 "The shell", 0335; the prototype's layout): Playlists (the tree) and
+// The Playlists screen's panels (ADR 0343, 0341 "The shell", 0349; the prototype's layout): Playlists (the tree) and
 // Library on the left, the Playlist panel in the middle (fixed), the Inspector on the right, Plays now and Parameters at
 // the bottom, History and Global parameters (the Mixer's panel over `audio.json`) on demand. The panels read the screen's state (`playlistsScreen.ts`) and call its actions; the
 // Playlist panel also owns what the screen does while it shows: following the route, the Space key and the player
@@ -191,7 +191,7 @@ function editCurves(i: number): void {
   });
 }
 
-/** ADR 0336: a Blend entry's weight curve in the shared curve editor (one undo step). */
+/** ADR 0350: a Blend entry's weight curve in the shared curve editor (one undo step). */
 function editWeightCurve(i: number): void {
   const e = openBody.peek()?.entries[i];
   if (!e) return;
@@ -351,7 +351,7 @@ function InspectorPanel() {
     );
   }
   const usedBy = t.indices.length ? [t.file] : (linkedBy.value.get(t.file) ?? []);
-  const captions = project ? captionTable(project) : null; // ADR 0343 §6: the Caption field's keys
+  const captions = project ? captionTable(project) : null; // ADR 0357 §6: the Caption field's keys
   const inspector = (
         <PlaylistInspector
           body={body}

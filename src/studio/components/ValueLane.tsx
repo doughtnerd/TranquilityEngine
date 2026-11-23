@@ -1,4 +1,4 @@
-// A value lane (ADR 0335 `ValueLane`): a value over time as a line (a game parameter in a take; voices, CPU, a bus's
+// A value lane (ADR 0349 `ValueLane`): a value over time as a line (a game parameter in a take; voices, CPU, a bus's
 // gain or loudness in a capture), with a header naming it and its value at the cursor, and an optional dashed
 // reference line (a voice limit, a loudness target). The lane takes a time → x function, so it lines up with the ruler
 // above it. The colour is one of the series tokens (`--series-1..8`).

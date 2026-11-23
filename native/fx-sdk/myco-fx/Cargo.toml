@@ -1,6 +1,6 @@
 [package]
 name = "myco-fx"
-description = "Write Myco audio effect plugins (DSP ABI 1.0, ADR 0338): a trait, an export macro and an allocator"
+description = "Write Myco audio effect plugins (DSP ABI 1.0, ADR 0352): a trait, an export macro and an allocator"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

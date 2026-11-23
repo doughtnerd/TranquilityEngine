@@ -1,4 +1,4 @@
-// ADR 0342 §4–§5: localised UI. UI documents bind keys with `t:` attributes (arguments and per-row keys from the row's
+// ADR 0356 §4–§5: localised UI. UI documents bind keys with `t:` attributes (arguments and per-row keys from the row's
 // item, then `ui.data`), leave `translate="no"` text alone and match `:lang()` rules; `LocalizedText` localises
 // hand-built scene UI; all of it follows `Locale.epoch`. Text runs align `start` by the language's direction.
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -175,7 +175,7 @@ describe("UI stylesheets: :lang()", () => {
     expect(menu.flexDirection).toBe("row");
     await Locale.setLanguage("ar");
     engine!.step(DT);
-    expect(menu.flexDirection).toBe("row-reverse"); // mirroring by a :lang() rule (ADR 0342 §5)
+    expect(menu.flexDirection).toBe("row-reverse"); // mirroring by a :lang() rule (ADR 0356 §5)
   });
 
   it("parses :lang() into the selector, counted like a class, and reports a malformed one", async () => {

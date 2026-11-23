@@ -500,7 +500,7 @@ pub fn cases() -> Vec<VectorCase> {
                 "0040", "0800", "04000000", "0000c03f", // voice time, curve 8, target 4 (pan), offset 1.5
             ),
         ),
-        // CURVES (ADR 0158, 0332), variable length: 112 B = 28 words. Curves 10 and 11: curve 10 has keys
+        // CURVES (ADR 0158, 0346), variable length: 112 B = 28 words. Curves 10 and 11: curve 10 has keys
         // (0, 0, bezier, in (0, 0), out (0.25, 0.5)) and (1, 1, smooth); curve 11 one key (0.5, 0.25, step).
         case(
             "CURVES_two_curves",
@@ -556,7 +556,7 @@ pub fn cases() -> Vec<VectorCase> {
             ],
             concat!("1400", "0600", "00000000", "ffffffff", "0300", "0100", "0000003f", "00000040"),
         ),
-        // LOOPS (ADR 0328), variable length: 16 + 28 = 44 B = 11 words, asap. Voice 3; one loop: frames
+        // LOOPS (ADR 0342), variable length: 16 + 28 = 44 B = 11 words, asap. Voice 3; one loop: frames
         // 100..200, crossfade 32, exit fade 64, count 2, flags ping-pong (1) | held (1 << 2) |
         // crossfade exit (2 << 4) | reenter (0x40) = 0x65, parameter global slot 1, threshold 0.5.
         case(
@@ -586,7 +586,7 @@ pub fn cases() -> Vec<VectorCase> {
                 "0200", "6500", "0180", "2100", "0000003f", // count, flags, param, shapes (seam linear, exit s-curve; ABI 4.9), threshold
             ),
         ),
-        // GEN (ADR 0346, ABI 5.1), 28 + 2 x 4 = 36 B = 9 words, asap. Voice 0x00020003; mask bits 2 and 4 (an
+        // GEN (ADR 0360, ABI 5.1), 28 + 2 x 4 = 36 B = 9 words, asap. Voice 0x00020003; mask bits 2 and 4 (an
         // oscillator's frequency and level): 880 Hz and -6 dB, gliding over 960 frames; seed 1734.
         case(
             "GEN_oscillator_frequency_and_level",
@@ -605,7 +605,7 @@ pub fn cases() -> Vec<VectorCase> {
                 "00005c44", "0000c0c0", // values: 880.0, -6.0
             ),
         ),
-        // SUBMIX (ADR 0331; parent ABI 4.9), variable length: 24 + 40 = 64 B = 16 words, asap. Slot 2
+        // SUBMIX (ADR 0345; parent ABI 4.9), variable length: 24 + 40 = 64 B = 16 words, asap. Slot 2
         // for group 4 on bus 1, feeding slot 5 (parent 6); one effect: a low-pass (kind 1), on,
         // cutoff 800 Hz, resonance 0.5.
         case(
@@ -635,14 +635,14 @@ pub fn cases() -> Vec<VectorCase> {
                 "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", "00000000", // p8..p15 (ABI 5.0)
             ),
         ),
-        // ROUTE (ADR 0331 levels, ABI 4.9), 16 B = 4 words, asap: voice 0x00010007 into submix slot 3.
+        // ROUTE (ADR 0345 levels, ABI 4.9), 16 B = 4 words, asap: voice 0x00010007 into submix slot 3.
         case(
             "ROUTE_into_slot_3",
             Subject::Opcode("ROUTE"),
             vec![("voiceId", vu(0x0001_0007)), ("frameOffset", vu(0xFFFF_FFFF)), ("submix", vu(4)), ("reserved", vu(0))],
             concat!("0d00", "0400", "07000100", "ffffffff", "0400", "0000"),
         ),
-        // SUBMIX_AUTOMATE (ADR 0331, ABI 4.10), variable length: 16 + 8 = 24 B = 6 words, asap. Slot 2: global
+        // SUBMIX_AUTOMATE (ADR 0345, ABI 4.10), variable length: 16 + 8 = 24 B = 6 words, asap. Slot 2: global
         // parameter 3 through curve 7 drives effect slot 1's parameter 0 on a log2 curve (AUTO_TARGET_FX | 1 << 8 |
         // AUTO_TARGET_LOG).
         case(
@@ -655,7 +655,7 @@ pub fn cases() -> Vec<VectorCase> {
             ],
             concat!("1f00", "0600", "02000000", "ffffffff", "01000000", "0380", "0700", "05010001"),
         ),
-        // BUS_SENDS (ADR 0330, ABI 4.7), variable length: 16 + 12 = 28 B = 7 words, asap. Bus 3 sends into
+        // BUS_SENDS (ADR 0344, ABI 4.7), variable length: 16 + 12 = 28 B = 7 words, asap. Bus 3 sends into
         // bus 1, muted, level 0.5, over 480 frames.
         case(
             "BUS_SENDS_one_muted",
@@ -670,7 +670,7 @@ pub fn cases() -> Vec<VectorCase> {
                 "0100", "0100", "0000003f", "e0010000", // to 1, muted, level 0.5, 480 frames
             ),
         ),
-        // TIME (ADR 0332), 24 B = 6 words, stamped at 256: group 7's sequence clock (which 2) at 1.5 s,
+        // TIME (ADR 0346), 24 B = 6 words, stamped at 256: group 7's sequence clock (which 2) at 1.5 s,
         // rate 1.0.
         case(
             "TIME_sequence_stamped",

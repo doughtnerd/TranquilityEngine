@@ -1,5 +1,5 @@
 // Dev server (ADR 0015): `npm run dev` serves the editor at /editor.html (/ redirects there) and the
-// Audio Studio at /studio.html (ADR 0327; root pages are served as they are), with the engine imported
+// Audio Studio at /studio.html (ADR 0341; root pages are served as they are), with the engine imported
 // from src/, and the sample projects at /samples/ (ADR 0031). The editor bundle and the engine library
 // have their own configs: vite.editor.config.ts and
 // vite.engine.config.ts. Games build from the prebuilt player (vite.player.config.ts, ADR 0041), served

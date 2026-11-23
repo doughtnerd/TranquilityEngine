@@ -1,4 +1,4 @@
-// The Events tab's coverage report (ADR 0341 §7): per event, the argument combinations with no line as compact `*`
+// The Events tab's coverage report (ADR 0355 §7): per event, the argument combinations with no line as compact `*`
 // patterns, intended silences, and per language the combinations whose candidate lines are all missing there; then lines
 // no event names and events no script names; Export CSV. A view over props.
 import type { EventCoverage } from "./coverage";

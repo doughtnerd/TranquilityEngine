@@ -1,4 +1,4 @@
-// The Packages screen's model (ADR 0337 §6, §7; Wwise's SoundBank Manager, FMOD's Banks tab): the packages `audio.json`
+// The Packages screen's model (ADR 0351 §6, §7; Wwise's SoundBank Manager, FMOD's Banks tab): the packages `audio.json`
 // defines, what each holds once its dependencies are added (and why each sound is in: an include, a glob, or another
 // sound that needs it), sounds in several packages, sounds in none, and the edits: new, rename, delete, add or remove a
 // sound, preload, the platforms it ships on and the project's strict rule. Every edit returns `{ next } | { refused }`
@@ -213,7 +213,7 @@ export function setShipsOn(p: AudioProject, name: string, platform: ImportPlatfo
   });
 }
 
-/** The project's strict rule (ADR 0337 §7): a packaged sound whose packages are all unloaded is refused. */
+/** The project's strict rule (ADR 0351 §7): a packaged sound whose packages are all unloaded is refused. */
 export function setStrict(p: AudioProject, strict: boolean): EditResult<AudioProject> {
   if (strictOf(p) === strict) return { next: p };
   const next = { ...p };
@@ -224,7 +224,7 @@ export function setStrict(p: AudioProject, strict: boolean): EditResult<AudioPro
 
 // --- renames and lint ---------------------------------------------------------------------------------------------------
 
-/** The component whose `packages` list names packages (ADR 0337 §9). */
+/** The component whose `packages` list names packages (ADR 0351 §9). */
 export const PACKAGE_LOADER = "engine.AudioPackageLoader";
 
 const renamed = (list: unknown, from: string, to: string): unknown =>
@@ -278,7 +278,7 @@ export interface PackageNameLint {
 const PACKAGE_CALL = /\bAudio\s*\.\s*package\s*\(\s*(["'`])((?:(?!\1)[^\\\n$]|\\.)*)\1\s*\)/g;
 
 /**
- * Best effort (ADR 0337 §7): every `Audio.package("…")` string literal in `scripts` (path → source) that names no
+ * Best effort (ADR 0351 §7): every `Audio.package("…")` string literal in `scripts` (path → source) that names no
  * package in `names`. Names built at run time aren't seen.
  */
 export function lintPackageNames(scripts: ReadonlyMap<string, string> | Iterable<readonly [string, string]>, names: readonly string[]): PackageNameLint[] {

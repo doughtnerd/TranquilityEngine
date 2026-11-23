@@ -1,4 +1,4 @@
-// Test support for ADR 0337 A4 (packages and IMA ADPCM): a reference IMA ADPCM encoder in the engine's block layout (the
+// Test support for ADR 0351 A4 (packages and IMA ADPCM): a reference IMA ADPCM encoder in the engine's block layout (the
 // shipped one is `audio-encode`'s, in Rust; this is the same public algorithm), the decoder fixtures the tests read, and a
 // `.mycopak` built with the A1 writer. Imported only by tests.
 import { readFileSync } from "node:fs";

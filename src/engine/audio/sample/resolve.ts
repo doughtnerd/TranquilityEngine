@@ -1,5 +1,5 @@
 /**
- * What a sample path plays (ADR 0328): an audio file plays itself with its sidecar's `sample` block; a derived sample
+ * What a sample path plays (ADR 0342): an audio file plays itself with its sidecar's `sample` block; a derived sample
  * (`*.sample.json`, `myco.sample@1`) plays the audio file its `source` names with its resolved edits.
  *
  * - **Source.** A `source` that is itself a derived sample is followed to the audio file at the end of the chain.
@@ -10,7 +10,7 @@
  * - **Range.** A snippet's `range` (seconds in the source) is the region it plays: the block's `trim` narrowed to the
  *   range (their overlap; the range alone when the block has no trim or they don't overlap). Loops and markers keep
  *   their source times.
- * - **Render.** Edits with a `source` (a flattened render, "Flatten" in ADR 0328: `brake_skid.flat1.wav`) play that file
+ * - **Render.** Edits with a `source` (a flattened render, "Flatten" in ADR 0342: `brake_skid.flat1.wav`) play that file
  *   in place of the source (`render`). The render is the source with the baked chain, its automation and the
  *   normalisation gain rendered in, on the source's own timeline: trim, loops and markers keep their source times and
  *   still apply; only what it bakes is not applied again. Its path is a project path, or a bare name beside the source.
@@ -46,7 +46,7 @@ export interface ResolvedSample {
    */
   readonly edits: SampleEdits | null;
   /**
-   * The flattened render that plays in place of `source` (the edits' `source`, found in the project; ADR 0328 "Flatten"),
+   * The flattened render that plays in place of `source` (the edits' `source`, found in the project; ADR 0342 "Flatten"),
    * null when there is none. It bakes the effects, their automation and the normalisation gain; it keeps the source's
    * timeline, so `edits`' trim, loops and markers apply to it as they are.
    */

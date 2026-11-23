@@ -26,7 +26,7 @@ describe("the Profiler's data reader", () => {
     source.close();
   });
 
-  it("reads the memory track: the clip arena from STATUS and the Forest package's memory from its PKG events (ADR 0337 §6)", async () => {
+  it("reads the memory track: the clip arena from STATUS and the Forest package's memory from its PKG events (ADR 0351 §6)", async () => {
     const source = await openFixture();
     const m = (await new ProfilerDataReader(source).refresh()).memory!;
     const at = (s: { times: ArrayLike<number>; values: ArrayLike<number> }, t: number) => s.values[Array.from(s.times).filter((x) => x <= t).length - 1]!;

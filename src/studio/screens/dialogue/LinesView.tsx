@@ -1,4 +1,4 @@
-// The Dialogue screen's Lines tab (ADR 0340 §9, 0343 §1, §6): every line table's rows — Key, Speaker, Text in the
+// The Dialogue screen's Lines tab (ADR 0354 §9, 0357 §1, §6): every line table's rows — Key, Speaker, Text in the
 // preview language (written to the string table), and a status cell per language (recorded, fallback, missing, with
 // mismatch ⚠, script changed ✎ and reading-speed flags) — with the table filter, search, column filters, and Add,
 // Duplicate and Delete. Inline edits commit on Enter or blur, each one undo step. A view over props.

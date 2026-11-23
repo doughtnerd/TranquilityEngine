@@ -1,5 +1,5 @@
 /**
- * ADR 0334: a take's requests, keyframes and pictures, read for replay. Pure: the file's framing (header, inflate, record
+ * ADR 0348: a take's requests, keyframes and pictures, read for replay. Pure: the file's framing (header, inflate, record
  * heads) is the capture reader's (`plugins/audio/runtime/capture/takeFile.ts` walks the records and hands the request
  * records here); this module orders what they hold by time and answers the replay's questions: the requests in a span,
  * the keyframe in force at a time, and what a seek must re-issue.
@@ -102,7 +102,7 @@ export class Take {
   }
 }
 
-/** The META `take` section a take file carries (ADR 0334), as written; the reader checks it (`readTakeMeta`). */
+/** The META `take` section a take file carries (ADR 0348), as written; the reader checks it (`readTakeMeta`). */
 export interface TakeMetaSection {
   audioHash: string;
   seed: number;

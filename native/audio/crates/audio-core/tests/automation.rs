@@ -50,7 +50,7 @@ fn curves(first: u32, list: &[&[(f32, f32, u32)]]) -> Rec {
     raw(move |b| c.write(b, 0))
 }
 
-/// CURVES of one curve at `first` from `(x, y, interp, [inDx, inDy, outDx, outDy])` keys (ADR 0332).
+/// CURVES of one curve at `first` from `(x, y, interp, [inDx, inDy, outDx, outDy])` keys (ADR 0346).
 fn bezier_curve(first: u32, keys: &[(f32, f32, u32, [f32; 4])]) -> Rec {
     let c = wire::Curves {
         voice_id: 0,
@@ -335,7 +335,7 @@ fn malformed_records_refuse_the_batch() {
 #[test]
 fn extra_bindings_and_keys_are_ignored() {
     let mut m = mixer();
-    // 70 keys: the first 64 (ADR 0332's limit) are 1, the rest 0; at x = 69 the kept curve holds key 63's 1.
+    // 70 keys: the first 64 (ADR 0346's limit) are 1, the rest 0; at x = 69 the kept curve holds key 63's 1.
     let keys: Vec<(f32, f32, u32)> = (0..70).map(|i| (i as f32, if i < automation::CURVE_KEYS { 1.0 } else { 0.0 }, 0)).collect();
     m.submit(&[curves(1023, &[&keys, IDENTITY]), param(0, 0, 69.0, 0.0), dc(V1, 0, 0.0)]);
     let many: Vec<(u16, u16, u32)> = (0..10).map(|_| (G, 1023, 0)).collect();
@@ -349,7 +349,7 @@ fn extra_bindings_and_keys_are_ignored() {
 
 #[test]
 fn a_bezier_volume_curve_shapes_the_gain() {
-    // ADR 0332: a Bézier key with a flat third-long out handle before a plain key is smoothstep's cubic; a second
+    // ADR 0346: a Bézier key with a flat third-long out handle before a plain key is smoothstep's cubic; a second
     // Bézier segment with handles on the line is linear. Parameter values off the keys.
     let mut m = mixer();
     let third = 1.0 / 3.0;
@@ -381,7 +381,7 @@ fn a_virtual_voice_keeps_time_at_its_pitch_binding() {
     assert_eq!(voices::slots(&m.core)[1].position, (3 * 2 * 128) as f64);
 }
 
-// --- ADR 0332: time parameters ---
+// --- ADR 0346: time parameters ---
 
 const T_VOICE: u16 = (wire::PARAM_TIME | wire::TIME_VOICE) as u16;
 const T_CLIP: u16 = (wire::PARAM_TIME | wire::TIME_CLIP) as u16;
@@ -425,7 +425,7 @@ fn a_voice_time_binding_follows_the_voice_from_its_start() {
     assert_eq!(automation::voice_entry(&mut m.core, 2).unwrap().vstart, 1024);
 }
 
-/// ABI 4.9 (ADR 0332 "time origin"): a binding's offset reads its time parameter that many seconds
+/// ABI 4.9 (ADR 0346 "time origin"): a binding's offset reads its time parameter that many seconds
 /// later, exactly as a copy of the curve shifted by it would (the playlist runtime no longer uploads
 /// shifted copies per voice), and only for time parameters.
 #[test]

@@ -131,7 +131,7 @@ export function cssFontWeight(w: string): string {
 
 const WRAPS: Readonly<Record<UIWordBreak, UITextWrap>> = { "break-word": "word", "break-all": "anywhere", "keep-all": "none" };
 
-/** A `textAlign` value as an edge: `start` and `end` resolved for the direction (ADR 0342 §5). */
+/** A `textAlign` value as an edge: `start` and `end` resolved for the direction (ADR 0356 §5). */
 function textAlignEdge(align: UITextAlign, direction: "ltr" | "rtl"): UITextRun["align"] {
   if (align === "start") return direction === "rtl" ? "right" : "left";
   if (align === "end") return direction === "rtl" ? "left" : "right";
@@ -146,7 +146,7 @@ export function textRunOf(c: UIComponentType): UITextRun | null {
   if (c instanceof UIInputField) {
     // One line: a line break a script put in the value shows as a space (one for one, so caret indices still match).
     const text = (c.value || c.placeholder).replace(/[\r\n]/g, " ");
-    // Drawn from the language's start edge (ADR 0342 §5).
+    // Drawn from the language's start edge (ADR 0356 §5).
     const direction = Locale.direction;
     return { text, fontSize: c.fontSize, fontWeight: "400", fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, wrap: "none", direction, align: textAlignEdge("start", direction) };
   }

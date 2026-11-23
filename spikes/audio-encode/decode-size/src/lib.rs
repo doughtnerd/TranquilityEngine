@@ -1,4 +1,4 @@
-//! ADR 0337 spike A0/S2: the shipped decoder (audio-decode, linked unchanged) plus, with feature `libopus`, an Ogg
+//! ADR 0351 spike A0/S2: the shipped decoder (audio-decode, linked unchanged) plus, with feature `libopus`, an Ogg
 //! Opus decode path through libopus (fixed point). The baseline build of this crate is the shipped
 //! `myco_audio_decode.wasm` give or take the crate name; the `libopus` build's size delta is what Opus decoding adds.
 //!

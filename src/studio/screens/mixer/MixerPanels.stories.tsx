@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0330) for the Mixer screen's panels over fixture projects (the prototype's mix, and an empty
+// Stories (ADR 0219, 0344) for the Mixer screen's panels over fixture projects (the prototype's mix, and an empty
 // project with Master only): the Buses panel in List and Strips views with the live board, editing a snapshot (faders
 // write its offsets, the base level as a ghost tick), running with meters, the Inspector for a bus, a return and a
 // VCA with a snapshot's effect overrides, the Snapshots tree, the Trigger dialog with conditions and overlaps, and the

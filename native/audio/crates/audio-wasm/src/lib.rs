@@ -29,38 +29,38 @@ use crate::memory::{PlatformMemory, PLATFORM_MEMORY};
 /// 4.0 (ADR 0171/0172 M5, API section 4.1): the STATUS header is 256 B and gains the `loudBuses`,
 /// `loudEnergies` and `busDuck` sections; `BUS_RAMP`, `BUS_DUCK`, `BUS_PRESENCE`, `LOUD_CONFIG` and
 /// `BUS_SLOT`; stamped configuration changes behaviour. `myco_audio_init` is unchanged.
-/// 4.1 (ADR 0332): CURVES keys carry Bézier handles (interp 5) and curves keep 64 keys; the schema hash
+/// 4.1 (ADR 0346): CURVES keys carry Bézier handles (interp 5) and curves keep 64 keys; the schema hash
 /// guards the record's new layout.
-/// 4.2 (ADR 0332): time parameters: a binding's `param` bit 14 reads voiceTime, clipTime or
+/// 4.2 (ADR 0346): time parameters: a binding's `param` bit 14 reads voiceTime, clipTime or
 /// sequenceTime, and TIME (0x1D) re-anchors a group's sequence clock (stamped).
-/// 4.3 (ADR 0328): LOOPS (0x0B) gives a clip voice a loop program (up to 4 loops: directions, counts,
+/// 4.3 (ADR 0342): LOOPS (0x0B) gives a clip voice a loop program (up to 4 loops: directions, counts,
 /// crossfades, hold points, activations, exits, re-entry); SET_LOOP release is its key-off.
-/// 4.4 (ADR 0331 voice level, 0329 entry curves): AUTOMATE targets 3 (highpass floor) and 4 (pan).
-/// 4.5 (ADR 0331 instance level): SUBMIX (0x0C), instance submixes with insert chains (64 slots).
-/// 4.6 (ADR 0331 DSP): the catalogue's effect kinds (`SUBMIX_FX_EQ`..`SUBMIX_FX_GAIN`) on submixes and, as
+/// 4.4 (ADR 0345 voice level, 0343 entry curves): AUTOMATE targets 3 (highpass floor) and 4 (pan).
+/// 4.5 (ADR 0345 instance level): SUBMIX (0x0C), instance submixes with insert chains (64 slots).
+/// 4.6 (ADR 0345 DSP): the catalogue's effect kinds (`SUBMIX_FX_EQ`..`SUBMIX_FX_GAIN`) on submixes and, as
 /// `BUS_FX_CATALOGUE + kind`, on bus chains; eight effects a bus, no one-compressor limit; the `FxMem`
 /// region (effect memory); smoothed catalogue parameters; sidechain keys order the buses.
-/// 5.0 (ADR 0338, 0344): effect records carry 16 parameters (BUS_CONFIG, BUS_SLOT, SUBMIX; a bus effect's held mask
+/// 5.0 (ADR 0352, 0358): effect records carry 16 parameters (BUS_CONFIG, BUS_SLOT, SUBMIX; a bus effect's held mask
 /// is 16 bits); effect kinds `FX_PLUGIN_BASE + e` run registered plugin effects through the `myco_ext` import
 /// (`acquire`, `release`, `describe`, `process`, `sweep`; `audio-core` `ext.rs`), which the shell must supply at
 /// instantiation; each chain level shares `FX_PLUGIN_FUEL_PER_FRAME` of plugin fuel a quantum. The core-state region is
 /// 128 KB.
 pub const ABI_MAJOR: u32 = 5;
-/// 4.7 (ADR 0330): BUS_SENDS (0x1E), post-fader bus-to-return sends with level ramps and core-side muting.
-/// 4.9 (ADR 0331 levels, 0332, 0336): SUBMIX `parent` (nested playlists', tracks' and clips' submixes feed
+/// 4.7 (ADR 0344): BUS_SENDS (0x1E), post-fader bus-to-return sends with level ramps and core-side muting.
+/// 4.9 (ADR 0345 levels, 0346, 0350): SUBMIX `parent` (nested playlists', tracks' and clips' submixes feed
 /// their parent level's, up to 8 levels; a slot whose group goes to 0 rings its tail until freed), ROUTE
 /// (0x0D) names a voice's level submix, AUTOMATE bindings carry a time `offset` (time origin), LOOPS
 /// `shapes` shape the seam and exit crossfades with the playlist fade-shape set.
-/// 4.10 (ADR 0330, 0331; built as 4.8 on its own branch): BUS_AUTOMATE fx and send targets (any catalogue
+/// 4.10 (ADR 0344, 0345; built as 4.8 on its own branch): BUS_AUTOMATE fx and send targets (any catalogue
 /// parameter of a bus chain, send levels; 16 bindings a bus), SUBMIX_AUTOMATE (0x1F, instance submix parameter
 /// automation), held parameters in the bus effect type's bits 16-23, the BUS_RAMP `Decibel` law (snapshot fades
 /// linear in dB), STATUS `fxStarved` and `fxStarvedOwner`.
-/// 4.11 (ADR 0333): SET_VOICE_FX `spread` (mask bit 4, the reserved u16 at offset 50: hundredths of a degree),
+/// 4.11 (ADR 0347): SET_VOICE_FX `spread` (mask bit 4, the reserved u16 at offset 50: hundredths of a degree),
 /// a spatial voice spread over an arc by a decorrelated diffuse part (`audio-core` `spread.rs`).
-/// 4.12 (ADR 0337 A4, 0345 §5): CLIP_BEGIN format 6, IMA ADPCM blocks held compressed in the arena and decoded per
+/// 4.12 (ADR 0351 A4, 0359 §5): CLIP_BEGIN format 6, IMA ADPCM blocks held compressed in the arena and decoded per
 /// voice a little each quantum (`audio-core` `adpcm_voice.rs`); the `AdpcmCursors` region before the arena.
 /// 5.0: the minor starts again (above).
-/// 5.1 (ADR 0346): sound generators. PLAY of a reserved clip id (`GEN_CLIP_ID_FIRST` + kind) starts a generator voice
+/// 5.1 (ADR 0360): sound generators. PLAY of a reserved clip id (`GEN_CLIP_ID_FIRST` + kind) starts a generator voice
 /// (`audio-core` `generator.rs`, `audio_dsp::gen`); GEN (0x21) sets its parameters; AUTOMATE target kind 5 binds one;
 /// STATUS `genStarved` (the u16 at 252); the `GenEntries` region after the ADPCM cursors, sized from `max_mixed`.
 pub const ABI_MINOR: u32 = 1;

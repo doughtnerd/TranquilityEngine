@@ -1,4 +1,4 @@
-// ADR 0334: one record toggle's button (Record take, Record capture) over its `RecordToggle` model: pressed while
+// ADR 0348: one record toggle's button (Record take, Record capture) over its `RecordToggle` model: pressed while
 // recording, disabled outside Play unless a recording is still running, its tooltip the model's state in words.
 import { useEffect, useState } from "preact/hooks";
 import { recordToggleTitle, type RecordToggle } from "./recordToggleModel";

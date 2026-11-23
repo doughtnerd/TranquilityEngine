@@ -1,4 +1,4 @@
-// Root note detection (ADR 0328) on synthetic signals: sines and harmonic tones at known notes, detuned by known cents,
+// Root note detection (ADR 0342) on synthetic signals: sines and harmonic tones at known notes, detuned by known cents,
 // across the range; noise and a click with low confidence.
 import { describe, expect, it } from "vitest";
 import { noteNameToMidi } from "../noteNames";

@@ -1,5 +1,5 @@
 /**
- * The string CSV (ADR 0342 §8): UTF-8 with a BOM, RFC 4180 (`csv.ts`), one row per key, columns
+ * The string CSV (ADR 0356 §8): UTF-8 with a BOM, RFC 4180 (`csv.ts`), one row per key, columns
  * `key, table, notes, maxLength, <reference>, <lang>, <lang>:status, …` — the layout spreadsheets, vendors and
  * Unity's and Godot's CSV workflows use. A status cell is `translated`, `needsReview` or `missing`.
  *

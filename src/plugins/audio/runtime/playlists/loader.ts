@@ -1,5 +1,5 @@
 /**
- * Loading playlists (ADR 0329) and the attenuation presets they name (ADR 0333) through the engine's asset system:
+ * Loading playlists (ADR 0343) and the attenuation presets they name (ADR 0347) through the engine's asset system:
  * `Assets.json` gives the raw value, the parse runs once
  * per raw object (an edited asset is a new object, so a hot reload re-parses and the next trigger plays the new
  * version), and each problem is reported once.
@@ -44,7 +44,7 @@ const samplePlaylists = new Map<string, PlaylistAsset>();
 
 /**
  * A sample played through `Audio.play` (or an `AudioSource` with a sample's playlist path): a Clip playlist of that one
- * sample, as the Studio wraps one (ADR 0329). Built once per path; the sample's sidecar is read when it plays.
+ * sample, as the Studio wraps one (ADR 0343). Built once per path; the sample's sidecar is read when it plays.
  */
 export function samplePlaylist(path: string): PlaylistAsset {
   let p = samplePlaylists.get(path);

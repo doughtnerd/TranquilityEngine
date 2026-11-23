@@ -1,5 +1,5 @@
 /**
- * Switch change rules (ADR 0329 "Switch"; the prototype's PL:894): which rule applies when the label goes from one value
+ * Switch change rules (ADR 0343 "Switch"; the prototype's PL:894): which rule applies when the label goes from one value
  * to another. Each rule scores per side: an exact label 2, `"*"` 0, anything else rules it out. The highest total wins
  * and the first listed breaks ties; with no match the Switch's `onChange` applies.
  *

@@ -38,20 +38,20 @@ export interface ExportOptions {
   tauriBuild?: boolean;
   /** Ship the built-in audio capture trigger (F9, a three-finger hold): the game can record its audio mix for the Profiler (default off). */
   audioCapture?: boolean;
-  /** ADR 0334: ship the take trigger (F10): the game can record takes for the Studio (default off). */
+  /** ADR 0348: ship the take trigger (F10): the game can record takes for the Studio (default off). */
   audioTake?: boolean;
-  /** ADR 0334: with `audioTake`, false keeps pictures of the game view out of takes (default: takes record them). */
+  /** ADR 0348: with `audioTake`, false keeps pictures of the game view out of takes (default: takes record them). */
   audioTakeFrames?: boolean;
   /**
-   * ADR 0337 §1: the platform images and audio are converted for (default: the target's; `android` converts a web build
+   * ADR 0351 §1: the platform images and audio are converted for (default: the target's; `android` converts a web build
    * for Android until its exporter lands, ADR 0155).
    */
   platform?: ImportPlatform;
-  /** ADR 0337 §5: `--no-audio-convert`: audio ships as its sources (packages are still built), and the report says so. */
+  /** ADR 0351 §5: `--no-audio-convert`: audio ships as its sources (packages are still built), and the report says so. */
   audioConvert?: boolean;
-  /** ADR 0340 §6, 0342 §11: `--languages`: ship only these of the project's shipped languages (default: every one). */
+  /** ADR 0354 §6, 0356 §11: `--languages`: ship only these of the project's shipped languages (default: every one). */
   languages?: string[];
-  /** ADR 0342 §9: `--pseudo`: add the pseudo-languages, for QA builds. */
+  /** ADR 0356 §9: `--pseudo`: add the pseudo-languages, for QA builds. */
   pseudo?: boolean;
   /** Audio encoder threads (default: cores − 1). */
   audioWorkers?: number;
@@ -155,7 +155,7 @@ function nodeFiles(root: string): FileSource {
   return { read: async (path) => new Uint8Array(await readFile(under(root, path))) };
 }
 
-/** The audio cache (ADR 0337 §5) in the project folder's `.myco/cache/audio/` (paths relative to the project). */
+/** The audio cache (ADR 0351 §5) in the project folder's `.myco/cache/audio/` (paths relative to the project). */
 function nodeCache(root: string): AudioCacheStore {
   return {
     read: (path) => readFile(under(root, path)).then((b) => new Uint8Array(b), () => null),

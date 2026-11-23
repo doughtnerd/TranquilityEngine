@@ -1,4 +1,4 @@
-// The Take screen's annotation edits (ADR 0334 "Annotations"): add, move, retext, recolour and delete a note marker or
+// The Take screen's annotation edits (ADR 0348 "Annotations"): add, move, retext, recolour and delete a note marker or
 // region in a take's notes. Each returns the next notes and the undo step's label, or why it is refused (ADR 0307's
 // `{ next } | { refused }`); the screen commits one step per edit on the notes document. Pure.
 import { TAKE_NOTES_LIMITS, TAKE_NOTE_COLOURS, freeNoteId } from "../../../engine/audio/take/notes";

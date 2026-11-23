@@ -1,10 +1,10 @@
-// ADR 0331 (ABI 4.6): the one table from the effect catalogue's types to the audio core's effect kinds, shared by the
+// ADR 0345 (ABI 4.6): the one table from the effect catalogue's types to the audio core's effect kinds, shared by the
 // instance submixes (SUBMIX, `submixes.ts`) and the bus chains (BUS_CONFIG / BUS_SLOT, `busIndex.ts`). The core runs
 // every type `CORE_EFFECT_TYPES` lists (`engine/audio/busCapability.ts`, the rule module, says which); `effectKinds.test.ts`
 // holds the two lists equal. A kind's parameters are the catalogue's, in the catalogue's order, its defaults filled in
 // (`audio_dsp::fx` in the core reads them by position).
 //
-// ADR 0338 (ABI 5.0): records carry `FX_PARAMS` (16) parameters, and a registered plugin effect's kind is
+// ADR 0352 (ABI 5.0): records carry `FX_PARAMS` (16) parameters, and a registered plugin effect's kind is
 // `FX_PLUGIN_BASE + e`, `e` the index the core backend's plugin host gave it (`effectPlugins/host.ts`, which binds itself
 // here with `bindPluginKinds`); a plugin type nobody registered is kind 0 (passed through).
 import { effectSpec } from "../../../../engine/audio/effects/catalogue";
@@ -23,7 +23,7 @@ export const EFFECT_RECORD_PARAMS = FX_PARAMS;
 let pluginKind: (type: string) => number = () => 0;
 
 /**
- * ADR 0338: the core backend's plugin host answers plugin types' kinds from now on (`effectPlugins/host.ts`). Returns the
+ * ADR 0352: the core backend's plugin host answers plugin types' kinds from now on (`effectPlugins/host.ts`). Returns the
  * unbind, which restores "no plugin kinds" if this binding is still the current one.
  */
 export function bindPluginKinds(kindOf: (type: string) => number): () => void {

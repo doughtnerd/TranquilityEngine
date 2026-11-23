@@ -1,4 +1,4 @@
-// A Studio screen's panels (ADR 0327 "The shell"): each screen is a dock of panels with one fixed panel (it can't be
+// A Studio screen's panels (ADR 0341 "The shell"): each screen is a dock of panels with one fixed panel (it can't be
 // closed and fills the middle). A screen's folder (`src/studio/screens/<screen>/`) lists its panels; the shell makes
 // the screen's panel catalog, layout store (`myco.studio.layout.<screen>`) and dock host from the list.
 import type { ComponentChildren } from "preact";

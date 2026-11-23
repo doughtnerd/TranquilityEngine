@@ -1,4 +1,4 @@
-// The Lines panel's model (ADR 0340 §9, 0343 §1, 0341 §4): rows over every line table with their text in the preview
+// The Lines panel's model (ADR 0354 §9, 0357 §1, 0355 §4): rows over every line table with their text in the preview
 // language and a status cell per language; the table filter, the search (key, speaker, text, tag) and the column
 // filters (missing in a language, mismatch, script changed, reading speed); and the row edits, each refused or next
 // (0313): add, delete and duplicate a row, rename a key (unique across the project), speaker, notes, tags, cooldown and
@@ -182,7 +182,7 @@ export const setSubtitled = (t: LineTable, key: string, on: boolean): EditResult
     return { ...l, textKey: null };
   });
 
-// --- the Text column (0343 §1) ---------------------------------------------------------------------------------------
+// --- the Text column (0357 §1) ---------------------------------------------------------------------------------------
 
 /** What a text edit changes: the string table (the reference text) or a translation, with its path. */
 export type TextEdit =

@@ -1,5 +1,5 @@
 /**
- * WAV (RIFF/WAVE) metadata chunks, read and written (ADR 0328 "Import" and "Writing to the WAV is explicit"):
+ * WAV (RIFF/WAVE) metadata chunks, read and written (ADR 0342 "Import" and "Writing to the WAV is explicit"):
  *
  * - `cue ` cue points, with `LIST`/`adtl` `labl` (label), `note` (comment) and `ltxt` (a region: the cue plus a length);
  * - `smpl` sampler loops and the root note (MIDI unity note and pitch fraction);

@@ -70,7 +70,7 @@ describe("mixer", () => {
     const m = mk({ snapshots: [{ name: "Paused", volumes: { Music: 0.2, SFX: 0 }, lowpass: { Music: 800 } }] });
     m.snapshot("Paused", 1);
     m.update(0.5);
-    // ADR 0330: linear in dB, so half-way from 1 to 0.2 is their geometric mean.
+    // ADR 0344: linear in dB, so half-way from 1 to 0.2 is their geometric mean.
     expect(m.bus("Music").effectiveGain).toBeCloseTo(Math.sqrt(0.2));
     m.update(0.5);
     expect(m.bus("Music").effectiveGain).toBeCloseTo(0.2);
@@ -149,7 +149,7 @@ describe("bus graph", () => {
     const m = mk({ buses: [{ name: "Master" }, { name: "Music", parent: "Master", effects: [{ type: "lowpass", frequency: 500 }, { type: "compressor" }] }, { name: "SFX", parent: "Master", effects: [{ type: "reverb", send: 0.3 }] }, { name: "UI", parent: "Master", effects: [{ type: "reverb", send: 0.1 }] }] });
     const g = new BusGraph(ctx, dest, m);
     const inputOf = (bus: string) => (g.input(bus) as unknown as { id: string }).id;
-    // ADR 0330: the migration made the two reverb sends sends into a "Reverb" return, a bus of the view under Master.
+    // ADR 0344: the migration made the two reverb sends sends into a "Reverb" return, a bus of the view under Master.
     expect(m.returnNames).toEqual(["Reverb"]);
     expect(connections.filter(([, to]) => to === inputOf("Master")).length).toBe(4); // Music, SFX, UI and Reverb gains
     expect(connections.some(([, to]) => to === (dest as unknown as { id: string }).id)).toBe(true);

@@ -29,7 +29,7 @@ const args = argv.filter((a) => a !== "--no-build").join(" ");
 let memory;
 const sleeper = new Int32Array(new SharedArrayBuffer(4));
 const { instance } = await WebAssembly.instantiate(readFileSync(wasmPath), {
-  // ADR 0338 (ABI 5.0): the core imports `myco_ext` for plugin effects; no plugin runs in the bench (pass-through).
+  // ADR 0352 (ABI 5.0): the core imports `myco_ext` for plugin effects; no plugin runs in the bench (pass-through).
   myco_ext: { acquire: () => 0, release: () => {}, describe: () => 0, process: () => -1, sweep: () => {} },
   env: {
     bench_now: () => performance.now(),

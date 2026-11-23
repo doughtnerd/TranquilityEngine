@@ -1,5 +1,5 @@
 /**
- * Rhubarb Lip Sync import (ADR 0340 §7): the Studio reads Rhubarb's TSV or JSON output into a sample sidecar's
+ * Rhubarb Lip Sync import (ADR 0354 §7): the Studio reads Rhubarb's TSV or JSON output into a sample sidecar's
  * `lipsync` block (`{ set: "rhubarb", keys: [[seconds, viseme], …] }`); it never runs Rhubarb. Batch import matches an
  * output file to a line's audio by file name (`intro_01.wav` + `intro_01.txt` or `intro_01.json`).
  *

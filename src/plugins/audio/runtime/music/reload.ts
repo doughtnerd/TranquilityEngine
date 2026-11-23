@@ -1,5 +1,5 @@
 /**
- * The hot reload rule of a playing musical piece (ADR 0166 api-and-models §10 P8, kept for playlists by ADR 0329): an
+ * The hot reload rule of a playing musical piece (ADR 0166 api-and-models §10 P8, kept for playlists by ADR 0343): an
  * edited Sequence swaps at the next bar, the old voices fading out over `RELOAD_FADE_MS` there, and the new version
  * continues at the same time when its tempo map is unchanged (`sameTempoMap`), else from its start. The playlist
  * runtime's Sequence applies it (`playlists/sequence.ts`); the decoded clips and the worker's encoded bytes of an edited

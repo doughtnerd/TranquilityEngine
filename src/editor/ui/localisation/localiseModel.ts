@@ -1,4 +1,4 @@
-// The Inspector's Localise control (ADR 0342 §9): bind a UI document element's text field to a string key — pick one
+// The Inspector's Localise control (ADR 0356 §9): bind a UI document element's text field to a string key — pick one
 // (search keys and their text, with each one's text in the preview language), or **Extract to string table**: a key
 // suggested from the document and the element's id, added to a chosen table with the element's literal text as its
 // reference text, while the element's text becomes `t:<field>="key"` (one undo step; `uiDocumentEdits.ts` writes both

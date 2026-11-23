@@ -1,4 +1,4 @@
-// ADR 0340 §7: Rhubarb Lip Sync output (TSV and JSON) read into a sidecar's `lipsync` block, and the edit that sets it.
+// ADR 0354 §7: Rhubarb Lip Sync output (TSV and JSON) read into a sidecar's `lipsync` block, and the edit that sets it.
 import { describe, expect, it } from "vitest";
 import { defaultSampleEdits, parseSampleEdits, sampleEditsToJson } from "../sample/format";
 import { isLipsyncFile, parseRhubarb, parseRhubarbJson, parseRhubarbTsv, withLipsync } from "./lipsync";

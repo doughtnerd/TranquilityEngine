@@ -1,5 +1,5 @@
 /**
- * Message checks over whole files (ADR 0342 §2): every key of a string table checked in its reference language, and
+ * Message checks over whole files (ADR 0356 §2): every key of a string table checked in its reference language, and
  * every entry of a translation checked against the table's reference text (argument names and kinds, plural
  * categories, syntax). Entries whose key the table lacks are reported too. The editor, the export and the import preview
  * read these; a translation with an error is skipped at runtime for the next language of the chain.

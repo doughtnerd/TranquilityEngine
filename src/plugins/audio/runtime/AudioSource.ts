@@ -38,7 +38,7 @@ const clamp255 = (p: number): number => (Number.isFinite(p) ? Math.min(255, Math
 /** Clamps `v` to lo..hi; a non-finite value gives `fallback`. */
 const clampOr = (v: number, lo: number, hi: number, fallback: number): number => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback);
 
-/** Whether the active World has the view, or plays sound without one (ADR 0327's audio-only World): only it plays sound (ADR 0074). */
+/** Whether the active World has the view, or plays sound without one (ADR 0341's audio-only World): only it plays sound (ADR 0074). */
 export const worldPlays = (world: World | null): boolean => !!world && (!!world.render || world._audioOnly === true);
 
 /** @internal The World's key on the core (its `myco.audio` share, architecture §3.9), or 0 while it has none. A play carries it so selection knows whose voice it is. */
@@ -54,7 +54,7 @@ export function worldKeyOf(world: World | null): number {
 @component("engine.AudioSource")
 export class AudioSource extends Component {
   /**
-   * What to play: a clip (an audio file) or a playlist (`*.playlist.json`, ADR 0329). For a playlist, `loop` and `spatial`
+   * What to play: a clip (an audio file) or a playlist (`*.playlist.json`, ADR 0343). For a playlist, `loop` and `spatial`
    * come from the asset and `minDistance`/`maxDistance` stretch its attenuation; `volume` and `pitch` still apply on top.
    * An old audio event file (`*.audioevent.json`) is refused with a message naming the migration.
    */
@@ -90,7 +90,7 @@ export class AudioSource extends Component {
   get _voiceId(): number {
     return this.voice?.id ?? 0;
   }
-  /** ADR 0329: the playing playlist instance when `clip` is a playlist. */
+  /** ADR 0343: the playing playlist instance when `clip` is a playlist. */
   private playlist: PlaylistInstance | null = null;
   /** What was last applied to the playing sound, so a frame only touches the backend for changes. */
   private applied = "";
@@ -146,7 +146,7 @@ export class AudioSource extends Component {
       this.appliedPitch = this.pitch;
       if (this.playlist) {
         takeTap.sink?.play(this.playlist, path, this.takeEmitter(), takePlayOptions({ pitch: this.pitch, priority: clamp255(this.priority), bus: this.output || undefined }));
-        // D20 (ADR 0329): this node's `onAudioMarker`, `onMusicBeat` and `onMusicBar` hear the playlist.
+        // D20 (ADR 0343): this node's `onAudioMarker`, `onMusicBeat` and `onMusicBar` hear the playlist.
         this.playlist.attachSource(this, playlistHandleOf(this.playlist));
         this.applyPlaylist();
       }
@@ -159,7 +159,7 @@ export class AudioSource extends Component {
     const spatial = this.spatial && !this.ambisonicClip && this.node.transform !== null;
     // G9b: the voice starts at its volume and pitch. Set only afterwards (`apply`), the PLAY went out at gain 1 and the
     // volume a frame later, so a quiet source was heard at full scale for that frame (and dipped a level rule's target).
-    // ADR 0328: the sample's trim, normalisation gain and (when `loop`) loop region, as every play of it.
+    // ADR 0342: the sample's trim, normalisation gain and (when `loop`) loop region, as every play of it.
     const req = clipRequest(path, this.loop, this.output);
     this.voice = playSampleVoice(path, Object.assign(req, {
       volume: this.volume * req.volume!, pitch: this.pitch,
@@ -176,7 +176,7 @@ export class AudioSource extends Component {
     }
   }
 
-  /** ADR 0334: this node as a take's emitter (its world position each read). */
+  /** ADR 0348: this node as a take's emitter (its world position each read). */
   private takeEmitter(): TakeEmitter {
     const node = this.node;
     return { key: node, name: node.name, position: () => node.transform?.worldPosition ?? null };
@@ -203,7 +203,7 @@ export class AudioSource extends Component {
   }
 
   /**
-   * Key-off: the playing playlist's held loops, or a looping sample's held loop (ADR 0328, its sidecar's first loop),
+   * Key-off: the playing playlist's held loops, or a looping sample's held loop (ADR 0342, its sidecar's first loop),
    * end by their exit settings. Does nothing for a clip without a held loop.
    */
   release(): void {
@@ -265,7 +265,7 @@ export class AudioSource extends Component {
   }
 
   /**
-   * ADR 0333: for a playlist, `minDistance` and `maxDistance` are overrides that stretch its attenuation curves. A field
+   * ADR 0347: for a playlist, `minDistance` and `maxDistance` are overrides that stretch its attenuation curves. A field
    * left at its default (1 and 100) is no override, so the playlist's own distances apply.
    */
   private distanceOverrides(): { minDistance?: number; maxDistance?: number } {
@@ -286,7 +286,7 @@ export class AudioSource extends Component {
     console.warn(`[myco] audio: AudioSource "${this.node.name}" plays the ambisonic clip "${path}", which ignores spatial, minDistance, maxDistance, rolloff, occlusion and dopplerLevel (ADR 0162)`);
   }
 
-  /** ADR 0329: a playlist follows `volume` (its fade gain), `pitch` and, when spatial, the node. */
+  /** ADR 0343: a playlist follows `volume` (its fade gain), `pitch` and, when spatial, the node. */
   private applyPlaylist(): void {
     const instance = this.playlist!;
     const signature = `${this.volume}`;

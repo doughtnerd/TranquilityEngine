@@ -1,5 +1,5 @@
 /**
- * The trigger gate (ADR 0329 "Trigger gate"; the prototype's `_vlGate`, PL:1256–1265), in order:
+ * The trigger gate (ADR 0343 "Trigger gate"; the prototype's `_vlGate`, PL:1256–1265), in order:
  *
  * 1. **Cooldown:** refused when fewer than `cooldown` seconds have passed since the last *accepted* trigger.
  * 2. **Chance:** refused with probability `1 − chance` (one draw from the generator; none when chance is 1 or 0).

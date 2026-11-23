@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0330): `audio.json` (`myco.audio@1`), read and written. `parseAudioProject` reads leniently (bad values
+ * Internal (ADR 0344): `audio.json` (`myco.audio@1`), read and written. `parseAudioProject` reads leniently (bad values
  * fall back to defaults or are dropped, one problem line each; it never throws); `audioProjectToJson` writes what it
  * reads back unchanged. The runtime's views of a project are `project/runtimeView.ts`'s.
  *
@@ -38,7 +38,7 @@ export { reverbSendOf, vcaOffsetDb } from "./runtimeView";
 /** The `AudioSettings` keys that are the mix (top-level keys of `audio.json`), not engine settings. */
 const MIX_KEYS = ["buses", "snapshots", "ducking", "parameters", "automation", "loudnessTargets", "loudnessResetOnPlay", "mix"] as const;
 
-/** ADR 0331: the instance submix pool when `settings.submixes` is absent, and its range. */
+/** ADR 0345: the instance submix pool when `settings.submixes` is absent, and its range. */
 export const DEFAULT_SUBMIXES = 32;
 /** The limits of the mix's lists and numbers (ADR 0306: declared once, here). */
 export const MIX_LIMITS = {
@@ -50,7 +50,7 @@ export const MIX_LIMITS = {
   vcas: 32,
   snapshots: 128,
   automation: 256,
-  /** ADR 0331: a bus's or return's insert chain (`busCapability.ts`' declared rule). */
+  /** ADR 0345: a bus's or return's insert chain (`busCapability.ts`' declared rule). */
   effectsPerOwner: MAX_BUS_INSERTS,
   /** A ducking rule's threshold, dBFS. */
   thresholdDb: [-80, 0],
@@ -94,12 +94,12 @@ function bool(raw: unknown, where: string, fallback: boolean, problems: string[]
   return fallback;
 }
 
-/** The default engine settings (every `AudioSettings` key but the mix, plus ADR 0331/0333's). */
+/** The default engine settings (every `AudioSettings` key but the mix, plus ADR 0345/0347's). */
 export function defaultEngineSettings(): AudioEngineSettings {
   return { ...engineKeys(defaultAudioSettings()), submixes: DEFAULT_SUBMIXES, bedBeyond: null, dopplerAmount: 1, dialogue: { ...DEFAULT_DIALOGUE } };
 }
 
-/** The engine settings of a runtime `AudioSettings` (a copy), with ADR 0331/0333's keys at their defaults. */
+/** The engine settings of a runtime `AudioSettings` (a copy), with ADR 0345/0347's keys at their defaults. */
 export function engineSettingsOf(a: AudioSettings): AudioEngineSettings {
   return { ...structuredClone(engineKeys(a)), submixes: DEFAULT_SUBMIXES, bedBeyond: null, dopplerAmount: 1, dialogue: { ...DEFAULT_DIALOGUE } };
 }
@@ -164,7 +164,7 @@ function parseEngineSettings(raw: unknown, options: AudioParseOptions, problems:
   return out;
 }
 
-/** ADR 0341 §4: `settings.dialogue` (bad values: the defaults, with a problem). */
+/** ADR 0355 §4: `settings.dialogue` (bad values: the defaults, with a problem). */
 const DEFAULT_DIALOGUE = Object.freeze({ maxVoices: 3, interruptFadeMs: 150 });
 function parseDialogueSettings(raw: unknown, problems: string[]): AudioEngineSettings["dialogue"] {
   if (raw === undefined) return { ...DEFAULT_DIALOGUE };
@@ -189,7 +189,7 @@ export function freeEffectId(taken: ReadonlySet<string> | readonly string[]): st
   return `fx${n}`;
 }
 
-/** A bus's or return's insert chain: the catalogue's parse at the bus level (ADR 0331), at most `effectsPerOwner`. */
+/** A bus's or return's insert chain: the catalogue's parse at the bus level (ADR 0345), at most `effectsPerOwner`. */
 const parseEffects = (raw: unknown, where: string, problems: string[]): Effect[] =>
   raw === undefined ? [] : parseEffectChain(raw, "bus", where, problems, MIX_LIMITS.effectsPerOwner);
 
@@ -282,14 +282,14 @@ export function parseAudioProject(raw: unknown, options: AudioParseOptions = {})
   project.ducking = parseDucking(raw.ducking, project, problems);
   project.snapshots = parseSnapshots(raw.snapshots, project, problems);
   project.loudness = parseLoudness(raw.loudness, problems);
-  // ADR 0337: encoding and packages, set only when the file holds something (absent keys read as their defaults).
+  // ADR 0351: encoding and packages, set only when the file holds something (absent keys read as their defaults).
   const encoding = parseEncodingConfig(raw.encoding, problems);
   if (!isEmptyEncodingConfig(encoding)) project.encoding = encoding;
   const packages = parsePackages(raw.packages, problems);
   if (packages.length > 0) project.packages = packages;
   const packaging = parsePackagingOptions(raw.packaging, problems);
   if (packagingOptionsToJson(packaging) !== null) project.packaging = packaging;
-  // ADR 0340 §2: localisation, set only when it differs from the defaults.
+  // ADR 0354 §2: localisation, set only when it differs from the defaults.
   const localisation = parseAudioLocalisation(raw.localisation, problems);
   if (audioLocalisationToJson(localisation) !== null) project.localisation = localisation;
   return { project, problems, warnings };
@@ -546,7 +546,7 @@ export function audioProjectToJson(project: AudioProject): Record<string, unknow
   };
 }
 
-/** `{ [key]: value }`, or nothing when `value` is null or undefined (ADR 0337's keys are left out when empty). */
+/** `{ [key]: value }`, or nothing when `value` is null or undefined (ADR 0351's keys are left out when empty). */
 const optional = (key: string, value: unknown): Record<string, unknown> => (value === null || value === undefined ? {} : { [key]: value });
 
 /** `project`'s mix as `audio.json` writes it: every top-level key but `format` and `settings` (the runtime settings' `mix`). */

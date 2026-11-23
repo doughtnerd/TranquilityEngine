@@ -1,4 +1,4 @@
-// The Scene settings panel (ADR 0333 "Settings the Spatial screen shows are the project's"; the prototype's scene settings,
+// The Scene settings panel (ADR 0347 "Settings the Spatial screen shows are the project's"; the prototype's scene settings,
 // B.4): `audio.json`'s Listening (HRTF for the nearest N voices, the ambisonic bed distance), Doppler amount and the
 // occlusion materials, each change one undo step of the mix document (the Mixer's, so the Mixer's history shows it too).
 import type { AudioProject } from "../../../engine/audio/project/types";

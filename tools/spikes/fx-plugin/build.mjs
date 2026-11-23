@@ -1,4 +1,4 @@
-// Spike B0 (ADR 0338): builds the test plugin and the host stand-in for wasm32 and copies them to ./wasm/.
+// Spike B0 (ADR 0352): builds the test plugin and the host stand-in for wasm32 and copies them to ./wasm/.
 // Usage (from the repository root): node tools/spikes/fx-plugin/build.mjs
 // Needs the audio core's pinned toolchain (`cargo +1.99.1`, target wasm32-unknown-unknown). The plugin's memory is
 // capped at 4 MB (the manifest's default `memoryMB`); the host gets the linker's defaults.

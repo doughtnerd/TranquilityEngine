@@ -18,7 +18,7 @@ export interface StudioAudioStats {
   /** Output latency, ms (base + output + limiter); `latencyReliable` false when the browser's figure is a guess. */
   readonly latencyMs: number;
   readonly latencyReliable: boolean;
-  /** ADR 0331 (ABI 4.8): effects that got no effect memory (they pass their signal through), and whose the last was. */
+  /** ADR 0345 (ABI 4.8): effects that got no effect memory (they pass their signal through), and whose the last was. */
   readonly fxStarved: number;
   readonly fxStarvedOwner: string | null;
 }

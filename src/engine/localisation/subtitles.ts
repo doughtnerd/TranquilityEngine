@@ -1,5 +1,5 @@
 /**
- * The subtitle model (ADR 0343 §3, §5), shared by the audio runtime (subtitle-only lines), the subtitles plugin, the
+ * The subtitle model (ADR 0357 §3, §5), shared by the audio runtime (subtitle-only lines), the subtitles plugin, the
  * Studio's subtitle strip and the editor:
  *
  * - **Reading speed** of a language in characters per second: its `readingSpeed` in `project.json`, else the built-in
@@ -32,7 +32,7 @@ export interface ReadingRule {
 }
 
 /**
- * The reading speed of `code` (0343 §3): its row's `readingSpeed`, else the built-in default for its primary subtag,
+ * The reading speed of `code` (0357 §3): its row's `readingSpeed`, else the built-in default for its primary subtag,
  * else `fallback` (the `subtitles.readingSpeed`).
  */
 export function readingSpeed(code: string, languages: LanguageSettings | null = null, fallback = DEFAULT_READING_SPEED): number {
@@ -158,7 +158,7 @@ export interface PageTime {
   end: number;
 }
 
-/** A Cue marker (0328) as the subtitle model needs it. */
+/** A Cue marker (0342) as the subtitle model needs it. */
 export interface SubtitleMarker {
   type: string;
   name: string;
@@ -211,7 +211,7 @@ export interface SubtitleRow {
 }
 
 /**
- * The rows after `row` arrives (0343 §5): speech replaces the row of the same speaker; the new row goes last (nearest
+ * The rows after `row` arrives (0357 §5): speech replaces the row of the same speaker; the new row goes last (nearest
  * the edge); over `maxStack`, the oldest caption is dropped first, then the oldest row. Returns a new list.
  */
 export function pushRow<R extends SubtitleRow>(rows: readonly R[], row: R, maxStack: number): R[] {

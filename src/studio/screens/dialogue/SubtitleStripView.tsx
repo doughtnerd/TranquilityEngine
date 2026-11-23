@@ -1,4 +1,4 @@
-// The subtitle strip (ADR 0343 §6): a line's subtitle pages over time beside the heard audio, each page's characters
+// The subtitle strip (ADR 0357 §6): a line's subtitle pages over time beside the heard audio, each page's characters
 // per second, and warnings (reading speed, too many lines, a line too long). Kit-drawn from the pure model; a timing and
 // length preview (the editor's Play is the exact one). A view over props.
 import type { SubtitleStrip } from "./subtitleStrip";

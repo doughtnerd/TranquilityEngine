@@ -1,4 +1,4 @@
-// ADR 0337 A3 end to end: `npm run export` of a small project with encoding profiles and packages, through the real
+// ADR 0351 A3 end to end: `npm run export` of a small project with encoding profiles and packages, through the real
 // encoder (worker_threads) and decoder, into a temp folder; the build read back: the manifest's media table, each
 // `.mycopak`'s TOC, the converted loose files, streamed media, the report, the notices and the cache.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -64,7 +64,7 @@ function project(): string {
 
 const magic = (bytes: Uint8Array) => new TextDecoder().decode(bytes.subarray(0, 4));
 
-describe("export with audio (ADR 0337 A3)", () => {
+describe("export with audio (ADR 0351 A3)", () => {
   it("converts, packages and reports a project's audio, and the second export comes from the cache", async () => {
     const dir = project();
     const out = join(temp(), "web");

@@ -1,4 +1,4 @@
-// ADR 0337 spike A0/S2: decodes an Ogg Opus file through the libopus build of the decoder wasm and reports the frame
+// ADR 0351 spike A0/S2: decodes an Ogg Opus file through the libopus build of the decoder wasm and reports the frame
 // count (pre-skip and end trimming applied) and the speed.
 //   node spikes/audio-encode/decode-size/run.mjs <decoder.wasm> <file.opus> [repeat]
 import { readFileSync } from "node:fs";

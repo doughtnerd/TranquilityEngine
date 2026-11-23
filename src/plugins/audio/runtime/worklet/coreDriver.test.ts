@@ -120,7 +120,7 @@ describe("coreDriver with the real wasm", () => {
     expect(r.blocks).toHaveLength(1);
     const first = r.blocks[0]!;
     expect(first.flags & STATUS_FLAGS_READY).toBeTruthy();
-    expect(first.abiVersion).toBe(0x501); // 5.1 sound generators (ADR 0346: GEN, AUTOMATE target 5, STATUS genStarved); 5.0 16-parameter effect records and plugin effects (ADR 0338); 4.12 clip format 6 (IMA ADPCM); 4.11 per-voice spread; 4.10 effect and send automation, submix automation, dB ramps; 4.9 submix levels and ROUTE; 4.7 bus sends; 4.6 (ADR 0331 effect catalogue DSP; 4.5 instance submixes; 4.4 voice pan and high-pass, 4.3 loop programs)
+    expect(first.abiVersion).toBe(0x501); // 5.1 sound generators (ADR 0360: GEN, AUTOMATE target 5, STATUS genStarved); 5.0 16-parameter effect records and plugin effects (ADR 0352); 4.12 clip format 6 (IMA ADPCM); 4.11 per-voice spread; 4.10 effect and send automation, submix automation, dB ramps; 4.9 submix levels and ROUTE; 4.7 bus sends; 4.6 (ADR 0345 effect catalogue DSP; 4.5 instance submixes; 4.4 voice pan and high-pass, 4.3 loop programs)
     expect(first.currentFrame).toBe(6 * 128);
     await expect(r.link.ready).resolves.toBeUndefined();
     r.run(6);
@@ -390,7 +390,7 @@ describe("ABI 2.0 init and the layout mirror (ADR 0162 C8)", () => {
       }
     }
     // An M2 preset: the pool, the scratch, and in Zones the aux accumulator (C3) and the sends area's chain gains (C4).
-    // ADR 0337 A4: and the ADPCM voice cursors (2,176 B per mixed voice).
+    // ADR 0351 A4: and the ADPCM voice cursors (2,176 B per mixed voice).
     expect(spatialRegionsBytes(PRESET, RATE)).toBe(32 * 560 + 8192 + PRESET.maxBuses * 1024 + (64 + PRESET.maxBuses * 512) + 64 + 32 * 2176);
   });
 
@@ -408,7 +408,7 @@ describe("ABI 2.0 init and the layout mirror (ADR 0162 C8)", () => {
     expect(musicRingsBytes({ ...PRESET, maxMusicRings: 16 })).toBe(16 * 307_200);
     const base = fixedRegionsHeadroomBytes(PRESET, RATE);
     expect(base).toBe(M2_REGIONS_HEADROOM_BYTES + spatialRegionsBytes(PRESET, RATE) + m4FixedRegionsBytes() + fxMemRegionBytes(RATE) + zoneKernelBudgetBytes(0, 0));
-    // ADR 0331: 469 blocks of 16 KB at 48 kHz, plus the header (`fxmem.rs`).
+    // ADR 0345: 469 blocks of 16 KB at 48 kHz, plus the header (`fxmem.rs`).
     expect(fxMemRegionBytes(48_000)).toBe(2_112 + 469 * 16_384);
     expect(fixedRegionsHeadroomBytes({ ...PRESET, maxMusicRings: 12 }, RATE) - base).toBe(12 * 307_200);
   });

@@ -1,4 +1,4 @@
-// Detection wired into the Samples screen (ADR 0328, the owner's "use the tempo and root note detection UI"): the
+// Detection wired into the Samples screen (ADR 0342, the owner's "use the tempo and root note detection UI"): the
 // import's "Detect what's missing" is on by default and fills only what the file lacks; Detect on a sample commits the
 // detected tempo or root as one undoable step with `source: "detected"`; at import a "set" value is never overwritten.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";

@@ -1,10 +1,10 @@
-// Line tables in game builds (ADR 0340 §5–§6, amended by 0343 §1; L3):
+// Line tables in game builds (ADR 0354 §5–§6, amended by 0357 §1; L3):
 //
 // - **The line index**: the export writes `audio/lines/index.json` (`myco.lineindex@1`, `lineIndex.ts`): the line tables
 //   and dialogue files the build ships, which the runtime's line registry reads at that fixed project path (asset
 //   sources can't be listed in a build).
-// - **Line tables ship without what never ships**: actors' `notes` and 0340's retired per-language `text` are taken out
-//   (subtitles come from `strings/<code>.json` through each line's `textKey`, 0343 §1); everything the runtime plays by
+// - **Line tables ship without what never ships**: actors' `notes` and 0354's retired per-language `text` are taken out
+//   (subtitles come from `strings/<code>.json` through each line's `textKey`, 0357 §1); everything the runtime plays by
 //   stays.
 // - **What a line table brings into a package's language part** (`lineTableFiles`), for the audio step (audio.ts).
 //

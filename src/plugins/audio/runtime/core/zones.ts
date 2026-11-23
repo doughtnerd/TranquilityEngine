@@ -452,7 +452,7 @@ export class ZoneManager {
       zone.energy = 0;
       zone.touched = false;
     }
-    applyLevelDefaults(lw, this.zones, n); // ADR 0333
+    applyLevelDefaults(lw, this.zones, n); // ADR 0347
     normalizeWeights(lw, n);
     let sum = 0;
     for (let z = 0; z < n; z++) {
@@ -491,7 +491,7 @@ export class ZoneManager {
           const zone = this.zones[z]!;
           w[z] = zoneWeight(outsideDistance(zone.volume, x, y, zz), zone.comp.blendDistance);
         }
-        applyLevelDefaults(w, this.zones, n); // ADR 0333
+        applyLevelDefaults(w, this.zones, n); // ADR 0347
         normalizeWeights(w, n);
         const d = Math.hypot(x - frame.posX, y - frame.posY, zz - frame.posZ);
         gain = sendCurveGain(curve, d, view.minDist[i]!, view.maxDist[i]!);

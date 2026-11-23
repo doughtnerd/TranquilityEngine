@@ -165,7 +165,7 @@ export class FsaFileSystem implements FileSystem {
   /**
    * Every file under folder `path` (full paths) with a stamp of its size and modification time, skipping the
    * folders `skipFolder` names (by name). Comparing two answers tells what changed between them: the project watch
-   * (projectWatch.ts, ADR 0327) looks on window focus and before Play rather than polling a whole project.
+   * (projectWatch.ts, ADR 0341) looks on window focus and before Play rather than polling a whole project.
    */
   stamps(path: string, skipFolder?: (name: string) => boolean): Promise<Map<string, string>> {
     return this.snapshot(path, skipFolder);

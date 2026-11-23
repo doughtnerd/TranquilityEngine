@@ -1,4 +1,4 @@
-// Small field rows for panels (ADR 0335's kit; first the Audio Studio's Playlists and Spatial screens): a labelled row
+// Small field rows for panels (ADR 0349's kit; first the Audio Studio's Playlists and Spatial screens): a labelled row
 // (label | control + unit), a number box that commits on Enter, blur or an arrow step (Shift ×10), a select, and a
 // collapsible titled section. Values are reported once per commit, so each is one undo step. Theme tokens only
 // (`kit.css`).

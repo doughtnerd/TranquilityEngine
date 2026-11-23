@@ -93,7 +93,7 @@ export interface DecodeClipOptions {
   /** Called with each chunk as it arrives, before the result resolves (a copy of nothing: the chunk is also part of the result). */
   readonly onChunk?: (pcm: Int16Array, index: number) => void;
   /**
-   * ADR 0337 A4: decode this entry of a package loaded with `loadPack` instead of `bytes` (pass an empty buffer). An ADPCM
+   * ADR 0351 A4: decode this entry of a package loaded with `loadPack` instead of `bytes` (pass an empty buffer). An ADPCM
    * entry with load `compressed` comes back as clip format 6 (`info.clipFormat` 6): each chunk then holds whole ADPCM blocks
    * viewed as int16 words, not samples, and the result's `pcm` is those words.
    */
@@ -131,11 +131,11 @@ export interface StreamOpenOptions {
   /** ADR 0158 §4 (contract C2, sent by E4.4): the loop region in frames (end exclusive, 0 = the end). */
   readonly loopStartFrame?: number;
   readonly loopEndFrame?: number;
-  /** ADR 0328: the region's crossfade, count and the program's later loops. */
+  /** ADR 0342: the region's crossfade, count and the program's later loops. */
   readonly program?: StreamLoopProgram;
   /** ADR 0162 B4: the sidecar's ambisonic convention, so the worker streams a 4, 9 or 16-channel file (FuMa converted). */
   readonly convention?: AmbisonicConvention;
-  /** ADR 0337 A4: stream this entry of a package loaded with `loadPack` instead of `bytes` (pass an empty buffer). */
+  /** ADR 0351 A4: stream this entry of a package loaded with `loadPack` instead of `bytes` (pass an empty buffer). */
   readonly pack?: PackRef;
 }
 
@@ -160,14 +160,14 @@ export interface DecoderClient {
    * ADR 0158 §4 (E4.4): changes a stream's loop region (`looping`; frames, end exclusive, 0/0 the whole file, both
    * omitted the file's own points) or releases it (`looping: false`), at stream frame `atStreamFrame` (the end of the
    * voice's current pass; omitted: where the worker is decoding). The caller reserves the stream's next epoch for it
-   * (the worker splices with it when that frame was sent already, `decoder/streams.ts`). ADR 0328: `program` adds the
+   * (the worker splices with it when that frame was sent already, `decoder/streams.ts`). ADR 0342: `program` adds the
    * region's crossfade, count and the program's later loops.
    */
   loopStream(streamId: number, looping: boolean, loopStartFrame?: number, loopEndFrame?: number, atStreamFrame?: number, program?: StreamLoopProgram): void;
   /** B3: closes a stream (the worker sends STREAM_CLOSE to the worklet). Unknown ids are answered too. */
   closeStream(streamId: number): void;
   /**
-   * ADR 0337 §7, A4: holds the `.mycopak` `bytes` in the worker as package `pack`, whose entries `decodeClip` and
+   * ADR 0351 §7, A4: holds the `.mycopak` `bytes` in the worker as package `pack`, whose entries `decodeClip` and
    * `openStream` then name with `pack` (a `compressed` Vorbis or Opus entry plays from the worker's copy through a stream
    * ring). Resolves with its entry count, rejects when the worker can't read it or can't run. A second load under the same
    * id replaces the first.
@@ -177,7 +177,7 @@ export interface DecoderClient {
    * (a package's memory isn't doubled on main for a rare crash). Without, a copy is kept here for the respawn.
    */
   loadPack(pack: number, bytes: ArrayBuffer, options?: { readonly refetch?: () => Promise<ArrayBuffer> }): Promise<{ readonly entries: number; readonly bytes: number }>;
-  /** ADR 0337: drops package `pack` here and in the worker (streams already open on it keep their copy). */
+  /** ADR 0351: drops package `pack` here and in the worker (streams already open on it keep their copy). */
   releasePack(pack: number): void;
   /**
    * ADR 0162 C2b: posts a zone IR request (`prepareIr`, `generateIr`, `releaseIr`) to the worker, which sends the kernel to
@@ -258,7 +258,7 @@ class Client implements DecoderClient {
   private readonly memberGroup = new Map<number, number>();
   private readonly musicListeners = new Set<(reply: MusicReply) => void>();
   /**
-   * ADR 0337: the packages loaded, and how a respawned worker gets each back: its kept bytes, or (W12) a fetch of it again;
+   * ADR 0351: the packages loaded, and how a respawned worker gets each back: its kept bytes, or (W12) a fetch of it again;
    * and the loads awaiting their answer.
    */
   private readonly packs = new Map<number, { readonly kept: ArrayBuffer | null; readonly refetch?: () => Promise<ArrayBuffer> }>();
@@ -282,7 +282,7 @@ class Client implements DecoderClient {
     } else {
       raw.postMessage({ type: "init", wasmUrl: this.options.wasmUrl ?? decoderWasmUrl().href });
     }
-    // ADR 0337: a respawned worker gets the packages back before any request that names them: kept bytes at once; a
+    // ADR 0351: a respawned worker gets the packages back before any request that names them: kept bytes at once; a
     // package fetched again (W12) holds every later message back (`gatedWorker`) until it is in, in order.
     const fetches: Promise<void>[] = [];
     for (const [pack, held] of this.packs) {

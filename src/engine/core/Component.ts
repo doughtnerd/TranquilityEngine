@@ -167,7 +167,7 @@ export interface LifecycleHooks {
   /**
    * A beat of the playlist an `AudioSource` on this node plays, when its playing entry has a tempo (a Sequence with a
    * tempo, or a sample with one): delivered by the audio system (late update) on the first frame whose heard clock has
-   * passed it. After a gap of more than one beat the beats coalesce into one call with `e.missed` set (ADR 0166, 0329).
+   * passed it. After a gap of more than one beat the beats coalesce into one call with `e.missed` set (ADR 0166, 0343).
    * Defining the hook is the subscription. `e` is reused: read it during the call, don't keep it.
    */
   onMusicBeat?(e: MusicEvent): void;
@@ -175,11 +175,11 @@ export interface LifecycleHooks {
   onMusicBar?(e: MusicEvent): void;
   /**
    * A cue of ADR 0166's music events. Playlists report cues as markers (`onAudioMarker`), so it isn't called for them
-   * (ADR 0329); kept so old scripts still compile.
+   * (ADR 0343); kept so old scripts still compile.
    */
   onMusicCue?(e: MusicEvent): void;
   /**
-   * A marker passing in the playlist an `AudioSource` on this node plays (ADR 0329): the Cue, Exit and Hit markers of its
+   * A marker passing in the playlist an `AudioSource` on this node plays (ADR 0343): the Cue, Exit and Hit markers of its
    * samples and its sequences' `cue` and `exit` markers, every type (`e.type` says which), delivered by the audio system
    * (late update) on the first frame whose heard clock has passed it (`e.time` is exact). A playlist's beats and bars
    * reach `onMusicBeat`/`onMusicBar` from there too. Defining the hook is the subscription; the handle's

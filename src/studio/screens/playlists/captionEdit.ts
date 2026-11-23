@@ -1,4 +1,4 @@
-// A playlist's sound caption (ADR 0343 §4, §6): `caption { key, minGap }`, a string key in the captions table and the
+// A playlist's sound caption (ADR 0357 §4, §6): `caption { key, minGap }`, a string key in the captions table and the
 // seconds within which the same caption isn't repeated. The Playlists inspector's Caption field edits it, refused or
 // next (0313). Pure.
 import { PLAYLIST_LIMITS } from "../../../engine/audio/playlist/format";

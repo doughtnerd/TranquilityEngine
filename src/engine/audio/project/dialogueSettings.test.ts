@@ -1,4 +1,4 @@
-// ADR 0341 §4: `audio.json` `settings.dialogue` survives a parse and write (a Studio save of audio.json must not drop it).
+// ADR 0355 §4: `audio.json` `settings.dialogue` survives a parse and write (a Studio save of audio.json must not drop it).
 import { describe, expect, it } from "vitest";
 import { audioProjectToJson, parseAudioProject } from "./format";
 

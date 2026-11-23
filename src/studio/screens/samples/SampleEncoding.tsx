@@ -1,4 +1,4 @@
-// The Encoding section over the open sample (ADR 0337 §6): the plan for each platform over the project, with this
+// The Encoding section over the open sample (ADR 0351 §6): the plan for each platform over the project, with this
 // file's sidecar as its document holds it (edits not yet written included), the source's facts from its peaks, exact
 // figures from the conversion service once "Exact sizes" (or Hear as) converted it, and edits through the sidecar
 // document as one undo step each (`applyEdit`).

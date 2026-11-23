@@ -1,8 +1,8 @@
-// Changed on disk (ADR 0328): when the project reports that an audio file changed (`Assets.onChanged`, fed by the
+// Changed on disk (ADR 0342): when the project reports that an audio file changed (`Assets.onChanged`, fed by the
 // project watch's `rereadFiles`) and its cues, regions or loops differ from what the sidecar last saw, the Sample panel
 // shows a banner and the merge review (`sampleFile.ts` `mergeRows`). The same review opens after a re-import.
 //
-// TODO(ADR 0327): the Studio doesn't run the project watch yet (the editor does, `editorProjectWatch.ts`), so outside
+// TODO(ADR 0341): the Studio doesn't run the project watch yet (the editor does, `editorProjectWatch.ts`), so outside
 // changes reach the Studio only once something calls `rereadFiles`; wiring the watch for the Studio is a shell task.
 import { effect, signal } from "@preact/signals";
 import { Assets } from "../../../engine";

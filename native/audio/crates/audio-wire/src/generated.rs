@@ -143,7 +143,7 @@ pub const MAX_PLAYHEADS_PER_BLOCK: u32 = 0x100;
 pub const MAX_CLIP_EVENTS_PER_BLOCK: u32 = 0x40;
 /// STATUS streamEvents cap
 pub const MAX_STREAM_EVENTS_PER_BLOCK: u32 = 0x40;
-/// frames per channel in one block of a format 6 (IMA ADPCM) clip (ADR 0337 §3, 0345 §5)
+/// frames per channel in one block of a format 6 (IMA ADPCM) clip (ADR 0351 §3, 0359 §5)
 pub const ADPCM_BLOCK_FRAMES: u32 = 0x400;
 /// bytes per channel per block of a format 6 clip: a 4-byte header, then 512 bytes of codes
 pub const ADPCM_CHANNEL_BYTES: u32 = 0x204;
@@ -251,11 +251,11 @@ pub const BUS_RAMP_LP_MIN_HZ: u32 = 0xa;
 pub const SHAPE_SEQUENCE_SHIFT: u32 = 0x3;
 /// BUS_RAMP shape sequenceId after the shift: 13 bits
 pub const SHAPE_SEQUENCE_MASK: u32 = 0x1fff;
-/// effects a slot keeps; a BUS_SLOT naming more keeps the first eight (ADR 0331, ABI 4.6)
+/// effects a slot keeps; a BUS_SLOT naming more keeps the first eight (ADR 0345, ABI 4.6)
 pub const BUS_SLOT_MAX_EFFECTS: u32 = 0x8;
-/// sends a bus keeps (BUS_SENDS, ADR 0330, ABI 4.7); more are dropped
+/// sends a bus keeps (BUS_SENDS, ADR 0344, ABI 4.7); more are dropped
 pub const MAX_BUS_SENDS: u32 = 0x4;
-/// BUS_SENDS item flags bit 0: muted (the send ramps to 0 and keeps its level; ADR 0330 D29 #7)
+/// BUS_SENDS item flags bit 0: muted (the send ramps to 0 and keeps its level; ADR 0344 D29 #7)
 pub const BUS_SEND_MUTED: u32 = 0x1;
 /// BUS_DUCK rule flags bit 0: level mode (reads the trigger bus's buffer; adds a bus-order edge)
 pub const DUCK_FLAG_LEVEL: u32 = 0x1;
@@ -275,7 +275,7 @@ pub const LOUD_FLAG_GATED: u32 = 0x200;
 pub const LOUD_FLAG_TP_GATE_ACTIVE: u32 = 0x400;
 /// binding param bit 15: a global slot (low 15 bits)
 pub const PARAM_GLOBAL: u32 = 0x8000;
-/// binding param bit 14 (bit 15 clear): a time parameter, TIME_* in bits 0-1 (ADR 0332; voices only)
+/// binding param bit 14 (bit 15 clear): a time parameter, TIME_* in bits 0-1 (ADR 0346; voices only)
 pub const PARAM_TIME: u32 = 0x4000;
 /// binding param bits 0-1 of a time parameter: which
 pub const PARAM_TIME_MASK: u32 = 0x3;
@@ -285,7 +285,7 @@ pub const TIME_VOICE: u32 = 0x0;
 pub const TIME_CLIP: u32 = 0x1;
 /// sequenceTime: the voice's group's sequence clock (TIME re-anchors it)
 pub const TIME_SEQUENCE: u32 = 0x2;
-/// loops a voice's LOOPS program keeps (ADR 0328); extra ones are ignored
+/// loops a voice's LOOPS program keeps (ADR 0342); extra ones are ignored
 pub const VOICE_LOOPS_MAX: u32 = 0x4;
 /// LOOPS item flags bits 0-1: 0 forward, 1 ping-pong, 2 backward
 pub const LOOP_DIRECTION_MASK: u32 = 0x3;
@@ -297,7 +297,7 @@ pub const LOOP_EXIT_SHIFT: u32 = 0x4;
 pub const LOOP_REENTER: u32 = 0x40;
 /// LOOPS item flags bit 7: a parameter activation holds while the parameter is below threshold (clear: above)
 pub const LOOP_BELOW: u32 = 0x80;
-/// instance submix slots the core lays out (ADR 0331); SUBMIX voiceId 0..63
+/// instance submix slots the core lays out (ADR 0345); SUBMIX voiceId 0..63
 pub const SUBMIXES_MAX: u32 = 0x40;
 /// effects a submix's chain keeps; extra ones are ignored
 pub const SUBMIX_EFFECTS_MAX: u32 = 0x8;
@@ -357,13 +357,13 @@ pub const BUS_AUTOMATE_MAX_BINDINGS: u32 = 0x10;
 pub const BUS_FX_HELD_SHIFT: u32 = 0x10;
 /// bus effect type bits 0-15: the type
 pub const BUS_FX_TYPE_MASK: u32 = 0xffff;
-/// parameters an effect record carries (BUS_CONFIG, BUS_SLOT, SUBMIX; ABI 5.0, ADR 0338; 7 and 8 before)
+/// parameters an effect record carries (BUS_CONFIG, BUS_SLOT, SUBMIX; ABI 5.0, ADR 0352; 7 and 8 before)
 pub const FX_PARAMS: u32 = 0x10;
-/// an effect kind at FX_PLUGIN_BASE + e is registered plugin effect e (0..FX_PLUGINS_MAX-1), run through the myco_ext import (ABI 5.0, ADR 0338); on a bus, BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e
+/// an effect kind at FX_PLUGIN_BASE + e is registered plugin effect e (0..FX_PLUGINS_MAX-1), run through the myco_ext import (ABI 5.0, ADR 0352); on a bus, BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e
 pub const FX_PLUGIN_BASE: u32 = 0x100;
 /// plugin effects the host may register (e is 0..255)
 pub const FX_PLUGINS_MAX: u32 = 0x100;
-/// each chain level's (the buses', the instance submixes') shared fuel per frame and quantum, across every plugin instance (0344 section 3): a call whose budget doesn't fit what is left passes dry
+/// each chain level's (the buses', the instance submixes') shared fuel per frame and quantum, across every plugin instance (0358 section 3): a call whose budget doesn't fit what is left passes dry
 pub const FX_PLUGIN_FUEL_PER_FRAME: u32 = 0x1388;
 /// myco_ext.process flags bit 0: a parameter moved this block (or the block is the first)
 pub const FX_PLUGIN_FLAG_PARAMS: u32 = 0x1;
@@ -403,7 +403,7 @@ pub const FADE_SHAPE_EXP3: u32 = 0x9;
 pub const LOOP_SEAM_SHAPE_SHIFT: u32 = 0x0;
 /// LOOPS item shapes bits 4-7: the exit crossfade's FADE_SHAPE_* (ABI 4.9)
 pub const LOOP_EXIT_SHAPE_SHIFT: u32 = 0x4;
-/// reserved clip ids of generator voices: GEN_CLIP_ID_FIRST + kind (ADR 0346; never uploaded)
+/// reserved clip ids of generator voices: GEN_CLIP_ID_FIRST + kind (ADR 0360; never uploaded)
 pub const GEN_CLIP_ID_FIRST: u32 = 0xffff0300;
 /// the reserved generator range's last id
 pub const GEN_CLIP_ID_LAST: u32 = 0xffff03ff;
@@ -518,7 +518,7 @@ pub mod clip_format {
     pub const MAG_LS: u32 = 4;
     /// zone IR PCM: interleaved stereo f32 at the context rate; the core prepares it
     pub const ZONE_IR_PCM: u32 = 5;
-    /// IMA ADPCM blocks (ADR 0337 §3, 0345 §5): channels 1 or 2, ADPCM_BLOCK_FRAMES frames of ADPCM_CHANNEL_BYTES per channel per block; chunks start on a block and carry whole blocks; decoded per voice
+    /// IMA ADPCM blocks (ADR 0351 §3, 0359 §5): channels 1 or 2, ADPCM_BLOCK_FRAMES frames of ADPCM_CHANNEL_BYTES per channel per block; chunks start on a block and carry whole blocks; decoded per voice
     pub const ADPCM_IMA: u32 = 6;
 }
 
@@ -1052,7 +1052,7 @@ pub struct ClipBegin {
     pub channels: u32,
     /// Sample rate in Hz.
     pub sample_rate: f32,
-    /// ClipFormat: 0 f32, 1 i16 (1, 2, 4, 9 or 16 channels), 2 HRIR, 3 prepared zone kernel, 4 MagLS filters, 5 zone IR PCM (formats 3-5: ADR 0162 C6), 6 IMA ADPCM blocks (1 or 2 channels; ADR 0337).
+    /// ClipFormat: 0 f32, 1 i16 (1, 2, 4, 9 or 16 channels), 2 HRIR, 3 prepared zone kernel, 4 MagLS filters, 5 zone IR PCM (formats 3-5: ADR 0162 C6), 6 IMA ADPCM blocks (1 or 2 channels; ADR 0351).
     pub format: u32,
 }
 
@@ -2123,7 +2123,7 @@ impl SetLoop {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AutomateBindings {
-    /// bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group
+    /// bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0346); both clear: local slot of the voice's group
     pub param: u16,
     /// curve id (CURVES)
     pub curve: u16,
@@ -2246,9 +2246,9 @@ pub const SET_VOICE_FX_MASK_SENDS: u32 = 0x2;
 pub const SET_VOICE_FX_MASK_YAW: u32 = 0x4;
 /// auxLevel and auxBus
 pub const SET_VOICE_FX_MASK_AUX: u32 = 0x8;
-/// spread (ADR 0333, ABI 4.11)
+/// spread (ADR 0347, ABI 4.11)
 pub const SET_VOICE_FX_MASK_SPREAD: u32 = 0x10;
-/// a mixed voice's high-pass, zone sends, ambisonic yaw, aux send and spread (ADR 0162 C3, ADR 0333); stamped like SET_PARAMS
+/// a mixed voice's high-pass, zone sends, ambisonic yaw, aux send and spread (ADR 0162 C3, ADR 0347); stamped like SET_PARAMS
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SetVoiceFx {
     pub voice_id: u32,
@@ -2265,7 +2265,7 @@ pub struct SetVoiceFx {
     pub aux_level: f32,
     /// aux send's bus; 0xFFFF (AUX_BUS_NONE) is none
     pub aux_bus: u16,
-    /// ADR 0333 (ABI 4.11): a spatial voice's spread in hundredths of a degree, 0..36000 (0 a point source, 36000 all round); ramped over rampFrames
+    /// ADR 0347 (ABI 4.11): a spatial voice's spread in hundredths of a degree, 0..36000 (0 a point source, 36000 all round); ramped over rampFrames
     pub spread: u16,
 }
 
@@ -2411,7 +2411,7 @@ impl LoopsLoops {
     }
 }
 
-/// replace a clip voice's loop program (ADR 0328); count 0 clears it
+/// replace a clip voice's loop program (ADR 0342); count 0 clears it
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Loops {
     pub voice_id: u32,
@@ -2523,7 +2523,7 @@ impl SubmixEffects {
     }
 }
 
-/// configure a submix's group, bus, parent and insert chain (ADR 0331); no effects frees it
+/// configure a submix's group, bus, parent and insert chain (ADR 0345); no effects frees it
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Submix {
     pub voice_id: u32,
@@ -2612,7 +2612,7 @@ impl Submix {
     }
 }
 
-/// route a voice into a submix slot (ADR 0331 levels)
+/// route a voice into a submix slot (ADR 0345 levels)
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Route {
     pub voice_id: u32,
@@ -3003,7 +3003,7 @@ impl CurvesCurves {
     }
 }
 
-/// define or overwrite curves firstCurve.. (ADR 0158 §3, 0332); 1024 curves of at most 64 keys
+/// define or overwrite curves firstCurve.. (ADR 0158 §3, 0346); 1024 curves of at most 64 keys
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Curves {
     pub voice_id: u32,
@@ -3151,7 +3151,7 @@ impl Param {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BusAutomateBindings {
-    /// bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group
+    /// bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0346); both clear: local slot of the voice's group
     pub param: u16,
     /// curve id (CURVES)
     pub curve: u16,
@@ -4049,7 +4049,7 @@ impl BusSlot {
     }
 }
 
-/// re-anchor a group's sequence clock (ADR 0332); stamped
+/// re-anchor a group's sequence clock (ADR 0346); stamped
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Time {
     pub voice_id: u32,
@@ -4169,7 +4169,7 @@ impl BusSendsSends {
     }
 }
 
-/// replace one bus's post-fader sends into returns (voiceId = bus slot); asap (ADR 0330)
+/// replace one bus's post-fader sends into returns (voiceId = bus slot); asap (ADR 0344)
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BusSends {
     pub voice_id: u32,
@@ -4247,7 +4247,7 @@ impl BusSends {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SubmixAutomateBindings {
-    /// bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group
+    /// bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0346); both clear: local slot of the voice's group
     pub param: u16,
     /// curve id (CURVES)
     pub curve: u16,
@@ -4287,7 +4287,7 @@ impl SubmixAutomateBindings {
     }
 }
 
-/// replace an instance submix's effect-parameter automation (ADR 0331, ABI 4.8); count 0 clears it
+/// replace an instance submix's effect-parameter automation (ADR 0345, ABI 4.8); count 0 clears it
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SubmixAutomate {
     pub voice_id: u32,
@@ -4438,7 +4438,7 @@ impl Listener {
     }
 }
 
-/// a generator voice's parameters and noise seed (ADR 0346, ABI 5.1); applies on arrival
+/// a generator voice's parameters and noise seed (ADR 0360, ABI 5.1); applies on arrival
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Gen {
     pub voice_id: u32,
@@ -5158,7 +5158,7 @@ pub struct StatusBlock {
     pub bus_records_early: u16,
     /// late sidechain detections (cumulative, saturating)
     pub sidechain_late: u16,
-    /// generator voices that found the generator pool full and play silent (cumulative, saturating; ADR 0346, ABI 5.1)
+    /// generator voices that found the generator pool full and play silent (cumulative, saturating; ADR 0360, ABI 5.1)
     pub gen_starved: u16,
     /// reserved, 0
     pub reserved2: u16,

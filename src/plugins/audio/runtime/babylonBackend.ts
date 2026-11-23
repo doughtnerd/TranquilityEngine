@@ -1043,10 +1043,10 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
 
   configureBuses(m: Mixer): void {
     this.mixerRef = m;
-    // ADR 0330 ("one warning per feature", 0179's rule): returns, bus sends and bus effects run only on the audio core.
+    // ADR 0344 ("one warning per feature", 0179's rule): returns, bus sends and bus effects run only on the audio core.
     const buses = m.audioSettings.buses;
     if (m.returnNames.length > 0 || buses.some((b) => b.effects.length > 0 || (b.sends?.length ?? 0) > 0)) {
-      warnOnce("babylon-mix-core", "returns, bus sends and bus effects need the audio core: on the Babylon audio fallback returns are silent, sends feed nothing and bus effects are skipped (ADR 0330, 0331).");
+      warnOnce("babylon-mix-core", "returns, bus sends and bus effects need the audio core: on the Babylon audio fallback returns are silent, sends feed nothing and bus effects are skipped (ADR 0344, 0345).");
     }
     const chain = this.chain;
     if (!chain) return; // before the first play: the buses are built with the engine

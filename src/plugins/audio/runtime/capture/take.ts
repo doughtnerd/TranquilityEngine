@@ -1,4 +1,4 @@
-// ADR 0334: `Audio.take`, one recording of a game run for the audio designer: what the game asked of audio (the request
+// ADR 0348: `Audio.take`, one recording of a game run for the audio designer: what the game asked of audio (the request
 // records) and the engine's profile of how it played (the capture ring's records), saved as one `*.mycotake` file. It
 // mirrors `Audio.capture` (`capture.ts`): `start()` loads the recorder chunk and joins the shared ring as an owner,
 // `stop()` ends the take (the ring's span is copied then, so the file ends where the take did), `save()` writes it.
@@ -6,7 +6,7 @@
 // **Lazy.** The recorder (`takeRecorder.ts`) and the saver (`save.ts`, and through them `format.ts`) are reached by
 // `import()` only, so a game that never records a take loads none of them; the hooks (`takeTap.ts`) cost one comparison.
 //
-// **Budgets (ADR 0334).** The profile keeps the ring's budget (its oldest data dropped behind GAP records on a long run);
+// **Budgets (ADR 0348).** The profile keeps the ring's budget (its oldest data dropped behind GAP records on a long run);
 // the requests are never dropped: a take that would pass the take cap (256 MiB) stops recording with a message, and what
 // it holds can still be saved. A take stops by itself when Play stops (or the Engine goes): it is kept for a `save()`.
 import { mixer } from "../../../../engine/audio/mixer";
@@ -17,7 +17,7 @@ import type { SaveTake } from "./save";
 import { activeWorldRandomState } from "./takeSeed";
 import { takeTap } from "./takeTap";
 
-/** `Audio.take` (ADR 0334). */
+/** `Audio.take` (ADR 0348). */
 export interface AudioTake {
   /** "idle" -> "loading" (the recorder chunk fetching) -> "recording" -> "stopped" (a take exists to save). */
   readonly state: AudioTakeState;
@@ -39,13 +39,13 @@ export type AudioTakeState = "idle" | "loading" | "recording" | "stopped";
 const NOTHING_RECORDED = "nothing recorded: call Audio.take.start() first";
 
 /**
- * ADR 0334: whether a take records pictures of the game view (`FRAME`, a 320 px JPEG about once a second; nothing headless).
+ * ADR 0348: whether a take records pictures of the game view (`FRAME`, a 320 px JPEG about once a second; nothing headless).
  * On by default; a game build turns it off with game.json `audioTakeFrames: false` beside `audioTake` (the player calls
  * `setTakeFrames`). Read when a take starts.
  */
 let takePictures = true;
 
-/** @internal ADR 0334: whether takes started from now on record pictures (game.json `audioTakeFrames`; default on). */
+/** @internal ADR 0348: whether takes started from now on record pictures (game.json `audioTakeFrames`; default on). */
 export function setTakeFrames(on: boolean): void {
   takePictures = on;
 }
@@ -112,7 +112,7 @@ class Take implements AudioTake {
     } catch {
       // Data only: an unserialisable section leaves the hash of what remains.
     }
-    // ADR 0334: the World's pick generator state now, so replay restarts from where the game's picks were (`takeSeed.ts`).
+    // ADR 0348: the World's pick generator state now, so replay restarts from where the game's picks were (`takeSeed.ts`).
     const random = activeWorldRandomState();
     this.seedFacts = { seed: random ?? 0, seeded: random !== null, audioHash: fnv1a(json) };
     rec = mod.createTakeRecorder(ring, {
@@ -188,7 +188,7 @@ class Take implements AudioTake {
 
 const take = new Take();
 
-/** ADR 0334: Play stops (the ring is freed): a running take stops and is kept for `save()`. */
+/** ADR 0348: Play stops (the ring is freed): a running take stops and is kept for `save()`. */
 onCapturePlayStopped(() => take.released());
 onAudioSessionReleased(() => take.released());
 

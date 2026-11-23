@@ -1,5 +1,5 @@
 /**
- * Localised files by folder (ADR 0340 §2, made generic by 0342 §10): under a localised root (an `audio.json`
+ * Localised files by folder (ADR 0354 §2, made generic by 0356 §10): under a localised root (an `audio.json`
  * `localisation.roots` folder or a `languages.assetRoots` folder) the first folder is a language code, and every file
  * under `<root>/<code>/` is that language's variant of `<root>/<any code>/<same rest>`. References name the reference
  * language's file; `variantPath` swaps the language at load or play time through a fallback chain.
@@ -42,7 +42,7 @@ export const variantOf = (parts: LocalisedParts, code: string): string => `${par
 
 /**
  * What `variantPath` found: the path to load and the language it is in (null for a path outside every root, returned
- * unchanged), or null when the path is localised but no language of the chain has the file (ADR 0340 §3: missing).
+ * unchanged), or null when the path is localised but no language of the chain has the file (ADR 0354 §3: missing).
  */
 export interface VariantMatch {
   path: string;

@@ -1,4 +1,4 @@
-/* Stub libc header for the decoder's libopus (ADR 0337 A7) (wasm32-unknown-unknown). libopus's FIXED_POINT decoder needs no libm at run time; the few
+/* Stub libc header for the decoder's libopus (ADR 0351 A7) (wasm32-unknown-unknown). libopus's FIXED_POINT decoder needs no libm at run time; the few
  * float helpers it declares map to clang builtins (lowered to wasm instructions where they exist). */
 #ifndef MYCO_OPUSDEC_MATH_H
 #define MYCO_OPUSDEC_MATH_H

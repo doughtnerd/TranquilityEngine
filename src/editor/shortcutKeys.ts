@@ -1,4 +1,4 @@
-// What a key press means, as the editor and the Audio Studio read it (ADR 0145, 0327): one pure classification of a
+// What a key press means, as the editor and the Audio Studio read it (ADR 0145, 0341): one pure classification of a
 // keydown into a shortcut, shared by the editor's shortcuts (shortcuts.ts) and the Studio's keys (studio/shell/
 // installKeys.ts), so Undo, Redo and stepping through history answer the same keys in both apps. A leaf: no DOM, no
 // signals, nothing but types imported.

@@ -1,4 +1,4 @@
-// What the History popover and its Undo and Redo buttons say (ADR 0335, 0145): for the active history (the focused
+// What the History popover and its Undo and Redo buttons say (ADR 0349, 0145): for the active history (the focused
 // document's), whether each button works, its tooltip naming the step and the keys, and the popover's heading.
 import type { ActiveHistory } from "../activeHistory";
 import { formatKeys } from "./keyCombo";

@@ -1,4 +1,4 @@
-// The decoder worker's message handler, factored out of the worker so Node tests drive it in-process (K7). ADR 0337 A4:
+// The decoder worker's message handler, factored out of the worker so Node tests drive it in-process (K7). ADR 0351 A4:
 // `packLoad` / `packRelease` hold `.mycopak` packages (`packs.ts`) whose entries `decodeClip` and `streamOpen` name with
 // `pack` (an ADPCM entry comes back as clip format 6 blocks or decoded int16). It routes
 // `decodeClip` and `cancel` to `clips.ts`, `stream*` (E4.4: `streamLoop` too) and `connectWorklet` to `streams.ts` (B3), and the
@@ -49,7 +49,7 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
   // ADR 0162 (K0): zone IR preparation, filled by C2b in irPrepare.ts. It sends kernels over the worklet port that
   // `connectWorklet` hands the stream decoder too, so it hears about each new port.
   const ir = new IrPreparer({ post, wasm: () => wasm, fetchBytes: options.fetchBytes });
-  // ADR 0337 §7, A4: the packages main loaded (`packs.ts`).
+  // ADR 0351 §7, A4: the packages main loaded (`packs.ts`).
   const packs = new PackStore();
 
   const load = async (msg: InitMessage): Promise<DecoderWasm> => {
@@ -112,7 +112,7 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
   };
 
   /**
-   * ADR 0337 A4: a held ADPCM entry as a clip: with load `compressed`, its blocks unchanged (info `clipFormat` 6, the core
+   * ADR 0351 A4: a held ADPCM entry as a clip: with load `compressed`, its blocks unchanged (info `clipFormat` 6, the core
    * decodes them per voice); otherwise decoded to int16 here (`myco_decode_adpcm`). Chunks of `CLIP_CHUNK_FRAMES` frames
    * (64 blocks) as any clip's. Returns the info, or null when cancelled.
    */
@@ -139,7 +139,7 @@ export function createDecoderHandler(options: HandlerOptions): DecoderHandler {
     return info;
   };
 
-  /** ADR 0337 A4: a stream over a held entry: the entry's bytes (a copy: the stream decoder owns what it opens) and hint. */
+  /** ADR 0351 A4: a stream over a held entry: the entry's bytes (a copy: the stream decoder owns what it opens) and hint. */
   const packStream = (msg: StreamOpenMessage): StreamOpenMessage | null => {
     if (!msg.pack) return msg;
     const held = packs.entry(msg.pack.pack, msg.pack.path);

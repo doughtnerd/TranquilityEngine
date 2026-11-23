@@ -34,8 +34,8 @@ fn presets() -> Vec<InitParams> {
 
 #[test]
 fn the_m4_regions_are_laid_out_before_the_arena_on_every_preset() {
-    // 0171/0172 M5 (K1) appends Lanes, Duck, Loudness and Sends after Groups, and ADR 0331 Submixes, before the arena;
-    // ADR 0337 A4 the ADPCM voice cursors after the effect memory, ADR 0346 the generator pool after them.
+    // 0171/0172 M5 (K1) appends Lanes, Duck, Loudness and Sends after Groups, and ADR 0345 Submixes, before the arena;
+    // ADR 0351 A4 the ADPCM voice cursors after the effect memory, ADR 0360 the generator pool after them.
     assert_eq!(
         &REGION_ORDER[REGION_ORDER.len() - 12..],
         &[RegionKind::Due, RegionKind::Curves, RegionKind::Groups, RegionKind::Lanes, RegionKind::Duck, RegionKind::Loudness, RegionKind::Sends, RegionKind::Submixes, RegionKind::FxMem, RegionKind::AdpcmCursors, RegionKind::GenEntries, RegionKind::Arena]
@@ -64,10 +64,10 @@ fn the_m4_regions_are_laid_out_before_the_arena_on_every_preset() {
         // The arena is still last, on a page, after the groups.
         let last = layout.regions().last().unwrap();
         assert_eq!(last.0, RegionKind::Arena);
-        assert_eq!(layout.region(RegionKind::Submixes).offset, layout.region(RegionKind::Sends).end().next_multiple_of(REGION_ALIGN), "ADR 0331's submixes after M5's regions (K1)");
-        assert_eq!(layout.region(RegionKind::FxMem).offset, layout.region(RegionKind::Submixes).end().next_multiple_of(REGION_ALIGN), "ADR 0331's effect memory after the submixes");
-        assert_eq!(layout.region(RegionKind::AdpcmCursors).offset, layout.region(RegionKind::FxMem).end().next_multiple_of(REGION_ALIGN), "ADR 0337's ADPCM cursors after the effect memory");
-        assert_eq!(layout.region(RegionKind::GenEntries).offset, layout.region(RegionKind::AdpcmCursors).end().next_multiple_of(REGION_ALIGN), "ADR 0346's generator pool after the ADPCM cursors");
+        assert_eq!(layout.region(RegionKind::Submixes).offset, layout.region(RegionKind::Sends).end().next_multiple_of(REGION_ALIGN), "ADR 0345's submixes after M5's regions (K1)");
+        assert_eq!(layout.region(RegionKind::FxMem).offset, layout.region(RegionKind::Submixes).end().next_multiple_of(REGION_ALIGN), "ADR 0345's effect memory after the submixes");
+        assert_eq!(layout.region(RegionKind::AdpcmCursors).offset, layout.region(RegionKind::FxMem).end().next_multiple_of(REGION_ALIGN), "ADR 0351's ADPCM cursors after the effect memory");
+        assert_eq!(layout.region(RegionKind::GenEntries).offset, layout.region(RegionKind::AdpcmCursors).end().next_multiple_of(REGION_ALIGN), "ADR 0360's generator pool after the ADPCM cursors");
         assert_eq!(arena.offset, layout.region(RegionKind::GenEntries).end().next_multiple_of(PAGE_BYTES), "the arena after the generator pool");
         assert!(layout.region(RegionKind::Lanes).offset >= groups.end());
         assert!(layout.regions().all(|(k, r)| k == RegionKind::Arena || r.end() <= arena.offset));
@@ -84,7 +84,7 @@ fn the_m4_regions_cost_at_most_one_page_and_change_nothing_before_them() {
     for p in presets() {
         let layout = Layout::new(&p);
         let before = layout.region(RegionKind::Scratch).end().next_multiple_of(PAGE_BYTES);
-        // Measured to where ADR 0331's submixes start (they are their own cost, `submix::REGION_BYTES`).
+        // Measured to where ADR 0345's submixes start (they are their own cost, `submix::REGION_BYTES`).
         let arena = layout.region(RegionKind::Groups).end().next_multiple_of(PAGE_BYTES);
         assert!(arena - before <= PAGE_BYTES, "{arena} vs {before}");
         assert!(arena - layout.region(RegionKind::Scratch).end() >= M4_REGIONS_SPAN);
@@ -102,8 +102,8 @@ fn the_m3_headroom_covers_the_m4_regions_on_every_preset() {
     for p in presets() {
         let layout = Layout::new(&p);
         let arena = layout.region(RegionKind::Arena).offset;
-        // ADR 0331's effect memory has its own headroom term (`coreMemory.ts` `fxMemRegionBytes`), like the spatial regions;
-        // so have ADR 0337's ADPCM cursors (`spatialRegionsBytes`, beside the `Fx` pool they follow).
+        // ADR 0345's effect memory has its own headroom term (`coreMemory.ts` `fxMemRegionBytes`), like the spatial regions;
+        // so have ADR 0351's ADPCM cursors (`spatialRegionsBytes`, beside the `Fx` pool they follow).
         let spatial: usize = [RegionKind::Beds, RegionKind::Zones, RegionKind::Wide, RegionKind::Fx, RegionKind::Scratch, RegionKind::FxMem, RegionKind::AdpcmCursors]
 
             .iter()

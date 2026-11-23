@@ -1,5 +1,5 @@
 /**
- * The playlist runtime's host (ADR 0329 "Runtime structure"): what every playlist instance shares, one per page (the
+ * The playlist runtime's host (ADR 0343 "Runtime structure"): what every playlist instance shares, one per page (the
  * backend is one per page too). It was the audio event runtime's `EventSystem` (ADR 0158) before the migration retired
  * the event containers; its shared half is kept here with the same behaviour:
  *
@@ -60,7 +60,7 @@ interface GlobalParam {
 }
 
 /**
- * @internal ADR 0329: a runtime hosted here (the playlist runtime). It shares the host's sink, curves, globals, groups,
+ * @internal ADR 0343: a runtime hosted here (the playlist runtime). It shares the host's sink, curves, globals, groups,
  * generators and frame, and hears what changes them.
  */
 export interface HostedRuntime {
@@ -153,7 +153,7 @@ export class PlaylistHost {
   /** @internal An instance's group is free again (its last voice has ended). */
   giveGroup(group: number): void {
     if (group <= 0) return;
-    // ADR 0331: its instance submix goes with it (its voices have ended).
+    // ADR 0345: its instance submix goes with it (its voices have ended).
     audioBackend().submixes?.close(group);
     // Compact the consumed head now and then (at most once per `MAX_GROUPS` takes), so the queue never grows past it.
     if (this.freeHead >= MAX_GROUPS) { this.freeGroups.splice(0, this.freeHead); this.freeHead = 0; }
@@ -225,7 +225,7 @@ export class PlaylistHost {
   }
 
   /**
-   * @internal ADR 0334: `world`'s generator state now (a u32), or null when its picks are unseeded (no `audio.seed`). A
+   * @internal ADR 0348: `world`'s generator state now (a u32), or null when its picks are unseeded (no `audio.seed`). A
    * take records it when it begins and at each keyframe, so replay can restart from it (`reseedWorld`).
    */
   randomState(world: number): number | null {
@@ -234,7 +234,7 @@ export class PlaylistHost {
   }
 
   /**
-   * @internal ADR 0334: restart `world`'s generator from `state` (a `randomState`, seeded even where the project has no
+   * @internal ADR 0348: restart `world`'s generator from `state` (a `randomState`, seeded even where the project has no
    * `audio.seed`) and forget its pick state (shuffle bags, last picks), so a replay picks as the recording did.
    */
   reseedWorld(world: number, state: number): void {
@@ -270,7 +270,7 @@ export class PlaylistHost {
     try { return audioBackend().clock?.horizon() ?? null; } catch { return null; }
   }
 
-  /** @internal A clip's length in seconds at pitch 1, or null (a derived sample's: its source file's, ADR 0328). */
+  /** @internal A clip's length in seconds at pitch 1, or null (a derived sample's: its source file's, ADR 0342). */
   clipLength(path: string): number | null {
     return clipDuration(path);
   }

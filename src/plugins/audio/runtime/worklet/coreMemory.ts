@@ -24,7 +24,7 @@ export const PAGE_BYTES = 65_536;
 /**
  * @internal Headroom in the Memory's `maximum` for M2's fixed regions past the arena (architecture §5.1: ≈ 7.7 MB, 9.6 MB
  * high, plus the 0.75 MB HRIR). ADR 0162's regions and the zone kernels come on top: `fixedRegionsHeadroomBytes`. 18 MiB since
- * ADR 0332/0328: the automation region's time clocks, voice start frames and loop-program pool took the last of 16 MiB on
+ * ADR 0346/0342: the automation region's time clocks, voice start frames and loop-program pool took the last of 16 MiB on
  * the largest preset (8,192 logical voices at 96 kHz: 16.1 MB with the HRIR 16.9 MB).
  */
 export const M2_REGIONS_HEADROOM_BYTES = 18 << 20;
@@ -65,11 +65,11 @@ const FADE_TAIL_FRAMES = 1_536;
 /** `stream::WIDE_RING_BYTES`: 16 × (32,768 + 2,048 + 1,536) × 4 B (R16 after B4's stall test). */
 const WIDE_RING_BYTES = STREAM_MAX_CHANNELS * (STREAM_RING_FRAMES_WIDE + STREAM_WIDE_CHUNK_FRAMES + FADE_TAIL_FRAMES) * 4;
 /** `fxpool::FX_ENTRY_BYTES`. */
-const FX_ENTRY_BYTES = 560; // 448 before ADR 0333 (ABI 4.11) added spread
+const FX_ENTRY_BYTES = 560; // 448 before ADR 0347 (ABI 4.11) added spread
 /** `layout::PLANAR_SCRATCH_BYTES`. */
 const PLANAR_SCRATCH_BYTES = 16 * QUANTUM * 4;
 /**
- * `adpcm_voice::CURSOR_BYTES` (ADR 0337 A4, ABI 4.12): one ADPCM voice cursor, a 512-frame stereo int16 window and its
+ * `adpcm_voice::CURSOR_BYTES` (ADR 0351 A4, ABI 4.12): one ADPCM voice cursor, a 512-frame stereo int16 window and its
  * decoder and seam state, one per mixed voice in the `AdpcmCursors` region after `FxMem`.
  */
 const ADPCM_CURSOR_BYTES = 2_176;
@@ -134,7 +134,7 @@ export function spatialRegionsBytes(preset: CorePreset, sampleRate: number): num
   const zones = zonesRegionBytes(preset.maxZoneSlots, zoneMaxFrames(preset, sampleRate), preset.maxBuses);
   const wide = preset.maxWide * WIDE_RING_BYTES;
   const fx = alignUp(preset.maxMixed * FX_ENTRY_BYTES, REGION_ALIGN);
-  // ADR 0337 A4: the ADPCM voice cursors, one per pool entry (laid out after `FxMem`, sized like the pool).
+  // ADR 0351 A4: the ADPCM voice cursors, one per pool entry (laid out after `FxMem`, sized like the pool).
   const adpcm = preset.maxMixed * ADPCM_CURSOR_BYTES;
   return [beds, zones, wide, fx, PLANAR_SCRATCH_BYTES, adpcm].reduce((sum, n) => sum + alignUp(n, REGION_ALIGN), 0);
 }
@@ -170,7 +170,7 @@ const FX_MAX_BLOCKS = 2_048;
 const FX_HEADER_BYTES = alignUp(16 + FX_MAX_BLOCKS, REGION_ALIGN);
 
 /**
- * @internal ADR 0331 (ABI 4.6): the `FxMem` region (`audio-core/src/fxmem.rs` `region_bytes`): the effect memory of bus
+ * @internal ADR 0345 (ABI 4.6): the `FxMem` region (`audio-core/src/fxmem.rs` `region_bytes`): the effect memory of bus
  * chains and instance submixes (delay lines, reverbs), `FX_MEMORY_SECONDS` of stereo audio at the rate in 16 KB blocks
  * (7.7 MB at 48 kHz), laid out on every preset before the arena.
  */
@@ -190,7 +190,7 @@ export function musicRingsBytes(preset: CorePreset): number {
 }
 
 /**
- * @internal The bytes a CLIP_CHUNK of `frames` frames carries for a clip of `channels` in `format`: its samples, or (ADR 0337
+ * @internal The bytes a CLIP_CHUNK of `frames` frames carries for a clip of `channels` in `format`: its samples, or (ADR 0351
  * A4, format 6) its whole IMA ADPCM blocks (`ADPCM_CHANNEL_BYTES` per channel per `ADPCM_BLOCK_FRAMES`, the last block
  * padded). 0 for a format the shell doesn't know.
  */

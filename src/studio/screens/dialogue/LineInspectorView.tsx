@@ -1,4 +1,4 @@
-// The Line inspector (ADR 0340 §9, §7, 0341 §4, 0343 §6): the selected line's speaker and table; per language its
+// The Line inspector (ADR 0354 §9, §7, 0355 §4, 0357 §6): the selected line's speaker and table; per language its
 // status, text, file, length, normalisation and lip-sync keys, an Audition button (the preview language's is also
 // Space on the screen) and "Open in Samples", and the subtitle strip; then notes, tags, subtitled, cooldown and once.
 // A view over props: edits are callbacks, each one undo step.

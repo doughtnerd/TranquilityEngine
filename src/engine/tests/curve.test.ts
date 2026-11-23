@@ -54,7 +54,7 @@ describe("evalCurve", () => {
   });
 });
 
-describe("evalCurve with Bézier keys (ADR 0332)", () => {
+describe("evalCurve with Bézier keys (ADR 0346)", () => {
   const third = 1 / 3;
 
   it("is smoothstep for a flat third-long out handle into a plain key (the next key's handle is the flat third)", () => {

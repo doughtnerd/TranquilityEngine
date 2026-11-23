@@ -1,4 +1,4 @@
-// What the Studio's status bar says (ADR 0335 `StudioStatusBar`): the runtime's state and figures from its public
+// What the Studio's status bar says (ADR 0349 `StudioStatusBar`): the runtime's state and figures from its public
 // debug info ("Rust core · 48 kHz · Voices 3 / 64 · CPU 4.2 % · 23 ms"), and trouble in words (locked, failed,
 // underruns), each part with a tooltip saying more.
 import type { StudioAudioStats } from "../runtime/audioStats";

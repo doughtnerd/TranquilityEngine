@@ -39,7 +39,7 @@ describe("conditions", () => {
   });
 });
 
-describe("snapshot resolution (ADR 0330)", () => {
+describe("snapshot resolution (ADR 0344)", () => {
   it("override snapshots resolve per bus by priority; Add stacks on top", () => {
     const r = resolveSnapshots([
       { snapshot: snap({ name: "Underwater", priority: 20, buses: { Music: -6, Ambience: -20 } }) },

@@ -1,4 +1,4 @@
-// ADR 0333: spatial test scenes — the lenient parse, the writer's round trip and the references with their rewrite.
+// ADR 0347: spatial test scenes — the lenient parse, the writer's round trip and the references with their rewrite.
 import { describe, expect, it } from "vitest";
 import { audioTestSceneToJson, AUDIO_SCENE_LIMITS, emptyAudioTestScene, parseAudioTestScene, rewriteTestSceneReferences, routeLength, routePose, testSceneReferences } from "./testScene";
 import { AUDIO_SCENE_FORMAT } from "./testSceneTypes";

@@ -1,4 +1,4 @@
-// ADR 0333: the spatial test scene player on the fake backend — the scene built from the engine's own components, moving
+// ADR 0347: the spatial test scene player on the fake backend — the scene built from the engine's own components, moving
 // emitters along their routes, the active listener, live edits, the readout, A/B replacement in a base scene, dispose.
 import { describe, expect, it } from "vitest";
 import { getComponentClass } from "../../../../engine/core/registry";

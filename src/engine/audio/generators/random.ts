@@ -1,5 +1,5 @@
 /**
- * The generators' seeded random source (ADR 0346 §7): mulberry32, the same generator the playlist runtime's World uses,
+ * The generators' seeded random source (ADR 0360 §7): mulberry32, the same generator the playlist runtime's World uses,
  * so the blip randomiser gives the same parameters for the same seed on every machine.
  *
  * Pure; no plugin, no DOM.

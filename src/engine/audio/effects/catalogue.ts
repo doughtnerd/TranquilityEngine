@@ -1,5 +1,5 @@
 /**
- * The effect catalogue (ADR 0331): the one place that names every effect type, its parameters (ranges, steps, units,
+ * The effect catalogue (ADR 0345): the one place that names every effect type, its parameters (ranges, steps, units,
  * defaults, scale), the levels it may run at, its version and its profiler cost class. Every format that holds effects
  * (sample blocks, playlists, sequences, the mix) parses them with `parseEffect`/`parseEffects` and writes them with
  * `effectToJson`; the Studio's effect editors and the core's opcodes read their ranges from here.
@@ -10,15 +10,15 @@
  *
  * The parse is lenient: an unknown type is dropped with one problem line, a missing parameter takes its default, a
  * value out of range is clamped, an unknown parameter is dropped, and an effect at a level its type can't run at is
- * kept (so it can be moved, ADR 0331 "Move to the track") with a problem line; the runtime skips it (`allowedAt`).
+ * kept (so it can be moved, ADR 0345 "Move to the track") with a problem line; the runtime skips it (`allowedAt`).
  *
- * **Plugin effects** (ADR 0338 §4). Types namespaced by a plugin ("example.tremolo") join the catalogue when the audio
+ * **Plugin effects** (ADR 0352 §4). Types namespaced by a plugin ("example.tremolo") join the catalogue when the audio
  * plugin registers the specs a plugin's `audio` section declares (`registerPluginEffects`, parsed by
  * `pluginEffects.ts`); `effectSpec` then answers for them as for built-ins, so every editor, card, menu and parse treats
  * them alike. A plugin type whose plugin is off or not installed is **kept**, not dropped: `effectSpec` answers a spec
  * with `plugin.state` "off" or "missing" (a missing one has no parameters), the parse keeps its parameters as written,
  * `effectToJson` writes them back untouched, and the runtime passes audio through with one warning
- * (`pluginEffectNote`). Unknown types without a dot are still dropped (0331's rule).
+ * (`pluginEffectNote`). Unknown types without a dot are still dropped (0345's rule).
  *
  * Pure (the plugin effect registry is module state, set by the audio plugin and the player); no plugin, no DOM.
  */
@@ -98,13 +98,13 @@ const PLUGIN_TYPE_RE = /^[a-z0-9][a-z0-9._-]*$/;
 /** True when `type` names a built-in type. */
 export const isBuiltinEffectType = (type: unknown): type is BuiltinEffectType => typeof type === "string" && TYPE_SET.has(type);
 
-/** ADR 0338 §4: true when `type` is shaped like a plugin effect type (lower case, namespaced: it has a dot). */
+/** ADR 0352 §4: true when `type` is shaped like a plugin effect type (lower case, namespaced: it has a dot). */
 export const isPluginEffectType = (type: unknown): type is PluginEffectType => typeof type === "string" && type.includes(".") && PLUGIN_TYPE_RE.test(type);
 
 /** True when `type` is an effect type a file may hold: a built-in, or a plugin type (registered or not). */
 export const isEffectType = (type: unknown): type is EffectType => isBuiltinEffectType(type) || isPluginEffectType(type);
 
-// --- plugin effects (ADR 0338 §4) ------------------------------------------------------------------------------------
+// --- plugin effects (ADR 0352 §4) ------------------------------------------------------------------------------------
 
 /** What the audio plugin (or the player) registers for one plugin: its identity, whether it runs, and its effects. */
 export interface PluginEffectsRegistration {
@@ -236,7 +236,7 @@ export function parseEffect(raw: unknown, level: EffectLevel, where: string, pro
   const effect: Effect = { id, type: s.type, on: r.bool(raw.on, `${where}.on`, true), params: {} };
   const params = r.record(raw.params, `${where}.params`) ?? {};
   if (heldAsWritten(s)) {
-    // ADR 0338 §4: a plugin that is off or missing can't say what its parameters mean; keep them as written.
+    // ADR 0352 §4: a plugin that is off or missing can't say what its parameters mean; keep them as written.
     for (const [name, v] of Object.entries(params)) {
       if (isFiniteNumber(v)) effect.params[name] = v;
       else r.problem(`${where}.params.${name}`, "must be a number; dropped.");
@@ -285,7 +285,7 @@ export function parseEffects(raw: unknown, level: EffectLevel, where: string, pr
 /**
  * An effect as JSON: `id`, `type`, `on`, then only the parameters that differ from their defaults (`params` left out
  * when none do), and `key` for a type that takes one. `parseEffect` of the result gives the effect back. A plugin
- * effect whose plugin is off or missing writes every parameter it holds, as read (ADR 0338 §4).
+ * effect whose plugin is off or missing writes every parameter it holds, as read (ADR 0352 §4).
  */
 export function effectToJson(effect: Effect): Record<string, unknown> {
   const s = effectSpec(effect.type);

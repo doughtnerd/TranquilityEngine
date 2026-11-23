@@ -1,4 +1,4 @@
-// A strip of pictures on a time axis (ADR 0334's picture lane; the Take screen and the Profiler's Picture track): which
+// A strip of pictures on a time axis (ADR 0348's picture lane; the Take screen and the Profiler's Picture track): which
 // thumbnails to draw so none overlap, and the picture on screen at a time. Pure.
 
 /** The pictures to draw on a lane: by time, each at least `gap` pixels after the last drawn, so thumbnails don't overlap. */

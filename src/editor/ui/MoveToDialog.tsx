@@ -1,4 +1,4 @@
-// The Move to… dialog (ADR 0335): pick a folder for one or more files or folders. The project's folders as a tree
+// The Move to… dialog (ADR 0349): pick a folder for one or more files or folders. The project's folders as a tree
 // (`TreeView`, every folder open to start) or, while searching, the matching folders by path; the folder the items
 // are in and a moved folder with everything inside it are disabled, with why (`moveToModel.ts`). Move (or Enter, or
 // a double-click) confirms; Escape, Cancel or a click outside cancels.

@@ -1,4 +1,4 @@
-// Latency calibration (ADR 0335 `LatencyCalibrationDialog`): tap on the beat, by ear (clicks) or by eye (four boxes
+// Latency calibration (ADR 0349 `LatencyCalibrationDialog`): tap on the beat, by ear (clicks) or by eye (four boxes
 // flashing in turn), a beat every 500 ms. Each tap's error is folded into ±250 ms and the last 16 are plotted on a
 // ±150 ms strip with their average; "Use +N ms" works from 4 taps (`calibrationModel.ts`). Tap with the button,
 // Space or Enter. Start over clears the taps; Cancel (or Escape) leaves the offset as it was.

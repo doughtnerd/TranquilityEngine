@@ -1,4 +1,4 @@
-// The Studio's side of sharing a project folder with the editor and other apps (ADR 0327, "One app owns each file;
+// The Studio's side of sharing a project folder with the editor and other apps (ADR 0341, "One app owns each file;
 // both watch"), the counterpart of the editor's editorProjectWatch.ts: while a project folder is open the Studio holds
 // `.myco/locks/studio.json` (`{app, pid, started}`; the pid from the desktop shell's `process_id`), and follows outside
 // changes to the project's files (projectWatch.ts: live on the desktop; in the browser when the window gets the focus):
@@ -45,7 +45,7 @@ export async function applyStudioChanges(project: EditorProject, changes: Pick<P
   const result = await project.rereadFiles(changes.files);
   if (result.removed.length > 0) await assetDocumentsDeleted(result.removed);
   if (result.changed.length + result.added.length + result.removed.length > 0) docVersion.value++;
-  // ADR 0338 §8: a plugin's manifest or module file changed (a rebuilt .wasm): its audio effects reload.
+  // ADR 0352 §8: a plugin's manifest or module file changed (a rebuilt .wasm): its audio effects reload.
   if ([...result.changed, ...result.added, ...result.removed].some(affectsAudioEffects)) await applyProjectAudioEffects(project);
   return result;
 }

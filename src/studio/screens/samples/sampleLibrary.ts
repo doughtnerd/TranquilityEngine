@@ -1,4 +1,4 @@
-// The Samples panel's model (ADR 0328 "Samples are assets"): the project's audio files and derived samples
+// The Samples panel's model (ADR 0342 "Samples are assets"): the project's audio files and derived samples
 // (`*.sample.json`) by folder, the search's flat list with paths, the meta line and the file chip of a row, deleting a
 // folder by moving what's in it up, and the playlists that use a sample ("Used by", the Delete prompt). Pure: the view
 // passes the project's paths and parsed files.

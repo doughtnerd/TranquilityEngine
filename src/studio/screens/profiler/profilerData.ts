@@ -1,4 +1,4 @@
-// Everything the Profiler screen draws, read from one open capture (ADR 0334 "The Profiler screen" on the existing
+// Everything the Profiler screen draws, read from one open capture (ADR 0348 "The Profiler screen" on the existing
 // reader, Worker, track kit (0261) and loudness client): the STATUS feed through the track kit (voices and the voice cap,
 // the cursor's step and jump columns, the CPU tracks' columns through the editor's `cpuTracks`), the bus gain samples
 // through `BusSampler`, the loudness series and the marks against the target through `LoudnessSource`, and the typed
@@ -57,7 +57,7 @@ export interface ProfilerData {
   readonly load: LoadData | null;
   /** DSP cost by section (where effects run), estimated from the CPU meter (`effectsCostModel.ts`); null before it is fitted. */
   readonly effects: EffectsCost | null;
-  /** ADR 0337 §6: the clip arena and the loaded packages' memory over time (`memoryModel.ts`); null without either. */
+  /** ADR 0351 §6: the clip arena and the loaded packages' memory over time (`memoryModel.ts`); null without either. */
   readonly memory: MemoryData | null;
   /** Each bus's effective gain, dB, by slot. */
   readonly buses: ReadonlyMap<number, Series>;
@@ -71,7 +71,7 @@ export interface ProfilerData {
   /** The loudness target in force (from the capture's META), or null. */
   readonly target: CaptureLoudnessTarget | null;
   /**
-   * ADR 0334: a take's pictures of the game view (the Picture track), in time order; empty for a capture. Their times
+   * ADR 0348: a take's pictures of the game view (the Picture track), in time order; empty for a capture. Their times
    * are take seconds, which count from the recording's start as viewport time does.
    */
   readonly frames: readonly TakeFrame[];
@@ -79,7 +79,7 @@ export interface ProfilerData {
 
 /** The events the screen reads beside the voices. */
 const OTHER_EVENT_TYPES: readonly CaptureEventType[] = ["parameter", "snapshot", "musicTransition", "audioPackage"];
-/** ADR 0337 §6: the STATUS column the memory track reads. */
+/** ADR 0351 §6: the STATUS column the memory track reads. */
 const MEMORY_COLUMN = "arenaUsedKB";
 
 /** The capture's META `target` as a loudness target (the recorder writes the `audio.loudnessTargets` entry in force), or null. */

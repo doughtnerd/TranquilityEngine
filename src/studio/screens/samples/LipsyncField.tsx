@@ -1,4 +1,4 @@
-// The Samples inspector's Lip-sync row (ADR 0340 §7): how many viseme keys the sample's sidecar holds, Import (Rhubarb
+// The Samples inspector's Lip-sync row (ADR 0354 §7): how many viseme keys the sample's sidecar holds, Import (Rhubarb
 // Lip Sync's TSV or JSON output, read by `engine/audio/localisation/lipsync.ts`; the Studio never runs Rhubarb) and
 // Clear, each one undo step through the sample's session.
 import { parseRhubarb, withLipsync } from "../../../engine/audio/localisation/lipsync";

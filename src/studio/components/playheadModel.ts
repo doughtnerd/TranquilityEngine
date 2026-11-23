@@ -1,4 +1,4 @@
-// The playhead's model (ADR 0335 `Playhead`): where an audition is, in source seconds, from the audio clock. A run
+// The playhead's model (ADR 0349 `Playhead`): where an audition is, in source seconds, from the audio clock. A run
 // starts at clock time `startedAt` from source time `from`, plays forward to `to` and, with a loop, cycles
 // `[loop.start, loop.end)` for `loop.count` passes (0: endless) before running on to `to`. A pre-roll is silent clock
 // time before `from`. Pure: no DOM, no audio.

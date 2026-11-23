@@ -1,5 +1,5 @@
-// Project Settings > Audio since the editor's audio panels moved to the Audio Studio (ADR 0327): the project's audio is
-// `audio.json` (ADR 0330), which the Studio edits, so the category says so and opens the Studio on its Mixer screen.
+// Project Settings > Audio since the editor's audio panels moved to the Audio Studio (ADR 0341): the project's audio is
+// `audio.json` (ADR 0344), which the Studio edits, so the category says so and opens the Studio on its Mixer screen.
 import { editor } from "../../../editor/sdk";
 
 export function AudioStudioPointer() {

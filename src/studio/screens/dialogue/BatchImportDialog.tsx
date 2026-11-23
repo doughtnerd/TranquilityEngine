@@ -1,8 +1,8 @@
-// Batch import (ADR 0340 §9, §8): pick files or a folder of a voice-over delivery, choose a naming pattern (presets or
+// Batch import (ADR 0354 §9, §8): pick files or a folder of a voice-over delivery, choose a naming pattern (presets or
 // typed, tokens {lang} {key} {table} {ignore}), the language of files without {lang}, and whether unknown keys become
 // rows of a table; the preview lists every file with what applying does (matched, replace, new row, skipped and why).
 // Apply copies the files into the localised roots and writes each sidecar's `vo` and `normalize` (and `lipsync` from a
-// Rhubarb Lip Sync `.txt`/`.json` picked beside a file with the same name, ADR 0340 §7). A view over props;
+// Rhubarb Lip Sync `.txt`/`.json` picked beside a file with the same name, ADR 0354 §7). A view over props;
 // the screen reads the files and applies the plan.
 import { SelectBox } from "../../../editor/ui/PanelFields";
 import type { LanguageDef } from "../../../engine/localisation/languages";

@@ -1,4 +1,4 @@
-// The Sequence view's shared model pieces (ADR 0329 Sequence; the prototype's Sequencer, proto §1.5): what a clip's
+// The Sequence view's shared model pieces (ADR 0343 Sequence; the prototype's Sequencer, proto §1.5): what a clip's
 // source tells the timeline (`SourceFacts`, read from the sample's sidecar or the linked playlist), a clip's length
 // when its file says 0 ("to the end of the source"), the sequence's length when it says 0 ("to the end of the longest
 // clip"), finding clips and tracks, fresh ids, and lifting an edit of the `sequence` block into an edit of the playlist
@@ -91,7 +91,7 @@ export interface ClipAt {
 }
 
 /**
- * ADR 0336: the tails the timeline shades. `postExit`: from the last Exit marker to the end of the audio (`end`, the
+ * ADR 0350: the tails the timeline shades. `postExit`: from the last Exit marker to the end of the audio (`end`, the
  * sequence's length or its longest clip's end), what rings on when a Switch hands over there. `loopTail`: for a loop
  * with `tail`, from its end to the first Exit marker after it, what rings over the next pass at each wrap.
  */

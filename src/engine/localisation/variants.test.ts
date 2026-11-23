@@ -47,7 +47,7 @@ describe("variantPath", () => {
     expect(variantPath("images/loc/en/logo.png", ["ja"], roots, exists)).toBeNull();
   });
 
-  it("works for asset roots too (0342 §10)", () => {
+  it("works for asset roots too (0356 §10)", () => {
     expect(variantPath("images/loc/en/logo.png", ["ja", "en"], roots, exists)).toEqual({ path: "images/loc/en/logo.png", language: "en" });
   });
 });

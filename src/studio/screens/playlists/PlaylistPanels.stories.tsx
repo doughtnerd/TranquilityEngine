@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the Playlists screen's other panels and dialogs: the Inspector (an entry, playback,
+// Stories (ADR 0219, 0349) for the Playlists screen's other panels and dialogs: the Inspector (an entry, playback,
 // output, effects, spatial, local parameters, used by), the Add dialog (filters with counts, cycles disabled), the
 // Library, Plays now / Voices with a log, and the delete confirmation with its choices.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

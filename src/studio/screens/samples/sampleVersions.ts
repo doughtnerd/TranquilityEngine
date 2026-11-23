@@ -1,4 +1,4 @@
-// Re-import and source versions on the Samples screen (ADR 0328 "Source versions"). Re-import copies a new file over
+// Re-import and source versions on the Samples screen (ADR 0342 "Source versions"). Re-import copies a new file over
 // the sample's audio file and keeps every version's audio in `.myco/sample-versions/<path>/v<n>.<ext>` (the list in
 // `versions.json`, `sourceVersions.ts`); the edits are carried onto the new length (`remap.ts`: keep seconds, or scale
 // to the new length) as one undo step ("Re-import · v2") that records the version in `sample.sourceVersion`; the WAV's

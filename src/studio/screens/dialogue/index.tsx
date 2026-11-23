@@ -1,4 +1,4 @@
-// The Dialogue screen (ADR 0340 §9, 0341 §7, 0343 §6; Wwise's Voice Profiler and dialogue events, FMOD's audio tables):
+// The Dialogue screen (ADR 0354 §9, 0355 §7, 0357 §6; Wwise's Voice Profiler and dialogue events, FMOD's audio tables):
 // the fixed panel with the Lines, Languages, Report and Events tabs, the Line inspector (right) and History. Every edit
 // is a labelled step of its file's asset document — line tables, string tables, translations, dialogue files,
 // `audio.json` and `project.json` (languages, only while no editor holds the project) — and sidecars through the Samples
@@ -227,7 +227,7 @@ async function applyBatch(s: Screen): Promise<void> {
         docVersion.value++;
       }
       const measured = measureLoudness(await decodeAudio(s.project, bytes, dest));
-      // ADR 0340 §7: Rhubarb output picked beside the file goes into its sidecar in the same step.
+      // ADR 0354 §7: Rhubarb output picked beside the file goes into its sidecar in the same step.
       const rider = r.lipsync ? byRel.get(r.lipsync) : undefined;
       const lipsync = rider ? parseRhubarb(await rider.text(), rider.name) : null;
       if (lipsync && !lipsync.lipsync) failed.push(`${r.lipsync}: ${lipsync.problems[0] ?? "no mouth cues"}`);
@@ -271,7 +271,7 @@ function BatchTab(s: Screen) {
 
 // --- Languages -------------------------------------------------------------------------------------------------------
 
-/** Read whether the editor holds the project (0340 §1); a project in memory has no editor. */
+/** Read whether the editor holds the project (0354 §1); a project in memory has no editor. */
 async function refreshEditorLock(project: EditorProject): Promise<void> {
   if (!project.fileSystem || !project.root) return void (editorLock.value = "none");
   try {

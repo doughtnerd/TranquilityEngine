@@ -1,4 +1,4 @@
-// The component kit's pure models (ADR 0335): context menu keys, toasts with an Undo, segmented control keys, the
+// The component kit's pure models (ADR 0349): context menu keys, toasts with an Undo, segmented control keys, the
 // Move to… rules, key combos, the shortcuts list and the History popover's words.
 import { describe, expect, it, vi } from "vitest";
 import { SEPARATOR, edgeIndex, stepIndex, tidyEntries, typeaheadIndex, type MenuEntry } from "./contextMenuModel";

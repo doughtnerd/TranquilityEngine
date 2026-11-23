@@ -1,4 +1,4 @@
-//! Opus decoding (ADR 0337 A7, 0345 §4): libopus 1.5.2 (vendored in `native/audio/third_party/opus`, BSD-3-Clause),
+//! Opus decoding (ADR 0351 A7, 0359 §4): libopus 1.5.2 (vendored in `native/audio/third_party/opus`, BSD-3-Clause),
 //! **fixed point**, compiled by `build.rs` with every external symbol renamed (`opus/rename.h`, so the encoder's float
 //! libopus can share a native test binary) and, on wasm32, against stub libc headers (`opus/cstub/`) with no imports:
 //! the decoder's state lives in Rust memory (`opus_decoder_get_size`, `opus_decoder_init`), so libopus never calls

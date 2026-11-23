@@ -1,4 +1,4 @@
-// Baked samples in a build (ADR 0328): a sample with enabled baked effects and no render ships a render and points at it;
+// Baked samples in a build (ADR 0342): a sample with enabled baked effects and no render ships a render and points at it;
 // flattened, normalize-only and non-WAV samples are left alone (the last with a log line); a render the Studio cached
 // is shipped as it is; a derived sample gets its own render.
 import { describe, expect, it } from "vitest";

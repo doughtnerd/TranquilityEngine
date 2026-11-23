@@ -1,4 +1,4 @@
-// What the Blend views draw (the prototype's 1D lane and 2D plane; ADR 0329 "Blend"), from the engine's own weights
+// What the Blend views draw (the prototype's 1D lane and 2D plane; ADR 0343 "Blend"), from the engine's own weights
 // (`blendWeights.ts`), so the Studio shows the numbers the runtime plays: each entry's weight curve over the axis, the
 // input position from the test values, the 2D triangulation and the triangle the input sits in, and keyboard nudges.
 // Pure.
@@ -46,7 +46,7 @@ export function liveWeights(b: { blend: BlendSettings | null; entries: readonly 
   return blendWeights2D(pts, { x: ix, y: iy }, b.blend.fade === "layer" ? "linear" : b.blend.curve, curves);
 }
 
-// --- ADR 0336: regions (1D) and weight curves ----------------------------------------------------------------------
+// --- ADR 0350: regions (1D) and weight curves ----------------------------------------------------------------------
 
 /** The entries' explicit regions normalised over `range` (not clamped: a region may reach past the axis), or undefined. */
 export function regionsOf(entries: readonly Entry[], range: AxisRange): (Region1D | undefined)[] | undefined {
@@ -66,7 +66,7 @@ export function weightCurvesOf(entries: readonly Entry[]): (Curve | undefined)[]
 const tidy = (v: number): number => Math.round(v * 1e6) / 1e6;
 
 /**
- * The region entry `i` plays by, in the axis's units: its own, or the one ADR 0329's rules derive from its neighbours
+ * The region entry `i` plays by, in the axis's units: its own, or the one ADR 0343's rules derive from its neighbours
  * (`derivedRegion`), with an end past the axis clamped to it (what the lane draws and a first drag starts from).
  */
 export function shownRegion(entries: readonly Entry[], i: number, range: AxisRange, fade: BlendSettings["fade"]): { region: BlendRegion; explicit: boolean } {
@@ -97,7 +97,7 @@ export function dragRegion(r: BlendRegion, handle: RegionHandle, value: number):
 }
 
 /**
- * ADR 0336: the 2D plane's influence map: an `n` × `n` grid of cells (normalised centres), each with the entry that
+ * ADR 0350: the 2D plane's influence map: an `n` × `n` grid of cells (normalised centres), each with the entry that
  * weighs most there and its shaped weight (the engine's `blendWeights2D`, weight curves applied), for a tint per cell.
  */
 export function influenceGrid(points: readonly { x: number; y: number }[], curve: BlendSettings["curve"], curves: readonly (Curve | undefined)[] | undefined, n = 16): { x: number; y: number; entry: number; weight: number }[] {

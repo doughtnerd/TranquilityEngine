@@ -1,4 +1,4 @@
-// The meter pass (ADR 0157 C1b, 0338 §6, 0344 §2) through its module interface: `count` mode bit-identical to the
+// The meter pass (ADR 0157 C1b, 0352 §6, 0358 §2) through its module interface: `count` mode bit-identical to the
 // pass the metered gate has always used, `fuel` mode's exact decrements and branch-free trap, and the decoder the
 // plugin validator reads.
 import { createHash } from "node:crypto";

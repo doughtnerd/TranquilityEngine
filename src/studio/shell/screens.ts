@@ -1,5 +1,5 @@
-// The Audio Studio's screens in four groups (ADR 0327 "The shell"): Author (Samples, Playlists, Dialogue, ADR 0340 §9), Mix (Mixer,
-// Spatial), Run (Take, Profiler) and Ship (Packages, ADR 0337 §6). Each has its place in the header, its Ctrl/⌘+digit
+// The Audio Studio's screens in four groups (ADR 0341 "The shell"): Author (Samples, Playlists, Dialogue, ADR 0354 §9), Mix (Mixer,
+// Spatial), Run (Take, Profiler) and Ship (Packages, ADR 0351 §6). Each has its place in the header, its Ctrl/⌘+digit
 // and what it is for, which its empty state says until there is something to show.
 
 export type ScreenId = "samples" | "playlists" | "dialogue" | "mixer" | "spatial" | "take" | "profiler" | "packages";

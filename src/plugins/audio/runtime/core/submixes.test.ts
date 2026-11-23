@@ -1,4 +1,4 @@
-// ADR 0331: the core backend's instance submix pool, through its interface: the pool size (settings, default 32, the
+// ADR 0345: the core backend's instance submix pool, through its interface: the pool size (settings, default 32, the
 // core's 64 at most), SUBMIX records (kinds, bypass, catalogue parameters with defaults), refusals (warned once, marked
 // in a capture), close, and the replays after a RESET or a new bus tree.
 import { describe, expect, it } from "vitest";
@@ -39,7 +39,7 @@ function rig(pool?: number) {
   return { s, sent, autos, parents, keys, clock, warnings, markers, buses, record: () => { profile = { ...NULL_PROFILE_SINK, marker: (t: string) => void markers.push(t) }; } };
 }
 
-describe("CoreSubmixes (ADR 0331)", () => {
+describe("CoreSubmixes (ADR 0345)", () => {
   it("sends a group's chain as the core's kinds, parameters in the catalogue's order with its defaults", () => {
     const { s, sent } = rig();
     expect(s.capacity).toBe(DEFAULT_SUBMIXES);
@@ -118,7 +118,7 @@ describe("CoreSubmixes (ADR 0331)", () => {
   });
 });
 
-describe("CoreSubmixes levels and tails (ADR 0331, ABI 4.9)", () => {
+describe("CoreSubmixes levels and tails (ADR 0345, ABI 4.9)", () => {
   const delay = fx("delay", { time: 500, feedback: 50 });
 
   it("a level's submix has no group, feeds its parent level, and is reused by its key without a resend", () => {

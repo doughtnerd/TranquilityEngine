@@ -1,6 +1,6 @@
 # Interactive music
 
-Music is authored as [playlists](playlists.md) (ADR 0329): samples that carry a tempo, loops and markers (the Audio Studio's Samples screen), **Sequences** that lay them out on a timeline with a tempo, **Switch** rules that wait for a beat, a bar or an Exit marker, and **stingers**. The music events of ADR 0166 (`segment`, `playlist`, `musicSwitch` in `*.audioevent.json`) migrate to these; see [the end of this page](#from-music-events).
+Music is authored as [playlists](playlists.md) (ADR 0343): samples that carry a tempo, loops and markers (the Audio Studio's Samples screen), **Sequences** that lay them out on a timeline with a tempo, **Switch** rules that wait for a beat, a bar or an Exit marker, and **stingers**. The music events of ADR 0166 (`segment`, `playlist`, `musicSwitch` in `*.audioevent.json`) migrate to these; see [the end of this page](#from-music-events).
 
 ## The musical clock
 
@@ -44,7 +44,7 @@ A Switch on a labelled parameter plays the entry its `map` names for the current
 - **When:** `now`, `beat`, `bar` (the playing entry's clock), `exit` (its next Exit marker, else its loop's end, else its end) or `nextTrigger` (the new label waits for the next play).
 - **How:** `crossfade` over `length`, `cut`, or `transition`: the old entry leaves at the boundary, the transition playlist plays, and the new entry enters at the transition's Exit marker (or its end), each hand-over crossfaded over `length`.
 
-### Fade shapes, tails and bridge fades (ADR 0336)
+### Fade shapes, tails and bridge fades (ADR 0350)
 
 ```jsonc
 { "from": "explore", "to": "calm", "when": "bar", "how": "crossfade", "length": { "beats": 4 },
@@ -80,12 +80,12 @@ A Sequence has a `length`, an optional `tempo`, **tracks** (audio tracks hold sa
 - **Sync clips** (`sync: true`, the default for music samples in the Studio) are locked to the playhead: when a sequence loop wraps, their audio starts again from the loop's start, sample-exact. Stems are sync clips on parallel tracks; where sync loops overlap, the higher track drives the playhead and the others follow.
 - **Async clips** run their own voice clock and loop only by their sample's own loops; they aren't cut when the playhead leaves them.
 - **Loops** wrap while active (`always`, `held` until `release()`, or bound to a parameter: `"binding": { "parameter": "Loop", "op": "<", "value": 0.5 }`). An inactive loop is left by its `exit` (`finish` plays the pass out, `jump`, `crossfade`); `reentry: "reenter"` jumps back in when it turns active again. A loop under 1 ms long is a **hold point**: the playhead parks there while it is active.
-- **Loop tails** (ADR 0336): `"tail": true` on a sequence loop rings the audio from the loop's end to the next `exit`
+- **Loop tails** (ADR 0350): `"tail": true` on a sequence loop rings the audio from the loop's end to the next `exit`
   marker after it over the next pass at each wrap (a reverb or cymbal decay that would otherwise be spliced off). The
   Studio shades a loop's tail and the post-exit tail on the timeline.
 - **Markers:** `cue` markers report to the game, `exit` markers are where Switch rules timed `exit` and sync clips may
   leave (what follows the last one is the post-exit tail), `entry` markers are where a Switch lands the sequence.
-- **Beat-quantised automation** (ADR 0336, for rhythm games): an automation lane keyed on a parameter (volume, enabled,
+- **Beat-quantised automation** (ADR 0350, for rhythm games): an automation lane keyed on a parameter (volume, enabled,
   pitch, pan, a low-pass or high-pass `cutoff`, a gain effect's `gain`), or an entry's voice curve keyed on one, may set
   `"quantize": "beat" | "bar" | { "beats": n }`. A parameter change then takes effect on the next boundary of the
   instance's musical clock (counted from the bar for `beats`), as a 20 ms ramp, not at the frame the game set it. Volume

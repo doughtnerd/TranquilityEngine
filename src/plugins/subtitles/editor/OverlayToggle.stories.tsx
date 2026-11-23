@@ -1,4 +1,4 @@
-// Stories (ADR 0219) for the subtitles plugin's Play toolbar toggle (ADR 0343 §6): off, then on (pressed) and off again.
+// Stories (ADR 0219) for the subtitles plugin's Play toolbar toggle (ADR 0357 §6): off, then on (pressed) and off again.
 // Outside Play there is no World to overlay, so only the preference changes.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, userEvent, within } from "storybook/test";

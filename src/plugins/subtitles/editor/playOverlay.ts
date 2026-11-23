@@ -1,4 +1,4 @@
-// The Play toolbar's Subtitles overlay (ADR 0343 §6): while it is on, editor Play gets a `SubtitleDisplay` (editor-only,
+// The Play toolbar's Subtitles overlay (ADR 0357 §6): while it is on, editor Play gets a `SubtitleDisplay` (editor-only,
 // never saved) on a node under the play session's first World's root, so it survives scene loads. It stands aside while
 // the game's scene has a display of its own, so lines can be checked before a game adds one. The plugin's editor half
 // contributes the toggle (`OverlayToggle`), so it is there only while the plugin is on.

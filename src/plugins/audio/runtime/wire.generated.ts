@@ -126,7 +126,7 @@ export const MAX_PLAYHEADS_PER_BLOCK = 0x100;
 export const MAX_CLIP_EVENTS_PER_BLOCK = 0x40;
 /** STATUS streamEvents cap */
 export const MAX_STREAM_EVENTS_PER_BLOCK = 0x40;
-/** frames per channel in one block of a format 6 (IMA ADPCM) clip (ADR 0337 §3, 0345 §5) */
+/** frames per channel in one block of a format 6 (IMA ADPCM) clip (ADR 0351 §3, 0359 §5) */
 export const ADPCM_BLOCK_FRAMES = 0x400;
 /** bytes per channel per block of a format 6 clip: a 4-byte header, then 512 bytes of codes */
 export const ADPCM_CHANNEL_BYTES = 0x204;
@@ -234,11 +234,11 @@ export const BUS_RAMP_LP_MIN_HZ = 0xa;
 export const SHAPE_SEQUENCE_SHIFT = 0x3;
 /** BUS_RAMP shape sequenceId after the shift: 13 bits */
 export const SHAPE_SEQUENCE_MASK = 0x1fff;
-/** effects a slot keeps; a BUS_SLOT naming more keeps the first eight (ADR 0331, ABI 4.6) */
+/** effects a slot keeps; a BUS_SLOT naming more keeps the first eight (ADR 0345, ABI 4.6) */
 export const BUS_SLOT_MAX_EFFECTS = 0x8;
-/** sends a bus keeps (BUS_SENDS, ADR 0330, ABI 4.7); more are dropped */
+/** sends a bus keeps (BUS_SENDS, ADR 0344, ABI 4.7); more are dropped */
 export const MAX_BUS_SENDS = 0x4;
-/** BUS_SENDS item flags bit 0: muted (the send ramps to 0 and keeps its level; ADR 0330 D29 #7) */
+/** BUS_SENDS item flags bit 0: muted (the send ramps to 0 and keeps its level; ADR 0344 D29 #7) */
 export const BUS_SEND_MUTED = 0x1;
 /** BUS_DUCK rule flags bit 0: level mode (reads the trigger bus's buffer; adds a bus-order edge) */
 export const DUCK_FLAG_LEVEL = 0x1;
@@ -258,7 +258,7 @@ export const LOUD_FLAG_GATED = 0x200;
 export const LOUD_FLAG_TP_GATE_ACTIVE = 0x400;
 /** binding param bit 15: a global slot (low 15 bits) */
 export const PARAM_GLOBAL = 0x8000;
-/** binding param bit 14 (bit 15 clear): a time parameter, TIME_* in bits 0-1 (ADR 0332; voices only) */
+/** binding param bit 14 (bit 15 clear): a time parameter, TIME_* in bits 0-1 (ADR 0346; voices only) */
 export const PARAM_TIME = 0x4000;
 /** binding param bits 0-1 of a time parameter: which */
 export const PARAM_TIME_MASK = 0x3;
@@ -268,7 +268,7 @@ export const TIME_VOICE = 0x0;
 export const TIME_CLIP = 0x1;
 /** sequenceTime: the voice's group's sequence clock (TIME re-anchors it) */
 export const TIME_SEQUENCE = 0x2;
-/** loops a voice's LOOPS program keeps (ADR 0328); extra ones are ignored */
+/** loops a voice's LOOPS program keeps (ADR 0342); extra ones are ignored */
 export const VOICE_LOOPS_MAX = 0x4;
 /** LOOPS item flags bits 0-1: 0 forward, 1 ping-pong, 2 backward */
 export const LOOP_DIRECTION_MASK = 0x3;
@@ -280,7 +280,7 @@ export const LOOP_EXIT_SHIFT = 0x4;
 export const LOOP_REENTER = 0x40;
 /** LOOPS item flags bit 7: a parameter activation holds while the parameter is below threshold (clear: above) */
 export const LOOP_BELOW = 0x80;
-/** instance submix slots the core lays out (ADR 0331); SUBMIX voiceId 0..63 */
+/** instance submix slots the core lays out (ADR 0345); SUBMIX voiceId 0..63 */
 export const SUBMIXES_MAX = 0x40;
 /** effects a submix's chain keeps; extra ones are ignored */
 export const SUBMIX_EFFECTS_MAX = 0x8;
@@ -340,13 +340,13 @@ export const BUS_AUTOMATE_MAX_BINDINGS = 0x10;
 export const BUS_FX_HELD_SHIFT = 0x10;
 /** bus effect type bits 0-15: the type */
 export const BUS_FX_TYPE_MASK = 0xffff;
-/** parameters an effect record carries (BUS_CONFIG, BUS_SLOT, SUBMIX; ABI 5.0, ADR 0338; 7 and 8 before) */
+/** parameters an effect record carries (BUS_CONFIG, BUS_SLOT, SUBMIX; ABI 5.0, ADR 0352; 7 and 8 before) */
 export const FX_PARAMS = 0x10;
-/** an effect kind at FX_PLUGIN_BASE + e is registered plugin effect e (0..FX_PLUGINS_MAX-1), run through the myco_ext import (ABI 5.0, ADR 0338); on a bus, BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e */
+/** an effect kind at FX_PLUGIN_BASE + e is registered plugin effect e (0..FX_PLUGINS_MAX-1), run through the myco_ext import (ABI 5.0, ADR 0352); on a bus, BUS_FX_CATALOGUE + FX_PLUGIN_BASE + e */
 export const FX_PLUGIN_BASE = 0x100;
 /** plugin effects the host may register (e is 0..255) */
 export const FX_PLUGINS_MAX = 0x100;
-/** each chain level's (the buses', the instance submixes') shared fuel per frame and quantum, across every plugin instance (0344 section 3): a call whose budget doesn't fit what is left passes dry */
+/** each chain level's (the buses', the instance submixes') shared fuel per frame and quantum, across every plugin instance (0358 section 3): a call whose budget doesn't fit what is left passes dry */
 export const FX_PLUGIN_FUEL_PER_FRAME = 0x1388;
 /** myco_ext.process flags bit 0: a parameter moved this block (or the block is the first) */
 export const FX_PLUGIN_FLAG_PARAMS = 0x1;
@@ -386,7 +386,7 @@ export const FADE_SHAPE_EXP3 = 0x9;
 export const LOOP_SEAM_SHAPE_SHIFT = 0x0;
 /** LOOPS item shapes bits 4-7: the exit crossfade's FADE_SHAPE_* (ABI 4.9) */
 export const LOOP_EXIT_SHAPE_SHIFT = 0x4;
-/** reserved clip ids of generator voices: GEN_CLIP_ID_FIRST + kind (ADR 0346; never uploaded) */
+/** reserved clip ids of generator voices: GEN_CLIP_ID_FIRST + kind (ADR 0360; never uploaded) */
 export const GEN_CLIP_ID_FIRST = 0xffff0300;
 /** the reserved generator range's last id */
 export const GEN_CLIP_ID_LAST = 0xffff03ff;
@@ -880,7 +880,7 @@ export interface ClipBegin {
   channels: number;
   /** Sample rate in Hz. */
   sampleRate: number;
-  /** ClipFormat: 0 f32, 1 i16 (1, 2, 4, 9 or 16 channels), 2 HRIR, 3 prepared zone kernel, 4 MagLS filters, 5 zone IR PCM (formats 3-5: ADR 0162 C6), 6 IMA ADPCM blocks (1 or 2 channels; ADR 0337). */
+  /** ClipFormat: 0 f32, 1 i16 (1, 2, 4, 9 or 16 channels), 2 HRIR, 3 prepared zone kernel, 4 MagLS filters, 5 zone IR PCM (formats 3-5: ADR 0162 C6), 6 IMA ADPCM blocks (1 or 2 channels; ADR 0351). */
   format: number;
 }
 
@@ -1694,7 +1694,7 @@ export function readSetLoop(view: DataView, off: number): SetLoop {
 }
 
 export interface AutomateBindings {
-  /** bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group */
+  /** bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0346); both clear: local slot of the voice's group */
   param: number;
   /** curve id (CURVES) */
   curve: number;
@@ -1786,9 +1786,9 @@ export const SET_VOICE_FX_MASK_SENDS = 0x2;
 export const SET_VOICE_FX_MASK_YAW = 0x4;
 /** auxLevel and auxBus */
 export const SET_VOICE_FX_MASK_AUX = 0x8;
-/** spread (ADR 0333, ABI 4.11) */
+/** spread (ADR 0347, ABI 4.11) */
 export const SET_VOICE_FX_MASK_SPREAD = 0x10;
-/** a mixed voice's high-pass, zone sends, ambisonic yaw, aux send and spread (ADR 0162 C3, ADR 0333); stamped like SET_PARAMS */
+/** a mixed voice's high-pass, zone sends, ambisonic yaw, aux send and spread (ADR 0162 C3, ADR 0347); stamped like SET_PARAMS */
 export interface SetVoiceFx {
   voiceId: number;
   frameOffset: number;
@@ -1804,7 +1804,7 @@ export interface SetVoiceFx {
   auxLevel: number;
   /** aux send's bus; 0xFFFF (AUX_BUS_NONE) is none */
   auxBus: number;
-  /** ADR 0333 (ABI 4.11): a spatial voice's spread in hundredths of a degree, 0..36000 (0 a point source, 36000 all round); ramped over rampFrames */
+  /** ADR 0347 (ABI 4.11): a spatial voice's spread in hundredths of a degree, 0..36000 (0 a point source, 36000 all round); ramped over rampFrames */
   spread: number;
 }
 
@@ -1912,7 +1912,7 @@ export function readLoopsLoops(view: DataView, off: number): LoopsLoops {
   return _readLoopsLoops(view, off, limit)[0];
 }
 
-/** replace a clip voice's loop program (ADR 0328); count 0 clears it */
+/** replace a clip voice's loop program (ADR 0342); count 0 clears it */
 export interface Loops {
   voiceId: number;
   frameOffset: number;
@@ -1993,7 +1993,7 @@ export function readSubmixEffects(view: DataView, off: number): SubmixEffects {
   return _readSubmixEffects(view, off, limit)[0];
 }
 
-/** configure a submix's group, bus, parent and insert chain (ADR 0331); no effects frees it */
+/** configure a submix's group, bus, parent and insert chain (ADR 0345); no effects frees it */
 export interface Submix {
   voiceId: number;
   frameOffset: number;
@@ -2056,7 +2056,7 @@ export function readSubmix(view: DataView, off: number): Submix {
   return _readSubmix(view, off, limit)[0];
 }
 
-/** route a voice into a submix slot (ADR 0331 levels) */
+/** route a voice into a submix slot (ADR 0345 levels) */
 export interface Route {
   voiceId: number;
   frameOffset: number;
@@ -2341,7 +2341,7 @@ export function readCurvesCurves(view: DataView, off: number): CurvesCurves {
   return _readCurvesCurves(view, off, limit)[0];
 }
 
-/** define or overwrite curves firstCurve.. (ADR 0158 §3, 0332); 1024 curves of at most 64 keys */
+/** define or overwrite curves firstCurve.. (ADR 0158 §3, 0346); 1024 curves of at most 64 keys */
 export interface Curves {
   voiceId: number;
   frameOffset: number;
@@ -2445,7 +2445,7 @@ export function readParam(view: DataView, off: number): Param {
 }
 
 export interface BusAutomateBindings {
-  /** bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group */
+  /** bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0346); both clear: local slot of the voice's group */
   param: number;
   /** curve id (CURVES) */
   curve: number;
@@ -3088,7 +3088,7 @@ export function readBusSlot(view: DataView, off: number): BusSlot {
   return _readBusSlot(view, off, limit)[0];
 }
 
-/** re-anchor a group's sequence clock (ADR 0332); stamped */
+/** re-anchor a group's sequence clock (ADR 0346); stamped */
 export interface Time {
   voiceId: number;
   frameOffset: number;
@@ -3178,7 +3178,7 @@ export function readBusSendsSends(view: DataView, off: number): BusSendsSends {
   return _readBusSendsSends(view, off, limit)[0];
 }
 
-/** replace one bus's post-fader sends into returns (voiceId = bus slot); asap (ADR 0330) */
+/** replace one bus's post-fader sends into returns (voiceId = bus slot); asap (ADR 0344) */
 export interface BusSends {
   voiceId: number;
   frameOffset: number;
@@ -3229,7 +3229,7 @@ export function readBusSends(view: DataView, off: number): BusSends {
 }
 
 export interface SubmixAutomateBindings {
-  /** bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0332); both clear: local slot of the voice's group */
+  /** bit15 set: global slot (low 15 bits); bit14 set (bit15 clear): time parameter TIME_* in bits 0-1 (voices only, ADR 0346); both clear: local slot of the voice's group */
   param: number;
   /** curve id (CURVES) */
   curve: number;
@@ -3261,7 +3261,7 @@ export function readSubmixAutomateBindings(view: DataView, off: number): SubmixA
   return _readSubmixAutomateBindings(view, off, limit)[0];
 }
 
-/** replace an instance submix's effect-parameter automation (ADR 0331, ABI 4.8); count 0 clears it */
+/** replace an instance submix's effect-parameter automation (ADR 0345, ABI 4.8); count 0 clears it */
 export interface SubmixAutomate {
   voiceId: number;
   frameOffset: number;
@@ -3368,7 +3368,7 @@ export function readListener(view: DataView, off: number): Listener {
   return _readListener(view, off, limit)[0];
 }
 
-/** a generator voice's parameters and noise seed (ADR 0346, ABI 5.1); applies on arrival */
+/** a generator voice's parameters and noise seed (ADR 0360, ABI 5.1); applies on arrival */
 export interface Gen {
   voiceId: number;
   frameOffset: number;
@@ -3939,7 +3939,7 @@ export interface StatusHeader {
   busRecordsEarly: number;
   /** late sidechain detections (cumulative, saturating) */
   sidechainLate: number;
-  /** generator voices that found the generator pool full and play silent (cumulative, saturating; ADR 0346, ABI 5.1) */
+  /** generator voices that found the generator pool full and play silent (cumulative, saturating; ADR 0360, ABI 5.1) */
   genStarved: number;
   /** reserved, 0 */
   reserved2: number;

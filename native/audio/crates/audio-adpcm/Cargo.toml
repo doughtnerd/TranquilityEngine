@@ -1,6 +1,6 @@
 [package]
 name = "audio-adpcm"
-description = "Myco's IMA ADPCM block reader (ADR 0337 §3 as 0345 §5 settles it): the block layout, its tables and the branchless decode step, shared by the audio core (clip format 6, decoded per voice each quantum) and the decoder worker (pack entries)."
+description = "Myco's IMA ADPCM block reader (ADR 0351 §3 as 0359 §5 settles it): the block layout, its tables and the branchless decode step, shared by the audio core (clip format 6, decoded per voice each quantum) and the decoder worker (pack entries)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -50,7 +50,7 @@ function rig(capacity = 4) {
 }
 
 describe("DopplerPass", () => {
-  it("ADR 0333: the project's Doppler amount scales every voice's level (0 turns Doppler off)", () => {
+  it("ADR 0347: the project's Doppler amount scales every voice's level (0 turns Doppler off)", () => {
     const run = (amount: number | undefined) => {
       const { pass, frame, view } = rig();
       const settings = { doppler: { maxSpeed: 150, ...(amount === undefined ? {} : { amount }) }, speedOfSound: 343 };

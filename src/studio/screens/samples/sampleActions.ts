@@ -179,7 +179,7 @@ export function togglePlay(sel?: SampleSelection): boolean {
     });
     if (why) toasts.show({ text: `Can't play: ${why}.`, kind: "error" });
   };
-  // ADR 0337 §6: Hear as a platform converts the sound first (cached), then plays what that platform ships.
+  // ADR 0351 §6: Hear as a platform converts the sound first (cached), then plays what that platform ships.
   const hear = studioHearAs();
   if (hear.choice.peek() === "source") begin();
   else void hear.prepare([audio]).then(begin);

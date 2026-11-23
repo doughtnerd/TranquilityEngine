@@ -1,4 +1,4 @@
-// The Localisation panel's Report tab (ADR 0342 §7, §8, §9): per-language translated / needs review / missing counts,
+// The Localisation panel's Report tab (ADR 0356 §7, §8, §9): per-language translated / needs review / missing counts,
 // then the lists — keys used but missing a translation, keys used but defined nowhere, unused keys, unkeyed text, keys
 // defined twice, and the text fit check's overflows — each row naming the file that opens it. Built from the engine's
 // key gathering (`exchange/gather.ts`) and the fit check (`fitCheck.ts`).

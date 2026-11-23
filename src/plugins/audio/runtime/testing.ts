@@ -63,7 +63,7 @@ import { ListenerFrame } from "./core/spatial";
 import { runAudioFrame } from "./audioFrame";
 import type { World } from "../../../engine/core/World";
 
-/** ADR 0338: the plugin glue's control messages, which the loopback hands the shell as `processor.ts` does. */
+/** ADR 0352: the plugin glue's control messages, which the loopback hands the shell as `processor.ts` does. */
 const FX_CONTROLS: ReadonlySet<unknown> = new Set(["fxLoad", "fxUnload", "fxReset"]);
 
 /** The controls a test has over a fake clock. */
@@ -235,11 +235,11 @@ export interface FakeBackend extends AudioBackend, AudioClipCache, AudioClock, A
   /** The sink `setProfileSink` was given (null: none). */
   profileSink: ProfileSink | null;
 
-  // ADR 0338 §7: the fake records plugin effect registrations (set `effectPlugins` to undefined for a backend without them).
+  // ADR 0352 §7: the fake records plugin effect registrations (set `effectPlugins` to undefined for a backend without them).
   effectPlugins: FakeEffectPlugins | undefined;
 }
 
-/** ADR 0338 §7: the fake's plugin effect capability: it records each call and loads every module at once. */
+/** ADR 0352 §7: the fake's plugin effect capability: it records each call and loads every module at once. */
 export interface FakeEffectPlugins extends AudioEffectPlugins {
   /** Every module `register` was given, in order. */
   readonly registrations: EffectPluginModule[];
@@ -873,7 +873,7 @@ export async function createLoopbackHost(options: { clock?: FakeHostClock; prese
       for (const message of toWorklet.splice(0)) {
         if (message instanceof ArrayBuffer) driver.onMessage(message, frame, clock.dateNow());
         else if ((message as { type?: unknown }).type === "debugTone") driver.onControl(message as never);
-        // ADR 0338: plugin modules for the glue; a load compiles asynchronously, and what it posts reaches main when it has.
+        // ADR 0352: plugin modules for the glue; a load compiles asynchronously, and what it posts reaches main when it has.
         else if (FX_CONTROLS.has((message as { type?: unknown }).type)) void driver.onControl(message as never)?.then(flush);
         else if ((message as { type?: unknown }).type === "streamPort") connectStreams(current, (message as { port: LoopbackStreamPort }).port);
       }

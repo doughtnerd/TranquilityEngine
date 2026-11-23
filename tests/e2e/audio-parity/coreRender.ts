@@ -70,7 +70,7 @@ function wireEffect(e: BusEffect): BusConfigBusesEffects {
       p[0] = e.send;
       return { type: 3, p };
     case "fx":
-      throw new Error("parity: catalogue effects (ADR 0331) have no Web Audio reference");
+      throw new Error("parity: catalogue effects (ADR 0345) have no Web Audio reference");
   }
 }
 

@@ -1,4 +1,4 @@
-// The player bar's replay slot (ADR 0334, 0335 `PlayerBar`; owner decision 2026-11-22: take replay stands in for the
+// The player bar's replay slot (ADR 0348, 0349 `PlayerBar`; owner decision 2026-11-22: take replay stands in for the
 // game session in v1): the open take on every screen, with play/pause, a scrub over the take and its time, a link to the
 // Take screen and a close. A view over props; the shell wires it to the replay store (`shell/ReplaySlot.tsx`).
 import { formatClock } from "./replayControlsModel";

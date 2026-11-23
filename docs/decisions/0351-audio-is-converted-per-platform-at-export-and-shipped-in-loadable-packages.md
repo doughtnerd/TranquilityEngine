@@ -1,23 +1,23 @@
-# 0337. Audio is converted per platform at export, from inherited encoding settings, and ships in loadable packages
+# 0351. Audio is converted per platform at export, from inherited encoding settings, and ships in loadable packages
 
-- **Status:** Accepted, amended by [0345](0345-audio-encoding-follows-the-a0-spike.md) (encoder build, resampling, Opus decode, ADPCM decode and notices from the A0 spike)
+- **Status:** Accepted, amended by [0359](0359-audio-encoding-follows-the-a0-spike.md) (encoder build, resampling, Opus decode, ADPCM decode and notices from the A0 spike)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0040 (extended: the sidecar gains an `encoding` block), 0041, 0115, 0119, 0155, 0157, 0171, 0179, 0293, 0296, 0328, 0329, 0330, 0331, 0334, 0335, 0338
+- **Related:** 0040 (extended: the sidecar gains an `encoding` block), 0041, 0115, 0119, 0155, 0157, 0171, 0179, 0293, 0296, 0342, 0343, 0344, 0345, 0348, 0349, 0352
 
 ## Context
 
 The owner's follow-on scope (plan "Follow-on scope", 2026-11-22) asks for per-platform encoding and packaging, first
-in order with third-party DSP (0338), following Wwise and FMOD.
+in order with third-party DSP (0352), following Wwise and FMOD.
 
 **What exists today.**
 - A game build (0041, 0296) copies every audio file as it is. Only images are processed per platform (0119:
   `processImages` re-encodes to WebP under the same path, resolved for `web` or `desktop`).
-- Sidecars (`myco.import@1`, 0040) hold `volume`, `stream`, loop points, `ambisonic` and the `sample` block (0328).
+- Sidecars (`myco.import@1`, 0040) hold `volume`, `stream`, loop points, `ambisonic` and the `sample` block (0342).
   Per-platform overrides (`platforms`, 0115) exist for image keys only. `ImportPlatform` is `"web" | "desktop"`;
   Android is an accepted export target (0155, 0169) that isn't built yet.
-- 0328 says "Format and Sample rate are export settings (0119)" without defining them, and that exports render baked
+- 0342 says "Format and Sample rate are export settings (0119)" without defining them, and that exports render baked
   samples (the offline render is W9-B work).
 - **Decoding** (`audio-decode`, symphonia 0.6.1, 804,382 B; gate 900 KB): WAV/PCM, FLAC, MP3, Ogg Vorbis; AAC in a
   second build (1,128,625 B) behind `audio.codecs.aac`. symphonia 0.6.1 also has an `adpcm` feature (IMA and Microsoft
@@ -77,10 +77,10 @@ own, first hit wins:
    `encoding.default`) — its `platforms.<platform>`, then its base;
 4. the engine's built-in default for the platform (below).
 
-Derived samples (`*.sample.json`, 0328) resolve through their own file's sidecar-equivalent `encoding` key, then their
+Derived samples (`*.sample.json`, 0342) resolve through their own file's sidecar-equivalent `encoding` key, then their
 source's chain as above. A sidecar's legacy `stream: true` reads as `load: "stream"`; the Studio writes only `load`.
 
-**`audio.json`** (0330) gains an `encoding` section (Wwise's ShareSets and hierarchy assignment, Unity's Preset Manager
+**`audio.json`** (0344) gains an `encoding` section (Wwise's ShareSets and hierarchy assignment, Unity's Preset Manager
 filters):
 
 ```jsonc
@@ -153,7 +153,7 @@ ships its lossy files unchanged and its WAV/FLAC files as Vorbis.
 - **Opus decode** compiles libopus (fixed-point, no libc beyond what Rust's `compiler_builtins` and `libm` provide)
   into `audio-decode` for `wasm32-unknown-unknown`. If that adds more than the decoder gate allows, the gate is raised
   with a build-log note (CLAUDE.md: gates are tripwires); the AAC build gets Opus too.
-- **Gapless and loops.** Loop points and markers are in seconds (0328), so rate conversion doesn't move them. Vorbis
+- **Gapless and loops.** Loop points and markers are in seconds (0342), so rate conversion doesn't move them. Vorbis
   granule positions and Opus pre-skip are written and honoured so a converted loop stays sample-accurate; a golden test
   per codec checks the seam.
 - **Not chosen:** MP3 encoding (LAME is LGPL and MP3 is worse than Vorbis at the same size), AAC encoding (patent-
@@ -167,7 +167,7 @@ encoder injected as an `AudioEncoder` (`audioEncoderNode.ts`, `audioEncoderBrows
 `imagesBrowser.ts`). The build writer (0296) runs it in step 3, after baking models and processing images:
 
 1. **Collect** every audio file and derived sample the build ships (today's file selection), plus each sample's
-   **offline render** (0328/0331: baked effects, trim, closed gaps, normalisation) when it has one: the render's PCM is
+   **offline render** (0342/0345: baked effects, trim, closed gaps, normalisation) when it has one: the render's PCM is
    the conversion input, never the raw source.
 2. **Resolve** each one's `EncodingSettings` for the build's platform (§2).
 3. **Cache key** = SHA-256 of (input bytes or render hash, resolved settings as canonical JSON, encoder version). Hits
@@ -196,12 +196,12 @@ passed (§8). `--no-audio-convert` ships sources unchanged (debugging), and the 
   platform for every sound it plays (auditions, playlists, take replay), encoding misses in the background with a
   progress chip; A/B against Source with one key. The editor's Play keeps sources.
 - **Packages screen** (new, `src/studio/screens/packages/`; Wwise's SoundBank Manager, FMOD's Banks tab), from the kit
-  (0335): a packages tree; a contents table (sound, profile, codec, load, shipped size and memory for the chosen
+  (0349): a packages tree; a contents table (sound, profile, codec, load, shipped size and memory for the chosen
   platform, "in N packages" warning, missing-from-any-package hint for sounds a scene or script names); a package
   inspector (preload, platforms it ships on, totals against budgets); a Profiles tab editing `encoding.profiles` and
   `rules` with a preview of which files each rule catches; **Convert now** warms the cache for a platform; **Report**
   shows `audio-report.json`'s view without exporting.
-- **Profiler** (0334): a memory track with the arena, decoder-held compressed bytes and rings, and package load and
+- **Profiler** (0348): a memory track with the arena, decoder-held compressed bytes and rings, and package load and
   unload marks (§9).
 
 ### 7. Packages
@@ -337,7 +337,7 @@ Audio.packages: readonly AudioPackage[]
 ## Deprecates
 
 - The sidecar's `stream` boolean as written by the Studio (still read: `stream: true` = `load: "stream"`).
-- 0328's "Format and Sample rate are export settings (0119)" placeholder: they are these encoding settings.
+- 0342's "Format and Sample rate are export settings (0119)" placeholder: they are these encoding settings.
 
 ## Open questions
 
@@ -358,7 +358,7 @@ Audio.packages: readonly AudioPackage[]
 
 ## Build plan
 
-**Spikes first (A0, one engineer, ≤ 3 days, results in `docs/design/0337-audio-packaging/spikes.md`):** S1 build
+**Spikes first (A0, one engineer, ≤ 3 days, results in `docs/design/0351-audio-packaging/spikes.md`):** S1 build
 `audio-encode` for `wasm32-wasip1` with libvorbis + libogg + rubato and run it in Node `node:wasi` and a browser Worker
 with the shim (encode speed per core, wasm size); S2 libopus decoder in `audio-decode` for `wasm32-unknown-unknown`
 (added bytes, decode speed, Ogg Opus pre-skip); S3 the core ADPCM reader's cost in the metered gate.
@@ -375,6 +375,6 @@ with the shim (encode speed per core, wasm size); S2 libopus decoder in `audio-d
 | A8 | Docs and e2e | `docs/guide/audio-encoding-and-packages.md`; `@slow` export spec: a sample project with two packages exports for web, boots, `Audio.package("Forest").load()` then plays a packaged sound | `docs/guide/**`, `tests/e2e/export-audio.spec.ts` |
 
 A1 first; A2, A4 and the Studio's readout half of A6 run beside A3; A5 needs A1 and A4; A7 after S2. Shared
-single-writer files across 0337 and 0338 in W12: the wire schema and `audio-wasm/src/lib.rs` (ABI: 4.8 here, then
-0338's 5.0), `native/audio/build.mjs`, `Audio.ts`, `src/myco.ts`, `game.json`'s format; the coordinator names one task
+single-writer files across 0351 and 0352 in W12: the wire schema and `audio-wasm/src/lib.rs` (ABI: 4.8 here, then
+0352's 5.0), `native/audio/build.mjs`, `Audio.ts`, `src/myco.ts`, `game.json`'s format; the coordinator names one task
 per wave for each.

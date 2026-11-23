@@ -46,13 +46,13 @@ export interface BuildOptions {
   readonly mainScene?: string;
   /** Write `audioCapture: true` into the manifest, so the player installs the capture trigger (default off). */
   readonly audioCapture?: boolean;
-  /** ADR 0334: write `audioTake: true` into the manifest, so the player installs the take trigger (F10; default off). */
+  /** ADR 0348: write `audioTake: true` into the manifest, so the player installs the take trigger (F10; default off). */
   readonly audioTake?: boolean;
-  /** ADR 0334: with `audioTake`, false writes `audioTakeFrames: false`: takes record no pictures of the game view (default: they do). */
+  /** ADR 0348: with `audioTake`, false writes `audioTakeFrames: false`: takes record no pictures of the game view (default: they do). */
   readonly audioTakeFrames?: boolean;
-  /** ADR 0340 §6, 0342 §11: `--languages`: ship only these of the project's shipped languages. Absent: every one. */
+  /** ADR 0354 §6, 0356 §11: `--languages`: ship only these of the project's shipped languages. Absent: every one. */
   readonly languages?: readonly string[];
-  /** ADR 0342 §9: `--pseudo`: add the pseudo-languages, for QA builds. */
+  /** ADR 0356 §9: `--pseudo`: add the pseudo-languages, for QA builds. */
   readonly pseudo?: boolean;
 }
 
@@ -66,19 +66,19 @@ export interface WebBuildPlan {
   /** Binary files written, by build path: models baked for the build (ADR 0090). */
   readonly binaries?: ReadonlyMap<string, Uint8Array>;
   /**
-   * ADR 0337 §5 step 7: project files in `copies` that aren't written (packaged sounds: their bytes are in a package),
+   * ADR 0351 §5 step 7: project files in `copies` that aren't written (packaged sounds: their bytes are in a package),
    * by project path. They stay in the manifest's `files`, so the game still knows them by path.
    */
   readonly omit?: ReadonlySet<string>;
-  /** ADR 0337 §5 step 6: what the audio step converted and packaged (`audio-report.json`); absent before it ran. */
+  /** ADR 0351 §5 step 6: what the audio step converted and packaged (`audio-report.json`); absent before it ran. */
   readonly audioReport?: AudioReport;
   /**
-   * ADR 0338 §8: the enabled plugins' audio modules the build ships (`audioEffects.ts`); the build writer hashes them
+   * ADR 0352 §8: the enabled plugins' audio modules the build ships (`audioEffects.ts`); the build writer hashes them
    * and writes `game.json`'s `audioEffects`. Absent: none.
    */
   readonly audioEffects?: readonly PlannedAudioEffect[];
   /**
-   * ADR 0342 §11, 0340 §6: the languages the build ships (`strings.ts`), which the audio step splits packages by and
+   * ADR 0356 §11, 0354 §6: the languages the build ships (`strings.ts`), which the audio step splits packages by and
    * writes the line index for. Absent: the audio step reads them from `project.json`.
    */
   readonly languages?: BuildLanguages;
@@ -189,9 +189,9 @@ function parsedJson(text: string | undefined): unknown {
 /** Plan a web build of `source`. Throws an `ExportError` if it can't be built. */
 export async function planWebBuild(source: BuildSource, options: BuildOptions = {}): Promise<WebBuildPlan> {
   if (!source.files.includes("project.json")) throw new ExportError("The project has no project.json.");
-  // ADR 0330: the mix ships in audio.json, copied with the other files; an unmigrated project.json audio section is refused.
+  // ADR 0344: the mix ships in audio.json, copied with the other files; an unmigrated project.json audio section is refused.
   if (hasLegacyAudio(parsedJson(source.json.get("project.json")))) throw new ExportError(LEGACY_AUDIO_MESSAGE);
-  // ADR 0329: the retired audio event format doesn't ship; the project migrates its events to playlists first.
+  // ADR 0343: the retired audio event format doesn't ship; the project migrates its events to playlists first.
   const events = source.files.filter((f) => isAudioEventPath(f) && isExportedFile(f));
   if (events.length > 0) {
     throw new ExportError(`${audioEventRefusal("Export", events[0]!)}${events.length > 1 ? ` (${events.length} audio event files in all)` : ""}`, events.map((path) => ({ path, message: audioEventRefusal("Export", path) })));
@@ -213,14 +213,14 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
     const list = pluginPlan.problems.map((p) => `  - ${p.where}: ${p.message}`).join("\n");
     throw new ExportError(`Some plugins can't be built:\n${list}`, pluginPlan.problems.map((p) => ({ path: p.where, message: p.message })));
   }
-  // ADR 0338 §8: the enabled plugins' audio modules ship (hashed into game.json by the build writer); a disabled one's don't.
+  // ADR 0352 §8: the enabled plugins' audio modules ship (hashed into game.json by the build writer); a disabled one's don't.
   const audioEffects = planAudioEffects(pluginPlan.plugins, pluginPlan.enabled);
   if (audioEffects.leaveOut.size > 0) copies = copies.filter((p) => !audioEffects.leaveOut.has(p));
-  // ADR 0342 §11, 0340 §6: the shipped languages' string files; string tables and other languages' variants stay out.
+  // ADR 0356 §11, 0354 §6: the shipped languages' string files; string tables and other languages' variants stay out.
   const localisation = planLocalisation(source.json, copies, { languages: options.languages, pseudo: options.pseudo }, copiedPath("project.json"));
   if (localisation.error) throw new ExportError(localisation.error);
   copies = [...localisation.copies];
-  // ADR 0340 §6: the line index the runtime finds line tables and dialogue files by, and the tables without their notes.
+  // ADR 0354 §6: the line index the runtime finds line tables and dialogue files by, and the tables without their notes.
   const lineFiles = planLineIndex(source.json, copies);
   const shippedFiles = lineFiles.size > 0 && !copies.includes(LINE_INDEX_PATH) ? [...copies, LINE_INDEX_PATH].sort() : copies;
   const { order, files, packageEntries } = await compileForBuild(pluginPlan.code, source.json, source.packages, pluginPlan.npmEntries);

@@ -1,4 +1,4 @@
-// The Languages tab's model (ADR 0340 §1, §2, §9): who may edit `project.json`'s `languages` (the editor owns the file;
+// The Languages tab's model (ADR 0354 §1, §2, §9): who may edit `project.json`'s `languages` (the editor owns the file;
 // the Studio edits the section only while no editor holds the project lock, else shows it read-only with "Edit in the
 // editor"), the section's edits — add and remove a language (a regional code pre-fills its parent as fallback), name,
 // ship, reference, default, fallback chains — and `audio.json`'s `localisation` settings (roots, loudness, duration
@@ -25,7 +25,7 @@ export interface AccessFacts {
   readonly editorLock: "held" | "none" | "unknown";
 }
 
-/** 0340 §1 ownership: editable only with a writable project and no editor holding it. */
+/** 0354 §1 ownership: editable only with a writable project and no editor holding it. */
 export function languagesAccess(f: AccessFacts): LanguagesAccess {
   if (!f.canSave) return { editable: false, reason: "The project is read-only.", editInEditor: false };
   if (f.editorLock === "held") return { editable: false, reason: "The editor has this project open, and project.json is the editor's: change languages in its Project Settings.", editInEditor: true };
@@ -173,5 +173,5 @@ export const setMissing = (p: AudioProject, missing: AudioLocalisation["missing"
 
 // --- preview language ----------------------------------------------------------------------------------------------------
 
-/** The preview language (0340 §1, per user): the stored one when it is a project language, else the start language. */
+/** The preview language (0354 §1, per user): the stored one when it is a project language, else the start language. */
 export const previewLanguageOf = (stored: string | null, s: LanguageSettings): string => (stored ? languageOf(s, stored)?.code : undefined) ?? s.default;

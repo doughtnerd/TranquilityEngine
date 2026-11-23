@@ -1,4 +1,4 @@
-// Undo, Redo and the History popover (ADR 0335, 0145, 0027): buttons acting on the active history (the focused
+// Undo, Redo and the History popover (ADR 0349, 0145, 0027): buttons acting on the active history (the focused
 // document's, `activeHistory.ts`) and a popover drawing its tree with `UndoTree` (click a state to go there; editing
 // after an undo starts a branch, so nothing is lost). The cluster counts as part of the history UI
 // (`KEEPS_HISTORY_FOCUS`: `.history-panel`), so pressing it doesn't move the focus off the document whose history it is.

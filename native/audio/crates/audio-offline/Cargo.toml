@@ -1,6 +1,6 @@
 [package]
 name = "audio-offline"
-description = "Myco's offline sample render (ADR 0328, 0331 level \"sample\"): a sample's baked effect chain with its automation, built to myco_audio_offline.wasm."
+description = "Myco's offline sample render (ADR 0342, 0345 level \"sample\"): a sample's baked effect chain with its automation, built to myco_audio_offline.wasm."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

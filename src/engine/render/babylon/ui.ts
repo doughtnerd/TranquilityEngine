@@ -106,12 +106,12 @@ interface TextEntry {
 }
 
 /**
- * A text block in the language's direction, wrapping lines by the engine's line breaking (ADR 0342 §5): the context's
+ * A text block in the language's direction, wrapping lines by the engine's line breaking (ADR 0356 §5): the context's
  * base direction is the language's, and lines break where `lineBreak.ts` allows (spaces, between CJK characters with
  * the kinsoku rules, Thai words), measured as `textSize` measures them for layout.
  */
 class LocalisedTextBlock extends TextBlock {
-  /** The base direction (ADR 0342 §5): the canvas context's `direction`, so the browser orders mixed runs within a line. */
+  /** The base direction (ADR 0356 §5): the canvas context's `direction`, so the browser orders mixed runs within a line. */
   direction: "ltr" | "rtl" = "ltr";
   /** Where lines may break: `ui/text/lineBreak.ts`'s rules, the same ones `textSize` measured with. */
   breakMode: LineBreakMode = "normal";
@@ -469,7 +469,7 @@ export class BabylonUI {
     this.setFont(t, run);
     const ck = colorKey(c.color);
     if (put(t, "color", ck)) t.color = c.color.toCss();
-    // `start`/`end` already resolved for the language's direction (ADR 0342 §5); justify draws from the left, as before.
+    // `start`/`end` already resolved for the language's direction (ADR 0356 §5); justify draws from the left, as before.
     const align = run.align === "center" ? Control.HORIZONTAL_ALIGNMENT_CENTER : run.align === "right" ? Control.HORIZONTAL_ALIGNMENT_RIGHT : Control.HORIZONTAL_ALIGNMENT_LEFT;
     if (put(t, "align", align)) t.textHorizontalAlignment = align;
     if (put(t, "dir", run.direction)) t.direction = run.direction;
@@ -530,7 +530,7 @@ export class BabylonUI {
     const run = el.text!; // the value, or the placeholder while it's empty, as the core measured it
     if (put(label, "text", run.text)) label.text = run.text;
     this.setFont(label, run);
-    // From the language's start edge, in its direction (ADR 0342 §5).
+    // From the language's start edge, in its direction (ADR 0356 §5).
     const rtl = run.direction === "rtl";
     if (put(label, "dir", run.direction)) {
       (label as LocalisedTextBlock).direction = run.direction;
@@ -554,7 +554,7 @@ export class BabylonUI {
     caret.isVisible = true;
     const ch = run.fontSize * run.lineHeight;
     // Right to left: the text ends at the right edge, so the caret sits that far in from it. Approximate for text that
-    // mixes directions (a known limit, ADR 0342 §5).
+    // mixes directions (a known limit, ADR 0356 §5).
     const full = rtl && c.value ? textSize(run.text, run.fontSize, run.fontWeight, run.fontFamily, run.lineHeight).width : 0;
     const x = rtl ? c.padding + Math.max(lw, full) - pw : c.padding + pw;
     if (put(caret, "left", x)) caret.leftInPixels = x;
@@ -613,7 +613,7 @@ export class BabylonUI {
     const outline = t.outlineColor && t.outlineWidth > 0 ? t.outlineWidth : 0;
     if (put(ctl, "text", t.text)) ctl.text = t.text;
     const weight = t.fontWeight;
-    // The current language's fonts after its own, in the language's direction (ADR 0342 §5).
+    // The current language's fonts after its own, in the language's direction (ADR 0356 §5).
     const family = withLanguageFonts(t.fontFamily);
     this.setFont(ctl, { fontSize: t.fontSize, fontWeight: weight, fontFamily: family, lineHeight: t.lineHeight });
     const direction = Locale.direction;

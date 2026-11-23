@@ -1,5 +1,5 @@
 /**
- * Starting `Locale` with a project (ADR 0342 §6, §11): which strings an Engine's boot hands it and which language it
+ * Starting `Locale` with a project (ADR 0356 §6, §11): which strings an Engine's boot hands it and which language it
  * starts in. A build's player installs the build's string files first (`installBuildStrings`, from `game.json`'s
  * `localisation`); everything else (the editor's Play, the Studio, a game built on the engine library) reads the
  * project's string tables from the registered asset sources, and follows edits to them (`Assets.notifyChanged`).
@@ -17,7 +17,7 @@ import { BuildStrings, ProjectStrings, type LocaleStrings } from "./strings";
 let installed: BuildStrings | null = null;
 
 /**
- * The player (ADR 0342 §11): use the build's string files, `game.json`'s `localisation` section, for every Engine from
+ * The player (ADR 0356 §11): use the build's string files, `game.json`'s `localisation` section, for every Engine from
  * now on. `urlOf` turns a build path into a URL. A build without the section keeps reading tables from its files.
  */
 export function installBuildStrings(localisation: unknown, urlOf: (path: string) => string): void {
@@ -61,7 +61,7 @@ export interface LocaleBootOptions {
 }
 
 /**
- * Configure `Locale` for an Engine's project (ADR 0342 §6): its languages and strings, and the start language, whose
+ * Configure `Locale` for an Engine's project (ADR 0356 §6): its languages and strings, and the start language, whose
  * strings and fonts load before this resolves. A dedicated server starts in the default language and remembers nothing.
  */
 export async function bootLocale(settings: ProjectSettings, options: LocaleBootOptions): Promise<void> {

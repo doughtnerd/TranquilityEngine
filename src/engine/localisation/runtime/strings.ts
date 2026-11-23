@@ -1,5 +1,5 @@
 /**
- * Where the `Locale` runtime's messages come from (ADR 0342 §6, §11): a string-table registry over the project's
+ * Where the `Locale` runtime's messages come from (ADR 0356 §6, §11): a string-table registry over the project's
  * `*.strings.json` tables and their translations (the editor's Play and the Studio, which hold every project file), or
  * the build's `strings/<code>.json` files, one per shipped language, each loaded when its language becomes current.
  *
@@ -44,7 +44,7 @@ export const noStrings: LocaleStrings = {
 };
 
 /**
- * The project's string tables and translations as a registry (ADR 0342 §1): keys are unique across the project, so the
+ * The project's string tables and translations as a registry (ADR 0356 §1): keys are unique across the project, so the
  * first table in path order that has a key owns it (a later one is warned about once and ignored); a translation file
  * gives its table's keys in its language (`translated` and `needsReview` entries alike: a translation that needs review
  * is still better than a fallback). Problems in the files are warned about once each.
@@ -112,7 +112,7 @@ export class ProjectStrings implements LocaleStrings {
 }
 
 /**
- * A build's string files (ADR 0342 §11): `strings/<code>.json` per shipped language, each complete on its own (the
+ * A build's string files (ADR 0356 §11): `strings/<code>.json` per shipped language, each complete on its own (the
  * export resolved every key through that language's chain), fetched by `fetchFile` when the language is loaded.
  */
 export class BuildStrings implements LocaleStrings {

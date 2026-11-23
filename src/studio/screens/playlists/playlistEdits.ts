@@ -1,4 +1,4 @@
-// The Playlist panel's edits of one playlist body (ADR 0329; the prototype's edits, PL:1055–1400). Each returns
+// The Playlist panel's edits of one playlist body (ADR 0343; the prototype's edits, PL:1055–1400). Each returns
 // `{ next } | { refused }` (ADR 0307, 0313); the screen lifts it to the file with `editAt` and applies it as one labelled
 // undo step. Entries are addressed by index; removing or moving one keeps a Switch's label map pointing at the same
 // entries. Values are clamped to the ranges the prototype's fields allow. Pure.
@@ -36,7 +36,7 @@ function remapSwitch(s: SwitchSettings | null, remap: (i: number) => number | nu
 /** The new index of entry `i` after the entry at `from` moved to `to`. */
 const moved = (i: number, from: number, to: number): number => (i === from ? to : from < to ? (i > from && i <= to ? i - 1 : i) : i >= to && i < from ? i + 1 : i);
 
-/** A sample as an entry of `b`: itself in a Clip, else wrapped in an embedded Clip (ADR 0329: entries are always playlists). */
+/** A sample as an entry of `b`: itself in a Clip, else wrapped in an embedded Clip (ADR 0343: entries are always playlists). */
 export function sampleEntry(b: PlaylistBody, sample: string): Entry {
   const inner: SampleEntry = { kind: "sample", sample, trim: null, loop: "inherit", ...defaultEntryUse() };
   if (b.type === "clip") return inner;
@@ -123,7 +123,7 @@ export function setEntryUse(b: PlaylistBody, i: number, patch: Partial<EntryUse>
   if (patch.volume !== undefined) next.volume = round(clamp(patch.volume, ...USE_LIMITS.volume), 0.1);
   if (patch.pitch !== undefined) next.pitch = round(clamp(patch.pitch, ...USE_LIMITS.pitch), 0.01);
   if (patch.weight !== undefined) next.weight = Math.round(clamp(patch.weight, ...USE_LIMITS.weight));
-  // ADR 0336: `region` or `weightCurve` patched to undefined is cleared ("reset to automatic").
+  // ADR 0350: `region` or `weightCurve` patched to undefined is cleared ("reset to automatic").
   for (const k of ["region", "weightCurve"] as const) if (k in patch && patch[k] === undefined) delete next[k];
   const entries = [...b.entries];
   entries[i] = next;
@@ -220,7 +220,7 @@ function patchChange<T extends ChangeHow>(c: T, patch: Partial<ChangeHow>): T {
     next.length = timed(patch.when) ? { ms: Math.round(old) } : { beats: Math.max(0.25, round(old / 500, 0.25)) };
   }
   if (next.how !== "transition") { delete next.transition; delete next.transitionIn; delete next.transitionOut; }
-  // ADR 0336: a field patched to undefined goes back to its default (absent), as the parse reads it.
+  // ADR 0350: a field patched to undefined goes back to its default (absent), as the parse reads it.
   for (const k of Object.keys(patch) as (keyof ChangeHow)[]) if (patch[k] === undefined) delete next[k];
   return next;
 }

@@ -1,4 +1,4 @@
-// The Buses panel (ADR 0330; the prototype's Mixer board), the Mixer's fixed panel: the toolbar (Undo, Redo, History;
+// The Buses panel (ADR 0344; the prototype's Mixer board), the Mixer's fixed panel: the toolbar (Undo, Redo, History;
 // the snapshot being edited with its trigger; the beds budget; Compare A|B; List|Strips; Collapse all; New bus), the
 // routing tree as rows (drag a name onto another row to re-route; a horizontal fader with its meter and the VCA or
 // base-level tick; the dB field; voices; bed; mute and solo), then Returns and VCAs, or the same buses as a console

@@ -41,7 +41,7 @@ export { reasonText, type CaptureReason, type CaptureVoiceReason } from "./reaso
  * an open route can turn it away before reading its bytes.
  */
 export const CAPTURE_MAX_FILE_BYTES = CAPTURE_HEADER_BYTES + CAPTURE_META_MAX_BYTES + CAPTURE_MAX_UNCOMPRESSED_BYTES;
-/** ADR 0334: the largest take file the reader can accept (the take's uncompressed cap, 256 MiB, and the same slack). */
+/** ADR 0348: the largest take file the reader can accept (the take's uncompressed cap, 256 MiB, and the same slack). */
 export const TAKE_MAX_FILE_BYTES = CAPTURE_HEADER_BYTES + CAPTURE_META_MAX_BYTES + TAKE_MAX_UNCOMPRESSED_BYTES;
 /** The slot the final output is metered under (STATUS loudness rows and the loudness answers), beside the buses' own slots. */
 export const CAPTURE_OUTPUT_SLOT = LOUD_OUTPUT_TAP;
@@ -66,7 +66,7 @@ export interface ReaderOptions {
    */
   pause?(): Promise<void>;
   /**
-   * ADR 0334: each request record of a take (PLAY .. take KEYFRAME), decoded, with its seq, as the scan checks it. Without
+   * ADR 0348: each request record of a take (PLAY .. take KEYFRAME), decoded, with its seq, as the scan checks it. Without
    * it the reader passes over them (the Profiler's views read only the profile records).
    */
   onRequestRecord?(record: TakeRecord, seq: number): void;
@@ -144,7 +144,7 @@ export interface CaptureContents {
   index: IndexPayload | null;
   truncated: boolean;
   mainSideOnly: boolean;
-  /** ADR 0334: the file is a take (its stream may hold request records, which the reader checked and passed over). */
+  /** ADR 0348: the file is a take (its stream may hold request records, which the reader checked and passed over). */
   take: boolean;
   warnings: string[];
 }
@@ -352,7 +352,7 @@ export class CaptureDecoder {
         break;
       default:
         if (isTakeRecordType(h.type)) {
-          // ADR 0334: a take's request record: checked (refused rather than misread) and passed over, or handed to the take reader.
+          // ADR 0348: a take's request record: checked (refused rather than misread) and passed over, or handed to the take reader.
           if (!c.take) throw new CaptureError("badRecord", at, `a request record (type 0x${h.type.toString(16)}) in a capture that is not a take`);
           const r = decodeRequestRecord(h.type, view, p, len, base);
           this.opts.onRequestRecord?.(r, h.seq);

@@ -1,4 +1,4 @@
-// ADR 0342 §10 (T5): localised textures and fonts under `languages.assetRoots`, through the public `Assets` and `Locale`
+// ADR 0356 §10 (T5): localised textures and fonts under `languages.assetRoots`, through the public `Assets` and `Locale`
 // on an Engine: a reference names the reference language's file and serves the current language's variant through its
 // fallback chain; a switch preloads the new variants of what was loaded before it commits, then announces each
 // reference whose file changed (`Assets.onChanged`), so a runtime caching it reloads it.
@@ -36,7 +36,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-describe("localised assets (ADR 0342 §10)", () => {
+describe("localised assets (ADR 0356 §10)", () => {
   it("resolves a texture and a font per language through the fallback chain", async () => {
     await boot();
     expect(Assets.url("images/loc/en/logo.png")).toBe("blob:logo-en");

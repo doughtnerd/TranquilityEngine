@@ -1,5 +1,5 @@
 /**
- * The engine's ICU MessageFormat 1 formatter (ADR 0342 §2), on `Intl`: CLDR plural categories from `Intl.PluralRules`,
+ * The engine's ICU MessageFormat 1 formatter (ADR 0356 §2), on `Intl`: CLDR plural categories from `Intl.PluralRules`,
  * numbers from `Intl.NumberFormat`, dates and times from `Intl.DateTimeFormat`. It formats `parse.ts`'s tree and never
  * throws:
  *
@@ -18,7 +18,7 @@ import type { MessageNode, OptionNode, PluralNode } from "./ast";
 import { numberStyleOptions } from "./numberStyle";
 import { parseMessage } from "./parse";
 
-/** A value a message argument takes. Objects (a `LocalText`, ADR 0342 §6) format as their `toString()`. */
+/** A value a message argument takes. Objects (a `LocalText`, ADR 0356 §6) format as their `toString()`. */
 export type MessageArg = string | number | bigint | boolean | Date | null | undefined | { toString(): string };
 export type MessageArgs = Readonly<Record<string, MessageArg>>;
 
@@ -136,6 +136,6 @@ export function formatMessage(ast: readonly MessageNode[], args: MessageArgs | n
   }
 }
 
-/** A message's text parsed and formatted (a runtime-written message, ADR 0342 §6 `Locale.format`). Never throws. */
+/** A message's text parsed and formatted (a runtime-written message, ADR 0356 §6 `Locale.format`). Never throws. */
 export const formatMessageText = (message: string, args: MessageArgs | null | undefined, tag: string, onMissing?: (name: string) => void): string =>
   formatMessage(parseMessage(message).ast, args, tag, onMissing);

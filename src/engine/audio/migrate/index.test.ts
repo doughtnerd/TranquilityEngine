@@ -1,4 +1,4 @@
-/** `migrateProjectAudioEvents` (ADR 0329 §"Migration"): every event file becomes a playlist beside it. */
+/** `migrateProjectAudioEvents` (ADR 0343 §"Migration"): every event file becomes a playlist beside it. */
 import { describe, expect, it } from "vitest";
 import { emptyPlaylist, parsePlaylist } from "../playlist/format";
 import { migrateProjectAudioEvents, playlistPathFor, writePlaylistText } from "./index";

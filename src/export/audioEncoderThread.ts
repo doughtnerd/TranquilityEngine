@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0337 §4): the body of an encoder thread, for a browser Worker (`audioEncoderBrowser.worker.ts`) and a
+ * Internal (ADR 0351 §4): the body of an encoder thread, for a browser Worker (`audioEncoderBrowser.worker.ts`) and a
  * `worker_threads` thread (`audioEncoderNodeWorker.mjs`) alike. It instantiates the encoder on the first request (`load`
  * gives the wasm) and answers each `ThreadRequest` with a `ThreadReply`, transferring the encoded bytes.
  */

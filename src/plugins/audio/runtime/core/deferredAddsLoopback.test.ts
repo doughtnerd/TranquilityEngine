@@ -206,7 +206,7 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     r.backend.dispose();
   });
 
-  it("ADR 0331 (ABI 4.6): a bus takes eight effects live; the ninth is refused by the insert cap, and nothing is queued", { timeout: 60_000 }, async (ctx) => {
+  it("ADR 0345 (ABI 4.6): a bus takes eight effects live; the ninth is refused by the insert cap, and nothing is queued", { timeout: 60_000 }, async (ctx) => {
     const fx = (i: number) => ({ type: "lowpass", frequency: 4000 + i * 100, q: 0.7 });
     const r = await rig(project(4, { effects: [fx(0), fx(1), fx(2), fx(3)] }));
     if (!r) return ctx.skip();

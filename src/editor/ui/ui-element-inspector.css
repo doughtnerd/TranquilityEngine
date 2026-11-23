@@ -5,7 +5,7 @@
 .ui-element-inspector .link-button { font: inherit; }
 .fields.ui-element-fields { align-items: start; }
 .ui-element-fields .label-cell { min-height: 18px; }
-/* The Localise control under the fields (ADR 0342 §9): spans the label and value columns. */
+/* The Localise control under the fields (ADR 0356 §9): spans the label and value columns. */
 .ui-element-fields .ui-field-localise { grid-column: 1 / -1; border-top: 1px solid var(--border); padding-top: 4px; }
 .ui-element-fields .ui-field-localise-label { color: var(--muted); font-size: 11px; }
 .ui-element-fields .ui-field-value { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }

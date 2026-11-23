@@ -57,7 +57,7 @@ afterEach(closeRecordingAudio);
 
 describe("liveMix (Ma1)", () => {
   it("covers every op name, and the wire's DRAG_RAMP_MS is the mixer's", () => {
-    // The mix model's own ops (ADR 0330) reach the core as the old ops they change (`mixer.apply`; `projectOps.test.ts`).
+    // The mix model's own ops (ADR 0344) reach the core as the old ops they change (`mixer.apply`; `projectOps.test.ts`).
     expect(new Set(OPS.map(([o]) => o.op))).toEqual(new Set(MIX_OP_NAMES.filter((n) => !isProjectOp({ op: n }))));
     expect(DRAG_RAMP_MS).toBe(WIRE_DRAG_RAMP_MS);
     const settings = parseAudioSettings(PROJECT).settings;
@@ -83,7 +83,7 @@ describe("liveMix (Ma1)", () => {
     }
   });
 
-  // ADR 0330: what the main thread moves of a bus's effects (a snapshot's override) reaches the core as one BUS_SLOT for
+  // ADR 0344: what the main thread moves of a bus's effects (a snapshot's override) reaches the core as one BUS_SLOT for
   // that bus; the mix model's own ops send the old ops they change of the bus view: a return is a bus of it (ABI 4.7), so
   // its level is its own authored lane, and the sends into it are BUS_SENDS of the buses that feed it.
   it("the mixer's live effects reach the core: a snapshot override is a BUS_SLOT, a return's level its own lane, a send BUS_SENDS", () => {
@@ -124,7 +124,7 @@ describe("liveMix (Ma1)", () => {
     r.backend.dispose();
   });
 
-  // ADR 0330: a return added live takes a fresh slot (an appended BUS_SLOT, as a bus added live); a send into it is a
+  // ADR 0344: a return added live takes a fresh slot (an appended BUS_SLOT, as a bus added live); a send into it is a
   // BUS_SENDS of the sending bus naming that slot; a send removed is kept muted (it ramps out, no cut), its level kept.
   it("a return added live gets a slot, a send into it a BUS_SENDS; a removed send fades out muted", () => {
     const project = parseAudioProject({ format: "myco.audio@1", buses: [{ name: "Master", parent: null }, { name: "SFX", parent: "Master" }] }).project;

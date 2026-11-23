@@ -1,4 +1,4 @@
-// An encoder thread in the browser (ADR 0337 §4): a module Worker spawned by `audioEncoderBrowser.ts`. Vite bundles the
+// An encoder thread in the browser (ADR 0351 §4): a module Worker spawned by `audioEncoderBrowser.ts`. Vite bundles the
 // wasm as an asset; the Worker fetches and compiles it on its first request.
 import type { ThreadReply, ThreadRequest } from "./audioEncoder";
 import { serveEncoder } from "./audioEncoderThread";

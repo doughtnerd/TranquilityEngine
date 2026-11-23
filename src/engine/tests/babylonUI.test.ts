@@ -541,7 +541,7 @@ describe("measureText", () => {
     });
   });
 
-  it("wraps CJK text between characters, keeping closing punctuation off a line's start (ADR 0342 §5)", async () => {
+  it("wraps CJK text between characters, keeping closing punctuation off a line's start (ADR 0356 §5)", async () => {
     await withCanvas((measure) => {
       // 5 px a character, 25 px wide: four characters fit 25 / 1.05; "。" can't start the third line, so "ト" goes with it.
       expect(measure(req({ text: "日本語のテキスト。", maxWidth: 25 })).height).toBeCloseTo(36);
@@ -549,7 +549,7 @@ describe("measureText", () => {
     });
   });
 
-  it("draws text aligned start from the language's start edge, in its direction (ADR 0342 §5)", async () => {
+  it("draws text aligned start from the language's start edge, in its direction (ADR 0356 §5)", async () => {
     engine.dispose();
     engine = await Engine.create({ headless: true, project: { languages: { list: [{ code: "en", name: "English" }, { code: "ar", name: "العربية" }], useSystemLanguage: false } } as ProjectSettingsInput });
     const canvas = node("C", null, UICanvas);

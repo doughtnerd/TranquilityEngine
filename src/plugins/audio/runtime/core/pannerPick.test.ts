@@ -253,7 +253,7 @@ describe("PannerPick, beds (ADR 0162 A5)", () => {
   });
 });
 
-describe("PannerPick, bed-only voices (ADR 0333: bedBeyond, audio zone interiors)", () => {
+describe("PannerPick, bed-only voices (ADR 0347: bedBeyond, audio zone interiors)", () => {
   it("a bed-only voice is never HRTF: the bed where its bus has one, equal-power without; the rest keep their rank", () => {
     const { pick, bedSlot, sink, flagged, log } = setup([0.9, 0.8, 0.7]);
     bedSlot[0] = 0;

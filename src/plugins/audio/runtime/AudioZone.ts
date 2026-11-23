@@ -1,5 +1,5 @@
 /**
- * An audio zone (ADR 0333): an area that plays a sound — rain over a field, a river, wind on a ridge — without scripting.
+ * An audio zone (ADR 0347): an area that plays a sound — rain over a field, a river, wind on a ridge — without scripting.
  * The zone is an upright box: `center` (an offset from the node, local units), `width` (local x) by `depth` (local z),
  * turned by `yaw` degrees about the vertical on top of the node's own turn (positive turns right, clockwise seen from
  * above, ADR 0164), from `bottom` to `top` (heights above the centre). The node's world scale scales it.
@@ -34,7 +34,7 @@ import { warnOnce } from "./core/handle";
 import { playlists } from "./playlists/playlistSystem";
 import type { PlaylistInstance } from "./playlists/instance";
 
-/** How a zone is heard (ADR 0333). */
+/** How a zone is heard (ADR 0347). */
 export const AUDIO_ZONE_HEARD = ["edge", "inside"] as const;
 export type AudioZoneHeard = (typeof AUDIO_ZONE_HEARD)[number];
 
@@ -97,7 +97,7 @@ export class AudioZone extends Component {
   private distanceNow = 0;
 
   /**
-   * The spread the zone's sound has now, degrees (ADR 0333): `min(180, 40 + 600/max(3, d))` for an edge zone heard
+   * The spread the zone's sound has now, degrees (ADR 0347): `min(180, 40 + 600/max(3, d))` for an edge zone heard
    * from outside, 360 around the listener (inside an edge zone, and for an inside zone). Its voices play with it.
    */
   get spread(): number { return this.spreadNow; }
@@ -123,7 +123,7 @@ export class AudioZone extends Component {
       this.spreadNow = audioZoneEdgeSpread(d);
     } else {
       // Around the listener (inside an edge zone; an inside zone, whose level fades over the feather outside): placed
-      // at the listener, spread all round, in its bus's ambisonic bed (ADR 0333; the core's panner pick takes it there).
+      // at the listener, spread all round, in its bus's ambisonic bed (ADR 0347; the core's panner pick takes it there).
       this.place(l);
       this.spreadNow = 360;
       bed = true;
@@ -140,7 +140,7 @@ export class AudioZone extends Component {
     else this.voice?.setPosition(this.pos);
   }
 
-  /** ADR 0333: the sound's spread (degrees) and whether it is heard in its bus's bed. */
+  /** ADR 0347: the sound's spread (degrees) and whether it is heard in its bus's bed. */
   private setSpatial(spread: number, bed: boolean): void {
     if (this.instance) {
       this.instance.setZoneSpatial(spread, bed);
@@ -178,7 +178,7 @@ export class AudioZone extends Component {
       req.owner = this.node.name;
       req.attenuation = SAMPLE_ATTENUATION;
       req.position = at;
-      // ADR 0328: the sample's trimmed start, normalisation gain and loop region (endless: a zone has no release).
+      // ADR 0342: the sample's trimmed start, normalisation gain and loop region (endless: a zone has no release).
       this.voice = playSampleVoice(path, req);
     } catch (e) {
       warnOnce(`zone:sample:${path}`, `[myco] AudioZone "${this.node.name}": the sample "${path}" can't play (${e instanceof Error ? e.message : String(e)}).`);
@@ -217,7 +217,7 @@ function listenerIn(world: World): Vec3Like | null {
   return best ? listenerPose(best.node).position : null;
 }
 
-/** @internal ADR 0333: places and levels every enabled zone in the World that plays, before the audio frame. */
+/** @internal ADR 0347: places and levels every enabled zone in the World that plays, before the audio frame. */
 export const AUDIO_ZONE_SYSTEM: BuiltinSystem = {
   name: "engine.AudioZones",
   phase: "lateUpdate",

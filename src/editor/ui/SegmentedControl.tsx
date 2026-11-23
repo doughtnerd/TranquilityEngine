@@ -1,4 +1,4 @@
-// A segmented control (ADR 0335): one choice of a few, drawn as joined buttons, with the ARIA radio group pattern
+// A segmented control (ADR 0349): one choice of a few, drawn as joined buttons, with the ARIA radio group pattern
 // (one tab stop on the chosen option; arrows move and pick, `segmentedModel.ts`).
 import { useRef } from "preact/hooks";
 import { segmentForKey, type SegmentOption } from "./segmentedModel";

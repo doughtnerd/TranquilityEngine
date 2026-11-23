@@ -1,4 +1,4 @@
-//! Band-limited oscillators (ADR 0346 §3): a phase accumulator in `f64` (long drones keep their pitch) read as a saw
+//! Band-limited oscillators (ADR 0360 §3): a phase accumulator in `f64` (long drones keep their pitch) read as a saw
 //! or a pulse with a two-sample polynomial residual at each discontinuity (PolyBLEP, Välimäki and Huovilainen), a
 //! triangle with the integrated residual at each corner (PolyBLAMP, Esqueda et al.: no leaky integrator to drift), and a
 //! sine through a polynomial. Every read takes `dt`, the phase increment of this sample (frequency × pitch ÷ rate), so a

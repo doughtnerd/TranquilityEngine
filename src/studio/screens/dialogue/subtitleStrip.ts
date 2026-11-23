@@ -1,15 +1,15 @@
-// The Line inspector's subtitle strip and the Lines table's reading-speed flag (ADR 0343 §3, §6): a subtitle's pages
+// The Line inspector's subtitle strip and the Lines table's reading-speed flag (ADR 0357 §3, §6): a subtitle's pages
 // over the heard audio, each with the characters per second it asks of a reader while the audio plays, and warnings
 // (reading speed over the language's limit, more than two lines, a line over 42 characters at the built-in medium
 // size). The Studio has no renderer, so pages are measured by characters (`fitsLines`), the timing and length preview
-// 0343 calls for; the editor's Play is the exact one. Pure, over `subtitles.ts`.
+// 0357 calls for; the editor's Play is the exact one. Pure, over `subtitles.ts`.
 import type { LanguageSettings } from "../../../engine/localisation/languages";
 import {
   characterCount, fitsLines, pageTimes, readingRule, splitPages, subMarkerTimes, type PageTime, type ReadingRule, type SubtitleMarker,
 } from "../../../engine/localisation/subtitles";
 import type { SubtitleProjectSettings } from "../../../engine/localisation/subtitleSettings";
 
-/** Characters on one subtitle line at the built-in medium size at 1920×1080 (0343 §6). */
+/** Characters on one subtitle line at the built-in medium size at 1920×1080 (0357 §6). */
 export const LINE_CHARS = 42;
 /** Lines on one page (the built-in display's `maxLines`). */
 export const PAGE_LINES = 2;

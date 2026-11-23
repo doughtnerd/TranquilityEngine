@@ -1,4 +1,4 @@
-// ADR 0329: the playlist host's shared state (`host.ts`, the event runtime's `EventSystem` before the migration retired
+// ADR 0343: the playlist host's shared state (`host.ts`, the event runtime's `EventSystem` before the migration retired
 // the event containers), driven through `Audio`, an `AudioSource` and the playlist runtime on the fake backend (the
 // TypeScript automation evaluator runs). Ported from the event runtime's tests of the same behaviour: instance groups
 // (E3.10), per-World generators (0158 §6, E3.6), the global parameter taps (Rc3), `syncSettings` (Ma1), samples played
@@ -187,7 +187,7 @@ describe("global parameters (Rc3 taps, Ma1)", () => {
   });
 });
 
-describe("what Audio.play and AudioSource accept (ADR 0329)", () => {
+describe("what Audio.play and AudioSource accept (ADR 0343)", () => {
   it("a sample plays as a one-sample Clip playlist: a live handle, an instance row, its offset honoured", async () => {
     await kit.boot({});
     fake.durations.set("a.wav", 2);

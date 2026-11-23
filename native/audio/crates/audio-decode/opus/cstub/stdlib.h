@@ -1,4 +1,4 @@
-/* Stub libc header for the decoder's libopus (ADR 0337 A7) (wasm32-unknown-unknown): malloc/calloc/realloc/free/abort are defined in Rust (audio-decode src/opus.rs). */
+/* Stub libc header for the decoder's libopus (ADR 0351 A7) (wasm32-unknown-unknown): malloc/calloc/realloc/free/abort are defined in Rust (audio-decode src/opus.rs). */
 #ifndef MYCO_OPUSDEC_STDLIB_H
 #define MYCO_OPUSDEC_STDLIB_H
 #include <stddef.h>

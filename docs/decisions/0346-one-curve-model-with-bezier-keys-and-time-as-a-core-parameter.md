@@ -1,10 +1,10 @@
-# 0332. One curve model with Bézier keys everywhere, time as a parameter the core advances, and one curve editor
+# 0346. One curve model with Bézier keys everywhere, time as a parameter the core advances, and one curve editor
 
-- **Status:** Accepted, amended by 0336 (beat-quantised lanes run as stamped gain ramps, not core bindings)
+- **Status:** Accepted, amended by 0350 (beat-quantised lanes run as stamped gain ramps, not core bindings)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0158 (amended: curves may be keyed on time), 0060, 0157, 0306, 0328–0331, 0333, 0335
+- **Related:** 0158 (amended: curves may be keyed on time), 0060, 0157, 0306, 0342–0345, 0347, 0349
 
 ## Context
 
@@ -36,13 +36,13 @@ existing ones (`lin` → `linear`, `s`/`ease` → `smooth`, `in` → `easeIn`, `
 last, as today. Particles get Bézier keys for free.
 
 **Units in, units out.** Keys are stored in the target's units (dB, semitones, Hz, %). A target whose catalogue
-parameter has `scale: "log"` (0331) is interpolated in log space by the evaluator's caller; the curve format doesn't
+parameter has `scale: "log"` (0345) is interpolated in log space by the evaluator's caller; the curve format doesn't
 change.
 
 **Time is a parameter.** Each playing instance has three built-in time parameters the core advances per quantum:
 `voiceTime` (since the voice started), `clipTime` (since the clip's start) and `sequenceTime` (the sequence playhead).
 The main thread re-anchors them with stamped jumps when the sequence's state machine wraps a loop, parks at a hold
-point or leaves (0329), as the music planner stamps its starts today. Automation keyed on time is then the same as
+point or leaves (0343), as the music planner stamps its starts today. Automation keyed on time is then the same as
 automation keyed on a parameter: a curve on a parameter slot, evaluated in the core per quantum. This is a core and
 wire change (new parameter kinds, stamped re-anchor); the Babylon fallback evaluates time curves per frame on the main
 thread, as it does parameter curves (`TsAutomation`).
@@ -55,7 +55,7 @@ parameters a lane may be driven by), `length` (time) or `minDistance`/`maxDistan
 units**, with each lane's input and bypass. Editing inside the dialog is a draft with its own panel history
 (`providePanelHistory`, 0145), so Ctrl+Z works inside it; Apply commits one labelled undo step to the owning document,
 Cancel drops the draft. Presets: Flat, Linear, Ease in, Ease out, S-curve, and Inverse square for distance volume;
-user presets are a per-user preference. The parameter histogram comes from takes (0334) when one is open.
+user presets are a per-user preference. The parameter histogram comes from takes (0348) when one is open.
 
 **Not built in v1:** the "And by" second input (morph, scale, rate, per-label tables). No live screen of the prototype
 uses it; a later record can add it.

@@ -1,4 +1,4 @@
-// The Samples screen (ADR 0328, milestone M3): its panels (Samples, Outline, the fixed Sample timeline, Edits, Loop
+// The Samples screen (ADR 0342, milestone M3): its panels (Samples, Outline, the fixed Sample timeline, Edits, Loop
 // seam, Inspector, History) and its keys. Default layout as the prototype's: left Samples over Outline, right
 // Inspector, bottom Edits | Loop seam, the timeline in the middle.
 import type { ComponentChildren } from "preact";

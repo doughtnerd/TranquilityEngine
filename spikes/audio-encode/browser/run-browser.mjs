@@ -1,4 +1,4 @@
-// ADR 0337 spike A0/S1: runs the encoder reactor in a Web Worker in headless Chromium (Playwright's, from the repo's
+// ADR 0351 spike A0/S1: runs the encoder reactor in a Web Worker in headless Chromium (Playwright's, from the repo's
 // devDependencies), through wasi-shim.js. Not an e2e spec: a measurement script.
 //
 //   node spikes/audio-encode/browser/run-browser.mjs <encoder.wasm> <in.wav> <job>... [--workers=N] [--browser=chromium|webkit] [--exec=chrome]

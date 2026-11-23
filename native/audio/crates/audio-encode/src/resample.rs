@@ -1,4 +1,4 @@
-//! Fixed-ratio rate conversion with rubato's synchronous FFT resampler (ADR 0345 §2: ≈300× realtime in wasm against
+//! Fixed-ratio rate conversion with rubato's synchronous FFT resampler (ADR 0359 §2: ≈300× realtime in wasm against
 //! ≈86× for the asynchronous sinc resampler, at equal or better quality for a fixed ratio). Whole clip in, whole clip
 //! out; rubato trims its own delay, so the output starts aligned with the input.
 

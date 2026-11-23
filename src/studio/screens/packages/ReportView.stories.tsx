@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0337 §6, §8) for the Packages screen's Report tab over the story project: estimated figures for Web,
+// Stories (ADR 0219, 0351 §6, §8) for the Packages screen's Report tab over the story project: estimated figures for Web,
 // past its 1 MB download budget (the bar in the danger colour and a warning), per package; a raised budget clears the
 // warning; Convert now shows progress (a pretend run here) and then exact figures from the export's report.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

@@ -41,10 +41,10 @@
  *
  * A slice is referenced as `asset:<image path>#<slice name>` (`asset:images/hero.png#walk_0`).
  *
- * Audio files may also carry a `sample` block (ADR 0328: loops, markers, trim, tempo, root note…), read and written by
+ * Audio files may also carry a `sample` block (ADR 0342: loops, markers, trim, tempo, root note…), read and written by
  * `audio/sample/format.ts`; old sidecars without it are unchanged.
  *
- * And an `encoding` block (ADR 0337 §2): how the file is converted per platform in a game build, read and written by
+ * And an `encoding` block (ADR 0351 §2): how the file is converted per platform in a game build, read and written by
  * `audio/encoding/format.ts` and resolved by `audio/encoding/resolve.ts`. It has its own `platforms`, so image and audio
  * keys never mix:
  *
@@ -52,7 +52,7 @@
  * "encoding": { "profile": "UI", "quality": 0.7, "platforms": { "android": { "channels": "mono" } } }
  * ```
  *
- * And a `generated` block (ADR 0346 §6) on a sample baked from a generator, read and written by
+ * And a `generated` block (ADR 0360 §6) on a sample baked from a generator, read and written by
  * `audio/generators/provenance.ts`:
  *
  * ```jsonc
@@ -73,7 +73,7 @@ export type TextureWrap = "clamp" | "repeat" | "mirror";
 /** How hard a texture is compressed on its way to the GPU: `none` keeps it as authored; `high` is smallest and lowest quality (ADR 0115). */
 export type TextureCompression = "none" | "low" | "normal" | "high";
 export const TEXTURE_COMPRESSIONS: readonly TextureCompression[] = ["none", "low", "normal", "high"];
-/** A build target an import setting can differ on (ADR 0115; `android` since ADR 0337 §1). */
+/** A build target an import setting can differ on (ADR 0115; `android` since ADR 0351 §1). */
 export type ImportPlatform = "web" | "desktop" | "android";
 export const IMPORT_PLATFORMS: readonly ImportPlatform[] = ["web", "desktop", "android"];
 /** The image settings a platform can override. */
@@ -148,14 +148,14 @@ export interface ImportSettings {
   /** Audio (ADR 0162 §2.4): the clip is ambisonic; null (absent) for an ordinary clip. */
   ambisonic: AmbisonicImport | null;
   /**
-   * Audio (ADR 0328): the sample's non-destructive edits (loops, markers, trim, tempo, root, normalisation, baked
+   * Audio (ADR 0342): the sample's non-destructive edits (loops, markers, trim, tempo, root, normalisation, baked
    * effects…), parsed by `audio/sample/format.ts`; null (absent) for a file nobody edited. When present its `loops`
    * replace `loopStart`/`loopEnd` (`sampleEditsFromSidecar`).
    */
   sample: SampleEdits | null;
-  /** Audio (ADR 0337 §2): the file's encoding overrides and profile; null (absent) when it inherits everything. */
+  /** Audio (ADR 0351 §2): the file's encoding overrides and profile; null (absent) when it inherits everything. */
   encoding: SidecarEncoding | null;
-  /** Audio (ADR 0346 §6): where a baked sample came from (generator, patch hash, seed, variation); null (absent) otherwise. */
+  /** Audio (ADR 0360 §6): where a baked sample came from (generator, patch hash, seed, variation); null (absent) otherwise. */
   generated: GeneratedProvenance | null;
   /** Models (ADR 0044): multiplies the model's size. */
   scale: number;

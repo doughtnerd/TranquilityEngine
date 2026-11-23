@@ -1,5 +1,5 @@
 /**
- * The built-in subtitle document and stylesheet (ADR 0343 §5), served to UI documents from an asset source the plugin
+ * The built-in subtitle document and stylesheet (ADR 0357 §5), served to UI documents from an asset source the plugin
  * adds under `__myco/subtitles/` (never listed, so the editor and string-table discovery don't see it).
  *
  * **The contract for replacement documents and themes:** an element `#subtitles` whose `<Template>` holds an element
@@ -32,7 +32,7 @@ const DOCUMENT = `<Panel id="subtitle-root">
 </Panel>
 `;
 
-const STYLESHEET = `/* The built-in subtitle look (ADR 0343 §5). Themes override these variables in their own stylesheet. */
+const STYLESHEET = `/* The built-in subtitle look (ADR 0357 §5). Themes override these variables in their own stylesheet. */
 :root {
   --subtitle-font: "";
   --subtitle-color: ${SUBTITLE_LOOK.color};

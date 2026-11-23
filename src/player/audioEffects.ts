@@ -1,4 +1,4 @@
-// A build's plugin audio effects (ADR 0338 §8): `game.json`'s `audioEffects` (one entry per module, written by the
+// A build's plugin audio effects (ADR 0352 §8): `game.json`'s `audioEffects` (one entry per module, written by the
 // exporter's `audioEffects.ts`) become the audio plugin's effect set before the Engine starts, so the first scene's
 // chains find them: their specs join the catalogue and their modules the core's chains as soon as the core is up. A
 // module whose bytes don't match the hash the build recorded is refused (its effects pass through), as is an entry that

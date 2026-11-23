@@ -1,4 +1,4 @@
-// The Dialogue screen's Languages tab (ADR 0340 §1, §2, §8): `project.json`'s languages — code, name, ship, own
+// The Dialogue screen's Languages tab (ADR 0354 §1, §2, §8): `project.json`'s languages — code, name, ship, own
 // fallback, reference and start language, the chain every language ends with — editable only while no editor holds the
 // project (else read-only with "Edit in the editor"); `audio.json`'s localisation settings (roots, loudness, duration
 // tolerance, what a missing line does); Normalise language per language; and "Duck Music under Voice" while no rule is

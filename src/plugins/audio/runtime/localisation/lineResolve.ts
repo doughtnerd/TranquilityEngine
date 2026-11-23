@@ -1,5 +1,5 @@
 /**
- * Which file a line key plays now (ADR 0340 §5): its table row (`lineRegistry.ts`) and its file in the current audio
+ * Which file a line key plays now (ADR 0354 §5): its table row (`lineRegistry.ts`) and its file in the current audio
  * language's fallback chain (`lineFile`: an explicit `files[c]`, else `<root>/<c>/<folder>/<file ?? key>.<ext>`).
  */
 import { Assets } from "../../../../engine/scene/Assets";
@@ -10,7 +10,7 @@ import { lineLocation } from "./lineRegistry";
 export interface ResolvedLine {
   readonly key: string;
   readonly loc: LineLocation;
-  /** The file and the language it is in; null when no language of the chain has one (0340 §3). */
+  /** The file and the language it is in; null when no language of the chain has one (0354 §3). */
   readonly file: LineFile | null;
 }
 

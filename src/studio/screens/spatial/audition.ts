@@ -1,4 +1,4 @@
-// Auditioning a test scene (ADR 0333: the Studio plays a test scene through the engine's own components): what the test
+// Auditioning a test scene (ADR 0347: the Studio plays a test scene through the engine's own components): what the test
 // scene player is given while the screen's Play is on, and how a scene edit reaches it. Solo and mute are audition
 // state, not scene data: a silenced object's sound is left out of the scene the player builds. Edits that only move or
 // reshape objects (and the active listener) go to the running player as `moveObject` poses, so the sound follows the

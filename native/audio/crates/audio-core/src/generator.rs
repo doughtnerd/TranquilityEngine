@@ -1,4 +1,4 @@
-//! Generator voices (ADR 0346 §3, ABI 5.1): a PLAY of a reserved clip id (`GEN_CLIP_ID_FIRST` + kind: 1 oscillator,
+//! Generator voices (ADR 0360 §3, ABI 5.1): a PLAY of a reserved clip id (`GEN_CLIP_ID_FIRST` + kind: 1 oscillator,
 //! 2 synth, 3 blip, 4 silence) starts a voice that renders `audio_dsp::gen` instead of reading a clip. Nothing is
 //! uploaded; the id is never in the clip store. Everything else about the voice is a clip voice's: ids and
 //! generations, buses, mixed and virtual, pause, STOP, FADE, SET_PARAMS, ROUTE, SET_VOICE_FX, groups, REPLAY, sends,

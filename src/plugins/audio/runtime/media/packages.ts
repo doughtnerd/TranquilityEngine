@@ -1,12 +1,12 @@
 /**
- * Audio packages at runtime (ADR 0337 §7, §9; A5): `Audio.package(name)` handles, reference-counted loads and unloads, the
+ * Audio packages at runtime (ADR 0351 §7, §9; A5): `Audio.package(name)` handles, reference-counted loads and unloads, the
  * clips they hold (reference-counted across packages), the strict rule, preload packages and the `PKG` capture events.
  *
  * **Where packages come from.** In a build, the media table (`mediaTable.ts`): each package's `.mycopak` URL and size,
  * and which sounds each holds. Without one (editor Play, the dev server) `audio.json`'s `packages` over the project's
  * sources: a package holds the files its includes name (a path, or a glob matched against the sound's own path) and the
  * dependencies of its exact includes (`packageContents`, `audioDependencies`); loading it makes its sounds playable from
- * their project files, so a missing load shows before export (ADR 0337 §7 "The editor's Play ... enforce the same rule").
+ * their project files, so a missing load shows before export (ADR 0351 §7 "The editor's Play ... enforce the same rule").
  *
  * **Loading** (W12). A build's package is fetched with progress and its TOC read (`readAudioPack`). On a backend with
  * packages (`AudioBackend.packs`: the core) the bytes go to its decoder worker (`loadPack`, with the package URL to fetch
@@ -28,12 +28,12 @@
  * decoder worker (`releasePack`) once its finishing voices have ended (at once otherwise: a fading voice plays from the
  * arena or from its stream's own copy).
  *
- * **Language parts** (ADR 0340 §6, L3). A build's package whose contents reach localised files has a base part (its
+ * **Language parts** (ADR 0354 §6, L3). A build's package whose contents reach localised files has a base part (its
  * `url`) and one part per shipped language (`languages`, `<name>.<code>.mycopak`); the media table gives each localised
  * sound its `language` part(s). Internally each part is a unit of its own (`<name>|<code>`: `|` can't be in a package
  * name) with its own load, clips and decoder package, held by the package while it has references. `load()` loads the
  * base and the part of the package language (its chain's first language with a part), and the handle's state, progress,
- * `bytes` and `memoryBytes` cover both. The package language is the voice language a text language follows (0343 §2)
+ * `bytes` and `memoryBytes` cover both. The package language is the voice language a text language follows (0357 §2)
  * until the audio language switch sets it with `switchPackageLanguage`, which loads every loaded package's new part,
  * then unloads the old ones. Strict packaging applies per part: a localised sound whose part isn't loaded is refused
  * with `notLoaded`.
@@ -60,7 +60,7 @@ import { buildUrl, entryPackages, installedAudio, mediaEntry } from "./mediaTabl
 import { fallbackChain } from "../../../../engine/localisation/languages";
 import { audioLanguage, projectLanguages } from "../localisation/languageState";
 
-/** ADR 0337 §9: a package of sounds a game loads and unloads (`Audio.package(name)`). */
+/** ADR 0351 §9: a package of sounds a game loads and unloads (`Audio.package(name)`). */
 export interface AudioPackage {
   readonly name: string;
   readonly state: "unloaded" | "loading" | "loaded" | "failed";
@@ -70,7 +70,7 @@ export interface AudioPackage {
   readonly bytes: number;
   /** What it holds in memory while loaded, bytes: decoded clips, compressed bytes, prefetch heads (the base and the current language's part). */
   readonly memoryBytes: number;
-  /** ADR 0340 §6: the languages it has a part for (empty for a package without localised sounds, and over the sources). */
+  /** ADR 0354 §6: the languages it has a part for (empty for a package without localised sounds, and over the sources). */
   readonly languages: readonly string[];
   /** Reference-counted: resolves once it is loaded, rejects with the reason (an unknown name, a failed fetch). */
   load(): Promise<void>;
@@ -91,7 +91,7 @@ export interface AudioPackageDebug {
   readonly preload: boolean;
 }
 
-/** The fade a package unload stops its voices with, seconds (ADR 0337 §9). */
+/** The fade a package unload stops its voices with, seconds (ADR 0351 §9). */
 export const PACKAGE_UNLOAD_FADE = 0.05;
 
 // --- definitions ------------------------------------------------------------------------------------------------------
@@ -104,7 +104,7 @@ interface Definition {
   readonly bytes: number;
   /** Over the sources: whether the package holds the sound at `path`. A build answers from its media table. */
   holds(path: string): boolean;
-  /** ADR 0340 §6: a build package's language parts (code → file), or null without. */
+  /** ADR 0354 §6: a build package's language parts (code → file), or null without. */
   readonly parts: Readonly<Record<string, { readonly url: string; readonly bytes: number }>> | null;
 }
 
@@ -196,7 +196,7 @@ function holdersOf(path: string): readonly string[] {
   return defs.list.filter((d) => d.holds(path)).map((d) => d.name);
 }
 
-// --- language parts (ADR 0340 §6) ---------------------------------------------------------------------------------------
+// --- language parts (ADR 0354 §6) ---------------------------------------------------------------------------------------
 
 /** A language part's unit key: `|` can't be in a package name (`whyNotPackageName`). */
 function partKey(name: string, code: string): string {
@@ -257,7 +257,7 @@ function releaseParts(name: string, keep: string | null, finish: boolean): void 
 let switchSerial = 0;
 
 /**
- * @internal The audio language switch (ADR 0340 §4, §6): loads language `code`'s part of every loaded (or loading)
+ * @internal The audio language switch (ADR 0354 §4, §6): loads language `code`'s part of every loaded (or loading)
  * package, then makes `code` the package language and unloads the other parts, after their voices finish (`"finish"`,
  * the default) or at once with a 50 ms fade (`"stop"`). Resolves once the new parts are in (a part that fails was
  * warned about and doesn't stop the switch); a later call supersedes a pending one, which then resolves without
@@ -411,7 +411,7 @@ function emit(name: string, event: ProfilePackageEvent, bytes: number, memoryByt
   if (sink !== NULL_PROFILE_SINK) sink.audioPackage?.(unitLabel(name), event, bytes, memoryBytes);
 }
 
-/** The runtime memory of a package entry (ADR 0337 §3; `load: "compressed"` counts its bytes, as A4 will hold them). */
+/** The runtime memory of a package entry (ADR 0351 §3; `load: "compressed"` counts its bytes, as A4 will hold them). */
 function entryMemory(e: PackEntry): number {
   if (e.prefetch) return e.prefetch.frames * e.channels * 2;
   if (e.load === "compressed" && e.codec !== "pcm" && e.codec !== "source") return e.bytes;
@@ -584,7 +584,7 @@ function release(p: Pkg, finish: boolean): void {
   if (packHost && packId !== null) packReleases.push({ host: packHost, pack: packId, paths: p.paths.filter((path) => finishing.has(path)) });
   p.paths = [];
   if (was === "loaded" || was === "loading") emit(p.name, "unload", bytes, held);
-  // ADR 0340 §6: a package's language parts go with it.
+  // ADR 0354 §6: a package's language parts go with it.
   if (!p.name.includes("|")) releaseParts(p.name, null, finish);
   sweepFinishing();
 }
@@ -721,7 +721,7 @@ function acquire(name: string, owner: object, world: World | null): Promise<void
   const p = pkgOf(name);
   p.refs.push({ owner, world });
   const base = startLoad(p, def);
-  // ADR 0340 §6: the base and the package language's part.
+  // ADR 0354 §6: the base and the package language's part.
   const code = currentPartCode(def);
   if (code === null) return base;
   return Promise.all([base, holdPart(def, code)]).then(

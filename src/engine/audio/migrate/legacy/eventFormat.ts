@@ -1,5 +1,5 @@
 /**
- * Audio event assets (ADR 0158 §1, retired by ADR 0329): `*.audioevent.json`, `"format": "myco.audioevent@1"`. Kept
+ * Audio event assets (ADR 0158 §1, retired by ADR 0343): `*.audioevent.json`, `"format": "myco.audioevent@1"`. Kept
  * read-only for the migration (`migrate/audioEvent1.ts`), which is its only user: nothing plays or edits these files any
  * more. A pure, lenient parser: bad values fall back to defaults and are reported in `problems`; it never throws.
  *

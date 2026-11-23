@@ -1,4 +1,4 @@
-// The Studio's side of sharing a project folder (ADR 0327): its lock, following outside changes, moves that leave the
+// The Studio's side of sharing a project folder (ADR 0341): its lock, following outside changes, moves that leave the
 // editor what it owns, the editor's hand-off, and finding a browser folder among the recent projects. Driven through
 // each module's own interface over in-memory folders, with open asset documents as callers hold them.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

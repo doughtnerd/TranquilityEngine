@@ -1,4 +1,4 @@
-// ADR 0337 §5, §7, §8 (A3): the audio planner per platform, and the step through a fake decoder and encoder: cache hits
+// ADR 0351 §5, §7, §8 (A3): the audio planner per platform, and the step through a fake decoder and encoder: cache hits
 // and misses, renders as the input, packages with their dependencies, streamed media left loose, the media table and the
 // report.
 import { describe, expect, it } from "vitest";

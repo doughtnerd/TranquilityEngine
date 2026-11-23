@@ -1,15 +1,15 @@
-# 0342. Text is localised through keyed string tables with ICU messages, bound by key in UI documents and scripts
+# 0356. Text is localised through keyed string tables with ICU messages, bound by key in UI documents and scripts
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0010, 0024, 0069, 0076, 0077 (resolves its open question on localisation; extended: `t:` attributes, `translate="no"`, the `:lang()` pseudo-class), 0133, 0141, 0262, 0306, 0313, 0314, 0317, 0327, 0337, 0340 (extended: the shared `languages` section gains text fields), 0341, 0343
+- **Related:** 0010, 0024, 0069, 0076, 0077 (resolves its open question on localisation; extended: `t:` attributes, `translate="no"`, the `:lang()` pseudo-class), 0133, 0141, 0262, 0306, 0313, 0314, 0317, 0341, 0351, 0354 (extended: the shared `languages` section gains text fields), 0355, 0357
 
 ## Context
 
-The owner answered "Yes, add it" to text and UI localisation (decision log D53, 2026-11-22), after 0340 left it out
-and kept subtitle text in line tables "keyed so a later text record can move it". 0343 moves it, on top of this record.
+The owner answered "Yes, add it" to text and UI localisation (decision log D53, 2026-11-22), after 0354 left it out
+and kept subtitle text in line tables "keyed so a later text record can move it". 0357 moves it, on top of this record.
 
 **What exists today.**
 - **Text components.** `UIText` (`text`, `font`, `fontSize`, `fontWeight`, `textAlign`, `wordBreak`), `UIInputField`
@@ -26,7 +26,7 @@ and kept subtitle text in line tables "keyed so a later text record can move it"
   `break-word` splits on spaces, so Chinese or Japanese text, which has none, never wraps; `break-all` splits anywhere.
   Text is drawn with the 2D canvas, so the browser shapes Arabic and applies the bidi algorithm within a line, but the
   base direction is always left-to-right and alignment is `left | center | right | justify`.
-- **Languages** (0340 §1, accepted, not built): `project.json` `languages` with `list`, `reference`, `default`,
+- **Languages** (0354 §1, accepted, not built): `project.json` `languages` with `list`, `reference`, `default`,
   `fallback`, `useSystemLanguage`, `remember`, BCP 47 codes and `fallbackChain(L)`, parsed by
   `src/engine/localisation/languages.ts`; a per-user preview language; `Audio.language` and an atomic `setLanguage`.
 - **Name collision.** `Text` is already a component, so the script API can't be `Text.t(...)`.
@@ -55,7 +55,7 @@ and kept subtitle text in line tables "keyed so a later text record can move it"
 
 We will keep text in **string tables**: a table file of keys with reference-language text and notes, and one
 translation file per language beside it; format messages with **ICU MessageFormat 1** through a small engine module
-built on `Intl`; resolve each key through 0340's fallback chains; bind keys in UI documents with **`t:` attributes**,
+built on `Intl`; resolve each key through 0354's fallback chains; bind keys in UI documents with **`t:` attributes**,
 in scenes with a **`LocalizedText`** component and in scripts with **`Locale.t`**; pick fonts, line breaking and text
 direction per language; give the editor a **Localisation panel** with reports, pseudo-localisation and CSV, XLIFF and
 PO exchange; and ship every shipped language's strings as one file per language in the build.
@@ -100,22 +100,22 @@ files for organising work (per screen, system or chapter), not namespaces.
 - **Naming.** A table's stem matches `[A-Za-z0-9_-]{1,64}` (no dots), so `<stem>.<code>.strings.json` is
   unambiguously its translation into `<code>`; a translation file whose code isn't a project language, or whose table
   doesn't exist, is linted. Tables usually live in `strings/`, but any folder works.
-- **Keys** match `[A-Za-z0-9_.-]{1,128}` and are **unique across the project** (0340's rule for line keys, so a line key
-  is a valid string key, 0343). Dotted prefixes (`menu.`, `hud.`) are the convention. The editor refuses a duplicate on
+- **Keys** match `[A-Za-z0-9_.-]{1,128}` and are **unique across the project** (0354's rule for line keys, so a line key
+  is a valid string key, 0357). Dotted prefixes (`menu.`, `hud.`) are the convention. The editor refuses a duplicate on
   edit; the runtime takes the first table in path order and warns once.
 - **Reference text in the table, translations per language.** Authors add a key and its English text in one place;
   translators and vendors receive and return one file per language, which diffs and merges cleanly. Changing
   `languages.reference` is an editor command that swaps each table's text with the new reference language's
   translation (one undo step per document) and is refused while any key lacks the new language.
 - **Status** per translated key: `translated`, `needsReview` (imported as fuzzy or needing review, or set by hand) or
-  **missing** (no entry). `source` is the SHA-256 of the reference text when it was translated (first 16 hex, 0340's
+  **missing** (no entry). `source` is the SHA-256 of the reference text when it was translated (first 16 hex, 0354's
   `textHash` rule); when the reference text changes, the entry's effective status becomes `needsReview` without a write.
   A `needsReview` translation is still used at runtime (better than a fallback language); the reports list it.
 - **Limits** (declared once in the parse, 0306): 20,000 keys per table, 4,000 characters per message, 64 tags, 32
   example arguments, 64 placeholders and nesting depth 8 per message.
 - **Renames** of a key rewrite every reference (UI document `t:` attributes, `LocalizedText.key` in scenes and prefabs,
-  line tables' text keys and playlist captions under 0343) through the asset kinds' reference rewriting (0314) and the
-  named-list module (0262); script string literals are linted, not rewritten (0340's rule).
+  line tables' text keys and playlist captions under 0357) through the asset kinds' reference rewriting (0314) and the
+  named-list module (0262); script string literals are linted, not rewritten (0354's rule).
 
 ### 2. Messages: ICU MessageFormat 1, implemented in the engine
 
@@ -161,7 +161,7 @@ Fluent's richer features need its own file format and tooling. MF2 can be adopte
 
 ### 3. Languages and fallback
 
-The `languages` section of `project.json` (0340 §1) is the one language list for text and audio. This record adds
+The `languages` section of `project.json` (0354 §1) is the one language list for text and audio. This record adds
 text fields, parsed by the same `src/engine/localisation/languages.ts`:
 
 ```jsonc
@@ -182,7 +182,7 @@ text fields, parsed by the same `src/engine/localisation/languages.ts`:
 - `fonts`: font files tried after a text's own font and before Inter (§5). `fontReplace`: a text whose `font` is the
   key draws in the value in this language. `intl`: the BCP 47 tag `Intl` formats with (default: the code), e.g. a
   numbering system or region.
-- **Fallback** is 0340's `fallbackChain(L)` unchanged: L, its own `fallback` list, the project's `fallback`, duplicates
+- **Fallback** is 0354's `fallbackChain(L)` unchanged: L, its own `fallback` list, the project's `fallback`, duplicates
   removed. A key resolves to the first language in the chain with a translation (`translated` or `needsReview`) whose
   message parses; the reference language's text comes from the table. Missing everywhere: `Locale.t` returns the key
   itself and warns once.
@@ -272,7 +272,7 @@ declare const Locale: {
   readonly languages: readonly LocaleLanguage[]; // the shipped languages
   readonly direction: "ltr" | "rtl";             // the current language's
   readonly epoch: number;                        // rises whenever resolved text can change (§4)
-  setLanguage(code: string): Promise<void>;      // atomic (below); 0343 adds the voice language to the same switch
+  setLanguage(code: string): Promise<void>;      // atomic (below); 0357 adds the voice language to the same switch
   t(key: string, args?: MessageArgs): string;    // the message in the current language; the key itself when missing
   text(key: string, args?: MessageArgs): LocalText;
   has(key: string): boolean;                     // true when any language in the current chain has the key
@@ -293,7 +293,7 @@ class LocalText {                                 // Unreal's FText: a key and a
 class LocalizedText extends Component { key: string; field: string; args: MessageArgs | null }
 ```
 
-- **Start language** (Unity's selector chain, 0340 §4's rule): the remembered language (player storage, 0317,
+- **Start language** (Unity's selector chain, 0354 §4's rule): the remembered language (player storage, 0317,
   namespace `settings`, key `myco.locale.language`, when `remember`), else the best system match (when
   `useSystemLanguage`), else `default`; only shipped languages count. In the editor's Play it is the preview language.
   The start language's strings and fonts load before the first scene, as preload packages do.
@@ -311,15 +311,15 @@ class LocalizedText extends Component { key: string; field: string; args: Messag
 
 `src/engine/localisation/gather.ts` (pure, Unreal's text gathering run as a report, not as source extraction) lists
 where each key is used: `t:` attributes in UI documents, `LocalizedText.key` in scenes and prefabs, line tables' text
-keys and captions (0343), and literal first arguments of `Locale.t` and `Locale.text` in scripts (best effort). It
+keys and captions (0357), and literal first arguments of `Locale.t` and `Locale.text` in scripts (best effort). It
 also lists **unkeyed text**: literal text content in documents and literal `UIText`/`Text` fields in scenes that
 contain letters and aren't marked `translate="no"` (dismissals kept in `.myco/localisation-ignore.json`).
 
 ### 8. Translator workflow
 
 - **Exchange formats** (pure readers and writers in `src/engine/localisation/exchange/`):
-  - **CSV** (UTF-8 with BOM, RFC 4180): `key, table, notes, maxLength, <reference>, <lang>, <lang>:status, …`; 0340's
-    script CSV becomes this layout plus line columns (0343).
+  - **CSV** (UTF-8 with BOM, RFC 4180): `key, table, notes, maxLength, <reference>, <lang>, <lang>:status, …`; 0354's
+    script CSV becomes this layout plus line columns (0357).
   - **XLIFF 1.2** (the version every CAT tool reads; Unity's default): one `<file>` per table and target language,
     `<trans-unit id resname>` = key, `<source>`, `<target state>` (`translated`, `needs-review-translation`,
     `needs-translation`), `<note>` for notes, `maxwidth` with `size-unit="char"` from `maxLength`. ICU messages travel
@@ -338,11 +338,11 @@ contain letters and aren't marked `translate="no"` (dismissals kept in `.myco/lo
 
 ### 9. Editor tooling
 
-The editor owns UI and scenes, so text tooling is the editor's. The Studio (0327) is the audio app; it edits only
-subtitle and caption text (0343).
+The editor owns UI and scenes, so text tooling is the editor's. The Studio (0341) is the audio app; it edits only
+subtitle and caption text (0357).
 
 - **Localisation panel** (`src/editor/ui/localisation/`, a dockable panel opened from Window and from Project
-  Settings > Languages), built from the component kit (0335):
+  Settings > Languages), built from the component kit (0349):
   - **Strings** tab: a table list and a grid of Key, Reference text, one column per language (text with a status chip:
     translated, needs review, missing, over length, check failed), Notes, Max length. Inline edits of keys, text and
     notes (refused-or-next edits, 0313); add, duplicate, delete, rename; search; filters ("missing in fr", "needs review
@@ -356,38 +356,38 @@ subtitle and caption text (0343).
   or **Extract to string table** (creates a key suggested from the document and element id in a chosen table, writes
   the literal text as reference text, replaces the content with `t:text`, one command). `LocalizedText` has a key
   picker with a preview. Both show the resolved text in the preview language.
-- **Preview language** (0340 §1's per-user preference, the Play toolbar's Language menu) covers text too, and the menu
+- **Preview language** (0354 §1's per-user preference, the Play toolbar's Language menu) covers text too, and the menu
   gains two **pseudo-languages** (Microsoft's codes): `qps-ploc` (accented and expanded: `[!! Šţàŕţ ĝàɱé !!]`, padded
   by length, +100% under 10 characters down to +30% over 70, the IBM expansion guidance; placeholders, plural keywords
   and `#` untouched through the AST) and `qps-plocm` (the same, right-to-left). Literal text stays plain, so hard-coded
   strings stand out, and the brackets expose truncation. They exist only in the editor and in `--pseudo` QA builds.
-- **Project Settings > Languages** (0340 L7) gains direction, fonts, font replacements, `intl` and `assetRoots`.
-- **Ownership** (0327): string tables and translations are editor files, except tables named by audio data (0343:
+- **Project Settings > Languages** (0354 L7) gains direction, fonts, font replacements, `intl` and `assetRoots`.
+- **Ownership** (0341): string tables and translations are editor files, except tables named by audio data (0357:
   a line table's string table and the captions table), which the Studio owns. Each app writes the tables it owns, and
-  the other app's only while that app holds no lock (0340 §1's rule); otherwise it shows them read-only with "Edit in
+  the other app's only while that app holds no lock (0354 §1's rule); otherwise it shows them read-only with "Edit in
   the Studio" or "Edit in the editor".
 
 ### 10. Localised assets (asset tables, by folder)
 
-`languages.assetRoots` applies 0340's folder rule to any asset: under a root, the first folder is a language code, a
+`languages.assetRoots` applies 0354's folder rule to any asset: under a root, the first folder is a language code, a
 reference names the reference language's file (`images/loc/en/logo.png`) and resolution tries each language of the
-chain. 0340's `variantPath` is generic and lives in `src/engine/localisation/variants.ts` (one module for audio roots
+chain. 0354's `variantPath` is generic and lives in `src/engine/localisation/variants.ts` (one module for audio roots
 and asset roots). `Assets` resolves textures and fonts under asset roots; `UIImage.image` and `SpriteRenderer`
 re-resolve on a language change; other assets (materials, models) resolve when they load (a scene reload picks the new
-language). Unity's per-entry asset tables are not added: folders need no per-asset edits (0340's reasoning).
+language). Unity's per-entry asset tables are not added: folders need no per-asset edits (0354's reasoning).
 
 ### 11. Export and packages
 
 - **Build files.** The export writes `strings/<code>.json` (`myco.strings.build@1`: `language`, `direction`, and per
   key the message resolved through that language's chain, so each file is complete on its own) for every shipped
-  language (`ship: false` left out, `--languages` narrows, 0340 §6). Notes, status, `maxLength`, examples and sources
+  language (`ship: false` left out, `--languages` narrows, 0354 §6). Notes, status, `maxLength`, examples and sources
   never ship. A translation that fails the checks is replaced by its fallback with a build warning. `game.json` gains
   `localisation: { strings: { "<code>": { url, bytes } }, fonts: { "<code>": [url…] } }`. About 100 KB per language
   for 2,000 strings of 40 characters, before compression.
 - **Every shipped language is in the build** (owner, D53): string files, language fonts and asset-root variants for
   each. Variants of unshipped languages are left out. `--pseudo` adds the two pseudo-languages for QA builds.
-- **Packages (0337).** String files and fonts are not audio and never go into `.mycopak` files; they ship loose and load
-  with the language switch, beside 0340's language parts of audio packages (0343 joins both in one switch).
+- **Packages (0351).** String files and fonts are not audio and never go into `.mycopak` files; they ship loose and load
+  with the language switch, beside 0354's language parts of audio packages (0357 joins both in one switch).
 
 ### 12. Migration
 
@@ -406,10 +406,10 @@ text instead of overflowing.
 - **Unity Smart Strings / SmartFormat syntax** — engine-specific; translators' tools don't validate it.
 - **Source text as the key (gettext `msgid`, Godot's auto-translate)** — no key to invent, but fixing a typo in English
   orphans every translation, and identical English words with different meanings collide; keys with notes avoid both.
-- **Every language in one table file** (0340's line-table layout) — one file to open, but parallel translators conflict
+- **Every language in one table file** (0354's line-table layout) — one file to open, but parallel translators conflict
   in version control and vendors want a file per language.
 - **Per-table namespaces (`menu:start`, Unity's collection + entry)** — no collisions, but every call site names its
-  table; project-unique keys match 0340's line keys and the editor enforces uniqueness.
+  table; project-unique keys match 0354's line keys and the editor enforces uniqueness.
 - **`{name}` bindings filled by scripts** — keeps markup unchanged, but strings live in scripts and nothing in the file
   says what to translate; `t:` keeps keys visible to tools.
 - **A `t:` prefix in field values** (`text="t:menu.start"`) — works in scenes too, but makes literal text starting with
@@ -442,7 +442,7 @@ text instead of overflowing.
 
 ## Deprecates
 
-Nothing. 0340's line-table `text` field is retired by 0343 before it is built.
+Nothing. 0354's line-table `text` field is retired by 0357 before it is built.
 
 ## Open questions
 
@@ -450,7 +450,7 @@ Nothing. 0340's line-table `text` field is retired by 0343 before it is built.
 - Automatic RTL layout mirroring with logical properties.
 - Rich text in `UIText` (bold, colour spans) and tags in messages.
 - Machine-translation drafts in the Localisation panel (always imported as `needsReview`).
-- Downloading a language on demand (0340's open question) instead of shipping every language.
+- Downloading a language on demand (0354's open question) instead of shipping every language.
 
 ## References
 
@@ -462,7 +462,7 @@ Nothing. 0340's line-table `text` field is retired by 0343 before it is built.
 - XLIFF 1.2 (OASIS); GNU gettext PO format; Microsoft pseudo-locales `qps-ploc`/`qps-plocm`; IBM text expansion
   guidance.
 - `src/engine/ui/UIDocument.ts`, `document/markup.ts`, `document/stylesheet.ts`, `components.ts`, `fonts.ts`;
-  `src/engine/render/babylon/ui.ts`; `src/engine/render/components.ts`; `src/engine/platform/Storage.ts`; ADR 0340 §1,
+  `src/engine/render/babylon/ui.ts`; `src/engine/render/components.ts`; `src/engine/platform/Storage.ts`; ADR 0354 §1,
   §4, §6.
 - Library sizes measured with esbuild 0.28.2 (minify, bundle, gzip -9) in a scratch project, 2026-11-22.
 
@@ -470,18 +470,18 @@ Nothing. 0340's line-table `text` field is retired by 0343 before it is built.
 
 | # | Milestone | Contents | Files (owner) |
 |---|---|---|---|
-| T1 | Formats and messages | `languages.ts` text fields (`direction`, `fonts`, `fontReplace`, `intl`, `assetRoots`); `myco.strings@1` and `myco.translation@1` parse/write, limits, key rules, source hash; ICU MF1 parser (positions, problems), formatter on `Intl`, checks (argument names and kinds, plural categories per language), pseudo-localisation transform; build file format; unit tests (message corpus with the `@formatjs/icu-messageformat-parser` dev oracle, plural tables for en/fr/pl/ar/ja, apostrophes, malformed input never throws, check messages, pseudo leaves placeholders) | `src/engine/localisation/strings/**`, `message/**`, `src/engine/localisation/languages.ts` (single writer after 0340 L1), `package.json` (dev dependency) |
-| T2 | Runtime `Locale` | registry over tables (editor) or build files (player); chain resolution; `Locale` API, `LocalText`, epoch, start selector, atomic switch with strings and fonts, player storage, `debug()`; the internal language-participant seam 0343 uses; exports; tests (fallback, missing key, switch supersede, LocalText cache, start selector) | `src/engine/localisation/runtime/**`, `src/engine/localisation/Locale.ts`, `src/engine/index.ts`, `src/player/main.ts` (start load) |
+| T1 | Formats and messages | `languages.ts` text fields (`direction`, `fonts`, `fontReplace`, `intl`, `assetRoots`); `myco.strings@1` and `myco.translation@1` parse/write, limits, key rules, source hash; ICU MF1 parser (positions, problems), formatter on `Intl`, checks (argument names and kinds, plural categories per language), pseudo-localisation transform; build file format; unit tests (message corpus with the `@formatjs/icu-messageformat-parser` dev oracle, plural tables for en/fr/pl/ar/ja, apostrophes, malformed input never throws, check messages, pseudo leaves placeholders) | `src/engine/localisation/strings/**`, `message/**`, `src/engine/localisation/languages.ts` (single writer after 0354 L1), `package.json` (dev dependency) |
+| T2 | Runtime `Locale` | registry over tables (editor) or build files (player); chain resolution; `Locale` API, `LocalText`, epoch, start selector, atomic switch with strings and fonts, player storage, `debug()`; the internal language-participant seam 0357 uses; exports; tests (fallback, missing key, switch supersede, LocalText cache, start selector) | `src/engine/localisation/runtime/**`, `src/engine/localisation/Locale.ts`, `src/engine/index.ts`, `src/player/main.ts` (start load) |
 | T3 | UI binding | `t:` attributes (markup parse, binding with key templates and argument scope, epoch refresh), `translate="no"`, `:lang()`, `LocalizedText`; tests through `UIDocument` and the UI core headless | `src/engine/ui/document/markup.ts` + `stylesheet.ts`, `src/engine/ui/UIDocument.ts`, new `src/engine/ui/LocalizedText.ts`, `src/plugins/ui/runtime/**` (registration) |
 | T4 | Fonts, breaking, direction | per-language font stacks and replacements, font preload on switch; `lineBreak.ts` (CJK and kinsoku, `Intl.Segmenter` for Thai and others) in measure and draw; `direction`, `textAlign` `start`/`end`, RTL `TextBlock`, input `dir`; `Text` component stacks; tests (break tables, RTL alignment through the core's text runs) | `src/engine/ui/fonts.ts`, new `src/engine/ui/text/**`, `src/engine/ui/components.ts`, `src/engine/render/babylon/ui.ts`, `src/engine/render/components.ts` |
-| T5 | Localised assets | `variants.ts` in `src/engine/localisation/` (0340 L1 writes it there); `Assets` resolution under asset roots; `UIImage` and `SpriteRenderer` re-resolve on switch; tests | `src/engine/scene/Assets.ts`, `src/engine/localisation/variants.ts`, `src/plugins/sprites/runtime/**` (re-resolve hook) |
+| T5 | Localised assets | `variants.ts` in `src/engine/localisation/` (0354 L1 writes it there); `Assets` resolution under asset roots; `UIImage` and `SpriteRenderer` re-resolve on switch; tests | `src/engine/scene/Assets.ts`, `src/engine/localisation/variants.ts`, `src/plugins/sprites/runtime/**` (re-resolve hook) |
 | T6 | Exchange and gathering | CSV, XLIFF 1.2, PO readers and writers; import diff with checks and stale-source detection; `gather.ts` (documents, scenes, prefabs, scripts, line tables); grapheme length; unit tests (round trips with quotes, BOM, plurals, fuzzy, `maxwidth`) | `src/engine/localisation/exchange/**`, `src/engine/localisation/gather.ts` |
-| T7 | Editor | Localisation panel (Strings, Report with fit check, Exchange), message editor, Inspector Localise and Extract, `LocalizedText` inspector, key renames through 0314/0262, pseudo-languages in the Play toolbar's Language menu, Languages settings fields, ownership rule; stories with `play` tests | `src/editor/ui/localisation/**`, `src/editor/ui/settings/**` (Languages section, after 0340 L7), the Play toolbar file (after 0340 L7), the UI Inspector section |
+| T7 | Editor | Localisation panel (Strings, Report with fit check, Exchange), message editor, Inspector Localise and Extract, `LocalizedText` inspector, key renames through 0314/0262, pseudo-languages in the Play toolbar's Language menu, Languages settings fields, ownership rule; stories with `play` tests | `src/editor/ui/localisation/**`, `src/editor/ui/settings/**` (Languages section, after 0354 L7), the Play toolbar file (after 0354 L7), the UI Inspector section |
 | T8 | Export | `strings/<code>.json`, `game.json` `localisation`, language fonts and asset-root variants per shipped language, `--pseudo`, build warnings; tests in `buildWriter.test.ts` | `src/export/strings.ts` (new), `src/export/main.ts`, `src/export/format.ts` |
-| T9 | Docs and e2e | `docs/guide/localising-text.md` (tables, ICU, binding, fonts, RTL limits, translators); e2e: the editor's Localisation panel adds a French translation, Play in French shows it in a UI document, the pseudo-language shows an unkeyed string plain; `@slow` export with two languages boots and `Locale.setLanguage("fr")` changes a document's text | `docs/guide/**`, `tests/e2e/localisation.spec.ts`, `tests/e2e/export-languages.spec.ts` (shared with 0340 L8: one writer) |
+| T9 | Docs and e2e | `docs/guide/localising-text.md` (tables, ICU, binding, fonts, RTL limits, translators); e2e: the editor's Localisation panel adds a French translation, Play in French shows it in a UI document, the pseudo-language shows an unkeyed string plain; `@slow` export with two languages boots and `Locale.setLanguage("fr")` changes a document's text | `docs/guide/**`, `tests/e2e/localisation.spec.ts`, `tests/e2e/export-languages.spec.ts` (shared with 0354 L8: one writer) |
 
-T1 runs after 0340's L1 (or in the same wave with `languages.ts` and `variants.ts` owned by L1 and handed to T1/T5
-after it merges). T2 after T1; T3, T4, T5 and T6 beside each other after T2; T7 after T3, T6 and 0340's L7; T8 after
-T2 and 0340's L3; T9 last. Single-writer files with 0340, 0341 and 0343 in W13: `src/engine/localisation/languages.ts`,
+T1 runs after 0354's L1 (or in the same wave with `languages.ts` and `variants.ts` owned by L1 and handed to T1/T5
+after it merges). T2 after T1; T3, T4, T5 and T6 beside each other after T2; T7 after T3, T6 and 0354's L7; T8 after
+T2 and 0354's L3; T9 last. Single-writer files with 0354, 0355 and 0357 in W13: `src/engine/localisation/languages.ts`,
 `src/myco.ts`, `src/engine/index.ts`, `src/editor/ui/settings/**` (Languages section), the Play toolbar file,
 `src/export/main.ts`, `tests/e2e/export-languages.spec.ts`; the coordinator names one task per wave for each.

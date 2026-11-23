@@ -1,4 +1,4 @@
-// The Samples screen's edits (ADR 0328, the prototype's rules): markers, loops, trim, tempo, root note, normalize,
+// The Samples screen's edits (ADR 0342, the prototype's rules): markers, loops, trim, tempo, root note, normalize,
 // razor cuts and closed gaps, file reverts and Detach. Each edit takes the sample block and returns the next one with
 // its undo label ("Add Marker 3", "Move brake_lockup", "Trim", "Close gap · 0.40 s"), or why it was refused; the view
 // applies it as one step of the sidecar's asset document (ADR 0307, 0313). Times are source seconds (`sampleTime.ts`).
@@ -306,7 +306,7 @@ export function normalizeGain(mode: SampleNormalize["mode"], target: number, mea
   return Number.isFinite(m) ? Math.round((target - m) * 10) / 10 : 0;
 }
 
-/** Set normalize; the gain is computed now from `measured` (ADR 0328). */
+/** Set normalize; the gain is computed now from `measured` (ADR 0342). */
 export function setNormalize(e: SampleEdits, mode: SampleNormalize["mode"], target: number | undefined, measured: Measured | null): SampleEdit {
   const t = target ?? (mode === "peak" ? DEFAULT_PEAK_TARGET : DEFAULT_LOUDNESS_TARGET);
   if (mode !== "off") {
@@ -383,7 +383,7 @@ export function tapeSnippet(e: SampleEdits, index: number, side: "left" | "right
 }
 
 /**
- * Close a snippet's gap: its audio no longer plays and what follows moves up (ADR 0328 `closedGaps`). Markers and
+ * Close a snippet's gap: its audio no longer plays and what follows moves up (ADR 0342 `closedGaps`). Markers and
  * loops wholly inside it are removed (the label says how many); a trim end inside it moves to the join; a trim that
  * would collapse resets to the whole file.
  */

@@ -1,4 +1,4 @@
-//! Plugin effects (ADR 0338 §5, amended by 0344; ABI 5.0): the core's side of the `myco_ext` import
+//! Plugin effects (ADR 0352 §5, amended by 0358; ABI 5.0): the core's side of the `myco_ext` import
 //! the worklet shell binds (`src/plugins/audio/runtime/worklet/effectGlue.ts`).
 //!
 //! A plugin effect is an effect kind `PLUGIN_BASE + e` (`audio_dsp::fx::kind::plugin`) in a bus chain
@@ -29,7 +29,7 @@
 //! out-of-range output and memory growth, and returns a negative status (0157's hard rebuild stays
 //! for the core's own faults).
 //!
-//! **Shared fuel** (0344 §3): each chain level (the buses, the instance submixes) has
+//! **Shared fuel** (0358 §3): each chain level (the buses, the instance submixes) has
 //! `FX_PLUGIN_FUEL_PER_FRAME × QUANTUM` instructions a quantum across all its plugin instances
 //! ([`Fuel`]); a call whose budget doesn't fit what is left gets no fuel and passes dry, so runaway
 //! instances hold the audio thread for a bounded time.
@@ -55,7 +55,7 @@ pub const DESCRIBE_MODES: u32 = 0;
 /// `describe`'s `what`: the instruction budget per frame.
 pub const DESCRIBE_BUDGET: u32 = 1;
 
-/// A chain level's fuel left this quantum (0344 §3).
+/// A chain level's fuel left this quantum (0358 §3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Fuel(pub u32);
 

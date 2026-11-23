@@ -1,9 +1,9 @@
 /**
- * Internal (ADR 0337 §2, A1): the effective encoding settings of one file on one platform, and where each value came
+ * Internal (ADR 0351 §2, A1): the effective encoding settings of one file on one platform, and where each value came
  * from (the Studio's inheritance display). Each key resolves on its own; the first layer that sets it wins:
  *
  * 1. the file's sidecar `encoding.platforms.<platform>`, then its `encoding`, then its legacy `stream: true` (read as
- *    `load: "stream"`; ADR 0337 "Deprecates");
+ *    `load: "stream"`; ADR 0351 "Deprecates");
  * 2. for a derived sample (`*.sample.json`), the same three of its source's sidecar;
  * 3. the profiles, nearest first, each its `platforms.<platform>` then its base:
  *    a. the profile the sidecar names (`encoding.profile`; a derived sample's own, else its source's),

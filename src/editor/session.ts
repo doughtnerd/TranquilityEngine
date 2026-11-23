@@ -53,7 +53,7 @@ export { playing };
 // Play mode and the work deferred to Stop (ADR 0237), in this session's Editor World and the viewport's game view.
 const play = createPlaySession({
   editor: () => session?.engine ?? null,
-  // Outside changes first (in the browser the folder is looked at only now and on focus; ADR 0327), then the script check.
+  // Outside changes first (in the browser the folder is looked at only now and on focus; ADR 0341), then the script check.
   checkBeforePlay: async (project) => (await syncProjectFiles(), checkBeforePlay(project)),
   gameView: () => ({ container: viewportElements().gameView, mountTools: mountPlayTools }),
 });
@@ -145,7 +145,7 @@ async function loadProject(project: EditorProject): Promise<{ problem: boolean }
     },
   };
   currentProject.value = project;
-  void startProjectWatch(project); // share the folder with the Audio Studio and other apps: the lock, outside changes, pending moves (ADR 0327)
+  void startProjectWatch(project); // share the folder with the Audio Studio and other apps: the lock, outside changes, pending moves (ADR 0341)
   engine.start();
   // Debug and end-to-end test hooks.
   Object.assign(window, { engine, orbit, overlayHandles: () => viewport(engine.world).overlayHandles(), nodeRect });
@@ -221,7 +221,7 @@ export function closeScenes(scenes: readonly OpenScene[]): Promise<number> {
 
 /**
  * Open `source` in this window (a folder project is remembered in the recent projects). Throws if it can't be read. A
- * folder with old audio events is offered their migration first (ADR 0329, `audioEventMigration.ts`); declined, it
+ * folder with old audio events is offered their migration first (ADR 0343, `audioEventMigration.ts`); declined, it
  * opens as it is (the editor no longer edits audio; the Audio Studio opens it read-only).
  */
 async function openHere(source: ProjectSource): Promise<OpenResult> {

@@ -1,7 +1,7 @@
 [package]
 name = "myco-studio"
 version = "0.1.0"
-description = "Myco Audio Studio, standalone desktop shell (Tauri, ADR 0327): the Studio page of the editor's frontend in its own app"
+description = "Myco Audio Studio, standalone desktop shell (Tauri, ADR 0341): the Studio page of the editor's frontend in its own app"
 authors = ["Chris Carlson"]
 license = "MIT"
 repository = ""

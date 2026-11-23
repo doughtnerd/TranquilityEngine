@@ -1,5 +1,5 @@
 /**
- * Beat-quantised automation (ADR 0336 feature 5): an automation lane, or an entry voice curve, keyed on a parameter with
+ * Beat-quantised automation (ADR 0350 feature 5): an automation lane, or an entry voice curve, keyed on a parameter with
  * `quantize` set moves only on the next beat, bar or n-beat boundary of the instance's musical clock.
  *
  * A quantised lane is never given to the core as a parameter binding (the core follows its parameter continuously).
@@ -17,7 +17,7 @@
  *   (their product).
  * - **Pitch, pan, low-pass and high-pass** (an entry curve of that target, or a lane of `pitch`, `pan` or a low-pass or
  *   high-pass effect's `cutoff`): the core has no stamped ramp of these, so each voice gets a core binding on its own
- *   voice time (ADR 0332) to a curve of its own (`PlaylistHost.leaseCurve`) that holds the lane's level and steps to
+ *   voice time (ADR 0346) to a curve of its own (`PlaylistHost.leaseCurve`) that holds the lane's level and steps to
  *   the new one over 20 ms at the boundary, in voice seconds. The lane redefines the curve when it stamps a boundary,
  *   a lookahead before it; up to the boundary the new curve says what the old one did, so whenever the redefinition
  *   lands the voice hears the change at the boundary. The core evaluates bindings once per 128-frame quantum and ramps

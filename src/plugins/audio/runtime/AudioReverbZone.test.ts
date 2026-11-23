@@ -13,7 +13,7 @@ beforeEach(async () => {
 });
 
 describe("AudioReverbZone", () => {
-  it("has the ten §1.5 fields and ADR 0333's levelDefault, with defaults and descriptions", () => {
+  it("has the ten §1.5 fields and ADR 0347's levelDefault, with defaults and descriptions", () => {
     const fields = getFields(AudioReverbZone);
     expect(fields.map((f) => f.name)).toEqual(["shape", "center", "size", "radius", "preset", "ir", "wet", "blendDistance", "priority", "output", "levelDefault"]);
     for (const f of fields) expect(JSON.stringify(f), f.name).toMatch(/"description":"\S/);
@@ -24,7 +24,7 @@ describe("AudioReverbZone", () => {
   });
 
   it("offers the R10 presets, the two shapes, and the project's buses for output (empty is Master, R17)", () => {
-    // ADR 0333 adds the prototype's four named spaces.
+    // ADR 0347 adds the prototype's four named spaces.
     expect([...ZONE_PRESETS]).toEqual(["room", "corridor", "hall", "cave", "open", "smallStone", "canyonHall", "metalTunnel", "forest"]);
     const byName = new Map(getFields(AudioReverbZone).map((f) => [f.name, f]));
     const values = (name: string) => resolveChoices(byName.get(name)!.options?.choices, defaultSettings)!.map((c) => c.value);

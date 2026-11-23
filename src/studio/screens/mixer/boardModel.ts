@@ -1,4 +1,4 @@
-// What the Mixer's panels read off the mix and the running runtime (ADR 0330 "Gain", ADR 0171 loudness; the
+// What the Mixer's panels read off the mix and the running runtime (ADR 0344 "Gain", ADR 0171 loudness; the
 // prototype's Gain lanes, Loudness and live board): automation values at the test parameters, the gain lane inputs
 // (authored values, with the runtime's public `Bus` readings when it runs), meter readings, loudness readouts, and the
 // live board's pins (a per-user preference, at most 8). Pure.
@@ -92,7 +92,7 @@ export function gainInputs(p: AudioProject, editing: string | null, solo: string
 /**
  * The snapshot lane's offsets: the snapshot being edited (what you hear while you edit it), else the blend of the
  * snapshots on with the test values (base mixes and matching conditions, in list order as their start order, by
- * ADR 0330's rules), named after them ("Gameplay + Underwater"); null when none is on.
+ * ADR 0344's rules), named after them ("Gameplay + Underwater"); null when none is on.
  */
 export function snapshotLane(p: AudioProject, editing: string | null, values: TestValues): { name: string; buses: Record<string, number> } | null {
   const snap = editedSnapshot(p, editing);
@@ -145,7 +145,7 @@ export function loudnessRows(r: LoudnessReading | null, target: { integrated: nu
 
 // --- live board pins -----------------------------------------------------------------------------------------------------
 
-/** At most this many pinned buses (ADR 0330). */
+/** At most this many pinned buses (ADR 0344). */
 export const MAX_PINS = 8;
 
 /** The pins that still name a bus or return, in order, at most `MAX_PINS`. */
@@ -181,7 +181,7 @@ export interface AutomatableLane {
 }
 
 /**
- * The automatable properties of `name` (ADR 0330 targets): its level, each send, each effect parameter. `only` keeps
+ * The automatable properties of `name` (ADR 0344 targets): its level, each send, each effect parameter. `only` keeps
  * the ones the button asked for: "volume", "send:<return>", or "fx:<id>" (every parameter of that effect).
  */
 export function automatableLanes(p: AudioProject, name: string, only?: string): AutomatableLane[] {

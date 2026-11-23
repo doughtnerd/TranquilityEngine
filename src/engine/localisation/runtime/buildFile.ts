@@ -1,10 +1,10 @@
 /**
- * A build's string files (ADR 0342 §11): `strings/<code>.json` (`myco.strings.build@1`), one per shipped language,
+ * A build's string files (ADR 0356 §11): `strings/<code>.json` (`myco.strings.build@1`), one per shipped language,
  * holding the language, its text direction and, per key, the message resolved through that language's fallback chain,
  * so each file is complete on its own. Notes, status, length limits, examples and sources never ship.
  *
  * The reader here is what the player loads with (`BuildStrings`); the writer and `game.json`'s `localisation` section
- * are what the export (0342 T8) writes. Parsed leniently (never throws). Pure; no plugin, no DOM.
+ * are what the export (0356 T8) writes. Parsed leniently (never throws). Pure; no plugin, no DOM.
  */
 import { defaultDirection, fallbackChain, languageOf, type LanguageSettings, type TextDirection } from "../languages";
 import { isRecord, Reader, type JsonRecord } from "../lenient";
@@ -79,7 +79,7 @@ export const buildStringsToJson = (f: BuildStringsFile): JsonRecord => ({ format
 /** The build file's text: compact JSON (it ships) and a final newline. */
 export const formatBuildStrings = (f: BuildStringsFile): string => `${JSON.stringify(buildStringsToJson(f))}\n`;
 
-/** `game.json`'s `localisation` section (ADR 0342 §11) as the player reads it. */
+/** `game.json`'s `localisation` section (ADR 0356 §11) as the player reads it. */
 export interface BuildLocalisation {
   /** Language code → the URL of its string file (relative to the build). */
   strings: Record<string, string>;

@@ -1,5 +1,5 @@
 //! Which source second an output frame of a stage plays: automation lanes run over source time
-//! (`clipTime`, ADR 0328/D23), while the render's frames have the trim and closed gaps removed.
+//! (`clipTime`, ADR 0342/D23), while the render's frames have the trim and closed gaps removed.
 //!
 //! The map is the spec's segments, `(output frame, source seconds)`: frame `f` at or after a
 //! segment's frame plays `seconds + (f − frame) / rate` (before the first segment, the first

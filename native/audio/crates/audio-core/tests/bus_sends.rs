@@ -1,4 +1,4 @@
-//! ADR 0330 bus-to-return sends (ABI 4.7), through `scheduler::submit` and `Core::process`:
+//! ADR 0344 bus-to-return sends (ABI 4.7), through `scheduler::submit` and `Core::process`:
 //!
 //! - a send adds the bus's post-fader signal, at its level, into its return, which runs its own
 //!   inserts and fader; the return mixes after its senders whatever the slot indices;

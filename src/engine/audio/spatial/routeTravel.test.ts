@@ -1,4 +1,4 @@
-// ADR 0333: how a moving emitter travels its route over time: by arc length at its speed, stopping at the end of a route
+// ADR 0347: how a moving emitter travels its route over time: by arc length at its speed, stopping at the end of a route
 // that doesn't loop, travelling a looping route's short closing gap (velocity carries) and jumping a long one.
 import { describe, expect, it } from "vitest";
 import { advanceRoute, closeDistance, ROUTE_CLOSE_METRES, routeGap, travelAt, travelPose, travelSpeed } from "./routeTravel";

@@ -1,4 +1,4 @@
-//! Spike B0 (ADR 0338): a test effect plugin written against a draft of the DSP ABI 1.0.
+//! Spike B0 (ADR 0352): a test effect plugin written against a draft of the DSP ABI 1.0.
 //!
 //! Exports `myco_fx_abi`, `myco_fx_create`, `myco_fx_destroy`, `myco_fx_reset`, `myco_fx_io`, `myco_fx_process`,
 //! `myco_fx_tail_frames` and its own `memory`; imports nothing (checked by the spike's driver). Kinds:

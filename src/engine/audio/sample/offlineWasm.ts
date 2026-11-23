@@ -1,10 +1,10 @@
 /**
- * Internal (ADR 0328): loads the offline sample render, `myco_audio_offline.wasm` (`native/audio/crates/audio-offline`,
+ * Internal (ADR 0342): loads the offline sample render, `myco_audio_offline.wasm` (`native/audio/crates/audio-offline`,
  * built into ./wasm by `npm run build:audio`), the first time a render is asked for, and runs one render through its C
  * ABI (the header of the crate's `lib.rs`). Browsers fetch the file (Vite bundles it as an asset); Node (tests, the
  * export) reads it from disk. The module exports its memory and owns its allocator; nothing else shares it.
  *
- * ABI 1.1 (ADR 0338 §7): the module imports `myco_ext`, the plugin effect calls the core's chains make. One instance
+ * ABI 1.1 (ADR 0352 §7): the module imports `myco_ext`, the plugin effect calls the core's chains make. One instance
  * serves every render, so its import is a trampoline to the current render's plugin session (`offlinePlugins.ts`, the
  * plugin glue a caller opened); with none, the stubs give no instance and plugin effects pass through dry.
  */

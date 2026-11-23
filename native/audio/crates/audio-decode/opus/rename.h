@@ -1,4 +1,4 @@
-/* Generated (ADR 0337 A7): every external symbol of the decoder's libopus build renamed with a `myco_opusdec_` prefix,
+/* Generated (ADR 0351 A7): every external symbol of the decoder's libopus build renamed with a `myco_opusdec_` prefix,
  * force-included (`-include`) into each libopus file `audio-decode`'s build.rs compiles. The encoder links its own float
  * libopus; a native test binary holding both (audio-encode's tests link the decoder) would otherwise resolve one build's
  * symbols with the other's objects. The list is the defined globals of CELT_SOURCES, SILK_SOURCES and OPUS_SOURCES of

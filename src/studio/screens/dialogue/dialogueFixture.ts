@@ -1,4 +1,4 @@
-// A small dialogue project for the Dialogue screen's tests and stories (ADR 0340, 0341, 0343): English (reference),
+// A small dialogue project for the Dialogue screen's tests and stories (ADR 0354, 0355, 0357): English (reference),
 // French, Canadian French falling back to French, and German (not shipped); one line table `audio/vo/ch1.lines.json`
 // with its string table and French translation; recordings with lengths and sidecars; one dialogue event file. Plain
 // values in, a `DialogueData` out.

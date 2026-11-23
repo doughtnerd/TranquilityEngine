@@ -142,7 +142,7 @@ export class World {
   _paused = false;
   /** @internal */ render: RenderSurface | null = null;
   /**
-   * @internal ADR 0327: the World plays sound with no view (an Engine created with `audioOnly`, the Audio Studio's
+   * @internal ADR 0341: the World plays sound with no view (an Engine created with `audioOnly`, the Audio Studio's
    * runtime). The audio plugin treats it as the World that has the view: listened to and mixed.
    */
   _audioOnly = false;

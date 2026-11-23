@@ -1,4 +1,4 @@
-/* The Studio's Playlists screen (ADR 0329, 0335). Theme tokens only (src/editor/ui/editor.css lists them). */
+/* The Studio's Playlists screen (ADR 0343, 0349). Theme tokens only (src/editor/ui/editor.css lists them). */
 
 .pl-panel-body { padding: 0; display: flex; flex-direction: column; }
 .pl-doc { display: flex; flex-direction: column; min-height: 100%; outline: none; }
@@ -120,7 +120,7 @@
 .pl-tri { fill: var(--accent-soft); }
 .pl-spoke { stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .pl-input-dot { fill: var(--text); stroke: var(--bg); stroke-width: 2; }
-/* ADR 0336: 1D regions (trapezoids and their handles), the 2D influence tint, fade shape glyphs, a change's fades row */
+/* ADR 0350: 1D regions (trapezoids and their handles), the 2D influence tint, fade shape glyphs, a change's fades row */
 .pl-region { fill: none; stroke: var(--series); stroke-opacity: 0.5; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
 .pl-region-outline { fill: var(--series); fill-opacity: 0.08; stroke: var(--series); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .pl-region-edit.derived .pl-region-outline { stroke-dasharray: 6 4; }

@@ -87,7 +87,7 @@ export function opensInCodePanel(kind: AssetKind | "folder"): boolean {
 }
 
 /**
- * True if the file at `path` opens in the Audio Studio when opened (ADR 0327): a file the Studio opens whose kind has no
+ * True if the file at `path` opens in the Audio Studio when opened (ADR 0341): a file the Studio opens whose kind has no
  * `open`, panel or Code panel of its own (playlists, samples, audio scenes, legacy audio events, takes, captures). Audio
  * clips are left out: opening one in the editor does nothing, and Open in Audio Studio is on its menu.
  */

@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0332, 0335) for the shared curve editor: time curves over a clip's waveform with a dope sheet,
+// Stories (ADR 0219, 0346, 0349) for the shared curve editor: time curves over a clip's waveform with a dope sheet,
 // parameter curves over a histogram of the game's values, distance curves with Min/Max handles, an on/off lane, a
 // Bézier key to edit, and the inline field that opens the dialog. Apply shows the result in units.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

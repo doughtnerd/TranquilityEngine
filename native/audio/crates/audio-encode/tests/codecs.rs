@@ -1,5 +1,5 @@
 //! PCM, Vorbis and Opus through the crate's interface. PCM and Vorbis decode with the shipped decoder (audio-decode);
-//! Opus decoding arrives with ADR 0337 A7, so Opus is checked by its Ogg pages: OpusHead, pre-skip, the end granule
+//! Opus decoding arrives with ADR 0351 A7, so Opus is checked by its Ogg pages: OpusHead, pre-skip, the end granule
 //! and the packet count.
 
 mod common;

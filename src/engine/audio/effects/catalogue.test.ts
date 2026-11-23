@@ -25,7 +25,7 @@ describe("the effect catalogue", () => {
     }
   });
 
-  it("matches the ADR 0331 table's ranges and levels", () => {
+  it("matches the ADR 0345 table's ranges and levels", () => {
     const eq = effectSpec("eq");
     expect(eq.params.map((q) => [q.name, q.min, q.max])).toEqual([["low", -18, 18], ["mid", -18, 18], ["high", -18, 18]]);
     expect(eq.levels).toEqual(EFFECT_LEVELS);

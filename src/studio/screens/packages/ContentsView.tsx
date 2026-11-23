@@ -1,4 +1,4 @@
-// The Packages screen's Contents tab (ADR 0337 §6): the selected package's include entries (each removable) and what it
+// The Packages screen's Contents tab (ADR 0351 §6): the selected package's include entries (each removable) and what it
 // holds once its dependencies are added — per asset why it is in (an entry, or the asset that needs it), its profile,
 // codec, load mode, shipped size and memory for the chosen platform, and an "also in" warning for a sound in several
 // packages (its bytes are duplicated in each). Below, the assets in no package. Add a sound by dragging it onto the table

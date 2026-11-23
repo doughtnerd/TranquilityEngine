@@ -1,4 +1,4 @@
-// ADR 0329 Blend weights: 1D crossfade, layer and equal power; 2D inside, outside the hull, and with fewer than three points.
+// ADR 0343 Blend weights: 1D crossfade, layer and equal power; 2D inside, outside the hull, and with fewer than three points.
 import { describe, expect, it } from "vitest";
 import { blendWeights1D, blendWeights2D, delaunay } from "./blendWeights";
 

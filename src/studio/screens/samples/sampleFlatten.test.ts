@@ -1,4 +1,4 @@
-// Flatten (ADR 0328): the render is written beside the source, `sample.source` points at it as one step of the
+// Flatten (ADR 0342): the render is written beside the source, `sample.source` points at it as one step of the
 // sidecar's asset document, undo and Unflatten clear it; the audition's render path follows the runtime's rule.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defaultEffect } from "../../../engine/audio/effects/catalogue";

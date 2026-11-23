@@ -1,4 +1,4 @@
-// The Scene settings panel's edits (ADR 0333 "Settings the Spatial screen shows are the project's"): `audio.json`'s HRTF
+// The Scene settings panel's edits (ADR 0347 "Settings the Spatial screen shows are the project's"): `audio.json`'s HRTF
 // voice count (`voices.hrtf`), the ambisonic bed distance (`bedBeyond`, null = beds by priority only), the global Doppler
 // amount (`dopplerAmount` 0..2, shown in percent) and the occlusion materials. Applied through the Mixer's `audio.json`
 // document (one document, one history). A built-in material can be changed but not renamed or removed (the parse adds

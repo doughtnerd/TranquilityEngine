@@ -1,4 +1,4 @@
-// ADR 0336: a fade shape picker: a select of the shapes (the Wwise set) with a glyph of the chosen one's fade in or out,
+// ADR 0350: a fade shape picker: a select of the shapes (the Wwise set) with a glyph of the chosen one's fade in or out,
 // drawn from the engine's shape function in the theme's accent. A view over props; each pick is one commit.
 import type { FadeShape } from "../../engine/audio/playlist/types";
 import { SelectBox } from "../../editor/ui/PanelFields";

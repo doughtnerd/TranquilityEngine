@@ -1,4 +1,4 @@
-// ADR 0249: the event rows (the playlist runtime's instances, ADR 0329) and the music section are composed once above the
+// ADR 0249: the event rows (the playlist runtime's instances, ADR 0343) and the music section are composed once above the
 // backend seam, for `Audio.debug()` and the capture's keyframe, whichever backend plays. The keyframe half keeps FU5's rule (no Set, Map or array per keyframe; every row a
 // pooled object), counted by construction, never by heap deltas.
 import { describe, expect, it } from "vitest";

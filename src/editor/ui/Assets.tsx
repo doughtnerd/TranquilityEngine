@@ -126,7 +126,7 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
   if (entries.length === 0) {
     return [...newItems, sep, commandItem("paste", target), ...(fs?.reveal && project.root ? [{ label: "Show in File Manager", run: reveal(shownFolder(project)) }] : [])];
   }
-  const plugins = toMenuItems([...studioAssetItems(target), ...assetPluginItems(target)]); // Open in Audio Studio first (ADR 0327)
+  const plugins = toMenuItems([...studioAssetItems(target), ...assetPluginItems(target)]); // Open in Audio Studio first (ADR 0341)
   if (entries.every(isSliceEntry)) return [commandItem("open", target), ...plugins];
   const files = fileEntries(entries);
   const single = files.length === 1 ? files[0] : null;

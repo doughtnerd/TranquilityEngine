@@ -254,7 +254,7 @@ describe("Mixer lanes on the heard clock (Mx1)", () => {
   });
 
   describe("snapshots: ramps on the snapshot lane", () => {
-    // ADR 0330: a snapshot's fade is linear in dB (its offset times a weight ramped linearly), written to the lane as
+    // ADR 0344: a snapshot's fade is linear in dB (its offset times a weight ramped linearly), written to the lane as
     // linear-gain segments of at most SNAPSHOT_SEGMENT_MS; a migrated low-pass rides the lane's low-pass, blending from
     // the open carrier (20 kHz) to the snapshot's cutoff with the same weight.
     const PAUSED_DB = 20 * Math.log10(0.3);

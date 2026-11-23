@@ -1,4 +1,4 @@
-//! The formant shifter (ADR 0331's `formantShift`: −12..12 semitones): moves the spectral envelope
+//! The formant shifter (ADR 0345's `formantShift`: −12..12 semitones): moves the spectral envelope
 //! (a voice's vowel colour, an instrument's body) up or down while the pitch stays.
 //!
 //! Linear prediction, once per block:

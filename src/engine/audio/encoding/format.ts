@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0337 §2, A1): encoding settings read and written — a sidecar's `encoding` block (`myco.import@1`,
+ * Internal (ADR 0351 §2, A1): encoding settings read and written — a sidecar's `encoding` block (`myco.import@1`,
  * `importSettings.ts` calls these) and `audio.json`'s `encoding` section (`project/format.ts` calls these).
  *
  * Parses are lenient (ADR 0306): unknown keys, bad values and unknown platforms are skipped with one problem line each,

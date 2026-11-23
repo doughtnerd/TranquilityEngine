@@ -1,4 +1,4 @@
-// The Audio Studio's asset kinds in the editor (ADR 0329, 0328, 0333, 0346): playlists (`*.playlist.json`), derived samples
+// The Audio Studio's asset kinds in the editor (ADR 0343, 0342, 0347, 0360): playlists (`*.playlist.json`), derived samples
 // (`*.sample.json`), attenuation presets (`*.attenuation.json`) and generators (`*.generator.json`). Each has its
 // format (so the editor reads and writes it through asset documents, ADR 0233) and, where its files name others, its
 // `references` reader (ADR 0148). No panel:
@@ -38,7 +38,7 @@ function json(text: string): unknown {
   }
 }
 
-/** The playlist format (ADR 0329): `parsePlaylist`, `formatPlaylist`; a new playlist is an empty Queue. */
+/** The playlist format (ADR 0343): `parsePlaylist`, `formatPlaylist`; a new playlist is an empty Queue. */
 export const playlistFormat: AssetFormat<PlaylistAsset> = {
   parse: (raw, path) => {
     const read = parsePlaylist(raw, path);
@@ -57,7 +57,7 @@ export const playlistReferenceReader: AssetReferences = {
   },
 };
 
-/** The derived sample format (ADR 0328): `parseDerivedSample`, `derivedSampleToJson`. A new one names no source. */
+/** The derived sample format (ADR 0342): `parseDerivedSample`, `derivedSampleToJson`. A new one names no source. */
 export const derivedSampleFormat: AssetFormat<DerivedSampleAsset> = {
   parse: (raw, path) => {
     const read = parseDerivedSample(raw, path);
@@ -78,7 +78,7 @@ export const derivedSampleReferenceReader: AssetReferences = {
   },
 };
 
-/** The attenuation preset format (ADR 0333): `parseAttenuationAsset`, `attenuationAssetToJson`. */
+/** The attenuation preset format (ADR 0347): `parseAttenuationAsset`, `attenuationAssetToJson`. */
 export const attenuationFormat: AssetFormat<AttenuationAsset> = {
   parse: (raw, path) => {
     const read = parseAttenuationAsset(raw, path);
@@ -88,7 +88,7 @@ export const attenuationFormat: AssetFormat<AttenuationAsset> = {
   empty: () => ({ format: ATTENUATION_FORMAT, ...defaultAttenuation() }),
 };
 
-/** The generator format (ADR 0346): `parseGenerator`, `formatGenerator`; a new generator is a default oscillator. */
+/** The generator format (ADR 0360): `parseGenerator`, `formatGenerator`; a new generator is a default oscillator. */
 export const generatorFormat: AssetFormat<GeneratorAsset> = {
   parse: (raw, path) => {
     const read = parseGenerator(raw, path);
@@ -107,13 +107,13 @@ export const STUDIO_ASSET_KINDS: readonly AssetKindContribution[] = [
     icon: PLAYLIST_ICON,
     format: playlistFormat,
     folder: "audio",
-    // `AudioSource.clip` takes a playlist (ADR 0329 "Public API").
+    // `AudioSource.clip` takes a playlist (ADR 0343 "Public API").
     referencedAs: ["playlist"],
     references: playlistReferenceReader,
   },
   { id: "derivedSample", extensions: [SAMPLE_SUFFIX], label: "Sample", icon: SAMPLE_ICON, format: derivedSampleFormat, folder: "audio", references: derivedSampleReferenceReader },
   { id: "attenuation", extensions: [ATTENUATION_SUFFIX], label: "Attenuation", icon: ATTENUATION_ICON, format: attenuationFormat, folder: "audio" },
-  // ADR 0346: a generator names no other file (playlists and baked samples' sidecars name it; their readers move it).
+  // ADR 0360: a generator names no other file (playlists and baked samples' sidecars name it; their readers move it).
   { id: "generator", extensions: [GENERATOR_SUFFIX], label: "Generator", icon: GENERATOR_ICON, format: generatorFormat, folder: "audio" },
 ];
 

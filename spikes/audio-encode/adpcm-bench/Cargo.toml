@@ -3,7 +3,7 @@ name = "adpcm-bench-spike"
 version = "0.0.0"
 edition = "2021"
 publish = false
-description = "ADR 0337 spike A0/S3: wasm instructions per quantum of N voices reading IMA ADPCM against int16, through the core's own resampler."
+description = "ADR 0351 spike A0/S3: wasm instructions per quantum of N voices reading IMA ADPCM against int16, through the core's own resampler."
 
 # Standalone: not a member of native/audio's workspace.
 [workspace]

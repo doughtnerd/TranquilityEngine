@@ -1,4 +1,4 @@
-// The Spatial screen's plan geometry (ADR 0333; the prototype's rotated boxes, handles and routes, S:906-925, 1024-1028):
+// The Spatial screen's plan geometry (ADR 0347; the prototype's rotated boxes, handles and routes, S:906-925, 1024-1028):
 // a test scene seen from above, x to the right and z to the north (up the screen), height (y) out of the plan. Boxes
 // turn by `yaw` degrees clockwise seen from above, as `AudioZone` and `AudioReverbZone` do (local +z goes to
 // (sin yaw, cos yaw)). Positions snap to half a metre; turns snap to 5°.
@@ -68,7 +68,7 @@ export function nearestOnBox(box: SceneBox, p: P2): P2 {
 
 /**
  * How deep `p` is inside the box, 0 at its edge (and outside, or outside bottom..top) to 1 at its middle: the zone's
- * `zoneDepth` (ADR 0333; the prototype's `min(w/2−|x|, d/2−|z|) / (min(w, d)/2)`), for the Inspector's readout.
+ * `zoneDepth` (ADR 0347; the prototype's `min(w/2−|x|, d/2−|z|) / (min(w, d)/2)`), for the Inspector's readout.
  */
 export function depthIn(box: SceneBox, p: P2 & { readonly y?: number }): number {
   if (p.y !== undefined && (p.y < box.bottom || p.y > box.top)) return 0;

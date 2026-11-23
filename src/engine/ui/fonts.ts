@@ -8,7 +8,7 @@
  * - **Project fonts**: a `font` field names a font file asset (`.ttf`, `.otf`, `.woff`, `.woff2`). It
  *   loads on first use under a generated family name, with Inter after it.
  *
- * - **Language fonts** (ADR 0342 §5): the current language's `fonts` come after a text's own font and before
+ * - **Language fonts** (ADR 0356 §5): the current language's `fonts` come after a text's own font and before
  *   Inter, and its `fontReplace` swaps a text's font for another, so the font follows the language (Han
  *   unification: Japanese and Chinese share code points, not glyph shapes). They load as a language
  *   participant: `Locale.setLanguage` (and the start language at boot) waits for them, at most 3 s.
@@ -126,7 +126,7 @@ function languageFamilies(): string {
 }
 
 /**
- * The CSS family list for a `font` field (ADR 0342 §5): the font (or the current language's replacement for it),
+ * The CSS family list for a `font` field (ADR 0356 §5): the font (or the current language's replacement for it),
  * the language's fonts, then Inter and the system font. Empty is no font of its own; a font file asset is its own
  * family (loaded on first use). Anything else warns once and is left out.
  */
@@ -143,7 +143,7 @@ export function fontFamilyOf(font: string | null | undefined): string {
   return entry ? `${entry.family}, ${rest}` : rest;
 }
 
-/** A CSS family list (the `Text` component's `fontFamily`) followed by the current language's fonts (ADR 0342 §5). */
+/** A CSS family list (the `Text` component's `fontFamily`) followed by the current language's fonts (ADR 0356 §5). */
 export function withLanguageFonts(family: string): string {
   const own = languageFamilies().slice(0, -UI_FONT_FAMILY.length).replace(/, $/, "");
   return own ? `${family}, ${own}` : family;
@@ -174,7 +174,7 @@ function loadProjectFont(path: string, family: string): Promise<boolean> {
   );
 }
 
-/** How long a language switch waits for its fonts before switching with the fallback (ADR 0342 §5). */
+/** How long a language switch waits for its fonts before switching with the fallback (ADR 0356 §5). */
 const LANGUAGE_FONT_TIMEOUT_MS = 3000;
 
 /** Load a language's font files; resolves once all settled, or after `LANGUAGE_FONT_TIMEOUT_MS` with a warning. */
@@ -191,5 +191,5 @@ function loadLanguageFonts(code: string): Promise<void> {
   return Promise.race([Promise.all(ready).then(() => undefined), timeout]).finally(() => clearTimeout(timer));
 }
 
-// Language switches wait for the language's fonts (ADR 0342 §5): registered with the UI, which is what draws text.
+// Language switches wait for the language's fonts (ADR 0356 §5): registered with the UI, which is what draws text.
 registerLanguageParticipant({ name: "fonts", prepare: loadLanguageFonts });

@@ -1,4 +1,4 @@
-// ADR 0168: the interactive-music types are importable from "myco" as types, so a script can annotate with them. ADR 0329
+// ADR 0168: the interactive-music types are importable from "myco" as types, so a script can annotate with them. ADR 0343
 // retired the music format's node model and rules (the audio event format), so only the handle and event types remain.
 import { describe, expect, expectTypeOf, it } from "vitest";
 import * as myco from "myco";

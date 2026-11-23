@@ -94,7 +94,7 @@ const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
     referencedAs: ["rendertexture"],
     create: { label: "New Render Texture", create: (folder) => import("./renderTextureAssets").then((m) => m.createRenderTexture(folder)) },
   },
-  // String tables and translations (ADR 0342 §1): asset documents the Localisation panel edits.
+  // String tables and translations (ADR 0356 §1): asset documents the Localisation panel edits.
   STRINGS_ASSET_KIND,
   { id: "json", extensions: [".json"], label: "JSON", icon: "M9 4H8a2 2 0 0 0-2 2v3a2 2 0 0 1-2 2 2 2 0 0 1 2 2v3a2 2 0 0 0 2 2h1M15 4h1a2 2 0 0 1 2 2v3a2 2 0 0 0 2 2 2 2 0 0 0-2 2v3a2 2 0 0 1-2 2h-1", codeEditor: true },
   { id: "xml", extensions: [".xml"], label: "XML", icon: CODE_ICON, codeEditor: true },

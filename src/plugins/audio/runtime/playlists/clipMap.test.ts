@@ -1,4 +1,4 @@
-// ADR 0329: a sequence clip's time → sample time (pickup, first pass, further passes filling the clip, tail).
+// ADR 0343: a sequence clip's time → sample time (pickup, first pass, further passes filling the clip, tail).
 import { describe, expect, it } from "vitest";
 import { clipGeometry, clipTimesOf, pieceAt, sampleAt } from "./clipMap";
 

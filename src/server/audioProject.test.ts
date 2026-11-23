@@ -1,4 +1,4 @@
-// ADR 0330: the dedicated server's project reader takes the mix from audio.json and refuses an old project.json section.
+// ADR 0344: the dedicated server's project reader takes the mix from audio.json and refuses an old project.json section.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,10 +30,10 @@ describe("the server's project reader and audio.json", () => {
     const dir = folder({ "project.json": { name: "Game", audio: { buses: [{ name: "Master" }] } } });
     const err = await readProject(dir).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ServerError);
-    expect((err as Error).message).toMatch(/moved to audio\.json \(ADR 0330\)\. Open the project in the editor once/);
+    expect((err as Error).message).toMatch(/moved to audio\.json \(ADR 0344\)\. Open the project in the editor once/);
   });
 
-  it("refuses a project with an audio event file (ADR 0329), naming the migration; a migrated one under .myco is not read", async () => {
+  it("refuses a project with an audio event file (ADR 0343), naming the migration; a migrated one under .myco is not read", async () => {
     const dir = folder({ "project.json": { name: "Game" }, "step.audioevent.json": { format: "myco.audioevent@1", root: { type: "clip", clip: "a.wav" } } });
     const err = await readProject(dir).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ServerError);

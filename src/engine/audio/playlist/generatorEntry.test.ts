@@ -1,5 +1,5 @@
 /**
- * ADR 0346 in the playlist format: the generator entry (Clip playlists only, wrapped elsewhere), sequence clips' generator
+ * ADR 0360 in the playlist format: the generator entry (Clip playlists only, wrapped elsewhere), sequence clips' generator
  * source, `gen:<param>` targets, the generator lints and the references to `*.generator.json`.
  */
 import { describe, expect, it } from "vitest";

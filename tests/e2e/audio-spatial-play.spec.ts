@@ -4,7 +4,7 @@ import { captureView, pixelsChanged, type ViewCapture } from "./viewCapture";
 
 // The M3 editor work that needs a running game (ADR 0162 E4, E7, E9), on the spatial scene of audioSpatial.ts: the
 // occlusion overlay in the game view (toggled from the Scene toolbar's Audio popover since the Audio Debug panel moved to
-// the Audio Studio, ADR 0327), a zone's kernel, and live tuning
+// the Audio Studio, ADR 0341), a zone's kernel, and live tuning
 // (a field edited on a live node in the Inspector shows in `Audio.debug()` a few frames later). Headless Chromium has no
 // sound output; `Audio.debug()` stands in for ears, as in audio-events.spec.ts.
 test.describe.configure({ timeout: 120_000 });

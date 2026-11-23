@@ -1,4 +1,4 @@
-// Spike B0 (ADR 0338): the AudioWorkletProcessor. Everything runs in the port's onmessage, on the audio thread,
+// Spike B0 (ADR 0352): the AudioWorkletProcessor. Everything runs in the port's onmessage, on the audio thread,
 // inside AudioWorkletGlobalScope. The scope has no `performance`, so every timing uses Date.now (1 ms) over long
 // trials.
 import { glueCost, fuelOverhead, compileTimes, faultIsolation, hasMultiMemory } from "./bench.js";

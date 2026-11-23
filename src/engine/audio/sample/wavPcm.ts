@@ -1,7 +1,7 @@
 /**
  * A WAV file's audio as interleaved float PCM, without a decoder module: integer PCM of 8, 16, 24 or 32 bits and IEEE
  * float of 32 or 64 bits, plain or `WAVE_FORMAT_EXTENSIBLE`. The export renders baked samples with it in Node, where the
- * page's decoder worker doesn't run (ADR 0328 "`npm run export` renders and ships the result").
+ * page's decoder worker doesn't run (ADR 0342 "`npm run export` renders and ships the result").
  *
  * Total: anything it can't read (not a WAV, a compressed format, a truncated header) gives null; a data chunk that runs
  * past the end of the file is read as far as it goes.

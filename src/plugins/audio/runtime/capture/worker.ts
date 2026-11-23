@@ -14,7 +14,7 @@
 // open ends with `cancelled`. `seek` and `range` are synchronous and short (one keyframe interval, or the span asked).
 // `events` (ADR 0227) answers the typed EVENTs after a record cursor in one pass, so the Profiler's event tracks read the
 // capture once (and a live view only what was appended) instead of sweeping it with seeks.
-// `frames` (ADR 0334) answers a take's pictures (its FRAME records, kept as the open reads them; a capture has none), so
+// `frames` (ADR 0348) answers a take's pictures (its FRAME records, kept as the open reads them; a capture has none), so
 // the Profiler draws a take's Picture track; the other request records are passed over as before.
 import {
   CaptureError, EpochReason, RecordType, decodeKeyframe, readKeyframeMetered,
@@ -34,7 +34,7 @@ import { LOUD_OUTPUT_TAP, readStatus } from "../wire.generated";
 export type CaptureRangeRequest = Extract<CaptureWorkerRequest, { type: "range" }> & { buckets?: number };
 /** ADR 0227: the typed EVENTs from record cursor `from` on (`eventsCapture`), only `types` when given. */
 export type CaptureEventsRequest = { type: "events"; id: number; from: number; types?: readonly CaptureEventType[] };
-/** ADR 0334: a take's pictures (its FRAME records, take seconds; none for a capture). */
+/** ADR 0348: a take's pictures (its FRAME records, take seconds; none for a capture). */
 export type CaptureFramesRequest = { type: "frames"; id: number };
 /** Every request the Worker takes (H3's, with `range`'s buckets, `events` and `frames`). */
 export type CaptureRequest = Exclude<CaptureWorkerRequest, { type: "range" }> | CaptureRangeRequest | CaptureEventsRequest | CaptureFramesRequest;
@@ -72,7 +72,7 @@ interface Session {
   live: CaptureDecoder | null;
   /** The loudness series, built on the first loudness request and extended from `next` as a live view grows. */
   loud: LoudnessBuild | null;
-  /** ADR 0334: a take file's pictures, in time order (empty for a capture or a live view). */
+  /** ADR 0348: a take file's pictures, in time order (empty for a capture or a live view). */
   frames: TakeFrame[];
 }
 

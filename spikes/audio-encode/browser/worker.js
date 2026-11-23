@@ -1,4 +1,4 @@
-// ADR 0337 spike A0/S1: a module Worker that runs encoder jobs on the reactor through wasi-shim.js.
+// ADR 0351 spike A0/S1: a module Worker that runs encoder jobs on the reactor through wasi-shim.js.
 // message in: { wasm: ArrayBuffer | WebAssembly.Module, input: ArrayBuffer, jobs: ["vorbis:0.4", ...] }
 // message out: { results: [stats...] } or { error }
 import { wasiShim } from "./wasi-shim.js";

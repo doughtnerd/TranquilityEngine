@@ -1,4 +1,4 @@
-// ADR 0329 (M5): the musical clock of the playing entry: Switch rules at beat, bar and exit (a Clip's sample tempo and
+// ADR 0343 (M5): the musical clock of the playing entry: Switch rules at beat, bar and exit (a Clip's sample tempo and
 // tempo map, a Sequence's tempo, Exit markers, loop ends), transitions as bridges, stingers and `handle.music` on a
 // Clip — through the public API on the fake backend's single clock (ADR 0286).
 import { describe, expect, it } from "vitest";

@@ -1,6 +1,6 @@
 /**
- * The text localisation runtime (ADR 0342 §6): `Locale`, the script API over string tables. A key resolves through the
- * current language's fallback chain (0340 §1) to an ICU MessageFormat 1 message, formatted on `Intl` with the
+ * The text localisation runtime (ADR 0356 §6): `Locale`, the script API over string tables. A key resolves through the
+ * current language's fallback chain (0354 §1) to an ICU MessageFormat 1 message, formatted on `Intl` with the
  * language's `intl` tag. `LocalText` is a key and arguments resolved when read, so text built from it follows language
  * changes.
  *
@@ -52,7 +52,7 @@ export interface LocaleDebug {
   readonly missing: readonly { readonly key: string; readonly language: string }[];
 }
 
-/** The player storage key (namespace `settings`) holding the player's language (ADR 0317, 0342 §6). */
+/** The player storage key (namespace `settings`) holding the player's language (ADR 0317, 0356 §6). */
 export const LOCALE_STORAGE_KEY = "myco.locale.language";
 
 const MISSING_KEPT = 64;
@@ -239,7 +239,7 @@ export class LocalText {
 }
 
 /**
- * Localised text and formatting (ADR 0342 §6). `Locale.t("menu.start")` is the message in the current language, the key
+ * Localised text and formatting (ADR 0356 §6). `Locale.t("menu.start")` is the message in the current language, the key
  * itself (with one warning) when no language of its chain has it; `Locale.setLanguage("fr")` switches every text.
  */
 export const Locale = {
@@ -290,7 +290,7 @@ export const Locale = {
         current = target;
         pending = null;
         epoch++;
-        localiseAssets(settings, current); // ADR 0342 §10: textures and fonts follow in the same step
+        localiseAssets(settings, current); // ADR 0356 §10: textures and fonts follow in the same step
         notify(previous);
         if (remember && settings.remember) Storage.save(LOCALE_STORAGE_KEY, target, "settings").catch((err: unknown) => console.warn(`[myco] Couldn't remember the language "${target}":`, err));
       },
@@ -388,7 +388,7 @@ export interface LocaleConfig {
 }
 
 /**
- * The start language (0342 §6, Unity's selector chain): the remembered language when the project remembers it and it
+ * The start language (0356 §6, Unity's selector chain): the remembered language when the project remembers it and it
  * is still shipped, else the best system match when `useSystemLanguage`, else `default`. Only shipped languages count.
  */
 function startLanguage(s: LanguageSettings, remembered: unknown, system: readonly string[]): string {
@@ -405,7 +405,7 @@ function startLanguage(s: LanguageSettings, remembered: unknown, system: readonl
 }
 
 /**
- * @internal The Engine's boot (ADR 0342 §6): use these languages and strings, pick the start language and load its
+ * @internal The Engine's boot (ADR 0356 §6): use these languages and strings, pick the start language and load its
  * strings and fonts before resolving. Supersedes a switch in progress. Listeners hear the change if the language differs.
  */
 export async function configureLocale(config: LocaleConfig): Promise<void> {

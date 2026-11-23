@@ -1,4 +1,4 @@
-// ADR 0171 M5-0 (Sa1): every sample project's mix (`audio.json` since ADR 0330) parses with no problem and plays on the
+// ADR 0171 M5-0 (Sa1): every sample project's mix (`audio.json` since ADR 0344) parses with no problem and plays on the
 // runtime with nothing left out, each ducking rule survives, and the samples' `fadeTo` and `mute` calls give the audible
 // levels they gave before `Bus.volume` became a multiplier.
 import { readdirSync, readFileSync, existsSync } from "node:fs";
@@ -12,7 +12,7 @@ import { parsePluginAudio } from "../audio/effects/pluginEffects";
 
 const root = "samples";
 const readJson = (path: string): unknown => (existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : undefined);
-// ADR 0338: a sample's own plugins with an `audio` section (fx-tremolo's tremolo) are enabled, as the plugin set enables
+// ADR 0352: a sample's own plugins with an `audio` section (fx-tremolo's tremolo) are enabled, as the plugin set enables
 // them before the project loads, so their effects are known to the mix.
 for (const dir of readdirSync(root)) {
   const plugins = `${root}/${dir}/plugins`;

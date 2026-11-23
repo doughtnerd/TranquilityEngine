@@ -61,9 +61,9 @@ export async function exportProjectBuild(project: EditorProject, fs: FileSystem,
     platform: "web",
     transcode: browserTranscoder,
     bake: bakeModelFile,
-    // ADR 0337: audio converted in Web Workers (at most two at once, ADR 0345 §3), cached in the project's .myco/cache/audio/ when it is a folder.
+    // ADR 0351: audio converted in Web Workers (at most two at once, ADR 0359 §3), cached in the project's .myco/cache/audio/ when it is a folder.
     audio: { encoder, decode: createAudioDecoder(() => fetchBytes(DECODER_WASM_URL.href)), cache: projectCache(project) },
-    // ADR 0345 §6: every game ships the third-party notices.
+    // ADR 0359 §6: every game ships the third-party notices.
     notices: NOTICES,
     log: (line) => console.warn(`[myco] ${line}`),
     progress,

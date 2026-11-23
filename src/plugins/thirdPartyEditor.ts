@@ -93,7 +93,7 @@ export async function loadProjectCode(project: EditorProject, options: { runtime
   const packages = packageSourceFor(project);
   const disabled = project.settings.plugins?.disabled;
   const plan = await planPluginCode({ json, code: project.scripts, packages: packages?.files, disabled, assets: project.files }, { editor: true });
-  // ADR 0338 §8: the plugins' audio effects (catalogue, core, offline renders), before Play can start on this code.
+  // ADR 0352 §8: the plugins' audio effects (catalogue, core, offline renders), before Play can start on this code.
   await applyProjectAudioEffects(project, plan);
   const result = await replaceScripts(plan.code, json, packages, plan.npmEntries);
   const applied = applyEditorPlugins(disabled, { thirdParty: await toSetPlugins(plan.loaded), keepRuntime: !runtime });

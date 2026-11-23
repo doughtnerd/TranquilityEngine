@@ -1,4 +1,4 @@
-// ADR 0337 §7 (W12 package integration): where the core finds a sound that a loaded package holds. The package registry
+// ADR 0351 §7 (W12 package integration): where the core finds a sound that a loaded package holds. The package registry
 // (`media/packages.ts`) installs the resolver when it loads; the clip registry and the stream manager read it through
 // `clipPackRef` and `streamPackRef` (their default `packRef`), and the stream manager through `packedMediaUrl` (a
 // packaged `stream` sound's loose media). Without a resolver (editor Play over sources, a build with no packages, tests

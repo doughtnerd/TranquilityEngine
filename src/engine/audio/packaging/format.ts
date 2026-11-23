@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0337 §7, A1): the `.mycopak` package file, written by the export and read by the decoder worker.
+ * Internal (ADR 0351 §7, A1): the `.mycopak` package file, written by the export and read by the decoder worker.
  *
  * ```
  * audio/packages/<name>.mycopak

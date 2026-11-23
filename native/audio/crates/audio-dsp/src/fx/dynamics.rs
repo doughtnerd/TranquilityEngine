@@ -1,4 +1,4 @@
-//! The catalogue's bus dynamics beyond the compressor (ADR 0331): `limiter` (`ceiling` −12..0 dB,
+//! The catalogue's bus dynamics beyond the compressor (ADR 0345): `limiter` (`ceiling` −12..0 dB,
 //! `release` 1..1000 ms) and `sidechainCompressor` (`threshold`, `ratio`, `release`, a key bus).
 //!
 //! - **Limiter:** a stereo-linked peak limiter with no look-ahead (a bus insert must not delay its

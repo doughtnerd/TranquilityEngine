@@ -1,4 +1,4 @@
-// ADR 0334: the Play toolbar's Record take and Record capture toggles, as a pure model. A toggle starts the recorder
+// ADR 0348: the Play toolbar's Record take and Record capture toggles, as a pure model. A toggle starts the recorder
 // (`Audio.take` or `Audio.capture`, the public API), and the next press stops it and writes the file into the project's
 // `takes/` or `captures/` folder under a free name (`take_01.mycotake`, `capture_01.mycap`, ...). Play stopping ends a
 // running recording the same way (the recorders keep the last take for a save after Stop). Everything outside is a seam.

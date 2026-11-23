@@ -1,4 +1,4 @@
-// The time ruler (ADR 0335 `TimeRuler`): ticks and labels for a view in one of the three time displays
+// The time ruler (ADR 0349 `TimeRuler`): ticks and labels for a view in one of the three time displays
 // (`timeRulerModel.ts`). Pressing and dragging on it scrubs: `onScrub` gets the time under the pointer, with `done`
 // on release. It is a slider for assistive tech (`aria-valuetext` the position in the display's words).
 import { useRef } from "preact/hooks";

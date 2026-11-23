@@ -1,4 +1,4 @@
-// ADR 0334: the request records' codecs round-trip every request kind, a FRAME and a take KEYFRAME, and refuse rather
+// ADR 0348: the request records' codecs round-trip every request kind, a FRAME and a take KEYFRAME, and refuse rather
 // than misread (lengths, counts, strings, values).
 import { describe, expect, it } from "vitest";
 import {
@@ -21,7 +21,7 @@ const codeOf = (f: () => unknown): string => {
   }
 };
 
-describe("take request records (ADR 0334)", () => {
+describe("take request records (ADR 0348)", () => {
   it("every request kind round-trips", () => {
     const requests: TakeRecordInit[] = [
       { type: TakeRecordType.PLAY, payload: { kind: "play", t: 1.25, instance: 7, path: "sfx/steps.playlist.json", emitter: 3, options: { volume: 0.5, pitch: 1.25, bus: "SFX", priority: 200, parameters: { Speed: 0.75, Surface: 2 } } } },
@@ -79,7 +79,7 @@ describe("take request records (ADR 0334)", () => {
     for (const t of [0x01, 0x08, 0x0f, 0x1e, 0x7f, 0x80]) expect(isTakeRecordType(t)).toBe(false);
   });
 
-  it("ADR 0340 §10, 0341 §6: LINE, LANGUAGE, SAY and SAYSTATE round-trip", () => {
+  it("ADR 0354 §10, 0355 §6: LINE, LANGUAGE, SAY and SAYSTATE round-trip", () => {
     const records: TakeRecordInit[] = [
       { type: TakeRecordType.LINE, payload: { kind: "line", t: 1.5, instance: 3, key: "intro_01", language: "fr-CA", options: { volume: 0.5, bus: "Voice", parameters: { Radio: 1 } } } },
       { type: TakeRecordType.LINE, payload: { kind: "line", t: 2, instance: 4, key: "only_de", language: null, options: {} } },
@@ -100,7 +100,7 @@ describe("take request records (ADR 0334)", () => {
     for (const r of records) expect(decode(r)).toEqual({ type: "request", requests: [r.payload] });
   });
 
-  it("ADR 0341 §6: a SAY with an unknown state or pick kind is refused, not misread", () => {
+  it("ADR 0355 §6: a SAY with an unknown state or pick kind is refused, not misread", () => {
     const say: TakeRecordInit = { type: TakeRecordType.SAY, payload: { kind: "say", t: 1, instance: 1, event: "e", args: { a: "b" }, options: {}, state: "playing", picked: { key: "k", pathIndex: 0 } } };
     const b = encodeTakeRecordBytes(say);
     // t(8) instance(4) flags(1) volume(4) pitch(4) priority(2) bus(2+0): the state byte follows.

@@ -1,4 +1,4 @@
-// The Events tab's path table (ADR 0341 §7): one column per argument (its name and its labels or linked global; move
+// The Events tab's path table (ADR 0355 §7): one column per argument (its name and its labels or linked global; move
 // left and right reorders every path), a Lines column of weighted chips (each showing recorded or missing in the
 // preview language), probability and, in weighted mode, weight. Each cell is a label menu with `*`. "Group by argument"
 // shows the same table as a collapsible tree. Lints sit inline. An argument change (labels, remove, unlink, add, link)

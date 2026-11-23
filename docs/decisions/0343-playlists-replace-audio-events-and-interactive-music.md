@@ -1,10 +1,10 @@
-# 0329. Playlists replace audio events and interactive music
+# 0343. Playlists replace audio events and interactive music
 
-- **Status:** Accepted, amended by 0336 (blend regions and weight curves, fade shapes, Exit-marker tails, bridge fades, beat-quantised automation)
+- **Status:** Accepted, amended by 0350 (blend regions and weight curves, fade shapes, Exit-marker tails, bridge fades, beat-quantised automation)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0158 (the `*.audioevent.json` container format and node types), 0166 and 0167 (the music node format); their runtime machinery is kept and re-homed as described here
-- **Related:** 0157, 0224, 0229, 0248, 0263, 0269, 0285, 0293, 0299, 0304, 0306, 0320, 0327, 0328, 0330–0334
+- **Related:** 0157, 0224, 0229, 0248, 0263, 0269, 0285, 0293, 0299, 0304, 0306, 0320, 0341, 0342, 0344–0348
 
 ## Context
 
@@ -25,7 +25,7 @@ and **Sequence**: a timeline of audio and playlist tracks with clips, per-clip l
 async clips, automation over time or parameters and effects at clip, track and sequence level. Entries are always
 playlists; a sample added to a non-Clip playlist is wrapped in an embedded Clip playlist. A playlist used in two places
 is a *linked* copy; an embedded one belongs to its parent. Music is expressed with samples that carry tempo, loops and
-Exit markers (0328), Switch rules that wait for a beat, bar or Exit marker, and sync clips in sequences.
+Exit markers (0342), Switch rules that wait for a beat, bar or Exit marker, and sync clips in sequences.
 
 The owner decided (2026-11-22) that the prototype's model wins, existing data migrates one way, and engine features
 the prototype doesn't show (stingers, stems, beds, Doppler, ambisonics, bus automation, sustain) get a home rather than
@@ -44,12 +44,12 @@ it with a playlist runtime that reuses the music scheduler, and migrate existing
 {
   "format": "myco.playlist@1",
   "type": "queue",                 // clip | queue | switch | blend | layer | sequence
-  "output": null,                  // bus id (0330); null = inherited from the referencing playlist, else Master
+  "output": null,                  // bus id (0344); null = inherited from the referencing playlist, else Master
   "playback": { "plays": "oneShot", "maxInstances": 4, "whenFull": "stealOldest", // stealQuietest | stealFarthest | refuse
                 "cooldown": 0, "chance": 1, "delay": 0, "priority": 128 },
   "volume": 0, "pitch": 0, "volumeRandom": [0, 0], "pitchRandom": [0, 0],          // dB, semitones
-  "effects": [],                   // once per playing instance, on its mixed output (0331)
-  "spatial": null,                 // attenuation and spatial options (0333)
+  "effects": [],                   // once per playing instance, on its mixed output (0345)
+  "spatial": null,                 // attenuation and spatial options (0347)
   "parameters": [],                // local parameters (one parameter list, 0304)
   "stingers": [],
   "entries": [
@@ -64,7 +64,7 @@ it with a playlist runtime that reuses the music scheduler, and migrate existing
 
 - **Entry, per use:** `volume` (dB), `pitch` (st), `weight` (Queue random; 0 = never), `x`/`y` (Blend position, in the
   axis's units), `atZeroWeight` (`stop` | `continue`), `curves` (gain, pitch, pan, low-pass, high-pass over voice time
-  or a parameter; 0332). Samples appear only in Clip playlists; the editor wraps them as the prototype does.
+  or a parameter; 0346). Samples appear only in Clip playlists; the editor wraps them as the prototype does.
 - **Queue:** `continuous: { gapMs }` plays entries back to back until stopped (the engine's continuous containers and
   music playlists); `null` picks one entry per trigger.
 - **Switch:** `{ parameter, map: { label: entryIndex | null }, labelGain: { label: dB }, onChange, rules }` with
@@ -80,14 +80,14 @@ it with a playlist runtime that reuses the music scheduler, and migrate existing
   exit, exitFadeMs, reentry }`. Automation is `{ target, input, curve, bypass }`, target `volume | pitch | pan | enabled
   | fx:<effectId>:<param>`, input `clipTime | sequenceTime | voiceTime | <parameter>`.
 - **Stingers:** `{ trigger, playlist, at: "now" | "beat" | "bar" | "exit" | "hit", ifLate: "nextGrid" | "playNow" |
-  "skip", dontRepeat }`; `hit` lands the stinger sample's Hit point (0328) on the boundary.
+  "skip", dontRepeat }`; `hit` lands the stinger sample's Hit point (0342) on the boundary.
 - **References** are project paths, rewritten on move by the playlist asset kind (0314). Cycles are refused on edit
   ("it would contain itself"). Limits are declared once in the parse (0306): entries ≤ 256, nesting ≤ 16, tracks ≤ 32,
   clips ≤ 512, keys per curve ≤ 64.
 
 **Runtime semantics** (the prototype's logic, made complete):
 - **Trigger gate**, in order: cooldown since the last accepted trigger, chance, then max instances (steal the oldest,
-  quietest or farthest with a 40 ms fade, or refuse). Refusals have reasons in the profiler (0334).
+  quietest or farthest with a 40 ms fade, or refuse). Refusals have reasons in the profiler (0348).
 - **Picks are made once per trigger** on the main thread with the World's seeded generator. Random: weighted, excluding
   the last `min(avoidRepeat, n−1)`; Shuffle: a deck reshuffled when empty; Round robin: next, wrapping.
 - **Down the tree** gains add in dB, pitch adds in semitones, pan takes the deepest non-zero, low-pass takes the minimum,
@@ -117,8 +117,8 @@ it with a playlist runtime that reuses the music scheduler, and migrate existing
 thread still owns intent and picks (0157): a trigger resolves the tree into ordinary voices, automation bindings and
 groups. The music scheduler (`runtime/music/`: planner, grid, transitions, stingers, anchors, hot reload, sounding
 voices) becomes the musical clock for sequences with a tempo and for Switch rules timed to beats, bars and Exit markers;
-its addressing becomes playlist paths and ids. The core gains time parameters (0332), loop modes (0328) and instance
-submixes (0331).
+its addressing becomes playlist paths and ids. The core gains time parameters (0346), loop modes (0342) and instance
+submixes (0345).
 
 **Public API.** `Audio.play(pathOrSample, options)` plays a playlist or a sample and returns an `AudioPlaylistHandle`
 (today's `AudioEventHandle` members: `setParameter`, `getParameter`, `release`, `stop`, `music` positions, plus
@@ -165,7 +165,7 @@ migration.
 - `myco.audioevent@1`, `src/engine/audio/eventFormat.ts`, `musicFormat.ts` and the container half of
   `runtime/events/eventRuntime.ts`: removed after the migration ships. `musicRules.ts`, `musicGrid.ts`,
   `musicPosition.ts` and `runtime/music/*` are kept, re-keyed on playlists.
-- The `audioEvent` asset kind, the Event editor and the music panels (0327).
+- The `audioEvent` asset kind, the Event editor and the music panels (0341).
 - Guides `sound-events.md` and `interactive-music.md`, rewritten as Playlists and Music guides.
 
 ## Open questions

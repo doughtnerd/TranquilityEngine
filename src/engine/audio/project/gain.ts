@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0330): decibels and linear gain for the mix in `audio.json`. A fader's floor, `MIN_DB`, is silence (−∞):
+ * Internal (ADR 0344): decibels and linear gain for the mix in `audio.json`. A fader's floor, `MIN_DB`, is silence (−∞):
  * a level at or below it is a gain of 0, and a gain of 0 is `MIN_DB`. The ceiling, `MAX_DB`, is the old linear model's
  * top (a gain of 2, about +6.02 dB), so a migrated mix keeps every level it had.
  *

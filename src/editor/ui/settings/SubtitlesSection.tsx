@@ -1,4 +1,4 @@
-// Project Settings > Subtitles (ADR 0343 §3, §5 S5): the player settings' first-run defaults (on, size, background,
+// Project Settings > Subtitles (ADR 0357 §3, §5 S5): the player settings' first-run defaults (on, size, background,
 // speaker names, captions), the reading speed and minimum display time every subtitle is timed with, and speakers: a
 // line table's speaker id with the string key of its shown name and its colour. Edits go through the Project panel's
 // undo history; a refused edit says why in the status bar.

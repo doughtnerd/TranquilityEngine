@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the Playlists panel's tree: playlists by folder with embedded ones nested and linked
+// Stories (ADR 0219, 0349) for the Playlists panel's tree: playlists by folder with embedded ones nested and linked
 // ones dashed, type badges and the output marker, the open one selected, search with paths, the row menu, F2 rename,
 // and the empty state.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

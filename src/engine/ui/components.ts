@@ -23,7 +23,7 @@ export type UIPositionType = "relative" | "absolute";
 export type UIDisplay = "flex" | "none";
 export type UICanvasMode = "screen" | "world";
 /**
- * `start` and `end` follow the text direction of the current language (ADR 0342 §5): `start` is the left edge in
+ * `start` and `end` follow the text direction of the current language (ADR 0356 §5): `start` is the left edge in
  * left-to-right languages and the right edge in right-to-left ones.
  */
 export type UITextAlign = "start" | "end" | "left" | "center" | "right" | "justify";

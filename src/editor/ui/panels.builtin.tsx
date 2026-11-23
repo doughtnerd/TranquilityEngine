@@ -39,7 +39,7 @@ const BUILTIN_PANELS: readonly PanelContribution[] = [
   },
   { id: "network", title: "Network", view: () => import("./NetworkPanel").then((m) => m.NetworkPanel), dock: "right", beside: "worlds" },
   { id: "project", title: "Project", view: () => import("./ProjectSettingsPanel").then((m) => m.ProjectSettingsPanel), dock: "right", beside: "worlds" },
-  // String tables, reports and translator exchange (ADR 0342 §9): opened from the Window menu, Project Settings > Languages or a table.
+  // String tables, reports and translator exchange (ADR 0356 §9): opened from the Window menu, Project Settings > Languages or a table.
   { id: "localisation", title: "Localisation", view: () => import("./localisation/LocalisationPanel").then((m) => m.LocalisationPanel), beside: "assets", onDemand: true },
 ];
 

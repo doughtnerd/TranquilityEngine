@@ -1,4 +1,4 @@
-// The Profiler's Record button in the player bar (ADR 0334 "Profiling a take as it plays"; the prototype's togRec):
+// The Profiler's Record button in the player bar (ADR 0348 "Profiling a take as it plays"; the prototype's togRec):
 // it records the Studio's own runtime while it plays something (an audition, a take's replay), and Stop saves the
 // capture into the project's captures folder. Disabled, with why, while nothing plays. A view over props.
 export interface RecordButtonProps {

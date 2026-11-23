@@ -1,4 +1,4 @@
-// ADR 0329: the sequence playhead's state machine (the prototype's SQ:1283–1353), through its own interface.
+// ADR 0343: the sequence playhead's state machine (the prototype's SQ:1283–1353), through its own interface.
 import { describe, expect, it } from "vitest";
 import type { LoopBehaviour } from "../../../../engine/audio/playlist/types";
 import { Playhead, type PlayheadLoop, type PlayheadMove } from "./sequencePlayhead";

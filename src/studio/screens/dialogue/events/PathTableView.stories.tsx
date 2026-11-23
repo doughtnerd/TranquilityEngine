@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0341 §7) for the path table over the fixture event: label menus per argument, weighted line chips
+// Stories (ADR 0219, 0355 §7) for the path table over the fixture event: label menus per argument, weighted line chips
 // with recorded/missing in the preview language, an argument change previewed before applying (removing a label removes
 // the path naming it), and the tree grouping.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

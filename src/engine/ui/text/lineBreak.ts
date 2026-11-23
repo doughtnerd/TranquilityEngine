@@ -1,5 +1,5 @@
 /**
- * Line breaking for UI text (ADR 0342 §5): where a line may end, and greedy wrapping to a width. The UI's text
+ * Line breaking for UI text (ADR 0356 §5): where a line may end, and greedy wrapping to a width. The UI's text
  * measuring (`render/babylon/ui.ts` `textSize`) and its drawing (the text block's line wrapper) both wrap through
  * `wrapLine`, so the lines measured are the lines drawn.
  *

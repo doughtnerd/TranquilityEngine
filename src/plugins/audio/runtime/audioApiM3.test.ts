@@ -315,8 +315,8 @@ describe("§1.5 components", () => {
     expect(getComponentClass("engine.AudioOccluder")).toBe(AudioOccluder);
   });
 
-  it("AudioReverbZone has the ten §1.5 fields, ADR 0333 levelDefault, and defaults", () => {
-    expect(getFields(AudioReverbZone).map((f) => f.name)).toEqual(["shape", "center", "size", "radius", "preset", "ir", "wet", "blendDistance", "priority", "output", "levelDefault"]); // + ADR 0333
+  it("AudioReverbZone has the ten §1.5 fields, ADR 0347 levelDefault, and defaults", () => {
+    expect(getFields(AudioReverbZone).map((f) => f.name)).toEqual(["shape", "center", "size", "radius", "preset", "ir", "wet", "blendDistance", "priority", "output", "levelDefault"]); // + ADR 0347
     const z = GameObject.create("z").addBehavior(AudioReverbZone);
     expect([z.shape, z.radius, z.preset, z.ir, z.wet, z.blendDistance, z.priority, z.output]).toEqual(["box", 5, "hall", "", 0.5, 2, 0, ""]);
     expect([z.size.x, z.size.y, z.size.z]).toEqual([10, 4, 10]);

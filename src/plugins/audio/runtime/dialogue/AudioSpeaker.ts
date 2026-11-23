@@ -1,5 +1,5 @@
 /**
- * `AudioSpeaker` (ADR 0341 §4–§5): marks a node as a speaker (`speaker`: a line table speaker name). A said line with no
+ * `AudioSpeaker` (ADR 0355 §4–§5): marks a node as a speaker (`speaker`: a line table speaker name). A said line with no
  * position or node of its own plays from, and follows, the enabled speaker of its line's speaker nearest the listener;
  * `say(event, options)` says an event from this node (and, when the event has an argument named `speaker`, with this
  * speaker as its value).

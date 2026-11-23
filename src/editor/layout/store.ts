@@ -1,5 +1,5 @@
 // The editor's panel layout as shared state, remembered per user between sessions under `myco.editor.layout`
-// (a layout store, `layoutStore.ts`; the Audio Studio has one per screen, ADR 0327). The layout model's rules get
+// (a layout store, `layoutStore.ts`; the Audio Studio has one per screen, ADR 0341). The layout model's rules get
 // the editor's panel catalog: the panel registry, where the built-in panels and plugins' are registered (ADR 0182).
 import { signal } from "@preact/signals";
 import type { PanelId } from "./model";

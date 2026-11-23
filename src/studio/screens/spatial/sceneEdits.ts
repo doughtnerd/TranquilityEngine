@@ -1,4 +1,4 @@
-// The Spatial screen's edits of a test scene (ADR 0333 `*.audioscene.json`; the prototype's editing, S:1525-1626): find
+// The Spatial screen's edits of a test scene (ADR 0347 `*.audioscene.json`; the prototype's editing, S:1525-1626): find
 // an object by id, move it (a moving emitter slides along its route), reshape and turn boxes, rename, hide, lock,
 // delete, duplicate and paste, the active listener and route edits. Every edit a user can get refused returns
 // `{ next } | { refused }` (ADR 0307, 0313) and the screen applies it as one labelled undo step on the scene document.

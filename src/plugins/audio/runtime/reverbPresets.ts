@@ -1,7 +1,7 @@
 /**
- * The reverb zone presets (ADR 0162 R10, ADR 0333). Every preset is a reverb the audio core generates (`IR_GENERATED`,
+ * The reverb zone presets (ADR 0162 R10, ADR 0347). Every preset is a reverb the audio core generates (`IR_GENERATED`,
  * each an `{ rt60, hfDamping, predelayMs }` in `native/audio/crates/audio-dsp/src/convolver/presets.rs`): ADR 0162's
- * `room`, `corridor`, `hall`, `cave` and `open`, and ADR 0333's four named spaces, each with its own times, set from the
+ * `room`, `corridor`, `hall`, `cave` and `open`, and ADR 0347's four named spaces, each with its own times, set from the
  * I3DL2 / EAX environment family its name belongs to:
  *
  * - `smallStone` (1.1 s, HF damping 0.3, 7 ms predelay): a small stone chamber; hard walls keep the highs (EAX "Stone

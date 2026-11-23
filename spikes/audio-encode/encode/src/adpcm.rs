@@ -1,4 +1,4 @@
-//! IMA ADPCM (the public IMA/DVI algorithm), in the block layout ADR 0337 §3 sketches: 1,024 frames per channel per
+//! IMA ADPCM (the public IMA/DVI algorithm), in the block layout ADR 0351 §3 sketches: 1,024 frames per channel per
 //! block, each channel's part starting with its own predictor header so any block decodes alone.
 //!
 //! Block layout (planar, little-endian), per channel c in order: `i16 predictor, u8 step_index, u8 0`, then for each

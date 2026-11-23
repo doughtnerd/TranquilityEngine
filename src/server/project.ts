@@ -34,7 +34,7 @@ export class ServerError extends Error {
 export interface ServerProject {
   /** The folder, absolute. */
   readonly root: string;
-  /** `project.json`, parsed, with `audio` set to `audio.json`'s runtime view (ADR 0330). */
+  /** `project.json`, parsed, with `audio` set to `audio.json`'s runtime view (ADR 0344). */
   readonly settings: ProjectSettingsInput;
   /**
    * Every project file by project-relative path, as its asset value (ADR 0254): parsed JSON, a
@@ -60,7 +60,7 @@ export async function readProject(dir: string): Promise<ServerProject> {
 
   const files = await listFiles(root);
   if (!files.includes("project.json")) throw new ServerError(`"${root}" isn't a project folder: it has no project.json.`);
-  // ADR 0329: the retired audio event format isn't read; the project migrates its events to playlists first.
+  // ADR 0343: the retired audio event format isn't read; the project migrates its events to playlists first.
   const event = files.find(isAudioEventPath);
   if (event !== undefined) throw new ServerError(audioEventRefusal(join(root, ...event.split("/")), event));
 
@@ -77,7 +77,7 @@ export async function readProject(dir: string): Promise<ServerProject> {
   const json = new Map([...texts].filter(([path]) => projectFileKind(path) === "json"));
   const settings = values.get("project.json");
   if (typeof settings !== "object" || settings === null || Array.isArray(settings)) throw new ServerError(`${join(root, "project.json")} must hold an object of project settings.`);
-  // The mix lives in audio.json (ADR 0330); an old project.json audio section is refused, not read.
+  // The mix lives in audio.json (ADR 0344); an old project.json audio section is refused, not read.
   const withAudio = projectWithAudio(settings, values.get(AUDIO_PROJECT_FILE));
   if (withAudio.legacyAudio) throw new ServerError(`${join(root, "project.json")}: ${LEGACY_AUDIO_MESSAGE}`);
   return {

@@ -3,7 +3,7 @@ name = "decode-size-spike"
 version = "0.0.0"
 edition = "2021"
 publish = false
-description = "ADR 0337 spike A0/S2: what Opus decoding (libopus, fixed point) and symphonia's adpcm feature add to myco_audio_decode.wasm."
+description = "ADR 0351 spike A0/S2: what Opus decoding (libopus, fixed point) and symphonia's adpcm feature add to myco_audio_decode.wasm."
 
 # Standalone: not a member of native/audio's workspace. Links the shipped audio-decode crate unchanged (as an rlib) and
 # re-exports its C ABI, so the baseline build is the shipped decoder; the features add on top. Cargo.lock starts as a

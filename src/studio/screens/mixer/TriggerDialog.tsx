@@ -1,4 +1,4 @@
-// The Trigger dialog (ADR 0330 "Snapshots blend"; the prototype's trigger window): when a snapshot starts (when
+// The Trigger dialog (ADR 0344 "Snapshots blend"; the prototype's trigger window): when a snapshot starts (when
 // conditions match, always as the base mix, from game code, or never: audition only), the conditions (all or any;
 // one row per condition with the comparisons its parameter's type allows and a live true/false dot from the test
 // values), the transition (fade in, fade out, minimum hold), the priority and Override or Add, and the snapshots it

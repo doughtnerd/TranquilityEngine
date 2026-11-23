@@ -1,5 +1,5 @@
 /**
- * gettext PO (ADR 0342 §8), Unreal's and Godot's translator workflow: one `.po` per language and a `.pot` template.
+ * gettext PO (ADR 0356 §8), Unreal's and Godot's translator workflow: one `.po` per language and a `.pot` template.
  * Each key is an entry with `msgctxt` = the key, `msgid` = the reference text, `msgstr` = the translation, `#.` lines
  * for the key's notes (and its `maxLength`), `#:` for its table, and `#, fuzzy` for a translation that needs review.
  * The header names the language (`Language:`) and declares UTF-8.

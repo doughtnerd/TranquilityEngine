@@ -1,4 +1,4 @@
-//! Contract K5: per-bus effect slots and their dispatch (api-and-models §4.2 BUS_CONFIG; ADR 0331).
+//! Contract K5: per-bus effect slots and their dispatch (api-and-models §4.2 BUS_CONFIG; ADR 0345).
 //!
 //! BUS_CONFIG and BUS_SLOT carry each bus's effects in order: `u32 type` and `f32 p[16]` (ABI 5.0; `p[7]` before).
 //! - **Legacy types** (0 lowpass, 1 highpass, 2 compressor, 3 reverb send; lp/hp: frequency Hz, q
@@ -11,11 +11,11 @@
 //!   (`audio_dsp::fx`'s glide). A sidechain compressor's key is `p[3]`, a bus slot: its pre-fader
 //!   level ([`BusArea::key_db`](crate::bus::BusArea), measured where the key bus is mixed; the key
 //!   is mixed first, `bus_order::rerun`).
-//! - **Plugin types** (ABI 5.0, ADR 0338): `BUS_FX_CATALOGUE + PLUGIN_BASE + e`, registered plugin
+//! - **Plugin types** (ABI 5.0, ADR 0352): `BUS_FX_CATALOGUE + PLUGIN_BASE + e`, registered plugin
 //!   effect `e`, `p` its declared parameters. The slot is a catalogue slot whose DSP runs in the
 //!   plugin's own module through the `myco_ext` import (`ext.rs`): its instance is acquired when the
 //!   slot takes the kind and released by the sweep; a fault passes the block dry; all the buses'
-//!   plugin calls share one quantum's fuel ([`ext::Fuel`](crate::ext::Fuel), 0344 §3).
+//!   plugin calls share one quantum's fuel ([`ext::Fuel`](crate::ext::Fuel), 0358 §3).
 //!
 //! [`FxChain::configure_with`] stores them in a bus's fixed slots and [`FxChain::process_with`]
 //! runs them in order on the bus's quantum, before the snapshot low-pass and the bus gain (the
@@ -29,9 +29,9 @@
 //!   (a tap); `bus.rs` hands the scratch to `sends::feed` after the bus's gain stage, which adds it
 //!   into the shared reverb input (post-fader scaling: Rv1); the shared `audio_dsp::convolver`
 //!   (A2.2b) renders the wet signal once per quantum in `bus.rs`;
-//! - the catalogue's kinds: `audio_dsp::fx` (ADR 0331).
+//! - the catalogue's kinds: `audio_dsp::fx` (ADR 0345).
 //!
-//! **Limits and bad input** (ADR 0331: no four-effect, one-compressor limit). A bus keeps at most
+//! **Limits and bad input** (ADR 0345: no four-effect, one-compressor limit). A bus keeps at most
 //! [`MAX_EFFECTS`] (8) effects; the rest, and effects of an unknown type (a newer minor), are
 //! dropped and counted (the count is returned to `bus.rs`, which keeps it in its area: the wire has
 //! no STATUS field for it). An unknown type keeps its place as a [`kind::NONE`] slot, so the others
@@ -41,7 +41,7 @@
 //! kind across a BUS_CONFIG keeps its filter or envelope state (an effect edit doesn't click); a
 //! slot whose kind changes starts from zeroed state.
 //!
-//! **Smoothing (B4, R7; architecture §4.7; ADR 0331).** The legacy compressor's parameters glide,
+//! **Smoothing (B4, R7; architecture §4.7; ADR 0345).** The legacy compressor's parameters glide,
 //! stepping once per quantum along a straight line over `COMPRESSOR_SMOOTH_MS` ([`smooth_frames`],
 //! `Compressor::glide`), so a threshold step no longer clicks; legacy filter frequency and Q and
 //! the send level stay direct (S4: abrupt 0.15 and 0.10). Every catalogue effect glides
@@ -63,7 +63,7 @@ use audio_dsp::fx::{Ctx, Effect, PARAMS};
 use audio_wire::generated as wire;
 
 /// Most effects per bus (a bus's slots are fixed so the `Buses` region never grows; the wire's
-/// `BUS_SLOT_MAX_EFFECTS`, ADR 0331's insert cap).
+/// `BUS_SLOT_MAX_EFFECTS`, ADR 0345's insert cap).
 pub const MAX_EFFECTS: usize = wire::BUS_SLOT_MAX_EFFECTS as usize;
 
 /// The snapshot low-pass's resonance, in dB: Web Audio's `BiquadFilterNode` default Q (1), as the
@@ -88,7 +88,7 @@ pub mod kind {
         ((c > audio_dsp::fx::kind::NONE && c < audio_dsp::fx::kind::COUNT) || audio_dsp::fx::kind::plugin(c).is_some()).then_some(c)
     }
 
-    /// `true` when slot kind `k` is a plugin effect's (ABI 5.0, ADR 0338).
+    /// `true` when slot kind `k` is a plugin effect's (ABI 5.0, ADR 0352).
     pub fn plugin(k: u32) -> bool {
         k.checked_sub(CATALOGUE).and_then(audio_dsp::fx::kind::plugin).is_some()
     }
@@ -194,7 +194,7 @@ impl FxChain {
             for (dst, src) in p.iter_mut().zip(raw) {
                 *dst = if src.is_finite() { src } else { 0.0 };
             }
-            // A second legacy compressor runs as the catalogue's (ADR 0331: no one-compressor limit).
+            // A second legacy compressor runs as the catalogue's (ADR 0345: no one-compressor limit).
             let (k, cat) = match type_ {
                 kind::COMPRESSOR if compressor.is_some() => (kind::CATALOGUE + audio_dsp::fx::kind::COMPRESSOR, Some(catalogue_compressor(&p))),
                 kind::LOWPASS | kind::HIGHPASS | kind::COMPRESSOR | kind::REVERB_SEND => (type_, None),
@@ -320,7 +320,7 @@ impl FxChain {
         sent
     }
 
-    /// ABI 4.8 (ADR 0330 automation): catalogue parameter `param` of the effect in slot `slot`
+    /// ABI 4.8 (ADR 0344 automation): catalogue parameter `param` of the effect in slot `slot`
     /// follows `value` (`audio_dsp::fx::Effect::automate`; called once a quantum before
     /// [`FxChain::process_with`]). A slot out of use, a legacy kind (main sends an automated effect
     /// as the catalogue's) or a held parameter is left alone.
@@ -455,7 +455,7 @@ mod tests {
         let mut c = FxChain::default();
         let mut effects = vec![fx(kind::LOWPASS, 800.0), fx(kind::COMPRESSOR, -24.0), fx(kind::HIGHPASS, 80.0), fx(kind::REVERB_SEND, 0.3)];
         effects.extend((0..5).map(|i| fx(kind::LOWPASS, 1_000.0 + i as f32)));
-        assert_eq!(c.configure(effects, 48_000.0), 1, "ADR 0331: eight effects a bus");
+        assert_eq!(c.configure(effects, 48_000.0), 1, "ADR 0345: eight effects a bus");
         assert_eq!(c.kinds().take(5).collect::<Vec<_>>(), vec![kind::LOWPASS, kind::COMPRESSOR, kind::HIGHPASS, kind::REVERB_SEND, kind::LOWPASS]);
         assert_eq!(c.kinds().count(), MAX_EFFECTS);
         assert!(c.has_reverb_send());
@@ -515,7 +515,7 @@ mod tests {
         let mem = region(&mut buf, 8);
         let mut c = FxChain::default();
         let effects = [fx(kind::HIGHPASS, 80.0), comp(-20.0), comp(-10.0), fx(kind::LOWPASS, 900.0)];
-        assert_eq!(c.configure_with(effects, 48_000.0, mem), 0, "ADR 0331: no one-compressor limit");
+        assert_eq!(c.configure_with(effects, 48_000.0, mem), 0, "ADR 0345: no one-compressor limit");
         let cat = kind::CATALOGUE + audio_dsp::fx::kind::COMPRESSOR;
         assert_eq!(c.kinds().collect::<Vec<_>>(), vec![kind::HIGHPASS, kind::COMPRESSOR, cat, kind::LOWPASS]);
         assert_eq!((c.compressor_slot, c.compressor.params[0]), (1, -20.0), "the first compressor runs the bus's own");

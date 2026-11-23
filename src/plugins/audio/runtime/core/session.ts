@@ -102,11 +102,11 @@ export const PHASE_ORDER = {
   // Peaks and the loudness EPOCH reset; the worklet channel is dropped unless `contextReplaced` already did; then the
   // replayer's restore (the header REPLAY, the clips again), last: the music side hears the rebuild ended (ADR 0248)
   // before the restore's stream hand-off reports the groups' recovery.
-  // ADR 0338: plugin modules go to the new node before the replayer's restore, so the replayed chains find their effects.
+  // ADR 0352: plugin modules go to the new node before the replayer's restore, so the replayed chains find their effects.
   endRecovery: ["mirror", "loudness", "worklet", "effectPlugins", "musicOps", "replayer"],
   // ADR 0157 §7 as extended by ADR 0162 (S10, K4) and ADR 0171 (§4.2, Mx2, Dp1, Ld2): RESET 0, BUS_CONFIG (slot order,
   // tombstones as silent roots), BED_CONFIG, BUS_DUCK and BUS_PRESENCE, LOUD_CONFIG, the bus lanes (BUS_RAMP), MASTER,
-  // LISTENER (snapped), ZONE_CONFIG, then the automation mirror (curves, parameters, bus bindings), then ADR 0331's
+  // LISTENER (snapped), ZONE_CONFIG, then the automation mirror (curves, parameters, bus bindings), then ADR 0345's
   // instance submixes (before the voices, whose groups route into them). Each appends nothing while its feature is
   // inert, so an earlier milestone's replay is byte-identical.
   replayHeader: ["reset", "buses", "beds", "presence", "loudness", "lanes", "master", "listener", "zones", "automation", "submixes"],

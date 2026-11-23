@@ -1,15 +1,15 @@
-# 0340. Localised audio lives in per-language folders, and voice-over plays by key from line tables
+# 0354. Localised audio lives in per-language folders, and voice-over plays by key from line tables
 
-- **Status:** Accepted, amended by 0343 (subtitle text moves to 0342's string tables and line tables lose `text`; subtitles follow the text language; one reading-speed rule; captions; an optional built-in subtitle display)
+- **Status:** Accepted, amended by 0357 (subtitle text moves to 0356's string tables and line tables lose `text`; subtitles follow the text language; one reading-speed rule; captions; an optional built-in subtitle display)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0010, 0040, 0077 (its open question on localised strings stays open), 0254, 0262, 0293, 0314, 0317, 0327, 0328 (extended: the sidecar's `sample` block gains `lipsync` and `vo`), 0329 (extended: a `line` entry kind), 0330, 0334 (extended: `line` and `language` request records), 0335, 0337 (extended: packages split per language), 0341
+- **Related:** 0010, 0040, 0077 (its open question on localised strings stays open), 0254, 0262, 0293, 0314, 0317, 0341, 0342 (extended: the sidecar's `sample` block gains `lipsync` and `vo`), 0343 (extended: a `line` entry kind), 0344, 0348 (extended: `line` and `language` request records), 0349, 0351 (extended: packages split per language), 0355
 
 ## Context
 
 The owner's follow-on scope (plan "Follow-on scope", 2026-11-22) asks for localisation and voice-over (feature 1),
-built in W13 with dynamic dialogue (0341), following Wwise and FMOD norms.
+built in W13 with dynamic dialogue (0355), following Wwise and FMOD norms.
 
 **What exists today.**
 - **No localisation of any kind.** Nothing in `src/` knows a language or locale (the only hits are Monaco language
@@ -17,14 +17,14 @@ built in W13 with dynamic dialogue (0341), following Wwise and FMOD norms.
   0077 leaves "whether `{name}` bindings or a `t:` key form carry translated strings" open. There are no subtitles.
 - **Audio** plays samples and playlists by project path (`Audio.play`, `Audio.playOneShot`, `AudioSource.clip`), each
   resolved by the clip resolver (0293, `runtime/clipResolver.ts`). A sample's sidecar holds its markers, trim and
-  loudness normalisation (0328); Cue markers reach the game through `AudioPlaylistHandle.onMarker` and the component
+  loudness normalisation (0342); Cue markers reach the game through `AudioPlaylistHandle.onMarker` and the component
   hook `onAudioMarker` (`engine/audio/markerTypes.ts`).
-- **The mix** (`audio.json`, 0330) has a default `Voice` bus beside Music, SFX and UI, and presence ducking rules
+- **The mix** (`audio.json`, 0344) has a default `Voice` bus beside Music, SFX and UI, and presence ducking rules
   (`{ target, trigger, mode: "presence", amountDb, attackMs, releaseMs }`).
-- **Packages** (0337, accepted, builds in W12): `audio.json` `packages` with dependency closure, `.mycopak` files,
-  a `game.json` `audio.media` table keyed by project path, and `Audio.package(name).load()/unload()`. 0337 leaves
+- **Packages** (0351, accepted, builds in W12): `audio.json` `packages` with dependency closure, `.mycopak` files,
+  a `game.json` `audio.media` table keyed by project path, and `Audio.package(name).load()/unload()`. 0351 leaves
   "localised packages (one per language)" to this record.
-- **Takes** (0334) record `play`, `param`, `trigger` and other requests and replay them against the current project
+- **Takes** (0348) record `play`, `param`, `trigger` and other requests and replay them against the current project
   with the recorded pick-generator state.
 
 **How the reference tools do it.**
@@ -76,16 +76,16 @@ audio import):
 - **Fallback chain** of language L (`fallbackChain(L)`): L, then its own `fallback` list in order, then the project's
   `fallback` list, duplicates removed. Adding `fr-CA` in a UI pre-fills `fallback: ["fr"]` when `fr` is listed.
 - A project without `languages` has one implicit language, `en`, and no localised roots: nothing changes.
-- **Ownership** (0327): the editor's Project Settings gains **Languages**. The Studio's Dialogue screen edits the same
+- **Ownership** (0341): the editor's Project Settings gains **Languages**. The Studio's Dialogue screen edits the same
   section through the same module when no editor holds the project lock (`.myco/locks/editor.json`); while one does,
-  the Studio shows it read-only with "Edit in the editor" (0327's precedent for scene references).
+  the Studio shows it read-only with "Edit in the editor" (0341's precedent for scene references).
 - **Preview language** is a per-user preference, not project data: a language chip in the Studio header and a
   Language menu in the editor's Play toolbar (`myco.audio.previewLanguage`, local storage). The Studio's auditions and
   the editor's Play start in it; remembered and system languages are ignored there.
 
 ### 2. Localised audio: per-language folders under localised roots
 
-`audio.json` (0330) gains a `localisation` section (`src/engine/audio/localisation/types.ts`):
+`audio.json` (0344) gains a `localisation` section (`src/engine/audio/localisation/types.ts`):
 
 ```jsonc
 "localisation": {
@@ -158,7 +158,7 @@ A project has any number (one per chapter, character or system).
   "folder": "ch1",                 // under each language folder: audio/vo/<lang>/ch1/
   "output": "Voice",               // bus; default Voice when it exists, else Master
   "template": null,                // a playlist path with a programmer `line` entry (§5 "Playlists"); null: a plain Clip
-  "priority": 50,                  // 0..100, used by 0341's speaker channels
+  "priority": 50,                  // 0..100, used by 0355's speaker channels
   "speakers": ["Ava", "Guard"],    // names offered in the Speaker column (free text allowed)
   "lines": [
     { "key": "intro_01", "speaker": "Ava",
@@ -173,7 +173,7 @@ A project has any number (one per chapter, character or system).
 
 - **Keys** match `[A-Za-z0-9_.-]{1,64}` and are **unique across the project** (`Audio.line(key)` names no table). The
   Studio refuses a duplicate on edit; the runtime takes the first table in path order and warns once. A key rename
-  rewrites every reference in playlists' `line` entries and dialogue events (0341) through the named-list module
+  rewrites every reference in playlists' `line` entries and dialogue events (0355) through the named-list module
   (0262); string literals in scripts are linted, not rewritten.
 - **The file for language L** (`lineFile(table, line, L, exists)` in `lines/resolve.ts`, pure): `files[c]` if given,
   else `<root>/<c>/<folder>/<file ?? key>.<ext>` with `ext` the first of `wav, flac, ogg, mp3, m4a, sample.json` that
@@ -210,7 +210,7 @@ interface AudioLineEvent {
 }
 ```
 
-`Audio.line` plays immediately (no queueing; 0341's `Audio.say` adds speaker channels). An unknown key returns an
+`Audio.line` plays immediately (no queueing; 0355's `Audio.say` adds speaker channels). An unknown key returns an
 inert handle with reason `unknownLine` and one warning. Subtitle display is the game's: `Audio.onLine` gives start,
 end and marker events with the text; the guide shows a UI-document subtitle panel built on it.
 
@@ -228,19 +228,19 @@ pass and a static layer): every line in the table plays through it, with the key
 plays as an implicit Clip playlist on the table's `output` with `playback: oneShot`. A `line` entry resolves its file
 by §5 at the moment the entry is picked.
 
-### 6. Packages per language (0337)
+### 6. Packages per language (0351)
 
 - **Split automatically.** A package whose dependency closure reaches files under a localised root builds a **base**
   part, `audio/packages/<name>.mycopak` (everything not localised), and one **language part** per shipped language,
   `audio/packages/<name>.<code>.mycopak`, holding that language's variants of the localised files in the closure (the
   file the chain resolves to, so `fr-CA`'s part may hold `fr` files; a file shared that way is duplicated per part, as
-  0337 duplicates across packages). A line table in `include` brings every line's files.
+  0351 duplicates across packages). A line table in `include` brings every line's files.
 - **`game.json`** `audio.packages[]` entries gain `languages: { "<code>": { url, bytes } }`; `audio.media` keys stay
   real project paths (`audio/vo/fr/ch1/intro_01.wav`), each with its package and `language`.
 - **Runtime.** `Audio.package(name).load()` loads the base and the current language's part; `AudioPackage` gains
   `languages: readonly string[]` (the parts it has) and `bytes`/`memoryBytes` count the current language. A switch
   (§4) loads every loaded package's new part, then unloads the old part (after voices finish, or at once with
-  `"stop"`). Strict packaging (0337) applies per part: a localised file whose part isn't loaded is refused with
+  `"stop"`). Strict packaging (0351) applies per part: a localised file whose part isn't loaded is refused with
   `notLoaded`.
 - **Export.** Languages with `ship: false` are left out; `npm run export -- <dir> --languages en,fr` narrows further.
   Loose localised files (in no package) ship under their own paths, per language. `audio-report.json` gains a
@@ -253,7 +253,7 @@ by §5 at the moment the entry is picked.
 
 ### 7. Markers and lip-sync
 
-- **Markers.** A line's file's Cue markers (0328) fire `AudioLineEvent` phase `marker` as well as the handle's
+- **Markers.** A line's file's Cue markers (0342) fire `AudioLineEvent` phase `marker` as well as the handle's
   `onMarker`; markers are per language because each variant has its own sidecar.
 - **Lip-sync data (optional).** The sidecar's `sample` block gains `lipsync`:
 
@@ -269,11 +269,11 @@ by §5 at the moment the entry is picked.
 
 ### 8. Loudness and ducking
 
-- **Per-language loudness** uses 0328's normalisation unchanged: batch import (§9) and the Dialogue screen's
+- **Per-language loudness** uses 0342's normalisation unchanged: batch import (§9) and the Dialogue screen's
   **Normalise language** write `normalize: { mode, target, gainDb }` from `localisation.loudness` into each file's
   sidecar (gain measured as today). The Dialogue screen flags files whose own `normalize` target differs from the
   setting. A language recorded hot or quiet is corrected by its normalisation, not by a per-language fader.
-- **Ducking** reuses 0330's rules: lines play on `Voice` by default, and when the project has a line table but no rule
+- **Ducking** reuses 0344's rules: lines play on `Voice` by default, and when the project has a line table but no rule
   triggered by its output bus, the Dialogue screen offers "Duck Music under Voice" which adds
   `{ target: "Music", trigger: "Voice", mode: "presence", amountDb: -6, attackMs: 80, releaseMs: 400 }` through
   `projectOps.ts` (one undo step). Nothing new in the mixer.
@@ -283,7 +283,7 @@ by §5 at the moment the entry is picked.
 ### 9. The Studio: Dialogue screen
 
 A new screen, `src/studio/screens/dialogue/`, in the **Author** group after Playlists (the next free Ctrl/⌘ digit),
-built from the kit (0335). Panels:
+built from the kit (0349). Panels:
 
 - **Lines** (the fixed panel): a table over every line table (table filter, search by key, speaker, text, tag), with
   columns Key, Speaker, Text (preview language), and one **status cell per language**: recorded, fallback (heard from
@@ -298,21 +298,21 @@ built from the kit (0335). Panels:
 - **Languages tab:** the `project.json` list (§1 ownership), reference, default, fallbacks, ship flags, and
   `localisation` settings (roots, loudness, tolerance, missing).
 - **Report:** per language: recorded / fallback / missing counts and the missing keys, mismatches, script changes,
-  shipped size per language (from 0337's estimates); **Export CSV** of the report.
+  shipped size per language (from 0351's estimates); **Export CSV** of the report.
 - **Script CSV** import and export (keys, speaker, notes, one text column per language; UTF-8 with BOM, RFC 4180), the
   format translators and recording studios exchange; import shows a diff (added, changed, removed keys) before
   applying as one undo step.
 - **Batch import** (`batchImport.ts` + dialog): pick files or a folder; a naming pattern with tokens `{lang}`, `{key}`,
   `{table}` and `{ignore}` (presets: `{lang}/{key}`, `{key}_{lang}`, `{lang}_{key}`; Wwise and FMOD deliveries use the
   first two) matches files to keys; the preview lists matched, unknown key (create rows or skip), unknown language
-  (skip) and replace-existing (old audio kept as a source version, 0328); applying copies to
+  (skip) and replace-existing (old audio kept as a source version, 0342); applying copies to
   `<root>/<lang>/<folder>/<key>.<ext>`, writes each sidecar's `normalize` and `vo.textHash`, and is one undo step per
   affected document. Rhubarb output (§7) imports through the same dialog.
 - The header's language chip sets the preview language for every screen.
 
 The editor keeps no dialogue UI besides Project Settings > Languages and the Play toolbar's Language menu.
 
-### 10. Takes (0334)
+### 10. Takes (0348)
 
 New request records: `line` (`{ t, instance, key, language, options }`) and `language` (`{ t, audio, subtitles }`).
 Replay plays lines by key against the current tables in the recorded language (a Take toolbar toggle replays in the
@@ -375,7 +375,7 @@ Nothing.
   lookup.
 - `src/plugins/audio/runtime/clipResolver.ts`, `Audio.ts`, `playlists/`; `src/engine/audio/playlist/types.ts`,
   `sample/`, `project/types.ts`, `markerTypes.ts`, `take/types.ts`; `src/engine/core/settings.ts`;
-  `src/studio/shell/screens.ts`; ADR 0337 §7 and §9.
+  `src/studio/shell/screens.ts`; ADR 0351 §7 and §9.
 
 ## Build plan
 
@@ -390,7 +390,7 @@ Nothing.
 | L7 | Editor | Project Settings > Languages; Play toolbar Language menu (preview language into Play) | `src/editor/ui/settings/**` (Languages section), the Play toolbar file |
 | L8 | Docs and e2e | `docs/guide/localised-audio.md` (folders, line tables, subtitles recipe, switching, packages); e2e: Studio Dialogue shows a missing French line and plays the English fallback; `@slow` export with two languages boots, `Audio.setLanguage("fr")` then plays a line from the French part | `docs/guide/**`, `tests/e2e/studio-dialogue.spec.ts`, `tests/e2e/export-languages.spec.ts` |
 
-L1 first. L2, L4, L5 and L7 run beside each other after it; L3 needs 0337's A1, A3 and A5 merged; L6 after L5.
-Single-writer files shared with 0341 in W13: `Audio.ts`, `src/myco.ts`, `playlist/types.ts` and `format.ts`,
-`take/types.ts`, `src/studio/shell/screens.ts`, `src/studio/screens/dialogue/` (0341 adds an Events tab to this
+L1 first. L2, L4, L5 and L7 run beside each other after it; L3 needs 0351's A1, A3 and A5 merged; L6 after L5.
+Single-writer files shared with 0355 in W13: `Audio.ts`, `src/myco.ts`, `playlist/types.ts` and `format.ts`,
+`take/types.ts`, `src/studio/shell/screens.ts`, `src/studio/screens/dialogue/` (0355 adds an Events tab to this
 screen); the coordinator names one task per wave for each.

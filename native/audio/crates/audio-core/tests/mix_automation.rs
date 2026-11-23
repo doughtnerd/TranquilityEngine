@@ -1,4 +1,4 @@
-//! ABI 4.8 (ADR 0330, 0331): the mix's remaining core features, through `scheduler::submit` and
+//! ABI 4.8 (ADR 0344, 0345): the mix's remaining core features, through `scheduler::submit` and
 //! `Core::process`:
 //!
 //! - BUS_AUTOMATE `fx` bindings drive a catalogue parameter of a bus effect from a global parameter

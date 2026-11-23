@@ -1,4 +1,4 @@
-// The take's pictures on the Take screen (ADR 0334 "The Take screen": the picture lane): the filmstrip lane under the
+// The take's pictures on the Take screen (ADR 0348 "The Take screen": the picture lane): the filmstrip lane under the
 // ruler (the kit's `Filmstrip`; a click moves the playhead there) and the picture at the playhead, larger, in the
 // Inspector. Views over props.
 import { useMemo } from "preact/hooks";

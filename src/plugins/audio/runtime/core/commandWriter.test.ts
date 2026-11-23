@@ -315,7 +315,7 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
       [],
       [[0, 1, 5], [1, 0, 5]],
     ]);
-    // ADR 0332: a Bézier key carries its handles; other keys carry zeros.
+    // ADR 0346: a Bézier key carries its handles; other keys carry zeros.
     expect(c.curves[3]!.keys.map((k) => [k.inDx, k.inDy, k.outDx, k.outDy])).toEqual([[0, 0, 0.25, -0.5], [-0.5, 0.125, 0, 0]]);
     expect(c.curves[1]!.keys.every((k) => k.inDx === 0 && k.inDy === 0 && k.outDx === 0 && k.outDy === 0)).toBe(true);
     // 128 curves of 70 keys (≈ 230 KB): 64 keys each are sent, over several records with consecutive ids.
@@ -348,7 +348,7 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
   });
 });
 
-describe("CommandWriter generator records (ADR 0346, ABI 5.1)", () => {
+describe("CommandWriter generator records (ADR 0360, ABI 5.1)", () => {
   const OSC = GEN_CLIP_ID_FIRST + GEN_KIND_OSCILLATOR;
 
   it("gen writes the masked parameters in bit order after its stamped PLAY", () => {

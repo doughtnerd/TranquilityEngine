@@ -1,5 +1,5 @@
-// The Studio's plugins (ADR 0327): the audio plugin, both halves, and the 3D physics plugin's runtime half with its Rapier
-// backend (ADR 0333: "the Studio's runtime loads the 3D physics plugin for occlusion in test scenes"), through a plugin
+// The Studio's plugins (ADR 0341): the audio plugin, both halves, and the 3D physics plugin's runtime half with its Rapier
+// backend (ADR 0347: "the Studio's runtime loads the 3D physics plugin for occlusion in test scenes"), through a plugin
 // set as every host applies its plugins (ADR 0144). The audio runtime half gives the Studio's Engine the audio system
 // and the `myco.audio` service; the physics halves give its World colliders and the `myco.physics3d` service the
 // occlusion pass casts its rays through, started when a test scene's obstacles or its base scene's colliders need it

@@ -61,7 +61,7 @@ export interface LoopRegion {
 }
 
 /**
- * The musical spans the Exit and Entry markers make (ADR 0336, decision log D38), in source seconds: the post-exit
+ * The musical spans the Exit and Entry markers make (ADR 0350, decision log D38), in source seconds: the post-exit
  * tail (the first Exit marker inside the trim to the trim end: what rings on under the next section when a Switch
  * cuts there) and the pre-entry (the trim start to the first Entry marker: what plays before the boundary). Null
  * where there is no such marker, or it sits on the trim's edge.

@@ -1,6 +1,6 @@
 /**
- * A loop's behaviour (activation, exit, re-entry), shared by sample loops (ADR 0328), clip loop overrides and sequence
- * loops (ADR 0329): the one parse and writer of those fields.
+ * A loop's behaviour (activation, exit, re-entry), shared by sample loops (ADR 0342), clip loop overrides and sequence
+ * loops (ADR 0343): the one parse and writer of those fields.
  *
  * Pure; no plugin, no DOM.
  */
@@ -51,7 +51,7 @@ export function parseLoopBehaviour(raw: Record<string, unknown>, where: string, 
   return out;
 }
 
-/** ADR 0336: a loop's crossfade shapes, when set and not the default (a bad name: one problem, the default). */
+/** ADR 0350: a loop's crossfade shapes, when set and not the default (a bad name: one problem, the default). */
 function readShapes(raw: Record<string, unknown>, where: string, r: LenientReader, out: Partial<LoopBehaviour>): void {
   for (const k of ["crossfadeShape", "exitShape"] as const) {
     if (raw[k] === undefined) continue;

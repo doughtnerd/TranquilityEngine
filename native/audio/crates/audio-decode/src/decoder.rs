@@ -57,11 +57,11 @@ pub enum Codec {
     Mp3 = 3,
     Vorbis = 4,
     Aac = 5,
-    /// ADR 0337 A7 (ABI 1.5): Ogg Opus, through libopus (`opus.rs`).
+    /// ADR 0351 A7 (ABI 1.5): Ogg Opus, through libopus (`opus.rs`).
     Opus = 6,
 }
 
-/// ADR 0337 A7: symphonia's codecs this build enables, plus libopus for Opus (`opus.rs`).
+/// ADR 0351 A7: symphonia's codecs this build enables, plus libopus for Opus (`opus.rs`).
 fn codecs() -> &'static CodecRegistry {
     static REGISTRY: std::sync::OnceLock<CodecRegistry> = std::sync::OnceLock::new();
     REGISTRY.get_or_init(|| {
@@ -208,7 +208,7 @@ fn classify(codec: symphonia::core::codecs::audio::AudioCodecId) -> Codec {
     } else if codec == CODEC_ID_OPUS {
         Codec::Opus
     } else if codec >= CODEC_ID_PCM_S32LE && codec < CODEC_ID_VORBIS {
-        // 0x100..0x1000: the PCM family, and IMA and Microsoft ADPCM in WAV (symphonia's `adpcm`, ADR 0345 §5: imported
+        // 0x100..0x1000: the PCM family, and IMA and Microsoft ADPCM in WAV (symphonia's `adpcm`, ADR 0359 §5: imported
         // WAV IMA sources; the engine's own ADPCM layout is read by `audio_adpcm`, never symphonia).
         Codec::Pcm
     } else {
@@ -241,7 +241,7 @@ fn open_reader(bytes: &Bytes, hint: FormatHint) -> Result<(Opened, Info), Decode
             let feature = if codec == Codec::Aac { " (AAC needs the decoder's `aac` build)" } else { "" };
             DecodeError::Codec(format!("unsupported codec {}{feature}: {e}", params.codec))
         })?;
-    // ADR 0337 A7: symphonia's Ogg reader counts an Opus stream's frames from its granule positions, the OpusHead
+    // ADR 0351 A7: symphonia's Ogg reader counts an Opus stream's frames from its granule positions, the OpusHead
     // pre-skip included, and trims only the end: the pre-skip is dropped here, as AAC's priming is (`lead`).
     let opus_pre_skip = if codec == Codec::Opus { params.extra_data.as_deref().and_then(crate::opus::OpusHead::parse).map(|h| u64::from(h.pre_skip)) } else { None };
     let sample_rate = params.sample_rate.unwrap_or(0);
@@ -592,7 +592,7 @@ impl Decoder {
         let rate = u64::from(self.info.sample_rate);
         // The container's frames include the priming the output drops.
         let raw = target + self.lead;
-        // ADR 0337 A7: Opus seeks `OPUS_PRE_ROLL` early so libopus converges before the target (the frames between are
+        // ADR 0351 A7: Opus seeks `OPUS_PRE_ROLL` early so libopus converges before the target (the frames between are
         // dropped).
         let from = if self.info.codec == Codec::Opus { raw.saturating_sub(OPUS_PRE_ROLL) } else { raw };
         let secs = from / rate;

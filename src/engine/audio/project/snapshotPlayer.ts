@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0330 "Snapshots blend"): which snapshots are on, and how far each has faded, over time. The mixer
+ * Internal (ADR 0344 "Snapshots blend"): which snapshots are on, and how far each has faded, over time. The mixer
  * (`mixer.ts`) owns one and evaluates it on the main thread; the blend itself is `resolveSnapshots` (`snapshots.ts`),
  * the model the Studio uses too.
  *

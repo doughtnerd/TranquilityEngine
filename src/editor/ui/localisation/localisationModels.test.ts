@@ -1,4 +1,4 @@
-// ADR 0342 §8, §9 (T7): the Localisation panel's models — the project's tables and ownership, the Strings grid (rows,
+// ADR 0356 §8, §9 (T7): the Localisation panel's models — the project's tables and ownership, the Strings grid (rows,
 // status, search and filters, ICU problems, refused-or-next edits), the Report (gathering and the fit check) and the
 // Exchange (export files, import preview and writes) — and the `strings` asset kind's format, through their interfaces.
 import { describe, expect, it } from "vitest";

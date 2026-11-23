@@ -1,4 +1,4 @@
-// The Playlists screen's one door to the shared curve editor (ADR 0332, `src/editor/ui/curves/`): "Edit voice curves…"
+// The Playlists screen's one door to the shared curve editor (ADR 0346, `src/editor/ui/curves/`): "Edit voice curves…"
 // opens the dialog on an entry's voice curves (`voiceCurves.ts`: gain, pitch, pan, low-pass, high-pass over voice time or
 // a parameter) and applies its result through `apply`, one labelled undo step on the playlist.
 import { openCurveEditorDialog } from "../../../editor/ui/curves/openCurveEditorDialog";
@@ -23,7 +23,7 @@ export interface CurveEditorRequest {
   apply(curves: VoiceCurves, label: string): void;
 }
 
-/** ADR 0336: open the curve editor on a Blend entry's weight curve; `apply` gets the new curve (undefined: cleared). */
+/** ADR 0350: open the curve editor on a Blend entry's weight curve; `apply` gets the new curve (undefined: cleared). */
 export function openWeightCurveEditor(request: { readonly entry: string; readonly context?: string; readonly curve: Curve | undefined; apply(curve: Curve | undefined): void }, doc: Document = document): void {
   openCurveEditorDialog(doc, {
     ...weightCurveDialog(request.curve),

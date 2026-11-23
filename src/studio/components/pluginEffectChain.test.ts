@@ -1,4 +1,4 @@
-// ADR 0338 B2: a registered plugin effect reaches the Studio's effect chain through the catalogue alone: the Add effect
+// ADR 0352 B2: a registered plugin effect reaches the Studio's effect chain through the catalogue alone: the Add effect
 // menu lists it at its levels, adding it gives its defaults, edits clamp to its spec, and a card's summary reads it.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerPluginEffects, unregisterPluginEffects } from "../../engine/audio/effects/catalogue";

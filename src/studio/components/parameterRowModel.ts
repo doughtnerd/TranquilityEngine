@@ -1,4 +1,4 @@
-// A parameter row's rules (ADR 0335 `ParameterRow`, ADR 0331 parameter specs, ADR 0332 "units in, units out"): where a
+// A parameter row's rules (ADR 0349 `ParameterRow`, ADR 0345 parameter specs, ADR 0346 "units in, units out"): where a
 // value sits on the slider (log for log parameters such as frequencies, so 200 Hz and 2 kHz are as far apart as 2 kHz
 // and 20 kHz), stepping and snapping to the parameter's step, scrubbing by dragging the label (Shift ×10, Alt fine
 // ×0.1), and how a value is written. Any catalogue `EffectParamSpec` is a `ParamSpec`.

@@ -1,4 +1,4 @@
-// A parameter row (ADR 0335 `ParameterRow`): label | slider | number and unit, for an effect parameter, a send level, a
+// A parameter row (ADR 0349 `ParameterRow`): label | slider | number and unit, for an effect parameter, a send level, a
 // ducking time or a game parameter's test value. Log parameters (frequencies) slide in log scale. Dragging the label
 // scrubs the value as the Inspector's labels do (Shift ×10, Alt fine; Escape puts it back); the number box takes typed
 // values ("2.4k") and arrow keys (Shift ×10, Alt fine).

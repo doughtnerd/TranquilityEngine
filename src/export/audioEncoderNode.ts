@@ -1,5 +1,5 @@
 /**
- * Internal (ADR 0337 §5, 0345 §3): the audio encoder for `npm run export` — `worker_threads` threads
+ * Internal (ADR 0351 §5, 0359 §3): the audio encoder for `npm run export` — `worker_threads` threads
  * (`audioEncoderNodeWorker.mjs`), cores − 1 by default (encoding scales linearly to three workers in the A0 spike). The
  * wasm is read and compiled once here and handed to each thread.
  */

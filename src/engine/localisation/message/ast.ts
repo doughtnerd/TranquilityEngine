@@ -1,5 +1,5 @@
 /**
- * Contract (ADR 0342 §2): the syntax tree of an ICU MessageFormat 1 message, as `parse.ts` produces it and `format.ts`
+ * Contract (ADR 0356 §2): the syntax tree of an ICU MessageFormat 1 message, as `parse.ts` produces it and `format.ts`
  * and `check.ts` read it. Every node carries its source span (`start` inclusive, `end` exclusive, in UTF-16 units of
  * the message), so the editor can highlight it and problems can point at it.
  *

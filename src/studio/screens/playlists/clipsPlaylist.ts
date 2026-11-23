@@ -44,7 +44,7 @@ export function clipsPlaylist(samples: readonly string[]): ClipsPlaylist | null 
   const list = [...new Set(samples)];
   if (list.length === 0) return null;
   const folder = sharedFolder(list);
-  // A Queue's samples are each in an embedded Clip (ADR 0329: entries are playlists; `sampleEntry`'s rule).
+  // A Queue's samples are each in an embedded Clip (ADR 0343: entries are playlists; `sampleEntry`'s rule).
   const empty = emptyPlaylist(list.length === 1 ? "clip" : "queue");
   const value: PlaylistAsset = { ...empty, entries: list.map((sample) => sampleEntry(empty, sample)) };
   if (list.length === 1) return { name: sampleTitle(list[0]!), folder, value };

@@ -1,4 +1,4 @@
-// ADR 0331 levels and ADR 0332's time origin (ABI 4.9) end to end on the real wasm core (the loopback host), through
+// ADR 0345 levels and ADR 0346's time origin (ABI 4.9) end to end on the real wasm core (the loopback host), through
 // `Audio.play` and `Audio.debug()`:
 // - a sequence clip with a delay is heard echoing after the clip's voice has ended (its chain runs on a submix of its
 //   own, kept running for the tail);
@@ -78,7 +78,7 @@ function level(out: readonly number[], from: number, to: number): number {
   return s / Math.max(1, to - from);
 }
 
-describe("per-level submixes on the core (ADR 0331, ABI 4.9)", () => {
+describe("per-level submixes on the core (ADR 0345, ABI 4.9)", () => {
   it("a sequence clip's delay is heard echoing after the clip has ended", { timeout: 30_000 }, async (ctx) => {
     const delay = { id: "d", type: "delay", on: true, params: { time: 150, feedback: 50, mix: 50 } };
     const r = await rig({
@@ -171,7 +171,7 @@ describe("per-level submixes on the core (ADR 0331, ABI 4.9)", () => {
   });
 });
 
-describe("time-keyed lanes read through a binding's time origin (ADR 0332, ABI 4.9)", () => {
+describe("time-keyed lanes read through a binding's time origin (ADR 0346, ABI 4.9)", () => {
   it("a long instance whose voices read a time-keyed pan lane doesn't grow the core's curve table", { timeout: 30_000 }, async (ctx) => {
     // A 2 s sequence whose track pans along sequence time, with a clip every 60 ms: each clip's voice reads the lane from
     // a different point (its start on the sequence's clock). Before ABI 4.9 each voice uploaded a shifted copy of the

@@ -78,7 +78,7 @@ describe("Flappy's town music in play", () => {
     expect(Audio.debug()).toBeTruthy();
   });
 
-  it("the music prefab plays the town playlist (migrated from its audio event, ADR 0329) on the Music bus, on its 105 bpm grid", async () => {
+  it("the music prefab plays the town playlist (migrated from its audio event, ADR 0343) on the Music bus, on its 105 bpm grid", async () => {
     await boot();
     // The autoloaded prefab woke before this headless World had a render host (so `playOnAwake` played nothing): play it.
     const source = GameObject.findObjectOfType(AudioSource)!;

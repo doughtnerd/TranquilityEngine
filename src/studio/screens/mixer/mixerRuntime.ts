@@ -1,4 +1,4 @@
-// The Mixer's one door to the Studio's running audio (ADR 0327 "A seam for the live link", ADR 0171/0172): readings
+// The Mixer's one door to the Studio's running audio (ADR 0341 "A seam for the live link", ADR 0171/0172): readings
 // through the host's public `Audio` API (`Audio.bus(name)`: peak, runtime volume, duck gain, voices, loudness),
 // parameters and snapshot auditions through it too, and the live-mix path the editor's Mixer panel uses (`mixer.apply`,
 // `mixer.setMonitor`, the backend's `flushNow`, the loudness hub's taint and Compare marks, `Audio.loudnessTarget`).
@@ -58,7 +58,7 @@ export function setRuntimeParameter(name: string, value: number | string): void 
 
 /**
  * Audition a snapshot in the runtime (null: back to the plain mix): the shorthand (`Audio.snapshot(name, fade)`), which
- * fades out the other snapshots started from code; base and conditions snapshots keep blending with it (ADR 0330).
+ * fades out the other snapshots started from code; base and conditions snapshots keep blending with it (ADR 0344).
  */
 export function auditionSnapshot(name: string | null, fadeSeconds: number): void {
   if (!runtimeRunning()) return;

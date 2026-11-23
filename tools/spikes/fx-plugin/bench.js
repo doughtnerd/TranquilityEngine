@@ -1,4 +1,4 @@
-// Spike B0 (ADR 0338): the measurements, as a plain ES module that runs in Node, on a page and inside an
+// Spike B0 (ADR 0352): the measurements, as a plain ES module that runs in Node, on a page and inside an
 // AudioWorkletGlobalScope (where only Date.now exists, so trials are long). `bins` holds the wasm bytes the driver
 // prepared (the fuel pass needs Node's Buffer, so instrumented variants are made in Node and shipped as bytes):
 //   plain, count32, segment32, loop32, segment64, loop64: the test plugin, uninstrumented and instrumented;

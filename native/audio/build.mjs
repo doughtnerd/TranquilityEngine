@@ -6,9 +6,9 @@
 // wasm-bindgen: the core's exports are plain `extern "C"` functions over imported memory.
 // From C1b it also writes the metered test wasm (tools/audio-bench/metered/), which CI's cost gate runs; it is never
 // shipped and not size-gated.
-// Audio Studio W9 (ADR 0328): also the offline sample render, myco_audio_offline.wasm, into src/engine/audio/sample/wasm/
+// Audio Studio W9 (ADR 0342): also the offline sample render, myco_audio_offline.wasm, into src/engine/audio/sample/wasm/
 // (its own module: the mixer's size and ABI are untouched; it embeds the same source hash).
-// ADR 0337 A2 (amended by 0345): also the encoder, myco_audio_encode.wasm, a wasm32-wasip1 reactor with libvorbis, libogg
+// ADR 0351 A2 (amended by 0359): also the encoder, myco_audio_encode.wasm, a wasm32-wasip1 reactor with libvorbis, libogg
 // and libopus, into src/export/wasm/ (editor, Studio and export only; never in a game build). It needs wasi-sdk's clang
 // (README "The encoder"); without it the step is skipped and the committed encoder is kept, unless its sources changed.
 // Needs the toolchain pinned in rust-toolchain.toml and `rustup target add wasm32-unknown-unknown`.
@@ -24,12 +24,12 @@ const root = fileURLToPath(new URL(".", import.meta.url));
 const out = fileURLToPath(new URL("../../src/plugins/audio/runtime/wasm/", import.meta.url));
 /** The metered build's directory (C1b): test-only, beside the gate that runs it. */
 const meteredOut = fileURLToPath(new URL("../../tools/audio-bench/metered/", import.meta.url));
-/** The offline sample render's directory (ADR 0328): an engine module (`src/engine/audio/sample/sampleRender.ts`) loads it. */
+/** The offline sample render's directory (ADR 0342): an engine module (`src/engine/audio/sample/sampleRender.ts`) loads it. */
 const offlineOut = fileURLToPath(new URL("../../src/engine/audio/sample/wasm/", import.meta.url));
-/** The encoder's directory (ADR 0337 A2): `src/export/audioEncoder*.ts` load it. */
+/** The encoder's directory (ADR 0351 A2): `src/export/audioEncoder*.ts` load it. */
 const encodeOut = fileURLToPath(new URL("../../src/export/wasm/", import.meta.url));
 const TARGET = "wasm32-unknown-unknown";
-/** The encoder's target (ADR 0337 §4): the C libraries need a libc. */
+/** The encoder's target (ADR 0351 §4): the C libraries need a libc. */
 const ENCODE_TARGET = "wasm32-wasip1";
 /** The wasi-sdk release the encoder is built with (README "The encoder"). */
 const WASI_SDK_VERSION = "25.0";
@@ -41,11 +41,11 @@ const WASI_SDK_VERSION = "25.0";
  * sends and the reverb run-out project ≈ 347–351 KB from 319,799 B, and only ≈ 7.9 KB were left under 320 KB.
  * 400 KB since M5 W2 (2026-11-13, owner): after the lanes, the per-slot configuration queue and the CPU counters the
  * mixer is 341,168 B (95% of 360 KB), ≈ 15 KB above the design's projection, with loudness (≈ 21 KB) still to come.
- * 512 KB since Audio Studio W6-A (2026-11-22): the mixer was 396,409 B of 400 KB with ADR 0331's instance submixes and
+ * 512 KB since Audio Studio W6-A (2026-11-22): the mixer was 396,409 B of 400 KB with ADR 0345's instance submixes and
  * effect catalogue DSP still to come.
- * W12 (2026-11-22): ADR 0337's ADPCM voices (4.12) and ADR 0338's plugin effects (5.0: 16-parameter records, `ext.rs`,
+ * W12 (2026-11-22): ADR 0351's ADPCM voices (4.12) and ADR 0352's plugin effects (5.0: 16-parameter records, `ext.rs`,
  * the plugin slot path, +3.6 KB) take it to 501,602 B; still under, so the gate stays (raise it with a reason when it bites).
- * 576 KB since W14 G2 (2026-11-22; ADR 0346 §3 foresaw the raise): the sound generators (5.1: `audio_dsp::gen`'s PolyBLEP
+ * 576 KB since W14 G2 (2026-11-22; ADR 0360 §3 foresaw the raise): the sound generators (5.1: `audio_dsp::gen`'s PolyBLEP
  * and PolyBLAMP oscillators, noise colours, TPT SVF, ADSRs, LFO and the sfxr blip kernel, each oscillator and synth loop
  * monomorphised per waveform, plus `generator.rs` and the render branch) take the mixer to 538,902 B, +37,300 B (the
  * record estimated 10-15 KB). Not traded for speed or quality: the per-waveform loops keep the per-sample dispatch out.
@@ -53,12 +53,12 @@ const WASI_SDK_VERSION = "25.0";
 const MIXER_LIMIT = 576 * 1024;
 /** ADR 0162 (api-and-models §5.2): M3's mixer warning, under the gate: a build past it warns but passes. */
 const MIXER_WARN = 300 * 1024;
-/** The decoder's size tripwire (M1b: 900 KB). 1,000 KB since ADR 0345 §4 (2026-11-22, A7): libopus (fixed point, no
+/** The decoder's size tripwire (M1b: 900 KB). 1,000 KB since ADR 0359 §4 (2026-11-22, A7): libopus (fixed point, no
  *  imports) joins every game's decoder for Ogg Opus, +173.5 KB measured by the A0 spike (≈ 978–993 KB projected with
  *  symphonia's `adpcm` for imported WAV IMA sources), and no pure-Rust Opus decoder is mature enough to save it. */
 const DECODER_LIMIT = 1000 * 1024;
 /** The AAC decoder build's own tripwire (B4; raised 1,100 -> 1,280 KB in M2 by the owner, 2026-11-10: gates are a signal to
- *  look for bloat, and M2's loop points are wanted growth). 1,350 KB since ADR 0345 §4 (A7): the AAC build gets libopus too
+ *  look for bloat, and M2's loop points are wanted growth). 1,350 KB since ADR 0359 §4 (A7): the AAC build gets libopus too
  *  (+173.5 KB; the spike projected ≈ 1,317 KB with `adpcm`, over 1,280). It ships beside the default decoder and is fetched
  *  only when a project sets `audio.codecs.aac`. */
 const DECODER_AAC_LIMIT = 1350 * 1024;
@@ -66,8 +66,8 @@ const DECODER_AAC_LIMIT = 1350 * 1024;
 /** The offline render's size tripwire (Audio Studio W9, 2026-11-22): the kernels, the curve evaluator and the spectral
  *  gate, ≈ 120 KB when it was written. It is fetched only by the Studio and the export's render, never by a game. */
 const OFFLINE_LIMIT = 256 * 1024;
-/** The encoder's size tripwire (ADR 0345 §1): 1.75 MB. The A0 spike measured 1,483,882 B with every codec and SIMD; the
- *  1.5 MB of ADR 0337 was an estimate, and per CLAUDE.md a tripwire is raised with a reason rather than trading speed
+/** The encoder's size tripwire (ADR 0359 §1): 1.75 MB. The A0 spike measured 1,483,882 B with every codec and SIMD; the
+ *  1.5 MB of ADR 0351 was an estimate, and per CLAUDE.md a tripwire is raised with a reason rather than trading speed
  *  (`-Os` would save ≈ 270 KB at the cost of SIMD resampling). Fetched only by the editor, the Studio and the export. */
 const ENCODER_LIMIT = 1792 * 1024;
 /** Only +simd128 here: --import-memory and the 256 KB stack are link args in audio-wasm's build.rs. */
@@ -147,7 +147,7 @@ function smokeDecoder(path, { aac, label }) {
     ["tone-48000-stereo.flac", 2, 48000],
     ["tone-44100-mono.mp3", 3, 88200],
     ["tone-48000-stereo.ogg", 4, 48000],
-    // ADR 0337 A7: Ogg Opus through libopus, the pre-skip and the end trimming honoured.
+    // ADR 0351 A7: Ogg Opus through libopus, the pre-skip and the end trimming honoured.
     ["tone-48000-stereo.opus", 4, 48000],
   ];
   if (aac) cases.push(["tone-48000-stereo.m4a", 5, 48000]);
@@ -175,7 +175,7 @@ function smokeDecoder(path, { aac, label }) {
   return Buffer.from(x.memory.buffer, x.myco_decode_source_hash(), 16).toString("hex");
 }
 
-/** Builds audio-offline (ADR 0328's offline render) for wasm32 in release; returns the built .wasm's path. Its build.rs
+/** Builds audio-offline (ADR 0342's offline render) for wasm32 in release; returns the built .wasm's path. Its build.rs
  *  adds `--strip-all`; memory is exported (the render runs alone). */
 function buildOffline() {
   run("cargo", ["build", "-p", "audio-offline", "--target", TARGET, "--release"], { CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: WASM_RUSTFLAGS });
@@ -185,7 +185,7 @@ function buildOffline() {
 /** Renders a 10 ms stereo impulse through a 100 ms delay (no feedback, 50 % mix) with the built offline wasm, checks the
  *  echo lands 100 ms in, and returns the source hash it embeds (hex). Exits 1 on a mismatch. */
 function smokeOffline(path) {
-  // ABI 1.1 (ADR 0338 B5): plugin effects go through `myco_ext`; stubs with no plugins (`acquire` 0) bind it here.
+  // ABI 1.1 (ADR 0352 B5): plugin effects go through `myco_ext`; stubs with no plugins (`acquire` 0) bind it here.
   const myco_ext = { acquire: () => 0, release: () => {}, describe: () => 0, process: () => -1, sweep: () => {} };
   const { exports: x } = new WebAssembly.Instance(new WebAssembly.Module(readFileSync(path)), { myco_ext });
   const rate = 48000, frames = 480, channels = 2;
@@ -236,8 +236,8 @@ function hasTarget(target) {
   }
 }
 
-/** Builds audio-encode (ADR 0337 A2) for wasm32-wasip1 in release with wasi-sdk's clang at `sdk`; returns the built
- *  .wasm's path. +simd128 for Rust (here) and C (its build.rs; 0345 §1); CARGO_HOME is remapped as for the decoder. */
+/** Builds audio-encode (ADR 0351 A2) for wasm32-wasip1 in release with wasi-sdk's clang at `sdk`; returns the built
+ *  .wasm's path. +simd128 for Rust (here) and C (its build.rs; 0359 §1); CARGO_HOME is remapped as for the decoder. */
 function buildEncoder(sdk) {
   const cargoHome = process.env.CARGO_HOME ?? join(homedir(), ".cargo");
   const flags = [...WASM_RUSTFLAGS.split(" "), `--remap-path-prefix=${cargoHome}=/cargo`];
@@ -250,7 +250,7 @@ function buildEncoder(sdk) {
   return fileURLToPath(new URL(`target/encode/${ENCODE_TARGET}/release/myco_audio_encode.wasm`, import.meta.url));
 }
 
-/** The WASI imports the encoder may call (0345 §1), as stubs: no file descriptors, an empty environment. */
+/** The WASI imports the encoder may call (0359 §1), as stubs: no file descriptors, an empty environment. */
 function wasiStubs(memory) {
   const view = () => new DataView(memory().buffer);
   return {
@@ -346,7 +346,7 @@ function writeEncodeJson(sourceHash, bytes) {
   console.log(`[build:audio] wrote ${encodeOut}encode.json`);
 }
 
-/** ADR 0337 A2: builds, gates, smoke-tests and copies the encoder when wasi-sdk and the wasm32-wasip1 target are
+/** ADR 0351 A2: builds, gates, smoke-tests and copies the encoder when wasi-sdk and the wasm32-wasip1 target are
  *  installed. Otherwise it keeps the committed encoder, gating its size, and fails only when the encoder's sources
  *  changed since it was built (the README says how to install wasi-sdk). `decoderPath`: the decoder wasm the smoke test
  *  decodes the Vorbis output with. */
@@ -416,7 +416,7 @@ function checkMagls() {
 function readIdentity(path) {
   const memory = new WebAssembly.Memory({ initial: READ_MEMORY_PAGES });
   const module = new WebAssembly.Module(readFileSync(path));
-  // ABI 5.0 (ADR 0338): the core imports `myco_ext` (plugin effects); no plugin runs here.
+  // ABI 5.0 (ADR 0352): the core imports `myco_ext` (plugin effects); no plugin runs here.
   const myco_ext = { acquire: () => 0, release: () => {}, describe: () => 0, process: () => -1, sweep: () => {} };
   const { exports } = new WebAssembly.Instance(module, { env: { memory }, myco_ext });
   const sourceHash = Buffer.from(memory.buffer, exports.myco_audio_source_hash(), 16).toString("hex");
@@ -484,7 +484,7 @@ function main() {
     aacBytes = gate(aacBuild, DECODER_AAC_LIMIT, "myco_audio_decode_aac.wasm");
     aacHash = smokeDecoder(aacBuild, { aac: true, label: "myco_audio_decode_aac.wasm" });
   }
-  // The offline sample render (ADR 0328): its own module, so the mixer's size and ABI don't change.
+  // The offline sample render (ADR 0342): its own module, so the mixer's size and ABI don't change.
   const offlineBuild = buildOffline();
   optimize(offlineBuild);
   const offlineBytes = gate(offlineBuild, OFFLINE_LIMIT, "myco_audio_offline.wasm");
@@ -510,7 +510,7 @@ function main() {
   bytes["myco_audio_offline.wasm"] = offlineBytes;
   writeHashJson(identity, bytes);
   buildMetered(identity.sourceHash);
-  // The encoder (ADR 0337 A2): its own source hash, not the core's, so a core change never needs wasi-sdk.
+  // The encoder (ADR 0351 A2): its own source hash, not the core's, so a core change never needs wasi-sdk.
   encoderStep(decoderBuild);
 }
 

@@ -1,5 +1,5 @@
 /**
- * Localised textures and fonts at runtime (ADR 0342 §10, T5): keeps `Assets`' language (the asset roots and the current
+ * Localised textures and fonts at runtime (ADR 0356 §10, T5): keeps `Assets`' language (the asset roots and the current
  * language's fallback chain, `setAssetLanguage`) in step with `Locale`, and takes part in its atomic switch:
  *
  * - **Preload** (a language participant): before a switch commits, the variants the new language resolves to for every
@@ -45,7 +45,7 @@ export function localiseAssets(s: LanguageSettings, code: string): void {
 }
 
 
-/** How long a switch waits for its textures and fonts to preload (ADR 0342 §5's font bound). */
+/** How long a switch waits for its textures and fonts to preload (ADR 0356 §5's font bound). */
 const PRELOAD_TIMEOUT_MS = 3000;
 
 /** Fetch the variants language `code` resolves to for the references loaded so far; settles within the bound. */

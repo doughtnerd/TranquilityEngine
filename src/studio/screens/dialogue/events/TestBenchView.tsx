@@ -1,4 +1,4 @@
-// The Events tab's test bench (ADR 0341 §7, 0343 §6): a value picker per argument (a parameter argument can read its
+// The Events tab's test bench (ADR 0355 §7, 0357 §6): a value picker per argument (a parameter argument can read its
 // global), the seed, the decision's summary and the picked line's subtitle in the preview language, Say (auditions the
 // picked line and remembers it, as the runtime's memory would), Roll ×50 (the pick distribution, a bar per line) and
 // Reset memory. The path table highlights the picked path and the fallbacks. A view over props.

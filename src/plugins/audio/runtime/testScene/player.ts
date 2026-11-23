@@ -1,5 +1,5 @@
 /**
- * The spatial test scene player (ADR 0333): builds a test scene (`*.audioscene.json`, parsed by the engine's
+ * The spatial test scene player (ADR 0347): builds a test scene (`*.audioscene.json`, parsed by the engine's
  * `parseAudioTestScene`) in a World out of the engine's own components, so what it plays is what a game plays.
  *
  * - **Listeners** are nodes with an `AudioListener`; only the active one is enabled (the first enabled listener hears).
@@ -179,7 +179,7 @@ export function playAudioTestScene(world: World, scene: AudioTestScene, options:
   for (const o of scene.obstacles) {
     const n = node(o.id);
     n.addBehavior(AudioOccluder, { material: o.material });
-    // TODO(ADR 0333): without the 3D physics plugin there is no collider to cast at; the obstacle stays data.
+    // TODO(ADR 0347): without the 3D physics plugin there is no collider to cast at; the obstacle stays data.
     const collider = BoxCollider ? (n.addBehavior(BoxCollider as never) as unknown as { size: { set(x: number, y: number, z: number): void }; center: { set(x: number, y: number, z: number): void }; layer: string }) : null;
     if (collider && occlusionLayer) collider.layer = occlusionLayer;
     const apply = (box: SceneBox) => {

@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0335) for the kit's context menu: a tree item's menu (Rename, Move to…, Duplicate, Delete) with a
+// Stories (ADR 0219, 0349) for the kit's context menu: a tree item's menu (Rename, Move to…, Duplicate, Delete) with a
 // disabled item and separators; the arrows skip what can't be picked, a letter jumps, Enter runs and closes.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

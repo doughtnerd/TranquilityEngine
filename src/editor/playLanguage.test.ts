@@ -1,4 +1,4 @@
-// ADR 0340 §1, 0342 §9: the Play toolbar's Language menu — the shipped languages and the two pseudo-languages — and the
+// ADR 0354 §1, 0356 §9: the Play toolbar's Language menu — the shipped languages and the two pseudo-languages — and the
 // per-user preview language driving `Locale.setLanguage` in editor Play: the game starts in it, and choosing another
 // while playing switches the running game. Driven through `startPlay` and the public `Locale`.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";

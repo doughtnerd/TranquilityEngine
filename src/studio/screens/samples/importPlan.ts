@@ -1,4 +1,4 @@
-// The Samples import's model (ADR 0328 "Import", the prototype's review): which metadata kinds the picked WAV files
+// The Samples import's model (ADR 0342 "Import", the prototype's review): which metadata kinds the picked WAV files
 // carry (cue points and labels, regions, sampler loops, root note, tempo, timecode origin), a toggle per kind, where
 // each file lands (Into folder, Keep structure), and the sidecar `sample` block each file gets from its chunks
 // filtered by the toggles, with the detected tempo and root filling what a file lacks ("Detect what's missing"). Pure:

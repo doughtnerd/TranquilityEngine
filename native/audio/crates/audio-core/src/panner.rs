@@ -19,7 +19,7 @@
 //! - **Bed** (kind 2, ADR 0162 A4): encoded into the bus's bed slot (`bed.rs`) with an equal-power
 //!   crossfade against the two above when the kind changes ([`PannerState::mix_range`]); a bus
 //!   without a bed pans equal-power, M2's path bit for bit.
-//! - **Spread** (ADR 0333, ABI 4.11) runs just before any of these (`spread.rs`): a spread voice's
+//! - **Spread** (ADR 0347, ABI 4.11) runs just before any of these (`spread.rs`): a spread voice's
 //!   samples reach the panner as its point part, and its decorrelated diffuse part goes straight to
 //!   the panner's output.
 //!

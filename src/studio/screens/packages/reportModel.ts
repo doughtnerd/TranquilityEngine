@@ -1,4 +1,4 @@
-// The Packages screen's Report (ADR 0337 §5 step 6, §6, §8): `audio-report.json`'s view without exporting — per platform,
+// The Packages screen's Report (ADR 0351 §5 step 6, §6, §8): `audio-report.json`'s view without exporting — per platform,
 // each sound's shipped size and memory, each package's size and memory, the totals and the budget warnings. Estimated from
 // the plan and the sources' facts (`encoding/estimate.ts`) until Convert now runs the export's audio step for the platform;
 // then exact, from its report. The totals follow the export's rules: a packaged sound's bytes count once per package that

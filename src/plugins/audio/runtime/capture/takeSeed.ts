@@ -1,4 +1,4 @@
-// ADR 0334 "Replay": the take's pick generator state. A playlist's random picks (Queue picks, volume and pitch randomness,
+// ADR 0348 "Replay": the take's pick generator state. A playlist's random picks (Queue picks, volume and pitch randomness,
 // playback chance) draw from its World's seeded generator (`playlists/host.ts`, one per World). A take records that
 // generator's state for the World plays go to (`World.active`, as `Audio.play` does) when it begins (META `seed`) and at
 // each keyframe; replay restarts the replaying World's generator from it at the start and at each seek, so the picks

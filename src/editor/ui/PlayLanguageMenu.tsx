@@ -1,4 +1,4 @@
-// The Play toolbar's Language menu (ADR 0340 §1, 0342 §9) and Subtitles overlay toggle (ADR 0343 §6). Views only: the
+// The Play toolbar's Language menu (ADR 0354 §1, 0356 §9) and Subtitles overlay toggle (ADR 0357 §6). Views only: the
 // choices, the preview language and what a pick does come from `playLanguage.ts`; PlayControls connects them.
 import type { PlayLanguageChoice } from "../playLanguage";
 

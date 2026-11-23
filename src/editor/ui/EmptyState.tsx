@@ -1,4 +1,4 @@
-// An empty state (ADR 0335): what a panel or screen shows when it has nothing yet, saying what it is for and how to
+// An empty state (ADR 0349): what a panel or screen shows when it has nothing yet, saying what it is for and how to
 // get started ("No takes yet · Record one from the editor's Play bar, or open a take file"), with an optional primary
 // action and further content (a secondary link, a list of steps).
 import type { ComponentChildren } from "preact";

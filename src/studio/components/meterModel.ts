@@ -1,4 +1,4 @@
-// A level meter's rules (ADR 0335 `Meter`): peak and RMS levels in dBFS drawn on the fader's scale (−60..+6, linear in
+// A level meter's rules (ADR 0349 `Meter`): peak and RMS levels in dBFS drawn on the fader's scale (−60..+6, linear in
 // dB, so a meter beside a fader lines up with it), the colour zone of a level, the scale's marks, and the peak hold and
 // clip latch a meter keeps between readings (hold 1.5 s, then fall 20 dB/s; the clip light stays until it is clicked),
 // as console meters do. The meter only draws values it is given; it never reads audio.

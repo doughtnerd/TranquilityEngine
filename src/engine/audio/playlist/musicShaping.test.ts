@@ -1,4 +1,4 @@
-// ADR 0336: the playlist format's additions (parse with defaults, write, round trip), the fade shapes, the blend regions
+// ADR 0350: the playlist format's additions (parse with defaults, write, round trip), the fade shapes, the blend regions
 // and weight curves in the one weight model, and the new lints.
 import { describe, expect, it } from "vitest";
 import { parsePlaylist, playlistToJson } from "./format";
@@ -34,7 +34,7 @@ const MUSIC = {
   },
 };
 
-describe("ADR 0336 format", () => {
+describe("ADR 0350 format", () => {
   it("reads every new field and round-trips (writing is stable)", () => {
     const { playlist, problems } = parsePlaylist(MUSIC);
     expect(problems).toEqual([]);
@@ -110,7 +110,7 @@ describe("fade shapes", () => {
 
 describe("blend regions and weight curves (one weight model)", () => {
   const xs = [0, 0.5, 1];
-  it("without regions or curves the weights are ADR 0329's, and the derived regions give them", () => {
+  it("without regions or curves the weights are ADR 0343's, and the derived regions give them", () => {
     for (const fade of ["crossfade", "layer"] as const) {
       for (let x = -0.2; x <= 1.2; x += 0.05) {
         const w = blendWeights1D(xs, x, fade, "linear");
@@ -141,7 +141,7 @@ describe("blend regions and weight curves (one weight model)", () => {
   });
 });
 
-describe("ADR 0336 lints", () => {
+describe("ADR 0350 lints", () => {
   it("quantise on time or an effect parameter the voice doesn't carry, quantise without a tempo, a 2D region, a tail with no Exit after", () => {
     const { playlist } = parsePlaylist({
       format: F, type: "sequence", entries: [],

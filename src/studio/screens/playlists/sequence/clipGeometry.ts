@@ -1,4 +1,4 @@
-// How a clip plays its sample over its length (ADR 0329 runtime semantics, proto §2.6 `geo`/`mapU`), for drawing: the
+// How a clip plays its sample over its length (ADR 0343 runtime semantics, proto §2.6 `geo`/`mapU`), for drawing: the
 // clip's loops (the sample's, with this clip's overrides; "Override" vs "Inherited"), clip time → sample time as
 // pickup, first pass, further passes of the first loop filling the clip, then the tail; the waveform pieces that
 // mapping draws, the loop band with its pass dividers (a zero-length loop is a hold), the sample markers shown in the
@@ -158,7 +158,7 @@ export interface ClipChip {
 const ACTIVE_ICON: Record<LoopBehaviour["active"], string> = { always: "↻", held: "✋", parameter: "P" };
 const ACTIVE_TEXT: Record<LoopBehaviour["active"], string> = { always: "Loops while the voice plays", held: "Loops while held; on release leaves by its exit", parameter: "Loops while its parameter condition holds" };
 
-/** Does a lint say this clip follows another sync clip's loop (overlapping sync loops, ADR 0329)? */
+/** Does a lint say this clip follows another sync clip's loop (overlapping sync loops, ADR 0343)? */
 export function clipFollows(lints: readonly PlaylistLint[], trackWhere: string, track: Pick<Track, "name">, c: Pick<Clip, "id">): boolean {
   return lints.some((l) => l.code === "overlappingSyncLoops" && l.where === trackWhere && l.message.includes(`"${c.id}" (${track.name})`) && l.message.includes(`"${track.name}" follows`));
 }

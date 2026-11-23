@@ -1,4 +1,4 @@
-// A baked effect's automation in the shared curve editor (ADR 0332, decision log D23; `SampleEdits.automation`): a
+// A baked effect's automation in the shared curve editor (ADR 0346, decision log D23; `SampleEdits.automation`): a
 // dialog of kind "time" over sample time (clipTime: seconds in the source file, the only input a sample has) with one
 // lane per parameter of the effect, and the dialog's result turned back into the sample's lanes
 // (`fx:<effect id>:<parameter>`). A lane left flat at the parameter's set value is removed (as voice curves are); the

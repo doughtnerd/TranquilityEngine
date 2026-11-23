@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0338 §9) for the Profiler's Plugins panel: live plugin effect health, the rows that need attention
+// Stories (ADR 0219, 0352 §9) for the Profiler's Plugins panel: live plugin effect health, the rows that need attention
 // first, Reset plugin on a faulted one; and the panel with nothing running.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fn, userEvent, within } from "storybook/test";

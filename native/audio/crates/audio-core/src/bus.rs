@@ -114,7 +114,7 @@ pub struct BusSlot {
     pub snapshot: Biquad,
     /// The effect chain (`fx.rs`, K5).
     pub fx: FxChain,
-    /// ADR 0330 (ABI 4.7): post-fader sends into returns (`bus_sends.rs`).
+    /// ADR 0344 (ABI 4.7): post-fader sends into returns (`bus_sends.rs`).
     pub sends: crate::bus_sends::Sends,
 }
 
@@ -150,9 +150,9 @@ pub struct BusArea {
     pub limiter_lookahead_ms: f32,
     /// Non-zero once `mixdown` has run: the look-ahead can't change after that.
     pub rendered: u32,
-    /// ADR 0331: non-zero for a bus some sidechain compressor keys on (`bus_order::rerun` sets it).
+    /// ADR 0345: non-zero for a bus some sidechain compressor keys on (`bus_order::rerun` sets it).
     pub is_key: [u8; InitParams::MAX_BUSES as usize],
-    /// ADR 0331: a key bus's pre-fader level this quantum, dB (peak, 10 ms release; NaN when the
+    /// ADR 0345: a key bus's pre-fader level this quantum, dB (peak, 10 ms release; NaN when the
     /// bus is no key), read by the sidechain compressors of the buses mixed after it.
     pub key_db: [f32; InitParams::MAX_BUSES as usize],
     /// The key detectors' state.
@@ -473,7 +473,7 @@ pub(crate) fn for_each_effect(regions: &mut Regions, f: &mut impl FnMut(&audio_d
 pub(crate) struct Inputs {
     base: *mut BusSlot,
     count: usize,
-    /// ADR 0331: the instance submixes' buffers, when one is in use.
+    /// ADR 0345: the instance submixes' buffers, when one is in use.
     submixes: Option<crate::submix::Buffers>,
 }
 
@@ -583,7 +583,7 @@ pub fn mixdown(core: &mut Core) {
     let Some(send) = crate::sends::area(sends) else { return };
     let mut gain_curve = [0.0f32; QUANTUM];
     let mut duck_curve = [0.0f32; QUANTUM];
-    // ABI 5.0 (ADR 0338, 0344 §3): the buses' plugin effects share one quantum's fuel.
+    // ABI 5.0 (ADR 0352, 0358 §3): the buses' plugin effects share one quantum's fuel.
     let mut fuel = crate::ext::Fuel::quantum(QUANTUM);
     for k in 0..count {
         let b = v.area.order[k] as usize;
@@ -596,7 +596,7 @@ pub fn mixdown(core: &mut Core) {
             crate::bed::decode_into(beds, b, l, r);
             crate::zones::add_returns(zones, b, l, r);
             crate::sends::add_aux(zones, b, l, r);
-            // ABI 4.8 (ADR 0330): automated effect parameters reach the chain before it runs.
+            // ABI 4.8 (ADR 0344): automated effect parameters reach the chain before it runs.
             if let Some(a) = auto {
                 a.for_each_fx(|s, p, value| slot.fx.automate(s, p, value));
             }
@@ -611,7 +611,7 @@ pub fn mixdown(core: &mut Core) {
             // M5 (K1): the pre-fader tap (sidechain detectors, Sc1), then the gain lanes.
             crate::duck::detect(duck, b, l, r);
             if v.area.is_key[b] != 0 {
-                // ADR 0331: a sidechain key's pre-fader level, for the buses mixed after it.
+                // ADR 0345: a sidechain key's pre-fader level, for the buses mixed after it.
                 if let (Ok(kl), Ok(kr)) = (<&[f32; QUANTUM]>::try_from(&*l), <&[f32; QUANTUM]>::try_from(&*r)) {
                     v.area.key_db[b] = audio_dsp::sidechain::detect_peak(&mut v.area.key_env[b], &v.area.key_coeffs, kl, kr);
                 }
@@ -627,7 +627,7 @@ pub fn mixdown(core: &mut Core) {
         block.copy_from_slice(&slot.buf);
         slot.buf = [0.0; 2 * QUANTUM];
         let parent = slot.parent;
-        // ADR 0330 (ABI 4.7): post-fader sends into the returns (mixed after this bus).
+        // ADR 0344 (ABI 4.7): post-fader sends into the returns (mixed after this bus).
         if slot.sends.count != 0 {
             crate::bus_sends::feed(&mut v.slots[..count], b, &block, auto);
         }

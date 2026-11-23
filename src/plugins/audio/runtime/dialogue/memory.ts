@@ -1,5 +1,5 @@
 /**
- * Dialogue memory (ADR 0341 §4–§5): what the dialogue events have said this session, for cooldowns, avoid-repeat and
+ * Dialogue memory (ADR 0355 §4–§5): what the dialogue events have said this session, for cooldowns, avoid-repeat and
  * once-lines. One per page's audio session (the World's life in a game: a World and its audio session end together),
  * kept on the heard clock, saved and restored by the game as plain JSON (`Audio.dialogue.memory()` / `restore`), with
  * times relative to now so a save loads into any session.

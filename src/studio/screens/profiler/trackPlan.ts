@@ -1,7 +1,7 @@
-// Which tracks the Profiler's timeline shows for a capture, in the prototype's order (ADR 0334 "The Profiler screen"):
+// Which tracks the Profiler's timeline shows for a capture, in the prototype's order (ADR 0348 "The Profiler screen"):
 // Picture (a take's frames), Load (voices and CPU against the voice cap), Effects cost (the DSP's estimated share per
 // section, where the levels' effects run: `effectsCostModel.ts`; per-effect cost needs the core to report it), Memory (the
-// clip arena and the loaded packages, with package load and unload marks: ADR 0337 §6), one Bus
+// clip arena and the loaded packages, with package load and unload marks: ADR 0351 §6), one Bus
 // track per bus the keyframes carry, Loudness (short-term against the target), the voice lanes, then one track per game
 // parameter. A track shows only where the capture has its data: a Babylon-fallback capture has no STATUS (no Load, no
 // Effects cost), a capture with no keyframes has no bus rows, an unmetered one no loudness. Pure.
@@ -16,7 +16,7 @@ export interface CaptureContents {
   readonly cpu: boolean;
   /** The CPU meter's per-section shares were fitted in at least one sample (the effects-cost track). */
   readonly effects: boolean;
-  /** ADR 0337 §6: the clip arena was in use in a STATUS sample, or a package event exists (the memory track). */
+  /** ADR 0351 §6: the clip arena was in use in a STATUS sample, or a package event exists (the memory track). */
   readonly memory?: boolean;
   /** Bus slots any keyframe carries a row for, with their names, in slot order. */
   readonly buses: readonly { readonly slot: number; readonly name: string }[];

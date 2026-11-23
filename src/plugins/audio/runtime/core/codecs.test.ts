@@ -2,7 +2,7 @@
 // decoder handler and wasm in process):
 // - with `audio.codecs.aac` off, an `.m4a` / `.mp4` / `.aac` asset doesn't load (not even fetched), its voices read
 //   `reason` "failed", and there is one warning per asset naming the setting, however often it is played or reloaded;
-// - a file the decoder can't open (garbage under two extensions; Ogg Opus decodes since ADR 0337 A7) fails with one
+// - a file the decoder can't open (garbage under two extensions; Ogg Opus decodes since ADR 0351 A7) fails with one
 //   warning per asset naming its format and the supported list, and its voices read "failed", as a clip and as a stream.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

@@ -1,4 +1,4 @@
-// What the Take screen's Inspector and Mixer strip show (ADR 0334 "the inspector's authored-versus-live values from the
+// What the Take screen's Inspector and Mixer strip show (ADR 0348 "the inspector's authored-versus-live values from the
 // replaying runtime"): an instance's parameters at the playhead as the take recorded them beside what the replaying
 // instance reports now (its handle's `getParameter`), and each bus's authored level beside its live one (`Audio.bus`:
 // authored volume × script volume × ducking) with its peak. Pure: the panels pass the readings in.

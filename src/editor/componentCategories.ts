@@ -52,10 +52,10 @@ const BY_NAME: Readonly<Record<string, string>> = {
   AudioListener: "Audio",
   AudioOccluder: "Audio", // ADR 0162
   AudioReverbZone: "Audio", // ADR 0162
-  AudioZone: "Audio", // ADR 0333
-  AudioSpeaker: "Audio", // ADR 0341
-  AudioPackageLoader: "Audio", // ADR 0337
-  SubtitleDisplay: "UI", // ADR 0343
+  AudioZone: "Audio", // ADR 0347
+  AudioSpeaker: "Audio", // ADR 0355
+  AudioPackageLoader: "Audio", // ADR 0351
+  SubtitleDisplay: "UI", // ADR 0357
   UICanvas: "UI",
   UIPanel: "UI",
   UIText: "UI",
@@ -63,7 +63,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   UIButton: "UI",
   UIInputField: "UI",
   UIDocument: "UI",
-  LocalizedText: "UI", // ADR 0342 §4
+  LocalizedText: "UI", // ADR 0356 §4
 };
 
 /** The category of an engine component id, or null when the table doesn't know it (it lands in Other). */

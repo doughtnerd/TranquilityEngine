@@ -10,11 +10,11 @@ publish.workspace = true
 audio-dsp.workspace = true
 # The generated wire readers (K1): `scheduler::submit` parses BATCH and REPLAY with them (A1.2).
 audio-wire.workspace = true
-# ADR 0337 A4, 0345 §5: clip format 6, decoded per voice (`adpcm_voice.rs`) with the reader the decoder shares.
+# ADR 0351 A4, 0359 §5: clip format 6, decoded per voice (`adpcm_voice.rs`) with the reader the decoder shares.
 audio-adpcm.workspace = true
 # Transcendentals (the panner's azimuth), so native and wasm are bit-identical.
 libm.workspace = true
 
 [dev-dependencies]
-# ADR 0337 A4: the ADPCM tests encode their clips with the shipped encoder (natively, the system C compiler).
+# ADR 0351 A4: the ADPCM tests encode their clips with the shipped encoder (natively, the system C compiler).
 myco_audio_encode = { package = "audio-encode", path = "../audio-encode" }

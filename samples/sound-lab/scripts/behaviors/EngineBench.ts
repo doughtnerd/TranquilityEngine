@@ -1,7 +1,7 @@
 import { Audio, GameBehavior, Input, Text, behavior, field, type AudioPlaylistHandle } from "myco";
 
 /**
- * An engine two ways (ADR 0329 playlists). E starts and key-offs `engine.playlist.json`: a Sequence whose start clip runs
+ * An engine two ways (ADR 0343 playlists). E starts and key-offs `engine.playlist.json`: a Sequence whose start clip runs
  * into a held loop over a Blend of idle, mid and high RPM clips (each sample looping its region, from its sidecar), and
  * whose end clip is the engine-off tail. T does the same with `engine-single.playlist.json`, one sample with its own
  * run-up, a held loop region (its sidecar) and a spin-down tail. Hold the Up arrow for full throttle, the Right arrow for half:

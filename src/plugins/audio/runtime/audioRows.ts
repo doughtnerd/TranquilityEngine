@@ -6,7 +6,7 @@
 //
 // - **Debug** (`debugRows`): `events` (the playlist runtime's rows, keeping an instance while the backend still lists one of
 //   its voices, E3.9), `eventTotals` and `playlistTotals`; `music`, one row per playing playlist instance with a tempo
-//   (`playlists/musicRows.ts`: ADR 0166's music players, which first had these rows, were retired by ADR 0329), and on a
+//   (`playlists/musicRows.ts`: ADR 0166's music players, which first had these rows, were retired by ADR 0343), and on a
 //   backend with music `musicTotals` (the music backend's own view and the playlists' stinger outcomes). Fresh objects
 //   per call; debug only.
 // - **Keyframe** (`KeyframeRows`): the backend's keyframe with the `events` section added (§5.5) and an empty `music`
@@ -24,10 +24,10 @@ const NO_ROWS: readonly EventDebugRow[] = Object.freeze([]);
 
 /** What the composer adds to a backend's `AudioDebugInfo` for `Audio.debug()`. */
 export interface AudioDebugRows {
-  /** The playlist runtime's instances (ADR 0329: `asset` is the playlist path). */
+  /** The playlist runtime's instances (ADR 0343: `asset` is the playlist path). */
   events: EventDebugRow[];
   eventTotals: { lateStarts: number };
-  /** ADR 0329: the playlist runtime's refused triggers (by reason, and the latest), steals and late starts; present once a playlist was played. */
+  /** ADR 0343: the playlist runtime's refused triggers (by reason, and the latest), steals and late starts; present once a playlist was played. */
   playlistTotals?: PlaylistTotals;
   /**
    * The playlist instances with a musical clock (a tempo), as ADR 0166's music rows; present on a backend with music
@@ -126,7 +126,7 @@ function paramsHash(parameters: Readonly<Record<string, number | string>>, keys:
 
 /**
  * `musicTotals`: the music backend's own figures, and the playlists' stinger outcomes over the session (ADR 0220's sums;
- * re-plans, refusals and recoveries were the music players' and stay empty since they went, ADR 0329).
+ * re-plans, refusals and recoveries were the music players' and stay empty since they went, ADR 0343).
  */
 function musicTotals(view: MusicBackendDebug, stingers: MusicDebugTotals["stingers"] | undefined): MusicDebugTotals {
   const { groups: _groups, ...own } = view;

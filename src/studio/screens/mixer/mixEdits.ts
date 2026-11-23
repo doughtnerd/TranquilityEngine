@@ -1,4 +1,4 @@
-// The Mixer's value edits (ADR 0330; the prototype's Buses panel and Inspector, with its known bugs fixed): levels
+// The Mixer's value edits (ADR 0344; the prototype's Buses panel and Inspector, with its known bugs fixed): levels
 // (a fader in a non-base snapshot edits that snapshot's offset, never the base level), mute, effect chains (with a
 // snapshot's parameter overrides, and a removed effect's automation and overrides removed in the same edit), sends
 // (a removed send's automation goes with it), ducking rules, automation lanes and snapshot triggers. Each edit returns
@@ -96,7 +96,7 @@ export function clearOffset(p: AudioProject, snapshot: string, name: string): Ed
   return { next: withSnapshot(p, snapshot, (x) => ({ ...x, buses })) };
 }
 
-/** A bus's or return's mute ("Mute" / "Unmute"). Mute silences it and its sends (ADR 0330). */
+/** A bus's or return's mute ("Mute" / "Unmute"). Mute silences it and its sends (ADR 0344). */
 export function setMute(p: AudioProject, name: string, mute: boolean): EditResult<AudioProject> {
   if (busOf(p, name)) return { next: { ...p, buses: p.buses.map((b) => (b.name === name && b.mute !== mute ? { ...b, mute } : b)) } };
   if (returnOf(p, name)) return { next: { ...p, returns: p.returns.map((r) => (r.name === name && r.mute !== mute ? { ...r, mute } : r)) } };
@@ -288,7 +288,7 @@ export function removeDucking(p: AudioProject, index: number): EditResult<AudioP
   return { next: { ...p, ducking: p.ducking.filter((_, i) => i !== index) } };
 }
 
-/** The lint ADR 0330 asks for: buses ducked by both a ducking rule and a sidechain keyed on the same trigger. */
+/** The lint ADR 0344 asks for: buses ducked by both a ducking rule and a sidechain keyed on the same trigger. */
 export function doubleDucks(p: AudioProject): { target: string; trigger: string }[] {
   const out: { target: string; trigger: string }[] = [];
   for (const d of p.ducking) {

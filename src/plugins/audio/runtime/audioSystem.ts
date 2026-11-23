@@ -3,7 +3,7 @@
  * runs in every World and is listed with the engine's systems.
  *
  * ADR 0162 (K4): the frame runs main's M3 passes in one order for both backends (api-and-models §6, architecture §1).
- * (ADR 0166's early music step, `engine.AudioMusic`, went with the music player, ADR 0329: a playlist's beats, bars and
+ * (ADR 0166's early music step, `engine.AudioMusic`, went with the music player, ADR 0343: a playlist's beats, bars and
  * markers arrive in late update.)
  *
  * `engine.Audio` (lateUpdate): the listener (an enabled `AudioListener`, else the main camera) into the backend and
@@ -126,7 +126,7 @@ export const AUDIO_SYSTEMS: readonly BuiltinSystem[] = [
       if (isSpatialPassHost(backend)) bindOcclusionSources(world, backend.occlusion);
       runAudioFrame(backend, frame, dt, mixer.audioSettings); // ADR 0270: the frame order, in one module
       listenerComponent?._noteVelocity(frame.velX, frame.velY, frame.velZ);
-      playlistHost().update(dt); // ADR 0329: the playlist instances' frame; the fallback's automation
+      playlistHost().update(dt); // ADR 0343: the playlist instances' frame; the fallback's automation
       for (const s of world._componentsOfType(AudioSource)) s._sync();
     },
   },

@@ -1,10 +1,10 @@
-# 0334. A take records what the game asked of audio and the engine's profile in one file, and replays against current audio
+# 0348. A take records what the game asked of audio and the engine's profile in one file, and replays against current audio
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0171, 0172 (amended: captures gain pick paths, loudness warnings and written MIXOP records), 0227, 0230, 0260, 0261, 0326, 0327, 0329, 0333
+- **Related:** 0171, 0172 (amended: captures gain pick paths, loudness warnings and written MIXOP records), 0227, 0230, 0260, 0261, 0326, 0341, 0343, 0347
 
 ## Context
 
@@ -75,7 +75,7 @@ profile records unchanged, so the Profiler opens a take as it opens a capture.
   with text and colour. The recorded file never changes.
 - **The Take screen** draws instances per playlist (lifetime, held spans), parameter lanes, the picture lane, a mixer
   strip and the inspector's authored-versus-live values from the replaying runtime; an instance opens its playlist in
-  Playlists. The parameter histogram in the Curves window (0332) is computed from the open take.
+  Playlists. The parameter histogram in the Curves window (0346) is computed from the open take.
 
 **Captures** (`.mycap`) stay for profile-only recordings (F9 in builds, `Audio.capture`, the editor's **Record
 capture**). Captures and takes' profiles gain three extensions:
@@ -93,7 +93,7 @@ capture**). Captures and takes' profiles gain three extensions:
 - The capture docs stop calling a recording span "a take".
 
 **The Profiler screen** is the prototype's layout on the existing reader, worker, track kit (0261) and table kit (0326):
-picture (from a take's frames), load and CPU against the voice cap, effects cost per level (0331), bus gain
+picture (from a take's frames), load and CPU against the voice cap, effects cost per level (0345), bus gain
 with its lanes, loudness against the target, voices with status and "problems only", parameters; At cursor, Voice, Why
 it played and Messages panels, with keys to step between markers.
 

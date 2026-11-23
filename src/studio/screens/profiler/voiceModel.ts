@@ -1,4 +1,4 @@
-// The Profiler screen's voices (ADR 0334 "The Profiler screen"; the prototype's voice lanes): every voice a capture saw,
+// The Profiler screen's voices (ADR 0348 "The Profiler screen"; the prototype's voice lanes): every voice a capture saw,
 // as a block from its start to its end with a status, read from the capture's typed voice events (ADR 0227) and named
 // as the capture named its clip and bus at that instant (ADR 0260). Pure: no DOM, no Worker.
 //

@@ -1,5 +1,5 @@
 /**
- * A spatial test scene's base game scene in the World (ADR 0333: "names a game scene whose audio components and colliders
+ * A spatial test scene's base game scene in the World (ADR 0347: "names a game scene whose audio components and colliders
  * load read-only underneath"): the part `importBaseScene` takes from it (audio components, 3D colliders, the nodes above
  * them) is loaded through the engine's own scene loading (`SceneManager.load`, additive, 3D physics), so its sounds play,
  * its zones hold, and the occlusion pass casts at its colliders with their layers and occluder materials, as in the game.

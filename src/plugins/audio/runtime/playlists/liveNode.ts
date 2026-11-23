@@ -1,5 +1,5 @@
 /**
- * The live playlist tree's shared shapes and base node (ADR 0329): what every resolver's node (`nodes.ts`,
+ * The live playlist tree's shared shapes and base node (ADR 0343): what every resolver's node (`nodes.ts`,
  * `sequence.ts`) is and what it needs of its instance (`NodeHost`).
  */
 import type { Curve } from "../../../../engine/core/curve";
@@ -18,7 +18,7 @@ import { fadePieces } from "../../../../engine/audio/playlist/fadeShapes";
 import type { QuantLane } from "./quantizedLanes";
 
 /**
- * ADR 0336: one fade of `voice`'s fade ramp from `from` to `to` over `seconds` in `shape`, starting at heard `at` (null:
+ * ADR 0350: one fade of `voice`'s fade ramp from `from` to `to` over `seconds` in `shape`, starting at heard `at` (null:
  * as soon as possible, or `asap` when a shape needs several stamped pieces). The core's laws are one record; other
  * shapes are `fadePieces`' stamped linear pieces. `stopAtEnd` stops the voice when it ends.
  */
@@ -113,22 +113,22 @@ export interface Ctx {
   depth: number;
   /** Seconds of fade-in for the voices started (a crossfade's incoming side). */
   fadeIn: number;
-  /** ADR 0336: the fade-in's shape; absent: equalPower. */
+  /** ADR 0350: the fade-in's shape; absent: equalPower. */
   fadeInShape?: FadeShape;
-  /** ADR 0336: the beat-quantised automation lanes above (`quantizedLanes.ts`). */
+  /** ADR 0350: the beat-quantised automation lanes above (`quantizedLanes.ts`). */
   quantized?: readonly QuantLane[];
   spatial: SpatialPlan | null;
   /** The nearest playlist path above, for messages. */
   where: string;
   /**
-   * ADR 0331 levels: the submix of the nearest level above that runs its effects on one (the instance's own, a nested
+   * ADR 0345 levels: the submix of the nearest level above that runs its effects on one (the instance's own, a nested
    * playlist's, a track's or a clip's) and the bus it takes voices on; the voices below on that bus mix into it. Absent or
    * null: none (or the voices below are on another bus).
    */
   submix?: CtxSubmix | null;
 }
 
-/** ADR 0331 levels: a level's submix as the context carries it down. */
+/** ADR 0345 levels: a level's submix as the context carries it down. */
 export interface CtxSubmix {
   readonly level: SubmixLevel;
   /** The bus (resolved name) its voices play on. */
@@ -140,7 +140,7 @@ export interface CtxSubmix {
 /** What the nodes need of their instance. */
 export interface NodeHost {
   readonly stopped: boolean;
-  /** ADR 0334: the instance's id (its group) for the capture's pick records; absent or 0: none. */
+  /** ADR 0348: the instance's id (its group) for the capture's pick records; absent or 0: none. */
   readonly group?: number;
   readonly untilStopped: boolean;
   readonly musical: MusicalClock;
@@ -162,7 +162,7 @@ export interface NodeHost {
    */
   playSample(entry: SampleEntry, ctx: Ctx, loop?: LoopRun | null): PVoice | null;
   /**
-   * ADR 0340 §5, 0341 §3: the sample a line entry plays now (its key from the entry, the play's `line` option or its
+   * ADR 0354 §5, 0355 §3: the sample a line entry plays now (its key from the entry, the play's `line` option or its
    * dialogue event; its file through the current language's chain), as a sample entry with the line entry's use
    * settings. Null when nothing plays (the host keeps why for the handle's reason). Absent: line entries play nothing.
    */
@@ -187,14 +187,14 @@ export interface NodeHost {
    */
   startOffset?: number;
   /**
-   * ADR 0331: the effects list (by identity: the root playlist's) the instance runs on its submix, so `bodyCtx` doesn't
+   * ADR 0345: the effects list (by identity: the root playlist's) the instance runs on its submix, so `bodyCtx` doesn't
    * map it onto the voices too; absent or null when the instance has no submix.
    */
   readonly submixedEffects?: readonly Effect[] | null;
   /** The mixer bus a level's `output` (undefined: inherited, Master) resolves to; absent: the name as given. */
   resolveBus?(bus: string | undefined): string;
   /**
-   * ADR 0331 levels: a submix for one level's enabled `effects` (`key` names the level in the instance), feeding `parent`
+   * ADR 0345 levels: a submix for one level's enabled `effects` (`key` names the level in the instance), feeding `parent`
    * and taking voices on `bus`; null when there's nothing to run, no submixes on this backend, no instance group, or the
    * pool is full (then the level's effects map onto its voices). Absent: never.
    */
@@ -222,7 +222,7 @@ export abstract class LiveNode {
     for (const c of this.children) c.stop(fade);
   }
 
-  /** The outgoing side of a crossfade: every voice below fades out in `shape` (ADR 0336) over `seconds` from `at`, then stops. */
+  /** The outgoing side of a crossfade: every voice below fades out in `shape` (ADR 0350) over `seconds` from `at`, then stops. */
   leave(seconds: number, at: number | null, shape: FadeShape = "equalPower"): void {
     if (this.stopped) return;
     this.stopped = true;
@@ -235,7 +235,7 @@ export abstract class LiveNode {
   }
 
   /**
-   * ADR 0336 (post-exit): a Switch handed over at heard `at` and this entry's tail rings on: its loops are let go by
+   * ADR 0350 (post-exit): a Switch handed over at heard `at` and this entry's tail rings on: its loops are let go by
    * their exit settings (release exits a loop into the audio after it) and its voices play on to their natural end.
    * It no longer counts as the Switch's playing entry; `stop` still ends it.
    */
@@ -252,10 +252,10 @@ export abstract class LiveNode {
     for (const c of this.children) c.ringOut(at);
   }
 
-  /** ADR 0336: handed over and ringing out its tail (`ringOut`). */
+  /** ADR 0350: handed over and ringing out its tail (`ringOut`). */
   ringing = false;
 
-  /** ADR 0336: whether what plays here has an Exit marker (its music then has a post-exit tail). */
+  /** ADR 0350: whether what plays here has an Exit marker (its music then has a post-exit tail). */
   hasExitMarker(): boolean {
     for (const c of this.children) if (!c.stopped && c.hasExitMarker()) return true;
     return false;
@@ -284,7 +284,7 @@ export abstract class LiveNode {
   }
 
   /**
-   * The musical clock of what plays here now (ADR 0329: "the musical clock of the playing entry"): by default the first
+   * The musical clock of what plays here now (ADR 0343: "the musical clock of the playing entry"): by default the first
    * child still playing that has one; a Clip and a Sequence answer for themselves; a Switch for its current entry.
    */
   musicalSource(): MusicalSource | null {

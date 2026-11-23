@@ -1,4 +1,4 @@
-// ADR 0330 "Snapshots blend": the snapshot player through its interface — start kinds, linear fades, hold, interrupted
+// ADR 0344 "Snapshots blend": the snapshot player through its interface — start kinds, linear fades, hold, interrupted
 // fades, conditions on parameters, live edits — and the blend it feeds (`resolveAt`: priority, Add, effect overrides).
 import { describe, expect, it } from "vitest";
 import type { ParameterDef } from "../parameters";

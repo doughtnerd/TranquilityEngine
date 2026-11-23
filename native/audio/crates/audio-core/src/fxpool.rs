@@ -1,5 +1,5 @@
 //! The mixed-voice effect pool (ADR 0162, api-and-models §3.1, §4.2 SET_VOICE_FX, architecture
-//! §4.1, contract C17): one entry per mixed voice (560 B each since ADR 0333 added spread, 448 before; the `Fx` region, sized from
+//! §4.1, contract C17): one entry per mixed voice (560 B each since ADR 0347 added spread, 448 before; the `Fx` region, sized from
 //! `max_mixed`), holding the voice's low-pass and high-pass with their log-Hz ramps
 //! (`audio_dsp::fxfilter`), its zone send and aux ramps, yaw, bed gains and bed share ramp.
 //!
@@ -39,7 +39,7 @@ use crate::layout::REGION_ALIGN;
 use crate::params::InitParams;
 
 /// One pool entry (architecture §4.1's table: two biquads with their ramps, 16 bed gains, five
-/// send ramps, yaw and the bed share ramp; ADR 0333 (ABI 4.11) adds the spread ramp, its last
+/// send ramps, yaw and the bed share ramp; ADR 0347 (ABI 4.11) adds the spread ramp, its last
 /// gains and the decorrelator, `spread.rs`), as `VOICE_SLOT_BYTES` is for the voices.
 pub const FX_ENTRY_BYTES: usize = 560;
 
@@ -72,7 +72,7 @@ pub struct FxEntry {
     /// The yaw an ambisonic voice's rotation ended the last quantum on (B3: the next quantum ramps
     /// from it); NaN in a fresh entry (the first quantum starts at `yaw`).
     pub yaw_last: f32,
-    /// ADR 0333 (ABI 4.11): SET_VOICE_FX `spread`, degrees 0..360, ramped (`spread.rs`).
+    /// ADR 0347 (ABI 4.11): SET_VOICE_FX `spread`, degrees 0..360, ramped (`spread.rs`).
     pub spread: Ramp,
     /// The spread's point, diffuse-left and diffuse-right gains the last rendered range ended on
     /// (`spread.rs` ramps from them); `[1, 0, 0]` is a point source.
@@ -135,7 +135,7 @@ impl FxEntry {
             self.aux_bus = fx.aux_bus;
         }
         if fx.mask & wire::SET_VOICE_FX_MASK_SPREAD != 0 {
-            // ADR 0333: hundredths of a degree on the wire, 0..360 degrees here.
+            // ADR 0347: hundredths of a degree on the wire, 0..360 degrees here.
             self.spread.set_target((fx.spread as f32 / 100.0).min(360.0), frames);
         }
         let sending = self.sending();

@@ -1,7 +1,7 @@
-// The Profiler screen's Messages panel and its warning markers (ADR 0334 "The Profiler screen"; the prototype's log):
+// The Profiler screen's Messages panel and its warning markers (ADR 0348 "The Profiler screen"; the prototype's log):
 // warnings, errors and notes in time order, each with the time it seeks to and the voice it selects. Built from the
 // voices' problems (stolen, blocked by a voice limit, missing file, refused, failed), the loudness marks against the
-// target (over or under it, a warning like a voice-limit one, ADR 0334's loudness warnings), the capture's markers and
+// target (over or under it, a warning like a voice-limit one, ADR 0348's loudness warnings), the capture's markers and
 // notes (music transitions, snapshots) and what the capture says of itself (truncated, gaps). The prototype's log was
 // out of order; this one is sorted by time, then errors before warnings before notes. Pure.
 import { formatSeconds } from "../../../plugins/audio/editor/mix/tracks/events";

@@ -1,5 +1,5 @@
 /**
- * Sound captions (ADR 0343 §4): `Audio.onCaption`. A playlist with a `caption` (`{ key, minGap }`) reports each instance
+ * Sound captions (ADR 0357 §4): `Audio.onCaption`. A playlist with a `caption` (`{ key, minGap }`) reports each instance
  * that starts sounding (`start`: a voice of it is audible, so not when refused, virtual or culled by voice limits) and
  * stops (`end`). The same caption isn't repeated within `minGap` seconds of its last start. The text is the key in the
  * captions string table (`audio.json` `localisation.captions`) in the subtitle language, read live.

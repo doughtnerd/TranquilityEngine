@@ -1,5 +1,5 @@
 /**
- * Voice-over lines at runtime (ADR 0340 §5, §7; 0343 §1–§3; 0341 §5): `Audio.line(key)`, `Audio.onLine`, and the line
+ * Voice-over lines at runtime (ADR 0354 §5, §7; 0357 §1–§3; 0355 §5): `Audio.line(key)`, `Audio.onLine`, and the line
  * handle `Audio.say` hands out too.
  *
  * - **Playing.** A line plays through its table's `template` playlist (a playlist with a programmer `line` entry, the key
@@ -7,10 +7,10 @@
  *   (default Voice when the mix has it, else Master), positioned when the play gives a position or a node. The line
  *   entry resolves the key's file in the current audio language's chain as it is picked.
  * - **Missing everywhere.** With `localisation.missing: "subtitleOnly"` (default) the line still runs for the reading
- *   time of its subtitle (0343 §3: `max(minDisplay, characters / readingSpeed)` in the subtitle language), firing its
+ *   time of its subtitle (0357 §3: `max(minDisplay, characters / readingSpeed)` in the subtitle language), firing its
  *   start and end; with `"silent"` it is refused with reason `missingLanguage`. An unknown key gives an inert handle with
  *   reason `unknownLine` and one warning.
- * - **Subtitles** (0343 §1): the line's string key (`textKey`, else its key; null: never subtitled) in its table's string
+ * - **Subtitles** (0357 §1): the line's string key (`textKey`, else its key; null: never subtitled) in its table's string
  *   table, in the subtitle language through its chain; `handle.text` is read live, so it follows a language change.
  * - **Events.** `Audio.onLine` hears `start`, `end` (with the reason) and `marker` (a Cue marker of the heard file).
  * - **Lip-sync** (§7): `viseme()` reads the heard file's sidecar `lipsync` keys at the heard time.
@@ -41,7 +41,7 @@ import { audioChain, audioLanguage, audioLocalisation, effectiveSubtitleLanguage
 import { lineLocation } from "./lineRegistry";
 import { visemeAt, type AudioViseme } from "./viseme";
 
-/** Options for `Audio.line` (ADR 0340 §5): the play options, plus a node it plays from and follows. */
+/** Options for `Audio.line` (ADR 0354 §5): the play options, plus a node it plays from and follows. */
 export interface LineOptions extends EventOptions {
   /** Plays from and follows this node's world position (a flat template ignores it). */
   node?: GameObject;
@@ -50,7 +50,7 @@ export interface LineOptions extends EventOptions {
 /** How a line ended: played out, stopped by the game, cut off by a more important line, or never played. */
 export type LineEnd = "ended" | "stopped" | "interrupted" | "refused";
 
-/** ADR 0340 §5, 0341 §5: a voice-over line's handle (`Audio.line`, `Audio.say`). */
+/** ADR 0354 §5, 0355 §5: a voice-over line's handle (`Audio.line`, `Audio.say`). */
 export interface AudioLineHandle extends AudioPlaylistHandle {
   readonly key: string;
   readonly speaker: string | null;
@@ -61,17 +61,17 @@ export interface AudioLineHandle extends AudioPlaylistHandle {
   /** Seconds of the heard file, or the subtitle's reading time for a subtitle-only line. */
   readonly duration: number;
   readonly finished: Promise<LineEnd>;
-  /** ADR 0341 §5: waiting in its speaker channel's queue, playing, or over. */
+  /** ADR 0355 §5: waiting in its speaker channel's queue, playing, or over. */
   readonly state: "queued" | "playing" | "ended";
-  /** ADR 0341 §5: the dialogue event that said it; null for `Audio.line`. */
+  /** ADR 0355 §5: the dialogue event that said it; null for `Audio.line`. */
   readonly event: string | null;
-  /** ADR 0341 §5: the event's path that matched; null for `Audio.line`. */
+  /** ADR 0355 §5: the event's path that matched; null for `Audio.line`. */
   readonly path: readonly string[] | null;
-  /** The mouth shape at the heard time (ADR 0340 §7); null without lip-sync data or while nothing plays. */
+  /** The mouth shape at the heard time (ADR 0354 §7); null without lip-sync data or while nothing plays. */
   viseme(): AudioViseme | null;
 }
 
-/** `Audio.onLine`'s event (ADR 0340 §5, 0343 §1, 0341 §5). */
+/** `Audio.onLine`'s event (ADR 0354 §5, 0357 §1, 0355 §5). */
 export interface AudioLineEvent {
   phase: "start" | "end" | "marker";
   key: string;
@@ -116,7 +116,7 @@ export class LineHandle implements AudioLineHandle {
   readonly event: string | null;
   path: readonly string[] | null = null;
   state: "queued" | "playing" | "ended" = "queued";
-  /** ADR 0341 §4: the priority it speaks with, and its channel (say only). */
+  /** ADR 0355 §4: the priority it speaks with, and its channel (say only). */
   priority = 50;
   channel: string | null = null;
   /** Called once when it ends (the dialogue system frees its channel). */
@@ -195,7 +195,7 @@ export class LineHandle implements AudioLineHandle {
     return this;
   }
 
-  /** @internal Cut off by a more important line (ADR 0341 §4): fades out over `fade` seconds and ends "interrupted". */
+  /** @internal Cut off by a more important line (ADR 0355 §4): fades out over `fade` seconds and ends "interrupted". */
   interrupt(fade: number): void {
     if (this.state !== "playing") return;
     takeTap.sink?.stop(this, fade);
@@ -300,7 +300,7 @@ function implicitClip(output: string | null, spatial: boolean): PlaylistAsset {
   return p;
 }
 
-/** A table's output (0340 §5): its own, else Voice when the mix has it, else Master (null). */
+/** A table's output (0354 §5): its own, else Voice when the mix has it, else Master (null). */
 function outputOf(loc: LineLocation): string | null {
   return loc.table.output ?? (mixer.busNames.includes("Voice") ? "Voice" : null);
 }
@@ -321,7 +321,7 @@ function emitterOf(handle: LineHandle, key: string, node: GameObject | null, pos
 }
 
 /**
- * Plays the line at `loc` into `handle` now (ADR 0340 §5). The handle ends refused when nothing can play: no World plays
+ * Plays the line at `loc` into `handle` now (ADR 0354 §5). The handle ends refused when nothing can play: no World plays
  * sound, its template is refused, or (`missing: "silent"`) no language of the chain has its file.
  */
 export function startLine(handle: LineHandle, loc: LineLocation, options: LineOptions): LineHandle {
