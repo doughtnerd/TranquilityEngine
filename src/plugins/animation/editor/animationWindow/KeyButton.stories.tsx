@@ -55,7 +55,7 @@ export const WindowClosed: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     editor.scene.selection.set(["lamp"]);
-    await c.findByText("intensity", {}, { timeout: 30000 });
+    await c.findByText(/^intensity$/i, {}, { timeout: 30000 });
     expect(c.queryByRole("button", { name: /key: intensity$/ })).toBeNull();
   },
 };

@@ -28,8 +28,8 @@ import {
 import { storedFieldValue } from "../../../../editor/componentField";
 import { Animator } from "../../runtime/components/Animator";
 import { ClipPlayhead } from "../scene/clipPreviewLogic";
-import { findTrack, type KeyClipboard } from "./clipEditLogic";
-import { DEFAULT_ONION, type OnionSettings } from "./onionSkinLogic";
+import type { KeyClipboard } from "./clipEditLogic";
+import type { OnionSettings } from "./onionSkinLogic";
 import { ANIMATION_WINDOW_PANEL } from "./panelId";
 import { ClipPreviewPlayer } from "./previewLogic";
 import { recordWrite } from "./recordLogic";
@@ -257,8 +257,3 @@ export const recordInterceptor: FieldWriteInterceptorContribution = {
     p.doc.edit(p.clip, { label: p.label });
   },
 };
-
-/** Whether the bound clip animates `binding` (for the key buttons' outline). */
-export const animates = (clip: AnimSource, binding: Binding): boolean => findTrack(clip, binding) >= 0;
-
-export { DEFAULT_ONION };
