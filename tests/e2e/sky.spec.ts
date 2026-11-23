@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { expect, type Hooks, test, type Page, waitForEditor } from "./fixtures";
+import { assetsMenu } from "./menus";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 
 // Procedural skies (ADR 0112–0114): an Environment with a *.sky.json map draws the sky live, bakes
@@ -81,7 +82,7 @@ test("New Sky creates a sky asset from the Clear Day preset", async ({ page, bro
   await assets(page).locator(".asset-folder", { hasText: /^skies$/ }).first().click();
   const list = (await assets(page).locator(".asset-items").boundingBox())!;
   await page.mouse.click(list.x + list.width - 10, list.y + list.height - 10, { button: "right" });
-  await page.getByRole("menuitem", { name: "New Sky" }).click();
+  await assetsMenu(page, "Create", "Rendering", "Sky");
   await expect.poll(async () => (await readFile(page, "Playground/skies/New Sky.sky.json")) ?? "").toContain('"format": "myco.sky@1"');
   await expect(assets(page).locator(".asset-tile").filter({ hasText: "New Sky.sky.json" })).toBeVisible();
   expect(errors).toEqual([]);

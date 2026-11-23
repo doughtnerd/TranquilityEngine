@@ -212,21 +212,31 @@ export interface AssetFormat<T> {
  * A kind's New… entry (ADR 0149, 0233). Either the host writes it from the kind's `format` (`<name><extension>` in
  * the folder asked for, else the kind's `folder`), or the kind writes it itself with `create`, given that folder.
  */
-export type AssetKindCreate<T> =
-  | {
-      readonly label: string;
-      /** The new file's name without the extension (default: `label`), e.g. "New Formation". */
-      readonly name?: string;
-      /** What the files are, plural, for the read-only message: "skies". */
-      readonly what: string;
-      /** A new file's value (default: the format's `empty()`). */
-      value?(): T;
-    }
-  | {
-      readonly label: string;
-      /** Write the new file(s) in `folder` (the kind's `folder` already applied); the new file's path, or null. */
-      create(folder: string): Promise<string | null>;
-    };
+export type AssetKindCreate<T> = AssetKindCreatePlacement &
+  (
+    | {
+        readonly label: string;
+        /** The new file's name without the extension (default: `label`), e.g. "New Formation". */
+        readonly name?: string;
+        /** What the files are, plural, for the read-only message: "skies". */
+        readonly what: string;
+        /** A new file's value (default: the format's `empty()`). */
+        value?(): T;
+      }
+    | {
+        readonly label: string;
+        /** Write the new file(s) in `folder` (the kind's `folder` already applied); the new file's path, or null. */
+        create(folder: string): Promise<string | null>;
+      }
+    );
+
+/**
+ * Where the Assets panel's Create menu puts a kind's New… entry (ADR 0381): the submenu named `category` ("Rendering",
+ * "Animation"), sorted there by its label without the leading "New "; without one, the Other submenu.
+ */
+export interface AssetKindCreatePlacement {
+  readonly category?: string;
+}
 
 /** A dock of the editor's default layout: one of the side docks, or the one filling the middle (the Scene view's). */
 export type PanelDock = "left" | "right" | "bottom" | "fill";
@@ -559,6 +569,11 @@ export interface HierarchyCreateContribution {
   readonly name: string;
   /** The id of the entry (built-in or contributed) it follows; absent, or not found: last. */
   readonly after?: string;
+  /**
+   * The Create menus' submenu it goes in (ADR 0381): "2D", "3D Object", "Effects", "Light", "UI", or a new one.
+   * Absent: the category of the entry `after` names, else Other.
+   */
+  readonly category?: string;
   /**
    * Write the asset the new node uses first (a new particle effect); resolves to its path, or null when
    * it couldn't (the node is then made without one, with the status the function set kept). Not called

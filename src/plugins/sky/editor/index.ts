@@ -32,7 +32,7 @@ export const skyEditorPlugin: EditorPlugin = {
       panel: "sky",
       inspector: () => import("./SkyInspector").then((m) => m.SkyInspector),
       // The New… menu has no submenus, so New Sky makes the default preset; the Sky panel switches presets.
-      create: { label: "New Sky", what: "skies" },
+      create: { label: "New Sky", category: "Rendering", what: "skies" },
       referencedAs: ["environment"],
       preview: "sky",
     });

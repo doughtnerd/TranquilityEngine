@@ -147,7 +147,9 @@ describe("menu bar", () => {
   it("Create is disabled without a scene, and is the Hierarchy's list with one", () => {
     const none = menu(buildMenus(state(), actions()), "create");
     expect(none.items.length).toBeGreaterThan(5);
-    expect(none.items.every((i) => i.disabled === NO_SCENE)).toBe(true);
+    expect(none.items.filter((i) => !i.separator).every((i) => i.disabled === NO_SCENE)).toBe(true);
+    // The Hierarchy's Create tree (ADR 0381): Empty and Camera, then the categories, sorted.
+    expect(none.items.map((i) => (i.separator ? "-" : i.label))).toEqual(["Empty", "Camera", "-", "2D", "3D Object", "Effects", "Light", "UI"]);
     const open = menu(buildMenus(state({ project, scene }), actions()), "create");
     expect(open.items.map((i) => i.label)).toEqual(["Empty"]);
   });

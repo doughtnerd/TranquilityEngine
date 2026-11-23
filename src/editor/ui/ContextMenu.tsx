@@ -24,18 +24,23 @@ export interface ContextMenuProps {
   readonly label: string;
   /** It closed: an item ran, or the user dismissed it. */
   onClose(): void;
+  /**
+   * Draw it where it is rendered instead of at the main page's floating root: for a panel that may sit in a detached
+   * window (ADR 0174), whose menu must open in that window. Default false.
+   */
+  readonly inline?: boolean;
+  /** An extra class on the menu's element (the Hierarchy's `hierarchy-menu`). */
+  readonly class?: string;
 }
 
 export function ContextMenu(props: ContextMenuProps) {
+  const list = <MenuList entries={props.entries} at={props.at} label={props.label} onClose={props.onClose} class={props.class} />;
+  if (props.inline) return list;
   // Drawn at the page's floating root, so a toolbar with container queries doesn't trap it (`FloatingPortal`).
-  return (
-    <FloatingPortal>
-      <MenuList entries={props.entries} at={props.at} label={props.label} onClose={props.onClose} />
-    </FloatingPortal>
-  );
+  return <FloatingPortal>{list}</FloatingPortal>;
 }
 
-interface MenuListProps extends ContextMenuProps {
+interface MenuListProps extends Omit<ContextMenuProps, "inline"> {
   /** A submenu: ← and Escape call this (back to its item) instead of closing everything. */
   onBack?(): void;
   /** Focus its first item when it opens (default true; a submenu opened by hover leaves focus where it is). */
@@ -96,7 +101,7 @@ function MenuList(props: MenuListProps) {
   };
   const subEntry = sub ? (entries[sub.index] as MenuItem | undefined) : undefined;
   return (
-    <div ref={ref} class={`context-menu kit-menu${check ? " has-check" : ""}`} role="menu" aria-label={props.label} onKeyDown={onKeyDown}>
+    <div ref={ref} class={`context-menu kit-menu${check ? " has-check" : ""}${props.class ? ` ${props.class}` : ""}`} role="menu" aria-label={props.label} onKeyDown={onKeyDown}>
       {entries.map((entry, i) => {
         if (isGroup(entry))
           return (
@@ -153,7 +158,11 @@ function MenuList(props: MenuListProps) {
             ) : (
               <span class="kit-menu-label">{entry.label}</span>
             )}
-            {right && <span class={entry.hint && !entry.submenu ? "context-key" : "kit-menu-note"}>{right}</span>}
+            {right && (
+              <span class={entry.hint && !entry.submenu ? "context-key" : "kit-menu-note"} aria-hidden={entry.submenu ? "true" : undefined}>
+                {right}
+              </span>
+            )}
           </button>
         );
       })}

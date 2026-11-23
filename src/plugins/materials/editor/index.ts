@@ -31,7 +31,7 @@ export const materialsEditorPlugin: EditorPlugin = {
       format: materialFormat,
       folder: "materials",
       inspector: () => import("./MaterialInspector").then((m) => m.MaterialInspector),
-      create: { label: "New Material", what: "materials" },
+      create: { label: "New Material", category: "Rendering", what: "materials" },
       referencedAs: ["material"],
       preview: "material",
     });
@@ -44,7 +44,7 @@ export const materialsEditorPlugin: EditorPlugin = {
       open: (path) => editor.assets.openScript(path),
       format: shaderAssetFormat,
       folder: "shaders",
-      create: { label: "New Shader", create: createShader },
+      create: { label: "New Shader", category: "Shader", create: createShader },
     });
     context.registerAssetKind({
       id: "shadergraph",
@@ -55,7 +55,7 @@ export const materialsEditorPlugin: EditorPlugin = {
       folder: "shaders",
       panel: SHADER_GRAPH_PANEL,
       inspector: shaderGraphInspector,
-      create: { label: "New Shader Graph", what: "shader graphs" },
+      create: { label: "New Shader Graph", category: "Shader", what: "shader graphs" },
       // A material field takes a graph too: it draws with the graph's defaults.
       referencedAs: ["material"],
       preview: "shadergraph",
@@ -69,7 +69,7 @@ export const materialsEditorPlugin: EditorPlugin = {
       folder: "shaders",
       panel: SHADER_GRAPH_PANEL,
       inspector: shaderGraphInspector,
-      create: { label: "New Shader Sub Graph", name: "New Sub Graph", what: "sub-graphs" },
+      create: { label: "New Shader Sub Graph", category: "Shader", name: "New Sub Graph", what: "sub-graphs" },
       referencedAs: ["shadersubgraph"],
     });
     context.registerPanel({

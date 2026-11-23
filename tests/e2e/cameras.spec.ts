@@ -1,4 +1,5 @@
 import { expect, type Hooks, test, type Page, openEditor } from "./fixtures";
+import { hierarchyMenu } from "./menus";
 import { captureArea, pixelsChanged, type ViewCapture } from "./viewCapture";
 
 // Reflection probes (ADR 0054), camera viewports with effects on every camera and in the editor's
@@ -31,7 +32,7 @@ test("a reflection probe from the Create menu goes in the scene, and the view dr
   const errors = trackErrors(page);
   await openPlayground(page);
   await page.getByRole("button", { name: "Create node" }).click();
-  await page.locator(".hierarchy-menu [role=menuitem]").filter({ has: page.locator("span:first-child", { hasText: /^Create Reflection Probe$/ }) }).click();
+  await hierarchyMenu(page, "Light", "Reflection Probe");
   await expect(page.locator(".tree .row.selected .name")).toHaveText("Reflection Probe");
   // Created at the view's focus point; move it to the middle of the scene, around the robot and crates.
   for (const [axis, value] of [["x", "0"], ["y", "1"], ["z", "0"]]) {

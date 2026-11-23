@@ -14,7 +14,7 @@ import { registeredPanels } from "../layout/registeredPanels";
 import { activeLayoutFile, applyDefaultLayout, applySavedLayout, layoutModified, savedLayouts, saveLayout, whyNoSave } from "../layout/savedStore";
 import { manageLayoutsOpen, saveLayoutAsOpen } from "../layout/layoutDialogs";
 import { scopeLabel, scopesOf } from "../layout/saved";
-import { buildMenus, DOCS_URL, SEPARATOR, type AssetClipboardReasons, type Menu, type MenuActions, type MenuEntry, type MenuState } from "../menuBar";
+import { buildMenus, DOCS_URL, type AssetClipboardReasons, type Menu, type MenuActions, type MenuEntry, type MenuState } from "../menuBar";
 import { logOpen, unseenErrors } from "../messages";
 import { createAsset } from "../assetKindHost";
 import { canOpenFolders } from "../projectFs";
@@ -147,13 +147,10 @@ function visiblePanels(): Set<PanelId> {
   return visible;
 }
 
-/** Hierarchy "Create X" items as menu entries: "X" (and "X Child" under the selection). */
+/** The Hierarchy's "+" menu: the Create tree (ADR 0381), and Child of Selection under the selection. */
 function createEntries(): readonly MenuEntry[] {
   const scene = openScene.value;
-  if (!scene) return [];
-  return createMenuItems(scene).map((i) =>
-    i.separator ? SEPARATOR : { label: i.label.replace(/^Create /, ""), disabled: i.disabled, run: i.run },
-  );
+  return scene ? createMenuItems(scene) : [];
 }
 
 /** The menus for the editor's state right now (reads signals, so the bar redraws when they change). */

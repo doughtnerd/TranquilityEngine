@@ -48,22 +48,16 @@ import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
 import { currentProject, docVersion, openScene, sceneCamera, scriptsVersion, selection, status } from "../state";
 import { TileThumbnail } from "./AssetPreview";
-import { usePopover } from "./popover";
+import { PanelMenu } from "./PanelMenu";
+import type { MenuEntry } from "../menuBar";
 import { RenameField } from "./RenameField";
 import { TreeView, type TreeRow } from "./TreeView";
 import { studioAssetItems } from "../studioLaunch";
 import "./assets.css";
 import "./assetSlices.css";
 
-/** The open context menu: where, and its items. */
-interface MenuItem {
-  label: string;
-  shortcut?: string;
-  /** Why it's unavailable, or null/false/undefined when it is. */
-  disabled?: string | false | null;
-  run?: () => void;
-  separator?: boolean;
-}
+/** A context menu item: a label, a shortcut, why it's unavailable, a submenu (the menu bar's shape). */
+type MenuItem = MenuEntry;
 /** The open context menu, and the Assets panel that opened it (only that copy draws it). */
 const menu = signal<{ x: number; y: number; items: MenuItem[]; owner: AssetsView } | null>(null);
 
@@ -114,35 +108,44 @@ function commandItem(id: AssetCommandId, target: AssetTarget): MenuItem {
   return { label: assetCommandLabel(id, target), shortcut: assetShortcut(id), disabled: whyNotAsset(id, target), run: () => void runAsset(id, target) };
 }
 
-const toMenuItems = (items: readonly AssetMenuItem[]): MenuItem[] => items.map((i) => ({ label: i.label, disabled: i.whyNot, run: i.run }));
+const toMenuItem = (i: AssetMenuItem): MenuItem => ({ label: i.label, disabled: i.whyNot, run: i.run });
+const toMenuItems = (items: readonly AssetMenuItem[]): MenuItem[] => items.map(toMenuItem);
+const SEP: MenuItem = { label: "", separator: true };
 
-/** The menu for `entries` (empty: the folder showing's background). The layout is here; what each item does and when is assetActions.ts's. */
+/** The Create submenu (ADR 0381): Folder, Scene and Script…, then a submenu per category of asset kinds. */
+function createSubmenu(target: AssetTarget): MenuItem {
+  const submenu = assetCreateItems(target).map((e): MenuItem => (e.type === "separator" ? SEP : e.type === "item" ? toMenuItem(e.item) : { label: e.label, submenu: toMenuItems(e.items) }));
+  return { label: "Create", submenu };
+}
+
+/**
+ * The menu for `entries` (empty: the folder showing's background): Create, Paste and Show in File Manager; for a
+ * selection, Create (in a folder), Open and plugins' actions, the clipboard, Rename, Duplicate and Delete, then Show
+ * in File Manager. The layout is here; what each item does and when is assetActions.ts's.
+ */
 function menuItems(project: EditorProject, entries: readonly string[]): MenuItem[] {
   const target: AssetTarget = { project, entries };
   const fs = project.fileSystem;
   const reveal = (path: string) => () => void fs!.reveal!(joinPath(project.root!, path)).catch((err) => (status.value = errorStatus(`Couldn't show ${path}`, err)));
-  const newItems = toMenuItems(assetCreateItems(target));
-  const sep: MenuItem = { label: "", separator: true };
   if (entries.length === 0) {
-    return [...newItems, sep, commandItem("paste", target), ...(fs?.reveal && project.root ? [{ label: "Show in File Manager", run: reveal(shownFolder(project)) }] : [])];
+    return [createSubmenu(target), SEP, commandItem("paste", target), ...(fs?.reveal && project.root ? [SEP, { label: "Show in File Manager", run: reveal(shownFolder(project)) }] : [])];
   }
   const plugins = toMenuItems([...studioAssetItems(target), ...assetPluginItems(target)]); // Open in Audio Studio first (ADR 0341)
   if (entries.every(isSliceEntry)) return [commandItem("open", target), ...plugins];
   const files = fileEntries(entries);
   const single = files.length === 1 ? files[0] : null;
+  const opens = [...(single !== null && whyNotAsset("open", target) === null ? [commandItem("open", target)] : []), ...plugins];
   return [
-    ...(single !== null && whyNotAsset("open", target) === null ? [commandItem("open", target)] : []),
-    ...plugins,
+    ...(single !== null && isFolderEntry(single) ? [createSubmenu(target), SEP] : []),
+    ...(opens.length > 0 ? [...opens, SEP] : []),
+    commandItem("cut", target),
+    commandItem("copy", target),
+    commandItem("paste", target),
+    SEP,
     commandItem("rename", target),
     commandItem("duplicate", target),
-    sep,
-    commandItem("copy", target),
-    commandItem("cut", target),
-    commandItem("paste", target),
-    sep,
     commandItem("delete", target),
-    ...(single !== null && isFolderEntry(single) ? [sep, ...newItems] : []),
-    ...(single !== null && fs?.reveal && project.root ? [sep, { label: "Show in File Manager", run: reveal(entryPath(single)) }] : []),
+    ...(single !== null && fs?.reveal && project.root ? [SEP, { label: "Show in File Manager", run: reveal(entryPath(single)) }] : []),
   ];
 }
 
@@ -659,36 +662,11 @@ function RenameInput(props: { entry: string }) {
   );
 }
 
+/** The open context menu, drawn by the Assets panel that opened it, in that panel's window (ADR 0174). */
 function ContextMenu() {
   const owner = useAssetsView();
   const m = menu.value?.owner === owner ? menu.value : null;
-  const el = useRef<HTMLDivElement>(null);
-  // In the panel's own window (a detached panel window, ADR 0174), measured to stay on screen.
-  usePopover(el, !!m, { anchor: m, key: m, focusFirst: true, onDismiss: () => (menu.value = null) });
-  if (!m) return null;
-  return (
-    <div ref={el} class="context-menu" role="menu">
-      {m.items.map((item, i) =>
-        item.separator ? (
-          <div key={i} class="context-sep" role="separator" />
-        ) : (
-          <button
-            key={i}
-            role="menuitem"
-            disabled={!!item.disabled}
-            title={item.disabled || undefined}
-            onClick={() => {
-              menu.value = null;
-              item.run?.();
-            }}
-          >
-            <span>{item.label}</span>
-            {item.shortcut && <span class="context-key">{item.shortcut}</span>}
-          </button>
-        ),
-      )}
-    </div>
-  );
+  return <PanelMenu menu={m} label="Assets menu" onClose={() => (menu.value = null)} />;
 }
 
 /** The tile's +: add the asset under the selected node at the scene camera's focus (`addAssets`, ADR 0149). */

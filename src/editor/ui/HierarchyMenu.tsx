@@ -1,11 +1,12 @@
-// The Hierarchy's menus (ADR 0022): the "+" Create menu in its header and the right-click menu on
-// rows and empty space. Same look and keys as the Assets panel's menu (`.context-menu`).
+// The Hierarchy's menus (ADR 0022, 0381): the "+" Create menu in its header and the right-click menu on rows and
+// empty space. What they create is the Create tree (`createMenuTree.ts`: Empty and Camera, then a submenu per
+// category), the same one the menu bar's Create menu draws; they're drawn as the shared context menu (`PanelMenu`).
 import { openPrefabFrom } from "../prefabTabs";
 import { signal } from "@preact/signals";
-import { useRef } from "preact/hooks";
 import { deleteSelected } from "../deleteSelection";
 import { copySelection, createNodeAt, cutSelection, duplicateSelection, nodeClipboard, pasteClipboardAt, whyNotPasteAt } from "../hierarchyActions";
-import { newNodeKinds } from "../nodeKinds";
+import { nodeCreateTree } from "../createMenuTree";
+import type { MenuEntry } from "../menuBar";
 import { whyNotInsert, type InsertPlace } from "../nodeInsertion";
 import { isHidden, isLocked, nodeFlags, setHidden, setLocked } from "../nodeVisibility";
 import { isInsidePrefab } from "../hierarchyEdit";
@@ -15,16 +16,10 @@ import { whyNotEdit } from "../editGate";
 import { documentsOn, resolveUIElement, selectedUIRef, uiRefKey, type UIElementRef } from "../uiDocuments";
 import { elementSource } from "../../engine/ui/documentSource";
 import { renameRow } from "./TreeView";
-import { usePopover } from "./popover";
+import { PanelMenu } from "./PanelMenu";
 
-interface MenuItem {
-  label: string;
-  shortcut?: string;
-  /** Why it's unavailable, or null/false/undefined when it is. */
-  disabled?: string | false | null;
-  run?: () => void;
-  separator?: boolean;
-}
+/** A menu item: a label, a shortcut, why it's unavailable, a submenu (the menu bar's shape). */
+type MenuItem = MenuEntry;
 
 /** The tree name the scene Hierarchy's rows are renamed under (`renameRow`, ADR 0278). */
 export const HIERARCHY_TREE = "hierarchy";
@@ -41,17 +36,18 @@ export const hierarchyMenu = signal<{ x: number; y: number; items: MenuItem[]; o
 
 const SEPARATOR: MenuItem = { label: "", separator: true };
 
-/** "Create X" items adding at `place` (`suffix` tells child variants apart). */
-function createItems(scene: OpenScene, place: InsertPlace, suffix: string): MenuItem[] {
-  return newNodeKinds().map((k) => ({ label: `Create ${k.label}${suffix}`, disabled: whyNotInsert(scene, { kind: "new", node: k.kind }, place), run: () => void createNodeAt(k.kind, place) }));
+/** The Create tree (ADR 0381), each kind adding at `place`. */
+function createTree(scene: OpenScene, place: InsertPlace): MenuItem[] {
+  return nodeCreateTree((k, label) => ({ label, disabled: whyNotInsert(scene, { kind: "new", node: k.kind }, place), run: () => void createNodeAt(k.kind, place) }));
 }
 
 const ELEMENT_LABELS: Readonly<Record<keyof typeof NEW_ELEMENTS, string>> = { Panel: "Panel", Text: "Text", Image: "Image", Button: "Button", InputField: "Input Field" };
 
-/** "Create X in Document" items adding UI document elements (ADR 0077) into `at` (an element, or a document's root). */
-function uiElementItems(at: UIElementRef | { host: string; index: number }): MenuItem[] {
+/** A submenu `label` of UI document elements (ADR 0077) to add into `at` (an element, or a document's root), sorted. */
+function uiElementSubmenu(label: string, at: UIElementRef | { host: string; index: number }): MenuItem {
   const reason = whyNotEdit({ kind: "ui-documents" });
-  return (Object.keys(NEW_ELEMENTS) as (keyof typeof NEW_ELEMENTS)[]).map((tag) => ({ label: `Create ${ELEMENT_LABELS[tag]} in Document`, disabled: reason, run: () => void createUIElement(tag, at) }));
+  const tags = (Object.keys(NEW_ELEMENTS) as (keyof typeof NEW_ELEMENTS)[]).sort((a, b) => ELEMENT_LABELS[a].localeCompare(ELEMENT_LABELS[b]));
+  return { label, submenu: tags.map((tag) => ({ label: ELEMENT_LABELS[tag], disabled: reason, run: () => void createUIElement(tag, at) })) };
 }
 
 /** Where the Create menu adds UI document elements: the selected element, or the selected node's (first) document. */
@@ -63,13 +59,16 @@ function uiCreateTarget(scene: OpenScene): UIElementRef | { host: string; index:
   return node && documentsOn(node).length > 0 ? { host: active!, index: 0 } : null;
 }
 
-/** The "+" menu: new nodes at the top level, and under the active selected node if there is one; UI elements into the selected document. */
+/**
+ * The "+" menu (and the menu bar's Create menu): the Create tree adding at the top level, then the same tree under
+ * Child of Selection for the active selected node, if there is one; first, elements into the selected UI document.
+ */
 export function createMenuItems(scene: OpenScene): MenuItem[] {
   const active = selection.value;
   const ui = uiCreateTarget(scene);
-  const items = ui ? [...uiElementItems(ui), SEPARATOR] : [];
-  items.push(...createItems(scene, { kind: "into", key: null }, ""));
-  if (active && scene.doc.has(active.split("/")[0])) items.push(SEPARATOR, ...createItems(scene, { kind: "into", key: active }, " Child"));
+  const items: MenuItem[] = ui ? [uiElementSubmenu("Element in Document", ui), SEPARATOR] : [];
+  items.push(...createTree(scene, { kind: "into", key: null }));
+  if (active && scene.doc.has(active.split("/")[0])) items.push(SEPARATOR, { label: "Child of Selection", submenu: createTree(scene, { kind: "into", key: active }) });
   return items;
 }
 
@@ -80,7 +79,7 @@ function uiElementMenuItems(scene: OpenScene, ref: UIElementRef, owner?: object)
   const label = el && elementSource(el)?.label ? "a button's label is its text content" : null;
   const root = el && !el.parent ? "it's the document's root" : null;
   return [
-    ...uiElementItems(ref),
+    uiElementSubmenu("Create Element", ref),
     SEPARATOR,
     { label: "Rename", shortcut: "F2", disabled: reason ?? label, run: () => renameRow(HIERARCHY_TREE, uiTreeKey(uiRefKey(ref)), owner) },
     { label: "Duplicate", shortcut: "Ctrl+D", disabled: reason ?? label ?? root, run: () => void duplicateUIElement(ref) },
@@ -94,7 +93,11 @@ export function openUIElementMenu(x: number, y: number, ref: UIElementRef, owner
   if (scene) hierarchyMenu.value = { x, y, items: uiElementMenuItems(scene, ref, owner), owner };
 }
 
-/** The right-click menu for the row `key`, or for empty space (null). */
+/**
+ * The right-click menu for the row `key`: Create and Create Child (the Create tree beside it and in it), the
+ * clipboard, Rename, Duplicate and Delete, Open Prefab, then the Scene view's visibility and picking. For empty space
+ * (null): the Create tree at the top level, then Paste.
+ */
 function rowMenuItems(scene: OpenScene, key: string | null, owner?: object): MenuItem[] {
   const pasteItem = (asChild: boolean): MenuItem => ({
     label: asChild ? "Paste as Child" : "Paste",
@@ -102,20 +105,20 @@ function rowMenuItems(scene: OpenScene, key: string | null, owner?: object): Men
     disabled: nodeClipboard.value ? whyNotPasteAt(key, asChild) : "nothing copied",
     run: () => void pasteClipboardAt(key, asChild),
   });
-  if (key === null) return [...createItems(scene, { kind: "into", key: null }, ""), SEPARATOR, pasteItem(false)];
+  if (key === null) return [...createTree(scene, { kind: "into", key: null }), SEPARATOR, pasteItem(false)];
   const keys = selectedKeys.value;
   const inner = keys.some(isInsidePrefab) ? "nodes inside a prefab are edited in the prefab (Open Prefab)" : null;
   const editing = whyNotEdit({ kind: "scene", scene });
   const hiddenOwn = nodeFlags.value.hidden.has(key), lockedOwn = nodeFlags.value.locked.has(key);
   return [
-    ...createItems(scene, { kind: "after", key }, ""),
-    SEPARATOR,
-    ...createItems(scene, { kind: "into", key }, " Child"),
+    { label: "Create", submenu: createTree(scene, { kind: "after", key }) },
+    { label: "Create Child", submenu: createTree(scene, { kind: "into", key }) },
     SEPARATOR,
     { label: "Cut", shortcut: "Ctrl+X", disabled: editing ?? inner, run: () => void cutSelection() },
     { label: "Copy", shortcut: "Ctrl+C", disabled: inner, run: () => void copySelection() },
     pasteItem(false),
     pasteItem(true),
+    SEPARATOR,
     { label: "Rename", shortcut: "F2", disabled: editing, run: () => renameRow(HIERARCHY_TREE, key, owner) },
     { label: "Duplicate", shortcut: "Ctrl+D", disabled: editing ?? inner, run: () => void duplicateSelection() },
     { label: "Delete", shortcut: "Del", disabled: editing ?? (keys.some(isInsidePrefab) && !keys.every(isInsidePrefab) ? "can't delete nodes inside a prefab together with others" : null), run: () => void deleteSelected() },
@@ -150,35 +153,9 @@ export function openCreateMenu(button: HTMLElement, owner?: object): void {
   hierarchyMenu.value = { x: r.left, y: r.bottom + 2, items: createMenuItems(scene), owner };
 }
 
-/** The open menu, drawn in the panel that opened it (`owner`: that panel's view state). */
+/** The open menu, drawn in the panel that opened it (`owner`: that panel's view state), in that panel's window. */
 export function HierarchyMenu(props: { owner?: object }) {
   const open = hierarchyMenu.value;
   const m = open && (open.owner === undefined || open.owner === props.owner) ? open : null;
-  const el = useRef<HTMLDivElement>(null);
-  // In its own window (a detached panel window, ADR 0174), measured to stay on screen.
-  usePopover(el, !!m, { anchor: m, key: m, focusFirst: true, onDismiss: () => (hierarchyMenu.value = null) });
-  if (!m) return null;
-  return (
-    <div ref={el} class="context-menu hierarchy-menu" role="menu">
-      {m.items.map((item, i) =>
-        item.separator ? (
-          <div key={i} class="context-sep" role="separator" />
-        ) : (
-          <button
-            key={i}
-            role="menuitem"
-            disabled={!!item.disabled}
-            title={item.disabled || undefined}
-            onClick={() => {
-              hierarchyMenu.value = null;
-              item.run?.();
-            }}
-          >
-            <span>{item.label}</span>
-            {item.shortcut && <span class="context-key">{item.shortcut}</span>}
-          </button>
-        ),
-      )}
-    </div>
-  );
+  return <PanelMenu menu={m} label="Hierarchy menu" class="hierarchy-menu" onClose={() => (hierarchyMenu.value = null)} />;
 }

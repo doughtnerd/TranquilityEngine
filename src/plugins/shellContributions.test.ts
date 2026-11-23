@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultImportSettings, formatImportSettings, sidecarPath } from "../engine/scene/importSettings";
 import { newNodeKinds, type NodeKind } from "../editor/nodeKinds";
+import { nodeCreateTree } from "../editor/createMenuTree";
 import { joinPath, openFolderProject } from "../editor/projects";
 import { assetActions, hierarchyCreateEntries, idlePrefetches, panelExtensions, playStatsCounters, sceneOpenMigrations, viewportTools } from "../editor/sdk/contributions";
 import { CommandStack, SceneDocument } from "../editor/document";
@@ -32,6 +33,10 @@ describe("the Hierarchy's Create menu (ADR 0146)", () => {
     const labels = newNodeKinds().map((k) => k.label);
     expect(labels.slice(0, 4)).toEqual(["Empty", "Sprite", "Tilemap", "Camera"]);
     expect(labels.slice(labels.indexOf("Reflection Probe"), labels.indexOf("Reflection Probe") + 3)).toEqual(["Reflection Probe", "Particle System", "Water"]);
+    // In the Create tree's submenus (ADR 0381): Tilemap under 2D, Particle System under Effects.
+    const submenu = (name: string) => nodeCreateTree((_, label) => ({ label })).find((e) => e.label === name)?.submenu?.map((e) => e.label);
+    expect(submenu("2D")).toEqual(["Sprite", "Tilemap"]);
+    expect(submenu("Effects")).toEqual(["Fog", "Particle System", "Water"]);
     halves.off();
     expect(labels).toHaveLength(newNodeKinds().length + 2); // the built-in kinds and the two plugins' ones
   });

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import {
   assetCommandLabel,
+  assetCreateItems,
   assetKeyCommand,
   assetPluginItems,
   assetShortcut,
@@ -20,7 +21,7 @@ import { askBeforeDeletingAssets } from "./preferences";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { replaceScripts } from "./scriptLoader";
-import { assetActions } from "./sdk/contributions";
+import { assetActions, assetKinds } from "./sdk/contributions";
 import { currentProject, openScene, openScenes, playState, sceneCamera, status, type OpenScene } from "./state";
 import { MemoryFileSystem, ROOT, demoFolder, useCoreAssetKinds } from "./testing";
 
@@ -233,5 +234,22 @@ describe("the panel's selection", () => {
     expect(arrowSelection(items, "y.png", "x.png", "ArrowRight", 1, true)).toEqual({ selected: ["x.png", "y.png", "z.png"], focus: "z.png", anchor: "x.png" });
     expect(arrowSelection(items, "y.png", "y.png", "ArrowUp", 2, true)).toEqual({ selected: ["a/", "x.png", "y.png"], focus: "a/", anchor: "y.png" });
     expect(arrowSelection(items, "x.png", null, "Enter", 1, false)).toBeNull();
+  });
+});
+
+describe("the Create submenu (ADR 0381)", () => {
+  const shape = (entries: ReturnType<typeof assetCreateItems>) =>
+    entries.map((e) => (e.type === "separator" ? "-" : e.type === "item" ? e.item.label : `${e.label}: ${e.items.map((i) => i.label).join(", ")}`));
+
+  it("is Folder, Scene and Script…, then each kind under its category without New, a kind naming none under Other", () => {
+    const undo = [
+      assetKinds.register({ id: "t.zap", extensions: [".zap.json"], label: "Zap", icon: "", create: { label: "New Zap", create: async () => null } }),
+      assetKinds.register({ id: "t.glow", extensions: [".glow.json"], label: "Glow", icon: "", create: { label: "New Glow", category: "Rendering", create: async () => null } }),
+    ];
+    try {
+      expect(shape(assetCreateItems(on()))).toEqual(["Folder", "Scene", "Script…", "-", "Input: Input Context", "Localisation: String Table", "Rendering: Glow, Render Texture", "Other: Zap"]);
+    } finally {
+      for (const u of undo) u();
+    }
   });
 });

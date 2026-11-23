@@ -114,7 +114,7 @@ test("Window lists a checkable item per panel, shows a panel, and resets the lay
 
 test("Create adds a node like the Hierarchy's menu, as one undo step", async ({ page }) => {
   await openEditor(page, { sample: "flappy" });
-  await menu(page, "Create", "Sprite");
+  await menu(page, "Create", "2D", "Sprite");
   await expect(page.locator('.tree .row[data-key="sprite"]')).toHaveClass(/selected/);
   await expect(page.locator(".scene-name")).toContainText("•");
   const edit = await openMenu(page, "Edit");

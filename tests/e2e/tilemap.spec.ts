@@ -36,8 +36,8 @@ test("paints tiles from the Tile Palette in the scene view, as one undo step", a
   await page.keyboard.press("Escape");
 });
 
-test("Create > Tilemap adds a tilemap node", async ({ page }) => {
+test("Create > 2D > Tilemap adds a tilemap node", async ({ page }) => {
   await openEditor(page, { sample: "platformer" });
-  await menu(page, "Create", "Tilemap");
+  await menu(page, "Create", "2D", "Tilemap");
   await expect(page.locator(".tilemap-summary")).toContainText("1 layer");
 });

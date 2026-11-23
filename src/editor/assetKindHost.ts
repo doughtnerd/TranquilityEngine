@@ -95,6 +95,8 @@ export interface KindCreator {
   /** The kind that creates. */
   readonly kind: string;
   readonly label: string;
+  /** The Create menu's submenu it goes in (ADR 0381), as the kind's `create` names it; undefined: none named. */
+  readonly category?: string;
   /** Create one in the folder the Assets panel shows; at the project root, in the kind's `folder` (ADR 0233). */
   create(folder: string): Promise<string | null>;
 }
@@ -105,7 +107,9 @@ export interface KindCreator {
  */
 export function kindCreators(): KindCreator[] {
   void assetKinds.version.value;
-  return assetKinds.list().flatMap((k) => (k.create ? [{ kind: k.id, label: k.create.label, create: (folder: string) => createAsset(k.id, folder === "" ? {} : { folder }) }] : []));
+  return assetKinds
+    .list()
+    .flatMap((k) => (k.create ? [{ kind: k.id, label: k.create.label, category: k.create.category, create: (folder: string) => createAsset(k.id, folder === "" ? {} : { folder }) }] : []));
 }
 
 /** The file each panel has open, with the project it was opened in. */
