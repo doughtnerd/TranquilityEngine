@@ -9,7 +9,7 @@ import type { AudioProject } from "../../../engine/audio/project/types";
 import {
   canonicalLanguageCode, cleanFolder, LANGUAGE_LIMITS, languageDef, languageOf, type LanguageDef, type LanguageSettings,
 } from "../../../engine/localisation/languages";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
 
 // --- the lock rule -------------------------------------------------------------------------------------------------------
 

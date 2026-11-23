@@ -88,6 +88,7 @@ test("Alt+click lists the nodes under the pointer, occluded ones and children to
   await page.keyboard.press("Escape"); // cancel: back to the Ceiling
   await expect(list).toHaveCount(0);
   expect(await selected(page)).toEqual(["ceiling"]);
+  await afterFrames(page); // the gizmo moves back to the Ceiling on the next frame; until then it still covers the bird
 
   await page.keyboard.down("Alt");
   await page.mouse.click(at.x, at.y);

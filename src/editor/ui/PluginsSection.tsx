@@ -5,6 +5,7 @@
 // `switchPlugin` (pluginSwitch.ts); this view draws the list and the dialogs.
 import { allPluginManifests, projectPlugins } from "../../plugins/thirdPartyEditor";
 import { migrateDisabledPlugins, pluginDependencies, resolveEnabledPlugins } from "../../plugins/enabled";
+import { noticesOf, pluginNotices } from "../../plugins/pluginNotices";
 import { pluginTitle, type PluginManifest } from "../../plugins/manifest";
 import { disabledPluginsOf, type SettingsDraft } from "../projectSettingsModel";
 import { switchPlugin, type PluginSwitchAnswer, type PluginSwitchQuestion } from "../pluginSwitch";
@@ -28,6 +29,7 @@ export function PluginsSection(props: { draft: SettingsDraft; set: Set }) {
   };
   const disabled = migrateDisabledPlugins(disabledPluginsOf(draft)); // old names (myco.physics2d) read as their new plugin (ADR 0137)
   const enabled = resolveEnabledPlugins(manifests, disabled);
+  const notices = pluginNotices.value;
 
   // The switch itself is an operation (pluginSwitch.ts); this only words its questions as dialogs.
   const ask = async (q: PluginSwitchQuestion): Promise<PluginSwitchAnswer> => {
@@ -83,6 +85,7 @@ export function PluginsSection(props: { draft: SettingsDraft; set: Set }) {
                 </span>
                 {m.description && <span class="plugins-description">{m.description}</span>}
                 {!on && blockedBy.length > 0 && !disabled.includes(m.name) && <span class="plugins-description">Off because it needs {blockedBy.map(title).join(", ")}.</span>}
+                {on && noticesOf(notices, m.name).map((message) => <span key={message} class="plugins-description plugins-notice">{message}</span>)}
                 {on && pluginDependencies(manifests, m.name).length > 0 && <span class="plugins-description">Needs {pluginDependencies(manifests, m.name).map(title).join(", ")}.</span>}
               </label>
             </li>

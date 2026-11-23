@@ -1,0 +1,28 @@
+/* The Animation plugin's clip import settings (ADR 0373; T54): the take strip, the clip's rows, the compile report. Theme
+   tokens only (src/editor/theme.ts). */
+.clip-import-preview { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.clip-import-preview .clip-preview-controls { display: flex; align-items: center; gap: 6px; }
+.clip-import-preview .clip-preview-controls input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+.clip-import-preview .clip-preview-time { min-width: 7em; text-align: right; font-variant-numeric: tabular-nums; font-size: calc(12px * var(--ui-scale)); color: var(--muted); }
+
+.take-strip { position: relative; height: 28px; margin: 6px 0; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-sunken); overflow: hidden; cursor: crosshair; }
+.take-strip-clip { position: absolute; top: 2px; bottom: 2px; min-width: 4px; padding: 0 4px; box-sizing: border-box; border: 1px solid var(--border-strong); border-radius: 3px; background: var(--button); color: var(--text); font: inherit; font-size: calc(11px * var(--ui-scale)); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.take-strip-clip:hover { background: var(--button-hover); }
+.take-strip-clip.on { z-index: 1; border-color: var(--accent); background: var(--accent-soft); }
+.take-strip-playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); pointer-events: none; z-index: 2; }
+
+.clip-actions { margin: 4px 0 8px; }
+.clip-heading { margin: 10px 0 4px; font-size: calc(11px * var(--ui-scale)); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.clip-axis { display: inline-flex; align-items: center; gap: 2px; }
+.clip-report { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.clip-report-dim { color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.clip-report-problem { color: var(--danger); }
+
+.clip-rows { display: flex; flex-direction: column; gap: 3px; }
+.clip-row { display: grid; grid-template-columns: 5.5em minmax(0, 1fr) minmax(0, 1fr) auto; gap: 4px; align-items: center; }
+.clip-curve { display: flex; flex-direction: column; gap: 3px; padding: 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); }
+.clip-curve .clip-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+.clip-curve .clip-row:first-child { grid-template-columns: minmax(0, 1fr) auto; }
+.clip-rows input[type="text"], .clip-rows select { width: 100%; min-width: 0; box-sizing: border-box; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; font: inherit; }
+.clip-rows input:focus, .clip-rows select:focus { outline: none; border-color: var(--accent); }
+.clip-rows > button, .clip-curve > button { align-self: flex-start; }

@@ -176,3 +176,52 @@ describe("World.redraw and advanceClock", () => {
     expect(world.time.deltaTime).toBe(0);
   });
 });
+
+describe("World._afterPropagation (ADR 0370's frame order, step 7: BoneAttachments)", () => {
+  it("runs hooks after propagation and before render sync, then propagates what they moved", () => {
+    const anchor = spawn("Anchor");
+    const follower = spawn("Follower");
+    const child = World._runIn(world, () => GameObject.create("Child", { parent: follower }));
+    World._runIn(world, () => (child.transform!.position = [0, 1, 0]));
+    const seen: string[] = [];
+    const remove = world._afterPropagation((w) => {
+      seen.push(`hook ${w.name} active=${World.active === w} anchor=${anchor.transform!.worldPosition.x}`);
+      follower.transform!.worldPosition = anchor.transform!.worldPosition;
+    });
+    World._runIn(world, () => anchor.addBehavior(class extends GameBehavior {
+      lateUpdate(): void {
+        this.node.transform!.position = [4, 0, 0];
+      }
+    }));
+    const surface = {
+      sync: () => seen.push(`sync child=${child.transform!.localToWorld.position.x},${child.transform!.localToWorld.position.y}`),
+      render: () => {},
+    } as unknown as RenderSurface;
+    world.step(1 / 60); // the behavior starts
+    world.step(1 / 60, { surface });
+    expect(seen.slice(-2)).toEqual(["hook A active=true anchor=4", "sync child=4,1"]);
+
+    remove();
+    seen.length = 0;
+    world.step(1 / 60, { surface });
+    expect(seen).toEqual(["sync child=4,1"]);
+  });
+
+  it("runs on redraw, and keeps going when a hook throws", () => {
+    const node = spawn();
+    const errors: unknown[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => void errors.push(args);
+    try {
+      world._afterPropagation(() => {
+        throw new Error("hook failed");
+      });
+      world._afterPropagation(() => (node.transform!.position = [2, 0, 0]));
+      world.redraw({ sync: () => log.push(`sync x=${node.transform!.localToWorld.position.x}`), render: () => {} } as unknown as RenderSurface);
+    } finally {
+      console.error = original;
+    }
+    expect(errors).toHaveLength(1);
+    expect(log).toEqual(["sync x=2"]);
+  });
+});

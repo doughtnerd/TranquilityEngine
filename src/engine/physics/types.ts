@@ -34,6 +34,29 @@ export interface JointSpring {
 }
 
 /**
+ * A ball joint's swing range (ADR 0375): how far, in degrees, the joint's body may turn around the joint frame's
+ * y axis and around its z axis (the frame's x axis is the twist axis). The cone the twist axis sweeps is
+ * elliptical when the two differ.
+ */
+export interface BallSwing {
+  y: number;
+  z: number;
+}
+
+/**
+ * Drives a ball joint's body towards `targetRotation` (ADR 0375): the body's rotation relative to the connected
+ * body, as a turn away from the pose the joint was made in, in the joint's frame (x is the twist axis), a plain
+ * `{ x, y, z, w }` quaternion. `stiffness` (torque per radian) and `damping` (torque per radian per second) shape
+ * the spring; `maxForce` is the most torque it may apply (0 turns the drive off in effect).
+ */
+export interface BallDrive {
+  targetRotation: { x: number; y: number; z: number; w: number };
+  stiffness: number;
+  damping: number;
+  maxForce: number;
+}
+
+/**
  * What a joint is (ADR 0305), 2D or 3D: welded (`fixed`), turning about an axis (`hinge`), sliding along one
  * (`slider`), turning freely about a point (`ball`, 3D only), at most a length apart (`rope`) or pulled towards
  * one (`spring`).

@@ -107,6 +107,39 @@ describe("plugin.json validation", () => {
   });
 });
 
+describe("animationNodes (ADR 0370, T45t)", () => {
+  const nodesOnly = (animationNodes: unknown) => ({ name: "acme", version: "1.0.0", sdk: "^1.0.0", animationNodes });
+  const plan = (raw: unknown, assets?: string[]) =>
+    planPluginCode({ json: new Map([["plugins/acme/plugin.json", JSON.stringify(raw)]]), code: new Map(), ...(assets && { assets }) }, { editor: true });
+
+  it("reads the node modules with their budgets; a plugin may have nothing else", async () => {
+    const p = await plan(nodesOnly([{ module: "nodes/sway.wasm", budget: 5000 }, { module: "./nodes/ik.wasm" }]), ["plugins/acme/nodes/sway.wasm", "plugins/acme/nodes/ik.wasm"]);
+    expect(p.problems).toEqual([]);
+    expect(p.plugins[0]!.manifest.animationNodes).toEqual([
+      { module: "nodes/sway.wasm", budget: 5000 },
+      { module: "nodes/ik.wasm", budget: 1_000_000 },
+    ]);
+    expect(p.plugins[0]!.warnings).toBeUndefined();
+  });
+
+  it("is lenient: bad entries and budgets are warnings, never a refusal, and missing module files are warned", async () => {
+    const p = await plan(nodesOnly([{ module: "nodes/sway.wasm", budget: -1 }, { module: "/abs.wasm" }, { module: "nodes/gone.wasm" }]), ["plugins/acme/nodes/sway.wasm"]);
+    expect(p.problems).toEqual([]);
+    expect(p.plugins.map((x) => x.manifest.name)).toEqual(["acme"]);
+    expect(p.plugins[0]!.manifest.animationNodes!.map((m) => m.module)).toEqual(["nodes/sway.wasm", "nodes/gone.wasm"]);
+    expect(p.plugins[0]!.warnings).toEqual([
+      expect.stringContaining("animationNodes[0].budget"),
+      expect.stringContaining("animationNodes[1].module"),
+      "its animation node module plugins/acme/nodes/gone.wasm doesn't exist; its nodes pass their input through",
+    ]);
+    // A section that isn't a list is a warning; with nothing else, the plugin is still accepted (it declared the section).
+    const odd = await plan(nodesOnly("nodes/sway.wasm"));
+    expect(odd.problems).toEqual([]);
+    expect(odd.plugins[0]!.manifest.animationNodes).toBeUndefined();
+    expect(odd.plugins[0]!.warnings).toEqual([expect.stringContaining("must be a list")]);
+  });
+});
+
 describe("discovery", () => {
   it("finds plugins/<folder>/plugin.json with its entries", async () => {
     const { json, code } = readFixture();

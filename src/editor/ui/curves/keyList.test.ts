@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Curve } from "../../../engine/core/curve";
-import { addKey, axisTicks, fitYRange, moveKey, pixelToX, pixelToY, removeKey, setKeyInterp, xToPixel, yToPixel } from "./keyList";
+import { addKey, axisTicks, copyKeysAt, fitYRange, moveKey, pasteKeys, pixelToX, pixelToY, removeKey, removeKeys, rippleKeys, scaleKeys, setKeyInterp, shiftKeys, xToPixel, yToPixel } from "./keyList";
 
 describe("curve keys (ported from the particle editor)", () => {
   it("adds keys in order and clamps t", () => {
@@ -82,5 +82,44 @@ describe("per-segment interpolation", () => {
   it("gives an added key the interp of the key before it", () => {
     expect(addKey([[0, 0, "smooth"], [1, 1]] as Curve[number][], 0.5, 0.2).keys[1]).toEqual([0.5, 0.2, "smooth"]);
     expect(addKey([[0.5, 0, "smooth"], [1, 1]] as Curve[number][], 0.1, 0.2).keys[0]).toEqual([0.1, 0.2]);
+  });
+});
+
+describe("several keys at once (ADR 0373)", () => {
+  type K = [number, string];
+  const keys: K[] = [[0, "a"], [0.25, "b"], [0.5, "c"], [1, "d"]];
+  it("shifts a group together, clamped so its spacing is kept, and reports where the keys landed", () => {
+    expect(shiftKeys(keys, [1, 2], 0.125, [0, 1])).toEqual({ keys: [[0, "a"], [0.375, "b"], [0.625, "c"], [1, "d"]], indices: [1, 2] });
+    // Past the end: the group stops when its last key reaches 1, and so replaces "d".
+    const r = shiftKeys(keys, [1, 2], 2, [0, 1]);
+    expect(r.keys).toEqual([[0, "a"], [0.75, "b"], [1, "c"]]);
+    expect(r.indices).toEqual([1, 2]);
+    expect(keys[1]).toEqual([0.25, "b"]);
+  });
+  it("re-sorts when a moved key passes another, which keeps its order", () => {
+    const r = shiftKeys(keys, [0], 0.375, [0, 1]);
+    expect(r.keys.map((k) => k[1])).toEqual(["b", "a", "c", "d"]);
+    expect(r.indices).toEqual([1]);
+  });
+  it("scales about a pivot and clamps; a factor that isn't positive changes nothing", () => {
+    expect(scaleKeys(keys, [1, 2], 0.25, 2, [0, 1]).keys).toEqual([[0, "a"], [0.25, "b"], [0.75, "c"], [1, "d"]]);
+    expect(scaleKeys(keys, [2], 0, 4, [0, 1]).keys).toEqual([[0, "a"], [0.25, "b"], [1, "c"]]);
+    expect(scaleKeys(keys, [1], 0, -1, [0, 1]).keys).toEqual(keys);
+  });
+  it("removes any number of keys, all of them included", () => {
+    expect(removeKeys(keys, [0, 3])).toEqual([[0.25, "b"], [0.5, "c"]]);
+    expect(removeKeys(keys, [0, 1, 2, 3])).toEqual([]);
+  });
+  it("ripples: inserting time moves later keys, removing time cuts the span out", () => {
+    expect(rippleKeys(keys, 0.5, 0.25)).toEqual([[0, "a"], [0.25, "b"], [0.75, "c"], [1.25, "d"]]);
+    expect(rippleKeys(keys, 0.5, -0.25)).toEqual([[0, "a"], [0.25, "c"], [0.75, "d"]]);
+  });
+  it("copies relative to the first key and pastes at a point, replacing keys there and leaving out what falls outside", () => {
+    const copied = copyKeysAt(keys, [2, 1]);
+    expect(copied).toEqual([[0, "b"], [0.25, "c"]]);
+    const r = pasteKeys(keys, copied, 0.75, [0, 1]);
+    expect(r.keys).toEqual([[0, "a"], [0.25, "b"], [0.5, "c"], [0.75, "b"], [1, "c"]]);
+    expect(r.indices).toEqual([3, 4]);
+    expect(pasteKeys(keys, copied, 0.875, [0, 1]).indices[1]).toBe(-1);
   });
 });

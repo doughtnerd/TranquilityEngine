@@ -3,7 +3,9 @@
 // Babylon meshes and utility layer, real engine Camera components) whose features "drew" quads, meshes and
 // canvas rectangles.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
-import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
+import { BoundingInfo } from "@babylonjs/core/Culling/boundingInfo.js";
+import { Matrix, Vector3 as BabylonVector3 } from "@babylonjs/core/Maths/math.vector.js";
+import { Mesh as BabylonMesh } from "@babylonjs/core/Meshes/mesh.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { UtilityLayerRenderer } from "@babylonjs/core/Rendering/utilityLayerRenderer.js";
@@ -125,6 +127,25 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
     const [x, y] = queries.worldToCanvas([3, 1, 2])!;
     expect(queries.pick(x, y)).toEqual([moved]);
     expect(queries.pick(x + 60, y)).toEqual([]); // one unit right: past its half-unit side
+  });
+
+  it("picks a mesh whose vertices live only on the GPU (a GPU-skinned draw) by its bounding box, nearest first (T18)", () => {
+    camera();
+    // A skinned draw skinned on the GPU has no CPU positions: only indices, and the bounds the skinning feature sets.
+    const skinnedNode = GameObject.create("skinned");
+    const skinned = new BabylonMesh("skinned", scene);
+    skinned.setIndices([0, 1, 2], 3);
+    skinned.freezeWorldMatrix(Matrix.Translation(3, 0, 0));
+    skinned.setBoundingInfo(new BoundingInfo(new BabylonVector3(-1, -1, -1), new BabylonVector3(1, 1, 1), skinned.getWorldMatrix()));
+    drawn.push({ component: { node: skinnedNode } as never, shape: { kind: "meshes", meshes: [skinned] }, order: PICK_ORDER.depthTested });
+    const [x, y] = queries.worldToCanvas([3, 0, 0])!;
+    expect(queries.pick(x, y)).toEqual([skinnedNode]);
+    expect(queries.pick(x + 50, y)).toEqual([skinnedNode]); // inside the box's 1-unit half width (60 px a unit)
+    expect(queries.pick(x + 70, y)).toEqual([]); // past it
+    // A mesh in front of the box picks first; one behind it after.
+    const front = box("front", [3, 0, -4], 1);
+    const back = box("back", [3, 0, 4], 1);
+    expect(queries.pick(x, y)).toEqual([front, skinnedNode, back]);
   });
 
   it("ignores hidden meshes and sprites", () => {

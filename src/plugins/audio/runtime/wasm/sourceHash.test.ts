@@ -19,7 +19,7 @@ export const SKIPPED_DIRS = ["target", "vectors", "tests"] as const;
 /** File names hashed besides `*.rs`. */
 export const HASHED_NAMES = ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml"] as const;
 /** The digest of the fixture both this test and audio-wasm's tests/source_hash.rs check. */
-export const FIXTURE_HASH = "f8b235c550292bb3fef841a866a2801f";
+export const FIXTURE_HASH = "3f9c4b95c720a04252ca88a1664af88e";
 
 /** The hashed files under `root` as `[key, absolutePath]`, sorted by key in ascending byte order. */
 export function hashedFiles(root: string): [string, string][] {
@@ -39,6 +39,9 @@ export function hashedFiles(root: string): [string, string][] {
     }
   };
   walk(root, "");
+  // The shared crates (ADR 0370): `../common/`, keyed under it, with the same skips.
+  const common = join(root, "..", "common");
+  if (existsSync(common)) walk(common, "../common");
   return out.sort((a, b) => Buffer.compare(Buffer.from(a[0], "utf8"), Buffer.from(b[0], "utf8")));
 }
 
@@ -80,7 +83,9 @@ function tempDir(): string {
 
 /** Runs `body` on the spec's fixture, in a temp dir removed afterwards. */
 function withFixture(body: (root: string) => void, options: { lf?: boolean } = {}): void {
-  const root = tempDir();
+  const base = tempDir();
+  // The hashed root is `base/core`, so `root/../common` is the fixture's own shared crates.
+  const root = join(base, "core");
   try {
     const fix = (s: string) => (options.lf ? s.replace(/\r\n/g, "\n") : s);
     const files: [string, string][] = [
@@ -96,6 +101,11 @@ function withFixture(body: (root: string) => void, options: { lf?: boolean } = {
       ["vectors/wire.rs", "fn w() {}\n"],
       ["crates/a/README.md", "# a\n"],
       ["build.mjs", "export {};\n"],
+      // The shared crates beside the root (ADR 0370): hashed under `../common/`, with the same skips.
+      ["../common/c/Cargo.toml", '[package]\nname = "c"\n'],
+      ["../common/c/src/lib.rs", fix("pub fn c() {}\r\n")],
+      ["../common/c/target/debug/y.rs", "fn y() {}\n"],
+      ["../common/c/tests/t.rs", "fn t() {}\n"],
     ];
     for (const [rel, contents] of files) {
       const path = join(root, rel);
@@ -104,11 +114,13 @@ function withFixture(body: (root: string) => void, options: { lf?: boolean } = {
     }
     body(root);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true });
   }
 }
 
 const FIXTURE_KEYS = [
+  "../common/c/Cargo.toml",
+  "../common/c/src/lib.rs",
   "Cargo.lock",
   "Cargo.toml",
   "crates/a/Cargo.toml",

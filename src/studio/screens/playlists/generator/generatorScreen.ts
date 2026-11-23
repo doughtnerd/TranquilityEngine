@@ -16,7 +16,7 @@ import { Assets, type AssetSource } from "../../../../engine/scene/Assets";
 import { generatorSpec, generatorIsEndless } from "../../../../engine/audio/generators/catalogue";
 import type { GeneratorAsset, GeneratorBody, GeneratorKind } from "../../../../engine/audio/generators/types";
 import { isPlaylistPath } from "../../../../engine/audio/playlist/format";
-import { applyEdit } from "../../../../plugins/audio/editor/editResult";
+import { applyEdit } from "../../../../editor/sdk/editResult";
 import type { AudioEventHandle } from "../../../../plugins/audio/runtime";
 import { audioHost, keymap, openRoute, toasts } from "../../../shell/studioServices";
 import { editAt, playlistTitle, whereOf } from "../playlistPaths";

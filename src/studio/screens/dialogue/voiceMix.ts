@@ -3,7 +3,7 @@
 // offered when a line table plays on a bus no ducking rule is triggered by, and adds an ordinary presence rule to
 // `audio.json` (one undo step). Nothing new in the mixer. Pure.
 import type { AudioProject } from "../../../engine/audio/project/types";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
 import { busOf, masterOf } from "../mixer/busTree";
 import { addDucking } from "../mixer/mixEdits";
 import { allLines, fileIn, type DialogueData } from "./dialogueData";

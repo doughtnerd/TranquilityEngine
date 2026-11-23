@@ -29,6 +29,7 @@
     "build:nav": "node native/nav/build.mjs",
     "build:input": "node native/input/build.mjs",
     "build:audio": "node native/audio/build.mjs",
+    "build:anim": "node native/anim/build.mjs",
     "check:audio-metered": "node tools/audio-bench/metered-gate.mjs",
     "bench:audio-spatial": "node tools/audio-bench/spatial.mjs",
     "check:links": "node tools/check-doc-links.mjs",
@@ -47,6 +48,7 @@
     "tauri:studio:build": "node tools/tauri-studio.mjs build",
     "postinstall": "patch-package",
     "bench:particles": "node bench/particles/run.mjs",
+    "bench:anim": "node tools/anim-bench/run.mjs",
     "check:filenames": "node tools/check-filename-case.mjs",
     "build:fx-examples": "node native/fx-sdk/build.mjs"
   },

@@ -3,6 +3,8 @@ import { LOG_KINDS, clearLog, kindShown, logOpen, logText, messageLog, shownEntr
 import { addToPreload, preloadSuggestion } from "../scenePreload";
 import { docVersion, openScene, scriptProblems, status } from "../state";
 import { menuOpen } from "./MenuBar";
+import { DebugLinkBuilds } from "../debugLink/BuildsMenu";
+import { settingsOpen } from "./dialogState";
 
 /**
  * The status bar: the latest message, any action it offers, and markers for problems. Clicking it
@@ -42,6 +44,7 @@ export function StatusBar() {
           </button>
         )}
         <ScriptProblems />
+        <DebugLinkBuilds onSettings={() => (settingsOpen.value = true)} />
         {unseen > 0 && !open && (
           <span class="status-unseen" title={`${unseen} error${unseen === 1 ? "" : "s"} since the log was last opened`}>
             {unseen} error{unseen === 1 ? "" : "s"}

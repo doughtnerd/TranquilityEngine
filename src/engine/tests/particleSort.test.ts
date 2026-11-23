@@ -5,7 +5,7 @@ import { outputSorts } from "../scene/particleGraph";
 import { parseParticleGraph } from "../scene/particleGraphFormat";
 import { bitonicStages, bitonicStep } from "../render/particles/gpu/bitonic";
 import { WebGpuSorter, depthRow, sortLayout, sortPairsJs } from "../render/particles/gpu/sort";
-import type { GpuDevice } from "../render/particles/gpu/webgpuRun";
+import type { GpuDevice } from "../render/gpuKernels/webgpu";
 
 function rng(seed: number): () => number {
   let s = seed >>> 0;

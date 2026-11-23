@@ -4,7 +4,7 @@
  * (`models/robot.fbx` → `models/robot.fbx.mycomesh`). Loading one needs no model loader, no parsing
  * and no three.js: typed arrays are views of the file's bytes. Internal: nothing here is public API.
  *
- * Layout (little-endian): the magic `MYCOMESH`, a u32 version (3), a u32 JSON length, the JSON
+ * Layout (little-endian): the magic `MYCOMESH`, a u32 version (4), a u32 JSON length, the JSON
  * (UTF-8, padded with spaces to 4 bytes), then the binary data every offset in the JSON points into
  * (each 4-byte aligned).
  *
@@ -16,19 +16,31 @@
  *                "pose": { … }, "variantSurfaces": { "Red": [2, 1] } }],          // pose, variants: ADR 0118
  *   "surfaces": [{ …SurfaceInfo, textures as { "path": "textures/a.png" } or { "image": 0 } }],
  *   "nodes": [{ …ModelNode }], "variants": ["Red", "Blue"],                     // ADR 0118
- *   "images": [{ "offset": 0, "length": 1234, "mimeType": "image/png" }]
+ *   "images": [{ "offset": 0, "length": 1234, "mimeType": "image/png" }],
+ *   // ADR 0371: per mesh "skin": { "influences", "joints": [offset, count] (u16), "weights", "inverseBinds"? },
+ *   // "morphTargets": [{ "name", "positions", "normals", "tangents" }], "tangents", "hidden"; and the model's
+ *   "animation": { "skeleton": { "bones": […], "inverseBinds": [offset, count], "roles", "profile" },
+ *                  "takes": [{ "name", "duration", "tracks": [0371 tracks] }], "clips": [{ "name", "take", "source": myco.anim-source@1, "settings" }],
+ *                  "boneMap": {…}, "boneMapSource": "guessed" }
  * }
  * ```
+ *
+ * A file of another version (older or newer) is refused, and the model loads from its file instead.
  */
 import type { ImportSettings } from "./importSettings";
-import { LAYER_MAP_KEYS, type MeshData, type ModelData, type ModelMesh, type ModelNode, type NodePose, type SurfaceInfo, type TextureInfo } from "./models";
+import { LAYER_MAP_KEYS, type MeshData, type ModelAnimation, type ModelData, type ModelMesh, type ModelNode, type NodePose, type SurfaceInfo, type TextureInfo } from "./models";
+import { modelAnimationToJson, type ImportedClip } from "../animation/import/clips";
+import type { ImportedBone, MeshSkin, MorphTargetData } from "../animation/import/skeleton";
+import { animSourceToJson, parseAnimSource } from "../animation/animSource";
+import { parseTracks, trackToJson } from "../animation/tracks";
+import { LenientReader } from "../animation/shared";
 
 /** @internal The suffix of a baked model beside its model file. */
 export const BAKED_SUFFIX = ".mycomesh";
 const MAGIC = "MYCOMESH";
-const VERSION = 3; // 2: node poses, lights and cameras, layer textures, variants (ADR 0118); 3: mirrored left-handed, `facing` (ADR 0164)
+const VERSION = 4; // 2: node poses, lights and cameras, layer textures, variants (ADR 0118); 3: mirrored left-handed, `facing` (ADR 0164); 4: skins, morphs, tangents, skeleton, takes and clips, the `animation` settings (ADR 0371)
 
-type BakeSettings = Pick<ImportSettings, "scale" | "upAxis" | "normals" | "facing">;
+type BakeSettings = Pick<ImportSettings, "scale" | "upAxis" | "normals" | "facing"> & Partial<Pick<ImportSettings, "animation">>;
 type Range = [offset: number, count: number];
 type BakedTexture = { path: string; mimeType?: string | null; uvSet?: number } | { image: number; mimeType?: string | null; uvSet?: number };
 
@@ -47,12 +59,26 @@ interface BakedJson {
     surfaces: number[];
     pose?: NodePose;
     variantSurfaces?: Record<string, number[]>;
+    hidden?: true;
+    skin?: { influences: 4 | 8; joints: Range; weights: Range; inverseBinds?: Range };
+    morphTargets?: { name: string; positions?: Range; normals?: Range; tangents?: Range }[];
+    tangents?: Range;
   }[];
   surfaces: Record<string, unknown>[];
   images: { offset: number; length: number; mimeType: string | null }[];
   nodes?: ModelNode[];
   variants?: string[];
+  animation?: {
+    skeleton: { bones: ImportedBone[]; inverseBinds: Range; roles: (string | null)[]; profile: string | null } | null;
+    takes: { name: string; duration: number; tracks: unknown[] }[];
+    clips: { name: string; take: string; source: unknown; settings: ImportedClip["settings"] }[];
+    boneMap: Record<string, string>;
+    boneMapSource: ModelAnimation["boneMapSource"];
+  };
 }
+
+/** The animation settings a baked model was made with, as compared on load. */
+const animationKey = (s: BakeSettings): string => JSON.stringify(modelAnimationToJson(s.animation) ?? null);
 
 const TEXTURE_KEYS = ["map", "emissiveMap", "normalMap", "metalRoughMap", "occlusionMap"] as const;
 
@@ -75,7 +101,7 @@ export function encodeBakedModel(data: ModelData, settings: BakeSettings): { byt
     }
     return offset;
   };
-  const array = (a: Float32Array | Uint32Array | null | undefined): Range | undefined => (a ? [put(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)), a.length] : undefined);
+  const array = (a: Float32Array | Uint32Array | Uint16Array | null | undefined): Range | undefined => (a ? [put(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)), a.length] : undefined);
   const dropped: string[] = [];
   const images: BakedJson["images"] = [];
   const imageIndex = new Map<Uint8Array | string, number>();
@@ -125,14 +151,30 @@ export function encodeBakedModel(data: ModelData, settings: BakeSettings): { byt
     surfaces: m.surfaces.map(surfaceOf),
     ...(m.pose ? { pose: m.pose } : {}),
     ...(m.variantSurfaces ? { variantSurfaces: Object.fromEntries(Object.entries(m.variantSurfaces).map(([k, list]) => [k, list.map(surfaceOf)])) } : {}),
+    ...(m.hidden ? { hidden: true as const } : {}),
+    ...(m.skin ? { skin: { influences: m.skin.influences, joints: array(Uint16Array.from(m.skin.joints))!, weights: array(Float32Array.from(m.skin.weights))!, ...(m.skin.inverseBinds ? { inverseBinds: array(m.skin.inverseBinds) } : {}) } } : {}),
+    ...(m.morphTargets?.length ? { morphTargets: m.morphTargets.map((t) => ({ name: t.name, positions: array(t.positions), normals: array(t.normals), tangents: array(t.tangents) })) } : {}),
+    ...(m.tangents ? { tangents: array(m.tangents) } : {}),
   }));
+  const a = data.animation;
   const json: BakedJson = {
-    settings: { scale: settings.scale, upAxis: settings.upAxis, normals: settings.normals, facing: settings.facing },
+    settings: { scale: settings.scale, upAxis: settings.upAxis, normals: settings.normals, facing: settings.facing, ...(settings.animation ? { animation: settings.animation } : {}) },
     meshes,
     surfaces,
     images,
     ...(data.nodes?.length ? { nodes: [...data.nodes] } : {}),
     ...(data.variants?.length ? { variants: [...data.variants] } : {}),
+    ...(a
+      ? {
+          animation: {
+            skeleton: a.skeleton ? { bones: [...a.skeleton.bones], inverseBinds: array(a.skeleton.inverseBinds)!, roles: [...a.skeleton.roles], profile: a.skeleton.profile } : null,
+            takes: a.takes.map((t) => ({ name: t.name, duration: t.duration, tracks: t.tracks.map(trackToJson) })),
+            clips: a.clips.map((c) => ({ name: c.name, take: c.take, source: animSourceToJson(c.source), settings: c.settings })),
+            boneMap: { ...a.boneMap },
+            boneMapSource: a.boneMapSource,
+          },
+        }
+      : {}),
   };
   let text = new TextEncoder().encode(JSON.stringify(json));
   if (text.length % 4) {
@@ -181,9 +223,10 @@ export function decodeBakedModel(bytes: ArrayBuffer, settings: BakeSettings, url
   if (version !== VERSION) throw new Error(`baked model version ${version}; this engine reads ${VERSION}`);
   const length = view.getUint32(12, true);
   const json = JSON.parse(new TextDecoder().decode(new Uint8Array(bytes, 16, length))) as BakedJson;
-  if (json.settings.scale !== settings.scale || json.settings.upAxis !== settings.upAxis || json.settings.normals !== settings.normals || json.settings.facing !== settings.facing) return null;
+  if (json.settings.scale !== settings.scale || json.settings.upAxis !== settings.upAxis || json.settings.normals !== settings.normals || json.settings.facing !== settings.facing || animationKey(json.settings) !== animationKey(settings)) return null;
   const base = 16 + length;
   const f32 = (r: Range | undefined) => (r ? new Float32Array(bytes, base + r[0], r[1]) : null);
+  const u16 = (r: Range) => new Uint16Array(bytes, base + r[0], r[1]);
   const images = json.images.map((i) => new Uint8Array(bytes, base + i.offset, i.length));
   const texture = (t: BakedTexture | null | undefined): TextureInfo | null => {
     if (!t) return null;
@@ -231,7 +274,24 @@ export function decodeBakedModel(bytes: ArrayBuffer, settings: BakeSettings, url
       surfaces: m.surfaces.map((i) => surfaces[i]),
       ...(m.pose ? { pose: m.pose } : {}),
       ...(m.variantSurfaces ? { variantSurfaces: Object.fromEntries(Object.entries(m.variantSurfaces).map(([k, list]) => [k, list.map((i) => surfaces[i])])) } : {}),
+      ...(m.hidden ? { hidden: true as const } : {}),
+      ...(m.skin ? { skin: { influences: m.skin.influences, joints: u16(m.skin.joints), weights: f32(m.skin.weights)!, ...(m.skin.inverseBinds ? { inverseBinds: f32(m.skin.inverseBinds) } : {}) } satisfies MeshSkin } : {}),
+      ...(m.morphTargets ? { morphTargets: m.morphTargets.map((t): MorphTargetData => ({ name: t.name, positions: f32(t.positions), normals: f32(t.normals), ...(t.tangents ? { tangents: f32(t.tangents) } : {}) })) } : {}),
+      ...(m.tangents ? { tangents: f32(m.tangents) } : {}),
     };
   });
-  return { meshes, ...(json.nodes ? { nodes: json.nodes } : {}), ...(json.variants ? { variants: json.variants } : {}) };
+  let animation: ModelAnimation | undefined;
+  if (json.animation) {
+    const a = json.animation;
+    const problems: string[] = [];
+    const r = new LenientReader(problems);
+    animation = {
+      skeleton: a.skeleton ? { bones: a.skeleton.bones, inverseBinds: f32(a.skeleton.inverseBinds)!, roles: a.skeleton.roles, profile: a.skeleton.profile } : null,
+      takes: a.takes.map((t) => ({ name: t.name, duration: t.duration, tracks: parseTracks(r, t.tracks, "tracks", { duration: t.duration, bones: true }) })),
+      clips: a.clips.map((c) => ({ name: c.name, take: c.take, source: parseAnimSource(c.source).value, settings: c.settings })),
+      boneMap: a.boneMap,
+      boneMapSource: a.boneMapSource,
+    };
+  }
+  return { meshes, ...(json.nodes ? { nodes: json.nodes } : {}), ...(json.variants ? { variants: json.variants } : {}), ...(animation ? { animation } : {}) };
 }

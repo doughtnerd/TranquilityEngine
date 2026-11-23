@@ -139,7 +139,7 @@ describe("the plugin set", () => {
   it("a plugin needing a server: false plugin still activates on the server (the dependency is only off there)", () => {
     const { set } = setUp();
     const result = set.apply({ plugins: [plugin("draw", [], { halves: ["runtime"], extra: { server: false } }), plugin("acme.x", ["draw"], { halves: ["runtime"] })], host: { server: true } });
-    expect(result).toEqual({ active: ["acme.x"], problems: [] });
+    expect(result).toEqual({ active: ["acme.x"], problems: [], notices: [] });
   });
 
   it("rolls back both halves of a plugin that throws and skips its dependents, without throwing", () => {
@@ -186,7 +186,7 @@ describe("the plugin set", () => {
       const { set } = setUp();
       const firstParty = [plugin("myco.sky"), plugin("myco.ui")];
       const result = set.apply({ plugins: [...firstParty, plugin("acme.clouds", ["myco.sky"])], disabled: ["myco.sky"], host });
-      expect(result).toEqual({ active: ["myco.ui"], problems: [] });
+      expect(result).toEqual({ active: ["myco.ui"], problems: [], notices: [] });
     }
   });
 

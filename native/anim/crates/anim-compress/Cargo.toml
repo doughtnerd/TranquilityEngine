@@ -1,0 +1,17 @@
+[package]
+name = "anim-compress"
+description = "Myco animation core (ADR 0370, 0371): the clip compressor (uniform sampling, range reduction, per-track bit rates against an error bound)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anim-math.workspace = true
+anim-format.workspace = true
+# The f64 reference maths and decode: the compressor measures its error with them (offline only;
+# never linked into the runtime module).
+anim-offline.workspace = true
+
+[dev-dependencies]
+anim-sample.workspace = true

@@ -5,8 +5,9 @@ import { effect, signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { kindIcon, type AssetKind } from "../assetKindLookup";
 import { autoPlayAudio } from "../preferences";
-import { animateThumbnail, audioSummaryFor, canAnimate, contentKeyFor, previewAsset, previewKind, thumbnailFor, holdThumbnail, type AssetPreviewHandle, type AudioSummary } from "../thumbnails";
+import { animateThumbnail, audioSummaryFor, canAnimate, contentKeyFor, previewAsset, previewPosed, previewKind, thumbnailFor, holdThumbnail, type AssetPreviewHandle, type AudioSummary } from "../thumbnails";
 import { currentProject, docVersion } from "../state";
+import type { PosedPreview } from "../posedPreview";
 
 // --- tiles ----------------------------------------------------------------------------------------
 
@@ -370,14 +371,28 @@ function useContentKey(path: string, active: boolean): string | null {
   return key && key.path === path && key.project === project ? key.key : null;
 }
 
-export function LargePreview(props: { path: string }) {
+export interface LargePreviewProps {
+  path: string;
+  /**
+   * Pose the preview (ADR 0373, T18b): instead of the asset at rest, draw the World this describes (nodes the plugin
+   * builds, stepped every frame). `path` is the still shown while it loads. The preview is made again when `posed.key`
+   * changes; `posed.frame` is read afresh every frame, so a playhead needs no new preview.
+   */
+  posed?: PosedPreview;
+}
+
+export function LargePreview(props: LargePreviewProps) {
   const { path } = props;
+  // The latest content, read by the running preview's frame hook without restarting it.
+  const posedNow = useRef(props.posed);
+  posedNow.current = props.posed;
+  const posedKey = props.posed?.key ?? null;
   const host = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const url = useThumbnail(path, true);
   const [live, setLive] = useState<{ path: string; handle: AssetPreviewHandle } | null>(null);
   const kind = previewKind(path);
-  const supported = !!kind && kind !== "audio";
+  const supported = (!!kind && kind !== "audio") || posedKey !== null;
   // The preview is prepared again when the asset's content (or the project) changes, and only then.
   const content = useContentKey(path, supported);
   useEffect(() => {
@@ -394,7 +409,8 @@ export function LargePreview(props: { path: string }) {
         handle.redraw();
       }
     };
-    const handle = previewAsset(path, el);
+    const spec = posedNow.current;
+    const handle = spec ? previewPosed({ ...spec, frame: (world) => posedNow.current?.frame?.(world) }, el) : previewAsset(path, el);
     fit();
     let gone = false;
     void handle.ready.then((ok) => !gone && ok && setLive({ path, handle }));
@@ -406,7 +422,7 @@ export function LargePreview(props: { path: string }) {
       handle.stop();
       setLive(null);
     };
-  }, [path, supported, content]);
+  }, [path, supported, content, posedKey]);
   if (!supported) return null;
   const shown = live?.path === path ? live.handle : null;
   const drag = (e: PointerEvent) => {

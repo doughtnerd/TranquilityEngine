@@ -96,6 +96,14 @@ async function boot(): Promise<void> {
     entryScene: manifest.mainScene || null,
     container,
   });
+  // ADR 0376: a build exported with debugging on (`game.json` `debug`) connects to the editor or the Studio. Its address
+  // can be overridden at launch: a desktop build's `--debug-link <address>` (its shell sets `__mycoDebugLink`), a web
+  // build's `?debug-link=`. Without `debug` nothing is imported, and a release export holds none of the link's files.
+  if (manifest.debug) {
+    const override = new URLSearchParams(location.search).get("debug-link") ?? (globalThis as { __mycoDebugLink?: string }).__mycoDebugLink ?? null;
+    const { startDebugLink } = await import("../engine/debugLink/host");
+    await startDebugLink(runtime, { debug: manifest.debug, override, name: manifest.name, platform: "__TAURI_INTERNALS__" in window ? "desktop" : "web" });
+  }
   runtime.start();
   (window as { engine?: Engine }).engine = runtime;
   container.querySelector("canvas")?.focus(); // keyboard input without a click first

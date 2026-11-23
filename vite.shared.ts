@@ -260,16 +260,63 @@ export function samples(): Plugin {
 /** The prebuilt game player (ADR 0041), built by vite.player.config.ts. */
 const PLAYER_DIR = fileURLToPath(new URL("./dist/player/", import.meta.url));
 
-/** Player build: list every output file in `files.json`, for the exporters to copy (ADR 0041). */
-export function playerFileList(): Plugin {
+/**
+ * Player build: list every output file in `files.json`, for the exporters to copy (ADR 0041). With `debug` (the debug
+ * link's modules, ADR 0376), `files.json` also lists as `debug` the chunks only the link reaches: the chunks holding one
+ * of those modules and every chunk reached only through them. A release export leaves those out, so it holds none of
+ * the link's code. The build fails when an entry needs one of them without `import()` (statically, through any chunk).
+ */
+export function playerFileList(options: { debug?: LazyOnlyRule } = {}): Plugin {
   return {
     name: "myco:player-files",
     enforce: "post",
     generateBundle(_options, bundle) {
       const files = Object.keys(bundle).sort();
-      this.emitFile({ type: "asset", fileName: "files.json", source: `${JSON.stringify({ files }, null, 2)}\n` });
+      const list: { files: string[]; debug?: string[] } = { files };
+      if (options.debug) {
+        const { debug, problems } = debugOnlyChunks(bundle, options.debug);
+        if (problems.length > 0) this.error(`Debug link code is in what every build ships:\n${problems.join("\n")}`);
+        list.debug = debug;
+      }
+      this.emitFile({ type: "asset", fileName: "files.json", source: `${JSON.stringify(list, null, 2)}\n` });
     },
   };
+}
+
+/** The chunks of `bundle` only `rule`'s modules lead to (sorted), and what puts one of them in every build. */
+function debugOnlyChunks(bundle: Rollup.OutputBundle, rule: LazyOnlyRule): { debug: string[]; problems: string[] } {
+  const chunks = new Map<string, Rollup.OutputChunk>();
+  for (const out of Object.values(bundle)) if (out.type === "chunk") chunks.set(out.fileName, out);
+  const holds = (c: Rollup.OutputChunk) => c.moduleIds.some((raw) => rule.matches(raw.replaceAll("\\", "/")));
+  const roots = new Set([...chunks.values()].filter(holds).map((c) => c.fileName));
+  const problems: string[] = [];
+  // Everything an entry reaches without entering a root: what every build ships.
+  const shipped = new Set<string>();
+  const walk = (file: string, from: string) => {
+    if (shipped.has(file)) return;
+    const chunk = chunks.get(file);
+    if (!chunk) return;
+    shipped.add(file);
+    for (const next of chunk.imports) {
+      if (roots.has(next)) problems.push(`${file} statically imports ${next} (the entry ${from} loads it): ${rule.why}`);
+      else walk(next, from);
+    }
+    for (const next of chunk.dynamicImports) if (!roots.has(next)) walk(next, from);
+  };
+  for (const c of chunks.values()) {
+    if (!c.isEntry) continue;
+    if (roots.has(c.fileName)) problems.push(`the entry ${c.fileName} holds debug link modules: ${rule.why}`);
+    else walk(c.fileName, c.fileName);
+  }
+  const debug = new Set<string>();
+  const reach = (file: string) => {
+    if (debug.has(file) || shipped.has(file) || !chunks.has(file)) return;
+    debug.add(file);
+    const chunk = chunks.get(file)!;
+    for (const next of [...chunk.imports, ...chunk.dynamicImports]) reach(next);
+  };
+  for (const r of roots) reach(r);
+  return { debug: [...debug].sort(), problems };
 }
 
 /** Source modules a build must only load on demand (by `import()`), and why. */
@@ -323,6 +370,16 @@ export function lazyOnly(rules: readonly LazyOnlyRule[]): Plugin {
 export const CAPTURE_CODEC: LazyOnlyRule = {
   matches: (id) => /\/src\/plugins\/audio\/runtime\/capture\/(?!(?:capture|keyframeLayout|take|takeTap|takeSeed|mixOpOrigin)\.ts$)[^/]+\.ts$/.test(id),
   why: "the audio capture codec loads with Audio.capture.start(), by import() (ADR 0230)",
+};
+
+/**
+ * The debug link (ADR 0376): everything in `src/engine/debugLink/` but the topic registry plugins register through
+ * (`topics.ts`, a map of `import()` functions with type-only imports), and the plugins' topics (`runtime/**\/debugLink/`).
+ * The player loads them by `import()` when `game.json` has `debug`; release exports leave their chunks out.
+ */
+export const DEBUG_LINK: LazyOnlyRule = {
+  matches: (id) => /\/src\/engine\/debugLink\/(?!topics\.ts$)[^/]+\.ts$/.test(id) || /\/src\/plugins\/[^/]+\/runtime\/(?:[^/]+\/)*debugLink\/[^/]+\.ts$/.test(id),
+  why: "the debug link loads only in builds with debugging on, by import() (ADR 0376)",
 };
 
 /** The player's files as `dist/player/files.json` lists them, or null if the player isn't built. */

@@ -23,7 +23,24 @@ export interface DesktopOptions {
   settings: ProjectSettingsInput & { build?: BuildSettings };
   /** The text of the editor's src-tauri/src/gamepad.rs (ADR 0335), written to the project as src/gamepad.rs. */
   gamepadModule: string;
+  /**
+   * ADR 0376: the build has debugging on (`game.json` `debug`): the app takes a `--debug-link <address>` flag that
+   * overrides `debug.link` (the shell hands it to the page before it loads). A release package has no such flag.
+   */
+  debug?: boolean;
 }
+
+/** ADR 0376: the shell lines that hand `--debug-link <address>` (or `--debug-link=<address>`) to the page as `__mycoDebugLink`. */
+export const DEBUG_LINK_FLAG_RUST = `    // ADR 0376: \`--debug-link <address>\` overrides game.json's debug.link: the page reads it as __mycoDebugLink.
+    let args: Vec<String> = std::env::args().collect();
+    let address = args.iter().enumerate().find_map(|(i, a)| {
+        if a == "--debug-link" { args.get(i + 1).cloned() } else { a.strip_prefix("--debug-link=").map(String::from) }
+    });
+    if let Some(address) = address {
+        let literal = serde_json::to_string(&address).expect("a string encodes as JSON");
+        builder = builder.append_invoke_initialization_script(format!("globalThis.__mycoDebugLink = {literal};"));
+    }
+`;
 
 /**
  * gamepad.rs's Cargo dependencies, the same lines as src-tauri/Cargo.toml's: SDL3 built from source
@@ -106,7 +123,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
-${GAMEPAD_DEPENDENCIES}
+${options.debug ? 'serde_json = "1"\n' : ""}${GAMEPAD_DEPENDENCIES}
 
 [dev-dependencies]
 serde_json = "1"
@@ -137,7 +154,7 @@ mod gamepad;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+${options.debug ? `    let mut builder = tauri::Builder::default();\n${DEBUG_LINK_FLAG_RUST}    builder` : "    tauri::Builder::default()"}
         .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
 ${GAMEPAD_COMMANDS.map((command) => `            gamepad::${command},`).join("\n")}

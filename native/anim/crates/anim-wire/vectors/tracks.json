@@ -1,0 +1,18 @@
+{
+  "family": "tracks",
+  "id": 2,
+  "version": 1,
+  "vectors": [
+    { "name": "output_header", "record": "OUTPUT_HEADER", "values": { "columnWords": 12, "recordBytes": 96, "recordCount": 3, "dropped": 1 }, "hex": "010201000c000000600000000300000001000000" },
+    { "name": "column_f32", "record": "COLUMN", "values": { "track": 4, "trackKind": 3, "columnType": 0, "flags": 0, "offset": 7, "width": 3 }, "hex": "02020100040000000300000000000000000000000700000003000000" },
+    { "name": "column_default", "record": "COLUMN", "values": { "track": 4294967294, "trackKind": 7, "columnType": 1, "flags": 1, "offset": 16909060, "width": 1 }, "hex": "02020100feffffff0700000001000000010000000403020101000000" },
+    { "name": "event", "record": "EVENT", "values": { "instance": 65541, "clip": 9, "track": 2, "key": 17, "method": 3, "args": 4294967295, "time": 0.5, "weight": 0.75 }, "hex": "030201000500010009000000020000001100000003000000ffffffff0000003f0000403f" },
+    { "name": "notify_state_begin", "record": "NOTIFY_STATE", "values": { "instance": 1, "clip": 2, "track": 3, "key": 4, "method": 5, "args": 6, "phase": 0, "time": 0.6, "start": 0.6, "duration": 0.3, "weight": 1 }, "hex": "04020100010000000200000003000000040000000500000006000000000000009a99193f9a99193f9a99993e0000803f" },
+    { "name": "notify_state_end", "record": "NOTIFY_STATE", "values": { "instance": 1, "clip": 2, "track": 3, "key": 4, "method": 5, "args": 4294967295, "phase": 2, "time": -0, "start": 1.5, "duration": 0.5, "weight": 0.25 }, "hex": "040201000100000002000000030000000400000005000000ffffffff02000000000000800000c03f0000003f0000803e" },
+    { "name": "activation_edge", "record": "ACTIVATION_EDGE", "values": { "instance": 7, "clip": 8, "track": 9, "active": 1, "time": 1.25 }, "hex": "05020100070000000800000009000000010000000000a03f" },
+    { "name": "control", "record": "CONTROL", "values": { "instance": 1, "clip": 2, "track": 6, "key": 11, "control": 2, "target": 0, "payload": 4294967295, "time": 1.1, "duration": 0, "weight": 0.5 }, "hex": "060201000100000002000000060000000b0000000200000000000000ffffffffcdcc8c3f000000000000003f" },
+    { "name": "audio", "record": "AUDIO", "values": { "instance": 1, "clip": 2, "track": 5, "key": 10, "asset": 9, "params": 12, "time": 0.3, "duration": 0.5, "weight": 0.125 }, "hex": "070201000100000002000000050000000a000000090000000c0000009a99993e0000003f0000003e" },
+    { "name": "marker", "record": "MARKER", "values": { "instance": 1, "clip": 2, "track": 4, "key": 7, "marker": 3, "name": 8, "time": 1.8 }, "hex": "080201000100000002000000040000000700000003000000080000006666e63f" },
+    { "name": "subclip_state", "record": "SUBCLIP_STATE", "values": { "instance": 1, "clip": 2, "track": 9, "key": 17, "asset": 10, "flags": 3, "localTime": 2.25, "localDelta": -0.2, "weight": 0 }, "hex": "09020100010000000200000009000000110000000a0000000300000000001040cdcc4cbe00000000" }
+  ]
+}

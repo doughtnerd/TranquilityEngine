@@ -2,14 +2,17 @@
 // project (`plugins/<folder>/plugin.json`) and in its npm packages (`"myco": { "plugin": … }` in a
 // package's package.json), the checks that run before any plugin code does, and which project code a
 // host loads, as one plan (`planPluginCode`, ADR 0275). No file access and no editor imports (from
-// the engine only the pure parse of a manifest's `audio` section, ADR 0352): the editor, the exporter
+// the engine only the pure parses of a manifest's `audio` section, ADR 0352, and its `animationNodes`, ADR 0370): the
+// editor, the exporter
 // and the dedicated server each pass what they read and run the same plan against the same
 // first-party catalogue, so all three agree on what loads.
 import { parsePluginAudio } from "../engine/audio/effects/pluginEffects";
 import type { PluginAudio } from "../engine/audio/effects/types";
+import { parseAnimationNodes, type AnimationNodeModuleDecl } from "../engine/animation/pluginNodes";
 import { FIRST_PARTY_MANIFESTS } from "./catalogue";
 import { resolveEnabledPlugins } from "./enabled";
 import type { PluginManifest } from "./manifest";
+import { parseRange, parseVersion, satisfies } from "./semver";
 import type { RuntimePlugin, RuntimePluginContext } from "./runtimeContext";
 
 /**
@@ -42,6 +45,12 @@ export interface ThirdPartyManifest extends PluginManifest {
    * `editor` are optional: a DSP-only plugin runs no JavaScript.
    */
   readonly audio?: PluginAudio;
+  /**
+   * ADR 0370 "Third-party graph and rig nodes" (T45t): animation graph and rig nodes as sandboxed wasm modules
+   * (`[{ "module": "nodes/sway.wasm", "budget": 200000 }]`), read without running plugin code. Parsed leniently: a bad
+   * entry is dropped and a bad budget takes the default, each with a line in the plugin's `warnings`.
+   */
+  readonly animationNodes?: readonly AnimationNodeModuleDecl[];
 }
 
 /** Where a plugin was found. */
@@ -57,6 +66,8 @@ export interface FoundPlugin {
   readonly runtime?: string;
   /** The editor entry, the same way. */
   readonly editor?: string;
+  /** Problems that don't refuse the plugin (lenient sections such as `animationNodes`), each a line to show once. */
+  readonly warnings?: readonly string[];
 }
 
 /** Why a plugin was refused. `plugin` is its name, or its manifest's path when the name is unknown. */
@@ -66,108 +77,7 @@ export interface PluginProblem {
   readonly message: string;
 }
 
-// --- semver ---------------------------------------------------------------------------------------
-
-type Version = readonly [number, number, number, string];
-
-const VERSION_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
-
-/** A full `x.y.z[-pre][+build]` version, or null. */
-export function parseVersion(text: string): Version | null {
-  const m = VERSION_RE.exec(text.trim());
-  return m ? [Number(m[1]), Number(m[2]), Number(m[3]), m[4] ?? ""] : null;
-}
-
-/** Negative, zero or positive as `a` is before, equal to or after `b` (a pre-release sorts before its release). */
-export function compareVersions(a: Version, b: Version): number {
-  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return (a[i] as number) - (b[i] as number);
-  if (a[3] === b[3]) return 0;
-  if (!a[3]) return 1;
-  if (!b[3]) return -1;
-  return a[3] < b[3] ? -1 : 1;
-}
-
-type Op = ">=" | ">" | "<=" | "<" | "=";
-type Comparator = readonly [Op, Version];
-
-const PARTIAL_RE = /^v?(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
-
-/** A possibly partial version: the numbers given, up to the first wildcard or missing part. */
-function parsePartial(text: string): { parts: number[]; pre: string } | null {
-  const m = PARTIAL_RE.exec(text);
-  if (!m) return null;
-  const parts: number[] = [];
-  for (const p of [m[1], m[2], m[3]]) {
-    if (p === undefined || /^[xX*]$/.test(p)) break;
-    parts.push(Number(p));
-  }
-  return { parts, pre: parts.length === 3 ? (m[4] ?? "") : "" };
-}
-
-const v = (a: number, b = 0, c = 0, pre = ""): Version => [a, b, c, pre];
-
-/** One range token ("^1.2.3", ">=2", "1.x", "*") as comparators, or null when it isn't one. */
-function tokenComparators(token: string): Comparator[] | null {
-  if (token === "" || token === "*" || /^[xX]$/.test(token)) return [];
-  const m = /^(\^|~|>=|<=|>|<|=)?(.*)$/.exec(token)!;
-  const op = m[1] ?? "";
-  const partial = parsePartial(m[2]!);
-  if (!partial) return null;
-  const [a, b, c] = partial.parts;
-  const n = partial.parts.length;
-  if (n === 0) return op === "<" || op === ">" ? [["<", v(0, 0, 0, "0")]] : [];
-  const low = v(a!, b ?? 0, c ?? 0, partial.pre);
-  /** The first version past the partial's last given part. */
-  const next = n === 1 ? v(a! + 1) : n === 2 ? v(a!, b! + 1) : v(a!, b!, c! + 1);
-  switch (op) {
-    case "^": {
-      const upper = a! > 0 || n === 1 ? v(a! + 1) : b! > 0 || n === 2 ? v(0, b! + 1) : v(0, 0, c! + 1);
-      return [[">=", low], ["<", upper]];
-    }
-    case "~":
-      return [[">=", low], ["<", n === 1 ? v(a! + 1) : v(a!, b! + 1)]];
-    case ">=":
-      return [[">=", low]];
-    case ">":
-      return n === 3 ? [[">", low]] : [[">=", next]];
-    case "<":
-      return [["<", low]];
-    case "<=":
-      return n === 3 ? [["<=", low]] : [["<", next]];
-    default:
-      return n === 3 ? [["=", low]] : [[">=", low], ["<", next]];
-  }
-}
-
-/** A range as alternatives (`||`) of comparator sets (space-separated, all must hold), or null when it doesn't parse. */
-export function parseRange(range: string): Comparator[][] | null {
-  const sets: Comparator[][] = [];
-  for (const alt of range.trim().split("||")) {
-    // "1.2.3 - 2.3.4" (a hyphen range) is ">=1.2.3 <=2.3.4"
-    const hyphen = /^\s*(\S+)\s+-\s+(\S+)\s*$/.exec(alt);
-    const tokens = hyphen ? [`>=${hyphen[1]}`, `<=${hyphen[2]}`] : alt.trim().replace(/(>=|<=|>|<|=|\^|~)\s+/g, "$1").split(/\s+/);
-    const set: Comparator[] = [];
-    for (const token of tokens) {
-      const c = tokenComparators(token);
-      if (!c) return null;
-      set.push(...c);
-    }
-    sets.push(set);
-  }
-  return sets;
-}
-
-/** True if `version` is in `range` (npm's range syntax, ADR 0139), false if not, null if either doesn't parse. */
-export function satisfies(version: string, range: string): boolean | null {
-  const ver = parseVersion(version);
-  const sets = parseRange(range);
-  if (!ver || !sets) return null;
-  const holds = ([op, bound]: Comparator) => {
-    const d = compareVersions(ver, bound);
-    return op === ">=" ? d >= 0 : op === ">" ? d > 0 : op === "<=" ? d <= 0 : op === "<" ? d < 0 : d === 0;
-  };
-  return sets.some((set) => set.every(holds));
-}
+export { compareVersions, parseRange, parseVersion, satisfies } from "./semver";
 
 // --- plugin.json ----------------------------------------------------------------------------------
 
@@ -178,9 +88,9 @@ const NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
  * Read a `plugin.json` value (ADR 0139). Returns the manifest, or null with every problem found.
  * Unknown keys are ignored.
  */
-function parsePluginManifest(raw: unknown): { manifest: ThirdPartyManifest | null; problems: string[] } {
+function parsePluginManifest(raw: unknown): { manifest: ThirdPartyManifest | null; problems: string[]; warnings: string[] } {
   const problems: string[] = [];
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { manifest: null, problems: ["plugin.json must hold an object"] };
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { manifest: null, problems: ["plugin.json must hold an object"], warnings: [] };
   const r = raw as Record<string, unknown>;
   const str = (key: string, required: boolean): string | undefined => {
     const value = r[key];
@@ -213,21 +123,29 @@ function parsePluginManifest(raw: unknown): { manifest: ThirdPartyManifest | nul
   };
   const runtime = entry("runtime");
   const editor = entry("editor");
-  if (r.runtime === undefined && r.editor === undefined && r.audio === undefined) problems.push(`a plugin needs a "runtime" or an "editor" entry, or an "audio" section`);
+  if (r.runtime === undefined && r.editor === undefined && r.audio === undefined && r.animationNodes === undefined) problems.push(`a plugin needs a "runtime" or an "editor" entry, or an "audio" or "animationNodes" section`);
+  // ADR 0370 (T45t): animation node modules, leniently: their problems are warnings, never a refusal.
+  const nodes = parseAnimationNodes(r.animationNodes);
   // ADR 0352 §3: the `audio` section, once the name and version it is stamped with are known to be good.
   let audio: PluginAudio | undefined;
   if (r.audio !== undefined && name !== undefined && NAME_RE.test(name)) audio = parsePluginAudio(r.audio, { name, version: version ?? "", ...(title !== undefined && { title }) }, problems);
-  let dependencies: Record<string, string> | undefined;
-  if (r.dependencies !== undefined) {
-    if (typeof r.dependencies !== "object" || r.dependencies === null || Array.isArray(r.dependencies)) problems.push(`"dependencies" must be an object of plugin names and version ranges`);
-    else {
-      dependencies = {};
-      for (const [dep, range] of Object.entries(r.dependencies as Record<string, unknown>)) {
-        if (typeof range !== "string" || !parseRange(range)) problems.push(`dependency "${dep}" needs a semver range such as ^1.0.0 or *`);
-        else dependencies[dep] = range;
-      }
+  /** `dependencies` and `optionalDependencies` (ADR 0374) share one shape: plugin names and semver ranges. */
+  const dependencyMap = (key: "dependencies" | "optionalDependencies", label: string): Record<string, string> | undefined => {
+    const value = r[key];
+    if (value === undefined) return undefined;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      problems.push(`"${key}" must be an object of plugin names and version ranges`);
+      return undefined;
     }
-  }
+    const out: Record<string, string> = {};
+    for (const [dep, range] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof range !== "string" || !parseRange(range)) problems.push(`${label} "${dep}" needs a semver range such as ^1.0.0 or *`);
+      else out[dep] = range;
+    }
+    return out;
+  };
+  const dependencies = dependencyMap("dependencies", "dependency");
+  const optionalDependencies = dependencyMap("optionalDependencies", "optional dependency");
   if (r.server !== undefined && typeof r.server !== "boolean") problems.push(`"server" must be true or false`);
   let assetKinds: PluginAssetKind[] | undefined;
   if (r.assetKinds !== undefined) {
@@ -247,7 +165,7 @@ function parsePluginManifest(raw: unknown): { manifest: ThirdPartyManifest | nul
       });
     }
   }
-  if (problems.length > 0) return { manifest: null, problems };
+  if (problems.length > 0) return { manifest: null, problems, warnings: [...nodes.problems] };
   const manifest: ThirdPartyManifest = {
     name: name!,
     version: version!,
@@ -255,13 +173,15 @@ function parsePluginManifest(raw: unknown): { manifest: ThirdPartyManifest | nul
     ...(title !== undefined && { title }),
     ...(description !== undefined && { description }),
     ...(dependencies && { dependencies }),
+    ...(optionalDependencies && { optionalDependencies }),
     ...(typeof r.server === "boolean" && { server: r.server }),
     ...(runtime !== undefined && { runtime }),
     ...(editor !== undefined && { editor }),
     ...(assetKinds && { assetKinds }),
     ...(audio && { audio }),
+    ...(nodes.modules.length > 0 && { animationNodes: nodes.modules }),
   };
-  return { manifest, problems };
+  return { manifest, problems, warnings: [...nodes.problems] };
 }
 
 // --- discovery ------------------------------------------------------------------------------------
@@ -328,7 +248,7 @@ async function discoverPlugins(input: DiscoverInput): Promise<{ plugins: FoundPl
       refuse(where, `plugin.json isn't valid JSON: ${parsed.error}`);
       continue;
     }
-    const { manifest, problems: bad } = parsePluginManifest(parsed.value);
+    const { manifest, problems: bad, warnings } = parsePluginManifest(parsed.value);
     if (!manifest) {
       refuse(where, bad.join("; "), parsed.value);
       continue;
@@ -349,8 +269,11 @@ async function discoverPlugins(input: DiscoverInput): Promise<{ plugins: FoundPl
     for (const m of manifest.audio?.modules ?? []) {
       if (assets && !assets.has(`${folder}/${m.wasm}`)) entryProblems.push(`its audio module ${m.id}'s file ${folder}/${m.wasm} doesn't exist`);
     }
+    for (const m of manifest.animationNodes ?? []) {
+      if (assets && !assets.has(`${folder}/${m.module}`)) warnings.push(`its animation node module ${folder}/${m.module} doesn't exist; its nodes pass their input through`);
+    }
     if (entryProblems.length > 0) refuse(where, entryProblems.join("; "), manifest);
-    else plugins.push({ manifest, source: { kind: "project", folder }, where, ...(runtime && { runtime }), ...(editor && { editor }) });
+    else plugins.push({ manifest, source: { kind: "project", folder }, where, ...(runtime && { runtime }), ...(editor && { editor }), ...(warnings.length > 0 && { warnings }) });
   }
 
   const files = input.packages;
@@ -384,7 +307,7 @@ async function discoverPlugins(input: DiscoverInput): Promise<{ plugins: FoundPl
       refuse(where, `the manifest isn't valid JSON: ${raw.error}`);
       continue;
     }
-    const { manifest, problems: bad } = parsePluginManifest(raw.value);
+    const { manifest, problems: bad, warnings } = parsePluginManifest(raw.value);
     if (!manifest) {
       refuse(where, bad.join("; "), raw.value);
       continue;
@@ -405,6 +328,7 @@ async function discoverPlugins(input: DiscoverInput): Promise<{ plugins: FoundPl
         where,
         ...(manifest.runtime !== undefined && { runtime: `${pkg}/${manifest.runtime}` }),
         ...(manifest.editor !== undefined && { editor: `${pkg}/${manifest.editor}` }),
+        ...(warnings.length > 0 && { warnings }),
       });
   }
   return { plugins, problems };
@@ -472,6 +396,11 @@ function checkPlugins(found: readonly FoundPlugin[], builtIn: readonly PluginMan
     }
     state.set(name, "visiting");
     let ok = !refused.has(name);
+    // An optional dependency (ADR 0374) orders first and can't be a cycle, but its problems never refuse this plugin.
+    for (const dep of Object.keys(p.manifest.optionalDependencies ?? {})) {
+      const d = byName.get(dep);
+      if (d) visit(d, [...chain, name]);
+    }
     for (const dep of Object.keys(p.manifest.dependencies ?? {})) {
       const d = byName.get(dep);
       if (!d) continue; // first-party (or already refused as missing)

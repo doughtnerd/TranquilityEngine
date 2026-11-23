@@ -176,6 +176,8 @@ export {
   type ShapeCastHit,
   type CollisionFlags,
   type ControllerColliderHit,
+  type BallDrive,
+  type BallSwing,
   type JointKind,
   type JointLimits,
   type JointMotor,
@@ -231,6 +233,67 @@ export {
   type NavRaycastHit,
   type NavDebugSettings,
 } from "./plugins/navigation/runtime";
+
+// The Animation plugin (ADR 0370–0372): skeletons, skinned meshes, 2D bones, Animators, bone attachments, timelines and
+// tweens, with their buffers and option types. Its ragdoll contribution point is for first-party plugins and isn't here.
+export {
+  Animator,
+  BoneAttachment,
+  Skeleton,
+  Skeleton2D,
+  SkinnedMeshRenderer,
+  TimelineDirector,
+  Tweens,
+  AnimationEvents,
+  AnimatorStateChanges,
+  RootMotion,
+  tween,
+  sequence,
+  parallel,
+  animatorParams,
+  type AnimationEvent,
+  type AnimationEventPhase,
+  type AnimatorStateChange,
+  type RootMotionRecord,
+  type AnimatorUpdateMode,
+  type AnimatorCullingMode,
+  type AnimatorRootMotion,
+  type AnimatorLodMetric,
+  type BoneAttachmentFollow,
+  type TimelineWrapMode,
+  type SkinnedBoundsMode,
+  type AnimatorLayer,
+  type AnimatorParameterValue,
+  type AnimationPlayEndReason,
+  type AnimationPlayResult,
+  type AnimatorMusicTiming,
+  type AnimatorPlayOptions,
+  type AnimatorCrossfadeOptions,
+  type AnimatorStopOptions,
+  type AnimatorRequestOptions,
+  type AnimatorTravelOptions,
+  type AnimatorTravelResult,
+  type AnimatorJumpOptions,
+  type AnimatorStateInfo,
+  type AnimatorIKOptions,
+  type AnimatorIKTarget,
+  type AnimatorWarpTarget,
+  type AnimatorBone,
+  type AnimatorParams,
+  type TweenEase,
+  type TweenEndReason,
+  type TweenResult,
+  type TweenTarget,
+  type TweenValue,
+  type TweenField,
+  type TweenOptions,
+  type Tween,
+} from "./plugins/animation/runtime";
+
+// The Ragdoll plugin (ADR 0375).
+export { Ragdoll, type RagdollBone, type RagdollMode, type RagdollShape } from "./plugins/ragdoll/runtime";
+// The engine curve (ADR 0158, 0346), which a tween's `ease` may be (D95): `[[x, y], [x, y, "smooth"], …]` over 0–1.
+export type { Curve } from "./engine/core/curve";
 
 // The Materials plugin's public types (`Material`, `MaterialSettings`) are core exports: material
 // resolution is a shared render service (ADR 0133).

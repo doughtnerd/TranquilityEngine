@@ -1,0 +1,57 @@
+/* The Animation plugin's pose database tool (ADR 0373; T55): clips and tagged ranges, features, the Bake card and the baked
+   file's summary. Theme tokens only (src/editor/theme.ts). A tag's colour is a `--series-N` token by its place among the tags. */
+.posedb .posedb-note, .posedb-baked .posedb-note { margin: 4px 0; font-size: calc(11px * var(--ui-scale)); color: var(--muted); }
+.posedb-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; margin: 4px 0; }
+.posedb-heading { margin: 10px 0 4px; font-size: calc(11px * var(--ui-scale)); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.posedb-problem { margin: 6px 0 0; font-size: calc(12px * var(--ui-scale)); color: var(--danger); overflow-wrap: anywhere; }
+.posedb-result { margin: 6px 0 0; font-size: calc(12px * var(--ui-scale)); color: var(--text); overflow-wrap: anywhere; }
+.posedb-warnings { margin: 4px 0; padding: 4px 6px 4px 22px; border-radius: 3px; background: var(--warning-soft); color: var(--text); font-size: calc(11px * var(--ui-scale)); }
+.posedb-progress { display: flex; align-items: center; gap: 8px; margin: 6px 0; min-width: 0; }
+.posedb-progress progress { flex: 1; min-width: 0; accent-color: var(--accent); }
+
+/* Clips */
+.posedb-clip { margin: 8px 0; padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); }
+.posedb-clip-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; min-width: 0; }
+.posedb-clip-name { flex: 1; min-width: 6em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.posedb-inline { display: inline-flex; align-items: center; gap: 4px; font-size: calc(12px * var(--ui-scale)); color: var(--muted); }
+
+/* The timeline strip */
+.posedb-strip { margin: 4px 0; }
+.posedb-strip-bar { position: relative; height: 26px; border-radius: 3px; background: var(--bg-sunken); border: 1px solid var(--border); cursor: crosshair; touch-action: none; overflow: hidden; }
+.posedb-strip-bar[data-disabled] { cursor: default; }
+.posedb-strip-whole { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: calc(11px * var(--ui-scale)); color: var(--faint); pointer-events: none; }
+.posedb-range { position: absolute; top: 2px; bottom: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; min-width: 4px; border-radius: 3px; background: var(--accent-soft); border: 1px solid var(--accent); color: var(--text); font-size: calc(11px * var(--ui-scale)); cursor: grab; overflow: hidden; }
+.posedb-range.selected { box-shadow: var(--glow); }
+.posedb-range.fresh { pointer-events: none; opacity: 0.6; }
+.posedb-range:focus-visible { outline: 2px solid var(--focus-ring); }
+.posedb-range-label { padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
+.posedb-range-edge { position: absolute; top: 0; bottom: 0; width: 6px; cursor: ew-resize; }
+.posedb-range-edge.start { left: 0; }
+.posedb-range-edge.end { right: 0; }
+.posedb-range.slot-1, .posedb-tag.slot-1 { --tag: var(--series-1); }
+.posedb-range.slot-2, .posedb-tag.slot-2 { --tag: var(--series-2); }
+.posedb-range.slot-3, .posedb-tag.slot-3 { --tag: var(--series-3); }
+.posedb-range.slot-4, .posedb-tag.slot-4 { --tag: var(--series-4); }
+.posedb-range.slot-5, .posedb-tag.slot-5 { --tag: var(--series-5); }
+.posedb-range.slot-6, .posedb-tag.slot-6 { --tag: var(--series-6); }
+.posedb-range.slot-7, .posedb-tag.slot-7 { --tag: var(--series-7); }
+.posedb-range[class*="slot-"]:not(.slot-0) { border-color: var(--tag); background: color-mix(in srgb, var(--tag) 30%, transparent); }
+.posedb-strip-scale { display: flex; justify-content: space-between; font-size: calc(10px * var(--ui-scale)); color: var(--faint); font-variant-numeric: tabular-nums; }
+.posedb-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; }
+.posedb-tag { padding: 1px 6px; border-radius: 8px; border: 1px solid var(--tag, var(--border-strong)); font-size: calc(11px * var(--ui-scale)); color: var(--text); }
+
+/* Tables */
+.posedb-table { width: 100%; border-collapse: collapse; font-size: calc(12px * var(--ui-scale)); margin: 4px 0; }
+.posedb-table th, .posedb-table td { padding: 2px 3px; text-align: left; font-weight: 400; border-bottom: 1px solid var(--border); }
+.posedb-table thead th { color: var(--muted); font-size: calc(10px * var(--ui-scale)); text-transform: uppercase; letter-spacing: 0.04em; }
+.posedb-table tr.selected td, .posedb-table tr.selected th { background: var(--accent-faint); }
+.posedb-table tr.missing th { color: var(--danger); }
+.posedb-table input[type="text"], .posedb-table input[type="number"] { width: 100%; min-width: 0; box-sizing: border-box; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; font: inherit; }
+.posedb-table input:focus { outline: none; border-color: var(--accent); }
+
+/* The baked file's summary */
+.posedb-summary { margin: 4px 0; font-size: calc(12px * var(--ui-scale)); }
+.posedb-summary-row { display: grid; grid-template-columns: minmax(70px, 28%) 1fr; gap: 8px; margin: 2px 0; }
+.posedb-summary dt { color: var(--muted); }
+.posedb-summary dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.posedb-summary ul { margin: 0; padding-left: 16px; }

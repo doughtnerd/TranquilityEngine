@@ -5,12 +5,12 @@
 // the exporters (`npm run export`, and the editor, which serves a copy at player/).
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
-import { CAPTURE_CODEC, lazyOnly, playerFileList, typescriptTranspile } from "./vite.shared.ts";
+import { CAPTURE_CODEC, DEBUG_LINK, lazyOnly, playerFileList, typescriptTranspile } from "./vite.shared.ts";
 
 export default defineConfig({
   plugins: [
     typescriptTranspile(),
-    playerFileList(),
+    playerFileList({ debug: DEBUG_LINK }), // files.json's `debug`: the debug link's chunks, which release exports leave out (ADR 0376)
     lazyOnly([CAPTURE_CODEC]), // a game that never records loads none of the capture codec
   ],
   oxc: false,

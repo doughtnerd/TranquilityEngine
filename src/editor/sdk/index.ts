@@ -14,7 +14,7 @@ export { activeHistory, providePanelHistory, usePanelHistory, type ActiveHistory
 export { editor, type EditorSurface } from "./editor";
 export type { ProjectSurface, ProjectSettingsSurface, AssetsSurface, CreateFileOptions, CreateAssetOptions, SectionChange, AssetImportSettings, AssetKind, EditorProject } from "./project";
 export type { MessagesSurface, MessageAction } from "./messages";
-export type { SceneSurface, SelectionSurface, PlayState, OpenScene, UndoStep, ComponentPlace, DocumentComponent, LiveComponent, FieldDrag } from "./scene";
+export type { SceneSurface, SelectionSurface, SelectedBone, PlayState, OpenScene, UndoStep, ComponentPlace, DocumentComponent, LiveComponent, FieldDrag } from "./scene";
 export type { ViewportSurface } from "./viewport";
 // Reading scene documents (ADR 0026): node paths and entries. Fields are written with `editor.scene.writeField` (ADR 0257).
 export { pathKey, type ComponentEntry, type NodePath, type NodeEntry, type SceneDocument } from "../document";
@@ -24,7 +24,9 @@ export { useFieldDrag, type FieldDragHandlers } from "../ui/fieldDrag";
 // The frame every panel renders in, and its instance's own view state (ADR 0174).
 export { Panel, usePanel, usePanelState, usePanelValue, PanelInstanceContext, type PanelInstance, type PanelProps } from "../ui/panel/Panel";
 export { sectionField } from "../ui/inspectorSections";
-export { LargePreview } from "../ui/AssetPreview";
+export { LargePreview, type LargePreviewProps } from "../ui/AssetPreview";
+// ADR 0373 (T18b): posed live previews: the nodes an asset adds to a scene, and the content a LargePreview poses.
+export { assetNodesFor, type PosedPreview } from "../posedPreview";
 // The frame every asset document editor renders in (ADR 0265): head, Undo / Redo, problems, read-only notice; the kind gives the body.
 export { AssetDocumentFrame, type AssetDocumentFrameProps } from "../ui/AssetDocumentFrame";
 export { NameList, NumberField, ProblemList, Row, TextField } from "../ui/settingsControls";
@@ -37,6 +39,13 @@ export type { CurveEditorKind, CurveEditorResult, CurveEditorSpec, CurveInput, C
 export type { WaveformFn as CurveWaveform } from "../ui/curves/CurvePlot";
 export { CurveField, CurvePreview, type CurveFieldProps } from "../ui/curves/CurveField";
 export { addKey as addCurveKey, moveKey as moveCurveKey, removeKey as removeCurveKey, setKeyInterp as setCurveKeyInterp, type Key as CurveEditKey } from "../ui/curves/keyList";
+// ADR 0373: the dope sheet's grid (ruler, rows of keys, box select) and the key-list edits of several keys at once, shared
+// by the curve editor's dope sheet and the Animation window.
+export { DopeSheetGrid, type DopeBar, type DopeBarPart, type DopeKey, type DopeRow, type DopeSelectMode, type DopeSheetGridProps, type DopeSpan } from "../ui/curves/DopeSheetGrid";
+export { copyKeysAt, fitYRange, pasteKeys, removeKeys, rippleKeys, scaleKeys, shiftKeys, SAME_X, type CopiedKeys, type KeysEdit } from "../ui/curves/keyList";
+export { withEnds as withCurveEnds } from "../ui/curves/curveEditorModel";
+/** What a component field holds in its scene document (or on the live node), in scene-file JSON (ADR 0373: the Animation window's record mode). */
+export { storedFieldValue } from "../componentField";
 /** @deprecated ADR 0346: use `CurveField` (the inline field) or `CurveEditorDialog`. Kept for one release. */
 export { CurveField as CurveEditor, type CurveFieldProps as CurveEditorProps } from "../ui/curves/CurveField";
 // Menus and floating panels (ADR 0180): placed, dismissed and focused in the window they're in (ADR 0174).
@@ -45,6 +54,9 @@ export { setValue, type SettingsDraft, type SettingsProblem } from "../projectSe
 // One project.json key of the settings draft (ADR 0253): its lenient parse, defaults, set-by-path, reset and problems.
 export { settingsSection, type SettingsSection, type SettingsSectionSpec } from "../settingsSection";
 export { persisted } from "../preferences";
+// The debug link (ADR 0376): builds connected to this editor, and the one the live debuggers read (`active`).
+export { editorDebugLink } from "../debugLink/link";
+export type { ConnectedBuild, EditorDebugLink, ListenState } from "../debugLink/editorLink";
 // The editor theme's tokens (ADR 0025): `theme.value` tracks the Settings > Appearance theme.
 export { theme, mix, parseHex, viewportColors, type ThemeTokens } from "../theme";
 // The shared graph view (ADR 0060): canvas, wires, notes, minimap and search popup.
@@ -74,3 +86,7 @@ export { KeyboardShortcutsDialog, type KeyboardShortcutsDialogProps, type Shortc
 // The 3D shape kit (ADR 0295): pose maths, wireframes, the face, radius and blend-shell handle rules and the axis drag
 // that 3D handle gizmos build their shape tables from.
 export * as shapeKit3d from "../shapeKit3d";
+// One refused-or-next result and the one place it is applied (ADR 0307, 0313); one parameter list and its cards (ADR 0304).
+export { accept, refuse, refusalOf, mapEdit, placeEdit, applyEdit, applyToDocument, applyToSettings, type EditResult } from "./editResult";
+export { parameterList, type ParameterHolder, type ParameterKind, type ParameterList, type ParameterRangePatch } from "./parameterList";
+export { ParameterCards } from "./ParameterCard";

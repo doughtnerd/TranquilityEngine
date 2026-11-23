@@ -11,11 +11,16 @@ import { ASSET_FIELD_KINDS, AssetRef, isListType, type AssetFieldKind } from "..
 import type { FieldValue } from "../engine/editor";
 import { isSidecarPath } from "../engine/scene/importSettings";
 import { BUILTIN_MESHES } from "../engine/scene/models";
-import { fieldKindKnown, satisfiesFieldKind } from "./assetKindLookup";
+import { fieldKindKnown, satisfiesFieldKind, subAssetEntries } from "./assetKindLookup";
 import { parseAssetRef } from "./assetRefValues";
 import { logMessage } from "./messages";
 
-const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+/** A file's name, or for a sub-asset (`models/hero.glb#Anim/Run`) its file's name and the sub-asset (`hero.glb#Anim/Run`). */
+const fileName = (path: string) => {
+  const hash = path.indexOf("#");
+  const file = hash >= 0 ? path.slice(0, hash) : path;
+  return file.slice(file.lastIndexOf("/") + 1) + (hash >= 0 ? path.slice(hash) : "");
+};
 
 /** Values a kind offers that aren't project files: the built-in meshes for `mesh`. */
 const BUILTINS: Partial<Record<AssetFieldKind, readonly string[]>> = {
@@ -35,12 +40,14 @@ function warnUnknown(k: AssetFieldKind): void {
   logMessage("warning", `No asset kind is referenced as "${k}": fields of that kind offer no files. Is the plugin that adds it enabled, or is the name misspelled?`);
 }
 
-/** What an asset field of these kinds offers from `files`: built-in values first, then matching files. Empty `kinds` offers every file. */
+/** What an asset field of these kinds offers from `files`: built-in values first, then matching files and sub-assets. Empty `kinds` offers every file. */
 export function assetsForKinds(kinds: readonly AssetFieldKind[], files: readonly string[]): string[] {
   if (kinds.length === 0) return [...files];
   kinds.forEach(warnUnknown);
   const builtins = [...new Set(kinds.flatMap((k) => BUILTINS[k] ?? []))];
-  return [...builtins, ...files.filter((f) => kinds.some((k) => satisfiesFieldKind(k, f)))];
+  // Files, each followed by the sub-assets it holds (ADR 0371: `model.glb#Skeleton`, `model.glb#Anim/Run`).
+  const entries = files.flatMap((f) => [f, ...subAssetEntries(f, kinds)]);
+  return [...builtins, ...entries.filter((f) => kinds.some((k) => satisfiesFieldKind(k, f)))];
 }
 
 /** The asset kinds a field (or one item of a list field) declares; empty when it takes any asset or isn't an asset field. */

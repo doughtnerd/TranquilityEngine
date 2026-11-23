@@ -4,6 +4,7 @@
  */
 import { migratePartPivots } from "./pivotMigration";
 import { migrateRotationsToQuaternions } from "./rotationMigration";
+import { migrateBallJointSwing } from "./ballJointMigration";
 import { migrateToUnityCoordinates } from "./handednessMigration";
 import { Component } from "../core/Component";
 import { getDataComponentDef, type DataComponentDef, type Schema } from "../core/data";
@@ -21,8 +22,9 @@ export const SCENE_FORMAT = "myco.scene";
  * 2: model part references are node-pivoted by default; version 1 ones are pinned to model space (ADR 0118, `pivotMigration.ts`).
  * 3: Transform rotations are quaternions `[x, y, z, w]`; version 2 Euler angles are converted (ADR 0163, `rotationMigration.ts`).
  * 4: Unity's coordinates (left-handed, +Z forward); version 3 scenes are mirrored in z (ADR 0164, `handednessMigration.ts`).
+ * 5: a BallJoint's `swingLimit: s` is `swing: { y: s, z: s }` (ADR 0375, `ballJointMigration.ts`).
  */
-export const CURRENT_FORMAT_VERSION = 4;
+export const CURRENT_FORMAT_VERSION = 5;
 
 export interface ComponentEntry {
   type: string;
@@ -100,6 +102,7 @@ const migrations = new Map<number, Migration>([
   [1, migratePartPivots],
   [2, migrateRotationsToQuaternions],
   [3, migrateToUnityCoordinates],
+  [4, migrateBallJointSwing],
 ]);
 
 /** Register an upgrade from format version `from` to `from + 1`. */

@@ -7,7 +7,7 @@ import { ENCODING_PLATFORMS } from "../../../engine/audio/encoding/defaults";
 import { resolveEncoding } from "../../../engine/audio/encoding/resolve";
 import type { EncodingKey, EncodingSettings } from "../../../engine/audio/encoding/types";
 import type { ImportPlatform, ImportSettings } from "../../../engine/scene/importSettings";
-import { applyEdit } from "../../../plugins/audio/editor/editResult";
+import { applyEdit } from "../../../editor/sdk/editResult";
 import { persisted } from "../../../editor/preferences";
 import type { PlannedSound } from "../../../export/audio";
 import { conversionsFor, projectPlanSource } from "../../encoding/studioEncoding";

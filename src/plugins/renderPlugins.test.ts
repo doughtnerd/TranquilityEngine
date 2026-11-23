@@ -39,13 +39,15 @@ const names = (specs: readonly RenderFeatureSpec[]) => byPhase(specs).map((i) =>
  * the `lighting` phase, whose features (fog, sky) only contribute to it, in either order (ADR 0252).
  */
 const TODAY = ["sprites", "tilemaps", "meshes", "fog", "sky", "particles", "probes", "water", "ui"];
+/** With the Animation plugin's skinned meshes (ADR 0370), right after the meshes, and its skinned sprites (ADR 0371) after them. */
+const TODAY_ALL = ["sprites", "tilemaps", "meshes", "skinning", "skinnedSprites", "fog", "sky", "particles", "probes", "water", "ui"];
 
 afterEach(() => applyTestPlugins()); // as Vitest's setup file leaves it
 
 describe("render feature order with every first-party plugin (ADR 0140)", () => {
   it("keeps today's sync order: built-ins first, then the plugins' features as RUNTIME_PLUGINS registers them", () => {
     const specs = [...BUILTIN, ..._registeredRenderFeatures().map((f) => f.spec)];
-    expect(names(specs)).toEqual(TODAY);
+    expect(names(specs)).toEqual(TODAY_ALL);
   });
 
   it("keeps it whatever order the plugins register in", () => {

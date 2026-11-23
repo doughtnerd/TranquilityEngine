@@ -282,6 +282,9 @@ export class MeshRenderer extends Component {
   private readonly materialProperties = new Map<string, MaterialPropertyValue>();
   /** @internal Bumped when the property overrides change, so the render backend applies them. */
   _materialPropertiesVersion = 0;
+  private readonly slotProperties = new Map<number, Map<string, MaterialPropertyValue>>();
+  /** @internal Bumped when a slot's property overrides change. */
+  _slotMaterialPropertiesVersion = 0;
   /** Materials assigned through `setSharedMaterial` or made by `getMaterialInstance`, by slot (ADR 0107), and the slot's path they were for. */
   private readonly assigned = new Map<number, { material: Material; path: string; owned: boolean }>();
   /**
@@ -386,32 +389,64 @@ export class MeshRenderer extends Component {
    * MaterialPropertyBlock: the material asset and other renderers are unchanged. Names are a
    * shader graph's property names, or `color`, `emission`, `metalness`, `roughness` and
    * `texture` for the built-in lit and unlit materials. A texture is an asset path.
+   *
+   * With `slot` (ADR 0371: an animation's `materials[slot].<name>` track), the override is for that material slot
+   * only, whatever draws it (the model's own material included), and the built-in names also take the glTF
+   * ones: `alphaCutoff`, `normalScale`, `occlusionStrength`, `clearcoatNormalScale`, `dispersion`,
+   * `attenuationColor`, `attenuationDistance`, `iridescenceThicknessMinimum`, `iridescenceThicknessMaximum` and
+   * `textureTransform.offset`, `.scale` and `.rotation`. A slot's colours are **linear** (as a model surface holds
+   * them), not sRGB.
    */
-  setMaterialProperty(name: string, value: MaterialPropertyValue): void {
-    this.materialProperties.set(name, value instanceof Color || value instanceof Vector2 || value instanceof Vector3 ? value.clone() : Array.isArray(value) ? [...value] : value);
-    this._materialPropertiesVersion++;
+  setMaterialProperty(name: string, value: MaterialPropertyValue, slot?: number): void {
+    const v = value instanceof Color || value instanceof Vector2 || value instanceof Vector3 ? value.clone() : Array.isArray(value) ? [...value] : value;
+    if (slot === undefined) {
+      this.materialProperties.set(name, v);
+      this._materialPropertiesVersion++;
+      return;
+    }
+    let own = this.slotProperties.get(slot);
+    if (!own) this.slotProperties.set(slot, (own = new Map()));
+    own.set(name, v);
+    this._slotMaterialPropertiesVersion++;
   }
 
   /** The value set with `setMaterialProperty`, or undefined when the material's own value is used. */
-  getMaterialProperty(name: string): MaterialPropertyValue | undefined {
-    return this.materialProperties.get(name);
+  getMaterialProperty(name: string, slot?: number): MaterialPropertyValue | undefined {
+    return slot === undefined ? this.materialProperties.get(name) : this.slotProperties.get(slot)?.get(name);
   }
 
   /** Go back to the material's own value for one property. */
-  clearMaterialProperty(name: string): void {
-    if (this.materialProperties.delete(name)) this._materialPropertiesVersion++;
+  clearMaterialProperty(name: string, slot?: number): void {
+    if (slot === undefined) {
+      if (this.materialProperties.delete(name)) this._materialPropertiesVersion++;
+      return;
+    }
+    const own = this.slotProperties.get(slot);
+    if (!own?.delete(name)) return;
+    if (own.size === 0) this.slotProperties.delete(slot);
+    this._slotMaterialPropertiesVersion++;
   }
 
-  /** Go back to the material's own values for every property. */
-  clearMaterialProperties(): void {
-    if (this.materialProperties.size === 0) return;
-    this.materialProperties.clear();
-    this._materialPropertiesVersion++;
+  /** Go back to the material's own values for every property (of the slot `slot`, or, without it, the whole renderer's). */
+  clearMaterialProperties(slot?: number): void {
+    if (slot === undefined) {
+      if (this.materialProperties.size === 0) return;
+      this.materialProperties.clear();
+      this._materialPropertiesVersion++;
+      return;
+    }
+    if (!this.slotProperties.delete(slot)) return;
+    this._slotMaterialPropertiesVersion++;
   }
 
   /** @internal The overrides, by name. */
   get _materialProperties(): ReadonlyMap<string, MaterialPropertyValue> {
     return this.materialProperties;
+  }
+
+  /** @internal The slot overrides, by slot, then name. */
+  get _slotMaterialProperties(): ReadonlyMap<number, ReadonlyMap<string, MaterialPropertyValue>> {
+    return this.slotProperties;
   }
 
   override _onDetach(): void {

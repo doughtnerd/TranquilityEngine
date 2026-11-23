@@ -1,6 +1,7 @@
 // First-party plugins' runtime halves (ADR 0133, 0135). The player, the dedicated server and the editor
 // (its World and Play) make this list active through a plugin set (`pluginSet.ts`, ADR 0144) before
 // `Engine.create`; nothing here may import from `src/editor/` or a plugin's `editor/` folder.
+import { animationRuntimePlugin } from "./animation/runtime";
 import { audioRuntimePlugin } from "./audio/runtime";
 import { FIRST_PARTY_KEYS, type FirstPartyPlugin } from "./catalogue";
 import { environmentRuntimePlugin } from "./environment/runtime";
@@ -12,6 +13,7 @@ import { physicsRuntimePlugin } from "./physics/runtime";
 import { physicsRapierRuntimePlugin } from "./physics-rapier/runtime";
 import { createPluginSet, throwOnPluginProblem, type PluginSet, type SetPlugin } from "./pluginSet";
 import { postProcessingRuntimePlugin } from "./post-processing/runtime";
+import { ragdollRuntimePlugin } from "./ragdoll/runtime";
 import { runtimeActivator, type RuntimePlugin } from "./runtimeContext";
 import { skyRuntimePlugin } from "./sky/runtime";
 import { spritesRuntimePlugin } from "./sprites/runtime";
@@ -37,6 +39,8 @@ const RUNTIME_HALVES: { readonly [K in FirstPartyPlugin]: RuntimePlugin } = {
   "post-processing": postProcessingRuntimePlugin,
   audio: audioRuntimePlugin,
   subtitles: subtitlesRuntimePlugin,
+  animation: animationRuntimePlugin,
+  ragdoll: ragdollRuntimePlugin,
 };
 
 /** The first-party runtime halves in catalogue order, the order render features and systems register in (ADR 0135, 0140). */

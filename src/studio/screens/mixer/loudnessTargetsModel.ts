@@ -5,7 +5,7 @@
 import type { AudioProject } from "../../../engine/audio/project/types";
 import { DEFAULT_LOUDNESS_TARGETS, LOUDNESS_TARGET_LIMITS, MAX_LOUDNESS_TARGETS, MAX_TARGET_NAME, type LoudnessTarget } from "../../../engine/audio/settings";
 import { uniqueName } from "../../../engine/core/uniqueName";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
 
 const clamp = (v: number, [lo, hi]: readonly [number, number]) => Math.min(hi, Math.max(lo, v));
 const withTargets = (p: AudioProject, targets: LoudnessTarget[]): AudioProject => ({ ...p, loudness: { ...p.loudness, targets } });

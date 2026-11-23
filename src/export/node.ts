@@ -55,6 +55,12 @@ export interface ExportOptions {
   pseudo?: boolean;
   /** Audio encoder threads (default: cores − 1). */
   audioWorkers?: number;
+  /**
+   * ADR 0376: `--debug-link <address>`: debugging on. `game.json` gets `debug.link` (the editor's WebSocket address) and
+   * the build ships the debug link; a desktop app also takes `--debug-link` at launch. Absent: a release build, with none
+   * of the link's code.
+   */
+  debugLink?: string;
   log?: (line: string) => void;
 }
 
@@ -80,7 +86,7 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   if (isOutputInsideProject(project.root, out)) {
     throw new ExportError(`The output folder "${out}" is inside the project, where the next export would copy it in. Use a folder outside it, or under its dist/ folder.`);
   }
-  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture, audioTake: options.audioTake, audioTakeFrames: options.audioTakeFrames, languages: options.languages, pseudo: options.pseudo });
+  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture, audioTake: options.audioTake, audioTakeFrames: options.audioTakeFrames, languages: options.languages, pseudo: options.pseudo, ...(options.debugLink !== undefined && { debugLink: options.debugLink }) });
   const playerDir = options.playerDir ?? (await ensurePlayer(log));
 
   const folder = nodeFolder(out);
@@ -116,7 +122,7 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
 
   const settings = project.settings as typeof project.settings & { build?: BuildSettings };
   const gamepadModule = await readFile(join(REPO, "src-tauri", "src", "gamepad.rs"), "utf8");
-  const files = desktopProjectFiles({ name: plan.manifest.name, settings, gamepadModule });
+  const files = desktopProjectFiles({ name: plan.manifest.name, settings, gamepadModule, debug: plan.manifest.debug !== undefined });
   const tauriDir = join(out, "src-tauri");
   for (const [path, text] of files) await folder.writeText(`src-tauri/${path}`, text);
   await makeIcons(project.root, settings.build?.icon, folder, tauriDir, log);

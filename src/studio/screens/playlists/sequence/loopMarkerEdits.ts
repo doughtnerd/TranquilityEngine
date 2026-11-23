@@ -5,7 +5,7 @@
 import { isMarkColour, MARK_NOTE_MAX } from "../../../../engine/audio/markColour";
 import type { Clip, FadeShape, LoopBehaviour, SequenceLoop, SequenceMarker, SequenceSettings } from "../../../../engine/audio/playlist/types";
 import { DEFAULT_EXIT_FADE_MS, MAX_EXIT_FADE_MS } from "../../../../engine/audio/playlist/loopBehaviour";
-import { accept, refuse, type EditResult } from "../../../../plugins/audio/editor/editResult";
+import { accept, refuse, type EditResult } from "../../../../editor/sdk/editResult";
 import { findClip, mapClips, nextId, tidy } from "./sequenceModel";
 
 type R = EditResult<SequenceSettings>;

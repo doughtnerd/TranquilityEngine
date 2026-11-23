@@ -153,12 +153,16 @@ describe("the King of Pirates sample", () => {
 
     let start: Map<number, { x: number; z: number }> | null = null;
     let maxSinks = 0, minHp = 100, maxScore = 0, carried = false;
+    /** Each team's farthest distance from its spawn during the match. */
+    const farthest = new Map<number, number>();
     for (let i = 0; i < 150 * 60; i++) {
       engine.step(STEP);
       if (i % 10 === 0) await settle();
       const ships = shipsIn(server);
       if (!start && ships.length === 6) start = new Map(ships.map((s) => [s.data.team, { x: s.x, z: s.z }]));
       for (const s of ships) {
+        const from = start?.get(s.data.team);
+        if (from) farthest.set(s.data.team, Math.max(farthest.get(s.data.team) ?? 0, Math.hypot(s.x - from.x, s.z - from.z)));
         maxSinks = Math.max(maxSinks, s.data.sinks);
         minHp = Math.min(minHp, s.data.hp);
         maxScore = Math.max(maxScore, s.data.score);
@@ -172,11 +176,10 @@ describe("the King of Pirates sample", () => {
     expect(ships.filter((s) => s.data.bot)).toHaveLength(5);
     const player = ships.find((s) => !s.data.bot)!;
     expect(player.rep.ownerId).toBeGreaterThan(0);
-    // Everyone sailed somewhere.
-    for (const s of ships) {
-      const from = start!.get(s.data.team)!;
-      expect(Math.hypot(s.x - from.x, s.z - from.z) + s.data.sinks).toBeGreaterThan(5);
-    }
+    // Everyone sailed somewhere. Measured over the whole match, not at its end: a ship that sank respawns at its
+    // spawn point, so where it ends depends on when it last sank (which load and the bots' random choices move).
+    expect(start).not.toBeNull();
+    for (const s of ships) expect(farthest.get(s.data.team) ?? 0).toBeGreaterThan(5);
     // The bots planned their routes on the arena's navmesh.
     expect(navStats.get(server)?.plans).toBeGreaterThan(0);
     // The bots fought: someone was hurt, and someone sank.

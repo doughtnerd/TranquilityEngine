@@ -4,7 +4,7 @@
 import { effectSpec } from "../../../engine/audio/effects/catalogue";
 import type { Effect } from "../../../engine/audio/effects/types";
 import type { PlaylistBody } from "../../../engine/audio/playlist/types";
-import { accept, refuse, type EditResult } from "../../../plugins/audio/editor/editResult";
+import { accept, refuse, type EditResult } from "../../../editor/sdk/editResult";
 import { nextEffectId } from "../../components/effectChainModel";
 
 const sameEffect = (a: Effect, b: Effect) => a.type === b.type && a.on === b.on && JSON.stringify(a.params) === JSON.stringify(b.params);

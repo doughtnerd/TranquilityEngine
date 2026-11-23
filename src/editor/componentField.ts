@@ -6,7 +6,8 @@
 // - inside a prefab instance it is an override (`SetField` with a target path);
 // - a value equal to what is stored is skipped (a drag that moves without changing anything records nothing);
 // - a drag is one undo step in a document (opened through the gate), and its writes on a live node are put back when
-//   it is cancelled. Live writes change the running World only, as the scene loader would assign the value, and end
+//   it is cancelled;
+// - a field write interceptor (ADR 0373: the Animation window's record mode) may take a document write instead. Live writes change the running World only, as the scene loader would assign the value, and end
 //   with the play session (Unity's play-mode rule).
 import { untracked } from "@preact/signals";
 import { GameObject } from "../engine";
@@ -15,7 +16,19 @@ import { SetField, type NodePath } from "./document";
 import { editableNow, whyNotEdit } from "./editGate";
 import { fieldKind, type NodeIds } from "./fields/kinds";
 import type { OpenScene } from "./state";
-import { beginUndoStep } from "./undoStep";
+import { fieldWriteInterceptors } from "./sdk/contributions";
+import { beginUndoStep, onGestureClosed, openGesture } from "./undoStep";
+
+// Field write interceptors hear when the undo step their taken writes were part of closes (ADR 0373).
+onGestureClosed((gesture, cancelled) => {
+  for (const interceptor of fieldWriteInterceptors.list()) {
+    try {
+      interceptor.gestureEnded?.(gesture, cancelled);
+    } catch (err) {
+      console.warn(`[myco] Field write interceptor "${interceptor.id}" failed:`, err);
+    }
+  }
+});
 
 /** A component in a scene document: on the node at `path` (`[id]`, or `[instanceId, innerId…]` inside a prefab instance). */
 export interface DocumentComponent {
@@ -112,7 +125,13 @@ export function writeComponentField(place: ComponentPlace, field: string, value:
   if (!editableNow(sceneTarget(place))) return untracked(() => whyNotEdit(sceneTarget(place))) ?? "the scene can't be edited now";
   const missing = whyNotOnNode(place);
   if (missing) return missing;
-  if (JSON.stringify(storedFieldValue(place, field)) === JSON.stringify(value)) return null;
+  const stored = storedFieldValue(place, field);
+  // A plugin may take the write instead (ADR 0373: record mode keys it into a clip), even when the document holds the value.
+  if (fieldWriteInterceptors.list().length) {
+    const write = { scene: place.scene, path: place.path, type: place.type, index, field, value, stored, gesture: openGesture(place.scene.stack) };
+    for (const interceptor of fieldWriteInterceptors.list()) if (interceptor.take(write)) return null;
+  }
+  if (JSON.stringify(stored) === JSON.stringify(value)) return null;
   const [id, ...target] = place.path;
   place.scene.stack.execute(new SetField(id, place.type, field, value, { index, target }));
   return null;

@@ -1,6 +1,9 @@
+import type { FunctionComponent } from "preact";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { usePanelHistory, type UndoHistory } from "../activeHistory";
 import { whyNotSliceName, type SpriteFill, type SpriteSlice } from "../../engine/scene/importSettings";
+import type { SliceSkin, SpriteFlipbook } from "../../engine/animation/sprites/sidecar";
+import { spriteEditorTools, type SpriteEditorChange, type SpriteEditorToolContribution, type SpriteEditorToolProps } from "../sdk/contributions";
 import { fileName } from "../assetBrowser";
 import { readImportSettings, spriteEditorImage, writeImportSettings } from "../assetImport";
 import { renameSliceReferences } from "../assetOps";
@@ -27,6 +30,7 @@ import {
   type Pixels,
   type Rect,
 } from "../spriteSlicing";
+import { applyToolChange, renameInFlipbooks } from "../spriteToolEdits";
 import { currentProject, docVersion, status } from "../state";
 import { PivotRow } from "./ImageImportSettings";
 import { confirmInEditor } from "./ConfirmDialog";
@@ -41,16 +45,25 @@ interface EditSlice {
   pivot: [number, number];
   border?: [number, number, number, number];
   fill?: SpriteFill;
+  /** The 2D skin the Bones tool edits (ADR 0371); the Sprite Editor only carries it. */
+  skin?: SliceSkin;
   original: string | null;
+}
+
+/** Everything one undo step holds: the slices and the image's flipbooks (the Flipbooks tool's). */
+interface EditState {
+  slices: EditSlice[];
+  flipbooks: Record<string, SpriteFlipbook>;
 }
 
 type SliceMode = "count" | "size" | "auto";
 
 let nextKey = 1;
-const fromSaved = (s: SpriteSlice): EditSlice => ({ key: nextKey++, name: s.name, rect: [...s.rect], pivot: [...s.pivot], border: s.border ? [...s.border] : undefined, fill: s.fill, original: s.name });
+const fromSaved = (s: SpriteSlice): EditSlice => ({ key: nextKey++, name: s.name, rect: [...s.rect], pivot: [...s.pivot], border: s.border ? [...s.border] : undefined, fill: s.fill, skin: s.skin, original: s.name });
 const asSaved = (slices: readonly EditSlice[]): SpriteSlice[] =>
-  slices.map((s) => ({ name: s.name, rect: [...s.rect], pivot: [...s.pivot], ...(s.border && s.border.some((b) => b !== 0) ? { border: [...s.border] } : {}), ...(s.fill === "tile" ? { fill: "tile" as const } : {}) }));
-const sliceKey = (slices: readonly EditSlice[]) => JSON.stringify(asSaved(slices));
+  slices.map((s) => ({ name: s.name, rect: [...s.rect], pivot: [...s.pivot], ...(s.border && s.border.some((b) => b !== 0) ? { border: [...s.border] } : {}), ...(s.fill === "tile" ? { fill: "tile" as const } : {}), ...(s.skin ? { skin: s.skin } : {}) }));
+const stateKey = (state: EditState) => JSON.stringify({ sprites: asSaved(state.slices), flipbooks: state.flipbooks });
+const savedState = (settings: { sprites: readonly SpriteSlice[]; flipbooks: Record<string, SpriteFlipbook> }): EditState => ({ slices: settings.sprites.map(fromSaved), flipbooks: settings.flipbooks });
 
 /** The image's pixels (for automatic slicing and skipping empty cells). */
 async function loadPixels(url: string): Promise<Pixels> {
@@ -63,6 +76,21 @@ async function loadPixels(url: string): Promise<Pixels> {
   const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
   ctx.drawImage(img, 0, 0);
   return ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+/** A tool's view, loaded on first use (ADR 0083), over what the Sprite Editor gives it. */
+function ToolHost(props: { tool: SpriteEditorToolContribution; props: SpriteEditorToolProps }) {
+  const [View, setView] = useState<FunctionComponent<SpriteEditorToolProps> | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  useEffect(() => {
+    props.tool.view().then(
+      (loaded) => setView(() => loaded),
+      (err) => setFailed(String((err as Error).message ?? err)),
+    );
+  }, [props.tool]);
+  if (failed) return <p class="sprite-hint">Couldn't load {props.tool.label}: {failed}</p>;
+  if (!View) return <p class="sprite-hint">Loading {props.tool.label}…</p>;
+  return <View {...props.props} />;
 }
 
 /** The Sprite Editor (ADR 0040), over the editor while an image is open in it. */
@@ -83,12 +111,20 @@ export function SpriteEditorDialog() {
 function SpriteEditor(props: { project: EditorProject; image: string }) {
   const { project, image } = props;
   const url = project.assets.get(image);
-  const [history, setHistory] = useState<History<EditSlice[]>>(() => createHistory(readImportSettings(project, image).settings.sprites.map(fromSaved)));
-  const slices = history.present;
-  const [baseline, setBaseline] = useState(() => sliceKey(slices));
+  const [history, setHistory] = useState<History<EditState>>(() => createHistory(savedState(readImportSettings(project, image).settings)));
+  const slices = history.present.slices;
+  const flipbooks = history.present.flipbooks;
+  const [baseline, setBaseline] = useState(() => stateKey(history.present));
+  const [toolId, setToolId] = useState<string | null>(null);
+  void spriteEditorTools.version.value;
+  const tools = spriteEditorTools.list();
+  const tool = tools.find((t) => t.id === toolId) ?? null;
   /** Edit the slices as one undo step; edits sharing a `key` in a row (one drag, one field) are one step. */
   const setSlices = (next: EditSlice[] | ((all: EditSlice[]) => EditSlice[]), key?: string) =>
-    setHistory((h) => pushHistory(h, typeof next === "function" ? next(h.present) : next, { key, equal: (a, b) => sliceKey(a) === sliceKey(b) }));
+    setHistory((h) => pushHistory(h, { ...h.present, slices: typeof next === "function" ? next(h.present.slices) : next }, { key, equal: (a, b) => stateKey(a) === stateKey(b) }));
+  /** A tool's change (its skins by slice name, its flipbooks) as one undo step. */
+  const editFromTool = (change: SpriteEditorChange, key?: string) =>
+    setHistory((h) => pushHistory(h, applyToolChange(h.present, change), { key, equal: (a, b) => stateKey(a) === stateKey(b) }));
   const gesture = useRef(0);
   const newGesture = () => `gesture:${++gesture.current}`;
   const [selected, setSelected] = useState<number | null>(null);
@@ -103,7 +139,7 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
   const viewport = useRef<HTMLDivElement>(null);
   const dialog = useRef<HTMLDivElement>(null);
   const pixels = useRef<Promise<Pixels> | null>(null);
-  const dirty = sliceKey(slices) !== baseline;
+  const dirty = stateKey(history.present) !== baseline;
   const readOnly = project.canSave ? null : "This project is read-only.";
   const current = slices.find((s) => s.key === selected) ?? null;
   const [W, H] = size ?? [0, 0];
@@ -123,7 +159,7 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
 
   const update = (key: number, patch: Partial<EditSlice>, gestureKey?: string) => setSlices((all) => all.map((s) => (s.key === key ? { ...s, ...patch } : s)), gestureKey);
   /** The selection after the slices changed under it (undo, redo): dropped when its slice is gone. */
-  const keepSelection = (h: History<EditSlice[]>) => setSelected((k) => (k !== null && h.present.some((s) => s.key === k) ? k : null));
+  const keepSelection = (h: History<EditState>) => setSelected((k) => (k !== null && h.present.slices.some((s) => s.key === k) ? k : null));
   const stepBack = () => {
     const h = undo(history);
     setHistory(h);
@@ -194,13 +230,16 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
     }
     setBusy(true);
     try {
-      const settings = { ...readImportSettings(project, image).settings, sprites: asSaved(slices) };
+      // A renamed slice is renamed in the flipbooks that show it, as it is in other references.
+      const flipbooksSaved = renameInFlipbooks(flipbooks, sliceRenames(slices));
+      const settings = { ...readImportSettings(project, image).settings, sprites: asSaved(slices), flipbooks: flipbooksSaved };
       await writeImportSettings(project, image, settings);
       const cleaned = await renameSliceReferences(project, image, sliceRenames(slices));
       const next = slices.map((s) => ({ ...s, original: s.name }));
       // Renames were applied to references, so earlier steps (with their old `original` names) can't be replayed.
-      setHistory(createHistory(next));
-      setBaseline(sliceKey(next));
+      const state: EditState = { slices: next, flipbooks: flipbooksSaved };
+      setHistory(createHistory(state));
+      setBaseline(stateKey(state));
       docVersion.value++;
       status.value = {
         kind: "info",
@@ -214,9 +253,9 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
   };
 
   const revert = () => {
-    const saved = readImportSettings(project, image).settings.sprites.map(fromSaved);
-    setSlices(saved); // an undoable step
-    setBaseline(sliceKey(saved));
+    const saved = savedState(readImportSettings(project, image).settings);
+    setHistory((h) => pushHistory(h, saved, { equal: (a, b) => stateKey(a) === stateKey(b) })); // an undoable step
+    setBaseline(stateKey(saved));
     setSelected(null);
   };
 
@@ -298,7 +337,7 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
     if (mod && (key === "z" || key === "y")) return;
     e.stopPropagation(); // keep the editor's other shortcuts (Delete, Ctrl+D…) away from the scene
     if (inField) return;
-    if ((e.key === "Delete" || e.key === "Backspace") && current) {
+    if (!tool && (e.key === "Delete" || e.key === "Backspace") && current) {
       e.preventDefault();
       remove(current.key);
     }
@@ -332,6 +371,18 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
       <div ref={dialog} class="sprite-editor" role="dialog" aria-modal="true" aria-label={`Sprite Editor: ${fileName(image)}`} tabIndex={-1} onKeyDown={onKeyDown}>
         <header class="sprite-editor-head">
           <h2>Sprite Editor</h2>
+          {tools.length > 0 && (
+            <div class="sprite-tabs" role="group" aria-label="Tools">
+              <button class={tool === null ? "active" : ""} aria-pressed={tool === null} onClick={() => setToolId(null)}>
+                Slices
+              </button>
+              {tools.map((t) => (
+                <button key={t.id} class={tool?.id === t.id ? "active" : ""} aria-pressed={tool?.id === t.id} onClick={() => setToolId(t.id)}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
           <span class="sprite-editor-file" title={image}>
             {fileName(image)}
             {size && ` · ${W} × ${H} px`}
@@ -355,7 +406,26 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
             </button>
           </div>
         </header>
-        <div class="sprite-editor-body">
+        {tool && (
+          <div class="sprite-editor-body sprite-tool-body">
+            <ToolHost
+              key={tool.id}
+              tool={tool}
+              props={{
+                image,
+                url,
+                slices: asSaved(slices),
+                flipbooks,
+                selected: current?.name ?? null,
+                select: (name) => setSelected(slices.find((s) => s.name === name)?.key ?? null),
+                edit: editFromTool,
+                readOnly,
+                pixels: getPixels,
+              }}
+            />
+          </div>
+        )}
+        <div class="sprite-editor-body" hidden={tool !== null}>
           <div ref={viewport} class="sprite-editor-view">
             <div ref={stage} class="sprite-stage" style={{ width: `${W * zoom}px`, height: `${H * zoom}px` }} onPointerDown={onPointerDown}>
               <img

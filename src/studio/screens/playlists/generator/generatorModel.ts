@@ -11,7 +11,7 @@ import { isPresetOf } from "../../../../engine/audio/generators/format";
 import { MAX_SEED } from "../../../../engine/audio/generators/random";
 import { applySynthPreset, isSynthPreset, SYNTH_PRESETS } from "../../../../engine/audio/generators/synthPresets";
 import type { GeneratorBody, GeneratorKind } from "../../../../engine/audio/generators/types";
-import { accept, refuse, type EditResult } from "../../../../plugins/audio/editor/editResult";
+import { accept, refuse, type EditResult } from "../../../../editor/sdk/editResult";
 
 export type GeneratorEdit = (g: GeneratorBody) => EditResult<GeneratorBody>;
 

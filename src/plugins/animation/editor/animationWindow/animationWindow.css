@@ -1,0 +1,50 @@
+/* The Animation window (ADR 0373) and the Inspector's key buttons. Theme tokens only. The dope sheet's grid is the
+   shared one, styled by the curve editor's sheet (`src/editor/ui/curves/curveEditor.css`, `.ce-*`). */
+
+.aw-body { padding: 0; }
+.aw-root { display: flex; flex-direction: column; min-height: 100%; outline: none; color: var(--text); }
+.aw-root:focus-visible { box-shadow: inset 0 0 0 2px var(--focus-ring); }
+.aw-empty { display: flex; flex-direction: column; gap: 8px; padding: 8px; }
+
+.aw-toolbar, .aw-selbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 8px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.aw-selbar { border-top: 1px solid var(--border); }
+.aw-sep { width: 1px; align-self: stretch; margin: 2px 4px; background: var(--border); }
+.aw-spacer { flex: 1; }
+.aw-muted { color: var(--muted); }
+.aw-file { font-weight: 600; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aw-clip { display: inline-flex; align-items: center; gap: 4px; }
+.aw-clip select { max-width: 220px; }
+.aw-time { color: var(--muted); font-variant-numeric: tabular-nums; padding: 0 4px; }
+.aw-time b { color: var(--text); }
+
+.aw-tb { padding: 2px 8px; border: 1px solid var(--border); border-radius: 3px; background: var(--panel); color: var(--text); cursor: pointer; }
+.aw-tb:disabled { color: var(--faint); cursor: default; }
+.aw-tb.on { background: var(--selection); color: var(--selection-text); border-color: var(--accent); }
+.aw-rec.on { background: var(--danger); border-color: var(--danger); color: var(--accent-text); }
+.aw-tb:focus-visible, .aw-x:focus-visible, .aw-keybtn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+
+.aw-onion { display: inline-flex; gap: 2px; }
+.aw-onion input, .aw-num input { width: 52px; }
+.aw-num { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.aw-method { width: 120px; }
+
+.aw-x { flex: none; width: 18px; height: 18px; margin-right: 4px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--muted); cursor: pointer; }
+.aw-x:hover { color: var(--danger); background: var(--bg-sunken); }
+
+.aw-row-editor { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.aw-row-editor label { display: inline-flex; flex-direction: column; gap: 2px; color: var(--muted); }
+.aw-row-editor label.aw-check { flex-direction: row; align-items: center; }
+.aw-row-editor input[type="text"] { min-width: 140px; }
+.aw-re-head { align-self: center; color: var(--muted); }
+.aw-re-head b { color: var(--text); }
+.aw-danger { padding: 2px 8px; border: 1px solid var(--danger); border-radius: 3px; background: none; color: var(--danger); cursor: pointer; }
+
+.aw-onion-strip { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; }
+.aw-onion-row { display: flex; align-items: center; gap: 4px; }
+.aw-onion-frame { padding: 1px 6px; border: 1px dashed var(--border); border-radius: 3px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.aw-onion-frame.now { border-style: solid; border-color: var(--accent); color: var(--text); }
+
+/* The Inspector's key button: a small diamond after the field's name. */
+.aw-keybtn { flex: none; width: 9px; height: 9px; margin: 0 4px; padding: 0; transform: rotate(45deg); border: 1.5px solid var(--muted); border-radius: 0; background: none; cursor: pointer; }
+.aw-keybtn.animated { border-color: var(--danger); }
+.aw-keybtn.key { border-color: var(--danger); background: var(--danger); }

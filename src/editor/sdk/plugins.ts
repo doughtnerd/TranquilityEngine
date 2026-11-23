@@ -3,7 +3,8 @@
 // records the plugin with each entry and remembers every registration so deactivating the plugin removes them all.
 import type { PluginManifest } from "../../plugins/manifest";
 import { orderPlugins } from "../../plugins/order";
-import { assetActions, assetKinds, componentHeaderActions, componentNotes, componentWireframes, fieldChoices, hierarchyCreateEntries, idlePrefetches, nameReferences, panelExtensions, panels, playStatsCounters, playToolbarItems, projectSettingsSections, sceneOpenMigrations, sceneToolbarItems, viewportTools } from "./contributions";
+import type { PluginsView } from "../../plugins/pluginSet";
+import { assetActions, assetKinds, componentHeaderActions, componentNotes, componentWireframes, fieldAdornments, fieldChoices, fieldWriteInterceptors, hierarchyCreateEntries, idlePrefetches, nameReferences, nodeAssetDrops, assetNodesAugments, importSettingsSections, spriteEditorTools, panelExtensions, panels, playStatsCounters, playStatsTables, playToolbarItems, projectSettingsSections, sceneOpenMigrations, sceneToolbarItems, skeletonBones, viewportTools } from "./contributions";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
 import { componentEditToggle } from "../componentEditToggle";
 import type { LoadComponent } from "./contributions";
@@ -75,6 +76,8 @@ const CONTRIBUTION_POINTS = {
   registerAssetAction: registryPoint(assetActions),
   /** A count on the Play Stats panel's Nodes row (ADR 0146). */
   registerPlayStatsCounter: registryPoint(playStatsCounters),
+  /** A titled table under a World's rows in the Play Stats panel (T34). */
+  registerPlayStatsTable: registryPoint(playStatsTables),
   /** Work done on a scene when the editor opens it (ADR 0146). */
   registerSceneOpenMigration: registryPoint(sceneOpenMigrations),
   /** Code fetched once the editor is idle (ADR 0146). */
@@ -85,12 +88,29 @@ const CONTRIBUTION_POINTS = {
   registerNameReferences: registryPoint(nameReferences),
   /** A Component's wireframe for other plugins' scene-view tools to draw (ADR 0295). */
   registerComponentWireframe: registryPoint(componentWireframes),
+  /** Read-only bone rows under scene nodes in the Hierarchy, with the Inspector's bone view (ADR 0373, 0242). */
+  registerSkeletonBones: registryPoint(skeletonBones),
+  /** What dropping files on a node's Hierarchy row does instead of adding them under it (ADR 0373: a clip on an Animator). */
+  registerNodeAssetDrop: registryPoint(nodeAssetDrops),
+  /** A change to what adding files of an asset kind to a scene makes (ADR 0373: the Animation plugin's skinned models). */
+  registerAssetNodesAugment: registryPoint(assetNodesAugments),
+  /** A card in an asset kind's Import Settings, editing the same draft as the kind's own rows (ADR 0373: the Animation plugin's bone map and clip import settings on a model). */
+  registerImportSettingsSection: registryPoint(importSettingsSections),
+  /** A tab of the Sprite Editor beside Slices, its view over the image's slices and flipbooks (ADR 0373: the Animation plugin's Flipbooks and Bones). */
+  registerSpriteEditorTool: registryPoint(spriteEditorTools),
+  /** A control after a field's name in the scene Inspector (ADR 0373: the Animation window's key buttons). */
+  registerFieldAdornment: registryPoint(fieldAdornments),
+  /** Takes component field writes to scene documents instead of the document (ADR 0373: the Animation window's record mode). */
+  registerFieldWriteInterceptor: registryPoint(fieldWriteInterceptors),
 };
 
 type ContextOf<P> = { [K in keyof P]: P[K] extends ContributionPoint<infer F> ? F : never };
 
 /** What a plugin's editor half registers through: one `register…` method per contribution point (ADR 0284). */
-export interface EditorPluginContext extends ContextOf<typeof CONTRIBUTION_POINTS> {}
+export interface EditorPluginContext extends ContextOf<typeof CONTRIBUTION_POINTS> {
+  /** The other plugins, as this one sees them (ADR 0374): `plugins.isActive(name)` is read at activation, for optional dependencies. */
+  readonly plugins: PluginsView;
+}
 
 /** A plugin's editor half. */
 export interface EditorPlugin {
@@ -101,13 +121,13 @@ export interface EditorPlugin {
 const active = new Map<string, Array<() => void>>();
 
 /** Activate one editor half (its dependencies must be active); nothing happens when it already is. A half that throws is rolled back and the error rethrown. */
-export function activatePlugin(plugin: EditorPlugin): void {
+export function activatePlugin(plugin: EditorPlugin, plugins: PluginsView = { isActive: (name) => active.has(name) }): void {
   const name = plugin.manifest.name;
   if (active.has(name)) return;
   const undo: Array<() => void> = [];
   active.set(name, undo);
   const owner: ContributionOwner = { plugin: name, pluginTitle: plugin.manifest.title ?? name };
-  const context = {} as Record<string, (...args: never[]) => void>;
+  const context = { plugins } as unknown as Record<string, (...args: never[]) => void>;
   for (const [method, point] of Object.entries(CONTRIBUTION_POINTS) as [string, ContributionPoint<(...args: never[]) => void>][]) {
     context[method] = (...args) => void undo.push(...point.add(owner, ...args));
   }

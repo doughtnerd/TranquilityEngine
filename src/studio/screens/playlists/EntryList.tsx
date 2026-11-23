@@ -9,7 +9,7 @@ import { useRef, useState } from "preact/hooks";
 import type { Entry, PlaylistBody, SequenceSettings } from "../../../engine/audio/playlist/types";
 import { ContextMenu, SEPARATOR, tidyEntries } from "../../../editor/ui/ContextMenu";
 import { NumberBox } from "../../../editor/ui/PanelFields";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
 import { Icon } from "../../components/Icon";
 import { TypeBadge } from "../../components/TypeBadge";
 import { entryMeta, pct, sequenceLength, shares } from "./entryRowModel";

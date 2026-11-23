@@ -8,7 +8,7 @@
 // references (playlists, scenes) follow and the file on disk is what changes; deleting a sample moves its file to the
 // project's trash, with Undo on the toast (`sampleTrash.ts`).
 import { openMixDocument } from "../mixer/mixerDocument";
-import { applyEdit } from "../../../plugins/audio/editor/editResult";
+import { applyEdit } from "../../../editor/sdk/editResult";
 import { FOLDER_COLOURS, folderColour, folderColourCss, moveFolderColours, setFolderColour } from "./folderColours";
 import { useRef, useState } from "preact/hooks";
 import { createPortal } from "preact";

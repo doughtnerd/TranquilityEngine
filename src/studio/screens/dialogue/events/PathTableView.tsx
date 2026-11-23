@@ -7,7 +7,7 @@ import { useState } from "preact/hooks";
 import { Chip } from "../../../../editor/ui/Chip";
 import { SegmentedControl } from "../../../../editor/ui/SegmentedControl";
 import { argumentName, WILDCARD, type DialogueEvent, type DialogueLine } from "../../../../engine/audio/dialogue/types";
-import type { EditResult } from "../../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../../editor/sdk/editResult";
 import { Icon } from "../../../components/Icon";
 import { codesOf } from "../languagesModel";
 import { InlineText } from "../LinesView";

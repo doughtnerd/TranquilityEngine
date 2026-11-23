@@ -1,0 +1,17 @@
+[package]
+name = "anim-meter"
+description = "Myco animation core (ADR 0370): the instruction-budget (fuel) pass that rewrites a third-party node module at load."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# no_std + alloc (the Phase B loader compiles it to wasm). The ABI's names come from the SDK.
+[dependencies]
+anim-plugin-sdk.workspace = true
+wasmparser.workspace = true
+wasm-encoder.workspace = true
+
+[dev-dependencies]
+wat.workspace = true
+wasmi.workspace = true

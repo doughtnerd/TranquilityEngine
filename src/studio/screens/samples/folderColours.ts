@@ -3,7 +3,7 @@
 // on the folder (and the folders under it) when it is renamed or moved. Pure: edits return `{ next } | { refused }`.
 import { isMarkColour, markColourCss } from "../../../engine/audio/markColour";
 import type { AudioProject } from "../../../engine/audio/project/types";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
 
 /** The folder swatches (theme tokens), after Default. */
 export const FOLDER_COLOURS: readonly { readonly name: string; readonly colour: string }[] = [

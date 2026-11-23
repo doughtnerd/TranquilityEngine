@@ -26,7 +26,7 @@ import { evalCurve } from "../../../../engine/core/curve";
 import { evalCurveBy, secondValueOf } from "../../../../engine/audio/curveBy";
 import { SegmentedControl } from "../../../../editor/ui/SegmentedControl";
 import { FieldRow, SelectBox, Section } from "../../../../editor/ui/PanelFields";
-import { accept, type EditResult } from "../../../../plugins/audio/editor/editResult";
+import { accept, type EditResult } from "../../../../editor/sdk/editResult";
 import { Checkbox } from "../../../components/Checkbox";
 import { ColourPicker, type ColourPreset } from "../../../components/ColourPicker";
 import { EffectChain } from "../../../components/EffectChain";

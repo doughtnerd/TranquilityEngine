@@ -1,0 +1,64 @@
+/* The live animation debugger (ADR 0373; T52): its strip and recorder, the live parameters, and the overlay on the
+   graph editor's canvases. Theme tokens only (src/editor/theme.ts). */
+
+/* Strip and recorder */
+.dbg-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--border); background: var(--success-soft); font-size: 12px; }
+.dbg-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); flex: none; }
+.dbg-target { display: flex; align-items: center; gap: 4px; }
+.dbg-status { color: var(--text); }
+.dbg-muted { color: var(--muted); font-size: 11px; }
+.dbg-recorder { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 280px; }
+.dbg-live { padding: 1px 8px; }
+.dbg-live.active { background: var(--success); color: var(--success-text); border-color: var(--success); }
+.dbg-scrub { position: relative; flex: 1; min-width: 120px; display: flex; align-items: center; }
+.dbg-scrub input[type="range"] { width: 100%; accent-color: var(--accent); }
+.dbg-ticks { position: absolute; left: 0; right: 0; bottom: -2px; height: 4px; pointer-events: none; }
+.dbg-tick { position: absolute; width: 1px; height: 4px; background: var(--muted); }
+.dbg-when { min-width: 56px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text-strong); }
+.dbg-keep { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+.dbg-hint { flex-basis: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Live parameters and requests */
+.dbg-params { display: flex; flex-direction: column; gap: 4px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.dbg-head { margin: 2px 0; font-size: 12px; font-weight: 600; color: var(--text-strong); }
+.dbg-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.dbg-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.2fr); align-items: center; gap: 6px; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+.dbg-row.set .dbg-name { color: var(--text-strong); }
+.dbg-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.dbg-type { font-size: 10px; color: var(--faint); }
+.dbg-number { width: 100%; min-width: 0; box-sizing: border-box; font-variant-numeric: tabular-nums; }
+.dbg-vec { display: flex; gap: 2px; }
+.dbg-refused { grid-column: 1 / -1; color: var(--danger); font-size: 11px; }
+.dbg-life { position: relative; height: 6px; border-radius: 3px; background: var(--input-bg); border: 1px solid var(--border); min-width: 40px; }
+.dbg-life-fill { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--accent); }
+
+/* Overlay: pose nodes (weight bar and phase mark along the node's foot) */
+.ag-node.live-active { border-color: var(--success); }
+.dbg-live-badge { background: var(--success); color: var(--success-text); }
+.dbg-weight { position: absolute; left: 6px; right: 6px; bottom: 2px; height: 4px; border-radius: 2px; background: var(--input-bg); overflow: hidden; }
+.dbg-weight-fill { position: absolute; inset: 0 auto 0 0; background: var(--success); }
+.dbg-phase-mark { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--text-strong); }
+
+/* Overlay: states (current outlined, its phase along the foot; a bridge's target dashed) */
+.ag-state.live-current { border-color: var(--success); box-shadow: 0 0 0 2px var(--success-soft); }
+.ag-state.live-target { border-style: dashed; border-color: var(--accent2); }
+.dbg-state-phase { position: absolute; left: 6px; right: 6px; bottom: 3px; height: 3px; border-radius: 2px; background: var(--input-bg); overflow: hidden; pointer-events: none; }
+.dbg-state-phase-fill { position: absolute; inset: 0 auto 0 0; background: var(--success); }
+
+/* Overlay: transitions by blocker (the tooltip says why) */
+.ag-arrow.live-ready .ag-arrow-line, .ag-arrow.live-fading .ag-arrow-line { stroke: var(--success); stroke-width: 3; }
+.ag-arrow.live-condition .ag-arrow-line { stroke: var(--danger); stroke-dasharray: 5 4; }
+.ag-arrow.live-shadowed .ag-arrow-line, .ag-arrow.live-interrupt .ag-arrow-line { stroke: var(--warning); stroke-dasharray: 5 4; }
+.ag-arrow.live-when .ag-arrow-line { stroke: var(--accent2); stroke-dasharray: 2 4; }
+.ag-arrow.live-travel .ag-arrow-line { stroke: var(--faint); stroke-dasharray: 2 4; }
+.ag-arrow.live-ready .ag-priority-badge circle, .ag-arrow.live-fading .ag-priority-badge circle { stroke: var(--success); }
+.ag-arrow.live-condition .ag-priority-badge circle { stroke: var(--danger); }
+.ag-arrow.live-shadowed .ag-priority-badge circle, .ag-arrow.live-interrupt .ag-priority-badge circle { stroke: var(--warning); }
+.ag-arrow.live-when .ag-priority-badge circle { stroke: var(--accent2); }
+
+/* Takes (ADR 0348; T73): the take menu in the graph editor's toolbar and the notes under the debugger bar. */
+.dbg-take { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.dbg-take-pick { display: flex; align-items: center; gap: 4px; }
+.dbg-take-name { color: var(--text-strong); max-width: 18ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbg-notes { flex-basis: 100%; margin: 0; padding: 0 0 0 16px; font-size: 11px; color: var(--warning); }
+.dbg-notes li { margin: 1px 0; }

@@ -1,3 +1,4 @@
+mod debug_link;
 mod gamepad;
 
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -150,6 +151,8 @@ pub fn run() {
         // restarts (ADR 0116). Registered after the fs plugin, whose scope it restores.
         .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_opener::init())
+        // The debug link's listeners (ADR 0376, 0379), opened by the editor's page.
+        .manage(debug_link::DebugLinkListeners::default())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -175,7 +178,11 @@ pub fn run() {
             gamepad::myco_gamepad_trigger_rumble,
             gamepad::myco_gamepad_set_led,
             gamepad::myco_gamepad_sensors,
-            gamepad::myco_gamepad_trigger_effect
+            gamepad::myco_gamepad_trigger_effect,
+            // The debug link's WebSocket listener (ADR 0379).
+            debug_link::myco_debuglink_listen,
+            debug_link::myco_debuglink_send,
+            debug_link::myco_debuglink_close
         ])
         .on_window_event(|window, event| {
             let other = |label: &str| window.app_handle().get_webview_window(label);

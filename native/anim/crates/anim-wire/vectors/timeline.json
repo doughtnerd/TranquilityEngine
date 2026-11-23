@@ -1,0 +1,14 @@
+{
+  "family": "timeline",
+  "id": 7,
+  "version": 1,
+  "vectors": [
+    { "name": "timeline_create", "record": "TIMELINE_CREATE", "values": { "world": 2, "hostId": 40, "clip": 131077, "timeMode": 1, "wrap": 3, "flags": 1, "speed": -0.5, "start": 1.25 }, "hex": "01070100020000002800000005000200010000000300000001000000000000bf0000a03f" },
+    { "name": "seq_create", "record": "SEQ_CREATE", "values": { "world": 0, "hostId": 7, "timeMode": 0, "wrap": 2, "flags": 0, "speed": 1, "members": 3 }, "hex": "0207010000000000070000000000000002000000000000000000803f03000000" },
+    { "name": "seq_member", "record": "SEQ_MEMBER", "values": { "hostId": 11, "column": 5, "valueKind": 0, "width": 2, "ease": 6, "flags": 3, "loops": 4294967295, "offset": 0.5, "duration": 0.25, "delay": 0.125, "from0": 1, "from1": -1, "from2": 0, "from3": 0, "to0": 2, "to1": 3, "to2": 0, "to3": 0 }, "hex": "030701000b0000000500000000000000020000000600000003000000ffffffff0000003f0000803e0000003e0000803f000080bf000000000000000000000040000040400000000000000000" },
+    { "name": "timeline_control_seek", "record": "TIMELINE_CONTROL", "values": { "handle": 65539, "op": 4, "value": 2.5 }, "hex": "04070100030001000400000000002040" },
+    { "name": "timeline_change_member_done", "record": "TIMELINE_CHANGE", "values": { "instance": 65539, "hostId": 40, "kind": 5, "member": 11, "time": 0.875 }, "hex": "050701000300010028000000050000000b0000000000603f" },
+    { "name": "timeline_info", "record": "TIMELINE_INFO", "values": { "instance": 131073, "valueOffset": 128, "valueWords": 20, "weightOffset": 6, "blocks": 3, "duration": 2.5 }, "hex": "06070100010002008000000014000000060000000300000000002040" },
+    { "name": "timeline_block_member", "record": "TIMELINE_BLOCK", "values": { "index": 2, "kind": 2, "offset": 12, "words": 4, "track": 2, "column": 77, "hostId": 11 }, "hex": "0707010002000000020000000c00000004000000020000004d0000000b000000" }
+  ]
+}

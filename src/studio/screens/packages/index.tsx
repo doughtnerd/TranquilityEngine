@@ -12,7 +12,7 @@ import { Panel } from "../../../editor/ui/panel/Panel";
 import { audioDependencies } from "../../../engine/audio/packaging/definitions";
 import { AUDIO_PROJECT_FILE, type AudioProject } from "../../../engine/audio/project/types";
 import type { ImportPlatform } from "../../../engine/scene/importSettings";
-import { applyEdit, type EditResult } from "../../../plugins/audio/editor/editResult";
+import { applyEdit, type EditResult } from "../../../editor/sdk/editResult";
 import type { SourceFacts } from "../../encoding/estimate";
 import { convertProjectNow, projectPlanSource } from "../../encoding/studioEncoding";
 import { configOf, studioPlan } from "../../encoding/studioPlan";

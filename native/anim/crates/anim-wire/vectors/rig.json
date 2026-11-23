@@ -1,0 +1,11 @@
+{
+  "family": "rig",
+  "id": 4,
+  "version": 1,
+  "vectors": [
+    { "name": "warp_target", "record": "WARP_TARGET", "values": { "instance": 65538, "node": 5, "px": 1.5, "py": 0, "pz": -2.25, "rx": 0, "ry": 0.38268343, "rz": 0, "rw": 0.9238795, "flags": 0 }, "hex": "0104010002000100050000000000c03f00000000000010c00000000015efc33e000000005e836c3f00000000" },
+    { "name": "warp_clear", "record": "WARP_TARGET", "values": { "instance": 196609, "node": 2, "px": 0, "py": 0, "pz": 0, "rx": 0, "ry": 0, "rz": 0, "rw": 1, "flags": 1 }, "hex": "0104010001000300020000000000000000000000000000000000000000000000000000000000803f01000000" },
+    { "name": "reset_all", "record": "RIG_RESET", "values": { "instance": 131076, "node": 4294967295 }, "hex": "0204010004000200ffffffff" },
+    { "name": "reset_node", "record": "RIG_RESET", "values": { "instance": 131076, "node": 7 }, "hex": "020401000400020007000000" }
+  ]
+}

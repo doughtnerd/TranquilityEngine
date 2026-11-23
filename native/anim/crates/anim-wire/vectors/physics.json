@@ -1,0 +1,13 @@
+{
+  "family": "physics",
+  "id": 8,
+  "version": 1,
+  "vectors": [
+    { "name": "ragdoll_info", "record": "RAGDOLL_INFO", "values": { "boneCount": 20, "pelvis": 1, "front": 4 }, "hex": "01080100140000000100000004000000" },
+    { "name": "ragdoll_bone", "record": "RAGDOLL_BONE", "values": { "flags": 1, "frameX": 0, "frameY": 0, "frameZ": 0, "frameW": 1, "swingY": 45, "swingZ": 30, "twistMin": -20, "twistMax": 35, "stiffness": 400, "damping": 40, "maxForce": 1000, "strength": 1, "pin": 0.5 }, "hex": "02080100010000000000000000000000000000000000803f000034420000f0410000a0c100000c420000c8430000204200007a440000803f0000003f" },
+    { "name": "row_control", "record": "ROW_CONTROL", "values": { "strength": 0.75, "pin": 1, "getupFromBack": 3, "getupFromFront": 4294967295 }, "hex": "030801000000403f0000803f03000000ffffffff" },
+    { "name": "body_in", "record": "BODY_IN", "values": { "flags": 1, "posX": 0.1, "posY": 1, "posZ": -0.25, "rotX": 0, "rotY": 0.70710677, "rotZ": 0, "rotW": 0.70710677, "multiplier": 0.5 }, "hex": "0408010001000000cdcccc3d0000803f000080be00000000f304353f00000000f304353f0000003f" },
+    { "name": "row_out", "record": "ROW_OUT", "values": { "instance": 65538, "flags": 3, "facing": 1, "getup": 3, "boneCount": 20 }, "hex": "050801000200010003000000010000000300000014000000" },
+    { "name": "drive_out", "record": "DRIVE_OUT", "values": { "flags": 5, "parentBody": 1, "targetX": 0, "targetY": 0, "targetZ": 0.38268343, "targetW": 0.9238795, "velX": 0, "velY": 0, "velZ": 1.5, "stiffness": 300, "damping": 30, "maxForce": 750, "pin": 0, "posX": 0, "posY": 1.2, "posZ": 0, "rotX": 0, "rotY": 0, "rotZ": 0, "rotW": 1 }, "hex": "060801000500000001000000000000000000000015efc33e5e836c3f00000000000000000000c03f000096430000f04100803b4400000000000000009a99993f000000000000000000000000000000000000803f" }
+  ]
+}

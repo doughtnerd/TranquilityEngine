@@ -137,15 +137,41 @@ class Collider implements BackendCollider<Dim3> {
   }
 }
 
+/**
+ * A joint-frame turn as the three angles of Rapier's spherical joint axes: its rotation vector (axis times angle,
+ * the short way round). Measured against the other decompositions (the six Euler orders, the quaternion's vector
+ * part, its Cayley and sine forms), it is the one the motors converge on: exact for a turn about one axis, within
+ * a few hundredths of a radian for combined turns of about a radian, and the error shrinks with the angle.
+ */
+function rotationVector(q: Quat): [number, number, number] {
+  const s = q.w < 0 ? -1 : 1;
+  const x = q.x * s, y = q.y * s, z = q.z * s, w = q.w * s;
+  const sin = Math.hypot(x, y, z);
+  if (sin < 1e-9) return [0, 0, 0];
+  const angle = 2 * Math.atan2(sin, w);
+  return [(x / sin) * angle, (y / sin) * angle, (z / sin) * angle];
+}
+
+/**
+ * The raw joint set's per-axis calls. `RAPIER.SphericalImpulseJoint` declares them as methods, but in rapier3d-compat
+ * 0.21 `World.createImpulseJoint` hands back a plain wrapper for spherical joints, without them; the raw set takes
+ * the axis on every call, as it does for the limits.
+ */
+interface SphericalRaw {
+  jointSetLimits(h: number, axis: number, min: number, max: number): void;
+  jointConfigureMotorModel(h: number, axis: number, model: number): void;
+  jointConfigureMotorPosition(h: number, axis: number, target: number, stiffness: number, damping: number): void;
+  jointSetMotorMaxForce(h: number, axis: number, maxForce: number): void;
+}
+
+const ANGULAR_AXES = [RAPIER.JointAxis.AngX, RAPIER.JointAxis.AngY, RAPIER.JointAxis.AngZ] as const;
+
 class Joint implements BackendJoint {
+  private driven = false;
   constructor(readonly j: RAPIER.ImpulseJoint) {}
   configure(s: JointSettings): void {
-    if (s.cone) {
-      // Per-axis angular limits through the raw joint set (the JS class only exposes them on hinges and sliders).
-      const raw = (this.j as unknown as { rawSet: { jointSetLimits(h: number, axis: number, min: number, max: number): void } }).rawSet;
-      raw.jointSetLimits(this.j.handle, RAPIER.JointAxis.AngX, s.cone.twist[0], s.cone.twist[1]);
-      raw.jointSetLimits(this.j.handle, RAPIER.JointAxis.AngY, -s.cone.swing, s.cone.swing);
-      raw.jointSetLimits(this.j.handle, RAPIER.JointAxis.AngZ, -s.cone.swing, s.cone.swing);
+    if (s.cone !== undefined || s.drive !== undefined) {
+      this.configureBall(s);
       return;
     }
     const unit = this.j as RAPIER.UnitImpulseJoint;
@@ -160,6 +186,34 @@ class Joint implements BackendJoint {
       unit.setMotorMaxForce(Number.MAX_VALUE);
     } else {
       unit.setMotorMaxForce(0); // off (configuring an idle motor instead would lock the axis)
+    }
+  }
+
+  /**
+   * A spherical joint's limits and drive through its per-axis angular coordinates (twist about the frame's x axis,
+   * swing about y and z). Rapier limits each axis on its own, so the swing cone is approximated by the box of the
+   * two half-angles: exact on the y and z axes (the ellipse's extremes), and a little wider than the ellipse in
+   * between, where a box corner reaches both half-angles at once. The drive is Rapier's per-axis position motor
+   * (force-based) on the three axes, aimed at the target's rotation vector.
+   */
+  private configureBall(s: JointSettings): void {
+    const raw = (this.j as unknown as { rawSet: SphericalRaw }).rawSet, h = this.j.handle;
+    if (s.cone) {
+      raw.jointSetLimits(h, RAPIER.JointAxis.AngX, s.cone.twist[0], s.cone.twist[1]);
+      raw.jointSetLimits(h, RAPIER.JointAxis.AngY, -s.cone.swing[0], s.cone.swing[0]);
+      raw.jointSetLimits(h, RAPIER.JointAxis.AngZ, -s.cone.swing[1], s.cone.swing[1]);
+    }
+    if (s.drive && s.drive.maxForce > 0) {
+      const target = rotationVector(s.drive.rotation);
+      ANGULAR_AXES.forEach((axis, i) => {
+        raw.jointConfigureMotorModel(h, axis, RAPIER.MotorModel.ForceBased);
+        raw.jointConfigureMotorPosition(h, axis, target[i]!, s.drive!.stiffness, s.drive!.damping);
+        raw.jointSetMotorMaxForce(h, axis, s.drive!.maxForce);
+      });
+      this.driven = true;
+    } else if (this.driven) {
+      for (const axis of ANGULAR_AXES) raw.jointSetMotorMaxForce(h, axis, 0); // off (an idle motor left configured would lock the axis)
+      this.driven = false;
     }
   }
 }

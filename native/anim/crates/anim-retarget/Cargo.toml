@@ -1,0 +1,28 @@
+[package]
+name = "anim-retarget"
+description = "Myco animation core (ADR 0370): skeleton profiles, chain mapping, rest-pose compensation, runtime and offline retargeting."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# `bake::compress_baked`: the offline bake's optional compression pass. anim-compress (and the f64
+# reference it measures with) is offline only, so the runtime module never links it.
+compress = ["dep:anim-compress"]
+
+[dependencies]
+anim-math.workspace = true
+anim-format.workspace = true
+anim-pose.workspace = true
+# Two-bone IK for the pinning pass.
+anim-rig.workspace = true
+# BoundClip, for the offline bake.
+anim-sample.workspace = true
+anim-compress = { workspace = true, optional = true }
+
+[dev-dependencies]
+anim-offline.workspace = true
+anim-compress.workspace = true
+# Tests the `compress` feature's bake pass.
+anim-retarget = { path = ".", features = ["compress"] }

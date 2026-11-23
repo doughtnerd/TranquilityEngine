@@ -53,6 +53,8 @@ export interface FieldTarget {
   /** Start a scrub drag named `label` on `field` (already closed when the target can't be edited now, as a document during play). */
   drag(field: FieldValue, label: string): FieldDrag;
   readonly nodes: NodeRefs;
+  /** In a scene document: the active node's component (field adornments, ADR 0373, are drawn for it). */
+  readonly place?: { readonly scene: OpenScene; readonly path: NodePath; readonly type: string; readonly index: number };
 }
 
 /** The drag a refused one gets: already closed. */
@@ -69,6 +71,7 @@ export function documentFieldTarget(scene: OpenScene, paths: readonly NodePath[]
   const valuesOf = (field: FieldValue) => infos.map((i) => i.fields.find((f) => f.name === field.name)?.value);
   return {
     info,
+    place: { scene, path: paths[paths.length - 1], type: info.type, index: info.index },
     state: (field) => fieldState(scene, paths, info, field, valuesOf(field)),
     set: (field, value) => setField(scene, paths, info, field, value),
     setEach: (field, values) => setFieldEach(scene, paths, info, field, (i) => values[i]),

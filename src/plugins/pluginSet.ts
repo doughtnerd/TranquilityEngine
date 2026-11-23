@@ -6,8 +6,9 @@
 // or deactivates halves, under one failure policy. Plugins never see the set: they see only their
 // per-half context (ADR 0134, 0135). Host-neutral: no editor imports, so the player and the server use it.
 import { resolveEnabledPlugins } from "./enabled";
-import type { PluginManifest } from "./manifest";
+import { pluginTitle, type PluginManifest } from "./manifest";
 import { orderPlugins } from "./order";
+import { satisfies } from "./semver";
 
 /** A plugin half as the set sees it: a manifest and an `activate` taking the half's context. */
 export interface PluginHalf {
@@ -15,10 +16,19 @@ export interface PluginHalf {
   activate(context: never): void;
 }
 
+/**
+ * What a half's context tells it about the other plugins (`ctx.plugins`, ADR 0374). The set builds one per half it
+ * activates, so a plugin reads, at activation, whether an optional dependency is active for this host.
+ */
+export interface PluginsView {
+  /** Whether the plugin is active for this half (the editor half counts the plugin's runtime half too). A named optional dependency outside its version range is not. */
+  isActive(name: string): boolean;
+}
+
 /** How the set drives one kind of half (an adapter over a half's context, ADR 0144). */
 export interface HalfActivator<H extends PluginHalf = PluginHalf> {
-  /** Activate `half` (its dependencies are active). Rolls back what it registered and rethrows when it throws. Nothing happens when it is already active. */
-  activate(half: H): void;
+  /** Activate `half` (its dependencies are active; `plugins` answers for its optional ones). Rolls back what it registered and rethrows when it throws. Nothing happens when it is already active. */
+  activate(half: H, plugins?: PluginsView): void;
   /** Undo everything the plugin's half registered (nothing when it isn't active). */
   deactivate(name: string): void;
   /** Runtime halves: a half that is off still runs, against a stub, so its decorated Components unregister (ADR 0133). */
@@ -69,10 +79,18 @@ export interface PluginSetProblem {
   readonly message: string;
 }
 
+/** Something to tell the user about a plugin that did activate (ADR 0374): an optional dependency it runs without. Not a failure. */
+export interface PluginSetNotice {
+  readonly plugin: string;
+  readonly message: string;
+}
+
 export interface ApplyResult {
   /** Plugins with at least one active half, in activation order. */
   readonly active: readonly string[];
   readonly problems: readonly PluginSetProblem[];
+  /** Optional dependencies that failed or are outside their version range, one entry per plugin and dependency. */
+  readonly notices: readonly PluginSetNotice[];
 }
 
 export interface PluginSet<R extends PluginHalf = PluginHalf, E extends PluginHalf = PluginHalf> {
@@ -93,6 +111,8 @@ const HALVES: readonly Half[] = ["runtime", "editor"];
 
 interface ActiveHalf {
   readonly source: unknown;
+  /** The optional dependencies that were present when the half activated (sorted, comma separated): it activates again when they change. */
+  readonly optional: string;
 }
 type ActivePlugin = { manifest: PluginManifest } & { [K in Half]?: ActiveHalf };
 
@@ -122,6 +142,9 @@ function merge(plugins: readonly SetPlugin[]): Merged[] {
 
 const messageOf = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const depsOf = (m: PluginManifest) => Object.keys(m.dependencies ?? {});
+const optionalOf = (m: PluginManifest) => Object.keys(m.optionalDependencies ?? {});
+/** Both kinds: what orders a plugin after another (a cycle through either is refused). */
+const orderDepsOf = (m: PluginManifest) => [...depsOf(m), ...optionalOf(m)];
 
 /** A plugin set for one host, driving halves through `activators` (the editor host passes an editor activator too). */
 export function createPluginSet<R extends PluginHalf = PluginHalf, E extends PluginHalf = PluginHalf>(activators: { readonly runtime?: HalfActivator<R>; readonly editor?: HalfActivator<E> }): PluginSet<R, E> {
@@ -131,16 +154,17 @@ export function createPluginSet<R extends PluginHalf = PluginHalf, E extends Plu
 
   function apply(input: ApplyInput<R, E>): ApplyResult {
     const problems: PluginSetProblem[] = [];
+    const notices: PluginSetNotice[] = [];
     const report: Report = (plugin, where, message) => void problems.push({ plugin, where, message });
     try {
-      run(input, report);
+      run(input, report, (plugin, message) => void notices.push({ plugin, message }));
     } catch (err) {
       report("(plugins)", "dependencies", `The plugins couldn't be applied: ${messageOf(err)}`);
     }
-    return { active: [...active.keys()], problems };
+    return { active: [...active.keys()], problems, notices };
   }
 
-  function run(input: ApplyInput<R, E>, report: Report): void {
+  function run(input: ApplyInput<R, E>, report: Report, notice: (plugin: string, message: string) => void): void {
     const host = input.host ?? {};
     const keepRuntime = !!input.keepRuntime;
     const plugins = merge(input.plugins);
@@ -166,7 +190,8 @@ export function createPluginSet<R extends PluginHalf = PluginHalf, E extends Plu
       const p = byName.get(name);
       for (const half of HALVES) if (touches(half) && a[half] && (!wants(p, half) || p!.sources[half] !== a[half]!.source)) stale[half].add(name);
     }
-    for (const half of HALVES) closeOverDependents(stale[half], half);
+    // An optional dependent goes with what it works with, so its integration never outlives the other plugin; step 3 activates it again.
+    for (const half of HALVES) closeOverDependents(stale[half], half, true);
     for (const name of dependentsFirst()) {
       for (const half of ["editor", "runtime"] as const) if (stale[half].has(name)) deactivateHalf(name, half, report);
     }
@@ -187,6 +212,7 @@ export function createPluginSet<R extends PluginHalf = PluginHalf, E extends Plu
       for (const p of order(listed, failed, keepRuntime, report)) {
         const name = p.manifest.name;
         if (failed.has(name)) continue;
+        // An optional dependency that failed doesn't block: the plugin activates without it (reported at the end).
         const blocked = depsOf(p.manifest).find((d) => failed.has(d));
         if (blocked) {
           failed.add(name);
@@ -195,11 +221,19 @@ export function createPluginSet<R extends PluginHalf = PluginHalf, E extends Plu
           if (!keepRuntime) disableRuntime(p, report);
           continue;
         }
-        if (!wants(p, half) || active.get(name)?.[half]) continue;
+        if (!wants(p, half)) continue;
+        const optional = optionalSignature(p.manifest, half);
+        const current = active.get(name)?.[half];
+        if (current && current.optional !== optional) {
+          // An optional dependency came or went since this half activated: activate it again (and what needs it) to add or drop the integration.
+          const again = new Set([name]);
+          closeOverDependents(again, half, true);
+          for (const n of dependentsFirst()) if (again.has(n)) deactivateHalf(n, half, report);
+        } else if (current) continue;
         try {
-          activatorOf(half)!.activate(p.halves[half]!);
+          activatorOf(half)!.activate(p.halves[half]!, viewOf(p.manifest, half));
           const a = active.get(name) ?? { manifest: p.manifest };
-          a[half] = { source: p.sources[half] };
+          a[half] = { source: p.sources[half], optional };
           active.set(name, a);
         } catch (err) {
           failed.add(name);
@@ -208,7 +242,44 @@ export function createPluginSet<R extends PluginHalf = PluginHalf, E extends Plu
         }
       }
     }
+
+    // 4. Optional dependencies a plugin runs without although they are on: one that failed, or one outside its version range.
+    for (const p of on) {
+      if (!active.has(p.manifest.name)) continue;
+      for (const [dep, range] of Object.entries(p.manifest.optionalDependencies ?? {})) {
+        const d = byName.get(dep);
+        if (!d || !enabled.has(dep)) continue;
+        if (failed.has(dep)) notice(p.manifest.name, `${pluginTitle(d.manifest)} integration unavailable: ${dep} failed`);
+        else if (satisfies(d.manifest.version, range) !== true) notice(p.manifest.name, `${pluginTitle(p.manifest)} needs optional ${dep} ${range}, but ${dep} is ${d.manifest.version}: it runs without it`);
+      }
+    }
   }
+
+  // Optional dependencies (ADR 0374)
+
+  /** Whether `name` is active for `half`: the editor half counts the plugin's runtime half (it is active first). */
+  function present(name: string, half: Half): boolean {
+    const a = active.get(name);
+    return !!a && (half === "runtime" ? !!a.runtime : !!(a.runtime || a.editor));
+  }
+
+  /** Whether the optional dependency `dep` of `manifest` is present for `half` and inside the range. */
+  function optionalPresent(manifest: PluginManifest, dep: string, half: Half): boolean {
+    const range = manifest.optionalDependencies?.[dep];
+    const a = active.get(dep);
+    if (range === undefined || !a || !present(dep, half)) return false;
+    return satisfies(a.manifest.version, range) === true;
+  }
+
+  const optionalSignature = (manifest: PluginManifest, half: Half): string =>
+    optionalOf(manifest)
+      .filter((d) => optionalPresent(manifest, d, half))
+      .sort()
+      .join(",");
+
+  const viewOf = (manifest: PluginManifest, half: Half): PluginsView => ({
+    isActive: (name) => (manifest.optionalDependencies && name in manifest.optionalDependencies ? optionalPresent(manifest, name, half) : present(name, half)),
+  });
 
   /** Active plugins, those that need others before what they need. */
   function dependentsFirst(): string[] {
@@ -223,13 +294,13 @@ export function createPluginSet<R extends PluginHalf = PluginHalf, E extends Plu
   }
 
   /** Add to `names` every active plugin whose `half` needs one of them, directly or not. */
-  function closeOverDependents(names: Set<string>, half: Half): void {
+  function closeOverDependents(names: Set<string>, half: Half, withOptional = false): void {
     let grew = names.size > 0;
     while (grew) {
       grew = false;
       for (const [name, a] of active) {
         if (names.has(name) || !a[half]) continue;
-        if (depsOf(a.manifest).some((d) => names.has(d))) (names.add(name), (grew = true));
+        if ((withOptional ? orderDepsOf(a.manifest) : depsOf(a.manifest)).some((d) => names.has(d))) (names.add(name), (grew = true));
       }
     }
   }
@@ -277,7 +348,7 @@ export function createPluginSet<R extends PluginHalf = PluginHalf, E extends Plu
         const visit = (q: Merged) => {
           if (out.has(q.manifest.name)) return;
           out.set(q.manifest.name, q);
-          for (const d of depsOf(q.manifest)) if (byName.has(d)) visit(byName.get(d)!);
+          for (const d of orderDepsOf(q.manifest)) if (byName.has(d)) visit(byName.get(d)!);
         };
         visit(p);
         return [...out.values()];

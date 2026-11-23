@@ -451,7 +451,7 @@ export abstract class PhysicsCore<D extends DimensionTypes, T extends CoreTypes<
       const s = this.jointSettings(j, st);
       if (s) {
         if (s.motor && !this.capabilities.jointMotors) this.warnOnce("motors", "this physics backend has no joint motors; motors and springs are off.");
-        st.joint.configure(this.capabilities.jointMotors ? s : { ...s, motor: null, spring: null });
+        st.joint.configure(this.capabilities.jointMotors ? s : { ...s, motor: null, spring: null, drive: null });
         st.body._state?.body.wakeUp();
       }
     }

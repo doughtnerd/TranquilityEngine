@@ -7,8 +7,10 @@ import { _unregisterComponent, getComponentClass, getComponentId, getComponentOp
 import { _undefineBuiltinSystem, _undefineSystem, defineBuiltinSystem, defineSystem, type BuiltinSystem, type SystemDef } from "../engine/core/systems";
 import { _registerWorldService, type WorldServiceDef } from "../engine/core/worldServices";
 import { _registerRenderFeature, type RenderFeatureRegistration, type RenderFeatureSpec } from "../engine/render/renderFeatures";
+import { registerDebugTopic, type DebugTopicLoader } from "../engine/debugLink/topics";
+import { registerTakeSource, type TakeSourceLoader } from "../engine/audio/take/extensions";
 import type { PluginManifest } from "./manifest";
-import type { HalfActivator } from "./pluginSet";
+import type { HalfActivator, PluginsView } from "./pluginSet";
 
 /** A render feature a first-party plugin contributes (ADR 0135). */
 export interface RenderFeatureContribution {
@@ -35,6 +37,12 @@ export interface ContributionPoint<T> {
 
 export interface RuntimePluginContext {
   /**
+   * The other plugins, as this one sees them (ADR 0374). `plugins.isActive(name)` is read at activation: true when the
+   * plugin is active for this host (and, for a named optional dependency, inside its version range), so the plugin
+   * registers its integration code only then. It activates again when an optional dependency is turned on or off.
+   */
+  readonly plugins: PluginsView;
+  /**
    * Claim Components for the plugin. They keep their decorators (`@component`); deactivating the plugin
    * unregisters them, so scene entries for them load as missing Components (ADR 0133).
    */
@@ -53,6 +61,18 @@ export interface RuntimePluginContext {
   registerRenderFeature(feature: RenderFeatureContribution): void;
   /** Add `value` to a contribution point another plugin owns (a physics backend); removed again on deactivation. */
   contribute<T>(point: ContributionPoint<T>, value: T): void;
+  /**
+   * The debug link (ADR 0376): `topic(name, load)` registers a topic a build with debugging on serves to the editor and
+   * the Studio. `load` is an `import()` of the topic's code, which only such a build loads (a release export holds none
+   * of it). Removed again on deactivation.
+   */
+  readonly debugLink: { topic(name: string, load: DebugTopicLoader): void };
+  /**
+   * Takes (ADR 0348): `source(name, load)` registers a source of records a take writes beside audio's (record types
+   * 0x40..0x7e). `load` is an `import()` of the source's code, which only a take that starts loads. Removed again on
+   * deactivation.
+   */
+  readonly take: { source(name: string, load: TakeSourceLoader): void };
 }
 
 /** A plugin's runtime half. */
@@ -113,12 +133,15 @@ function disableRuntimePlugin(plugin: RuntimePlugin): void {
   const undo: Array<() => void> = [];
   disabled.set(name, undo);
   plugin.activate({
+    plugins: { isActive: () => false },
     registerComponents: (classes) => void classes.forEach((cls) => undo.push(unclaim(cls, idOf(cls, name)))),
     registerSystems: () => {},
     registerEngineSystems: () => {},
     registerWorldService: () => {},
     registerRenderFeature: () => {},
     contribute: () => {},
+    debugLink: { topic: () => {} },
+    take: { source: () => {} },
   });
 }
 
@@ -126,7 +149,7 @@ function disableRuntimePlugin(plugin: RuntimePlugin): void {
  * Activate one runtime half (its dependencies must be active). Nothing happens when it already is. A
  * half that throws is rolled back and the error rethrown.
  */
-function activateRuntimePlugin(plugin: RuntimePlugin): void {
+function activateRuntimePlugin(plugin: RuntimePlugin, plugins: PluginsView = { isActive: isRuntimePluginActive }): void {
   const name = plugin.manifest.name;
   if (active.has(name)) return;
   manifests.set(name, plugin.manifest);
@@ -135,6 +158,7 @@ function activateRuntimePlugin(plugin: RuntimePlugin): void {
   const undo: Array<() => void> = [];
   active.set(name, undo);
   const context: RuntimePluginContext = {
+    plugins,
     registerComponents: (classes) => {
       for (const cls of classes) undo.push(claim(cls, idOf(cls, name)));
     },
@@ -156,6 +180,8 @@ function activateRuntimePlugin(plugin: RuntimePlugin): void {
       undo.push(_registerRenderFeature({ spec: after.length ? { ...f.spec, after } : f.spec, load: f.load, ...(f.loadWarm ? { loadWarm: f.loadWarm } : {}) }));
     },
     contribute: (point, value) => void undo.push(point.register(value)),
+    debugLink: { topic: (topic, load) => void undo.push(registerDebugTopic(topic, load)) },
+    take: { source: (name, load) => void undo.push(registerTakeSource(name, load)) },
   };
   try {
     plugin.activate(context);

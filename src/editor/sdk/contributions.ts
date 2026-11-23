@@ -14,7 +14,9 @@ import type { OpenScene } from "../state";
 import type { ComponentEntry, NodeEntry, NodePath, SceneDocument } from "../document";
 import type { GameObject } from "../../engine/scene/GameObject";
 import type { ComponentInfo } from "../../engine/editor";
-import type { ImportSettings } from "../../engine/scene/importSettings";
+import type { ImportSettings, SpriteSlice } from "../../engine/scene/importSettings";
+import type { Pixels } from "../../engine/animation/sprites/islands";
+import type { SliceSkin, SpriteFlipbook } from "../../engine/animation/sprites/sidecar";
 import { getComponentId, type ComponentClass, type FieldChoice } from "../../engine/core/registry";
 import type { Component } from "../../engine/core/Component";
 import type { Wire } from "../shapeKit3d";
@@ -69,6 +71,13 @@ export interface AssetKindContribution<T = any> {
    * file itself as its thumbnail and lists its slices under it, and Open is "Sprite Editor…".
    */
   readonly slices?: boolean;
+  /**
+   * Capability (ADR 0371): files of this kind hold sub-assets (`model.glb#Skeleton`, `model.glb#Anim/Run`) that asset
+   * fields take on their own. `list` names the ones a file holds right now that may suit a field of `kinds`
+   * (synchronously; empty until known, so a kind may start loading the file and list them on a later render), and
+   * `referencedAs` the field kinds a sub-asset of that name satisfies. Asset fields offer `path#sub` entries for them.
+   */
+  readonly subAssets?: { list(path: string, kinds: readonly string[]): readonly string[]; referencedAs(sub: string): readonly string[] };
   /** Policy: the field asset kinds (0131 `@field(AssetRef, { kind })`) that accept files of this kind, e.g. sky → ["environment"] (ADR 0143: any name, so a plugin's Components can reference its own kind). */
   readonly referencedAs?: readonly string[];
   /** Which built-in thumbnail renderer draws its preview (internal tier: renderers stay first-party, ADR 0133). */
@@ -590,6 +599,26 @@ export interface PlayStatsCounterContribution {
   count(world: World): number | null;
 }
 
+/** One row of a plugin's Play Stats table: a label, a value (already formatted) and an optional muted detail after it. */
+export interface PlayStatsRow {
+  readonly label: string;
+  readonly value: string;
+  readonly detail?: string;
+}
+
+/**
+ * A titled table a plugin adds under a World's rows in the Play Stats panel (T34): the Animation plugin's per-frame
+ * stage times and instance counts, where a one-number counter is too little. Read at the panel's refresh rate (about
+ * 4 Hz) only while the panel shows, so reading may reset the plugin's own averaging period.
+ */
+export interface PlayStatsTableContribution {
+  readonly id: string;
+  /** The table's heading ("Animation"). */
+  readonly title: string;
+  /** The World's rows, or null when it has none to show (no animation in the World, or no frame since the last read). Internal tier: it is given the World. */
+  rows(world: World): readonly PlayStatsRow[] | null;
+}
+
 /**
  * Work done on a scene when the editor opens it, after its nodes are in the scene view (ADR 0146): the
  * Particles plugin moves embedded effects into assets. Run in registration order, one at a time.
@@ -647,7 +676,174 @@ export interface ComponentWireframeContribution {
   wire(component: Component): Wire | null;
 }
 
+/** A bone of a skeleton as the Hierarchy lists it (ADR 0373): its name and the bones under it. */
+export interface SkeletonBoneRow {
+  readonly name: string;
+  readonly children: readonly SkeletonBoneRow[];
+}
+
+/** What the Inspector's bone view is given (ADR 0242's bone target, 0373): the node with the Skeleton and the bone's name. */
+export interface BoneInspectorProps {
+  readonly scene: OpenScene;
+  readonly path: NodePath;
+  readonly bone: string;
+}
+
+/**
+ * The bones a plugin lists in the Hierarchy under scene nodes (ADR 0373: the Animation plugin's Skeletons): read-only
+ * virtual rows, built from the skeleton asset and never saved in the scene, each collapsed until opened and all hidden
+ * while searching. Selecting one makes the Inspector target that bone (ADR 0242), which `inspector` shows.
+ */
+export interface SkeletonBonesContribution {
+  readonly id: string;
+  /** The root bones under the node at `path` (empty: none). Read while the Hierarchy renders, so it may read signals (a skeleton loading). */
+  bones(scene: OpenScene, path: NodePath): readonly SkeletonBoneRow[];
+  /** The Inspector's view of a selected bone. */
+  readonly inspector: LoadComponent<BoneInspectorProps>;
+}
+
+/**
+ * What dropping Assets panel files on a scene node's Hierarchy row does instead of adding them under it (ADR 0373: a
+ * clip dropped on an Animator). Asked only for the middle of a row ("into"); the first contribution that gives a label
+ * takes the drop, and the label is the drag's text.
+ */
+export interface NodeAssetDropContribution {
+  readonly id: string;
+  /** What releasing `assets` on the node at `path` does ("Set Run as Hero's default clip"), or null when this contribution doesn't take them there. */
+  label(scene: OpenScene, path: NodePath, assets: readonly string[]): string | null;
+  /** Releasing them there, after `label` gave a text. */
+  drop(scene: OpenScene, path: NodePath, assets: readonly string[]): void;
+}
+
+/**
+ * A change another plugin makes to what adding a file of an asset kind to a scene makes (ADR 0140's `addToScene`, ADR
+ * 0373): the Animation plugin gives a dropped model whose meshes are skinned a Skeleton, SkinnedMeshRenderers and an
+ * Animator, though the model kind is the Meshes plugin's. Augments run in registration order on the kind's own templates,
+ * inside the add's one undo step; `prepare` runs beside the kind's own.
+ */
+export interface AssetNodesAugmentContribution {
+  readonly id: string;
+  /** The asset kind whose added nodes it changes, e.g. "model". */
+  readonly kind: string;
+  /** Load what `augment` reads, while the add prepares (with the kind's own `prepare`). Never rejects. */
+  prepare?(path: string): Promise<void>;
+  /** The templates to add for `path` (`templates[0]` the root): a new list, or `templates` itself to change nothing. */
+  augment(path: string, templates: NodeTemplate[]): NodeTemplate[];
+}
+
+/**
+ * A card another plugin adds to the Inspector's import settings of an asset kind (ADR 0143, 0373): the Animation plugin's
+ * bone map and clip import settings are cards of a model's Import Settings, though the `model` kind is the Meshes plugin's.
+ * It edits the same draft as the kind's own rows, so the shell's one Apply and Revert write them together. Cards show
+ * after the kind's own, in registration order.
+ */
+export interface ImportSettingsSectionContribution {
+  readonly id: string;
+  /** The asset kind whose Import Settings it joins, e.g. "model". */
+  readonly kind: string;
+  /** The card's heading. */
+  readonly title: string;
+  /** The card's rows, loaded on first use. */
+  readonly view: LoadComponent<ImportSettingsViewProps>;
+}
+
+/**
+ * What a Sprite Editor tool changes (ADR 0373 "2D tools"): slice skins by slice name (null drops a skin) and, as a whole,
+ * the image's flipbooks. Slices themselves (names, rectangles, pivots) are the Sprite Editor's own.
+ */
+export interface SpriteEditorChange {
+  readonly skins?: Readonly<Record<string, SliceSkin | null>>;
+  readonly flipbooks?: Readonly<Record<string, SpriteFlipbook>>;
+}
+
+/** What the Sprite Editor gives a tool's view: the image's slices and flipbooks as edited so far, and the one way to change them. */
+export interface SpriteEditorToolProps {
+  /** The image's project path. */
+  readonly image: string;
+  /** The image's URL, for drawing it. */
+  readonly url: string;
+  readonly slices: readonly SpriteSlice[];
+  readonly flipbooks: Readonly<Record<string, SpriteFlipbook>>;
+  /** The selected slice's name, or null. Shared with the Slices view. */
+  readonly selected: string | null;
+  select(name: string | null): void;
+  /** Make a change as one undo step of the Sprite Editor's history; steps sharing `key` in a row (one drag) are one step. */
+  edit(change: SpriteEditorChange, key?: string): void;
+  /** Why nothing can be changed (a read-only project), or null. */
+  readonly readOnly: string | null;
+  /** The image's pixels (meshes follow the opaque outline). */
+  pixels(): Promise<Pixels>;
+}
+
+/**
+ * A tool of the Sprite Editor (ADR 0373): a tab beside Slices whose view replaces the editor's body while it is open. The
+ * Animation plugin's Flipbooks and Bones tools. Edits go on the editor's one history and are written by its Apply.
+ */
+export interface SpriteEditorToolContribution {
+  readonly id: string;
+  readonly label: string;
+  readonly view: LoadComponent<SpriteEditorToolProps>;
+}
+
+/** A component field of a scene document, as the field adornments and field write interceptors see it (ADR 0373). */
+export interface DocumentField {
+  readonly scene: OpenScene;
+  /** The node (`[id]`, or `[instanceId, innerId…]` inside a prefab instance). */
+  readonly path: NodePath;
+  /** The Component type id, e.g. "engine.Transform". */
+  readonly type: string;
+  /** Which component of its type on the node. */
+  readonly index: number;
+  /** The field's name (a whole field: a plain object's sub-paths are inside its value). */
+  readonly field: string;
+}
+
+/** What a field adornment is given: the field of the Inspector's active node, and its value in scene-file JSON. */
+export interface FieldAdornmentProps extends DocumentField {
+  /** The value the row shows on the active node, as the scene file would hold it (undefined when it can't be). */
+  readonly value: unknown;
+}
+
+/**
+ * A small control after a field's name in the Inspector of a scene document (ADR 0373: the Animation window's key
+ * buttons on animatable fields). Rendered on every field row of the active node; the view returns null where it has
+ * nothing to show. Not shown in the live Inspector of a running game.
+ */
+export interface FieldAdornmentContribution {
+  readonly id: string;
+  readonly view: FunctionComponent<FieldAdornmentProps>;
+}
+
+/** A component field write to a scene document, as an interceptor is asked about it. */
+export interface InterceptedFieldWrite extends DocumentField {
+  /** The value to write, in scene-file JSON. */
+  readonly value: unknown;
+  /** What the document holds there now (undefined when unset). */
+  readonly stored: unknown;
+  /**
+   * The open undo step the write is part of (a gizmo drag, an Inspector scrub, a multi-node edit), as a number shared
+   * by every write inside it; null for a write outside any step. `gestureEnded` hears when it closes.
+   */
+  readonly gesture: number | null;
+}
+
+/**
+ * Takes component field writes to scene documents instead of the document (ADR 0373: the Animation window's record
+ * mode, where changing an animatable field in the Inspector or with a gizmo writes a key into the clip). Asked before
+ * every document write from the Inspector, gizmos and plugin tools (they all go through the one component field write,
+ * ADR 0257), after the edit gate; the first that takes a write keeps the scene document unchanged.
+ */
+export interface FieldWriteInterceptorContribution {
+  readonly id: string;
+  /** Take `write` (true: the scene document isn't changed) or leave it to the document (false). Must not throw. */
+  take(write: InterceptedFieldWrite): boolean;
+  /** The undo step numbered `gesture` closed (`cancelled`: put back), after writes inside it were asked about. */
+  gestureEnded?(gesture: number, cancelled: boolean): void;
+}
+
 export const componentNotes = createRegistry<ComponentNoteContribution>("Component note");
+export const fieldAdornments = createRegistry<FieldAdornmentContribution>("Field adornment");
+export const fieldWriteInterceptors = createRegistry<FieldWriteInterceptorContribution>("Field write interceptor");
 export const assetKinds = createRegistry<AssetKindContribution>("Asset kind");
 export const panels = createRegistry<PanelContribution>("Panel");
 export const projectSettingsSections = createRegistry<ProjectSettingsSectionContribution>("Project settings section");
@@ -659,11 +855,17 @@ export const componentHeaderActions = createRegistry<ComponentHeaderActionContri
 export const hierarchyCreateEntries = createRegistry<HierarchyCreateContribution>("Hierarchy create entry");
 export const assetActions = createRegistry<AssetActionContribution>("Asset action");
 export const playStatsCounters = createRegistry<PlayStatsCounterContribution>("Play stats counter");
+export const playStatsTables = createRegistry<PlayStatsTableContribution>("Play stats table");
 export const sceneOpenMigrations = createRegistry<SceneOpenMigrationContribution>("Scene open migration");
 export const idlePrefetches = createRegistry<IdlePrefetchContribution>("Idle prefetch");
 export const fieldChoices = createRegistry<FieldChoicesContribution>("Field choices");
 export const nameReferences = createRegistry<NameReferencesContribution>("Name references");
 export const componentWireframes = createRegistry<ComponentWireframeContribution>("Component wireframe");
+export const skeletonBones = createRegistry<SkeletonBonesContribution>("Skeleton bones");
+export const nodeAssetDrops = createRegistry<NodeAssetDropContribution>("Node asset drop");
+export const assetNodesAugments = createRegistry<AssetNodesAugmentContribution>("Asset nodes augment");
+export const importSettingsSections = createRegistry<ImportSettingsSectionContribution>("Import settings section");
+export const spriteEditorTools = createRegistry<SpriteEditorToolContribution>("Sprite Editor tool");
 
 /** The wireframe a registered contribution draws for `component` (by its Component type id), or null when none draws it or it can't be drawn now. */
 export function componentWireframe(component: Component): Wire | null {

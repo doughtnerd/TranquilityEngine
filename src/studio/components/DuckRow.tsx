@@ -5,7 +5,7 @@
 import { MIX_LIMITS } from "../../engine/audio/project/format";
 import type { DuckingRule } from "../../engine/audio/project/types";
 import { SegmentedControl } from "../../editor/ui/SegmentedControl";
-import type { EditResult } from "../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../editor/sdk/editResult";
 import { duckSummary, editDuck, triggerEntries, type DuckPatch } from "./mixRowsModel";
 import { ContextMenu } from "../../editor/ui/ContextMenu";
 import { useRef, useState } from "preact/hooks";

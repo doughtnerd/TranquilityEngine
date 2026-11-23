@@ -5,7 +5,7 @@ import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import type { AudioProject } from "../../../engine/audio/project/types";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
 import { studioPlan } from "../../encoding/studioPlan";
 import { PackageInspectorView } from "./PackageInspectorView";
 import { defsOf, lintPackageNames, setPreload, setShipsOn, setStrict, strictOf } from "./packagesModel";

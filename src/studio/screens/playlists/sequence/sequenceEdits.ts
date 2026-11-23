@@ -4,7 +4,7 @@
 import type { Effect, EffectType } from "../../../../engine/audio/effects/types";
 import { wouldContain } from "../../../../engine/audio/playlist/references";
 import type { Automation, Clip, PlaylistBody, SequenceSettings, Track } from "../../../../engine/audio/playlist/types";
-import { accept, refuse, type EditResult } from "../../../../plugins/audio/editor/editResult";
+import { accept, refuse, type EditResult } from "../../../../editor/sdk/editResult";
 import { clipPlan, clipToSource } from "./clipGeometry";
 import { cutCurve } from "./curveCut";
 import {

@@ -18,11 +18,13 @@ import type { ScriptProblem } from "../projectCode/compile";
 import { link } from "../projectCode/linker";
 import { planPluginCode, type BuiltPlugin } from "../plugins/thirdParty";
 import type { AudioReport } from "./audio";
+import { planAnimationNodes, type PlannedAnimationNodeModule } from "./animationNodes";
 import { planAudioEffects, type PlannedAudioEffect } from "./audioEffects";
 import { MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, modulePath, type GameManifest } from "./format";
 import { planLocalisation, type BuildLanguages } from "./strings";
 import { planLineIndex } from "./lines";
 import { LINE_INDEX_PATH } from "../engine/audio/localisation/lines/lineIndex";
+import { DEFAULT_DEBUG_LINK, debugLinkAddress } from "../engine/debugLink/config";
 import { isGeneratorPath } from "../engine/audio/generators/format";
 import { isPlaylistPath } from "../engine/audio/playlist/format";
 
@@ -55,6 +57,11 @@ export interface BuildOptions {
   readonly languages?: readonly string[];
   /** ADR 0356 §9: `--pseudo`: add the pseudo-languages, for QA builds. */
   readonly pseudo?: boolean;
+  /**
+   * ADR 0376: `--debug-link`: debugging on. `game.json` gets `debug: { link }` (this address, or the editor on the same
+   * machine when it's `true`) and the build ships the debug link's code; without it the build holds none of it.
+   */
+  readonly debugLink?: string | true;
 }
 
 /** What a web build is made of, before anything is written. */
@@ -78,6 +85,11 @@ export interface WebBuildPlan {
    * and writes `game.json`'s `audioEffects`. Absent: none.
    */
   readonly audioEffects?: readonly PlannedAudioEffect[];
+  /**
+   * ADR 0370 (T45t): the enabled project plugins' animation node modules (`animationNodes.ts`), which the build writer
+   * meters into the build. Absent: none.
+   */
+  readonly animationNodes?: readonly PlannedAnimationNodeModule[];
   /**
    * ADR 0356 §11, 0354 §6: the languages the build ships (`strings.ts`), which the audio step splits packages by and
    * writes the line index for. Absent: the audio step reads them from `project.json`.
@@ -173,6 +185,9 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   // ADR 0352 §8: the enabled plugins' audio modules ship (hashed into game.json by the build writer); a disabled one's don't.
   const audioEffects = planAudioEffects(pluginPlan.plugins, pluginPlan.enabled);
   if (audioEffects.leaveOut.size > 0) copies = copies.filter((p) => !audioEffects.leaveOut.has(p));
+  // ADR 0370 (T45t): the enabled plugins' animation node modules ship metered (the build writer meters them); a disabled one's don't.
+  const animationNodes = planAnimationNodes(pluginPlan.plugins, pluginPlan.enabled);
+  if (animationNodes.leaveOut.size > 0) copies = copies.filter((p) => !animationNodes.leaveOut.has(p));
   // ADR 0356 §11, 0354 §6: the shipped languages' string files; string tables and other languages' variants stay out.
   const localisation = planLocalisation(source.json, copies, { languages: options.languages, pseudo: options.pseudo }, copiedPath("project.json"));
   if (localisation.error) throw new ExportError(localisation.error);
@@ -190,6 +205,11 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   const files = linked.output;
   const plugins: BuiltPlugin[] = pluginPlan.runtime.map((p) => ({ manifest: p.manifest, module: p.source.kind === "project" ? modulePath(p.runtime!) : linked.entries.get(p.runtime!)! }));
   const name = typeof source.settings.name === "string" && source.settings.name ? source.settings.name : source.name;
+  let debugLink: string | null = null;
+  if (options.debugLink !== undefined) {
+    debugLink = options.debugLink === true ? DEFAULT_DEBUG_LINK : debugLinkAddress(options.debugLink);
+    if (!debugLink) throw new ExportError(`The debug link address "${options.debugLink}" isn't a WebSocket address (ws://host:port, host:port or a port).`);
+  }
   const manifest: GameManifest = {
     format: MANIFEST_FORMAT,
     name,
@@ -202,6 +222,7 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
     ...(options.audioTake === true && options.audioTakeFrames === false && { audioTakeFrames: false as const }),
     ...(localisation.manifest && { localisation: localisation.manifest }),
     ...(linked.assetRefs.length > 0 && { assetRefs: linked.assetRefs }),
+    ...(debugLink && { debug: { link: debugLink } }),
   };
   const generated = new Map([...files, ...localisation.generated, ...[...lineFiles].map(([p, t]) => [copiedPath(p), t] as const)]);
   generated.set(MANIFEST_FILE, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -210,8 +231,9 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   return {
     manifest, copies, generated,
     ...(audioEffects.modules.length > 0 && { audioEffects: audioEffects.modules }),
+    ...(animationNodes.modules.length > 0 && { animationNodes: animationNodes.modules }),
     languages: localisation.languages,
-    ...(localisation.warnings.length > 0 && { warnings: localisation.warnings }),
+    ...(localisation.warnings.length + animationNodes.skipped.length > 0 && { warnings: [...localisation.warnings, ...animationNodes.skipped] }),
     offlineRender: projectMayUseGenerators(shipped, source.json),
   };
 }

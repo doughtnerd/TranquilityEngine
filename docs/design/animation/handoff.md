@@ -1,0 +1,38 @@
+# Animation build: handoff
+
+## Where things are
+
+- **Records:** `docs/decisions/0370`–`0377` (Accepted).
+- **Build documents:** `docs/design/animation/`. [plan.md](plan.md) is the source for order and ownership, [ground-rules.md](ground-rules.md) holds every task's rules, and [decision-log.md](decision-log.md) and [build-log.md](build-log.md) record what happened.
+- **Branch:** `ccr-d1d28632-2asa2r`.
+- **Audio branch (gate A):** `origin/ccr-8460d665-umr8or`.
+
+## Reading order
+
+1. `CLAUDE.md`.
+2. Records 0370, 0371, 0372, 0373 (then 0374–0377 as a task needs them).
+3. `plan.md`.
+4. `ground-rules.md`.
+5. The latest entries of `build-log.md` and `decision-log.md`.
+
+## Settled
+
+All owner decisions are in the records and in the "Owner rules" section of `ground-rules.md`.
+
+## Open
+
+- **The WebGL2 skinning mechanism:** float textures with vertex pulling, or transform feedback. Spiked in T16.
+- **Rapier's per-axis motors on spherical joints:** confirmed first in T43.
+
+## Owner-only items
+
+- Gate A: merging the audio branch.
+- A later record for mixed-asset packages.
+- A later shared expression language.
+- A sample project with assets.
+
+## Kick-off
+
+1. Confirm the branch is at the plan commit and the tools are installed (see build-log).
+2. **Phase R:** start R-W0 (T02) in a worktree with a brief pointing at `ground-rules.md`. After merge, add the `build:anim` script to `package.json`, rebuild and commit the wasm, and log the pilot measures. Continue R-W1 to R-W7.
+3. **Phase B** begins only after gate A (the audio branch merged into master, master merged here), with B0.

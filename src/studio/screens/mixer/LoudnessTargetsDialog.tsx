@@ -4,7 +4,7 @@
 import type { AudioProject } from "../../../engine/audio/project/types";
 import { LOUDNESS_TARGET_LIMITS, MAX_LOUDNESS_TARGETS } from "../../../engine/audio/settings";
 import { KitDialog } from "../../../editor/ui/KitDialog";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
 import { Icon } from "../../components/Icon";
 import { NumberField } from "../../components/NumberField";
 import { addTarget, editTarget, makeDefaultTarget, removeTarget, resetTargets } from "./loudnessTargetsModel";

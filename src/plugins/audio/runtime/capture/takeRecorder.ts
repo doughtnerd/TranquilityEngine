@@ -12,6 +12,7 @@
 import {
   TAKE_MAX_KEYFRAME_INSTANCES, TakeRecordType, encodeTakeRecord, takeRecordBytes, type TakeMixOp, type TakePoses, type TakeRecordInit,
 } from "../../../../engine/audio/take/records";
+import { isTakeExtensionType } from "../../../../engine/audio/take/extensions";
 import type { TakeMetaSection } from "../../../../engine/audio/take/reader";
 import { LISTENER_EMITTER, type TakeKeyframe, type TakePlayOptions, type TakeRequest, type TakeSayPick } from "../../../../engine/audio/take/types";
 import type { Vec3 } from "../../../../engine/audio/spatial/testSceneTypes";
@@ -302,20 +303,33 @@ export class TakeRecorder implements TakeRequestSink, CaptureTee {
     this.write({ type: TakeRecordType.KEYFRAME, payload });
   }
 
-  /** Appends one record to the log, or stops the take (with its message) when the cap or the ring says so. */
+  /**
+   * A plugin's record (ADR 0348, `engine/audio/take/extensions.ts`): `payload` as a record of `type` (0x40..0x7e), framed
+   * and kept in order with the requests, under the same cap. False when it isn't kept.
+   */
+  writeExtension(type: number, payload: Uint8Array): boolean {
+    if (!isTakeExtensionType(type) || payload.byteLength > CAPTURE_RECORD_MAX_BYTES) return false;
+    return this.append(type, payload.byteLength, (view, off) => new Uint8Array(view.buffer, view.byteOffset + off, payload.byteLength).set(payload));
+  }
+
   private write(r: TakeRecordInit): void {
-    if (this.stopped) return;
     const len = takeRecordBytes(r);
     if (len > CAPTURE_RECORD_MAX_BYTES) return; // never for a request; a keyframe is cut to fit by its instance cap
+    this.append(r.type, len, (view, off) => void encodeTakeRecord(view, off, r));
+  }
+
+  /** Appends one record to the log, or stops the take (with its message) when the cap or the ring says so. */
+  private append(type: number, len: number, encode: (view: DataView, off: number) => void): boolean {
+    if (this.stopped) return false;
     const total = CAPTURE_RECORD_HEAD_BYTES + len;
     if (this.logBytes + total + this.ring.ringBytes + CAPTURE_META_MAX_BYTES > this.cap) {
       this.stopSelf(`the take reached its ${Math.round(this.cap / (1024 * 1024))} MiB limit and stopped recording; save it to keep what it holds`);
-      return;
+      return false;
     }
     const s = this.ring.stamp();
     if (!s) {
       this.stopSelf("the take stopped recording: the audio recorder was released");
-      return;
+      return false;
     }
     if (this.chunkUsed + total > this.chunk.byteLength) {
       this.sealChunk();
@@ -323,11 +337,12 @@ export class TakeRecorder implements TakeRequestSink, CaptureTee {
       this.chunkUsed = 0;
     }
     const view = new DataView(this.chunk.buffer, this.chunk.byteOffset, this.chunk.byteLength);
-    writeRecordHead(view, this.chunkUsed, { type: r.type, flags: 0, epoch: s.epoch, len, seq: s.seq, frame: s.frame });
-    encodeTakeRecord(view, this.chunkUsed + CAPTURE_RECORD_HEAD_BYTES, r);
+    writeRecordHead(view, this.chunkUsed, { type, flags: 0, epoch: s.epoch, len, seq: s.seq, frame: s.frame });
+    encode(view, this.chunkUsed + CAPTURE_RECORD_HEAD_BYTES);
     this.chunkUsed += total;
     this.logBytes += total;
     this.records++;
+    return true;
   }
 
   private sealChunk(): void {

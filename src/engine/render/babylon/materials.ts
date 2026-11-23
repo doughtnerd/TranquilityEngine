@@ -19,6 +19,8 @@ import type { MaterialMapKey, MaterialSettings } from "../../scene/material";
 import { MATERIAL_MAPS as MATERIAL_MAPS_LIST } from "../../scene/material";
 import { DEFAULT_SLOT, type ModelMesh, type SurfaceInfo, type TextureInfo } from "../../scene/models";
 import type { GraphValue } from "../../scene/shaderGraph";
+import type { MaterialPropertyValue } from "../components";
+import { babylonUv, type BabylonUv, type TextureTransform } from "./textureTransform";
 
 /**
  * A PBR material for engine geometry. Front faces are Babylon's left-handed default (ADR 0164): the
@@ -110,6 +112,7 @@ function surfaceTexture(scene: Scene, info: TextureInfo | null | undefined, line
     }
   } else if (info.image) tex = new Texture(`data:myco-model-texture-${++bufferTextures}`, scene, { ...options, buffer: info.image as HTMLImageElement });
   else return null;
+  if (info.mimeType === "image/ktx2" && (info.src || info.bytes)) matrixFlipped.add(tex);
   if (info.uvSet) tex.coordinatesIndex = info.uvSet;
   return tex;
 }
@@ -187,6 +190,15 @@ function surfaceMaterial(scene: Scene, cache: WeakMap<object, BabylonMaterial>, 
     made.iridescence.intensity = p.iridescence;
     made.iridescence.indexOfRefraction = p.iridescenceIOR;
     applyLayerExtras(scene, made, surface);
+  }
+  // An animated texture transform stays live on the textures (ADR 0371, T24) instead of baked into the UVs.
+  if (surface.animatedTextureTransform) {
+    const t = surface.animatedTextureTransform;
+    liveTransforms.set(made, t);
+    for (const slot of TEXTURE_SLOTS) {
+      const tex = slot(made);
+      if (tex) setTextureTransform(tex, t, matrixFlipped.has(tex));
+    }
   }
   m = made;
   cache.set(surface, m);
@@ -319,11 +331,23 @@ function variantSurface(src: ModelMesh, i: number, variant: string | undefined):
   return (variant && src.variantSurfaces?.[variant]?.[i]) || src.surfaces[i] || src.surfaces[0];
 }
 
+/** @internal What `modelBaseMaterial` asks for a slot's renderer-own copy (T24). */
+export interface SlotAdjust {
+  /** The material to draw for the slot whose default surface is `surface`, drawing `m` unless the renderer overrides it. */
+  material(surface: SurfaceInfo, m: BabylonMaterial): BabylonMaterial;
+  /** The renderer's multi-materials made of its copies, by model mesh. */
+  readonly multis: Pick<Map<object, Map<string, MultiMaterial>>, "get" | "set">;
+}
+
 /**
  * A model mesh's material with each slot picked (ADR 0089), without a mesh: one material, or a
  * `MultiMaterial` shared by every caller with the same sub-materials (cached in `multis` by model
  * mesh and their ids), so identical renderers draw in one instanced batch (ADR 0108). A
  * `MultiMaterial` needs `modelSubMeshes` on the mesh drawing it.
+ *
+ * `adjust` (T24) swaps a picked slot's material for the renderer's own copy of it (a slot's property
+ * overrides, ADR 0371), given the slot's default surface; a multi-material with such a copy goes in
+ * `adjust.multis` (the renderer's, freed with its copies) instead of the shared cache.
  */
 export function modelBaseMaterial(
   scene: Scene,
@@ -332,17 +356,26 @@ export function modelBaseMaterial(
   pick: (surface: SurfaceInfo) => BabylonMaterial | null = () => null,
   multis: WeakMap<object, Map<string, MultiMaterial>> = new WeakMap(),
   variant?: string,
+  adjust?: SlotAdjust,
 ): BabylonMaterial | null {
-  if (!src.surfaces.length) return pick(DEFAULT_SLOT);
+  if (!src.surfaces.length) {
+    const m = pick(DEFAULT_SLOT);
+    return m && adjust ? adjust.material(DEFAULT_SLOT, m) : m;
+  }
+  let adjusted = false;
   const one = (i: number) => {
     const surface = src.surfaces[i] ?? src.surfaces[0];
-    return pick(surface) ?? surfaceMaterial(scene, cache, variantSurface(src, i, variant), src.name);
+    const m = pick(surface) ?? surfaceMaterial(scene, cache, variantSurface(src, i, variant), src.name);
+    const own = adjust ? adjust.material(surface, m) : m;
+    if (own !== m) adjusted = true;
+    return own;
   };
   if (src.surfaces.length < 2 || src.data.groups.length < 2) return one(0);
   const subs = src.surfaces.map((_, i) => one(i));
   if (subs.every((m) => m === subs[0])) return subs[0];
-  let byTuple = multis.get(src);
-  if (!byTuple) multis.set(src, (byTuple = new Map()));
+  const store = adjusted && adjust ? adjust.multis : multis;
+  let byTuple = store.get(src);
+  if (!byTuple) store.set(src, (byTuple = new Map()));
   const key = subs.map((m) => m.uniqueId).join(",");
   let multi = byTuple.get(key);
   if (!multi) {
@@ -541,4 +574,131 @@ export function applyBuiltinOverrides(m: PBRMaterial, base: PBRMaterial, values:
   if ((v = num("specularIntensity")) !== undefined) m.metallicF0Factor = v;
   const specular = overrideColor(values.specularColor);
   if (specular) setLinear(m.metallicReflectanceColor, specular);
+}
+
+// --- Live material values of a model's slot (ADR 0371, T24) -----------------------------------------
+
+/** The texture slots of a PBR material (ADR 0118's layers included): what a texture transform applies to. */
+const TEXTURE_SLOTS: readonly ((m: PBRMaterial) => BaseTexture | null | undefined)[] = [
+  (m) => m.albedoTexture,
+  (m) => m.emissiveTexture,
+  (m) => m.bumpTexture,
+  (m) => m.metallicTexture,
+  (m) => m.ambientTexture,
+  (m) => m.metallicReflectanceTexture,
+  (m) => m.reflectanceTexture,
+  (m) => m.clearCoat.texture,
+  (m) => m.clearCoat.textureRoughness,
+  (m) => m.clearCoat.bumpTexture,
+  (m) => m.sheen.texture,
+  (m) => m.sheen.textureRoughness,
+  (m) => m.subSurface.refractionIntensityTexture,
+  (m) => m.subSurface.thicknessTexture,
+  (m) => m.iridescence.texture,
+  (m) => m.iridescence.thicknessTexture,
+  (m) => m.anisotropy.texture,
+];
+
+/** Surface materials whose texture transform an animation drives (`SurfaceInfo.animatedTextureTransform`): its value as built. */
+const liveTransforms = new WeakMap<BabylonMaterial, TextureTransform>();
+/** Textures whose V flip is in their matrix (KTX2), so a transform composes with it. */
+const matrixFlipped = new WeakSet<BaseTexture>();
+const scratchUv: BabylonUv = { uOffset: 0, vOffset: 0, uScale: 1, vScale: 1, wAng: 0 };
+
+/** `t` on a texture's own transform (unchanged values leave Babylon's cached matrix alone). */
+function setTextureTransform(tex: BaseTexture, t: TextureTransform, flipped: boolean): void {
+  if (!(tex instanceof Texture)) return;
+  const uv = babylonUv(t, flipped, scratchUv);
+  tex.homogeneousRotationInUVTransform = true; // rotate, scale, offset: the baked path's order (textureTransform.ts)
+  tex.uRotationCenter = tex.vRotationCenter = tex.wRotationCenter = 0; // Babylon's default is the middle of the image; glTF's is the origin
+  tex.uOffset = uv.uOffset;
+  tex.vOffset = uv.vOffset;
+  tex.uScale = uv.uScale;
+  tex.vScale = uv.vScale;
+  tex.wAng = uv.wAng;
+}
+
+/** Whether a surface material keeps its texture transform live (an animation drives it): `applySlotOverrides` can move it. */
+export function hasLiveTextureTransform(m: BabylonMaterial): boolean {
+  return liveTransforms.has(m);
+}
+
+/** A slot override's numbers (a vector, colour or list of numbers), or null for a number or string. */
+function components(v: MaterialPropertyValue | undefined): readonly number[] | null {
+  if (v === undefined || typeof v === "number" || typeof v === "string") return null;
+  if (v instanceof EngineColor) return [v.r, v.g, v.b, v.a];
+  if (Array.isArray(v)) return v as readonly number[];
+  const x = v as { x: number; y: number; z?: number };
+  return x.z === undefined ? [x.x, x.y] : [x.x, x.y, x.z];
+}
+
+/** The numeric properties of a slot that `applyBuiltinOverrides` drives; the other names of a slot are handled in {@link applySlotOverrides}. */
+const SLOT_NUMBERS: ReadonlySet<string> = new Set([
+  "metalness", "roughness", "clearcoat", "clearcoatRoughness", "sheen", "sheenRoughness", "transmission", "thickness", "ior",
+  "iridescence", "iridescenceIOR", "anisotropy", "specularIntensity",
+]);
+
+const NO_VALUES: Record<string, GraphValue> = Object.freeze({});
+
+/**
+ * One material slot of a renderer's copy of a model's material (`copy`, a clone of `base` with its own textures), set
+ * in place from the renderer's slot overrides (`MeshRenderer.setMaterialProperty(name, value, slot)`, ADR 0371's
+ * `materials[slot].<name>` tracks), back to `base`'s value for every property without one. Colours are linear, as
+ * a model surface holds them; `anisotropyRotation` and the glTF extras are radians and glTF's units. Only uniforms
+ * change, so an animation can change a slot every frame (`clearcoat`, `sheen`, `transmission`, `iridescence`,
+ * `anisotropy` and `dispersion` switch their layer on above 0, which compiles the shader once).
+ */
+export function applySlotOverrides(copy: PBRMaterial, base: PBRMaterial, values: ReadonlyMap<string, MaterialPropertyValue>): void {
+  let numbers: Record<string, GraphValue> | null = null;
+  for (const [k, v] of values) if (typeof v === "number" && SLOT_NUMBERS.has(k)) (numbers ??= {})[k] = v;
+  applyBuiltinOverrides(copy, base, numbers ?? NO_VALUES);
+  const num = (k: string): number | undefined => {
+    const v = values.get(k);
+    return typeof v === "number" ? v : undefined;
+  };
+  let n: number | undefined;
+  let c: readonly number[] | null;
+  if ((c = components(values.get("color"))) && c.length >= 3) {
+    copy.albedoColor.set(c[0], c[1], c[2]);
+    if (c.length > 3) {
+      copy.alpha = c[3];
+      if (c[3] < 1 && base.transparencyMode === null) copy.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+    }
+  }
+  if ((c = components(values.get("emission"))) && c.length >= 3) copy.emissiveColor.set(c[0], c[1], c[2]);
+  if ((c = components(values.get("sheenColor"))) && c.length >= 3) copy.sheen.color.set(c[0], c[1], c[2]);
+  if ((c = components(values.get("specularColor"))) && c.length >= 3) copy.metallicReflectanceColor.set(c[0], c[1], c[2]);
+  copy.subSurface.tintColor.copyFrom(base.subSurface.tintColor);
+  if ((c = components(values.get("attenuationColor"))) && c.length >= 3) copy.subSurface.tintColor.set(c[0], c[1], c[2]);
+  copy.subSurface.tintColorAtDistance = (n = num("attenuationDistance")) !== undefined ? n : base.subSurface.tintColorAtDistance;
+  copy.alphaCutOff = (n = num("alphaCutoff")) !== undefined ? n : base.alphaCutOff;
+  copy.ambientTextureStrength = (n = num("occlusionStrength")) !== undefined ? n : base.ambientTextureStrength;
+  if (copy.bumpTexture && base.bumpTexture) copy.bumpTexture.level = (n = num("normalScale")) !== undefined ? n : base.bumpTexture.level;
+  if (copy.clearCoat.bumpTexture && base.clearCoat.bumpTexture) copy.clearCoat.bumpTexture.level = (n = num("clearcoatNormalScale")) !== undefined ? n : base.clearCoat.bumpTexture.level;
+  if ((n = num("anisotropyRotation")) !== undefined) copy.anisotropy.angle = n;
+  copy.iridescence.minimumThickness = (n = num("iridescenceThicknessMinimum")) !== undefined ? n : base.iridescence.minimumThickness;
+  copy.iridescence.maximumThickness = (n = num("iridescenceThicknessMaximum")) !== undefined ? n : base.iridescence.maximumThickness;
+  if ((n = num("dispersion")) !== undefined) {
+    copy.subSurface.isDispersionEnabled = n > 0;
+    copy.subSurface.dispersion = n;
+  } else {
+    copy.subSurface.isDispersionEnabled = base.subSurface.isDispersionEnabled;
+    copy.subSurface.dispersion = base.subSurface.dispersion;
+  }
+  const live = liveTransforms.get(base);
+  if (live) {
+    const offset = components(values.get("textureTransform.offset"));
+    const scale = components(values.get("textureTransform.scale"));
+    const rotation = num("textureTransform.rotation");
+    const t: TextureTransform = {
+      offset: offset && offset.length >= 2 ? [offset[0], offset[1]] : live.offset,
+      scale: scale && scale.length >= 2 ? [scale[0], scale[1]] : live.scale,
+      rotation: rotation ?? live.rotation,
+    };
+    for (const slot of TEXTURE_SLOTS) {
+      const from = slot(base);
+      const to = slot(copy);
+      if (from && to && from !== to) setTextureTransform(to, t, matrixFlipped.has(from));
+    }
+  }
 }

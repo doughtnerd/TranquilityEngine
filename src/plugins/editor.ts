@@ -1,6 +1,7 @@
 // First-party plugins' editor halves (ADR 0133). Editor code only: never imported by runtime code
 // (the player, the server, the engine). `main.tsx` activates this list before the layout loads.
 import type { EditorPlugin } from "../editor/sdk/plugins";
+import { animationEditorPlugin } from "./animation/editor";
 import { audioEditorPlugin } from "./audio/editor";
 import type { FirstPartyPlugin } from "./catalogue";
 import { materialsEditorPlugin } from "./materials/editor";
@@ -13,6 +14,7 @@ import { tilemapsEditorPlugin } from "./tilemaps/editor";
 import { meshesEditorPlugin } from "./meshes/editor";
 import { environmentEditorPlugin } from "./environment/editor";
 import { postProcessingEditorPlugin } from "./post-processing/editor";
+import { ragdollEditorPlugin } from "./ragdoll/editor";
 import { uiEditorPlugin } from "./ui/editor";
 
 // Catalogue entries' editor halves (ADR 0275), in registration order. Particles first: its panel and the
@@ -32,6 +34,8 @@ const EDITOR_HALVES: { readonly [K in FirstPartyPlugin]?: EditorPlugin } = {
   "post-processing": postProcessingEditorPlugin,
   ui: uiEditorPlugin,
   subtitles: subtitlesEditorPlugin,
+  animation: animationEditorPlugin,
+  ragdoll: ragdollEditorPlugin,
 };
 
 /** The first-party editor halves, in registration order (panels, settings categories). */

@@ -8,7 +8,7 @@ import { isGeneratorPath, parseGenerator } from "../../../../engine/audio/genera
 import type { GeneratorBody, GeneratorKind } from "../../../../engine/audio/generators/types";
 import { defaultEntryUse, emptyPlaylistBody } from "../../../../engine/audio/playlist/format";
 import type { Clip, Entry, GeneratorEntry, PlaylistBody, SequenceSettings } from "../../../../engine/audio/playlist/types";
-import { accept, refuse, type EditResult } from "../../../../plugins/audio/editor/editResult";
+import { accept, refuse, type EditResult } from "../../../../editor/sdk/editResult";
 import { addEntries, type EditContext } from "../playlistEdits";
 import { MAX_CLIPS, MAX_TRACKS, newTrack } from "../sequence/sequenceEdits";
 import { allClips, clipIds, nextId, tidy } from "../sequence/sequenceModel";

@@ -7,7 +7,7 @@ import { expect, userEvent, within } from "storybook/test";
 import { translationPath, type StringTable } from "../../../engine/localisation/strings/format";
 import type { TranslationFile } from "../../../engine/localisation/strings/translation";
 import { languageOf } from "../../../engine/localisation/languages";
-import type { EditResult } from "./editResult";
+import type { EditResult } from "../../sdk/editResult";
 import { exchangeProjectOf } from "./localisationData";
 import { FIXTURE_FILES, FIXTURE_LANGUAGES } from "./localisationFixture";
 import { addKey, ALL_STRINGS, deleteKey, duplicateKey, filterRows, renameKey, setMaxLength, setNotes, setReferenceText, setReviewed, setTranslation, stringRows, type KeyChange, type StringsQuery } from "./stringsModel";

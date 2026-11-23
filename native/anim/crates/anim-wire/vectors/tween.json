@@ -1,0 +1,12 @@
+{
+  "family": "tween",
+  "id": 6,
+  "version": 1,
+  "vectors": [
+    { "name": "tween_create_vec3", "record": "TWEEN_CREATE", "values": { "world": 1, "hostId": 16909060, "column": 77, "valueKind": 0, "width": 3, "ease": 23, "flags": 2, "timeMode": 1, "loops": 4294967295, "duration": 0.4, "delay": 0.25, "speed": 1, "from0": 0, "from1": -1.5, "from2": 2, "from3": 0, "to0": 0, "to1": 2, "to2": 0, "to3": 0 }, "hex": "0106010001000000040302014d0000000000000003000000170000000200000001000000ffffffffcdcccc3e0000803e0000803f000000000000c0bf000000400000000000000000000000400000000000000000" },
+    { "name": "tween_create_quat_relative", "record": "TWEEN_CREATE", "values": { "world": 0, "hostId": 9, "column": 4294967295, "valueKind": 2, "width": 4, "ease": 15, "flags": 1, "timeMode": 2, "loops": 2, "duration": 1, "delay": 0, "speed": 0.5, "from0": 0, "from1": 0, "from2": 0, "from3": 1, "to0": 0, "to1": 0.70710677, "to2": 0, "to3": 0.70710677 }, "hex": "010601000000000009000000ffffffff02000000040000000f0000000100000002000000020000000000803f000000000000003f0000000000000000000000000000803f00000000f304353f00000000f304353f" },
+    { "name": "tween_control_kill", "record": "TWEEN_CONTROL", "values": { "handle": 196617, "op": 3 }, "hex": "020601000900030003000000" },
+    { "name": "tween_change_destroyed", "record": "TWEEN_CHANGE", "values": { "hostId": 12, "handle": 65538, "kind": 3, "cycle": 0 }, "hex": "030601000c000000020001000300000000000000" },
+    { "name": "tween_change_loop", "record": "TWEEN_CHANGE", "values": { "hostId": 4294967295, "handle": 5, "kind": 4, "cycle": 3 }, "hex": "03060100ffffffff050000000400000003000000" }
+  ]
+}

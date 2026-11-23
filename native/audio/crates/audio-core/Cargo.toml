@@ -14,6 +14,8 @@ audio-wire.workspace = true
 audio-adpcm.workspace = true
 # Transcendentals (the panner's azimuth), so native and wasm are bit-identical.
 libm.workspace = true
+# The engine curve evaluator (CURVES, automation), shared with the animation core (ADR 0370).
+myco-curve.workspace = true
 
 [dev-dependencies]
 # ADR 0351 A4: the ADPCM tests encode their clips with the shipped encoder (natively, the system C compiler).

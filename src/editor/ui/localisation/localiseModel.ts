@@ -9,7 +9,7 @@ import { fallbackChain, type LanguageSettings } from "../../../engine/localisati
 import { isPseudoLanguage } from "../../../engine/localisation/pseudo";
 import { emptyStringTable, isStringKey, parseStringTable, STRINGS_LIMITS, stringsPathKind, type StringTable } from "../../../engine/localisation/strings/format";
 import { translationOf, type ExchangeProject } from "../../../engine/localisation/exchange/model";
-import { accept, refuse, type EditResult } from "./editResult";
+import { accept, refuse, type EditResult } from "../../sdk/editResult";
 import { tableOfKey } from "./stringsModel";
 
 /** One key the picker offers. */

@@ -1,0 +1,20 @@
+[package]
+name = "anim-sample"
+description = "Myco animation core (ADR 0370): decompress and sample clips into SoA local poses, property tracks, and discrete and event tracks."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anim-math.workspace = true
+anim-format.workspace = true
+# Sync markers and their phase (`anim_pose::sync`).
+anim-pose.workspace = true
+# T70: the engine curve evaluator, shared with the audio core (ADR 0370; `native/common/curve`).
+myco-curve = { path = "../../../common/curve" }
+
+[dev-dependencies]
+anim-offline.workspace = true
+# Tests compress synthetic clips to sample them.
+anim-compress.workspace = true

@@ -21,7 +21,7 @@ import { joinPath } from "../../projectPaths";
 import type { EditorProject } from "../../projects";
 import { currentProject, docVersion, status } from "../../state";
 import { Panel, usePanelState } from "../panel/Panel";
-import type { EditResult } from "./editResult";
+import type { EditResult } from "../../sdk/editResult";
 import { exportFiles, importPreviewOf, importWrites } from "./exchangeModel";
 import { ExchangeView, type ExportChoice } from "./ExchangeView";
 import { fitCheck, type FitMeasure, type FitResult } from "./fitCheck";

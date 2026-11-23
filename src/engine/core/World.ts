@@ -9,7 +9,7 @@
 import { GameObject, type InstantiateOptions } from "../scene/GameObject";
 import { instantiatePrefab } from "../scene/SceneLoader";
 import { Transform } from "../scene/Transform";
-import { Component, GameBehavior, type FrameHook, type MessageHook, type MessageArgs, type PendingWait } from "./Component";
+import { Component, GameBehavior, type FrameHook, type MessageHook, type MessageArgs, type NamedMessage, type PendingWait } from "./Component";
 import { DataStore, type BufferDef, type DataComponentDef } from "./data";
 import { Mat4 } from "./math";
 import { QueryRows, type Rows } from "./rows";
@@ -155,6 +155,8 @@ export class World {
   private framing = false;
   /** Work deferred to the end of the frame (ADR 0011 step 10): scene loads and unloads, World tear-down. */
   private frameEndOps: (() => void)[] = [];
+  /** Hooks run after transform propagation (`_afterPropagation`). */
+  private afterPropagation: ((world: World) => void)[] = [];
 
   // --- entity storage -------------------------------------------------------------------
   private capacity = 0;
@@ -689,6 +691,7 @@ export class World {
 
       // 7. Transform propagation
       this.propagateTransforms();
+      this.runAfterPropagation();
       if (timings) [updateMs, mark] = [performance.now() - mark, performance.now()];
 
       // 8–9. Render sync and render
@@ -733,6 +736,7 @@ export class World {
   redraw(surface: RenderSurface): void {
     World._runIn(this, () => {
       this.propagateTransforms();
+      this.runAfterPropagation();
       surface.sync(this);
       surface.render(this);
     });
@@ -836,6 +840,33 @@ export class World {
   /** Step 7: compute world matrices for every dirty transform (reads compute them on demand too). */
   private propagateTransforms(): void {
     for (let e = 0; e < this.highWater; e++) if (this.alive[e] && this.worldDirty[e]) this.computeWorld(e);
+  }
+
+  /**
+   * @internal Run `hook` after each transform propagation (step 7, and `redraw`), before render sync; the nodes it moves
+   * are propagated again. For nodes that follow something only known in world space once propagation is done: the
+   * animation plugin's BoneAttachments (ADR 0370's frame order, step 7; 0372). Hooks run in the order added, with this
+   * World current; one that throws is logged and the rest still run. Returns the function that removes it.
+   */
+  _afterPropagation(hook: (world: World) => void): () => void {
+    this.afterPropagation.push(hook);
+    return () => {
+      const i = this.afterPropagation.indexOf(hook);
+      if (i >= 0) this.afterPropagation.splice(i, 1);
+    };
+  }
+
+  /** Step 7's tail: the `_afterPropagation` hooks, then propagation again for what they moved. */
+  private runAfterPropagation(): void {
+    if (!this.afterPropagation.length) return;
+    for (const hook of [...this.afterPropagation]) {
+      try {
+        hook(this);
+      } catch (err) {
+        console.error("[myco] a post-propagation hook failed:", err);
+      }
+    }
+    this.propagateTransforms();
   }
 
   /** Step 10: empty this frame's buffers. */
@@ -998,14 +1029,21 @@ export class World {
    * skipped), its components snapshotted first (a hook may add or remove components), none inside
    * a scene being edited (ADR 0026), and a hook that throws or returns a Promise that rejects is
    * logged with the behaviour's name, as lifecycle hooks are.
+   *
+   * A `NamedMessage` instead of a hook (ADR 0372: an animation notify names its method in data) calls that method,
+   * where a behaviour defines it as a function, with the same rules; `NamedMessage.of` has already refused lifecycle
+   * hook names and the base classes' own members.
    */
-  _sendMessage<H extends MessageHook>(nodes: Iterable<GameObject>, hook: H, ...args: MessageArgs<H>): void {
+  _sendMessage<H extends MessageHook>(nodes: Iterable<GameObject>, hook: H, ...args: MessageArgs<H>): void;
+  _sendMessage(nodes: Iterable<GameObject>, message: NamedMessage, ...args: readonly unknown[]): void;
+  _sendMessage(nodes: Iterable<GameObject>, hook: MessageHook | NamedMessage, ...args: readonly unknown[]): void {
+    const name = typeof hook === "string" ? hook : hook.method;
     const seen = new Set<number>();
     for (const node of nodes) {
       if (seen.has(node.entity) || !node.isValid) continue;
       seen.add(node.entity);
       for (const c of [...this.componentsOf[node.entity]]) {
-        if (c instanceof GameBehavior && c.isActiveAndEnabled && c[hook]) this.invoke(c, hook, args);
+        if (c instanceof GameBehavior && c.isActiveAndEnabled && typeof (c as unknown as Record<string, unknown>)[name] === "function") this.invoke(c, name, args);
       }
     }
   }
@@ -1013,10 +1051,10 @@ export class World {
   // --- internals ----------------------------------------------------------------------------
 
   /** Call one hook on one behaviour: the edit-mode gate, error and async rules every hook shares. */
-  private invoke(b: GameBehavior, hook: keyof GameBehavior, args: readonly unknown[] = []): void {
+  private invoke(b: GameBehavior, hook: string, args: readonly unknown[] = []): void {
     if (this.inEditMode(b._node.entity)) return; // scripts don't run in a scene being edited (ADR 0026)
     try {
-      const result = (b[hook] as (...a: unknown[]) => unknown).apply(b, args as unknown[]);
+      const result = ((b as unknown as Record<string, unknown>)[hook] as (...a: unknown[]) => unknown).apply(b, args as unknown[]);
       if (result instanceof Promise) {
         result.catch((err) => console.error(`[myco] ${b.constructor.name}.${String(hook)} rejected:`, err));
       }

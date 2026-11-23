@@ -6,7 +6,7 @@
 // Light on imports (no editor state), so `assetBrowser.ts` and `thumbnails/keys.ts` can both use it.
 import { isSidecarPath } from "../engine/scene/importSettings";
 import { studioScreenFor } from "./studioAssets";
-import { assetKinds, type AssetKindContribution, type AssetSceneNodes, type ImportSettingsContribution, type LoadComponent } from "./sdk/contributions";
+import { assetKinds, assetNodesAugments, importSettingsSections, type AssetKindContribution, type AssetSceneNodes, type ImportSettingsContribution, type ImportSettingsSectionContribution, type LoadComponent } from "./sdk/contributions";
 
 /** The kinds the editor shell registers (ADR 0143) and the ones this module answers itself. */
 export type CoreAssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "rendertexture" | "json" | "script" | "javascript" | "typescript" | "text" | "xml" | "other";
@@ -108,8 +108,25 @@ export function kindOpens(path: string): boolean {
   return k?.open !== undefined || k?.panel !== undefined || (!path.includes("#") && opensInCodePanel(assetKind(path))) || opensWithAudioStudio(path);
 }
 
-/** What adding the entry at `path` to a scene makes, if anything (a slice adds as its file does). */
-export const sceneNodesAt = (path: string): AssetSceneNodes | undefined => behaviourAt(path)?.addToScene;
+/**
+ * What adding the entry at `path` to a scene makes, if anything (a slice adds as its file does): its kind's `addToScene`,
+ * with the augments other plugins registered for the kind (ADR 0373) run on its templates and prepared with it.
+ */
+export function sceneNodesAt(path: string): AssetSceneNodes | undefined {
+  const kind = behaviourAt(path);
+  const add = kind?.addToScene;
+  if (!add) return undefined;
+  void assetNodesAugments.version.value;
+  const augments = assetNodesAugments.list().filter((a) => a.kind === kind.id);
+  if (augments.length === 0) return add;
+  return {
+    ...add,
+    prepare: async (p) => {
+      await Promise.all([add.prepare?.(p), ...augments.map((a) => a.prepare?.(p))].map((done) => done?.catch(() => undefined)));
+    },
+    nodes: (p, position) => augments.reduce((templates, a) => a.augment(p, templates), add.nodes(p, position)),
+  };
+}
 
 /** True if the file at `path` has a scene node to become. */
 export const canAddToScene = (path: string): boolean => sceneNodesAt(path) !== undefined;
@@ -151,12 +168,28 @@ const CORE_FIELD_RULES: Readonly<Record<string, (path: string, kind: AssetKind) 
 
 /** True if the file at `path` suits field kind `fieldKind`: its kind declares it, or a core rule takes it. */
 export function satisfiesFieldKind(fieldKind: string, path: string): boolean {
+  const hash = path.indexOf("#");
+  const holder = hash >= 0 ? registeredKind(assetKind(path.slice(0, hash))) : undefined;
+  if (holder?.subAssets) return holder.subAssets.referencedAs(path.slice(hash + 1)).includes(fieldKind);
   const kind = assetKind(path);
   return fieldKindsOf(kind).includes(fieldKind) || CORE_FIELD_RULES[fieldKind]?.(path, kind) === true;
+}
+
+/** The sub-asset entries (`path#sub`, ADR 0371) the file at `path` holds now for fields of `kinds`, if its kind has sub-assets. */
+export function subAssetEntries(path: string, kinds: readonly string[]): string[] {
+  if (path.includes("#")) return [];
+  const k = registeredKind(assetKind(path));
+  return k?.subAssets ? k.subAssets.list(path, kinds).map((sub) => `${path}#${sub}`) : [];
 }
 
 /** True if some registered kind, or a core rule, can satisfy field kind `fieldKind`. */
 export function fieldKindKnown(fieldKind: string): boolean {
   void assetKinds.version.value;
   return fieldKind in CORE_FIELD_RULES || assetKinds.list().some((k) => k.referencedAs?.includes(fieldKind));
+}
+
+/** The cards other plugins added to a kind's Import Settings (ADR 0373), in registration order. Reads the registry's version, so a view follows plugins coming and going. */
+export function kindImportSections(kind: AssetKind): readonly ImportSettingsSectionContribution[] {
+  void importSettingsSections.version.value;
+  return importSettingsSections.list().filter((s) => s.kind === kind);
 }

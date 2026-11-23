@@ -1,6 +1,6 @@
 # 0044. OBJ and FBX models import through three.js's loaders, as meshes in model space
 
-- **Status:** Proposed
+- **Status:** Proposed, amended by 0371 (FBX skins, animation stacks and blend shapes are imported)
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

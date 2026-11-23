@@ -50,7 +50,8 @@ import { openScript } from "../code/codeBuffers";
 import { scriptFor } from "../code/codeState";
 import { applyPrefabOverrides, createPrefabFrom, nodeHeader, openPrefabOf, prefabActions, renameNode, revertAllOverrides, revertNameAndActive, setNodesActive } from "../nodeEdits";
 import { currentProject, docVersion, scriptsVersion, status, type OpenScene } from "../state";
-import { componentHeaderActions, type ComponentHeaderActionContribution } from "../sdk/contributions";
+import { componentHeaderActions, skeletonBones, type BoneInspectorProps, type ComponentHeaderActionContribution, type SkeletonBonesContribution } from "../sdk/contributions";
+import { lazyComponent, type LazyComponent } from "./lazy";
 import { usePopover } from "./popover";
 import { editableNow, statusSentence, whyNotEdit } from "../editGate";
 
@@ -64,11 +65,25 @@ export function Inspector() {
     case "live": return <Panel><RuntimeInspector /></Panel>; // a live World of the running game (ADR 0022, 0124)
     case "asset": return <Panel><AssetInspector path={target.path} /></Panel>; // a file selected in the Assets panel (ADR 0040, 0143)
     case "uiElement": return <Panel><UIElementInspector /></Panel>; // an element of a UI document (ADR 0077)
+    case "bone": return <Panel><BoneInspector provider={target.provider} scene={target.scene} path={target.path} bone={target.bone} /></Panel>; // a Skeleton's bone (ADR 0373)
     case "nodes":
       return target.paths.length > 1 ? <Panel><MultiInspector scene={target.scene} paths={[...target.paths]} /></Panel> : <NodeInspector scene={target.scene} path={target.paths[0]} />;
     case "sceneSettings": return <Panel><SceneSettings scene={target.scene} /></Panel>;
     case "nothing": return <Panel><p class="empty">Nothing selected</p></Panel>;
   }
+}
+
+/** Each bone contribution's Inspector view, loaded on first use (ADR 0083). */
+const boneViews = new WeakMap<SkeletonBonesContribution, LazyComponent<BoneInspectorProps>>();
+
+/** A selected bone (ADR 0373), shown by the view of the plugin listing it; nothing once that plugin is gone. */
+function BoneInspector(props: BoneInspectorProps & { provider: string }) {
+  const { provider, ...rest } = props;
+  const contribution = skeletonBones.get(provider);
+  if (!contribution) return <p class="empty">Nothing selected</p>;
+  let View = boneViews.get(contribution);
+  if (!View) boneViews.set(contribution, (View = lazyComponent(contribution.inspector)));
+  return <View {...rest} />;
 }
 
 /**

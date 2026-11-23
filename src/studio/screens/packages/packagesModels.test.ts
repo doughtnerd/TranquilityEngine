@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { parseAudioProject } from "../../../engine/audio/project/format";
 import type { AudioProject } from "../../../engine/audio/project/types";
 import type { AudioReport } from "../../../export/audio";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
 import { studioPlan, type StudioPlanSource } from "../../encoding/studioPlan";
 import {
   addPackage, addToPackage, deletePackage, lintPackageNames, looseAssets, packageList, packageRenameEdit, packageView, removeFromPackage, removeInclude, renamePackage,

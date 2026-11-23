@@ -17,7 +17,7 @@ import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { Color4 } from "@babylonjs/core/Maths/math.color.js";
 import { materialGraph } from "../../../scene/material";
 import { moveOrbit, orbitOf, orbitPosition, previewPixels, type Orbit } from "../../thumbnailMath";
-import type { ThumbnailKind, ThumbnailPreview, ThumbnailRendererApi } from "../../previewTypes";
+import type { PosedPreviewSpec, ThumbnailKind, ThumbnailPreview, ThumbnailRendererApi } from "../../previewTypes";
 import { aimCamera, ensureCanvasSize, readGraph, readMaterial, renderFrame, usesTime } from "./common";
 import { PreviewStage } from "./previewStage";
 import { ThumbnailScenes, type ThumbnailOptions, type ThumbnailScene } from "./thumbnailScenes";
@@ -221,6 +221,15 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
    * It takes the renderer from any hover animation, and replaces another preview.
    */
   preview(kind: ThumbnailKind, path: string, target: HTMLCanvasElement): ThumbnailPreview {
+    return this.startPreview(() => this.scenes.prepare(kind, path, true), this.canAnimate(kind, path), target);
+  }
+
+  /** An orbitable preview of the World `spec` describes, drawn continuously: its World steps every frame (ADR 0373, T18b). */
+  previewPosed(spec: PosedPreviewSpec, target: HTMLCanvasElement): ThumbnailPreview {
+    return this.startPreview(() => this.scenes.prepareWorld(spec), true, target);
+  }
+
+  private startPreview(prepare: () => Promise<ThumbnailScene | null>, animates: boolean, target: HTMLCanvasElement): ThumbnailPreview {
     this.live?.stop();
     this.animation?.stop();
     let stopped = false;
@@ -231,7 +240,6 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let queued = false;
     let last = performance.now();
-    const animates = this.canAnimate(kind, path);
     const stop = () => {
       if (stopped) return;
       stopped = true;
@@ -270,7 +278,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
       queued = true;
       (typeof requestAnimationFrame === "function" ? requestAnimationFrame : (f: () => void) => setTimeout(f, 16))(draw);
     };
-    const ready = this.scenes.prepare(kind, path, true).then((p) => {
+    const ready = prepare().then((p) => {
       if (stopped || !p || this.lost) {
         p?.dispose();
         stop(); // nothing to show: hovered tiles may animate again

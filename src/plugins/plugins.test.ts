@@ -21,11 +21,11 @@ function files(dir: string): string[] {
 }
 
 /** Module specifiers a file imports or re-exports (static, dynamic, `import type` included unless `skipTypes`). */
-function specifiers(file: string): { spec: string; typeOnly: boolean }[] {
+function specifiers(file: string): { spec: string; typeOnly: boolean; dynamic: boolean }[] {
   const text = readFileSync(file, "utf8");
-  const out: { spec: string; typeOnly: boolean }[] = [];
+  const out: { spec: string; typeOnly: boolean; dynamic: boolean }[] = [];
   const re = /(?:^|[\s;])(?:(import|export)\s+(type\s+)?(?:[^'"`;]*?\sfrom\s+)?|import\s*\(\s*)["']([^"']+)["']/g;
-  for (const m of text.matchAll(re)) out.push({ spec: m[3]!, typeOnly: !!m[2] });
+  for (const m of text.matchAll(re)) out.push({ spec: m[3]!, typeOnly: !!m[2], dynamic: !m[1] });
   return out;
 }
 
@@ -109,7 +109,7 @@ describe("plugin import direction", () => {
   it("keeps the editor core free of plugins' code: it reaches them through contribution points (ADR 0146; only main.tsx loads them, through editorBoot.ts)", () => {
     // The plugin host modules directly under src/plugins/ (manifests, ordering, enabling, the runtime list, third-party
     // loading) are the plugin system itself, which the shell drives; every file in a plugin's folder is off limits.
-    const HOST = new Set(["manifest", "order", "enabled", "runtime", "runtimeContext", "thirdParty", "thirdPartyEditor", "pluginSet", "editorPlugins", "editorActivator"]);
+    const HOST = new Set(["manifest", "order", "enabled", "runtime", "runtimeContext", "thirdParty", "thirdPartyEditor", "pluginSet", "editorPlugins", "editorActivator", "pluginNotices", "semver"]);
     const bad: string[] = [];
     for (const f of files(join(SRC, "editor"))) {
       if (/\.test\.tsx?$/.test(f)) continue;
@@ -146,6 +146,7 @@ describe("plugin editor halves reach the editor through its SDK (ADR 0147)", () 
     "plugins/navigation/editor/NavComponentInspectors.tsx -> editor/ui/bake.css",
     "plugins/materials/editor/ShaderGraphPanel.tsx -> editor/graph/graph.css",
     "plugins/particles/editor/ui/particleGraph/GraphEditor.tsx -> editor/graph/graph.css",
+    "plugins/animation/editor/graphEditor/AnimGraphEditor.tsx -> editor/graph/graph.css",
   ]);
   const editorHalves = files(join(SRC, "plugins")).filter((f) => /^plugins\/[^/]+\/editor\//.test(rel(f)) && !/\.(test|stories)\.tsx?$/.test(f));
   const shellImports = editorHalves.flatMap((f) =>
@@ -219,6 +220,12 @@ describe("plugin to plugin imports (ADR 0133, 0136)", () => {
     const block = /dependencies\s*:\s*\{([^}]*)\}/.exec(text)?.[1] ?? "";
     return [...block.matchAll(/["']([^"']+)["']\s*:/g)].map((m) => m[1]!);
   };
+  // ADR 0374: an optional dependency may be loaded with `import()` once it's active, never imported statically.
+  const optionalDependencies = (dir: string): string[] => {
+    const text = readFileSync(join(SRC, "plugins", dir, "manifest.ts"), "utf8");
+    const block = /optionalDependencies\s*:\s*\{([^}]*)\}/.exec(text)?.[1] ?? "";
+    return [...block.matchAll(/["']([^"']+)["']\s*:/g)].map((m) => m[1]!);
+  };
   const nameOf = (dir: string): string => /name:\s*["']([^"']+)["']/.exec(readFileSync(join(SRC, "plugins", dir, "manifest.ts"), "utf8"))?.[1] ?? dir;
 
   it("finds the plugin folders (the scan works)", () => expect(pluginDirs).toEqual(expect.arrayContaining(["tilemaps", "physics", "sky"])));
@@ -227,15 +234,16 @@ describe("plugin to plugin imports (ADR 0133, 0136)", () => {
     const bad: string[] = [];
     for (const dir of pluginDirs) {
       const deps = dependencies(dir);
+      const optional = optionalDependencies(dir);
       for (const f of files(join(SRC, "plugins", dir))) {
         if (/\.test\.tsx?$/.test(f)) continue;
-        for (const { spec, typeOnly } of specifiers(f)) {
+        for (const { spec, typeOnly, dynamic } of specifiers(f)) {
           const target = resolved(f, spec);
           if (!target.startsWith("/")) continue;
           const m = /^plugins\/([^/]+)(\/.*)?$/.exec(rel(target));
           if (!m || m[1] === dir || !pluginDirs.includes(m[1]!)) continue;
           if (!/^\/runtime(\/index(\.ts)?)?$/.test(m[2] ?? "")) bad.push(`${rel(f)} imports ${spec}: only another plugin's runtime/index.ts`);
-          else if (!typeOnly && !deps.includes(nameOf(m[1]!))) bad.push(`${rel(f)} imports ${spec}: a value import needs ${nameOf(m[1]!)} in its manifest's dependencies`);
+          else if (!typeOnly && !deps.includes(nameOf(m[1]!)) && !(dynamic && optional.includes(nameOf(m[1]!)))) bad.push(`${rel(f)} imports ${spec}: a value import needs ${nameOf(m[1]!)} in its manifest's dependencies`);
         }
       }
     }

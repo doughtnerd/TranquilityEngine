@@ -17,7 +17,7 @@ import type { Clip, PlaylistBody, SequenceSettings } from "../../../../engine/au
 import { evalCurve, type CurveInterp } from "../../../../engine/core/curve";
 import { ContextMenu, SEPARATOR, tidyEntries, type MenuEntry } from "../../../../editor/ui/ContextMenu";
 import type { PopoverPoint } from "../../../../editor/ui/popover";
-import { accept, type EditResult } from "../../../../plugins/audio/editor/editResult";
+import { accept, type EditResult } from "../../../../editor/sdk/editResult";
 import type { PeakMips } from "../../../../plugins/audio/editor/music/peaksMip";
 import { Icon } from "../../../components/Icon";
 import { effectiveFormat, formatTime, type TimeFormat } from "../../../components/timeRulerModel";

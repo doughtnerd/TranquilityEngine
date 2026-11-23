@@ -29,7 +29,8 @@ import { WebGl2Sorter, WebGpuSorter, depthRow, sortLayout, sortPairsJs } from ".
 import { outputSorts } from "../../scene/particleGraph";
 import { heightFogShader, useHeightFog } from "./heightFog";
 import type { KernelTextures } from "./kernelMaterial";
-import { WebGpuRun, type GpuBuffer, type GpuDevice } from "../particles/gpu/webgpuRun";
+import type { GpuBuffer, GpuDevice } from "../gpuKernels/webgpu";
+import { WebGpuRun } from "../particles/gpu/webgpuRun";
 import { hasSceneFrame, requestSceneDepth, sceneDepth } from "./frameGraph";
 import type { Draw } from "./particleDraw";
 

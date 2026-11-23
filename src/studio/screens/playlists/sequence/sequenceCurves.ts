@@ -9,7 +9,7 @@ import { isLabelled, type ParameterDef } from "../../../../engine/audio/paramete
 import type { CurveKey } from "../../../../engine/core/curve";
 import type { Automation, CurveInput as PlaylistCurveInput, SequenceSettings } from "../../../../engine/audio/playlist/types";
 import { TIME_INPUT, type CurveEditorResult, type CurveEditorSpec, type CurveInput, type CurveLane } from "../../../../editor/ui/curves/curveEditorModel";
-import { accept, refuse, type EditResult } from "../../../../plugins/audio/editor/editResult";
+import { accept, refuse, type EditResult } from "../../../../editor/sdk/editResult";
 import { isTimeInput, MAX_AUTOMATION, ownerOf, targetSpecs, type AutomationOwner } from "./automationEdits";
 import { findClip, mapClips, mapTrack, nextId } from "./sequenceModel";
 import { curveByOf, laneByOf, secondInputsOf } from "../../curveInputs";

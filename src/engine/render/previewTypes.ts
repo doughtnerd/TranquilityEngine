@@ -5,6 +5,8 @@
  */
 import type { ParticleProgram } from "../scene/particleCompile";
 import type { BuiltinMesh } from "../scene/models";
+import type { World } from "../core/World";
+import type { SceneFile } from "../scene/SceneLoader";
 
 /** What gets a rendered thumbnail. */
 export type ThumbnailKind = "model" | "material" | "shadergraph" | "environment" | "sky" | "particles" | "prefab" | "scene";
@@ -34,6 +36,21 @@ export interface ThumbnailPreview {
 }
 
 
+/**
+ * A posed preview (ADR 0373, T18b): nodes a plugin describes, loaded into a World of their own that steps while the
+ * preview is open, so what the plugin's systems do (an Animator posing a skeleton) shows. The World is torn down with
+ * the preview, and so are the services it started (the animation core). Nothing here names a plugin: a Component that
+ * needs a service starts it as it does in any World.
+ */
+export interface PosedPreviewSpec {
+  /** Names the content (a label for warnings); a preview of other content is a new one. */
+  readonly key: string;
+  /** The nodes loaded into the preview's World. */
+  readonly scene: SceneFile;
+  /** Before each frame's step: the plugin's hook to ask its components for what to show (an Animator's play at the playhead). */
+  frame?(world: World): void;
+}
+
 /** The asset thumbnail renderer (ADR 0061). */
 export interface ThumbnailRendererApi {
   readonly size: number;
@@ -49,6 +66,8 @@ export interface ThumbnailRendererApi {
   animate(kind: ThumbnailKind, path: string, target: HTMLCanvasElement, onFrame?: () => void): () => void;
   /** An orbitable preview of the asset in `target`. */
   preview(kind: ThumbnailKind, path: string, target: HTMLCanvasElement): ThumbnailPreview;
+  /** An orbitable preview of a World a plugin describes, stepped every frame (see `PosedPreviewSpec`), in `target`. */
+  previewPosed(spec: PosedPreviewSpec, target: HTMLCanvasElement): ThumbnailPreview;
   /** Forget every loaded texture (another project opened). */
   clearCaches(): void;
   dispose(): void;

@@ -8,7 +8,7 @@ import { compareBestMatch } from "../../../../engine/audio/dialogue/decide";
 import {
   argumentName, WILDCARD, type DialogueArgument, type DialogueAsset, type DialogueEvent, type DialogueLine, type DialoguePath,
 } from "../../../../engine/audio/dialogue/types";
-import type { EditResult } from "../../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../../editor/sdk/editResult";
 
 /** A dialogue file and where it is. */
 export interface DialogueDoc {

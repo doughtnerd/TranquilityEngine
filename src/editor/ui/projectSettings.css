@@ -91,3 +91,4 @@
 .plugins-item.off .plugins-title { color: var(--muted); }
 .plugins-name { font-size: 11px; color: var(--muted); font-family: monospace; }
 .plugins-description { flex-basis: 100%; font-size: 12px; color: var(--muted); }
+.plugins-description.plugins-notice { color: var(--warning); }

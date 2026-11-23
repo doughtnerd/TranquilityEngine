@@ -16,7 +16,7 @@ import {
 } from "../../../engine/audio/encoding/types";
 import type { ImportPlatform, ImportSettings } from "../../../engine/scene/importSettings";
 import type { PlannedSound } from "../../../export/audio";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
 import type { ConvertedSound } from "../../encoding/conversion";
 import { estimateShipped, runtimeMemory, type ShippedFigures, type SourceFacts } from "../../encoding/estimate";
 

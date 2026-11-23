@@ -1,8 +1,6 @@
 {
-  "format": "myco.scene@4",
-  "settings": {
-    "physics": "3d"
-  },
+  "format": "myco.scene@5",
+  "settings": { "physics": "3d" },
   "nodes": [
     {
       "id": "camera",

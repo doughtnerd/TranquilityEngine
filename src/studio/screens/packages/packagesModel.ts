@@ -12,7 +12,7 @@ import { AUDIO_PROJECT_FILE, type AudioProject } from "../../../engine/audio/pro
 import { isDerivedSamplePath } from "../../../engine/audio/sample/format";
 import type { ImportPlatform } from "../../../engine/scene/importSettings";
 import type { ProjectFileEdit } from "../../../editor/projectFileEdits";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
 import { AUDIO_FILE } from "../../../export/audio";
 import { isRecord, mapObjects } from "../../jsonObjects";
 

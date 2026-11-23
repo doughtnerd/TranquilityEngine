@@ -21,7 +21,7 @@ import { importBaseScene, type BaseSceneImport } from "../../../engine/audio/spa
 import { audioTestSceneToJson, emptyAudioTestScene, parseAudioTestScene, testSceneReferences } from "../../../engine/audio/spatial/testScene";
 import { AUDIO_SCENE_SUFFIX, type AudioTestScene } from "../../../engine/audio/spatial/testSceneTypes";
 import { World } from "../../../engine/core/World";
-import { applyEdit } from "../../../plugins/audio/editor/editResult";
+import { applyEdit } from "../../../editor/sdk/editResult";
 import { openTakeFile } from "../../../plugins/audio/runtime/capture/takeFile";
 import { loadBaseScene, type LoadedBaseScene } from "../../../plugins/audio/runtime/testScene/baseScene";
 import { playAudioTestScene, type AudioTestScenePlayer, type TestSceneMotionRow, type TestSceneVoiceRow } from "../../../plugins/audio/runtime/testScene/player";

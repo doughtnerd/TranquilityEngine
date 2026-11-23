@@ -182,6 +182,29 @@ function WorldRows(props: { w: WorldStats; ms: (v: number | null | undefined) =>
         <td data-stat="nodes">{w.nodes.toLocaleString()}</td>
         <td class="sub">{w.counters.map((c) => `${c.label} ${c.value}`).join(" · ")}</td>
       </tr>
+      <PlayStatsTables tables={w.tables} />
     </tbody>
+  );
+}
+
+/** A World's plugin tables (T34): a heading row, then a label, value and muted detail per row. */
+export function PlayStatsTables(props: { tables: WorldStats["tables"] }) {
+  return (
+    <>
+      {props.tables.map((t) => (
+        <>
+          <tr class="plugin-table-head" data-table={t.title}>
+            <th colSpan={3}>{t.title}</th>
+          </tr>
+          {t.rows.map((r) => (
+            <tr key={r.label}>
+              <th>{r.label}</th>
+              <td data-stat={`${t.title}:${r.label}`}>{r.value}</td>
+              <td class="sub">{r.detail ?? ""}</td>
+            </tr>
+          ))}
+        </>
+      ))}
+    </>
   );
 }

@@ -4,6 +4,7 @@
  * ```sh
  * npm run export -- <projectDir> [--out <dir>] [--target web|desktop] [--platform web|desktop|android]
  *                   [--no-audio-convert] [--scene <path>] [--audio-capture] [--languages <codes>] [--pseudo]
+ *                   [--debug-link <address>]
  * ```
  *
  * - `--target web` (default) writes a static web build: the prebuilt player (dist/player/, built
@@ -19,6 +20,7 @@
  */
 import { parseCommandLine, readCommandLine, UsageError, type Command } from "../server/commandLine";
 import { ExportError, ServerError, exportProject, type ExportOptions, type ExportTarget } from "./node";
+import { debugLinkAddress } from "../engine/debugLink/config";
 
 export const USAGE = `Usage: npm run export -- <projectDir> [options]
 
@@ -44,6 +46,9 @@ Options:
   --no-take-pictures
                    With --audio-take: takes record no pictures of the game view (by default a small JPEG about
                    once a second, which the Studio shows beside the take)
+  --debug-link A   Debugging on: the game connects to the editor's debug link at A (ws://host:port, host:port, or
+                   a port on this machine, such as 7790) so its live debuggers can inspect it. A desktop app also
+                   takes --debug-link <address> when launched. Builds without it hold none of the link's code
   --build          Desktop: run tauri build (default when Rust is installed)
   --no-build       Desktop: only write the Tauri project
   -h, --help       Show this help`;
@@ -81,6 +86,13 @@ const EXPORT_COMMAND: Command<ExportOptions> = {
     "--audio-capture": { set: (o) => void (o.audioCapture = true) },
     "--audio-take": { set: (o) => void (o.audioTake = true) },
     "--no-take-pictures": { set: (o) => void (o.audioTakeFrames = false) },
+    "--debug-link": {
+      takes: "the editor's address",
+      set: (o, v) => {
+        if (!debugLinkAddress(v)) throw new UsageError(`--debug-link is a WebSocket address: ws://host:port, host:port or a port (got ${JSON.stringify(v)}).`);
+        o.debugLink = v;
+      },
+    },
     "--build": { set: (o) => void (o.tauriBuild = true) },
     "--no-build": { set: (o) => void (o.tauriBuild = false) },
   },

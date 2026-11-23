@@ -7,7 +7,7 @@ import { MIX_LIMITS, newBus } from "../../../engine/audio/project/format";
 import type { AudioProject, Bus, MixAutomation, Return, Snapshot, Vca } from "../../../engine/audio/project/types";
 import { MAX_BUSES } from "../../../engine/audio/settings";
 import { uniqueName } from "../../../engine/core/uniqueName";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
 
 export type { EditResult };
 

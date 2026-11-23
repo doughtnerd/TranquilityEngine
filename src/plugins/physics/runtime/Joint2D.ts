@@ -39,11 +39,11 @@ export interface JointAnchors2D {
 export abstract class Joint2D extends Component {
   /** The other body's node; empty joins the body to the world. */
   @field(GameObject) connectedBody: GameObject | null = null;
-  @field(Vector2) anchor = new Vector2(0, 0);
-  @field(Boolean) autoConfigureConnectedAnchor = true;
-  @field(Vector2) connectedAnchor = new Vector2(0, 0);
+  @field(Vector2, { animatable: false }) anchor = new Vector2(0, 0);
+  @field(Boolean, { animatable: false }) autoConfigureConnectedAnchor = true;
+  @field(Vector2, { animatable: false }) connectedAnchor = new Vector2(0, 0);
   /** Let the two bodies' colliders collide with each other. */
-  @field(Boolean) enableCollision = false;
+  @field(Boolean, { animatable: false }) enableCollision = false;
   /** The force (newtons) that breaks the joint; 0 never breaks it. See Joint.breakForce. */
   @field(Number) breakForce = 0;
   /** The torque (newton-metres) that breaks the joint; 0 never breaks it. */
@@ -112,7 +112,7 @@ export class FixedJoint2D extends Joint2D {
 
 /** Shared by hinges and sliders: one axis of movement, with optional limits, a motor or a spring. */
 export abstract class AxisJoint2D extends Joint2D {
-  @field(Boolean) useLimits = false;
+  @field(Boolean, { animatable: false }) useLimits = false;
   @field(PlainObject) limits: JointLimits = { min: 0, max: 0 };
   @field(Boolean) useMotor = false;
   @field(PlainObject) motor: JointMotor = { targetVelocity: 0, force: 10 };
@@ -147,7 +147,7 @@ export class HingeJoint2D extends AxisJoint2D {
 @component("engine.SliderJoint2D")
 export class SliderJoint2D extends AxisJoint2D {
   /** The direction it slides along, in this node's local space. */
-  @field(Vector2) axis = new Vector2(1, 0);
+  @field(Vector2, { animatable: false }) axis = new Vector2(1, 0);
 
   override _jointFields(): JointFields2D {
     return { kind: "slider", axis: [this.axis.x, this.axis.y], limits: this._limitsIfOn() };
@@ -162,8 +162,8 @@ export class SliderJoint2D extends AxisJoint2D {
 @component("engine.RopeJoint2D")
 export class RopeJoint2D extends Joint2D {
   /** Use the anchors' distance when the joint is made as `maxDistance`. */
-  @field(Boolean) autoConfigureDistance = true;
-  @field(Number) maxDistance = 1;
+  @field(Boolean, { animatable: false }) autoConfigureDistance = true;
+  @field(Number, { animatable: false }) maxDistance = 1;
 
   override _jointFields(): JointFields2D {
     return { kind: "rope", length: this.autoConfigureDistance ? null : Math.max(this.maxDistance, 0) };
@@ -178,10 +178,10 @@ export class RopeJoint2D extends Joint2D {
 @component("engine.SpringJoint2D")
 export class SpringJoint2D extends Joint2D {
   /** Use the anchors' distance when the joint is made as `restLength`. */
-  @field(Boolean) autoConfigureDistance = true;
-  @field(Number) restLength = 1;
-  @field(Number) spring = 10;
-  @field(Number) damper = 0.2;
+  @field(Boolean, { animatable: false }) autoConfigureDistance = true;
+  @field(Number, { animatable: false }) restLength = 1;
+  @field(Number, { animatable: false }) spring = 10;
+  @field(Number, { animatable: false }) damper = 0.2;
 
   override _jointFields(): JointFields2D {
     return { kind: "spring", length: this.autoConfigureDistance ? null : Math.max(this.restLength, 0), stiffness: this.spring, damping: this.damper };
