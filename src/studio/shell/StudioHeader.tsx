@@ -7,7 +7,7 @@ import { AudioDeviceMenu } from "../components/AudioDeviceMenu";
 import { Icon } from "../components/Icon";
 import { ProjectPreviewChip } from "../screens/dialogue/PreviewLanguageChip";
 import { isCalibrated, offsetsFor, withOffset } from "../components/deviceOffsets";
-import { outputDevice } from "./outputDevice";
+import { outputDevice, outputDevices } from "./outputDevice";
 import { screenGroups, type ScreenId } from "./screens";
 import { audioHost, deviceOffsets, shortcutsOpen } from "./studioServices";
 
@@ -79,6 +79,9 @@ export function StudioHeader(props: StudioHeaderProps) {
         </button>
         <AudioDeviceMenu
           deviceName={device.name}
+          devices={outputDevices().value}
+          bufferMs={stats?.bufferMs ?? null}
+          sampleRate={stats?.sampleRate ?? null}
           offsets={offsetsFor(store, device.id)}
           calibrated={isCalibrated(store, device.id)}
           stale={stale}

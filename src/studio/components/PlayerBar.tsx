@@ -107,12 +107,11 @@ export function PlayerBar(props: PlayerBarSlots & { readonly label?: string; rea
           {props.viz && <div class="studio-player-viz">{props.viz}</div>}
         </div>
         <div class="studio-player-centre">
-          {props.transport && (
-            <div class="studio-player-transport" role="toolbar" aria-label="Transport">
-              {props.transport}
-            </div>
-          )}
-          {props.scrub && <div class="studio-player-scrub">{props.scrub}</div>}
+          {/* Both rows are always there (empty when idle), so the bar's height never changes between states and screens. */}
+          <div class="studio-player-transport" role={props.transport ? "toolbar" : undefined} aria-label={props.transport ? "Transport" : undefined}>
+            {props.transport}
+          </div>
+          <div class="studio-player-scrub">{props.scrub}</div>
         </div>
         <div class="studio-player-right">
           {props.status && (

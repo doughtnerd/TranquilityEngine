@@ -66,6 +66,12 @@
 .studio-banner-info button { margin-left: 8px; }
 .studio-banner-error { color: var(--danger); }
 
+/* Toasts (the prototype's): one column bottom-centre, just above the player bar (`--studio-footer-h`, measured by the
+ * shell), each on the surface with an accent rule, 12px. They keep the kit's Undo and ×. */
+.studio .kit-toasts { left: 50%; right: auto; bottom: calc(var(--studio-footer-h, 89px) + 8px); transform: translateX(-50%); align-items: center; }
+.studio .kit-toast { border: 1px solid var(--accent); border-radius: 4px; font-size: calc(12px * var(--ui-scale)); box-shadow: 0 6px 18px var(--shadow); }
+.studio .kit-toast-error { border-color: var(--danger); }
+
 /* The screen's dock */
 .studio-dock { grid-area: main; position: relative; min-height: 0; min-width: 0; display: flex; }
 .studio-dock > .dock-layout { flex: 1; }

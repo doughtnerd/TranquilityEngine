@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { BEAT_MS, KEEP_TAPS, addTap, beatIndex, clampOffset, foldError, formatOffset, summarize } from "./calibrationModel";
 import { DEFAULT_DEVICE, isCalibrated, offsetsFor, withOffset } from "./deviceOffsets";
-import { statusParts } from "./statusBarModel";
+import { statusReadouts, type StatusPart } from "./statusBarModel";
 
 describe("tap calibration", () => {
   it("folds each tap's error from the nearest 500 ms beat into ±250 ms", () => {
@@ -52,24 +52,34 @@ describe("offsets per device", () => {
 });
 
 describe("status bar", () => {
-  const stats = { backend: "core", status: "running", sampleRate: 48000, voices: 3, voiceCap: 64, cpuPercent: 4.2, cpuNote: null, underruns: 0, latencyMs: 23.4, latencyReliable: true, fxStarved: 0, fxStarvedOwner: null };
-  it("shows the core's figures while running", () => {
-    expect(statusParts({ kind: "running" }, stats).map((p) => p.text)).toEqual(["Rust core", "48 kHz", "Voices 3 / 64", "CPU 4.2 %", "23 ms"]);
+  const stats = { backend: "core", status: "running", sampleRate: 48000, voices: 3, voiceCap: 4096, cpuPercent: 4.2, cpuNote: null, underruns: 0, latencyMs: 23.4, latencyReliable: true, bufferMs: 5.3, fxStarved: 0, fxStarvedOwner: null };
+  const texts = (parts: readonly StatusPart[]) => parts.map((p) => p.text);
+  it("reads like the prototype while running: the core, voices, CPU and the clock; the device, voice cap, meters and saved state", () => {
+    const r = statusReadouts({ kind: "running" }, stats, { clock: { label: "Playhead", seconds: 0.52 }, document: "saved" });
+    expect(texts(r.left)).toEqual(["Rust core · 48 kHz", "Voices 3 / 4,096", "CPU 4.2%", "Playhead 00:00.520"]);
+    expect(texts(r.right)).toEqual(["Device OK", "Voice cap: OK", "Meters: live", "Saved"]);
+    expect(r.right[0].tone).toBe("success");
   });
-  it("warns about a full voice cap, unmeasured CPU, underruns and an estimated latency", () => {
-    const parts = statusParts({ kind: "running" }, { ...stats, sampleRate: 44100, voices: 64, cpuPercent: null, cpuNote: "CPU not measured yet", underruns: 2, latencyReliable: false });
-    expect(parts.map((p) => [p.text, p.tone])).toEqual([["Rust core", "success"], ["44.1 kHz", undefined], ["Voices 64 / 64", "warning"], ["CPU —", "muted"], ["23 ms", "muted"], ["2 underruns", "warning"]]);
+  it("shows the session clock, unsaved edits and a read-only project", () => {
+    expect(texts(statusReadouts({ kind: "running" }, stats, { clock: { label: "Session", seconds: 61.5 } }).left)).toContain("Session 01:01.500");
+    expect(texts(statusReadouts({ kind: "running" }, stats, { document: "unsaved" }).right).at(-1)).toBe("Unsaved");
+    expect(texts(statusReadouts({ kind: "running" }, stats, { document: "readOnly" }).right).at(-1)).toBe("Read-only");
+  });
+  it("warns about a full voice cap, unmeasured CPU, underruns and a changed output", () => {
+    const r = statusReadouts({ kind: "running" }, { ...stats, sampleRate: 44100, voices: 64, voiceCap: 64, cpuPercent: null, cpuNote: "CPU not measured yet", underruns: 2 });
+    expect(r.left.map((p) => [p.text, p.tone])).toEqual([["Rust core · 44.1 kHz", undefined], ["Voices 64 / 64", "warning"], ["CPU —", "muted"]]);
+    expect(r.right.map((p) => [p.text, p.tone])).toEqual([["2 underruns", "warning"], ["Voice cap: full", "warning"], ["Meters: live", undefined]]);
+    expect(statusReadouts({ kind: "running" }, stats, { stale: true }).right[0]).toMatchObject({ text: "Device changed", tone: "warning" });
   });
   it("warns when effects ran out of the core's effect memory, naming the last owner (ABI 4.8)", () => {
-    const parts = statusParts({ kind: "running" }, { ...stats, fxStarved: 2, fxStarvedOwner: "Ambience" });
-    const part = parts.find((p) => p.text === "Effect memory full")!;
+    const part = statusReadouts({ kind: "running" }, { ...stats, fxStarved: 2, fxStarvedOwner: "Ambience" }).right.find((p) => p.text === "Effect memory full")!;
     expect(part.tone).toBe("warning");
     expect(part.title).toMatch(/2 effects got no effect memory.*\(last: Ambience\)/);
-    expect(statusParts({ kind: "running" }, stats).some((p) => p.text === "Effect memory full")).toBe(false);
+    expect(texts(statusReadouts({ kind: "running" }, stats).right)).not.toContain("Effect memory full");
   });
   it("says what the runtime is doing otherwise", () => {
-    expect(statusParts({ kind: "idle" }, null)[0].text).toBe("No project open");
-    expect(statusParts({ kind: "locked" }, null)[1].text).toMatch(/Click anywhere/);
-    expect(statusParts({ kind: "failed", reason: "why" }, null)).toEqual([{ text: "Audio core unavailable", tone: "danger", title: "why" }]);
+    expect(statusReadouts({ kind: "idle" }, null).left[0].text).toBe("No project open");
+    expect(statusReadouts({ kind: "locked" }, null).right[0].text).toMatch(/Click anywhere/);
+    expect(statusReadouts({ kind: "failed", reason: "why" }, null).left).toEqual([{ text: "Audio core unavailable", tone: "danger", title: "why" }]);
   });
 });
