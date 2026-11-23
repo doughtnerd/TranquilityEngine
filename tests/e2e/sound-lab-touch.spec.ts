@@ -25,21 +25,29 @@ test("L2: the tour's buttons open the music page, whose buttons start the eight-
 
   await bar(page, "4").click();
   await expect.poll(async () => (await musicRows(page)).find((r) => r.asset.includes("music-stems8"))?.state, { timeout: 30_000 }).toBe("playing");
-  const row = (await musicRows(page)).find((r) => r.asset.includes("music-stems8"))!;
-  expect(row.stems, "eight stems").toHaveLength(8);
-  expect(row.stems.filter((s) => s.streamed).map((s) => s.name).sort(), "the two melodies stream").toEqual(["melody-a", "melody-b"]);
-  expect(row.groups.map((g) => ({ of: g.of, primed: g.primed }))).toEqual([{ of: 8, primed: 8 }]);
+  // The eight stems are the Sequence's eight tracks (ADR 0343: playlists start voices directly, so the music row has no stems
+  // or primed groups of its own): its instance plays eight voices, the two melodies among them (melody-loop.wav streams).
+  // A stream voice waits for its data by design, so the unstamped sequence starts once (it once restarted every frame).
+  const stems = async () => {
+    const d = (await audioDebug(page))!;
+    const ev = d.events.find((e) => e.asset.includes("music-stems8"));
+    const mine = ev ? d.voices.filter((v) => v.event === ev.id && v.state !== "stolen") : [];
+    return { voices: ev?.voices ?? 0, listed: mine.length, melodies: mine.filter((v) => v.clip.includes("melody-loop")).length };
+  };
+  await expect.poll(stems, { timeout: 15_000, message: "eight stems, two of them the streamed melody, started once" }).toEqual({ voices: 8, listed: 8, melodies: 2 });
   // The page stops the one before with a 0.2–0.3 s fade, and its row stays until the fade ends; warm stems can start inside it.
   await expect.poll(async () => (await musicRows(page)).some((r) => r.asset.includes("music-world")), { timeout: 2_000, intervals: [50], message: "starting one event stops the one before" }).toBe(false);
   await page.waitForTimeout(2_000);
 
   await bar(page, "5").click();
+  // A, B, C are the Sequence's three 4 s sections (two bars each at 120 bpm): the row's bar says which one plays.
   const order: string[] = [];
   await expect
     .poll(
       async () => {
         const r = (await musicRows(page)).find((x) => x.asset.includes("music-list3"));
-        if (r?.segment && order[order.length - 1] !== r.segment) order.push(r.segment);
+        const section = r?.state === "playing" ? "ABC"[Math.floor((r.bar - 1) / 2)] : undefined;
+        if (section && order[order.length - 1] !== section) order.push(section);
         return order.join("");
       },
       { timeout: 60_000, intervals: [100] },
@@ -62,7 +70,7 @@ test("L2: on the rhythm page a press on the view is a tap, a press on a button i
   const state = () => page.evaluate(() => (globalThis as unknown as { __rhythmLab: { state(): { mode: string; taps: number } } }).__rhythmLab.state());
   await bar(page, "c").click();
   await expect.poll(async () => (await state()).mode, { timeout: 15_000 }).toBe("calibrate");
-  await expect.poll(async () => (await musicRows(page)).find((r) => r.segment === "click")?.state, { timeout: 30_000 }).toBe("playing");
+  await expect.poll(async () => (await musicRows(page)).find((r) => r.asset.includes("rhythm-click"))?.state, { timeout: 30_000 }).toBe("playing");
   expect((await state()).taps).toBe(0);
   await page.mouse.click(480, 250); // the view
   await expect.poll(async () => (await state()).taps).toBe(1);

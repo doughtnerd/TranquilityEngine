@@ -110,10 +110,15 @@ test("Mixer: a new bus and a snapshot offset are saved to audio.json and reopen"
   await openStudioFolder(page, "Game", MINIMAL_PROJECT);
   await studioScreen(page, "Mixer");
   await page.getByRole("toolbar", { name: "Mixer" }).getByRole("button", { name: "New bus", exact: true }).click();
-  await expect(page.getByRole("listbox", { name: "Buses" }).getByText("New bus", { exact: true })).toBeVisible();
+  // The new bus's row opens with its name in a rename field (the prototype's); Enter keeps the name.
+  const buses = page.getByRole("listbox", { name: "Buses" });
+  const rename = buses.getByRole("textbox", { name: "Rename New bus" });
+  await expect(rename).toHaveValue("New bus");
+  await rename.press("Enter");
+  await expect(buses.getByRole("option", { name: /^New bus\b/ })).toBeVisible();
   // A snapshot: new (it opens for editing), then the bus's level in it is an offset on the base level.
   await page.getByRole("button", { name: "New snapshot" }).first().click();
-  const level = page.getByLabel("Inspector: New bus").getByRole("textbox", { name: "New bus level in dB" });
+  const level = page.getByLabel("Inspector: New bus").getByRole("textbox", { name: "Level in dB" });
   await level.fill("-6");
   await level.press("Enter");
   await expect(page.getByText(/dB on the base level/)).toBeVisible();
@@ -124,7 +129,7 @@ test("Mixer: a new bus and a snapshot offset are saved to audio.json and reopen"
 
   await reopen(page, "Studio Test");
   await studioScreen(page, "Mixer");
-  await expect(page.getByRole("listbox", { name: "Buses" }).getByText("New bus", { exact: true })).toBeVisible();
+  await expect(page.getByRole("listbox", { name: "Buses" }).getByRole("option", { name: /^New bus\b/ })).toBeVisible();
   await expect(page.getByRole("tree", { name: "Snapshots" })).toContainText((await audio()).snapshots[0].name);
   expect(errors).toEqual([]);
 });
