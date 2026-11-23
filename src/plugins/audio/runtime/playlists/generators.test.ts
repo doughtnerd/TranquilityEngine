@@ -157,6 +157,24 @@ describe("generator entries (ADR 0346 §5)", () => {
     expect(plays[1]!.at).toBeCloseTo(first + seconds, 6);
   });
 
+  it("hot reload: an edited *.generator.json glides its changed parameters on the playing voice", async () => {
+    const tone = (frequency: number) => ({ format: "myco.generator@1", kind: "oscillator", params: { frequency, level: -6 } });
+    await kit.boot({ "t.generator.json": tone(440), "h.playlist.json": pla("clip", [gen("t.generator.json")], { playback: { plays: "untilStopped" } }) });
+    Audio.play("h.playlist.json");
+    const v = kit.fake.voices.at(-1)!;
+    kit.frame();
+    expect(v.events.some((e) => e.kind === "gen")).toBe(false);
+    const { Assets } = await import("../../../../myco");
+    Assets.addSource(Assets.fromObject({ "t.generator.json": tone(660) }));
+    kit.frame();
+    const gens = v.events.filter((e): e is Extract<typeof e, { kind: "gen" }> => e.kind === "gen");
+    expect(gens).toHaveLength(1);
+    expect([...gens[0]!.params]).toEqual([[generatorParamIndex("oscillator", "frequency"), 660]]);
+    expect(gens[0]!.seconds).toBeCloseTo(0.02, 6);
+    kit.frame();
+    expect(v.events.filter((e) => e.kind === "gen")).toHaveLength(1);
+  });
+
   it("a backend without generators plays nothing, with one warning per kind", async () => {
     await kit.boot({
       "a.playlist.json": pla("clip", [gen({ kind: "oscillator", params: {} })]),

@@ -23,7 +23,9 @@ import { curveParts, genCurvesOf } from "./curves";
 import { levelEffects, playlistEffectProps } from "./effects";
 import { automationParts, type TimeAuto } from "./levelAutomation";
 import { EmptyNode, LiveNode, type Ctx, type DynGain, type NodeHost, type PendingSwitchChange, type PVoice, type SpatialPlan } from "./liveNode";
-import { linkedPlaylist } from "./loader";
+import { linkedPlaylist, loadGenerator } from "./loader";
+import { changedGeneratorParams } from "./generatorVoice";
+import type { GeneratorBody } from "../../../../engine/audio/generators/types";
 import { FALLBACK_SECONDS_PER_BEAT, MUSICAL_FALLBACK_NOTE, type MusicalSource } from "./musical";
 import { resolveSequence } from "./sequence";
 import { taps } from "../mix/profileTaps";
@@ -211,12 +213,41 @@ const resolveClip: Resolver = (host, body, ctx, key) => {
  * its envelope's.
  */
 class GeneratorNode extends LiveNode {
+  /** A linked generator's path and the parsed patch it started with (hot reload compares it); null when embedded. */
+  private linked: { readonly path: string; body: GeneratorBody } | null = null;
+
   constructor(host: NodeHost, ctx: Ctx, key: string, generator: GeneratorEntry["generator"]) {
     super(host, ctx, key);
     const v = host.playGenerator?.({ generator }, ctx) ?? null;
-    if (v) this.voices.push(v);
+    if (!v) return;
+    this.voices.push(v);
+    if (typeof generator === "string") {
+      const body = loadGenerator(generator);
+      if (body) this.linked = { path: generator, body };
+    }
+  }
+
+  /**
+   * ADR 0346 §5: hot reload. An edited `*.generator.json` (a new parsed object) sends its changed parameters to the
+   * playing voice, gliding over `HOT_RELOAD_GLIDE` (a kind change waits for the next trigger).
+   */
+  override update(now: number, dt: number): void {
+    super.update(now, dt);
+    const l = this.linked;
+    const v = this.voices[0];
+    if (!l || !v || v.leaving || !v.voice.playing) return;
+    const next = loadGenerator(l.path);
+    if (!next || next === l.body) return;
+    const before = l.body;
+    l.body = next;
+    if (next.kind !== before.kind) return;
+    const changed = changedGeneratorParams(before, next);
+    if (changed.size > 0) this.host.setGeneratorParams?.(v, changed, HOT_RELOAD_GLIDE);
   }
 }
+
+/** ADR 0346 §5: a hot-reloaded generator's changed parameters glide over 20 ms. */
+const HOT_RELOAD_GLIDE = 0.02;
 
 // --- Layer -----------------------------------------------------------------------------------------------------------
 

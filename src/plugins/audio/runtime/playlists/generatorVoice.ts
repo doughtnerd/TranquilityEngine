@@ -12,7 +12,7 @@
  *   curves read the voice's time (a generator has no clip playhead: clip time is voice time) or the sequence clock.
  */
 import type { Curve, CurveKey } from "../../../../engine/core/curve";
-import { generatorParamIndex, generatorSpec } from "../../../../engine/audio/generators/catalogue";
+import { generatorParamIndex, generatorSpec, generatorWireValues } from "../../../../engine/audio/generators/catalogue";
 import { resolveGenerator } from "../../../../engine/audio/generators/resolve";
 import type { Draw } from "../../../../engine/audio/generators/random";
 import type { GeneratorBody, GeneratorKind } from "../../../../engine/audio/generators/types";
@@ -75,6 +75,18 @@ export function generatorSeconds(kind: GeneratorKind, values: readonly number[])
     default:
       return valueOf(kind, values, "length") + valueOf(kind, values, "release") / 1000;
   }
+}
+
+/**
+ * ADR 0346 §5 (hot reload): the parameters (by catalogue index, wire order) whose stored values differ between two
+ * patches of one kind, with `next`'s values. `vary`, the seed and a silence's length draw aren't re-applied.
+ */
+export function changedGeneratorParams(before: GeneratorBody, next: GeneratorBody): Map<number, number> {
+  const a = generatorWireValues(before.kind, before.params);
+  const b = generatorWireValues(next.kind, next.params);
+  const out = new Map<number, number>();
+  for (let i = 0; i < b.length; i++) if (a[i] !== b[i]) out.set(i, b[i]!);
+  return out;
 }
 
 /** A curve input's time parameter for a generator voice (clip time is its voice time: a generator has no clip). */

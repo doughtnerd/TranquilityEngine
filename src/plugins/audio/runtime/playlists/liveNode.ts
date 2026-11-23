@@ -203,6 +203,8 @@ export interface NodeHost {
    * generators). Absent: generators play nothing.
    */
   playGenerator?(play: GeneratorPlay, ctx: Ctx): PVoice | null;
+  /** ADR 0346 §5: a playing generator voice's parameters (by catalogue index) change, gliding over `seconds` (hot reload). */
+  setGeneratorParams?(v: PVoice, params: ReadonlyMap<number, number>, seconds: number): void;
   /** A marker passes at heard `e.time`: the handle's `onMarker` listeners hear it once the heard clock reaches it. */
   emitMarker(e: AudioMarkerEvent): void;
   /** Report the Cue, Exit and Hit markers of `facts` as voice `v` (playing from file seconds `from`) passes them. */

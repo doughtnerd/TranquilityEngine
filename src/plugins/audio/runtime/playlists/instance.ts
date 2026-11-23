@@ -910,6 +910,12 @@ export class PlaylistInstance implements NodeHost {
     return this.adopt(voice, req, ctx, d, path, bindings, loop, looping ? null : plan.seconds);
   }
 
+  /** ADR 0346 §5: a playing generator voice's parameters change (hot reload), through the backend's `generators`. */
+  setGeneratorParams(v: PVoice, params: ReadonlyMap<number, number>, seconds: number): void {
+    if (this.stopped || v.leaving) return;
+    audioBackend().generators?.setParams(v.voice, params, seconds);
+  }
+
   /**
    * The tree's levels on a request about to play (`req.volume` holds the source's own gain): volume, pitch, priority,
    * World, group, submix, stamp, owner, filters, spatial and the fade-in's start; what the voice's dynamics start from.
