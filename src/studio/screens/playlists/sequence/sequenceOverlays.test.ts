@@ -3,6 +3,7 @@
 // the Snap split button, through each module's own interface.
 import { describe, expect, it } from "vitest";
 import { adsrHandleSpots, adsrShape, adsrTip, clipAdsr, dragAdsr, HOLD_HANDLE_GAP } from "./adsrModel";
+import { clipPlan, drawnLoopBand } from "./clipGeometry";
 import { pasteCurves, setDrivenBy } from "./automationEdits";
 import { moveEffectToTrack, sharedClipEffect } from "./sequenceEdits";
 import { sequenceReadout } from "./readoutModel";
@@ -62,6 +63,20 @@ describe("overlays", () => {
     expect(voicePosition(music, fixtureSource(music), 3.5, true)).toBeCloseTo(1.5);
     expect(voicePosition(music, fixtureSource(music), 3.5, false)).toBe(3.5);
     expect(voicePosition(music, fixtureSource(music), 4.2, false)).toBeNull();
+  });
+
+  it("ADR 0362: places a reversed Async voice from the clip's start through the mirrored tail, cycling the pass after it", () => {
+    // brake_skid: a 3 s clip, its loop 0.4–0.9 s filling 0.4–1.9 (passes of 0.5 s), the tail 1.9–3; reversed, the tail
+    // is drawn over 0–1.1 and the band over 1.1–2.6, the voice reading down from the sample's end.
+    const skid = { ...c("c1"), sync: false, reverse: true };
+    const src = fixtureSource(skid);
+    expect(drawnLoopBand(clipPlan(skid, src), true)).toMatchObject({ start: 1.1, end: 2.6 });
+    // Through the tail (drawn first), the voice is where the playhead is.
+    expect(voicePosition(skid, src, 0.25, true)).toBe(0.25);
+    // Past the first pass after the tail (1.1–1.6), it cycles that pass while the loop is active.
+    expect(voicePosition(skid, src, 1.7, true)).toBeCloseTo(1.2);
+    expect(voicePosition(skid, src, 1.7, false)).toBeCloseTo(1.7);
+    expect(voicePosition(skid, src, 3.1, false)).toBeNull();
   });
 });
 

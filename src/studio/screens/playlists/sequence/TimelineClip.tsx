@@ -17,7 +17,7 @@ import type { Pcm } from "../../samples/seam";
 import { sampleTitle, playlistTitle } from "../playlistPaths";
 import { ADSR_HANDLES, adsrHandleSpots, adsrShape, adsrTip, clipAdsr, type AdsrHandle } from "./adsrModel";
 import type { TargetSpec } from "./automationEdits";
-import { clipChips, clipMarkers, clipPlan, loopBand, wavePieces, type WavePiece } from "./clipGeometry";
+import { clipChips, clipMarkers, clipPlan, drawnLoopBand, wavePieces, type WavePiece } from "./clipGeometry";
 import { CurveOverlay } from "./CurveOverlay";
 import { activeIcon, SeqIcon } from "./sequenceIcons";
 import type { SourceFacts } from "./sequenceModel";
@@ -122,7 +122,7 @@ export function TimelineClip(props: TimelineClipProps) {
   const plan = useMemo(() => clipPlan(c, src), [c, src]);
   const pxPerSec = width / Math.max(1e-6, plan.length);
   const at = (u: number) => u * pxPerSec;
-  const band = c.sample !== undefined ? loopBand(plan) : null;
+  const band = c.sample !== undefined ? drawnLoopBand(plan, c.reverse) : null;
   const markers = c.sample !== undefined ? clipMarkers(c, src, plan) : [];
   const chips = clipChips(c, src, { follows: props.follows, playlistName: undefined }).filter((ch) => ch.kind !== "loop" && ch.kind !== "disabled" && (ch.kind !== "pick" || !!props.playingHere));
   const color = typeof props.track.color === "number" ? `var(--series-${props.track.color})` : props.track.color;

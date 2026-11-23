@@ -126,7 +126,26 @@ export function loopBand(plan: ClipPlan): LoopBand | null {
   return { loopId: loop.id, start, end: Math.max(start, end), dividers, hold: span <= 0, active: loop.active, overridden: loop.overridden };
 }
 
-/** A sample marker drawn in the clip: its clip time on the first pass (or the tail), and whether this clip hides it. */
+/**
+ * ADR 0362: where clip time `u` of the forward plan is heard on a clip that plays in reverse (clip time `u` plays the
+ * forward map at `length − u`, so the plan is drawn mirrored: the tail first, the passes backwards). An open-ended clip
+ * isn't mirrored.
+ */
+export const reversedAt = (plan: ClipPlan, u: number): number => (Number.isFinite(plan.length) ? plan.length - u : u);
+
+/** The loop band as drawn on a clip: `loopBand`, mirrored when the clip plays in reverse (`reverse`). */
+export function drawnLoopBand(plan: ClipPlan, reverse: boolean): LoopBand | null {
+  const band = loopBand(plan);
+  if (!band || !reverse || !Number.isFinite(plan.length)) return band;
+  const start = reversedAt(plan, band.end);
+  const end = reversedAt(plan, band.start);
+  return { ...band, start, end, dividers: band.dividers.map((d) => reversedAt(plan, d)).sort((a, b) => a - b) };
+}
+
+/**
+ * A sample marker drawn in the clip: its clip time on the first pass (or the tail; mirrored on a reversed clip, where it
+ * is heard), and whether this clip hides it.
+ */
 export interface ClipMarker {
   readonly id: string;
   readonly name: string;
@@ -142,7 +161,7 @@ export function clipMarkers(c: Clip, src: SourceFacts | null, plan: ClipPlan): C
     if (plan.loop && m.at >= plan.loop.end) at = plan.pre + plan.avail + (m.at - plan.loop.end);
     else at = m.at - plan.s0;
     if (at < 0 || at > plan.length) continue;
-    out.push({ id: m.id, name: m.name, at, type: m.type, hidden: c.hiddenMarkers.includes(m.id) });
+    out.push({ id: m.id, name: m.name, at: c.reverse ? reversedAt(plan, at) : at, type: m.type, hidden: c.hiddenMarkers.includes(m.id) });
   }
   return out;
 }

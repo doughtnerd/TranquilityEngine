@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { lintPlaylist } from "../../../../engine/audio/playlist/lint";
-import { clipChips, clipFollows, clipLoops, clipMarkers, clipPlan, clipToSource, loopBand, wavePieces } from "./clipGeometry";
+import { clipChips, clipFollows, clipLoops, clipMarkers, clipPlan, clipToSource, drawnLoopBand, loopBand, wavePieces } from "./clipGeometry";
 import { fixtureBody, fixtureSequence, fixtureSource } from "./sequenceFixture";
 import { beatSeconds, beatsPerBar, DEFAULT_SNAP, keepTaps, nudgeStep, snapSpan, snapTime, tapTempo } from "./sequenceGrid";
 import { clipLength, findClip, nextId, onSequence, sequenceLength } from "./sequenceModel";
@@ -93,6 +93,16 @@ describe("clip geometry", () => {
     const hold = clipPlan(c1, { ...src!, loops: [{ ...src!.loops[0]!, start: 0.5, end: 0.5 }] });
     expect(loopBand(hold)).toMatchObject({ hold: true });
     expect(wavePieces(hold).some((p) => p.hold)).toBe(true);
+  });
+
+  it("ADR 0362: draws a reversed clip's loop band and markers mirrored, where they are heard", () => {
+    // Forward: band 0.4–1.9 with passes from 0.9 and 1.4 on a 3 s clip; reversed clip time u plays the map at 3 − u.
+    const band = drawnLoopBand(plan, true)!;
+    expect([band.start, band.end].map((x) => +x.toFixed(3))).toEqual([1.1, 2.6]);
+    expect(band.dividers.map((x) => +x.toFixed(3))).toEqual([1.6, 2.1]);
+    expect(drawnLoopBand(plan, false)).toEqual(loopBand(plan));
+    const ms = clipMarkers({ ...c1, reverse: true }, src, plan);
+    expect(ms.map((m) => [m.id, +m.at.toFixed(3)])).toEqual([["k1", 0.8], ["k2", 2.8]]);
   });
 
   it("places sample markers on the first pass or the tail, flagging hidden ones", () => {
