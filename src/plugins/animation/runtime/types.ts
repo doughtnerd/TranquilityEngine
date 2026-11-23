@@ -61,9 +61,10 @@ export interface AnimationPlayResult {
 }
 
 /**
- * Musical timing for plays, travels and requests (ADR 0372), when the audio plugin is enabled: wait for the next beat,
- * bar or exit marker of `music`, and land the start or the clip's `hit` marker on it. Without the audio plugin, `at` is
- * refused with one warning and the action happens at once.
+ * Musical timing for plays, crossfades, travels and requests (ADR 0372), when the audio plugin is enabled: wait for the
+ * next beat, bar or exit marker of `music`, and land the start or the clip's `hit` marker on it. A play released a
+ * little after its boundary (frames are coarser than beats) starts that far into its clip. Without the audio plugin,
+ * without `music`, or when the music stops first, `at` is refused with one warning and the action happens at once.
  */
 export interface AnimatorMusicTiming {
   /** The music boundary to wait for. */
@@ -99,8 +100,8 @@ export interface AnimatorPlayOptions extends AnimatorMusicTiming {
   readonly normalizedTime?: number;
 }
 
-/** Options of `Animator.crossfade` (ADR 0372). */
-export interface AnimatorCrossfadeOptions {
+/** Options of `Animator.crossfade` (ADR 0372; musical timing as `play`'s, T72). */
+export interface AnimatorCrossfadeOptions extends AnimatorMusicTiming {
   /** The layer of the implicit graph (default 0). */
   readonly layer?: AnimatorLayer;
   /** An avatar mask asset (`*.mask.json`) restricting the clip to some bones. */

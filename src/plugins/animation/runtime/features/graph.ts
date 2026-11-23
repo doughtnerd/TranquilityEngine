@@ -2,17 +2,21 @@
 // graphs and computed parameters. Everything is a command into the blackboard or the graph's command queue, applied in
 // `animation.Gather` (`graph/runtime.ts`, which also runs computed parameters there); the graph itself runs in the
 // core. Slot plays, `stop`, `layerWeight` and `state` on graph Animators come through `playback.ts` into the same
-// runtime.
+// runtime. A request or travel with `at` (musical timing, T72) is held by `music.ts` until its music boundary, then
+// queued and sent in that frame (its open window, `within`, counts from then).
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import { Animator } from "../components/Animator";
 import type { AnimatorJumpOptions, AnimatorParameterValue, AnimatorParams, AnimatorRequestOptions, AnimatorTravelOptions, AnimatorTravelResult } from "../types";
-import { parameterIndex, queueJump, queueLink, queueRequest, queueTravel, setCompute, setParameter as setParam, warnOnce } from "./graph/runtime";
+import { flushGraphQueue, parameterIndex, queueJump, queueLink, queueRequest, queueTravel, setCompute, setParameter as setParam } from "./graph/runtime";
+import { animatorRuntime } from "./instances";
+import { holdRequest, holdTravel, wantsMusic } from "./music";
 
 /** Requests live this long without `within` (ADR 0372, D52). */
 const DEFAULT_WITHIN = 0.25;
 
-function musicRefused(animator: Animator, what: string, at: unknown): void {
-  if (at !== undefined) warnOnce(`music-${what}`, `[myco] ${animator.node.name}: Animator.${what}: musical timing (\`at\`) isn't built yet (T72); it happens at once.`);
+/** Whether a request or travel waits for music: only on an Animator that could take it now (else it is refused at once, as without `at`). */
+function waits(animator: Animator, what: string, options: AnimatorRequestOptions | AnimatorTravelOptions): boolean {
+  return !!animator.graph && !!animatorRuntime(animator) && wantsMusic(animator, what, options);
 }
 
 /** @internal `Animator.set`. */
@@ -22,14 +26,14 @@ export function setParameter(animator: Animator, name: string, value: AnimatorPa
 
 /** @internal `Animator.request`. */
 export function request(animator: Animator, name: string, options: AnimatorRequestOptions): void {
-  musicRefused(animator, "request", options.at);
   const within = typeof options.within === "number" && Number.isFinite(options.within) && options.within > 0 ? options.within : DEFAULT_WITHIN;
-  queueRequest(animator, name, within);
+  if (waits(animator, "request", options)) holdRequest(animator, options, () => queueRequest(animator, name, within), flushGraphQueue);
+  else queueRequest(animator, name, within);
 }
 
 /** @internal `Animator.travel`. */
 export function travel(animator: Animator, state: string, options: AnimatorTravelOptions): Promise<AnimatorTravelResult> {
-  musicRefused(animator, "travel", options.at);
+  if (waits(animator, "travel", options)) return holdTravel(animator, options, () => queueTravel(animator, state, options.layer), flushGraphQueue);
   return queueTravel(animator, state, options.layer);
 }
 

@@ -417,12 +417,13 @@ export function queueLayerWeight(animator: Animator, layer: AnimatorLayer, weigh
 
 /**
  * @internal `Animator.play` with a slot. `net` (the network feature's replicated plays, T33) gives the play's tick and
- * late start instead of asking `slotNetHooks.admit`.
+ * late start instead of asking `slotNetHooks.admit`. `options.startIn`: clip seconds it starts late by on top of that
+ * (a musical play released after its boundary, T72); not for loops.
  */
 export function queueSlotPlay(
   animator: Animator,
   clip: string,
-  options: { slot: string; fade: number; speed: number; loop: boolean; section: SlotSection; normalizedTime: number },
+  options: { slot: string; fade: number; speed: number; loop: boolean; section: SlotSection; normalizedTime: number; startIn?: number },
   net?: { readonly tick: number; readonly offset: number },
 ): Promise<AnimationPlayResult> {
   const rt = animatorRuntime(animator);
@@ -444,7 +445,7 @@ export function queueSlotPlay(
     section: options.section,
     normalizedTime: options.normalizedTime,
     tick: admission.tick,
-    offset: options.loop ? 0 : Math.max(0, admission.offset),
+    offset: options.loop ? 0 : Math.max(0, admission.offset) + (options.startIn !== undefined && Number.isFinite(options.startIn) ? Math.max(0, options.startIn) : 0),
     promise,
     resolve,
     done: false,
@@ -709,11 +710,24 @@ export function gatherGraphs(frame: AnimationFrame): void {
       g.debugSent = true;
       frame.core.commands.put(DEBUG, { instance: g.instance, flags: DEBUG_ON });
     }
-    while (ag.queue.length) {
-      if (!flushIntent(frame, g, ag.queue[0]!)) break;
-      ag.queue.shift();
-    }
+    flushIntents(frame, g, ag);
   }
+}
+
+function flushIntents(frame: AnimationFrame, g: GraphRuntime, ag: AnimatorGraph): void {
+  while (ag.queue.length) {
+    if (!flushIntent(frame, g, ag.queue[0]!)) break;
+    ag.queue.shift();
+  }
+}
+
+/**
+ * @internal Sends `rt`'s queued graph commands now, in call order, when it takes part in `frame`'s pass: for intents
+ * queued after the graph step of `animation.Gather` (musical timing releasing a held play, travel or request, T72).
+ */
+export function flushGraphQueue(frame: AnimationFrame, rt: AnimatorRuntime): void {
+  const g = graphInPass(frame, rt);
+  if (g) flushIntents(frame, g, animatorGraph(rt.animator));
 }
 
 // ------------------------------------------------------------------------------------------------ apply
