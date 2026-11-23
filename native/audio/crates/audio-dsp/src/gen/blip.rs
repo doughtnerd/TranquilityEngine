@@ -18,6 +18,20 @@
 //! - sfxr's master and sound volumes (× 0.05) are replaced by the `level` parameter (dB), which glides live; the other
 //!   parameters are read when the blip starts and at each re-trigger (as sfxr reads them at its reset).
 //!
+//! **How a block runs** (D67, the blip's cost; the output is sample for sample the same as running sfxr's tick in full).
+//! A render call is one control block (at most [`BLOCK`] samples), one loop per waveform with the ticks, the oscillator,
+//! the filters, the phaser and the envelope fused, every value in locals.
+//! - sfxr's three tick counters (repeat, arpeggio, envelope stage) only matter when one of them fires: a tick counts down
+//!   to the next of the three events, and the counters are brought up to date when it fires (`events`).
+//! - Each tick does only what moves every tick: the slide and its limit, the vibrato's phase and the duty sweep, each
+//!   skipped when its parameters are neutral (sfxr's arithmetic with them is exact: × 1, + 0, a clamp of a value already
+//!   in range).
+//! - What the audio reads is worked out once per sample, after its ticks: the period (sfxr sets it every tick from the
+//!   same values; only the last tick before a sample is heard) and the envelope's level, from the stage's line.
+//! - The control values the audio reads only through a filter's coefficients or the phaser's delay, which the render reads
+//!   once a block (the phaser's offset, the low- and high-pass sweeps), are swept once a block by the block's tick count,
+//!   multiplication by multiplication as sfxr does.
+//!
 //! The PLAY loop flag re-triggers the blip at its end (sfxr's repeat, endless) until the key-off.
 
 use super::osc::{pulse_at, saw_at, sine_cycles, triangle_at, Held, MAX_DT};
@@ -31,6 +45,8 @@ pub const SFXR_SUPER: f64 = 8.0 * SFXR_RATE;
 pub const PHASER_STEPS: usize = 1_024;
 /// The context-rate delay line: sfxr's 1,023 steps at up to 352.8 kHz.
 pub const LINE: usize = 1_024;
+/// The most samples one [`Blip::render`] takes (the voice's control block).
+pub const BLOCK: usize = super::CONTROL_FRAMES;
 
 /// The blip's parameters in wire order (the generator catalogue's `blip` kind).
 pub mod p {
@@ -81,6 +97,69 @@ pub fn envelope_seconds(attack: f32, sustain: f32, decay: f32) -> f64 {
     (t[0] as f64 + t[1] as f64 + t[2] as f64 + 3.0) / SFXR_RATE
 }
 
+/// The control state sfxr's tick moves, copied into locals for a block.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct Ticks {
+    /// Ticks owed: the 44.1 kHz clock against the context rate.
+    acc: f64,
+    fperiod: f64,
+    fslide: f64,
+    /// The oscillator's period (supersampled steps, an integer of at least 8) and its reciprocal.
+    period: f64,
+    inv_period: f64,
+    vib_phase: f64,
+    square_duty: f32,
+    /// sfxr's `env_time`, counted every tick (a whole number, exact in `f32`).
+    env_time: f32,
+    /// The envelope's level is `a + (c − env_time × k) × d` in the current stage (the stage's line, written so each
+    /// stage's arithmetic is sfxr's to the bit).
+    env_a: f32,
+    env_c: f32,
+    env_k: f32,
+    env_d: f32,
+    env_stage: u32,
+    /// sfxr's `rep_time` and `arp_time` as of the last event (add `span − left` for now).
+    rep_time: u32,
+    arp_time: u32,
+    arp_limit: u32,
+    /// Ticks from the last event to the next, and of those still to run.
+    span: u32,
+    left: u32,
+    /// Ticks since the once-a-block sweeps ran.
+    swept: u32,
+    /// `fperiod` moved by an event (a trigger, a re-trigger, the arpeggio, the limit): the period follows after the
+    /// sample's ticks.
+    stale: u32,
+}
+
+impl Ticks {
+    #[inline(always)]
+    fn set_period(&mut self, period: f64) {
+        if period != self.period {
+            self.period = period;
+            self.inv_period = 1.0 / period;
+        }
+    }
+
+    /// The envelope's level (sfxr's `env_vol` after its last tick).
+    #[inline(always)]
+    fn envelope(&self) -> f32 {
+        self.env_a + (self.env_c - self.env_time * self.env_k) * self.env_d
+    }
+}
+
+/// sfxr's integer period from its float one (`(int)rfperiod`, at least 8).
+#[inline(always)]
+fn whole_period(rfperiod: f64) -> f64 {
+    let p = libm::trunc(rfperiod);
+    if p > 8.0 {
+        p
+    } else {
+        8.0
+    }
+}
+
 /// One blip's state: the latched parameters, sfxr's control state and the band-limited render's. All-zero is a blip not
 /// started yet ([`Blip::start`]).
 #[repr(C)]
@@ -94,40 +173,41 @@ pub struct Blip {
     wave: u8,
     lp_on: u8,
     phaser_on: u8,
-    _pad: [u8; 3],
-    // sfxr's control state.
-    fperiod: f64,
+    /// The slide or the vibrato moves the period every tick.
+    moving: u8,
+    /// The square's duty sweeps.
+    duty_on: u8,
+    /// Reaching the frequency limit ends the blip.
+    limit_ends: u8,
+    // What a trigger sets and a re-trigger restores (sfxr's `ResetSample(true)`).
+    fperiod0: f64,
+    fslide0: f64,
+    duty0: f32,
+    arp_limit0: u32,
+    // Constant for a trigger.
     fmaxperiod: f64,
-    fslide: f64,
     fdslide: f64,
     arp_mod: f64,
-    tick_acc: f64,
-    period: f64,
-    /// `1 / period`, kept with it (the oscillator reads `phase / period` every sample).
-    inv_period: f64,
-    square_duty: f32,
-    square_slide: f32,
-    arp_time: u32,
-    arp_limit: u32,
-    vib_phase: f64,
     vib_speed: f64,
     vib_amp: f32,
-    env_vol: f32,
-    env_stage: u32,
-    env_time: u32,
+    square_slide: f32,
+    rep_limit: u32,
     env_length: [u32; 3],
     /// `1 / env_length` per stage (0 for a stage of no length), so a tick multiplies rather than divides.
     env_inv: [f32; 3],
-    fphase: f32,
+    punch: f32,
     fdphase: f32,
-    iphase: u32,
-    fltw: f32,
+    flthp_d: f32,
     fltw_d8: f32,
     fltdmp: f32,
+    /// The high-pass needs its sweep (moving, or outside sfxr's clamp).
+    hp_sweep: u8,
+    _pad: [u8; 3],
+    // Swept once a block.
+    fphase: f32,
     flthp: f32,
-    flthp_d: f32,
-    rep_time: u32,
-    rep_limit: u32,
+    fltw: f32,
+    t: Ticks,
     // The render's state.
     /// sfxr's oscillator phase: supersampled steps into the current period, read as `phase / period` (a period that grows
     /// mid-cycle slows the cycle, as in sfxr).
@@ -154,32 +234,27 @@ impl Blip {
         self.p = *params;
         self.started = 1;
         self.playing = 1;
-        self.tick_acc = 0.0;
         self.phase = 0.0;
         self.held.phase = 0.0;
-        self.reset(false);
+        self.reset();
     }
 
-    /// sfxr's `ResetSample(restart)`.
-    fn reset(&mut self, restart: bool) {
+    /// sfxr's `ResetSample(false)`: every constant of the trigger, then the re-trigger's part.
+    fn reset(&mut self) {
         let p = self.p;
         let sq = |x: f32| x * x;
         let cube = |x: f32| x as f64 * x as f64 * x as f64;
         self.wave = p[p::WAVEFORM].clamp(0.0, 4.0) as u8;
-        self.fperiod = 100.0 / (sq(p[p::BASE_FREQUENCY]) as f64 + 0.001);
-        self.set_period((self.fperiod as i64).max(8) as f64);
+        self.fperiod0 = 100.0 / (sq(p[p::BASE_FREQUENCY]) as f64 + 0.001);
         self.fmaxperiod = 100.0 / (sq(p[p::FREQUENCY_LIMIT]) as f64 + 0.001);
-        self.fslide = 1.0 - cube(p[p::SLIDE]) * 0.01;
+        self.limit_ends = (p[p::FREQUENCY_LIMIT] > 0.0) as u8;
+        self.fslide0 = 1.0 - cube(p[p::SLIDE]) * 0.01;
         self.fdslide = -cube(p[p::DELTA_SLIDE]) * 0.000_001;
-        self.square_duty = 0.5 - p[p::DUTY] * 0.5;
+        self.duty0 = 0.5 - p[p::DUTY] * 0.5;
         self.square_slide = -p[p::DUTY_SWEEP] * 0.000_05;
         let arp = p[p::ARPEGGIO_AMOUNT] as f64;
         self.arp_mod = if arp >= 0.0 { 1.0 - arp * arp * 0.9 } else { 1.0 + arp * arp * 10.0 };
-        self.arp_time = 0;
-        self.arp_limit = if p[p::ARPEGGIO_SPEED] == 1.0 { 0 } else { (sq(1.0 - p[p::ARPEGGIO_SPEED]) * 20_000.0 + 32.0) as u32 };
-        if restart {
-            return;
-        }
+        self.arp_limit0 = if p[p::ARPEGGIO_SPEED] == 1.0 { 0 } else { (sq(1.0 - p[p::ARPEGGIO_SPEED]) * 20_000.0 + 32.0) as u32 };
         self.lp.clear();
         self.fltw = sq(p[p::LOWPASS_CUTOFF]) * p[p::LOWPASS_CUTOFF] * 0.1;
         let fltw_d = 1.0 + p[p::LOWPASS_SWEEP] * 0.0001;
@@ -191,14 +266,11 @@ impl Blip {
         self.flthp_d = 1.0 + p[p::HIGHPASS_SWEEP] * 0.0003;
         self.lp_w_set = -1.0;
         self.hp_set = -1.0;
-        self.vib_phase = 0.0;
         self.vib_speed = (sq(p[p::VIBRATO_SPEED]) * 0.01) as f64;
         self.vib_amp = p[p::VIBRATO_DEPTH] * 0.5;
-        self.env_vol = 0.0;
-        self.env_stage = 0;
-        self.env_time = 0;
         self.env_length = envelope_ticks(p[p::ATTACK], p[p::SUSTAIN], p[p::DECAY]);
         self.env_inv = self.env_length.map(|l| if l == 0 { 0.0 } else { 1.0 / l as f32 });
+        self.punch = p[p::PUNCH];
         self.fphase = sq(p[p::PHASER_OFFSET]) * 1_020.0;
         if p[p::PHASER_OFFSET] < 0.0 {
             self.fphase = -self.fphase;
@@ -207,75 +279,165 @@ impl Blip {
         if p[p::PHASER_SWEEP] < 0.0 {
             self.fdphase = -self.fdphase;
         }
-        self.iphase = (self.fphase as i32).unsigned_abs();
         self.phaser_on = (p[p::PHASER_OFFSET] != 0.0 || p[p::PHASER_SWEEP] != 0.0) as u8;
         if self.phaser_on != 0 {
             self.line = [0.0; LINE];
             self.write = 0;
         }
-        self.rep_time = 0;
         self.rep_limit = if p[p::REPEAT_SPEED] == 0.0 { 0 } else { (sq(1.0 - p[p::REPEAT_SPEED]) * 20_000.0 + 32.0) as u32 };
+        // The fast paths: a stage whose tick would leave its values as they are is skipped (sfxr's arithmetic with a
+        // neutral parameter is exact: × 1, + 0, a clamp of a value inside its range).
+        self.moving = (self.fdslide != 0.0 || self.fslide0 != 1.0 || self.vib_amp > 0.0) as u8;
+        self.duty_on = (self.square_slide != 0.0 && self.wave == wave::SQUARE) as u8;
+        self.hp_sweep = (self.flthp_d != 1.0 || !(0.000_01..=0.1).contains(&self.flthp)) as u8;
+        let mut t = Ticks::default();
+        self.retrigger(&mut t);
+        self.stage(&mut t);
+        // The first tick runs the events: the frequency limit's first check, then the real countdown.
+        t.span = 1;
+        t.left = 1;
+        self.t = t;
     }
 
-    /// One 44.1 kHz control tick, sfxr's per-sample control in its order.
-    fn tick(&mut self) {
-        self.rep_time += 1;
-        if self.rep_limit != 0 && self.rep_time >= self.rep_limit {
-            self.rep_time = 0;
-            self.reset(true);
-        }
-        self.arp_time += 1;
-        if self.arp_limit != 0 && self.arp_time >= self.arp_limit {
-            self.arp_limit = 0;
-            self.fperiod *= self.arp_mod;
-        }
-        self.fslide += self.fdslide;
-        self.fperiod *= self.fslide;
-        if self.fperiod > self.fmaxperiod {
-            self.fperiod = self.fmaxperiod;
-            if self.p[p::FREQUENCY_LIMIT] > 0.0 {
-                self.playing = 0;
-            }
-        }
-        let mut rfperiod = self.fperiod;
-        if self.vib_amp > 0.0 {
-            self.vib_phase += self.vib_speed;
-            // sfxr's sin(vib_phase), through the oscillators' polynomial sine (within 4e-6).
-            rfperiod = self.fperiod * (1.0 + sine_cycles(self.vib_phase * (1.0 / core::f64::consts::TAU)) as f64 * self.vib_amp as f64);
-        }
-        self.set_period((rfperiod as i64).max(8) as f64);
-        self.square_duty = (self.square_duty + self.square_slide).clamp(0.0, 0.5);
-        self.env_time += 1;
-        if self.env_time > self.env_length[self.env_stage.min(2) as usize] {
-            self.env_time = 0;
-            self.env_stage += 1;
-            if self.env_stage >= 3 {
-                self.env_stage = 3;
-                self.playing = 0;
-            }
-        }
-        let t = self.env_time as f32;
-        match self.env_stage {
-            0 => self.env_vol = t * self.env_inv[0],
-            1 => self.env_vol = 1.0 + (1.0 - t * self.env_inv[1]) * 2.0 * self.p[p::PUNCH],
-            2 => self.env_vol = 1.0 - t * self.env_inv[2],
-            _ => self.env_vol = 0.0,
-        }
-        self.fphase += self.fdphase;
-        self.iphase = ((self.fphase as i32).unsigned_abs()).min(PHASER_STEPS as u32 - 1);
-        if self.flthp_d != 0.0 {
-            self.flthp = (self.flthp * self.flthp_d).clamp(0.000_01, 0.1);
-        }
-        // sfxr sweeps its low-pass once per supersample: eight times a tick.
-        self.fltw = (self.fltw * self.fltw_d8).clamp(0.0, 0.1);
+    /// sfxr's `ResetSample(true)` on the tick state (the constants it sets are the trigger's, unchanged).
+    #[inline(always)]
+    fn retrigger(&self, t: &mut Ticks) {
+        t.fperiod = self.fperiod0;
+        t.set_period(whole_period(self.fperiod0));
+        t.fslide = self.fslide0;
+        t.square_duty = self.duty0;
+        t.arp_time = 0;
+        t.arp_limit = self.arp_limit0;
+        t.stale = 1;
     }
 
-    /// The oscillator's period (supersampled steps, an integer of at least 8) and its reciprocal.
-    #[inline]
-    fn set_period(&mut self, period: f64) {
-        if period != self.period {
-            self.period = period;
-            self.inv_period = 1.0 / period;
+    /// The envelope's line for stage `t.env_stage`: attack `t / len`, sustain `1 + (1 − t / len) × 2 punch`, decay
+    /// `1 − t / len`, then 0 (sfxr's, to the bit: `t·k` is `0 − t·(−k)`, a product by 2 is exact).
+    #[inline(always)]
+    fn stage(&self, t: &mut Ticks) {
+        (t.env_a, t.env_c, t.env_k, t.env_d) = match t.env_stage {
+            0 => (0.0, 0.0, -self.env_inv[0], 1.0),
+            1 => (1.0, 1.0, self.env_inv[1], 2.0 * self.punch),
+            2 => (1.0, 0.0, self.env_inv[2], 1.0),
+            _ => (0.0, 0.0, 0.0, 0.0),
+        };
+    }
+
+    /// The ticks to the next event: the repeat, the arpeggio or the envelope's next stage (at least 1).
+    #[inline(always)]
+    fn schedule(&self, t: &mut Ticks) {
+        let r = if self.rep_limit != 0 { self.rep_limit.saturating_sub(t.rep_time) } else { u32::MAX };
+        let a = if t.arp_limit != 0 { t.arp_limit.saturating_sub(t.arp_time) } else { u32::MAX };
+        let e = (self.env_length[t.env_stage.min(2) as usize] + 1).saturating_sub(t.env_time as u32);
+        t.span = r.min(a).min(e).max(1);
+        t.left = t.span;
+    }
+
+    /// The tick on which the countdown ran out: the counters catch up, then this tick's repeat, arpeggio, frequency limit
+    /// (when no slide checks it every tick) and envelope stage, in sfxr's order. `t.env_time` is already this tick's.
+    #[inline(always)]
+    fn events(&self, t: &mut Ticks, playing: &mut u8) {
+        let quiet = t.span - 1;
+        t.rep_time += quiet;
+        t.arp_time += quiet;
+        t.rep_time += 1;
+        if self.rep_limit != 0 && t.rep_time >= self.rep_limit {
+            t.rep_time = 0;
+            self.retrigger(t);
+        }
+        t.arp_time += 1;
+        if t.arp_limit != 0 && t.arp_time >= t.arp_limit {
+            t.arp_limit = 0;
+            t.fperiod *= self.arp_mod;
+            t.stale = 1;
+        }
+        if self.moving == 0 && t.fperiod > self.fmaxperiod {
+            t.fperiod = self.fmaxperiod;
+            t.stale = 1;
+            if self.limit_ends != 0 {
+                *playing = 0;
+            }
+        }
+        if t.env_time > self.env_length[t.env_stage.min(2) as usize] as f32 {
+            t.env_time = 0.0;
+            t.env_stage += 1;
+            if t.env_stage >= 3 {
+                t.env_stage = 3;
+                *playing = 0;
+            }
+            self.stage(t);
+        }
+        self.schedule(t);
+    }
+
+    /// One 44.1 kHz control tick (sfxr's per-sample control, less what is read once a sample or once a block).
+    #[inline(always)]
+    fn tick(&self, t: &mut Ticks, playing: &mut u8) {
+        t.env_time += 1.0;
+        t.left -= 1;
+        if t.left == 0 {
+            core::hint::cold_path();
+            self.events(t, playing);
+        }
+        if self.moving != 0 {
+            t.fslide += self.fdslide;
+            t.fperiod *= t.fslide;
+            if t.fperiod > self.fmaxperiod {
+                core::hint::cold_path();
+                t.fperiod = self.fmaxperiod;
+                if self.limit_ends != 0 {
+                    *playing = 0;
+                }
+            }
+            if self.vib_amp > 0.0 {
+                t.vib_phase += self.vib_speed;
+            }
+        }
+        if self.duty_on != 0 {
+            t.square_duty = (t.square_duty + self.square_slide).clamp(0.0, 0.5);
+        }
+        t.swept += 1;
+    }
+
+    /// After a sample's ticks: the period sfxr's last tick set (with the vibrato), if anything moved it.
+    #[inline(always)]
+    fn follow(&self, t: &mut Ticks) {
+        if (self.moving as u32 | t.stale) != 0 {
+            t.stale = 0;
+            let mut rfperiod = t.fperiod;
+            if self.vib_amp > 0.0 {
+                // sfxr's sin(vib_phase), through the oscillators' polynomial sine (within 4e-6).
+                rfperiod = t.fperiod * (1.0 + sine_cycles(t.vib_phase * (1.0 / core::f64::consts::TAU)) as f64 * self.vib_amp as f64);
+            }
+            t.set_period(whole_period(rfperiod));
+        }
+    }
+
+    /// The control values read once a block, moved by the block's ticks as sfxr moves them each tick: the phaser's offset
+    /// (`fphase += fdphase`), the high-pass (`flthp × flthp_d`, clamped) and the low-pass (`fltw × fltw_d⁸`, clamped).
+    fn sweep(&mut self) {
+        let n = self.t.swept;
+        self.t.swept = 0;
+        if self.phaser_on != 0 && self.fdphase != 0.0 {
+            for _ in 0..n {
+                self.fphase += self.fdphase;
+            }
+        }
+        if self.hp_sweep != 0 && n > 0 {
+            let mut h = self.flthp;
+            for _ in 0..n {
+                h = (h * self.flthp_d).clamp(0.000_01, 0.1);
+            }
+            self.flthp = h;
+            // With no sweep, one clamp brings it inside sfxr's range, where it stays.
+            self.hp_sweep = (self.flthp_d != 1.0) as u8;
+        }
+        if self.fltw_d8 != 1.0 {
+            let mut w = self.fltw;
+            for _ in 0..n {
+                w = (w * self.fltw_d8).clamp(0.0, 0.1);
+            }
+            self.fltw = w;
         }
     }
 
@@ -294,93 +456,159 @@ impl Blip {
         }
     }
 
-    /// Renders `out.len()` samples (at most a control block) with per-sample pitch `steps`, times gain `g0` ramping to
-    /// `g1`; `noise` draws held values. Returns `false` once the blip has ended (the rest of `out` is zero).
+    /// Samples `from..n` of waveform `W` into `out` (gain `g0` ramping by `dg` a sample): the ticks, the oscillator, the
+    /// filters, the phaser and the envelope, fused. No ticks before sample `from` when `fresh` (a re-trigger just reset
+    /// the clock there). Stops at a sample whose ticks ended the blip: returns it and `true`.
     #[allow(clippy::too_many_arguments)]
-    pub fn render(&mut self, steps: &[f32], out: &mut [f32], g0: f32, g1: f32, rate: f32, repeat: bool, noise: &mut u32) -> bool {
-        let inv = 1.0 / rate as f64;
-        let tick_step = SFXR_RATE * inv;
-        let n = out.len();
+    #[inline(always)]
+    fn run<const W: u8>(&mut self, from: usize, n: usize, steps: &[f32], out: &mut [f32], g0: f32, dg: f32, rate: f32, fresh: bool, noise: &mut u32) -> (usize, bool) {
         self.coefficients(rate);
-        let dg = (g1 - g0) / n as f32;
+        let step = SFXR_RATE / rate as f64;
+        let adv0 = SFXR_SUPER / rate as f64;
+        let mut t = self.t;
+        let mut playing = self.playing;
+        let mut phase = self.phase;
+        let mut held = self.held;
+        let (mut lp, mut hp) = (self.lp, self.hp);
+        // 0: no low-pass; 1: the low-pass; 2: a low-pass at 0 (silence).
+        let lp_mode = if self.lp_on == 0 { 0 } else if self.fltw > 0.0 { 1 } else { 2 };
+        let phaser = self.phaser_on != 0;
         // The phaser's delay for the block, `whole + 1 - frac` samples back: read `a` one further back than `b` and take
         // `a + (b - a) × frac` (frac 1 reads `b`, the delay a whole number of samples).
-        let delay = self.iphase as f32 * (rate / SFXR_SUPER as f32);
+        let iphase = ((self.fphase as i32).unsigned_abs()).min(PHASER_STEPS as u32 - 1);
+        let delay = iphase as f32 * (rate / SFXR_SUPER as f32);
         let whole = libm::floorf(delay);
         let (back, frac) = (whole as usize % LINE, 1.0 - (delay - whole));
-        for j in 0..n {
-            self.tick_acc += tick_step;
-            while self.tick_acc >= 1.0 {
-                self.tick_acc -= 1.0;
-                self.tick();
-            }
-            if self.playing == 0 {
-                if !repeat {
-                    out[j..].fill(0.0);
-                    return false;
+        let mut w = self.write as usize;
+        let mut env = t.envelope();
+        let mut j = from;
+        let mut ended = false;
+        // The re-trigger's sample has no ticks (sfxr's reset happens after them).
+        let mut skip = fresh;
+        while j < n {
+            if !skip {
+                t.acc += step;
+                if t.acc >= 1.0 {
+                    loop {
+                        t.acc -= 1.0;
+                        self.tick(&mut t, &mut playing);
+                        if t.acc < 1.0 {
+                            break;
+                        }
+                    }
+                    if playing == 0 {
+                        core::hint::cold_path();
+                        ended = true;
+                        break;
+                    }
+                    self.follow(&mut t);
+                    env = t.envelope();
                 }
-                let p = self.p;
-                self.start(&p);
             }
+            skip = false;
             // sfxr's phase moves 8 steps a tick (352,800 a second), times the pitch.
-            let adv = SFXR_SUPER * inv * steps[j] as f64;
-            if self.phase >= self.period {
+            let adv = adv0 * steps[j] as f64;
+            if phase >= t.period {
                 // sfxr's `phase %= period`: one subtraction unless the period just shrank below half the phase.
-                self.phase -= self.period;
-                if self.phase >= self.period {
-                    self.phase %= self.period;
+                phase -= t.period;
+                if phase >= t.period {
+                    core::hint::cold_path();
+                    phase %= t.period;
                 }
             }
-            let t = self.phase * self.inv_period;
-            let cycles = adv * self.inv_period;
-            let dt = cycles.min(MAX_DT);
-            self.phase += adv;
-            let mut x = match self.wave {
-                wave::SAW => -saw_at(t, dt) as f32,
-                wave::SINE => sine_cycles(t),
+            let ph = phase * t.inv_period;
+            let cycles = adv * t.inv_period;
+            phase += adv;
+            let mut x = match W {
+                wave::SAW => -saw_at(ph, cycles.min(MAX_DT)) as f32,
+                wave::SINE => sine_cycles(ph),
                 // sfxr's 32 held values a period.
-                wave::NOISE => self.held.next(32.0 * cycles, || super::noise::uniform(noise)),
-                wave::TRIANGLE => triangle_at(t, dt) as f32,
-                _ => pulse_at(t, dt, self.square_duty as f64, 0.5) as f32,
+                wave::NOISE => held.next(32.0 * cycles, || super::noise::uniform(noise)),
+                wave::TRIANGLE => triangle_at(ph, cycles.min(MAX_DT)) as f32,
+                _ => pulse_at(ph, cycles.min(MAX_DT), t.square_duty as f64, 0.5) as f32,
             };
-            if self.lp_on != 0 {
-                x = if self.fltw > 0.0 { self.lp.process(LOWPASS, x) } else { 0.0 };
+            if lp_mode == 1 {
+                x = lp.process(LOWPASS, x);
+            } else if lp_mode == 2 {
+                x = 0.0;
             }
-            x = self.hp.highpass(x);
-            if self.phaser_on != 0 {
-                let w = self.write as usize;
+            x = hp.highpass(x);
+            if phaser {
                 self.line[w] = x;
                 let b = self.line[(w + LINE - back) % LINE];
                 let a = self.line[(w + 2 * LINE - back - 1) % LINE];
                 x += a + (b - a) * frac;
-                self.write = ((w + 1) % LINE) as u32;
+                w = (w + 1) % LINE;
             } else {
                 x += x;
             }
-            out[j] = x * self.env_vol * (g0 + dg * (j + 1) as f32);
+            out[j] = x * env * (g0 + dg * (j + 1) as f32);
+            j += 1;
         }
+        self.t = t;
+        self.playing = playing;
+        self.phase = phase;
+        self.held = held;
+        self.lp = lp;
+        self.hp = hp;
+        self.write = w as u32;
+        (j, ended)
+    }
+
+    /// Renders `out.len()` samples (at most [`BLOCK`]) with per-sample pitch `steps`, times gain `g0` ramping to `g1`;
+    /// `noise` draws held values. Returns `false` once the blip has ended (the rest of `out` is zero).
+    #[allow(clippy::too_many_arguments)]
+    pub fn render(&mut self, steps: &[f32], out: &mut [f32], g0: f32, g1: f32, rate: f32, repeat: bool, noise: &mut u32) -> bool {
+        let n = out.len().min(BLOCK);
+        let dg = (g1 - g0) / n as f32;
+        let (mut from, mut fresh) = (0, false);
+        loop {
+            let (m, ended) = match self.wave {
+                wave::SAW => self.run::<{ wave::SAW }>(from, n, steps, out, g0, dg, rate, fresh, noise),
+                wave::SINE => self.run::<{ wave::SINE }>(from, n, steps, out, g0, dg, rate, fresh, noise),
+                wave::NOISE => self.run::<{ wave::NOISE }>(from, n, steps, out, g0, dg, rate, fresh, noise),
+                wave::TRIANGLE => self.run::<{ wave::TRIANGLE }>(from, n, steps, out, g0, dg, rate, fresh, noise),
+                _ => self.run::<{ wave::SQUARE }>(from, n, steps, out, g0, dg, rate, fresh, noise),
+            };
+            if !ended {
+                break;
+            }
+            if !repeat {
+                out[m..].fill(0.0);
+                return false;
+            }
+            // The PLAY loop flag: a fresh trigger from this sample (sfxr's repeat, endless).
+            let p = self.p;
+            self.start(&p);
+            (from, fresh) = (m, true);
+        }
+        self.sweep();
         true
     }
 
     /// Moves `n` samples on without rendering (a virtual voice): the envelope's ticks only (the oscillator, filters and
     /// slides hold). Returns `false` once the blip has ended.
     pub fn advance(&mut self, n: u32, rate: f32, repeat: bool) -> bool {
-        self.tick_acc += SFXR_RATE / rate as f64 * n as f64;
-        let mut t = libm::floor(self.tick_acc) as u64;
-        self.tick_acc -= t as f64;
-        self.rep_time = self.rep_time.wrapping_add(t as u32);
-        while t > 0 && self.playing != 0 {
-            let len = self.env_length[self.env_stage.min(2) as usize] as u64 + 1;
-            let left = len - (self.env_time as u64).min(len);
-            if t < left {
-                self.env_time += t as u32;
+        // The counters catch up with the ticks rendered since the last event.
+        let done = self.t.span - self.t.left;
+        self.t.rep_time += done;
+        self.t.arp_time += done;
+        self.t.acc += SFXR_RATE / rate as f64 * n as f64;
+        let mut ticks = libm::floor(self.t.acc) as u64;
+        self.t.acc -= ticks as f64;
+        self.t.rep_time = self.t.rep_time.wrapping_add(ticks as u32);
+        while ticks > 0 && self.playing != 0 {
+            let len = self.env_length[self.t.env_stage.min(2) as usize] as u64 + 1;
+            let left = len - (self.t.env_time as u64).min(len);
+            if ticks < left {
+                self.t.env_time += ticks as f32;
                 break;
             }
-            t -= left;
-            self.env_time = 0;
-            self.env_stage += 1;
-            if self.env_stage >= 3 {
-                self.env_stage = 3;
+            ticks -= left;
+            self.t.env_time = 0.0;
+            self.t.env_stage += 1;
+            if self.t.env_stage >= 3 {
+                self.t.env_stage = 3;
                 if repeat {
                     let p = self.p;
                     self.start(&p);
@@ -389,6 +617,15 @@ impl Blip {
                 }
             }
         }
+        let mut t = self.t;
+        self.stage(&mut t);
+        if t.stale != 0 {
+            // A re-trigger: its first tick runs the events (the frequency limit's first check).
+            (t.span, t.left) = (1, 1);
+        } else {
+            self.schedule(&mut t);
+        }
+        self.t = t;
         self.playing != 0
     }
 }
