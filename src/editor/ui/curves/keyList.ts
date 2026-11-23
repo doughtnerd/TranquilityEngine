@@ -174,3 +174,97 @@ export function axisTicks(range: readonly [number, number], target: number): num
 }
 
 // L6.1a
+
+// --- several keys at once (ADR 0373: the Animation window's box selection, move, scale, copy, paste and ripple) ------
+
+/** Keys closer in x than this are at the same place (a pasted or moved key replaces a key already there). */
+export const SAME_X = 1e-6;
+
+/** The result of an edit of several keys: the new list and where the edited keys landed in it, in the order given. */
+export interface KeysEdit<K> {
+  readonly keys: K[];
+  readonly indices: number[];
+}
+
+/** A key at a new x, keeping everything after its x (value, interp, handles). */
+const atX = <K extends AnyKey>(k: K, x: number): K => [x, ...k.slice(1)] as unknown as K;
+
+/**
+ * `moved` (a key list with the keys at `indices` given new x values) sorted again by x: a moved key landing on a key
+ * that didn't move replaces it (Unity's and Godot's dope sheets overwrite), and the moved keys' new indices are returned
+ * in the order of `indices`. Keys that didn't move keep their order.
+ */
+function settle<K extends AnyKey>(keys: readonly K[], indices: readonly number[], moved: (k: K, i: number) => K): KeysEdit<K> {
+  const chosen = new Set(indices.filter((i) => i >= 0 && i < keys.length));
+  const still = keys.map((k, i) => ({ k: copyKey(k), i })).filter((e) => !chosen.has(e.i));
+  const going = [...chosen].map((i) => ({ k: moved(keys[i], i), i }));
+  const kept = still.filter((s) => !going.some((g) => Math.abs(g.k[0] - s.k[0]) < SAME_X));
+  const all = [...kept.map((e) => ({ ...e, moved: false })), ...going.map((e) => ({ ...e, moved: true }))];
+  // Stable by x; an unmoved key sorts before a moved one at the same x (none remain after the overwrite above).
+  all.sort((a, b) => a.k[0] - b.k[0] || Number(a.moved) - Number(b.moved) || a.i - b.i);
+  const at = new Map<number, number>();
+  all.forEach((e, n) => e.moved && at.set(e.i, n));
+  return { keys: all.map((e) => e.k), indices: indices.map((i) => at.get(i) ?? -1) };
+}
+
+/**
+ * The keys at `indices` moved by `dx` together, the shift clamped so the whole group stays inside `xRange` (so the
+ * spacing between them is kept). A moved key landing on another key replaces it. Never mutates.
+ */
+export function shiftKeys<K extends AnyKey>(keys: readonly K[], indices: readonly number[], dx: number, xRange: readonly [number, number]): KeysEdit<K> {
+  const xs = indices.filter((i) => i >= 0 && i < keys.length).map((i) => keys[i][0]);
+  if (!xs.length || !Number.isFinite(dx)) return { keys: copyKeys(keys), indices: indices.map((i) => (i >= 0 && i < keys.length ? i : -1)) };
+  const d = clamp(dx, xRange[0] - Math.min(...xs), xRange[1] - Math.max(...xs));
+  return settle(keys, indices, (k) => atX(k, k[0] + d));
+}
+
+/**
+ * The keys at `indices` scaled in x about `pivot` by `factor` (> 0; 2 doubles their spacing), each clamped into
+ * `xRange`. A key landing on another key replaces it. A `factor` that isn't a positive number changes nothing.
+ */
+export function scaleKeys<K extends AnyKey>(keys: readonly K[], indices: readonly number[], pivot: number, factor: number, xRange: readonly [number, number]): KeysEdit<K> {
+  if (!(factor > 0) || !Number.isFinite(factor)) return { keys: copyKeys(keys), indices: [...indices] };
+  return settle(keys, indices, (k) => atX(k, clamp(pivot + (k[0] - pivot) * factor, xRange[0], xRange[1])));
+}
+
+/** `keys` without the keys at `indices` (any number, all of them included). Always a copy. */
+export function removeKeys<K extends AnyKey>(keys: readonly K[], indices: readonly number[]): K[] {
+  const gone = new Set(indices);
+  return keys.filter((_, i) => !gone.has(i)).map((k) => copyKey(k));
+}
+
+/**
+ * Ripple (insert or remove time) at `from`: with `dx > 0` every key at or after `from` moves `dx` later; with `dx < 0`
+ * the span `[from + dx, from)` is cut out, so keys inside it are removed and keys at or after `from` move `-dx`
+ * earlier. Keys before the span stay. Never mutates.
+ */
+export function rippleKeys<K extends AnyKey>(keys: readonly K[], from: number, dx: number): K[] {
+  if (!Number.isFinite(dx) || dx === 0) return copyKeys(keys);
+  const cutFrom = dx < 0 ? from + dx : from;
+  return keys.filter((k) => !(dx < 0 && k[0] >= cutFrom - SAME_X && k[0] < from - SAME_X)).map((k) => (k[0] >= from - SAME_X ? atX(k, k[0] + dx) : copyKey(k)));
+}
+
+/** Copied keys: x relative to the earliest copied key (so a paste places them at the paste point). */
+export type CopiedKeys<K> = K[];
+
+/** The keys at `indices` as a copy whose x values start at 0 (the earliest one), in x order. */
+export function copyKeysAt<K extends AnyKey>(keys: readonly K[], indices: readonly number[]): CopiedKeys<K> {
+  const picked = [...new Set(indices)].filter((i) => i >= 0 && i < keys.length).sort((a, b) => a - b).map((i) => keys[i]);
+  if (!picked.length) return [];
+  const x0 = picked[0][0];
+  return picked.map((k) => atX(k, k[0] - x0));
+}
+
+/**
+ * `copied` pasted into `keys` with its first key at `at`: each lands at `at + x` and replaces a key already there; keys
+ * landing outside `xRange` are left out. `indices` are where the pasted keys landed (in `copied`'s order, -1 for one
+ * left out).
+ */
+export function pasteKeys<K extends AnyKey>(keys: readonly K[], copied: CopiedKeys<K>, at: number, xRange: readonly [number, number]): KeysEdit<K> {
+  const fits = copied.map((k) => atX(k, k[0] + at)).map((k) => (k[0] >= xRange[0] - SAME_X && k[0] <= xRange[1] + SAME_X ? k : null));
+  const all = [...keys, ...fits.filter((k): k is K => k !== null)];
+  const pastedAt = fits.map((k, n) => (k === null ? -1 : keys.length + fits.slice(0, n).filter((f) => f !== null).length));
+  const r = settle(all, pastedAt.filter((i) => i >= 0), (k) => copyKey(k));
+  let next = 0;
+  return { keys: r.keys, indices: pastedAt.map((i) => (i < 0 ? -1 : r.indices[next++])) };
+}
